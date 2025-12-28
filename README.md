@@ -28,6 +28,8 @@
 - ✅ **错误处理**：显式错误联合类型 `!T` 和 `try/catch`
 - ✅ **接口系统**：Go 风格的接口，Zig 风格的零注册
 - ✅ **FFI 支持**：无缝调用 C 函数
+- ✅ **泛型支持**：零新关键字，向后 100% 兼容
+- ✅ **显式宏**：使用 `mc` 区分宏与函数，零歧义
 
 ## 快速开始
 
@@ -73,8 +75,23 @@ interface IWriter {
 // FFI 调用
 extern i32 printf(byte* fmt, ...);
 
+// 泛型函数（可选特性）
+fn id(x: T) T {
+  return x;
+}
+
+// 显式宏（可选特性）
+mc twice(n: i32) expr { n + n }
+
 fn main() i32 {
   printf("Hello, Uya!\n");
+  
+  // 使用泛型
+  let x: i32 = id(42);
+  
+  // 使用宏
+  let y: i32 = twice(5);  // 编译期展开为 5 + 5
+  
   return 0;
 }
 ```
@@ -109,18 +126,20 @@ fn main() i32 {
 
 | 优雅类型 | C 对应 | 大小/对齐 | 备注 |
 |---------|--------|-----------|------|
-| `i8` `i16` `i32` `i64` | 同宽 signed | 1 2 4 8 B | 对齐 = 类型大小 |
+| `i8` `i16` `i32` `i64` | 同宽 signed | 1 2 4 8 B | 对齐 = 类型大小；支持 `max/min` 关键字访问极值 |
+| `u8` `u16` `u32` `u64` | 同宽 unsigned | 1 2 4 8 B | 对齐 = 类型大小；无符号整数类型，用于与 C 互操作和格式化 |
 | `f32` `f64` | float/double | 4/8 B | 对齐 = 类型大小 |
 | `bool` | uint8_t | 1 B | 0/1，对齐 1 B |
-| `byte` | uint8_t | 1 B | 无符号字节 |
+| `byte` | uint8_t | 1 B | 无符号字节，对齐 1 B，用于字节数组 |
 | `void` | void | 0 B | 仅用于函数返回类型 |
-| `byte*` | char* | 4/8 B | 用于 FFI，指向 C 字符串 |
+| `byte*` | char* | 4/8 B（平台相关） | 用于 FFI，指向 C 字符串；32位平台=4B，64位平台=8B；可与 `null` 比较 |
 | `&T` | 普通指针 | 8 B | 无 lifetime 符号 |
-| `atomic T` | 原子类型 | sizeof(T) | 语言级原子类型 |
-| `[T; N]` | T[N] | N·sizeof(T) | N 为编译期正整数 |
+| `&atomic T` | 原子指针 | 8 B | 关键字驱动，见原子操作章节 |
+| `atomic T` | 原子类型 | sizeof(T) | 语言级原子类型，见原子操作章节 |
+| `[T; N]` | T[N] | N·sizeof(T) | N 为编译期正整数，对齐 = T 的对齐 |
 | `struct S { }` | struct S | 字段顺序布局 | 对齐 = 最大字段对齐 |
-| `interface I { }` | - | 16 B (64位) | vtable 指针 + 数据指针 |
-| `!T` | 错误联合类型 | max(sizeof(T), sizeof(错误标记)) | `T \| Error` |
+| `interface I { }` | - | 16 B (64位) | vtable 指针(8B) + 数据指针(8B) |
+| `!T` | 错误联合类型 | max(sizeof(T), sizeof(错误标记)) + 对齐填充 | `T \| Error` |
 
 ## 内存安全
 
@@ -164,7 +183,9 @@ fn increment(counter: *Counter) void {
 
 ## 文档
 
-完整的语言规范请参阅 [uya.md](./uya.md)。
+完整的语言规范请参阅：
+- **[uya.md](./uya.md)** - Markdown 格式的完整语言规范
+- **[uya.html](./uya.html)** - HTML 格式（深色主题）的完整语言规范，适合在线浏览和打印
 
 文档包含：
 - 完整的语法规范
@@ -173,6 +194,8 @@ fn increment(counter: *Counter) void {
 - 错误处理机制
 - 接口系统
 - 原子操作
+- 泛型系统（可选特性）
+- 显式宏系统（可选特性）
 - 完整示例代码
 
 ## 许可证
@@ -194,7 +217,8 @@ Copyright (c) 2025 zigger
 
 ## 相关链接
 
-- [语言规范文档](./uya.md)
+- [语言规范文档（Markdown）](./uya.md)
+- [语言规范文档（HTML，深色主题）](./uya.html)
 - [许可证](./LICENSE)
 
 ---
