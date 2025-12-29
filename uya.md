@@ -261,13 +261,29 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
 
 **错误类型和错误联合类型**：
 
-- **错误类型定义**：使用 `error ErrorName;` 定义错误类型
-  - 错误类型必须在**顶层**（文件级别，与函数、结构体定义同级）定义，不能在函数内定义
-  - 错误类型是编译期常量，用于标识不同的错误情况
-  - 错误类型名称必须唯一（全局命名空间）
-  - 错误类型属于全局命名空间，使用点号（`.`）访问：`error.ErrorName`
-  - 定义示例：`error DivisionByZero;`、`error FileNotFound;`
-  - 使用示例：`return error.DivisionByZero;`、`return error.FileNotFound;`
+- **错误类型定义**：使用 `error.ErrorName` 语法，支持预定义和运行时错误
+  - **预定义错误**（可选）：使用 `error ErrorName;` 定义
+    - 错误类型可在**顶层**（文件级别，与函数、结构体定义同级）预定义
+    - 预定义错误类型是编译期常量，用于标识不同的错误情况
+    - 预定义错误类型名称必须唯一（全局命名空间）
+    - 预定义错误类型属于全局命名空间，使用点号（`.`）访问：`error.ErrorName`
+    - 预定义错误定义示例：`error DivisionByZero;`、`error FileNotFound;`
+    - 预定义错误使用示例：`return error.DivisionByZero;`、`return error.FileNotFound;`
+  - **运行时错误**（新增）：使用 `error.ErrorName` 语法直接创建错误，无需预定义
+    - 语法：`return error.ErrorMessage;`（类似 Zig 语法）
+    - 错误名称在使用时自动创建，无需预先声明
+    - 编译器在编译期收集所有使用的错误名称，生成错误类型
+    - 支持任意错误名称，无需预先定义
+    - 示例：`return error.FileNotFound;`、`return error.OutOfMemory;`、`return error.InvalidInput;`
+  - **错误名称规则**：
+    - 错误名称遵循标识符规则：`[A-Za-z_][A-Za-z0-9_]*`
+    - 错误名称区分大小写
+    - 同一文件中，相同错误名称指向同一错误类型
+    - 不同文件中的相同错误名称是不同的错误类型（除非通过接口传递）
+  - **错误类型推断**：
+    - 函数返回 `!T` 类型时，所有可能的错误类型自动推断
+    - 编译器自动推断函数可能返回的所有错误
+    - 无需显式声明函数可能返回的错误集合
 
 - **错误联合类型**：`!T` 表示 `T | Error`
   - `!T` 在内存中表示为 `T` 或错误码的联合体
@@ -479,11 +495,13 @@ fn print_hello() void {
   - 使用 `try` 关键字传播错误：`let result: i32 = try divide(10, 2);`
   - 使用 `catch` 语法捕获错误：`let result: i32 = divide(10, 0) catch |err| { ... };`
   - **无运行时 panic 路径**：所有 UB 必须被编译期证明为安全，失败即编译错误
+  - **灵活错误定义**：支持预定义错误（`error ErrorName;`）和运行时错误（`error.ErrorName`），无需预先声明
 - **错误类型的操作**：
-  - 错误类型支持相等性比较：`if err == error.FileNotFound { ... }`
+  - 错误类型支持相等性比较：`if err == error.FileNotFound { ... }` 或 `if err == error.SomeRuntimeError { ... }`
   - 错误类型不支持不等性比较（0.12 仅支持 `==`）
   - catch 块中可以判断错误类型并做不同处理
   - 错误类型不能直接打印，需要通过模式匹配处理
+  - 支持预定义错误和运行时错误的混合比较：`if err == error.PredefinedError || err == error.RuntimeError { ... }`
   
 **错误处理设计哲学**（0.12）：
 - **零开销抽象**：错误处理是编译期检查，零运行时开销（非错误路径）
@@ -501,7 +519,18 @@ fn print_hello() void {
 // ✅ 使用错误联合类型处理可预测错误
 fn safe_divide(a: i32, b: i32) !i32 {
     if b == 0 {
-        return error.DivisionByZero;  // 显式检查，返回错误
+        return error.DivisionByZero;  // 显式检查，返回预定义错误
+    }
+    return a / b;
+}
+
+// ✅ 使用运行时错误（无需预定义）
+fn safe_divide_runtime(a: i32, b: i32) !i32 {
+    if b == 0 {
+        return error.DivisionByZero;  // 仍可使用预定义错误
+    }
+    if a < 0 {
+        return error.NegativeInput;   // 运行时错误，无需预定义
     }
     return a / b;
 }
@@ -515,6 +544,16 @@ fn main() i32 {
         return 1;  // 提前返回函数
     };
     printf("Result: %d\n", result);
+
+    // 使用运行时错误
+    let result2: i32 = safe_divide_runtime(-5, 2) catch |err| {
+        if err == error.NegativeInput {
+            printf("Negative input not allowed\n");
+        }
+        return 1;
+    };
+    printf("Result2: %d\n", result2);
+
     return 0;
 }
 ```
@@ -785,9 +824,9 @@ call    [rax]           ; ← 单条 call 指令
 由于优雅 0.12没有泛型，迭代器接口需要针对具体元素类型定义。以下以 `i32` 类型为例：
 
 ```uya
-// 迭代器结束错误
+// 迭代器结束错误（预定义，可选）
 error IterEnd;
-// 迭代器状态错误（用于value()方法的边界检查）
+// 迭代器状态错误（用于value()方法的边界检查，预定义，可选）
 error InvalidIteratorState;
 
 // i32数组迭代器接口
@@ -1110,13 +1149,14 @@ break; continue; return expr;
            else => expr3,
        }
        ```
-    4. **错误类型匹配**：匹配错误联合类型
+    4. **错误类型匹配**：匹配错误联合类型（支持预定义和运行时错误）
        ```uya
        match result {
-           error.FileNotFound => expr1,
-           error.PermissionDenied => expr2,
-           value => expr3,  // 成功值绑定
-           else => expr4,
+           error.FileNotFound => expr1,      // 预定义错误
+           error.PermissionDenied => expr2,  // 预定义错误
+           error.OutOfMemory => expr3,      // 运行时错误，无需预定义
+           value => expr4,  // 成功值绑定
+           else => expr5,
        }
        ```
     5. **字符串数组匹配**：匹配 `[i8; N]` 数组（字符串插值的结果）
@@ -1174,8 +1214,9 @@ break; continue; return expr;
     // 示例 2：错误类型匹配
     fn handle_result(result: !i32) i32 {
         let value: i32 = match result {
-            error.FileNotFound => -1,
-            error.PermissionDenied => -2,
+            error.FileNotFound => -1,      // 预定义错误
+            error.PermissionDenied => -2,  // 预定义错误
+            error.OutOfMemory => -3,      // 运行时错误，无需预定义
             x => x,  // 成功值（绑定到 result 中的 i32 值）
         };
         return value;
@@ -1998,28 +2039,23 @@ let y: i32 = 2147483647 + 1;  // 编译错误：常量溢出
 let z: i32 = -2147483648 - 1;  // 编译错误：常量下溢
 
 // ✅ 编译通过：变量运算有显式溢出检查
-error Overflow;
 
 // 方式1：返回错误（错误联合类型）
 // 使用标准库函数（推荐，最优雅）
-error Overflow;
-
 fn add_safe(a: i32, b: i32) !i32 {
     return checked_add(a, b);  // 自动检查溢出，溢出返回错误
 }
-
-// 注意：error Overflow; 必须在顶层定义，不能在函数内定义
 
 // 方式1（备选）：手动检查（如果需要自定义逻辑）
 fn add_safe_manual(a: i32, b: i32) !i32 {
     // 显式检查上溢：a > 0 && b > 0 && a + b > MAX
     // 编译器从 a 和 b 的类型 i32 推断 max 和 min 的类型
     if a > 0 && b > 0 && a > max - b {
-        return error.Overflow;  // 返回错误
+        return error.Overflow;  // 返回错误，无需预定义
     }
     // 显式检查下溢：a < 0 && b < 0 && a + b < MIN
     if a < 0 && b < 0 && a < min - b {
-        return error.Overflow;  // 返回错误
+        return error.Overflow;  // 返回错误，无需预定义
     }
     // 编译器证明：经过检查后，a + b 不会溢出
     return a + b;
@@ -2214,18 +2250,16 @@ fn add_known_range_i64(a: i64, b: i64) !i64 {
    - 编译期展开，零运行时开销，与手写代码性能相同
    - 示例：
      ```uya
-     error Overflow;
-     
      // checked 系列：返回错误联合类型
      fn add_safe(a: i32, b: i32) !i32 {
-         return checked_add(a, b);  // 自动检查溢出
+         return checked_add(a, b);  // 自动检查溢出，返回 error.Overflow 如果溢出
      }
-     
+
      // saturating 系列：返回饱和值
      fn add_saturating(a: i32, b: i32) i32 {
          return saturating_add(a, b);  // 自动饱和
      }
-     
+
      // wrapping 系列：返回包装值
      fn add_wrapping(a: i32, b: i32) i32 {
          return wrapping_add(a, b);  // 自动包装
@@ -2357,9 +2391,9 @@ fn main() i32 {
 | `len` | `fn len(a: [T; N]) i32` | 返回数组元素个数 `N`（编译期常量） |
 | `iter` | `fn iter(arr: *[T; N]) IteratorT` | 为数组创建迭代器，返回类型取决于元素类型 `T` |
 | `range` | `fn range(start: i32, end: i32) RangeIterator` | 创建整数范围迭代器，迭代从 `start` 到 `end-1` |
-| `checked_add` | `fn checked_add(a: T, b: T) !T` | 检查加法溢出，溢出返回错误，否则返回值 |
-| `checked_sub` | `fn checked_sub(a: T, b: T) !T` | 检查减法溢出，溢出返回错误，否则返回值 |
-| `checked_mul` | `fn checked_mul(a: T, b: T) !T` | 检查乘法溢出，溢出返回错误，否则返回值 |
+| `checked_add` | `fn checked_add(a: T, b: T) !T` | 检查加法溢出，溢出返回 `error.Overflow`，否则返回值 |
+| `checked_sub` | `fn checked_sub(a: T, b: T) !T` | 检查减法溢出，溢出返回 `error.Overflow`，否则返回值 |
+| `checked_mul` | `fn checked_mul(a: T, b: T) !T` | 检查乘法溢出，溢出返回 `error.Overflow`，否则返回值 |
 | `saturating_add` | `fn saturating_add(a: T, b: T) T` | 饱和加法，溢出返回极值 |
 | `saturating_sub` | `fn saturating_sub(a: T, b: T) T` | 饱和减法，溢出返回极值 |
 | `saturating_mul` | `fn saturating_mul(a: T, b: T) T` | 饱和乘法，溢出返回极值 |
@@ -2426,13 +2460,11 @@ fn main() i32 {
      - **使用场景**：需要明确处理溢出错误的情况（如输入验证、关键计算）
      - **示例**：
        ```uya
-       error Overflow;
-       
        // 优雅的溢出检查
        fn add_safe(a: i32, b: i32) !i32 {
-           return checked_add(a, b);  // 自动检查溢出，溢出返回错误
+           return checked_add(a, b);  // 自动检查溢出，溢出返回 error.Overflow
        }
-       
+
        // 使用示例：处理溢出错误
        let result: i32 = checked_add(x, y) catch |err| {
            if err == error.Overflow {
@@ -2441,10 +2473,10 @@ fn main() i32 {
            }
            return 0;  // 提供默认值
        };
-       
+
        // 使用示例：传播错误
        fn calculate(a: i32, b: i32, c: i32) !i32 {
-           let sum: i32 = try checked_add(a, b);  // 溢出时向上传播错误
+           let sum: i32 = try checked_add(a, b);  // 溢出时向上传播 error.Overflow
            return checked_add(sum, c);  // 继续检查
        }
        ```
@@ -2575,6 +2607,7 @@ $ uyac demo.uya && ./demo
 ## 18 完整示例：错误处理 + defer/errdefer
 
 ```uya
+// 预定义错误（可选）
 error FileError;
 error ParseError;
 
@@ -2590,9 +2623,17 @@ struct File {
 fn open_file(path: byte*) !File {
     let fd: i32 = open(path, 0);  // 0 是只读标志（简化示例）
     if fd < 0 {
-        return error.FileError;
+        return error.FileError;  // 使用预定义错误
     }
     return File{ fd: fd };
+}
+
+fn read_file_runtime(path: byte*) !i32 {
+    let fd: i32 = open(path, 0);
+    if fd < 0 {
+        return error.FileNotFound;  // 运行时错误，无需预定义
+    }
+    return fd;
 }
 
 fn drop(self: File) void {
@@ -3300,9 +3341,9 @@ fn twice(n: i32) i32  { n + n }   // ❌ 编译错误：名字 'twice' 已存在
 
 ## 24 一句话总结
 
-> **优雅 0.12 = 默认即 Rust 级内存安全 + 并发安全**；  
-> **只加 1 个关键字 `atomic T`，其余零新符号**；  
-> **所有 UB 必须被编译期证明为安全 → 失败即编译错误**；  
+> **优雅 0.12 = 默认即 Rust 级内存安全 + 并发安全 + Zig 风格错误处理**；
+> **只加 1 个关键字 `atomic T`，其余零新符号**；
+> **所有 UB 必须被编译期证明为安全 → 失败即编译错误**；
 > **通过路径零指令，失败路径不存在，不降级、不插运行时锁。**
 
 ---

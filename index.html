@@ -1,0 +1,1586 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>优雅语言 (Uya) - AI友好 · 默认 Rust 级安全 · 零 GC · 零 lifetime 符号 · 通过路径零指令 · 单页纸可读完</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary: #7c3aed;
+            --accent: #10b981;
+            --dark: #1e293b;
+            --light: #f8fafc;
+            --gray: #64748b;
+            --light-gray: #e2e8f0;
+            --border: #cbd5e1;
+            --code-bg: #0f172a;
+            --error: #ef4444;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --ai: #8b5cf6;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            line-height: 1.6;
+            color: var(--dark);
+            background-color: var(--light);
+            scroll-behavior: smooth;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        
+        /* 头部样式 */
+        header {
+            background: linear-gradient(135deg, var(--dark), #0f172a);
+            color: white;
+            padding: 4rem 0 2rem;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .header-content {
+            position: relative;
+            z-index: 2;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 1.5rem;
+        }
+        
+        .logo-icon {
+            font-size: 2.5rem;
+            color: var(--accent);
+        }
+        
+        .logo h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(90deg, var(--accent), var(--primary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        
+        .tagline {
+            font-size: 1.2rem;
+            margin-bottom: 1.5rem;
+            color: #cbd5e1;
+        }
+        
+        .version {
+            display: inline-block;
+            background-color: rgba(16, 185, 129, 0.2);
+            color: var(--accent);
+            padding: 0.3rem 0.8rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            margin-bottom: 2rem;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        
+        .core-features {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .feature-tag {
+            background-color: rgba(37, 99, 235, 0.15);
+            color: #93c5fd;
+            padding: 0.5rem 1rem;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            border-left: 3px solid var(--primary);
+        }
+        
+        .feature-tag.zero-gc {
+            background-color: rgba(16, 185, 129, 0.15);
+            color: var(--accent);
+            border-left-color: var(--accent);
+        }
+        
+        .feature-tag.safe {
+            background-color: rgba(239, 68, 68, 0.15);
+            color: #fca5a5;
+            border-left-color: var(--error);
+        }
+        
+        .feature-tag.ai-friendly {
+            background-color: rgba(139, 92, 246, 0.15);
+            color: #c4b5fd;
+            border-left-color: var(--ai);
+        }
+        
+        .feature-tag.zero-lifetime {
+            background-color: rgba(245, 158, 11, 0.15);
+            color: #fcd34d;
+            border-left-color: var(--warning);
+        }
+        
+        .cta-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        
+        .btn {
+            padding: 0.8rem 1.5rem;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background-color: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(37, 99, 235, 0.2);
+        }
+        
+        .btn-secondary {
+            background-color: transparent;
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .btn-secondary:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+        
+        /* 导航样式 */
+        .nav-container {
+            background-color: rgba(30, 41, 59, 0.95);
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 0;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+        }
+        
+        .nav-links a {
+            color: #cbd5e1;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s;
+            position: relative;
+        }
+        
+        .nav-links a:hover {
+            color: white;
+        }
+        
+        .nav-links a.active {
+            color: white;
+        }
+        
+        .nav-links a.active::after {
+            content: '';
+            position: absolute;
+            bottom: -5px;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background-color: var(--accent);
+        }
+        
+        .mobile-toggle {
+            display: none;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+        
+        /* 主要内容样式 */
+        main {
+            padding: 3rem 0;
+        }
+        
+        .content-wrapper {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 3rem;
+        }
+        
+        /* 侧边栏目录 */
+        .sidebar {
+            position: sticky;
+            top: 100px;
+            align-self: start;
+            max-height: calc(100vh - 120px);
+            overflow-y: auto;
+            padding-right: 1rem;
+        }
+        
+        .toc-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--dark);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .toc-list {
+            list-style: none;
+        }
+        
+        .toc-list li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .toc-list a {
+            color: var(--gray);
+            text-decoration: none;
+            font-size: 0.95rem;
+            display: block;
+            padding: 0.4rem 0.8rem;
+            border-radius: 5px;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+        
+        .toc-list a:hover {
+            color: var(--primary);
+            background-color: rgba(37, 99, 235, 0.05);
+        }
+        
+        .toc-list a.active {
+            color: var(--primary);
+            background-color: rgba(37, 99, 235, 0.08);
+            border-left-color: var(--primary);
+            font-weight: 500;
+        }
+        
+        .toc-list .toc-sub {
+            margin-left: 1rem;
+            margin-top: 0.3rem;
+            font-size: 0.9rem;
+        }
+        
+        /* 内容区域 */
+        .content {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            padding: 2.5rem;
+        }
+        
+        .content-section {
+            margin-bottom: 3rem;
+            scroll-margin-top: 100px;
+        }
+        
+        .content-section h2 {
+            font-size: 1.8rem;
+            color: var(--dark);
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--light-gray);
+        }
+        
+        .content-section h3 {
+            font-size: 1.4rem;
+            color: var(--dark);
+            margin: 1.5rem 0 1rem;
+        }
+        
+        .content-section h4 {
+            font-size: 1.1rem;
+            color: var(--dark);
+            margin: 1.2rem 0 0.8rem;
+        }
+        
+        .content-section p {
+            margin-bottom: 1rem;
+            color: var(--dark);
+        }
+        
+        .content-section ul, .content-section ol {
+            margin-left: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .content-section li {
+            margin-bottom: 0.5rem;
+        }
+        
+        /* 代码块样式 */
+        .code-block {
+            background-color: var(--code-bg);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+            overflow-x: auto;
+            position: relative;
+        }
+        
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            color: #94a3b8;
+            font-size: 0.9rem;
+        }
+        
+        .code-copy {
+            background: none;
+            border: 1px solid #334155;
+            color: #94a3b8;
+            padding: 0.3rem 0.7rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+        
+        .code-copy:hover {
+            background-color: #1e293b;
+            color: white;
+        }
+        
+        .code-copy.copied {
+            background-color: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+        
+        pre {
+            margin: 0;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+        
+        code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+        }
+        
+        .inline-code {
+            background-color: #f1f5f9;
+            color: var(--dark);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        
+        /* 表格样式 */
+        .table-container {
+            overflow-x: auto;
+            margin: 1.5rem 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1rem;
+        }
+        
+        th, td {
+            padding: 0.8rem 1rem;
+            text-align: left;
+            border: 1px solid var(--border);
+        }
+        
+        th {
+            background-color: #f8fafc;
+            font-weight: 600;
+            color: var(--dark);
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f8fafc;
+        }
+        
+        /* 设计哲学卡片 */
+        .philosophy-card {
+            background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+            border-left: 4px solid var(--primary);
+            padding: 1.5rem;
+            border-radius: 0 8px 8px 0;
+            margin: 2rem 0;
+        }
+        
+        .philosophy-card h3 {
+            color: var(--primary);
+            margin-top: 0;
+        }
+        
+        .comparison-table {
+            margin: 2rem 0;
+        }
+        
+        .comparison-table th {
+            background-color: var(--primary);
+            color: white;
+        }
+        
+        /* 特性卡片 */
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+        
+        .feature-card {
+            background-color: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            border-top: 4px solid var(--primary);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+        
+        .feature-card.atomic {
+            border-top-color: var(--accent);
+        }
+        
+        .feature-card.memory-safe {
+            border-top-color: var(--success);
+        }
+        
+        .feature-card.concurrent-safe {
+            border-top-color: var(--warning);
+        }
+        
+        .feature-card.ai-friendly {
+            border-top-color: var(--ai);
+        }
+        
+        .feature-icon {
+            font-size: 2rem;
+            color: var(--primary);
+            margin-bottom: 1rem;
+        }
+        
+        .feature-card.atomic .feature-icon {
+            color: var(--accent);
+        }
+        
+        .feature-card.memory-safe .feature-icon {
+            color: var(--success);
+        }
+        
+        .feature-card.concurrent-safe .feature-icon {
+            color: var(--warning);
+        }
+        
+        .feature-card.ai-friendly .feature-icon {
+            color: var(--ai);
+        }
+        
+        .feature-card h3 {
+            margin-top: 0;
+            font-size: 1.2rem;
+        }
+        
+        /* AI友好特性部分 */
+        .ai-feature {
+            background: linear-gradient(135deg, #f5f3ff, #ede9fe);
+            border-left: 4px solid var(--ai);
+            padding: 1.5rem;
+            border-radius: 0 8px 8px 0;
+            margin: 2rem 0;
+        }
+        
+        .ai-feature h3 {
+            color: var(--ai);
+            margin-top: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        /* 页脚样式 */
+        footer {
+            background-color: var(--dark);
+            color: #cbd5e1;
+            padding: 3rem 0;
+            margin-top: 3rem;
+        }
+        
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+        }
+        
+        .footer-section h3 {
+            color: white;
+            margin-bottom: 1.2rem;
+            font-size: 1.2rem;
+        }
+        
+        .footer-links {
+            list-style: none;
+        }
+        
+        .footer-links li {
+            margin-bottom: 0.7rem;
+        }
+        
+        .footer-links a {
+            color: #94a3b8;
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+        
+        .footer-links a:hover {
+            color: white;
+        }
+        
+        .copyright {
+            text-align: center;
+            margin-top: 3rem;
+            padding-top: 2rem;
+            border-top: 1px solid #334155;
+            color: #94a3b8;
+            font-size: 0.9rem;
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 992px) {
+            .content-wrapper {
+                grid-template-columns: 1fr;
+            }
+            
+            .sidebar {
+                display: none;
+            }
+            
+            .nav-links {
+                display: none;
+            }
+            
+            .mobile-toggle {
+                display: block;
+            }
+            
+            .mobile-nav {
+                display: none;
+                position: absolute;
+                top: 100%;
+                left: 0;
+                width: 100%;
+                background-color: var(--dark);
+                padding: 1rem;
+                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+            }
+            
+            .mobile-nav.active {
+                display: block;
+            }
+            
+            .mobile-nav .nav-links {
+                display: flex;
+                flex-direction: column;
+                gap: 1rem;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .header-content h1 {
+                font-size: 2rem;
+            }
+            
+            .cta-buttons {
+                flex-direction: column;
+            }
+            
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .content {
+                padding: 1.5rem;
+            }
+        }
+        
+        /* 辅助类 */
+        .highlight {
+            background-color: rgba(16, 185, 129, 0.1);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            color: var(--accent);
+        }
+        
+        .note {
+            background-color: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 1rem;
+            margin: 1.5rem 0;
+            border-radius: 0 4px 4px 0;
+        }
+        
+        .note p {
+            margin: 0;
+        }
+        
+        .quote {
+            font-style: italic;
+            border-left: 4px solid var(--primary);
+            padding-left: 1.5rem;
+            margin: 1.5rem 0;
+            color: var(--gray);
+        }
+        
+        .language-uya {
+            color: #cbd5e1;
+        }
+        
+        .token.keyword {
+            color: #c678dd;
+        }
+        
+        .token.function {
+            color: #61afef;
+        }
+        
+        .token.string {
+            color: #98c379;
+        }
+        
+        .token.comment {
+            color: #5c6370;
+        }
+        
+        .token.number {
+            color: #d19a66;
+        }
+        
+        .token.operator {
+            color: #56b6c2;
+        }
+    </style>
+</head>
+<body>
+    <!-- 头部 -->
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <i class="fas fa-code"></i>
+                    </div>
+                    <h1>优雅语言</h1>
+                </div>
+                <div class="version">完整版 · 2025-12-28 · v0.12</div>
+                <p class="tagline">AI友好 · 默认 Rust 级安全 · 零 GC · 零 lifetime 符号 · 通过路径零指令 · 单页纸可读完</p>
+                
+                <div class="core-features">
+                    <div class="feature-tag ai-friendly"><i class="fas fa-robot"></i> AI友好</div>
+                    <div class="feature-tag"><i class="fas fa-shield-alt"></i> Rust级内存安全</div>
+                    <div class="feature-tag zero-gc"><i class="fas fa-recycle"></i> 零GC</div>
+                    <div class="feature-tag zero-lifetime"><i class="fas fa-times-circle"></i> 零lifetime符号</div>
+                    <div class="feature-tag"><i class="fas fa-bolt"></i> 路径零指令</div>
+                    <div class="feature-tag"><i class="fas fa-file-alt"></i> 单页纸可读完</div>
+                </div>
+                
+                <div class="cta-buttons">
+                    <a href="#get-started" class="btn btn-primary"><i class="fas fa-play-circle"></i> 快速开始</a>
+                    <a href="#design-philosophy" class="btn btn-secondary"><i class="fas fa-book"></i> 设计哲学</a>
+                    <a href="#examples" class="btn btn-secondary"><i class="fas fa-code"></i> 完整示例</a>
+                </div>
+            </div>
+        </div>
+    </header>
+    
+    <!-- 导航栏 -->
+    <div class="nav-container">
+        <div class="container">
+            <nav>
+                <div class="logo">
+                    <div class="logo-icon" style="font-size: 1.5rem;">
+                        <i class="fas fa-code"></i>
+                    </div>
+                    <h1 style="font-size: 1.5rem;">优雅语言</h1>
+                </div>
+                
+                <button class="mobile-toggle" id="mobileToggle">
+                    <i class="fas fa-bars"></i>
+                </button>
+                
+                <div class="nav-links">
+                    <a href="#core-features" class="active">核心特性</a>
+                    <a href="#design-philosophy">设计哲学</a>
+                    <a href="#ai-friendly">AI友好</a>
+                    <a href="#type-system">类型系统</a>
+                    <a href="#examples">示例</a>
+                    <a href="#standard-library">标准库</a>
+                </div>
+            </nav>
+            
+            <!-- 移动端导航 -->
+            <div class="mobile-nav" id="mobileNav">
+                <div class="nav-links">
+                    <a href="#core-features" class="active">核心特性</a>
+                    <a href="#design-philosophy">设计哲学</a>
+                    <a href="#ai-friendly">AI友好</a>
+                    <a href="#type-system">类型系统</a>
+                    <a href="#examples">示例</a>
+                    <a href="#standard-library">标准库</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 主要内容 -->
+    <main class="container">
+        <div class="content-wrapper">
+            <!-- 侧边栏目录 -->
+            <aside class="sidebar" id="sidebar">
+                <h3 class="toc-title"><i class="fas fa-list"></i> 目录</h3>
+                <ul class="toc-list" id="tocList">
+                    <!-- 目录将通过JavaScript动态生成 -->
+                </ul>
+            </aside>
+            
+            <!-- 内容区域 -->
+            <div class="content">
+                <!-- 核心特性部分 -->
+                <section id="core-features" class="content-section">
+                    <h2>0.12 核心特性</h2>
+                    
+                    <div class="feature-grid">
+                        <div class="feature-card atomic">
+                            <div class="feature-icon">
+                                <i class="fas fa-atom"></i>
+                            </div>
+                            <h3>原子类型</h3>
+                            <p><code class="inline-code">atomic T</code> 关键字，自动原子指令，零运行时锁。</p>
+                        </div>
+                        
+                        <div class="feature-card memory-safe">
+                            <div class="feature-icon">
+                                <i class="fas fa-shield-alt"></i>
+                            </div>
+                            <h3>内存安全强制</h3>
+                            <p>所有 UB 必须被编译期证明为安全，失败即编译错误。</p>
+                        </div>
+                        
+                        <div class="feature-card concurrent-safe">
+                            <div class="feature-icon">
+                                <i class="fas fa-bolt"></i>
+                            </div>
+                            <h3>并发安全强制</h3>
+                            <p>零数据竞争，通过路径零指令。</p>
+                        </div>
+                        
+                        <div class="feature-card ai-friendly">
+                            <div class="feature-icon">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                            <h3>AI友好</h3>
+                            <p>简洁明了的语法，易于AI理解和生成代码。</p>
+                        </div>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-quote-right"></i>
+                        </div>
+                        <h3>字符串插值</h3>
+                        <p>支持 <code class="inline-code">"a${x}"</code> 和 <code class="inline-code">"pi=${pi:.2f}"</code> 两种形式。</p>
+                        <div class="code-block">
+                            <div class="code-header">
+                                <span>字符串插值示例</span>
+                                <button class="code-copy">复制</button>
+                            </div>
+                            <pre><code class="language-uya">let x: u32 = 255;
+let pi: f64 = 3.1415926;
+let msg: [i8; 64] = "hex=${x:#06x}, pi=${pi:.2f}\n";</code></pre>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- 设计哲学部分 -->
+                <section id="design-philosophy" class="content-section">
+                    <h2>设计哲学</h2>
+                    
+                    <div class="philosophy-card">
+                        <h3>核心思想</h3>
+                        <p>将运行时的"可能越界"转化为编译期的"要么证明安全，要么返回显式错误"。</p>
+                    </div>
+                    
+                    <h3>核心机制</h3>
+                    <ul>
+                        <li>程序员必须提供<strong>显式边界检查</strong>，帮助编译器完成证明</li>
+                        <li>编译器在编译期验证这些证明，无法证明安全即编译错误</li>
+                        <li>每个数组访问都有明确的<strong>数学证明</strong>，消除运行时不确定性</li>
+                    </ul>
+                    
+                    <h3>示例对比</h3>
+                    
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>C/C++：程序员负责，编译器不检查</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-c">// C/C++：程序员负责，编译器不检查
+int arr[10];
+int i = get_index();  // 可能越界
+int x = arr[i];       // 运行时可能崩溃，编译器不警告</code></pre>
+                    </div>
+                    
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>Rust：借用检查器帮助，但需要所有权系统</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-rust">// Rust：借用检查器帮助，但需要所有权系统
+let arr = [0; 10];
+let i = get_index();
+if i < arr.len() {
+    let x = arr[i];  // 借用检查器保证安全
+} else {
+    // 需要处理越界情况
+}</code></pre>
+                    </div>
+                    
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>优雅：程序员提供证明，编译器验证证明</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">// 优雅：程序员提供证明，编译器验证证明
+let arr: [i32; 10] = [0; 10];
+let i: i32 = get_index();
+if i < 0 || i >= 10 {
+    return error.OutOfBounds;  // 显式检查，返回预定义错误（可选）
+}
+// 或者使用运行时错误（无需预定义）
+if i < 0 || i >= 10 {
+    return error.IndexOutOfBounds;  // 运行时错误，无需预定义
+}
+let x: i32 = arr[i];  // 编译器证明 i >= 0 && i < 10，安全</code></pre>
+                    </div>
+                    
+                    <h3>责任转移的哲学</h3>
+                    <div class="table-container">
+                        <table class="comparison-table">
+                            <thead>
+                                <tr>
+                                    <th>语言</th>
+                                    <th>安全责任</th>
+                                    <th>编译器角色</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><strong>C/C++</strong></td>
+                                    <td>程序员负责安全</td>
+                                    <td>编译器不帮忙，只生成代码</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Rust</strong></td>
+                                    <td>编译器通过借用检查器帮忙</td>
+                                    <td>编译器主动检查所有权和生命周期</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>优雅</strong></td>
+                                    <td>程序员必须提供证明，编译器验证证明</td>
+                                    <td>编译器验证数学证明，失败即编译错误</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="quote">
+                        <p><strong>一句话总结：</strong>优雅的设计哲学 = 程序员提供证明，编译器验证证明；将运行时的不确定性转化为编译期的确定性，零运行时开销，失败路径不存在。</p>
+                    </div>
+                </section>
+                
+                <!-- AI友好部分 -->
+                <section id="ai-friendly" class="content-section">
+                    <h2>AI友好设计</h2>
+                    
+                    <div class="ai-feature">
+                        <h3><i class="fas fa-robot"></i> 为什么优雅语言对AI友好？</h3>
+                        <p>优雅语言从设计之初就考虑了AI代码生成和理解的需求，具有以下特点：</p>
+                    </div>
+                    
+                    <h3>简洁明了的语法</h3>
+                    <ul>
+                        <li><strong>零 lifetime 符号</strong>：无需学习复杂的生命周期标注，降低AI学习成本</li>
+                        <li><strong>无隐式控制</strong>：所有行为都是显式的，易于AI理解和推理</li>
+                        <li><strong>单页纸可读完</strong>：规范简洁，AI可以快速掌握语言全貌</li>
+                        <li><strong>一致的命名和约定</strong>：减少歧义，提高代码生成准确性</li>
+                    </ul>
+                    
+                    <h3>可预测的行为</h3>
+                    <ul>
+                        <li><strong>编译期证明</strong>：所有安全保证在编译期完成，AI生成的代码要么安全，要么无法编译</li>
+                        <li><strong>零运行时意外</strong>：无未定义行为，AI生成的代码行为可预测</li>
+                        <li><strong>清晰的错误信息</strong>：编译错误信息明确，帮助AI理解问题所在</li>
+                    </ul>
+                    
+                    <h3>易于推理的类型系统</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>简单直观的类型系统</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">// 类型清晰，无隐式转换
+let x: i32 = 10;        // 明确类型
+let y: f64 = 3.14;      // 明确类型
+let z: i32 = x + 5;     // 类型必须匹配
+
+// 错误处理明确（支持预定义和运行时错误）
+fn divide(a: i32, b: i32) !i32 {
+    if b == 0 {
+        return error.DivisionByZero;  // 预定义错误（可选）
+    }
+    if a < 0 {
+        return error.NegativeInput;   // 运行时错误，无需预定义
+    }
+    return a / b;  // 正常返回值
+}</code></pre>
+                    </div>
+                    
+                    <h3>完整的工具链支持</h3>
+                    <ul>
+                        <li><strong>丰富的标准库文档</strong>：每个函数都有清晰的文档，帮助AI理解用途</li>
+                        <li><strong>编译器智能提示</strong>：为AI提供上下文信息和补全建议</li>
+                        <li><strong>格式化工具</strong>：统一的代码风格，减少AI输出歧义</li>
+                    </ul>
+                    
+                    <div class="note">
+                        <p><strong>AI友好意味着：</strong>人类程序员和AI都能轻松理解、编写和维护优雅语言代码。简洁的语法和明确的语义降低了学习和使用的门槛。</p>
+                    </div>
+                </section>
+                
+                <!-- 类型系统部分 -->
+                <section id="type-system" class="content-section">
+                    <h2>类型系统</h2>
+                    
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>优雅类型</th>
+                                    <th>C 对应</th>
+                                    <th>大小/对齐</th>
+                                    <th>备注</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><code>i8</code> <code>i16</code> <code>i32</code> <code>i64</code></td>
+                                    <td>同宽 signed</td>
+                                    <td>1 2 4 8 B</td>
+                                    <td>对齐 = 类型大小；支持 <code>max/min</code> 关键字访问极值</td>
+                                </tr>
+                                <tr>
+                                    <td><code>u8</code> <code>u16</code> <code>u32</code> <code>u64</code></td>
+                                    <td>同宽 unsigned</td>
+                                    <td>1 2 4 8 B</td>
+                                    <td>对齐 = 类型大小；无符号整数类型</td>
+                                </tr>
+                                <tr>
+                                    <td><code>f32</code> <code>f64</code></td>
+                                    <td>float/double</td>
+                                    <td>4/8 B</td>
+                                    <td>对齐 = 类型大小</td>
+                                </tr>
+                                <tr>
+                                    <td><code>bool</code></td>
+                                    <td>uint8_t</td>
+                                    <td>1 B</td>
+                                    <td>0/1，对齐 1 B</td>
+                                </tr>
+                                <tr>
+                                    <td><code>byte</code></td>
+                                    <td>uint8_t</td>
+                                    <td>1 B</td>
+                                    <td>无符号字节，对齐 1 B，用于字节数组</td>
+                                </tr>
+                                <tr>
+                                    <td><code>void</code></td>
+                                    <td>void</td>
+                                    <td>0 B</td>
+                                    <td>仅用于函数返回类型</td>
+                                </tr>
+                                <tr>
+                                    <td><code>byte*</code></td>
+                                    <td>char*</td>
+                                    <td>4/8 B</td>
+                                    <td>用于 FFI 函数参数和返回值，指向 C 字符串</td>
+                                </tr>
+                                <tr>
+                                    <td><code>&T</code></td>
+                                    <td>普通指针</td>
+                                    <td>8 B</td>
+                                    <td>无 lifetime 符号</td>
+                                </tr>
+                                <tr>
+                                    <td><code>&atomic T</code></td>
+                                    <td>原子指针</td>
+                                    <td>8 B</td>
+                                    <td>关键字驱动</td>
+                                </tr>
+                                <tr>
+                                    <td><code>atomic T</code></td>
+                                    <td>原子类型</td>
+                                    <td>sizeof(T)</td>
+                                    <td>语言级原子类型</td>
+                                </tr>
+                                <tr>
+                                    <td><code>[T; N]</code></td>
+                                    <td>T[N]</td>
+                                    <td>N·sizeof(T)</td>
+                                    <td>N 为编译期正整数</td>
+                                </tr>
+                                <tr>
+                                    <td><code>struct S { }</code></td>
+                                    <td>struct S</td>
+                                    <td>字段顺序布局</td>
+                                    <td>对齐 = 最大字段对齐</td>
+                                </tr>
+                                <tr>
+                                    <td><code>interface I { }</code></td>
+                                    <td>-</td>
+                                    <td>16 B (64位)</td>
+                                    <td>vtable 指针(8B) + 数据指针(8B)</td>
+                                </tr>
+                                <tr>
+                                    <td><code>!T</code></td>
+                                    <td>错误联合类型</td>
+                                    <td>max(sizeof(T), sizeof(错误标记)) + 对齐填充</td>
+                                    <td><code>T | Error</code></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="note">
+                        <p><strong>重要特性：</strong>无隐式转换；无指针算术；<strong>零 lifetime 符号</strong>。</p>
+                    </div>
+                    
+                    <h3>类型相关的极值常量</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>max/min 关键字示例</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">// max/min 关键字访问极值（类型推断）
+const MAX: i32 = max;  // 2147483647（从类型注解 i32 推断）
+const MIN: i32 = min;  // -2147483648（从类型注解 i32 推断）
+
+// 在溢出检查中使用（从变量类型推断）
+let a: i32 = ...;
+let b: i32 = ...;
+if a > 0 && b > 0 && a > max - b {  // 从 a 和 b 的类型 i32 推断
+    return error.Overflow;  // 运行时错误，无需预定义
+}</code></pre>
+                    </div>
+                </section>
+                
+                <!-- 示例部分 -->
+                <section id="examples" class="content-section">
+                    <h2>完整示例</h2>
+                    
+                    <h3>结构体 + 栈数组 + FFI</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>示例：矩阵操作</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">struct Mat4 {
+  m: [f32; 16]
+}
+
+extern i32 printf(byte* fmt, ...);
+
+fn print_mat(mat: Mat4) void {
+  let mut i: i32 = 0;
+  while i < 16 {
+    printf("%f ", mat.m[i]);
+    i = i + 1;
+    if (i % 4) == 0 { printf("\n"); }
+  }
+}
+
+fn main() i32 {
+  let mut m: Mat4 = Mat4{ m: [0.0; 16] };
+  m.m[0]  = 1.0;
+  m.m[5]  = 1.0;
+  m.m[10] = 1.0;
+  m.m[15] = 1.0;
+  print_mat(m);
+  return 0;
+}</code></pre>
+                    </div>
+                    
+                    <h3>错误处理 + defer/errdefer</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>示例：文件操作与错误处理</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">// 错误处理（支持预定义和运行时错误）
+error FileError;  // 预定义错误（可选）
+
+extern i32 open(byte* path, i32 flags);
+extern i32 close(i32 fd);
+extern i32 read(i32 fd, byte* buf, i32 size);
+extern i32 printf(byte* fmt, ...);
+
+struct File {
+    fd: i32
+}
+
+fn open_file(path: byte*) !File {
+    let fd: i32 = open(path, 0);
+    if fd < 0 {
+        return error.FileError;      // 预定义错误
+    }
+    // 或者使用运行时错误
+    if fd == 0 {
+        return error.InvalidHandle;  // 运行时错误，无需预定义
+    }
+    return File{ fd: fd };
+}
+
+fn drop(self: File) void {
+    if self.fd >= 0 {
+        close(self.fd);
+    }
+}
+
+fn read_file(path: byte*) !i32 {
+    let file: File = try open_file(path);
+    defer {
+        printf("File operation completed\n");
+    }
+    errdefer {
+        printf("Error occurred, cleaning up\n");
+    }
+
+    let mut buf: [byte; 1024] = [];
+    let n: i32 = read(file.fd, &buf[0], 1024);
+    if n < 0 {
+        return error.FileError;      // 预定义错误
+    }
+    // 或者使用运行时错误
+    if n == 0 {
+        return error.EmptyFile;      // 运行时错误，无需预定义
+    }
+
+    return n;
+}</code></pre>
+                    </div>
+                    
+                    <h3>默认安全并发</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>示例：原子计数器</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">struct Counter {
+  value: atomic i32
+}
+
+interface IIncrement {
+  fn inc(self: *Self) i32;
+}
+
+impl Counter : IIncrement {
+  fn inc(self: *Self) i32 {
+    self.value += 1;      // 自动原子 fetch_add
+    return self.value;    // 自动原子 load
+  }
+}
+
+fn main() i32 {
+  let counter: Counter = Counter{ value: 0 };
+  // 多线程并发递增，零数据竞争
+  // 所有操作自动原子化，无需锁
+  return 0;
+}</code></pre>
+                    </div>
+                    
+                    <h3>Zig风格的for循环</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>示例：数组迭代</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">extern i32 printf(byte* fmt, ...);
+
+fn main() i32 {
+    let arr: [i32; 5] = [10, 20, 30, 40, 50];
+    
+    // 基本迭代（只获取元素值）
+    printf("Basic iteration:\n");
+    for (iter(&arr)) |item| {
+        printf("  value: %d\n", item);
+    }
+    
+    // 带索引迭代
+    printf("\nIteration with index:\n");
+    for (iter(&arr), 0..) |item, index| {
+        printf("  arr[%d] = %d\n", index, item);
+    }
+    
+    return 0;
+}</code></pre>
+                    </div>
+                </section>
+                
+                <!-- 标准库部分 -->
+                <section id="standard-library" class="content-section">
+                    <h2>标准库（0.12 最小集）</h2>
+                    
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>函数</th>
+                                    <th>签名</th>
+                                    <th>说明</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><code>len</code></td>
+                                    <td><code>fn len(a: [T; N]) i32</code></td>
+                                    <td>返回数组元素个数 <code>N</code>（编译期常量）</td>
+                                </tr>
+                                <tr>
+                                    <td><code>iter</code></td>
+                                    <td><code>fn iter(arr: *[T; N]) IteratorT</code></td>
+                                    <td>为数组创建迭代器，返回类型取决于元素类型 <code>T</code></td>
+                                </tr>
+                                <tr>
+                                    <td><code>range</code></td>
+                                    <td><code>fn range(start: i32, end: i32) RangeIterator</code></td>
+                                    <td>创建整数范围迭代器，迭代从 <code>start</code> 到 <code>end-1</code></td>
+                                </tr>
+                                <tr>
+                                    <td><code>checked_add</code></td>
+                                    <td><code>fn checked_add(a: T, b: T) !T</code></td>
+                                    <td>检查加法溢出，溢出返回错误，否则返回值</td>
+                                </tr>
+                                <tr>
+                                    <td><code>saturating_add</code></td>
+                                    <td><code>fn saturating_add(a: T, b: T) T</code></td>
+                                    <td>饱和加法，溢出返回极值</td>
+                                </tr>
+                                <tr>
+                                    <td><code>wrapping_add</code></td>
+                                    <td><code>fn wrapping_add(a: T, b: T) T</code></td>
+                                    <td>包装加法，溢出返回包装值</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="note">
+                        <p><strong>说明：</strong>这些函数是编译器内置的，编译期展开，零运行时开销。自动可用，无需导入或声明。</p>
+                    </div>
+                </section>
+                
+                <!-- 一句话总结 -->
+                <section id="summary" class="content-section">
+                    <div class="philosophy-card" style="background: linear-gradient(135deg, #e0f2fe, #f0f9ff);">
+                        <h3 style="color: var(--primary);">一句话总结</h3>
+                        <p><strong>优雅 0.12 = AI友好 · 默认即 Rust 级内存安全 + 并发安全 + Zig 风格错误处理</strong>；<br>
+                        <strong>只加 1 个关键字 <code>atomic T</code>，零 lifetime 符号，零 GC</strong>；<br>
+                        <strong>所有 UB 必须被编译期证明为安全 → 失败即编译错误</strong>；<br>
+                        <strong>通过路径零指令，失败路径不存在，不降级、不插运行时锁。</strong></p>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </main>
+    
+    <!-- 页脚 -->
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3>优雅语言</h3>
+                    <p>AI友好 · 默认 Rust 级安全 · 零 GC · 零 lifetime 符号 · 通过路径零指令 · 单页纸可读完</p>
+                </div>
+                
+                <div class="footer-section">
+                    <h3>资源</h3>
+                    <ul class="footer-links">
+                        <li><a href="#core-features">核心特性</a></li>
+                        <li><a href="#design-philosophy">设计哲学</a></li>
+                        <li><a href="#ai-friendly">AI友好</a></li>
+                        <li><a href="#type-system">类型系统</a></li>
+                        <li><a href="#examples">完整示例</a></li>
+                    </ul>
+                </div>
+                
+                <div class="footer-section">
+                    <h3>开发</h3>
+                    <ul class="footer-links">
+                        <li><a href="#standard-library">标准库</a></li>
+                        <li><a href="#">GitHub 仓库</a></li>
+                        <li><a href="#">贡献指南</a></li>
+                        <li><a href="#">API 文档</a></li>
+                    </ul>
+                </div>
+                
+                <div class="footer-section">
+                    <h3>社区</h3>
+                    <ul class="footer-links">
+                        <li><a href="#">论坛</a></li>
+                        <li><a href="#">Discord</a></li>
+                        <li><a href="#">Twitter</a></li>
+                        <li><a href="#">博客</a></li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="copyright">
+                <p>优雅语言规范 0.12（完整版 · 2025-12-28 · 支持Zig风格错误处理）</p>
+                <p>© 2025 优雅语言项目团队。保留所有权利。</p>
+            </div>
+        </div>
+    </footer>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-c.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-rust.min.js"></script>
+    <script>
+        // 添加自定义Uya语言高亮
+        Prism.languages.uya = Prism.languages.extend('c', {
+            'keyword': /\b(struct|let|mut|const|fn|return|extern|true|false|if|while|break|continue|defer|errdefer|try|catch|error|null|interface|impl|atomic|max|min|as|as!|type|mc)\b/,
+            'operator': /=>|\.\.|\+=|\-=|\*=|\/=|%=|&=|\|=|\^=|<<=|>>=|&&|\|\||<<|>>|<=|>=|==|!=|\.\.\.?/,
+            'builtin': /\b(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|byte|void|Self)\b/,
+            'error': /\berror\.[A-Z][A-Za-z0-9]*\b/,  // 高亮错误类型，如 error.FileNotFound
+        });
+        
+        // 动态生成目录
+        document.addEventListener('DOMContentLoaded', function() {
+            const sections = document.querySelectorAll('.content-section');
+            const tocList = document.getElementById('tocList');
+            const navLinks = document.querySelectorAll('.nav-links a');
+            const mobileNav = document.getElementById('mobileNav');
+            const mobileToggle = document.getElementById('mobileToggle');
+            
+            // 生成目录
+            sections.forEach(section => {
+                const heading = section.querySelector('h2');
+                if (heading) {
+                    const listItem = document.createElement('li');
+                    const link = document.createElement('a');
+                    link.href = `#${section.id}`;
+                    link.textContent = heading.textContent;
+                    
+                    // 添加点击事件
+                    link.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        document.querySelector(this.getAttribute('href')).scrollIntoView({
+                            behavior: 'smooth'
+                        });
+                        
+                        // 更新活动状态
+                        document.querySelectorAll('.toc-list a').forEach(a => a.classList.remove('active'));
+                        this.classList.add('active');
+                        
+                        // 在移动端关闭菜单
+                        if (window.innerWidth <= 992) {
+                            mobileNav.classList.remove('active');
+                        }
+                    });
+                    
+                    listItem.appendChild(link);
+                    
+                    // 查找子标题（h3）
+                    const subHeadings = section.querySelectorAll('h3');
+                    if (subHeadings.length > 0) {
+                        const subList = document.createElement('ul');
+                        subList.className = 'toc-sub';
+                        
+                        subHeadings.forEach(subHeading => {
+                            const subListItem = document.createElement('li');
+                            const subLink = document.createElement('a');
+                            subLink.href = `#${section.id}`;
+                            subLink.textContent = subHeading.textContent;
+                            
+                            subLink.addEventListener('click', function(e) {
+                                e.preventDefault();
+                                subHeading.scrollIntoView({
+                                    behavior: 'smooth'
+                                });
+                                
+                                // 更新活动状态
+                                document.querySelectorAll('.toc-list a').forEach(a => a.classList.remove('active'));
+                                this.classList.add('active');
+                                
+                                // 在移动端关闭菜单
+                                if (window.innerWidth <= 992) {
+                                    mobileNav.classList.remove('active');
+                                }
+                            });
+                            
+                            subListItem.appendChild(subLink);
+                            subList.appendChild(subListItem);
+                        });
+                        
+                        listItem.appendChild(subList);
+                    }
+                    
+                    tocList.appendChild(listItem);
+                }
+            });
+            
+            // 导航链接点击事件
+            navLinks.forEach(link => {
+                link.addEventListener('click', function(e) {
+                    if (this.getAttribute('href').startsWith('#')) {
+                        e.preventDefault();
+                        const targetId = this.getAttribute('href');
+                        const targetSection = document.querySelector(targetId);
+                        
+                        if (targetSection) {
+                            targetSection.scrollIntoView({
+                                behavior: 'smooth'
+                            });
+                            
+                            // 更新活动状态
+                            navLinks.forEach(a => a.classList.remove('active'));
+                            this.classList.add('active');
+                        }
+                    }
+                });
+            });
+            
+            // 移动端菜单切换
+            mobileToggle.addEventListener('click', function() {
+                mobileNav.classList.toggle('active');
+                this.innerHTML = mobileNav.classList.contains('active') ? 
+                    '<i class="fas fa-times"></i>' : 
+                    '<i class="fas fa-bars"></i>';
+            });
+            
+            // 滚动时更新活动状态
+            function updateActiveSection() {
+                const scrollPos = window.scrollY + 100;
+                
+                // 更新导航栏活动状态
+                let currentActive = null;
+                sections.forEach(section => {
+                    const sectionTop = section.offsetTop;
+                    const sectionHeight = section.offsetHeight;
+                    
+                    if (scrollPos >= sectionTop && scrollPos < sectionTop + sectionHeight) {
+                        currentActive = section.id;
+                    }
+                });
+                
+                if (currentActive) {
+                    // 更新导航栏链接
+                    navLinks.forEach(link => {
+                        link.classList.remove('active');
+                        if (link.getAttribute('href') === `#${currentActive}`) {
+                            link.classList.add('active');
+                        }
+                    });
+                    
+                    // 更新目录链接
+                    document.querySelectorAll('.toc-list a').forEach(link => {
+                        link.classList.remove('active');
+                        if (link.getAttribute('href') === `#${currentActive}`) {
+                            link.classList.add('active');
+                        }
+                    });
+                }
+            }
+            
+            // 初始更新
+            updateActiveSection();
+            
+            // 监听滚动事件
+            window.addEventListener('scroll', updateActiveSection);
+            
+            // 复制代码功能
+            document.querySelectorAll('.code-copy').forEach(button => {
+                button.addEventListener('click', function() {
+                    const codeBlock = this.closest('.code-block');
+                    const code = codeBlock.querySelector('code').textContent;
+                    
+                    navigator.clipboard.writeText(code).then(() => {
+                        // 显示复制成功反馈
+                        const originalText = this.textContent;
+                        this.textContent = '已复制!';
+                        this.classList.add('copied');
+                        
+                        setTimeout(() => {
+                            this.textContent = originalText;
+                            this.classList.remove('copied');
+                        }, 2000);
+                    }).catch(err => {
+                        console.error('复制失败: ', err);
+                    });
+                });
+            });
+            
+            // 代码块添加语言类
+            document.querySelectorAll('pre code').forEach(code => {
+                if (!code.className) {
+                    code.className = 'language-uya';
+                }
+            });
+            
+            // 重新高亮所有代码块
+            Prism.highlightAll();
+        });
+    </script>
+</body>
+</html>
