@@ -1277,7 +1277,7 @@ fn main() i32 {
 }</code></pre>
                     </div>
 
-                    <h3>切片语法</h3>
+                    <h3>切片语法（类似Python）</h3>
                     <div class="code-block">
                         <div class="code-header">
                             <span>示例：数组切片操作</span>
@@ -1289,7 +1289,7 @@ fn main() i32 {
     const arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
     // 基本切片语法
-    // slice(arr, 2, 3) 表示从索引2开始，长度为3
+    // slice(arr, 2, 3) 表示从索引2开始，长度为3 -> [2, 3, 4]
     const slice1: [i32; 3] = slice(arr, 2, 3);  // [2, 3, 4]
     printf("slice(arr, 2, 3): ");
     for (iter(&slice1)) |item| {
@@ -1297,9 +1297,17 @@ fn main() i32 {
     }
     printf("\n");
 
-    // 使用负数索引的切片（start 支持负数索引）
-    // slice(arr, -3, 3) 表示从倒数第3个元素开始，长度为3
-    // 对于长度为10的数组，-3 转换为索引 7，所以从索引7开始，长度为3
+    // 操作符语法（等价于函数语法）
+    // arr[2:3] 等价于 slice(arr, 2, 3) -> [2, 3, 4]
+    const slice1b: [i32; 3] = arr[2:3];  // [2, 3, 4]
+    printf("arr[2:3]: ");
+    for (iter(&slice1b)) |item| {
+        printf("%d ", item);
+    }
+    printf("\n");
+
+    // 使用负数索引的切片
+    // slice(arr, -3, 3) 表示从倒数第3个元素开始，长度为3 -> [7, 8, 9]
     const slice2: [i32; 3] = slice(arr, -3, 3);  // [7, 8, 9]
     printf("slice(arr, -3, 3): ");
     for (iter(&slice2)) |item| {
@@ -1307,13 +1315,17 @@ fn main() i32 {
     }
     printf("\n");
 
-    // 更多负数索引示例
-    // slice(arr, -1, 1) 表示从最后一个元素开始，长度为1
-    const slice2b: [i32; 1] = slice(arr, -1, 1);  // [9]
-    printf("slice(arr, -1, 1): %d\n", slice2b[0]);
+    // 操作符语法的负数索引
+    // arr[-3:3] 等价于 slice(arr, -3, 3) -> [7, 8, 9]
+    const slice2b: [i32; 3] = arr[-3:3];  // [7, 8, 9]
+    printf("arr[-3:3]: ");
+    for (iter(&slice2b)) |item| {
+        printf("%d ", item);
+    }
+    printf("\n");
 
-    // 从某个索引开始
-    // slice(arr, 7, 3) 表示从索引7开始，长度为3
+    // 从某个索引到末尾
+    // slice(arr, 7, 3) 表示从索引7开始，长度为3 -> [7, 8, 9]
     const slice3: [i32; 3] = slice(arr, 7, 3);  // [7, 8, 9]
     printf("slice(arr, 7, 3): ");
     for (iter(&slice3)) |item| {
@@ -1322,7 +1334,7 @@ fn main() i32 {
     printf("\n");
 
     // 从开头开始
-    // slice(arr, 0, 3) 表示从索引0开始，长度为3
+    // slice(arr, 0, 3) 表示从索引0开始，长度为3 -> [0, 1, 2]
     const slice4: [i32; 3] = slice(arr, 0, 3);  // [0, 1, 2]
     printf("slice(arr, 0, 3): ");
     for (iter(&slice4)) |item| {
