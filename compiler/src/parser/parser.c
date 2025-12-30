@@ -407,12 +407,17 @@ static ASTNode *parser_parse_expression(Parser *parser) {
 
 // 解析变量声明
 static ASTNode *parser_parse_var_decl(Parser *parser) {
-    if (!parser_match(parser, TOKEN_LET) && !parser_match(parser, TOKEN_MUT)) {
+    if (!parser_match(parser, TOKEN_LET)) {
         return NULL;
     }
 
+    parser_consume(parser); // 消费 'let'
+
+    // 检查是否有 'mut' 修饰符
     int is_mut = parser_match(parser, TOKEN_MUT);
-    parser_consume(parser); // 消费 let 或 mut
+    if (is_mut) {
+        parser_consume(parser); // 消费 'mut'
+    }
 
     // 期望标识符（变量名）
     if (!parser_match(parser, TOKEN_IDENTIFIER)) {
