@@ -217,6 +217,13 @@ typedef struct IRInst {
             char *value;                // 常量值（字符串形式）
             IRType type;                // 常量类型
         } constant;
+
+        // 结构体声明
+        struct {
+            char *name;                 // 结构体名称
+            struct IRInst **fields;     // 字段数组
+            int field_count;            // 字段数量
+        } struct_decl;
     } data;
 } IRInst;
 

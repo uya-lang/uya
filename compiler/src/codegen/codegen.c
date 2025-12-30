@@ -112,6 +112,18 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
             fprintf(codegen->output_file, ")");
             break;
 
+        case IR_STRUCT_DECL:
+            fprintf(codegen->output_file, "typedef struct %s {\n", inst->data.struct_decl.name);
+            for (int i = 0; i < inst->data.struct_decl.field_count; i++) {
+                if (inst->data.struct_decl.fields[i]) {
+                    fprintf(codegen->output_file, "  ");
+                    codegen_write_type(codegen, inst->data.struct_decl.fields[i]->data.var.type);
+                    fprintf(codegen->output_file, " %s;\n", inst->data.struct_decl.fields[i]->data.var.name);
+                }
+            }
+            fprintf(codegen->output_file, "} %s;\n\n", inst->data.struct_decl.name);
+            break;
+
         case IR_CALL:
             fprintf(codegen->output_file, "%s(", inst->data.call.func_name);
             for (int i = 0; i < inst->data.call.arg_count; i++) {

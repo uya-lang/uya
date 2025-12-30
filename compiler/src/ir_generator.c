@@ -643,6 +643,57 @@ static void generate_program(IRGenerator *ir_gen, struct ASTNode *program) {
         struct ASTNode *decl = program->data.program.decls[i];
         if (decl->type == AST_FN_DECL) {
             generate_function(ir_gen, decl);
+        } else if (decl->type == AST_STRUCT_DECL) {
+            // Handle struct declarations
+            IRInst *struct_ir = irinst_new(IR_STRUCT_DECL);
+            if (struct_ir) {
+                // Set struct name
+                struct_ir->data.struct_decl.name = malloc(strlen(decl->data.struct_decl.name) + 1);
+                if (struct_ir->data.struct_decl.name) {
+                    strcpy(struct_ir->data.struct_decl.name, decl->data.struct_decl.name);
+                }
+
+                // Handle fields
+                struct_ir->data.struct_decl.field_count = decl->data.struct_decl.field_count;
+                if (decl->data.struct_decl.field_count > 0) {
+                    struct_ir->data.struct_decl.fields = malloc(decl->data.struct_decl.field_count * sizeof(IRInst*));
+                    if (struct_ir->data.struct_decl.fields) {
+                        for (int j = 0; j < decl->data.struct_decl.field_count; j++) {
+                            // Create field as variable declaration
+                            IRInst *field = irinst_new(IR_VAR_DECL);
+                            if (field) {
+                                field->data.var.name = malloc(strlen(decl->data.struct_decl.fields[j]->data.var_decl.name) + 1);
+                                if (field->data.var.name) {
+                                    strcpy(field->data.var.name, decl->data.struct_decl.fields[j]->data.var_decl.name);
+                                    field->data.var.type = get_ir_type(decl->data.struct_decl.fields[j]->data.var_decl.type);
+                                    field->data.var.is_mut = decl->data.struct_decl.fields[j]->data.var_decl.is_mut;
+                                    field->data.var.init = NULL;
+                                    field->id = ir_gen->current_id++;
+                                    struct_ir->data.struct_decl.fields[j] = field;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    struct_ir->data.struct_decl.fields = NULL;
+                }
+
+                struct_ir->id = ir_gen->current_id++;
+
+                // Add to instructions array
+                if (ir_gen->inst_count >= ir_gen->inst_capacity) {
+                    size_t new_capacity = ir_gen->inst_capacity * 2;
+                    IRInst **new_instructions = realloc(ir_gen->instructions,
+                                                       new_capacity * sizeof(IRInst*));
+                    if (new_instructions) {
+                        ir_gen->instructions = new_instructions;
+                        ir_gen->inst_capacity = new_capacity;
+                    }
+                }
+                if (ir_gen->inst_count < ir_gen->inst_capacity) {
+                    ir_gen->instructions[ir_gen->inst_count++] = struct_ir;
+                }
+            }
         }
     }
 }
