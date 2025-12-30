@@ -11,7 +11,7 @@ Uya 是一个系统编程语言，专注于**内存安全**、**并发安全**�
 
 ## 核心特性
 
-### 0.14 版本核心特性
+### 0.15 版本核心特性
 
 - **模块系统**（v1.4）：目录级模块、显式导出、路径导入，编译期解析，零运行时开销
 - **原子类型**：`atomic T` 关键字，自动原子指令，零运行时锁
@@ -21,8 +21,9 @@ Uya 是一个系统编程语言，专注于**内存安全**、**并发安全**�
 - **灵活错误处理**：支持预定义错误和运行时错误（无需预定义）
 - **简化 for 循环语法**：支持 `for obj |v| {}`、`for 0..10 |v| {}`、`for obj |&v| {}` 等简化语法
 - **运算符简化**：`try` 关键字用于溢出检查，`+|`/`-|`/`*|` 用于饱和运算，`+%`/`-%`/`*%` 用于包装运算
-- **切片语法**：支持切片语法 `slice(arr, start, len)` 和 `arr[start:len]`，包括负数索引
+- **切片语法**：支持切片语法 `arr[start:len]`，包括负数索引
 - **安全指针算术**：支持 `ptr +/- offset` 操作，必须通过编译期证明安全
+- **类型大小和对齐**：`sizeof(T)` 和 `alignof(T)` 函数，编译期常量，零运行时开销
 - **中间表示（IR）**：C语言友好的中间表示，支持切片操作的零运行时开销实现
 - **词法分析器**：高效字符流解析，支持UTF-8和切片语法Token
 - **语法分析器**：递归下降解析，支持切片语法和错误恢复
@@ -42,8 +43,9 @@ Uya 是一个系统编程语言，专注于**内存安全**、**并发安全**�
 - ✅ **模块系统**：目录级模块、显式导出、路径导入，编译期解析
 - ✅ **泛型支持**：零新关键字，向后 100% 兼容
 - ✅ **显式宏**：使用 `mc` 区分宏与函数，零歧义
-- ✅ **切片操作**：支持切片语法 `slice(arr, start, len)` 和 `arr[start:len]`，包括负数索引
+- ✅ **切片操作**：支持切片语法 `arr[start:len]`，包括负数索引
 - ✅ **安全指针算术**：支持指针算术操作，通过编译期证明保证安全
+- ✅ **类型大小和对齐**：`sizeof(T)` 和 `alignof(T)` 函数，编译期常量，零运行时开销
 - ✅ **IR支持**：C语言友好的中间表示，便于代码生成和优化
 - ✅ **类型检查**：编译期类型和内存安全验证，确保零运行时错误
 
@@ -124,25 +126,19 @@ export fn open_file(path: byte*) !File {
 fn slice_example() void {
   const arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
-  // 基本切片：slice(arr, start, len) 返回从索引start开始，长度为len的元素
-  const slice1: [i32; 3] = slice(arr, 2, 3);  // [2, 3, 4]
-
-  // 操作符语法：arr[start:len] 等价于 slice(arr, start, len)
-  const slice1b: [i32; 3] = arr[2:3];  // [2, 3, 4]，从索引2开始，长度为3
+  // 基本切片：arr[start:len] 返回从索引start开始，长度为len的元素
+  const slice1: [i32; 3] = arr[2:3];  // [2, 3, 4]，从索引2开始，长度为3
 
   // start 支持负数索引：-1表示最后一个元素，-2表示倒数第二个元素，以此类推
   // 负数索引从数组末尾开始计算：-n 转换为 len(arr) - n
-  const slice2: [i32; 3] = slice(arr, -3, 3);  // [7, 8, 9]，从倒数第3个开始，长度为3
-  const slice2b: [i32; 1] = slice(arr, -1, 1);  // [9]，从最后一个元素开始，长度为1
-
-  // 操作符语法的负数索引
-  const slice2c: [i32; 3] = arr[-3:3];  // [7, 8, 9]，从倒数第3个开始，长度为3
+  const slice2: [i32; 3] = arr[-3:3];  // [7, 8, 9]，从倒数第3个开始，长度为3
+  const slice2b: [i32; 1] = arr[-1:1];  // [9]，从最后一个元素开始，长度为1
 
   // 从某个索引开始
-  const slice3: [i32; 3] = slice(arr, 7, 3);   // [7, 8, 9]
+  const slice3: [i32; 3] = arr[7:3];   // [7, 8, 9]
 
   // 从开头开始
-  const slice4: [i32; 3] = slice(arr, 0, 3);    // [0, 1, 2]
+  const slice4: [i32; 3] = arr[0:3];    // [0, 1, 2]
 }
 
 // 安全指针算术操作
@@ -179,7 +175,46 @@ fn main() i32 {
   // 使用指针算术
   pointer_arith_example();
 
+  // 使用 sizeof 和 alignof
+  sizeof_example();
+
   return 0;
+}
+
+// sizeof 和 alignof 示例
+fn sizeof_example() void {
+  use std.mem.{sizeof, alignof};
+
+  struct Vec3 {
+    x: f32,
+    y: f32,
+    z: f32
+  }
+
+  struct Packet {
+    id: i32,
+    data: [byte; 64]
+  }
+
+  // 获取类型大小
+  const vec3_size: i32 = sizeof(struct Vec3{});      // 12
+  const packet_size: i32 = sizeof(struct Packet{}); // 68
+
+  // 获取类型对齐
+  const vec3_align: i32 = alignof(struct Vec3{});    // 4
+  const packet_align: i32 = alignof(struct Packet{}); // 4
+
+  // FFI 分配
+  extern void* malloc(i32 size);
+  const ptr: byte* = malloc(sizeof(struct Packet));
+
+  // 对齐检查
+  if alignof(struct Packet) != 4 {
+    return error.BadAlign;
+  }
+
+  // 零拷贝序列化缓冲区
+  const MSG: [byte; sizeof(struct Packet)] = [];
 }
 ```
 
@@ -292,7 +327,7 @@ Copyright (c) 2025 zigger
 
 ## 一句话总结
 
-> **Uya 0.14 = 默认即高级内存安全 + 并发安全 + 显式错误处理 + 切片语法 + 安全指针算术**；
+> **Uya 0.15 = 默认即高级内存安全 + 并发安全 + 显式错误处理 + 切片语法 + 安全指针算术 + sizeof/alignof**；
 > **只加 1 个关键字 `atomic T`，其余零新符号**；
 > **所有 UB 必须被编译期证明为安全 → 失败即编译错误**；
 > **通过路径零指令，失败路径不存在，不降级、不插运行时锁。**
@@ -303,7 +338,7 @@ Copyright (c) 2025 zigger
 
 ### 新增功能
 - **模块系统**（v1.4）：目录级模块、显式导出、路径导入，编译期解析，零运行时开销
-- **切片语法**：支持切片操作 `slice(arr, start, len)`，包括负数索引支持
+- **切片语法**：支持切片操作 `arr[start:len]`，包括负数索引支持
 - **安全指针算术**：支持 `ptr +/- offset` 操作，通过编译期证明保证内存安全
 
 ## 相关链接
@@ -314,6 +349,6 @@ Copyright (c) 2025 zigger
 
 ---
 
-**注意**：Uya 语言目前处于开发阶段（**0.14 版本**），部分特性可能尚未完全实现。请参考 [uya.md](./uya.md) 了解当前版本的限制和未来计划。
+**注意**：Uya 语言目前处于开发阶段（**0.15 版本**），部分特性可能尚未完全实现。请参考 [uya.md](./uya.md) 了解当前版本的限制和未来计划。
 
 

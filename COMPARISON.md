@@ -144,10 +144,10 @@ fn open_file() !File {
 Uya 支持类似 Python 的切片语法：
 
 ```uya
-// 支持类似 Python 的切片语法 `slice(arr, start, len)`
+// 支持类似 Python 的切片语法 `arr[start:len]`
 const arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-const slice1: [i32; 3] = slice(arr, 2, 3);  // [2, 3, 4]
-const slice2: [i32; 3] = slice(arr, -3, 3);  // [7, 8, 9]，支持负数索引
+const slice1: [i32; 3] = arr[2:3];  // [2, 3, 4]
+const slice2: [i32; 3] = arr[-3:3];  // [7, 8, 9]，支持负数索引
 ```
 
 ---
@@ -208,7 +208,7 @@ fn example() void {
 
 Uya 语言的设计理念：
 
-> **Uya 0.14 = 默认即 Rust 级内存安全 + 并发安全 + Zig 风格错误处理 + Zig 风格模块系统 + Python 风格切片 + 安全指针算术 + 简化语法**
+> **Uya 0.15 = 默认即 Rust 级内存安全 + 并发安全 + Zig 风格错误处理 + Zig 风格模块系统 + Python 风格切片 + 安全指针算术 + 简化语法 + sizeof/alignof**
 
 Uya 从多种语言中汲取灵感，但形成了自己独特的设计哲学：**程序员提供证明，编译器验证证明**。
 
