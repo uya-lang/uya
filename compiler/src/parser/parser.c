@@ -54,6 +54,12 @@ static Token *parser_expect(Parser *parser, TokenType type) {
     return parser_consume(parser);
 }
 
+// 前向声明
+static ASTNode *parser_parse_statement(Parser *parser);
+static ASTNode *parser_parse_if_stmt(Parser *parser);
+static ASTNode *parser_parse_while_stmt(Parser *parser);
+static ASTNode *parser_parse_block(Parser *parser);
+
 // 解析类型
 static ASTNode *parser_parse_type(Parser *parser) {
     if (!parser->current_token) {
@@ -129,12 +135,16 @@ static ASTNode *parser_parse_type(Parser *parser) {
 }
 
 // 解析表达式（简化版）
+
+// 解析表达式（增强版，支持二元运算）
 static ASTNode *parser_parse_expression(Parser *parser) {
     if (!parser->current_token) {
         return NULL;
     }
 
     // 简单的表达式解析，处理标识符、函数调用、数字等
+    ASTNode *left = NULL;
+
     if (parser_match(parser, TOKEN_IDENTIFIER)) {
         ASTNode *ident = ast_new_node(AST_IDENTIFIER,
                                       parser->current_token->line,
@@ -202,14 +212,14 @@ static ASTNode *parser_parse_expression(Parser *parser) {
                     return NULL;
                 }
 
-                return call;
+                left = call;
             } else {
                 ast_free(ident);  // Clean up the identifier we created
                 return NULL;
             }
+        } else {
+            left = ident;
         }
-
-        return ident;
     } else if (parser_match(parser, TOKEN_NUMBER)) {
         ASTNode *num = ast_new_node(AST_NUMBER,
                                     parser->current_token->line,
@@ -222,7 +232,7 @@ static ASTNode *parser_parse_expression(Parser *parser) {
             }
         }
         parser_consume(parser);
-        return num;
+        left = num;
     } else if (parser_match(parser, TOKEN_STRING)) {
         ASTNode *str = ast_new_node(AST_STRING,
                                     parser->current_token->line,
@@ -235,7 +245,7 @@ static ASTNode *parser_parse_expression(Parser *parser) {
             }
         }
         parser_consume(parser);
-        return str;
+        left = str;
     } else if (parser_match(parser, TOKEN_TRUE) || parser_match(parser, TOKEN_FALSE)) {
         ASTNode *bool_node = ast_new_node(AST_BOOL,
                                           parser->current_token->line,
@@ -245,7 +255,7 @@ static ASTNode *parser_parse_expression(Parser *parser) {
             bool_node->data.bool_literal.value = parser_match(parser, TOKEN_TRUE);
         }
         parser_consume(parser);
-        return bool_node;
+        left = bool_node;
     } else if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
         // Parse array literal: [1, 2, 3, 4, 5]
         parser_consume(parser); // consume '['
@@ -313,10 +323,52 @@ static ASTNode *parser_parse_expression(Parser *parser) {
             return NULL;
         }
 
-        return array_literal;
+        left = array_literal;
+    } else {
+        return NULL;
     }
 
-    return NULL;
+    // Now check if there's a binary operator following
+    if (parser->current_token) {
+        TokenType op_type = parser->current_token->type;
+
+        // Check if it's a binary operator
+        if (op_type == TOKEN_PLUS || op_type == TOKEN_MINUS ||
+            op_type == TOKEN_ASTERISK || op_type == TOKEN_SLASH ||
+            op_type == TOKEN_PERCENT || op_type == TOKEN_EQUAL ||
+            op_type == TOKEN_NOT_EQUAL || op_type == TOKEN_LESS ||
+            op_type == TOKEN_LESS_EQUAL || op_type == TOKEN_GREATER ||
+            op_type == TOKEN_GREATER_EQUAL) {
+
+            parser_consume(parser); // consume the operator
+
+            // Parse the right operand
+            ASTNode *right = parser_parse_expression(parser);
+            if (!right) {
+                ast_free(left);
+                return NULL;
+            }
+
+            // Create binary expression
+            ASTNode *binary_expr = ast_new_node(AST_BINARY_EXPR,
+                                               parser->current_token->line,
+                                               parser->current_token->column,
+                                               parser->current_token->filename);
+            if (!binary_expr) {
+                ast_free(left);
+                ast_free(right);
+                return NULL;
+            }
+
+            binary_expr->data.binary_expr.left = left;
+            binary_expr->data.binary_expr.op = op_type;
+            binary_expr->data.binary_expr.right = right;
+
+            return binary_expr;
+        }
+    }
+
+    return left;
 }
 
 // 解析变量声明
@@ -411,10 +463,102 @@ static ASTNode *parser_parse_statement(Parser *parser) {
         return parser_parse_var_decl(parser);
     } else if (parser_match(parser, TOKEN_RETURN)) {
         return parser_parse_return_stmt(parser);
+    } else if (parser_match(parser, TOKEN_IF)) {
+        return parser_parse_if_stmt(parser);
+    } else if (parser_match(parser, TOKEN_WHILE)) {
+        return parser_parse_while_stmt(parser);
     } else {
         // 解析表达式语句或其他语句
         return parser_parse_expression(parser);
     }
+}
+
+// 解析 if 语句
+static ASTNode *parser_parse_if_stmt(Parser *parser) {
+    if (!parser_match(parser, TOKEN_IF)) {
+        return NULL;
+    }
+
+    int line = parser->current_token->line;
+    int col = parser->current_token->column;
+    const char *filename = parser->current_token->filename;
+
+    parser_consume(parser); // 消费 'if'
+
+    // 解析条件表达式
+    ASTNode *condition = parser_parse_expression(parser);
+    if (!condition) {
+        fprintf(stderr, "语法错误: if 语句需要条件表达式\n");
+        return NULL;
+    }
+
+    ASTNode *if_stmt = ast_new_node(AST_IF_STMT,
+                                   line, col, filename);
+    if (!if_stmt) {
+        ast_free(condition);
+        return NULL;
+    }
+
+    if_stmt->data.if_stmt.condition = condition;
+
+    // 解析 then 分支（代码块）
+    if_stmt->data.if_stmt.then_branch = parser_parse_block(parser);
+    if (!if_stmt->data.if_stmt.then_branch) {
+        ast_free(if_stmt);
+        return NULL;
+    }
+
+    // 检查是否有 else 分支
+    if (parser_match(parser, TOKEN_ELSE)) {
+        parser_consume(parser); // 消费 'else'
+        if_stmt->data.if_stmt.else_branch = parser_parse_block(parser);
+        if (!if_stmt->data.if_stmt.else_branch) {
+            ast_free(if_stmt);
+            return NULL;
+        }
+    } else {
+        if_stmt->data.if_stmt.else_branch = NULL;
+    }
+
+    return if_stmt;
+}
+
+// 解析 while 语句
+static ASTNode *parser_parse_while_stmt(Parser *parser) {
+    if (!parser_match(parser, TOKEN_WHILE)) {
+        return NULL;
+    }
+
+    int line = parser->current_token->line;
+    int col = parser->current_token->column;
+    const char *filename = parser->current_token->filename;
+
+    parser_consume(parser); // 消费 'while'
+
+    // 解析条件表达式
+    ASTNode *condition = parser_parse_expression(parser);
+    if (!condition) {
+        fprintf(stderr, "语法错误: while 语句需要条件表达式\n");
+        return NULL;
+    }
+
+    ASTNode *while_stmt = ast_new_node(AST_WHILE_STMT,
+                                      line, col, filename);
+    if (!while_stmt) {
+        ast_free(condition);
+        return NULL;
+    }
+
+    while_stmt->data.while_stmt.condition = condition;
+
+    // 解析循环体（代码块）
+    while_stmt->data.while_stmt.body = parser_parse_block(parser);
+    if (!while_stmt->data.while_stmt.body) {
+        ast_free(while_stmt);
+        return NULL;
+    }
+
+    return while_stmt;
 }
 
 // 解析代码块

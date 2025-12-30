@@ -71,6 +71,34 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
         case IR_ASSIGN:
             fprintf(codegen->output_file, "%s", inst->data.assign.dest);
             break;
+        case IR_BINARY_OP:
+            fprintf(codegen->output_file, "(");
+            codegen_write_value(codegen, inst->data.binary_op.left);
+
+            switch (inst->data.binary_op.op) {
+                case IR_OP_ADD: fprintf(codegen->output_file, " + "); break;
+                case IR_OP_SUB: fprintf(codegen->output_file, " - "); break;
+                case IR_OP_MUL: fprintf(codegen->output_file, " * "); break;
+                case IR_OP_DIV: fprintf(codegen->output_file, " / "); break;
+                case IR_OP_MOD: fprintf(codegen->output_file, " %% "); break;
+                case IR_OP_EQ: fprintf(codegen->output_file, " == "); break;
+                case IR_OP_NE: fprintf(codegen->output_file, " != "); break;
+                case IR_OP_LT: fprintf(codegen->output_file, " < "); break;
+                case IR_OP_LE: fprintf(codegen->output_file, " <= "); break;
+                case IR_OP_GT: fprintf(codegen->output_file, " > "); break;
+                case IR_OP_GE: fprintf(codegen->output_file, " >= "); break;
+                case IR_OP_BIT_AND: fprintf(codegen->output_file, " & "); break;
+                case IR_OP_BIT_OR: fprintf(codegen->output_file, " | "); break;
+                case IR_OP_BIT_XOR: fprintf(codegen->output_file, " ^ "); break;
+                case IR_OP_LEFT_SHIFT: fprintf(codegen->output_file, " << "); break;
+                case IR_OP_RIGHT_SHIFT: fprintf(codegen->output_file, " >> "); break;
+                default: fprintf(codegen->output_file, " UNKNOWN_OP "); break;
+            }
+
+            codegen_write_value(codegen, inst->data.binary_op.right);
+            fprintf(codegen->output_file, ")");
+            break;
+
         case IR_CALL:
             fprintf(codegen->output_file, "%s(", inst->data.call.func_name);
             for (int i = 0; i < inst->data.call.arg_count; i++) {

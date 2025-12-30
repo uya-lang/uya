@@ -1,11 +1,15 @@
 #include "ir/ir.h"
 #include "parser/ast.h"
+#include "lexer/lexer.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 // Forward declarations
+static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr);
+static IRInst *generate_stmt(IRGenerator *ir_gen, struct ASTNode *stmt);
 static IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl);
+static void generate_program(IRGenerator *ir_gen, struct ASTNode *program);
 
 static IRType get_ir_type(struct ASTNode *ast_type) {
     if (!ast_type) return IR_TYPE_VOID;
@@ -133,6 +137,42 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
         }
 
 
+        case AST_BINARY_EXPR: {
+            // Handle binary expressions like x > 5, a + b, etc.
+            IRInst *binary_op = irinst_new(IR_BINARY_OP);
+            if (!binary_op) return NULL;
+
+            // Map AST operator to IR operator
+            switch (expr->data.binary_expr.op) {
+                case TOKEN_PLUS: binary_op->data.binary_op.op = IR_OP_ADD; break;
+                case TOKEN_MINUS: binary_op->data.binary_op.op = IR_OP_SUB; break;
+                case TOKEN_ASTERISK: binary_op->data.binary_op.op = IR_OP_MUL; break;
+                case TOKEN_SLASH: binary_op->data.binary_op.op = IR_OP_DIV; break;
+                case TOKEN_PERCENT: binary_op->data.binary_op.op = IR_OP_MOD; break;
+                case TOKEN_EQUAL: binary_op->data.binary_op.op = IR_OP_EQ; break;
+                case TOKEN_NOT_EQUAL: binary_op->data.binary_op.op = IR_OP_NE; break;
+                case TOKEN_LESS: binary_op->data.binary_op.op = IR_OP_LT; break;
+                case TOKEN_LESS_EQUAL: binary_op->data.binary_op.op = IR_OP_LE; break;
+                case TOKEN_GREATER: binary_op->data.binary_op.op = IR_OP_GT; break;
+                case TOKEN_GREATER_EQUAL: binary_op->data.binary_op.op = IR_OP_GE; break;
+                default: binary_op->data.binary_op.op = IR_OP_ADD; break; // default
+            }
+
+            // Generate left and right operands
+            binary_op->data.binary_op.left = generate_expr(ir_gen, expr->data.binary_expr.left);
+            binary_op->data.binary_op.right = generate_expr(ir_gen, expr->data.binary_expr.right);
+
+            // Generate a destination variable name
+            char temp_name[32];
+            snprintf(temp_name, sizeof(temp_name), "temp_%d", ir_gen->current_id++);
+            binary_op->data.binary_op.dest = malloc(strlen(temp_name) + 1);
+            if (binary_op->data.binary_op.dest) {
+                strcpy(binary_op->data.binary_op.dest, temp_name);
+            }
+
+            return binary_op;
+        }
+
         default:
             // For unsupported expressions, create a placeholder
             return irinst_new(IR_VAR_DECL);
@@ -203,29 +243,7 @@ static IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl) {
             for (int i = 0; i < func->data.func.body_count; i++) {
                 // Set up the IR instruction based on the AST statement type
                 struct ASTNode *ast_stmt = fn_decl->data.fn_decl.body->data.block.stmts[i];
-                IRInst *stmt_ir = NULL;
-
-                if (ast_stmt->type == AST_VAR_DECL) {
-                    stmt_ir = irinst_new(IR_VAR_DECL);
-                    if (stmt_ir) {
-                        stmt_ir->data.var.name = malloc(strlen(ast_stmt->data.var_decl.name) + 1);
-                        if (stmt_ir->data.var.name) {
-                            strcpy(stmt_ir->data.var.name, ast_stmt->data.var_decl.name);
-                            stmt_ir->data.var.type = get_ir_type(ast_stmt->data.var_decl.type);
-                            stmt_ir->data.var.is_mut = ast_stmt->data.var_decl.is_mut;
-
-                            // Handle initialization using the new generate_expr function
-                            if (ast_stmt->data.var_decl.init) {
-                                stmt_ir->data.var.init = generate_expr(ir_gen, ast_stmt->data.var_decl.init);
-                            }
-                        }
-                    }
-                } else if (ast_stmt->type == AST_RETURN_STMT) {
-                    stmt_ir = irinst_new(IR_RETURN);
-                    if (stmt_ir && ast_stmt->data.return_stmt.expr) {
-                        stmt_ir->data.ret.value = generate_expr(ir_gen, ast_stmt->data.return_stmt.expr);
-                    }
-                }
+                IRInst *stmt_ir = generate_stmt(ir_gen, ast_stmt);
 
                 func->data.func.body[i] = stmt_ir;
             }
@@ -262,6 +280,84 @@ static IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl) {
                 if (stmt_ir && ast_stmt->data.return_stmt.expr) {
                     stmt_ir->data.ret.value = generate_expr(ir_gen, ast_stmt->data.return_stmt.expr);
                 }
+            } else if (ast_stmt->type == AST_IF_STMT) {
+                stmt_ir = irinst_new(IR_IF);
+                if (stmt_ir) {
+                    // Generate condition
+                    stmt_ir->data.if_stmt.condition = generate_expr(ir_gen, ast_stmt->data.if_stmt.condition);
+
+                    // Generate then body
+                    if (ast_stmt->data.if_stmt.then_branch) {
+                        if (ast_stmt->data.if_stmt.then_branch->type == AST_BLOCK) {
+                            stmt_ir->data.if_stmt.then_count = ast_stmt->data.if_stmt.then_branch->data.block.stmt_count;
+                            stmt_ir->data.if_stmt.then_body = malloc(stmt_ir->data.if_stmt.then_count * sizeof(IRInst*));
+                            if (stmt_ir->data.if_stmt.then_body) {
+                                for (int j = 0; j < stmt_ir->data.if_stmt.then_count; j++) {
+                                    stmt_ir->data.if_stmt.then_body[j] = generate_stmt(ir_gen, ast_stmt->data.if_stmt.then_branch->data.block.stmts[j]);
+                                }
+                            }
+                        } else {
+                            stmt_ir->data.if_stmt.then_count = 1;
+                            stmt_ir->data.if_stmt.then_body = malloc(sizeof(IRInst*));
+                            if (stmt_ir->data.if_stmt.then_body) {
+                                stmt_ir->data.if_stmt.then_body[0] = generate_stmt(ir_gen, ast_stmt->data.if_stmt.then_branch);
+                            }
+                        }
+                    } else {
+                        stmt_ir->data.if_stmt.then_count = 0;
+                        stmt_ir->data.if_stmt.then_body = NULL;
+                    }
+
+                    // Generate else body
+                    if (ast_stmt->data.if_stmt.else_branch) {
+                        if (ast_stmt->data.if_stmt.else_branch->type == AST_BLOCK) {
+                            stmt_ir->data.if_stmt.else_count = ast_stmt->data.if_stmt.else_branch->data.block.stmt_count;
+                            stmt_ir->data.if_stmt.else_body = malloc(stmt_ir->data.if_stmt.else_count * sizeof(IRInst*));
+                            if (stmt_ir->data.if_stmt.else_body) {
+                                for (int j = 0; j < stmt_ir->data.if_stmt.else_count; j++) {
+                                    stmt_ir->data.if_stmt.else_body[j] = generate_stmt(ir_gen, ast_stmt->data.if_stmt.else_branch->data.block.stmts[j]);
+                                }
+                            }
+                        } else {
+                            stmt_ir->data.if_stmt.else_count = 1;
+                            stmt_ir->data.if_stmt.else_body = malloc(sizeof(IRInst*));
+                            if (stmt_ir->data.if_stmt.else_body) {
+                                stmt_ir->data.if_stmt.else_body[0] = generate_stmt(ir_gen, ast_stmt->data.if_stmt.else_branch);
+                            }
+                        }
+                    } else {
+                        stmt_ir->data.if_stmt.else_count = 0;
+                        stmt_ir->data.if_stmt.else_body = NULL;
+                    }
+                }
+            } else if (ast_stmt->type == AST_WHILE_STMT) {
+                stmt_ir = irinst_new(IR_WHILE);
+                if (stmt_ir) {
+                    // Generate condition
+                    stmt_ir->data.while_stmt.condition = generate_expr(ir_gen, ast_stmt->data.while_stmt.condition);
+
+                    // Generate body
+                    if (ast_stmt->data.while_stmt.body) {
+                        if (ast_stmt->data.while_stmt.body->type == AST_BLOCK) {
+                            stmt_ir->data.while_stmt.body_count = ast_stmt->data.while_stmt.body->data.block.stmt_count;
+                            stmt_ir->data.while_stmt.body = malloc(stmt_ir->data.while_stmt.body_count * sizeof(IRInst*));
+                            if (stmt_ir->data.while_stmt.body) {
+                                for (int j = 0; j < stmt_ir->data.while_stmt.body_count; j++) {
+                                    stmt_ir->data.while_stmt.body[j] = generate_stmt(ir_gen, ast_stmt->data.while_stmt.body->data.block.stmts[j]);
+                                }
+                            }
+                        } else {
+                            stmt_ir->data.while_stmt.body_count = 1;
+                            stmt_ir->data.while_stmt.body = malloc(sizeof(IRInst*));
+                            if (stmt_ir->data.while_stmt.body) {
+                                stmt_ir->data.while_stmt.body[0] = generate_stmt(ir_gen, ast_stmt->data.while_stmt.body);
+                            }
+                        }
+                    } else {
+                        stmt_ir->data.while_stmt.body_count = 0;
+                        stmt_ir->data.while_stmt.body = NULL;
+                    }
+                }
             }
 
             func->data.func.body[0] = stmt_ir;
@@ -286,6 +382,158 @@ static IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl) {
     ir_gen->instructions[ir_gen->inst_count++] = func;
 
     return func;
+}
+
+// Generate statement for function body (doesn't add to main array)
+static IRInst *generate_stmt_for_body(IRGenerator *ir_gen, struct ASTNode *stmt) {
+    if (!stmt) return NULL;
+
+    switch (stmt->type) {
+        case AST_VAR_DECL: {
+            IRInst *var_decl = irinst_new(IR_VAR_DECL);
+            if (!var_decl) return NULL;
+
+            var_decl->data.var.name = malloc(strlen(stmt->data.var_decl.name) + 1);
+            if (!var_decl->data.var.name) {
+                irinst_free(var_decl);
+                return NULL;
+            }
+            strcpy(var_decl->data.var.name, stmt->data.var_decl.name);
+            var_decl->data.var.type = get_ir_type(stmt->data.var_decl.type);
+            var_decl->data.var.is_mut = stmt->data.var_decl.is_mut;
+
+            if (stmt->data.var_decl.init) {
+                var_decl->data.var.init = generate_expr(ir_gen, stmt->data.var_decl.init);
+            } else {
+                var_decl->data.var.init = NULL;
+            }
+
+            return var_decl;
+        }
+
+        case AST_RETURN_STMT: {
+            IRInst *ret = irinst_new(IR_RETURN);
+            if (!ret) return NULL;
+
+            if (stmt->data.return_stmt.expr) {
+                ret->data.ret.value = generate_expr(ir_gen, stmt->data.return_stmt.expr);
+            } else {
+                ret->data.ret.value = NULL; // void return
+            }
+
+            return ret;
+        }
+
+        case AST_IF_STMT: {
+            IRInst *if_inst = irinst_new(IR_IF);
+            if (!if_inst) return NULL;
+
+            // Generate condition
+            if_inst->data.if_stmt.condition = generate_expr(ir_gen, stmt->data.if_stmt.condition);
+
+            // Generate then body
+            if (stmt->data.if_stmt.then_branch) {
+                if (stmt->data.if_stmt.then_branch->type == AST_BLOCK) {
+                    if_inst->data.if_stmt.then_count = stmt->data.if_stmt.then_branch->data.block.stmt_count;
+                    if_inst->data.if_stmt.then_body = malloc(if_inst->data.if_stmt.then_count * sizeof(IRInst*));
+                    if (!if_inst->data.if_stmt.then_body) {
+                        irinst_free(if_inst);
+                        return NULL;
+                    }
+
+                    for (int i = 0; i < if_inst->data.if_stmt.then_count; i++) {
+                        if_inst->data.if_stmt.then_body[i] = generate_stmt_for_body(ir_gen, stmt->data.if_stmt.then_branch->data.block.stmts[i]);
+                    }
+                } else {
+                    if_inst->data.if_stmt.then_count = 1;
+                    if_inst->data.if_stmt.then_body = malloc(sizeof(IRInst*));
+                    if (if_inst->data.if_stmt.then_body) {
+                        if_inst->data.if_stmt.then_body[0] = generate_stmt_for_body(ir_gen, stmt->data.if_stmt.then_branch);
+                    }
+                }
+            } else {
+                if_inst->data.if_stmt.then_count = 0;
+                if_inst->data.if_stmt.then_body = NULL;
+            }
+
+            // Generate else body
+            if (stmt->data.if_stmt.else_branch) {
+                if (stmt->data.if_stmt.else_branch->type == AST_BLOCK) {
+                    if_inst->data.if_stmt.else_count = stmt->data.if_stmt.else_branch->data.block.stmt_count;
+                    if_inst->data.if_stmt.else_body = malloc(if_inst->data.if_stmt.else_count * sizeof(IRInst*));
+                    if (!if_inst->data.if_stmt.else_body) {
+                        // Clean up then body
+                        if (if_inst->data.if_stmt.then_body) {
+                            free(if_inst->data.if_stmt.then_body);
+                        }
+                        irinst_free(if_inst);
+                        return NULL;
+                    }
+
+                    for (int i = 0; i < if_inst->data.if_stmt.else_count; i++) {
+                        if_inst->data.if_stmt.else_body[i] = generate_stmt_for_body(ir_gen, stmt->data.if_stmt.else_branch->data.block.stmts[i]);
+                    }
+                } else {
+                    if_inst->data.if_stmt.else_count = 1;
+                    if_inst->data.if_stmt.else_body = malloc(sizeof(IRInst*));
+                    if (if_inst->data.if_stmt.else_body) {
+                        if_inst->data.if_stmt.else_body[0] = generate_stmt_for_body(ir_gen, stmt->data.if_stmt.else_branch);
+                    }
+                }
+            } else {
+                if_inst->data.if_stmt.else_count = 0;
+                if_inst->data.if_stmt.else_body = NULL;
+            }
+
+            return if_inst;
+        }
+
+        case AST_WHILE_STMT: {
+            IRInst *while_inst = irinst_new(IR_WHILE);
+            if (!while_inst) return NULL;
+
+            // Generate condition
+            while_inst->data.while_stmt.condition = generate_expr(ir_gen, stmt->data.while_stmt.condition);
+
+            // Generate body
+            if (stmt->data.while_stmt.body) {
+                if (stmt->data.while_stmt.body->type == AST_BLOCK) {
+                    while_inst->data.while_stmt.body_count = stmt->data.while_stmt.body->data.block.stmt_count;
+                    while_inst->data.while_stmt.body = malloc(while_inst->data.while_stmt.body_count * sizeof(IRInst*));
+                    if (!while_inst->data.while_stmt.body) {
+                        irinst_free(while_inst);
+                        return NULL;
+                    }
+
+                    for (int i = 0; i < while_inst->data.while_stmt.body_count; i++) {
+                        while_inst->data.while_stmt.body[i] = generate_stmt_for_body(ir_gen, stmt->data.while_stmt.body->data.block.stmts[i]);
+                    }
+                } else {
+                    while_inst->data.while_stmt.body_count = 1;
+                    while_inst->data.while_stmt.body = malloc(sizeof(IRInst*));
+                    if (while_inst->data.while_stmt.body) {
+                        while_inst->data.while_stmt.body[0] = generate_stmt_for_body(ir_gen, stmt->data.while_stmt.body);
+                    }
+                }
+            } else {
+                while_inst->data.while_stmt.body_count = 0;
+                while_inst->data.while_stmt.body = NULL;
+            }
+
+            return while_inst;
+        }
+
+        default:
+            return NULL;
+    }
+}
+
+static IRInst *generate_stmt(IRGenerator *ir_gen, struct ASTNode *stmt) {
+    // Top-level statements (like function declarations) should be added to main array
+    // Function body statements should only be stored in the function's body array
+    IRInst *result = generate_stmt_for_body(ir_gen, stmt);
+
+    return result;
 }
 
 static void generate_program(IRGenerator *ir_gen, struct ASTNode *program) {
