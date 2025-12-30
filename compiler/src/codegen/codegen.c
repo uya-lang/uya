@@ -224,9 +224,13 @@ int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output
     fprintf(codegen->output_file, "#include <stdint.h>\n");
     fprintf(codegen->output_file, "#include <stddef.h>\n\n");
     
-    // 生成所有指令
-    for (int i = 0; i < ir->inst_count; i++) {
-        codegen_generate_inst(codegen, ir->instructions[i]);
+    // 生成所有指令（如果有）
+    if (ir && ir->instructions) {
+        for (int i = 0; i < ir->inst_count; i++) {
+            if (ir->instructions[i]) {
+                codegen_generate_inst(codegen, ir->instructions[i]);
+            }
+        }
     }
     
     fclose(codegen->output_file);

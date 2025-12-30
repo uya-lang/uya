@@ -11,8 +11,8 @@ void *irgenerator_generate(IRGenerator *ir_gen, struct ASTNode *ast) {
 
     printf("生成中间表示...\n");
 
-    // 简单返回ir_gen，不进行任何复杂的AST转换以避免段错误
-    // 在实际实现中，这里会遍历AST并生成相应的IR指令
+    // 为避免段错误，只返回ir_gen而不进行复杂的AST转换
+    // 在完整实现中，这里会遍历AST并生成相应的IR指令
     return ir_gen;  // 返回IR生成器作为IR的表示
 }
 

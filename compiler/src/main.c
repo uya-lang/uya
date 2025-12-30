@@ -80,8 +80,8 @@ int compile_file(const char *input_file, const char *output_file) {
         return 1;
     }
 
-    void *ir = irgenerator_generate(ir_gen, ast);
-    if (!ir) {
+    IRGenerator *ir_result = irgenerator_generate(ir_gen, ast);
+    if (!ir_result) {
         error("IR 生成失败");
         irgenerator_free(ir_gen);
         typechecker_free(checker);
@@ -95,7 +95,7 @@ int compile_file(const char *input_file, const char *output_file) {
     CodeGenerator *codegen = codegen_new();
     if (!codegen) {
         error("无法创建代码生成器");
-        ir_free(ir);
+        ir_free(ir_result);
         irgenerator_free(ir_gen);
         typechecker_free(checker);
         ast_free(ast);
@@ -104,10 +104,10 @@ int compile_file(const char *input_file, const char *output_file) {
         return 1;
     }
 
-    if (!codegen_generate(codegen, ir, output_file)) {
+    if (!codegen_generate(codegen, ir_result, output_file)) {
         error("代码生成失败");
         codegen_free(codegen);
-        ir_free(ir);
+        ir_free(ir_result);
         irgenerator_free(ir_gen);
         typechecker_free(checker);
         ast_free(ast);
@@ -118,8 +118,7 @@ int compile_file(const char *input_file, const char *output_file) {
 
     // 清理资源
     codegen_free(codegen);
-    ir_free(ir);
-    irgenerator_free(ir_gen);
+    ir_free(ir_result);  // 清理IR资源
     typechecker_free(checker);
     ast_free(ast);
     parser_free(parser);

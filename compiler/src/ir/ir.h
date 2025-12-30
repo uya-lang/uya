@@ -197,7 +197,7 @@ typedef struct IRInst {
             char *dest;      // 目标切片变量
             struct IRInst *source;  // 源数组
             struct IRInst *start;   // 起始索引
-            struct IRInst *end;     // 结束索引
+            struct IRInst *length;  // 切片长度
         } slice_op;
     } data;
 } IRInst;
