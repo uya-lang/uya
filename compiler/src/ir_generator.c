@@ -523,6 +523,26 @@ static IRInst *generate_stmt_for_body(IRGenerator *ir_gen, struct ASTNode *stmt)
             return while_inst;
         }
 
+        case AST_ASSIGN: {
+            IRInst *assign = irinst_new(IR_ASSIGN);
+            if (!assign) return NULL;
+
+            // Set destination (variable name)
+            assign->data.assign.dest = malloc(strlen(stmt->data.assign.dest) + 1);
+            if (assign->data.assign.dest) {
+                strcpy(assign->data.assign.dest, stmt->data.assign.dest);
+            }
+
+            // Set source (right-hand side expression)
+            if (stmt->data.assign.src) {
+                assign->data.assign.src = generate_expr(ir_gen, stmt->data.assign.src);
+            } else {
+                assign->data.assign.src = NULL;
+            }
+
+            return assign;
+        }
+
         default:
             return NULL;
     }

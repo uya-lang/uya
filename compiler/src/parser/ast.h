@@ -15,6 +15,7 @@ typedef enum {
     AST_IF_STMT,
     AST_WHILE_STMT,
     AST_RETURN_STMT,
+    AST_ASSIGN,
     AST_EXPR_STMT,
     AST_BLOCK,
     AST_BREAK_STMT,
@@ -148,6 +149,12 @@ typedef struct ASTNode {
         struct {
             struct ASTNode *expr;
         } return_stmt;
+
+        // assignment 语句
+        struct {
+            char *dest;
+            struct ASTNode *src;
+        } assign;
 
         // 代码块
         struct {

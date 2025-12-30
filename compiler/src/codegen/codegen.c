@@ -69,7 +69,12 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
             }
             break;
         case IR_ASSIGN:
-            fprintf(codegen->output_file, "%s", inst->data.assign.dest);
+            fprintf(codegen->output_file, "%s = ", inst->data.assign.dest);
+            if (inst->data.assign.src) {
+                codegen_write_value(codegen, inst->data.assign.src);
+            } else {
+                fprintf(codegen->output_file, "0"); // default value
+            }
             break;
         case IR_BINARY_OP:
             fprintf(codegen->output_file, "(");
