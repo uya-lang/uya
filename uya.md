@@ -1171,8 +1171,10 @@ error InvalidIteratorState;
 interface IIteratorI32 {
     // 移动到下一个元素，返回错误表示迭代结束
     fn next(self: *Self) !void;
-    // 获取当前元素值
+    // 获取当前元素值（只读）
     fn value(self: *Self) i32;
+    // 获取指向当前元素的指针（可修改）
+    fn ptr(self: *Self) &i32;
 }
 
 // 带索引的i32数组迭代器接口
@@ -1217,6 +1219,15 @@ impl ArrayIteratorI32 : IIteratorI32 {
             return error.InvalidIteratorState;
         }
         return (*self.arr)[idx];
+    }
+    
+    fn ptr(self: *Self) &i32 {
+        // 编译期证明说明：同 value() 方法
+        const idx: i32 = self.current - 1;
+        if idx < 0 || idx >= self.len {
+            return error.InvalidIteratorState;
+        }
+        return &(*self.arr)[idx];  // 返回指向当前元素的指针（可修改）
     }
 }
 
@@ -1391,56 +1402,92 @@ break; continue; return expr;
   - 0.13 不支持 `break label` 或 `continue label`（后续版本支持）
   - `break` 和 `continue` 只能在循环体内使用
 
-- **`for` 循环**：迭代循环，通过接口机制支持所有可迭代类型
+- **`for` 循环**：迭代循环，支持可迭代对象和整数范围
   - **语法形式**：
     ```
-    for_stmt = 'for' '(' expr ')' '|' ID '|' block
-             | 'for' '(' expr ',' index_range ')' '|' ID ',' ID '|' block
+    for_stmt = 'for' expr '|' ID '|' block          // 有元素变量（只读）
+             | 'for' expr '|' '&' ID '|' block       // 有元素变量（可修改）
+             | 'for' range_expr '|' ID '|' block     // 整数范围，有元素变量
+             | 'for' expr block                      // 丢弃元素，只循环次数
+             | 'for' range_expr block                // 整数范围，丢弃元素
     
-    index_range = expr '..' [expr]
+    range_expr = expr '..' [expr]                     // start..end 或 start..
     ```
-    - `index_range`：索引范围表达式
-      - `start..`：从 `start` 开始的无限范围（通常用于 `0..` 表示从0开始）
-      - `start..end`：从 `start` 到 `end-1` 的范围（0.13 暂不支持带结束值的范围）
-  - **基本形式**：`for (iterable) |item| { statements }`
-    - `iterable` 必须是实现了迭代器接口的类型（如数组迭代器）
-    - `item` 是循环变量，类型由迭代器的 `value()` 方法返回类型决定
+    - `range_expr`：整数范围表达式
+      - `start..end`：从 `start` 到 `end-1` 的范围（左闭右开区间 `[start, end)`）
+      - `start..`：从 `start` 开始的无限范围，由迭代器结束条件终止
+  - **基本形式（有元素变量，只读）**：`for obj |v| { statements }`
+    - `obj` 必须是实现了迭代器接口的类型（如数组、迭代器）
+    - `v` 是循环变量，类型由迭代器的 `value()` 方法返回类型决定
+    - `v` 是只读的，不能修改
     - 自动调用迭代器的 `next()` 方法，返回 `error.IterEnd` 时循环结束
-  - **带索引形式**：`for (iterable, index_range) |item, index| { statements }`
-    - `iterable` 必须是实现了带索引迭代器接口的类型
-    - `index_range` 是索引范围表达式（如 `0..` 表示从0开始的索引）
-      - 0.13 仅支持 `0..` 形式，表示从0开始的索引
-      - 结束值由迭代器决定（通常等于数组长度）
-    - `item` 是元素值，`index` 是当前索引（从0开始）
-    - 自动调用迭代器的 `next()` 和 `index()` 方法
+  - **基本形式（有元素变量，可修改）**：`for obj |&v| { statements }`
+    - `obj` 必须是实现了迭代器接口的类型（如数组、迭代器）
+    - `&v` 是循环变量，类型是指向元素的指针（`&T`），可以修改元素
+    - 在循环体中可以通过 `*v` 访问元素值，通过 `*v = value` 修改元素
+    - 自动调用迭代器的 `next()` 方法，返回 `error.IterEnd` 时循环结束
+    - 注意：只有可变数组（`var arr`）才能使用此形式
+  - **整数范围形式（有元素变量）**：`for start..end |v| { statements }` 或 `for start.. |v| { statements }`
+    - `start..end`：迭代从 `start` 到 `end-1` 的整数（`[start, end)`）
+    - `start..`：从 `start` 开始的无限范围，由迭代器结束条件终止
+    - `v` 是当前迭代的整数值
+  - **丢弃元素形式**：`for obj { statements }` 或 `for start..end { statements }`
+    - 不绑定元素变量，只执行循环体指定次数
+    - 适用于只需要循环次数，不需要元素值的场景
   - **语义**：
     - for循环是语法糖，编译期展开为while循环（见展开规则）
-    - 迭代器自动装箱为接口类型，使用动态派发
+    - 可迭代对象自动装箱为接口类型，使用动态派发
+    - 整数范围直接展开为整数循环，零运行时开销
     - 零运行时开销，编译期生成vtable
   - **示例**：
     ```uya
-    // 基本迭代
+    // 基本迭代（有元素变量，只读）
     const arr: [i32; 5] = [1, 2, 3, 4, 5];
-    for (arr) |item| {
+    for arr |item| {
         printf("%d\n", item);
     }
     
-    // 带索引迭代
-    for (arr, 0..) |item, index| {
-        printf("arr[%d] = %d\n", index, item);
+    // 基本迭代（有元素变量，可修改）
+    var arr2: [i32; 5] = [1, 2, 3, 4, 5];
+    for arr2 |&item| {
+        *item = *item * 2;  // 修改每个元素，乘以2
+        printf("%d\n", *item);
+    }
+    
+    // 整数范围（有元素变量）
+    for 0..10 |i| {
+        printf("%d\n", i);  // 输出 0 到 9
+    }
+    
+    // 无限范围（有元素变量）
+    for 0.. |i| {
+        if i >= 10 {
+            break;  // 手动终止
+        }
+        printf("%d\n", i);
+    }
+    
+    // 丢弃元素，只循环次数
+    for arr {
+        printf("loop\n");  // 执行 5 次
+    }
+    
+    // 整数范围，丢弃元素
+    for 0..N {
+        printf("loop\n");  // 执行 N 次
     }
     ```
   - **展开规则**：for循环在编译期展开为while循环
-    - **基本形式展开**：
+    - **可迭代对象展开（有元素变量，只读）**：
       ```uya
       // 原始代码
-      for (iterable) |item| {
+      for obj |item| {
           // body
       }
       
       // 展开为
       {
-          var iter: IIteratorT = iterable;  // 自动装箱为接口（T为元素类型）
+          var iter: IIteratorT = obj;  // 自动装箱为接口（T为元素类型）
           while true {
               const result: void = iter.next() catch |err| {
                   if err == error.IterEnd {
@@ -1448,21 +1495,48 @@ break; continue; return expr;
                   }
                   return err;  // 其他错误传播（如果函数返回错误联合类型）
               };
-              const item: T = iter.value();  // 获取当前元素
+              const item: T = iter.value();  // 获取当前元素（只读）
               // body（可以使用item）
           }
       }
       ```
-    - **带索引形式展开**：
+    - **可迭代对象展开（有元素变量，可修改）**：
       ```uya
       // 原始代码
-      for (iterable, 0..) |item, index| {
+      for obj |&item| {
+          // body（可以修改 *item）
+      }
+      
+      // 展开为
+      {
+          var iter: IIteratorT = obj;  // 自动装箱为接口（T为元素类型）
+          while true {
+              const result: void = iter.next() catch |err| {
+                  if err == error.IterEnd {
+                      break;  // 迭代结束，跳出循环
+                  }
+                  return err;  // 其他错误传播（如果函数返回错误联合类型）
+              };
+              const item: &T = iter.ptr();  // 获取指向当前元素的指针（可修改）
+              // body（可以使用 *item 访问和修改元素）
+              // 例如：*item = new_value; 或 const val: T = *item;
+          }
+      }
+      ```
+      - 注意：
+        - 迭代器接口需要提供 `ptr()` 方法返回指向当前元素的指针（类型 `&T`）
+        - `item` 是指针类型，需要通过 `*item` 访问和修改元素值
+        - 只有可变数组（`var arr`）才能使用此形式，常量数组（`const arr`）使用此形式会编译错误
+    - **可迭代对象展开（丢弃元素）**：
+      ```uya
+      // 原始代码
+      for obj {
           // body
       }
       
       // 展开为
       {
-          var iter: IIteratorTWithIndex = iterable;  // 自动装箱为带索引接口
+          var iter: IIteratorT = obj;  // 自动装箱为接口
           while true {
               const result: void = iter.next() catch |err| {
                   if err == error.IterEnd {
@@ -1470,15 +1544,63 @@ break; continue; return expr;
                   }
                   return err;
               };
-              const item: T = iter.value();      // 获取当前元素
-              const index: i32 = iter.index();   // 获取当前索引
-              // body（可以使用item和index）
+              // 不获取元素值，直接执行 body
+              // body
+          }
+      }
+      ```
+    - **整数范围展开（有元素变量）**：
+      ```uya
+      // 原始代码
+      for 0..10 |i| {
+          // body
+      }
+      
+      // 展开为
+      {
+          var i: i32 = 0;
+          while i < 10 {
+              // body（可以使用i）
+              i = i + 1;
+          }
+      }
+      ```
+    - **整数范围展开（丢弃元素）**：
+      ```uya
+      // 原始代码
+      for 0..N {
+          // body
+      }
+      
+      // 展开为
+      {
+          var i: i32 = 0;
+          while i < N {
+              // body（不绑定变量）
+              i = i + 1;
+          }
+      }
+      ```
+    - **无限范围展开**：
+      ```uya
+      // 原始代码
+      for 0.. |i| {
+          // body
+      }
+      
+      // 展开为
+      {
+          var i: i32 = 0;
+          while true {
+              // body（可以使用i）
+              i = i + 1;
           }
       }
       ```
     - **展开说明**：
       - 编译器自动识别可迭代类型，并选择合适的迭代器接口
-      - 数组类型自动创建对应的数组迭代器（通过标准库函数 `iter()`）
+      - 数组类型自动创建对应的数组迭代器（编译器自动生成）
+      - 整数范围直接展开为整数循环，零运行时开销
       - 展开后的代码遵循 Uya 的内存安全规则，所有数组访问都有编译期证明
       - 零运行时开销：接口调用是单条call指令，与手写while循环性能相同
 
@@ -2767,8 +2889,6 @@ fn main() i32 {
 | 函数 | 签名 | 说明 |
 |------|------|------|
 | `len` | `fn len(a: [T; N]) i32` | 返回数组元素个数 `N`（编译期常量） |
-| `iter` | `fn iter(arr: *[T; N]) IteratorT` | 为数组创建迭代器，返回类型取决于元素类型 `T` |
-| `range` | `fn range(start: i32, end: i32) RangeIterator` | 创建整数范围迭代器，迭代从 `start` 到 `end-1` |
 | `checked_add` | `fn checked_add(a: T, b: T) !T` | 检查加法溢出，溢出返回 `error.Overflow`，否则返回值 |
 | `checked_sub` | `fn checked_sub(a: T, b: T) !T` | 检查减法溢出，溢出返回 `error.Overflow`，否则返回值 |
 | `checked_mul` | `fn checked_mul(a: T, b: T) !T` | 检查乘法溢出，溢出返回 `error.Overflow`，否则返回值 |
@@ -2798,38 +2918,7 @@ fn main() i32 {
      const size: i32 = len(arr);  // size = 10（编译期常量）
      ```
 
-2. **`iter(arr: *[T; N]) IteratorT`**
-   - 功能：为数组创建迭代器
-   - 参数：`arr` 是指向数组的指针（类型 `*[T; N]`）
-   - 返回值：返回类型取决于数组元素类型 `T`
-     - 对于 `i32` 数组：返回 `ArrayIteratorI32`
-     - 对于 `f64` 数组：返回 `ArrayIteratorF64`
-     - 0.13 需要为每种元素类型定义对应的迭代器类型（泛型功能在 0.13 中提供）
-   - 行为：创建的迭代器可以自动装箱为对应的迭代器接口（如 `IIteratorI32`）
-   - for循环会自动调用此函数为数组创建迭代器
-   - 示例：
-     ```uya
-     const arr: [i32; 5] = [1, 2, 3, 4, 5];
-     const iter: IIteratorI32 = iter(&arr);  // 自动装箱为接口
-     ```
-
-3. **`range(start: i32, end: i32) RangeIterator`**
-   - 功能：创建整数范围迭代器，迭代从 `start` 到 `end-1` 的整数（左闭右开区间）
-   - 参数：
-     - `start`：起始值（包含）
-     - `end`：结束值（不包含）
-   - 返回值：`RangeIterator` 类型，实现 `IIteratorI32` 接口
-   - 行为：迭代器依次返回 `start`, `start+1`, ..., `end-1`
-   - 示例：
-     ```uya
-     // 迭代 0 到 9（10 个整数）
-     for (range(0, 10)) |i| {
-         printf("%d\n", i);  // 输出 0, 1, 2, ..., 9
-     }
-     ```
-   - 注意：`start` 和 `end` 必须是 `i32` 类型，范围必须在 `i32` 的有效范围内
-
-4. **溢出检查函数**（`checked_*`, `saturating_*`, `wrapping_*`）
+2. **溢出检查函数**（`checked_*`, `saturating_*`, `wrapping_*`）
    - 功能：提供简洁的溢出检查方式，避免重复编写溢出检查代码
    - 支持的类型：`i8`, `i16`, `i32`, `i64`
    - 编译期展开：这些函数在编译期展开为相应的溢出检查代码，零运行时开销
@@ -3135,6 +3224,7 @@ error InvalidIteratorState;
 interface IIteratorI32 {
     fn next(self: *Self) !void;
     fn value(self: *Self) i32;
+    fn ptr(self: *Self) &i32;  // 获取指向当前元素的指针（可修改）
 }
 
 // 带索引的i32数组迭代器接口
@@ -3167,6 +3257,15 @@ impl ArrayIteratorI32 : IIteratorI32 {
         }
         return (*self.arr)[idx];
     }
+    
+    fn ptr(self: *Self) &i32 {
+        const idx: i32 = self.current - 1;
+        // 编译期证明：由于 next() 成功返回，idx 在有效范围内
+        if idx < 0 || idx >= self.len {
+            return error.InvalidIteratorState;
+        }
+        return &(*self.arr)[idx];  // 返回指向当前元素的指针（可修改）
+    }
 }
 
 impl ArrayIteratorI32 : IIteratorI32WithIndex {
@@ -3191,47 +3290,51 @@ impl ArrayIteratorI32 : IIteratorI32WithIndex {
     }
 }
 
-// 标准库函数：为数组创建迭代器
-fn iter(arr: *[i32; N]) ArrayIteratorI32 {
-    return ArrayIteratorI32{
-        arr: arr,
-        current: 0,
-        len: N
-    };
-}
-
 fn main() i32 {
     const arr: [i32; 5] = [10, 20, 30, 40, 50];
     
-    // 示例1：基本迭代（只获取元素值）
+    // 示例1：基本迭代（只获取元素值，只读）
     printf("Basic iteration:\n");
-    for (iter(&arr)) |item| {
+    for arr |item| {
         printf("  value: %d\n", item);
     }
     
-    // 示例2：带索引迭代
-    printf("\nIteration with index:\n");
-    for (iter(&arr), 0..) |item, index| {
-        printf("  arr[%d] = %d\n", index, item);
+    // 示例2：可修改迭代
+    var arr2: [i32; 5] = [10, 20, 30, 40, 50];
+    printf("\nMutable iteration:\n");
+    for arr2 |&item| {
+        *item = *item * 2;  // 修改每个元素，乘以2
+        printf("  value: %d\n", *item);
     }
     
-    // 示例3：计算数组元素之和
+    // 示例3：整数范围迭代
+    printf("\nInteger range iteration:\n");
+    for 0..10 |i| {
+        printf("  i: %d\n", i);  // 输出 0 到 9
+    }
+    
+    // 示例4：计算数组元素之和
     var sum: i32 = 0;
-    for (iter(&arr)) |item| {
+    for arr |item| {
         sum = sum + item;
     }
     printf("\nSum of array elements: %d\n", sum);
     
-    // 示例4：查找最大值及其索引
-    var max_val: i32 = 0;
-    var max_idx: i32 = 0;
-    for (iter(&arr), 0..) |item, index| {
-        if index == 0 || item > max_val {
-            max_val = item;
-            max_idx = index;
-        }
+    // 示例5：丢弃元素，只循环次数
+    printf("\nLoop count only:\n");
+    var count: i32 = 0;
+    for arr {
+        count = count + 1;
     }
-    printf("Maximum value: %d at index %d\n", max_val, max_idx);
+    printf("Array length: %d\n", count);
+    
+    // 示例6：整数范围，丢弃元素
+    printf("\nInteger range, discard element:\n");
+    var loop_count: i32 = 0;
+    for 0..10 {
+        loop_count = loop_count + 1;
+    }
+    printf("Loop count: %d\n", loop_count);
     
     return 0;
 }
@@ -3246,22 +3349,41 @@ Basic iteration:
   value: 40
   value: 50
 
-Iteration with index:
-  arr[0] = 10
-  arr[1] = 20
-  arr[2] = 30
-  arr[3] = 40
-  arr[4] = 50
+Mutable iteration:
+  value: 20
+  value: 40
+  value: 60
+  value: 80
+  value: 100
+
+Integer range iteration:
+  i: 0
+  i: 1
+  i: 2
+  i: 3
+  i: 4
+  i: 5
+  i: 6
+  i: 7
+  i: 8
+  i: 9
 
 Sum of array elements: 150
-Maximum value: 50 at index 4
+
+Loop count only:
+Array length: 5
+
+Integer range, discard element:
+Loop count: 10
 ```
 
 **说明**：
-- for循环自动调用 `iter()` 函数为数组创建迭代器
+- for循环自动为数组创建迭代器（编译器自动生成）
+- 整数范围直接展开为整数循环，零运行时开销
 - 迭代器自动装箱为接口类型，使用动态派发
 - 零运行时开销，编译期展开为while循环
-- 支持基本迭代和带索引迭代两种形式
+- 支持可迭代对象和整数范围两种形式
+- 支持有元素变量和丢弃元素两种模式
 
 ---
 
@@ -3277,7 +3399,7 @@ fn main() i32 {
     // slice(arr, 2, 3) 表示从索引2开始，长度为3
     const slice1: [i32; 3] = slice(arr, 2, 3);  // [2, 3, 4]
     printf("slice(arr, 2, 3): ");
-    for (iter(&slice1)) |item| {
+    for slice1 |item| {
         printf("%d ", item);
     }
     printf("\n");
@@ -3286,7 +3408,7 @@ fn main() i32 {
     // slice(arr, -3, 3) 表示从倒数第3个元素开始，长度为3
     const slice2: [i32; 3] = slice(arr, -3, 3);  // [7, 8, 9]
     printf("slice(arr, -3, 3): ");
-    for (iter(&slice2)) |item| {
+    for slice2 |item| {
         printf("%d ", item);
     }
     printf("\n");
@@ -3295,7 +3417,7 @@ fn main() i32 {
     // slice(arr, 7, 3) 表示从索引7开始，长度为3（到末尾）
     const slice3: [i32; 3] = slice(arr, 7, 3);  // [7, 8, 9]
     printf("slice(arr, 7, 3): ");
-    for (iter(&slice3)) |item| {
+    for slice3 |item| {
         printf("%d ", item);
     }
     printf("\n");
@@ -3304,7 +3426,7 @@ fn main() i32 {
     // slice(arr, 0, 3) 表示从索引0开始，长度为3
     const slice4: [i32; 3] = slice(arr, 0, 3);  // [0, 1, 2]
     printf("slice(arr, 0, 3): ");
-    for (iter(&slice4)) |item| {
+    for slice4 |item| {
         printf("%d ", item);
     }
     printf("\n");
@@ -3313,7 +3435,7 @@ fn main() i32 {
     // slice(arr, 0, 9) 表示从索引0开始，长度为9（不包含最后一个）
     const slice5: [i32; 9] = slice(arr, 0, 9);  // [0, 1, 2, 3, 4, 5, 6, 7, 8]
     printf("slice(arr, 0, 9): ");
-    for (iter(&slice5)) |item| {
+    for slice5 |item| {
         printf("%d ", item);
     }
     printf("\n");
@@ -3322,7 +3444,7 @@ fn main() i32 {
     // slice(arr, -5, 3) 表示从倒数第5个开始，长度为3
     const slice6: [i32; 3] = slice(arr, -5, 3);  // [5, 6, 7]
     printf("slice(arr, -5, 3): ");
-    for (iter(&slice6)) |item| {
+    for slice6 |item| {
         printf("%d ", item);
     }
     printf("\n");
