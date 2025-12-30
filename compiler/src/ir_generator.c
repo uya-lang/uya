@@ -170,6 +170,28 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
             return binary_op;
         }
 
+        case AST_BOOL: {
+            // Handle boolean literals
+            IRInst *const_bool = irinst_new(IR_CONSTANT);
+            if (!const_bool) return NULL;
+
+            // Convert boolean value to string representation
+            if (expr->data.bool_literal.value) {
+                const_bool->data.constant.value = malloc(5);  // "true" + null terminator
+                if (const_bool->data.constant.value) {
+                    strcpy(const_bool->data.constant.value, "true");
+                }
+            } else {
+                const_bool->data.constant.value = malloc(6);  // "false" + null terminator
+                if (const_bool->data.constant.value) {
+                    strcpy(const_bool->data.constant.value, "false");
+                }
+            }
+            const_bool->data.constant.type = IR_TYPE_BOOL;
+
+            return const_bool;
+        }
+
         default:
             // For unsupported expressions, create a placeholder
             return irinst_new(IR_VAR_DECL);
