@@ -50,6 +50,18 @@ int compile_file(const char *input_file, const char *output_file) {
         return 1;
     }
 
+    // Print AST for debugging
+    printf("AST created successfully, type: %d\n", ast->type);
+    if (ast->type == AST_PROGRAM) {
+        printf("Program decl count: %d\n", ast->data.program.decl_count);
+        printf("AST结构:\n");
+        ast_print(ast, 0);
+        printf("\n");
+    } else {
+        printf("AST is not a program node\n");
+    }
+    fflush(stdout);
+
     // 3. 类型检查
     TypeChecker *checker = typechecker_new();
     if (!checker) {

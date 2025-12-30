@@ -4,6 +4,301 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Forward declarations
+static IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl);
+
+static IRType get_ir_type(struct ASTNode *ast_type) {
+    if (!ast_type) return IR_TYPE_VOID;
+
+    switch (ast_type->type) {
+        case AST_TYPE_NAMED:
+            {
+                const char *name = ast_type->data.type_named.name;
+                if (strcmp(name, "i32") == 0) return IR_TYPE_I32;
+                if (strcmp(name, "i64") == 0) return IR_TYPE_I64;
+                if (strcmp(name, "i8") == 0) return IR_TYPE_I8;
+                if (strcmp(name, "i16") == 0) return IR_TYPE_I16;
+                if (strcmp(name, "u32") == 0) return IR_TYPE_U32;
+                if (strcmp(name, "u64") == 0) return IR_TYPE_U64;
+                if (strcmp(name, "u8") == 0) return IR_TYPE_U8;
+                if (strcmp(name, "u16") == 0) return IR_TYPE_U16;
+                if (strcmp(name, "f32") == 0) return IR_TYPE_F32;
+                if (strcmp(name, "f64") == 0) return IR_TYPE_F64;
+                if (strcmp(name, "bool") == 0) return IR_TYPE_BOOL;
+                if (strcmp(name, "void") == 0) return IR_TYPE_VOID;
+                if (strcmp(name, "byte") == 0) return IR_TYPE_BYTE;
+                return IR_TYPE_VOID;
+            }
+        case AST_TYPE_ARRAY:
+            // For arrays, we'll use a pointer type for now
+            // In a full implementation, we'd need to handle array types properly
+            return IR_TYPE_PTR;
+        case AST_TYPE_POINTER:
+            return IR_TYPE_PTR;
+        case AST_TYPE_ERROR_UNION:
+            // For error union types, we'll use a special type
+            return IR_TYPE_ERROR_UNION;
+        default:
+            return IR_TYPE_VOID;
+    }
+}
+
+// Forward declarations
+static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr);
+static IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl);
+
+static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
+    if (!expr) return NULL;
+
+    switch (expr->type) {
+        case AST_NUMBER: {
+            // Create a temporary variable for the number
+            IRInst *num_inst = irinst_new(IR_VAR_DECL);
+            if (!num_inst) return NULL;
+
+            // Generate a unique name for the temporary
+            char temp_name[32];
+            snprintf(temp_name, sizeof(temp_name), "temp_%d", ir_gen->current_id++);
+            num_inst->data.var.name = malloc(strlen(temp_name) + 1);
+            if (!num_inst->data.var.name) {
+                irinst_free(num_inst);
+                return NULL;
+            }
+            strcpy(num_inst->data.var.name, temp_name);
+            num_inst->data.var.type = IR_TYPE_I32;
+            num_inst->data.var.init = NULL;
+
+            return num_inst;
+        }
+
+        case AST_IDENTIFIER: {
+            // Create a reference to an existing variable
+            IRInst *id_inst = irinst_new(IR_VAR_DECL);
+            if (!id_inst) return NULL;
+
+            id_inst->data.var.name = malloc(strlen(expr->data.identifier.name) + 1);
+            if (id_inst->data.var.name) {
+                strcpy(id_inst->data.var.name, expr->data.identifier.name);
+                id_inst->data.var.type = IR_TYPE_I32; // Default type
+                id_inst->data.var.init = NULL;
+            } else {
+                irinst_free(id_inst);
+                return NULL;
+            }
+
+            return id_inst;
+        }
+
+        case AST_CALL_EXPR: {
+            // Handle function calls (including slice operations)
+            IRInst *call_inst = irinst_new(IR_CALL);
+            if (!call_inst) return NULL;
+
+            // Set function name
+            if (expr->data.call_expr.callee && expr->data.call_expr.callee->type == AST_IDENTIFIER) {
+                call_inst->data.call.func_name = malloc(strlen(expr->data.call_expr.callee->data.identifier.name) + 1);
+                if (call_inst->data.call.func_name) {
+                    strcpy(call_inst->data.call.func_name, expr->data.call_expr.callee->data.identifier.name);
+                } else {
+                    irinst_free(call_inst);
+                    return NULL;
+                }
+            } else {
+                call_inst->data.call.func_name = malloc(8);
+                if (call_inst->data.call.func_name) {
+                    strcpy(call_inst->data.call.func_name, "unknown");
+                } else {
+                    irinst_free(call_inst);
+                    return NULL;
+                }
+            }
+
+            // Handle arguments
+            call_inst->data.call.arg_count = expr->data.call_expr.arg_count;
+            if (expr->data.call_expr.arg_count > 0) {
+                call_inst->data.call.args = malloc(expr->data.call_expr.arg_count * sizeof(IRInst*));
+                if (!call_inst->data.call.args) {
+                    irinst_free(call_inst);
+                    return NULL;
+                }
+
+                for (int i = 0; i < expr->data.call_expr.arg_count; i++) {
+                    call_inst->data.call.args[i] = generate_expr(ir_gen, expr->data.call_expr.args[i]);
+                }
+            } else {
+                call_inst->data.call.args = NULL;
+            }
+
+            return call_inst;
+        }
+
+
+        default:
+            // For unsupported expressions, create a placeholder
+            return irinst_new(IR_VAR_DECL);
+    }
+}
+
+static IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl) {
+    if (!fn_decl || fn_decl->type != AST_FN_DECL) return NULL;
+
+    IRInst *func = irinst_new(IR_FUNC_DEF);
+    if (!func) return NULL;
+
+    // Set function name
+    func->data.func.name = malloc(strlen(fn_decl->data.fn_decl.name) + 1);
+    if (!func->data.func.name) {
+        irinst_free(func);
+        return NULL;
+    }
+    strcpy(func->data.func.name, fn_decl->data.fn_decl.name);
+
+    // Set return type
+    func->data.func.return_type = get_ir_type(fn_decl->data.fn_decl.return_type);
+    func->data.func.is_extern = fn_decl->data.fn_decl.is_extern;
+
+    // Handle parameters
+    func->data.func.param_count = fn_decl->data.fn_decl.param_count;
+    if (fn_decl->data.fn_decl.param_count > 0) {
+        func->data.func.params = malloc(fn_decl->data.fn_decl.param_count * sizeof(IRInst*));
+        if (!func->data.func.params) {
+            irinst_free(func);
+            return NULL;
+        }
+
+        for (int i = 0; i < fn_decl->data.fn_decl.param_count; i++) {
+            // Create parameter as variable declaration
+            IRInst *param = irinst_new(IR_VAR_DECL);
+            if (!param) {
+                irinst_free(func);
+                return NULL;
+            }
+
+            param->data.var.name = malloc(strlen(fn_decl->data.fn_decl.params[i]->data.var_decl.name) + 1);
+            if (!param->data.var.name) {
+                irinst_free(param);
+                irinst_free(func);
+                return NULL;
+            }
+            strcpy(param->data.var.name, fn_decl->data.fn_decl.params[i]->data.var_decl.name);
+            param->data.var.type = get_ir_type(fn_decl->data.fn_decl.params[i]->data.var_decl.type);
+            param->data.var.init = NULL;
+
+            func->data.func.params[i] = param;
+        }
+    } else {
+        func->data.func.params = NULL;
+    }
+
+    // Handle function body - convert AST statements to IR instructions
+    if (fn_decl->data.fn_decl.body) {
+        if (fn_decl->data.fn_decl.body->type == AST_BLOCK) {
+            func->data.func.body_count = fn_decl->data.fn_decl.body->data.block.stmt_count;
+            func->data.func.body = malloc(func->data.func.body_count * sizeof(IRInst*));
+            if (!func->data.func.body) {
+                irinst_free(func);
+                return NULL;
+            }
+
+            for (int i = 0; i < func->data.func.body_count; i++) {
+                // Set up the IR instruction based on the AST statement type
+                struct ASTNode *ast_stmt = fn_decl->data.fn_decl.body->data.block.stmts[i];
+                IRInst *stmt_ir = NULL;
+
+                if (ast_stmt->type == AST_VAR_DECL) {
+                    stmt_ir = irinst_new(IR_VAR_DECL);
+                    if (stmt_ir) {
+                        stmt_ir->data.var.name = malloc(strlen(ast_stmt->data.var_decl.name) + 1);
+                        if (stmt_ir->data.var.name) {
+                            strcpy(stmt_ir->data.var.name, ast_stmt->data.var_decl.name);
+                            stmt_ir->data.var.type = get_ir_type(ast_stmt->data.var_decl.type);
+                            stmt_ir->data.var.is_mut = ast_stmt->data.var_decl.is_mut;
+
+                            // Handle initialization using the new generate_expr function
+                            if (ast_stmt->data.var_decl.init) {
+                                stmt_ir->data.var.init = generate_expr(ir_gen, ast_stmt->data.var_decl.init);
+                            }
+                        }
+                    }
+                } else if (ast_stmt->type == AST_RETURN_STMT) {
+                    stmt_ir = irinst_new(IR_RETURN);
+                    if (stmt_ir && ast_stmt->data.return_stmt.expr) {
+                        stmt_ir->data.ret.value = generate_expr(ir_gen, ast_stmt->data.return_stmt.expr);
+                    }
+                }
+
+                func->data.func.body[i] = stmt_ir;
+            }
+        } else {
+            // Single statement body
+            func->data.func.body_count = 1;
+            func->data.func.body = malloc(sizeof(IRInst*));
+            if (!func->data.func.body) {
+                irinst_free(func);
+                return NULL;
+            }
+
+            // Handle single statement
+            struct ASTNode *ast_stmt = fn_decl->data.fn_decl.body;
+            IRInst *stmt_ir = NULL;
+
+            if (ast_stmt->type == AST_VAR_DECL) {
+                stmt_ir = irinst_new(IR_VAR_DECL);
+                if (stmt_ir) {
+                    stmt_ir->data.var.name = malloc(strlen(ast_stmt->data.var_decl.name) + 1);
+                    if (stmt_ir->data.var.name) {
+                        strcpy(stmt_ir->data.var.name, ast_stmt->data.var_decl.name);
+                        stmt_ir->data.var.type = get_ir_type(ast_stmt->data.var_decl.type);
+                        stmt_ir->data.var.is_mut = ast_stmt->data.var_decl.is_mut;
+
+                        // Handle initialization
+                        if (ast_stmt->data.var_decl.init) {
+                            stmt_ir->data.var.init = generate_expr(ir_gen, ast_stmt->data.var_decl.init);
+                        }
+                    }
+                }
+            } else if (ast_stmt->type == AST_RETURN_STMT) {
+                stmt_ir = irinst_new(IR_RETURN);
+                if (stmt_ir && ast_stmt->data.return_stmt.expr) {
+                    stmt_ir->data.ret.value = generate_expr(ir_gen, ast_stmt->data.return_stmt.expr);
+                }
+            }
+
+            func->data.func.body[0] = stmt_ir;
+        }
+    } else {
+        func->data.func.body_count = 0;
+        func->data.func.body = NULL;
+    }
+
+    // Add function to instructions array
+    if (ir_gen->inst_count >= ir_gen->inst_capacity) {
+        size_t new_capacity = ir_gen->inst_capacity * 2;
+        IRInst **new_instructions = realloc(ir_gen->instructions,
+                                           new_capacity * sizeof(IRInst*));
+        if (!new_instructions) {
+            irinst_free(func);
+            return NULL;
+        }
+        ir_gen->instructions = new_instructions;
+        ir_gen->inst_capacity = new_capacity;
+    }
+    ir_gen->instructions[ir_gen->inst_count++] = func;
+
+    return func;
+}
+
+static void generate_program(IRGenerator *ir_gen, struct ASTNode *program) {
+    if (!program || program->type != AST_PROGRAM) return;
+
+    for (int i = 0; i < program->data.program.decl_count; i++) {
+        struct ASTNode *decl = program->data.program.decls[i];
+        if (decl->type == AST_FN_DECL) {
+            generate_function(ir_gen, decl);
+        }
+    }
+}
+
 void *irgenerator_generate(IRGenerator *ir_gen, struct ASTNode *ast) {
     if (!ir_gen || !ast) {
         return NULL;
@@ -11,9 +306,16 @@ void *irgenerator_generate(IRGenerator *ir_gen, struct ASTNode *ast) {
 
     printf("生成中间表示...\n");
 
-    // 为避免段错误，只返回ir_gen而不进行复杂的AST转换
-    // 在完整实现中，这里会遍历AST并生成相应的IR指令
-    return ir_gen;  // 返回IR生成器作为IR的表示
+    // Reset counters
+    ir_gen->current_id = 0;
+    ir_gen->inst_count = 0;
+
+    // Generate IR from AST
+    generate_program(ir_gen, ast);
+
+    printf("生成了 %d 条IR指令\n", ir_gen->inst_count);
+
+    return ir_gen;
 }
 
 void ir_free(void *ir) {

@@ -60,26 +60,72 @@ static ASTNode *parser_parse_type(Parser *parser) {
         return NULL;
     }
 
-    ASTNode *type_node = ast_new_node(AST_TYPE_NAMED,
-                                      parser->current_token->line,
-                                      parser->current_token->column,
-                                      parser->current_token->filename);
-    if (!type_node) {
-        return NULL;
+    // Check if it's an array type: [element_type; size]
+    if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
+        // Parse array type: [i32; 10]
+        parser_consume(parser); // consume '['
+
+        ASTNode *array_type = ast_new_node(AST_TYPE_ARRAY,
+                                           parser->current_token->line,
+                                           parser->current_token->column,
+                                           parser->current_token->filename);
+        if (!array_type) {
+            return NULL;
+        }
+
+        // Parse element type
+        array_type->data.type_array.element_type = parser_parse_type(parser);
+        if (!array_type->data.type_array.element_type) {
+            ast_free(array_type);
+            return NULL;
+        }
+
+        // Expect ';'
+        if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+            ast_free(array_type);
+            return NULL;
+        }
+
+        // Parse size
+        if (!parser_match(parser, TOKEN_NUMBER)) {
+            ast_free(array_type);
+            return NULL;
+        }
+
+        // Convert string number to integer
+        array_type->data.type_array.size = atoi(parser->current_token->value);
+        parser_consume(parser); // consume number
+
+        // Expect ']'
+        if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
+            ast_free(array_type);
+            return NULL;
+        }
+
+        return array_type;
+    } else {
+        // Handle simple named type
+        ASTNode *type_node = ast_new_node(AST_TYPE_NAMED,
+                                          parser->current_token->line,
+                                          parser->current_token->column,
+                                          parser->current_token->filename);
+        if (!type_node) {
+            return NULL;
+        }
+
+        // 保存类型名称
+        type_node->data.type_named.name = malloc(strlen(parser->current_token->value) + 1);
+        if (!type_node->data.type_named.name) {
+            ast_free(type_node);
+            return NULL;
+        }
+        strcpy(type_node->data.type_named.name, parser->current_token->value);
+
+        // 消费类型标识符
+        parser_consume(parser);
+
+        return type_node;
     }
-
-    // 保存类型名称
-    type_node->data.type_named.name = malloc(strlen(parser->current_token->value) + 1);
-    if (!type_node->data.type_named.name) {
-        ast_free(type_node);
-        return NULL;
-    }
-    strcpy(type_node->data.type_named.name, parser->current_token->value);
-
-    // 消费类型标识符
-    parser_consume(parser);
-
-    return type_node;
 }
 
 // 解析表达式（简化版）
@@ -88,7 +134,7 @@ static ASTNode *parser_parse_expression(Parser *parser) {
         return NULL;
     }
 
-    // 简单的表达式解析，只处理标识符和数字
+    // 简单的表达式解析，处理标识符、函数调用、数字等
     if (parser_match(parser, TOKEN_IDENTIFIER)) {
         ASTNode *ident = ast_new_node(AST_IDENTIFIER,
                                       parser->current_token->line,
@@ -101,6 +147,68 @@ static ASTNode *parser_parse_expression(Parser *parser) {
             }
         }
         parser_consume(parser);
+
+        // Check if this identifier is followed by a function call '('
+        if (parser_match(parser, TOKEN_LEFT_PAREN)) {
+            // This is a function call: identifier(args)
+            ASTNode *call = ast_new_node(AST_CALL_EXPR,
+                                         parser->current_token->line,
+                                         parser->current_token->column,
+                                         parser->current_token->filename);
+            if (call) {
+                call->data.call_expr.callee = ident;  // Use the identifier as callee
+                parser_consume(parser);  // consume '('
+
+                // Parse arguments
+                call->data.call_expr.args = NULL;
+                call->data.call_expr.arg_count = 0;
+                int capacity = 0;
+
+                if (!parser_match(parser, TOKEN_RIGHT_PAREN)) {
+                    do {
+                        ASTNode *arg = parser_parse_expression(parser);
+                        if (!arg) {
+                            ast_free(call);
+                            return NULL;
+                        }
+
+                        // Expand arguments array
+                        if (call->data.call_expr.arg_count >= capacity) {
+                            int new_capacity = capacity == 0 ? 4 : capacity * 2;
+                            ASTNode **new_args = realloc(call->data.call_expr.args,
+                                                        new_capacity * sizeof(ASTNode*));
+                            if (!new_args) {
+                                ast_free(arg);
+                                ast_free(call);
+                                return NULL;
+                            }
+                            call->data.call_expr.args = new_args;
+                            capacity = new_capacity;
+                        }
+
+                        call->data.call_expr.args[call->data.call_expr.arg_count] = arg;
+                        call->data.call_expr.arg_count++;
+
+                        if (parser_match(parser, TOKEN_COMMA)) {
+                            parser_consume(parser); // consume ','
+                        } else {
+                            break;
+                        }
+                    } while (!parser_match(parser, TOKEN_RIGHT_PAREN) && parser->current_token);
+                }
+
+                if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+                    ast_free(call);
+                    return NULL;
+                }
+
+                return call;
+            } else {
+                ast_free(ident);  // Clean up the identifier we created
+                return NULL;
+            }
+        }
+
         return ident;
     } else if (parser_match(parser, TOKEN_NUMBER)) {
         ASTNode *num = ast_new_node(AST_NUMBER,
@@ -138,6 +246,74 @@ static ASTNode *parser_parse_expression(Parser *parser) {
         }
         parser_consume(parser);
         return bool_node;
+    } else if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
+        // Parse array literal: [1, 2, 3, 4, 5]
+        parser_consume(parser); // consume '['
+
+        ASTNode *array_literal = ast_new_node(AST_CALL_EXPR,  // Using call expression temporarily
+                                              parser->current_token->line,
+                                              parser->current_token->column,
+                                              parser->current_token->filename);
+        if (!array_literal) {
+            return NULL;
+        }
+
+        // Initialize the array literal as a call to an array constructor
+        array_literal->data.call_expr.callee = ast_new_node(AST_IDENTIFIER,
+                                                           parser->current_token->line,
+                                                           parser->current_token->column,
+                                                           parser->current_token->filename);
+        if (array_literal->data.call_expr.callee) {
+            array_literal->data.call_expr.callee->data.identifier.name = malloc(6);
+            if (array_literal->data.call_expr.callee->data.identifier.name) {
+                strcpy(array_literal->data.call_expr.callee->data.identifier.name, "array");
+            }
+        }
+
+        // Parse array elements
+        array_literal->data.call_expr.args = NULL;
+        array_literal->data.call_expr.arg_count = 0;
+        int capacity = 0;
+
+        if (!parser_match(parser, TOKEN_RIGHT_BRACKET)) {
+            do {
+                ASTNode *element = parser_parse_expression(parser);
+                if (!element) {
+                    ast_free(array_literal);
+                    return NULL;
+                }
+
+                // Expand arguments array
+                if (array_literal->data.call_expr.arg_count >= capacity) {
+                    int new_capacity = capacity == 0 ? 4 : capacity * 2;
+                    ASTNode **new_args = realloc(array_literal->data.call_expr.args,
+                                                new_capacity * sizeof(ASTNode*));
+                    if (!new_args) {
+                        ast_free(element);
+                        ast_free(array_literal);
+                        return NULL;
+                    }
+                    array_literal->data.call_expr.args = new_args;
+                    capacity = new_capacity;
+                }
+
+                array_literal->data.call_expr.args[array_literal->data.call_expr.arg_count] = element;
+                array_literal->data.call_expr.arg_count++;
+
+                if (parser_match(parser, TOKEN_COMMA)) {
+                    parser_consume(parser); // consume ','
+                } else {
+                    break;
+                }
+            } while (!parser_match(parser, TOKEN_RIGHT_BRACKET) && parser->current_token);
+        }
+
+        if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
+            ast_free(array_literal);
+            return NULL;
+        }
+
+        return array_literal;
     }
 
     return NULL;
@@ -437,12 +613,48 @@ static ASTNode *parser_parse_fn_decl(Parser *parser) {
     }
 
     // 检查是否有返回类型（可选）
+    // 支持两种语法：fn main() -> i32 和 fn main() i32
     if (parser_match(parser, TOKEN_ARROW)) {
         parser_consume(parser); // 消费 '->'
         fn_decl->data.fn_decl.return_type = parser_parse_type(parser);
         if (!fn_decl->data.fn_decl.return_type) {
             ast_free(fn_decl);
             return NULL;
+        }
+    } else if (parser->current_token && parser_match(parser, TOKEN_IDENTIFIER)) {
+        // Check if the identifier is a type name (for syntax like fn main() i32)
+        // We need to check the token value to see if it's a type
+        if (strcmp(parser->current_token->value, "i32") == 0 ||
+            strcmp(parser->current_token->value, "i64") == 0 ||
+            strcmp(parser->current_token->value, "i8") == 0 ||
+            strcmp(parser->current_token->value, "i16") == 0 ||
+            strcmp(parser->current_token->value, "u32") == 0 ||
+            strcmp(parser->current_token->value, "u64") == 0 ||
+            strcmp(parser->current_token->value, "u8") == 0 ||
+            strcmp(parser->current_token->value, "u16") == 0 ||
+            strcmp(parser->current_token->value, "f32") == 0 ||
+            strcmp(parser->current_token->value, "f64") == 0 ||
+            strcmp(parser->current_token->value, "bool") == 0 ||
+            strcmp(parser->current_token->value, "void") == 0) {
+            // Manually create the type node
+            fn_decl->data.fn_decl.return_type = ast_new_node(AST_TYPE_NAMED, line, col, filename);
+            if (fn_decl->data.fn_decl.return_type) {
+                fn_decl->data.fn_decl.return_type->data.type_named.name = malloc(strlen(parser->current_token->value) + 1);
+                if (fn_decl->data.fn_decl.return_type->data.type_named.name) {
+                    strcpy(fn_decl->data.fn_decl.return_type->data.type_named.name, parser->current_token->value);
+                }
+            }
+            // Consume the type identifier token
+            parser_consume(parser);
+        } else {
+            // Not a type name, use default void
+            fn_decl->data.fn_decl.return_type = ast_new_node(AST_TYPE_NAMED, line, col, filename);
+            if (fn_decl->data.fn_decl.return_type) {
+                fn_decl->data.fn_decl.return_type->data.type_named.name = malloc(5);
+                if (fn_decl->data.fn_decl.return_type->data.type_named.name) {
+                    strcpy(fn_decl->data.fn_decl.return_type->data.type_named.name, "void");
+                }
+            }
         }
     } else {
         // 默认返回类型为 void

@@ -59,7 +59,7 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
         fprintf(codegen->output_file, "0");
         return;
     }
-    
+
     switch (inst->type) {
         case IR_VAR_DECL:
             if (inst->data.var.name) {
@@ -70,6 +70,18 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
             break;
         case IR_ASSIGN:
             fprintf(codegen->output_file, "%s", inst->data.assign.dest);
+            break;
+        case IR_CALL:
+            fprintf(codegen->output_file, "%s(", inst->data.call.func_name);
+            for (int i = 0; i < inst->data.call.arg_count; i++) {
+                if (i > 0) fprintf(codegen->output_file, ", ");
+                if (inst->data.call.args[i]) {
+                    codegen_write_value(codegen, inst->data.call.args[i]);
+                } else {
+                    fprintf(codegen->output_file, "NULL");
+                }
+            }
+            fprintf(codegen->output_file, ")");
             break;
         default:
             fprintf(codegen->output_file, "temp_%d", inst->id);
@@ -186,16 +198,24 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             fprintf(codegen->output_file, "while (");
             codegen_write_value(codegen, inst->data.while_stmt.condition);
             fprintf(codegen->output_file, ") {\n");
-            
+
             for (int i = 0; i < inst->data.while_stmt.body_count; i++) {
                 fprintf(codegen->output_file, "  ");
                 codegen_generate_inst(codegen, inst->data.while_stmt.body[i]);
                 fprintf(codegen->output_file, ";\n");
             }
-            
+
             fprintf(codegen->output_file, "}");
             break;
-            
+
+        case IR_TRY_CATCH:
+            // For now, just generate the try body without error handling
+            // In a full implementation, we'd generate proper error handling code
+            if (inst->data.try_catch.try_body) {
+                codegen_generate_inst(codegen, inst->data.try_catch.try_body);
+            }
+            break;
+
         default:
             fprintf(codegen->output_file, "/* Unknown instruction type: %d */", inst->type);
             break;
