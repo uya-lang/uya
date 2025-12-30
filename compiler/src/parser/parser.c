@@ -332,43 +332,10 @@ static ASTNode *parser_parse_expression(Parser *parser) {
     if (parser->current_token) {
         TokenType op_type = parser->current_token->type;
 
-        // Check if it's an assignment operator
-        if (op_type == TOKEN_ASSIGN && left && left->type == AST_IDENTIFIER) {
-            parser_consume(parser); // consume the assignment operator
-
-            // Parse the right operand
-            ASTNode *right = parser_parse_expression(parser);
-            if (!right) {
-                ast_free(left);
-                return NULL;
-            }
-
-            // Create assignment statement
-            ASTNode *assign_stmt = ast_new_node(AST_ASSIGN,
-                                               parser->current_token->line,
-                                               parser->current_token->column,
-                                               parser->current_token->filename);
-            if (!assign_stmt) {
-                ast_free(left);
-                ast_free(right);
-                return NULL;
-            }
-
-            // Set destination and source
-            assign_stmt->data.assign.dest = malloc(strlen(left->data.identifier.name) + 1);
-            if (assign_stmt->data.assign.dest) {
-                strcpy(assign_stmt->data.assign.dest, left->data.identifier.name);
-            }
-            assign_stmt->data.assign.src = right;
-
-            ast_free(left); // Free the temporary identifier
-
-            return assign_stmt;
-        }
-        // Check if it's a binary operator
-        else if (op_type == TOKEN_PLUS || op_type == TOKEN_MINUS ||
+        // Check if it's a binary operator (including assignment)
+        if (op_type == TOKEN_PLUS || op_type == TOKEN_MINUS ||
             op_type == TOKEN_ASTERISK || op_type == TOKEN_SLASH ||
-            op_type == TOKEN_PERCENT || op_type == TOKEN_EQUAL ||  // This is comparison ==
+            op_type == TOKEN_PERCENT || op_type == TOKEN_EQUAL ||  // comparison ==
             op_type == TOKEN_NOT_EQUAL || op_type == TOKEN_LESS ||
             op_type == TOKEN_LESS_EQUAL || op_type == TOKEN_GREATER ||
             op_type == TOKEN_GREATER_EQUAL) {
@@ -398,6 +365,39 @@ static ASTNode *parser_parse_expression(Parser *parser) {
             binary_expr->data.binary_expr.right = right;
 
             return binary_expr;
+        }
+        // Handle assignment operator separately
+        else if (op_type == TOKEN_ASSIGN && left && left->type == AST_IDENTIFIER) {
+            parser_consume(parser); // consume the assignment operator
+
+            // Parse the right operand
+            ASTNode *right = parser_parse_expression(parser);
+            if (!right) {
+                ast_free(left);
+                return NULL;
+            }
+
+            // Create assignment expression
+            ASTNode *assign_expr = ast_new_node(AST_ASSIGN,
+                                               parser->current_token->line,
+                                               parser->current_token->column,
+                                               parser->current_token->filename);
+            if (!assign_expr) {
+                ast_free(left);
+                ast_free(right);
+                return NULL;
+            }
+
+            // Set destination and source
+            assign_expr->data.assign.dest = malloc(strlen(left->data.identifier.name) + 1);
+            if (assign_expr->data.assign.dest) {
+                strcpy(assign_expr->data.assign.dest, left->data.identifier.name);
+            }
+            assign_expr->data.assign.src = right;
+
+            ast_free(left); // Free the temporary identifier
+
+            return assign_expr;
         }
     }
 
@@ -501,67 +501,7 @@ static ASTNode *parser_parse_statement(Parser *parser) {
     } else if (parser_match(parser, TOKEN_WHILE)) {
         return parser_parse_while_stmt(parser);
     } else {
-        // Check for assignment statement: identifier '=' expression
-        Token *saved_token = parser->current_token;  // Save current position
-
-        if (parser_match(parser, TOKEN_IDENTIFIER)) {
-            // Look ahead to see if we have identifier followed by assignment
-            Token *ident_token = parser->current_token;
-            parser_consume(parser);  // consume the identifier
-
-            if (parser_match(parser, TOKEN_ASSIGN)) {
-                // This is an assignment statement: identifier = expression
-                parser->current_token = saved_token;  // Restore to identifier position
-
-                ASTNode *assign_stmt = ast_new_node(AST_ASSIGN,
-                                                   parser->current_token->line,
-                                                   parser->current_token->column,
-                                                   parser->current_token->filename);
-                if (!assign_stmt) {
-                    return NULL;
-                }
-
-                // Parse the identifier (destination)
-                ASTNode *ident_node = ast_new_node(AST_IDENTIFIER,
-                                                 parser->current_token->line,
-                                                 parser->current_token->column,
-                                                 parser->current_token->filename);
-                if (!ident_node) {
-                    ast_free(assign_stmt);
-                    return NULL;
-                }
-
-                ident_node->data.identifier.name = malloc(strlen(parser->current_token->value) + 1);
-                if (ident_node->data.identifier.name) {
-                    strcpy(ident_node->data.identifier.name, parser->current_token->value);
-                }
-
-                parser_consume(parser);  // consume identifier
-                parser_consume(parser);  // consume assignment operator
-
-                // Parse the right side expression
-                ASTNode *right = parser_parse_expression(parser);
-                if (!right) {
-                    ast_free(assign_stmt);
-                    ast_free(ident_node);
-                    return NULL;
-                }
-
-                assign_stmt->data.assign.dest = malloc(strlen(ident_node->data.identifier.name) + 1);
-                if (assign_stmt->data.assign.dest) {
-                    strcpy(assign_stmt->data.assign.dest, ident_node->data.identifier.name);
-                }
-                assign_stmt->data.assign.src = right;
-
-                ast_free(ident_node);  // Free the temporary identifier node
-                return assign_stmt;
-            } else {
-                // Not an assignment, restore position and parse as expression
-                parser->current_token = saved_token;
-            }
-        }
-
-        // Parse as expression statement (fallback)
+        // Parse as expression statement (which may include assignments)
         return parser_parse_expression(parser);
     }
 }

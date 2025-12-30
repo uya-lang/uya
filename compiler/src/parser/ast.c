@@ -274,10 +274,15 @@ void ast_print(ASTNode *node, int indent) {
             }
             break;
             
+        case AST_ASSIGN:
+            printf("AssignStmt: %s = ", node->data.assign.dest);
+            ast_print(node->data.assign.src, indent + 1);
+            break;
+
         case AST_TYPE_NAMED:
             printf("Type: %s\n", node->data.type_named.name);
             break;
-            
+
         default:
             printf("Unknown node type: %d\n", node->type);
             break;
