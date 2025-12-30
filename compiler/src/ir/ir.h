@@ -83,6 +83,8 @@ typedef enum {
     IR_OP_LE,
     IR_OP_GT,
     IR_OP_GE,
+    IR_OP_ADDR_OF,      // 地址操作符 &
+    IR_OP_DEREF,        // 解引用操作符 *
 } IROp;
 
 // IR 指令结构

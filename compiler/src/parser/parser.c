@@ -137,10 +137,70 @@ static ASTNode *parser_parse_type(Parser *parser) {
 
 // 解析表达式（简化版）
 
-// 解析表达式（增强版，支持二元运算）
+// 解析表达式（增强版，支持一元和二元运算）
 static ASTNode *parser_parse_expression(Parser *parser) {
     if (!parser->current_token) {
         return NULL;
+    }
+
+    // Check for unary operators first (like &x, -x, !x)
+    if (parser_match(parser, TOKEN_AMPERSAND)) {
+        parser_consume(parser); // consume '&'
+
+        ASTNode *operand = parser_parse_expression(parser);
+        if (!operand) return NULL;
+
+        ASTNode *unary_expr = ast_new_node(AST_UNARY_EXPR,
+                                          parser->current_token->line,
+                                          parser->current_token->column,
+                                          parser->current_token->filename);
+        if (!unary_expr) {
+            ast_free(operand);
+            return NULL;
+        }
+
+        unary_expr->data.unary_expr.op = TOKEN_AMPERSAND;
+        unary_expr->data.unary_expr.operand = operand;
+
+        return unary_expr;
+    } else if (parser_match(parser, TOKEN_MINUS)) {
+        parser_consume(parser); // consume '-'
+
+        ASTNode *operand = parser_parse_expression(parser);
+        if (!operand) return NULL;
+
+        ASTNode *unary_expr = ast_new_node(AST_UNARY_EXPR,
+                                          parser->current_token->line,
+                                          parser->current_token->column,
+                                          parser->current_token->filename);
+        if (!unary_expr) {
+            ast_free(operand);
+            return NULL;
+        }
+
+        unary_expr->data.unary_expr.op = TOKEN_MINUS;
+        unary_expr->data.unary_expr.operand = operand;
+
+        return unary_expr;
+    } else if (parser_match(parser, TOKEN_EXCLAMATION)) {
+        parser_consume(parser); // consume '!'
+
+        ASTNode *operand = parser_parse_expression(parser);
+        if (!operand) return NULL;
+
+        ASTNode *unary_expr = ast_new_node(AST_UNARY_EXPR,
+                                          parser->current_token->line,
+                                          parser->current_token->column,
+                                          parser->current_token->filename);
+        if (!unary_expr) {
+            ast_free(operand);
+            return NULL;
+        }
+
+        unary_expr->data.unary_expr.op = TOKEN_EXCLAMATION;
+        unary_expr->data.unary_expr.operand = operand;
+
+        return unary_expr;
     }
 
     // 简单的表达式解析，处理标识符、函数调用、数字等
@@ -619,7 +679,7 @@ static ASTNode *parser_parse_for_stmt(Parser *parser) {
         return NULL;
     }
 
-    // 解析可迭代对象
+    // 解析可迭代对象 (can be complex expressions like function calls)
     ASTNode *iterable = parser_parse_expression(parser);
     if (!iterable) {
         fprintf(stderr, "语法错误: for 语句需要可迭代对象\n");

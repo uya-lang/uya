@@ -84,6 +84,31 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
                 fprintf(codegen->output_file, "0"); // default value
             }
             break;
+        case IR_UNARY_OP:
+            switch (inst->data.unary_op.op) {
+                case IR_OP_ADDR_OF:
+                    fprintf(codegen->output_file, "&");
+                    codegen_write_value(codegen, inst->data.unary_op.operand);
+                    break;
+                case IR_OP_DEREF:
+                    fprintf(codegen->output_file, "*");
+                    codegen_write_value(codegen, inst->data.unary_op.operand);
+                    break;
+                case IR_OP_NEG:
+                    fprintf(codegen->output_file, "-");
+                    codegen_write_value(codegen, inst->data.unary_op.operand);
+                    break;
+                case IR_OP_NOT:
+                    fprintf(codegen->output_file, "!");
+                    codegen_write_value(codegen, inst->data.unary_op.operand);
+                    break;
+                default:
+                    fprintf(codegen->output_file, "/* UNARY_OP */");
+                    codegen_write_value(codegen, inst->data.unary_op.operand);
+                    break;
+            }
+            break;
+
         case IR_BINARY_OP:
             fprintf(codegen->output_file, "(");
             codegen_write_value(codegen, inst->data.binary_op.left);
@@ -105,6 +130,8 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
                 case IR_OP_BIT_XOR: fprintf(codegen->output_file, " ^ "); break;
                 case IR_OP_LEFT_SHIFT: fprintf(codegen->output_file, " << "); break;
                 case IR_OP_RIGHT_SHIFT: fprintf(codegen->output_file, " >> "); break;
+                case IR_OP_ADDR_OF: fprintf(codegen->output_file, " & "); break;  // Should be handled in unary_op
+                case IR_OP_DEREF: fprintf(codegen->output_file, " * "); break;    // Should be handled in unary_op
                 default: fprintf(codegen->output_file, " UNKNOWN_OP "); break;
             }
 
