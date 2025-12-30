@@ -56,23 +56,20 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
 
     switch (expr->type) {
         case AST_NUMBER: {
-            // Create a temporary variable for the number
-            IRInst *num_inst = irinst_new(IR_VAR_DECL);
-            if (!num_inst) return NULL;
+            // Create a constant for the number
+            IRInst *const_inst = irinst_new(IR_CONSTANT);
+            if (!const_inst) return NULL;
 
-            // Generate a unique name for the temporary
-            char temp_name[32];
-            snprintf(temp_name, sizeof(temp_name), "temp_%d", ir_gen->current_id++);
-            num_inst->data.var.name = malloc(strlen(temp_name) + 1);
-            if (!num_inst->data.var.name) {
-                irinst_free(num_inst);
+            // Store the numeric value
+            const_inst->data.constant.value = malloc(strlen(expr->data.number.value) + 1);
+            if (!const_inst->data.constant.value) {
+                irinst_free(const_inst);
                 return NULL;
             }
-            strcpy(num_inst->data.var.name, temp_name);
-            num_inst->data.var.type = IR_TYPE_I32;
-            num_inst->data.var.init = NULL;
+            strcpy(const_inst->data.constant.value, expr->data.number.value);
+            const_inst->data.constant.type = IR_TYPE_I32; // Numbers default to i32
 
-            return num_inst;
+            return const_inst;
         }
 
         case AST_IDENTIFIER: {
@@ -521,6 +518,67 @@ static IRInst *generate_stmt_for_body(IRGenerator *ir_gen, struct ASTNode *stmt)
             }
 
             return while_inst;
+        }
+
+        case AST_FOR_STMT: {
+            IRInst *for_inst = irinst_new(IR_FOR);
+            if (!for_inst) return NULL;
+
+            // Generate iterable expression
+            for_inst->data.for_stmt.iterable = generate_expr(ir_gen, stmt->data.for_stmt.iterable);
+
+            // Generate index range (if present)
+            if (stmt->data.for_stmt.index_range) {
+                for_inst->data.for_stmt.index_range = generate_expr(ir_gen, stmt->data.for_stmt.index_range);
+            } else {
+                for_inst->data.for_stmt.index_range = NULL;
+            }
+
+            // Copy variable names
+            if (stmt->data.for_stmt.item_var) {
+                for_inst->data.for_stmt.item_var = malloc(strlen(stmt->data.for_stmt.item_var) + 1);
+                if (for_inst->data.for_stmt.item_var) {
+                    strcpy(for_inst->data.for_stmt.item_var, stmt->data.for_stmt.item_var);
+                }
+            } else {
+                for_inst->data.for_stmt.item_var = NULL;
+            }
+
+            if (stmt->data.for_stmt.index_var) {
+                for_inst->data.for_stmt.index_var = malloc(strlen(stmt->data.for_stmt.index_var) + 1);
+                if (for_inst->data.for_stmt.index_var) {
+                    strcpy(for_inst->data.for_stmt.index_var, stmt->data.for_stmt.index_var);
+                }
+            } else {
+                for_inst->data.for_stmt.index_var = NULL;
+            }
+
+            // Generate body
+            if (stmt->data.for_stmt.body) {
+                if (stmt->data.for_stmt.body->type == AST_BLOCK) {
+                    for_inst->data.for_stmt.body_count = stmt->data.for_stmt.body->data.block.stmt_count;
+                    for_inst->data.for_stmt.body = malloc(for_inst->data.for_stmt.body_count * sizeof(IRInst*));
+                    if (!for_inst->data.for_stmt.body) {
+                        irinst_free(for_inst);
+                        return NULL;
+                    }
+
+                    for (int i = 0; i < for_inst->data.for_stmt.body_count; i++) {
+                        for_inst->data.for_stmt.body[i] = generate_stmt_for_body(ir_gen, stmt->data.for_stmt.body->data.block.stmts[i]);
+                    }
+                } else {
+                    for_inst->data.for_stmt.body_count = 1;
+                    for_inst->data.for_stmt.body = malloc(sizeof(IRInst*));
+                    if (for_inst->data.for_stmt.body) {
+                        for_inst->data.for_stmt.body[0] = generate_stmt_for_body(ir_gen, stmt->data.for_stmt.body);
+                    }
+                }
+            } else {
+                for_inst->data.for_stmt.body_count = 0;
+                for_inst->data.for_stmt.body = NULL;
+            }
+
+            return for_inst;
         }
 
         case AST_ASSIGN: {

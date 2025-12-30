@@ -34,6 +34,8 @@ typedef enum {
     IR_ERROR_UNION,    // 错误联合类型操作
     IR_TRY_CATCH,      // try/catch
     IR_SLICE,          // 数组切片操作
+    IR_FOR,            // for 循环
+    IR_CONSTANT,       // 常量值
 } IRInstType;
 
 // 数据类型
@@ -199,6 +201,22 @@ typedef struct IRInst {
             struct IRInst *start;   // 起始索引
             struct IRInst *length;  // 切片长度
         } slice_op;
+
+        // for 循环
+        struct {
+            struct IRInst *iterable;    // 可迭代对象
+            struct IRInst *index_range; // 索引范围（可选）
+            char *item_var;             // 项变量名
+            char *index_var;            // 索引变量名（可选）
+            struct IRInst **body;       // 循环体指令数组
+            int body_count;             // 循环体指令数量
+        } for_stmt;
+
+        // 常量值
+        struct {
+            char *value;                // 常量值（字符串形式）
+            IRType type;                // 常量类型
+        } constant;
     } data;
 } IRInst;
 

@@ -22,6 +22,7 @@ typedef enum {
     AST_CONTINUE_STMT,
     AST_DEFER_STMT,
     AST_ERRDEFER_STMT,
+    AST_FOR_STMT,
 
     // 表达式类型
     AST_BINARY_EXPR,
@@ -182,6 +183,15 @@ typedef struct ASTNode {
         struct {
             struct ASTNode *base_type;
         } type_error_union;
+
+        // for 语句
+        struct {
+            struct ASTNode *iterable;
+            struct ASTNode *index_range;  // May be NULL for basic form
+            char *item_var;
+            char *index_var;              // May be NULL for basic form
+            struct ASTNode *body;
+        } for_stmt;
     } data;
 } ASTNode;
 

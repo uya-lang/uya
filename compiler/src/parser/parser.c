@@ -58,6 +58,7 @@ static Token *parser_expect(Parser *parser, TokenType type) {
 static ASTNode *parser_parse_statement(Parser *parser);
 static ASTNode *parser_parse_if_stmt(Parser *parser);
 static ASTNode *parser_parse_while_stmt(Parser *parser);
+static ASTNode *parser_parse_for_stmt(Parser *parser);
 static ASTNode *parser_parse_block(Parser *parser);
 
 // 解析类型
@@ -500,6 +501,8 @@ static ASTNode *parser_parse_statement(Parser *parser) {
         return parser_parse_if_stmt(parser);
     } else if (parser_match(parser, TOKEN_WHILE)) {
         return parser_parse_while_stmt(parser);
+    } else if (parser_match(parser, TOKEN_FOR)) {
+        return parser_parse_for_stmt(parser);
     } else {
         // Parse as expression statement (which may include assignments)
         return parser_parse_expression(parser);
@@ -592,6 +595,132 @@ static ASTNode *parser_parse_while_stmt(Parser *parser) {
     }
 
     return while_stmt;
+}
+
+// 解析 for 语句
+static ASTNode *parser_parse_for_stmt(Parser *parser) {
+    if (!parser_match(parser, TOKEN_FOR)) {
+        return NULL;
+    }
+
+    int line = parser->current_token->line;
+    int col = parser->current_token->column;
+    const char *filename = parser->current_token->filename;
+
+    parser_consume(parser); // 消费 'for'
+
+    // 期望 '('
+    if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+        return NULL;
+    }
+
+    // 解析可迭代对象
+    ASTNode *iterable = parser_parse_expression(parser);
+    if (!iterable) {
+        fprintf(stderr, "语法错误: for 语句需要可迭代对象\n");
+        return NULL;
+    }
+
+    // 检查是否有索引范围（for (iterable, index_range) 形式）
+    ASTNode *index_range = NULL;
+    if (parser_match(parser, TOKEN_COMMA)) {
+        parser_consume(parser); // 消费 ','
+        index_range = parser_parse_expression(parser);
+        if (!index_range) {
+            ast_free(iterable);
+            fprintf(stderr, "语法错误: for 语句需要索引范围\n");
+            return NULL;
+        }
+    }
+
+    // 期望 ')'
+    if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+        ast_free(iterable);
+        if (index_range) ast_free(index_range);
+        return NULL;
+    }
+
+    // 期望 '|'（开始变量声明）
+    if (!parser_expect(parser, TOKEN_PIPE)) {
+        ast_free(iterable);
+        if (index_range) ast_free(index_range);
+        return NULL;
+    }
+
+    // 解析项变量名
+    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+        ast_free(iterable);
+        if (index_range) ast_free(index_range);
+        fprintf(stderr, "语法错误: for 语句需要项变量名\n");
+        return NULL;
+    }
+
+    char *item_var = malloc(strlen(parser->current_token->value) + 1);
+    if (!item_var) {
+        ast_free(iterable);
+        if (index_range) ast_free(index_range);
+        return NULL;
+    }
+    strcpy(item_var, parser->current_token->value);
+    parser_consume(parser); // 消费项变量名
+
+    // 检查是否有索引变量（for (iterable, index_range) |item, index| 形式）
+    char *index_var = NULL;
+    if (parser_match(parser, TOKEN_COMMA)) {
+        parser_consume(parser); // 消费 ','
+        if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+            ast_free(iterable);
+            if (index_range) ast_free(index_range);
+            free(item_var);
+            fprintf(stderr, "语法错误: for 语句需要索引变量名\n");
+            return NULL;
+        }
+
+        index_var = malloc(strlen(parser->current_token->value) + 1);
+        if (index_var) {
+            strcpy(index_var, parser->current_token->value);
+        }
+        parser_consume(parser); // 消费索引变量名
+    }
+
+    // 期望 '|'（结束变量声明）
+    if (!parser_expect(parser, TOKEN_PIPE)) {
+        ast_free(iterable);
+        if (index_range) ast_free(index_range);
+        free(item_var);
+        if (index_var) free(index_var);
+        return NULL;
+    }
+
+    // 解析循环体（代码块）
+    ASTNode *body = parser_parse_block(parser);
+    if (!body) {
+        ast_free(iterable);
+        if (index_range) ast_free(index_range);
+        free(item_var);
+        if (index_var) free(index_var);
+        return NULL;
+    }
+
+    // 创建 for 语句节点
+    ASTNode *for_stmt = ast_new_node(AST_FOR_STMT,
+                                     line, col, filename);
+    if (!for_stmt) {
+        ast_free(iterable);
+        if (index_range) ast_free(index_range);
+        free(item_var);
+        if (index_var) free(index_var);
+        ast_free(body);
+        return NULL;
+    }
+
+    for_stmt->data.for_stmt.iterable = iterable;
+    for_stmt->data.for_stmt.index_range = index_range;
+    for_stmt->data.for_stmt.item_var = item_var;
+    for_stmt->data.for_stmt.index_var = index_var;
+    for_stmt->data.for_stmt.body = body;
+
+    return for_stmt;
 }
 
 // 解析代码块

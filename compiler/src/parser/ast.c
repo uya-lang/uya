@@ -279,6 +279,27 @@ void ast_print(ASTNode *node, int indent) {
             ast_print(node->data.assign.src, indent + 1);
             break;
 
+        case AST_FOR_STMT:
+            printf("ForStmt:\n");
+            print_indent(indent + 1);
+            printf("Iterable:\n");
+            ast_print(node->data.for_stmt.iterable, indent + 2);
+            if (node->data.for_stmt.index_range) {
+                print_indent(indent + 1);
+                printf("IndexRange:\n");
+                ast_print(node->data.for_stmt.index_range, indent + 2);
+            }
+            print_indent(indent + 1);
+            printf("ItemVar: %s", node->data.for_stmt.item_var ? node->data.for_stmt.item_var : "(null)");
+            if (node->data.for_stmt.index_var) {
+                printf(", IndexVar: %s", node->data.for_stmt.index_var);
+            }
+            printf("\n");
+            print_indent(indent + 1);
+            printf("Body:\n");
+            ast_print(node->data.for_stmt.body, indent + 2);
+            break;
+
         case AST_TYPE_NAMED:
             printf("Type: %s\n", node->data.type_named.name);
             break;

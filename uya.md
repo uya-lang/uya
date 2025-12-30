@@ -144,7 +144,7 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
       - ✅ 可以作为 FFI 函数调用的参数：`printf("hello\n");`
       - ✅ 可以作为 FFI 函数声明的参数类型示例：`extern i32 printf(byte* fmt, ...);`
       - ✅ 可以与 `null` 比较（如果函数返回 `byte*`）：`if ptr == null { ... }`
-      - ❌ 不能赋值给变量：`let s: byte* = "hello";`（编译错误）
+      - ❌ 不能赋值给变量：`const s: byte* = "hello";`（编译错误）
       - ❌ 不能用于数组索引：`arr["hello"]`（编译错误）
       - ❌ 不能用于其他非 FFI 操作
   - **原始字符串字面量**：`` `...` ``，类型为 `byte*`（无转义序列，用于包含特殊字符的字符串）
@@ -240,7 +240,7 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
       
       fn example() void {
           main.helper_func();      // 调用 main 模块的函数
-          let file: std.io.File = std.io.open_file("test.txt");  // 使用 std.io 模块的结构体
+          const file: std.io.File = std.io.open_file("test.txt");  // 使用 std.io 模块的结构体
       }
       ```
   - **导入特定项**：`use main.helper_func;` 或 `use std.io.read_file;`
@@ -253,7 +253,7 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
       
       fn example() void {
           helper_func();           // 直接调用，无需 main. 前缀
-          let file: File = read_file("test.txt");  // 直接使用，无需 std.io. 前缀
+          const file: File = read_file("test.txt");  // 直接使用，无需 std.io. 前缀
       }
       ```
   - **导入结构体/接口**：`use std.io.File;` 或 `use std.io.IWriter;`
@@ -264,8 +264,8 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
       use std.io.IWriter;
       
       fn example() void {
-          let f: File = File{ fd: 1 };  // 直接使用 File 类型
-          let w: IWriter = ...;         // 直接使用 IWriter 接口
+          const f: File = File{ fd: 1 };  // 直接使用 File 类型
+          const w: IWriter = ...;         // 直接使用 IWriter 接口
       }
       ```
   - **使用别名导入**：`use std.io as io;`
@@ -276,7 +276,7 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
       
       fn example() void {
           io.read_file("test.txt");     // 使用别名 io 作为前缀
-          let f: io.File = io.File{ fd: 1 };
+          const f: io.File = io.File{ fd: 1 };
       }
       ```
   - **混合使用**：可以同时导入整个模块和特定项
@@ -386,7 +386,7 @@ export struct File {
 
 export fn open_file(path: byte*) !File {
     // 使用导入的函数
-    let value: i32 = helper_func();
+    const value: i32 = helper_func();
     return File{ fd: 1 };
 }
 ```
@@ -439,7 +439,7 @@ use common.helper_func;
 use std.io;
 
 fn main() i32 {
-    let value: i32 = helper_func();
+    const value: i32 = helper_func();
     return 0;
 }
 
@@ -458,7 +458,7 @@ export fn read_file() i32 {
 use std.io as io;
 
 fn main() i32 {
-    let file: io.File = io.open_file("test.txt");
+    const file: io.File = io.open_file("test.txt");
     return 0;
 }
 ```
@@ -507,17 +507,17 @@ fn main() i32 {
 - **示例**：
   ```uya
   // 声明 3x4 的 i32 二维数组
-  let matrix: [[i32; 4]; 3] = [[0; 4]; 3];
+  const matrix: [[i32; 4]; 3] = [[0; 4]; 3];
   
   // 使用数组字面量初始化
-  let matrix2: [[i32; 4]; 3] = [
+  const matrix2: [[i32; 4]; 3] = [
       [1, 2, 3, 4],
       [5, 6, 7, 8],
       [9, 10, 11, 12]
   ];
   
   // 访问元素（需要边界检查证明）
-  let value: i32 = matrix2[0][1];  // 访问第0行第1列，值为 2
+  const value: i32 = matrix2[0][1];  // 访问第0行第1列，值为 2
   ```
 
 **类型相关的极值常量**：
@@ -530,8 +530,8 @@ fn main() i32 {
   const MIN: i32 = min;  // -2147483648（从类型注解 i32 推断）
   
   // 在溢出检查中使用（从变量类型推断）
-  let a: i32 = ...;
-  let b: i32 = ...;
+  const a: i32 = ...;
+  const b: i32 = ...;
   if a > 0 && b > 0 && a > max - b {  // 从 a 和 b 的类型 i32 推断
       return error.Overflow;
   }
@@ -689,7 +689,7 @@ const v: Vec3 = Vec3{ x: 1.0, y: 2.0, z: 3.0 };
         data: [[f32; 4]; 3]  // 3行4列的矩阵
     }
     
-    let mat: Mat3x4 = Mat3x4{
+    const mat: Mat3x4 = Mat3x4{
         data: [
             [1.0, 2.0, 3.0, 4.0],
             [5.0, 6.0, 7.0, 8.0],
@@ -699,7 +699,7 @@ const v: Vec3 = Vec3{ x: 1.0, y: 2.0, z: 3.0 };
     
     // 访问多维数组字段（需要边界检查证明）
     if i >= 0 && i < 3 && j >= 0 && j < 4 {
-        let value: f32 = mat.data[i][j];  // 编译器证明安全
+        const value: f32 = mat.data[i][j];  // 编译器证明安全
     }
     ```
 - 访问链可以任意嵌套：`struct_var.field1.array_field[i].subfield`
@@ -721,7 +721,7 @@ const v: Vec3 = Vec3{ x: 1.0, y: 2.0, z: 3.0 };
   - **切片结果类型**：切片操作返回一个新的数组，类型为 `[T; M]`，其中 M = len（切片长度）
   - **零运行时开销**：切片操作在编译期验证安全，运行时直接访问内存，无额外开销
 - **字段可变性**：只有 `mut` 结构体变量才能修改其字段
-  - `let s: S = ...` 时，`s.field = value` 会编译错误
+  - `const s: S = ...` 时，`s.field = value` 会编译错误
   - `var s: S = ...` 时，可以修改 `s.field`
   - 字段可变性由外层变量决定，不支持字段级 `mut`
   - **嵌套结构体示例**：
@@ -734,7 +734,7 @@ const v: Vec3 = Vec3{ x: 1.0, y: 2.0, z: 3.0 };
     outer.inner.x = 20;  // ✅ 可以修改，因为 outer 是 mut
     
     // ❌ 不能修改的情况
-    let outer: Outer = Outer{ inner: Inner{ x: 10 } };
+    const outer: Outer = Outer{ inner: Inner{ x: 10 } };
     outer.inner.x = 20;  // ❌ 编译错误：outer 不是 mut，无法修改字段
     ```
 - **结构体初始化**：必须提供所有字段的值，不支持部分初始化或默认值
@@ -801,7 +801,7 @@ fn print_hello() void {
     - 这个值会成为整个 `catch` 表达式的值
     - 示例：
       ```uya
-      let result: i32 = divide(10, 0) catch |err| {
+      const result: i32 = divide(10, 0) catch |err| {
           printf("Error: %d\n", err);
           0  // 返回默认值，result = 0
       };
@@ -814,7 +814,7 @@ fn print_hello() void {
     - 示例：
       ```uya
       fn main() i32 {
-          let result: i32 = read_file("test.txt") catch |err| {
+          const result: i32 = read_file("test.txt") catch |err| {
               printf("Failed to read file\n");
               return 1;  // 直接退出 main 函数，返回 1（跳过后续所有代码）
           };
@@ -830,8 +830,8 @@ fn print_hello() void {
 - **错误处理**（0.13）：
   - 0.13 支持**错误联合类型** `!T` 和 **try/catch** 语法，用于函数错误返回
   - 函数可以返回错误联合类型：`fn foo() !i32` 表示返回 `i32` 或 `Error`
-  - 使用 `try` 关键字传播错误：`let result: i32 = try divide(10, 2);`
-  - 使用 `catch` 语法捕获错误：`let result: i32 = divide(10, 0) catch |err| { ... };`
+  - 使用 `try` 关键字传播错误：`const result: i32 = try divide(10, 2);`
+  - 使用 `catch` 语法捕获错误：`const result: i32 = divide(10, 0) catch |err| { ... };`
   - **无运行时 panic 路径**：所有 UB 必须被编译期证明为安全，失败即编译错误
   - **灵活错误定义**：支持预定义错误（`error ErrorName;`）和运行时错误（`error.ErrorName`），无需预先声明
 - **错误类型的操作**：
@@ -875,7 +875,7 @@ fn safe_divide_runtime(a: i32, b: i32) !i32 {
 
 // ✅ 使用 catch 捕获错误
 fn main() i32 {
-    let result: i32 = safe_divide(10, 0) catch |err| {
+    const result: i32 = safe_divide(10, 0) catch |err| {
         if err == error.DivisionByZero {
             printf("Division by zero\n");
         }
@@ -884,7 +884,7 @@ fn main() i32 {
     printf("Result: %d\n", result);
 
     // 使用运行时错误
-    let result2: i32 = safe_divide_runtime(-5, 2) catch |err| {
+    const result2: i32 = safe_divide_runtime(-5, 2) catch |err| {
         if err == error.NegativeInput {
             printf("Negative input not allowed\n");
         }
@@ -975,7 +975,7 @@ impl_block     = 'impl' struct_name ':' interface_name '{' method_impl { method_
    ```uya
    // ❌ 编译错误：s 的生命周期不足以支撑返回的接口值
    fn example() IWriter {
-       let s: Console = Console{ fd: 1 };
+       const s: Console = Console{ fd: 1 };
        return s;  // 编译错误：s 的生命周期不足
    }
    
@@ -995,8 +995,8 @@ impl_block     = 'impl' struct_name ':' interface_name '{' method_impl { method_
    
    // ✅ 编译通过：局部装箱，生命周期匹配
    fn example() void {
-       let s: Console = Console{ fd: 1 };
-       let local: IWriter = s;  // 局部变量，生命周期匹配
+       const s: Console = Console{ fd: 1 };
+       const local: IWriter = s;  // 局部变量，生命周期匹配
        // 使用 local...
    }
    ```
@@ -1009,7 +1009,7 @@ impl_block     = 'impl' struct_name ':' interface_name '{' method_impl { method_
    }
    
    fn example() void {
-       let s: Console = Console{ fd: 1 };
+       const s: Console = Console{ fd: 1 };
        use_writer(s);  // 编译通过：参数传递
    }
    ```
@@ -1031,14 +1031,14 @@ Uya 0.13 采用**简化版生命周期检查**，基于作用域层级：
      - 否则编译通过
 
 3. **检查时机**：
-   - 接口值赋值：`let iface: I = concrete;`
+   - 接口值赋值：`const iface: I = concrete;`
    - 接口值返回：`return concrete;`（返回接口类型）
    - 接口值传参：`fn_call(concrete);`（参数类型是接口）
 
 4. **示例分析**：
    ```uya
    fn example() IWriter {
-       let s: Console = Console{ fd: 1 };  // s 是局部变量，作用域层级 = 2
+       const s: Console = Console{ fd: 1 };  // s 是局部变量，作用域层级 = 2
        return s;  // 返回接口值，目标作用域层级 = 1（函数参数级别）
        // 检查：2 < 1？是 → 编译错误
    }
@@ -1077,12 +1077,12 @@ impl Console : IWriter {
 
 // ③ 使用接口
 fn echo(w: IWriter) void {
-  let msg: [byte; 6] = "hello\n";
+  const msg: [byte; 6] = "hello\n";
   w.write(&msg[0], 5);
 }
 
 fn main() i32 {
-  let cons: Console = Console{ fd: 1 };   // stdout
+  const cons: Console = Console{ fd: 1 };   // stdout
   echo(cons);                             // 自动装箱为接口
   return 0;
 }
@@ -1114,7 +1114,7 @@ call    [rax]           ; ← 单条 call 指令
 | 限制 | 说明 |
 |---|---|
 | 无字段接口 | `struct S { w: IWriter }` → ❌ 编译错误（0.13 限制） |
-| 无数组/切片接口 | `let arr: [IWriter; 3]` → ❌ |
+| 无数组/切片接口 | `const arr: [IWriter; 3]` → ❌ |
 | 无自引用 | 接口值不能指向自己 |
 | 无运行时注册 | 所有 vtable 编译期生成，**零 map 零锁** |
 
@@ -1135,7 +1135,7 @@ call    [rax]           ; ← 单条 call 指令
 1. **语法树收集** → 扫描所有 `impl T : I` 生成唯一 vtable 常量。  
 2. **类型检查** → 确保 `T` 实现 `I` 的全部方法签名。  
 3. **装箱点** →  
-   - 局部：`let iface: I = concrete;`  
+   - 局部：`const iface: I = concrete;`  
    - 传参 / 返回：按值复制 16 B。  
 4. **调用点** →  
    - 加载 `vptr` → 计算方法偏移 → `call [reg+offset]`。  
@@ -1206,7 +1206,7 @@ impl ArrayIteratorI32 : IIteratorI32 {
         // 1. next() 成功返回意味着：self.current > 0 && self.current <= self.len
         // 2. 因此 idx = current - 1 满足：idx >= 0 && idx < len
         // 3. 编译器通过路径敏感分析可以证明数组访问安全
-        let idx: i32 = self.current - 1;
+        const idx: i32 = self.current - 1;
         // 注意：如果编译器能够通过路径敏感分析证明 idx 在有效范围内，
         // 则可以直接访问数组，无需显式检查
         // 如果编译器无法证明（0.13 版本限制），则需要显式检查：
@@ -1231,7 +1231,7 @@ impl ArrayIteratorI32 : IIteratorI32WithIndex {
     
     fn value(self: *Self) i32 {
         // 编译期证明说明：同 IIteratorI32 接口的 value() 方法
-        let idx: i32 = self.current - 1;
+        const idx: i32 = self.current - 1;
         // 显式检查帮助编译器完成证明（见上方说明）
         if idx < 0 || idx >= self.len {
             return error.InvalidIteratorState;
@@ -1257,18 +1257,18 @@ fn create_iterator(arr: *[i32; 10]) ArrayIteratorI32 {
 }
 
 fn iterate_example() void {
-    let arr: [i32; 5] = [1, 2, 3, 4, 5];
-    let iter: IIteratorI32 = create_iterator(&arr);  // 自动装箱为接口
+    const arr: [i32; 5] = [1, 2, 3, 4, 5];
+    const iter: IIteratorI32 = create_iterator(&arr);  // 自动装箱为接口
     
     // 手动迭代（for循环会自动展开为类似代码）
     while true {
-        let result: void = iter.next() catch |err| {
+        const result: void = iter.next() catch |err| {
             if err == error.IterEnd {
                 break;  // 迭代结束
             }
             // 其他错误处理...
         };
-        let value: i32 = iter.value();
+        const value: i32 = iter.value();
         // 使用value...
     }
 }
@@ -1337,17 +1337,17 @@ const buf: [f32; 64] = [];   // 64 个 f32 在当前栈帧
   - **多维数组字面量**：使用嵌套的数组字面量
     ```uya
     // 使用重复式初始化（所有元素相同）
-    let matrix1: [[i32; 4]; 3] = [[0; 4]; 3];  // 3x4 的零矩阵
+    const matrix1: [[i32; 4]; 3] = [[0; 4]; 3];  // 3x4 的零矩阵
     
     // 使用列表式初始化（指定每个元素）
-    let matrix2: [[i32; 4]; 3] = [
+    const matrix2: [[i32; 4]; 3] = [
         [1, 2, 3, 4],
         [5, 6, 7, 8],
         [9, 10, 11, 12]
     ];
     
     // 混合使用（部分行使用重复式，部分行使用列表式）
-    let matrix3: [[i32; 4]; 3] = [
+    const matrix3: [[i32; 4]; 3] = [
         [1, 2, 3, 4],
         [0; 4],  // 第二行全为0
         [9, 10, 11, 12]
@@ -1420,7 +1420,7 @@ break; continue; return expr;
   - **示例**：
     ```uya
     // 基本迭代
-    let arr: [i32; 5] = [1, 2, 3, 4, 5];
+    const arr: [i32; 5] = [1, 2, 3, 4, 5];
     for (arr) |item| {
         printf("%d\n", item);
     }
@@ -1470,8 +1470,8 @@ break; continue; return expr;
                   }
                   return err;
               };
-              let item: T = iter.value();      // 获取当前元素
-              let index: i32 = iter.index();   // 获取当前索引
+              const item: T = iter.value();      // 获取当前元素
+              const index: i32 = iter.index();   // 获取当前索引
               // body（可以使用item和index）
           }
       }
@@ -1486,7 +1486,7 @@ break; continue; return expr;
   - **语法形式**：`match expr { pattern1 => expr, pattern2 => expr, else => expr }`
   - **作为表达式**：match 可以作为表达式使用，所有分支返回类型必须一致
     ```uya
-    let result: i32 = match x {
+    const result: i32 = match x {
         0 => 10,
         1 => 20,
         else => 30,
@@ -1579,7 +1579,7 @@ break; continue; return expr;
     ```uya
     // 示例 1：整数常量匹配（表达式形式）
     fn classify_score(score: i32) i32 {
-        let grade: i32 = match score {
+        const grade: i32 = match score {
             90 => 5,
             80 => 4,
             70 => 3,
@@ -1591,7 +1591,7 @@ break; continue; return expr;
     
     // 示例 2：错误类型匹配
     fn handle_result(result: !i32) i32 {
-        let value: i32 = match result {
+        const value: i32 = match result {
             error.FileNotFound => -1,      // 预定义错误
             error.PermissionDenied => -2,  // 预定义错误
             error.OutOfMemory => -3,      // 运行时错误，无需预定义
@@ -1607,7 +1607,7 @@ break; continue; return expr;
     }
     
     fn classify_point(p: Point) i32 {
-        let quadrant: i32 = match p {
+        const quadrant: i32 = match p {
             Point{ x: 0, y: 0 } => 0,  // 原点
             Point{ x: x, y: y } => {
                 if x > 0 && y > 0 {
@@ -1692,7 +1692,7 @@ fn example() !i32 {
         printf("Error cleanup\n");  // 仅错误时执行
     }
     
-    let result: i32 = try some_operation();
+    const result: i32 = try some_operation();
     return result;
     
     // 正常返回时：只执行 defer
@@ -1719,7 +1719,7 @@ fn example() !i32 {
 **示例**：
 ```uya
 fn example() !void {
-    let file: File = try open_file("test.txt");
+    const file: File = try open_file("test.txt");
     
     defer {
         // ✅ defer 中可以访问 file，因为 defer 先于 drop 执行
@@ -1749,7 +1749,7 @@ fn example() !void {
 **完整示例**：
 ```uya
 fn process_file(path: byte*) !i32 {
-    let file: File = try open_file(path);
+    const file: File = try open_file(path);
     
     defer {
         printf("File processing finished\n");  // 总是记录完成
@@ -1760,7 +1760,7 @@ fn process_file(path: byte*) !i32 {
     }
     
     // 处理文件...
-    let result: i32 = try process(file);
+    const result: i32 = try process(file);
     
     // 正常返回：defer -> drop
     // 错误返回：errdefer -> defer -> drop
@@ -1823,14 +1823,14 @@ fn nested_example() !void {
   - 位运算符的操作数类型必须完全一致（移位运算符的右操作数除外，必须是 `i32`）
   - 示例：
     ```uya
-    let a: i32 = 0b1010;        // 10
-    let b: i32 = 0b1100;        // 12
-    let c: i32 = a & b;         // 0b1000 = 8
-    let d: i32 = a | b;         // 0b1110 = 14
-    let e: i32 = a ^ b;         // 0b0110 = 6
-    let f: i32 = ~a;            // 按位取反
-    let g: i32 = a << 2;        // 左移 2 位 = 40
-    let h: i32 = a >> 1;        // 右移 1 位 = 5
+    const a: i32 = 0b1010;        // 10
+    const b: i32 = 0b1100;        // 12
+    const c: i32 = a & b;         // 0b1000 = 8
+    const d: i32 = a | b;         // 0b1110 = 14
+    const e: i32 = a ^ b;         // 0b0110 = 6
+    const f: i32 = ~a;            // 按位取反
+    const g: i32 = a << 2;        // 左移 2 位 = 40
+    const h: i32 = a >> 1;        // 右移 1 位 = 5
     ```
 - **不支持的运算符**（0.13）：
   - 自增/自减：`++`, `--`（必须使用 `i = i + 1;` 形式）
@@ -1864,10 +1864,10 @@ fn nested_example() !void {
   **溢出检查示例**：
   ```uya
   // ✅ 编译通过：常量运算无溢出
-  let x: i32 = 100 + 200;  // 编译期证明：300 < 2147483647
+  const x: i32 = 100 + 200;  // 编译期证明：300 < 2147483647
   
   // ❌ 编译错误：常量溢出
-  let y: i32 = 2147483647 + 1;  // 编译错误
+  const y: i32 = 2147483647 + 1;  // 编译错误
   
   // ✅ 编译通过：显式溢出检查，返回错误
   fn add_safe(a: i32, b: i32) !i32 {
@@ -1895,11 +1895,11 @@ fn nested_example() !void {
       if a > 0 && b > 0 && a > 2147483647 - b {
           // 包装算术：溢出时返回 (a + b) % 2^32，但需要显式计算
           // 实际实现可能需要使用更大的类型进行计算
-          let sum: i64 = (a as i64) + (b as i64);
+          const sum: i64 = (a as i64) + (b as i64);
           return (sum as! i32);  // 显式截断到 i32 范围
       }
       if a < 0 && b < 0 && a < -2147483648 - b {
-          let sum: i64 = (a as i64) + (b as i64);
+          const sum: i64 = (a as i64) + (b as i64);
           return (sum as! i32);  // 显式截断到 i32 范围
       }
       return a + b;  // 编译器证明：经过检查后无溢出
@@ -2056,12 +2056,12 @@ const y: f32 = x as f32;
 error: 类型转换可能有精度损失
   --> example.uya:2:18
    |
- 2 | let y: f32 = x as f32;
-   |              ^^^^^^^^
+ 2 | const y: f32 = x as f32;
+   |                ^^^^^^^^
    |
    = note: f64 -> f32 转换可能损失精度
    = help: 如果确实需要此转换，请使用 'as!' 强转语法
-   = help: 例如: let y: f32 = x as! f32;
+   = help: 例如: const y: f32 = x as! f32;
 ```
 
 ### 11.7 设计哲学
@@ -2112,7 +2112,7 @@ struct Point {
 }
 
 fn example() void {
-  let p: Point = Point{ x: 1.0, y: 2.0 };
+  const p: Point = Point{ x: 1.0, y: 2.0 };
   // 使用 p...
   // 离开作用域时，编译器自动插入：
   // drop(p.y);  // 先 drop 字段（逆序）
@@ -2127,7 +2127,7 @@ struct Line {
 }
 
 fn nested_example() void {
-  let line: Line = Line{
+  const line: Line = Line{
     start: Point{ x: 0.0, y: 0.0 },
     end: Point{ x: 1.0, y: 1.0 }
   };
@@ -2160,7 +2160,7 @@ fn drop(self: File) void {
 }
 
 fn example1() void {
-    let f: File = File{ fd: open("file.txt", 0) };
+    const f: File = File{ fd: open("file.txt", 0) };
     // 使用文件...
     // 离开作用域时自动调用 drop，自动关闭文件
 }
@@ -2181,7 +2181,7 @@ fn drop(self: HeapBuffer) void {
 }
 
 fn example2() void {
-    let buf: HeapBuffer = HeapBuffer{
+    const buf: HeapBuffer = HeapBuffer{
         data: malloc(100),
         size: 100
     };
@@ -2196,7 +2196,7 @@ struct FileReader {
 }
 
 fn example3() void {
-    let reader: FileReader = FileReader{
+    const reader: FileReader = FileReader{
         file: File{ fd: open("file.txt", 0) },
         buffer: [0; 1024]
     };
@@ -2212,8 +2212,8 @@ fn example3() void {
 ```uya
 // 基本类型：drop 是空函数
 fn example_basic() void {
-  let x: i32 = 10;
-  let y: f64 = 3.14;
+  const x: i32 = 10;
+  const y: f64 = 3.14;
   // 离开作用域时，编译器会插入：
   // drop(y);  // 空函数，无操作
   // drop(x);  // 空函数，无操作
@@ -2221,7 +2221,7 @@ fn example_basic() void {
 
 // 数组：元素按索引逆序 drop
 fn example_array() void {
-  let arr: [f32; 4] = [1.0, 2.0, 3.0, 4.0];
+  const arr: [f32; 4] = [1.0, 2.0, 3.0, 4.0];
   // 离开作用域时，编译器会插入：
   // drop(arr[3]);  // 逆序 drop 元素
   // drop(arr[2]);
@@ -2232,9 +2232,9 @@ fn example_array() void {
 
 // 作用域嵌套：变量在各自作用域结束时 drop
 fn example_scope() void {
-  let outer: i32 = 10;
+  const outer: i32 = 10;
   {
-    let inner: i32 = 20;
+    const inner: i32 = 20;
     // inner 在这里 drop（离开内层作用域）
   }
   // outer 在这里 drop（离开外层作用域）
@@ -2286,7 +2286,7 @@ struct Counter {
 
 fn increment(counter: *Counter) void {
   counter.value += 1;  // 自动原子 fetch_add
-  let v: i32 = counter.value;  // 自动原子 load
+  const v: i32 = counter.value;  // 自动原子 load
   counter.value = 10;  // 自动原子 store
 }
 ```
@@ -2295,7 +2295,7 @@ fn increment(counter: *Counter) void {
 
 | 操作 | 自动生成 | 说明 |
 |---|---|---|
-| `let v = cnt;` | 原子 load | 读取原子类型值 |
+| `const v = cnt;` | 原子 load | 读取原子类型值 |
 | `cnt = val;` | 原子 store | 写入原子类型值 |
 | `cnt += val;` | 原子 fetch_add | 复合赋值自动原子化（硬件支持） |
 | `cnt -= val;` | 原子 fetch_sub | 复合赋值自动原子化（硬件支持） |
@@ -2470,7 +2470,7 @@ fn add_wrapping(a: i32, b: i32) i32 {
 fn add_wrapping_manual(a: i32, b: i32) i32 {
     // 包装算术的实现：使用更大的类型进行计算，然后截断
     // 这样即使溢出，也会自动包装回类型的另一端
-    let sum: i64 = (a as i64) + (b as i64);
+    const sum: i64 = (a as i64) + (b as i64);
     return (sum as! i32);  // 显式截断到 i32 范围，溢出时自动包装
     
     // 说明：
@@ -2619,8 +2619,8 @@ fn add_known_range_i64(a: i64, b: i64) !i64 {
 1. **常量运算**：
    - 编译期常量运算直接检查，溢出即编译错误
    - 示例：
-     - `let x: i32 = 2147483647 + 1;` → 编译错误（i32 溢出）
-     - `let y: i64 = 9223372036854775807 + 1;` → 编译错误（i64 溢出）
+     - `const x: i32 = 2147483647 + 1;` → 编译错误（i32 溢出）
+     - `const y: i64 = 9223372036854775807 + 1;` → 编译错误（i64 溢出）
 
 2. **标准库函数（最推荐）**：
    - 使用标准库函数 `checked_*`、`saturating_*`、`wrapping_*` 进行溢出检查
@@ -2657,8 +2657,8 @@ fn add_known_range_i64(a: i64, b: i64) !i64 {
    - 示例：
      ```uya
      // 使用 max/min 关键字访问极值（类型推断）
-     let a: i32 = ...;
-     let b: i32 = ...;
+     const a: i32 = ...;
+     const b: i32 = ...;
      if a > 0 && b > 0 && a > max - b {  // 从 a 和 b 的类型 i32 推断
          return error.Overflow;
      }
@@ -2744,7 +2744,7 @@ impl Counter : IIncrement {
 }
 
 fn main() i32 {
-  let counter: Counter = Counter{ value: 0 };
+  const counter: Counter = Counter{ value: 0 };
   // 多线程并发递增，零数据竞争
   // 所有操作自动原子化，无需锁
   return 0;
@@ -2794,8 +2794,8 @@ fn main() i32 {
    - 注意：由于 `N` 是编译期常量，此函数在编译期求值，零运行时开销
    - 示例：
      ```uya
-     let arr: [i32; 10] = [0; 10];
-     let size: i32 = len(arr);  // size = 10（编译期常量）
+     const arr: [i32; 10] = [0; 10];
+     const size: i32 = len(arr);  // size = 10（编译期常量）
      ```
 
 2. **`iter(arr: *[T; N]) IteratorT`**
@@ -2809,8 +2809,8 @@ fn main() i32 {
    - for循环会自动调用此函数为数组创建迭代器
    - 示例：
      ```uya
-     let arr: [i32; 5] = [1, 2, 3, 4, 5];
-     let iter: IIteratorI32 = iter(&arr);  // 自动装箱为接口
+     const arr: [i32; 5] = [1, 2, 3, 4, 5];
+     const iter: IIteratorI32 = iter(&arr);  // 自动装箱为接口
      ```
 
 3. **`range(start: i32, end: i32) RangeIterator`**
@@ -2844,20 +2844,20 @@ fn main() i32 {
            return checked_add(a, b);  // 自动检查溢出，溢出返回 error.Overflow
        }
 
-       // 使用示例：处理溢出错误
-       let result: i32 = checked_add(x, y) catch |err| {
-           if err == error.Overflow {
-               printf("Overflow occurred\n");
-               // 处理溢出情况，如返回默认值或报告错误
-           }
-           return 0;  // 提供默认值
-       };
+      // 使用示例：处理溢出错误
+      const result: i32 = checked_add(x, y) catch |err| {
+          if err == error.Overflow {
+              printf("Overflow occurred\n");
+              // 处理溢出情况，如返回默认值或报告错误
+          }
+          return 0;  // 提供默认值
+      };
 
-       // 使用示例：传播错误
-       fn calculate(a: i32, b: i32, c: i32) !i32 {
-           let sum: i32 = try checked_add(a, b);  // 溢出时向上传播 error.Overflow
-           return checked_add(sum, c);  // 继续检查
-       }
+      // 使用示例：传播错误
+      fn calculate(a: i32, b: i32, c: i32) !i32 {
+          const sum: i32 = try checked_add(a, b);  // 溢出时向上传播 error.Overflow
+          return checked_add(sum, c);  // 继续检查
+      }
        ```
      - **行为说明**：
        - 如果运算结果在类型范围内，返回计算结果
@@ -2874,21 +2874,21 @@ fn main() i32 {
            return saturating_add(a, b);  // 自动饱和，溢出返回极值
        }
        
-       // 使用示例：限制结果范围
-       let result: i32 = saturating_add(x, y);  // 溢出时自动返回 max 或 min
-       
-       // 数值示例（i32 类型）
-       let max: i32 = max;  // 2147483647
-       let min: i32 = min;  // -2147483648
-       
-       // 上溢饱和：超过最大值时返回最大值
-       let result1: i32 = saturating_add(max, 1);  // 结果 = 2147483647（保持最大值）
-       
-       // 下溢饱和：小于最小值时返回最小值
-       let result2: i32 = saturating_sub(min, 1);  // 结果 = -2147483648（保持最小值）
-       
-       // 正常情况：不溢出时行为与普通加法相同
-       let result3: i32 = saturating_add(100, 200);  // 结果 = 300
+      // 使用示例：限制结果范围
+      const result: i32 = saturating_add(x, y);  // 溢出时自动返回 max 或 min
+      
+      // 数值示例（i32 类型）
+      const max: i32 = max;  // 2147483647
+      const min: i32 = min;  // -2147483648
+      
+      // 上溢饱和：超过最大值时返回最大值
+      const result1: i32 = saturating_add(max, 1);  // 结果 = 2147483647（保持最大值）
+      
+      // 下溢饱和：小于最小值时返回最小值
+      const result2: i32 = saturating_sub(min, 1);  // 结果 = -2147483648（保持最小值）
+      
+      // 正常情况：不溢出时行为与普通加法相同
+      const result3: i32 = saturating_add(100, 200);  // 结果 = 300
        ```
      - **行为说明**：
        - 如果运算结果在类型范围内，返回计算结果
@@ -2902,8 +2902,8 @@ fn main() i32 {
          return wrapping_add(a, b);  // 自动包装，溢出返回包装值
      }
      
-     // 使用示例
-     let result: i32 = wrapping_add(x, y);  // 溢出时自动包装
+    // 使用示例
+    const result: i32 = wrapping_add(x, y);  // 溢出时自动包装
      ```
    - **三种方式的对比**：
      | 方式 | 溢出行为 | 返回类型 | 使用场景 |
@@ -2919,8 +2919,8 @@ fn main() i32 {
    
    - **编译期展开示例**：
      ```uya
-     // 源代码
-     let result: i32 = checked_add(a, b);
+    // 源代码
+    const result: i32 = checked_add(a, b);
      
      // 编译期展开为（伪代码）
      // if a > 0 && b > 0 && a > max - b {
@@ -2962,18 +2962,18 @@ fn main() i32 {
      - 编译期展开：生成高效的内存复制代码
    - **示例**：
      ```uya
-     // 基本切片
-     let arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-     let slice1: [i32; 3] = slice(arr, 2, 3);  // [2, 3, 4]，从索引2开始，长度为3
+    // 基本切片
+    const arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const slice1: [i32; 3] = slice(arr, 2, 3);  // [2, 3, 4]，从索引2开始，长度为3
 
-     // 负数索引切片
-     let slice2: [i32; 3] = slice(arr, -3, 3);  // [7, 8, 9]，从倒数第3个开始，长度为3
-     let slice3: [i32; 7] = slice(arr, 2, 7);   // [2, 3, 4, 5, 6, 7, 8]，从索引2开始，长度为7
+    // 负数索引切片
+    const slice2: [i32; 3] = slice(arr, -3, 3);  // [7, 8, 9]，从倒数第3个开始，长度为3
+    const slice3: [i32; 7] = slice(arr, 2, 7);   // [2, 3, 4, 5, 6, 7, 8]，从索引2开始，长度为7
 
-     // 使用语法糖（第二个参数是长度）
-     let slice4: [i32; 5] = arr[2:5];    // [2, 3, 4, 5, 6]，从索引2开始，长度为5
-     let slice5: [i32; 3] = arr[-3:3];   // [7, 8, 9]，从倒数第3个开始，长度为3
-     let slice6: [i32; 8] = arr[2:8];    // [2, 3, 4, 5, 6, 7, 8, 9]，从索引2开始，长度为8
+    // 使用语法糖（第二个参数是长度）
+    const slice4: [i32; 5] = arr[2:5];    // [2, 3, 4, 5, 6]，从索引2开始，长度为5
+    const slice5: [i32; 3] = arr[-3:3];   // [7, 8, 9]，从倒数第3个开始，长度为3
+    const slice6: [i32; 8] = arr[2:8];    // [2, 3, 4, 5, 6, 7, 8, 9]，从索引2开始，长度为8
      ```
 
 > 更多函数通过 `extern` 直接调用 C 库即可。
@@ -3037,7 +3037,7 @@ struct File {
 }
 
 fn open_file(path: byte*) !File {
-    let fd: i32 = open(path, 0);  // 0 是只读标志（简化示例）
+    const fd: i32 = open(path, 0);  // 0 是只读标志（简化示例）
     if fd < 0 {
         return error.FileError;  // 使用预定义错误
     }
@@ -3045,7 +3045,7 @@ fn open_file(path: byte*) !File {
 }
 
 fn read_file_runtime(path: byte*) !i32 {
-    let fd: i32 = open(path, 0);
+    const fd: i32 = open(path, 0);
     if fd < 0 {
         return error.FileNotFound;  // 运行时错误，无需预定义
     }
@@ -3059,7 +3059,7 @@ fn drop(self: File) void {
 }
 
 fn read_file(path: byte*) !i32 {
-    let file: File = try open_file(path);
+    const file: File = try open_file(path);
     defer {
         printf("File operation completed\n");
     }
@@ -3077,7 +3077,7 @@ fn read_file(path: byte*) !i32 {
 }
 
 fn main() i32 {
-    let result: i32 = read_file("test.txt") catch |err| {
+    const result: i32 = read_file("test.txt") catch |err| {
         // err 是 Error 类型，支持相等性比较
         if err == error.FileError {
             printf("File error occurred\n");
@@ -3112,7 +3112,7 @@ impl Counter : IIncrement {
 }
 
 fn main() i32 {
-  let counter: Counter = Counter{ value: 0 };
+  const counter: Counter = Counter{ value: 0 };
   // 多线程并发递增，零数据竞争
   // 所有操作自动原子化，无需锁
   return 0;
@@ -3160,7 +3160,7 @@ impl ArrayIteratorI32 : IIteratorI32 {
     }
     
     fn value(self: *Self) i32 {
-        let idx: i32 = self.current - 1;
+        const idx: i32 = self.current - 1;
         // 编译期证明：由于 next() 成功返回，idx 在有效范围内
         if idx < 0 || idx >= self.len {
             return error.InvalidIteratorState;  // 根据设计，这种情况不应该发生
@@ -3178,7 +3178,7 @@ impl ArrayIteratorI32 : IIteratorI32WithIndex {
     }
     
     fn value(self: *Self) i32 {
-        let idx: i32 = self.current - 1;
+        const idx: i32 = self.current - 1;
         // 编译期证明：由于 next() 成功返回，idx 在有效范围内
         if idx < 0 || idx >= self.len {
             return error.InvalidIteratorState;  // 根据设计，这种情况不应该发生
@@ -3201,7 +3201,7 @@ fn iter(arr: *[i32; N]) ArrayIteratorI32 {
 }
 
 fn main() i32 {
-    let arr: [i32; 5] = [10, 20, 30, 40, 50];
+    const arr: [i32; 5] = [10, 20, 30, 40, 50];
     
     // 示例1：基本迭代（只获取元素值）
     printf("Basic iteration:\n");
@@ -3271,11 +3271,11 @@ Maximum value: 50 at index 4
 extern i32 printf(byte* fmt, ...);
 
 fn main() i32 {
-    let arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
     // 基本切片语法
     // slice(arr, 2, 3) 表示从索引2开始，长度为3
-    let slice1: [i32; 3] = slice(arr, 2, 3);  // [2, 3, 4]
+    const slice1: [i32; 3] = slice(arr, 2, 3);  // [2, 3, 4]
     printf("slice(arr, 2, 3): ");
     for (iter(&slice1)) |item| {
         printf("%d ", item);
@@ -3284,7 +3284,7 @@ fn main() i32 {
 
     // 使用负数索引的切片
     // slice(arr, -3, 3) 表示从倒数第3个元素开始，长度为3
-    let slice2: [i32; 3] = slice(arr, -3, 3);  // [7, 8, 9]
+    const slice2: [i32; 3] = slice(arr, -3, 3);  // [7, 8, 9]
     printf("slice(arr, -3, 3): ");
     for (iter(&slice2)) |item| {
         printf("%d ", item);
@@ -3293,7 +3293,7 @@ fn main() i32 {
 
     // 从某个索引到末尾
     // slice(arr, 7, 3) 表示从索引7开始，长度为3（到末尾）
-    let slice3: [i32; 3] = slice(arr, 7, 3);  // [7, 8, 9]
+    const slice3: [i32; 3] = slice(arr, 7, 3);  // [7, 8, 9]
     printf("slice(arr, 7, 3): ");
     for (iter(&slice3)) |item| {
         printf("%d ", item);
@@ -3302,7 +3302,7 @@ fn main() i32 {
 
     // 从开头开始
     // slice(arr, 0, 3) 表示从索引0开始，长度为3
-    let slice4: [i32; 3] = slice(arr, 0, 3);  // [0, 1, 2]
+    const slice4: [i32; 3] = slice(arr, 0, 3);  // [0, 1, 2]
     printf("slice(arr, 0, 3): ");
     for (iter(&slice4)) |item| {
         printf("%d ", item);
@@ -3311,7 +3311,7 @@ fn main() i32 {
 
     // 从开头到倒数第1个元素
     // slice(arr, 0, 9) 表示从索引0开始，长度为9（不包含最后一个）
-    let slice5: [i32; 9] = slice(arr, 0, 9);  // [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    const slice5: [i32; 9] = slice(arr, 0, 9);  // [0, 1, 2, 3, 4, 5, 6, 7, 8]
     printf("slice(arr, 0, 9): ");
     for (iter(&slice5)) |item| {
         printf("%d ", item);
@@ -3320,7 +3320,7 @@ fn main() i32 {
 
     // 使用负数索引的范围
     // slice(arr, -5, 3) 表示从倒数第5个开始，长度为3
-    let slice6: [i32; 3] = slice(arr, -5, 3);  // [5, 6, 7]
+    const slice6: [i32; 3] = slice(arr, -5, 3);  // [5, 6, 7]
     printf("slice(arr, -5, 3): ");
     for (iter(&slice6)) |item| {
         printf("%d ", item);
@@ -3328,11 +3328,11 @@ fn main() i32 {
     printf("\n");
 
     // 空切片情况
-    let slice7: [i32; 0] = slice(arr, 5, 0);  // 空数组 []
+    const slice7: [i32; 0] = slice(arr, 5, 0);  // 空数组 []
     printf("slice(arr, 5, 0): (empty slice)\n");
 
     // 单元素切片
-    let slice8: [i32; 1] = slice(arr, 4, 1);  // [4]
+    const slice8: [i32; 1] = slice(arr, 4, 1);  // [4]
     printf("slice(arr, 4, 1): %d\n", slice8[0]);
 
     return 0;
@@ -3375,7 +3375,7 @@ extern i32 printf(byte* fmt, ...);
 fn main() i32 {
     // 示例1：声明和初始化二维数组
     // 3x4 的 i32 矩阵
-    let matrix: [[i32; 4]; 3] = [
+    const matrix: [[i32; 4]; 3] = [
         [1, 2, 3, 4],
         [5, 6, 7, 8],
         [9, 10, 11, 12]
@@ -3400,7 +3400,7 @@ fn main() i32 {
     while i < 3 {
         var j: i32 = 0;
         while j < 4 {
-            let idx: i32 = i * 4 + j;
+            const idx: i32 = i * 4 + j;
             matrix2[i][j] = (idx as f32) * 0.5;  // 需要边界检查证明
             j = j + 1;
         }
@@ -3424,7 +3424,7 @@ fn main() i32 {
         data: [[f32; 3]; 3]
     }
     
-    let mat: Mat3x3 = Mat3x3{
+    const mat: Mat3x3 = Mat3x3{
         data: [
             [1.0, 0.0, 0.0],
             [0.0, 1.0, 0.0],
@@ -3573,10 +3573,10 @@ type    = 'd' | 'u' | 'x' | 'X' | 'f' | 'F' | 'g' | 'G' | 'c' | 'p'
 extern i32 printf(byte* fmt, ...);
 
 fn main() i32 {
-  let x: u32 = 255;
-  let pi: f64 = 3.1415926;
+  const x: u32 = 255;
+  const pi: f64 = 3.1415926;
 
-  let msg: [i8; 64] = "hex=${x:#06x}, pi=${pi:.2f}\n";
+  const msg: [i8; 64] = "hex=${x:#06x}, pi=${pi:.2f}\n";
   printf(&msg[0]);
   return 0;
 }
@@ -3735,9 +3735,9 @@ fn sum(a: T, b: T) T {        // T 自动成参
 }
 
 fn main() i32 {
-    let n1 = Num{ x: 1 };
-    let n2 = Num{ x: 2 };
-    let n3: Num = sum(n1, n2);   // T = Num
+    const n1 = Num{ x: 1 };
+    const n2 = Num{ x: 2 };
+    const n3: Num = sum(n1, n2);   // T = Num
     return n3.x;                 // 3
 }
 ```
@@ -3855,14 +3855,14 @@ fn open_file() FileResult {
 }
 
 fn main() i32 {
-    let uid: UserId = create_user();
-    let d1: Distance = 10.5;
-    let d2: Distance = 20.3;
-    let total: Distance = calculate_distance(d1, d2);
+    const uid: UserId = create_user();
+    const d1: Distance = 10.5;
+    const d2: Distance = 20.3;
+    const total: Distance = calculate_distance(d1, d2);
     
-    let name: Name = "hello";
-    let pos: Position = create_point();
-    let result: FileResult = open_file();
+    const name: Name = "hello";
+    const pos: Position = create_point();
+    const result: FileResult = open_file();
     
     var vec: IntVec = Vec(i32){ data: [0; 10], len: 0 };
     
@@ -3937,9 +3937,9 @@ fn twice(n: i32) i32 { n + n }
 mc twice(n: i32) expr { n + n }
 
 fn main() i32 {
-    let a: i32 = twice(5);     // 宏展开为 5+5，零运行时
-    let x: i32 = 10;
-    let b: i32 = twice(x);     // 如果参数非常量，编译器根据宏定义处理
+    const a: i32 = twice(5);     // 宏展开为 5+5，零运行时
+    var x: i32 = 10;
+    const b: i32 = twice(x);     // 如果参数非常量，编译器根据宏定义处理
     return a + b;
 }
 ```
@@ -3985,7 +3985,7 @@ fn twice(n: i32) i32  { n + n }   // ❌ 编译错误：名字 'twice' 已存在
 ------------------------------------------------
 - 如果允许重名，调用处又出现  
   ```uya
-  let x: i32 = twice(5);
+  const x: i32 = twice(5);
   ```
   编译器无法**静态决定**走宏路径还是函数路径，**语义双态**死灰复燃。  
 - 把决策推迟到"是否全常量"⇒ 又回到**隐式宏**的老路。

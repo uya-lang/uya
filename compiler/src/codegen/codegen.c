@@ -61,6 +61,14 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
     }
 
     switch (inst->type) {
+        case IR_CONSTANT:
+            if (inst->data.constant.value) {
+                fprintf(codegen->output_file, "%s", inst->data.constant.value);
+            } else {
+                fprintf(codegen->output_file, "0"); // default value
+            }
+            break;
+
         case IR_VAR_DECL:
             if (inst->data.var.name) {
                 fprintf(codegen->output_file, "%s", inst->data.var.name);
@@ -235,6 +243,31 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             for (int i = 0; i < inst->data.while_stmt.body_count; i++) {
                 fprintf(codegen->output_file, "  ");
                 codegen_generate_inst(codegen, inst->data.while_stmt.body[i]);
+                fprintf(codegen->output_file, ";\n");
+            }
+
+            fprintf(codegen->output_file, "}");
+            break;
+
+        case IR_FOR:
+            // For loops are transformed to while loops in the IR
+            // The actual transformation happens during IR generation
+            // Here we generate the appropriate C code for the for loop
+            fprintf(codegen->output_file, "for (");
+
+            // For now, we'll generate a simplified version
+            // In a full implementation, we'd generate the proper iterator code
+            if (inst->data.for_stmt.iterable) {
+                // This would be more complex in a real implementation
+                // For now, just show a placeholder
+                fprintf(codegen->output_file, "/* for loop */");
+            }
+
+            fprintf(codegen->output_file, ") {\n");
+
+            for (int i = 0; i < inst->data.for_stmt.body_count; i++) {
+                fprintf(codegen->output_file, "  ");
+                codegen_generate_inst(codegen, inst->data.for_stmt.body[i]);
                 fprintf(codegen->output_file, ";\n");
             }
 
