@@ -34,9 +34,7 @@ static IRType get_ir_type(struct ASTNode *ast_type) {
                 return IR_TYPE_VOID;
             }
         case AST_TYPE_ARRAY:
-            // For arrays, we'll use a pointer type for now
-            // In a full implementation, we'd need to handle array types properly
-            return IR_TYPE_PTR;
+            return IR_TYPE_ARRAY;
         case AST_TYPE_POINTER:
             return IR_TYPE_PTR;
         case AST_TYPE_ERROR_UNION:

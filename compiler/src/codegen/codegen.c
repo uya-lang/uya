@@ -42,7 +42,7 @@ static char *codegen_get_type_name(IRType type) {
         case IR_TYPE_BYTE: return "uint8_t";
         case IR_TYPE_VOID: return "void";
         case IR_TYPE_PTR: return "void*";
-        case IR_TYPE_ARRAY: return "array_type";  // 需要特殊处理
+        case IR_TYPE_ARRAY: return "int32_t*";  // For now, use pointer for arrays
         case IR_TYPE_STRUCT: return "struct_type"; // 需要特殊处理
         case IR_TYPE_FN: return "fn_type";       // 需要特殊处理
         case IR_TYPE_ERROR_UNION: return "error_union"; // 需要特殊处理
@@ -125,16 +125,35 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
             break;
 
         case IR_CALL:
-            fprintf(codegen->output_file, "%s(", inst->data.call.func_name);
-            for (int i = 0; i < inst->data.call.arg_count; i++) {
-                if (i > 0) fprintf(codegen->output_file, ", ");
-                if (inst->data.call.args[i]) {
-                    codegen_write_value(codegen, inst->data.call.args[i]);
-                } else {
-                    fprintf(codegen->output_file, "NULL");
+            // Handle function calls, but special-case array and slice operations
+            if (strcmp(inst->data.call.func_name, "array") == 0) {
+                // Generate C array literal: {1, 2, 3, 4, 5}
+                fprintf(codegen->output_file, "{");
+                for (int i = 0; i < inst->data.call.arg_count; i++) {
+                    if (i > 0) fprintf(codegen->output_file, ", ");
+                    if (inst->data.call.args[i]) {
+                        codegen_write_value(codegen, inst->data.call.args[i]);
+                    } else {
+                        fprintf(codegen->output_file, "0");
+                    }
                 }
+                fprintf(codegen->output_file, "}");
+            } else if (strcmp(inst->data.call.func_name, "slice") == 0) {
+                // Generate slice operation - for now, just show as a comment since C doesn't have slices
+                fprintf(codegen->output_file, "/* slice operation */");
+            } else {
+                // Regular function call
+                fprintf(codegen->output_file, "%s(", inst->data.call.func_name);
+                for (int i = 0; i < inst->data.call.arg_count; i++) {
+                    if (i > 0) fprintf(codegen->output_file, ", ");
+                    if (inst->data.call.args[i]) {
+                        codegen_write_value(codegen, inst->data.call.args[i]);
+                    } else {
+                        fprintf(codegen->output_file, "NULL");
+                    }
+                }
+                fprintf(codegen->output_file, ")");
             }
-            fprintf(codegen->output_file, ")");
             break;
         default:
             fprintf(codegen->output_file, "temp_%d", inst->id);
@@ -172,11 +191,23 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             break;
             
         case IR_VAR_DECL:
-            codegen_write_type(codegen, inst->data.var.type);
-            fprintf(codegen->output_file, " %s", inst->data.var.name);
-            if (inst->data.var.init) {
-                fprintf(codegen->output_file, " = ");
-                codegen_write_value(codegen, inst->data.var.init);
+            if (inst->data.var.type == IR_TYPE_ARRAY && inst->data.var.init &&
+                inst->data.var.init->type == IR_CALL &&
+                strcmp(inst->data.var.init->data.call.func_name, "array") == 0) {
+                // Special handling for array variable declarations: let arr: [i32; 3] = [1, 2, 3];
+                // Generate: int32_t arr[3] = {1, 2, 3};
+
+                // For now, assume i32 array type
+                fprintf(codegen->output_file, "int32_t %s[] = ", inst->data.var.name);
+                codegen_write_value(codegen, inst->data.var.init);  // This will output {1, 2, 3}
+            } else {
+                codegen_write_type(codegen, inst->data.var.type);
+                fprintf(codegen->output_file, " %s", inst->data.var.name);
+
+                if (inst->data.var.init) {
+                    fprintf(codegen->output_file, " = ");
+                    codegen_write_value(codegen, inst->data.var.init);
+                }
             }
             break;
             
