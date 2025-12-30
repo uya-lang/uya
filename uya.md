@@ -471,6 +471,7 @@ fn main() i32 {
 |-----------------|-----------|--------------------------|
 | `i8` `i16` `i32` `i64` | 1 2 4 8 B | 对齐 = 类型大小；支持 `max/min` 关键字访问极值 |
 | `u8` `u16` `u32` `u64` | 1 2 4 8 B | 对齐 = 类型大小；无符号整数类型，用于与 C 互操作和格式化 |
+| `usize`         | 4/8 B（平台相关） | 无符号大小类型，用于内存地址和大小；32位平台=4B，64位平台=8B |
 | `f32` `f64`     | 4/8 B     | 对齐 = 类型大小          |
 | `bool`          | 1 B       | 0/1，对齐 1 B            |
 | `byte`          | 1 B       | 无符号字节，对齐 1 B，用于字节数组 |
@@ -779,11 +780,20 @@ fn print_hello() void {
   - 函数末尾的 `return` 可以省略（如果返回类型是 `void`）
 
 - **`try` 关键字**：
-  - `try expr` 用于传播错误
-  - 如果 `expr` 返回错误，当前函数立即返回该错误
+  - `try expr` 用于传播错误和溢出检查
+  - **错误传播**：如果 `expr` 返回错误，当前函数立即返回该错误
+  - **溢出检查**：如果 `expr` 是算术运算（`+`, `-`, `*`），自动检查溢出，溢出时返回 `error.Overflow`
   - 如果 `expr` 返回值，继续执行
-  - **只能在返回错误联合类型的函数中使用**，且 `expr` 必须是返回错误联合类型的表达式
-  - 示例：`const result: i32 = try divide(10, 2);`（`divide` 必须返回 `!i32`）
+  - **只能在返回错误联合类型的函数中使用**，且 `expr` 必须是返回错误联合类型的表达式或算术运算
+  - **可能抛出的错误类型**：
+    - **错误传播模式**：`try expr` 可能抛出 `expr` 返回的所有错误类型
+      - 例如：`try divide(10, 2)` 可能抛出 `divide` 函数返回的所有错误（如 `error.DivisionByZero`）
+    - **溢出检查模式**：`try a + b`、`try a - b`、`try a * b` 可能抛出 `error.Overflow`
+      - 加法溢出：`try a + b` 在 `a + b` 超出类型范围时返回 `error.Overflow`
+      - 减法溢出：`try a - b` 在 `a - b` 超出类型范围时返回 `error.Overflow`
+      - 乘法溢出：`try a * b` 在 `a * b` 超出类型范围时返回 `error.Overflow`
+  - **错误传播示例**：`const result: i32 = try divide(10, 2);`（`divide` 必须返回 `!i32`，可能抛出 `error.DivisionByZero` 等）
+  - **溢出检查示例**：`const result: i32 = try a + b;`（自动检查 `a + b` 是否溢出，可能抛出 `error.Overflow`）
 
 - **`catch` 语法**：
   - `expr catch |err| { statements }` 用于捕获并处理错误
@@ -1171,16 +1181,16 @@ error InvalidIteratorState;
 interface IIteratorI32 {
     // 移动到下一个元素，返回错误表示迭代结束
     fn next(self: *Self) !void;
-    // 获取当前元素值（只读）
-    fn value(self: *Self) i32;
-    // 获取指向当前元素的指针（可修改）
-    fn ptr(self: *Self) &i32;
+    // 获取当前元素值（只读），可能返回错误
+    fn value(self: *Self) !i32;
+    // 获取指向当前元素的指针（可修改），可能返回错误
+    fn ptr(self: *Self) !&i32;
 }
 
 // 带索引的i32数组迭代器接口
 interface IIteratorI32WithIndex {
     fn next(self: *Self) !void;
-    fn value(self: *Self) i32;
+    fn value(self: *Self) !i32;  // 可能返回错误
     fn index(self: *Self) i32;
 }
 ```
@@ -1203,7 +1213,7 @@ impl ArrayIteratorI32 : IIteratorI32 {
         self.current = self.current + 1;
     }
     
-    fn value(self: *Self) i32 {
+    fn value(self: *Self) !i32 {
         // 编译期证明说明：
         // 1. next() 成功返回意味着：self.current > 0 && self.current <= self.len
         // 2. 因此 idx = current - 1 满足：idx >= 0 && idx < len
@@ -1221,7 +1231,7 @@ impl ArrayIteratorI32 : IIteratorI32 {
         return (*self.arr)[idx];
     }
     
-    fn ptr(self: *Self) &i32 {
+    fn ptr(self: *Self) !&i32 {
         // 编译期证明说明：同 value() 方法
         const idx: i32 = self.current - 1;
         if idx < 0 || idx >= self.len {
@@ -1240,7 +1250,7 @@ impl ArrayIteratorI32 : IIteratorI32WithIndex {
         self.current = self.current + 1;
     }
     
-    fn value(self: *Self) i32 {
+    fn value(self: *Self) !i32 {
         // 编译期证明说明：同 IIteratorI32 接口的 value() 方法
         const idx: i32 = self.current - 1;
         // 显式检查帮助编译器完成证明（见上方说明）
@@ -1279,7 +1289,9 @@ fn iterate_example() void {
             }
             // 其他错误处理...
         };
-        const value: i32 = iter.value();
+        const value: i32 = iter.value() catch |err| {
+            return;  // 传播错误（如果函数返回错误联合类型）
+        };
         // 使用value...
     }
 }
@@ -1495,7 +1507,9 @@ break; continue; return expr;
                   }
                   return err;  // 其他错误传播（如果函数返回错误联合类型）
               };
-              const item: T = iter.value();  // 获取当前元素（只读）
+              const item: T = iter.value() catch |err| {
+                  return err;  // 传播错误（如果函数返回错误联合类型）
+              };  // 获取当前元素（只读）
               // body（可以使用item）
           }
       }
@@ -1517,7 +1531,9 @@ break; continue; return expr;
                   }
                   return err;  // 其他错误传播（如果函数返回错误联合类型）
               };
-              const item: &T = iter.ptr();  // 获取指向当前元素的指针（可修改）
+              const item: &T = iter.ptr() catch |err| {
+                  return err;  // 传播错误（如果函数返回错误联合类型）
+              };  // 获取指向当前元素的指针（可修改）
               // body（可以使用 *item 访问和修改元素）
               // 例如：*item = new_value; 或 const val: T = *item;
           }
@@ -1921,8 +1937,8 @@ fn nested_example() !void {
 |----|--------|--------|------|
 | 1  | `()` `.` `[]` `[start:end]` | 左 | 调用、字段、下标、切片 |
 | 2  | `-` `!` `~` (一元) | 右 | 负号、逻辑非、按位取反 |
-| 3  | `* / %` | 左 | 乘、除、取模 |
-| 4  | `+ -` | 左 | 加、减 |
+| 3  | `* / %` `*|` `*%` | 左 | 乘、除、取模、饱和乘法、包装乘法 |
+| 4  | `+ -` `+|` `-|` `+%` `-%` | 左 | 加、减、饱和加法、饱和减法、包装加法、包装减法 |
 | 5  | `<< >>` | 左 | 左移、右移 |
 | 6  | `< > <= >=` | 左 | 比较 |
 | 7  | `== !=` | 左 | 相等性 |
@@ -1935,6 +1951,36 @@ fn nested_example() !void {
 
 - 无隐式转换；两边类型必须完全一致。
 - 赋值运算符 `=` 仅用于 `var` 变量。
+- **饱和运算符**：
+  - `+|`：饱和加法，溢出时返回类型的最大值或最小值（上溢返回最大值，下溢返回最小值）
+  - `-|`：饱和减法，溢出时返回类型的最大值或最小值
+  - `*|`：饱和乘法，溢出时返回类型的最大值或最小值
+  - 操作数必须是整数类型（`i8`, `i16`, `i32`, `i64`），结果类型与操作数相同
+  - 饱和运算符的操作数类型必须完全一致
+  - 示例：
+    ```uya
+    const max: i32 = max;  // 2147483647
+    const min: i32 = min;  // -2147483648
+    
+    const a: i32 = max +| 1;   // 结果 = 2147483647（上溢饱和）
+    const b: i32 = min -| 1;   // 结果 = -2147483648（下溢饱和）
+    const c: i32 = 100 +| 200; // 结果 = 300（正常情况）
+    ```
+- **包装运算符**：
+  - `+%`：包装加法，溢出时返回包装后的值（模运算）
+  - `-%`：包装减法，溢出时返回包装后的值（模运算）
+  - `*%`：包装乘法，溢出时返回包装后的值（模运算）
+  - 操作数必须是整数类型（`i8`, `i16`, `i32`, `i64`），结果类型与操作数相同
+  - 包装运算符的操作数类型必须完全一致
+  - 示例：
+    ```uya
+    const max: i32 = max;  // 2147483647
+    const min: i32 = min;  // -2147483648
+    
+    const a: i32 = max +% 1;   // 结果 = -2147483648（上溢包装）
+    const b: i32 = min -% 1;   // 结果 = 2147483647（下溢包装）
+    const c: i32 = 100 +% 200; // 结果 = 300（正常情况）
+    ```
 - **位运算符**：
   - `&`：按位与，两个操作数都必须是整数类型（`i8`, `i16`, `i32`, `i64`），结果类型与操作数相同
   - `|`：按位或，两个操作数都必须是整数类型，结果类型与操作数相同
@@ -2492,7 +2538,7 @@ Uya 语言的编译期证明机制采用**分层验证策略**：
 4. **失败处理**：
    - 无法证明安全 → **编译错误**，不生成代码
    - 提供清晰的错误信息，指出无法证明的原因
-   - 建议使用标准库函数（`checked_*`、`saturating_*`、`wrapping_*`）简化证明
+   - 建议使用 `try` 关键字、饱和运算符（`+|`, `-|`, `*|`）或包装运算符（`+%`, `-%`, `*%`）简化证明
 
 **实现说明**（0.13 版本）：
 - 0.13 版本优先实现**常量折叠**和**路径敏感分析**
@@ -2541,9 +2587,9 @@ const z: i32 = -2147483648 - 1;  // 编译错误：常量下溢
 // ✅ 编译通过：变量运算有显式溢出检查
 
 // 方式1：返回错误（错误联合类型）
-// 使用标准库函数（推荐）
+// 使用 try 关键字（推荐）
 fn add_safe(a: i32, b: i32) !i32 {
-    return checked_add(a, b);  // 自动检查溢出，溢出返回错误
+    return try a + b;  // 自动检查溢出，溢出返回 error.Overflow
 }
 
 // 方式1（备选）：手动检查（如果需要自定义逻辑）
@@ -2562,9 +2608,9 @@ fn add_safe_manual(a: i32, b: i32) !i32 {
 }
 
 // 方式2：返回饱和值（有效数值）
-// 使用标准库函数（推荐）
+// 使用饱和运算符（推荐）
 fn add_saturating(a: i32, b: i32) i32 {
-    return saturating_add(a, b);  // 自动饱和，溢出返回极值
+    return a +| b;  // 自动饱和，溢出返回极值
 }
 
 // 方式2（备选）：手动检查（如果需要自定义逻辑）
@@ -2583,9 +2629,9 @@ fn add_saturating_manual(a: i32, b: i32) i32 {
 }
 
 // 方式3：返回包装值（有效数值）
-// 使用标准库函数（推荐）
+// 使用包装运算符（推荐）
 fn add_wrapping(a: i32, b: i32) i32 {
-    return wrapping_add(a, b);  // 自动包装，溢出返回包装值
+    return a +% b;  // 自动包装，溢出返回包装值
 }
 
 // 方式3（备选）：手动检查（如果需要自定义逻辑）
@@ -2605,9 +2651,9 @@ fn add_wrapping_manual(a: i32, b: i32) i32 {
 }
 
 // ✅ 编译通过：乘法溢出检查
-// 使用标准库函数（推荐）
+// 使用 try 关键字（推荐）
 fn mul_safe(a: i32, b: i32) !i32 {
-    return checked_mul(a, b);  // 自动检查溢出，溢出返回错误
+    return try a * b;  // 自动检查溢出，溢出返回 error.Overflow
 }
 
 // 方式（备选）：手动检查（如果需要自定义逻辑）
@@ -2668,9 +2714,9 @@ const y64: i64 = max + 1;  // 编译错误：常量溢出（从类型注解 i64 
 const z64: i64 = min - 1;  // 编译错误：常量下溢（从类型注解 i64 推断）
 
 // ✅ 编译通过：i64 变量运算有显式溢出检查
-// 使用标准库函数（推荐）
+// 使用 try 关键字（推荐）
 fn add_safe_i64(a: i64, b: i64) !i64 {
-    return checked_add(a, b);  // 自动检查溢出，溢出返回错误
+    return try a + b;  // 自动检查溢出，溢出返回 error.Overflow
 }
 
 // 方式（备选）：手动检查（如果需要自定义逻辑）
@@ -2689,9 +2735,9 @@ fn add_safe_i64_manual(a: i64, b: i64) !i64 {
 }
 
 // ✅ 编译通过：i64 乘法溢出检查
-// 使用标准库函数（推荐）
+// 使用 try 关键字（推荐）
 fn mul_safe_i64(a: i64, b: i64) !i64 {
-    return checked_mul(a, b);  // 自动检查溢出，溢出返回错误
+    return try a * b;  // 自动检查溢出，溢出返回 error.Overflow
 }
 
 // 方式（备选）：手动检查（如果需要自定义逻辑）
@@ -2744,33 +2790,41 @@ fn add_known_range_i64(a: i64, b: i64) !i64 {
      - `const x: i32 = 2147483647 + 1;` → 编译错误（i32 溢出）
      - `const y: i64 = 9223372036854775807 + 1;` → 编译错误（i64 溢出）
 
-2. **标准库函数（最推荐）**：
-   - 使用标准库函数 `checked_*`、`saturating_*`、`wrapping_*` 进行溢出检查
+2. **`try` 关键字和饱和运算符（最推荐）**：
+   - 使用 `try` 关键字进行溢出检查，或使用饱和运算符 `+|`, `-|`, `*|` 进行溢出处理
    - 一行代码替代多行溢出检查，代码简洁
    - 编译期展开，零运行时开销，与手写代码性能相同
    - 示例：
      ```uya
-     // checked 系列：返回错误联合类型
+     // try 关键字：返回错误联合类型
      fn add_safe(a: i32, b: i32) !i32 {
-         return checked_add(a, b);  // 自动检查溢出，返回 error.Overflow 如果溢出
+         return try a + b;  // 自动检查溢出，返回 error.Overflow 如果溢出
      }
 
-     // saturating 系列：返回饱和值
+     // 饱和运算符：返回饱和值
      fn add_saturating(a: i32, b: i32) i32 {
-         return saturating_add(a, b);  // 自动饱和
+         return a +| b;  // 自动饱和
      }
 
-     // wrapping 系列：返回包装值
+     // 包装运算符：返回包装值
      fn add_wrapping(a: i32, b: i32) i32 {
-         return wrapping_add(a, b);  // 自动包装
+         return a +% b;  // 自动包装
      }
      ```
-   - **支持的函数**：
-     - `checked_add(a, b)`、`checked_sub(a, b)`、`checked_mul(a, b)`
-     - `saturating_add(a, b)`、`saturating_sub(a, b)`、`saturating_mul(a, b)`
-     - `wrapping_add(a, b)`、`wrapping_sub(a, b)`、`wrapping_mul(a, b)`
+   - **`try` 关键字支持的操作**：
+     - `try a + b`（加法溢出检查）
+     - `try a - b`（减法溢出检查）
+     - `try a * b`（乘法溢出检查）
+   - **饱和运算符**：
+     - `a +| b`（饱和加法）
+     - `a -| b`（饱和减法）
+     - `a *| b`（饱和乘法）
+   - **包装运算符**：
+     - `a +% b`（包装加法）
+     - `a -% b`（包装减法）
+     - `a *% b`（包装乘法）
    - **支持的类型**：`i8`, `i16`, `i32`, `i64`
-   - **编译期展开**：这些函数在编译期展开为相应的溢出检查代码，零运行时开销
+   - **编译期展开**：`try` 关键字和饱和运算符在编译期展开为相应的溢出检查代码，零运行时开销
 
 3. **max/min 关键字（备选方式）**：
    - 使用 `max` 和 `min` 关键字访问类型的极值常量
@@ -2889,15 +2943,6 @@ fn main() i32 {
 | 函数 | 签名 | 说明 |
 |------|------|------|
 | `len` | `fn len(a: [T; N]) i32` | 返回数组元素个数 `N`（编译期常量） |
-| `checked_add` | `fn checked_add(a: T, b: T) !T` | 检查加法溢出，溢出返回 `error.Overflow`，否则返回值 |
-| `checked_sub` | `fn checked_sub(a: T, b: T) !T` | 检查减法溢出，溢出返回 `error.Overflow`，否则返回值 |
-| `checked_mul` | `fn checked_mul(a: T, b: T) !T` | 检查乘法溢出，溢出返回 `error.Overflow`，否则返回值 |
-| `saturating_add` | `fn saturating_add(a: T, b: T) T` | 饱和加法，溢出返回极值 |
-| `saturating_sub` | `fn saturating_sub(a: T, b: T) T` | 饱和减法，溢出返回极值 |
-| `saturating_mul` | `fn saturating_mul(a: T, b: T) T` | 饱和乘法，溢出返回极值 |
-| `wrapping_add` | `fn wrapping_add(a: T, b: T) T` | 包装加法，溢出返回包装值 |
-| `wrapping_sub` | `fn wrapping_sub(a: T, b: T) T` | 包装减法，溢出返回包装值 |
-| `wrapping_mul` | `fn wrapping_mul(a: T, b: T) T` | 包装乘法，溢出返回包装值 |
 | `slice` | `fn slice(arr: [T; N], start: i32, len: i32) [T; M]` | 返回数组切片，从索引 `start` 开始，长度为 `len`，M = len |
 
 **说明**：
@@ -2918,23 +2963,29 @@ fn main() i32 {
      const size: i32 = len(arr);  // size = 10（编译期常量）
      ```
 
-2. **溢出检查函数**（`checked_*`, `saturating_*`, `wrapping_*`）
-   - 功能：提供简洁的溢出检查方式，避免重复编写溢出检查代码
+2. **`try` 关键字、饱和运算符**（`+|`, `-|`, `*|`）**和包装运算符**（`+%`, `-%`, `*%`）
+   - 功能：提供简洁的溢出检查和处理方式，避免重复编写溢出检查代码
    - 支持的类型：`i8`, `i16`, `i32`, `i64`
-   - 编译期展开：这些函数在编译期展开为相应的溢出检查代码，零运行时开销
-   - **checked 系列**：返回错误联合类型，溢出时返回 `error.Overflow`
-     - **功能**：检查运算是否溢出，溢出时返回错误，否则返回计算结果
+   - 编译期展开：`try` 关键字和饱和运算符在编译期展开为相应的溢出检查代码，零运行时开销
+   - **`try` 关键字用于溢出检查**：
+     - **功能**：对算术运算（`+`, `-`, `*`）进行溢出检查，溢出时返回 `error.Overflow`
+     - **语法**：`try expr`，其中 `expr` 是算术运算表达式
      - **返回类型**：`!T`（错误联合类型），需要 `catch` 处理错误
+     - **可能抛出的错误**：
+       - `error.Overflow`：当算术运算结果超出类型范围时抛出
+       - 加法溢出：`try a + b` 在 `a + b` 超出类型范围时返回 `error.Overflow`
+       - 减法溢出：`try a - b` 在 `a - b` 超出类型范围时返回 `error.Overflow`
+       - 乘法溢出：`try a * b` 在 `a * b` 超出类型范围时返回 `error.Overflow`
      - **使用场景**：需要明确处理溢出错误的情况（如输入验证、关键计算）
      - **示例**：
        ```uya
        // 溢出检查
        fn add_safe(a: i32, b: i32) !i32 {
-           return checked_add(a, b);  // 自动检查溢出，溢出返回 error.Overflow
+           return try a + b;  // 自动检查溢出，溢出返回 error.Overflow
        }
 
       // 使用示例：处理溢出错误
-      const result: i32 = checked_add(x, y) catch |err| {
+      const result: i32 = try x + y catch |err| {
           if err == error.Overflow {
               printf("Overflow occurred\n");
               // 处理溢出情况，如返回默认值或报告错误
@@ -2944,15 +2995,26 @@ fn main() i32 {
 
       // 使用示例：传播错误
       fn calculate(a: i32, b: i32, c: i32) !i32 {
-          const sum: i32 = try checked_add(a, b);  // 溢出时向上传播 error.Overflow
-          return checked_add(sum, c);  // 继续检查
+          const sum: i32 = try a + b;  // 溢出时向上传播 error.Overflow
+          return try sum + c;  // 继续检查，可能抛出 error.Overflow
+      }
+      
+      // 使用示例：减法溢出检查
+      fn sub_safe(a: i32, b: i32) !i32 {
+          return try a - b;  // 自动检查减法溢出，可能抛出 error.Overflow
+      }
+      
+      // 使用示例：乘法溢出检查
+      fn mul_safe(a: i32, b: i32) !i32 {
+          return try a * b;  // 自动检查乘法溢出，可能抛出 error.Overflow
       }
        ```
      - **行为说明**：
        - 如果运算结果在类型范围内，返回计算结果
        - 如果运算结果溢出，返回 `error.Overflow`
        - 必须使用 `catch` 或 `try` 处理可能的错误
-   - **saturating 系列**：返回饱和值，溢出时返回类型的最大值或最小值
+       - 支持的操作：`+`（加法）、`-`（减法）、`*`（乘法）
+   - **饱和运算符**（`+|`, `-|`, `*|`）：返回饱和值，溢出时返回类型的最大值或最小值
      - **功能**：执行饱和算术，溢出时返回类型的极值（最大值或最小值），而不是错误
      - **返回类型**：`T`（普通类型），不会返回错误，总是返回有效数值
      - **使用场景**：需要限制结果在类型范围内的场景（如信号处理、图形处理、游戏开发）
@@ -2960,56 +3022,83 @@ fn main() i32 {
        ```uya
        // 饱和算术
        fn add_saturating(a: i32, b: i32) i32 {
-           return saturating_add(a, b);  // 自动饱和，溢出返回极值
+           return a +| b;  // 自动饱和，溢出返回极值
        }
        
       // 使用示例：限制结果范围
-      const result: i32 = saturating_add(x, y);  // 溢出时自动返回 max 或 min
+      const result: i32 = x +| y;  // 溢出时自动返回 max 或 min
       
       // 数值示例（i32 类型）
       const max: i32 = max;  // 2147483647
       const min: i32 = min;  // -2147483648
       
       // 上溢饱和：超过最大值时返回最大值
-      const result1: i32 = saturating_add(max, 1);  // 结果 = 2147483647（保持最大值）
+      const result1: i32 = max +| 1;  // 结果 = 2147483647（保持最大值）
       
       // 下溢饱和：小于最小值时返回最小值
-      const result2: i32 = saturating_sub(min, 1);  // 结果 = -2147483648（保持最小值）
+      const result2: i32 = min -| 1;  // 结果 = -2147483648（保持最小值）
       
       // 正常情况：不溢出时行为与普通加法相同
-      const result3: i32 = saturating_add(100, 200);  // 结果 = 300
+      const result3: i32 = 100 +| 200;  // 结果 = 300
+      
+      // 饱和乘法
+      const result4: i32 = max *| 2;  // 结果 = 2147483647（上溢饱和）
        ```
      - **行为说明**：
        - 如果运算结果在类型范围内，返回计算结果
        - 如果运算结果上溢（超过最大值），返回类型的最大值
        - 如果运算结果下溢（小于最小值），返回类型的最小值
        - 总是返回有效数值，无需错误处理
-   - **wrapping 系列**：返回包装值，溢出时返回包装后的值
-     ```uya
-     // 包装算术
-     fn add_wrapping(a: i32, b: i32) i32 {
-         return wrapping_add(a, b);  // 自动包装，溢出返回包装值
-     }
-     
-    // 使用示例
-    const result: i32 = wrapping_add(x, y);  // 溢出时自动包装
-     ```
+   - **包装运算符**（`+%`, `-%`, `*%`）：返回包装值，溢出时返回包装后的值
+     - **功能**：执行包装算术，溢出时返回包装后的值（模运算），而不是错误或极值
+     - **返回类型**：`T`（普通类型），不会返回错误，总是返回有效数值
+     - **使用场景**：需要明确的溢出行为（加密算法、循环计数器、哈希函数）
+     - **示例**：
+       ```uya
+       // 包装算术
+       fn add_wrapping(a: i32, b: i32) i32 {
+           return a +% b;  // 自动包装，溢出返回包装值
+       }
+       
+      // 使用示例
+      const result: i32 = x +% y;  // 溢出时自动包装
+      
+      // 数值示例（i32 类型）
+      const max: i32 = max;  // 2147483647
+      const min: i32 = min;  // -2147483648
+      
+      // 上溢包装：超过最大值时包装到最小值
+      const result1: i32 = max +% 1;  // 结果 = -2147483648（包装）
+      
+      // 下溢包装：小于最小值时包装到最大值
+      const result2: i32 = min -% 1;  // 结果 = 2147483647（包装）
+      
+      // 正常情况：不溢出时行为与普通加法相同
+      const result3: i32 = 100 +% 200;  // 结果 = 300
+      
+      // 包装乘法
+      const result4: i32 = max *% 2;  // 结果 = -2（包装）
+       ```
+     - **行为说明**：
+       - 如果运算结果在类型范围内，返回计算结果
+       - 如果运算结果溢出，返回包装后的值（模 2^n，n 为类型位数）
+       - 总是返回有效数值，无需错误处理
    - **三种方式的对比**：
      | 方式 | 溢出行为 | 返回类型 | 使用场景 |
      |------|----------|----------|----------|
-     | `checked_*` | 返回错误 | `!T` | 需要明确处理溢出错误（输入验证、关键计算） |
-     | `saturating_*` | 返回极值 | `T` | 需要限制结果范围（信号处理、图形处理） |
-     | `wrapping_*` | 返回包装值 | `T` | 需要明确的溢出行为（加密算法、循环计数器） |
+     | `try` 关键字 | 返回错误 | `!T` | 需要明确处理溢出错误（输入验证、关键计算） |
+     | 饱和运算符（`+|`, `-|`, `*|`） | 返回极值 | `T` | 需要限制结果范围（信号处理、图形处理） |
+     | 包装运算符（`+%`, `-%`, `*%`） | 返回包装值 | `T` | 需要明确的溢出行为（加密算法、循环计数器） |
      
      **选择建议**：
-     - 需要错误处理时 → 使用 `checked_*`
-     - 需要限制范围时 → 使用 `saturating_*`
-     - 需要包装行为时 → 使用 `wrapping_*`
+     - 需要错误处理时 → 使用 `try` 关键字（如 `try a + b`）
+     - 需要限制范围时 → 使用饱和运算符（如 `a +| b`）
+     - 需要包装行为时 → 使用包装运算符（如 `a +% b`）
    
    - **编译期展开示例**：
      ```uya
     // 源代码
-    const result: i32 = checked_add(a, b);
+    const result: i32 = try a + b;
      
      // 编译期展开为（伪代码）
      // if a > 0 && b > 0 && a > max - b {
@@ -3223,14 +3312,14 @@ error InvalidIteratorState;
 // i32数组迭代器接口
 interface IIteratorI32 {
     fn next(self: *Self) !void;
-    fn value(self: *Self) i32;
-    fn ptr(self: *Self) &i32;  // 获取指向当前元素的指针（可修改）
+    fn value(self: *Self) !i32;  // 可能返回错误
+    fn ptr(self: *Self) !&i32;  // 获取指向当前元素的指针（可修改），可能返回错误
 }
 
 // 带索引的i32数组迭代器接口
 interface IIteratorI32WithIndex {
     fn next(self: *Self) !void;
-    fn value(self: *Self) i32;
+    fn value(self: *Self) !i32;  // 可能返回错误
     fn index(self: *Self) i32;
 }
 
@@ -3249,7 +3338,7 @@ impl ArrayIteratorI32 : IIteratorI32 {
         self.current = self.current + 1;
     }
     
-    fn value(self: *Self) i32 {
+    fn value(self: *Self) !i32 {
         const idx: i32 = self.current - 1;
         // 编译期证明：由于 next() 成功返回，idx 在有效范围内
         if idx < 0 || idx >= self.len {
@@ -3258,7 +3347,7 @@ impl ArrayIteratorI32 : IIteratorI32 {
         return (*self.arr)[idx];
     }
     
-    fn ptr(self: *Self) &i32 {
+    fn ptr(self: *Self) !&i32 {
         const idx: i32 = self.current - 1;
         // 编译期证明：由于 next() 成功返回，idx 在有效范围内
         if idx < 0 || idx >= self.len {
@@ -3276,7 +3365,7 @@ impl ArrayIteratorI32 : IIteratorI32WithIndex {
         self.current = self.current + 1;
     }
     
-    fn value(self: *Self) i32 {
+    fn value(self: *Self) !i32 {
         const idx: i32 = self.current - 1;
         // 编译期证明：由于 next() 成功返回，idx 在有效范围内
         if idx < 0 || idx >= self.len {
@@ -4155,6 +4244,12 @@ ptr -= offset   // 指针向前偏移并赋值
 ptr1 - ptr2     // 指针间距离计算（返回usize）
 ```
 
+**类型说明**：
+- `offset` 的类型为 `usize`（平台相关的无符号整数类型）
+- 指针间距离计算 `ptr1 - ptr2` 返回 `usize` 类型
+- `usize` 在 32 位平台为 `u32`（4 字节），在 64 位平台为 `u64`（8 字节）
+- `usize` 用于表示内存地址、数组索引和大小，保证能够表示平台上任意对象的大小
+
 ### 27.3 安全保证机制
 
 #### 27.3.1 边界检查
@@ -4304,7 +4399,9 @@ fn process_range(start: &i32, end: &i32) void {
 
 - **原子类型 (`atomic T`)**：语言级原子类型，所有读/写/复合赋值操作自动生成原子指令，零运行时锁。
 
-- **接口值**：16 字节结构体，包含 vtable 指针(8B) 和数据指针(8B)，用于动态派发。
+- **接口值**：16 字节结构体（64位平台），包含 vtable 指针(8B) 和数据指针(8B)，用于动态派发。
+
+- **`usize`**：平台相关的无符号整数类型，用于表示内存地址、数组索引和大小。32位平台为 `u32`（4字节），64位平台为 `u64`（8字节）。
 
 ### 编译相关
 
@@ -4326,9 +4423,13 @@ fn process_range(start: &i32, end: &i32) void {
 
 ### 错误处理
 
-- **try**：错误传播关键字，如果表达式返回错误，当前函数立即返回该错误。
+- **`try` 关键字**：错误传播和溢出检查关键字。用于传播错误联合类型的错误，或对算术运算进行溢出检查（溢出时返回 `error.Overflow`）。
 
-- **catch**：错误捕获语法，用于处理错误联合类型的返回值。
+- **`catch` 语法**：错误捕获语法，用于处理错误联合类型的返回值。语法形式：`expr catch |err| { statements }` 或 `expr catch { statements }`。
+
+- **预定义错误**：使用 `error ErrorName;` 在顶层声明的错误类型，属于全局命名空间，可在多个模块间共享。
+
+- **运行时错误**：使用 `error.ErrorName` 语法直接创建的错误，无需预先声明，编译器在编译期自动收集。
 
 ### 并发
 
@@ -4338,11 +4439,15 @@ fn process_range(start: &i32, end: &i32) void {
 
 ### 其他
 
-- **Self**：接口方法签名中的特殊占位符，代表实现该接口的具体结构体类型。
+- **`Self`**：接口方法签名中的特殊占位符，代表实现该接口的具体结构体类型。仅在接口定义和 `impl` 块中使用。
 
-- **编译期展开**：某些操作在编译期完成，零运行时开销。例如字符串插值的缓冲区大小计算。
+- **`max/min` 关键字**：访问整数类型极值的语言关键字。编译器从上下文类型自动推断极值类型，这些是编译期常量。例如：`const MAX: i32 = max;`（`max` 从类型注解 `i32` 推断为 i32 的最大值）。
 
-- **零运行时开销**：通过路径零指令，失败路径不存在，不生成额外的运行时检查代码。
+- **饱和运算符**：`+|`（饱和加法）、`-|`（饱和减法）、`*|`（饱和乘法）。溢出时返回类型的最大值或最小值（上溢返回最大值，下溢返回最小值），而不是返回错误。
+
+- **编译期展开**：某些操作在编译期完成，零运行时开销。例如字符串插值的缓冲区大小计算、`try` 关键字的溢出检查展开。
+
+- **零运行时开销**：通过路径零指令，失败路径不存在，不生成额外的运行时检查代码。所有安全检查在编译期完成。
 
 ---
 
