@@ -38,7 +38,7 @@ static char *codegen_get_type_name(IRType type) {
         case IR_TYPE_U64: return "uint64_t";
         case IR_TYPE_F32: return "float";
         case IR_TYPE_F64: return "double";
-        case IR_TYPE_BOOL: return "uint8_t";  // C99中用uint8_t表示bool
+        case IR_TYPE_BOOL: return "_Bool";  // Use _Bool for C99 bool
         case IR_TYPE_BYTE: return "uint8_t";
         case IR_TYPE_VOID: return "void";
         case IR_TYPE_PTR: return "void*";
