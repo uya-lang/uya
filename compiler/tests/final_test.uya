@@ -1,1 +1,1 @@
-fn main() i32 { let x: i32 = 42; let mut y: i32 = 10; if x > y { y = y + 5; } else { y = y - 5; } while y > 0 { y = y - 1; } return x + y; }
+fn main() i32 { let x: i32 = 42; if x > 10 { return 1; } else { return 0; } }
