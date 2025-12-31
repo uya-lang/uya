@@ -67,6 +67,28 @@ static ASTNode *parser_parse_type(Parser *parser) {
         return NULL;
     }
 
+    // Check if it's an error union type: !T
+    if (parser_match(parser, TOKEN_EXCLAMATION)) {
+        parser_consume(parser); // consume '!'
+        
+        ASTNode *error_union_type = ast_new_node(AST_TYPE_ERROR_UNION,
+                                                 parser->current_token->line,
+                                                 parser->current_token->column,
+                                                 parser->current_token->filename);
+        if (!error_union_type) {
+            return NULL;
+        }
+        
+        // Parse the base type
+        error_union_type->data.type_error_union.base_type = parser_parse_type(parser);
+        if (!error_union_type->data.type_error_union.base_type) {
+            ast_free(error_union_type);
+            return NULL;
+        }
+        
+        return error_union_type;
+    }
+
     // Check if it's an atomic type: atomic T
     if (parser_match(parser, TOKEN_ATOMIC)) {
         parser_consume(parser); // consume 'atomic'
@@ -1229,7 +1251,7 @@ static ASTNode *parser_parse_fn_decl(Parser *parser) {
     }
 
     // 检查是否有返回类型（可选）
-    // 支持两种语法：fn main() -> i32 和 fn main() i32
+    // 支持两种语法：fn main() -> i32 和 fn main() i32 (or fn main() !i32)
     if (parser_match(parser, TOKEN_ARROW)) {
         parser_consume(parser); // 消费 '->'
         fn_decl->data.fn_decl.return_type = parser_parse_type(parser);
@@ -1237,38 +1259,47 @@ static ASTNode *parser_parse_fn_decl(Parser *parser) {
             ast_free(fn_decl);
             return NULL;
         }
-    } else if (parser->current_token && parser_match(parser, TOKEN_IDENTIFIER)) {
-        // Check if the identifier is a type name (for syntax like fn main() i32)
-        // We need to check the token value to see if it's a type
-        if (strcmp(parser->current_token->value, "i32") == 0 ||
-            strcmp(parser->current_token->value, "i64") == 0 ||
-            strcmp(parser->current_token->value, "i8") == 0 ||
-            strcmp(parser->current_token->value, "i16") == 0 ||
-            strcmp(parser->current_token->value, "u32") == 0 ||
-            strcmp(parser->current_token->value, "u64") == 0 ||
-            strcmp(parser->current_token->value, "u8") == 0 ||
-            strcmp(parser->current_token->value, "u16") == 0 ||
-            strcmp(parser->current_token->value, "f32") == 0 ||
-            strcmp(parser->current_token->value, "f64") == 0 ||
-            strcmp(parser->current_token->value, "bool") == 0 ||
-            strcmp(parser->current_token->value, "void") == 0) {
-            // Manually create the type node
-            fn_decl->data.fn_decl.return_type = ast_new_node(AST_TYPE_NAMED, line, col, filename);
-            if (fn_decl->data.fn_decl.return_type) {
-                fn_decl->data.fn_decl.return_type->data.type_named.name = malloc(strlen(parser->current_token->value) + 1);
-                if (fn_decl->data.fn_decl.return_type->data.type_named.name) {
-                    strcpy(fn_decl->data.fn_decl.return_type->data.type_named.name, parser->current_token->value);
-                }
-            }
-            // Consume the type identifier token
-            parser_consume(parser);
+    } else if (parser->current_token && 
+               (parser_match(parser, TOKEN_IDENTIFIER) || 
+                parser_match(parser, TOKEN_EXCLAMATION) ||
+                parser_match(parser, TOKEN_ATOMIC) ||
+                parser_match(parser, TOKEN_ASTERISK))) {
+        // Try to parse as a type (supports !i32, *T, atomic T, or simple types)
+        ASTNode *return_type = parser_parse_type(parser);
+        if (return_type) {
+            fn_decl->data.fn_decl.return_type = return_type;
         } else {
-            // Not a type name, use default void
-            fn_decl->data.fn_decl.return_type = ast_new_node(AST_TYPE_NAMED, line, col, filename);
-            if (fn_decl->data.fn_decl.return_type) {
-                fn_decl->data.fn_decl.return_type->data.type_named.name = malloc(5);
-                if (fn_decl->data.fn_decl.return_type->data.type_named.name) {
-                    strcpy(fn_decl->data.fn_decl.return_type->data.type_named.name, "void");
+            // If parsing failed, check if it's a simple type identifier
+            if (parser_match(parser, TOKEN_IDENTIFIER) &&
+                (strcmp(parser->current_token->value, "i32") == 0 ||
+                 strcmp(parser->current_token->value, "i64") == 0 ||
+                 strcmp(parser->current_token->value, "i8") == 0 ||
+                 strcmp(parser->current_token->value, "i16") == 0 ||
+                 strcmp(parser->current_token->value, "u32") == 0 ||
+                 strcmp(parser->current_token->value, "u64") == 0 ||
+                 strcmp(parser->current_token->value, "u8") == 0 ||
+                 strcmp(parser->current_token->value, "u16") == 0 ||
+                 strcmp(parser->current_token->value, "f32") == 0 ||
+                 strcmp(parser->current_token->value, "f64") == 0 ||
+                 strcmp(parser->current_token->value, "bool") == 0 ||
+                 strcmp(parser->current_token->value, "void") == 0)) {
+                // Manually create the type node
+                fn_decl->data.fn_decl.return_type = ast_new_node(AST_TYPE_NAMED, line, col, filename);
+                if (fn_decl->data.fn_decl.return_type) {
+                    fn_decl->data.fn_decl.return_type->data.type_named.name = malloc(strlen(parser->current_token->value) + 1);
+                    if (fn_decl->data.fn_decl.return_type->data.type_named.name) {
+                        strcpy(fn_decl->data.fn_decl.return_type->data.type_named.name, parser->current_token->value);
+                    }
+                }
+                parser_consume(parser);
+            } else {
+                // Default to void if type parsing failed
+                fn_decl->data.fn_decl.return_type = ast_new_node(AST_TYPE_NAMED, line, col, filename);
+                if (fn_decl->data.fn_decl.return_type) {
+                    fn_decl->data.fn_decl.return_type->data.type_named.name = malloc(5);
+                    if (fn_decl->data.fn_decl.return_type->data.type_named.name) {
+                        strcpy(fn_decl->data.fn_decl.return_type->data.type_named.name, "void");
+                    }
                 }
             }
         }

@@ -32,6 +32,9 @@ static IRType get_ir_type(struct ASTNode *ast_type) {
                 if (strcmp(name, "void") == 0) return IR_TYPE_VOID;
                 if (strcmp(name, "byte") == 0) return IR_TYPE_BYTE;
 
+                // Handle generic type parameter T (temporarily treat as i32 until generics are fully implemented)
+                if (strcmp(name, "T") == 0) return IR_TYPE_I32;
+
                 // For user-defined types like Point, Vec3, etc., return STRUCT type
                 return IR_TYPE_STRUCT;
             }
@@ -40,8 +43,9 @@ static IRType get_ir_type(struct ASTNode *ast_type) {
         case AST_TYPE_POINTER:
             return IR_TYPE_PTR;
         case AST_TYPE_ERROR_UNION:
-            // For error union types, we'll use a special type
-            return IR_TYPE_ERROR_UNION;
+            // For error union types, temporarily return the base type
+            // Full error handling implementation will be added later
+            return get_ir_type(ast_type->data.type_error_union.base_type);
         case AST_TYPE_ATOMIC:
             // For atomic types, return the base type
             // The atomic flag will be set separately

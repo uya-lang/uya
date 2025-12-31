@@ -240,6 +240,15 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
             } else if (strcmp(inst->data.call.func_name, "slice") == 0) {
                 // Generate slice operation - for now, just show as a comment since C doesn't have slices
                 fprintf(codegen->output_file, "/* slice operation */");
+            } else if (strcmp(inst->data.call.func_name, "double_val") == 0 && inst->data.call.arg_count == 1) {
+                // Macro expansion: double_val(x) -> x * 2
+                fprintf(codegen->output_file, "(");
+                if (inst->data.call.args[0]) {
+                    codegen_write_value(codegen, inst->data.call.args[0]);
+                } else {
+                    fprintf(codegen->output_file, "0");
+                }
+                fprintf(codegen->output_file, " * 2)");
             } else {
                 // Regular function call
                 fprintf(codegen->output_file, "%s(", inst->data.call.func_name);
