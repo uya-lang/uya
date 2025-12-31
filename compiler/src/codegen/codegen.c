@@ -62,8 +62,8 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
 
     switch (inst->type) {
         case IR_STRUCT_INIT:
-            // Generate struct initialization: StructName{ .field = value, ... }
-            fprintf(codegen->output_file, "%s{ ", inst->data.struct_init.struct_name);
+            // Generate struct initialization: (StructName){ .field = value, ... }
+            fprintf(codegen->output_file, "(%s){ ", inst->data.struct_init.struct_name);
             for (int i = 0; i < inst->data.struct_init.field_count; i++) {
                 if (i > 0) fprintf(codegen->output_file, ", ");
                 fprintf(codegen->output_file, ".%s = ", inst->data.struct_init.field_names[i]);
@@ -371,6 +371,19 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             if (inst->data.try_catch.try_body) {
                 codegen_generate_inst(codegen, inst->data.try_catch.try_body);
             }
+            break;
+
+        case IR_STRUCT_DECL:
+            // Generate struct declaration: typedef struct StructName { ... } StructName;
+            fprintf(codegen->output_file, "typedef struct %s {\n", inst->data.struct_decl.name);
+            for (int i = 0; i < inst->data.struct_decl.field_count; i++) {
+                if (inst->data.struct_decl.fields[i]) {
+                    fprintf(codegen->output_file, "  ");
+                    codegen_write_type(codegen, inst->data.struct_decl.fields[i]->data.var.type);
+                    fprintf(codegen->output_file, " %s;\n", inst->data.struct_decl.fields[i]->data.var.name);
+                }
+            }
+            fprintf(codegen->output_file, "} %s;\n\n", inst->data.struct_decl.name);
             break;
 
         default:
