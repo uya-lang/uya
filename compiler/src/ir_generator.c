@@ -251,38 +251,60 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
         }
 
         case AST_UNARY_EXPR: {
-            // Handle unary expressions like &variable
-            IRInst *unary_op = irinst_new(IR_UNARY_OP);
-            if (!unary_op) return NULL;
+            // Handle unary expressions like &variable, -x, !x, try x
+            if (expr->data.unary_expr.op == TOKEN_TRY) {
+                // Handle try expressions: try expr (error propagation) and try a + b (overflow checking)
+                // For now, we'll generate a special error union operation for try expressions
+                IRInst *try_op = irinst_new(IR_ERROR_UNION);
+                if (!try_op) return NULL;
 
-            // Map AST operator to IR operator
-            switch (expr->data.unary_expr.op) {
-                case TOKEN_AMPERSAND:
-                    unary_op->data.unary_op.op = IR_OP_ADDR_OF;
-                    break;
-                case TOKEN_MINUS:
-                    unary_op->data.unary_op.op = IR_OP_NEG;
-                    break;
-                case TOKEN_EXCLAMATION:
-                    unary_op->data.unary_op.op = IR_OP_NOT;
-                    break;
-                default:
-                    unary_op->data.unary_op.op = IR_OP_ADDR_OF;
-                    break; // default to address-of
+                // Generate the operand expression
+                try_op->data.error_union.value = generate_expr(ir_gen, expr->data.unary_expr.operand);
+                try_op->data.error_union.is_error = 0; // Not an error, just a try operation
+
+                // Generate a destination variable name
+                char temp_name[32];
+                snprintf(temp_name, sizeof(temp_name), "try_%d", ir_gen->current_id++);
+                try_op->data.error_union.dest = malloc(strlen(temp_name) + 1);
+                if (try_op->data.error_union.dest) {
+                    strcpy(try_op->data.error_union.dest, temp_name);
+                }
+
+                return try_op;
+            } else {
+                // Handle other unary expressions
+                IRInst *unary_op = irinst_new(IR_UNARY_OP);
+                if (!unary_op) return NULL;
+
+                // Map AST operator to IR operator
+                switch (expr->data.unary_expr.op) {
+                    case TOKEN_AMPERSAND:
+                        unary_op->data.unary_op.op = IR_OP_ADDR_OF;
+                        break;
+                    case TOKEN_MINUS:
+                        unary_op->data.unary_op.op = IR_OP_NEG;
+                        break;
+                    case TOKEN_EXCLAMATION:
+                        unary_op->data.unary_op.op = IR_OP_NOT;
+                        break;
+                    default:
+                        unary_op->data.unary_op.op = IR_OP_ADDR_OF;
+                        break; // default to address-of
+                }
+
+                // Generate operand
+                unary_op->data.unary_op.operand = generate_expr(ir_gen, expr->data.unary_expr.operand);
+
+                // Generate a destination variable name
+                char temp_name[32];
+                snprintf(temp_name, sizeof(temp_name), "temp_%d", ir_gen->current_id++);
+                unary_op->data.unary_op.dest = malloc(strlen(temp_name) + 1);
+                if (unary_op->data.unary_op.dest) {
+                    strcpy(unary_op->data.unary_op.dest, temp_name);
+                }
+
+                return unary_op;
             }
-
-            // Generate operand
-            unary_op->data.unary_op.operand = generate_expr(ir_gen, expr->data.unary_expr.operand);
-
-            // Generate a destination variable name
-            char temp_name[32];
-            snprintf(temp_name, sizeof(temp_name), "temp_%d", ir_gen->current_id++);
-            unary_op->data.unary_op.dest = malloc(strlen(temp_name) + 1);
-            if (unary_op->data.unary_op.dest) {
-                strcpy(unary_op->data.unary_op.dest, temp_name);
-            }
-
-            return unary_op;
         }
 
         case AST_MEMBER_ACCESS: {

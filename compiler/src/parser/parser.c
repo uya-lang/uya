@@ -209,6 +209,30 @@ static ASTNode *parser_parse_expression(Parser *parser) {
         return NULL;
     }
 
+    // Check for try operator first
+    if (parser_match(parser, TOKEN_TRY)) {
+        parser_consume(parser); // consume 'try'
+
+        // Parse the entire expression, including binary operations, as the try operand
+        ASTNode *operand = parser_parse_expression(parser);
+        if (!operand) return NULL;
+
+        // Create a unary expression node for try
+        ASTNode *unary_expr = ast_new_node(AST_UNARY_EXPR,
+                                          parser->current_token->line,
+                                          parser->current_token->column,
+                                          parser->current_token->filename);
+        if (!unary_expr) {
+            ast_free(operand);
+            return NULL;
+        }
+
+        unary_expr->data.unary_expr.op = TOKEN_TRY;
+        unary_expr->data.unary_expr.operand = operand;
+
+        return unary_expr;
+    }
+    
     // Check for unary operators first (like &x, -x, !x)
     if (parser_match(parser, TOKEN_AMPERSAND)) {
         parser_consume(parser); // consume '&'

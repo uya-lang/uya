@@ -807,18 +807,23 @@ fn print_hello() void {
 - **`try` 关键字**：
   - `try expr` 用于传播错误和溢出检查
   - **错误传播**：如果 `expr` 返回错误，当前函数立即返回该错误
-  - **溢出检查**：如果 `expr` 是算术运算（`+`, `-`, `*`），自动检查溢出，溢出时返回 `error.Overflow`
+  - **溢出检查**：如果 `expr` 是算术运算（`+`, `-`, `*`, `/`），自动检查溢出，溢出时返回 `error.Overflow`
   - 如果 `expr` 返回值，继续执行
   - **只能在返回错误联合类型的函数中使用**，且 `expr` 必须是返回错误联合类型的表达式或算术运算
   - **可能抛出的错误类型**：
     - **错误传播模式**：`try expr` 可能抛出 `expr` 返回的所有错误类型
       - 例如：`try divide(10, 2)` 可能抛出 `divide` 函数返回的所有错误（如 `error.DivisionByZero`）
-    - **溢出检查模式**：`try a + b`、`try a - b`、`try a * b` 可能抛出 `error.Overflow`
+    - **溢出检查模式**：`try a + b`、`try a - b`、`try a * b`、`try a / b` 可能抛出 `error.Overflow`
       - 加法溢出：`try a + b` 在 `a + b` 超出类型范围时返回 `error.Overflow`
       - 减法溢出：`try a - b` 在 `a - b` 超出类型范围时返回 `error.Overflow`
       - 乘法溢出：`try a * b` 在 `a * b` 超出类型范围时返回 `error.Overflow`
+      - 除法溢出：`try a / b` 在 `a / b` 超出类型范围时返回 `error.Overflow`（如 `min / -1`）
   - **错误传播示例**：`const result: i32 = try divide(10, 2);`（`divide` 必须返回 `!i32`，可能抛出 `error.DivisionByZero` 等）
-  - **溢出检查示例**：`const result: i32 = try a + b;`（自动检查 `a + b` 是否溢出，可能抛出 `error.Overflow`）
+  - **溢出检查示例**：
+    - `const result: i32 = try a + b;`（自动检查 `a + b` 是否溢出，可能抛出 `error.Overflow`）
+    - `const result: i32 = try a - b;`（自动检查 `a - b` 是否溢出，可能抛出 `error.Overflow`）
+    - `const result: i32 = try a * b;`（自动检查 `a * b` 是否溢出，可能抛出 `error.Overflow`）
+    - `const result: i32 = try a / b;`（自动检查 `a / b` 是否溢出，可能抛出 `error.Overflow`）
 
 - **`catch` 语法**：
   - `expr catch |err| { statements }` 用于捕获并处理错误

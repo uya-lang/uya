@@ -263,6 +263,17 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
                 fprintf(codegen->output_file, ")");
             }
             break;
+            
+        case IR_ERROR_UNION:
+            // Handle error union operations, especially try expressions
+            if (inst->data.error_union.value) {
+                // For try expressions, generate the value part
+                codegen_write_value(codegen, inst->data.error_union.value);
+            } else {
+                fprintf(codegen->output_file, "/* error union */");
+            }
+            break;
+            
         default:
             fprintf(codegen->output_file, "temp_%d", inst->id);
             break;

@@ -1,0 +1,16 @@
+// Simple test for try binary operations
+fn main() !i32 {
+    let a: i32 = 10;
+    let b: i32 = 20;
+    
+    // Test try with binary operations (without division)
+    const result1: i32 = try a + b;
+    const result2: i32 = try a - b;
+    const result3: i32 = try a * b;
+    
+    printf("try a + b = %d\n", result1);
+    printf("try a - b = %d\n", result2);
+    printf("try a * b = %d\n", result3);
+    
+    return 0;
+}

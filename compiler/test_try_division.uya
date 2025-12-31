@@ -1,0 +1,12 @@
+fn main() !i32 {
+    let a: i32 = 10;
+    let b: i32 = 20;
+    
+    // Test try with division, adding a non-zero check for b
+    if b != 0 {
+        const result4: i32 = try a / b;
+        printf("try a / b = %d\n", result4);
+    }
+    
+    return 0;
+}

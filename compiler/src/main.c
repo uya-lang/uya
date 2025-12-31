@@ -155,29 +155,50 @@ static int collect_uya_files(const char *dir_path, char ***files, int *count, in
 
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_REG && is_uya_file(entry->d_name)) {
-            // 扩容
-            if (*count >= *capacity) {
-                *capacity = *capacity == 0 ? 8 : *capacity * 2;
-                *files = realloc(*files, *capacity * sizeof(char*));
-                if (!*files) {
+        // Skip directories . and ..
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        
+        // Check if it's a .uya file
+        if (is_uya_file(entry->d_name)) {
+            // Construct full file path
+            char *full_path;
+            if (dir_path && strcmp(dir_path, ".") != 0) {
+                full_path = malloc(strlen(dir_path) + strlen(entry->d_name) + 2);
+                if (!full_path) {
+                    closedir(dir);
+                    return 0;
+                }
+                sprintf(full_path, "%s/%s", dir_path, entry->d_name);
+            } else {
+                full_path = strdup(entry->d_name);
+                if (!full_path) {
                     closedir(dir);
                     return 0;
                 }
             }
-
-            // 分配并存储文件路径
-            char *filepath = malloc(strlen(dir_path ? dir_path : ".") + strlen(entry->d_name) + 2);
-            if (!filepath) {
-                closedir(dir);
-                return 0;
-            }
-            if (dir_path && strcmp(dir_path, ".") != 0) {
-                sprintf(filepath, "%s/%s", dir_path, entry->d_name);
+            
+            // Check if it's a regular file using stat
+            struct stat file_stat;
+            if (stat(full_path, &file_stat) == 0 && S_ISREG(file_stat.st_mode)) {
+                // It's a regular .uya file, add to collection
+                // 扩容
+                if (*count >= *capacity) {
+                    *capacity = *capacity == 0 ? 8 : *capacity * 2;
+                    *files = realloc(*files, *capacity * sizeof(char*));
+                    if (!*files) {
+                        free(full_path);
+                        closedir(dir);
+                        return 0;
+                    }
+                }
+                
+                (*files)[(*count)++] = full_path;
             } else {
-                strcpy(filepath, entry->d_name);
+                // Not a regular file, free the path
+                free(full_path);
             }
-            (*files)[(*count)++] = filepath;
         }
     }
 
