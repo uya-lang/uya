@@ -61,6 +61,21 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
     }
 
     switch (inst->type) {
+        case IR_STRUCT_INIT:
+            // Generate struct initialization: StructName{ .field = value, ... }
+            fprintf(codegen->output_file, "%s{ ", inst->data.struct_init.struct_name);
+            for (int i = 0; i < inst->data.struct_init.field_count; i++) {
+                if (i > 0) fprintf(codegen->output_file, ", ");
+                fprintf(codegen->output_file, ".%s = ", inst->data.struct_init.field_names[i]);
+                if (inst->data.struct_init.field_inits[i]) {
+                    codegen_write_value(codegen, inst->data.struct_init.field_inits[i]);
+                } else {
+                    fprintf(codegen->output_file, "0"); // default value
+                }
+            }
+            fprintf(codegen->output_file, "}");
+            break;
+
         case IR_CONSTANT:
             if (inst->data.constant.value) {
                 fprintf(codegen->output_file, "%s", inst->data.constant.value);

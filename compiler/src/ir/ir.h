@@ -36,6 +36,7 @@ typedef enum {
     IR_SLICE,          // 数组切片操作
     IR_FOR,            // for 循环
     IR_CONSTANT,       // 常量值
+    IR_STRUCT_INIT,    // 结构体初始化
 } IRInstType;
 
 // 数据类型
@@ -226,6 +227,14 @@ typedef struct IRInst {
             struct IRInst **fields;     // 字段数组
             int field_count;            // 字段数量
         } struct_decl;
+
+        // 结构体初始化
+        struct {
+            char *struct_name;          // 结构体名称
+            char **field_names;         // 字段名称数组
+            struct IRInst **field_inits; // 字段初始化表达式数组
+            int field_count;            // 字段数量
+        } struct_init;
     } data;
 } IRInst;
 

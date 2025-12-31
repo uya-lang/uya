@@ -300,6 +300,17 @@ void ast_print(ASTNode *node, int indent) {
             ast_print(node->data.for_stmt.body, indent + 2);
             break;
 
+        case AST_STRUCT_INIT:
+            printf("StructInit: %s{\n", node->data.struct_init.struct_name);
+            for (int i = 0; i < node->data.struct_init.field_count; i++) {
+                print_indent(indent + 1);
+                printf("  %s: ", node->data.struct_init.field_names[i]);
+                ast_print(node->data.struct_init.field_inits[i], indent + 2);
+            }
+            print_indent(indent);
+            printf("}");
+            break;
+
         case AST_TYPE_NAMED:
             printf("Type: %s\n", node->data.type_named.name);
             break;

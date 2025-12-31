@@ -225,6 +225,48 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
             return unary_op;
         }
 
+        case AST_STRUCT_INIT: {
+            // Handle struct initialization like Point{ x: 10, y: 20 }
+            IRInst *struct_init = irinst_new(IR_STRUCT_INIT);
+            if (!struct_init) return NULL;
+
+            // Set struct name
+            struct_init->data.struct_init.struct_name = malloc(strlen(expr->data.struct_init.struct_name) + 1);
+            if (struct_init->data.struct_init.struct_name) {
+                strcpy(struct_init->data.struct_init.struct_name, expr->data.struct_init.struct_name);
+            }
+
+            // Set up field names and initializations
+            struct_init->data.struct_init.field_count = expr->data.struct_init.field_count;
+            if (expr->data.struct_init.field_count > 0) {
+                struct_init->data.struct_init.field_names = malloc(expr->data.struct_init.field_count * sizeof(char*));
+                struct_init->data.struct_init.field_inits = malloc(expr->data.struct_init.field_count * sizeof(IRInst*));
+
+                if (!struct_init->data.struct_init.field_names || !struct_init->data.struct_init.field_inits) {
+                    if (struct_init->data.struct_init.field_names) free(struct_init->data.struct_init.field_names);
+                    if (struct_init->data.struct_init.field_inits) free(struct_init->data.struct_init.field_inits);
+                    irinst_free(struct_init);
+                    return NULL;
+                }
+
+                for (int i = 0; i < expr->data.struct_init.field_count; i++) {
+                    // Copy field name
+                    struct_init->data.struct_init.field_names[i] = malloc(strlen(expr->data.struct_init.field_names[i]) + 1);
+                    if (struct_init->data.struct_init.field_names[i]) {
+                        strcpy(struct_init->data.struct_init.field_names[i], expr->data.struct_init.field_names[i]);
+                    }
+
+                    // Generate field initialization expression
+                    struct_init->data.struct_init.field_inits[i] = generate_expr(ir_gen, expr->data.struct_init.field_inits[i]);
+                }
+            } else {
+                struct_init->data.struct_init.field_names = NULL;
+                struct_init->data.struct_init.field_inits = NULL;
+            }
+
+            return struct_init;
+        }
+
         default:
             // For unsupported expressions, create a placeholder
             return irinst_new(IR_VAR_DECL);

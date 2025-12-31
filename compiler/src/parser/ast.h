@@ -23,6 +23,7 @@ typedef enum {
     AST_DEFER_STMT,
     AST_ERRDEFER_STMT,
     AST_FOR_STMT,
+    AST_STRUCT_INIT,  // 结构体初始化表达式
 
     // 表达式类型
     AST_BINARY_EXPR,
@@ -192,6 +193,14 @@ typedef struct ASTNode {
             char *index_var;              // May be NULL for basic form
             struct ASTNode *body;
         } for_stmt;
+
+        // 结构体初始化表达式
+        struct {
+            char *struct_name;
+            struct ASTNode **field_inits;
+            char **field_names;
+            int field_count;
+        } struct_init;
     } data;
 } ASTNode;
 

@@ -278,6 +278,116 @@ static ASTNode *parser_parse_expression(Parser *parser) {
                 ast_free(ident);  // Clean up the identifier we created
                 return NULL;
             }
+        }
+        // Check if this identifier is followed by struct initialization '{'
+        else if (parser_match(parser, TOKEN_LEFT_BRACE)) {
+            // This is a struct initialization: StructName{ field: value, ... }
+            parser_consume(parser); // consume '{'
+
+            ASTNode *struct_init = ast_new_node(AST_STRUCT_INIT,
+                                               parser->current_token->line,
+                                               parser->current_token->column,
+                                               parser->current_token->filename);
+            if (!struct_init) {
+                ast_free(ident);  // Clean up the identifier
+                return NULL;
+            }
+
+            // Set struct name from the identifier
+            struct_init->data.struct_init.struct_name = malloc(strlen(ident->data.identifier.name) + 1);
+            if (struct_init->data.struct_init.struct_name) {
+                strcpy(struct_init->data.struct_init.struct_name, ident->data.identifier.name);
+            } else {
+                ast_free(struct_init);
+                ast_free(ident);
+                return NULL;
+            }
+
+            // Initialize fields array
+            struct_init->data.struct_init.field_names = NULL;
+            struct_init->data.struct_init.field_inits = NULL;
+            struct_init->data.struct_init.field_count = 0;
+            int capacity = 0;
+
+            // Parse field initializations: field_name: value
+            if (!parser_match(parser, TOKEN_RIGHT_BRACE)) {
+                do {
+                    // Expect field name (identifier)
+                    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                        ast_free(struct_init);
+                        ast_free(ident);
+                        fprintf(stderr, "语法错误: 结构体初始化需要字段名\n");
+                        return NULL;
+                    }
+
+                    char *field_name = malloc(strlen(parser->current_token->value) + 1);
+                    if (!field_name) {
+                        ast_free(struct_init);
+                        ast_free(ident);
+                        return NULL;
+                    }
+                    strcpy(field_name, parser->current_token->value);
+                    parser_consume(parser); // consume field name
+
+                    // Expect ':'
+                    if (!parser_expect(parser, TOKEN_COLON)) {
+                        free(field_name);
+                        ast_free(struct_init);
+                        ast_free(ident);
+                        return NULL;
+                    }
+
+                    // Parse field value
+                    ASTNode *field_value = parser_parse_expression(parser);
+                    if (!field_value) {
+                        free(field_name);
+                        ast_free(struct_init);
+                        ast_free(ident);
+                        return NULL;
+                    }
+
+                    // Expand arrays
+                    if (struct_init->data.struct_init.field_count >= capacity) {
+                        int new_capacity = capacity == 0 ? 4 : capacity * 2;
+                        char **new_names = realloc(struct_init->data.struct_init.field_names,
+                                                  new_capacity * sizeof(char*));
+                        ASTNode **new_values = realloc(struct_init->data.struct_init.field_inits,
+                                                      new_capacity * sizeof(ASTNode*));
+                        if (!new_names || !new_values) {
+                            if (new_names) free(new_names);
+                            if (new_values) free(new_values);
+                            free(field_name);
+                            ast_free(field_value);
+                            ast_free(struct_init);
+                            ast_free(ident);
+                            return NULL;
+                        }
+                        struct_init->data.struct_init.field_names = new_names;
+                        struct_init->data.struct_init.field_inits = new_values;
+                        capacity = new_capacity;
+                    }
+
+                    struct_init->data.struct_init.field_names[struct_init->data.struct_init.field_count] = field_name;
+                    struct_init->data.struct_init.field_inits[struct_init->data.struct_init.field_count] = field_value;
+                    struct_init->data.struct_init.field_count++;
+
+                    if (parser_match(parser, TOKEN_COMMA)) {
+                        parser_consume(parser); // consume ','
+                    } else {
+                        break;
+                    }
+                } while (!parser_match(parser, TOKEN_RIGHT_BRACE) && parser->current_token);
+            }
+
+            // Expect '}'
+            if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
+                ast_free(struct_init);
+                ast_free(ident);
+                return NULL;
+            }
+
+            ast_free(ident);  // Free the temporary identifier
+            left = struct_init;
         } else {
             left = ident;
         }
