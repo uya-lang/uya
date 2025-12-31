@@ -112,6 +112,7 @@ typedef struct IRInst {
             char *original_type_name;  // For user-defined types like structs
             struct IRInst *init;
             int is_mut;
+            int is_atomic;  // 1 if the type is atomic, 0 otherwise
         } var;
         
         // 赋值

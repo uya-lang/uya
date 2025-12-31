@@ -141,6 +141,27 @@ void ast_free(ASTNode *node) {
             ast_free(node->data.type_error_union.base_type);
             break;
             
+        case AST_TYPE_ATOMIC:
+            ast_free(node->data.type_atomic.base_type);
+            break;
+            
+        case AST_INTERFACE_DECL:
+            if (node->data.interface_decl.name) {
+                free(node->data.interface_decl.name);
+            }
+            ast_free_node_list(node->data.interface_decl.methods, node->data.interface_decl.method_count);
+            break;
+            
+        case AST_IMPL_DECL:
+            if (node->data.impl_decl.struct_name) {
+                free(node->data.impl_decl.struct_name);
+            }
+            if (node->data.impl_decl.interface_name) {
+                free(node->data.impl_decl.interface_name);
+            }
+            ast_free_node_list(node->data.impl_decl.methods, node->data.impl_decl.method_count);
+            break;
+            
         default:
             // 其他类型暂不处理
             break;
@@ -313,6 +334,51 @@ void ast_print(ASTNode *node, int indent) {
 
         case AST_TYPE_NAMED:
             printf("Type: %s\n", node->data.type_named.name);
+            break;
+
+        case AST_TYPE_ATOMIC:
+            printf("Type: atomic\n");
+            print_indent(indent + 1);
+            printf("BaseType:\n");
+            ast_print(node->data.type_atomic.base_type, indent + 2);
+            break;
+
+        case AST_MEMBER_ACCESS:
+            printf("MemberAccess:\n");
+            print_indent(indent + 1);
+            printf("Object:\n");
+            ast_print(node->data.member_access.object, indent + 2);
+            print_indent(indent + 1);
+            printf("Field: %s\n", node->data.member_access.field_name);
+            break;
+
+        case AST_EXPR_STMT:
+            // Expression statement - the expression itself is the statement
+            // This type is likely used as a wrapper, but the actual expression
+            // would be stored in the union, possibly as a binary_expr
+            printf("ExprStmt:\n");
+            // Since AST_EXPR_STMT doesn't have a dedicated data structure,
+            // we'll just indicate it exists
+            break;
+
+        case AST_INTERFACE_DECL:
+            printf("InterfaceDecl: %s\n", node->data.interface_decl.name);
+            for (int i = 0; i < node->data.interface_decl.method_count; i++) {
+                print_indent(indent + 1);
+                printf("Method:\n");
+                ast_print(node->data.interface_decl.methods[i], indent + 2);
+            }
+            break;
+
+        case AST_IMPL_DECL:
+            printf("ImplDecl: %s : %s\n", 
+                   node->data.impl_decl.struct_name, 
+                   node->data.impl_decl.interface_name);
+            for (int i = 0; i < node->data.impl_decl.method_count; i++) {
+                print_indent(indent + 1);
+                printf("Method:\n");
+                ast_print(node->data.impl_decl.methods[i], indent + 2);
+            }
             break;
 
         default:

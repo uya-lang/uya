@@ -42,6 +42,10 @@ static IRType get_ir_type(struct ASTNode *ast_type) {
         case AST_TYPE_ERROR_UNION:
             // For error union types, we'll use a special type
             return IR_TYPE_ERROR_UNION;
+        case AST_TYPE_ATOMIC:
+            // For atomic types, return the base type
+            // The atomic flag will be set separately
+            return get_ir_type(ast_type->data.type_atomic.base_type);
         default:
             return IR_TYPE_VOID;
     }
@@ -104,6 +108,16 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
                     irinst_free(call_inst);
                     return NULL;
                 }
+            } else if (expr->data.call_expr.callee && expr->data.call_expr.callee->type == AST_MEMBER_ACCESS) {
+                // Method call: object.method() - generate function name using the field name
+                const char *field_name = expr->data.call_expr.callee->data.member_access.field_name;
+                call_inst->data.call.func_name = malloc(strlen(field_name) + 1);
+                if (call_inst->data.call.func_name) {
+                    strcpy(call_inst->data.call.func_name, field_name);
+                } else {
+                    irinst_free(call_inst);
+                    return NULL;
+                }
             } else {
                 call_inst->data.call.func_name = malloc(8);
                 if (call_inst->data.call.func_name) {
@@ -115,16 +129,55 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
             }
 
             // Handle arguments
-            call_inst->data.call.arg_count = expr->data.call_expr.arg_count;
-            if (expr->data.call_expr.arg_count > 0) {
-                call_inst->data.call.args = malloc(expr->data.call_expr.arg_count * sizeof(IRInst*));
+            // If this is a method call (callee is member_access), prepend the object as first argument
+            int is_method_call = (expr->data.call_expr.callee && expr->data.call_expr.callee->type == AST_MEMBER_ACCESS);
+            call_inst->data.call.arg_count = expr->data.call_expr.arg_count + (is_method_call ? 1 : 0);
+            
+            if (call_inst->data.call.arg_count > 0) {
+                call_inst->data.call.args = malloc(call_inst->data.call.arg_count * sizeof(IRInst*));
                 if (!call_inst->data.call.args) {
                     irinst_free(call_inst);
                     return NULL;
                 }
-
+                
+                int arg_index = 0;
+                
+                // If method call, add object as first argument
+                // If the method expects a pointer, we need to pass the address of the object
+                if (is_method_call) {
+                    IRInst *object_expr = generate_expr(ir_gen, expr->data.call_expr.callee->data.member_access.object);
+                    if (!object_expr) {
+                        irinst_free(call_inst);
+                        return NULL;
+                    }
+                    
+                    // For method calls, the first parameter is typically a pointer to the struct
+                    // So we need to take the address of the object if it's a value type
+                    // Check if object is a value type (not already a pointer)
+                    if (object_expr->type == IR_VAR_DECL && object_expr->data.var.type != IR_TYPE_PTR) {
+                        // Create address-of operation: &object
+                        IRInst *addr_of = irinst_new(IR_UNARY_OP);
+                        if (addr_of) {
+                            addr_of->data.unary_op.op = IR_OP_ADDR_OF;
+                            addr_of->data.unary_op.operand = object_expr;
+                            call_inst->data.call.args[arg_index] = addr_of;
+                        } else {
+                            call_inst->data.call.args[arg_index] = object_expr;
+                        }
+                    } else {
+                        call_inst->data.call.args[arg_index] = object_expr;
+                    }
+                    arg_index++;
+                }
+                
+                // Add the rest of the arguments
                 for (int i = 0; i < expr->data.call_expr.arg_count; i++) {
-                    call_inst->data.call.args[i] = generate_expr(ir_gen, expr->data.call_expr.args[i]);
+                    call_inst->data.call.args[arg_index] = generate_expr(ir_gen, expr->data.call_expr.args[i]);
+                    if (!call_inst->data.call.args[arg_index]) {
+                        irinst_free(call_inst);
+                        return NULL;
+                    }
+                    arg_index++;
                 }
             } else {
                 call_inst->data.call.args = NULL;
@@ -345,6 +398,59 @@ static IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl) {
             param->data.var.type = get_ir_type(fn_decl->data.fn_decl.params[i]->data.var_decl.type);
             param->data.var.init = NULL;
 
+            // Store original type name for pointer types and struct types
+            struct ASTNode *param_type = fn_decl->data.fn_decl.params[i]->data.var_decl.type;
+            if (param_type) {
+                if (param_type->type == AST_TYPE_POINTER && param_type->data.type_pointer.pointee_type) {
+                    // For pointer types, extract the pointee type name
+                    struct ASTNode *pointee_type = param_type->data.type_pointer.pointee_type;
+                    if (pointee_type->type == AST_TYPE_NAMED) {
+                        const char *type_name = pointee_type->data.type_named.name;
+                        // Replace "Self" with struct name if we're in an impl context (passed via global state)
+                        // For now, we'll check if it's "Self" and replace it later if needed
+                        // Check if it's a user-defined type (not a built-in type) or "Self"
+                        if (strcmp(type_name, "Self") == 0 || 
+                            (strcmp(type_name, "i32") != 0 && strcmp(type_name, "i64") != 0 &&
+                             strcmp(type_name, "i8") != 0 && strcmp(type_name, "i16") != 0 &&
+                             strcmp(type_name, "u32") != 0 && strcmp(type_name, "u64") != 0 &&
+                             strcmp(type_name, "u8") != 0 && strcmp(type_name, "u16") != 0 &&
+                             strcmp(type_name, "f32") != 0 && strcmp(type_name, "f64") != 0 &&
+                             strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0 &&
+                             strcmp(type_name, "byte") != 0)) {
+                            param->data.var.original_type_name = malloc(strlen(type_name) + 1);
+                            if (param->data.var.original_type_name) {
+                                strcpy(param->data.var.original_type_name, type_name);
+                            }
+                        } else {
+                            param->data.var.original_type_name = NULL;
+                        }
+                    } else {
+                        param->data.var.original_type_name = NULL;
+                    }
+                } else if (param_type->type == AST_TYPE_NAMED) {
+                    const char *type_name = param_type->data.type_named.name;
+                    // Check if it's a user-defined type (not a built-in type)
+                    if (strcmp(type_name, "i32") != 0 && strcmp(type_name, "i64") != 0 &&
+                        strcmp(type_name, "i8") != 0 && strcmp(type_name, "i16") != 0 &&
+                        strcmp(type_name, "u32") != 0 && strcmp(type_name, "u64") != 0 &&
+                        strcmp(type_name, "u8") != 0 && strcmp(type_name, "u16") != 0 &&
+                        strcmp(type_name, "f32") != 0 && strcmp(type_name, "f64") != 0 &&
+                        strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0 &&
+                        strcmp(type_name, "byte") != 0) {
+                        param->data.var.original_type_name = malloc(strlen(type_name) + 1);
+                        if (param->data.var.original_type_name) {
+                            strcpy(param->data.var.original_type_name, type_name);
+                        }
+                    } else {
+                        param->data.var.original_type_name = NULL;
+                    }
+                } else {
+                    param->data.var.original_type_name = NULL;
+                }
+            } else {
+                param->data.var.original_type_name = NULL;
+            }
+
             func->data.func.params[i] = param;
         }
     } else {
@@ -520,6 +626,10 @@ static IRInst *generate_stmt_for_body(IRGenerator *ir_gen, struct ASTNode *stmt)
                 return NULL;
             }
             strcpy(var_decl->data.var.name, stmt->data.var_decl.name);
+            
+            // Check if the type is atomic
+            var_decl->data.var.is_atomic = (stmt->data.var_decl.type && stmt->data.var_decl.type->type == AST_TYPE_ATOMIC) ? 1 : 0;
+            
             var_decl->data.var.type = get_ir_type(stmt->data.var_decl.type);
             var_decl->data.var.is_mut = stmt->data.var_decl.is_mut;
 
@@ -768,6 +878,31 @@ static void generate_program(IRGenerator *ir_gen, struct ASTNode *program) {
         struct ASTNode *decl = program->data.program.decls[i];
         if (decl->type == AST_FN_DECL) {
             generate_function(ir_gen, decl);
+        } else if (decl->type == AST_IMPL_DECL) {
+            // Handle impl declarations: convert each method to a regular function
+            // Replace "Self" type names with the struct name in method parameters
+            const char *struct_name = decl->data.impl_decl.struct_name;
+            for (int j = 0; j < decl->data.impl_decl.method_count; j++) {
+                struct ASTNode *method = decl->data.impl_decl.methods[j];
+                if (method && method->type == AST_FN_DECL) {
+                    // Replace "Self" in parameter types with struct_name
+                    for (int k = 0; k < method->data.fn_decl.param_count; k++) {
+                        struct ASTNode *param_type = method->data.fn_decl.params[k]->data.var_decl.type;
+                        if (param_type && param_type->type == AST_TYPE_POINTER && 
+                            param_type->data.type_pointer.pointee_type &&
+                            param_type->data.type_pointer.pointee_type->type == AST_TYPE_NAMED &&
+                            strcmp(param_type->data.type_pointer.pointee_type->data.type_named.name, "Self") == 0) {
+                            // Replace "Self" with struct_name
+                            free(param_type->data.type_pointer.pointee_type->data.type_named.name);
+                            param_type->data.type_pointer.pointee_type->data.type_named.name = malloc(strlen(struct_name) + 1);
+                            if (param_type->data.type_pointer.pointee_type->data.type_named.name) {
+                                strcpy(param_type->data.type_pointer.pointee_type->data.type_named.name, struct_name);
+                            }
+                        }
+                    }
+                    generate_function(ir_gen, method);
+                }
+            }
         } else if (decl->type == AST_STRUCT_DECL) {
             // Handle struct declarations
             IRInst *struct_ir = irinst_new(IR_STRUCT_DECL);
@@ -790,7 +925,12 @@ static void generate_program(IRGenerator *ir_gen, struct ASTNode *program) {
                                 field->data.var.name = malloc(strlen(decl->data.struct_decl.fields[j]->data.var_decl.name) + 1);
                                 if (field->data.var.name) {
                                     strcpy(field->data.var.name, decl->data.struct_decl.fields[j]->data.var_decl.name);
-                                    field->data.var.type = get_ir_type(decl->data.struct_decl.fields[j]->data.var_decl.type);
+                                    
+                                    // Check if the type is atomic
+                                    struct ASTNode *field_type = decl->data.struct_decl.fields[j]->data.var_decl.type;
+                                    field->data.var.is_atomic = (field_type && field_type->type == AST_TYPE_ATOMIC) ? 1 : 0;
+                                    
+                                    field->data.var.type = get_ir_type(field_type);
                                     field->data.var.is_mut = decl->data.struct_decl.fields[j]->data.var_decl.is_mut;
                                     field->data.var.init = NULL;
                                     field->id = ir_gen->current_id++;

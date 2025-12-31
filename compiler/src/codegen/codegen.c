@@ -13,6 +13,7 @@ CodeGenerator *codegen_new() {
     codegen->output_filename = NULL;
     codegen->label_counter = 0;
     codegen->temp_counter = 0;
+    codegen->current_function = NULL;
     
     return codegen;
 }
@@ -54,6 +55,23 @@ static void codegen_write_type(CodeGenerator *codegen, IRType type) {
     fprintf(codegen->output_file, "%s", codegen_get_type_name(type));
 }
 
+// Write type with atomic support (for struct fields and variable declarations)
+static void codegen_write_type_with_atomic(CodeGenerator *codegen, IRInst *var_inst) {
+    if (!var_inst) {
+        codegen_write_type(codegen, IR_TYPE_VOID);
+        return;
+    }
+    
+    if (var_inst->data.var.is_atomic) {
+        // Generate C11 atomic type: _Atomic(type)
+        fprintf(codegen->output_file, "_Atomic(");
+        codegen_write_type(codegen, var_inst->data.var.type);
+        fprintf(codegen->output_file, ")");
+    } else {
+        codegen_write_type(codegen, var_inst->data.var.type);
+    }
+}
+
 static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
     if (!inst) {
         fprintf(codegen->output_file, "0");
@@ -76,11 +94,44 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
             fprintf(codegen->output_file, "}");
             break;
 
-        case IR_MEMBER_ACCESS:
-            // Generate member access: object.field
-            codegen_write_value(codegen, inst->data.member_access.object);
-            fprintf(codegen->output_file, ".%s", inst->data.member_access.field_name);
+        case IR_MEMBER_ACCESS: {
+            // Generate member access: object.field or object->field (if object is a pointer)
+            IRInst *object = inst->data.member_access.object;
+            int use_arrow = 0;
+            
+            // Check if the object is a pointer type
+            if (object && object->type == IR_VAR_DECL) {
+                // First check the IR type
+                if (object->data.var.type == IR_TYPE_PTR) {
+                    use_arrow = 1;
+                } else if (object->data.var.type == IR_TYPE_I32 && object->data.var.name) {
+                    // If type is default I32, check if it's a function parameter
+                    // This handles the case where identifier expressions default to I32
+                    if (codegen->current_function && codegen->current_function->type == IR_FUNC_DEF) {
+                        // Look up the parameter in the current function
+                        for (int i = 0; i < codegen->current_function->data.func.param_count; i++) {
+                            IRInst *param = codegen->current_function->data.func.params[i];
+                            if (param && param->data.var.name && 
+                                strcmp(param->data.var.name, object->data.var.name) == 0) {
+                                // Found the parameter, use its type
+                                if (param->data.var.type == IR_TYPE_PTR) {
+                                    use_arrow = 1;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            codegen_write_value(codegen, object);
+            if (use_arrow) {
+                fprintf(codegen->output_file, "->%s", inst->data.member_access.field_name);
+            } else {
+                fprintf(codegen->output_file, ".%s", inst->data.member_access.field_name);
+            }
             break;
+        }
 
         case IR_CONSTANT:
             if (inst->data.constant.value) {
@@ -220,11 +271,28 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             codegen_write_type(codegen, inst->data.func.return_type);
             fprintf(codegen->output_file, " %s(", inst->data.func.name);
             
+            // Set current function context for member access type checking
+            IRInst *prev_function = codegen->current_function;
+            codegen->current_function = inst;
+            
             // 参数
             for (int i = 0; i < inst->data.func.param_count; i++) {
                 if (i > 0) fprintf(codegen->output_file, ", ");
-                codegen_write_type(codegen, inst->data.func.params[i]->data.var.type);
-                fprintf(codegen->output_file, " %s", inst->data.func.params[i]->data.var.name);
+                // Handle pointer types with original type names
+                if (inst->data.func.params[i]->data.var.type == IR_TYPE_PTR && 
+                    inst->data.func.params[i]->data.var.original_type_name) {
+                    fprintf(codegen->output_file, "%s* %s", 
+                            inst->data.func.params[i]->data.var.original_type_name,
+                            inst->data.func.params[i]->data.var.name);
+                } else if (inst->data.func.params[i]->data.var.type == IR_TYPE_STRUCT &&
+                           inst->data.func.params[i]->data.var.original_type_name) {
+                    fprintf(codegen->output_file, "%s %s", 
+                            inst->data.func.params[i]->data.var.original_type_name,
+                            inst->data.func.params[i]->data.var.name);
+                } else {
+                    codegen_write_type(codegen, inst->data.func.params[i]->data.var.type);
+                    fprintf(codegen->output_file, " %s", inst->data.func.params[i]->data.var.name);
+                }
             }
             fprintf(codegen->output_file, ") {\n");
             
@@ -236,6 +304,9 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             }
             
             fprintf(codegen->output_file, "}\n\n");
+            
+            // Restore previous function context
+            codegen->current_function = prev_function;
             break;
             
         case IR_VAR_DECL:
@@ -249,17 +320,44 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                 fprintf(codegen->output_file, "int32_t %s[] = ", inst->data.var.name);
                 codegen_write_value(codegen, inst->data.var.init);  // This will output {1, 2, 3}
             } else {
-                // For user-defined struct types, use the original type name
-                if (inst->data.var.type == IR_TYPE_STRUCT && inst->data.var.original_type_name) {
-                    fprintf(codegen->output_file, "%s %s", inst->data.var.original_type_name, inst->data.var.name);
-                } else {
-                    codegen_write_type(codegen, inst->data.var.type);
-                    fprintf(codegen->output_file, " %s", inst->data.var.name);
+                // Check if initialization is a function call with same name as variable
+                // This avoids name shadowing issues in C (e.g., "float area = area(rect);")
+                int name_conflict = 0;
+                if (inst->data.var.init && inst->data.var.init->type == IR_CALL &&
+                    inst->data.var.name &&
+                    inst->data.var.init->data.call.func_name &&
+                    strcmp(inst->data.var.name, inst->data.var.init->data.call.func_name) == 0) {
+                    name_conflict = 1;
                 }
-
-                if (inst->data.var.init) {
-                    fprintf(codegen->output_file, " = ");
+                
+                if (name_conflict) {
+                    // Generate: type _tmp_var = func_name(...); type var = _tmp_var;
+                    // This ensures the function is called before the variable is declared
+                    codegen_write_type(codegen, inst->data.var.type);
+                    fprintf(codegen->output_file, " _tmp_%s = ", inst->data.var.name);
                     codegen_write_value(codegen, inst->data.var.init);
+                    fprintf(codegen->output_file, ";\n  ");
+                    // Now declare the actual variable and assign from temp
+                    if (inst->data.var.type == IR_TYPE_STRUCT && inst->data.var.original_type_name) {
+                        fprintf(codegen->output_file, "%s %s = _tmp_%s", 
+                                inst->data.var.original_type_name, inst->data.var.name, inst->data.var.name);
+                    } else {
+                        codegen_write_type(codegen, inst->data.var.type);
+                        fprintf(codegen->output_file, " %s = _tmp_%s", inst->data.var.name, inst->data.var.name);
+                    }
+                } else {
+                    // For user-defined struct types, use the original type name
+                    if (inst->data.var.type == IR_TYPE_STRUCT && inst->data.var.original_type_name) {
+                        fprintf(codegen->output_file, "%s %s", inst->data.var.original_type_name, inst->data.var.name);
+                    } else {
+                        codegen_write_type(codegen, inst->data.var.type);
+                        fprintf(codegen->output_file, " %s", inst->data.var.name);
+                    }
+
+                    if (inst->data.var.init) {
+                        fprintf(codegen->output_file, " = ");
+                        codegen_write_value(codegen, inst->data.var.init);
+                    }
                 }
             }
             break;
@@ -294,6 +392,9 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             fprintf(codegen->output_file, "return ");
             if (inst->data.ret.value) {
                 codegen_write_value(codegen, inst->data.ret.value);
+            } else {
+                // Default return value for non-void functions when value is missing
+                fprintf(codegen->output_file, "0");
             }
             break;
             
@@ -379,7 +480,7 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             for (int i = 0; i < inst->data.struct_decl.field_count; i++) {
                 if (inst->data.struct_decl.fields[i]) {
                     fprintf(codegen->output_file, "  ");
-                    codegen_write_type(codegen, inst->data.struct_decl.fields[i]->data.var.type);
+                    codegen_write_type_with_atomic(codegen, inst->data.struct_decl.fields[i]);
                     fprintf(codegen->output_file, " %s;\n", inst->data.struct_decl.fields[i]->data.var.name);
                 }
             }

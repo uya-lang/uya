@@ -45,6 +45,7 @@ typedef enum {
     AST_TYPE_FN,
     AST_TYPE_ERROR_UNION,
     AST_TYPE_BOOL,
+    AST_TYPE_ATOMIC,
 
     // 接口相关
     AST_INTERFACE_DECL,
@@ -185,6 +186,11 @@ typedef struct ASTNode {
             struct ASTNode *base_type;
         } type_error_union;
 
+        // 原子类型
+        struct {
+            struct ASTNode *base_type;
+        } type_atomic;
+
         // for 语句
         struct {
             struct ASTNode *iterable;
@@ -207,6 +213,21 @@ typedef struct ASTNode {
             struct ASTNode *object;      // 对象表达式
             char *field_name;           // 字段名称
         } member_access;
+
+        // 接口声明
+        struct {
+            char *name;
+            struct ASTNode **methods;    // 方法声明列表（函数声明）
+            int method_count;
+        } interface_decl;
+
+        // impl 声明 (impl StructName : InterfaceName { ... })
+        struct {
+            char *struct_name;           // 结构体名称
+            char *interface_name;        // 接口名称
+            struct ASTNode **methods;    // 方法实现列表（函数声明）
+            int method_count;
+        } impl_decl;
     } data;
 } ASTNode;
 

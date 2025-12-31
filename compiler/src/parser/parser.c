@@ -67,6 +67,50 @@ static ASTNode *parser_parse_type(Parser *parser) {
         return NULL;
     }
 
+    // Check if it's an atomic type: atomic T
+    if (parser_match(parser, TOKEN_ATOMIC)) {
+        parser_consume(parser); // consume 'atomic'
+        
+        ASTNode *atomic_type = ast_new_node(AST_TYPE_ATOMIC,
+                                            parser->current_token->line,
+                                            parser->current_token->column,
+                                            parser->current_token->filename);
+        if (!atomic_type) {
+            return NULL;
+        }
+        
+        // Parse the base type
+        atomic_type->data.type_atomic.base_type = parser_parse_type(parser);
+        if (!atomic_type->data.type_atomic.base_type) {
+            ast_free(atomic_type);
+            return NULL;
+        }
+        
+        return atomic_type;
+    }
+
+    // Check if it's a pointer type: *T
+    if (parser_match(parser, TOKEN_ASTERISK)) {
+        parser_consume(parser); // consume '*'
+        
+        ASTNode *pointer_type = ast_new_node(AST_TYPE_POINTER,
+                                             parser->current_token->line,
+                                             parser->current_token->column,
+                                             parser->current_token->filename);
+        if (!pointer_type) {
+            return NULL;
+        }
+        
+        // Parse the pointee type
+        pointer_type->data.type_pointer.pointee_type = parser_parse_type(parser);
+        if (!pointer_type->data.type_pointer.pointee_type) {
+            ast_free(pointer_type);
+            return NULL;
+        }
+        
+        return pointer_type;
+    }
+
     // Check if it's an array type: [element_type; size]
     if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
         // Parse array type: [i32; 10]
@@ -417,7 +461,68 @@ static ASTNode *parser_parse_expression(Parser *parser) {
             }
             parser_consume(parser);  // consume field name
 
-            left = member_access;
+            // Check if this is a method call: object.method()
+            if (parser_match(parser, TOKEN_LEFT_PAREN)) {
+                // This is a method call: object.method(args)
+                ASTNode *call = ast_new_node(AST_CALL_EXPR,
+                                             parser->current_token->line,
+                                             parser->current_token->column,
+                                             parser->current_token->filename);
+                if (!call) {
+                    ast_free(member_access);
+                    return NULL;
+                }
+                
+                call->data.call_expr.callee = member_access;  // Use member_access as callee
+                parser_consume(parser);  // consume '('
+                
+                // Parse arguments
+                call->data.call_expr.args = NULL;
+                call->data.call_expr.arg_count = 0;
+                int capacity = 0;
+                
+                if (!parser_match(parser, TOKEN_RIGHT_PAREN)) {
+                    do {
+                        ASTNode *arg = parser_parse_expression(parser);
+                        if (!arg) {
+                            ast_free(call);
+                            return NULL;
+                        }
+                        
+                        // Expand arguments array
+                        if (call->data.call_expr.arg_count >= capacity) {
+                            int new_capacity = capacity == 0 ? 4 : capacity * 2;
+                            ASTNode **new_args = realloc(call->data.call_expr.args, new_capacity * sizeof(ASTNode*));
+                            if (!new_args) {
+                                ast_free(arg);
+                                ast_free(call);
+                                return NULL;
+                            }
+                            call->data.call_expr.args = new_args;
+                            capacity = new_capacity;
+                        }
+                        
+                        call->data.call_expr.args[call->data.call_expr.arg_count] = arg;
+                        call->data.call_expr.arg_count++;
+                        
+                        if (parser_match(parser, TOKEN_COMMA)) {
+                            parser_consume(parser);  // consume ','
+                        } else {
+                            break;
+                        }
+                    } while (parser->current_token && !parser_match(parser, TOKEN_RIGHT_PAREN));
+                }
+                
+                // Expect ')'
+                if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+                    ast_free(call);
+                    return NULL;
+                }
+                
+                left = call;
+            } else {
+                left = member_access;
+            }
         } else {
             left = ident;
         }
@@ -1498,6 +1603,107 @@ static ASTNode *parser_parse_struct_decl(Parser *parser) {
     return struct_decl;
 }
 
+// 解析 impl 声明 (impl StructName : InterfaceName { ... })
+static ASTNode *parser_parse_impl_decl(Parser *parser) {
+    if (!parser_match(parser, TOKEN_IMPL)) {
+        return NULL;
+    }
+
+    int line = parser->current_token->line;
+    int col = parser->current_token->column;
+    const char *filename = parser->current_token->filename;
+
+    parser_consume(parser); // 消费 'impl'
+
+    // 期望结构体名称
+    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+        fprintf(stderr, "语法错误: 期望结构体名称\n");
+        return NULL;
+    }
+
+    ASTNode *impl_decl = ast_new_node(AST_IMPL_DECL, line, col, filename);
+    if (!impl_decl) {
+        return NULL;
+    }
+
+    impl_decl->data.impl_decl.struct_name = malloc(strlen(parser->current_token->value) + 1);
+    if (!impl_decl->data.impl_decl.struct_name) {
+        ast_free(impl_decl);
+        return NULL;
+    }
+    strcpy(impl_decl->data.impl_decl.struct_name, parser->current_token->value);
+    parser_consume(parser); // 消费结构体名称
+
+    // 期望 ':'
+    if (!parser_expect(parser, TOKEN_COLON)) {
+        ast_free(impl_decl);
+        return NULL;
+    }
+
+    // 期望接口名称
+    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+        fprintf(stderr, "语法错误: 期望接口名称\n");
+        ast_free(impl_decl);
+        return NULL;
+    }
+
+    impl_decl->data.impl_decl.interface_name = malloc(strlen(parser->current_token->value) + 1);
+    if (!impl_decl->data.impl_decl.interface_name) {
+        ast_free(impl_decl);
+        return NULL;
+    }
+    strcpy(impl_decl->data.impl_decl.interface_name, parser->current_token->value);
+    parser_consume(parser); // 消费接口名称
+
+    // 期望 '{'
+    if (!parser_expect(parser, TOKEN_LEFT_BRACE)) {
+        ast_free(impl_decl);
+        return NULL;
+    }
+
+    // 解析方法列表
+    impl_decl->data.impl_decl.methods = NULL;
+    impl_decl->data.impl_decl.method_count = 0;
+    int method_capacity = 0;
+
+    while (parser->current_token && !parser_match(parser, TOKEN_RIGHT_BRACE)) {
+        ASTNode *method = parser_parse_fn_decl(parser);
+        if (!method) {
+            fprintf(stderr, "语法错误: 期望方法声明，跳过当前token\n");
+            // Skip current token and continue parsing other methods
+            if (parser->current_token) {
+                parser_consume(parser);
+            }
+            continue;
+        }
+
+        // 扩容方法列表
+        if (impl_decl->data.impl_decl.method_count >= method_capacity) {
+            int new_capacity = method_capacity == 0 ? 4 : method_capacity * 2;
+            ASTNode **new_methods = realloc(impl_decl->data.impl_decl.methods,
+                                           new_capacity * sizeof(ASTNode*));
+            if (!new_methods) {
+                ast_free(method);
+                ast_free(impl_decl);
+                return NULL;
+            }
+            impl_decl->data.impl_decl.methods = new_methods;
+            method_capacity = new_capacity;
+        }
+
+        impl_decl->data.impl_decl.methods[impl_decl->data.impl_decl.method_count] = method;
+        impl_decl->data.impl_decl.method_count++;
+    }
+
+    // 期望 '}'
+    if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
+        // Even if closing brace is missing, return the impl_decl we have so far
+        // This allows partial parsing to continue
+    }
+
+    return impl_decl;
+}
+
 // 解析顶级声明
 static ASTNode *parser_parse_declaration(Parser *parser) {
     if (!parser->current_token) {
@@ -1510,6 +1716,8 @@ static ASTNode *parser_parse_declaration(Parser *parser) {
         return parser_parse_struct_decl(parser);
     } else if (parser_match(parser, TOKEN_EXTERN)) {
         return parser_parse_extern_decl(parser);
+    } else if (parser_match(parser, TOKEN_IMPL)) {
+        return parser_parse_impl_decl(parser);
     } else {
         return parser_parse_statement(parser);
     }
@@ -1542,6 +1750,7 @@ ASTNode *parser_parse(Parser *parser) {
                    !parser_match(parser, TOKEN_FN) &&
                    !parser_match(parser, TOKEN_STRUCT) &&
                    !parser_match(parser, TOKEN_EXTERN) &&
+                   !parser_match(parser, TOKEN_IMPL) &&
                    !parser_match(parser, TOKEN_EOF)) {
                 parser_consume(parser);
             }

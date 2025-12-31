@@ -10,6 +10,7 @@ typedef struct CodeGenerator {
     char *output_filename;
     int label_counter;
     int temp_counter;
+    IRInst *current_function;  // Current function context for member access type checking
 } CodeGenerator;
 
 // 代码生成器函数
