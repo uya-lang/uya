@@ -78,6 +78,9 @@ void irinst_free(IRInst *inst) {
             if (inst->data.var.name) {
                 free(inst->data.var.name);
             }
+            if (inst->data.var.original_type_name) {
+                free(inst->data.var.original_type_name);
+            }
             irinst_free(inst->data.var.init);
             break;
             
@@ -188,11 +191,23 @@ void irinst_free(IRInst *inst) {
             }
             irinst_free(inst->data.try_catch.catch_body);
             break;
-            
+
+        case IR_STRUCT_DECL:
+            if (inst->data.struct_decl.name) {
+                free(inst->data.struct_decl.name);
+            }
+            if (inst->data.struct_decl.fields) {
+                for (int i = 0; i < inst->data.struct_decl.field_count; i++) {
+                    irinst_free(inst->data.struct_decl.fields[i]);
+                }
+                free(inst->data.struct_decl.fields);
+            }
+            break;
+
         default:
             break;
     }
-    
+
     free(inst);
 }
 
@@ -316,13 +331,30 @@ void ir_print(IRInst *inst, int indent) {
             }
             break;
             
+        case IR_STRUCT_DECL:
+            printf("STRUCT_DECL: %s {\n", inst->data.struct_decl.name);
+            for (int i = 0; i < inst->data.struct_decl.field_count; i++) {
+                if (inst->data.struct_decl.fields[i]) {
+                    ir_print_indent(indent + 1);
+                    printf("  FIELD: ");
+                    if (inst->data.struct_decl.fields[i]->data.var.name) {
+                        printf("%s : ", inst->data.struct_decl.fields[i]->data.var.name);
+                    }
+                    // Print field type info
+                    printf("type_%d\n", inst->data.struct_decl.fields[i]->data.var.type);
+                }
+            }
+            ir_print_indent(indent);
+            printf("}\n");
+            break;
+
         case IR_BLOCK:
             printf("BLOCK:\n");
             for (int i = 0; i < inst->data.block.inst_count; i++) {
                 ir_print(inst->data.block.insts[i], indent + 1);
             }
             break;
-            
+
         default:
             printf("IR_INST: type=%d\n", inst->type);
             break;

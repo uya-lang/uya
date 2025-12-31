@@ -76,6 +76,12 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
             fprintf(codegen->output_file, "}");
             break;
 
+        case IR_MEMBER_ACCESS:
+            // Generate member access: object.field
+            codegen_write_value(codegen, inst->data.member_access.object);
+            fprintf(codegen->output_file, ".%s", inst->data.member_access.field_name);
+            break;
+
         case IR_CONSTANT:
             if (inst->data.constant.value) {
                 fprintf(codegen->output_file, "%s", inst->data.constant.value);
@@ -243,8 +249,13 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                 fprintf(codegen->output_file, "int32_t %s[] = ", inst->data.var.name);
                 codegen_write_value(codegen, inst->data.var.init);  // This will output {1, 2, 3}
             } else {
-                codegen_write_type(codegen, inst->data.var.type);
-                fprintf(codegen->output_file, " %s", inst->data.var.name);
+                // For user-defined struct types, use the original type name
+                if (inst->data.var.type == IR_TYPE_STRUCT && inst->data.var.original_type_name) {
+                    fprintf(codegen->output_file, "%s %s", inst->data.var.original_type_name, inst->data.var.name);
+                } else {
+                    codegen_write_type(codegen, inst->data.var.type);
+                    fprintf(codegen->output_file, " %s", inst->data.var.name);
+                }
 
                 if (inst->data.var.init) {
                     fprintf(codegen->output_file, " = ");

@@ -388,6 +388,36 @@ static ASTNode *parser_parse_expression(Parser *parser) {
 
             ast_free(ident);  // Free the temporary identifier
             left = struct_init;
+        }
+        // Check if this identifier is followed by member access '.'
+        else if (parser_match(parser, TOKEN_DOT)) {
+            // This is a member access: identifier.field
+            parser_consume(parser); // consume '.'
+
+            // Expect field name (identifier)
+            if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                ast_free(ident);
+                fprintf(stderr, "语法错误: 成员访问需要字段名\n");
+                return NULL;
+            }
+
+            ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS,
+                                                 parser->current_token->line,
+                                                 parser->current_token->column,
+                                                 parser->current_token->filename);
+            if (!member_access) {
+                ast_free(ident);
+                return NULL;
+            }
+
+            member_access->data.member_access.object = ident;  // Use the identifier as object
+            member_access->data.member_access.field_name = malloc(strlen(parser->current_token->value) + 1);
+            if (member_access->data.member_access.field_name) {
+                strcpy(member_access->data.member_access.field_name, parser->current_token->value);
+            }
+            parser_consume(parser);  // consume field name
+
+            left = member_access;
         } else {
             left = ident;
         }

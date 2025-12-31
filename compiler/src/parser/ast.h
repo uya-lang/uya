@@ -201,6 +201,12 @@ typedef struct ASTNode {
             char **field_names;
             int field_count;
         } struct_init;
+
+        // 成员访问表达式 (obj.field)
+        struct {
+            struct ASTNode *object;      // 对象表达式
+            char *field_name;           // 字段名称
+        } member_access;
     } data;
 } ASTNode;
 

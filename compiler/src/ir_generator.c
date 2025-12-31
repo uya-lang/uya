@@ -31,7 +31,9 @@ static IRType get_ir_type(struct ASTNode *ast_type) {
                 if (strcmp(name, "bool") == 0) return IR_TYPE_BOOL;
                 if (strcmp(name, "void") == 0) return IR_TYPE_VOID;
                 if (strcmp(name, "byte") == 0) return IR_TYPE_BYTE;
-                return IR_TYPE_VOID;
+
+                // For user-defined types like Point, Vec3, etc., return STRUCT type
+                return IR_TYPE_STRUCT;
             }
         case AST_TYPE_ARRAY:
             return IR_TYPE_ARRAY;
@@ -223,6 +225,31 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
             }
 
             return unary_op;
+        }
+
+        case AST_MEMBER_ACCESS: {
+            // Handle member access like obj.field
+            IRInst *member_access = irinst_new(IR_MEMBER_ACCESS);
+            if (!member_access) return NULL;
+
+            // Generate the object expression
+            member_access->data.member_access.object = generate_expr(ir_gen, expr->data.member_access.object);
+
+            // Copy the field name
+            member_access->data.member_access.field_name = malloc(strlen(expr->data.member_access.field_name) + 1);
+            if (member_access->data.member_access.field_name) {
+                strcpy(member_access->data.member_access.field_name, expr->data.member_access.field_name);
+            }
+
+            // Generate a destination variable name
+            char temp_name[32];
+            snprintf(temp_name, sizeof(temp_name), "temp_%d", ir_gen->current_id++);
+            member_access->data.member_access.dest = malloc(strlen(temp_name) + 1);
+            if (member_access->data.member_access.dest) {
+                strcpy(member_access->data.member_access.dest, temp_name);
+            }
+
+            return member_access;
         }
 
         case AST_STRUCT_INIT: {
@@ -495,6 +522,29 @@ static IRInst *generate_stmt_for_body(IRGenerator *ir_gen, struct ASTNode *stmt)
             strcpy(var_decl->data.var.name, stmt->data.var_decl.name);
             var_decl->data.var.type = get_ir_type(stmt->data.var_decl.type);
             var_decl->data.var.is_mut = stmt->data.var_decl.is_mut;
+
+            // Store original type name for user-defined types
+            if (stmt->data.var_decl.type && stmt->data.var_decl.type->type == AST_TYPE_NAMED) {
+                const char *type_name = stmt->data.var_decl.type->data.type_named.name;
+                // Check if it's a user-defined type (not a built-in type)
+                if (strcmp(type_name, "i32") != 0 && strcmp(type_name, "i64") != 0 &&
+                    strcmp(type_name, "i8") != 0 && strcmp(type_name, "i16") != 0 &&
+                    strcmp(type_name, "u32") != 0 && strcmp(type_name, "u64") != 0 &&
+                    strcmp(type_name, "u8") != 0 && strcmp(type_name, "u16") != 0 &&
+                    strcmp(type_name, "f32") != 0 && strcmp(type_name, "f64") != 0 &&
+                    strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0 &&
+                    strcmp(type_name, "byte") != 0) {
+                    // This is a user-defined type, store the original name
+                    var_decl->data.var.original_type_name = malloc(strlen(type_name) + 1);
+                    if (var_decl->data.var.original_type_name) {
+                        strcpy(var_decl->data.var.original_type_name, type_name);
+                    }
+                } else {
+                    var_decl->data.var.original_type_name = NULL;
+                }
+            } else {
+                var_decl->data.var.original_type_name = NULL;
+            }
 
             if (stmt->data.var_decl.init) {
                 var_decl->data.var.init = generate_expr(ir_gen, stmt->data.var_decl.init);

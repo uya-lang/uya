@@ -109,6 +109,7 @@ typedef struct IRInst {
         struct {
             char *name;
             IRType type;
+            char *original_type_name;  // For user-defined types like structs
             struct IRInst *init;
             int is_mut;
         } var;
@@ -235,6 +236,13 @@ typedef struct IRInst {
             struct IRInst **field_inits; // 字段初始化表达式数组
             int field_count;            // 字段数量
         } struct_init;
+
+        // 成员访问
+        struct {
+            struct IRInst *object;      // 对象表达式
+            char *field_name;          // 字段名称
+            char *dest;                // 目标变量（存储访问结果）
+        } member_access;
     } data;
 } IRInst;
 
