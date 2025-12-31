@@ -76,15 +76,15 @@ fn test_basics() void {
     printf("=== 基本功能测试 ===\n");
     
     // 变量声明
-    let x: i32 = 10;
-    let mut y: i32 = 20;
+    const x: i32 = 10;
+    var y: i32 = 20;
     y = y + 5;  // 修改可变变量
     
     printf("x = %d, y = %d\n", x, y);
     
     // 基本运算
-    let sum: i32 = x + y;
-    let product: i32 = x * y;
+    const sum: i32 = x + y;
+    const product: i32 = x * y;
     printf("sum = %d, product = %d\n", sum, product);
     
     // 条件语句
@@ -95,7 +95,7 @@ fn test_basics() void {
     }
     
     // 循环
-    let mut i: i32 = 0;
+    var i: i32 = 0;
     while i < 3 {
         printf("Loop iteration: %d\n", i);
         i = i + 1;
@@ -107,7 +107,7 @@ fn test_arrays_and_slices() void {
     printf("\n=== 数组和切片测试 ===\n");
     
     // 数组声明和初始化
-    let arr: [i32; 5] = [1, 2, 3, 4, 5];
+    const arr: [i32; 5] = [1, 2, 3, 4, 5];
     printf("Original array: ");
     for (iter(&arr)) |item| {
         printf("%d ", item);
@@ -120,7 +120,7 @@ fn test_arrays_and_slices() void {
     }
     
     // 切片操作
-    let slice1: [i32; 3] = slice(arr, 1, 4);  // [2, 3, 4]
+    const slice1: [i32; 3] = slice(arr, 1, 4);  // [2, 3, 4]
     printf("Slice [1:4]: ");
     for (iter(&slice1)) |item| {
         printf("%d ", item);
@@ -128,7 +128,7 @@ fn test_arrays_and_slices() void {
     printf("\n");
     
     // 负数索引切片
-    let slice2: [i32; 2] = slice(arr, -2, 5);  // [4, 5]
+    const slice2: [i32; 2] = slice(arr, -2, 5);  // [4, 5]
     printf("Slice [-2:5]: ");
     for (iter(&slice2)) |item| {
         printf("%d ", item);
@@ -155,11 +155,11 @@ fn test_error_handling() void {
     printf("\n=== 错误处理测试 ===\n");
     
     // 测试成功情况
-    let result: i32 = try safe_divide(10, 2);
+    const result: i32 = try safe_divide(10, 2);
     printf("10 / 2 = %d\n", result);
     
     // 测试错误情况
-    let div_result: i32 = safe_divide(10, 0) catch |err| {
+    const div_result: i32 = safe_divide(10, 0) catch |err| {
         if err == error.DivisionByZero {
             printf("Caught division by zero error\n");
         }
@@ -167,7 +167,7 @@ fn test_error_handling() void {
     };
     
     // 测试另一个错误
-    let sqrt_result: f64 = safe_sqrt(-1.0) catch |err| {
+    const sqrt_result: f64 = safe_sqrt(-1.0) catch |err| {
         if err == error.NegativeSqrt {
             printf("Caught negative sqrt error\n");
         }
@@ -180,20 +180,20 @@ fn test_structs_and_methods() void {
     printf("\n=== 结构体和方法测试 ===\n");
     
     // 创建圆形
-    let circle: Circle = Circle{
+    const circle: Circle = Circle{
         center: Point{ x: 0.0, y: 0.0 },
         radius: 5.0
     };
     
     // 创建矩形
-    let rectangle: Rectangle = Rectangle{
+    const rectangle: Rectangle = Rectangle{
         width: 4.0,
         height: 6.0
     };
     
     // 使用接口
-    let shape1: IShape = circle;  // 自动装箱
-    let shape2: IShape = rectangle;  // 自动装箱
+    const shape1: IShape = circle;  // 自动装箱
+    const shape2: IShape = rectangle;  // 自动装箱
     
     printf("Circle area: %f, perimeter: %f\n", 
            shape1.area(), shape1.perimeter());
@@ -205,24 +205,24 @@ fn test_structs_and_methods() void {
 fn test_pointers() void {
     printf("\n=== 指针测试 ===\n");
     
-    let mut x: i32 = 42;
-    let ptr: &i32 = &x;
+    var x: i32 = 42;
+    const ptr: &i32 = &x;
     
     printf("Value of x: %d\n", x);
     printf("Value pointed by ptr: %d\n", *ptr);
     
     // 修改通过指针
-    let mut_ref: &mut i32 = &mut x;
+    const mut_ref: &mut i32 = &mut x;
     *mut_ref = 100;
     printf("After modifying through pointer, x: %d\n", x);
     
     // 安全指针算术
-    let arr: [i32; 3] = [10, 20, 30];
-    let base_ptr: &i32 = &arr[0];
+    const arr: [i32; 3] = [10, 20, 30];
+    const base_ptr: &i32 = &arr[0];
     
     // 编译器可以证明 base_ptr + 1 和 base_ptr + 2 都在安全范围内
-    let val1: i32 = *(base_ptr + 1);  // arr[1]
-    let val2: i32 = *(base_ptr + 2);  // arr[2]
+    const val1: i32 = *(base_ptr + 1);  // arr[1]
+    const val2: i32 = *(base_ptr + 2);  // arr[2]
     
     printf("Pointer arithmetic: %d, %d\n", val1, val2);
 }
@@ -239,7 +239,7 @@ fn test_defer_errdefer() !i32 {
         printf("Error cleanup in errdefer\n");
     }
     
-    let result: i32 = try safe_divide(20, 4);
+    const result: i32 = try safe_divide(20, 4);
     printf("Division result: %d\n", result);
     
     // 模拟错误情况
@@ -254,9 +254,9 @@ fn test_defer_errdefer() !i32 {
 fn test_generics() void {
     printf("\n=== 泛型测试 ===\n");
     
-    let int_val: i32 = identity(42);
-    let float_val: f64 = identity(3.14);
-    let str_val: byte* = identity("Hello");
+    const int_val: i32 = identity(42);
+    const float_val: f64 = identity(3.14);
+    const str_val: byte* = identity("Hello");
     
     printf("Generic identity i32: %d\n", int_val);
     printf("Generic identity f64: %f\n", float_val);
@@ -267,8 +267,8 @@ fn test_generics() void {
 fn test_macros() void {
     printf("\n=== 宏测试 ===\n");
     
-    let x: i32 = 5;
-    let squared: i32 = square(x);  // 展开为 x * x
+    const x: i32 = 5;
+    const squared: i32 = square(x);  // 展开为 x * x
     printf("square(5) = %d\n", squared);
 }
 
@@ -276,13 +276,13 @@ fn test_macros() void {
 fn test_atomics() void {
     printf("\n=== 原子类型测试 ===\n");
     
-    let mut counter: Counter = Counter{ value: 0 };
+    var counter: Counter = Counter{ value: 0 };
     
     // 原子操作
     counter.value += 1;  // 自动原子 fetch_add
     counter.value += 1;  // 自动原子 fetch_add
     
-    let current_val: i32 = counter.value;  // 自动原子 load
+    const current_val: i32 = counter.value;  // 自动原子 load
     printf("Atomic counter value: %d\n", current_val);
 }
 
@@ -290,11 +290,11 @@ fn test_atomics() void {
 fn test_string_interpolation() void {
     printf("\n=== 字符串插值测试 ===\n");
     
-    let x: i32 = 42;
-    let pi: f64 = 3.14159;
+    const x: i32 = 42;
+    const pi: f64 = 3.14159;
     
     // 如果支持字符串插值语法
-    // let msg: [i8; 64] = "x=${x}, pi=${pi:.2f}\n";
+    // const msg: [i8; 64] = "x=${x}, pi=${pi:.2f}\n";
     // printf(&msg[0]);
     
     printf("x=%d, pi=%.2f\n", x, pi);  // 使用C函数
@@ -307,7 +307,7 @@ fn main() i32 {
     test_structs_and_methods();
     test_pointers();
     
-    let defer_result: i32 = test_defer_errdefer() catch |err| {
+    const defer_result: i32 = test_defer_errdefer() catch |err| {
         printf("Error in defer test: %d\n", err as i32);
         return 1;
     };

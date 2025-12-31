@@ -1,1 +1,1 @@
-fn main() i32 { let mut y: i32 = 10; return y; }
+fn main() i32 { var y: i32 = 10; return y; }

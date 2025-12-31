@@ -1,1 +1,1 @@
-fn main() i32 { let x: i32 = 42; let mut y: i32 = 10; return x + y; }
+fn main() i32 { const x: i32 = 42; var y: i32 = 10; return x + y; }

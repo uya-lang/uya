@@ -13,43 +13,43 @@ error ParseError;
 
 // 基本类型和变量测试
 fn test_basic_types() i32 {
-    let x: i32 = 42;
-    let mut y: i32 = 10;
+    const x: i32 = 42;
+    var y: i32 = 10;
     y = y + 5;
     
-    let f: f64 = 3.14159;
-    let b: bool = true;
+    const f: f64 = 3.14159;
+    const b: bool = true;
     
     return x + y + (f as i32);
 }
 
 // 结构体测试
 fn test_structs() Vec3 {
-    let v: Vec3 = Vec3{ x: 1.0, y: 2.0, z: 3.0 };
+    const v: Vec3 = Vec3{ x: 1.0, y: 2.0, z: 3.0 };
     return v;
 }
 
 // 数组和切片测试
 fn test_arrays_and_slices() i32 {
-    let arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     
     // 基本切片
-    let slice1: [i32; 3] = slice(arr, 2, 5);  // [2, 3, 4]
+    const slice1: [i32; 3] = slice(arr, 2, 5);  // [2, 3, 4]
     
     // 负数索引切片
-    let slice2: [i32; 3] = slice(arr, -3, 10);  // [7, 8, 9]
+    const slice2: [i32; 3] = slice(arr, -3, 10);  // [7, 8, 9]
     
     // 从开头到某位置
-    let slice3: [i32; 3] = slice(arr, 0, 3);  // [0, 1, 2]
+    const slice3: [i32; 3] = slice(arr, 0, 3);  // [0, 1, 2]
     
     // 从某位置到末尾
-    let slice4: [i32; 3] = slice(arr, 7, 10);  // [7, 8, 9]
+    const slice4: [i32; 3] = slice(arr, 7, 10);  // [7, 8, 9]
     
     // 负数到负数
-    let slice5: [i32; 3] = slice(arr, -5, -2);  // [5, 6, 7]
+    const slice5: [i32; 3] = slice(arr, -5, -2);  // [5, 6, 7]
     
     // 计算结果
-    let mut sum: i32 = 0;
+    var sum: i32 = 0;
     for (iter(&slice1)) |val| {
         sum = sum + val;
     }
@@ -80,10 +80,10 @@ fn may_fail(flag: bool) !i32 {
 
 fn test_error_handling() i32 {
     // 成功路径
-    let success_val: i32 = try may_fail(true);
+    const success_val: i32 = try may_fail(true);
     
     // 错误路径
-    let err_val: i32 = may_fail(false) catch |err| {
+    const err_val: i32 = may_fail(false) catch |err| {
         if err == error.FileError {
             return 1;
         }
@@ -95,8 +95,8 @@ fn test_error_handling() i32 {
 
 // 控制流测试
 fn test_control_flow() i32 {
-    let x: i32 = 10;
-    let mut result: i32 = 0;
+    const x: i32 = 10;
+    var result: i32 = 0;
     
     if x > 5 {
         result = result + 1;
@@ -104,13 +104,13 @@ fn test_control_flow() i32 {
         result = result + 0;
     }
     
-    let mut i: i32 = 0;
+    var i: i32 = 0;
     while i < 3 {
         result = result + i;
         i = i + 1;
     }
     
-    let nums: [i32; 3] = [10, 20, 30];
+    const nums: [i32; 3] = [10, 20, 30];
     for (iter(&nums)) |num| {
         result = result + num;
     }
@@ -128,8 +128,8 @@ fn multiply(a: i32, b: i32) i32 {
 }
 
 fn test_functions() i32 {
-    let sum: i32 = add(5, 7);
-    let product: i32 = multiply(3, 4);
+    const sum: i32 = add(5, 7);
+    const product: i32 = multiply(3, 4);
     return sum + product;
 }
 
@@ -149,8 +149,8 @@ impl SimpleCalc : ICalculator {
 }
 
 fn test_interface() i32 {
-    let calc: SimpleCalc = SimpleCalc{ multiplier: 2 };
-    let result: i32 = calc.calculate(3, 4);  // (3 + 4) * 2 = 14
+    const calc: SimpleCalc = SimpleCalc{ multiplier: 2 };
+    const result: i32 = calc.calculate(3, 4);  // (3 + 4) * 2 = 14
     return result;
 }
 
@@ -160,14 +160,14 @@ struct Counter {
 }
 
 fn test_atomic() i32 {
-    let mut counter: Counter = Counter{ value: 0 };
+    var counter: Counter = Counter{ value: 0 };
     
     // 原子操作
     counter.value += 1;  // 自动原子fetch_add
     counter.value += 1;
     counter.value += 1;
     
-    let val: i32 = counter.value;  // 自动原子load
+    const val: i32 = counter.value;  // 自动原子load
     return val;
 }
 
@@ -177,7 +177,7 @@ fn identity(val: T) T {
 }
 
 fn test_generic() i32 {
-    let int_val: i32 = identity(123);
+    const int_val: i32 = identity(123);
     return int_val;
 }
 
@@ -185,14 +185,14 @@ fn test_generic() i32 {
 mc double(x: i32) expr { x * 2 }
 
 fn test_macro() i32 {
-    let x: i32 = 5;
-    let doubled: i32 = double(x);  // 展开为 x * 2
+    const x: i32 = 5;
+    const doubled: i32 = double(x);  // 展开为 x * 2
     return doubled;
 }
 
 // 综合测试
 fn comprehensive_test() i32 {
-    let mut result: i32 = 0;
+    var result: i32 = 0;
     
     result = result + test_basic_types();
     result = result + (test_structs().x as i32);
@@ -209,6 +209,6 @@ fn comprehensive_test() i32 {
 }
 
 fn main() i32 {
-    let result: i32 = comprehensive_test();
+    const result: i32 = comprehensive_test();
     return result;
 }

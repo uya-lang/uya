@@ -55,28 +55,28 @@ def generate_large_test(output_file, num_functions=1000, num_structs=100):
                 f.write(f"// 函数组 {i//100 + 1}\n\n")
             
             f.write(f"fn test_function_{i}(x: i32, y: i32) i32 {{\n")
-            f.write(f"    let mut result: i32 = 0;\n")
-            f.write(f"    let mut counter: i32 = 0;\n")
-            f.write(f"    let mut acc: i32 = 0;\n")
-            f.write(f"    let mut sum: i32 = 0;\n")
+            f.write(f"    var result: i32 = 0;\n")
+            f.write(f"    var counter: i32 = 0;\n")
+            f.write(f"    var acc: i32 = 0;\n")
+            f.write(f"    var sum: i32 = 0;\n")
             
             # 添加一些计算逻辑（增加代码量）
             if i % 3 == 0:
                 f.write(f"    result = add(x, y);\n")
                 f.write(f"    result = multiply(result, {i % 100});\n")
-                f.write(f"    let temp1: i32 = result * 2;\n")
-                f.write(f"    let temp2: i32 = result + temp1;\n")
+                f.write(f"    const temp1: i32 = result * 2;\n")
+                f.write(f"    const temp2: i32 = result + temp1;\n")
                 f.write(f"    result = temp2 - result;\n")
             elif i % 3 == 1:
                 f.write(f"    result = subtract(x, y);\n")
                 f.write(f"    result = multiply(result, {i % 50 + 1});\n")
-                f.write(f"    let temp: i32 = result / 2;\n")
+                f.write(f"    const temp: i32 = result / 2;\n")
                 f.write(f"    result = result + temp;\n")
             else:
                 f.write(f"    result = multiply(x, y);\n")
                 f.write(f"    result = add(result, {i % 200});\n")
-                f.write(f"    let val1: i32 = result;\n")
-                f.write(f"    let val2: i32 = val1 * 3;\n")
+                f.write(f"    const val1: i32 = result;\n")
+                f.write(f"    const val2: i32 = val1 * 3;\n")
                 f.write(f"    result = val2 - val1;\n")
             
             # 添加循环和控制流
@@ -97,7 +97,7 @@ def generate_large_test(output_file, num_functions=1000, num_structs=100):
             # 使用结构体（每20个函数使用一个结构体）
             if i % 20 == 0 and i // 20 < num_structs:
                 struct_idx = i // 20
-                f.write(f"    let s: Struct{struct_idx} = Struct{struct_idx}{{ field1: result, field2: result as f32, field3: result as i64, field4: result, field5: result as f32 }};\n")
+                f.write(f"    const s: Struct{struct_idx} = Struct{struct_idx}{{ field1: result, field2: result as f32, field3: result as i64, field4: result, field5: result as f32 }};\n")
                 f.write(f"    result = result + s.field1;\n")
                 f.write(f"    result = result + s.field4;\n")
             
@@ -105,7 +105,7 @@ def generate_large_test(output_file, num_functions=1000, num_structs=100):
             f.write(f"    acc = result * 3;\n")
             f.write(f"    sum = acc + result;\n")
             f.write(f"    result = sum - acc;\n")
-            f.write(f"    let final_val: i32 = result + {i % 1000};\n")
+            f.write(f"    const final_val: i32 = result + {i % 1000};\n")
             f.write(f"    result = final_val;\n")
             
             f.write(f"    return result;\n")
@@ -114,8 +114,8 @@ def generate_large_test(output_file, num_functions=1000, num_structs=100):
         # 生成主函数
         f.write("// ========== 主函数 ==========\n\n")
         f.write("fn main() i32 {\n")
-        f.write("    let mut total: i32 = 0;\n")
-        f.write("    let mut i: i32 = 0;\n\n")
+        f.write("    var total: i32 = 0;\n")
+        f.write("    var i: i32 = 0;\n\n")
         
         # 调用部分函数
         calls_count = min(100, num_functions)

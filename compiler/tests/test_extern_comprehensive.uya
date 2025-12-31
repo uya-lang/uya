@@ -26,23 +26,23 @@ fn multiply(a: f64, b: f64) f64 {
 
 // 测试extern函数调用
 fn test_extern_calls() void {
-    let a: f64 = 3.14159;
-    let b: f64 = 2.0;
+    const a: f64 = 3.14159;
+    const b: f64 = 2.0;
     
-    let sine_val: f64 = sin(a / 2.0);  // sin(π/2) ≈ 1
-    let cosine_val: f64 = cos(0.0);    // cos(0) = 1
-    let sqrt_val: f64 = sqrt(16.0);    // sqrt(16) = 4
+    const sine_val: f64 = sin(a / 2.0);  // sin(π/2) ≈ 1
+    const cosine_val: f64 = cos(0.0);    // cos(0) = 1
+    const sqrt_val: f64 = sqrt(16.0);    // sqrt(16) = 4
     
     printf("sin(π/2) = %f\n", sine_val);
     printf("cos(0) = %f\n", cosine_val);
     printf("sqrt(16) = %f\n", sqrt_val);
     
-    let abs_val: i32 = abs(-42);
+    const abs_val: i32 = abs(-42);
     printf("abs(-42) = %d\n", abs_val);
     
     // 测试普通函数调用
-    let sum: i32 = add(10, 20);
-    let product: f64 = multiply(3.5, 2.0);
+    const sum: i32 = add(10, 20);
+    const product: f64 = multiply(3.5, 2.0);
     
     printf("add(10, 20) = %d\n", sum);
     printf("multiply(3.5, 2.0) = %f\n", product);
@@ -50,38 +50,38 @@ fn test_extern_calls() void {
 
 // 测试可变参数extern函数
 fn test_vararg_extern() void {
-    let buffer: [byte; 64] = [];
-    let x: i32 = 42;
-    let pi: f64 = 3.14159;
+    const buffer: [byte; 64] = [];
+    const x: i32 = 42;
+    const pi: f64 = 3.14159;
     
     // 使用可变参数函数
-    let result: i32 = sprintf(&buffer[0], "x = %d, pi = %.2f\n", x, pi);
+    const result: i32 = sprintf(&buffer[0], "x = %d, pi = %.2f\n", x, pi);
     printf("Formatted string: %s", &buffer[0]);
     printf("sprintf returned: %d\n", result);
 }
 
 // 测试数组和指针操作结合extern函数
 fn test_array_with_extern() void {
-    let numbers: [i32; 5] = [1, 4, 9, 16, 25];
+    const numbers: [i32; 5] = [1, 4, 9, 16, 25];
     
     printf("Numbers and their square roots:\n");
     for (iter(&numbers)) |num| {
-        let root: f64 = sqrt(cast(f64, num));  // 假设有类型转换函数
+        const root: f64 = sqrt(cast(f64, num));  // 假设有类型转换函数
         printf("sqrt(%d) = %f\n", num, root);
     }
 }
 
 // 测试结构体操作结合extern函数
 fn test_struct_with_extern() void {
-    let v1: Vec3 = Vec3{ x: 1.0, y: 2.0, z: 3.0 };
-    let v2: Vec3 = Vec3{ x: 4.0, y: 5.0, z: 6.0 };
+    const v1: Vec3 = Vec3{ x: 1.0, y: 2.0, z: 3.0 };
+    const v2: Vec3 = Vec3{ x: 4.0, y: 5.0, z: 6.0 };
     
     // 计算向量长度（使用sqrt函数）
-    let len1_sq: f64 = v1.x * v1.x + v1.y * v1.y + v1.z * v1.z;
-    let len1: f64 = sqrt(len1_sq);
+    const len1_sq: f64 = v1.x * v1.x + v1.y * v1.y + v1.z * v1.z;
+    const len1: f64 = sqrt(len1_sq);
     
-    let len2_sq: f64 = v2.x * v2.x + v2.y * v2.y + v2.z * v2.z;
-    let len2: f64 = sqrt(len2_sq);
+    const len2_sq: f64 = v2.x * v2.x + v2.y * v2.y + v2.z * v2.z;
+    const len2: f64 = sqrt(len2_sq);
     
     printf("Length of v1: %f\n", len1);
     printf("Length of v2: %f\n", len2);

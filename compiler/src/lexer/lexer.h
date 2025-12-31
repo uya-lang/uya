@@ -19,6 +19,7 @@ typedef enum {
     TOKEN_LET,
     TOKEN_MUT,
     TOKEN_CONST,
+    TOKEN_VAR,
     TOKEN_FN,
     TOKEN_RETURN,
     TOKEN_EXTERN,

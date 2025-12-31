@@ -2,15 +2,15 @@
 
 // 1. 基本类型和变量
 fn test_basic_types() void {
-    let x: i32 = 42;
-    let mut y: i32 = 10;
+    const x: i32 = 42;
+    var y: i32 = 10;
     y = y + 5;
     
-    let f: f64 = 3.14159;
-    let b: bool = true;
+    const f: f64 = 3.14159;
+    const b: bool = true;
     
     // 模拟输出
-    let _ = x + y + f as i32;  // 避免未使用变量警告
+    const _ = x + y + f as i32;  // 避免未使用变量警告
 }
 
 // 2. 结构体测试
@@ -21,29 +21,29 @@ struct Vec3 {
 }
 
 fn test_structs() void {
-    let v: Vec3 = Vec3{ x: 1.0, y: 2.0, z: 3.0 };
-    let _ = v.x + v.y + v.z;  // 避免未使用变量警告
+    const v: Vec3 = Vec3{ x: 1.0, y: 2.0, z: 3.0 };
+    const _ = v.x + v.y + v.z;  // 避免未使用变量警告
 }
 
 // 3. 数组和切片测试
 fn test_arrays_and_slices() void {
-    let arr: [i32; 5] = [1, 2, 3, 4, 5];
+    const arr: [i32; 5] = [1, 2, 3, 4, 5];
     
     // 测试切片
-    let slice1: [i32; 3] = slice(arr, 1, 4);  // [2, 3, 4]
+    const slice1: [i32; 3] = slice(arr, 1, 4);  // [2, 3, 4]
     
     // 测试负数索引切片
-    let slice2: [i32; 2] = slice(arr, -2, 5);  // [4, 5]
+    const slice2: [i32; 2] = slice(arr, -2, 5);  // [4, 5]
     
     // 计算一些值以避免未使用变量警告
-    let sum1: i32 = 0;
+    const sum1: i32 = 0;
     for (iter(&slice1)) |val| {
-        let _ = sum1 + val;
+        const _ = sum1 + val;
     }
     
-    let sum2: i32 = 0;
+    const sum2: i32 = 0;
     for (iter(&slice2)) |val| {
-        let _ = sum2 + val;
+        const _ = sum2 + val;
     }
 }
 
@@ -61,36 +61,36 @@ fn may_fail(flag: bool) !i32 {
 
 fn test_error_handling() void {
     // 成功路径
-    let success_val: i32 = try may_fail(true);
-    let _ = success_val;
+    const success_val: i32 = try may_fail(true);
+    const _ = success_val;
     
     // 错误路径
-    let err_val: i32 = may_fail(false) catch |err| {
+    const err_val: i32 = may_fail(false) catch |err| {
         if err == error.CustomError {
             return 0;
         }
         return 0;
     };
-    let _ = err_val;
+    const _ = err_val;
 }
 
 // 5. 控制流测试
 fn test_control_flow() void {
-    let x: i32 = 10;
+    const x: i32 = 10;
     if x > 5 {
-        let _ = x;  // 使用变量避免警告
+        const _ = x;  // 使用变量避免警告
     } else {
-        let _ = x;  // 使用变量避免警告
+        const _ = x;  // 使用变量避免警告
     }
     
-    let mut i: i32 = 0;
+    var i: i32 = 0;
     while i < 3 {
         i = i + 1;
     }
     
-    let nums: [i32; 3] = [10, 20, 30];
+    const nums: [i32; 3] = [10, 20, 30];
     for (iter(&nums)) |num| {
-        let _ = num;  // 使用变量避免警告
+        const _ = num;  // 使用变量避免警告
     }
 }
 
@@ -100,8 +100,8 @@ fn add(a: i32, b: i32) i32 {
 }
 
 fn test_functions() void {
-    let result: i32 = add(5, 7);
-    let _ = result;
+    const result: i32 = add(5, 7);
+    const _ = result;
 }
 
 // 7. 接口测试
@@ -115,14 +115,14 @@ struct ConsoleWriter {
 
 impl ConsoleWriter : IWriter {
     fn write(self: *Self, data: byte*) i32 {
-        let _ = data;  // 使用参数避免警告
+        const _ = data;  // 使用参数避免警告
         return 0;
     }
 }
 
 fn test_interface() void {
-    let writer: ConsoleWriter = ConsoleWriter{ fd: 1 };
-    let _ = writer;  // 使用变量避免警告
+    const writer: ConsoleWriter = ConsoleWriter{ fd: 1 };
+    const _ = writer;  // 使用变量避免警告
 }
 
 // 8. 原子类型测试
@@ -131,24 +131,24 @@ struct AtomicCounter {
 }
 
 fn test_atomic() void {
-    let mut counter: AtomicCounter = AtomicCounter{ value: 0 };
+    var counter: AtomicCounter = AtomicCounter{ value: 0 };
     
     // 原子操作
     counter.value += 1;  // 自动原子fetch_add
     counter.value += 1;
     
-    let val: i32 = counter.value;  // 自动原子load
-    let _ = val;
+    const val: i32 = counter.value;  // 自动原子load
+    const _ = val;
 }
 
 // 9. defer/errdefer测试
 fn test_defer_errdefer() !void {
     defer {
-        let _ = 0;  // 模拟清理操作
+        const _ = 0;  // 模拟清理操作
     }
     
     errdefer {
-        let _ = 0;  // 模拟错误清理操作
+        const _ = 0;  // 模拟错误清理操作
     }
     
     return;
@@ -156,9 +156,9 @@ fn test_defer_errdefer() !void {
 
 // 10. 字符串插值测试（如果支持）
 fn test_string_interpolation() void {
-    let x: i32 = 42;
-    let pi: f64 = 3.14159;
-    let _ = x + (pi as i32);  // 避免未使用变量警告
+    const x: i32 = 42;
+    const pi: f64 = 3.14159;
+    const _ = x + (pi as i32);  // 避免未使用变量警告
 }
 
 // 11. 泛型测试（如果支持）
@@ -167,17 +167,17 @@ fn id(val: T) T {
 }
 
 fn test_generic() void {
-    let int_val: i32 = id(123);
-    let _ = int_val;
+    const int_val: i32 = id(123);
+    const _ = int_val;
 }
 
 // 12. 宏测试（如果支持）
 mc twice(x: i32) expr { x + x }
 
 fn test_macro() void {
-    let x: i32 = 5;
-    let result: i32 = twice(x);  // 展开为 x + x
-    let _ = result;
+    const x: i32 = 5;
+    const result: i32 = twice(x);  // 展开为 x + x
+    const _ = result;
 }
 
 fn main() i32 {
@@ -190,7 +190,7 @@ fn main() i32 {
     test_interface();
     test_atomic();
     test_defer_errdefer() catch |err| {
-        let _ = err;
+        const _ = err;
     };
     test_string_interpolation();
     test_generic();

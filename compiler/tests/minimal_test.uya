@@ -16,17 +16,17 @@ fn may_fail(flag: bool) !i32 {
 }
 
 fn main() i32 {
-    let arr: [i32; 5] = [1, 2, 3, 4, 5];
+    const arr: [i32; 5] = [1, 2, 3, 4, 5];
     
     // 测试切片
-    let slice1: [i32; 3] = slice(arr, 1, 4);
+    const slice1: [i32; 3] = slice(arr, 1, 4);
     
     // 测试负数索引切片
-    let slice2: [i32; 2] = slice(arr, -2, 5);
+    const slice2: [i32; 2] = slice(arr, -2, 5);
     
     // 测试错误处理
-    let success_val: i32 = try may_fail(true);
-    let err_val: i32 = may_fail(false) catch |err| {
+    const success_val: i32 = try may_fail(true);
+    const err_val: i32 = may_fail(false) catch |err| {
         if err == error.TestError {
             return 1;
         }
