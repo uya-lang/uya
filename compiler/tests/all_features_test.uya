@@ -20,7 +20,7 @@ error ParseError;
 fn test_basics() i32 {
     const x: i32 = 42;
     var y: i32 = 10;
-    y = y + 5;
+    y = y +| 5;
     
     const f: f64 = 3.14159;
     const b: bool = true;

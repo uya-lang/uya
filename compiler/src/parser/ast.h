@@ -214,6 +214,12 @@ typedef struct ASTNode {
             char *field_name;           // 字段名称
         } member_access;
 
+        // 数组下标访问表达式 (arr[index])
+        struct {
+            struct ASTNode *array;      // 数组表达式
+            struct ASTNode *index;      // 索引表达式
+        } subscript_expr;
+
         // 接口声明
         struct {
             char *name;

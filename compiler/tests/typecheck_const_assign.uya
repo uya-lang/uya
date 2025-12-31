@@ -1,0 +1,6 @@
+fn main() i32 {
+    const x: i32 = 10;
+    x = 20;  // 应该编译错误：不能给const变量赋值
+    return x;
+}
+

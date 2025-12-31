@@ -86,6 +86,18 @@ void ast_free(ASTNode *node) {
             ast_free_node_list(node->data.call_expr.args, node->data.call_expr.arg_count);
             break;
             
+        case AST_SUBSCRIPT_EXPR:
+            ast_free(node->data.subscript_expr.array);
+            ast_free(node->data.subscript_expr.index);
+            break;
+            
+        case AST_MEMBER_ACCESS:
+            ast_free(node->data.member_access.object);
+            if (node->data.member_access.field_name) {
+                free(node->data.member_access.field_name);
+            }
+            break;
+            
         case AST_IDENTIFIER:
             if (node->data.identifier.name) {
                 free(node->data.identifier.name);

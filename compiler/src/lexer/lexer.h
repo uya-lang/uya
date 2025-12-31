@@ -80,6 +80,16 @@ typedef enum {
     TOKEN_LOGICAL_AND,
     TOKEN_LOGICAL_OR,
     
+    // 饱和运算符（显式溢出处理）
+    TOKEN_PLUS_PIPE,      // +|
+    TOKEN_MINUS_PIPE,     // -|
+    TOKEN_ASTERISK_PIPE,  // *|
+    
+    // 包装运算符（显式溢出处理）
+    TOKEN_PLUS_PERCENT,   // +%
+    TOKEN_MINUS_PERCENT,  // -%
+    TOKEN_ASTERISK_PERCENT, // *%
+    
     // 特殊符号
     TOKEN_ARROW,      // =>
     TOKEN_ELLIPSIS,   // ...

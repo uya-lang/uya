@@ -50,18 +50,6 @@ int compile_file(const char *input_file, const char *output_file) {
         return 1;
     }
 
-    // Print AST for debugging
-    printf("AST created successfully, type: %d\n", ast->type);
-    if (ast->type == AST_PROGRAM) {
-        printf("Program decl count: %d\n", ast->data.program.decl_count);
-        printf("AST结构:\n");
-        ast_print(ast, 0);
-        printf("\n");
-    } else {
-        printf("AST is not a program node\n");
-    }
-    fflush(stdout);
-
     // 3. 类型检查
     TypeChecker *checker = typechecker_new();
     if (!checker) {
@@ -73,7 +61,7 @@ int compile_file(const char *input_file, const char *output_file) {
     }
 
     if (!typechecker_check(checker, ast)) {
-        error("类型检查失败");
+        // 类型检查器已经打印了错误信息
         typechecker_free(checker);
         ast_free(ast);
         parser_free(parser);

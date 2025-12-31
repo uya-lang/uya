@@ -1,28 +1,1026 @@
 #include "typechecker.h"
-#include <stdio.h>
-#include <stdlib.h>
+#include "../ir/ir.h"
+#include <stdarg.h>
+#include <limits.h>
 
+// 前向声明：从ir_generator.c获取类型转换函数
+// 这个函数在ir_generator.c中是static的，我们需要复制其逻辑或将其改为非static
+static IRType get_ir_type_from_ast(ASTNode *ast_type) {
+    if (!ast_type) return IR_TYPE_VOID;
+
+    switch (ast_type->type) {
+        case AST_TYPE_NAMED: {
+            const char *name = ast_type->data.type_named.name;
+            if (strcmp(name, "i32") == 0) return IR_TYPE_I32;
+            if (strcmp(name, "i64") == 0) return IR_TYPE_I64;
+            if (strcmp(name, "i8") == 0) return IR_TYPE_I8;
+            if (strcmp(name, "i16") == 0) return IR_TYPE_I16;
+            if (strcmp(name, "u32") == 0) return IR_TYPE_U32;
+            if (strcmp(name, "u64") == 0) return IR_TYPE_U64;
+            if (strcmp(name, "u8") == 0) return IR_TYPE_U8;
+            if (strcmp(name, "u16") == 0) return IR_TYPE_U16;
+            if (strcmp(name, "f32") == 0) return IR_TYPE_F32;
+            if (strcmp(name, "f64") == 0) return IR_TYPE_F64;
+            if (strcmp(name, "bool") == 0) return IR_TYPE_BOOL;
+            if (strcmp(name, "void") == 0) return IR_TYPE_VOID;
+            if (strcmp(name, "byte") == 0) return IR_TYPE_BYTE;
+            return IR_TYPE_STRUCT;
+        }
+        case AST_TYPE_ARRAY:
+            return IR_TYPE_ARRAY;
+        case AST_TYPE_POINTER:
+            return IR_TYPE_PTR;
+        case AST_TYPE_ERROR_UNION:
+            return get_ir_type_from_ast(ast_type->data.type_error_union.base_type);
+        case AST_TYPE_ATOMIC:
+            return get_ir_type_from_ast(ast_type->data.type_atomic.base_type);
+        default:
+            return IR_TYPE_VOID;
+    }
+}
+
+// 从AST类型节点提取数组大小信息
+static int get_array_size_from_ast(ASTNode *ast_type) {
+    if (!ast_type) return -1;
+    
+    if (ast_type->type == AST_TYPE_ARRAY) {
+        return ast_type->data.type_array.size;
+    }
+    
+    return -1;
+}
+
+// 从AST类型节点提取数组元素类型
+static IRType get_array_element_type_from_ast(ASTNode *ast_type) {
+    if (!ast_type) return IR_TYPE_VOID;
+    
+    if (ast_type->type == AST_TYPE_ARRAY) {
+        return get_ir_type_from_ast(ast_type->data.type_array.element_type);
+    }
+    
+    return IR_TYPE_VOID;
+}
+
+// 符号创建
+Symbol *symbol_new(const char *name, IRType type, int is_mut, int is_const, 
+                   int scope_level, int line, int column, const char *filename) {
+    Symbol *sym = malloc(sizeof(Symbol));
+    if (!sym) return NULL;
+    
+    sym->name = malloc(strlen(name) + 1);
+    if (!sym->name) {
+        free(sym);
+        return NULL;
+    }
+    strcpy(sym->name, name);
+    
+    sym->type = type;
+    sym->is_mut = is_mut;
+    sym->is_const = is_const;
+    sym->is_initialized = 0;
+    sym->scope_level = scope_level;
+    sym->line = line;
+    sym->column = column;
+    
+    if (filename) {
+        sym->filename = malloc(strlen(filename) + 1);
+        if (sym->filename) {
+            strcpy(sym->filename, filename);
+        }
+    } else {
+        sym->filename = NULL;
+    }
+    
+    sym->original_type_name = NULL;
+    sym->array_size = -1;  // 默认非数组
+    sym->array_element_type = IR_TYPE_VOID;
+    
+    return sym;
+}
+
+void symbol_free(Symbol *symbol) {
+    if (!symbol) return;
+    if (symbol->name) free(symbol->name);
+    if (symbol->filename) free(symbol->filename);
+    if (symbol->original_type_name) free(symbol->original_type_name);
+    free(symbol);
+}
+
+// 类型检查器创建
 TypeChecker *typechecker_new() {
     TypeChecker *checker = malloc(sizeof(TypeChecker));
-    if (!checker) {
+    if (!checker) return NULL;
+    
+    checker->error_count = 0;
+    checker->error_capacity = 16;
+    checker->errors = malloc(checker->error_capacity * sizeof(char*));
+    if (!checker->errors) {
+        free(checker);
         return NULL;
     }
     
-    // 初始化类型检查器状态
+    checker->symbol_table = malloc(sizeof(SymbolTable));
+    if (!checker->symbol_table) {
+        free(checker->errors);
+        free(checker);
+        return NULL;
+    }
+    checker->symbol_table->symbol_count = 0;
+    checker->symbol_table->symbol_capacity = 32;
+    checker->symbol_table->symbols = malloc(checker->symbol_table->symbol_capacity * sizeof(Symbol*));
+    if (!checker->symbol_table->symbols) {
+        free(checker->symbol_table);
+        free(checker->errors);
+        free(checker);
+        return NULL;
+    }
+    
+    checker->scopes = malloc(sizeof(ScopeStack));
+    if (!checker->scopes) {
+        free(checker->symbol_table->symbols);
+        free(checker->symbol_table);
+        free(checker->errors);
+        free(checker);
+        return NULL;
+    }
+    checker->scopes->level_count = 0;
+    checker->scopes->level_capacity = 16;
+    checker->scopes->levels = malloc(checker->scopes->level_capacity * sizeof(int));
+    checker->scopes->current_level = 0;
+    if (!checker->scopes->levels) {
+        free(checker->scopes);
+        free(checker->symbol_table->symbols);
+        free(checker->symbol_table);
+        free(checker->errors);
+        free(checker);
+        return NULL;
+    }
+    
+    checker->constraints = constraint_set_new();
+    if (!checker->constraints) {
+        free(checker->scopes->levels);
+        free(checker->scopes);
+        free(checker->symbol_table->symbols);
+        free(checker->symbol_table);
+        free(checker->errors);
+        free(checker);
+        return NULL;
+    }
+    
+    checker->current_line = 0;
+    checker->current_column = 0;
+    checker->current_file = NULL;
+    checker->function_scope_counter = 0;
+    
     return checker;
 }
 
 void typechecker_free(TypeChecker *checker) {
-    if (checker) {
-        free(checker);
+    if (!checker) return;
+    
+    // 释放错误消息
+    for (int i = 0; i < checker->error_count; i++) {
+        if (checker->errors[i]) {
+            free(checker->errors[i]);
+        }
+    }
+    if (checker->errors) free(checker->errors);
+    
+    // 释放符号表
+    if (checker->symbol_table) {
+        for (int i = 0; i < checker->symbol_table->symbol_count; i++) {
+            symbol_free(checker->symbol_table->symbols[i]);
+        }
+        if (checker->symbol_table->symbols) free(checker->symbol_table->symbols);
+        free(checker->symbol_table);
+    }
+    
+    // 释放作用域栈
+    if (checker->scopes) {
+        if (checker->scopes->levels) free(checker->scopes->levels);
+        free(checker->scopes);
+    }
+    
+    // 释放约束集合
+    if (checker->constraints) {
+        constraint_set_free(checker->constraints);
+    }
+    
+    if (checker->current_file) free(checker->current_file);
+    
+    free(checker);
+}
+
+// 错误管理
+void typechecker_add_error(TypeChecker *checker, const char *fmt, ...) {
+    if (!checker || !fmt) return;
+    
+    va_list args;
+    va_start(args, fmt);
+    
+    // 计算需要的缓冲区大小
+    va_list args_copy;
+    va_copy(args_copy, args);
+    int size = vsnprintf(NULL, 0, fmt, args_copy) + 1;
+    va_end(args_copy);
+    
+    char *error_msg = malloc(size);
+    if (!error_msg) {
+        va_end(args);
+        return;
+    }
+    
+    vsnprintf(error_msg, size, fmt, args);
+    va_end(args);
+    
+    // 扩展错误数组
+    if (checker->error_count >= checker->error_capacity) {
+        int new_capacity = checker->error_capacity * 2;
+        char **new_errors = realloc(checker->errors, new_capacity * sizeof(char*));
+        if (!new_errors) {
+            free(error_msg);
+            return;
+        }
+        checker->errors = new_errors;
+        checker->error_capacity = new_capacity;
+    }
+    
+    checker->errors[checker->error_count++] = error_msg;
+}
+
+void typechecker_print_errors(TypeChecker *checker) {
+    if (!checker) return;
+    
+    for (int i = 0; i < checker->error_count; i++) {
+        fprintf(stderr, "错误: %s\n", checker->errors[i]);
     }
 }
 
-int typechecker_check(TypeChecker *checker, ASTNode *ast) {
-    // 简单的类型检查实现
-    // 在实际实现中，这里会进行完整的类型检查
-    printf("执行类型检查...\n");
+// 符号表操作
+int typechecker_add_symbol(TypeChecker *checker, Symbol *symbol) {
+    if (!checker || !symbol) return 0;
     
-    // 为了演示，我们总是返回成功
+    // 检查同一作用域内是否有同名变量
+    // 注意：只检查完全相同的scope_level，不同函数的作用域应该不同
+    for (int i = 0; i < checker->symbol_table->symbol_count; i++) {
+        Symbol *existing = checker->symbol_table->symbols[i];
+        if (existing->scope_level == symbol->scope_level &&
+            strcmp(existing->name, symbol->name) == 0) {
+            // 检查是否是同一个文件中的同一行（可能是真正的重复定义）
+            // 或者检查是否是同一个作用域层级
+            // 如果作用域级别相同且名称相同，则认为是重复定义
+            typechecker_add_error(checker, 
+                "变量 '%s' 在同一作用域内重复定义 (行 %d:%d, 已有定义在行 %d:%d)",
+                symbol->name, symbol->line, symbol->column, 
+                existing->line, existing->column);
+            return 0;
+        }
+    }
+    
+    // 扩展符号表
+    if (checker->symbol_table->symbol_count >= checker->symbol_table->symbol_capacity) {
+        int new_capacity = checker->symbol_table->symbol_capacity * 2;
+        Symbol **new_symbols = realloc(checker->symbol_table->symbols, 
+                                      new_capacity * sizeof(Symbol*));
+        if (!new_symbols) return 0;
+        checker->symbol_table->symbols = new_symbols;
+        checker->symbol_table->symbol_capacity = new_capacity;
+    }
+    
+    checker->symbol_table->symbols[checker->symbol_table->symbol_count++] = symbol;
     return 1;
+}
+
+Symbol *typechecker_lookup_symbol(TypeChecker *checker, const char *name) {
+    if (!checker || !name) return NULL;
+    
+    // 从当前作用域开始向上查找
+    Symbol *found = NULL;
+    int found_scope = -1;
+    
+    for (int i = checker->symbol_table->symbol_count - 1; i >= 0; i--) {
+        Symbol *sym = checker->symbol_table->symbols[i];
+        if (strcmp(sym->name, name) == 0) {
+            if (found == NULL || sym->scope_level > found_scope) {
+                found = sym;
+                found_scope = sym->scope_level;
+            }
+        }
+    }
+    
+    return found;
+}
+
+// 作用域操作
+void typechecker_enter_scope(TypeChecker *checker) {
+    if (!checker) return;
+    
+    checker->scopes->current_level++;
+    
+    if (checker->scopes->level_count >= checker->scopes->level_capacity) {
+        int new_capacity = checker->scopes->level_capacity * 2;
+        int *new_levels = realloc(checker->scopes->levels, new_capacity * sizeof(int));
+        if (!new_levels) return;
+        checker->scopes->levels = new_levels;
+        checker->scopes->level_capacity = new_capacity;
+    }
+    
+    checker->scopes->levels[checker->scopes->level_count++] = checker->scopes->current_level;
+}
+
+void typechecker_exit_scope(TypeChecker *checker) {
+    if (!checker) return;
+    
+    if (checker->scopes->level_count > 0) {
+        checker->scopes->level_count--;
+        checker->scopes->current_level = 
+            (checker->scopes->level_count > 0) ? 
+            checker->scopes->levels[checker->scopes->level_count - 1] : 0;
+    }
+}
+
+int typechecker_get_current_scope(TypeChecker *checker) {
+    if (!checker) return 0;
+    return checker->scopes->current_level;
+}
+
+// 约束操作
+void typechecker_add_constraint(TypeChecker *checker, Constraint *constraint) {
+    if (!checker || !constraint) return;
+    constraint_set_add(checker->constraints, constraint);
+}
+
+Constraint *typechecker_find_constraint(TypeChecker *checker, const char *var_name, ConstraintType type) {
+    if (!checker || !var_name) return NULL;
+    return constraint_set_find(checker->constraints, var_name, type);
+}
+
+// 类型匹配检查
+int typechecker_type_match(IRType t1, IRType t2) {
+    return t1 == t2;
+}
+
+// 类型推断（简化版，需要从AST节点推断类型）
+IRType typechecker_infer_type(TypeChecker *checker, ASTNode *expr) {
+    if (!expr) return IR_TYPE_VOID;
+    
+    switch (expr->type) {
+        case AST_NUMBER:
+            return IR_TYPE_I32;  // 默认整数类型
+        case AST_BOOL:
+            return IR_TYPE_BOOL;
+        case AST_IDENTIFIER: {
+            Symbol *sym = typechecker_lookup_symbol(checker, expr->data.identifier.name);
+            if (sym) return sym->type;
+            return IR_TYPE_VOID;
+        }
+        case AST_TYPE_NAMED:
+            return get_ir_type_from_ast(expr);
+        default:
+            return IR_TYPE_VOID;
+    }
+}
+
+// 前向声明
+static int typecheck_node(TypeChecker *checker, ASTNode *node);
+static int typecheck_var_decl(TypeChecker *checker, ASTNode *node);
+static int typecheck_assign(TypeChecker *checker, ASTNode *node);
+static int typecheck_binary_expr(TypeChecker *checker, ASTNode *node);
+static int typecheck_subscript(TypeChecker *checker, ASTNode *node);
+static int typecheck_if_stmt(TypeChecker *checker, ASTNode *node);
+static int typecheck_block(TypeChecker *checker, ASTNode *node);
+static int typecheck_call(TypeChecker *checker, ASTNode *node);
+
+// 从条件表达式提取约束条件
+static void extract_constraints_from_condition(TypeChecker *checker, ASTNode *cond_expr) {
+    if (!cond_expr || cond_expr->type != AST_BINARY_EXPR) return;
+    
+    int op = cond_expr->data.binary_expr.op;
+    ASTNode *left = cond_expr->data.binary_expr.left;
+    ASTNode *right = cond_expr->data.binary_expr.right;
+    
+    if (op == 81) {  // TOKEN_LOGICAL_AND
+        // 递归处理两个条件
+        extract_constraints_from_condition(checker, left);
+        extract_constraints_from_condition(checker, right);
+    } else if (op == 59 || op == 60) {  // TOKEN_LESS or TOKEN_LESS_EQUAL
+        // i < len 或 i <= len-1
+        if (left->type == AST_IDENTIFIER) {
+            const char *var_name = left->data.identifier.name;
+            ConstValue right_val;
+            
+            if (const_eval_expr(right, &right_val) && right_val.type == CONST_VAL_INT) {
+                long long max_val = (op == 59) ? right_val.value.int_val : right_val.value.int_val + 1;
+                Constraint *range_constraint = constraint_new_range(var_name, LLONG_MIN, max_val);
+                if (range_constraint) {
+                    typechecker_add_constraint(checker, range_constraint);
+                }
+            } else if (right->type == AST_IDENTIFIER) {
+                // 处理变量比较，创建约束（上限为变量值）
+                // 这里简化处理，创建宽松的约束
+                Constraint *range_constraint = constraint_new_range(var_name, LLONG_MIN, LLONG_MAX);
+                if (range_constraint) {
+                    typechecker_add_constraint(checker, range_constraint);
+                }
+            }
+        }
+    } else if (op == 61 || op == 62) {  // TOKEN_GREATER or TOKEN_GREATER_EQUAL
+        // i >= 0 或 i > 0
+        if (left->type == AST_IDENTIFIER) {
+            const char *var_name = left->data.identifier.name;
+            ConstValue right_val;
+            
+            if (const_eval_expr(right, &right_val) && right_val.type == CONST_VAL_INT) {
+                long long min_val = (op == 62) ? right_val.value.int_val : right_val.value.int_val + 1;
+                Constraint *range_constraint = constraint_new_range(var_name, min_val, LLONG_MAX);
+                if (range_constraint) {
+                    typechecker_add_constraint(checker, range_constraint);
+                }
+            }
+        }
+    } else if (op == 58) {  // TOKEN_NOT_EQUAL
+        // y != 0
+        if (left->type == AST_IDENTIFIER) {
+            ConstValue right_val;
+            if (const_eval_expr(right, &right_val) && right_val.type == CONST_VAL_INT && right_val.value.int_val == 0) {
+                const char *var_name = left->data.identifier.name;
+                Constraint *nonzero_constraint = constraint_new_nonzero(var_name);
+                if (nonzero_constraint) {
+                    typechecker_add_constraint(checker, nonzero_constraint);
+                }
+            }
+        }
+    }
+}
+
+// 检查const变量赋值
+static int check_const_assignment(TypeChecker *checker, const char *var_name, int line, int col) {
+    Symbol *sym = typechecker_lookup_symbol(checker, var_name);
+    if (!sym) {
+        typechecker_add_error(checker, "未定义的变量 '%s' (行 %d:%d)", var_name, line, col);
+        return 0;
+    }
+    
+    if (sym->is_const || !sym->is_mut) {
+        typechecker_add_error(checker, 
+            "不能给const变量 '%s' 赋值 (行 %d:%d)", var_name, line, col);
+        return 0;
+    }
+    
+    return 1;
+}
+
+// 获取数组大小的辅助函数
+static int get_array_size(TypeChecker *checker, ASTNode *array_expr) {
+    if (!array_expr) return -1;
+    
+    // 如果是指标识符，从符号表中查找
+    if (array_expr->type == AST_IDENTIFIER) {
+        Symbol *sym = typechecker_lookup_symbol(checker, array_expr->data.identifier.name);
+        if (sym && sym->type == IR_TYPE_ARRAY) {
+            return sym->array_size;
+        }
+    }
+    
+    // TODO: 处理其他数组表达式类型（成员访问等）
+    return -1;
+}
+
+// 检查数组边界
+static int check_array_bounds(TypeChecker *checker, ASTNode *array_expr, ASTNode *index_expr, int line, int col) {
+    if (!array_expr || !index_expr) return 0;
+    
+    // 获取数组大小
+    int array_size = get_array_size(checker, array_expr);
+    if (array_size < 0) {
+        // 无法确定数组大小，跳过检查（可能是复杂表达式）
+        return 1;
+    }
+    
+    // 检查索引是否为常量
+    ConstValue index_val;
+    if (const_eval_expr(index_expr, &index_val) && index_val.type == CONST_VAL_INT) {
+        // 常量索引：直接检查是否在范围内
+        long long index = index_val.value.int_val;
+        if (index < 0 || index >= array_size) {
+            typechecker_add_error(checker,
+                "数组索引越界：索引 %lld 超出数组大小 %d (行 %d:%d)",
+                index, array_size, line, col);
+            return 0;
+        }
+        return 1;
+    } else {
+        // 变量索引：需要检查约束条件
+        if (index_expr->type == AST_IDENTIFIER) {
+            const char *index_name = index_expr->data.identifier.name;
+            Constraint *range_constraint = typechecker_find_constraint(checker, index_name, CONSTRAINT_RANGE);
+            
+            if (!range_constraint) {
+                typechecker_add_error(checker,
+                    "数组索引 '%s' 需要边界检查证明 (行 %d:%d)\n"
+                    "  提示: 使用 if i >= 0 && i < %d { ... } 来证明索引安全",
+                    index_name, line, col, array_size);
+                return 0;
+            }
+            
+            // 检查约束范围是否在数组边界内
+            if (range_constraint->data.range.min < 0 || 
+                range_constraint->data.range.max > array_size) {
+                typechecker_add_error(checker,
+                    "数组索引约束范围 [%lld, %lld) 超出数组大小 %d (行 %d:%d)",
+                    range_constraint->data.range.min, 
+                    range_constraint->data.range.max,
+                    array_size, line, col);
+                return 0;
+            }
+        } else {
+            typechecker_add_error(checker,
+                "数组索引必须是常量或已证明范围的变量 (行 %d:%d)", line, col);
+            return 0;
+        }
+    }
+    
+    return 1;
+}
+
+// 检查整数溢出
+static int check_integer_overflow(TypeChecker *checker, ASTNode *left, ASTNode *right, int op, int line, int col) {
+    // 只检查可能溢出的运算
+    // TOKEN_PLUS = 51, TOKEN_MINUS = 52, TOKEN_ASTERISK = 53 (根据lexer.h枚举顺序)
+    // TOKEN_PLUS_PIPE, TOKEN_MINUS_PIPE, TOKEN_ASTERISK_PIPE (饱和运算符)
+    // TOKEN_PLUS_PERCENT, TOKEN_MINUS_PERCENT, TOKEN_ASTERISK_PERCENT (包装运算符)
+    
+    // 饱和运算符和包装运算符显式处理溢出，不需要检查
+    // TOKEN_PLUS_PIPE=82, TOKEN_MINUS_PIPE=83, TOKEN_ASTERISK_PIPE=84 (在TOKEN_LOGICAL_OR=81之后)
+    // TOKEN_PLUS_PERCENT=85, TOKEN_MINUS_PERCENT=86, TOKEN_ASTERISK_PERCENT=87
+    if (op == 82 || op == 83 || op == 84 ||  // TOKEN_PLUS_PIPE, TOKEN_MINUS_PIPE, TOKEN_ASTERISK_PIPE
+        op == 85 || op == 86 || op == 87) {  // TOKEN_PLUS_PERCENT, TOKEN_MINUS_PERCENT, TOKEN_ASTERISK_PERCENT
+        return 1;  // 饱和/包装运算符不需要溢出检查
+    }
+    
+    int is_overflow_op = (op == 51 || op == 52 || op == 53);  // TOKEN_PLUS=51, TOKEN_MINUS=52, TOKEN_ASTERISK=53
+    if (!is_overflow_op) {
+        return 1;  // 其他运算不会溢出
+    }
+    
+    // 检查是否为常量表达式
+    ConstValue left_val, right_val;
+    int left_const = const_eval_expr(left, &left_val);
+    int right_const = const_eval_expr(right, &right_val);
+    
+    if (left_const && right_const) {
+        // 常量运算：const_eval已经检查了溢出
+        // 如果const_eval返回成功，说明没有溢出
+        return 1;
+    }
+    
+    // 变量运算：要求显式溢出检查
+    // 根据Uya规范，变量运算必须显式检查溢出条件，或使用饱和/包装运算符
+    const char *op_str = (op == 51) ? "+" : (op == 52) ? "-" : "*";
+    typechecker_add_error(checker,
+        "整数运算 '%s' 需要溢出检查证明 (行 %d:%d)\n"
+        "  提示: 使用显式溢出检查，或使用饱和运算符 (+|, -|, *|) 或包装运算符 (+%%, -%%, *%%)",
+        op_str, line, col);
+    return 0;
+}
+
+// 检查除零
+static int check_division_by_zero(TypeChecker *checker, ASTNode *divisor, int line, int col) {
+    // 检查是否为常量
+    ConstValue divisor_val;
+    if (const_eval_expr(divisor, &divisor_val)) {
+        if (divisor_val.type == CONST_VAL_INT && divisor_val.value.int_val == 0) {
+            typechecker_add_error(checker, "除零错误：常量除数为0 (行 %d:%d)", line, col);
+            return 0;
+        }
+        if (divisor_val.type == CONST_VAL_FLOAT && divisor_val.value.float_val == 0.0) {
+            typechecker_add_error(checker, "除零错误：常量除数为0 (行 %d:%d)", line, col);
+            return 0;
+        }
+        return 1;  // 常量非零，安全
+    }
+    
+    // 变量除零：需要检查约束条件
+    if (divisor->type == AST_IDENTIFIER) {
+        const char *divisor_name = divisor->data.identifier.name;
+        Constraint *nonzero_constraint = typechecker_find_constraint(checker, divisor_name, CONSTRAINT_NONZERO);
+        
+        if (!nonzero_constraint) {
+            typechecker_add_error(checker,
+                "除数 '%s' 需要非零证明 (行 %d:%d)\n"
+                "  提示: 使用 if y != 0 { ... } 来证明除数非零",
+                divisor_name, line, col);
+            return 0;
+        }
+        return 1;
+    } else {
+        // 对于复杂表达式，暂时允许（实际应该进行更复杂的分析）
+        // 这里简化处理，避免误报
+        return 1;
+    }
+}
+
+// 检查未初始化变量
+static int check_uninitialized(TypeChecker *checker, const char *var_name, int line, int col) {
+    Symbol *sym = typechecker_lookup_symbol(checker, var_name);
+    if (!sym) {
+        typechecker_add_error(checker, "未定义的变量 '%s' (行 %d:%d)", var_name, line, col);
+        return 0;
+    }
+    
+    if (!sym->is_initialized) {
+        typechecker_add_error(checker,
+            "使用未初始化的变量 '%s' (行 %d:%d)", var_name, line, col);
+        return 0;
+    }
+    
+    return 1;
+}
+
+// 检查变量声明
+static int typecheck_var_decl(TypeChecker *checker, ASTNode *node) {
+    if (!checker || !node || node->type != AST_VAR_DECL) return 0;
+    
+    checker->current_line = node->line;
+    checker->current_column = node->column;
+    if (node->filename) {
+        if (checker->current_file) free(checker->current_file);
+        checker->current_file = malloc(strlen(node->filename) + 1);
+        if (checker->current_file) {
+            strcpy(checker->current_file, node->filename);
+        }
+    }
+    
+    const char *var_name = node->data.var_decl.name;
+    IRType var_type = get_ir_type_from_ast(node->data.var_decl.type);
+    int is_mut = node->data.var_decl.is_mut;
+    int is_const = node->data.var_decl.is_const;
+    int scope_level = typechecker_get_current_scope(checker);
+    
+    // 创建符号
+    Symbol *sym = symbol_new(var_name, var_type, is_mut, is_const, 
+                            scope_level, node->line, node->column, 
+                            node->filename);
+    if (!sym) return 0;
+    
+    // 提取数组信息
+    if (var_type == IR_TYPE_ARRAY && node->data.var_decl.type) {
+        sym->array_size = get_array_size_from_ast(node->data.var_decl.type);
+        sym->array_element_type = get_array_element_type_from_ast(node->data.var_decl.type);
+    }
+    
+    // 检查初始化表达式
+    if (node->data.var_decl.init) {
+        // 先检查初始化表达式本身
+        if (!typecheck_node(checker, node->data.var_decl.init)) {
+            symbol_free(sym);
+            return 0;
+        }
+        
+        // 类型匹配检查（简化版，对于基本类型）
+        // 对于数字字面量，假设类型匹配（实际应该更严格）
+        IRType init_type = typechecker_infer_type(checker, node->data.var_decl.init);
+        if (init_type != IR_TYPE_VOID && !typechecker_type_match(var_type, init_type)) {
+            // 对于数字字面量，允许类型推断
+            if (node->data.var_decl.init->type != AST_NUMBER || 
+                (var_type != IR_TYPE_I32 && var_type != IR_TYPE_I64 && 
+                 var_type != IR_TYPE_F32 && var_type != IR_TYPE_F64)) {
+                typechecker_add_error(checker,
+                    "变量 '%s' 的类型与初始化表达式类型不匹配 (行 %d:%d)",
+                    var_name, node->line, node->column);
+                symbol_free(sym);
+                return 0;
+            }
+        }
+        
+        sym->is_initialized = 1;
+    } else {
+        // 未初始化的变量，标记为未初始化
+        // 但函数参数应该被视为已初始化（由调用者提供）
+        sym->is_initialized = 0;
+    }
+    
+    // 添加到符号表（在添加到符号表之前检查，以避免重复添加）
+    // 先检查是否已存在（这在typechecker_add_symbol中也会检查，但我们可以提前检查以避免错误消息混乱）
+    if (!typechecker_add_symbol(checker, sym)) {
+        symbol_free(sym);
+        return 0;
+    }
+    
+    return 1;
+}
+
+// 检查赋值语句
+static int typecheck_assign(TypeChecker *checker, ASTNode *node) {
+    if (!checker || !node || node->type != AST_ASSIGN) return 0;
+    
+    checker->current_line = node->line;
+    checker->current_column = node->column;
+    
+    const char *dest_name = node->data.assign.dest;
+    
+    // 检查const变量赋值
+    if (!check_const_assignment(checker, dest_name, node->line, node->column)) {
+        return 0;
+    }
+    
+    // 检查源表达式
+    if (!typecheck_node(checker, node->data.assign.src)) {
+        return 0;
+    }
+    
+    // 标记变量为已初始化
+    Symbol *sym = typechecker_lookup_symbol(checker, dest_name);
+    if (sym) {
+        sym->is_initialized = 1;
+    }
+    
+    return 1;
+}
+
+// 检查二元表达式
+static int typecheck_binary_expr(TypeChecker *checker, ASTNode *node) {
+    if (!checker || !node || node->type != AST_BINARY_EXPR) return 0;
+    
+    if (!typecheck_node(checker, node->data.binary_expr.left)) return 0;
+    if (!typecheck_node(checker, node->data.binary_expr.right)) return 0;
+    
+    int op = node->data.binary_expr.op;
+    
+    // 检查除零
+    if (op == 39 || op == 40) {  // TOKEN_SLASH or TOKEN_PERCENT
+        if (!check_division_by_zero(checker, node->data.binary_expr.right, 
+                                   node->line, node->column)) {
+            return 0;
+        }
+    }
+    
+    // 检查整数溢出
+    if (!check_integer_overflow(checker, node->data.binary_expr.left, 
+                                node->data.binary_expr.right, op,
+                                node->line, node->column)) {
+        return 0;
+    }
+    
+    return 1;
+}
+
+// 检查数组访问
+static int typecheck_subscript(TypeChecker *checker, ASTNode *node) {
+    if (!checker || !node || node->type != AST_SUBSCRIPT_EXPR) return 0;
+    
+    checker->current_line = node->line;
+    checker->current_column = node->column;
+    
+    ASTNode *array_expr = node->data.subscript_expr.array;
+    ASTNode *index_expr = node->data.subscript_expr.index;
+    
+    if (!array_expr || !index_expr) {
+        typechecker_add_error(checker, "数组访问表达式不完整 (行 %d:%d)", node->line, node->column);
+        return 0;
+    }
+    
+    // 检查数组表达式
+    if (!typecheck_node(checker, array_expr)) {
+        return 0;
+    }
+    
+    // 检查索引表达式
+    if (!typecheck_node(checker, index_expr)) {
+        return 0;
+    }
+    
+    // 检查数组边界
+    if (!check_array_bounds(checker, array_expr, index_expr, node->line, node->column)) {
+        return 0;
+    }
+    
+    return 1;
+}
+
+// 检查if语句（建立约束条件）
+static int typecheck_if_stmt(TypeChecker *checker, ASTNode *node) {
+    if (!checker || !node || node->type != AST_IF_STMT) return 0;
+    
+    // 检查条件表达式
+    if (!typecheck_node(checker, node->data.if_stmt.condition)) return 0;
+    
+    // 分析条件表达式，提取约束条件
+    ASTNode *cond = node->data.if_stmt.condition;
+    
+    // 保存当前约束集合（用于then分支）
+    ConstraintSet *saved_constraints = constraint_set_copy(checker->constraints);
+    
+    // 提取then分支的约束
+    extract_constraints_from_condition(checker, cond);
+    
+    // 检查then分支
+    typechecker_enter_scope(checker);
+    if (!typecheck_node(checker, node->data.if_stmt.then_branch)) {
+        constraint_set_free(saved_constraints);
+        typechecker_exit_scope(checker);
+        return 0;
+    }
+    typechecker_exit_scope(checker);
+    
+    // 检查else分支（如果有）
+    if (node->data.if_stmt.else_branch) {
+        // 恢复约束集合
+        constraint_set_free(checker->constraints);
+        checker->constraints = constraint_set_copy(saved_constraints);
+        
+        typechecker_enter_scope(checker);
+        if (!typecheck_node(checker, node->data.if_stmt.else_branch)) {
+            constraint_set_free(saved_constraints);
+            typechecker_exit_scope(checker);
+            return 0;
+        }
+        typechecker_exit_scope(checker);
+    }
+    
+    // 恢复约束集合（合并分支后的约束）
+    constraint_set_free(checker->constraints);
+    checker->constraints = saved_constraints;
+    
+    return 1;
+}
+
+// 检查代码块
+static int typecheck_block(TypeChecker *checker, ASTNode *node) {
+    if (!checker || !node || node->type != AST_BLOCK) return 0;
+    
+    typechecker_enter_scope(checker);
+    
+    for (int i = 0; i < node->data.block.stmt_count; i++) {
+        if (!typecheck_node(checker, node->data.block.stmts[i])) {
+            typechecker_exit_scope(checker);
+            return 0;
+        }
+    }
+    
+    typechecker_exit_scope(checker);
+    return 1;
+}
+
+// 检查函数调用
+static int typecheck_call(TypeChecker *checker, ASTNode *node) {
+    if (!checker || !node || node->type != AST_CALL_EXPR) return 0;
+    
+    // 检查参数
+    for (int i = 0; i < node->data.call_expr.arg_count; i++) {
+        if (!typecheck_node(checker, node->data.call_expr.args[i])) {
+            return 0;
+        }
+    }
+    
+    return 1;
+}
+
+// 检查标识符（检查未初始化）
+static int typecheck_identifier(TypeChecker *checker, ASTNode *node) {
+    if (!checker || !node || node->type != AST_IDENTIFIER) return 0;
+    
+    const char *var_name = node->data.identifier.name;
+    
+    // 检查变量是否存在
+    Symbol *sym = typechecker_lookup_symbol(checker, var_name);
+    if (!sym) {
+        typechecker_add_error(checker, "未定义的变量 '%s' (行 %d:%d)", 
+                             var_name, node->line, node->column);
+        return 0;
+    }
+    
+    // 检查是否已初始化
+    if (!sym->is_initialized && !sym->is_const) {
+        // const变量必须在声明时初始化，所以不需要检查
+        // 只有var变量需要检查是否已初始化
+        typechecker_add_error(checker,
+            "使用未初始化的变量 '%s' (行 %d:%d)\n"
+            "  提示: 变量必须在首次使用前被赋值",
+            var_name, node->line, node->column);
+        return 0;
+    }
+    
+    return 1;
+}
+
+// 主节点检查函数
+static int typecheck_node(TypeChecker *checker, ASTNode *node) {
+    if (!checker || !node) return 1;  // 空节点视为通过
+    
+    switch (node->type) {
+        case AST_PROGRAM:
+            for (int i = 0; i < node->data.program.decl_count; i++) {
+                if (!typecheck_node(checker, node->data.program.decls[i])) {
+                    return 0;
+                }
+            }
+            return 1;
+            
+        case AST_VAR_DECL:
+            return typecheck_var_decl(checker, node);
+            
+        case AST_ASSIGN:
+            return typecheck_assign(checker, node);
+            
+        case AST_BINARY_EXPR:
+            return typecheck_binary_expr(checker, node);
+            
+        case AST_SUBSCRIPT_EXPR:
+            return typecheck_subscript(checker, node);
+            
+        case AST_IF_STMT:
+            return typecheck_if_stmt(checker, node);
+            
+        case AST_BLOCK:
+            return typecheck_block(checker, node);
+            
+        case AST_CALL_EXPR:
+            return typecheck_call(checker, node);
+            
+        case AST_IDENTIFIER:
+            return typecheck_identifier(checker, node);
+            
+        case AST_NUMBER:
+        case AST_BOOL:
+        case AST_STRING:
+            return 1;  // 字面量总是通过
+            
+        case AST_RETURN_STMT:
+            if (node->data.return_stmt.expr) {
+                return typecheck_node(checker, node->data.return_stmt.expr);
+            }
+            return 1;
+            
+        case AST_FN_DECL:
+            // 函数声明检查
+            // 为每个函数分配唯一的作用域级别（使用函数作用域计数器）
+            int function_scope_level = 1000 + (checker->function_scope_counter++);  // 从1000开始，避免与全局作用域冲突
+            // 保存当前作用域级别
+            int saved_scope_level = checker->scopes->current_level;
+            // 设置函数作用域级别
+            checker->scopes->current_level = function_scope_level;
+            
+            // 添加参数到符号表（参数在函数作用域内，应该标记为已初始化）
+            for (int i = 0; i < node->data.fn_decl.param_count; i++) {
+                ASTNode *param = node->data.fn_decl.params[i];
+                if (param->type == AST_VAR_DECL) {
+                    // 检查参数声明
+                    if (!typecheck_var_decl(checker, param)) {
+                        checker->scopes->current_level = saved_scope_level;
+                        return 0;
+                    }
+                    // 标记参数为已初始化（函数参数由调用者提供，总是已初始化）
+                    Symbol *param_sym = typechecker_lookup_symbol(checker, param->data.var_decl.name);
+                    if (param_sym) {
+                        param_sym->is_initialized = 1;
+                    }
+                }
+            }
+            // 检查函数体
+            // 注意：函数体是block，但函数体中的变量应该在函数作用域中，而不是block作用域
+            // 所以我们需要特殊处理：不进入block作用域，直接检查block中的语句
+            if (node->data.fn_decl.body && node->data.fn_decl.body->type == AST_BLOCK) {
+                // 直接检查block中的语句，不进入新的作用域
+                for (int i = 0; i < node->data.fn_decl.body->data.block.stmt_count; i++) {
+                    if (!typecheck_node(checker, node->data.fn_decl.body->data.block.stmts[i])) {
+                        checker->scopes->current_level = saved_scope_level;
+                        return 0;
+                    }
+                }
+            } else {
+                // 如果不是block，直接检查
+                int result = typecheck_node(checker, node->data.fn_decl.body);
+                checker->scopes->current_level = saved_scope_level;
+                return result;
+            }
+            // 恢复作用域级别
+            checker->scopes->current_level = saved_scope_level;
+            return 1;
+            
+        default:
+            return 1;  // 其他节点类型暂时通过
+    }
+}
+
+// 主检查函数
+int typechecker_check(TypeChecker *checker, ASTNode *ast) {
+    if (!checker || !ast) return 0;
+    
+    // 进入全局作用域
+    typechecker_enter_scope(checker);
+    
+    // 检查AST
+    int result = typecheck_node(checker, ast);
+    
+    // 退出全局作用域
+    typechecker_exit_scope(checker);
+    
+    // 如果有错误，打印并返回失败
+    if (checker->error_count > 0) {
+        typechecker_print_errors(checker);
+        return 0;
+    }
+    
+    return result;
 }

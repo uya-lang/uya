@@ -298,16 +298,36 @@ Token *lexer_next_token(Lexer *lexer) {
     switch (c) {
         case '+':
             advance(lexer);
+            if (peek(lexer, 0) == '|') {
+                advance(lexer);
+                return make_token(lexer, TOKEN_PLUS_PIPE, "+|");
+            } else if (peek(lexer, 0) == '%') {
+                advance(lexer);
+                return make_token(lexer, TOKEN_PLUS_PERCENT, "+%");
+            }
             return make_token(lexer, TOKEN_PLUS, "+");
         case '-':
             advance(lexer);
             if (peek(lexer, 0) == '>') {
                 advance(lexer);
                 return make_token(lexer, TOKEN_ARROW, "=>");
+            } else if (peek(lexer, 0) == '|') {
+                advance(lexer);
+                return make_token(lexer, TOKEN_MINUS_PIPE, "-|");
+            } else if (peek(lexer, 0) == '%') {
+                advance(lexer);
+                return make_token(lexer, TOKEN_MINUS_PERCENT, "-%");
             }
             return make_token(lexer, TOKEN_MINUS, "-");
         case '*':
             advance(lexer);
+            if (peek(lexer, 0) == '|') {
+                advance(lexer);
+                return make_token(lexer, TOKEN_ASTERISK_PIPE, "*|");
+            } else if (peek(lexer, 0) == '%') {
+                advance(lexer);
+                return make_token(lexer, TOKEN_ASTERISK_PERCENT, "*%");
+            }
             return make_token(lexer, TOKEN_ASTERISK, "*");
         case '/':
             advance(lexer);

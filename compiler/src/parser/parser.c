@@ -656,8 +656,117 @@ static ASTNode *parser_parse_expression(Parser *parser) {
         return NULL;
     }
 
+    // Now check for postfix operators (array subscript, member access, function call)
+    while (parser->current_token && left) {
+        TokenType op_type = parser->current_token->type;
+        
+        // Check for array subscript: arr[index] or slice: arr[start:len]
+        if (op_type == TOKEN_LEFT_BRACKET) {
+            parser_consume(parser); // consume '['
+            
+            ASTNode *start_expr = parser_parse_expression(parser);
+            if (!start_expr) {
+                ast_free(left);
+                return NULL;
+            }
+            
+            // 检查是否是切片语法（有冒号）
+            if (parser_match(parser, TOKEN_COLON)) {
+                // 切片语法：arr[start:len]
+                parser_consume(parser); // consume ':'
+                
+                ASTNode *len_expr = parser_parse_expression(parser);
+                if (!len_expr) {
+                    ast_free(start_expr);
+                    ast_free(left);
+                    return NULL;
+                }
+                
+                if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
+                    ast_free(start_expr);
+                    ast_free(len_expr);
+                    ast_free(left);
+                    return NULL;
+                }
+                
+                // 创建slice函数调用：slice(arr, start, len)
+                ASTNode *slice_call = ast_new_node(AST_CALL_EXPR,
+                                                   left->line,
+                                                   left->column,
+                                                   left->filename);
+                if (!slice_call) {
+                    ast_free(start_expr);
+                    ast_free(len_expr);
+                    ast_free(left);
+                    return NULL;
+                }
+                
+                // callee: slice
+                ASTNode *slice_ident = ast_new_node(AST_IDENTIFIER,
+                                                    left->line,
+                                                    left->column,
+                                                    left->filename);
+                if (!slice_ident) {
+                    ast_free(start_expr);
+                    ast_free(len_expr);
+                    ast_free(left);
+                    ast_free(slice_call);
+                    return NULL;
+                }
+                slice_ident->data.identifier.name = malloc(6);
+                if (slice_ident->data.identifier.name) {
+                    strcpy(slice_ident->data.identifier.name, "slice");
+                }
+                slice_call->data.call_expr.callee = slice_ident;
+                
+                // args: [arr, start, len]
+                slice_call->data.call_expr.args = malloc(3 * sizeof(ASTNode*));
+                if (!slice_call->data.call_expr.args) {
+                    ast_free(start_expr);
+                    ast_free(len_expr);
+                    ast_free(left);
+                    ast_free(slice_ident);
+                    ast_free(slice_call);
+                    return NULL;
+                }
+                slice_call->data.call_expr.args[0] = left;
+                slice_call->data.call_expr.args[1] = start_expr;
+                slice_call->data.call_expr.args[2] = len_expr;
+                slice_call->data.call_expr.arg_count = 3;
+                
+                left = slice_call;
+                continue;  // Continue to check for more postfix operators
+            } else {
+                // 数组下标语法：arr[index]
+                if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
+                    ast_free(start_expr);
+                    ast_free(left);
+                    return NULL;
+                }
+                
+                ASTNode *subscript = ast_new_node(AST_SUBSCRIPT_EXPR,
+                                                 left->line,
+                                                 left->column,
+                                                 left->filename);
+                if (!subscript) {
+                    ast_free(start_expr);
+                    ast_free(left);
+                    return NULL;
+                }
+                
+                subscript->data.subscript_expr.array = left;
+                subscript->data.subscript_expr.index = start_expr;
+                left = subscript;
+                continue;  // Continue to check for more postfix operators
+            }
+        }
+        
+        // Check if it's a binary operator (including assignment)
+        break;
+    }
+    
     // Now check if there's an operator following
-    if (parser->current_token) {
+    if (parser->current_token && left) {
         TokenType op_type = parser->current_token->type;
 
         // Check if it's a binary operator (including assignment)
@@ -666,7 +775,9 @@ static ASTNode *parser_parse_expression(Parser *parser) {
             op_type == TOKEN_PERCENT || op_type == TOKEN_EQUAL ||  // comparison ==
             op_type == TOKEN_NOT_EQUAL || op_type == TOKEN_LESS ||
             op_type == TOKEN_LESS_EQUAL || op_type == TOKEN_GREATER ||
-            op_type == TOKEN_GREATER_EQUAL) {
+            op_type == TOKEN_GREATER_EQUAL ||
+            op_type == TOKEN_PLUS_PIPE || op_type == TOKEN_MINUS_PIPE || op_type == TOKEN_ASTERISK_PIPE ||
+            op_type == TOKEN_PLUS_PERCENT || op_type == TOKEN_MINUS_PERCENT || op_type == TOKEN_ASTERISK_PERCENT) {
 
             parser_consume(parser); // consume the operator
 
@@ -955,35 +1066,44 @@ static ASTNode *parser_parse_for_stmt(Parser *parser) {
 
     parser_consume(parser); // 消费 'for'
 
-    // 期望 '('
-    if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
-        return NULL;
-    }
-
-    // 解析可迭代对象 (can be complex expressions like function calls)
-    ASTNode *iterable = parser_parse_expression(parser);
-    if (!iterable) {
-        fprintf(stderr, "语法错误: for 语句需要可迭代对象\n");
-        return NULL;
-    }
-
-    // 检查是否有索引范围（for (iterable, index_range) 形式）
+    ASTNode *iterable = NULL;
     ASTNode *index_range = NULL;
-    if (parser_match(parser, TOKEN_COMMA)) {
-        parser_consume(parser); // 消费 ','
-        index_range = parser_parse_expression(parser);
-        if (!index_range) {
-            ast_free(iterable);
-            fprintf(stderr, "语法错误: for 语句需要索引范围\n");
+    
+    // 检查是否有括号（旧语法：for (iterable) |val| 或新语法：for iterable |val|）
+    if (parser_match(parser, TOKEN_LEFT_PAREN)) {
+        // 旧语法：for (iterable) |val| 或 for (iterable, index_range) |item, index|
+        parser_consume(parser); // 消费 '('
+        
+        iterable = parser_parse_expression(parser);
+        if (!iterable) {
+            fprintf(stderr, "语法错误: for 语句需要可迭代对象\n");
             return NULL;
         }
-    }
-
-    // 期望 ')'
-    if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
-        ast_free(iterable);
-        if (index_range) ast_free(index_range);
-        return NULL;
+        
+        // 检查是否有索引范围（for (iterable, index_range) 形式）
+        if (parser_match(parser, TOKEN_COMMA)) {
+            parser_consume(parser); // 消费 ','
+            index_range = parser_parse_expression(parser);
+            if (!index_range) {
+                ast_free(iterable);
+                fprintf(stderr, "语法错误: for 语句需要索引范围\n");
+                return NULL;
+            }
+        }
+        
+        // 期望 ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            ast_free(iterable);
+            if (index_range) ast_free(index_range);
+            return NULL;
+        }
+    } else {
+        // 新语法：for iterable |val|（不需要括号）
+        iterable = parser_parse_expression(parser);
+        if (!iterable) {
+            fprintf(stderr, "语法错误: for 语句需要可迭代对象\n");
+            return NULL;
+        }
     }
 
     // 期望 '|'（开始变量声明）

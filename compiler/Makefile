@@ -8,6 +8,8 @@ SOURCES = $(SRCDIR)/main.c \
           $(SRCDIR)/parser/ast.c \
           $(SRCDIR)/parser/parser.c \
           $(SRCDIR)/checker/typechecker.c \
+          $(SRCDIR)/checker/constraints.c \
+          $(SRCDIR)/checker/const_eval.c \
           $(SRCDIR)/ir/ir.c \
           $(SRCDIR)/ir_generator.c \
           $(SRCDIR)/codegen/codegen.c
