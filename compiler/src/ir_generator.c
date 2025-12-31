@@ -9,6 +9,7 @@
 static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr);
 static IRInst *generate_stmt(IRGenerator *ir_gen, struct ASTNode *stmt);
 static IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl);
+static IRInst *generate_test_block(IRGenerator *ir_gen, struct ASTNode *test_block);
 static void generate_program(IRGenerator *ir_gen, struct ASTNode *program);
 
 static IRType get_ir_type(struct ASTNode *ast_type) {
@@ -615,6 +616,84 @@ static IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl) {
     return func;
 }
 
+// Generate test block as a function (returns !void, no parameters)
+static IRInst *generate_test_block(IRGenerator *ir_gen, struct ASTNode *test_block) {
+    if (!test_block || test_block->type != AST_TEST_BLOCK) return NULL;
+
+    IRInst *func = irinst_new(IR_FUNC_DEF);
+    if (!func) return NULL;
+
+    // Generate function name from test name (use @test$<name> format, sanitize name)
+    // For now, use a simple approach: @test$ followed by a hash of the name
+    char test_func_name[256];
+    snprintf(test_func_name, sizeof(test_func_name), "@test$%s", test_block->data.test_block.name);
+    // Replace spaces and special chars with underscores for valid C identifier
+    for (char *p = test_func_name; *p; p++) {
+        if (*p == ' ' || *p == '-' || *p == '.') *p = '_';
+    }
+
+    func->data.func.name = malloc(strlen(test_func_name) + 1);
+    if (!func->data.func.name) {
+        irinst_free(func);
+        return NULL;
+    }
+    strcpy(func->data.func.name, test_func_name);
+
+    // Test functions return !void (error union with void base)
+    func->data.func.return_type = IR_TYPE_VOID;  // Will be handled as error union in codegen
+    func->data.func.is_extern = 0;
+
+    // No parameters for test blocks
+    func->data.func.param_count = 0;
+    func->data.func.params = NULL;
+
+    // Handle test body - convert AST statements to IR instructions
+    if (test_block->data.test_block.body) {
+        if (test_block->data.test_block.body->type == AST_BLOCK) {
+            func->data.func.body_count = test_block->data.test_block.body->data.block.stmt_count;
+            func->data.func.body = malloc(func->data.func.body_count * sizeof(IRInst*));
+            if (!func->data.func.body) {
+                irinst_free(func);
+                return NULL;
+            }
+
+            for (int i = 0; i < func->data.func.body_count; i++) {
+                struct ASTNode *ast_stmt = test_block->data.test_block.body->data.block.stmts[i];
+                IRInst *stmt_ir = generate_stmt(ir_gen, ast_stmt);
+                func->data.func.body[i] = stmt_ir;
+            }
+        } else {
+            // Single statement body
+            func->data.func.body_count = 1;
+            func->data.func.body = malloc(sizeof(IRInst*));
+            if (!func->data.func.body) {
+                irinst_free(func);
+                return NULL;
+            }
+            func->data.func.body[0] = generate_stmt(ir_gen, test_block->data.test_block.body);
+        }
+    } else {
+        func->data.func.body_count = 0;
+        func->data.func.body = NULL;
+    }
+
+    // Add function to instructions array
+    if (ir_gen->inst_count >= ir_gen->inst_capacity) {
+        size_t new_capacity = ir_gen->inst_capacity * 2;
+        IRInst **new_instructions = realloc(ir_gen->instructions,
+                                           new_capacity * sizeof(IRInst*));
+        if (!new_instructions) {
+            irinst_free(func);
+            return NULL;
+        }
+        ir_gen->instructions = new_instructions;
+        ir_gen->inst_capacity = new_capacity;
+    }
+    ir_gen->instructions[ir_gen->inst_count++] = func;
+
+    return func;
+}
+
 // Generate statement for function body (doesn't add to main array)
 static IRInst *generate_stmt_for_body(IRGenerator *ir_gen, struct ASTNode *stmt) {
     if (!stmt) return NULL;
@@ -882,6 +961,8 @@ static void generate_program(IRGenerator *ir_gen, struct ASTNode *program) {
         struct ASTNode *decl = program->data.program.decls[i];
         if (decl->type == AST_FN_DECL) {
             generate_function(ir_gen, decl);
+        } else if (decl->type == AST_TEST_BLOCK) {
+            generate_test_block(ir_gen, decl);
         } else if (decl->type == AST_IMPL_DECL) {
             // Handle impl declarations: convert each method to a regular function
             // Replace "Self" type names with the struct name in method parameters

@@ -997,6 +997,29 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
             // 恢复作用域级别
             checker->scopes->current_level = saved_scope_level;
             return 1;
+
+        case AST_TEST_BLOCK:
+            // 测试块检查：类似于函数但没有参数
+            // 为每个测试块分配唯一的作用域级别
+            int test_scope_level = 1000 + (checker->function_scope_counter++);
+            int saved_test_scope = checker->scopes->current_level;
+            checker->scopes->current_level = test_scope_level;
+
+            // 检查测试体
+            if (node->data.test_block.body && node->data.test_block.body->type == AST_BLOCK) {
+                for (int i = 0; i < node->data.test_block.body->data.block.stmt_count; i++) {
+                    if (!typecheck_node(checker, node->data.test_block.body->data.block.stmts[i])) {
+                        checker->scopes->current_level = saved_test_scope;
+                        return 0;
+                    }
+                }
+            } else {
+                int result = typecheck_node(checker, node->data.test_block.body);
+                checker->scopes->current_level = saved_test_scope;
+                return result;
+            }
+            checker->scopes->current_level = saved_test_scope;
+            return 1;
             
         default:
             return 1;  // 其他节点类型暂时通过

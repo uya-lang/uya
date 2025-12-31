@@ -276,6 +276,11 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
     
     switch (inst->type) {
         case IR_FUNC_DEF:
+            // 在生产模式下，跳过测试函数（以 @test$ 开头）
+            if (inst->data.func.name && strncmp(inst->data.func.name, "@test$", 6) == 0) {
+                // 跳过测试函数（测试模式会单独处理）
+                break;
+            }
             // 生成函数定义
             codegen_write_type(codegen, inst->data.func.return_type);
             fprintf(codegen->output_file, " %s(", inst->data.func.name);
