@@ -53,6 +53,9 @@ typedef enum {
 
     // 宏相关
     AST_MACRO_DECL,
+
+    // 测试相关
+    AST_TEST_BLOCK,
 } ASTNodeType;
 
 // 基础 AST 节点结构
@@ -234,6 +237,12 @@ typedef struct ASTNode {
             struct ASTNode **methods;    // 方法实现列表（函数声明）
             int method_count;
         } impl_decl;
+
+        // 测试块 (test "说明文字" { ... })
+        struct {
+            char *name;                  // 测试名称（说明文字）
+            struct ASTNode *body;        // 测试体
+        } test_block;
     } data;
 } ASTNode;
 

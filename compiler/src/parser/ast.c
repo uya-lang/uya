@@ -173,6 +173,13 @@ void ast_free(ASTNode *node) {
             }
             ast_free_node_list(node->data.impl_decl.methods, node->data.impl_decl.method_count);
             break;
+
+        case AST_TEST_BLOCK:
+            if (node->data.test_block.name) {
+                free(node->data.test_block.name);
+            }
+            ast_free(node->data.test_block.body);
+            break;
             
         default:
             // 其他类型暂不处理
@@ -391,6 +398,13 @@ void ast_print(ASTNode *node, int indent) {
                 printf("Method:\n");
                 ast_print(node->data.impl_decl.methods[i], indent + 2);
             }
+            break;
+
+        case AST_TEST_BLOCK:
+            printf("TestBlock: %s\n", node->data.test_block.name);
+            print_indent(indent + 1);
+            printf("Body:\n");
+            ast_print(node->data.test_block.body, indent + 2);
             break;
 
         default:

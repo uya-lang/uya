@@ -91,11 +91,21 @@ typedef enum {
     TOKEN_RIGHT_SHIFT,   // >>
     TOKEN_LOGICAL_AND,   // &&
     TOKEN_LOGICAL_OR,    // ||
-    TOKEN_ARROW,         // -> (指针访问)
+    
+    // 饱和运算符（显式溢出处理）
+    TOKEN_PLUS_PIPE,      // +|
+    TOKEN_MINUS_PIPE,     // -|
+    TOKEN_ASTERISK_PIPE,  // *|
+    
+    // 包装运算符（显式溢出处理）
+    TOKEN_PLUS_PERCENT,   // +%
+    TOKEN_MINUS_PERCENT,  // -%
+    TOKEN_ASTERISK_PERCENT, // *%
+    
+    // 特殊符号
+    TOKEN_ARROW,         // => (箭头操作符)
     TOKEN_ELLIPSIS,      // ... (可变参数)
     TOKEN_RANGE,         // .. (范围操作符)
-    TOKEN_DOUBLE_COLON,  // :: (作用域解析，如果需要)
-    TOKEN_QUESTION,      // ? (错误传播，如果需要)
 } TokenType;
 ```
 

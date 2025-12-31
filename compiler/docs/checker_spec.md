@@ -63,7 +63,30 @@ typedef struct ScopeStack {
     int *levels;                  // 作用域层级列表
     int level_count;              // 层级数量
     int level_capacity;           // 层级容量
+    int current_level;            // 当前作用域级别
 } ScopeStack;
+
+typedef struct TypeChecker {
+    // 错误管理
+    int error_count;              // 错误计数
+    char **errors;                // 错误消息列表
+    int error_capacity;           // 错误列表容量
+    
+    // 符号表和作用域
+    SymbolTable *symbol_table;    // 符号表
+    ScopeStack *scopes;           // 作用域栈
+    
+    // 约束条件集合（用于路径敏感分析）
+    ConstraintSet *constraints;   // 约束集合
+    
+    // 函数作用域计数器（为每个函数分配唯一的作用域级别）
+    int function_scope_counter;   // 函数作用域计数器
+    
+    // 当前上下文
+    int current_line;             // 当前行号
+    int current_column;           // 当前列号
+    char *current_file;           // 当前文件名
+} TypeChecker;
 ```
 
 ## 3. 类型检查器函数接口
@@ -103,22 +126,30 @@ void typechecker_exit_scope(TypeChecker *checker);
 类型检查器必须验证所有数组访问的安全性：
 
 **检查规则**：
-- 常量索引越界 → **编译错误**
-- 变量索引 → 必须证明 `i >= 0 && i < len`，证明失败 → **编译错误**
+- 常量索引越界 → **编译错误**（编译期验证）
+- 变量索引 → 必须证明 `i >= 0 && i < len`（通过 CONSTRAINT_RANGE 约束），证明失败 → **编译错误**
 
 **示例**：
 ```uya
-let arr: [i32; 10] = [0; 10];
-let i: i32 = get_index();
+const arr: [i32; 10] = [0; 10];
+var i: i32 = get_index();
 
 // 类型检查器验证：必须证明 i >= 0 && i < 10
-let x: i32 = arr[i];  // 编译期验证安全
+if i >= 0 && i < 10 {
+    const x: i32 = arr[i];  // ✅ 编译通过：有边界证明
+}
 ```
 
 **验证方法**：
 1. **路径敏感分析**：跟踪所有代码路径，分析变量状态
-2. **条件分支约束**：通过if语句建立约束条件
+2. **条件分支约束**：通过if语句建立约束条件（CONSTRAINT_RANGE）
 3. **数学证明**：验证索引表达式的数学关系
+4. **数组大小信息**：存储在符号表中（`Symbol.array_size`）
+
+**实现状态**：✅ **已实现**
+- 数组边界检查在 `check_array_bounds` 函数中实现
+- 数组大小信息从符号表获取
+- 常量索引编译期验证，变量索引要求 CONSTRAINT_RANGE 约束
 
 ### 4.2 切片边界检查
 
@@ -137,34 +168,56 @@ let x: i32 = arr[i];  // 编译期验证安全
 ### 4.3 空指针解引用检查
 
 **检查规则**：
-- 必须证明 `ptr != null` 或前序有 `if ptr == null { return error; }`，证明失败 → **编译错误**
+- 必须证明 `ptr != null`（通过 CONSTRAINT_NOT_NULL 约束），证明失败 → **编译错误**
 
 **示例**：
 ```uya
-let ptr: byte* = get_ptr();
-if ptr == null {
-    return error.NullPointer;  // 提前返回错误
+var ptr: *i32 = get_ptr();
+if ptr != null {
+    const val: i32 = *ptr;  // ✅ 编译通过：有非空证明
 }
-let val: byte = *ptr;  // 编译器证明 ptr != null，安全
 ```
+
+**实现状态**：✅ **已实现**
+- 空指针解引用检查在 `check_null_pointer_dereference` 函数中实现
+- 要求 CONSTRAINT_NOT_NULL 约束，通过 if 条件提取
 
 ### 4.4 整数溢出检查
 
 **检查规则**：
-- 常量运算溢出 → **编译错误**
-- 变量运算 → 必须显式检查溢出条件，或编译器能够证明无溢出
-- 无法证明无溢出 → **编译错误**
+- 常量运算溢出 → **编译错误**（编译期验证）
+- 变量运算 → 必须显式检查溢出条件，或使用饱和/包装运算符
+- 无法证明无溢出且未使用饱和/包装运算符 → **编译错误**
 
 **溢出检查模式**：
 - **加法上溢**：`a > 0 && b > 0 && a > MAX - b`
 - **加法下溢**：`a < 0 && b < 0 && a < MIN - b`
 - **乘法上溢**：`a > 0 && b > 0 && a > MAX / b`
 
+**饱和运算符（不需要溢出检查）**：
+- `+|`：饱和加法，溢出时返回类型的最大值或最小值
+- `-|`：饱和减法，溢出时返回类型的最大值或最小值
+- `*|`：饱和乘法，溢出时返回类型的最大值或最小值
+
+**包装运算符（不需要溢出检查）**：
+- `+%`：包装加法，溢出时返回包装后的值（模运算）
+- `-%`：包装减法，溢出时返回包装后的值（模运算）
+- `*%`：包装乘法，溢出时返回包装后的值（模运算）
+
+**实现状态**：✅ **已实现**
+- 常量表达式溢出检查在 `const_eval.c` 中实现
+- 变量运算溢出检查在 `check_integer_overflow` 函数中实现
+- 饱和/包装运算符识别在 `check_integer_overflow` 中实现，使用这些运算符时跳过溢出检查
+
 ### 4.5 除零错误检查
 
 **检查规则**：
-- 常量除零 → **编译错误**
-- 变量 → 必须证明 `y != 0`，证明失败 → **编译错误**
+- 常量除零 → **编译错误**（编译期验证）
+- 变量 → 必须证明 `y != 0`（通过 CONSTRAINT_NONZERO 约束），证明失败 → **编译错误**
+
+**实现状态**：✅ **已实现**
+- 常量除零检查在 `check_division_by_zero` 函数中实现
+- 变量除零检查要求 CONSTRAINT_NONZERO 约束，通过 if 条件提取
 
 ## 5. 类型系统检查
 

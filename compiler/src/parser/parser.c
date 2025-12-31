@@ -1869,10 +1869,60 @@ static ASTNode *parser_parse_impl_decl(Parser *parser) {
     return impl_decl;
 }
 
+// 解析测试块 (test "说明文字" { ... })
+static ASTNode *parser_parse_test_block(Parser *parser) {
+    // 检查是否是 test 标识符
+    if (!parser->current_token || 
+        parser->current_token->type != TOKEN_IDENTIFIER ||
+        strcmp(parser->current_token->value, "test") != 0) {
+        return NULL;
+    }
+
+    int line = parser->current_token->line;
+    int col = parser->current_token->column;
+    const char *filename = parser->current_token->filename;
+
+    parser_consume(parser); // 消费 test
+
+    // 期望字符串字面量（测试名称）
+    if (!parser_match(parser, TOKEN_STRING)) {
+        return NULL; // 不是 test 块，返回 NULL
+    }
+
+    ASTNode *test_block = ast_new_node(AST_TEST_BLOCK, line, col, filename);
+    if (!test_block) {
+        return NULL;
+    }
+
+    // 保存测试名称
+    test_block->data.test_block.name = malloc(strlen(parser->current_token->value) + 1);
+    if (!test_block->data.test_block.name) {
+        ast_free(test_block);
+        return NULL;
+    }
+    strcpy(test_block->data.test_block.name, parser->current_token->value);
+    parser_consume(parser); // 消费字符串
+
+    // 解析测试体（代码块）
+    test_block->data.test_block.body = parser_parse_block(parser);
+    if (!test_block->data.test_block.body) {
+        ast_free(test_block);
+        return NULL;
+    }
+
+    return test_block;
+}
+
 // 解析顶级声明
 static ASTNode *parser_parse_declaration(Parser *parser) {
     if (!parser->current_token) {
         return NULL;
+    }
+
+    // 先尝试解析 test 块（test 标识符后跟字符串）
+    ASTNode *test_node = parser_parse_test_block(parser);
+    if (test_node) {
+        return test_node;
     }
 
     if (parser_match(parser, TOKEN_FN)) {
