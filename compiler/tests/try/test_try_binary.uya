@@ -1,6 +1,6 @@
 fn main() !i32 {
-    let a: i32 = 10;
-    let b: i32 = 20;
+    var a: i32 = 10;
+    var b: i32 = 20;
     
     // Test try with binary operations (excluding division for now)
     const result1: i32 = try a + b;

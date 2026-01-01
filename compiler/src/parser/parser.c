@@ -872,7 +872,7 @@ static ASTNode *parser_parse_var_decl(Parser *parser) {
     int is_mut = 0;
     int is_const = 0;
     
-    // 支持 let, let mut, var, const
+    // 支持 var, const
     if (parser_match(parser, TOKEN_VAR)) {
         // var 声明可变变量
         parser_consume(parser); // 消费 'var'
@@ -881,15 +881,6 @@ static ASTNode *parser_parse_var_decl(Parser *parser) {
         // const 声明常量变量
         parser_consume(parser); // 消费 'const'
         is_const = 1;
-    } else if (parser_match(parser, TOKEN_LET)) {
-        // let 声明不可变变量（向后兼容）
-        parser_consume(parser); // 消费 'let'
-        
-        // 检查是否有 'mut' 修饰符（向后兼容）
-        if (parser_match(parser, TOKEN_MUT)) {
-            parser_consume(parser); // 消费 'mut'
-            is_mut = 1;
-        }
     } else {
         return NULL;
     }
@@ -973,8 +964,7 @@ static ASTNode *parser_parse_statement(Parser *parser) {
         return NULL;
     }
 
-    if (parser_match(parser, TOKEN_LET) || parser_match(parser, TOKEN_MUT) || 
-        parser_match(parser, TOKEN_VAR) || parser_match(parser, TOKEN_CONST)) {
+    if (parser_match(parser, TOKEN_VAR) || parser_match(parser, TOKEN_CONST)) {
         return parser_parse_var_decl(parser);
     } else if (parser_match(parser, TOKEN_RETURN)) {
         return parser_parse_return_stmt(parser);

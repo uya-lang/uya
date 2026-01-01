@@ -79,6 +79,7 @@ Symbol *symbol_new(const char *name, IRType type, int is_mut, int is_const,
     sym->is_mut = is_mut;
     sym->is_const = is_const;
     sym->is_initialized = 0;
+    sym->is_modified = 0;
     sym->scope_level = scope_level;
     sym->line = line;
     sym->column = column;
@@ -742,10 +743,11 @@ static int typecheck_assign(TypeChecker *checker, ASTNode *node) {
         return 0;
     }
     
-    // 标记变量为已初始化
+    // 标记变量为已初始化和已修改
     Symbol *sym = typechecker_lookup_symbol(checker, dest_name);
     if (sym) {
         sym->is_initialized = 1;
+        sym->is_modified = 1;
     }
     
     return 1;
@@ -1053,6 +1055,18 @@ int typechecker_check(TypeChecker *checker, ASTNode *ast) {
     
     // 退出全局作用域
     typechecker_exit_scope(checker);
+    
+    // 检查所有var声明的变量是否被修改
+    for (int i = 0; i < checker->symbol_table->symbol_count; i++) {
+        Symbol *sym = checker->symbol_table->symbols[i];
+        if (sym && sym->is_mut && !sym->is_const && !sym->is_modified) {
+            // var声明的变量但未修改
+            typechecker_add_error(checker,
+                "var变量 '%s' 声明后未修改 (行 %d:%d)\n" 
+                "  提示: 未修改的变量应使用 const 声明",
+                sym->name, sym->line, sym->column);
+        }
+    }
     
     // 如果有错误，打印并返回失败
     if (checker->error_count > 0) {

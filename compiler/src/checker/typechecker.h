@@ -16,6 +16,7 @@ typedef struct Symbol {
     int is_mut;
     int is_const;
     int is_initialized;
+    int is_modified;           // 是否被修改过
     int scope_level;
     int line, column;
     char *filename;

@@ -241,10 +241,7 @@ ASTNode *parser_parse_declaration(Parser *parser) {
             return parser_parse_fn_decl(parser);
         case TOKEN_EXTERN:
             return parser_parse_extern_decl(parser);
-        case TOKEN_LET:
-        case TOKEN_MUT:
-            // 变量声明在函数体内解析
-            return NULL;
+
         case TOKEN_INTERFACE:
             return parser_parse_interface_decl(parser);
         case TOKEN_MC:

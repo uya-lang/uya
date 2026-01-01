@@ -49,20 +49,20 @@ cat output.c
 ## 语法示例
 
 ```uya
-let arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+var arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 // 基本切片
-let slice1: [i32; 3] = slice(arr, 2, 5);  // [2, 3, 4]
+const slice1: [i32; 3] = slice(arr, 2, 5);  // [2, 3, 4]
 
 // 负数索引切片
-let slice2: [i32; 3] = slice(arr, -3, 10);  // [7, 8, 9]
+const slice2: [i32; 3] = slice(arr, -3, 10);  // [7, 8, 9]
 
 // 从开头到某位置
-let slice3: [i32; 3] = slice(arr, 0, 3);  // [0, 1, 2]
+const slice3: [i32; 3] = slice(arr, 0, 3);  // [0, 1, 2]
 
 // 从某位置到末尾
-let slice4: [i32; 3] = slice(arr, 7, 10);  // [7, 8, 9]
+const slice4: [i32; 3] = slice(arr, 7, 10);  // [7, 8, 9]
 
 // 负数到负数
-let slice5: [i32; 3] = slice(arr, -5, -2);  // [5, 6, 7]
+const slice5: [i32; 3] = slice(arr, -5, -2);  // [5, 6, 7]
 ```

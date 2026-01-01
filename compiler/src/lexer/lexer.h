@@ -16,7 +16,6 @@ typedef enum {
     
     // 关键字
     TOKEN_STRUCT,
-    TOKEN_LET,
     TOKEN_MUT,
     TOKEN_CONST,
     TOKEN_VAR,
