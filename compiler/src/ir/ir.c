@@ -222,6 +222,12 @@ void irinst_free(IRInst *inst) {
             }
             break;
 
+        case IR_ERROR_VALUE:
+            if (inst->data.error_value.error_name) {
+                free(inst->data.error_value.error_name);
+            }
+            break;
+
         default:
             break;
     }

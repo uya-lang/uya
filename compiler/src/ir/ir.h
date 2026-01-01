@@ -40,6 +40,7 @@ typedef enum {
     IR_DROP,           // 变量 drop 调用
     IR_DEFER,          // defer 块
     IR_ERRDEFER,       // errdefer 块
+    IR_ERROR_VALUE,    // 错误值 (error.ErrorName)
 } IRInstType;
 
 // 数据类型
@@ -106,6 +107,7 @@ typedef struct IRInst {
             struct IRInst **body;
             int body_count;
             int is_extern;
+            int return_type_is_error_union;  // 1 if return type is !T (error union), 0 otherwise
         } func;
         
         // 变量声明
@@ -265,6 +267,11 @@ typedef struct IRInst {
             struct IRInst **body;       // errdefer 块中的指令
             int body_count;             // errdefer 块中的指令数量
         } errdefer;
+
+        // 错误值 (error.ErrorName)
+        struct {
+            char *error_name;           // 错误名称（如 "TestError"）
+        } error_value;
     } data;
 } IRInst;
 

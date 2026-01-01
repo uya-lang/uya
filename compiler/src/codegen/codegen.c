@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 CodeGenerator *codegen_new() {
     CodeGenerator *codegen = malloc(sizeof(CodeGenerator));
@@ -73,9 +74,16 @@ static void codegen_write_type_with_atomic(CodeGenerator *codegen, IRInst *var_i
 }
 
 // Helper function to check if an IR instruction represents an error return value
+// According to uya.md, error.ErrorName is the syntax for error types
 static int is_error_return_value(IRInst *inst) {
     if (!inst) return 0;
     
+    // Check if it's an error value (IR_ERROR_VALUE)
+    if (inst->type == IR_ERROR_VALUE) {
+        return 1;
+    }
+    
+    // Legacy checks (may not be needed after full migration to IR_ERROR_VALUE)
     // Check if it's a function call to error.*
     if (inst->type == IR_CALL && inst->data.call.func_name) {
         if (strncmp(inst->data.call.func_name, "error", 5) == 0) {
@@ -83,12 +91,13 @@ static int is_error_return_value(IRInst *inst) {
         }
     }
     
-    // Check if it's a member access like error.TestError
-    if (inst->type == IR_MEMBER_ACCESS && inst->data.member_access.object) {
+    // Check if it's a member access like error.TestError (legacy IR representation)
+    if (inst->type == IR_MEMBER_ACCESS && inst->data.member_access.object && inst->data.member_access.field_name) {
         IRInst *object = inst->data.member_access.object;
-        // Check if object is an identifier named "error"
+        // Check if object is an identifier named "error" (the global error namespace)
         if (object->type == IR_VAR_DECL && object->data.var.name && 
             strcmp(object->data.var.name, "error") == 0) {
+            // This is error.ErrorName syntax, which represents an error type
             return 1;
         }
     }
@@ -118,9 +127,50 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
             fprintf(codegen->output_file, "}");
             break;
 
+        case IR_ERROR_VALUE: {
+            // Generate error code from error name
+            const char *error_name = inst->data.error_value.error_name;
+            if (!error_name) {
+                fprintf(codegen->output_file, "1U"); // default error code
+                break;
+            }
+            
+            // Generate unique error code using hash function
+            uint16_t error_code = 0;
+            for (const char *p = error_name; *p; p++) {
+                error_code = error_code * 31 + (unsigned char)*p;
+            }
+            // Ensure error code is non-zero (0 indicates success)
+            if (error_code == 0) error_code = 1;
+            
+            // Generate error code as uint16_t literal
+            fprintf(codegen->output_file, "%uU", (unsigned int)error_code);
+            break;
+        }
+
         case IR_MEMBER_ACCESS: {
-            // Generate member access: object.field or object->field (if object is a pointer)
+            // Check if this is error.TestError or similar error access
             IRInst *object = inst->data.member_access.object;
+            // Check if object is an identifier named "error" (the global error namespace)
+            // object can be IR_VAR_DECL (identifier expression)
+            if (object && object->type == IR_VAR_DECL && object->data.var.name &&
+                strcmp(object->data.var.name, "error") == 0 && inst->data.member_access.field_name) {
+                // This is an error access like error.TestError
+                // error is a type (uint16_t), error.TestError should generate an error code
+                // Generate a unique error code based on the field name
+                const char *error_name = inst->data.member_access.field_name;
+                uint16_t error_code = 0;
+                for (const char *p = error_name; *p; p++) {
+                    error_code = error_code * 31 + (unsigned char)*p;
+                }
+                // Make sure error code is non-zero (0 indicates success)
+                if (error_code == 0) error_code = 1;
+                // Generate error code: ERROR_CODE (as uint16_t)
+                fprintf(codegen->output_file, "%uU", (unsigned int)error_code);
+                break;
+            }
+            
+            // Regular member access: object.field or object->field (if object is a pointer)
             int use_arrow = 0;
             
             // Check if the object is a pointer type
@@ -389,8 +439,9 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                 }
             }
             
-            // 跟踪是否有错误返回（用于决定是否执行 errdefer）
-            int has_error_return = 0;
+            // 跟踪是否有错误返回路径（用于决定是否需要生成错误返回标签）
+            int has_error_return_path = 0;
+            int return_count = 0;
             
             // 第一遍：生成普通语句，收集defer和errdefer块，修改return语句，收集需要 drop 的变量
             for (int i = 0; i < inst->data.func.body_count; i++) {
@@ -408,11 +459,12 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                     fprintf(codegen->output_file, "  // errdefer block (collected)\n");
                 } else if (body_inst->type == IR_RETURN) {
                     // 检查返回值是否为错误值
-                    if (body_inst->data.ret.value && is_error_return_value(body_inst->data.ret.value)) {
-                        has_error_return = 1;
+                    int is_error = (body_inst->data.ret.value && is_error_return_value(body_inst->data.ret.value));
+                    if (is_error) {
+                        has_error_return_path = 1;
                     }
                     
-                    // 修改return语句：保存返回值，然后跳转到函数末尾
+                    // 修改return语句：保存返回值，然后跳转到相应的返回标签
                     if (has_return_value) {
                         fprintf(codegen->output_file, "  %s = ", return_var_name);
                         if (body_inst->data.ret.value) {
@@ -422,8 +474,25 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                         }
                         fprintf(codegen->output_file, ";\n");
                     }
-                    // 跳转到函数末尾执行defer块
-                    fprintf(codegen->output_file, "  goto _end_%s;\n", inst->data.func.name);
+                    
+                    // 根据是否为错误返回，跳转到不同的标签
+                    // 如果函数返回类型是 !T 且有 errdefer 块，但由于错误处理机制不完整无法检测错误返回值，
+                    // 暂时在所有返回路径执行 errdefer（这是临时方案）
+                    // TODO: 完整实现需要能够可靠检测错误返回值，只在错误返回路径执行 errdefer
+                    if (is_error) {
+                        fprintf(codegen->output_file, "  goto _error_return_%s;\n", inst->data.func.name);
+                        has_error_return_path = 1;
+                    } else {
+                        // 如果函数返回类型是 !T 且有 errdefer 块，暂时在所有返回路径执行 errdefer
+                        // 这是临时方案，等错误处理机制完善后需要改进为只在错误返回路径执行
+                        if (inst->data.func.return_type_is_error_union && errdefer_count > 0) {
+                            fprintf(codegen->output_file, "  goto _error_return_%s;\n", inst->data.func.name);
+                            has_error_return_path = 1;
+                        } else {
+                            fprintf(codegen->output_file, "  goto _normal_return_%s;\n", inst->data.func.name);
+                        }
+                    }
+                    return_count++;
                 } else {
                     // 直接处理普通语句，避免递归调用codegen_generate_inst
                     fprintf(codegen->output_file, "  ");
@@ -593,19 +662,12 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                 }
             }
             
-            // 函数末尾标签
-            fprintf(codegen->output_file, "_end_%s:\n", inst->data.func.name);
-            
-            // 第二遍：按照后进先出的顺序生成errdefer块代码（仅在错误返回时执行）
-            // 注意：由于错误处理机制（!T 类型）尚未完全实现，errdefer 的正确实现需要完整的错误处理支持
-            // 临时实现：对于有 errdefer 块的函数，暂时在所有返回路径执行 errdefer
-            // TODO: 完整实现需要能够区分每个 return 路径，只在错误返回路径执行 errdefer
-            // 正确的实现需要：
-            // 1. 保留 !T 错误联合类型信息（目前被转换为基础类型）
-            // 2. 在运行时或编译时检测返回值是否为错误值
-            // 3. 只在错误返回路径执行 errdefer，正常返回路径不执行
-            if (errdefer_count > 0 && errdefer_blocks) {
-                fprintf(codegen->output_file, "  // Generated errdefer blocks in LIFO order (error return detected)\n");
+            // 生成错误返回路径（如果有错误返回）
+            if (has_error_return_path && errdefer_count > 0 && errdefer_blocks) {
+                fprintf(codegen->output_file, "_error_return_%s:\n", inst->data.func.name);
+                
+                // 生成 errdefer 块（仅在错误返回时执行）
+                fprintf(codegen->output_file, "  // Generated errdefer blocks in LIFO order (error return)\n");
                 for (int i = errdefer_count - 1; i >= 0; i--) {
                     IRInst *errdefer_inst = errdefer_blocks[i];
                     if (!errdefer_inst) continue;
@@ -614,15 +676,52 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                         for (int j = 0; j < errdefer_inst->data.errdefer.body_count; j++) {
                             if (!errdefer_inst->data.errdefer.body[j]) continue;
                             fprintf(codegen->output_file, "  ");
-                            // 使用codegen_generate_inst函数处理errdefer体中的所有指令类型
                             codegen_generate_inst(codegen, errdefer_inst->data.errdefer.body[j]);
                             fprintf(codegen->output_file, ";\n");
                         }
                     }
                 }
+                
+                // 生成 defer 块
+                if (defer_count > 0 && defer_blocks) {
+                    fprintf(codegen->output_file, "  // Generated defer blocks in LIFO order\n");
+                    for (int i = defer_count - 1; i >= 0; i--) {
+                        IRInst *defer_inst = defer_blocks[i];
+                        if (!defer_inst) continue;
+                        fprintf(codegen->output_file, "  // defer block %d\n", i);
+                        if (defer_inst->data.defer.body) {
+                            for (int j = 0; j < defer_inst->data.defer.body_count; j++) {
+                                if (!defer_inst->data.defer.body[j]) continue;
+                                fprintf(codegen->output_file, "  ");
+                                codegen_generate_inst(codegen, defer_inst->data.defer.body[j]);
+                                fprintf(codegen->output_file, ";\n");
+                            }
+                        }
+                    }
+                }
+                
+                // 生成 drop 调用
+                if (drop_var_count > 0 && drop_vars) {
+                    fprintf(codegen->output_file, "  // Generated drop calls in LIFO order\n");
+                    for (int i = drop_var_count - 1; i >= 0; i--) {
+                        if (drop_vars[i].var_name && drop_vars[i].type_name) {
+                            fprintf(codegen->output_file, "  drop(%s);\n", drop_vars[i].var_name);
+                        }
+                    }
+                }
+                
+                // 返回
+                if (has_return_value) {
+                    fprintf(codegen->output_file, "  return %s;\n", return_var_name);
+                } else {
+                    fprintf(codegen->output_file, "  return;\n");
+                }
             }
             
-            // 第三遍：按照后进先出的顺序生成defer块代码
+            // 生成正常返回路径
+            fprintf(codegen->output_file, "_normal_return_%s:\n", inst->data.func.name);
+            
+            // 生成 defer 块（正常返回时只执行 defer，不执行 errdefer）
             if (defer_count > 0 && defer_blocks) {
                 fprintf(codegen->output_file, "  // Generated defer blocks in LIFO order\n");
                 for (int i = defer_count - 1; i >= 0; i--) {
@@ -633,7 +732,6 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                         for (int j = 0; j < defer_inst->data.defer.body_count; j++) {
                             if (!defer_inst->data.defer.body[j]) continue;
                             fprintf(codegen->output_file, "  ");
-                            // 使用codegen_generate_inst函数处理defer体中的所有指令类型
                             codegen_generate_inst(codegen, defer_inst->data.defer.body[j]);
                             fprintf(codegen->output_file, ";\n");
                         }
@@ -641,7 +739,7 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                 }
             }
             
-            // 第四遍：按照后进先出的顺序生成 drop 调用（在 defer 之后、return 之前）
+            // 生成 drop 调用
             if (drop_var_count > 0 && drop_vars) {
                 fprintf(codegen->output_file, "  // Generated drop calls in LIFO order\n");
                 for (int i = drop_var_count - 1; i >= 0; i--) {
@@ -652,7 +750,7 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                 free(drop_vars);
             }
             
-            // 最后返回保存的返回值
+            // 返回
             if (has_return_value) {
                 fprintf(codegen->output_file, "  return %s;\n", return_var_name);
                 free(return_var_name);
@@ -923,6 +1021,9 @@ int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output
     fprintf(codegen->output_file, "#include <stdint.h>\n");
     fprintf(codegen->output_file, "#include <stddef.h>\n");
     fprintf(codegen->output_file, "#include <stdbool.h>\n\n");
+    // Error type definition (error is a type containing error codes, represented as uint16_t)
+    fprintf(codegen->output_file, "// Error type definition (error codes are uint16_t)\n");
+    fprintf(codegen->output_file, "typedef uint16_t error;\n\n");
     
     // 生成所有指令（如果有）
     if (ir && ir->instructions) {

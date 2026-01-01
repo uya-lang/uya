@@ -308,7 +308,28 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
         }
 
         case AST_MEMBER_ACCESS: {
-            // Handle member access like obj.field
+            // Check if this is error.ErrorName (error namespace access)
+            if (expr->data.member_access.object && expr->data.member_access.object->type == AST_IDENTIFIER &&
+                expr->data.member_access.object->data.identifier.name &&
+                strcmp(expr->data.member_access.object->data.identifier.name, "error") == 0 &&
+                expr->data.member_access.field_name) {
+                // This is error.ErrorName - generate IR_ERROR_VALUE
+                IRInst *error_val = irinst_new(IR_ERROR_VALUE);
+                if (!error_val) return NULL;
+
+                // Store the error name
+                error_val->data.error_value.error_name = malloc(strlen(expr->data.member_access.field_name) + 1);
+                if (error_val->data.error_value.error_name) {
+                    strcpy(error_val->data.error_value.error_name, expr->data.member_access.field_name);
+                } else {
+                    irinst_free(error_val);
+                    return NULL;
+                }
+
+                return error_val;
+            }
+
+            // Handle regular member access like obj.field
             IRInst *member_access = irinst_new(IR_MEMBER_ACCESS);
             if (!member_access) return NULL;
 
@@ -397,6 +418,10 @@ static IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl) {
     // Set return type
     func->data.func.return_type = get_ir_type(fn_decl->data.fn_decl.return_type);
     func->data.func.is_extern = fn_decl->data.fn_decl.is_extern;
+    
+    // Check if return type is error union (!T)
+    func->data.func.return_type_is_error_union = (fn_decl->data.fn_decl.return_type && 
+                                                   fn_decl->data.fn_decl.return_type->type == AST_TYPE_ERROR_UNION) ? 1 : 0;
 
     // Handle parameters
     func->data.func.param_count = fn_decl->data.fn_decl.param_count;
