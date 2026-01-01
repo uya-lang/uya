@@ -1,13 +1,13 @@
 // 测试extern声明的各种用例
-extern i32 printf(byte* fmt, ...);
-extern f64 sin(f64 x);
-extern f64 cos(f64 x);
-extern f64 sqrt(f64 x);
-extern i32 abs(i32 x);
+extern printf(fmt: *byte, ...) i32;
+extern sin(x: f64) f64;
+extern cos(x: f64) f64;
+extern sqrt(x: f64) f64;
+extern abs(x: i32) i32;
 
 // 可变参数函数的extern声明
-extern i32 sprintf(byte* buf, byte* fmt, ...);
-extern i32 scanf(byte* fmt, ...);
+extern sprintf(buf: *byte, fmt: *byte, ...) i32;
+extern scanf(fmt: *byte, ...) i32;
 
 struct Vec3 {
     x: f32,

@@ -1,5 +1,5 @@
 // Python风格切片语法测试
-extern i32 printf(byte* fmt, ...);
+extern printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
     printf("=== Python风格切片语法测试 ===\n");

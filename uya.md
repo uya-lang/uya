@@ -14,9 +14,10 @@
 - [2. 类型系统](#2-类型系统)
 - [3. 变量与作用域](#3-变量与作用域)
 - [4. 结构体](#4-结构体)
-- [5. 函数](#5-函数)
+  - [5. 函数](#5-函数)
   - [5.1 普通函数](#51-普通函数)
   - [5.2 外部 C 函数（FFI）](#52-外部-c-函数ffi)
+  - [5.3 外部 C 结构体（FFI）](#53-外部-c-结构体ffi)
 - [6. 接口（interface）](#6-接口interface)
 - [7. 栈式数组（零 GC）](#7-栈式数组零-gc)
 - [8. 控制流](#8-控制流)
@@ -186,7 +187,7 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
     - 字符串字面量在 FFI 调用时自动添加 null 终止符
     - **字符串字面量的使用规则**：
       - ✅ 可以作为 FFI 函数调用的参数：`printf("hello\n");`
-      - ✅ 可以作为 FFI 函数声明的参数类型示例：`extern i32 printf(byte* fmt, ...);`
+      - ✅ 可以作为 FFI 函数声明的参数类型示例：`extern printf(fmt: *byte, ...) i32;`
       - ✅ 可以与 `null` 比较（如果函数返回 `byte*`）：`if ptr == null { ... }`
       - ❌ 不能赋值给变量：`const s: byte* = "hello";`（编译错误）
       - ❌ 不能用于数组索引：`arr["hello"]`（编译错误）
@@ -245,13 +246,15 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
 - 使用 `export` 关键字标记可导出的项
 - 语法：`export fn`, `export struct`, `export interface`, `export const`, `export error`
 - **FFI 导出**：
-  - `export extern` 用于导出 C FFI 函数：`export extern i32 printf(byte* fmt, ...);`
-  - `export extern` 用于导出 C 结构体（如果支持）：`export extern struct CStruct { ... };`
+  - `export extern` 用于导出 C FFI 函数：`export extern printf(fmt: *byte, ...) i32;`
+  - `export extern` 用于导出 C 结构体：`export extern struct CStruct { field1: i32; field2: f64; }`
   - **FFI 结构体类型限制**：
-    - FFI 导出的结构体字段类型必须为 C 兼容类型（`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `byte*`）
+    - FFI 导出的结构体字段类型必须为 C 兼容类型（`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `*byte`）
+    - 指针类型字段使用 `*T` 语法（如 `*byte` 表示 C 字符串指针）
     - 不支持嵌套结构体、接口、错误联合类型等非 C 兼容类型
     - 确保运行时/ABI 兼容性
   - 导出后，其他模块可以通过 `use` 导入并使用这些 FFI 函数/结构体
+  - 详见 [5.3 外部 C 结构体（FFI）](#53-外部-c-结构体ffi)
 - 未标记 `export` 的项仅在模块内可见
 - **为什么使用 `export` 而不是 `pub`**：
   - `export` 语义更明确，专门用于模块导出
@@ -428,7 +431,7 @@ export struct File {
     fd: i32
 }
 
-export fn open_file(path: byte*) !File {
+export fn open_file(path: *byte) !File {
     // 使用导入的函数
     const value: i32 = helper_func();
     return File{ fd: 1 };
@@ -443,7 +446,7 @@ export struct File {
     fd: i32
 }
 
-export fn open_file(path: byte*) !File {
+export fn open_file(path: *byte) !File {
     return File{ fd: 1 };
 }
 
@@ -459,7 +462,7 @@ export fn print_file_info(f: File) void {
 
 ```uya
 // project/std/io/stdio.uya (std.io 模块)
-export extern i32 printf(byte* fmt, ...);
+export extern printf(fmt: *byte, ...) i32;
 
 // project/main.uya (main 模块)
 use std.io.printf;
@@ -812,7 +815,7 @@ fn print_hello() void {
 - **函数指针**：0.13 不支持函数指针类型，函数名不能作为值传递或存储，仅支持直接函数调用
 - **变参函数调用**：参数数量必须与 C 函数声明匹配（编译期检查有限）
 - **程序入口点**：必须定义 `fn main() i32`（程序退出码）
-  - 0.13 不支持命令行参数（后续版本支持 `main(argc: i32, argv: byte**)`）
+  - 0.13 不支持命令行参数（后续版本支持 `main(argc: i32, argv: *byte*)`）
 - **`return` 语句**：
   - `return expr;` 用于有返回值的函数
   - `return;` 用于 `void` 函数（可省略）
@@ -956,8 +959,8 @@ fn main() i32 {
 
 **步骤 1：顶层声明**  
 ```uya
-extern i32 printf(byte* fmt, ...);   // 变参
-extern f64 sin(f64);
+extern printf(fmt: *byte, ...) i32;   // 变参
+extern sin(x: f64) f64;
 ```
 
 **步骤 2：正常调用**  
@@ -965,6 +968,17 @@ extern f64 sin(f64);
 const pi: f64 = 3.1415926;
 printf("sin(pi/2)=%f\n", sin(pi / 2.0));
 ```
+
+**重要语法规则**：
+- extern 函数声明必须使用 Uya 的函数参数语法：`param_name: type`
+- 指针类型参数使用 `*T` 语法（如 `*byte` 表示指向 `byte` 的指针）
+- **返回值类型**：返回值类型放在参数列表的 `)` 后面，遵循 Uya 的函数语法
+  - 指针类型返回值使用 `*T` 语法（如 `*void` 表示指向 `void` 的指针，对应 C 的 `void*`）
+  - 示例：`extern malloc(size: i32) *void;`（返回 `void*` 指针）
+  - 示例：`extern printf(fmt: *byte, ...) i32;`（返回 `i32`）
+  - 也支持箭头语法：`extern malloc(size: i32) -> *void;`
+- `byte*` 是 FFI 专用的类型名，但在函数参数和返回值声明中应使用 `*byte`（与普通函数一致）
+- 变参函数使用 `...` 表示可变参数列表
 
 - 声明必须出现在**顶层**；不可与调用混写在一行。
 - 调用生成原生 `call rel32` 或 `call *rax`，**无包装函数**（零开销）。
@@ -975,6 +989,49 @@ printf("sin(pi/2)=%f\n", sin(pi / 2.0));
 - FFI 函数调用的格式字符串（如 `printf` 的 `"%f"`）是 C 函数的特性，不是 Uya 语言本身的特性
 - Uya 语言仅提供 FFI 机制来调用 C 函数，格式字符串的语法和语义遵循 C 标准
 - 字符串插值（第 23 章）是 Uya 语言本身的特性，编译期展开，与 FFI 的格式字符串不同
+
+### 5.3 外部 C 结构体（FFI）
+
+**声明外部 C 结构体**：
+```uya
+extern struct CStruct {
+    field1: i32;
+    field2: f64;
+    field3: *byte;  // C 字符串指针
+}
+```
+
+**语法规则**：
+- 使用 `extern struct` 声明外部 C 结构体
+- 结构体字段类型必须为 C 兼容类型（`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `*byte`）
+- 指针类型字段使用 `*T` 语法（如 `*byte` 表示 C 字符串指针）
+- 不支持嵌套结构体、接口、错误联合类型等非 C 兼容类型
+- 确保运行时/ABI 兼容性
+
+**使用示例**：
+```uya
+// 声明外部 C 结构体
+extern struct timeval {
+    tv_sec: i64;
+    tv_usec: i64;
+}
+
+// 声明使用该结构体的 C 函数
+extern gettimeofday(tv: *timeval, tz: *void) i32;
+
+// 使用
+fn get_current_time() timeval {
+    var tv: timeval = timeval{ tv_sec: 0, tv_usec: 0 };
+    gettimeofday(&tv, null);
+    return tv;
+}
+```
+
+**限制**：
+- extern 结构体不能有方法（methods）
+- extern 结构体不能实现接口
+- extern 结构体字段必须使用 C 兼容类型
+- extern 结构体主要用于 FFI 互操作，不适用于 Uya 的高级特性
 
 ---
 
@@ -1126,7 +1183,7 @@ struct Console {
 
 impl Console : IWriter {
   fn write(self: *Self, buf: *byte, len: i32) i32 {
-    extern i32 write(i32 fd, byte* buf, i32 len);
+    extern write(fd: i32, buf: *byte, len: i32) i32;
     return write(self.fd, buf, len);
   }
 }
@@ -1201,7 +1258,7 @@ call    [rax]           ; ← 单条 call 指令
 
 | 旧需求（extern+函数指针） | 新做法（接口） |
 |---|---|
-| `extern i32 call(int(*f)(int), int x);` | `fn use(IFunc f);` |
+| `extern call(f: IFunc, x: i32) i32;` | `fn use(IFunc f);` |
 | 手动管理函数地址 | 编译期 vtable，无地址赋值 |
 | 类型不安全 | 接口签名强制检查 |
 | 需全局注册表 | 零注册，零锁 |
@@ -1932,7 +1989,7 @@ fn example() !void {
 
 **完整示例**：
 ```uya
-fn process_file(path: byte*) !i32 {
+fn process_file(path: *byte) !i32 {
     const file: File = try open_file(path);
     
     defer {
@@ -2393,8 +2450,8 @@ fn nested_example() void {
 
 ```uya
 // 示例 1：文件句柄自动关闭
-extern i32 open(byte* path, i32 flags);
-extern i32 close(i32 fd);
+extern open(path: *byte, flags: i32) i32;
+extern close(fd: i32) i32;
 
 struct File {
     fd: i32
@@ -2413,8 +2470,8 @@ fn example1() void {
 }
 
 // 示例 2：堆内存自动释放
-extern void* malloc(i32 size);
-extern void free(void* ptr);
+extern malloc(size: i32) *void;
+extern free(ptr: *void) void;
 
 struct HeapBuffer {
     data: byte*,
@@ -3232,7 +3289,7 @@ fn main() i32 {
    - **常见示例**：
      ```uya
      // 1. FFI 分配
-     extern void* malloc(i32 size);
+     extern malloc(size: i32) *void;
      const ptr: byte* = malloc(sizeof(struct Packet));
 
      // 2. 对齐检查
@@ -3262,7 +3319,7 @@ struct Mat4 {
   m: [f32; 16]
 }
 
-extern i32 printf(byte* fmt, ...);
+extern printf(fmt: *byte, ...) i32;
 
 fn print_mat(mat: Mat4) void {
   var i: i32 = 0;
@@ -3302,16 +3359,16 @@ $ uyac demo.uya && ./demo
 error FileError;
 error ParseError;
 
-extern i32 open(byte* path, i32 flags);  // 简化示例，实际 C 函数需要 flags 参数
-extern i32 close(i32 fd);
-extern i32 read(i32 fd, byte* buf, i32 size);
-extern i32 printf(byte* fmt, ...);
+extern open(path: *byte, flags: i32) i32;  // 简化示例，实际 C 函数需要 flags 参数
+extern close(fd: i32) i32;
+extern read(fd: i32, buf: *byte, size: i32) i32;
+extern printf(fmt: *byte, ...) i32;
 
 struct File {
     fd: i32
 }
 
-fn open_file(path: byte*) !File {
+fn open_file(path: *byte) !File {
     const fd: i32 = open(path, 0);  // 0 是只读标志（简化示例）
     if fd < 0 {
         return error.FileError;  // 使用预定义错误
@@ -3319,7 +3376,7 @@ fn open_file(path: byte*) !File {
     return File{ fd: fd };
 }
 
-fn read_file_runtime(path: byte*) !i32 {
+fn read_file_runtime(path: *byte) !i32 {
     const fd: i32 = open(path, 0);
     if fd < 0 {
         return error.FileNotFound;  // 运行时错误，无需预定义
@@ -3333,7 +3390,7 @@ fn drop(self: File) void {
     }
 }
 
-fn read_file(path: byte*) !i32 {
+fn read_file(path: *byte) !i32 {
     const file: File = try open_file(path);
     defer {
         printf("File operation completed\n");
@@ -3399,7 +3456,7 @@ fn main() i32 {
 ## 20 完整示例：for循环迭代
 
 ```uya
-extern i32 printf(byte* fmt, ...);
+extern printf(fmt: *byte, ...) i32;
 
 // 迭代器结束错误
 error IterEnd;
@@ -3576,7 +3633,7 @@ Loop count: 10
 ## 21 完整示例：切片语法
 
 ```uya
-extern i32 printf(byte* fmt, ...);
+extern printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
     const arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -3678,7 +3735,7 @@ arr[4:1]: 4
 ## 22 完整示例：多维数组
 
 ```uya
-extern i32 printf(byte* fmt, ...);
+extern printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
     // 示例1：声明和初始化二维数组
@@ -3878,7 +3935,7 @@ type    = 'd' | 'u' | 'x' | 'X' | 'f' | 'F' | 'g' | 'G' | 'c' | 'p'
 ### 23.4 完整示例
 
 ```uya
-extern i32 printf(byte* fmt, ...);
+extern printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
   const x: u32 = 255;
@@ -4529,7 +4586,7 @@ test "add overflow" {
 
 ```uya
 // main.uya
-extern i32 printf(byte* fmt, ...);
+extern printf(fmt: *byte, ...) i32;
 
 test "hello" {
     printf("hello test\n");

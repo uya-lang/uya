@@ -1,7 +1,7 @@
 // 包含实际语句的defer测试程序
 
 // 外部函数声明
-extern i32 printf(byte* fmt, ...);
+extern printf(fmt: *byte, ...) i32;
 
 // 主函数
 fn main() i32 {

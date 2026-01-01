@@ -1548,35 +1548,24 @@ static ASTNode *parser_parse_extern_decl(Parser *parser) {
 
     parser_consume(parser); // 消费 extern
 
-    // 解析返回类型
-    ASTNode *return_type = parser_parse_type(parser);
-    if (!return_type) {
-        fprintf(stderr, "语法错误: extern函数声明期望返回类型\n");
-        return NULL;
-    }
-
     // 期望函数名
     if (!parser_match(parser, TOKEN_IDENTIFIER)) {
         fprintf(stderr, "语法错误: extern函数声明期望函数名\n");
-        ast_free(return_type);
         return NULL;
     }
 
     ASTNode *extern_decl = ast_new_node(AST_EXTERN_DECL, line, col, filename);
     if (!extern_decl) {
-        ast_free(return_type);
         return NULL;
     }
 
     extern_decl->data.fn_decl.name = malloc(strlen(parser->current_token->value) + 1);
     if (!extern_decl->data.fn_decl.name) {
-        ast_free(return_type);
         ast_free(extern_decl);
         return NULL;
     }
     strcpy(extern_decl->data.fn_decl.name, parser->current_token->value);
     extern_decl->data.fn_decl.is_extern = 1;
-    extern_decl->data.fn_decl.return_type = return_type;
 
     parser_consume(parser); // 消费函数名
 
@@ -1719,6 +1708,62 @@ static ASTNode *parser_parse_extern_decl(Parser *parser) {
     if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
         ast_free(extern_decl);
         return NULL;
+    }
+
+    // 解析返回类型（在参数列表之后）
+    // 支持两种语法：extern func() -> i32 和 extern func() i32 (or extern func() !i32)
+    if (parser_match(parser, TOKEN_ARROW)) {
+        parser_consume(parser); // 消费 '->'
+        extern_decl->data.fn_decl.return_type = parser_parse_type(parser);
+        if (!extern_decl->data.fn_decl.return_type) {
+            ast_free(extern_decl);
+            return NULL;
+        }
+    } else if (parser->current_token && 
+               (parser_match(parser, TOKEN_IDENTIFIER) || 
+                parser_match(parser, TOKEN_EXCLAMATION) ||
+                parser_match(parser, TOKEN_ATOMIC) ||
+                parser_match(parser, TOKEN_ASTERISK))) {
+        // Try to parse as a type (supports !i32, *T, atomic T, or simple types)
+        ASTNode *return_type = parser_parse_type(parser);
+        if (return_type) {
+            extern_decl->data.fn_decl.return_type = return_type;
+        } else {
+            // If parsing failed, check if it's a simple type identifier
+            if (parser_match(parser, TOKEN_IDENTIFIER)) {
+                return_type = ast_new_node(AST_TYPE_NAMED, line, col, filename);
+                if (return_type) {
+                    return_type->data.type_named.name = malloc(strlen(parser->current_token->value) + 1);
+                    if (return_type->data.type_named.name) {
+                        strcpy(return_type->data.type_named.name, parser->current_token->value);
+                        extern_decl->data.fn_decl.return_type = return_type;
+                    } else {
+                        ast_free(return_type);
+                        ast_free(extern_decl);
+                        return NULL;
+                    }
+                }
+                parser_consume(parser);
+            } else {
+                // Default to void if type parsing failed
+                extern_decl->data.fn_decl.return_type = ast_new_node(AST_TYPE_NAMED, line, col, filename);
+                if (extern_decl->data.fn_decl.return_type) {
+                    extern_decl->data.fn_decl.return_type->data.type_named.name = malloc(5);
+                    if (extern_decl->data.fn_decl.return_type->data.type_named.name) {
+                        strcpy(extern_decl->data.fn_decl.return_type->data.type_named.name, "void");
+                    }
+                }
+            }
+        }
+    } else {
+        // 默认返回类型为 void
+        extern_decl->data.fn_decl.return_type = ast_new_node(AST_TYPE_NAMED, line, col, filename);
+        if (extern_decl->data.fn_decl.return_type) {
+            extern_decl->data.fn_decl.return_type->data.type_named.name = malloc(5);
+            if (extern_decl->data.fn_decl.return_type->data.type_named.name) {
+                strcpy(extern_decl->data.fn_decl.return_type->data.type_named.name, "void");
+            }
+        }
     }
 
     // extern声明没有函数体，所以body为NULL

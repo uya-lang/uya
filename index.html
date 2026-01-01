@@ -1148,7 +1148,7 @@ if a > 0 && b > 0 && a > max - b {  // 从 a 和 b 的类型 i32 推断
   m: [f32; 16]
 }
 
-extern i32 printf(byte* fmt, ...);
+extern printf(fmt: *byte, ...) i32;
 
 fn print_mat(mat: Mat4) void {
   var i: i32 = 0;
@@ -1179,10 +1179,10 @@ fn main() i32 {
                         <pre><code class="language-uya">// 错误处理（支持预定义和运行时错误）
 error FileError;  // 预定义错误（可选）
 
-extern i32 open(byte* path, i32 flags);
-extern i32 close(i32 fd);
-extern i32 read(i32 fd, byte* buf, i32 size);
-extern i32 printf(byte* fmt, ...);
+extern open(path: *byte, flags: i32) i32;
+extern close(fd: i32) i32;
+extern read(fd: i32, buf: *byte, size: i32) i32;
+extern printf(fmt: *byte, ...) i32;
 
 struct File {
     fd: i32
@@ -1264,7 +1264,7 @@ fn main() i32 {
                             <span>示例：数组迭代</span>
                             <button class="code-copy">复制</button>
                         </div>
-                        <pre><code class="language-uya">extern i32 printf(byte* fmt, ...);
+                        <pre><code class="language-uya">extern printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
     const arr: [i32; 5] = [10, 20, 30, 40, 50];
@@ -1299,7 +1299,7 @@ fn main() i32 {
                             <span>示例：数组切片操作</span>
                             <button class="code-copy">复制</button>
                         </div>
-                        <pre><code class="language-uya">extern i32 printf(byte* fmt, ...);
+                        <pre><code class="language-uya">extern printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
     const arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -1359,7 +1359,7 @@ fn main() i32 {
                             <span>示例：指针算术操作</span>
                             <button class="code-copy">复制</button>
                         </div>
-                        <pre><code class="language-uya">extern i32 printf(byte* fmt, ...);
+                        <pre><code class="language-uya">extern printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
     const arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -1415,7 +1415,7 @@ fn safe_ptr_arith(arr: [i32; 10], offset: i32) !&i32 {
                             <span>示例：算术溢出处理</span>
                             <button class="code-copy">复制</button>
                         </div>
-                        <pre><code class="language-uya">extern i32 printf(byte* fmt, ...);
+                        <pre><code class="language-uya">extern printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
     const a: i32 = 2000000000;
@@ -1538,7 +1538,7 @@ fn main() i32 {
     const packet_align: i32 = alignof(struct Packet{}); // 4
     
     // FFI 分配
-    extern void* malloc(i32 size);
+    extern malloc(size: i32) *void;
     const ptr: byte* = malloc(sizeof(struct Packet));
     
     // 对齐检查

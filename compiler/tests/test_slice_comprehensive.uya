@@ -1,5 +1,5 @@
 // 测试切片语法的各种用例
-extern i32 printf(byte* fmt, ...);
+extern printf(fmt: *byte, ...) i32;
 
 struct Point {
     x: i32,

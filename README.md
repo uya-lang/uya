@@ -94,7 +94,7 @@ interface IWriter {
 }
 
 // FFI 调用
-extern i32 printf(byte* fmt, ...);
+extern printf(fmt: *byte, ...) i32;
 
 // 泛型函数（可选特性）
 fn id(x: T) T {
@@ -117,7 +117,7 @@ export struct File {
     fd: i32
 }
 
-export fn open_file(path: byte*) !File {
+export fn open_file(path: *byte) !File {
     let value: i32 = helper_func();  // 使用导入的函数
     return File{ fd: 1 };
 }
@@ -205,7 +205,7 @@ fn sizeof_example() void {
   const packet_align: i32 = alignof(struct Packet{}); // 4
 
   // FFI 分配
-  extern void* malloc(i32 size);
+  extern malloc(size: i32) *void;
   const ptr: byte* = malloc(sizeof(struct Packet));
 
   // 对齐检查

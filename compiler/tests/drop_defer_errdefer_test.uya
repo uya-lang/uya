@@ -1,11 +1,11 @@
 // drop、defer、errdefer 测试程序
 
 // 测试自定义 drop 函数
-extern i32 open(path: *byte, flags: i32);
-extern i32 close(fd: i32);
-extern *void malloc(size: i32);
-extern void free(ptr: *void);
-extern i32 printf(fmt: *byte, ...);
+extern open(path: *byte, flags: i32) i32;
+extern close(fd: i32) i32;
+extern malloc(size: i32) *void;
+extern free(ptr: *void) void;
+extern printf(fmt: *byte, ...) i32;
 
 // 测试 1: 自定义 drop 函数 - 文件句柄
 struct File {

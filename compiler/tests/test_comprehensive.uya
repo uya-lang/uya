@@ -1,8 +1,8 @@
 // Uya语言综合测试
-extern i32 printf(byte* fmt, ...);
-extern f64 sin(f64 x);
-extern f64 cos(f64 x);
-extern f64 sqrt(f64 x);
+extern printf(fmt: *byte, ...) i32;
+extern sin(x: f64) f64;
+extern cos(x: f64) f64;
+extern sqrt(x: f64) f64;
 
 // 结构体定义
 struct Point {
