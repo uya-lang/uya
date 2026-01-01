@@ -169,6 +169,32 @@ TypeChecker *typechecker_new() {
         return NULL;
     }
     
+    checker->function_table = malloc(sizeof(FunctionTable));
+    if (!checker->function_table) {
+        constraint_set_free(checker->constraints);
+        free(checker->scopes->levels);
+        free(checker->scopes);
+        free(checker->symbol_table->symbols);
+        free(checker->symbol_table);
+        free(checker->errors);
+        free(checker);
+        return NULL;
+    }
+    checker->function_table->function_count = 0;
+    checker->function_table->function_capacity = 32;
+    checker->function_table->functions = malloc(checker->function_table->function_capacity * sizeof(FunctionSignature*));
+    if (!checker->function_table->functions) {
+        free(checker->function_table);
+        constraint_set_free(checker->constraints);
+        free(checker->scopes->levels);
+        free(checker->scopes);
+        free(checker->symbol_table->symbols);
+        free(checker->symbol_table);
+        free(checker->errors);
+        free(checker);
+        return NULL;
+    }
+    
     checker->current_line = 0;
     checker->current_column = 0;
     checker->current_file = NULL;
@@ -206,6 +232,15 @@ void typechecker_free(TypeChecker *checker) {
     // 释放约束集合
     if (checker->constraints) {
         constraint_set_free(checker->constraints);
+    }
+    
+    // 释放函数表
+    if (checker->function_table) {
+        for (int i = 0; i < checker->function_table->function_count; i++) {
+            function_signature_free(checker->function_table->functions[i]);
+        }
+        free(checker->function_table->functions);
+        free(checker->function_table);
     }
     
     if (checker->current_file) free(checker->current_file);
@@ -357,6 +392,31 @@ Constraint *typechecker_find_constraint(TypeChecker *checker, const char *var_na
     return constraint_set_find(checker->constraints, var_name, type);
 }
 
+// 获取类型名称（用于错误消息）
+static const char *get_type_name(IRType type) {
+    switch (type) {
+        case IR_TYPE_I8: return "i8";
+        case IR_TYPE_I16: return "i16";
+        case IR_TYPE_I32: return "i32";
+        case IR_TYPE_I64: return "i64";
+        case IR_TYPE_U8: return "u8";
+        case IR_TYPE_U16: return "u16";
+        case IR_TYPE_U32: return "u32";
+        case IR_TYPE_U64: return "u64";
+        case IR_TYPE_F32: return "f32";
+        case IR_TYPE_F64: return "f64";
+        case IR_TYPE_BOOL: return "bool";
+        case IR_TYPE_BYTE: return "byte";
+        case IR_TYPE_VOID: return "void";
+        case IR_TYPE_PTR: return "*T";
+        case IR_TYPE_ARRAY: return "[T; N]";
+        case IR_TYPE_STRUCT: return "struct";
+        case IR_TYPE_FN: return "fn";
+        case IR_TYPE_ERROR_UNION: return "!T";
+        default: return "unknown";
+    }
+}
+
 // 类型匹配检查
 int typechecker_type_match(IRType t1, IRType t2) {
     return t1 == t2;
@@ -367,8 +427,14 @@ IRType typechecker_infer_type(TypeChecker *checker, ASTNode *expr) {
     if (!expr) return IR_TYPE_VOID;
     
     switch (expr->type) {
-        case AST_NUMBER:
-            return IR_TYPE_I32;  // 默认整数类型
+        case AST_NUMBER: {
+            // 检查是否是浮点数字面量（包含小数点或科学计数法）
+            const char *value = expr->data.number.value;
+            if (value && (strchr(value, '.') || strchr(value, 'e') || strchr(value, 'E'))) {
+                return IR_TYPE_F64;  // 浮点数字面量
+            }
+            return IR_TYPE_I32;  // 整数类型
+        }
         case AST_BOOL:
             return IR_TYPE_BOOL;
         case AST_IDENTIFIER: {
@@ -875,13 +941,119 @@ static int typecheck_block(TypeChecker *checker, ASTNode *node) {
     return 1;
 }
 
+// 从AST节点提取函数签名（用于注册函数）
+static FunctionSignature *extract_function_signature(TypeChecker *checker, ASTNode *node) {
+    if (!node || (node->type != AST_FN_DECL && node->type != AST_EXTERN_DECL)) {
+        return NULL;
+    }
+    
+    const char *name = node->data.fn_decl.name;
+    int param_count = node->data.fn_decl.param_count;
+    IRType *param_types = NULL;
+    int has_varargs = 0;
+    
+    // 提取参数类型
+    if (param_count > 0) {
+        param_types = malloc(param_count * sizeof(IRType));
+        if (!param_types) return NULL;
+        
+        for (int i = 0; i < param_count; i++) {
+            ASTNode *param = node->data.fn_decl.params[i];
+            if (param->type == AST_VAR_DECL) {
+                // 检查是否是可变参数
+                if (param->data.var_decl.type && 
+                    param->data.var_decl.type->type == AST_TYPE_NAMED &&
+                    param->data.var_decl.type->data.type_named.name &&
+                    strcmp(param->data.var_decl.type->data.type_named.name, "...") == 0) {
+                    has_varargs = 1;
+                    param_types[i] = IR_TYPE_VOID;  // 可变参数类型标记
+                } else {
+                    param_types[i] = get_ir_type_from_ast(param->data.var_decl.type);
+                }
+            } else {
+                param_types[i] = IR_TYPE_VOID;
+            }
+        }
+    }
+    
+    // 提取返回类型
+    IRType return_type = IR_TYPE_VOID;
+    if (node->data.fn_decl.return_type) {
+        return_type = get_ir_type_from_ast(node->data.fn_decl.return_type);
+    }
+    
+    FunctionSignature *sig = function_signature_new(name, param_types, param_count, return_type,
+                                                    node->data.fn_decl.is_extern, has_varargs,
+                                                    node->line, node->column, node->filename);
+    if (param_types) free(param_types);
+    return sig;
+}
+
 // 检查函数调用
 static int typecheck_call(TypeChecker *checker, ASTNode *node) {
     if (!checker || !node || node->type != AST_CALL_EXPR) return 0;
     
-    // 检查参数
+    // 首先检查参数表达式本身
     for (int i = 0; i < node->data.call_expr.arg_count; i++) {
         if (!typecheck_node(checker, node->data.call_expr.args[i])) {
+            return 0;
+        }
+    }
+    
+    // 获取被调用的函数名
+    ASTNode *callee = node->data.call_expr.callee;
+    if (!callee || callee->type != AST_IDENTIFIER) {
+        // 暂时只支持标识符调用，不支持函数指针等
+        return 1;  // 跳过类型检查
+    }
+    
+    const char *func_name = callee->data.identifier.name;
+    FunctionSignature *sig = typechecker_lookup_function(checker, func_name);
+    
+    if (!sig) {
+        typechecker_add_error(checker, "未定义的函数 '%s' (行 %d:%d)",
+                             func_name, node->line, node->column);
+        return 0;
+    }
+    
+    // 检查参数数量
+    int expected_param_count = sig->param_count;
+    int actual_arg_count = node->data.call_expr.arg_count;
+    
+    // 如果有可变参数，实际参数数量应该 >= 固定参数数量
+    if (sig->has_varargs) {
+        if (actual_arg_count < expected_param_count - 1) {  // -1 因为最后一个参数是 ...
+            typechecker_add_error(checker,
+                "函数 '%s' 参数数量不匹配：期望至少 %d 个参数，但提供了 %d 个 (行 %d:%d)",
+                func_name, expected_param_count - 1, actual_arg_count, node->line, node->column);
+            return 0;
+        }
+    } else {
+        if (actual_arg_count != expected_param_count) {
+            typechecker_add_error(checker,
+                "函数 '%s' 参数数量不匹配：期望 %d 个参数，但提供了 %d 个 (行 %d:%d)",
+                func_name, expected_param_count, actual_arg_count, node->line, node->column);
+            return 0;
+        }
+    }
+    
+    // 检查参数类型（只检查固定参数，不检查可变参数）
+    int param_count_to_check = sig->has_varargs ? expected_param_count - 1 : expected_param_count;
+    for (int i = 0; i < param_count_to_check && i < actual_arg_count; i++) {
+        IRType expected_type = sig->param_types[i];
+        IRType actual_type = typechecker_infer_type(checker, node->data.call_expr.args[i]);
+        
+        // 对于可变参数标记（IR_TYPE_VOID），跳过类型检查
+        if (expected_type == IR_TYPE_VOID && sig->has_varargs && i == param_count_to_check - 1) {
+            continue;
+        }
+        
+        if (expected_type != actual_type && actual_type != IR_TYPE_VOID) {
+            const char *expected_name = get_type_name(expected_type);
+            const char *actual_name = get_type_name(actual_type);
+            typechecker_add_error(checker,
+                "函数 '%s' 参数 %d 类型不匹配：期望 %s，但提供了 %s (行 %d:%d)",
+                func_name, i + 1, expected_name, actual_name, node->line, node->column);
             return 0;
         }
     }
@@ -961,7 +1133,7 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
         case AST_NUMBER:
         case AST_BOOL:
         case AST_STRING:
-            return 1;  // 字面量总是通过
+            return IR_TYPE_PTR;  // 字符串字面量是指针类型
             
         case AST_RETURN_STMT:
             if (node->data.return_stmt.expr) {
@@ -969,8 +1141,26 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
             }
             return 1;
             
+        case AST_EXTERN_DECL:
+            // extern 函数声明：提取函数签名并添加到函数表
+            {
+                FunctionSignature *sig = extract_function_signature(checker, node);
+                if (sig) {
+                    typechecker_add_function(checker, sig);
+                }
+            }
+            return 1;  // extern 声明不需要检查函数体
+            
         case AST_FN_DECL:
             // 函数声明检查
+            // 首先提取函数签名并添加到函数表（用于类型检查函数调用）
+            {
+                FunctionSignature *sig = extract_function_signature(checker, node);
+                if (sig) {
+                    typechecker_add_function(checker, sig);
+                }
+            }
+            
             // 为每个函数分配唯一的作用域级别（使用函数作用域计数器）
             int function_scope_level = 1000 + (checker->function_scope_counter++);  // 从1000开始，避免与全局作用域冲突
             // 保存当前作用域级别
@@ -1110,4 +1300,102 @@ int typechecker_check(TypeChecker *checker, ASTNode *ast) {
     }
     
     return result;
+}
+
+// 函数签名创建
+FunctionSignature *function_signature_new(const char *name, IRType *param_types, int param_count,
+                                          IRType return_type, int is_extern, int has_varargs,
+                                          int line, int column, const char *filename) {
+    FunctionSignature *sig = malloc(sizeof(FunctionSignature));
+    if (!sig) return NULL;
+    
+    sig->name = malloc(strlen(name) + 1);
+    if (!sig->name) {
+        free(sig);
+        return NULL;
+    }
+    strcpy(sig->name, name);
+    
+    sig->param_count = param_count;
+    if (param_count > 0 && param_types) {
+        sig->param_types = malloc(param_count * sizeof(IRType));
+        if (!sig->param_types) {
+            free(sig->name);
+            free(sig);
+            return NULL;
+        }
+        for (int i = 0; i < param_count; i++) {
+            sig->param_types[i] = param_types[i];
+        }
+    } else {
+        sig->param_types = NULL;
+    }
+    
+    sig->return_type = return_type;
+    sig->is_extern = is_extern;
+    sig->has_varargs = has_varargs;
+    sig->line = line;
+    sig->column = column;
+    
+    if (filename) {
+        sig->filename = malloc(strlen(filename) + 1);
+        if (sig->filename) {
+            strcpy(sig->filename, filename);
+        } else {
+            sig->filename = NULL;
+        }
+    } else {
+        sig->filename = NULL;
+    }
+    
+    return sig;
+}
+
+// 函数签名释放
+void function_signature_free(FunctionSignature *sig) {
+    if (!sig) return;
+    if (sig->name) free(sig->name);
+    if (sig->param_types) free(sig->param_types);
+    if (sig->filename) free(sig->filename);
+    free(sig);
+}
+
+// 添加函数到函数表
+int typechecker_add_function(TypeChecker *checker, FunctionSignature *sig) {
+    if (!checker || !sig) return 0;
+    
+    // 检查是否已存在同名函数
+    FunctionSignature *existing = typechecker_lookup_function(checker, sig->name);
+    if (existing) {
+        typechecker_add_error(checker, "函数 '%s' 重复定义 (行 %d:%d, 已有定义在行 %d:%d)",
+                             sig->name, sig->line, sig->column, existing->line, existing->column);
+        return 0;
+    }
+    
+    // 扩展函数表
+    if (checker->function_table->function_count >= checker->function_table->function_capacity) {
+        int new_capacity = checker->function_table->function_capacity * 2;
+        FunctionSignature **new_functions = realloc(checker->function_table->functions,
+                                                   new_capacity * sizeof(FunctionSignature*));
+        if (!new_functions) return 0;
+        checker->function_table->functions = new_functions;
+        checker->function_table->function_capacity = new_capacity;
+    }
+    
+    checker->function_table->functions[checker->function_table->function_count++] = sig;
+    return 1;
+}
+
+// 查找函数
+FunctionSignature *typechecker_lookup_function(TypeChecker *checker, const char *name) {
+    if (!checker || !name) return NULL;
+    
+    for (int i = 0; i < checker->function_table->function_count; i++) {
+        FunctionSignature *sig = checker->function_table->functions[i];
+        if (sig && strcmp(sig->name, name) == 0) {
+            return sig;
+        }
+    }
+    
+    return NULL;
 }

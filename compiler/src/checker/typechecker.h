@@ -26,6 +26,25 @@ typedef struct Symbol {
     IRType array_element_type; // 数组元素类型（仅当type为IR_TYPE_ARRAY时有效）
 } Symbol;
 
+// 函数签名信息
+typedef struct FunctionSignature {
+    char *name;
+    IRType *param_types;       // 参数类型数组
+    int param_count;
+    IRType return_type;
+    int is_extern;             // 是否为extern函数
+    int has_varargs;           // 是否有可变参数（...）
+    int line, column;
+    char *filename;
+} FunctionSignature;
+
+// 函数表
+typedef struct FunctionTable {
+    FunctionSignature **functions;
+    int function_count;
+    int function_capacity;
+} FunctionTable;
+
 // 符号表
 typedef struct SymbolTable {
     Symbol **symbols;
@@ -51,6 +70,9 @@ typedef struct TypeChecker {
     // 符号表和作用域
     SymbolTable *symbol_table;
     ScopeStack *scopes;
+    
+    // 函数表（存储所有函数签名，包括extern函数）
+    FunctionTable *function_table;
     
     // 约束条件集合（用于路径敏感分析）
     ConstraintSet *constraints;
@@ -92,5 +114,13 @@ int typechecker_type_match(IRType t1, IRType t2);
 // 约束操作
 void typechecker_add_constraint(TypeChecker *checker, Constraint *constraint);
 Constraint *typechecker_find_constraint(TypeChecker *checker, const char *var_name, ConstraintType type);
+
+// 函数表操作
+FunctionSignature *function_signature_new(const char *name, IRType *param_types, int param_count, 
+                                          IRType return_type, int is_extern, int has_varargs,
+                                          int line, int column, const char *filename);
+void function_signature_free(FunctionSignature *sig);
+int typechecker_add_function(TypeChecker *checker, FunctionSignature *sig);
+FunctionSignature *typechecker_lookup_function(TypeChecker *checker, const char *name);
 
 #endif

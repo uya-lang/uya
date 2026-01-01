@@ -30,7 +30,7 @@ fn test_extern_calls() void {
     const b: f64 = 2.0;
     
     const sine_val: f64 = sin(a / 2.0);  // sin(π/2) ≈ 1
-    const cosine_val: f64 = cos(0.0);    // cos(0) = 1
+    const cosine_val: f64 = cos(0.0);    // cos(0) = 1 (正确类型)
     const sqrt_val: f64 = sqrt(16.0);    // sqrt(16) = 4
     
     printf("sin(π/2) = %f\n", sine_val);
