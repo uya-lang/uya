@@ -155,7 +155,10 @@ fn test_array_drop() void {
 
 // 主函数
 fn main() i32 {
-    hello(100);
+    printf("=== Uya Drop/Defer/Errdefer Test Suite ===\n\n");
+    
+    // 测试 1: defer 基本使用
+    printf("--- Test 1: Basic Defer ---");
     test_defer();
     hello(101);
     

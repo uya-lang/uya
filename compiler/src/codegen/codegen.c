@@ -463,10 +463,12 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             int errdefer_count = 0;
             IRInst **errdefer_blocks = NULL;
             
-            // 收集需要 drop 的变量（结构体类型且有 original_type_name）
+            // 收集需要 drop 的变量（结构体类型或数组类型，且有 original_type_name）
             typedef struct {
                 char *var_name;
                 char *type_name;
+                int is_array;  // 1 if array, 0 if struct
+                int array_size;  // For arrays, store the size
             } DropVar;
             DropVar *drop_vars = NULL;
             int drop_var_count = 0;
@@ -481,6 +483,8 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                         if (drop_vars) {
                             drop_vars[drop_var_count].var_name = param->data.var.name;
                             drop_vars[drop_var_count].type_name = param->data.var.original_type_name;
+                            drop_vars[drop_var_count].is_array = (param->data.var.type == IR_TYPE_ARRAY) ? 1 : 0;
+                            drop_vars[drop_var_count].array_size = 0;  // For parameters, we don't know the size
                             drop_var_count++;
                         }
                     }
@@ -580,6 +584,21 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                                 // Use original_type_name if available, otherwise default to int32_t
                                 if (body_inst->data.var.original_type_name) {
                                     fprintf(codegen->output_file, "%s %s[] = ", body_inst->data.var.original_type_name, body_inst->data.var.name);
+                                    // 收集需要 drop 的数组变量（有 original_type_name 表示元素类型是用户定义的类型）
+                                    drop_vars = realloc(drop_vars, (drop_var_count + 1) * sizeof(DropVar));
+                                    if (drop_vars) {
+                                        drop_vars[drop_var_count].var_name = body_inst->data.var.name;
+                                        drop_vars[drop_var_count].type_name = body_inst->data.var.original_type_name;
+                                        drop_vars[drop_var_count].is_array = 1;
+                                        // 获取数组大小（从 array() 调用的参数数量）
+                                        if (body_inst->data.var.init && body_inst->data.var.init->type == IR_CALL &&
+                                            strcmp(body_inst->data.var.init->data.call.func_name, "array") == 0) {
+                                            drop_vars[drop_var_count].array_size = body_inst->data.var.init->data.call.arg_count;
+                                        } else {
+                                            drop_vars[drop_var_count].array_size = 0;  // Unknown size
+                                        }
+                                        drop_var_count++;
+                                    }
                                 } else {
                                     fprintf(codegen->output_file, "int32_t %s[] = ", body_inst->data.var.name);
                                 }
@@ -593,6 +612,8 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                                     if (drop_vars) {
                                         drop_vars[drop_var_count].var_name = body_inst->data.var.name;
                                         drop_vars[drop_var_count].type_name = body_inst->data.var.original_type_name;
+                                        drop_vars[drop_var_count].is_array = 0;
+                                        drop_vars[drop_var_count].array_size = 0;
                                         drop_var_count++;
                                     }
                                 } else {
@@ -795,7 +816,22 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                     fprintf(codegen->output_file, "  // Generated drop calls in LIFO order\n");
                     for (int i = drop_var_count - 1; i >= 0; i--) {
                         if (drop_vars[i].var_name && drop_vars[i].type_name) {
-                            fprintf(codegen->output_file, "  drop_%s(%s);\n", drop_vars[i].type_name, drop_vars[i].var_name);
+                            if (drop_vars[i].is_array) {
+                                // 对于数组，需要遍历每个元素调用 drop
+                                if (drop_vars[i].array_size > 0) {
+                                    fprintf(codegen->output_file, "  for (int _drop_idx = 0; _drop_idx < %d; _drop_idx++) {\n", drop_vars[i].array_size);
+                                    fprintf(codegen->output_file, "    drop_%s(%s[_drop_idx]);\n", drop_vars[i].type_name, drop_vars[i].var_name);
+                                    fprintf(codegen->output_file, "  }\n");
+                                } else {
+                                    // 如果不知道数组大小，使用 sizeof 计算
+                                    fprintf(codegen->output_file, "  for (int _drop_idx = 0; _drop_idx < (int)(sizeof(%s) / sizeof(%s[0])); _drop_idx++) {\n", drop_vars[i].var_name, drop_vars[i].var_name);
+                                    fprintf(codegen->output_file, "    drop_%s(%s[_drop_idx]);\n", drop_vars[i].type_name, drop_vars[i].var_name);
+                                    fprintf(codegen->output_file, "  }\n");
+                                }
+                            } else {
+                                // 对于单个结构体，直接调用 drop
+                                fprintf(codegen->output_file, "  drop_%s(%s);\n", drop_vars[i].type_name, drop_vars[i].var_name);
+                            }
                         }
                     }
                 }
@@ -834,7 +870,22 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                     fprintf(codegen->output_file, "  // Generated drop calls in LIFO order\n");
                     for (int i = drop_var_count - 1; i >= 0; i--) {
                         if (drop_vars[i].var_name && drop_vars[i].type_name) {
-                            fprintf(codegen->output_file, "  drop_%s(%s);\n", drop_vars[i].type_name, drop_vars[i].var_name);
+                            if (drop_vars[i].is_array) {
+                                // 对于数组，需要遍历每个元素调用 drop
+                                if (drop_vars[i].array_size > 0) {
+                                    fprintf(codegen->output_file, "  for (int _drop_idx = 0; _drop_idx < %d; _drop_idx++) {\n", drop_vars[i].array_size);
+                                    fprintf(codegen->output_file, "    drop_%s(%s[_drop_idx]);\n", drop_vars[i].type_name, drop_vars[i].var_name);
+                                    fprintf(codegen->output_file, "  }\n");
+                                } else {
+                                    // 如果不知道数组大小，使用 sizeof 计算
+                                    fprintf(codegen->output_file, "  for (int _drop_idx = 0; _drop_idx < (int)(sizeof(%s) / sizeof(%s[0])); _drop_idx++) {\n", drop_vars[i].var_name, drop_vars[i].var_name);
+                                    fprintf(codegen->output_file, "    drop_%s(%s[_drop_idx]);\n", drop_vars[i].type_name, drop_vars[i].var_name);
+                                    fprintf(codegen->output_file, "  }\n");
+                                }
+                            } else {
+                                // 对于单个结构体，直接调用 drop
+                                fprintf(codegen->output_file, "  drop_%s(%s);\n", drop_vars[i].type_name, drop_vars[i].var_name);
+                            }
                         }
                     }
                     free(drop_vars);
@@ -1119,6 +1170,7 @@ int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output
     fprintf(codegen->output_file, "#include <stdint.h>\n");
     fprintf(codegen->output_file, "#include <stddef.h>\n");
     fprintf(codegen->output_file, "#include <stdbool.h>\n");
+    fprintf(codegen->output_file, "#include <stdio.h>\n");
     fprintf(codegen->output_file, "#include <stdlib.h>\n");
     fprintf(codegen->output_file, "#include <unistd.h>\n");
     fprintf(codegen->output_file, "#include <fcntl.h>\n\n");
