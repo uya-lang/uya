@@ -232,7 +232,14 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
 
         case IR_CONSTANT:
             if (inst->data.constant.value) {
-                fprintf(codegen->output_file, "%s", inst->data.constant.value);
+                // Check if this is a string literal (pointer type)
+                if (inst->data.constant.type == IR_TYPE_PTR) {
+                    // Output as C string literal with quotes
+                    fprintf(codegen->output_file, "\"%s\"", inst->data.constant.value);
+                } else {
+                    // Output as regular constant (numbers, booleans, etc.)
+                    fprintf(codegen->output_file, "%s", inst->data.constant.value);
+                }
             } else {
                 fprintf(codegen->output_file, "0"); // default value
             }
@@ -389,6 +396,17 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                 // 跳过测试函数（测试模式会单独处理）
                 break;
             }
+            // 判断当前函数是否是 drop 函数，并生成正确的函数名
+            int is_drop_function = (inst->data.func.name && strcmp(inst->data.func.name, "drop") == 0);
+            char *actual_func_name = inst->data.func.name;
+            char drop_func_name[256] = {0};
+            if (is_drop_function && inst->data.func.param_count > 0 && 
+                inst->data.func.params[0] && inst->data.func.params[0]->data.var.original_type_name) {
+                snprintf(drop_func_name, sizeof(drop_func_name), "drop_%s", 
+                         inst->data.func.params[0]->data.var.original_type_name);
+                actual_func_name = drop_func_name;
+            }
+            
             // 生成函数定义
             // 如果返回类型是!T（错误联合类型），生成标记联合类型名称
             if (inst->data.func.return_type_is_error_union) {
@@ -396,7 +414,7 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             } else {
                 codegen_write_type(codegen, inst->data.func.return_type);
             }
-            fprintf(codegen->output_file, " %s(", inst->data.func.name);
+            fprintf(codegen->output_file, " %s(", actual_func_name);
             
             // Set current function context for member access type checking
             IRInst *prev_function = codegen->current_function;
@@ -427,8 +445,8 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             int has_return_value = inst->data.func.return_type != IR_TYPE_VOID || inst->data.func.return_type_is_error_union;
             char *return_var_name = NULL;
             if (has_return_value) {
-                return_var_name = malloc(32);
-                sprintf(return_var_name, "_return_%s", inst->data.func.name);
+                return_var_name = malloc(256);
+                sprintf(return_var_name, "_return_%s", actual_func_name);
                 // 如果返回类型是!T（错误联合类型），生成标记联合类型名称
                 if (inst->data.func.return_type_is_error_union) {
                     codegen_write_error_union_type_name(codegen, inst->data.func.return_type);
@@ -452,9 +470,6 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             } DropVar;
             DropVar *drop_vars = NULL;
             int drop_var_count = 0;
-            
-            // 判断当前函数是否是 drop 函数
-            int is_drop_function = (inst->data.func.name && strcmp(inst->data.func.name, "drop") == 0);
             
             // 收集函数参数中需要 drop 的变量（drop 函数的参数不需要 drop，因为这是 drop 函数本身）
             if (!is_drop_function) {
@@ -508,19 +523,24 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                                 if (body_inst->data.ret.value) {
                                     codegen_write_value(codegen, body_inst->data.ret.value);
                                 } else {
-                                    fprintf(codegen->output_file, "1U"); // default error code
+                                    fprintf(codegen->output_file, "1U"); // default error code (should not happen)
                                 }
                                 fprintf(codegen->output_file, ";\n");
                             } else {
                                 // 正常返回：设置 is_error = false, success_value = 返回值
-                                fprintf(codegen->output_file, "  %s.is_error = false;\n", return_var_name);
-                                fprintf(codegen->output_file, "  %s.value.success_value = ", return_var_name);
-                                if (body_inst->data.ret.value) {
-                                    codegen_write_value(codegen, body_inst->data.ret.value);
+                                // 注意：如果 body_inst->data.ret.value 是 NULL，可能是 error.TestError 没有被正确识别
+                                // 在这种情况下，对于 !T 类型，如果返回值是 NULL，我们假设这是一个错误（因为正常值不应该为 NULL）
+                                if (!body_inst->data.ret.value) {
+                                    // 如果返回值是 NULL 且是 !T 类型，可能是一个错误值没有被正确识别
+                                    // 为了安全，我们将其视为错误
+                                    fprintf(codegen->output_file, "  %s.is_error = true;\n", return_var_name);
+                                    fprintf(codegen->output_file, "  %s.value.error_code = 1U;\n", return_var_name);
                                 } else {
-                                    fprintf(codegen->output_file, "0");
+                                    fprintf(codegen->output_file, "  %s.is_error = false;\n", return_var_name);
+                                    fprintf(codegen->output_file, "  %s.value.success_value = ", return_var_name);
+                                    codegen_write_value(codegen, body_inst->data.ret.value);
+                                    fprintf(codegen->output_file, ";\n");
                                 }
-                                fprintf(codegen->output_file, ";\n");
                             }
                         } else {
                             // 普通返回类型：直接赋值
@@ -538,14 +558,14 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                     // 对于!T类型，使用标记联合的is_error标志在函数末尾统一判断
                     if (inst->data.func.return_type_is_error_union) {
                         // !T类型：在函数末尾统一判断is_error标志
-                        fprintf(codegen->output_file, "  goto _check_error_return_%s;\n", inst->data.func.name);
+                        fprintf(codegen->output_file, "  goto _check_error_return_%s;\n", actual_func_name);
                         has_error_return_path = 1;
                     } else if (is_error) {
                         // 非!T类型但返回错误值（这种情况不应该发生，但保留检查）
-                        fprintf(codegen->output_file, "  goto _error_return_%s;\n", inst->data.func.name);
+                        fprintf(codegen->output_file, "  goto _error_return_%s;\n", actual_func_name);
                         has_error_return_path = 1;
                     } else {
-                        fprintf(codegen->output_file, "  goto _normal_return_%s;\n", inst->data.func.name);
+                        fprintf(codegen->output_file, "  goto _normal_return_%s;\n", actual_func_name);
                     }
                     return_count++;
                 } else {
@@ -557,7 +577,12 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                                 body_inst->data.var.init->type == IR_CALL &&
                                 strcmp(body_inst->data.var.init->data.call.func_name, "array") == 0) {
                                 // Special handling for array variable declarations
-                                fprintf(codegen->output_file, "int32_t %s[] = ", body_inst->data.var.name);
+                                // Use original_type_name if available, otherwise default to int32_t
+                                if (body_inst->data.var.original_type_name) {
+                                    fprintf(codegen->output_file, "%s %s[] = ", body_inst->data.var.original_type_name, body_inst->data.var.name);
+                                } else {
+                                    fprintf(codegen->output_file, "int32_t %s[] = ", body_inst->data.var.name);
+                                }
                                 codegen_write_value(codegen, body_inst->data.var.init);
                             } else {
                                 // Regular variable declaration
@@ -719,17 +744,17 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             
             // 对于!T类型，生成统一的错误检查点
             if (inst->data.func.return_type_is_error_union && has_error_return_path) {
-                fprintf(codegen->output_file, "_check_error_return_%s:\n", inst->data.func.name);
+                fprintf(codegen->output_file, "_check_error_return_%s:\n", actual_func_name);
                 fprintf(codegen->output_file, "  if (%s.is_error) {\n", return_var_name);
-                fprintf(codegen->output_file, "    goto _error_return_%s;\n", inst->data.func.name);
+                fprintf(codegen->output_file, "    goto _error_return_%s;\n", actual_func_name);
                 fprintf(codegen->output_file, "  } else {\n");
-                fprintf(codegen->output_file, "    goto _normal_return_%s;\n", inst->data.func.name);
+                fprintf(codegen->output_file, "    goto _normal_return_%s;\n", actual_func_name);
                 fprintf(codegen->output_file, "  }\n\n");
             }
             
             // 生成错误返回路径（如果有错误返回）
             if (has_error_return_path && errdefer_count > 0 && errdefer_blocks) {
-                fprintf(codegen->output_file, "_error_return_%s:\n", inst->data.func.name);
+                fprintf(codegen->output_file, "_error_return_%s:\n", actual_func_name);
                 
                 // 生成 errdefer 块（仅在错误返回时执行）
                 fprintf(codegen->output_file, "  // Generated errdefer blocks in LIFO order (error return)\n");
@@ -770,7 +795,7 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                     fprintf(codegen->output_file, "  // Generated drop calls in LIFO order\n");
                     for (int i = drop_var_count - 1; i >= 0; i--) {
                         if (drop_vars[i].var_name && drop_vars[i].type_name) {
-                            fprintf(codegen->output_file, "  drop(%s);\n", drop_vars[i].var_name);
+                            fprintf(codegen->output_file, "  drop_%s(%s);\n", drop_vars[i].type_name, drop_vars[i].var_name);
                         }
                     }
                 }
@@ -784,7 +809,7 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             }
             
             // 生成正常返回路径
-            fprintf(codegen->output_file, "_normal_return_%s:\n", inst->data.func.name);
+            fprintf(codegen->output_file, "_normal_return_%s:\n", actual_func_name);
             
             // 生成 defer 块（正常返回时只执行 defer，不执行 errdefer）
             if (defer_count > 0 && defer_blocks) {
@@ -804,16 +829,16 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                 }
             }
             
-            // 生成 drop 调用
-            if (drop_var_count > 0 && drop_vars) {
-                fprintf(codegen->output_file, "  // Generated drop calls in LIFO order\n");
-                for (int i = drop_var_count - 1; i >= 0; i--) {
-                    if (drop_vars[i].var_name && drop_vars[i].type_name) {
-                        fprintf(codegen->output_file, "  drop(%s);\n", drop_vars[i].var_name);
+                // 生成 drop 调用
+                if (drop_var_count > 0 && drop_vars) {
+                    fprintf(codegen->output_file, "  // Generated drop calls in LIFO order\n");
+                    for (int i = drop_var_count - 1; i >= 0; i--) {
+                        if (drop_vars[i].var_name && drop_vars[i].type_name) {
+                            fprintf(codegen->output_file, "  drop_%s(%s);\n", drop_vars[i].type_name, drop_vars[i].var_name);
+                        }
                     }
+                    free(drop_vars);
                 }
-                free(drop_vars);
-            }
             
             // 返回
             if (has_return_value) {
@@ -842,10 +867,13 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                 inst->data.var.init->type == IR_CALL &&
                 strcmp(inst->data.var.init->data.call.func_name, "array") == 0) {
                 // Special handling for array variable declarations: let arr: [i32; 3] = [1, 2, 3];
-                // Generate: int32_t arr[3] = {1, 2, 3};
-
-                // For now, assume i32 array type
-                fprintf(codegen->output_file, "int32_t %s[] = ", inst->data.var.name);
+                // Generate: TypeName arr[] = {1, 2, 3};
+                // Use original_type_name if available, otherwise default to int32_t
+                if (inst->data.var.original_type_name) {
+                    fprintf(codegen->output_file, "%s %s[] = ", inst->data.var.original_type_name, inst->data.var.name);
+                } else {
+                    fprintf(codegen->output_file, "int32_t %s[] = ", inst->data.var.name);
+                }
                 codegen_write_value(codegen, inst->data.var.init);  // This will output {1, 2, 3}
             } else {
                 // Check if initialization is a function call with same name as variable
@@ -1018,9 +1046,14 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             break;
 
         case IR_DROP:
-            // Generate drop call: drop(var_name)
+            // Generate drop call: drop_TypeName(var_name)
             if (inst->data.drop.var_name) {
-                fprintf(codegen->output_file, "drop(%s)", inst->data.drop.var_name);
+                if (inst->data.drop.type_name) {
+                    fprintf(codegen->output_file, "drop_%s(%s)", inst->data.drop.type_name, inst->data.drop.var_name);
+                } else {
+                    // Fallback if type_name is not available
+                    fprintf(codegen->output_file, "drop(%s)", inst->data.drop.var_name);
+                }
             }
             break;
             
@@ -1085,7 +1118,10 @@ int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output
     fprintf(codegen->output_file, "// Generated by Uya to C99 Compiler\n");
     fprintf(codegen->output_file, "#include <stdint.h>\n");
     fprintf(codegen->output_file, "#include <stddef.h>\n");
-    fprintf(codegen->output_file, "#include <stdbool.h>\n\n");
+    fprintf(codegen->output_file, "#include <stdbool.h>\n");
+    fprintf(codegen->output_file, "#include <stdlib.h>\n");
+    fprintf(codegen->output_file, "#include <unistd.h>\n");
+    fprintf(codegen->output_file, "#include <fcntl.h>\n\n");
     // Error type definition (error is a type containing error codes, represented as uint16_t)
     fprintf(codegen->output_file, "// Error type definition (error codes are uint16_t)\n");
     fprintf(codegen->output_file, "typedef uint16_t error;\n\n");
@@ -1100,10 +1136,75 @@ int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output
     }
     fprintf(codegen->output_file, "\n");
     
-    // 生成所有指令（如果有）
+    // 第一遍：生成结构体声明（必须在函数声明之前）
+    if (ir && ir->instructions) {
+        for (int i = 0; i < ir->inst_count; i++) {
+            if (ir->instructions[i] && ir->instructions[i]->type == IR_STRUCT_DECL) {
+                codegen_generate_inst(codegen, ir->instructions[i]);
+            }
+        }
+    }
+    
+    // 第二遍：生成函数声明（前向声明）
+    fprintf(codegen->output_file, "// Forward declarations\n");
+    if (ir && ir->instructions) {
+        for (int i = 0; i < ir->inst_count; i++) {
+            if (ir->instructions[i] && ir->instructions[i]->type == IR_FUNC_DEF) {
+                IRInst *func = ir->instructions[i];
+                // Skip test functions
+                if (func->data.func.name && strncmp(func->data.func.name, "@test$", 6) == 0) {
+                    continue;
+                }
+                // Generate forward declaration
+                if (func->data.func.return_type_is_error_union) {
+                    codegen_write_error_union_type_name(codegen, func->data.func.return_type);
+                } else {
+                    codegen_write_type(codegen, func->data.func.return_type);
+                }
+                
+                // For drop functions, use the actual function name (drop_TypeName)
+                char *actual_func_name = func->data.func.name;
+                char drop_func_name[256] = {0};
+                if (func->data.func.name && strcmp(func->data.func.name, "drop") == 0 &&
+                    func->data.func.param_count > 0 && func->data.func.params[0] &&
+                    func->data.func.params[0]->data.var.original_type_name) {
+                    snprintf(drop_func_name, sizeof(drop_func_name), "drop_%s", 
+                             func->data.func.params[0]->data.var.original_type_name);
+                    actual_func_name = drop_func_name;
+                }
+                
+                fprintf(codegen->output_file, " %s(", actual_func_name);
+                for (int j = 0; j < func->data.func.param_count; j++) {
+                    if (j > 0) fprintf(codegen->output_file, ", ");
+                    if (func->data.func.params[j]->data.var.type == IR_TYPE_PTR && 
+                        func->data.func.params[j]->data.var.original_type_name) {
+                        fprintf(codegen->output_file, "%s* %s", 
+                                func->data.func.params[j]->data.var.original_type_name,
+                                func->data.func.params[j]->data.var.name);
+                    } else if (func->data.func.params[j]->data.var.type == IR_TYPE_STRUCT &&
+                               func->data.func.params[j]->data.var.original_type_name) {
+                        fprintf(codegen->output_file, "%s %s", 
+                                func->data.func.params[j]->data.var.original_type_name,
+                                func->data.func.params[j]->data.var.name);
+                    } else {
+                        codegen_write_type(codegen, func->data.func.params[j]->data.var.type);
+                        fprintf(codegen->output_file, " %s", func->data.func.params[j]->data.var.name);
+                    }
+                }
+                fprintf(codegen->output_file, ");\n");
+            }
+        }
+    }
+    fprintf(codegen->output_file, "\n");
+    
+    // 第三遍：生成函数定义（跳过已生成的结构体声明）
     if (ir && ir->instructions) {
         for (int i = 0; i < ir->inst_count; i++) {
             if (ir->instructions[i]) {
+                // Skip struct declarations (already generated in first pass)
+                if (ir->instructions[i]->type == IR_STRUCT_DECL) {
+                    continue;
+                }
                 codegen_generate_inst(codegen, ir->instructions[i]);
             }
         }

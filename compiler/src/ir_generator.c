@@ -228,6 +228,39 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
             return binary_op;
         }
 
+        case AST_STRING: {
+            // Handle string literals
+            IRInst *const_str = irinst_new(IR_CONSTANT);
+            if (!const_str) return NULL;
+
+            // Store the string value (remove quotes if present)
+            if (expr->data.string.value) {
+                const char *src = expr->data.string.value;
+                size_t len = strlen(src);
+                
+                // Remove leading and trailing quotes if present
+                const char *start = src;
+                const char *end = src + len - 1;
+                if (len >= 2 && *start == '"' && *end == '"') {
+                    start++;  // Skip leading quote
+                    len -= 2; // Remove both quotes
+                }
+                
+                // Allocate memory for the string value (without quotes)
+                const_str->data.constant.value = malloc(len + 1);
+                if (const_str->data.constant.value) {
+                    strncpy(const_str->data.constant.value, start, len);
+                    const_str->data.constant.value[len] = '\0';
+                }
+            } else {
+                const_str->data.constant.value = NULL;
+            }
+            // Mark as pointer type (string literals are pointers to char in C)
+            const_str->data.constant.type = IR_TYPE_PTR;
+
+            return const_str;
+        }
+
         case AST_BOOL: {
             // Handle boolean literals
             IRInst *const_bool = irinst_new(IR_CONSTANT);
@@ -764,20 +797,48 @@ static IRInst *generate_stmt_for_body(IRGenerator *ir_gen, struct ASTNode *stmt)
             var_decl->data.var.is_mut = stmt->data.var_decl.is_mut;
 
             // Store original type name for user-defined types
-            if (stmt->data.var_decl.type && stmt->data.var_decl.type->type == AST_TYPE_NAMED) {
-                const char *type_name = stmt->data.var_decl.type->data.type_named.name;
-                // Check if it's a user-defined type (not a built-in type)
-                if (strcmp(type_name, "i32") != 0 && strcmp(type_name, "i64") != 0 &&
-                    strcmp(type_name, "i8") != 0 && strcmp(type_name, "i16") != 0 &&
-                    strcmp(type_name, "u32") != 0 && strcmp(type_name, "u64") != 0 &&
-                    strcmp(type_name, "u8") != 0 && strcmp(type_name, "u16") != 0 &&
-                    strcmp(type_name, "f32") != 0 && strcmp(type_name, "f64") != 0 &&
-                    strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0 &&
-                    strcmp(type_name, "byte") != 0) {
-                    // This is a user-defined type, store the original name
-                    var_decl->data.var.original_type_name = malloc(strlen(type_name) + 1);
-                    if (var_decl->data.var.original_type_name) {
-                        strcpy(var_decl->data.var.original_type_name, type_name);
+            if (stmt->data.var_decl.type) {
+                if (stmt->data.var_decl.type->type == AST_TYPE_ARRAY) {
+                    // For array types, extract element type name
+                    struct ASTNode *element_type = stmt->data.var_decl.type->data.type_array.element_type;
+                    if (element_type && element_type->type == AST_TYPE_NAMED) {
+                        const char *type_name = element_type->data.type_named.name;
+                        // Check if it's a user-defined type (not a built-in type)
+                        if (strcmp(type_name, "i32") != 0 && strcmp(type_name, "i64") != 0 &&
+                            strcmp(type_name, "i8") != 0 && strcmp(type_name, "i16") != 0 &&
+                            strcmp(type_name, "u32") != 0 && strcmp(type_name, "u64") != 0 &&
+                            strcmp(type_name, "u8") != 0 && strcmp(type_name, "u16") != 0 &&
+                            strcmp(type_name, "f32") != 0 && strcmp(type_name, "f64") != 0 &&
+                            strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0 &&
+                            strcmp(type_name, "byte") != 0) {
+                            // This is a user-defined type, store the original name
+                            var_decl->data.var.original_type_name = malloc(strlen(type_name) + 1);
+                            if (var_decl->data.var.original_type_name) {
+                                strcpy(var_decl->data.var.original_type_name, type_name);
+                            }
+                        } else {
+                            var_decl->data.var.original_type_name = NULL;
+                        }
+                    } else {
+                        var_decl->data.var.original_type_name = NULL;
+                    }
+                } else if (stmt->data.var_decl.type->type == AST_TYPE_NAMED) {
+                    const char *type_name = stmt->data.var_decl.type->data.type_named.name;
+                    // Check if it's a user-defined type (not a built-in type)
+                    if (strcmp(type_name, "i32") != 0 && strcmp(type_name, "i64") != 0 &&
+                        strcmp(type_name, "i8") != 0 && strcmp(type_name, "i16") != 0 &&
+                        strcmp(type_name, "u32") != 0 && strcmp(type_name, "u64") != 0 &&
+                        strcmp(type_name, "u8") != 0 && strcmp(type_name, "u16") != 0 &&
+                        strcmp(type_name, "f32") != 0 && strcmp(type_name, "f64") != 0 &&
+                        strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0 &&
+                        strcmp(type_name, "byte") != 0) {
+                        // This is a user-defined type, store the original name
+                        var_decl->data.var.original_type_name = malloc(strlen(type_name) + 1);
+                        if (var_decl->data.var.original_type_name) {
+                            strcpy(var_decl->data.var.original_type_name, type_name);
+                        }
+                    } else {
+                        var_decl->data.var.original_type_name = NULL;
                     }
                 } else {
                     var_decl->data.var.original_type_name = NULL;

@@ -136,7 +136,7 @@ fn drop(self: SimpleStruct) void {
 }
 
 fn test_array_drop() void {
-    hello(60);
+    printf("Entering test_array_drop\n");
     
     const arr: [SimpleStruct; 3] = [
         SimpleStruct{ value: 1 },

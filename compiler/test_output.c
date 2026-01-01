@@ -2,6 +2,9 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 // Error type definition (error codes are uint16_t)
 typedef uint16_t error;
@@ -28,22 +31,39 @@ typedef struct File {
   int32_t fd;
 } File;
 
-void drop(File self) {
-  hello(10);
-  close(self.fd);
-_normal_return_drop:
-  return;
-}
-
 typedef struct HeapBuffer {
   void* data;
   int32_t size;
 } HeapBuffer;
 
-void drop(HeapBuffer self) {
+typedef struct SimpleStruct {
+  int32_t value;
+} SimpleStruct;
+
+// Forward declarations
+void drop_File(File self);
+void drop_HeapBuffer(HeapBuffer self);
+void test_defer();
+ErrorUnion_void test_errdefer();
+ErrorUnion_int32_t test_combined();
+ErrorUnion_int32_t test_combined_error();
+void test_nested_drop();
+void hello(int32_t a);
+void drop_SimpleStruct(SimpleStruct self);
+void test_array_drop();
+int32_t main();
+
+void drop_File(File self) {
+  hello(10);
+  close(self.fd);
+_normal_return_drop_File:
+  return;
+}
+
+void drop_HeapBuffer(HeapBuffer self) {
   hello(11);
   free(self.data);
-_normal_return_drop:
+_normal_return_drop_HeapBuffer:
   return;
 }
 
@@ -66,8 +86,8 @@ ErrorUnion_void  _return_test_errdefer;
   hello(30);
   // defer block (collected)
   // errdefer block (collected)
-  _return_test_errdefer.is_error = false;
-  _return_test_errdefer.value.success_value = 0;
+  _return_test_errdefer.is_error = true;
+  _return_test_errdefer.value.error_code = 1U;
   goto _check_error_return_test_errdefer;
 _check_error_return_test_errdefer:
   if (_return_test_errdefer.is_error) {
@@ -94,7 +114,7 @@ _normal_return_test_errdefer:
 ErrorUnion_int32_t test_combined() {
 ErrorUnion_int32_t  _return_test_combined;
   hello(40);
-  File f = (File){ .fd = open(temp_-1, 0)};
+  File f = (File){ .fd = open("test.txt", 0)};
   HeapBuffer buf = (HeapBuffer){ .data = malloc(1024), .size = 1024};
   // defer block (collected)
   // errdefer block (collected)
@@ -117,29 +137,29 @@ _error_return_test_combined:
   // defer block 0
   hello(41);
   // Generated drop calls in LIFO order
-  drop(buf);
-  drop(f);
+  drop_HeapBuffer(buf);
+  drop_File(f);
   return _return_test_combined;
 _normal_return_test_combined:
   // Generated defer blocks in LIFO order
   // defer block 0
   hello(41);
   // Generated drop calls in LIFO order
-  drop(buf);
-  drop(f);
+  drop_HeapBuffer(buf);
+  drop_File(f);
   return _return_test_combined;
 }
 
 ErrorUnion_int32_t test_combined_error() {
 ErrorUnion_int32_t  _return_test_combined_error;
   hello(0);
-  File f = (File){ .fd = open(temp_-1, 0)};
+  File f = (File){ .fd = open("test.txt", 0)};
   HeapBuffer buf = (HeapBuffer){ .data = malloc(1024), .size = 1024};
   // defer block (collected)
   // errdefer block (collected)
   hello(3);
-  _return_test_combined_error.is_error = false;
-  _return_test_combined_error.value.success_value = 0;
+  _return_test_combined_error.is_error = true;
+  _return_test_combined_error.value.error_code = 1U;
   goto _check_error_return_test_combined_error;
 _check_error_return_test_combined_error:
   if (_return_test_combined_error.is_error) {
@@ -156,16 +176,16 @@ _error_return_test_combined_error:
   // defer block 0
   hello(1);
   // Generated drop calls in LIFO order
-  drop(buf);
-  drop(f);
+  drop_HeapBuffer(buf);
+  drop_File(f);
   return _return_test_combined_error;
 _normal_return_test_combined_error:
   // Generated defer blocks in LIFO order
   // defer block 0
   hello(1);
   // Generated drop calls in LIFO order
-  drop(buf);
-  drop(f);
+  drop_HeapBuffer(buf);
+  drop_File(f);
   return _return_test_combined_error;
 }
 
@@ -191,19 +211,15 @@ _normal_return_hello:
   return;
 }
 
-typedef struct SimpleStruct {
-  int32_t value;
-} SimpleStruct;
-
-void drop(SimpleStruct self) {
+void drop_SimpleStruct(SimpleStruct self) {
   hello(50);
-_normal_return_drop:
+_normal_return_drop_SimpleStruct:
   return;
 }
 
 void test_array_drop() {
   hello(60);
-  int32_t arr[] = {(SimpleStruct){ .value = 1}, (SimpleStruct){ .value = 2}, (SimpleStruct){ .value = 3}};
+  SimpleStruct arr[] = {(SimpleStruct){ .value = 1}, (SimpleStruct){ .value = 2}, (SimpleStruct){ .value = 3}};
   hello(61);
   // defer block (collected)
   hello(63);
