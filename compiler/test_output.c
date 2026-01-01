@@ -6,6 +6,24 @@
 // Error type definition (error codes are uint16_t)
 typedef uint16_t error;
 
+// Error union type definitions
+typedef struct {
+    bool is_error;
+    union {
+        int32_t success_value;
+        uint16_t error_code;
+    } value;
+} ErrorUnion_int32_t;
+
+typedef struct {
+    bool is_error;
+    union {
+        uint8_t _void_placeholder;
+        uint16_t error_code;
+    } value;
+} ErrorUnion_void;
+
+
 typedef struct File {
   int32_t fd;
 } File;
@@ -43,11 +61,21 @@ _normal_return_test_defer:
   return;
 }
 
-void test_errdefer() {
+ErrorUnion_void test_errdefer() {
+ErrorUnion_void  _return_test_errdefer;
   hello(30);
   // defer block (collected)
   // errdefer block (collected)
-  goto _error_return_test_errdefer;
+  _return_test_errdefer.is_error = false;
+  _return_test_errdefer.value.success_value = 0;
+  goto _check_error_return_test_errdefer;
+_check_error_return_test_errdefer:
+  if (_return_test_errdefer.is_error) {
+    goto _error_return_test_errdefer;
+  } else {
+    goto _normal_return_test_errdefer;
+  }
+
 _error_return_test_errdefer:
   // Generated errdefer blocks in LIFO order (error return)
   // errdefer block 0
@@ -55,24 +83,32 @@ _error_return_test_errdefer:
   // Generated defer blocks in LIFO order
   // defer block 0
   hello(31);
-  return;
+  return _return_test_errdefer;
 _normal_return_test_errdefer:
   // Generated defer blocks in LIFO order
   // defer block 0
   hello(31);
-  return;
+  return _return_test_errdefer;
 }
 
-int32_t test_combined() {
-int32_t  _return_test_combined;
+ErrorUnion_int32_t test_combined() {
+ErrorUnion_int32_t  _return_test_combined;
   hello(40);
   File f = (File){ .fd = open(temp_-1, 0)};
   HeapBuffer buf = (HeapBuffer){ .data = malloc(1024), .size = 1024};
   // defer block (collected)
   // errdefer block (collected)
   hello(43);
-  _return_test_combined = 42;
-  goto _error_return_test_combined;
+  _return_test_combined.is_error = false;
+  _return_test_combined.value.success_value = 42;
+  goto _check_error_return_test_combined;
+_check_error_return_test_combined:
+  if (_return_test_combined.is_error) {
+    goto _error_return_test_combined;
+  } else {
+    goto _normal_return_test_combined;
+  }
+
 _error_return_test_combined:
   // Generated errdefer blocks in LIFO order (error return)
   // errdefer block 0
@@ -94,16 +130,24 @@ _normal_return_test_combined:
   return _return_test_combined;
 }
 
-int32_t test_combined_error() {
-int32_t  _return_test_combined_error;
+ErrorUnion_int32_t test_combined_error() {
+ErrorUnion_int32_t  _return_test_combined_error;
   hello(0);
   File f = (File){ .fd = open(temp_-1, 0)};
   HeapBuffer buf = (HeapBuffer){ .data = malloc(1024), .size = 1024};
   // defer block (collected)
   // errdefer block (collected)
   hello(3);
-  _return_test_combined_error = 0;
-  goto _error_return_test_combined_error;
+  _return_test_combined_error.is_error = false;
+  _return_test_combined_error.value.success_value = 0;
+  goto _check_error_return_test_combined_error;
+_check_error_return_test_combined_error:
+  if (_return_test_combined_error.is_error) {
+    goto _error_return_test_combined_error;
+  } else {
+    goto _normal_return_test_combined_error;
+  }
+
 _error_return_test_combined_error:
   // Generated errdefer blocks in LIFO order (error return)
   // errdefer block 0

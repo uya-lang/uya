@@ -56,6 +56,29 @@ static void codegen_write_type(CodeGenerator *codegen, IRType type) {
     fprintf(codegen->output_file, "%s", codegen_get_type_name(type));
 }
 
+// Generate error union type name (ErrorUnion_T)
+static void codegen_write_error_union_type_name(CodeGenerator *codegen, IRType base_type) {
+    const char *base_name = codegen_get_type_name(base_type);
+    fprintf(codegen->output_file, "ErrorUnion_%s", base_name);
+}
+
+// Generate error union type definition
+static void codegen_write_error_union_type_def(CodeGenerator *codegen, IRType base_type) {
+    const char *base_name = codegen_get_type_name(base_type);
+    fprintf(codegen->output_file, "typedef struct {\n");
+    fprintf(codegen->output_file, "    bool is_error;\n");
+    fprintf(codegen->output_file, "    union {\n");
+    if (base_type == IR_TYPE_VOID) {
+        // For void, use an empty struct or just the error code
+        fprintf(codegen->output_file, "        uint8_t _void_placeholder;\n");
+    } else {
+        fprintf(codegen->output_file, "        %s success_value;\n", base_name);
+    }
+    fprintf(codegen->output_file, "        uint16_t error_code;\n");
+    fprintf(codegen->output_file, "    } value;\n");
+    fprintf(codegen->output_file, "} ErrorUnion_%s;\n\n", base_name);
+}
+
 // Write type with atomic support (for struct fields and variable declarations)
 static void codegen_write_type_with_atomic(CodeGenerator *codegen, IRInst *var_inst) {
     if (!var_inst) {
@@ -367,7 +390,12 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                 break;
             }
             // 生成函数定义
-            codegen_write_type(codegen, inst->data.func.return_type);
+            // 如果返回类型是!T（错误联合类型），生成标记联合类型名称
+            if (inst->data.func.return_type_is_error_union) {
+                codegen_write_error_union_type_name(codegen, inst->data.func.return_type);
+            } else {
+                codegen_write_type(codegen, inst->data.func.return_type);
+            }
             fprintf(codegen->output_file, " %s(", inst->data.func.name);
             
             // Set current function context for member access type checking
@@ -396,12 +424,17 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             fprintf(codegen->output_file, ") {\n");
             
             // 如果函数有返回值，定义一个临时变量来保存返回值
-            int has_return_value = inst->data.func.return_type != IR_TYPE_VOID;
+            int has_return_value = inst->data.func.return_type != IR_TYPE_VOID || inst->data.func.return_type_is_error_union;
             char *return_var_name = NULL;
             if (has_return_value) {
                 return_var_name = malloc(32);
                 sprintf(return_var_name, "_return_%s", inst->data.func.name);
-                codegen_write_type(codegen, inst->data.func.return_type);
+                // 如果返回类型是!T（错误联合类型），生成标记联合类型名称
+                if (inst->data.func.return_type_is_error_union) {
+                    codegen_write_error_union_type_name(codegen, inst->data.func.return_type);
+                } else {
+                    codegen_write_type(codegen, inst->data.func.return_type);
+                }
                 fprintf(codegen->output_file, "  %s;", return_var_name);
                 fprintf(codegen->output_file, "\n");
             }
@@ -466,31 +499,53 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                     
                     // 修改return语句：保存返回值，然后跳转到相应的返回标签
                     if (has_return_value) {
-                        fprintf(codegen->output_file, "  %s = ", return_var_name);
-                        if (body_inst->data.ret.value) {
-                            codegen_write_value(codegen, body_inst->data.ret.value);
+                        // 如果返回类型是!T（错误联合类型），需要设置标记联合结构
+                        if (inst->data.func.return_type_is_error_union) {
+                            if (is_error) {
+                                // 错误返回：设置 is_error = true, error_code = 错误码
+                                fprintf(codegen->output_file, "  %s.is_error = true;\n", return_var_name);
+                                fprintf(codegen->output_file, "  %s.value.error_code = ", return_var_name);
+                                if (body_inst->data.ret.value) {
+                                    codegen_write_value(codegen, body_inst->data.ret.value);
+                                } else {
+                                    fprintf(codegen->output_file, "1U"); // default error code
+                                }
+                                fprintf(codegen->output_file, ";\n");
+                            } else {
+                                // 正常返回：设置 is_error = false, success_value = 返回值
+                                fprintf(codegen->output_file, "  %s.is_error = false;\n", return_var_name);
+                                fprintf(codegen->output_file, "  %s.value.success_value = ", return_var_name);
+                                if (body_inst->data.ret.value) {
+                                    codegen_write_value(codegen, body_inst->data.ret.value);
+                                } else {
+                                    fprintf(codegen->output_file, "0");
+                                }
+                                fprintf(codegen->output_file, ";\n");
+                            }
                         } else {
-                            fprintf(codegen->output_file, "0");
+                            // 普通返回类型：直接赋值
+                            fprintf(codegen->output_file, "  %s = ", return_var_name);
+                            if (body_inst->data.ret.value) {
+                                codegen_write_value(codegen, body_inst->data.ret.value);
+                            } else {
+                                fprintf(codegen->output_file, "0");
+                            }
+                            fprintf(codegen->output_file, ";\n");
                         }
-                        fprintf(codegen->output_file, ";\n");
                     }
                     
                     // 根据是否为错误返回，跳转到不同的标签
-                    // 如果函数返回类型是 !T 且有 errdefer 块，但由于错误处理机制不完整无法检测错误返回值，
-                    // 暂时在所有返回路径执行 errdefer（这是临时方案）
-                    // TODO: 完整实现需要能够可靠检测错误返回值，只在错误返回路径执行 errdefer
-                    if (is_error) {
+                    // 对于!T类型，使用标记联合的is_error标志在函数末尾统一判断
+                    if (inst->data.func.return_type_is_error_union) {
+                        // !T类型：在函数末尾统一判断is_error标志
+                        fprintf(codegen->output_file, "  goto _check_error_return_%s;\n", inst->data.func.name);
+                        has_error_return_path = 1;
+                    } else if (is_error) {
+                        // 非!T类型但返回错误值（这种情况不应该发生，但保留检查）
                         fprintf(codegen->output_file, "  goto _error_return_%s;\n", inst->data.func.name);
                         has_error_return_path = 1;
                     } else {
-                        // 如果函数返回类型是 !T 且有 errdefer 块，暂时在所有返回路径执行 errdefer
-                        // 这是临时方案，等错误处理机制完善后需要改进为只在错误返回路径执行
-                        if (inst->data.func.return_type_is_error_union && errdefer_count > 0) {
-                            fprintf(codegen->output_file, "  goto _error_return_%s;\n", inst->data.func.name);
-                            has_error_return_path = 1;
-                        } else {
-                            fprintf(codegen->output_file, "  goto _normal_return_%s;\n", inst->data.func.name);
-                        }
+                        fprintf(codegen->output_file, "  goto _normal_return_%s;\n", inst->data.func.name);
                     }
                     return_count++;
                 } else {
@@ -660,6 +715,16 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                     }
                     fprintf(codegen->output_file, ";\n");
                 }
+            }
+            
+            // 对于!T类型，生成统一的错误检查点
+            if (inst->data.func.return_type_is_error_union && has_error_return_path) {
+                fprintf(codegen->output_file, "_check_error_return_%s:\n", inst->data.func.name);
+                fprintf(codegen->output_file, "  if (%s.is_error) {\n", return_var_name);
+                fprintf(codegen->output_file, "    goto _error_return_%s;\n", inst->data.func.name);
+                fprintf(codegen->output_file, "  } else {\n");
+                fprintf(codegen->output_file, "    goto _normal_return_%s;\n", inst->data.func.name);
+                fprintf(codegen->output_file, "  }\n\n");
             }
             
             // 生成错误返回路径（如果有错误返回）
@@ -1024,6 +1089,16 @@ int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output
     // Error type definition (error is a type containing error codes, represented as uint16_t)
     fprintf(codegen->output_file, "// Error type definition (error codes are uint16_t)\n");
     fprintf(codegen->output_file, "typedef uint16_t error;\n\n");
+    
+    // Collect and generate error union type definitions for all functions with !T return types
+    fprintf(codegen->output_file, "// Error union type definitions\n");
+    if (ir && ir->instructions) {
+        // Use a simple approach: generate error union types for common base types
+        // TODO: In the future, we should collect only the types actually used
+        codegen_write_error_union_type_def(codegen, IR_TYPE_I32);
+        codegen_write_error_union_type_def(codegen, IR_TYPE_VOID);
+    }
+    fprintf(codegen->output_file, "\n");
     
     // 生成所有指令（如果有）
     if (ir && ir->instructions) {
