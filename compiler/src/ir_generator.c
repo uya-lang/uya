@@ -963,6 +963,107 @@ static IRInst *generate_stmt_for_body(IRGenerator *ir_gen, struct ASTNode *stmt)
             return assign;
         }
 
+        case AST_DEFER_STMT: {
+            IRInst *defer_inst = irinst_new(IR_DEFER);
+            if (!defer_inst) return NULL;
+
+            // Generate defer body
+            if (stmt->data.defer_stmt.body) {
+                if (stmt->data.defer_stmt.body->type == AST_BLOCK) {
+                    defer_inst->data.defer.body_count = stmt->data.defer_stmt.body->data.block.stmt_count;
+                    defer_inst->data.defer.body = malloc(defer_inst->data.defer.body_count * sizeof(IRInst*));
+                    if (!defer_inst->data.defer.body) {
+                        irinst_free(defer_inst);
+                        return NULL;
+                    }
+
+                    for (int i = 0; i < defer_inst->data.defer.body_count; i++) {
+                        defer_inst->data.defer.body[i] = generate_stmt_for_body(ir_gen, stmt->data.defer_stmt.body->data.block.stmts[i]);
+                    }
+                } else {
+                    defer_inst->data.defer.body_count = 1;
+                    defer_inst->data.defer.body = malloc(sizeof(IRInst*));
+                    if (defer_inst->data.defer.body) {
+                        defer_inst->data.defer.body[0] = generate_stmt_for_body(ir_gen, stmt->data.defer_stmt.body);
+                    }
+                }
+            } else {
+                defer_inst->data.defer.body_count = 0;
+                defer_inst->data.defer.body = NULL;
+            }
+
+            return defer_inst;
+        }
+
+        case AST_ERRDEFER_STMT: {
+            IRInst *errdefer_inst = irinst_new(IR_ERRDEFER);
+            if (!errdefer_inst) return NULL;
+
+            // Generate errdefer body
+            if (stmt->data.errdefer_stmt.body) {
+                if (stmt->data.errdefer_stmt.body->type == AST_BLOCK) {
+                    errdefer_inst->data.errdefer.body_count = stmt->data.errdefer_stmt.body->data.block.stmt_count;
+                    errdefer_inst->data.errdefer.body = malloc(errdefer_inst->data.errdefer.body_count * sizeof(IRInst*));
+                    if (!errdefer_inst->data.errdefer.body) {
+                        irinst_free(errdefer_inst);
+                        return NULL;
+                    }
+
+                    for (int i = 0; i < errdefer_inst->data.errdefer.body_count; i++) {
+                        errdefer_inst->data.errdefer.body[i] = generate_stmt_for_body(ir_gen, stmt->data.errdefer_stmt.body->data.block.stmts[i]);
+                    }
+                } else {
+                    errdefer_inst->data.errdefer.body_count = 1;
+                    errdefer_inst->data.errdefer.body = malloc(sizeof(IRInst*));
+                    if (errdefer_inst->data.errdefer.body) {
+                        errdefer_inst->data.errdefer.body[0] = generate_stmt_for_body(ir_gen, stmt->data.errdefer_stmt.body);
+                    }
+                }
+            } else {
+                errdefer_inst->data.errdefer.body_count = 0;
+                errdefer_inst->data.errdefer.body = NULL;
+            }
+
+            return errdefer_inst;
+        }
+
+        case AST_BLOCK: {
+            // Handle nested blocks - generate IR_BLOCK instruction
+            IRInst *block_inst = irinst_new(IR_BLOCK);
+            if (!block_inst) return NULL;
+
+            block_inst->data.block.inst_count = stmt->data.block.stmt_count;
+            block_inst->data.block.insts = malloc(block_inst->data.block.inst_count * sizeof(IRInst*));
+            if (!block_inst->data.block.insts) {
+                irinst_free(block_inst);
+                return NULL;
+            }
+
+            for (int i = 0; i < block_inst->data.block.inst_count; i++) {
+                block_inst->data.block.insts[i] = generate_stmt_for_body(ir_gen, stmt->data.block.stmts[i]);
+            }
+
+            return block_inst;
+        }
+
+        case AST_CALL_EXPR:
+            // Expression statement: function call as a statement
+            // Convert the call expression directly to IR_CALL
+            return generate_expr(ir_gen, stmt);
+
+        case AST_BINARY_EXPR:
+        case AST_UNARY_EXPR:
+        case AST_IDENTIFIER:
+        case AST_NUMBER:
+        case AST_STRING:
+        case AST_BOOL:
+        case AST_NULL:
+        case AST_MEMBER_ACCESS:
+        case AST_SUBSCRIPT_EXPR:
+            // Other expression types used as statements
+            // Convert expression to IR (discard result for statement form)
+            return generate_expr(ir_gen, stmt);
+
         default:
             return NULL;
     }

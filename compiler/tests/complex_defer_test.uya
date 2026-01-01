@@ -1,0 +1,28 @@
+// 复杂的 defer 测试，包含多个 defer 块和函数调用
+
+// 声明 extern 函数 printf
+extern i32 printf(byte* fmt, ...);
+
+fn main() i32 {
+    // 模拟三个函数调用，用于验证 defer 执行顺序
+    defer {
+        // defer 1 - 应该最后执行
+        printf("Defer 1 executed\n");
+    }
+    
+    defer {
+        // defer 2 - 应该先于 defer 1 执行
+        printf("Defer 2 executed\n");
+    }
+    
+    defer {
+        // defer 3 - 应该首先执行
+        printf("Defer 3 executed\n");
+    }
+    
+    // 主函数逻辑
+    printf("Main function executing\n");
+    
+    // 正常返回
+    return 0;
+}

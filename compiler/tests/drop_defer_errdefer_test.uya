@@ -1,0 +1,187 @@
+// drop、defer、errdefer 测试程序
+
+// 测试自定义 drop 函数
+extern i32 open(path: *byte, flags: i32);
+extern i32 close(fd: i32);
+extern *void malloc(size: i32);
+extern void free(ptr: *void);
+extern i32 printf(fmt: *byte, ...);
+
+// 测试 1: 自定义 drop 函数 - 文件句柄
+struct File {
+    fd: i32
+}
+
+fn drop(self: File) void {
+    // 暂时简化，避免 if 语句解析问题
+    hello(10);
+    close(self.fd);
+}
+
+// 测试 2: 自定义 drop 函数 - 堆内存
+struct HeapBuffer {
+    data: *byte,
+    size: i32
+}
+
+fn drop(self: HeapBuffer) void {
+    // 暂时简化，避免 if 语句解析问题
+    hello(11);
+    free(self.data);
+}
+
+// 测试 3: defer 基本使用
+fn test_defer() void {
+    hello(20);
+    
+    defer {
+        hello(21);
+    }
+    
+    defer {
+        hello(22);
+    }
+    
+    hello(23);
+}
+
+// 测试 4: errdefer 基本使用
+fn test_errdefer() !void {
+    hello(30);
+    
+    defer {
+        hello(31);
+    }
+    
+    errdefer {
+        hello(32);
+    }
+    
+    // 返回错误，触发 errdefer
+    return error.TestError;
+}
+
+// 测试 5: 组合使用 drop、defer、errdefer
+fn test_combined() !i32 {
+    hello(40);
+    
+    // 创建带 drop 的对象
+    const f: File = File{ fd: open("test.txt", 0) };
+    const buf: HeapBuffer = HeapBuffer{ data: malloc(1024), size: 1024 };
+    
+    defer {
+        hello(41);
+    }
+    
+    errdefer {
+        hello(42);
+    }
+    
+    hello(43);
+    
+    // 正常返回，只触发 defer 和 drop
+    return 42;
+}
+
+// 测试 6: 组合使用 - 错误情况
+fn test_combined_error() !i32 {
+    hello(0);
+    
+    // 创建带 drop 的对象
+    const f: File = File{ fd: open("test.txt", 0) };
+    const buf: HeapBuffer = HeapBuffer{ data: malloc(1024), size: 1024 };
+    
+    defer {
+        hello(1);
+    }
+    
+    errdefer {
+        hello(2);
+    }
+    
+    hello(3);
+    
+    // 返回错误，触发 errdefer、defer 和 drop
+    return error.TestError;
+}
+
+// 测试 7: 嵌套作用域的 drop
+fn test_nested_drop() void {
+    hello(0);
+    
+    const outer: i32 = 10;
+    hello(1);
+    
+    {
+        defer {
+            hello(2);
+        }
+    }
+    
+    defer {
+        hello(3);
+    }
+    
+    hello(4);
+}
+
+fn hello(a:i32)void {}
+// 测试 8: 数组的 drop
+struct SimpleStruct {
+    value: i32
+}
+
+fn drop(self: SimpleStruct) void {
+    hello(50);
+}
+
+fn test_array_drop() void {
+    hello(60);
+    
+    const arr: [SimpleStruct; 3] = [
+        SimpleStruct{ value: 1 },
+        SimpleStruct{ value: 2 },
+        SimpleStruct{ value: 3 }
+    ];
+    
+    hello(61);
+    
+    defer {
+        hello(62);
+    }
+    
+    hello(63);
+}
+
+// 主函数
+fn main() i32 {
+    hello(100);
+    test_defer();
+    hello(101);
+    
+    test_errdefer() catch |err| {
+        hello(102);
+    };
+    hello(103);
+    
+    const result1: i32 = test_combined() catch |err| {
+        hello(104);
+        0
+    };
+    hello(105);
+    
+    const result2: i32 = test_combined_error() catch |err| {
+        hello(106);
+        0
+    };
+    hello(107);
+    
+    test_nested_drop();
+    hello(108);
+    
+    test_array_drop();
+    hello(109);
+    
+    hello(110);
+    return 0;
+}

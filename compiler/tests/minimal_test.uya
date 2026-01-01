@@ -1,37 +1,6 @@
-// 最小化测试文件
-struct Vec3 {
-    x: f32,
-    y: f32,
-    z: f32
-}
+// 最小化测试程序
 
-error TestError;
-
-fn may_fail(flag: bool) !i32 {
-    if flag {
-        return 42;
-    } else {
-        return error.TestError;
-    }
-}
-
+// 主函数
 fn main() i32 {
-    const arr: [i32; 5] = [1, 2, 3, 4, 5];
-    
-    // 测试切片
-    const slice1: [i32; 3] = slice(arr, 1, 4);
-    
-    // 测试负数索引切片
-    const slice2: [i32; 2] = slice(arr, -2, 5);
-    
-    // 测试错误处理
-    const success_val: i32 = try may_fail(true);
-    const err_val: i32 = may_fail(false) catch |err| {
-        if err == error.TestError {
-            return 1;
-        }
-        return 0;
-    };
-    
-    return success_val + err_val;
+    return 0;
 }

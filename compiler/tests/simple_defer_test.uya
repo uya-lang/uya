@@ -1,0 +1,26 @@
+// 简单的 defer 测试，只使用变量赋值
+fn main() i32 {
+    // 使用变量来跟踪 defer 执行顺序
+    var order: i32 = 0;
+    
+    defer {
+        // defer 1 - 应该最后执行
+        order = order * 10 + 1;
+    }
+    
+    defer {
+        // defer 2 - 应该先于 defer 1 执行
+        order = order * 10 + 2;
+    }
+    
+    defer {
+        // defer 3 - 应该首先执行
+        order = order * 10 + 3;
+    }
+    
+    // 主函数逻辑
+    order = 100;
+    
+    // 返回最终的 order 值，应该是 100321
+    return order;
+}

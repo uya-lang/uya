@@ -72,6 +72,30 @@ static void codegen_write_type_with_atomic(CodeGenerator *codegen, IRInst *var_i
     }
 }
 
+// Helper function to check if an IR instruction represents an error return value
+static int is_error_return_value(IRInst *inst) {
+    if (!inst) return 0;
+    
+    // Check if it's a function call to error.*
+    if (inst->type == IR_CALL && inst->data.call.func_name) {
+        if (strncmp(inst->data.call.func_name, "error", 5) == 0) {
+            return 1;
+        }
+    }
+    
+    // Check if it's a member access like error.TestError
+    if (inst->type == IR_MEMBER_ACCESS && inst->data.member_access.object) {
+        IRInst *object = inst->data.member_access.object;
+        // Check if object is an identifier named "error"
+        if (object->type == IR_VAR_DECL && object->data.var.name && 
+            strcmp(object->data.var.name, "error") == 0) {
+            return 1;
+        }
+    }
+    
+    return 0;
+}
+
 static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
     if (!inst) {
         fprintf(codegen->output_file, "0");
@@ -321,11 +345,327 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             }
             fprintf(codegen->output_file, ") {\n");
             
-            // 函数体
+            // 如果函数有返回值，定义一个临时变量来保存返回值
+            int has_return_value = inst->data.func.return_type != IR_TYPE_VOID;
+            char *return_var_name = NULL;
+            if (has_return_value) {
+                return_var_name = malloc(32);
+                sprintf(return_var_name, "_return_%s", inst->data.func.name);
+                codegen_write_type(codegen, inst->data.func.return_type);
+                fprintf(codegen->output_file, "  %s;", return_var_name);
+                fprintf(codegen->output_file, "\n");
+            }
+            
+            // 收集defer和errdefer块
+            int defer_count = 0;
+            IRInst **defer_blocks = NULL;
+            int errdefer_count = 0;
+            IRInst **errdefer_blocks = NULL;
+            
+            // 收集需要 drop 的变量（结构体类型且有 original_type_name）
+            typedef struct {
+                char *var_name;
+                char *type_name;
+            } DropVar;
+            DropVar *drop_vars = NULL;
+            int drop_var_count = 0;
+            
+            // 判断当前函数是否是 drop 函数
+            int is_drop_function = (inst->data.func.name && strcmp(inst->data.func.name, "drop") == 0);
+            
+            // 收集函数参数中需要 drop 的变量（drop 函数的参数不需要 drop，因为这是 drop 函数本身）
+            if (!is_drop_function) {
+                for (int i = 0; i < inst->data.func.param_count; i++) {
+                    IRInst *param = inst->data.func.params[i];
+                    if (param && param->data.var.original_type_name) {
+                        // 用户定义的类型，可能有 drop 函数
+                        drop_vars = realloc(drop_vars, (drop_var_count + 1) * sizeof(DropVar));
+                        if (drop_vars) {
+                            drop_vars[drop_var_count].var_name = param->data.var.name;
+                            drop_vars[drop_var_count].type_name = param->data.var.original_type_name;
+                            drop_var_count++;
+                        }
+                    }
+                }
+            }
+            
+            // 跟踪是否有错误返回（用于决定是否执行 errdefer）
+            int has_error_return = 0;
+            
+            // 第一遍：生成普通语句，收集defer和errdefer块，修改return语句，收集需要 drop 的变量
             for (int i = 0; i < inst->data.func.body_count; i++) {
-                fprintf(codegen->output_file, "  ");
-                codegen_generate_inst(codegen, inst->data.func.body[i]);
-                fprintf(codegen->output_file, ";\n");
+                IRInst *body_inst = inst->data.func.body[i];
+                
+                if (body_inst->type == IR_DEFER) {
+                    // 收集defer块
+                    defer_blocks = realloc(defer_blocks, (defer_count + 1) * sizeof(IRInst*));
+                    defer_blocks[defer_count++] = body_inst;
+                    fprintf(codegen->output_file, "  // defer block (collected)\n");
+                } else if (body_inst->type == IR_ERRDEFER) {
+                    // 收集errdefer块
+                    errdefer_blocks = realloc(errdefer_blocks, (errdefer_count + 1) * sizeof(IRInst*));
+                    errdefer_blocks[errdefer_count++] = body_inst;
+                    fprintf(codegen->output_file, "  // errdefer block (collected)\n");
+                } else if (body_inst->type == IR_RETURN) {
+                    // 检查返回值是否为错误值
+                    if (body_inst->data.ret.value && is_error_return_value(body_inst->data.ret.value)) {
+                        has_error_return = 1;
+                    }
+                    
+                    // 修改return语句：保存返回值，然后跳转到函数末尾
+                    if (has_return_value) {
+                        fprintf(codegen->output_file, "  %s = ", return_var_name);
+                        if (body_inst->data.ret.value) {
+                            codegen_write_value(codegen, body_inst->data.ret.value);
+                        } else {
+                            fprintf(codegen->output_file, "0");
+                        }
+                        fprintf(codegen->output_file, ";\n");
+                    }
+                    // 跳转到函数末尾执行defer块
+                    fprintf(codegen->output_file, "  goto _end_%s;\n", inst->data.func.name);
+                } else {
+                    // 直接处理普通语句，避免递归调用codegen_generate_inst
+                    fprintf(codegen->output_file, "  ");
+                    switch (body_inst->type) {
+                        case IR_VAR_DECL:
+                            if (body_inst->data.var.type == IR_TYPE_ARRAY && body_inst->data.var.init &&
+                                body_inst->data.var.init->type == IR_CALL &&
+                                strcmp(body_inst->data.var.init->data.call.func_name, "array") == 0) {
+                                // Special handling for array variable declarations
+                                fprintf(codegen->output_file, "int32_t %s[] = ", body_inst->data.var.name);
+                                codegen_write_value(codegen, body_inst->data.var.init);
+                            } else {
+                                // Regular variable declaration
+                                if (body_inst->data.var.type == IR_TYPE_STRUCT && body_inst->data.var.original_type_name) {
+                                    fprintf(codegen->output_file, "%s %s", body_inst->data.var.original_type_name, body_inst->data.var.name);
+                                    // 收集需要 drop 的变量
+                                    drop_vars = realloc(drop_vars, (drop_var_count + 1) * sizeof(DropVar));
+                                    if (drop_vars) {
+                                        drop_vars[drop_var_count].var_name = body_inst->data.var.name;
+                                        drop_vars[drop_var_count].type_name = body_inst->data.var.original_type_name;
+                                        drop_var_count++;
+                                    }
+                                } else {
+                                    codegen_write_type(codegen, body_inst->data.var.type);
+                                    fprintf(codegen->output_file, " %s", body_inst->data.var.name);
+                                }
+                                if (body_inst->data.var.init) {
+                                    fprintf(codegen->output_file, " = ");
+                                    codegen_write_value(codegen, body_inst->data.var.init);
+                                }
+                            }
+                            break;
+                        case IR_CALL:
+                            if (body_inst->data.call.dest) {
+                                fprintf(codegen->output_file, "%s = ", body_inst->data.call.dest);
+                            }
+                            fprintf(codegen->output_file, "%s(", body_inst->data.call.func_name);
+                            for (int j = 0; j < body_inst->data.call.arg_count; j++) {
+                                if (j > 0) fprintf(codegen->output_file, ", ");
+                                codegen_write_value(codegen, body_inst->data.call.args[j]);
+                            }
+                            fprintf(codegen->output_file, ")");
+                            break;
+                        case IR_ASSIGN:
+                            fprintf(codegen->output_file, "%s = ", body_inst->data.assign.dest);
+                            codegen_write_value(codegen, body_inst->data.assign.src);
+                            break;
+                        case IR_BINARY_OP:
+                            fprintf(codegen->output_file, "%s = ", body_inst->data.binary_op.dest);
+                            codegen_write_value(codegen, body_inst->data.binary_op.left);
+                            switch (body_inst->data.binary_op.op) {
+                                case IR_OP_ADD: fprintf(codegen->output_file, " + "); break;
+                                case IR_OP_SUB: fprintf(codegen->output_file, " - "); break;
+                                case IR_OP_MUL: fprintf(codegen->output_file, " * "); break;
+                                case IR_OP_DIV: fprintf(codegen->output_file, " / "); break;
+                                case IR_OP_EQ: fprintf(codegen->output_file, " == "); break;
+                                case IR_OP_NE: fprintf(codegen->output_file, " != "); break;
+                                case IR_OP_LT: fprintf(codegen->output_file, " < "); break;
+                                case IR_OP_LE: fprintf(codegen->output_file, " <= "); break;
+                                case IR_OP_GT: fprintf(codegen->output_file, " > "); break;
+                                case IR_OP_GE: fprintf(codegen->output_file, " >= "); break;
+                                default: fprintf(codegen->output_file, " UNKNOWN_OP "); break;
+                            }
+                            codegen_write_value(codegen, body_inst->data.binary_op.right);
+                            break;
+                        case IR_IF:
+                            fprintf(codegen->output_file, "if (");
+                            codegen_write_value(codegen, body_inst->data.if_stmt.condition);
+                            fprintf(codegen->output_file, ") {");
+                            for (int j = 0; j < body_inst->data.if_stmt.then_count; j++) {
+                                fprintf(codegen->output_file, "\n  ");
+                                // 递归处理if语句的then分支
+                                codegen_generate_inst(codegen, body_inst->data.if_stmt.then_body[j]);
+                                fprintf(codegen->output_file, ";");
+                            }
+                            if (body_inst->data.if_stmt.else_body) {
+                                fprintf(codegen->output_file, "\n} else {");
+                                for (int j = 0; j < body_inst->data.if_stmt.else_count; j++) {
+                                    fprintf(codegen->output_file, "\n  ");
+                                    // 递归处理if语句的else分支
+                                    codegen_generate_inst(codegen, body_inst->data.if_stmt.else_body[j]);
+                                    fprintf(codegen->output_file, ";");
+                                }
+                            }
+                            fprintf(codegen->output_file, "\n  }");
+                            break;
+                        case IR_WHILE:
+                            fprintf(codegen->output_file, "while (");
+                            codegen_write_value(codegen, body_inst->data.while_stmt.condition);
+                            fprintf(codegen->output_file, ") {");
+                            for (int j = 0; j < body_inst->data.while_stmt.body_count; j++) {
+                                fprintf(codegen->output_file, "\n  ");
+                                // 递归处理while语句的body
+                                codegen_generate_inst(codegen, body_inst->data.while_stmt.body[j]);
+                                fprintf(codegen->output_file, ";");
+                            }
+                            fprintf(codegen->output_file, "\n  }");
+                            break;
+                        case IR_BLOCK: {
+                            // Generate nested block with defer handling: { ... }
+                            // Collect defers from the block
+                            int block_defer_count = 0;
+                            IRInst **block_defer_blocks = NULL;
+                            int block_errdefer_count = 0;
+                            IRInst **block_errdefer_blocks = NULL;
+                            
+                            fprintf(codegen->output_file, "{\n");
+                            for (int j = 0; j < body_inst->data.block.inst_count; j++) {
+                                IRInst *block_stmt = body_inst->data.block.insts[j];
+                                if (!block_stmt) continue;
+                                
+                                if (block_stmt->type == IR_DEFER) {
+                                    block_defer_blocks = realloc(block_defer_blocks, (block_defer_count + 1) * sizeof(IRInst*));
+                                    block_defer_blocks[block_defer_count++] = block_stmt;
+                                    fprintf(codegen->output_file, "    // defer block (collected)\n");
+                                } else if (block_stmt->type == IR_ERRDEFER) {
+                                    block_errdefer_blocks = realloc(block_errdefer_blocks, (block_errdefer_count + 1) * sizeof(IRInst*));
+                                    block_errdefer_blocks[block_errdefer_count++] = block_stmt;
+                                    fprintf(codegen->output_file, "    // errdefer block (collected)\n");
+                                } else {
+                                    fprintf(codegen->output_file, "    ");
+                                    codegen_generate_inst(codegen, block_stmt);
+                                    fprintf(codegen->output_file, ";\n");
+                                }
+                            }
+                            
+                            // Generate defer blocks in LIFO order at the end of the block
+                            if (block_errdefer_count > 0 && block_errdefer_blocks) {
+                                for (int j = block_errdefer_count - 1; j >= 0; j--) {
+                                    IRInst *errdefer_inst = block_errdefer_blocks[j];
+                                    if (!errdefer_inst) continue;
+                                    if (errdefer_inst->data.errdefer.body) {
+                                        for (int k = 0; k < errdefer_inst->data.errdefer.body_count; k++) {
+                                            if (!errdefer_inst->data.errdefer.body[k]) continue;
+                                            fprintf(codegen->output_file, "    ");
+                                            codegen_generate_inst(codegen, errdefer_inst->data.errdefer.body[k]);
+                                            fprintf(codegen->output_file, ";\n");
+                                        }
+                                    }
+                                }
+                                free(block_errdefer_blocks);
+                            }
+                            if (block_defer_count > 0 && block_defer_blocks) {
+                                for (int j = block_defer_count - 1; j >= 0; j--) {
+                                    IRInst *defer_inst = block_defer_blocks[j];
+                                    if (!defer_inst) continue;
+                                    if (defer_inst->data.defer.body) {
+                                        for (int k = 0; k < defer_inst->data.defer.body_count; k++) {
+                                            if (!defer_inst->data.defer.body[k]) continue;
+                                            fprintf(codegen->output_file, "    ");
+                                            codegen_generate_inst(codegen, defer_inst->data.defer.body[k]);
+                                            fprintf(codegen->output_file, ";\n");
+                                        }
+                                    }
+                                }
+                                free(block_defer_blocks);
+                            }
+                            fprintf(codegen->output_file, "  }");
+                            break;
+                        }
+                        // 处理其他指令类型...
+                        default:
+                            fprintf(codegen->output_file, "/* Unknown instruction: %d */", body_inst->type);
+                            break;
+                    }
+                    fprintf(codegen->output_file, ";\n");
+                }
+            }
+            
+            // 函数末尾标签
+            fprintf(codegen->output_file, "_end_%s:\n", inst->data.func.name);
+            
+            // 第二遍：按照后进先出的顺序生成errdefer块代码（仅在错误返回时执行）
+            // 注意：由于错误处理机制（!T 类型）尚未完全实现，errdefer 的正确实现需要完整的错误处理支持
+            // 临时实现：对于有 errdefer 块的函数，暂时在所有返回路径执行 errdefer
+            // TODO: 完整实现需要能够区分每个 return 路径，只在错误返回路径执行 errdefer
+            // 正确的实现需要：
+            // 1. 保留 !T 错误联合类型信息（目前被转换为基础类型）
+            // 2. 在运行时或编译时检测返回值是否为错误值
+            // 3. 只在错误返回路径执行 errdefer，正常返回路径不执行
+            if (errdefer_count > 0 && errdefer_blocks) {
+                fprintf(codegen->output_file, "  // Generated errdefer blocks in LIFO order (error return detected)\n");
+                for (int i = errdefer_count - 1; i >= 0; i--) {
+                    IRInst *errdefer_inst = errdefer_blocks[i];
+                    if (!errdefer_inst) continue;
+                    fprintf(codegen->output_file, "  // errdefer block %d\n", i);
+                    if (errdefer_inst->data.errdefer.body) {
+                        for (int j = 0; j < errdefer_inst->data.errdefer.body_count; j++) {
+                            if (!errdefer_inst->data.errdefer.body[j]) continue;
+                            fprintf(codegen->output_file, "  ");
+                            // 使用codegen_generate_inst函数处理errdefer体中的所有指令类型
+                            codegen_generate_inst(codegen, errdefer_inst->data.errdefer.body[j]);
+                            fprintf(codegen->output_file, ";\n");
+                        }
+                    }
+                }
+            }
+            
+            // 第三遍：按照后进先出的顺序生成defer块代码
+            if (defer_count > 0 && defer_blocks) {
+                fprintf(codegen->output_file, "  // Generated defer blocks in LIFO order\n");
+                for (int i = defer_count - 1; i >= 0; i--) {
+                    IRInst *defer_inst = defer_blocks[i];
+                    if (!defer_inst) continue;
+                    fprintf(codegen->output_file, "  // defer block %d\n", i);
+                    if (defer_inst->data.defer.body) {
+                        for (int j = 0; j < defer_inst->data.defer.body_count; j++) {
+                            if (!defer_inst->data.defer.body[j]) continue;
+                            fprintf(codegen->output_file, "  ");
+                            // 使用codegen_generate_inst函数处理defer体中的所有指令类型
+                            codegen_generate_inst(codegen, defer_inst->data.defer.body[j]);
+                            fprintf(codegen->output_file, ";\n");
+                        }
+                    }
+                }
+            }
+            
+            // 第四遍：按照后进先出的顺序生成 drop 调用（在 defer 之后、return 之前）
+            if (drop_var_count > 0 && drop_vars) {
+                fprintf(codegen->output_file, "  // Generated drop calls in LIFO order\n");
+                for (int i = drop_var_count - 1; i >= 0; i--) {
+                    if (drop_vars[i].var_name && drop_vars[i].type_name) {
+                        fprintf(codegen->output_file, "  drop(%s);\n", drop_vars[i].var_name);
+                    }
+                }
+                free(drop_vars);
+            }
+            
+            // 最后返回保存的返回值
+            if (has_return_value) {
+                fprintf(codegen->output_file, "  return %s;\n", return_var_name);
+                free(return_var_name);
+            } else {
+                fprintf(codegen->output_file, "  return;\n");
+            }
+            
+            // 释放defer和errdefer块数组
+            if (defer_blocks) {
+                free(defer_blocks);
+            }
+            if (errdefer_blocks) {
+                free(errdefer_blocks);
             }
             
             fprintf(codegen->output_file, "}\n\n");
@@ -414,6 +754,8 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             break;
             
         case IR_RETURN:
+            // This case should only be called for return statements not inside function bodies
+            // Inside function bodies, return statements are handled specially in IR_FUNC_DEF case
             fprintf(codegen->output_file, "return ");
             if (inst->data.ret.value) {
                 codegen_write_value(codegen, inst->data.ret.value);
@@ -512,6 +854,47 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             fprintf(codegen->output_file, "} %s;\n\n", inst->data.struct_decl.name);
             break;
 
+        case IR_DROP:
+            // Generate drop call: drop(var_name)
+            if (inst->data.drop.var_name) {
+                fprintf(codegen->output_file, "drop(%s)", inst->data.drop.var_name);
+            }
+            break;
+            
+        case IR_DEFER:
+            // Defer implementation in C - generate code directly in the function
+            fprintf(codegen->output_file, "// defer block\n");
+            // Generate the defer body directly
+            for (int i = 0; i < inst->data.defer.body_count; i++) {
+                fprintf(codegen->output_file, "  ");
+                codegen_generate_inst(codegen, inst->data.defer.body[i]);
+                fprintf(codegen->output_file, ";\n");
+            }
+            break;
+            
+        case IR_ERRDEFER:
+            // Errdefer implementation in C - generate code directly in the function
+            fprintf(codegen->output_file, "// errdefer block\n");
+            // Generate the errdefer body directly
+            for (int i = 0; i < inst->data.errdefer.body_count; i++) {
+                fprintf(codegen->output_file, "  ");
+                codegen_generate_inst(codegen, inst->data.errdefer.body[i]);
+                fprintf(codegen->output_file, ";\n");
+            }
+            break;
+
+        case IR_BLOCK:
+            // Generate block: { ... }
+            fprintf(codegen->output_file, "{\n");
+            for (int i = 0; i < inst->data.block.inst_count; i++) {
+                if (!inst->data.block.insts[i]) continue;
+                fprintf(codegen->output_file, "  ");
+                codegen_generate_inst(codegen, inst->data.block.insts[i]);
+                fprintf(codegen->output_file, ";\n");
+            }
+            fprintf(codegen->output_file, "}");
+            break;
+            
         default:
             fprintf(codegen->output_file, "/* Unknown instruction type: %d */", inst->type);
             break;

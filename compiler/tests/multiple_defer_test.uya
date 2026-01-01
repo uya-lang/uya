@@ -1,0 +1,34 @@
+// 测试多个 defer 块的执行顺序
+fn main() i32 {
+    // 模拟输出函数，实际编译时会被处理为 IR_CALL
+    defer {
+        // defer 1 - 应该最后执行
+        call1();
+    }
+    
+    defer {
+        // defer 2 - 应该先于 defer 1 执行
+        call2();
+    }
+    
+    defer {
+        // defer 3 - 应该首先执行
+        call3();
+    }
+    
+    // 返回值
+    return 0;
+}
+
+// 模拟函数调用
+fn call1() void {
+    // 实际生成代码时会被处理为函数调用
+}
+
+fn call2() void {
+    // 实际生成代码时会被处理为函数调用
+}
+
+fn call3() void {
+    // 实际生成代码时会被处理为函数调用
+}

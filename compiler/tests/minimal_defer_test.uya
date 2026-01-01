@@ -1,0 +1,14 @@
+// 最小化的 defer 测试程序
+
+extern i32 printf(byte* fmt, ...);
+
+fn main() i32 {
+    printf("Entering main\n");
+    
+    defer {
+        printf("Defer executed\n");
+    }
+    
+    printf("Exiting main\n");
+    return 0;
+}

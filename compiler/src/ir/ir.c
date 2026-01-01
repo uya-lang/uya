@@ -204,6 +204,24 @@ void irinst_free(IRInst *inst) {
             }
             break;
 
+        case IR_DEFER:
+            if (inst->data.defer.body) {
+                for (int i = 0; i < inst->data.defer.body_count; i++) {
+                    irinst_free(inst->data.defer.body[i]);
+                }
+                free(inst->data.defer.body);
+            }
+            break;
+
+        case IR_ERRDEFER:
+            if (inst->data.errdefer.body) {
+                for (int i = 0; i < inst->data.errdefer.body_count; i++) {
+                    irinst_free(inst->data.errdefer.body[i]);
+                }
+                free(inst->data.errdefer.body);
+            }
+            break;
+
         default:
             break;
     }

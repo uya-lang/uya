@@ -1,0 +1,57 @@
+// 简单的 drop、defer 测试程序
+
+// 外部函数声明
+extern i32 printf(byte* fmt, ...);
+
+// 测试 1: 自定义 drop 函数
+struct TestStruct {
+    value: i32
+}
+
+fn drop(self: TestStruct) void {
+    printf("TestStruct drop: value %d\n", self.value);
+}
+
+// 测试 2: defer 基本使用
+fn test_defer() void {
+    printf("Entering test_defer\n");
+    
+    defer {
+        printf("Defer 1 executed\n");
+    }
+    
+    defer {
+        printf("Defer 2 executed\n");
+    }
+    
+    printf("Exiting test_defer\n");
+}
+
+// 测试 3: drop 自动调用
+fn test_drop() void {
+    printf("Entering test_drop\n");
+    
+    const t: TestStruct = TestStruct{ value: 42 };
+    printf("Created TestStruct: %d\n", t.value);
+    
+    printf("Exiting test_drop\n");
+    // 离开作用域时自动调用 drop(t)
+}
+
+// 主函数
+fn main() i32 {
+    printf("=== Uya Drop/Defer Test ===\n\n");
+    
+    // 测试 defer
+    printf("--- Test 1: Basic Defer ---\n");
+    test_defer();
+    printf("\n");
+    
+    // 测试 drop
+    printf("--- Test 2: Automatic Drop ---\n");
+    test_drop();
+    printf("\n");
+    
+    printf("=== All Tests Completed ===\n");
+    return 0;
+}

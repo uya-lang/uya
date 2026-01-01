@@ -1,0 +1,16 @@
+// 包含实际语句的defer测试程序
+
+// 外部函数声明
+extern i32 printf(byte* fmt, ...);
+
+// 主函数
+fn main() i32 {
+    printf("Entering main\n");
+    
+    defer {
+        printf("Defer executed\n");
+    }
+    
+    printf("Exiting main\n");
+    return 0;
+}

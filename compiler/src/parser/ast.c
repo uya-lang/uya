@@ -181,6 +181,14 @@ void ast_free(ASTNode *node) {
             ast_free(node->data.test_block.body);
             break;
             
+        case AST_DEFER_STMT:
+            ast_free(node->data.defer_stmt.body);
+            break;
+            
+        case AST_ERRDEFER_STMT:
+            ast_free(node->data.errdefer_stmt.body);
+            break;
+            
         default:
             // 其他类型暂不处理
             break;

@@ -978,6 +978,41 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
             // 设置函数作用域级别
             checker->scopes->current_level = function_scope_level;
             
+            // 检查是否为drop函数
+            if (strcmp(node->data.fn_decl.name, "drop") == 0) {
+                // 验证drop函数签名：fn drop(self: T) void
+                if (node->data.fn_decl.param_count != 1) {
+                    typechecker_add_error(checker, 
+                        "drop函数必须有且只有一个参数 (行 %d:%d)", 
+                        node->line, node->column);
+                    checker->scopes->current_level = saved_scope_level;
+                    return 0;
+                }
+                
+                ASTNode *param = node->data.fn_decl.params[0];
+                if (param->type != AST_VAR_DECL) {
+                    typechecker_add_error(checker, 
+                        "drop函数参数必须是有效的变量声明 (行 %d:%d)", 
+                        node->line, node->column);
+                    checker->scopes->current_level = saved_scope_level;
+                    return 0;
+                }
+                
+                // 检查返回类型是否为void
+                if (node->data.fn_decl.return_type && 
+                    node->data.fn_decl.return_type->type == AST_TYPE_NAMED && 
+                    strcmp(node->data.fn_decl.return_type->data.type_named.name, "void") != 0) {
+                    typechecker_add_error(checker, 
+                        "drop函数必须返回void类型 (行 %d:%d)", 
+                        node->line, node->column);
+                    checker->scopes->current_level = saved_scope_level;
+                    return 0;
+                }
+                
+                // TODO: 保存drop函数信息到类型系统中
+                // 这里需要为类型存储对应的drop函数
+            }
+            
             // 添加参数到符号表（参数在函数作用域内，应该标记为已初始化）
             for (int i = 0; i < node->data.fn_decl.param_count; i++) {
                 ASTNode *param = node->data.fn_decl.params[i];

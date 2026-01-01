@@ -959,6 +959,9 @@ static ASTNode *parser_parse_return_stmt(Parser *parser) {
 }
 
 // 解析语句
+static ASTNode *parser_parse_defer_stmt(Parser *parser);
+static ASTNode *parser_parse_errdefer_stmt(Parser *parser);
+
 static ASTNode *parser_parse_statement(Parser *parser) {
     if (!parser->current_token) {
         return NULL;
@@ -974,6 +977,13 @@ static ASTNode *parser_parse_statement(Parser *parser) {
         return parser_parse_while_stmt(parser);
     } else if (parser_match(parser, TOKEN_FOR)) {
         return parser_parse_for_stmt(parser);
+    } else if (parser_match(parser, TOKEN_DEFER)) {
+        return parser_parse_defer_stmt(parser);
+    } else if (parser_match(parser, TOKEN_ERRDEFER)) {
+        return parser_parse_errdefer_stmt(parser);
+    } else if (parser_match(parser, TOKEN_LEFT_BRACE)) {
+        // Parse standalone block statement: { ... }
+        return parser_parse_block(parser);
     } else {
         // Parse as expression statement (which may include assignments)
         return parser_parse_expression(parser);
@@ -1201,6 +1211,60 @@ static ASTNode *parser_parse_for_stmt(Parser *parser) {
     for_stmt->data.for_stmt.body = body;
 
     return for_stmt;
+}
+
+// 解析 defer 语句
+static ASTNode *parser_parse_defer_stmt(Parser *parser) {
+    if (!parser_match(parser, TOKEN_DEFER)) {
+        return NULL;
+    }
+
+    int line = parser->current_token->line;
+    int col = parser->current_token->column;
+    const char *filename = parser->current_token->filename;
+
+    parser_consume(parser); // 消费 'defer'
+
+    ASTNode *defer_stmt = ast_new_node(AST_DEFER_STMT, line, col, filename);
+    if (!defer_stmt) {
+        return NULL;
+    }
+
+    // 解析 defer 块
+    defer_stmt->data.defer_stmt.body = parser_parse_block(parser);
+    if (!defer_stmt->data.defer_stmt.body) {
+        ast_free(defer_stmt);
+        return NULL;
+    }
+
+    return defer_stmt;
+}
+
+// 解析 errdefer 语句
+static ASTNode *parser_parse_errdefer_stmt(Parser *parser) {
+    if (!parser_match(parser, TOKEN_ERRDEFER)) {
+        return NULL;
+    }
+
+    int line = parser->current_token->line;
+    int col = parser->current_token->column;
+    const char *filename = parser->current_token->filename;
+
+    parser_consume(parser); // 消费 'errdefer'
+
+    ASTNode *errdefer_stmt = ast_new_node(AST_ERRDEFER_STMT, line, col, filename);
+    if (!errdefer_stmt) {
+        return NULL;
+    }
+
+    // 解析 errdefer 块
+    errdefer_stmt->data.errdefer_stmt.body = parser_parse_block(parser);
+    if (!errdefer_stmt->data.errdefer_stmt.body) {
+        ast_free(errdefer_stmt);
+        return NULL;
+    }
+
+    return errdefer_stmt;
 }
 
 // 解析代码块

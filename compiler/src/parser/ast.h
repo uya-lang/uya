@@ -203,6 +203,16 @@ typedef struct ASTNode {
             struct ASTNode *body;
         } for_stmt;
 
+        // defer 语句
+        struct {
+            struct ASTNode *body;        // defer 块
+        } defer_stmt;
+
+        // errdefer 语句
+        struct {
+            struct ASTNode *body;        // errdefer 块
+        } errdefer_stmt;
+
         // 结构体初始化表达式
         struct {
             char *struct_name;

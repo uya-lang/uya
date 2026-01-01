@@ -37,6 +37,9 @@ typedef enum {
     IR_FOR,            // for 循环
     IR_CONSTANT,       // 常量值
     IR_STRUCT_INIT,    // 结构体初始化
+    IR_DROP,           // 变量 drop 调用
+    IR_DEFER,          // defer 块
+    IR_ERRDEFER,       // errdefer 块
 } IRInstType;
 
 // 数据类型
@@ -244,6 +247,24 @@ typedef struct IRInst {
             char *field_name;          // 字段名称
             char *dest;                // 目标变量（存储访问结果）
         } member_access;
+
+        // drop 调用
+        struct {
+            char *var_name;             // 要 drop 的变量名称
+            char *type_name;            // 变量类型名称
+        } drop;
+
+        // defer 块
+        struct {
+            struct IRInst **body;       // defer 块中的指令
+            int body_count;             // defer 块中的指令数量
+        } defer;
+
+        // errdefer 块
+        struct {
+            struct IRInst **body;       // errdefer 块中的指令
+            int body_count;             // errdefer 块中的指令数量
+        } errdefer;
     } data;
 } IRInst;
 

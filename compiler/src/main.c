@@ -4,9 +4,24 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
-#include <dirent.h>
-#include <sys/stat.h>
-#include <unistd.h>
+
+// 跨平台目录操作支持
+#ifdef _WIN32
+    #include <windows.h>
+    #include <io.h>
+    #define access _access
+    #define R_OK 04
+    // snprintf 兼容性（MSVC 2015+ 支持，但为了兼容性添加）
+    #ifndef _MSC_VER
+        #include <stdio.h>
+    #elif _MSC_VER < 1900
+        #define snprintf _snprintf
+    #endif
+#else
+    #include <dirent.h>
+    #include <sys/stat.h>
+    #include <unistd.h>
+#endif
 
 #include "lexer/lexer.h"
 #include "parser/parser.h"
@@ -23,120 +38,110 @@ typedef struct {
     ASTNode *body;
 } TestBlockInfo;
 
-// 错误处理
-void error(const char *format, ...) {
+// 错误处理（打印错误信息，但不退出）
+static void print_error(const char *format, ...) {
     va_list args;
     va_start(args, format);
     fprintf(stderr, "错误: ");
     vfprintf(stderr, format, args);
     fprintf(stderr, "\n");
     va_end(args);
-    exit(1);
 }
 
-// 主编译函数
+// 主编译函数（使用 goto 进行统一的资源清理）
 int compile_file(const char *input_file, const char *output_file) {
     printf("编译 %s -> %s\n", input_file, output_file);
 
+    // 初始化所有资源为 NULL，方便统一清理
+    Lexer *lexer = NULL;
+    Parser *parser = NULL;
+    ASTNode *ast = NULL;
+    TypeChecker *checker = NULL;
+    IRGenerator *ir_gen = NULL;
+    IRGenerator *ir_result = NULL;
+    CodeGenerator *codegen = NULL;
+    int result = 0;
+
     // 1. 词法分析
-    Lexer *lexer = lexer_new(input_file);
+    lexer = lexer_new(input_file);
     if (!lexer) {
-        error("无法创建词法分析器");
-        return 1;
+        print_error("无法创建词法分析器");
+        result = 1;
+        goto cleanup;
     }
 
     // 2. 语法分析
-    Parser *parser = parser_new(lexer);
+    parser = parser_new(lexer);
     if (!parser) {
-        error("无法创建语法分析器");
-        lexer_free(lexer);
-        return 1;
+        print_error("无法创建语法分析器");
+        result = 1;
+        goto cleanup;
     }
 
-    ASTNode *ast = parser_parse(parser);
+    ast = parser_parse(parser);
     if (!ast) {
-        error("语法分析失败");
-        parser_free(parser);
-        lexer_free(lexer);
-        return 1;
+        print_error("语法分析失败");
+        result = 1;
+        goto cleanup;
     }
 
     // 3. 类型检查
-    TypeChecker *checker = typechecker_new();
+    checker = typechecker_new();
     if (!checker) {
-        error("无法创建类型检查器");
-        ast_free(ast);
-        parser_free(parser);
-        lexer_free(lexer);
-        return 1;
+        print_error("无法创建类型检查器");
+        result = 1;
+        goto cleanup;
     }
 
     if (!typechecker_check(checker, ast)) {
         // 类型检查器已经打印了错误信息
-        typechecker_free(checker);
-        ast_free(ast);
-        parser_free(parser);
-        lexer_free(lexer);
-        return 1;
+        result = 1;
+        goto cleanup;
     }
 
     // 4. IR 生成
-    IRGenerator *ir_gen = irgenerator_new();
+    ir_gen = irgenerator_new();
     if (!ir_gen) {
-        error("无法创建 IR 生成器");
-        typechecker_free(checker);
-        ast_free(ast);
-        parser_free(parser);
-        lexer_free(lexer);
-        return 1;
+        print_error("无法创建 IR 生成器");
+        result = 1;
+        goto cleanup;
     }
 
-    IRGenerator *ir_result = irgenerator_generate(ir_gen, ast);
+    ir_result = irgenerator_generate(ir_gen, ast);
     if (!ir_result) {
-        error("IR 生成失败");
-        irgenerator_free(ir_gen);
-        typechecker_free(checker);
-        ast_free(ast);
-        parser_free(parser);
-        lexer_free(lexer);
-        return 1;
+        print_error("IR 生成失败");
+        result = 1;
+        goto cleanup;
     }
 
     // 5. 代码生成
-    CodeGenerator *codegen = codegen_new();
+    codegen = codegen_new();
     if (!codegen) {
-        error("无法创建代码生成器");
-        ir_free(ir_result);
-        irgenerator_free(ir_gen);
-        typechecker_free(checker);
-        ast_free(ast);
-        parser_free(parser);
-        lexer_free(lexer);
-        return 1;
+        print_error("无法创建代码生成器");
+        result = 1;
+        goto cleanup;
     }
 
     if (!codegen_generate(codegen, ir_result, output_file)) {
-        error("代码生成失败");
-        codegen_free(codegen);
-        ir_free(ir_result);
-        irgenerator_free(ir_gen);
-        typechecker_free(checker);
-        ast_free(ast);
-        parser_free(parser);
-        lexer_free(lexer);
-        return 1;
+        print_error("代码生成失败");
+        result = 1;
+        goto cleanup;
     }
 
-    // 清理资源
-    codegen_free(codegen);
-    ir_free(ir_result);  // 清理IR资源
-    typechecker_free(checker);
-    ast_free(ast);
-    parser_free(parser);
-    lexer_free(lexer);
-
     printf("编译成功完成\n");
-    return 0;
+
+cleanup:
+    // 统一清理资源（按相反顺序）
+    if (codegen) codegen_free(codegen);
+    // ir_result 和 ir_gen 是同一个对象（irgenerator_generate 返回传入的 ir_gen）
+    // 所以只需要释放 ir_gen 一次
+    if (ir_gen) irgenerator_free(ir_gen);
+    if (checker) typechecker_free(checker);
+    if (ast) ast_free(ast);
+    if (parser) parser_free(parser);
+    if (lexer) lexer_free(lexer);
+
+    return result;
 }
 
 // 检查文件是否是 .uya 文件
@@ -148,6 +153,52 @@ static int is_uya_file(const char *filename) {
 
 // 递归扫描目录中的 .uya 文件（简化版：仅扫描当前目录）
 static int collect_uya_files(const char *dir_path, char ***files, int *count, int *capacity) {
+#ifdef _WIN32
+    WIN32_FIND_DATA find_data;
+    HANDLE find_handle;
+    char search_path[MAX_PATH];
+    const char *search_dir = dir_path ? dir_path : ".";
+    
+    // 构造搜索路径 "dir_path\*.uya"
+    snprintf(search_path, sizeof(search_path), "%s\\*.uya", search_dir);
+    
+    find_handle = FindFirstFileA(search_path, &find_data);
+    if (find_handle == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+    
+    do {
+        // 跳过目录
+        if (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            continue;
+        }
+        
+        // 构造完整路径
+        size_t path_len = strlen(search_dir) + strlen(find_data.cFileName) + 2;
+        char *full_path = malloc(path_len);
+        if (!full_path) {
+            FindClose(find_handle);
+            return 0;
+        }
+        snprintf(full_path, path_len, "%s\\%s", search_dir, find_data.cFileName);
+        
+        // 扩容
+        if (*count >= *capacity) {
+            *capacity = *capacity == 0 ? 8 : *capacity * 2;
+            *files = realloc(*files, *capacity * sizeof(char*));
+            if (!*files) {
+                free(full_path);
+                FindClose(find_handle);
+                return 0;
+            }
+        }
+        
+        (*files)[(*count)++] = full_path;
+    } while (FindNextFileA(find_handle, &find_data));
+    
+    FindClose(find_handle);
+    return 1;
+#else
     DIR *dir = opendir(dir_path ? dir_path : ".");
     if (!dir) {
         return 0;
@@ -165,12 +216,13 @@ static int collect_uya_files(const char *dir_path, char ***files, int *count, in
             // Construct full file path
             char *full_path;
             if (dir_path && strcmp(dir_path, ".") != 0) {
-                full_path = malloc(strlen(dir_path) + strlen(entry->d_name) + 2);
+                size_t path_len = strlen(dir_path) + strlen(entry->d_name) + 2;
+                full_path = malloc(path_len);
                 if (!full_path) {
                     closedir(dir);
                     return 0;
                 }
-                sprintf(full_path, "%s/%s", dir_path, entry->d_name);
+                snprintf(full_path, path_len, "%s/%s", dir_path, entry->d_name);
             } else {
                 full_path = strdup(entry->d_name);
                 if (!full_path) {
@@ -204,6 +256,7 @@ static int collect_uya_files(const char *dir_path, char ***files, int *count, in
 
     closedir(dir);
     return 1;
+#endif
 }
 
 // 从 AST 中收集所有 test 块
@@ -228,7 +281,9 @@ static void collect_test_blocks(ASTNode *ast, TestBlockInfo **tests, int *count,
             }
             test->filename = decl->filename ? strdup(decl->filename) : NULL;
             test->line = decl->line;
-            test->body = decl->data.test_block.body;
+            // 注意：body 暂时设置为 NULL，因为当前未使用
+            // TODO: 当实现测试运行功能时，需要实现 AST 深度复制来保存 body
+            test->body = NULL;
         }
     }
 }
@@ -269,10 +324,10 @@ static int run_test_mode(void) {
         ASTNode *ast = parser_parse(parser);
         if (ast) {
             collect_test_blocks(ast, &tests, &test_count, &test_capacity);
+            // 收集完成后立即释放 AST（因为 body 当前未使用，已设置为 NULL）
+            ast_free(ast);
         }
 
-        // 注意：这里不释放 AST，因为我们需要保留 test 块的 body
-        // 实际实现中应该更仔细地管理内存
         parser_free(parser);
         lexer_free(lexer);
     }
