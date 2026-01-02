@@ -723,7 +723,7 @@
                     </div>
                     <h1>Uya 语言</h1>
                 </div>
-                <div class="version">完整版 · 2025-12-31 · v1.6</div>
+                <div class="version">完整版 · 2026-01-02 · v0.20</div>
                 <p class="tagline">AI友好 · 内存安全 · 并发安全 · 零 GC · 简单易学</p>
                 
                 <div class="core-features">
@@ -798,7 +798,7 @@
             <div class="content">
                 <!-- 核心特性部分 -->
                 <section id="core-features" class="content-section">
-                    <h2>1.6 核心特性</h2>
+                    <h2>0.20 核心特性</h2>
                     
                     <div class="feature-grid">
                         <div class="feature-card atomic">
@@ -1409,6 +1409,75 @@ fn safe_ptr_arith(arr: [i32; 10], offset: i32) !&i32 {
 }</code></pre>
                     </div>
 
+                    <h3>泛型系统（可选特性）</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>示例：泛型容器库</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">// 泛型结构体定义：使用括号明确参数，与实例化对称
+struct ArrayList(T) {
+    items: &[T],
+    capacity: i32,
+    size: i32
+}
+
+// 泛型接口定义：使用括号明确参数
+interface Collection(T) {
+    fn add(self: *Self, item: T) !void;
+    fn get(self: *Self, index: i32) !T;
+    fn size(self: *Self) i32;
+}
+
+// 接口实现：定义和实例化完全对称
+impl ArrayList(T) : Collection(T) {
+    fn add(self: *Self, item: T) !void {
+        if self.size >= self.capacity {
+            return error.Full;
+        }
+        self.items[self.size] = item;
+        self.size = self.size + 1;
+    }
+    
+    fn get(self: *Self, index: i32) !T {
+        if index < 0 || index >= self.size {
+            return error.OutOfBounds;
+        }
+        return self.items[index];
+    }
+    
+    fn size(self: *Self) i32 {
+        return self.size;
+    }
+}
+
+// 泛型算法函数：函数保持自动推断，更简洁
+fn find_index(items: &[T], target: T) i32 {
+    for 0..len(items) |i| {
+        if items[i] == target {
+            return i;
+        }
+    }
+    return -1;
+}
+
+fn main() i32 {
+    // 创建具体类型的 ArrayList（与定义对称）
+    var buffer: [i32; 100] = [0; 100];
+    const list: ArrayList(i32) = ArrayList(i32){
+        items: &buffer[0:100],
+        capacity: 100,
+        size: 0
+    };
+    
+    // 使用泛型函数（自动推断类型）
+    list.add(42);
+    const index = find_index(&list.items[0:list.size], 42);
+    
+    return 0;
+}</code></pre>
+                    </div>
+
                     <h3>溢出处理运算符</h3>
                     <div class="code-block">
                         <div class="code-header">
@@ -1459,7 +1528,7 @@ fn main() i32 {
 
                 <!-- 标准库部分 -->
                 <section id="standard-library" class="content-section">
-                    <h2>标准库（1.6 最小集）</h2>
+                    <h2>标准库（0.20 最小集）</h2>
                     
                     <div class="table-container">
                         <table>
@@ -1559,7 +1628,7 @@ fn main() i32 {
                 <section id="summary" class="content-section">
                     <div class="philosophy-card" style="background: linear-gradient(135deg, #e0f2fe, #f0f9ff);">
                         <h3 style="color: var(--primary);">一句话总结</h3>
-                        <p><strong>Uya 1.6 = AI友好 · 默认即高级内存安全 + 并发安全 + 显式错误处理 + 测试单元</strong>；<br>
+                        <p><strong>Uya 0.20 = AI友好 · 默认即高级内存安全 + 并发安全 + 显式错误处理 + 泛型系统</strong>；<br>
                         <strong>只加 1 个关键字 <code>atomic T</code>，零 lifetime 符号，零 GC</strong>；<br>
                         <strong>所有 UB 必须被编译期证明为安全 → 失败即编译错误</strong>；<br>
                         <strong>通过路径零指令，失败路径不存在，不降级、不插运行时锁。</strong></p>
@@ -1610,8 +1679,8 @@ fn main() i32 {
                 </div>
             </div>
             
-            <div class="copyright">
-                <p>Uya 语言规范 1.6（完整版 · 2025-12-31）</p>
+                <div class="copyright">
+                <p>Uya 语言规范 0.20（完整版 · 2026-01-02）</p>
                 <p>© 2025 Uya 语言项目团队。保留所有权利。</p>
             </div>
         </div>

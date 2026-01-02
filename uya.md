@@ -1,4 +1,4 @@
-# Uya 语言规范 0.19（完整版 · 2026-01-02）
+# Uya 语言规范 0.20（完整版 · 2026-01-02）
 
 > 零GC · 默认高级安全 · 单页纸可读完 · 通过路径零指令  
 > 无lifetime符号 · 无隐式控制
@@ -4395,7 +4395,7 @@ call memcpy(ptr %buf+43, ptr @str.2, i64 2)            ; "\n"
 ------------------------------------------------
 1. 核心规则（仅 3 行）
 ------------------------------------------------
-1. 在 interface / struct / fn 签名里首次出现**未事先声明**的类型标识符 ⇒ 自动视为该定义的**泛型参数**（按出现顺序排）。  
+1. **定义用括号**：`struct S(T)` / `interface I(T)` 在括号中明确声明泛型参数，与实例化 `S(i32)` / `I(i32)` 完全对称；函数保持自动推断，更简洁。  
 2. impl / 调用时把**具体类型**写进括号 `(T1, T2, …)` 即完成单态化；找不到对应参数 ⇒ 编译错误。  
 3. 单态化后走原有全部流程（UB 证明、drop、atomic、接口检查等）。
 
@@ -4404,11 +4404,11 @@ call memcpy(ptr %buf+43, ptr @str.2, i64 2)            ; "\n"
 ------------------------------------------------
 | 场景 | 旧写法 | 泛型写法 | 备注 |
 |---|---|---|---|
-| 泛型接口 | `interface I { fn f(x: i32); }` | `interface I { fn f(x: T); }` | 裸名 `T` 自动成参 |
-| 泛型结构体 | `struct S { x: i32; }` | `struct S { x: T; }` | 裸名 `T` 自动成参 |
-| 泛型函数 | 无 | `fn id(x: T) T { return x; }` | 裸名 `T` 自动成参 |
-| 实例化 | `impl S : I { … }` | `impl S : I(i32) { … }` | 括号内给实参 |
-| 多参数 | 无 | `fn swap(x: A, y: B) (B, A) {…}` | 未声明裸名均成参 |
+| 泛型接口 | `interface I { fn f(x: i32); }` | `interface I(T) { fn f(x: T); }` | 定义用括号，参数顺序明确 |
+| 泛型结构体 | `struct S { x: i32; }` | `struct S(T) { x: T; }` | 定义用括号，与实例化对称 |
+| 泛型函数 | 无 | `fn id(x: T) T { return x; }` | 函数保持自动推断，更简洁 |
+| 实例化 | `impl S : I { … }` | `impl S(T) : I(T) { … }` | 括号内给实参，定义实例化对称 |
+| 多参数 | 无 | `struct Pair(A, B) { x: A, y: B; }` | 多参数用逗号分隔 |
 
 > 括号 `()` 已存在于函数调用/元组，**不算新符号**。
 
@@ -4423,8 +4423,8 @@ call memcpy(ptr %buf+43, ptr @str.2, i64 2)            ; "\n"
 4. 约束：靠"接口位置"表达上界
 ------------------------------------------------
 ```uya
-interface Add {
-    fn add(self: *Self, rhs: R) R;   // R 自动成参
+interface Add(R) {
+    fn add(self: *Self, rhs: R) R;   // R 在括号中明确声明
 }
 
 impl Num : Add(i32) {   // 把 R 换成 i32
@@ -4451,8 +4451,8 @@ const p: f64 = id(3.14); // 第二次调用 → 生成 id_f64
 6. 完整小例子
 ------------------------------------------------
 ```uya
-interface Add {
-    fn add(self: *Self, rhs: R) R;   // R 自动成参
+interface Add(R) {
+    fn add(self: *Self, rhs: R) R;   // R 在括号中明确声明
 }
 
 struct Num { x: i32; }
@@ -4463,7 +4463,7 @@ impl Num : Add(i32) {   // 把 R 换成 i32
     }
 }
 
-fn sum(a: T, b: T) T {        // T 自动成参
+fn sum(a: T, b: T) T {        // 函数保持自动推断，T 自动成参
     return a.add(b);             // 要求 T 实现 Add(i32)
 }
 
@@ -4479,13 +4479,13 @@ fn main() i32 {
 6.1 struct 泛型示例
 ------------------------------------------------
 ```uya
-// 泛型结构体：T 自动成为泛型参数
-struct Vec {
-    data: [T; 10],   // T 自动成参
+// 泛型结构体：使用括号明确参数，与实例化对称
+struct Vec(T) {
+    data: [T; 10],   // T 在括号中明确声明
     len: i32
 }
 
-// 实例化：使用具体类型
+// 实例化：使用具体类型，与定义完全对称
 fn create_i32_vec() Vec(i32) {   // 括号内指定 T = i32
     return Vec(i32){
         data: [0; 10],
@@ -4500,7 +4500,7 @@ fn create_f64_vec() Vec(f64) {   // 括号内指定 T = f64
     };
 }
 
-// 泛型方法
+// 泛型方法：函数保持自动推断
 fn push(self: *Vec(T), item: T) void {   // T 自动成参
     if self.len >= 10 {
         return;  // 简化示例，实际应返回错误
@@ -4557,7 +4557,7 @@ type FileResult = !i32;          // 错误联合类型别名
 type ParseResult = !void;        // 错误联合类型别名
 
 // 泛型类型别名
-struct Vec { data: [T; 10], len: i32 }
+struct Vec(T) { data: [T; 10], len: i32 }
 type IntVec = Vec(i32);          // 泛型实例化别名
 type FloatVec = Vec(f64);        // 泛型实例化别名
 
@@ -4613,6 +4613,101 @@ fn main() i32 {
 **注意**：类型别名在类型系统中被视为与底层类型相同，主要用于提高代码可读性和语义表达。
 
 ------------------------------------------------
+6.3 泛型容器库示例
+------------------------------------------------
+完整的泛型容器库示例，展示定义和实例化的对称性：
+
+```uya
+// 泛型结构体定义：使用括号明确参数
+struct ArrayList(T) {
+    items: &[T],
+    capacity: i32,
+    size: i32
+}
+
+// 泛型接口定义：使用括号明确参数
+interface Collection(T) {
+    fn add(self: *Self, item: T) !void;
+    fn get(self: *Self, index: i32) !T;
+    fn size(self: *Self) i32;
+}
+
+// 接口实现：定义和实例化完全对称
+impl ArrayList(T) : Collection(T) {
+    fn add(self: *Self, item: T) !void {
+        if self.size >= self.capacity {
+            return error.Full;
+        }
+        self.items[self.size] = item;
+        self.size = self.size + 1;
+    }
+    
+    fn get(self: *Self, index: i32) !T {
+        if index < 0 || index >= self.size {
+            return error.OutOfBounds;
+        }
+        return self.items[index];
+    }
+    
+    fn size(self: *Self) i32 {
+        return self.size;
+    }
+}
+
+// 泛型算法函数：函数保持自动推断，更简洁
+fn find_index(items: &[T], target: T) i32 {
+    for 0..len(items) |i| {
+        if items[i] == target {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// 使用示例
+fn main() i32 {
+    // 创建具体类型的 ArrayList
+    var buffer: [i32; 100] = [0; 100];
+    const list: ArrayList(i32) = ArrayList(i32){
+        items: &buffer[0:100],
+        capacity: 100,
+        size: 0
+    };
+    
+    // 装箱为接口类型
+    const collection: Collection(i32) = list;  // 装箱
+    
+    // 使用泛型算法函数
+    var list2: ArrayList(i32) = list;
+    list2.add(10);
+    list2.add(20);
+    list2.add(42);
+    
+    const index = find_index(&list2.items[0:list2.size], 42);
+    // index = 2
+    
+    // 多参数泛型示例
+    struct Pair(A, B) {
+        first: A,
+        second: B
+    }
+    
+    const p: Pair(i32, f64) = Pair(i32, f64){
+        first: 42,
+        second: 3.14
+    };
+    
+    return 0;
+}
+```
+
+**设计要点**：
+- **定义用括号**：`struct ArrayList(T)` 与 `ArrayList(i32)` 完全对称，参数顺序明确
+- **函数自动推断**：泛型函数 `find_index` 保持自动推断，无需显式指定类型参数，更简洁
+- **完全对称**：定义 `struct S(T)` 和实例化 `S(i32)` 使用相同的括号语法，直观清晰
+- **多参数支持**：`struct Pair(A, B)` 支持多个泛型参数，用逗号分隔
+
+------------------------------------------------
 7. 零新增清单
 ------------------------------------------------
 - 新关键字：0  
@@ -4630,7 +4725,7 @@ fn main() i32 {
 ------------------------------------------------
 9. 一句话总结
 ------------------------------------------------
-Uya 泛型 = **"签名里写个没声明的类型名"** + `impl` 时括号里给实参；零关键字、零符号、零运行时成本，单页纸读完，代码无缝继续用。
+Uya 泛型 = **"定义用括号 `struct S(T)` 与实例化 `S(i32)` 完全对称"** + `impl` 时括号里给实参；函数保持自动推断更简洁；零关键字、零符号、零运行时成本，单页纸读完，代码无缝继续用。
 
 ---
 
