@@ -1,0 +1,43 @@
+// 字符串插值测试用例
+
+extern printf(fmt: *byte, ...) i32;
+
+fn test_basic_interpolation() i32 {
+    const x: i32 = 42;
+    
+    // 基本插值（无格式说明符）
+    const msg: [i8; 32] = "x=${x}\n";
+    printf(&msg[0]);
+    
+    return 0;
+}
+
+fn test_formatted_interpolation() i32 {
+    const x: u32 = 255;
+    const pi: f64 = 3.14159;
+    
+    // 格式化插值
+    const msg: [i8; 64] = "hex=${x:#06x}, pi=${pi:.2f}\n";
+    printf(&msg[0]);
+    
+    return 0;
+}
+
+fn test_multiple_interpolations() i32 {
+    const a: i32 = 10;
+    const b: i32 = 20;
+    const sum: i32 = a + b;
+    
+    const msg: [i8; 64] = "a=${a}, b=${b}, sum=${sum}\n";
+    printf(&msg[0]);
+    
+    return 0;
+}
+
+fn main() i32 {
+    test_basic_interpolation();
+    test_formatted_interpolation();
+    test_multiple_interpolations();
+    return 0;
+}
+

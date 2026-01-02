@@ -228,6 +228,47 @@ void irinst_free(IRInst *inst) {
             }
             break;
 
+        case IR_STRING_INTERPOLATION:
+            // 释放文本段
+            if (inst->data.string_interpolation.text_segments) {
+                for (int i = 0; i < inst->data.string_interpolation.text_count; i++) {
+                    if (inst->data.string_interpolation.text_segments[i]) {
+                        free(inst->data.string_interpolation.text_segments[i]);
+                    }
+                }
+                free(inst->data.string_interpolation.text_segments);
+            }
+            // 释放插值表达式
+            if (inst->data.string_interpolation.interp_exprs) {
+                for (int i = 0; i < inst->data.string_interpolation.interp_count; i++) {
+                    irinst_free(inst->data.string_interpolation.interp_exprs[i]);
+                }
+                free(inst->data.string_interpolation.interp_exprs);
+            }
+            // 释放格式字符串
+            if (inst->data.string_interpolation.format_strings) {
+                for (int i = 0; i < inst->data.string_interpolation.interp_count; i++) {
+                    if (inst->data.string_interpolation.format_strings[i]) {
+                        free(inst->data.string_interpolation.format_strings[i]);
+                    }
+                }
+                free(inst->data.string_interpolation.format_strings);
+            }
+            // 释放常量值
+            if (inst->data.string_interpolation.const_values) {
+                for (int i = 0; i < inst->data.string_interpolation.interp_count; i++) {
+                    if (inst->data.string_interpolation.const_values[i]) {
+                        free(inst->data.string_interpolation.const_values[i]);
+                    }
+                }
+                free(inst->data.string_interpolation.const_values);
+            }
+            // 释放常量标记数组
+            if (inst->data.string_interpolation.is_const) {
+                free(inst->data.string_interpolation.is_const);
+            }
+            break;
+
         default:
             break;
     }

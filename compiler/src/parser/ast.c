@@ -116,6 +116,29 @@ void ast_free(ASTNode *node) {
             }
             break;
             
+        case AST_STRING_INTERPOLATION:
+            // 释放文本段
+            if (node->data.string_interpolation.text_segments) {
+                for (int i = 0; i < node->data.string_interpolation.text_count; i++) {
+                    if (node->data.string_interpolation.text_segments[i]) {
+                        free(node->data.string_interpolation.text_segments[i]);
+                    }
+                }
+                free(node->data.string_interpolation.text_segments);
+            }
+            // 释放插值表达式
+            ast_free_node_list(node->data.string_interpolation.interp_exprs, node->data.string_interpolation.interp_count);
+            // 释放格式说明符
+            if (node->data.string_interpolation.format_specs) {
+                for (int i = 0; i < node->data.string_interpolation.interp_count; i++) {
+                    if (node->data.string_interpolation.format_specs[i].flags) {
+                        free(node->data.string_interpolation.format_specs[i].flags);
+                    }
+                }
+                free(node->data.string_interpolation.format_specs);
+            }
+            break;
+            
         case AST_IF_STMT:
             ast_free(node->data.if_stmt.condition);
             ast_free(node->data.if_stmt.then_branch);
@@ -283,6 +306,36 @@ void ast_print(ASTNode *node, int indent) {
             
         case AST_STRING:
             printf("String: \"%s\"\n", node->data.string.value);
+            break;
+            
+        case AST_STRING_INTERPOLATION:
+            printf("StringInterpolation: (%d segments, %d text, %d interp)\n",
+                   node->data.string_interpolation.segment_count,
+                   node->data.string_interpolation.text_count,
+                   node->data.string_interpolation.interp_count);
+            for (int i = 0; i < node->data.string_interpolation.text_count; i++) {
+                print_indent(indent + 1);
+                printf("Text[%d]: \"%s\"\n", i, node->data.string_interpolation.text_segments[i]);
+            }
+            for (int i = 0; i < node->data.string_interpolation.interp_count; i++) {
+                print_indent(indent + 1);
+                printf("Interp[%d]:\n", i);
+                ast_print(node->data.string_interpolation.interp_exprs[i], indent + 2);
+                if (node->data.string_interpolation.format_specs && node->data.string_interpolation.format_specs[i].type) {
+                    print_indent(indent + 2);
+                    printf("Format: %c", node->data.string_interpolation.format_specs[i].type);
+                    if (node->data.string_interpolation.format_specs[i].flags) {
+                        printf(" flags:%s", node->data.string_interpolation.format_specs[i].flags);
+                    }
+                    if (node->data.string_interpolation.format_specs[i].width >= 0) {
+                        printf(" width:%d", node->data.string_interpolation.format_specs[i].width);
+                    }
+                    if (node->data.string_interpolation.format_specs[i].precision >= 0) {
+                        printf(" precision:%d", node->data.string_interpolation.format_specs[i].precision);
+                    }
+                    printf("\n");
+                }
+            }
             break;
             
         case AST_IF_STMT:

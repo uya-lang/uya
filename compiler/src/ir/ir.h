@@ -41,6 +41,7 @@ typedef enum {
     IR_DEFER,          // defer 块
     IR_ERRDEFER,       // errdefer 块
     IR_ERROR_VALUE,    // 错误值 (error.ErrorName)
+    IR_STRING_INTERPOLATION,  // 字符串插值
 } IRInstType;
 
 // 数据类型
@@ -272,6 +273,18 @@ typedef struct IRInst {
         struct {
             char *error_name;           // 错误名称（如 "TestError"）
         } error_value;
+
+        // 字符串插值
+        struct {
+            char **text_segments;       // 文本段数组
+            int text_count;             // 文本段数量
+            struct IRInst **interp_exprs;  // 插值表达式数组
+            char **format_strings;     // 格式字符串数组（如 "%d", "%#06x", "%.2f"）
+            int *is_const;              // 是否为编译期常量数组（1=常量，0=运行时变量）
+            char **const_values;        // 编译期常量格式化后的字符串数组（仅当 is_const[i]==1 时有效）
+            int interp_count;           // 插值表达式数量
+            int buffer_size;            // 缓冲区大小（编译期计算）
+        } string_interpolation;
     } data;
 } IRInst;
 

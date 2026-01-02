@@ -5,6 +5,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+// 格式说明符结构（用于字符串插值）
+typedef struct FormatSpec {
+    char *flags;        // 格式标志字符串（如 "#", "0", "-", "+", " "）
+    int width;          // 字段宽度（-1 表示未指定）
+    int precision;      // 精度（-1 表示未指定）
+    char type;          // 格式类型字符（'d', 'u', 'x', 'X', 'f', 'e', 'g', 'c', 'p' 等）
+} FormatSpec;
+
 // AST 节点类型枚举
 typedef enum {
     AST_PROGRAM,
@@ -34,6 +42,7 @@ typedef enum {
     AST_IDENTIFIER,
     AST_NUMBER,
     AST_STRING,
+    AST_STRING_INTERPOLATION,
     AST_BOOL,
     AST_NULL,
     AST_ERROR_EXPR,
@@ -132,6 +141,16 @@ typedef struct ASTNode {
         struct {
             char *value;
         } string;
+
+        // 字符串插值
+        struct {
+            char **text_segments;      // 文本段数组
+            struct ASTNode **interp_exprs;  // 插值表达式数组
+            FormatSpec *format_specs;  // 格式说明符数组（与 interp_exprs 对应，可为 NULL）
+            int segment_count;         // 文本段和插值段的总数（交替出现：text, interp, text, interp, ...）
+            int text_count;            // 文本段数量
+            int interp_count;          // 插值段数量
+        } string_interpolation;
 
         // 布尔字面量
         struct {

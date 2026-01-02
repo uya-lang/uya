@@ -453,6 +453,9 @@ IRType typechecker_infer_type(TypeChecker *checker, ASTNode *expr) {
             // 对于二元表达式，返回左操作数的类型（假设左右操作数类型相同）
             return typechecker_infer_type(checker, expr->data.binary_expr.left);
         }
+        case AST_STRING_INTERPOLATION:
+            // 字符串插值的结果类型是数组类型 [i8; N]
+            return IR_TYPE_ARRAY;
         default:
             return IR_TYPE_VOID;
     }
@@ -761,10 +764,18 @@ static int typecheck_var_decl(TypeChecker *checker, ASTNode *node) {
         // 对于数字字面量，假设类型匹配（实际应该更严格）
         IRType init_type = typechecker_infer_type(checker, node->data.var_decl.init);
         if (init_type != IR_TYPE_VOID && !typechecker_type_match(var_type, init_type)) {
-            // 对于数字字面量，允许类型推断
-            if (node->data.var_decl.init->type != AST_NUMBER || 
-                (var_type != IR_TYPE_I32 && var_type != IR_TYPE_I64 && 
-                 var_type != IR_TYPE_F32 && var_type != IR_TYPE_F64)) {
+            // 对于数字字面量，允许类型推断（包括所有整数和浮点类型）
+            if (node->data.var_decl.init->type == AST_NUMBER && 
+                (var_type == IR_TYPE_I32 || var_type == IR_TYPE_I64 || 
+                 var_type == IR_TYPE_I8 || var_type == IR_TYPE_I16 ||
+                 var_type == IR_TYPE_U32 || var_type == IR_TYPE_U64 ||
+                 var_type == IR_TYPE_U8 || var_type == IR_TYPE_U16 ||
+                 var_type == IR_TYPE_F32 || var_type == IR_TYPE_F64)) {
+                // 数字字面量类型推断，允许
+            } else if (node->data.var_decl.init->type == AST_STRING_INTERPOLATION &&
+                       var_type == IR_TYPE_ARRAY) {
+                // 字符串插值与数组类型匹配，允许
+            } else {
                 typechecker_add_error(checker,
                     "变量 '%s' 的类型与初始化表达式类型不匹配 (行 %d:%d)",
                     var_name, node->line, node->column);
@@ -1134,6 +1145,17 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
         case AST_BOOL:
         case AST_STRING:
             return IR_TYPE_PTR;  // 字符串字面量是指针类型
+            
+        case AST_STRING_INTERPOLATION:
+            // TODO: 实现字符串插值的完整类型检查
+            // 需要：1. 检查每个插值表达式的类型 2. 验证格式说明符匹配 3. 计算缓冲区大小
+            // 目前先做基本的检查：确保所有插值表达式都是有效的
+            for (int i = 0; i < node->data.string_interpolation.interp_count; i++) {
+                if (!typecheck_node(checker, node->data.string_interpolation.interp_exprs[i])) {
+                    return 0;
+                }
+            }
+            return 1;  // 暂时通过，后续需要完善
             
         case AST_RETURN_STMT:
             if (node->data.return_stmt.expr) {

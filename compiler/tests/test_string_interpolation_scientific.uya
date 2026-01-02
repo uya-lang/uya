@@ -1,0 +1,16 @@
+extern printf(fmt: *byte, ...) i32;
+
+fn main() i32 {
+    const pi: f64 = 3.14159;
+    const large: f64 = 123456789.0;
+    
+    // 测试科学计数法
+    const msg1: [i8; 64] = "pi in scientific: ${pi:.2e}\n";
+    printf(&msg1[0]);
+    
+    const msg2: [i8; 64] = "large: ${large:.3E}\n";
+    printf(&msg2[0]);
+    
+    return 0;
+}
+

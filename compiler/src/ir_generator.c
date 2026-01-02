@@ -1,6 +1,7 @@
 #include "ir/ir.h"
 #include "parser/ast.h"
 #include "lexer/lexer.h"
+#include "checker/const_eval.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -53,6 +54,35 @@ static IRType get_ir_type(struct ASTNode *ast_type) {
             return get_ir_type(ast_type->data.type_atomic.base_type);
         default:
             return IR_TYPE_VOID;
+    }
+}
+
+// 从表达式节点推断 IR 类型（简化版）
+static IRType infer_ir_type_from_expr(struct ASTNode *expr) {
+    if (!expr) return IR_TYPE_VOID;
+    
+    switch (expr->type) {
+        case AST_NUMBER: {
+            // 检查是否是浮点数字面量
+            const char *value = expr->data.number.value;
+            if (value && (strchr(value, '.') || strchr(value, 'e') || strchr(value, 'E'))) {
+                return IR_TYPE_F64;
+            }
+            return IR_TYPE_I32;
+        }
+        case AST_BOOL:
+            return IR_TYPE_BOOL;
+        case AST_IDENTIFIER:
+            // 对于标识符，默认返回 i32（实际类型应该在类型检查阶段确定）
+            return IR_TYPE_I32;
+        case AST_BINARY_EXPR:
+            // 对于二元表达式，返回左操作数的类型
+            return infer_ir_type_from_expr(expr->data.binary_expr.left);
+        case AST_UNARY_EXPR:
+            // 对于一元表达式，返回操作数的类型
+            return infer_ir_type_from_expr(expr->data.unary_expr.operand);
+        default:
+            return IR_TYPE_I32;  // 默认返回 i32
     }
 }
 
@@ -261,6 +291,329 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
             return const_str;
         }
 
+        case AST_STRING_INTERPOLATION: {
+            // 创建字符串插值 IR 指令
+            IRInst *interp_inst = irinst_new(IR_STRING_INTERPOLATION);
+            if (!interp_inst) return NULL;
+            
+            ASTNode *interp_node = expr;
+            int text_count = interp_node->data.string_interpolation.text_count;
+            int interp_count = interp_node->data.string_interpolation.interp_count;
+            
+            // 分配文本段数组
+            interp_inst->data.string_interpolation.text_segments = malloc(text_count * sizeof(char*));
+            if (!interp_inst->data.string_interpolation.text_segments) {
+                irinst_free(interp_inst);
+                return NULL;
+            }
+            interp_inst->data.string_interpolation.text_count = text_count;
+            
+            // 复制文本段
+            for (int i = 0; i < text_count; i++) {
+                if (interp_node->data.string_interpolation.text_segments[i]) {
+                    size_t len = strlen(interp_node->data.string_interpolation.text_segments[i]);
+                    interp_inst->data.string_interpolation.text_segments[i] = malloc(len + 1);
+                    if (interp_inst->data.string_interpolation.text_segments[i]) {
+                        strcpy(interp_inst->data.string_interpolation.text_segments[i],
+                               interp_node->data.string_interpolation.text_segments[i]);
+                    }
+                } else {
+                    interp_inst->data.string_interpolation.text_segments[i] = NULL;
+                }
+            }
+            
+            // 分配插值表达式数组、格式字符串数组、常量标记数组和常量值数组
+            interp_inst->data.string_interpolation.interp_exprs = malloc(interp_count * sizeof(IRInst*));
+            interp_inst->data.string_interpolation.format_strings = malloc(interp_count * sizeof(char*));
+            interp_inst->data.string_interpolation.is_const = malloc(interp_count * sizeof(int));
+            interp_inst->data.string_interpolation.const_values = malloc(interp_count * sizeof(char*));
+            if (!interp_inst->data.string_interpolation.interp_exprs ||
+                !interp_inst->data.string_interpolation.format_strings ||
+                !interp_inst->data.string_interpolation.is_const ||
+                !interp_inst->data.string_interpolation.const_values) {
+                // 清理已分配的内存
+                for (int i = 0; i < text_count; i++) {
+                    if (interp_inst->data.string_interpolation.text_segments[i]) {
+                        free(interp_inst->data.string_interpolation.text_segments[i]);
+                    }
+                }
+                free(interp_inst->data.string_interpolation.text_segments);
+                if (interp_inst->data.string_interpolation.interp_exprs) {
+                    free(interp_inst->data.string_interpolation.interp_exprs);
+                }
+                if (interp_inst->data.string_interpolation.format_strings) {
+                    free(interp_inst->data.string_interpolation.format_strings);
+                }
+                if (interp_inst->data.string_interpolation.is_const) {
+                    free(interp_inst->data.string_interpolation.is_const);
+                }
+                if (interp_inst->data.string_interpolation.const_values) {
+                    free(interp_inst->data.string_interpolation.const_values);
+                }
+                irinst_free(interp_inst);
+                return NULL;
+            }
+            interp_inst->data.string_interpolation.interp_count = interp_count;
+            
+            // 初始化常量标记和常量值数组
+            for (int i = 0; i < interp_count; i++) {
+                interp_inst->data.string_interpolation.is_const[i] = 0;
+                interp_inst->data.string_interpolation.const_values[i] = NULL;
+            }
+            
+            // 生成插值表达式的 IR 并构建格式字符串
+            for (int i = 0; i < interp_count; i++) {
+                // 生成插值表达式的 IR
+                ASTNode *expr_node = interp_node->data.string_interpolation.interp_exprs[i];
+                IRInst *expr_ir = generate_expr(ir_gen, expr_node);
+                if (!expr_ir) {
+                    // 清理已分配的内存
+                    for (int j = 0; j < i; j++) {
+                        irinst_free(interp_inst->data.string_interpolation.interp_exprs[j]);
+                        if (interp_inst->data.string_interpolation.format_strings[j]) {
+                            free(interp_inst->data.string_interpolation.format_strings[j]);
+                        }
+                    }
+                    for (int j = 0; j < text_count; j++) {
+                        if (interp_inst->data.string_interpolation.text_segments[j]) {
+                            free(interp_inst->data.string_interpolation.text_segments[j]);
+                        }
+                    }
+                    free(interp_inst->data.string_interpolation.text_segments);
+                    free(interp_inst->data.string_interpolation.interp_exprs);
+                    free(interp_inst->data.string_interpolation.format_strings);
+                    irinst_free(interp_inst);
+                    return NULL;
+                }
+                interp_inst->data.string_interpolation.interp_exprs[i] = expr_ir;
+                
+                // 构建格式字符串
+                FormatSpec *spec = &interp_node->data.string_interpolation.format_specs[i];
+                char format_buf[64] = {0};
+                int pos = 0;
+                
+                // 添加 flags
+                if (spec->flags) {
+                    pos += snprintf(format_buf + pos, sizeof(format_buf) - pos, "%s", spec->flags);
+                }
+                
+                // 添加 width
+                if (spec->width >= 0) {
+                    pos += snprintf(format_buf + pos, sizeof(format_buf) - pos, "%d", spec->width);
+                }
+                
+                // 添加 precision
+                if (spec->precision >= 0) {
+                    pos += snprintf(format_buf + pos, sizeof(format_buf) - pos, ".%d", spec->precision);
+                }
+                
+                // 添加 type（如果没有指定，根据表达式类型推断）
+                if (spec->type != '\0') {
+                    format_buf[pos++] = spec->type;
+                } else {
+                    // 根据表达式类型推断默认格式
+                    IRType expr_type = infer_ir_type_from_expr(expr_node);
+                    switch (expr_type) {
+                        case IR_TYPE_I32:
+                        case IR_TYPE_I64:
+                        case IR_TYPE_I8:
+                        case IR_TYPE_I16:
+                            format_buf[pos++] = 'd';
+                            break;
+                        case IR_TYPE_U32:
+                        case IR_TYPE_U64:
+                        case IR_TYPE_U8:
+                        case IR_TYPE_U16:
+                            format_buf[pos++] = 'u';
+                            break;
+                        case IR_TYPE_F32:
+                        case IR_TYPE_F64:
+                            format_buf[pos++] = 'f';
+                            break;
+                        case IR_TYPE_BOOL:
+                            format_buf[pos++] = 'd';  // bool 用 %d 输出
+                            break;
+                        default:
+                            format_buf[pos++] = 'd';  // 默认
+                            break;
+                    }
+                }
+                format_buf[pos] = '\0';
+                
+                // 分配格式字符串
+                interp_inst->data.string_interpolation.format_strings[i] = malloc(strlen(format_buf) + 3);  // "%" + format + "\0"
+                if (interp_inst->data.string_interpolation.format_strings[i]) {
+                    snprintf(interp_inst->data.string_interpolation.format_strings[i],
+                            strlen(format_buf) + 3, "%%%s", format_buf);
+                } else {
+                    interp_inst->data.string_interpolation.format_strings[i] = NULL;
+                }
+                
+                // 检查是否是编译期常量，如果是，在编译期格式化
+                ConstValue const_val;
+                if (const_eval_expr(expr_node, &const_val)) {
+                    // 是编译期常量，在编译期格式化
+                    interp_inst->data.string_interpolation.is_const[i] = 1;
+                    char formatted_buf[128] = {0};
+                    
+                    // 构建完整的格式字符串（包含 %）
+                    char full_format[128] = {0};
+                    snprintf(full_format, sizeof(full_format), "%%%s", format_buf);
+                    
+                    // 根据常量类型和格式说明符格式化
+                    switch (const_val.type) {
+                        case CONST_VAL_INT:
+                            snprintf(formatted_buf, sizeof(formatted_buf), full_format, const_val.value.int_val);
+                            break;
+                        case CONST_VAL_FLOAT:
+                            snprintf(formatted_buf, sizeof(formatted_buf), full_format, const_val.value.float_val);
+                            break;
+                        case CONST_VAL_BOOL:
+                            snprintf(formatted_buf, sizeof(formatted_buf), full_format, const_val.value.bool_val);
+                            break;
+                        default:
+                            interp_inst->data.string_interpolation.is_const[i] = 0;
+                            break;
+                    }
+                    
+                    if (interp_inst->data.string_interpolation.is_const[i]) {
+                        // 保存格式化后的字符串
+                        size_t formatted_len = strlen(formatted_buf);
+                        interp_inst->data.string_interpolation.const_values[i] = malloc(formatted_len + 1);
+                        if (interp_inst->data.string_interpolation.const_values[i]) {
+                            strcpy(interp_inst->data.string_interpolation.const_values[i], formatted_buf);
+                        }
+                    }
+                } else {
+                    // 不是编译期常量，运行时格式化
+                    interp_inst->data.string_interpolation.is_const[i] = 0;
+                }
+            }
+            
+            // 计算缓冲区大小（根据类型和格式说明符查表）
+            int total_size = 0;
+            for (int i = 0; i < interp_count; i++) {
+                ASTNode *expr_node = interp_node->data.string_interpolation.interp_exprs[i];
+                FormatSpec *spec = &interp_node->data.string_interpolation.format_specs[i];
+                
+                // 推断表达式类型
+                IRType expr_type = infer_ir_type_from_expr(expr_node);
+                
+                // 确定格式类型
+                char format_type = spec->type;
+                if (format_type == '\0') {
+                    // 根据表达式类型推断默认格式
+                    switch (expr_type) {
+                        case IR_TYPE_I32:
+                        case IR_TYPE_I64:
+                        case IR_TYPE_I8:
+                        case IR_TYPE_I16:
+                            format_type = 'd';
+                            break;
+                        case IR_TYPE_U32:
+                        case IR_TYPE_U64:
+                        case IR_TYPE_U8:
+                        case IR_TYPE_U16:
+                            format_type = 'u';
+                            break;
+                        case IR_TYPE_F32:
+                        case IR_TYPE_F64:
+                            format_type = 'f';
+                            break;
+                        case IR_TYPE_BOOL:
+                            format_type = 'd';
+                            break;
+                        default:
+                            format_type = 'd';
+                            break;
+                    }
+                }
+                
+                // 根据类型和格式说明符查表计算最大宽度
+                int max_width = 0;
+                int is_long = (expr_type == IR_TYPE_I64 || expr_type == IR_TYPE_U64);
+                
+                switch (format_type) {
+                    case 'd':
+                    case 'u':
+                        if (is_long) {
+                            max_width = 21;  // 64位整数最大21字节（含符号和NUL）
+                        } else {
+                            max_width = 11;  // 32位整数最大11字节（含符号和NUL）
+                        }
+                        break;
+                    case 'x':
+                    case 'X':
+                        if (is_long) {
+                            max_width = 17;  // 64位十六进制最大17字节
+                        } else {
+                            max_width = 8;   // 32位十六进制最大8字节
+                        }
+                        // 检查是否有 # 标志（添加 0x 前缀）
+                        if (spec->flags && strchr(spec->flags, '#')) {
+                            max_width += 2;  // 添加 "0x" 前缀
+                        }
+                        break;
+                    case 'f':
+                    case 'F':
+                        if (expr_type == IR_TYPE_F64) {
+                            max_width = 24;  // f64 最大24字节
+                        } else {
+                            max_width = 16;  // f32 最大16字节
+                        }
+                        break;
+                    case 'e':
+                    case 'E':
+                        // 科学计数法格式：[-]d.ddde[+-]dd
+                        // f64: 符号(1) + 整数(1) + 小数点(1) + 小数部分(最多15位) + e/E(1) + 符号(1) + 指数(3) + NUL(1) = 最多24字节
+                        // f32: 符号(1) + 整数(1) + 小数点(1) + 小数部分(最多6位) + e/E(1) + 符号(1) + 指数(2) + NUL(1) = 最多14字节
+                        if (expr_type == IR_TYPE_F64) {
+                            max_width = 24;  // f64 最大24字节（与 %f 相同）
+                        } else {
+                            max_width = 16;  // f32 最大16字节（与 %f 相同）
+                        }
+                        break;
+                    case 'g':
+                    case 'G':
+                        if (expr_type == IR_TYPE_F64) {
+                            max_width = 24;  // f64 最大24字节
+                        } else {
+                            max_width = 16;  // f32 最大16字节
+                        }
+                        break;
+                    case 'c':
+                        max_width = 2;  // 单字符 + NUL
+                        break;
+                    case 'p':
+                        max_width = 18;  // 指针：0x + 16位十六进制（64位平台）
+                        break;
+                    default:
+                        max_width = 11;  // 默认使用32位整数宽度
+                        break;
+                }
+                
+                // 如果指定了 width，取较大值
+                if (spec->width >= 0 && spec->width + 1 > max_width) {
+                    max_width = spec->width + 1;  // +1 for NUL
+                }
+                
+                total_size += max_width;
+            }
+            
+            // 添加文本段的总长度
+            for (int i = 0; i < text_count; i++) {
+                if (interp_inst->data.string_interpolation.text_segments[i]) {
+                    total_size += strlen(interp_inst->data.string_interpolation.text_segments[i]);
+                }
+            }
+            
+            // 向上对齐到8的倍数（方便对齐，可选）
+            int aligned_size = ((total_size + 7) / 8) * 8;
+            interp_inst->data.string_interpolation.buffer_size = aligned_size > 0 ? aligned_size : 8;
+            
+            return interp_inst;
+        }
+
         case AST_BOOL: {
             // Handle boolean literals
             IRInst *const_bool = irinst_new(IR_CONSTANT);
@@ -426,6 +779,47 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
             }
 
             return struct_init;
+        }
+
+        case AST_SUBSCRIPT_EXPR: {
+            // Handle array subscript access: arr[index]
+            IRInst *subscript = irinst_new(IR_SUBSCRIPT);
+            if (!subscript) return NULL;
+            
+            // Generate the array expression
+            IRInst *array_expr = generate_expr(ir_gen, expr->data.subscript_expr.array);
+            if (!array_expr) {
+                irinst_free(subscript);
+                return NULL;
+            }
+            
+            // Generate the index expression
+            IRInst *index_expr = generate_expr(ir_gen, expr->data.subscript_expr.index);
+            if (!index_expr) {
+                irinst_free(subscript);
+                return NULL;
+            }
+            
+            // Store in member_access structure (reusing the structure)
+            subscript->data.member_access.object = array_expr;
+            
+            // Convert index expression to string for field_name
+            // For now, if index is a constant, use its value; otherwise use a placeholder
+            if (index_expr->type == IR_CONSTANT && index_expr->data.constant.value) {
+                subscript->data.member_access.field_name = malloc(strlen(index_expr->data.constant.value) + 1);
+                if (subscript->data.member_access.field_name) {
+                    strcpy(subscript->data.member_access.field_name, index_expr->data.constant.value);
+                }
+            } else {
+                // For non-constant indices, we need to generate code that evaluates the index
+                // For now, use a placeholder - this should be improved to generate proper code
+                subscript->data.member_access.field_name = malloc(32);
+                if (subscript->data.member_access.field_name) {
+                    snprintf(subscript->data.member_access.field_name, 32, "temp_%d", ir_gen->current_id++);
+                }
+            }
+            
+            return subscript;
         }
 
         default:
@@ -1142,6 +1536,7 @@ static IRInst *generate_stmt_for_body(IRGenerator *ir_gen, struct ASTNode *stmt)
         case AST_IDENTIFIER:
         case AST_NUMBER:
         case AST_STRING:
+        case AST_STRING_INTERPOLATION:
         case AST_BOOL:
         case AST_NULL:
         case AST_MEMBER_ACCESS:

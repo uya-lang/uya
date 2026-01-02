@@ -1,4 +1,5 @@
 #include "const_eval.h"
+#include "../lexer/lexer.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -106,7 +107,7 @@ int const_eval_expr(ASTNode *expr, ConstValue *result) {
                 int overflow = 0;
                 
                 switch (op) {
-                    case 36: // TOKEN_PLUS
+                    case TOKEN_PLUS:
                         result_val = a + b;
                         // 检查溢出（简化版）
                         if ((a > 0 && b > 0 && result_val < a) ||
@@ -114,53 +115,53 @@ int const_eval_expr(ASTNode *expr, ConstValue *result) {
                             overflow = 1;
                         }
                         break;
-                    case 37: // TOKEN_MINUS
+                    case TOKEN_MINUS:
                         result_val = a - b;
                         if ((a > 0 && b < 0 && result_val < a) ||
                             (a < 0 && b > 0 && result_val > a)) {
                             overflow = 1;
                         }
                         break;
-                    case 38: // TOKEN_ASTERISK
+                    case TOKEN_ASTERISK:
                         result_val = a * b;
                         // 简化的溢出检查
                         if (a != 0 && result_val / a != b) {
                             overflow = 1;
                         }
                         break;
-                    case 39: // TOKEN_SLASH
+                    case TOKEN_SLASH:
                         if (b == 0) {
                             return 0;  // 除零错误
                         }
                         result_val = a / b;
                         break;
-                    case 40: // TOKEN_PERCENT
+                    case TOKEN_PERCENT:
                         if (b == 0) {
                             return 0;  // 除零错误
                         }
                         result_val = a % b;
                         break;
-                    case 57: // TOKEN_EQUAL
+                    case TOKEN_EQUAL:
                         result->type = CONST_VAL_BOOL;
                         result->value.bool_val = (a == b);
                         return 1;
-                    case 58: // TOKEN_NOT_EQUAL
+                    case TOKEN_NOT_EQUAL:
                         result->type = CONST_VAL_BOOL;
                         result->value.bool_val = (a != b);
                         return 1;
-                    case 59: // TOKEN_LESS
+                    case TOKEN_LESS:
                         result->type = CONST_VAL_BOOL;
                         result->value.bool_val = (a < b);
                         return 1;
-                    case 60: // TOKEN_LESS_EQUAL
+                    case TOKEN_LESS_EQUAL:
                         result->type = CONST_VAL_BOOL;
                         result->value.bool_val = (a <= b);
                         return 1;
-                    case 61: // TOKEN_GREATER
+                    case TOKEN_GREATER:
                         result->type = CONST_VAL_BOOL;
                         result->value.bool_val = (a > b);
                         return 1;
-                    case 62: // TOKEN_GREATER_EQUAL
+                    case TOKEN_GREATER_EQUAL:
                         result->type = CONST_VAL_BOOL;
                         result->value.bool_val = (a >= b);
                         return 1;
@@ -246,7 +247,7 @@ int const_eval_expr(ASTNode *expr, ConstValue *result) {
             int op = expr->data.unary_expr.op;
             
             switch (op) {
-                case 37: // TOKEN_MINUS (负号)
+                case TOKEN_MINUS:  // 负号
                     if (operand_val.type == CONST_VAL_INT) {
                         result->type = CONST_VAL_INT;
                         result->value.int_val = -operand_val.value.int_val;

@@ -28,6 +28,52 @@ void codegen_free(CodeGenerator *codegen) {
     }
 }
 
+// 处理转义序列并计算实际长度
+static size_t codegen_write_escaped_string(CodeGenerator *codegen, const char *text, size_t text_len) {
+    size_t actual_len = 0;
+    for (size_t j = 0; j < text_len; j++) {
+        if (text[j] == '\\' && j + 1 < text_len) {
+            // 处理转义序列
+            char next = text[j + 1];
+            switch (next) {
+                case 'n':
+                    fprintf(codegen->output_file, "\\n");
+                    actual_len += 1;  // \n 是一个字符
+                    j++;  // 跳过 'n'
+                    break;
+                case 't':
+                    fprintf(codegen->output_file, "\\t");
+                    actual_len += 1;  // \t 是一个字符
+                    j++;  // 跳过 't'
+                    break;
+                case '\\':
+                    fprintf(codegen->output_file, "\\\\");
+                    actual_len += 1;  // \\ 是一个字符
+                    j++;  // 跳过第二个 '\'
+                    break;
+                case '"':
+                    fprintf(codegen->output_file, "\\\"");
+                    actual_len += 1;  // \" 是一个字符
+                    j++;  // 跳过 '"'
+                    break;
+                default:
+                    // 未知转义序列，保持原样
+                    fprintf(codegen->output_file, "\\%c", next);
+                    actual_len += 2;
+                    j++;  // 跳过下一个字符
+                    break;
+            }
+        } else if (text[j] == '"') {
+            fprintf(codegen->output_file, "\\\"");
+            actual_len += 1;
+        } else {
+            fprintf(codegen->output_file, "%c", text[j]);
+            actual_len += 1;
+        }
+    }
+    return actual_len;
+}
+
 static char *codegen_get_type_name(IRType type) {
     switch (type) {
         case IR_TYPE_I8: return "int8_t";
@@ -355,11 +401,28 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
                 fprintf(codegen->output_file, " * 2)");
             } else {
                 // Regular function call
+                // Special handling for printf with array address arguments to avoid format string warnings
+                int is_printf = (strcmp(inst->data.call.func_name, "printf") == 0);
+                int first_arg_is_array_addr = 0;
+                if (is_printf && inst->data.call.arg_count > 0 && inst->data.call.args[0]) {
+                    IRInst *first_arg = inst->data.call.args[0];
+                    // Check if first argument is &array[0] (IR_UNARY_OP with IR_OP_ADDR_OF)
+                    if (first_arg->type == IR_UNARY_OP && first_arg->data.unary_op.op == IR_OP_ADDR_OF) {
+                        first_arg_is_array_addr = 1;
+                    }
+                }
+                
                 fprintf(codegen->output_file, "%s(", inst->data.call.func_name);
                 for (int i = 0; i < inst->data.call.arg_count; i++) {
                     if (i > 0) fprintf(codegen->output_file, ", ");
                     if (inst->data.call.args[i]) {
-                        codegen_write_value(codegen, inst->data.call.args[i]);
+                        if (is_printf && i == 0 && first_arg_is_array_addr) {
+                            // For printf with array address, use "%s" format string
+                            fprintf(codegen->output_file, "\"%%s\", (char*)");
+                            codegen_write_value(codegen, inst->data.call.args[i]);
+                        } else {
+                            codegen_write_value(codegen, inst->data.call.args[i]);
+                        }
                     } else {
                         fprintf(codegen->output_file, "NULL");
                     }
@@ -375,6 +438,22 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
                 codegen_write_value(codegen, inst->data.error_union.value);
             } else {
                 fprintf(codegen->output_file, "/* error union */");
+            }
+            break;
+            
+        case IR_SUBSCRIPT:
+            // Array subscript access: arr[index]
+            // Uses member_access structure: object is the array, field_name is the index (as string)
+            if (inst->data.member_access.object) {
+                codegen_write_value(codegen, inst->data.member_access.object);
+                if (inst->data.member_access.field_name) {
+                    // Check if field_name is a number (constant index) or a variable name
+                    fprintf(codegen->output_file, "[%s]", inst->data.member_access.field_name);
+                } else {
+                    fprintf(codegen->output_file, "[0]"); // Default to index 0
+                }
+            } else {
+                fprintf(codegen->output_file, "/* subscript */");
             }
             break;
             
@@ -603,6 +682,74 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                                     fprintf(codegen->output_file, "int32_t %s[] = ", body_inst->data.var.name);
                                 }
                                 codegen_write_value(codegen, body_inst->data.var.init);
+                            } else if (body_inst->data.var.type == IR_TYPE_ARRAY && body_inst->data.var.init &&
+                                       body_inst->data.var.init->type == IR_STRING_INTERPOLATION) {
+                                // 字符串插值：生成完整的代码（函数体中的处理）
+                                IRInst *interp_inst = body_inst->data.var.init;
+                                int buffer_size = interp_inst->data.string_interpolation.buffer_size;
+                                int text_count = interp_inst->data.string_interpolation.text_count;
+                                int interp_count = interp_inst->data.string_interpolation.interp_count;
+                                
+                                // 生成数组声明
+                                if (body_inst->data.var.original_type_name) {
+                                    fprintf(codegen->output_file, "%s %s[%d] = {0};\n  ", 
+                                            body_inst->data.var.original_type_name, body_inst->data.var.name, buffer_size);
+                                } else {
+                                    fprintf(codegen->output_file, "int8_t %s[%d] = {0};\n  ", 
+                                            body_inst->data.var.name, buffer_size);
+                                }
+                                
+                                // 生成字符串插值代码
+                                // 文本段和插值表达式交替出现：text[0], interp[0], text[1], interp[1], ...
+                                fprintf(codegen->output_file, "int offset_%s = 0;\n  ", body_inst->data.var.name);
+                                int max_segments = (text_count > interp_count) ? text_count : interp_count;
+                                for (int i = 0; i < max_segments; i++) {
+                                    // 先输出文本段（如果有）
+                                    if (i < text_count && interp_inst->data.string_interpolation.text_segments[i]) {
+                                        const char *text = interp_inst->data.string_interpolation.text_segments[i];
+                                        size_t text_len = strlen(text);
+                                        if (text_len > 0) {
+                                            fprintf(codegen->output_file, "memcpy(&%s[offset_%s], \"", body_inst->data.var.name, body_inst->data.var.name);
+                                            size_t actual_len = codegen_write_escaped_string(codegen, text, text_len);
+                                            fprintf(codegen->output_file, "\", %zu);\n  offset_%s += %zu;\n  ", actual_len, body_inst->data.var.name, actual_len);
+                                        }
+                                    }
+                                    
+                                    // 然后输出插值表达式（如果有）
+                                    if (i < interp_count) {
+                                        // 检查是否是编译期常量
+                                        if (interp_inst->data.string_interpolation.is_const[i] &&
+                                            interp_inst->data.string_interpolation.const_values[i]) {
+                                            // 编译期常量：直接使用格式化后的字符串
+                                            const char *const_val = interp_inst->data.string_interpolation.const_values[i];
+                                            size_t const_len = strlen(const_val);
+                                            fprintf(codegen->output_file, "memcpy(&%s[offset_%s], \"", body_inst->data.var.name, body_inst->data.var.name);
+                                            size_t actual_len = codegen_write_escaped_string(codegen, const_val, const_len);
+                                            fprintf(codegen->output_file, "\", %zu);\n  offset_%s += %zu;\n  ", actual_len, body_inst->data.var.name, actual_len);
+                                        } else {
+                                            // 运行时变量：使用 snprintf
+                                            const char *format_str = interp_inst->data.string_interpolation.format_strings[i];
+                                            IRInst *expr_ir = interp_inst->data.string_interpolation.interp_exprs[i];
+                                            
+                                            if (format_str && expr_ir) {
+                                                fprintf(codegen->output_file, "offset_%s += snprintf((char*)&%s[offset_%s], %d - offset_%s, \"%s\", ", 
+                                                        body_inst->data.var.name, body_inst->data.var.name, body_inst->data.var.name, buffer_size, body_inst->data.var.name, format_str);
+                                                codegen_write_value(codegen, expr_ir);
+                                                fprintf(codegen->output_file, ");\n  ");
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if (body_inst->data.var.type == IR_TYPE_ARRAY && body_inst->data.var.init &&
+                                       body_inst->data.var.init->type == IR_CONSTANT &&
+                                       body_inst->data.var.init->data.constant.value &&
+                                       strcmp(body_inst->data.var.init->data.constant.value, "INTERP_PLACEHOLDER") == 0) {
+                                // 向后兼容：旧的占位符格式
+                                if (body_inst->data.var.original_type_name) {
+                                    fprintf(codegen->output_file, "%s %s[] = {0};", body_inst->data.var.original_type_name, body_inst->data.var.name);
+                                } else {
+                                    fprintf(codegen->output_file, "int8_t %s[] = {0};", body_inst->data.var.name);
+                                }
                             } else {
                                 // Regular variable declaration
                                 if (body_inst->data.var.type == IR_TYPE_STRUCT && body_inst->data.var.original_type_name) {
@@ -630,10 +777,31 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                             if (body_inst->data.call.dest) {
                                 fprintf(codegen->output_file, "%s = ", body_inst->data.call.dest);
                             }
+                            // Special handling for printf with array address arguments to avoid format string warnings
+                            int is_printf = (strcmp(body_inst->data.call.func_name, "printf") == 0);
+                            int first_arg_is_array_addr = 0;
+                            if (is_printf && body_inst->data.call.arg_count > 0 && body_inst->data.call.args[0]) {
+                                IRInst *first_arg = body_inst->data.call.args[0];
+                                // Check if first argument is &array[0] (IR_UNARY_OP with IR_OP_ADDR_OF)
+                                if (first_arg->type == IR_UNARY_OP && first_arg->data.unary_op.op == IR_OP_ADDR_OF) {
+                                    first_arg_is_array_addr = 1;
+                                }
+                            }
+                            
                             fprintf(codegen->output_file, "%s(", body_inst->data.call.func_name);
                             for (int j = 0; j < body_inst->data.call.arg_count; j++) {
                                 if (j > 0) fprintf(codegen->output_file, ", ");
-                                codegen_write_value(codegen, body_inst->data.call.args[j]);
+                                if (body_inst->data.call.args[j]) {
+                                    if (is_printf && j == 0 && first_arg_is_array_addr) {
+                                        // For printf with array address, use "%s" format string
+                                        fprintf(codegen->output_file, "\"%%s\", (char*)");
+                                        codegen_write_value(codegen, body_inst->data.call.args[j]);
+                                    } else {
+                                        codegen_write_value(codegen, body_inst->data.call.args[j]);
+                                    }
+                                } else {
+                                    fprintf(codegen->output_file, "NULL");
+                                }
                             }
                             fprintf(codegen->output_file, ")");
                             break;
@@ -926,6 +1094,62 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                     fprintf(codegen->output_file, "int32_t %s[] = ", inst->data.var.name);
                 }
                 codegen_write_value(codegen, inst->data.var.init);  // This will output {1, 2, 3}
+            } else if (inst->data.var.type == IR_TYPE_ARRAY && inst->data.var.init &&
+                       inst->data.var.init->type == IR_STRING_INTERPOLATION) {
+                // 字符串插值：生成完整的代码
+                IRInst *interp_inst = inst->data.var.init;
+                int buffer_size = interp_inst->data.string_interpolation.buffer_size;
+                int text_count = interp_inst->data.string_interpolation.text_count;
+                int interp_count = interp_inst->data.string_interpolation.interp_count;
+                
+                // 生成数组声明
+                if (inst->data.var.original_type_name) {
+                    fprintf(codegen->output_file, "%s %s[%d] = {0};\n  ", 
+                            inst->data.var.original_type_name, inst->data.var.name, buffer_size);
+                } else {
+                    fprintf(codegen->output_file, "int8_t %s[%d] = {0};\n  ", 
+                            inst->data.var.name, buffer_size);
+                }
+                
+                // 生成字符串插值代码
+                fprintf(codegen->output_file, "int offset_%s = 0;\n  ", inst->data.var.name);
+                for (int i = 0; i < text_count || i < interp_count; i++) {
+                    // 先输出文本段
+                    if (i < text_count && interp_inst->data.string_interpolation.text_segments[i]) {
+                        const char *text = interp_inst->data.string_interpolation.text_segments[i];
+                        size_t text_len = strlen(text);
+                        if (text_len > 0) {
+                            // 生成 memcpy 调用
+                            fprintf(codegen->output_file, "memcpy(&%s[offset_%s], \"", inst->data.var.name, inst->data.var.name);
+                            size_t actual_len = codegen_write_escaped_string(codegen, text, text_len);
+                            fprintf(codegen->output_file, "\", %zu);\n  offset_%s += %zu;\n  ", actual_len, inst->data.var.name, actual_len);
+                        }
+                    }
+                    
+                    // 然后输出插值表达式
+                    if (i < interp_count) {
+                        const char *format_str = interp_inst->data.string_interpolation.format_strings[i];
+                        IRInst *expr_ir = interp_inst->data.string_interpolation.interp_exprs[i];
+                        
+                        if (format_str && expr_ir) {
+                            // 生成 snprintf 调用，使用 offset 变量和剩余缓冲区大小
+                            fprintf(codegen->output_file, "offset_%s += snprintf((char*)&%s[offset_%s], %d - offset_%s, \"%s\", ", 
+                                    inst->data.var.name, inst->data.var.name, inst->data.var.name, buffer_size, inst->data.var.name, format_str);
+                            codegen_write_value(codegen, expr_ir);
+                            fprintf(codegen->output_file, ");\n  ");
+                        }
+                    }
+                }
+            } else if (inst->data.var.type == IR_TYPE_ARRAY && inst->data.var.init &&
+                       inst->data.var.init->type == IR_CONSTANT &&
+                       inst->data.var.init->data.constant.value &&
+                       strcmp(inst->data.var.init->data.constant.value, "INTERP_PLACEHOLDER") == 0) {
+                // 向后兼容：旧的占位符格式
+                if (inst->data.var.original_type_name) {
+                    fprintf(codegen->output_file, "%s %s[] = {0};", inst->data.var.original_type_name, inst->data.var.name);
+                } else {
+                    fprintf(codegen->output_file, "int8_t %s[] = {0};", inst->data.var.name);
+                }
             } else {
                 // Check if initialization is a function call with same name as variable
                 // This avoids name shadowing issues in C (e.g., "float area = area(rect);")
@@ -1172,6 +1396,7 @@ int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output
     fprintf(codegen->output_file, "#include <stdbool.h>\n");
     fprintf(codegen->output_file, "#include <stdio.h>\n");
     fprintf(codegen->output_file, "#include <stdlib.h>\n");
+    fprintf(codegen->output_file, "#include <string.h>\n");
     fprintf(codegen->output_file, "#include <unistd.h>\n");
     fprintf(codegen->output_file, "#include <fcntl.h>\n\n");
     // Error type definition (error is a type containing error codes, represented as uint16_t)
