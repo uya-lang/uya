@@ -1,4 +1,4 @@
-# Uya 语言规范 0.20（完整版 · 2026-01-02）
+# Uya 语言规范 0.21（完整版 · 2026-01-02）
 
 > 零GC · 默认高级安全 · 单页纸可读完 · 通过路径零指令  
 > 无lifetime符号 · 无隐式控制
@@ -225,7 +225,7 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
     - 指针类型字段使用 `*T` 语法（如 `*byte` 表示 C 字符串指针）
     - 不支持嵌套结构体、接口、错误联合类型等非 C 兼容类型作为字段
     - 确保运行时/ABI 兼容性
-  - **extern struct 完全解放**（0.21 版本）：
+  - **extern struct 完全解放**：
     - extern struct 可以有方法、drop、实现接口
     - 在保持 100% C 兼容性的同时，获得完整的 Uya 能力
     - 详见 [5.3 外部 C 结构体（FFI）](#53-外部-c-结构体ffi)
@@ -1141,7 +1141,7 @@ fn get_current_time() timeval {
 }
 ```
 
-**extern struct 完全解放**（0.21 版本）：
+**extern struct 完全解放**：
 
 extern struct 在保持 100% C 兼容性的同时，获得完整的 Uya 能力：
 
@@ -4684,7 +4684,7 @@ fn main() i32 {
 // HashMap<K, V>
 // Result<T, E>
 
-// Uya（0.21 版本）：
+// Uya：
 Vec(T)           // 更清晰，更一致
 HashMap(K, V)    // 与函数调用语法一致
 Result(T, E)     // 零新符号
