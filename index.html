@@ -723,7 +723,7 @@
                     </div>
                     <h1>Uya 语言</h1>
                 </div>
-                <div class="version">完整版 · 2026-01-02 · v0.20</div>
+                <div class="version">完整版 · 2026-01-02 · v0.21</div>
                 <p class="tagline">AI友好 · 内存安全 · 并发安全 · 零 GC · 简单易学</p>
                 
                 <div class="core-features">
@@ -798,7 +798,7 @@
             <div class="content">
                 <!-- 核心特性部分 -->
                 <section id="core-features" class="content-section">
-                    <h2>0.20 核心特性</h2>
+                    <h2>0.21 核心特性</h2>
                     
                     <div class="feature-grid">
                         <div class="feature-card atomic">
@@ -832,6 +832,77 @@
                             <h3>AI友好</h3>
                             <p>简洁明了的语法，易于AI理解和生成代码。</p>
                         </div>
+                        
+                        <div class="feature-card">
+                            <div class="feature-icon">
+                                <i class="fas fa-code"></i>
+                            </div>
+                            <h3>泛型用括号</h3>
+                            <p>使用 <code class="inline-code">Vec(T)</code> 而不是 <code class="inline-code">Vec&lt;T&gt;</code>，更清晰，更一致，零新符号。</p>
+                        </div>
+                        
+                        <div class="feature-card">
+                            <div class="feature-icon">
+                                <i class="fas fa-bridge"></i>
+                            </div>
+                            <h3>extern struct 完全解放</h3>
+                            <p>C 兼容结构体获得 Uya 超能力：可以有方法、drop、实现接口，同时保持 100% C 兼容性。</p>
+                        </div>
+                    </div>
+                    
+                    <div class="note" style="margin-top: 2rem;">
+                        <h3>0.21 核心创新</h3>
+                        <h4>1. 彻底去掉尖括号 &lt;&gt;</h4>
+                        <div class="code-block">
+                            <div class="code-header">
+                                <span>泛型语法对比</span>
+                                <button class="code-copy">复制</button>
+                            </div>
+                            <pre><code class="language-uya">// 其他语言：
+Vec&lt;T&gt;、HashMap&lt;K, V&gt;、Result&lt;T, E&gt;
+
+// Uya：
+Vec(T)、HashMap(K, V)、Result(T, E)
+// 用 ()，更清晰，更一致</code></pre>
+                        </div>
+                        
+                        <h4>2. extern struct 完全解放</h4>
+                        <div class="code-block">
+                            <div class="code-header">
+                                <span>extern struct 示例</span>
+                                <button class="code-copy">复制</button>
+                            </div>
+                            <pre><code class="language-uya">extern struct File {
+    fd: i32
+    
+    // ✅ 可以有方法
+    fn read(self: *Self, buf: *byte, len: i32) !i32 {
+        defer { log_read(); }
+        // ...
+    }
+    
+    // ✅ 可以有 drop
+    fn drop(self: *Self) void {
+        close(self.fd);
+    }
+    
+    // ✅ 可以实现接口
+}
+
+impl File : IReadable {
+    fn read(self: *Self, buf: *byte, len: i32) !i32 {
+        return self.read(buf, len);
+    }
+}</code></pre>
+                        </div>
+                        
+                        <p><strong>最酷的部分</strong>：同一个结构体，两面性：</p>
+                        <ul>
+                            <li><strong>C 代码看到</strong>：纯数据，标准布局</li>
+                            <li><strong>Uya 代码看到</strong>：完整对象，有方法、接口、RAII</li>
+                            <li><strong>C 兼容性 100% 保持</strong></li>
+                            <li><strong>Uya 能力 100% 获得</strong></li>
+                        </ul>
                     </div>
                     
                     <div class="feature-card">
@@ -1528,7 +1599,7 @@ fn main() i32 {
 
                 <!-- 标准库部分 -->
                 <section id="standard-library" class="content-section">
-                    <h2>标准库（0.20 最小集）</h2>
+                    <h2>标准库（0.21 最小集）</h2>
                     
                     <div class="table-container">
                         <table>
@@ -1628,7 +1699,7 @@ fn main() i32 {
                 <section id="summary" class="content-section">
                     <div class="philosophy-card" style="background: linear-gradient(135deg, #e0f2fe, #f0f9ff);">
                         <h3 style="color: var(--primary);">一句话总结</h3>
-                        <p><strong>Uya 0.20 = AI友好 · 默认即高级内存安全 + 并发安全 + 显式错误处理 + 泛型系统</strong>；<br>
+                        <p><strong>Uya 0.21 = AI友好 · 默认即高级内存安全 + 并发安全 + 显式错误处理 + 泛型系统（用()不是&lt;&gt;） + extern struct完全解放</strong>；<br>
                         <strong>只加 1 个关键字 <code>atomic T</code>，零 lifetime 符号，零 GC</strong>；<br>
                         <strong>所有 UB 必须被编译期证明为安全 → 失败即编译错误</strong>；<br>
                         <strong>通过路径零指令，失败路径不存在，不降级、不插运行时锁。</strong></p>
@@ -1680,7 +1751,7 @@ fn main() i32 {
             </div>
             
                 <div class="copyright">
-                <p>Uya 语言规范 0.20（完整版 · 2026-01-02）</p>
+                <p>Uya 语言规范 0.21（完整版 · 2026-01-02）</p>
                 <p>© 2025 Uya 语言项目团队。保留所有权利。</p>
             </div>
         </div>

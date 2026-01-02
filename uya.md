@@ -223,8 +223,12 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
   - **FFI 结构体类型限制**：
     - FFI 导出的结构体字段类型必须为 C 兼容类型（`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `*byte`）
     - 指针类型字段使用 `*T` 语法（如 `*byte` 表示 C 字符串指针）
-    - 不支持嵌套结构体、接口、错误联合类型等非 C 兼容类型
+    - 不支持嵌套结构体、接口、错误联合类型等非 C 兼容类型作为字段
     - 确保运行时/ABI 兼容性
+  - **extern struct 完全解放**（0.21 版本）：
+    - extern struct 可以有方法、drop、实现接口
+    - 在保持 100% C 兼容性的同时，获得完整的 Uya 能力
+    - 详见 [5.3 外部 C 结构体（FFI）](#53-外部-c-结构体ffi)
   - 导出后，其他模块可以通过 `use` 导入并使用这些 FFI 函数/结构体
   - 详见 [5.3 外部 C 结构体（FFI）](#53-外部-c-结构体ffi)
 - 未标记 `export` 的项仅在模块内可见
@@ -1137,15 +1141,153 @@ fn get_current_time() timeval {
 }
 ```
 
-**限制**：
-- extern 结构体不能有方法（methods）
-- extern 结构体不能实现接口
+**extern struct 完全解放**（0.21 版本）：
+
+extern struct 在保持 100% C 兼容性的同时，获得完整的 Uya 能力：
+
+```uya
+// 声明外部 C 结构体（与 C 代码 100% 兼容）
+extern struct File {
+    fd: i32
+    
+    // ✅ 可以有方法
+    fn read(self: *Self, buf: *byte, len: i32) !i32 {
+        extern read(fd: i32, buf: *void, count: i32) i32;
+        const result: i32 = read(self.fd, buf, len);
+        if result < 0 {
+            return error.ReadFailed;
+        }
+        return result;
+    }
+    
+    fn write(self: *Self, buf: *byte, len: i32) !i32 {
+        extern write(fd: i32, buf: *void, count: i32) i32;
+        const result: i32 = write(self.fd, buf, len);
+        if result < 0 {
+            return error.WriteFailed;
+        }
+        return result;
+    }
+    
+    // ✅ 可以有 drop（RAII 自动资源管理）
+    fn drop(self: *Self) void {
+        extern close(fd: i32) i32;
+        close(self.fd);
+    }
+}
+
+// ✅ 可以实现接口
+interface IReadable {
+    fn read(self: *Self, buf: *byte, len: i32) !i32;
+}
+
+interface IWritable {
+    fn write(self: *Self, buf: *byte, len: i32) !i32;
+}
+
+impl File : IReadable {
+    fn read(self: *Self, buf: *byte, len: i32) !i32 {
+        return self.read(buf, len);
+    }
+}
+
+impl File : IWritable {
+    fn write(self: *Self, buf: *byte, len: i32) !i32 {
+        return self.write(buf, len);
+    }
+}
+
+// 使用示例
+fn example() !void {
+    extern open(path: *byte, flags: i32) i32;
+    const O_RDWR: i32 = 2;
+    
+    // 创建 File 对象（C 兼容布局）
+    const fd: i32 = open("test.txt", O_RDWR);
+    if fd < 0 {
+        return error.OpenFailed;
+    }
+    
+    var file: File = File{ fd: fd };
+    
+    // ✅ 使用 Uya 方法（零运行时开销，编译期展开）
+    var buffer: [byte; 1024] = [];
+    const bytes_read: i32 = try file.read(&buffer[0], 1024);
+    
+    // ✅ 使用接口（动态派发）
+    const readable: IReadable = file;
+    const bytes_read2: i32 = try readable.read(&buffer[0], 1024);
+    
+    // ✅ drop 自动调用（RAII）
+    // file 离开作用域时，drop 自动调用，关闭文件描述符
+}
+```
+
+**最酷的部分**：同一个结构体，两面性：
+- **C 代码看到**：纯数据，标准布局，100% C 兼容
+- **Uya 代码看到**：完整对象，有方法、接口、RAII，100% Uya 能力
+
+**完整使用示例**：
+
+```uya
+// C 兼容的时间结构体
+extern struct timeval {
+    tv_sec: i64,
+    tv_usec: i64
+    
+    // ✅ 添加 Uya 方法
+    fn to_millis(self: *Self) i64 {
+        return self.tv_sec * 1000 + self.tv_usec / 1000;
+    }
+    
+    fn from_millis(ms: i64) timeval {
+        return timeval{
+            tv_sec: ms / 1000,
+            tv_usec: (ms % 1000) * 1000
+        };
+    }
+}
+
+// ✅ 实现接口
+interface ITime {
+    fn to_millis(self: *Self) i64;
+}
+
+impl timeval : ITime {
+    fn to_millis(self: *Self) i64 {
+        return self.to_millis();
+    }
+}
+
+// 使用示例
+fn get_time_example() void {
+    extern gettimeofday(tv: *timeval, tz: *void) i32;
+    
+    // C 兼容的调用方式
+    var tv: timeval = timeval{ tv_sec: 0, tv_usec: 0 };
+    gettimeofday(&tv, null);
+    
+    // ✅ 使用 Uya 方法
+    const millis: i64 = tv.to_millis();
+    
+    // ✅ 使用接口
+    const time_obj: ITime = tv;
+    const millis2: i64 = time_obj.to_millis();
+    
+    // ✅ 静态方法调用
+    const tv2: timeval = timeval.from_millis(1234567890);
+}
+```
+
+**字段类型限制**：
 - extern 结构体字段必须使用 C 兼容类型（包括所有 FFI 指针类型 `*T`）
-- extern 结构体主要用于 FFI 互操作，不适用于 Uya 的高级特性
+- 不支持嵌套结构体、接口、错误联合类型等非 C 兼容类型作为字段
+- 确保运行时/ABI 兼容性
 
 **一句话总结**：
 
-> **FFI 指针 `*T` 支持所有 C 兼容类型（包括 `*u16`），但使用必须遵守：**
+> **extern struct 完全解放：C 兼容结构体获得 Uya 超能力，可以有方法、drop、实现接口，同时保持 100% C 兼容性。**  
+> **FFI 指针 `*T` 支持所有 C 兼容类型（包括 `*u16`），但使用必须遵守：**  
 > **1. 仅用于 FFI 声明/调用**  
 > **2. 下标访问必须提供长度约束证明**  
 > **3. 不能用于普通变量声明**  
@@ -4485,6 +4627,22 @@ struct Vec(T) {
     len: i32
 }
 
+// 泛型方法：函数保持自动推断
+fn push(self: *Vec(T), item: T) !void {   // T 自动成参
+    if self.len >= 10 {
+        return error.Full;
+    }
+    self.data[self.len] = item;
+    self.len = self.len + 1;
+}
+
+fn get(self: *Vec(T), index: i32) !T {
+    if index < 0 || index >= self.len {
+        return error.OutOfBounds;
+    }
+    return self.data[index];
+}
+
 // 实例化：使用具体类型，与定义完全对称
 fn create_i32_vec() Vec(i32) {   // 括号内指定 T = i32
     return Vec(i32){
@@ -4500,22 +4658,66 @@ fn create_f64_vec() Vec(f64) {   // 括号内指定 T = f64
     };
 }
 
-// 泛型方法：函数保持自动推断
-fn push(self: *Vec(T), item: T) void {   // T 自动成参
-    if self.len >= 10 {
-        return;  // 简化示例，实际应返回错误
-    }
-    self.data[self.len] = item;
-    self.len = self.len + 1;
+// 完整使用示例
+fn main() i32 {
+    // 创建 i32 类型的 Vec
+    var v1: Vec(i32) = create_i32_vec();
+    try push(&v1, 42);   // T = i32，自动推断
+    try push(&v1, 100);
+    const val1: i32 = try get(&v1, 0);  // 获取第一个元素
+    
+    // 创建 f64 类型的 Vec
+    var v2: Vec(f64) = create_f64_vec();
+    try push(&v2, 3.14);   // T = f64，自动推断
+    try push(&v2, 2.71);
+    const val2: f64 = try get(&v2, 0);  // 获取第一个元素
+    
+    return 0;
+}
+```
+
+**与其他语言对比**：
+
+```uya
+// 其他语言（C++、Rust）：
+// Vec<T>
+// HashMap<K, V>
+// Result<T, E>
+
+// Uya（0.21 版本）：
+Vec(T)           // 更清晰，更一致
+HashMap(K, V)    // 与函数调用语法一致
+Result(T, E)     // 零新符号
+```
+
+**多参数泛型示例**：
+
+```uya
+// 多参数泛型
+struct Pair(A, B) {
+    first: A,
+    second: B
+}
+
+// 实例化
+fn create_pair() Pair(i32, f64) {
+    return Pair(i32, f64){
+        first: 42,
+        second: 3.14
+    };
+}
+
+// 泛型方法
+fn swap(self: *Pair(A, B)) Pair(B, A) {
+    return Pair(B, A){
+        first: self.second,
+        second: self.first
+    };
 }
 
 fn main() i32 {
-    var v1: Vec(i32) = create_i32_vec();
-    push(&v1, 42);   // T = i32，自动推断
-    
-    var v2: Vec(f64) = create_f64_vec();
-    push(&v2, 3.14);   // T = f64，自动推断
-    
+    var p: Pair(i32, f64) = create_pair();
+    const swapped: Pair(f64, i32) = swap(&p);
     return 0;
 }
 ```
