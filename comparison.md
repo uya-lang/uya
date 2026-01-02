@@ -204,11 +204,99 @@ fn example() void {
 
 ---
 
+## 泛型语法对比
+
+### 与其他语言的差异
+
+**其他语言（C++、Rust、Go）**：
+```cpp
+// C++/Rust：使用尖括号
+Vec<T>
+HashMap<K, V>
+Result<T, E>
+```
+
+**Uya（0.21 版本）**：
+```uya
+// Uya：使用括号，更清晰，更一致
+Vec(T)
+HashMap(K, V)
+Result(T, E)
+```
+
+**设计理念**：
+- **零新符号**：括号 `()` 已存在于函数调用/元组，不算新符号
+- **更清晰**：与函数调用语法一致，减少认知负担
+- **更一致**：定义和实例化完全对称：`struct Vec(T)` 和 `Vec(i32)`
+
+---
+
+## extern struct 对比
+
+### 与其他语言的差异
+
+**传统 FFI 结构体（C、Rust FFI）**：
+```c
+// C：纯数据结构，无方法
+struct timeval {
+    long tv_sec;
+    long tv_usec;
+};
+```
+
+```rust
+// Rust FFI：只能声明字段，不能有方法
+#[repr(C)]
+struct timeval {
+    tv_sec: i64,
+    tv_usec: i64,
+}
+```
+
+**Uya（0.21 版本）**：
+```uya
+// Uya：extern struct 完全解放
+extern struct timeval {
+    tv_sec: i64,
+    tv_usec: i64
+    
+    // ✅ 可以有方法
+    fn to_millis(self: *Self) i64 {
+        return self.tv_sec * 1000 + self.tv_usec / 1000;
+    }
+    
+    // ✅ 可以有 drop
+    fn drop(self: *Self) void {
+        // 清理资源
+    }
+}
+
+// ✅ 可以实现接口
+interface ITime {
+    fn to_millis(self: *Self) i64;
+}
+
+impl timeval : ITime {
+    fn to_millis(self: *Self) i64 {
+        return self.to_millis();
+    }
+}
+```
+
+**最酷的部分**：
+- **C 代码看到**：纯数据，标准布局，100% C 兼容
+- **Uya 代码看到**：完整对象，有方法、接口、RAII，100% Uya 能力
+- **从 C 结构体到高级抽象无缝过渡**
+
+---
+
 ## 总结
 
-Uya 语言的设计理念：
-
-> **Uya = 默认即 Rust 级内存安全 + 并发安全 + Zig 风格错误处理 + Zig 风格模块系统 + Python 风格切片 + 安全指针算术 + 简化语法 + sizeof/alignof + 测试单元**
-
 Uya 从多种语言中汲取灵感，但形成了自己独特的设计哲学：**程序员提供证明，编译器验证证明**。
+
+**核心创新（0.21 版本）**：
+1. **泛型用 `()` 不是 `<>`**：更清晰，更一致，零新符号
+2. **extern struct 完全解放**：C 兼容结构体获得 Uya 超能力，可以有方法、drop、实现接口
+3. **零新符号**：复用已有语法，不发明新符号
+4. **单页纸可读完**：语法简单到可以记在脑子里，概念最少但能力完整
 
