@@ -25,6 +25,7 @@
 - [10. 运算符与优先级](#10-运算符与优先级)
 - [11. 类型转换](#11-类型转换)
 - [12. 内存模型 & RAII](#12-内存模型--raii)
+  - [12.5. 移动语义（1.7 版本新增）](#125-移动语义17-版本新增)
 - [13. 原子操作（0.15 终极简洁）](#13-原子操作015-终极简洁)
 - [14. 内存安全（0.15 强制）](#14-内存安全015-强制)
 - [15. 并发安全（0.15 强制）](#15-并发安全015-强制)
@@ -2563,14 +2564,411 @@ fn create_point() Point {
 - 编译器自动插入 drop 调用，确保资源正确释放
 
 **未来版本特性**（后续版本）：
-- 移动语义优化：避免不必要的拷贝
-  - 赋值、函数参数、返回值自动使用移动语义
-  - 零开销的所有权转移，提高性能
 - drop 标记：`#[no_drop]` 用于无需清理的类型
   - 标记纯数据类型，编译器跳过 drop 调用
   - 进一步优化性能，零运行时开销
 
 ---
+
+## 12.5 移动语义（1.7 版本新增）
+
+### 12.5.1 设计目标
+
+- **避免不必要的拷贝**：结构体赋值时转移所有权，而非复制
+- **零开销的所有权转移**：移动操作在编译期完成，零运行时开销
+- **自动移动，无需显式语法**：编译器自动识别移动场景
+- **与 RAII 完美配合**：移动后只有目标对象调用 drop，防止 double free
+- **防止悬垂指针**：存在活跃指针时禁止移动，确保内存安全
+
+### 12.5.2 移动语义规则
+
+移动语义是 Uya 语言的核心机制，用于避免不必要的拷贝并保证资源安全：
+
+1. **移动语义适用于结构体类型**：基本类型使用值语义（复制），结构体使用移动语义（转移所有权）
+2. **自动移动**：编译器自动识别移动场景，无需显式语法
+3. **编译期检查**：所有移动相关的检查在编译期完成，零运行时开销
+4. **严格检查机制**：存在活跃指针时禁止移动，防止悬垂指针
+
+### 12.5.3 自动移动场景
+
+以下场景会自动触发移动语义：
+
+1. **赋值操作**：`const x: Struct = y;`（`y` 的所有权转移给 `x`）
+2. **函数参数传递**：按值传递结构体参数时，所有权转移给函数参数
+3. **函数返回值**：返回结构体时，所有权转移给调用者
+4. **结构体字段初始化**：`Container{ field: struct_value }`（`struct_value` 的所有权转移给字段）
+5. **数组元素赋值**：`arr[i] = struct_value`（`struct_value` 的所有权转移给数组元素）
+
+### 12.5.4 移动后的变量状态
+
+- 变量被移动后变为"已移动"状态
+- 已移动的变量不能再次使用（编译错误）
+- 编译器在编译期检查移动后使用错误
+- 移动不会调用源对象的 drop，只有目标对象离开作用域时才调用 drop
+
+**示例**：
+
+```uya
+struct File {
+    fd: i32
+}
+
+fn drop(self: File) void {
+    if self.fd >= 0 {
+        close(self.fd);
+    }
+}
+
+fn example() void {
+    const file1: File = File{ fd: open("test.txt", 0) };
+    const file2: File = file1;  // ✅ 移动：file1 的所有权转移给 file2
+    
+    // ❌ 编译错误：file1 已被移动，不能再次使用
+    // const fd: i32 = file1.fd;  // 错误：使用已移动的变量 'file1'
+    
+    // ✅ 编译通过：file2 拥有所有权
+    const fd: i32 = file2.fd;
+    
+    // file2 离开作用域时自动调用 drop，关闭文件
+    // file1 不会调用 drop（已移动）
+}
+```
+
+### 12.5.5 指针与移动语义的交互
+
+**核心规则**：如果变量存在指向它的活跃指针（`&var`），则不能移动该变量。
+
+- **检查时机**：在移动操作前，编译器检查是否存在指向该变量的活跃指针
+- **活跃指针定义**：指针在作用域内（包括外层作用域），且可能被使用
+- **检查范围**：编译器检查**所有作用域层级**（包括外层作用域），只要存在指向变量的指针，就不能移动
+- **错误信息**：`错误：变量 'var' 存在活跃指针，不能移动`
+- **设计原则**：采用严格检查，避免跨作用域的复杂情况和悬垂指针问题
+
+**示例：存在活跃指针时禁止移动**：
+
+```uya
+fn example() void {
+    const file: File = File{ fd: 1 };
+    const ptr: *File = &file;  // 存在指向 file 的指针
+    
+    // ❌ 编译错误：变量 'file' 存在活跃指针，不能移动
+    // const file2: File = file;  // 错误：无法移动，因为存在指向 'file' 的指针
+}
+```
+
+**正确的使用方式：指针离开作用域后再移动**：
+
+```uya
+fn example() void {
+    const file: File = File{ fd: 1 };
+    
+    {
+        const ptr: *File = &file;  // 指针在内层作用域
+        // 使用 ptr...
+        // ptr 离开作用域，不再活跃
+    }
+    
+    // ✅ 编译通过：ptr 已离开作用域，file 可以移动
+    const file2: File = file;
+}
+```
+
+**错误的移动：跨作用域指针阻止移动**：
+
+```uya
+fn example() void {
+    const file: File = File{ fd: 1 };
+    const ptr: *File = &file;  // 指针在外层作用域
+    
+    {
+        // ❌ 编译错误：变量 'file' 存在活跃指针（ptr），不能移动
+        // const file2: File = file;  // 错误：即使移动在内层作用域，ptr 在外层仍活跃
+    }
+    
+    // 编译器检查所有作用域层级，只要存在指向变量的指针，就不能移动
+}
+```
+
+**使用指针参数，不移动对象**：
+
+```uya
+fn process(ptr: *File) void {
+    // 通过指针访问，不涉及移动
+}
+
+fn example() void {
+    const file: File = File{ fd: 1 };
+    const ptr: *File = &file;
+    process(ptr);  // ✅ 编译通过：传递指针，file 不被移动
+    // file 仍然可以使用
+}
+```
+
+**函数参数指针的活跃性**：
+
+```uya
+fn process(ptr: *File) void {
+    // 函数参数是指针，不涉及移动
+    const fd: i32 = ptr.fd;  // 通过指针访问
+}
+
+fn example() void {
+    const file: File = File{ fd: 1 };
+    const ptr: *File = &file;
+    
+    process(ptr);  // 传递指针给函数
+    
+    // ❌ 编译错误：ptr 仍然存在，指向 file，不能移动
+    // const file2: File = file;  // 错误：存在指向 file 的活跃指针（ptr）
+    
+    // 必须让 ptr 离开作用域后才能移动
+}
+```
+
+### 12.5.6 条件分支和循环中的移动
+
+**条件分支中的移动检查**：
+
+同一变量在不同分支中不能多次移动。编译器需要路径敏感分析，确保变量在所有可能执行路径中只移动一次。
+
+```uya
+fn example(condition: bool) void {
+    const file: File = File{ fd: 1 };
+    
+    if condition {
+        // ❌ 编译错误：file 可能在 else 分支中被移动
+        // const file2: File = file;  // 错误：无法确定只移动一次
+    } else {
+        // ❌ 编译错误：file 可能在 if 分支中被移动
+        // const file3: File = file;  // 错误：无法确定只移动一次
+    }
+    
+    // 编译器需要路径敏感分析，确保变量在所有可能执行路径中只移动一次
+    // 如果无法确定只移动一次，则编译错误
+}
+```
+
+**循环中的移动检查**：
+
+循环中的变量不能移动，因为循环可能执行多次，导致多次移动同一个变量。
+
+```uya
+fn example() void {
+    const file: File = File{ fd: 1 };
+    
+    var i: i32 = 0;
+    while i < 10 {
+        // ❌ 编译错误：file 在循环中不能移动（可能执行多次，导致多次移动）
+        // const file2: File = file;  // 错误：循环中的移动可能导致多次移动
+        i = i + 1;
+    }
+}
+```
+
+### 12.5.7 数组和接口值的移动
+
+**数组移动语义**：
+
+数组本身使用值语义（复制），但数组元素如果是结构体，则使用移动语义。
+
+```uya
+fn example() void {
+    const arr1: [File; 3] = [File{fd:1}, File{fd:2}, File{fd:3}];
+    
+    // 数组本身使用值语义（复制），不是移动
+    const arr2: [File; 3] = arr1;  // ✅ 这是复制，不是移动（数组本身使用值语义）
+    
+    // ✅ 移动数组元素（结构体使用移动语义）
+    const file: File = arr1[0];  // 移动数组元素
+    // ❌ arr1[0] 已被移动，不能再次使用
+}
+```
+
+**接口值移动**：
+
+接口值是16字节结构体（vtable指针+数据指针），移动接口值只是复制16字节，不涉及底层数据的移动。底层数据的生命周期仍然由原始对象决定。
+
+```uya
+fn example() void {
+    const console: Console = Console{ fd: 1 };
+    const writer: IWriter = console;  // 装箱为接口值（16字节结构体）
+    
+    // ✅ 接口值本身是16字节结构体，可以移动
+    const writer2: IWriter = writer;  // 移动接口值（复制16字节）
+    
+    // 注意：接口值移动只是复制16字节（vtable指针+数据指针），不移动底层数据
+    // 底层数据的生命周期仍然由原始对象（console）决定
+}
+```
+
+### 12.5.8 嵌套结构体和字段访问
+
+**嵌套结构体移动**：
+
+移动外层结构体时，所有字段（包括嵌套结构体字段）一起移动。
+
+```uya
+fn example() void {
+    struct Inner {
+        value: i32
+    }
+    
+    struct Outer {
+        inner: Inner
+    }
+    
+    const outer: Outer = Outer{ inner: Inner{ value: 42 } };
+    
+    // ✅ 移动外层结构体时，所有字段（包括嵌套结构体）一起移动
+    const outer2: Outer = outer;  // inner 字段也被移动
+    
+    // ✅ 也可以单独移动嵌套字段（但 outer 已被移动，这里应该报错）
+    // const inner2: Inner = outer.inner;  // ❌ 错误：outer 已被移动
+}
+```
+
+**字段访问与指针的区别**：
+
+- 直接字段访问（`struct.field`）不是指针，可以移动
+- 通过指针访问（`ptr.field`）意味着存在指向对象的指针，不能移动
+
+```uya
+fn example() void {
+    struct Container {
+        file: File
+    }
+    
+    const container: Container = Container{ file: File{ fd: 1 } };
+    
+    // 访问字段不会创建指针，所以可以移动
+    const fd: i32 = container.file.fd;  // 访问字段（值访问，不是指针）
+    const file2: File = container.file;  // ✅ 可以移动（字段访问不是指针）
+    
+    // 但如果通过指针访问：
+    const ptr: *Container = &container;
+    const fd2: i32 = ptr.file.fd;  // 通过指针访问
+    // ❌ 如果 container 被移动，ptr 会变成悬垂指针
+    // const container2: Container = container;  // 错误：存在指向 container 的指针
+}
+```
+
+### 12.5.9 与 drop 的关系
+
+移动语义与 RAII 和 drop 机制完美配合：
+
+- **移动不会调用源对象的 drop**：移动只是转移所有权，不触发资源释放
+- **只有目标对象离开作用域时才调用 drop**：资源在目标对象离开作用域时释放
+- **防止 double free 和资源泄漏**：确保每个资源只被释放一次
+
+**示例：堆内存安全移动（解决 double free 问题）**：
+
+```uya
+extern malloc(size: i32) *void;
+extern free(ptr: *void) void;
+
+struct HeapBuffer {
+    data: byte*,
+    size: i32
+}
+
+fn drop(self: HeapBuffer) void {
+    if self.data != null {
+        free(self.data);
+    }
+}
+
+fn example() void {
+    const buf1: HeapBuffer = HeapBuffer{
+        data: malloc(100),
+        size: 100
+    };
+    
+    const buf2: HeapBuffer = buf1;  // ✅ 移动：buf1 的所有权转移给 buf2
+    
+    // ❌ 编译错误：buf1 已被移动，不能再次使用
+    // const ptr: byte* = buf1.data;  // 错误：使用已移动的变量
+    
+    // ✅ 编译通过：只有 buf2 拥有所有权
+    // buf2 离开作用域时自动调用 drop，释放内存
+    // buf1 不会调用 drop（已移动），避免 double free
+}
+```
+
+### 12.5.10 完整示例
+
+**基本移动示例**：
+
+```uya
+struct File {
+    fd: i32
+}
+
+fn drop(self: File) void {
+    close(self.fd);
+}
+
+fn example() void {
+    const file1: File = File{ fd: open("test.txt", 0) };
+    const file2: File = file1;  // ✅ 移动
+    
+    // file2 离开作用域时自动调用 drop，关闭文件
+}
+```
+
+**函数参数移动**：
+
+```uya
+fn process_file(f: File) void {
+    // f 的所有权从调用者移动到函数参数
+    // 函数返回时，f 离开作用域，自动调用 drop
+}
+
+fn example() void {
+    const file: File = File{ fd: open("test.txt", 0) };
+    process_file(file);  // ✅ 移动：file 的所有权转移给函数参数
+    
+    // ❌ 编译错误：file 已被移动，不能再次使用
+    // const fd: i32 = file.fd;  // 错误：使用已移动的变量
+}
+```
+
+**返回值移动**：
+
+```uya
+fn create_file() File {
+    return File{ fd: open("test.txt", 0) };
+    // 返回值移动到调用者，不会在这里 drop
+}
+
+fn example() void {
+    const file: File = create_file();  // ✅ 移动：返回值所有权转移给 file
+    // file 离开作用域时自动调用 drop
+}
+```
+
+### 12.5.11 限制说明
+
+- **移动语义仅适用于结构体类型**：基本类型始终使用值语义（复制）
+- **移动后变量不能再次使用**：编译器在编译期检查移动后使用错误
+- **存在活跃指针时不能移动**：检查所有作用域层级，只要存在指向变量的指针就不能移动
+- **条件分支中的移动**：同一变量在不同分支中不能多次移动（编译器路径敏感分析，确保只移动一次）
+- **循环中的移动**：循环中的变量不能移动（因为可能执行多次，导致多次移动）
+- **数组移动**：数组本身使用值语义（复制），但数组元素如果是结构体，则使用移动语义
+- **接口值移动**：接口值移动只复制16字节（vtable指针+数据指针），不移动底层数据
+- **嵌套结构体移动**：移动外层结构体时，所有字段（包括嵌套结构体字段）一起移动
+- **字段访问与指针**：直接字段访问（`struct.field`）不是指针，可以移动；通过指针访问（`ptr.field`）意味着存在指针，不能移动
+- **函数参数指针**：传递指针给函数后，原指针变量仍然被认为是"活跃指针"，函数返回后仍然阻止移动
+- **编译器在编译期检查**：所有移动相关的检查在编译期完成，零运行时开销
+- **采用严格检查机制**：避免悬垂指针问题，规则简单明确
+
+### 12.5.12 一句话总结
+
+> **Uya 移动语义 = 结构体自动移动 + 指针严格检查 + 编译期验证**；  
+> **零运行时开销，防止 double free 和悬垂指针，与 RAII 完美配合**；  
+> **只移动结构体，基本类型值语义，数组值语义但元素可移动**。
+
+---
+
 
 ## 13 原子操作（0.15 终极简洁）
 
@@ -4679,10 +5077,6 @@ $ echo $?
   - 支持版本管理和依赖解析
 
 ### 29.2 drop 机制增强（后续版本）
-- **移动语义优化**：避免不必要的拷贝
-  - 赋值、函数参数、返回值自动使用移动语义
-  - 零开销的所有权转移，提高性能
-  - 详见未来版本文档
 - **drop 标记**：`#[no_drop]` 用于无需清理的类型
   - 标记纯数据类型，编译器跳过 drop 调用
   - 进一步优化性能，零运行时开销
@@ -4692,6 +5086,14 @@ $ echo $?
   - 函数内支持类型推断，函数签名仍需显式类型
   - 提高代码简洁性，保持可读性
   - 示例：`const x = 10;` 自动推断为 `i32`（注意：0.13 不支持类型推断，需要显式类型注解）
+- **结构体字段访问**：通过接口值访问结构体字段
+  - 允许通过接口值访问底层结构体的字段（如 `interface_value.field`）
+  - 需要运行时类型信息或编译期类型擦除支持
+  - 示例：`const writer: IWriter = console; const fd: i32 = writer.fd;`（访问底层 Console 的 fd 字段）
+- **接口组合**：接口可以组合其他接口
+  - 支持接口继承或组合语法，一个接口可以包含其他接口的方法
+  - 实现接口组合的结构体需要实现所有组合接口的方法
+  - 示例：`interface IReadWrite : IReader, IWriter { }`（组合多个接口）
 
 ### 29.4 AI 友好性增强（后续版本）
 - **标准库文档字符串**：注释式或结构化文档
