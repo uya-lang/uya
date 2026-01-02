@@ -1060,10 +1060,10 @@ fn divide(a: i32, b: i32) !i32 {
                                     <td>仅用于函数返回类型</td>
                                 </tr>
                                 <tr>
-                                    <td><code>byte*</code></td>
+                                    <td><code>*byte</code></td>
                                     <td>char*</td>
                                     <td>4/8 B</td>
-                                    <td>用于 FFI 函数参数和返回值，指向 C 字符串</td>
+                                    <td>FFI 指针类型 <code>*T</code> 的一个实例（T=byte），用于 FFI 函数参数和返回值，指向 C 字符串；FFI 指针类型 <code>*T</code> 支持所有 C 兼容类型</td>
                                 </tr>
                                 <tr>
                                     <td><code>&T</code></td>
@@ -1188,7 +1188,7 @@ struct File {
     fd: i32
 }
 
-fn open_file(path: byte*) !File {
+fn open_file(path: *byte) !File {
     const fd: i32 = open(path, 0);
     if fd < 0 {
         return error.FileError;      // 预定义错误
@@ -1206,7 +1206,7 @@ fn drop(self: File) void {
     }
 }
 
-fn read_file(path: byte*) !i32 {
+fn read_file(path: *byte) !i32 {
     const file: File = try open_file(path);
     defer {
         printf("File operation completed\n");
@@ -1539,7 +1539,8 @@ fn main() i32 {
     
     // FFI 分配
     extern malloc(size: i32) *void;
-    const ptr: byte* = malloc(sizeof(struct Packet));
+    // 注意：*byte 不能用于普通变量声明，这里仅作示例说明类型
+    // const ptr: *byte = malloc(sizeof(struct Packet));  // ❌ 编译错误：*byte 不能用于普通变量声明
     
     // 对齐检查
     if alignof(struct Packet) != 4 {

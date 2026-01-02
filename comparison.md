@@ -91,7 +91,7 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
 | `bool`          | uint8_t       | 1 B       | 0/1，对齐 1 B            |
 | `byte`          | uint8_t       | 1 B       | 无符号字节，对齐 1 B，用于字节数组 |
 | `void`          | void          | 0 B       | 仅用于函数返回类型       |
-| `byte*`         | char*         | 4/8 B（平台相关） | 用于 FFI 函数参数和返回值，指向 C 字符串；32位平台=4B，64位平台=8B；可与 `null` 比较（空指针）|
+| `*byte`         | char*         | 4/8 B（平台相关） | FFI 指针类型 `*T` 的一个实例（T=byte），用于 FFI 函数参数和返回值，指向 C 字符串；32位平台=4B，64位平台=8B；可与 `null` 比较（空指针）；FFI 指针类型 `*T` 支持所有 C 兼容类型（见 uya.md 第 5.2 章）|
 | `&T`            | 普通指针      | 8 B       | 无 lifetime 符号 |
 | `&atomic T`  | 原子指针      | 8 B       | 关键字驱动 |
 | `atomic T`      | 原子类型      | sizeof(T) | 语言级原子类型 |

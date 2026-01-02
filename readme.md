@@ -206,7 +206,8 @@ fn sizeof_example() void {
 
   // FFI 分配
   extern malloc(size: i32) *void;
-  const ptr: byte* = malloc(sizeof(struct Packet));
+  // 注意：*byte 不能用于普通变量声明，这里仅作示例说明类型
+  // const ptr: *byte = malloc(sizeof(struct Packet));  // ❌ 编译错误：*byte 不能用于普通变量声明
 
   // 对齐检查
   if alignof(struct Packet) != 4 {
@@ -252,7 +253,7 @@ Uya 采用**程序员提供证明，编译器验证证明**的设计哲学。程
 | `bool` | 1 B | 0/1，对齐 1 B |
 | `byte` | 1 B | 无符号字节，对齐 1 B，用于字节数组 |
 | `void` | 0 B | 仅用于函数返回类型 |
-| `byte*` | 4/8 B（平台相关） | 用于 FFI，指向字符串；32位平台=4B，64位平台=8B；可与 `null` 比较 |
+| `*byte` | 4/8 B（平台相关） | FFI 指针类型 `*T` 的一个实例（T=byte），用于 FFI 函数参数和返回值，指向 C 字符串；32位平台=4B，64位平台=8B；可与 `null` 比较（空指针）；FFI 指针类型 `*T` 支持所有 C 兼容类型（见 uya.md 第 5.2 章）|
 | `&T` | 8 B | 普通指针类型，无 lifetime 符号 |
 | `&atomic T` | 8 B | 原子指针，关键字驱动 |
 | `atomic T` | sizeof(T) | 语言级原子类型 |
@@ -349,6 +350,6 @@ Copyright (c) 2025 zigger
 
 ---
 
-**注意**：Uya 语言目前处于开发阶段（**0.18 版本**），部分特性可能尚未完全实现。请参考 [uya.md](./uya.md) 了解当前版本的限制和未来计划。
+**注意**：Uya 语言目前处于开发阶段（**0.19 版本**），部分特性可能尚未完全实现。请参考 [uya.md](./uya.md) 了解当前版本的限制和未来计划。
 
 
