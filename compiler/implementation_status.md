@@ -62,4 +62,4 @@
 
 ## 架构设计文档
 
-详细的设计文档请参考 `ERROR_DESIGN.md`。
+详细的设计文档请参考 `error_design.md`。

@@ -222,3 +222,4 @@ static uint16_t generate_error_code(const char *error_name) {
 - 如果返回值是 `IR_ERROR_VALUE`，则 `is_error = true`
 - 如果返回值是普通值，则 `is_error = false`
 
+
