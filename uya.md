@@ -9,6 +9,7 @@
 
 - [核心特性](#核心特性)
 - [设计哲学](#设计哲学)
+- [语法规范（BNF）](./grammar.md) - 完整的 BNF 语法规范
 - [1. 文件与词法](#1-文件与词法)
 - [1.5. 模块系统](#15-模块系统)
 - [2. 类型系统](#2-类型系统)
@@ -70,15 +71,7 @@ Uya语言的设计哲学是**坚如磐石**（绝对可靠、不可动摇），�
 
 **示例**：
 
-```uya
-// Uya：程序员提供证明，编译器验证证明
-const arr: [i32; 10] = [0; 10];
-const i: i32 = get_index();
-if i < 0 || i >= 10 {
-    return error.OutOfBounds;  // 显式检查，返回错误
-}
-const x: i32 = arr[i];  // 编译器证明 i >= 0 && i < 10，安全
-```
+[examples/example_000.uya](./examples/example_000.uya)
 
 > **注**：如需了解 Uya 与其他语言的对比，请参阅 [comparison.md](./comparison.md)
 
@@ -94,26 +87,7 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
 
 **性能保证**：
 
-```uya
-// Uya：开发者编写显式检查，编译器验证，通过路径零运行时开销
-fn safe_access(arr: [i32; 10], i: i32) !i32 {
-    if i < 0 || i >= 10 {
-        return error.OutOfBounds;  // 显式错误处理
-    }
-    // 编译器证明：当执行到这里时，i >= 0 && i < 10 必然成立
-    return arr[i];  // 直接访问，无运行时边界检查
-}
-// 生成的代码：
-//   cmp   rdi, 0                 // 运行时错误检查
-//   jl    .error_out_of_bounds
-//   cmp   rdi, 10                // 运行时错误检查
-//   jge   .error_out_of_bounds
-//   mov   eax, [rsi + rdi*4]     // 直接访问，无额外运行时检查
-//   ret
-// .error_out_of_bounds:
-//   mov   rax, error.OutOfBounds
-//   ret
-```
+[examples/safe_access.uya](./examples/safe_access.uya)
 
 **关键说明**：
 - 错误路径保留显式检查，确保安全
@@ -173,7 +147,7 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
     - 支持两种形式：
       - 基本形式：`"a${x}"`（无格式说明符）
       - 格式化形式：`"pi=${pi:.2f}"`（带格式说明符，与 C printf 保持一致）
-    - 语法：`segment = TEXT | '${' expr [':' spec] '}'`
+    - 语法：详见 [grammar.md](./grammar.md#13-字符串插值)
     - 格式说明符 `spec` 与 C printf 保持一致，[详见第 17 章](#17-字符串与格式化)
     - 编译期展开为定长栈数组，零运行时解析开销，零堆分配
     - 示例：`const msg: [i8; 64] = "hex=${x:#06x}, pi=${pi:.2f}\n";`
@@ -188,6 +162,8 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
 ---
 
 ## 1.5 模块系统
+
+> **BNF 语法规范**：详见 [grammar.md](./grammar.md#7-模块系统)
 
 ### 1.5.1 设计目标
 
@@ -257,62 +233,22 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
   - **导入整个模块**：`use main;` 或 `use std.io;`
     - 使用模块中的导出项时，需要加上模块名前缀：`main.helper_func()` 或 `std.io.read_file()`
     - 示例：
-      ```uya
-      use main;
-      use std.io;
-      
-      fn example() void {
-          main.helper_func();      // 调用 main 模块的函数
-          const file: std.io.File = std.io.open_file("test.txt");  // 使用 std.io 模块的结构体
-      }
-      ```
+[examples/example.uya](./examples/example.uya)
   - **导入特定项**：`use main.helper_func;` 或 `use std.io.read_file;`
     - 导入后可以直接使用，无需模块名前缀
     - 示例：
-      ```uya
-      use main.helper_func;
-      use std.io.read_file;
-      use std.io.File;
-      
-      fn example() void {
-          helper_func();           // 直接调用，无需 main. 前缀
-          const file: File = read_file("test.txt");  // 直接使用，无需 std.io. 前缀
-      }
-      ```
+[examples/example_1.uya](./examples/example_1.uya)
   - **导入结构体/接口**：`use std.io.File;` 或 `use std.io.IWriter;`
     - 导入后可以直接使用类型名，无需模块名前缀
     - 示例：
-      ```uya
-      use std.io.File;
-      use std.io.IWriter;
-      
-      fn example() void {
-          const f: File = File{ fd: 1 };  // 直接使用 File 类型
-          const w: IWriter = ...;         // 直接使用 IWriter 接口
-      }
-      ```
+[examples/example_2.uya](./examples/example_2.uya)
   - **使用别名导入**：`use std.io as io;`
     - 使用别名时，需要用别名作为前缀
     - 示例：
-      ```uya
-      use std.io as io;
-      
-      fn example() void {
-          io.read_file("test.txt");     // 使用别名 io 作为前缀
-          const f: io.File = io.File{ fd: 1 };
-      }
-      ```
+[examples/example_3.uya](./examples/example_3.uya)
   - **混合使用**：可以同时导入整个模块和特定项
     - 示例：
-      ```uya
-      use main;                    // 导入整个 main 模块
-      use main.helper_func;       // 同时导入特定函数（可以直接使用）
-      
-      fn example() void {
-          helper_func();           // 直接使用（来自特定导入）
-          main.other_func();       // 使用模块前缀（来自整体导入）
-      }
-      ```
+[examples/example_4.uya](./examples/example_4.uya)
 
 ### 1.5.5 模块路径
 
@@ -350,17 +286,7 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
   - 如果项目中有多个 `fn main() i32`，编译器会报错，要求明确项目根目录
   - 测试/工具等应作为独立的子目录模块，不包含 `main` 函数
 - **项目结构示例**：
-  ```
-  project/                 (项目根目录，包含 main 函数)
-    main.uya               (main 模块，包含 fn main() i32)
-    helper.uya             (main 模块)
-    std/
-      io/
-        file.uya           (std.io 模块)
-    math/
-      utils/
-        calc.uya           (math.utils 模块)
-  ```
+[examples/example_008.txt](./examples/example_008.txt)
 
 ### 1.5.7 限制和说明
 
@@ -388,103 +314,7 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
 
 ### 1.5.8 完整示例
 
-#### 示例 1：基础模块定义和导出
-
-```uya
-// project/main.uya (main 模块)
-export fn helper_func() i32 {
-    return 42;
-}
-
-fn private_func() i32 {
-    return 0;  // 未 export，仅在 main 模块内可见
-}
-
-// project/std/io/file.uya (std.io 模块)
-use main.helper_func;  // 导入 main 模块的函数
-
-export struct File {
-    fd: i32
-}
-
-export fn open_file(path: *byte) !File {
-    // 使用导入的函数
-    const value: i32 = helper_func();
-    return File{ fd: 1 };
-}
-```
-
-#### 示例 2：多文件同模块
-
-```uya
-// project/std/io/file.uya (std.io 模块)
-export struct File {
-    fd: i32
-}
-
-export fn open_file(path: *byte) !File {
-    return File{ fd: 1 };
-}
-
-// project/std/io/print.uya (std.io 模块，同一模块)
-use std.io.File;  // 可以使用同模块的其他文件导出的项
-
-export fn print_file_info(f: File) void {
-    printf("File fd: %d\n", f.fd);
-}
-```
-
-#### 示例 3：FFI 导出和导入
-
-```uya
-// project/std/io/stdio.uya (std.io 模块)
-export extern printf(fmt: *byte, ...) i32;
-
-// project/main.uya (main 模块)
-use std.io.printf;
-
-fn main() i32 {
-    printf("Hello from main module\n");
-    return 0;
-}
-```
-
-#### 示例 4：避免循环依赖
-
-```uya
-// project/common/helper.uya (common 模块)
-export fn helper_func() i32 {
-    return 42;
-}
-
-// project/main.uya (main 模块)
-use common.helper_func;
-use std.io;
-
-fn main() i32 {
-    const value: i32 = helper_func();
-    return 0;
-}
-
-// project/std/io/file.uya (std.io 模块)
-use common.helper_func;  // 使用 common 模块，而不是 main 模块
-
-export fn read_file() i32 {
-    return helper_func();
-}
-```
-
-#### 示例 5：使用别名导入
-
-```uya
-// project/main.uya
-use std.io as io;
-
-fn main() i32 {
-    const file: io.File = io.open_file("test.txt");
-    return 0;
-}
-```
+[examples/file.uya](./examples/file.uya)
 
 ---
 
@@ -531,37 +361,14 @@ fn main() i32 {
   - 对于 `arr[i][j]`，必须证明 `i >= 0 && i < M && j >= 0 && j < N`
   - 证明失败 → 编译错误
 - **示例**：
-  ```uya
-  // 声明 3x4 的 i32 二维数组
-  const matrix: [[i32; 4]; 3] = [[0; 4]; 3];
-  
-  // 使用数组字面量初始化
-  const matrix2: [[i32; 4]; 3] = [
-      [1, 2, 3, 4],
-      [5, 6, 7, 8],
-      [9, 10, 11, 12]
-  ];
-  
-  // 访问元素（需要边界检查证明）
-  const value: i32 = matrix2[0][1];  // 访问第0行第1列，值为 2
-  ```
+[examples/example_010.uya](./examples/example_010.uya)
 
 **类型相关的极值常量**：
 - 整数类型（`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`）支持通过 `max` 和 `min` 关键字访问极值
 - 语法：`max` 和 `min`（编译器从上下文类型推断）
 - 编译器根据上下文类型自动推断极值类型，这些是编译期常量，零运行时开销
 - 示例：
-  ```uya
-  const MAX: i32 = max;  // 2147483647（从类型注解 i32 推断）
-  const MIN: i32 = min;  // -2147483648（从类型注解 i32 推断）
-  
-  // 在溢出检查中使用（从变量类型推断）
-  const a: i32 = ...;
-  const b: i32 = ...;
-  if a > 0 && b > 0 && a > max - b {  // 从 a 和 b 的类型 i32 推断
-      return error.Overflow;
-  }
-  ```
+[examples/example_011.uya](./examples/example_011.uya)
 
 **指针类型说明**：
 - `*byte`：FFI 指针类型 `*T` 的一个实例（T=byte），专门用于 FFI，表示 C 字符串指针（null 终止），只能用于：
@@ -604,6 +411,8 @@ fn main() i32 {
   - 接口方法调用时，`self` 参数自动传递（无需显式传递）
 
 **错误类型和错误联合类型**：
+
+> **BNF 语法规范**：详见 [grammar.md](./grammar.md#9-错误处理)
 
 - **错误类型定义**：使用 `error.ErrorName` 语法，支持预定义和运行时错误
   - **预定义错误**（可选）：使用 `error ErrorName;` 定义
@@ -658,12 +467,7 @@ fn main() i32 {
 
 ## 3 变量与作用域
 
-```uya
-const x: i32 = 10;        // 函数内局部变量，不可变
-var i: i32 = 0;     // 可变变量，可重新赋值
-const arr: [f32; 4] = [1.0, 2.0, 3.0, 4.0];
-i = i + 1;              // 只有 var 变量可赋值
-```
+[examples/variables_scope.uya](./examples/variables_scope.uya)
 
 - 初始化表达式类型必须与声明完全一致。
 - `const` 声明的变量**不可变**；使用 `var` 声明可变变量。
@@ -693,15 +497,7 @@ i = i + 1;              // 只有 var 变量可赋值
 
 ## 4 结构体
 
-```uya
-struct Vec3 {
-  x: f32,
-  y: f32,
-  z: f32
-}
-
-const v: Vec3 = Vec3{ x: 1.0, y: 2.0, z: 3.0 };
-```
+[examples/vec3.uya](./examples/vec3.uya)
 
 - 内存布局与 C 相同，字段顺序保留。
 - **结构体前向引用**：结构体可以在定义之前使用（如果编译器支持多遍扫描），或必须在定义之后使用（单遍扫描实现）
@@ -725,24 +521,7 @@ const v: Vec3 = Vec3{ x: 1.0, y: 2.0, z: 3.0 };
   - 访问语法：`struct_var.array_field[i][j]`（如果字段是多维数组）
   - 所有维度的索引都需要边界检查证明
   - 示例：
-    ```uya
-    struct Mat3x4 {
-        data: [[f32; 4]; 3]  // 3行4列的矩阵
-    }
-    
-    const mat: Mat3x4 = Mat3x4{
-        data: [
-            [1.0, 2.0, 3.0, 4.0],
-            [5.0, 6.0, 7.0, 8.0],
-            [9.0, 10.0, 11.0, 12.0]
-        ]
-    };
-    
-    // 访问多维数组字段（需要边界检查证明）
-    if i >= 0 && i < 3 && j >= 0 && j < 4 {
-        const value: f32 = mat.data[i][j];  // 编译器证明安全
-    }
-    ```
+[examples/mat3x4.uya](./examples/mat3x4.uya)
 - 访问链可以任意嵌套：`struct_var.field1.array_field[i].subfield`
 - **数组边界检查**（适用于所有数组访问）：强制编译期证明
   - 常量索引越界 → **编译错误**
@@ -768,18 +547,7 @@ const v: Vec3 = Vec3{ x: 1.0, y: 2.0, z: 3.0 };
   - `var s: S = ...` 时，可以修改 `s.field`
   - 字段可变性由外层变量决定，不支持字段级可变性标记
   - **嵌套结构体示例**：
-    ```uya
-    struct Inner { x: i32 }
-    struct Outer { inner: Inner }
-    
-    // ✅ 可以修改的情况
-    var outer: Outer = Outer{ inner: Inner{ x: 10 } };
-    outer.inner.x = 20;  // ✅ 可以修改，因为 outer 是 var
-    
-    // ❌ 不能修改的情况
-    const outer: Outer = Outer{ inner: Inner{ x: 10 } };
-    outer.inner.x = 20;  // ❌ 编译错误：outer 不是 var，无法修改字段
-    ```
+[examples/inner.uya](./examples/inner.uya)
 - **结构体初始化**：必须提供所有字段的值，不支持部分初始化或默认值
 
 ---
@@ -788,15 +556,7 @@ const v: Vec3 = Vec3{ x: 1.0, y: 2.0, z: 3.0 };
 
 ### 5.1 普通函数
 
-```uya
-fn add(a: i32, b: i32) i32 {
-  return a + b;
-}
-
-fn print_hello() void {
-  // void 函数可省略 return
-}
-```
+[examples/add.uya](./examples/add.uya)
 
 - **函数调用语法**：`func_name(arg1, arg2, ...)`
 - 参数按值传递（`memcpy`）。
@@ -832,33 +592,7 @@ fn print_hello() void {
   - **调用方式**：直接传递切片 `&arr[start:len]` 或 `&arr[start:N]`
   - **零运行时开销**：切片是胖指针，直接传递，无额外包装
   - **示例**：
-    ```uya
-    // 使用动态长度切片
-    fn process(p: &[i32]) void {
-        for p |value| {
-            // 使用切片元素
-        }
-    }
-    
-    // 使用已知长度切片
-    fn process_exact(p: &[i32; 3]) void {
-        for p |value| {
-            // 使用切片元素
-        }
-    }
-    
-    // 调用
-    const arr: [i32; 10] = [0; 10];
-    process(&arr[2:3]);        // 传递动态长度切片
-    process_exact(&arr[0:3]);  // 传递已知长度切片
-    
-    // 多个切片参数示例
-    fn process_multiple(a: i32, p1: &[i32], b: i32, p2: &[f32], c: i32) void {
-        // 使用 p1, p2 切片
-        for p1 |v1| { }
-        for p2 |v2| { }
-    }
-    ```
+[examples/process.uya](./examples/process.uya)
 
 - **`try` 关键字**：
   - `try expr` 用于传播错误和溢出检查
@@ -896,29 +630,13 @@ fn print_hello() void {
     - catch 块的最后一条表达式作为返回值（不需要 `return` 关键字）
     - 这个值会成为整个 `catch` 表达式的值
     - 示例：
-      ```uya
-      const result: i32 = divide(10, 0) catch |err| {
-          printf("Error: %d\n", err);
-          0  // 返回默认值，result = 0
-      };
-      // result 的类型是 i32（不是 !i32），值为 0
-      ```
+[examples/example_018.uya](./examples/example_018.uya)
     
     **方式 2：使用 `return` 提前返回函数**（catch 块直接退出函数）
     - catch 块中使用 `return` 会**立即返回函数**（不是返回 catch 块的值）
     - 跳过后续所有 defer 和 drop
     - 示例：
-      ```uya
-      fn main() i32 {
-          const result: i32 = read_file("test.txt") catch |err| {
-              printf("Failed to read file\n");
-              return 1;  // 直接退出 main 函数，返回 1（跳过后续所有代码）
-          };
-          // 如果 read_file 成功，继续执行这里
-          printf("Read %d bytes\n", result);
-          return 0;
-      }
-      ```
+[examples/main.uya](./examples/main.uya)
     
     **重要区别**：
     - 表达式返回值：catch 块返回一个值，程序继续执行
@@ -949,62 +667,15 @@ fn print_hello() void {
 - 错误处理用于处理可预测的、显式的错误情况（如文件不存在、网络错误等）
 
 **示例：错误处理**：
-```uya
-// ✅ 使用错误联合类型处理可预测错误
-fn safe_divide(a: i32, b: i32) !i32 {
-    if b == 0 {
-        return error.DivisionByZero;  // 显式检查，返回预定义错误
-    }
-    return a / b;
-}
-
-// ✅ 使用运行时错误（无需预定义）
-fn safe_divide_runtime(a: i32, b: i32) !i32 {
-    if b == 0 {
-        return error.DivisionByZero;  // 仍可使用预定义错误
-    }
-    if a < 0 {
-        return error.NegativeInput;   // 运行时错误，无需预定义
-    }
-    return a / b;
-}
-
-// ✅ 使用 catch 捕获错误
-fn main() i32 {
-    const result: i32 = safe_divide(10, 0) catch |err| {
-        if err == error.DivisionByZero {
-            printf("Division by zero\n");
-        }
-        return 1;  // 提前返回函数
-    };
-    printf("Result: %d\n", result);
-
-    // 使用运行时错误
-    const result2: i32 = safe_divide_runtime(-5, 2) catch |err| {
-        if err == error.NegativeInput {
-            printf("Negative input not allowed\n");
-        }
-        return 1;
-    };
-    printf("Result2: %d\n", result2);
-
-    return 0;
-}
-```
+[examples/safe_divide.uya](./examples/safe_divide.uya)
 
 ### 5.2 外部 C 函数（FFI）
 
 **步骤 1：顶层声明**  
-```uya
-extern printf(fmt: *byte, ...) i32;   // 变参
-extern sin(x: f64) f64;
-```
+[examples/extern_c_function.uya](./examples/extern_c_function.uya)
 
 **步骤 2：正常调用**  
-```uya
-const pi: f64 = 3.1415926;
-printf("sin(pi/2)=%f\n", sin(pi / 2.0));
-```
+[examples/extern_c_function_1.uya](./examples/extern_c_function_1.uya)
 
 **重要语法规则**：
 - extern 函数声明必须使用 Uya 的函数参数语法：`param_name: type`
@@ -1028,27 +699,7 @@ printf("sin(pi/2)=%f\n", sin(pi / 2.0));
 
 **FFI 指针使用示例**：
 
-```uya
-// 1. FFI 函数声明（支持所有 C 兼容指针类型）
-extern process_u16_array(data: *u16, len: i32) i32;
-extern process_i32_array(data: *i32, len: i32) i32;
-extern process_f32_array(data: *f32, len: i32) i32;
-
-// 2. FFI 函数调用
-const data: [u16; 10] = [0; 10];
-process_u16_array(&data[0], 10);
-
-// 3. 下标访问（需要长度约束证明）
-extern get_u16_element(arr: *u16, index: i32) u16;
-
-fn safe_access(arr: *u16, len: i32, index: i32) !u16 {
-    if index < 0 || index >= len {
-        return error.OutOfBounds;
-    }
-    // ✅ 需要长度约束证明，编译器验证 index >= 0 && index < len
-    return arr[index];  // 展开为 *(arr + index)
-}
-```
+[examples/safe_access_1.uya](./examples/safe_access_1.uya)
 
 **FFI 指针使用规则**：
 - ✅ 仅用于 FFI 函数声明/调用和 extern struct 字段
@@ -1057,19 +708,7 @@ fn safe_access(arr: *u16, len: i32, index: i32) !u16 {
 - ❌ 不能进行普通指针算术（只能用于 FFI 上下文）
 
 **禁止用法示例**：
-```uya
-// ❌ 错误示例
-const ptr: *u16 = &arr[0];  // ❌ *u16 不能用于普通变量声明
-const val: u16 = *ptr;      // ❌ 不能直接解引用FFI指针（除非在FFI上下文中）
-
-// ✅ 必须通过下标访问（需要长度约束）
-fn safe_example(arr: *u16, len: i32, idx: i32) !u16 {
-    if idx >= 0 && idx < len {
-        return arr[idx];  // ✅ 有长度约束证明
-    }
-    return error.OutOfBounds;
-}
-```
+[examples/safe_example.uya](./examples/safe_example.uya)
 
 **统一指针语法的完整规则**：
 
@@ -1114,14 +753,7 @@ FFI 指针设计符合"坚如磐石"哲学：
 ### 5.3 外部 C 结构体（FFI）
 
 **声明外部 C 结构体**：
-```uya
-extern struct CStruct {
-    field1: i32;
-    field2: f64;
-    field3: *byte;  // C 字符串指针（*T 的一个实例，T=byte）
-    field4: *u16;   // 指向 u16 数组的指针（*T 的一个实例，T=u16）
-}
-```
+[examples/cstruct.uya](./examples/cstruct.uya)
 
 **语法规则**：
 - 使用 `extern struct` 声明外部 C 结构体
@@ -1133,161 +765,17 @@ extern struct CStruct {
 - 确保运行时/ABI 兼容性
 
 **使用示例**：
-```uya
-// 声明外部 C 结构体
-extern struct timeval {
-    tv_sec: i64;
-    tv_usec: i64;
-}
-
-// 声明使用该结构体的 C 函数
-extern gettimeofday(tv: *timeval, tz: *void) i32;
-
-// 使用
-fn get_current_time() timeval {
-    var tv: timeval = timeval{ tv_sec: 0, tv_usec: 0 };
-    gettimeofday(&tv, null);
-    return tv;
-}
-```
+[examples/timeval.uya](./examples/timeval.uya)
 
 **extern struct 完全解放**：
 
 extern struct 在保持 100% C 兼容性的同时，获得完整的 Uya 能力：
 
-```uya
-// 声明外部 C 结构体（与 C 代码 100% 兼容）
-extern struct File {
-    fd: i32
-    
-    // ✅ 可以有方法
-    fn read(self: *Self, buf: *byte, len: i32) !i32 {
-        extern read(fd: i32, buf: *void, count: i32) i32;
-        const result: i32 = read(self.fd, buf, len);
-        if result < 0 {
-            return error.ReadFailed;
-        }
-        return result;
-    }
-    
-    fn write(self: *Self, buf: *byte, len: i32) !i32 {
-        extern write(fd: i32, buf: *void, count: i32) i32;
-        const result: i32 = write(self.fd, buf, len);
-        if result < 0 {
-            return error.WriteFailed;
-        }
-        return result;
-    }
-    
-    // ✅ 可以有 drop（RAII 自动资源管理）
-    fn drop(self: *Self) void {
-        extern close(fd: i32) i32;
-        close(self.fd);
-    }
-}
+[examples/file_1.uya](./examples/file_1.uya)
 
-// ✅ 可以实现接口
-interface IReadable {
-    fn read(self: *Self, buf: *byte, len: i32) !i32;
-}
-
-interface IWritable {
-    fn write(self: *Self, buf: *byte, len: i32) !i32;
-}
-
-impl File : IReadable {
-    fn read(self: *Self, buf: *byte, len: i32) !i32 {
-        return self.read(buf, len);
-    }
-}
-
-impl File : IWritable {
-    fn write(self: *Self, buf: *byte, len: i32) !i32 {
-        return self.write(buf, len);
-    }
-}
-
-// 使用示例
-fn example() !void {
-    extern open(path: *byte, flags: i32) i32;
-    const O_RDWR: i32 = 2;
-    
-    // 创建 File 对象（C 兼容布局）
-    const fd: i32 = open("test.txt", O_RDWR);
-    if fd < 0 {
-        return error.OpenFailed;
-    }
-    
-    var file: File = File{ fd: fd };
-    
-    // ✅ 使用 Uya 方法（零运行时开销，编译期展开）
-    var buffer: [byte; 1024] = [];
-    const bytes_read: i32 = try file.read(&buffer[0], 1024);
-    
-    // ✅ 使用接口（动态派发）
-    const readable: IReadable = file;
-    const bytes_read2: i32 = try readable.read(&buffer[0], 1024);
-    
-    // ✅ drop 自动调用（RAII）
-    // file 离开作用域时，drop 自动调用，关闭文件描述符
-}
-```
-
-**最酷的部分**：同一个结构体，两面性：
+**核心特性**：同一个结构体，两面性：
 - **C 代码看到**：纯数据，标准布局，100% C 兼容
 - **Uya 代码看到**：完整对象，有方法、接口、RAII，100% Uya 能力
-
-**完整使用示例**：
-
-```uya
-// C 兼容的时间结构体
-extern struct timeval {
-    tv_sec: i64,
-    tv_usec: i64
-    
-    // ✅ 添加 Uya 方法
-    fn to_millis(self: *Self) i64 {
-        return self.tv_sec * 1000 + self.tv_usec / 1000;
-    }
-    
-    fn from_millis(ms: i64) timeval {
-        return timeval{
-            tv_sec: ms / 1000,
-            tv_usec: (ms % 1000) * 1000
-        };
-    }
-}
-
-// ✅ 实现接口
-interface ITime {
-    fn to_millis(self: *Self) i64;
-}
-
-impl timeval : ITime {
-    fn to_millis(self: *Self) i64 {
-        return self.to_millis();
-    }
-}
-
-// 使用示例
-fn get_time_example() void {
-    extern gettimeofday(tv: *timeval, tz: *void) i32;
-    
-    // C 兼容的调用方式
-    var tv: timeval = timeval{ tv_sec: 0, tv_usec: 0 };
-    gettimeofday(&tv, null);
-    
-    // ✅ 使用 Uya 方法
-    const millis: i64 = tv.to_millis();
-    
-    // ✅ 使用接口
-    const time_obj: ITime = tv;
-    const millis2: i64 = time_obj.to_millis();
-    
-    // ✅ 静态方法调用
-    const tv2: timeval = timeval.from_millis(1234567890);
-}
-```
 
 **字段类型限制**：
 - extern 结构体字段必须使用 C 兼容类型（包括所有 FFI 指针类型 `*T`）
@@ -1316,12 +804,11 @@ fn get_time_example() void {
 
 ### 6.2 语法
 
-```
-type += interface_type
-interface_type = 'interface' ID '{' method_sig { method_sig } '}'
-method_sig     = 'fn' ID '(' [param { ',' param } ')' ] '->' type ';'
-impl_block     = 'impl' struct_name ':' interface_name '{' method_impl { method_impl } '}'
-```
+> **BNF 语法规范**：详见 [grammar.md](./grammar.md#21-接口类型)
+
+接口类型定义语法：
+- `interface InterfaceName { method_sig ... }`
+- `impl StructName : InterfaceName { method_impl ... }`
 
 ### 6.3 语义总览
 
@@ -1348,9 +835,7 @@ impl_block     = 'impl' struct_name ':' interface_name '{' method_impl { method_
 
 - **无 `'static`、无 `'a`**；  
 - 编译器只在「赋值/返回/传参」路径检查：  
-  ```
-  if (target_scope < owner_scope) → error: field may outlive its target
-  ```
+[examples/example_028.txt](./examples/example_028.txt)
 - 检查失败**仅一行报错**；通过者**零运行时成本**。
 
 **逃逸检查规则**：
@@ -1358,116 +843,25 @@ impl_block     = 'impl' struct_name ':' interface_name '{' method_impl { method_
 接口值不能逃逸出其底层数据的生命周期。编译器在以下路径检查：
 
 1. **返回接口值**：
-   ```uya
-   // ❌ 编译错误：s 的生命周期不足以支撑返回的接口值
-   fn example() IWriter {
-       const s: Console = Console{ fd: 1 };
-       return s;  // 编译错误：s 的生命周期不足
-   }
-   
-   // ✅ 编译通过：返回具体类型，调用者装箱
-   fn example() Console {
-       return Console{ fd: 1 };
-   }
-   ```
+[examples/example_5.uya](./examples/example_5.uya)
 
 2. **赋值给外部变量**：
-   ```uya
-   // ❌ 编译错误：s 的生命周期不足以支撑外部接口值
-   fn example() void {
-       const s: Console = Console{ fd: 1 };
-       var external: IWriter = s;  // 如果 external 生命周期更长，编译错误
-   }
-   
-   // ✅ 编译通过：局部装箱，生命周期匹配
-   fn example() void {
-       const s: Console = Console{ fd: 1 };
-       const local: IWriter = s;  // 局部变量，生命周期匹配
-       // 使用 local...
-   }
-   ```
+[examples/example_6.uya](./examples/example_6.uya)
 
 3. **传递参数**：
-   ```uya
-   // ✅ 编译通过：参数传递，生命周期由调用者保证
-   fn use_writer(w: IWriter) void {
-       // 使用 w...
-   }
-   
-   fn example() void {
-       const s: Console = Console{ fd: 1 };
-       use_writer(s);  // 编译通过：参数传递
-   }
-   ```
+[examples/use_writer.uya](./examples/use_writer.uya)
 
-**编译器检查算法**（简化版）：
-
-Uya 采用**简化版生命周期检查**，基于作用域层级：
-
-1. **作用域层级定义**（从长到短）：
-   - 函数参数作用域（最长）
-   - 函数局部变量作用域
-   - 内层块变量作用域（最短）
-
-2. **检查规则**：
-   - 对于每个接口值赋值/返回/传参操作：
-     - 获取底层数据的作用域层级 `S_data`
-     - 获取目标位置的作用域层级 `S_target`
-     - 如果 `S_data < S_target`（数据作用域更短），则报告编译错误
-     - 否则编译通过
-
-3. **检查时机**：
-   - 接口值赋值：`const iface: I = concrete;`
-   - 接口值返回：`return concrete;`（返回接口类型）
-   - 接口值传参：`fn_call(concrete);`（参数类型是接口）
-
-4. **示例分析**：
-   ```uya
-   fn example() IWriter {
-       const s: Console = Console{ fd: 1 };  // s 是局部变量，作用域层级 = 2
-       return s;  // 返回接口值，目标作用域层级 = 1（函数参数级别）
-       // 检查：2 < 1？是 → 编译错误
-   }
-   ```
-
-5. **限制说明**：
-   - 这是简化版检查，不进行复杂的借用分析
-   - 主要防止明显的生命周期错误
-   - 未来会增强检查能力，支持更复杂的场景
+**编译器检查算法**：基于作用域层级检查，数据作用域必须 ≥ 目标作用域，否则编译错误。
 
 **切片生命周期规则**：
 
 切片生命周期必须 ≤ 原数据的生命周期。编译器在以下路径检查：
 
 1. **返回切片**：
-   ```uya
-   // ✅ 合法：切片绑定到参数的生命周期
-   fn valid(arr: &[i32; 10]) &[i32] {
-       return &arr[2:5];  // 切片绑定到arr的生命周期
-   }
-   
-   // ❌ 非法：局部数据的生命周期不足
-   fn invalid() &[i32] {
-       const local: [i32; 10] = [0; 10];
-       return &local[2:5];  // 编译错误：local的生命周期不足
-   }
-   ```
+[examples/valid.uya](./examples/valid.uya)
 
 2. **切片赋值**：
-   ```uya
-   // ✅ 合法：局部切片，生命周期匹配
-   fn example() void {
-       const arr: [i32; 10] = [0; 10];
-       const slice: &[i32] = &arr[2:5];  // 局部变量，生命周期匹配
-   }
-   
-   // ❌ 非法：切片可能逃逸
-   fn example() void {
-       const arr: [i32; 10] = [0; 10];
-       var external: &[i32] = null;
-       external = &arr[2:5];  // 如果external生命周期更长，编译错误
-   }
-   ```
+[examples/example_7.uya](./examples/example_7.uya)
 
 3. **核心规则**：
    - 切片是原数据的视图，不拥有数据
@@ -1483,46 +877,11 @@ Uya 采用**简化版生命周期检查**，基于作用域层级：
 
 ### 6.7 完整示例
 
-```uya
-// ① 定义接口
-interface IWriter {
-  fn write(self: *Self, buf: *byte, len: i32) i32;
-}
-
-// ② 具体实现
-struct Console {
-  fd: i32
-}
-
-impl Console : IWriter {
-  fn write(self: *Self, buf: *byte, len: i32) i32 {
-    extern write(fd: i32, buf: *byte, len: i32) i32;
-    return write(self.fd, buf, len);
-  }
-}
-
-// ③ 使用接口
-fn echo(w: IWriter) void {
-  const msg: [byte; 6] = "hello\n";
-  w.write(&msg[0], 5);
-}
-
-fn main() i32 {
-  const cons: Console = Console{ fd: 1 };   // stdout
-  echo(cons);                             // 自动装箱为接口
-  return 0;
-}
-```
+[examples/console.uya](./examples/console.uya)
 
 编译后生成（x86-64）：
 
-```asm
-lea     rax, [vtable.Console.IWriter]
-lea     rdx, [cons]
-mov     qword [w], rax
-mov     qword [w+8], rdx
-call    [rax]           ; ← 单条 call 指令
-```
+[examples/example_035.txt](./examples/example_035.txt)
 
 **接口方法调用说明**：
 - 调用 `w.write(&msg[0], 5);` 时，`w` 是接口值（包含 vtable 和数据指针）
@@ -1548,13 +907,7 @@ call    [rax]           ; ← 单条 call 指令
 
 - 接口值首地址 = `&vtable`，可直接当 `void*` 塞给 C；  
 - C 侧回调：
-  ```c
-  typedef struct { void* vt; void* obj; } IWriter;
-  int writer_write(IWriter w, char* buf, int len){
-      int (*f)(void*,char*,int) = *(int(**)(void*,char*,int))w.vt;
-      return f(w.obj, buf, len);
-  }
-  ```
+[examples/example_036.c](./examples/example_036.c)
 
 ### 6.10 后端实现要点
 
@@ -1587,131 +940,15 @@ call    [rax]           ; ← 单条 call 指令
 
 由于 Uya 没有泛型，迭代器接口需要针对具体元素类型定义。以下以 `i32` 类型为例：
 
-```uya
-// 迭代器结束错误（预定义，可选）
-error IterEnd;
-// 迭代器状态错误（用于value()方法的边界检查，预定义，可选）
-error InvalidIteratorState;
-
-// i32数组迭代器接口
-interface IIteratorI32 {
-    // 移动到下一个元素，返回错误表示迭代结束
-    fn next(self: *Self) !void;
-    // 获取当前元素值（只读），可能返回错误
-    fn value(self: *Self) !i32;
-    // 获取指向当前元素的指针（可修改），可能返回错误
-    fn ptr(self: *Self) !&i32;
-}
-
-// 带索引的i32数组迭代器接口
-interface IIteratorI32WithIndex {
-    fn next(self: *Self) !void;
-    fn value(self: *Self) !i32;  // 可能返回错误
-    fn index(self: *Self) i32;
-}
-```
+[examples/next.uya](./examples/next.uya)
 
 **数组迭代器实现示例**：
 
-```uya
-// i32数组迭代器结构体
-struct ArrayIteratorI32 {
-    arr: *[i32; N],  // 指向数组的指针
-    current: i32,    // 当前索引（从0开始，指向下一个要访问的元素）
-    len: i32         // 数组长度
-}
-
-impl ArrayIteratorI32 : IIteratorI32 {
-    fn next(self: *Self) !void {
-        if self.current >= self.len {
-            return error.IterEnd;  // 迭代结束
-        }
-        self.current = self.current + 1;
-    }
-    
-    fn value(self: *Self) !i32 {
-        // 编译期证明说明：
-        // 1. next() 成功返回意味着：self.current > 0 && self.current <= self.len
-        // 2. 因此 idx = current - 1 满足：idx >= 0 && idx < len
-        // 3. 编译器通过路径敏感分析可以证明数组访问安全
-        const idx: i32 = self.current - 1;
-        // 注意：如果编译器能够通过路径敏感分析证明 idx 在有效范围内，
-        // 则可以直接访问数组，无需显式检查
-        // 如果编译器无法证明（当前限制），则需要显式检查：
-        if idx < 0 || idx >= self.len {
-            // 这个检查帮助编译器完成证明
-            // 虽然根据 next() 的语义，这个分支理论上不会执行，
-            // 但显式检查可以让编译器验证数组访问的安全性
-            return error.InvalidIteratorState;
-        }
-        return (*self.arr)[idx];
-    }
-    
-    fn ptr(self: *Self) !&i32 {
-        // 编译期证明说明：同 value() 方法
-        const idx: i32 = self.current - 1;
-        if idx < 0 || idx >= self.len {
-            return error.InvalidIteratorState;
-        }
-        return &(*self.arr)[idx];  // 返回指向当前元素的指针（可修改）
-    }
-}
-
-// 带索引的数组迭代器实现
-impl ArrayIteratorI32 : IIteratorI32WithIndex {
-    fn next(self: *Self) !void {
-        if self.current >= self.len {
-            return error.IterEnd;
-        }
-        self.current = self.current + 1;
-    }
-    
-    fn value(self: *Self) !i32 {
-        // 编译期证明说明：同 IIteratorI32 接口的 value() 方法
-        const idx: i32 = self.current - 1;
-        // 显式检查帮助编译器完成证明（见上方说明）
-        if idx < 0 || idx >= self.len {
-            return error.InvalidIteratorState;
-        }
-        return (*self.arr)[idx];
-    }
-    
-    fn index(self: *Self) i32 {
-        return self.current - 1;  // 返回当前索引（从0开始）
-    }
-}
-```
+[examples/arrayiteratori32.uya](./examples/arrayiteratori32.uya)
 
 **使用示例**：
 
-```uya
-fn create_iterator(arr: *[i32; 10]) ArrayIteratorI32 {
-    return ArrayIteratorI32{
-        arr: arr,
-        current: 0,
-        len: 10
-    };
-}
-
-fn iterate_example() void {
-    const arr: [i32; 5] = [1, 2, 3, 4, 5];
-    const iter: IIteratorI32 = create_iterator(&arr);  // 自动装箱为接口
-    
-    // 手动迭代（for循环会自动展开为类似代码）
-    while true {
-        const result: void = iter.next() catch |err| {
-            if err == error.IterEnd {
-                break;  // 迭代结束
-            }
-            // 其他错误处理...
-        };
-        const value: i32 = iter.value() catch |err| {
-            return;  // 传播错误（如果函数返回错误联合类型）
-        };
-        // 使用value...
-    }
-}
-```
+[examples/create_iterator.uya](./examples/create_iterator.uya)
 
 **设计说明**：
 - 迭代器接口遵循 Uya 接口的设计原则：编译期生成vtable，零运行时开销
@@ -1729,23 +966,13 @@ fn iterate_example() void {
 
 ## 7 栈式数组（零 GC）
 
-```uya
-const buf: [f32; 64] = [];   // 64 个 f32 在当前栈帧
-```
+[examples/summary_example.uya](./examples/summary_example.uya)
 
 - **栈数组语法**：使用 `[]` 表示未初始化的栈数组，类型由左侧变量的类型注解确定。
 - `[]` 不能独立使用，必须与类型注解一起使用：`var buf: [T; N] = [];`
 - **数组初始化**：`[]` 返回的数组**未初始化**（包含未定义值），用户必须在使用前初始化数组元素
   - 初始化示例：
-    ```uya
-    var buf: [f32; 64] = [];
-    // 手动初始化数组元素
-    var i: i32 = 0;
-    while i < 64 {
-        buf[i] = 0.0;  // 初始化每个元素
-        i = i + 1;
-    }
-    ```
+[examples/example_041.uya](./examples/example_041.uya)
   - 注意：使用未初始化的数组元素是未定义行为（UB）
 - 数组大小 `N` 必须是**编译期常量表达式**：
   - 字面量：`64`, `100`
@@ -1758,40 +985,9 @@ const buf: [f32; 64] = [];   // 64 个 f32 在当前栈帧
   - 示例：`var buf: [f32; 64] = [];` 表示分配 64 个 `f32` 的栈数组
 - **多维数组初始化**：
   - **未初始化多维数组**：使用嵌套的 `[]` 语法
-    ```uya
-    // 声明 3x4 的未初始化 i32 二维数组
-    var matrix: [[i32; 4]; 3] = [];
-    
-    // 手动初始化每个元素
-    var i: i32 = 0;
-    while i < 3 {
-        var j: i32 = 0;
-        while j < 4 {
-            matrix[i][j] = i * 4 + j;  // 需要边界检查证明
-            j = j + 1;
-        }
-        i = i + 1;
-    }
-    ```
+[examples/example_042.uya](./examples/example_042.uya)
   - **多维数组字面量**：使用嵌套的数组字面量
-    ```uya
-    // 使用重复式初始化（所有元素相同）
-    const matrix1: [[i32; 4]; 3] = [[0; 4]; 3];  // 3x4 的零矩阵
-    
-    // 使用列表式初始化（指定每个元素）
-    const matrix2: [[i32; 4]; 3] = [
-        [1, 2, 3, 4],
-        [5, 6, 7, 8],
-        [9, 10, 11, 12]
-    ];
-    
-    // 混合使用（部分行使用重复式，部分行使用列表式）
-    const matrix3: [[i32; 4]; 3] = [
-        [1, 2, 3, 4],
-        [0; 4],  // 第二行全为0
-        [9, 10, 11, 12]
-    ];
-    ```
+[examples/example_043.uya](./examples/example_043.uya)
   - **多维数组边界检查**：所有维度的索引都需要编译期证明
     - 对于 `matrix[i][j]`，必须证明 `i >= 0 && i < 3 && j >= 0 && j < 4`
     - 常量索引越界 → 编译错误
@@ -1807,11 +1003,7 @@ const buf: [f32; 64] = [];   // 64 个 f32 在当前栈帧
 
 ## 8 控制流
 
-```uya
-if expr block [ else block ]
-while expr block
-break; continue; return expr;
-```
+[examples/control_flow.uya](./examples/control_flow.uya)
 
 - 条件表达式必须是 `bool`（无隐式转布尔）。
 - `block` 必须用大括号。
@@ -1831,16 +1023,9 @@ break; continue; return expr;
   - `break` 和 `continue` 只能在循环体内使用
 
 - **`for` 循环**：迭代循环，支持可迭代对象和整数范围
+  - **BNF 语法规范**：详见 [grammar.md](./grammar.md#81-for-循环)
   - **语法形式**：
-    ```
-    for_stmt = 'for' expr '|' ID '|' block          // 有元素变量（只读）
-             | 'for' expr '|' '&' ID '|' block       // 有元素变量（可修改）
-             | 'for' range_expr '|' ID '|' block     // 整数范围，有元素变量
-             | 'for' expr block                      // 丢弃元素，只循环次数
-             | 'for' range_expr block                // 整数范围，丢弃元素
-    
-    range_expr = expr '..' [expr]                     // start..end 或 start..
-    ```
+[examples/example_045.txt](./examples/example_045.txt)
     - `range_expr`：整数范围表达式
       - `start..end`：从 `start` 到 `end-1` 的范围（左闭右开区间 `[start, end)`）
       - `start..`：从 `start` 开始的无限范围，由迭代器结束条件终止
@@ -1872,255 +1057,39 @@ break; continue; return expr;
     - 整数范围直接展开为整数循环，零运行时开销
     - 零运行时开销，编译期生成vtable
   - **示例**：
-    ```uya
-    // 基本迭代（有元素变量，只读）
-    const arr: [i32; 5] = [1, 2, 3, 4, 5];
-    for arr |item| {
-        printf("%d\n", item);
-    }
-    
-    // 基本迭代（有元素变量，可修改）
-    var arr2: [i32; 5] = [1, 2, 3, 4, 5];
-    for arr2 |&item| {
-        *item = *item * 2;  // 修改每个元素，乘以2
-        printf("%d\n", *item);
-    }
-    
-    // 切片迭代（值迭代，只读）
-    var arr3: [i32; 10] = [0,1,2,3,4,5,6,7,8,9];
-    const slice: &[i32] = &arr3[2:5];
-    for slice |value| {
-        printf("%d ", value);  // 输出：2 3 4 5 6
-    }
-    
-    // 切片迭代（引用迭代，可修改）
-    for slice |&ptr| {
-        *ptr = *ptr * 2;  // 修改切片元素，同时影响原数组
-    }
-    
-    // 切片迭代（索引迭代）
-    for slice |i| {
-        printf("index: %d\n", i);  // 输出索引：0 1 2 3 4
-    }
-    
-    // 整数范围（有元素变量）
-    for 0..10 |i| {
-        printf("%d\n", i);  // 输出 0 到 9
-    }
-    
-    // 无限范围（有元素变量）
-    for 0.. |i| {
-        if i >= 10 {
-            break;  // 手动终止
-        }
-        printf("%d\n", i);
-    }
-    
-    // 丢弃元素，只循环次数
-    for arr {
-        printf("loop\n");  // 执行 5 次
-    }
-    
-    // 整数范围，丢弃元素
-    for 0..N {
-        printf("loop\n");  // 执行 N 次
-    }
-    ```
+[examples/example_046.uya](./examples/example_046.uya)
   - **展开规则**：for循环在编译期展开为while循环
     - **可迭代对象展开（有元素变量，只读）**：
-      ```uya
-      // 原始代码
-      for obj |item| {
-          // body
-      }
-      
-      // 展开为
-      {
-          var iter: IIteratorT = obj;  // 自动装箱为接口（T为元素类型）
-          while true {
-              const result: void = iter.next() catch |err| {
-                  if err == error.IterEnd {
-                      break;  // 迭代结束，跳出循环
-                  }
-                  return err;  // 其他错误传播（如果函数返回错误联合类型）
-              };
-              const item: T = iter.value() catch |err| {
-                  return err;  // 传播错误（如果函数返回错误联合类型）
-              };  // 获取当前元素（只读）
-              // body（可以使用item）
-          }
-      }
-      ```
+[examples/example_047.uya](./examples/example_047.uya)
     - **可迭代对象展开（有元素变量，可修改）**：
-      ```uya
-      // 原始代码
-      for obj |&item| {
-          // body（可以修改 *item）
-      }
-      
-      // 展开为
-      {
-          var iter: IIteratorT = obj;  // 自动装箱为接口（T为元素类型）
-          while true {
-              const result: void = iter.next() catch |err| {
-                  if err == error.IterEnd {
-                      break;  // 迭代结束，跳出循环
-                  }
-                  return err;  // 其他错误传播（如果函数返回错误联合类型）
-              };
-              const item: &T = iter.ptr() catch |err| {
-                  return err;  // 传播错误（如果函数返回错误联合类型）
-              };  // 获取指向当前元素的指针（可修改）
-              // body（可以使用 *item 访问和修改元素）
-              // 例如：*item = new_value; 或 const val: T = *item;
-          }
-      }
-      ```
+[examples/example_048.uya](./examples/example_048.uya)
       - 注意：
         - 迭代器接口需要提供 `ptr()` 方法返回指向当前元素的指针（类型 `&T`）
         - `item` 是指针类型，需要通过 `*item` 访问和修改元素值
         - 只有可变数组（`var arr`）才能使用此形式，常量数组（`const arr`）使用此形式会编译错误
-    - **可迭代对象展开（丢弃元素）**：
-      ```uya
-      // 原始代码
-      for obj {
-          // body
-      }
-      
-      // 展开为
-      {
-          var iter: IIteratorT = obj;  // 自动装箱为接口
-          while true {
-              const result: void = iter.next() catch |err| {
-                  if err == error.IterEnd {
-                      break;
-                  }
-                  return err;
-              };
-              // 不获取元素值，直接执行 body
-              // body
-          }
-      }
-      ```
-    - **整数范围展开（有元素变量）**：
-      ```uya
-      // 原始代码
-      for 0..10 |i| {
-          // body
-      }
-      
-      // 展开为
-      {
-          var i: i32 = 0;
-          while i < 10 {
-              // body（可以使用i）
-              i = i + 1;
-          }
-      }
-      ```
-    - **整数范围展开（丢弃元素）**：
-      ```uya
-      // 原始代码
-      for 0..N {
-          // body
-      }
-      
-      // 展开为
-      {
-          var i: i32 = 0;
-          while i < N {
-              // body（不绑定变量）
-              i = i + 1;
-          }
-      }
-      ```
-    - **无限范围展开**：
-      ```uya
-      // 原始代码
-      for 0.. |i| {
-          // body
-      }
-      
-      // 展开为
-      {
-          var i: i32 = 0;
-          while true {
-              // body（可以使用i）
-              i = i + 1;
-          }
-      }
-      ```
     - **展开说明**：
-      - 编译器自动识别可迭代类型，并选择合适的迭代器接口
-      - 数组类型自动创建对应的数组迭代器（编译器自动生成）
-      - 整数范围直接展开为整数循环，零运行时开销
-      - 展开后的代码遵循 Uya 的内存安全规则，所有数组访问都有编译期证明
-      - 零运行时开销：接口调用是单条call指令，与手写while循环性能相同
+      - 可迭代对象：自动装箱为接口，使用迭代器接口进行迭代
+      - 整数范围：直接展开为 while 循环，零运行时开销
+      - 编译器自动识别类型并选择合适的展开方式
+      - 所有数组访问都有编译期证明，零运行时开销
 
 - **`match` 表达式/语句**：模式匹配
   - **语法形式**：`match expr { pattern1 => expr, pattern2 => expr, else => expr }`
   - **作为表达式**：match 可以作为表达式使用，所有分支返回类型必须一致
-    ```uya
-    const result: i32 = match x {
-        0 => 10,
-        1 => 20,
-        else => 30,
-    };
-    ```
+[examples/example_049.uya](./examples/example_049.uya)
   - **作为语句**：如果所有分支返回 `void`，match 可以作为语句使用
-    ```uya
-    match status {
-        0 => printf("OK\n"),
-        1 => printf("Error\n"),
-        else => printf("Unknown\n"),
-    }
-    ```
+[examples/example_050.uya](./examples/example_050.uya)
   - **支持的模式类型**：
     1. **常量模式**：整数、布尔、错误类型常量
-       ```uya
-       match x {
-           0 => expr1,
-           1 => expr2,
-           true => expr3,
-           error.FileNotFound => expr4,
-           else => expr5,
-       }
-       ```
+[examples/example_051.uya](./examples/example_051.uya)
     2. **变量绑定模式**：捕获匹配的值
-       ```uya
-       match x {
-           0 => expr1,
-           y => expr2,  // y 绑定到 x 的值
-           else => expr3,
-       }
-       ```
+[examples/example_052.uya](./examples/example_052.uya)
     3. **结构体解构**：匹配并解构结构体字段
-       ```uya
-       match point {
-           Point{ x: 0, y: 0 } => expr1,
-           Point{ x: x_val, y: y_val } => expr2,  // 绑定字段
-           else => expr3,
-       }
-       ```
+[examples/example_053.uya](./examples/example_053.uya)
     4. **错误类型匹配**：匹配错误联合类型（支持预定义和运行时错误）
-       ```uya
-       match result {
-           error.FileNotFound => expr1,      // 预定义错误
-           error.PermissionDenied => expr2,  // 预定义错误
-           error.OutOfMemory => expr3,      // 运行时错误，无需预定义
-           value => expr4,  // 成功值绑定
-           else => expr5,
-       }
-       ```
+[examples/example_054.uya](./examples/example_054.uya)
     5. **字符串数组匹配**：匹配 `[i8; N]` 数组（字符串插值的结果）
-       ```uya
-       match msg {
-           "hello" => expr1,  // 编译期常量字符串，编译期比较
-           "world" => expr2,
-           x => expr3,  // 运行时字符串，运行时比较
-           else => expr4,
-       }
-       ```
+[examples/example_055.uya](./examples/example_055.uya)
        - 编译期常量字符串：如果模式和表达式都是编译期常量，编译器在编译期比较
        - 运行时字符串：如果模式或表达式是运行时值，生成运行时字符串比较代码（调用标准库比较函数）
        - 数组长度检查：不同长度的数组不匹配（编译期检查）
@@ -2150,64 +1119,8 @@ break; continue; return expr;
     - 零运行时开销：编译期常量匹配直接展开，无运行时模式匹配引擎
     - 路径零指令：未匹配路径不生成代码
     - 字符串比较：运行时字符串比较使用标准库函数（如 `strcmp` 的等价实现）
-  - **完整示例**：
-    ```uya
-    // 示例 1：整数常量匹配（表达式形式）
-    fn classify_score(score: i32) i32 {
-        const grade: i32 = match score {
-            90 => 5,
-            80 => 4,
-            70 => 3,
-            60 => 2,
-            else => 1,  // 其他分数
-        };
-        return grade;
-    }
-    
-    // 示例 2：错误类型匹配
-    fn handle_result(result: !i32) i32 {
-        const value: i32 = match result {
-            error.FileNotFound => -1,      // 预定义错误
-            error.PermissionDenied => -2,  // 预定义错误
-            error.OutOfMemory => -3,      // 运行时错误，无需预定义
-            x => x,  // 成功值（绑定到 result 中的 i32 值）
-        };
-        return value;
-    }
-    
-    // 示例 3：结构体解构匹配
-    struct Point {
-        x: i32,
-        y: i32
-    }
-    
-    fn classify_point(p: Point) i32 {
-        const quadrant: i32 = match p {
-            Point{ x: 0, y: 0 } => 0,  // 原点
-            Point{ x: x, y: y } => {
-                if x > 0 && y > 0 {
-                    1  // 第一象限（块表达式的最后一条表达式作为返回值）
-                } else if x < 0 && y > 0 {
-                    2  // 第二象限
-                } else if x < 0 && y < 0 {
-                    3  // 第三象限
-                } else {
-                    4  // 第四象限
-                }
-            },
-        };
-        return quadrant;
-    }
-    
-    // 示例 4：字符串数组匹配（语句形式）
-    fn print_greeting(msg: [i8; 6]) void {
-        match msg {
-            "hello" => printf("Hello, world!\n"),
-            "world" => printf("World, hello!\n"),
-            else => printf("Unknown greeting\n"),
-        };
-    }
-    ```
+  - **示例**：
+[examples/example_056.uya](./examples/example_056.uya)
 
 ---
 
@@ -2216,10 +1129,7 @@ break; continue; return expr;
 ### 9.1 defer 语句
 
 **语法**：
-```uya
-defer statement;
-defer { statements }
-```
+[examples/defer_errdefer.uya](./examples/defer_errdefer.uya)
 
 **语义**：
 - 在当前作用域结束时执行（正常返回或错误返回）
@@ -2228,28 +1138,12 @@ defer { statements }
 - 支持单语句和语句块
 
 **示例**：
-```uya
-fn example() void {
-    defer {
-        printf("Cleanup 1\n");
-    }
-    defer {
-        printf("Cleanup 2\n");
-    }
-    // 使用资源...
-    // 退出时执行顺序：
-    // printf("Cleanup 2\n");  // 后声明的先执行
-    // printf("Cleanup 1\n");
-}
-```
+[examples/example_8.uya](./examples/example_8.uya)
 
 ### 9.2 errdefer 语句
 
 **语法**：
-```uya
-errdefer statement;
-errdefer { statements }
-```
+[examples/errdefer_statement.uya](./examples/errdefer_statement.uya)
 
 **语义**：
 - 仅在函数返回错误时执行
@@ -2258,22 +1152,7 @@ errdefer { statements }
 - 用于错误情况下的资源清理
 
 **示例**：
-```uya
-fn example() !i32 {
-    defer {
-        printf("Always cleanup\n");  // 总是执行
-    }
-    errdefer {
-        printf("Error cleanup\n");  // 仅错误时执行
-    }
-    
-    const result: i32 = try some_operation();
-    return result;
-    
-    // 正常返回时：只执行 defer
-    // 错误返回时：先执行 errdefer，再执行 defer
-}
-```
+[examples/example_9.uya](./examples/example_9.uya)
 
 ### 9.3 执行顺序
 
@@ -2292,23 +1171,7 @@ fn example() !i32 {
 - **变量在 defer 执行完成后才 drop**
 
 **示例**：
-```uya
-fn example() !void {
-    const file: File = try open_file("test.txt");
-    
-    defer {
-        // ✅ defer 中可以访问 file，因为 defer 先于 drop 执行
-        printf("File fd: %d\n", file.fd);
-        // file 在这里仍然有效，还没有 drop
-    }
-    
-    // 使用 file...
-    
-    // 退出时执行顺序：
-    // 1. defer { printf(...) }  // file 仍有效
-    // 2. drop(file)              // file 在这里才 drop
-}
-```
+[examples/example_10.uya](./examples/example_10.uya)
 
 ### 9.4 与 RAII/drop 的关系
 
@@ -2322,26 +1185,7 @@ fn example() !void {
 - **errdefer**：错误情况下的特殊清理（回滚操作、错误日志等）
 
 **完整示例**：
-```uya
-fn process_file(path: *byte) !i32 {
-    const file: File = try open_file(path);
-    
-    defer {
-        printf("File processing finished\n");  // 总是记录完成
-    }
-    errdefer {
-        printf("Error during file processing\n");  // 错误时记录错误
-        rollback_transaction();  // 错误时回滚事务
-    }
-    
-    // 处理文件...
-    const result: i32 = try process(file);
-    
-    // 正常返回：defer -> drop
-    // 错误返回：errdefer -> defer -> drop
-    return result;
-}
-```
+[examples/process_file.uya](./examples/process_file.uya)
 
 ### 9.5 作用域规则
 
@@ -2350,21 +1194,7 @@ fn process_file(path: *byte) !i32 {
 - 内层作用域的 defer 先于外层执行
 
 **示例**：
-```uya
-fn nested_example() !void {
-    defer {
-        printf("Outer defer\n");
-    }
-    
-    {
-        defer {
-            printf("Inner defer\n");
-        }
-        // 内层作用域退出时：先执行 "Inner defer"
-    }
-    // 外层作用域退出时：执行 "Outer defer"
-}
-```
+[examples/nested_example.uya](./examples/nested_example.uya)
 
 ---
 
@@ -2395,14 +1225,7 @@ fn nested_example() !void {
   - 操作数必须是整数类型（`i8`, `i16`, `i32`, `i64`），结果类型与操作数相同
   - 饱和运算符的操作数类型必须完全一致
   - 示例：
-    ```uya
-    const max: i32 = max;  // 2147483647
-    const min: i32 = min;  // -2147483648
-    
-    const a: i32 = max +| 1;   // 结果 = 2147483647（上溢饱和）
-    const b: i32 = min -| 1;   // 结果 = -2147483648（下溢饱和）
-    const c: i32 = 100 +| 200; // 结果 = 300（正常情况）
-    ```
+[examples/example_064.uya](./examples/example_064.uya)
 - **包装运算符**：
   - `+%`：包装加法，溢出时返回包装后的值（模运算）
   - `-%`：包装减法，溢出时返回包装后的值（模运算）
@@ -2410,14 +1233,7 @@ fn nested_example() !void {
   - 操作数必须是整数类型（`i8`, `i16`, `i32`, `i64`），结果类型与操作数相同
   - 包装运算符的操作数类型必须完全一致
   - 示例：
-    ```uya
-    const max: i32 = max;  // 2147483647
-    const min: i32 = min;  // -2147483648
-    
-    const a: i32 = max +% 1;   // 结果 = -2147483648（上溢包装）
-    const b: i32 = min -% 1;   // 结果 = 2147483647（下溢包装）
-    const c: i32 = 100 +% 200; // 结果 = 300（正常情况）
-    ```
+[examples/example_065.uya](./examples/example_065.uya)
 - **位运算符**：
   - `&`：按位与，两个操作数都必须是整数类型（`i8`, `i16`, `i32`, `i64`），结果类型与操作数相同
   - `|`：按位或，两个操作数都必须是整数类型，结果类型与操作数相同
@@ -2427,16 +1243,7 @@ fn nested_example() !void {
   - `>>`：右移（算术右移，对于有符号数保留符号位），左操作数必须是整数类型，右操作数必须是 `i32`，结果类型与左操作数相同
   - 位运算符的操作数类型必须完全一致（移位运算符的右操作数除外，必须是 `i32`）
   - 示例：
-    ```uya
-    const a: i32 = 0b1010;        // 10
-    const b: i32 = 0b1100;        // 12
-    const c: i32 = a & b;         // 0b1000 = 8
-    const d: i32 = a | b;         // 0b1110 = 14
-    const e: i32 = a ^ b;         // 0b0110 = 6
-    const f: i32 = ~a;            // 按位取反
-    const g: i32 = a << 2;        // 左移 2 位 = 40
-    const h: i32 = a >> 1;        // 右移 1 位 = 5
-    ```
+[examples/example_066.uya](./examples/example_066.uya)
 - **不支持的运算符**：
   - 自增/自减：`++`, `--`（必须使用 `i = i + 1;` 形式）
   - 复合赋值：`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`（必须使用完整形式）
@@ -2467,54 +1274,7 @@ fn nested_example() !void {
     - 零运行时检查，通过路径零指令
   
   **溢出检查示例**：
-  ```uya
-  // ✅ 编译通过：常量运算无溢出
-  const x: i32 = 100 + 200;  // 编译期证明：300 < 2147483647
-  
-  // ❌ 编译错误：常量溢出
-  const y: i32 = 2147483647 + 1;  // 编译错误
-  
-  // ✅ 编译通过：显式溢出检查，返回错误
-  fn add_safe(a: i32, b: i32) !i32 {
-      if a > 0 && b > 0 && a > 2147483647 - b {
-          return error.Overflow;  // 返回错误
-      }
-      return a + b;  // 编译器证明：经过检查后无溢出
-  }
-  
-  // ✅ 编译通过：显式溢出检查，返回饱和值（有效数值）
-  fn add_saturating(a: i32, b: i32) i32 {
-      if a > 0 && b > 0 && a > 2147483647 - b {
-          return 2147483647;  // 上溢时返回最大值
-      }
-      if a < 0 && b < 0 && a < -2147483648 - b {
-          return -2147483648;  // 下溢时返回最小值
-      }
-      return a + b;  // 编译器证明：经过检查后无溢出
-  }
-  
-  // ✅ 编译通过：显式溢出检查，返回包装值（有效数值）
-  // 注意：包装算术需要显式处理，不能依赖未定义行为
-  fn add_wrapping(a: i32, b: i32) i32 {
-      // 显式检查溢出，如果溢出则返回包装后的值
-      if a > 0 && b > 0 && a > 2147483647 - b {
-          // 包装算术：溢出时返回 (a + b) % 2^32，但需要显式计算
-          // 实际实现可能需要使用更大的类型进行计算
-          const sum: i64 = (a as i64) + (b as i64);
-          return (sum as! i32);  // 显式截断到 i32 范围
-      }
-      if a < 0 && b < 0 && a < -2147483648 - b {
-          const sum: i64 = (a as i64) + (b as i64);
-          return (sum as! i32);  // 显式截断到 i32 范围
-      }
-      return a + b;  // 编译器证明：经过检查后无溢出
-  }
-  
-  // ❌ 编译错误：无法证明无溢出
-  fn add_unsafe(a: i32, b: i32) i32 {
-      return a + b;  // 编译错误
-  }
-  ```
+[examples/add_safe.uya](./examples/add_safe.uya)
 
 **内存安全强制**：
 
@@ -2549,21 +1309,15 @@ fn nested_example() !void {
 - **成功路径零运行时开销**：通过路径零指令，失败路径显式处理
 - **无 panic、无 catch、无断言**：所有检查在编译期完成
 - **优先级示例**：
-  ```uya
-  var x: i32 = 1 + 2 * 3;        // = 7，不是 9（* 优先级高于 +）
-  var y: bool = true && false || true;  // = true（&& 优先级高于 ||）
-  var z: i32 = 0;
-  z = z + 1;                          // 先计算 z + 1，再赋值（= 优先级最低）
-  var a: i32 = 0b1010;
-  var b: i32 = a << 2 & 0xFF;    // = (a << 2) & 0xFF（<< 优先级高于 &）
-  var c: i32 = a & b | 0x10;     // = (a & b) | 0x10（& 优先级高于 |）
-  ```
+[examples/example_068.uya](./examples/example_068.uya)
 
 ---
 
 ## 11 类型转换
 
 ### 11.1 转换语法
+
+> **BNF 语法规范**：详见 [grammar.md](./grammar.md#51-转换语法)
 
 Uya 提供两种类型转换语法：
 
@@ -2574,51 +1328,13 @@ Uya 提供两种类型转换语法：
 
 安全转换只允许无精度损失的转换，可能损失精度的转换会编译错误：
 
-```uya
-// ✅ 允许的转换（无精度损失）
-const x: f32 = 1.5;
-const y: f64 = x as f64;  // f32 -> f64，扩展精度，无损失
-
-const i: i32 = 42;
-const f: f64 = i as f64;  // i32 -> f64，无损失
-
-const small: i8 = 100;
-const f32_val: f32 = small as f32;  // i8 -> f32，小整数，无损失
-
-// ❌ 编译错误（可能有精度损失）
-const x: f64 = 3.141592653589793;
-const y: f32 = x as f32;  // 编译错误：f64 -> f32 可能有精度损失
-
-const large: i32 = 100000000;
-const f: f32 = large as f32;  // 编译错误：i32 -> f32 可能损失精度
-
-const pi: f64 = 3.14;
-const n: i32 = pi as i32;  // 编译错误：f64 -> i32 截断转换
-```
+[examples/safe_cast_as.uya](./examples/safe_cast_as.uya)
 
 ### 11.3 强转（as!）
 
 当确实需要进行可能有精度损失的转换时，使用 `as!` 强转语法。`as!` 返回错误联合类型 `!T`，需要使用 `try` 或 `catch` 处理可能的错误：
 
-```uya
-// ✅ 强转返回错误联合类型，需要错误处理
-const x: f64 = 3.141592653589793;
-const y: !f32 = x as! f32;  // 返回 !f32，可能包含精度损失错误
-const y_value: f32 = try y;  // 使用 try 传播错误
-
-// ✅ 使用 catch 处理可能的错误
-const large: i32 = 100000000;
-const f: f32 = large as! f32 catch |err| {
-    // 处理精度损失错误，这里使用默认值
-    0.0
-};
-
-const pi: f64 = 3.14;
-const n: i32 = try pi as! i32;  // f64 -> i32，截断为 3（无错误）
-
-const i64_val: i64 = 9007199254740992;  // 超过 f64 精度范围
-const result: !f64 = i64_val as! f64;  // 返回错误联合类型，可能包含精度损失错误
-```
+[examples/force_cast_as.uya](./examples/force_cast_as.uya)
 
 `as!` 可能返回的错误类型：
 - `error.PrecisionLoss`：转换导致精度损失
@@ -2649,35 +1365,11 @@ const result: !f64 = i64_val as! f64;  // 返回错误联合类型，可能包�
 
 ### 11.5 编译期常量转换
 
-```uya
-// 编译期常量转换，成功路径零运行时开销
-const PI_F64: f64 = 3.141592653589793;
-const PI_F32: f32 = PI_F64 as! f32;  // 编译期求值，使用强转
-
-const MAX_I32: i32 = 2147483647;
-const MAX_F64: f64 = MAX_I32 as f64;  // 编译期求值，安全转换
-
-// 编译后直接是常量，无运行时转换（成功路径零开销）
-```
+[examples/const_cast.uya](./examples/const_cast.uya)
 
 ### 11.6 错误信息示例
 
-```uya
-// 源代码
-const x: f64 = 3.14;
-const y: f32 = x as f32;
-
-// 编译错误信息
-error: 类型转换可能有精度损失
-  --> example.uya:2:18
-   |
- 2 | const y: f32 = x as f32;
-   |                ^^^^^^^^
-   |
-   = note: f64 -> f32 转换可能损失精度
-   = help: 如果确实需要此转换，请使用 'as!' 强转语法
-   = help: 例如: const y: f32 = x as! f32;
-```
+[examples/error_message_example.uya](./examples/error_message_example.uya)
 
 ### 11.7 设计哲学
 
@@ -2690,38 +1382,10 @@ error: 类型转换可能有精度损失
 ### 11.8 代码生成
 
 #### 编译期可证明安全的转换（成功路径零运行时开销）
-```uya
-// 源代码
-const x: f64 = 3.14;  // 编译期常量
-const y: !f32 = x as! f32;
-const y_value: f32 = try y;
-
-// x86-64 生成的代码（伪代码）
-//   movss  [y_value], 0x4048f5c3  ; 直接存储编译期计算的 f32 值
-// 成功路径零运行时开销，无错误检查
-```
+[examples/codegen_example.uya](./examples/codegen_example.uya)
 
 #### 需要运行时检查的转换
-```uya
-// 源代码
-fn convert(x: f64) !f32 {
-    return x as! f32;
-}
-
-// x86-64 生成的代码（伪代码）
-//   movsd  xmm0, [x]                ; 加载 f64
-//   cvtsd2ss xmm1, xmm0             ; 转换为 f32
-//   cvtss2sd xmm1, xmm1             ; 转换回 f64 进行检查
-//   ucomisd xmm0, xmm1              ; 比较原始值和转换后的值
-//   jne    .error_precision_loss    ; 如果不相等，跳转到错误处理
-//   movss  xmm0, xmm1               ; 转换成功，设置返回值
-//   mov    rax, 0                   ; 错误标记：无错误
-//   ret
-// .error_precision_loss:
-//   mov    rax, error.PrecisionLoss  ; 设置错误代码
-//   ret
-// 包含运行时精度检查，确保转换安全性
-```
+[examples/convert.uya](./examples/convert.uya)
 
 ---
 
@@ -2743,152 +1407,15 @@ fn convert(x: f64) !f32 {
 
 **drop 使用示例**：
 
-```uya
-struct Point {
-  x: f32,
-  y: f32
-}
-
-fn example() void {
-  const p: Point = Point{ x: 1.0, y: 2.0 };
-  // 使用 p...
-  // 离开作用域时，编译器自动插入：
-  // drop(p.y);  // 先 drop 字段（逆序）
-  // drop(p.x);
-  // drop(p);   // 再 drop 外层结构体
-}
-
-// 嵌套结构体示例
-struct Line {
-  start: Point,
-  end: Point
-}
-
-fn nested_example() void {
-  const line: Line = Line{
-    start: Point{ x: 0.0, y: 0.0 },
-    end: Point{ x: 1.0, y: 1.0 }
-  };
-  // 离开作用域时，编译器自动插入：
-  // drop(line.end.y);   // 递归 drop：先字段
-  // drop(line.end.x);
-  // drop(line.end);     // 再外层
-  // drop(line.start.y);
-  // drop(line.start.x);
-  // drop(line.start);
-  // drop(line);
-}
-```
+[examples/point.uya](./examples/point.uya)
 
 **用户自定义 drop 示例**：
 
-```uya
-// 示例 1：文件句柄自动关闭
-extern open(path: *byte, flags: i32) i32;
-extern close(fd: i32) i32;
-
-struct File {
-    fd: i32
-}
-
-fn drop(self: File) void {
-    if self.fd >= 0 {
-        close(self.fd);
-    }
-}
-
-fn example1() void {
-    const f: File = File{ fd: open("file.txt", 0) };
-    // 使用文件...
-    // 离开作用域时自动调用 drop，自动关闭文件
-}
-
-// 示例 2：堆内存自动释放
-extern malloc(size: i32) *void;
-extern free(ptr: *void) void;
-
-struct HeapBuffer {
-    data: *byte,
-    size: i32
-}
-
-fn drop(self: HeapBuffer) void {
-    if self.data != null {
-        free(self.data);
-    }
-}
-
-fn example2() void {
-    const buf: HeapBuffer = HeapBuffer{
-        data: malloc(100),
-        size: 100
-    };
-    // 使用缓冲区...
-    // 离开作用域时自动释放内存
-}
-
-// 示例 3：嵌套结构体的 drop
-struct FileReader {
-    file: File,           // File 有自定义 drop
-    buffer: [byte; 1024]  // 数组本身的 drop 是空函数，但会调用元素的 drop（byte 的 drop 是空函数）
-}
-
-fn example3() void {
-    const reader: FileReader = FileReader{
-        file: File{ fd: open("file.txt", 0) },
-        buffer: [0; 1024]
-    };
-    // 离开作用域时：
-    // 1. drop(reader.buffer) - 先 drop 数组元素（byte 的 drop 是空函数），再 drop 数组本身（空函数）
-    // 2. drop(reader.file) - 调用 File 的 drop，关闭文件
-    // 3. drop(reader) - 空函数（如果 FileReader 没有自定义 drop）
-}
-```
+[examples/file_2.uya](./examples/file_2.uya)
 
 **drop 使用示例（基本类型和结构体）**：
 
-```uya
-// 基本类型：drop 是空函数
-fn example_basic() void {
-  const x: i32 = 10;
-  const y: f64 = 3.14;
-  // 离开作用域时，编译器会插入：
-  // drop(y);  // 空函数，无操作
-  // drop(x);  // 空函数，无操作
-}
-
-// 数组：元素按索引逆序 drop
-fn example_array() void {
-  const arr: [f32; 4] = [1.0, 2.0, 3.0, 4.0];
-  // 离开作用域时，编译器会插入：
-  // drop(arr[3]);  // 逆序 drop 元素
-  // drop(arr[2]);
-  // drop(arr[1]);
-  // drop(arr[0]);
-  // drop(arr);
-}
-
-// 作用域嵌套：变量在各自作用域结束时 drop
-fn example_scope() void {
-  const outer: i32 = 10;
-  {
-    const inner: i32 = 20;
-    // inner 在这里 drop（离开内层作用域）
-  }
-  // outer 在这里 drop（离开外层作用域）
-}
-
-// 函数参数：按值传递，函数返回时会 drop
-fn process(data: Point) void {
-  // data 在这里 drop（函数返回时）
-}
-
-// 函数返回值：被调用者接收，在调用者作用域中 drop
-fn create_point() Point {
-  return Point{ x: 1.0, y: 2.0 };
-  // 返回值不会在这里 drop，而是传递给调用者
-}
-```
+[examples/example_basic.uya](./examples/example_basic.uya)
 
 **重要说明**：
 - `drop` 是**自动调用**的，无需手动调用
@@ -2943,31 +1470,7 @@ fn create_point() Point {
 
 **示例**：
 
-```uya
-struct File {
-    fd: i32
-}
-
-fn drop(self: File) void {
-    if self.fd >= 0 {
-        close(self.fd);
-    }
-}
-
-fn example() void {
-    const file1: File = File{ fd: open("test.txt", 0) };
-    const file2: File = file1;  // ✅ 移动：file1 的所有权转移给 file2
-    
-    // ❌ 编译错误：file1 已被移动，不能再次使用
-    // const fd: i32 = file1.fd;  // 错误：使用已移动的变量 'file1'
-    
-    // ✅ 编译通过：file2 拥有所有权
-    const fd: i32 = file2.fd;
-    
-    // file2 离开作用域时自动调用 drop，关闭文件
-    // file1 不会调用 drop（已移动）
-}
-```
+[examples/file_3.uya](./examples/file_3.uya)
 
 ### 12.5.5 指针与移动语义的交互
 
@@ -2981,84 +1484,23 @@ fn example() void {
 
 **示例：存在活跃指针时禁止移动**：
 
-```uya
-fn example() void {
-    const file: File = File{ fd: 1 };
-    const ptr: *File = &file;  // 存在指向 file 的指针
-    
-    // ❌ 编译错误：变量 'file' 存在活跃指针，不能移动
-    // const file2: File = file;  // 错误：无法移动，因为存在指向 'file' 的指针
-}
-```
+[examples/example_11.uya](./examples/example_11.uya)
 
 **正确的使用方式：指针离开作用域后再移动**：
 
-```uya
-fn example() void {
-    const file: File = File{ fd: 1 };
-    
-    {
-        const ptr: *File = &file;  // 指针在内层作用域
-        // 使用 ptr...
-        // ptr 离开作用域，不再活跃
-    }
-    
-    // ✅ 编译通过：ptr 已离开作用域，file 可以移动
-    const file2: File = file;
-}
-```
+[examples/example_12.uya](./examples/example_12.uya)
 
 **错误的移动：跨作用域指针阻止移动**：
 
-```uya
-fn example() void {
-    const file: File = File{ fd: 1 };
-    const ptr: *File = &file;  // 指针在外层作用域
-    
-    {
-        // ❌ 编译错误：变量 'file' 存在活跃指针（ptr），不能移动
-        // const file2: File = file;  // 错误：即使移动在内层作用域，ptr 在外层仍活跃
-    }
-    
-    // 编译器检查所有作用域层级，只要存在指向变量的指针，就不能移动
-}
-```
+[examples/example_13.uya](./examples/example_13.uya)
 
 **使用指针参数，不移动对象**：
 
-```uya
-fn process(ptr: *File) void {
-    // 通过指针访问，不涉及移动
-}
-
-fn example() void {
-    const file: File = File{ fd: 1 };
-    const ptr: *File = &file;
-    process(ptr);  // ✅ 编译通过：传递指针，file 不被移动
-    // file 仍然可以使用
-}
-```
+[examples/process_1.uya](./examples/process_1.uya)
 
 **函数参数指针的活跃性**：
 
-```uya
-fn process(ptr: *File) void {
-    // 函数参数是指针，不涉及移动
-    const fd: i32 = ptr.fd;  // 通过指针访问
-}
-
-fn example() void {
-    const file: File = File{ fd: 1 };
-    const ptr: *File = &file;
-    
-    process(ptr);  // 传递指针给函数
-    
-    // ❌ 编译错误：ptr 仍然存在，指向 file，不能移动
-    // const file2: File = file;  // 错误：存在指向 file 的活跃指针（ptr）
-    
-    // 必须让 ptr 离开作用域后才能移动
-}
-```
+[examples/process_2.uya](./examples/process_2.uya)
 
 ### 12.5.6 条件分支和循环中的移动
 
@@ -3066,39 +1508,13 @@ fn example() void {
 
 同一变量在不同分支中不能多次移动。编译器需要路径敏感分析，确保变量在所有可能执行路径中只移动一次。
 
-```uya
-fn example(condition: bool) void {
-    const file: File = File{ fd: 1 };
-    
-    if condition {
-        // ❌ 编译错误：file 可能在 else 分支中被移动
-        // const file2: File = file;  // 错误：无法确定只移动一次
-    } else {
-        // ❌ 编译错误：file 可能在 if 分支中被移动
-        // const file3: File = file;  // 错误：无法确定只移动一次
-    }
-    
-    // 编译器需要路径敏感分析，确保变量在所有可能执行路径中只移动一次
-    // 如果无法确定只移动一次，则编译错误
-}
-```
+[examples/example_14.uya](./examples/example_14.uya)
 
 **循环中的移动检查**：
 
 循环中的变量不能移动，因为循环可能执行多次，导致多次移动同一个变量。
 
-```uya
-fn example() void {
-    const file: File = File{ fd: 1 };
-    
-    var i: i32 = 0;
-    while i < 10 {
-        // ❌ 编译错误：file 在循环中不能移动（可能执行多次，导致多次移动）
-        // const file2: File = file;  // 错误：循环中的移动可能导致多次移动
-        i = i + 1;
-    }
-}
-```
+[examples/example_15.uya](./examples/example_15.uya)
 
 ### 12.5.7 数组和接口值的移动
 
@@ -3106,35 +1522,13 @@ fn example() void {
 
 数组本身使用值语义（复制），但数组元素如果是结构体，则使用移动语义。
 
-```uya
-fn example() void {
-    const arr1: [File; 3] = [File{fd:1}, File{fd:2}, File{fd:3}];
-    
-    // 数组本身使用值语义（复制），不是移动
-    const arr2: [File; 3] = arr1;  // ✅ 这是复制，不是移动（数组本身使用值语义）
-    
-    // ✅ 移动数组元素（结构体使用移动语义）
-    const file: File = arr1[0];  // 移动数组元素
-    // ❌ arr1[0] 已被移动，不能再次使用
-}
-```
+[examples/example_16.uya](./examples/example_16.uya)
 
 **接口值移动**：
 
 接口值是16字节结构体（vtable指针+数据指针），移动接口值只是复制16字节，不涉及底层数据的移动。底层数据的生命周期仍然由原始对象决定。
 
-```uya
-fn example() void {
-    const console: Console = Console{ fd: 1 };
-    const writer: IWriter = console;  // 装箱为接口值（16字节结构体）
-    
-    // ✅ 接口值本身是16字节结构体，可以移动
-    const writer2: IWriter = writer;  // 移动接口值（复制16字节）
-    
-    // 注意：接口值移动只是复制16字节（vtable指针+数据指针），不移动底层数据
-    // 底层数据的生命周期仍然由原始对象（console）决定
-}
-```
+[examples/example_17.uya](./examples/example_17.uya)
 
 ### 12.5.8 嵌套结构体和字段访问
 
@@ -3142,50 +1536,14 @@ fn example() void {
 
 移动外层结构体时，所有字段（包括嵌套结构体字段）一起移动。
 
-```uya
-fn example() void {
-    struct Inner {
-        value: i32
-    }
-    
-    struct Outer {
-        inner: Inner
-    }
-    
-    const outer: Outer = Outer{ inner: Inner{ value: 42 } };
-    
-    // ✅ 移动外层结构体时，所有字段（包括嵌套结构体）一起移动
-    const outer2: Outer = outer;  // inner 字段也被移动
-    
-    // ✅ 也可以单独移动嵌套字段（但 outer 已被移动，这里应该报错）
-    // const inner2: Inner = outer.inner;  // ❌ 错误：outer 已被移动
-}
-```
+[examples/inner_1.uya](./examples/inner_1.uya)
 
 **字段访问与指针的区别**：
 
 - 直接字段访问（`struct.field`）不是指针，可以移动
 - 通过指针访问（`ptr.field`）意味着存在指向对象的指针，不能移动
 
-```uya
-fn example() void {
-    struct Container {
-        file: File
-    }
-    
-    const container: Container = Container{ file: File{ fd: 1 } };
-    
-    // 访问字段不会创建指针，所以可以移动
-    const fd: i32 = container.file.fd;  // 访问字段（值访问，不是指针）
-    const file2: File = container.file;  // ✅ 可以移动（字段访问不是指针）
-    
-    // 但如果通过指针访问：
-    const ptr: *Container = &container;
-    const fd2: i32 = ptr.file.fd;  // 通过指针访问
-    // ❌ 如果 container 被移动，ptr 会变成悬垂指针
-    // const container2: Container = container;  // 错误：存在指向 container 的指针
-}
-```
+[examples/container.uya](./examples/container.uya)
 
 ### 12.5.9 与 drop 的关系
 
@@ -3197,89 +1555,21 @@ fn example() void {
 
 **示例：堆内存安全移动（解决 double free 问题）**：
 
-```uya
-extern malloc(size: i32) *void;
-extern free(ptr: *void) void;
-
-struct HeapBuffer {
-    data: *byte,
-    size: i32
-}
-
-fn drop(self: HeapBuffer) void {
-    if self.data != null {
-        free(self.data);
-    }
-}
-
-fn example() void {
-    const buf1: HeapBuffer = HeapBuffer{
-        data: malloc(100),
-        size: 100
-    };
-    
-    const buf2: HeapBuffer = buf1;  // ✅ 移动：buf1 的所有权转移给 buf2
-    
-    // ❌ 编译错误：buf1 已被移动，不能再次使用
-    // const ptr: *byte = buf1.data;  // 错误：使用已移动的变量（注意：*byte 不能用于普通变量声明）
-    
-    // ✅ 编译通过：只有 buf2 拥有所有权
-    // buf2 离开作用域时自动调用 drop，释放内存
-    // buf1 不会调用 drop（已移动），避免 double free
-}
-```
+[examples/heapbuffer.uya](./examples/heapbuffer.uya)
 
 ### 12.5.10 完整示例
 
 **基本移动示例**：
 
-```uya
-struct File {
-    fd: i32
-}
-
-fn drop(self: File) void {
-    close(self.fd);
-}
-
-fn example() void {
-    const file1: File = File{ fd: open("test.txt", 0) };
-    const file2: File = file1;  // ✅ 移动
-    
-    // file2 离开作用域时自动调用 drop，关闭文件
-}
-```
+[examples/file_4.uya](./examples/file_4.uya)
 
 **函数参数移动**：
 
-```uya
-fn process_file(f: File) void {
-    // f 的所有权从调用者移动到函数参数
-    // 函数返回时，f 离开作用域，自动调用 drop
-}
-
-fn example() void {
-    const file: File = File{ fd: open("test.txt", 0) };
-    process_file(file);  // ✅ 移动：file 的所有权转移给函数参数
-    
-    // ❌ 编译错误：file 已被移动，不能再次使用
-    // const fd: i32 = file.fd;  // 错误：使用已移动的变量
-}
-```
+[examples/process_file_1.uya](./examples/process_file_1.uya)
 
 **返回值移动**：
 
-```uya
-fn create_file() File {
-    return File{ fd: open("test.txt", 0) };
-    // 返回值移动到调用者，不会在这里 drop
-}
-
-fn example() void {
-    const file: File = create_file();  // ✅ 移动：返回值所有权转移给 file
-    // file 离开作用域时自动调用 drop
-}
-```
+[examples/create_file.uya](./examples/create_file.uya)
 
 ### 12.5.11 限制说明
 
@@ -3316,17 +1606,9 @@ fn example() void {
 
 ### 13.2 语法
 
-```uya
-struct Counter {
-  value: atomic i32
-}
+> **BNF 语法规范**：详见 [grammar.md](./grammar.md#61-原子类型)
 
-fn increment(counter: *Counter) void {
-  counter.value += 1;  // 自动原子 fetch_add
-  const v: i32 = counter.value;  // 自动原子 load
-  counter.value = 10;  // 自动原子 store
-}
-```
+[examples/counter.uya](./examples/counter.uya)
 
 ### 13.3 语义
 
@@ -3416,240 +1698,11 @@ Uya 语言的编译期证明机制采用**分层验证策略**：
 
 ### 14.4 示例
 
-```uya
-// ✅ 编译通过：常量索引在范围内
-const arr: [i32; 10] = [0; 10];
-const x: i32 = arr[5];  // 5 < 10，编译期证明安全
-
-// ❌ 编译错误：常量索引越界
-const y: i32 = arr[10];  // 10 >= 10，编译错误
-
-// ✅ 编译通过：变量索引有证明
-fn safe_access(arr: [i32; 10], i: i32) i32 {
-  if i < 0 || i >= 10 {
-    return error.OutOfBounds;
-  }
-  return arr[i];  // 编译器证明 i >= 0 && i < 10，在范围内
-}
-
-// ❌ 编译错误：变量索引无证明
-fn unsafe_access(arr: [i32; 10], i: i32) i32 {
-  return arr[i];  // 无法证明 i >= 0 && i < 10，编译错误
-}
-```
+[examples/safe_access_2.uya](./examples/safe_access_2.uya)
 
 **整数溢出处理示例**：
 
-```uya
-// ✅ 编译通过：常量运算，编译器可以证明无溢出
-// 使用 max/min 关键字访问极值（推荐）
-const x: i32 = 100 + 200;  // 编译期常量折叠，证明无溢出（300 < max）
-
-// 也可以用于常量定义（类型推断）
-const MAX_I32: i32 = max;  // 从类型注解 i32 推断出是 i32 的最大值
-const MIN_I32: i32 = min;  // 从类型注解 i32 推断出是 i32 的最小值
-
-// ❌ 编译错误：常量溢出
-const y: i32 = 2147483647 + 1;  // 编译错误：常量溢出
-const z: i32 = -2147483648 - 1;  // 编译错误：常量下溢
-
-// ✅ 编译通过：变量运算有显式溢出检查
-
-// 方式1：返回错误（错误联合类型）
-// 使用 try 关键字（推荐）
-fn add_safe(a: i32, b: i32) !i32 {
-    return try a + b;  // 自动检查溢出，溢出返回 error.Overflow
-}
-
-// 方式1（备选）：手动检查（如果需要自定义逻辑）
-fn add_safe_manual(a: i32, b: i32) !i32 {
-    // 显式检查上溢：a > 0 && b > 0 && a + b > MAX
-    // 编译器从 a 和 b 的类型 i32 推断 max 和 min 的类型
-    if a > 0 && b > 0 && a > max - b {
-        return error.Overflow;  // 返回错误，无需预定义
-    }
-    // 显式检查下溢：a < 0 && b < 0 && a + b < MIN
-    if a < 0 && b < 0 && a < min - b {
-        return error.Overflow;  // 返回错误，无需预定义
-    }
-    // 编译器证明：经过检查后，a + b 不会溢出
-    return a + b;
-}
-
-// 方式2：返回饱和值（有效数值）
-// 使用饱和运算符（推荐）
-fn add_saturating(a: i32, b: i32) i32 {
-    return a +| b;  // 自动饱和，溢出返回极值
-}
-
-// 方式2（备选）：手动检查（如果需要自定义逻辑）
-fn add_saturating_manual(a: i32, b: i32) i32 {
-    // 显式检查上溢：返回最大值
-    // 编译器从函数返回类型和参数类型推断 max/min 的类型
-    if a > 0 && b > 0 && a > max - b {
-        return max;  // 上溢时返回最大值
-    }
-    // 显式检查下溢：返回最小值
-    if a < 0 && b < 0 && a < min - b {
-        return min;  // 下溢时返回最小值
-    }
-    // 编译器证明：经过检查后，a + b 不会溢出
-    return a + b;
-}
-
-// 方式3：返回包装值（有效数值）
-// 使用包装运算符（推荐）
-fn add_wrapping(a: i32, b: i32) i32 {
-    return a +% b;  // 自动包装，溢出返回包装值
-}
-
-// 方式3（备选）：手动检查（如果需要自定义逻辑）
-fn add_wrapping_manual(a: i32, b: i32) i32 {
-    // 包装算术的实现：使用更大的类型进行计算，然后截断
-    // 这样即使溢出，也会自动包装回类型的另一端
-    const sum: i64 = (a as i64) + (b as i64);
-    return (sum as! i32);  // 显式截断到 i32 范围，溢出时自动包装
-    
-    // 说明：
-    // - 如果 a + b 在 i32 范围内，结果正常
-    // - 如果 a + b 溢出，截断会保留低 32 位，自动包装
-    //   例如：2147483647 + 1 = 2147483648 (i64)
-    //        截断为 i32 后 = -2147483648 (包装后的值)
-    //   例如：-2147483648 - 1 = -2147483649 (i64)
-    //        截断为 i32 后 = 2147483647 (包装后的值)
-}
-
-// ✅ 编译通过：乘法溢出检查
-// 使用 try 关键字（推荐）
-fn mul_safe(a: i32, b: i32) !i32 {
-    return try a * b;  // 自动检查溢出，溢出返回 error.Overflow
-}
-
-// 方式（备选）：手动检查（如果需要自定义逻辑）
-fn mul_safe_manual(a: i32, b: i32) !i32 {
-    if a == 0 || b == 0 {
-        return 0;  // 零乘法，无溢出
-    }
-    // 检查上溢：a > 0 && b > 0 && a * b > MAX
-    // 编译器从参数类型推断 max/min 的类型
-    if a > 0 && b > 0 && a > max / b {
-        return error.Overflow;
-    }
-    // 检查下溢：a < 0 && b < 0 && a * b > MAX（负负得正）
-    if a < 0 && b < 0 && a < max / b {
-        return error.Overflow;
-    }
-    // 检查混合符号：a > 0 && b < 0 && a * b < MIN
-    if a > 0 && b < 0 && a > min / b {
-        return error.Overflow;
-    }
-    // 检查混合符号：a < 0 && b > 0 && a * b < MIN
-    if a < 0 && b > 0 && b > min / a {
-        return error.Overflow;
-    }
-    // 编译器证明：经过检查后，a * b 不会溢出
-    return a * b;
-}
-
-// ❌ 编译错误：无法证明无溢出
-fn add_unsafe(a: i32, b: i32) i32 {
-    return a + b;  // 编译错误：无法证明 a + b 不会溢出
-}
-
-// ❌ 编译错误：无法证明无溢出
-fn mul_unsafe(a: i32, b: i32) i32 {
-    return a * b;  // 编译错误：无法证明 a * b 不会溢出
-}
-
-// ✅ 编译通过：已知范围的变量
-fn add_known_range(a: i32, b: i32) i32 {
-    // 如果编译器可以证明 a 和 b 都在安全范围内
-    // 例如：a 和 b 都是数组索引（已验证 < 1000）
-    // 编译器可以证明 a + b < 2000 < 2147483647，无溢出
-    if a < 0 || a >= 1000 || b < 0 || b >= 1000 {
-        return error.OutOfBounds;
-    }
-    return a + b;  // 编译器证明：a < 1000 && b < 1000，所以 a + b < 2000，无溢出
-}
-
-// ========== i64 溢出处理示例 ==========
-
-// ✅ 编译通过：i64 常量运算无溢出
-// 使用 max/min 关键字访问极值（推荐）
-const x64: i64 = 1000000000 + 2000000000;  // 编译期常量折叠，证明无溢出
-
-// ❌ 编译错误：i64 常量溢出
-const y64: i64 = max + 1;  // 编译错误：常量溢出（从类型注解 i64 推断）
-const z64: i64 = min - 1;  // 编译错误：常量下溢（从类型注解 i64 推断）
-
-// ✅ 编译通过：i64 变量运算有显式溢出检查
-// 使用 try 关键字（推荐）
-fn add_safe_i64(a: i64, b: i64) !i64 {
-    return try a + b;  // 自动检查溢出，溢出返回 error.Overflow
-}
-
-// 方式（备选）：手动检查（如果需要自定义逻辑）
-fn add_safe_i64_manual(a: i64, b: i64) !i64 {
-    // 显式检查上溢：a > 0 && b > 0 && a + b > MAX
-    // 编译器从参数类型 i64 推断 max/min 的类型
-    if a > 0 && b > 0 && a > max - b {
-        return error.Overflow;
-    }
-    // 显式检查下溢：a < 0 && b < 0 && a + b < MIN
-    if a < 0 && b < 0 && a < min - b {
-        return error.Overflow;
-    }
-    // 编译器证明：经过检查后，a + b 不会溢出
-    return a + b;
-}
-
-// ✅ 编译通过：i64 乘法溢出检查
-// 使用 try 关键字（推荐）
-fn mul_safe_i64(a: i64, b: i64) !i64 {
-    return try a * b;  // 自动检查溢出，溢出返回 error.Overflow
-}
-
-// 方式（备选）：手动检查（如果需要自定义逻辑）
-fn mul_safe_i64_manual(a: i64, b: i64) !i64 {
-    if a == 0 || b == 0 {
-        return 0;  // 零乘法，无溢出
-    }
-    // 检查上溢：a > 0 && b > 0 && a * b > MAX
-    // 编译器从参数类型 i64 推断 max/min 的类型
-    if a > 0 && b > 0 && a > max / b {
-        return error.Overflow;
-    }
-    // 检查下溢：a < 0 && b < 0 && a * b > MAX（负负得正）
-    if a < 0 && b < 0 && a < max / b {
-        return error.Overflow;
-    }
-    // 检查混合符号：a > 0 && b < 0 && a * b < MIN
-    if a > 0 && b < 0 && a > min / b {
-        return error.Overflow;
-    }
-    // 检查混合符号：a < 0 && b > 0 && a * b < MIN
-    if a < 0 && b > 0 && b > min / a {
-        return error.Overflow;
-    }
-    // 编译器证明：经过检查后，a * b 不会溢出
-    return a * b;
-}
-
-// ❌ 编译错误：i64 无法证明无溢出
-fn add_unsafe_i64(a: i64, b: i64) i64 {
-    return a + b;  // 编译错误：无法证明 a + b 不会溢出
-}
-
-// ✅ 编译通过：i64 已知范围的变量
-fn add_known_range_i64(a: i64, b: i64) !i64 {
-    // 如果编译器可以证明 a 和 b 都在安全范围内
-    // 例如：a 和 b 都是已验证的范围（< 1000000000）
-    if a < 0 || a >= 1000000000 || b < 0 || b >= 1000000000 {
-        return error.OutOfBounds;
-    }
-    return a + b;  // 编译器证明：a < 1000000000 && b < 1000000000，所以 a + b < 2000000000，无溢出
-}
-```
+[examples/add_safe_1.uya](./examples/add_safe_1.uya)
 
 **溢出检查规则**：
 
@@ -3664,22 +1717,7 @@ fn add_known_range_i64(a: i64, b: i64) !i64 {
    - 一行代码替代多行溢出检查，代码简洁
    - 编译期展开，零运行时开销，与手写代码性能相同
    - 示例：
-     ```uya
-     // try 关键字：返回错误联合类型
-     fn add_safe(a: i32, b: i32) !i32 {
-         return try a + b;  // 自动检查溢出，返回 error.Overflow 如果溢出
-     }
-
-     // 饱和运算符：返回饱和值
-     fn add_saturating(a: i32, b: i32) i32 {
-         return a +| b;  // 自动饱和
-     }
-
-     // 包装运算符：返回包装值
-     fn add_wrapping(a: i32, b: i32) i32 {
-         return a +% b;  // 自动包装
-     }
-     ```
+[examples/add_safe_2.uya](./examples/add_safe_2.uya)
    - **`try` 关键字支持的操作**：
      - `try a + b`（加法溢出检查）
      - `try a - b`（减法溢出检查）
@@ -3700,18 +1738,7 @@ fn add_known_range_i64(a: i64, b: i64) !i64 {
    - `max` 和 `min` 是语言关键字，编译器从上下文类型自动推断极值类型
    - 适用于需要自定义溢出检查逻辑的场景
    - 示例：
-     ```uya
-     // 使用 max/min 关键字访问极值（类型推断）
-     const a: i32 = ...;
-     const b: i32 = ...;
-     if a > 0 && b > 0 && a > max - b {  // 从 a 和 b 的类型 i32 推断
-         return error.Overflow;
-     }
-     
-     // 也可以用于常量定义（类型推断）
-     const MAX_I32: i32 = max;  // 从类型注解 i32 推断出是 i32 的最大值
-     const MIN_I32: i32 = min;  // 从类型注解 i32 推断出是 i32 的最小值
-     ```
+[examples/example_098.uya](./examples/example_098.uya)
    - **类型推断规则**：
      - 常量定义：从类型注解推断，如 `const MAX: i32 = max;` → `max i32`
      - 表达式上下文：从操作数类型推断，如 `a > max - b`（a 和 b 是 i32）→ `max i32`
@@ -3776,25 +1803,7 @@ fn add_known_range_i64(a: i64, b: i64) !i64 {
 
 ### 15.3 示例
 
-```uya
-struct Counter {
-  value: atomic i32
-}
-
-impl Counter : IIncrement {
-  fn inc(self: *Self) i32 {
-    self.value += 1;  // 自动原子 fetch_add
-    return self.value;  // 自动原子 load
-  }
-}
-
-fn main() i32 {
-  const counter: Counter = Counter{ value: 0 };
-  // 多线程并发递增，零数据竞争
-  // 所有操作自动原子化，无需锁
-  return 0;
-}
-```
+[examples/counter_1.uya](./examples/counter_1.uya)
 
 ### 15.4 限制
 
@@ -3827,10 +1836,7 @@ fn main() i32 {
    - 返回值：`i32` 类型，值为 `N`（编译期常量）
    - 注意：由于 `N` 是编译期常量，此函数在编译期求值，零运行时开销
    - 示例：
-     ```uya
-     const arr: [i32; 10] = [0; 10];
-     const size: i32 = len(arr);  // size = 10（编译期常量）
-     ```
+[examples/example_100.uya](./examples/example_100.uya)
 
 2. **`try` 关键字、饱和运算符**（`+|`, `-|`, `*|`）**和包装运算符**（`+%`, `-%`, `*%`）
    - 功能：提供简洁的溢出检查和处理方式，避免重复编写溢出检查代码
@@ -3847,37 +1853,7 @@ fn main() i32 {
        - 乘法溢出：`try a * b` 在 `a * b` 超出类型范围时返回 `error.Overflow`
      - **使用场景**：需要明确处理溢出错误的情况（如输入验证、关键计算）
      - **示例**：
-       ```uya
-       // 溢出检查
-       fn add_safe(a: i32, b: i32) !i32 {
-           return try a + b;  // 自动检查溢出，溢出返回 error.Overflow
-       }
-
-      // 使用示例：处理溢出错误
-      const result: i32 = try x + y catch |err| {
-          if err == error.Overflow {
-              printf("Overflow occurred\n");
-              // 处理溢出情况，如返回默认值或报告错误
-          }
-          return 0;  // 提供默认值
-      };
-
-      // 使用示例：传播错误
-      fn calculate(a: i32, b: i32, c: i32) !i32 {
-          const sum: i32 = try a + b;  // 溢出时向上传播 error.Overflow
-          return try sum + c;  // 继续检查，可能抛出 error.Overflow
-      }
-      
-      // 使用示例：减法溢出检查
-      fn sub_safe(a: i32, b: i32) !i32 {
-          return try a - b;  // 自动检查减法溢出，可能抛出 error.Overflow
-      }
-      
-      // 使用示例：乘法溢出检查
-      fn mul_safe(a: i32, b: i32) !i32 {
-          return try a * b;  // 自动检查乘法溢出，可能抛出 error.Overflow
-      }
-       ```
+[examples/add_safe_3.uya](./examples/add_safe_3.uya)
      - **行为说明**：
        - 如果运算结果在类型范围内，返回计算结果
        - 如果运算结果溢出，返回 `error.Overflow`
@@ -3888,31 +1864,7 @@ fn main() i32 {
      - **返回类型**：`T`（普通类型），不会返回错误，总是返回有效数值
      - **使用场景**：需要限制结果在类型范围内的场景（如信号处理、图形处理、游戏开发）
      - **示例**：
-       ```uya
-       // 饱和算术
-       fn add_saturating(a: i32, b: i32) i32 {
-           return a +| b;  // 自动饱和，溢出返回极值
-       }
-       
-      // 使用示例：限制结果范围
-      const result: i32 = x +| y;  // 溢出时自动返回 max 或 min
-      
-      // 数值示例（i32 类型）
-      const max: i32 = max;  // 2147483647
-      const min: i32 = min;  // -2147483648
-      
-      // 上溢饱和：超过最大值时返回最大值
-      const result1: i32 = max +| 1;  // 结果 = 2147483647（保持最大值）
-      
-      // 下溢饱和：小于最小值时返回最小值
-      const result2: i32 = min -| 1;  // 结果 = -2147483648（保持最小值）
-      
-      // 正常情况：不溢出时行为与普通加法相同
-      const result3: i32 = 100 +| 200;  // 结果 = 300
-      
-      // 饱和乘法
-      const result4: i32 = max *| 2;  // 结果 = 2147483647（上溢饱和）
-       ```
+[examples/add_saturating.uya](./examples/add_saturating.uya)
      - **行为说明**：
        - 如果运算结果在类型范围内，返回计算结果
        - 如果运算结果上溢（超过最大值），返回类型的最大值
@@ -3923,31 +1875,7 @@ fn main() i32 {
      - **返回类型**：`T`（普通类型），不会返回错误，总是返回有效数值
      - **使用场景**：需要明确的溢出行为（加密算法、循环计数器、哈希函数）
      - **示例**：
-       ```uya
-       // 包装算术
-       fn add_wrapping(a: i32, b: i32) i32 {
-           return a +% b;  // 自动包装，溢出返回包装值
-       }
-       
-      // 使用示例
-      const result: i32 = x +% y;  // 溢出时自动包装
-      
-      // 数值示例（i32 类型）
-      const max: i32 = max;  // 2147483647
-      const min: i32 = min;  // -2147483648
-      
-      // 上溢包装：超过最大值时包装到最小值
-      const result1: i32 = max +% 1;  // 结果 = -2147483648（包装）
-      
-      // 下溢包装：小于最小值时包装到最大值
-      const result2: i32 = min -% 1;  // 结果 = 2147483647（包装）
-      
-      // 正常情况：不溢出时行为与普通加法相同
-      const result3: i32 = 100 +% 200;  // 结果 = 300
-      
-      // 包装乘法
-      const result4: i32 = max *% 2;  // 结果 = -2（包装）
-       ```
+[examples/add_wrapping.uya](./examples/add_wrapping.uya)
      - **行为说明**：
        - 如果运算结果在类型范围内，返回计算结果
        - 如果运算结果溢出，返回包装后的值（模 2^n，n 为类型位数）
@@ -3965,19 +1893,7 @@ fn main() i32 {
      - 需要包装行为时 → 使用包装运算符（如 `a +% b`）
    
    - **编译期展开示例**：
-     ```uya
-    // 源代码
-    const result: i32 = try a + b;
-     
-     // 编译期展开为（伪代码）
-     // if a > 0 && b > 0 && a > max - b {
-     //     return error.Overflow;
-     // }
-     // if a < 0 && b < 0 && a < min - b {
-     //     return error.Overflow;
-     // }
-     // return a + b;
-     ```
+[examples/example_104.uya](./examples/example_104.uya)
    
    - **优势**：
      - 代码简洁：一行代码替代多行溢出检查
@@ -3990,17 +1906,9 @@ fn main() i32 {
    - **功能**：`sizeof(T)` 返回类型 `T` 的字节大小，`alignof(T)` 返回类型 `T` 的对齐字节数
    - **位置**：标准库 `std/mem.uya`
    - **签名**：
-     ```uya
-     export fn sizeof(T) i32  = @size_of(T);   // 仅编译器可见的折叠记号
-     export fn alignof(T) i32 = @align_of(T);
-     ```
+[examples/sizeof.uya](./examples/sizeof.uya)
    - **使用**：
-     ```uya
-     use std.mem.{sizeof, alignof};
-
-     const N: i32 = sizeof(struct Vec3{});      // 12
-     const A: i32 = alignof(struct Vec3{});     // 4
-     ```
+[examples/vec3_1.uya](./examples/vec3_1.uya)
    - **支持类型**：
      | 类别 | 示例 | 说明 |
      |------|------|------|
@@ -4012,28 +1920,12 @@ fn main() i32 {
      | 结构体 | `struct S{...}` | 大小 = 各字段按 C 规则布局，对齐 = 最大字段对齐 |
      | 原子 | `atomic T` | 与 `T` 完全相同 |
    - **常量表达式**：结果可在**任何需要编译期常量**的位置使用
-     ```uya
-     const BUF: [byte; sizeof(struct File)] = [];          // 定长缓冲区
-     const ALIGN_MASK: i32 = alignof(struct Page) - 1;     // 对齐掩码
-     ```
+[examples/file_5.uya](./examples/file_5.uya)
    - **零运行时保证**：
      - 前端遇到 `sizeof(T)` / `alignof(T)` **直接折叠**成常数，**不生成函数调用**
      - 失败路径（类型未定义、含泛型参数）→ **编译错误**，不生成代码
    - **常见示例**：
-     ```uya
-     // 1. FFI 分配
-     extern malloc(size: i32) *void;
-     // 注意：*byte 不能用于普通变量声明，这里仅作示例说明类型
-     // const ptr: *byte = malloc(sizeof(struct Packet));  // ❌ 编译错误：*byte 不能用于普通变量声明
-
-     // 2. 对齐检查
-     if alignof(struct Header) != 64 {
-         return error.BadAlign;
-     }
-
-     // 3. 零拷贝序列化
-     const MSG: [byte; sizeof(struct Msg)] = [];
-     ```
+[examples/packet.uya](./examples/packet.uya)
    - **限制**：
      - `T` 必须是**完全已知类型**（无待填泛型参数）
      - 不支持表达式级 `sizeof(expr)`——仅对 **类型** 求值
@@ -4055,152 +1947,12 @@ fn main() i32 {
 - 语法一眼看完。
 
 ### 17.2 语法（单页纸）
-    fn next(self: *Self) !void {
-        if self.current >= self.len {
-            return error.IterEnd;
-        }
-        self.current = self.current + 1;
-    }
-    
-    fn value(self: *Self) !i32 {
-        const idx: i32 = self.current - 1;
-        // 编译期证明：由于 next() 成功返回，idx 在有效范围内
-        if idx < 0 || idx >= self.len {
-            return error.InvalidIteratorState;  // 根据设计，这种情况不应该发生
-        }
-        return (*self.arr)[idx];
-    }
-    
-    fn ptr(self: *Self) !&i32 {
-        const idx: i32 = self.current - 1;
-        // 编译期证明：由于 next() 成功返回，idx 在有效范围内
-        if idx < 0 || idx >= self.len {
-            return error.InvalidIteratorState;
-        }
-        return &(*self.arr)[idx];  // 返回指向当前元素的指针（可修改）
-    }
-}
 
-impl ArrayIteratorI32 : IIteratorI32WithIndex {
-    fn next(self: *Self) !void {
-        if self.current >= self.len {
-            return error.IterEnd;
-        }
-        self.current = self.current + 1;
-    }
-    
-    fn value(self: *Self) !i32 {
-        const idx: i32 = self.current - 1;
-        // 编译期证明：由于 next() 成功返回，idx 在有效范围内
-        if idx < 0 || idx >= self.len {
-            return error.InvalidIteratorState;  // 根据设计，这种情况不应该发生
-        }
-        return (*self.arr)[idx];
-    }
-    
-    fn index(self: *Self) i32 {
-        return self.current - 1;
-    }
-}
+字符串插值语法示例请参考对应章节。
 
-fn main() i32 {
-    const arr: [i32; 5] = [10, 20, 30, 40, 50];
-    
-    // 示例1：基本迭代（只获取元素值，只读）
-    printf("Basic iteration:\n");
-    for arr |item| {
-        printf("  value: %d\n", item);
-    }
-    
-    // 示例2：可修改迭代
-    var arr2: [i32; 5] = [10, 20, 30, 40, 50];
-    printf("\nMutable iteration:\n");
-    for arr2 |&item| {
-        *item = *item * 2;  // 修改每个元素，乘以2
-        printf("  value: %d\n", *item);
-    }
-    
-    // 示例3：整数范围迭代
-    printf("\nInteger range iteration:\n");
-    for 0..10 |i| {
-        printf("  i: %d\n", i);  // 输出 0 到 9
-    }
-    
-    // 示例4：计算数组元素之和
-    var sum: i32 = 0;
-    for arr |item| {
-        sum = sum + item;
-    }
-    printf("\nSum of array elements: %d\n", sum);
-    
-    // 示例5：丢弃元素，只循环次数
-    printf("\nLoop count only:\n");
-    var count: i32 = 0;
-    for arr {
-        count = count + 1;
-    }
-    printf("Array length: %d\n", count);
-    
-    // 示例6：整数范围，丢弃元素
-    printf("\nInteger range, discard element:\n");
-    var loop_count: i32 = 0;
-    for 0..10 {
-        loop_count = loop_count + 1;
-    }
-    printf("Loop count: %d\n", loop_count);
-    
-    return 0;
-}
-```
+[examples/iterator_example.uya](./examples/iterator_example.uya)
 
-**编译运行结果**：
-```
-Basic iteration:
-  value: 10
-  value: 20
-  value: 30
-  value: 40
-  value: 50
-
-Mutable iteration:
-  value: 20
-  value: 40
-  value: 60
-  value: 80
-  value: 100
-
-Integer range iteration:
-  i: 0
-  i: 1
-  i: 2
-  i: 3
-  i: 4
-  i: 5
-  i: 6
-  i: 7
-  i: 8
-  i: 9
-
-Sum of array elements: 150
-
-Loop count only:
-Array length: 5
-
-Integer range, discard element:
-Loop count: 10
-```
-
-**说明**：
-- for循环自动为数组创建迭代器（编译器自动生成）
-- 整数范围直接展开为整数循环，零运行时开销
-- 迭代器自动装箱为接口类型，使用动态派发
-- 零运行时开销，编译期展开为while循环
-- 支持可迭代对象和整数范围两种形式
-- 支持有元素变量和丢弃元素两种模式
-
----
-
-## 21 完整示例：切片语法
+[examples/example_110.txt](./examples/example_110.txt)
 
 ```uya
 extern printf(fmt: *byte, ...) i32;
@@ -4259,244 +2011,36 @@ fn main() i32 {
     
     return 0;
 }
-```
-
-**编译运行结果**：
-```
+[examples/example_111.txt](./examples/example_111.txt)
 Values: 2 3 4 5 6 
 After modifying arr[3]=99: 2 99 4 5 6 
 After doubling slice elements: 4 198 8 10 12 
 Exact slice [0:3]: 0 1 2 
 Tail slice [-3:3]: 7 8 9 
 Index iteration: [0] [1] [2] [3] [4] 
-```
-
-**说明**：
-- 切片使用 `&arr[start:len]` 语法，返回切片视图（引用）
-- `start`：起始索引，**支持负数索引**（`-1` 表示最后一个元素，`-n` 表示倒数第 n 个元素）
-  - 负数索引从数组末尾开始计算：`-n` 转换为 `len(arr) - n`
-  - 例如：对于长度为10的数组，`&arr[-3:3]` 等价于 `&arr[7:3]`
-- `len`：切片长度（必须为正数），表示要提取的元素个数
-- **切片类型**：
-  - `&[T]`：动态长度切片引用
-  - `&[T; N]`：已知长度切片引用（当 `len` 是编译期常量时）
-- **切片语义**：切片是原数据的视图，修改原数组会影响切片，切片不拥有数据
-- **for循环支持**：
-  - 值迭代：`for slice |value| { }`（只读）
-  - 引用迭代：`for slice |&ptr| { }`（可修改）
-  - 索引迭代：`for slice |i| { }`（只获取索引）
-- 所有切片操作都经过编译期或运行时边界检查，确保内存安全
-- **零分配**：切片是胖指针（指针+长度），无堆分配
-- **零开销迭代**：for循环编译期展开
-- **内存安全**：生命周期自动绑定，防止悬垂引用
-
----
-
-## 22 完整示例：多维数组
+[examples/example_112.txt](./examples/example_112.txt)
 
 ```uya
-extern printf(fmt: *byte, ...) i32;
+// 声明和初始化二维数组
+const matrix: [[i32; 4]; 3] = [
+    [1, 2, 3, 4],
+    [5, 6, 7, 8],
+    [9, 10, 11, 12]
+];
 
-fn main() i32 {
-    // 示例1：声明和初始化二维数组
-    // 3x4 的 i32 矩阵
-    const matrix: [[i32; 4]; 3] = [
-        [1, 2, 3, 4],
-        [5, 6, 7, 8],
-        [9, 10, 11, 12]
-    ];
-    
-    printf("Matrix (3x4):\n");
-    var i: i32 = 0;
-    while i < 3 {
-        var j: i32 = 0;
-        while j < 4 {
-            printf("%d ", matrix[i][j]);  // 需要边界检查证明
-            j = j + 1;
-        }
-        printf("\n");
-        i = i + 1;
-    }
-    
-    // 示例2：未初始化的多维数组
-    var matrix2: [[f32; 4]; 3] = [];
-    // 手动初始化
-    var i: i32 = 0;
-    while i < 3 {
-        var j: i32 = 0;
-        while j < 4 {
-            const idx: i32 = i * 4 + j;
-            matrix2[i][j] = (idx as f32) * 0.5;  // 需要边界检查证明
-            j = j + 1;
-        }
-        i = i + 1;
-    }
-    
-    printf("\nMatrix2 (3x4, float):\n");
-    var i: i32 = 0;
-    while i < 3 {
-        var j: i32 = 0;
-        while j < 4 {
-            printf("%.1f ", matrix2[i][j]);
-            j = j + 1;
-        }
-        printf("\n");
-        i = i + 1;
-    }
-    
-    // 示例3：结构体中的多维数组字段
-    struct Mat3x3 {
-        data: [[f32; 3]; 3]
-    }
-    
-    const mat: Mat3x3 = Mat3x3{
-        data: [
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0]
-        ]
-    };
-    
-    printf("\nIdentity Matrix (3x3):\n");
-    var i: i32 = 0;
-    while i < 3 {
-        var j: i32 = 0;
-        while j < 3 {
-            printf("%.1f ", mat.data[i][j]);  // 访问结构体中的多维数组字段
-            j = j + 1;
-        }
-        printf("\n");
-        i = i + 1;
-    }
-    
-    // 示例4：三维数组
-    var cube: [[[i32; 3]; 3]; 3] = [];
-    var i: i32 = 0;
-    while i < 3 {
-        var j: i32 = 0;
-        while j < 3 {
-            var k: i32 = 0;
-            while k < 3 {
-                cube[i][j][k] = i * 9 + j * 3 + k;  // 需要边界检查证明
-                k = k + 1;
-            }
-            j = j + 1;
-        }
-        i = i + 1;
-    }
-    
-    printf("\nCube[0][1][2] = %d\n", cube[0][1][2]);  // 应该输出 5
-    
-    // 示例5：使用重复式初始化
-    const zero_matrix: [[i32; 4]; 3] = [[0; 4]; 3];  // 3x4 的零矩阵
-    printf("\nZero Matrix (3x4):\n");
-    var i: i32 = 0;
-    while i < 3 {
-        var j: i32 = 0;
-        while j < 4 {
-            printf("%d ", zero_matrix[i][j]);
-            j = j + 1;
-        }
-        printf("\n");
-        i = i + 1;
-    }
-    
-    return 0;
+// 访问元素（需要边界检查证明）
+if i >= 0 && i < 3 && j >= 0 && j < 4 {
+    const value: i32 = matrix[i][j];
 }
-```
 
-**编译运行结果**：
-```
-Matrix (3x4):
-1 2 3 4 
-5 6 7 8 
-9 10 11 12 
+// 未初始化多维数组
+var matrix2: [[f32; 4]; 3] = [];
 
-Matrix2 (3x4, float):
-0.0 0.5 1.0 1.5 
-2.0 2.5 3.0 3.5 
-4.0 4.5 5.0 5.5 
-
-Identity Matrix (3x3):
-1.0 0.0 0.0 
-0.0 1.0 0.0 
-0.0 0.0 1.0 
-
-Cube[0][1][2] = 5
-
-Zero Matrix (3x4):
-0 0 0 0 
-0 0 0 0 
-0 0 0 0 
-```
-
-**说明**：
-- 多维数组使用嵌套的 `[[T; N]; M]` 语法声明，M 和 N 必须是编译期常量
-- 支持使用嵌套的数组字面量初始化，或使用 `[]` 声明未初始化数组
-- 所有维度的索引访问都需要边界检查证明：`i >= 0 && i < M && j >= 0 && j < N`
-- 多维数组在内存中按行优先顺序存储（row-major order），与 C 语言一致
-- 支持在结构体字段中使用多维数组
-- 支持三维及更高维度的数组（继续嵌套）
-- 零运行时开销，所有边界检查在编译期完成
-
----
-
-## 17 字符串与格式化
-
-### 17.1 设计目标
-- 支持 `"hex=${x:#06x}"`、`"pi=${pi:.2f}"` 等常用格式；  
-- 仍保持「编译期展开 + 定长栈数组」；  
-- 无运行时解析开销，无堆分配；  
-- 语法一眼看完。
-
-### 17.2 语法（单页纸）
-
-```
-segment = TEXT | '${' expr [':' spec] '}'
-spec    = flag* width? precision? type
-flag    = '#' | '0' | '-' | ' ' | '+'
-width   = NUM | '*'  // '*' 为未来特性，暂不支持
-precision = '.' NUM | '.*'  // '.*' 为未来特性，暂不支持
-type    = 'd' | 'u' | 'x' | 'X' | 'f' | 'F' | 'e' | 'E' | 'g' | 'G' | 'c' | 'p'
-```
-
-- 整体格式 **与 C printf 保持一致**，减少学习成本。  
-- `width` / `precision` 必须为**编译期数字**（`*` 暂不支持）。  
-- 结果类型仍为 `[i8; N]`，宽度由「格式字符串最大可能长度」常量求值得出。
-
-### 17.3 宽度常量表
-
-| 格式 | 最大宽度（含 NUL） | 说明 |
-|----|----------------|------|
-| `%d` `%u` (i32/u32) | 11 B | 32 位有符号/无符号整数 |
-| `%ld` `%lu` (i64/u64) | 21 B | 64 位有符号/无符号整数 |
-| `%x` `%X` (i32/u32) | 8 B | 32 位十六进制 |
-| `%lx` `%lX` (i64/u64) | 17 B | 64 位十六进制 |
-| `%#x` (i32/u32) | 10 B | 32 位带 `0x` 前缀 |
-| `%#lx` (i64/u64) | 19 B | 64 位带 `0x` 前缀 |
-| `%06x` | 8 B | 字段宽 6，32 位仍 ≤ 8 |
-| `%f` `%F` (f64) | 24 B | 双精度浮点默认精度 |
-| `%.2f` (f64) | 24 B | 双精度保留 2 位小数（宽度不变） |
-| `%f` `%F` (f32) | 16 B | 单精度浮点默认精度 |
-| `%.2f` (f32) | 16 B | 单精度保留 2 位小数（宽度不变） |
-| `%e` `%E` (f64) | 24 B | 双精度科学计数法（如 `3.14e+00`） |
-| `%.2e` (f64) | 24 B | 双精度科学计数法，保留 2 位小数（宽度不变） |
-| `%e` `%E` (f32) | 16 B | 单精度科学计数法（如 `3.14e+00`） |
-| `%.2e` (f32) | 16 B | 单精度科学计数法，保留 2 位小数（宽度不变） |
-| `%g` `%G` (f64) | 24 B | 双精度自动精度 |
-| `%g` `%G` (f32) | 16 B | 单精度自动精度 |
-| `%c` | 2 B | 单字符 |
-| `%p` | 18 B | 指针：0x + 16 位十六进制（64位平台） |
-
-**宽度计算规则**：
-- 整数类型：根据类型宽度（32位/64位）和符号计算最大字符串长度
-- 浮点类型：f64 使用 24 字节，f32 使用 16 字节（包含符号、整数部分、小数点、小数部分、指数部分）
-- 指针类型：64位平台使用 18 字节（"0x" + 16位十六进制 + NUL）
-- 不同 `width` / `precision` 只选**最宽值**参与总长度计算
-
-> 表格已内置在编译器；编译器根据表达式的实际类型选择对应的宽度值。
-
-### 17.4 完整示例
+// 结构体中的多维数组字段
+struct Mat3x3 {
+    data: [[f32; 3]; 3]
+}
+[examples/example_113.txt](./examples/example_113.txt)
 
 ```uya
 extern printf(fmt: *byte, ...) i32;
@@ -4516,17 +2060,7 @@ fn main() i32 {
   
   return 0;
 }
-```
-
-**编译期展开过程**：
-
-1. **编译期常量求值**：编译器根据表达式的类型和格式说明符，查表计算所需的最大缓冲区大小
-   - `"hex=${x:#06x}"`：`x` 是 `u32`，格式 `#06x` 最大宽度 10 字节（包含 "0x" 前缀）
-   - `"pi=${pi:.2f}"`：`pi` 是 `f64`，格式 `.2f` 最大宽度 24 字节（包含符号、整数、小数、指数部分）
-   - 文本段：`"hex="` (5字节) + `", pi="` (6字节) + `"\n"` (2字节)
-   - 总宽度：5 + 10 + 6 + 24 + 2 = 47 字节，向上对齐到 64 字节（方便对齐）
-
-2. **代码生成**：编译器生成如下代码（伪代码，实际后端实现可能不同）：
+[examples/example_114.txt](./examples/example_114.txt)
 
 ```llvm
 %buf = alloca [64 x i8]  ; 编译期计算大小
@@ -4535,51 +2069,7 @@ call sprintf(ptr %buf+5, "%#06x", i32 %x)              ; 0x00ff（运行时格�
 call memcpy(ptr %buf+13, ptr @str.1, i64 6)            ; ", pi="
 call sprintf(ptr %buf+19, "%.2f", double %pi)          ; 3.14（运行时格式化）
 call memcpy(ptr %buf+43, ptr @str.2, i64 2)            ; "\n"
-```
-
-**重要说明：编译期优化 vs 运行时执行**：
-
-字符串插值采用**编译期优化 + 运行时格式化**的混合策略：
-
-**编译期完成的工作**（零运行时开销）：
-- ✅ 计算缓冲区大小（`[i8; N]` 中的 `N`）
-- ✅ 识别文本段和插值段
-- ✅ 生成格式字符串常量（如 `"%#06x"`、`"%.2f"`）
-- ✅ 生成文本段的 `memcpy` 调用
-- ✅ 零运行时解析开销：格式字符串在编译期确定，无需运行时解析
-
-**运行时执行的工作**（必要的格式化操作）：
-- ⚠️ 调用 `sprintf` 进行实际的格式化（将数值转换为字符串）
-- ⚠️ 这是必要的，因为数值是运行时变量
-
-**性能保证**：
-- **零堆、零 GC**：缓冲区在栈上分配（`alloca`），无需堆分配
-- **零解析开销**：格式字符串在编译期确定，无需运行时解析
-- **性能等同**：与手写 C 代码使用 `sprintf` 的性能相同，无额外开销
-
-**总结**：字符串插值不是"完全编译期展开"，而是"编译期优化 + 运行时格式化"。编译期完成所有可以静态确定的工作，运行时只执行必要的格式化操作。
-
-### 17.5 后端实现要点
-
-1. **词法** → 识别 `':' spec` 并解析为 `(flag, width, precision, type)` 四元组。  
-2. **常量求值** → 根据「类型 + 格式」查表得最大字节数。  
-3. **代码生成** →  
-   - 文本段 = `memcpy`；  
-   - 插值段 = `sprintf(buf+offset, "格式化串", 值)`；  
-   - 格式串本身 = 编译期常量。  
-
-### 17.6 限制（保持简单）
-
-| 限制 | 说明 |
-|---|---|
-| `width/precision` | 必须为**编译期数字**；`*` 暂不支持 |
-| 类型不匹配 | `%.2f` 但表达式是 `i32` → 编译错误 |
-| 嵌套字符串 | `${"abc"}` → ❌ 表达式内不能再有字符串字面量 |
-| 动态宽度 | `"%*d"` → 未来支持 |
-
-### 17.7 字符串切片
-
-字符串可以视为 `[i8; N]` 数组，支持切片操作：
+[examples/example_115.txt](./examples/example_115.txt)
 
 ```uya
 type str = &[i8];  // 字符串切片别名（可选）
@@ -4591,63 +2081,8 @@ const hello: &[i8] = &text[0:5];  // "Hello" 的切片视图
 for hello |byte| {
     printf("%c", byte);
 }
-```
+[examples/example_116.txt](./examples/example_116.txt)
 
-**字符串切片特性**：
-- 字符串数组 `[i8; N]` 可以使用切片语法 `&text[start:len]` 创建切片视图
-- 字符串切片类型为 `&[i8]`，可以定义类型别名 `type str = &[i8]` 简化使用
-- 字符串切片支持所有切片操作：for循环迭代、索引访问等
-- 字符串切片是原字符串的视图，修改原字符串会影响切片
-- 字符串切片的生命周期绑定到原字符串，遵循切片生命周期规则
-
-### 17.8 零开销保证
-
-- **宽度编译期常数** → 不占用寄存器；  
-- **无运行时解析** → 无 `vsnprintf` 扫描；  
-- **无堆分配** → 仍是 `alloca [N x i8]`；  
-- **单条 `sprintf` 调用** → 与手写 C 同速。
-
-### 17.8 一句话总结
-
-> Uya 自定义格式 `"a=${x:#06x}"` → **编译期展开成定长栈数组**，格式与 C printf 100% 对应，**零运行时解析、零堆、零 GC**，性能 = 手写 `sprintf`。
-
----
-
-## 20 泛型（可选特性）
-
-> **注意**：本章描述的是可选特性，作为增量文档提供。  
-> — 单页纸，直接附在规范末尾 —
-
-------------------------------------------------
-1. 核心规则（仅 3 行）
-------------------------------------------------
-1. **定义用括号**：`struct S(T)` / `interface I(T)` 在括号中明确声明泛型参数，与实例化 `S(i32)` / `I(i32)` 完全对称；函数保持自动推断，更简洁。  
-2. impl / 调用时把**具体类型**写进括号 `(T1, T2, …)` 即完成单态化；找不到对应参数 ⇒ 编译错误。  
-3. 单态化后走原有全部流程（UB 证明、drop、atomic、接口检查等）。
-
-------------------------------------------------
-2. 语法影子（用户侧 0 新符号）
-------------------------------------------------
-| 场景 | 旧写法 | 泛型写法 | 备注 |
-|---|---|---|---|
-| 泛型接口 | `interface I { fn f(x: i32); }` | `interface I(T) { fn f(x: T); }` | 定义用括号，参数顺序明确 |
-| 泛型结构体 | `struct S { x: i32; }` | `struct S(T) { x: T; }` | 定义用括号，与实例化对称 |
-| 泛型函数 | 无 | `fn id(x: T) T { return x; }` | 函数保持自动推断，更简洁 |
-| 实例化 | `impl S : I { … }` | `impl S(T) : I(T) { … }` | 括号内给实参，定义实例化对称 |
-| 多参数 | 无 | `struct Pair(A, B) { x: A, y: B; }` | 多参数用逗号分隔 |
-
-> 括号 `()` 已存在于函数调用/元组，**不算新符号**。
-
-------------------------------------------------
-3. 实例化规则
-------------------------------------------------
-- 顺序对应：按裸名首次出现顺序一一替换。  
-- 可写多行：`impl Vec { T = i32; }` 或一行 `impl Vec { T = i32; }`。  
-- 未用完/多给均报错，防止错位。
-
-------------------------------------------------
-4. 约束：靠"接口位置"表达上界
-------------------------------------------------
 ```uya
 interface Add(R) {
     fn add(self: *Self, rhs: R) R;   // R 在括号中明确声明
@@ -4658,24 +2093,16 @@ impl Num : Add(i32) {   // 把 R 换成 i32
         return self.x + rhs;
     }
 }
-```
-单态化时编译器查找 `impl 具体类型 : Add(i32)`，找不到即报错——与接口检查**同一套逻辑**。
+[examples/example_117.txt](./examples/example_117.txt)
 
-------------------------------------------------
-5. 函数级实例化：第一次调用即生成
-------------------------------------------------
 ```uya
 fn id(x: T) T { return x; }
 
 const n: i32 = 42;
 const m: i32 = id(n);   // 第一次调用 → 生成 id_i32
 const p: f64 = id(3.14); // 第二次调用 → 生成 id_f64
-```
-后续再遇到 `id(i32)` 直接复用已生成代码，**无运行时派发**。
+[examples/example_118.txt](./examples/example_118.txt)
 
-------------------------------------------------
-6. 完整小例子
-------------------------------------------------
 ```uya
 interface Add(R) {
     fn add(self: *Self, rhs: R) R;   // R 在括号中明确声明
@@ -4699,11 +2126,8 @@ fn main() i32 {
     const n3: Num = sum(n1, n2);   // T = Num
     return n3.x;                 // 3
 }
-```
+[examples/example_119.txt](./examples/example_119.txt)
 
-------------------------------------------------
-6.1 struct 泛型示例
-------------------------------------------------
 ```uya
 // 泛型结构体：使用括号明确参数，与实例化对称
 struct Vec(T) {
@@ -4758,9 +2182,7 @@ fn main() i32 {
     
     return 0;
 }
-```
-
-**与其他语言对比**：
+[examples/example_120.txt](./examples/example_120.txt)
 
 ```uya
 // 其他语言（C++、Rust）：
@@ -4772,11 +2194,7 @@ fn main() i32 {
 Vec(T)           // 更清晰，更一致
 HashMap(K, V)    // 与函数调用语法一致
 Result(T, E)     // 零新符号
-```
-
-**多参数泛型示例**：
-
-```uya
+[examples/example_121.txt](./examples/example_121.txt)uya
 // 多参数泛型
 struct Pair(A, B) {
     first: A,
@@ -4804,14 +2222,7 @@ fn main() i32 {
     const swapped: Pair(f64, i32) = swap(&p);
     return 0;
 }
-```
-
-------------------------------------------------
-6.2 类型别名实现
-------------------------------------------------
-使用 `type =` 语法实现类型别名，**可以别名任意类型**，零运行时开销，语义清晰：
-
-```uya
+[examples/example_122.txt](./examples/example_122.txt)uya
 // 基础类型别名
 type UserId = i32;
 type Distance = f64;
@@ -4887,23 +2298,7 @@ fn main() i32 {
     
     return 0;
 }
-```
-
-**特性**：
-- **可以别名任意类型**：基础类型、数组、结构体、接口、指针、错误联合类型、泛型等
-- **零运行时开销**：类型别名在编译期展开，与底层类型完全相同
-- **语义清晰**：类型名称直接表达语义意图，提高代码可读性
-- **零新关键字**：`type` 关键字（如果尚未使用）或复用现有语法
-- **编译期展开**：所有类型别名在编译期展开为底层类型，零运行时成本
-
-**注意**：类型别名在类型系统中被视为与底层类型相同，主要用于提高代码可读性和语义表达。
-
-------------------------------------------------
-6.3 泛型容器库示例
-------------------------------------------------
-完整的泛型容器库示例，展示定义和实例化的对称性：
-
-```uya
+[examples/example_123.txt](./examples/example_123.txt)uya
 // 泛型结构体定义：使用括号明确参数
 struct ArrayList(T) {
     items: &[T],
@@ -4985,69 +2380,15 @@ fn main() i32 {
     
     return 0;
 }
-```
-
-**设计要点**：
-- **定义用括号**：`struct ArrayList(T)` 与 `ArrayList(i32)` 完全对称，参数顺序明确
-- **函数自动推断**：泛型函数 `find_index` 保持自动推断，无需显式指定类型参数，更简洁
-- **完全对称**：定义 `struct S(T)` 和实例化 `S(i32)` 使用相同的括号语法，直观清晰
-- **多参数支持**：`struct Pair(A, B)` 支持多个泛型参数，用逗号分隔
-
-------------------------------------------------
-7. 零新增清单
-------------------------------------------------
-- 新关键字：0  
-- 新标点：0  
-- 新语法：复用已有 `interface` / `struct` / `fn` / `impl` / `()`  
-- 编译器增量：≈ 200 行（裸名收集 + 单例替换）
-
-------------------------------------------------
-8. 向后兼容
-------------------------------------------------
-- 所有源码**零修改**直接编译；  
-- 只有出现"未声明类型名"时才触发泛型分支；  
-- 单态化后仍走原有**零运行时、零 GC、编译期 UB 证明**全套流程。
-
-------------------------------------------------
-9. 一句话总结
-------------------------------------------------
-Uya 泛型 = **"定义用括号 `struct S(T)` 与实例化 `S(i32)` 完全对称"** + `impl` 时括号里给实参；函数保持自动推断更简洁；零关键字、零符号、零运行时成本，单页纸读完，代码无缝继续用。
-
----
-
-## 21 显式宏（可选特性）
-——用 `mc` 区分宏与函数，零新关键字——
-
-> **注意**：本章描述的是可选特性，作为增量文档提供。  
-> — 单页纸，直接附在规范末尾 —
-
-------------------------------------------------
-1. 语法增量（仅 1 个内置空结构体名）
-------------------------------------------------
-```uya
+[examples/example_124.txt](./examples/example_124.txt)uya
 mc 名字(参数列表) 返回标签 { 宏体 }
-```
-| 位置 | 作用 |
-|---|---|
-| `mc` | 内置空结构体名，**非关键字** |
-| 返回标签 | `expr` / `stmt` / `struct` / `type` （同隐式宏） |
-
-------------------------------------------------
-2. 示例：一眼分清宏与函数
-------------------------------------------------
-**对比展示**（注意：实际使用中不能同时存在同名）：
-
-```uya
+[examples/example_125.txt](./examples/example_125.txt)uya
 // ① 显式宏版本：参数全常量 ⇒ 编译期宏展开
 mc twice(n: i32) expr { n + n }
 
 // ② 普通函数版本：运行时函数调用
 fn twice(n: i32) i32 { n + n }
-```
-
-**使用示例**（以宏版本为例）：
-
-```uya
+[examples/example_126.txt](./examples/example_126.txt)uya
 mc twice(n: i32) expr { n + n }
 
 fn main() i32 {
@@ -5056,107 +2397,12 @@ fn main() i32 {
     const b: i32 = twice(x);     // 如果参数非常量，编译器根据宏定义处理
     return a + b;
 }
-```
-
-> **重要**：同一作用域内 `mc twice` 与 `fn twice` **不能重名**（见第6节冲突规则）。  
-> 如果需要同时提供宏和函数版本，请使用不同名称：`mc twice_mc` / `fn twice_fn`
-
-------------------------------------------------
-3. 优势：副作用归零
-------------------------------------------------
-| 问题 | 隐式宏 | 显式 mc |
-|---|---|---|
-| 语义双态 | 同一函数两种行为 | **静态分离**，无歧义 |
-| 调试困惑 | 需看 `note:` 区分 | 符号表直接标 `mc` |
-| 性能差异 | 靠日志暴露 | **一眼识别** |
-
-------------------------------------------------
-4. 零新增清单
-------------------------------------------------
-- 新关键字：0（`mc` 是内置空结构体名）  
-- 新标点：0  
-- 向后兼容：旧代码**零修改**继续编译；新增 `mc` 完全可选。
-
-------------------------------------------------
-5. 一句话总结
-------------------------------------------------
-**想零概念**→ 用隐式宏；**想零歧义**→ 写 `mc`。  
-两字母，单页纸，今天就能定稿。
-
-------------------------------------------------
-6. 重名冲突规则（1 句话）
-------------------------------------------------
-同一作用域里，**符号名 + 种类标签** 必须唯一；  
-`mc twice` 与 `fn twice` 属于**不同种类**，但**共享同一命名空间**，因此：
-
-```uya
+[examples/example_127.txt](./examples/example_127.txt)uya
 mc twice(n: i32) expr { n + n }   // ✅
 fn twice(n: i32) i32  { n + n }   // ❌ 编译错误：名字 'twice' 已存在
-```
-
-------------------------------------------------
-7. 为什么必须冲突
-------------------------------------------------
-- 如果允许重名，调用处又出现  
-  ```uya
+[examples/example_128.txt](./examples/example_128.txt)uya
   const x: i32 = twice(5);
-  ```
-  编译器无法**静态决定**走宏路径还是函数路径，**语义双态**死灰复燃。  
-- 把决策推迟到"是否全常量"⇒ 又回到**隐式宏**的老路。
-
-------------------------------------------------
-8. 缓解办法（已够用）
-------------------------------------------------
-| 方法 | 示例 |
-|---|---|
-| 改名 | `mc twice_mc` / `fn twice_fn` |
-| 包级命名空间 | 未来 `mod` 打开后自然隔离 |
-| 重载式命名 | `mc twice_int` / `fn twice_any` |
-
-------------------------------------------------
-9. 一句话总结
-------------------------------------------------
-用 `mc` 就得接受**"一名一义"**：同一作用域内 `mc` 与 `fn` 不能重名——**这是消除歧义的唯一代价，也是最后一道防线**。
-
----
-
-## 18 指针算术
-
-### 18.1 设计目标
-- **安全指针算术**：支持 `ptr +/- offset`，但必须通过编译期证明安全
-- **零运行时开销**：所有边界检查在编译期完成
-- **符合语言哲学**：所有指针操作必须被编译期证明为安全，失败即编译错误
-- **程序员责任**：程序员必须提供边界检查，帮助编译器完成证明
-- **编译器验证**：编译器验证这些证明，无法证明安全即编译错误
-
-### 18.2 语法
-```
-ptr + offset    // 指针向后偏移
-ptr - offset    // 指针向前偏移
-ptr += offset   // 指针向后偏移并赋值
-ptr -= offset   // 指针向前偏移并赋值
-ptr1 - ptr2     // 指针间距离计算（返回usize）
-```
-
-**类型说明**：
-- `offset` 的类型为 `usize`（平台相关的无符号整数类型）
-- 指针间距离计算 `ptr1 - ptr2` 返回 `usize` 类型
-- `usize` 在 32 位平台为 `u32`（4 字节），在 64 位平台为 `u64`（8 字节）
-- `usize` 用于表示内存地址、数组索引和大小，保证能够表示平台上任意对象的大小
-
-### 18.3 安全保证机制
-
-#### 18.3.1 边界检查
-- 每个指针算术操作必须有边界信息
-- 编译器要求程序员提供边界证明
-- 无法证明安全 → 编译错误
-
-#### 18.3.2 指针来源追踪
-- 指针必须来源于安全的内存区域（栈数组、堆分配、或已验证的指针）
-- 编译器追踪指针的生命周期和边界信息
-
-#### 18.3.3 指针算术示例
-```uya
+[examples/example_129.txt](./examples/example_129.txt)uya
 // 安全的指针算术示例
 const arr: [i32; 10] = [0; 10];
 const ptr: &i32 = &arr[0];  // 指向数组首元素的指针
@@ -5174,32 +2420,7 @@ fn safe_ptr_arith(arr: &[i32; 10], offset: usize) !&i32 {
     }
     return &arr[0] + offset;  // 编译器证明 offset < 10，安全
 }
-```
-
-### 18.4 实现细节
-
-#### 18.4.1 指针类型扩展
-- `&T` - 普通指针，支持算术操作但需要边界证明
-- `&[T]` - 指向数组的指针，携带长度信息
-- `SliceT` - 切片类型，包含指针和长度信息
-
-#### 18.4.2 边界信息
-- 每个指针携带其有效范围信息
-- 指针算术操作必须在有效范围内
-- 超出范围 → 编译错误
-
-#### 18.4.3 指针解引用
-- 解引用前必须证明指针有效
-- 空指针检查：`if ptr != null { ... }`
-- 边界检查：`if ptr >= start && ptr < end { ... }`
-
-#### 18.4.4 指针下标访问语法糖
-- **语法**：`ptr[i]` 是 `*(ptr + i)` 的语法糖
-- **展开规则**：`ptr[i]` 展开为 `*(ptr + i)`
-- **边界检查**：与指针算术相同，需要证明 `i >= 0 && i < len`
-- **零运行时开销**：编译期展开，无额外开销
-- **示例**：
-  ```uya
+[examples/example_130.txt](./examples/example_130.txt)uya
   const arr: [i32; 10] = [0; 10];
   const ptr: *i32 = &arr[0];
   
@@ -5211,11 +2432,7 @@ fn safe_ptr_arith(arr: &[i32; 10], offset: usize) !&i32 {
   for 0..10 |i| {
       const value: i32 = ptr[i];  // 展开为 *(ptr + i)
   }
-  ```
-
-### 18.5 语法示例
-
-```uya
+[examples/example_131.txt](./examples/example_131.txt)uya
 // 基本指针算术
 const arr: [i32; 10] = [0; 10];
 var ptr: &i32 = &arr[0];
@@ -5239,96 +2456,25 @@ fn process_range(start: &i32, end: &i32) void {
         current = current + 1;  // 编译器证明不会越界
     }
 }
-```
-
-### 18.6 编译期验证
-
-1. **常量偏移**：编译期直接验证
-2. **变量偏移**：需要程序员提供边界证明
-3. **指针有效性**：编译器追踪指针来源和生命周期
-
-### 18.7 错误处理
-
-- 指针算术无法证明安全 → 编译错误
-- 提供清晰的错误信息和修复建议
-- 支持 `!&T` 错误联合类型返回
-
----
-
-## 19 测试单元
-
-——单页纸，零新关键字，独立 `./uyac test` 入口——
-
-------------------------------------------------
-### 19.1 设计目标
-------------------------------------------------
-- **唯一入口**：`./uyac test` 专用于运行测试；  
-- **零副作用**：不改动用户 `main`，不注入测试 runner；  
-- **行为一致**：  
-  - 扫描**所有 `.uya`**，执行 `test "..." { }`；  
-  - 成功静默，失败打印详情并返回码 `1`；  
-  - 支持 `return error.TestFailed;` 标记失败；  
-- **单页纸**：语法、命令、实现要点一页放完。
-
-------------------------------------------------
-### 19.2 语法（复用已有符号）
-------------------------------------------------
-```uya
+[examples/example_132.txt](./examples/example_132.txt)uya
 test "说明文字" {
     // 任意函数体语句
 }
-```
-- 可写在**任意文件、任意作用域**（顶层/函数内/嵌套块）；  
-- 编译器在**测试模式**下将其视为**无参、返回 `!void`** 的隐藏函数：  
-  ```uya
+[examples/example_133.txt](./examples/example_133.txt)uya
   fn @test$<hash>() !void { ... }
-  ```
-
-------------------------------------------------
-### 19.3 命令行约定
-------------------------------------------------
-| 模式 | 命令 | 行为 |
-|---|---|---|
-| 生产模式 | `uyac main.uya` / `uyac .` | 无视 `test` 块，生成原 `main` 可执行文件； |
-| 测试模式 | `uyac test` | 仅扫描并运行所有 `test` 块，**不生成 main 可执行文件**； |
-
-> 编译器新增 `-test` 内部标志，CLI 检测到 `test` 子命令即置位。
-
-------------------------------------------------
-### 19.4 运行流程（编译期完成）
-------------------------------------------------
-1. 前端扫描全部 `.uya`，收集 `test "..." { }`；  
-2. 为每个测试生成隐藏函数 `@test$<hash>()`；  
-3. 生成**临时 `main`**（仅测试模式可见）：  
-   ```uya
+[examples/example_134.txt](./examples/example_134.txt)uya
    fn main() i32 {
        run_all_tests();   // 依次调用 @test$<hash>() catch ...
        return 0;          // 全部通过
    }
-   ```
-4. 链接并执行该临时可执行文件；  
-5. 测试失败 → 打印失败信息 + 进程返回码 `1`；  
-6. 测试通过 → 静默，返回码 `0`。
-
-------------------------------------------------
-### 19.5 预定义错误（可选）
-------------------------------------------------
-```uya
+[examples/example_135.txt](./examples/example_135.txt)uya
 error TestFailed;   // 手动失败时返回
-```
-也可直接 `return error.TestFailed;` 而无需预定义。
-
-------------------------------------------------
-### 19.6 完整示例
-------------------------------------------------
-```bash
+[examples/example_136.txt](./examples/example_136.txt)bash
 $ tree
 .
 ├── main.uya
 └── math.uya
-```
-
-```uya
+[examples/example_137.txt](./examples/example_137.txt)uya
 // math.uya
 fn add(a: i32, b: i32) i32 { return a + b; }
 
@@ -5340,9 +2486,7 @@ test "add overflow" {
     };
     return error.TestFailed;   // 未溢出则失败
 }
-```
-
-```uya
+[examples/example_138.txt](./examples/example_138.txt)uya
 // main.uya
 extern printf(fmt: *byte, ...) i32;
 
@@ -5354,10 +2498,7 @@ fn main() i32 {        // 用户 main 完全不受影响
     printf("user main\n");
     return 0;
 }
-```
-
-**运行对比**
-```bash
+[examples/example_139.txt](./examples/example_139.txt)bash
 # 生产模式
 $ uyac . && ./main
 user main
@@ -5381,14 +2522,9 @@ FAIL hello
 test result: FAILED. 1 passed; 1 failed.
 $ echo $?
 1
-```
+[examples/example_140.txt](./examples/example_140.txt)
 
-------------------------------------------------
-### 19.7 进阶能力
-------------------------------------------------
-- **访问私有项**：测试块与源码同模块，可直接使用未 `export` 的 `struct` / `fn`；  
-- **并发测试**：  
-  ```uya
+```uya
   test "atomic counter" {
       const c: Counter = Counter{ value: atomic i32 = 0; };
       // 多线程递增，最后断言
@@ -5396,12 +2532,7 @@ $ echo $?
   ```  
   享受默认并发安全保证；  
 - **泛型测试**：  
-  ```uya
-  test "Vec(i32) push" {
-      var v: Vec(i32) = Vec(i32){ ... };
-      // ...
-  }
-  ```
+[examples/example_141.uya](./examples/example_141.uya)
 
 ------------------------------------------------
 ### 19.8 零新增清单
@@ -5440,19 +2571,7 @@ $ echo $?
   - **边界检查**：与指针算术相同，需要证明 `i >= 0 && i < len`
   - **零运行时开销**：编译期展开，无额外开销
   - **示例**：
-    ```uya
-    const arr: [i32; 10] = [0; 10];
-    const ptr: *i32 = &arr[0];
-    
-    // 使用语法糖
-    const val1: i32 = ptr[0];  // 展开为 *(ptr + 0)
-    const val2: i32 = ptr[5];  // 展开为 *(ptr + 5)
-    
-    // 循环访问
-    for 0..10 |i| {
-        const value: i32 = ptr[i];  // 展开为 *(ptr + i)
-    }
-    ```
+[examples/example_142.uya](./examples/example_142.uya)
 - **结构体方法语法糖**：`obj.method()` 语法糖
   - 允许使用 `obj.method()` 语法调用结构体相关的静态函数
   - 编译期展开为 `method(obj, ...)` 静态函数调用，零运行时开销
@@ -5486,88 +2605,9 @@ $ echo $?
       - 编译期生成 vtable，支持动态派发
     - 两者可以共存，互不冲突
   - **完整示例**：
-    ```uya
-    // 方式1：结构体内部定义方法
-    struct Point {
-        x: f32,
-        y: f32,
-        
-        // 方法定义在结构体内部（推荐使用指针和 Self）
-        fn distance(self: *Self) f32 {
-            extern sqrt(x: f64) f64;
-            const x: f64 = self.x as f64;
-            const y: f64 = self.y as f64;
-            return sqrt(x * x + y * y) as f32;
-        }
-    }
-    
-    // 方式2：结构体外部定义方法（推荐使用 Self）
-    Point {
-        fn scale(self: *Self, factor: f32) void {
-            self.x = self.x * factor;
-            self.y = self.y * factor;
-        }
-        
-        fn normalize(self: *Self) void {
-            const d: f32 = self.distance();
-            if d != 0.0 {
-                self.scale(1.0 / d);
-            }
-        }
-    }
-    
-    fn example() void {
-        const p: Point = Point{ x: 3.0, y: 4.0 };
-        const d: f32 = p.distance();  // 语法糖，展开为 Point_distance(&p)（传递指针，不移动）
-        // ✅ p 仍然可以使用，因为方法调用不触发移动
-        
-        var p2: Point = Point{ x: 1.0, y: 2.0 };
-        p2.scale(2.0);  // 语法糖，展开为 Point_scale(&p2, 2.0)（指针传递，不移动）
-        p2.normalize();  // 语法糖，展开为 Point_normalize(&p2)（指针传递，不移动）
-        // ✅ p2 仍然可以使用
-    }
-    ```
+[examples/point_1.uya](./examples/point_1.uya)
   - **与接口实现共存示例**（展示两者可以同时使用，无冲突）：
-    ```uya
-    struct Point {
-        x: f32,
-        y: f32
-    }
-    
-    // 结构体方法（静态方法，语法糖）- 无 impl 关键字（推荐使用 Self）
-    Point {
-        fn distance(self: *Self) f32 {
-            extern sqrt(x: f64) f64;
-            const x: f64 = self.x as f64;
-            const y: f64 = self.y as f64;
-            return sqrt(x * x + y * y) as f32;
-        }
-    }
-    
-    // 接口定义
-    interface IDrawable {
-        fn draw(self: *Self) void;
-    }
-    
-    // 接口实现（动态派发，vtable）- 有 impl 关键字和接口名
-    impl Point : IDrawable {
-        fn draw(self: *Self) void {
-            extern printf(fmt: *byte, ...) i32;
-            printf("Point at (%f, %f)\n", self.x, self.y);
-        }
-    }
-    
-    fn example() void {
-        const p: Point = Point{ x: 3.0, y: 4.0 };
-        
-        // 调用静态方法（语法糖，零运行时开销）
-        const d: f32 = p.distance();  // 展开为 Point_distance(&p)（传递指针，不移动）
-        
-        // 调用接口方法（动态派发，通过 vtable）
-        const drawable: IDrawable = p;  // 装箱为接口值
-        drawable.draw();  // 通过 vtable 动态派发
-    }
-    ```
+[examples/point_2.uya](./examples/point_2.uya)
   - **编译期展开规则**：
     - `struct A { fn method(self: *Self) void { ... } }` → `fn A_method(self: *A) void { ... }`（`Self` 替换为 `A`）
     - `A { fn method(self: *Self) void { ... } }` → `fn A_method(self: *A) void { ... }`（`Self` 替换为 `A`）
@@ -5588,46 +2628,7 @@ $ echo $?
   - **vtable 生成**：组合接口的 vtable 包含所有被组合接口的方法，编译期生成
   - **零运行时开销**：接口组合完全在编译期处理，运行时与普通接口相同
   - 示例：
-    ```uya
-    interface IReader {
-        fn read(self: *Self, buf: *byte, len: i32) i32;
-    }
-    
-    interface IWriter {
-        fn write(self: *Self, buf: *byte, len: i32) i32;
-    }
-    
-    // 接口组合：IReadWrite 包含 IReader 和 IWriter 的所有方法
-    interface IReadWrite {
-        IReader
-        IWriter
-    }
-    
-    struct File {
-        fd: i32
-    }
-    
-    // 实现组合接口：需要实现所有被组合接口的方法
-    impl File : IReadWrite {
-        fn read(self: *Self, buf: *byte, len: i32) i32 {
-            // 实现 IReader 的方法
-            extern read(fd: i32, buf: *byte, len: i32) i32;
-            return read(self.fd, buf, len);
-        }
-        
-        fn write(self: *Self, buf: *byte, len: i32) i32 {
-            // 实现 IWriter 的方法
-            extern write(fd: i32, buf: *byte, len: i32) i32;
-            return write(self.fd, buf, len);
-        }
-    }
-    
-    fn example(rw: IReadWrite) void {
-        const msg: [byte; 6] = "hello";
-        rw.write(&msg[0], 5);  // 可以调用 IWriter 的方法
-        rw.read(&msg[0], 5);   // 可以调用 IReader 的方法
-    }
-    ```
+[examples/file_6.uya](./examples/file_6.uya)
 
 ### 29.4 AI 友好性增强
 - **标准库文档字符串**：注释式或结构化文档
@@ -5656,160 +2657,27 @@ $ echo $?
 
 ### A.1 结构体 + 栈数组 + FFI
 
-```uya
-struct Mat4 {
-  m: [f32; 16]
-}
+[examples/a1_struct_array_ffi.uya](./examples/a1_struct_array_ffi.uya)
 
-extern printf(fmt: *byte, ...) i32;
-
-fn print_mat(mat: Mat4) void {
-  var i: i32 = 0;
-  while i < 16 {
-    printf("%f ", mat.m[i]);
-    i = i + 1;
-    if (i % 4) == 0 { printf("\n"); }
-  }
-}
-
-fn main() i32 {
-  var m: Mat4 = Mat4{ m: [0.0; 16] };
-  m.m[0]  = 1.0;
-  m.m[5]  = 1.0;
-  m.m[10] = 1.0;
-  m.m[15] = 1.0;
-  print_mat(m);
-  return 0;
-}
-```
-
-编译运行（后端示例）：
-```
-$ uyac demo.uya && ./demo
-1.000000 0.000000 0.000000 0.000000
-0.000000 1.000000 0.000000 0.000000
-0.000000 0.000000 1.000000 0.000000
-0.000000 0.000000 0.000000 1.000000
-```
+编译运行示例：[examples/example_146.txt](./examples/example_146.txt)
 
 ---
 
 ### A.2 错误处理 + defer/errdefer
 
-```uya
-// 预定义错误（可选）
-error FileError;
-error ParseError;
-
-extern open(path: *byte, flags: i32) i32;  // 简化示例，实际 C 函数需要 flags 参数
-extern close(fd: i32) i32;
-extern read(fd: i32, buf: *byte, size: i32) i32;
-extern printf(fmt: *byte, ...) i32;
-
-struct File {
-    fd: i32
-}
-
-fn open_file(path: *byte) !File {
-    const fd: i32 = open(path, 0);  // 0 是只读标志（简化示例）
-    if fd < 0 {
-        return error.FileError;  // 使用预定义错误
-    }
-    return File{ fd: fd };
-}
-
-fn read_file_runtime(path: *byte) !i32 {
-    const fd: i32 = open(path, 0);
-    if fd < 0 {
-        return error.FileNotFound;  // 运行时错误，无需预定义
-    }
-    return fd;
-}
-
-fn drop(self: File) void {
-    if self.fd >= 0 {
-        close(self.fd);
-    }
-}
-
-fn read_file(path: *byte) !i32 {
-    const file: File = try open_file(path);
-    defer {
-        printf("File operation completed\n");
-    }
-    errdefer {
-        printf("Error occurred, cleaning up\n");
-    }
-    
-    var buf: [byte; 1024] = [];
-    const n: i32 = read(file.fd, buf, 1024);
-    if n < 0 {
-        return error.FileError;
-    }
-    
-    return n;
-}
-
-fn main() i32 {
-    const result: i32 = read_file("test.txt") catch |err| {
-        // err 是 Error 类型，支持相等性比较
-        if err == error.FileError {
-            printf("File error occurred\n");
-        }
-        // 使用 return 提前返回函数（退出 main 函数）
-        return 1;
-    };
-    
-    printf("Read %d bytes\n", result);
-    return 0;
-}
-```
+[examples/a2_error_handling.uya](./examples/a2_error_handling.uya)
 
 ---
 
 ### A.3 默认安全并发
 
-```uya
-struct Counter {
-  value: atomic i32
-}
-
-interface IIncrement {
-  fn inc(self: *Self) i32;
-}
-
-impl Counter : IIncrement {
-  fn inc(self: *Self) i32 {
-    self.value += 1;                           // 自动原子 fetch_add
-    return self.value;                         // 自动原子 load
-  }
-}
-
-fn main() i32 {
-  const counter: Counter = Counter{ value: 0 };
-  // 多线程并发递增，零数据竞争
-  // 所有操作自动原子化，无需锁
-  return 0;
-}
-```
+[examples/a3_concurrent_safe.uya](./examples/a3_concurrent_safe.uya)
 
 ---
 
-### A.4 for循环迭代
+### A.4-A.6 其他示例
 
-完整示例请参考[第 8 章 - 控制流](#8-控制流)的 for 循环部分。
-
----
-
-### A.5 切片语法
-
-完整示例请参考[第 4 章 - 结构体](#4-结构体)的切片语法部分。
-
----
-
-### A.6 多维数组
-
-完整示例请参考[第 4 章 - 结构体](#4-结构体)的多维数组部分。
+for循环、切片语法、多维数组的完整示例请参考对应章节。
 
 ---
 
