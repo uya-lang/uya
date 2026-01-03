@@ -921,6 +921,46 @@ const pi: f64 = 3.1415926;
 const msg: [i8; 64] = "hex=${x:#06x}, pi=${pi:.2f}\n";</code></pre>
                         </div>
                     </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-exchange-alt"></i>
+                        </div>
+                        <h3>移动语义</h3>
+                        <p>结构体赋值时转移所有权，避免不必要的拷贝，零运行时开销。</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-calculator"></i>
+                        </div>
+                        <h3>安全指针算术</h3>
+                        <p>支持 <code class="inline-code">ptr +/- offset</code>，必须通过编译期证明安全。</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-folder-open"></i>
+                        </div>
+                        <h3>模块系统</h3>
+                        <p>目录级模块、显式导出、路径导入，编译期解析，零运行时开销。</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-sync"></i>
+                        </div>
+                        <h3>简化 for 循环语法</h3>
+                        <p>支持 <code class="inline-code">for obj |v| {}</code>、<code class="inline-code">for 0..10 |v| {}</code>、<code class="inline-code">for obj |&v| {}</code> 等简化语法。</p>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-plus-circle"></i>
+                        </div>
+                        <h3>运算符简化</h3>
+                        <p><code class="inline-code">try</code> 关键字用于溢出检查，<code class="inline-code">+|</code>/<code class="inline-code">-|</code>/<code class="inline-code">*|</code> 用于饱和运算，<code class="inline-code">+%</code>/<code class="inline-code">-%</code>/<code class="inline-code">*%</code> 用于包装运算。</p>
+                    </div>
                 </section>
                 
                 <!-- 设计哲学部分 -->
@@ -928,15 +968,16 @@ const msg: [i8; 64] = "hex=${x:#06x}, pi=${pi:.2f}\n";</code></pre>
                     <h2>设计哲学</h2>
                     
                     <div class="philosophy-card">
-                        <h3>核心思想</h3>
-                        <p>将运行时的"可能越界"转化为编译期的"要么证明安全，要么返回显式错误"。</p>
+                        <h3>核心思想：坚如磐石</h3>
+                        <p>Uya语言的设计哲学是<strong>坚如磐石</strong>（绝对可靠、不可动摇），将所有运行时不确定性转化为编译期的确定性结果：要么证明绝对安全，要么返回显式错误。</p>
                     </div>
                     
                     <h3>核心机制</h3>
                     <ul>
-                        <li>程序员必须提供<strong>显式边界检查</strong>，帮助编译器完成证明</li>
-                        <li>编译器在编译期验证这些证明，无法证明安全即编译错误</li>
-                        <li>每个数组访问都有明确的<strong>数学证明</strong>，消除运行时不确定性</li>
+                        <li>程序员提供<strong>显式证明</strong>，编译器验证证明的正确性</li>
+                        <li>编译器在编译期完成所有安全验证，无法证明安全即编译错误</li>
+                        <li>每个操作都有明确的<strong>数学证明</strong>，消除任何运行时不确定性</li>
+                        <li>零运行时未定义行为，程序行为完全可预测</li>
                     </ul>
                     
                     <h3>示例对比</h3>
@@ -1015,8 +1056,54 @@ const x: i32 = arr[i];  // 编译器证明 i >= 0 && i < 10，安全</code></pre
                         </table>
                     </div>
                     
+                    <h3>结果与收益</h3>
+                    <p>Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：</p>
+                    <ul>
+                        <li><strong>绝对的安全性</strong>：通过数学证明彻底消除缓冲区溢出、空指针解引用等内存安全漏洞</li>
+                        <li><strong>完全的可预测性</strong>：程序行为在编译期完全确定，无任何运行时未定义行为</li>
+                        <li><strong>最优的性能</strong>：开发者编写显式安全检查，编译器在编译期验证其充分性，通过路径消除所有运行时安全检查，仅保留必要的错误处理逻辑</li>
+                        <li><strong>明确的错误处理</strong>：可能失败的操作返回错误联合类型<code class="inline-code">!T</code>，强制显式错误处理</li>
+                        <li><strong>长期的可维护性</strong>：代码行为清晰可预测，减少调试和维护成本</li>
+                    </ul>
+                    
+                    <h3>性能保证</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>示例：通过路径零运行时开销</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">// Uya：开发者编写显式检查，编译器验证，通过路径零运行时开销
+fn safe_access(arr: [i32; 10], i: i32) !i32 {
+    if i < 0 || i >= 10 {
+        return error.OutOfBounds;  // 显式错误处理
+    }
+    // 编译器证明：当执行到这里时，i >= 0 && i < 10 必然成立
+    return arr[i];  // 直接访问，无运行时边界检查
+}
+// 生成的代码：
+//   cmp   rdi, 0                 // 运行时错误检查
+//   jl    .error_out_of_bounds
+//   cmp   rdi, 10                // 运行时错误检查
+//   jge   .error_out_of_bounds
+//   mov   eax, [rsi + rdi*4]     // 直接访问，无额外运行时检查
+//   ret
+// .error_out_of_bounds:
+//   mov   rax, error.OutOfBounds
+//   ret</code></pre>
+                    </div>
+                    
+                    <div class="note">
+                        <p><strong>关键说明</strong>：</p>
+                        <ul>
+                            <li>错误路径保留显式检查，确保安全</li>
+                            <li>通过路径（正常执行路径）无任何安全检查，实现成功路径零开销</li>
+                            <li>编译器自动消除冗余检查，只保留必要的错误处理逻辑</li>
+                        </ul>
+                    </div>
+                    
                     <div class="quote">
-                        <p><strong>一句话总结：</strong>Uya 的设计哲学 = 程序员提供证明，编译器验证证明；将运行时的不确定性转化为编译期的确定性，零运行时开销，失败路径不存在。</p>
+                        <p><strong>一句话总结：</strong>Uya 的设计哲学 = 坚如磐石 = 程序员提供证明，编译器验证证明，运行时绝对安全；<br>
+                        <strong>将运行时的不确定性转化为编译期的确定性，成功路径零运行时开销，失败路径显式处理。</strong></p>
                     </div>
                 </section>
                 
@@ -1423,6 +1510,63 @@ fn main() i32 {
         printf("[%d] ", i);  // 输出：[0] [1] [2] [3] [4]
     }
     printf("\n");
+    
+    return 0;
+}</code></pre>
+                    </div>
+
+                    <h3>切片作为函数参数</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>示例：使用切片作为函数参数</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">extern printf(fmt: *byte, ...) i32;
+
+// 使用动态长度切片作为参数
+fn process(p: &[i32]) void {
+    printf("Processing slice with length: ");
+    for p |value| {
+        printf("%d ", value);
+    }
+    printf("\n");
+}
+
+// 使用已知长度切片作为参数
+fn process_exact(p: &[i32; 3]) void {
+    printf("Processing exact slice: ");
+    for p |value| {
+        printf("%d ", value);
+    }
+    printf("\n");
+}
+
+// 多个切片参数示例
+fn process_multiple(a: i32, p1: &[i32], b: i32, p2: &[f32], c: i32) void {
+    printf("a=%d, b=%d, c=%d\n", a, b, c);
+    printf("p1: ");
+    for p1 |v1| {
+        printf("%d ", v1);
+    }
+    printf("\np2: ");
+    for p2 |v2| {
+        printf("%f ", v2);
+    }
+    printf("\n");
+}
+
+fn main() i32 {
+    const arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const floats: [f32; 5] = [1.1, 2.2, 3.3, 4.4, 5.5];
+    
+    // 传递动态长度切片
+    process(&arr[2:3]);        // 传递切片 &arr[2:3]
+    
+    // 传递已知长度切片
+    process_exact(&arr[0:3]);  // 传递已知长度切片 &[i32; 3]
+    
+    // 传递多个切片
+    process_multiple(10, &arr[1:4], 20, &floats[0:3], 30);
     
     return 0;
 }</code></pre>

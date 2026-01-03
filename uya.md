@@ -821,43 +821,42 @@ fn print_hello() void {
   - `return` 语句后的代码不可达
   - 函数末尾的 `return` 可以省略（如果返回类型是 `void`）
 
-- **`*[T]` 参数语法糖**：函数参数可以使用 `*[T]` 语法糖，表示指针和长度的组合
-  - **语法**：`fn func_name(param: *[T]) ReturnType`，`*[T]` 展开为两个参数：`param: *T, param_len: i32`
-  - **展开规则**：每个 `*[T]` 参数展开为 `*T, len` 两个参数，`len` 紧跟在对应的指针参数后面
-  - **支持0个或多个**：函数可以有0个、1个或多个 `*[T]` 参数，每个都独立展开
+- **切片参数**：函数可以直接接受切片类型作为参数
+  - **语法**：`fn func_name(param: &[T]) ReturnType` 或 `fn func_name(param: &[T; N]) ReturnType`
+  - **切片类型**：
+    - `&[T]`：动态长度切片引用（胖指针：指针8B + 长度8B）
+    - `&[T; N]`：已知长度切片引用（胖指针：指针8B + 长度8B，N 为编译期常量）
   - **函数体内访问**：
-    - `param[i]` 展开为 `*(param + i)`（指针下标访问语法糖）
-    - `param.len` 展开为 `param_len`（长度参数）
-  - **调用方式**：`&arr[start:len]` 展开为 `&arr[start], len`，len 紧跟在指针后面
-  - **完全显式**：展开后所有参数都是显式的，符合"无隐式控制"原则
-  - **零运行时开销**：编译期展开，无结构体包装，直接传递参数
+    - `param[i]` 访问切片元素（需要边界检查证明）
+    - `len(param)` 获取切片长度（对于 `&[T]`）或使用编译期常量 `N`（对于 `&[T; N]`）
+  - **调用方式**：直接传递切片 `&arr[start:len]` 或 `&arr[start:N]`
+  - **零运行时开销**：切片是胖指针，直接传递，无额外包装
   - **示例**：
     ```uya
-    // 语法糖定义
-    fn process(p: *[i32]) void {
-        for 0..p.len |i| {
-            const value: i32 = p[i];  // p[i] 展开为 *(p + i)
+    // 使用动态长度切片
+    fn process(p: &[i32]) void {
+        for p |value| {
+            // 使用切片元素
         }
     }
     
-    // 编译器展开为
-    fn process(p: *i32, p_len: i32) void {
-        for 0..p_len |i| {
-            const value: i32 = *(p + i);
+    // 使用已知长度切片
+    fn process_exact(p: &[i32; 3]) void {
+        for p |value| {
+            // 使用切片元素
         }
     }
     
     // 调用
     const arr: [i32; 10] = [0; 10];
-    process(&arr[2:3]);  // 展开为 process(&arr[2], 3)
+    process(&arr[2:3]);        // 传递动态长度切片
+    process_exact(&arr[0:3]);  // 传递已知长度切片
     
-    // 多个 *[T] 参数示例
-    fn process_multiple(a: i32, p1: *[i32], b: i32, p2: *[f32], c: i32) void {
-        // 使用 p1, p1.len, p2, p2.len
-    }
-    // 展开为
-    fn process_multiple(a: i32, p1: *i32, p1_len: i32, b: i32, p2: *f32, p2_len: i32, c: i32) void {
-        // p1.len 展开为 p1_len, p2.len 展开为 p2_len
+    // 多个切片参数示例
+    fn process_multiple(a: i32, p1: &[i32], b: i32, p2: &[f32], c: i32) void {
+        // 使用 p1, p2 切片
+        for p1 |v1| { }
+        for p2 |v2| { }
     }
     ```
 
@@ -1089,10 +1088,14 @@ fn safe_example(arr: *u16, len: i32, idx: i32) !u16 {
      - ❌ 不能用于普通变量声明（编译错误）
      - ❌ 不能进行普通指针算术（只能用于 FFI 上下文）
 
-3. **参数语法糖** `&[T]`：表示指针+长度的组合参数
-   - **用途**：表示指针+长度的组合参数
-   - **展开**：`fn foo(buf: &[i32])` → `fn foo(buf: &i32, buf_len: i32)`
-   - **内部访问**：`buf[i]` → `*(buf + i)`, `buf.len` → `buf_len`
+3. **切片类型** `&[T]` 和 `&[T; N]`：切片引用类型
+   - **用途**：表示数组的切片视图（指针+长度的组合）
+   - **类型**：
+     - `&[T]`：动态长度切片引用（胖指针：指针8B + 长度8B）
+     - `&[T; N]`：已知长度切片引用（胖指针：指针8B + 长度8B，N 为编译期常量）
+   - **创建方式**：使用切片语法 `&arr[start:len]` 或 `&arr[start:N]`
+   - **内部访问**：`buf[i]` 访问切片元素（需要边界检查证明），`len(buf)` 获取长度
+   - **零运行时开销**：切片是胖指针，直接传递，无额外包装
 
 **设计哲学一致性**：
 
@@ -5432,45 +5435,6 @@ $ echo $?
   - 函数内支持类型推断，函数签名仍需显式类型
   - 提高代码简洁性，保持可读性
   - 示例：`const x = 10;` 自动推断为 `i32`（注意：当前不支持类型推断，需要显式类型注解）
-- **`*[T]` 参数语法糖**：函数参数可以使用 `*[T]` 语法糖，表示指针和长度的组合
-  - **语法**：`fn func_name(param: *[T]) ReturnType`，`*[T]` 展开为两个参数：`param: *T, param_len: i32`
-  - **展开规则**：每个 `*[T]` 参数展开为 `*T, len` 两个参数，`len` 紧跟在对应的指针参数后面
-  - **支持0个或多个**：函数可以有0个、1个或多个 `*[T]` 参数，每个都独立展开
-  - **函数体内访问**：
-    - `param[i]` 展开为 `*(param + i)`（指针下标访问语法糖）
-    - `param.len` 展开为 `param_len`（长度参数）
-  - **调用方式**：`&arr[start:len]` 展开为 `&arr[start], len`，len 紧跟在指针后面
-  - **完全显式**：展开后所有参数都是显式的，符合"无隐式控制"原则
-  - **零运行时开销**：编译期展开，无结构体包装，直接传递参数
-  - **示例**：
-    ```uya
-    // 语法糖定义
-    fn process(p: *[i32]) void {
-        for 0..p.len |i| {
-            const value: i32 = p[i];  // p[i] 展开为 *(p + i)
-        }
-    }
-    
-    // 编译器展开为
-    fn process(p: *i32, p_len: i32) void {
-        for 0..p_len |i| {
-            const value: i32 = *(p + i);
-        }
-    }
-    
-    // 调用
-    const arr: [i32; 10] = [0; 10];
-    process(&arr[2:3]);  // 展开为 process(&arr[2], 3)
-    
-    // 多个 *[T] 参数示例
-    fn process_multiple(a: i32, p1: *[i32], b: i32, p2: *[f32], c: i32) void {
-        // 使用 p1, p1.len, p2, p2.len
-    }
-    // 展开为
-    fn process_multiple(a: i32, p1: *i32, p1_len: i32, b: i32, p2: *f32, p2_len: i32, c: i32) void {
-        // p1.len 展开为 p1_len, p2.len 展开为 p2_len
-    }
-    ```
 - **指针下标访问语法糖**：`ptr[i]` 是 `*(ptr + i)` 的语法糖
   - **语法**：`ptr[i]` 展开为 `*(ptr + i)`，与 C 语言一致
   - **边界检查**：与指针算术相同，需要证明 `i >= 0 && i < len`
