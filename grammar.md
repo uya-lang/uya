@@ -78,7 +78,6 @@ struct_type    = ID
 interface_type = ID
 atomic_type    = 'atomic' type
 error_union_type = '!' type  # 错误联合类型，表示 T | Error
-extern_type    = 'extern' 'struct' ID
 ```
 
 ### 变量声明
@@ -194,8 +193,12 @@ module_path    = ID { '.' ID }
 
 ```
 extern_decl    = 'extern' 'fn' ID '(' [ param_list ] ')' type ';'
-               | 'extern' 'struct' ID '{' field_list '}'
 ```
+
+**说明**：
+- `extern` 仅用于声明外部 C 函数
+- 所有 `struct` 统一使用 C 内存布局，无需 `extern` 关键字
+- 结构体可以包含所有类型（包括切片、interface 等），编译器自动生成对应的 C 兼容布局
 
 ### 错误处理
 
