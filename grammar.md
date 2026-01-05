@@ -12,7 +12,7 @@
 
 ```
 program        = { declaration }
-declaration    = fn_decl | struct_decl | interface_decl | const_decl 
+declaration    = fn_decl | struct_decl | struct_method_block | interface_decl | const_decl 
                | error_decl | extern_decl | export_decl | import_stmt
                | impl_block | test_stmt
 ```
@@ -28,10 +28,25 @@ param          = ID ':' type
 ### 结构体声明
 
 ```
-struct_decl    = 'struct' ID '{' field_list '}'
+struct_decl    = 'struct' ID '{' struct_body '}'
+struct_body    = ( field_list | method_list | field_list method_list )
 field_list     = field { ',' field }
 field          = ID ':' type
+method_list    = method_decl { method_decl }
+method_decl    = fn_decl  # self 参数必须为 *Self 或 *StructName
+
+# 结构体外部方法定义（方式2）
+struct_method_block = ID '{' method_list '}'
 ```
+
+**说明**：
+- **方式1：结构体内部定义**：方法定义在结构体花括号内，与字段定义并列
+  - 语法：`struct StructName { field: Type, fn method(self: *Self) ReturnType { ... } }`
+- **方式2：结构体外部定义**：使用块语法在结构体定义后添加方法
+  - 语法：`StructName { fn method(self: *Self) ReturnType { ... } }`
+- `self` 参数必须显式声明，使用指针：`self: *Self` 或 `self: *StructName`
+- 推荐使用 `Self` 占位符：`self: *Self` 更简洁、与接口实现语法一致
+- 详细语法说明见 [uya.md](./uya.md#29-未实现将来) 结构体方法部分
 
 ### 接口声明
 
@@ -303,7 +318,28 @@ type    = 'd' | 'u' | 'x' | 'X' | 'f' | 'F' | 'e' | 'E' | 'g' | 'G' | 'c' | 'p'
 
 ## 2. 类型系统
 
-### 2.1 接口类型
+### 2.1 结构体方法
+
+> **详细语法说明**：详见 [uya.md](./uya.md#29-未实现将来) 结构体方法部分
+
+```
+struct_decl    = 'struct' ID '{' struct_body '}'
+struct_body    = ( field_list | method_list | field_list method_list )
+struct_method_block = ID '{' method_list '}'  # 结构体外部方法定义
+method_list    = method_decl { method_decl }
+method_decl    = fn_decl  # self 参数必须为 *Self 或 *StructName
+```
+
+**说明**：
+- **方式1：结构体内部定义**：方法定义在结构体花括号内，与字段定义并列
+  - 语法：`struct StructName { field: Type, fn method(self: *Self) ReturnType { ... } }`
+- **方式2：结构体外部定义**：使用块语法在结构体定义后添加方法
+  - 语法：`StructName { fn method(self: *Self) ReturnType { ... } }`
+- `self` 参数必须显式声明，使用指针：`self: *Self` 或 `self: *StructName`
+- 推荐使用 `Self` 占位符：`self: *Self` 更简洁、与接口实现语法一致
+- 方法调用语法：`obj.method()` 展开为 `StructName_method(&obj)`（传递指针，不移动）
+
+### 2.2 接口类型
 
 ```
 interface_decl = 'interface' ID '{' method_sig { method_sig } '}'
