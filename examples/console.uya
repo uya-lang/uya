@@ -1,0 +1,28 @@
+// ① 定义接口
+interface IWriter {
+  fn write(self: *Self, buf: *byte, len: i32) i32;
+}
+
+// ② 具体实现
+struct Console {
+  fd: i32
+}
+
+impl Console : IWriter {
+  fn write(self: *Self, buf: *byte, len: i32) i32 {
+    extern write(fd: i32, buf: *byte, len: i32) i32;
+    return write(self.fd, buf, len);
+  }
+}
+
+// ③ 使用接口
+fn echo(w: IWriter) void {
+  const msg: [byte; 6] = "hello\n";
+  w.write(&msg[0], 5);
+}
+
+fn main() i32 {
+  const cons: Console = Console{ fd: 1 };   // stdout
+  echo(cons);                             // 自动装箱为接口
+  return 0;
+}

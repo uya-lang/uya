@@ -1,0 +1,9 @@
+    const a: i32 = 0b1010;        // 10
+    const b: i32 = 0b1100;        // 12
+    const c: i32 = a & b;         // 0b1000 = 8
+    const d: i32 = a | b;         // 0b1110 = 14
+    const e: i32 = a ^ b;         // 0b0110 = 6
+    const f: i32 = ~a;            // 按位取反
+    const g: i32 = a << 2;        // 左移 2 位 = 40
+    const h: i32 = a >> 1;        // 右移 1 位 = 5
+    

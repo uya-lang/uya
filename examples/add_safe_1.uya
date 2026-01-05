@@ -1,0 +1,208 @@
+// ✅ 编译通过：常量运算，编译器可以证明无溢出
+// 使用 max/min 关键字访问极值（推荐）
+const x: i32 = 100 + 200;  // 编译期常量折叠，证明无溢出（300 < max）
+
+// 也可以用于常量定义（类型推断）
+const MAX_I32: i32 = max;  // 从类型注解 i32 推断出是 i32 的最大值
+const MIN_I32: i32 = min;  // 从类型注解 i32 推断出是 i32 的最小值
+
+// ❌ 编译错误：常量溢出
+const y: i32 = 2147483647 + 1;  // 编译错误：常量溢出
+const z: i32 = -2147483648 - 1;  // 编译错误：常量下溢
+
+// ✅ 编译通过：变量运算有显式溢出检查
+
+// 方式1：返回错误（错误联合类型）
+// 使用 try 关键字（推荐）
+fn add_safe(a: i32, b: i32) !i32 {
+    return try a + b;  // 自动检查溢出，溢出返回 error.Overflow
+}
+
+// 方式1（备选）：手动检查（如果需要自定义逻辑）
+fn add_safe_manual(a: i32, b: i32) !i32 {
+    // 显式检查上溢：a > 0 && b > 0 && a + b > MAX
+    // 编译器从 a 和 b 的类型 i32 推断 max 和 min 的类型
+    if a > 0 && b > 0 && a > max - b {
+        return error.Overflow;  // 返回错误，无需预定义
+    }
+    // 显式检查下溢：a < 0 && b < 0 && a + b < MIN
+    if a < 0 && b < 0 && a < min - b {
+        return error.Overflow;  // 返回错误，无需预定义
+    }
+    // 编译器证明：经过检查后，a + b 不会溢出
+    return a + b;
+}
+
+// 方式2：返回饱和值（有效数值）
+// 使用饱和运算符（推荐）
+fn add_saturating(a: i32, b: i32) i32 {
+    return a +| b;  // 自动饱和，溢出返回极值
+}
+
+// 方式2（备选）：手动检查（如果需要自定义逻辑）
+fn add_saturating_manual(a: i32, b: i32) i32 {
+    // 显式检查上溢：返回最大值
+    // 编译器从函数返回类型和参数类型推断 max/min 的类型
+    if a > 0 && b > 0 && a > max - b {
+        return max;  // 上溢时返回最大值
+    }
+    // 显式检查下溢：返回最小值
+    if a < 0 && b < 0 && a < min - b {
+        return min;  // 下溢时返回最小值
+    }
+    // 编译器证明：经过检查后，a + b 不会溢出
+    return a + b;
+}
+
+// 方式3：返回包装值（有效数值）
+// 使用包装运算符（推荐）
+fn add_wrapping(a: i32, b: i32) i32 {
+    return a +% b;  // 自动包装，溢出返回包装值
+}
+
+// 方式3（备选）：手动检查（如果需要自定义逻辑）
+fn add_wrapping_manual(a: i32, b: i32) i32 {
+    // 包装算术的实现：使用更大的类型进行计算，然后截断
+    // 这样即使溢出，也会自动包装回类型的另一端
+    const sum: i64 = (a as i64) + (b as i64);
+    return (sum as! i32);  // 显式截断到 i32 范围，溢出时自动包装
+    
+    // 说明：
+    // - 如果 a + b 在 i32 范围内，结果正常
+    // - 如果 a + b 溢出，截断会保留低 32 位，自动包装
+    //   例如：2147483647 + 1 = 2147483648 (i64)
+    //        截断为 i32 后 = -2147483648 (包装后的值)
+    //   例如：-2147483648 - 1 = -2147483649 (i64)
+    //        截断为 i32 后 = 2147483647 (包装后的值)
+}
+
+// ✅ 编译通过：乘法溢出检查
+// 使用 try 关键字（推荐）
+fn mul_safe(a: i32, b: i32) !i32 {
+    return try a * b;  // 自动检查溢出，溢出返回 error.Overflow
+}
+
+// 方式（备选）：手动检查（如果需要自定义逻辑）
+fn mul_safe_manual(a: i32, b: i32) !i32 {
+    if a == 0 || b == 0 {
+        return 0;  // 零乘法，无溢出
+    }
+    // 检查上溢：a > 0 && b > 0 && a * b > MAX
+    // 编译器从参数类型推断 max/min 的类型
+    if a > 0 && b > 0 && a > max / b {
+        return error.Overflow;
+    }
+    // 检查下溢：a < 0 && b < 0 && a * b > MAX（负负得正）
+    if a < 0 && b < 0 && a < max / b {
+        return error.Overflow;
+    }
+    // 检查混合符号：a > 0 && b < 0 && a * b < MIN
+    if a > 0 && b < 0 && a > min / b {
+        return error.Overflow;
+    }
+    // 检查混合符号：a < 0 && b > 0 && a * b < MIN
+    if a < 0 && b > 0 && b > min / a {
+        return error.Overflow;
+    }
+    // 编译器证明：经过检查后，a * b 不会溢出
+    return a * b;
+}
+
+// ❌ 编译错误：无法证明无溢出
+fn add_unsafe(a: i32, b: i32) i32 {
+    return a + b;  // 编译错误：无法证明 a + b 不会溢出
+}
+
+// ❌ 编译错误：无法证明无溢出
+fn mul_unsafe(a: i32, b: i32) i32 {
+    return a * b;  // 编译错误：无法证明 a * b 不会溢出
+}
+
+// ✅ 编译通过：已知范围的变量
+fn add_known_range(a: i32, b: i32) i32 {
+    // 如果编译器可以证明 a 和 b 都在安全范围内
+    // 例如：a 和 b 都是数组索引（已验证 < 1000）
+    // 编译器可以证明 a + b < 2000 < 2147483647，无溢出
+    if a < 0 || a >= 1000 || b < 0 || b >= 1000 {
+        return error.OutOfBounds;
+    }
+    return a + b;  // 编译器证明：a < 1000 && b < 1000，所以 a + b < 2000，无溢出
+}
+
+// ========== i64 溢出处理示例 ==========
+
+// ✅ 编译通过：i64 常量运算无溢出
+// 使用 max/min 关键字访问极值（推荐）
+const x64: i64 = 1000000000 + 2000000000;  // 编译期常量折叠，证明无溢出
+
+// ❌ 编译错误：i64 常量溢出
+const y64: i64 = max + 1;  // 编译错误：常量溢出（从类型注解 i64 推断）
+const z64: i64 = min - 1;  // 编译错误：常量下溢（从类型注解 i64 推断）
+
+// ✅ 编译通过：i64 变量运算有显式溢出检查
+// 使用 try 关键字（推荐）
+fn add_safe_i64(a: i64, b: i64) !i64 {
+    return try a + b;  // 自动检查溢出，溢出返回 error.Overflow
+}
+
+// 方式（备选）：手动检查（如果需要自定义逻辑）
+fn add_safe_i64_manual(a: i64, b: i64) !i64 {
+    // 显式检查上溢：a > 0 && b > 0 && a + b > MAX
+    // 编译器从参数类型 i64 推断 max/min 的类型
+    if a > 0 && b > 0 && a > max - b {
+        return error.Overflow;
+    }
+    // 显式检查下溢：a < 0 && b < 0 && a + b < MIN
+    if a < 0 && b < 0 && a < min - b {
+        return error.Overflow;
+    }
+    // 编译器证明：经过检查后，a + b 不会溢出
+    return a + b;
+}
+
+// ✅ 编译通过：i64 乘法溢出检查
+// 使用 try 关键字（推荐）
+fn mul_safe_i64(a: i64, b: i64) !i64 {
+    return try a * b;  // 自动检查溢出，溢出返回 error.Overflow
+}
+
+// 方式（备选）：手动检查（如果需要自定义逻辑）
+fn mul_safe_i64_manual(a: i64, b: i64) !i64 {
+    if a == 0 || b == 0 {
+        return 0;  // 零乘法，无溢出
+    }
+    // 检查上溢：a > 0 && b > 0 && a * b > MAX
+    // 编译器从参数类型 i64 推断 max/min 的类型
+    if a > 0 && b > 0 && a > max / b {
+        return error.Overflow;
+    }
+    // 检查下溢：a < 0 && b < 0 && a * b > MAX（负负得正）
+    if a < 0 && b < 0 && a < max / b {
+        return error.Overflow;
+    }
+    // 检查混合符号：a > 0 && b < 0 && a * b < MIN
+    if a > 0 && b < 0 && a > min / b {
+        return error.Overflow;
+    }
+    // 检查混合符号：a < 0 && b > 0 && a * b < MIN
+    if a < 0 && b > 0 && b > min / a {
+        return error.Overflow;
+    }
+    // 编译器证明：经过检查后，a * b 不会溢出
+    return a * b;
+}
+
+// ❌ 编译错误：i64 无法证明无溢出
+fn add_unsafe_i64(a: i64, b: i64) i64 {
+    return a + b;  // 编译错误：无法证明 a + b 不会溢出
+}
+
+// ✅ 编译通过：i64 已知范围的变量
+fn add_known_range_i64(a: i64, b: i64) !i64 {
+    // 如果编译器可以证明 a 和 b 都在安全范围内
+    // 例如：a 和 b 都是已验证的范围（< 1000000000）
+    if a < 0 || a >= 1000000000 || b < 0 || b >= 1000000000 {
+        return error.OutOfBounds;
+    }
+    return a + b;  // 编译器证明：a < 1000000000 && b < 1000000000，所以 a + b < 2000000000，无溢出
+}

@@ -1,0 +1,10 @@
+fn example() void {
+    const console: Console = Console{ fd: 1 };
+    const writer: IWriter = console;  // 装箱为接口值（16字节结构体）
+    
+    // ✅ 接口值本身是16字节结构体，可以移动
+    const writer2: IWriter = writer;  // 移动接口值（复制16字节）
+    
+    // 注意：接口值移动只是复制16字节（vtable指针+数据指针），不移动底层数据
+    // 底层数据的生命周期仍然由原始对象（console）决定
+}

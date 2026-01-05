@@ -1,0 +1,2 @@
+const pi: f64 = 3.1415926;
+printf("sin(pi/2)=%f\n", sin(pi / 2.0));

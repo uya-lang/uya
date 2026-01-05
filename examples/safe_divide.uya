@@ -1,0 +1,40 @@
+// ✅ 使用错误联合类型处理可预测错误
+fn safe_divide(a: i32, b: i32) !i32 {
+    if b == 0 {
+        return error.DivisionByZero;  // 显式检查，返回预定义错误
+    }
+    return a / b;
+}
+
+// ✅ 使用运行时错误（无需预定义）
+fn safe_divide_runtime(a: i32, b: i32) !i32 {
+    if b == 0 {
+        return error.DivisionByZero;  // 仍可使用预定义错误
+    }
+    if a < 0 {
+        return error.NegativeInput;   // 运行时错误，无需预定义
+    }
+    return a / b;
+}
+
+// ✅ 使用 catch 捕获错误
+fn main() i32 {
+    const result: i32 = safe_divide(10, 0) catch |err| {
+        if err == error.DivisionByZero {
+            printf("Division by zero\n");
+        }
+        return 1;  // 提前返回函数
+    };
+    printf("Result: %d\n", result);
+
+    // 使用运行时错误
+    const result2: i32 = safe_divide_runtime(-5, 2) catch |err| {
+        if err == error.NegativeInput {
+            printf("Negative input not allowed\n");
+        }
+        return 1;
+    };
+    printf("Result2: %d\n", result2);
+
+    return 0;
+}

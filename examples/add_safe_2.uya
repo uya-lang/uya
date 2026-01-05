@@ -1,0 +1,15 @@
+     // try 关键字：返回错误联合类型
+     fn add_safe(a: i32, b: i32) !i32 {
+         return try a + b;  // 自动检查溢出，返回 error.Overflow 如果溢出
+     }
+
+     // 饱和运算符：返回饱和值
+     fn add_saturating(a: i32, b: i32) i32 {
+         return a +| b;  // 自动饱和
+     }
+
+     // 包装运算符：返回包装值
+     fn add_wrapping(a: i32, b: i32) i32 {
+         return a +% b;  // 自动包装
+     }
+     

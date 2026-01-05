@@ -1,0 +1,7 @@
+// Uya：程序员提供证明，编译器验证证明
+const arr: [i32; 10] = [0; 10];
+const i: i32 = get_index();
+if i < 0 || i >= 10 {
+    return error.OutOfBounds;  // 显式检查，返回错误
+}
+const x: i32 = arr[i];  // 编译器证明 i >= 0 && i < 10，安全

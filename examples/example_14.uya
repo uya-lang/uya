@@ -1,0 +1,14 @@
+fn example(condition: bool) void {
+    const file: File = File{ fd: 1 };
+    
+    if condition {
+        // ❌ 编译错误：file 可能在 else 分支中被移动
+        // const file2: File = file;  // 错误：无法确定只移动一次
+    } else {
+        // ❌ 编译错误：file 可能在 if 分支中被移动
+        // const file3: File = file;  // 错误：无法确定只移动一次
+    }
+    
+    // 编译器需要路径敏感分析，确保变量在所有可能执行路径中只移动一次
+    // 如果无法确定只移动一次，则编译错误
+}

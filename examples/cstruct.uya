@@ -1,0 +1,6 @@
+extern struct CStruct {
+    field1: i32;
+    field2: f64;
+    field3: *byte;  // C 字符串指针（*T 的一个实例，T=byte）
+    field4: *u16;   // 指向 u16 数组的指针（*T 的一个实例，T=u16）
+}

@@ -1,0 +1,6 @@
+       match x {
+           0 => expr1,
+           y => expr2,  // y 绑定到 x 的值
+           else => expr3,
+       }
+       

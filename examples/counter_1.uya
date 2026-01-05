@@ -1,0 +1,17 @@
+struct Counter {
+  value: atomic i32
+}
+
+impl Counter : IIncrement {
+  fn inc(self: *Self) i32 {
+    self.value += 1;  // 自动原子 fetch_add
+    return self.value;  // 自动原子 load
+  }
+}
+
+fn main() i32 {
+  const counter: Counter = Counter{ value: 0 };
+  // 多线程并发递增，零数据竞争
+  // 所有操作自动原子化，无需锁
+  return 0;
+}

@@ -1,0 +1,15 @@
+// 声明外部 C 结构体
+extern struct timeval {
+    tv_sec: i64;
+    tv_usec: i64;
+}
+
+// 声明使用该结构体的 C 函数
+extern gettimeofday(tv: *timeval, tz: *void) i32;
+
+// 使用
+fn get_current_time() timeval {
+    var tv: timeval = timeval{ tv_sec: 0, tv_usec: 0 };
+    gettimeofday(&tv, null);
+    return tv;
+}

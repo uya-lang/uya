@@ -1,0 +1,13 @@
+     // 1. FFI 分配
+     extern malloc(size: i32) *void;
+     // 注意：*byte 不能用于普通变量声明，这里仅作示例说明类型
+     // const ptr: *byte = malloc(sizeof(struct Packet));  // ❌ 编译错误：*byte 不能用于普通变量声明
+
+     // 2. 对齐检查
+     if alignof(struct Header) != 64 {
+         return error.BadAlign;
+     }
+
+     // 3. 零拷贝序列化
+     const MSG: [byte; sizeof(struct Msg)] = [];
+     

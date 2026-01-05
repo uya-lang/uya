@@ -1,0 +1,12 @@
+    // 源代码
+    const result: i32 = try a + b;
+     
+     // 编译期展开为（伪代码）
+     // if a > 0 && b > 0 && a > max - b {
+     //     return error.Overflow;
+     // }
+     // if a < 0 && b < 0 && a < min - b {
+     //     return error.Overflow;
+     // }
+     // return a + b;
+     

@@ -1,0 +1,14 @@
+fn example() !i32 {
+    defer {
+        printf("Always cleanup\n");  // 总是执行
+    }
+    errdefer {
+        printf("Error cleanup\n");  // 仅错误时执行
+    }
+    
+    const result: i32 = try some_operation();
+    return result;
+    
+    // 正常返回时：只执行 defer
+    // 错误返回时：先执行 errdefer，再执行 defer
+}

@@ -1,0 +1,23 @@
+      // 原始代码
+      for obj |&item| {
+          // body（可以修改 *item）
+      }
+      
+      // 展开为
+      {
+          var iter: IIteratorT = obj;  // 自动装箱为接口（T为元素类型）
+          while true {
+              const result: void = iter.next() catch |err| {
+                  if err == error.IterEnd {
+                      break;  // 迭代结束，跳出循环
+                  }
+                  return err;  // 其他错误传播（如果函数返回错误联合类型）
+              };
+              const item: &T = iter.ptr() catch |err| {
+                  return err;  // 传播错误（如果函数返回错误联合类型）
+              };  // 获取指向当前元素的指针（可修改）
+              // body（可以使用 *item 访问和修改元素）
+              // 例如：*item = new_value; 或 const val: T = *item;
+          }
+      }
+      

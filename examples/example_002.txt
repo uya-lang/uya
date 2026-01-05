@@ -1,0 +1,4 @@
+  struct const var fn return extern true false if while break continue
+  defer errdefer try catch error null interface impl atomic max min
+  export use
+  

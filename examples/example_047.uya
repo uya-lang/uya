@@ -1,0 +1,22 @@
+      // 原始代码
+      for obj |item| {
+          // body
+      }
+      
+      // 展开为
+      {
+          var iter: IIteratorT = obj;  // 自动装箱为接口（T为元素类型）
+          while true {
+              const result: void = iter.next() catch |err| {
+                  if err == error.IterEnd {
+                      break;  // 迭代结束，跳出循环
+                  }
+                  return err;  // 其他错误传播（如果函数返回错误联合类型）
+              };
+              const item: T = iter.value() catch |err| {
+                  return err;  // 传播错误（如果函数返回错误联合类型）
+              };  // 获取当前元素（只读）
+              // body（可以使用item）
+          }
+      }
+      

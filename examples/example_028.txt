@@ -1,0 +1,2 @@
+  if (target_scope < owner_scope) → error: field may outlive its target
+  

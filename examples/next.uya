@@ -1,0 +1,21 @@
+// 迭代器结束错误（预定义，可选）
+error IterEnd;
+// 迭代器状态错误（用于value()方法的边界检查，预定义，可选）
+error InvalidIteratorState;
+
+// i32数组迭代器接口
+interface IIteratorI32 {
+    // 移动到下一个元素，返回错误表示迭代结束
+    fn next(self: *Self) !void;
+    // 获取当前元素值（只读），可能返回错误
+    fn value(self: *Self) !i32;
+    // 获取指向当前元素的指针（可修改），可能返回错误
+    fn ptr(self: *Self) !&i32;
+}
+
+// 带索引的i32数组迭代器接口
+interface IIteratorI32WithIndex {
+    fn next(self: *Self) !void;
+    fn value(self: *Self) !i32;  // 可能返回错误
+    fn index(self: *Self) i32;
+}

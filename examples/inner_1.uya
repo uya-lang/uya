@@ -1,0 +1,17 @@
+fn example() void {
+    struct Inner {
+        value: i32
+    }
+    
+    struct Outer {
+        inner: Inner
+    }
+    
+    const outer: Outer = Outer{ inner: Inner{ value: 42 } };
+    
+    // ✅ 移动外层结构体时，所有字段（包括嵌套结构体）一起移动
+    const outer2: Outer = outer;  // inner 字段也被移动
+    
+    // ✅ 也可以单独移动嵌套字段（但 outer 已被移动，这里应该报错）
+    // const inner2: Inner = outer.inner;  // ❌ 错误：outer 已被移动
+}

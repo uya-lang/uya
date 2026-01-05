@@ -1,0 +1,9 @@
+      use main.helper_func;
+      use std.io.read_file;
+      use std.io.File;
+      
+      fn example() void {
+          helper_func();           // 直接调用，无需 main. 前缀
+          const file: File = read_file("test.txt");  // 直接使用，无需 std.io. 前缀
+      }
+      

@@ -1,0 +1,26 @@
+fn create_iterator(arr: *[i32; 10]) ArrayIteratorI32 {
+    return ArrayIteratorI32{
+        arr: arr,
+        current: 0,
+        len: 10
+    };
+}
+
+fn iterate_example() void {
+    const arr: [i32; 5] = [1, 2, 3, 4, 5];
+    const iter: IIteratorI32 = create_iterator(&arr);  // 自动装箱为接口
+    
+    // 手动迭代（for循环会自动展开为类似代码）
+    while true {
+        const result: void = iter.next() catch |err| {
+            if err == error.IterEnd {
+                break;  // 迭代结束
+            }
+            // 其他错误处理...
+        };
+        const value: i32 = iter.value() catch |err| {
+            return;  // 传播错误（如果函数返回错误联合类型）
+        };
+        // 使用value...
+    }
+}

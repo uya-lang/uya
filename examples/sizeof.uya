@@ -1,0 +1,3 @@
+     export fn sizeof(T) i32  = @size_of(T);   // 仅编译器可见的折叠记号
+     export fn alignof(T) i32 = @align_of(T);
+     

@@ -1,0 +1,8 @@
+       match x {
+           0 => expr1,
+           1 => expr2,
+           true => expr3,
+           error.FileNotFound => expr4,
+           else => expr5,
+       }
+       

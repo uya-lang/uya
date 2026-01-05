@@ -1,0 +1,17 @@
+// ✅ 强转返回错误联合类型，需要错误处理
+const x: f64 = 3.141592653589793;
+const y: !f32 = x as! f32;  // 返回 !f32，可能包含精度损失错误
+const y_value: f32 = try y;  // 使用 try 传播错误
+
+// ✅ 使用 catch 处理可能的错误
+const large: i32 = 100000000;
+const f: f32 = large as! f32 catch |err| {
+    // 处理精度损失错误，这里使用默认值
+    0.0
+};
+
+const pi: f64 = 3.14;
+const n: i32 = try pi as! i32;  // f64 -> i32，截断为 3（无错误）
+
+const i64_val: i64 = 9007199254740992;  // 超过 f64 精度范围
+const result: !f64 = i64_val as! f64;  // 返回错误联合类型，可能包含精度损失错误

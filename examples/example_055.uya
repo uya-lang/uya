@@ -1,0 +1,7 @@
+       match msg {
+           "hello" => expr1,  // 编译期常量字符串，编译期比较
+           "world" => expr2,
+           x => expr3,  // 运行时字符串，运行时比较
+           else => expr4,
+       }
+       

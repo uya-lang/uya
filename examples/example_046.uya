@@ -1,0 +1,53 @@
+    // 基本迭代（有元素变量，只读）
+    const arr: [i32; 5] = [1, 2, 3, 4, 5];
+    for arr |item| {
+        printf("%d\n", item);
+    }
+    
+    // 基本迭代（有元素变量，可修改）
+    var arr2: [i32; 5] = [1, 2, 3, 4, 5];
+    for arr2 |&item| {
+        *item = *item * 2;  // 修改每个元素，乘以2
+        printf("%d\n", *item);
+    }
+    
+    // 切片迭代（值迭代，只读）
+    var arr3: [i32; 10] = [0,1,2,3,4,5,6,7,8,9];
+    const slice: &[i32] = &arr3[2:5];
+    for slice |value| {
+        printf("%d ", value);  // 输出：2 3 4 5 6
+    }
+    
+    // 切片迭代（引用迭代，可修改）
+    for slice |&ptr| {
+        *ptr = *ptr * 2;  // 修改切片元素，同时影响原数组
+    }
+    
+    // 切片迭代（索引迭代）
+    for slice |i| {
+        printf("index: %d\n", i);  // 输出索引：0 1 2 3 4
+    }
+    
+    // 整数范围（有元素变量）
+    for 0..10 |i| {
+        printf("%d\n", i);  // 输出 0 到 9
+    }
+    
+    // 无限范围（有元素变量）
+    for 0.. |i| {
+        if i >= 10 {
+            break;  // 手动终止
+        }
+        printf("%d\n", i);
+    }
+    
+    // 丢弃元素，只循环次数
+    for arr {
+        printf("loop\n");  // 执行 5 次
+    }
+    
+    // 整数范围，丢弃元素
+    for 0..N {
+        printf("loop\n");  // 执行 N 次
+    }
+    

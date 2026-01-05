@@ -1,0 +1,13 @@
+   // ❌ 编译错误：s 的生命周期不足以支撑外部接口值
+   fn example() void {
+       const s: Console = Console{ fd: 1 };
+       var external: IWriter = s;  // 如果 external 生命周期更长，编译错误
+   }
+   
+   // ✅ 编译通过：局部装箱，生命周期匹配
+   fn example() void {
+       const s: Console = Console{ fd: 1 };
+       const local: IWriter = s;  // 局部变量，生命周期匹配
+       // 使用 local...
+   }
+   

@@ -1,0 +1,20 @@
+// project/main.uya (main 模块)
+export fn helper_func() i32 {
+    return 42;
+}
+
+// project/std/io/file.uya (std.io 模块)
+use main.helper_func;
+
+export struct File {
+    fd: i32
+}
+
+export fn open_file(path: *byte) !File {
+    const value: i32 = helper_func();
+    return File{ fd: 1 };
+}
+
+// 使用别名导入
+use std.io as io;
+const file: io.File = io.open_file("test.txt");

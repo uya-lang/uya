@@ -1,0 +1,19 @@
+// ✅ 允许的转换（无精度损失）
+const x: f32 = 1.5;
+const y: f64 = x as f64;  // f32 -> f64，扩展精度，无损失
+
+const i: i32 = 42;
+const f: f64 = i as f64;  // i32 -> f64，无损失
+
+const small: i8 = 100;
+const f32_val: f32 = small as f32;  // i8 -> f32，小整数，无损失
+
+// ❌ 编译错误（可能有精度损失）
+const x: f64 = 3.141592653589793;
+const y: f32 = x as f32;  // 编译错误：f64 -> f32 可能有精度损失
+
+const large: i32 = 100000000;
+const f: f32 = large as f32;  // 编译错误：i32 -> f32 可能损失精度
+
+const pi: f64 = 3.14;
+const n: i32 = pi as i32;  // 编译错误：f64 -> i32 截断转换

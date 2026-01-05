@@ -1,0 +1,11 @@
+    struct Inner { x: i32 }
+    struct Outer { inner: Inner }
+    
+    // ✅ 可以修改的情况
+    var outer: Outer = Outer{ inner: Inner{ x: 10 } };
+    outer.inner.x = 20;  // ✅ 可以修改，因为 outer 是 var
+    
+    // ❌ 不能修改的情况
+    const outer: Outer = Outer{ inner: Inner{ x: 10 } };
+    outer.inner.x = 20;  // ❌ 编译错误：outer 不是 var，无法修改字段
+    

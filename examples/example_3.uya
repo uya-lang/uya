@@ -1,0 +1,7 @@
+      use std.io as io;
+      
+      fn example() void {
+          io.read_file("test.txt");     // 使用别名 io 作为前缀
+          const f: io.File = io.File{ fd: 1 };
+      }
+      

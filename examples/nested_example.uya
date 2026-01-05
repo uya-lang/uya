@@ -1,0 +1,13 @@
+fn nested_example() !void {
+    defer {
+        printf("Outer defer\n");
+    }
+    
+    {
+        defer {
+            printf("Inner defer\n");
+        }
+        // 内层作用域退出时：先执行 "Inner defer"
+    }
+    // 外层作用域退出时：执行 "Outer defer"
+}

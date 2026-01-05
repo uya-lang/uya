@@ -1,0 +1,5 @@
+  test "Vec(i32) push" {
+      var v: Vec(i32) = Vec(i32){ ... };
+      // ...
+  }
+  

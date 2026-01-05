@@ -1,0 +1,11 @@
+// ❌ 错误示例
+const ptr: *u16 = &arr[0];  // ❌ *u16 不能用于普通变量声明
+const val: u16 = *ptr;      // ❌ 不能直接解引用FFI指针（除非在FFI上下文中）
+
+// ✅ 必须通过下标访问（需要长度约束）
+fn safe_example(arr: *u16, len: i32, idx: i32) !u16 {
+    if idx >= 0 && idx < len {
+        return arr[idx];  // ✅ 有长度约束证明
+    }
+    return error.OutOfBounds;
+}

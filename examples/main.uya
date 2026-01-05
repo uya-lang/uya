@@ -1,0 +1,10 @@
+      fn main() i32 {
+          const result: i32 = read_file("test.txt") catch |err| {
+              printf("Failed to read file\n");
+              return 1;  // 直接退出 main 函数，返回 1（跳过后续所有代码）
+          };
+          // 如果 read_file 成功，继续执行这里
+          printf("Read %d bytes\n", result);
+          return 0;
+      }
+      

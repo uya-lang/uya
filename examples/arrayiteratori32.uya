@@ -1,0 +1,66 @@
+// i32数组迭代器结构体
+struct ArrayIteratorI32 {
+    arr: *[i32; N],  // 指向数组的指针
+    current: i32,    // 当前索引（从0开始，指向下一个要访问的元素）
+    len: i32         // 数组长度
+}
+
+impl ArrayIteratorI32 : IIteratorI32 {
+    fn next(self: *Self) !void {
+        if self.current >= self.len {
+            return error.IterEnd;  // 迭代结束
+        }
+        self.current = self.current + 1;
+    }
+    
+    fn value(self: *Self) !i32 {
+        // 编译期证明说明：
+        // 1. next() 成功返回意味着：self.current > 0 && self.current <= self.len
+        // 2. 因此 idx = current - 1 满足：idx >= 0 && idx < len
+        // 3. 编译器通过路径敏感分析可以证明数组访问安全
+        const idx: i32 = self.current - 1;
+        // 注意：如果编译器能够通过路径敏感分析证明 idx 在有效范围内，
+        // 则可以直接访问数组，无需显式检查
+        // 如果编译器无法证明（当前限制），则需要显式检查：
+        if idx < 0 || idx >= self.len {
+            // 这个检查帮助编译器完成证明
+            // 虽然根据 next() 的语义，这个分支理论上不会执行，
+            // 但显式检查可以让编译器验证数组访问的安全性
+            return error.InvalidIteratorState;
+        }
+        return (*self.arr)[idx];
+    }
+    
+    fn ptr(self: *Self) !&i32 {
+        // 编译期证明说明：同 value() 方法
+        const idx: i32 = self.current - 1;
+        if idx < 0 || idx >= self.len {
+            return error.InvalidIteratorState;
+        }
+        return &(*self.arr)[idx];  // 返回指向当前元素的指针（可修改）
+    }
+}
+
+// 带索引的数组迭代器实现
+impl ArrayIteratorI32 : IIteratorI32WithIndex {
+    fn next(self: *Self) !void {
+        if self.current >= self.len {
+            return error.IterEnd;
+        }
+        self.current = self.current + 1;
+    }
+    
+    fn value(self: *Self) !i32 {
+        // 编译期证明说明：同 IIteratorI32 接口的 value() 方法
+        const idx: i32 = self.current - 1;
+        // 显式检查帮助编译器完成证明（见上方说明）
+        if idx < 0 || idx >= self.len {
+            return error.InvalidIteratorState;
+        }
+        return (*self.arr)[idx];
+    }
+    
+    fn index(self: *Self) i32 {
+        return self.current - 1;  // 返回当前索引（从0开始）
+    }
+}

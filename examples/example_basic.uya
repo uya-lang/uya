@@ -1,0 +1,40 @@
+// 基本类型：drop 是空函数
+fn example_basic() void {
+  const x: i32 = 10;
+  const y: f64 = 3.14;
+  // 离开作用域时，编译器会插入：
+  // drop(y);  // 空函数，无操作
+  // drop(x);  // 空函数，无操作
+}
+
+// 数组：元素按索引逆序 drop
+fn example_array() void {
+  const arr: [f32; 4] = [1.0, 2.0, 3.0, 4.0];
+  // 离开作用域时，编译器会插入：
+  // drop(arr[3]);  // 逆序 drop 元素
+  // drop(arr[2]);
+  // drop(arr[1]);
+  // drop(arr[0]);
+  // drop(arr);
+}
+
+// 作用域嵌套：变量在各自作用域结束时 drop
+fn example_scope() void {
+  const outer: i32 = 10;
+  {
+    const inner: i32 = 20;
+    // inner 在这里 drop（离开内层作用域）
+  }
+  // outer 在这里 drop（离开外层作用域）
+}
+
+// 函数参数：按值传递，函数返回时会 drop
+fn process(data: Point) void {
+  // data 在这里 drop（函数返回时）
+}
+
+// 函数返回值：被调用者接收，在调用者作用域中 drop
+fn create_point() Point {
+  return Point{ x: 1.0, y: 2.0 };
+  // 返回值不会在这里 drop，而是传递给调用者
+}

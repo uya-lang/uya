@@ -1,0 +1,12 @@
+fn example() void {
+    const file: File = File{ fd: 1 };
+    
+    {
+        const ptr: *File = &file;  // 指针在内层作用域
+        // 使用 ptr...
+        // ptr 离开作用域，不再活跃
+    }
+    
+    // ✅ 编译通过：ptr 已离开作用域，file 可以移动
+    const file2: File = file;
+}

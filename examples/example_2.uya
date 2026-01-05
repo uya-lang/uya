@@ -1,0 +1,8 @@
+      use std.io.File;
+      use std.io.IWriter;
+      
+      fn example() void {
+          const f: File = File{ fd: 1 };  // 直接使用 File 类型
+          const w: IWriter = ...;         // 直接使用 IWriter 接口
+      }
+      

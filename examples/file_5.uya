@@ -1,0 +1,3 @@
+     const BUF: [byte; sizeof(struct File)] = [];          // 定长缓冲区
+     const ALIGN_MASK: i32 = alignof(struct Page) - 1;     // 对齐掩码
+     

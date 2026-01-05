@@ -1,0 +1,14 @@
+struct File {
+    fd: i32
+}
+
+fn drop(self: File) void {
+    close(self.fd);
+}
+
+fn example() void {
+    const file1: File = File{ fd: open("test.txt", 0) };
+    const file2: File = file1;  // ✅ 移动
+    
+    // file2 离开作用域时自动调用 drop，关闭文件
+}

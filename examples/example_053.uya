@@ -1,0 +1,6 @@
+       match point {
+           Point{ x: 0, y: 0 } => expr1,
+           Point{ x: x_val, y: y_val } => expr2,  // 绑定字段
+           else => expr3,
+       }
+       

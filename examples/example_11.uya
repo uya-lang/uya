@@ -1,0 +1,7 @@
+fn example() void {
+    const file: File = File{ fd: 1 };
+    const ptr: *File = &file;  // 存在指向 file 的指针
+    
+    // ❌ 编译错误：变量 'file' 存在活跃指针，不能移动
+    // const file2: File = file;  // 错误：无法移动，因为存在指向 'file' 的指针
+}

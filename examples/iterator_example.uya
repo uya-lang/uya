@@ -1,0 +1,97 @@
+    fn next(self: *Self) !void {
+        if self.current >= self.len {
+            return error.IterEnd;
+        }
+        self.current = self.current + 1;
+    }
+    
+    fn value(self: *Self) !i32 {
+        const idx: i32 = self.current - 1;
+        // 编译期证明：由于 next() 成功返回，idx 在有效范围内
+        if idx < 0 || idx >= self.len {
+            return error.InvalidIteratorState;  // 根据设计，这种情况不应该发生
+        }
+        return (*self.arr)[idx];
+    }
+    
+    fn ptr(self: *Self) !&i32 {
+        const idx: i32 = self.current - 1;
+        // 编译期证明：由于 next() 成功返回，idx 在有效范围内
+        if idx < 0 || idx >= self.len {
+            return error.InvalidIteratorState;
+        }
+        return &(*self.arr)[idx];  // 返回指向当前元素的指针（可修改）
+    }
+
+
+impl ArrayIteratorI32 : IIteratorI32WithIndex {
+    fn next(self: *Self) !void {
+        if self.current >= self.len {
+            return error.IterEnd;
+        }
+        self.current = self.current + 1;
+    }
+    
+    fn value(self: *Self) !i32 {
+        const idx: i32 = self.current - 1;
+        // 编译期证明：由于 next() 成功返回，idx 在有效范围内
+        if idx < 0 || idx >= self.len {
+            return error.InvalidIteratorState;  // 根据设计，这种情况不应该发生
+        }
+        return (*self.arr)[idx];
+    }
+    
+    fn index(self: *Self) i32 {
+        return self.current - 1;
+    }
+}
+
+fn main() i32 {
+    const arr: [i32; 5] = [10, 20, 30, 40, 50];
+    
+    // 示例1：基本迭代（只获取元素值，只读）
+    printf("Basic iteration:\n");
+    for arr |item| {
+        printf("  value: %d\n", item);
+    }
+    
+    // 示例2：可修改迭代
+    var arr2: [i32; 5] = [10, 20, 30, 40, 50];
+    printf("\nMutable iteration:\n");
+    for arr2 |&item| {
+        *item = *item * 2;  // 修改每个元素，乘以2
+        printf("  value: %d\n", *item);
+    }
+    
+    // 示例3：整数范围迭代
+    printf("\nInteger range iteration:\n");
+    for 0..10 |i| {
+        printf("  i: %d\n", i);  // 输出 0 到 9
+    }
+    
+    // 示例4：计算数组元素之和
+    var sum: i32 = 0;
+    for arr |item| {
+        sum = sum + item;
+    }
+    printf("\nSum of array elements: %d\n", sum);
+    
+    // 示例5：丢弃元素，只循环次数
+    printf("\nLoop count only:\n");
+    var count: i32 = 0;
+    for arr {
+        count = count + 1;
+    }
+    printf("Array length: %d\n", count);
+    
+    // 示例6：整数范围，丢弃元素
+    printf("\nInteger range, discard element:\n");
+    var loop_count: i32 = 0;
+    for 0..10 {
+        loop_count = loop_count + 1;
+    }
+    printf("Loop count: %d\n", loop_count);
+    
+    return 0;
+}
+

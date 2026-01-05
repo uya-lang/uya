@@ -1,0 +1,17 @@
+fn example() void {
+    struct Container {
+        file: File
+    }
+    
+    const container: Container = Container{ file: File{ fd: 1 } };
+    
+    // 访问字段不会创建指针，所以可以移动
+    const fd: i32 = container.file.fd;  // 访问字段（值访问，不是指针）
+    const file2: File = container.file;  // ✅ 可以移动（字段访问不是指针）
+    
+    // 但如果通过指针访问：
+    const ptr: *Container = &container;
+    const fd2: i32 = ptr.file.fd;  // 通过指针访问
+    // ❌ 如果 container 被移动，ptr 会变成悬垂指针
+    // const container2: Container = container;  // 错误：存在指向 container 的指针
+}

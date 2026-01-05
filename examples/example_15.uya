@@ -1,0 +1,10 @@
+fn example() void {
+    const file: File = File{ fd: 1 };
+    
+    var i: i32 = 0;
+    while i < 10 {
+        // ❌ 编译错误：file 在循环中不能移动（可能执行多次，导致多次移动）
+        // const file2: File = file;  // 错误：循环中的移动可能导致多次移动
+        i = i + 1;
+    }
+}

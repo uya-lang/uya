@@ -1,0 +1,7 @@
+fn add(a: i32, b: i32) i32 {
+  return a + b;
+}
+
+fn print_hello() void {
+  // void 函数可省略 return
+}

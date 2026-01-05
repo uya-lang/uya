@@ -1,0 +1,5 @@
+     use std.mem.{sizeof, alignof};
+
+     const N: i32 = sizeof(struct Vec3{});      // 12
+     const A: i32 = alignof(struct Vec3{});     // 4
+     

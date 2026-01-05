@@ -1,0 +1,2 @@
+extern printf(fmt: *byte, ...) i32;   // 变参
+extern sin(x: f64) f64;

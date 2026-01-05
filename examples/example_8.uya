@@ -1,0 +1,12 @@
+fn example() void {
+    defer {
+        printf("Cleanup 1\n");
+    }
+    defer {
+        printf("Cleanup 2\n");
+    }
+    // 使用资源...
+    // 退出时执行顺序：
+    // printf("Cleanup 2\n");  // 后声明的先执行
+    // printf("Cleanup 1\n");
+}

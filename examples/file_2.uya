@@ -1,0 +1,60 @@
+// 示例 1：文件句柄自动关闭
+extern open(path: *byte, flags: i32) i32;
+extern close(fd: i32) i32;
+
+struct File {
+    fd: i32
+}
+
+fn drop(self: File) void {
+    if self.fd >= 0 {
+        close(self.fd);
+    }
+}
+
+fn example1() void {
+    const f: File = File{ fd: open("file.txt", 0) };
+    // 使用文件...
+    // 离开作用域时自动调用 drop，自动关闭文件
+}
+
+// 示例 2：堆内存自动释放
+extern malloc(size: i32) *void;
+extern free(ptr: *void) void;
+
+struct HeapBuffer {
+    data: *byte,
+    size: i32
+}
+
+fn drop(self: HeapBuffer) void {
+    if self.data != null {
+        free(self.data);
+    }
+}
+
+fn example2() void {
+    const buf: HeapBuffer = HeapBuffer{
+        data: malloc(100),
+        size: 100
+    };
+    // 使用缓冲区...
+    // 离开作用域时自动释放内存
+}
+
+// 示例 3：嵌套结构体的 drop
+struct FileReader {
+    file: File,           // File 有自定义 drop
+    buffer: [byte; 1024]  // 数组本身的 drop 是空函数，但会调用元素的 drop（byte 的 drop 是空函数）
+}
+
+fn example3() void {
+    const reader: FileReader = FileReader{
+        file: File{ fd: open("file.txt", 0) },
+        buffer: [0; 1024]
+    };
+    // 离开作用域时：
+    // 1. drop(reader.buffer) - 先 drop 数组元素（byte 的 drop 是空函数），再 drop 数组本身（空函数）
+    // 2. drop(reader.file) - 调用 File 的 drop，关闭文件
+    // 3. drop(reader) - 空函数（如果 FileReader 没有自定义 drop）
+}

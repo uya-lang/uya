@@ -1,0 +1,18 @@
+// Uya：开发者编写显式检查，编译器验证，通过路径零运行时开销
+fn safe_access(arr: [i32; 10], i: i32) !i32 {
+    if i < 0 || i >= 10 {
+        return error.OutOfBounds;  // 显式错误处理
+    }
+    // 编译器证明：当执行到这里时，i >= 0 && i < 10 必然成立
+    return arr[i];  // 直接访问，无运行时边界检查
+}
+// 生成的代码：
+//   cmp   rdi, 0                 // 运行时错误检查
+//   jl    .error_out_of_bounds
+//   cmp   rdi, 10                // 运行时错误检查
+//   jge   .error_out_of_bounds
+//   mov   eax, [rsi + rdi*4]     // 直接访问，无额外运行时检查
+//   ret
+// .error_out_of_bounds:
+//   mov   rax, error.OutOfBounds
+//   ret

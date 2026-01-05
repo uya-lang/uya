@@ -1,0 +1,75 @@
+// 声明外部 C 结构体（与 C 代码 100% 兼容）
+extern struct File {
+    fd: i32
+    
+    // ✅ 可以有方法
+    fn read(self: *Self, buf: *byte, len: i32) !i32 {
+        extern read(fd: i32, buf: *void, count: i32) i32;
+        const result: i32 = read(self.fd, buf, len);
+        if result < 0 {
+            return error.ReadFailed;
+        }
+        return result;
+    }
+    
+    fn write(self: *Self, buf: *byte, len: i32) !i32 {
+        extern write(fd: i32, buf: *void, count: i32) i32;
+        const result: i32 = write(self.fd, buf, len);
+        if result < 0 {
+            return error.WriteFailed;
+        }
+        return result;
+    }
+    
+    // ✅ 可以有 drop（RAII 自动资源管理）
+    fn drop(self: *Self) void {
+        extern close(fd: i32) i32;
+        close(self.fd);
+    }
+}
+
+// ✅ 可以实现接口
+interface IReadable {
+    fn read(self: *Self, buf: *byte, len: i32) !i32;
+}
+
+interface IWritable {
+    fn write(self: *Self, buf: *byte, len: i32) !i32;
+}
+
+impl File : IReadable {
+    fn read(self: *Self, buf: *byte, len: i32) !i32 {
+        return self.read(buf, len);
+    }
+}
+
+impl File : IWritable {
+    fn write(self: *Self, buf: *byte, len: i32) !i32 {
+        return self.write(buf, len);
+    }
+}
+
+// 使用示例
+fn example() !void {
+    extern open(path: *byte, flags: i32) i32;
+    const O_RDWR: i32 = 2;
+    
+    // 创建 File 对象（C 兼容布局）
+    const fd: i32 = open("test.txt", O_RDWR);
+    if fd < 0 {
+        return error.OpenFailed;
+    }
+    
+    var file: File = File{ fd: fd };
+    
+    // ✅ 使用 Uya 方法（零运行时开销，编译期展开）
+    var buffer: [byte; 1024] = [];
+    const bytes_read: i32 = try file.read(&buffer[0], 1024);
+    
+    // ✅ 使用接口（动态派发）
+    const readable: IReadable = file;
+    const bytes_read2: i32 = try readable.read(&buffer[0], 1024);
+    
+    // ✅ drop 自动调用（RAII）
+    // file 离开作用域时，drop 自动调用，关闭文件描述符
+}

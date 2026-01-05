@@ -1,0 +1,15 @@
+fn example() !void {
+    const file: File = try open_file("test.txt");
+    
+    defer {
+        // ✅ defer 中可以访问 file，因为 defer 先于 drop 执行
+        printf("File fd: %d\n", file.fd);
+        // file 在这里仍然有效，还没有 drop
+    }
+    
+    // 使用 file...
+    
+    // 退出时执行顺序：
+    // 1. defer { printf(...) }  // file 仍有效
+    // 2. drop(file)              // file 在这里才 drop
+}

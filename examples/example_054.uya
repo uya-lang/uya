@@ -1,0 +1,8 @@
+       match result {
+           error.FileNotFound => expr1,      // 预定义错误
+           error.PermissionDenied => expr2,  // 预定义错误
+           error.OutOfMemory => expr3,      // 运行时错误，无需预定义
+           value => expr4,  // 成功值绑定
+           else => expr5,
+       }
+       

@@ -1,0 +1,10 @@
+   // ✅ 编译通过：参数传递，生命周期由调用者保证
+   fn use_writer(w: IWriter) void {
+       // 使用 w...
+   }
+   
+   fn example() void {
+       const s: Console = Console{ fd: 1 };
+       use_writer(s);  // 编译通过：参数传递
+   }
+   

@@ -1,0 +1,18 @@
+fn process_file(path: *byte) !i32 {
+    const file: File = try open_file(path);
+    
+    defer {
+        printf("File processing finished\n");  // 总是记录完成
+    }
+    errdefer {
+        printf("Error during file processing\n");  // 错误时记录错误
+        rollback_transaction();  // 错误时回滚事务
+    }
+    
+    // 处理文件...
+    const result: i32 = try process(file);
+    
+    // 正常返回：defer -> drop
+    // 错误返回：errdefer -> defer -> drop
+    return result;
+}

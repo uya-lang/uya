@@ -1,0 +1,11 @@
+fn example() void {
+    const file: File = File{ fd: 1 };
+    const ptr: *File = &file;  // 指针在外层作用域
+    
+    {
+        // ❌ 编译错误：变量 'file' 存在活跃指针（ptr），不能移动
+        // const file2: File = file;  // 错误：即使移动在内层作用域，ptr 在外层仍活跃
+    }
+    
+    // 编译器检查所有作用域层级，只要存在指向变量的指针，就不能移动
+}

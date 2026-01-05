@@ -1,0 +1,40 @@
+    // 方式1：结构体内部定义方法
+    struct Point {
+        x: f32,
+        y: f32,
+        
+        // 方法定义在结构体内部（推荐使用指针和 Self）
+        fn distance(self: *Self) f32 {
+            extern sqrt(x: f64) f64;
+            const x: f64 = self.x as f64;
+            const y: f64 = self.y as f64;
+            return sqrt(x * x + y * y) as f32;
+        }
+    }
+    
+    // 方式2：结构体外部定义方法（推荐使用 Self）
+    Point {
+        fn scale(self: *Self, factor: f32) void {
+            self.x = self.x * factor;
+            self.y = self.y * factor;
+        }
+        
+        fn normalize(self: *Self) void {
+            const d: f32 = self.distance();
+            if d != 0.0 {
+                self.scale(1.0 / d);
+            }
+        }
+    }
+    
+    fn example() void {
+        const p: Point = Point{ x: 3.0, y: 4.0 };
+        const d: f32 = p.distance();  // 语法糖，展开为 Point_distance(&p)（传递指针，不移动）
+        // ✅ p 仍然可以使用，因为方法调用不触发移动
+        
+        var p2: Point = Point{ x: 1.0, y: 2.0 };
+        p2.scale(2.0);  // 语法糖，展开为 Point_scale(&p2, 2.0)（指针传递，不移动）
+        p2.normalize();  // 语法糖，展开为 Point_normalize(&p2)（指针传递，不移动）
+        // ✅ p2 仍然可以使用
+    }
+    

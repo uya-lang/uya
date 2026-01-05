@@ -1,0 +1,39 @@
+    interface IReader {
+        fn read(self: *Self, buf: *byte, len: i32) i32;
+    }
+    
+    interface IWriter {
+        fn write(self: *Self, buf: *byte, len: i32) i32;
+    }
+    
+    // 接口组合：IReadWrite 包含 IReader 和 IWriter 的所有方法
+    interface IReadWrite {
+        IReader
+        IWriter
+    }
+    
+    struct File {
+        fd: i32
+    }
+    
+    // 实现组合接口：需要实现所有被组合接口的方法
+    impl File : IReadWrite {
+        fn read(self: *Self, buf: *byte, len: i32) i32 {
+            // 实现 IReader 的方法
+            extern read(fd: i32, buf: *byte, len: i32) i32;
+            return read(self.fd, buf, len);
+        }
+        
+        fn write(self: *Self, buf: *byte, len: i32) i32 {
+            // 实现 IWriter 的方法
+            extern write(fd: i32, buf: *byte, len: i32) i32;
+            return write(self.fd, buf, len);
+        }
+    }
+    
+    fn example(rw: IReadWrite) void {
+        const msg: [byte; 6] = "hello";
+        rw.write(&msg[0], 5);  // 可以调用 IWriter 的方法
+        rw.read(&msg[0], 5);   // 可以调用 IReader 的方法
+    }
+    

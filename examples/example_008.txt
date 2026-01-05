@@ -1,0 +1,10 @@
+  project/                 (项目根目录，包含 main 函数)
+    main.uya               (main 模块，包含 fn main() i32)
+    helper.uya             (main 模块)
+    std/
+      io/
+        file.uya           (std.io 模块)
+    math/
+      utils/
+        calc.uya           (math.utils 模块)
+  

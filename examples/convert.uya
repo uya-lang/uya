@@ -1,0 +1,18 @@
+// 源代码
+fn convert(x: f64) !f32 {
+    return x as! f32;
+}
+
+// x86-64 生成的代码（伪代码）
+//   movsd  xmm0, [x]                ; 加载 f64
+//   cvtsd2ss xmm1, xmm0             ; 转换为 f32
+//   cvtss2sd xmm1, xmm1             ; 转换回 f64 进行检查
+//   ucomisd xmm0, xmm1              ; 比较原始值和转换后的值
+//   jne    .error_precision_loss    ; 如果不相等，跳转到错误处理
+//   movss  xmm0, xmm1               ; 转换成功，设置返回值
+//   mov    rax, 0                   ; 错误标记：无错误
+//   ret
+// .error_precision_loss:
+//   mov    rax, error.PrecisionLoss  ; 设置错误代码
+//   ret
+// 包含运行时精度检查，确保转换安全性

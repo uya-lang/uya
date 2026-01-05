@@ -1,0 +1,39 @@
+    struct Point {
+        x: f32,
+        y: f32
+    }
+    
+    // 结构体方法（静态方法，语法糖）- 无 impl 关键字（推荐使用 Self）
+    Point {
+        fn distance(self: *Self) f32 {
+            extern sqrt(x: f64) f64;
+            const x: f64 = self.x as f64;
+            const y: f64 = self.y as f64;
+            return sqrt(x * x + y * y) as f32;
+        }
+    }
+    
+    // 接口定义
+    interface IDrawable {
+        fn draw(self: *Self) void;
+    }
+    
+    // 接口实现（动态派发，vtable）- 有 impl 关键字和接口名
+    impl Point : IDrawable {
+        fn draw(self: *Self) void {
+            extern printf(fmt: *byte, ...) i32;
+            printf("Point at (%f, %f)\n", self.x, self.y);
+        }
+    }
+    
+    fn example() void {
+        const p: Point = Point{ x: 3.0, y: 4.0 };
+        
+        // 调用静态方法（语法糖，零运行时开销）
+        const d: f32 = p.distance();  // 展开为 Point_distance(&p)（传递指针，不移动）
+        
+        // 调用接口方法（动态派发，通过 vtable）
+        const drawable: IDrawable = p;  // 装箱为接口值
+        drawable.draw();  // 通过 vtable 动态派发
+    }
+    

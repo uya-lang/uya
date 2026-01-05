@@ -1,0 +1,6 @@
+    match status {
+        0 => printf("OK\n"),
+        1 => printf("Error\n"),
+        else => printf("Unknown\n"),
+    }
+    

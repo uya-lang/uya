@@ -1,0 +1,8 @@
+      use main;                    // 导入整个 main 模块
+      use main.helper_func;       // 同时导入特定函数（可以直接使用）
+      
+      fn example() void {
+          helper_func();           // 直接使用（来自特定导入）
+          main.other_func();       // 使用模块前缀（来自整体导入）
+      }
+      

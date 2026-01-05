@@ -1,0 +1,11 @@
+     // 使用 max/min 关键字访问极值（类型推断）
+     const a: i32 = ...;
+     const b: i32 = ...;
+     if a > 0 && b > 0 && a > max - b {  // 从 a 和 b 的类型 i32 推断
+         return error.Overflow;
+     }
+     
+     // 也可以用于常量定义（类型推断）
+     const MAX_I32: i32 = max;  // 从类型注解 i32 推断出是 i32 的最大值
+     const MIN_I32: i32 = min;  // 从类型注解 i32 推断出是 i32 的最小值
+     

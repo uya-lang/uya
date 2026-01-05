@@ -1,0 +1,9 @@
+struct Counter {
+  value: atomic i32
+}
+
+fn increment(counter: *Counter) void {
+  counter.value += 1;  // 自动原子 fetch_add
+  const v: i32 = counter.value;  // 自动原子 load
+  counter.value = 10;  // 自动原子 store
+}

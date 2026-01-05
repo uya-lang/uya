@@ -1,0 +1,29 @@
+extern malloc(size: i32) *void;
+extern free(ptr: *void) void;
+
+struct HeapBuffer {
+    data: *byte,
+    size: i32
+}
+
+fn drop(self: HeapBuffer) void {
+    if self.data != null {
+        free(self.data);
+    }
+}
+
+fn example() void {
+    const buf1: HeapBuffer = HeapBuffer{
+        data: malloc(100),
+        size: 100
+    };
+    
+    const buf2: HeapBuffer = buf1;  // ✅ 移动：buf1 的所有权转移给 buf2
+    
+    // ❌ 编译错误：buf1 已被移动，不能再次使用
+    // const ptr: *byte = buf1.data;  // 错误：使用已移动的变量（注意：*byte 不能用于普通变量声明）
+    
+    // ✅ 编译通过：只有 buf2 拥有所有权
+    // buf2 离开作用域时自动调用 drop，释放内存
+    // buf1 不会调用 drop（已移动），避免 double free
+}

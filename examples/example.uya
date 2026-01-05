@@ -1,0 +1,8 @@
+      use main;
+      use std.io;
+      
+      fn example() void {
+          main.helper_func();      // 调用 main 模块的函数
+          const file: std.io.File = std.io.open_file("test.txt");  // 使用 std.io 模块的结构体
+      }
+      

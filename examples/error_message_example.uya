@@ -1,0 +1,14 @@
+// 源代码
+const x: f64 = 3.14;
+const y: f32 = x as f32;
+
+// 编译错误信息
+error: 类型转换可能有精度损失
+  --> example.uya:2:18
+   |
+ 2 | const y: f32 = x as f32;
+   |                ^^^^^^^^
+   |
+   = note: f64 -> f32 转换可能损失精度
+   = help: 如果确实需要此转换，请使用 'as!' 强转语法
+   = help: 例如: const y: f32 = x as! f32;

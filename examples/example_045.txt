@@ -1,0 +1,8 @@
+    for_stmt = 'for' expr '|' ID '|' block          // 有元素变量（只读）
+             | 'for' expr '|' '&' ID '|' block       // 有元素变量（可修改）
+             | 'for' range_expr '|' ID '|' block     // 整数范围，有元素变量
+             | 'for' expr block                      // 丢弃元素，只循环次数
+             | 'for' range_expr block                // 整数范围，丢弃元素
+    
+    range_expr = expr '..' [expr]                     // start..end 或 start..
+    

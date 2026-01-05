@@ -1,0 +1,67 @@
+// 预定义错误（可选）
+error FileError;
+error ParseError;
+
+extern open(path: *byte, flags: i32) i32;  // 简化示例，实际 C 函数需要 flags 参数
+extern close(fd: i32) i32;
+extern read(fd: i32, buf: *byte, size: i32) i32;
+extern printf(fmt: *byte, ...) i32;
+
+struct File {
+    fd: i32
+}
+
+fn open_file(path: *byte) !File {
+    const fd: i32 = open(path, 0);  // 0 是只读标志（简化示例）
+    if fd < 0 {
+        return error.FileError;  // 使用预定义错误
+    }
+    return File{ fd: fd };
+}
+
+fn read_file_runtime(path: *byte) !i32 {
+    const fd: i32 = open(path, 0);
+    if fd < 0 {
+        return error.FileNotFound;  // 运行时错误，无需预定义
+    }
+    return fd;
+}
+
+fn drop(self: File) void {
+    if self.fd >= 0 {
+        close(self.fd);
+    }
+}
+
+fn read_file(path: *byte) !i32 {
+    const file: File = try open_file(path);
+    defer {
+        printf("File operation completed\n");
+    }
+    errdefer {
+        printf("Error occurred, cleaning up\n");
+    }
+    
+    var buf: [byte; 1024] = [];
+    const n: i32 = read(file.fd, buf, 1024);
+    if n < 0 {
+        return error.FileError;
+    }
+    
+    return n;
+}
+
+fn main() i32 {
+    const result: i32 = read_file("test.txt") catch |err| {
+        // err 是 Error 类型，支持相等性比较
+        if err == error.FileError {
+            printf("File error occurred\n");
+        }
+        // 使用 return 提前返回函数（退出 main 函数）
+        return 1;
+    };
+    
+    printf("Read %d bytes\n", result);
+    return 0;
+}
+

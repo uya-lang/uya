@@ -1,0 +1,12 @@
+fn process_file(f: File) void {
+    // f 的所有权从调用者移动到函数参数
+    // 函数返回时，f 离开作用域，自动调用 drop
+}
+
+fn example() void {
+    const file: File = File{ fd: open("test.txt", 0) };
+    process_file(file);  // ✅ 移动：file 的所有权转移给函数参数
+    
+    // ❌ 编译错误：file 已被移动，不能再次使用
+    // const fd: i32 = file.fd;  // 错误：使用已移动的变量
+}

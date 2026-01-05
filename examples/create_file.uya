@@ -1,0 +1,9 @@
+fn create_file() File {
+    return File{ fd: open("test.txt", 0) };
+    // 返回值移动到调用者，不会在这里 drop
+}
+
+fn example() void {
+    const file: File = create_file();  // ✅ 移动：返回值所有权转移给 file
+    // file 离开作用域时自动调用 drop
+}

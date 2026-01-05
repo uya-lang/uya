@@ -1,0 +1,13 @@
+   // ✅ 合法：局部切片，生命周期匹配
+   fn example() void {
+       const arr: [i32; 10] = [0; 10];
+       const slice: &[i32] = &arr[2:5];  // 局部变量，生命周期匹配
+   }
+   
+   // ❌ 非法：切片可能逃逸
+   fn example() void {
+       const arr: [i32; 10] = [0; 10];
+       var external: &[i32] = null;
+       external = &arr[2:5];  // 如果external生命周期更长，编译错误
+   }
+   

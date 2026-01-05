@@ -1,0 +1,10 @@
+  const MAX: i32 = max;  // 2147483647（从类型注解 i32 推断）
+  const MIN: i32 = min;  // -2147483648（从类型注解 i32 推断）
+  
+  // 在溢出检查中使用（从变量类型推断）
+  const a: i32 = ...;
+  const b: i32 = ...;
+  if a > 0 && b > 0 && a > max - b {  // 从 a 和 b 的类型 i32 推断
+      return error.Overflow;
+  }
+  

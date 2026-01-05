@@ -1,0 +1,30 @@
+       // 溢出检查
+       fn add_safe(a: i32, b: i32) !i32 {
+           return try a + b;  // 自动检查溢出，溢出返回 error.Overflow
+       }
+
+      // 使用示例：处理溢出错误
+      const result: i32 = try x + y catch |err| {
+          if err == error.Overflow {
+              printf("Overflow occurred\n");
+              // 处理溢出情况，如返回默认值或报告错误
+          }
+          return 0;  // 提供默认值
+      };
+
+      // 使用示例：传播错误
+      fn calculate(a: i32, b: i32, c: i32) !i32 {
+          const sum: i32 = try a + b;  // 溢出时向上传播 error.Overflow
+          return try sum + c;  // 继续检查，可能抛出 error.Overflow
+      }
+      
+      // 使用示例：减法溢出检查
+      fn sub_safe(a: i32, b: i32) !i32 {
+          return try a - b;  // 自动检查减法溢出，可能抛出 error.Overflow
+      }
+      
+      // 使用示例：乘法溢出检查
+      fn mul_safe(a: i32, b: i32) !i32 {
+          return try a * b;  // 自动检查乘法溢出，可能抛出 error.Overflow
+      }
+       

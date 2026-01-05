@@ -1,0 +1,5 @@
+lea     rax, [vtable.Console.IWriter]
+lea     rdx, [cons]
+mov     qword [w], rax
+mov     qword [w+8], rdx
+call    [rax]           ; ← 单条 call 指令

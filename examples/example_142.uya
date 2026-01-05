@@ -1,0 +1,12 @@
+    const arr: [i32; 10] = [0; 10];
+    const ptr: *i32 = &arr[0];
+    
+    // 使用语法糖
+    const val1: i32 = ptr[0];  // 展开为 *(ptr + 0)
+    const val2: i32 = ptr[5];  // 展开为 *(ptr + 5)
+    
+    // 循环访问
+    for 0..10 |i| {
+        const value: i32 = ptr[i];  // 展开为 *(ptr + i)
+    }
+    
