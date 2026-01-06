@@ -1554,10 +1554,70 @@ int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output
     // Collect and generate error union type definitions for all functions with !T return types
     fprintf(codegen->output_file, "// Error union type definitions\n");
     if (ir && ir->instructions) {
-        // Use a simple approach: generate error union types for common base types
-        // TODO: In the future, we should collect only the types actually used
-        codegen_write_error_union_type_def(codegen, IR_TYPE_I32);
-        codegen_write_error_union_type_def(codegen, IR_TYPE_VOID);
+        // Collect all error union types actually used in the program
+        // Use a simple array to track unique base types (excluding struct types for now)
+        IRType *used_types = NULL;
+        int type_count = 0;
+        int type_capacity = 0;
+        
+        // First pass: collect all error union return types
+        for (int i = 0; i < ir->inst_count; i++) {
+            if (ir->instructions[i] && ir->instructions[i]->type == IR_FUNC_DEF) {
+                IRInst *func = ir->instructions[i];
+                if (func->data.func.return_type_is_error_union) {
+                    IRType base_type = func->data.func.return_type;
+                    
+                    // Skip struct types for now (need struct name which is not stored in IRType)
+                    // TODO: Improve IR to store struct name in return type information
+                    if (base_type == IR_TYPE_STRUCT) {
+                        continue;
+                    }
+                    
+                    // Check if this type is already collected
+                    int found = 0;
+                    for (int j = 0; j < type_count; j++) {
+                        if (used_types[j] == base_type) {
+                            found = 1;
+                            break;
+                        }
+                    }
+                    
+                    if (!found) {
+                        // Expand array if needed
+                        if (type_count >= type_capacity) {
+                            int new_capacity = type_capacity == 0 ? 8 : type_capacity * 2;
+                            IRType *new_types = realloc(used_types, new_capacity * sizeof(IRType));
+                            if (!new_types) {
+                                if (used_types) free(used_types);
+                                break;
+                            }
+                            used_types = new_types;
+                            type_capacity = new_capacity;
+                        }
+                        
+                        used_types[type_count++] = base_type;
+                    }
+                }
+            }
+        }
+        
+        // Generate error union type definitions for collected types
+        for (int i = 0; i < type_count; i++) {
+            codegen_write_error_union_type_def(codegen, used_types[i]);
+        }
+        
+        // Also generate common types that might be used (for backward compatibility)
+        // Check if i32 and void are already in the list
+        int has_i32 = 0, has_void = 0;
+        for (int i = 0; i < type_count; i++) {
+            if (used_types[i] == IR_TYPE_I32) has_i32 = 1;
+            if (used_types[i] == IR_TYPE_VOID) has_void = 1;
+        }
+        if (!has_i32) codegen_write_error_union_type_def(codegen, IR_TYPE_I32);
+        if (!has_void) codegen_write_error_union_type_def(codegen, IR_TYPE_VOID);
+        
+        // Cleanup
+        if (used_types) free(used_types);
     }
     fprintf(codegen->output_file, "\n");
     
