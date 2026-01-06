@@ -1,0 +1,277 @@
+// 双向链表实现
+// 使用 FFI 指针和堆内存管理
+
+extern malloc(size: i32) *void;
+extern free(ptr: *void) void;
+extern printf(fmt: *byte, ...) i32;
+
+// 链表节点结构体
+struct Node {
+    data: i32,
+    prev: *Node,  // 前驱节点指针（FFI 指针）
+    next: *Node   // 后继节点指针（FFI 指针）
+}
+
+// 双向链表结构体
+struct DoublyLinkedList {
+    head: *Node,  // 头节点指针
+    tail: *Node,  // 尾节点指针
+    size: i32     // 链表大小
+}
+
+// 辅助函数：检查 *Node 指针是否为 null
+fn is_node_null(ptr: *Node) bool {
+    const void_ptr: *void = ptr as *void;
+    const byte_ptr: *byte = void_ptr as *byte;
+    return byte_ptr == null;
+}
+
+// DoublyLinkedList 的 drop 函数：释放整个链表
+fn drop(self: DoublyLinkedList) void {
+    // 遍历链表并释放所有节点
+    var current: *Node = self.head;
+    while !is_node_null(current) {
+        // 安全访问当前节点（单个节点，长度为1）
+        // 编译器需要证明 0 < 1（单个节点）
+        var next: *Node = current[0].next;  // 获取下一个节点
+        const void_ptr: *void = current as *void;
+        free(void_ptr);          // 释放当前节点
+        current = next;          // 修改 current 变量
+    }
+}
+
+// 辅助函数：检查 *void 指针是否为 null
+fn is_void_null(ptr: *void) bool {
+    const byte_ptr: *byte = ptr as *byte;
+    return byte_ptr == null;
+}
+
+// 创建新节点
+fn create_node(data: i32) *Node {
+    const node_ptr: *void = malloc(24);  // Node 大小：i32(4) + *Node(8) + *Node(8) + 对齐(4) = 24 bytes
+    if is_void_null(node_ptr) {
+        return null as *Node;
+    }
+    
+    // 初始化节点（通过指针访问）
+    // 注意：使用下标访问 ptr[0] 来访问单个节点
+    // 对于单个节点，长度为1，可以安全访问 node[0]
+    const node: *Node = node_ptr as *Node;
+    // 编译器需要证明 0 < 1（单个节点），malloc 返回的指针指向至少1个元素的空间
+    node[0].data = data;
+    node[0].prev = null as *Node;
+    node[0].next = null as *Node;
+    
+    return node;
+}
+
+// 创建空链表
+fn create_list() DoublyLinkedList {
+    return DoublyLinkedList{
+        head: null as *Node,
+        tail: null as *Node,
+        size: 0
+    };
+}
+
+// 在链表头部插入节点
+fn push_front(self: *DoublyLinkedList, data: i32) !void {
+    const new_node: *Node = create_node(data);
+    if is_node_null(new_node) {
+        return error.OutOfMemory;
+    }
+    
+    if is_node_null(self.head) {
+        // 空链表
+        self.head = new_node;
+        self.tail = new_node;
+    } else {
+        // 非空链表
+        // 安全访问：new_node 和 self.head 都是单个节点（长度为1）
+        new_node[0].next = self.head;
+        self.head[0].prev = new_node;
+        self.head = new_node;
+    }
+    
+    self.size = self.size + 1;
+}
+
+// 在链表尾部插入节点
+fn push_back(self: *DoublyLinkedList, data: i32) !void {
+    const new_node: *Node = create_node(data);
+    if is_node_null(new_node) {
+        return error.OutOfMemory;
+    }
+    
+    if is_node_null(self.tail) {
+        // 空链表
+        self.head = new_node;
+        self.tail = new_node;
+    } else {
+        // 非空链表
+        // 安全访问：new_node 和 self.tail 都是单个节点（长度为1）
+        new_node[0].prev = self.tail;
+        self.tail[0].next = new_node;
+        self.tail = new_node;
+    }
+    
+    self.size = self.size + 1;
+}
+
+// 删除头部节点
+fn pop_front(self: *DoublyLinkedList) !i32 {
+    if is_node_null(self.head) {
+        return error.EmptyList;
+    }
+    
+    // 安全访问：self.head 是单个节点（长度为1）
+    const data: i32 = self.head[0].data;
+    const old_head: *Node = self.head;
+    
+    if self.head == self.tail {
+        // 只有一个节点
+        self.head = null as *Node;
+        self.tail = null as *Node;
+    } else {
+        // 多个节点
+        // 安全访问：self.head 是单个节点（长度为1）
+        self.head = self.head[0].next;
+        if !is_node_null(self.head) {
+            // 安全访问：新的 self.head 也是单个节点（长度为1）
+            self.head[0].prev = null as *Node;
+        }
+    }
+    
+    const void_ptr1: *void = old_head as *void;
+    free(void_ptr1);
+    self.size = self.size - 1;
+    
+    return data;
+}
+
+// 删除尾部节点
+fn pop_back(self: *DoublyLinkedList) !i32 {
+    if is_node_null(self.tail) {
+        return error.EmptyList;
+    }
+    
+    // 安全访问：self.tail 是单个节点（长度为1）
+    const tail_data: i32 = self.tail[0].data;
+    const old_tail: *Node = self.tail;
+    
+    if self.head == self.tail {
+        // 只有一个节点
+        self.head = null as *Node;
+        self.tail = null as *Node;
+    } else {
+        // 多个节点
+        // 安全访问：self.tail 是单个节点（长度为1）
+        self.tail = self.tail[0].prev;
+        if !is_node_null(self.tail) {
+            // 安全访问：新的 self.tail 也是单个节点（长度为1）
+            self.tail[0].next = null as *Node;
+        }
+    }
+    
+    const void_ptr2: *void = old_tail as *void;
+    free(void_ptr2);
+    self.size = self.size - 1;
+    
+    return tail_data;
+}
+
+// 获取链表大小
+fn size(self: *DoublyLinkedList) i32 {
+    return self.size;
+}
+
+// 检查链表是否为空
+fn is_empty(self: *DoublyLinkedList) bool {
+    return is_node_null(self.head);
+}
+
+// 打印链表（从头到尾）
+fn print_forward(self: *DoublyLinkedList) void {
+    printf("Forward: ");
+    var current: *Node = self.head;
+    while !is_node_null(current) {
+        // 安全访问：current 是单个节点（长度为1）
+        const val: i32 = current[0].data;
+        printf("%d ", val);
+        current = current[0].next;  // 修改 current 变量
+    }
+    printf("\n");
+}
+
+// 打印链表（从尾到头）
+fn print_backward(self: *DoublyLinkedList) void {
+    printf("Backward: ");
+    var current: *Node = self.tail;
+    while !is_node_null(current) {
+        // 安全访问：current 是单个节点（长度为1）
+        const val: i32 = current[0].data;
+        printf("%d ", val);
+        current = current[0].prev;  // 修改 current 变量
+    }
+    printf("\n");
+}
+
+// 测试函数
+fn main() i32 {
+    var list: DoublyLinkedList = create_list();  // list 会被修改（通过函数调用）
+    
+    // 测试 push_back
+    push_back(&list, 1) catch |err| {
+        printf("Error: failed to push_back\n");
+        return 1;
+    };
+    push_back(&list, 2) catch |err| {
+        printf("Error: failed to push_back\n");
+        return 1;
+    };
+    push_back(&list, 3) catch |err| {
+        printf("Error: failed to push_back\n");
+        return 1;
+    };
+    
+    printf("After push_back 1, 2, 3:\n");
+    print_forward(&list);
+    print_backward(&list);
+    printf("Size: %d\n", size(&list));
+    
+    // 测试 push_front
+    push_front(&list, 0) catch |err| {
+        printf("Error: failed to push_front\n");
+        return 1;
+    };
+    
+    printf("\nAfter push_front 0:\n");
+    print_forward(&list);
+    print_backward(&list);
+    printf("Size: %d\n", size(&list));
+    
+    // 测试 pop_front
+    const front_value: i32 = pop_front(&list) catch |err| {
+        printf("Error: failed to pop_front\n");
+        return 1;
+    };
+    printf("\nAfter pop_front (removed %d):\n", front_value);
+    print_forward(&list);
+    print_backward(&list);
+    printf("Size: %d\n", size(&list));
+    
+    // 测试 pop_back
+    const back_value: i32 = pop_back(&list) catch |err| {
+        printf("Error: failed to pop_back\n");
+        return 1;
+    };
+    printf("\nAfter pop_back (removed %d):\n", back_value);
+    print_forward(&list);
+    print_backward(&list);
+    printf("Size: %d\n", size(&list));
+    
+    // list 离开作用域时自动调用 drop，释放所有节点
+    
+    return 0;
+}
+
