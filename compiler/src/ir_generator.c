@@ -923,6 +923,20 @@ static IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl) {
     // Check if return type is error union (!T)
     func->data.func.return_type_is_error_union = (fn_decl->data.fn_decl.return_type && 
                                                    fn_decl->data.fn_decl.return_type->type == AST_TYPE_ERROR_UNION) ? 1 : 0;
+    
+    // Extract return type name for struct types
+    func->data.func.return_type_original_name = NULL;
+    if (fn_decl->data.fn_decl.return_type && 
+        fn_decl->data.fn_decl.return_type->type == AST_TYPE_NAMED &&
+        func->data.func.return_type == IR_TYPE_STRUCT) {
+        const char *type_name = fn_decl->data.fn_decl.return_type->data.type_named.name;
+        if (type_name) {
+            func->data.func.return_type_original_name = malloc(strlen(type_name) + 1);
+            if (func->data.func.return_type_original_name) {
+                strcpy(func->data.func.return_type_original_name, type_name);
+            }
+        }
+    }
 
     // Handle parameters
     func->data.func.param_count = fn_decl->data.fn_decl.param_count;

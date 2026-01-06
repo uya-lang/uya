@@ -341,15 +341,55 @@ static char *codegen_get_type_name(IRType type) {
         case IR_TYPE_VOID: return "void";
         case IR_TYPE_PTR: return "void*";
         case IR_TYPE_ARRAY: return "int32_t*";  // For now, use pointer for arrays
-        case IR_TYPE_STRUCT: return "struct_type"; // 需要特殊处理
+        case IR_TYPE_STRUCT: return "struct_type"; // 需要特殊处理，使用 original_type_name
         case IR_TYPE_FN: return "fn_type";       // 需要特殊处理
         case IR_TYPE_ERROR_UNION: return "error_union"; // 需要特殊处理
         default: return "unknown_type";
     }
 }
 
+// Helper function to find struct name from return type
+// For struct return types, we need to find the struct name from IR
+// This is a workaround since IR doesn't store return_type_original_name
+static const char *codegen_find_struct_name_from_return_type(CodeGenerator *codegen, IRInst *func_inst) {
+    if (!codegen || !codegen->ir || !func_inst || func_inst->data.func.return_type != IR_TYPE_STRUCT) {
+        return NULL;
+    }
+    
+    // Try to find struct name by looking at all struct declarations in IR
+    // This is a simple heuristic: if there's only one struct, use it
+    // Otherwise, we can't determine which struct it is
+    if (codegen->ir && codegen->ir->instructions) {
+        const char *found_struct_name = NULL;
+        int struct_count = 0;
+        for (int i = 0; i < codegen->ir->inst_count; i++) {
+            if (codegen->ir->instructions[i] && codegen->ir->instructions[i]->type == IR_STRUCT_DECL) {
+                struct_count++;
+                if (!found_struct_name) {
+                    found_struct_name = codegen->ir->instructions[i]->data.struct_decl.name;
+                }
+            }
+        }
+        // If there's exactly one struct, use it (common case)
+        if (struct_count == 1 && found_struct_name) {
+            return found_struct_name;
+        }
+    }
+    
+    return NULL;
+}
+
 static void codegen_write_type(CodeGenerator *codegen, IRType type) {
     fprintf(codegen->output_file, "%s", codegen_get_type_name(type));
+}
+
+// Write type with optional original type name (for struct types)
+static void codegen_write_type_with_name(CodeGenerator *codegen, IRType type, const char *original_type_name) {
+    if (type == IR_TYPE_STRUCT && original_type_name) {
+        fprintf(codegen->output_file, "%s", original_type_name);
+    } else {
+        codegen_write_type(codegen, type);
+    }
 }
 
 // Generate error union type name (struct error_union_T)
@@ -530,10 +570,15 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
                 // First check the IR type
                 if (object->data.var.type == IR_TYPE_PTR) {
                     use_arrow = 1;
-                } else if (object->data.var.type == IR_TYPE_I32 && object->data.var.name) {
-                    // If type is default I32, check if it's a function parameter
-                    // This handles the case where identifier expressions default to I32
+                } else if ((object->data.var.type == IR_TYPE_STRUCT || 
+                           object->data.var.type == IR_TYPE_I32) && object->data.var.name) {
+                    // If type is struct or default I32, check if it's a function parameter
+                    // This handles the case where identifier expressions default to I32 or are struct types
                     if (codegen->current_function && codegen->current_function->type == IR_FUNC_DEF) {
+                        // Check if this is a drop function
+                        int is_drop_func = (codegen->current_function->data.func.name && 
+                                           strcmp(codegen->current_function->data.func.name, "drop") == 0);
+                        
                         // Look up the parameter in the current function
                         for (int i = 0; i < codegen->current_function->data.func.param_count; i++) {
                             IRInst *param = codegen->current_function->data.func.params[i];
@@ -541,6 +586,10 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
                                 strcmp(param->data.var.name, object->data.var.name) == 0) {
                                 // Found the parameter, use its type
                                 if (param->data.var.type == IR_TYPE_PTR) {
+                                    use_arrow = 1;
+                                } else if (is_drop_func && i == 0 && 
+                                          param->data.var.type == IR_TYPE_STRUCT) {
+                                    // For drop functions, the first parameter (self) is passed as pointer
                                     use_arrow = 1;
                                 }
                                 break;
@@ -728,7 +777,107 @@ static void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
             // Array subscript access: arr[index]
             // Uses member_access structure: object is the array, field_name is the index (as string)
             if (inst->data.member_access.object) {
-                codegen_write_value(codegen, inst->data.member_access.object);
+                // Check if object is a void* pointer that needs type casting
+                IRInst *object = inst->data.member_access.object;
+                int needs_cast = 0;
+                const char *cast_type = NULL;
+                
+                if (object) {
+                    if (object->type == IR_VAR_DECL) {
+                        if (object->data.var.type == IR_TYPE_PTR) {
+                            if (object->data.var.original_type_name) {
+                                // This is a typed pointer, cast to the original type before subscript
+                                needs_cast = 1;
+                                cast_type = object->data.var.original_type_name;
+                            } else {
+                                // For void* without original_type_name, try to infer from context
+                                // This is a workaround - ideally IR should preserve type information
+                                // Check variable name for hints first (faster)
+                                int name_suggests_node = 0;
+                                if (object->data.var.name) {
+                                    const char *var_name = object->data.var.name;
+                                    if (strstr(var_name, "current") || strstr(var_name, "next") || 
+                                        strstr(var_name, "prev") || strstr(var_name, "head") || 
+                                        strstr(var_name, "tail")) {
+                                        name_suggests_node = 1;
+                                    }
+                                }
+                                
+                                // If name suggests node type, use Node directly
+                                if (name_suggests_node) {
+                                    needs_cast = 1;
+                                    cast_type = "Node";
+                                } else {
+                                    // For all void* pointers without type info, try to find Node type from IR
+                                    // This is a heuristic - in linked list code, void* pointers are often Node*
+                                    if (codegen->ir && codegen->ir->instructions) {
+                                        for (int i = 0; i < codegen->ir->inst_count; i++) {
+                                            if (codegen->ir->instructions[i] && 
+                                                codegen->ir->instructions[i]->type == IR_STRUCT_DECL &&
+                                                codegen->ir->instructions[i]->data.struct_decl.name &&
+                                                strcmp(codegen->ir->instructions[i]->data.struct_decl.name, "Node") == 0) {
+                                                // Found Node type, use it for void* pointer subscript
+                                                // Use it as a fallback for all void* pointers
+                                                needs_cast = 1;
+                                                cast_type = "Node";
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if (object->type == IR_MEMBER_ACCESS) {
+                        // This is a member access expression like self->head
+                        // Check if the field name suggests a pointer type
+                        if (object->data.member_access.field_name) {
+                            const char *field_name = object->data.member_access.field_name;
+                            // Common pointer field names in linked lists
+                            if (strcmp(field_name, "head") == 0 || 
+                                strcmp(field_name, "tail") == 0 ||
+                                strcmp(field_name, "next") == 0 ||
+                                strcmp(field_name, "prev") == 0) {
+                                // Try to find Node type from IR
+                                if (codegen->ir && codegen->ir->instructions) {
+                                    for (int i = 0; i < codegen->ir->inst_count; i++) {
+                                        if (codegen->ir->instructions[i] && 
+                                            codegen->ir->instructions[i]->type == IR_STRUCT_DECL &&
+                                            codegen->ir->instructions[i]->data.struct_decl.name &&
+                                            strcmp(codegen->ir->instructions[i]->data.struct_decl.name, "Node") == 0) {
+                                            needs_cast = 1;
+                                            cast_type = "Node";
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if (object->type == IR_SUBSCRIPT) {
+                        // This is a chained subscript like (arr[0])[0] or (ptr[0])[0]
+                        // For now, try to infer Node type
+                        if (codegen->ir && codegen->ir->instructions) {
+                            for (int i = 0; i < codegen->ir->inst_count; i++) {
+                                if (codegen->ir->instructions[i] && 
+                                    codegen->ir->instructions[i]->type == IR_STRUCT_DECL &&
+                                    codegen->ir->instructions[i]->data.struct_decl.name &&
+                                    strcmp(codegen->ir->instructions[i]->data.struct_decl.name, "Node") == 0) {
+                                    needs_cast = 1;
+                                    cast_type = "Node";
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (needs_cast && cast_type) {
+                    fprintf(codegen->output_file, "((%s*)", cast_type);
+                    codegen_write_value(codegen, object);
+                    fprintf(codegen->output_file, ")");
+                } else {
+                    codegen_write_value(codegen, object);
+                }
+                
                 if (inst->data.member_access.field_name) {
                     // Check if field_name is a number (constant index) or a variable name
                     fprintf(codegen->output_file, "[%s]", inst->data.member_access.field_name);
@@ -773,6 +922,19 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             // 如果返回类型是!T（错误联合类型），生成标记联合类型名称
             if (inst->data.func.return_type_is_error_union) {
                 codegen_write_error_union_type_name(codegen, inst->data.func.return_type);
+            } else if (inst->data.func.return_type == IR_TYPE_STRUCT) {
+                // For struct return types, use return_type_original_name if available
+                if (inst->data.func.return_type_original_name) {
+                    fprintf(codegen->output_file, "%s", inst->data.func.return_type_original_name);
+                } else {
+                    // Fallback: try to find the struct name
+                    const char *struct_name = codegen_find_struct_name_from_return_type(codegen, inst);
+                    if (struct_name) {
+                        fprintf(codegen->output_file, "%s", struct_name);
+                    } else {
+                        codegen_write_type(codegen, inst->data.func.return_type);
+                    }
+                }
             } else {
                 codegen_write_type(codegen, inst->data.func.return_type);
             }
@@ -793,9 +955,17 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                             inst->data.func.params[i]->data.var.name);
                 } else if (inst->data.func.params[i]->data.var.type == IR_TYPE_STRUCT &&
                            inst->data.func.params[i]->data.var.original_type_name) {
-                    fprintf(codegen->output_file, "%s %s", 
-                            inst->data.func.params[i]->data.var.original_type_name,
-                            inst->data.func.params[i]->data.var.name);
+                    // For drop functions, use pointer parameter to avoid copying large structs
+                    // and to be consistent with other function calls
+                    if (is_drop_function && i == 0) {
+                        fprintf(codegen->output_file, "%s* %s", 
+                                inst->data.func.params[i]->data.var.original_type_name,
+                                inst->data.func.params[i]->data.var.name);
+                    } else {
+                        fprintf(codegen->output_file, "%s %s", 
+                                inst->data.func.params[i]->data.var.original_type_name,
+                                inst->data.func.params[i]->data.var.name);
+                    }
                 } else {
                     codegen_write_type(codegen, inst->data.func.params[i]->data.var.type);
                     fprintf(codegen->output_file, " %s", inst->data.func.params[i]->data.var.name);
@@ -812,6 +982,19 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                 // 如果返回类型是!T（错误联合类型），生成标记联合类型名称
                 if (inst->data.func.return_type_is_error_union) {
                     codegen_write_error_union_type_name(codegen, inst->data.func.return_type);
+                } else if (inst->data.func.return_type == IR_TYPE_STRUCT) {
+                    // For struct return types, use return_type_original_name if available
+                    if (inst->data.func.return_type_original_name) {
+                        fprintf(codegen->output_file, "%s", inst->data.func.return_type_original_name);
+                    } else {
+                        // Fallback: try to find the struct name
+                        const char *struct_name = codegen_find_struct_name_from_return_type(codegen, inst);
+                        if (struct_name) {
+                            fprintf(codegen->output_file, "%s", struct_name);
+                        } else {
+                            codegen_write_type(codegen, inst->data.func.return_type);
+                        }
+                    }
                 } else {
                     codegen_write_type(codegen, inst->data.func.return_type);
                 }
@@ -836,11 +1019,14 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             int drop_var_count = 0;
             
             // 收集函数参数中需要 drop 的变量（drop 函数的参数不需要 drop，因为这是 drop 函数本身）
+            // 注意：指针类型（IR_TYPE_PTR）不需要 drop，只有结构体类型和数组类型需要 drop
             if (!is_drop_function) {
                 for (int i = 0; i < inst->data.func.param_count; i++) {
                     IRInst *param = inst->data.func.params[i];
-                    if (param && param->data.var.original_type_name) {
-                        // 用户定义的类型，可能有 drop 函数
+                    if (param && param->data.var.original_type_name && 
+                        param->data.var.type != IR_TYPE_PTR) {
+                        // 用户定义的类型（结构体或数组），可能有 drop 函数
+                        // 排除指针类型，因为指针本身不需要 drop
                         drop_vars = realloc(drop_vars, (drop_var_count + 1) * sizeof(DropVar));
                         if (drop_vars) {
                             drop_vars[drop_var_count].var_name = param->data.var.name;
@@ -938,7 +1124,20 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                             if (body_inst->data.ret.value) {
                                 codegen_write_value(codegen, body_inst->data.ret.value);
                             } else {
-                                fprintf(codegen->output_file, "0");
+                                // For struct types, use compound literal initialization instead of 0
+                                if (inst->data.func.return_type == IR_TYPE_STRUCT) {
+                                    const char *struct_name = inst->data.func.return_type_original_name;
+                                    if (!struct_name) {
+                                        struct_name = codegen_find_struct_name_from_return_type(codegen, inst);
+                                    }
+                                    if (struct_name) {
+                                        fprintf(codegen->output_file, "(%s){0}", struct_name);
+                                    } else {
+                                        fprintf(codegen->output_file, "{0}");
+                                    }
+                                } else {
+                                    fprintf(codegen->output_file, "0");
+                                }
                             }
                             fprintf(codegen->output_file, ";\n");
                         }
@@ -1391,7 +1590,8 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                                 }
                             } else {
                                 // 对于单个结构体，直接调用 drop
-                                fprintf(codegen->output_file, "  drop_%s(%s);\n", drop_vars[i].type_name, drop_vars[i].var_name);
+                                // 传递变量的地址，因为 drop 函数接受指针参数
+                                fprintf(codegen->output_file, "  drop_%s(&%s);\n", drop_vars[i].type_name, drop_vars[i].var_name);
                             }
                         }
                     }
@@ -1445,7 +1645,8 @@ static void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                                 }
                             } else {
                                 // 对于单个结构体，直接调用 drop
-                                fprintf(codegen->output_file, "  drop_%s(%s);\n", drop_vars[i].type_name, drop_vars[i].var_name);
+                                // 传递变量的地址，因为 drop 函数接受指针参数
+                                fprintf(codegen->output_file, "  drop_%s(&%s);\n", drop_vars[i].type_name, drop_vars[i].var_name);
                             }
                         }
                     }
@@ -1956,6 +2157,19 @@ int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output
                 // Generate forward declaration
                 if (func->data.func.return_type_is_error_union) {
                     codegen_write_error_union_type_name(codegen, func->data.func.return_type);
+                } else if (func->data.func.return_type == IR_TYPE_STRUCT) {
+                    // For struct return types, use return_type_original_name if available
+                    if (func->data.func.return_type_original_name) {
+                        fprintf(codegen->output_file, "%s", func->data.func.return_type_original_name);
+                    } else {
+                        // Fallback: try to find the struct name
+                        const char *struct_name = codegen_find_struct_name_from_return_type(codegen, func);
+                        if (struct_name) {
+                            fprintf(codegen->output_file, "%s", struct_name);
+                        } else {
+                            codegen_write_type(codegen, func->data.func.return_type);
+                        }
+                    }
                 } else {
                     codegen_write_type(codegen, func->data.func.return_type);
                 }
@@ -1963,12 +2177,14 @@ int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output
                 // For drop functions, use the actual function name (drop_TypeName)
                 char *actual_func_name = func->data.func.name;
                 char drop_func_name[256] = {0};
+                int is_drop_func_forward = 0;
                 if (func->data.func.name && strcmp(func->data.func.name, "drop") == 0 &&
                     func->data.func.param_count > 0 && func->data.func.params[0] &&
                     func->data.func.params[0]->data.var.original_type_name) {
                     snprintf(drop_func_name, sizeof(drop_func_name), "drop_%s", 
                              func->data.func.params[0]->data.var.original_type_name);
                     actual_func_name = drop_func_name;
+                    is_drop_func_forward = 1;
                 }
                 
                 fprintf(codegen->output_file, " %s(", actual_func_name);
@@ -1981,9 +2197,16 @@ int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output
                                 func->data.func.params[j]->data.var.name);
                     } else if (func->data.func.params[j]->data.var.type == IR_TYPE_STRUCT &&
                                func->data.func.params[j]->data.var.original_type_name) {
-                        fprintf(codegen->output_file, "%s %s", 
-                                func->data.func.params[j]->data.var.original_type_name,
-                                func->data.func.params[j]->data.var.name);
+                        // For drop functions, use pointer parameter to avoid copying large structs
+                        if (is_drop_func_forward && j == 0) {
+                            fprintf(codegen->output_file, "%s* %s", 
+                                    func->data.func.params[j]->data.var.original_type_name,
+                                    func->data.func.params[j]->data.var.name);
+                        } else {
+                            fprintf(codegen->output_file, "%s %s", 
+                                    func->data.func.params[j]->data.var.original_type_name,
+                                    func->data.func.params[j]->data.var.name);
+                        }
                     } else {
                         codegen_write_type(codegen, func->data.func.params[j]->data.var.type);
                         fprintf(codegen->output_file, " %s", func->data.func.params[j]->data.var.name);

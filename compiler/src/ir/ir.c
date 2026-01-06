@@ -60,6 +60,9 @@ void irinst_free(IRInst *inst) {
             if (inst->data.func.name) {
                 free(inst->data.func.name);
             }
+            if (inst->data.func.return_type_original_name) {
+                free(inst->data.func.return_type_original_name);
+            }
             if (inst->data.func.params) {
                 for (int i = 0; i < inst->data.func.param_count; i++) {
                     irinst_free(inst->data.func.params[i]);

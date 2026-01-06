@@ -105,6 +105,7 @@ typedef struct IRInst {
             struct IRInst **params;
             int param_count;
             IRType return_type;
+            char *return_type_original_name;  // For struct return types, store the original type name
             struct IRInst **body;
             int body_count;
             int is_extern;
