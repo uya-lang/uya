@@ -3,6 +3,13 @@
 
 #include "../ir/ir.h"
 #include <stdio.h>
+#include <stdint.h>
+
+// 错误名称映射表结构
+typedef struct ErrorNameMap {
+    char *error_name;
+    uint32_t error_code;
+} ErrorNameMap;
 
 // 代码生成器结构
 typedef struct CodeGenerator {
@@ -12,6 +19,9 @@ typedef struct CodeGenerator {
     int temp_counter;
     IRInst *current_function;  // Current function context for member access type checking
     IRGenerator *ir;  // IR generator for looking up function signatures
+    ErrorNameMap *error_map;  // 错误名称到错误码的映射表
+    int error_map_size;       // 映射表大小
+    int error_map_capacity;   // 映射表容量
 } CodeGenerator;
 
 // 代码生成器函数

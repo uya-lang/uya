@@ -704,9 +704,15 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
                 if (!error_val) return NULL;
 
                 // Store the error name
-                error_val->data.error_value.error_name = malloc(strlen(expr->data.member_access.field_name) + 1);
+                const char *field_name = expr->data.member_access.field_name;
+                if (!field_name) {
+                    irinst_free(error_val);
+                    return NULL;
+                }
+                
+                error_val->data.error_value.error_name = malloc(strlen(field_name) + 1);
                 if (error_val->data.error_value.error_name) {
-                    strcpy(error_val->data.error_value.error_name, expr->data.member_access.field_name);
+                    strcpy(error_val->data.error_value.error_name, field_name);
                 } else {
                     irinst_free(error_val);
                     return NULL;

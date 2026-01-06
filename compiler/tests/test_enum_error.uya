@@ -1,0 +1,11 @@
+fn test1() !i32 {
+    return error.DivisionByZero;
+}
+
+fn test2() !void {
+    return error.FileNotFound;
+}
+
+fn test3() !i32 {
+    return error.InvalidInput;
+}

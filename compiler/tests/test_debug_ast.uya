@@ -1,0 +1,4 @@
+fn test() !i32 {
+    const x = error.Test;
+    return x;
+}

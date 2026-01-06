@@ -1285,6 +1285,26 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
             checker->scopes->current_level = saved_test_scope;
             return 1;
             
+        case AST_MEMBER_ACCESS:
+            // Check member access expressions like error.ErrorName
+            // For error.ErrorName, this is a special case that represents an error value
+            if (node->data.member_access.object && node->data.member_access.object->type == AST_IDENTIFIER &&
+                node->data.member_access.object->data.identifier.name &&
+                strcmp(node->data.member_access.object->data.identifier.name, "error") == 0) {
+                // This is error.ErrorName - it's a valid error value expression
+                // Check the field name exists
+                if (!node->data.member_access.field_name) {
+                    typechecker_add_error(checker, "错误名称不能为空 (行 %d:%d)", node->line, node->column);
+                    return 0;
+                }
+                return 1;  // error.ErrorName is valid
+            }
+            // For regular member access, check the object
+            if (node->data.member_access.object) {
+                return typecheck_node(checker, node->data.member_access.object);
+            }
+            return 1;  // Allow member access for now
+            
         default:
             return 1;  // 其他节点类型暂时通过
     }

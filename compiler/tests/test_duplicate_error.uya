@@ -1,0 +1,7 @@
+fn test1() !i32 {
+    return error.TestError;
+}
+
+fn test2() !i32 {
+    return error.TestError;  // 重复使用同一个错误
+}

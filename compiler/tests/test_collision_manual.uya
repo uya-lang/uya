@@ -1,0 +1,20 @@
+// 手动构造的冲突测试用例
+// 注意：由于哈希函数的特性，实际冲突很难构造
+// 这个测试用例用于演示冲突检测机制
+// 如果实际编译时没有冲突，说明哈希函数工作良好
+
+fn test1() !i32 {
+    return error.TestError;
+}
+
+fn test2() !i32 {
+    return error.TestErr;  // 可能与 TestError 冲突（虽然概率很低）
+}
+
+fn test3() !i32 {
+    return error.Error1;
+}
+
+fn test4() !i32 {
+    return error.Error2;  // 可能与 Error1 冲突（虽然概率很低）
+}

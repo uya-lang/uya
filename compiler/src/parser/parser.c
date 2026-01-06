@@ -299,15 +299,18 @@ static ASTNode *parser_parse_expression(Parser *parser) {
     // 简单的表达式解析，处理标识符、函数调用、数字等
     ASTNode *left = NULL;
 
-    if (parser_match(parser, TOKEN_IDENTIFIER)) {
+    // Handle both TOKEN_IDENTIFIER and TOKEN_ERROR (error is a keyword but can be used as identifier in error.ErrorName)
+    if (parser_match(parser, TOKEN_IDENTIFIER) || parser_match(parser, TOKEN_ERROR)) {
         ASTNode *ident = ast_new_node(AST_IDENTIFIER,
                                       parser->current_token->line,
                                       parser->current_token->column,
                                       parser->current_token->filename);
         if (ident) {
-            ident->data.identifier.name = malloc(strlen(parser->current_token->value) + 1);
+            // For TOKEN_ERROR, use "error" as the name
+            const char *name = parser_match(parser, TOKEN_ERROR) ? "error" : parser->current_token->value;
+            ident->data.identifier.name = malloc(strlen(name) + 1);
             if (ident->data.identifier.name) {
-                strcpy(ident->data.identifier.name, parser->current_token->value);
+                strcpy(ident->data.identifier.name, name);
             }
         }
         parser_consume(parser);
