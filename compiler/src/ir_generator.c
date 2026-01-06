@@ -781,6 +781,74 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
             return struct_init;
         }
 
+        case AST_CATCH_EXPR: {
+            // Handle catch expression: expr catch |err| { ... } or expr catch { ... }
+            IRInst *try_catch_inst = irinst_new(IR_TRY_CATCH);
+            if (!try_catch_inst) return NULL;
+            
+            // Generate the try body (the expression that returns !T)
+            try_catch_inst->data.try_catch.try_body = generate_expr(ir_gen, expr->data.catch_expr.expr);
+            if (!try_catch_inst->data.try_catch.try_body) {
+                irinst_free(try_catch_inst);
+                return NULL;
+            }
+            
+            // Set error variable name (if provided)
+            if (expr->data.catch_expr.error_var) {
+                try_catch_inst->data.try_catch.error_var = malloc(strlen(expr->data.catch_expr.error_var) + 1);
+                if (try_catch_inst->data.try_catch.error_var) {
+                    strcpy(try_catch_inst->data.try_catch.error_var, expr->data.catch_expr.error_var);
+                }
+            } else {
+                try_catch_inst->data.try_catch.error_var = NULL;
+            }
+            
+            // Generate catch body
+            if (expr->data.catch_expr.catch_body) {
+                // Generate IR for catch body (it's a block)
+                IRInst *catch_block = irinst_new(IR_BLOCK);
+                if (!catch_block) {
+                    irinst_free(try_catch_inst);
+                    return NULL;
+                }
+                
+                // Convert block statements to IR
+                if (expr->data.catch_expr.catch_body->type == AST_BLOCK) {
+                    ASTNode *block = expr->data.catch_expr.catch_body;
+                    catch_block->data.block.inst_count = block->data.block.stmt_count;
+                    if (block->data.block.stmt_count > 0) {
+                        catch_block->data.block.insts = malloc(block->data.block.stmt_count * sizeof(IRInst*));
+                        if (!catch_block->data.block.insts) {
+                            irinst_free(catch_block);
+                            irinst_free(try_catch_inst);
+                            return NULL;
+                        }
+                        for (int i = 0; i < block->data.block.stmt_count; i++) {
+                            catch_block->data.block.insts[i] = generate_stmt(ir_gen, block->data.block.stmts[i]);
+                        }
+                    } else {
+                        catch_block->data.block.insts = NULL;
+                    }
+                } else {
+                    // Single statement
+                    catch_block->data.block.inst_count = 1;
+                    catch_block->data.block.insts = malloc(sizeof(IRInst*));
+                    if (!catch_block->data.block.insts) {
+                        irinst_free(catch_block);
+                        irinst_free(try_catch_inst);
+                        return NULL;
+                    }
+                    catch_block->data.block.insts[0] = generate_stmt(ir_gen, expr->data.catch_expr.catch_body);
+                }
+                
+                try_catch_inst->data.try_catch.catch_body = catch_block;
+            } else {
+                try_catch_inst->data.try_catch.catch_body = NULL;
+            }
+            
+            return try_catch_inst;
+        }
+
         case AST_SUBSCRIPT_EXPR: {
             // Handle array subscript access: arr[index]
             IRInst *subscript = irinst_new(IR_SUBSCRIPT);

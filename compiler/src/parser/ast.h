@@ -46,6 +46,7 @@ typedef enum {
     AST_BOOL,
     AST_NULL,
     AST_ERROR_EXPR,
+    AST_CATCH_EXPR,  // catch expression: expr catch |err| { ... } or expr catch { ... }
 
     // 类型相关
     AST_TYPE_NAMED,
@@ -126,6 +127,13 @@ typedef struct ASTNode {
             struct ASTNode **args;
             int arg_count;
         } call_expr;
+
+        // catch 表达式 (expr catch |err| { ... } or expr catch { ... })
+        struct {
+            struct ASTNode *expr;      // 被 catch 的表达式（返回 !T 类型）
+            char *error_var;           // 错误变量名（可为 NULL，如果没有 |err|）
+            struct ASTNode *catch_body; // catch 块
+        } catch_expr;
 
         // 标识符
         struct {

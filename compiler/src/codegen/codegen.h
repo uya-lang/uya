@@ -11,6 +11,7 @@ typedef struct CodeGenerator {
     int label_counter;
     int temp_counter;
     IRInst *current_function;  // Current function context for member access type checking
+    IRGenerator *ir;  // IR generator for looking up function signatures
 } CodeGenerator;
 
 // 代码生成器函数

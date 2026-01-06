@@ -893,6 +893,56 @@ static ASTNode *parser_parse_expression(Parser *parser) {
         }
     }
 
+    // Check for catch syntax: expr catch |err| { ... } or expr catch { ... }
+    if (left && parser_match(parser, TOKEN_CATCH)) {
+        parser_consume(parser); // consume 'catch'
+        
+        // Parse optional error variable: |err|
+        char *error_var = NULL;
+        if (parser_match(parser, TOKEN_PIPE)) {
+            parser_consume(parser); // consume '|'
+            if (parser_match(parser, TOKEN_IDENTIFIER)) {
+                error_var = malloc(strlen(parser->current_token->value) + 1);
+                if (error_var) {
+                    strcpy(error_var, parser->current_token->value);
+                }
+                parser_consume(parser); // consume identifier
+            }
+            if (!parser_expect(parser, TOKEN_PIPE)) {
+                if (error_var) free(error_var);
+                ast_free(left);
+                return NULL;
+            }
+            parser_consume(parser); // consume '|'
+        }
+        
+        // Parse catch body
+        ASTNode *catch_body = parser_parse_block(parser);
+        if (!catch_body) {
+            if (error_var) free(error_var);
+            ast_free(left);
+            return NULL;
+        }
+        
+        // Create catch expression node
+        ASTNode *catch_expr = ast_new_node(AST_CATCH_EXPR,
+                                          parser->current_token->line,
+                                          parser->current_token->column,
+                                          parser->current_token->filename);
+        if (!catch_expr) {
+            if (error_var) free(error_var);
+            ast_free(catch_body);
+            ast_free(left);
+            return NULL;
+        }
+        
+        catch_expr->data.catch_expr.expr = left;
+        catch_expr->data.catch_expr.error_var = error_var;
+        catch_expr->data.catch_expr.catch_body = catch_body;
+        
+        return catch_expr;
+    }
+
     return left;
 }
 

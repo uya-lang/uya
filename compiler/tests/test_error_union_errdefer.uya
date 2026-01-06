@@ -1,0 +1,179 @@
+// 测试 errdefer 与 !T 类型的交互
+// 验证：
+// 1. errdefer 只在错误返回时执行
+// 2. errdefer 在正常返回时不执行
+// 3. defer 和 errdefer 的执行顺序
+
+extern printf(fmt: *byte, ...) i32;  // printf 至少需要 1 个参数（格式字符串），可变参数可选
+
+// 使用静态变量模拟全局计数器
+struct Counter {
+    value: i32
+}
+
+var global_counter: Counter = Counter{ value: 0 };
+
+fn reset_counter() void {
+    global_counter = Counter{ value: 0 };
+}
+
+fn increment() void {
+    global_counter.value = global_counter.value + 1;
+}
+
+fn get_counter() i32 {
+    return global_counter.value;
+}
+
+// 测试 1: errdefer 在错误返回时执行
+fn test_errdefer_on_error() !i32 {
+    reset_counter();
+    
+    defer {
+        increment();  // defer 应该执行（正常和错误都执行）
+    }
+    
+    errdefer {
+        increment();  // errdefer 应该执行（只有错误时执行）
+    }
+    
+    return error.TestError;  // 返回错误，应该触发 errdefer
+}
+
+// 测试 2: errdefer 在正常返回时不执行
+fn test_errdefer_on_success() !i32 {
+    reset_counter();
+    
+    defer {
+        increment();  // defer 应该执行
+    }
+    
+    errdefer {
+        increment();  // errdefer 不应该执行（正常返回）
+    }
+    
+    return 42;  // 正常返回，不应该触发 errdefer
+}
+
+// 测试 3: 多个 errdefer 的执行顺序（LIFO）
+fn test_multiple_errdefer() !i32 {
+    reset_counter();
+    
+    defer {
+        increment();  // defer 1
+    }
+    
+    errdefer {
+        increment();  // errdefer 1（后声明，先执行）
+    }
+    
+    errdefer {
+        increment();  // errdefer 2（先声明，后执行）
+    }
+    
+    defer {
+        increment();  // defer 2
+    }
+    
+    return error.TestError;  // 返回错误
+    // 执行顺序应该是：errdefer 1 -> errdefer 2 -> defer 2 -> defer 1
+}
+
+// 测试 4: errdefer 和 defer 的执行顺序
+fn test_defer_errdefer_order() !i32 {
+    reset_counter();
+    
+    defer {
+        increment();  // defer 应该在 errdefer 之后执行
+    }
+    
+    errdefer {
+        increment();  // errdefer 应该先执行（错误返回时）
+    }
+    
+    return error.TestError;
+    // 执行顺序应该是：errdefer -> defer
+}
+
+// 测试 5: 正常返回时的执行顺序
+fn test_success_order() !i32 {
+    reset_counter();
+    
+    defer {
+        increment();  // defer 应该执行
+    }
+    
+    errdefer {
+        increment();  // errdefer 不应该执行
+    }
+    
+    return 100;
+    // 执行顺序应该是：只有 defer
+}
+
+fn main() i32 {
+    // 测试 1: errdefer 在错误返回时执行
+    const result1: i32 = test_errdefer_on_error() catch |err| {
+        if get_counter() != 2 {  // defer + errdefer
+            printf("Test 1 failed: expected counter=2, got %d\n", get_counter());
+            return 1;
+        }
+        printf("Test 1 passed: errdefer executed on error\n");
+        return 0;
+    };
+    
+    // 测试 2: errdefer 在正常返回时不执行
+    const result2: i32 = test_errdefer_on_success() catch |err| {
+        printf("Test 2 failed: unexpected error\n");
+        return 1;
+    };
+    const count2: i32 = get_counter();
+    if count2 != 1 {  // 只有 defer
+        printf("Test 2 failed: expected counter=1, got %d\n", count2);
+        return 1;
+    }
+    printf("Test 2 passed: errdefer not executed on success\n");
+    
+    // 测试 3: 多个 errdefer 的执行顺序
+    reset_counter();
+    const result3: i32 = test_multiple_errdefer() catch |err| {
+        const count3: i32 = get_counter();
+        // errdefer 1 (后声明) -> errdefer 2 (先声明) -> defer 2 -> defer 1
+        // 总共 4 次 increment
+        if count3 != 4 {
+            printf("Test 3 failed: expected counter=4, got %d\n", count3);
+            return 1;
+        }
+        printf("Test 3 passed: multiple errdefer executed in LIFO order\n");
+        return 0;
+    };
+    
+    // 测试 4: errdefer 和 defer 的执行顺序
+    reset_counter();
+    const result4: i32 = test_defer_errdefer_order() catch |err| {
+        const count4: i32 = get_counter();
+        if count4 != 2 {  // errdefer + defer
+            printf("Test 4 failed: expected counter=2, got %d\n", count4);
+            return 1;
+        }
+        printf("Test 4 passed: errdefer executed before defer\n");
+        return 0;
+    };
+    
+    // 测试 5: 正常返回时的执行顺序
+    reset_counter();
+    const result5: i32 = test_success_order() catch |err| {
+        printf("Test 5 failed: unexpected error\n");
+        return 1;
+    };
+    const count5: i32 = get_counter();
+    if count5 != 1 {  // 只有 defer
+        printf("Test 5 failed: expected counter=1, got %d\n", count5);
+        return 1;
+    }
+    printf("Test 5 passed: only defer executed on success\n");
+    
+    printf("All errdefer tests passed\n");
+    return 0;
+}
+
