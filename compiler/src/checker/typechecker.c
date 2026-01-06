@@ -1285,11 +1285,9 @@ static int typecheck_call(TypeChecker *checker, ASTNode *node) {
     
     const char *func_name = callee->data.identifier.name;
     
-    // 特殊处理：array 函数是数组字面量的内部表示，不需要检查
+    // 特殊处理 array 函数调用（数组字面量）
     if (strcmp(func_name, "array") == 0) {
-        // 数组字面量：已经在解析阶段转换为 array() 调用
-        // 这里只需要检查参数表达式，不需要检查函数是否存在
-        return 1;
+        return 1;  // 跳过类型检查，array 是特殊的内置函数
     }
     
     FunctionSignature *sig = typechecker_lookup_function(checker, func_name);

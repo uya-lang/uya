@@ -241,6 +241,14 @@ void ast_free(ASTNode *node) {
             ast_free(node->data.errdefer_stmt.body);
             break;
             
+        case AST_CATCH_EXPR:
+            ast_free(node->data.catch_expr.expr);
+            if (node->data.catch_expr.error_var) {
+                free(node->data.catch_expr.error_var);
+            }
+            ast_free(node->data.catch_expr.catch_body);
+            break;
+            
         default:
             // 其他类型暂不处理
             break;
@@ -520,6 +528,18 @@ void ast_print(ASTNode *node, int indent) {
             print_indent(indent + 1);
             printf("Body:\n");
             ast_print(node->data.test_block.body, indent + 2);
+            break;
+
+        case AST_CATCH_EXPR:
+            printf("CatchExpr:\n");
+            print_indent(indent + 1);
+            printf("Expr:\n");
+            ast_print(node->data.catch_expr.expr, indent + 2);
+            print_indent(indent + 1);
+            printf("ErrorVar: %s\n", node->data.catch_expr.error_var ? node->data.catch_expr.error_var : "(null)");
+            print_indent(indent + 1);
+            printf("CatchBody:\n");
+            ast_print(node->data.catch_expr.catch_body, indent + 2);
             break;
 
         default:

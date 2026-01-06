@@ -6,6 +6,12 @@
 #include <string.h>
 #include <ctype.h>
 
+// 条件编译，避免与Windows的TokenType冲突
+#ifdef _WIN32
+    #undef TokenType
+    #undef TOKEN_TYPE
+#endif
+
 // Token 类型枚举
 typedef enum {
     TOKEN_EOF,
