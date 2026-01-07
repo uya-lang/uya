@@ -376,7 +376,15 @@ void ast_print(ASTNode *node, int indent) {
             break;
             
         case AST_ASSIGN:
-            printf("AssignStmt: %s = ", node->data.assign.dest);
+            printf("AssignStmt: ");
+            if (node->data.assign.dest) {
+                printf("%s = ", node->data.assign.dest);
+            } else if (node->data.assign.dest_expr) {
+                ast_print(node->data.assign.dest_expr, indent);
+                printf(" = ");
+            } else {
+                printf("? = ");
+            }
             ast_print(node->data.assign.src, indent + 1);
             break;
 

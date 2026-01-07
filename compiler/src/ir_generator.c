@@ -876,21 +876,18 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
             
             // Store in member_access structure (reusing the structure)
             subscript->data.member_access.object = array_expr;
+            subscript->data.member_access.index_expr = index_expr;  // Store index expression
             
-            // Convert index expression to string for field_name
-            // For now, if index is a constant, use its value; otherwise use a placeholder
+            // Convert index expression to string for field_name (for constant indices)
+            // For non-constant indices, field_name will be NULL and we'll use index_expr in codegen
             if (index_expr->type == IR_CONSTANT && index_expr->data.constant.value) {
                 subscript->data.member_access.field_name = malloc(strlen(index_expr->data.constant.value) + 1);
                 if (subscript->data.member_access.field_name) {
                     strcpy(subscript->data.member_access.field_name, index_expr->data.constant.value);
                 }
             } else {
-                // For non-constant indices, we need to generate code that evaluates the index
-                // For now, use a placeholder - this should be improved to generate proper code
-                subscript->data.member_access.field_name = malloc(32);
-                if (subscript->data.member_access.field_name) {
-                    snprintf(subscript->data.member_access.field_name, 32, "temp_%d", ir_gen->current_id++);
-                }
+                // For non-constant indices, field_name is NULL, we'll use index_expr in codegen
+                subscript->data.member_access.field_name = NULL;
             }
             
             return subscript;
@@ -1515,10 +1512,21 @@ static IRInst *generate_stmt_for_body(IRGenerator *ir_gen, struct ASTNode *stmt)
             IRInst *assign = irinst_new(IR_ASSIGN);
             if (!assign) return NULL;
 
-            // Set destination (variable name)
-            assign->data.assign.dest = malloc(strlen(stmt->data.assign.dest) + 1);
-            if (assign->data.assign.dest) {
-                strcpy(assign->data.assign.dest, stmt->data.assign.dest);
+            // 检查目标是否是表达式（如 arr[0]）还是简单变量
+            if (stmt->data.assign.dest_expr) {
+                // 表达式赋值：arr[0] = value
+                assign->data.assign.dest = NULL;
+                assign->data.assign.dest_expr = generate_expr(ir_gen, stmt->data.assign.dest_expr);
+            } else if (stmt->data.assign.dest) {
+                // 简单变量赋值：var = value
+                assign->data.assign.dest = malloc(strlen(stmt->data.assign.dest) + 1);
+                if (assign->data.assign.dest) {
+                    strcpy(assign->data.assign.dest, stmt->data.assign.dest);
+                }
+                assign->data.assign.dest_expr = NULL;
+            } else {
+                assign->data.assign.dest = NULL;
+                assign->data.assign.dest_expr = NULL;
             }
 
             // Set source (right-hand side expression)

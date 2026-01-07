@@ -1,0 +1,21 @@
+extern printf(fmt: *byte, ...) i32;
+
+fn main() i32 {
+    // 创建一个数组并初始化
+    var arr: [i32; 5];
+    arr[0] = 10;
+    arr[1] = 20;
+    arr[2] = 30;
+    arr[3] = 40;
+    arr[4] = 50;
+    
+    const ptr: *i32 = &arr[0];
+    
+    // 测试变量索引 - 这是我们要修复的主要功能
+    var i: i32 = 2;
+    const val: i32 = ptr[i];  // 应该生成 *(ptr + i) 而不是 temp_XXX
+    printf("ptr[%d] = %d\n", i, val);
+    
+    return 0;
+}
+

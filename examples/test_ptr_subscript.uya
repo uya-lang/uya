@@ -1,0 +1,26 @@
+extern printf(fmt: *byte, ...) i32;
+
+fn main() i32 {
+    var arr: [i32; 10];
+    // 初始化数组
+    var idx: i32 = 0;
+    while idx < 10 {
+        arr[idx] = idx;
+        idx = idx + 1;
+    }
+    
+    const ptr: *i32 = &arr[0];
+    
+    // 测试常量索引
+    const val1: i32 = ptr[0];
+    const val2: i32 = ptr[5];
+    printf("val1 = %d, val2 = %d\n", val1, val2);
+    
+    // 测试变量索引 - 这是我们要修复的主要功能
+    var i: i32 = 3;
+    const val3: i32 = ptr[i];  // 应该生成正确的代码，而不是 temp_XXX
+    printf("val3 = %d\n", val3);
+    
+    return 0;
+}
+

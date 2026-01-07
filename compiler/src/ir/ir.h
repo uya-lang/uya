@@ -124,7 +124,8 @@ typedef struct IRInst {
         
         // 赋值
         struct {
-            char *dest;
+            char *dest;              // 简单变量名（向后兼容）
+            struct IRInst *dest_expr; // 目标表达式（支持 arr[0] 等）
             struct IRInst *src;
         } assign;
         
@@ -250,6 +251,7 @@ typedef struct IRInst {
             struct IRInst *object;      // 对象表达式
             char *field_name;          // 字段名称
             char *dest;                // 目标变量（存储访问结果）
+            struct IRInst *index_expr; // 索引表达式（用于 IR_SUBSCRIPT，当索引不是常量时）
         } member_access;
 
         // drop 调用

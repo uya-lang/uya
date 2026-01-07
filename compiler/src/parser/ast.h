@@ -185,7 +185,8 @@ typedef struct ASTNode {
 
         // assignment 语句
         struct {
-            char *dest;
+            char *dest;              // 简单变量名（向后兼容）
+            struct ASTNode *dest_expr;  // 目标表达式（支持 arr[0] 等）
             struct ASTNode *src;
         } assign;
 

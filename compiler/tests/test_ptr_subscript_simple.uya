@@ -1,0 +1,29 @@
+extern printf(fmt: *byte, ...) i32;
+
+fn main() i32 {
+    var arr: [i32; 5];
+    arr[0] = 10;
+    arr[1] = 20;
+    arr[2] = 30;
+    arr[3] = 40;
+    arr[4] = 50;
+    
+    const ptr: *i32 = &arr[0];
+    
+    // 测试常量索引
+    const val1: i32 = ptr[0];
+    const val2: i32 = ptr[2];
+    printf("常量索引: ptr[0] = %d, ptr[2] = %d\n", val1, val2);
+    
+    // 测试变量索引 - 这是我们要验证的修复
+    var i: i32 = 1;
+    const val3: i32 = ptr[i];  // 应该生成正确的代码
+    printf("变量索引: ptr[%d] = %d\n", i, val3);
+    
+    // 测试表达式索引
+    const val4: i32 = ptr[i + 1];  // 应该生成正确的代码
+    printf("表达式索引: ptr[%d + 1] = %d\n", i, val4);
+    
+    return 0;
+}
+

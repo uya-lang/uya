@@ -1,0 +1,20 @@
+extern printf(fmt: *byte, ...) i32;
+
+fn main() i32 {
+    // 测试数组元素赋值和初始化
+    var arr: [i32; 5];
+    
+    // 使用常量索引初始化数组元素
+    arr[0] = 10;
+    arr[1] = 20;
+    arr[2] = 30;
+    arr[3] = 40;
+    arr[4] = 50;
+    
+    // 测试通过指针访问
+    const ptr: *i32 = &arr[0];
+    printf("arr[0] = %d, arr[2] = %d, arr[4] = %d\n", ptr[0], ptr[2], ptr[4]);
+    
+    return 0;
+}
+

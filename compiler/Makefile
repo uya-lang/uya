@@ -12,7 +12,12 @@ SOURCES = $(SRCDIR)/main.c \
           $(SRCDIR)/checker/const_eval.c \
           $(SRCDIR)/ir/ir.c \
           $(SRCDIR)/ir_generator.c \
-          $(SRCDIR)/codegen/codegen.c
+          $(SRCDIR)/codegen/codegen.c \
+          $(SRCDIR)/codegen/codegen_error.c \
+          $(SRCDIR)/codegen/codegen_type.c \
+          $(SRCDIR)/codegen/codegen_value.c \
+          $(SRCDIR)/codegen/codegen_inst.c \
+          $(SRCDIR)/codegen/codegen_main.c
 OBJECTS = $(SOURCES:.c=.o)
 TARGET = uyac
 
@@ -32,7 +37,12 @@ $(SRCDIR)/main.o: $(SRCDIR)/lexer/lexer.h $(SRCDIR)/parser/ast.h $(SRCDIR)/ir/ir
 $(SRCDIR)/lexer/lexer.o: $(SRCDIR)/lexer/lexer.h
 $(SRCDIR)/parser/ast.o: $(SRCDIR)/parser/ast.h
 $(SRCDIR)/ir/ir.o: $(SRCDIR)/ir/ir.h
-$(SRCDIR)/codegen/codegen.o: $(SRCDIR)/codegen/codegen.h $(SRCDIR)/ir/ir.h
+$(SRCDIR)/codegen/codegen.o: $(SRCDIR)/codegen/codegen.h $(SRCDIR)/codegen/codegen_error.h $(SRCDIR)/codegen/codegen_type.h $(SRCDIR)/codegen/codegen_value.h $(SRCDIR)/codegen/codegen_inst.h $(SRCDIR)/ir/ir.h
+$(SRCDIR)/codegen/codegen_error.o: $(SRCDIR)/codegen/codegen_error.h $(SRCDIR)/codegen/codegen.h $(SRCDIR)/ir/ir.h
+$(SRCDIR)/codegen/codegen_type.o: $(SRCDIR)/codegen/codegen_type.h $(SRCDIR)/codegen/codegen.h $(SRCDIR)/ir/ir.h
+$(SRCDIR)/codegen/codegen_value.o: $(SRCDIR)/codegen/codegen_value.h $(SRCDIR)/codegen/codegen.h $(SRCDIR)/ir/ir.h
+$(SRCDIR)/codegen/codegen_inst.o: $(SRCDIR)/codegen/codegen_inst.h $(SRCDIR)/codegen/codegen.h $(SRCDIR)/codegen/codegen_error.h $(SRCDIR)/codegen/codegen_type.h $(SRCDIR)/codegen/codegen_value.h $(SRCDIR)/ir/ir.h
+$(SRCDIR)/codegen/codegen_main.o: $(SRCDIR)/codegen/codegen.h $(SRCDIR)/codegen/codegen_error.h $(SRCDIR)/codegen/codegen_type.h $(SRCDIR)/codegen/codegen_value.h $(SRCDIR)/codegen/codegen_inst.h $(SRCDIR)/ir/ir.h
 
 # 清理
 clean:

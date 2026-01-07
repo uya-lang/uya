@@ -1,5 +1,6 @@
 /* uyac - Uya to C99 Compiler */
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +22,7 @@
     #include <dirent.h>
     #include <sys/stat.h>
     #include <unistd.h>
+    #include <limits.h>
 #endif
 
 #include "lexer/lexer.h"
@@ -50,7 +52,11 @@ static void print_error(const char *format, ...) {
 
 // 主编译函数（使用 goto 进行统一的资源清理）
 int compile_file(const char *input_file, const char *output_file) {
-    printf("编译 %s -> %s\n", input_file, output_file);
+    // 将输入文件路径转换为绝对路径
+    char *absolute_input_file = realpath(input_file, NULL);
+    const char *file_to_use = absolute_input_file ? absolute_input_file : input_file;
+    
+    printf("编译 %s -> %s\n", file_to_use, output_file);
 
     // 初始化所有资源为 NULL，方便统一清理
     Lexer *lexer = NULL;
@@ -63,7 +69,7 @@ int compile_file(const char *input_file, const char *output_file) {
     int result = 0;
 
     // 1. 词法分析
-    lexer = lexer_new(input_file);
+    lexer = lexer_new(file_to_use);
     if (!lexer) {
         print_error("无法创建词法分析器");
         result = 1;
@@ -131,6 +137,11 @@ int compile_file(const char *input_file, const char *output_file) {
     printf("编译成功完成\n");
 
 cleanup:
+    // 释放绝对路径内存（lexer已经复制了文件名，所以可以安全释放）
+    if (absolute_input_file) {
+        free(absolute_input_file);
+    }
+    
     // 统一清理资源（按相反顺序）
     if (codegen) codegen_free(codegen);
     // ir_result 和 ir_gen 是同一个对象（irgenerator_generate 返回传入的 ir_gen）

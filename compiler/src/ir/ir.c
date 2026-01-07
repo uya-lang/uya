@@ -91,6 +91,7 @@ void irinst_free(IRInst *inst) {
             if (inst->data.assign.dest) {
                 free(inst->data.assign.dest);
             }
+            irinst_free(inst->data.assign.dest_expr);
             irinst_free(inst->data.assign.src);
             break;
             
@@ -229,6 +230,18 @@ void irinst_free(IRInst *inst) {
             if (inst->data.error_value.error_name) {
                 free(inst->data.error_value.error_name);
             }
+            break;
+
+        case IR_MEMBER_ACCESS:
+        case IR_SUBSCRIPT:
+            irinst_free(inst->data.member_access.object);
+            if (inst->data.member_access.field_name) {
+                free(inst->data.member_access.field_name);
+            }
+            if (inst->data.member_access.dest) {
+                free(inst->data.member_access.dest);
+            }
+            irinst_free(inst->data.member_access.index_expr);
             break;
 
         case IR_STRING_INTERPOLATION:
