@@ -450,7 +450,15 @@ IRType typechecker_infer_type(TypeChecker *checker, ASTNode *expr) {
             return typechecker_infer_type(checker, expr->data.unary_expr.operand);
         }
         case AST_BINARY_EXPR: {
-            // 对于二元表达式，返回左操作数的类型（假设左右操作数类型相同）
+            int op = expr->data.binary_expr.op;
+            // 比较操作符和逻辑操作符返回布尔类型
+            if (op == TOKEN_EQUAL || op == TOKEN_NOT_EQUAL ||
+                op == TOKEN_LESS || op == TOKEN_LESS_EQUAL ||
+                op == TOKEN_GREATER || op == TOKEN_GREATER_EQUAL ||
+                op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR) {
+                return IR_TYPE_BOOL;
+            }
+            // 对于其他二元表达式，返回左操作数的类型（假设左右操作数类型相同）
             return typechecker_infer_type(checker, expr->data.binary_expr.left);
         }
         case AST_STRING_INTERPOLATION:
@@ -480,21 +488,28 @@ static void extract_constraints_from_condition(TypeChecker *checker, ASTNode *co
     ASTNode *left = cond_expr->data.binary_expr.left;
     ASTNode *right = cond_expr->data.binary_expr.right;
     
-    if (op == 81) {  // TOKEN_LOGICAL_AND
+    fprintf(stderr, "[DEBUG] extract_constraints_from_condition: op=%d (TOKEN_LOGICAL_AND=%d)\n", op, TOKEN_LOGICAL_AND);
+    
+    if (op == TOKEN_LOGICAL_AND) {
         // 递归处理两个条件
+        fprintf(stderr, "[DEBUG] Found TOKEN_LOGICAL_AND, recursing...\n");
         extract_constraints_from_condition(checker, left);
         extract_constraints_from_condition(checker, right);
-    } else if (op == 59 || op == 60) {  // TOKEN_LESS or TOKEN_LESS_EQUAL
+    } else if (op == TOKEN_LESS || op == TOKEN_LESS_EQUAL) {
         // i < len 或 i <= len-1
+        fprintf(stderr, "[DEBUG] Found TOKEN_LESS/TOKEN_LESS_EQUAL: op=%d\n", op);
         if (left->type == AST_IDENTIFIER) {
             const char *var_name = left->data.identifier.name;
             ConstValue right_val;
             
+            fprintf(stderr, "[DEBUG] Processing < constraint for variable: %s\n", var_name);
             if (const_eval_expr(right, &right_val) && right_val.type == CONST_VAL_INT) {
-                long long max_val = (op == 59) ? right_val.value.int_val : right_val.value.int_val + 1;
+                long long max_val = (op == TOKEN_LESS) ? right_val.value.int_val : right_val.value.int_val + 1;
+                fprintf(stderr, "[DEBUG] Creating range constraint: [LLONG_MIN, %lld) for %s\n", max_val, var_name);
                 Constraint *range_constraint = constraint_new_range(var_name, LLONG_MIN, max_val);
                 if (range_constraint) {
                     typechecker_add_constraint(checker, range_constraint);
+                    fprintf(stderr, "[DEBUG] Constraint added for %s\n", var_name);
                 }
             } else if (right->type == AST_IDENTIFIER) {
                 // 处理变量比较，创建约束（上限为变量值）
@@ -505,17 +520,21 @@ static void extract_constraints_from_condition(TypeChecker *checker, ASTNode *co
                 }
             }
         }
-    } else if (op == 61 || op == 62) {  // TOKEN_GREATER or TOKEN_GREATER_EQUAL
+    } else if (op == TOKEN_GREATER || op == TOKEN_GREATER_EQUAL) {
         // i >= 0 或 i > 0
+        fprintf(stderr, "[DEBUG] Found TOKEN_GREATER/TOKEN_GREATER_EQUAL: op=%d\n", op);
         if (left->type == AST_IDENTIFIER) {
             const char *var_name = left->data.identifier.name;
             ConstValue right_val;
             
+            fprintf(stderr, "[DEBUG] Processing >= constraint for variable: %s\n", var_name);
             if (const_eval_expr(right, &right_val) && right_val.type == CONST_VAL_INT) {
-                long long min_val = (op == 62) ? right_val.value.int_val : right_val.value.int_val + 1;
+                long long min_val = (op == TOKEN_GREATER_EQUAL) ? right_val.value.int_val : right_val.value.int_val + 1;
+                fprintf(stderr, "[DEBUG] Creating range constraint: [%lld, LLONG_MAX) for %s\n", min_val, var_name);
                 Constraint *range_constraint = constraint_new_range(var_name, min_val, LLONG_MAX);
                 if (range_constraint) {
                     typechecker_add_constraint(checker, range_constraint);
+                    fprintf(stderr, "[DEBUG] Constraint added for %s\n", var_name);
                 }
             }
         }
@@ -603,15 +622,20 @@ static int check_array_bounds(TypeChecker *checker, ASTNode *array_expr, ASTNode
         // 变量索引：需要检查约束条件
         if (index_expr->type == AST_IDENTIFIER) {
             const char *index_name = index_expr->data.identifier.name;
+            fprintf(stderr, "[DEBUG] check_array_bounds: Looking for constraint for variable: %s\n", index_name);
+            fprintf(stderr, "[DEBUG] Constraint set count: %d\n", checker->constraints->count);
             Constraint *range_constraint = typechecker_find_constraint(checker, index_name, CONSTRAINT_RANGE);
             
             if (!range_constraint) {
-                typechecker_add_error(checker,
-                    "数组索引 '%s' 需要边界检查证明 (行 %d:%d)\n"
-                    "  提示: 使用 if i >= 0 && i < %d { ... } 来证明索引安全",
-                    index_name, line, col, array_size);
+                    fprintf(stderr, "[DEBUG] No constraint found for %s\n", index_name);
+                    typechecker_add_error(checker,
+                        "数组索引 '%s' 需要边界检查证明\n行 %d:%d\n"
+                        "  提示: 使用 if i >= 0 && i < %d { ... } 来证明索引安全",
+                        index_name, line, col, array_size);
                 return 0;
             }
+            fprintf(stderr, "[DEBUG] Found constraint for %s: [%lld, %lld)\n", 
+                    index_name, range_constraint->data.range.min, range_constraint->data.range.max);
             
             // 检查约束范围是否在数组边界内
             if (range_constraint->data.range.min < 0 || 
@@ -819,11 +843,25 @@ static int typecheck_assign(TypeChecker *checker, ASTNode *node) {
     checker->current_column = node->column;
     
     const char *dest_name = node->data.assign.dest;
+    ASTNode *dest_expr = node->data.assign.dest_expr;
     const char *filename = node->filename ? node->filename : checker->current_file;
     
-    // 检查const变量赋值
-    if (!check_const_assignment(checker, dest_name, node->line, node->column, filename)) {
-        return 0;
+    // 如果目标是表达式（如 arr[0]），提取数组名称
+    if (dest_expr && dest_expr->type == AST_SUBSCRIPT_EXPR) {
+        ASTNode *array_expr = dest_expr->data.subscript_expr.array;
+        if (array_expr && array_expr->type == AST_IDENTIFIER) {
+            dest_name = array_expr->data.identifier.name;
+        }
+        
+        // 检查数组访问（包括边界检查）
+        if (!typecheck_node(checker, dest_expr)) {
+            return 0;
+        }
+    } else if (dest_name) {
+        // 检查const变量赋值
+        if (!check_const_assignment(checker, dest_name, node->line, node->column, filename)) {
+            return 0;
+        }
     }
     
     // 检查源表达式
@@ -832,10 +870,12 @@ static int typecheck_assign(TypeChecker *checker, ASTNode *node) {
     }
     
     // 标记变量为已初始化和已修改
-    Symbol *sym = typechecker_lookup_symbol(checker, dest_name);
-    if (sym) {
-        sym->is_initialized = 1;
-        sym->is_modified = 1;
+    if (dest_name) {
+        Symbol *sym = typechecker_lookup_symbol(checker, dest_name);
+        if (sym) {
+            sym->is_initialized = 1;
+            sym->is_modified = 1;
+        }
     }
     
     return 1;
@@ -906,6 +946,25 @@ static int typecheck_if_stmt(TypeChecker *checker, ASTNode *node) {
     // 检查条件表达式
     if (!typecheck_node(checker, node->data.if_stmt.condition)) return 0;
     
+        // 验证条件表达式必须是布尔类型
+        IRType cond_type = typechecker_infer_type(checker, node->data.if_stmt.condition);
+        if (cond_type != IR_TYPE_BOOL) {
+            checker->current_line = node->data.if_stmt.condition->line;
+            checker->current_column = node->data.if_stmt.condition->column;
+            if (node->data.if_stmt.condition->filename) {
+                if (checker->current_file) free(checker->current_file);
+                checker->current_file = malloc(strlen(node->data.if_stmt.condition->filename) + 1);
+                if (checker->current_file) {
+                    strcpy(checker->current_file, node->data.if_stmt.condition->filename);
+                }
+            }
+        typechecker_add_error(checker, "if 语句的条件表达式必须是布尔类型，但得到 %s 类型 (%s:%d:%d)",
+                              get_type_name(cond_type),
+                              checker->current_file ? checker->current_file : "unknown",
+                              checker->current_line, checker->current_column);
+        return 0;
+    }
+    
     // 分析条件表达式，提取约束条件
     ASTNode *cond = node->data.if_stmt.condition;
     
@@ -953,6 +1012,25 @@ static int typecheck_while_stmt(TypeChecker *checker, ASTNode *node) {
     // 检查循环条件
     if (node->data.while_stmt.condition) {
         if (!typecheck_node(checker, node->data.while_stmt.condition)) {
+            return 0;
+        }
+        
+        // 验证条件表达式必须是布尔类型
+        IRType cond_type = typechecker_infer_type(checker, node->data.while_stmt.condition);
+        if (cond_type != IR_TYPE_BOOL) {
+            checker->current_line = node->data.while_stmt.condition->line;
+            checker->current_column = node->data.while_stmt.condition->column;
+            if (node->data.while_stmt.condition->filename) {
+                if (checker->current_file) free(checker->current_file);
+                checker->current_file = malloc(strlen(node->data.while_stmt.condition->filename) + 1);
+                if (checker->current_file) {
+                    strcpy(checker->current_file, node->data.while_stmt.condition->filename);
+                }
+            }
+            typechecker_add_error(checker, "while 语句的条件表达式必须是布尔类型，但得到 %s 类型 (%s:%d:%d)",
+                                  get_type_name(cond_type),
+                                  checker->current_file ? checker->current_file : "unknown",
+                                  checker->current_line, checker->current_column);
             return 0;
         }
     }
@@ -1182,9 +1260,11 @@ static int typecheck_identifier(TypeChecker *checker, ASTNode *node) {
     }
     
     // 检查是否已初始化
-    if (!sym->is_initialized && !sym->is_const) {
+    // 对于数组类型，允许通过元素赋值来初始化，所以不检查数组本身的初始化状态
+    if (!sym->is_initialized && !sym->is_const && sym->type != IR_TYPE_ARRAY) {
         // const变量必须在声明时初始化，所以不需要检查
-        // 只有var变量需要检查是否已初始化
+        // 数组类型允许通过元素赋值来初始化，所以不需要检查
+        // 只有非数组的var变量需要检查是否已初始化
         const char *filename = node->filename ? node->filename : checker->current_file;
         if (filename) {
             typechecker_add_error(checker,
@@ -1463,12 +1543,12 @@ int typechecker_check(TypeChecker *checker, ASTNode *ast) {
             // var声明的变量但未修改
             if (sym->filename) {
                 typechecker_add_error(checker,
-                    "var变量 '%s' 声明后未修改 (%s:%d:%d)\n" 
+                    "var变量 '%s' 声明后未修改\n%s:%d:%d\n" 
                     "  提示: 未修改的变量应使用 const 声明",
                     sym->name, sym->filename, sym->line, sym->column);
             } else {
                 typechecker_add_error(checker,
-                    "var变量 '%s' 声明后未修改 (行 %d:%d)\n" 
+                    "var变量 '%s' 声明后未修改\n行 %d:%d\n" 
                     "  提示: 未修改的变量应使用 const 声明",
                     sym->name, sym->line, sym->column);
             }

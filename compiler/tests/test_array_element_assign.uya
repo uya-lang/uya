@@ -11,13 +11,15 @@ fn main() i32 {
     
     // 测试变量索引赋值
     var i: i32 = 0;
-    arr[i] = 100;
-    i = 1;
-    arr[i] = 200;
-    
-    // 测试通过指针访问
-    const ptr: *i32 = &arr[0];
-    printf("arr[0] = %d, arr[1] = %d\n", ptr[0], ptr[1]);
+    if i >= 0 && i < 5 {
+        arr[i] = 100;
+        i = 1;
+        arr[i] = 200;
+        
+        // 测试通过指针访问
+        const ptr: *i32 = &arr[0];
+        printf("arr[0] = %d, arr[1] = %d\n", ptr[0], ptr[1]);
+    }
     
     return 0;
 }
