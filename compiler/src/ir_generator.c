@@ -1025,18 +1025,32 @@ static IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl) {
     if (fn_decl->data.fn_decl.body) {
         if (fn_decl->data.fn_decl.body->type == AST_BLOCK) {
             func->data.func.body_count = fn_decl->data.fn_decl.body->data.block.stmt_count;
+            // Debug: print function name and statement count
+            if (fn_decl->data.fn_decl.name && strcmp(fn_decl->data.fn_decl.name, "main") == 0) {
+                fprintf(stderr, "[DEBUG IR] Function '%s' has %d statements in AST\n", 
+                        fn_decl->data.fn_decl.name, func->data.func.body_count);
+            }
             func->data.func.body = malloc(func->data.func.body_count * sizeof(IRInst*));
             if (!func->data.func.body) {
                 irinst_free(func);
                 return NULL;
             }
 
+            int null_count = 0;
             for (int i = 0; i < func->data.func.body_count; i++) {
                 // Set up the IR instruction based on the AST statement type
                 struct ASTNode *ast_stmt = fn_decl->data.fn_decl.body->data.block.stmts[i];
                 IRInst *stmt_ir = generate_stmt(ir_gen, ast_stmt);
-
+                if (!stmt_ir && fn_decl->data.fn_decl.name && strcmp(fn_decl->data.fn_decl.name, "main") == 0) {
+                    fprintf(stderr, "[DEBUG IR] Statement %d in 'main' generated NULL IR (AST type: %d)\n", 
+                            i, ast_stmt ? ast_stmt->type : -1);
+                    null_count++;
+                }
                 func->data.func.body[i] = stmt_ir;
+            }
+            if (fn_decl->data.fn_decl.name && strcmp(fn_decl->data.fn_decl.name, "main") == 0 && null_count > 0) {
+                fprintf(stderr, "[DEBUG IR] Function 'main' has %d NULL statements out of %d total\n", 
+                        null_count, func->data.func.body_count);
             }
         } else {
             // Single statement body
@@ -1639,6 +1653,11 @@ static IRInst *generate_stmt_for_body(IRGenerator *ir_gen, struct ASTNode *stmt)
         case AST_CALL_EXPR:
             // Expression statement: function call as a statement
             // Convert the call expression directly to IR_CALL
+            return generate_expr(ir_gen, stmt);
+
+        case AST_CATCH_EXPR:
+            // Catch expression statement: expr catch |err| { ... }
+            // Convert catch expression to IR_TRY_CATCH
             return generate_expr(ir_gen, stmt);
 
         case AST_BINARY_EXPR:

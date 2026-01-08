@@ -474,8 +474,75 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                                     fprintf(codegen->output_file, " %s", body_inst->data.var.name);
                                 }
                                 if (body_inst->data.var.init) {
-                                    fprintf(codegen->output_file, " = ");
-                                    codegen_write_value(codegen, body_inst->data.var.init);
+                                    // Special handling for catch expressions (IR_TRY_CATCH)
+                                    if (body_inst->data.var.init->type == IR_TRY_CATCH) {
+                                        // For catch expressions, we need to generate code that assigns the result to the variable
+                                        // First declare the variable without initialization
+                                        fprintf(codegen->output_file, ";\n  ");
+                                        // Generate try-catch code with variable assignment
+                                        IRInst *try_catch_inst = body_inst->data.var.init;
+                                        if (try_catch_inst->data.try_catch.try_body) {
+                                            // Determine return type from try_body
+                                            IRType base_type = IR_TYPE_I32;
+                                            int is_error_union = 0;
+                                            if (try_catch_inst->data.try_catch.try_body->type == IR_CALL &&
+                                                try_catch_inst->data.try_catch.try_body->data.call.func_name &&
+                                                codegen->ir) {
+                                                find_function_return_type(codegen->ir,
+                                                                        try_catch_inst->data.try_catch.try_body->data.call.func_name,
+                                                                        &base_type, &is_error_union);
+                                            }
+                                            // Generate temporary variable to store the error union result
+                                            char temp_var[64];
+                                            snprintf(temp_var, sizeof(temp_var), "_try_result_%d", codegen->temp_counter++);
+                                            // Generate the try body
+                                            fprintf(codegen->output_file, "struct error_union_%s %s = ",
+                                                    codegen_get_type_name(base_type), temp_var);
+                                            codegen_write_value(codegen, try_catch_inst->data.try_catch.try_body);
+                                            fprintf(codegen->output_file, ";\n  ");
+                                            // Check if error_id != 0, if so execute catch block and assign catch result
+                                            fprintf(codegen->output_file, "if (%s.error_id != 0) {\n  ", temp_var);
+                                            if (try_catch_inst->data.try_catch.error_var) {
+                                                fprintf(codegen->output_file, "uint32_t %s = %s.error_id;\n  ",
+                                                        try_catch_inst->data.try_catch.error_var, temp_var);
+                                            }
+                                            if (try_catch_inst->data.try_catch.catch_body) {
+                                                // Generate catch body and extract the last expression as the result
+                                                if (try_catch_inst->data.try_catch.catch_body->type == IR_BLOCK) {
+                                                    // For blocks, we need to extract the value from the last statement
+                                                    // This is complex - for now, generate the block and assume it returns a value
+                                                    // Actually, the catch block should end with an expression statement
+                                                    for (int i = 0; i < try_catch_inst->data.try_catch.catch_body->data.block.inst_count; i++) {
+                                                        if (!try_catch_inst->data.try_catch.catch_body->data.block.insts[i]) continue;
+                                                        if (i == try_catch_inst->data.try_catch.catch_body->data.block.inst_count - 1) {
+                                                            // Last statement: should be an expression, assign to variable
+                                                            fprintf(codegen->output_file, "%s = ", body_inst->data.var.name);
+                                                            codegen_write_value(codegen, try_catch_inst->data.try_catch.catch_body->data.block.insts[i]);
+                                                            fprintf(codegen->output_file, ";\n  ");
+                                                        } else {
+                                                            // Non-last statements: generate normally
+                                                            codegen_generate_inst(codegen, try_catch_inst->data.try_catch.catch_body->data.block.insts[i]);
+                                                            fprintf(codegen->output_file, ";\n  ");
+                                                        }
+                                                    }
+                                                } else {
+                                                    // Single statement: assign to variable
+                                                    fprintf(codegen->output_file, "%s = ", body_inst->data.var.name);
+                                                    codegen_write_value(codegen, try_catch_inst->data.try_catch.catch_body);
+                                                    fprintf(codegen->output_file, ";\n  ");
+                                                }
+                                            }
+                                            fprintf(codegen->output_file, "} else {\n  ");
+                                            // Success case: assign value from error union
+                                            if (base_type != IR_TYPE_VOID) {
+                                                fprintf(codegen->output_file, "%s = %s.value;\n  ", body_inst->data.var.name, temp_var);
+                                            }
+                                            fprintf(codegen->output_file, "}\n");
+                                        }
+                                    } else {
+                                        fprintf(codegen->output_file, " = ");
+                                        codegen_write_value(codegen, body_inst->data.var.init);
+                                    }
                                 }
                             }
                             break;
@@ -719,12 +786,22 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                             fprintf(codegen->output_file, "  }");
                             break;
                         }
+                        case IR_TRY_CATCH:
+                            // Generate try/catch expression - delegate to top-level handler
+                            // Note: This generates multi-line code (complete statement), so we don't add semicolon here
+                            // The codegen_generate_inst will handle the full try/catch structure
+                            codegen_generate_inst(codegen, body_inst);
+                            fprintf(codegen->output_file, "\n");
+                            break;
                         // 处理其他指令类型...
                         default:
                             fprintf(codegen->output_file, "/* Unknown instruction: %d */", body_inst->type);
                             break;
                     }
-                    fprintf(codegen->output_file, ";\n");
+                    // Only add semicolon if not IR_TRY_CATCH (which generates complete statement)
+                    if (body_inst->type != IR_TRY_CATCH) {
+                        fprintf(codegen->output_file, ";\n");
+                    }
                 }
             }
 
@@ -790,12 +867,12 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                                 // 对于数组，需要遍历每个元素调用 drop
                                 if (drop_vars[i].array_size > 0) {
                                     fprintf(codegen->output_file, "  for (int _drop_idx = 0; _drop_idx < %d; _drop_idx++) {\n", drop_vars[i].array_size);
-                                    fprintf(codegen->output_file, "    drop_%s(%s[_drop_idx]);\n", drop_vars[i].type_name, drop_vars[i].var_name);
+                                    fprintf(codegen->output_file, "    drop_%s(&%s[_drop_idx]);\n", drop_vars[i].type_name, drop_vars[i].var_name);
                                     fprintf(codegen->output_file, "  }\n");
                                 } else {
                                     // 如果不知道数组大小，使用 sizeof 计算
                                     fprintf(codegen->output_file, "  for (int _drop_idx = 0; _drop_idx < (int)(sizeof(%s) / sizeof(%s[0])); _drop_idx++) {\n", drop_vars[i].var_name, drop_vars[i].var_name);
-                                    fprintf(codegen->output_file, "    drop_%s(%s[_drop_idx]);\n", drop_vars[i].type_name, drop_vars[i].var_name);
+                                    fprintf(codegen->output_file, "    drop_%s(&%s[_drop_idx]);\n", drop_vars[i].type_name, drop_vars[i].var_name);
                                     fprintf(codegen->output_file, "  }\n");
                                 }
                             } else {
@@ -845,12 +922,12 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                                 // 对于数组，需要遍历每个元素调用 drop
                                 if (drop_vars[i].array_size > 0) {
                                     fprintf(codegen->output_file, "  for (int _drop_idx = 0; _drop_idx < %d; _drop_idx++) {\n", drop_vars[i].array_size);
-                                    fprintf(codegen->output_file, "    drop_%s(%s[_drop_idx]);\n", drop_vars[i].type_name, drop_vars[i].var_name);
+                                    fprintf(codegen->output_file, "    drop_%s(&%s[_drop_idx]);\n", drop_vars[i].type_name, drop_vars[i].var_name);
                                     fprintf(codegen->output_file, "  }\n");
                                 } else {
                                     // 如果不知道数组大小，使用 sizeof 计算
                                     fprintf(codegen->output_file, "  for (int _drop_idx = 0; _drop_idx < (int)(sizeof(%s) / sizeof(%s[0])); _drop_idx++) {\n", drop_vars[i].var_name, drop_vars[i].var_name);
-                                    fprintf(codegen->output_file, "    drop_%s(%s[_drop_idx]);\n", drop_vars[i].type_name, drop_vars[i].var_name);
+                                    fprintf(codegen->output_file, "    drop_%s(&%s[_drop_idx]);\n", drop_vars[i].type_name, drop_vars[i].var_name);
                                     fprintf(codegen->output_file, "  }\n");
                                 }
                             } else {
@@ -1197,7 +1274,18 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                             inst->data.try_catch.error_var, temp_var);
                 }
                 if (inst->data.try_catch.catch_body) {
-                    codegen_generate_inst(codegen, inst->data.try_catch.catch_body);
+                    // If catch_body is a block, generate its contents without the outer braces
+                    // since we're already inside an if statement block
+                    if (inst->data.try_catch.catch_body->type == IR_BLOCK) {
+                        for (int i = 0; i < inst->data.try_catch.catch_body->data.block.inst_count; i++) {
+                            if (!inst->data.try_catch.catch_body->data.block.insts[i]) continue;
+                            fprintf(codegen->output_file, "  ");
+                            codegen_generate_inst(codegen, inst->data.try_catch.catch_body->data.block.insts[i]);
+                            fprintf(codegen->output_file, ";\n");
+                        }
+                    } else {
+                        codegen_generate_inst(codegen, inst->data.try_catch.catch_body);
+                    }
                 }
                 fprintf(codegen->output_file, "} else {\n");
                 // Extract value for success case (only if not void)

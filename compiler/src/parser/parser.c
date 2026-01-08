@@ -965,6 +965,10 @@ static ASTNode *parser_parse_expression(Parser *parser) {
 
     // Check for catch syntax: expr catch |err| { ... } or expr catch { ... }
     if (left && parser_match(parser, TOKEN_CATCH)) {
+        // Debug: catch expression parsing
+        if (left->line >= 169 && left->line <= 193) {
+            fprintf(stderr, "[DEBUG PARSER] Parsing catch expression at line %d\n", left->line);
+        }
         parser_consume(parser); // consume 'catch'
         
         // Parse optional error variable: |err|
@@ -983,12 +987,27 @@ static ASTNode *parser_parse_expression(Parser *parser) {
                 ast_free(left);
                 return NULL;
             }
-            parser_consume(parser); // consume '|'
+            // parser_expect already consumed the '|' token, so we don't need to consume again
         }
         
         // Parse catch body
+        // Debug: check current token before parsing block
+        if (left && left->line >= 169 && left->line <= 193) {
+            fprintf(stderr, "[DEBUG CATCH] Before parsing catch block, current token: type=%d, line=%d:%d, value=%s\n",
+                    parser->current_token ? parser->current_token->type : -1,
+                    parser->current_token ? parser->current_token->line : 0,
+                    parser->current_token ? parser->current_token->column : 0,
+                    parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
+        }
         ASTNode *catch_body = parser_parse_block(parser);
         if (!catch_body) {
+            if (left && left->line >= 169 && left->line <= 193) {
+                fprintf(stderr, "[DEBUG CATCH] Failed to parse catch block, current token: type=%d, line=%d:%d, value=%s\n",
+                        parser->current_token ? parser->current_token->type : -1,
+                        parser->current_token ? parser->current_token->line : 0,
+                        parser->current_token ? parser->current_token->column : 0,
+                        parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
+            }
             if (error_var) free(error_var);
             ast_free(left);
             return NULL;
@@ -2089,6 +2108,11 @@ static ASTNode *parser_parse_errdefer_stmt(Parser *parser) {
 // 解析代码块
 static ASTNode *parser_parse_block(Parser *parser) {
     if (!parser_match(parser, TOKEN_LEFT_BRACE)) {
+        // Debug: block parsing start failure
+        if (parser->current_token && parser->current_token->line >= 169 && parser->current_token->line <= 193) {
+            fprintf(stderr, "[DEBUG BLOCK] Expected LEFT_BRACE but got token type %d at line %d:%d\n",
+                    parser->current_token->type, parser->current_token->line, parser->current_token->column);
+        }
         return NULL;
     }
 
@@ -2097,9 +2121,17 @@ static ASTNode *parser_parse_block(Parser *parser) {
     const char *filename = parser->current_token->filename;
 
     parser_consume(parser); // 消费 '{'
+    
+    // Debug: block parsing started
+    if (line >= 169 && line <= 193) {
+        fprintf(stderr, "[DEBUG BLOCK] Started parsing block at line %d:%d\n", line, col);
+    }
 
     ASTNode *block = ast_new_node(AST_BLOCK, line, col, filename);
     if (!block) {
+        if (line >= 169 && line <= 193) {
+            fprintf(stderr, "[DEBUG BLOCK] Failed to allocate block node\n");
+        }
         return NULL;
     }
 
@@ -2110,18 +2142,39 @@ static ASTNode *parser_parse_block(Parser *parser) {
 
     // 解析语句直到遇到 '}'
     while (parser->current_token && !parser_match(parser, TOKEN_RIGHT_BRACE)) {
+        if (line >= 169 && line <= 193) {
+            fprintf(stderr, "[DEBUG BLOCK] Parsing statement, current token: type=%d, line=%d:%d, value=%s\n",
+                    parser->current_token->type, parser->current_token->line, parser->current_token->column,
+                    parser->current_token->value ? parser->current_token->value : "(null)");
+        }
         ASTNode *stmt = parser_parse_statement(parser);
         if (!stmt) {
+            // Debug: print parse failure for main function
+            if (parser->current_token && parser->current_token->line >= 169 && parser->current_token->line <= 193) {
+                fprintf(stderr, "[DEBUG BLOCK] Failed to parse statement at line %d:%d (token type: %d, value: %s)\n",
+                        parser->current_token->line, parser->current_token->column,
+                        parser->current_token->type,
+                        parser->current_token->value ? parser->current_token->value : "(null)");
+            }
             // 如果解析语句失败，尝试跳过到下一个分号或右大括号
             while (parser->current_token &&
                    !parser_match(parser, TOKEN_SEMICOLON) &&
                    !parser_match(parser, TOKEN_RIGHT_BRACE)) {
+                if (parser->current_token && parser->current_token->line >= 169 && parser->current_token->line <= 193) {
+                    fprintf(stderr, "[DEBUG BLOCK] Skipping token: type=%d, value=%s\n",
+                            parser->current_token->type,
+                            parser->current_token->value ? parser->current_token->value : "(null)");
+                }
                 parser_consume(parser);
             }
             if (parser_match(parser, TOKEN_SEMICOLON)) {
                 parser_consume(parser);
             }
             continue;
+        }
+        
+        if (line >= 169 && line <= 193) {
+            fprintf(stderr, "[DEBUG BLOCK] Successfully parsed statement, type=%d\n", stmt->type);
         }
 
         // 扩容语句列表
@@ -2147,6 +2200,13 @@ static ASTNode *parser_parse_block(Parser *parser) {
     }
 
     if (!parser_match(parser, TOKEN_RIGHT_BRACE)) {
+        if (line >= 169 && line <= 193) {
+            fprintf(stderr, "[DEBUG BLOCK] Expected RIGHT_BRACE but got token type %d at line %d:%d, value=%s\n",
+                    parser->current_token ? parser->current_token->type : -1,
+                    parser->current_token ? parser->current_token->line : 0,
+                    parser->current_token ? parser->current_token->column : 0,
+                    parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
+        }
         fprintf(stderr, "语法错误: 期望 '}', 但在 %s:%d:%d 找不到\n",
                 parser->current_token ? parser->current_token->filename : "unknown",
                 parser->current_token ? parser->current_token->line : 0,
@@ -2156,6 +2216,10 @@ static ASTNode *parser_parse_block(Parser *parser) {
     }
 
     parser_consume(parser); // 消费 '}'
+    
+    if (line >= 169 && line <= 193) {
+        fprintf(stderr, "[DEBUG BLOCK] Successfully parsed block with %d statements\n", block->data.block.stmt_count);
+    }
 
     return block;
 }

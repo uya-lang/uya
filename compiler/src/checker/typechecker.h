@@ -80,6 +80,9 @@ typedef struct TypeChecker {
     // 函数作用域计数器（为每个函数分配唯一的作用域级别）
     int function_scope_counter;
     
+    // 扫描阶段：1 = 收集函数签名，2 = 检查函数体
+    int scan_pass;
+    
     // 当前上下文
     int current_line;
     int current_column;

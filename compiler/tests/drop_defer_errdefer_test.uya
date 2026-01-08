@@ -125,7 +125,11 @@ fn test_nested_drop() void {
     hello(4);
 }
 
-fn hello(a:i32)void {}
+
+fn hello(a:i32)void {
+    printf("hello a:%d\n",a);
+}
+
 // 测试 8: 数组的 drop
 struct SimpleStruct {
     value: i32

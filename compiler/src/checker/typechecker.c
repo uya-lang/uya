@@ -199,6 +199,7 @@ TypeChecker *typechecker_new() {
     checker->current_column = 0;
     checker->current_file = NULL;
     checker->function_scope_counter = 0;
+    checker->scan_pass = 1;  // 默认值，会在 typechecker_check 中设置
     
     return checker;
 }
@@ -1115,7 +1116,28 @@ static FunctionSignature *extract_function_signature(TypeChecker *checker, ASTNo
         return_type = get_ir_type_from_ast(node->data.fn_decl.return_type);
     }
     
-    FunctionSignature *sig = function_signature_new(name, param_types, param_count, return_type,
+    // 对于 drop 函数，根据第一个参数的类型生成函数名（drop_TypeName）
+    char *actual_name = (char *)name;
+    char drop_func_name[256] = {0};
+    if (strcmp(name, "drop") == 0 && param_count > 0) {
+        ASTNode *first_param = node->data.fn_decl.params[0];
+        if (first_param && first_param->type == AST_VAR_DECL && first_param->data.var_decl.type) {
+            ASTNode *param_type = first_param->data.var_decl.type;
+            const char *type_name = NULL;
+            if (param_type->type == AST_TYPE_NAMED) {
+                type_name = param_type->data.type_named.name;
+            } else if (param_type->type == AST_TYPE_POINTER && param_type->data.type_pointer.pointee_type &&
+                       param_type->data.type_pointer.pointee_type->type == AST_TYPE_NAMED) {
+                type_name = param_type->data.type_pointer.pointee_type->data.type_named.name;
+            }
+            if (type_name) {
+                snprintf(drop_func_name, sizeof(drop_func_name), "drop_%s", type_name);
+                actual_name = drop_func_name;
+            }
+        }
+    }
+    
+    FunctionSignature *sig = function_signature_new(actual_name, param_types, param_count, return_type,
                                                     node->data.fn_decl.is_extern, has_varargs,
                                                     node->line, node->column, node->filename);
     if (param_types) free(param_types);
@@ -1141,6 +1163,14 @@ static int typecheck_call(TypeChecker *checker, ASTNode *node) {
     }
     
     const char *func_name = callee->data.identifier.name;
+    
+    // 特殊处理：array 函数是数组字面量的内部表示，不需要检查
+    if (strcmp(func_name, "array") == 0) {
+        // 数组字面量：已经在解析阶段转换为 array() 调用
+        // 这里只需要检查参数表达式，不需要检查函数是否存在
+        return 1;
+    }
+    
     FunctionSignature *sig = typechecker_lookup_function(checker, func_name);
     
     const char *filename = node->filename ? node->filename : checker->current_file;
@@ -1343,6 +1373,22 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
             }
             return 1;  // 暂时通过，后续需要完善
             
+        case AST_CATCH_EXPR:
+            // Check catch expression: expr catch |err| { ... }
+            // First check the expression being caught
+            if (node->data.catch_expr.expr) {
+                if (!typecheck_node(checker, node->data.catch_expr.expr)) {
+                    return 0;
+                }
+            }
+            // Then check the catch body
+            if (node->data.catch_expr.catch_body) {
+                if (!typecheck_node(checker, node->data.catch_expr.catch_body)) {
+                    return 0;
+                }
+            }
+            return 1;
+            
         case AST_RETURN_STMT:
             if (node->data.return_stmt.expr) {
                 return typecheck_node(checker, node->data.return_stmt.expr);
@@ -1350,103 +1396,109 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
             return 1;
             
         case AST_EXTERN_DECL:
-            // extern 函数声明：提取函数签名并添加到函数表
-            {
+            // extern 函数声明：只在第一遍扫描时提取函数签名并添加到函数表
+            if (checker->scan_pass == 1) {
                 FunctionSignature *sig = extract_function_signature(checker, node);
                 if (sig) {
-                    typechecker_add_function(checker, sig);
+                    if (!typechecker_add_function(checker, sig)) {
+                        // 重复定义错误，已经通过 typechecker_add_function 添加错误信息
+                        function_signature_free(sig);
+                        return 0;
+                    }
                 }
             }
             return 1;  // extern 声明不需要检查函数体
             
         case AST_FN_DECL:
-            // 函数声明检查
-            // 首先提取函数签名并添加到函数表（用于类型检查函数调用）
-            {
+            if (checker->scan_pass == 1) {
+                // 第一遍：只收集函数签名
                 FunctionSignature *sig = extract_function_signature(checker, node);
                 if (sig) {
-                    typechecker_add_function(checker, sig);
-                }
-            }
-            
-            // 为每个函数分配唯一的作用域级别（使用函数作用域计数器）
-            int function_scope_level = 1000 + (checker->function_scope_counter++);  // 从1000开始，避免与全局作用域冲突
-            // 保存当前作用域级别
-            int saved_scope_level = checker->scopes->current_level;
-            // 设置函数作用域级别
-            checker->scopes->current_level = function_scope_level;
-            
-            // 检查是否为drop函数
-            if (strcmp(node->data.fn_decl.name, "drop") == 0) {
-                // 验证drop函数签名：fn drop(self: T) void
-                if (node->data.fn_decl.param_count != 1) {
-                    typechecker_add_error(checker, 
-                        "drop函数必须有且只有一个参数 (行 %d:%d)", 
-                        node->line, node->column);
-                    checker->scopes->current_level = saved_scope_level;
-                    return 0;
-                }
-                
-                ASTNode *param = node->data.fn_decl.params[0];
-                if (param->type != AST_VAR_DECL) {
-                    typechecker_add_error(checker, 
-                        "drop函数参数必须是有效的变量声明 (行 %d:%d)", 
-                        node->line, node->column);
-                    checker->scopes->current_level = saved_scope_level;
-                    return 0;
-                }
-                
-                // 检查返回类型是否为void
-                if (node->data.fn_decl.return_type && 
-                    node->data.fn_decl.return_type->type == AST_TYPE_NAMED && 
-                    strcmp(node->data.fn_decl.return_type->data.type_named.name, "void") != 0) {
-                    typechecker_add_error(checker, 
-                        "drop函数必须返回void类型 (行 %d:%d)", 
-                        node->line, node->column);
-                    checker->scopes->current_level = saved_scope_level;
-                    return 0;
-                }
-                
-                // TODO: 保存drop函数信息到类型系统中
-                // 这里需要为类型存储对应的drop函数
-            }
-            
-            // 添加参数到符号表（参数在函数作用域内，应该标记为已初始化）
-            for (int i = 0; i < node->data.fn_decl.param_count; i++) {
-                ASTNode *param = node->data.fn_decl.params[i];
-                if (param->type == AST_VAR_DECL) {
-                    // 检查参数声明
-                    if (!typecheck_var_decl(checker, param)) {
-                        checker->scopes->current_level = saved_scope_level;
-                        return 0;
-                    }
-                    // 标记参数为已初始化（函数参数由调用者提供，总是已初始化）
-                    Symbol *param_sym = typechecker_lookup_symbol(checker, param->data.var_decl.name);
-                    if (param_sym) {
-                        param_sym->is_initialized = 1;
-                    }
-                }
-            }
-            // 检查函数体
-            // 注意：函数体是block，但函数体中的变量应该在函数作用域中，而不是block作用域
-            // 所以我们需要特殊处理：不进入block作用域，直接检查block中的语句
-            if (node->data.fn_decl.body && node->data.fn_decl.body->type == AST_BLOCK) {
-                // 直接检查block中的语句，不进入新的作用域
-                for (int i = 0; i < node->data.fn_decl.body->data.block.stmt_count; i++) {
-                    if (!typecheck_node(checker, node->data.fn_decl.body->data.block.stmts[i])) {
-                        checker->scopes->current_level = saved_scope_level;
+                    if (!typechecker_add_function(checker, sig)) {
+                        // 重复定义错误，已经通过 typechecker_add_function 添加错误信息
+                        function_signature_free(sig);
                         return 0;
                     }
                 }
+                
+                // 检查是否为drop函数（在第一遍也要验证）
+                if (strcmp(node->data.fn_decl.name, "drop") == 0) {
+                    // 验证drop函数签名：fn drop(self: T) void
+                    if (node->data.fn_decl.param_count != 1) {
+                        typechecker_add_error(checker, 
+                            "drop函数必须有且只有一个参数 (行 %d:%d)", 
+                            node->line, node->column);
+                        return 0;
+                    }
+                    
+                    ASTNode *param = node->data.fn_decl.params[0];
+                    if (param->type != AST_VAR_DECL) {
+                        typechecker_add_error(checker, 
+                            "drop函数参数必须是有效的变量声明 (行 %d:%d)", 
+                            node->line, node->column);
+                        return 0;
+                    }
+                    
+                    // 检查返回类型是否为void
+                    if (node->data.fn_decl.return_type && 
+                        node->data.fn_decl.return_type->type == AST_TYPE_NAMED && 
+                        strcmp(node->data.fn_decl.return_type->data.type_named.name, "void") != 0) {
+                        typechecker_add_error(checker, 
+                            "drop函数必须返回void类型 (行 %d:%d)", 
+                            node->line, node->column);
+                        return 0;
+                    }
+                }
+                
+                return 1;  // 第一遍只收集签名，不检查函数体
             } else {
-                // 如果不是block，直接检查
-                int result = typecheck_node(checker, node->data.fn_decl.body);
+                // 第二遍：检查函数体（签名已在第一遍收集）
+                // 为每个函数分配唯一的作用域级别（使用函数作用域计数器）
+                int function_scope_level = 1000 + (checker->function_scope_counter++);  // 从1000开始，避免与全局作用域冲突
+                // 保存当前作用域级别
+                int saved_scope_level = checker->scopes->current_level;
+                // 设置函数作用域级别
+                checker->scopes->current_level = function_scope_level;
+                
+                // 添加参数到符号表（参数在函数作用域内，应该标记为已初始化）
+                for (int i = 0; i < node->data.fn_decl.param_count; i++) {
+                    ASTNode *param = node->data.fn_decl.params[i];
+                    if (param->type == AST_VAR_DECL) {
+                        // 检查参数声明
+                        if (!typecheck_var_decl(checker, param)) {
+                            checker->scopes->current_level = saved_scope_level;
+                            return 0;
+                        }
+                        // 标记参数为已初始化（函数参数由调用者提供，总是已初始化）
+                        Symbol *param_sym = typechecker_lookup_symbol(checker, param->data.var_decl.name);
+                        if (param_sym) {
+                            param_sym->is_initialized = 1;
+                        }
+                    }
+                }
+                
+                // 检查函数体
+                // 注意：函数体是block，但函数体中的变量应该在函数作用域中，而不是block作用域
+                // 所以我们需要特殊处理：不进入block作用域，直接检查block中的语句
+                if (node->data.fn_decl.body && node->data.fn_decl.body->type == AST_BLOCK) {
+                    // 直接检查block中的语句，不进入新的作用域
+                    for (int i = 0; i < node->data.fn_decl.body->data.block.stmt_count; i++) {
+                        if (!typecheck_node(checker, node->data.fn_decl.body->data.block.stmts[i])) {
+                            checker->scopes->current_level = saved_scope_level;
+                            return 0;
+                        }
+                    }
+                } else {
+                    // 如果不是block，直接检查
+                    int result = typecheck_node(checker, node->data.fn_decl.body);
+                    checker->scopes->current_level = saved_scope_level;
+                    return result;
+                }
+                
+                // 恢复作用域级别
                 checker->scopes->current_level = saved_scope_level;
-                return result;
+                return 1;
             }
-            // 恢复作用域级别
-            checker->scopes->current_level = saved_scope_level;
-            return 1;
 
         case AST_TEST_BLOCK:
             // 测试块检查：类似于函数但没有参数
@@ -1503,8 +1555,17 @@ int typechecker_check(TypeChecker *checker, ASTNode *ast) {
     // 进入全局作用域
     typechecker_enter_scope(checker);
     
-    // 检查AST
+    // 第一遍：收集所有函数签名
+    checker->scan_pass = 1;
     int result = typecheck_node(checker, ast);
+    if (!result) {
+        typechecker_exit_scope(checker);
+        return 0;
+    }
+    
+    // 第二遍：检查所有函数体
+    checker->scan_pass = 2;
+    result = typecheck_node(checker, ast);
     
     // 退出全局作用域
     typechecker_exit_scope(checker);
