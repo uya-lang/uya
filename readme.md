@@ -171,7 +171,7 @@ extern struct File {
     fn drop(self: *Self) void { close(self.fd); }
 }
 
-impl File : IReadable { /* ... */ }
+File : IReadable { /* ... */ }
 ```
 
 **最酷的部分**：同一个结构体，两面性：

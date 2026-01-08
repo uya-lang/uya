@@ -18,8 +18,8 @@
         fn draw(self: *Self) void;
     }
     
-    // 接口实现（动态派发，vtable）- 有 impl 关键字和接口名
-    impl Point : IDrawable {
+    // 接口实现（动态派发，vtable）- 使用 : 分隔结构体名和接口名
+    Point : IDrawable {
         fn draw(self: *Self) void {
             extern printf(fmt: *byte, ...) i32;
             printf("Point at (%f, %f)\n", self.x, self.y);

@@ -142,7 +142,7 @@ struct SimpleCalc {
     multiplier: i32
 }
 
-impl SimpleCalc : ICalculator {
+SimpleCalc : ICalculator {
     fn calculate(self: *Self, a: i32, b: i32) i32 {
         return (a + b) * self.multiplier;
     }

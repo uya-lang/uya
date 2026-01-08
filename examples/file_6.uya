@@ -17,7 +17,7 @@
     }
     
     // 实现组合接口：需要实现所有被组合接口的方法
-    impl File : IReadWrite {
+    File : IReadWrite {
         fn read(self: *Self, buf: *byte, len: i32) i32 {
             // 实现 IReader 的方法
             extern read(fd: i32, buf: *byte, len: i32) i32;

@@ -8,7 +8,7 @@ struct Console {
   fd: i32
 }
 
-impl Console : IWriter {
+Console : IWriter {
   fn write(self: *Self, buf: *byte, len: i32) i32 {
     extern write(fd: i32, buf: *byte, len: i32) i32;
     return write(self.fd, buf, len);

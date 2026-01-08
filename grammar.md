@@ -15,6 +15,7 @@ program        = { declaration }
 declaration    = fn_decl | struct_decl | struct_method_block | interface_decl | const_decl 
                | error_decl | extern_decl | export_decl | import_stmt
                | impl_block | test_stmt
+               # impl_block 现在使用 StructName : InterfaceName { } 语法，不再需要 impl 关键字
 ```
 
 ### 函数声明
@@ -51,15 +52,18 @@ struct_method_block = ID '{' method_list '}'
 ### 接口声明
 
 ```
-interface_decl = 'interface' ID '{' method_sig+ '}'  # 一个或多个 method_sig
+interface_decl = 'interface' ID '{' (method_sig | interface_name)+ '}'  # 方法签名或组合接口名
 method_sig     = 'fn' ID '(' [ param_list ] ')' type ';'
-impl_block     = 'impl' ID ':' ID '{' method_impl+ '}'  # 一个或多个 method_impl
+interface_name = ID ';'  # 组合接口名，用分号分隔
+impl_block     = ID ':' ID '{' method_impl+ '}'  # 接口实现：StructName : InterfaceName { ... }
 method_impl    = fn_decl
 ```
 
 **说明**：
 - `method_sig+` 表示一个或多个方法签名（BNF 扩展语法，等价于 `method_sig { method_sig }`）
-- 接口必须至少包含一个方法签名
+- `interface_name` 表示接口组合，在接口体中直接列出被组合的接口名，用分号分隔
+- 接口必须至少包含一个方法签名或组合接口名
+- `impl_block` 不再需要 `impl` 关键字，使用 `StructName : InterfaceName { ... }` 语法
 - 详细语法说明见 [uya.md](./uya.md#6-接口interface)
 
 ### 类型系统
@@ -296,7 +300,7 @@ identifier = [A-Za-z_][A-Za-z0-9_]*
 
 ```
 struct const var fn return extern true false if while break continue
-defer errdefer try catch error null interface impl atomic max min
+defer errdefer try catch error null interface atomic max min
 export use
 ```
 
@@ -345,9 +349,10 @@ method_decl    = fn_decl  # self 参数必须为 *Self 或 *StructName
 ### 2.2 接口类型
 
 ```
-interface_decl = 'interface' ID '{' method_sig { method_sig } '}'
+interface_decl = 'interface' ID '{' (method_sig | interface_name) { method_sig | interface_name } '}'
 method_sig     = 'fn' ID '(' [ param_list ] ')' type ';'
-impl_block     = 'impl' ID ':' ID '{' method_impl { method_impl } '}'
+interface_name = ID ';'  // 组合接口名，用分号分隔
+impl_block     = ID ':' ID '{' method_impl { method_impl } '}'  # 接口实现：StructName : InterfaceName { ... }
 method_impl    = fn_decl
 interface_type = ID  // 在类型标注中使用接口名称
 ```
@@ -563,7 +568,7 @@ block_comment  = '/*' .* '*/'
 - `NUM`：数字字面量（整数或浮点数）
 - `STRING`：字符串字面量（`"..."`）
 - `TEXT`：普通文本（字符串插值中的非插值部分）
-- 关键字：`struct`, `const`, `var`, `fn`, `return`, `extern`, `true`, `false`, `if`, `while`, `break`, `continue`, `defer`, `errdefer`, `try`, `catch`, `error`, `null`, `interface`, `impl`, `atomic`, `max`, `min`, `export`, `use`, `as`, `as!`, `test`
+- 关键字：`struct`, `const`, `var`, `fn`, `return`, `extern`, `true`, `false`, `if`, `while`, `break`, `continue`, `defer`, `errdefer`, `try`, `catch`, `error`, `null`, `interface`, `atomic`, `max`, `min`, `export`, `use`, `as`, `as!`, `test`
 
 ### 非终结符
 

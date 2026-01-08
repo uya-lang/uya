@@ -24,7 +24,7 @@
     }
 
 
-impl ArrayIteratorI32 : IIteratorI32WithIndex {
+ArrayIteratorI32 : IIteratorI32WithIndex {
     fn next(self: *Self) !void {
         if self.current >= self.len {
             return error.IterEnd;

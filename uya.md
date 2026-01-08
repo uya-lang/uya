@@ -115,7 +115,7 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
 - 关键字保留：
   ```
   struct const var fn return extern true false if while break continue
-  defer errdefer try catch error null interface impl atomic max min
+  defer errdefer try catch error null interface atomic max min
   export use
   ```
 - 标识符 `[A-Za-z_][A-Za-z0-9_]*`，区分大小写。
@@ -734,7 +734,7 @@ interface IReadable {
     fn read(self: *Self, buf: *byte, len: i32) !i32;
 }
 
-impl File : IReadable {
+File : IReadable {
     fn read(self: *Self, buf: *byte, len: i32) !i32 {
         return self.read(buf, len);
     }
@@ -1028,7 +1028,7 @@ fn main() i32 {
 
 接口类型定义语法：
 - `interface InterfaceName { method_sig ... }`
-- `impl StructName : InterfaceName { method_impl ... }`
+- `StructName : InterfaceName { method_impl ... }`
 
 ### 6.3 语义总览
 
@@ -1043,10 +1043,10 @@ fn main() i32 {
 ### 6.4 Self 类型
 
 - `Self` 是方法签名中的特殊占位符，代表当前结构体类型
-- 在接口定义、`impl` 块的方法签名，以及结构体方法的方法签名中使用
+- 在接口定义、接口实现块的方法签名，以及结构体方法的方法签名中使用
 - `Self` 不是一个实际类型，而是编译期的类型替换标记
 - 示例：
-  - 接口实现：`impl Console : IWriter { fn write(self: *Self, ...) { ... } }` 中，`Self` 被替换为 `Console`
+  - 接口实现：`Console : IWriter { fn write(self: *Self, ...) { ... } }` 中，`Self` 被替换为 `Console`
   - 结构体方法：`Point { fn distance(self: *Self) f32 { ... } }` 中，`Self` 被替换为 `Point`
 - `*Self` 表示指向当前结构体类型的指针
 - 结构体方法和接口实现都可以使用 `Self`，两者语法一致，语义清晰
@@ -1131,7 +1131,7 @@ fn main() i32 {
 
 ### 6.10 后端实现要点
 
-1. **语法树收集** → 扫描所有 `impl T : I` 生成唯一 vtable 常量。  
+1. **语法树收集** → 扫描所有 `T : I` 接口实现生成唯一 vtable 常量。  
 2. **类型检查** → 确保 `T` 实现 `I` 的全部方法签名。  
 3. **装箱点** →  
    - 局部：`const iface: I = concrete;`  
@@ -2330,7 +2330,7 @@ interface Add(R) {
     fn add(self: *Self, rhs: R) R;   // R 在括号中明确声明
 }
 
-impl Num : Add(i32) {   // 把 R 换成 i32
+Num : Add(i32) {   // 把 R 换成 i32
     fn add(self: *Self, rhs: i32) i32 {
         return self.x + rhs;
     }
@@ -2352,7 +2352,7 @@ interface Add(R) {
 
 struct Num { x: i32; }
 
-impl Num : Add(i32) {   // 把 R 换成 i32
+Num : Add(i32) {   // 把 R 换成 i32
     fn add(self: *Self, rhs: i32) i32 {
         return self.x + rhs;
     }
@@ -2556,7 +2556,7 @@ interface Collection(T) {
 }
 
 // 接口实现：定义和实例化完全对称
-impl ArrayList(T) : Collection(T) {
+ArrayList(T) : Collection(T) {
     fn add(self: *Self, item: T) !void {
         if self.size >= self.capacity {
             return error.Full;
@@ -2841,8 +2841,8 @@ $ echo $?
       - 也可以使用具体类型（如 `self: *Point`），两者等价
       - 推荐使用 `self: *Self`，与接口实现语法一致，更简洁
       - 编译期展开为静态函数
-    - **接口实现**（动态派发，vtable）：`impl StructName : InterfaceName { fn method(self: *Self) ReturnType { ... } }`
-      - 必须有 `impl` 关键字和接口名（`:` 分隔）
+    - **接口实现**（动态派发，vtable）：`StructName : InterfaceName { fn method(self: *Self) ReturnType { ... } }`
+      - 使用 `:` 分隔结构体名和接口名，无需关键字
       - 方法签名使用 `Self` 占位符（如 `self: *Self`）
       - 编译期生成 vtable，支持动态派发
     - 两者可以共存，互不冲突
@@ -2864,9 +2864,10 @@ $ echo $?
   - 需要运行时类型信息或编译期类型擦除支持
   - 示例：`const writer: IWriter = console; const fd: i32 = writer.fd;`（访问底层 Console 的 fd 字段）
 - **接口组合**：接口可以组合其他接口
-  - 支持接口继承或组合语法，一个接口可以包含其他接口的方法
+  - 支持接口组合语法，一个接口可以包含其他接口的方法
+  - **语法**：在接口体中直接列出被组合的接口名，用分号分隔（如 `IReader; IWriter;`）
   - **编译期验证**：编译器在编译期检查结构体是否实现了所有组合接口的方法，验证失败即编译错误
-  - 实现接口组合的结构体需要实现所有组合接口的方法，编译器在 `impl` 块中验证
+  - 实现接口组合的结构体需要实现所有组合接口的方法，编译器在接口实现块中验证
   - **vtable 生成**：组合接口的 vtable 包含所有被组合接口的方法，编译期生成
   - **编译期处理**：接口组合完全在编译期处理，运行时与普通接口相同
   - 示例：

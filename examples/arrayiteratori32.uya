@@ -5,7 +5,7 @@ struct ArrayIteratorI32 {
     len: i32         // 数组长度
 }
 
-impl ArrayIteratorI32 : IIteratorI32 {
+ArrayIteratorI32 : IIteratorI32 {
     fn next(self: *Self) !void {
         if self.current >= self.len {
             return error.IterEnd;  // 迭代结束
@@ -42,7 +42,7 @@ impl ArrayIteratorI32 : IIteratorI32 {
 }
 
 // 带索引的数组迭代器实现
-impl ArrayIteratorI32 : IIteratorI32WithIndex {
+ArrayIteratorI32 : IIteratorI32WithIndex {
     fn next(self: *Self) !void {
         if self.current >= self.len {
             return error.IterEnd;

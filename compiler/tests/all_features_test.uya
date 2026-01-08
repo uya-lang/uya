@@ -140,7 +140,7 @@ struct Rectangle {
     height: f32
 }
 
-impl Rectangle : IShape {
+Rectangle : IShape {
     fn area(self: *Self) f32 {
         return self.width * self.height;
     }

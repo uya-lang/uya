@@ -889,7 +889,7 @@ Vec(T)、HashMap(K, V)、Result(T, E)
     // ✅ 可以实现接口
 }
 
-impl File : IReadable {
+File : IReadable {
     fn read(self: *Self, buf: *byte, len: i32) !i32 {
         return self.read(buf, len);
     }
@@ -1401,7 +1401,7 @@ interface IIncrement {
   fn inc(self: *Self) i32;
 }
 
-impl Counter : IIncrement {
+Counter : IIncrement {
   fn inc(self: *Self) i32 {
     self.value += 1;      // 自动原子 fetch_add
     return self.value;    // 自动原子 load
@@ -1649,7 +1649,7 @@ interface Collection(T) {
 }
 
 // 接口实现：定义和实例化完全对称
-impl ArrayList(T) : Collection(T) {
+ArrayList(T) : Collection(T) {
     fn add(self: *Self, item: T) !void {
         if self.size >= self.capacity {
             return error.Full;

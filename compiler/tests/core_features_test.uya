@@ -113,7 +113,7 @@ struct ConsoleWriter {
     fd: i32
 }
 
-impl ConsoleWriter : IWriter {
+ConsoleWriter : IWriter {
     fn write(self: *Self, data: byte*) i32 {
         const _ = data;  // 使用参数避免警告
         return 0;

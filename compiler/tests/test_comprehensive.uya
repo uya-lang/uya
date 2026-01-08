@@ -28,7 +28,7 @@ struct Circle {
     radius: f32
 }
 
-impl Circle : IShape {
+Circle : IShape {
     fn area(self: *Self) f32 {
         return 3.14159 * self.radius * self.radius;
     }
@@ -44,7 +44,7 @@ struct Rectangle {
     height: f32
 }
 
-impl Rectangle : IShape {
+Rectangle : IShape {
     fn area(self: *Self) f32 {
         return self.width * self.height;
     }

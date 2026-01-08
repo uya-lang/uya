@@ -286,7 +286,7 @@ interface ITime {
     fn to_millis(self: *Self) i64;
 }
 
-impl timeval : ITime {
+timeval : ITime {
     fn to_millis(self: *Self) i64 {
         return self.to_millis();
     }

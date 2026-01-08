@@ -37,13 +37,13 @@ interface IWritable {
     fn write(self: *Self, buf: *byte, len: i32) !i32;
 }
 
-impl File : IReadable {
+File : IReadable {
     fn read(self: *Self, buf: *byte, len: i32) !i32 {
         return self.read(buf, len);
     }
 }
 
-impl File : IWritable {
+File : IWritable {
     fn write(self: *Self, buf: *byte, len: i32) !i32 {
         return self.write(buf, len);
     }
