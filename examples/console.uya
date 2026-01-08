@@ -3,12 +3,12 @@ interface IWriter {
   fn write(self: *Self, buf: *byte, len: i32) i32;
 }
 
-// ② 具体实现
-struct Console {
+// ② 具体实现（在结构体定义时声明接口，接口方法作为结构体方法定义）
+struct Console : IWriter {
   fd: i32
 }
 
-Console : IWriter {
+Console {
   fn write(self: *Self, buf: *byte, len: i32) i32 {
     extern write(fd: i32, buf: *byte, len: i32) i32;
     return write(self.fd, buf, len);

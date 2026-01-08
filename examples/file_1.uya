@@ -1,5 +1,5 @@
 // 声明外部 C 结构体（与 C 代码 100% 兼容）
-extern struct File {
+extern struct File : IReadable, IWritable {
     fd: i32
     
     // ✅ 可以有方法
@@ -37,13 +37,11 @@ interface IWritable {
     fn write(self: *Self, buf: *byte, len: i32) !i32;
 }
 
-File : IReadable {
+File {
     fn read(self: *Self, buf: *byte, len: i32) !i32 {
         return self.read(buf, len);
     }
-}
-
-File : IWritable {
+    
     fn write(self: *Self, buf: *byte, len: i32) !i32 {
         return self.write(buf, len);
     }

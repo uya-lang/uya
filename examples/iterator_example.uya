@@ -1,3 +1,25 @@
+extern printf(fmt: *byte, ...) i32;
+
+// 迭代器接口定义（需要先定义接口，然后定义结构体）
+interface IIteratorI32 {
+    fn next(self: *Self) !void;
+    fn value(self: *Self) !i32;
+    fn ptr(self: *Self) !&i32;
+}
+
+interface IIteratorI32WithIndex {
+    fn next(self: *Self) !void;
+    fn value(self: *Self) !i32;
+    fn index(self: *Self) i32;
+}
+
+struct ArrayIteratorI32 : IIteratorI32WithIndex {
+    arr: *[i32; 5],
+    current: i32,
+    len: i32
+}
+
+ArrayIteratorI32 {
     fn next(self: *Self) !void {
         if self.current >= self.len {
             return error.IterEnd;
@@ -22,25 +44,8 @@
         }
         return &(*self.arr)[idx];  // 返回指向当前元素的指针（可修改）
     }
-
-
-ArrayIteratorI32 : IIteratorI32WithIndex {
-    fn next(self: *Self) !void {
-        if self.current >= self.len {
-            return error.IterEnd;
-        }
-        self.current = self.current + 1;
-    }
     
-    fn value(self: *Self) !i32 {
-        const idx: i32 = self.current - 1;
-        // 编译期证明：由于 next() 成功返回，idx 在有效范围内
-        if idx < 0 || idx >= self.len {
-            return error.InvalidIteratorState;  // 根据设计，这种情况不应该发生
-        }
-        return (*self.arr)[idx];
-    }
-    
+    // 带索引的数组迭代器方法
     fn index(self: *Self) i32 {
         return self.current - 1;
     }
@@ -94,5 +99,3 @@ fn main() i32 {
     
     return 0;
 }
-
-

@@ -1,5 +1,5 @@
-struct Counter {
-  value: atomic i32
+struct Counter : IIncrement {
+    value: atomic i32
 }
 
 interface IIncrement {

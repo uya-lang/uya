@@ -1,8 +1,8 @@
-struct Counter {
-  value: atomic i32
+struct Counter : IIncrement {
+    value: atomic i32
 }
 
-Counter : IIncrement {
+Counter {
   fn inc(self: *Self) i32 {
     self.value += 1;  // 自动原子 fetch_add
     return self.value;  // 自动原子 load

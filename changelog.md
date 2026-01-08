@@ -8,6 +8,11 @@
 
 ### 0.24 接口实现语法简化
 
+- **移除接口实现块语法**（第 6 章）：
+  - 删除了 `StructName : InterfaceName { ... }` 这种单独的接口实现块语法
+  - 结构体在定义时声明接口：`struct StructName : InterfaceName { ... }`
+  - 接口方法作为结构体方法定义，可以在结构体内部（与字段一起）或外部方法块中定义
+  - 语法更简洁，接口方法就是结构体方法，无需区分
 - **接口实现语法简化**（第 6 章）：
   - 移除了 `impl` 关键字，接口实现语法从 `impl StructName : InterfaceName {}` 简化为 `StructName : InterfaceName {}`
   - 语法更简洁，与结构体方法定义更对称（结构体方法：`StructName {}`，接口实现：`StructName : InterfaceName {}`）

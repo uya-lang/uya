@@ -14,8 +14,7 @@
 program        = { declaration }
 declaration    = fn_decl | struct_decl | struct_method_block | interface_decl | const_decl 
                | error_decl | extern_decl | export_decl | import_stmt
-               | impl_block | test_stmt
-               # impl_block 现在使用 StructName : InterfaceName { } 语法，不再需要 impl 关键字
+               | test_stmt
 ```
 
 ### 函数声明
@@ -29,7 +28,8 @@ param          = ID ':' type
 ### 结构体声明
 
 ```
-struct_decl    = 'struct' ID '{' struct_body '}'
+struct_decl    = 'struct' ID [ ':' interface_list ] '{' struct_body '}'
+interface_list = ID { ',' ID }
 struct_body    = ( field_list | method_list | field_list method_list )
 field_list     = field { ',' field }
 field          = ID ':' type
@@ -41,12 +41,15 @@ struct_method_block = ID '{' method_list '}'
 ```
 
 **说明**：
+- **接口声明**：结构体定义时可以声明实现的接口，语法为 `struct StructName : InterfaceName1, InterfaceName2 { ... }`
+  - 接口声明是可选的，如果结构体不实现接口，可以不声明
+  - 接口方法作为结构体方法定义，可以在结构体内部或外部方法块中定义
 - **方式1：结构体内部定义**：方法定义在结构体花括号内，与字段定义并列
-  - 语法：`struct StructName { field: Type, fn method(self: *Self) ReturnType { ... } }`
+  - 语法：`struct StructName : InterfaceName { field: Type, fn method(self: *Self) ReturnType { ... } }`
 - **方式2：结构体外部定义**：使用块语法在结构体定义后添加方法
   - 语法：`StructName { fn method(self: *Self) ReturnType { ... } }`
 - `self` 参数必须显式声明，使用指针：`self: *Self` 或 `self: *StructName`
-- 推荐使用 `Self` 占位符：`self: *Self` 更简洁、与接口实现语法一致
+- 推荐使用 `Self` 占位符：`self: *Self` 更简洁
 - 详细语法说明见 [uya.md](./uya.md#29-未实现将来) 结构体方法部分
 
 ### 接口声明
@@ -55,15 +58,13 @@ struct_method_block = ID '{' method_list '}'
 interface_decl = 'interface' ID '{' (method_sig | interface_name)+ '}'  # 方法签名或组合接口名
 method_sig     = 'fn' ID '(' [ param_list ] ')' type ';'
 interface_name = ID ';'  # 组合接口名，用分号分隔
-impl_block     = ID ':' ID '{' method_impl+ '}'  # 接口实现：StructName : InterfaceName { ... }
-method_impl    = fn_decl
 ```
 
 **说明**：
 - `method_sig+` 表示一个或多个方法签名（BNF 扩展语法，等价于 `method_sig { method_sig }`）
 - `interface_name` 表示接口组合，在接口体中直接列出被组合的接口名，用分号分隔
 - 接口必须至少包含一个方法签名或组合接口名
-- `impl_block` 不再需要 `impl` 关键字，使用 `StructName : InterfaceName { ... }` 语法
+- 接口实现：结构体在定义时声明接口（`struct StructName : InterfaceName { ... }`），接口方法作为结构体方法定义
 - 详细语法说明见 [uya.md](./uya.md#6-接口interface)
 
 ### 类型系统
@@ -352,8 +353,6 @@ method_decl    = fn_decl  # self 参数必须为 *Self 或 *StructName
 interface_decl = 'interface' ID '{' (method_sig | interface_name) { method_sig | interface_name } '}'
 method_sig     = 'fn' ID '(' [ param_list ] ')' type ';'
 interface_name = ID ';'  // 组合接口名，用分号分隔
-impl_block     = ID ':' ID '{' method_impl { method_impl } '}'  # 接口实现：StructName : InterfaceName { ... }
-method_impl    = fn_decl
 interface_type = ID  // 在类型标注中使用接口名称
 ```
 
@@ -361,9 +360,8 @@ interface_type = ID  // 在类型标注中使用接口名称
 - `interface_decl`：接口声明语法（详见[接口声明](#接口声明)部分）
 - `interface_type`：接口类型标注，使用接口名称（ID）
 - `method_sig`：方法签名
-- `impl_block`：接口实现块
 - `param`：参数定义，格式为 `param_name: type`
-- `method_impl`：方法实现
+- 接口实现：结构体在定义时声明接口（`struct StructName : InterfaceName { ... }`），接口方法作为结构体方法定义（详见[结构体声明](#结构体声明)部分）
 
 ---
 

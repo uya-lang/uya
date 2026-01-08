@@ -1,4 +1,4 @@
-# Uya 语言规范 0.23（完整版 · 2026-01-02）
+# Uya 语言规范 0.24（完整版 · 2026-01-02）
 
 > 零GC · 默认高级安全 · 单页纸可读完  
 > 无lifetime符号 · 无隐式控制 · 编译期证明（本函数内）
@@ -396,7 +396,7 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
 - `*T`：用于方法签名和 FFI 函数声明，表示指针参数，不能用于普通变量声明
   - **语法规则**：
     - `*T` 语法在以下场景中使用：
-      - 接口定义、`impl` 块的方法签名，以及结构体方法的方法签名
+      - 接口定义和结构体方法的方法签名
       - FFI 函数声明（如 `extern printf(fmt: *byte, ...) i32;`）
     - `*T` 表示指向类型 `T` 的指针参数（按引用传递，但语法使用 `*` 前缀）
     - 与 `&T` 的区别：`&T` 用于普通变量和普通函数参数，`*T` 用于方法签名和 FFI 函数声明
@@ -729,14 +729,20 @@ fn drop(self: File) void {
     close(self.fd);
 }
 
-// ✅ 可以实现接口
+// ✅ 可以实现接口（在结构体定义时声明接口）
 interface IReadable {
     fn read(self: *Self, buf: *byte, len: i32) !i32;
 }
 
-File : IReadable {
+struct File : IReadable {
+    fd: i32,
     fn read(self: *Self, buf: *byte, len: i32) !i32 {
-        return self.read(buf, len);
+        extern read(fd: i32, buf: *void, count: i32) i32;
+        const result: i32 = read(self.fd, buf, len);
+        if result < 0 {
+            return error.ReadFailed;
+        }
+        return result;
     }
 }
 
@@ -1028,7 +1034,8 @@ fn main() i32 {
 
 接口类型定义语法：
 - `interface InterfaceName { method_sig ... }`
-- `StructName : InterfaceName { method_impl ... }`
+- 结构体在定义时声明接口：`struct StructName : InterfaceName { ... }`
+- 接口方法作为结构体方法定义，可以在结构体内部或外部方法块中定义
 
 ### 6.3 语义总览
 
@@ -1043,13 +1050,13 @@ fn main() i32 {
 ### 6.4 Self 类型
 
 - `Self` 是方法签名中的特殊占位符，代表当前结构体类型
-- 在接口定义、接口实现块的方法签名，以及结构体方法的方法签名中使用
+- 在接口定义和结构体方法的方法签名中使用
 - `Self` 不是一个实际类型，而是编译期的类型替换标记
 - 示例：
-  - 接口实现：`Console : IWriter { fn write(self: *Self, ...) { ... } }` 中，`Self` 被替换为 `Console`
   - 结构体方法：`Point { fn distance(self: *Self) f32 { ... } }` 中，`Self` 被替换为 `Point`
+  - 接口方法：`struct Console : IWriter { fn write(self: *Self, ...) { ... } }` 中，`Self` 被替换为 `Console`
 - `*Self` 表示指向当前结构体类型的指针
-- 结构体方法和接口实现都可以使用 `Self`，两者语法一致，语义清晰
+- 结构体方法（包括接口方法）都可以使用 `Self`，语法一致，语义清晰
 
 ### 6.5 生命周期（零语法版）
 
@@ -1131,8 +1138,8 @@ fn main() i32 {
 
 ### 6.10 后端实现要点
 
-1. **语法树收集** → 扫描所有 `T : I` 接口实现生成唯一 vtable 常量。  
-2. **类型检查** → 确保 `T` 实现 `I` 的全部方法签名。  
+1. **语法树收集** → 扫描所有在结构体定义中声明接口的结构体（`struct T : I { ... }`），生成唯一 vtable 常量。  
+2. **类型检查** → 确保结构体方法实现了所有声明接口的全部方法签名。  
 3. **装箱点** →  
    - 局部：`const iface: I = concrete;`  
    - 传参 / 返回：按值复制 16 B。  
@@ -2834,18 +2841,13 @@ $ echo $?
       - 方法调用后，原对象仍然可以使用，符合常见的方法调用语义
     - 编译期将方法展开为普通函数：`Self` 占位符会被替换为具体类型，如 `fn StructName_method(self: *StructName) ReturnType { ... }`
     - 调用 `obj.method()` 展开为 `StructName_method(&obj)`（传递指针，不移动）
-  - **与接口实现的区别**：
-    - **结构体方法**（静态方法，语法糖）：`StructName { fn method(self: *Self) ReturnType { ... } }`（推荐使用指针和 `Self`）
-      - 无 `impl` 关键字，直接以结构体名开头
-      - 方法签名可以使用 `Self` 占位符（如 `self: *Self`），编译期替换为具体类型（如 `self: *Point`）
-      - 也可以使用具体类型（如 `self: *Point`），两者等价
-      - 推荐使用 `self: *Self`，与接口实现语法一致，更简洁
-      - 编译期展开为静态函数
-    - **接口实现**（动态派发，vtable）：`StructName : InterfaceName { fn method(self: *Self) ReturnType { ... } }`
-      - 使用 `:` 分隔结构体名和接口名，无需关键字
-      - 方法签名使用 `Self` 占位符（如 `self: *Self`）
-      - 编译期生成 vtable，支持动态派发
-    - 两者可以共存，互不冲突
+  - **接口方法作为结构体方法**：
+    - 结构体在定义时声明接口：`struct StructName : InterfaceName { ... }`
+    - 接口方法作为结构体方法定义，可以在结构体内部或外部方法块中定义
+    - 结构体方法（包括接口方法）都使用相同的语法：`StructName { fn method(self: *Self) ReturnType { ... } }`
+    - 方法签名使用 `Self` 占位符（如 `self: *Self`），编译期替换为具体类型
+    - 接口方法会生成 vtable，支持动态派发
+    - 普通结构体方法编译期展开为静态函数
   - **完整示例**：
 [examples/point_1.uya](./examples/point_1.uya)
   - **与接口实现共存示例**（展示两者可以同时使用，无冲突）：
@@ -2855,10 +2857,11 @@ $ echo $?
     - `A { fn method(self: *Self) void { ... } }` → `fn A_method(self: *A) void { ... }`（`Self` 替换为 `A`）
     - `obj.method()` → `A_method(&obj)`（传递指针，不移动 `obj`）
     - `obj.method(arg)` → `A_method(&obj, arg)`（传递指针，不移动 `obj`）
-    - **推荐使用指针和 Self**：`self: *Self` 更简洁、与接口实现语法一致，符合 Uya 的"显式控制"原则
-    - `Self` 是编译期占位符，会被替换为具体的结构体类型（如 `Point`），与接口实现中的 `Self` 语义一致
+    - **推荐使用指针和 Self**：`self: *Self` 更简洁，符合 Uya 的"显式控制"原则
+    - `Self` 是编译期占位符，会被替换为具体的结构体类型（如 `Point`）
     - 方法仍然是普通函数，可以像普通函数一样调用：`A_method(&obj)` 或 `A_method(obj)`（如果明确需要移动）
     - 如果需要移动对象，必须显式调用：`A_method(obj)`（直接传递值，会移动）
+    - 接口方法作为结构体方法定义，编译器会生成 vtable 支持动态派发
 - **结构体字段访问**：通过接口值访问结构体字段
   - 允许通过接口值访问底层结构体的字段（如 `interface_value.field`）
   - 需要运行时类型信息或编译期类型擦除支持
@@ -2867,7 +2870,7 @@ $ echo $?
   - 支持接口组合语法，一个接口可以包含其他接口的方法
   - **语法**：在接口体中直接列出被组合的接口名，用分号分隔（如 `IReader; IWriter;`）
   - **编译期验证**：编译器在编译期检查结构体是否实现了所有组合接口的方法，验证失败即编译错误
-  - 实现接口组合的结构体需要实现所有组合接口的方法，编译器在接口实现块中验证
+  - 实现接口组合的结构体需要实现所有组合接口的方法，编译器在结构体定义时声明接口时验证
   - **vtable 生成**：组合接口的 vtable 包含所有被组合接口的方法，编译期生成
   - **编译期处理**：接口组合完全在编译期处理，运行时与普通接口相同
   - 示例：
@@ -2984,7 +2987,7 @@ for循环、切片语法、多维数组的完整示例请参考对应章节。
 
 ### 其他
 
-- **`Self`**：接口方法签名中的特殊占位符，代表实现该接口的具体结构体类型。仅在接口定义和 `impl` 块中使用。
+- **`Self`**：接口方法签名和结构体方法签名中的特殊占位符，代表当前结构体类型。在接口定义和结构体方法的方法签名中使用。
 
 - **`max/min` 关键字**：访问整数类型极值的语言关键字。编译器从上下文类型自动推断极值类型，这些是编译期常量。例如：`const MAX: i32 = max;`（`max` 从类型注解 `i32` 推断为 i32 的最大值）。
 

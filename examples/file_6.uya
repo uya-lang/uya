@@ -12,7 +12,7 @@
         IWriter
     }
     
-    struct File {
+    struct File : IReadWrite {
         fd: i32
     }
     
