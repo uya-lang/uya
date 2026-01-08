@@ -1,4 +1,4 @@
-# Uya 语言规范 0.24（完整版 · 2026-01-02）
+# Uya 语言规范 0.25（完整版 · 2026-01-02）
 
 > 零GC · 默认高级安全 · 单页纸可读完  
 > 无lifetime符号 · 无隐式控制 · 编译期证明（本函数内）
@@ -338,7 +338,7 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
 | `&[T; N]`       | 16 B       | 切片引用（编译期已知长度），指针(8B) + 长度(8B) |
 | `struct S { }`  | 字段顺序布局 | 对齐 = 最大字段对齐，见下方说明 |
 | `interface I { }` | 16 B (64位) | vtable 指针(8B) + 数据指针(8B)，[见第 6 章接口](#6-接口interface) |
-| `extern` 函数   | C 函数声明    | -         | 不支持函数指针类型，`extern` 仅用于声明外部 C 函数，[见 5.2](#52-外部-c-函数ffi) |
+| `fn(...) type` | 4/8 B（平台相关） | 函数指针类型，用于 FFI 回调，[见 5.2](#52-外部-c-函数ffi) |
 | `!T`            | 错误联合类型  | max(sizeof(T), sizeof(错误标记)) + 对齐填充 | `T | Error`，见下方说明 |
 
 - 无隐式转换；支持安全指针算术（见第 18 章）；无 lifetime 符号。
@@ -794,7 +794,10 @@ fn example() !void {
   - 示例：`const ptr: &i32 = get_pointer(); if ptr == null { return error; }` 显式检查空指针
 - **递归函数**：支持递归函数调用（函数可以调用自身），递归深度受栈大小限制
 - **函数前向引用**：函数可以在定义之前调用（编译器多遍扫描）
-- **函数指针**：不支持函数指针类型，函数名不能作为值传递或存储，仅支持直接函数调用
+- **函数指针**：支持函数指针类型（语法：`fn(param_types) return_type`），用于 FFI 回调场景
+  - 可以使用 `&function_name` 获取导出函数的函数指针
+  - 支持类型别名：`type ComparFunc = fn(*void, *void) i32;`
+  - 详见 [5.2 外部 C 函数（FFI）](#52-外部-c-函数ffi)
 - **变参函数调用**：参数数量必须与 C 函数声明匹配（编译期检查有限）
 - **程序入口点**：必须定义 `fn main() i32`（程序退出码）
   - 不支持命令行参数（未来支持 `main(argc: i32, argv: *byte)`）
@@ -901,6 +904,11 @@ fn example() !void {
 **步骤 2：正常调用**  
 [examples/extern_c_function_1.uya](./examples/extern_c_function_1.uya)
 
+#### 5.2.1 导入 C 函数（声明外部函数）
+
+- 语法：`extern fn name(...) type;`（分号结尾，无函数体）
+- 用于声明外部 C 函数，供 Uya 代码调用
+
 **重要语法规则**：
 - extern 函数声明必须使用 Uya 的函数参数语法：`param_name: type`
 - **FFI 指针类型 `*T`**：支持所有 C 兼容类型
@@ -920,6 +928,46 @@ fn example() !void {
 - 调用生成原生 `call rel32` 或 `call *rax`，**无包装函数**。
 - 返回后按 C 调用约定清理参数。
 - **调用约定**：与目标平台的 C 调用约定一致（如 x86-64 System V ABI 或 Microsoft x64 calling convention），具体由后端实现决定
+
+#### 5.2.2 导出函数给 C（导出函数）
+
+- 语法：`extern fn name(...) type { ... }`（花括号包含函数体）
+- 用于将 Uya 函数导出为 C 函数，供 C 代码调用
+- 导出的函数可以使用 `&name` 获取函数指针，传递给需要函数指针的 C 函数
+- 函数参数和返回值必须使用 C 兼容的类型
+
+**示例**：
+```uya
+// 导出函数给 C
+extern fn compare(a: *void, b: *void) i32 {
+    const val_a: i32 = *(a as *i32);
+    const val_b: i32 = *(b as *i32);
+    if val_a < val_b { return -1; }
+    if val_a > val_b { return 1; }
+    return 0;
+}
+
+// 使用函数指针类型别名
+type ComparFunc = fn(*void, *void) i32;
+
+// 声明需要函数指针的 C 函数
+extern qsort(base: *void, nmemb: usize, size: usize, compar: ComparFunc) void;
+
+fn main() i32 {
+    const arr: [i32; 5] = [5, 2, 8, 1, 9];
+    
+    // 使用 &compare 获取函数指针并传递给 C 函数
+    qsort(&arr[0], 5, 4, &compare);
+    
+    return 0;
+}
+```
+
+**函数指针类型**：
+- 语法：`fn(param_types) return_type`
+- 支持类型别名：`type FuncAlias = fn(...) type;`
+- `&function_name` 的类型是函数指针类型（不是 `*void`）
+- 仅在 FFI 上下文中使用，用于与 C 函数指针互操作
 
 **FFI 指针使用示例**：
 
@@ -2496,6 +2544,10 @@ type Output = IWriter;          // 接口别名
 // 指针类型别名
 type StringPtr = *byte;          // FFI 字符串指针（*T 的一个实例，T=byte）
 type DataPtr = &[i32; 10];      // 数组指针
+
+// 函数指针类型别名
+type ComparFunc = fn(*void, *void) i32;  // 函数指针类型别名
+type ThreadFunc = fn(*void) *void;       // 线程函数指针类型别名
 
 // 错误联合类型别名
 error FileError;

@@ -72,7 +72,7 @@ interface_name = ID ';'  # 组合接口名，用分号分隔
 ```
 type           = base_type | pointer_type | array_type | slice_type 
                | struct_type | interface_type | atomic_type | error_union_type
-               | extern_type
+               | function_pointer_type | extern_type
 
 base_type      = 'i8' | 'i16' | 'i32' | 'i64' | 'u8' | 'u16' | 'u32' | 'u64'
                | 'f32' | 'f64' | 'bool' | 'byte' | 'void' | 'usize'
@@ -83,6 +83,8 @@ struct_type    = ID
 interface_type = ID
 atomic_type    = 'atomic' type
 error_union_type = '!' type  # 错误联合类型，表示 T | Error
+function_pointer_type = 'fn' '(' [ param_type_list ] ')' type  # 函数指针类型
+param_type_list = type { ',' type }  # 函数指针类型的参数类型列表（无参数名）
 ```
 
 ### 变量声明
@@ -184,7 +186,8 @@ module_path    = ID { '.' ID }
   - `export interface PublicInterface { ... }`
   - `export const PUBLIC_CONST: i32 = 42;`
   - `export error PublicError;`
-  - `export extern printf(fmt: *byte, ...) i32;`
+  - `export extern printf(fmt: *byte, ...) i32;`（导出外部 C 函数声明）
+  - `export extern my_callback(x: i32, y: i32) i32 { ... }`（导出函数给 C）
 - **导入语法**：
   - 导入整个模块：`use std.io;`（使用时需要模块前缀：`std.io.read_file()`）
   - 导入特定项：`use std.io.read_file;`（直接使用：`read_file()`）
@@ -197,11 +200,14 @@ module_path    = ID { '.' ID }
 ### 外部函数接口（FFI）
 
 ```
-extern_decl    = 'extern' 'fn' ID '(' [ param_list ] ')' type ';'
+extern_decl    = 'extern' 'fn' ID '(' [ param_list ] ')' type (';' | '{' statements '}')
 ```
 
 **说明**：
-- `extern` 仅用于声明外部 C 函数
+- `extern fn name(...) type;` - 声明外部 C 函数（导入，供 Uya 调用）
+- `extern fn name(...) type { ... }` - 导出 Uya 函数为 C 函数（导出，供 C 调用）
+  - 导出的函数可以使用 `&name` 获取函数指针，传递给需要函数指针的 C 函数
+  - 函数必须使用 C 兼容的类型（FFI 指针类型 `*T`、基本类型等）
 - 所有 `struct` 统一使用 C 内存布局，无需 `extern` 关键字
 - 结构体可以包含所有类型（包括切片、interface 等），编译器自动生成对应的 C 兼容布局
 
@@ -448,6 +454,7 @@ export interface PublicInterface { ... }
 export const PUBLIC_CONST: i32 = 42;
 export error PublicError;
 export extern printf(fmt: *byte, ...) i32;
+export extern my_callback(x: i32, y: i32) i32 { ... }  // 导出函数给 C
 ```
 
 ### 7.2 导入语法

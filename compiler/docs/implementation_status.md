@@ -8,6 +8,21 @@
 
 ## 接口实现语法变更（待实现）
 
+### 语言规范变更（0.25 版本）
+
+**状态**：⚠️ **规范已更新，编译器代码待更新**
+
+**变更内容**：
+- 新增函数指针类型语法：`fn(param_types) return_type`
+- 支持 `extern fn name(...) type { ... }` 导出函数给 C
+- 支持 `&function_name` 获取函数指针
+- 支持函数指针类型别名：`type FuncAlias = fn(...) type;`
+
+**编译器代码状态**：
+- ❌ 解析器 (`compiler/src/parser/parser.c`) 未支持函数指针类型语法
+- ❌ 类型检查器 (`compiler/src/checker/typechecker.c`) 未支持函数指针类型
+- ❌ 代码生成器 (`compiler/src/codegen/`) 未支持函数指针类型和导出函数
+
 ### 语言规范变更（0.24 版本）
 
 **状态**：⚠️ **规范已更新，编译器代码待更新**
