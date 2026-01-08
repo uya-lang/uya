@@ -465,6 +465,10 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                                         drop_vars[drop_var_count].array_size = 0;
                                         drop_var_count++;
                                     }
+                                } else if (body_inst->data.var.type == IR_TYPE_PTR && body_inst->data.var.original_type_name) {
+                                    // Pointer type with original type name: *i32 -> int32_t*
+                                    const char *c_type_name = codegen_convert_uya_type_to_c(body_inst->data.var.original_type_name);
+                                    fprintf(codegen->output_file, "%s* %s", c_type_name ? c_type_name : body_inst->data.var.original_type_name, body_inst->data.var.name);
                                 } else {
                                     codegen_write_type(codegen, body_inst->data.var.type);
                                     fprintf(codegen->output_file, " %s", body_inst->data.var.name);
@@ -1013,6 +1017,10 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                     if (inst->data.var.type == IR_TYPE_STRUCT && inst->data.var.original_type_name) {
                         fprintf(codegen->output_file, "%s %s = _tmp_%s",
                                 inst->data.var.original_type_name, inst->data.var.name, inst->data.var.name);
+                    } else if (inst->data.var.type == IR_TYPE_PTR && inst->data.var.original_type_name) {
+                        const char *c_type_name = codegen_convert_uya_type_to_c(inst->data.var.original_type_name);
+                        fprintf(codegen->output_file, "%s* %s = _tmp_%s",
+                                c_type_name ? c_type_name : inst->data.var.original_type_name, inst->data.var.name, inst->data.var.name);
                     } else {
                         codegen_write_type(codegen, inst->data.var.type);
                         fprintf(codegen->output_file, " %s = _tmp_%s", inst->data.var.name, inst->data.var.name);
@@ -1020,6 +1028,9 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                 } else {
                     if (inst->data.var.type == IR_TYPE_STRUCT && inst->data.var.original_type_name) {
                         fprintf(codegen->output_file, "%s %s", inst->data.var.original_type_name, inst->data.var.name);
+                    } else if (inst->data.var.type == IR_TYPE_PTR && inst->data.var.original_type_name) {
+                        const char *c_type_name = codegen_convert_uya_type_to_c(inst->data.var.original_type_name);
+                        fprintf(codegen->output_file, "%s* %s", c_type_name ? c_type_name : inst->data.var.original_type_name, inst->data.var.name);
                     } else {
                         codegen_write_type(codegen, inst->data.var.type);
                         fprintf(codegen->output_file, " %s", inst->data.var.name);

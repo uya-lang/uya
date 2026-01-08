@@ -1277,7 +1277,21 @@ static IRInst *generate_stmt_for_body(IRGenerator *ir_gen, struct ASTNode *stmt)
 
             // Store original type name for user-defined types
             if (stmt->data.var_decl.type) {
-                if (stmt->data.var_decl.type->type == AST_TYPE_ARRAY) {
+                if (stmt->data.var_decl.type->type == AST_TYPE_POINTER && stmt->data.var_decl.type->data.type_pointer.pointee_type) {
+                    // For pointer types, extract the pointee type name
+                    struct ASTNode *pointee_type = stmt->data.var_decl.type->data.type_pointer.pointee_type;
+                    if (pointee_type->type == AST_TYPE_NAMED) {
+                        const char *type_name = pointee_type->data.type_named.name;
+                        // For pointer types, store the pointee type name (including built-in types like i32)
+                        // This is needed for code generation to generate the correct type (e.g., int32_t* instead of void*)
+                        var_decl->data.var.original_type_name = malloc(strlen(type_name) + 1);
+                        if (var_decl->data.var.original_type_name) {
+                            strcpy(var_decl->data.var.original_type_name, type_name);
+                        }
+                    } else {
+                        var_decl->data.var.original_type_name = NULL;
+                    }
+                } else if (stmt->data.var_decl.type->type == AST_TYPE_ARRAY) {
                     // For array types, extract element type name
                     struct ASTNode *element_type = stmt->data.var_decl.type->data.type_array.element_type;
                     if (element_type && element_type->type == AST_TYPE_NAMED) {

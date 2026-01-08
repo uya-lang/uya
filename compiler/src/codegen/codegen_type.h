@@ -7,6 +7,7 @@
 
 // Type handling functions
 char *codegen_get_type_name(IRType type);
+const char *codegen_convert_uya_type_to_c(const char *uya_type_name);
 void codegen_write_type(CodeGenerator *codegen, IRType type);
 void codegen_write_type_with_name(CodeGenerator *codegen, IRType type, const char *original_type_name);
 void codegen_write_error_union_type_name(CodeGenerator *codegen, IRType base_type);

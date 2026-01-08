@@ -30,6 +30,28 @@ char *codegen_get_type_name(IRType type) {
     }
 }
 
+// Convert Uya type name to C type name
+const char *codegen_convert_uya_type_to_c(const char *uya_type_name) {
+    if (!uya_type_name) return NULL;
+    
+    if (strcmp(uya_type_name, "i8") == 0) return "int8_t";
+    if (strcmp(uya_type_name, "i16") == 0) return "int16_t";
+    if (strcmp(uya_type_name, "i32") == 0) return "int32_t";
+    if (strcmp(uya_type_name, "i64") == 0) return "int64_t";
+    if (strcmp(uya_type_name, "u8") == 0) return "uint8_t";
+    if (strcmp(uya_type_name, "u16") == 0) return "uint16_t";
+    if (strcmp(uya_type_name, "u32") == 0) return "uint32_t";
+    if (strcmp(uya_type_name, "u64") == 0) return "uint64_t";
+    if (strcmp(uya_type_name, "f32") == 0) return "float";
+    if (strcmp(uya_type_name, "f64") == 0) return "double";
+    if (strcmp(uya_type_name, "bool") == 0) return "_Bool";
+    if (strcmp(uya_type_name, "byte") == 0) return "uint8_t";
+    if (strcmp(uya_type_name, "void") == 0) return "void";
+    
+    // For user-defined types, return as-is (they should match C struct names)
+    return uya_type_name;
+}
+
 // Helper function to find struct name from return type
 // For struct return types, we need to find the struct name from IR
 // This is a workaround since IR doesn't store return_type_original_name
