@@ -170,10 +170,33 @@ void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
             }
 
             codegen_write_value(codegen, object);
+            
+            // Check if field_name is a numeric string (tuple field access like .0, .1)
+            // In C, struct field names cannot start with digits, so we use _0, _1, etc.
+            const char *field_name = inst->data.member_access.field_name;
+            int is_numeric_field = 0;
+            if (field_name) {
+                is_numeric_field = 1;
+                for (int i = 0; field_name[i] != '\0'; i++) {
+                    if (field_name[i] < '0' || field_name[i] > '9') {
+                        is_numeric_field = 0;
+                        break;
+                    }
+                }
+            }
+            
             if (use_arrow) {
-                fprintf(codegen->output_file, "->%s", inst->data.member_access.field_name);
+                if (is_numeric_field) {
+                    fprintf(codegen->output_file, "->_%s", field_name);
+                } else {
+                    fprintf(codegen->output_file, "->%s", field_name);
+                }
             } else {
-                fprintf(codegen->output_file, ".%s", inst->data.member_access.field_name);
+                if (is_numeric_field) {
+                    fprintf(codegen->output_file, "._%s", field_name);
+                } else {
+                    fprintf(codegen->output_file, ".%s", field_name);
+                }
             }
             break;
         }
