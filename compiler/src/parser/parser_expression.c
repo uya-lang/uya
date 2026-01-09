@@ -242,13 +242,15 @@ ASTNode *parser_parse_expression(Parser *parser) {
                     strcpy(field_name, parser->current_token->value);
                     parser_consume(parser); // consume field name
 
-                    // Expect ':'
-                    if (!parser_expect(parser, TOKEN_COLON)) {
+                    // Use parser_match instead of parser_expect to avoid false warnings
+                    // in optional parsing paths (struct initialization)
+                    if (!parser_match(parser, TOKEN_COLON)) {
                         free(field_name);
                         ast_free(struct_init);
                         ast_free(ident);
                         return NULL;
                     }
+                    parser_consume(parser); // consume ':'
 
                     // Parse field value
                     ASTNode *field_value = parser_parse_expression(parser);
@@ -1129,13 +1131,15 @@ ASTNode *parser_parse_comparison_or_higher(Parser *parser) {
                     strcpy(field_name, parser->current_token->value);
                     parser_consume(parser); // consume field name
 
-                    // Expect ':'
-                    if (!parser_expect(parser, TOKEN_COLON)) {
+                    // Use parser_match instead of parser_expect to avoid false warnings
+                    // in optional parsing paths (struct initialization)
+                    if (!parser_match(parser, TOKEN_COLON)) {
                         free(field_name);
                         ast_free(struct_init);
                         ast_free(ident);
                         return NULL;
                     }
+                    parser_consume(parser); // consume ':'
 
                     // Parse field value
                     ASTNode *field_value = parser_parse_expression(parser);

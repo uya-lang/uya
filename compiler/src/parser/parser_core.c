@@ -20,6 +20,13 @@ int parser_match(Parser *parser, TokenType type) {
 // 期望特定类型的token
 Token *parser_expect(Parser *parser, TokenType type) {
     if (!parser->current_token || parser->current_token->type != type) {
+        // 调试：追踪错误来源（使用 __builtin_return_address 获取调用者地址）
+        if (parser->current_token && (type == 58 || type == 51)) {  // TOKEN_EQUAL 或 TOKEN_PLUS
+            void *caller_addr = __builtin_return_address(0);
+            fprintf(stderr, "[DEBUG parser_expect] 调用者地址: %p, 期望 %d (TOKEN_EQUAL/TOKEN_PLUS), 实际 %d, 位置 %s:%d:%d\n",
+                    caller_addr, type, parser->current_token->type,
+                    parser->current_token->filename, parser->current_token->line, parser->current_token->column);
+        }
         fprintf(stderr, "语法错误: 期望 %d, 但在 %s:%d:%d 发现 %d\n",
                 type, parser->current_token ? parser->current_token->filename : "unknown",
                 parser->current_token ? parser->current_token->line : 0,
