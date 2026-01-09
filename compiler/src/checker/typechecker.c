@@ -35,6 +35,9 @@ static IRType get_ir_type_from_ast(ASTNode *ast_type) {
             return get_ir_type_from_ast(ast_type->data.type_error_union.base_type);
         case AST_TYPE_ATOMIC:
             return get_ir_type_from_ast(ast_type->data.type_atomic.base_type);
+        case AST_TYPE_FN:
+            // 函数指针类型：fn(param_types) return_type
+            return IR_TYPE_FN;
         default:
             return IR_TYPE_VOID;
     }
