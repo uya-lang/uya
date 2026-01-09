@@ -415,6 +415,7 @@ static const char *get_type_name(IRType type) {
         case IR_TYPE_PTR: return "*T";
         case IR_TYPE_ARRAY: return "[T : N]";
         case IR_TYPE_STRUCT: return "struct";
+        case IR_TYPE_ENUM: return "enum";
         case IR_TYPE_FN: return "fn";
         case IR_TYPE_ERROR_UNION: return "!T";
         default: return "unknown";

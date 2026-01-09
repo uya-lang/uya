@@ -24,6 +24,7 @@ char *codegen_get_type_name(IRType type) {
         case IR_TYPE_PTR: return "void*";
         case IR_TYPE_ARRAY: return "int32_t*";  // For now, use pointer for arrays
         case IR_TYPE_STRUCT: return "struct_type"; // 需要特殊处理，使用 original_type_name
+        case IR_TYPE_ENUM: return "enum_type"; // 需要特殊处理，使用 original_type_name
         case IR_TYPE_FN: return "void(*)()";     // 函数指针类型（通用函数指针，后续需要完善支持具体签名）
         case IR_TYPE_ERROR_UNION: return "error_union"; // 需要特殊处理
         default: return "unknown_type";
@@ -87,9 +88,9 @@ void codegen_write_type(CodeGenerator *codegen, IRType type) {
     fprintf(codegen->output_file, "%s", codegen_get_type_name(type));
 }
 
-// Write type with optional original type name (for struct types and function pointer types)
+// Write type with optional original type name (for struct types, enum types and function pointer types)
 void codegen_write_type_with_name(CodeGenerator *codegen, IRType type, const char *original_type_name) {
-    if (type == IR_TYPE_STRUCT && original_type_name) {
+    if ((type == IR_TYPE_STRUCT || type == IR_TYPE_ENUM) && original_type_name) {
         fprintf(codegen->output_file, "%s", original_type_name);
     } else if (type == IR_TYPE_FN) {
         // 函数指针类型：使用通用函数指针类型 void(*)()

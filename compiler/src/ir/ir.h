@@ -28,6 +28,7 @@ typedef enum {
     IR_LABEL,          // 标签
     IR_ALLOC,          // 分配内存
     IR_STRUCT_DECL,    // 结构体声明
+    IR_ENUM_DECL,      // 枚举声明
     IR_MEMBER_ACCESS,  // 成员访问
     IR_SUBSCRIPT,      // 数组下标访问
     IR_CAST,           // 类型转换
@@ -62,6 +63,7 @@ typedef enum {
     IR_TYPE_PTR,
     IR_TYPE_ARRAY,
     IR_TYPE_STRUCT,
+    IR_TYPE_ENUM,
     IR_TYPE_FN,
     IR_TYPE_ERROR_UNION,  // !T 类型
 } IRType;
@@ -237,6 +239,15 @@ typedef struct IRInst {
             struct IRInst **fields;     // 字段数组
             int field_count;            // 字段数量
         } struct_decl;
+
+        // 枚举声明
+        struct {
+            char *name;                 // 枚举名称
+            IRType underlying_type;     // 底层类型（IR_TYPE_I32, IR_TYPE_U8 等）
+            char **variant_names;       // 变体名称数组
+            char **variant_values;      // 变体值数组（字符串形式，NULL 表示使用默认值）
+            int variant_count;          // 变体数量
+        } enum_decl;
 
         // 结构体初始化
         struct {
