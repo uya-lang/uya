@@ -12,6 +12,8 @@ static IRInst *generate_stmt(IRGenerator *ir_gen, struct ASTNode *stmt);
 static IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl);
 static IRInst *generate_test_block(IRGenerator *ir_gen, struct ASTNode *test_block);
 static void generate_program(IRGenerator *ir_gen, struct ASTNode *program);
+static char *generate_tuple_type_name(struct ASTNode *tuple_type);
+static IRInst *ensure_tuple_struct_decl(IRGenerator *ir_gen, struct ASTNode *tuple_type);
 
 static IRType get_ir_type(struct ASTNode *ast_type) {
     if (!ast_type) return IR_TYPE_VOID;
@@ -55,6 +57,9 @@ static IRType get_ir_type(struct ASTNode *ast_type) {
         case AST_TYPE_FN:
             // 函数指针类型：fn(param_types) return_type
             return IR_TYPE_FN;
+        case AST_TYPE_TUPLE:
+            // 元组类型使用 IR_TYPE_STRUCT 作为占位符
+            return IR_TYPE_STRUCT;
         default:
             return IR_TYPE_VOID;
     }
@@ -1869,6 +1874,7 @@ static void generate_program(IRGenerator *ir_gen, struct ASTNode *program) {
         } else if (decl->type == AST_TYPE_TUPLE) {
             // Handle tuple type declarations - tuples don't need separate IR instructions
             // They are handled inline during expression processing
+            // TODO: Generate IR_STRUCT_DECL for tuple types
         } else if (decl->type == AST_TUPLE_LITERAL) {
             // Handle tuple literals - these are processed as expressions
             // This shouldn't happen here since tuple literals are expressions, not declarations
@@ -1950,6 +1956,37 @@ void *irgenerator_generate(IRGenerator *ir_gen, struct ASTNode *ast) {
     printf("生成了 %d 条IR指令\n", ir_gen->inst_count);
 
     return ir_gen;
+}
+
+// Generate tuple type name from AST_TYPE_TUPLE node
+// Returns a unique name based on element types (e.g., "tuple_i32_bool")
+// TODO: Implement full tuple type name generation based on element types
+static char *generate_tuple_type_name(struct ASTNode *tuple_type) {
+    if (!tuple_type || tuple_type->type != AST_TYPE_TUPLE) {
+        return NULL;
+    }
+    
+    // Simplified implementation: generate name based on element count
+    // Full implementation would include element type information
+    char *name = malloc(64);
+    if (name) {
+        snprintf(name, 64, "tuple_%d", tuple_type->data.type_tuple.element_count);
+    }
+    return name;
+}
+
+// Ensure tuple struct declaration exists in IR
+// Returns the struct declaration IR instruction if it already exists or was created
+// TODO: Implement full tuple struct declaration generation
+static IRInst *ensure_tuple_struct_decl(IRGenerator *ir_gen, struct ASTNode *tuple_type) {
+    if (!ir_gen || !tuple_type || tuple_type->type != AST_TYPE_TUPLE) {
+        return NULL;
+    }
+    
+    // TODO: Check if struct declaration already exists
+    // TODO: Generate IR_STRUCT_DECL with proper field types
+    // For now, return NULL (struct declarations will need to be generated elsewhere)
+    return NULL;
 }
 
 void ir_free(void *ir) {

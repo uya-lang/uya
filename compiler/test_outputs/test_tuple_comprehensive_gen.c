@@ -41,8 +41,8 @@ int32_t main();
 
 int32_t main() {
 int32_t  _return_main;
-  void pair = (tuple_2){ ._0 = 42, ._1 = true};
-  void triple = (tuple_3){ ._0 = 10, ._1 = 3.14, ._2 = false};
+  struct_type pair = (tuple_2){ ._0 = 42, ._1 = true};
+  struct_type triple = (tuple_3){ ._0 = 10, ._1 = 3.14, ._2 = false};
   if (((pair._0 == 42) + (pair._1 == true))) {
   if ((((triple._0 == 10) + (triple._1 == 3.14)) + (triple._2 == false))) {
   return 0;
