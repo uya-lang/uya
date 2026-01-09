@@ -499,6 +499,73 @@ void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
             }
             break;
 
+        case IR_IF: {
+            // Match expression: generate using GCC compound statement extension ({...})
+            // This allows match expressions (which are expressions) to return values
+            // Format: ({ type temp; if (cond) temp = body1; else if (cond2) temp = body2; else temp = else_body; temp; })
+            
+            // Infer return type from first body expression (simplified: assume i32 for now)
+            IRType match_type = IR_TYPE_I32;
+            if (inst->data.if_stmt.then_body && inst->data.if_stmt.then_count > 0) {
+                IRInst *first_body = inst->data.if_stmt.then_body[0];
+                if (first_body) {
+                    // Try to infer type from expression
+                    if (first_body->type == IR_CONSTANT) {
+                        match_type = first_body->data.constant.type;
+                    } else if (first_body->type == IR_BINARY_OP) {
+                        // For binary ops, assume result type is i32 (simplified)
+                        match_type = IR_TYPE_I32;
+                    } else if (first_body->type == IR_VAR_DECL) {
+                        match_type = first_body->data.var.type;
+                    }
+                    // Add more type inference as needed
+                }
+            }
+            
+            // Generate temporary variable name
+            static int match_temp_counter = 0;
+            char temp_var[32];
+            snprintf(temp_var, sizeof(temp_var), "__match_temp_%d", match_temp_counter++);
+            
+            // Start GCC compound statement
+            fprintf(codegen->output_file, "({ ");
+            codegen_write_type(codegen, match_type);
+            fprintf(codegen->output_file, " %s; ", temp_var);
+            
+            // Generate nested if-else chain
+            IRInst *current_if = inst;
+            int first = 1;
+            while (current_if && current_if->type == IR_IF) {
+                if (!first) {
+                    fprintf(codegen->output_file, "else ");
+                }
+                first = 0;
+                
+                fprintf(codegen->output_file, "if (");
+                codegen_write_value(codegen, current_if->data.if_stmt.condition);
+                fprintf(codegen->output_file, ") { %s = ", temp_var);
+                
+                // Generate body expression (stored in then_body[0])
+                if (current_if->data.if_stmt.then_body && current_if->data.if_stmt.then_count > 0) {
+                    codegen_write_value(codegen, current_if->data.if_stmt.then_body[0]);
+                } else {
+                    fprintf(codegen->output_file, "0");
+                }
+                fprintf(codegen->output_file, "; }");
+                
+                // Check if there's an else branch (next if in chain)
+                if (current_if->data.if_stmt.else_body && current_if->data.if_stmt.else_count > 0) {
+                    current_if = current_if->data.if_stmt.else_body[0];
+                } else {
+                    current_if = NULL;
+                }
+            }
+            
+            // Return the temporary variable
+            fprintf(codegen->output_file, " %s; })", temp_var);
+            break;
+        }
+
         default:
             fprintf(codegen->output_file, "temp_%d", inst->id);
             break;

@@ -976,27 +976,146 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
 
         case AST_MATCH_EXPR: {
             // Handle match expressions: match expr { pattern => body, ... }
-            // TODO: Complete implementation - generate nested if-else chain
-            // For now, return the first pattern's body as a placeholder
-            // This needs to be implemented properly with nested if-else chain
-            // that assigns to a temporary variable and returns it
+            // Generate nested if-else chain for pattern matching
+            // Note: match expressions return values, so we generate nested IR_IF structures
+            // and handle the return value in code generation using GCC compound statement extension
             
             if (!expr->data.match_expr.expr || expr->data.match_expr.pattern_count == 0) {
                 return NULL;
             }
 
-            // Generate the expression being matched
+            // Generate the expression being matched (reused for each pattern comparison)
             IRInst *match_expr_ir = generate_expr(ir_gen, expr->data.match_expr.expr);
             if (!match_expr_ir) return NULL;
 
-            // For now, return the first pattern's body
-            // TODO: Implement proper nested if-else chain generation
-            struct ASTNode *first_pattern = expr->data.match_expr.patterns[0];
-            if (first_pattern && first_pattern->data.pattern.body) {
-                return generate_expr(ir_gen, first_pattern->data.pattern.body);
+            // Build nested if-else chain from patterns (backwards, so last pattern is innermost)
+            IRInst *current_if = NULL;
+
+            for (int i = expr->data.match_expr.pattern_count - 1; i >= 0; i--) {
+                struct ASTNode *pattern = expr->data.match_expr.patterns[i];
+                if (!pattern || !pattern->data.pattern.body) continue;
+
+                IRInst *if_inst = irinst_new(IR_IF);
+                if (!if_inst) {
+                    if (current_if) irinst_free(current_if);
+                    return NULL;
+                }
+
+                // Generate body expression
+                IRInst *body_expr = generate_expr(ir_gen, pattern->data.pattern.body);
+                if (!body_expr) {
+                    irinst_free(if_inst);
+                    if (current_if) irinst_free(current_if);
+                    return NULL;
+                }
+
+                // Check if this is the else pattern
+                int is_else = 0;
+                if (pattern->data.pattern.pattern_expr) {
+                    if (pattern->data.pattern.pattern_expr->type == AST_IDENTIFIER &&
+                        pattern->data.pattern.pattern_expr->data.identifier.name &&
+                        strcmp(pattern->data.pattern.pattern_expr->data.identifier.name, "else") == 0) {
+                        is_else = 1;
+                    }
+                }
+
+                if (is_else) {
+                    // Else branch: use a constant true condition (always matches)
+                    IRInst *true_const = irinst_new(IR_CONSTANT);
+                    if (!true_const) {
+                        irinst_free(body_expr);
+                        irinst_free(if_inst);
+                        if (current_if) irinst_free(current_if);
+                        return NULL;
+                    }
+                    true_const->data.constant.value = malloc(5);
+                    if (true_const->data.constant.value) {
+                        strcpy(true_const->data.constant.value, "1");
+                    }
+                    true_const->data.constant.type = IR_TYPE_BOOL;
+                    
+                    if_inst->data.if_stmt.condition = true_const;
+                    if_inst->data.if_stmt.then_count = 1;
+                    if_inst->data.if_stmt.then_body = malloc(sizeof(IRInst*));
+                    if (!if_inst->data.if_stmt.then_body) {
+                        irinst_free(true_const);
+                        irinst_free(body_expr);
+                        irinst_free(if_inst);
+                        if (current_if) irinst_free(current_if);
+                        return NULL;
+                    }
+                    if_inst->data.if_stmt.then_body[0] = body_expr;  // Store expression (will be handled specially in codegen)
+                    if_inst->data.if_stmt.else_body = NULL;
+                    if_inst->data.if_stmt.else_count = 0;
+                } else {
+                    // Regular pattern: generate comparison condition (match_expr == pattern_expr)
+                    IRInst *pattern_expr_ir = generate_expr(ir_gen, pattern->data.pattern.pattern_expr);
+                    if (!pattern_expr_ir) {
+                        irinst_free(body_expr);
+                        irinst_free(if_inst);
+                        if (current_if) irinst_free(current_if);
+                        return NULL;
+                    }
+
+                    // Create comparison: match_expr == pattern_expr
+                    IRInst *comparison = irinst_new(IR_BINARY_OP);
+                    if (!comparison) {
+                        irinst_free(pattern_expr_ir);
+                        irinst_free(body_expr);
+                        irinst_free(if_inst);
+                        if (current_if) irinst_free(current_if);
+                        return NULL;
+                    }
+
+                    comparison->data.binary_op.op = IR_OP_EQ;
+                    comparison->data.binary_op.left = match_expr_ir;
+                    comparison->data.binary_op.right = pattern_expr_ir;
+                    
+                    char temp_name[32];
+                    snprintf(temp_name, sizeof(temp_name), "match_cond_%d", ir_gen->current_id++);
+                    comparison->data.binary_op.dest = malloc(strlen(temp_name) + 1);
+                    if (!comparison->data.binary_op.dest) {
+                        irinst_free(comparison);
+                        irinst_free(pattern_expr_ir);
+                        irinst_free(body_expr);
+                        irinst_free(if_inst);
+                        if (current_if) irinst_free(current_if);
+                        return NULL;
+                    }
+                    strcpy(comparison->data.binary_op.dest, temp_name);
+
+                    if_inst->data.if_stmt.condition = comparison;
+                    if_inst->data.if_stmt.then_count = 1;
+                    if_inst->data.if_stmt.then_body = malloc(sizeof(IRInst*));
+                    if (!if_inst->data.if_stmt.then_body) {
+                        irinst_free(comparison);
+                        irinst_free(if_inst);
+                        if (current_if) irinst_free(current_if);
+                        return NULL;
+                    }
+                    if_inst->data.if_stmt.then_body[0] = body_expr;  // Store expression (will be handled specially in codegen)
+
+                    // Set else branch to the next if (if exists)
+                    if (current_if) {
+                        if_inst->data.if_stmt.else_count = 1;
+                        if_inst->data.if_stmt.else_body = malloc(sizeof(IRInst*));
+                        if (!if_inst->data.if_stmt.else_body) {
+                            irinst_free(comparison);
+                            irinst_free(if_inst);
+                            if (current_if) irinst_free(current_if);
+                            return NULL;
+                        }
+                        if_inst->data.if_stmt.else_body[0] = current_if;
+                    } else {
+                        if_inst->data.if_stmt.else_body = NULL;
+                        if_inst->data.if_stmt.else_count = 0;
+                    }
+                }
+
+                current_if = if_inst;
             }
 
-            return NULL;
+            return current_if;  // Return the outermost if (match expression result)
         }
 
         default:
