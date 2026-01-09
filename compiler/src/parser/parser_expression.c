@@ -162,10 +162,29 @@ ASTNode *parser_parse_expression(Parser *parser) {
                     } while (!parser_match(parser, TOKEN_RIGHT_PAREN) && parser->current_token);
                 }
 
-                if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+                // Use parser_match instead of parser_expect to avoid false warnings
+
+
+                // in optional parsing paths (function calls)
+
+
+                if (!parser_match(parser, TOKEN_RIGHT_PAREN)) {
+
+
                     ast_free(call);
+
+
                     return NULL;
+
+
                 }
+
+
+                parser_consume(parser); // consume ')'
+
+
+                
+
 
                 left = call;
             } else {
@@ -273,12 +292,32 @@ ASTNode *parser_parse_expression(Parser *parser) {
                 } while (!parser_match(parser, TOKEN_RIGHT_BRACE) && parser->current_token);
             }
 
-            // Expect '}'
-            if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
+            // Use parser_match instead of parser_expect to avoid false warnings
+
+
+            // in optional parsing paths (struct initialization)
+
+
+            if (!parser_match(parser, TOKEN_RIGHT_BRACE)) {
+
+
                 ast_free(struct_init);
+
+
                 ast_free(ident);
+
+
                 return NULL;
+
+
             }
+
+
+            parser_consume(parser); // consume '}'
+
+
+            
+
 
             ast_free(ident);  // Free the temporary identifier
             left = struct_init;
@@ -364,11 +403,22 @@ ASTNode *parser_parse_expression(Parser *parser) {
                 }
                 
                 // Expect ')'
-                if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+                // Use parser_match instead of parser_expect to avoid false warnings
+
+                // in optional parsing paths (function calls)
+
+                if (!parser_match(parser, TOKEN_RIGHT_PAREN)) {
+
                     ast_free(call);
+
                     return NULL;
+
                 }
+
+                parser_consume(parser); // consume ')'
+
                 
+
                 left = call;
             } else {
                 left = member_access;
@@ -999,10 +1049,29 @@ ASTNode *parser_parse_comparison_or_higher(Parser *parser) {
                     } while (!parser_match(parser, TOKEN_RIGHT_PAREN) && parser->current_token);
                 }
 
-                if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+                // Use parser_match instead of parser_expect to avoid false warnings
+
+
+                // in optional parsing paths (function calls)
+
+
+                if (!parser_match(parser, TOKEN_RIGHT_PAREN)) {
+
+
                     ast_free(call);
+
+
                     return NULL;
+
+
                 }
+
+
+                parser_consume(parser); // consume ')'
+
+
+                
+
 
                 left = call;
             } else {
@@ -1110,12 +1179,32 @@ ASTNode *parser_parse_comparison_or_higher(Parser *parser) {
                 } while (!parser_match(parser, TOKEN_RIGHT_BRACE) && parser->current_token);
             }
 
-            // Expect '}'
-            if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
+            // Use parser_match instead of parser_expect to avoid false warnings
+
+
+            // in optional parsing paths (struct initialization)
+
+
+            if (!parser_match(parser, TOKEN_RIGHT_BRACE)) {
+
+
                 ast_free(struct_init);
+
+
                 ast_free(ident);
+
+
                 return NULL;
+
+
             }
+
+
+            parser_consume(parser); // consume '}'
+
+
+            
+
 
             ast_free(ident);  // Free the temporary identifier
             left = struct_init;
@@ -1201,11 +1290,22 @@ ASTNode *parser_parse_comparison_or_higher(Parser *parser) {
                 }
                 
                 // Expect ')'
-                if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+                // Use parser_match instead of parser_expect to avoid false warnings
+
+                // in optional parsing paths (function calls)
+
+                if (!parser_match(parser, TOKEN_RIGHT_PAREN)) {
+
                     ast_free(call);
+
                     return NULL;
+
                 }
+
+                parser_consume(parser); // consume ')'
+
                 
+
                 left = call;
             } else {
                 left = member_access;

@@ -205,6 +205,7 @@ TypeChecker *typechecker_new() {
     checker->current_column = 0;
     checker->current_file = NULL;
     checker->function_scope_counter = 0;
+    checker->block_scope_counter = 0;
     checker->scan_pass = 1;  // 默认值，会在 typechecker_check 中设置
     checker->program_node = NULL;
     
@@ -1162,13 +1163,16 @@ static int typecheck_block(TypeChecker *checker, ASTNode *node) {
 static int typecheck_block_with_error_var(TypeChecker *checker, ASTNode *node, const char *error_var, int error_var_line, int error_var_col, const char *error_var_filename) {
     if (!checker || !node || node->type != AST_BLOCK) return 0;
     
+    // 为每个 catch 块分配唯一的作用域级别（从 2000 开始，避免与函数作用域级别 1000+ 冲突）
+    int unique_block_scope_level = 2000 + (checker->block_scope_counter++);
+    
     typechecker_enter_scope(checker);
     
     // Add error variable to symbol table if provided (error_id is uint32_t)
+    // 使用唯一的作用域级别，而不是 current_level，确保每个 catch 块中的错误变量都有唯一的作用域
     if (error_var) {
-        int scope_level = typechecker_get_current_scope(checker);
         Symbol *error_sym = symbol_new(error_var, IR_TYPE_U32, 0, 1, 
-                                       scope_level, error_var_line, error_var_col,
+                                       unique_block_scope_level, error_var_line, error_var_col,
                                        error_var_filename);
         if (error_sym) {
             // Error variable is always initialized (set by catch handler)

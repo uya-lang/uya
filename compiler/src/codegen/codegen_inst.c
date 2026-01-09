@@ -510,26 +510,41 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                                                 // Generate catch body and extract the last expression as the result
                                                 if (try_catch_inst->data.try_catch.catch_body->type == IR_BLOCK) {
                                                     // For blocks, we need to extract the value from the last statement
-                                                    // This is complex - for now, generate the block and assume it returns a value
-                                                    // Actually, the catch block should end with an expression statement
-                                                    for (int i = 0; i < try_catch_inst->data.try_catch.catch_body->data.block.inst_count; i++) {
+                                                    // If the last statement is a return, generate it directly (it returns from function)
+                                                    // Otherwise, treat it as an expression and assign to variable
+                                                    int block_count = try_catch_inst->data.try_catch.catch_body->data.block.inst_count;
+                                                    for (int i = 0; i < block_count; i++) {
                                                         if (!try_catch_inst->data.try_catch.catch_body->data.block.insts[i]) continue;
-                                                        if (i == try_catch_inst->data.try_catch.catch_body->data.block.inst_count - 1) {
-                                                            // Last statement: should be an expression, assign to variable
-                                                            fprintf(codegen->output_file, "%s = ", body_inst->data.var.name);
-                                                            codegen_write_value(codegen, try_catch_inst->data.try_catch.catch_body->data.block.insts[i]);
-                                                            fprintf(codegen->output_file, ";\n  ");
+                                                        IRInst *stmt = try_catch_inst->data.try_catch.catch_body->data.block.insts[i];
+                                                        if (i == block_count - 1) {
+                                                            // Last statement: check if it's a return statement
+                                                            if (stmt->type == IR_RETURN) {
+                                                                // Return statement: generate directly (returns from function)
+                                                                codegen_generate_inst(codegen, stmt);
+                                                                fprintf(codegen->output_file, ";\n  ");
+                                                            } else {
+                                                                // Expression statement: assign to variable
+                                                                fprintf(codegen->output_file, "%s = ", body_inst->data.var.name);
+                                                                codegen_write_value(codegen, stmt);
+                                                                fprintf(codegen->output_file, ";\n  ");
+                                                            }
                                                         } else {
                                                             // Non-last statements: generate normally
-                                                            codegen_generate_inst(codegen, try_catch_inst->data.try_catch.catch_body->data.block.insts[i]);
+                                                            codegen_generate_inst(codegen, stmt);
                                                             fprintf(codegen->output_file, ";\n  ");
                                                         }
                                                     }
                                                 } else {
-                                                    // Single statement: assign to variable
-                                                    fprintf(codegen->output_file, "%s = ", body_inst->data.var.name);
-                                                    codegen_write_value(codegen, try_catch_inst->data.try_catch.catch_body);
-                                                    fprintf(codegen->output_file, ";\n  ");
+                                                    // Single statement: check if it's a return statement
+                                                    if (try_catch_inst->data.try_catch.catch_body->type == IR_RETURN) {
+                                                        // Return statement: generate directly
+                                                        codegen_generate_inst(codegen, try_catch_inst->data.try_catch.catch_body);
+                                                    } else {
+                                                        // Expression statement: assign to variable
+                                                        fprintf(codegen->output_file, "%s = ", body_inst->data.var.name);
+                                                        codegen_write_value(codegen, try_catch_inst->data.try_catch.catch_body);
+                                                        fprintf(codegen->output_file, ";\n  ");
+                                                    }
                                                 }
                                             }
                                             fprintf(codegen->output_file, "} else {\n  ");
