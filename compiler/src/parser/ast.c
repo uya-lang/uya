@@ -202,6 +202,24 @@ void ast_free(ASTNode *node) {
             ast_free_node_list(node->data.impl_decl.methods, node->data.impl_decl.method_count);
             break;
 
+        case AST_ENUM_DECL:
+            if (node->data.enum_decl.name) {
+                free(node->data.enum_decl.name);
+            }
+            ast_free(node->data.enum_decl.underlying_type);
+            if (node->data.enum_decl.variants) {
+                for (int i = 0; i < node->data.enum_decl.variant_count; i++) {
+                    if (node->data.enum_decl.variants[i].name) {
+                        free(node->data.enum_decl.variants[i].name);
+                    }
+                    if (node->data.enum_decl.variants[i].value) {
+                        free(node->data.enum_decl.variants[i].value);
+                    }
+                }
+                free(node->data.enum_decl.variants);
+            }
+            break;
+
         case AST_TEST_BLOCK:
             if (node->data.test_block.name) {
                 free(node->data.test_block.name);
@@ -471,6 +489,23 @@ void ast_print(ASTNode *node, int indent) {
                 print_indent(indent + 1);
                 printf("Method:\n");
                 ast_print(node->data.impl_decl.methods[i], indent + 2);
+            }
+            break;
+
+        case AST_ENUM_DECL:
+            printf("EnumDecl: %s", node->data.enum_decl.name);
+            if (node->data.enum_decl.underlying_type) {
+                printf(" : ");
+                ast_print(node->data.enum_decl.underlying_type, 0);
+            }
+            printf("\n");
+            for (int i = 0; i < node->data.enum_decl.variant_count; i++) {
+                print_indent(indent + 1);
+                printf("Variant: %s", node->data.enum_decl.variants[i].name);
+                if (node->data.enum_decl.variants[i].value) {
+                    printf(" = %s", node->data.enum_decl.variants[i].value);
+                }
+                printf("\n");
             }
             break;
 

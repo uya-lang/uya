@@ -38,6 +38,7 @@ typedef enum {
     TOKEN_NULL,
     TOKEN_INTERFACE,
     TOKEN_IMPL,
+    TOKEN_ENUM,
     TOKEN_ATOMIC,
     TOKEN_MAX,
     TOKEN_MIN,

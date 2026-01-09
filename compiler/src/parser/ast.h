@@ -13,6 +13,12 @@ typedef struct FormatSpec {
     char type;          // 格式类型字符（'d', 'u', 'x', 'X', 'f', 'e', 'g', 'c', 'p' 等）
 } FormatSpec;
 
+// 枚举变体结构
+typedef struct EnumVariant {
+    char *name;         // 变体名称
+    char *value;        // 显式值（字符串形式，如果指定了 = NUM，否则为 NULL）
+} EnumVariant;
+
 // AST 节点类型枚举
 typedef enum {
     AST_PROGRAM,
@@ -60,6 +66,9 @@ typedef enum {
     // 接口相关
     AST_INTERFACE_DECL,
     AST_IMPL_DECL,
+
+    // 枚举相关
+    AST_ENUM_DECL,
 
     // 宏相关
     AST_MACRO_DECL,
@@ -283,6 +292,14 @@ typedef struct ASTNode {
             struct ASTNode **methods;    // 方法实现列表（函数声明）
             int method_count;
         } impl_decl;
+
+        // 枚举声明 (enum EnumName [: UnderlyingType] { Variant1 [= value1], ... })
+        struct {
+            char *name;                  // 枚举名称
+            struct ASTNode *underlying_type;  // 底层类型（可选，如果为 NULL 则默认为 i32）
+            EnumVariant *variants;       // 变体列表
+            int variant_count;           // 变体数量
+        } enum_decl;
 
         // 测试块 (test "说明文字" { ... })
         struct {
