@@ -38,6 +38,9 @@ static IRType get_ir_type_from_ast(ASTNode *ast_type) {
         case AST_TYPE_FN:
             // 函数指针类型：fn(param_types) return_type
             return IR_TYPE_FN;
+        case AST_TYPE_TUPLE:
+            // 元组类型使用 IR_TYPE_STRUCT 作为占位符
+            return IR_TYPE_STRUCT;
         default:
             return IR_TYPE_VOID;
     }
@@ -1595,6 +1598,27 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
                     return 0;
                 }
                 return 1;  // error.ErrorName is valid
+            }
+            // Check if this is tuple field access (tuple.0, tuple.1, ...)
+            if (node->data.member_access.field_name) {
+                // Check if field_name is a numeric string (tuple field index)
+                int is_numeric = 1;
+                const char *field_name = node->data.member_access.field_name;
+                for (int i = 0; field_name[i] != '\0'; i++) {
+                    if (field_name[i] < '0' || field_name[i] > '9') {
+                        is_numeric = 0;
+                        break;
+                    }
+                }
+                if (is_numeric && strlen(field_name) > 0) {
+                    // This is tuple field access (e.g., tuple.0, tuple.1)
+                    // For now, just check that the object exists
+                    // Full tuple type checking requires more complex type system support
+                    if (node->data.member_access.object) {
+                        return typecheck_node(checker, node->data.member_access.object);
+                    }
+                    return 0;  // Invalid: no object for tuple field access
+                }
             }
             // For regular member access, check the object
             if (node->data.member_access.object) {
