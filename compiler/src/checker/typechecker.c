@@ -510,6 +510,7 @@ static int typecheck_if_stmt(TypeChecker *checker, ASTNode *node);
 static int typecheck_while_stmt(TypeChecker *checker, ASTNode *node);
 static int typecheck_block(TypeChecker *checker, ASTNode *node);
 static int typecheck_call(TypeChecker *checker, ASTNode *node);
+static int typecheck_match_expr(TypeChecker *checker, ASTNode *node);
 
 // 从条件表达式提取约束条件
 static void extract_constraints_from_condition(TypeChecker *checker, ASTNode *cond_expr) {
@@ -1375,6 +1376,85 @@ static int typecheck_identifier(TypeChecker *checker, ASTNode *node) {
     return 1;
 }
 
+// 检查match表达式
+static int typecheck_match_expr(TypeChecker *checker, ASTNode *node) {
+    if (!checker || !node || node->type != AST_MATCH_EXPR) return 0;
+    
+    // 检查匹配的表达式
+    if (!typecheck_node(checker, node->data.match_expr.expr)) {
+        return 0;
+    }
+    
+    // 检查所有模式
+    // int has_else = 0;  // 未来用于完整的穷尽性检查
+    IRType first_body_type = IR_TYPE_VOID;
+    int body_type_set = 0;
+    
+    for (int i = 0; i < node->data.match_expr.pattern_count; i++) {
+        ASTNode *pattern = node->data.match_expr.patterns[i];
+        if (!pattern || pattern->type != AST_PATTERN) continue;
+        
+        // 检查是否是else分支
+        if (pattern->data.pattern.pattern_expr &&
+            pattern->data.pattern.pattern_expr->type == AST_IDENTIFIER &&
+            pattern->data.pattern.pattern_expr->data.identifier.name &&
+            strcmp(pattern->data.pattern.pattern_expr->data.identifier.name, "else") == 0) {
+            // has_else = 1;  // 未来用于完整的穷尽性检查
+            // else分支必须是最后一个模式
+            if (i < node->data.match_expr.pattern_count - 1) {
+                checker->current_line = pattern->line;
+                checker->current_column = pattern->column;
+                if (pattern->filename) {
+                    if (checker->current_file) free(checker->current_file);
+                    checker->current_file = malloc(strlen(pattern->filename) + 1);
+                    if (checker->current_file) {
+                        strcpy(checker->current_file, pattern->filename);
+                    }
+                }
+                typechecker_add_error(checker, "match表达式的else分支必须放在最后 (%s:%d:%d)",
+                                     checker->current_file ? checker->current_file : "unknown",
+                                     checker->current_line, checker->current_column);
+                return 0;
+            }
+        }
+        
+        // 检查body表达式
+        if (pattern->data.pattern.body) {
+            if (!typecheck_node(checker, pattern->data.pattern.body)) {
+                return 0;
+            }
+            
+            // 检查所有body表达式的返回类型是否一致
+            IRType body_type = typechecker_infer_type(checker, pattern->data.pattern.body);
+            if (!body_type_set) {
+                first_body_type = body_type;
+                body_type_set = 1;
+            } else if (body_type != first_body_type) {
+                checker->current_line = pattern->line;
+                checker->current_column = pattern->column;
+                if (pattern->filename) {
+                    if (checker->current_file) free(checker->current_file);
+                    checker->current_file = malloc(strlen(pattern->filename) + 1);
+                    if (checker->current_file) {
+                        strcpy(checker->current_file, pattern->filename);
+                    }
+                }
+                typechecker_add_error(checker, "match表达式的所有分支必须返回相同类型，但得到 %s 和 %s (%s:%d:%d)",
+                                     get_type_name(first_body_type), get_type_name(body_type),
+                                     checker->current_file ? checker->current_file : "unknown",
+                                     checker->current_line, checker->current_column);
+                return 0;
+            }
+        }
+    }
+    
+    // 简化的穷尽性检查：对于枚举类型，建议有else分支（但不强制）
+    // 完整的穷尽性检查需要枚举变体信息，目前类型系统可能不支持
+    // TODO: 实现完整的穷尽性检查（需要枚举变体信息）
+    
+    return 1;
+}
+
 // 主节点检查函数
 static int typecheck_node(TypeChecker *checker, ASTNode *node) {
     if (!checker || !node) return 1;  // 空节点视为通过
@@ -1643,6 +1723,9 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
                 return typecheck_node(checker, node->data.member_access.object);
             }
             return 1;  // Allow member access for now
+            
+        case AST_MATCH_EXPR:
+            return typecheck_match_expr(checker, node);
             
         default:
             return 1;  // 其他节点类型暂时通过
