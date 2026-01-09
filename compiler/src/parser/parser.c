@@ -2503,6 +2503,13 @@ static ASTNode *parser_parse_extern_decl(Parser *parser) {
 
     parser_consume(parser); // 消费 extern
 
+    // 期望 fn 关键字（extern fn name(...) type）
+    if (!parser_match(parser, TOKEN_FN)) {
+        fprintf(stderr, "语法错误: extern函数声明期望 'fn' 关键字\n");
+        return NULL;
+    }
+    parser_consume(parser); // 消费 fn
+
     // 期望函数名
     if (!parser_match(parser, TOKEN_IDENTIFIER)) {
         fprintf(stderr, "语法错误: extern函数声明期望函数名\n");
@@ -2678,8 +2685,9 @@ static ASTNode *parser_parse_extern_decl(Parser *parser) {
                (parser_match(parser, TOKEN_IDENTIFIER) || 
                 parser_match(parser, TOKEN_EXCLAMATION) ||
                 parser_match(parser, TOKEN_ATOMIC) ||
-                parser_match(parser, TOKEN_ASTERISK))) {
-        // Try to parse as a type (supports !i32, *T, atomic T, or simple types)
+                parser_match(parser, TOKEN_ASTERISK) ||
+                parser_match(parser, TOKEN_FN))) {
+        // Try to parse as a type (supports !i32, *T, atomic T, fn(...) type, or simple types)
         ASTNode *return_type = parser_parse_type(parser);
         if (return_type) {
             extern_decl->data.fn_decl.return_type = return_type;
