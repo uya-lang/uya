@@ -538,14 +538,33 @@ void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
             IRInst *current_if = inst;
             int first = 1;
             while (current_if && current_if->type == IR_IF) {
+                // Check if condition is constant true (value "1")
+                int is_const_true = 0;
+                if (current_if->data.if_stmt.condition &&
+                    current_if->data.if_stmt.condition->type == IR_CONSTANT &&
+                    current_if->data.if_stmt.condition->data.constant.value &&
+                    strcmp(current_if->data.if_stmt.condition->data.constant.value, "1") == 0) {
+                    is_const_true = 1;
+                }
+                
+                // Check if this is the last branch (no else_body)
+                int is_last_branch = (!current_if->data.if_stmt.else_body || current_if->data.if_stmt.else_count == 0);
+                
                 if (!first) {
-                    fprintf(codegen->output_file, "else ");
+                    if (is_const_true && is_last_branch) {
+                        // For constant true on last branch, use plain else instead of else if (1)
+                        fprintf(codegen->output_file, "else { ");
+                    } else {
+                        fprintf(codegen->output_file, "else ");
+                    }
                 }
                 first = 0;
                 
-                fprintf(codegen->output_file, "if (");
-                codegen_write_value(codegen, current_if->data.if_stmt.condition);
-                fprintf(codegen->output_file, ") { ");
+                if (!(is_const_true && is_last_branch)) {
+                    fprintf(codegen->output_file, "if (");
+                    codegen_write_value(codegen, current_if->data.if_stmt.condition);
+                    fprintf(codegen->output_file, ") { ");
+                }
                 
                 // Generate variable bindings (if any) and body expression
                 if (current_if->data.if_stmt.then_body && current_if->data.if_stmt.then_count > 0) {
