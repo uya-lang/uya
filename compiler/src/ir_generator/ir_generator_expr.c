@@ -1053,8 +1053,10 @@ IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
                                     }
                                     
                                     // Generate member access: match_expr.field
-                                    IRInst *field_access = irinst_new(IR_MEMBER_ACCESS);
-                                    if (!field_access) {
+                                    // For variable bindings, each field_access needs its own copy of match_expr_ir
+                                    // to avoid double free when multiple bindings share the same match_expr_ir
+                                    IRInst *field_match_expr_ir = generate_expr(ir_gen, expr->data.match_expr.expr);
+                                    if (!field_match_expr_ir) {
                                         if (field_type_name) free(field_type_name);
                                         for (int k = 0; k < valid_comparisons; k++) {
                                             irinst_free(field_comparisons[k]);
@@ -1071,7 +1073,26 @@ IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
                                         return NULL;
                                     }
                                     
-                                    field_access->data.member_access.object = match_expr_ir;
+                                    IRInst *field_access = irinst_new(IR_MEMBER_ACCESS);
+                                    if (!field_access) {
+                                        irinst_free(field_match_expr_ir);
+                                        if (field_type_name) free(field_type_name);
+                                        for (int k = 0; k < valid_comparisons; k++) {
+                                            irinst_free(field_comparisons[k]);
+                                        }
+                                        for (int k = 0; k < var_binding_count; k++) {
+                                            irinst_free(var_bindings[k]);
+                                        }
+                                        free(field_comparisons);
+                                        free(var_bindings);
+                                        irinst_free(match_expr_ir);
+                                        irinst_free(body_expr);
+                                        irinst_free(if_inst);
+                                        if (current_if) irinst_free(current_if);
+                                        return NULL;
+                                    }
+                                    
+                                    field_access->data.member_access.object = field_match_expr_ir;
                                     field_access->data.member_access.field_name = malloc(strlen(field_name) + 1);
                                     if (field_access->data.member_access.field_name) {
                                         strcpy(field_access->data.member_access.field_name, field_name);
