@@ -63,6 +63,8 @@ static ASTNode *parser_parse_for_stmt(Parser *parser);
 static ASTNode *parser_parse_block(Parser *parser);
 static ASTNode *parser_parse_expression(Parser *parser);
 static ASTNode *parser_parse_string_interpolation(Parser *parser, Token *string_token);
+static ASTNode *parser_parse_match_expr(Parser *parser);
+static ASTNode *parser_parse_tuple_literal(Parser *parser);
 static ASTNode *parser_parse_comparison_or_higher(Parser *parser);
 
 // 解析类型
@@ -252,6 +254,65 @@ static ASTNode *parser_parse_type(Parser *parser) {
         }
 
         return array_type;
+    }
+    // Check if it's a tuple type: (T1, T2, ...)
+    else if (parser_match(parser, TOKEN_LEFT_PAREN)) {
+        parser_consume(parser); // consume '('
+
+        ASTNode *tuple_type = ast_new_node(AST_TYPE_TUPLE,
+                                           parser->current_token->line,
+                                           parser->current_token->column,
+                                           parser->current_token->filename);
+        if (!tuple_type) {
+            return NULL;
+        }
+
+        // Initialize tuple type elements
+        tuple_type->data.type_tuple.element_types = NULL;
+        tuple_type->data.type_tuple.element_count = 0;
+        int element_capacity = 0;
+
+        if (!parser_match(parser, TOKEN_RIGHT_PAREN)) {
+            do {
+                // Parse an element type
+                ASTNode *element_type = parser_parse_type(parser);
+                if (!element_type) {
+                    ast_free(tuple_type);
+                    return NULL;
+                }
+
+                // Expand element types array
+                if (tuple_type->data.type_tuple.element_count >= element_capacity) {
+                    int new_capacity = element_capacity == 0 ? 4 : element_capacity * 2;
+                    ASTNode **new_element_types = realloc(tuple_type->data.type_tuple.element_types,
+                                                         new_capacity * sizeof(ASTNode*));
+                    if (!new_element_types) {
+                        ast_free(element_type);
+                        ast_free(tuple_type);
+                        return NULL;
+                    }
+                    tuple_type->data.type_tuple.element_types = new_element_types;
+                    element_capacity = new_capacity;
+                }
+
+                tuple_type->data.type_tuple.element_types[tuple_type->data.type_tuple.element_count] = element_type;
+                tuple_type->data.type_tuple.element_count++;
+
+                if (parser_match(parser, TOKEN_COMMA)) {
+                    parser_consume(parser); // consume ','
+                } else {
+                    break;
+                }
+            } while (!parser_match(parser, TOKEN_RIGHT_PAREN) && parser->current_token);
+        }
+
+        // Expect ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            ast_free(tuple_type);
+            return NULL;
+        }
+
+        return tuple_type;
     } else {
         // Handle simple named type
         ASTNode *type_node = ast_new_node(AST_TYPE_NAMED,
@@ -367,6 +428,11 @@ static ASTNode *parser_parse_expression(Parser *parser) {
         unary_expr->data.unary_expr.operand = operand;
 
         return unary_expr;
+    }
+
+    // Check for match expressions first: match expr { pattern => body, ... }
+    if (parser_match(parser, TOKEN_MATCH)) {
+        return parser_parse_match_expr(parser);
     }
 
     // 简单的表达式解析，处理标识符、函数调用、数字等
@@ -781,6 +847,10 @@ static ASTNode *parser_parse_expression(Parser *parser) {
         }
 
         left = array_literal;
+    }
+    // Check if this is a tuple literal: (expr1, expr2, ...)
+    else if (parser_match(parser, TOKEN_LEFT_PAREN)) {
+        left = parser_parse_tuple_literal(parser);
     } else {
         return NULL;
     }
@@ -1107,6 +1177,179 @@ static ASTNode *parser_parse_expression(Parser *parser) {
     return left;
 }
 
+// 解析 match 表达式: match expr { pattern => body, ... }
+static ASTNode *parser_parse_match_expr(Parser *parser) {
+    if (!parser_match(parser, TOKEN_MATCH)) {
+        return NULL;
+    }
+
+    int line = parser->current_token->line;
+    int col = parser->current_token->column;
+    const char *filename = parser->current_token->filename;
+
+    parser_consume(parser); // consume 'match'
+
+    // Parse the expression to match
+    ASTNode *expr = parser_parse_expression(parser);
+    if (!expr) {
+        fprintf(stderr, "语法错误: match 表达式需要匹配的表达式\n");
+        return NULL;
+    }
+
+    // Expect '{'
+    if (!parser_expect(parser, TOKEN_LEFT_BRACE)) {
+        ast_free(expr);
+        return NULL;
+    }
+
+    // Create match expression node
+    ASTNode *match_expr = ast_new_node(AST_MATCH_EXPR, line, col, filename);
+    if (!match_expr) {
+        ast_free(expr);
+        return NULL;
+    }
+
+    match_expr->data.match_expr.expr = expr;
+    match_expr->data.match_expr.patterns = NULL;
+    match_expr->data.match_expr.pattern_count = 0;
+    int pattern_capacity = 0;
+
+    // Parse pattern => body pairs
+    while (parser->current_token && !parser_match(parser, TOKEN_RIGHT_BRACE)) {
+        // Parse pattern
+        ASTNode *pattern = ast_new_node(AST_PATTERN,
+                                       parser->current_token->line,
+                                       parser->current_token->column,
+                                       parser->current_token->filename);
+        if (!pattern) {
+            ast_free(match_expr);
+            return NULL;
+        }
+
+        // For now, parse the pattern expression (could be literal, identifier, etc.)
+        pattern->data.pattern.pattern_expr = parser_parse_expression(parser);
+        if (!pattern->data.pattern.pattern_expr) {
+            ast_free(pattern);
+            ast_free(match_expr);
+            return NULL;
+        }
+
+        // Expect '=>'
+        if (!parser_expect(parser, TOKEN_ARROW)) {
+            ast_free(pattern);
+            ast_free(match_expr);
+            return NULL;
+        }
+
+        // Parse the body for this pattern
+        pattern->data.pattern.body = parser_parse_expression(parser); // For now, just parse as expression
+        if (!pattern->data.pattern.body) {
+            ast_free(pattern);
+            ast_free(match_expr);
+            return NULL;
+        }
+
+        // Expand patterns array
+        if (match_expr->data.match_expr.pattern_count >= pattern_capacity) {
+            int new_capacity = pattern_capacity == 0 ? 4 : pattern_capacity * 2;
+            ASTNode **new_patterns = realloc(match_expr->data.match_expr.patterns,
+                                           new_capacity * sizeof(ASTNode*));
+            if (!new_patterns) {
+                ast_free(pattern);
+                ast_free(match_expr);
+                return NULL;
+            }
+            match_expr->data.match_expr.patterns = new_patterns;
+            pattern_capacity = new_capacity;
+        }
+
+        match_expr->data.match_expr.patterns[match_expr->data.match_expr.pattern_count] = pattern;
+        match_expr->data.match_expr.pattern_count++;
+
+        // Check for comma between patterns (optional)
+        if (parser_match(parser, TOKEN_COMMA)) {
+            parser_consume(parser);
+        }
+
+        // If we encounter 'else', it should be the last pattern
+        if (parser_match(parser, TOKEN_IDENTIFIER) &&
+            strcmp(parser->current_token->value, "else") == 0) {
+            // This is an else pattern - handle specially if needed
+            // For now, just parse it as a regular pattern
+        }
+    }
+
+    // Expect '}'
+    if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
+        ast_free(match_expr);
+        return NULL;
+    }
+
+    return match_expr;
+}
+
+// 解析元组字面量: (expr1, expr2, ...)
+// 注意：调用此函数前必须确认当前 token 是 TOKEN_LEFT_PAREN
+static ASTNode *parser_parse_tuple_literal(Parser *parser) {
+    // 当前 token 应该是 TOKEN_LEFT_PAREN（由调用者检查）
+    parser_consume(parser); // consume '('
+
+    ASTNode *tuple_literal = ast_new_node(AST_TUPLE_LITERAL,
+                                          parser->current_token->line,
+                                          parser->current_token->column,
+                                          parser->current_token->filename);
+    if (!tuple_literal) {
+        return NULL;
+    }
+
+    // Initialize tuple literal elements
+    tuple_literal->data.tuple_literal.elements = NULL;
+    tuple_literal->data.tuple_literal.element_count = 0;
+    int element_capacity = 0;
+
+    if (!parser_match(parser, TOKEN_RIGHT_PAREN)) {
+        do {
+            // Parse an element expression
+            ASTNode *element = parser_parse_expression(parser);
+            if (!element) {
+                ast_free(tuple_literal);
+                return NULL;
+            }
+
+            // Expand elements array
+            if (tuple_literal->data.tuple_literal.element_count >= element_capacity) {
+                int new_capacity = element_capacity == 0 ? 4 : element_capacity * 2;
+                ASTNode **new_elements = realloc(tuple_literal->data.tuple_literal.elements,
+                                               new_capacity * sizeof(ASTNode*));
+                if (!new_elements) {
+                    ast_free(element);
+                    ast_free(tuple_literal);
+                    return NULL;
+                }
+                tuple_literal->data.tuple_literal.elements = new_elements;
+                element_capacity = new_capacity;
+            }
+
+            tuple_literal->data.tuple_literal.elements[tuple_literal->data.tuple_literal.element_count] = element;
+            tuple_literal->data.tuple_literal.element_count++;
+
+            if (parser_match(parser, TOKEN_COMMA)) {
+                parser_consume(parser); // consume ','
+            } else {
+                break;
+            }
+        } while (!parser_match(parser, TOKEN_RIGHT_PAREN) && parser->current_token);
+    }
+
+    // Expect ')'
+    if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+        ast_free(tuple_literal);
+        return NULL;
+    }
+
+    return tuple_literal;
+}
+
 // 解析比较操作符及更高优先级的表达式（不包括逻辑操作符&&和||）
 // 这个函数与parser_parse_expression基本相同，但在循环中不处理逻辑操作符
 static ASTNode *parser_parse_comparison_or_higher(Parser *parser) {
@@ -1196,6 +1439,11 @@ static ASTNode *parser_parse_comparison_or_higher(Parser *parser) {
         unary_expr->data.unary_expr.operand = operand;
 
         return unary_expr;
+    }
+
+    // Check for match expressions first: match expr { pattern => body, ... }
+    if (parser_match(parser, TOKEN_MATCH)) {
+        return parser_parse_match_expr(parser);
     }
 
     // 简单的表达式解析，处理标识符、函数调用、数字等
@@ -1610,6 +1858,10 @@ static ASTNode *parser_parse_comparison_or_higher(Parser *parser) {
         }
 
         left = array_literal;
+    }
+    // Check if this is a tuple literal: (expr1, expr2, ...)
+    else if (parser_match(parser, TOKEN_LEFT_PAREN)) {
+        left = parser_parse_tuple_literal(parser);
     } else {
         return NULL;
     }

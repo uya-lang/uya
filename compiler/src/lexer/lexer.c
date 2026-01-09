@@ -194,6 +194,7 @@ static int is_keyword(const char *str) {
     if (strcmp(str, "as!") == 0) return TOKEN_AS_EXCLAMATION;
     if (strcmp(str, "type") == 0) return TOKEN_TYPE;
     if (strcmp(str, "mc") == 0) return TOKEN_MC;
+    if (strcmp(str, "match") == 0) return TOKEN_MATCH;
     return 0;
 }
 

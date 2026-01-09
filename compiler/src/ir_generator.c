@@ -896,6 +896,35 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
             return subscript;
         }
 
+        case AST_TUPLE_LITERAL: {
+            // Handle tuple literals: (expr1, expr2, ...)
+            // For now, we'll represent tuples as anonymous struct-like constructs
+            // In the future, we could generate a temporary struct or use a different representation
+
+            // For now, we'll just generate the individual elements and return the last one
+            // A proper tuple implementation would need to create a composite data structure
+            IRInst *last_element = NULL;
+
+            for (int i = 0; i < expr->data.tuple_literal.element_count; i++) {
+                IRInst *element = generate_expr(ir_gen, expr->data.tuple_literal.elements[i]);
+                if (!element) {
+                    return NULL;
+                }
+                last_element = element;
+            }
+
+            // Return the last element for now - a proper tuple implementation would
+            // create a composite structure to hold all elements
+            return last_element;
+        }
+
+        case AST_MATCH_EXPR: {
+            // Handle match expressions: match expr { pattern => body, ... }
+            // For now, we'll just generate the expression being matched
+            // A complete implementation would generate conditional logic for pattern matching
+            return generate_expr(ir_gen, expr->data.match_expr.expr);
+        }
+
         default:
             // For unsupported expressions, create a placeholder
             return irinst_new(IR_VAR_DECL);
@@ -1786,6 +1815,13 @@ static void generate_program(IRGenerator *ir_gen, struct ASTNode *program) {
                     ir_gen->instructions[ir_gen->inst_count++] = enum_ir;
                 }
             }
+        } else if (decl->type == AST_TYPE_TUPLE) {
+            // Handle tuple type declarations - tuples don't need separate IR instructions
+            // They are handled inline during expression processing
+        } else if (decl->type == AST_TUPLE_LITERAL) {
+            // Handle tuple literals - these are processed as expressions
+            // This shouldn't happen here since tuple literals are expressions, not declarations
+            // But we'll add it for completeness
         } else if (decl->type == AST_STRUCT_DECL) {
             // Handle struct declarations
             IRInst *struct_ir = irinst_new(IR_STRUCT_DECL);

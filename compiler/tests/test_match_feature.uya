@@ -1,0 +1,19 @@
+// Test match expression feature
+fn main() i32 {
+    var x i32 = 2;
+    var result i32;
+    
+    // Basic match expression
+    result = match x {
+        1 => 10,
+        2 => 20,
+        3 => 30,
+        else => 0
+    };
+    
+    if result == 20 {
+        return 0;
+    } else {
+        return 1;
+    }
+}

@@ -1,0 +1,18 @@
+// Test for enum functionality with correct Uya syntax
+enum Color {
+    Red = 1,
+    Green = 2,
+    Blue = 3
+}
+
+fn main() i32 {
+    const red_color: Color = Color.Red;
+    const green_color: Color = Color.Green;
+    const blue_color: Color = Color.Blue;
+    
+    if red_color == Color.Red {
+        return 0;
+    } else {
+        return 1;
+    }
+}

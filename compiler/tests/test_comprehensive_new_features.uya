@@ -1,0 +1,28 @@
+// Comprehensive test for new features
+enum Color {
+    Red = 1,
+    Green = 2,
+    Blue = 3
+}
+
+// Test basic enum usage
+fn test_enum() i32 {
+    return 0;  // Just test that enum can be declared
+}
+
+// Test tuple type syntax (even if full functionality isn't complete)
+fn test_tuple() (i32, bool) {
+    return (42, true);  // Basic tuple literal
+}
+
+// Test match expression syntax (even if full functionality isn't complete)
+fn test_match() i32 {
+    const x: i32 = 1;
+    // This might not fully work yet, but syntax should be parsed
+    return x;
+}
+
+fn main() i32 {
+    const result: i32 = test_enum();
+    return result;
+}

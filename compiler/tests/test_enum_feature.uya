@@ -1,0 +1,23 @@
+// Test enum feature
+enum Color {
+    Red = 1,
+    Green = 2,
+    Blue = 3
+}
+
+enum Status {
+    Success,
+    Error
+}
+
+fn main() i32 {
+    var red_color: Color = Color.Red;
+    var green_color: Color = Color.Green;
+    var status: Status = Status.Success;
+    
+    if red_color == 1 {
+        return 0;
+    } else {
+        return 1;
+    }
+}

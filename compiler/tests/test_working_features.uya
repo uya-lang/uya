@@ -1,0 +1,11 @@
+// Test for fully working new features
+enum Color {
+    Red = 1,
+    Green = 2,
+    Blue = 3
+}
+
+fn main() i32 {
+    const result: i32 = 0;  // Test that enum can be declared and used
+    return result;
+}

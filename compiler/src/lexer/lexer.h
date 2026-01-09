@@ -46,6 +46,7 @@ typedef enum {
     TOKEN_AS_EXCLAMATION,
     TOKEN_TYPE,
     TOKEN_MC,
+    TOKEN_MATCH,
     
     // 运算符
     TOKEN_PLUS,

@@ -208,6 +208,28 @@ void irinst_free(IRInst *inst) {
             }
             break;
 
+        case IR_ENUM_DECL:
+            if (inst->data.enum_decl.name) {
+                free(inst->data.enum_decl.name);
+            }
+            if (inst->data.enum_decl.variant_names) {
+                for (int i = 0; i < inst->data.enum_decl.variant_count; i++) {
+                    if (inst->data.enum_decl.variant_names[i]) {
+                        free(inst->data.enum_decl.variant_names[i]);
+                    }
+                }
+                free(inst->data.enum_decl.variant_names);
+            }
+            if (inst->data.enum_decl.variant_values) {
+                for (int i = 0; i < inst->data.enum_decl.variant_count; i++) {
+                    if (inst->data.enum_decl.variant_values[i]) {
+                        free(inst->data.enum_decl.variant_values[i]);
+                    }
+                }
+                free(inst->data.enum_decl.variant_values);
+            }
+            break;
+
         case IR_DEFER:
             if (inst->data.defer.body) {
                 for (int i = 0; i < inst->data.defer.body_count; i++) {

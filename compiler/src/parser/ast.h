@@ -73,6 +73,14 @@ typedef enum {
     // 宏相关
     AST_MACRO_DECL,
 
+    // 元组相关
+    AST_TYPE_TUPLE,
+    AST_TUPLE_LITERAL,
+
+    // match 表达式相关
+    AST_MATCH_EXPR,
+    AST_PATTERN,
+
     // 测试相关
     AST_TEST_BLOCK,
 } ASTNodeType;
@@ -306,6 +314,32 @@ typedef struct ASTNode {
             char *name;                  // 测试名称（说明文字）
             struct ASTNode *body;        // 测试体
         } test_block;
+
+        // 元组类型 (T1, T2, ...)
+        struct {
+            struct ASTNode **element_types;  // 元素类型列表
+            int element_count;               // 元素数量
+        } type_tuple;
+
+        // 元组字面量 (expr1, expr2, ...)
+        struct {
+            struct ASTNode **elements;       // 元素表达式列表
+            int element_count;               // 元素数量
+        } tuple_literal;
+
+        // 模式 (用于 match 表达式)
+        struct {
+            struct ASTNode *pattern_expr;    // 模式表达式（字面量、标识符、结构体模式等）
+            char *var_name;                  // 绑定变量名（用于标识符模式）
+            struct ASTNode *body;            // 匹配成功时的执行体
+        } pattern;
+
+        // match 表达式 (match expr { pattern => body, ... })
+        struct {
+            struct ASTNode *expr;            // 要匹配的表达式
+            struct ASTNode **patterns;       // 模式数组
+            int pattern_count;               // 模式数量
+        } match_expr;
     } data;
 } ASTNode;
 
