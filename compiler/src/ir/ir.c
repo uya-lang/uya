@@ -266,6 +266,26 @@ void irinst_free(IRInst *inst) {
             irinst_free(inst->data.member_access.index_expr);
             break;
 
+        case IR_STRUCT_INIT:
+            if (inst->data.struct_init.struct_name) {
+                free(inst->data.struct_init.struct_name);
+            }
+            if (inst->data.struct_init.field_names) {
+                for (int i = 0; i < inst->data.struct_init.field_count; i++) {
+                    if (inst->data.struct_init.field_names[i]) {
+                        free(inst->data.struct_init.field_names[i]);
+                    }
+                }
+                free(inst->data.struct_init.field_names);
+            }
+            if (inst->data.struct_init.field_inits) {
+                for (int i = 0; i < inst->data.struct_init.field_count; i++) {
+                    irinst_free(inst->data.struct_init.field_inits[i]);
+                }
+                free(inst->data.struct_init.field_inits);
+            }
+            break;
+
         case IR_STRING_INTERPOLATION:
             // 释放文本段
             if (inst->data.string_interpolation.text_segments) {
