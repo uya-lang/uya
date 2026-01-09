@@ -1,0 +1,16 @@
+// 测试：预定义错误和运行时错误混合使用
+error FileNotFound;  // 预定义错误
+// DivisionByZero 未声明，但会在使用时自动创建（运行时错误）
+
+fn test1() !i32 {
+    return error.FileNotFound;  // 使用预定义错误
+}
+
+fn test2() !i32 {
+    return error.DivisionByZero;  // 使用运行时错误（未预定义）
+}
+
+fn main() i32 {
+    return 0;
+}
+

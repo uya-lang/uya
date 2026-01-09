@@ -17,6 +17,8 @@ ASTNode *parser_parse_declaration(Parser *parser) {
         return parser_parse_struct_decl(parser);
     } else if (parser_match(parser, TOKEN_ENUM)) {
         return parser_parse_enum_decl(parser);
+    } else if (parser_match(parser, TOKEN_ERROR)) {
+        return parser_parse_error_decl(parser);
     } else if (parser_match(parser, TOKEN_EXTERN)) {
         return parser_parse_extern_decl(parser);
     } else if (parser_match(parser, TOKEN_IDENTIFIER)) {
@@ -693,6 +695,47 @@ ASTNode *parser_parse_enum_decl(Parser *parser) {
     }
 
     return enum_decl;
+}
+
+// 解析错误声明 (error ErrorName;)
+ASTNode *parser_parse_error_decl(Parser *parser) {
+    if (!parser_match(parser, TOKEN_ERROR)) {
+        return NULL;
+    }
+
+    int line = parser->current_token->line;
+    int col = parser->current_token->column;
+    const char *filename = parser->current_token->filename;
+
+    parser_consume(parser); // 消费 error
+
+    // 期望错误名
+    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+        fprintf(stderr, "语法错误: 期望错误名\n");
+        return NULL;
+    }
+
+    ASTNode *error_decl = ast_new_node(AST_ERROR_DECL, line, col, filename);
+    if (!error_decl) {
+        return NULL;
+    }
+
+    error_decl->data.error_decl.name = malloc(strlen(parser->current_token->value) + 1);
+    if (!error_decl->data.error_decl.name) {
+        ast_free(error_decl);
+        return NULL;
+    }
+    strcpy(error_decl->data.error_decl.name, parser->current_token->value);
+
+    parser_consume(parser); // 消费错误名
+
+    // 期望 ';'
+    if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+        ast_free(error_decl);
+        return NULL;
+    }
+
+    return error_decl;
 }
 
 // 解析接口实现声明 (StructName : InterfaceName { ... })

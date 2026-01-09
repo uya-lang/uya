@@ -1830,6 +1830,30 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
         case AST_MATCH_EXPR:
             return typecheck_match_expr(checker, node);
             
+        case AST_ERROR_DECL:
+            // 预定义错误声明：检查名称唯一性（全局命名空间）
+            if (!checker->program_node || checker->program_node->type != AST_PROGRAM) {
+                return 1;  // 如果没有程序节点，无法检查，暂时通过
+            }
+            
+            // 遍历程序节点中的所有 AST_ERROR_DECL，检查是否有重复的名称
+            for (int i = 0; i < checker->program_node->data.program.decl_count; i++) {
+                ASTNode *decl = checker->program_node->data.program.decls[i];
+                if (decl && decl != node && decl->type == AST_ERROR_DECL) {
+                    // 找到另一个错误声明
+                    if (decl->data.error_decl.name && node->data.error_decl.name &&
+                        strcmp(decl->data.error_decl.name, node->data.error_decl.name) == 0) {
+                        // 发现重复定义（当前节点是重复的，decl是第一次定义）
+                        typechecker_add_error(checker,
+                            "预定义错误 '%s' 重复定义 (行 %d:%d, 已有定义在行 %d:%d)",
+                            node->data.error_decl.name, node->line, node->column,
+                            decl->line, decl->column);
+                        return 0;
+                    }
+                }
+            }
+            return 1;  // 名称唯一，通过
+            
         default:
             return 1;  // 其他节点类型暂时通过
     }
@@ -1849,6 +1873,10 @@ int typechecker_check(TypeChecker *checker, ASTNode *ast) {
     checker->scan_pass = 1;
     int result = typecheck_node(checker, ast);
     if (!result) {
+        // 如果有错误，打印并返回失败
+        if (checker->error_count > 0) {
+            typechecker_print_errors(checker);
+        }
         typechecker_exit_scope(checker);
         return 0;
     }

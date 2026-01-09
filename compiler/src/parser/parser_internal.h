@@ -42,6 +42,7 @@ ASTNode *parser_parse_fn_decl(Parser *parser);
 ASTNode *parser_parse_extern_decl(Parser *parser);
 ASTNode *parser_parse_struct_decl(Parser *parser);
 ASTNode *parser_parse_enum_decl(Parser *parser);
+ASTNode *parser_parse_error_decl(Parser *parser);
 ASTNode *parser_parse_impl_decl(Parser *parser);
 ASTNode *parser_parse_test_block(Parser *parser);
 ASTNode *parser_parse_param(Parser *parser);

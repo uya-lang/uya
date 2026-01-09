@@ -1,6 +1,7 @@
 #include "codegen_error.h"
 #include "codegen.h"
 #include "../ir/ir.h"
+#include "../parser/ast.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,19 +11,68 @@
 static void collect_error_names_recursive(CodeGenerator *codegen, IRInst *inst);
 static uint32_t hash_error_name(const char *error_name);
 static int detect_error_code_collisions(CodeGenerator *codegen);
+static void add_error_name_to_map(CodeGenerator *codegen, const char *error_name);
 
-// 收集所有错误名称（从 IR 中遍历所有 IR_ERROR_VALUE）
-int collect_error_names(CodeGenerator *codegen, IRGenerator *ir) {
-    if (!codegen || !ir || !ir->instructions) {
-        return 0; // 成功
+// 添加错误名称到映射表（如果尚未存在）
+static void add_error_name_to_map(CodeGenerator *codegen, const char *error_name) {
+    if (!codegen || !error_name || strlen(error_name) == 0) {
+        return;
     }
 
-    // 第一遍：收集所有唯一的错误名称
-    for (int i = 0; i < ir->inst_count; i++) {
-        if (!ir->instructions[i]) continue;
+    // 检查是否已经收集过这个错误名称
+    for (int i = 0; i < codegen->error_map_size; i++) {
+        if (codegen->error_map[i].error_name &&
+            strcmp(codegen->error_map[i].error_name, error_name) == 0) {
+            // 已经存在，跳过
+            return;
+        }
+    }
 
-        // 递归遍历 IR 指令树，查找所有 IR_ERROR_VALUE
-        collect_error_names_recursive(codegen, ir->instructions[i]);
+    // 扩展映射表容量
+    if (codegen->error_map_size >= codegen->error_map_capacity) {
+        int new_capacity = codegen->error_map_capacity == 0 ? 8 : codegen->error_map_capacity * 2;
+        ErrorNameMap *new_map = realloc(codegen->error_map, new_capacity * sizeof(ErrorNameMap));
+        if (!new_map) {
+            return; // 内存分配失败
+        }
+        codegen->error_map = new_map;
+        codegen->error_map_capacity = new_capacity;
+    }
+
+    // 添加新的错误名称
+    codegen->error_map[codegen->error_map_size].error_name = malloc(strlen(error_name) + 1);
+    if (codegen->error_map[codegen->error_map_size].error_name) {
+        strcpy(codegen->error_map[codegen->error_map_size].error_name, error_name);
+        codegen->error_map[codegen->error_map_size].error_code = 0; // 稍后分配
+        codegen->error_map_size++;
+    }
+}
+
+// 收集所有错误名称（从 IR 中遍历所有 IR_ERROR_VALUE，以及从 AST 中收集预定义错误声明）
+int collect_error_names(CodeGenerator *codegen, IRGenerator *ir, ASTNode *ast) {
+    if (!codegen) {
+        return 0; // 成功（如果没有代码生成器，无法收集）
+    }
+
+    // 第一步：从AST收集预定义错误声明（error ErrorName;）
+    if (ast && ast->type == AST_PROGRAM) {
+        for (int i = 0; i < ast->data.program.decl_count; i++) {
+            ASTNode *decl = ast->data.program.decls[i];
+            if (decl && decl->type == AST_ERROR_DECL && decl->data.error_decl.name) {
+                add_error_name_to_map(codegen, decl->data.error_decl.name);
+            }
+        }
+    }
+
+    // 第二步：从IR收集运行时错误（error.ErrorName）
+    if (ir && ir->instructions) {
+        // 第一遍：收集所有唯一的错误名称
+        for (int i = 0; i < ir->inst_count; i++) {
+            if (!ir->instructions[i]) continue;
+
+            // 递归遍历 IR 指令树，查找所有 IR_ERROR_VALUE
+            collect_error_names_recursive(codegen, ir->instructions[i]);
+        }
     }
 
     // 如果没有收集到任何错误名称，直接返回
@@ -59,33 +109,8 @@ static void collect_error_names_recursive(CodeGenerator *codegen, IRInst *inst) 
             return;
         }
 
-        // 检查是否已经收集过这个错误名称
-        for (int i = 0; i < codegen->error_map_size; i++) {
-            if (codegen->error_map[i].error_name &&
-                strcmp(codegen->error_map[i].error_name, error_name) == 0) {
-                // 已经存在，跳过
-                return;
-            }
-        }
-
-        // 扩展映射表容量
-        if (codegen->error_map_size >= codegen->error_map_capacity) {
-            int new_capacity = codegen->error_map_capacity == 0 ? 8 : codegen->error_map_capacity * 2;
-            ErrorNameMap *new_map = realloc(codegen->error_map, new_capacity * sizeof(ErrorNameMap));
-            if (!new_map) {
-                return; // 内存分配失败
-            }
-            codegen->error_map = new_map;
-            codegen->error_map_capacity = new_capacity;
-        }
-
-        // 添加新的错误名称
-        codegen->error_map[codegen->error_map_size].error_name = malloc(strlen(error_name) + 1);
-        if (codegen->error_map[codegen->error_map_size].error_name) {
-            strcpy(codegen->error_map[codegen->error_map_size].error_name, error_name);
-            codegen->error_map[codegen->error_map_size].error_code = 0; // 稍后分配
-            codegen->error_map_size++;
-        }
+        // 使用辅助函数添加错误名称
+        add_error_name_to_map(codegen, error_name);
     }
 
     // 递归遍历子节点

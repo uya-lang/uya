@@ -128,7 +128,7 @@ int compile_file(const char *input_file, const char *output_file) {
         goto cleanup;
     }
 
-    if (!codegen_generate(codegen, ir_result, output_file)) {
+    if (!codegen_generate(codegen, ir_result, ast, output_file)) {
         print_error("代码生成失败");
         result = 1;
         goto cleanup;

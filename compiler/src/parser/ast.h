@@ -70,6 +70,9 @@ typedef enum {
     // 枚举相关
     AST_ENUM_DECL,
 
+    // 错误声明相关
+    AST_ERROR_DECL,
+
     // 宏相关
     AST_MACRO_DECL,
 
@@ -308,6 +311,11 @@ typedef struct ASTNode {
             EnumVariant *variants;       // 变体列表
             int variant_count;           // 变体数量
         } enum_decl;
+
+        // 错误声明 (error ErrorName;)
+        struct {
+            char *name;                  // 错误名称
+        } error_decl;
 
         // 测试块 (test "说明文字" { ... })
         struct {

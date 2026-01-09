@@ -1,0 +1,16 @@
+// 测试：所有预定义错误都被使用时，都应该生成错误码
+error FileNotFound;
+error DivisionByZero;
+
+fn test1() !i32 {
+    return error.FileNotFound;
+}
+
+fn test2() !i32 {
+    return error.DivisionByZero;
+}
+
+fn main() i32 {
+    return 0;
+}
+

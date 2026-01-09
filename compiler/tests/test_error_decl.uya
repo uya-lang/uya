@@ -1,0 +1,7 @@
+error FileNotFound;
+error DivisionByZero;
+
+fn main() i32 {
+    return 0;
+}
+

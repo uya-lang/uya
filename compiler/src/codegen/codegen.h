@@ -2,6 +2,7 @@
 #define CODEGEN_H
 
 #include "../ir/ir.h"
+#include "../parser/ast.h"
 #include <stdio.h>
 #include <stdint.h>
 
@@ -27,6 +28,6 @@ typedef struct CodeGenerator {
 // 代码生成器函数
 CodeGenerator *codegen_new();
 void codegen_free(CodeGenerator *codegen);
-int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output_file);
+int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, ASTNode *ast, const char *output_file);
 
 #endif

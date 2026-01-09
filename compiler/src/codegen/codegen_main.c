@@ -4,6 +4,7 @@
 #include "codegen_value.h"
 #include "codegen_inst.h"
 #include "../ir/ir.h"
+#include "../parser/ast.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,7 +47,7 @@ void codegen_free(CodeGenerator *codegen) {
     }
 }
 
-int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output_file) {
+int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, ASTNode *ast, const char *output_file) {
     if (!codegen || !ir || !output_file) {
         return 0;
     }
@@ -54,8 +55,8 @@ int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output
     // Store IR generator reference for function lookup
     codegen->ir = ir;
 
-    // 第一步：收集所有错误名称并检测冲突
-    if (collect_error_names(codegen, ir) != 0) {
+    // 第一步：收集所有错误名称并检测冲突（从AST和IR中收集）
+    if (collect_error_names(codegen, ir, ast) != 0) {
         // 发现冲突，编译失败
         return 0;
     }

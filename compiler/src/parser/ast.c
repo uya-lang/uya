@@ -220,6 +220,12 @@ void ast_free(ASTNode *node) {
             }
             break;
 
+        case AST_ERROR_DECL:
+            if (node->data.error_decl.name) {
+                free(node->data.error_decl.name);
+            }
+            break;
+
         case AST_TEST_BLOCK:
             if (node->data.test_block.name) {
                 free(node->data.test_block.name);
