@@ -2721,8 +2721,26 @@ static ASTNode *parser_parse_extern_decl(Parser *parser) {
         }
     }
 
-    // extern声明没有函数体，所以body为NULL
-    extern_decl->data.fn_decl.body = NULL;
+    // 检查是否有函数体（导出函数）或分号（声明外部函数）
+    // extern fn name(...) type; - 声明外部函数（导入）
+    // extern fn name(...) type { ... } - 导出函数（供 C 调用）
+    if (parser_match(parser, TOKEN_LEFT_BRACE)) {
+        // 解析函数体（导出函数）
+        extern_decl->data.fn_decl.body = parser_parse_block(parser);
+        if (!extern_decl->data.fn_decl.body) {
+            ast_free(extern_decl);
+            return NULL;
+        }
+    } else if (parser_match(parser, TOKEN_SEMICOLON)) {
+        // 声明外部函数，没有函数体
+        parser_consume(parser); // 消费 ';'
+        extern_decl->data.fn_decl.body = NULL;
+    } else {
+        // 语法错误：期望 '{' 或 ';'
+        fprintf(stderr, "语法错误: extern函数声明期望 '{' 或 ';'\n");
+        ast_free(extern_decl);
+        return NULL;
+    }
 
     return extern_decl;
 }
