@@ -96,11 +96,6 @@ ASTNode *parser_parse_match_expr(Parser *parser) {
             parser_consume(parser);
             pattern_expr = ident;
         } else if (parser_match(parser, TOKEN_NUMBER)) {
-            fprintf(stderr, "[DEBUG MATCH] Parsing number pattern, current token: type=%d, line=%d:%d, value=%s\n",
-                    parser->current_token->type,
-                    parser->current_token->line,
-                    parser->current_token->column,
-                    parser->current_token->value ? parser->current_token->value : "(null)");
             ASTNode *num = ast_new_node(AST_NUMBER,
                                         parser->current_token->line,
                                         parser->current_token->column,
@@ -112,11 +107,6 @@ ASTNode *parser_parse_match_expr(Parser *parser) {
                 }
             }
             parser_consume(parser);
-            fprintf(stderr, "[DEBUG MATCH] After consuming number, current token: type=%d, line=%d:%d, value=%s\n",
-                    parser->current_token ? parser->current_token->type : -1,
-                    parser->current_token ? parser->current_token->line : 0,
-                    parser->current_token ? parser->current_token->column : 0,
-                    parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
             pattern_expr = num;
         } else if (parser_match(parser, TOKEN_STRING)) {
             ASTNode *str = ast_new_node(AST_STRING,
@@ -148,47 +138,27 @@ ASTNode *parser_parse_match_expr(Parser *parser) {
 
         // Expect '=>'
         if (!parser->current_token) {
-            fprintf(stderr, "[DEBUG MATCH] Current token is NULL before expecting TOKEN_ARROW\n");
             ast_free(pattern);
             ast_free(match_expr);
             return NULL;
         }
         if (!parser_match(parser, TOKEN_ARROW)) {
-            fprintf(stderr, "[DEBUG MATCH] Expected TOKEN_ARROW (%d) but got type %d, value=%s\n",
-                    TOKEN_ARROW,
-                    parser->current_token ? parser->current_token->type : -1,
-                    parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
             ast_free(pattern);
             ast_free(match_expr);
             return NULL;
         }
         parser_consume(parser); // consume '=>'
-        fprintf(stderr, "[DEBUG MATCH] After consuming TOKEN_ARROW, current token: type=%d, value=%s\n",
-                parser->current_token ? parser->current_token->type : -1,
-                parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
 
         // Parse the body for this pattern
-        fprintf(stderr, "[DEBUG MATCH] About to parse body expression\n");
-        pattern->data.pattern.body = parser_parse_expression(parser); // For now, just parse as expression
-        fprintf(stderr, "[DEBUG MATCH] Body expression parsed, result=%p, current_token=%p\n", 
-                pattern->data.pattern.body, (void*)parser->current_token);
-        if (parser->current_token) {
-            fprintf(stderr, "[DEBUG MATCH] After body parse, current token: type=%d, value=%s\n",
-                    parser->current_token->type,
-                    parser->current_token->value ? parser->current_token->value : "(null)");
-        }
+        pattern->data.pattern.body = parser_parse_expression(parser);
         if (!pattern->data.pattern.body) {
-            fprintf(stderr, "[DEBUG MATCH] Body is NULL, freeing pattern and match_expr\n");
             ast_free(pattern);
             ast_free(match_expr);
             return NULL;
         }
 
         // Expand patterns array
-        fprintf(stderr, "[DEBUG MATCH] Expanding patterns array, count=%d, capacity=%d\n", 
-                match_expr->data.match_expr.pattern_count, pattern_capacity);
         if (match_expr->data.match_expr.pattern_count >= pattern_capacity) {
-            fprintf(stderr, "[DEBUG MATCH] Reallocating patterns array\n");
             int new_capacity = pattern_capacity == 0 ? 4 : pattern_capacity * 2;
             ASTNode **new_patterns = realloc(match_expr->data.match_expr.patterns,
                                            new_capacity * sizeof(ASTNode*));
@@ -199,19 +169,13 @@ ASTNode *parser_parse_match_expr(Parser *parser) {
             }
             match_expr->data.match_expr.patterns = new_patterns;
             pattern_capacity = new_capacity;
-            fprintf(stderr, "[DEBUG MATCH] Patterns array reallocated, new capacity=%d\n", pattern_capacity);
         }
 
-        fprintf(stderr, "[DEBUG MATCH] Adding pattern to array at index %d\n", match_expr->data.match_expr.pattern_count);
         match_expr->data.match_expr.patterns[match_expr->data.match_expr.pattern_count] = pattern;
         match_expr->data.match_expr.pattern_count++;
-        fprintf(stderr, "[DEBUG MATCH] Pattern added, new count=%d\n", match_expr->data.match_expr.pattern_count);
-        fprintf(stderr, "[DEBUG MATCH] Before checking comma, current_token=%p\n", (void*)parser->current_token);
 
         // Check for comma between patterns (optional)
-        fprintf(stderr, "[DEBUG MATCH] About to check for comma\n");
         if (parser_match(parser, TOKEN_COMMA)) {
-            fprintf(stderr, "[DEBUG MATCH] Found comma\n");
             parser_consume(parser);
         }
 
