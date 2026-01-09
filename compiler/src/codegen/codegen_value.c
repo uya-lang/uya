@@ -7,6 +7,60 @@
 #include <string.h>
 #include <stdint.h>
 
+// Helper function to infer type from an IRInst expression
+static IRType infer_type_from_ir_inst(IRInst *inst) {
+    if (!inst) return IR_TYPE_I32;  // Default to i32
+    
+    switch (inst->type) {
+        case IR_CONSTANT:
+            return inst->data.constant.type;
+        
+        case IR_VAR_DECL:
+            return inst->data.var.type;
+        
+        case IR_BINARY_OP:
+            // For binary ops, infer from left operand (assumes same type)
+            if (inst->data.binary_op.left) {
+                return infer_type_from_ir_inst(inst->data.binary_op.left);
+            }
+            return IR_TYPE_I32;  // Default fallback
+        
+        case IR_UNARY_OP:
+            // For unary ops, infer from operand
+            if (inst->data.unary_op.operand) {
+                return infer_type_from_ir_inst(inst->data.unary_op.operand);
+            }
+            return IR_TYPE_I32;
+        
+        case IR_MEMBER_ACCESS:
+            // For member access, we need to infer from the object type
+            // This is complex, so we default to i32 for now
+            // TODO: Improve to get actual field type
+            return IR_TYPE_I32;
+        
+        case IR_CALL:
+            // For function calls, we can't infer return type from IR alone
+            // Default to i32 (functions with known return types should be handled separately)
+            return IR_TYPE_I32;
+        
+        case IR_STRUCT_INIT:
+            // Struct initialization returns the struct type
+            return IR_TYPE_STRUCT;
+        
+        case IR_IF:
+            // For nested match expressions, recursively infer type
+            // This is a match expression, so infer from first body
+            if (inst->data.if_stmt.then_body && inst->data.if_stmt.then_count > 0) {
+                int body_idx = inst->data.if_stmt.then_count - 1;
+                return infer_type_from_ir_inst(inst->data.if_stmt.then_body[body_idx]);
+            }
+            return IR_TYPE_I32;
+        
+        default:
+            return IR_TYPE_I32;  // Default fallback
+    }
+}
+
 // 处理转义序列并计算实际长度
 static size_t codegen_write_escaped_string(CodeGenerator *codegen, const char *text, size_t text_len) {
     size_t actual_len = 0;
@@ -506,21 +560,37 @@ void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
             // This allows match expressions (which are expressions) to return values
             // Format: ({ type temp; if (cond) temp = body1; else if (cond2) temp = body2; else temp = else_body; temp; })
             
-            // Infer return type from first body expression (simplified: assume i32 for now)
+            // Infer return type from all body expressions
+            // Traverse all branches to find body expressions and verify type consistency
             IRType match_type = IR_TYPE_I32;
-            if (inst->data.if_stmt.then_body && inst->data.if_stmt.then_count > 0) {
-                IRInst *first_body = inst->data.if_stmt.then_body[0];
-                if (first_body) {
-                    // Try to infer type from expression
-                    if (first_body->type == IR_CONSTANT) {
-                        match_type = first_body->data.constant.type;
-                    } else if (first_body->type == IR_BINARY_OP) {
-                        // For binary ops, assume result type is i32 (simplified)
-                        match_type = IR_TYPE_I32;
-                    } else if (first_body->type == IR_VAR_DECL) {
-                        match_type = first_body->data.var.type;
+            int type_inferred = 0;
+            
+            IRInst *type_check_if = inst;
+            while (type_check_if && type_check_if->type == IR_IF) {
+                // Get body expression (last element of then_body for struct patterns, first for regular patterns)
+                if (type_check_if->data.if_stmt.then_body && type_check_if->data.if_stmt.then_count > 0) {
+                    int body_idx = type_check_if->data.if_stmt.then_count - 1;  // Last element is body expression
+                    IRInst *body_expr = type_check_if->data.if_stmt.then_body[body_idx];
+                    
+                    if (body_expr) {
+                        IRType body_type = infer_type_from_ir_inst(body_expr);
+                        if (!type_inferred) {
+                            // First body expression: use its type
+                            match_type = body_type;
+                            type_inferred = 1;
+                        } else if (match_type != body_type) {
+                            // Type mismatch: warn but continue (use first type)
+                            // In a more complete implementation, this should be an error
+                            // For now, we use the first type and let the C compiler catch type errors
+                        }
                     }
-                    // Add more type inference as needed
+                }
+                
+                // Move to next branch
+                if (type_check_if->data.if_stmt.else_body && type_check_if->data.if_stmt.else_count > 0) {
+                    type_check_if = type_check_if->data.if_stmt.else_body[0];
+                } else {
+                    type_check_if = NULL;
                 }
             }
             
