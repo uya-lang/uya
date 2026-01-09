@@ -1,7 +1,7 @@
 // Test tuple feature
 fn main() i32 {
-    var pair (i32, bool) = (42, true);
-    var triple (i32, f64, bool) = (10, 3.14, false);
+    var pair: (i32, bool) = (42, true);
+    var triple: (i32, f64, bool) = (10, 3.14, false);
     
     // Access tuple elements (when implemented)
     // var first i32 = pair.0;
