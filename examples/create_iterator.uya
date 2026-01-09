@@ -7,7 +7,7 @@ fn create_iterator(arr: *[i32; 10]) ArrayIteratorI32 {
 }
 
 fn iterate_example() void {
-    const arr: [i32; 5] = [1, 2, 3, 4, 5];
+    const arr: [i32: 5] = [1, 2, 3, 4, 5];
     const iter: IIteratorI32 = create_iterator(&arr);  // 自动装箱为接口
     
     // 手动迭代（for循环会自动展开为类似代码）

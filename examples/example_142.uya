@@ -1,4 +1,4 @@
-    const arr: [i32; 10] = [0; 10];
+    const arr: [i32: 10] = [0; 10];
     const ptr: *i32 = &arr[0];
     
     // 使用语法糖

@@ -2,7 +2,7 @@ extern printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
     // 测试数组元素赋值和初始化
-    var arr: [i32; 5];
+    var arr: [i32: 5];
     
     // 使用常量索引初始化数组元素
     arr[0] = 10;

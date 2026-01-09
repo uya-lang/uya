@@ -27,13 +27,13 @@ fn test_structs() void {
 
 // 3. 数组和切片测试
 fn test_arrays_and_slices() void {
-    const arr: [i32; 5] = [1, 2, 3, 4, 5];
+    const arr: [i32: 5] = [1, 2, 3, 4, 5];
     
     // 测试切片
-    const slice1: [i32; 3] = slice(arr, 1, 4);  // [2, 3, 4]
+    const slice1: [i32: 3] = slice(arr, 1, 4);  // [2, 3, 4]
     
     // 测试负数索引切片
-    const slice2: [i32; 2] = slice(arr, -2, 5);  // [4, 5]
+    const slice2: [i32: 2] = slice(arr, -2, 5);  // [4, 5]
     
     // 计算一些值以避免未使用变量警告
     const sum1: i32 = 0;
@@ -88,7 +88,7 @@ fn test_control_flow() void {
         i = i + 1;
     }
     
-    const nums: [i32; 3] = [10, 20, 30];
+    const nums: [i32: 3] = [10, 20, 30];
     for (iter(&nums)) |num| {
         const _ = num;  // 使用变量避免警告
     }

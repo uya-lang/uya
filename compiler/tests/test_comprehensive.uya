@@ -107,7 +107,7 @@ fn test_arrays_and_slices() void {
     printf("\n=== 数组和切片测试 ===\n");
     
     // 数组声明和初始化
-    const arr: [i32; 5] = [1, 2, 3, 4, 5];
+    const arr: [i32: 5] = [1, 2, 3, 4, 5];
     printf("Original array: ");
     for (iter(&arr)) |item| {
         printf("%d ", item);
@@ -120,7 +120,7 @@ fn test_arrays_and_slices() void {
     }
     
     // 切片操作
-    const slice1: [i32; 3] = slice(arr, 1, 4);  // [2, 3, 4]
+    const slice1: [i32: 3] = slice(arr, 1, 4);  // [2, 3, 4]
     printf("Slice [1:4]: ");
     for (iter(&slice1)) |item| {
         printf("%d ", item);
@@ -128,7 +128,7 @@ fn test_arrays_and_slices() void {
     printf("\n");
     
     // 负数索引切片
-    const slice2: [i32; 2] = slice(arr, -2, 5);  // [4, 5]
+    const slice2: [i32: 2] = slice(arr, -2, 5);  // [4, 5]
     printf("Slice [-2:5]: ");
     for (iter(&slice2)) |item| {
         printf("%d ", item);
@@ -217,7 +217,7 @@ fn test_pointers() void {
     printf("After modifying through pointer, x: %d\n", x);
     
     // 安全指针算术
-    const arr: [i32; 3] = [10, 20, 30];
+    const arr: [i32: 3] = [10, 20, 30];
     const base_ptr: &i32 = &arr[0];
     
     // 编译器可以证明 base_ptr + 1 和 base_ptr + 2 都在安全范围内
@@ -294,7 +294,7 @@ fn test_string_interpolation() void {
     const pi: f64 = 3.14159;
     
     // 如果支持字符串插值语法
-    // const msg: [i8; 64] = "x=${x}, pi=${pi:.2f}\n";
+    // const msg: [i8: 64] = "x=${x}, pi=${pi:.2f}\n";
     // printf(&msg[0]);
     
     printf("x=%d, pi=%.2f\n", x, pi);  // 使用C函数

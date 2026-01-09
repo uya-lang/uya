@@ -45,13 +45,13 @@ fn example2() void {
 // 示例 3：嵌套结构体的 drop
 struct FileReader {
     file: File,           // File 有自定义 drop
-    buffer: [byte; 1024]  // 数组本身的 drop 是空函数，但会调用元素的 drop（byte 的 drop 是空函数）
+    buffer: [byte: 1024]  // 数组本身的 drop 是空函数，但会调用元素的 drop（byte 的 drop 是空函数）
 }
 
 fn example3() void {
     const reader: FileReader = FileReader{
         file: File{ fd: open("file.txt", 0) },
-        buffer: [0; 1024]
+        buffer: [0: 1024]
     };
     // 离开作用域时：
     // 1. drop(reader.buffer) - 先 drop 数组元素（byte 的 drop 是空函数），再 drop 数组本身（空函数）

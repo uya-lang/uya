@@ -52,7 +52,7 @@ ArrayIteratorI32 {
 }
 
 fn main() i32 {
-    const arr: [i32; 5] = [10, 20, 30, 40, 50];
+    const arr: [i32: 5] = [10, 20, 30, 40, 50];
     
     // 示例1：基本迭代（只获取元素值，只读）
     printf("Basic iteration:\n");
@@ -61,7 +61,7 @@ fn main() i32 {
     }
     
     // 示例2：可修改迭代
-    var arr2: [i32; 5] = [10, 20, 30, 40, 50];
+    var arr2: [i32: 5] = [10, 20, 30, 40, 50];
     printf("\nMutable iteration:\n");
     for arr2 |&item| {
         *item = *item * 2;  // 修改每个元素，乘以2

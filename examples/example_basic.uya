@@ -9,7 +9,7 @@ fn example_basic() void {
 
 // 数组：元素按索引逆序 drop
 fn example_array() void {
-  const arr: [f32; 4] = [1.0, 2.0, 3.0, 4.0];
+  const arr: [f32: 4] = [1.0, 2.0, 3.0, 4.0];
   // 离开作用域时，编译器会插入：
   // drop(arr[3]);  // 逆序 drop 元素
   // drop(arr[2]);

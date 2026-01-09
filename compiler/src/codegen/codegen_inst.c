@@ -443,7 +443,7 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                                     }
                                 }
                             } else if (body_inst->data.var.type == IR_TYPE_ARRAY && !body_inst->data.var.init) {
-                                // 未初始化的数组：var arr: [i32; 5];
+                                // 未初始化的数组：var arr: [i32 : 5];
                                 // 需要从符号表中获取数组大小，或者从 original_type_name 推断
                                 // 暂时使用固定大小（需要从 AST 中获取）
                                 // TODO: 从 IR 中获取数组大小
@@ -966,7 +966,7 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             if (inst->data.var.type == IR_TYPE_ARRAY && inst->data.var.init &&
                 inst->data.var.init->type == IR_CALL &&
                 strcmp(inst->data.var.init->data.call.func_name, "array") == 0) {
-                // Special handling for array variable declarations: let arr: [i32; 3] = [1, 2, 3];
+                // Special handling for array variable declarations: let arr: [i32 : 3] = [1, 2, 3];
                 // Generate: TypeName arr[] = {1, 2, 3};
                 // Use original_type_name if available, otherwise default to int32_t
                 if (inst->data.var.original_type_name) {

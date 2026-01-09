@@ -17,7 +17,7 @@ Console {
 
 // ③ 使用接口
 fn echo(w: IWriter) void {
-  const msg: [byte; 6] = "hello\n";
+  const msg: [byte: 6] = "hello\n";
   w.write(&msg[0], 5);
 }
 

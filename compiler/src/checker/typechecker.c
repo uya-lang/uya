@@ -413,7 +413,7 @@ static const char *get_type_name(IRType type) {
         case IR_TYPE_BYTE: return "byte";
         case IR_TYPE_VOID: return "void";
         case IR_TYPE_PTR: return "*T";
-        case IR_TYPE_ARRAY: return "[T; N]";
+        case IR_TYPE_ARRAY: return "[T : N]";
         case IR_TYPE_STRUCT: return "struct";
         case IR_TYPE_FN: return "fn";
         case IR_TYPE_ERROR_UNION: return "!T";
@@ -481,7 +481,7 @@ IRType typechecker_infer_type(TypeChecker *checker, ASTNode *expr) {
             return typechecker_infer_type(checker, expr->data.binary_expr.left);
         }
         case AST_STRING_INTERPOLATION:
-            // 字符串插值的结果类型是数组类型 [i8; N]
+            // 字符串插值的结果类型是数组类型 [i8 : N]
             return IR_TYPE_ARRAY;
         case AST_MEMBER_ACCESS:
             // Check if this is error.ErrorName (error value expression)

@@ -209,9 +209,9 @@ static ASTNode *parser_parse_type(Parser *parser) {
         return fn_type;
     }
 
-    // Check if it's an array type: [element_type; size]
+    // Check if it's an array type: [element_type : size]
     if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
-        // Parse array type: [i32; 10]
+        // Parse array type: [i32 : 10]
         parser_consume(parser); // consume '['
 
         ASTNode *array_type = ast_new_node(AST_TYPE_ARRAY,
@@ -229,8 +229,8 @@ static ASTNode *parser_parse_type(Parser *parser) {
             return NULL;
         }
 
-        // Expect ';'
-        if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+        // Expect ':'
+        if (!parser_expect(parser, TOKEN_COLON)) {
             ast_free(array_type);
             return NULL;
         }

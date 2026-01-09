@@ -7,24 +7,24 @@ fn main() i32 {
     const negative: f64 = -42.5;
     
     // 测试科学计数法 - 小写 e
-    const msg1: [i8; 64] = "pi: ${pi:.6e}\n";
+    const msg1: [i8: 64] = "pi: ${pi:.6e}\n";
     printf(&msg1[0]);
     
     // 测试科学计数法 - 大写 E
-    const msg2: [i8; 64] = "large: ${large:.3E}\n";
+    const msg2: [i8: 64] = "large: ${large:.3E}\n";
     printf(&msg2[0]);
     
     // 测试小数的科学计数法
-    const msg3: [i8; 64] = "small: ${small:.4e}\n";
+    const msg3: [i8: 64] = "small: ${small:.4e}\n";
     printf(&msg3[0]);
     
     // 测试负数的科学计数法
-    const msg4: [i8; 64] = "negative: ${negative:.2E}\n";
+    const msg4: [i8: 64] = "negative: ${negative:.2E}\n";
     printf(&msg4[0]);
     
     // 测试 f32
     const pi32: f32 = 3.14159;
-    const msg5: [i8; 64] = "pi32: ${pi32:.4e}\n";
+    const msg5: [i8: 64] = "pi32: ${pi32:.4e}\n";
     printf(&msg5[0]);
     
     return 0;

@@ -1,8 +1,8 @@
 fn example() void {
-    const arr1: [File; 3] = [File{fd:1}, File{fd:2}, File{fd:3}];
+    const arr1: [File: 3] = [File{fd:1}, File{fd:2}, File{fd:3}];
     
     // 数组本身使用值语义（复制），不是移动
-    const arr2: [File; 3] = arr1;  // ✅ 这是复制，不是移动（数组本身使用值语义）
+    const arr2: [File: 3] = arr1;  // ✅ 这是复制，不是移动（数组本身使用值语义）
     
     // ✅ 移动数组元素（结构体使用移动语义）
     const file: File = arr1[0];  // 移动数组元素

@@ -32,7 +32,7 @@
     }
     
     fn example(rw: IReadWrite) void {
-        const msg: [byte; 6] = "hello";
+        const msg: [byte: 6] = "hello";
         rw.write(&msg[0], 5);  // 可以调用 IWriter 的方法
         rw.read(&msg[0], 5);   // 可以调用 IReader 的方法
     }

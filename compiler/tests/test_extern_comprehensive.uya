@@ -50,7 +50,7 @@ fn test_extern_calls() void {
 
 // 测试可变参数extern函数
 fn test_vararg_extern() void {
-    const buffer: [byte; 64] = [];
+    const buffer: [byte: 64] = [];
     const x: i32 = 42;
     const pi: f64 = 3.14159;
     
@@ -62,7 +62,7 @@ fn test_vararg_extern() void {
 
 // 测试数组和指针操作结合extern函数
 fn test_array_with_extern() void {
-    const numbers: [i32; 5] = [1, 4, 9, 16, 25];
+    const numbers: [i32: 5] = [1, 4, 9, 16, 25];
     
     printf("Numbers and their square roots:\n");
     for (iter(&numbers)) |num| {

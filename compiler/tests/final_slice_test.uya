@@ -1,22 +1,22 @@
 // 简单的测试文件，避免语法错误
 fn main() i32 {
     // 创建测试数组
-    const arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     
     // 测试基本切片
-    const slice1: [i32; 3] = slice(arr, 2, 5);  // [2, 3, 4]
+    const slice1: [i32: 3] = slice(arr, 2, 5);  // [2, 3, 4]
     
     // 测试负数索引切片
-    const slice2: [i32; 3] = slice(arr, -3, 10);  // [7, 8, 9]
+    const slice2: [i32: 3] = slice(arr, -3, 10);  // [7, 8, 9]
     
     // 测试从开头到某位置
-    const slice3: [i32; 3] = slice(arr, 0, 3);  // [0, 1, 2]
+    const slice3: [i32: 3] = slice(arr, 0, 3);  // [0, 1, 2]
     
     // 测试从某位置到末尾
-    const slice4: [i32; 3] = slice(arr, 7, 10);  // [7, 8, 9]
+    const slice4: [i32: 3] = slice(arr, 7, 10);  // [7, 8, 9]
     
     // 测试负数到负数
-    const slice5: [i32; 3] = slice(arr, -5, -2);  // [5, 6, 7]
+    const slice5: [i32: 3] = slice(arr, -5, -2);  // [5, 6, 7]
     
     // 计算总和以避免未使用变量
     var sum: i32 = 0;

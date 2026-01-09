@@ -4,7 +4,7 @@ extern printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
     const x: i32 = 42;
-    const msg: [i8; 32] = "x=${x}\n";
+    const msg: [i8: 32] = "x=${x}\n";
     return 0;
 }
 

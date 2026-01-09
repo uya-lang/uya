@@ -1,5 +1,5 @@
 struct Mat4 {
-  m: [f32; 16]
+  m: [f32: 16]
 }
 
 extern printf(fmt: *byte, ...) i32;
@@ -14,7 +14,7 @@ fn print_mat(mat: Mat4) void {
 }
 
 fn main() i32 {
-  var m: Mat4 = Mat4{ m: [0.0; 16] };
+  var m: Mat4 = Mat4{ m: [0.0: 16] };
   m.m[0]  = 1.0;
   m.m[5]  = 1.0;
   m.m[10] = 1.0;

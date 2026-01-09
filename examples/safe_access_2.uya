@@ -1,12 +1,12 @@
 // ✅ 编译通过：常量索引在范围内
-const arr: [i32; 10] = [0; 10];
+const arr: [i32: 10] = [0; 10];
 const x: i32 = arr[5];  // 5 < 10，编译期证明安全
 
 // ❌ 编译错误：常量索引越界
 const y: i32 = arr[10];  // 10 >= 10，编译错误
 
 // ✅ 编译通过：变量索引有证明
-fn safe_access(arr: [i32; 10], i: i32) i32 {
+fn safe_access(arr: [i32: 10], i: i32) i32 {
   if i < 0 || i >= 10 {
     return error.OutOfBounds;
   }
@@ -14,6 +14,6 @@ fn safe_access(arr: [i32; 10], i: i32) i32 {
 }
 
 // ❌ 编译错误：变量索引无证明
-fn unsafe_access(arr: [i32; 10], i: i32) i32 {
+fn unsafe_access(arr: [i32: 10], i: i32) i32 {
   return arr[i];  // 无法证明 i >= 0 && i < 10，编译错误
 }

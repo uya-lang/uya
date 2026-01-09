@@ -13,7 +13,7 @@
     }
     
     // 调用
-    const arr: [i32; 10] = [0; 10];
+    const arr: [i32: 10] = [0; 10];
     process(&arr[2:3]);        // 传递动态长度切片
     process_exact(&arr[0:3]);  // 传递已知长度切片
     

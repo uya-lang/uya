@@ -1,5 +1,5 @@
     struct Mat3x4 {
-        data: [[f32; 4]; 3]  // 3行4列的矩阵
+        data: [[f32: 4]; 3]  // 3行4列的矩阵
     }
     
     const mat: Mat3x4 = Mat3x4{

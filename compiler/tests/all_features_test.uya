@@ -36,35 +36,35 @@ fn test_structs() i32 {
 
 // 数组和切片测试
 fn test_slices() i32 {
-    const arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     var sum: i32 = 0;
     
     // 基本切片
-    const slice1: [i32; 3] = arr[2:3];  // [2, 3, 4]
+    const slice1: [i32: 3] = arr[2:3];  // [2, 3, 4]
     for slice1 |val| {
         sum = sum + val;
     }
     
     // 负数索引切片
-    const slice2: [i32; 3] = arr[-3:3];  // [7, 8, 9]
+    const slice2: [i32: 3] = arr[-3:3];  // [7, 8, 9]
     for slice2 |val| {
         sum = sum + val;
     }
     
     // 从开头切片
-    const slice3: [i32; 5] = arr[0:5];  // [0, 1, 2, 3, 4]
+    const slice3: [i32: 5] = arr[0:5];  // [0, 1, 2, 3, 4]
     for slice3 |val| {
         sum = sum + val;
     }
     
     // 到末尾切片
-    const slice4: [i32; 3] = arr[7:3];  // [7, 8, 9]
+    const slice4: [i32: 3] = arr[7:3];  // [7, 8, 9]
     for slice4 |val| {
         sum = sum + val;
     }
     
     // 负数索引切片
-    const slice5: [i32; 3] = arr[-5:3];  // [5, 6, 7]
+    const slice5: [i32: 3] = arr[-5:3];  // [5, 6, 7]
     for slice5 |val| {
         sum = sum + val;
     }
@@ -113,7 +113,7 @@ fn test_control_flow() i32 {
         i = i + 1;
     }
     
-    const nums: [i32; 3] = [1, 2, 3];
+    const nums: [i32: 3] = [1, 2, 3];
     for nums |num| {
         result = result + num;
     }

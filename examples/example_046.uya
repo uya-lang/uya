@@ -1,18 +1,18 @@
     // 基本迭代（有元素变量，只读）
-    const arr: [i32; 5] = [1, 2, 3, 4, 5];
+    const arr: [i32: 5] = [1, 2, 3, 4, 5];
     for arr |item| {
         printf("%d\n", item);
     }
     
     // 基本迭代（有元素变量，可修改）
-    var arr2: [i32; 5] = [1, 2, 3, 4, 5];
+    var arr2: [i32: 5] = [1, 2, 3, 4, 5];
     for arr2 |&item| {
         *item = *item * 2;  // 修改每个元素，乘以2
         printf("%d\n", *item);
     }
     
     // 切片迭代（值迭代，只读）
-    var arr3: [i32; 10] = [0,1,2,3,4,5,6,7,8,9];
+    var arr3: [i32: 10] = [0,1,2,3,4,5,6,7,8,9];
     const slice: &[i32] = &arr3[2:5];
     for slice |value| {
         printf("%d ", value);  // 输出：2 3 4 5 6

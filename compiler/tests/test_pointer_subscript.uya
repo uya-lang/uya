@@ -1,7 +1,7 @@
 extern printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
-    var arr: [i32; 10] = [0; 10];
+    var arr: [i32: 10] = [0; 10];
     // 手动初始化数组
     arr[0] = 0;
     arr[1] = 1;

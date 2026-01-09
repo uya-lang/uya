@@ -5,25 +5,25 @@ struct Point {
 }
 
 fn main() i32 {
-    const arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     
     // 基本切片操作
-    const slice1: [i32; 3] = slice(arr, 2, 5);  // [2, 3, 4]
+    const slice1: [i32: 3] = slice(arr, 2, 5);  // [2, 3, 4]
     
     // 负数索引切片
-    const slice2: [i32; 3] = slice(arr, -3, 10);  // [7, 8, 9]
+    const slice2: [i32: 3] = slice(arr, -3, 10);  // [7, 8, 9]
     
     // 从某个索引到末尾
-    const slice3: [i32; 3] = slice(arr, 7, 10);   // [7, 8, 9]
+    const slice3: [i32: 3] = slice(arr, 7, 10);   // [7, 8, 9]
     
     // 从开头到某个索引
-    const slice4: [i32; 3] = slice(arr, 0, 3);    // [0, 1, 2]
+    const slice4: [i32: 3] = slice(arr, 0, 3);    // [0, 1, 2]
     
     // 从开头到倒数第几个
-    const slice5: [i32; 9] = slice(arr, 0, -1);   // [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    const slice5: [i32: 9] = slice(arr, 0, -1);   // [0, 1, 2, 3, 4, 5, 6, 7, 8]
     
     // 负数到负数
-    const slice6: [i32; 3] = slice(arr, -5, -2);  // [5, 6, 7]
+    const slice6: [i32: 3] = slice(arr, -5, -2);  // [5, 6, 7]
     
     return 0;
 }

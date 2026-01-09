@@ -61,7 +61,7 @@ fn example() !void {
     var file: File = File{ fd: fd };
     
     // ✅ 使用 Uya 方法（零运行时开销，编译期展开）
-    var buffer: [byte; 1024] = [];
+    var buffer: [byte: 1024] = [];
     const bytes_read: i32 = try file.read(&buffer[0], 1024);
     
     // ✅ 使用接口（动态派发）

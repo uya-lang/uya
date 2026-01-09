@@ -1,5 +1,5 @@
 // Uya：开发者编写显式检查，编译器验证，通过路径零运行时开销
-fn safe_access(arr: [i32; 10], i: i32) !i32 {
+fn safe_access(arr: [i32: 10], i: i32) !i32 {
     if i < 0 || i >= 10 {
         return error.OutOfBounds;  // 显式错误处理
     }
