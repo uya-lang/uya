@@ -287,6 +287,8 @@ void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
                 case IR_OP_BIT_XOR: fprintf(codegen->output_file, " ^ "); break;
                 case IR_OP_LEFT_SHIFT: fprintf(codegen->output_file, " << "); break;
                 case IR_OP_RIGHT_SHIFT: fprintf(codegen->output_file, " >> "); break;
+                case IR_OP_LOGIC_AND: fprintf(codegen->output_file, " && "); break;
+                case IR_OP_LOGIC_OR: fprintf(codegen->output_file, " || "); break;
                 case IR_OP_ADDR_OF: fprintf(codegen->output_file, " & "); break;  // Should be handled in unary_op
                 case IR_OP_DEREF: fprintf(codegen->output_file, " * "); break;    // Should be handled in unary_op
                 default: fprintf(codegen->output_file, " UNKNOWN_OP "); break;

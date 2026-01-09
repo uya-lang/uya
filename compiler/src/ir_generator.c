@@ -1049,41 +1049,216 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
                     if_inst->data.if_stmt.else_body = NULL;
                     if_inst->data.if_stmt.else_count = 0;
                 } else {
-                    // Regular pattern: generate comparison condition (match_expr == pattern_expr)
-                    IRInst *pattern_expr_ir = generate_expr(ir_gen, pattern->data.pattern.pattern_expr);
-                    if (!pattern_expr_ir) {
-                        irinst_free(body_expr);
-                        irinst_free(if_inst);
-                        if (current_if) irinst_free(current_if);
-                        return NULL;
+                    // Check if this is a struct pattern (AST_STRUCT_INIT)
+                    IRInst *comparison = NULL;
+                    if (pattern->data.pattern.pattern_expr && 
+                        pattern->data.pattern.pattern_expr->type == AST_STRUCT_INIT) {
+                        // Struct pattern: generate field-by-field comparison
+                        // For each field: match_expr.field == pattern.field
+                        // Combine all field comparisons with AND
+                        
+                        struct ASTNode *struct_pattern = pattern->data.pattern.pattern_expr;
+                        int field_count = struct_pattern->data.struct_init.field_count;
+                        
+                        if (field_count == 0) {
+                            // Empty struct pattern: always matches (use true constant)
+                            IRInst *true_const = irinst_new(IR_CONSTANT);
+                            if (!true_const) {
+                                irinst_free(body_expr);
+                                irinst_free(if_inst);
+                                if (current_if) irinst_free(current_if);
+                                return NULL;
+                            }
+                            true_const->data.constant.value = malloc(2);
+                            if (true_const->data.constant.value) {
+                                strcpy(true_const->data.constant.value, "1");
+                            }
+                            true_const->data.constant.type = IR_TYPE_BOOL;
+                            comparison = true_const;
+                        } else {
+                            // Generate field comparisons
+                            IRInst **field_comparisons = malloc(field_count * sizeof(IRInst*));
+                            if (!field_comparisons) {
+                                irinst_free(body_expr);
+                                irinst_free(if_inst);
+                                if (current_if) irinst_free(current_if);
+                                return NULL;
+                            }
+                            int valid_comparisons = 0;
+                            
+                            for (int i = 0; i < field_count; i++) {
+                                const char *field_name = struct_pattern->data.struct_init.field_names[i];
+                                ASTNode *pattern_field_value = struct_pattern->data.struct_init.field_inits[i];
+                                
+                                if (!field_name || !pattern_field_value) continue;
+                                
+                                // Generate member access: match_expr.field
+                                IRInst *field_access = irinst_new(IR_MEMBER_ACCESS);
+                                if (!field_access) {
+                                    for (int j = 0; j < valid_comparisons; j++) {
+                                        irinst_free(field_comparisons[j]);
+                                    }
+                                    free(field_comparisons);
+                                    irinst_free(body_expr);
+                                    irinst_free(if_inst);
+                                    if (current_if) irinst_free(current_if);
+                                    return NULL;
+                                }
+                                
+                                field_access->data.member_access.object = match_expr_ir;
+                                field_access->data.member_access.field_name = malloc(strlen(field_name) + 1);
+                                if (field_access->data.member_access.field_name) {
+                                    strcpy(field_access->data.member_access.field_name, field_name);
+                                }
+                                
+                                char temp_field_name[32];
+                                snprintf(temp_field_name, sizeof(temp_field_name), "match_field_%d", ir_gen->current_id++);
+                                field_access->data.member_access.dest = malloc(strlen(temp_field_name) + 1);
+                                if (field_access->data.member_access.dest) {
+                                    strcpy(field_access->data.member_access.dest, temp_field_name);
+                                }
+                                
+                                // Generate pattern field value IR
+                                IRInst *pattern_field_ir = generate_expr(ir_gen, pattern_field_value);
+                                if (!pattern_field_ir) {
+                                    irinst_free(field_access);
+                                    for (int j = 0; j < valid_comparisons; j++) {
+                                        irinst_free(field_comparisons[j]);
+                                    }
+                                    free(field_comparisons);
+                                    irinst_free(body_expr);
+                                    irinst_free(if_inst);
+                                    if (current_if) irinst_free(current_if);
+                                    return NULL;
+                                }
+                                
+                                // Create field comparison: field_access == pattern_field_ir
+                                IRInst *field_comp = irinst_new(IR_BINARY_OP);
+                                if (!field_comp) {
+                                    irinst_free(field_access);
+                                    irinst_free(pattern_field_ir);
+                                    for (int j = 0; j < valid_comparisons; j++) {
+                                        irinst_free(field_comparisons[j]);
+                                    }
+                                    free(field_comparisons);
+                                    irinst_free(body_expr);
+                                    irinst_free(if_inst);
+                                    if (current_if) irinst_free(current_if);
+                                    return NULL;
+                                }
+                                
+                                field_comp->data.binary_op.op = IR_OP_EQ;
+                                field_comp->data.binary_op.left = field_access;
+                                field_comp->data.binary_op.right = pattern_field_ir;
+                                
+                                char temp_comp_name[32];
+                                snprintf(temp_comp_name, sizeof(temp_comp_name), "match_field_comp_%d", ir_gen->current_id++);
+                                field_comp->data.binary_op.dest = malloc(strlen(temp_comp_name) + 1);
+                                if (field_comp->data.binary_op.dest) {
+                                    strcpy(field_comp->data.binary_op.dest, temp_comp_name);
+                                }
+                                
+                                field_comparisons[valid_comparisons++] = field_comp;
+                            }
+                            
+                            if (valid_comparisons == 0) {
+                                // No valid comparisons: use true constant
+                                free(field_comparisons);
+                                IRInst *true_const = irinst_new(IR_CONSTANT);
+                                if (!true_const) {
+                                    irinst_free(body_expr);
+                                    irinst_free(if_inst);
+                                    if (current_if) irinst_free(current_if);
+                                    return NULL;
+                                }
+                                true_const->data.constant.value = malloc(2);
+                                if (true_const->data.constant.value) {
+                                    strcpy(true_const->data.constant.value, "1");
+                                }
+                                true_const->data.constant.type = IR_TYPE_BOOL;
+                                comparison = true_const;
+                            } else if (valid_comparisons == 1) {
+                                // Single field comparison: use it directly
+                                comparison = field_comparisons[0];
+                                free(field_comparisons);
+                            } else {
+                                // Multiple field comparisons: combine with AND
+                                // Build binary AND tree: ((comp1 && comp2) && comp3) && ...
+                                comparison = field_comparisons[0];
+                                for (int i = 1; i < valid_comparisons; i++) {
+                                    IRInst *and_op = irinst_new(IR_BINARY_OP);
+                                    if (!and_op) {
+                                        irinst_free(comparison);
+                                        for (int j = i; j < valid_comparisons; j++) {
+                                            irinst_free(field_comparisons[j]);
+                                        }
+                                        free(field_comparisons);
+                                        irinst_free(body_expr);
+                                        irinst_free(if_inst);
+                                        if (current_if) irinst_free(current_if);
+                                        return NULL;
+                                    }
+                                    
+                                    and_op->data.binary_op.op = IR_OP_LOGIC_AND;
+                                    and_op->data.binary_op.left = comparison;
+                                    and_op->data.binary_op.right = field_comparisons[i];
+                                    
+                                    char temp_and_name[32];
+                                    snprintf(temp_and_name, sizeof(temp_and_name), "match_and_%d", ir_gen->current_id++);
+                                    and_op->data.binary_op.dest = malloc(strlen(temp_and_name) + 1);
+                                    if (and_op->data.binary_op.dest) {
+                                        strcpy(and_op->data.binary_op.dest, temp_and_name);
+                                    }
+                                    
+                                    comparison = and_op;
+                                }
+                                free(field_comparisons);
+                            }
+                        }
+                    } else {
+                        // Regular pattern: generate comparison condition (match_expr == pattern_expr)
+                        IRInst *pattern_expr_ir = generate_expr(ir_gen, pattern->data.pattern.pattern_expr);
+                        if (!pattern_expr_ir) {
+                            irinst_free(body_expr);
+                            irinst_free(if_inst);
+                            if (current_if) irinst_free(current_if);
+                            return NULL;
+                        }
+
+                        // Create comparison: match_expr == pattern_expr
+                        comparison = irinst_new(IR_BINARY_OP);
+                        if (!comparison) {
+                            irinst_free(pattern_expr_ir);
+                            irinst_free(body_expr);
+                            irinst_free(if_inst);
+                            if (current_if) irinst_free(current_if);
+                            return NULL;
+                        }
+
+                        comparison->data.binary_op.op = IR_OP_EQ;
+                        comparison->data.binary_op.left = match_expr_ir;
+                        comparison->data.binary_op.right = pattern_expr_ir;
+                        
+                        char temp_name[32];
+                        snprintf(temp_name, sizeof(temp_name), "match_cond_%d", ir_gen->current_id++);
+                        comparison->data.binary_op.dest = malloc(strlen(temp_name) + 1);
+                        if (!comparison->data.binary_op.dest) {
+                            irinst_free(comparison);
+                            irinst_free(pattern_expr_ir);
+                            irinst_free(body_expr);
+                            irinst_free(if_inst);
+                            if (current_if) irinst_free(current_if);
+                            return NULL;
+                        }
+                        strcpy(comparison->data.binary_op.dest, temp_name);
                     }
 
-                    // Create comparison: match_expr == pattern_expr
-                    IRInst *comparison = irinst_new(IR_BINARY_OP);
                     if (!comparison) {
-                        irinst_free(pattern_expr_ir);
                         irinst_free(body_expr);
                         irinst_free(if_inst);
                         if (current_if) irinst_free(current_if);
                         return NULL;
                     }
-
-                    comparison->data.binary_op.op = IR_OP_EQ;
-                    comparison->data.binary_op.left = match_expr_ir;
-                    comparison->data.binary_op.right = pattern_expr_ir;
-                    
-                    char temp_name[32];
-                    snprintf(temp_name, sizeof(temp_name), "match_cond_%d", ir_gen->current_id++);
-                    comparison->data.binary_op.dest = malloc(strlen(temp_name) + 1);
-                    if (!comparison->data.binary_op.dest) {
-                        irinst_free(comparison);
-                        irinst_free(pattern_expr_ir);
-                        irinst_free(body_expr);
-                        irinst_free(if_inst);
-                        if (current_if) irinst_free(current_if);
-                        return NULL;
-                    }
-                    strcpy(comparison->data.binary_op.dest, temp_name);
 
                     if_inst->data.if_stmt.condition = comparison;
                     if_inst->data.if_stmt.then_count = 1;

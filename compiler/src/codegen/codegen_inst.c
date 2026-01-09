@@ -1167,6 +1167,8 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                 case IR_OP_LE: fprintf(codegen->output_file, " <= "); break;
                 case IR_OP_GT: fprintf(codegen->output_file, " > "); break;
                 case IR_OP_GE: fprintf(codegen->output_file, " >= "); break;
+                case IR_OP_LOGIC_AND: fprintf(codegen->output_file, " && "); break;
+                case IR_OP_LOGIC_OR: fprintf(codegen->output_file, " || "); break;
                 default: fprintf(codegen->output_file, " UNKNOWN_OP "); break;
             }
 
