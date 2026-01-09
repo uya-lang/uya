@@ -2872,6 +2872,132 @@ static ASTNode *parser_parse_struct_decl(Parser *parser) {
     return struct_decl;
 }
 
+// 解析枚举声明 (enum EnumName [: UnderlyingType] { Variant1 [= value1], ... })
+static ASTNode *parser_parse_enum_decl(Parser *parser) {
+    if (!parser_match(parser, TOKEN_ENUM)) {
+        return NULL;
+    }
+
+    int line = parser->current_token->line;
+    int col = parser->current_token->column;
+    const char *filename = parser->current_token->filename;
+
+    parser_consume(parser); // 消费 enum
+
+    // 期望枚举名
+    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+        fprintf(stderr, "语法错误: 期望枚举名\n");
+        return NULL;
+    }
+
+    ASTNode *enum_decl = ast_new_node(AST_ENUM_DECL, line, col, filename);
+    if (!enum_decl) {
+        return NULL;
+    }
+
+    enum_decl->data.enum_decl.name = malloc(strlen(parser->current_token->value) + 1);
+    if (!enum_decl->data.enum_decl.name) {
+        ast_free(enum_decl);
+        return NULL;
+    }
+    strcpy(enum_decl->data.enum_decl.name, parser->current_token->value);
+
+    parser_consume(parser); // 消费枚举名
+
+    // 解析可选的底层类型 (: UnderlyingType)
+    enum_decl->data.enum_decl.underlying_type = NULL;
+    if (parser_match(parser, TOKEN_COLON)) {
+        parser_consume(parser); // 消费 ':'
+        enum_decl->data.enum_decl.underlying_type = parser_parse_type(parser);
+        if (!enum_decl->data.enum_decl.underlying_type) {
+            fprintf(stderr, "语法错误: 期望底层类型\n");
+            ast_free(enum_decl);
+            return NULL;
+        }
+    }
+
+    // 期望 '{'
+    if (!parser_expect(parser, TOKEN_LEFT_BRACE)) {
+        ast_free(enum_decl);
+        return NULL;
+    }
+
+    // 解析变体列表
+    enum_decl->data.enum_decl.variants = NULL;
+    enum_decl->data.enum_decl.variant_count = 0;
+    int variant_capacity = 0;
+
+    while (parser->current_token && !parser_match(parser, TOKEN_RIGHT_BRACE)) {
+        // 期望变体名
+        if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+            fprintf(stderr, "语法错误: 期望枚举变体名\n");
+            ast_free(enum_decl);
+            return NULL;
+        }
+
+        // 扩容变体列表
+        if (enum_decl->data.enum_decl.variant_count >= variant_capacity) {
+            int new_capacity = variant_capacity == 0 ? 4 : variant_capacity * 2;
+            EnumVariant *new_variants = realloc(enum_decl->data.enum_decl.variants,
+                                                new_capacity * sizeof(EnumVariant));
+            if (!new_variants) {
+                ast_free(enum_decl);
+                return NULL;
+            }
+            enum_decl->data.enum_decl.variants = new_variants;
+            variant_capacity = new_capacity;
+        }
+
+        // 分配变体名称
+        EnumVariant *variant = &enum_decl->data.enum_decl.variants[enum_decl->data.enum_decl.variant_count];
+        variant->name = malloc(strlen(parser->current_token->value) + 1);
+        if (!variant->name) {
+            ast_free(enum_decl);
+            return NULL;
+        }
+        strcpy(variant->name, parser->current_token->value);
+        variant->value = NULL; // 默认没有显式值
+
+        parser_consume(parser); // 消费变体名
+
+        // 解析可选的显式值 (= NUM)
+        if (parser_match(parser, TOKEN_ASSIGN)) {
+            parser_consume(parser); // 消费 '='
+            if (!parser_match(parser, TOKEN_NUMBER)) {
+                fprintf(stderr, "语法错误: 期望数字值\n");
+                ast_free(enum_decl);
+                return NULL;
+            }
+            variant->value = malloc(strlen(parser->current_token->value) + 1);
+            if (!variant->value) {
+                ast_free(enum_decl);
+                return NULL;
+            }
+            strcpy(variant->value, parser->current_token->value);
+            parser_consume(parser); // 消费数字值
+        }
+
+        enum_decl->data.enum_decl.variant_count++;
+
+        // 检查是否有逗号
+        if (parser_match(parser, TOKEN_COMMA)) {
+            parser_consume(parser);
+        } else if (!parser_match(parser, TOKEN_RIGHT_BRACE)) {
+            fprintf(stderr, "语法错误: 期望 ',' 或 '}'\n");
+            ast_free(enum_decl);
+            return NULL;
+        }
+    }
+
+    // 期望 '}'
+    if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
+        ast_free(enum_decl);
+        return NULL;
+    }
+
+    return enum_decl;
+}
+
 // 解析接口实现声明 (StructName : InterfaceName { ... })
 // 新语法（0.24版本）：移除了 impl 关键字
 static ASTNode *parser_parse_impl_decl(Parser *parser) {
@@ -3027,6 +3153,8 @@ static ASTNode *parser_parse_declaration(Parser *parser) {
         return parser_parse_fn_decl(parser);
     } else if (parser_match(parser, TOKEN_STRUCT)) {
         return parser_parse_struct_decl(parser);
+    } else if (parser_match(parser, TOKEN_ENUM)) {
+        return parser_parse_enum_decl(parser);
     } else if (parser_match(parser, TOKEN_EXTERN)) {
         return parser_parse_extern_decl(parser);
     } else if (parser_match(parser, TOKEN_IDENTIFIER)) {
@@ -3454,6 +3582,7 @@ ASTNode *parser_parse(Parser *parser) {
             while (parser->current_token &&
                    !parser_match(parser, TOKEN_FN) &&
                    !parser_match(parser, TOKEN_STRUCT) &&
+                   !parser_match(parser, TOKEN_ENUM) &&
                    !parser_match(parser, TOKEN_EXTERN) &&
                    !parser_match(parser, TOKEN_IDENTIFIER) && // 可能是接口实现（新语法）
                    !parser_match(parser, TOKEN_EOF)) {

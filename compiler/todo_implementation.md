@@ -213,11 +213,14 @@
   - [x] 实现枚举声明的内存释放逻辑
   - [x] 实现枚举声明的打印逻辑
 
+**已完成事项**（续）：
+- [x] 语法分析器（`parser/parser.c`）：
+  - [x] 实现枚举声明解析函数（`parser_parse_enum_decl`）
+  - [x] 在 `parser_parse_declaration` 中添加枚举声明解析
+  - [x] 支持显式底层类型和显式值赋值
+  - [x] 测试通过：基本枚举、带显式值的枚举、带底层类型的枚举
+
 **待办事项**：
-- [ ] 语法分析器（`parser/parser.c`）：
-  - [ ] 实现枚举声明解析函数（`parser_parse_enum_decl`）
-  - [ ] 在 `parser_parse_declaration` 中添加枚举声明解析
-  - [ ] 支持显式底层类型和显式值赋值
 - [ ] 类型系统：
   - [ ] 添加枚举类型支持（`IR_TYPE_ENUM` 或使用命名类型）
   - [ ] 枚举变体访问（`EnumName.Variant`）表达式解析
