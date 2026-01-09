@@ -206,6 +206,7 @@ TypeChecker *typechecker_new() {
     checker->current_file = NULL;
     checker->function_scope_counter = 0;
     checker->scan_pass = 1;  // 默认值，会在 typechecker_check 中设置
+    checker->program_node = NULL;
     
     return checker;
 }
@@ -511,6 +512,25 @@ static int typecheck_while_stmt(TypeChecker *checker, ASTNode *node);
 static int typecheck_block(TypeChecker *checker, ASTNode *node);
 static int typecheck_call(TypeChecker *checker, ASTNode *node);
 static int typecheck_match_expr(TypeChecker *checker, ASTNode *node);
+
+// 从程序节点中查找结构体声明
+static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char *struct_name) {
+    if (!program_node || program_node->type != AST_PROGRAM || !struct_name) {
+        return NULL;
+    }
+    
+    for (int i = 0; i < program_node->data.program.decl_count; i++) {
+        ASTNode *decl = program_node->data.program.decls[i];
+        if (decl && decl->type == AST_STRUCT_DECL) {
+            if (decl->data.struct_decl.name && 
+                strcmp(decl->data.struct_decl.name, struct_name) == 0) {
+                return decl;
+            }
+        }
+    }
+    
+    return NULL;
+}
 
 // 从条件表达式提取约束条件
 static void extract_constraints_from_condition(TypeChecker *checker, ASTNode *cond_expr) {
@@ -1418,6 +1438,88 @@ static int typecheck_match_expr(TypeChecker *checker, ASTNode *node) {
             }
         }
         
+        // 处理结构体模式的变量绑定
+        // 如果是结构体模式，需要将绑定的变量添加到符号表中
+        if (pattern->data.pattern.pattern_expr && 
+            pattern->data.pattern.pattern_expr->type == AST_STRUCT_INIT) {
+            ASTNode *struct_pattern = pattern->data.pattern.pattern_expr;
+            const char *struct_name = struct_pattern->data.struct_init.struct_name;
+            
+            // 从程序节点中查找结构体声明
+            ASTNode *struct_decl = NULL;
+            if (checker->program_node && struct_name) {
+                struct_decl = find_struct_decl_from_program(checker->program_node, struct_name);
+            }
+            
+            if (struct_decl) {
+                // 遍历结构体模式的字段，找出变量绑定
+                int scope_level = typechecker_get_current_scope(checker);
+                
+                for (int j = 0; j < struct_pattern->data.struct_init.field_count; j++) {
+                    const char *field_name = struct_pattern->data.struct_init.field_names[j];
+                    ASTNode *pattern_field_value = struct_pattern->data.struct_init.field_inits[j];
+                    
+                    if (!field_name || !pattern_field_value) continue;
+                    
+                    // 检查是否是变量绑定（标识符）
+                    if (pattern_field_value->type == AST_IDENTIFIER) {
+                        const char *bind_var_name = pattern_field_value->data.identifier.name;
+                        
+                        // 从结构体声明中查找字段类型
+                        IRType field_type = IR_TYPE_I32;  // 默认类型
+                        char *original_type_name = NULL;
+                        
+                        for (int k = 0; k < struct_decl->data.struct_decl.field_count; k++) {
+                            ASTNode *field_decl = struct_decl->data.struct_decl.fields[k];
+                            if (field_decl && field_decl->type == AST_VAR_DECL &&
+                                field_decl->data.var_decl.name &&
+                                strcmp(field_decl->data.var_decl.name, field_name) == 0) {
+                                // 找到匹配的字段
+                                field_type = get_ir_type_from_ast(field_decl->data.var_decl.type);
+                                
+                                // 提取原始类型名称（如果存在）
+                                if (field_decl->data.var_decl.type &&
+                                    field_decl->data.var_decl.type->type == AST_TYPE_NAMED &&
+                                    field_decl->data.var_decl.type->data.type_named.name) {
+                                    const char *type_name = field_decl->data.var_decl.type->data.type_named.name;
+                                    // 只保存非基本类型的名称
+                                    if (strcmp(type_name, "i32") != 0 && strcmp(type_name, "i64") != 0 &&
+                                        strcmp(type_name, "i8") != 0 && strcmp(type_name, "i16") != 0 &&
+                                        strcmp(type_name, "u32") != 0 && strcmp(type_name, "u64") != 0 &&
+                                        strcmp(type_name, "u8") != 0 && strcmp(type_name, "u16") != 0 &&
+                                        strcmp(type_name, "f32") != 0 && strcmp(type_name, "f64") != 0 &&
+                                        strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0 &&
+                                        strcmp(type_name, "byte") != 0) {
+                                        original_type_name = malloc(strlen(type_name) + 1);
+                                        if (original_type_name) {
+                                            strcpy(original_type_name, type_name);
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                        
+                        // 创建符号并添加到符号表
+                        Symbol *bind_symbol = symbol_new(bind_var_name, field_type, 0, 1, 
+                                                        scope_level, pattern->line, pattern->column,
+                                                        pattern->filename ? pattern->filename : checker->current_file);
+                        if (bind_symbol) {
+                            bind_symbol->is_initialized = 1;  // 绑定变量被认为是已初始化的
+                            if (original_type_name) {
+                                bind_symbol->original_type_name = original_type_name;
+                            }
+                            
+                            if (!typechecker_add_symbol(checker, bind_symbol)) {
+                                // 添加失败（可能是重复定义），清理内存
+                                symbol_free(bind_symbol);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
         // 检查body表达式
         if (pattern->data.pattern.body) {
             if (!typecheck_node(checker, pattern->data.pattern.body)) {
@@ -1735,6 +1837,9 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
 // 主检查函数
 int typechecker_check(TypeChecker *checker, ASTNode *ast) {
     if (!checker || !ast) return 0;
+    
+    // 设置程序节点指针
+    checker->program_node = ast;
     
     // 进入全局作用域
     typechecker_enter_scope(checker);

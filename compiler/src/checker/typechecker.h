@@ -87,6 +87,9 @@ typedef struct TypeChecker {
     int current_line;
     int current_column;
     char *current_file;
+    
+    // 程序节点（用于查找结构体声明等）
+    ASTNode *program_node;
 } TypeChecker;
 
 // 类型检查器函数
