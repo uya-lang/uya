@@ -2,7 +2,7 @@
 
 本文档根据 `uya.md` 语法规范和当前实现状态，按优先级组织待实现的功能。
 
-**最后更新**：2026-01-09  
+**最后更新**：2026-01-09（match 表达式模式支持更新）  
 **基于规范版本**：Uya 0.26
 
 **注意**：
@@ -359,16 +359,20 @@
 - 支持的模式：字面量、标识符、结构体模式、元组模式、枚举模式、错误模式
 - `else` 分支必须放在最后
 
-**当前进展总结**（2026-01-09）：
+**当前进展总结**（2026-01-09 更新）：
 - ✅ 已完成的改进：
   - 修复了编译错误和段错误
   - 添加了对 `AST_MATCH_EXPR` 在语句上下文中的处理
   - 在代码生成器中添加了表达式类型的检查逻辑（区分表达式和语句类型）
   - **已修复**：在函数体处理的 `IR_IF` case（第613行）中也添加了表达式类型检查，解决了 match 表达式作为语句时的代码生成问题
+  - **已实现**：枚举模式（`EnumName.Variant`）和错误模式（`error.ErrorName`）- 通过使用 `parser_parse_expression` 解析标识符模式，支持成员访问表达式
+  - **已实现**：布尔常量模式（`true`/`false`）- 通过 `parser_parse_expression` 支持
 - ✅ 当前状态：
   - 编译器可以成功编译
   - match 表达式的 AST 解析和 IR 生成正常
   - **代码生成问题已修复**：match 表达式作为语句时，现在能正确生成代码（如 `10;` 而不是 "Unknown instruction type: 25"）
+  - **模式支持**：已支持常量模式（数字、字符串、布尔）、标识符模式、枚举模式、错误模式、元组模式、else 分支
+  - **待实现**：结构体模式（`StructName { field: pattern }`）
 
 **已完成事项**：
 - [x] 语法分析器：
@@ -377,8 +381,15 @@
   - [x] 添加 `TOKEN_MATCH` 关键字（`lexer.h` 和 `lexer.c`）
   - [x] 实现 match 表达式解析（`parser_parse_expression`）
   - [x] 实现 `parser_parse_match_expr` 函数
-  - [x] 实现各种模式的解析（字面量、标识符、结构体、元组、枚举、错误）- 基础实现（字面量、标识符、else 分支已实现）
-  - [x] 实现 `else` 分支处理（已修复：添加了对 TOKEN_ELSE 的检查）
+  - [x] 实现各种模式的解析（字面量、标识符、结构体、元组、枚举、错误）- 基础实现
+    - [x] 字面量模式（数字、字符串）- 已实现
+    - [x] 标识符模式（变量绑定）- 已实现
+    - [x] 布尔常量模式（`true`/`false`）- 已实现（通过 `parser_parse_expression`）
+    - [x] 枚举模式（`EnumName.Variant`）- ✅ 已实现（通过 `parser_parse_expression` 解析为 `AST_MEMBER_ACCESS`）
+    - [x] 错误模式（`error.ErrorName`）- ✅ 已实现（通过 `parser_parse_expression` 解析为 `AST_MEMBER_ACCESS`）
+    - [x] 元组字面量模式（`(pattern1, pattern2, ...)`）- 已实现（通过 `parser_parse_tuple_literal`）
+    - [x] `else` 分支处理（已修复：添加了对 TOKEN_ELSE 的检查）
+    - [ ] 结构体模式（`StructName { field: pattern }`）- 未实现
 - [x] 类型检查器：
   - [x] 模式类型匹配检查
   - [ ] 模式完整性检查（穷尽性检查）- 未实现
@@ -398,7 +409,10 @@
   - [x] 基础测试用例已编写（test_match_debug.uya, test_match_simple.uya, test_match_feature.uya）
   - [x] match 表达式作为语句的代码生成已验证（能正确生成代码）
   - [x] match 表达式作为赋值表达式右侧的代码生成（已修复：代码逻辑已实现，语法解析问题已修复 - 添加了对 TOKEN_ELSE 的检查以支持 else 分支模式）
-  - [ ] 各种模式类型的完整测试（结构体模式、枚举模式、错误模式等）
+  - [x] 枚举模式测试用例（test_match_enum.uya）- 已创建
+  - [ ] 错误模式测试用例
+  - [ ] 布尔常量模式测试用例
+  - [ ] 结构体模式测试用例（结构体模式功能未实现）
   - [ ] 模式匹配完整性检查
   - [x] 验证生成的代码能正确编译和运行（语法解析错误已修复，生成的代码可以正确编译和运行）
 

@@ -113,25 +113,23 @@ ASTNode *parser_parse_match_expr(Parser *parser) {
                     parser->current_token ? parser->current_token->column : 0,
                     parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
         } else if (parser_match(parser, TOKEN_IDENTIFIER)) {
-            fprintf(stderr, "[DEBUG MATCH] Parsing identifier pattern: %s\n",
+            // For identifier patterns, use full expression parser to support:
+            // - Simple identifiers (x)
+            // - Enum variants (Color.Red)
+            // - Error types (error.ErrorName)
+            // This allows the expression parser to handle member access (.)
+            fprintf(stderr, "[DEBUG MATCH] Parsing identifier pattern (using expression parser): %s\n",
                     parser->current_token->value ? parser->current_token->value : "(null)");
-            ASTNode *ident = ast_new_node(AST_IDENTIFIER,
-                                          parser->current_token->line,
-                                          parser->current_token->column,
-                                          parser->current_token->filename);
-            if (ident) {
-                ident->data.identifier.name = malloc(strlen(parser->current_token->value) + 1);
-                if (ident->data.identifier.name) {
-                    strcpy(ident->data.identifier.name, parser->current_token->value);
-                }
+            pattern_expr = parser_parse_expression(parser);
+            if (!pattern_expr) {
+                fprintf(stderr, "[DEBUG MATCH] Failed to parse identifier pattern expression\n");
+            } else {
+                fprintf(stderr, "[DEBUG MATCH] Identifier pattern parsed, current token: type=%d, line=%d:%d, value=%s\n",
+                        parser->current_token ? parser->current_token->type : -1,
+                        parser->current_token ? parser->current_token->line : 0,
+                        parser->current_token ? parser->current_token->column : 0,
+                        parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
             }
-            parser_consume(parser);
-            pattern_expr = ident;
-            fprintf(stderr, "[DEBUG MATCH] Identifier pattern parsed, current token: type=%d, line=%d:%d, value=%s\n",
-                    parser->current_token ? parser->current_token->type : -1,
-                    parser->current_token ? parser->current_token->line : 0,
-                    parser->current_token ? parser->current_token->column : 0,
-                    parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
         } else if (parser_match(parser, TOKEN_NUMBER)) {
             ASTNode *num = ast_new_node(AST_NUMBER,
                                         parser->current_token->line,
