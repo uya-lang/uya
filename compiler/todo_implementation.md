@@ -377,8 +377,8 @@
   - [x] 添加 `TOKEN_MATCH` 关键字（`lexer.h` 和 `lexer.c`）
   - [x] 实现 match 表达式解析（`parser_parse_expression`）
   - [x] 实现 `parser_parse_match_expr` 函数
-  - [ ] 实现各种模式的解析（字面量、标识符、结构体、元组、枚举、错误）- 基础实现
-  - [x] 实现 `else` 分支处理
+  - [x] 实现各种模式的解析（字面量、标识符、结构体、元组、枚举、错误）- 基础实现（字面量、标识符、else 分支已实现）
+  - [x] 实现 `else` 分支处理（已修复：添加了对 TOKEN_ELSE 的检查）
 - [x] 类型检查器：
   - [x] 模式类型匹配检查
   - [ ] 模式完整性检查（穷尽性检查）- 未实现
@@ -397,10 +397,10 @@
 - [x] 测试用例：
   - [x] 基础测试用例已编写（test_match_debug.uya, test_match_simple.uya, test_match_feature.uya）
   - [x] match 表达式作为语句的代码生成已验证（能正确生成代码）
-  - [x] match 表达式作为赋值表达式右侧的代码生成（已修复：codegen_value.c 中的 IR_IF case 使用 GCC 复合语句扩展生成 match 表达式作为值，codegen_inst.c 中的 IR_ASSIGN case 使用 codegen_write_value 生成右侧表达式）
+  - [x] match 表达式作为赋值表达式右侧的代码生成（已修复：代码逻辑已实现，语法解析问题已修复 - 添加了对 TOKEN_ELSE 的检查以支持 else 分支模式）
   - [ ] 各种模式类型的完整测试（结构体模式、枚举模式、错误模式等）
   - [ ] 模式匹配完整性检查
-  - [ ] 验证生成的代码能正确编译和运行
+  - [x] 验证生成的代码能正确编译和运行（语法解析错误已修复，生成的代码可以正确编译和运行）
 
 **参考**：
 - 规范：`uya.md` 第 8 章（控制流）

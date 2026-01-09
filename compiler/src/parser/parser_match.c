@@ -9,6 +9,7 @@ ASTNode *parser_parse_match_expr(Parser *parser) {
     int col = parser->current_token->column;
     const char *filename = parser->current_token->filename;
 
+    fprintf(stderr, "[DEBUG MATCH] Starting match expression parsing at line %d:%d\n", line, col);
     parser_consume(parser); // consume 'match'
 
     // Parse the expression to match
@@ -69,6 +70,10 @@ ASTNode *parser_parse_match_expr(Parser *parser) {
 
     // Parse pattern => body pairs
     while (parser->current_token && !parser_match(parser, TOKEN_RIGHT_BRACE)) {
+        fprintf(stderr, "[DEBUG MATCH] Parsing pattern, current token: type=%d, line=%d:%d, value=%s\n",
+                parser->current_token->type, parser->current_token->line, parser->current_token->column,
+                parser->current_token->value ? parser->current_token->value : "(null)");
+        
         // Parse pattern
         ASTNode *pattern = ast_new_node(AST_PATTERN,
                                        parser->current_token->line,
@@ -82,7 +87,34 @@ ASTNode *parser_parse_match_expr(Parser *parser) {
         // Parse the pattern expression (only basic expressions, no binary operators)
         // For match patterns, we only parse a single expression, not binary operations
         ASTNode *pattern_expr = NULL;
-        if (parser_match(parser, TOKEN_IDENTIFIER)) {
+        
+        fprintf(stderr, "[DEBUG MATCH] Checking pattern type, current token type=%d, value=%s\n",
+                parser->current_token ? parser->current_token->type : -1,
+                parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
+        
+        // Handle 'else' keyword as a pattern (TOKEN_ELSE)
+        if (parser_match(parser, TOKEN_ELSE)) {
+            fprintf(stderr, "[DEBUG MATCH] Parsing else pattern\n");
+            ASTNode *ident = ast_new_node(AST_IDENTIFIER,
+                                          parser->current_token->line,
+                                          parser->current_token->column,
+                                          parser->current_token->filename);
+            if (ident) {
+                ident->data.identifier.name = malloc(5); // "else" is 4 chars + null terminator
+                if (ident->data.identifier.name) {
+                    strcpy(ident->data.identifier.name, "else");
+                }
+            }
+            parser_consume(parser);
+            pattern_expr = ident;
+            fprintf(stderr, "[DEBUG MATCH] Else pattern parsed, current token: type=%d, line=%d:%d, value=%s\n",
+                    parser->current_token ? parser->current_token->type : -1,
+                    parser->current_token ? parser->current_token->line : 0,
+                    parser->current_token ? parser->current_token->column : 0,
+                    parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
+        } else if (parser_match(parser, TOKEN_IDENTIFIER)) {
+            fprintf(stderr, "[DEBUG MATCH] Parsing identifier pattern: %s\n",
+                    parser->current_token->value ? parser->current_token->value : "(null)");
             ASTNode *ident = ast_new_node(AST_IDENTIFIER,
                                           parser->current_token->line,
                                           parser->current_token->column,
@@ -95,6 +127,11 @@ ASTNode *parser_parse_match_expr(Parser *parser) {
             }
             parser_consume(parser);
             pattern_expr = ident;
+            fprintf(stderr, "[DEBUG MATCH] Identifier pattern parsed, current token: type=%d, line=%d:%d, value=%s\n",
+                    parser->current_token ? parser->current_token->type : -1,
+                    parser->current_token ? parser->current_token->line : 0,
+                    parser->current_token ? parser->current_token->column : 0,
+                    parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
         } else if (parser_match(parser, TOKEN_NUMBER)) {
             ASTNode *num = ast_new_node(AST_NUMBER,
                                         parser->current_token->line,
@@ -130,6 +167,7 @@ ASTNode *parser_parse_match_expr(Parser *parser) {
         }
         
         if (!pattern_expr) {
+            fprintf(stderr, "[DEBUG MATCH] Failed to parse pattern expression\n");
             ast_free(pattern);
             ast_free(match_expr);
             return NULL;
@@ -137,25 +175,52 @@ ASTNode *parser_parse_match_expr(Parser *parser) {
         pattern->data.pattern.pattern_expr = pattern_expr;
 
         // Expect '=>'
+        fprintf(stderr, "[DEBUG MATCH] Expecting =>, current token: type=%d, line=%d:%d, value=%s\n",
+                parser->current_token ? parser->current_token->type : -1,
+                parser->current_token ? parser->current_token->line : 0,
+                parser->current_token ? parser->current_token->column : 0,
+                parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
+        
         if (!parser->current_token) {
+            fprintf(stderr, "[DEBUG MATCH] Current token is NULL before expecting =>\n");
             ast_free(pattern);
             ast_free(match_expr);
             return NULL;
         }
         if (!parser_match(parser, TOKEN_ARROW)) {
+            fprintf(stderr, "[DEBUG MATCH] Failed to match TOKEN_ARROW, current token type=%d\n",
+                    parser->current_token ? parser->current_token->type : -1);
             ast_free(pattern);
             ast_free(match_expr);
             return NULL;
         }
         parser_consume(parser); // consume '=>'
+        fprintf(stderr, "[DEBUG MATCH] Consumed =>, current token: type=%d, line=%d:%d, value=%s\n",
+                parser->current_token ? parser->current_token->type : -1,
+                parser->current_token ? parser->current_token->line : 0,
+                parser->current_token ? parser->current_token->column : 0,
+                parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
 
         // Parse the body for this pattern
+        fprintf(stderr, "[DEBUG MATCH] Parsing body expression, current token: type=%d, line=%d:%d, value=%s\n",
+                parser->current_token ? parser->current_token->type : -1,
+                parser->current_token ? parser->current_token->line : 0,
+                parser->current_token ? parser->current_token->column : 0,
+                parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
+        
         pattern->data.pattern.body = parser_parse_expression(parser);
         if (!pattern->data.pattern.body) {
+            fprintf(stderr, "[DEBUG MATCH] Failed to parse body expression\n");
             ast_free(pattern);
             ast_free(match_expr);
             return NULL;
         }
+        
+        fprintf(stderr, "[DEBUG MATCH] Successfully parsed body expression, current token: type=%d, line=%d:%d, value=%s\n",
+                parser->current_token ? parser->current_token->type : -1,
+                parser->current_token ? parser->current_token->line : 0,
+                parser->current_token ? parser->current_token->column : 0,
+                parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
 
         // Expand patterns array
         if (match_expr->data.match_expr.pattern_count >= pattern_capacity) {
@@ -176,6 +241,7 @@ ASTNode *parser_parse_match_expr(Parser *parser) {
 
         // Check for comma between patterns (optional)
         if (parser_match(parser, TOKEN_COMMA)) {
+            fprintf(stderr, "[DEBUG MATCH] Found comma after pattern, consuming it\n");
             parser_consume(parser);
         }
 
@@ -183,16 +249,36 @@ ASTNode *parser_parse_match_expr(Parser *parser) {
         if (parser_match(parser, TOKEN_IDENTIFIER) &&
             parser->current_token && parser->current_token->value &&
             strcmp(parser->current_token->value, "else") == 0) {
+            fprintf(stderr, "[DEBUG MATCH] Detected 'else' after pattern, will be handled in next iteration\n");
             // This is an else pattern - handle specially if needed
             // For now, just parse it as a regular pattern
         }
+        
+        fprintf(stderr, "[DEBUG MATCH] After pattern processing, current token: type=%d, line=%d:%d, value=%s\n",
+                parser->current_token ? parser->current_token->type : -1,
+                parser->current_token ? parser->current_token->line : 0,
+                parser->current_token ? parser->current_token->column : 0,
+                parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
     }
+
+    fprintf(stderr, "[DEBUG MATCH] Exiting pattern loop, current token: type=%d, line=%d:%d, value=%s\n",
+            parser->current_token ? parser->current_token->type : -1,
+            parser->current_token ? parser->current_token->line : 0,
+            parser->current_token ? parser->current_token->column : 0,
+            parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
 
     // Expect '}'
     if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
+        fprintf(stderr, "[DEBUG MATCH] Failed to expect RIGHT_BRACE\n");
         ast_free(match_expr);
         return NULL;
     }
+    
+    fprintf(stderr, "[DEBUG MATCH] Match expression parsed successfully, current token: type=%d, line=%d:%d, value=%s\n",
+            parser->current_token ? parser->current_token->type : -1,
+            parser->current_token ? parser->current_token->line : 0,
+            parser->current_token ? parser->current_token->column : 0,
+            parser->current_token && parser->current_token->value ? parser->current_token->value : "(null)");
 
     return match_expr;
 }
