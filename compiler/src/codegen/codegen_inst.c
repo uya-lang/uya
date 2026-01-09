@@ -1191,7 +1191,23 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
 
             for (int i = 0; i < inst->data.if_stmt.then_count; i++) {
                 fprintf(codegen->output_file, "  ");
-                codegen_generate_inst(codegen, inst->data.if_stmt.then_body[i]);
+                // Check if this is an expression type (match expression body) or statement type
+                IRInst *body_inst = inst->data.if_stmt.then_body[i];
+                if (body_inst && (body_inst->type == IR_CONSTANT || 
+                                  body_inst->type == IR_BINARY_OP ||
+                                  body_inst->type == IR_UNARY_OP ||
+                                  body_inst->type == IR_VAR_DECL ||
+                                  body_inst->type == IR_CALL ||
+                                  body_inst->type == IR_MEMBER_ACCESS ||
+                                  body_inst->type == IR_SUBSCRIPT ||
+                                  body_inst->type == IR_STRUCT_INIT ||
+                                  body_inst->type == IR_IF)) {
+                    // Expression type: use codegen_write_value (for match expression bodies)
+                    codegen_write_value(codegen, body_inst);
+                } else {
+                    // Statement type: use codegen_generate_inst
+                    codegen_generate_inst(codegen, body_inst);
+                }
                 fprintf(codegen->output_file, ";\n");
             }
 
@@ -1199,7 +1215,22 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                 fprintf(codegen->output_file, "} else {\n");
                 for (int i = 0; i < inst->data.if_stmt.else_count; i++) {
                     fprintf(codegen->output_file, "  ");
-                    codegen_generate_inst(codegen, inst->data.if_stmt.else_body[i]);
+                    IRInst *else_inst = inst->data.if_stmt.else_body[i];
+                    if (else_inst && (else_inst->type == IR_CONSTANT || 
+                                      else_inst->type == IR_BINARY_OP ||
+                                      else_inst->type == IR_UNARY_OP ||
+                                      else_inst->type == IR_VAR_DECL ||
+                                      else_inst->type == IR_CALL ||
+                                      else_inst->type == IR_MEMBER_ACCESS ||
+                                      else_inst->type == IR_SUBSCRIPT ||
+                                      else_inst->type == IR_STRUCT_INIT ||
+                                      else_inst->type == IR_IF)) {
+                        // Expression type: use codegen_write_value
+                        codegen_write_value(codegen, else_inst);
+                    } else {
+                        // Statement type: use codegen_generate_inst
+                        codegen_generate_inst(codegen, else_inst);
+                    }
                     fprintf(codegen->output_file, ";\n");
                 }
                 fprintf(codegen->output_file, "}");

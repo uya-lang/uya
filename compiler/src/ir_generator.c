@@ -1885,6 +1885,11 @@ static IRInst *generate_stmt_for_body(IRGenerator *ir_gen, struct ASTNode *stmt)
             // Convert catch expression to IR_TRY_CATCH
             return generate_expr(ir_gen, stmt);
 
+        case AST_MATCH_EXPR:
+            // Match expression statement: match expr { pattern => body, ... }
+            // Convert match expression to IR_IF (nested if-else chain)
+            return generate_expr(ir_gen, stmt);
+
         case AST_BINARY_EXPR:
         case AST_UNARY_EXPR:
         case AST_IDENTIFIER:
