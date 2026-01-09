@@ -1438,9 +1438,10 @@ static int typecheck_match_expr(TypeChecker *checker, ASTNode *node) {
             }
         }
         
-        // 处理结构体模式的变量绑定
+        // 处理结构体模式的变量绑定（仅在第二遍扫描时处理，因为变量绑定只在函数体检查时有用）
         // 如果是结构体模式，需要将绑定的变量添加到符号表中
-        if (pattern->data.pattern.pattern_expr && 
+        if (checker->scan_pass == 2 && 
+            pattern->data.pattern.pattern_expr && 
             pattern->data.pattern.pattern_expr->type == AST_STRUCT_INIT) {
             ASTNode *struct_pattern = pattern->data.pattern.pattern_expr;
             const char *struct_name = struct_pattern->data.struct_init.struct_name;
