@@ -655,6 +655,19 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                                         }
                                         fprintf(codegen->output_file, ";\n  goto _normal_return_%s;", actual_func_name);
                                     }
+                                } else if (then_inst && (then_inst->type == IR_CONSTANT || 
+                                                          then_inst->type == IR_BINARY_OP ||
+                                                          then_inst->type == IR_UNARY_OP ||
+                                                          then_inst->type == IR_VAR_DECL ||
+                                                          then_inst->type == IR_CALL ||
+                                                          then_inst->type == IR_MEMBER_ACCESS ||
+                                                          then_inst->type == IR_SUBSCRIPT ||
+                                                          then_inst->type == IR_STRUCT_INIT ||
+                                                          then_inst->type == IR_IF)) {
+                                    // Expression type: use codegen_write_value (for match expression bodies)
+                                    fprintf(codegen->output_file, "\n  ");
+                                    codegen_write_value(codegen, then_inst);
+                                    fprintf(codegen->output_file, ";");
                                 } else {
                                     fprintf(codegen->output_file, "\n  ");
                                     codegen_generate_inst(codegen, then_inst);
@@ -1193,13 +1206,18 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                 fprintf(codegen->output_file, "  ");
                 IRInst *body_inst = inst->data.if_stmt.then_body[i];
                 // For match expressions used as statements, then_body contains expressions
-                // Check if it's a statement type that should use codegen_generate_inst
-                // Statement types: IR_RETURN (7), IR_ASSIGN (3), IR_VAR_DECL (2), IR_IF (8), 
-                // IR_WHILE (9), IR_FOR (24), IR_BLOCK (10), IR_DEFER (42), IR_ERRDEFER (43)
-                if (body_inst && body_inst->type != 7 && body_inst->type != 3 && 
-                    body_inst->type != 2 && body_inst->type != 8 && 
-                    body_inst->type != 9 && body_inst->type != 24 &&
-                    body_inst->type != 10 && body_inst->type != 42 && body_inst->type != 43) {
+                // Check if it's an expression type that should use codegen_write_value
+                // Expression types: IR_CONSTANT, IR_BINARY_OP, IR_UNARY_OP, IR_VAR_DECL,
+                // IR_CALL, IR_MEMBER_ACCESS, IR_SUBSCRIPT, IR_STRUCT_INIT, IR_IF
+                if (body_inst && (body_inst->type == IR_CONSTANT || 
+                                  body_inst->type == IR_BINARY_OP ||
+                                  body_inst->type == IR_UNARY_OP ||
+                                  body_inst->type == IR_VAR_DECL ||
+                                  body_inst->type == IR_CALL ||
+                                  body_inst->type == IR_MEMBER_ACCESS ||
+                                  body_inst->type == IR_SUBSCRIPT ||
+                                  body_inst->type == IR_STRUCT_INIT ||
+                                  body_inst->type == IR_IF)) {
                     // Expression type: use codegen_write_value (for match expression bodies)
                     codegen_write_value(codegen, body_inst);
                 } else {
