@@ -545,13 +545,38 @@ void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
                 
                 fprintf(codegen->output_file, "if (");
                 codegen_write_value(codegen, current_if->data.if_stmt.condition);
-                fprintf(codegen->output_file, ") { %s = ", temp_var);
+                fprintf(codegen->output_file, ") { ");
                 
-                // Generate body expression (stored in then_body[0])
+                // Generate variable bindings (if any) and body expression
                 if (current_if->data.if_stmt.then_body && current_if->data.if_stmt.then_count > 0) {
-                    codegen_write_value(codegen, current_if->data.if_stmt.then_body[0]);
+                    // For struct pattern matching with variable bindings, then_body may contain:
+                    // - Variable declarations (IR_VAR_DECL with init) for bindings
+                    // - Body expression (last element)
+                    // For regular patterns, then_body contains only the body expression
+                    
+                    int body_idx = current_if->data.if_stmt.then_count - 1;  // Last element is body expression
+                    
+                    // Generate variable bindings (all except the last element)
+                    for (int i = 0; i < body_idx; i++) {
+                        IRInst *binding = current_if->data.if_stmt.then_body[i];
+                        if (binding && binding->type == IR_VAR_DECL) {
+                            // Generate variable declaration with initialization
+                            codegen_write_type_with_atomic(codegen, binding);
+                            fprintf(codegen->output_file, " %s = ", binding->data.var.name);
+                            if (binding->data.var.init) {
+                                codegen_write_value(codegen, binding->data.var.init);
+                            } else {
+                                fprintf(codegen->output_file, "0");
+                            }
+                            fprintf(codegen->output_file, "; ");
+                        }
+                    }
+                    
+                    // Generate body expression (last element)
+                    fprintf(codegen->output_file, "%s = ", temp_var);
+                    codegen_write_value(codegen, current_if->data.if_stmt.then_body[body_idx]);
                 } else {
-                    fprintf(codegen->output_file, "0");
+                    fprintf(codegen->output_file, "%s = 0", temp_var);
                 }
                 fprintf(codegen->output_file, "; }");
                 
