@@ -1,0 +1,11 @@
+fn main() i32 {
+    const err: u32 = 12345;  // 模拟错误码（错误模式匹配比较的是 uint32_t 错误码）
+    const result: i32 = match err {
+        error.FileNotFound => 1,
+        error.PermissionDenied => 2,
+        error.OutOfMemory => 3,
+        else => 0
+    };
+    return result;
+}
+
