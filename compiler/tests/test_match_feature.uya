@@ -1,7 +1,7 @@
 // Test match expression feature
 fn main() i32 {
-    var x i32 = 2;
-    var result i32;
+    const x: i32 = 2;
+    var result: i32;
     
     // Basic match expression
     result = match x {

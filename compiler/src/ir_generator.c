@@ -976,9 +976,27 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
 
         case AST_MATCH_EXPR: {
             // Handle match expressions: match expr { pattern => body, ... }
-            // For now, we'll just generate the expression being matched
-            // A complete implementation would generate conditional logic for pattern matching
-            return generate_expr(ir_gen, expr->data.match_expr.expr);
+            // TODO: Complete implementation - generate nested if-else chain
+            // For now, return the first pattern's body as a placeholder
+            // This needs to be implemented properly with nested if-else chain
+            // that assigns to a temporary variable and returns it
+            
+            if (!expr->data.match_expr.expr || expr->data.match_expr.pattern_count == 0) {
+                return NULL;
+            }
+
+            // Generate the expression being matched
+            IRInst *match_expr_ir = generate_expr(ir_gen, expr->data.match_expr.expr);
+            if (!match_expr_ir) return NULL;
+
+            // For now, return the first pattern's body
+            // TODO: Implement proper nested if-else chain generation
+            struct ASTNode *first_pattern = expr->data.match_expr.patterns[0];
+            if (first_pattern && first_pattern->data.pattern.body) {
+                return generate_expr(ir_gen, first_pattern->data.pattern.body);
+            }
+
+            return NULL;
         }
 
         default:
