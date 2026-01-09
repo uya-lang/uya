@@ -397,7 +397,7 @@
 - [x] 测试用例：
   - [x] 基础测试用例已编写（test_match_debug.uya, test_match_simple.uya, test_match_feature.uya）
   - [x] match 表达式作为语句的代码生成已验证（能正确生成代码）
-  - [ ] match 表达式作为赋值表达式右侧的代码生成（需要修复）
+  - [x] match 表达式作为赋值表达式右侧的代码生成（已修复：codegen_value.c 中的 IR_IF case 使用 GCC 复合语句扩展生成 match 表达式作为值，codegen_inst.c 中的 IR_ASSIGN case 使用 codegen_write_value 生成右侧表达式）
   - [ ] 各种模式类型的完整测试（结构体模式、枚举模式、错误模式等）
   - [ ] 模式匹配完整性检查
   - [ ] 验证生成的代码能正确编译和运行
