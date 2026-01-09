@@ -626,13 +626,13 @@ static ASTNode *parser_parse_expression(Parser *parser) {
         }
         // Check if this identifier is followed by member access '.'
         else if (parser_match(parser, TOKEN_DOT)) {
-            // This is a member access: identifier.field
+            // This is a member access: identifier.field or identifier.0 (tuple field access)
             parser_consume(parser); // consume '.'
 
-            // Expect field name (identifier)
-            if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+            // Expect field name (identifier) or number (tuple field index)
+            if (!parser_match(parser, TOKEN_IDENTIFIER) && !parser_match(parser, TOKEN_NUMBER)) {
                 ast_free(ident);
-                fprintf(stderr, "语法错误: 成员访问需要字段名\n");
+                fprintf(stderr, "语法错误: 成员访问需要字段名或数字索引\n");
                 return NULL;
             }
 
@@ -650,7 +650,7 @@ static ASTNode *parser_parse_expression(Parser *parser) {
             if (member_access->data.member_access.field_name) {
                 strcpy(member_access->data.member_access.field_name, parser->current_token->value);
             }
-            parser_consume(parser);  // consume field name
+            parser_consume(parser);  // consume field name or index
 
             // Check if this is a method call: object.method()
             if (parser_match(parser, TOKEN_LEFT_PAREN)) {
@@ -1637,13 +1637,13 @@ static ASTNode *parser_parse_comparison_or_higher(Parser *parser) {
         }
         // Check if this identifier is followed by member access '.'
         else if (parser_match(parser, TOKEN_DOT)) {
-            // This is a member access: identifier.field
+            // This is a member access: identifier.field or identifier.0 (tuple field access)
             parser_consume(parser); // consume '.'
 
-            // Expect field name (identifier)
-            if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+            // Expect field name (identifier) or number (tuple field index)
+            if (!parser_match(parser, TOKEN_IDENTIFIER) && !parser_match(parser, TOKEN_NUMBER)) {
                 ast_free(ident);
-                fprintf(stderr, "语法错误: 成员访问需要字段名\n");
+                fprintf(stderr, "语法错误: 成员访问需要字段名或数字索引\n");
                 return NULL;
             }
 
@@ -1661,7 +1661,7 @@ static ASTNode *parser_parse_comparison_or_higher(Parser *parser) {
             if (member_access->data.member_access.field_name) {
                 strcpy(member_access->data.member_access.field_name, parser->current_token->value);
             }
-            parser_consume(parser);  // consume field name
+            parser_consume(parser);  // consume field name or index
 
             // Check if this is a method call: object.method()
             if (parser_match(parser, TOKEN_LEFT_PAREN)) {

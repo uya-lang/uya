@@ -315,7 +315,7 @@
   - [x] 添加 `AST_TUPLE_LITERAL` 节点类型（`ast.h`）
   - [x] 实现元组类型解析（`parser_parse_type`）
   - [x] 实现元组字面量解析（`parser_parse_expression`）
-  - [ ] 实现元组字段访问解析（`.0`, `.1`, ...）- 未实现
+  - [x] 实现元组字段访问解析（`.0`, `.1`, ...）- 语法解析已完成（使用 `AST_MEMBER_ACCESS` 节点，支持 `.NUM` 语法）
 - [x] 类型系统：
   - [x] 添加元组类型支持（使用 `IR_TYPE_STRUCT` 作为占位符）
 - [x] 类型检查器：
