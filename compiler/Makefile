@@ -18,6 +18,10 @@ SOURCES = $(SRCDIR)/main.c \
           $(SRCDIR)/checker/const_eval.c \
           $(SRCDIR)/ir/ir.c \
           $(SRCDIR)/ir_generator.c \
+          $(SRCDIR)/ir_generator/ir_generator_type.c \
+          $(SRCDIR)/ir_generator/ir_generator_expr.c \
+          $(SRCDIR)/ir_generator/ir_generator_stmt.c \
+          $(SRCDIR)/ir_generator/ir_generator_func.c \
           $(SRCDIR)/codegen/codegen.c \
           $(SRCDIR)/codegen/codegen_error.c \
           $(SRCDIR)/codegen/codegen_type.c \
