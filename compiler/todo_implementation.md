@@ -18,9 +18,9 @@
 
 ## P0：破坏性变更（规范已更新，编译器待更新）
 
-### 1. 接口实现语法更新（0.24 版本变更）⚠️
+### 1. 接口实现语法更新（0.24 版本变更）✅
 
-**状态**：⚠️ **规范已更新，编译器代码待更新**
+**状态**：✅ **已完成**
 
 **变更内容**：
 - 从 `impl StructName : InterfaceName {}` 简化为 `StructName : InterfaceName {}`
@@ -28,15 +28,15 @@
 
 **影响**：破坏性变更，现有代码需要迁移
 
-**待办事项**：
-- [ ] 修改词法分析器（`lexer/lexer.c`）：`impl` 不再作为关键字
-- [ ] 修改语法分析器（`parser/parser.c`）：
-  - [ ] 移除 `parser_match(parser, TOKEN_IMPL)` 的使用
-  - [ ] 修改 `parser_parse_impl_decl` 函数支持新语法（无需 `impl` 关键字）
-  - [ ] 修改 `parser_parse_declaration` 函数，添加新解析逻辑识别 `ID : ID {` 形式
-  - [ ] 添加向前查看（lookahead）来区分结构体方法块和接口实现
-- [ ] 更新错误消息和文档注释
-- [ ] 更新测试用例
+**已完成事项**：
+- [x] 修改词法分析器（`lexer/lexer.c`）：`impl` 不再作为关键字
+- [x] 修改语法分析器（`parser/parser.c`）：
+  - [x] 移除 `parser_match(parser, TOKEN_IMPL)` 的使用
+  - [x] 修改 `parser_parse_impl_decl` 函数支持新语法（无需 `impl` 关键字）
+  - [x] 修改 `parser_parse_declaration` 函数，添加新解析逻辑识别 `ID : ID {` 形式
+  - [x] 添加向前查看（lookahead）来区分结构体方法块和接口实现
+- [x] 更新错误消息和文档注释
+- [x] 更新测试用例
 
 **相关文件**：
 - `compiler/src/lexer/lexer.c`
@@ -454,7 +454,7 @@
 
 ### ⚠️ 部分实现/需要更新
 
-12. ⚠️ 接口实现语法（规范已更新为新语法，编译器代码待更新）
+12. ✅ 接口实现语法（规范已更新为新语法，编译器代码已更新）
 13. ⚠️ 错误类型比较（未实现）
 14. ⚠️ 枚举类型（需要验证和完善）
 15. ⚠️ 元组类型（需要验证和完善）

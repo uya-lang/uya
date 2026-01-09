@@ -185,7 +185,7 @@ static int is_keyword(const char *str) {
     if (strcmp(str, "error") == 0) return TOKEN_ERROR;
     if (strcmp(str, "null") == 0) return TOKEN_NULL;
     if (strcmp(str, "interface") == 0) return TOKEN_INTERFACE;
-    if (strcmp(str, "impl") == 0) return TOKEN_IMPL;
+    // impl 不再是关键字（0.24 版本变更：接口实现语法简化为 StructName : InterfaceName { ... }）
     if (strcmp(str, "atomic") == 0) return TOKEN_ATOMIC;
     if (strcmp(str, "max") == 0) return TOKEN_MAX;
     if (strcmp(str, "min") == 0) return TOKEN_MIN;

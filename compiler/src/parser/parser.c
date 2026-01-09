@@ -2774,23 +2774,17 @@ static ASTNode *parser_parse_struct_decl(Parser *parser) {
     return struct_decl;
 }
 
-// 解析 impl 声明 (impl StructName : InterfaceName { ... })
+// 解析接口实现声明 (StructName : InterfaceName { ... })
+// 新语法（0.24版本）：移除了 impl 关键字
 static ASTNode *parser_parse_impl_decl(Parser *parser) {
-    if (!parser_match(parser, TOKEN_IMPL)) {
+    // 期望结构体名称（第一个标识符）
+    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
         return NULL;
     }
 
     int line = parser->current_token->line;
     int col = parser->current_token->column;
     const char *filename = parser->current_token->filename;
-
-    parser_consume(parser); // 消费 'impl'
-
-    // 期望结构体名称
-    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
-        fprintf(stderr, "语法错误: 期望结构体名称\n");
-        return NULL;
-    }
 
     ASTNode *impl_decl = ast_new_node(AST_IMPL_DECL, line, col, filename);
     if (!impl_decl) {
@@ -2937,8 +2931,15 @@ static ASTNode *parser_parse_declaration(Parser *parser) {
         return parser_parse_struct_decl(parser);
     } else if (parser_match(parser, TOKEN_EXTERN)) {
         return parser_parse_extern_decl(parser);
-    } else if (parser_match(parser, TOKEN_IMPL)) {
-        return parser_parse_impl_decl(parser);
+    } else if (parser_match(parser, TOKEN_IDENTIFIER)) {
+        // 尝试解析接口实现声明（新语法：StructName : InterfaceName { ... }）
+        // 注意：parser_parse_impl_decl 会在格式不匹配时返回 NULL 且不消费 tokens
+        ASTNode *impl_decl = parser_parse_impl_decl(parser);
+        if (impl_decl) {
+            return impl_decl;
+        }
+        // 如果解析接口实现失败，继续尝试解析为语句
+        return parser_parse_statement(parser);
     } else {
         return parser_parse_statement(parser);
     }
@@ -3356,7 +3357,7 @@ ASTNode *parser_parse(Parser *parser) {
                    !parser_match(parser, TOKEN_FN) &&
                    !parser_match(parser, TOKEN_STRUCT) &&
                    !parser_match(parser, TOKEN_EXTERN) &&
-                   !parser_match(parser, TOKEN_IMPL) &&
+                   !parser_match(parser, TOKEN_IDENTIFIER) && // 可能是接口实现（新语法）
                    !parser_match(parser, TOKEN_EOF)) {
                 parser_consume(parser);
             }

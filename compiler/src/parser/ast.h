@@ -268,7 +268,8 @@ typedef struct ASTNode {
             int method_count;
         } interface_decl;
 
-        // impl 声明 (impl StructName : InterfaceName { ... })
+        // 接口实现声明 (StructName : InterfaceName { ... })
+        // 新语法（0.24版本）：移除了 impl 关键字
         struct {
             char *struct_name;           // 结构体名称
             char *interface_name;        // 接口名称
