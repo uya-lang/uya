@@ -1435,6 +1435,24 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
             }
             return 1;  // 暂时通过，后续需要完善
             
+        case AST_TUPLE_LITERAL:
+            // 检查元组字面量：检查所有元素表达式
+            for (int i = 0; i < node->data.tuple_literal.element_count; i++) {
+                if (!typecheck_node(checker, node->data.tuple_literal.elements[i])) {
+                    return 0;
+                }
+            }
+            return 1;  // 元组字面量检查通过
+            
+        case AST_STRUCT_INIT:
+            // 检查结构体初始化：检查所有字段初始化表达式
+            for (int i = 0; i < node->data.struct_init.field_count; i++) {
+                if (!typecheck_node(checker, node->data.struct_init.field_inits[i])) {
+                    return 0;
+                }
+            }
+            return 1;  // 结构体初始化检查通过
+            
         case AST_CATCH_EXPR:
             // Check catch expression: expr catch |err| { ... }
             // First check the expression being caught

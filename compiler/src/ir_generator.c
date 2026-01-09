@@ -898,24 +898,75 @@ static IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
 
         case AST_TUPLE_LITERAL: {
             // Handle tuple literals: (expr1, expr2, ...)
-            // For now, we'll represent tuples as anonymous struct-like constructs
-            // In the future, we could generate a temporary struct or use a different representation
+            // Tuples are represented as structs in C with field names _0, _1, _2, etc.
+            // We generate a struct initialization with field names _0, _1, etc.
+            IRInst *struct_init = irinst_new(IR_STRUCT_INIT);
+            if (!struct_init) return NULL;
 
-            // For now, we'll just generate the individual elements and return the last one
-            // A proper tuple implementation would need to create a composite data structure
-            IRInst *last_element = NULL;
+            // Generate a temporary struct name for the tuple type
+            // Format: tuple_N where N is the number of elements
+            // In a full implementation, we would generate a unique name based on element types
+            char temp_struct_name[64];
+            snprintf(temp_struct_name, sizeof(temp_struct_name), "tuple_%d", expr->data.tuple_literal.element_count);
+            struct_init->data.struct_init.struct_name = malloc(strlen(temp_struct_name) + 1);
+            if (!struct_init->data.struct_init.struct_name) {
+                irinst_free(struct_init);
+                return NULL;
+            }
+            strcpy(struct_init->data.struct_init.struct_name, temp_struct_name);
 
-            for (int i = 0; i < expr->data.tuple_literal.element_count; i++) {
-                IRInst *element = generate_expr(ir_gen, expr->data.tuple_literal.elements[i]);
-                if (!element) {
+            // Set up field names and initializations
+            struct_init->data.struct_init.field_count = expr->data.tuple_literal.element_count;
+            if (expr->data.tuple_literal.element_count > 0) {
+                struct_init->data.struct_init.field_names = malloc(expr->data.tuple_literal.element_count * sizeof(char*));
+                struct_init->data.struct_init.field_inits = malloc(expr->data.tuple_literal.element_count * sizeof(IRInst*));
+
+                if (!struct_init->data.struct_init.field_names || !struct_init->data.struct_init.field_inits) {
+                    if (struct_init->data.struct_init.field_names) free(struct_init->data.struct_init.field_names);
+                    if (struct_init->data.struct_init.field_inits) free(struct_init->data.struct_init.field_inits);
+                    free(struct_init->data.struct_init.struct_name);
+                    irinst_free(struct_init);
                     return NULL;
                 }
-                last_element = element;
+
+                for (int i = 0; i < expr->data.tuple_literal.element_count; i++) {
+                    // Generate field name: _0, _1, _2, etc.
+                    char field_name[16];
+                    snprintf(field_name, sizeof(field_name), "_%d", i);
+                    struct_init->data.struct_init.field_names[i] = malloc(strlen(field_name) + 1);
+                    if (!struct_init->data.struct_init.field_names[i]) {
+                        // Clean up on failure
+                        for (int j = 0; j < i; j++) {
+                            free(struct_init->data.struct_init.field_names[j]);
+                        }
+                        free(struct_init->data.struct_init.field_names);
+                        free(struct_init->data.struct_init.field_inits);
+                        free(struct_init->data.struct_init.struct_name);
+                        irinst_free(struct_init);
+                        return NULL;
+                    }
+                    strcpy(struct_init->data.struct_init.field_names[i], field_name);
+
+                    // Generate field initialization expression
+                    struct_init->data.struct_init.field_inits[i] = generate_expr(ir_gen, expr->data.tuple_literal.elements[i]);
+                    if (!struct_init->data.struct_init.field_inits[i]) {
+                        // Clean up on failure
+                        for (int j = 0; j <= i; j++) {
+                            free(struct_init->data.struct_init.field_names[j]);
+                        }
+                        free(struct_init->data.struct_init.field_names);
+                        free(struct_init->data.struct_init.field_inits);
+                        free(struct_init->data.struct_init.struct_name);
+                        irinst_free(struct_init);
+                        return NULL;
+                    }
+                }
+            } else {
+                struct_init->data.struct_init.field_names = NULL;
+                struct_init->data.struct_init.field_inits = NULL;
             }
 
-            // Return the last element for now - a proper tuple implementation would
-            // create a composite structure to hold all elements
-            return last_element;
+            return struct_init;
         }
 
         case AST_MATCH_EXPR: {
