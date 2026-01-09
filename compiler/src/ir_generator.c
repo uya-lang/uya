@@ -52,6 +52,9 @@ static IRType get_ir_type(struct ASTNode *ast_type) {
             // For atomic types, return the base type
             // The atomic flag will be set separately
             return get_ir_type(ast_type->data.type_atomic.base_type);
+        case AST_TYPE_FN:
+            // 函数指针类型：fn(param_types) return_type
+            return IR_TYPE_FN;
         default:
             return IR_TYPE_VOID;
     }
