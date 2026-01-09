@@ -1158,6 +1158,40 @@ static int typecheck_block(TypeChecker *checker, ASTNode *node) {
     return 1;
 }
 
+// 检查代码块（带错误变量，用于 catch 块）
+static int typecheck_block_with_error_var(TypeChecker *checker, ASTNode *node, const char *error_var, int error_var_line, int error_var_col, const char *error_var_filename) {
+    if (!checker || !node || node->type != AST_BLOCK) return 0;
+    
+    typechecker_enter_scope(checker);
+    
+    // Add error variable to symbol table if provided (error_id is uint32_t)
+    if (error_var) {
+        int scope_level = typechecker_get_current_scope(checker);
+        Symbol *error_sym = symbol_new(error_var, IR_TYPE_U32, 0, 1, 
+                                       scope_level, error_var_line, error_var_col,
+                                       error_var_filename);
+        if (error_sym) {
+            // Error variable is always initialized (set by catch handler)
+            error_sym->is_initialized = 1;
+            if (!typechecker_add_symbol(checker, error_sym)) {
+                symbol_free(error_sym);
+                typechecker_exit_scope(checker);
+                return 0;
+            }
+        }
+    }
+    
+    for (int i = 0; i < node->data.block.stmt_count; i++) {
+        if (!typecheck_node(checker, node->data.block.stmts[i])) {
+            typechecker_exit_scope(checker);
+            return 0;
+        }
+    }
+    
+    typechecker_exit_scope(checker);
+    return 1;
+}
+
 // 从AST节点提取函数签名（用于注册函数）
 static FunctionSignature *extract_function_signature(TypeChecker *checker, ASTNode *node) {
     if (!node || (node->type != AST_FN_DECL && node->type != AST_EXTERN_DECL)) {
@@ -1646,8 +1680,19 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
             }
             // Then check the catch body
             if (node->data.catch_expr.catch_body) {
-                if (!typecheck_node(checker, node->data.catch_expr.catch_body)) {
-                    return 0;
+                // If there's an error variable and catch body is a block, use special block checker
+                if (node->data.catch_expr.error_var && 
+                    node->data.catch_expr.catch_body->type == AST_BLOCK) {
+                    if (!typecheck_block_with_error_var(checker, node->data.catch_expr.catch_body,
+                                                        node->data.catch_expr.error_var,
+                                                        node->line, node->column, node->filename)) {
+                        return 0;
+                    }
+                } else {
+                    // No error variable or catch body is not a block, just check normally
+                    if (!typecheck_node(checker, node->data.catch_expr.catch_body)) {
+                        return 0;
+                    }
                 }
             }
             return 1;

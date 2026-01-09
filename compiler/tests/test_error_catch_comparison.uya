@@ -1,0 +1,117 @@
+// 测试catch块中错误类型判断功能
+// 验证在catch块中可以判断错误类型并做不同处理
+
+error FileNotFound;
+error PermissionDenied;
+error OutOfMemory;
+
+fn file_read() !i32 {
+    return error.FileNotFound;
+}
+
+fn process_file() !i32 {
+    const content: i32 = try file_read();
+    return content * 2;
+}
+
+fn may_fail_multiple(flag: i32) !i32 {
+    if flag == 1 {
+        return error.FileNotFound;
+    } else if flag == 2 {
+        return error.PermissionDenied;
+    } else if flag == 3 {
+        return error.OutOfMemory;
+    }
+    return 100;
+}
+
+fn may_fail_runtime_error() !i32 {
+    return error.NetworkError;  // 运行时错误
+}
+
+fn test_catch_error_comparison() i32 {
+    const result: i32 = process_file() catch |err| {
+        // 在catch块中判断错误类型
+        if err == error.FileNotFound {
+            return 404;  // 文件未找到
+        } else if err == error.PermissionDenied {
+            return 403;  // 权限 denied
+        } else if err == error.OutOfMemory {
+            return 500;  // 内存不足
+        }
+        return 0;  // 其他错误
+    };
+    
+    // 应该返回404（FileNotFound）
+    if result != 404 {
+        return 1;
+    }
+    
+    return 0;
+}
+
+fn test_catch_multiple_errors() i32 {
+    // 测试FileNotFound
+    const r1: i32 = may_fail_multiple(1) catch |err| {
+        if err == error.FileNotFound {
+            return 1;
+        }
+        return 0;
+    };
+    if r1 != 1 {
+        return 1;
+    }
+
+    // 测试PermissionDenied
+    const r2: i32 = may_fail_multiple(2) catch |err| {
+        if err == error.PermissionDenied {
+            return 2;
+        }
+        return 0;
+    };
+    if r2 != 2 {
+        return 2;
+    }
+
+    // 测试OutOfMemory
+    const r3: i32 = may_fail_multiple(3) catch |err| {
+        if err == error.OutOfMemory {
+            return 3;
+        }
+        return 0;
+    };
+    if r3 != 3 {
+        return 3;
+    }
+
+    return 0;
+}
+
+fn test_catch_runtime_error() i32 {
+    const result: i32 = may_fail_runtime_error() catch |err| {
+        if err == error.NetworkError {
+            return 503;  // 服务不可用
+        }
+        return 0;
+    };
+    
+    if result != 503 {
+        return 1;
+    }
+    
+    return 0;
+}
+
+fn main() i32 {
+    if test_catch_error_comparison() != 0 {
+        return 1;
+    }
+    if test_catch_multiple_errors() != 0 {
+        return 2;
+    }
+    if test_catch_runtime_error() != 0 {
+        return 3;
+    }
+    return 0;
+}
+

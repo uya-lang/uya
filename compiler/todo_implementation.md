@@ -2,7 +2,7 @@
 
 本文档根据 `uya.md` 语法规范和当前实现状态，按优先级组织待实现的功能。
 
-**最后更新**：2026-01-09（test_match_struct_binding.uya 的 double free 问题已修复，代码生成优化：常量 true 条件使用 else 而不是 else if (1)）  
+**最后更新**：2026-01-09（catch 块错误变量作用域支持已完成，类型检查器现在可以正确识别 catch 块中的错误变量）  
 **基于规范版本**：Uya 0.26
 
 **注意**：
@@ -204,6 +204,11 @@
   - [x] 验证错误类型比较的类型匹配（两个都是 uint32_t）
   - [x] 禁止错误类型使用 `!=` 运算符（仅支持 `==`）
   - [x] 在类型推断中，`error.ErrorName` 返回 `IR_TYPE_U32`
+  - [x] catch 块中错误变量的作用域管理（✅ 2026-01-09 完成）：
+    - [x] 添加 `typecheck_block_with_error_var` 函数处理带错误变量的 catch 块
+    - [x] 将 catch 块中的错误变量（`catch |err| { ... }`）添加到符号表
+    - [x] 错误变量类型为 `IR_TYPE_U32`（`uint32_t`），标记为已初始化
+    - [x] 每个 catch 块创建独立的作用域，错误变量在 catch 块作用域中可见
 - [x] IR 生成器（`ir_generator.c`）：
   - [x] 生成错误类型比较的 IR 指令（通过现有的 `AST_BINARY_EXPR` → `IR_BINARY_OP` 处理）
 - [x] 代码生成器（`codegen/codegen_value.c` 或 `codegen_inst.c`）：
@@ -214,6 +219,7 @@
 - catch 块中的错误变量类型是 `uint32_t`（从 `error_union_T.error_id` 字段提取）
 - `error.ErrorName` 被生成为错误码（`uint32_t`）
 - 现有的二元表达式 IR 生成和代码生成已经可以处理错误类型比较
+- catch 块中的错误变量现在可以在类型检查器中正确识别和使用（✅ 2026-01-09 完成）
 
 **相关文件**：
 - `compiler/src/checker/typechecker.c`
@@ -585,14 +591,14 @@
 ### 14. 测试覆盖完善
 
 **待办事项**：
-- [ ] 错误类型比较的测试用例
-- [ ] 预定义错误的测试用例（如果实现）
-- [ ] catch 块中错误类型判断的测试用例
+- [x] 错误类型比较的测试用例（`test_error_comparison.uya`）
+- [x] 预定义错误的测试用例（`test_error_decl_*.uya`）
+- [x] catch 块中错误类型判断的测试用例（`test_error_catch_comparison.uya`）
 - [x] 枚举类型的完整测试用例
 - [x] 元组类型的完整测试用例
 - [x] match 表达式的完整测试用例
-- [ ] 跨函数调用的错误传播测试
-- [ ] 错误码冲突检测测试
+- [x] 跨函数调用的错误传播测试（`test_error_propagation.uya`）
+- [x] 错误码冲突检测测试（`test_error_collision.uya`, `test_force_collision.uya`）
 
 ### 15. TDD 测试驱动开发
 
@@ -730,6 +736,6 @@
 
 ---
 
-**最后更新**：2026-01-09（预定义错误声明功能实现完成）  
+**最后更新**：2026-01-09（catch 块错误变量作用域支持已完成，类型检查器现在可以正确识别 catch 块中的错误变量）  
 **维护者**：编译器开发团队
 
