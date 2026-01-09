@@ -2,7 +2,7 @@
 
 本文档根据 `uya.md` 语法规范和当前实现状态，按优先级组织待实现的功能。
 
-**最后更新**：2026-01-09（match 表达式结构体模式匹配实现完成）  
+**最后更新**：2026-01-09（match 表达式 double free 问题修复完成）  
 **基于规范版本**：Uya 0.26
 
 **注意**：
@@ -369,6 +369,7 @@
   - **已实现**：布尔常量模式（`true`/`false`）- 通过 `parser_parse_expression` 支持
   - **已实现**：结构体模式（`StructName { field: pattern }`）- 实现了字段逐个比较逻辑，使用 `IR_MEMBER_ACCESS` 和 `IR_OP_LOGIC_AND` 组合多个字段比较
   - **已实现**：逻辑操作符支持 - 在代码生成器中添加了 `IR_OP_LOGIC_AND` 和 `IR_OP_LOGIC_OR` 的支持
+  - **已修复**（2026-01-09）：match 表达式 IR 生成中的 double free 问题 - 为每个 pattern 生成独立的 `match_expr_ir` 副本，避免多个 comparison 共享同一个 IR 指令导致的内存安全问题
 - ✅ 当前状态：
   - 编译器可以成功编译
   - match 表达式的 AST 解析和 IR 生成正常
@@ -408,16 +409,17 @@
   - [ ] 类型推断优化（当前从第一个body表达式推断类型，可以进一步完善）
 - [x] 已知问题修复：
   - [x] match 表达式作为语句时的代码生成问题已修复（在函数体处理的 IR_IF case 中添加了表达式类型检查）
+  - [x] match 表达式 IR 生成中的 double free 问题已修复（为每个 pattern 生成独立的 match_expr_ir 副本）
 - [x] 测试用例：
   - [x] 基础测试用例已编写（test_match_debug.uya, test_match_simple.uya, test_match_feature.uya）
   - [x] match 表达式作为语句的代码生成已验证（能正确生成代码）
   - [x] match 表达式作为赋值表达式右侧的代码生成（已修复：代码逻辑已实现，语法解析问题已修复 - 添加了对 TOKEN_ELSE 的检查以支持 else 分支模式）
   - [x] 枚举模式测试用例（test_match_enum.uya）- 已创建
-  - [x] 错误模式测试用例（test_match_error.uya）- 已创建
-  - [x] 布尔常量模式测试用例（test_match_bool.uya）- 已创建
+  - [x] 错误模式测试用例（test_match_error.uya）- 已创建，生成的代码正确使用错误码比较
+  - [x] 布尔常量模式测试用例（test_match_bool.uya）- 已创建，生成的代码正确使用布尔比较
   - [x] 结构体模式测试用例（test_match_struct.uya）- 已创建，生成的代码可以正确编译（字段逐个比较已实现）
   - [ ] 模式匹配完整性检查
-  - [x] 验证生成的代码能正确编译和运行（语法解析错误已修复，生成的代码可以正确编译和运行）
+  - [x] 验证生成的代码能正确编译和运行（语法解析错误已修复，生成的代码可以正确编译和运行，double free 问题已修复）
 
 **参考**：
 - 规范：`uya.md` 第 8 章（控制流）
@@ -716,6 +718,6 @@
 
 ---
 
-**最后更新**：2026-01-09（match 表达式结构体模式匹配实现完成）  
+**最后更新**：2026-01-09（match 表达式 double free 问题修复完成）  
 **维护者**：编译器开发团队
 
