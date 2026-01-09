@@ -436,31 +436,38 @@
 
 ### 8. 预定义错误声明（可选功能）
 
-**状态**：❌ **未实现（可选）**
+**状态**：✅ **已实现**
 
 **规范要求**（`uya.md` 第 417-423 行）：
 - 支持 `error ErrorName;` 在顶层声明预定义错误
 - 预定义错误类型是编译期常量
 - 预定义错误类型名称必须唯一（全局命名空间）
 
-**当前状态**：
-- ❌ 不支持预定义错误声明语法
-- ✅ 支持运行时错误（`error.ErrorName` 直接使用）
+**实现状态**：
+- ✅ 支持预定义错误声明语法（`error ErrorName;`）
+- ✅ 类型检查器验证预定义错误名称唯一性（全局命名空间）
+- ✅ 代码生成器从AST收集预定义错误名称
+- ✅ 预定义错误和运行时错误使用相同的错误码生成机制（哈希函数）
+- ✅ 只有被使用的错误才会生成错误码（符合Uya设计）
 
-**待办事项**：
-- [ ] 语法分析器：
-  - [ ] 添加 `AST_ERROR_DECL` 节点类型（`ast.h`）
-  - [ ] 实现 `error ErrorName;` 语法解析（`parser.c`）
-- [ ] 符号表：
-  - [ ] 存储预定义错误类型
-  - [ ] 验证预定义错误名称唯一性（全局命名空间）
-- [ ] 代码生成：
-  - [ ] 确保预定义错误和运行时错误使用相同的错误码生成机制
+**实现细节**：
+- ✅ 解析器：`AST_ERROR_DECL` 节点类型已存在，`parser_parse_error_decl` 已实现
+- ✅ 类型检查器：在 `typecheck_node` 中添加了 `AST_ERROR_DECL` 处理，验证名称唯一性
+- ✅ 代码生成器：`collect_error_names` 函数从AST收集预定义错误声明，从IR收集运行时错误
+- ✅ 测试：创建了完整的测试用例验证功能
 
-**优先级**：低（可选功能，运行时错误已足够）
+**测试文件**：
+- `tests/test_error_decl.uya` - 基础测试
+- `tests/test_error_decl_usage.uya` - 使用测试
+- `tests/test_error_decl_duplicate.uya` - 重复定义检查
+- `tests/test_error_decl_only_used.uya` - 只有被使用的错误生成错误码
+- `tests/test_error_decl_all_used.uya` - 所有错误都被使用
+- `tests/test_error_decl_mixed.uya` - 预定义错误和运行时错误混合使用
+- `tests/test_error_decl_verification.md` - 测试验证文档
 
 **参考**：
 - 详细任务：`compiler/TODO_error_handling.md` 第 1 节
+- 测试文档：`compiler/tests/test_error_decl_verification.md`
 
 ---
 
@@ -671,7 +678,7 @@
 
 19. ❌ 泛型（可选特性）
 20. ❌ 显式宏系统（可选特性）
-21. ❌ 预定义错误声明（可选功能）
+21. ✅ 预定义错误声明（可选功能）
 
 ---
 
@@ -723,6 +730,6 @@
 
 ---
 
-**最后更新**：2026-01-09（match 表达式 double free 问题修复完成）  
+**最后更新**：2026-01-09（预定义错误声明功能实现完成）  
 **维护者**：编译器开发团队
 

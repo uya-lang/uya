@@ -10,26 +10,42 @@
 2. ✅ **标记联合类型 `!T`**：错误联合类型的代码生成
 3. ✅ **errdefer 支持**：错误返回时的清理逻辑
 4. ✅ **try/catch 语法**：错误传播和捕获
+5. ✅ **预定义错误声明**：支持 `error ErrorName;` 语法，类型检查和代码生成
 
 ## 待实现功能
 
 ### 1. 预定义错误声明（可选功能）
+
+**状态**：✅ **已实现**
 
 **语法规范**（`uya.md` 第417-423行）：
 - 支持 `error ErrorName;` 在顶层声明预定义错误
 - 预定义错误类型是编译期常量
 - 预定义错误类型名称必须唯一（全局命名空间）
 
-**当前状态**：
-- ❌ 不支持预定义错误声明语法
-- ✅ 支持运行时错误（`error.ErrorName` 直接使用）
+**实现状态**：
+- ✅ 支持预定义错误声明语法（`error ErrorName;`）
+- ✅ 类型检查器验证预定义错误名称唯一性（全局命名空间）
+- ✅ 代码生成器从AST收集预定义错误名称
+- ✅ 预定义错误和运行时错误使用相同的错误码生成机制（哈希函数）
+- ✅ 只有被使用的错误才会生成错误码（符合Uya设计）
 
-**待办事项**：
-- [ ] 在解析器中添加 `AST_ERROR_DECL` 节点类型
-- [ ] 实现 `error ErrorName;` 语法的解析（`parser.c`）
-- [ ] 在符号表中存储预定义错误类型
-- [ ] 验证预定义错误名称唯一性（全局命名空间）
-- [ ] 确保预定义错误和运行时错误使用相同的错误码生成机制
+**实现细节**：
+- ✅ 解析器：`AST_ERROR_DECL` 节点类型已存在（`ast.h`），`parser_parse_error_decl` 已实现（`parser_declaration.c`）
+- ✅ 类型检查器：在 `typecheck_node` 中添加了 `AST_ERROR_DECL` case，验证名称唯一性（`typechecker.c`）
+- ✅ 代码生成器：
+  - `collect_error_names` 函数从AST收集预定义错误声明，从IR收集运行时错误（`codegen_error.c`）
+  - `codegen_generate` 函数接收AST参数，传递给 `collect_error_names`（`codegen_main.c`）
+- ✅ 测试：创建了完整的测试用例验证功能
+
+**测试文件**：
+- `tests/test_error_decl.uya` - 基础测试
+- `tests/test_error_decl_usage.uya` - 使用测试
+- `tests/test_error_decl_duplicate.uya` - 重复定义检查
+- `tests/test_error_decl_only_used.uya` - 只有被使用的错误生成错误码
+- `tests/test_error_decl_all_used.uya` - 所有错误都被使用
+- `tests/test_error_decl_mixed.uya` - 预定义错误和运行时错误混合使用
+- `tests/test_error_decl_verification.md` - 测试验证文档
 
 **优先级**：低（可选功能，运行时错误已足够）
 
@@ -144,6 +160,6 @@
 
 **当前建议**：
 1. 首先实现错误类型比较（中优先级）
-2. 然后考虑预定义错误声明（低优先级，可选）
+2. ✅ 预定义错误声明（已完成）
 3. 最后进行测试覆盖和优化
 
