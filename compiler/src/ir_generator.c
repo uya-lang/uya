@@ -1724,6 +1724,68 @@ static void generate_program(IRGenerator *ir_gen, struct ASTNode *program) {
                     generate_function(ir_gen, method);
                 }
             }
+        } else if (decl->type == AST_ENUM_DECL) {
+            // Handle enum declarations
+            IRInst *enum_ir = irinst_new(IR_ENUM_DECL);
+            if (enum_ir) {
+                // Set enum name
+                enum_ir->data.enum_decl.name = malloc(strlen(decl->data.enum_decl.name) + 1);
+                if (enum_ir->data.enum_decl.name) {
+                    strcpy(enum_ir->data.enum_decl.name, decl->data.enum_decl.name);
+                }
+
+                // Set underlying type (default to i32 if not specified)
+                if (decl->data.enum_decl.underlying_type) {
+                    enum_ir->data.enum_decl.underlying_type = get_ir_type(decl->data.enum_decl.underlying_type);
+                } else {
+                    enum_ir->data.enum_decl.underlying_type = IR_TYPE_I32;  // Default underlying type
+                }
+
+                // Handle variants
+                enum_ir->data.enum_decl.variant_count = decl->data.enum_decl.variant_count;
+                if (decl->data.enum_decl.variant_count > 0) {
+                    enum_ir->data.enum_decl.variant_names = malloc(decl->data.enum_decl.variant_count * sizeof(char*));
+                    enum_ir->data.enum_decl.variant_values = malloc(decl->data.enum_decl.variant_count * sizeof(char*));
+                    if (enum_ir->data.enum_decl.variant_names && enum_ir->data.enum_decl.variant_values) {
+                        for (int j = 0; j < decl->data.enum_decl.variant_count; j++) {
+                            // Copy variant name
+                            enum_ir->data.enum_decl.variant_names[j] = malloc(strlen(decl->data.enum_decl.variants[j].name) + 1);
+                            if (enum_ir->data.enum_decl.variant_names[j]) {
+                                strcpy(enum_ir->data.enum_decl.variant_names[j], decl->data.enum_decl.variants[j].name);
+                            }
+
+                            // Copy variant value (if specified)
+                            if (decl->data.enum_decl.variants[j].value) {
+                                enum_ir->data.enum_decl.variant_values[j] = malloc(strlen(decl->data.enum_decl.variants[j].value) + 1);
+                                if (enum_ir->data.enum_decl.variant_values[j]) {
+                                    strcpy(enum_ir->data.enum_decl.variant_values[j], decl->data.enum_decl.variants[j].value);
+                                }
+                            } else {
+                                enum_ir->data.enum_decl.variant_values[j] = NULL;  // No explicit value
+                            }
+                        }
+                    }
+                } else {
+                    enum_ir->data.enum_decl.variant_names = NULL;
+                    enum_ir->data.enum_decl.variant_values = NULL;
+                }
+
+                enum_ir->id = ir_gen->current_id++;
+
+                // Add to instructions array
+                if (ir_gen->inst_count >= ir_gen->inst_capacity) {
+                    size_t new_capacity = ir_gen->inst_capacity * 2;
+                    IRInst **new_instructions = realloc(ir_gen->instructions,
+                                                       new_capacity * sizeof(IRInst*));
+                    if (new_instructions) {
+                        ir_gen->instructions = new_instructions;
+                        ir_gen->inst_capacity = new_capacity;
+                    }
+                }
+                if (ir_gen->inst_count < ir_gen->inst_capacity) {
+                    ir_gen->instructions[ir_gen->inst_count++] = enum_ir;
+                }
+            }
         } else if (decl->type == AST_STRUCT_DECL) {
             // Handle struct declarations
             IRInst *struct_ir = irinst_new(IR_STRUCT_DECL);

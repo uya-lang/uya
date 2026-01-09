@@ -1315,6 +1315,23 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
             fprintf(codegen->output_file, "} %s;\n\n", inst->data.struct_decl.name);
             break;
 
+        case IR_ENUM_DECL:
+            // Generate enum declaration: typedef enum { Variant1, Variant2 = value, ... } EnumName;
+            fprintf(codegen->output_file, "typedef enum {\n");
+            for (int i = 0; i < inst->data.enum_decl.variant_count; i++) {
+                fprintf(codegen->output_file, "  %s_%s", inst->data.enum_decl.name, inst->data.enum_decl.variant_names[i]);
+                if (inst->data.enum_decl.variant_values[i]) {
+                    // Explicit value specified
+                    fprintf(codegen->output_file, " = %s", inst->data.enum_decl.variant_values[i]);
+                }
+                if (i < inst->data.enum_decl.variant_count - 1) {
+                    fprintf(codegen->output_file, ",");
+                }
+                fprintf(codegen->output_file, "\n");
+            }
+            fprintf(codegen->output_file, "} %s;\n\n", inst->data.enum_decl.name);
+            break;
+
         case IR_DROP:
             // Generate drop call: drop_TypeName(var_name)
             if (inst->data.drop.var_name) {

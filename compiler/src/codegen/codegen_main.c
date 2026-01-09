@@ -174,10 +174,13 @@ int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output
     }
     fprintf(codegen->output_file, "\n");
 
-    // 第一遍：生成结构体声明（必须在函数声明之前）
+    // 第一遍：生成结构体声明和枚举声明（必须在函数声明之前）
     if (ir && ir->instructions) {
         for (int i = 0; i < ir->inst_count; i++) {
             if (ir->instructions[i] && ir->instructions[i]->type == IR_STRUCT_DECL) {
+                codegen_generate_inst(codegen, ir->instructions[i]);
+            }
+            if (ir->instructions[i] && ir->instructions[i]->type == IR_ENUM_DECL) {
                 codegen_generate_inst(codegen, ir->instructions[i]);
             }
         }
@@ -257,12 +260,12 @@ int codegen_generate(CodeGenerator *codegen, IRGenerator *ir, const char *output
     }
     fprintf(codegen->output_file, "\n");
 
-    // 第三遍：生成函数定义（跳过已生成的结构体声明）
+    // 第三遍：生成函数定义（跳过已生成的结构体声明和枚举声明）
     if (ir && ir->instructions) {
         for (int i = 0; i < ir->inst_count; i++) {
             if (ir->instructions[i]) {
-                // Skip struct declarations (already generated in first pass)
-                if (ir->instructions[i]->type == IR_STRUCT_DECL) {
+                // Skip struct and enum declarations (already generated in first pass)
+                if (ir->instructions[i]->type == IR_STRUCT_DECL || ir->instructions[i]->type == IR_ENUM_DECL) {
                     continue;
                 }
                 codegen_generate_inst(codegen, ir->instructions[i]);
