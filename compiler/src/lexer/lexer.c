@@ -309,10 +309,7 @@ Token *lexer_next_token(Lexer *lexer) {
             return make_token(lexer, TOKEN_PLUS, "+");
         case '-':
             advance(lexer);
-            if (peek(lexer, 0) == '>') {
-                advance(lexer);
-                return make_token(lexer, TOKEN_ARROW, "=>");
-            } else if (peek(lexer, 0) == '|') {
+            if (peek(lexer, 0) == '|') {
                 advance(lexer);
                 return make_token(lexer, TOKEN_MINUS_PIPE, "-|");
             } else if (peek(lexer, 0) == '%') {
@@ -341,6 +338,9 @@ Token *lexer_next_token(Lexer *lexer) {
             if (peek(lexer, 0) == '=') {
                 advance(lexer);
                 return make_token(lexer, TOKEN_EQUAL, "==");
+            } else if (peek(lexer, 0) == '>') {
+                advance(lexer);
+                return make_token(lexer, TOKEN_ARROW, "=>");
             }
             return make_token(lexer, TOKEN_ASSIGN, "=");
         case '!':
