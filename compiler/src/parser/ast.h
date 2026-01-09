@@ -222,6 +222,13 @@ typedef struct ASTNode {
             struct ASTNode *base_type;
         } type_atomic;
 
+        // 函数指针类型 (fn(param_types) return_type)
+        struct {
+            struct ASTNode **param_types;  // 参数类型列表（只有类型，没有参数名）
+            int param_type_count;
+            struct ASTNode *return_type;   // 返回类型
+        } type_fn;
+
         // for 语句
         struct {
             struct ASTNode *iterable;

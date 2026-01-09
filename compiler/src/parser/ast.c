@@ -180,6 +180,11 @@ void ast_free(ASTNode *node) {
             ast_free(node->data.type_atomic.base_type);
             break;
             
+        case AST_TYPE_FN:
+            ast_free_node_list(node->data.type_fn.param_types, node->data.type_fn.param_type_count);
+            ast_free(node->data.type_fn.return_type);
+            break;
+            
         case AST_INTERFACE_DECL:
             if (node->data.interface_decl.name) {
                 free(node->data.interface_decl.name);

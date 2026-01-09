@@ -137,6 +137,78 @@ static ASTNode *parser_parse_type(Parser *parser) {
         return pointer_type;
     }
 
+    // Check if it's a function pointer type: fn(param_types) return_type
+    if (parser_match(parser, TOKEN_FN)) {
+        parser_consume(parser); // consume 'fn'
+        
+        // Expect '('
+        if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+            return NULL;
+        }
+        
+        ASTNode *fn_type = ast_new_node(AST_TYPE_FN,
+                                        parser->current_token->line,
+                                        parser->current_token->column,
+                                        parser->current_token->filename);
+        if (!fn_type) {
+            return NULL;
+        }
+        
+        // Parse parameter type list (only types, no parameter names)
+        fn_type->data.type_fn.param_types = NULL;
+        fn_type->data.type_fn.param_type_count = 0;
+        int param_type_capacity = 0;
+        
+        if (!parser_match(parser, TOKEN_RIGHT_PAREN)) {
+            do {
+                // Parse a parameter type
+                ASTNode *param_type = parser_parse_type(parser);
+                if (!param_type) {
+                    ast_free(fn_type);
+                    return NULL;
+                }
+                
+                // Expand parameter type list
+                if (fn_type->data.type_fn.param_type_count >= param_type_capacity) {
+                    int new_capacity = param_type_capacity == 0 ? 4 : param_type_capacity * 2;
+                    ASTNode **new_param_types = realloc(fn_type->data.type_fn.param_types,
+                                                       new_capacity * sizeof(ASTNode*));
+                    if (!new_param_types) {
+                        ast_free(param_type);
+                        ast_free(fn_type);
+                        return NULL;
+                    }
+                    fn_type->data.type_fn.param_types = new_param_types;
+                    param_type_capacity = new_capacity;
+                }
+                
+                fn_type->data.type_fn.param_types[fn_type->data.type_fn.param_type_count] = param_type;
+                fn_type->data.type_fn.param_type_count++;
+                
+                if (parser_match(parser, TOKEN_COMMA)) {
+                    parser_consume(parser); // consume ','
+                } else {
+                    break;
+                }
+            } while (!parser_match(parser, TOKEN_RIGHT_PAREN) && parser->current_token);
+        }
+        
+        // Expect ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            ast_free(fn_type);
+            return NULL;
+        }
+        
+        // Parse return type
+        fn_type->data.type_fn.return_type = parser_parse_type(parser);
+        if (!fn_type->data.type_fn.return_type) {
+            ast_free(fn_type);
+            return NULL;
+        }
+        
+        return fn_type;
+    }
+
     // Check if it's an array type: [element_type; size]
     if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
         // Parse array type: [i32; 10]
