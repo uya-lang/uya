@@ -1191,17 +1191,15 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
 
             for (int i = 0; i < inst->data.if_stmt.then_count; i++) {
                 fprintf(codegen->output_file, "  ");
-                // Check if this is an expression type (match expression body) or statement type
                 IRInst *body_inst = inst->data.if_stmt.then_body[i];
-                if (body_inst && (body_inst->type == IR_CONSTANT || 
-                                  body_inst->type == IR_BINARY_OP ||
-                                  body_inst->type == IR_UNARY_OP ||
-                                  body_inst->type == IR_VAR_DECL ||
-                                  body_inst->type == IR_CALL ||
-                                  body_inst->type == IR_MEMBER_ACCESS ||
-                                  body_inst->type == IR_SUBSCRIPT ||
-                                  body_inst->type == IR_STRUCT_INIT ||
-                                  body_inst->type == IR_IF)) {
+                // For match expressions used as statements, then_body contains expressions
+                // Check if it's a statement type that should use codegen_generate_inst
+                // Statement types: IR_RETURN (7), IR_ASSIGN (3), IR_VAR_DECL (2), IR_IF (8), 
+                // IR_WHILE (9), IR_FOR (24), IR_BLOCK (10), IR_DEFER (42), IR_ERRDEFER (43)
+                if (body_inst && body_inst->type != 7 && body_inst->type != 3 && 
+                    body_inst->type != 2 && body_inst->type != 8 && 
+                    body_inst->type != 9 && body_inst->type != 24 &&
+                    body_inst->type != 10 && body_inst->type != 42 && body_inst->type != 43) {
                     // Expression type: use codegen_write_value (for match expression bodies)
                     codegen_write_value(codegen, body_inst);
                 } else {
