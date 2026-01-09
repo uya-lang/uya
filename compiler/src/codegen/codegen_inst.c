@@ -1108,6 +1108,9 @@ void codegen_generate_inst(CodeGenerator *codegen, IRInst *inst) {
                     } else if (inst->data.var.type == IR_TYPE_PTR && inst->data.var.original_type_name) {
                         const char *c_type_name = codegen_convert_uya_type_to_c(inst->data.var.original_type_name);
                         fprintf(codegen->output_file, "%s* %s", c_type_name ? c_type_name : inst->data.var.original_type_name, inst->data.var.name);
+                    } else if (inst->data.var.type == IR_TYPE_FN) {
+                        // 函数指针类型：使用通用函数指针类型 void(*)()
+                        fprintf(codegen->output_file, "void(*%s)()", inst->data.var.name);
                     } else {
                         codegen_write_type(codegen, inst->data.var.type);
                         fprintf(codegen->output_file, " %s", inst->data.var.name);
