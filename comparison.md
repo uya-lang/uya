@@ -99,6 +99,8 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
 | `[[T; N]; M]`   | T[N][M]       | M·N·sizeof(T) | 多维数组，M 和 N 为编译期正整数，对齐 = T 的对齐 |
 | `struct S { }`  | struct S      | 字段顺序布局 | 对齐 = 最大字段对齐 |
 | `interface I { }` | -         | 16 B (64位) | vtable 指针(8B) + 数据指针(8B) |
+| `enum E { }` | enum E        | sizeof(底层类型) | 枚举类型，默认底层类型为 i32，与 C 枚举兼容 |
+| `(T1, T2, ...)` | -         | 字段顺序布局 | 元组类型，对齐 = 最大字段对齐 |
 
 ---
 

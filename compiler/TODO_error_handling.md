@@ -132,7 +132,7 @@
 - **实现状态**：`compiler/implementation_status.md`
 - **架构设计**：`compiler/error_design.md`
 - **语法规范**：`uya.md` 第2章（类型系统）和第5章（函数）
-- **BNF 语法**：`grammar.md` 第9章（错误处理）
+- **BNF 语法**：`grammar_formal.md` 第9章（错误处理）
 
 ---
 

@@ -28,7 +28,7 @@
 
 ### 18.2 语法
 
-> **BNF 语法规范**：详见 [grammar.md](./grammar.md#31-指针算术)
+> **BNF 语法规范**：详见 [grammar_formal.md](./grammar_formal.md#31-指针算术)
 
 指针算术语法：
 - `ptr + offset`：指针向后偏移

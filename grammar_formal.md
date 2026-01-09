@@ -1,8 +1,12 @@
-# Uya 语言语法规范（BNF）
+# Uya 语言正式语法规范（Formal BNF）
 
-本文档包含 Uya 语言的完整 BNF 语法规范。
+本文档包含 Uya 语言的完整、无歧义的 BNF 语法定义，用于：
+- 编译器/解析器实现
+- 语言标准化参考
+- 语法形式化验证
 
-> **注意**：本文档是 [uya.md](./uya.md) 的补充，详细语法说明请参考主文档。
+> **注意**：本文档是 [uya.md](./uya.md) 的补充，详细语法说明请参考主文档。  
+> 对于日常开发和快速参考，请使用 [grammar_quick.md](./grammar_quick.md)。
 
 ---
 
@@ -12,8 +16,8 @@
 
 ```
 program        = { declaration }
-declaration    = fn_decl | struct_decl | struct_method_block | interface_decl | const_decl 
-               | error_decl | extern_decl | export_decl | import_stmt
+declaration    = fn_decl | struct_decl | struct_method_block | interface_decl | enum_decl
+               | const_decl | error_decl | extern_decl | export_decl | import_stmt
                | test_stmt
 ```
 
@@ -67,12 +71,28 @@ interface_name = ID ';'  # 组合接口名，用分号分隔
 - 接口实现：结构体在定义时声明接口（`struct StructName : InterfaceName { ... }`），接口方法作为结构体方法定义
 - 详细语法说明见 [uya.md](./uya.md#6-接口interface)
 
+### 枚举声明
+
+```
+enum_decl      = 'enum' ID [ ':' underlying_type ] '{' enum_variant_list '}'
+underlying_type = base_type  # 底层类型，必须是整数类型（i8, i16, i32, i64, u8, u16, u32, u64）
+enum_variant_list = enum_variant { ',' enum_variant }
+enum_variant   = ID [ '=' NUM ]  # 枚举变体，可选显式赋值
+```
+
+**说明**：
+- 枚举声明在顶层（与函数、结构体定义同级）
+- 默认底层类型为 `i32`（如果未指定）
+- 枚举变体可以显式指定值（使用 `=` 后跟整数常量）
+- 枚举值在编译期确定，类型安全
+- 详细语法说明见 [uya.md](./uya.md#2-类型系统) 枚举类型部分
+
 ### 类型系统
 
 ```
 type           = base_type | pointer_type | array_type | slice_type 
-               | struct_type | interface_type | atomic_type | error_union_type
-               | function_pointer_type | extern_type
+               | struct_type | interface_type | enum_type | tuple_type
+               | atomic_type | error_union_type | function_pointer_type | extern_type
 
 base_type      = 'i8' | 'i16' | 'i32' | 'i64' | 'u8' | 'u16' | 'u32' | 'u64'
                | 'f32' | 'f64' | 'bool' | 'byte' | 'void' | 'usize'
@@ -81,6 +101,8 @@ array_type     = '[' type ':' NUM ']'
 slice_type     = '&[' type ']' | '&[' type ';' NUM ']'
 struct_type    = ID
 interface_type = ID
+enum_type      = ID  # 枚举类型，通过枚举声明定义
+tuple_type     = '(' type { ',' type } ')'  # 元组类型，如 (i32, f64)
 atomic_type    = 'atomic' type
 error_union_type = '!' type  # 错误联合类型，表示 T | Error
 function_pointer_type = 'fn' '(' [ param_type_list ] ')' type  # 函数指针类型
@@ -144,10 +166,12 @@ add_expr       = mul_expr { ('+' | '-' | '+|' | '-|' | '+%' | '-%') mul_expr }
 mul_expr       = unary_expr { ('*' | '/' | '%' | '*|' | '*%') unary_expr }
 unary_expr     = ('!' | '-' | '~' | '&' | '*' | 'try') unary_expr | cast_expr
 cast_expr      = postfix_expr [ ('as' | 'as!') type ]
-postfix_expr   = primary_expr { '.' ID | '[' expr ']' | '(' arg_list ')' | slice_op | catch_op }
+postfix_expr   = primary_expr { '.' (ID | NUM) | '[' expr ']' | '(' arg_list ')' | slice_op | catch_op }
+                # '.' NUM 用于元组字段访问，如 tuple.0, tuple.1
 catch_op       = 'catch' [ '|' ID '|' ] '{' statements '}'
 primary_expr   = ID | NUM | STRING | 'true' | 'false' | 'null' | 'max' | 'min'
-               | struct_literal | array_literal | match_expr | '(' expr ')'
+               | struct_literal | array_literal | tuple_literal | enum_literal
+               | match_expr | '(' expr ')'
 ```
 
 ### 特殊表达式
@@ -159,13 +183,18 @@ struct_literal = ID '{' field_init_list '}'
 field_init_list = [ field_init { ',' field_init } ]
 field_init     = ID ':' expr
 array_literal  = '[' expr_list ']' | '[' expr ';' NUM ']'
+tuple_literal  = '(' expr_list ')'  # 元组字面量，如 (10, 20, 30)
+enum_literal   = ID '.' ID  # 枚举字面量，如 Color.RED, HttpStatus.OK
 expr_list      = [ expr { ',' expr } ]
 arg_list       = [ expr { ',' expr } ]
 pattern_list   = pattern '=>' expr { ',' pattern '=>' expr } [ ',' 'else' '=>' expr ]
-pattern        = literal | ID | struct_pattern | error_pattern
+pattern        = literal | ID | '_' | struct_pattern | tuple_pattern | enum_pattern | error_pattern
 struct_pattern = ID '{' field_pattern_list '}'
 field_pattern_list = [ field_pattern { ',' field_pattern } ]
-field_pattern  = ID ':' (literal | ID)
+field_pattern  = ID ':' (literal | ID | '_')
+tuple_pattern  = '(' tuple_pattern_list ')'  # 元组模式，如 (x, _, z)
+tuple_pattern_list = pattern { ',' pattern }  # 用于元组模式的模式列表
+enum_pattern   = ID '.' ID  # 枚举模式，如 Color.RED, HttpStatus.OK
 error_pattern  = 'error' '.' ID
 literal        = NUM | STRING | 'true' | 'false' | 'null'
 ```
@@ -308,7 +337,7 @@ identifier = [A-Za-z_][A-Za-z0-9_]*
 ```
 struct const var fn return extern true false if while break continue
 defer errdefer try catch error null interface atomic max min
-export use
+export use as as! test
 ```
 
 ### 1.3 字符串插值
@@ -443,7 +472,7 @@ atomic_type = 'atomic' type
 ### 7.1 导出语法
 
 ```
-export_decl = 'export' (fn_decl | struct_decl | interface_decl | const_decl | error_decl | extern_decl)
+export_decl = 'export' (fn_decl | struct_decl | interface_decl | enum_decl | const_decl | error_decl | extern_decl)
 ```
 
 **导出示例**：
@@ -615,5 +644,6 @@ block_comment  = '/*' .* '*/'
 ## 参考
 
 - [uya.md](./uya.md) - 完整语言规范
+- [grammar_quick.md](./grammar_quick.md) - 语法速查手册
 - [comparison.md](./comparison.md) - 与其他语言的对比
 

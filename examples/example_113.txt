@@ -13,7 +13,7 @@
 
 ### 17.2 语法（单页纸）
 
-> **BNF 语法规范**：详见 [grammar.md](./grammar.md#13-字符串插值)
+> **BNF 语法规范**：详见 [grammar_formal.md](./grammar_formal.md#13-字符串插值)
 
 字符串插值语法：
 - 基本形式：`"text${expr}text"`
