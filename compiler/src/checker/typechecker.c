@@ -426,6 +426,21 @@ int typechecker_type_match(IRType t1, IRType t2) {
     return t1 == t2;
 }
 
+// 检查是否是错误值表达式（error.ErrorName）
+static int is_error_value_expr(ASTNode *expr) {
+    if (!expr) return 0;
+    if (expr->type == AST_MEMBER_ACCESS) {
+        // Check if this is error.ErrorName
+        if (expr->data.member_access.object &&
+            expr->data.member_access.object->type == AST_IDENTIFIER &&
+            expr->data.member_access.object->data.identifier.name &&
+            strcmp(expr->data.member_access.object->data.identifier.name, "error") == 0) {
+            return 1;  // This is error.ErrorName
+        }
+    }
+    return 0;
+}
+
 // 类型推断（简化版，需要从AST节点推断类型）
 IRType typechecker_infer_type(TypeChecker *checker, ASTNode *expr) {
     if (!expr) return IR_TYPE_VOID;
@@ -468,6 +483,14 @@ IRType typechecker_infer_type(TypeChecker *checker, ASTNode *expr) {
         case AST_STRING_INTERPOLATION:
             // 字符串插值的结果类型是数组类型 [i8; N]
             return IR_TYPE_ARRAY;
+        case AST_MEMBER_ACCESS:
+            // Check if this is error.ErrorName (error value expression)
+            if (is_error_value_expr(expr)) {
+                // error.ErrorName is treated as uint32_t (error code)
+                return IR_TYPE_U32;
+            }
+            // For regular member access, return the object's type
+            return typechecker_infer_type(checker, expr->data.member_access.object);
         default:
             return IR_TYPE_VOID;
     }
@@ -893,6 +916,38 @@ static int typecheck_binary_expr(TypeChecker *checker, ASTNode *node) {
     if (!typecheck_node(checker, node->data.binary_expr.right)) return 0;
     
     int op = node->data.binary_expr.op;
+    
+    // 检查错误类型比较：err == error.ErrorName 或 err != error.ErrorName
+    ASTNode *left = node->data.binary_expr.left;
+    ASTNode *right = node->data.binary_expr.right;
+    
+    // 检查是否是错误类型比较（左侧是标识符，右侧是 error.ErrorName）
+    int is_left_error_var = (left && left->type == AST_IDENTIFIER);
+    int is_right_error_value = is_error_value_expr(right);
+    
+    // 或者左侧是 error.ErrorName，右侧是标识符（支持两种顺序）
+    int is_left_error_value = is_error_value_expr(left);
+    int is_right_error_var = (right && right->type == AST_IDENTIFIER);
+    
+    if ((is_left_error_var && is_right_error_value) || 
+        (is_left_error_value && is_right_error_var)) {
+        // 这是错误类型比较
+        if (op == TOKEN_NOT_EQUAL) {
+            // 禁止错误类型使用 != 运算符（仅支持 ==）
+            const char *filename = node->filename ? node->filename : checker->current_file;
+            if (filename) {
+                typechecker_add_error(checker, 
+                    "错误类型不支持不等性比较，仅支持相等性比较（使用 == 而不是 !=）(%s:%d:%d)",
+                    filename, node->line, node->column);
+            } else {
+                typechecker_add_error(checker, 
+                    "错误类型不支持不等性比较，仅支持相等性比较（使用 == 而不是 !=）(行 %d:%d)",
+                    node->line, node->column);
+            }
+            return 0;
+        }
+        // 允许 == 运算符，类型检查通过（两个都是 uint32_t）
+    }
     
     // 检查除零
     if (op == TOKEN_SLASH || op == TOKEN_PERCENT) {  // TOKEN_SLASH or TOKEN_PERCENT
