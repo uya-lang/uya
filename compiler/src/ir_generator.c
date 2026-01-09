@@ -1620,6 +1620,33 @@ static IRInst *generate_stmt_for_body(IRGenerator *ir_gen, struct ASTNode *stmt)
 
             if (stmt->data.var_decl.init) {
                 var_decl->data.var.init = generate_expr(ir_gen, stmt->data.var_decl.init);
+                
+                // If variable type is tuple and init is tuple literal (IR_STRUCT_INIT with tuple_N name),
+                // update the struct_name to use the correct tuple type name
+                if (stmt->data.var_decl.type && stmt->data.var_decl.type->type == AST_TYPE_TUPLE &&
+                    var_decl->data.var.init && var_decl->data.var.init->type == IR_STRUCT_INIT &&
+                    var_decl->data.var.original_type_name) {
+                    // Check if struct_name is in tuple_N format
+                    const char *struct_name = var_decl->data.var.init->data.struct_init.struct_name;
+                    if (struct_name && strncmp(struct_name, "tuple_", 6) == 0) {
+                        // Check if it's the old format (tuple_N where N is just a number)
+                        int is_old_format = 1;
+                        for (int i = 6; struct_name[i] != '\0'; i++) {
+                            if (struct_name[i] < '0' || struct_name[i] > '9') {
+                                is_old_format = 0;
+                                break;
+                            }
+                        }
+                        if (is_old_format) {
+                            // Update struct_name to use the correct tuple type name
+                            free(var_decl->data.var.init->data.struct_init.struct_name);
+                            var_decl->data.var.init->data.struct_init.struct_name = malloc(strlen(var_decl->data.var.original_type_name) + 1);
+                            if (var_decl->data.var.init->data.struct_init.struct_name) {
+                                strcpy(var_decl->data.var.init->data.struct_init.struct_name, var_decl->data.var.original_type_name);
+                            }
+                        }
+                    }
+                }
             } else {
                 var_decl->data.var.init = NULL;
             }

@@ -54,13 +54,11 @@ int32_t main() {
 int32_t  _return_main;
   tuple_i32_bool pair = (tuple_i32_bool){ ._0 = 42, ._1 = true};
   tuple_i32_f64_bool triple = (tuple_i32_f64_bool){ ._0 = 10, ._1 = 3.14, ._2 = false};
-  if ((pair._0 == 42)) {
-  _return_main = 0;
-  goto _normal_return_main;
-} else {
+  if (((pair._0 == 42) + (pair._1 == true))) {
+  ({ int32_t __match_temp_0; if ((((triple._0 == 10) + (triple._1 == 3.14)) + (triple._2 == false))) { __match_temp_0 = temp_-1; } __match_temp_0; });
+  };
   _return_main = 1;
   goto _normal_return_main;
-  };
 _normal_return_main:
   // Generated drop calls in LIFO order
   drop_tuple_i32_f64_bool(&triple);
