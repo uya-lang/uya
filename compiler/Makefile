@@ -6,7 +6,13 @@ SRCDIR = src
 SOURCES = $(SRCDIR)/main.c \
           $(SRCDIR)/lexer/lexer.c \
           $(SRCDIR)/parser/ast.c \
-          $(SRCDIR)/parser/parser.c \
+          $(SRCDIR)/parser/parser_core.c \
+          $(SRCDIR)/parser/parser_type.c \
+          $(SRCDIR)/parser/parser_expression.c \
+          $(SRCDIR)/parser/parser_match.c \
+          $(SRCDIR)/parser/parser_statement.c \
+          $(SRCDIR)/parser/parser_declaration.c \
+          $(SRCDIR)/parser/parser_string_interp.c \
           $(SRCDIR)/checker/typechecker.c \
           $(SRCDIR)/checker/constraints.c \
           $(SRCDIR)/checker/const_eval.c \
