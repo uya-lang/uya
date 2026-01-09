@@ -2,7 +2,7 @@
 
 本文档根据 `uya.md` 语法规范和当前实现状态，按优先级组织待实现的功能。
 
-**最后更新**：2026-01-09（结构体模式变量绑定的类型检查器修复完成，发现 test_match_struct_binding.uya 存在 double free（已存在的问题））  
+**最后更新**：2026-01-09（test_match_struct_binding.uya 的 double free 问题已修复，代码生成优化：常量 true 条件使用 else 而不是 else if (1)）  
 **基于规范版本**：Uya 0.26
 
 **注意**：
@@ -413,7 +413,7 @@
 - [x] 已知问题修复：
   - [x] match 表达式作为语句时的代码生成问题已修复（在函数体处理的 IR_IF case 中添加了表达式类型检查）
   - [x] match 表达式 IR 生成中的 double free 问题已修复（为每个 pattern 生成独立的 match_expr_ir 副本）
-  - [ ] ⚠️ test_match_struct_binding.uya 在 IR 生成阶段出现 double free 错误：这是已存在的问题（非类型检查器修改引入），发生在 IR 生成阶段，需要单独调试 IR 生成器中的内存管理问题
+  - [x] test_match_struct_binding.uya 在 IR 生成阶段的 double free 错误已修复（为每个变量绑定的 field_access 生成独立的 match_expr_ir，避免多个绑定共享同一个 match_expr_ir 导致的 double free）
 - [x] 测试用例：
   - [x] 基础测试用例已编写（test_match_debug.uya, test_match_simple.uya, test_match_feature.uya）
   - [x] match 表达式作为语句的代码生成已验证（能正确生成代码）
