@@ -42,7 +42,8 @@
   - ✅ parser_expr.go - 表达式解析基础（parseExpression, parsePrimary, parseCallExpr - 标识符、字面量、函数调用、括号表达式）
   - ✅ parser_expr.go - 表达式解析扩展（一元运算符 &、-、!、try，后缀运算符：成员访问 .、下标访问 []、函数调用 ()）
   - ✅ parser_expr.go - 二元运算符解析基础（逻辑运算符 &&、||，算术和比较运算符：+、-、*、/、%、==、!=、<、>、<=、>=、&、|、^、<<、>>，饱和和包装运算符）
-  - ⏭️ parser_expr.go - 完整表达式解析（赋值运算符、catch 表达式、match 表达式等）
+  - ✅ parser_expr.go - catch 表达式解析（expr catch |err| { ... } 或 expr catch { ... }）
+  - ⏭️ parser_expr.go - 完整表达式解析（match 表达式、字符串插值等）
   - ⏭️ parser_match.go - match 表达式解析
   - ⏭️ parser_string_interp.go - 字符串插值解析
 

@@ -32,7 +32,17 @@ func (p *Parser) parseExpression() (Expr, error) {
 	}
 
 	// Handle binary operators (logical operators have lowest precedence)
-	return p.parseBinaryExpr(expr)
+	expr, err = p.parseBinaryExpr(expr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Handle catch expression: expr catch |err| { ... } or expr catch { ... }
+	if p.currentToken != nil && p.match(lexer.TOKEN_CATCH) {
+		return p.parseCatchExpr(expr)
+	}
+
+	return expr, nil
 }
 
 // parseUnaryExpr parses a unary expression: &expr, -expr, !expr, try expr
@@ -288,6 +298,48 @@ func (p *Parser) isComparisonOrArithmeticOperator(tokenType lexer.TokenType) boo
 	default:
 		return false
 	}
+}
+
+// parseCatchExpr parses a catch expression: expr catch |err| { ... } or expr catch { ... }
+func (p *Parser) parseCatchExpr(expr Expr) (Expr, error) {
+	if !p.match(lexer.TOKEN_CATCH) {
+		return nil, fmt.Errorf("expected 'catch' keyword")
+	}
+
+	line := p.currentToken.Line
+	col := p.currentToken.Column
+	filename := p.currentToken.Filename
+	p.consume() // consume 'catch'
+
+	// Parse optional error variable: |err|
+	var errorVar string
+	if p.match(lexer.TOKEN_PIPE) {
+		p.consume() // consume '|'
+		if p.match(lexer.TOKEN_IDENTIFIER) {
+			errorVar = p.currentToken.Value
+			p.consume() // consume identifier
+		}
+		if _, err := p.expect(lexer.TOKEN_PIPE); err != nil {
+			return nil, fmt.Errorf("expected '|' after error variable in catch expression: %w", err)
+		}
+	}
+
+	// Parse catch body (block)
+	catchBody, err := p.parseBlock()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse catch block: %w", err)
+	}
+
+	return &CatchExpr{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		Expr:      expr,
+		ErrorVar:  errorVar,
+		CatchBody: catchBody,
+	}, nil
 }
 
 // parseCallExprFromCallee parses a function call where the callee is any expression
