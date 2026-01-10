@@ -50,13 +50,14 @@ func (g *Generator) Reset() {
 }
 
 // Generate 从 AST 生成 IR（主入口函数）
-// 这将在 generator.go 中实现具体逻辑
 func (g *Generator) Generate(ast interface{}) interface{} {
 	// 重置计数器
 	g.Reset()
 
-	// TODO: 实现 AST 到 IR 的转换
-	// generateProgram(g, ast)
+	// 根据 AST 类型进行转换
+	if program, ok := ast.(*parser.Program); ok {
+		g.GenerateProgram(program)
+	}
 
 	return g
 }
