@@ -1,6 +1,8 @@
 package ir
 
 import (
+	"fmt"
+
 	"github.com/uya/compiler-go/src/parser"
 )
 
@@ -272,16 +274,22 @@ func (g *Generator) generateErrDeferStmt(stmt *parser.ErrDeferStmt) Inst {
 
 // generateBreakStmt 生成break语句的IR
 func (g *Generator) generateBreakStmt(stmt *parser.BreakStmt) Inst {
-	// TODO: 实现break语句的IR生成（需要使用goto和label指令）
-	// 目前返回nil（占位符）
-	return nil
+	// break语句使用goto跳转到循环结束标签
+	// 这里使用简化实现：生成goto指令，标签名由codegen模块处理
+	// TODO: 完整实现需要跟踪当前循环的break标签
+	breakLabel := fmt.Sprintf("break_label_%d", g.NextID())
+	gotoInst := NewGotoInst(breakLabel)
+	return gotoInst
 }
 
 // generateContinueStmt 生成continue语句的IR
 func (g *Generator) generateContinueStmt(stmt *parser.ContinueStmt) Inst {
-	// TODO: 实现continue语句的IR生成（需要使用goto和label指令）
-	// 目前返回nil（占位符）
-	return nil
+	// continue语句使用goto跳转到循环开始标签
+	// 这里使用简化实现：生成goto指令，标签名由codegen模块处理
+	// TODO: 完整实现需要跟踪当前循环的continue标签
+	continueLabel := fmt.Sprintf("continue_label_%d", g.NextID())
+	gotoInst := NewGotoInst(continueLabel)
+	return gotoInst
 }
 
 // generateExprStmt 生成表达式语句的IR

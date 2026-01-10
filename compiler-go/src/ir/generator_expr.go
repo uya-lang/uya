@@ -232,42 +232,98 @@ func (g *Generator) generateCallExpr(expr *parser.CallExpr) Inst {
 func (g *Generator) generateMemberAccess(expr *parser.MemberAccess) Inst {
 	// 检查是否是error.ErrorName（错误命名空间访问）
 	if ident, ok := expr.Object.(*parser.Identifier); ok && ident.Name == "error" {
-		// TODO: 实现错误值指令（IR_ERROR_VALUE）
-		// 目前返回nil（占位符）
+		// 创建错误值指令
+		dest := fmt.Sprintf("temp_%d", g.NextID())
+		errorValueInst := NewErrorValueInst(dest, expr.FieldName)
+		return errorValueInst
+	}
+
+	// 常规成员访问：obj.field
+	objectInst := g.GenerateExpr(expr.Object)
+	if objectInst == nil {
 		return nil
 	}
 
-	// TODO: 实现常规成员访问的IR生成
-	// 目前返回nil（占位符）
-	return nil
+	dest := fmt.Sprintf("temp_%d", g.NextID())
+	memberAccessInst := NewMemberAccessInst(dest, objectInst, expr.FieldName)
+	return memberAccessInst
 }
 
 // generateSubscriptExpr 生成数组下标访问的IR
 func (g *Generator) generateSubscriptExpr(expr *parser.SubscriptExpr) Inst {
-	// TODO: 实现数组下标访问的IR生成
-	// 目前返回nil（占位符）
-	return nil
+	// 生成数组和索引表达式
+	arrayInst := g.GenerateExpr(expr.Array)
+	indexInst := g.GenerateExpr(expr.Index)
+	if arrayInst == nil || indexInst == nil {
+		return nil
+	}
+
+	dest := fmt.Sprintf("temp_%d", g.NextID())
+	subscriptInst := NewSubscriptInst(dest, arrayInst, indexInst)
+	return subscriptInst
 }
 
 // generateStructInit 生成结构体初始化的IR
 func (g *Generator) generateStructInit(expr *parser.StructInit) Inst {
-	// TODO: 实现结构体初始化的IR生成
-	// 目前返回nil（占位符）
-	return nil
+	// 生成字段初始化表达式列表
+	fieldInits := make([]Inst, 0, len(expr.FieldInits))
+	for _, fieldInit := range expr.FieldInits {
+		fieldInst := g.GenerateExpr(fieldInit)
+		if fieldInst == nil {
+			return nil
+		}
+		fieldInits = append(fieldInits, fieldInst)
+	}
+
+	dest := fmt.Sprintf("temp_%d", g.NextID())
+	structInitInst := NewStructInitInst(dest, expr.StructName, fieldInits, expr.FieldNames)
+	return structInitInst
 }
 
 // generateTupleLiteral 生成元组字面量的IR
 func (g *Generator) generateTupleLiteral(expr *parser.TupleLiteral) Inst {
-	// TODO: 实现元组字面量的IR生成
-	// 目前返回nil（占位符）
-	return nil
+	// 元组字面量可以表示为结构体初始化
+	// 生成所有元素的IR
+	fieldInits := make([]Inst, 0, len(expr.Elements))
+	fieldNames := make([]string, 0, len(expr.Elements))
+	for i, element := range expr.Elements {
+		elementInst := g.GenerateExpr(element)
+		if elementInst == nil {
+			return nil
+		}
+		fieldInits = append(fieldInits, elementInst)
+		fieldNames = append(fieldNames, fmt.Sprintf("%d", i)) // 使用索引作为字段名
+	}
+
+	dest := fmt.Sprintf("temp_%d", g.NextID())
+	// 使用空结构体名称表示元组
+	structInitInst := NewStructInitInst(dest, "", fieldInits, fieldNames)
+	return structInitInst
 }
 
 // generateCatchExpr 生成catch表达式的IR
 func (g *Generator) generateCatchExpr(expr *parser.CatchExpr) Inst {
-	// TODO: 实现catch表达式的IR生成
-	// 目前返回nil（占位符）
-	return nil
+	// 生成try表达式
+	tryInst := g.GenerateExpr(expr.Expr)
+	if tryInst == nil {
+		return nil
+	}
+
+	// 生成catch块指令列表
+	var catchBody []Inst
+	if expr.CatchBody != nil {
+		catchBody = make([]Inst, 0, len(expr.CatchBody.Stmts))
+		for _, stmt := range expr.CatchBody.Stmts {
+			stmtInst := g.GenerateStmt(stmt)
+			if stmtInst != nil {
+				catchBody = append(catchBody, stmtInst)
+			}
+		}
+	}
+
+	dest := fmt.Sprintf("temp_%d", g.NextID())
+	tryCatchInst := NewTryCatchInst(dest, tryInst, expr.ErrorVar, catchBody)
+	return tryCatchInst
 }
 
 // generateMatchExpr 生成match表达式的IR
@@ -279,22 +335,33 @@ func (g *Generator) generateMatchExpr(expr *parser.MatchExpr) Inst {
 
 // generateStringInterpolation 生成字符串插值的IR
 func (g *Generator) generateStringInterpolation(expr *parser.StringInterpolation) Inst {
-	// TODO: 实现字符串插值的IR生成
-	// 目前返回nil（占位符）
-	return nil
+	// 生成插值表达式列表
+	interpExprs := make([]Inst, 0, len(expr.InterpExprs))
+	for _, interpExpr := range expr.InterpExprs {
+		exprInst := g.GenerateExpr(interpExpr)
+		if exprInst == nil {
+			return nil
+		}
+		interpExprs = append(interpExprs, exprInst)
+	}
+
+	dest := fmt.Sprintf("temp_%d", g.NextID())
+	stringInterpInst := NewStringInterpolationInst(dest, expr.TextSegments, interpExprs)
+	return stringInterpInst
 }
 
 // generateNullLiteral 生成null字面量的IR
 func (g *Generator) generateNullLiteral(expr *parser.NullLiteral) Inst {
-	// TODO: 实现null字面量的IR生成
-	// 目前返回nil（占位符）
-	return nil
+	// null字面量作为空指针常量（0）
+	constInst := NewConstantInst("0", TypePtr)
+	return constInst
 }
 
 // generateErrorExpr 生成错误表达式的IR
 func (g *Generator) generateErrorExpr(expr *parser.ErrorExpr) Inst {
-	// TODO: 实现错误表达式的IR生成
-	// 目前返回nil（占位符）
-	return nil
+	// 错误表达式直接创建错误值指令
+	dest := fmt.Sprintf("temp_%d", g.NextID())
+	errorValueInst := NewErrorValueInst(dest, expr.ErrorName)
+	return errorValueInst
 }
 
