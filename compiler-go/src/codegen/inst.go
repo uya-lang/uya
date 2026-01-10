@@ -44,6 +44,30 @@ func (g *Generator) GenerateInst(inst ir.Inst) error {
 	case ir.InstErrDefer:
 		return g.genErrDefer(inst.(*ir.ErrDeferInst))
 
+	case ir.InstMemberAccess:
+		return g.genMemberAccess(inst.(*ir.MemberAccessInst))
+
+	case ir.InstSubscript:
+		return g.genSubscript(inst.(*ir.SubscriptInst))
+
+	case ir.InstStructInit:
+		return g.genStructInit(inst.(*ir.StructInitInst))
+
+	case ir.InstErrorValue:
+		return g.genErrorValue(inst.(*ir.ErrorValueInst))
+
+	case ir.InstGoto:
+		return g.genGoto(inst.(*ir.GotoInst))
+
+	case ir.InstLabel:
+		return g.genLabel(inst.(*ir.LabelInst))
+
+	case ir.InstStringInterpolation:
+		return g.genStringInterpolation(inst.(*ir.StringInterpolationInst))
+
+	case ir.InstTryCatch:
+		return g.genTryCatch(inst.(*ir.TryCatchInst))
+
 	default:
 		// For unsupported instruction types, write a comment
 		return g.Writef("/* TODO: unsupported instruction type %v */\n", inst.Type())

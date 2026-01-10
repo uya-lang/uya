@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**最后更新**: 2026-01-11 (完成IR模块到100%：实现所有复杂表达式类型生成、break/continue语句、TestBlock和ImplDecl处理，创建所有缺失的指令结构体)
+**最后更新**: 2026-01-11 (完成CodeGen模块到100%：实现所有新指令类型的代码生成，包括MemberAccess、Subscript、StructInit、ErrorValue、Goto、Label、StringInterpolation、TryCatch)
 
 ### 已完成模块
 
@@ -93,11 +93,12 @@
   - ✅ inst_try_catch.go - try-catch指令结构体（新增）
   - ✅ ir_test.go - IR 模块基础测试（Generator创建、表达式生成、语句生成、函数生成、类型转换等）
 
-- ⏭️ **阶段6：CodeGen 模块**
+- ✅ **阶段6：CodeGen 模块**（100%完成）
   - ✅ generator.go - CodeGenerator 核心（基础框架已实现）
   - ✅ type.go - 类型生成（IR类型到C类型转换，包括基础类型和用户定义类型）
-  - ✅ value.go - 值生成（基础版本，支持constant, var, binary op, unary op, call）
-  - ✅ inst.go - 指令生成基础版本（支持var decl, assign, return, if, while, for, block, func def, call, defer, errdefer）
+  - ✅ value.go - 值生成（支持所有指令类型作为值：constant, var, binary op, unary op, call, member access, subscript, struct init, error value, string interpolation, try-catch）
+  - ✅ inst.go - 指令生成（支持所有指令类型：var decl, assign, return, if, while, for, block, func def, call, defer, errdefer, member access, subscript, struct init, error value, goto, label, string interpolation, try-catch）
+  - ✅ inst_extended.go - 扩展指令生成（新增：member access, subscript, struct init, error value, goto, label, string interpolation, try-catch）
   - ✅ generator_test.go - CodeGen 测试（基础测试：Generator创建、类型转换、值生成、指令生成）
   - ✅ error.go - 错误处理生成（基础版本：错误联合类型代码生成、错误码哈希函数）
   - ✅ main.go - 主函数生成（错误联合类型定义、结构体/枚举声明、前向声明、函数定义生成）
@@ -130,11 +131,12 @@
 - ✅ 所有测试通过（6个包的测试全部通过）
 - ✅ 代码质量符合要求（函数<150行、文件<1500行）
 - ✅ IR模块100%完成（所有表达式类型、语句类型、指令结构体已实现）
+- ✅ CodeGen模块100%完成（所有指令类型的代码生成已实现）
 
 下一步可以：
 1. 开始阶段8：优化和收尾（代码质量检查、文档、性能对比、最终验证）
-2. 继续完善CodeGen模块（实现新添加的指令类型的代码生成）
-3. 创建端到端测试，验证完整编译流程
+2. 创建端到端测试，验证完整编译流程
+3. 完善错误处理代码生成（try-catch的完整实现、defer/errdefer实现）
 
 ### 具体步骤（历史记录）
 
