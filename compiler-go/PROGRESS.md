@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**最后更新**: 2026-01-09 (实现 return, var decl, if, while 语句解析)
+**最后更新**: 2026-01-09 (实现所有语句解析，包括 for 语句)
 
 ### 已完成模块
 
@@ -37,11 +37,10 @@
   - ✅ parser.go - Parser 核心（基础结构、NewParser、Parse、peek/consume/match/expect）
   - ✅ parser_test.go - Parser 基础测试
   - ✅ parser_type.go - 类型解析基础（NamedType, PointerType, ErrorUnionType, AtomicType, ArrayType）
-  - ✅ parser_stmt.go - 语句解析（parseStatement 框架，parseBlock, parseDeferStmt, parseErrDeferStmt, parseBreakStmt, parseContinueStmt, parseReturnStmt, parseVarDecl, parseIfStmt, parseWhileStmt）
+  - ✅ parser_stmt.go - 语句解析完整（parseStatement 框架，所有语句类型：parseBlock, parseDeferStmt, parseErrDeferStmt, parseBreakStmt, parseContinueStmt, parseReturnStmt, parseVarDecl, parseIfStmt, parseWhileStmt, parseForStmt）
   - ✅ parser_decl.go - 声明解析基础（parseDeclaration, parseFuncDecl, parseParam, parseErrorDecl, parseStructDecl, parseEnumDecl, parseExternDecl, parseInterfaceDecl, parseTestBlock）
   - ✅ parser_expr.go - 表达式解析基础（parseExpression, parsePrimary, parseCallExpr - 标识符、字面量、函数调用、括号表达式）
   - ⏭️ parser_expr.go - 完整表达式解析（二元运算符、一元运算符、成员访问、下标访问等）
-  - ⏭️ parser_stmt.go - for 语句解析（parseForStmt）
   - ⏭️ parser_match.go - match 表达式解析
   - ⏭️ parser_string_interp.go - 字符串插值解析
 
@@ -114,9 +113,8 @@
 12. ✅ 完善 `parser_decl.go` - 添加 test 块解析
 13. ✅ 实现 `parser_stmt.go` - 语句解析基础框架（parseStatement, parseBlock, defer/errdefer/break/continue）
 14. ✅ 实现 `parser_expr.go` - 基础表达式解析（标识符、字面量、函数调用、括号表达式）
-15. ✅ 实现 `parser_stmt.go` - 完整语句解析（parseReturnStmt, parseVarDecl, parseIfStmt, parseWhileStmt）
+15. ✅ 实现 `parser_stmt.go` - 完整语句解析（parseReturnStmt, parseVarDecl, parseIfStmt, parseWhileStmt, parseForStmt）
 16. ⏭️ 实现 `parser_expr.go` - 完整表达式解析（二元运算符、一元运算符、成员访问、下标访问等）
-17. ⏭️ 实现 `parser_stmt.go` - for 语句解析（parseForStmt）
 
 ## 重要说明
 

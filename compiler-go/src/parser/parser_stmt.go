@@ -398,8 +398,101 @@ func (p *Parser) parseWhileStmt() (*WhileStmt, error) {
 	}, nil
 }
 
-// parseForStmt parses a for statement: for expr |var| { ... }
+// parseForStmt parses a for statement: for [iterable] |var| { ... } or for (iterable [, index_range]) |item [, index]| { ... }
 func (p *Parser) parseForStmt() (*ForStmt, error) {
-	return nil, fmt.Errorf("parseForStmt not yet implemented (requires expression parsing)")
+	if !p.match(lexer.TOKEN_FOR) {
+		return nil, fmt.Errorf("expected 'for' keyword")
+	}
+
+	line := p.currentToken.Line
+	col := p.currentToken.Column
+	filename := p.currentToken.Filename
+	p.consume() // consume 'for'
+
+	var iterable Expr
+	var indexRange Expr
+
+	// Check if there's a parenthesis (old syntax: for (iterable) or for (iterable, index_range))
+	if p.match(lexer.TOKEN_LEFT_PAREN) {
+		// Old syntax: for (iterable) |val| or for (iterable, index_range) |item, index|
+		p.consume() // consume '('
+
+		var err error
+		iterable, err = p.parseExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse for iterable: %w", err)
+		}
+
+		// Check if there's an index range (for (iterable, index_range) form)
+		if p.match(lexer.TOKEN_COMMA) {
+			p.consume() // consume ','
+			indexRange, err = p.parseExpression()
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse for index range: %w", err)
+			}
+		}
+
+		// Expect ')'
+		if _, err := p.expect(lexer.TOKEN_RIGHT_PAREN); err != nil {
+			return nil, fmt.Errorf("expected ')' after for iterable: %w", err)
+		}
+	} else {
+		// New syntax: for iterable |val| (no parentheses)
+		var err error
+		iterable, err = p.parseExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse for iterable: %w", err)
+		}
+	}
+
+	// Expect '|' (start variable declaration)
+	if _, err := p.expect(lexer.TOKEN_PIPE); err != nil {
+		return nil, fmt.Errorf("expected '|' to start for variable declaration: %w", err)
+	}
+
+	// Parse item variable name
+	if !p.match(lexer.TOKEN_IDENTIFIER) {
+		return nil, fmt.Errorf("expected item variable name in for statement at %s:%d:%d",
+			filename, p.currentToken.Line, p.currentToken.Column)
+	}
+
+	itemVar := p.currentToken.Value
+	p.consume() // consume item variable name
+
+	// Check if there's an index variable (for (iterable, index_range) |item, index| form)
+	var indexVar string
+	if p.match(lexer.TOKEN_COMMA) {
+		p.consume() // consume ','
+		if !p.match(lexer.TOKEN_IDENTIFIER) {
+			return nil, fmt.Errorf("expected index variable name in for statement at %s:%d:%d",
+				filename, p.currentToken.Line, p.currentToken.Column)
+		}
+		indexVar = p.currentToken.Value
+		p.consume() // consume index variable name
+	}
+
+	// Expect '|' (end variable declaration)
+	if _, err := p.expect(lexer.TOKEN_PIPE); err != nil {
+		return nil, fmt.Errorf("expected '|' to end for variable declaration: %w", err)
+	}
+
+	// Parse loop body (code block)
+	body, err := p.parseBlock()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse for loop body: %w", err)
+	}
+
+	return &ForStmt{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		Iterable:   iterable,
+		IndexRange: indexRange, // May be nil
+		ItemVar:    itemVar,
+		IndexVar:   indexVar, // May be empty
+		Body:       body,
+	}, nil
 }
 
