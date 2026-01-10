@@ -72,6 +72,9 @@
   - ✅ inst_unary_op.go - 一元运算指令结构体
   - ✅ inst_call.go - 函数调用指令结构体
   - ✅ inst_return.go - 返回指令结构体
+  - ✅ inst_block.go - 代码块指令结构体
+  - ✅ inst_if.go - if 语句指令结构体
+  - ✅ inst_while.go - while 循环指令结构体
   - ✅ generator.go - IRGenerator 核心框架
   - ⏭️ generator_expr.go - 表达式生成
   - ⏭️ generator_stmt.go - 语句生成
