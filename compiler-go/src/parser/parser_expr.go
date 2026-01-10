@@ -545,23 +545,10 @@ func (p *Parser) parsePattern() (*Pattern, error) {
 		return nil, fmt.Errorf("expected '=>' after pattern: %w", err)
 	}
 
-	// Parse body expression
+	// Parse body expression (pattern body is an expression, not a block)
 	bodyExpr, err := p.parseExpression()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse pattern body: %w", err)
-	}
-
-	// Note: Pattern.Body is *Block in AST, but body should be Expr
-	// For now, wrap the expression in a block with a single expression statement
-	// TODO: Fix AST definition to use Expr instead of Block
-	bodyBlock := &Block{
-		NodeBase: *bodyExpr.Base(),
-		Stmts: []Stmt{
-			&ExprStmt{
-				NodeBase: *bodyExpr.Base(),
-				Expr:     bodyExpr,
-			},
-		},
 	}
 
 	return &Pattern{
@@ -572,7 +559,7 @@ func (p *Parser) parsePattern() (*Pattern, error) {
 		},
 		PatternType: 0, // TODO: Set pattern type based on pattern expression
 		Value:       patternExpr,
-		Body:        bodyBlock,
+		Body:        bodyExpr,
 	}, nil
 }
 

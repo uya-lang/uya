@@ -187,7 +187,7 @@ type Pattern struct {
 	NodeBase
 	PatternType int // Pattern type (literal, identifier, tuple, etc.)
 	Value       Expr // Pattern value
-	Body        *Block // Pattern body
+	Body        Expr // Pattern body (expression, not block)
 }
 
 func (n *Pattern) Type() NodeType { return AST_PATTERN }
