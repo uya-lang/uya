@@ -104,20 +104,18 @@ func (tc *TypeChecker) Check(program *parser.Program) bool {
 
 	// First pass: collect all function signatures
 	tc.scanPass = ScanPassCollectSignatures
-	// TODO: Implement typecheck_node for collecting signatures
-	// result := tc.typecheckNode(program)
-	// if !result {
-	// 	if tc.ErrorCount() > 0 {
-	// 		tc.PrintErrors()
-	// 	}
-	// 	tc.scopes.ExitScope()
-	// 	return false
-	// }
+	result := tc.typecheckNode(program)
+	if !result {
+		if tc.ErrorCount() > 0 {
+			tc.PrintErrors()
+		}
+		tc.scopes.ExitScope()
+		return false
+	}
 
 	// Second pass: check all function bodies
 	tc.scanPass = ScanPassCheckBodies
-	// TODO: Implement typecheck_node for checking bodies
-	// result = tc.typecheckNode(program)
+	result = tc.typecheckNode(program)
 
 	// Exit global scope
 	tc.scopes.ExitScope()
