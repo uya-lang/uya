@@ -1,5 +1,32 @@
 # Uya 编译器 C 到 Go 迁移规则
 
+## ⚠️ 多上下文协作说明
+
+**重要**：这是一个大型迁移项目（约30,000+行代码），单个 Cursor 上下文无法完成全部工作。
+
+### 多上下文协作原则
+
+1. **每次开始新会话时**：
+   - 首先阅读 `PROGRESS.md` 了解当前进度
+   - 查看 `TODO.md` 了解待完成任务
+   - 确认上次会话的完成状态
+
+2. **会话间协作**：
+   - 完成一个模块后，立即更新 `PROGRESS.md`
+   - 更新 `TODO.md` 中的任务状态
+   - 提交代码变更（如果使用版本控制）
+
+3. **上下文切换检查点**：
+   - 确保当前模块的基本功能已完成
+   - 所有测试通过（或至少代码可以编译）
+   - 代码符合质量约束（函数<150行，文件<1500行）
+   - 更新进度文档
+
+4. **继续工作时**：
+   - 从 `PROGRESS.md` 标记的"下一步行动"开始
+   - 按依赖顺序实现（Lexer → Parser → Checker → IR → CodeGen → Main）
+   - 不要跳过已完成的模块
+
 ## 代码质量约束（严格执行）
 
 - 每个函数不超过 **150 行**
@@ -40,17 +67,19 @@ compiler-go/
 │   ├── checker/      # 类型检查器
 │   ├── ir/           # 中间表示和生成器
 │   └── codegen/      # 代码生成器
-└── tests/            # 测试用例（复用 compiler/tests/）
+├── tests/            # 测试用例（复用 compiler/tests/）
+├── PROGRESS.md       # 进度跟踪文档（重要！）
+└── TODO.md           # 详细任务列表
 ```
 
 ## 迁移优先级（按依赖顺序）
 
-1. Lexer（无依赖）
-2. Parser + AST（依赖 Lexer）
-3. Checker（依赖 Parser/AST）
-4. IR + IRGenerator（依赖 AST）
-5. CodeGen（依赖 IR）
-6. Main（协调所有模块）
+1. Lexer（无依赖）✅
+2. Parser + AST（依赖 Lexer）⏭️ 进行中
+3. Checker（依赖 Parser/AST）⏭️
+4. IR + IRGenerator（依赖 AST）⏭️
+5. CodeGen（依赖 IR）⏭️
+6. Main（协调所有模块）⏭️
 
 ## 关键转换规则
 
@@ -75,4 +104,5 @@ compiler-go/
 - [ ] 所有测试通过
 - [ ] Linter 检查通过
 - [ ] 遵循 TDD 流程
+- [ ] 更新 PROGRESS.md（多上下文协作）
 
