@@ -159,46 +159,7 @@ func (tc *TypeChecker) typecheckProgram(program *parser.Program) bool {
 
 // Declaration checking functions are implemented in checker_decl.go
 
-// Statement checking functions
-func (tc *TypeChecker) typecheckBlock(block *parser.Block) bool {
-	// TODO: Implement in checker_stmt.go
-	return true
-}
-
-func (tc *TypeChecker) typecheckIfStmt(stmt *parser.IfStmt) bool {
-	// TODO: Implement in checker_stmt.go
-	return true
-}
-
-func (tc *TypeChecker) typecheckWhileStmt(stmt *parser.WhileStmt) bool {
-	// TODO: Implement in checker_stmt.go
-	return true
-}
-
-func (tc *TypeChecker) typecheckForStmt(stmt *parser.ForStmt) bool {
-	// TODO: Implement in checker_stmt.go
-	return true
-}
-
-func (tc *TypeChecker) typecheckReturnStmt(stmt *parser.ReturnStmt) bool {
-	// TODO: Implement in checker_stmt.go
-	return true
-}
-
-func (tc *TypeChecker) typecheckDeferStmt(stmt *parser.DeferStmt) bool {
-	// TODO: Implement in checker_stmt.go
-	return true
-}
-
-func (tc *TypeChecker) typecheckErrDeferStmt(stmt *parser.ErrDeferStmt) bool {
-	// TODO: Implement in checker_stmt.go
-	return true
-}
-
-func (tc *TypeChecker) typecheckAssign(assign *parser.AssignStmt) bool {
-	// TODO: Implement in checker_stmt.go
-	return true
-}
+// Statement checking functions are implemented in checker_stmt.go
 
 // Expression checking function is implemented in checker_expr.go
 
