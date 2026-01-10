@@ -1310,7 +1310,7 @@ IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
                                             irinst_free(var_bindings[k]);
                                         }
                                         free(var_bindings);
-                                        irinst_free(match_expr_ir);
+                                        // match_expr_ir is already freed through comparison (which contains field_access)
                                         irinst_free(body_expr);
                                         irinst_free(if_inst);
                                         if (current_if) irinst_free(current_if);
@@ -1331,6 +1331,351 @@ IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
                                     comparison = and_op;
                                 }
                                 free(field_comparisons);
+                                // match_expr_ir is now owned by comparison (through field_access)
+                            }
+                            
+                            // Store variable bindings for later use in then_body
+                            if_inst->data.if_stmt.condition = comparison;
+                            // then_count will include var_bindings + body_expr
+                            if_inst->data.if_stmt.then_count = var_binding_count + 1;
+                            if_inst->data.if_stmt.then_body = malloc((var_binding_count + 1) * sizeof(IRInst*));
+                            if (!if_inst->data.if_stmt.then_body) {
+                                irinst_free(comparison);
+                                for (int k = 0; k < var_binding_count; k++) {
+                                    irinst_free(var_bindings[k]);
+                                }
+                                free(var_bindings);
+                                irinst_free(body_expr);
+                                irinst_free(if_inst);
+                                if (current_if) irinst_free(current_if);
+                                return NULL;
+                            }
+                            
+                            // Add variable bindings first, then body expression
+                            for (int k = 0; k < var_binding_count; k++) {
+                                if_inst->data.if_stmt.then_body[k] = var_bindings[k];
+                            }
+                            if_inst->data.if_stmt.then_body[var_binding_count] = body_expr;
+                            free(var_bindings);
+                        }
+                    } else if (pattern->data.pattern.pattern_expr && 
+                               pattern->data.pattern.pattern_expr->type == AST_TUPLE_LITERAL) {
+                        // Tuple pattern: generate element-by-element comparison
+                        // For each element: match_expr._i == pattern.element_i
+                        // Combine all element comparisons with AND
+                        
+                        struct ASTNode *tuple_pattern = pattern->data.pattern.pattern_expr;
+                        int element_count = tuple_pattern->data.tuple_literal.element_count;
+                        IRInst *comparison = NULL;
+                        
+                        if (element_count == 0) {
+                            // Empty tuple pattern: always matches (use true constant)
+                            irinst_free(match_expr_ir);
+                            
+                            IRInst *true_const = irinst_new(IR_CONSTANT);
+                            if (!true_const) {
+                                irinst_free(body_expr);
+                                irinst_free(if_inst);
+                                if (current_if) irinst_free(current_if);
+                                return NULL;
+                            }
+                            true_const->data.constant.value = malloc(2);
+                            if (true_const->data.constant.value) {
+                                strcpy(true_const->data.constant.value, "1");
+                            }
+                            true_const->data.constant.type = IR_TYPE_BOOL;
+                            comparison = true_const;
+                        } else {
+                            // Generate element comparisons and variable bindings
+                            IRInst **element_comparisons = malloc(element_count * sizeof(IRInst*));
+                            if (!element_comparisons) {
+                                irinst_free(match_expr_ir);
+                                irinst_free(body_expr);
+                                irinst_free(if_inst);
+                                if (current_if) irinst_free(current_if);
+                                return NULL;
+                            }
+                            int valid_comparisons = 0;
+                            
+                            // Collect variable bindings (identifier elements)
+                            IRInst **var_bindings = malloc(element_count * sizeof(IRInst*));
+                            int var_binding_count = 0;
+                            if (!var_bindings) {
+                                free(element_comparisons);
+                                irinst_free(match_expr_ir);
+                                irinst_free(body_expr);
+                                irinst_free(if_inst);
+                                if (current_if) irinst_free(current_if);
+                                return NULL;
+                            }
+                            
+                            for (int j = 0; j < element_count; j++) {
+                                ASTNode *pattern_element = tuple_pattern->data.tuple_literal.elements[j];
+                                if (!pattern_element) continue;
+                                
+                                // Generate field name: _0, _1, _2, etc.
+                                char field_name[16];
+                                snprintf(field_name, sizeof(field_name), "_%d", j);
+                                
+                                // Check if this is a variable binding (identifier) or comparison (constant)
+                                if (pattern_element->type == AST_IDENTIFIER) {
+                                    // Variable binding: generate variable declaration and assignment
+                                    const char *bind_var_name = pattern_element->data.identifier.name;
+                                    
+                                    // For variable bindings, infer type from the pattern element context
+                                    // For now, use default type (will be improved with type inference)
+                                    IRType field_type = IR_TYPE_I32;  // Default type
+                                    char *field_type_name = NULL;
+                                    
+                                    // Generate member access: match_expr._j
+                                    // For variable bindings, each field_access needs its own copy of match_expr_ir
+                                    IRInst *field_match_expr_ir = generate_expr(ir_gen, expr->data.match_expr.expr);
+                                    if (!field_match_expr_ir) {
+                                        if (field_type_name) free(field_type_name);
+                                        for (int k = 0; k < valid_comparisons; k++) {
+                                            irinst_free(element_comparisons[k]);
+                                        }
+                                        for (int k = 0; k < var_binding_count; k++) {
+                                            irinst_free(var_bindings[k]);
+                                        }
+                                        free(element_comparisons);
+                                        free(var_bindings);
+                                        irinst_free(match_expr_ir);
+                                        irinst_free(body_expr);
+                                        irinst_free(if_inst);
+                                        if (current_if) irinst_free(current_if);
+                                        return NULL;
+                                    }
+                                    
+                                    IRInst *field_access = irinst_new(IR_MEMBER_ACCESS);
+                                    if (!field_access) {
+                                        irinst_free(field_match_expr_ir);
+                                        if (field_type_name) free(field_type_name);
+                                        for (int k = 0; k < valid_comparisons; k++) {
+                                            irinst_free(element_comparisons[k]);
+                                        }
+                                        for (int k = 0; k < var_binding_count; k++) {
+                                            irinst_free(var_bindings[k]);
+                                        }
+                                        free(element_comparisons);
+                                        free(var_bindings);
+                                        irinst_free(match_expr_ir);
+                                        irinst_free(body_expr);
+                                        irinst_free(if_inst);
+                                        if (current_if) irinst_free(current_if);
+                                        return NULL;
+                                    }
+                                    
+                                    field_access->data.member_access.object = field_match_expr_ir;
+                                    field_access->data.member_access.field_name = malloc(strlen(field_name) + 1);
+                                    if (field_access->data.member_access.field_name) {
+                                        strcpy(field_access->data.member_access.field_name, field_name);
+                                    }
+                                    field_access->data.member_access.dest = NULL;  // Will be set by codegen
+                                    
+                                    // Create variable declaration for binding
+                                    IRInst *var_decl = irinst_new(IR_VAR_DECL);
+                                    if (!var_decl) {
+                                        irinst_free(field_access);
+                                        if (field_type_name) free(field_type_name);
+                                        for (int k = 0; k < valid_comparisons; k++) {
+                                            irinst_free(element_comparisons[k]);
+                                        }
+                                        for (int k = 0; k < var_binding_count; k++) {
+                                            irinst_free(var_bindings[k]);
+                                        }
+                                        free(element_comparisons);
+                                        free(var_bindings);
+                                        irinst_free(match_expr_ir);
+                                        irinst_free(body_expr);
+                                        irinst_free(if_inst);
+                                        if (current_if) irinst_free(current_if);
+                                        return NULL;
+                                    }
+                                    
+                                    var_decl->data.var.name = malloc(strlen(bind_var_name) + 1);
+                                    if (var_decl->data.var.name) {
+                                        strcpy(var_decl->data.var.name, bind_var_name);
+                                    }
+                                    var_decl->data.var.type = field_type;
+                                    var_decl->data.var.original_type_name = field_type_name;
+                                    var_decl->data.var.is_mut = 0;
+                                    var_decl->data.var.is_atomic = 0;
+                                    var_decl->data.var.init = field_access;  // Initialize with field access
+                                    var_decl->id = ir_gen->current_id++;
+                                    
+                                    var_bindings[var_binding_count++] = var_decl;
+                                } else {
+                                    // Constant comparison: generate comparison as before
+                                    // Generate member access: match_expr._j
+                                    IRInst *field_access = irinst_new(IR_MEMBER_ACCESS);
+                                    if (!field_access) {
+                                        for (int k = 0; k < valid_comparisons; k++) {
+                                            irinst_free(element_comparisons[k]);
+                                        }
+                                        for (int k = 0; k < var_binding_count; k++) {
+                                            irinst_free(var_bindings[k]);
+                                        }
+                                        free(element_comparisons);
+                                        free(var_bindings);
+                                        irinst_free(match_expr_ir);
+                                        irinst_free(body_expr);
+                                        irinst_free(if_inst);
+                                        if (current_if) irinst_free(current_if);
+                                        return NULL;
+                                    }
+                                    
+                                    field_access->data.member_access.object = match_expr_ir;
+                                    field_access->data.member_access.field_name = malloc(strlen(field_name) + 1);
+                                    if (field_access->data.member_access.field_name) {
+                                        strcpy(field_access->data.member_access.field_name, field_name);
+                                    }
+                                    
+                                    char temp_field_name[32];
+                                    snprintf(temp_field_name, sizeof(temp_field_name), "match_field_%d", ir_gen->current_id++);
+                                    field_access->data.member_access.dest = malloc(strlen(temp_field_name) + 1);
+                                    if (field_access->data.member_access.dest) {
+                                        strcpy(field_access->data.member_access.dest, temp_field_name);
+                                    }
+                                    
+                                    // Generate pattern element value IR
+                                    IRInst *pattern_element_ir = generate_expr(ir_gen, pattern_element);
+                                    if (!pattern_element_ir) {
+                                        irinst_free(field_access);
+                                        for (int k = 0; k < valid_comparisons; k++) {
+                                            irinst_free(element_comparisons[k]);
+                                        }
+                                        for (int k = 0; k < var_binding_count; k++) {
+                                            irinst_free(var_bindings[k]);
+                                        }
+                                        free(element_comparisons);
+                                        free(var_bindings);
+                                        irinst_free(match_expr_ir);
+                                        irinst_free(body_expr);
+                                        irinst_free(if_inst);
+                                        if (current_if) irinst_free(current_if);
+                                        return NULL;
+                                    }
+                                    
+                                    // Create element comparison: field_access == pattern_element_ir
+                                    IRInst *element_comp = irinst_new(IR_BINARY_OP);
+                                    if (!element_comp) {
+                                        irinst_free(field_access);
+                                        irinst_free(pattern_element_ir);
+                                        for (int k = 0; k < valid_comparisons; k++) {
+                                            irinst_free(element_comparisons[k]);
+                                        }
+                                        for (int k = 0; k < var_binding_count; k++) {
+                                            irinst_free(var_bindings[k]);
+                                        }
+                                        free(element_comparisons);
+                                        free(var_bindings);
+                                        irinst_free(match_expr_ir);
+                                        irinst_free(body_expr);
+                                        irinst_free(if_inst);
+                                        if (current_if) irinst_free(current_if);
+                                        return NULL;
+                                    }
+                                    
+                                    element_comp->data.binary_op.op = IR_OP_EQ;
+                                    element_comp->data.binary_op.left = field_access;
+                                    element_comp->data.binary_op.right = pattern_element_ir;
+                                    
+                                    char temp_comp_name[32];
+                                    snprintf(temp_comp_name, sizeof(temp_comp_name), "match_element_comp_%d", ir_gen->current_id++);
+                                    element_comp->data.binary_op.dest = malloc(strlen(temp_comp_name) + 1);
+                                    if (element_comp->data.binary_op.dest) {
+                                        strcpy(element_comp->data.binary_op.dest, temp_comp_name);
+                                    }
+                                    
+                                    element_comparisons[valid_comparisons++] = element_comp;
+                                }
+                            }
+                            
+                            // Generate comparison condition
+                            if (valid_comparisons == 0) {
+                                // No valid comparisons: use true constant (all elements are bindings)
+                                free(element_comparisons);
+                                if (var_binding_count == 0) {
+                                    // No bindings either: empty tuple pattern
+                                    free(var_bindings);
+                                    irinst_free(match_expr_ir);
+                                    IRInst *true_const = irinst_new(IR_CONSTANT);
+                                    if (!true_const) {
+                                        irinst_free(body_expr);
+                                        irinst_free(if_inst);
+                                        if (current_if) irinst_free(current_if);
+                                        return NULL;
+                                    }
+                                    true_const->data.constant.value = malloc(2);
+                                    if (true_const->data.constant.value) {
+                                        strcpy(true_const->data.constant.value, "1");
+                                    }
+                                    true_const->data.constant.type = IR_TYPE_BOOL;
+                                    comparison = true_const;
+                                } else {
+                                    // All elements are bindings: always match
+                                    irinst_free(match_expr_ir);
+                                    IRInst *true_const = irinst_new(IR_CONSTANT);
+                                    if (!true_const) {
+                                        for (int k = 0; k < var_binding_count; k++) {
+                                            irinst_free(var_bindings[k]);
+                                        }
+                                        free(var_bindings);
+                                        irinst_free(body_expr);
+                                        irinst_free(if_inst);
+                                        if (current_if) irinst_free(current_if);
+                                        return NULL;
+                                    }
+                                    true_const->data.constant.value = malloc(2);
+                                    if (true_const->data.constant.value) {
+                                        strcpy(true_const->data.constant.value, "1");
+                                    }
+                                    true_const->data.constant.type = IR_TYPE_BOOL;
+                                    comparison = true_const;
+                                }
+                            } else if (valid_comparisons == 1) {
+                                // Single element comparison: use it directly
+                                comparison = element_comparisons[0];
+                                free(element_comparisons);
+                                // match_expr_ir is now owned by comparison (through field_access)
+                            } else {
+                                // Multiple element comparisons: combine with AND
+                                // Build binary AND tree: ((comp1 && comp2) && comp3) && ...
+                                comparison = element_comparisons[0];
+                                for (int j = 1; j < valid_comparisons; j++) {
+                                    IRInst *and_op = irinst_new(IR_BINARY_OP);
+                                    if (!and_op) {
+                                        irinst_free(comparison);
+                                        for (int k = j; k < valid_comparisons; k++) {
+                                            irinst_free(element_comparisons[k]);
+                                        }
+                                        free(element_comparisons);
+                                        for (int k = 0; k < var_binding_count; k++) {
+                                            irinst_free(var_bindings[k]);
+                                        }
+                                        free(var_bindings);
+                                        // match_expr_ir is already freed through comparison (which contains field_access)
+                                        irinst_free(body_expr);
+                                        irinst_free(if_inst);
+                                        if (current_if) irinst_free(current_if);
+                                        return NULL;
+                                    }
+                                    
+                                    and_op->data.binary_op.op = IR_OP_LOGIC_AND;
+                                    and_op->data.binary_op.left = comparison;
+                                    and_op->data.binary_op.right = element_comparisons[j];
+                                    
+                                    char temp_and_name[32];
+                                    snprintf(temp_and_name, sizeof(temp_and_name), "match_and_%d", ir_gen->current_id++);
+                                    and_op->data.binary_op.dest = malloc(strlen(temp_and_name) + 1);
+                                    if (and_op->data.binary_op.dest) {
+                                        strcpy(and_op->data.binary_op.dest, temp_and_name);
+                                    }
+                                    
+                                    comparison = and_op;
+                                }
+                                free(element_comparisons);
                                 // match_expr_ir is now owned by comparison (through field_access)
                             }
                             
@@ -1405,9 +1750,9 @@ IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
                         return NULL;
                     }
 
-                    // Set condition (for struct patterns, then_body was already set above)
+                    // Set condition (for struct and tuple patterns, then_body was already set above)
                     if_inst->data.if_stmt.condition = comparison;
-                    // Only set then_body for non-struct patterns (struct patterns set it above)
+                    // Only set then_body for regular patterns (struct and tuple patterns set it above)
                     if (if_inst->data.if_stmt.then_count == 0) {
                         if_inst->data.if_stmt.then_count = 1;
                         if_inst->data.if_stmt.then_body = malloc(sizeof(IRInst*));

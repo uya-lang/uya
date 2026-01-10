@@ -821,8 +821,8 @@ void codegen_gen_try_catch(CodeGenerator *codegen, IRInst *inst) {
 
 // IR_STRUCT_DECL implementation
 void codegen_gen_struct_decl(CodeGenerator *codegen, IRInst *inst) {
-    // 生成struct声明
-    fprintf(codegen->output_file, "struct %s {", inst->data.struct_decl.name);
+    // 生成typedef struct声明（使用typedef以便可以直接使用类型名）
+    fprintf(codegen->output_file, "typedef struct %s {", inst->data.struct_decl.name);
     
     // 生成struct字段
     for (int i = 0; i < inst->data.struct_decl.field_count; i++) {

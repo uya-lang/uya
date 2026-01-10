@@ -42,7 +42,7 @@ int32_t main();
 int32_t main() {
 int32_t  _return_main;
   int32_t x = 1;
-  int32_t result = ({ int32_t __match_temp_0; if ((x == 1)) { __match_temp_0 = 10; }else if (1) { __match_temp_0 = 0; } __match_temp_0; });
+  int32_t result = /* Error: IR_IF should be handled in codegen_inst.c */;
   _return_main = result;
   goto _normal_return_main;
 _normal_return_main:

@@ -37,34 +37,18 @@ struct error_union_void {
 
 
 typedef struct tuple_i32_bool {
-  int32_t _0;
-  _Bool _1;
-} tuple_i32_bool;
-
-typedef struct tuple_i32_f64_bool {
-  int32_t _0;
-  double _1;
-  _Bool _2;
-} tuple_i32_f64_bool;
-
-// Forward declarations
+    int32_t _0;
+    _Bool _1;
+} tuple_i32_bool;// Forward declarations
 int32_t main();
 
 int32_t main() {
 int32_t  _return_main;
   tuple_i32_bool pair = (tuple_i32_bool){ ._0 = 42, ._1 = true};
-  tuple_i32_f64_bool triple = (tuple_i32_f64_bool){ ._0 = 10, ._1 = 3.14, ._2 = false};
-  if ((pair._0 == 42)) {
-  _return_main = 0;
+  int32_t result = 0; // placeholder
+  _return_main = result;
   goto _normal_return_main;
-} else {
-  _return_main = 1;
-  goto _normal_return_main;
-  };
 _normal_return_main:
-  // Generated drop calls in LIFO order
-  drop_tuple_i32_f64_bool(&triple);
-  drop_tuple_i32_bool(&pair);
   return _return_main;
 }
 
