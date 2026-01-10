@@ -37,9 +37,20 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		return p.parseBlock()
 	} else {
 		// Parse as expression statement (which may include assignments)
-		// TODO: Implement parseExpression
-		return nil, fmt.Errorf("expression parsing not yet implemented at %s:%d:%d",
-			p.currentToken.Filename, p.currentToken.Line, p.currentToken.Column)
+		expr, err := p.parseExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse expression: %w", err)
+		}
+
+		// Expect semicolon for expression statements
+		if _, err := p.expect(lexer.TOKEN_SEMICOLON); err != nil {
+			return nil, fmt.Errorf("expected ';' after expression: %w", err)
+		}
+
+		return &ExprStmt{
+			NodeBase: *expr.Base(),
+			Expr:     expr,
+		}, nil
 	}
 }
 
