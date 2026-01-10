@@ -614,9 +614,31 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		}, nil
 	}
 
-	// Handle string literals
+	// Handle string literals (check for string interpolation)
 	if p.match(lexer.TOKEN_STRING) {
-		value := p.currentToken.Value
+		stringToken := p.currentToken
+		value := stringToken.Value
+
+		// Check if string contains interpolation syntax ${}
+		if strings.Contains(value, "${") {
+			// Parse as string interpolation
+			interp, err := p.parseStringInterpolation(stringToken)
+			p.consume() // consume string token
+			if err != nil {
+				// On error, fall back to regular string literal
+				return &StringLiteral{
+					NodeBase: NodeBase{
+						Line:     line,
+						Column:   col,
+						Filename: filename,
+					},
+					Value: value,
+				}, nil
+			}
+			return interp, nil
+		}
+
+		// Regular string literal
 		p.consume() // consume string
 		return &StringLiteral{
 			NodeBase: NodeBase{
