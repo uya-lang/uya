@@ -26,7 +26,13 @@ func (p *Parser) parseExpression() (Expr, error) {
 	}
 
 	// Handle postfix operators (member access, subscript, function call)
-	return p.parsePostfix(expr)
+	expr, err = p.parsePostfix(expr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Handle binary operators (logical operators have lowest precedence)
+	return p.parseBinaryExpr(expr)
 }
 
 // parseUnaryExpr parses a unary expression: &expr, -expr, !expr, try expr
@@ -159,6 +165,129 @@ func (p *Parser) parsePostfix(expr Expr) (Expr, error) {
 	}
 
 	return expr, nil
+}
+
+// parseBinaryExpr handles binary operators (logical operators have lowest precedence)
+// This function processes logical operators (&&, ||) and delegates other operators to parseComparisonOrHigher
+func (p *Parser) parseBinaryExpr(left Expr) (Expr, error) {
+	// Handle logical operators (&&, ||) - lowest precedence
+	for p.currentToken != nil {
+		if !p.match(lexer.TOKEN_LOGICAL_AND) && !p.match(lexer.TOKEN_LOGICAL_OR) {
+			break
+		}
+
+		op := p.currentToken.Type
+		line := p.currentToken.Line
+		col := p.currentToken.Column
+		filename := p.currentToken.Filename
+		p.consume() // consume operator
+
+		// Parse right operand (comparison or higher precedence)
+		right, err := p.parseComparisonOrHigher()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse right operand of logical operator: %w", err)
+		}
+
+		// Create binary expression
+		left = &BinaryExpr{
+			NodeBase: NodeBase{
+				Line:     line,
+				Column:   col,
+				Filename: filename,
+			},
+			Left:  left,
+			Op:    int(op),
+			Right: right,
+		}
+	}
+
+	return left, nil
+}
+
+// parseComparisonOrHigher parses expressions with comparison operators or higher precedence
+// This includes arithmetic, comparison, and bitwise operators, but NOT logical operators
+func (p *Parser) parseComparisonOrHigher() (Expr, error) {
+	if p.currentToken == nil {
+		return nil, fmt.Errorf("unexpected EOF")
+	}
+
+	// Check for unary operators first (&, -, !, try)
+	if p.match(lexer.TOKEN_AMPERSAND) || p.match(lexer.TOKEN_MINUS) ||
+		p.match(lexer.TOKEN_EXCLAMATION) || p.match(lexer.TOKEN_TRY) {
+		return p.parseUnaryExpr()
+	}
+
+	// Parse primary expression
+	expr, err := p.parsePrimary()
+	if err != nil {
+		return nil, err
+	}
+
+	// Handle postfix operators
+	expr, err = p.parsePostfix(expr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Handle binary operators (arithmetic, comparison, bitwise)
+	return p.parseComparisonBinaryExpr(expr)
+}
+
+// parseComparisonBinaryExpr handles binary operators except logical operators
+func (p *Parser) parseComparisonBinaryExpr(left Expr) (Expr, error) {
+	// Loop to handle chained operators (left-associative)
+	for p.currentToken != nil {
+		opType := p.currentToken.Type
+
+		// Check if it's a binary operator (excluding logical operators)
+		if !p.isComparisonOrArithmeticOperator(opType) {
+			break
+		}
+
+		op := opType
+		line := p.currentToken.Line
+		col := p.currentToken.Column
+		filename := p.currentToken.Filename
+		p.consume() // consume operator
+
+		// Parse right operand (recursively call parseComparisonOrHigher)
+		right, err := p.parseComparisonOrHigher()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse right operand: %w", err)
+		}
+
+		// Create binary expression
+		left = &BinaryExpr{
+			NodeBase: NodeBase{
+				Line:     line,
+				Column:   col,
+				Filename: filename,
+			},
+			Left:  left,
+			Op:    int(op),
+			Right: right,
+		}
+	}
+
+	return left, nil
+}
+
+// isComparisonOrArithmeticOperator checks if the token is a comparison or arithmetic operator
+func (p *Parser) isComparisonOrArithmeticOperator(tokenType lexer.TokenType) bool {
+	switch tokenType {
+	case lexer.TOKEN_PLUS, lexer.TOKEN_MINUS, lexer.TOKEN_ASTERISK, lexer.TOKEN_SLASH,
+		lexer.TOKEN_PERCENT,
+		lexer.TOKEN_EQUAL, lexer.TOKEN_NOT_EQUAL,
+		lexer.TOKEN_LESS, lexer.TOKEN_LESS_EQUAL,
+		lexer.TOKEN_GREATER, lexer.TOKEN_GREATER_EQUAL,
+		lexer.TOKEN_PLUS_PIPE, lexer.TOKEN_MINUS_PIPE, lexer.TOKEN_ASTERISK_PIPE,
+		lexer.TOKEN_PLUS_PERCENT, lexer.TOKEN_MINUS_PERCENT, lexer.TOKEN_ASTERISK_PERCENT,
+		lexer.TOKEN_LEFT_SHIFT, lexer.TOKEN_RIGHT_SHIFT,
+		lexer.TOKEN_AMPERSAND, lexer.TOKEN_PIPE, lexer.TOKEN_CARET:
+		return true
+	default:
+		return false
+	}
 }
 
 // parseCallExprFromCallee parses a function call where the callee is any expression
