@@ -187,3 +187,22 @@ func (tc *TypeChecker) AddFunction(sig *FunctionSignature) {
 	tc.functionTable.AddFunction(sig)
 }
 
+// AddConstraint adds a constraint to the constraint set
+func (tc *TypeChecker) AddConstraint(constraint *Constraint) {
+	if constraint == nil {
+		return
+	}
+	if tc.constraints == nil {
+		tc.constraints = NewConstraintSet()
+	}
+	tc.constraints.Add(constraint)
+}
+
+// FindConstraint finds a constraint by variable name and type
+func (tc *TypeChecker) FindConstraint(varName string, constraintType ConstraintType) *Constraint {
+	if tc.constraints == nil {
+		return nil
+	}
+	return tc.constraints.Find(varName, constraintType)
+}
+
