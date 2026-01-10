@@ -601,5 +601,3 @@ compiler-go/
 
 - 设置集成测试框架
 - 复用 `compiler/tests/*.uya` 文件
-
-6. ⏭️ 按依赖顺序迁移其他模块（每个模块都遵循 TDD 流程）
