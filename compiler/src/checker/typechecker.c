@@ -68,6 +68,17 @@ static IRType get_array_element_type_from_ast(ASTNode *ast_type) {
     return IR_TYPE_VOID;
 }
 
+// 从AST类型节点提取元组元素数量信息
+static int get_tuple_element_count_from_ast(ASTNode *ast_type) {
+    if (!ast_type) return -1;
+    
+    if (ast_type->type == AST_TYPE_TUPLE) {
+        return ast_type->data.type_tuple.element_count;
+    }
+    
+    return -1;
+}
+
 // 符号创建
 Symbol *symbol_new(const char *name, IRType type, int is_mut, int is_const, 
                    int scope_level, int line, int column, const char *filename) {
@@ -102,6 +113,7 @@ Symbol *symbol_new(const char *name, IRType type, int is_mut, int is_const,
     sym->original_type_name = NULL;
     sym->array_size = -1;  // 默认非数组
     sym->array_element_type = IR_TYPE_VOID;
+    sym->tuple_element_count = -1;  // 默认非元组
     
     return sym;
 }
@@ -848,6 +860,11 @@ static int typecheck_var_decl(TypeChecker *checker, ASTNode *node) {
     if (var_type == IR_TYPE_ARRAY && node->data.var_decl.type) {
         sym->array_size = get_array_size_from_ast(node->data.var_decl.type);
         sym->array_element_type = get_array_element_type_from_ast(node->data.var_decl.type);
+    }
+    
+    // 提取元组信息（元组类型使用IR_TYPE_STRUCT作为占位符，所以需要检查AST类型）
+    if (node->data.var_decl.type && node->data.var_decl.type->type == AST_TYPE_TUPLE) {
+        sym->tuple_element_count = get_tuple_element_count_from_ast(node->data.var_decl.type);
     }
     
     // 检查初始化表达式
@@ -1891,12 +1908,53 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
                 }
                 if (is_numeric && strlen(field_name) > 0) {
                     // This is tuple field access (e.g., tuple.0, tuple.1)
-                    // For now, just check that the object exists
-                    // Full tuple type checking requires more complex type system support
-                    if (node->data.member_access.object) {
-                        return typecheck_node(checker, node->data.member_access.object);
+                    if (!node->data.member_access.object) {
+                        return 0;  // Invalid: no object for tuple field access
                     }
-                    return 0;  // Invalid: no object for tuple field access
+                    
+                    // Check the object first
+                    if (!typecheck_node(checker, node->data.member_access.object)) {
+                        return 0;
+                    }
+                    
+                    // Check tuple field index range
+                    // Convert field_name (numeric string) to integer index
+                    long long field_index = 0;
+                    for (int i = 0; field_name[i] != '\0'; i++) {
+                        field_index = field_index * 10 + (field_name[i] - '0');
+                    }
+                    
+                    // Try to get tuple element count from symbol table
+                    int tuple_element_count = -1;
+                    if (node->data.member_access.object->type == AST_IDENTIFIER) {
+                        Symbol *sym = typechecker_lookup_symbol(checker, 
+                            node->data.member_access.object->data.identifier.name);
+                        if (sym) {
+                            tuple_element_count = sym->tuple_element_count;
+                        }
+                    }
+                    
+                    // If we have tuple element count information, check index range
+                    if (tuple_element_count >= 0) {
+                        if (field_index < 0 || field_index >= tuple_element_count) {
+                            const char *obj_name = node->data.member_access.object->type == AST_IDENTIFIER ?
+                                node->data.member_access.object->data.identifier.name : "tuple";
+                            const char *filename = node->filename ? node->filename : checker->current_file;
+                            if (filename) {
+                                typechecker_add_error(checker,
+                                    "元组字段索引越界：索引 %lld 超出元组大小 %d (字段 '%s.%s' 在 %s:%d:%d)",
+                                    field_index, tuple_element_count, obj_name, field_name, filename, node->line, node->column);
+                            } else {
+                                typechecker_add_error(checker,
+                                    "元组字段索引越界：索引 %lld 超出元组大小 %d (字段 '%s.%s' 在行 %d:%d)",
+                                    field_index, tuple_element_count, obj_name, field_name, node->line, node->column);
+                            }
+                            return 0;
+                        }
+                    }
+                    // If we don't have tuple element count information, allow the access
+                    // (this handles cases where the type information is not available, e.g., complex expressions)
+                    return 1;
                 }
             }
             // For regular member access, check the object

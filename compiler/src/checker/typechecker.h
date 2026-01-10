@@ -24,6 +24,8 @@ typedef struct Symbol {
     // 数组类型信息
     int array_size;            // 数组大小（-1表示非数组或未知大小）
     IRType array_element_type; // 数组元素类型（仅当type为IR_TYPE_ARRAY时有效）
+    // 元组类型信息
+    int tuple_element_count;   // 元组元素数量（-1表示非元组或未知大小）
 } Symbol;
 
 // 函数签名信息
