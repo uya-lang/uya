@@ -21,8 +21,10 @@ func (p *Parser) parseDeclaration() (Node, error) {
 		return p.parseStructDecl()
 	} else if p.match(lexer.TOKEN_ERROR) {
 		return p.parseErrorDecl()
+	} else if p.match(lexer.TOKEN_ENUM) {
+		return p.parseEnumDecl()
 	}
-	// TODO: Add other declaration types (enum, extern, interface, impl, test, etc.)
+	// TODO: Add other declaration types (extern, interface, impl, test, etc.)
 	// For now, return error for unsupported declarations
 	return nil, fmt.Errorf("unsupported declaration type at %s:%d:%d",
 		p.currentToken.Filename, p.currentToken.Line, p.currentToken.Column)
@@ -275,6 +277,95 @@ func (p *Parser) parseStructDecl() (*StructDecl, error) {
 		},
 		Name:   name,
 		Fields: fields,
+	}, nil
+}
+
+// parseEnumDecl parses an enum declaration: enum Name [: UnderlyingType] { Variant1 [= value1], ... }
+// Note: Go version currently doesn't support UnderlyingType, so it's ignored
+func (p *Parser) parseEnumDecl() (*EnumDecl, error) {
+	if !p.match(lexer.TOKEN_ENUM) {
+		return nil, fmt.Errorf("expected 'enum' keyword")
+	}
+
+	line := p.currentToken.Line
+	col := p.currentToken.Column
+	filename := p.currentToken.Filename
+	p.consume() // consume 'enum'
+
+	// Expect enum name
+	if !p.match(lexer.TOKEN_IDENTIFIER) {
+		return nil, fmt.Errorf("expected enum name at %s:%d:%d", filename, line, col)
+	}
+
+	name := p.currentToken.Value
+	p.consume() // consume enum name
+
+	// TODO: Parse optional underlying type (: UnderlyingType)
+	// Go version AST doesn't have UnderlyingType field yet
+	if p.match(lexer.TOKEN_COLON) {
+		p.consume() // consume ':'
+		// Skip the type for now
+		if _, err := p.parseType(); err != nil {
+			return nil, fmt.Errorf("failed to parse underlying type: %w", err)
+		}
+	}
+
+	// Expect '{'
+	if _, err := p.expect(lexer.TOKEN_LEFT_BRACE); err != nil {
+		return nil, fmt.Errorf("expected '{' after enum name: %w", err)
+	}
+
+	// Parse variant list
+	variants := []EnumVariant{}
+	for p.currentToken != nil && !p.match(lexer.TOKEN_RIGHT_BRACE) {
+		// Expect variant name
+		if !p.match(lexer.TOKEN_IDENTIFIER) {
+			return nil, fmt.Errorf("expected variant name at %s:%d:%d",
+				p.currentToken.Filename, p.currentToken.Line, p.currentToken.Column)
+		}
+
+		variantName := p.currentToken.Value
+		variantValue := "" // Default: no explicit value
+		p.consume() // consume variant name
+
+		// Parse optional explicit value (= NUM)
+		if p.match(lexer.TOKEN_ASSIGN) {
+			p.consume() // consume '='
+			if !p.match(lexer.TOKEN_NUMBER) {
+				return nil, fmt.Errorf("expected number value after '=' at %s:%d:%d",
+					p.currentToken.Filename, p.currentToken.Line, p.currentToken.Column)
+			}
+			variantValue = p.currentToken.Value
+			p.consume() // consume number value
+		}
+
+		variants = append(variants, EnumVariant{
+			Name:  variantName,
+			Value: variantValue,
+		})
+
+		// Check for comma (optional)
+		if p.match(lexer.TOKEN_COMMA) {
+			p.consume() // consume ','
+		} else if !p.match(lexer.TOKEN_RIGHT_BRACE) {
+			return nil, fmt.Errorf("expected ',' or '}' after variant at %s:%d:%d",
+				p.currentToken.Filename, p.currentToken.Line, p.currentToken.Column)
+		}
+	}
+
+	// Expect '}'
+	if _, err := p.expect(lexer.TOKEN_RIGHT_BRACE); err != nil {
+		return nil, fmt.Errorf("expected '}' to close enum: %w", err)
+	}
+
+	return &EnumDecl{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		Name:     name,
+		Variants: variants,
 	}, nil
 }
 
