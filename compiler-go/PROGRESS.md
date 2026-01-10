@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**最后更新**: 2026-01-09 (添加 enum 声明解析)
+**最后更新**: 2026-01-09 (删除 impl，添加 extern 声明解析)
 
 ### 已完成模块
 
@@ -38,8 +38,8 @@
   - ✅ parser_test.go - Parser 基础测试
   - ✅ parser_type.go - 类型解析基础（NamedType, PointerType, ErrorUnionType, AtomicType, ArrayType）
   - ✅ parser_stmt.go - Block 解析基础（空块支持，完整语句解析待实现）
-  - ✅ parser_decl.go - 声明解析基础（parseDeclaration, parseFuncDecl, parseParam, parseErrorDecl, parseStructDecl, parseEnumDecl）
-  - ⏭️ parser_decl.go - 其他声明类型（extern, interface, impl, test）
+  - ✅ parser_decl.go - 声明解析基础（parseDeclaration, parseFuncDecl, parseParam, parseErrorDecl, parseStructDecl, parseEnumDecl, parseExternDecl）
+  - ⏭️ parser_decl.go - 其他声明类型（interface, test）
   - ⏭️ parser_expr.go - 表达式解析
   - ⏭️ parser_stmt.go - 完整语句解析（parseStatement 及各种语句类型）
   - ⏭️ parser_match.go - match 表达式解析
@@ -109,7 +109,8 @@
 7. ✅ 实现 `parser_decl.go` - 函数声明解析（parseFuncDecl, parseParam）
 8. ✅ 完善 `parser_decl.go` - 添加 error 和 struct 声明解析
 9. ✅ 完善 `parser_decl.go` - 添加 enum 声明解析
-10. 完善 `parser_decl.go` - 添加其他声明类型（extern, interface, impl, test 等）
+10. ✅ 完善 `parser_decl.go` - 添加 extern 声明解析
+11. 完善 `parser_decl.go` - 添加其他声明类型（interface, test 等）
 9. 实现 `parser_stmt.go` - 完整语句解析（parseStatement 及各种语句类型）
 
 ## 重要说明

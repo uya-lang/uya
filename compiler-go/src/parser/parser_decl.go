@@ -13,7 +13,6 @@ func (p *Parser) parseDeclaration() (Node, error) {
 	}
 
 	// TODO: Parse test blocks
-	// TODO: Parse interface implementations
 
 	if p.match(lexer.TOKEN_FN) {
 		return p.parseFuncDecl()
@@ -23,8 +22,10 @@ func (p *Parser) parseDeclaration() (Node, error) {
 		return p.parseErrorDecl()
 	} else if p.match(lexer.TOKEN_ENUM) {
 		return p.parseEnumDecl()
+	} else if p.match(lexer.TOKEN_EXTERN) {
+		return p.parseExternDecl()
 	}
-	// TODO: Add other declaration types (extern, interface, impl, test, etc.)
+	// TODO: Add other declaration types (interface, test, etc.)
 	// For now, return error for unsupported declarations
 	return nil, fmt.Errorf("unsupported declaration type at %s:%d:%d",
 		p.currentToken.Filename, p.currentToken.Line, p.currentToken.Column)
@@ -366,6 +367,135 @@ func (p *Parser) parseEnumDecl() (*EnumDecl, error) {
 		},
 		Name:     name,
 		Variants: variants,
+	}, nil
+}
+
+// parseExternDecl parses an extern declaration: extern fn name(params) -> return_type { body } or extern fn name(params) -> return_type;
+// Note: extern declarations may have a body (exported function) or just a semicolon (external function declaration)
+func (p *Parser) parseExternDecl() (*ExternDecl, error) {
+	if !p.match(lexer.TOKEN_EXTERN) {
+		return nil, fmt.Errorf("expected 'extern' keyword")
+	}
+
+	line := p.currentToken.Line
+	col := p.currentToken.Column
+	filename := p.currentToken.Filename
+	p.consume() // consume 'extern'
+
+	// Expect 'fn' keyword (extern fn name(...) type)
+	if !p.match(lexer.TOKEN_FN) {
+		return nil, fmt.Errorf("expected 'fn' keyword after 'extern' at %s:%d:%d", filename, line, col)
+	}
+	p.consume() // consume 'fn'
+
+	// Expect function name
+	if !p.match(lexer.TOKEN_IDENTIFIER) {
+		return nil, fmt.Errorf("expected function name at %s:%d:%d", filename, line, col)
+	}
+
+	name := p.currentToken.Value
+	p.consume() // consume function name
+
+	// Expect '('
+	if _, err := p.expect(lexer.TOKEN_LEFT_PAREN); err != nil {
+		return nil, fmt.Errorf("expected '(' after function name: %w", err)
+	}
+
+	// Parse parameter list
+	params := []*Param{}
+	if !p.match(lexer.TOKEN_RIGHT_PAREN) {
+		for {
+			param, err := p.parseParam()
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse parameter: %w", err)
+			}
+			params = append(params, param)
+
+			if p.match(lexer.TOKEN_COMMA) {
+				p.consume() // consume ','
+			} else {
+				break
+			}
+		}
+	}
+
+	// Expect ')'
+	if _, err := p.expect(lexer.TOKEN_RIGHT_PAREN); err != nil {
+		return nil, fmt.Errorf("expected ')' after parameter list: %w", err)
+	}
+
+	// Parse optional return type
+	var returnType Type
+	if p.match(lexer.TOKEN_ARROW) {
+		p.consume() // consume '->'
+		rt, err := p.parseType()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse return type: %w", err)
+		}
+		returnType = rt
+	} else if p.currentToken != nil &&
+		(p.match(lexer.TOKEN_IDENTIFIER) ||
+			p.match(lexer.TOKEN_EXCLAMATION) ||
+			p.match(lexer.TOKEN_ATOMIC) ||
+			p.match(lexer.TOKEN_ASTERISK)) {
+		// Try to parse as a type
+		rt, err := p.parseType()
+		if err == nil {
+			returnType = rt
+		}
+	}
+
+	// Default to void if no return type specified
+	if returnType == nil {
+		returnType = &NamedType{
+			NodeBase: NodeBase{
+				Line:     line,
+				Column:   col,
+				Filename: filename,
+			},
+			Name: "void",
+		}
+	}
+
+	// Parse function body (optional for extern)
+	var body *Block
+	if p.match(lexer.TOKEN_LEFT_BRACE) {
+		// Has function body (exported function)
+		var err error
+		body, err = p.parseBlock()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse extern function body: %w", err)
+		}
+	} else if p.match(lexer.TOKEN_SEMICOLON) {
+		// No function body, just declaration
+		p.consume() // consume ';'
+		body = nil
+	} else {
+		return nil, fmt.Errorf("expected '{' or ';' after extern function declaration at %s:%d:%d",
+			filename, line, col)
+	}
+
+	fnDecl := &FuncDecl{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		Name:       name,
+		Params:     params,
+		ReturnType: returnType,
+		Body:       body,
+		IsExtern:   true,
+	}
+
+	return &ExternDecl{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		Name: name,
+		Decl: fnDecl,
 	}, nil
 }
 
