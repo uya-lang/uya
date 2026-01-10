@@ -131,3 +131,42 @@ func (ss *ScopeStack) CurrentScope() int {
 	return ss.currentLevel
 }
 
+// FunctionSignature represents a function signature
+type FunctionSignature struct {
+	Name        string
+	ParamTypes  []Type
+	ReturnType  Type
+	IsExtern    bool
+	HasVarargs  bool
+	Line        int
+	Column      int
+	Filename    string
+}
+
+// FunctionTable represents a function table
+type FunctionTable struct {
+	functions []*FunctionSignature
+}
+
+// NewFunctionTable creates a new function table
+func NewFunctionTable() *FunctionTable {
+	return &FunctionTable{
+		functions: make([]*FunctionSignature, 0, 32),
+	}
+}
+
+// AddFunction adds a function signature to the function table
+func (ft *FunctionTable) AddFunction(sig *FunctionSignature) {
+	ft.functions = append(ft.functions, sig)
+}
+
+// LookupFunction looks up a function by name
+func (ft *FunctionTable) LookupFunction(name string) *FunctionSignature {
+	for _, fn := range ft.functions {
+		if fn.Name == name {
+			return fn
+		}
+	}
+	return nil
+}
+
