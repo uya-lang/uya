@@ -12,7 +12,14 @@ func (p *Parser) parseDeclaration() (Node, error) {
 		return nil, fmt.Errorf("unexpected EOF")
 	}
 
-	// TODO: Parse test blocks
+	// Try to parse test block first (test is an identifier, not a keyword)
+	if p.match(lexer.TOKEN_IDENTIFIER) && p.currentToken.Value == "test" {
+		testBlock, err := p.parseTestBlock()
+		if err == nil {
+			return testBlock, nil
+		}
+		// If parsing fails, continue to try other declarations
+	}
 
 	if p.match(lexer.TOKEN_FN) {
 		return p.parseFuncDecl()
@@ -24,8 +31,9 @@ func (p *Parser) parseDeclaration() (Node, error) {
 		return p.parseEnumDecl()
 	} else if p.match(lexer.TOKEN_EXTERN) {
 		return p.parseExternDecl()
+	} else if p.match(lexer.TOKEN_INTERFACE) {
+		return p.parseInterfaceDecl()
 	}
-	// TODO: Add other declaration types (interface, test, etc.)
 	// For now, return error for unsupported declarations
 	return nil, fmt.Errorf("unsupported declaration type at %s:%d:%d",
 		p.currentToken.Filename, p.currentToken.Line, p.currentToken.Column)
@@ -496,6 +504,217 @@ func (p *Parser) parseExternDecl() (*ExternDecl, error) {
 		},
 		Name: name,
 		Decl: fnDecl,
+	}, nil
+}
+
+// parseInterfaceDecl parses an interface declaration: interface Name { fn method(params) return_type; ... }
+func (p *Parser) parseInterfaceDecl() (*InterfaceDecl, error) {
+	if !p.match(lexer.TOKEN_INTERFACE) {
+		return nil, fmt.Errorf("expected 'interface' keyword")
+	}
+
+	line := p.currentToken.Line
+	col := p.currentToken.Column
+	filename := p.currentToken.Filename
+	p.consume() // consume 'interface'
+
+	// Expect interface name
+	if !p.match(lexer.TOKEN_IDENTIFIER) {
+		return nil, fmt.Errorf("expected interface name at %s:%d:%d", filename, line, col)
+	}
+
+	name := p.currentToken.Value
+	p.consume() // consume interface name
+
+	// Expect '{'
+	if _, err := p.expect(lexer.TOKEN_LEFT_BRACE); err != nil {
+		return nil, fmt.Errorf("expected '{' after interface name: %w", err)
+	}
+
+	// Parse method signatures and interface compositions
+	methods := []*FuncDecl{}
+	for p.currentToken != nil && !p.match(lexer.TOKEN_RIGHT_BRACE) {
+		if p.match(lexer.TOKEN_FN) {
+			// Parse method signature: fn method(params) return_type;
+			method, err := p.parseInterfaceMethodSig()
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse interface method signature: %w", err)
+			}
+			methods = append(methods, method)
+		} else if p.match(lexer.TOKEN_IDENTIFIER) {
+			// Parse interface composition: InterfaceName;
+			// Interface composition is not fully supported in AST yet,
+			// so we'll skip it for now (this is a TODO for the AST structure)
+			_ = p.currentToken.Value // interface name (unused for now)
+			p.consume()               // consume interface name
+
+			// Expect ';'
+			if _, err := p.expect(lexer.TOKEN_SEMICOLON); err != nil {
+				return nil, fmt.Errorf("expected ';' after interface composition name: %w", err)
+			}
+
+			// Continue parsing (interface composition is skipped for now)
+		} else {
+			return nil, fmt.Errorf("expected method signature or interface composition at %s:%d:%d",
+				p.currentToken.Filename, p.currentToken.Line, p.currentToken.Column)
+		}
+	}
+
+	// Expect '}'
+	if _, err := p.expect(lexer.TOKEN_RIGHT_BRACE); err != nil {
+		return nil, fmt.Errorf("expected '}' to close interface: %w", err)
+	}
+
+	if len(methods) == 0 {
+		return nil, fmt.Errorf("interface must have at least one method signature or interface composition at %s:%d:%d",
+			filename, line, col)
+	}
+
+	return &InterfaceDecl{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		Name:    name,
+		Methods: methods,
+	}, nil
+}
+
+// parseInterfaceMethodSig parses an interface method signature: fn method(params) return_type;
+// This is similar to parseFuncDecl but ends with semicolon instead of function body
+func (p *Parser) parseInterfaceMethodSig() (*FuncDecl, error) {
+	if !p.match(lexer.TOKEN_FN) {
+		return nil, fmt.Errorf("expected 'fn' keyword")
+	}
+
+	line := p.currentToken.Line
+	col := p.currentToken.Column
+	filename := p.currentToken.Filename
+	p.consume() // consume 'fn'
+
+	// Expect method name
+	if !p.match(lexer.TOKEN_IDENTIFIER) {
+		return nil, fmt.Errorf("expected method name at %s:%d:%d", filename, line, col)
+	}
+
+	name := p.currentToken.Value
+	p.consume() // consume method name
+
+	// Expect '('
+	if _, err := p.expect(lexer.TOKEN_LEFT_PAREN); err != nil {
+		return nil, fmt.Errorf("expected '(' after method name: %w", err)
+	}
+
+	// Parse parameter list
+	params := []*Param{}
+	if !p.match(lexer.TOKEN_RIGHT_PAREN) {
+		for {
+			param, err := p.parseParam()
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse parameter: %w", err)
+			}
+			params = append(params, param)
+
+			if p.match(lexer.TOKEN_COMMA) {
+				p.consume() // consume ','
+			} else {
+				break
+			}
+		}
+	}
+
+	// Expect ')'
+	if _, err := p.expect(lexer.TOKEN_RIGHT_PAREN); err != nil {
+		return nil, fmt.Errorf("expected ')' after parameter list: %w", err)
+	}
+
+	// Parse optional return type
+	var returnType Type
+	if p.match(lexer.TOKEN_ARROW) {
+		p.consume() // consume '->'
+		rt, err := p.parseType()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse return type: %w", err)
+		}
+		returnType = rt
+	} else if p.currentToken != nil &&
+		(p.match(lexer.TOKEN_IDENTIFIER) ||
+			p.match(lexer.TOKEN_EXCLAMATION) ||
+			p.match(lexer.TOKEN_ATOMIC) ||
+			p.match(lexer.TOKEN_ASTERISK)) {
+		// Try to parse as a type
+		rt, err := p.parseType()
+		if err == nil {
+			returnType = rt
+		}
+	}
+
+	// Default to void if no return type specified
+	if returnType == nil {
+		returnType = &NamedType{
+			NodeBase: NodeBase{
+				Line:     line,
+				Column:   col,
+				Filename: filename,
+			},
+			Name: "void",
+		}
+	}
+
+	// Expect ';' (interface methods have no body, just a semicolon)
+	if _, err := p.expect(lexer.TOKEN_SEMICOLON); err != nil {
+		return nil, fmt.Errorf("expected ';' after method signature: %w", err)
+	}
+
+	return &FuncDecl{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		Name:       name,
+		Params:     params,
+		ReturnType: returnType,
+		Body:       nil, // Interface methods have no body
+		IsExtern:   false,
+	}, nil
+}
+
+// parseTestBlock parses a test block: test "description" { ... }
+func (p *Parser) parseTestBlock() (*TestBlock, error) {
+	// Check if current token is identifier "test"
+	if p.currentToken == nil || !p.match(lexer.TOKEN_IDENTIFIER) || p.currentToken.Value != "test" {
+		return nil, fmt.Errorf("expected 'test' identifier")
+	}
+
+	line := p.currentToken.Line
+	col := p.currentToken.Column
+	filename := p.currentToken.Filename
+	p.consume() // consume 'test'
+
+	// Expect string literal (test description)
+	if !p.match(lexer.TOKEN_STRING) {
+		return nil, fmt.Errorf("expected string literal (test description) at %s:%d:%d", filename, line, col)
+	}
+
+	name := p.currentToken.Value
+	p.consume() // consume string literal
+
+	// Parse test body (code block)
+	body, err := p.parseBlock()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse test block body: %w", err)
+	}
+
+	return &TestBlock{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		Name: name,
+		Body: body,
 	}, nil
 }
 
