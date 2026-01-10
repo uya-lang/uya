@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/uya/compiler-go/src/lexer"
 )
@@ -527,8 +528,9 @@ func (p *Parser) parsePattern() (*Pattern, error) {
 			Value: value,
 		}
 	} else if p.match(lexer.TOKEN_LEFT_PAREN) {
-		// Parse tuple literal (for now, use expression parser, TODO: implement parseTupleLiteral)
-		patternExpr, err = p.parseExpression()
+		// Parse tuple pattern: (pattern1, pattern2, ...)
+		// In patterns, parentheses always mean tuple pattern
+		patternExpr, err = p.parseTupleLiteral()
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse tuple pattern: %w", err)
 		}
@@ -687,20 +689,73 @@ func (p *Parser) parsePrimary() (Expr, error) {
 		}, nil
 	}
 
-	// Handle parenthesized expressions: (expr)
+	// Handle parenthesized expressions: (expr) or tuple literals: (expr1, expr2, ...)
 	if p.match(lexer.TOKEN_LEFT_PAREN) {
+		tupleLine := p.currentToken.Line
+		tupleCol := p.currentToken.Column
 		p.consume() // consume '('
-		expr, err := p.parseExpression()
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse expression in parentheses: %w", err)
+
+		// Check for empty tuple: ()
+		if p.match(lexer.TOKEN_RIGHT_PAREN) {
+			p.consume() // consume ')'
+			return &TupleLiteral{
+				NodeBase: NodeBase{
+					Line:     tupleLine,
+					Column:   tupleCol,
+					Filename: filename,
+				},
+				Elements: []Expr{},
+			}, nil
 		}
 
-		// Expect ')'
+		// Parse first expression
+		firstExpr, err := p.parseExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse expression in parentheses or tuple: %w", err)
+		}
+
+		// Check if there's a comma - if yes, it's a tuple literal
+		if p.match(lexer.TOKEN_COMMA) {
+			// Parse tuple literal: (expr1, expr2, ...)
+			elements := []Expr{firstExpr}
+			p.consume() // consume ','
+
+			// Parse remaining elements
+			for !p.match(lexer.TOKEN_RIGHT_PAREN) {
+				elem, err := p.parseExpression()
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse tuple element: %w", err)
+				}
+				elements = append(elements, elem)
+
+				if p.match(lexer.TOKEN_COMMA) {
+					p.consume() // consume ','
+				} else {
+					break
+				}
+			}
+
+			// Expect ')'
+			if _, err := p.expect(lexer.TOKEN_RIGHT_PAREN); err != nil {
+				return nil, fmt.Errorf("expected ')' after tuple elements: %w", err)
+			}
+
+			return &TupleLiteral{
+				NodeBase: NodeBase{
+					Line:     tupleLine,
+					Column:   tupleCol,
+					Filename: filename,
+				},
+				Elements: elements,
+			}, nil
+		}
+
+		// No comma after first expression - it's a parenthesized expression: (expr)
 		if _, err := p.expect(lexer.TOKEN_RIGHT_PAREN); err != nil {
 			return nil, fmt.Errorf("expected ')' after expression: %w", err)
 		}
 
-		return expr, nil
+		return firstExpr, nil
 	}
 
 	return nil, fmt.Errorf("unexpected token in expression at %s:%d:%d: %v",
@@ -759,6 +814,54 @@ func (p *Parser) parseCallExpr(calleeName string, line, col int, filename string
 		},
 		Callee: callee,
 		Args:   args,
+	}, nil
+}
+
+// parseTupleLiteral parses a tuple literal: (expr1, expr2, ...)
+// This function always parses as a tuple literal (even with single element or empty)
+// Caller should use parsePrimary for expressions that need to distinguish between
+// parenthesized expressions and tuple literals.
+func (p *Parser) parseTupleLiteral() (*TupleLiteral, error) {
+	if !p.match(lexer.TOKEN_LEFT_PAREN) {
+		return nil, fmt.Errorf("expected '(' for tuple literal")
+	}
+
+	tupleLine := p.currentToken.Line
+	tupleCol := p.currentToken.Column
+	filename := p.currentToken.Filename
+	p.consume() // consume '('
+
+	elements := []Expr{}
+
+	// Parse elements if not empty tuple
+	if !p.match(lexer.TOKEN_RIGHT_PAREN) {
+		for {
+			elem, err := p.parseExpression()
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse tuple element: %w", err)
+			}
+			elements = append(elements, elem)
+
+			if p.match(lexer.TOKEN_COMMA) {
+				p.consume() // consume ','
+			} else {
+				break
+			}
+		}
+	}
+
+	// Expect ')'
+	if _, err := p.expect(lexer.TOKEN_RIGHT_PAREN); err != nil {
+		return nil, fmt.Errorf("expected ')' after tuple elements: %w", err)
+	}
+
+	return &TupleLiteral{
+		NodeBase: NodeBase{
+			Line:     tupleLine,
+			Column:   tupleCol,
+			Filename: filename,
+		},
+		Elements: elements,
 	}, nil
 }
 

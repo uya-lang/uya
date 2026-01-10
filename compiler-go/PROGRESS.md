@@ -43,9 +43,9 @@
   - ✅ parser_expr.go - 表达式解析扩展（一元运算符 &、-、!、try，后缀运算符：成员访问 .、下标访问 []、函数调用 ()）
   - ✅ parser_expr.go - 二元运算符解析基础（逻辑运算符 &&、||，算术和比较运算符：+、-、*、/、%、==、!=、<、>、<=、>=、&、|、^、<<、>>，饱和和包装运算符）
   - ✅ parser_expr.go - catch 表达式解析（expr catch |err| { ... } 或 expr catch { ... }）
-  - ✅ parser_expr.go - match 表达式解析基础（match expr { pattern => body, ... }，支持 else、标识符、数字、字符串模式，tuple 模式待完善）
-  - ⏭️ parser_expr.go - 完整表达式解析（字符串插值、tuple literal 等）
-  - ⏭️ parser_string_interp.go - 字符串插值解析
+  - ✅ parser_expr.go - match 表达式解析基础（match expr { pattern => body, ... }，支持 else、标识符、数字、字符串模式、tuple 模式）
+  - ✅ parser_expr.go - tuple literal 解析（parseTupleLiteral 函数，在 parsePrimary 中区分括号表达式和 tuple literal）
+  - ✅ parser_string_interp.go - 字符串插值解析
 
 - ⏭️ **阶段4：Checker 模块**
   - ⏭️ checker.go - TypeChecker 核心
@@ -98,7 +98,7 @@
 
 ## 下一步行动
 
-继续实现 **阶段3：Parser 模块**，下一步是完善 `parser_decl.go` - 添加其他声明类型，或实现 `parser_stmt.go` - 完整语句解析。
+继续实现 **阶段3：Parser 模块**，Parser 模块的表达式解析已基本完成（包括 tuple literal 解析）。下一步可以开始实现阶段4：Checker 模块，或继续完善 Parser 的其他功能。
 
 ### 具体步骤
 
@@ -117,7 +117,7 @@
 13. ✅ 实现 `parser_stmt.go` - 语句解析基础框架（parseStatement, parseBlock, defer/errdefer/break/continue）
 14. ✅ 实现 `parser_expr.go` - 基础表达式解析（标识符、字面量、函数调用、括号表达式）
 15. ✅ 实现 `parser_stmt.go` - 完整语句解析（parseReturnStmt, parseVarDecl, parseIfStmt, parseWhileStmt, parseForStmt）
-16. ⏭️ 实现 `parser_expr.go` - 完整表达式解析（二元运算符、一元运算符、成员访问、下标访问等）
+16. ✅ 实现 `parser_expr.go` - tuple literal 解析（parseTupleLiteral 函数，在 parsePrimary 中区分括号表达式和 tuple literal，在 parsePattern 中支持 tuple pattern）
 
 ## 重要说明
 
