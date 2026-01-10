@@ -123,7 +123,7 @@ func (tc *TypeChecker) typecheckBinaryExpr(expr *parser.BinaryExpr) (Type, bool)
 	}
 
 	// Check right operand
-	rightType, ok := tc.typecheckExpression(expr.Right)
+	_, ok = tc.typecheckExpression(expr.Right)
 	if !ok {
 		return TypeVoid, false
 	}
@@ -324,10 +324,12 @@ func (tc *TypeChecker) typecheckMatchExpr(expr *parser.MatchExpr) (Type, bool) {
 		return TypeVoid, false
 	}
 
-	// Check the value expression
-	_, ok := tc.typecheckExpression(expr.Value)
-	if !ok {
-		return TypeVoid, false
+	// Check the expression to match
+	if expr.Expr != nil {
+		_, ok := tc.typecheckExpression(expr.Expr)
+		if !ok {
+			return TypeVoid, false
+		}
 	}
 
 	// TODO: Implement match expression checking

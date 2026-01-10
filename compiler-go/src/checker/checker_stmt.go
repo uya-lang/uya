@@ -1,7 +1,6 @@
 package checker
 
 import (
-	"github.com/uya/compiler-go/src/lexer"
 	"github.com/uya/compiler-go/src/parser"
 )
 

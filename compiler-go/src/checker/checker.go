@@ -130,7 +130,7 @@ func (tc *TypeChecker) AddSymbol(symbol *Symbol) bool {
 	}
 
 	// Check for duplicate symbol in the same scope
-	currentScope := tc.scopes.CurrentScope()
+	_ = tc.scopes.CurrentScope() // Mark as used (may be needed for future implementation)
 	for _, sym := range tc.symbolTable.symbols {
 		if sym.ScopeLevel == symbol.ScopeLevel && sym.Name == symbol.Name {
 			tc.AddError("变量 '%s' 在同一作用域内重复定义 (行 %d:%d, 已有定义在行 %d:%d)",

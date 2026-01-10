@@ -83,7 +83,7 @@ func evalBinaryExpr(expr *parser.BinaryExpr, result *ConstValue) bool {
 		return false
 	}
 
-	op := expr.Op
+	op := lexer.TokenType(expr.Op)
 
 	// Integer operations
 	if leftVal.Type == ConstValInt && rightVal.Type == ConstValInt {
@@ -241,7 +241,7 @@ func evalUnaryExpr(expr *parser.UnaryExpr, result *ConstValue) bool {
 		return false
 	}
 
-	op := expr.Op
+	op := lexer.TokenType(expr.Op)
 
 	switch op {
 	case lexer.TOKEN_MINUS:
