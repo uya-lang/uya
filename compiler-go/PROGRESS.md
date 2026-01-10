@@ -56,9 +56,9 @@
   - ✅ checker_decl.go - 声明检查（VarDecl、FuncDecl、ExternDecl）
   - ✅ checker_expr.go - 表达式检查基础实现（标识符、字面量、函数调用等）
   - ✅ checker_stmt.go - 语句检查（Block、If、While、For、Return、Assign、Defer等）
+  - ✅ checker_test.go - Checker 核心测试
   - ⏭️ constraints.go - 约束系统
   - ⏭️ const_eval.go - 常量求值
-  - ⏭️ checker_test.go - Checker 核心测试
 
 - ⏭️ **阶段5：IR 模块**
   - ⏭️ ir.go - IR 接口和基础
