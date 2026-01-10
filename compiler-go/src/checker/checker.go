@@ -125,3 +125,67 @@ func (tc *TypeChecker) Check(program *parser.Program) bool {
 	return tc.ErrorCount() == 0
 }
 
+// AddSymbol adds a symbol to the symbol table with duplicate checking
+func (tc *TypeChecker) AddSymbol(symbol *Symbol) bool {
+	if symbol == nil {
+		return false
+	}
+
+	// Check for duplicate symbol in the same scope
+	currentScope := tc.scopes.CurrentScope()
+	for _, sym := range tc.symbolTable.symbols {
+		if sym.ScopeLevel == symbol.ScopeLevel && sym.Name == symbol.Name {
+			tc.AddError("变量 '%s' 在同一作用域内重复定义 (行 %d:%d, 已有定义在行 %d:%d)",
+				symbol.Name, symbol.Line, symbol.Column,
+				sym.Line, sym.Column)
+			return false
+		}
+	}
+
+	// Add symbol to table
+	tc.symbolTable.AddSymbol(symbol)
+	return true
+}
+
+// LookupSymbol looks up a symbol by name in the current scope and parent scopes
+func (tc *TypeChecker) LookupSymbol(name string) *Symbol {
+	if name == "" {
+		return nil
+	}
+	currentScope := tc.scopes.CurrentScope()
+	return tc.symbolTable.LookupSymbol(name, currentScope)
+}
+
+// EnterScope enters a new scope
+func (tc *TypeChecker) EnterScope() {
+	tc.scopes.EnterScope()
+}
+
+// ExitScope exits the current scope and removes symbols in that scope
+func (tc *TypeChecker) ExitScope() {
+	currentScope := tc.scopes.CurrentScope()
+	tc.symbolTable.RemoveSymbolsInScope(currentScope)
+	tc.scopes.ExitScope()
+}
+
+// CurrentScope returns the current scope level
+func (tc *TypeChecker) CurrentScope() int {
+	return tc.scopes.CurrentScope()
+}
+
+// LookupFunction looks up a function by name
+func (tc *TypeChecker) LookupFunction(name string) *FunctionSignature {
+	if name == "" {
+		return nil
+	}
+	return tc.functionTable.LookupFunction(name)
+}
+
+// AddFunction adds a function signature to the function table
+func (tc *TypeChecker) AddFunction(sig *FunctionSignature) {
+	if sig == nil {
+		return
+	}
+	tc.functionTable.AddFunction(sig)
+}
+
