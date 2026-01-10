@@ -124,10 +124,5 @@ func (p *Parser) Parse() (*Program, error) {
 	return program, nil
 }
 
-// parseDeclaration parses a top-level declaration
-// This is a placeholder that will be implemented in parser_decl.go
-func (p *Parser) parseDeclaration() (Node, error) {
-	// TODO: Implement in parser_decl.go
-	return nil, fmt.Errorf("parseDeclaration not yet implemented")
-}
+// parseDeclaration is implemented in parser_decl.go
 

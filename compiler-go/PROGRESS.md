@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**最后更新**: 2026-01-09 (parser.go 核心完成)
+**最后更新**: 2026-01-09 (parser.go 核心、类型解析基础、函数声明解析完成)
 
 ### 已完成模块
 
@@ -36,10 +36,12 @@
 - ⏭️ **阶段3：Parser 模块**
   - ✅ parser.go - Parser 核心（基础结构、NewParser、Parse、peek/consume/match/expect）
   - ✅ parser_test.go - Parser 基础测试
-  - ⏭️ parser_decl.go - 声明解析
+  - ✅ parser_type.go - 类型解析基础（NamedType, PointerType, ErrorUnionType, AtomicType, ArrayType）
+  - ✅ parser_stmt.go - Block 解析基础（空块支持，完整语句解析待实现）
+  - ✅ parser_decl.go - 声明解析基础（parseDeclaration, parseFuncDecl, parseParam）
+  - ⏭️ parser_decl.go - 其他声明类型（struct, enum, error, extern, interface, impl, test）
   - ⏭️ parser_expr.go - 表达式解析
-  - ⏭️ parser_stmt.go - 语句解析
-  - ⏭️ parser_type.go - 类型解析
+  - ⏭️ parser_stmt.go - 完整语句解析（parseStatement 及各种语句类型）
   - ⏭️ parser_match.go - match 表达式解析
   - ⏭️ parser_string_interp.go - 字符串插值解析
 
@@ -94,7 +96,7 @@
 
 ## 下一步行动
 
-继续实现 **阶段3：Parser 模块**，下一步是实现 `parser_decl.go` - 声明解析。
+继续实现 **阶段3：Parser 模块**，下一步是完善 `parser_decl.go` - 添加其他声明类型，或实现 `parser_stmt.go` - 完整语句解析。
 
 ### 具体步骤
 
@@ -102,7 +104,11 @@
 2. ✅ 实现基础解析函数（expect, match, consume）
 3. ✅ 实现 Parse 主函数
 4. ✅ 创建测试文件 `parser_test.go`
-5. 按照 TDD 流程实现 `parser_decl.go` - 声明解析（函数声明、变量声明、结构体声明等）
+5. ✅ 实现 `parser_type.go` - 类型解析基础
+6. ✅ 实现 `parser_stmt.go` - Block 解析基础
+7. ✅ 实现 `parser_decl.go` - 函数声明解析（parseFuncDecl, parseParam）
+8. 完善 `parser_decl.go` - 添加其他声明类型（struct, enum, error, extern 等）
+9. 实现 `parser_stmt.go` - 完整语句解析（parseStatement 及各种语句类型）
 
 ## 重要说明
 
