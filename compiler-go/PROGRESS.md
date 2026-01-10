@@ -61,9 +61,9 @@
   - ✅ const_eval.go - 常量求值（编译时常量计算）
 
 - ⏭️ **阶段5：IR 模块**
+  - ✅ ir_type.go - IR 类型和操作符定义
+  - ✅ ir_inst.go - IR 指令类型和基础接口
   - ⏭️ ir.go - IR 接口和基础
-  - ⏭️ ir_inst.go - 指令定义
-  - ⏭️ ir_type.go - 类型定义
   - ⏭️ generator.go - IRGenerator 核心
   - ⏭️ generator_expr.go - 表达式生成
   - ⏭️ generator_stmt.go - 语句生成
