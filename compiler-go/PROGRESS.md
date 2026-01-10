@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**最后更新**: 2026-01-09 (实现所有语句解析，包括 for 语句)
+**最后更新**: 2026-01-09 (完成 CodeGen 模块核心实现：generator.go, type.go, value.go, inst.go基础版本)
 
 ### 已完成模块
 
@@ -76,16 +76,20 @@
   - ✅ inst_if.go - if 语句指令结构体
   - ✅ inst_while.go - while 循环指令结构体
   - ✅ generator.go - IRGenerator 核心框架
-  - ⏭️ generator_expr.go - 表达式生成
-  - ⏭️ generator_stmt.go - 语句生成
-  - ⏭️ generator_func.go - 函数生成
-  - ⏭️ ir_test.go - IR 测试
+  - ✅ generator_expr.go - 表达式生成（基础表达式类型已实现，复杂表达式类型标记为TODO）
+  - ✅ generator_stmt.go - 语句生成（基础语句类型已实现，break/continue标记为TODO）
+  - ✅ generator_func.go - 函数生成（GenerateFunction函数，包括参数和函数体转换）
+  - ✅ inst_defer.go - defer语句指令结构体
+  - ✅ inst_errdefer.go - errdefer语句指令结构体
+  - ✅ inst_for.go - for循环指令结构体
+  - ✅ inst_func_def.go - 函数定义指令结构体
+  - ✅ ir_test.go - IR 模块基础测试（Generator创建、表达式生成、语句生成、函数生成、类型转换等）
 
 - ⏭️ **阶段6：CodeGen 模块**
-  - ⏭️ generator.go - CodeGenerator 核心
-  - ⏭️ inst.go - 指令生成
-  - ⏭️ type.go - 类型生成
-  - ⏭️ value.go - 值生成
+  - ✅ generator.go - CodeGenerator 核心（基础框架已实现）
+  - ✅ type.go - 类型生成（IR类型到C类型转换，包括基础类型和用户定义类型）
+  - ✅ value.go - 值生成（基础版本，支持constant, var, binary op, unary op, call）
+  - ✅ inst.go - 指令生成基础版本（支持var decl, assign, return, if, while, for, block, func def, call, defer, errdefer）
   - ⏭️ error.go - 错误处理生成
   - ⏭️ main.go - 主函数生成
   - ⏭️ generator_test.go - CodeGen 测试
@@ -111,9 +115,17 @@
 
 ## 下一步行动
 
-继续实现 **阶段3：Parser 模块**，Parser 模块的表达式解析已基本完成（包括 tuple literal 解析）。下一步可以开始实现阶段4：Checker 模块，或继续完善 Parser 的其他功能。
+**阶段5：IR 模块**的核心生成器已基本实现：
+- ✅ generator_expr.go - 表达式生成（基础类型已实现，复杂类型标记为TODO）
+- ✅ generator_stmt.go - 语句生成（基础类型已实现，break/continue标记为TODO）
+- ✅ generator_func.go - 函数生成
 
-### 具体步骤
+下一步可以：
+1. 继续完善 IR 模块（实现复杂表达式类型的生成，如 MemberAccess、Subscript、Match 等）
+2. 开始实现阶段6：CodeGen 模块
+3. 实现 IR 模块的测试（ir_test.go）
+
+### 具体步骤（历史记录）
 
 1. ✅ 创建 `src/parser/parser.go` - Parser 核心结构和方法
 2. ✅ 实现基础解析函数（expect, match, consume）
