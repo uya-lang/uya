@@ -200,9 +200,5 @@ func (tc *TypeChecker) typecheckAssign(assign *parser.AssignStmt) bool {
 	return true
 }
 
-// Expression checking function - returns the type and success status
-func (tc *TypeChecker) typecheckExpression(expr parser.Expr) (Type, bool) {
-	// TODO: Implement in checker_expr.go
-	return TypeVoid, true
-}
+// Expression checking function is implemented in checker_expr.go
 
