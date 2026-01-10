@@ -64,11 +64,13 @@
   - ✅ ir_type.go - IR 类型和操作符定义
   - ✅ ir_inst.go - IR 指令类型和基础接口
   - ✅ ir.go - IR Generator 基础结构
+  - ✅ generator_type.go - 类型转换函数（AST Type 到 IR Type）
+  - ✅ inst_constant.go - 常量指令结构体
+  - ✅ inst_var_decl.go - 变量声明指令结构体
   - ⏭️ generator.go - IRGenerator 核心
   - ⏭️ generator_expr.go - 表达式生成
   - ⏭️ generator_stmt.go - 语句生成
   - ⏭️ generator_func.go - 函数生成
-  - ⏭️ generator_type.go - 类型生成
   - ⏭️ ir_test.go - IR 测试
 
 - ⏭️ **阶段6：CodeGen 模块**
