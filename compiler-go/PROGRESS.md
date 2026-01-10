@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**最后更新**: 2026-01-09
+**最后更新**: 2026-01-09 (parser.go 核心完成)
 
 ### 已完成模块
 
@@ -34,14 +34,14 @@
 ### 待完成模块
 
 - ⏭️ **阶段3：Parser 模块**
-  - ⏭️ parser.go - Parser 核心
+  - ✅ parser.go - Parser 核心（基础结构、NewParser、Parse、peek/consume/match/expect）
+  - ✅ parser_test.go - Parser 基础测试
   - ⏭️ parser_decl.go - 声明解析
   - ⏭️ parser_expr.go - 表达式解析
   - ⏭️ parser_stmt.go - 语句解析
   - ⏭️ parser_type.go - 类型解析
   - ⏭️ parser_match.go - match 表达式解析
   - ⏭️ parser_string_interp.go - 字符串插值解析
-  - ⏭️ parser_test.go - Parser 测试
 
 - ⏭️ **阶段4：Checker 模块**
   - ⏭️ checker.go - TypeChecker 核心
@@ -94,15 +94,15 @@
 
 ## 下一步行动
 
-继续实现 **阶段3：Parser 模块**，从 parser.go 核心开始。
+继续实现 **阶段3：Parser 模块**，下一步是实现 `parser_decl.go` - 声明解析。
 
 ### 具体步骤
 
-1. 创建 `src/parser/parser.go` - Parser 核心结构和方法
-2. 实现基础解析函数（expect, match, consume）
-3. 实现 Parse 主函数
-4. 创建测试文件 `parser_test.go`
-5. 按照 TDD 流程继续实现其他解析模块
+1. ✅ 创建 `src/parser/parser.go` - Parser 核心结构和方法
+2. ✅ 实现基础解析函数（expect, match, consume）
+3. ✅ 实现 Parse 主函数
+4. ✅ 创建测试文件 `parser_test.go`
+5. 按照 TDD 流程实现 `parser_decl.go` - 声明解析（函数声明、变量声明、结构体声明等）
 
 ## 重要说明
 

@@ -32,10 +32,10 @@ type Param struct {
 // VarDecl represents a variable declaration
 type VarDecl struct {
 	NodeBase
-	Name  string
-	Type  Node // Type node
-	Init  Expr // Initial value expression
-	IsMut bool
+	Name    string
+	VarType Node // Type node (renamed from Type to avoid conflict with Type() method)
+	Init    Expr // Initial value expression
+	IsMut   bool
 	IsConst bool
 }
 
