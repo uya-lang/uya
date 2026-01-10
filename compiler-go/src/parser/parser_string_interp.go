@@ -168,13 +168,12 @@ func (p *Parser) parseStringInterpolation(stringToken *lexer.Token) (*StringInte
 			// Create temporary lexer to parse expression
 			// Calculate column: original column + 1 (skip quote) + (exprStart)
 			exprColumn := stringToken.Column + 1 + exprStart
-			tempLexer := &lexer.Lexer{
-				buffer:   exprStr,
-				position: 0,
-				line:     stringToken.Line,
-				column:   exprColumn,
-				filename: stringToken.Filename,
-			}
+			tempLexer := lexer.NewLexerFromString(
+				exprStr,
+				stringToken.Filename,
+				stringToken.Line,
+				exprColumn,
+			)
 
 			tempParser := NewParser(tempLexer)
 			if tempParser == nil {

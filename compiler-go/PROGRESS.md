@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**最后更新**: 2026-01-09 (完成 CodeGen 模块核心实现：generator.go, type.go, value.go, inst.go基础版本)
+**最后更新**: 2026-01-09 (完成 CodeGen 模块核心实现和 Main 程序完整实现：generator.go, type.go, value.go, inst.go, error.go, main.go, generator_test.go, cmd/uyac/main.go, cmd/uyac/compile.go, cmd/uyac/main_test.go)
 
 ### 已完成模块
 
@@ -90,14 +90,14 @@
   - ✅ type.go - 类型生成（IR类型到C类型转换，包括基础类型和用户定义类型）
   - ✅ value.go - 值生成（基础版本，支持constant, var, binary op, unary op, call）
   - ✅ inst.go - 指令生成基础版本（支持var decl, assign, return, if, while, for, block, func def, call, defer, errdefer）
-  - ⏭️ error.go - 错误处理生成
-  - ⏭️ main.go - 主函数生成
-  - ⏭️ generator_test.go - CodeGen 测试
+  - ✅ generator_test.go - CodeGen 测试（基础测试：Generator创建、类型转换、值生成、指令生成）
+  - ✅ error.go - 错误处理生成（基础版本：错误联合类型代码生成、错误码哈希函数）
+  - ✅ main.go - 主函数生成（错误联合类型定义、结构体/枚举声明、前向声明、函数定义生成）
 
 - ⏭️ **阶段7：Main 程序**
-  - ⏭️ main.go - 主程序
-  - ⏭️ compile.go - 编译逻辑
-  - ⏭️ main_test.go - Main 测试
+  - ✅ main.go - 主程序（基础版本：命令行参数解析、错误处理）
+  - ✅ compile.go - 编译逻辑（整合所有模块的调用流程）
+  - ✅ main_test.go - Main 测试（基础测试：无效参数、无效文件、简单程序编译）
 
 - ⏭️ **阶段8：优化和收尾**
   - ⏭️ 代码质量检查
@@ -112,7 +112,6 @@
 - ✅ 文件 < 1500 行
 - ✅ 遵循 TDD 流程
 - ✅ 通过 linter 检查
-
 ## 下一步行动
 
 **阶段5：IR 模块**的核心生成器已基本实现：
@@ -155,6 +154,10 @@
 1. ✅ 阅读 `PROGRESS.md`（本文档）了解当前进度
 2. ✅ 阅读 `CONTEXT_SWITCH.md` 了解上下文切换指南
 3. ✅ 查看 `TODO.md` 了解详细任务（可选）
+3. ✅ 全程用中文，包括注释，提交说明
+3. ✅ 自动继续执行，无需人工确认，直到上下文满
+
+
 4. ✅ 从"下一步行动"部分开始工作
 
 ### 完成模块后

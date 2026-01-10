@@ -1,8 +1,6 @@
 package codegen
 
 import (
-	"fmt"
-
 	"github.com/uya/compiler-go/src/ir"
 )
 
@@ -291,12 +289,21 @@ func (g *Generator) genFuncDef(inst *ir.FuncDefInst) error {
 				return err
 			}
 		}
-		cType := GetCTypeWithName(param.Typ, param.OriginalTypeName)
-		if err := g.Write(cType); err != nil {
-			return err
-		}
-		if err := g.Writef(" %s", param.Name); err != nil {
-			return err
+		// Type assert to VarDeclInst to access fields
+		if varDecl, ok := param.(*ir.VarDeclInst); ok {
+			cType := GetCTypeForVarDecl(varDecl.Typ, varDecl.OriginalTypeName, varDecl.IsAtomic)
+			if err := g.Write(cType); err != nil {
+				return err
+			}
+			if err := g.Writef(" %s", varDecl.Name); err != nil {
+				return err
+			}
+		} else {
+			// Fallback for non-VarDeclInst parameters
+			cType := GetCType(ir.TypeI32)
+			if err := g.Writef("%s param_%d", cType, i); err != nil {
+				return err
+			}
 		}
 	}
 

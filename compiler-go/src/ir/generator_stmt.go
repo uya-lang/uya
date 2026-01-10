@@ -59,7 +59,16 @@ func (g *Generator) generateBlock(block *parser.Block) Inst {
 // generateVarDecl 生成变量声明的IR
 func (g *Generator) generateVarDecl(stmt *parser.VarDecl) Inst {
 	// 获取变量类型
-	varType := GetIRType(stmt.VarType)
+	var varType Type
+	if stmt.VarType != nil {
+		if typeNode, ok := stmt.VarType.(parser.Type); ok {
+			varType = GetIRType(typeNode)
+		} else {
+			varType = TypeI32
+		}
+	} else {
+		varType = TypeI32
+	}
 	
 	// 获取原始类型名称（用于用户定义类型）
 	originalTypeName := ""

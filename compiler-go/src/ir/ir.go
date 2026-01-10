@@ -1,5 +1,9 @@
 package ir
 
+import (
+	"github.com/uya/compiler-go/src/parser"
+)
+
 // Generator 表示 IR 生成器
 type Generator struct {
 	instructions []Inst // 指令列表

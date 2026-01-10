@@ -115,12 +115,9 @@ func (g *Generator) Generate(irGen *ir.Generator, outputFile string) error {
 		return err
 	}
 
-	// Generate code for all IR instructions
-	instructions := irGen.Instructions()
-	for _, inst := range instructions {
-		if err := g.GenerateInst(inst); err != nil {
-			return err
-		}
+	// Generate main code (error union types, struct/enum decls, forward decls, function defs)
+	if err := g.GenerateMain(); err != nil {
+		return err
 	}
 
 	// Flush output

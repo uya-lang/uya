@@ -84,7 +84,7 @@ func (g *Generator) generateIdentifier(expr *parser.Identifier) Inst {
 }
 
 // tokenToIROp 将token类型转换为IR操作符
-func tokenToIROp(tokenType int) Op {
+func tokenToIROp(tokenType lexer.TokenType) Op {
 	switch tokenType {
 	case lexer.TOKEN_PLUS:
 		return OpAdd
@@ -128,7 +128,7 @@ func tokenToIROp(tokenType int) Op {
 }
 
 // tokenToUnaryIROp 将token类型转换为一元IR操作符
-func tokenToUnaryIROp(tokenType int) Op {
+func tokenToUnaryIROp(tokenType lexer.TokenType) Op {
 	switch tokenType {
 	case lexer.TOKEN_AMPERSAND:
 		return OpAddrOf
@@ -151,7 +151,7 @@ func (g *Generator) generateBinaryExpr(expr *parser.BinaryExpr) Inst {
 	}
 
 	// 转换操作符
-	op := tokenToIROp(expr.Op)
+	op := tokenToIROp(lexer.TokenType(expr.Op))
 
 	// 生成临时变量名
 	dest := fmt.Sprintf("temp_%d", g.NextID())
@@ -164,7 +164,7 @@ func (g *Generator) generateBinaryExpr(expr *parser.BinaryExpr) Inst {
 // generateUnaryExpr 生成一元表达式的IR
 func (g *Generator) generateUnaryExpr(expr *parser.UnaryExpr) Inst {
 	// 处理try表达式（特殊情况）
-	if expr.Op == lexer.TOKEN_TRY {
+	if lexer.TokenType(expr.Op) == lexer.TOKEN_TRY {
 		return g.generateTryExpr(expr)
 	}
 
@@ -175,7 +175,7 @@ func (g *Generator) generateUnaryExpr(expr *parser.UnaryExpr) Inst {
 	}
 
 	// 转换操作符
-	op := tokenToUnaryIROp(expr.Op)
+	op := tokenToUnaryIROp(lexer.TokenType(expr.Op))
 
 	// 生成临时变量名
 	dest := fmt.Sprintf("temp_%d", g.NextID())

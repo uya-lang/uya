@@ -14,7 +14,16 @@ func (g *Generator) GenerateFunction(fnDecl *parser.FuncDecl) Inst {
 	name := fnDecl.Name
 
 	// 设置返回类型
-	returnType := GetIRType(fnDecl.ReturnType)
+	var returnType Type
+	if fnDecl.ReturnType != nil {
+		if typeNode, ok := fnDecl.ReturnType.(parser.Type); ok {
+			returnType = GetIRType(typeNode)
+		} else {
+			returnType = TypeVoid
+		}
+	} else {
+		returnType = TypeVoid
+	}
 	
 	// 检查返回类型是否为错误联合类型
 	returnTypeIsErrorUnion := false
@@ -38,7 +47,16 @@ func (g *Generator) GenerateFunction(fnDecl *parser.FuncDecl) Inst {
 	params := make([]Inst, 0, len(fnDecl.Params))
 	for _, param := range fnDecl.Params {
 		// 获取参数类型
-		paramType := GetIRType(param.Type)
+		var paramType Type
+		if param.Type != nil {
+			if typeNode, ok := param.Type.(parser.Type); ok {
+				paramType = GetIRType(typeNode)
+			} else {
+				paramType = TypeI32
+			}
+		} else {
+			paramType = TypeI32
+		}
 		
 		// 获取原始类型名称
 		originalTypeName := ""
