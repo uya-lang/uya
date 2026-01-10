@@ -41,6 +41,7 @@ type VarDecl struct {
 
 func (n *VarDecl) Type() NodeType { return AST_VAR_DECL }
 func (n *VarDecl) Base() *NodeBase { return &n.NodeBase }
+func (n *VarDecl) isStmt() {} // VarDecl can be used as a statement in function bodies
 
 // StructDecl represents a struct declaration
 type StructDecl struct {
