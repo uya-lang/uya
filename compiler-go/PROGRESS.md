@@ -52,9 +52,10 @@
   - ✅ symbol_table_test.go - 符号表测试
   - ✅ checker.go - TypeChecker 核心结构（错误管理、基础框架、辅助方法）
   - ✅ type_convert.go - 类型转换函数（从AST Type转换为Type）
-  - ⏭️ checker_decl.go - 声明检查
-  - ⏭️ checker_expr.go - 表达式检查
-  - ⏭️ checker_stmt.go - 语句检查
+  - ✅ checker_node.go - typecheckNode 框架和节点类型分发
+  - ⏭️ checker_decl.go - 声明检查（框架已就绪，需要实现具体逻辑）
+  - ⏭️ checker_expr.go - 表达式检查（框架已就绪，需要实现具体逻辑）
+  - ⏭️ checker_stmt.go - 语句检查（框架已就绪，需要实现具体逻辑）
   - ⏭️ constraints.go - 约束系统
   - ⏭️ const_eval.go - 常量求值
   - ⏭️ checker_test.go - Checker 核心测试
