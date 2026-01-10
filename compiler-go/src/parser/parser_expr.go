@@ -392,6 +392,190 @@ func (p *Parser) parseCallExprFromCallee(callee Expr) (*CallExpr, error) {
 	}, nil
 }
 
+// parseMatchExpr parses a match expression: match expr { pattern => body, ... }
+func (p *Parser) parseMatchExpr() (*MatchExpr, error) {
+	if !p.match(lexer.TOKEN_MATCH) {
+		return nil, fmt.Errorf("expected 'match' keyword")
+	}
+
+	line := p.currentToken.Line
+	col := p.currentToken.Column
+	filename := p.currentToken.Filename
+	p.consume() // consume 'match'
+
+	// Parse the expression to match
+	if p.currentToken == nil {
+		return nil, fmt.Errorf("unexpected EOF in match expression")
+	}
+
+	// Special handling: if current token is identifier, parse it directly
+	// to avoid struct initialization ambiguity
+	var expr Expr
+	var err error
+	if p.match(lexer.TOKEN_IDENTIFIER) || p.match(lexer.TOKEN_ERROR) {
+		name := p.currentToken.Value
+		if p.match(lexer.TOKEN_ERROR) {
+			name = "error"
+		}
+		expr = &Identifier{
+			NodeBase: NodeBase{
+				Line:     p.currentToken.Line,
+				Column:   p.currentToken.Column,
+				Filename: filename,
+			},
+			Name: name,
+		}
+		p.consume() // consume identifier
+	} else {
+		// For non-identifier expressions, use the full expression parser
+		expr, err = p.parseExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse match expression: %w", err)
+		}
+	}
+
+	// Expect '{'
+	if _, err := p.expect(lexer.TOKEN_LEFT_BRACE); err != nil {
+		return nil, fmt.Errorf("expected '{' after match expression: %w", err)
+	}
+
+	// Create match expression node
+	matchExpr := &MatchExpr{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		Expr:     expr,
+		Patterns: []*Pattern{},
+	}
+
+	// Parse pattern => body pairs
+	for p.currentToken != nil && !p.match(lexer.TOKEN_RIGHT_BRACE) {
+		pattern, err := p.parsePattern()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse pattern: %w", err)
+		}
+
+		matchExpr.Patterns = append(matchExpr.Patterns, pattern)
+
+		// Check for comma between patterns (optional)
+		if p.match(lexer.TOKEN_COMMA) {
+			p.consume()
+		}
+	}
+
+	// Expect '}'
+	if _, err := p.expect(lexer.TOKEN_RIGHT_BRACE); err != nil {
+		return nil, fmt.Errorf("expected '}' after match patterns: %w", err)
+	}
+
+	return matchExpr, nil
+}
+
+// parsePattern parses a pattern: pattern_expr => body
+func (p *Parser) parsePattern() (*Pattern, error) {
+	if p.currentToken == nil {
+		return nil, fmt.Errorf("unexpected EOF in pattern")
+	}
+
+	line := p.currentToken.Line
+	col := p.currentToken.Column
+	filename := p.currentToken.Filename
+
+	// Parse pattern expression
+	var patternExpr Expr
+	var err error
+
+	// Handle 'else' keyword as a pattern
+	if p.match(lexer.TOKEN_ELSE) {
+		patternExpr = &Identifier{
+			NodeBase: NodeBase{
+				Line:     line,
+				Column:   col,
+				Filename: filename,
+			},
+			Name: "else",
+		}
+		p.consume() // consume 'else'
+	} else if p.match(lexer.TOKEN_IDENTIFIER) || p.match(lexer.TOKEN_ERROR) {
+		// For identifier patterns, use full expression parser to support member access (e.g., Color.Red)
+		patternExpr, err = p.parseExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse identifier pattern: %w", err)
+		}
+	} else if p.match(lexer.TOKEN_NUMBER) {
+		value := p.currentToken.Value
+		p.consume() // consume number
+		patternExpr = &NumberLiteral{
+			NodeBase: NodeBase{
+				Line:     line,
+				Column:   col,
+				Filename: filename,
+			},
+			Value: value,
+		}
+	} else if p.match(lexer.TOKEN_STRING) {
+		value := p.currentToken.Value
+		p.consume() // consume string
+		patternExpr = &StringLiteral{
+			NodeBase: NodeBase{
+				Line:     line,
+				Column:   col,
+				Filename: filename,
+			},
+			Value: value,
+		}
+	} else if p.match(lexer.TOKEN_LEFT_PAREN) {
+		// Parse tuple literal (for now, use expression parser, TODO: implement parseTupleLiteral)
+		patternExpr, err = p.parseExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse tuple pattern: %w", err)
+		}
+	} else {
+		// For other cases, use the full expression parser
+		patternExpr, err = p.parseExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse pattern expression: %w", err)
+		}
+	}
+
+	// Expect '=>'
+	if _, err := p.expect(lexer.TOKEN_ARROW); err != nil {
+		return nil, fmt.Errorf("expected '=>' after pattern: %w", err)
+	}
+
+	// Parse body expression
+	bodyExpr, err := p.parseExpression()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse pattern body: %w", err)
+	}
+
+	// Note: Pattern.Body is *Block in AST, but body should be Expr
+	// For now, wrap the expression in a block with a single expression statement
+	// TODO: Fix AST definition to use Expr instead of Block
+	bodyBlock := &Block{
+		NodeBase: *bodyExpr.Base(),
+		Stmts: []Stmt{
+			&ExprStmt{
+				NodeBase: *bodyExpr.Base(),
+				Expr:     bodyExpr,
+			},
+		},
+	}
+
+	return &Pattern{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		PatternType: 0, // TODO: Set pattern type based on pattern expression
+		Value:       patternExpr,
+		Body:        bodyBlock,
+	}, nil
+}
+
 // parsePrimary parses a primary expression:
 // - Identifier
 // - Number literal
