@@ -157,22 +157,7 @@ func (tc *TypeChecker) typecheckProgram(program *parser.Program) bool {
 	return true
 }
 
-// Placeholder functions for type checking - these will be implemented in separate files
-// Declaration checking functions
-func (tc *TypeChecker) typecheckVarDecl(decl *parser.VarDecl) bool {
-	// TODO: Implement in checker_decl.go
-	return true
-}
-
-func (tc *TypeChecker) typecheckFuncDecl(decl *parser.FuncDecl) bool {
-	// TODO: Implement in checker_decl.go
-	return true
-}
-
-func (tc *TypeChecker) typecheckExternDecl(decl *parser.ExternDecl) bool {
-	// TODO: Implement in checker_decl.go
-	return true
-}
+// Declaration checking functions are implemented in checker_decl.go
 
 // Statement checking functions
 func (tc *TypeChecker) typecheckBlock(block *parser.Block) bool {
