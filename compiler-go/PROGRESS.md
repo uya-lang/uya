@@ -48,14 +48,15 @@
   - ✅ parser_string_interp.go - 字符串插值解析
 
 - ⏭️ **阶段4：Checker 模块**
-  - ⏭️ checker.go - TypeChecker 核心
+  - ✅ symbol_table.go - 符号表（Symbol、SymbolTable、ScopeStack、FunctionTable）
+  - ✅ symbol_table_test.go - 符号表测试
+  - ✅ checker.go - TypeChecker 核心结构（错误管理、基础框架）
   - ⏭️ checker_decl.go - 声明检查
   - ⏭️ checker_expr.go - 表达式检查
   - ⏭️ checker_stmt.go - 语句检查
-  - ⏭️ symbol_table.go - 符号表
   - ⏭️ constraints.go - 约束系统
   - ⏭️ const_eval.go - 常量求值
-  - ⏭️ checker_test.go - Checker 测试
+  - ⏭️ checker_test.go - Checker 核心测试
 
 - ⏭️ **阶段5：IR 模块**
   - ⏭️ ir.go - IR 接口和基础
