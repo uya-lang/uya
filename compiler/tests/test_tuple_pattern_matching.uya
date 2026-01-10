@@ -1,0 +1,30 @@
+// Test tuple pattern matching in match expressions
+fn main() i32 {
+    // Test 1: Simple tuple literal pattern matching
+    const pair: (i32, bool) = (42, true);
+    
+    const result1 = match pair {
+        (42, true) => 1,
+        else => 0
+    };
+    
+    if result1 != 1 {
+        return 1;
+    }
+    
+    // Test 2: Tuple pattern with variable bindings
+    const triple: (i32, f64, bool) = (10, 3.14, false);
+    
+    const result2 = match triple {
+        (x, y, z) => {
+            if x == 10 && y == 3.14 && z == false {
+                return 0;
+            }
+            return 1;
+        },
+        else => 1
+    };
+    
+    return result2;
+}
+
