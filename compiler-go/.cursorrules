@@ -1,0 +1,78 @@
+# Uya 编译器 C 到 Go 迁移规则
+
+## 代码质量约束（严格执行）
+
+- 每个函数不超过 **150 行**
+- 每个文件不超过 **1500 行**
+- 超过限制必须拆分：提取辅助函数或创建新文件
+
+## TDD 开发流程
+
+每个功能必须遵循 Red-Green-Refactor：
+1. Red: 先写测试（*_test.go），运行测试确保失败
+2. Green: 实现最小代码使测试通过
+3. Refactor: 重构优化，保持测试通过
+
+## 文件拆分策略
+
+- 核心文件：`package.go`（主类型和接口）
+- 功能文件：`package_feature.go`（如 `lexer_numbers.go`）
+- 测试文件：`package_test.go`
+- 辅助文件：`package_util.go`
+
+## Go 编码规范
+
+- 使用 Go 标准命名约定（驼峰命名）
+- 错误处理：返回 `(result, error)` 而不是返回 nil
+- 使用 `errors.New()` 或 `fmt.Errorf()` 创建错误
+- 字符串使用 `string` 类型（不可变）
+- 动态数组使用切片 `[]T`
+- 接口优先：定义接口，然后实现具体类型
+
+## 项目结构
+
+```
+compiler-go/
+├── cmd/uyac/          # 主程序
+├── src/               # 源代码
+│   ├── lexer/        # 词法分析器
+│   ├── parser/       # 语法分析器
+│   ├── checker/      # 类型检查器
+│   ├── ir/           # 中间表示和生成器
+│   └── codegen/      # 代码生成器
+└── tests/            # 测试用例（复用 compiler/tests/）
+```
+
+## 迁移优先级（按依赖顺序）
+
+1. Lexer（无依赖）
+2. Parser + AST（依赖 Lexer）
+3. Checker（依赖 Parser/AST）
+4. IR + IRGenerator（依赖 AST）
+5. CodeGen（依赖 IR）
+6. Main（协调所有模块）
+
+## 关键转换规则
+
+- C `union` → Go 接口 + 具体类型结构体
+- C `malloc/free` → Go GC（使用结构体和切片）
+- C `char*` → Go `string`
+- C `NULL` → Go `nil`
+- C 错误返回（NULL/错误码）→ Go `(result, error)`
+- C `FILE*` → Go `*os.File` 或 `*bufio.Writer`
+
+## 测试要求
+
+- 每个包必须有对应的 `*_test.go` 文件
+- 单元测试覆盖核心功能
+- 集成测试复用 `compiler/tests/*.uya` 文件
+- 测试通过后验证代码质量约束
+
+## 代码审查检查点
+
+- [ ] 所有函数 < 150 行
+- [ ] 所有文件 < 1500 行
+- [ ] 所有测试通过
+- [ ] Linter 检查通过
+- [ ] 遵循 TDD 流程
+
