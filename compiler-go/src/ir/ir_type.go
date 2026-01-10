@@ -1,9 +1,9 @@
 package ir
 
-// Type represents an IR type
+// Type 表示 IR 类型
 type Type int
 
-// IR type constants - matching IRType from ir.h
+// IR 类型常量 - 匹配 ir.h 中的 IRType
 const (
 	TypeI8 Type = iota
 	TypeI16
@@ -23,10 +23,10 @@ const (
 	TypeStruct
 	TypeEnum
 	TypeFn
-	TypeErrorUnion // !T type
+	TypeErrorUnion // !T 类型
 )
 
-// String returns the string representation of an IR type
+// String 返回 IR 类型的字符串表示
 func (t Type) String() string {
 	switch t {
 	case TypeI8:
@@ -72,10 +72,10 @@ func (t Type) String() string {
 	}
 }
 
-// Op represents an IR operation
+// Op 表示 IR 操作符
 type Op int
 
-// IR operation constants - matching IROp from ir.h
+// IR 操作符常量 - 匹配 ir.h 中的 IROp
 const (
 	OpAdd Op = iota
 	OpSub
@@ -98,11 +98,11 @@ const (
 	OpLe
 	OpGt
 	OpGe
-	OpAddrOf // Address operator &
-	OpDeref  // Dereference operator *
+	OpAddrOf // 取地址操作符 &
+	OpDeref  // 解引用操作符 *
 )
 
-// String returns the string representation of an IR operation
+// String 返回 IR 操作符的字符串表示
 func (o Op) String() string {
 	switch o {
 	case OpAdd:

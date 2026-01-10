@@ -1,9 +1,9 @@
 package ir
 
-// InstType represents an IR instruction type
+// InstType 表示 IR 指令类型
 type InstType int
 
-// IR instruction type constants - matching IRInstType from ir.h
+// IR 指令类型常量 - 匹配 ir.h 中的 IRInstType
 const (
 	InstFuncDecl InstType = iota
 	InstFuncDef
@@ -39,7 +39,7 @@ const (
 	InstStringInterpolation
 )
 
-// String returns the string representation of an instruction type
+// String 返回指令类型的字符串表示
 func (it InstType) String() string {
 	switch it {
 	case InstFuncDecl:
@@ -111,31 +111,29 @@ func (it InstType) String() string {
 	}
 }
 
-// Inst represents an IR instruction
-// This is the base interface that all IR instructions must implement
+// Inst 表示一条 IR 指令
+// 这是所有 IR 指令必须实现的基础接口
 type Inst interface {
 	Type() InstType
 	ID() int
 	SetID(id int)
 }
 
-// BaseInst provides common fields for all IR instructions
+// BaseInst 提供所有 IR 指令的公共字段
 type BaseInst struct {
-	id int // Instruction ID for SSA form
+	id int // 指令 ID（用于 SSA 形式）
 }
 
-// ID returns the instruction ID
+// ID 返回指令 ID
 func (bi *BaseInst) ID() int {
 	return bi.id
 }
 
-// SetID sets the instruction ID
+// SetID 设置指令 ID
 func (bi *BaseInst) SetID(id int) {
 	bi.id = id
 }
 
-// Note: Specific instruction types will be defined in separate files
-// or as part of the generator implementation, as they have complex
-// union-like structures that are better represented as separate structs
-// with embedded BaseInst.
+// 注意：具体的指令类型将在单独的文件中定义，或作为生成器实现的一部分。
+// 因为它们具有复杂的类似 union 的结构，更适合表示为嵌入 BaseInst 的独立结构体。
 
