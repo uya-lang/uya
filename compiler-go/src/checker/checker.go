@@ -28,8 +28,7 @@ type TypeChecker struct {
 	functionTable *FunctionTable
 
 	// Constraints set (for path-sensitive analysis)
-	// TODO: Implement constraints system
-	// constraints *ConstraintSet
+	constraints *ConstraintSet
 
 	// Function scope counter (assigns unique scope level to each function)
 	functionScopeCounter int
@@ -51,19 +50,20 @@ type TypeChecker struct {
 
 // NewTypeChecker creates a new type checker
 func NewTypeChecker() *TypeChecker {
-	return &TypeChecker{
-		errors:               make([]string, 0, 16),
-		symbolTable:          NewSymbolTable(),
-		scopes:               NewScopeStack(),
-		functionTable:        NewFunctionTable(),
-		functionScopeCounter: 0,
-		blockScopeCounter:    0,
-		scanPass:             ScanPassCollectSignatures,
-		currentLine:          0,
-		currentColumn:        0,
-		currentFile:          "",
-		programNode:          nil,
-	}
+		return &TypeChecker{
+			errors:               make([]string, 0, 16),
+			symbolTable:          NewSymbolTable(),
+			scopes:               NewScopeStack(),
+			functionTable:        NewFunctionTable(),
+			constraints:          NewConstraintSet(),
+			functionScopeCounter: 0,
+			blockScopeCounter:    0,
+			scanPass:             ScanPassCollectSignatures,
+			currentLine:          0,
+			currentColumn:        0,
+			currentFile:          "",
+			programNode:          nil,
+		}
 }
 
 // AddError adds an error to the error list
