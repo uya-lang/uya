@@ -13,6 +13,11 @@ func (p *Parser) parseExpression() (Expr, error) {
 		return nil, fmt.Errorf("unexpected EOF")
 	}
 
+	// Check for match expressions first: match expr { pattern => body, ... }
+	if p.match(lexer.TOKEN_MATCH) {
+		return p.parseMatchExpr()
+	}
+
 	// Check for unary operators first (&, -, !, try)
 	if p.match(lexer.TOKEN_AMPERSAND) || p.match(lexer.TOKEN_MINUS) ||
 		p.match(lexer.TOKEN_EXCLAMATION) || p.match(lexer.TOKEN_TRY) {

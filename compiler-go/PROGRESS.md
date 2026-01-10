@@ -43,8 +43,8 @@
   - ✅ parser_expr.go - 表达式解析扩展（一元运算符 &、-、!、try，后缀运算符：成员访问 .、下标访问 []、函数调用 ()）
   - ✅ parser_expr.go - 二元运算符解析基础（逻辑运算符 &&、||，算术和比较运算符：+、-、*、/、%、==、!=、<、>、<=、>=、&、|、^、<<、>>，饱和和包装运算符）
   - ✅ parser_expr.go - catch 表达式解析（expr catch |err| { ... } 或 expr catch { ... }）
-  - ⏭️ parser_expr.go - 完整表达式解析（match 表达式、字符串插值等）
-  - ⏭️ parser_match.go - match 表达式解析
+  - ✅ parser_expr.go - match 表达式解析基础（match expr { pattern => body, ... }，支持 else、标识符、数字、字符串模式，tuple 模式待完善）
+  - ⏭️ parser_expr.go - 完整表达式解析（字符串插值、tuple literal 等）
   - ⏭️ parser_string_interp.go - 字符串插值解析
 
 - ⏭️ **阶段4：Checker 模块**
