@@ -201,27 +201,201 @@ func (p *Parser) parseBlock() (*Block, error) {
 	return block, nil
 }
 
-// Placeholder functions for statements that require expression parsing
-// These will be implemented when expression parsing is ready
-
 // parseReturnStmt parses a return statement: return [expr];
 func (p *Parser) parseReturnStmt() (*ReturnStmt, error) {
-	return nil, fmt.Errorf("parseReturnStmt not yet implemented (requires expression parsing)")
+	if !p.match(lexer.TOKEN_RETURN) {
+		return nil, fmt.Errorf("expected 'return' keyword")
+	}
+
+	line := p.currentToken.Line
+	col := p.currentToken.Column
+	filename := p.currentToken.Filename
+	p.consume() // consume 'return'
+
+	// Parse optional return expression
+	var expr Expr
+	if p.currentToken != nil && !p.match(lexer.TOKEN_SEMICOLON) {
+		var err error
+		expr, err = p.parseExpression()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse return expression: %w", err)
+		}
+	}
+
+	// Expect semicolon
+	if _, err := p.expect(lexer.TOKEN_SEMICOLON); err != nil {
+		return nil, fmt.Errorf("expected ';' after return statement: %w", err)
+	}
+
+	return &ReturnStmt{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		Expr: expr, // May be nil for void return
+	}, nil
 }
 
 // parseVarDecl parses a variable declaration: var/const name: type = expr;
 func (p *Parser) parseVarDecl() (*VarDecl, error) {
-	return nil, fmt.Errorf("parseVarDecl not yet implemented (requires expression parsing)")
+	isMut := false
+	isConst := false
+
+	// Support var and const
+	if p.match(lexer.TOKEN_VAR) {
+		p.consume() // consume 'var'
+		isMut = true
+	} else if p.match(lexer.TOKEN_CONST) {
+		p.consume() // consume 'const'
+		isConst = true
+	} else {
+		return nil, fmt.Errorf("expected 'var' or 'const' keyword")
+	}
+
+	line := p.currentToken.Line
+	col := p.currentToken.Column
+	filename := p.currentToken.Filename
+
+	// Expect identifier (variable name)
+	if !p.match(lexer.TOKEN_IDENTIFIER) {
+		return nil, fmt.Errorf("expected variable name at %s:%d:%d", filename, line, col)
+	}
+
+	name := p.currentToken.Value
+	p.consume() // consume variable name
+
+	// Expect type annotation ':'
+	var varType Type
+	if p.match(lexer.TOKEN_COLON) {
+		p.consume() // consume ':'
+		var err error
+		varType, err = p.parseType()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse variable type: %w", err)
+		}
+	}
+
+	// Expect '=' and initialization expression
+	if !p.match(lexer.TOKEN_ASSIGN) {
+		return nil, fmt.Errorf("expected '=' after variable type at %s:%d:%d", filename, line, col)
+	}
+	p.consume() // consume '='
+
+	initExpr, err := p.parseExpression()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse variable initialization expression: %w", err)
+	}
+
+	// Expect semicolon
+	if _, err := p.expect(lexer.TOKEN_SEMICOLON); err != nil {
+		return nil, fmt.Errorf("expected ';' after variable declaration: %w", err)
+	}
+
+	return &VarDecl{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		Name:    name,
+		VarType: varType,
+		Init:    initExpr,
+		IsMut:   isMut,
+		IsConst: isConst,
+	}, nil
 }
 
 // parseIfStmt parses an if statement: if expr { ... } [ else { ... } ]
 func (p *Parser) parseIfStmt() (*IfStmt, error) {
-	return nil, fmt.Errorf("parseIfStmt not yet implemented (requires expression parsing)")
+	if !p.match(lexer.TOKEN_IF) {
+		return nil, fmt.Errorf("expected 'if' keyword")
+	}
+
+	line := p.currentToken.Line
+	col := p.currentToken.Column
+	filename := p.currentToken.Filename
+	p.consume() // consume 'if'
+
+	// Parse condition expression
+	condition, err := p.parseExpression()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse if condition: %w", err)
+	}
+
+	// Parse then branch (code block)
+	thenBranch, err := p.parseBlock()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse if then branch: %w", err)
+	}
+
+	// Check for else branch
+	var elseBranch Stmt
+	if p.match(lexer.TOKEN_ELSE) {
+		p.consume() // consume 'else'
+
+		// Check if it's an else if structure
+		if p.match(lexer.TOKEN_IF) {
+			// Recursively parse else if as a new if statement
+			var err error
+			elseBranch, err = p.parseIfStmt()
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse else if: %w", err)
+			}
+		} else {
+			// Regular else branch, parse code block
+			var err error
+			elseBranch, err = p.parseBlock()
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse else branch: %w", err)
+			}
+		}
+	}
+
+	return &IfStmt{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		Condition:  condition,
+		ThenBranch: thenBranch,
+		ElseBranch: elseBranch, // May be nil if no else branch
+	}, nil
 }
 
 // parseWhileStmt parses a while statement: while expr { ... }
 func (p *Parser) parseWhileStmt() (*WhileStmt, error) {
-	return nil, fmt.Errorf("parseWhileStmt not yet implemented (requires expression parsing)")
+	if !p.match(lexer.TOKEN_WHILE) {
+		return nil, fmt.Errorf("expected 'while' keyword")
+	}
+
+	line := p.currentToken.Line
+	col := p.currentToken.Column
+	filename := p.currentToken.Filename
+	p.consume() // consume 'while'
+
+	// Parse condition expression
+	condition, err := p.parseExpression()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse while condition: %w", err)
+	}
+
+	// Parse loop body (code block)
+	body, err := p.parseBlock()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse while body: %w", err)
+	}
+
+	return &WhileStmt{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		Condition: condition,
+		Body:      body,
+	}, nil
 }
 
 // parseForStmt parses a for statement: for expr |var| { ... }
