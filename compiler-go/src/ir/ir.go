@@ -52,9 +52,13 @@ func (g *Generator) Reset() {
 // Generate 从 AST 生成 IR（主入口函数）
 // 这将在 generator.go 中实现具体逻辑
 func (g *Generator) Generate(ast interface{}) interface{} {
+	// 重置计数器
+	g.Reset()
+
 	// TODO: 实现 AST 到 IR 的转换
-	// 这个函数将在后续的 generator 文件中实现
-	return nil
+	// generateProgram(g, ast)
+
+	return g
 }
 
 // Free 释放生成器及其所有指令
