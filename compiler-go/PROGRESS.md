@@ -67,7 +67,12 @@
   - ✅ generator_type.go - 类型转换函数（AST Type 到 IR Type）
   - ✅ inst_constant.go - 常量指令结构体
   - ✅ inst_var_decl.go - 变量声明指令结构体
-  - ⏭️ generator.go - IRGenerator 核心
+  - ✅ inst_assign.go - 赋值指令结构体
+  - ✅ inst_binary_op.go - 二元运算指令结构体
+  - ✅ inst_unary_op.go - 一元运算指令结构体
+  - ✅ inst_call.go - 函数调用指令结构体
+  - ✅ inst_return.go - 返回指令结构体
+  - ✅ generator.go - IRGenerator 核心框架
   - ⏭️ generator_expr.go - 表达式生成
   - ⏭️ generator_stmt.go - 语句生成
   - ⏭️ generator_func.go - 函数生成
