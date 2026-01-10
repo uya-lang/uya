@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**最后更新**: 2026-01-09 (parser.go 核心、类型解析基础、函数声明解析完成)
+**最后更新**: 2026-01-09 (添加 error 和 struct 声明解析)
 
 ### 已完成模块
 
@@ -20,7 +20,7 @@
   - ✅ lexer_keywords.go - 关键字处理（<300行）
   - ✅ lexer_numbers.go - 数字解析（<300行）
   - ✅ lexer_strings.go - 字符串/字符解析（<400行）
-  - ✅ lexer_error.go - 错误类型
+  - ✅ lexer_error.go - 错误类型 
   - ✅ lexer.go - Lexer 核心实现（<1500行）
   - ✅ lexer_test.go - Lexer 测试
 
@@ -38,8 +38,8 @@
   - ✅ parser_test.go - Parser 基础测试
   - ✅ parser_type.go - 类型解析基础（NamedType, PointerType, ErrorUnionType, AtomicType, ArrayType）
   - ✅ parser_stmt.go - Block 解析基础（空块支持，完整语句解析待实现）
-  - ✅ parser_decl.go - 声明解析基础（parseDeclaration, parseFuncDecl, parseParam）
-  - ⏭️ parser_decl.go - 其他声明类型（struct, enum, error, extern, interface, impl, test）
+  - ✅ parser_decl.go - 声明解析基础（parseDeclaration, parseFuncDecl, parseParam, parseErrorDecl, parseStructDecl）
+  - ⏭️ parser_decl.go - 其他声明类型（enum, extern, interface, impl, test）
   - ⏭️ parser_expr.go - 表达式解析
   - ⏭️ parser_stmt.go - 完整语句解析（parseStatement 及各种语句类型）
   - ⏭️ parser_match.go - match 表达式解析
@@ -107,7 +107,8 @@
 5. ✅ 实现 `parser_type.go` - 类型解析基础
 6. ✅ 实现 `parser_stmt.go` - Block 解析基础
 7. ✅ 实现 `parser_decl.go` - 函数声明解析（parseFuncDecl, parseParam）
-8. 完善 `parser_decl.go` - 添加其他声明类型（struct, enum, error, extern 等）
+8. ✅ 完善 `parser_decl.go` - 添加 error 和 struct 声明解析
+9. 完善 `parser_decl.go` - 添加其他声明类型（enum, extern, interface, impl, test 等）
 9. 实现 `parser_stmt.go` - 完整语句解析（parseStatement 及各种语句类型）
 
 ## 重要说明

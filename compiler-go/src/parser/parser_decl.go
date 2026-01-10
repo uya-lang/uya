@@ -17,8 +17,12 @@ func (p *Parser) parseDeclaration() (Node, error) {
 
 	if p.match(lexer.TOKEN_FN) {
 		return p.parseFuncDecl()
+	} else if p.match(lexer.TOKEN_STRUCT) {
+		return p.parseStructDecl()
+	} else if p.match(lexer.TOKEN_ERROR) {
+		return p.parseErrorDecl()
 	}
-	// TODO: Add other declaration types (struct, enum, error, extern, etc.)
+	// TODO: Add other declaration types (enum, extern, interface, impl, test, etc.)
 	// For now, return error for unsupported declarations
 	return nil, fmt.Errorf("unsupported declaration type at %s:%d:%d",
 		p.currentToken.Filename, p.currentToken.Line, p.currentToken.Column)
@@ -156,6 +160,121 @@ func (p *Parser) parseFuncDecl() (*FuncDecl, error) {
 		ReturnType: returnType,
 		Body:       body,
 		IsExtern:   false,
+	}, nil
+}
+
+// parseErrorDecl parses an error declaration: error ErrorName;
+func (p *Parser) parseErrorDecl() (*ErrorDecl, error) {
+	if !p.match(lexer.TOKEN_ERROR) {
+		return nil, fmt.Errorf("expected 'error' keyword")
+	}
+
+	line := p.currentToken.Line
+	col := p.currentToken.Column
+	filename := p.currentToken.Filename
+	p.consume() // consume 'error'
+
+	// Expect error name
+	if !p.match(lexer.TOKEN_IDENTIFIER) {
+		return nil, fmt.Errorf("expected error name at %s:%d:%d", filename, line, col)
+	}
+
+	name := p.currentToken.Value
+	p.consume() // consume error name
+
+	// Expect ';'
+	if _, err := p.expect(lexer.TOKEN_SEMICOLON); err != nil {
+		return nil, fmt.Errorf("expected ';' after error declaration: %w", err)
+	}
+
+	return &ErrorDecl{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		Name: name,
+	}, nil
+}
+
+// parseStructDecl parses a struct declaration: struct Name { fields... }
+func (p *Parser) parseStructDecl() (*StructDecl, error) {
+	if !p.match(lexer.TOKEN_STRUCT) {
+		return nil, fmt.Errorf("expected 'struct' keyword")
+	}
+
+	line := p.currentToken.Line
+	col := p.currentToken.Column
+	filename := p.currentToken.Filename
+	p.consume() // consume 'struct'
+
+	// Expect struct name
+	if !p.match(lexer.TOKEN_IDENTIFIER) {
+		return nil, fmt.Errorf("expected struct name at %s:%d:%d", filename, line, col)
+	}
+
+	name := p.currentToken.Value
+	p.consume() // consume struct name
+
+	// Expect '{'
+	if _, err := p.expect(lexer.TOKEN_LEFT_BRACE); err != nil {
+		return nil, fmt.Errorf("expected '{' after struct name: %w", err)
+	}
+
+	// Parse field list
+	fields := []*Field{}
+	for p.currentToken != nil && !p.match(lexer.TOKEN_RIGHT_BRACE) {
+		// Expect field name
+		if !p.match(lexer.TOKEN_IDENTIFIER) {
+			return nil, fmt.Errorf("expected field name at %s:%d:%d",
+				p.currentToken.Filename, p.currentToken.Line, p.currentToken.Column)
+		}
+
+		fieldLine := p.currentToken.Line
+		fieldCol := p.currentToken.Column
+		fieldName := p.currentToken.Value
+		p.consume() // consume field name
+
+		// Expect ':'
+		if _, err := p.expect(lexer.TOKEN_COLON); err != nil {
+			return nil, fmt.Errorf("expected ':' after field name: %w", err)
+		}
+
+		// Parse field type
+		fieldType, err := p.parseType()
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse field type: %w", err)
+		}
+
+		fields = append(fields, &Field{
+			NodeBase: NodeBase{
+				Line:     fieldLine,
+				Column:   fieldCol,
+				Filename: filename,
+			},
+			Name: fieldName,
+			Type: fieldType,
+		})
+
+		// Check for comma (optional)
+		if p.match(lexer.TOKEN_COMMA) {
+			p.consume() // consume ','
+		}
+	}
+
+	// Expect '}'
+	if _, err := p.expect(lexer.TOKEN_RIGHT_BRACE); err != nil {
+		return nil, fmt.Errorf("expected '}' to close struct: %w", err)
+	}
+
+	return &StructDecl{
+		NodeBase: NodeBase{
+			Line:     line,
+			Column:   col,
+			Filename: filename,
+		},
+		Name:   name,
+		Fields: fields,
 	}, nil
 }
 
