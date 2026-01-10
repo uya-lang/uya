@@ -144,9 +144,12 @@ cleanup:
     
     // 统一清理资源（按相反顺序）
     if (codegen) codegen_free(codegen);
-    // ir_result 和 ir_gen 是同一个对象（irgenerator_generate 返回传入的 ir_gen）
-    // 所以只需要释放 ir_gen 一次
-    if (ir_gen) irgenerator_free(ir_gen);
+    // 注意：ir_result 和 ir_gen 是同一个对象（irgenerator_generate 返回传入的 ir_gen）
+    // 检查ir_gen是否为NULL，避免重复释放
+    if (ir_gen) {
+        irgenerator_free(ir_gen);
+        ir_gen = NULL;
+    }
     if (checker) typechecker_free(checker);
     if (ast) ast_free(ast);
     if (parser) parser_free(parser);

@@ -23,10 +23,18 @@ ConstraintSet *constraint_set_new() {
 void constraint_set_free(ConstraintSet *set) {
     if (!set) return;
     
-    for (int i = 0; i < set->count; i++) {
-        constraint_free(set->constraints[i]);
+    // 释放约束数组中的每个约束，但只释放一次
+    if (set->constraints) {
+        for (int i = 0; i < set->count; i++) {
+            if (set->constraints[i]) {
+                constraint_free(set->constraints[i]);
+                set->constraints[i] = NULL;  // 标记为已释放
+            }
+        }
+        free(set->constraints);
+        set->constraints = NULL;
     }
-    free(set->constraints);
+    
     free(set);
 }
 
@@ -46,10 +54,8 @@ int constraint_set_add(ConstraintSet *set, Constraint *constraint) {
             if (constraint->data.range.max < existing->data.range.max) {
                 existing->data.range.max = constraint->data.range.max;
             }
-            constraint_free(constraint);
-            return 1;
         }
-        // 其他约束类型，如果已存在则不需要添加
+        // 释放新约束，无论是否合并
         constraint_free(constraint);
         return 1;
     }
@@ -58,7 +64,11 @@ int constraint_set_add(ConstraintSet *set, Constraint *constraint) {
     if (set->count >= set->capacity) {
         int new_capacity = set->capacity * 2;
         Constraint **new_constraints = realloc(set->constraints, new_capacity * sizeof(Constraint*));
-        if (!new_constraints) return 0;
+        if (!new_constraints) {
+            // 扩容失败时，释放传入的约束，避免内存泄漏
+            constraint_free(constraint);
+            return 0;
+        }
         set->constraints = new_constraints;
         set->capacity = new_capacity;
     }

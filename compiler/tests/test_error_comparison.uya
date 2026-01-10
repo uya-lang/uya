@@ -124,8 +124,9 @@ fn test_error_comparison_multiple() i32 {
     return 0;
 }
 
-fn main() i32 {
-    if test_error_comparison_basic() != 0 {
+fn main() !i32 {
+    const err:i32 = try test_error_comparison_basic();
+    if err != 0 {
         return 1;
     }
     if test_error_comparison_runtime_error() != 0 {

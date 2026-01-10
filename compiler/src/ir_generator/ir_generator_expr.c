@@ -744,8 +744,26 @@ IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
                             irinst_free(try_catch_inst);
                             return NULL;
                         }
+                        // 初始化所有指令指针为NULL
                         for (int i = 0; i < block->data.block.stmt_count; i++) {
-                            catch_block->data.block.insts[i] = generate_stmt(ir_gen, block->data.block.stmts[i]);
+                            catch_block->data.block.insts[i] = NULL;
+                        }
+                        // 生成指令
+                        for (int i = 0; i < block->data.block.stmt_count; i++) {
+                            IRInst *stmt_ir = generate_stmt(ir_gen, block->data.block.stmts[i]);
+                            if (!stmt_ir) {
+                                // 生成失败，释放已生成的指令和资源
+                                for (int j = 0; j < i; j++) {
+                                    if (catch_block->data.block.insts[j]) {
+                                        irinst_free(catch_block->data.block.insts[j]);
+                                    }
+                                }
+                                free(catch_block->data.block.insts);
+                                irinst_free(catch_block);
+                                irinst_free(try_catch_inst);
+                                return NULL;
+                            }
+                            catch_block->data.block.insts[i] = stmt_ir;
                         }
                     } else {
                         catch_block->data.block.insts = NULL;
@@ -759,7 +777,18 @@ IRInst *generate_expr(IRGenerator *ir_gen, struct ASTNode *expr) {
                         irinst_free(try_catch_inst);
                         return NULL;
                     }
-                    catch_block->data.block.insts[0] = generate_stmt(ir_gen, expr->data.catch_expr.catch_body);
+                    // 初始化指令指针为NULL
+                    catch_block->data.block.insts[0] = NULL;
+                    // 生成指令
+                    IRInst *stmt_ir = generate_stmt(ir_gen, expr->data.catch_expr.catch_body);
+                    if (!stmt_ir) {
+                        // 生成失败，释放资源
+                        free(catch_block->data.block.insts);
+                        irinst_free(catch_block);
+                        irinst_free(try_catch_inst);
+                        return NULL;
+                    }
+                    catch_block->data.block.insts[0] = stmt_ir;
                 }
                 
                 try_catch_inst->data.try_catch.catch_body = catch_block;

@@ -298,7 +298,8 @@ IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl) {
 
     // Add function to instructions array
     if (ir_gen->inst_count >= ir_gen->inst_capacity) {
-        size_t new_capacity = ir_gen->inst_capacity * 2;
+        size_t old_capacity = ir_gen->inst_capacity;
+        size_t new_capacity = old_capacity * 2;
         IRInst **new_instructions = realloc(ir_gen->instructions,
                                            new_capacity * sizeof(IRInst*));
         if (!new_instructions) {
@@ -307,6 +308,11 @@ IRInst *generate_function(IRGenerator *ir_gen, struct ASTNode *fn_decl) {
         }
         ir_gen->instructions = new_instructions;
         ir_gen->inst_capacity = new_capacity;
+        
+        // 初始化新分配的内存为NULL，防止释放未初始化的指针
+        for (size_t i = old_capacity; i < new_capacity; i++) {
+            ir_gen->instructions[i] = NULL;
+        }
     }
     ir_gen->instructions[ir_gen->inst_count++] = func;
 

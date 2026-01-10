@@ -190,7 +190,14 @@ IRInst *generate_stmt_for_body(IRGenerator *ir_gen, struct ASTNode *stmt) {
 
             // Generate else body
             if (stmt->data.if_stmt.else_branch) {
-                if (stmt->data.if_stmt.else_branch->type == AST_BLOCK) {
+                if (stmt->data.if_stmt.else_branch->type == AST_IF_STMT) {
+                    // This is an else-if chain, so generate nested IR_IF
+                    if_inst->data.if_stmt.else_count = 1;
+                    if_inst->data.if_stmt.else_body = malloc(sizeof(IRInst*));
+                    if (if_inst->data.if_stmt.else_body) {
+                        if_inst->data.if_stmt.else_body[0] = generate_stmt_for_body(ir_gen, stmt->data.if_stmt.else_branch);
+                    }
+                } else if (stmt->data.if_stmt.else_branch->type == AST_BLOCK) {
                     if_inst->data.if_stmt.else_count = stmt->data.if_stmt.else_branch->data.block.stmt_count;
                     if_inst->data.if_stmt.else_body = malloc(if_inst->data.if_stmt.else_count * sizeof(IRInst*));
                     if (!if_inst->data.if_stmt.else_body) {

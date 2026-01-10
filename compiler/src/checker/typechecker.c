@@ -238,18 +238,26 @@ void typechecker_free(TypeChecker *checker) {
         free(checker->scopes);
     }
     
-    // 释放约束集合
+    // 释放约束集合，但只释放一次
     if (checker->constraints) {
         constraint_set_free(checker->constraints);
+        checker->constraints = NULL;  // 标记为已释放
     }
     
     // 释放函数表
     if (checker->function_table) {
         for (int i = 0; i < checker->function_table->function_count; i++) {
-            function_signature_free(checker->function_table->functions[i]);
+            if (checker->function_table->functions[i]) {
+                function_signature_free(checker->function_table->functions[i]);
+                checker->function_table->functions[i] = NULL;
+            }
         }
-        free(checker->function_table->functions);
+        if (checker->function_table->functions) {
+            free(checker->function_table->functions);
+            checker->function_table->functions = NULL;
+        }
         free(checker->function_table);
+        checker->function_table = NULL;
     }
     
     if (checker->current_file) free(checker->current_file);
@@ -307,14 +315,12 @@ int typechecker_add_symbol(TypeChecker *checker, Symbol *symbol) {
     if (!checker || !symbol) return 0;
     
     // 检查同一作用域内是否有同名变量
-    // 注意：只检查完全相同的scope_level，不同函数的作用域应该不同
     for (int i = 0; i < checker->symbol_table->symbol_count; i++) {
         Symbol *existing = checker->symbol_table->symbols[i];
+        // 只检查同一作用域内的变量，忽略不同作用域的同名变量
+        // 因为不同函数有不同的scope_level，所以不会冲突
         if (existing->scope_level == symbol->scope_level &&
             strcmp(existing->name, symbol->name) == 0) {
-            // 检查是否是同一个文件中的同一行（可能是真正的重复定义）
-            // 或者检查是否是同一个作用域层级
-            // 如果作用域级别相同且名称相同，则认为是重复定义
             typechecker_add_error(checker, 
                 "变量 '%s' 在同一作用域内重复定义 (行 %d:%d, 已有定义在行 %d:%d)",
                 symbol->name, symbol->line, symbol->column, 
@@ -535,19 +541,24 @@ static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char 
 
 // 从条件表达式提取约束条件
 static void extract_constraints_from_condition(TypeChecker *checker, ASTNode *cond_expr) {
-    if (!cond_expr || cond_expr->type != AST_BINARY_EXPR) return;
+    // 严格检查：只处理有效的二元表达式
+    if (!cond_expr || cond_expr->type != AST_BINARY_EXPR) {
+        return;
+    }
     
     int op = cond_expr->data.binary_expr.op;
     ASTNode *left = cond_expr->data.binary_expr.left;
     ASTNode *right = cond_expr->data.binary_expr.right;
     
-    fprintf(stderr, "[DEBUG] extract_constraints_from_condition: op=%d (TOKEN_LOGICAL_AND=%d)\n", op, TOKEN_LOGICAL_AND);
-    
+    // 只有逻辑AND操作符才需要递归处理
     if (op == TOKEN_LOGICAL_AND) {
-        // 递归处理两个条件
-        fprintf(stderr, "[DEBUG] Found TOKEN_LOGICAL_AND, recursing...\n");
-        extract_constraints_from_condition(checker, left);
-        extract_constraints_from_condition(checker, right);
+        // 确保左右子表达式都是有效的二元表达式
+        if (left && left->type == AST_BINARY_EXPR) {
+            extract_constraints_from_condition(checker, left);
+        }
+        if (right && right->type == AST_BINARY_EXPR) {
+            extract_constraints_from_condition(checker, right);
+        }
     } else if (op == TOKEN_LESS || op == TOKEN_LESS_EQUAL) {
         // i < len 或 i <= len-1
         fprintf(stderr, "[DEBUG] Found TOKEN_LESS/TOKEN_LESS_EQUAL: op=%d\n", op);
@@ -591,7 +602,7 @@ static void extract_constraints_from_condition(TypeChecker *checker, ASTNode *co
                 }
             }
         }
-    } else if (op == 58) {  // TOKEN_NOT_EQUAL
+    } else if (op == TOKEN_NOT_EQUAL) {
         // y != 0
         if (left->type == AST_IDENTIFIER) {
             ConstValue right_val;
@@ -1767,6 +1778,8 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
                 int function_scope_level = 1000 + (checker->function_scope_counter++);  // 从1000开始，避免与全局作用域冲突
                 // 保存当前作用域级别
                 int saved_scope_level = checker->scopes->current_level;
+                // 保存当前符号表大小，用于后续清理
+                int saved_symbol_count = checker->symbol_table->symbol_count;
                 // 设置函数作用域级别
                 checker->scopes->current_level = function_scope_level;
                 
@@ -1776,6 +1789,11 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
                     if (param->type == AST_VAR_DECL) {
                         // 检查参数声明
                         if (!typecheck_var_decl(checker, param)) {
+                            // 清理已添加的符号
+                            for (int j = saved_symbol_count; j < checker->symbol_table->symbol_count; j++) {
+                                symbol_free(checker->symbol_table->symbols[j]);
+                            }
+                            checker->symbol_table->symbol_count = saved_symbol_count;
                             checker->scopes->current_level = saved_scope_level;
                             return 0;
                         }
@@ -1790,24 +1808,29 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
                 // 检查函数体
                 // 注意：函数体是block，但函数体中的变量应该在函数作用域中，而不是block作用域
                 // 所以我们需要特殊处理：不进入block作用域，直接检查block中的语句
+                int result = 1;
                 if (node->data.fn_decl.body && node->data.fn_decl.body->type == AST_BLOCK) {
                     // 直接检查block中的语句，不进入新的作用域
                     for (int i = 0; i < node->data.fn_decl.body->data.block.stmt_count; i++) {
                         if (!typecheck_node(checker, node->data.fn_decl.body->data.block.stmts[i])) {
-                            checker->scopes->current_level = saved_scope_level;
-                            return 0;
+                            result = 0;
+                            break;
                         }
                     }
                 } else {
                     // 如果不是block，直接检查
-                    int result = typecheck_node(checker, node->data.fn_decl.body);
-                    checker->scopes->current_level = saved_scope_level;
-                    return result;
+                    result = typecheck_node(checker, node->data.fn_decl.body);
                 }
+                
+                // 清理函数的符号
+                for (int j = saved_symbol_count; j < checker->symbol_table->symbol_count; j++) {
+                    symbol_free(checker->symbol_table->symbols[j]);
+                }
+                checker->symbol_table->symbol_count = saved_symbol_count;
                 
                 // 恢复作用域级别
                 checker->scopes->current_level = saved_scope_level;
-                return 1;
+                return result;
             }
 
         case AST_TEST_BLOCK:
@@ -1815,23 +1838,31 @@ static int typecheck_node(TypeChecker *checker, ASTNode *node) {
             // 为每个测试块分配唯一的作用域级别
             int test_scope_level = 1000 + (checker->function_scope_counter++);
             int saved_test_scope = checker->scopes->current_level;
+            // 保存当前符号表大小，用于后续清理
+            int saved_symbol_count = checker->symbol_table->symbol_count;
             checker->scopes->current_level = test_scope_level;
 
             // 检查测试体
+            int result = 1;
             if (node->data.test_block.body && node->data.test_block.body->type == AST_BLOCK) {
                 for (int i = 0; i < node->data.test_block.body->data.block.stmt_count; i++) {
                     if (!typecheck_node(checker, node->data.test_block.body->data.block.stmts[i])) {
-                        checker->scopes->current_level = saved_test_scope;
-                        return 0;
+                        result = 0;
+                        break;
                     }
                 }
             } else {
-                int result = typecheck_node(checker, node->data.test_block.body);
-                checker->scopes->current_level = saved_test_scope;
-                return result;
+                result = typecheck_node(checker, node->data.test_block.body);
             }
+            
+            // 清理测试块的符号
+            for (int j = saved_symbol_count; j < checker->symbol_table->symbol_count; j++) {
+                symbol_free(checker->symbol_table->symbols[j]);
+            }
+            checker->symbol_table->symbol_count = saved_symbol_count;
+            
             checker->scopes->current_level = saved_test_scope;
-            return 1;
+            return result;
             
         case AST_MEMBER_ACCESS:
             // Check member access expressions like error.ErrorName

@@ -21,11 +21,29 @@ int parser_match(Parser *parser, TokenType type) {
 Token *parser_expect(Parser *parser, TokenType type) {
     if (!parser->current_token || parser->current_token->type != type) {
         // 调试：追踪错误来源（使用 __builtin_return_address 获取调用者地址）
-        if (parser->current_token && (type == 58 || type == 51)) {  // TOKEN_EQUAL 或 TOKEN_PLUS
+        if (parser->current_token) {
             void *caller_addr = __builtin_return_address(0);
-            fprintf(stderr, "[DEBUG parser_expect] 调用者地址: %p, 期望 %d (TOKEN_EQUAL/TOKEN_PLUS), 实际 %d, 位置 %s:%d:%d\n",
-                    caller_addr, type, parser->current_token->type,
+            // 打印调用栈信息，帮助定位问题
+            fprintf(stderr, "[DEBUG parser_expect] 调用者地址: %p, 期望 %d (%s), 实际 %d (%s), 位置 %s:%d:%d\n",
+                    caller_addr, type, 
+                    type == TOKEN_PLUS ? "TOKEN_PLUS" : 
+                    type == TOKEN_AS ? "TOKEN_AS" : 
+                    type == TOKEN_IDENTIFIER ? "TOKEN_IDENTIFIER" :
+                    type == TOKEN_RIGHT_PAREN ? "TOKEN_RIGHT_PAREN" :
+                    type == TOKEN_COLON ? "TOKEN_COLON" :
+                    type == TOKEN_LEFT_BRACE ? "TOKEN_LEFT_BRACE" :
+                    "OTHER",
+                    parser->current_token->type, 
+                    parser->current_token->type == TOKEN_IDENTIFIER ? "TOKEN_IDENTIFIER" :
+                    parser->current_token->type == TOKEN_PLUS ? "TOKEN_PLUS" :
+                    parser->current_token->type == TOKEN_AS ? "TOKEN_AS" :
+                    parser->current_token->type == TOKEN_RIGHT_PAREN ? "TOKEN_RIGHT_PAREN" :
+                    parser->current_token->type == TOKEN_COLON ? "TOKEN_COLON" :
+                    parser->current_token->type == TOKEN_LEFT_BRACE ? "TOKEN_LEFT_BRACE" :
+                    "OTHER",
                     parser->current_token->filename, parser->current_token->line, parser->current_token->column);
+            // 打印当前token的内容
+            fprintf(stderr, "[DEBUG parser_expect] 当前token内容: %s\n", parser->current_token->value);
         }
         fprintf(stderr, "语法错误: 期望 %d, 但在 %s:%d:%d 发现 %d\n",
                 type, parser->current_token ? parser->current_token->filename : "unknown",

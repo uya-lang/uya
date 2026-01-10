@@ -1,6 +1,7 @@
 #include "codegen_value.h"
 #include "codegen.h"
 #include "codegen_type.h"
+#include "codegen_inst.h"
 #include "../ir/ir.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -424,9 +425,75 @@ void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
 
         case IR_ERROR_UNION:
             // Handle error union operations, especially try expressions
+            // For try expressions: try expr should extract .value from error union result
+            // If error_id != 0, propagate the error by setting return variable and jumping to error return
+            // We use C statement expressions: ({ struct error_union_T _temp = expr(); if (_temp.error_id != 0) { _return_func.error_id = _temp.error_id; goto _check_error_return_func; } _temp.value; })
             if (inst->data.error_union.value) {
-                // For try expressions, generate the value part
-                codegen_write_value(codegen, inst->data.error_union.value);
+                // Check if the value is a function call (which returns error union)
+                if (inst->data.error_union.value->type == IR_CALL) {
+                    // Generate statement expression to extract value with error propagation
+                    // Determine error union type from function call
+                    const char *func_name = inst->data.error_union.value->data.call.func_name;
+                    IRType base_type = IR_TYPE_I32;  // Default
+                    int is_error_union = 0;
+                    
+                    // Try to find function return type
+                    if (codegen->ir && func_name) {
+                        find_function_return_type(codegen->ir, func_name, &base_type, &is_error_union);
+                    }
+                    
+                    // Generate temporary variable name
+                    char temp_var[64];
+                    if (inst->data.error_union.dest) {
+                        strncpy(temp_var, inst->data.error_union.dest, sizeof(temp_var) - 1);
+                        temp_var[sizeof(temp_var) - 1] = '\0';
+                    } else {
+                        snprintf(temp_var, sizeof(temp_var), "_try_temp_%d", codegen->temp_counter++);
+                    }
+                    
+                    // Check if we're in a function that returns error union type
+                    if (codegen->current_function && 
+                        codegen->current_function->type == IR_FUNC_DEF &&
+                        codegen->current_function->data.func.return_type_is_error_union) {
+                        
+                        // Generate function name for return variable
+                        const char *current_func_name = codegen->current_function->data.func.name;
+                        char return_var_name[256];
+                        char actual_func_name[256];
+                        
+                        int is_drop_function = (current_func_name && strcmp(current_func_name, "drop") == 0);
+                        if (is_drop_function && codegen->current_function->data.func.param_count > 0 &&
+                            codegen->current_function->data.func.params[0] &&
+                            codegen->current_function->data.func.params[0]->data.var.original_type_name) {
+                            snprintf(actual_func_name, sizeof(actual_func_name), "drop_%s",
+                                     codegen->current_function->data.func.params[0]->data.var.original_type_name);
+                        } else {
+                            strncpy(actual_func_name, current_func_name ? current_func_name : "", sizeof(actual_func_name) - 1);
+                            actual_func_name[sizeof(actual_func_name) - 1] = '\0';
+                        }
+                        
+                        snprintf(return_var_name, sizeof(return_var_name), "_return_%s", actual_func_name);
+                        
+                        // Generate statement expression with error propagation:
+                        // ({ struct error_union_T _temp = expr(); 
+                        //    if (_temp.error_id != 0) { _return_func.error_id = _temp.error_id; goto _check_error_return_func; }
+                        //    _temp.value; })
+                        const char *base_type_name = codegen_get_type_name(base_type);
+                        fprintf(codegen->output_file, "({ struct error_union_%s %s = ", base_type_name, temp_var);
+                        codegen_write_value(codegen, inst->data.error_union.value);
+                        fprintf(codegen->output_file, "; if (%s.error_id != 0) { %s.error_id = %s.error_id; goto _check_error_return_%s; } %s.value; })",
+                                temp_var, return_var_name, temp_var, actual_func_name, temp_var);
+                    } else {
+                        // Not in error union return function, just extract value (should not happen according to spec, but handle gracefully)
+                        const char *base_type_name = codegen_get_type_name(base_type);
+                        fprintf(codegen->output_file, "({ struct error_union_%s %s = ", base_type_name, temp_var);
+                        codegen_write_value(codegen, inst->data.error_union.value);
+                        fprintf(codegen->output_file, "; %s.value; })", temp_var);
+                    }
+                } else {
+                    // For non-call expressions, just generate the value part
+                    codegen_write_value(codegen, inst->data.error_union.value);
+                }
             } else {
                 fprintf(codegen->output_file, "/* error union */");
             }
@@ -556,131 +623,75 @@ void codegen_write_value(CodeGenerator *codegen, IRInst *inst) {
             break;
 
         case IR_IF: {
-            // Match expression: generate using GCC compound statement extension ({...})
-            // This allows match expressions (which are expressions) to return values
-            // Format: ({ type temp; if (cond) temp = body1; else if (cond2) temp = body2; else temp = else_body; temp; })
-            
-            // Infer return type from all body expressions
-            // Traverse all branches to find body expressions and verify type consistency
-            IRType match_type = IR_TYPE_I32;
-            int type_inferred = 0;
-            
-            IRInst *type_check_if = inst;
-            while (type_check_if && type_check_if->type == IR_IF) {
-                // Get body expression (last element of then_body for struct patterns, first for regular patterns)
-                if (type_check_if->data.if_stmt.then_body && type_check_if->data.if_stmt.then_count > 0) {
-                    int body_idx = type_check_if->data.if_stmt.then_count - 1;  // Last element is body expression
-                    IRInst *body_expr = type_check_if->data.if_stmt.then_body[body_idx];
-                    
-                    if (body_expr) {
-                        IRType body_type = infer_type_from_ir_inst(body_expr);
-                        if (!type_inferred) {
-                            // First body expression: use its type
-                            match_type = body_type;
-                            type_inferred = 1;
-                        } else if (match_type != body_type) {
-                            // Type mismatch: warn but continue (use first type)
-                            // In a more complete implementation, this should be an error
-                            // For now, we use the first type and let the C compiler catch type errors
-                        }
-                    }
-                }
-                
-                // Move to next branch
-                if (type_check_if->data.if_stmt.else_body && type_check_if->data.if_stmt.else_count > 0) {
-                    type_check_if = type_check_if->data.if_stmt.else_body[0];
-                } else {
-                    type_check_if = NULL;
-                }
-            }
-            
-            // Generate temporary variable name
-            static int match_temp_counter = 0;
-            char temp_var[32];
-            snprintf(temp_var, sizeof(temp_var), "__match_temp_%d", match_temp_counter++);
-            
-            // Start GCC compound statement
-            fprintf(codegen->output_file, "({ ");
-            codegen_write_type(codegen, match_type);
-            fprintf(codegen->output_file, " %s; ", temp_var);
-            
-            // Generate nested if-else chain
-            IRInst *current_if = inst;
-            int first = 1;
-            while (current_if && current_if->type == IR_IF) {
-                // Check if condition is constant true (value "1")
-                int is_const_true = 0;
-                if (current_if->data.if_stmt.condition &&
-                    current_if->data.if_stmt.condition->type == IR_CONSTANT &&
-                    current_if->data.if_stmt.condition->data.constant.value &&
-                    strcmp(current_if->data.if_stmt.condition->data.constant.value, "1") == 0) {
-                    is_const_true = 1;
-                }
-                
-                // Check if this is the last branch (no else_body)
-                int is_last_branch = (!current_if->data.if_stmt.else_body || current_if->data.if_stmt.else_count == 0);
-                
-                if (!first) {
-                    if (is_const_true && is_last_branch) {
-                        // For constant true on last branch, use plain else instead of else if (1)
-                        fprintf(codegen->output_file, "else { ");
-                    } else {
-                        fprintf(codegen->output_file, "else ");
-                    }
-                }
-                first = 0;
-                
-                if (!(is_const_true && is_last_branch)) {
-                    fprintf(codegen->output_file, "if (");
-                    codegen_write_value(codegen, current_if->data.if_stmt.condition);
-                    fprintf(codegen->output_file, ") { ");
-                }
-                
-                // Generate variable bindings (if any) and body expression
-                if (current_if->data.if_stmt.then_body && current_if->data.if_stmt.then_count > 0) {
-                    // For struct pattern matching with variable bindings, then_body may contain:
-                    // - Variable declarations (IR_VAR_DECL with init) for bindings
-                    // - Body expression (last element)
-                    // For regular patterns, then_body contains only the body expression
-                    
-                    int body_idx = current_if->data.if_stmt.then_count - 1;  // Last element is body expression
-                    
-                    // Generate variable bindings (all except the last element)
-                    for (int i = 0; i < body_idx; i++) {
-                        IRInst *binding = current_if->data.if_stmt.then_body[i];
-                        if (binding && binding->type == IR_VAR_DECL) {
-                            // Generate variable declaration with initialization
-                            codegen_write_type_with_atomic(codegen, binding);
-                            fprintf(codegen->output_file, " %s = ", binding->data.var.name);
-                            if (binding->data.var.init) {
-                                codegen_write_value(codegen, binding->data.var.init);
-                            } else {
-                                fprintf(codegen->output_file, "0");
-                            }
-                            fprintf(codegen->output_file, "; ");
-                        }
-                    }
-                    
-                    // Generate body expression (last element)
-                    fprintf(codegen->output_file, "%s = ", temp_var);
-                    codegen_write_value(codegen, current_if->data.if_stmt.then_body[body_idx]);
-                } else {
-                    fprintf(codegen->output_file, "%s = 0", temp_var);
-                }
-                fprintf(codegen->output_file, "; }");
-                
-                // Check if there's an else branch (next if in chain)
-                if (current_if->data.if_stmt.else_body && current_if->data.if_stmt.else_count > 0) {
-                    current_if = current_if->data.if_stmt.else_body[0];
-                } else {
-                    current_if = NULL;
-                }
-            }
-            
-            // Return the temporary variable
-            fprintf(codegen->output_file, " %s; })", temp_var);
+            // This should not happen - IR_IF should be handled in codegen_inst.c, not codegen_write_value
+            // This is a safeguard to prevent generating invalid match expressions
+            fprintf(codegen->output_file, "/* Error: IR_IF should be handled in codegen_inst.c */");
             break;
         }
+
+        case IR_TRY_CATCH:
+            // Handle catch expressions: expr catch |err| { ... }
+            // Generate C code with error checking using statement expression
+            {
+                // Generate temporary variable name
+                char temp_var[64];
+                snprintf(temp_var, sizeof(temp_var), "_catch_temp_%d", codegen->temp_counter++);
+                
+                // Determine error union type from try_body (function call)
+                IRType base_type = IR_TYPE_I32;  // Default
+                if (inst->data.try_catch.try_body && inst->data.try_catch.try_body->type == IR_CALL) {
+                    const char *func_name = inst->data.try_catch.try_body->data.call.func_name;
+                    int is_error_union = 0;
+                    if (codegen->ir && func_name) {
+                        find_function_return_type(codegen->ir, func_name, &base_type, &is_error_union);
+                    }
+                }
+                
+                const char *base_type_name = codegen_get_type_name(base_type);
+                
+                // Generate statement expression:
+                // ({ struct error_union_T _temp = expr;
+                //    if (_temp.error_id != 0) { uint32_t err = _temp.error_id; catch_body } else { _temp.value } })
+                fprintf(codegen->output_file, "({ struct error_union_%s %s = ", base_type_name, temp_var);
+                if (inst->data.try_catch.try_body) {
+                    codegen_write_value(codegen, inst->data.try_catch.try_body);
+                } else {
+                    fprintf(codegen->output_file, "{0}");
+                }
+                fprintf(codegen->output_file, "; ");
+                
+                // Error check: if (error_id != 0) { catch body } else { value }
+                fprintf(codegen->output_file, "%s.error_id != 0 ? ", temp_var);
+                
+                // Error case: execute catch body
+                fprintf(codegen->output_file, "({ ");
+                if (inst->data.try_catch.error_var) {
+                    // Declare error variable and assign error_id
+                    fprintf(codegen->output_file, "uint32_t %s = %s.error_id; ", 
+                            inst->data.try_catch.error_var, temp_var);
+                }
+                
+                // Generate catch body
+                if (inst->data.try_catch.catch_body) {
+                    if (inst->data.try_catch.catch_body->type == IR_BLOCK) {
+                        // Generate block statements
+                        for (int i = 0; i < inst->data.try_catch.catch_body->data.block.inst_count; i++) {
+                            IRInst *catch_inst = inst->data.try_catch.catch_body->data.block.insts[i];
+                            if (!catch_inst) continue;
+                            codegen_generate_inst(codegen, catch_inst);
+                            fprintf(codegen->output_file, "; ");
+                        }
+                    } else {
+                        codegen_generate_inst(codegen, inst->data.try_catch.catch_body);
+                        fprintf(codegen->output_file, "; ");
+                    }
+                }
+                fprintf(codegen->output_file, "0; })");
+                
+                // Success case: return value
+                fprintf(codegen->output_file, " : %s.value; })", temp_var);
+            }
+            break;
 
         default:
             fprintf(codegen->output_file, "temp_%d", inst->id);

@@ -204,7 +204,7 @@ int const_eval_expr(ASTNode *expr, ConstValue *result) {
                         result->type = CONST_VAL_BOOL;
                         result->value.bool_val = (a == b);
                         return 1;
-                    case 58: // TOKEN_NOT_EQUAL
+                    case TOKEN_NOT_EQUAL:
                         result->type = CONST_VAL_BOOL;
                         result->value.bool_val = (a != b);
                         return 1;

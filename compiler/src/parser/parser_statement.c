@@ -169,10 +169,22 @@ ASTNode *parser_parse_if_stmt(Parser *parser) {
     // 检查是否有 else 分支
     if (parser_match(parser, TOKEN_ELSE)) {
         parser_consume(parser); // 消费 'else'
-        if_stmt->data.if_stmt.else_branch = parser_parse_block(parser);
-        if (!if_stmt->data.if_stmt.else_branch) {
-            ast_free(if_stmt);
-            return NULL;
+        
+        // 检查是否是 else if 结构
+        if (parser_match(parser, TOKEN_IF)) {
+            // 递归解析 else if 作为一个新的 if 语句
+            if_stmt->data.if_stmt.else_branch = parser_parse_if_stmt(parser);
+            if (!if_stmt->data.if_stmt.else_branch) {
+                ast_free(if_stmt);
+                return NULL;
+            }
+        } else {
+            // 普通 else 分支，解析代码块
+            if_stmt->data.if_stmt.else_branch = parser_parse_block(parser);
+            if (!if_stmt->data.if_stmt.else_branch) {
+                ast_free(if_stmt);
+                return NULL;
+            }
         }
     } else {
         if_stmt->data.if_stmt.else_branch = NULL;
