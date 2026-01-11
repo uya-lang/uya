@@ -28,8 +28,17 @@ static unsigned int hash_string(const char *str) {
     return hash;
 }
 
-// 前向声明（函数表操作函数）
+// 前向声明
 static Symbol *symbol_table_lookup(TypeChecker *checker, const char *name);
+static int type_equals(Type t1, Type t2);
+static Type type_from_ast(TypeChecker *checker, ASTNode *type_node);
+static Type checker_infer_type(TypeChecker *checker, ASTNode *expr);
+static int symbol_table_insert(TypeChecker *checker, Symbol *symbol);
+static int function_table_insert(TypeChecker *checker, FunctionSignature *sig);
+static FunctionSignature *function_table_lookup(TypeChecker *checker, const char *name);
+static void checker_enter_scope(TypeChecker *checker);
+static void checker_exit_scope(TypeChecker *checker);
+static int checker_check_node(TypeChecker *checker, ASTNode *node);
 
 // 初始化 TypeChecker
 int checker_init(TypeChecker *checker, Arena *arena) {
