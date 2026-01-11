@@ -29,3 +29,14 @@ compiler-mini/tests/test_parser
 compiler-mini/checker.o
 compiler-mini/tests/test_checker
 compiler-mini/tests/test_codegen
+compiler-mini/tests/programs/arithmetic
+compiler-mini/tests/programs/assignment
+compiler-mini/tests/programs/boolean_logic
+compiler-mini/tests/programs/comparison
+compiler-mini/tests/programs/control_flow
+compiler-mini/tests/programs/nested_control
+compiler-mini/tests/programs/operator_precedence
+compiler-mini/tests/programs/struct_assignment
+compiler-mini/tests/programs/struct_comparison
+compiler-mini/tests/programs/struct_test
+compiler-mini/tests/programs/unary_expr
