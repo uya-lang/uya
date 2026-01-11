@@ -80,7 +80,7 @@ int checker_get_error_count(TypeChecker *checker) {
 // 符号表插入函数（使用开放寻址的哈希表）
 // 参数：checker - TypeChecker 指针，symbol - 要插入的符号（从 Arena 分配）
 // 返回：成功返回 0，失败返回 -1
-// 注意：允许同一名称的符号在不同作用域中共存（内层遮蔽外层）
+// 注意：禁止变量遮蔽，内层作用域不能声明与外层作用域同名的变量（应在类型检查时验证）
 //      如果符号已存在（相同名称和相同作用域级别），返回 -1
 static int symbol_table_insert(TypeChecker *checker, Symbol *symbol) {
     if (checker == NULL || symbol == NULL || symbol->name == NULL) {

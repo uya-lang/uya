@@ -231,7 +231,7 @@ static LLVMValueRef lookup_var(CodeGenerator *codegen, const char *var_name) {
         return NULL;
     }
     
-    // 线性查找（从后向前查找，支持变量遮蔽）
+    // 线性查找（从后向前查找，由于禁止变量遮蔽，理论上只需要查找最后一个匹配项）
     for (int i = codegen->var_map_count - 1; i >= 0; i--) {
         if (codegen->var_map[i].name != NULL && 
             strcmp(codegen->var_map[i].name, var_name) == 0) {
@@ -251,7 +251,7 @@ static LLVMTypeRef lookup_var_type(CodeGenerator *codegen, const char *var_name)
         return NULL;
     }
     
-    // 线性查找（从后向前查找，支持变量遮蔽）
+    // 线性查找（从后向前查找，由于禁止变量遮蔽，理论上只需要查找最后一个匹配项）
     for (int i = codegen->var_map_count - 1; i >= 0; i--) {
         if (codegen->var_map[i].name != NULL && 
             strcmp(codegen->var_map[i].name, var_name) == 0) {
@@ -299,7 +299,7 @@ static const char *lookup_var_struct_name(CodeGenerator *codegen, const char *va
         return NULL;
     }
     
-    // 线性查找（从后向前查找，支持变量遮蔽）
+    // 线性查找（从后向前查找，由于禁止变量遮蔽，理论上只需要查找最后一个匹配项）
     for (int i = codegen->var_map_count - 1; i >= 0; i--) {
         if (codegen->var_map[i].name != NULL && 
             strcmp(codegen->var_map[i].name, var_name) == 0) {
