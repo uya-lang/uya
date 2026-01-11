@@ -56,6 +56,7 @@ int codegen_new(CodeGenerator *codegen, Arena *arena, const char *module_name) {
     // 初始化变量表和函数表
     codegen->var_map_count = 0;
     codegen->func_map_count = 0;
+    codegen->basic_block_counter = 0;
     codegen->program_node = NULL;
     
     return 0;
@@ -667,10 +668,15 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 // 创建临时变量来存储结果
                 LLVMValueRef result = LLVMBuildAlloca(codegen->builder, left_type, "bool_result");
                 
-                // 创建基本块
-                LLVMBasicBlockRef then_bb = LLVMAppendBasicBlock(func, "logical_then");
-                LLVMBasicBlockRef else_bb = LLVMAppendBasicBlock(func, "logical_else");
-                LLVMBasicBlockRef merge_bb = LLVMAppendBasicBlock(func, "logical_merge");
+                // 创建基本块（使用计数器生成唯一名称）
+                int bb_id = codegen->basic_block_counter++;
+                char then_name[32], else_name[32], merge_name[32];
+                snprintf(then_name, sizeof(then_name), "logical_then.%d", bb_id);
+                snprintf(else_name, sizeof(else_name), "logical_else.%d", bb_id);
+                snprintf(merge_name, sizeof(merge_name), "logical_merge.%d", bb_id);
+                LLVMBasicBlockRef then_bb = LLVMAppendBasicBlock(func, then_name);
+                LLVMBasicBlockRef else_bb = LLVMAppendBasicBlock(func, else_name);
+                LLVMBasicBlockRef merge_bb = LLVMAppendBasicBlock(func, merge_name);
                 
                 if (op == TOKEN_LOGICAL_AND) {
                     // 短路与：if (left) then evaluate right else result = false
@@ -989,6 +995,13 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 return NULL;
             }
             
+            // 检查字段数组：如果 field_count > 0，数组必须不为 NULL
+            if (field_count > 0) {
+                if (!field_names || !field_values) {
+                    return NULL;  // 字段数组为 NULL 但字段数量 > 0
+                }
+            }
+            
             // 获取结构体类型
             LLVMTypeRef struct_type = codegen_get_struct_type(codegen, struct_name);
             if (!struct_type) {
@@ -1059,6 +1072,42 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
         default:
             return NULL;
     }
+}
+
+// 辅助函数：生成分支代码并确保控制流正确连接
+// 参数：codegen - 代码生成器指针
+//       branch_bb - 分支基本块（代码生成的位置）
+//       branch_stmt - 分支语句AST节点（AST_BLOCK节点）
+//       target_bb - 目标基本块（如果分支没有终止符，跳转到这里）
+// 返回：成功返回0，失败返回非0
+// 说明：此函数在branch_bb中生成分支代码，生成后检查当前构建器所在的基本块是否有终止符。
+//       如果当前基本块没有终止符（说明控制流需要继续），添加跳转到target_bb。
+//       这正确处理了嵌套控制流的情况（嵌套if、while等会创建自己的基本块）。
+static int gen_branch_with_terminator(CodeGenerator *codegen, 
+                                       LLVMBasicBlockRef branch_bb,
+                                       ASTNode *branch_stmt,
+                                       LLVMBasicBlockRef target_bb) {
+    if (!codegen || !branch_bb || !branch_stmt || !target_bb) {
+        return -1;
+    }
+    
+    // 定位构建器到分支基本块
+    LLVMPositionBuilderAtEnd(codegen->builder, branch_bb);
+    
+    // 生成分支代码（可能包含嵌套控制流，构建器可能被移动到其他基本块）
+    if (codegen_gen_stmt(codegen, branch_stmt) != 0) {
+        return -1;
+    }
+    
+    // 检查当前构建器所在的基本块是否有终止符
+    // 如果分支包含嵌套控制流，构建器可能已经移动到其他基本块
+    LLVMBasicBlockRef current_bb = LLVMGetInsertBlock(codegen->builder);
+    if (current_bb && !LLVMGetBasicBlockTerminator(current_bb)) {
+        // 当前基本块没有终止符，添加跳转到目标基本块
+        LLVMBuildBr(codegen->builder, target_bb);
+    }
+    
+    return 0;
 }
 
 // 生成语句代码（从语句AST节点生成LLVM IR指令）
@@ -1217,14 +1266,6 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 return -1;
             }
             
-            // 调试：if语句条件表达式
-            if (condition->type == AST_BINARY_EXPR) {
-                int op = condition->data.binary_expr.op;
-                if (op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR) {
-
-                }
-            }
-            
             // 生成条件表达式
             LLVMValueRef cond_val = codegen_gen_expr(codegen, condition);
             if (!cond_val) {
@@ -1232,50 +1273,58 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 return -1;
             }
             
-            // 获取当前函数和基本块
+            // 获取当前函数
             LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(codegen->builder));
             if (!current_func) {
                 return -1;
             }
             
-            // 创建 then 基本块
-            LLVMBasicBlockRef then_bb = LLVMAppendBasicBlock(current_func, "if.then");
-            LLVMBasicBlockRef end_bb = LLVMAppendBasicBlock(current_func, "if.end");
-            LLVMBasicBlockRef else_bb = NULL;
+            // 创建基本块（使用计数器生成唯一名称）
+            int bb_id = codegen->basic_block_counter++;
+            char then_name[32], end_name[32], else_name[32];
+            snprintf(then_name, sizeof(then_name), "if.then.%d", bb_id);
+            snprintf(end_name, sizeof(end_name), "if.end.%d", bb_id);
+            LLVMBasicBlockRef then_bb = LLVMAppendBasicBlock(current_func, then_name);
+            LLVMBasicBlockRef end_bb = LLVMAppendBasicBlock(current_func, end_name);
+            
+            // 生成条件分支指令
             if (else_branch) {
-                else_bb = LLVMAppendBasicBlock(current_func, "if.else");
-            }
-            
-            // 条件分支
-            if (else_bb) {
+                // 有else分支：
+                // 1. 创建else_bb
+                // 2. 生成条件分支指令：条件为真跳转到then_bb，条件为假跳转到else_bb
+                // 3. 生成then分支代码
+                // 4. 生成else分支代码
+                
+                snprintf(else_name, sizeof(else_name), "if.else.%d", bb_id);
+                LLVMBasicBlockRef else_bb = LLVMAppendBasicBlock(current_func, else_name);
+                
+                // 生成条件分支指令
                 LLVMBuildCondBr(codegen->builder, cond_val, then_bb, else_bb);
-            } else {
-                LLVMBuildCondBr(codegen->builder, cond_val, then_bb, end_bb);
-            }
-            
-            // 生成 then 分支
-            LLVMPositionBuilderAtEnd(codegen->builder, then_bb);
-            if (codegen_gen_stmt(codegen, then_branch) != 0) {
-                return -1;
-            }
-            // 检查 then 分支是否已经有终止符，如果没有则添加跳转到 end
-            if (!LLVMGetBasicBlockTerminator(then_bb)) {
-                LLVMBuildBr(codegen->builder, end_bb);
-            }
-            
-            // 生成 else 分支（如果有）
-            if (else_bb && else_branch) {
-                LLVMPositionBuilderAtEnd(codegen->builder, else_bb);
-                if (codegen_gen_stmt(codegen, else_branch) != 0) {
+                
+                // 生成then分支代码（使用辅助函数处理嵌套控制流）
+                if (gen_branch_with_terminator(codegen, then_bb, then_branch, end_bb) != 0) {
                     return -1;
                 }
-                // 检查 else 分支是否已经有终止符，如果没有则添加跳转到 end
-                if (!LLVMGetBasicBlockTerminator(else_bb)) {
-                    LLVMBuildBr(codegen->builder, end_bb);
+                
+                // 生成else分支代码（使用辅助函数处理嵌套控制流）
+                if (gen_branch_with_terminator(codegen, else_bb, else_branch, end_bb) != 0) {
+                    return -1;
+                }
+            } else {
+                // 没有else分支：
+                // 1. 生成条件分支指令：条件为真跳转到then_bb，条件为假跳转到end_bb
+                // 2. 生成then分支代码
+                
+                // 生成条件分支指令
+                LLVMBuildCondBr(codegen->builder, cond_val, then_bb, end_bb);
+                
+                // 生成then分支代码（使用辅助函数处理嵌套控制流）
+                if (gen_branch_with_terminator(codegen, then_bb, then_branch, end_bb) != 0) {
+                    return -1;
                 }
             }
             
-            // 设置构建器到 end 基本块
+            // 最后设置构建器到end_bb
             LLVMPositionBuilderAtEnd(codegen->builder, end_bb);
             
             return 0;
@@ -1296,10 +1345,15 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 return -1;
             }
             
-            // 创建基本块：cond（条件检查）、body（循环体）、end（结束）
-            LLVMBasicBlockRef cond_bb = LLVMAppendBasicBlock(current_func, "while.cond");
-            LLVMBasicBlockRef body_bb = LLVMAppendBasicBlock(current_func, "while.body");
-            LLVMBasicBlockRef end_bb = LLVMAppendBasicBlock(current_func, "while.end");
+            // 创建基本块：cond（条件检查）、body（循环体）、end（结束）（使用计数器生成唯一名称）
+            int bb_id = codegen->basic_block_counter++;
+            char cond_name[32], body_name[32], end_name[32];
+            snprintf(cond_name, sizeof(cond_name), "while.cond.%d", bb_id);
+            snprintf(body_name, sizeof(body_name), "while.body.%d", bb_id);
+            snprintf(end_name, sizeof(end_name), "while.end.%d", bb_id);
+            LLVMBasicBlockRef cond_bb = LLVMAppendBasicBlock(current_func, cond_name);
+            LLVMBasicBlockRef body_bb = LLVMAppendBasicBlock(current_func, body_name);
+            LLVMBasicBlockRef end_bb = LLVMAppendBasicBlock(current_func, end_name);
             
             // 跳转到条件检查
             LLVMBuildBr(codegen->builder, cond_bb);
@@ -1361,6 +1415,12 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
         return -1;
     }
     
+    // 检查参数数组：如果 param_count > 0，params 必须不为 NULL
+    if (param_count > 0 && !params) {
+        fprintf(stderr, "错误: codegen_gen_function 参数数量 > 0 但参数数组为 NULL: %s\n", func_name);
+        return -1;
+    }
+    
     // extern 函数没有函数体，只生成声明
     int is_extern = (body == NULL) ? 1 : 0;
     
@@ -1412,6 +1472,13 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
         if (!func) {
             return -1;
         }
+    } else {
+        // 函数已存在，检查是否是函数体已定义的函数
+        // 如果函数已经有基本块，说明函数体已经定义，不应该重复定义
+        if (LLVMGetFirstBasicBlock(func) != NULL) {
+            // 函数体已存在，跳过函数体生成（可能是重复定义，或者已经生成过）
+            return 0;
+        }
     }
     
     // 添加到函数表
@@ -1425,6 +1492,12 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
     }
     
     // 普通函数需要生成函数体
+    // 确保函数体不为 NULL
+    if (!body) {
+        fprintf(stderr, "错误: codegen_gen_function 非 extern 函数但函数体为 NULL: %s\n", func_name);
+        return -1;
+    }
+    
     // 创建函数体的基本块
     LLVMBasicBlockRef entry_bb = LLVMAppendBasicBlock(func, "entry");
     if (!entry_bb) {
@@ -1704,6 +1777,7 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
         LLVMDisposeMessage(target_triple);
         return -1;
     }
+    
     
     // 清理资源
     LLVMDisposeTargetMachine(target_machine);
