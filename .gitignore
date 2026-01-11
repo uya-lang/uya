@@ -21,3 +21,4 @@ compiler/*/*.dylib
 compiler/output.c
 compiler/output_complex.c
 compiler/src/main.o
+compiler-mini/tests/test_arena.exe

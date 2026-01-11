@@ -43,55 +43,57 @@
 - [x] 创建 `compiler-mini/` 目录
 - [x] 创建 `spec/` 目录
 - [x] 创建语言规范文档 `spec/UYA_MINI_SPEC.md`
-- [ ] 创建 `src/` 目录
-- [ ] 创建 `tests/` 目录
+- [x] 创建 `src/` 目录
+- [x] 创建 `tests/` 目录
 
 ### 1.2 创建开发文档
 
 - [x] 创建 `.cursorrules` 规则文件
 - [x] 创建 `CONTEXT_SWITCH.md` 上下文切换指南
 - [x] 创建 `TODO.md` 待办事项文档
-- [ ] 创建 `PROGRESS.md` 进度跟踪文档
-- [ ] 创建 `README.md` 项目说明文档
+- [x] 创建 `PROGRESS.md` 进度跟踪文档
+- [x] 创建 `README.md` 项目说明文档
 
 ### 1.3 配置构建系统
 
-- [ ] 创建 `Makefile`
-  - [ ] 配置 C99 编译选项（`-Wall -Wextra -pedantic -std=c99`）
-  - [ ] 配置 LLVM 库链接（`-llvm` 或具体库路径）
-  - [ ] `make build` - 构建编译器
-  - [ ] `make test` - 运行测试
-  - [ ] `make clean` - 清理编译产物
+- [x] 创建 `Makefile`
+  - [x] 配置 C99 编译选项（`-Wall -Wextra -pedantic -std=c99`）
+  - [ ] 配置 LLVM 库链接（`-llvm` 或具体库路径）（待 CodeGen 阶段实现）
+  - [x] `make test-arena` - 运行 Arena 测试
+  - [x] `make clean` - 清理编译产物
+  - [ ] `make build` - 构建编译器（待主程序阶段实现）
 
 ---
 
-## 阶段2：实现 Arena 分配器
+## 阶段2：实现 Arena 分配器 ✅
 
 ### 2.1 Arena 分配器接口
 
-- [ ] 创建 `src/arena.h`
-  - [ ] 定义 Arena 结构体（包含静态缓冲区、当前指针、大小等字段）
-  - [ ] 声明 `arena_alloc(size)` - 分配内存
-  - [ ] 声明 `arena_reset()` - 重置分配器
-  - [ ] 声明 `arena_init()` - 初始化 Arena（可选）
-  - [ ] 添加中文注释说明
+- [x] 创建 `src/arena.h`
+  - [x] 定义 Arena 结构体（包含静态缓冲区、当前指针、大小等字段）
+  - [x] 声明 `arena_alloc(size)` - 分配内存
+  - [x] 声明 `arena_reset()` - 重置分配器
+  - [x] 声明 `arena_init()` - 初始化 Arena
+  - [x] 添加中文注释说明
 
 ### 2.2 Arena 分配器实现
 
-- [ ] 创建 `src/arena.c`
-  - [ ] 定义静态缓冲区（例如 1MB）
-  - [ ] 实现 `arena_alloc(size)` - 从缓冲区分配内存（bump pointer）
-  - [ ] 实现 `arena_reset()` - 重置指针到开始位置
-  - [ ] 实现内存对齐（如果需要）
-  - [ ] 添加中文注释说明
-  - [ ] 验证代码可以编译
+- [x] 创建 `src/arena.c`
+  - [x] 实现 `arena_init()` - 初始化 Arena 分配器
+  - [x] 实现 `arena_alloc(size)` - 从缓冲区分配内存（bump pointer，支持 8 字节对齐）
+  - [x] 实现 `arena_reset()` - 重置指针到开始位置
+  - [x] 实现内存对齐（8 字节对齐）
+  - [x] 添加中文注释说明
+  - [x] 验证代码可以编译
 
 ### 2.3 Arena 分配器测试
 
-- [ ] 创建简单测试用例验证 Arena 分配器功能
-- [ ] 测试基本分配功能
-- [ ] 测试重置功能
-- [ ] 测试内存对齐（如果有）
+- [x] 创建测试文件 `tests/test_arena.c`
+- [x] 测试基本分配功能
+- [x] 测试重置功能
+- [x] 测试内存对齐（8 字节对齐）
+- [x] 测试分配失败情况（空间不足）
+- [x] 所有测试通过
 
 ---
 
