@@ -143,50 +143,20 @@
 
 **下一步**：阶段6 - 类型检查器（Checker）
 
-**已完成**（会话1 + 会话2）：
-- ✅ 创建 `src/parser.h` - Parser 结构体和接口定义
-- ✅ 创建 `src/parser.c` - Parser 实现
-  - ✅ 实现 `parser_init()` - 初始化 Parser
-  - ✅ 实现 `parser_parse()` - 解析程序（顶层声明列表）
-  - ✅ 实现辅助函数（parser_match, parser_consume, parser_expect）
-  - ✅ 实现 `parser_parse_type()` - 解析类型（i32, bool, void, 结构体名称）
-  - ✅ 实现 `arena_strdup()` 辅助函数（从 Arena 复制字符串）
-  - ✅ 实现 `parser_parse_declaration()` - 解析声明基础框架
-  - ✅ 实现 `parser_parse_function()` - 解析函数声明（包括参数列表，函数体暂时解析为空代码块）
-  - ✅ 实现 `parser_parse_struct()` - 解析结构体声明（包括字段列表）
-  - ✅ 实现 `parser_parse_block()` - 最小版本代码块解析（暂时跳过内部语句，只解析花括号）
-- ✅ 创建 `tests/test_parser.c` - Parser 测试（包括函数声明、结构体声明、程序解析测试）
-- ✅ 所有测试通过
+**阶段6需要实现的内容**：
+- 创建 `src/checker.h` - TypeChecker 结构体和符号表定义
+- 创建 `src/checker.c` - 类型检查器实现
+  - 实现符号表（固定大小哈希表，开放寻址）
+  - 实现类型检查功能（变量、函数调用、结构体、运算符等）
+- 创建 `tests/test_checker.c` - Checker 测试
+- 更新 `Makefile` 添加 Checker 测试
 
-**下一步任务**（分多个会话完成）：
-- **会话2（已完成）**：
-  - ✅ 实现 `parser_parse_type()` - 解析类型
-  - ✅ 实现 `parser_parse_declaration()` - 解析声明基础框架
-  - ✅ 实现 `parser_parse_function()` - 解析函数声明（包括参数列表，函数体暂时解析为空代码块）
-  - ✅ 实现 `parser_parse_struct()` - 解析结构体声明（包括字段列表）
-  - ✅ 实现 `parser_parse_block()` - 最小版本代码块解析（暂时跳过内部语句，只解析花括号）
-  - ✅ 更新 `parser_parse()` 调用声明解析函数
-  - ✅ 添加测试用例
-- **会话3（已完成）**：
-  - ✅ 实现基础表达式解析（`parser_parse_expression()` 和 `parser_parse_primary_expr()`）- 支持数字、标识符、布尔字面量、括号表达式
-  - ✅ 实现语句解析（`parser_parse_statement()`）- 支持变量声明、return、if、while、表达式语句、代码块
-  - ✅ 完善 `parser_parse_block()` - 调用 `parser_parse_statement()` 解析语句列表
-  - ✅ 添加测试用例（return语句、变量声明、函数体语句解析）
-- **会话4（已完成）**：实现完整表达式解析（`parser_parse_expression()`，包括运算符、函数调用、结构体字面量和字段访问）
-  - ✅ 扩展 `parser_parse_primary_expr()` - 添加函数调用、结构体字面量、字段访问解析
-  - ✅ 实现一元表达式解析（`parser_parse_unary_expr()`）- 支持 `!` 和 `-` 运算符（右结合）
-  - ✅ 实现二元表达式解析（按优先级：mul_expr, add_expr, rel_expr, eq_expr, and_expr, or_expr）（左结合）
-  - ✅ 实现赋值表达式解析（`parser_parse_assign_expr()`）（右结合）
-  - ✅ 添加测试用例并运行测试（所有测试通过）
-
-**依赖关系**：依赖 Lexer 和 AST（已完成）
+**依赖关系**：依赖 Parser、Lexer 和 AST（已完成）
 
 **参考文档**：
-- `spec/UYA_MINI_SPEC.md` - 语言规范（语法规则部分）
+- `spec/UYA_MINI_SPEC.md` - 语言规范（语义规则部分）
 - `TODO.md` - 任务索引
-- `TODO_phase5.md` - 阶段5详细任务列表
-
-**注意**：Parser 实现复杂，必须分多次会话完成，不能简化功能。
+- `TODO_phase6.md` - 阶段6详细任务列表
 
 ---
 
