@@ -106,17 +106,23 @@
 
 **当前进度**：基础框架已完成（会话1部分完成）
 
-**已完成**：
+**已完成**（会话1 + 会话2部分）：
 - ✅ 创建 `src/parser.h` - Parser 结构体和接口定义
 - ✅ 创建 `src/parser.c` - 基础框架实现
   - ✅ 实现 `parser_init()` - 初始化 Parser
   - ✅ 实现 `parser_parse()` - 解析程序的基础框架
   - ✅ 实现辅助函数（parser_match, parser_consume, parser_expect）
+  - ✅ 实现 `parser_parse_type()` - 解析类型（i32, bool, void, 结构体名称）
+  - ✅ 实现 `arena_strdup()` 辅助函数（从 Arena 复制字符串）
 - ✅ 创建 `tests/test_parser.c` - 基础框架测试
 - ✅ 所有基础测试通过
 
 **下一步任务**（分多个会话完成）：
-- **会话2**：实现函数和结构体解析（`parser_parse_function()`, `parser_parse_struct()`）
+- **会话2（进行中）**：
+  - ✅ 实现 `parser_parse_type()` - 解析类型
+  - ⏭️ 实现 `parser_parse_declaration()` - 解析声明基础框架
+  - ⏭️ 实现 `parser_parse_function()` - 解析函数声明
+  - ⏭️ 实现 `parser_parse_struct()` - 解析结构体声明
 - **会话3**：实现语句解析（`parser_parse_statement()`）
 - **会话4**：实现表达式解析（`parser_parse_expression()`，包括结构体字面量和字段访问）
 

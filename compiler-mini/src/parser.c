@@ -1,5 +1,6 @@
 #include "parser.h"
 #include <stddef.h>
+#include <string.h>
 
 // 初始化 Parser
 int parser_init(Parser *parser, Lexer *lexer, Arena *arena) {
@@ -47,6 +48,56 @@ static Token *parser_expect(Parser *parser, TokenType type) {
     }
     
     return parser_consume(parser);
+}
+
+// 从 Arena 复制字符串
+static const char *arena_strdup(Arena *arena, const char *src) {
+    if (arena == NULL || src == NULL) {
+        return NULL;
+    }
+    
+    size_t len = strlen(src) + 1;
+    char *result = (char *)arena_alloc(arena, len);
+    if (result == NULL) {
+        return NULL;
+    }
+    
+    memcpy(result, src, len);
+    return result;
+}
+
+// 解析类型（Uya Mini 只支持命名类型：i32, bool, void, 或结构体名称）
+static ASTNode *parser_parse_type(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    // Uya Mini 只支持命名类型（标识符）
+    if (parser->current_token->type != TOKEN_IDENTIFIER) {
+        return NULL;
+    }
+    
+    int line = parser->current_token->line;
+    int column = parser->current_token->column;
+    
+    // 创建类型节点
+    ASTNode *type_node = ast_new_node(AST_TYPE_NAMED, line, column, parser->arena);
+    if (type_node == NULL) {
+        return NULL;
+    }
+    
+    // 复制类型名称到 Arena
+    const char *type_name = arena_strdup(parser->arena, parser->current_token->value);
+    if (type_name == NULL) {
+        return NULL;
+    }
+    
+    type_node->data.type_named.name = type_name;
+    
+    // 消费类型标识符
+    parser_consume(parser);
+    
+    return type_node;
 }
 
 // 解析程序（顶层声明列表）
