@@ -424,6 +424,44 @@ test-programs: compile-programs
 .PHONY: compile-programs test-programs
 ```
 
+## 💻 Windows/WSL 开发说明
+
+### 在 Windows 下使用 WSL
+
+如果开发环境是 Windows，可以使用 WSL（Windows Subsystem for Linux）来执行命令行操作：
+
+```bash
+# 在 Windows 的 Cursor 或终端中，使用 wsl 命令执行 Linux 命令
+
+# 1. 查看当前进度
+wsl bash -c "cd /mnt/c/Users/27027/uya/compiler-mini && cat PROGRESS.md"
+
+# 2. Git 操作（推荐在 WSL 中执行）
+wsl bash -c "cd /mnt/c/Users/27027/uya && git status compiler-mini/"
+wsl bash -c "cd /mnt/c/Users/27027/uya && git add compiler-mini/"
+wsl bash -c "cd /mnt/c/Users/27027/uya && git commit -m 'feat: 完成 [模块名称] 实现'"
+
+# 3. 编译和测试（如果使用 make）
+wsl bash -c "cd /mnt/c/Users/27027/uya/compiler-mini && make test_parser"
+
+# 4. 路径映射说明
+# Windows 路径: C:\Users\27027\uya\compiler-mini
+# WSL 路径:     /mnt/c/Users/27027/uya/compiler-mini
+```
+
+### Git 提交示例
+
+```bash
+# 查看修改状态
+wsl bash -c "cd /mnt/c/Users/27027/uya && git status compiler-mini/"
+
+# 添加文件
+wsl bash -c "cd /mnt/c/Users/27027/uya && git add compiler-mini/src/ compiler-mini/tests/ compiler-mini/PROGRESS.md"
+
+# 提交代码
+wsl bash -c "cd /mnt/c/Users/27027/uya && git commit -m 'feat: 完成阶段5会话3 - 语句解析实现'"
+```
+
 ## 📝 示例：新会话开始
 
 ```bash
