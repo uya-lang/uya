@@ -471,6 +471,73 @@ void test_check_assign_to_var(void) {
     printf("  ✓ 赋值语句（var变量可以赋值）测试通过\n");
 }
 
+// 测试extern函数声明类型检查（正确情况）
+void test_check_extern_function_decl(void) {
+    printf("测试extern函数声明类型检查（正确情况）...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    TypeChecker checker;
+    checker_init(&checker, &arena);
+    
+    const char *source = "extern fn add(a: i32, b: i32) i32;";
+    ASTNode *program = parse_source(source, &arena);
+    assert(program != NULL);
+    
+    int result = checker_check(&checker, program);
+    assert(result == 0);
+    assert(checker_get_error_count(&checker) == 0);
+    
+    printf("  ✓ extern函数声明类型检查测试通过\n");
+}
+
+// 测试调用extern函数的类型检查（正确情况）
+void test_check_extern_function_call(void) {
+    printf("测试调用extern函数的类型检查（正确情况）...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    TypeChecker checker;
+    checker_init(&checker, &arena);
+    
+    const char *source = 
+        "extern fn add(a: i32, b: i32) i32;\n"
+        "fn main() i32 { const x: i32 = add(10, 20); return 0; }";
+    ASTNode *program = parse_source(source, &arena);
+    assert(program != NULL);
+    
+    int result = checker_check(&checker, program);
+    assert(result == 0);
+    assert(checker_get_error_count(&checker) == 0);
+    
+    printf("  ✓ 调用extern函数的类型检查测试通过\n");
+}
+
+// 测试调用extern函数的类型检查（参数类型不匹配）
+void test_check_extern_function_call_type_mismatch(void) {
+    printf("测试调用extern函数的类型检查（参数类型不匹配）...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    TypeChecker checker;
+    checker_init(&checker, &arena);
+    
+    const char *source = 
+        "extern fn add(a: i32, b: i32) i32;\n"
+        "fn main() i32 { const x: i32 = add(10, true); return 0; }";
+    ASTNode *program = parse_source(source, &arena);
+    assert(program != NULL);
+    
+    int result = checker_check(&checker, program);
+    assert(result == 0);
+    assert(checker_get_error_count(&checker) > 0);  // 应该有类型错误
+    
+    printf("  ✓ 调用extern函数的类型检查（参数类型不匹配）测试通过\n");
+}
+
 // 主测试函数
 int main(void) {
     printf("开始 Checker 测试...\n\n");
@@ -496,6 +563,9 @@ int main(void) {
     test_check_while_condition_type_error();
     test_check_assign_to_const();
     test_check_assign_to_var();
+    test_check_extern_function_decl();
+    test_check_extern_function_call();
+    test_check_extern_function_call_type_mismatch();
     
     printf("\n所有测试通过！\n");
     

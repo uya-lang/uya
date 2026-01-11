@@ -603,6 +603,15 @@ static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
         if (sig->param_types == NULL) {
             return 0;
         }
+        
+        // 填充参数类型（对所有函数都需要，包括extern函数）
+        for (int i = 0; i < node->data.fn_decl.param_count; i++) {
+            ASTNode *param = node->data.fn_decl.params[i];
+            if (param != NULL && param->type == AST_VAR_DECL) {
+                Type param_type = type_from_ast(checker, param->data.var_decl.type);
+                sig->param_types[i] = param_type;
+            }
+        }
     } else {
         sig->param_types = NULL;
     }
@@ -618,12 +627,11 @@ static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
     if (node->data.fn_decl.body != NULL) {
         checker_enter_scope(checker);
         
-        // 将参数添加到符号表
+        // 将参数添加到符号表（仅用于函数体内的类型检查）
         for (int i = 0; i < node->data.fn_decl.param_count; i++) {
             ASTNode *param = node->data.fn_decl.params[i];
             if (param != NULL && param->type == AST_VAR_DECL) {
                 Type param_type = type_from_ast(checker, param->data.var_decl.type);
-                sig->param_types[i] = param_type;
                 
                 // 将参数添加到符号表
                 Symbol *param_symbol = (Symbol *)arena_alloc(checker->arena, sizeof(Symbol));

@@ -8,9 +8,9 @@
 
 ## 📋 未实现特性列表
 
-### 1. extern 函数声明 ❌
+### 1. extern 函数声明 ✅
 
-**状态**：🔄 部分实现（语法解析已实现，需要验证完整流程）
+**状态**：✅ 已完成（已实现并验证）
 
 **功能描述**：
 - 支持声明外部 C 函数（用于 FFI）
@@ -22,17 +22,19 @@
 - ✅ Lexer：已支持 `TOKEN_EXTERN` 关键字
 - ✅ Parser：已实现 `parser_parse_extern_function()` 函数
 - ✅ Parser：`parser_parse_declaration()` 已调用 extern 函数解析
-- ⚠️ Checker：已处理 extern 函数（body 为 NULL 时标记为 extern）
-- ⚠️ CodeGen：已处理 extern 函数（body 为 NULL 时只生成声明）
-- ❌ 测试：未创建测试用例验证完整流程
+- ✅ Checker：已处理 extern 函数（body 为 NULL 时标记为 extern），修复了参数类型填充问题
+- ✅ CodeGen：已处理 extern 函数（body 为 NULL 时只生成声明）
+- ✅ 测试：已创建测试用例验证完整流程
 
-**待完成工作**：
+**完成工作**：
 1. **验证和测试**（优先级：P0）
-   - [ ] 创建测试用例验证 extern 函数声明语法解析
-   - [ ] 创建测试用例验证 extern 函数类型检查
-   - [ ] 创建测试用例验证 extern 函数代码生成（生成函数声明）
-   - [ ] 创建 Uya 测试程序验证完整流程（如调用外部函数）
-   - [ ] 如果测试失败，修复相关问题
+   - [x] 创建测试用例验证 extern 函数声明语法解析（test_parser.c）
+   - [x] 创建测试用例验证 extern 函数类型检查（test_checker.c）
+   - [x] 修复 Checker 中 extern 函数参数类型未填充的问题
+   - [x] 创建 Uya 测试程序验证完整流程（extern_function.uya）
+   - [x] 所有测试通过
+
+**完成时间**：2026-01-11（续29）
 
 **参考文档**：
 - `spec/UYA_MINI_SPEC.md` 第 4.2 节（外部函数声明语法）

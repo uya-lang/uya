@@ -412,6 +412,104 @@ void test_parse_assign_expr(void) {
     printf("  ✓ 赋值表达式解析测试通过\n");
 }
 
+// 测试解析extern函数声明（无参数）
+void test_parse_extern_function_no_params(void) {
+    printf("测试解析extern函数声明（无参数）...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "extern fn printf() void;";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *decl = parser_parse_declaration(&parser);
+    assert(decl != NULL);
+    assert(decl->type == AST_FN_DECL);
+    assert(strcmp(decl->data.fn_decl.name, "printf") == 0);
+    assert(decl->data.fn_decl.param_count == 0);
+    assert(decl->data.fn_decl.return_type != NULL);
+    assert(strcmp(decl->data.fn_decl.return_type->data.type_named.name, "void") == 0);
+    assert(decl->data.fn_decl.body == NULL);  // extern函数没有函数体
+    
+    printf("  ✓ extern函数声明（无参数）解析测试通过\n");
+}
+
+// 测试解析extern函数声明（带参数）
+void test_parse_extern_function_with_params(void) {
+    printf("测试解析extern函数声明（带参数）...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "extern fn add(a: i32, b: i32) i32;";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *decl = parser_parse_declaration(&parser);
+    assert(decl != NULL);
+    assert(decl->type == AST_FN_DECL);
+    assert(strcmp(decl->data.fn_decl.name, "add") == 0);
+    assert(decl->data.fn_decl.param_count == 2);
+    assert(decl->data.fn_decl.return_type != NULL);
+    assert(strcmp(decl->data.fn_decl.return_type->data.type_named.name, "i32") == 0);
+    assert(decl->data.fn_decl.body == NULL);  // extern函数没有函数体
+    
+    // 检查参数
+    assert(decl->data.fn_decl.params != NULL);
+    assert(decl->data.fn_decl.params[0]->type == AST_VAR_DECL);
+    assert(strcmp(decl->data.fn_decl.params[0]->data.var_decl.name, "a") == 0);
+    assert(decl->data.fn_decl.params[1]->type == AST_VAR_DECL);
+    assert(strcmp(decl->data.fn_decl.params[1]->data.var_decl.name, "b") == 0);
+    
+    printf("  ✓ extern函数声明（带参数）解析测试通过\n");
+}
+
+// 测试解析包含extern函数声明的程序
+void test_parse_program_with_extern_function(void) {
+    printf("测试解析包含extern函数声明的程序...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "extern fn add(a: i32, b: i32) i32;\n"
+                         "fn main() i32 {\n"
+                         "    return add(1, 2);\n"
+                         "}";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *program = parser_parse(&parser);
+    assert(program != NULL);
+    assert(program->type == AST_PROGRAM);
+    assert(program->data.program.decl_count == 2);
+    
+    // 检查第一个声明（extern函数）
+    ASTNode *extern_decl = program->data.program.decls[0];
+    assert(extern_decl != NULL);
+    assert(extern_decl->type == AST_FN_DECL);
+    assert(strcmp(extern_decl->data.fn_decl.name, "add") == 0);
+    assert(extern_decl->data.fn_decl.body == NULL);  // extern函数没有函数体
+    
+    // 检查第二个声明（普通函数）
+    ASTNode *fn_decl = program->data.program.decls[1];
+    assert(fn_decl != NULL);
+    assert(fn_decl->type == AST_FN_DECL);
+    assert(strcmp(fn_decl->data.fn_decl.name, "main") == 0);
+    assert(fn_decl->data.fn_decl.body != NULL);  // 普通函数有函数体
+    
+    printf("  ✓ 包含extern函数声明的程序解析测试通过\n");
+}
+
 // 主测试函数
 int main(void) {
     printf("开始 Parser 测试...\n\n");
@@ -431,6 +529,9 @@ int main(void) {
     test_parse_struct_literal();
     test_parse_member_access();
     test_parse_assign_expr();
+    test_parse_extern_function_no_params();
+    test_parse_extern_function_with_params();
+    test_parse_program_with_extern_function();
     
     printf("\n所有测试通过！\n");
     
