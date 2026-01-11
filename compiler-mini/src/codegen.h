@@ -41,6 +41,8 @@ typedef struct CodeGenerator {
         LLVMValueRef func;          // LLVM 函数值
     } func_map[64];                 // 固定大小（最多支持64个函数）
     int func_map_count;             // 当前函数数量
+    
+    ASTNode *program_node;          // 程序节点（用于查找结构体声明等）
 } CodeGenerator;
 
 // 创建代码生成器
