@@ -35,11 +35,12 @@ typedef struct CodeGenerator {
     } var_map[256];                 // 固定大小（最多支持256个局部变量）
     int var_map_count;              // 当前变量数量
     
-    // 函数映射表（固定大小数组，存储函数名到LLVM函数值的映射）
+    // 函数映射表（固定大小数组，存储函数名到LLVM函数值和类型的映射）
     // 用于代码生成时查找函数引用
     struct FuncMap {
         const char *name;           // 函数名称（存储在 Arena 中）
         LLVMValueRef func;          // LLVM 函数值
+        LLVMTypeRef func_type;      // LLVM 函数类型（函数签名类型，用于 LLVMBuildCall2）
     } func_map[64];                 // 固定大小（最多支持64个函数）
     int func_map_count;             // 当前函数数量
     

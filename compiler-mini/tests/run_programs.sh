@@ -29,10 +29,18 @@ for uya_file in "$TEST_DIR"/*.uya; do
         base_name=$(basename "$uya_file" .uya)
         echo "测试: $base_name"
         
-        # 编译
-        $COMPILER "$uya_file" -o "$TEST_DIR/$base_name"
+        # 编译（生成目标文件）
+        $COMPILER "$uya_file" -o "$TEST_DIR/${base_name}.o"
         if [ $? -ne 0 ]; then
             echo "  ❌ 编译失败"
+            FAILED=$((FAILED + 1))
+            continue
+        fi
+        
+        # 链接目标文件为可执行文件
+        gcc "$TEST_DIR/${base_name}.o" -o "$TEST_DIR/$base_name"
+        if [ $? -ne 0 ]; then
+            echo "  ❌ 链接失败"
             FAILED=$((FAILED + 1))
             continue
         fi

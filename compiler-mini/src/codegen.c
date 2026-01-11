@@ -313,8 +313,9 @@ static const char *lookup_var_struct_name(CodeGenerator *codegen, const char *va
 // 辅助函数：在函数表中查找函数
 // 参数：codegen - 代码生成器指针
 //       func_name - 函数名称
+//       func_type_out - 输出参数：函数类型（可选，可以为NULL）
 // 返回：LLVM函数值，未找到返回NULL
-static LLVMValueRef lookup_func(CodeGenerator *codegen, const char *func_name) {
+static LLVMValueRef lookup_func(CodeGenerator *codegen, const char *func_name, LLVMTypeRef *func_type_out) {
     if (!codegen || !func_name) {
         return NULL;
     }
@@ -323,6 +324,9 @@ static LLVMValueRef lookup_func(CodeGenerator *codegen, const char *func_name) {
     for (int i = 0; i < codegen->func_map_count; i++) {
         if (codegen->func_map[i].name != NULL && 
             strcmp(codegen->func_map[i].name, func_name) == 0) {
+            if (func_type_out) {
+                *func_type_out = codegen->func_map[i].func_type;
+            }
             return codegen->func_map[i].func;
         }
     }
@@ -529,9 +533,10 @@ static LLVMValueRef codegen_gen_struct_comparison(
 // 参数：codegen - 代码生成器指针
 //       func_name - 函数名称（存储在 Arena 中）
 //       func - LLVM函数值
+//       func_type - LLVM函数类型（函数签名类型）
 // 返回：成功返回0，失败返回非0
-static int add_func(CodeGenerator *codegen, const char *func_name, LLVMValueRef func) {
-    if (!codegen || !func_name || !func) {
+static int add_func(CodeGenerator *codegen, const char *func_name, LLVMValueRef func, LLVMTypeRef func_type) {
+    if (!codegen || !func_name || !func || !func_type) {
         return -1;
     }
     
@@ -544,6 +549,7 @@ static int add_func(CodeGenerator *codegen, const char *func_name, LLVMValueRef 
     int idx = codegen->func_map_count;
     codegen->func_map[idx].name = func_name;
     codegen->func_map[idx].func = func;
+    codegen->func_map[idx].func_type = func_type;
     codegen->func_map_count++;
     
     return 0;
@@ -762,9 +768,10 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             }
             
             // 查找函数
-            LLVMValueRef func = lookup_func(codegen, func_name);
-            if (!func) {
-                return NULL;  // 函数未找到
+            LLVMTypeRef func_type = NULL;
+            LLVMValueRef func = lookup_func(codegen, func_name, &func_type);
+            if (!func || !func_type) {
+                return NULL;  // 函数未找到或函数类型无效
             }
             
             // 生成参数值
@@ -786,11 +793,6 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             }
             
             // 调用函数（LLVM 18 使用 LLVMBuildCall2）
-            // 获取函数类型（LLVMTypeOf 返回函数签名类型）
-            LLVMTypeRef func_type = LLVMTypeOf(func);
-            if (!func_type) {
-                return NULL;
-            }
             return LLVMBuildCall2(codegen->builder, func_type, func, args, arg_count, "");
         }
             
@@ -1314,7 +1316,7 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
     }
     
     // 添加到函数表
-    if (add_func(codegen, func_name, func) != 0) {
+    if (add_func(codegen, func_name, func, func_type) != 0) {
         return -1;
     }
     
