@@ -899,7 +899,7 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                     return NULL;
                 }
                 
-                // 对于非标识符对象（如结构体字面量），需要先 store 到临时变量
+                // 对于非标识符对象（如结构体字面量、嵌套字段访问），需要先 store 到临时变量
                 // 获取对象类型
                 LLVMTypeRef object_type = LLVMTypeOf(object_val);
                 if (!object_type) {
@@ -915,9 +915,16 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 // store 对象值到临时变量
                 LLVMBuildStore(codegen->builder, object_val, object_ptr);
                 
-                // 对于结构体字面量，可以从 AST 获取结构体名称
+                // 获取结构体名称
                 if (object->type == AST_STRUCT_INIT) {
+                    // 对于结构体字面量，可以从 AST 获取结构体名称
                     struct_name = object->data.struct_init.struct_name;
+                } else if (object->type == AST_MEMBER_ACCESS) {
+                    // 对于嵌套字段访问，从对象值的类型中获取结构体名称
+                    // 检查类型是否为结构体类型
+                    if (LLVMGetTypeKind(object_type) == LLVMStructTypeKind) {
+                        struct_name = find_struct_name_from_type(codegen, object_type);
+                    }
                 }
             }
             
