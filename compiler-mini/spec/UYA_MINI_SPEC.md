@@ -335,74 +335,11 @@ arg_list       = expr { ',' expr }
 
 ## 6. 完整示例
 
-### 6.1 简单函数
+示例代码已移至独立文件，便于查看和测试：
 
-```uya
-fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
-
-fn main() i32 {
-    const x: i32 = 10;
-    const y: i32 = 20;
-    const result: i32 = add(x, y);
-    return result;
-}
-```
-
-### 6.2 控制流示例
-
-```uya
-fn max(a: i32, b: i32) i32 {
-    if a > b {
-        return a;
-    } else {
-        return b;
-    }
-}
-
-fn factorial(n: i32) i32 {
-    var result: i32 = 1;
-    var i: i32 = 1;
-    while i <= n {
-        result = result * i;
-        i = i + 1;
-    }
-    return result;
-}
-
-fn main() i32 {
-    const m: i32 = max(5, 10);
-    const f: i32 = factorial(5);
-    return m + f;
-}
-```
-
-### 6.3 布尔逻辑示例
-
-```uya
-fn is_positive(n: i32) bool {
-    return n > 0;
-}
-
-fn is_even(n: i32) bool {
-    return (n % 2) == 0;
-}
-
-fn is_positive_even(n: i32) bool {
-    return is_positive(n) && is_even(n);
-}
-
-fn main() i32 {
-    const x: i32 = 10;
-    const y: bool = is_positive_even(x);
-    if y {
-        return 1;
-    } else {
-        return 0;
-    }
-}
-```
+- [简单函数示例](examples/simple_function.uya) - 基本的函数定义和调用
+- [控制流示例](examples/control_flow.uya) - if/while 语句的使用
+- [布尔逻辑示例](examples/boolean_logic.uya) - 布尔类型和逻辑运算
 
 ---
 
@@ -466,19 +403,7 @@ Uya Mini 编译器应包含以下阶段：
 6. 生成目标代码：使用 `LLVMTargetMachineEmitToFile()` 或类似 API
 7. 清理 LLVM 资源
 
-**示例**：
-```c
-// Uya Mini 代码
-fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
-
-// 生成的 LLVM IR（文本形式，实际使用 API 生成）
-define i32 @add(i32 %a, i32 %b) {
-  %1 = add i32 %a, %b
-  ret i32 %1
-}
-```
+**示例**：参见 [LLVM IR 代码生成示例](examples/llvm_ir_example.c)
 
 **结构体处理**：
 - 结构体类型使用 `LLVMStructType()` 定义

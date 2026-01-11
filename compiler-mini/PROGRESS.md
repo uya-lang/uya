@@ -71,7 +71,8 @@
 
 **参考文档**：
 - `spec/UYA_MINI_SPEC.md` - 语言规范（语法部分）
-- `TODO.md` - 详细任务列表（阶段3）
+- `TODO.md` - 任务索引
+- `TODO_phase3.md` - 阶段3详细任务列表
 
 ---
 
@@ -119,7 +120,7 @@
 ## 📚 重要参考
 
 - `spec/UYA_MINI_SPEC.md` - **语言规范（必须参考）**
-- `TODO.md` - 详细任务列表
+- `TODO.md` - 任务索引（链接到各阶段详细任务）
 - `CONTEXT_SWITCH.md` - 上下文切换指南
 - `.cursorrules` - 开发规则
 - `../compiler/src/` - 现有编译器实现（参考但需要简化）

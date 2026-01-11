@@ -16,8 +16,10 @@
 
 2. **查看待办任务**
    ```bash
-   # 查看详细任务列表
+   # 查看任务索引
    cat compiler-mini/TODO.md
+   # 查看当前阶段的详细任务（例如阶段3）
+   cat compiler-mini/TODO_phase3.md
    ```
 
 3. **查看规则文件**
@@ -74,7 +76,7 @@
    - 记录完成时间
    - 记录遇到的问题和解决方案
 
-2. **更新 TODO.md（可选）**
+2. **更新对应的 TODO_phase*.md（可选）**
    - 标记已完成的任务项
 
 3. **提交代码（如果使用 git）**
@@ -88,7 +90,7 @@
 在新会话开始前，确认：
 
 - [ ] 已阅读 `PROGRESS.md`
-- [ ] 已阅读 `TODO.md`（了解详细任务）
+- [ ] 已阅读 `TODO.md`（了解任务索引）和对应的 `TODO_phase*.md`（了解详细任务）
 - [ ] 已阅读 `.cursorrules`（了解开发规范）
 - [ ] 已了解语言规范（`spec/UYA_MINI_SPEC.md`）
 - [ ] 了解当前进度状态
@@ -113,7 +115,8 @@
 | 文件 | 用途 | 何时查看 |
 |------|------|----------|
 | `PROGRESS.md` | 当前进度和状态 | 每次新会话开始时 |
-| `TODO.md` | 详细任务列表 | 需要了解具体任务时 |
+| `TODO.md` | 任务索引 | 了解各阶段任务分布时 |
+| `TODO_phase*.md` | 各阶段详细任务列表 | 需要了解具体任务时 |
 | `.cursorrules` | 开发规则和规范 | 新会话开始时确认规则 |
 | `spec/UYA_MINI_SPEC.md` | 语言规范（重要！） | 实现功能前必须参考 |
 | `.cursor/plans/*.plan.md` | 原始实现计划 | 需要了解整体架构时 |
@@ -170,7 +173,7 @@ cat compiler-mini/PROGRESS.md
 # 下一步行动: 继续实现阶段2：Arena 分配器，实现 arena_alloc 函数
 
 # 2. 查看具体任务
-grep -A 20 "阶段2" compiler-mini/TODO.md
+cat compiler-mini/TODO_phase2.md  # 查看阶段2的详细任务
 
 # 3. 查看语言规范（如果需要）
 grep -A 10 "结构体" compiler-mini/spec/UYA_MINI_SPEC.md
