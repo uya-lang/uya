@@ -817,15 +817,101 @@ func (tc *TypeChecker) typecheckMatchExpr(expr *parser.MatchExpr) (Type, bool) {
 	}
 
 	// Check the expression to match
-	if expr.Expr != nil {
-		_, ok := tc.typecheckExpression(expr.Expr)
+	_, ok := tc.typecheckExpression(expr.Expr)
 	if !ok {
 		return TypeVoid, false
+	}
+	// TODO: Use exprType for pattern matching validation (future enhancement)
+
+	if len(expr.Patterns) == 0 {
+		filename := expr.Filename
+		if filename == "" {
+			filename = tc.currentFile
+		}
+		if filename != "" {
+			tc.AddError("match表达式必须至少有一个模式分支 (%s:%d:%d)",
+				filename, expr.Line, expr.Column)
+		} else {
+			tc.AddError("match表达式必须至少有一个模式分支 (行 %d:%d)",
+				expr.Line, expr.Column)
+		}
+		return TypeVoid, false
+	}
+
+	// Check all patterns and collect body types
+	var firstBodyType Type
+	bodyTypeSet := false
+
+	for i, pattern := range expr.Patterns {
+		if pattern == nil {
+			continue
+		}
+
+		// Check if this is an else branch
+		if ident, ok := pattern.Value.(*parser.Identifier); ok && ident.Name == "else" {
+			// hasElse = true  // Future: use for exhaustiveness checking
+			// else分支必须是最后一个模式
+			if i < len(expr.Patterns)-1 {
+				filename := pattern.Filename
+				if filename == "" {
+					filename = tc.currentFile
+				}
+				if filename != "" {
+					tc.AddError("match表达式的else分支必须放在最后 (%s:%d:%d)",
+						filename, pattern.Line, pattern.Column)
+				} else {
+					tc.AddError("match表达式的else分支必须放在最后 (行 %d:%d)",
+						pattern.Line, pattern.Column)
+				}
+				return TypeVoid, false
+			}
+		}
+
+		// Check pattern value (for pattern matching validation)
+		// For now, we only do basic validation - full pattern matching requires more complex logic
+		if pattern.Value != nil {
+			_, ok := tc.typecheckExpression(pattern.Value)
+			if !ok {
+				return TypeVoid, false
+			}
+		}
+
+		// Check pattern body
+		if pattern.Body != nil {
+			bodyType, ok := tc.typecheckExpression(pattern.Body)
+			if !ok {
+				return TypeVoid, false
+			}
+
+			// Check that all body types are the same
+			if !bodyTypeSet {
+				firstBodyType = bodyType
+				bodyTypeSet = true
+			} else if bodyType != firstBodyType {
+				filename := pattern.Filename
+				if filename == "" {
+					filename = tc.currentFile
+				}
+				if filename != "" {
+					tc.AddError("match表达式的所有分支必须返回相同类型，但得到 %s 和 %s (%s:%d:%d)",
+						getTypeName(firstBodyType), getTypeName(bodyType),
+						filename, pattern.Line, pattern.Column)
+				} else {
+					tc.AddError("match表达式的所有分支必须返回相同类型，但得到 %s 和 %s (行 %d:%d)",
+						getTypeName(firstBodyType), getTypeName(bodyType),
+						pattern.Line, pattern.Column)
+				}
+				return TypeVoid, false
+			}
 		}
 	}
 
-	// TODO: Implement match expression checking
-	// This requires pattern matching type checking
+	// Return the body type (all branches have the same type)
+	if bodyTypeSet {
+		return firstBodyType, true
+	}
+
+	// If no body types found, return TypeVoid
 	return TypeVoid, true
 }
 
