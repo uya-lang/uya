@@ -1,4 +1,5 @@
 #include "checker.h"
+#include "lexer.h"
 #include <string.h>
 
 // 从 Arena 复制字符串
@@ -234,6 +235,199 @@ static void checker_exit_scope(TypeChecker *checker) {
     }
     
     checker->scope_level--;
+}
+
+// 类型比较函数（比较两个Type是否相等）
+// 参数：t1, t2 - 要比较的两个类型
+// 返回：1 表示相等，0 表示不相等
+// 注意：结构体类型通过名称比较
+static int type_equals(Type t1, Type t2) {
+    // 类型种类必须相同
+    if (t1.kind != t2.kind) {
+        return 0;
+    }
+    
+    // 对于结构体类型，需要比较结构体名称
+    if (t1.kind == TYPE_STRUCT) {
+        // 如果两个结构体名称都为NULL，则相等
+        if (t1.struct_name == NULL && t2.struct_name == NULL) {
+            return 1;
+        }
+        // 如果只有一个为NULL，则不相等
+        if (t1.struct_name == NULL || t2.struct_name == NULL) {
+            return 0;
+        }
+        // 比较结构体名称
+        return strcmp(t1.struct_name, t2.struct_name) == 0;
+    }
+    
+    // 对于其他类型（i32, bool, void），种类相同即相等
+    return 1;
+}
+
+// 从AST类型节点创建Type结构
+// 参数：checker - TypeChecker 指针，type_node - AST类型节点
+// 返回：Type结构，如果类型节点无效返回TYPE_VOID类型
+// 注意：结构体类型名称需要从program_node中查找结构体声明
+static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
+    Type result;
+    (void)checker;  // 暂时未使用，避免警告（将来可能用于查找结构体声明）
+    
+    // 如果类型节点为NULL，返回void类型
+    if (type_node == NULL || type_node->type != AST_TYPE_NAMED) {
+        result.kind = TYPE_VOID;
+        result.struct_name = NULL;
+        return result;
+    }
+    
+    const char *type_name = type_node->data.type_named.name;
+    if (type_name == NULL) {
+        result.kind = TYPE_VOID;
+        result.struct_name = NULL;
+        return result;
+    }
+    
+    // 根据类型名称确定类型种类
+    if (strcmp(type_name, "i32") == 0) {
+        result.kind = TYPE_I32;
+        result.struct_name = NULL;
+    } else if (strcmp(type_name, "bool") == 0) {
+        result.kind = TYPE_BOOL;
+        result.struct_name = NULL;
+    } else if (strcmp(type_name, "void") == 0) {
+        result.kind = TYPE_VOID;
+        result.struct_name = NULL;
+    } else {
+        // 其他名称视为结构体类型
+        result.kind = TYPE_STRUCT;
+        // 结构体名称需要存储在Arena中（类型节点中的名称已经在Arena中）
+        result.struct_name = type_name;
+    }
+    
+    return result;
+}
+
+// 表达式类型推断函数（从表达式AST节点推断类型）
+// 参数：checker - TypeChecker 指针，expr - 表达式AST节点
+// 返回：Type结构，如果无法推断返回TYPE_VOID类型
+// 注意：这是简化版本，完整的类型推断需要类型检查上下文
+static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
+    Type result;
+    
+    if (checker == NULL || expr == NULL) {
+        result.kind = TYPE_VOID;
+        result.struct_name = NULL;
+        return result;
+    }
+    
+    switch (expr->type) {
+        case AST_NUMBER:
+            // 数字字面量类型为i32
+            result.kind = TYPE_I32;
+            result.struct_name = NULL;
+            return result;
+            
+        case AST_BOOL:
+            // 布尔字面量类型为bool
+            result.kind = TYPE_BOOL;
+            result.struct_name = NULL;
+            return result;
+            
+        case AST_IDENTIFIER: {
+            // 标识符类型需要从符号表中查找
+            Symbol *symbol = symbol_table_lookup(checker, expr->data.identifier.name);
+            if (symbol != NULL) {
+                return symbol->type;
+            }
+            // 如果找不到符号，返回void类型（错误将在类型检查时报告）
+            result.kind = TYPE_VOID;
+            result.struct_name = NULL;
+            return result;
+        }
+        
+        case AST_UNARY_EXPR: {
+            // 一元表达式：根据运算符推断类型
+            int op = expr->data.unary_expr.op;
+            Type operand_type = checker_infer_type(checker, expr->data.unary_expr.operand);
+            
+            if (op == TOKEN_EXCLAMATION) {
+                // 逻辑非（!）返回bool类型
+                result.kind = TYPE_BOOL;
+                result.struct_name = NULL;
+                return result;
+            } else if (op == TOKEN_MINUS) {
+                // 一元负号（-）返回操作数类型（应为i32）
+                return operand_type;
+            }
+            
+            // 其他一元运算符，返回操作数类型
+            return operand_type;
+        }
+        
+        case AST_BINARY_EXPR: {
+            // 二元表达式：根据运算符推断类型
+            int op = expr->data.binary_expr.op;
+            
+            // 比较运算符和逻辑运算符返回bool类型
+            if (op == TOKEN_EQUAL || op == TOKEN_NOT_EQUAL ||
+                op == TOKEN_LESS || op == TOKEN_GREATER ||
+                op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL ||
+                op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR) {
+                result.kind = TYPE_BOOL;
+                result.struct_name = NULL;
+                return result;
+            }
+            
+            // 算术运算符返回左操作数的类型（假设左右操作数类型相同）
+            Type left_type = checker_infer_type(checker, expr->data.binary_expr.left);
+            return left_type;
+        }
+        
+        case AST_CALL_EXPR: {
+            // 函数调用：返回函数的返回类型
+            ASTNode *callee = expr->data.call_expr.callee;
+            if (callee == NULL || callee->type != AST_IDENTIFIER) {
+                result.kind = TYPE_VOID;
+                result.struct_name = NULL;
+                return result;
+            }
+            
+            FunctionSignature *sig = function_table_lookup(checker, callee->data.identifier.name);
+            if (sig != NULL) {
+                return sig->return_type;
+            }
+            
+            // 如果找不到函数，返回void类型（错误将在类型检查时报告）
+            result.kind = TYPE_VOID;
+            result.struct_name = NULL;
+            return result;
+        }
+        
+        case AST_MEMBER_ACCESS: {
+            // 字段访问：需要推断对象类型，然后查找字段类型
+            // 这是简化版本，完整实现需要在类型检查时查找结构体定义
+            // TODO: 从结构体定义中查找字段类型
+            // 暂时返回void类型，完整实现将在类型检查时处理
+            (void)checker;  // 暂时未使用，避免警告
+            result.kind = TYPE_VOID;
+            result.struct_name = NULL;
+            return result;
+        }
+        
+        case AST_STRUCT_INIT: {
+            // 结构体字面量：返回结构体类型
+            result.kind = TYPE_STRUCT;
+            // 结构体名称需要存储在Arena中（从AST节点获取的名称已经在Arena中）
+            result.struct_name = expr->data.struct_init.struct_name;
+            return result;
+        }
+        
+        default:
+            // 其他表达式类型，返回void类型
+            result.kind = TYPE_VOID;
+            result.struct_name = NULL;
+            return result;
+    }
 }
 
 // 类型检查主函数（基础框架，待实现）
