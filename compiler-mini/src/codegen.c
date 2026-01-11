@@ -265,8 +265,9 @@ static LLVMTypeRef lookup_var_type(CodeGenerator *codegen, const char *var_name)
 //       var_name - 变量名称（存储在 Arena 中）
 //       value - LLVM值（变量指针）
 //       type - 变量类型（用于 LLVMBuildLoad2）
+//       struct_name - 结构体名称（仅当类型是结构体类型时有效，存储在 Arena 中，可为 NULL）
 // 返回：成功返回0，失败返回非0
-static int add_var(CodeGenerator *codegen, const char *var_name, LLVMValueRef value, LLVMTypeRef type) {
+static int add_var(CodeGenerator *codegen, const char *var_name, LLVMValueRef value, LLVMTypeRef type, const char *struct_name) {
     if (!codegen || !var_name || !value || !type) {
         return -1;
     }
@@ -281,9 +282,30 @@ static int add_var(CodeGenerator *codegen, const char *var_name, LLVMValueRef va
     codegen->var_map[idx].name = var_name;
     codegen->var_map[idx].value = value;
     codegen->var_map[idx].type = type;
+    codegen->var_map[idx].struct_name = struct_name;  // 结构体名称（可为 NULL）
     codegen->var_map_count++;
     
     return 0;
+}
+
+// 辅助函数：在变量表中查找变量结构体名称
+// 参数：codegen - 代码生成器指针
+//       var_name - 变量名称
+// 返回：结构体名称（如果变量是结构体类型），未找到返回 NULL
+static const char *lookup_var_struct_name(CodeGenerator *codegen, const char *var_name) {
+    if (!codegen || !var_name) {
+        return NULL;
+    }
+    
+    // 线性查找（从后向前查找，支持变量遮蔽）
+    for (int i = codegen->var_map_count - 1; i >= 0; i--) {
+        if (codegen->var_map[i].name != NULL && 
+            strcmp(codegen->var_map[i].name, var_name) == 0) {
+            return codegen->var_map[i].struct_name;
+        }
+    }
+    
+    return NULL;  // 未找到
 }
 
 // 辅助函数：在函数表中查找函数
@@ -593,7 +615,7 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
         }
             
         case AST_MEMBER_ACCESS: {
-            // 字段访问：使用 LLVMBuildExtractValue 获取字段值
+            // 字段访问：使用 GEP + Load 获取字段值
             ASTNode *object = expr->data.member_access.object;
             const char *field_name = expr->data.member_access.field_name;
             
@@ -601,31 +623,95 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 return NULL;
             }
             
-            // 生成对象表达式
-            LLVMValueRef object_val = codegen_gen_expr(codegen, object);
-            if (!object_val) {
+            // 如果对象是标识符（变量），从变量表获取结构体名称
+            const char *struct_name = NULL;
+            LLVMValueRef object_ptr = NULL;
+            
+            if (object->type == AST_IDENTIFIER) {
+                const char *var_name = object->data.identifier.name;
+                if (var_name) {
+                    object_ptr = lookup_var(codegen, var_name);
+                    struct_name = lookup_var_struct_name(codegen, var_name);
+                }
+            }
+            
+            if (!object_ptr) {
+                // 对象不是标识符或变量未找到，生成对象表达式
+                LLVMValueRef object_val = codegen_gen_expr(codegen, object);
+                if (!object_val) {
+                    return NULL;
+                }
+                
+                // 对于非标识符对象（如结构体字面量），需要先 store 到临时变量
+                // 获取对象类型
+                LLVMTypeRef object_type = LLVMTypeOf(object_val);
+                if (!object_type) {
+                    return NULL;
+                }
+                
+                // 使用 alloca 分配临时空间
+                object_ptr = LLVMBuildAlloca(codegen->builder, object_type, "");
+                if (!object_ptr) {
+                    return NULL;
+                }
+                
+                // store 对象值到临时变量
+                LLVMBuildStore(codegen->builder, object_val, object_ptr);
+                
+                // 对于结构体字面量，可以从 AST 获取结构体名称
+                if (object->type == AST_STRUCT_INIT) {
+                    struct_name = object->data.struct_init.struct_name;
+                }
+            }
+            
+            if (!struct_name) {
+                return NULL;  // 无法确定结构体名称
+            }
+            
+            // 查找结构体声明
+            ASTNode *struct_decl = find_struct_decl(codegen, struct_name);
+            if (!struct_decl) {
                 return NULL;
             }
             
-            // 获取对象类型（应该是结构体类型）
-            LLVMTypeRef object_type = LLVMTypeOf(object_val);
-            if (!object_type) {
+            // 查找字段索引
+            int field_index = find_struct_field_index(struct_decl, field_name);
+            if (field_index < 0) {
+                return NULL;  // 字段不存在
+            }
+            
+            // 获取结构体类型
+            LLVMTypeRef struct_type = codegen_get_struct_type(codegen, struct_name);
+            if (!struct_type) {
                 return NULL;
             }
             
-            // 简化实现：假设对象类型可以从 LLVM 值推断
-            // 实际上，我们需要从类型信息中获取结构体名称
-            // 但为了简化，我们假设类型检查已经确保对象是结构体类型
+            // 使用 GEP 获取字段地址
+            LLVMValueRef indices[2];
+            indices[0] = LLVMConstInt(LLVMInt32TypeInContext(codegen->context), 0ULL, 0);  // 结构体指针本身
+            indices[1] = LLVMConstInt(LLVMInt32TypeInContext(codegen->context), (unsigned long long)field_index, 0);  // 字段索引
             
-            // 注意：字段访问需要通过对象类型来查找结构体声明
-            // 但由于 LLVM 值不包含结构体名称信息，我们需要另一种方式
-            // 这里暂时返回 NULL，需要改进类型信息的存储
+            LLVMValueRef field_ptr = LLVMBuildGEP2(codegen->builder, struct_type, object_ptr, indices, 2, "");
+            if (!field_ptr) {
+                return NULL;
+            }
             
-            // TODO: 改进类型信息的存储，使字段访问能够正确工作
-            // 一种方法是：在代码生成时，从类型检查器中获取类型信息
-            // 或者：在变量表中存储类型信息（包括结构体名称）
+            // 获取字段类型（从结构体声明中）
+            if (field_index >= struct_decl->data.struct_decl.field_count) {
+                return NULL;
+            }
+            ASTNode *field = struct_decl->data.struct_decl.fields[field_index];
+            if (!field || field->type != AST_VAR_DECL) {
+                return NULL;
+            }
+            ASTNode *field_type_node = field->data.var_decl.type;
+            LLVMTypeRef field_type = get_llvm_type_from_ast(codegen, field_type_node);
+            if (!field_type) {
+                return NULL;
+            }
             
-            return NULL;  // 暂时返回 NULL，待改进
+            // load 字段值
+            return LLVMBuildLoad2(codegen->builder, field_type, field_ptr, "");
         }
             
         case AST_STRUCT_INIT: {
@@ -738,6 +824,19 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 return -1;
             }
             
+            // 提取结构体名称（如果类型是结构体类型）
+            const char *struct_name = NULL;
+            if (var_type->type == AST_TYPE_NAMED) {
+                const char *type_name = var_type->data.type_named.name;
+                if (type_name && strcmp(type_name, "i32") != 0 && 
+                    strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0) {
+                    // 可能是结构体类型
+                    if (codegen_get_struct_type(codegen, type_name) != NULL) {
+                        struct_name = type_name;  // 名称已经在 Arena 中
+                    }
+                }
+            }
+            
             // 使用 alloca 分配栈空间
             LLVMValueRef var_ptr = LLVMBuildAlloca(codegen->builder, llvm_type, var_name);
             if (!var_ptr) {
@@ -745,7 +844,7 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             }
             
             // 添加到变量表
-            if (add_var(codegen, var_name, var_ptr, llvm_type) != 0) {
+            if (add_var(codegen, var_name, var_ptr, llvm_type, struct_name) != 0) {
                 return -1;
             }
             
@@ -1063,6 +1162,19 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
             return -1;
         }
         
+        // 提取结构体名称（如果类型是结构体类型）
+        const char *struct_name = NULL;
+        if (param_type_node->type == AST_TYPE_NAMED) {
+            const char *type_name = param_type_node->data.type_named.name;
+            if (type_name && strcmp(type_name, "i32") != 0 && 
+                strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0) {
+                // 可能是结构体类型
+                if (codegen_get_struct_type(codegen, type_name) != NULL) {
+                    struct_name = type_name;  // 名称已经在 Arena 中
+                }
+            }
+        }
+        
         // 使用 alloca 分配栈空间（存储参数值）
         LLVMValueRef param_ptr = LLVMBuildAlloca(codegen->builder, param_type, param_name);
         if (!param_ptr) {
@@ -1079,7 +1191,7 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
         LLVMBuildStore(codegen->builder, param_val, param_ptr);
         
         // 添加到变量表
-        if (add_var(codegen, param_name, param_ptr, param_type) != 0) {
+        if (add_var(codegen, param_name, param_ptr, param_type, struct_name) != 0) {
             return -1;
         }
     }
