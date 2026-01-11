@@ -357,6 +357,25 @@ static ASTNode *find_struct_decl(CodeGenerator *codegen, const char *struct_name
     return NULL;
 }
 
+// 辅助函数：从LLVM结构体类型查找结构体名称
+// 参数：codegen - 代码生成器指针
+//       struct_type - LLVM结构体类型
+// 返回：结构体名称（存储在Arena中），未找到返回NULL
+static const char *find_struct_name_from_type(CodeGenerator *codegen, LLVMTypeRef struct_type) {
+    if (!codegen || !struct_type) {
+        return NULL;
+    }
+    
+    // 在结构体类型映射表中查找匹配的类型
+    for (int i = 0; i < codegen->struct_type_count; i++) {
+        if (codegen->struct_types[i].llvm_type == struct_type) {
+            return codegen->struct_types[i].name;
+        }
+    }
+    
+    return NULL;  // 未找到
+}
+
 // 辅助函数：在结构体声明中查找字段索引
 // 参数：struct_decl - 结构体声明节点
 //       field_name - 字段名称
@@ -377,6 +396,133 @@ static int find_struct_field_index(ASTNode *struct_decl, const char *field_name)
     }
     
     return -1;  // 未找到
+}
+
+// 生成结构体比较代码（逐字段比较）
+// 参数：codegen - 代码生成器指针
+//       left_val - 左操作数的结构体值
+//       right_val - 右操作数的结构体值
+//       struct_decl - 结构体声明节点
+//       is_equal - 1 表示 == 比较，0 表示 != 比较
+// 返回：比较结果值（LLVMValueRef），失败返回NULL
+static LLVMValueRef codegen_gen_struct_comparison(
+    CodeGenerator *codegen,
+    LLVMValueRef left_val,
+    LLVMValueRef right_val,
+    ASTNode *struct_decl,
+    int is_equal
+) {
+    if (!codegen || !left_val || !right_val || !struct_decl || 
+        struct_decl->type != AST_STRUCT_DECL) {
+        return NULL;
+    }
+    
+    int field_count = struct_decl->data.struct_decl.field_count;
+    
+    // 处理空结构体（0个字段）
+    if (field_count == 0) {
+        // 空结构体总是相等
+        LLVMTypeRef bool_type = codegen_get_base_type(codegen, TYPE_BOOL);
+        if (!bool_type) {
+            return NULL;
+        }
+        LLVMValueRef result = LLVMConstInt(bool_type, is_equal ? 1ULL : 0ULL, 0);
+        return result;
+    }
+    
+    // 对于每个字段，提取并比较字段值
+    LLVMValueRef field_comparisons[16];  // 最多支持16个字段
+    if (field_count > 16) {
+        return NULL;  // 字段数过多
+    }
+    
+    int valid_comparisons = 0;
+    
+    for (int i = 0; i < field_count; i++) {
+        ASTNode *field = struct_decl->data.struct_decl.fields[i];
+        if (!field || field->type != AST_VAR_DECL) {
+            return NULL;
+        }
+        
+        ASTNode *field_type_node = field->data.var_decl.type;
+        if (!field_type_node || field_type_node->type != AST_TYPE_NAMED) {
+            return NULL;
+        }
+        
+        const char *field_type_name = field_type_node->data.type_named.name;
+        if (!field_type_name) {
+            return NULL;
+        }
+        
+        // 提取字段值
+        LLVMValueRef left_field = LLVMBuildExtractValue(codegen->builder, left_val, i, "");
+        LLVMValueRef right_field = LLVMBuildExtractValue(codegen->builder, right_val, i, "");
+        if (!left_field || !right_field) {
+            return NULL;
+        }
+        
+        // 根据字段类型进行比较
+        LLVMValueRef field_eq = NULL;
+        
+        if (strcmp(field_type_name, "i32") == 0 || strcmp(field_type_name, "bool") == 0) {
+            // 基础类型（i32、bool）：使用整数比较
+            field_eq = LLVMBuildICmp(codegen->builder, LLVMIntEQ, left_field, right_field, "");
+        } else {
+            // 嵌套结构体类型：递归调用结构体比较
+            const char *struct_name = find_struct_name_from_type(
+                codegen, 
+                LLVMTypeOf(left_field)
+            );
+            if (!struct_name) {
+                return NULL;
+            }
+            
+            ASTNode *nested_struct_decl = find_struct_decl(codegen, struct_name);
+            if (!nested_struct_decl) {
+                return NULL;
+            }
+            
+            // 递归调用结构体比较（使用 == 比较，然后根据 is_equal 决定是否取反）
+            field_eq = codegen_gen_struct_comparison(
+                codegen,
+                left_field,
+                right_field,
+                nested_struct_decl,
+                1  // 使用 == 比较
+            );
+        }
+        
+        if (!field_eq) {
+            return NULL;
+        }
+        
+        field_comparisons[valid_comparisons++] = field_eq;
+    }
+    
+    // 组合所有字段比较结果（逻辑与）
+    if (valid_comparisons == 0) {
+        return NULL;
+    }
+    
+    LLVMValueRef result = field_comparisons[0];
+    for (int i = 1; i < valid_comparisons; i++) {
+        result = LLVMBuildAnd(codegen->builder, result, field_comparisons[i], "");
+        if (!result) {
+            return NULL;
+        }
+    }
+    
+    // 如果是 != 比较，对结果取反
+    if (!is_equal) {
+        LLVMTypeRef bool_type = codegen_get_base_type(codegen, TYPE_BOOL);
+        if (!bool_type) {
+            return NULL;
+        }
+        LLVMValueRef one = LLVMConstInt(bool_type, 1ULL, 0);
+        result = LLVMBuildXor(codegen->builder, result, one, "");  // XOR 1 实现取反
+    }
+    
+    return result;
 }
 
 // 辅助函数：在函数表中添加函数
@@ -532,6 +678,38 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 } else if (op == TOKEN_GREATER_EQUAL) {
                     return LLVMBuildICmp(codegen->builder, LLVMIntSGE, left_val, right_val, "");
                 }
+            }
+            
+            // 结构体比较运算符（仅支持 == 和 !=）
+            if (LLVMGetTypeKind(left_type) == LLVMStructTypeKind &&
+                LLVMGetTypeKind(right_type) == LLVMStructTypeKind) {
+                
+                // 仅支持 == 和 != 运算符
+                if (op == TOKEN_EQUAL || op == TOKEN_NOT_EQUAL) {
+                    // 从LLVM类型查找结构体名称
+                    const char *struct_name = find_struct_name_from_type(codegen, left_type);
+                    if (!struct_name) {
+                        return NULL;
+                    }
+                    
+                    // 查找结构体声明
+                    ASTNode *struct_decl = find_struct_decl(codegen, struct_name);
+                    if (!struct_decl) {
+                        return NULL;
+                    }
+                    
+                    // 调用结构体比较函数
+                    int is_equal = (op == TOKEN_EQUAL) ? 1 : 0;
+                    return codegen_gen_struct_comparison(
+                        codegen,
+                        left_val,
+                        right_val,
+                        struct_decl,
+                        is_equal
+                    );
+                }
+                // 结构体不支持其他比较运算符（<, >, <=, >=）
+                return NULL;
             }
             
             // 逻辑运算符（布尔值，i1）

@@ -1,0 +1,39 @@
+// 测试结构体比较（== 和 !=）
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main() i32 {
+    // 测试相同结构体比较（应返回 true）
+    const p1: Point = Point{ x: 10, y: 20 };
+    const p2: Point = Point{ x: 10, y: 20 };
+    
+    if p1 == p2 {
+        // p1 和 p2 相同，继续测试
+    } else {
+        return 1;  // 测试失败
+    }
+    
+    // 测试不同结构体比较（应返回 false）
+    const p3: Point = Point{ x: 10, y: 30 };
+    
+    if p1 != p3 {
+        // p1 和 p3 不同，继续测试
+    } else {
+        return 2;  // 测试失败
+    }
+    
+    // 测试 != 运算符返回 false（当结构体相同时）
+    if p1 != p2 {
+        return 3;  // 测试失败（p1 和 p2 相同，!= 应该返回 false）
+    }
+    
+    // 测试 == 运算符返回 false（当结构体不同时）
+    if p1 == p3 {
+        return 4;  // 测试失败（p1 和 p3 不同，== 应该返回 false）
+    }
+    
+    return 0;  // 所有测试通过
+}
+
