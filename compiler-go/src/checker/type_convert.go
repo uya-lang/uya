@@ -167,3 +167,69 @@ func isPointerType(t Type) bool {
 	return t == TypePtr
 }
 
+// getTypeName returns a string representation of a Type for error messages
+func getTypeName(t Type) string {
+	switch t {
+	case TypeI8:
+		return "i8"
+	case TypeI16:
+		return "i16"
+	case TypeI32:
+		return "i32"
+	case TypeI64:
+		return "i64"
+	case TypeU8:
+		return "u8"
+	case TypeU16:
+		return "u16"
+	case TypeU32:
+		return "u32"
+	case TypeU64:
+		return "u64"
+	case TypeF32:
+		return "f32"
+	case TypeF64:
+		return "f64"
+	case TypeBool:
+		return "bool"
+	case TypeByte:
+		return "byte"
+	case TypeVoid:
+		return "void"
+	case TypePtr:
+		return "*T"
+	case TypeArray:
+		return "[T : N]"
+	case TypeStruct:
+		return "struct"
+	case TypeEnum:
+		return "enum"
+	case TypeFn:
+		return "fn"
+	case TypeErrorUnion:
+		return "!T"
+	default:
+		return "unknown"
+	}
+}
+
+// isErrorValueExpr checks if an expression is an error value expression (error.ErrorName)
+func isErrorValueExpr(expr parser.Expr) bool {
+	if expr == nil {
+		return false
+	}
+
+	// Check if it's a MemberAccess expression with object = Identifier("error")
+	if memberAccess, ok := expr.(*parser.MemberAccess); ok {
+		if ident, ok := memberAccess.Object.(*parser.Identifier); ok {
+			return ident.Name == "error"
+		}
+	}
+
+	// Check if it's an ErrorExpr
+	if _, ok := expr.(*parser.ErrorExpr); ok {
+		return true
+	}
+
+	return false
+}
