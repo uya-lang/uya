@@ -22,12 +22,14 @@
 
 ### TDD Green: 实现功能（分多次会话）
 
-**会话1：基础解析功能**
-- [ ] 创建 `src/parser.c`
-- [ ] 实现 `parser_new()` - 创建 Parser
-- [ ] 实现 `parser_parse()` - 解析程序（顶层声明列表）
-- [ ] 实现 `parser_parse_declaration()` - 解析声明基础框架
-- [ ] 运行测试，更新 PROGRESS.md
+**会话1：基础解析功能** ✅ 已完成（部分）
+- [x] 创建 `src/parser.c`
+- [x] 实现 `parser_init()` - 初始化 Parser（使用栈分配，不使用堆分配）
+- [x] 实现 `parser_parse()` - 解析程序的基础框架
+- [x] 实现辅助函数（parser_match, parser_consume, parser_expect）
+- [x] 创建测试文件 `tests/test_parser.c`
+- [x] 运行测试通过，更新 PROGRESS.md
+- [ ] 实现 `parser_parse_declaration()` - 解析声明基础框架（待会话2实现）
 
 **会话2：函数和结构体解析**
 - [ ] 实现 `parser_parse_function()` - 解析函数声明（完整实现，不能简化）
