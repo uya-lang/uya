@@ -1392,6 +1392,81 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
     }
 }
 
+// 声明函数（创建函数声明并添加到函数表，但不生成函数体）
+// 参数：codegen - 代码生成器指针
+//       fn_decl - 函数声明AST节点
+// 返回：成功返回0，失败返回非0
+static int codegen_declare_function(CodeGenerator *codegen, ASTNode *fn_decl) {
+    if (!codegen || !fn_decl || fn_decl->type != AST_FN_DECL) {
+        return -1;
+    }
+    
+    const char *func_name = fn_decl->data.fn_decl.name;
+    ASTNode *return_type_node = fn_decl->data.fn_decl.return_type;
+    int param_count = fn_decl->data.fn_decl.param_count;
+    ASTNode **params = fn_decl->data.fn_decl.params;
+    
+    if (!func_name || !return_type_node) {
+        return -1;
+    }
+    
+    // 检查函数是否已经声明（在函数表中查找）
+    LLVMTypeRef func_type_check = NULL;
+    if (lookup_func(codegen, func_name, &func_type_check) != NULL) {
+        return 0;  // 已在函数表中，跳过
+    }
+    
+    // 获取返回类型
+    LLVMTypeRef return_type = get_llvm_type_from_ast(codegen, return_type_node);
+    if (!return_type) {
+        return -1;
+    }
+    
+    // 准备参数类型数组
+    LLVMTypeRef *param_types = NULL;
+    if (param_count > 0) {
+        if (param_count > 16) {
+            return -1;
+        }
+        LLVMTypeRef param_types_array[16];
+        param_types = param_types_array;
+        
+        for (int i = 0; i < param_count; i++) {
+            ASTNode *param = params[i];
+            if (!param || param->type != AST_VAR_DECL) {
+                return -1;
+            }
+            
+            ASTNode *param_type_node = param->data.var_decl.type;
+            LLVMTypeRef param_type = get_llvm_type_from_ast(codegen, param_type_node);
+            if (!param_type) {
+                return -1;
+            }
+            
+            param_types[i] = param_type;
+        }
+    }
+    
+    // 创建函数类型
+    LLVMTypeRef func_type = LLVMFunctionType(return_type, param_types, param_count, 0);
+    if (!func_type) {
+        return -1;
+    }
+    
+    // 创建函数声明（添加到模块）
+    LLVMValueRef func = LLVMAddFunction(codegen->module, func_name, func_type);
+    if (!func) {
+        return -1;
+    }
+    
+    // 添加到函数表
+    if (add_func(codegen, func_name, func, func_type) != 0) {
+        return -1;
+    }
+    
+    return 0;
+}
+
 // 生成函数代码（从函数声明AST节点生成LLVM函数）
 // 参数：codegen - 代码生成器指针
 //       fn_decl - 函数声明AST节点
@@ -1458,32 +1533,17 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
         }
     }
     
-    // 创建函数类型
-    LLVMTypeRef func_type = LLVMFunctionType(return_type, param_types, param_count, 0);
-    if (!func_type) {
-        return -1;
-    }
-    
-    // 添加函数到模块（或获取已存在的函数声明）
-    LLVMValueRef func = LLVMGetNamedFunction(codegen->module, func_name);
+    // 获取函数（应该已经在声明阶段创建）
+    LLVMValueRef func = lookup_func(codegen, func_name, NULL);
     if (!func) {
-        // 函数不存在，创建新函数
-        func = LLVMAddFunction(codegen->module, func_name, func_type);
-        if (!func) {
-            return -1;
-        }
-    } else {
-        // 函数已存在，检查是否是函数体已定义的函数
-        // 如果函数已经有基本块，说明函数体已经定义，不应该重复定义
-        if (LLVMGetFirstBasicBlock(func) != NULL) {
-            // 函数体已存在，跳过函数体生成（可能是重复定义，或者已经生成过）
-            return 0;
-        }
+        fprintf(stderr, "错误: codegen_gen_function 函数未声明: %s\n", func_name);
+        return -1;
     }
     
-    // 添加到函数表
-    if (add_func(codegen, func_name, func, func_type) != 0) {
-        return -1;
+    // 检查函数体是否已经定义
+    if (LLVMGetFirstBasicBlock(func) != NULL) {
+        // 函数体已存在，跳过函数体生成
+        return 0;
     }
     
     // extern 函数只生成声明，不生成函数体
@@ -1662,8 +1722,8 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
         iteration++;
     }
     
-    // 第二步：生成所有函数的代码
-    // 注意：函数代码生成需要在结构体类型注册之后，因为函数参数/返回值可能使用结构体类型
+    // 第二步：声明所有函数（创建函数声明并添加到函数表，但不生成函数体）
+    // 这样在生成函数体时，所有函数都已被声明，可以相互调用
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) {
@@ -1671,7 +1731,31 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
         }
         
         if (decl->type == AST_FN_DECL) {
-            // 生成函数代码
+            // 声明函数（不生成函数体）
+            const char *func_name = decl->data.fn_decl.name;
+            int result = codegen_declare_function(codegen, decl);
+            if (result != 0) {
+                fprintf(stderr, "错误: 函数声明失败: %s\n", func_name ? func_name : "(null)");
+                return -1;
+            }
+        }
+    }
+    
+    // 第三步：生成所有函数的函数体
+    // 此时所有函数都已被声明，可以相互调用
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl) {
+            continue;
+        }
+        
+        if (decl->type == AST_FN_DECL) {
+            // extern 函数没有函数体，跳过
+            if (decl->data.fn_decl.body == NULL) {
+                continue;
+            }
+            
+            // 生成函数体
             const char *func_name = decl->data.fn_decl.name;
             int result = codegen_gen_function(codegen, decl);
             if (result != 0) {

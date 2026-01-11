@@ -1,0 +1,58 @@
+// 嵌套递归调用测试
+// 测试递归函数与其他函数的嵌套调用
+
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+fn multiply(a: i32, b: i32) i32 {
+    return a * b;
+}
+
+fn factorial(n: i32) i32 {
+    if n <= 1 {
+        return 1;
+    } else {
+        return multiply(n, factorial(n - 1));
+    }
+}
+
+fn sum_recursive(n: i32) i32 {
+    if n <= 0 {
+        return 0;
+    } else {
+        return add(n, sum_recursive(n - 1));
+    }
+}
+
+fn main() i32 {
+    // 测试递归函数调用其他函数
+    const f5: i32 = factorial(5);
+    if f5 != 120 {
+        return 1;
+    }
+    
+    const s10: i32 = sum_recursive(10);
+    if s10 != 55 {
+        return 2;
+    }
+    
+    // 测试递归函数与其他函数嵌套调用
+    const result: i32 = add(factorial(3), sum_recursive(4));
+    // factorial(3) = 6, sum_recursive(4) = 10
+    // result = 6 + 10 = 16
+    if result != 16 {
+        return 3;
+    }
+    
+    // 测试递归函数作为参数
+    const result2: i32 = multiply(factorial(2), sum_recursive(3));
+    // factorial(2) = 2, sum_recursive(3) = 6
+    // result2 = 2 * 6 = 12
+    if result2 != 12 {
+        return 4;
+    }
+    
+    return 0;
+}
+

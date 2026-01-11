@@ -1,0 +1,60 @@
+// 嵌套控制流和结构体混合测试
+// 测试在嵌套控制流中使用结构体
+
+struct Counter {
+    value: i32,
+    step: i32,
+}
+
+fn increment(c: Counter) Counter {
+    return Counter{ value: c.value + c.step, step: c.step };
+}
+
+fn main() i32 {
+    var counter: Counter = Counter{ value: 0, step: 1 };
+    var i: i32 = 0;
+    
+    while i < 3 {
+        if i > 0 {
+            var j: i32 = 0;
+            while j < 2 {
+                counter = increment(counter);
+                j = j + 1;
+            }
+        } else {
+            counter = increment(counter);
+        }
+        i = i + 1;
+    }
+    
+    // i=0: counter.value += 1 = 1
+    // i=1: j=0,1: counter.value += 2 = 3
+    // i=2: j=0,1: counter.value += 2 = 5
+    if counter.value != 5 {
+        return 1;
+    }
+    
+    // 测试嵌套if中使用结构体字段
+    const p1: Counter = Counter{ value: 10, step: 2 };
+    const p2: Counter = Counter{ value: 20, step: 3 };
+    var result: i32 = 0;
+    
+    if p1.value < p2.value {
+        if p1.step < p2.step {
+            result = p1.value + p2.value;
+        } else {
+            result = p1.value - p2.value;
+        }
+    } else {
+        result = 0;
+    }
+    
+    // p1.value(10) < p2.value(20) && p1.step(2) < p2.step(3)
+    // result = 10 + 20 = 30
+    if result != 30 {
+        return 2;
+    }
+    
+    return 0;
+}
+

@@ -1,0 +1,45 @@
+// 递归函数测试 - 幂运算
+// 测试递归计算 a 的 n 次方
+
+fn power(base: i32, exp: i32) i32 {
+    if exp <= 0 {
+        return 1;
+    } else {
+        return base * power(base, exp - 1);
+    }
+}
+
+fn main() i32 {
+    // 测试 power(2, 0) = 1
+    const p1: i32 = power(2, 0);
+    if p1 != 1 {
+        return 1;
+    }
+    
+    // 测试 power(2, 1) = 2
+    const p2: i32 = power(2, 1);
+    if p2 != 2 {
+        return 2;
+    }
+    
+    // 测试 power(2, 5) = 32
+    const p3: i32 = power(2, 5);
+    if p3 != 32 {
+        return 3;
+    }
+    
+    // 测试 power(3, 4) = 81
+    const p4: i32 = power(3, 4);
+    if p4 != 81 {
+        return 4;
+    }
+    
+    // 测试 power(5, 3) = 125
+    const p5: i32 = power(5, 3);
+    if p5 != 125 {
+        return 5;
+    }
+    
+    return 0;
+}
+

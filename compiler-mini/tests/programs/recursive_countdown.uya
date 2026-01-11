@@ -1,0 +1,31 @@
+// 递归函数测试 - 倒计时
+// 测试递归函数的控制流
+
+fn countdown(n: i32) i32 {
+    if n <= 0 {
+        return 0;
+    } else {
+        return 1 + countdown(n - 1);
+    }
+}
+
+fn main() i32 {
+    // countdown(n) 应该返回 n
+    const c1: i32 = countdown(0);
+    if c1 != 0 {
+        return 1;
+    }
+    
+    const c2: i32 = countdown(5);
+    if c2 != 5 {
+        return 2;
+    }
+    
+    const c3: i32 = countdown(10);
+    if c3 != 10 {
+        return 3;
+    }
+    
+    return 0;
+}
+

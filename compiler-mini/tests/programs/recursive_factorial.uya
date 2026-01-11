@@ -1,0 +1,39 @@
+// 递归函数测试 - 阶乘
+// 测试递归函数调用和返回值
+
+fn factorial(n: i32) i32 {
+    if n <= 1 {
+        return 1;
+    } else {
+        return n * factorial(n - 1);
+    }
+}
+
+fn main() i32 {
+    // 测试 factorial(0) = 1
+    const f0: i32 = factorial(0);
+    if f0 != 1 {
+        return 1;
+    }
+    
+    // 测试 factorial(1) = 1
+    const f1: i32 = factorial(1);
+    if f1 != 1 {
+        return 2;
+    }
+    
+    // 测试 factorial(5) = 120
+    const f5: i32 = factorial(5);
+    if f5 != 120 {
+        return 3;
+    }
+    
+    // 测试 factorial(6) = 720
+    const f6: i32 = factorial(6);
+    if f6 != 720 {
+        return 4;
+    }
+    
+    return 0;
+}
+

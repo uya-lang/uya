@@ -1,0 +1,70 @@
+// 嵌套结构体访问测试
+// 测试深层嵌套的结构体字段访问
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Rect {
+    top_left: Point,
+    bottom_right: Point,
+}
+
+struct Box {
+    rect: Rect,
+    depth: i32,
+}
+
+fn get_point_x(p: Point) i32 {
+    return p.x;
+}
+
+fn get_rect_width(r: Rect) i32 {
+    return r.bottom_right.x - r.top_left.x;
+}
+
+fn main() i32 {
+    const p1: Point = Point{ x: 10, y: 20 };
+    const p2: Point = Point{ x: 50, y: 60 };
+    const rect: Rect = Rect{ top_left: p1, bottom_right: p2 };
+    const box: Box = Box{ rect: rect, depth: 30 };
+    
+    // 测试嵌套字段访问: rect.top_left.x
+    if rect.top_left.x != 10 {
+        return 1;
+    }
+    
+    // 测试更深层嵌套: box.rect.bottom_right.y
+    if box.rect.bottom_right.y != 60 {
+        return 2;
+    }
+    
+    // 测试在表达式中使用嵌套访问
+    const width: i32 = box.rect.bottom_right.x - box.rect.top_left.x;
+    if width != 40 {
+        return 3;
+    }
+    
+    // 测试函数调用中的嵌套访问
+    const x: i32 = get_point_x(rect.top_left);
+    if x != 10 {
+        return 4;
+    }
+    
+    // 测试函数调用嵌套结构体参数
+    const rect_width: i32 = get_rect_width(box.rect);
+    if rect_width != 40 {
+        return 5;
+    }
+    
+    // 测试结构体整体赋值后嵌套字段访问
+    var new_box: Box = box;
+    // 验证赋值后嵌套字段仍然正确
+    if new_box.rect.top_left.x != 10 || new_box.rect.bottom_right.y != 60 {
+        return 6;
+    }
+    
+    return 0;
+}
+

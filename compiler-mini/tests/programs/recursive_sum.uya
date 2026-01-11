@@ -1,0 +1,39 @@
+// 递归函数测试 - 累加
+// 测试递归累加函数
+
+fn sum_recursive(n: i32) i32 {
+    if n <= 0 {
+        return 0;
+    } else {
+        return n + sum_recursive(n - 1);
+    }
+}
+
+fn main() i32 {
+    // 测试 sum_recursive(0) = 0
+    const s0: i32 = sum_recursive(0);
+    if s0 != 0 {
+        return 1;
+    }
+    
+    // 测试 sum_recursive(1) = 1
+    const s1: i32 = sum_recursive(1);
+    if s1 != 1 {
+        return 2;
+    }
+    
+    // 测试 sum_recursive(10) = 55
+    const s10: i32 = sum_recursive(10);
+    if s10 != 55 {
+        return 3;
+    }
+    
+    // 测试 sum_recursive(20) = 210
+    const s20: i32 = sum_recursive(20);
+    if s20 != 210 {
+        return 4;
+    }
+    
+    return 0;
+}
+

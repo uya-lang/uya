@@ -1,0 +1,70 @@
+// 相互递归函数测试
+// 测试两个函数相互调用（编译器多遍扫描应支持）
+
+fn is_odd(n: i32) bool {
+    if n == 0 {
+        return false;
+    } else {
+        return is_even(n - 1);
+    }
+}
+
+fn is_even(n: i32) bool {
+    if n == 0 {
+        return true;
+    } else {
+        return is_odd(n - 1);
+    }
+}
+
+fn main() i32 {
+    // 测试 is_even
+    const e0: bool = is_even(0);
+    if e0 != true {
+        return 1;
+    }
+    
+    const e1: bool = is_even(1);
+    if e1 != false {
+        return 2;
+    }
+    
+    const e2: bool = is_even(2);
+    if e2 != true {
+        return 3;
+    }
+    
+    const e5: bool = is_even(5);
+    if e5 != false {
+        return 4;
+    }
+    
+    const e8: bool = is_even(8);
+    if e8 != true {
+        return 5;
+    }
+    
+    // 测试 is_odd
+    const o0: bool = is_odd(0);
+    if o0 != false {
+        return 6;
+    }
+    
+    const o1: bool = is_odd(1);
+    if o1 != true {
+        return 7;
+    }
+    
+    const o3: bool = is_odd(3);
+    if o3 != true {
+        return 8;
+    }
+    
+    const o6: bool = is_odd(6);
+    if o6 != false {
+        return 9;
+    }
+    
+    return 0;
+}
+
