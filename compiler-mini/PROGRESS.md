@@ -244,14 +244,12 @@
 - ✅ 代码质量检查通过（编译通过，无错误）
 
 **下一步任务**：
-- **阶段6完成**：类型检查器（Checker）实现和测试全部完成
 - **阶段7（待开始）**：代码生成器（CodeGen）实现
-- **会话5（待实现）**：测试和验证
-  - 🚧 待实现：创建 `tests/test_checker.c` - Checker 测试
-  - 🚧 待实现：添加测试用例
-  - 🚧 待实现：更新 `Makefile` 添加 Checker 测试
+  - 🚧 待实现：创建 `src/codegen.h` 和 `src/codegen.c`
+  - 🚧 待实现：使用 LLVM C API 生成代码
+  - 🚧 待实现：支持基础类型、结构体、函数等代码生成
 
-**依赖关系**：依赖 Parser、Lexer 和 AST（已完成）
+**依赖关系**：依赖 Parser、Lexer、AST 和 Checker（全部已完成）
 
 **参考文档**：
 - `spec/UYA_MINI_SPEC.md` - 语言规范（语义规则部分）
