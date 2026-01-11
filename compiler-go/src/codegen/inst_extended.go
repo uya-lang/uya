@@ -162,16 +162,137 @@ func (g *Generator) genStringInterpolation(inst *ir.StringInterpolationInst) err
 
 // genTryCatch generates code for try-catch expression
 func (g *Generator) genTryCatch(inst *ir.TryCatchInst) error {
-	// Try-catch in Uya is used for error handling
-	// For now, use a simplified implementation: just evaluate the try expression
-	// TODO: Full implementation needs error union type handling and error propagation
+	// Try-catch in Uya: expr catch |err| { body } or expr catch { body }
+	// Semantics: Evaluate expr (returns !T), check error_id
+	//   - If error_id == 0: use value (success case)
+	//   - If error_id != 0: execute catch block with error_id assigned to err (if present)
+	// Returns: The value type (not error union type)
+	//
+	// Use GNU statement expression: ({ ... }) to return a value
+	// Pattern: ({ struct error_union_T _temp = expr;
+	//            if (_temp.error_id != 0) { uint32_t err = _temp.error_id; body } else { _temp.value } })
 	
+	// Generate temporary variable name
+	tempVar := g.NextTemp()
+	
+	// Determine base type from TryExpr (for now, use i32 as default)
+	// In a full implementation, we would extract the base type from TryExpr's type information
+	baseTypeName := "int32_t" // Default to i32, could be improved with type information
+	
+	// Generate statement expression: ({ ... })
+	if err := g.Write("({ struct error_union_"); err != nil {
+		return err
+	}
+	if err := g.Write(baseTypeName); err != nil {
+		return err
+	}
+	if err := g.Writef(" %s = ", tempVar); err != nil {
+		return err
+	}
 	if err := g.WriteValue(inst.TryExpr); err != nil {
 		return err
 	}
+	if err := g.Write("; "); err != nil {
+		return err
+	}
 	
-	// TODO: Generate catch block handling
-	// This requires error union type support in codegen
+	// Error check: if (error_id != 0) { catch block } else { value }
+	// Use ternary operator: condition ? catch_value : try_value
+	if err := g.Writef("%s.error_id != 0 ? ", tempVar); err != nil {
+		return err
+	}
+	
+	// Error case: execute catch body (statement expression)
+	if err := g.Write("({ "); err != nil {
+		return err
+	}
+	
+	// Assign error_id to error variable if present
+	if inst.ErrorVar != "" {
+		if err := g.Writef("uint32_t %s = %s.error_id; ", inst.ErrorVar, tempVar); err != nil {
+			return err
+		}
+	}
+	
+	// Generate catch body
+	// Catch body statements are generated as statements, and the last expression is used as return value
+	if len(inst.CatchBody) > 0 {
+		for i, stmt := range inst.CatchBody {
+			// Check if this is the last statement (should be an expression)
+			if i == len(inst.CatchBody)-1 {
+				// Last statement: check if it's a BlockInst or regular statement
+				if blockInst, ok := stmt.(*ir.BlockInst); ok {
+					// BlockInst: generate block statements, last one is return value
+					if len(blockInst.Insts) > 0 {
+						for j, blockStmt := range blockInst.Insts {
+							if j < len(blockInst.Insts)-1 {
+								// Not last statement in block: generate as statement
+								if err := g.GenerateInst(blockStmt); err != nil {
+									return err
+								}
+								if err := g.Write("; "); err != nil {
+									return err
+								}
+							} else {
+								// Last statement in block: use as return value
+								if err := g.WriteValue(blockStmt); err != nil {
+									return err
+								}
+							}
+						}
+					} else {
+						// Empty block: return 0
+						if err := g.Write("0"); err != nil {
+							return err
+						}
+					}
+				} else {
+					// Last statement is not a block: use as return value
+					if err := g.WriteValue(stmt); err != nil {
+						return err
+					}
+				}
+			} else {
+				// Not last statement: generate as statement
+				if blockInst, ok := stmt.(*ir.BlockInst); ok {
+					// BlockInst: generate all statements
+					for _, blockStmt := range blockInst.Insts {
+						if err := g.GenerateInst(blockStmt); err != nil {
+							return err
+						}
+						if err := g.Write("; "); err != nil {
+							return err
+						}
+					}
+				} else {
+					if err := g.GenerateInst(stmt); err != nil {
+						return err
+					}
+					if err := g.Write("; "); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	} else {
+		// Empty catch body: return default value (0 for numeric types)
+		if err := g.Write("0"); err != nil {
+			return err
+		}
+	}
+	
+	if err := g.Write(" }) : "); err != nil {
+		return err
+	}
+	
+	// Success case: return value from error union
+	if err := g.Writef("%s.value", tempVar); err != nil {
+		return err
+	}
+	
+	if err := g.Write("; })"); err != nil {
+		return err
+	}
 	
 	return nil
 }
