@@ -245,9 +245,52 @@ func (g *Generator) genWhile(inst *ir.WhileInst) error {
 
 // genFor generates a for loop
 func (g *Generator) genFor(inst *ir.ForInst) error {
-	// TODO: Implement for loop code generation
-	// For now, generate a placeholder
-	return g.Writef("/* TODO: for loop (%s in ...) */", inst.ItemVar)
+	// For loop in Uya: for item in iterable { body }
+	// According to uya.md, for loops are expanded to while loops at compile time
+	// For code generation, we generate C for loops directly
+	//
+	// Implementation notes:
+	// - Full implementation requires type information (array size, range bounds, iterator interface)
+	// - Current implementation generates a basic structure with TODO comments for missing parts
+	// - This allows the generated code to compile (with manual completion) while we work on full implementation
+	
+	// Generate for loop header
+	if inst.ItemVar != "" {
+		// For loop with item variable: for item in iterable { body }
+		if err := g.Writef("for (int %s = 0; %s < /* TODO: iterable length or range end */; %s++) {\n",
+			inst.ItemVar, inst.ItemVar, inst.ItemVar); err != nil {
+			return err
+		}
+		
+		// Add item assignment comment if iterable is present
+		if inst.Iterable != nil {
+			if err := g.Writef("  /* TODO: %s = iterable[%s] - need to generate iterable access */\n", inst.ItemVar, inst.ItemVar); err != nil {
+				return err
+			}
+		}
+	} else {
+		// For loop without item variable: for iterable { body } or for start..end { body }
+		if err := g.Write("for (int _loop_idx = 0; _loop_idx < /* TODO: iterable length or range end */; _loop_idx++) {\n"); err != nil {
+			return err
+		}
+	}
+	
+	// Generate loop body
+	if len(inst.Body) > 0 {
+		for _, stmt := range inst.Body {
+			if err := g.Write("  "); err != nil {
+				return err
+			}
+			if err := g.GenerateInst(stmt); err != nil {
+				return err
+			}
+			if err := g.Write("\n"); err != nil {
+				return err
+			}
+		}
+	}
+	
+	return g.Write("}")
 }
 
 // genBlock generates a code block
