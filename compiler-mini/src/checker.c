@@ -439,6 +439,27 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
     }
 }
 
+// 从程序节点中查找结构体声明
+// 参数：program_node - 程序节点，struct_name - 结构体名称
+// 返回：找到的结构体声明节点指针，未找到返回 NULL
+static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char *struct_name) {
+    if (program_node == NULL || program_node->type != AST_PROGRAM || struct_name == NULL) {
+        return NULL;
+    }
+    
+    for (int i = 0; i < program_node->data.program.decl_count; i++) {
+        ASTNode *decl = program_node->data.program.decls[i];
+        if (decl != NULL && decl->type == AST_STRUCT_DECL) {
+            if (decl->data.struct_decl.name != NULL && 
+                strcmp(decl->data.struct_decl.name, struct_name) == 0) {
+                return decl;
+            }
+        }
+    }
+    
+    return NULL;
+}
+
 // 类型检查主函数（基础框架，待实现）
 int checker_check(TypeChecker *checker, ASTNode *ast) {
     if (checker == NULL || ast == NULL) {
