@@ -643,6 +643,11 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             
             int op = expr->data.binary_expr.op;
             
+            // 调试：所有二元表达式
+            if (op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR) {
+                fprintf(stderr, "调试: AST_BINARY_EXPR - 逻辑运算符 (op=%d)\n", op);
+            }
+            
             // 获取操作数类型
             LLVMTypeRef left_type = LLVMTypeOf(left_val);
             LLVMTypeRef right_type = LLVMTypeOf(right_val);
@@ -721,6 +726,9 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             // 逻辑运算符（布尔值，i1）
             // 逻辑运算符的操作数必须是布尔类型（i1）
             if (op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR) {
+                // 调试：进入逻辑运算符处理
+                fprintf(stderr, "调试: 处理逻辑运算符 (op=%d, TOKEN_LOGICAL_AND=%d, TOKEN_LOGICAL_OR=%d)\n", 
+                        op, TOKEN_LOGICAL_AND, TOKEN_LOGICAL_OR);
                 // 检查操作数类型是否为整数类型（i1是整数类型）
                 if (LLVMGetTypeKind(left_type) == LLVMIntegerTypeKind &&
                     LLVMGetTypeKind(right_type) == LLVMIntegerTypeKind) {
@@ -729,12 +737,31 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                     unsigned right_bitwidth = LLVMGetIntTypeWidth(right_type);
                     if (left_bitwidth == 1 && right_bitwidth == 1) {
                         // 操作数都是i1类型，可以使用AND或OR
+                        LLVMValueRef result = NULL;
                         if (op == TOKEN_LOGICAL_AND) {
-                            return LLVMBuildAnd(codegen->builder, left_val, right_val, "");
+                            result = LLVMBuildAnd(codegen->builder, left_val, right_val, "");
+                            if (!result) {
+                                // 调试：LLVMBuildAnd 返回 NULL
+                                fprintf(stderr, "错误: LLVMBuildAnd 返回 NULL\n");
+                                return NULL;
+                            }
                         } else if (op == TOKEN_LOGICAL_OR) {
-                            return LLVMBuildOr(codegen->builder, left_val, right_val, "");
+                            result = LLVMBuildOr(codegen->builder, left_val, right_val, "");
+                            if (!result) {
+                                // 调试：LLVMBuildOr 返回 NULL
+                                fprintf(stderr, "错误: LLVMBuildOr 返回 NULL\n");
+                                return NULL;
+                            }
                         }
+                        return result;
+                    } else {
+                        // 调试：操作数位宽不是1
+                        fprintf(stderr, "错误: 逻辑运算符操作数位宽不匹配 (left=%u, right=%u)\n", 
+                                left_bitwidth, right_bitwidth);
                     }
+                } else {
+                    // 调试：操作数类型不是整数类型
+                    fprintf(stderr, "错误: 逻辑运算符操作数类型不匹配\n");
                 }
                 // 操作数类型不匹配，返回NULL
                 return NULL;
@@ -1145,9 +1172,18 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 return -1;
             }
             
+            // 调试：if语句条件表达式
+            if (condition->type == AST_BINARY_EXPR) {
+                int op = condition->data.binary_expr.op;
+                if (op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR) {
+                    fprintf(stderr, "调试: AST_IF_STMT - 条件表达式是逻辑运算符 (op=%d)\n", op);
+                }
+            }
+            
             // 生成条件表达式
             LLVMValueRef cond_val = codegen_gen_expr(codegen, condition);
             if (!cond_val) {
+                fprintf(stderr, "错误: 条件表达式生成失败\n");
                 return -1;
             }
             
@@ -1508,7 +1544,8 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
         
         if (decl->type == AST_FN_DECL) {
             // 生成函数代码
-            if (codegen_gen_function(codegen, decl) != 0) {
+            int result = codegen_gen_function(codegen, decl);
+            if (result != 0) {
                 return -1;  // 函数代码生成失败
             }
         }
