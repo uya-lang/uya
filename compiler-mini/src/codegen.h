@@ -47,5 +47,18 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
 // 注意：此函数仅支持基础类型，结构体类型需要使用其他函数
 LLVMTypeRef codegen_get_base_type(CodeGenerator *codegen, TypeKind type_kind);
 
+// 注册结构体类型（从AST结构体声明创建LLVM结构体类型并注册）
+// 参数：codegen - 代码生成器指针
+//       struct_decl - AST结构体声明节点
+// 返回：成功返回0，失败返回非0
+// 注意：如果结构体类型已注册，会返回成功（不重复注册）
+int codegen_register_struct_type(CodeGenerator *codegen, ASTNode *struct_decl);
+
+// 获取结构体类型的LLVM类型
+// 参数：codegen - 代码生成器指针
+//       struct_name - 结构体名称
+// 返回：LLVM类型引用，未找到返回NULL
+LLVMTypeRef codegen_get_struct_type(CodeGenerator *codegen, const char *struct_name);
+
 #endif // CODEGEN_H
 

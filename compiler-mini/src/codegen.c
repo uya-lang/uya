@@ -85,6 +85,135 @@ LLVMTypeRef codegen_get_base_type(CodeGenerator *codegen, TypeKind type_kind) {
     }
 }
 
+// 辅助函数：从AST类型节点获取LLVM类型（仅支持基础类型和已注册的结构体类型）
+// 参数：codegen - 代码生成器指针
+//       type_node - AST类型节点（AST_TYPE_NAMED）
+// 返回：LLVM类型引用，失败返回NULL
+static LLVMTypeRef get_llvm_type_from_ast(CodeGenerator *codegen, ASTNode *type_node) {
+    if (!codegen || !type_node || type_node->type != AST_TYPE_NAMED) {
+        return NULL;
+    }
+    
+    const char *type_name = type_node->data.type_named.name;
+    if (!type_name) {
+        return NULL;
+    }
+    
+    // 基础类型
+    if (strcmp(type_name, "i32") == 0) {
+        return codegen_get_base_type(codegen, TYPE_I32);
+    } else if (strcmp(type_name, "bool") == 0) {
+        return codegen_get_base_type(codegen, TYPE_BOOL);
+    } else if (strcmp(type_name, "void") == 0) {
+        return codegen_get_base_type(codegen, TYPE_VOID);
+    }
+    
+    // 结构体类型（必须在注册表中查找）
+    return codegen_get_struct_type(codegen, type_name);
+}
+
+// 获取结构体类型的LLVM类型
+// 参数：codegen - 代码生成器指针
+//       struct_name - 结构体名称
+// 返回：LLVM类型引用，未找到返回NULL
+LLVMTypeRef codegen_get_struct_type(CodeGenerator *codegen, const char *struct_name) {
+    if (!codegen || !struct_name) {
+        return NULL;
+    }
+    
+    // 在结构体类型映射表中线性查找
+    for (int i = 0; i < codegen->struct_type_count; i++) {
+        if (codegen->struct_types[i].name != NULL && 
+            strcmp(codegen->struct_types[i].name, struct_name) == 0) {
+            return codegen->struct_types[i].llvm_type;
+        }
+    }
+    
+    return NULL;  // 未找到
+}
+
+// 注册结构体类型（从AST结构体声明创建LLVM结构体类型并注册）
+// 参数：codegen - 代码生成器指针
+//       struct_decl - AST结构体声明节点
+// 返回：成功返回0，失败返回非0
+// 注意：如果结构体类型已注册，会返回成功（不重复注册）
+int codegen_register_struct_type(CodeGenerator *codegen, ASTNode *struct_decl) {
+    if (!codegen || !struct_decl || struct_decl->type != AST_STRUCT_DECL) {
+        return -1;
+    }
+    
+    const char *struct_name = struct_decl->data.struct_decl.name;
+    if (!struct_name) {
+        return -1;
+    }
+    
+    // 检查是否已经注册
+    if (codegen_get_struct_type(codegen, struct_name) != NULL) {
+        return 0;  // 已注册，返回成功
+    }
+    
+    // 检查映射表是否已满
+    if (codegen->struct_type_count >= 64) {
+        return -1;  // 映射表已满
+    }
+    
+    int field_count = struct_decl->data.struct_decl.field_count;
+    if (field_count < 0) {
+        return -1;
+    }
+    
+    // 准备字段类型数组
+    LLVMTypeRef *field_types = NULL;
+    if (field_count > 0) {
+        // 使用固定大小数组（栈分配，无堆分配）
+        // 注意：最多支持16个字段（如果超过需要调整）
+        if (field_count > 16) {
+            return -1;  // 字段数过多
+        }
+        LLVMTypeRef field_types_array[16];
+        field_types = field_types_array;
+        
+        // 遍历字段，获取每个字段的LLVM类型
+        for (int i = 0; i < field_count; i++) {
+            ASTNode *field = struct_decl->data.struct_decl.fields[i];
+            if (!field || field->type != AST_VAR_DECL) {
+                return -1;
+            }
+            
+            ASTNode *field_type_node = field->data.var_decl.type;
+            LLVMTypeRef field_llvm_type = get_llvm_type_from_ast(codegen, field_type_node);
+            if (!field_llvm_type) {
+                return -1;  // 字段类型无效或未找到（结构体类型需要先注册）
+            }
+            
+            field_types[i] = field_llvm_type;
+        }
+    }
+    
+    // 创建LLVM结构体类型
+    LLVMTypeRef struct_type;
+    if (field_count == 0) {
+        // 空结构体
+        struct_type = LLVMStructTypeInContext(codegen->context, NULL, 0, 0);
+    } else {
+        // 非空结构体（packed=0，使用默认对齐）
+        struct_type = LLVMStructTypeInContext(codegen->context, field_types, field_count, 0);
+    }
+    
+    if (!struct_type) {
+        return -1;
+    }
+    
+    // 注册到映射表
+    // 复制结构体名称到Arena（如果需要，但通常名称已经在Arena中）
+    int idx = codegen->struct_type_count;
+    codegen->struct_types[idx].name = struct_name;  // 名称已经在Arena中
+    codegen->struct_types[idx].llvm_type = struct_type;
+    codegen->struct_type_count++;
+    
+    return 0;
+}
+
 // 从AST生成代码
 // 参数：codegen - 代码生成器指针
 //       ast - AST 根节点（程序节点）
