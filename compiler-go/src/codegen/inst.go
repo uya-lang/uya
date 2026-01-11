@@ -245,32 +245,101 @@ func (g *Generator) genWhile(inst *ir.WhileInst) error {
 
 // genFor generates a for loop
 func (g *Generator) genFor(inst *ir.ForInst) error {
-	// For loop in Uya: for item in iterable { body }
-	// According to uya.md, for loops are expanded to while loops at compile time
-	// For code generation, we generate C for loops directly
-	//
-	// Implementation notes:
-	// - Full implementation requires type information (array size, range bounds, iterator interface)
-	// - Current implementation generates a basic structure with TODO comments for missing parts
-	// - This allows the generated code to compile (with manual completion) while we work on full implementation
+	// For loop in Uya: for item in iterable { body } or for item in start..end { body }
+	// Generate C for loops: for (int i = 0; i < len; i++) { item = arr[i]; body }
 	
-	// Generate for loop header
-	if inst.ItemVar != "" {
-		// For loop with item variable: for item in iterable { body }
-		if err := g.Writef("for (int %s = 0; %s < /* TODO: iterable length or range end */; %s++) {\n",
-			inst.ItemVar, inst.ItemVar, inst.ItemVar); err != nil {
+	// Determine loop index variable name
+	idxVar := inst.IndexVar
+	if idxVar == "" {
+		if inst.ItemVar != "" {
+			// Use item variable name with _idx suffix for index
+			idxVar = inst.ItemVar + "_idx"
+		} else {
+			idxVar = "_loop_idx"
+		}
+	}
+	
+	// Generate for loop based on whether we have IndexRange or Iterable
+	if inst.IndexRange != nil {
+		// Range iteration: for item in start..end { body }
+		// Generate: for (int idxVar = start; idxVar < end; idxVar++) { item = idxVar; body }
+		if err := g.Writef("for (int %s = ", idxVar); err != nil {
+			return err
+		}
+		// Generate start value (for now, use 0 as default)
+		// TODO: Extract start value from IndexRange expression
+		if err := g.Write("0"); err != nil {
+			return err
+		}
+		if err := g.Writef("; %s < ", idxVar); err != nil {
+			return err
+		}
+		// Generate end value
+		if err := g.WriteValue(inst.IndexRange); err != nil {
+			return err
+		}
+		if err := g.Writef("; %s++) {\n", idxVar); err != nil {
 			return err
 		}
 		
-		// Add item assignment comment if iterable is present
-		if inst.Iterable != nil {
-			if err := g.Writef("  /* TODO: %s = iterable[%s] - need to generate iterable access */\n", inst.ItemVar, inst.ItemVar); err != nil {
+		// Assign item variable if present
+		if inst.ItemVar != "" && idxVar != inst.ItemVar {
+			if err := g.Writef("  int %s = %s;\n", inst.ItemVar, idxVar); err != nil {
+				return err
+			}
+		}
+	} else if inst.Iterable != nil {
+		// Array/slice iteration: for item in iterable { body }
+		// Generate: for (int idxVar = 0; idxVar < len(iterable); idxVar++) { item = iterable[idxVar]; body }
+		
+		// Generate iterable expression code to get the variable name
+		// For arrays, we use sizeof(array) / sizeof(array[0]) to get length
+		if err := g.Writef("for (int %s = 0; %s < (int)(sizeof(", idxVar, idxVar); err != nil {
+			return err
+		}
+		if err := g.WriteValue(inst.Iterable); err != nil {
+			return err
+		}
+		if err := g.Write(") / sizeof(("); err != nil {
+			return err
+		}
+		if err := g.WriteValue(inst.Iterable); err != nil {
+			return err
+		}
+		if err := g.Write(")[0])); "); err != nil {
+			return err
+		}
+		if err := g.Writef("%s++) {\n", idxVar); err != nil {
+			return err
+		}
+		
+		// Assign item variable if present
+		if inst.ItemVar != "" {
+			// Generate: item = iterable[idxVar]
+			// Use typeof extension (GCC/clang) for type inference: typeof(iterable[0]) item = iterable[idxVar];
+			// This is more portable than auto and works with GCC/clang compilers
+			if err := g.Writef("  typeof(("); err != nil {
+				return err
+			}
+			if err := g.WriteValue(inst.Iterable); err != nil {
+				return err
+			}
+			if err := g.Write(")[0]) "); err != nil {
+				return err
+			}
+			if err := g.Writef("%s = ", inst.ItemVar); err != nil {
+				return err
+			}
+			if err := g.WriteValue(inst.Iterable); err != nil {
+				return err
+			}
+			if err := g.Writef("[%s];\n", idxVar); err != nil {
 				return err
 			}
 		}
 	} else {
-		// For loop without item variable: for iterable { body } or for start..end { body }
-		if err := g.Write("for (int _loop_idx = 0; _loop_idx < /* TODO: iterable length or range end */; _loop_idx++) {\n"); err != nil {
+		// Fallback: no iterable or range, generate empty loop structure
+		if err := g.Writef("for (int %s = 0; %s < 0; %s++) {\n", idxVar, idxVar, idxVar); err != nil {
 			return err
 		}
 	}
@@ -290,7 +359,7 @@ func (g *Generator) genFor(inst *ir.ForInst) error {
 		}
 	}
 	
-	return g.Write("}")
+	return g.Write("}\n")
 }
 
 // genBlock generates a code block
