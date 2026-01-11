@@ -24,6 +24,7 @@ typedef enum {
     TOKEN_CONST,        // const
     TOKEN_VAR,          // var
     TOKEN_FN,           // fn
+    TOKEN_EXTERN,       // extern
     TOKEN_RETURN,       // return
     TOKEN_IF,           // if
     TOKEN_ELSE,         // else

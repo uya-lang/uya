@@ -593,7 +593,7 @@ static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
     sig->name = node->data.fn_decl.name;
     sig->param_count = node->data.fn_decl.param_count;
     sig->return_type = return_type;
-    sig->is_extern = 0;  // 普通函数
+    sig->is_extern = (node->data.fn_decl.body == NULL) ? 1 : 0;  // 如果 body 为 NULL，则是 extern 函数
     sig->line = node->line;
     sig->column = node->column;
     

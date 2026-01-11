@@ -1078,9 +1078,12 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
     int param_count = fn_decl->data.fn_decl.param_count;
     ASTNode **params = fn_decl->data.fn_decl.params;
     
-    if (!func_name || !return_type_node || !body) {
+    if (!func_name || !return_type_node) {
         return -1;
     }
+    
+    // extern 函数没有函数体，只生成声明
+    int is_extern = (body == NULL) ? 1 : 0;
     
     // 获取返回类型
     LLVMTypeRef return_type = get_llvm_type_from_ast(codegen, return_type_node);
@@ -1122,10 +1125,14 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
         return -1;
     }
     
-    // 添加函数到模块
-    LLVMValueRef func = LLVMAddFunction(codegen->module, func_name, func_type);
+    // 添加函数到模块（或获取已存在的函数声明）
+    LLVMValueRef func = LLVMGetNamedFunction(codegen->module, func_name);
     if (!func) {
-        return -1;
+        // 函数不存在，创建新函数
+        func = LLVMAddFunction(codegen->module, func_name, func_type);
+        if (!func) {
+            return -1;
+        }
     }
     
     // 添加到函数表
@@ -1133,6 +1140,12 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
         return -1;
     }
     
+    // extern 函数只生成声明，不生成函数体
+    if (is_extern) {
+        return 0;  // extern 函数处理完成
+    }
+    
+    // 普通函数需要生成函数体
     // 创建函数体的基本块
     LLVMBasicBlockRef entry_bb = LLVMAppendBasicBlock(func, "entry");
     if (!entry_bb) {

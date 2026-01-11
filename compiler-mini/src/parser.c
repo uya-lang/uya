@@ -479,6 +479,161 @@ ASTNode *parser_parse_function(Parser *parser) {
     return fn_decl;
 }
 
+// 解析 extern 函数声明
+// extern_decl = 'extern' 'fn' ID '(' [ param_list ] ')' type ';'
+ASTNode *parser_parse_extern_function(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    // 期望 'extern'
+    if (!parser_match(parser, TOKEN_EXTERN)) {
+        return NULL;
+    }
+    
+    int line = parser->current_token->line;
+    int column = parser->current_token->column;
+    
+    // 消费 'extern'
+    parser_consume(parser);
+    
+    // 期望 'fn'
+    if (!parser_expect(parser, TOKEN_FN)) {
+        return NULL;
+    }
+    
+    // 期望函数名称
+    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+        return NULL;
+    }
+    
+    const char *fn_name = arena_strdup(parser->arena, parser->current_token->value);
+    if (fn_name == NULL) {
+        return NULL;
+    }
+    
+    // 消费函数名称
+    parser_consume(parser);
+    
+    // 创建函数声明节点
+    ASTNode *fn_decl = ast_new_node(AST_FN_DECL, line, column, parser->arena);
+    if (fn_decl == NULL) {
+        return NULL;
+    }
+    
+    fn_decl->data.fn_decl.name = fn_name;
+    fn_decl->data.fn_decl.params = NULL;
+    fn_decl->data.fn_decl.param_count = 0;
+    fn_decl->data.fn_decl.return_type = NULL;
+    fn_decl->data.fn_decl.body = NULL;  // extern 函数没有函数体
+    
+    // 期望 '('
+    if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+        return NULL;
+    }
+    
+    // 解析参数列表（可选，与普通函数相同）
+    ASTNode **params = NULL;
+    int param_count = 0;
+    int param_capacity = 0;
+    
+    if (!parser_match(parser, TOKEN_RIGHT_PAREN)) {
+        // 有参数
+        while (parser->current_token != NULL && 
+               !parser_match(parser, TOKEN_RIGHT_PAREN) && 
+               !parser_match(parser, TOKEN_EOF)) {
+            
+            // 解析参数名称
+            if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                return NULL;
+            }
+            
+            int param_line = parser->current_token->line;
+            int param_column = parser->current_token->column;
+            const char *param_name = arena_strdup(parser->arena, parser->current_token->value);
+            if (param_name == NULL) {
+                return NULL;
+            }
+            
+            parser_consume(parser);
+            
+            // 期望 ':'
+            if (!parser_expect(parser, TOKEN_COLON)) {
+                return NULL;
+            }
+            
+            // 解析参数类型
+            ASTNode *param_type = parser_parse_type(parser);
+            if (param_type == NULL) {
+                return NULL;
+            }
+            
+            // 创建参数节点（使用 AST_VAR_DECL，is_const = 0）
+            ASTNode *param = ast_new_node(AST_VAR_DECL, param_line, param_column, parser->arena);
+            if (param == NULL) {
+                return NULL;
+            }
+            
+            param->data.var_decl.name = param_name;
+            param->data.var_decl.type = param_type;
+            param->data.var_decl.init = NULL;
+            param->data.var_decl.is_const = 0;
+            
+            // 扩展参数数组（使用 Arena 分配）
+            if (param_count >= param_capacity) {
+                int new_capacity = param_capacity == 0 ? 4 : param_capacity * 2;
+                ASTNode **new_params = (ASTNode **)arena_alloc(
+                    parser->arena, 
+                    sizeof(ASTNode *) * new_capacity
+                );
+                if (new_params == NULL) {
+                    return NULL;
+                }
+                
+                // 复制旧参数
+                if (params != NULL) {
+                    for (int i = 0; i < param_count; i++) {
+                        new_params[i] = params[i];
+                    }
+                }
+                
+                params = new_params;
+                param_capacity = new_capacity;
+            }
+            
+            params[param_count++] = param;
+            
+            // 检查是否有逗号
+            if (parser_match(parser, TOKEN_COMMA)) {
+                parser_consume(parser);
+            }
+        }
+    }
+    
+    // 期望 ')'
+    if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+        return NULL;
+    }
+    
+    // 解析返回类型
+    ASTNode *return_type = parser_parse_type(parser);
+    if (return_type == NULL) {
+        return NULL;
+    }
+    
+    // extern 函数以分号结尾，没有函数体
+    if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+        return NULL;
+    }
+    
+    fn_decl->data.fn_decl.params = params;
+    fn_decl->data.fn_decl.param_count = param_count;
+    fn_decl->data.fn_decl.return_type = return_type;
+    fn_decl->data.fn_decl.body = NULL;  // extern 函数没有函数体
+    
+    return fn_decl;
+}
+
 // 解析声明（函数、结构体或变量声明）
 ASTNode *parser_parse_declaration(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
@@ -486,7 +641,10 @@ ASTNode *parser_parse_declaration(Parser *parser) {
     }
     
     // 根据第一个 Token 判断声明类型
-    if (parser_match(parser, TOKEN_FN)) {
+    if (parser_match(parser, TOKEN_EXTERN)) {
+        // extern 函数声明
+        return parser_parse_extern_function(parser);
+    } else if (parser_match(parser, TOKEN_FN)) {
         return parser_parse_function(parser);
     } else if (parser_match(parser, TOKEN_STRUCT)) {
         return parser_parse_struct(parser);

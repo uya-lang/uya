@@ -88,15 +88,30 @@
 
 ## 未实现的特性（规范支持但代码未实现）
 
-以下特性在规范中支持，但代码中未实现，因此无法测试：
+以下特性在规范中支持，但代码中未实现或部分实现，因此无法完整测试：
 
-1. **extern 函数声明** ❌ **代码未实现**
-   - 功能状态：❌ 未实现（parser中不支持解析extern关键字）
-   - 说明：虽然规范支持，但parser中没有实现，无法测试
+1. **extern 函数声明** 🔄 **部分实现**
+   - 功能状态：🔄 部分实现
+   - 实现状态：
+     - ✅ Lexer：已支持 `TOKEN_EXTERN` 关键字
+     - ✅ Parser：已实现 `parser_parse_extern_function()` 函数
+     - ✅ Parser：`parser_parse_declaration()` 已调用 extern 函数解析
+     - ⚠️ Checker：已处理 extern 函数（body 为 NULL 时标记为 extern）
+     - ⚠️ CodeGen：已处理 extern 函数（body 为 NULL 时只生成声明）
+     - ❌ 测试：未创建测试用例验证完整流程
+   - 说明：语法解析已实现，但缺少测试用例验证完整流程
+   - 参考：`TODO_pending_features.md` 第1节
 
 2. **结构体比较（==, !=）** ❌ **代码未实现**
-   - 功能状态：❌ 未实现（codegen中只处理整数和布尔值比较，未实现结构体逐字段比较）
-   - 说明：虽然规范支持，但codegen中没有实现结构体比较，无法测试
+   - 功能状态：❌ 未实现
+   - 实现状态：
+     - ✅ Parser：已支持比较运算符解析
+     - ⚠️ Checker：类型检查应该支持结构体比较（需要验证）
+     - ❌ CodeGen：未实现结构体比较代码生成（当前只使用 `LLVMBuildICmp`，仅支持整数类型）
+   - 说明：需要在 CodeGen 中实现结构体逐字段比较代码生成
+   - 参考：`TODO_pending_features.md` 第2节
+
+**详细实现计划**：参见 `TODO_pending_features.md`
 
 ## 测试覆盖状态总结
 

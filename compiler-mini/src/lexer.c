@@ -92,6 +92,7 @@ static TokenType is_keyword(const char *str) {
     if (strcmp(str, "const") == 0) return TOKEN_CONST;
     if (strcmp(str, "var") == 0) return TOKEN_VAR;
     if (strcmp(str, "fn") == 0) return TOKEN_FN;
+    if (strcmp(str, "extern") == 0) return TOKEN_EXTERN;
     if (strcmp(str, "return") == 0) return TOKEN_RETURN;
     if (strcmp(str, "if") == 0) return TOKEN_IF;
     if (strcmp(str, "else") == 0) return TOKEN_ELSE;
