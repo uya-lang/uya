@@ -14,8 +14,10 @@ ARENA_TEST = tests/test_arena
 ARENA_TEST_SRC = tests/test_arena.c src/arena.c
 AST_TEST = tests/test_ast
 AST_TEST_SRC = tests/test_ast.c src/ast.c src/arena.c
+LEXER_TEST = tests/test_lexer
+LEXER_TEST_SRC = tests/test_lexer.c src/lexer.c src/arena.c
 
-.PHONY: all build test clean test-arena test-ast
+.PHONY: all build test clean test-arena test-ast test-lexer
 
 # 默认目标
 all: build
@@ -25,7 +27,7 @@ build:
 	@echo "构建目标（待实现）"
 
 # 运行所有测试
-test: test-arena test-ast
+test: test-arena test-ast test-lexer
 	@echo "所有测试完成"
 
 # Arena 分配器测试
@@ -46,8 +48,17 @@ test-ast: $(AST_TEST)
 $(AST_TEST): $(AST_TEST_SRC)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
+# Lexer 测试
+test-lexer: $(LEXER_TEST)
+	@echo "运行 Lexer 测试..."
+	./$(LEXER_TEST)
+
+# 编译 Lexer 测试
+$(LEXER_TEST): $(LEXER_TEST_SRC)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
+
 # 清理编译产物
 clean:
-	rm -f $(ARENA_TEST) $(AST_TEST)
+	rm -f $(ARENA_TEST) $(AST_TEST) $(LEXER_TEST)
 	@echo "清理完成"
 
