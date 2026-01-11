@@ -2,7 +2,7 @@
 
 本文档跟踪 Uya Mini 编译器的实现进度和状态。
 
-**最后更新**：2026-01-11（下午，续30）
+**最后更新**：2026-01-11（测试脚本运行后）
 
 ---
 
@@ -288,13 +288,27 @@
    - 完成时间：2026-01-11（续30）
    - 参考：`TODO_pending_features.md` 第2节
 
-**下一步任务**：
-- **待实现特性**：所有P0优先级特性已完成 ✅
-  - 优先级1：✅ extern 函数声明（已完成）
-  - 优先级2：✅ 结构体比较（已完成）
-  - 参考：`TODO_pending_features.md` - 待实现特性详细计划
+**⚠️ 测试程序运行结果**（2026-01-11，测试脚本运行后）：
+- **总计**：18 个测试程序
+- **通过**：11 个 ✅
+- **失败**：7 个 ❌
+  - `boolean_logic.uya` - 链接失败（缺少 main 符号）
+  - `comparison.uya` - 链接失败（缺少 main 符号）
+  - `nested_control.uya` - 链接失败（缺少 main 符号）
+  - `struct_comparison.uya` - 链接失败（缺少 main 符号）
+  - `extern_function.uya` - 链接失败（缺少外部函数 add）
+  - `nested_struct.uya` - 编译失败
+  - `struct_params.uya` - 运行时段错误（退出码 139）
 
-**注意**：测试程序的编译和运行需要在有 LLVM 开发环境的系统中执行。可以使用 `make test-programs` 命令运行所有测试程序。
+**下一步任务**：
+- **Bug 修复**：修复测试程序运行中发现的问题
+  - 参考：`TODO_bugfixes.md` - Bug 修复待办事项（新增）
+  - 优先级：P0 - 缺少 main 符号问题（影响 4 个测试程序）
+  - 优先级：P1 - nested_struct 编译失败
+  - 优先级：P2 - struct_params 段错误
+  - 优先级：P3 - extern_function 链接失败（需要特殊处理）
+
+**注意**：测试程序的编译和运行需要在有 LLVM 开发环境的系统中执行。可以使用 `make test-programs` 或 `bash tests/run_programs.sh` 命令运行所有测试程序。
 
 **依赖关系**：所有核心模块已完成（Arena、AST、Lexer、Parser、Checker、CodeGen、Main）
 
@@ -303,7 +317,8 @@
 - `CONTEXT_SWITCH.md` - Uya 测试程序验证章节
 - `TODO.md` - 任务索引
 - `TODO_phase9.md` - 阶段9详细任务列表
-- `TODO_pending_features.md` - **待实现特性清单（新增）**
+- `TODO_pending_features.md` - 待实现特性清单
+- `TODO_bugfixes.md` - **Bug 修复待办事项（新增）**
 - `TEST_COVERAGE_ANALYSIS.md` - 测试覆盖分析
 
 ---
@@ -464,6 +479,18 @@
 ---
 
 ## 📝 实现日志
+
+### 2026-01-11（测试脚本运行后）
+
+- 运行测试脚本发现 7 个测试程序失败
+  - 创建 `TODO_bugfixes.md` - Bug 修复待办事项文档
+  - 记录所有测试失败问题和修复计划
+  - 更新 `PROGRESS.md` - 记录测试运行结果和下一步任务
+  - 主要问题：
+    1. 4 个测试程序缺少 main 符号（boolean_logic, comparison, nested_control, struct_comparison）
+    2. nested_struct 编译失败
+    3. struct_params 运行时段错误
+    4. extern_function 链接失败（需要外部函数实现）
 
 ### 2026-01-11（下午，续30）
 

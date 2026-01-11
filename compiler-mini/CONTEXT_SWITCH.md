@@ -77,13 +77,16 @@
    - 记录完成时间
    - 记录遇到的问题和解决方案
 
-2. **更新对应的 TODO_phase*.md（可选）**
+2. **更新对应的 TODO_phase*.md 或 TODO_bugfixes.md（可选）**
    - 标记已完成的任务项
+   - 如果是 bug 修复，更新 `TODO_bugfixes.md`
 
 3. **提交代码（如果使用 git）**
    ```bash
    git add compiler-mini/
    git commit -m "feat: 完成 [模块名称] 实现"
+   # 或
+   git commit -m "fix: 修复 [问题描述]"
    ```
 
 ## 📋 检查清单
@@ -119,6 +122,7 @@
 | `PROGRESS.md` | 当前进度和状态 | 每次新会话开始时 |
 | `TODO.md` | 任务索引 | 了解各阶段任务分布时 |
 | `TODO_phase*.md` | 各阶段详细任务列表 | 需要了解具体任务时 |
+| `TODO_bugfixes.md` | Bug 修复待办事项 | 修复测试失败问题时 |
 | `.cursorrules` | 开发规则和规范 | 新会话开始时确认规则 |
 | `spec/UYA_MINI_SPEC.md` | 语言规范（重要！） | 实现功能前必须参考 |
 | `.cursor/plans/*.plan.md` | 原始实现计划 | 需要了解整体架构时 |
