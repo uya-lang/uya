@@ -2,7 +2,7 @@
 
 本文档跟踪 Uya Mini 编译器的实现进度和状态。
 
-**最后更新**：2026-01-11（下午，续19）
+**最后更新**：2026-01-11（下午，续23）
 
 ---
 
@@ -159,6 +159,54 @@
 - ✅ 函数行数：所有函数 < 200行限制
 - ✅ 无堆分配：使用Arena分配器和固定大小数组
 - ✅ 中文注释：所有结构体和函数都有中文注释
+
+**完成时间**：2026-01-11（下午）
+
+### 阶段7：代码生成器（CodeGen）
+
+- ✅ 创建 `src/codegen.h` - CodeGenerator 结构体和接口定义
+- ✅ 创建 `src/codegen.c` - 代码生成器实现
+  - ✅ 实现 `codegen_new()` - 创建 CodeGenerator
+  - ✅ 实现基础类型到 LLVM 类型映射（i32, bool, void）
+  - ✅ 实现结构体类型映射（codegen_register_struct_type, codegen_get_struct_type）
+  - ✅ 实现表达式代码生成（codegen_gen_expr）
+  - ✅ 实现语句代码生成（codegen_gen_stmt）
+  - ✅ 实现函数代码生成（codegen_gen_function）
+  - ✅ 实现结构体字面量和字段访问代码生成
+  - ✅ 实现 `codegen_generate()` 主函数（结构体类型注册和函数代码生成）
+  - ✅ 实现目标代码生成（LLVMTargetMachineEmitToFile）
+- ✅ 创建 `tests/test_codegen.c` - CodeGen 测试文件（10个测试用例）
+- ✅ 所有测试通过
+- ✅ 更新 `Makefile` 添加 CodeGen 测试
+
+**完成时间**：2026-01-11（下午，续22）
+
+**代码质量**：
+- ✅ 文件行数：codegen.c 1388行（< 1500行限制）
+- ✅ 函数行数：所有函数 < 200行限制
+- ✅ 无堆分配：使用Arena分配器和固定大小数组
+- ✅ 中文注释：所有结构体和函数都有中文注释
+- ✅ LLVM API：使用 LLVM C API 生成二进制代码
+
+### 阶段8：主程序（Main）
+
+- ✅ 创建 `src/main.c` - 主程序实现
+  - ✅ 实现 `main()` 函数
+  - ✅ 实现命令行参数解析（parse_args函数）
+  - ✅ 实现文件读取函数（read_file_content函数）
+  - ✅ 实现主编译函数（compile_file函数）
+  - ✅ 协调所有编译阶段：Arena → Lexer → Parser → Checker → CodeGen
+  - ✅ 实现错误处理和错误消息输出
+- ✅ 更新 `Makefile` - 添加主程序编译规则（需要链接所有模块和LLVM库）
+- ✅ 代码可以编译并运行
+
+**完成时间**：2026-01-11（下午，续23）
+
+**代码质量**：
+- ✅ 文件行数：main.c 192行（< 1500行限制）
+- ✅ 函数行数：所有函数 < 200行限制
+- ✅ 无堆分配：使用栈上分配的结构体和固定大小缓冲区
+- ✅ 中文注释：所有函数和关键逻辑都有中文注释
 
 ---
 

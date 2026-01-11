@@ -43,9 +43,9 @@
 - [阶段3：实现 AST 数据结构](TODO_phase3.md) ✅
 - [阶段4：实现词法分析器（Lexer）](TODO_phase4.md) ✅
 - [阶段5：实现语法分析器（Parser）](TODO_phase5.md) ✅
-- [阶段6：实现类型检查器（Checker）](TODO_phase6.md) ⏭️ 待开始
-- [阶段7：实现代码生成器（CodeGen）](TODO_phase7.md) ⏭️ 待开始
-- [阶段8：实现主程序（Main）](TODO_phase8.md) ⏭️ 待开始
+- [阶段6：实现类型检查器（Checker）](TODO_phase6.md) ✅
+- [阶段7：实现代码生成器（CodeGen）](TODO_phase7.md) ✅
+- [阶段8：实现主程序（Main）](TODO_phase8.md) ✅
 - [阶段9：测试和验证](TODO_phase9.md) ⏭️ 待开始
 - [阶段10：将 C99 编译器翻译成 Uya](TODO_phase10.md) ⏭️ 未来计划
 
