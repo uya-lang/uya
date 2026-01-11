@@ -39,6 +39,8 @@ static FunctionSignature *function_table_lookup(TypeChecker *checker, const char
 static void checker_enter_scope(TypeChecker *checker);
 static void checker_exit_scope(TypeChecker *checker);
 static int checker_check_node(TypeChecker *checker, ASTNode *node);
+static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char *struct_name);
+static Type find_struct_field_type(ASTNode *struct_decl, const char *field_name);
 
 // 初始化 TypeChecker
 int checker_init(TypeChecker *checker, Arena *arena) {
@@ -413,14 +415,27 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
         }
         
         case AST_MEMBER_ACCESS: {
-            // 字段访问：需要推断对象类型，然后查找字段类型
-            // 这是简化版本，完整实现需要在类型检查时查找结构体定义
-            // TODO: 从结构体定义中查找字段类型
-            // 暂时返回void类型，完整实现将在类型检查时处理
-            (void)checker;  // 暂时未使用，避免警告
+            // 字段访问：推断对象类型，然后查找字段类型
+            Type object_type = checker_infer_type(checker, expr->data.member_access.object);
+            if (object_type.kind != TYPE_STRUCT || object_type.struct_name == NULL) {
+                // 对象类型不是结构体，返回void类型
+                result.kind = TYPE_VOID;
+                result.struct_name = NULL;
+                return result;
+            }
+            
+            // 查找结构体声明
+            ASTNode *struct_decl = find_struct_decl_from_program(checker->program_node, object_type.struct_name);
+            if (struct_decl == NULL) {
+                // 结构体声明未找到，返回void类型
             result.kind = TYPE_VOID;
             result.struct_name = NULL;
             return result;
+            }
+            
+            // 查找字段类型
+            Type field_type = find_struct_field_type(struct_decl, expr->data.member_access.field_name);
+            return field_type;  // 如果字段不存在，field_type.kind 为 TYPE_VOID
         }
         
         case AST_STRUCT_INIT: {
