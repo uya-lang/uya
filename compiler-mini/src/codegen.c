@@ -1360,7 +1360,8 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
     LLVMSetTarget(codegen->module, target_triple);
     LLVMTargetDataRef target_data = LLVMCreateTargetDataLayout(target_machine);
     if (target_data) {
-        LLVMSetModuleDataLayout(codegen->module, LLVMCopyStringRepOfTargetData(target_data));
+        // LLVM 18中，LLVMSetModuleDataLayout 直接接受 LLVMTargetDataRef 类型
+        LLVMSetModuleDataLayout(codegen->module, target_data);
         LLVMDisposeTargetData(target_data);
     }
     

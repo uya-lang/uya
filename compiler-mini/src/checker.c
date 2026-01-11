@@ -2,22 +2,6 @@
 #include "lexer.h"
 #include <string.h>
 
-// 从 Arena 复制字符串
-static const char *arena_strdup(Arena *arena, const char *src) {
-    if (arena == NULL || src == NULL) {
-        return NULL;
-    }
-    
-    size_t len = strlen(src) + 1;
-    char *result = (char *)arena_alloc(arena, len);
-    if (result == NULL) {
-        return NULL;
-    }
-    
-    memcpy(result, src, len);
-    return result;
-}
-
 // 哈希函数（djb2算法，用于字符串哈希）
 static unsigned int hash_string(const char *str) {
     unsigned int hash = 5381;

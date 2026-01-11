@@ -436,6 +436,13 @@
 
 ## 📝 实现日志
 
+### 2026-01-11（下午，续26）
+
+- 代码质量改进：修复编译警告
+  - 修复 `codegen.c` 中的 LLVM API 警告（LLVMSetModuleDataLayout 参数类型不匹配，LLVM 18中应直接传递 LLVMTargetDataRef）
+  - 删除 `checker.c` 中未使用的 `arena_strdup` 函数（该函数在 parser.c 和 lexer.c 中已定义并使用）
+  - 所有测试通过，无编译警告
+
 ### 2026-01-11（下午，续25）
 
 - 扩展阶段9：添加更多测试用例（5个新测试用例）
