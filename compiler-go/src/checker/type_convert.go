@@ -233,3 +233,20 @@ func isErrorValueExpr(expr parser.Expr) bool {
 
 	return false
 }
+
+// findStructDeclFromProgram finds a struct declaration by name from the program node
+func findStructDeclFromProgram(program *parser.Program, structName string) *parser.StructDecl {
+	if program == nil || structName == "" {
+		return nil
+	}
+
+	for _, decl := range program.Decls {
+		if structDecl, ok := decl.(*parser.StructDecl); ok {
+			if structDecl.Name == structName {
+				return structDecl
+			}
+		}
+	}
+
+	return nil
+}

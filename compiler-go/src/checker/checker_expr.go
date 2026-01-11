@@ -1,6 +1,8 @@
 package checker
 
 import (
+	"strconv"
+
 	"github.com/uya/compiler-go/src/lexer"
 	"github.com/uya/compiler-go/src/parser"
 )
@@ -523,20 +525,181 @@ func (tc *TypeChecker) typecheckMemberAccess(expr *parser.MemberAccess) (Type, b
 		return TypeVoid, false
 	}
 
+	// Check if this is error.ErrorName (error value expression)
+	if isErrorValueExpr(expr) {
+		// error.ErrorName is a valid error value expression, type is uint32_t (error code)
+		// The field name should be a valid error name, but we don't validate it here
+		// (error declarations are checked separately)
+		return TypeU32, true
+	}
+
 	// Check the object expression
-	_, ok := tc.typecheckExpression(expr.Object)
+	objectType, ok := tc.typecheckExpression(expr.Object)
 	if !ok {
 		return TypeVoid, false
 	}
 
-	// TODO: Implement member access type checking
-	// This requires looking up struct/interface definitions
+	// Check if this is tuple field access (tuple.0, tuple.1, ...)
+	if expr.FieldName != "" {
+		// Check if field_name is a numeric string (tuple field index)
+		isNumeric := true
+		for _, ch := range expr.FieldName {
+			if ch < '0' || ch > '9' {
+				isNumeric = false
+				break
+			}
+		}
+
+		if isNumeric && len(expr.FieldName) > 0 {
+			// This is tuple field access (e.g., tuple.0, tuple.1)
+			// Parse the field index
+			fieldIndex := int64(0)
+			for _, ch := range expr.FieldName {
+				fieldIndex = fieldIndex*10 + int64(ch-'0')
+			}
+
+			// Try to get tuple element count from symbol table
+			tupleElementCount := -1
+			if ident, ok := expr.Object.(*parser.Identifier); ok {
+				if sym := tc.LookupSymbol(ident.Name); sym != nil {
+					tupleElementCount = sym.TupleElementCount
+				}
+			}
+
+			// If we have tuple element count information, check index range
+			if tupleElementCount >= 0 {
+				if fieldIndex < 0 || fieldIndex >= int64(tupleElementCount) {
+					objName := "tuple"
+					if ident, ok := expr.Object.(*parser.Identifier); ok {
+						objName = ident.Name
+					}
+					filename := expr.Filename
+					if filename == "" {
+						filename = tc.currentFile
+					}
+					if filename != "" {
+						tc.AddError("元组字段索引越界：索引 %d 超出元组大小 %d (字段 '%s.%s' 在 %s:%d:%d)",
+							fieldIndex, tupleElementCount, objName, expr.FieldName, filename, expr.Line, expr.Column)
+					} else {
+						tc.AddError("元组字段索引越界：索引 %d 超出元组大小 %d (字段 '%s.%s' 在行 %d:%d)",
+							fieldIndex, tupleElementCount, objName, expr.FieldName, expr.Line, expr.Column)
+					}
+					return TypeVoid, false
+				}
+			}
+
+			// For tuple field access, we return TypeVoid as placeholder
+			// In a full implementation, we would return the actual tuple element type
+			// TODO: Return the actual tuple element type
+			return TypeVoid, true
+		}
+	}
+
+	// For regular member access (struct field access), check if object type is struct
+	if objectType != TypeStruct {
+		filename := expr.Filename
+		if filename == "" {
+			filename = tc.currentFile
+		}
+		if filename != "" {
+			tc.AddError("成员访问只能用于结构体类型，但得到 %s (%s:%d:%d)",
+				getTypeName(objectType), filename, expr.Line, expr.Column)
+		} else {
+			tc.AddError("成员访问只能用于结构体类型，但得到 %s (行 %d:%d)",
+				getTypeName(objectType), expr.Line, expr.Column)
+		}
+		return TypeVoid, false
+	}
+
+	// Look up the struct declaration
+	structName := ""
+	if ident, ok := expr.Object.(*parser.Identifier); ok {
+		if sym := tc.LookupSymbol(ident.Name); sym != nil {
+			structName = sym.OriginalTypeName
+		}
+	}
+
+	if structName == "" {
+		// Cannot determine struct name, allow the access (may be valid in some contexts)
+		// TODO: Improve type inference to track struct names
+		return TypeVoid, true
+	}
+
+	// Find struct declaration
+	if tc.programNode == nil {
+		// Program node not available, allow the access
+		return TypeVoid, true
+	}
+
+	structDecl := findStructDeclFromProgram(tc.programNode, structName)
+	if structDecl == nil {
+		filename := expr.Filename
+		if filename == "" {
+			filename = tc.currentFile
+		}
+		if filename != "" {
+			tc.AddError("未找到结构体声明 '%s' (%s:%d:%d)",
+				structName, filename, expr.Line, expr.Column)
+		} else {
+			tc.AddError("未找到结构体声明 '%s' (行 %d:%d)",
+				structName, expr.Line, expr.Column)
+		}
+		return TypeVoid, false
+	}
+
+	// Check if field exists in struct
+	fieldFound := false
+	var fieldType parser.Type
+	for _, field := range structDecl.Fields {
+		if field.Name == expr.FieldName {
+			fieldFound = true
+			if fieldTypeNode, ok := field.Type.(parser.Type); ok {
+				fieldType = fieldTypeNode
+			}
+			break
+		}
+	}
+
+	if !fieldFound {
+		filename := expr.Filename
+		if filename == "" {
+			filename = tc.currentFile
+		}
+		if filename != "" {
+			tc.AddError("结构体 '%s' 没有字段 '%s' (%s:%d:%d)",
+				structName, expr.FieldName, filename, expr.Line, expr.Column)
+		} else {
+			tc.AddError("结构体 '%s' 没有字段 '%s' (行 %d:%d)",
+				structName, expr.FieldName, expr.Line, expr.Column)
+		}
+		return TypeVoid, false
+	}
+
+	// Return the field type
+	if fieldType != nil {
+		return getTypeFromAST(fieldType), true
+	}
+
+	// Fallback: return TypeVoid if we can't determine the field type
 	return TypeVoid, true
 }
 
 // typecheckSubscriptExpr checks a subscript expression (array access)
 func (tc *TypeChecker) typecheckSubscriptExpr(expr *parser.SubscriptExpr) (Type, bool) {
 	if expr == nil {
+		return TypeVoid, false
+	}
+
+	if expr.Array == nil || expr.Index == nil {
+		filename := expr.Filename
+		if filename == "" {
+			filename = tc.currentFile
+		}
+		if filename != "" {
+			tc.AddError("数组访问表达式不完整 (%s:%d:%d)", filename, expr.Line, expr.Column)
+		} else {
+			tc.AddError("数组访问表达式不完整 (行 %d:%d)", expr.Line, expr.Column)
+		}
 		return TypeVoid, false
 	}
 
@@ -547,18 +710,79 @@ func (tc *TypeChecker) typecheckSubscriptExpr(expr *parser.SubscriptExpr) (Type,
 	}
 
 	// Check index expression
-	_, ok = tc.typecheckExpression(expr.Index)
+	indexType, ok := tc.typecheckExpression(expr.Index)
 	if !ok {
 		return TypeVoid, false
 	}
 
-	// Array access returns the element type
-	if arrayType == TypeArray {
-		// TODO: Get element type from symbol
-		return TypeVoid, true
+	// Check that index is an integer type
+	if !isIntegerType(indexType) {
+		filename := expr.Filename
+		if filename == "" {
+			filename = tc.currentFile
+		}
+		if filename != "" {
+			tc.AddError("数组索引必须是整数类型，但得到 %s (%s:%d:%d)",
+				getTypeName(indexType), filename, expr.Line, expr.Column)
+		} else {
+			tc.AddError("数组索引必须是整数类型，但得到 %s (行 %d:%d)",
+				getTypeName(indexType), expr.Line, expr.Column)
+		}
+		return TypeVoid, false
 	}
 
-	// TODO: Support other subscriptable types (slices, etc.)
+	// Check that the array type is actually an array
+	if arrayType != TypeArray {
+		filename := expr.Filename
+		if filename == "" {
+			filename = tc.currentFile
+		}
+		if filename != "" {
+			tc.AddError("数组访问只能用于数组类型，但得到 %s (%s:%d:%d)",
+				getTypeName(arrayType), filename, expr.Line, expr.Column)
+		} else {
+			tc.AddError("数组访问只能用于数组类型，但得到 %s (行 %d:%d)",
+				getTypeName(arrayType), expr.Line, expr.Column)
+		}
+		return TypeVoid, false
+	}
+
+	// Try to get array information from symbol table for bounds checking
+	if ident, ok := expr.Array.(*parser.Identifier); ok {
+		if sym := tc.LookupSymbol(ident.Name); sym != nil && sym.Type == TypeArray {
+			// Check array bounds if we have array size information and index is a constant
+			if sym.ArraySize >= 0 {
+				// Check if index is a constant (NumberLiteral)
+				if numberLit, isNumber := expr.Index.(*parser.NumberLiteral); isNumber {
+					indexVal, err := strconv.ParseInt(numberLit.Value, 10, 64)
+					if err == nil {
+						if indexVal < 0 || indexVal >= int64(sym.ArraySize) {
+							filename := expr.Filename
+							if filename == "" {
+								filename = tc.currentFile
+							}
+							if filename != "" {
+								tc.AddError("数组索引越界：索引 %d 超出数组大小 %d (%s:%d:%d)",
+									indexVal, sym.ArraySize, filename, expr.Line, expr.Column)
+							} else {
+								tc.AddError("数组索引越界：索引 %d 超出数组大小 %d (行 %d:%d)",
+									indexVal, sym.ArraySize, expr.Line, expr.Column)
+							}
+							return TypeVoid, false
+						}
+					}
+				}
+			}
+
+			// Return the array element type
+			if sym.ArrayElementType != TypeVoid {
+				return sym.ArrayElementType, true
+			}
+		}
+	}
+
+	// Fallback: return TypeVoid if we can't determine the element type
+	// TODO: Improve type inference to track array element types
 	return TypeVoid, true
 }
 
