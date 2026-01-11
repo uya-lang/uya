@@ -1,6 +1,8 @@
 #include "codegen.h"
 #include "lexer.h"
 #include <string.h>
+#include <llvm-c/TargetMachine.h>
+#include <stdio.h>
 
 // 创建代码生成器
 // 参数：codegen - CodeGenerator 结构体指针（由调用者分配）
@@ -1309,8 +1311,77 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
         }
     }
     
-    // 注意：目标代码生成（LLVMTargetMachineEmitToFile）和优化器将在后续会话实现
-    // 目前只生成 LLVM IR，不生成目标代码
+    // 第三步：生成目标代码
+    // 初始化LLVM目标（只需要初始化一次，但重复初始化是安全的）
+    LLVMInitializeNativeTarget();
+    LLVMInitializeNativeAsmPrinter();
+    LLVMInitializeNativeAsmParser();
+    
+    // 获取默认目标三元组（例如："x86_64-pc-linux-gnu"）
+    char *target_triple = LLVMGetDefaultTargetTriple();
+    if (!target_triple) {
+        return -1;
+    }
+    
+    // 查找目标
+    char *error_msg = NULL;
+    LLVMTargetRef target = NULL;
+    if (LLVMGetTargetFromTriple(target_triple, &target, &error_msg) != 0) {
+        // 错误处理：释放错误消息
+        if (error_msg) {
+            LLVMDisposeMessage(error_msg);
+        }
+        LLVMDisposeMessage(target_triple);
+        return -1;
+    }
+    
+    // 创建目标机器（使用默认的CPU和特性）
+    // 优化级别：0 = 无优化，1 = 少量优化，2 = 默认优化，3 = 激进优化
+    LLVMCodeGenOptLevel opt_level = LLVMCodeGenLevelDefault;
+    LLVMRelocMode reloc_mode = LLVMRelocDefault;
+    LLVMCodeModel code_model = LLVMCodeModelDefault;
+    
+    LLVMTargetMachineRef target_machine = LLVMCreateTargetMachine(
+        target,
+        target_triple,
+        "",  // CPU（空字符串表示默认）
+        "",  // Features（空字符串表示默认）
+        opt_level,
+        reloc_mode,
+        code_model
+    );
+    
+    if (!target_machine) {
+        LLVMDisposeMessage(target_triple);
+        return -1;
+    }
+    
+    // 配置模块的目标数据布局
+    LLVMSetTarget(codegen->module, target_triple);
+    LLVMTargetDataRef target_data = LLVMCreateTargetDataLayout(target_machine);
+    if (target_data) {
+        LLVMSetModuleDataLayout(codegen->module, LLVMCopyStringRepOfTargetData(target_data));
+        LLVMDisposeTargetData(target_data);
+    }
+    
+    // 生成目标代码到文件
+    char *error = NULL;
+    if (LLVMTargetMachineEmitToFile(target_machine, codegen->module, (char *)output_file,
+                                     LLVMObjectFile, &error) != 0) {
+        // 生成失败
+        if (error) {
+            // 注意：在实际应用中，可能想要打印错误消息
+            // 但为了保持简单，这里只是释放错误消息
+            LLVMDisposeMessage(error);
+        }
+        LLVMDisposeTargetMachine(target_machine);
+        LLVMDisposeMessage(target_triple);
+        return -1;
+    }
+    
+    // 清理资源
+    LLVMDisposeTargetMachine(target_machine);
+    LLVMDisposeMessage(target_triple);
     
     return 0;
 }
