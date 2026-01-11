@@ -101,8 +101,9 @@ static ASTNode *parser_parse_type(Parser *parser) {
     return type_node;
 }
 
-// 前向声明（parser_parse_statement 在文件末尾实现）
+// 前向声明
 ASTNode *parser_parse_statement(Parser *parser);
+ASTNode *parser_parse_expression(Parser *parser);  // 前向声明，用于递归调用
 
 // 解析代码块（完善版本，解析语句列表）
 static ASTNode *parser_parse_block(Parser *parser) {
