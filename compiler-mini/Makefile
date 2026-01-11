@@ -34,7 +34,12 @@ LLVM_CFLAGS = $(shell $(LLVM_CONFIG) --cflags 2>/dev/null || echo "")
 LLVM_LDFLAGS = $(shell $(LLVM_CONFIG) --ldflags 2>/dev/null || echo "")
 LLVM_LIBS = $(shell $(LLVM_CONFIG) --libs core target 2>/dev/null || echo "-llvm")
 
-.PHONY: all build test clean test-arena test-ast test-lexer test-parser test-checker test-codegen
+# 测试程序目录
+PROGRAMS_DIR = tests/programs
+PROGRAMS = $(wildcard $(PROGRAMS_DIR)/*.uya)
+PROGRAM_BINARIES = $(PROGRAMS:.uya=)
+
+.PHONY: all build test clean test-arena test-ast test-lexer test-parser test-checker test-codegen compile-programs test-programs
 
 # 默认目标
 all: build
@@ -105,8 +110,20 @@ test-codegen: $(CODEGEN_TEST)
 $(CODEGEN_TEST): $(CODEGEN_TEST_SRC)
 	$(CC) $(CFLAGS) $(LLVM_CFLAGS) $(INCLUDES) -o $@ $^ $(LLVM_LDFLAGS) $(LLVM_LIBS)
 
+# 编译所有测试程序
+compile-programs: $(TARGET) $(PROGRAM_BINARIES)
+
+$(PROGRAM_BINARIES): %: %.uya
+	@echo "编译测试程序: $<"
+	./$(TARGET) $< -o $@
+
+# 运行所有测试程序
+test-programs: compile-programs
+	@echo "运行 Uya 测试程序..."
+	@bash tests/run_programs.sh
+
 # 清理编译产物
 clean:
-	rm -f $(ARENA_TEST) $(AST_TEST) $(LEXER_TEST) $(PARSER_TEST) $(CHECKER_TEST) $(CODEGEN_TEST) $(TARGET)
+	rm -f $(ARENA_TEST) $(AST_TEST) $(LEXER_TEST) $(PARSER_TEST) $(CHECKER_TEST) $(CODEGEN_TEST) $(TARGET) $(PROGRAM_BINARIES)
 	@echo "清理完成"
 

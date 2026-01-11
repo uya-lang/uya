@@ -1,0 +1,14 @@
+// 比较运算符测试
+// 测试所有比较运算符（<, >, <=, >=, ==, !=）
+
+fn main() i32 {
+    const a: i32 = 10;
+    const b: i32 = 20;
+    const c: i32 = 10;
+    
+    if a < b && b > a && a <= c && b >= a && a == c && a != b {
+        return 0;
+    }
+    return 1;
+}
+

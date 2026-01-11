@@ -1,0 +1,15 @@
+// 简单函数测试
+// 测试函数声明、调用和返回值
+
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+fn main() i32 {
+    const result: i32 = add(10, 20);
+    if result == 30 {
+        return 0;  // 测试通过
+    }
+    return 1;  // 测试失败
+}
+

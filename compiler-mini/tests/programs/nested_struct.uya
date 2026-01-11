@@ -1,0 +1,25 @@
+// 嵌套结构体测试
+// 测试结构体字段访问和嵌套结构体
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Rect {
+    top_left: Point,
+    bottom_right: Point,
+}
+
+fn main() i32 {
+    const p1: Point = Point{ x: 0, y: 0 };
+    const p2: Point = Point{ x: 10, y: 10 };
+    const rect: Rect = Rect{ top_left: p1, bottom_right: p2 };
+    
+    if rect.top_left.x == 0 && rect.top_left.y == 0 && 
+       rect.bottom_right.x == 10 && rect.bottom_right.y == 10 {
+        return 0;
+    }
+    return 1;
+}
+

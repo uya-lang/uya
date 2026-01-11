@@ -1,0 +1,22 @@
+// 布尔逻辑测试
+// 测试布尔类型、逻辑运算符（&&, ||, !）和比较运算符
+
+fn is_positive(n: i32) bool {
+    return n > 0;
+}
+
+fn is_even(n: i32) bool {
+    return (n % 2) == 0;
+}
+
+fn main() i32 {
+    const x: i32 = 10;
+    const pos: bool = is_positive(x);
+    const even: bool = is_even(x);
+    
+    if pos && even {
+        return 0;
+    }
+    return 1;
+}
+

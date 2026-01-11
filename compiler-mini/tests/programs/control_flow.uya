@@ -1,0 +1,23 @@
+// 控制流测试
+// 测试 if/else 和 while 语句
+
+fn main() i32 {
+    var x: i32 = 0;
+    
+    if true {
+        x = 10;
+    } else {
+        x = 20;
+    }
+    
+    var count: i32 = 0;
+    while count < 5 {
+        count = count + 1;
+    }
+    
+    if x == 10 && count == 5 {
+        return 0;
+    }
+    return 1;
+}
+

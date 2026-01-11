@@ -1,0 +1,19 @@
+// 算术运算测试
+// 测试所有算术运算符（+ - * / %）
+
+fn main() i32 {
+    const a: i32 = 10;
+    const b: i32 = 5;
+    
+    var sum: i32 = a + b;
+    var diff: i32 = a - b;
+    var prod: i32 = a * b;
+    var quot: i32 = a / b;
+    var mod: i32 = a % b;
+    
+    if sum == 15 && diff == 5 && prod == 50 && quot == 2 && mod == 0 {
+        return 0;
+    }
+    return 1;
+}
+

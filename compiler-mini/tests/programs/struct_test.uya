@@ -1,0 +1,17 @@
+// 结构体测试
+// 测试结构体定义、实例化和字段访问
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main() i32 {
+    const p: Point = Point{ x: 10, y: 20 };
+    
+    if p.x == 10 && p.y == 20 {
+        return 0;
+    }
+    return 1;
+}
+
