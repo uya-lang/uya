@@ -10,6 +10,9 @@
 // 文件读取缓冲区大小（与Lexer的缓冲区大小相同）
 #define FILE_BUFFER_SIZE (1024 * 1024)  // 1MB
 
+// Arena 分配器缓冲区大小
+#define ARENA_BUFFER_SIZE (1024 * 1024)  // 1MB
+
 // 读取文件内容到缓冲区
 // 参数：filename - 文件名
 //       buffer - 缓冲区（固定大小数组）
@@ -115,6 +118,9 @@ static int compile_file(const char *input_file, const char *output_file) {
         return 1;
     }
     
+    // Arena 分配器缓冲区（栈上分配）
+    uint8_t arena_buffer[ARENA_BUFFER_SIZE];
+    
     // 初始化所有结构体（栈上分配）
     Arena arena;
     Lexer lexer;
@@ -123,10 +129,7 @@ static int compile_file(const char *input_file, const char *output_file) {
     CodeGenerator codegen;
     
     // 初始化 Arena 分配器
-    if (arena_init(&arena) != 0) {
-        fprintf(stderr, "错误: Arena 分配器初始化失败\n");
-        return 1;
-    }
+    arena_init(&arena, arena_buffer, ARENA_BUFFER_SIZE);
     
     // 1. 词法分析
     if (lexer_init(&lexer, file_buffer, (size_t)file_size, input_file, &arena) != 0) {
