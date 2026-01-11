@@ -20,8 +20,17 @@ PARSER_TEST = tests/test_parser
 PARSER_TEST_SRC = tests/test_parser.c src/parser.c src/lexer.c src/ast.c src/arena.c
 CHECKER_TEST = tests/test_checker
 CHECKER_TEST_SRC = tests/test_checker.c src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
+CODEGEN_TEST = tests/test_codegen
+CODEGEN_TEST_SRC = tests/test_codegen.c src/codegen.c src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
 
-.PHONY: all build test clean test-arena test-ast test-lexer test-parser test-checker
+# LLVM 库链接选项
+# 使用 llvm-config 获取编译和链接选项（如果可用）
+LLVM_CONFIG ?= llvm-config
+LLVM_CFLAGS = $(shell $(LLVM_CONFIG) --cflags 2>/dev/null || echo "")
+LLVM_LDFLAGS = $(shell $(LLVM_CONFIG) --ldflags 2>/dev/null || echo "")
+LLVM_LIBS = $(shell $(LLVM_CONFIG) --libs core target 2>/dev/null || echo "-llvm")
+
+.PHONY: all build test clean test-arena test-ast test-lexer test-parser test-checker test-codegen
 
 # 默认目标
 all: build
@@ -31,7 +40,7 @@ build:
 	@echo "构建目标（待实现）"
 
 # 运行所有测试
-test: test-arena test-ast test-lexer test-parser test-checker
+test: test-arena test-ast test-lexer test-parser test-checker test-codegen
 	@echo "所有测试完成"
 
 # Arena 分配器测试
@@ -79,8 +88,17 @@ test-checker: $(CHECKER_TEST)
 $(CHECKER_TEST): $(CHECKER_TEST_SRC)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
+# CodeGen 测试
+test-codegen: $(CODEGEN_TEST)
+	@echo "运行 CodeGen 测试..."
+	./$(CODEGEN_TEST)
+
+# 编译 CodeGen 测试（需要链接 LLVM 库）
+$(CODEGEN_TEST): $(CODEGEN_TEST_SRC)
+	$(CC) $(CFLAGS) $(LLVM_CFLAGS) $(INCLUDES) -o $@ $^ $(LLVM_LDFLAGS) $(LLVM_LIBS)
+
 # 清理编译产物
 clean:
-	rm -f $(ARENA_TEST) $(AST_TEST) $(LEXER_TEST) $(PARSER_TEST) $(CHECKER_TEST)
+	rm -f $(ARENA_TEST) $(AST_TEST) $(LEXER_TEST) $(PARSER_TEST) $(CHECKER_TEST) $(CODEGEN_TEST)
 	@echo "清理完成"
 
