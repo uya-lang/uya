@@ -808,6 +808,168 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
     }
 }
 
+// 生成函数代码（从函数声明AST节点生成LLVM函数）
+// 参数：codegen - 代码生成器指针
+//       fn_decl - 函数声明AST节点
+// 返回：成功返回0，失败返回非0
+int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
+    if (!codegen || !fn_decl || fn_decl->type != AST_FN_DECL) {
+        return -1;
+    }
+    
+    const char *func_name = fn_decl->data.fn_decl.name;
+    ASTNode *return_type_node = fn_decl->data.fn_decl.return_type;
+    ASTNode *body = fn_decl->data.fn_decl.body;
+    int param_count = fn_decl->data.fn_decl.param_count;
+    ASTNode **params = fn_decl->data.fn_decl.params;
+    
+    if (!func_name || !return_type_node || !body) {
+        return -1;
+    }
+    
+    // 获取返回类型
+    LLVMTypeRef return_type = get_llvm_type_from_ast(codegen, return_type_node);
+    if (!return_type) {
+        return -1;
+    }
+    
+    // 准备参数类型数组
+    LLVMTypeRef *param_types = NULL;
+    if (param_count > 0) {
+        // 使用固定大小数组（栈分配，无堆分配）
+        // 注意：最多支持16个参数（如果超过需要调整）
+        if (param_count > 16) {
+            return -1;  // 参数过多
+        }
+        LLVMTypeRef param_types_array[16];
+        param_types = param_types_array;
+        
+        // 遍历参数，获取每个参数的类型
+        for (int i = 0; i < param_count; i++) {
+            ASTNode *param = params[i];
+            if (!param || param->type != AST_VAR_DECL) {
+                return -1;
+            }
+            
+            ASTNode *param_type_node = param->data.var_decl.type;
+            LLVMTypeRef param_type = get_llvm_type_from_ast(codegen, param_type_node);
+            if (!param_type) {
+                return -1;
+            }
+            
+            param_types[i] = param_type;
+        }
+    }
+    
+    // 创建函数类型
+    LLVMTypeRef func_type = LLVMFunctionType(return_type, param_types, param_count, 0);
+    if (!func_type) {
+        return -1;
+    }
+    
+    // 添加函数到模块
+    LLVMValueRef func = LLVMAddFunction(codegen->module, func_name, func_type);
+    if (!func) {
+        return -1;
+    }
+    
+    // 添加到函数表
+    if (add_func(codegen, func_name, func) != 0) {
+        return -1;
+    }
+    
+    // 创建函数体的基本块
+    LLVMBasicBlockRef entry_bb = LLVMAppendBasicBlock(func, "entry");
+    if (!entry_bb) {
+        return -1;
+    }
+    
+    // 设置构建器位置到入口基本块
+    LLVMPositionBuilderAtEnd(codegen->builder, entry_bb);
+    
+    // 保存当前变量表状态（用于函数结束后恢复）
+    int saved_var_map_count = codegen->var_map_count;
+    
+    // 处理函数参数：将参数值 store 到 alloca 分配的栈变量
+    for (int i = 0; i < param_count; i++) {
+        ASTNode *param = params[i];
+        if (!param || param->type != AST_VAR_DECL) {
+            return -1;
+        }
+        
+        const char *param_name = param->data.var_decl.name;
+        ASTNode *param_type_node = param->data.var_decl.type;
+        if (!param_name || !param_type_node) {
+            return -1;
+        }
+        
+        // 获取参数类型
+        LLVMTypeRef param_type = get_llvm_type_from_ast(codegen, param_type_node);
+        if (!param_type) {
+            return -1;
+        }
+        
+        // 使用 alloca 分配栈空间（存储参数值）
+        LLVMValueRef param_ptr = LLVMBuildAlloca(codegen->builder, param_type, param_name);
+        if (!param_ptr) {
+            return -1;
+        }
+        
+        // 获取函数参数值（LLVMGetParam）
+        LLVMValueRef param_val = LLVMGetParam(func, i);
+        if (!param_val) {
+            return -1;
+        }
+        
+        // store 参数值到栈变量
+        LLVMBuildStore(codegen->builder, param_val, param_ptr);
+        
+        // 添加到变量表
+        if (add_var(codegen, param_name, param_ptr, param_type) != 0) {
+            return -1;
+        }
+    }
+    
+    // 生成函数体代码
+    if (codegen_gen_stmt(codegen, body) != 0) {
+        // 恢复变量表状态（如果失败）
+        codegen->var_map_count = saved_var_map_count;
+        return -1;
+    }
+    
+    // 检查函数是否已经有返回语句
+    // 如果当前基本块没有终止符（return），需要添加默认返回
+    LLVMBasicBlockRef current_bb = LLVMGetInsertBlock(codegen->builder);
+    if (current_bb) {
+        LLVMValueRef terminator = LLVMGetBasicBlockTerminator(current_bb);
+        if (!terminator) {
+            // 没有终止符，添加默认返回
+            if (LLVMGetTypeKind(return_type) == LLVMVoidTypeKind) {
+                // void 返回
+                LLVMBuildRetVoid(codegen->builder);
+            } else {
+                // 非 void 返回，生成默认返回值（0）
+                // 注意：这应该不会发生，因为类型检查应该确保所有非 void 函数都有返回值
+                // 但为了安全，我们生成一个默认值
+                LLVMValueRef default_val = NULL;
+                if (LLVMGetTypeKind(return_type) == LLVMIntegerTypeKind) {
+                    default_val = LLVMConstInt(return_type, 0ULL, 0);
+                }
+                if (default_val) {
+                    LLVMBuildRet(codegen->builder, default_val);
+                } else {
+                    return -1;  // 无法生成默认返回值
+                }
+            }
+        }
+    }
+    
+    // 恢复变量表状态（函数结束）
+    codegen->var_map_count = saved_var_map_count;
+    
+    return 0;
+}
+
 // 从AST生成代码
 // 参数：codegen - 代码生成器指针
 //       ast - AST 根节点（程序节点）

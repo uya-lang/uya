@@ -92,5 +92,11 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr);
 // 注意：此函数需要在函数上下文中调用（builder需要在函数的基本块中）
 int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt);
 
+// 生成函数代码（从函数声明AST节点生成LLVM函数）
+// 参数：codegen - 代码生成器指针
+//       fn_decl - 函数声明AST节点
+// 返回：成功返回0，失败返回非0
+int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl);
+
 #endif // CODEGEN_H
 
