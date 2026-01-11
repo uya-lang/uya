@@ -30,15 +30,17 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 - 错误处理（error、try/catch）
 - defer/errdefer
 - for 循环、match 表达式
-- 模块系统、extern
+- 模块系统
 - 字符串插值、字符串字面量（仅支持用于打印调试）
+
+**注意**：Uya Mini 支持 `extern` 关键字用于声明外部 C 函数（如 LLVM C API），但当前版本仅支持基础类型参数和返回值，不支持指针类型参数（`*T`）。
 
 ---
 
 ## 1. 关键字
 
 ```
-struct const var fn return true false if else while
+struct const var fn extern return true false if else while
 ```
 
 **说明**：
@@ -46,6 +48,7 @@ struct const var fn return true false if else while
 - `const`：不可变变量声明
 - `var`：可变变量声明
 - `fn`：函数声明
+- `extern`：外部函数声明（用于 FFI，调用外部 C 函数，如 LLVM C API）
 - `return`：函数返回
 - `true`、`false`：布尔字面量
 - `if`、`else`：条件语句
@@ -147,7 +150,8 @@ boolean = 'true' | 'false'
 
 ```
 program        = { declaration }
-declaration    = fn_decl | struct_decl | var_decl
+declaration    = fn_decl | extern_decl | struct_decl | var_decl
+extern_decl    = 'extern' 'fn' ID '(' [ param_list ] ')' type ';'
 ```
 
 **说明**：
@@ -158,24 +162,43 @@ declaration    = fn_decl | struct_decl | var_decl
 
 ```
 fn_decl        = 'fn' ID '(' [ param_list ] ')' type '{' statements '}'
+                | 'extern' 'fn' ID '(' [ param_list ] ')' type ';'
 param_list     = param { ',' param }
 param          = ID ':' type
 ```
 
 **说明**：
-- 函数必须指定返回类型（可以是 `void`）
-- 参数列表可以为空
-- 函数体必须用花括号包围
-- 示例：
-  ```uya
-  fn add(a: i32, b: i32) i32 {
-      return a + b;
-  }
-  
-  fn print_hello() void {
-      // void 函数可以省略 return
-  }
-  ```
+- **普通函数声明**：`fn ID(...) type { ... }`
+  - 函数必须指定返回类型（可以是 `void`）
+  - 参数列表可以为空
+  - 函数体必须用花括号包围
+  - 示例：
+    ```uya
+    fn add(a: i32, b: i32) i32 {
+        return a + b;
+    }
+    
+    fn print_hello() void {
+        // void 函数可以省略 return
+    }
+    ```
+
+- **外部函数声明**：`extern fn ID(...) type;`
+  - 用于声明外部 C 函数（如 LLVM C API）
+  - 以分号结尾，无函数体
+  - 必须在顶层声明
+  - 参数和返回值类型当前仅支持基础类型（`i32`、`bool`、`void`、结构体类型）
+  - 示例：
+    ```uya
+    // 声明外部 C 函数（假设为简化版本，仅支持基础类型）
+    extern fn llvm_context_create() void;
+    extern fn llvm_module_create(name: i32) i32;
+    
+    fn main() i32 {
+        llvm_context_create();
+        return 0;
+    }
+    ```
 
 ### 4.3 变量声明
 
