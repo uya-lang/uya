@@ -22,7 +22,7 @@
 | 嵌套结构体 | nested_struct.uya | ✅ | 嵌套结构体字段访问 |
 | 结构体作为函数参数 | struct_params.uya | ✅ | add_points, get_x |
 | 结构体作为返回值 | struct_params.uya | ✅ | add_points 返回 Point |
-| 结构体比较（==, !=） | ❌ | ⚠️ | **代码未实现：codegen不支持逐字段比较** |
+| 结构体比较（==, !=） | struct_comparison.uya | ✅ | 结构体 == 和 != 运算符 |
 | 结构体赋值（按值复制） | struct_assignment.uya | ✅ | 结构体变量赋值 |
 
 ### 3. 变量声明
@@ -42,7 +42,7 @@
 | 多参数函数 | multi_param.uya | ✅ | add_four, multiply |
 | 无参函数 | 多个测试（main函数） | ✅ | main函数就是无参函数，隐含在多个测试中 |
 | void 函数 | void_function.uya | ✅ | void 返回类型函数 |
-| extern 函数声明 | ❌ | ⚠️ | **代码未实现：parser不支持解析extern关键字** |
+| extern 函数声明 | extern_function.uya | ✅ | extern 函数声明和调用 |
 | 函数调用 | simple_function.uya, 等 | ✅ | 多个测试覆盖 |
 | 函数返回语句 | simple_function.uya | ✅ | return 语句 |
 | void 函数省略 return | void_function.uya | ✅ | void 函数省略 return 或使用 return; |
@@ -86,41 +86,42 @@
 | if/while 条件必须是 bool | control_flow.uya | ✅ | 条件表达式 |
 | 结构体字段访问类型检查 | struct_test.uya | ✅ | 字段访问 |
 
-## 未实现的特性（规范支持但代码未实现）
+## 所有特性已完整实现
 
-以下特性在规范中支持，但代码中未实现或部分实现，因此无法完整测试：
+所有规范支持的特性都已完整实现并测试：
 
-1. **extern 函数声明** 🔄 **部分实现**
-   - 功能状态：🔄 部分实现
+1. **extern 函数声明** ✅ **已完成**
+   - 功能状态：✅ 已完成
    - 实现状态：
      - ✅ Lexer：已支持 `TOKEN_EXTERN` 关键字
      - ✅ Parser：已实现 `parser_parse_extern_function()` 函数
-     - ✅ Parser：`parser_parse_declaration()` 已调用 extern 函数解析
-     - ⚠️ Checker：已处理 extern 函数（body 为 NULL 时标记为 extern）
-     - ⚠️ CodeGen：已处理 extern 函数（body 为 NULL 时只生成声明）
-     - ❌ 测试：未创建测试用例验证完整流程
-   - 说明：语法解析已实现，但缺少测试用例验证完整流程
+     - ✅ Checker：已处理 extern 函数类型检查
+     - ✅ CodeGen：已处理 extern 函数代码生成
+     - ✅ 测试：已创建测试用例验证完整流程
+   - 测试程序：`extern_function.uya`
    - 参考：`TODO_pending_features.md` 第1节
 
-2. **结构体比较（==, !=）** ❌ **代码未实现**
-   - 功能状态：❌ 未实现
+2. **结构体比较（==, !=）** ✅ **已完成**
+   - 功能状态：✅ 已完成
    - 实现状态：
      - ✅ Parser：已支持比较运算符解析
-     - ⚠️ Checker：类型检查应该支持结构体比较（需要验证）
-     - ❌ CodeGen：未实现结构体比较代码生成（当前只使用 `LLVMBuildICmp`，仅支持整数类型）
-   - 说明：需要在 CodeGen 中实现结构体逐字段比较代码生成
+     - ✅ Checker：类型检查已支持结构体比较
+     - ✅ CodeGen：已实现结构体比较代码生成（逐字段比较，支持嵌套结构体）
+   - 测试程序：`struct_comparison.uya`
    - 参考：`TODO_pending_features.md` 第2节
 
-**详细实现计划**：参见 `TODO_pending_features.md`
+**所有特性已完整实现和测试**
 
 ## 测试覆盖状态总结
 
-✅ **所有已实现的功能都已测试** - 100%覆盖
+✅ **所有功能都已测试** - 100%覆盖
 - void 函数测试已添加（void_function.uya）
 - 结构体赋值测试已添加（struct_assignment.uya）
+- extern 函数声明测试已添加（extern_function.uya）
+- 结构体比较测试已添加（struct_comparison.uya）
 - const 变量不能赋值在类型检查器单元测试中已测试
 
-## 当前测试程序列表（16个）
+## 当前测试程序列表（18个）
 
 1. simple_function.uya - 简单函数测试
 2. arithmetic.uya - 算术运算测试
@@ -136,23 +137,25 @@
 12. struct_params.uya - 结构体函数参数测试
 13. multi_param.uya - 多参数函数测试
 14. complex_expr.uya - 复杂表达式测试
-15. void_function.uya - void 函数测试（新增）
-16. struct_assignment.uya - 结构体赋值测试（新增）
+15. void_function.uya - void 函数测试
+16. struct_assignment.uya - 结构体赋值测试
+17. extern_function.uya - extern 函数声明测试（新增）
+18. struct_comparison.uya - 结构体比较测试（新增）
 
 ## 覆盖总结
 
-**已覆盖的特性**（100%覆盖已实现的功能）：
+**已覆盖的特性**（100%覆盖所有功能）：
 - ✅ 基础类型（i32, bool, void）
-- ✅ 结构体类型（定义、实例化、字段访问、作为参数和返回值）
+- ✅ 结构体类型（定义、实例化、字段访问、作为参数和返回值、比较、赋值）
 - ✅ 变量声明（const, var）
-- ✅ 函数声明和调用（多参数、void函数、无参函数隐含在main中）
+- ✅ 函数声明和调用（多参数、void函数、无参函数、extern函数）
 - ✅ 控制流（if/else, while, 嵌套控制流）
 - ✅ 表达式（所有运算符、函数调用、结构体字面量、字段访问、优先级）
 - ✅ 赋值（var变量赋值、结构体赋值）
 
-**未实现的特性**（规范支持但代码未实现）：
-- ❌ extern 函数声明（parser不支持）
-- ❌ 结构体比较（codegen不支持逐字段比较）
+**所有特性已完整实现和测试**：
+- ✅ extern 函数声明
+- ✅ 结构体比较（==, !=）
 
-**测试覆盖率**：100%（所有已实现的功能都有测试用例）
+**测试覆盖率**：100%（所有功能都有测试用例）
 
