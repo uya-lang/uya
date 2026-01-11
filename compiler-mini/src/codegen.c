@@ -980,14 +980,69 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
         return -1;
     }
     
-    // TODO: 实现代码生成逻辑
-    // 1. 为每个结构体定义创建 LLVM 结构体类型
-    // 2. 为每个函数创建 LLVM 函数声明/定义
-    // 3. 生成函数体：遍历 AST，生成对应的 LLVM IR 指令
-    // 4. 运行优化器（可选）
-    // 5. 生成目标代码：使用 LLVMTargetMachineEmitToFile()
-    // 6. 清理资源
+    // 检查是否是程序节点
+    if (ast->type != AST_PROGRAM) {
+        return -1;
+    }
     
-    return -1;  // 暂时返回失败，待实现
+    int decl_count = ast->data.program.decl_count;
+    ASTNode **decls = ast->data.program.decls;
+    
+    if (!decls && decl_count > 0) {
+        return -1;
+    }
+    
+    // 第一步：注册所有结构体类型
+    // 使用多次遍历的方式处理结构体依赖关系（如果结构体字段是其他结构体类型）
+    // 每次遍历注册所有可以注册的结构体，直到所有结构体都注册或无法继续注册
+    int max_iterations = decl_count + 1;  // 最多迭代 decl_count + 1 次
+    int iteration = 0;
+    
+    while (iteration < max_iterations) {
+        int registered_this_iteration = 0;
+        
+        // 遍历所有声明，尝试注册结构体类型
+        for (int i = 0; i < decl_count; i++) {
+            ASTNode *decl = decls[i];
+            if (!decl) {
+                continue;
+            }
+            
+            if (decl->type == AST_STRUCT_DECL) {
+                // 尝试注册结构体类型（如果已经注册，会返回成功）
+                if (codegen_register_struct_type(codegen, decl) == 0) {
+                    registered_this_iteration = 1;
+                }
+            }
+        }
+        
+        // 如果这一轮没有注册任何结构体，说明所有可以注册的结构体都已注册
+        if (!registered_this_iteration) {
+            break;
+        }
+        
+        iteration++;
+    }
+    
+    // 第二步：生成所有函数的代码
+    // 注意：函数代码生成需要在结构体类型注册之后，因为函数参数/返回值可能使用结构体类型
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl) {
+            continue;
+        }
+        
+        if (decl->type == AST_FN_DECL) {
+            // 生成函数代码
+            if (codegen_gen_function(codegen, decl) != 0) {
+                return -1;  // 函数代码生成失败
+            }
+        }
+    }
+    
+    // 注意：目标代码生成（LLVMTargetMachineEmitToFile）和优化器将在后续会话实现
+    // 目前只生成 LLVM IR，不生成目标代码
+    
+    return 0;
 }
 
