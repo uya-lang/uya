@@ -1295,6 +1295,7 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
 // 返回：成功返回0，失败返回非0
 int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
     if (!codegen || !fn_decl || fn_decl->type != AST_FN_DECL) {
+        fprintf(stderr, "错误: codegen_gen_function 参数检查失败\n");
         return -1;
     }
     
@@ -1304,7 +1305,10 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
     int param_count = fn_decl->data.fn_decl.param_count;
     ASTNode **params = fn_decl->data.fn_decl.params;
     
+    fprintf(stderr, "调试: codegen_gen_function 开始: %s (body=%p)\n", func_name ? func_name : "(null)", (void*)body);
+    
     if (!func_name || !return_type_node) {
+        fprintf(stderr, "错误: codegen_gen_function 函数名或返回类型为空: %s\n", func_name ? func_name : "(null)");
         return -1;
     }
     
@@ -1438,11 +1442,15 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
     }
     
     // 生成函数体代码
-    if (codegen_gen_stmt(codegen, body) != 0) {
+    fprintf(stderr, "调试: 开始生成函数体: %s\n", func_name);
+    int stmt_result = codegen_gen_stmt(codegen, body);
+    if (stmt_result != 0) {
+        fprintf(stderr, "错误: 函数体生成失败: %s (返回值: %d)\n", func_name, stmt_result);
         // 恢复变量表状态（如果失败）
         codegen->var_map_count = saved_var_map_count;
         return -1;
     }
+    fprintf(stderr, "调试: 函数体生成成功: %s\n", func_name);
     
     // 检查函数是否已经有返回语句
     // 如果当前基本块没有终止符（return），需要添加默认返回
@@ -1536,16 +1544,25 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
     
     // 第二步：生成所有函数的代码
     // 注意：函数代码生成需要在结构体类型注册之后，因为函数参数/返回值可能使用结构体类型
+    fprintf(stderr, "调试: 开始生成函数代码，声明总数: %d\n", decl_count);
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) {
+            fprintf(stderr, "调试: 声明 %d 为空，跳过\n", i);
             continue;
         }
         
+        fprintf(stderr, "调试: 声明 %d 类型: %d (AST_FN_DECL=%d, AST_STRUCT_DECL=%d)\n", 
+                i, decl->type, AST_FN_DECL, AST_STRUCT_DECL);
+        
         if (decl->type == AST_FN_DECL) {
             // 生成函数代码
+            const char *func_name = decl->data.fn_decl.name;
+            fprintf(stderr, "调试: 准备生成函数: %s\n", func_name ? func_name : "(null)");
             int result = codegen_gen_function(codegen, decl);
+            fprintf(stderr, "调试: 函数生成结果: %s (返回值: %d)\n", func_name ? func_name : "(null)", result);
             if (result != 0) {
+                fprintf(stderr, "错误: 函数代码生成失败: %s\n", func_name ? func_name : "(null)");
                 return -1;  // 函数代码生成失败
             }
         }
