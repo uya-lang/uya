@@ -327,10 +327,72 @@ func (g *Generator) generateCatchExpr(expr *parser.CatchExpr) Inst {
 }
 
 // generateMatchExpr 生成match表达式的IR
+// Match表达式被转换为嵌套的if-else链：每个pattern对应一个if条件，body对应then分支
 func (g *Generator) generateMatchExpr(expr *parser.MatchExpr) Inst {
-	// TODO: 实现match表达式的IR生成
-	// 目前返回nil（占位符）
-	return nil
+	if expr == nil || expr.Expr == nil || len(expr.Patterns) == 0 {
+		return nil
+	}
+
+	// 从后往前构建嵌套的if-else链（最后一个pattern在最内层）
+	var currentIf Inst
+
+	for i := len(expr.Patterns) - 1; i >= 0; i-- {
+		pattern := expr.Patterns[i]
+		if pattern == nil || pattern.Body == nil {
+			continue
+		}
+
+		// 生成match表达式（每个pattern都需要重新生成，避免共享引用）
+		matchExprInst := g.GenerateExpr(expr.Expr)
+		if matchExprInst == nil {
+			return nil
+		}
+
+		// 生成body表达式
+		bodyInst := g.GenerateExpr(pattern.Body)
+		if bodyInst == nil {
+			return nil
+		}
+
+		// 检查是否是else分支
+		isElse := false
+		if ident, ok := pattern.Value.(*parser.Identifier); ok && ident.Name == "else" {
+			isElse = true
+		}
+
+		var condition Inst
+		if isElse {
+			// Else分支：使用true常量作为条件（总是匹配）
+			condition = NewConstantInst("1", TypeBool)
+		} else {
+			// 常规pattern：生成比较条件 (match_expr == pattern_expr)
+			if pattern.Value == nil {
+				return nil
+			}
+			patternExprInst := g.GenerateExpr(pattern.Value)
+			if patternExprInst == nil {
+				return nil
+			}
+
+			// 创建相等比较：match_expr == pattern_expr
+			dest := fmt.Sprintf("match_cond_%d", g.NextID())
+			condition = NewBinaryOpInst(dest, Op(lexer.TOKEN_EQUAL), matchExprInst, patternExprInst)
+		}
+
+		// 创建IfInst
+		// ThenBody包含body表达式（单个Inst转换为slice）
+		thenBody := []Inst{bodyInst}
+		
+		// ElseBody包含下一个if（如果存在）
+		var elseBody []Inst
+		if currentIf != nil {
+			elseBody = []Inst{currentIf}
+		}
+
+		currentIf = NewIfInst(condition, thenBody, elseBody)
+	}
+
+	return currentIf // 返回最外层的if（match表达式的结果）
 }
 
 // generateStringInterpolation 生成字符串插值的IR
