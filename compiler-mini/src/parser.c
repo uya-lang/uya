@@ -104,6 +104,14 @@ static ASTNode *parser_parse_type(Parser *parser) {
 // 前向声明
 ASTNode *parser_parse_statement(Parser *parser);
 ASTNode *parser_parse_expression(Parser *parser);  // 前向声明，用于递归调用
+static ASTNode *parser_parse_unary_expr(Parser *parser);
+static ASTNode *parser_parse_mul_expr(Parser *parser);
+static ASTNode *parser_parse_add_expr(Parser *parser);
+static ASTNode *parser_parse_rel_expr(Parser *parser);
+static ASTNode *parser_parse_eq_expr(Parser *parser);
+static ASTNode *parser_parse_and_expr(Parser *parser);
+static ASTNode *parser_parse_or_expr(Parser *parser);
+static ASTNode *parser_parse_assign_expr(Parser *parser);
 
 // 解析代码块（完善版本，解析语句列表）
 static ASTNode *parser_parse_block(Parser *parser) {
@@ -550,8 +558,8 @@ ASTNode *parser_parse(Parser *parser) {
     return program;
 }
 
-// 解析基础表达式（基础版本，仅支持数字、标识符、布尔字面量和括号表达式）
-// 注意：完整的表达式解析（包括运算符、函数调用等）将在会话4实现
+// 解析基础表达式
+// 支持：数字、标识符、布尔字面量、括号表达式、函数调用、结构体字面量、字段访问
 static ASTNode *parser_parse_primary_expr(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
         return NULL;
@@ -600,22 +608,298 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return node;
     }
     
-    // 解析标识符
+    // 解析标识符（可能是普通标识符、函数调用、或结构体字面量的开始）
     if (parser->current_token->type == TOKEN_IDENTIFIER) {
-        ASTNode *node = ast_new_node(AST_IDENTIFIER, line, column, parser->arena);
-        if (node == NULL) {
-            return NULL;
-        }
-        
         const char *name = arena_strdup(parser->arena, parser->current_token->value);
         if (name == NULL) {
             return NULL;
         }
         
-        node->data.identifier.name = name;
+        parser_consume(parser);  // 消费标识符
         
-        parser_consume(parser);
-        return node;
+        // 检查下一个 token 类型
+        if (parser->current_token != NULL && parser->current_token->type == TOKEN_LEFT_PAREN) {
+            // 函数调用：ID '(' [ arg_list ] ')'
+            ASTNode *call = ast_new_node(AST_CALL_EXPR, line, column, parser->arena);
+            if (call == NULL) {
+                return NULL;
+            }
+            
+            // 创建标识符节点作为被调用的函数
+            ASTNode *callee = ast_new_node(AST_IDENTIFIER, line, column, parser->arena);
+            if (callee == NULL) {
+                return NULL;
+            }
+            callee->data.identifier.name = name;
+            call->data.call_expr.callee = callee;
+            
+            // 消费 '('
+            parser_consume(parser);
+            
+            // 解析参数列表（可选）
+            ASTNode **args = NULL;
+            int arg_count = 0;
+            int arg_capacity = 0;
+            
+            if (!parser_match(parser, TOKEN_RIGHT_PAREN)) {
+                // 有参数
+                while (parser->current_token != NULL && 
+                       !parser_match(parser, TOKEN_RIGHT_PAREN) && 
+                       !parser_match(parser, TOKEN_EOF)) {
+                    
+                    // 解析参数表达式
+                    ASTNode *arg = parser_parse_expression(parser);
+                    if (arg == NULL) {
+                        return NULL;
+                    }
+                    
+                    // 扩展参数数组
+                    if (arg_count >= arg_capacity) {
+                        int new_capacity = arg_capacity == 0 ? 4 : arg_capacity * 2;
+                        ASTNode **new_args = (ASTNode **)arena_alloc(
+                            parser->arena, 
+                            sizeof(ASTNode *) * new_capacity
+                        );
+                        if (new_args == NULL) {
+                            return NULL;
+                        }
+                        
+                        // 复制旧参数
+                        if (args != NULL) {
+                            for (int i = 0; i < arg_count; i++) {
+                                new_args[i] = args[i];
+                            }
+                        }
+                        
+                        args = new_args;
+                        arg_capacity = new_capacity;
+                    }
+                    
+                    args[arg_count++] = arg;
+                    
+                    // 检查是否有逗号
+                    if (parser_match(parser, TOKEN_COMMA)) {
+                        parser_consume(parser);
+                    }
+                }
+            }
+            
+            // 期望 ')'
+            if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+                return NULL;
+            }
+            
+            call->data.call_expr.args = args;
+            call->data.call_expr.arg_count = arg_count;
+            
+            // 字段访问可能跟在函数调用后面（例如：f().field），所以继续处理字段访问
+            // 但先返回函数调用，字段访问会在后续的循环中处理
+            ASTNode *result = call;
+            
+            // 处理字段访问链（左结合：a.b.c 解析为 (a.b).c）
+            while (parser->current_token != NULL && parser_match(parser, TOKEN_DOT)) {
+                parser_consume(parser);  // 消费 '.'
+                
+                // 期望字段名称
+                if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                    return NULL;
+                }
+                
+                const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
+                if (field_name == NULL) {
+                    return NULL;
+                }
+                
+                int field_line = parser->current_token->line;
+                int field_column = parser->current_token->column;
+                parser_consume(parser);  // 消费字段名称
+                
+                // 创建字段访问节点
+                ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
+                if (member_access == NULL) {
+                    return NULL;
+                }
+                
+                member_access->data.member_access.object = result;  // 左操作数是当前结果
+                member_access->data.member_access.field_name = field_name;
+                
+                result = member_access;
+            }
+            
+            return result;
+        } else if (parser->current_token != NULL && parser->current_token->type == TOKEN_LEFT_BRACE) {
+            // 结构体字面量：ID '{' field_init_list '}'
+            ASTNode *struct_init = ast_new_node(AST_STRUCT_INIT, line, column, parser->arena);
+            if (struct_init == NULL) {
+                return NULL;
+            }
+            
+            struct_init->data.struct_init.struct_name = name;
+            
+            // 消费 '{'
+            parser_consume(parser);
+            
+            // 解析字段初始化列表
+            const char **field_names = NULL;
+            ASTNode **field_values = NULL;
+            int field_count = 0;
+            int field_capacity = 0;
+            
+            if (!parser_match(parser, TOKEN_RIGHT_BRACE)) {
+                // 有字段初始化
+                while (parser->current_token != NULL && 
+                       !parser_match(parser, TOKEN_RIGHT_BRACE) && 
+                       !parser_match(parser, TOKEN_EOF)) {
+                    
+                    // 解析字段名称
+                    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                        return NULL;
+                    }
+                    
+                    const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
+                    if (field_name == NULL) {
+                        return NULL;
+                    }
+                    
+                    parser_consume(parser);  // 消费字段名称
+                    
+                    // 期望 ':'
+                    if (!parser_expect(parser, TOKEN_COLON)) {
+                        return NULL;
+                    }
+                    
+                    // 解析字段值表达式
+                    ASTNode *field_value = parser_parse_expression(parser);
+                    if (field_value == NULL) {
+                        return NULL;
+                    }
+                    
+                    // 扩展字段数组
+                    if (field_count >= field_capacity) {
+                        int new_capacity = field_capacity == 0 ? 4 : field_capacity * 2;
+                        const char **new_field_names = (const char **)arena_alloc(
+                            parser->arena, 
+                            sizeof(const char *) * new_capacity
+                        );
+                        ASTNode **new_field_values = (ASTNode **)arena_alloc(
+                            parser->arena, 
+                            sizeof(ASTNode *) * new_capacity
+                        );
+                        if (new_field_names == NULL || new_field_values == NULL) {
+                            return NULL;
+                        }
+                        
+                        // 复制旧字段
+                        if (field_names != NULL && field_values != NULL) {
+                            for (int i = 0; i < field_count; i++) {
+                                new_field_names[i] = field_names[i];
+                                new_field_values[i] = field_values[i];
+                            }
+                        }
+                        
+                        field_names = new_field_names;
+                        field_values = new_field_values;
+                        field_capacity = new_capacity;
+                    }
+                    
+                    field_names[field_count] = field_name;
+                    field_values[field_count] = field_value;
+                    field_count++;
+                    
+                    // 检查是否有逗号
+                    if (parser_match(parser, TOKEN_COMMA)) {
+                        parser_consume(parser);
+                    }
+                }
+            }
+            
+            // 期望 '}'
+            if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
+                return NULL;
+            }
+            
+            struct_init->data.struct_init.field_names = field_names;
+            struct_init->data.struct_init.field_values = field_values;
+            struct_init->data.struct_init.field_count = field_count;
+            
+            // 字段访问可能跟在结构体字面量后面（例如：Point{x:1,y:2}.x）
+            ASTNode *result = struct_init;
+            
+            // 处理字段访问链
+            while (parser->current_token != NULL && parser_match(parser, TOKEN_DOT)) {
+                parser_consume(parser);  // 消费 '.'
+                
+                // 期望字段名称
+                if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                    return NULL;
+                }
+                
+                const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
+                if (field_name == NULL) {
+                    return NULL;
+                }
+                
+                int field_line = parser->current_token->line;
+                int field_column = parser->current_token->column;
+                parser_consume(parser);  // 消费字段名称
+                
+                // 创建字段访问节点
+                ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
+                if (member_access == NULL) {
+                    return NULL;
+                }
+                
+                member_access->data.member_access.object = result;
+                member_access->data.member_access.field_name = field_name;
+                
+                result = member_access;
+            }
+            
+            return result;
+        } else {
+            // 普通标识符
+            ASTNode *node = ast_new_node(AST_IDENTIFIER, line, column, parser->arena);
+            if (node == NULL) {
+                return NULL;
+            }
+            
+            node->data.identifier.name = name;
+            
+            // 字段访问可能跟在标识符后面（例如：obj.field）
+            ASTNode *result = node;
+            
+            // 处理字段访问链（左结合：a.b.c 解析为 (a.b).c）
+            while (parser->current_token != NULL && parser_match(parser, TOKEN_DOT)) {
+                parser_consume(parser);  // 消费 '.'
+                
+                // 期望字段名称
+                if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                    return NULL;
+                }
+                
+                const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
+                if (field_name == NULL) {
+                    return NULL;
+                }
+                
+                int field_line = parser->current_token->line;
+                int field_column = parser->current_token->column;
+                parser_consume(parser);  // 消费字段名称
+                
+                // 创建字段访问节点
+                ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
+                if (member_access == NULL) {
+                    return NULL;
+                }
+                
+                member_access->data.member_access.object = result;
+                member_access->data.member_access.field_name = field_name;
+                
+                result = member_access;
+            }
+            
+            return result;
+        }
     }
     
     // 解析括号表达式
@@ -633,23 +917,400 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             return NULL;
         }
         
-        return expr;
+        // 字段访问可能跟在括号表达式后面（例如：(expr).field）
+        ASTNode *result = expr;
+        
+        // 处理字段访问链
+        while (parser->current_token != NULL && parser_match(parser, TOKEN_DOT)) {
+            parser_consume(parser);  // 消费 '.'
+            
+            // 期望字段名称
+            if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                return NULL;
+            }
+            
+            const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
+            if (field_name == NULL) {
+                return NULL;
+            }
+            
+            int field_line = parser->current_token->line;
+            int field_column = parser->current_token->column;
+            parser_consume(parser);  // 消费字段名称
+            
+            // 创建字段访问节点
+            ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
+            if (member_access == NULL) {
+                return NULL;
+            }
+            
+            member_access->data.member_access.object = result;
+            member_access->data.member_access.field_name = field_name;
+            
+            result = member_access;
+        }
+        
+        return result;
     }
     
     // 无法识别的基础表达式
     return NULL;
 }
 
-// 解析表达式（基础版本，仅支持基础表达式）
-// 注意：完整的表达式解析（包括运算符、函数调用等）将在会话4实现
+// 解析一元表达式（! 和 -，右结合）
+// unary_expr = ('!' | '-') unary_expr | primary_expr
+static ASTNode *parser_parse_unary_expr(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    int line = parser->current_token->line;
+    int column = parser->current_token->column;
+    
+    // 检查一元运算符
+    if (parser_match(parser, TOKEN_EXCLAMATION) || parser_match(parser, TOKEN_MINUS)) {
+        TokenType op = parser->current_token->type;
+        parser_consume(parser);  // 消费运算符
+        
+        // 递归解析一元表达式（右结合）
+        ASTNode *operand = parser_parse_unary_expr(parser);
+        if (operand == NULL) {
+            return NULL;
+        }
+        
+        // 创建一元表达式节点
+        ASTNode *node = ast_new_node(AST_UNARY_EXPR, line, column, parser->arena);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        node->data.unary_expr.op = op;
+        node->data.unary_expr.operand = operand;
+        
+        return node;
+    }
+    
+    // 不是一元运算符，解析基础表达式
+    return parser_parse_primary_expr(parser);
+}
+
+// 解析乘除模表达式（左结合）
+// mul_expr = unary_expr { ('*' | '/' | '%') unary_expr }
+static ASTNode *parser_parse_mul_expr(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    // 解析左操作数
+    ASTNode *left = parser_parse_unary_expr(parser);
+    if (left == NULL) {
+        return NULL;
+    }
+    
+    // 解析连续的乘除模运算符（左结合）
+    while (parser->current_token != NULL && (
+        parser_match(parser, TOKEN_ASTERISK) ||
+        parser_match(parser, TOKEN_SLASH) ||
+        parser_match(parser, TOKEN_PERCENT)
+    )) {
+        int line = parser->current_token->line;
+        int column = parser->current_token->column;
+        TokenType op = parser->current_token->type;
+        parser_consume(parser);  // 消费运算符
+        
+        // 解析右操作数
+        ASTNode *right = parser_parse_unary_expr(parser);
+        if (right == NULL) {
+            return NULL;
+        }
+        
+        // 创建二元表达式节点
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        node->data.binary_expr.left = left;
+        node->data.binary_expr.op = op;
+        node->data.binary_expr.right = right;
+        
+        left = node;  // 左结合：继续以当前节点作为左操作数
+    }
+    
+    return left;
+}
+
+// 解析加减表达式（左结合）
+// add_expr = mul_expr { ('+' | '-') mul_expr }
+static ASTNode *parser_parse_add_expr(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    // 解析左操作数
+    ASTNode *left = parser_parse_mul_expr(parser);
+    if (left == NULL) {
+        return NULL;
+    }
+    
+    // 解析连续的加减运算符（左结合）
+    while (parser->current_token != NULL && (
+        parser_match(parser, TOKEN_PLUS) ||
+        parser_match(parser, TOKEN_MINUS)
+    )) {
+        int line = parser->current_token->line;
+        int column = parser->current_token->column;
+        TokenType op = parser->current_token->type;
+        parser_consume(parser);  // 消费运算符
+        
+        // 解析右操作数
+        ASTNode *right = parser_parse_mul_expr(parser);
+        if (right == NULL) {
+            return NULL;
+        }
+        
+        // 创建二元表达式节点
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        node->data.binary_expr.left = left;
+        node->data.binary_expr.op = op;
+        node->data.binary_expr.right = right;
+        
+        left = node;  // 左结合：继续以当前节点作为左操作数
+    }
+    
+    return left;
+}
+
+// 解析比较表达式（左结合）
+// rel_expr = add_expr { ('<' | '>' | '<=' | '>=') add_expr }
+static ASTNode *parser_parse_rel_expr(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    // 解析左操作数
+    ASTNode *left = parser_parse_add_expr(parser);
+    if (left == NULL) {
+        return NULL;
+    }
+    
+    // 解析连续的比较运算符（左结合）
+    while (parser->current_token != NULL && (
+        parser_match(parser, TOKEN_LESS) ||
+        parser_match(parser, TOKEN_GREATER) ||
+        parser_match(parser, TOKEN_LESS_EQUAL) ||
+        parser_match(parser, TOKEN_GREATER_EQUAL)
+    )) {
+        int line = parser->current_token->line;
+        int column = parser->current_token->column;
+        TokenType op = parser->current_token->type;
+        parser_consume(parser);  // 消费运算符
+        
+        // 解析右操作数
+        ASTNode *right = parser_parse_add_expr(parser);
+        if (right == NULL) {
+            return NULL;
+        }
+        
+        // 创建二元表达式节点
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        node->data.binary_expr.left = left;
+        node->data.binary_expr.op = op;
+        node->data.binary_expr.right = right;
+        
+        left = node;  // 左结合：继续以当前节点作为左操作数
+    }
+    
+    return left;
+}
+
+// 解析相等性表达式（左结合）
+// eq_expr = rel_expr { ('==' | '!=') rel_expr }
+static ASTNode *parser_parse_eq_expr(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    // 解析左操作数
+    ASTNode *left = parser_parse_rel_expr(parser);
+    if (left == NULL) {
+        return NULL;
+    }
+    
+    // 解析连续的相等性运算符（左结合）
+    while (parser->current_token != NULL && (
+        parser_match(parser, TOKEN_EQUAL) ||
+        parser_match(parser, TOKEN_NOT_EQUAL)
+    )) {
+        int line = parser->current_token->line;
+        int column = parser->current_token->column;
+        TokenType op = parser->current_token->type;
+        parser_consume(parser);  // 消费运算符
+        
+        // 解析右操作数
+        ASTNode *right = parser_parse_rel_expr(parser);
+        if (right == NULL) {
+            return NULL;
+        }
+        
+        // 创建二元表达式节点
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        node->data.binary_expr.left = left;
+        node->data.binary_expr.op = op;
+        node->data.binary_expr.right = right;
+        
+        left = node;  // 左结合：继续以当前节点作为左操作数
+    }
+    
+    return left;
+}
+
+// 解析逻辑与表达式（左结合）
+// and_expr = eq_expr { '&&' eq_expr }
+static ASTNode *parser_parse_and_expr(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    // 解析左操作数
+    ASTNode *left = parser_parse_eq_expr(parser);
+    if (left == NULL) {
+        return NULL;
+    }
+    
+    // 解析连续的逻辑与运算符（左结合）
+    while (parser->current_token != NULL && parser_match(parser, TOKEN_LOGICAL_AND)) {
+        int line = parser->current_token->line;
+        int column = parser->current_token->column;
+        TokenType op = parser->current_token->type;
+        parser_consume(parser);  // 消费运算符
+        
+        // 解析右操作数
+        ASTNode *right = parser_parse_eq_expr(parser);
+        if (right == NULL) {
+            return NULL;
+        }
+        
+        // 创建二元表达式节点
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        node->data.binary_expr.left = left;
+        node->data.binary_expr.op = op;
+        node->data.binary_expr.right = right;
+        
+        left = node;  // 左结合：继续以当前节点作为左操作数
+    }
+    
+    return left;
+}
+
+// 解析逻辑或表达式（左结合）
+// or_expr = and_expr { '||' and_expr }
+static ASTNode *parser_parse_or_expr(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    // 解析左操作数
+    ASTNode *left = parser_parse_and_expr(parser);
+    if (left == NULL) {
+        return NULL;
+    }
+    
+    // 解析连续的逻辑或运算符（左结合）
+    while (parser->current_token != NULL && parser_match(parser, TOKEN_LOGICAL_OR)) {
+        int line = parser->current_token->line;
+        int column = parser->current_token->column;
+        TokenType op = parser->current_token->type;
+        parser_consume(parser);  // 消费运算符
+        
+        // 解析右操作数
+        ASTNode *right = parser_parse_and_expr(parser);
+        if (right == NULL) {
+            return NULL;
+        }
+        
+        // 创建二元表达式节点
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        node->data.binary_expr.left = left;
+        node->data.binary_expr.op = op;
+        node->data.binary_expr.right = right;
+        
+        left = node;  // 左结合：继续以当前节点作为左操作数
+    }
+    
+    return left;
+}
+
+// 解析赋值表达式（右结合）
+// assign_expr = or_expr [ '=' assign_expr ]
+static ASTNode *parser_parse_assign_expr(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    // 解析左操作数
+    ASTNode *left = parser_parse_or_expr(parser);
+    if (left == NULL) {
+        return NULL;
+    }
+    
+    // 检查是否有赋值运算符
+    if (parser->current_token != NULL && parser_match(parser, TOKEN_ASSIGN)) {
+        int line = parser->current_token->line;
+        int column = parser->current_token->column;
+        parser_consume(parser);  // 消费 '='
+        
+        // 递归解析赋值表达式（右结合）
+        ASTNode *right = parser_parse_assign_expr(parser);
+        if (right == NULL) {
+            return NULL;
+        }
+        
+        // 创建赋值节点
+        ASTNode *node = ast_new_node(AST_ASSIGN, line, column, parser->arena);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        node->data.assign.dest = left;
+        node->data.assign.src = right;
+        
+        return node;
+    }
+    
+    // 没有赋值运算符，返回左操作数
+    return left;
+}
+
+// 解析表达式（完整版本）
+// expr = assign_expr
 ASTNode *parser_parse_expression(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
         return NULL;
     }
     
-    // 基础版本：只解析基础表达式（数字、标识符、布尔、括号）
-    // 会话4将扩展为完整的表达式解析（包括运算符、函数调用等）
-    return parser_parse_primary_expr(parser);
+    // 从赋值表达式开始解析（最低优先级）
+    return parser_parse_assign_expr(parser);
 }
 
 // 解析语句

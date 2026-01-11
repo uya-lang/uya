@@ -258,6 +258,160 @@ void test_parse_function_with_statements(void) {
     printf("  ✓ 函数体语句解析测试通过\n");
 }
 
+// 测试解析二元表达式（算术运算符）
+void test_parse_binary_arithmetic_expr(void) {
+    printf("测试解析二元算术表达式...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "var x: i32 = 10 + 20;";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *stmt = parser_parse_statement(&parser);
+    assert(stmt != NULL);
+    assert(stmt->type == AST_VAR_DECL);
+    assert(stmt->data.var_decl.init != NULL);
+    assert(stmt->data.var_decl.init->type == AST_BINARY_EXPR);
+    assert(stmt->data.var_decl.init->data.binary_expr.op == TOKEN_PLUS);
+    
+    printf("  ✓ 二元算术表达式解析测试通过\n");
+}
+
+// 测试解析一元表达式
+void test_parse_unary_expr(void) {
+    printf("测试解析一元表达式...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "var x: i32 = -10;";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *stmt = parser_parse_statement(&parser);
+    assert(stmt != NULL);
+    assert(stmt->type == AST_VAR_DECL);
+    assert(stmt->data.var_decl.init != NULL);
+    assert(stmt->data.var_decl.init->type == AST_UNARY_EXPR);
+    assert(stmt->data.var_decl.init->data.unary_expr.op == TOKEN_MINUS);
+    
+    printf("  ✓ 一元表达式解析测试通过\n");
+}
+
+// 测试解析函数调用
+void test_parse_function_call(void) {
+    printf("测试解析函数调用...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "var x: i32 = add(10, 20);";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *stmt = parser_parse_statement(&parser);
+    assert(stmt != NULL);
+    assert(stmt->type == AST_VAR_DECL);
+    assert(stmt->data.var_decl.init != NULL);
+    assert(stmt->data.var_decl.init->type == AST_CALL_EXPR);
+    assert(stmt->data.var_decl.init->data.call_expr.callee != NULL);
+    assert(stmt->data.var_decl.init->data.call_expr.callee->type == AST_IDENTIFIER);
+    assert(strcmp(stmt->data.var_decl.init->data.call_expr.callee->data.identifier.name, "add") == 0);
+    assert(stmt->data.var_decl.init->data.call_expr.arg_count == 2);
+    
+    printf("  ✓ 函数调用解析测试通过\n");
+}
+
+// 测试解析结构体字面量
+void test_parse_struct_literal(void) {
+    printf("测试解析结构体字面量...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "var p: Point = Point{ x: 10, y: 20 };";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *stmt = parser_parse_statement(&parser);
+    assert(stmt != NULL);
+    assert(stmt->type == AST_VAR_DECL);
+    assert(stmt->data.var_decl.init != NULL);
+    assert(stmt->data.var_decl.init->type == AST_STRUCT_INIT);
+    assert(strcmp(stmt->data.var_decl.init->data.struct_init.struct_name, "Point") == 0);
+    assert(stmt->data.var_decl.init->data.struct_init.field_count == 2);
+    
+    printf("  ✓ 结构体字面量解析测试通过\n");
+}
+
+// 测试解析字段访问
+void test_parse_member_access(void) {
+    printf("测试解析字段访问...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "var x: i32 = p.x;";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *stmt = parser_parse_statement(&parser);
+    assert(stmt != NULL);
+    assert(stmt->type == AST_VAR_DECL);
+    assert(stmt->data.var_decl.init != NULL);
+    assert(stmt->data.var_decl.init->type == AST_MEMBER_ACCESS);
+    assert(stmt->data.var_decl.init->data.member_access.object != NULL);
+    assert(stmt->data.var_decl.init->data.member_access.object->type == AST_IDENTIFIER);
+    assert(strcmp(stmt->data.var_decl.init->data.member_access.object->data.identifier.name, "p") == 0);
+    assert(strcmp(stmt->data.var_decl.init->data.member_access.field_name, "x") == 0);
+    
+    printf("  ✓ 字段访问解析测试通过\n");
+}
+
+// 测试解析赋值表达式
+void test_parse_assign_expr(void) {
+    printf("测试解析赋值表达式...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "x = 10;";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *stmt = parser_parse_statement(&parser);
+    assert(stmt != NULL);
+    assert(stmt->type == AST_ASSIGN);
+    assert(stmt->data.assign.dest != NULL);
+    assert(stmt->data.assign.dest->type == AST_IDENTIFIER);
+    assert(strcmp(stmt->data.assign.dest->data.identifier.name, "x") == 0);
+    assert(stmt->data.assign.src != NULL);
+    assert(stmt->data.assign.src->type == AST_NUMBER);
+    assert(stmt->data.assign.src->data.number.value == 10);
+    
+    printf("  ✓ 赋值表达式解析测试通过\n");
+}
+
 // 主测试函数
 int main(void) {
     printf("开始 Parser 测试...\n\n");
@@ -271,6 +425,12 @@ int main(void) {
     test_parse_return_stmt();
     test_parse_var_decl();
     test_parse_function_with_statements();
+    test_parse_binary_arithmetic_expr();
+    test_parse_unary_expr();
+    test_parse_function_call();
+    test_parse_struct_literal();
+    test_parse_member_access();
+    test_parse_assign_expr();
     
     printf("\n所有测试通过！\n");
     
