@@ -1,0 +1,22 @@
+// 结构体赋值测试
+// 测试结构体变量按值赋值
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main() i32 {
+    const p1: Point = Point{ x: 10, y: 20 };
+    var p2: Point = Point{ x: 0, y: 0 };
+    
+    // 结构体按值赋值（复制所有字段）
+    p2 = p1;
+    
+    // 验证赋值后 p2 的值与 p1 相同
+    if p2.x == 10 && p2.y == 20 {
+        return 0;
+    }
+    return 1;
+}
+

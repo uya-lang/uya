@@ -1,0 +1,20 @@
+// void 函数测试
+// 测试 void 返回类型的函数
+
+fn do_something(x: i32) void {
+    // void 函数可以省略 return 语句
+    // 或者使用 return;（无返回值）
+}
+
+fn do_nothing() void {
+    return;  // 显式返回（无返回值）
+}
+
+fn main() i32 {
+    do_something(10);
+    do_nothing();
+    
+    // 所有void函数调用成功
+    return 0;
+}
+
