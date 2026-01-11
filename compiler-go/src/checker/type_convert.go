@@ -146,3 +146,24 @@ func isNumericType(t Type) bool {
 		t == TypeF32 || t == TypeF64
 }
 
+// isIntegerType checks if a type is an integer type
+func isIntegerType(t Type) bool {
+	return t == TypeI8 || t == TypeI16 || t == TypeI32 || t == TypeI64 ||
+		t == TypeU8 || t == TypeU16 || t == TypeU32 || t == TypeU64 || t == TypeByte
+}
+
+// isFloatType checks if a type is a float type
+func isFloatType(t Type) bool {
+	return t == TypeF32 || t == TypeF64
+}
+
+// isBoolType checks if a type is bool
+func isBoolType(t Type) bool {
+	return t == TypeBool
+}
+
+// isPointerType checks if a type is a pointer type
+func isPointerType(t Type) bool {
+	return t == TypePtr
+}
+

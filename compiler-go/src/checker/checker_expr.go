@@ -327,8 +327,8 @@ func (tc *TypeChecker) typecheckMatchExpr(expr *parser.MatchExpr) (Type, bool) {
 	// Check the expression to match
 	if expr.Expr != nil {
 		_, ok := tc.typecheckExpression(expr.Expr)
-		if !ok {
-			return TypeVoid, false
+	if !ok {
+		return TypeVoid, false
 		}
 	}
 
