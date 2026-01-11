@@ -40,9 +40,9 @@
 
 - [阶段1：项目初始化](TODO_phase1.md) ✅
 - [阶段2：实现 Arena 分配器](TODO_phase2.md) ✅
-- [阶段3：实现 AST 数据结构](TODO_phase3.md) ⏭️ 待开始
-- [阶段4：实现词法分析器（Lexer）](TODO_phase4.md) ⏭️ 待开始
-- [阶段5：实现语法分析器（Parser）](TODO_phase5.md) ⏭️ 待开始
+- [阶段3：实现 AST 数据结构](TODO_phase3.md) ✅
+- [阶段4：实现词法分析器（Lexer）](TODO_phase4.md) ✅
+- [阶段5：实现语法分析器（Parser）](TODO_phase5.md) ✅
 - [阶段6：实现类型检查器（Checker）](TODO_phase6.md) ⏭️ 待开始
 - [阶段7：实现代码生成器（CodeGen）](TODO_phase7.md) ⏭️ 待开始
 - [阶段8：实现主程序（Main）](TODO_phase8.md) ⏭️ 待开始
