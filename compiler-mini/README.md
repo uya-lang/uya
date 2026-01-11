@@ -4,9 +4,19 @@ Uya Mini 是 Uya 语言的最小子集编译器，设计目标是能够编译自
 
 ## 项目状态
 
-🚧 **开发中** - 当前进度：阶段2完成，阶段3进行中
+✅ **核心功能已完成** - 当前进度：阶段1-9已完成（编译器实现完成）
 
 详细进度请参考 [PROGRESS.md](PROGRESS.md)
+
+**已完成模块**：
+- ✅ Arena 分配器
+- ✅ AST 数据结构
+- ✅ 词法分析器（Lexer）
+- ✅ 语法分析器（Parser）
+- ✅ 类型检查器（Checker）
+- ✅ 代码生成器（CodeGen）
+- ✅ 主程序（Main）
+- ✅ 测试和验证
 
 ## 核心特性
 
@@ -22,8 +32,20 @@ Uya Mini 是 Uya 语言的最小子集编译器，设计目标是能够编译自
 ### 构建
 
 ```bash
-make test-arena    # 运行 Arena 测试
+make build         # 构建编译器
+make test          # 运行所有单元测试
+make test-programs # 运行 Uya 测试程序（需要 LLVM 环境）
 make clean         # 清理编译产物
+```
+
+### 编译 Uya 程序
+
+```bash
+# 编译 Uya 程序生成二进制文件
+./compiler-mini program.uya -o program
+
+# 运行编译后的程序
+./program
 ```
 
 ### 依赖
