@@ -1,6 +1,7 @@
 #include "parser.h"
 #include <stddef.h>
 #include <string.h>
+#include <stdlib.h>
 
 // 初始化 Parser
 int parser_init(Parser *parser, Lexer *lexer, Arena *arena) {
@@ -100,8 +101,10 @@ static ASTNode *parser_parse_type(Parser *parser) {
     return type_node;
 }
 
-// 解析代码块（最小版本，暂时跳过内部语句，只解析花括号）
-// 注意：完整的语句解析将在会话3实现
+// 前向声明（parser_parse_statement 在文件末尾实现）
+ASTNode *parser_parse_statement(Parser *parser);
+
+// 解析代码块（完善版本，解析语句列表）
 static ASTNode *parser_parse_block(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
         return NULL;
@@ -121,36 +124,61 @@ static ASTNode *parser_parse_block(Parser *parser) {
         return NULL;
     }
     
-    // 初始化语句列表为空（暂时）
+    // 初始化语句列表
     block->data.block.stmts = NULL;
     block->data.block.stmt_count = 0;
     
     // 消费 '{'
     parser_consume(parser);
     
-    // TODO: 会话3将实现语句解析
-    // 暂时跳过所有 Token，直到遇到匹配的 '}'
-    // 使用计数器处理嵌套的花括号
-    int brace_depth = 1;
-    while (parser->current_token != NULL && brace_depth > 0 && 
+    // 解析语句列表
+    ASTNode **stmts = NULL;
+    int stmt_count = 0;
+    int stmt_capacity = 0;
+    
+    while (parser->current_token != NULL && 
+           !parser_match(parser, TOKEN_RIGHT_BRACE) && 
            !parser_match(parser, TOKEN_EOF)) {
-        if (parser_match(parser, TOKEN_LEFT_BRACE)) {
-            brace_depth++;
-        } else if (parser_match(parser, TOKEN_RIGHT_BRACE)) {
-            brace_depth--;
-            if (brace_depth == 0) {
-                // 找到匹配的 '}'，消费它并退出循环
-                parser_consume(parser);
-                break;
-            }
+        
+        // 解析语句
+        ASTNode *stmt = parser_parse_statement(parser);
+        if (stmt == NULL) {
+            // 解析失败
+            return NULL;
         }
-        parser_consume(parser);
+        
+        // 扩展语句数组（使用 Arena 分配）
+        if (stmt_count >= stmt_capacity) {
+            int new_capacity = stmt_capacity == 0 ? 4 : stmt_capacity * 2;
+            ASTNode **new_stmts = (ASTNode **)arena_alloc(
+                parser->arena, 
+                sizeof(ASTNode *) * new_capacity
+            );
+            if (new_stmts == NULL) {
+                return NULL;
+            }
+            
+            // 复制旧语句
+            if (stmts != NULL) {
+                for (int i = 0; i < stmt_count; i++) {
+                    new_stmts[i] = stmts[i];
+                }
+            }
+            
+            stmts = new_stmts;
+            stmt_capacity = new_capacity;
+        }
+        
+        stmts[stmt_count++] = stmt;
     }
     
-    // 如果 brace_depth > 0，说明没有找到匹配的 '}'
-    if (brace_depth > 0) {
+    // 期望 '}'
+    if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
         return NULL;
     }
+    
+    block->data.block.stmts = stmts;
+    block->data.block.stmt_count = stmt_count;
     
     return block;
 }
@@ -519,5 +547,292 @@ ASTNode *parser_parse(Parser *parser) {
     program->data.program.decl_count = decl_count;
     
     return program;
+}
+
+// 解析基础表达式（基础版本，仅支持数字、标识符、布尔字面量和括号表达式）
+// 注意：完整的表达式解析（包括运算符、函数调用等）将在会话4实现
+static ASTNode *parser_parse_primary_expr(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    int line = parser->current_token->line;
+    int column = parser->current_token->column;
+    
+    // 解析数字字面量
+    if (parser->current_token->type == TOKEN_NUMBER) {
+        ASTNode *node = ast_new_node(AST_NUMBER, line, column, parser->arena);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        // 将字符串转换为整数
+        int value = atoi(parser->current_token->value);
+        node->data.number.value = value;
+        
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析布尔字面量
+    if (parser->current_token->type == TOKEN_TRUE) {
+        ASTNode *node = ast_new_node(AST_BOOL, line, column, parser->arena);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        node->data.bool_literal.value = 1;  // true
+        
+        parser_consume(parser);
+        return node;
+    }
+    
+    if (parser->current_token->type == TOKEN_FALSE) {
+        ASTNode *node = ast_new_node(AST_BOOL, line, column, parser->arena);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        node->data.bool_literal.value = 0;  // false
+        
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析标识符
+    if (parser->current_token->type == TOKEN_IDENTIFIER) {
+        ASTNode *node = ast_new_node(AST_IDENTIFIER, line, column, parser->arena);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        const char *name = arena_strdup(parser->arena, parser->current_token->value);
+        if (name == NULL) {
+            return NULL;
+        }
+        
+        node->data.identifier.name = name;
+        
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析括号表达式
+    if (parser->current_token->type == TOKEN_LEFT_PAREN) {
+        parser_consume(parser);  // 消费 '('
+        
+        // 解析内部表达式（递归调用）
+        ASTNode *expr = parser_parse_expression(parser);
+        if (expr == NULL) {
+            return NULL;
+        }
+        
+        // 期望 ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            return NULL;
+        }
+        
+        return expr;
+    }
+    
+    // 无法识别的基础表达式
+    return NULL;
+}
+
+// 解析表达式（基础版本，仅支持基础表达式）
+// 注意：完整的表达式解析（包括运算符、函数调用等）将在会话4实现
+ASTNode *parser_parse_expression(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    // 基础版本：只解析基础表达式（数字、标识符、布尔、括号）
+    // 会话4将扩展为完整的表达式解析（包括运算符、函数调用等）
+    return parser_parse_primary_expr(parser);
+}
+
+// 解析语句
+ASTNode *parser_parse_statement(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    int line = parser->current_token->line;
+    int column = parser->current_token->column;
+    
+    // 根据第一个 Token 判断语句类型
+    if (parser_match(parser, TOKEN_RETURN)) {
+        // 解析 return 语句
+        parser_consume(parser);  // 消费 'return'
+        
+        ASTNode *stmt = ast_new_node(AST_RETURN_STMT, line, column, parser->arena);
+        if (stmt == NULL) {
+            return NULL;
+        }
+        
+        // 解析返回值表达式（可选，void 函数可以没有返回值）
+        if (parser_match(parser, TOKEN_SEMICOLON)) {
+            // 没有返回值（void 函数）
+            stmt->data.return_stmt.expr = NULL;
+        } else {
+            // 有返回值表达式
+            ASTNode *expr = parser_parse_expression(parser);
+            if (expr == NULL) {
+                return NULL;
+            }
+            stmt->data.return_stmt.expr = expr;
+        }
+        
+        // 期望 ';'
+        if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+            return NULL;
+        }
+        
+        return stmt;
+    }
+    
+    if (parser_match(parser, TOKEN_IF)) {
+        // 解析 if 语句
+        parser_consume(parser);  // 消费 'if'
+        
+        ASTNode *stmt = ast_new_node(AST_IF_STMT, line, column, parser->arena);
+        if (stmt == NULL) {
+            return NULL;
+        }
+        
+        // 解析条件表达式
+        ASTNode *condition = parser_parse_expression(parser);
+        if (condition == NULL) {
+            return NULL;
+        }
+        stmt->data.if_stmt.condition = condition;
+        
+        // 解析 then 分支（代码块）
+        ASTNode *then_branch = parser_parse_block(parser);
+        if (then_branch == NULL) {
+            return NULL;
+        }
+        stmt->data.if_stmt.then_branch = then_branch;
+        
+        // 解析 else 分支（可选）
+        if (parser_match(parser, TOKEN_ELSE)) {
+            parser_consume(parser);  // 消费 'else'
+            
+            ASTNode *else_branch = parser_parse_block(parser);
+            if (else_branch == NULL) {
+                return NULL;
+            }
+            stmt->data.if_stmt.else_branch = else_branch;
+        } else {
+            stmt->data.if_stmt.else_branch = NULL;
+        }
+        
+        return stmt;
+    }
+    
+    if (parser_match(parser, TOKEN_WHILE)) {
+        // 解析 while 语句
+        parser_consume(parser);  // 消费 'while'
+        
+        ASTNode *stmt = ast_new_node(AST_WHILE_STMT, line, column, parser->arena);
+        if (stmt == NULL) {
+            return NULL;
+        }
+        
+        // 解析条件表达式
+        ASTNode *condition = parser_parse_expression(parser);
+        if (condition == NULL) {
+            return NULL;
+        }
+        stmt->data.while_stmt.condition = condition;
+        
+        // 解析循环体（代码块）
+        ASTNode *body = parser_parse_block(parser);
+        if (body == NULL) {
+            return NULL;
+        }
+        stmt->data.while_stmt.body = body;
+        
+        return stmt;
+    }
+    
+    if (parser_match(parser, TOKEN_CONST) || parser_match(parser, TOKEN_VAR)) {
+        // 解析变量声明
+        int is_const = parser_match(parser, TOKEN_CONST);
+        parser_consume(parser);  // 消费 'const' 或 'var'
+        
+        // 期望变量名称
+        if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+            return NULL;
+        }
+        
+        const char *var_name = arena_strdup(parser->arena, parser->current_token->value);
+        if (var_name == NULL) {
+            return NULL;
+        }
+        
+        parser_consume(parser);  // 消费变量名称
+        
+        ASTNode *stmt = ast_new_node(AST_VAR_DECL, line, column, parser->arena);
+        if (stmt == NULL) {
+            return NULL;
+        }
+        
+        stmt->data.var_decl.name = var_name;
+        stmt->data.var_decl.is_const = is_const ? 1 : 0;
+        
+        // 期望 ':'
+        if (!parser_expect(parser, TOKEN_COLON)) {
+            return NULL;
+        }
+        
+        // 解析类型
+        ASTNode *type = parser_parse_type(parser);
+        if (type == NULL) {
+            return NULL;
+        }
+        stmt->data.var_decl.type = type;
+        
+        // 期望 '='
+        if (!parser_expect(parser, TOKEN_ASSIGN)) {
+            return NULL;
+        }
+        
+        // 解析初始值表达式
+        ASTNode *init = parser_parse_expression(parser);
+        if (init == NULL) {
+            return NULL;
+        }
+        stmt->data.var_decl.init = init;
+        
+        // 期望 ';'
+        if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+            return NULL;
+        }
+        
+        return stmt;
+    }
+    
+    if (parser_match(parser, TOKEN_LEFT_BRACE)) {
+        // 解析代码块语句
+        return parser_parse_block(parser);
+    }
+    
+    // 解析表达式语句（表达式后加分号）
+    // 注意：AST_EXPR_STMT 节点在 union 中没有对应的数据结构
+    // 根据 ast.c 的注释，表达式语句的数据存储在表达式的节点中
+    // 所以这里直接返回表达式节点（表达式节点本身可以作为语句）
+    ASTNode *expr = parser_parse_expression(parser);
+    if (expr == NULL) {
+        return NULL;
+    }
+    
+    // 期望 ';'
+    if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+        return NULL;
+    }
+    
+    // 直接返回表达式节点（表达式节点可以作为语句）
+    return expr;
 }
 

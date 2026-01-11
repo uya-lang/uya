@@ -39,5 +39,15 @@ ASTNode *parser_parse_function(Parser *parser);
 // 返回：AST_STRUCT_DECL 节点，失败返回 NULL
 ASTNode *parser_parse_struct(Parser *parser);
 
+// 解析语句
+// 参数：parser - Parser 指针
+// 返回：语句节点，失败返回 NULL
+ASTNode *parser_parse_statement(Parser *parser);
+
+// 解析表达式（基础版本，会话4将扩展为完整版本）
+// 参数：parser - Parser 指针
+// 返回：表达式节点，失败返回 NULL
+ASTNode *parser_parse_expression(Parser *parser);
+
 #endif // PARSER_H
 

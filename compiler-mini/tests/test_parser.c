@@ -172,6 +172,92 @@ void test_parse_program_with_declarations(void) {
     printf("  ✓ 程序解析测试通过\n");
 }
 
+// 测试解析 return 语句
+void test_parse_return_stmt(void) {
+    printf("测试解析 return 语句...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "return 0;";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *stmt = parser_parse_statement(&parser);
+    assert(stmt != NULL);
+    assert(stmt->type == AST_RETURN_STMT);
+    assert(stmt->data.return_stmt.expr != NULL);
+    assert(stmt->data.return_stmt.expr->type == AST_NUMBER);
+    assert(stmt->data.return_stmt.expr->data.number.value == 0);
+    
+    printf("  ✓ return 语句解析测试通过\n");
+}
+
+// 测试解析变量声明
+void test_parse_var_decl(void) {
+    printf("测试解析变量声明...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "var x: i32 = 10;";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *stmt = parser_parse_statement(&parser);
+    assert(stmt != NULL);
+    assert(stmt->type == AST_VAR_DECL);
+    assert(strcmp(stmt->data.var_decl.name, "x") == 0);
+    assert(stmt->data.var_decl.is_const == 0);
+    assert(stmt->data.var_decl.type != NULL);
+    assert(strcmp(stmt->data.var_decl.type->data.type_named.name, "i32") == 0);
+    assert(stmt->data.var_decl.init != NULL);
+    assert(stmt->data.var_decl.init->type == AST_NUMBER);
+    assert(stmt->data.var_decl.init->data.number.value == 10);
+    
+    printf("  ✓ 变量声明解析测试通过\n");
+}
+
+// 测试解析函数体中的语句
+void test_parse_function_with_statements(void) {
+    printf("测试解析函数体中的语句...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "fn main() i32 { var x: i32 = 10; return x; }";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *fn = parser_parse_function(&parser);
+    assert(fn != NULL);
+    assert(fn->type == AST_FN_DECL);
+    assert(fn->data.fn_decl.body != NULL);
+    assert(fn->data.fn_decl.body->type == AST_BLOCK);
+    assert(fn->data.fn_decl.body->data.block.stmt_count == 2);
+    
+    // 检查第一个语句（变量声明）
+    ASTNode *stmt1 = fn->data.fn_decl.body->data.block.stmts[0];
+    assert(stmt1 != NULL);
+    assert(stmt1->type == AST_VAR_DECL);
+    
+    // 检查第二个语句（return）
+    ASTNode *stmt2 = fn->data.fn_decl.body->data.block.stmts[1];
+    assert(stmt2 != NULL);
+    assert(stmt2->type == AST_RETURN_STMT);
+    
+    printf("  ✓ 函数体语句解析测试通过\n");
+}
+
 // 主测试函数
 int main(void) {
     printf("开始 Parser 测试...\n\n");
@@ -182,6 +268,9 @@ int main(void) {
     test_parse_function_no_params();
     test_parse_struct();
     test_parse_program_with_declarations();
+    test_parse_return_stmt();
+    test_parse_var_decl();
+    test_parse_function_with_statements();
     
     printf("\n所有测试通过！\n");
     
