@@ -145,7 +145,7 @@ static int compile_file(const char *input_file, const char *output_file) {
     
     ASTNode *ast = parser_parse(&parser);
     if (ast == NULL) {
-        fprintf(stderr, "错误: 语法分析失败\n");
+        // 错误信息已在 parser_parse 中输出
         return 1;
     }
     

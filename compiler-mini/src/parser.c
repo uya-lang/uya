@@ -743,7 +743,15 @@ ASTNode *parser_parse(Parser *parser) {
             // 解析失败：检查是否因为到达文件末尾（EOF）还是真正的错误
             // 如果当前 token 不是 EOF，说明遇到了真正的解析错误
             if (parser->current_token != NULL && !parser_match(parser, TOKEN_EOF)) {
-                // 真正的解析错误：返回 NULL 表示失败
+                // 真正的解析错误：输出错误信息并返回 NULL
+                const char *filename = parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+                const char *token_value = parser->current_token->value ? parser->current_token->value : "";
+                fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 意外的 token", 
+                        filename, parser->current_token->line, parser->current_token->column);
+                if (token_value[0] != '\0') {
+                    fprintf(stderr, " '%s'", token_value);
+                }
+                fprintf(stderr, "\n");
                 return NULL;
             }
             // 到达文件末尾，正常退出循环

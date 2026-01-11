@@ -1853,9 +1853,10 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
                                      LLVMObjectFile, &error) != 0) {
         // 生成失败
         if (error) {
-            // 注意：在实际应用中，可能想要打印错误消息
-            // 但为了保持简单，这里只是释放错误消息
+            fprintf(stderr, "错误: LLVM 代码生成失败: %s\n", error);
             LLVMDisposeMessage(error);
+        } else {
+            fprintf(stderr, "错误: LLVM 代码生成失败（未知错误）\n");
         }
         LLVMDisposeTargetMachine(target_machine);
         LLVMDisposeMessage(target_triple);
