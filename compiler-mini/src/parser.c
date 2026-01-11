@@ -126,50 +126,6 @@ static const char *arena_strdup(Arena *arena, const char *src) {
     return result;
 }
 
-// 辅助函数：获取 Token 类型的简短字符串表示（用于调试）
-static const char *token_type_str(TokenType type) {
-    switch (type) {
-        case TOKEN_EOF: return "EOF";
-        case TOKEN_IDENTIFIER: return "IDENTIFIER";
-        case TOKEN_NUMBER: return "NUMBER";
-        case TOKEN_STRUCT: return "STRUCT";
-        case TOKEN_CONST: return "CONST";
-        case TOKEN_VAR: return "VAR";
-        case TOKEN_FN: return "FN";
-        case TOKEN_EXTERN: return "EXTERN";
-        case TOKEN_RETURN: return "RETURN";
-        case TOKEN_IF: return "IF";
-        case TOKEN_ELSE: return "ELSE";
-        case TOKEN_WHILE: return "WHILE";
-        case TOKEN_TRUE: return "TRUE";
-        case TOKEN_FALSE: return "FALSE";
-        case TOKEN_PLUS: return "+";
-        case TOKEN_MINUS: return "-";
-        case TOKEN_ASTERISK: return "*";
-        case TOKEN_SLASH: return "/";
-        case TOKEN_PERCENT: return "%";
-        case TOKEN_EQUAL: return "==";
-        case TOKEN_NOT_EQUAL: return "!=";
-        case TOKEN_LESS: return "<";
-        case TOKEN_GREATER: return ">";
-        case TOKEN_LESS_EQUAL: return "<=";
-        case TOKEN_GREATER_EQUAL: return ">=";
-        case TOKEN_LOGICAL_AND: return "&&";
-        case TOKEN_LOGICAL_OR: return "||";
-        case TOKEN_EXCLAMATION: return "!";
-        case TOKEN_LEFT_PAREN: return "(";
-        case TOKEN_RIGHT_PAREN: return ")";
-        case TOKEN_LEFT_BRACE: return "{";
-        case TOKEN_RIGHT_BRACE: return "}";
-        case TOKEN_SEMICOLON: return ";";
-        case TOKEN_COMMA: return ",";
-        case TOKEN_ASSIGN: return "=";
-        case TOKEN_DOT: return ".";
-        case TOKEN_COLON: return ":";
-        default: return "UNKNOWN";
-    }
-}
-
 // 解析类型（Uya Mini 只支持命名类型：i32, bool, void, 或结构体名称）
 static ASTNode *parser_parse_type(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
