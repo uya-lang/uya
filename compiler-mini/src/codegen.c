@@ -1,4 +1,5 @@
 #include "codegen.h"
+#include "lexer.h"
 #include <string.h>
 
 // 创建代码生成器
@@ -212,6 +213,177 @@ int codegen_register_struct_type(CodeGenerator *codegen, ASTNode *struct_decl) {
     codegen->struct_type_count++;
     
     return 0;
+}
+
+// 生成表达式代码（从表达式AST节点生成LLVM值）
+// 参数：codegen - 代码生成器指针
+//       expr - 表达式AST节点
+// 返回：LLVM值引用（LLVMValueRef），失败返回NULL
+// 注意：此函数需要在函数上下文中调用（builder需要在函数的基本块中）
+//       标识符和函数调用需要变量表和函数表（将在函数代码生成时提供）
+LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
+    if (!codegen || !expr || !codegen->builder) {
+        return NULL;
+    }
+    
+    switch (expr->type) {
+        case AST_NUMBER: {
+            // 数字字面量：创建 i32 常量
+            int value = expr->data.number.value;
+            LLVMTypeRef i32_type = codegen_get_base_type(codegen, TYPE_I32);
+            if (!i32_type) {
+                return NULL;
+            }
+            return LLVMConstInt(i32_type, (unsigned long long)value, 1);  // 1 表示有符号
+        }
+        
+        case AST_BOOL: {
+            // 布尔字面量：创建 i1 常量（true=1, false=0）
+            int value = expr->data.bool_literal.value;
+            LLVMTypeRef bool_type = codegen_get_base_type(codegen, TYPE_BOOL);
+            if (!bool_type) {
+                return NULL;
+            }
+            return LLVMConstInt(bool_type, value ? 1ULL : 0ULL, 0);  // 0 表示无符号（布尔值）
+        }
+        
+        case AST_UNARY_EXPR: {
+            // 一元表达式（! 和 -）
+            ASTNode *operand = expr->data.unary_expr.operand;
+            if (!operand) {
+                return NULL;
+            }
+            
+            LLVMValueRef operand_val = codegen_gen_expr(codegen, operand);
+            if (!operand_val) {
+                return NULL;
+            }
+            
+            int op = expr->data.unary_expr.op;
+            
+            // 根据运算符类型生成对应的LLVM指令
+            // 注意：需要知道操作数的类型，这里暂时假设可以从operand_val推断
+            // TODO: 从类型检查信息获取操作数类型，或从LLVM值获取类型
+            
+            // 简化实现：假设操作数类型可以从operand_val获取
+            LLVMTypeRef operand_type = LLVMTypeOf(operand_val);
+            
+            if (op == TOKEN_EXCLAMATION) {
+                // 逻辑非：!operand
+                // 对于布尔值（i1），使用 XOR 1
+                if (LLVMGetTypeKind(operand_type) == LLVMIntegerTypeKind) {
+                    LLVMValueRef one = LLVMConstInt(operand_type, 1ULL, 0);
+                    return LLVMBuildXor(codegen->builder, operand_val, one, "");
+                }
+            } else if (op == TOKEN_MINUS) {
+                // 一元负号：-operand
+                // 对于整数，使用 sub 0, operand
+                if (LLVMGetTypeKind(operand_type) == LLVMIntegerTypeKind) {
+                    LLVMValueRef zero = LLVMConstInt(operand_type, 0ULL, 1);
+                    return LLVMBuildSub(codegen->builder, zero, operand_val, "");
+                }
+            }
+            
+            return NULL;
+        }
+        
+        case AST_BINARY_EXPR: {
+            // 二元表达式（算术、比较、逻辑运算符）
+            ASTNode *left = expr->data.binary_expr.left;
+            ASTNode *right = expr->data.binary_expr.right;
+            if (!left || !right) {
+                return NULL;
+            }
+            
+            LLVMValueRef left_val = codegen_gen_expr(codegen, left);
+            LLVMValueRef right_val = codegen_gen_expr(codegen, right);
+            if (!left_val || !right_val) {
+                return NULL;
+            }
+            
+            int op = expr->data.binary_expr.op;
+            
+            // 获取操作数类型
+            LLVMTypeRef left_type = LLVMTypeOf(left_val);
+            LLVMTypeRef right_type = LLVMTypeOf(right_val);
+            
+            // 简化：假设左右操作数类型相同（类型检查应该已经保证）
+            
+            // 算术运算符（i32）
+            if (LLVMGetTypeKind(left_type) == LLVMIntegerTypeKind && 
+                LLVMGetTypeKind(right_type) == LLVMIntegerTypeKind) {
+                
+                if (op == TOKEN_PLUS) {
+                    return LLVMBuildAdd(codegen->builder, left_val, right_val, "");
+                } else if (op == TOKEN_MINUS) {
+                    return LLVMBuildSub(codegen->builder, left_val, right_val, "");
+                } else if (op == TOKEN_ASTERISK) {
+                    return LLVMBuildMul(codegen->builder, left_val, right_val, "");
+                } else if (op == TOKEN_SLASH) {
+                    return LLVMBuildSDiv(codegen->builder, left_val, right_val, "");  // 有符号除法
+                } else if (op == TOKEN_PERCENT) {
+                    return LLVMBuildSRem(codegen->builder, left_val, right_val, "");  // 有符号取模
+                }
+                
+                // 比较运算符（返回 i1）
+                LLVMTypeRef bool_type = codegen_get_base_type(codegen, TYPE_BOOL);
+                if (!bool_type) {
+                    return NULL;
+                }
+                
+                if (op == TOKEN_EQUAL) {
+                    return LLVMBuildICmp(codegen->builder, LLVMIntEQ, left_val, right_val, "");
+                } else if (op == TOKEN_NOT_EQUAL) {
+                    return LLVMBuildICmp(codegen->builder, LLVMIntNE, left_val, right_val, "");
+                } else if (op == TOKEN_LESS) {
+                    return LLVMBuildICmp(codegen->builder, LLVMIntSLT, left_val, right_val, "");
+                } else if (op == TOKEN_LESS_EQUAL) {
+                    return LLVMBuildICmp(codegen->builder, LLVMIntSLE, left_val, right_val, "");
+                } else if (op == TOKEN_GREATER) {
+                    return LLVMBuildICmp(codegen->builder, LLVMIntSGT, left_val, right_val, "");
+                } else if (op == TOKEN_GREATER_EQUAL) {
+                    return LLVMBuildICmp(codegen->builder, LLVMIntSGE, left_val, right_val, "");
+                }
+            }
+            
+            // 逻辑运算符（布尔值，i1）
+            // 简化实现：对于逻辑运算符，假设操作数是布尔类型（i1）
+            // 实际实现中，应该从类型检查信息获取操作数类型
+            if (op == TOKEN_LOGICAL_AND) {
+                // 逻辑与：对于 i1 类型，使用 AND
+                // 简化：假设操作数是布尔类型
+                return LLVMBuildAnd(codegen->builder, left_val, right_val, "");
+            } else if (op == TOKEN_LOGICAL_OR) {
+                // 逻辑或：对于 i1 类型，使用 OR
+                return LLVMBuildOr(codegen->builder, left_val, right_val, "");
+            }
+            
+            return NULL;
+        }
+        
+        case AST_IDENTIFIER:
+            // 标识符：需要变量表（将在函数代码生成时实现）
+            // TODO: 在函数代码生成时实现变量查找
+            return NULL;
+            
+        case AST_CALL_EXPR:
+            // 函数调用：需要函数表（将在函数代码生成时实现）
+            // TODO: 在函数代码生成时实现函数调用
+            return NULL;
+            
+        case AST_MEMBER_ACCESS:
+            // 字段访问：需要结构体类型信息（将在结构体处理时实现）
+            // TODO: 在结构体处理时实现字段访问
+            return NULL;
+            
+        case AST_STRUCT_INIT:
+            // 结构体字面量：需要结构体类型信息（将在结构体处理时实现）
+            // TODO: 在结构体处理时实现结构体字面量
+            return NULL;
+            
+        default:
+            return NULL;
+    }
 }
 
 // 从AST生成代码

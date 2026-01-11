@@ -60,5 +60,13 @@ int codegen_register_struct_type(CodeGenerator *codegen, ASTNode *struct_decl);
 // 返回：LLVM类型引用，未找到返回NULL
 LLVMTypeRef codegen_get_struct_type(CodeGenerator *codegen, const char *struct_name);
 
+// 生成表达式代码（从表达式AST节点生成LLVM值）
+// 参数：codegen - 代码生成器指针
+//       expr - 表达式AST节点
+// 返回：LLVM值引用（LLVMValueRef），失败返回NULL
+// 注意：此函数需要在函数上下文中调用（builder需要在函数的基本块中）
+//       标识符和函数调用需要变量表和函数表（将在函数代码生成时提供）
+LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr);
+
 #endif // CODEGEN_H
 
