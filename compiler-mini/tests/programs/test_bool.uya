@@ -1,0 +1,10 @@
+// 测试布尔值处理
+
+fn main() i32 {
+    const b: bool = true;
+    
+    if b {
+        return 0;
+    }
+    return 1;
+}

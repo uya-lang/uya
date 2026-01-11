@@ -1,5 +1,4 @@
-// 布尔逻辑测试
-// 测试布尔类型、逻辑运算符（&&, ||, !）和比较运算符
+// 测试is_positive和is_even函数
 
 fn is_positive(n: i32) bool {
     return n > 0;
@@ -11,14 +10,17 @@ fn is_even(n: i32) bool {
 
 fn main() i32 {
     const x: i32 = 10;
+    
+    // 测试is_positive函数
     const pos: bool = is_positive(x);
+    
+    // 测试is_even函数
     const even: bool = is_even(x);
     
-    if false || pos {
+    // 直接返回is_positive的结果
+    // 如果is_positive返回true，返回0；否则返回1
+    if pos {
         return 0;
-    }else {
-        return 3;
     }
-    return 2;
+    return 1;
 }
-

@@ -2,8 +2,9 @@
 # Uya Mini 编译器测试程序运行脚本
 # 自动编译和运行所有测试程序，验证编译器生成的二进制正确性
 
-COMPILER="./compiler-mini"
+COMPILER="./build/compiler-mini"
 TEST_DIR="tests/programs"
+BUILD_DIR="$TEST_DIR/build"
 PASSED=0
 FAILED=0
 
@@ -20,6 +21,9 @@ if [ ! -d "$TEST_DIR" ]; then
     exit 1
 fi
 
+# 创建构建输出目录
+mkdir -p "$BUILD_DIR"
+
 echo "开始运行 Uya 测试程序..."
 echo ""
 
@@ -30,7 +34,7 @@ for uya_file in "$TEST_DIR"/*.uya; do
         echo "测试: $base_name"
         
         # 编译（生成目标文件）
-        $COMPILER "$uya_file" -o "$TEST_DIR/${base_name}.o"
+        $COMPILER "$uya_file" -o "$BUILD_DIR/${base_name}.o"
         if [ $? -ne 0 ]; then
             echo "  ❌ 编译失败"
             FAILED=$((FAILED + 1))
@@ -38,7 +42,7 @@ for uya_file in "$TEST_DIR"/*.uya; do
         fi
         
         # 链接目标文件为可执行文件
-        gcc "$TEST_DIR/${base_name}.o" -o "$TEST_DIR/$base_name"
+        gcc "$BUILD_DIR/${base_name}.o" -o "$BUILD_DIR/$base_name"
         if [ $? -ne 0 ]; then
             echo "  ❌ 链接失败"
             FAILED=$((FAILED + 1))
@@ -46,7 +50,7 @@ for uya_file in "$TEST_DIR"/*.uya; do
         fi
         
         # 运行
-        "$TEST_DIR/$base_name"
+        "$BUILD_DIR/$base_name"
         exit_code=$?
         if [ $exit_code -eq 0 ]; then
             echo "  ✓ 测试通过"

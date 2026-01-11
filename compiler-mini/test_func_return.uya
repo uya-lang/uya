@@ -1,0 +1,14 @@
+// 测试函数调用和返回值
+
+fn get_true() bool {
+    return true;
+}
+
+fn main() i32 {
+    const b: bool = get_true();
+    
+    if b {
+        return 0;
+    }
+    return 1;
+}

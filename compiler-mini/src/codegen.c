@@ -67,7 +67,7 @@ int codegen_new(CodeGenerator *codegen, Arena *arena, const char *module_name) {
 // 返回：LLVM类型引用，失败返回NULL
 // 注意：此函数仅支持基础类型，结构体类型需要使用其他函数
 LLVMTypeRef codegen_get_base_type(CodeGenerator *codegen, TypeKind type_kind) {
-    if (!codegen || !codegen->context) {
+    if (!codegen) {
         return NULL;
     }
     
@@ -635,17 +635,101 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 return NULL;
             }
             
+            int op = expr->data.binary_expr.op;
+            
+            // 特殊处理逻辑运算符（&&, ||）以实现短路求值
+            if (op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR) {
+                // 获取当前基本块
+                LLVMBasicBlockRef current_bb = LLVMGetInsertBlock(codegen->builder);
+                if (!current_bb) {
+                    return NULL;
+                }
+                
+                // 获取当前基本块所在的函数
+                LLVMValueRef func = LLVMGetBasicBlockParent(current_bb);
+                if (!func) {
+                    return NULL;
+                }
+                
+                // 生成左操作数
+                LLVMValueRef left_val = codegen_gen_expr(codegen, left);
+                if (!left_val) {
+                    return NULL;
+                }
+                
+                // 检查左操作数类型是否为i1（布尔类型）
+                LLVMTypeRef left_type = LLVMTypeOf(left_val);
+                if (LLVMGetTypeKind(left_type) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(left_type) != 1) {
+                    fprintf(stderr, "错误: 逻辑运算符左操作数必须是布尔类型 (i1)\n");
+                    return NULL;
+                }
+                
+                // 创建临时变量来存储结果
+                LLVMValueRef result = LLVMBuildAlloca(codegen->builder, left_type, "bool_result");
+                
+                // 创建基本块
+                LLVMBasicBlockRef then_bb = LLVMAppendBasicBlock(func, "logical_then");
+                LLVMBasicBlockRef else_bb = LLVMAppendBasicBlock(func, "logical_else");
+                LLVMBasicBlockRef merge_bb = LLVMAppendBasicBlock(func, "logical_merge");
+                
+                if (op == TOKEN_LOGICAL_AND) {
+                    // 短路与：if (left) then evaluate right else result = false
+                    LLVMBuildCondBr(codegen->builder, left_val, then_bb, else_bb);
+                    
+                    // then_bb：计算右操作数
+                    LLVMPositionBuilderAtEnd(codegen->builder, then_bb);
+                    LLVMValueRef right_val = codegen_gen_expr(codegen, right);
+                    if (!right_val) {
+                        return NULL;
+                    }
+                    // 检查右操作数类型是否为i1（布尔类型）
+                    LLVMTypeRef right_type = LLVMTypeOf(right_val);
+                    if (LLVMGetTypeKind(right_type) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(right_type) != 1) {
+                        fprintf(stderr, "错误: 逻辑运算符右操作数必须是布尔类型 (i1)\n");
+                        return NULL;
+                    }
+                    LLVMBuildStore(codegen->builder, right_val, result);
+                    LLVMBuildBr(codegen->builder, merge_bb);
+                    
+                    // else_bb：结果为false
+                    LLVMPositionBuilderAtEnd(codegen->builder, else_bb);
+                    LLVMBuildStore(codegen->builder, LLVMConstInt(left_type, 0, 0), result);
+                    LLVMBuildBr(codegen->builder, merge_bb);
+                } else if (op == TOKEN_LOGICAL_OR) {
+                    // 短路或：if (left) then result = true else evaluate right
+                    LLVMBuildCondBr(codegen->builder, left_val, then_bb, else_bb);
+                    
+                    // then_bb：结果为true
+                    LLVMPositionBuilderAtEnd(codegen->builder, then_bb);
+                    LLVMBuildStore(codegen->builder, LLVMConstInt(left_type, 1, 0), result);
+                    LLVMBuildBr(codegen->builder, merge_bb);
+                    
+                    // else_bb：计算右操作数
+                    LLVMPositionBuilderAtEnd(codegen->builder, else_bb);
+                    LLVMValueRef right_val = codegen_gen_expr(codegen, right);
+                    if (!right_val) {
+                        return NULL;
+                    }
+                    // 检查右操作数类型是否为i1（布尔类型）
+                    LLVMTypeRef right_type = LLVMTypeOf(right_val);
+                    if (LLVMGetTypeKind(right_type) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(right_type) != 1) {
+                        fprintf(stderr, "错误: 逻辑运算符右操作数必须是布尔类型 (i1)\n");
+                        return NULL;
+                    }
+                    LLVMBuildStore(codegen->builder, right_val, result);
+                    LLVMBuildBr(codegen->builder, merge_bb);
+                }
+                
+                // merge_bb：加载结果
+                LLVMPositionBuilderAtEnd(codegen->builder, merge_bb);
+                return LLVMBuildLoad2(codegen->builder, left_type, result, "");
+            }
+            
+            // 处理其他二元表达式
             LLVMValueRef left_val = codegen_gen_expr(codegen, left);
             LLVMValueRef right_val = codegen_gen_expr(codegen, right);
             if (!left_val || !right_val) {
                 return NULL;
-            }
-            
-            int op = expr->data.binary_expr.op;
-            
-            // 调试：所有二元表达式
-            if (op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR) {
-                fprintf(stderr, "调试: AST_BINARY_EXPR - 逻辑运算符 (op=%d)\n", op);
             }
             
             // 获取操作数类型
@@ -671,11 +755,7 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 }
                 
                 // 比较运算符（返回 i1）
-                LLVMTypeRef bool_type = codegen_get_base_type(codegen, TYPE_BOOL);
-                if (!bool_type) {
-                    return NULL;
-                }
-                
+                // LLVMBuildICmp 自动返回 i1 类型
                 if (op == TOKEN_EQUAL) {
                     return LLVMBuildICmp(codegen->builder, LLVMIntEQ, left_val, right_val, "");
                 } else if (op == TOKEN_NOT_EQUAL) {
@@ -723,49 +803,7 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 return NULL;
             }
             
-            // 逻辑运算符（布尔值，i1）
-            // 逻辑运算符的操作数必须是布尔类型（i1）
-            if (op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR) {
-                // 调试：进入逻辑运算符处理
-                fprintf(stderr, "调试: 处理逻辑运算符 (op=%d, TOKEN_LOGICAL_AND=%d, TOKEN_LOGICAL_OR=%d)\n", 
-                        op, TOKEN_LOGICAL_AND, TOKEN_LOGICAL_OR);
-                // 检查操作数类型是否为整数类型（i1是整数类型）
-                if (LLVMGetTypeKind(left_type) == LLVMIntegerTypeKind &&
-                    LLVMGetTypeKind(right_type) == LLVMIntegerTypeKind) {
-                    // 检查是否为i1类型（布尔类型）
-                    unsigned left_bitwidth = LLVMGetIntTypeWidth(left_type);
-                    unsigned right_bitwidth = LLVMGetIntTypeWidth(right_type);
-                    if (left_bitwidth == 1 && right_bitwidth == 1) {
-                        // 操作数都是i1类型，可以使用AND或OR
-                        LLVMValueRef result = NULL;
-                        if (op == TOKEN_LOGICAL_AND) {
-                            result = LLVMBuildAnd(codegen->builder, left_val, right_val, "");
-                            if (!result) {
-                                // 调试：LLVMBuildAnd 返回 NULL
-                                fprintf(stderr, "错误: LLVMBuildAnd 返回 NULL\n");
-                                return NULL;
-                            }
-                        } else if (op == TOKEN_LOGICAL_OR) {
-                            result = LLVMBuildOr(codegen->builder, left_val, right_val, "");
-                            if (!result) {
-                                // 调试：LLVMBuildOr 返回 NULL
-                                fprintf(stderr, "错误: LLVMBuildOr 返回 NULL\n");
-                                return NULL;
-                            }
-                        }
-                        return result;
-                    } else {
-                        // 调试：操作数位宽不是1
-                        fprintf(stderr, "错误: 逻辑运算符操作数位宽不匹配 (left=%u, right=%u)\n", 
-                                left_bitwidth, right_bitwidth);
-                    }
-                } else {
-                    // 调试：操作数类型不是整数类型
-                    fprintf(stderr, "错误: 逻辑运算符操作数类型不匹配\n");
-                }
-                // 操作数类型不匹配，返回NULL
-                return NULL;
-            }
+
             
             return NULL;
         }
@@ -907,8 +945,8 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             
             // 使用 GEP 获取字段地址
             LLVMValueRef indices[2];
-            indices[0] = LLVMConstInt(LLVMInt32TypeInContext(codegen->context), 0ULL, 0);  // 结构体指针本身
-            indices[1] = LLVMConstInt(LLVMInt32TypeInContext(codegen->context), (unsigned long long)field_index, 0);  // 字段索引
+            indices[0] = LLVMConstInt(LLVMInt32Type(), 0ULL, 0);  // 结构体指针本身
+            indices[1] = LLVMConstInt(LLVMInt32Type(), (unsigned long long)field_index, 0);  // 字段索引
             
             LLVMValueRef field_ptr = LLVMBuildGEP2(codegen->builder, struct_type, object_ptr, indices, 2, "");
             if (!field_ptr) {
@@ -995,8 +1033,8 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 
                 // 使用 GEP 获取字段地址（字段索引是 unsigned int）
                 LLVMValueRef indices[2];
-                indices[0] = LLVMConstInt(LLVMInt32TypeInContext(codegen->context), 0ULL, 0);  // 结构体指针本身
-                indices[1] = LLVMConstInt(LLVMInt32TypeInContext(codegen->context), (unsigned long long)field_index, 0);  // 字段索引
+                indices[0] = LLVMConstInt(LLVMInt32Type(), 0ULL, 0);  // 结构体指针本身
+                indices[1] = LLVMConstInt(LLVMInt32Type(), (unsigned long long)field_index, 0);  // 字段索引
                 
                 LLVMValueRef field_ptr = LLVMBuildGEP2(codegen->builder, struct_type, struct_ptr, indices, 2, "");
                 if (!field_ptr) {
@@ -1176,7 +1214,7 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             if (condition->type == AST_BINARY_EXPR) {
                 int op = condition->data.binary_expr.op;
                 if (op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR) {
-                    fprintf(stderr, "调试: AST_IF_STMT - 条件表达式是逻辑运算符 (op=%d)\n", op);
+
                 }
             }
             
@@ -1213,8 +1251,10 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             if (codegen_gen_stmt(codegen, then_branch) != 0) {
                 return -1;
             }
-            // then 分支结束前跳转到 end
-            LLVMBuildBr(codegen->builder, end_bb);
+            // 检查 then 分支是否已经有终止符，如果没有则添加跳转到 end
+            if (!LLVMGetBasicBlockTerminator(then_bb)) {
+                LLVMBuildBr(codegen->builder, end_bb);
+            }
             
             // 生成 else 分支（如果有）
             if (else_bb && else_branch) {
@@ -1222,8 +1262,10 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 if (codegen_gen_stmt(codegen, else_branch) != 0) {
                     return -1;
                 }
-                // else 分支结束前跳转到 end
-                LLVMBuildBr(codegen->builder, end_bb);
+                // 检查 else 分支是否已经有终止符，如果没有则添加跳转到 end
+                if (!LLVMGetBasicBlockTerminator(else_bb)) {
+                    LLVMBuildBr(codegen->builder, end_bb);
+                }
             }
             
             // 设置构建器到 end 基本块
@@ -1305,7 +1347,7 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
     int param_count = fn_decl->data.fn_decl.param_count;
     ASTNode **params = fn_decl->data.fn_decl.params;
     
-    fprintf(stderr, "调试: codegen_gen_function 开始: %s (body=%p)\n", func_name ? func_name : "(null)", (void*)body);
+
     
     if (!func_name || !return_type_node) {
         fprintf(stderr, "错误: codegen_gen_function 函数名或返回类型为空: %s\n", func_name ? func_name : "(null)");
@@ -1442,7 +1484,6 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
     }
     
     // 生成函数体代码
-    fprintf(stderr, "调试: 开始生成函数体: %s\n", func_name);
     int stmt_result = codegen_gen_stmt(codegen, body);
     if (stmt_result != 0) {
         fprintf(stderr, "错误: 函数体生成失败: %s (返回值: %d)\n", func_name, stmt_result);
@@ -1450,7 +1491,6 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
         codegen->var_map_count = saved_var_map_count;
         return -1;
     }
-    fprintf(stderr, "调试: 函数体生成成功: %s\n", func_name);
     
     // 检查函数是否已经有返回语句
     // 如果当前基本块没有终止符（return），需要添加默认返回
@@ -1544,23 +1584,16 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
     
     // 第二步：生成所有函数的代码
     // 注意：函数代码生成需要在结构体类型注册之后，因为函数参数/返回值可能使用结构体类型
-    fprintf(stderr, "调试: 开始生成函数代码，声明总数: %d\n", decl_count);
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) {
-            fprintf(stderr, "调试: 声明 %d 为空，跳过\n", i);
             continue;
         }
-        
-        fprintf(stderr, "调试: 声明 %d 类型: %d (AST_FN_DECL=%d, AST_STRUCT_DECL=%d)\n", 
-                i, decl->type, AST_FN_DECL, AST_STRUCT_DECL);
         
         if (decl->type == AST_FN_DECL) {
             // 生成函数代码
             const char *func_name = decl->data.fn_decl.name;
-            fprintf(stderr, "调试: 准备生成函数: %s\n", func_name ? func_name : "(null)");
             int result = codegen_gen_function(codegen, decl);
-            fprintf(stderr, "调试: 函数生成结果: %s (返回值: %d)\n", func_name ? func_name : "(null)", result);
             if (result != 0) {
                 fprintf(stderr, "错误: 函数代码生成失败: %s\n", func_name ? func_name : "(null)");
                 return -1;  // 函数代码生成失败
@@ -1568,30 +1601,7 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
         }
     }
     
-    // 第三步：输出 LLVM IR 到文件（用于调试）
-    // 生成 IR 文件名（将 .o 扩展名替换为 .ll）
-    size_t output_len = strlen(output_file);
-    char ir_file[1024];  // 使用固定大小缓冲区
-    if (output_len + 1 < sizeof(ir_file)) {
-        strcpy(ir_file, output_file);
-        // 查找最后一个点，替换扩展名为 .ll
-        char *last_dot = strrchr(ir_file, '.');
-        if (last_dot != NULL) {
-            strcpy(last_dot, ".ll");
-        } else {
-            // 没有扩展名，直接添加 .ll
-            strcat(ir_file, ".ll");
-        }
-        // 输出 IR 到文件
-        char *ir_error = NULL;
-        if (LLVMPrintModuleToFile(codegen->module, ir_file, &ir_error) != 0) {
-            // IR 输出失败，但不影响目标代码生成，只记录错误
-            if (ir_error) {
-                // 可以在这里打印错误，但为了不干扰正常流程，只释放错误消息
-                LLVMDisposeMessage(ir_error);
-            }
-        }
-    }
+
     
     // 第四步：生成目标代码
     // 初始化LLVM目标（只需要初始化一次，但重复初始化是安全的）
@@ -1645,6 +1655,14 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
         // LLVM 18中，LLVMSetModuleDataLayout 直接接受 LLVMTargetDataRef 类型
         LLVMSetModuleDataLayout(codegen->module, target_data);
         LLVMDisposeTargetData(target_data);
+    }
+    
+    // 生成LLVM IR文本到文件，用于调试
+    char *ir_error = NULL;
+    LLVMPrintModuleToFile(codegen->module, "test.ll", &ir_error);
+    if (ir_error) {
+        LLVMDisposeMessage(ir_error);
+        ir_error = NULL;
     }
     
     // 生成目标代码到文件

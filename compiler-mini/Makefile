@@ -9,22 +9,25 @@ INCLUDES = -Isrc
 SRC_DIR = src
 TEST_DIR = tests
 
+# 构建输出目录
+BUILD_DIR = build
+
 # 测试目标
-ARENA_TEST = tests/test_arena
+ARENA_TEST = $(BUILD_DIR)/tests/test_arena
 ARENA_TEST_SRC = tests/test_arena.c src/arena.c
-AST_TEST = tests/test_ast
+AST_TEST = $(BUILD_DIR)/tests/test_ast
 AST_TEST_SRC = tests/test_ast.c src/ast.c src/arena.c
-LEXER_TEST = tests/test_lexer
+LEXER_TEST = $(BUILD_DIR)/tests/test_lexer
 LEXER_TEST_SRC = tests/test_lexer.c src/lexer.c src/arena.c
-PARSER_TEST = tests/test_parser
+PARSER_TEST = $(BUILD_DIR)/tests/test_parser
 PARSER_TEST_SRC = tests/test_parser.c src/parser.c src/lexer.c src/ast.c src/arena.c
-CHECKER_TEST = tests/test_checker
+CHECKER_TEST = $(BUILD_DIR)/tests/test_checker
 CHECKER_TEST_SRC = tests/test_checker.c src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
-CODEGEN_TEST = tests/test_codegen
+CODEGEN_TEST = $(BUILD_DIR)/tests/test_codegen
 CODEGEN_TEST_SRC = tests/test_codegen.c src/codegen.c src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
 
 # 主程序目标
-TARGET = compiler-mini
+TARGET = $(BUILD_DIR)/compiler-mini
 MAIN_SRC = src/main.c src/codegen.c src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
 
 # LLVM 库链接选项
@@ -37,7 +40,7 @@ LLVM_LIBS = $(shell $(LLVM_CONFIG) --libs core target 2>/dev/null || echo "-llvm
 # 测试程序目录
 PROGRAMS_DIR = tests/programs
 PROGRAMS = $(wildcard $(PROGRAMS_DIR)/*.uya)
-PROGRAM_BINARIES = $(PROGRAMS:.uya=)
+PROGRAM_BINARIES = $(patsubst $(PROGRAMS_DIR)/%.uya,$(BUILD_DIR)/$(PROGRAMS_DIR)/%,$(PROGRAMS))
 
 .PHONY: all build test clean test-arena test-ast test-lexer test-parser test-checker test-codegen compile-programs test-programs
 
@@ -49,7 +52,7 @@ build: $(TARGET)
 	@echo "构建完成: $(TARGET)"
 
 # 编译主程序（需要链接 LLVM 库）
-$(TARGET): $(MAIN_SRC)
+$(TARGET): $(MAIN_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(LLVM_CFLAGS) $(INCLUDES) -o $@ $^ $(LLVM_LDFLAGS) $(LLVM_LIBS)
 
 # 运行所有测试
@@ -62,7 +65,7 @@ test-arena: $(ARENA_TEST)
 	./$(ARENA_TEST)
 
 # 编译 Arena 测试
-$(ARENA_TEST): $(ARENA_TEST_SRC)
+$(ARENA_TEST): $(ARENA_TEST_SRC) | $(BUILD_DIR)/tests
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 # AST 测试
@@ -71,7 +74,7 @@ test-ast: $(AST_TEST)
 	./$(AST_TEST)
 
 # 编译 AST 测试
-$(AST_TEST): $(AST_TEST_SRC)
+$(AST_TEST): $(AST_TEST_SRC) | $(BUILD_DIR)/tests
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 # Lexer 测试
@@ -80,7 +83,7 @@ test-lexer: $(LEXER_TEST)
 	./$(LEXER_TEST)
 
 # 编译 Lexer 测试
-$(LEXER_TEST): $(LEXER_TEST_SRC)
+$(LEXER_TEST): $(LEXER_TEST_SRC) | $(BUILD_DIR)/tests
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 # Parser 测试
@@ -89,7 +92,7 @@ test-parser: $(PARSER_TEST)
 	./$(PARSER_TEST)
 
 # 编译 Parser 测试
-$(PARSER_TEST): $(PARSER_TEST_SRC)
+$(PARSER_TEST): $(PARSER_TEST_SRC) | $(BUILD_DIR)/tests
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 # Checker 测试
@@ -98,7 +101,7 @@ test-checker: $(CHECKER_TEST)
 	./$(CHECKER_TEST)
 
 # 编译 Checker 测试
-$(CHECKER_TEST): $(CHECKER_TEST_SRC)
+$(CHECKER_TEST): $(CHECKER_TEST_SRC) | $(BUILD_DIR)/tests
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 # CodeGen 测试
@@ -107,13 +110,13 @@ test-codegen: $(CODEGEN_TEST)
 	./$(CODEGEN_TEST)
 
 # 编译 CodeGen 测试（需要链接 LLVM 库）
-$(CODEGEN_TEST): $(CODEGEN_TEST_SRC)
+$(CODEGEN_TEST): $(CODEGEN_TEST_SRC) | $(BUILD_DIR)/tests
 	$(CC) $(CFLAGS) $(LLVM_CFLAGS) $(INCLUDES) -o $@ $^ $(LLVM_LDFLAGS) $(LLVM_LIBS)
 
 # 编译所有测试程序
 compile-programs: $(TARGET) $(PROGRAM_BINARIES)
 
-$(PROGRAM_BINARIES): %: %.uya
+$(PROGRAM_BINARIES): $(BUILD_DIR)/$(PROGRAMS_DIR)/%: $(PROGRAMS_DIR)/%.uya | $(BUILD_DIR)/$(PROGRAMS_DIR)
 	@echo "编译测试程序: $<"
 	./$(TARGET) $< -o $@
 
@@ -122,8 +125,18 @@ test-programs: compile-programs
 	@echo "运行 Uya 测试程序..."
 	@bash tests/run_programs.sh
 
+# 创建构建目录
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
+
+$(BUILD_DIR)/tests: | $(BUILD_DIR)
+	mkdir -p $(BUILD_DIR)/tests
+
+$(BUILD_DIR)/$(PROGRAMS_DIR): | $(BUILD_DIR)
+	mkdir -p $(BUILD_DIR)/$(PROGRAMS_DIR)
+
 # 清理编译产物
 clean:
-	rm -f $(ARENA_TEST) $(AST_TEST) $(LEXER_TEST) $(PARSER_TEST) $(CHECKER_TEST) $(CODEGEN_TEST) $(TARGET) $(PROGRAM_BINARIES)
+	rm -rf $(BUILD_DIR)
 	@echo "清理完成"
 

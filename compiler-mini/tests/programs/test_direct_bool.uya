@@ -1,0 +1,8 @@
+// 测试直接使用布尔字面量作为条件
+
+fn main() i32 {
+    if true {
+        return 0;
+    }
+    return 1;
+}

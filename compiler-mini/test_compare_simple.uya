@@ -1,0 +1,12 @@
+// 测试比较运算符
+
+fn main() i32 {
+    const x: i32 = 10;
+    
+    if x > 0 {
+        if (x % 2) == 0 {
+            return 0;
+        }
+    }
+    return 1;
+}

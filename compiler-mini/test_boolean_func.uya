@@ -1,0 +1,21 @@
+// 测试布尔函数返回值
+
+fn is_true() bool {
+    return true;
+}
+
+fn is_false() bool {
+    return false;
+}
+
+fn main() i32 {
+    const a: bool = is_true();
+    const b: bool = is_false();
+    
+    if a {
+        if !b {
+            return 0;
+        }
+    }
+    return 1;
+}

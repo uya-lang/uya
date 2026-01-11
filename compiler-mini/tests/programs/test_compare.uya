@@ -1,0 +1,11 @@
+// 测试比较运算符返回值
+
+fn main() i32 {
+    const x: i32 = 10;
+    const result: bool = x > 5;
+    
+    if result {
+        return 0;
+    }
+    return 1;
+}
