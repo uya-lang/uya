@@ -23,6 +23,10 @@ CHECKER_TEST_SRC = tests/test_checker.c src/checker.c src/parser.c src/lexer.c s
 CODEGEN_TEST = tests/test_codegen
 CODEGEN_TEST_SRC = tests/test_codegen.c src/codegen.c src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
 
+# 主程序目标
+TARGET = compiler-mini
+MAIN_SRC = src/main.c src/codegen.c src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
+
 # LLVM 库链接选项
 # 使用 llvm-config 获取编译和链接选项（如果可用）
 LLVM_CONFIG ?= llvm-config
@@ -35,9 +39,13 @@ LLVM_LIBS = $(shell $(LLVM_CONFIG) --libs core target 2>/dev/null || echo "-llvm
 # 默认目标
 all: build
 
-# 构建所有目标
-build:
-	@echo "构建目标（待实现）"
+# 构建所有目标（主程序）
+build: $(TARGET)
+	@echo "构建完成: $(TARGET)"
+
+# 编译主程序（需要链接 LLVM 库）
+$(TARGET): $(MAIN_SRC)
+	$(CC) $(CFLAGS) $(LLVM_CFLAGS) $(INCLUDES) -o $@ $^ $(LLVM_LDFLAGS) $(LLVM_LIBS)
 
 # 运行所有测试
 test: test-arena test-ast test-lexer test-parser test-checker test-codegen
@@ -99,6 +107,6 @@ $(CODEGEN_TEST): $(CODEGEN_TEST_SRC)
 
 # 清理编译产物
 clean:
-	rm -f $(ARENA_TEST) $(AST_TEST) $(LEXER_TEST) $(PARSER_TEST) $(CHECKER_TEST) $(CODEGEN_TEST)
+	rm -f $(ARENA_TEST) $(AST_TEST) $(LEXER_TEST) $(PARSER_TEST) $(CHECKER_TEST) $(CODEGEN_TEST) $(TARGET)
 	@echo "清理完成"
 
