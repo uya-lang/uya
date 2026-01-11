@@ -9,11 +9,13 @@ INCLUDES = -Isrc
 SRC_DIR = src
 TEST_DIR = tests
 
-# Arena 测试
+# 测试目标
 ARENA_TEST = tests/test_arena
 ARENA_TEST_SRC = tests/test_arena.c src/arena.c
+AST_TEST = tests/test_ast
+AST_TEST_SRC = tests/test_ast.c src/ast.c src/arena.c
 
-.PHONY: all build test clean test-arena
+.PHONY: all build test clean test-arena test-ast
 
 # 默认目标
 all: build
@@ -23,7 +25,7 @@ build:
 	@echo "构建目标（待实现）"
 
 # 运行所有测试
-test: test-arena
+test: test-arena test-ast
 	@echo "所有测试完成"
 
 # Arena 分配器测试
@@ -35,8 +37,17 @@ test-arena: $(ARENA_TEST)
 $(ARENA_TEST): $(ARENA_TEST_SRC)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
+# AST 测试
+test-ast: $(AST_TEST)
+	@echo "运行 AST 节点创建测试..."
+	./$(AST_TEST)
+
+# 编译 AST 测试
+$(AST_TEST): $(AST_TEST_SRC)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
+
 # 清理编译产物
 clean:
-	rm -f $(ARENA_TEST)
+	rm -f $(ARENA_TEST) $(AST_TEST)
 	@echo "清理完成"
 
