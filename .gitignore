@@ -23,3 +23,6 @@ compiler/output_complex.c
 compiler/src/main.o
 compiler-mini/tests/test_arena.exe
 compiler-mini/tests/test_ast
+compiler-mini/tests/test_lexer
+compiler-mini/tests/test_arena
+compiler-mini/tests/test_parser
