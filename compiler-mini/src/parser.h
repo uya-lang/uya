@@ -24,5 +24,20 @@ int parser_init(Parser *parser, Lexer *lexer, Arena *arena);
 // 返回：AST_PROGRAM 节点，失败返回 NULL
 ASTNode *parser_parse(Parser *parser);
 
+// 解析声明（函数、结构体或变量声明）
+// 参数：parser - Parser 指针
+// 返回：声明节点（AST_FN_DECL, AST_STRUCT_DECL, 或 AST_VAR_DECL），失败返回 NULL
+ASTNode *parser_parse_declaration(Parser *parser);
+
+// 解析函数声明
+// 参数：parser - Parser 指针
+// 返回：AST_FN_DECL 节点，失败返回 NULL
+ASTNode *parser_parse_function(Parser *parser);
+
+// 解析结构体声明
+// 参数：parser - Parser 指针
+// 返回：AST_STRUCT_DECL 节点，失败返回 NULL
+ASTNode *parser_parse_struct(Parser *parser);
+
 #endif // PARSER_H
 
