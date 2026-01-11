@@ -42,7 +42,20 @@ for uya_file in "$TEST_DIR"/*.uya; do
         fi
         
         # 链接目标文件为可执行文件
-        gcc "$BUILD_DIR/${base_name}.o" -o "$BUILD_DIR/$base_name"
+        # 对于 extern_function 测试，需要链接外部函数实现
+        if [ "$base_name" = "extern_function" ]; then
+            # 编译外部函数实现
+            gcc -c tests/programs/extern_function_impl.c -o "$BUILD_DIR/extern_function_impl.o"
+            if [ $? -ne 0 ]; then
+                echo "  ❌ 编译外部函数实现失败"
+                FAILED=$((FAILED + 1))
+                continue
+            fi
+            # 链接主程序和外部函数实现
+            gcc "$BUILD_DIR/${base_name}.o" "$BUILD_DIR/extern_function_impl.o" -o "$BUILD_DIR/$base_name"
+        else
+            gcc "$BUILD_DIR/${base_name}.o" -o "$BUILD_DIR/$base_name"
+        fi
         if [ $? -ne 0 ]; then
             echo "  ❌ 链接失败"
             FAILED=$((FAILED + 1))
