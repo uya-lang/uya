@@ -1,0 +1,31 @@
+// 结构体函数参数和返回值测试
+// 测试结构体在函数中的传递
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn add_points(p1: Point, p2: Point) Point {
+    return Point{ x: p1.x + p2.x, y: p1.y + p2.y };
+}
+
+fn get_x(p: Point) i32 {
+    return p.x;
+}
+
+fn main() i32 {
+    const p1: Point = Point{ x: 10, y: 20 };
+    const p2: Point = Point{ x: 30, y: 40 };
+    
+    const sum: Point = add_points(p1, p2);
+    
+    if sum.x == 40 && sum.y == 60 {
+        const x: i32 = get_x(sum);
+        if x == 40 {
+            return 0;
+        }
+    }
+    return 1;
+}
+

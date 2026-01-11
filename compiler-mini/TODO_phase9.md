@@ -18,7 +18,7 @@
 
 ✅ **阶段9已完成**
 
-**已创建的测试程序**：
+**已创建的测试程序**（共15个）：
 - `simple_function.uya` - 简单函数测试
 - `arithmetic.uya` - 算术运算测试
 - `control_flow.uya` - 控制流测试
@@ -28,6 +28,12 @@
 - `unary_expr.uya` - 一元表达式测试
 - `assignment.uya` - 赋值测试
 - `nested_struct.uya` - 嵌套结构体测试
+- `scope_shadowing.uya` - 变量遮蔽测试
+- `operator_precedence.uya` - 运算符优先级测试
+- `nested_control.uya` - 嵌套控制流测试
+- `struct_params.uya` - 结构体函数参数测试
+- `multi_param.uya` - 多参数函数测试
+- `complex_expr.uya` - 复杂表达式测试
 
 **已创建的测试工具**：
 - `tests/run_programs.sh` - 测试程序运行脚本
