@@ -272,97 +272,54 @@ func (g *Generator) genBlock(inst *ir.BlockInst) error {
 }
 
 // genFuncDef generates a function definition
+// Implementation moved to inst_func.go for defer/errdefer support
 func (g *Generator) genFuncDef(inst *ir.FuncDefInst) error {
-	// Skip test functions in production mode (functions starting with @test$)
-	if len(inst.Name) >= 6 && inst.Name[0:6] == "@test$" {
-		return nil
-	}
-
-	// Save previous function context
-	prevFunc := g.currentFunc
-	g.currentFunc = inst
-	defer func() {
-		g.currentFunc = prevFunc
-	}()
-
-	// Write return type
-	if inst.ReturnTypeIsErrorUnion {
-		// TODO: Generate error union type name
-		if err := g.Write("/* error union return type */ "); err != nil {
-			return err
-		}
-	} else {
-		cType := GetCTypeWithName(inst.ReturnType, inst.ReturnTypeOriginalName)
-		if err := g.Write(cType); err != nil {
-			return err
-		}
-		if err := g.Write(" "); err != nil {
-			return err
-		}
-	}
-
-	// Write function name
-	if err := g.Writef("%s(", inst.Name); err != nil {
-		return err
-	}
-
-	// Write parameters
-	for i, param := range inst.Params {
-		if i > 0 {
-			if err := g.Write(", "); err != nil {
-				return err
-			}
-		}
-		// Type assert to VarDeclInst to access fields
-		if varDecl, ok := param.(*ir.VarDeclInst); ok {
-			cType := GetCTypeForVarDecl(varDecl.Typ, varDecl.OriginalTypeName, varDecl.IsAtomic)
-			if err := g.Write(cType); err != nil {
-				return err
-			}
-			if err := g.Writef(" %s", varDecl.Name); err != nil {
-				return err
-			}
-		} else {
-			// Fallback for non-VarDeclInst parameters
-			cType := GetCType(ir.TypeI32)
-			if err := g.Writef("%s param_%d", cType, i); err != nil {
-				return err
-			}
-		}
-	}
-
-	// Write function body
-	if err := g.Write(") {\n"); err != nil {
-		return err
-	}
-
-	// Generate function body
-	for _, stmt := range inst.Body {
-		if err := g.Write("  "); err != nil {
-			return err
-		}
-		if err := g.GenerateInst(stmt); err != nil {
-			return err
-		}
-		if err := g.Write("\n"); err != nil {
-			return err
-		}
-	}
-
-	return g.Write("}\n\n")
+	// This function is now implemented in inst_func.go
+	// to support full defer/errdefer LIFO stack management
+	return g.genFuncDefWithDefer(inst)
 }
 
 // genDefer generates a defer statement
 func (g *Generator) genDefer(inst *ir.DeferInst) error {
-	// TODO: Implement defer statement code generation
-	// For now, generate a placeholder
-	return g.Write("/* TODO: defer block */")
+	// Defer in Uya: defer { block }
+	// In C, defer is typically implemented using goto labels and cleanup blocks
+	// For now, generate the deferred block directly (simplified implementation)
+	// TODO: Full implementation needs to stack defer blocks and execute them in reverse order
+	
+	if len(inst.Body) > 0 {
+		// Generate deferred block
+		for _, stmt := range inst.Body {
+			if err := g.GenerateInst(stmt); err != nil {
+				return err
+			}
+			if err := g.Write("\n"); err != nil {
+				return err
+			}
+		}
+	}
+	
+	return nil
 }
 
 // genErrDefer generates an errdefer statement
 func (g *Generator) genErrDefer(inst *ir.ErrDeferInst) error {
-	// TODO: Implement errdefer statement code generation
-	// For now, generate a placeholder
-	return g.Write("/* TODO: errdefer block */")
+	// Errdefer in Uya: errdefer { block }
+	// Similar to defer, but only executes on error return
+	// For now, generate the deferred block directly (simplified implementation)
+	// TODO: Full implementation needs error-aware defer stacking
+	
+	if len(inst.Body) > 0 {
+		// Generate deferred block
+		for _, stmt := range inst.Body {
+			if err := g.GenerateInst(stmt); err != nil {
+				return err
+			}
+			if err := g.Write("\n"); err != nil {
+				return err
+			}
+		}
+	}
+	
+	return nil
 }
 
