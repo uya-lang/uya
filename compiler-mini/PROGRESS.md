@@ -910,6 +910,7 @@
 ## 📚 重要参考
 
 - `spec/UYA_MINI_SPEC.md` - **语言规范（必须参考）**
+- `TODO_uya_mini_extension.md` - **Uya Mini 规范扩展任务（自举重构准备）**
 - `TODO.md` - 任务索引（链接到各阶段详细任务）
 - `CONTEXT_SWITCH.md` - 上下文切换指南
 - `.cursorrules` - 开发规则

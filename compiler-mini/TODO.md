@@ -30,6 +30,7 @@
 ## 重要参考文档
 
 - `spec/UYA_MINI_SPEC.md` - **Uya Mini 语言规范（必须参考）**
+- `TODO_uya_mini_extension.md` - **Uya Mini 规范扩展任务（自举重构时参考）**
 - `../uya.md` - Uya 语言完整规范
 - `../uya_ai_prompt.md` - Uya 语言 AI 提示词
 - `../compiler/architecture.md` - Uya 编译器架构设计
@@ -49,6 +50,7 @@
 - [阶段9：测试和验证](TODO_phase9.md) ✅
 - [待实现特性清单](TODO_pending_features.md) ✅ 已完成
 - [Bug 修复待办事项](TODO_bugfixes.md) 🔄 进行中
+- [Uya Mini 规范扩展 TODO](TODO_uya_mini_extension.md) ⏭️ 自举重构准备
 - [阶段10：将 C99 编译器翻译成 Uya](TODO_phase10.md) ⏭️ 未来计划
 
 ---

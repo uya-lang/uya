@@ -56,6 +56,7 @@ make clean         # 清理编译产物
 ## 文档
 
 - [语言规范](spec/UYA_MINI_SPEC.md) - Uya Mini 完整语言规范
+- [规范扩展 TODO](TODO_uya_mini_extension.md) - Uya Mini 规范扩展任务（自举重构准备）
 - [开发规则](.cursorrules) - 开发规则和规范
 - [待办事项](TODO.md) - 实现任务索引
 - [进度跟踪](PROGRESS.md) - 当前实现进度

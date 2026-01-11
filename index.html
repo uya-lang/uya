@@ -1777,7 +1777,7 @@ fn main() i32 {
                                 <tr>
                                     <td><code>sizeof</code></td>
                                     <td><code>fn sizeof(T) i32</code></td>
-                                    <td>返回类型 <code>T</code> 的字节大小（编译期常量，需导入 <code>std.mem</code>）</td>
+                                    <td>返回类型 <code>T</code> 的字节大小（编译期常量，内置函数）</td>
                                 </tr>
                                 <tr>
                                     <td><code>alignof</code></td>
@@ -1804,7 +1804,7 @@ fn main() i32 {
                     </div>
                     
                     <div class="note">
-                        <p><strong>说明：</strong><code>len</code>、<code>try</code> 关键字和运算符是编译器内置的，编译期展开，自动可用，无需导入或声明。<code>sizeof</code> 和 <code>alignof</code> 是标准库函数（位于 <code>std/mem.uya</code>），需要导入使用，编译期折叠为常数。</p>
+                        <p><strong>说明：</strong><code>len</code>、<code>sizeof</code>、<code>try</code> 关键字和运算符是编译器内置的，编译期展开，自动可用，无需导入或声明。<code>alignof</code> 是标准库函数（位于 <code>std/mem.uya</code>），需要导入使用，编译期折叠为常数。</p>
                     </div>
                     
                     <h3>sizeof 和 alignof 示例</h3>
@@ -1813,7 +1813,7 @@ fn main() i32 {
                             <span>示例：类型大小和对齐</span>
                             <button class="code-copy">复制</button>
                         </div>
-                        <pre><code class="language-uya">use std.mem.{sizeof, alignof};
+                        <pre><code class="language-uya">use std.mem.alignof;
 
 struct Vec3 {
     x: f32,
