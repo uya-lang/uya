@@ -1,0 +1,17 @@
+// 逻辑表达式测试2
+// 测试简单的逻辑与表达式（使用布尔变量）
+
+fn main() i32 {
+    const x: i32 = 10;
+    const y: i32 = 5;
+    
+    const cond1: bool = x > y;
+    const cond2: bool = y > 0;
+    
+    // 使用布尔变量的逻辑与
+    if cond1 && cond2 {
+        return 0;
+    }
+    return 1;
+}
+

@@ -1,0 +1,15 @@
+// 逻辑表达式测试4
+// 测试长的逻辑与表达式链（类似 comparison.uya）
+
+fn main() i32 {
+    const a: i32 = 10;
+    const b: i32 = 20;
+    const c: i32 = 10;
+    
+    // 长的逻辑与表达式链
+    if a < b && b > a && a <= c && b >= a && a == c && a != b {
+        return 0;
+    }
+    return 1;
+}
+

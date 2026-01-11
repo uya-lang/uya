@@ -22,22 +22,44 @@
 **问题描述**：
 - 链接错误：`undefined reference to 'main'`
 - `nm` 检查显示目标文件中只有 `is_positive` 和 `is_even` 函数，缺少 `main` 函数
+- LLVM IR 检查显示 `boolean_logic_debug.ll` 只有 `is_positive` 和 `is_even` 函数，没有 `main` 函数
 
-**状态**：🔴 待修复
+**状态**：🟡 调查中（已定位问题）
 
-**可能原因**：
-- 代码生成器没有生成 main 函数
-- 或者代码生成失败但编译器没有报告错误
+**根本原因**：
+- **已确认**：`main` 函数根本没有被生成到 LLVM 模块中（从 LLVM IR 可以看出）
+- **问题定位**：逻辑与（`&&`）运算符导致函数体生成失败
+  - 使用逻辑与（`&&`）的 `main` 函数都没有被生成
+  - 使用逻辑或（`||`）的 `main` 函数可以正常生成（`logical_expr3.uya` 测试通过）
+  - 只有比较表达式（无逻辑运算符）的 `if` 语句也能正常工作（`simple_function.uya` 测试通过）
+
+**调试发现**：
+1. 已添加 LLVM IR 输出功能（`.ll` 文件），可以查看生成的 IR
+2. 创建了逻辑表达式测试程序：
+   - `logical_expr.uya` - 简单的逻辑与表达式（失败）
+   - `logical_expr2.uya` - 使用布尔变量的逻辑与表达式（失败）
+   - `logical_expr3.uya` - 逻辑或表达式（成功）
+   - `logical_expr4.uya` - 长的逻辑与表达式链（失败）
+3. 所有包含逻辑与（`&&`）表达式的程序都失败，但编译器没有报错（返回码为0）
+4. 逻辑与和逻辑或使用相同的处理代码路径，但结果不同
 
 **修复步骤**：
-1. 检查编译器编译 boolean_logic.uya 时是否有错误输出
-2. 检查代码生成器是否正确生成所有函数（包括 main）
-3. 验证函数代码生成逻辑是否正确处理所有函数声明
+1. ✅ 添加 LLVM IR 输出功能，可以查看生成的 IR
+2. ✅ 创建逻辑表达式测试程序，确认问题出在逻辑与运算符
+3. 🔄 调查为什么逻辑与运算符会导致函数体生成失败但错误未被传播
+4. 🔄 检查 `codegen_gen_expr()` 中逻辑与运算符的处理逻辑
+5. 🔄 添加调试输出，查看逻辑与表达式处理时的具体错误位置
+6. 🔄 修复逻辑与运算符的代码生成问题
 
 **相关文件**：
 - `tests/programs/boolean_logic.uya`
-- `src/codegen.c` - `codegen_gen_function()` 函数
-- `src/codegen.c` - `codegen_generate()` 函数
+- `tests/programs/logical_expr.uya`（新创建的测试程序）
+- `tests/programs/logical_expr2.uya`（新创建的测试程序）
+- `tests/programs/logical_expr3.uya`（新创建的测试程序，逻辑或，可以工作）
+- `tests/programs/logical_expr4.uya`（新创建的测试程序）
+- `src/codegen.c` - `codegen_gen_function()` 函数（第1260行）
+- `src/codegen.c` - `codegen_gen_expr()` 函数（第564行，逻辑运算符处理在第722-741行）
+- `src/codegen.c` - `codegen_generate()` 函数（第1517-1540行，已添加 IR 输出）
 
 ---
 
@@ -45,15 +67,21 @@
 
 **问题描述**：
 - 链接错误：`undefined reference to 'main'`
-- 与 boolean_logic.uya 相同的问题
+- LLVM IR 检查显示 `comparison_debug.ll` 只有模块头，完全没有函数定义
+- 与问题 1 相同的问题（逻辑与运算符）
 
-**状态**：🔴 待修复
+**状态**：🟡 调查中（与问题1相同根本原因）
+
+**根本原因**：
+- **已确认**：与问题1相同，逻辑与（`&&`）运算符导致 `main` 函数没有被生成
+- `comparison.uya` 的 `if` 条件包含长的逻辑与表达式链：`a < b && b > a && a <= c && b >= a && a == c && a != b`
 
 **修复步骤**：
-- 与问题 1 相同（可能是相同根本原因）
+- 与问题 1 相同（相同根本原因，修复问题1后应该也能解决此问题）
 
 **相关文件**：
 - `tests/programs/comparison.uya`
+- `tests/programs/logical_expr4.uya`（新创建的测试程序，相同模式）
 - `src/codegen.c`
 
 ---

@@ -1,0 +1,13 @@
+// 简单的 if 语句测试（不使用逻辑运算符）
+
+fn main() i32 {
+    const a: i32 = 10;
+    const b: i32 = 20;
+    
+    // 只有比较表达式，没有逻辑运算符
+    if a < b {
+        return 0;
+    }
+    return 1;
+}
+

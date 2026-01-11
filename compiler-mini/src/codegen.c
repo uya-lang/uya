@@ -719,15 +719,25 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             }
             
             // 逻辑运算符（布尔值，i1）
-            // 简化实现：对于逻辑运算符，假设操作数是布尔类型（i1）
-            // 实际实现中，应该从类型检查信息获取操作数类型
-            if (op == TOKEN_LOGICAL_AND) {
-                // 逻辑与：对于 i1 类型，使用 AND
-                // 简化：假设操作数是布尔类型
-                return LLVMBuildAnd(codegen->builder, left_val, right_val, "");
-            } else if (op == TOKEN_LOGICAL_OR) {
-                // 逻辑或：对于 i1 类型，使用 OR
-                return LLVMBuildOr(codegen->builder, left_val, right_val, "");
+            // 逻辑运算符的操作数必须是布尔类型（i1）
+            if (op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR) {
+                // 检查操作数类型是否为整数类型（i1是整数类型）
+                if (LLVMGetTypeKind(left_type) == LLVMIntegerTypeKind &&
+                    LLVMGetTypeKind(right_type) == LLVMIntegerTypeKind) {
+                    // 检查是否为i1类型（布尔类型）
+                    unsigned left_bitwidth = LLVMGetIntTypeWidth(left_type);
+                    unsigned right_bitwidth = LLVMGetIntTypeWidth(right_type);
+                    if (left_bitwidth == 1 && right_bitwidth == 1) {
+                        // 操作数都是i1类型，可以使用AND或OR
+                        if (op == TOKEN_LOGICAL_AND) {
+                            return LLVMBuildAnd(codegen->builder, left_val, right_val, "");
+                        } else if (op == TOKEN_LOGICAL_OR) {
+                            return LLVMBuildOr(codegen->builder, left_val, right_val, "");
+                        }
+                    }
+                }
+                // 操作数类型不匹配，返回NULL
+                return NULL;
             }
             
             return NULL;
@@ -1504,7 +1514,32 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
         }
     }
     
-    // 第三步：生成目标代码
+    // 第三步：输出 LLVM IR 到文件（用于调试）
+    // 生成 IR 文件名（将 .o 扩展名替换为 .ll）
+    size_t output_len = strlen(output_file);
+    char ir_file[1024];  // 使用固定大小缓冲区
+    if (output_len + 1 < sizeof(ir_file)) {
+        strcpy(ir_file, output_file);
+        // 查找最后一个点，替换扩展名为 .ll
+        char *last_dot = strrchr(ir_file, '.');
+        if (last_dot != NULL) {
+            strcpy(last_dot, ".ll");
+        } else {
+            // 没有扩展名，直接添加 .ll
+            strcat(ir_file, ".ll");
+        }
+        // 输出 IR 到文件
+        char *ir_error = NULL;
+        if (LLVMPrintModuleToFile(codegen->module, ir_file, &ir_error) != 0) {
+            // IR 输出失败，但不影响目标代码生成，只记录错误
+            if (ir_error) {
+                // 可以在这里打印错误，但为了不干扰正常流程，只释放错误消息
+                LLVMDisposeMessage(ir_error);
+            }
+        }
+    }
+    
+    // 第四步：生成目标代码
     // 初始化LLVM目标（只需要初始化一次，但重复初始化是安全的）
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();

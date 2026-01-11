@@ -59,3 +59,7 @@ compiler-mini/tests/programs/multi_param
 compiler-mini/tests/programs/simple_function
 compiler-mini/tests/programs/struct_params
 compiler-mini/tests/programs/void_function
+compiler-mini/tests/programs/*.ll
+compiler-mini/tests/programs/*.bc
+compiler-mini/tests/programs/*.ll
+compiler-mini/tests/programs/*.bc
