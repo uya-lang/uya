@@ -24,6 +24,23 @@ typedef struct CodeGenerator {
         LLVMTypeRef llvm_type;      // LLVM 结构体类型
     } struct_types[64];             // 固定大小（最多支持64个结构体类型）
     int struct_type_count;          // 当前结构体类型数量
+    
+    // 当前函数的变量表（固定大小数组，存储变量名到LLVM值的映射）
+    // 用于代码生成时查找局部变量（使用 alloca 分配的栈变量）
+    struct VarMap {
+        const char *name;           // 变量名称（存储在 Arena 中）
+        LLVMValueRef value;         // LLVM 值（alloca 指令返回的指针）
+        LLVMTypeRef type;           // 变量类型（用于 LLVMBuildLoad2）
+    } var_map[256];                 // 固定大小（最多支持256个局部变量）
+    int var_map_count;              // 当前变量数量
+    
+    // 函数映射表（固定大小数组，存储函数名到LLVM函数值的映射）
+    // 用于代码生成时查找函数引用
+    struct FuncMap {
+        const char *name;           // 函数名称（存储在 Arena 中）
+        LLVMValueRef func;          // LLVM 函数值
+    } func_map[64];                 // 固定大小（最多支持64个函数）
+    int func_map_count;             // 当前函数数量
 } CodeGenerator;
 
 // 创建代码生成器
@@ -65,8 +82,15 @@ LLVMTypeRef codegen_get_struct_type(CodeGenerator *codegen, const char *struct_n
 //       expr - 表达式AST节点
 // 返回：LLVM值引用（LLVMValueRef），失败返回NULL
 // 注意：此函数需要在函数上下文中调用（builder需要在函数的基本块中）
-//       标识符和函数调用需要变量表和函数表（将在函数代码生成时提供）
+//       标识符和函数调用使用变量表和函数表查找
 LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr);
+
+// 生成语句代码（从语句AST节点生成LLVM IR指令）
+// 参数：codegen - 代码生成器指针
+//       stmt - 语句AST节点
+// 返回：成功返回0，失败返回非0
+// 注意：此函数需要在函数上下文中调用（builder需要在函数的基本块中）
+int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt);
 
 #endif // CODEGEN_H
 

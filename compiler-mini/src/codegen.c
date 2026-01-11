@@ -51,6 +51,10 @@ int codegen_new(CodeGenerator *codegen, Arena *arena, const char *module_name) {
     // 初始化结构体类型映射表
     codegen->struct_type_count = 0;
     
+    // 初始化变量表和函数表
+    codegen->var_map_count = 0;
+    codegen->func_map_count = 0;
+    
     return 0;
 }
 
@@ -215,12 +219,122 @@ int codegen_register_struct_type(CodeGenerator *codegen, ASTNode *struct_decl) {
     return 0;
 }
 
+// 辅助函数：在变量表中查找变量
+// 参数：codegen - 代码生成器指针
+//       var_name - 变量名称
+// 返回：LLVM值引用（变量指针），未找到返回NULL
+static LLVMValueRef lookup_var(CodeGenerator *codegen, const char *var_name) {
+    if (!codegen || !var_name) {
+        return NULL;
+    }
+    
+    // 线性查找（从后向前查找，支持变量遮蔽）
+    for (int i = codegen->var_map_count - 1; i >= 0; i--) {
+        if (codegen->var_map[i].name != NULL && 
+            strcmp(codegen->var_map[i].name, var_name) == 0) {
+            return codegen->var_map[i].value;
+        }
+    }
+    
+    return NULL;  // 未找到
+}
+
+// 辅助函数：在变量表中查找变量类型
+// 参数：codegen - 代码生成器指针
+//       var_name - 变量名称
+// 返回：LLVM类型引用，未找到返回NULL
+static LLVMTypeRef lookup_var_type(CodeGenerator *codegen, const char *var_name) {
+    if (!codegen || !var_name) {
+        return NULL;
+    }
+    
+    // 线性查找（从后向前查找，支持变量遮蔽）
+    for (int i = codegen->var_map_count - 1; i >= 0; i--) {
+        if (codegen->var_map[i].name != NULL && 
+            strcmp(codegen->var_map[i].name, var_name) == 0) {
+            return codegen->var_map[i].type;
+        }
+    }
+    
+    return NULL;  // 未找到
+}
+
+// 辅助函数：在变量表中添加变量
+// 参数：codegen - 代码生成器指针
+//       var_name - 变量名称（存储在 Arena 中）
+//       value - LLVM值（变量指针）
+//       type - 变量类型（用于 LLVMBuildLoad2）
+// 返回：成功返回0，失败返回非0
+static int add_var(CodeGenerator *codegen, const char *var_name, LLVMValueRef value, LLVMTypeRef type) {
+    if (!codegen || !var_name || !value || !type) {
+        return -1;
+    }
+    
+    // 检查映射表是否已满
+    if (codegen->var_map_count >= 256) {
+        return -1;  // 映射表已满
+    }
+    
+    // 添加到映射表
+    int idx = codegen->var_map_count;
+    codegen->var_map[idx].name = var_name;
+    codegen->var_map[idx].value = value;
+    codegen->var_map[idx].type = type;
+    codegen->var_map_count++;
+    
+    return 0;
+}
+
+// 辅助函数：在函数表中查找函数
+// 参数：codegen - 代码生成器指针
+//       func_name - 函数名称
+// 返回：LLVM函数值，未找到返回NULL
+static LLVMValueRef lookup_func(CodeGenerator *codegen, const char *func_name) {
+    if (!codegen || !func_name) {
+        return NULL;
+    }
+    
+    // 线性查找
+    for (int i = 0; i < codegen->func_map_count; i++) {
+        if (codegen->func_map[i].name != NULL && 
+            strcmp(codegen->func_map[i].name, func_name) == 0) {
+            return codegen->func_map[i].func;
+        }
+    }
+    
+    return NULL;  // 未找到
+}
+
+// 辅助函数：在函数表中添加函数
+// 参数：codegen - 代码生成器指针
+//       func_name - 函数名称（存储在 Arena 中）
+//       func - LLVM函数值
+// 返回：成功返回0，失败返回非0
+static int add_func(CodeGenerator *codegen, const char *func_name, LLVMValueRef func) {
+    if (!codegen || !func_name || !func) {
+        return -1;
+    }
+    
+    // 检查映射表是否已满
+    if (codegen->func_map_count >= 64) {
+        return -1;  // 映射表已满
+    }
+    
+    // 添加到映射表
+    int idx = codegen->func_map_count;
+    codegen->func_map[idx].name = func_name;
+    codegen->func_map[idx].func = func;
+    codegen->func_map_count++;
+    
+    return 0;
+}
+
 // 生成表达式代码（从表达式AST节点生成LLVM值）
 // 参数：codegen - 代码生成器指针
 //       expr - 表达式AST节点
 // 返回：LLVM值引用（LLVMValueRef），失败返回NULL
 // 注意：此函数需要在函数上下文中调用（builder需要在函数的基本块中）
-//       标识符和函数调用需要变量表和函数表（将在函数代码生成时提供）
+//       标识符和函数调用使用变量表和函数表查找
 LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
     if (!codegen || !expr || !codegen->builder) {
         return NULL;
@@ -361,15 +475,72 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             return NULL;
         }
         
-        case AST_IDENTIFIER:
-            // 标识符：需要变量表（将在函数代码生成时实现）
-            // TODO: 在函数代码生成时实现变量查找
-            return NULL;
+        case AST_IDENTIFIER: {
+            // 标识符：从变量表查找变量，然后加载值
+            const char *var_name = expr->data.identifier.name;
+            if (!var_name) {
+                return NULL;
+            }
             
-        case AST_CALL_EXPR:
-            // 函数调用：需要函数表（将在函数代码生成时实现）
-            // TODO: 在函数代码生成时实现函数调用
-            return NULL;
+            // 查找变量
+            LLVMValueRef var_ptr = lookup_var(codegen, var_name);
+            if (!var_ptr) {
+                return NULL;  // 变量未找到
+            }
+            
+            // 使用 LLVMBuildLoad2 加载变量值（LLVM 18 使用新 API）
+            // 从变量表查找变量类型
+            LLVMTypeRef var_type = lookup_var_type(codegen, var_name);
+            if (!var_type) {
+                return NULL;
+            }
+            return LLVMBuildLoad2(codegen->builder, var_type, var_ptr, var_name);
+        }
+            
+        case AST_CALL_EXPR: {
+            // 函数调用：从函数表查找函数，然后调用
+            ASTNode *callee = expr->data.call_expr.callee;
+            if (!callee || callee->type != AST_IDENTIFIER) {
+                return NULL;
+            }
+            
+            const char *func_name = callee->data.identifier.name;
+            if (!func_name) {
+                return NULL;
+            }
+            
+            // 查找函数
+            LLVMValueRef func = lookup_func(codegen, func_name);
+            if (!func) {
+                return NULL;  // 函数未找到
+            }
+            
+            // 生成参数值
+            int arg_count = expr->data.call_expr.arg_count;
+            if (arg_count > 16) {
+                return NULL;  // 参数过多（限制为16个）
+            }
+            
+            LLVMValueRef args[16];
+            for (int i = 0; i < arg_count; i++) {
+                ASTNode *arg_expr = expr->data.call_expr.args[i];
+                if (!arg_expr) {
+                    return NULL;
+                }
+                args[i] = codegen_gen_expr(codegen, arg_expr);
+                if (!args[i]) {
+                    return NULL;
+                }
+            }
+            
+            // 调用函数（LLVM 18 使用 LLVMBuildCall2）
+            // 获取函数类型（LLVMTypeOf 返回函数签名类型）
+            LLVMTypeRef func_type = LLVMTypeOf(func);
+            if (!func_type) {
+                return NULL;
+            }
+            return LLVMBuildCall2(codegen->builder, func_type, func, args, arg_count, "");
+        }
             
         case AST_MEMBER_ACCESS:
             // 字段访问：需要结构体类型信息（将在结构体处理时实现）
@@ -383,6 +554,257 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             
         default:
             return NULL;
+    }
+}
+
+// 生成语句代码（从语句AST节点生成LLVM IR指令）
+// 参数：codegen - 代码生成器指针
+//       stmt - 语句AST节点
+// 返回：成功返回0，失败返回非0
+// 注意：此函数需要在函数上下文中调用（builder需要在函数的基本块中）
+int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
+    if (!codegen || !stmt || !codegen->builder) {
+        return -1;
+    }
+    
+    switch (stmt->type) {
+        case AST_VAR_DECL: {
+            // 变量声明：使用 alloca 分配栈空间，如果有初始值则 store
+            const char *var_name = stmt->data.var_decl.name;
+            ASTNode *var_type = stmt->data.var_decl.type;
+            ASTNode *init_expr = stmt->data.var_decl.init;
+            
+            if (!var_name || !var_type) {
+                return -1;
+            }
+            
+            // 获取变量类型
+            LLVMTypeRef llvm_type = get_llvm_type_from_ast(codegen, var_type);
+            if (!llvm_type) {
+                return -1;
+            }
+            
+            // 使用 alloca 分配栈空间
+            LLVMValueRef var_ptr = LLVMBuildAlloca(codegen->builder, llvm_type, var_name);
+            if (!var_ptr) {
+                return -1;
+            }
+            
+            // 添加到变量表
+            if (add_var(codegen, var_name, var_ptr, llvm_type) != 0) {
+                return -1;
+            }
+            
+            // 如果有初始值，生成初始值代码并 store
+            if (init_expr) {
+                LLVMValueRef init_val = codegen_gen_expr(codegen, init_expr);
+                if (!init_val) {
+                    return -1;
+                }
+                LLVMBuildStore(codegen->builder, init_val, var_ptr);
+            }
+            
+            return 0;
+        }
+        
+        case AST_RETURN_STMT: {
+            // return 语句：生成返回值并返回（void函数返回NULL）
+            ASTNode *return_expr = stmt->data.return_stmt.expr;
+            
+            if (return_expr) {
+                // 有返回值：生成返回值表达式并返回
+                LLVMValueRef return_val = codegen_gen_expr(codegen, return_expr);
+                if (!return_val) {
+                    return -1;
+                }
+                LLVMBuildRet(codegen->builder, return_val);
+            } else {
+                // void 返回
+                LLVMBuildRetVoid(codegen->builder);
+            }
+            
+            return 0;
+        }
+        
+        case AST_ASSIGN: {
+            // 赋值语句：生成源表达式值，store 到目标变量
+            ASTNode *dest = stmt->data.assign.dest;
+            ASTNode *src = stmt->data.assign.src;
+            
+            if (!dest || !src) {
+                return -1;
+            }
+            
+            // 目标必须是标识符
+            if (dest->type != AST_IDENTIFIER) {
+                return -1;  // 暂不支持其他类型的赋值目标
+            }
+            
+            const char *var_name = dest->data.identifier.name;
+            if (!var_name) {
+                return -1;
+            }
+            
+            // 查找变量
+            LLVMValueRef var_ptr = lookup_var(codegen, var_name);
+            if (!var_ptr) {
+                return -1;  // 变量未找到
+            }
+            
+            // 生成源表达式值
+            LLVMValueRef src_val = codegen_gen_expr(codegen, src);
+            if (!src_val) {
+                return -1;
+            }
+            
+            // store 值到变量
+            LLVMBuildStore(codegen->builder, src_val, var_ptr);
+            
+            return 0;
+        }
+        
+        case AST_EXPR_STMT: {
+            // 表达式语句：根据 parser 实现，表达式语句直接返回表达式节点
+            // 而不是 AST_EXPR_STMT 节点，所以这里不应该被执行
+            // 但为了完整性，如果遇到这种情况，尝试将其当作表达式处理
+            LLVMValueRef expr_val = codegen_gen_expr(codegen, stmt);
+            // 忽略返回值（即使失败也返回0，因为表达式语句的返回值不重要）
+            (void)expr_val;
+            return 0;
+        }
+        
+        case AST_BLOCK: {
+            // 代码块：递归处理语句列表
+            int stmt_count = stmt->data.block.stmt_count;
+            ASTNode **stmts = stmt->data.block.stmts;
+            
+            for (int i = 0; i < stmt_count; i++) {
+                if (!stmts[i]) {
+                    continue;
+                }
+                if (codegen_gen_stmt(codegen, stmts[i]) != 0) {
+                    return -1;
+                }
+            }
+            
+            return 0;
+        }
+        
+        case AST_IF_STMT: {
+            // if 语句：创建条件分支基本块
+            ASTNode *condition = stmt->data.if_stmt.condition;
+            ASTNode *then_branch = stmt->data.if_stmt.then_branch;
+            ASTNode *else_branch = stmt->data.if_stmt.else_branch;
+            
+            if (!condition || !then_branch) {
+                return -1;
+            }
+            
+            // 生成条件表达式
+            LLVMValueRef cond_val = codegen_gen_expr(codegen, condition);
+            if (!cond_val) {
+                return -1;
+            }
+            
+            // 获取当前函数和基本块
+            LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(codegen->builder));
+            if (!current_func) {
+                return -1;
+            }
+            
+            // 创建 then 基本块
+            LLVMBasicBlockRef then_bb = LLVMAppendBasicBlock(current_func, "if.then");
+            LLVMBasicBlockRef end_bb = LLVMAppendBasicBlock(current_func, "if.end");
+            LLVMBasicBlockRef else_bb = NULL;
+            if (else_branch) {
+                else_bb = LLVMAppendBasicBlock(current_func, "if.else");
+            }
+            
+            // 条件分支
+            if (else_bb) {
+                LLVMBuildCondBr(codegen->builder, cond_val, then_bb, else_bb);
+            } else {
+                LLVMBuildCondBr(codegen->builder, cond_val, then_bb, end_bb);
+            }
+            
+            // 生成 then 分支
+            LLVMPositionBuilderAtEnd(codegen->builder, then_bb);
+            if (codegen_gen_stmt(codegen, then_branch) != 0) {
+                return -1;
+            }
+            // then 分支结束前跳转到 end
+            LLVMBuildBr(codegen->builder, end_bb);
+            
+            // 生成 else 分支（如果有）
+            if (else_bb && else_branch) {
+                LLVMPositionBuilderAtEnd(codegen->builder, else_bb);
+                if (codegen_gen_stmt(codegen, else_branch) != 0) {
+                    return -1;
+                }
+                // else 分支结束前跳转到 end
+                LLVMBuildBr(codegen->builder, end_bb);
+            }
+            
+            // 设置构建器到 end 基本块
+            LLVMPositionBuilderAtEnd(codegen->builder, end_bb);
+            
+            return 0;
+        }
+        
+        case AST_WHILE_STMT: {
+            // while 语句：创建循环基本块
+            ASTNode *condition = stmt->data.while_stmt.condition;
+            ASTNode *body = stmt->data.while_stmt.body;
+            
+            if (!condition || !body) {
+                return -1;
+            }
+            
+            // 获取当前函数
+            LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(codegen->builder));
+            if (!current_func) {
+                return -1;
+            }
+            
+            // 创建基本块：cond（条件检查）、body（循环体）、end（结束）
+            LLVMBasicBlockRef cond_bb = LLVMAppendBasicBlock(current_func, "while.cond");
+            LLVMBasicBlockRef body_bb = LLVMAppendBasicBlock(current_func, "while.body");
+            LLVMBasicBlockRef end_bb = LLVMAppendBasicBlock(current_func, "while.end");
+            
+            // 跳转到条件检查
+            LLVMBuildBr(codegen->builder, cond_bb);
+            
+            // 生成条件检查
+            LLVMPositionBuilderAtEnd(codegen->builder, cond_bb);
+            LLVMValueRef cond_val = codegen_gen_expr(codegen, condition);
+            if (!cond_val) {
+                return -1;
+            }
+            LLVMBuildCondBr(codegen->builder, cond_val, body_bb, end_bb);
+            
+            // 生成循环体
+            LLVMPositionBuilderAtEnd(codegen->builder, body_bb);
+            if (codegen_gen_stmt(codegen, body) != 0) {
+                return -1;
+            }
+            // 循环体结束前跳转到条件检查
+            LLVMBuildBr(codegen->builder, cond_bb);
+            
+            // 设置构建器到 end 基本块
+            LLVMPositionBuilderAtEnd(codegen->builder, end_bb);
+            
+            return 0;
+        }
+        
+        default: {
+            // 未知语句类型，或者可能是表达式节点（表达式语句）
+            // 根据 parser 实现，表达式语句直接返回表达式节点
+            // 尝试将其当作表达式处理（忽略返回值）
+            LLVMValueRef expr_val = codegen_gen_expr(codegen, stmt);
+            // 忽略返回值（即使失败也返回0，因为表达式语句的返回值不重要）
+            (void)expr_val;
+            return 0;
+        }
     }
 }
 
