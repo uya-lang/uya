@@ -1658,8 +1658,26 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
     }
     
     // 生成LLVM IR文本到文件，用于调试
+    // 基于输出文件名生成 .ll 文件路径（将 .o 替换为 .ll）
+    char ir_file[512];  // 足够大的缓冲区
+    size_t max_len = sizeof(ir_file) - 4;  // 保留空间给 ".ll\0"
+    size_t output_len = strlen(output_file);
+    if (output_len > max_len) {
+        output_len = max_len;
+    }
+    strncpy(ir_file, output_file, output_len);
+    ir_file[output_len] = '\0';
+    
+    // 查找最后一个点号，如果以 .o 结尾则替换，否则追加 .ll
+    char *last_dot = strrchr(ir_file, '.');
+    if (last_dot && strcmp(last_dot, ".o") == 0) {
+        strcpy(last_dot, ".ll");
+    } else {
+        strcat(ir_file, ".ll");
+    }
+    
     char *ir_error = NULL;
-    LLVMPrintModuleToFile(codegen->module, "test.ll", &ir_error);
+    LLVMPrintModuleToFile(codegen->module, ir_file, &ir_error);
     if (ir_error) {
         LLVMDisposeMessage(ir_error);
         ir_error = NULL;

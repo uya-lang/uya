@@ -52,7 +52,7 @@ build: $(TARGET)
 	@echo "构建完成: $(TARGET)"
 
 # 编译主程序（需要链接 LLVM 库）
-$(TARGET): $(MAIN_SRC) | $(BUILD_DIR)
+$(TARGET): $(MAIN_SRC) | $(BUILD_DIR)/.dir
 	$(CC) $(CFLAGS) $(LLVM_CFLAGS) $(INCLUDES) -o $@ $^ $(LLVM_LDFLAGS) $(LLVM_LIBS)
 
 # 运行所有测试
@@ -65,7 +65,7 @@ test-arena: $(ARENA_TEST)
 	./$(ARENA_TEST)
 
 # 编译 Arena 测试
-$(ARENA_TEST): $(ARENA_TEST_SRC) | $(BUILD_DIR)/tests
+$(ARENA_TEST): $(ARENA_TEST_SRC) | $(BUILD_DIR)/tests/.dir
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 # AST 测试
@@ -74,7 +74,7 @@ test-ast: $(AST_TEST)
 	./$(AST_TEST)
 
 # 编译 AST 测试
-$(AST_TEST): $(AST_TEST_SRC) | $(BUILD_DIR)/tests
+$(AST_TEST): $(AST_TEST_SRC) | $(BUILD_DIR)/tests/.dir
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 # Lexer 测试
@@ -83,7 +83,7 @@ test-lexer: $(LEXER_TEST)
 	./$(LEXER_TEST)
 
 # 编译 Lexer 测试
-$(LEXER_TEST): $(LEXER_TEST_SRC) | $(BUILD_DIR)/tests
+$(LEXER_TEST): $(LEXER_TEST_SRC) | $(BUILD_DIR)/tests/.dir
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 # Parser 测试
@@ -92,7 +92,7 @@ test-parser: $(PARSER_TEST)
 	./$(PARSER_TEST)
 
 # 编译 Parser 测试
-$(PARSER_TEST): $(PARSER_TEST_SRC) | $(BUILD_DIR)/tests
+$(PARSER_TEST): $(PARSER_TEST_SRC) | $(BUILD_DIR)/tests/.dir
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 # Checker 测试
@@ -101,7 +101,7 @@ test-checker: $(CHECKER_TEST)
 	./$(CHECKER_TEST)
 
 # 编译 Checker 测试
-$(CHECKER_TEST): $(CHECKER_TEST_SRC) | $(BUILD_DIR)/tests
+$(CHECKER_TEST): $(CHECKER_TEST_SRC) | $(BUILD_DIR)/tests/.dir
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 # CodeGen 测试
@@ -110,13 +110,13 @@ test-codegen: $(CODEGEN_TEST)
 	./$(CODEGEN_TEST)
 
 # 编译 CodeGen 测试（需要链接 LLVM 库）
-$(CODEGEN_TEST): $(CODEGEN_TEST_SRC) | $(BUILD_DIR)/tests
+$(CODEGEN_TEST): $(CODEGEN_TEST_SRC) | $(BUILD_DIR)/tests/.dir
 	$(CC) $(CFLAGS) $(LLVM_CFLAGS) $(INCLUDES) -o $@ $^ $(LLVM_LDFLAGS) $(LLVM_LIBS)
 
 # 编译所有测试程序
 compile-programs: $(TARGET) $(PROGRAM_BINARIES)
 
-$(PROGRAM_BINARIES): $(BUILD_DIR)/$(PROGRAMS_DIR)/%: $(PROGRAMS_DIR)/%.uya | $(BUILD_DIR)/$(PROGRAMS_DIR)
+$(PROGRAM_BINARIES): $(BUILD_DIR)/$(PROGRAMS_DIR)/%: $(PROGRAMS_DIR)/%.uya | $(BUILD_DIR)/$(PROGRAMS_DIR)/.dir
 	@echo "编译测试程序: $<"
 	./$(TARGET) $< -o $@
 
@@ -125,15 +125,18 @@ test-programs: compile-programs
 	@echo "运行 Uya 测试程序..."
 	@bash tests/run_programs.sh
 
-# 创建构建目录
-$(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)
+# 创建构建目录（使用中间目标避免与 build 目标冲突）
+$(BUILD_DIR)/.dir:
+	@mkdir -p $(BUILD_DIR)
+	@touch $@
 
-$(BUILD_DIR)/tests: | $(BUILD_DIR)
-	mkdir -p $(BUILD_DIR)/tests
+$(BUILD_DIR)/tests/.dir: | $(BUILD_DIR)/.dir
+	@mkdir -p $(BUILD_DIR)/tests
+	@touch $@
 
-$(BUILD_DIR)/$(PROGRAMS_DIR): | $(BUILD_DIR)
-	mkdir -p $(BUILD_DIR)/$(PROGRAMS_DIR)
+$(BUILD_DIR)/$(PROGRAMS_DIR)/.dir: | $(BUILD_DIR)/.dir
+	@mkdir -p $(BUILD_DIR)/$(PROGRAMS_DIR)
+	@touch $@
 
 # 清理编译产物
 clean:
