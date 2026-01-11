@@ -18,8 +18,10 @@ LEXER_TEST = tests/test_lexer
 LEXER_TEST_SRC = tests/test_lexer.c src/lexer.c src/arena.c
 PARSER_TEST = tests/test_parser
 PARSER_TEST_SRC = tests/test_parser.c src/parser.c src/lexer.c src/ast.c src/arena.c
+CHECKER_TEST = tests/test_checker
+CHECKER_TEST_SRC = tests/test_checker.c src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
 
-.PHONY: all build test clean test-arena test-ast test-lexer test-parser
+.PHONY: all build test clean test-arena test-ast test-lexer test-parser test-checker
 
 # 默认目标
 all: build
@@ -29,7 +31,7 @@ build:
 	@echo "构建目标（待实现）"
 
 # 运行所有测试
-test: test-arena test-ast test-lexer test-parser
+test: test-arena test-ast test-lexer test-parser test-checker
 	@echo "所有测试完成"
 
 # Arena 分配器测试
@@ -68,8 +70,17 @@ test-parser: $(PARSER_TEST)
 $(PARSER_TEST): $(PARSER_TEST_SRC)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
+# Checker 测试
+test-checker: $(CHECKER_TEST)
+	@echo "运行 Checker 测试..."
+	./$(CHECKER_TEST)
+
+# 编译 Checker 测试
+$(CHECKER_TEST): $(CHECKER_TEST_SRC)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
+
 # 清理编译产物
 clean:
-	rm -f $(ARENA_TEST) $(AST_TEST) $(LEXER_TEST) $(PARSER_TEST)
+	rm -f $(ARENA_TEST) $(AST_TEST) $(LEXER_TEST) $(PARSER_TEST) $(CHECKER_TEST)
 	@echo "清理完成"
 

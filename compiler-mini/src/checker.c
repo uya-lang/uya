@@ -460,15 +460,602 @@ static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char 
     return NULL;
 }
 
-// 类型检查主函数（基础框架，待实现）
+// 报告类型错误（增加错误计数）
+// 参数：checker - TypeChecker 指针
+static void checker_report_error(TypeChecker *checker) {
+    if (checker != NULL) {
+        checker->error_count++;
+    }
+}
+
+// 检查表达式类型是否匹配预期类型
+// 参数：checker - TypeChecker 指针，expr - 表达式节点，expected_type - 预期类型
+// 返回：1 表示类型匹配，0 表示类型不匹配
+static int checker_check_expr_type(TypeChecker *checker, ASTNode *expr, Type expected_type) {
+    if (checker == NULL || expr == NULL) {
+        return 0;
+    }
+    
+    Type actual_type = checker_infer_type(checker, expr);
+    if (type_equals(actual_type, expected_type)) {
+        return 1;
+    }
+    
+    // 类型不匹配，报告错误
+    checker_report_error(checker);
+    return 0;
+}
+
+// 在结构体声明中查找字段
+// 参数：struct_decl - 结构体声明节点，field_name - 字段名称
+// 返回：找到的字段类型，未找到返回TYPE_VOID类型
+static Type find_struct_field_type(ASTNode *struct_decl, const char *field_name) {
+    Type result;
+    result.kind = TYPE_VOID;
+    result.struct_name = NULL;
+    
+    if (struct_decl == NULL || struct_decl->type != AST_STRUCT_DECL || field_name == NULL) {
+        return result;
+    }
+    
+    for (int i = 0; i < struct_decl->data.struct_decl.field_count; i++) {
+        ASTNode *field = struct_decl->data.struct_decl.fields[i];
+        if (field != NULL && field->type == AST_VAR_DECL) {
+            if (field->data.var_decl.name != NULL && 
+                strcmp(field->data.var_decl.name, field_name) == 0) {
+                // 找到字段，返回字段类型
+                return type_from_ast(NULL, field->data.var_decl.type);
+            }
+        }
+    }
+    
+    return result;
+}
+
+// 检查变量声明
+// 参数：checker - TypeChecker 指针，node - 变量声明节点
+// 返回：1 表示检查通过，0 表示检查失败
+static int checker_check_var_decl(TypeChecker *checker, ASTNode *node) {
+    if (checker == NULL || node == NULL || node->type != AST_VAR_DECL) {
+        return 0;
+    }
+    
+    // 获取变量类型
+    Type var_type = type_from_ast(checker, node->data.var_decl.type);
+    if (var_type.kind == TYPE_VOID && node->data.var_decl.type != NULL) {
+        // 结构体类型需要在程序节点中查找
+        if (node->data.var_decl.type->type == AST_TYPE_NAMED) {
+            const char *type_name = node->data.var_decl.type->data.type_named.name;
+            if (type_name != NULL && strcmp(type_name, "i32") != 0 && 
+                strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0) {
+                // 可能是结构体类型，检查是否存在
+                ASTNode *struct_decl = find_struct_decl_from_program(checker->program_node, type_name);
+                if (struct_decl == NULL) {
+                    // 结构体类型未定义
+                    checker_report_error(checker);
+                    return 0;
+                }
+                var_type.kind = TYPE_STRUCT;
+                var_type.struct_name = type_name;
+            }
+        }
+    }
+    
+    // 检查初始化表达式类型
+    if (node->data.var_decl.init != NULL) {
+        // 先递归检查初始化表达式本身（包括函数调用、运算符等的类型检查）
+        checker_check_node(checker, node->data.var_decl.init);
+        // 然后推断类型并比较
+        Type init_type = checker_infer_type(checker, node->data.var_decl.init);
+        if (!type_equals(init_type, var_type)) {
+            // 初始化表达式类型不匹配
+            checker_report_error(checker);
+            return 0;
+        }
+    }
+    
+    // 将变量添加到符号表
+    Symbol *symbol = (Symbol *)arena_alloc(checker->arena, sizeof(Symbol));
+    if (symbol == NULL) {
+        return 0;
+    }
+    symbol->name = node->data.var_decl.name;
+    symbol->type = var_type;
+    symbol->is_const = node->data.var_decl.is_const;
+    symbol->scope_level = checker->scope_level;
+    symbol->line = node->line;
+    symbol->column = node->column;
+    
+    if (symbol_table_insert(checker, symbol) != 0) {
+        // 符号插入失败（可能是重复定义）
+        checker_report_error(checker);
+        return 0;
+    }
+    
+    return 1;
+}
+
+// 检查函数声明
+// 参数：checker - TypeChecker 指针，node - 函数声明节点
+// 返回：1 表示检查通过，0 表示检查失败
+static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
+    if (checker == NULL || node == NULL || node->type != AST_FN_DECL) {
+        return 0;
+    }
+    
+    // 获取返回类型
+    Type return_type = type_from_ast(checker, node->data.fn_decl.return_type);
+    
+    // 创建函数签名
+    FunctionSignature *sig = (FunctionSignature *)arena_alloc(checker->arena, sizeof(FunctionSignature));
+    if (sig == NULL) {
+        return 0;
+    }
+    sig->name = node->data.fn_decl.name;
+    sig->param_count = node->data.fn_decl.param_count;
+    sig->return_type = return_type;
+    sig->is_extern = 0;  // 普通函数
+    sig->line = node->line;
+    sig->column = node->column;
+    
+    // 分配参数类型数组
+    if (sig->param_count > 0) {
+        sig->param_types = (Type *)arena_alloc(checker->arena, sizeof(Type) * sig->param_count);
+        if (sig->param_types == NULL) {
+            return 0;
+        }
+    } else {
+        sig->param_types = NULL;
+    }
+    
+    // 将函数添加到函数表
+    if (function_table_insert(checker, sig) != 0) {
+        // 函数重复定义
+        checker_report_error(checker);
+        return 0;
+    }
+    
+    // 检查函数体（如果有）
+    if (node->data.fn_decl.body != NULL) {
+        checker_enter_scope(checker);
+        
+        // 将参数添加到符号表
+        for (int i = 0; i < node->data.fn_decl.param_count; i++) {
+            ASTNode *param = node->data.fn_decl.params[i];
+            if (param != NULL && param->type == AST_VAR_DECL) {
+                Type param_type = type_from_ast(checker, param->data.var_decl.type);
+                sig->param_types[i] = param_type;
+                
+                // 将参数添加到符号表
+                Symbol *param_symbol = (Symbol *)arena_alloc(checker->arena, sizeof(Symbol));
+                if (param_symbol != NULL) {
+                    param_symbol->name = param->data.var_decl.name;
+                    param_symbol->type = param_type;
+                    param_symbol->is_const = 1;  // 参数是只读的
+                    param_symbol->scope_level = checker->scope_level;
+                    param_symbol->line = param->line;
+                    param_symbol->column = param->column;
+                    symbol_table_insert(checker, param_symbol);
+                }
+            }
+        }
+        
+        // 检查函数体
+        checker_check_node(checker, node->data.fn_decl.body);
+        
+        checker_exit_scope(checker);
+    }
+    
+    return 1;
+}
+
+// 检查结构体声明
+// 参数：checker - TypeChecker 指针，node - 结构体声明节点
+// 返回：1 表示检查通过，0 表示检查失败
+static int checker_check_struct_decl(TypeChecker *checker, ASTNode *node) {
+    if (checker == NULL || node == NULL || node->type != AST_STRUCT_DECL) {
+        return 0;
+    }
+    
+    // 检查字段
+    for (int i = 0; i < node->data.struct_decl.field_count; i++) {
+        ASTNode *field = node->data.struct_decl.fields[i];
+        if (field != NULL && field->type == AST_VAR_DECL) {
+            // 检查字段类型
+            Type field_type = type_from_ast(checker, field->data.var_decl.type);
+            if (field_type.kind == TYPE_VOID && field->data.var_decl.type != NULL) {
+                // 可能是结构体类型，检查是否存在（但结构体可能前向引用，这里暂时不检查）
+                // TODO: 支持前向声明或两遍检查
+            }
+        }
+    }
+    
+    return 1;
+}
+
+// 检查函数调用
+// 参数：checker - TypeChecker 指针，node - 函数调用节点
+// 返回：函数返回类型（如果检查失败返回TYPE_VOID）
+static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
+    Type result;
+    result.kind = TYPE_VOID;
+    result.struct_name = NULL;
+    
+    if (checker == NULL || node == NULL || node->type != AST_CALL_EXPR) {
+        return result;
+    }
+    
+    // 查找被调用的函数
+    ASTNode *callee = node->data.call_expr.callee;
+    if (callee == NULL || callee->type != AST_IDENTIFIER) {
+        checker_report_error(checker);
+        return result;
+    }
+    
+    FunctionSignature *sig = function_table_lookup(checker, callee->data.identifier.name);
+    if (sig == NULL) {
+        // 函数未定义
+        checker_report_error(checker);
+        return result;
+    }
+    
+    // 检查参数个数
+    if (node->data.call_expr.arg_count != sig->param_count) {
+        checker_report_error(checker);
+        return result;
+    }
+    
+    // 检查参数类型
+    for (int i = 0; i < node->data.call_expr.arg_count; i++) {
+        ASTNode *arg = node->data.call_expr.args[i];
+        if (arg != NULL && !checker_check_expr_type(checker, arg, sig->param_types[i])) {
+            // 参数类型不匹配
+            return result;
+        }
+    }
+    
+    return sig->return_type;
+}
+
+// 检查字段访问
+// 参数：checker - TypeChecker 指针，node - 字段访问节点
+// 返回：字段类型（如果检查失败返回TYPE_VOID）
+static Type checker_check_member_access(TypeChecker *checker, ASTNode *node) {
+    Type result;
+    result.kind = TYPE_VOID;
+    result.struct_name = NULL;
+    
+    if (checker == NULL || node == NULL || node->type != AST_MEMBER_ACCESS) {
+        return result;
+    }
+    
+    // 获取对象类型
+    Type object_type = checker_infer_type(checker, node->data.member_access.object);
+    if (object_type.kind != TYPE_STRUCT || object_type.struct_name == NULL) {
+        // 对象类型不是结构体
+        checker_report_error(checker);
+        return result;
+    }
+    
+    // 查找结构体声明
+    ASTNode *struct_decl = find_struct_decl_from_program(checker->program_node, object_type.struct_name);
+    if (struct_decl == NULL) {
+        checker_report_error(checker);
+        return result;
+    }
+    
+    // 查找字段类型
+    Type field_type = find_struct_field_type(struct_decl, node->data.member_access.field_name);
+    if (field_type.kind == TYPE_VOID) {
+        // 字段不存在
+        checker_report_error(checker);
+        return result;
+    }
+    
+    return field_type;
+}
+
+// 检查结构体字面量
+// 参数：checker - TypeChecker 指针，node - 结构体字面量节点
+// 返回：结构体类型（如果检查失败返回TYPE_VOID）
+static Type checker_check_struct_init(TypeChecker *checker, ASTNode *node) {
+    Type result;
+    result.kind = TYPE_VOID;
+    result.struct_name = NULL;
+    
+    if (checker == NULL || node == NULL || node->type != AST_STRUCT_INIT) {
+        return result;
+    }
+    
+    const char *struct_name = node->data.struct_init.struct_name;
+    if (struct_name == NULL) {
+        checker_report_error(checker);
+        return result;
+    }
+    
+    // 查找结构体声明
+    ASTNode *struct_decl = find_struct_decl_from_program(checker->program_node, struct_name);
+    if (struct_decl == NULL) {
+        checker_report_error(checker);
+        return result;
+    }
+    
+    // 检查字段数量和类型
+    if (node->data.struct_init.field_count != struct_decl->data.struct_decl.field_count) {
+        checker_report_error(checker);
+        return result;
+    }
+    
+    // 检查每个字段的类型
+    for (int i = 0; i < node->data.struct_init.field_count; i++) {
+        const char *field_name = node->data.struct_init.field_names[i];
+        ASTNode *field_value = node->data.struct_init.field_values[i];
+        
+        Type field_type = find_struct_field_type(struct_decl, field_name);
+        if (field_type.kind == TYPE_VOID) {
+            checker_report_error(checker);
+            return result;
+        }
+        
+        if (!checker_check_expr_type(checker, field_value, field_type)) {
+            return result;
+        }
+    }
+    
+    result.kind = TYPE_STRUCT;
+    result.struct_name = struct_name;
+    return result;
+}
+
+// 检查二元表达式
+// 参数：checker - TypeChecker 指针，node - 二元表达式节点
+// 返回：表达式类型（如果检查失败返回TYPE_VOID）
+static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
+    Type result;
+    result.kind = TYPE_VOID;
+    result.struct_name = NULL;
+    
+    if (checker == NULL || node == NULL || node->type != AST_BINARY_EXPR) {
+        return result;
+    }
+    
+    int op = node->data.binary_expr.op;
+    Type left_type = checker_infer_type(checker, node->data.binary_expr.left);
+    Type right_type = checker_infer_type(checker, node->data.binary_expr.right);
+    
+    // 算术运算符：操作数必须是i32
+    if (op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_ASTERISK || 
+        op == TOKEN_SLASH || op == TOKEN_PERCENT) {
+        if (left_type.kind != TYPE_I32 || right_type.kind != TYPE_I32) {
+            checker_report_error(checker);
+            return result;
+        }
+        result.kind = TYPE_I32;
+        result.struct_name = NULL;
+        return result;
+    }
+    
+    // 比较运算符：操作数类型必须相同
+    if (op == TOKEN_EQUAL || op == TOKEN_NOT_EQUAL || op == TOKEN_LESS || 
+        op == TOKEN_GREATER || op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL) {
+        if (!type_equals(left_type, right_type)) {
+            checker_report_error(checker);
+            return result;
+        }
+        result.kind = TYPE_BOOL;
+        result.struct_name = NULL;
+        return result;
+    }
+    
+    // 逻辑运算符：操作数必须是bool
+    if (op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR) {
+        if (left_type.kind != TYPE_BOOL || right_type.kind != TYPE_BOOL) {
+            checker_report_error(checker);
+            return result;
+        }
+        result.kind = TYPE_BOOL;
+        result.struct_name = NULL;
+        return result;
+    }
+    
+    return result;
+}
+
+// 检查一元表达式
+// 参数：checker - TypeChecker 指针，node - 一元表达式节点
+// 返回：表达式类型（如果检查失败返回TYPE_VOID）
+static Type checker_check_unary_expr(TypeChecker *checker, ASTNode *node) {
+    Type result;
+    result.kind = TYPE_VOID;
+    result.struct_name = NULL;
+    
+    if (checker == NULL || node == NULL || node->type != AST_UNARY_EXPR) {
+        return result;
+    }
+    
+    int op = node->data.unary_expr.op;
+    Type operand_type = checker_infer_type(checker, node->data.unary_expr.operand);
+    
+    if (op == TOKEN_EXCLAMATION) {
+        // 逻辑非：操作数必须是bool
+        if (operand_type.kind != TYPE_BOOL) {
+            checker_report_error(checker);
+            return result;
+        }
+        result.kind = TYPE_BOOL;
+        result.struct_name = NULL;
+        return result;
+    } else if (op == TOKEN_MINUS) {
+        // 一元负号：操作数必须是i32
+        if (operand_type.kind != TYPE_I32) {
+            checker_report_error(checker);
+            return result;
+        }
+        result.kind = TYPE_I32;
+        result.struct_name = NULL;
+        return result;
+    }
+    
+    return result;
+}
+
+// 递归类型检查节点函数
+// 参数：checker - TypeChecker 指针，node - AST节点
+// 返回：1 表示检查通过，0 表示检查失败
+static int checker_check_node(TypeChecker *checker, ASTNode *node) {
+    if (checker == NULL || node == NULL) {
+        return 0;
+    }
+    
+    switch (node->type) {
+        case AST_PROGRAM:
+            // 检查所有声明
+            for (int i = 0; i < node->data.program.decl_count; i++) {
+                ASTNode *decl = node->data.program.decls[i];
+                if (decl != NULL) {
+                    checker_check_node(checker, decl);
+                }
+            }
+            return 1;
+            
+        case AST_STRUCT_DECL:
+            return checker_check_struct_decl(checker, node);
+            
+        case AST_FN_DECL:
+            return checker_check_fn_decl(checker, node);
+            
+        case AST_VAR_DECL:
+            return checker_check_var_decl(checker, node);
+            
+        case AST_BLOCK:
+            checker_enter_scope(checker);
+            for (int i = 0; i < node->data.block.stmt_count; i++) {
+                ASTNode *stmt = node->data.block.stmts[i];
+                if (stmt != NULL) {
+                    checker_check_node(checker, stmt);
+                }
+            }
+            checker_exit_scope(checker);
+            return 1;
+            
+        case AST_IF_STMT: {
+            // 检查条件类型（必须是bool）
+            Type cond_type = checker_infer_type(checker, node->data.if_stmt.condition);
+            if (cond_type.kind != TYPE_BOOL) {
+                checker_report_error(checker);
+            }
+            // 检查then分支
+            if (node->data.if_stmt.then_branch != NULL) {
+                checker_check_node(checker, node->data.if_stmt.then_branch);
+            }
+            // 检查else分支
+            if (node->data.if_stmt.else_branch != NULL) {
+                checker_check_node(checker, node->data.if_stmt.else_branch);
+            }
+            return 1;
+        }
+        
+        case AST_WHILE_STMT: {
+            // 检查条件类型（必须是bool）
+            Type cond_type = checker_infer_type(checker, node->data.while_stmt.condition);
+            if (cond_type.kind != TYPE_BOOL) {
+                checker_report_error(checker);
+            }
+            // 检查循环体
+            if (node->data.while_stmt.body != NULL) {
+                checker_check_node(checker, node->data.while_stmt.body);
+            }
+            return 1;
+        }
+        
+        case AST_RETURN_STMT: {
+            // TODO: 检查返回值类型是否匹配函数返回类型
+            // 这需要在函数上下文中检查，暂时跳过
+            if (node->data.return_stmt.expr != NULL) {
+                checker_infer_type(checker, node->data.return_stmt.expr);
+            }
+            return 1;
+        }
+        
+        case AST_ASSIGN: {
+            // 检查目标是否为var（不能是const）
+            ASTNode *dest = node->data.assign.dest;
+            if (dest == NULL || dest->type != AST_IDENTIFIER) {
+                checker_report_error(checker);
+                return 0;
+            }
+            
+            Symbol *symbol = symbol_table_lookup(checker, dest->data.identifier.name);
+            if (symbol == NULL) {
+                checker_report_error(checker);
+                return 0;
+            }
+            
+            if (symbol->is_const) {
+                // 不能给const变量赋值
+                checker_report_error(checker);
+                return 0;
+            }
+            
+            // 检查赋值类型匹配
+            if (!checker_check_expr_type(checker, node->data.assign.src, symbol->type)) {
+                return 0;
+            }
+            
+            return 1;
+        }
+        
+        case AST_EXPR_STMT: {
+            // 表达式语句：表达式语句在解析时直接返回表达式节点
+            // 所以AST_EXPR_STMT节点本身应该被当作表达式节点处理
+            // 但由于AST_EXPR_STMT在union中没有对应的数据结构，这里直接跳过
+            // 实际上，表达式语句在parser中已经作为表达式节点返回，不会到达这里
+            return 1;
+        }
+        
+        case AST_BINARY_EXPR:
+            checker_check_binary_expr(checker, node);
+            return 1;
+            
+        case AST_UNARY_EXPR:
+            checker_check_unary_expr(checker, node);
+            return 1;
+            
+        case AST_CALL_EXPR:
+            checker_check_call_expr(checker, node);
+            return 1;
+            
+        case AST_MEMBER_ACCESS:
+            checker_check_member_access(checker, node);
+            return 1;
+            
+        case AST_STRUCT_INIT:
+            checker_check_struct_init(checker, node);
+            return 1;
+            
+        case AST_IDENTIFIER:
+        case AST_NUMBER:
+        case AST_BOOL:
+        case AST_TYPE_NAMED:
+            // 这些节点类型不需要单独检查（在表达式中检查）
+            return 1;
+            
+        default:
+            return 1;
+    }
+}
+
+// 类型检查主函数
 int checker_check(TypeChecker *checker, ASTNode *ast) {
     if (checker == NULL || ast == NULL) {
         return -1;
     }
     
     checker->program_node = ast;
+    checker->error_count = 0;
     
-    // TODO: 实现类型检查逻辑
+    // 检查程序节点
+    checker_check_node(checker, ast);
     
     return 0;
 }
