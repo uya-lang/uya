@@ -297,6 +297,60 @@ static LLVMValueRef lookup_var(CodeGenerator *codegen, const char *var_name) {
     return NULL;  // 未找到
 }
 
+// 辅助函数：生成左值表达式的地址
+// 参数：codegen - 代码生成器指针
+//       expr - 左值表达式节点
+// 返回：LLVM值引用（地址），失败返回NULL
+static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *expr) {
+    if (!codegen || !expr) {
+        return NULL;
+    }
+    
+    switch (expr->type) {
+        case AST_IDENTIFIER: {
+            // 标识符（变量）：从变量表查找指针
+            const char *var_name = expr->data.identifier.name;
+            if (!var_name) {
+                return NULL;
+            }
+            return lookup_var(codegen, var_name);
+        }
+        
+        case AST_UNARY_EXPR: {
+            // 解引用表达式：*expr
+            // 对于赋值 *p = value，p 是指针，我们需要返回 p 的值（即指针本身）
+            int op = expr->data.unary_expr.op;
+            if (op != TOKEN_ASTERISK) {
+                return NULL;  // 只有解引用表达式可以作为左值
+            }
+            
+            ASTNode *operand = expr->data.unary_expr.operand;
+            if (!operand) {
+                return NULL;
+            }
+            
+            // 操作数应该是指针类型，直接返回操作数的值（指针值本身）
+            LLVMValueRef operand_val = codegen_gen_expr(codegen, operand);
+            if (!operand_val) {
+                return NULL;
+            }
+            
+            // 验证操作数是指针类型
+            LLVMTypeRef operand_type = LLVMTypeOf(operand_val);
+            if (!operand_type || LLVMGetTypeKind(operand_type) != LLVMPointerTypeKind) {
+                return NULL;  // 操作数不是指针类型
+            }
+            
+            // 返回指针值本身（这是我们要存储的地址）
+            return operand_val;
+        }
+        
+        default:
+            // 暂不支持其他类型的左值（如字段访问、数组访问等）
+            return NULL;
+    }
+}
+
 // 辅助函数：在变量表中查找变量类型
 // 参数：codegen - 代码生成器指针
 //       var_name - 变量名称
@@ -1388,7 +1442,7 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
         }
         
         case AST_ASSIGN: {
-            // 赋值语句：生成源表达式值，store 到目标变量
+            // 赋值语句：生成源表达式值，store 到目标左值表达式
             ASTNode *dest = stmt->data.assign.dest;
             ASTNode *src = stmt->data.assign.src;
             
@@ -1396,20 +1450,10 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 return -1;
             }
             
-            // 目标必须是标识符
-            if (dest->type != AST_IDENTIFIER) {
-                return -1;  // 暂不支持其他类型的赋值目标
-            }
-            
-            const char *var_name = dest->data.identifier.name;
-            if (!var_name) {
-                return -1;
-            }
-            
-            // 查找变量
-            LLVMValueRef var_ptr = lookup_var(codegen, var_name);
-            if (!var_ptr) {
-                return -1;  // 变量未找到
+            // 生成目标左值表达式的地址
+            LLVMValueRef dest_ptr = codegen_gen_lvalue_address(codegen, dest);
+            if (!dest_ptr) {
+                return -1;  // 无法生成左值地址（不支持的类型或错误）
             }
             
             // 生成源表达式值
@@ -1418,8 +1462,9 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 return -1;
             }
             
-            // store 值到变量
-            LLVMBuildStore(codegen->builder, src_val, var_ptr);
+            // store 值到目标地址
+            // LLVMBuildStore 会自动处理类型匹配
+            LLVMBuildStore(codegen->builder, src_val, dest_ptr);
             
             return 0;
         }
