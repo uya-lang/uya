@@ -47,6 +47,7 @@ typedef enum {
     TOKEN_LOGICAL_AND,  // &&
     TOKEN_LOGICAL_OR,   // ||
     TOKEN_EXCLAMATION,  // !
+    TOKEN_AMPERSAND,    // &（取地址运算符）
     
     // 标点符号
     TOKEN_LEFT_PAREN,   // (

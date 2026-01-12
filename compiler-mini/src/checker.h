@@ -11,6 +11,8 @@ typedef enum {
     TYPE_BOOL,     // 布尔类型
     TYPE_VOID,     // void 类型（仅用于函数返回类型）
     TYPE_STRUCT,   // 结构体类型（通过名称引用）
+    TYPE_POINTER,  // 指针类型（&T 或 *T）
+    TYPE_ARRAY,    // 数组类型（[T: N]）
 } TypeKind;
 
 // 类型结构

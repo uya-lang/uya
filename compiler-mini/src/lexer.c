@@ -259,8 +259,8 @@ Token *lexer_next_token(Lexer *lexer, Arena *arena) {
                 advance_char(lexer);
                 return make_token(arena, TOKEN_LOGICAL_AND, "&&", line, column);
             }
-            // 单个 & 不是 Uya Mini 支持的，但这里先跳过
-            return make_token(arena, TOKEN_EOF, NULL, line, column);
+            // 单个 & 是取地址运算符
+            return make_token(arena, TOKEN_AMPERSAND, "&", line, column);
         case '|':
             advance_char(lexer);
             if (peek_char(lexer, 0) == '|') {
