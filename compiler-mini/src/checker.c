@@ -555,6 +555,13 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             return result;
         }
         
+        case AST_SIZEOF: {
+            // sizeof 表达式：返回 i32 类型（字节数）
+            // 注意：这里不验证 target 是否有效，类型检查阶段会验证
+            result.kind = TYPE_I32;
+            return result;
+        }
+        
         default:
             // 其他表达式类型，返回void类型
             result.kind = TYPE_VOID;

@@ -344,8 +344,13 @@
       - ✅ 支持嵌套类型（指针指向结构体、数组元素为指针等）
       - ✅ 数组变量声明代码生成（通过 `get_llvm_type_from_ast()` 已支持，使用 `LLVMBuildAlloca` 分配数组栈空间）
       - ⏳ 数组访问代码生成待完成（需要先实现数组访问的AST节点类型和解析）
+    - ✅ 步骤6：实现 `sizeof` 内置函数（已完成，2026-01-11 续）
+      - ✅ 添加 `TOKEN_SIZEOF` 到 lexer.h 和 lexer.c
+      - ✅ 扩展 `parser_parse_primary_expr()` 支持 `sizeof(Type)` 和 `sizeof(expr)` 语法解析
+      - ✅ 扩展 `checker_infer_type()` 函数支持 sizeof 类型推断（返回 i32 类型）
+      - ✅ 扩展 `codegen_gen_expr()` 函数支持 sizeof 代码生成（基础类型、指针类型、数组类型大小计算）
+      - ⏳ 结构体类型大小计算待完善（需要 TargetData，当前返回错误）
   - 待实现特性（P0 优先级）：
-    - ⏳ 步骤6：实现 `sizeof` 内置函数
     - ⏳ 步骤7：扩展 `extern` 函数声明支持指针类型参数
 - **阶段10：自举实现** - 将 C99 编译器翻译成 Uya 版本 ⏭️ 等待规范扩展完成
   - 参考：`TODO_phase10.md` - 将 C99 编译器翻译成 Uya

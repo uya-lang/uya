@@ -31,6 +31,7 @@ typedef enum {
     TOKEN_WHILE,        // while
     TOKEN_TRUE,         // true
     TOKEN_FALSE,        // false
+    TOKEN_SIZEOF,       // sizeof
     
     // 运算符
     TOKEN_PLUS,         // +

@@ -68,11 +68,13 @@
    - ✅ 数组变量声明代码生成（通过 `get_llvm_type_from_ast()` 已支持）
    - ⏳ 数组访问代码生成待完成（需要先实现数组访问的AST节点类型和解析）
 
-6. ⏳ **实现 `sizeof` 内置函数**（依赖：步骤1、2、3）
-   - 添加 `AST_SIZEOF` 节点类型
-   - 扩展解析器支持 `sizeof(Type)` 和 `sizeof(expr)` 语法
-   - 扩展类型检查器支持 `sizeof` 类型检查（返回 i32 类型）
-   - 扩展代码生成器支持 `sizeof` 代码生成（使用 LLVM 类型大小计算）
+6. ✅ **实现 `sizeof` 内置函数**（已完成，2026-01-11 续）
+   - ✅ AST_SIZEOF 节点类型已存在（在之前的步骤中完成）
+   - ✅ 添加 `TOKEN_SIZEOF` 到 lexer.h 和 lexer.c
+   - ✅ 扩展解析器支持 `sizeof(Type)` 和 `sizeof(expr)` 语法（使用 TOKEN_SIZEOF）
+   - ✅ 扩展类型检查器支持 `sizeof` 类型推断（返回 i32 类型）
+   - ✅ 扩展代码生成器支持 `sizeof` 代码生成（基础类型、指针类型、数组类型大小计算）
+   - ⏳ 结构体类型大小计算待完善（需要 TargetData，当前返回错误）
 
 7. ⏳ **扩展 `extern` 函数声明支持指针类型参数**（依赖：步骤1、2、3）
    - 扩展 `parser_parse_function()` 中的 extern 函数解析支持 `*T` 类型参数

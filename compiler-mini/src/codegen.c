@@ -1179,6 +1179,90 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             // 返回结构体值（load 结构体指针）
             return LLVMBuildLoad2(codegen->builder, struct_type, struct_ptr, "");
         }
+        
+        case AST_SIZEOF: {
+            // sizeof 表达式：返回类型大小（i32 常量）
+            ASTNode *target = expr->data.sizeof_expr.target;
+            int is_type = expr->data.sizeof_expr.is_type;
+            
+            if (!target) {
+                return NULL;
+            }
+            
+            LLVMTypeRef llvm_type = NULL;
+            
+            if (is_type) {
+                // target 是类型节点
+                llvm_type = get_llvm_type_from_ast(codegen, target);
+            } else {
+                // target 是表达式节点，先生成表达式代码获取类型
+                LLVMValueRef target_val = codegen_gen_expr(codegen, target);
+                if (!target_val) {
+                    return NULL;
+                }
+                llvm_type = LLVMTypeOf(target_val);
+            }
+            
+            if (!llvm_type) {
+                return NULL;
+            }
+            
+            // 获取类型大小（字节数）
+            // 注意：这里使用简化实现，对于基础类型直接返回常量
+            // 对于复杂类型（结构体、数组），需要使用 TargetData 获取准确大小
+            unsigned long long size = 0;
+            
+            LLVMTypeKind kind = LLVMGetTypeKind(llvm_type);
+            switch (kind) {
+                case LLVMIntegerTypeKind: {
+                    // 整数类型：根据位宽计算字节数
+                    unsigned width = LLVMGetIntTypeWidth(llvm_type);
+                    size = (width + 7) / 8;  // 向上取整到字节
+                    break;
+                }
+                case LLVMPointerTypeKind:
+                    // 指针类型：64位平台为 8 字节，32位平台为 4 字节
+                    // 这里假设 64 位平台（简化实现）
+                    size = 8;
+                    break;
+                case LLVMArrayTypeKind: {
+                    // 数组类型：元素大小 * 元素数量
+                    LLVMTypeRef element_type = LLVMGetElementType(llvm_type);
+                    unsigned element_count = LLVMGetArrayLength(llvm_type);
+                    // 获取元素大小（递归计算）
+                    // 简化实现：仅支持基础类型的数组
+                    LLVMTypeKind element_kind = LLVMGetTypeKind(element_type);
+                    unsigned long long element_size = 0;
+                    if (element_kind == LLVMIntegerTypeKind) {
+                        unsigned width = LLVMGetIntTypeWidth(element_type);
+                        element_size = (width + 7) / 8;
+                    } else if (element_kind == LLVMPointerTypeKind) {
+                        element_size = 8;
+                    } else {
+                        // 复杂类型，无法简化计算
+                        return NULL;
+                    }
+                    size = element_size * element_count;
+                    break;
+                }
+                case LLVMStructTypeKind: {
+                    // 结构体类型：需要 TargetData 获取准确大小
+                    // 简化实现：暂时返回错误（需要 TargetData）
+                    // TODO: 使用 TargetData 获取结构体大小
+                    return NULL;
+                }
+                default:
+                    // 其他类型，无法计算大小
+                    return NULL;
+            }
+            
+            // 创建 i32 常量
+            LLVMTypeRef i32_type = codegen_get_base_type(codegen, TYPE_I32);
+            if (!i32_type) {
+                return NULL;
+            }
+            return LLVMConstInt(i32_type, size, 0);  // 无符号整数
+        }
             
         default:
             return NULL;
