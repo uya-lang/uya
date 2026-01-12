@@ -281,6 +281,12 @@ Token *lexer_next_token(Lexer *lexer, Arena *arena) {
         case '}':
             advance_char(lexer);
             return make_token(arena, TOKEN_RIGHT_BRACE, "}", line, column);
+        case '[':
+            advance_char(lexer);
+            return make_token(arena, TOKEN_LEFT_BRACKET, "[", line, column);
+        case ']':
+            advance_char(lexer);
+            return make_token(arena, TOKEN_RIGHT_BRACKET, "]", line, column);
         case ';':
             advance_char(lexer);
             return make_token(arena, TOKEN_SEMICOLON, ";", line, column);

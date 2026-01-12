@@ -205,6 +205,79 @@ void test_create_type_node(void) {
     printf("  ✓ 类型节点创建测试通过\n");
 }
 
+// 测试创建指针类型节点
+void test_create_pointer_type_node(void) {
+    printf("测试创建指针类型节点...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    // 创建基础类型节点（i32）
+    ASTNode *i32_type = ast_new_node(AST_TYPE_NAMED, 1, 1, &arena);
+    assert(i32_type != NULL);
+    i32_type->data.type_named.name = arena_strdup(&arena, "i32");
+    
+    // 测试普通指针类型（&i32）
+    ASTNode *pointer_type = ast_new_node(AST_TYPE_POINTER, 1, 2, &arena);
+    assert(pointer_type != NULL);
+    assert(pointer_type->type == AST_TYPE_POINTER);
+    assert(pointer_type->line == 1);
+    assert(pointer_type->column == 2);
+    assert(pointer_type->data.type_pointer.pointed_type == NULL);  // 初始值为 NULL
+    assert(pointer_type->data.type_pointer.is_ffi_pointer == 0);   // 初始值为 0（普通指针）
+    
+    // 设置指向的类型和 FFI 标记
+    pointer_type->data.type_pointer.pointed_type = i32_type;
+    pointer_type->data.type_pointer.is_ffi_pointer = 0;  // 普通指针 &i32
+    assert(pointer_type->data.type_pointer.pointed_type == i32_type);
+    assert(pointer_type->data.type_pointer.is_ffi_pointer == 0);
+    
+    // 测试 FFI 指针类型（*i32）
+    ASTNode *ffi_pointer_type = ast_new_node(AST_TYPE_POINTER, 1, 10, &arena);
+    assert(ffi_pointer_type != NULL);
+    ffi_pointer_type->data.type_pointer.pointed_type = i32_type;
+    ffi_pointer_type->data.type_pointer.is_ffi_pointer = 1;  // FFI 指针 *i32
+    assert(ffi_pointer_type->data.type_pointer.is_ffi_pointer == 1);
+    
+    printf("  ✓ 指针类型节点创建测试通过\n");
+}
+
+// 测试创建数组类型节点
+void test_create_array_type_node(void) {
+    printf("测试创建数组类型节点...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    // 创建基础类型节点（i32）
+    ASTNode *i32_type = ast_new_node(AST_TYPE_NAMED, 1, 1, &arena);
+    assert(i32_type != NULL);
+    i32_type->data.type_named.name = arena_strdup(&arena, "i32");
+    
+    // 创建数组大小表达式节点（数字字面量 10）
+    ASTNode *size_expr = ast_new_node(AST_NUMBER, 1, 6, &arena);
+    assert(size_expr != NULL);
+    size_expr->data.number.value = 10;
+    
+    // 测试数组类型（[i32: 10]）
+    ASTNode *array_type = ast_new_node(AST_TYPE_ARRAY, 1, 2, &arena);
+    assert(array_type != NULL);
+    assert(array_type->type == AST_TYPE_ARRAY);
+    assert(array_type->line == 1);
+    assert(array_type->column == 2);
+    assert(array_type->data.type_array.element_type == NULL);  // 初始值为 NULL
+    assert(array_type->data.type_array.size_expr == NULL);     // 初始值为 NULL
+    
+    // 设置元素类型和大小表达式
+    array_type->data.type_array.element_type = i32_type;
+    array_type->data.type_array.size_expr = size_expr;
+    assert(array_type->data.type_array.element_type == i32_type);
+    assert(array_type->data.type_array.size_expr == size_expr);
+    assert(array_type->data.type_array.size_expr->data.number.value == 10);
+    
+    printf("  ✓ 数组类型节点创建测试通过\n");
+}
+
 // 主测试函数
 int main(void) {
     printf("开始 AST 节点创建测试...\n\n");
@@ -217,6 +290,8 @@ int main(void) {
     test_create_var_decl_node();
     test_create_program_node();
     test_create_type_node();
+    test_create_pointer_type_node();
+    test_create_array_type_node();
     
     printf("\n所有测试通过！\n");
     return 0;

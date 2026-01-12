@@ -33,6 +33,8 @@ typedef enum {
     
     // 类型节点
     AST_TYPE_NAMED,     // 命名类型（i32, bool, void, 或 struct Name）
+    AST_TYPE_POINTER,   // 指针类型（&T 或 *T）
+    AST_TYPE_ARRAY,     // 数组类型（[T: N]）
 } ASTNodeType;
 
 // 基础 AST 节点结构
@@ -156,6 +158,18 @@ struct ASTNode {
         struct {
             const char *name;         // 类型名称（"i32", "bool", "void", 或结构体名称）
         } type_named;
+        
+        // 指针类型节点（&T 或 *T）
+        struct {
+            struct ASTNode *pointed_type;  // 指向的类型节点（从 Arena 分配）
+            int is_ffi_pointer;            // 是否为 FFI 指针（1 表示 *T，0 表示 &T）
+        } type_pointer;
+        
+        // 数组类型节点（[T: N]）
+        struct {
+            struct ASTNode *element_type;  // 元素类型节点（从 Arena 分配）
+            struct ASTNode *size_expr;     // 数组大小表达式节点（必须是编译期常量，从 Arena 分配）
+        } type_array;
     } data;
 };
 

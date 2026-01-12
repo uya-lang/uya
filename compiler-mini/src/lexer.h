@@ -54,6 +54,8 @@ typedef enum {
     TOKEN_RIGHT_PAREN,  // )
     TOKEN_LEFT_BRACE,   // {
     TOKEN_RIGHT_BRACE,  // }
+    TOKEN_LEFT_BRACKET, // [
+    TOKEN_RIGHT_BRACKET,// ]
     TOKEN_SEMICOLON,    // ;
     TOKEN_COMMA,        // ,
     TOKEN_ASSIGN,       // =
