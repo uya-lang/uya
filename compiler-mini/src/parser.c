@@ -1318,8 +1318,8 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
     return NULL;
 }
 
-// 解析一元表达式（! 和 -，右结合）
-// unary_expr = ('!' | '-') unary_expr | primary_expr
+// 解析一元表达式（!, -, &, *，右结合）
+// unary_expr = ('!' | '-' | '&' | '*') unary_expr | primary_expr
 static ASTNode *parser_parse_unary_expr(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
         return NULL;
@@ -1328,8 +1328,11 @@ static ASTNode *parser_parse_unary_expr(Parser *parser) {
     int line = parser->current_token->line;
     int column = parser->current_token->column;
     
-    // 检查一元运算符
-    if (parser_match(parser, TOKEN_EXCLAMATION) || parser_match(parser, TOKEN_MINUS)) {
+    // 检查一元运算符（!, -, &, *）
+    if (parser_match(parser, TOKEN_EXCLAMATION) || 
+        parser_match(parser, TOKEN_MINUS) ||
+        parser_match(parser, TOKEN_AMPERSAND) ||
+        parser_match(parser, TOKEN_ASTERISK)) {
         TokenType op = parser->current_token->type;
         parser_consume(parser);  // 消费运算符
         

@@ -446,6 +446,43 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             } else if (op == TOKEN_MINUS) {
                 // 一元负号（-）返回操作数类型（应为i32）
                 return operand_type;
+            } else if (op == TOKEN_AMPERSAND) {
+                // 取地址（&expr）：返回指向操作数类型的指针类型
+                if (operand_type.kind == TYPE_VOID) {
+                    // 操作数类型无效
+                    result.kind = TYPE_VOID;
+                    return result;
+                }
+                
+                // 分配操作数类型结构（从Arena分配）
+                Type *pointed_type_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
+                if (pointed_type_ptr == NULL) {
+                    result.kind = TYPE_VOID;
+                    return result;
+                }
+                *pointed_type_ptr = operand_type;
+                
+                // 创建指针类型（普通指针）
+                result.kind = TYPE_POINTER;
+                result.data.pointer.pointer_to = pointed_type_ptr;
+                result.data.pointer.is_ffi_pointer = 0;  // 普通指针
+                return result;
+            } else if (op == TOKEN_ASTERISK) {
+                // 解引用（*expr）：操作数必须是指针类型，返回指针指向的类型
+                if (operand_type.kind != TYPE_POINTER) {
+                    // 操作数不是指针类型
+                    result.kind = TYPE_VOID;
+                    return result;
+                }
+                
+                if (operand_type.data.pointer.pointer_to == NULL) {
+                    // 指针类型无效
+                    result.kind = TYPE_VOID;
+                    return result;
+                }
+                
+                // 返回指针指向的类型
+                return *operand_type.data.pointer.pointer_to;
             }
             
             // 其他一元运算符，返回操作数类型
@@ -977,6 +1014,42 @@ static Type checker_check_unary_expr(TypeChecker *checker, ASTNode *node) {
         }
         result.kind = TYPE_I32;
         return result;
+    } else if (op == TOKEN_AMPERSAND) {
+        // 取地址（&expr）：操作数必须是左值（变量、字段访问等）
+        // 注意：这里简化处理，只要操作数类型有效就允许取地址
+        // 完整的左值检查需要在更详细的语义分析阶段进行
+        if (operand_type.kind == TYPE_VOID) {
+            checker_report_error(checker);
+            return result;
+        }
+        
+        // 分配操作数类型结构（从Arena分配）
+        Type *pointed_type_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
+        if (pointed_type_ptr == NULL) {
+            checker_report_error(checker);
+            return result;
+        }
+        *pointed_type_ptr = operand_type;
+        
+        // 返回指向操作数类型的指针类型（普通指针）
+        result.kind = TYPE_POINTER;
+        result.data.pointer.pointer_to = pointed_type_ptr;
+        result.data.pointer.is_ffi_pointer = 0;
+        return result;
+    } else if (op == TOKEN_ASTERISK) {
+        // 解引用（*expr）：操作数必须是指针类型
+        if (operand_type.kind != TYPE_POINTER) {
+            checker_report_error(checker);
+            return result;
+        }
+        
+        if (operand_type.data.pointer.pointer_to == NULL) {
+            checker_report_error(checker);
+            return result;
+        }
+        
+        // 返回指针指向的类型
+        return *operand_type.data.pointer.pointer_to;
     }
     
     return result;
