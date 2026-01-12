@@ -1,0 +1,8 @@
+fn main() i32 {
+    const a: i32 = 10;
+    const b: i32 = 20;
+    if a == 10 && b == 20 {
+        return 0;
+    }
+    return 1;
+}
