@@ -292,37 +292,111 @@ static int type_equals(Type t1, Type t2) {
 // 参数：checker - TypeChecker 指针，type_node - AST类型节点
 // 返回：Type结构，如果类型节点无效返回TYPE_VOID类型
 // 注意：结构体类型名称需要从program_node中查找结构体声明
+//      指针和数组类型的子类型从Arena分配
 static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
     Type result;
-    (void)checker;  // 暂时未使用，避免警告（将来可能用于查找结构体声明）
     
     // 如果类型节点为NULL，返回void类型
-    if (type_node == NULL || type_node->type != AST_TYPE_NAMED) {
-        result.kind = TYPE_VOID;
-        // union 不需要初始化其他字段
-        return result;
-    }
-    
-    const char *type_name = type_node->data.type_named.name;
-    if (type_name == NULL) {
+    if (type_node == NULL) {
         result.kind = TYPE_VOID;
         return result;
     }
     
-    // 根据类型名称确定类型种类
-    if (strcmp(type_name, "i32") == 0) {
-        result.kind = TYPE_I32;
-    } else if (strcmp(type_name, "bool") == 0) {
-        result.kind = TYPE_BOOL;
-    } else if (strcmp(type_name, "void") == 0) {
-        result.kind = TYPE_VOID;
-    } else {
-        // 其他名称视为结构体类型
-        result.kind = TYPE_STRUCT;
-        // 结构体名称需要存储在Arena中（类型节点中的名称已经在Arena中）
-        result.data.struct_name = type_name;
+    // 根据类型节点类型处理
+    if (type_node->type == AST_TYPE_POINTER) {
+        // 指针类型（&T 或 *T）
+        // 递归解析指向的类型
+        Type pointed_type = type_from_ast(checker, type_node->data.type_pointer.pointed_type);
+        if (pointed_type.kind == TYPE_VOID && type_node->data.type_pointer.pointed_type != NULL) {
+            // 指向的类型无效
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        
+        // 分配指向的类型结构（从Arena分配）
+        Type *pointed_type_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
+        if (pointed_type_ptr == NULL) {
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        *pointed_type_ptr = pointed_type;
+        
+        // 创建指针类型
+        result.kind = TYPE_POINTER;
+        result.data.pointer.pointer_to = pointed_type_ptr;
+        result.data.pointer.is_ffi_pointer = type_node->data.type_pointer.is_ffi_pointer;
+        
+        return result;
+    } else if (type_node->type == AST_TYPE_ARRAY) {
+        // 数组类型（[T: N]）
+        // 递归解析元素类型
+        Type element_type = type_from_ast(checker, type_node->data.type_array.element_type);
+        if (element_type.kind == TYPE_VOID && type_node->data.type_array.element_type != NULL) {
+            // 元素类型无效
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        
+        // 分配元素类型结构（从Arena分配）
+        Type *element_type_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
+        if (element_type_ptr == NULL) {
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        *element_type_ptr = element_type;
+        
+        // 解析数组大小（必须是编译期常量）
+        // 注意：这里先简单验证，详细的编译期常量检查在类型检查阶段进行
+        int array_size = 0;
+        if (type_node->data.type_array.size_expr != NULL &&
+            type_node->data.type_array.size_expr->type == AST_NUMBER) {
+            array_size = type_node->data.type_array.size_expr->data.number.value;
+            if (array_size <= 0) {
+                // 数组大小必须为正整数
+                result.kind = TYPE_VOID;
+                return result;
+            }
+        } else {
+            // 数组大小不是数字字面量，暂时返回无效类型
+            // 详细的编译期常量检查在类型检查阶段进行
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        
+        // 创建数组类型
+        result.kind = TYPE_ARRAY;
+        result.data.array.element_type = element_type_ptr;
+        result.data.array.array_size = array_size;
+        
+        return result;
+    } else if (type_node->type == AST_TYPE_NAMED) {
+        // 命名类型（i32, bool, void, 或结构体名称）
+        const char *type_name = type_node->data.type_named.name;
+        if (type_name == NULL) {
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        
+        // 根据类型名称确定类型种类
+        if (strcmp(type_name, "i32") == 0) {
+            result.kind = TYPE_I32;
+        } else if (strcmp(type_name, "bool") == 0) {
+            result.kind = TYPE_BOOL;
+        } else if (strcmp(type_name, "void") == 0) {
+            result.kind = TYPE_VOID;
+        } else {
+            // 其他名称视为结构体类型
+            // 需要从program_node中查找结构体声明（在类型检查阶段验证）
+            result.kind = TYPE_STRUCT;
+            // 结构体名称需要存储在Arena中（类型节点中的名称已经在Arena中）
+            result.data.struct_name = type_name;
+        }
+        
+        return result;
     }
     
+    // 无法识别的类型节点类型
+    result.kind = TYPE_VOID;
     return result;
 }
 
