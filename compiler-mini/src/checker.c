@@ -245,15 +245,43 @@ static int type_equals(Type t1, Type t2) {
     // 对于结构体类型，需要比较结构体名称
     if (t1.kind == TYPE_STRUCT) {
         // 如果两个结构体名称都为NULL，则相等
-        if (t1.struct_name == NULL && t2.struct_name == NULL) {
+        if (t1.data.struct_name == NULL && t2.data.struct_name == NULL) {
             return 1;
         }
         // 如果只有一个为NULL，则不相等
-        if (t1.struct_name == NULL || t2.struct_name == NULL) {
+        if (t1.data.struct_name == NULL || t2.data.struct_name == NULL) {
             return 0;
         }
         // 比较结构体名称
-        return strcmp(t1.struct_name, t2.struct_name) == 0;
+        return strcmp(t1.data.struct_name, t2.data.struct_name) == 0;
+    }
+    
+    // 对于指针类型，需要比较指向的类型和是否FFI指针
+    if (t1.kind == TYPE_POINTER) {
+        if (t1.data.pointer.is_ffi_pointer != t2.data.pointer.is_ffi_pointer) {
+            return 0;
+        }
+        if (t1.data.pointer.pointer_to == NULL && t2.data.pointer.pointer_to == NULL) {
+            return 1;
+        }
+        if (t1.data.pointer.pointer_to == NULL || t2.data.pointer.pointer_to == NULL) {
+            return 0;
+        }
+        return type_equals(*t1.data.pointer.pointer_to, *t2.data.pointer.pointer_to);
+    }
+    
+    // 对于数组类型，需要比较元素类型和大小
+    if (t1.kind == TYPE_ARRAY) {
+        if (t1.data.array.array_size != t2.data.array.array_size) {
+            return 0;
+        }
+        if (t1.data.array.element_type == NULL && t2.data.array.element_type == NULL) {
+            return 1;
+        }
+        if (t1.data.array.element_type == NULL || t2.data.array.element_type == NULL) {
+            return 0;
+        }
+        return type_equals(*t1.data.array.element_type, *t2.data.array.element_type);
     }
     
     // 对于其他类型（i32, bool, void），种类相同即相等
@@ -271,32 +299,28 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
     // 如果类型节点为NULL，返回void类型
     if (type_node == NULL || type_node->type != AST_TYPE_NAMED) {
         result.kind = TYPE_VOID;
-        result.struct_name = NULL;
+        // union 不需要初始化其他字段
         return result;
     }
     
     const char *type_name = type_node->data.type_named.name;
     if (type_name == NULL) {
         result.kind = TYPE_VOID;
-        result.struct_name = NULL;
         return result;
     }
     
     // 根据类型名称确定类型种类
     if (strcmp(type_name, "i32") == 0) {
         result.kind = TYPE_I32;
-        result.struct_name = NULL;
     } else if (strcmp(type_name, "bool") == 0) {
         result.kind = TYPE_BOOL;
-        result.struct_name = NULL;
     } else if (strcmp(type_name, "void") == 0) {
         result.kind = TYPE_VOID;
-        result.struct_name = NULL;
     } else {
         // 其他名称视为结构体类型
         result.kind = TYPE_STRUCT;
         // 结构体名称需要存储在Arena中（类型节点中的名称已经在Arena中）
-        result.struct_name = type_name;
+        result.data.struct_name = type_name;
     }
     
     return result;
@@ -311,7 +335,6 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
     
     if (checker == NULL || expr == NULL) {
         result.kind = TYPE_VOID;
-        result.struct_name = NULL;
         return result;
     }
     
@@ -319,13 +342,11 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
         case AST_NUMBER:
             // 数字字面量类型为i32
             result.kind = TYPE_I32;
-            result.struct_name = NULL;
             return result;
             
         case AST_BOOL:
             // 布尔字面量类型为bool
             result.kind = TYPE_BOOL;
-            result.struct_name = NULL;
             return result;
             
         case AST_IDENTIFIER: {
@@ -336,7 +357,6 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             }
             // 如果找不到符号，返回void类型（错误将在类型检查时报告）
             result.kind = TYPE_VOID;
-            result.struct_name = NULL;
             return result;
         }
         
@@ -348,7 +368,6 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             if (op == TOKEN_EXCLAMATION) {
                 // 逻辑非（!）返回bool类型
                 result.kind = TYPE_BOOL;
-                result.struct_name = NULL;
                 return result;
             } else if (op == TOKEN_MINUS) {
                 // 一元负号（-）返回操作数类型（应为i32）
@@ -369,7 +388,6 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
                 op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL ||
                 op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR) {
                 result.kind = TYPE_BOOL;
-                result.struct_name = NULL;
                 return result;
             }
             
@@ -383,7 +401,6 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             ASTNode *callee = expr->data.call_expr.callee;
             if (callee == NULL || callee->type != AST_IDENTIFIER) {
                 result.kind = TYPE_VOID;
-                result.struct_name = NULL;
                 return result;
             }
             
@@ -394,27 +411,24 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             
             // 如果找不到函数，返回void类型（错误将在类型检查时报告）
             result.kind = TYPE_VOID;
-            result.struct_name = NULL;
             return result;
         }
         
         case AST_MEMBER_ACCESS: {
             // 字段访问：推断对象类型，然后查找字段类型
             Type object_type = checker_infer_type(checker, expr->data.member_access.object);
-            if (object_type.kind != TYPE_STRUCT || object_type.struct_name == NULL) {
+            if (object_type.kind != TYPE_STRUCT || object_type.data.struct_name == NULL) {
                 // 对象类型不是结构体，返回void类型
                 result.kind = TYPE_VOID;
-                result.struct_name = NULL;
                 return result;
             }
             
             // 查找结构体声明
-            ASTNode *struct_decl = find_struct_decl_from_program(checker->program_node, object_type.struct_name);
+            ASTNode *struct_decl = find_struct_decl_from_program(checker->program_node, object_type.data.struct_name);
             if (struct_decl == NULL) {
                 // 结构体声明未找到，返回void类型
-            result.kind = TYPE_VOID;
-            result.struct_name = NULL;
-            return result;
+                result.kind = TYPE_VOID;
+                return result;
             }
             
             // 查找字段类型
@@ -426,14 +440,13 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             // 结构体字面量：返回结构体类型
             result.kind = TYPE_STRUCT;
             // 结构体名称需要存储在Arena中（从AST节点获取的名称已经在Arena中）
-            result.struct_name = expr->data.struct_init.struct_name;
+            result.data.struct_name = expr->data.struct_init.struct_name;
             return result;
         }
         
         default:
             // 其他表达式类型，返回void类型
             result.kind = TYPE_VOID;
-            result.struct_name = NULL;
             return result;
     }
 }
@@ -491,7 +504,6 @@ static int checker_check_expr_type(TypeChecker *checker, ASTNode *expr, Type exp
 static Type find_struct_field_type(ASTNode *struct_decl, const char *field_name) {
     Type result;
     result.kind = TYPE_VOID;
-    result.struct_name = NULL;
     
     if (struct_decl == NULL || struct_decl->type != AST_STRUCT_DECL || field_name == NULL) {
         return result;
@@ -535,7 +547,7 @@ static int checker_check_var_decl(TypeChecker *checker, ASTNode *node) {
                     return 0;
                 }
                 var_type.kind = TYPE_STRUCT;
-                var_type.struct_name = type_name;
+                var_type.data.struct_name = type_name;
             }
         }
     }
@@ -686,7 +698,6 @@ static int checker_check_struct_decl(TypeChecker *checker, ASTNode *node) {
 static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
     Type result;
     result.kind = TYPE_VOID;
-    result.struct_name = NULL;
     
     if (checker == NULL || node == NULL || node->type != AST_CALL_EXPR) {
         return result;
@@ -730,7 +741,6 @@ static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
 static Type checker_check_member_access(TypeChecker *checker, ASTNode *node) {
     Type result;
     result.kind = TYPE_VOID;
-    result.struct_name = NULL;
     
     if (checker == NULL || node == NULL || node->type != AST_MEMBER_ACCESS) {
         return result;
@@ -738,14 +748,14 @@ static Type checker_check_member_access(TypeChecker *checker, ASTNode *node) {
     
     // 获取对象类型
     Type object_type = checker_infer_type(checker, node->data.member_access.object);
-    if (object_type.kind != TYPE_STRUCT || object_type.struct_name == NULL) {
+    if (object_type.kind != TYPE_STRUCT || object_type.data.struct_name == NULL) {
         // 对象类型不是结构体
         checker_report_error(checker);
         return result;
     }
     
     // 查找结构体声明
-    ASTNode *struct_decl = find_struct_decl_from_program(checker->program_node, object_type.struct_name);
+    ASTNode *struct_decl = find_struct_decl_from_program(checker->program_node, object_type.data.struct_name);
     if (struct_decl == NULL) {
         checker_report_error(checker);
         return result;
@@ -768,7 +778,6 @@ static Type checker_check_member_access(TypeChecker *checker, ASTNode *node) {
 static Type checker_check_struct_init(TypeChecker *checker, ASTNode *node) {
     Type result;
     result.kind = TYPE_VOID;
-    result.struct_name = NULL;
     
     if (checker == NULL || node == NULL || node->type != AST_STRUCT_INIT) {
         return result;
@@ -810,7 +819,7 @@ static Type checker_check_struct_init(TypeChecker *checker, ASTNode *node) {
     }
     
     result.kind = TYPE_STRUCT;
-    result.struct_name = struct_name;
+    result.data.struct_name = struct_name;
     return result;
 }
 
@@ -820,7 +829,6 @@ static Type checker_check_struct_init(TypeChecker *checker, ASTNode *node) {
 static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
     Type result;
     result.kind = TYPE_VOID;
-    result.struct_name = NULL;
     
     if (checker == NULL || node == NULL || node->type != AST_BINARY_EXPR) {
         return result;
@@ -838,7 +846,6 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
             return result;
         }
         result.kind = TYPE_I32;
-        result.struct_name = NULL;
         return result;
     }
     
@@ -850,7 +857,6 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
             return result;
         }
         result.kind = TYPE_BOOL;
-        result.struct_name = NULL;
         return result;
     }
     
@@ -861,7 +867,6 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
             return result;
         }
         result.kind = TYPE_BOOL;
-        result.struct_name = NULL;
         return result;
     }
     
@@ -874,7 +879,6 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
 static Type checker_check_unary_expr(TypeChecker *checker, ASTNode *node) {
     Type result;
     result.kind = TYPE_VOID;
-    result.struct_name = NULL;
     
     if (checker == NULL || node == NULL || node->type != AST_UNARY_EXPR) {
         return result;
@@ -890,7 +894,6 @@ static Type checker_check_unary_expr(TypeChecker *checker, ASTNode *node) {
             return result;
         }
         result.kind = TYPE_BOOL;
-        result.struct_name = NULL;
         return result;
     } else if (op == TOKEN_MINUS) {
         // 一元负号：操作数必须是i32
@@ -899,7 +902,6 @@ static Type checker_check_unary_expr(TypeChecker *checker, ASTNode *node) {
             return result;
         }
         result.kind = TYPE_I32;
-        result.struct_name = NULL;
         return result;
     }
     
