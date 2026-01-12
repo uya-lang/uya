@@ -126,38 +126,120 @@ static const char *arena_strdup(Arena *arena, const char *src) {
     return result;
 }
 
-// 解析类型（Uya Mini 只支持命名类型：i32, bool, void, 或结构体名称）
+// 解析类型（支持命名类型、指针类型和数组类型）
+// type = named_type | pointer_type | array_type
+// named_type = ID
+// pointer_type = '&' type | '*' type
+// array_type = '[' type ':' expr ']'
 static ASTNode *parser_parse_type(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
-        return NULL;
-    }
-    
-    // Uya Mini 只支持命名类型（标识符）
-    if (parser->current_token->type != TOKEN_IDENTIFIER) {
         return NULL;
     }
     
     int line = parser->current_token->line;
     int column = parser->current_token->column;
     
-    // 创建类型节点
-    ASTNode *type_node = ast_new_node(AST_TYPE_NAMED, line, column, parser->arena);
-    if (type_node == NULL) {
-        return NULL;
+    // 检查是否是指针类型（&Type 或 *Type）
+    if (parser->current_token->type == TOKEN_AMPERSAND) {
+        // 普通指针类型 &Type
+        parser_consume(parser);  // 消费 '&'
+        
+        // 递归解析指向的类型
+        ASTNode *pointed_type = parser_parse_type(parser);
+        if (pointed_type == NULL) {
+            return NULL;
+        }
+        
+        // 创建指针类型节点
+        ASTNode *pointer_type = ast_new_node(AST_TYPE_POINTER, line, column, parser->arena);
+        if (pointer_type == NULL) {
+            return NULL;
+        }
+        
+        pointer_type->data.type_pointer.pointed_type = pointed_type;
+        pointer_type->data.type_pointer.is_ffi_pointer = 0;  // 普通指针
+        
+        return pointer_type;
+    } else if (parser->current_token->type == TOKEN_ASTERISK) {
+        // FFI 指针类型 *Type（仅用于 extern 函数）
+        parser_consume(parser);  // 消费 '*'
+        
+        // 递归解析指向的类型
+        ASTNode *pointed_type = parser_parse_type(parser);
+        if (pointed_type == NULL) {
+            return NULL;
+        }
+        
+        // 创建 FFI 指针类型节点
+        ASTNode *pointer_type = ast_new_node(AST_TYPE_POINTER, line, column, parser->arena);
+        if (pointer_type == NULL) {
+            return NULL;
+        }
+        
+        pointer_type->data.type_pointer.pointed_type = pointed_type;
+        pointer_type->data.type_pointer.is_ffi_pointer = 1;  // FFI 指针
+        
+        return pointer_type;
+    } else if (parser->current_token->type == TOKEN_LEFT_BRACKET) {
+        // 数组类型 [Type: Size]
+        parser_consume(parser);  // 消费 '['
+        
+        // 解析元素类型
+        ASTNode *element_type = parser_parse_type(parser);
+        if (element_type == NULL) {
+            return NULL;
+        }
+        
+        // 期望 ':'
+        if (!parser_expect(parser, TOKEN_COLON)) {
+            return NULL;
+        }
+        
+        // 解析数组大小表达式（必须是编译期常量，但解析阶段先解析为表达式）
+        // 注意：这里解析为表达式节点，类型检查阶段会验证是否为编译期常量
+        ASTNode *size_expr = parser_parse_expression(parser);
+        if (size_expr == NULL) {
+            return NULL;
+        }
+        
+        // 期望 ']'
+        if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
+            return NULL;
+        }
+        
+        // 创建数组类型节点
+        ASTNode *array_type = ast_new_node(AST_TYPE_ARRAY, line, column, parser->arena);
+        if (array_type == NULL) {
+            return NULL;
+        }
+        
+        array_type->data.type_array.element_type = element_type;
+        array_type->data.type_array.size_expr = size_expr;
+        
+        return array_type;
+    } else if (parser->current_token->type == TOKEN_IDENTIFIER) {
+        // 命名类型（i32, bool, void, 或结构体名称）
+        ASTNode *type_node = ast_new_node(AST_TYPE_NAMED, line, column, parser->arena);
+        if (type_node == NULL) {
+            return NULL;
+        }
+        
+        // 复制类型名称到 Arena
+        const char *type_name = arena_strdup(parser->arena, parser->current_token->value);
+        if (type_name == NULL) {
+            return NULL;
+        }
+        
+        type_node->data.type_named.name = type_name;
+        
+        // 消费类型标识符
+        parser_consume(parser);
+        
+        return type_node;
     }
     
-    // 复制类型名称到 Arena
-    const char *type_name = arena_strdup(parser->arena, parser->current_token->value);
-    if (type_name == NULL) {
-        return NULL;
-    }
-    
-    type_node->data.type_named.name = type_name;
-    
-    // 消费类型标识符
-    parser_consume(parser);
-    
-    return type_node;
+    // 无法识别的类型语法
+    return NULL;
 }
 
 // 前向声明
