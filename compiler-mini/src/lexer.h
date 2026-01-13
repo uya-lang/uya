@@ -31,6 +31,7 @@ typedef enum {
     TOKEN_WHILE,        // while
     TOKEN_TRUE,         // true
     TOKEN_FALSE,        // false
+    TOKEN_SIZEOF,       // sizeof
     
     // 运算符
     TOKEN_PLUS,         // +
@@ -47,12 +48,15 @@ typedef enum {
     TOKEN_LOGICAL_AND,  // &&
     TOKEN_LOGICAL_OR,   // ||
     TOKEN_EXCLAMATION,  // !
+    TOKEN_AMPERSAND,    // &（取地址运算符）
     
     // 标点符号
     TOKEN_LEFT_PAREN,   // (
     TOKEN_RIGHT_PAREN,  // )
     TOKEN_LEFT_BRACE,   // {
     TOKEN_RIGHT_BRACE,  // }
+    TOKEN_LEFT_BRACKET, // [
+    TOKEN_RIGHT_BRACKET,// ]
     TOKEN_SEMICOLON,    // ;
     TOKEN_COMMA,        // ,
     TOKEN_ASSIGN,       // =

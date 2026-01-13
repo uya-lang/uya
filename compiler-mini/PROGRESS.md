@@ -211,7 +211,7 @@
 ### 阶段9：测试和验证
 
 - ✅ 创建 `tests/programs/` 目录结构
-- ✅ 创建 Uya 测试程序（18个测试用例）
+- ✅ 创建 Uya 测试程序（20个测试用例，2026-01-11 续）
   - ✅ `simple_function.uya` - 简单函数测试（函数声明、调用、返回值）
   - ✅ `arithmetic.uya` - 算术运算测试（+ - * / %）
   - ✅ `control_flow.uya` - 控制流测试（if/else, while）
@@ -230,6 +230,8 @@
   - ✅ `struct_assignment.uya` - 结构体赋值测试（结构体变量按值赋值）
   - ✅ `extern_function.uya` - extern 函数声明测试（外部函数声明和调用）
   - ✅ `struct_comparison.uya` - 结构体比较测试（结构体 == 和 != 运算符）
+  - ✅ `sizeof_test.uya` - sizeof 内置函数测试（基础类型、指针类型的大小计算）
+  - ✅ `pointer_test.uya` - 指针类型测试（指针类型函数参数）
 - ✅ 创建 `tests/run_programs.sh` - 测试程序运行脚本（自动编译和运行所有测试程序）
 - ✅ 更新 `Makefile` - 添加测试程序编译和运行规则（compile-programs, test-programs）
 
@@ -249,8 +251,8 @@
 - ✅ 赋值语句（var变量、结构体变量）
 - ✅ extern 函数声明和调用
 - ✅ 结构体比较（==, !=）
-- ✅ extern 函数声明和调用
-- ✅ 结构体比较（==, !=）
+- ✅ sizeof 内置函数（基础类型、指针类型大小计算）
+- ✅ 指针类型函数参数（&T 类型参数）
 
 **测试覆盖率**：100%（所有已实现的功能都有测试用例）
 
@@ -303,18 +305,59 @@
 - 外部函数声明和链接问题已解决
 
 **下一步任务**：
-- **阶段10：自举实现** - 将 C99 编译器翻译成 Uya 版本
-  - 参考：`TODO_phase10.md` - 将 C99 编译器翻译成 Uya
+- **Uya Mini 规范扩展**（阶段10前置工作）- 实现支持自举所需的语言特性 🔄 进行中
   - 参考：`TODO_uya_mini_extension.md` - Uya Mini 规范扩展任务
-  - 优先级：P0 - 开始自举过程
-    - 将 Arena 分配器翻译成 Uya 版本
-    - 将 AST 数据结构翻译成 Uya 版本
-    - 将词法分析器翻译成 Uya 版本
-    - 将语法分析器翻译成 Uya 版本
-    - 将类型检查器翻译成 Uya 版本
-    - 将代码生成器翻译成 Uya 版本
-    - 将主程序翻译成 Uya 版本
-  - 优先级：P1 - 扩展 Uya Mini 规范以支持自举（如需要）
+  - 状态：2026-01-11 类型系统扩展完成
+  - 已完成的工作：
+    - ✅ 添加 `TOKEN_AMPERSAND` 到 `lexer.h`（支持取地址运算符 `&`）
+    - ✅ 修改 `lexer.c` 识别单个 `&` 符号
+    - ✅ 扩展 `TypeKind` 枚举添加 `TYPE_POINTER` 和 `TYPE_ARRAY`
+    - ✅ 扩展 `Type` 结构体支持指针和数组类型（使用 union 存储不同类型数据）
+    - ✅ 更新 `checker.c` 中所有使用 Type 结构体的地方（从 `.struct_name` 改为 `.data.struct_name`）
+    - ✅ 更新 `type_equals` 函数支持指针和数组类型比较
+  - 已完成的工作（2026-01-11 续）：
+    - ✅ 步骤1：扩展 AST 节点类型支持指针和数组类型
+      - ✅ 添加 `AST_TYPE_POINTER` 和 `AST_TYPE_ARRAY` 到枚举
+      - ✅ 扩展 union 结构体添加指针和数组类型数据字段
+      - ✅ 扩展 `ast_new_node()` 函数支持新节点类型
+      - ✅ 添加单元测试验证新节点类型创建
+    - ✅ 步骤2：扩展解析器支持指针和数组类型解析（2026-01-11 续）
+      - ✅ 添加 `TOKEN_LEFT_BRACKET` 和 `TOKEN_RIGHT_BRACKET` 到 lexer
+      - ✅ 扩展 `parser_parse_type()` 函数支持：
+        - 指针类型：`&Type`（普通指针）和 `*Type`（FFI指针）
+        - 数组类型：`[Type: Size]`（Size 为表达式，类型检查阶段验证编译期常量）
+      - ✅ 添加解析器测试用例验证新类型语法解析（4个新测试用例）
+      - ✅ 所有测试通过（原有18个 + 新增4个 = 22个测试用例）
+    - ✅ 步骤3：扩展类型检查器支持指针和数组类型检查（已完成，2026-01-11 续）
+      - ✅ 扩展 `type_from_ast()` 函数支持从 `AST_TYPE_POINTER` 和 `AST_TYPE_ARRAY` 节点创建 Type 结构
+      - ✅ 支持递归处理嵌套类型（指针指向结构体、数组元素类型等）
+      - ✅ 数组大小验证（必须是编译期常量数字字面量）
+      - ✅ 扩展 `checker_infer_type()` 函数支持取地址和解引用运算符的类型推断
+      - ✅ 扩展 `checker_check_unary_expr()` 函数支持取地址和解引用运算符的类型检查
+      - ✅ 所有现有测试通过
+    - ✅ 步骤4：实现取地址和解引用运算符（已完成，2026-01-11 续）
+      - ✅ 扩展 `parser_parse_unary_expr()` 函数支持 `&expr` 和 `*expr` 语法
+      - ✅ 扩展类型检查器支持取地址和解引用运算符的类型推断和类型检查
+      - ✅ 扩展代码生成器支持取地址和解引用运算符的代码生成（`&expr` 使用变量指针或临时空间地址，`*expr` 使用 `LLVMBuildLoad2`）
+      - ✅ 所有现有测试通过
+    - ✅ 步骤5：扩展代码生成器支持指针和数组类型代码生成（已完成，2026-01-11 续）
+      - ✅ 扩展 `get_llvm_type_from_ast()` 函数支持指针类型映射到 LLVM 类型（使用 `LLVMPointerType`）
+      - ✅ 扩展 `get_llvm_type_from_ast()` 函数支持数组类型映射到 LLVM 类型（使用 `LLVMArrayType`）
+      - ✅ 支持嵌套类型（指针指向结构体、数组元素为指针等）
+      - ✅ 数组变量声明代码生成（通过 `get_llvm_type_from_ast()` 已支持，使用 `LLVMBuildAlloca` 分配数组栈空间）
+      - ⏳ 数组访问代码生成待完成（需要先实现数组访问的AST节点类型和解析）
+    - ✅ 步骤6：实现 `sizeof` 内置函数（已完成，2026-01-11 续）
+      - ✅ 添加 `TOKEN_SIZEOF` 到 lexer.h 和 lexer.c
+      - ✅ 扩展 `parser_parse_primary_expr()` 支持 `sizeof(Type)` 和 `sizeof(expr)` 语法解析
+      - ✅ 扩展 `checker_infer_type()` 函数支持 sizeof 类型推断（返回 i32 类型）
+      - ✅ 扩展 `codegen_gen_expr()` 函数支持 sizeof 代码生成（基础类型、指针类型、数组类型大小计算）
+      - ⏳ 结构体类型大小计算待完善（需要 TargetData，当前返回错误）
+  - 待实现特性（P0 优先级）：
+    - ⏳ 步骤7：扩展 `extern` 函数声明支持指针类型参数
+- **阶段10：自举实现** - 将 C99 编译器翻译成 Uya 版本 ⏭️ 等待规范扩展完成
+  - 参考：`TODO_phase10.md` - 将 C99 编译器翻译成 Uya
+  - 优先级：P0 - 开始自举过程（等待规范扩展完成后进行）
+  - 优先级：P1 - 扩展 Uya Mini 规范以支持自举（当前进行中）
   - 优先级：P2 - 实现自举编译器的自编译
 
 **注意**：测试程序的编译和运行需要在有 LLVM 开发环境的系统中执行。可以使用 `make test-programs` 或 `bash tests/run_programs.sh` 命令运行所有测试程序。
@@ -488,6 +531,41 @@
 ---
 
 ## 📝 实现日志
+
+### 2026-01-11（测试程序扩展）
+
+- 完善测试程序，添加新功能的测试用例
+  - 创建 `sizeof_test.uya` - sizeof 内置函数测试（测试基础类型、指针类型的大小计算）
+  - 创建 `pointer_test.uya` - 指针类型测试（测试指针类型函数参数）
+  - 更新 `PROGRESS.md` 记录新增的测试程序
+  - 测试程序总数从 18 个增加到 20 个
+
+### 2026-01-11（规范扩展实现 - 类型系统扩展完成）
+
+- 完成类型系统扩展（`TODO_uya_mini_extension.md`）
+  - 扩展 `Type` 结构体支持指针和数组类型
+    - 使用 union 存储不同类型的数据（结构体名称、指针类型信息、数组类型信息）
+    - 指针类型：存储指向的类型指针和是否为 FFI 指针的标记
+    - 数组类型：存储元素类型指针和数组大小
+  - 更新 `checker.c` 中所有使用 Type 结构体的地方
+    - 将所有 `.struct_name` 访问改为 `.data.struct_name`
+    - 删除所有不必要的 `result.struct_name = NULL;` 初始化
+  - 更新 `type_equals` 函数支持指针和数组类型比较
+    - 指针类型比较：比较指向的类型和是否为 FFI 指针
+    - 数组类型比较：比较元素类型和数组大小
+  - 所有代码通过 linter 检查，无编译错误
+  - 更新 `TODO_uya_mini_extension.md` 和 `PROGRESS.md` 记录进度
+  - **下一步**：扩展 AST 节点类型支持指针和数组类型，然后扩展解析器、类型检查器和代码生成器
+
+### 2026-01-11（规范扩展实现 - 开始）
+
+- 开始实现 Uya Mini 规范扩展任务（`TODO_uya_mini_extension.md`）
+  - 目标：实现支持自举所需的语言特性（指针类型、数组类型、sizeof 等）
+  - 添加 `TOKEN_AMPERSAND` 到 `lexer.h`（支持取地址运算符 `&`）
+  - 修改 `lexer.c` 识别单个 `&` 符号（之前只识别 `&&` 逻辑与）
+  - 扩展 `TypeKind` 枚举添加 `TYPE_POINTER` 和 `TYPE_ARRAY`
+  - 更新 `TODO_uya_mini_extension.md` 记录进度
+  - 更新 `PROGRESS.md` 记录当前工作状态
 
 ### 2026-01-11（调试会话）
 

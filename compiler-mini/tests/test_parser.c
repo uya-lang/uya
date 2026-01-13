@@ -510,6 +510,152 @@ void test_parse_program_with_extern_function(void) {
     printf("  ✓ 包含extern函数声明的程序解析测试通过\n");
 }
 
+// 测试解析指针类型（普通指针 &i32）
+void test_parse_pointer_type(void) {
+    printf("测试解析指针类型（普通指针 &i32）...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "fn test(p: &i32) i32 { return 0; }";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *fn = parser_parse_function(&parser);
+    assert(fn != NULL);
+    assert(fn->type == AST_FN_DECL);
+    assert(fn->data.fn_decl.param_count == 1);
+    
+    // 检查参数类型是指针类型
+    ASTNode *param_type = fn->data.fn_decl.params[0]->data.var_decl.type;
+    assert(param_type != NULL);
+    assert(param_type->type == AST_TYPE_POINTER);
+    assert(param_type->data.type_pointer.is_ffi_pointer == 0);  // 普通指针
+    
+    // 检查指向的类型
+    ASTNode *pointed_type = param_type->data.type_pointer.pointed_type;
+    assert(pointed_type != NULL);
+    assert(pointed_type->type == AST_TYPE_NAMED);
+    assert(strcmp(pointed_type->data.type_named.name, "i32") == 0);
+    
+    printf("  ✓ 指针类型解析测试通过\n");
+}
+
+// 测试解析 FFI 指针类型（*byte，仅用于 extern 函数）
+void test_parse_ffi_pointer_type(void) {
+    printf("测试解析 FFI 指针类型（*byte）...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "extern fn strcmp(s1: *byte, s2: *byte) i32;";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *fn = parser_parse_extern_function(&parser);
+    assert(fn != NULL);
+    assert(fn->type == AST_FN_DECL);
+    assert(fn->data.fn_decl.param_count == 2);
+    
+    // 检查第一个参数类型是 FFI 指针类型
+    ASTNode *param1_type = fn->data.fn_decl.params[0]->data.var_decl.type;
+    assert(param1_type != NULL);
+    assert(param1_type->type == AST_TYPE_POINTER);
+    assert(param1_type->data.type_pointer.is_ffi_pointer == 1);  // FFI 指针
+    
+    // 检查指向的类型
+    ASTNode *pointed_type = param1_type->data.type_pointer.pointed_type;
+    assert(pointed_type != NULL);
+    assert(pointed_type->type == AST_TYPE_NAMED);
+    assert(strcmp(pointed_type->data.type_named.name, "byte") == 0);
+    
+    printf("  ✓ FFI 指针类型解析测试通过\n");
+}
+
+// 测试解析数组类型（[i32: 10]）
+void test_parse_array_type(void) {
+    printf("测试解析数组类型（[i32: 10]）...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "fn test(arr: [i32: 10]) i32 { return 0; }";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *fn = parser_parse_function(&parser);
+    assert(fn != NULL);
+    assert(fn->type == AST_FN_DECL);
+    assert(fn->data.fn_decl.param_count == 1);
+    
+    // 检查参数类型是数组类型
+    ASTNode *param_type = fn->data.fn_decl.params[0]->data.var_decl.type;
+    assert(param_type != NULL);
+    assert(param_type->type == AST_TYPE_ARRAY);
+    
+    // 检查元素类型
+    ASTNode *element_type = param_type->data.type_array.element_type;
+    assert(element_type != NULL);
+    assert(element_type->type == AST_TYPE_NAMED);
+    assert(strcmp(element_type->data.type_named.name, "i32") == 0);
+    
+    // 检查数组大小表达式
+    ASTNode *size_expr = param_type->data.type_array.size_expr;
+    assert(size_expr != NULL);
+    assert(size_expr->type == AST_NUMBER);
+    assert(size_expr->data.number.value == 10);
+    
+    printf("  ✓ 数组类型解析测试通过\n");
+}
+
+// 测试解析嵌套类型（&[i32: 10]）
+void test_parse_nested_pointer_array_type(void) {
+    printf("测试解析嵌套类型（&[i32: 10]）...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "fn test(arr: &[i32: 10]) i32 { return 0; }";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *fn = parser_parse_function(&parser);
+    assert(fn != NULL);
+    assert(fn->type == AST_FN_DECL);
+    assert(fn->data.fn_decl.param_count == 1);
+    
+    // 检查参数类型是指针类型
+    ASTNode *param_type = fn->data.fn_decl.params[0]->data.var_decl.type;
+    assert(param_type != NULL);
+    assert(param_type->type == AST_TYPE_POINTER);
+    assert(param_type->data.type_pointer.is_ffi_pointer == 0);
+    
+    // 检查指向的类型是数组类型
+    ASTNode *pointed_type = param_type->data.type_pointer.pointed_type;
+    assert(pointed_type != NULL);
+    assert(pointed_type->type == AST_TYPE_ARRAY);
+    
+    // 检查数组元素类型
+    ASTNode *element_type = pointed_type->data.type_array.element_type;
+    assert(element_type != NULL);
+    assert(element_type->type == AST_TYPE_NAMED);
+    assert(strcmp(element_type->data.type_named.name, "i32") == 0);
+    
+    printf("  ✓ 嵌套指针数组类型解析测试通过\n");
+}
+
 // 主测试函数
 int main(void) {
     printf("开始 Parser 测试...\n\n");
@@ -532,6 +678,10 @@ int main(void) {
     test_parse_extern_function_no_params();
     test_parse_extern_function_with_params();
     test_parse_program_with_extern_function();
+    test_parse_pointer_type();
+    test_parse_ffi_pointer_type();
+    test_parse_array_type();
+    test_parse_nested_pointer_array_type();
     
     printf("\n所有测试通过！\n");
     

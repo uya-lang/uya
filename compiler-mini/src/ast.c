@@ -70,6 +70,10 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena) {
             node->data.struct_init.field_values = NULL;
             node->data.struct_init.field_count = 0;
             break;
+        case AST_SIZEOF:
+            node->data.sizeof_expr.target = NULL;
+            node->data.sizeof_expr.is_type = 0;
+            break;
         case AST_IDENTIFIER:
             node->data.identifier.name = NULL;
             break;
@@ -104,6 +108,14 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena) {
             break;
         case AST_TYPE_NAMED:
             node->data.type_named.name = NULL;
+            break;
+        case AST_TYPE_POINTER:
+            node->data.type_pointer.pointed_type = NULL;
+            node->data.type_pointer.is_ffi_pointer = 0;
+            break;
+        case AST_TYPE_ARRAY:
+            node->data.type_array.element_type = NULL;
+            node->data.type_array.size_expr = NULL;
             break;
     }
     

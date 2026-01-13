@@ -1,0 +1,163 @@
+// sizeof 测试程序
+// 测试 sizeof 内置函数（基础类型、指针类型、结构体类型、数组类型）
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Mixed {
+    a: i32,
+    b: bool,
+    c: i32,
+}
+
+fn main() i32 {
+    // 测试1：基础类型大小
+    const i32_size: i32 = sizeof(i32);
+    if i32_size != 4 {
+        return 1;  // i32 应该是 4 字节
+    }
+    
+    const bool_size: i32 = sizeof(bool);
+    if bool_size != 1 {
+        return 1;  // bool 应该是 1 字节
+    }
+    
+    const byte_size: i32 = sizeof(byte);
+    if byte_size != 1 {
+        return 1;  // byte 应该是 1 字节
+    }
+    
+    // 测试2：指针类型大小（64位平台为 8 字节）
+    const ptr_i32_size: i32 = sizeof(&i32);
+    if ptr_i32_size != 8 {
+        return 1;  // 指针应该是 8 字节（64位平台）
+    }
+    
+    const ptr_bool_size: i32 = sizeof(&bool);
+    if ptr_bool_size != 8 {
+        return 1;  // bool 指针应该是 8 字节
+    }
+    
+    // 测试3：表达式 sizeof（基础类型变量）
+    var x: i32 = 42;
+    const x_size: i32 = sizeof(x);
+    if x_size != 4 {
+        return 1;  // i32 变量应该是 4 字节
+    }
+    
+    var b: bool = true;
+    const b_size: i32 = sizeof(b);
+    if b_size != 1 {
+        return 1;  // bool 变量应该是 1 字节
+    }
+    
+    var byte_val: byte = 0;
+    const byte_val_size: i32 = sizeof(byte_val);
+    if byte_val_size != 1 {
+        return 1;  // byte 变量应该是 1 字节
+    }
+    
+    // 测试4：结构体类型 sizeof
+    const point_type_size: i32 = sizeof(Point);
+    if point_type_size != 8 {
+        return 1;  // Point { x: i32, y: i32 } 应该是 8 字节（两个 i32）
+    }
+    
+    const mixed_type_size: i32 = sizeof(Mixed);
+    // Mixed { a: i32(4), b: bool(1), c: i32(4) }
+    // 使用 C 内存布局，对齐为 4（最大字段对齐值）
+    // 标准布局：a(offset 0, 4字节) + b(offset 4, 1字节) + padding(offset 5-7, 3字节) + c(offset 8, 4字节) = 12 字节
+    // 注意：根据规范"与 C 结构体 100% 兼容"，应使用标准 C 对齐规则
+    if mixed_type_size < 9 || mixed_type_size > 12 {
+        return 1;  // Mixed 结构体大小应该在 9-12 字节之间（通常是 12 字节）
+    }
+    
+    // 测试5：结构体变量 sizeof
+    var point: Point = Point{ x: 10, y: 20 };
+    const point_size: i32 = sizeof(point);
+    if point_size != 8 {
+        return 1;  // Point 变量应该是 8 字节
+    }
+    
+    var mixed: Mixed = Mixed{ a: 1, b: true, c: 2 };
+    const mixed_size: i32 = sizeof(mixed);
+    if mixed_size != mixed_type_size {
+        return 1;  // 结构体变量大小应该等于结构体类型大小
+    }
+    
+    // 测试6：结构体指针类型 sizeof
+    const point_ptr_size: i32 = sizeof(&Point);
+    if point_ptr_size != 8 {
+        return 1;  // 结构体指针应该是 8 字节
+    }
+    
+    const mixed_ptr_size: i32 = sizeof(&Mixed);
+    if mixed_ptr_size != 8 {
+        return 1;  // Mixed 指针应该是 8 字节
+    }
+    
+    // 测试7：数组类型 sizeof
+    const array_i32_size: i32 = sizeof([i32: 10]);
+    if array_i32_size != 40 {
+        return 1;  // [i32: 10] 应该是 40 字节（10 * 4）
+    }
+    
+    const array_bool_size: i32 = sizeof([bool: 5]);
+    if array_bool_size != 5 {
+        return 1;  // [bool: 5] 应该是 5 字节（5 * 1）
+    }
+    
+    const array_point_size: i32 = sizeof([Point: 3]);
+    if array_point_size != 24 {
+        return 1;  // [Point: 3] 应该是 24 字节（3 * 8）
+    }
+    
+    // 测试8：数组变量 sizeof
+    var nums: [i32: 5] = [1, 2, 3, 4, 5];
+    const nums_size: i32 = sizeof(nums);
+    if nums_size != 20 {
+        return 1;  // [i32: 5] 数组应该是 20 字节（5 * 4）
+    }
+    
+    var bools: [bool: 10] = [true, false, true, false, true, false, true, false, true, false];
+    const bools_size: i32 = sizeof(bools);
+    if bools_size != 10 {
+        return 1;  // [bool: 10] 数组应该是 10 字节（10 * 1）
+    }
+    
+    var points: [Point: 2] = [Point{ x: 1, y: 2 }, Point{ x: 3, y: 4 }];
+    const points_size: i32 = sizeof(points);
+    if points_size != 16 {
+        return 1;  // [Point: 2] 数组应该是 16 字节（2 * 8）
+    }
+    
+    // 测试9：指针变量 sizeof
+    var ptr: &i32 = null;
+    const ptr_var_size: i32 = sizeof(ptr);
+    if ptr_var_size != 8 {
+        return 1;  // 指针变量应该是 8 字节
+    }
+    
+    var point_ptr: &Point = null;
+    const point_ptr_var_size: i32 = sizeof(point_ptr);
+    if point_ptr_var_size != 8 {
+        return 1;  // 结构体指针变量应该是 8 字节
+    }
+    
+    // 测试10：sizeof 在表达式中的使用
+    const calculated_size: i32 = sizeof(i32) * 10;
+    if calculated_size != 40 {
+        return 1;  // sizeof(i32) * 10 应该是 40
+    }
+    
+    const ptr_array_size: i32 = sizeof(&Point) * 5;
+    if ptr_array_size != 40 {
+        return 1;  // sizeof(&Point) * 5 应该是 40（5 * 8）
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+

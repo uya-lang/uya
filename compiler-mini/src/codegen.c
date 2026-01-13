@@ -94,31 +94,85 @@ LLVMTypeRef codegen_get_base_type(CodeGenerator *codegen, TypeKind type_kind) {
     }
 }
 
-// 辅助函数：从AST类型节点获取LLVM类型（仅支持基础类型和已注册的结构体类型）
+// 辅助函数：从AST类型节点获取LLVM类型（支持基础类型、结构体类型、指针类型和数组类型）
 // 参数：codegen - 代码生成器指针
-//       type_node - AST类型节点（AST_TYPE_NAMED）
+//       type_node - AST类型节点（AST_TYPE_NAMED、AST_TYPE_POINTER 或 AST_TYPE_ARRAY）
 // 返回：LLVM类型引用，失败返回NULL
 static LLVMTypeRef get_llvm_type_from_ast(CodeGenerator *codegen, ASTNode *type_node) {
-    if (!codegen || !type_node || type_node->type != AST_TYPE_NAMED) {
+    if (!codegen || !type_node) {
         return NULL;
     }
     
-    const char *type_name = type_node->data.type_named.name;
-    if (!type_name) {
-        return NULL;
+    switch (type_node->type) {
+        case AST_TYPE_NAMED: {
+            // 命名类型（基础类型或结构体类型）
+            const char *type_name = type_node->data.type_named.name;
+            if (!type_name) {
+                return NULL;
+            }
+            
+            // 基础类型
+            if (strcmp(type_name, "i32") == 0) {
+                return codegen_get_base_type(codegen, TYPE_I32);
+            } else if (strcmp(type_name, "bool") == 0) {
+                return codegen_get_base_type(codegen, TYPE_BOOL);
+            } else if (strcmp(type_name, "void") == 0) {
+                return codegen_get_base_type(codegen, TYPE_VOID);
+            }
+            
+            // 结构体类型（必须在注册表中查找）
+            return codegen_get_struct_type(codegen, type_name);
+        }
+        
+        case AST_TYPE_POINTER: {
+            // 指针类型（&T 或 *T）
+            // 普通指针和 FFI 指针在 LLVM 中都映射为指针类型
+            ASTNode *pointed_type = type_node->data.type_pointer.pointed_type;
+            if (!pointed_type) {
+                return NULL;
+            }
+            
+            // 递归获取指向的类型的 LLVM 类型
+            LLVMTypeRef pointed_llvm_type = get_llvm_type_from_ast(codegen, pointed_type);
+            if (!pointed_llvm_type) {
+                return NULL;
+            }
+            
+            // 创建指针类型（地址空间 0，默认）
+            return LLVMPointerType(pointed_llvm_type, 0);
+        }
+        
+        case AST_TYPE_ARRAY: {
+            // 数组类型（[T: N]）
+            ASTNode *element_type = type_node->data.type_array.element_type;
+            ASTNode *size_expr = type_node->data.type_array.size_expr;
+            if (!element_type || !size_expr) {
+                return NULL;
+            }
+            
+            // 数组大小必须是编译期常量（数字字面量）
+            if (size_expr->type != AST_NUMBER) {
+                return NULL;  // 数组大小必须是编译期常量
+            }
+            
+            int array_size = size_expr->data.number.value;
+            if (array_size < 0) {
+                return NULL;  // 数组大小必须非负
+            }
+            
+            // 递归获取元素类型的 LLVM 类型
+            LLVMTypeRef element_llvm_type = get_llvm_type_from_ast(codegen, element_type);
+            if (!element_llvm_type) {
+                return NULL;
+            }
+            
+            // 创建数组类型
+            return LLVMArrayType(element_llvm_type, (unsigned int)array_size);
+        }
+        
+        default:
+            return NULL;
     }
-    
-    // 基础类型
-    if (strcmp(type_name, "i32") == 0) {
-        return codegen_get_base_type(codegen, TYPE_I32);
-    } else if (strcmp(type_name, "bool") == 0) {
-        return codegen_get_base_type(codegen, TYPE_BOOL);
-    } else if (strcmp(type_name, "void") == 0) {
-        return codegen_get_base_type(codegen, TYPE_VOID);
-    }
-    
-    // 结构体类型（必须在注册表中查找）
-    return codegen_get_struct_type(codegen, type_name);
 }
 
 // 获取结构体类型的LLVM类型
@@ -241,6 +295,60 @@ static LLVMValueRef lookup_var(CodeGenerator *codegen, const char *var_name) {
     }
     
     return NULL;  // 未找到
+}
+
+// 辅助函数：生成左值表达式的地址
+// 参数：codegen - 代码生成器指针
+//       expr - 左值表达式节点
+// 返回：LLVM值引用（地址），失败返回NULL
+static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *expr) {
+    if (!codegen || !expr) {
+        return NULL;
+    }
+    
+    switch (expr->type) {
+        case AST_IDENTIFIER: {
+            // 标识符（变量）：从变量表查找指针
+            const char *var_name = expr->data.identifier.name;
+            if (!var_name) {
+                return NULL;
+            }
+            return lookup_var(codegen, var_name);
+        }
+        
+        case AST_UNARY_EXPR: {
+            // 解引用表达式：*expr
+            // 对于赋值 *p = value，p 是指针，我们需要返回 p 的值（即指针本身）
+            int op = expr->data.unary_expr.op;
+            if (op != TOKEN_ASTERISK) {
+                return NULL;  // 只有解引用表达式可以作为左值
+            }
+            
+            ASTNode *operand = expr->data.unary_expr.operand;
+            if (!operand) {
+                return NULL;
+            }
+            
+            // 操作数应该是指针类型，直接返回操作数的值（指针值本身）
+            LLVMValueRef operand_val = codegen_gen_expr(codegen, operand);
+            if (!operand_val) {
+                return NULL;
+            }
+            
+            // 验证操作数是指针类型
+            LLVMTypeRef operand_type = LLVMTypeOf(operand_val);
+            if (!operand_type || LLVMGetTypeKind(operand_type) != LLVMPointerTypeKind) {
+                return NULL;  // 操作数不是指针类型
+            }
+            
+            // 返回指针值本身（这是我们要存储的地址）
+            return operand_val;
+        }
+        
+        default:
+            // 暂不支持其他类型的左值（如字段访问、数组访问等）
+            return NULL;
+    }
 }
 
 // 辅助函数：在变量表中查找变量类型
@@ -589,22 +697,79 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
         }
         
         case AST_UNARY_EXPR: {
-            // 一元表达式（! 和 -）
+            // 一元表达式（!, -, &, *）
             ASTNode *operand = expr->data.unary_expr.operand;
             if (!operand) {
                 return NULL;
             }
             
+            int op = expr->data.unary_expr.op;
+            
+            if (op == TOKEN_AMPERSAND) {
+                // 取地址运算符：&expr
+                // 操作数必须是左值（变量、字段访问等）
+                // 对于标识符（变量），直接从变量表获取指针
+                if (operand->type == AST_IDENTIFIER) {
+                    const char *var_name = operand->data.identifier.name;
+                    if (!var_name) {
+                        return NULL;
+                    }
+                    LLVMValueRef var_ptr = lookup_var(codegen, var_name);
+                    if (!var_ptr) {
+                        return NULL;  // 变量未找到
+                    }
+                    // 变量指针已经是地址，直接返回
+                    return var_ptr;
+                }
+                // 对于其他表达式（如字段访问、数组访问），需要先计算表达式值
+                // 然后分配临时空间存储值，返回临时空间的地址
+                // 注意：这是一个简化实现，完整的左值检查应该在类型检查阶段完成
+                LLVMValueRef operand_val = codegen_gen_expr(codegen, operand);
+                if (!operand_val) {
+                    return NULL;
+                }
+                LLVMTypeRef operand_type = LLVMTypeOf(operand_val);
+                if (!operand_type) {
+                    return NULL;
+                }
+                // 使用 alloca 分配临时空间
+                LLVMValueRef temp_ptr = LLVMBuildAlloca(codegen->builder, operand_type, "");
+                if (!temp_ptr) {
+                    return NULL;
+                }
+                // store 值到临时空间
+                LLVMBuildStore(codegen->builder, operand_val, temp_ptr);
+                // 返回临时空间的地址
+                return temp_ptr;
+            } else if (op == TOKEN_ASTERISK) {
+                // 解引用运算符：*expr
+                // 操作数必须是指针类型
+                LLVMValueRef operand_val = codegen_gen_expr(codegen, operand);
+                if (!operand_val) {
+                    return NULL;
+                }
+                LLVMTypeRef operand_type = LLVMTypeOf(operand_val);
+                if (!operand_type) {
+                    return NULL;
+                }
+                // 检查操作数类型是否为指针类型
+                if (LLVMGetTypeKind(operand_type) != LLVMPointerTypeKind) {
+                    return NULL;  // 操作数不是指针类型
+                }
+                // 获取指针指向的类型
+                LLVMTypeRef pointed_type = LLVMGetElementType(operand_type);
+                if (!pointed_type) {
+                    return NULL;
+                }
+                // 使用 LLVMBuildLoad2 加载指针指向的值
+                return LLVMBuildLoad2(codegen->builder, pointed_type, operand_val, "");
+            }
+            
+            // 处理其他一元运算符（!, -）
             LLVMValueRef operand_val = codegen_gen_expr(codegen, operand);
             if (!operand_val) {
                 return NULL;
             }
-            
-            int op = expr->data.unary_expr.op;
-            
-            // 根据运算符类型生成对应的LLVM指令
-            // 注意：需要知道操作数的类型，这里暂时假设可以从operand_val推断
-            // TODO: 从类型检查信息获取操作数类型，或从LLVM值获取类型
             
             // 简化实现：假设操作数类型可以从operand_val获取
             LLVMTypeRef operand_type = LLVMTypeOf(operand_val);
@@ -1068,6 +1233,90 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             // 返回结构体值（load 结构体指针）
             return LLVMBuildLoad2(codegen->builder, struct_type, struct_ptr, "");
         }
+        
+        case AST_SIZEOF: {
+            // sizeof 表达式：返回类型大小（i32 常量）
+            ASTNode *target = expr->data.sizeof_expr.target;
+            int is_type = expr->data.sizeof_expr.is_type;
+            
+            if (!target) {
+                return NULL;
+            }
+            
+            LLVMTypeRef llvm_type = NULL;
+            
+            if (is_type) {
+                // target 是类型节点
+                llvm_type = get_llvm_type_from_ast(codegen, target);
+            } else {
+                // target 是表达式节点，先生成表达式代码获取类型
+                LLVMValueRef target_val = codegen_gen_expr(codegen, target);
+                if (!target_val) {
+                    return NULL;
+                }
+                llvm_type = LLVMTypeOf(target_val);
+            }
+            
+            if (!llvm_type) {
+                return NULL;
+            }
+            
+            // 获取类型大小（字节数）
+            // 注意：这里使用简化实现，对于基础类型直接返回常量
+            // 对于复杂类型（结构体、数组），需要使用 TargetData 获取准确大小
+            unsigned long long size = 0;
+            
+            LLVMTypeKind kind = LLVMGetTypeKind(llvm_type);
+            switch (kind) {
+                case LLVMIntegerTypeKind: {
+                    // 整数类型：根据位宽计算字节数
+                    unsigned width = LLVMGetIntTypeWidth(llvm_type);
+                    size = (width + 7) / 8;  // 向上取整到字节
+                    break;
+                }
+                case LLVMPointerTypeKind:
+                    // 指针类型：64位平台为 8 字节，32位平台为 4 字节
+                    // 这里假设 64 位平台（简化实现）
+                    size = 8;
+                    break;
+                case LLVMArrayTypeKind: {
+                    // 数组类型：元素大小 * 元素数量
+                    LLVMTypeRef element_type = LLVMGetElementType(llvm_type);
+                    unsigned element_count = LLVMGetArrayLength(llvm_type);
+                    // 获取元素大小（递归计算）
+                    // 简化实现：仅支持基础类型的数组
+                    LLVMTypeKind element_kind = LLVMGetTypeKind(element_type);
+                    unsigned long long element_size = 0;
+                    if (element_kind == LLVMIntegerTypeKind) {
+                        unsigned width = LLVMGetIntTypeWidth(element_type);
+                        element_size = (width + 7) / 8;
+                    } else if (element_kind == LLVMPointerTypeKind) {
+                        element_size = 8;
+                    } else {
+                        // 复杂类型，无法简化计算
+                        return NULL;
+                    }
+                    size = element_size * element_count;
+                    break;
+                }
+                case LLVMStructTypeKind: {
+                    // 结构体类型：需要 TargetData 获取准确大小
+                    // 简化实现：暂时返回错误（需要 TargetData）
+                    // TODO: 使用 TargetData 获取结构体大小
+                    return NULL;
+                }
+                default:
+                    // 其他类型，无法计算大小
+                    return NULL;
+            }
+            
+            // 创建 i32 常量
+            LLVMTypeRef i32_type = codegen_get_base_type(codegen, TYPE_I32);
+            if (!i32_type) {
+                return NULL;
+            }
+            return LLVMConstInt(i32_type, size, 0);  // 无符号整数
+        }
             
         default:
             return NULL;
@@ -1193,7 +1442,7 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
         }
         
         case AST_ASSIGN: {
-            // 赋值语句：生成源表达式值，store 到目标变量
+            // 赋值语句：生成源表达式值，store 到目标左值表达式
             ASTNode *dest = stmt->data.assign.dest;
             ASTNode *src = stmt->data.assign.src;
             
@@ -1201,20 +1450,10 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 return -1;
             }
             
-            // 目标必须是标识符
-            if (dest->type != AST_IDENTIFIER) {
-                return -1;  // 暂不支持其他类型的赋值目标
-            }
-            
-            const char *var_name = dest->data.identifier.name;
-            if (!var_name) {
-                return -1;
-            }
-            
-            // 查找变量
-            LLVMValueRef var_ptr = lookup_var(codegen, var_name);
-            if (!var_ptr) {
-                return -1;  // 变量未找到
+            // 生成目标左值表达式的地址
+            LLVMValueRef dest_ptr = codegen_gen_lvalue_address(codegen, dest);
+            if (!dest_ptr) {
+                return -1;  // 无法生成左值地址（不支持的类型或错误）
             }
             
             // 生成源表达式值
@@ -1223,8 +1462,9 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 return -1;
             }
             
-            // store 值到变量
-            LLVMBuildStore(codegen->builder, src_val, var_ptr);
+            // store 值到目标地址
+            // LLVMBuildStore 会自动处理类型匹配
+            LLVMBuildStore(codegen->builder, src_val, dest_ptr);
             
             return 0;
         }

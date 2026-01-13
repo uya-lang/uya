@@ -99,6 +99,7 @@ static TokenType is_keyword(const char *str) {
     if (strcmp(str, "while") == 0) return TOKEN_WHILE;
     if (strcmp(str, "true") == 0) return TOKEN_TRUE;
     if (strcmp(str, "false") == 0) return TOKEN_FALSE;
+    if (strcmp(str, "sizeof") == 0) return TOKEN_SIZEOF;
     return TOKEN_IDENTIFIER;  // 不是关键字，是标识符
 }
 
@@ -259,8 +260,8 @@ Token *lexer_next_token(Lexer *lexer, Arena *arena) {
                 advance_char(lexer);
                 return make_token(arena, TOKEN_LOGICAL_AND, "&&", line, column);
             }
-            // 单个 & 不是 Uya Mini 支持的，但这里先跳过
-            return make_token(arena, TOKEN_EOF, NULL, line, column);
+            // 单个 & 是取地址运算符
+            return make_token(arena, TOKEN_AMPERSAND, "&", line, column);
         case '|':
             advance_char(lexer);
             if (peek_char(lexer, 0) == '|') {
@@ -281,6 +282,12 @@ Token *lexer_next_token(Lexer *lexer, Arena *arena) {
         case '}':
             advance_char(lexer);
             return make_token(arena, TOKEN_RIGHT_BRACE, "}", line, column);
+        case '[':
+            advance_char(lexer);
+            return make_token(arena, TOKEN_LEFT_BRACKET, "[", line, column);
+        case ']':
+            advance_char(lexer);
+            return make_token(arena, TOKEN_RIGHT_BRACKET, "]", line, column);
         case ';':
             advance_char(lexer);
             return make_token(arena, TOKEN_SEMICOLON, ";", line, column);
