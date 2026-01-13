@@ -110,6 +110,12 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena) {
         case AST_RETURN_STMT:
             node->data.return_stmt.expr = NULL;
             break;
+        case AST_BREAK_STMT:
+            // break 语句不需要数据字段
+            break;
+        case AST_CONTINUE_STMT:
+            // continue 语句不需要数据字段
+            break;
         case AST_ASSIGN:
             node->data.assign.dest = NULL;
             node->data.assign.src = NULL;

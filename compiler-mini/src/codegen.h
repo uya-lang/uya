@@ -57,6 +57,15 @@ typedef struct CodeGenerator {
     
     int basic_block_counter;        // 基本块计数器（用于生成唯一的基本块名称）
     
+    // 循环基本块栈（用于 break/continue 语句）
+    // 使用固定大小数组作为栈，支持嵌套循环
+    #define LOOP_STACK_SIZE 16       // 最大嵌套深度
+    struct {
+        LLVMBasicBlockRef cond_bb;  // 循环条件检查基本块（用于 continue）
+        LLVMBasicBlockRef end_bb;   // 循环结束基本块（用于 break）
+    } loop_stack[LOOP_STACK_SIZE];
+    int loop_stack_depth;           // 当前循环栈深度（0 表示不在循环中）
+    
     ASTNode *program_node;          // 程序节点（用于查找结构体声明等）
 } CodeGenerator;
 

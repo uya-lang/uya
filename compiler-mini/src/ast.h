@@ -16,6 +16,8 @@ typedef enum {
     // 语句节点
     AST_IF_STMT,        // if 语句
     AST_WHILE_STMT,     // while 语句
+    AST_BREAK_STMT,     // break 语句
+    AST_CONTINUE_STMT,  // continue 语句
     AST_RETURN_STMT,    // return 语句
     AST_ASSIGN,         // 赋值语句
     AST_EXPR_STMT,      // 表达式语句

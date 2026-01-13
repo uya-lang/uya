@@ -921,6 +921,24 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return node;
     }
     
+    // 解析 null 字面量（null 被解析为标识符节点，在代码生成阶段通过字符串比较识别）
+    if (parser->current_token->type == TOKEN_NULL) {
+        ASTNode *node = ast_new_node(AST_IDENTIFIER, line, column, parser->arena);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        // 复制 "null" 字符串到 Arena（代码生成器会通过字符串比较识别）
+        const char *null_name = arena_strdup(parser->arena, parser->current_token->value);
+        if (null_name == NULL) {
+            return NULL;
+        }
+        node->data.identifier.name = null_name;
+        
+        parser_consume(parser);
+        return node;
+    }
+    
     // 解析 sizeof 表达式：sizeof(Type) 或 sizeof(expr)
     if (parser->current_token->type == TOKEN_SIZEOF) {
         parser_consume(parser);  // 消费 'sizeof'
@@ -2088,6 +2106,40 @@ ASTNode *parser_parse_statement(Parser *parser) {
             if (!parser_expect(parser, TOKEN_SEMICOLON)) {
                 return NULL;
             }
+        }
+        
+        return stmt;
+    }
+    
+    if (parser_match(parser, TOKEN_BREAK)) {
+        // 解析 break 语句
+        parser_consume(parser);  // 消费 'break'
+        
+        ASTNode *stmt = ast_new_node(AST_BREAK_STMT, line, column, parser->arena);
+        if (stmt == NULL) {
+            return NULL;
+        }
+        
+        // 期望 ';'
+        if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+            return NULL;
+        }
+        
+        return stmt;
+    }
+    
+    if (parser_match(parser, TOKEN_CONTINUE)) {
+        // 解析 continue 语句
+        parser_consume(parser);  // 消费 'continue'
+        
+        ASTNode *stmt = ast_new_node(AST_CONTINUE_STMT, line, column, parser->arena);
+        if (stmt == NULL) {
+            return NULL;
+        }
+        
+        // 期望 ';'
+        if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+            return NULL;
         }
         
         return stmt;

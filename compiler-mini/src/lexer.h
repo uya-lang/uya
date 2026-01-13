@@ -29,8 +29,11 @@ typedef enum {
     TOKEN_IF,           // if
     TOKEN_ELSE,         // else
     TOKEN_WHILE,        // while
+    TOKEN_BREAK,        // break
+    TOKEN_CONTINUE,     // continue
     TOKEN_TRUE,         // true
     TOKEN_FALSE,        // false
+    TOKEN_NULL,         // null（空指针字面量）
     TOKEN_SIZEOF,       // sizeof
     TOKEN_LEN,          // len
     TOKEN_AS,           // as（类型转换关键字）

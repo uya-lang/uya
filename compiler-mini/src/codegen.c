@@ -59,6 +59,7 @@ int codegen_new(CodeGenerator *codegen, Arena *arena, const char *module_name) {
     codegen->func_map_count = 0;
     codegen->global_var_map_count = 0;
     codegen->basic_block_counter = 0;
+    codegen->loop_stack_depth = 0;
     codegen->program_node = NULL;
     
     return 0;
@@ -2182,6 +2183,14 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             LLVMBasicBlockRef body_bb = LLVMAppendBasicBlock(current_func, body_name);
             LLVMBasicBlockRef end_bb = LLVMAppendBasicBlock(current_func, end_name);
             
+            // 将循环基本块推入栈（用于 break/continue）
+            if (codegen->loop_stack_depth >= LOOP_STACK_SIZE) {
+                return -1;  // 循环嵌套过深
+            }
+            codegen->loop_stack[codegen->loop_stack_depth].cond_bb = cond_bb;
+            codegen->loop_stack[codegen->loop_stack_depth].end_bb = end_bb;
+            codegen->loop_stack_depth++;
+            
             // 跳转到条件检查
             LLVMBuildBr(codegen->builder, cond_bb);
             
@@ -2189,6 +2198,7 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             LLVMPositionBuilderAtEnd(codegen->builder, cond_bb);
             LLVMValueRef cond_val = codegen_gen_expr(codegen, condition);
             if (!cond_val) {
+                codegen->loop_stack_depth--;  // 错误恢复：弹出栈
                 return -1;
             }
             LLVMBuildCondBr(codegen->builder, cond_val, body_bb, end_bb);
@@ -2196,14 +2206,43 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             // 生成循环体
             LLVMPositionBuilderAtEnd(codegen->builder, body_bb);
             if (codegen_gen_stmt(codegen, body) != 0) {
+                codegen->loop_stack_depth--;  // 错误恢复：弹出栈
                 return -1;
             }
-            // 循环体结束前跳转到条件检查
-            LLVMBuildBr(codegen->builder, cond_bb);
+            
+            // 检查循环体结束前是否需要跳转（如果已经有终止符，不需要再跳转）
+            LLVMBasicBlockRef current_bb = LLVMGetInsertBlock(codegen->builder);
+            if (current_bb && !LLVMGetBasicBlockTerminator(current_bb)) {
+                // 循环体结束前跳转到条件检查（continue 会跳过这里）
+                LLVMBuildBr(codegen->builder, cond_bb);
+            }
+            
+            // 从栈中弹出循环信息
+            codegen->loop_stack_depth--;
             
             // 设置构建器到 end 基本块
             LLVMPositionBuilderAtEnd(codegen->builder, end_bb);
             
+            return 0;
+        }
+        
+        case AST_BREAK_STMT: {
+            // break 语句：跳转到循环结束基本块
+            if (codegen->loop_stack_depth == 0) {
+                return -1;  // break 不在循环中（类型检查应该已经检查过了）
+            }
+            LLVMBasicBlockRef end_bb = codegen->loop_stack[codegen->loop_stack_depth - 1].end_bb;
+            LLVMBuildBr(codegen->builder, end_bb);
+            return 0;
+        }
+        
+        case AST_CONTINUE_STMT: {
+            // continue 语句：跳转到循环条件检查基本块
+            if (codegen->loop_stack_depth == 0) {
+                return -1;  // continue 不在循环中（类型检查应该已经检查过了）
+            }
+            LLVMBasicBlockRef cond_bb = codegen->loop_stack[codegen->loop_stack_depth - 1].cond_bb;
+            LLVMBuildBr(codegen->builder, cond_bb);
             return 0;
         }
         

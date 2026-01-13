@@ -97,8 +97,11 @@ static TokenType is_keyword(const char *str) {
     if (strcmp(str, "if") == 0) return TOKEN_IF;
     if (strcmp(str, "else") == 0) return TOKEN_ELSE;
     if (strcmp(str, "while") == 0) return TOKEN_WHILE;
+    if (strcmp(str, "break") == 0) return TOKEN_BREAK;
+    if (strcmp(str, "continue") == 0) return TOKEN_CONTINUE;
     if (strcmp(str, "true") == 0) return TOKEN_TRUE;
     if (strcmp(str, "false") == 0) return TOKEN_FALSE;
+    if (strcmp(str, "null") == 0) return TOKEN_NULL;
     if (strcmp(str, "sizeof") == 0) return TOKEN_SIZEOF;
     if (strcmp(str, "len") == 0) return TOKEN_LEN;
     if (strcmp(str, "as") == 0) return TOKEN_AS;

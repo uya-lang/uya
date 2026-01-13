@@ -48,6 +48,7 @@ int checker_init(TypeChecker *checker, Arena *arena) {
     checker->function_table.count = 0;
     
     checker->scope_level = 0;
+    checker->loop_depth = 0;
     checker->program_node = NULL;
     checker->error_count = 0;
     
@@ -1297,9 +1298,31 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             if (cond_type.kind != TYPE_BOOL) {
                 checker_report_error(checker);
             }
+            // 进入循环（增加循环深度）
+            checker->loop_depth++;
             // 检查循环体
             if (node->data.while_stmt.body != NULL) {
                 checker_check_node(checker, node->data.while_stmt.body);
+            }
+            // 退出循环（减少循环深度）
+            checker->loop_depth--;
+            return 1;
+        }
+        
+        case AST_BREAK_STMT: {
+            // 检查 break 是否在循环中
+            if (checker->loop_depth == 0) {
+                checker_report_error(checker);
+                return 0;
+            }
+            return 1;
+        }
+        
+        case AST_CONTINUE_STMT: {
+            // 检查 continue 是否在循环中
+            if (checker->loop_depth == 0) {
+                checker_report_error(checker);
+                return 0;
             }
             return 1;
         }

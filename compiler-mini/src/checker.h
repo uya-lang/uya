@@ -76,6 +76,7 @@ typedef struct TypeChecker {
     SymbolTable symbol_table;   // 符号表
     FunctionTable function_table; // 函数表
     int scope_level;            // 当前作用域级别
+    int loop_depth;             // 循环深度（用于检查 break/continue 是否在循环中）
     ASTNode *program_node;      // 程序节点（用于查找结构体声明等）
     int error_count;            // 错误计数（简化版本，暂不存储错误消息）
 } TypeChecker;
