@@ -32,6 +32,7 @@ typedef struct CodeGenerator {
         LLVMValueRef value;         // LLVM 值（alloca 指令返回的指针）
         LLVMTypeRef type;           // 变量类型（用于 LLVMBuildLoad2）
         const char *struct_name;    // 结构体名称（仅当类型是结构体类型时有效，存储在 Arena 中）
+        ASTNode *ast_type;          // AST 类型节点（用于从 AST 重新构建类型，避免使用 LLVMGetElementType）
     } var_map[256];                 // 固定大小（最多支持256个局部变量）
     int var_map_count;              // 当前变量数量
     
