@@ -1,0 +1,53 @@
+// 枚举自动递增测试程序
+// 测试枚举值的自动递增功能（验证枚举值从0开始，依次递增1）
+// 所有枚举变体都没有显式值，应该自动从0开始递增
+
+enum Level {
+    ZERO,    // 自动为 0
+    ONE,     // 自动为 1
+    TWO,     // 自动为 2
+    THREE,   // 自动为 3
+    FOUR,    // 自动为 4
+    FIVE,    // 自动为 5
+}
+
+fn main() i32 {
+    // 测试1：验证枚举值的顺序和递增（使用比较运算符）
+    // 验证枚举值的递增关系：ZERO < ONE < TWO < THREE < FOUR < FIVE
+    if Level.ZERO < Level.ONE {
+        if Level.ONE < Level.TWO {
+            if Level.TWO < Level.THREE {
+                if Level.THREE < Level.FOUR {
+                    if Level.FOUR < Level.FIVE {
+                        // 测试2：验证枚举值的相等性
+                        const level0: Level = Level.ZERO;
+                        const level1: Level = Level.ONE;
+                        const level2: Level = Level.TWO;
+                        const level3: Level = Level.THREE;
+                        const level4: Level = Level.FOUR;
+                        const level5: Level = Level.FIVE;
+                        
+                        // 验证每个枚举值都正确
+                        if level0 == Level.ZERO {
+                            if level1 == Level.ONE {
+                                if level2 == Level.TWO {
+                                    if level3 == Level.THREE {
+                                        if level4 == Level.FOUR {
+                                            if level5 == Level.FIVE {
+                                                // 所有枚举值递增验证通过
+                                                return 0;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    return 1;
+}
+

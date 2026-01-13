@@ -1,0 +1,41 @@
+// 枚举混合赋值测试程序
+// 测试枚举变体的混合赋值功能（部分变体有显式值，部分使用自动递增）
+// 根据规范，枚举变体可以混合使用显式赋值和自动递增
+
+enum Status {
+    INIT,          // 无显式值，自动为 0
+    RUNNING = 10,  // 显式值为 10
+    PAUSED,        // 无显式值，自动为 11 (RUNNING + 1)
+    STOPPED = 50,  // 显式值为 50
+    ERROR,         // 无显式值，自动为 51 (STOPPED + 1)
+}
+
+fn main() i32 {
+    // 测试1：使用混合赋值的枚举值
+    const status1: Status = Status.INIT;
+    const status2: Status = Status.RUNNING;
+    const status3: Status = Status.PAUSED;
+    const status4: Status = Status.STOPPED;
+    const status5: Status = Status.ERROR;
+    
+    // 测试2：验证枚举值
+    // INIT 应该是 0
+    if status1 == Status.INIT {
+        // RUNNING 应该是 10
+        if status2 == Status.RUNNING {
+            // PAUSED 应该是 11 (RUNNING + 1)
+            if status3 == Status.PAUSED {
+                // STOPPED 应该是 50
+                if status4 == Status.STOPPED {
+                    // ERROR 应该是 51 (STOPPED + 1)
+                    if status5 == Status.ERROR {
+                        return 0;
+                    }
+                }
+            }
+        }
+    }
+    
+    return 1;
+}
+

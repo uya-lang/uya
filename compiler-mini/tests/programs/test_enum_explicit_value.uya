@@ -1,0 +1,31 @@
+// 枚举显式赋值测试程序
+// 测试枚举变体的显式赋值功能
+// 根据规范，枚举变体可以显式指定值：enum HttpStatus { OK = 200, NOT_FOUND = 404 }
+
+enum HttpStatus {
+    OK = 200,
+    NOT_FOUND = 404,
+    SERVER_ERROR = 500,
+}
+
+fn main() i32 {
+    // 测试1：使用显式赋值的枚举值
+    const status1: HttpStatus = HttpStatus.OK;
+    const status2: HttpStatus = HttpStatus.NOT_FOUND;
+    const status3: HttpStatus = HttpStatus.SERVER_ERROR;
+    
+    // 测试2：枚举值比较（使用显式赋值的枚举值）
+    if status1 == HttpStatus.OK {
+        // status1 应该是 OK (200)
+        if status2 == HttpStatus.NOT_FOUND {
+            // status2 应该是 NOT_FOUND (404)
+            if status3 == HttpStatus.SERVER_ERROR {
+                // status3 应该是 SERVER_ERROR (500)
+                return 0;
+            }
+        }
+    }
+    
+    return 1;
+}
+

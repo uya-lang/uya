@@ -28,6 +28,11 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena) {
             node->data.program.decls = NULL;
             node->data.program.decl_count = 0;
             break;
+        case AST_ENUM_DECL:
+            node->data.enum_decl.name = NULL;
+            node->data.enum_decl.variants = NULL;
+            node->data.enum_decl.variant_count = 0;
+            break;
         case AST_STRUCT_DECL:
             node->data.struct_decl.name = NULL;
             node->data.struct_decl.fields = NULL;

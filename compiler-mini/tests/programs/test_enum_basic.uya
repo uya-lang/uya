@@ -1,0 +1,19 @@
+// 枚举类型基本测试
+// 测试枚举声明和基本使用
+
+enum Color {
+    RED,
+    GREEN,
+    BLUE,
+}
+
+fn main() i32 {
+    const c: Color = Color.RED;
+    
+    // 测试枚举值比较
+    if c == Color.RED {
+        return 0;
+    }
+    return 1;
+}
+

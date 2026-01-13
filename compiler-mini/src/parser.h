@@ -44,6 +44,11 @@ ASTNode *parser_parse_extern_function(Parser *parser);
 // 返回：AST_STRUCT_DECL 节点，失败返回 NULL
 ASTNode *parser_parse_struct(Parser *parser);
 
+// 解析枚举声明
+// 参数：parser - Parser 指针
+// 返回：AST_ENUM_DECL 节点，失败返回 NULL
+ASTNode *parser_parse_enum(Parser *parser);
+
 // 解析语句
 // 参数：parser - Parser 指针
 // 返回：语句节点，失败返回 NULL

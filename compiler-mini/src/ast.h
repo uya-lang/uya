@@ -4,11 +4,18 @@
 #include "arena.h"
 #include <stddef.h>
 
+// 枚举变体结构
+typedef struct EnumVariant {
+    const char *name;      // 变体名称（字符串存储在 Arena 中）
+    const char *value;     // 显式值（字符串形式，如果指定了 = NUM，否则为 NULL，存储在 Arena 中）
+} EnumVariant;
+
 // AST 节点类型枚举
 // Uya Mini 仅包含最小子集所需的节点类型
 typedef enum {
     // 声明节点
     AST_PROGRAM,        // 程序节点（根节点）
+    AST_ENUM_DECL,      // 枚举声明
     AST_STRUCT_DECL,    // 结构体声明
     AST_FN_DECL,        // 函数声明
     AST_VAR_DECL,       // 变量声明（const/var）
@@ -59,6 +66,13 @@ struct ASTNode {
             struct ASTNode **decls;      // 声明数组（从 Arena 分配）
             int decl_count;       // 声明数量
         } program;
+        
+        // 枚举声明
+        struct {
+            const char *name;              // 枚举名称（字符串存储在 Arena 中）
+            EnumVariant *variants;         // 变体数组（从 Arena 分配）
+            int variant_count;             // 变体数量
+        } enum_decl;
         
         // 结构体声明
         struct {

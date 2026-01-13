@@ -465,6 +465,139 @@ ASTNode *parser_parse_struct(Parser *parser) {
     return struct_decl;
 }
 
+// 解析枚举声明：enum ID '{' variant_list '}'
+// variant_list = variant { ',' variant }
+// variant = ID [ '=' NUM ]
+ASTNode *parser_parse_enum(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    // 期望 'enum'
+    if (!parser_match(parser, TOKEN_ENUM)) {
+        return NULL;
+    }
+    
+    int line = parser->current_token->line;
+    int column = parser->current_token->column;
+    
+    // 消费 'enum'
+    parser_consume(parser);
+    
+    // 期望枚举名称
+    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+        return NULL;
+    }
+    
+    const char *enum_name = arena_strdup(parser->arena, parser->current_token->value);
+    if (enum_name == NULL) {
+        return NULL;
+    }
+    
+    // 消费枚举名称
+    parser_consume(parser);
+    
+    // 创建枚举声明节点
+    ASTNode *enum_decl = ast_new_node(AST_ENUM_DECL, line, column, parser->arena);
+    if (enum_decl == NULL) {
+        return NULL;
+    }
+    
+    enum_decl->data.enum_decl.name = enum_name;
+    enum_decl->data.enum_decl.variants = NULL;
+    enum_decl->data.enum_decl.variant_count = 0;
+    
+    // 期望 '{'
+    if (!parser_expect(parser, TOKEN_LEFT_BRACE)) {
+        return NULL;
+    }
+    
+    // 解析变体列表
+    // 变体列表：variant { ',' variant }
+    // variant = ID
+    EnumVariant *variants = NULL;
+    int variant_count = 0;
+    int variant_capacity = 0;
+    
+    while (parser->current_token != NULL && 
+           !parser_match(parser, TOKEN_RIGHT_BRACE) && 
+           !parser_match(parser, TOKEN_EOF)) {
+        
+        // 解析变体名称
+        if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+            return NULL;
+        }
+        
+        const char *variant_name = arena_strdup(parser->arena, parser->current_token->value);
+        if (variant_name == NULL) {
+            return NULL;
+        }
+        
+        parser_consume(parser);
+        
+        // 扩展变体数组（使用 Arena 分配）
+        if (variant_count >= variant_capacity) {
+            int new_capacity = variant_capacity == 0 ? 4 : variant_capacity * 2;
+            EnumVariant *new_variants = (EnumVariant *)arena_alloc(
+                parser->arena, 
+                sizeof(EnumVariant) * new_capacity
+            );
+            if (new_variants == NULL) {
+                return NULL;
+            }
+            
+            // 复制旧变体
+            if (variants != NULL) {
+                for (int i = 0; i < variant_count; i++) {
+                    new_variants[i] = variants[i];
+                }
+            }
+            
+            variants = new_variants;
+            variant_capacity = new_capacity;
+        }
+        
+        // 解析可选的显式值 (= NUM)
+        const char *variant_value = NULL;
+        if (parser_match(parser, TOKEN_ASSIGN)) {
+            parser_consume(parser);  // 消费 '='
+            
+            // 期望数字字面量
+            if (!parser_match(parser, TOKEN_NUMBER)) {
+                return NULL;
+            }
+            
+            // 复制数字值字符串到 Arena
+            variant_value = arena_strdup(parser->arena, parser->current_token->value);
+            if (variant_value == NULL) {
+                return NULL;
+            }
+            
+            parser_consume(parser);  // 消费数字值
+        }
+        
+        // 添加变体
+        variants[variant_count].name = variant_name;
+        variants[variant_count].value = variant_value;  // NULL 表示没有显式赋值
+        variant_count++;
+        
+        // 检查是否有逗号（可选，最后一个变体后不需要逗号）
+        if (parser_match(parser, TOKEN_COMMA)) {
+            parser_consume(parser);
+        }
+    }
+    
+    // 期望 '}'
+    if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
+        return NULL;
+    }
+    
+    enum_decl->data.enum_decl.variants = variants;
+    enum_decl->data.enum_decl.variant_count = variant_count;
+    
+    return enum_decl;
+}
+
 // 解析函数声明：fn ID '(' [ param_list ] ')' type '{' statements '}'
 // param_list = param { ',' param }
 // param = ID ':' type
@@ -784,6 +917,8 @@ ASTNode *parser_parse_declaration(Parser *parser) {
         return parser_parse_extern_function(parser);
     } else if (parser_match(parser, TOKEN_FN)) {
         return parser_parse_function(parser);
+    } else if (parser_match(parser, TOKEN_ENUM)) {
+        return parser_parse_enum(parser);
     } else if (parser_match(parser, TOKEN_STRUCT)) {
         return parser_parse_struct(parser);
     } else if (parser_match(parser, TOKEN_CONST) || parser_match(parser, TOKEN_VAR)) {

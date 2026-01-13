@@ -88,6 +88,7 @@ static void skip_whitespace_and_comments(Lexer *lexer) {
 
 // 检查是否为关键字
 static TokenType is_keyword(const char *str) {
+    if (strcmp(str, "enum") == 0) return TOKEN_ENUM;
     if (strcmp(str, "struct") == 0) return TOKEN_STRUCT;
     if (strcmp(str, "const") == 0) return TOKEN_CONST;
     if (strcmp(str, "var") == 0) return TOKEN_VAR;

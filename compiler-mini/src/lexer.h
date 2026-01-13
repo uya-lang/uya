@@ -21,6 +21,7 @@ typedef enum {
     TOKEN_STRING,       // 字符串字面量
     
     // 关键字
+    TOKEN_ENUM,         // enum
     TOKEN_STRUCT,       // struct
     TOKEN_CONST,        // const
     TOKEN_VAR,          // var

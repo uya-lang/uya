@@ -25,6 +25,7 @@ static void checker_exit_scope(TypeChecker *checker);
 static void checker_check_cast_expr(TypeChecker *checker, ASTNode *node);
 static int checker_check_node(TypeChecker *checker, ASTNode *node);
 static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char *struct_name);
+static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *enum_name);
 static Type find_struct_field_type(ASTNode *struct_decl, const char *field_name);
 
 // 初始化 TypeChecker
@@ -244,6 +245,20 @@ static int type_equals(Type t1, Type t2) {
         return 0;
     }
     
+    // 对于枚举类型，需要比较枚举名称
+    if (t1.kind == TYPE_ENUM) {
+        // 如果两个枚举名称都为NULL，则相等
+        if (t1.data.enum_name == NULL && t2.data.enum_name == NULL) {
+            return 1;
+        }
+        // 如果只有一个为NULL，则不相等
+        if (t1.data.enum_name == NULL || t2.data.enum_name == NULL) {
+            return 0;
+        }
+        // 比较枚举名称
+        return strcmp(t1.data.enum_name, t2.data.enum_name) == 0;
+    }
+    
     // 对于结构体类型，需要比较结构体名称
     if (t1.kind == TYPE_STRUCT) {
         // 如果两个结构体名称都为NULL，则相等
@@ -389,11 +404,24 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
         } else if (strcmp(type_name, "void") == 0) {
             result.kind = TYPE_VOID;
         } else {
-            // 其他名称视为结构体类型
-            // 需要从program_node中查找结构体声明（在类型检查阶段验证）
-            result.kind = TYPE_STRUCT;
-            // 结构体名称需要存储在Arena中（类型节点中的名称已经在Arena中）
-            result.data.struct_name = type_name;
+            // 其他名称可能是枚举类型或结构体类型
+            // 需要从program_node中查找枚举或结构体声明（在类型检查阶段验证）
+            if (checker != NULL && checker->program_node != NULL) {
+                // 先检查是否是枚举类型
+                ASTNode *enum_decl = find_enum_decl_from_program(checker->program_node, type_name);
+                if (enum_decl != NULL) {
+                    result.kind = TYPE_ENUM;
+                    result.data.enum_name = type_name;
+                } else {
+                    // 不是枚举类型，视为结构体类型
+                    result.kind = TYPE_STRUCT;
+                    result.data.struct_name = type_name;
+                }
+            } else {
+                // 无法检查，暂时视为结构体类型（向后兼容）
+                result.kind = TYPE_STRUCT;
+                result.data.struct_name = type_name;
+            }
         }
         
         return result;
@@ -673,6 +701,25 @@ static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char 
         if (decl != NULL && decl->type == AST_STRUCT_DECL) {
             if (decl->data.struct_decl.name != NULL && 
                 strcmp(decl->data.struct_decl.name, struct_name) == 0) {
+                return decl;
+            }
+        }
+    }
+    
+    return NULL;
+}
+
+// 从程序节点中查找枚举声明
+static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *enum_name) {
+    if (program_node == NULL || program_node->type != AST_PROGRAM || enum_name == NULL) {
+        return NULL;
+    }
+    
+    for (int i = 0; i < program_node->data.program.decl_count; i++) {
+        ASTNode *decl = program_node->data.program.decls[i];
+        if (decl != NULL && decl->type == AST_ENUM_DECL) {
+            if (decl->data.enum_decl.name != NULL && 
+                strcmp(decl->data.enum_decl.name, enum_name) == 0) {
                 return decl;
             }
         }

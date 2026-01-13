@@ -1,6 +1,7 @@
 #include "codegen.h"
 #include "lexer.h"
 #include <string.h>
+#include <stdlib.h>
 #include <llvm-c/TargetMachine.h>
 #include <llvm-c/Target.h>
 #include <stdio.h>
@@ -102,6 +103,10 @@ LLVMTypeRef codegen_get_base_type(CodeGenerator *codegen, TypeKind type_kind) {
     }
 }
 
+// 前向声明
+static ASTNode *find_enum_decl(CodeGenerator *codegen, const char *enum_name);
+static int get_enum_variant_value(ASTNode *enum_decl, int variant_index);
+
 // 辅助函数：从AST类型节点获取LLVM类型（支持基础类型、结构体类型、指针类型和数组类型）
 // 参数：codegen - 代码生成器指针
 //       type_node - AST类型节点（AST_TYPE_NAMED、AST_TYPE_POINTER 或 AST_TYPE_ARRAY）
@@ -128,6 +133,14 @@ static LLVMTypeRef get_llvm_type_from_ast(CodeGenerator *codegen, ASTNode *type_
                 return codegen_get_base_type(codegen, TYPE_BYTE);
             } else if (strcmp(type_name, "void") == 0) {
                 return codegen_get_base_type(codegen, TYPE_VOID);
+            }
+            
+            // 枚举类型或结构体类型
+            // 先检查是否是枚举类型（枚举类型在LLVM中就是i32类型）
+            ASTNode *enum_decl = find_enum_decl(codegen, type_name);
+            if (enum_decl != NULL) {
+                // 枚举类型，返回i32类型（默认底层类型）
+                return codegen_get_base_type(codegen, TYPE_I32);
             }
             
             // 结构体类型（必须在注册表中查找）
@@ -317,6 +330,7 @@ static LLVMValueRef lookup_var(CodeGenerator *codegen, const char *var_name) {
 
 // 前向声明
 static ASTNode *find_struct_decl(CodeGenerator *codegen, const char *struct_name);
+static int find_enum_variant_index(ASTNode *enum_decl, const char *variant_name);
 static int find_struct_field_index(ASTNode *struct_decl, const char *field_name);
 static const char *lookup_var_struct_name(CodeGenerator *codegen, const char *var_name);
 static LLVMTypeRef lookup_var_type(CodeGenerator *codegen, const char *var_name);
@@ -635,6 +649,89 @@ static ASTNode *find_struct_decl(CodeGenerator *codegen, const char *struct_name
     }
     
     return NULL;
+}
+
+// 辅助函数：从程序节点中查找枚举声明
+// 参数：codegen - 代码生成器指针
+//       enum_name - 枚举名称
+// 返回：找到的枚举声明节点指针，未找到返回 NULL
+static ASTNode *find_enum_decl(CodeGenerator *codegen, const char *enum_name) {
+    if (!codegen || !codegen->program_node || !enum_name) {
+        return NULL;
+    }
+    
+    ASTNode *program = codegen->program_node;
+    if (program->type != AST_PROGRAM) {
+        return NULL;
+    }
+    
+    for (int i = 0; i < program->data.program.decl_count; i++) {
+        ASTNode *decl = program->data.program.decls[i];
+        if (decl != NULL && decl->type == AST_ENUM_DECL) {
+            if (decl->data.enum_decl.name != NULL && 
+                strcmp(decl->data.enum_decl.name, enum_name) == 0) {
+                return decl;
+            }
+        }
+    }
+    
+    return NULL;
+}
+
+// 辅助函数：在枚举声明中查找变体索引
+// 参数：enum_decl - 枚举声明节点
+//       variant_name - 变体名称
+// 返回：变体索引（>= 0），未找到返回 -1
+static int find_enum_variant_index(ASTNode *enum_decl, const char *variant_name) {
+    if (!enum_decl || enum_decl->type != AST_ENUM_DECL || !variant_name) {
+        return -1;
+    }
+    
+    for (int i = 0; i < enum_decl->data.enum_decl.variant_count; i++) {
+        if (enum_decl->data.enum_decl.variants[i].name != NULL && 
+            strcmp(enum_decl->data.enum_decl.variants[i].name, variant_name) == 0) {
+            return i;
+        }
+    }
+    
+    return -1;
+}
+
+// 辅助函数：获取枚举变体的值（显式值或计算值）
+// 参数：enum_decl - 枚举声明节点
+//       variant_index - 变体索引
+// 返回：枚举值（整数），失败返回 -1
+// 注意：如果变体有显式值，使用显式值；否则使用变体索引（从0开始，或基于前一个变体的值）
+static int get_enum_variant_value(ASTNode *enum_decl, int variant_index) {
+    if (!enum_decl || enum_decl->type != AST_ENUM_DECL || variant_index < 0) {
+        return -1;
+    }
+    
+    if (variant_index >= enum_decl->data.enum_decl.variant_count) {
+        return -1;
+    }
+    
+    EnumVariant *variant = &enum_decl->data.enum_decl.variants[variant_index];
+    
+    // 如果变体有显式值，使用显式值
+    if (variant->value != NULL) {
+        return atoi(variant->value);
+    }
+    
+    // 没有显式值，计算值（基于前一个变体的值）
+    if (variant_index == 0) {
+        // 第一个变体，值为0
+        return 0;
+    }
+    
+    // 获取前一个变体的值
+    int prev_value = get_enum_variant_value(enum_decl, variant_index - 1);
+    if (prev_value < 0) {
+        return -1;
+    }
+    
+    // 当前变体的值 = 前一个变体的值 + 1
+    return prev_value + 1;
 }
 
 // 辅助函数：从LLVM结构体类型查找结构体名称
@@ -1344,12 +1441,46 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
         }
             
         case AST_MEMBER_ACCESS: {
-            // 字段访问：使用 GEP + Load 获取字段值
+            // 字段访问或枚举值访问：使用 GEP + Load 获取字段值，或返回枚举值常量
             ASTNode *object = expr->data.member_access.object;
             const char *field_name = expr->data.member_access.field_name;
             
             if (!object || !field_name) {
                 return NULL;
+            }
+            
+            // 检查是否是枚举值访问（EnumName.Variant）
+            // 如果对象是标识符且不是变量，可能是枚举类型名称
+            if (object->type == AST_IDENTIFIER) {
+                const char *enum_name = object->data.identifier.name;
+                if (enum_name) {
+                    // 检查是否是枚举类型名称（先检查变量表，如果不是变量，可能是枚举类型）
+                    LLVMValueRef var_ptr = lookup_var(codegen, enum_name);
+                    if (!var_ptr) {
+                        // 不是变量，可能是枚举类型名称
+                        ASTNode *enum_decl = find_enum_decl(codegen, enum_name);
+                        if (enum_decl != NULL) {
+                            // 是枚举类型，查找变体索引
+                            int variant_index = find_enum_variant_index(enum_decl, field_name);
+                            if (variant_index >= 0) {
+                                // 获取枚举值（显式值或计算值）
+                                int enum_value = get_enum_variant_value(enum_decl, variant_index);
+                                if (enum_value < 0) {
+                                    return NULL;
+                                }
+                                
+                                // 找到变体，返回i32常量
+                                LLVMTypeRef i32_type = codegen_get_base_type(codegen, TYPE_I32);
+                                if (!i32_type) {
+                                    return NULL;
+                                }
+                                return LLVMConstInt(i32_type, (unsigned long long)enum_value, 0);
+                            }
+                            // 变体不存在
+                            return NULL;
+                        }
+                    }
+                }
             }
             
             // 如果对象是标识符（变量），从变量表获取结构体名称
@@ -1709,14 +1840,21 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                         return NULL;
                     }
                     llvm_type = lookup_var_type(codegen, var_name);
-                    // 如果变量表中找不到，可能是结构体类型名称（在 sizeof 中）
+                    // 如果变量表中找不到，可能是枚举类型或结构体类型名称（在 sizeof 中）
                     // 尝试作为类型名称处理
                     if (!llvm_type) {
-                        LLVMTypeRef struct_type = codegen_get_struct_type(codegen, var_name);
-                        if (struct_type) {
-                            llvm_type = struct_type;
+                        // 先检查是否是枚举类型（枚举类型在LLVM中就是i32类型）
+                        ASTNode *enum_decl = find_enum_decl(codegen, var_name);
+                        if (enum_decl != NULL) {
+                            llvm_type = codegen_get_base_type(codegen, TYPE_I32);
                         } else {
-                            return NULL;
+                            // 检查是否是结构体类型
+                            LLVMTypeRef struct_type = codegen_get_struct_type(codegen, var_name);
+                            if (struct_type) {
+                                llvm_type = struct_type;
+                            } else {
+                                return NULL;
+                            }
                         }
                     }
                 } else {
