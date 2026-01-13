@@ -98,6 +98,9 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena) {
         case AST_BOOL:
             node->data.bool_literal.value = 0;
             break;
+        case AST_STRING:
+            node->data.string_literal.value = NULL;
+            break;
         case AST_IF_STMT:
             node->data.if_stmt.condition = NULL;
             node->data.if_stmt.then_branch = NULL;

@@ -427,6 +427,27 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             result.kind = TYPE_BOOL;
             return result;
             
+        case AST_STRING: {
+            // 字符串字面量类型为 *byte（FFI 指针类型）
+            // 创建指向 byte 类型的指针类型
+            Type byte_type;
+            byte_type.kind = TYPE_BYTE;
+            
+            // 分配指向的类型结构（从Arena分配）
+            Type *pointed_type_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
+            if (pointed_type_ptr == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            *pointed_type_ptr = byte_type;
+            
+            // 创建 FFI 指针类型（*byte）
+            result.kind = TYPE_POINTER;
+            result.data.pointer.pointer_to = pointed_type_ptr;
+            result.data.pointer.is_ffi_pointer = 1;  // FFI 指针类型
+            return result;
+        }
+            
         case AST_IDENTIFIER: {
             // 标识符类型需要从符号表中查找
             Symbol *symbol = symbol_table_lookup(checker, expr->data.identifier.name);

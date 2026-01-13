@@ -197,6 +197,58 @@ static Token *read_number(Lexer *lexer, Arena *arena) {
     return make_token(arena, TOKEN_NUMBER, value, line, column);
 }
 
+// 读取字符串字面量
+// 参数：lexer - Lexer 指针，arena - Arena 分配器
+// 返回：字符串字面量 Token，失败返回 NULL
+// 注意：Uya Mini 字符串字面量不支持转义序列，仅支持普通字符
+static Token *read_string(Lexer *lexer, Arena *arena) {
+    int line = lexer->line;
+    int column = lexer->column;
+    
+    // 消费开始的引号
+    advance_char(lexer);
+    
+    const char *start = lexer->buffer + lexer->position;
+    
+    // 读取字符串内容（直到遇到结束引号）
+    while (lexer->position < lexer->buffer_size) {
+        char c = peek_char(lexer, 0);
+        if (c == '\0') {
+            // 文件结束，字符串未闭合
+            return NULL;
+        }
+        if (c == '"') {
+            // 遇到结束引号
+            break;
+        }
+        if (c == '\n') {
+            // 字符串字面量不能跨行（Uya Mini 不支持转义序列）
+            return NULL;
+        }
+        advance_char(lexer);
+    }
+    
+    // 检查是否找到了结束引号
+    if (lexer->position >= lexer->buffer_size || peek_char(lexer, 0) != '"') {
+        // 字符串未闭合
+        return NULL;
+    }
+    
+    // 计算字符串长度（不包括引号）
+    size_t len = (lexer->buffer + lexer->position) - start;
+    
+    // 复制字符串内容到 Arena（包括 null 终止符）
+    const char *value = arena_strdup(arena, start, len);
+    if (value == NULL) {
+        return NULL;
+    }
+    
+    // 消费结束引号
+    advance_char(lexer);
+    
+    return make_token(arena, TOKEN_STRING, value, line, column);
+}
+
 // 获取下一个 Token
 Token *lexer_next_token(Lexer *lexer, Arena *arena) {
     if (lexer == NULL || arena == NULL) {
@@ -306,6 +358,9 @@ Token *lexer_next_token(Lexer *lexer, Arena *arena) {
         case ':':
             advance_char(lexer);
             return make_token(arena, TOKEN_COLON, ":", line, column);
+        case '"':
+            // 字符串字面量
+            return read_string(lexer, arena);
         default:
             if (isalpha((unsigned char)c) || c == '_') {
                 return read_identifier_or_keyword(lexer, arena);

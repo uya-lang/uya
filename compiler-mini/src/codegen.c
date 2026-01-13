@@ -59,6 +59,7 @@ int codegen_new(CodeGenerator *codegen, Arena *arena, const char *module_name) {
     codegen->func_map_count = 0;
     codegen->global_var_map_count = 0;
     codegen->basic_block_counter = 0;
+    codegen->string_literal_counter = 0;
     codegen->loop_stack_depth = 0;
     codegen->program_node = NULL;
     
@@ -860,6 +861,60 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 return NULL;
             }
             return LLVMConstInt(bool_type, value ? 1ULL : 0ULL, 0);  // 0 表示无符号（布尔值）
+        }
+        
+        case AST_STRING: {
+            // 字符串字面量：创建全局字符串常量，返回指向它的指针（*byte 类型）
+            const char *str_value = expr->data.string_literal.value;
+            if (!str_value) {
+                return NULL;
+            }
+            
+            // 计算字符串长度（不包括 null 终止符，LLVMConstStringInContext 会自动添加）
+            size_t str_len = strlen(str_value);
+            
+            // 创建 i8 数组类型（字符串长度 + 1 个 null 终止符）
+            LLVMTypeRef i8_type = LLVMInt8Type();
+            LLVMTypeRef array_type = LLVMArrayType(i8_type, (unsigned int)(str_len + 1));
+            
+            // 创建字符串常量值（LLVMConstStringInContext 会自动添加 null 终止符）
+            // 参数：context, string, length, dontNullTerminate
+            // dontNullTerminate = 0 表示自动添加 null 终止符
+            LLVMValueRef str_const = LLVMConstStringInContext(codegen->context, str_value, (unsigned int)str_len, 0);
+            if (!str_const) {
+                return NULL;
+            }
+            
+            // 生成唯一的全局变量名称
+            int str_id = codegen->string_literal_counter++;
+            char global_name[64];
+            snprintf(global_name, sizeof(global_name), "str.%d", str_id);
+            
+            // 将名称复制到 Arena
+            size_t name_len = strlen(global_name);
+            char *name_copy = (char *)arena_alloc(codegen->arena, name_len + 1);
+            if (!name_copy) {
+                return NULL;
+            }
+            memcpy(name_copy, global_name, name_len + 1);
+            
+            // 创建全局变量（类型为数组）
+            LLVMValueRef global_var = LLVMAddGlobal(codegen->module, array_type, name_copy);
+            if (!global_var) {
+                return NULL;
+            }
+            
+            // 设置初始值为字符串常量
+            LLVMSetInitializer(global_var, str_const);
+            
+            // 设置为常量（不可变）
+            LLVMSetGlobalConstant(global_var, 1);
+            
+            // 设置链接属性（内部链接）
+            LLVMSetLinkage(global_var, LLVMInternalLinkage);
+            
+            // 全局变量本身就是一个指针，可以直接返回
+            return global_var;
         }
         
         case AST_UNARY_EXPR: {

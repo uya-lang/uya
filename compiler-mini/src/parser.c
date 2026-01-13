@@ -921,6 +921,26 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return node;
     }
     
+    // 解析字符串字面量
+    if (parser->current_token->type == TOKEN_STRING) {
+        ASTNode *node = ast_new_node(AST_STRING, line, column, parser->arena);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        // 复制字符串内容到 Arena（token 的 value 已经在 Arena 中）
+        const char *str_value = parser->current_token->value;
+        if (str_value == NULL) {
+            return NULL;
+        }
+        
+        // 字符串内容已经在 token 中，直接使用（token 的 value 存储在 Arena 中）
+        node->data.string_literal.value = str_value;
+        
+        parser_consume(parser);
+        return node;
+    }
+    
     // 解析 null 字面量（null 被解析为标识符节点，在代码生成阶段通过字符串比较识别）
     if (parser->current_token->type == TOKEN_NULL) {
         ASTNode *node = ast_new_node(AST_IDENTIFIER, line, column, parser->arena);

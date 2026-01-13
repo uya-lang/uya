@@ -56,6 +56,7 @@ typedef struct CodeGenerator {
     int global_var_map_count;       // 当前全局变量数量
     
     int basic_block_counter;        // 基本块计数器（用于生成唯一的基本块名称）
+    int string_literal_counter;     // 字符串字面量计数器（用于生成唯一的字符串常量名称）
     
     // 循环基本块栈（用于 break/continue 语句）
     // 使用固定大小数组作为栈，支持嵌套循环

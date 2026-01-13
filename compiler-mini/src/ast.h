@@ -38,6 +38,7 @@ typedef enum {
     AST_IDENTIFIER,     // 标识符
     AST_NUMBER,         // 数字字面量
     AST_BOOL,           // 布尔字面量（true/false）
+    AST_STRING,         // 字符串字面量
     
     // 类型节点
     AST_TYPE_NAMED,     // 命名类型（i32, bool, void, 或 struct Name）
@@ -160,6 +161,11 @@ struct ASTNode {
         struct {
             int value;                // 1 表示 true，0 表示 false
         } bool_literal;
+        
+        // 字符串字面量
+        struct {
+            const char *value;        // 字符串内容（存储在 Arena 中，不包括引号，包括 null 终止符）
+        } string_literal;
         
         // if 语句
         struct {

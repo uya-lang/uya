@@ -18,6 +18,7 @@ typedef enum {
     TOKEN_EOF,          // 文件结束
     TOKEN_IDENTIFIER,   // 标识符
     TOKEN_NUMBER,       // 数字字面量
+    TOKEN_STRING,       // 字符串字面量
     
     // 关键字
     TOKEN_STRUCT,       // struct
