@@ -3,7 +3,7 @@
 本文档记录为支持使用 Uya Mini 重构 compiler-mini 而需要添加的语言特性。**所有特性必须符合完整 Uya 语言规范**（参考 `uya_ai_prompt.md`）。
 
 **创建日期**：2026-01-11  
-**最后更新**：2026-01-13（更新实现状态：break 和 continue 语句已实现）  
+**最后更新**：2026-01-13（更新实现状态：for 循环、break 和 continue 语句已实现）  
 **目的**：记录需要添加到 Uya Mini 规范中的特性，以支持 compiler-mini 的自举重构，所有语法必须符合完整 Uya 语言规范。
 
 **注意**：本文档记录的是**编译器实现状态**，而不是规范文档状态。规范文档（`spec/UYA_MINI_SPEC.md`）可能已经定义了某些特性的语法，但编译器实现状态可能仍为"未实现"。实现状态仅指编译器代码的实现，不包括规范文档的编写。
@@ -12,7 +12,7 @@
 
 ## 🚧 当前实现进度
 
-**状态**：🔄 进行中（2026-01-13，数组访问语法已实现）
+**状态**：🔄 进行中（2026-01-13，for 循环已实现）
 
 **已完成的工作**：
 - ✅ 添加 `TOKEN_AMPERSAND` 到 `lexer.h`（支持取地址运算符 `&`）
@@ -861,22 +861,6 @@ struct ASTNode {
 7. **实现联合体** (`union`)（可选）
    - 或使用 tagged union 替代方案
 
-### 阶段2：增强特性（P1）
-
-5. **实现枚举类型** (`enum`)
-   - 语法分析器扩展
-   - 类型检查器扩展
-   - 代码生成器扩展
-
-6. **增强字符串字面量支持**
-   - 确保字符串字面量可以作为 FFI 函数参数
-   - 字符串字面量的存储和类型
-
-### 阶段3：优化特性（P2）
-
-7. **实现联合体** (`union`)（可选）
-   - 或使用 tagged union 替代方案
-
 ---
 
 ## 参考文档
@@ -917,7 +901,7 @@ struct ASTNode {
 - ✅ 基础类型：`i32`、`bool`、`byte`、`void`、`struct Name`
 - ✅ 结构体定义、实例化和字段访问
 - ✅ `extern` 函数声明（基础类型参数）
-- ✅ 控制流：`if`、`while`、`return`、`break`、`continue`
+- ✅ 控制流：`if`、`while`、`for`、`return`、`break`、`continue`
 - ✅ 表达式：算术、逻辑、比较运算
 - ✅ 一元表达式：`!`（逻辑非）、`-`（负号）、`&`（取地址）、`*`（解引用）
 - ✅ 指针类型：`&T` 和 `*T`（类型系统、解析、类型检查、代码生成）
@@ -926,15 +910,16 @@ struct ASTNode {
 - ✅ `sizeof` 内置函数（解析、类型检查、代码生成）
 - ✅ 类型转换 `as`（AST_CAST_EXPR 节点类型、解析、类型检查、代码生成均支持，支持 i32 ↔ byte 和 i32 ↔ bool 转换）
 - ✅ `null` 字面量（TOKEN_NULL 关键字、解析为 AST_IDENTIFIER 节点、代码生成器支持指针初始化和比较）
-- ✅ `break` 和 `continue` 语句（TOKEN_BREAK/TOKEN_CONTINUE 关键字、AST_BREAK_STMT/AST_CONTINUE_STMT 节点类型、解析器、类型检查器（循环上下文跟踪）、代码生成器（循环基本块栈））
+- ✅ `for` 循环（AST_FOR_STMT 节点类型、解析器、类型检查器、代码生成器均支持，支持值迭代和引用迭代，支持 break/continue）
+- ✅ `break` 和 `continue` 语句（TOKEN_BREAK/TOKEN_CONTINUE 关键字、AST_BREAK_STMT/AST_CONTINUE_STMT 节点类型、解析器、类型检查器（循环上下文跟踪）、代码生成器（循环基本块栈，支持 while 和 for 循环））
 
 **规范已定义但未实现特性**：
 - ✅ 指针类型 `&T` 和 `*T`（规范已定义，编译器已实现）
 - ✅ 数组类型 `[T: N]`（规范已定义，编译器已实现类型系统、解析、类型检查、代码生成、数组字面量）
 - ✅ 数组访问 `arr[index]`（规范已定义，编译器已实现）
 - ✅ `sizeof` 内置函数（规范已定义，编译器已实现）
-- ❌ `for` 循环（规范已定义，编译器未实现）
-- ✅ `break` 和 `continue` 语句（规范已定义，编译器已实现：已添加 `TOKEN_BREAK` 和 `TOKEN_CONTINUE` 关键字，AST 节点类型 `AST_BREAK_STMT` 和 `AST_CONTINUE_STMT`，解析器、类型检查器（循环上下文跟踪）和代码生成器（循环基本块栈）均支持）
+- ✅ `for` 循环（规范已定义，编译器已实现：AST_FOR_STMT 节点类型、解析器、类型检查器、代码生成器均支持，支持值迭代 `for arr |item|` 和引用迭代 `for arr |&item|`，支持 break/continue）
+- ✅ `break` 和 `continue` 语句（规范已定义，编译器已实现：已添加 `TOKEN_BREAK` 和 `TOKEN_CONTINUE` 关键字，AST 节点类型 `AST_BREAK_STMT` 和 `AST_CONTINUE_STMT`，解析器、类型检查器（循环上下文跟踪）和代码生成器（循环基本块栈，支持 while 和 for 循环）均支持。for 循环中的 continue 跳转到递增基本块，while 循环中的 continue 跳转到条件检查基本块）
 - ✅ 取地址运算符 `&expr`（规范已定义，编译器已实现）
 - ✅ 解引用运算符 `*expr`（规范已定义，编译器已实现）
 - ✅ `null` 字面量（规范已定义为关键字，编译器已实现：已添加 `TOKEN_NULL` 关键字，解析为 `AST_IDENTIFIER` 节点，代码生成器支持指针初始化和比较）
@@ -1031,13 +1016,13 @@ struct ASTNode {
   - [x] 添加代码生成测试用例（已有测试程序 array_access.uya 和单元测试）
   - [x] 更新文档标记步骤5完成
 
-- [ ] **步骤6（`sizeof` 内置函数）**：
-  - [ ] 添加 `AST_SIZEOF` 节点类型
-  - [ ] 扩展解析器支持 `sizeof` 语法
-  - [ ] 扩展类型检查器
-  - [ ] 扩展代码生成器
-  - [ ] 添加测试用例
-  - [ ] 更新文档标记步骤6完成
+- [x] **步骤6（`sizeof` 内置函数）**：
+  - [x] 添加 `AST_SIZEOF` 节点类型
+  - [x] 扩展解析器支持 `sizeof` 语法
+  - [x] 扩展类型检查器
+  - [x] 扩展代码生成器
+  - [x] 添加测试用例
+  - [x] 更新文档标记步骤6完成
 
 - [ ] **步骤7（扩展 extern 函数声明）**：
   - [ ] 扩展解析器支持 extern 函数指针参数
