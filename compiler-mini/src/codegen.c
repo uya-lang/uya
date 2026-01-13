@@ -1943,8 +1943,16 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             if (init_expr) {
                 LLVMValueRef init_val = NULL;
                 
+                // 特殊处理空数组字面量：如果变量类型是数组类型，空数组表示未初始化
+                if (init_expr->type == AST_ARRAY_LITERAL &&
+                    init_expr->data.array_literal.element_count == 0 &&
+                    LLVMGetTypeKind(llvm_type) == LLVMArrayTypeKind) {
+                    // 空数组字面量用于数组类型变量，不进行初始化（变量已通过 alloca 分配，内容未定义）
+                    // 跳过初始化代码生成
+                    init_val = NULL;
+                }
                 // 特殊处理 null 标识符：检查是否是 null 字面量
-                if (init_expr->type == AST_IDENTIFIER) {
+                else if (init_expr->type == AST_IDENTIFIER) {
                     const char *init_name = init_expr->data.identifier.name;
                     if (init_name && strcmp(init_name, "null") == 0) {
                         // null 字面量：检查变量类型是否为指针类型
@@ -1957,8 +1965,10 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                     }
                 }
                 
-                // 如果不是 null 标识符，使用通用方法生成初始值
-                if (!init_val) {
+                // 如果不是特殊处理的情况，使用通用方法生成初始值
+                if (!init_val && !(init_expr->type == AST_ARRAY_LITERAL &&
+                                   init_expr->data.array_literal.element_count == 0 &&
+                                   LLVMGetTypeKind(llvm_type) == LLVMArrayTypeKind)) {
                     init_val = codegen_gen_expr(codegen, init_expr);
                     if (!init_val) {
                         fprintf(stderr, "错误: 变量 %s 的初始值表达式生成失败\n", var_name);
@@ -1966,31 +1976,34 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                     }
                 }
                 
-                // 检查类型是否匹配，如果不匹配则进行类型转换
-                LLVMTypeRef init_type = LLVMTypeOf(init_val);
-                if (init_type != llvm_type) {
-                    // 类型不匹配，需要进行类型转换
-                    LLVMTypeKind var_type_kind = LLVMGetTypeKind(llvm_type);
-                    LLVMTypeKind init_type_kind = LLVMGetTypeKind(init_type);
-                    
-                    if (var_type_kind == LLVMIntegerTypeKind && init_type_kind == LLVMIntegerTypeKind) {
-                        // 整数类型之间的转换
-                        unsigned var_width = LLVMGetIntTypeWidth(llvm_type);
-                        unsigned init_width = LLVMGetIntTypeWidth(init_type);
+                // 如果有初始值（空数组字面量时 init_val 为 NULL，跳过 store）
+                if (init_val) {
+                    // 检查类型是否匹配，如果不匹配则进行类型转换
+                    LLVMTypeRef init_type = LLVMTypeOf(init_val);
+                    if (init_type != llvm_type) {
+                        // 类型不匹配，需要进行类型转换
+                        LLVMTypeKind var_type_kind = LLVMGetTypeKind(llvm_type);
+                        LLVMTypeKind init_type_kind = LLVMGetTypeKind(init_type);
                         
-                        if (var_width < init_width) {
-                            // 截断转换（例如 i32 -> i8）
-                            init_val = LLVMBuildTrunc(codegen->builder, init_val, llvm_type, "");
-                        } else if (var_width > init_width) {
-                            // 零扩展转换（例如 i8 -> i32，byte 是无符号的，使用零扩展）
-                            init_val = LLVMBuildZExt(codegen->builder, init_val, llvm_type, "");
+                        if (var_type_kind == LLVMIntegerTypeKind && init_type_kind == LLVMIntegerTypeKind) {
+                            // 整数类型之间的转换
+                            unsigned var_width = LLVMGetIntTypeWidth(llvm_type);
+                            unsigned init_width = LLVMGetIntTypeWidth(init_type);
+                            
+                            if (var_width < init_width) {
+                                // 截断转换（例如 i32 -> i8）
+                                init_val = LLVMBuildTrunc(codegen->builder, init_val, llvm_type, "");
+                            } else if (var_width > init_width) {
+                                // 零扩展转换（例如 i8 -> i32，byte 是无符号的，使用零扩展）
+                                init_val = LLVMBuildZExt(codegen->builder, init_val, llvm_type, "");
+                            }
+                            // 如果宽度相同，类型应该相同，不需要转换
                         }
-                        // 如果宽度相同，类型应该相同，不需要转换
+                        // 其他类型不匹配的情况会在类型检查阶段被拒绝
                     }
-                    // 其他类型不匹配的情况会在类型检查阶段被拒绝
+                    
+                    LLVMBuildStore(codegen->builder, init_val, var_ptr);
                 }
-                
-                LLVMBuildStore(codegen->builder, init_val, var_ptr);
             }
             
             return 0;

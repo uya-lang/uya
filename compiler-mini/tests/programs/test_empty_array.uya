@@ -1,0 +1,19 @@
+fn main() i32 {
+    // 测试空数组字面量（未初始化）
+    var arr: [i32: 100] = [];
+    
+    // len 应该返回数组声明时的大小（100），而不是 0
+    const len_val: i32 = len(arr);
+    if len_val != 100 {
+        return 1;
+    }
+    
+    // 测试 sizeof 也能正常工作
+    const size_val: i32 = sizeof(arr);
+    if size_val != 400 {  // 100 * 4 字节
+        return 2;
+    }
+    
+    return 0;
+}
+

@@ -742,14 +742,22 @@ static int checker_check_var_decl(TypeChecker *checker, ASTNode *node) {
     
     // 检查初始化表达式类型
     if (node->data.var_decl.init != NULL) {
-        // 先递归检查初始化表达式本身（包括函数调用、运算符等的类型检查）
-        checker_check_node(checker, node->data.var_decl.init);
-        // 然后推断类型并比较
-        Type init_type = checker_infer_type(checker, node->data.var_decl.init);
-        if (!type_equals(init_type, var_type)) {
-            // 初始化表达式类型不匹配
-            checker_report_error(checker);
-            return 0;
+        // 特殊处理空数组字面量：如果变量类型是数组类型，空数组字面量表示未初始化
+        if (node->data.var_decl.init->type == AST_ARRAY_LITERAL &&
+            node->data.var_decl.init->data.array_literal.element_count == 0 &&
+            var_type.kind == TYPE_ARRAY) {
+            // 空数组字面量用于数组类型变量，允许（表示未初始化）
+            // 不需要进一步检查，直接跳过类型比较
+        } else {
+            // 先递归检查初始化表达式本身（包括函数调用、运算符等的类型检查）
+            checker_check_node(checker, node->data.var_decl.init);
+            // 然后推断类型并比较
+            Type init_type = checker_infer_type(checker, node->data.var_decl.init);
+            if (!type_equals(init_type, var_type)) {
+                // 初始化表达式类型不匹配
+                checker_report_error(checker);
+                return 0;
+            }
         }
     }
     
