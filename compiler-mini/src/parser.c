@@ -1327,6 +1327,81 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         }
     }
     
+    // 解析数组字面量：[expr1, expr2, ..., exprN] 或 []
+    if (parser->current_token->type == TOKEN_LEFT_BRACKET) {
+        int array_line = parser->current_token->line;
+        int array_column = parser->current_token->column;
+        parser_consume(parser);  // 消费 '['
+        
+        // 创建数组字面量节点
+        ASTNode *array_literal = ast_new_node(AST_ARRAY_LITERAL, array_line, array_column, parser->arena);
+        if (array_literal == NULL) {
+            return NULL;
+        }
+        
+        // 初始化元素数组
+        ASTNode **elements = NULL;
+        int element_count = 0;
+        int element_capacity = 0;
+        
+        // 检查是否为空数组
+        if (!parser_match(parser, TOKEN_RIGHT_BRACKET)) {
+            // 有元素，解析元素列表
+            while (parser->current_token != NULL && 
+                   !parser_match(parser, TOKEN_RIGHT_BRACKET) && 
+                   !parser_match(parser, TOKEN_EOF)) {
+                
+                // 解析元素表达式
+                ASTNode *element = parser_parse_expression(parser);
+                if (element == NULL) {
+                    return NULL;
+                }
+                
+                // 扩展元素数组
+                if (element_count >= element_capacity) {
+                    int new_capacity = element_capacity == 0 ? 4 : element_capacity * 2;
+                    ASTNode **new_elements = (ASTNode **)arena_alloc(
+                        parser->arena, 
+                        sizeof(ASTNode *) * new_capacity
+                    );
+                    if (new_elements == NULL) {
+                        return NULL;
+                    }
+                    
+                    // 复制旧元素
+                    if (elements != NULL) {
+                        for (int i = 0; i < element_count; i++) {
+                            new_elements[i] = elements[i];
+                        }
+                    }
+                    
+                    elements = new_elements;
+                    element_capacity = new_capacity;
+                }
+                
+                elements[element_count++] = element;
+                
+                // 检查是否有逗号
+                if (parser_match(parser, TOKEN_COMMA)) {
+                    parser_consume(parser);
+                } else {
+                    // 没有逗号，应该是最后一个元素
+                    break;
+                }
+            }
+        }
+        
+        // 期望 ']'
+        if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
+            return NULL;
+        }
+        
+        array_literal->data.array_literal.elements = elements;
+        array_literal->data.array_literal.element_count = element_count;
+        
+        return array_literal;
+    }
+    
     // 解析括号表达式
     if (parser->current_token->type == TOKEN_LEFT_PAREN) {
         parser_consume(parser);  // 消费 '('

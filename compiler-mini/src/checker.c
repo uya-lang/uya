@@ -555,6 +555,41 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             return result;
         }
         
+        case AST_ARRAY_LITERAL: {
+            // 数组字面量：从第一个元素推断元素类型，使用元素数量作为数组大小
+            int element_count = expr->data.array_literal.element_count;
+            ASTNode **elements = expr->data.array_literal.elements;
+            
+            if (element_count == 0) {
+                // 空数组：无法推断类型，返回void类型（错误将在类型检查时报告）
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            
+            // 从第一个元素推断元素类型
+            Type element_type = checker_infer_type(checker, elements[0]);
+            if (element_type.kind == TYPE_VOID) {
+                // 元素类型无效
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            
+            // 分配元素类型结构（从Arena分配）
+            Type *element_type_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
+            if (element_type_ptr == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            *element_type_ptr = element_type;
+            
+            // 创建数组类型
+            result.kind = TYPE_ARRAY;
+            result.data.array.element_type = element_type_ptr;
+            result.data.array.array_size = element_count;
+            
+            return result;
+        }
+        
         case AST_SIZEOF: {
             // sizeof 表达式：返回 i32 类型（字节数）
             // 注意：这里不验证 target 是否有效，类型检查阶段会验证

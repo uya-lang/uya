@@ -27,6 +27,7 @@ typedef enum {
     AST_CALL_EXPR,      // 函数调用
     AST_MEMBER_ACCESS,  // 字段访问（obj.field）
     AST_STRUCT_INIT,    // 结构体字面量（StructName{ field: value, ... }）
+    AST_ARRAY_LITERAL,  // 数组字面量（[expr1, expr2, ..., exprN]）
     AST_SIZEOF,         // sizeof 表达式（sizeof(Type) 或 sizeof(expr)）
     AST_IDENTIFIER,     // 标识符
     AST_NUMBER,         // 数字字面量
@@ -109,6 +110,12 @@ struct ASTNode {
             struct ASTNode **field_values;   // 字段值表达式数组
             int field_count;          // 字段数量
         } struct_init;
+        
+        // 数组字面量（[expr1, expr2, ..., exprN]）
+        struct {
+            struct ASTNode **elements;  // 元素表达式数组
+            int element_count;          // 元素数量
+        } array_literal;
         
         // sizeof 表达式（sizeof(Type) 或 sizeof(expr)）
         struct {

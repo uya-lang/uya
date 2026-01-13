@@ -1234,6 +1234,70 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             return LLVMBuildLoad2(codegen->builder, struct_type, struct_ptr, "");
         }
         
+        case AST_ARRAY_LITERAL: {
+            // 数组字面量：使用 alloca + store 创建数组值
+            int element_count = expr->data.array_literal.element_count;
+            ASTNode **elements = expr->data.array_literal.elements;
+            
+            if (element_count == 0) {
+                // 空数组：无法推断类型，返回NULL
+                return NULL;
+            }
+            
+            // 从第一个元素生成值以推断元素类型
+            LLVMValueRef first_element_val = codegen_gen_expr(codegen, elements[0]);
+            if (!first_element_val) {
+                return NULL;
+            }
+            
+            LLVMTypeRef element_type = LLVMTypeOf(first_element_val);
+            if (!element_type) {
+                return NULL;
+            }
+            
+            // 创建数组类型
+            LLVMTypeRef array_type = LLVMArrayType(element_type, (unsigned int)element_count);
+            if (!array_type) {
+                return NULL;
+            }
+            
+            // 使用 alloca 分配数组空间
+            LLVMValueRef array_ptr = LLVMBuildAlloca(codegen->builder, array_type, "");
+            if (!array_ptr) {
+                return NULL;
+            }
+            
+            // 为每个元素生成值并 store 到数组中
+            for (int i = 0; i < element_count; i++) {
+                ASTNode *element = elements[i];
+                if (!element) {
+                    return NULL;
+                }
+                
+                // 生成元素值
+                LLVMValueRef element_val = codegen_gen_expr(codegen, element);
+                if (!element_val) {
+                    return NULL;
+                }
+                
+                // 使用 GEP 获取元素地址
+                LLVMValueRef indices[2];
+                indices[0] = LLVMConstInt(LLVMInt32Type(), 0ULL, 0);  // 数组指针本身
+                indices[1] = LLVMConstInt(LLVMInt32Type(), (unsigned long long)i, 0);  // 元素索引
+                
+                LLVMValueRef element_ptr = LLVMBuildGEP2(codegen->builder, array_type, array_ptr, indices, 2, "");
+                if (!element_ptr) {
+                    return NULL;
+                }
+                
+                // store 元素值到元素地址
+                LLVMBuildStore(codegen->builder, element_val, element_ptr);
+            }
+            
+            // 返回数组值（load 数组指针）
+            return LLVMBuildLoad2(codegen->builder, array_type, array_ptr, "");
+        }
+        
         case AST_SIZEOF: {
             // sizeof 表达式：返回类型大小（i32 常量）
             ASTNode *target = expr->data.sizeof_expr.target;
