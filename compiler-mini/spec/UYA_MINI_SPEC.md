@@ -27,7 +27,7 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 - **外部函数调用**：支持 `extern` 关键字，允许 `*T` 作为 FFI 指针参数和返回值
 - **基本控制流**：`if`、`while`、`for`（数组遍历）、`break`、`continue`
 - **基本表达式**：算术运算、逻辑运算、比较运算、函数调用、结构体字段访问、数组访问、类型转换
-- **内置函数**：`sizeof`（类型大小查询）
+- **内置函数**：`sizeof`（类型大小查询）、`len`（数组长度查询）
 
 **不支持的特性**：
 - 枚举、接口
@@ -341,8 +341,9 @@ add_expr       = mul_expr { ('+' | '-') mul_expr }
 mul_expr       = cast_expr { ('*' | '/' | '%') cast_expr }
 cast_expr      = unary_expr [ 'as' type ]
 unary_expr     = ('!' | '-' | '&' | '*') unary_expr | primary_expr
-primary_expr   = ID | NUM | 'true' | 'false' | 'null' | STRING | struct_literal | array_literal | member_access | array_access | call_expr | sizeof_expr | '(' expr ')'
+primary_expr   = ID | NUM | 'true' | 'false' | 'null' | STRING | struct_literal | array_literal | member_access | array_access | call_expr | sizeof_expr | len_expr | '(' expr ')'
 sizeof_expr    = 'sizeof' '(' (type | expr) ')'
+len_expr       = 'len' '(' expr ')'
 struct_literal = ID '{' field_init_list '}'
 array_literal  = '[' expr_list ']'
 expr_list      = [ expr { ',' expr } ]
@@ -527,6 +528,51 @@ const ptr_array_size: i32 = sizeof(&Node) * 10; // 10 个指针的大小
 - Uya Mini 作为最小子集，不依赖模块系统
 - 因此 `sizeof` 作为内置函数而非标准库函数（完整 Uya 中 `sizeof` 是标准库函数，需要 `use std.mem;`）
 - 这简化了使用，无需导入即可使用
+
+#### `len(array)` - 数组长度查询
+
+**语法**：`len(expr)`
+
+**功能**：返回数组的元素个数（编译期常量）
+
+**返回值**：`i32`（元素个数）
+
+**说明**：
+- `len(array)` - 获取数组表达式的元素个数（编译时计算）
+- 参数必须是数组类型表达式（`[T: N]`）
+- 必须是编译时常量，可在任何需要编译期常量的位置使用
+- 编译器在编译期直接折叠为常数，不生成函数调用
+- `len` 返回元素个数，而 `sizeof` 返回字节大小
+
+**示例**：
+```uya
+// 数组表达式长度
+var nums: [i32: 5] = [1, 2, 3, 4, 5];
+const nums_len: i32 = len(nums);        // 5（元素个数）
+
+// 用于循环和计算
+var arr: [i32: 8] = [1, 2, 3, 4, 5, 6, 7, 8];
+const count: i32 = len(arr);  // 8
+
+// len 与 sizeof 的区别
+var arr2: [i32: 5] = [1, 2, 3, 4, 5];
+const len_val: i32 = len(arr2);      // 5（元素个数）
+const size_val: i32 = sizeof(arr2);  // 20（字节大小：5 * 4）
+
+// 在循环中使用
+var values: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+var i: i32 = 0;
+while i < len(values) {
+    // 处理元素
+    i = i + 1;
+}
+```
+
+**设计说明**：
+- `len` 作为内置函数，与 `sizeof` 类似，无需导入即可使用
+- `len` 返回数组的元素个数，`sizeof` 返回数组的字节大小
+- 对于数组 `[T: N]`：`len(array)` 返回 `N`（元素个数），`sizeof(array)` 返回 `sizeof(T) * N`（字节大小）
+- `len` 只接受数组表达式，不接受类型参数（与 `sizeof` 不同，`sizeof` 可以接受类型或表达式）
 
 ---
 

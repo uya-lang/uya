@@ -1744,6 +1744,54 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             return LLVMConstInt(i32_type, size, 0);  // 无符号整数
         }
         
+        case AST_LEN: {
+            // len 表达式：返回数组元素个数（i32 常量）
+            ASTNode *array_expr = expr->data.len_expr.array;
+            
+            if (!array_expr) {
+                return NULL;
+            }
+            
+            LLVMTypeRef array_type = NULL;
+            
+            // 获取数组表达式的类型
+            if (array_expr->type == AST_IDENTIFIER) {
+                // 标识符（变量）：从变量表获取类型
+                const char *var_name = array_expr->data.identifier.name;
+                if (!var_name) {
+                    return NULL;
+                }
+                array_type = lookup_var_type(codegen, var_name);
+            } else {
+                // 其他表达式类型：生成代码以获取类型
+                LLVMValueRef array_val = codegen_gen_expr(codegen, array_expr);
+                if (!array_val) {
+                    return NULL;
+                }
+                array_type = LLVMTypeOf(array_val);
+            }
+            
+            if (!array_type) {
+                return NULL;
+            }
+            
+            // 验证是数组类型
+            LLVMTypeKind kind = LLVMGetTypeKind(array_type);
+            if (kind != LLVMArrayTypeKind) {
+                return NULL;  // 不是数组类型
+            }
+            
+            // 获取数组长度（元素个数）
+            unsigned element_count = LLVMGetArrayLength(array_type);
+            
+            // 创建 i32 常量
+            LLVMTypeRef i32_type = codegen_get_base_type(codegen, TYPE_I32);
+            if (!i32_type) {
+                return NULL;
+            }
+            return LLVMConstInt(i32_type, element_count, 0);  // 无符号整数
+        }
+        
         case AST_CAST_EXPR: {
             // 类型转换表达式（expr as type）
             ASTNode *expr_node = expr->data.cast_expr.expr;

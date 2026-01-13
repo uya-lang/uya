@@ -30,6 +30,7 @@ typedef enum {
     AST_STRUCT_INIT,    // 结构体字面量（StructName{ field: value, ... }）
     AST_ARRAY_LITERAL,  // 数组字面量（[expr1, expr2, ..., exprN]）
     AST_SIZEOF,         // sizeof 表达式（sizeof(Type) 或 sizeof(expr)）
+    AST_LEN,            // len 表达式（len(array)）
     AST_CAST_EXPR,      // 类型转换表达式（expr as type）
     AST_IDENTIFIER,     // 标识符
     AST_NUMBER,         // 数字字面量
@@ -130,6 +131,11 @@ struct ASTNode {
             struct ASTNode *target;   // 目标节点（类型节点或表达式节点）
             int is_type;              // 1 表示 target 是类型节点，0 表示 target 是表达式节点
         } sizeof_expr;
+        
+        // len 表达式（len(array)）
+        struct {
+            struct ASTNode *array;    // 数组表达式节点
+        } len_expr;
         
         // 类型转换表达式（expr as type）
         struct {

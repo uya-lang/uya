@@ -32,6 +32,7 @@ typedef enum {
     TOKEN_TRUE,         // true
     TOKEN_FALSE,        // false
     TOKEN_SIZEOF,       // sizeof
+    TOKEN_LEN,          // len
     TOKEN_AS,           // as（类型转换关键字）
     
     // 运算符

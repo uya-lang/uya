@@ -1,0 +1,42 @@
+fn main() i32 {
+    var arr: [i32: 5] = [1, 2, 3, 4, 5];
+    const len_val: i32 = len(arr);
+    
+    // len 应该返回 5
+    if len_val != 5 {
+        return 1;
+    }
+    
+    // 测试不同类型的数组
+    var bytes: [byte: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const byte_len: i32 = len(bytes);
+    
+    if byte_len != 10 {
+        return 2;
+    }
+    
+    // 测试在循环中使用 len
+    var sum: i32 = 0;
+    var i: i32 = 0;
+    while i < len(arr) {
+        sum = sum + arr[i];
+        i = i + 1;
+    }
+    
+    // sum 应该是 1+2+3+4+5 = 15
+    if sum != 15 {
+        return 3;
+    }
+    
+    // 测试 len 与 sizeof 的区别
+    const arr_size: i32 = sizeof(arr);
+    const arr_len: i32 = len(arr);
+    
+    // arr_size 应该是 20 (5 * 4 字节)，arr_len 应该是 5
+    if arr_size != 20 || arr_len != 5 {
+        return 4;
+    }
+    
+    return 0;
+}
+

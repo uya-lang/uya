@@ -986,6 +986,36 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return sizeof_node;
     }
     
+    // 解析 len 表达式：len(array)
+    if (parser->current_token->type == TOKEN_LEN) {
+        parser_consume(parser);  // 消费 'len'
+        
+        // 期望 '('
+        if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+            return NULL;
+        }
+        
+        ASTNode *len_node = ast_new_node(AST_LEN, line, column, parser->arena);
+        if (len_node == NULL) {
+            return NULL;
+        }
+        
+        // 解析数组表达式
+        ASTNode *array_expr = parser_parse_expression(parser);
+        if (array_expr == NULL) {
+            return NULL;
+        }
+        
+        len_node->data.len_expr.array = array_expr;
+        
+        // 期望 ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            return NULL;
+        }
+        
+        return len_node;
+    }
+    
     // 解析标识符（可能是普通标识符、函数调用、或结构体字面量的开始）
     if (parser->current_token->type == TOKEN_IDENTIFIER) {
         const char *name = arena_strdup(parser->arena, parser->current_token->value);

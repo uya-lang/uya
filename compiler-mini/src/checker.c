@@ -613,6 +613,13 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             return result;
         }
         
+        case AST_LEN: {
+            // len 表达式：返回 i32 类型（元素个数）
+            // 注意：这里不验证 array 是否是数组类型，类型检查阶段会验证
+            result.kind = TYPE_I32;
+            return result;
+        }
+        
         case AST_CAST_EXPR: {
             // 类型转换表达式：返回目标类型
             // 注意：这里不验证转换是否合法，类型检查阶段会验证
@@ -984,6 +991,30 @@ static Type checker_check_array_access(TypeChecker *checker, ASTNode *node) {
     return *array_type.data.array.element_type;
 }
 
+// 检查 len 表达式
+// 参数：checker - TypeChecker 指针，node - len 表达式节点
+// 返回：i32 类型（如果检查失败返回TYPE_VOID）
+static Type checker_check_len(TypeChecker *checker, ASTNode *node) {
+    Type result;
+    result.kind = TYPE_VOID;
+    
+    if (checker == NULL || node == NULL || node->type != AST_LEN) {
+        return result;
+    }
+    
+    // 获取数组表达式类型
+    Type array_type = checker_infer_type(checker, node->data.len_expr.array);
+    if (array_type.kind != TYPE_ARRAY || array_type.data.array.element_type == NULL) {
+        // 数组表达式类型不是数组类型
+        checker_report_error(checker);
+        return result;
+    }
+    
+    // len 返回 i32 类型（元素个数）
+    result.kind = TYPE_I32;
+    return result;
+}
+
 // 检查结构体字面量
 // 参数：checker - TypeChecker 指针，node - 结构体字面量节点
 // 返回：结构体类型（如果检查失败返回TYPE_VOID）
@@ -1336,6 +1367,10 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             
         case AST_CAST_EXPR:
             checker_check_cast_expr(checker, node);
+            return 1;
+            
+        case AST_LEN:
+            checker_check_len(checker, node);
             return 1;
             
         case AST_IDENTIFIER:
