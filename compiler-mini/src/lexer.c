@@ -97,6 +97,7 @@ static TokenType is_keyword(const char *str) {
     if (strcmp(str, "if") == 0) return TOKEN_IF;
     if (strcmp(str, "else") == 0) return TOKEN_ELSE;
     if (strcmp(str, "while") == 0) return TOKEN_WHILE;
+    if (strcmp(str, "for") == 0) return TOKEN_FOR;
     if (strcmp(str, "break") == 0) return TOKEN_BREAK;
     if (strcmp(str, "continue") == 0) return TOKEN_CONTINUE;
     if (strcmp(str, "true") == 0) return TOKEN_TRUE;
@@ -273,8 +274,8 @@ Token *lexer_next_token(Lexer *lexer, Arena *arena) {
                 advance_char(lexer);
                 return make_token(arena, TOKEN_LOGICAL_OR, "||", line, column);
             }
-            // 单个 | 不是 Uya Mini 支持的，但这里先跳过
-            return make_token(arena, TOKEN_EOF, NULL, line, column);
+            // 单个 | 用于 for 循环（for expr | ID | { ... }）
+            return make_token(arena, TOKEN_PIPE, "|", line, column);
         case '(':
             advance_char(lexer);
             return make_token(arena, TOKEN_LEFT_PAREN, "(", line, column);

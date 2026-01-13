@@ -16,6 +16,7 @@ typedef enum {
     // 语句节点
     AST_IF_STMT,        // if 语句
     AST_WHILE_STMT,     // while 语句
+    AST_FOR_STMT,       // for 语句（数组遍历）
     AST_BREAK_STMT,     // break 语句
     AST_CONTINUE_STMT,  // continue 语句
     AST_RETURN_STMT,    // return 语句
@@ -172,6 +173,14 @@ struct ASTNode {
             struct ASTNode *condition;       // 条件表达式
             struct ASTNode *body;            // 循环体（AST_BLOCK 节点）
         } while_stmt;
+        
+        // for 语句（数组遍历）
+        struct {
+            struct ASTNode *array;           // 数组表达式
+            const char *var_name;            // 循环变量名称（存储在 Arena 中）
+            int is_ref;                      // 是否为引用迭代（1 表示引用迭代，0 表示值迭代）
+            struct ASTNode *body;            // 循环体（AST_BLOCK 节点）
+        } for_stmt;
         
         // return 语句
         struct {

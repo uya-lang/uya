@@ -1309,6 +1309,80 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             return 1;
         }
         
+        case AST_FOR_STMT: {
+            // for 循环类型检查
+            // 1. 检查数组表达式类型（必须是数组类型）
+            Type array_type = checker_infer_type(checker, node->data.for_stmt.array);
+            if (array_type.kind != TYPE_ARRAY || array_type.data.array.element_type == NULL) {
+                checker_report_error(checker);
+                // 即使类型错误，也继续检查循环体（以便报告更多错误）
+            } else {
+                // 2. 如果引用迭代形式，检查数组是否为可变变量
+                if (node->data.for_stmt.is_ref) {
+                    // 引用迭代形式只能用于可变数组（var arr）
+                    // 需要检查数组表达式是否是可变变量
+                    // 注意：这里简化处理，如果数组表达式是标识符，检查符号表
+                    if (node->data.for_stmt.array->type == AST_IDENTIFIER) {
+                        Symbol *symbol = symbol_table_lookup(checker, node->data.for_stmt.array->data.identifier.name);
+                        if (symbol != NULL && symbol->is_const) {
+                            // 引用迭代形式不能用于 const 变量
+                            checker_report_error(checker);
+                        }
+                    }
+                    // 其他情况（如数组字面量）也允许引用迭代，但运行时可能出错
+                }
+                
+                // 3. 进入循环作用域并添加循环变量
+                checker_enter_scope(checker);
+                checker->loop_depth++;  // 进入循环（增加循环深度）
+                
+                // 创建循环变量类型
+                Type var_type;
+                if (node->data.for_stmt.is_ref) {
+                    // 引用迭代：变量类型为 &T（指向元素的指针）
+                    Type element_type = *array_type.data.array.element_type;
+                    Type *element_type_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
+                    if (element_type_ptr == NULL) {
+                        checker_report_error(checker);
+                    } else {
+                        *element_type_ptr = element_type;
+                        var_type.kind = TYPE_POINTER;
+                        var_type.data.pointer.pointer_to = element_type_ptr;
+                        var_type.data.pointer.is_ffi_pointer = 0;
+                    }
+                } else {
+                    // 值迭代：变量类型为数组元素类型 T
+                    var_type = *array_type.data.array.element_type;
+                }
+                
+                // 添加循环变量到符号表（var，可修改）
+                Symbol *loop_var = (Symbol *)arena_alloc(checker->arena, sizeof(Symbol));
+                if (loop_var == NULL) {
+                    checker_report_error(checker);
+                } else {
+                    loop_var->name = node->data.for_stmt.var_name;
+                    loop_var->type = var_type;
+                    loop_var->is_const = 0;  // for 循环变量是可修改的（即使是值迭代形式，在循环体内也可以使用）
+                    loop_var->scope_level = checker->scope_level;
+                    loop_var->line = node->line;
+                    loop_var->column = node->column;
+                    if (!symbol_table_insert(checker, loop_var)) {
+                        checker_report_error(checker);
+                    }
+                }
+                
+                // 4. 检查循环体
+                if (node->data.for_stmt.body != NULL) {
+                    checker_check_node(checker, node->data.for_stmt.body);
+                }
+                
+                // 5. 退出循环作用域和循环深度
+                checker->loop_depth--;
+                checker_exit_scope(checker);
+            }
+            return 1;
+        }
+        
         case AST_BREAK_STMT: {
             // 检查 break 是否在循环中
             if (checker->loop_depth == 0) {

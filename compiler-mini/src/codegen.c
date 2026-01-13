@@ -2226,6 +2226,233 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             return 0;
         }
         
+        case AST_FOR_STMT: {
+            // for 语句：数组遍历循环
+            ASTNode *array_expr = stmt->data.for_stmt.array;
+            const char *var_name = stmt->data.for_stmt.var_name;
+            int is_ref = stmt->data.for_stmt.is_ref;
+            ASTNode *body = stmt->data.for_stmt.body;
+            
+            if (!array_expr || !var_name || !body) {
+                return -1;
+            }
+            
+            // 获取当前函数
+            LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(codegen->builder));
+            if (!current_func) {
+                return -1;
+            }
+            
+            // 创建基本块：init（初始化）、cond（条件检查）、body（循环体）、inc（递增）、end（结束）
+            int bb_id = codegen->basic_block_counter++;
+            char init_name[32], cond_name[32], body_name[32], inc_name[32], end_name[32];
+            snprintf(init_name, sizeof(init_name), "for.init.%d", bb_id);
+            snprintf(cond_name, sizeof(cond_name), "for.cond.%d", bb_id);
+            snprintf(body_name, sizeof(body_name), "for.body.%d", bb_id);
+            snprintf(inc_name, sizeof(inc_name), "for.inc.%d", bb_id);
+            snprintf(end_name, sizeof(end_name), "for.end.%d", bb_id);
+            LLVMBasicBlockRef init_bb = LLVMAppendBasicBlock(current_func, init_name);
+            LLVMBasicBlockRef cond_bb = LLVMAppendBasicBlock(current_func, cond_name);
+            LLVMBasicBlockRef body_bb = LLVMAppendBasicBlock(current_func, body_name);
+            LLVMBasicBlockRef inc_bb = LLVMAppendBasicBlock(current_func, inc_name);
+            LLVMBasicBlockRef end_bb = LLVMAppendBasicBlock(current_func, end_name);
+            
+            // 将循环基本块推入栈（用于 break/continue）
+            if (codegen->loop_stack_depth >= LOOP_STACK_SIZE) {
+                return -1;  // 循环嵌套过深
+            }
+            codegen->loop_stack[codegen->loop_stack_depth].cond_bb = cond_bb;
+            codegen->loop_stack[codegen->loop_stack_depth].end_bb = end_bb;
+            codegen->loop_stack_depth++;
+            
+            // 在当前基本块分配循环索引变量 i（在所有基本块中使用）
+            LLVMTypeRef i32_type = codegen_get_base_type(codegen, TYPE_I32);
+            if (!i32_type) {
+                codegen->loop_stack_depth--;
+                return -1;
+            }
+            
+            // 分配循环索引变量 i（在当前基本块中分配，这样可以在所有后续基本块中使用）
+            LLVMValueRef index_ptr = LLVMBuildAlloca(codegen->builder, i32_type, "");
+            if (!index_ptr) {
+                codegen->loop_stack_depth--;
+                return -1;
+            }
+            
+            // 生成数组表达式代码并获取数组类型和指针（在当前基本块中，这样可以在所有后续基本块中使用）
+            LLVMValueRef array_val = codegen_gen_expr(codegen, array_expr);
+            if (!array_val) {
+                codegen->loop_stack_depth--;
+                return -1;
+            }
+            
+            LLVMTypeRef array_val_type = LLVMTypeOf(array_val);
+            if (!array_val_type) {
+                codegen->loop_stack_depth--;
+                return -1;
+            }
+            
+            LLVMTypeRef array_type = NULL;
+            LLVMValueRef array_ptr = NULL;
+            LLVMTypeKind array_val_kind = LLVMGetTypeKind(array_val_type);
+            
+            if (array_val_kind == LLVMArrayTypeKind) {
+                // 数组值类型，需要分配临时空间存储数组值（在当前基本块中分配）
+                array_type = array_val_type;
+                array_ptr = LLVMBuildAlloca(codegen->builder, array_type, "");
+                if (!array_ptr) {
+                    codegen->loop_stack_depth--;
+                    return -1;
+                }
+                LLVMBuildStore(codegen->builder, array_val, array_ptr);
+            } else if (array_val_kind == LLVMPointerTypeKind) {
+                // 指针类型（数组变量在栈上的地址）
+                array_ptr = array_val;
+                array_type = LLVMGetElementType(array_val_type);
+                if (!array_type || LLVMGetTypeKind(array_type) != LLVMArrayTypeKind) {
+                    codegen->loop_stack_depth--;
+                    return -1;  // 指针指向的不是数组类型
+                }
+            } else {
+                codegen->loop_stack_depth--;
+                return -1;  // 不是数组类型
+            }
+            
+            // 获取数组长度
+            unsigned array_length = LLVMGetArrayLength(array_type);
+            LLVMValueRef array_length_val = LLVMConstInt(i32_type, array_length, 0);
+            
+            // 获取元素类型
+            LLVMTypeRef element_type = LLVMGetElementType(array_type);
+            if (!element_type) {
+                codegen->loop_stack_depth--;
+                return -1;
+            }
+            
+            // 确定循环变量类型（在当前基本块中，这样可以在所有后续基本块中使用）
+            LLVMTypeRef loop_var_type = NULL;
+            if (is_ref) {
+                // 引用迭代：循环变量是指向元素的指针
+                loop_var_type = LLVMPointerType(element_type, 0);
+            } else {
+                // 值迭代：循环变量是元素值
+                loop_var_type = element_type;
+            }
+            
+            // 分配循环变量空间（在当前基本块中分配，这样可以在所有后续基本块中使用）
+            LLVMValueRef loop_var_ptr = LLVMBuildAlloca(codegen->builder, loop_var_type, "");
+            if (!loop_var_ptr) {
+                codegen->loop_stack_depth--;
+                return -1;
+            }
+            
+            // 添加循环变量到变量表（在循环开始前添加一次，而不是每次迭代都添加）
+            if (add_var(codegen, var_name, loop_var_ptr, loop_var_type, NULL, NULL) != 0) {
+                codegen->loop_stack_depth--;
+                return -1;
+            }
+            
+            // 跳转到初始化基本块
+            LLVMBuildBr(codegen->builder, init_bb);
+            
+            // 生成初始化代码（初始化循环索引 i = 0）
+            LLVMPositionBuilderAtEnd(codegen->builder, init_bb);
+            LLVMBuildStore(codegen->builder, LLVMConstInt(i32_type, 0, 0), index_ptr);
+            
+            // 跳转到条件检查
+            LLVMBuildBr(codegen->builder, cond_bb);
+            
+            // 生成条件检查（i < array_length）
+            LLVMPositionBuilderAtEnd(codegen->builder, cond_bb);
+            LLVMValueRef index_val = LLVMBuildLoad2(codegen->builder, i32_type, index_ptr, "");
+            if (!index_val) {
+                codegen->loop_stack_depth--;
+                return -1;
+            }
+            LLVMValueRef cond_val = LLVMBuildICmp(codegen->builder, LLVMIntSLT, index_val, array_length_val, "");
+            if (!cond_val) {
+                codegen->loop_stack_depth--;
+                return -1;
+            }
+            LLVMBuildCondBr(codegen->builder, cond_val, body_bb, end_bb);
+            
+            // 生成循环体
+            LLVMPositionBuilderAtEnd(codegen->builder, body_bb);
+            
+            // 重新加载索引值（因为在不同的基本块中，index_val 不可用）
+            LLVMValueRef index_val_body = LLVMBuildLoad2(codegen->builder, i32_type, index_ptr, "");
+            if (!index_val_body) {
+                codegen->loop_stack_depth--;
+                return -1;
+            }
+            
+            // 生成循环变量（值迭代：load array[i]，引用迭代：getelementptr array[i]）
+            LLVMValueRef indices[2];
+            indices[0] = LLVMConstInt(i32_type, 0, 0);  // 数组指针本身
+            indices[1] = index_val_body;  // 元素索引（运行时值）
+            
+            LLVMValueRef element_ptr = LLVMBuildGEP2(codegen->builder, array_type, array_ptr, indices, 2, "");
+            if (!element_ptr) {
+                codegen->loop_stack_depth--;
+                return -1;
+            }
+            
+            LLVMValueRef loop_var_val = NULL;
+            
+            if (is_ref) {
+                // 引用迭代：循环变量是指向元素的指针
+                loop_var_val = element_ptr;
+            } else {
+                // 值迭代：循环变量是元素值
+                loop_var_val = LLVMBuildLoad2(codegen->builder, element_type, element_ptr, "");
+                if (!loop_var_val) {
+                    codegen->loop_stack_depth--;
+                    return -1;
+                }
+            }
+            
+            // 存储循环变量值（变量已经在循环开始前添加到变量表）
+            LLVMBuildStore(codegen->builder, loop_var_val, loop_var_ptr);
+            
+            // 生成循环体代码
+            if (codegen_gen_stmt(codegen, body) != 0) {
+                codegen->loop_stack_depth--;
+                return -1;
+            }
+            
+            // 检查循环体结束前是否需要跳转（如果已经有终止符，不需要再跳转）
+            LLVMBasicBlockRef current_bb = LLVMGetInsertBlock(codegen->builder);
+            if (current_bb && !LLVMGetBasicBlockTerminator(current_bb)) {
+                // 循环体结束前跳转到递增基本块（continue 会跳过这里）
+                LLVMBuildBr(codegen->builder, inc_bb);
+            }
+            
+            // 生成递增代码（i = i + 1）
+            LLVMPositionBuilderAtEnd(codegen->builder, inc_bb);
+            LLVMValueRef index_val_inc = LLVMBuildLoad2(codegen->builder, i32_type, index_ptr, "");
+            if (!index_val_inc) {
+                codegen->loop_stack_depth--;
+                return -1;
+            }
+            LLVMValueRef index_val_next = LLVMBuildAdd(codegen->builder, index_val_inc, LLVMConstInt(i32_type, 1, 0), "");
+            if (!index_val_next) {
+                codegen->loop_stack_depth--;
+                return -1;
+            }
+            LLVMBuildStore(codegen->builder, index_val_next, index_ptr);
+            
+            // 跳转到条件检查
+            LLVMBuildBr(codegen->builder, cond_bb);
+            
+            // 从栈中弹出循环信息
+            codegen->loop_stack_depth--;
+            
+            // 设置构建器到 end 基本块
+            LLVMPositionBuilderAtEnd(codegen->builder, end_bb);
+            
+            return 0;
+        }
+        
         case AST_BREAK_STMT: {
             // break 语句：跳转到循环结束基本块
             if (codegen->loop_stack_depth == 0) {

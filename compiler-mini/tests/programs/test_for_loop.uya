@@ -1,0 +1,50 @@
+// 测试 for 循环（数组遍历）
+
+fn main() i32 {
+    // 测试值迭代（只读）
+    const arr: [i32: 5] = [1, 2, 3, 4, 5];
+    var sum: i32 = 0;
+    
+    for arr |item| {
+        sum = sum + item;  // item 是元素值，只读
+    }
+    
+    // sum 应该是 15
+    if sum != 15 {
+        return 1;  // 测试失败
+    }
+    
+    // 测试引用迭代（可修改）
+    var arr2: [i32: 5] = [1, 2, 3, 4, 5];
+    
+    for arr2 |&item| {
+        *item = *item * 2;  // 修改每个元素，乘以2
+    }
+    
+    // arr2 应该是 [2, 4, 6, 8, 10]
+    if arr2[0] != 2 || arr2[1] != 4 || arr2[2] != 6 || arr2[3] != 8 || arr2[4] != 10 {
+        return 2;  // 测试失败
+    }
+    
+    // 测试 break 和 continue
+    var arr3: [i32: 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    var sum2: i32 = 0;
+    
+    for arr3 |item| {
+        if item == 5 {
+            continue;  // 跳过 5
+        }
+        if item == 8 {
+            break;     // 遇到 8 时跳出循环
+        }
+        sum2 = sum2 + item;
+    }
+    
+    // sum2 应该是 1 + 2 + 3 + 4 + 6 + 7 = 23（跳过 5，在 8 之前跳出）
+    if sum2 != 23 {
+        return 3;  // 测试失败
+    }
+    
+    return 0;  // 所有测试通过
+}
+

@@ -2210,6 +2210,65 @@ ASTNode *parser_parse_statement(Parser *parser) {
         return stmt;
     }
     
+    if (parser_match(parser, TOKEN_FOR)) {
+        // 解析 for 语句（数组遍历）
+        // 语法：for expr | ID | { statements } 或 for expr | &ID | { statements }
+        parser_consume(parser);  // 消费 'for'
+        
+        ASTNode *stmt = ast_new_node(AST_FOR_STMT, line, column, parser->arena);
+        if (stmt == NULL) {
+            return NULL;
+        }
+        
+        // 解析数组表达式
+        ASTNode *array_expr = parser_parse_expression(parser);
+        if (array_expr == NULL) {
+            return NULL;
+        }
+        stmt->data.for_stmt.array = array_expr;
+        
+        // 期望 '|'
+        if (!parser_expect(parser, TOKEN_PIPE)) {
+            return NULL;
+        }
+        
+        // 检查是否为引用迭代（&ID）还是值迭代（ID）
+        int is_ref = 0;
+        if (parser_match(parser, TOKEN_AMPERSAND)) {
+            // 引用迭代：for expr | &ID | { ... }
+            parser_consume(parser);  // 消费 '&'
+            is_ref = 1;
+        }
+        
+        // 期望循环变量名称
+        if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+            return NULL;
+        }
+        
+        const char *var_name = arena_strdup(parser->arena, parser->current_token->value);
+        if (var_name == NULL) {
+            return NULL;
+        }
+        stmt->data.for_stmt.var_name = var_name;
+        parser_consume(parser);  // 消费变量名称
+        
+        // 期望 '|'
+        if (!parser_expect(parser, TOKEN_PIPE)) {
+            return NULL;
+        }
+        
+        stmt->data.for_stmt.is_ref = is_ref;
+        
+        // 解析循环体（代码块）
+        ASTNode *body = parser_parse_block(parser);
+        if (body == NULL) {
+            return NULL;
+        }
+        stmt->data.for_stmt.body = body;
+        
+        return stmt;
+    }
+    
     if (parser_match(parser, TOKEN_CONST) || parser_match(parser, TOKEN_VAR)) {
         // 解析变量声明
         int is_const = parser_match(parser, TOKEN_CONST);

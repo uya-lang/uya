@@ -1,0 +1,17 @@
+// 测试简单的 for 循环
+
+fn main() i32 {
+    var arr: [i32: 3] = [1, 2, 3];
+    var sum: i32 = 0;
+    
+    for arr |item| {
+        sum = sum + item;
+    }
+    
+    if sum != 6 {
+        return 1;
+    }
+    
+    return 0;
+}
+

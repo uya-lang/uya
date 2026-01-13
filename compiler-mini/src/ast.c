@@ -107,6 +107,12 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena) {
             node->data.while_stmt.condition = NULL;
             node->data.while_stmt.body = NULL;
             break;
+        case AST_FOR_STMT:
+            node->data.for_stmt.array = NULL;
+            node->data.for_stmt.var_name = NULL;
+            node->data.for_stmt.is_ref = 0;
+            node->data.for_stmt.body = NULL;
+            break;
         case AST_RETURN_STMT:
             node->data.return_stmt.expr = NULL;
             break;

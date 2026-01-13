@@ -29,6 +29,7 @@ typedef enum {
     TOKEN_IF,           // if
     TOKEN_ELSE,         // else
     TOKEN_WHILE,        // while
+    TOKEN_FOR,          // for
     TOKEN_BREAK,        // break
     TOKEN_CONTINUE,     // continue
     TOKEN_TRUE,         // true
@@ -67,6 +68,7 @@ typedef enum {
     TOKEN_ASSIGN,       // =
     TOKEN_DOT,          // .
     TOKEN_COLON,        // :
+    TOKEN_PIPE,         // |（用于 for 循环）
 } TokenType;
 
 // Token 结构体
