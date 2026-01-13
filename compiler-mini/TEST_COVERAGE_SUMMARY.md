@@ -6,31 +6,33 @@
 
 ## 测试程序统计
 
-- **测试程序总数**：18个
+- **测试程序总数**：80+ 个（包括基础测试、枚举测试、数组测试等）
 - **覆盖的语言特性**：100%（所有功能）
 - **未实现的特性**：0个（所有特性已完整实现）
 
-## 新增测试程序（4个）
+## 新增测试程序（枚举相关，5个）
 
-1. **void_function.uya** - void 函数测试
-   - 测试 void 返回类型的函数声明
-   - 测试 void 函数调用
-   - 测试 void 函数省略 return 语句
-   - 测试显式 return; 语句
+1. **test_enum_basic.uya** - 枚举类型基本测试
+   - 测试枚举声明和基本使用
+   - 测试枚举值访问和比较
 
-2. **struct_assignment.uya** - 结构体赋值测试
-   - 测试结构体变量按值赋值
-   - 验证赋值后结构体字段值正确复制
+2. **test_enum_explicit_value.uya** - 枚举显式赋值测试
+   - 测试枚举变体的显式赋值功能
+   - 验证显式赋值的枚举值正确
 
-3. **extern_function.uya** - extern 函数声明测试（新增）
-   - 测试 extern 函数声明语法
-   - 测试调用 extern 函数
+3. **test_enum_mixed_value.uya** - 枚举混合赋值测试
+   - 测试枚举变体的混合赋值功能
+   - 验证部分变体有显式值，部分使用自动递增的场景
+   - 测试显式赋值后的自动递增逻辑
 
-4. **struct_comparison.uya** - 结构体比较测试（新增）
-   - 测试结构体 == 运算符
-   - 测试结构体 != 运算符
-   - 测试相同结构体比较（应返回 true）
-   - 测试不同结构体比较（应返回 false）
+4. **test_enum_auto_increment.uya** - 枚举自动递增验证测试
+   - 测试枚举值的自动递增功能
+   - 使用比较运算符验证枚举值从0开始依次递增1
+   - 验证枚举值之间的顺序关系
+
+5. **test_enum_sizeof.uya** - 枚举类型 sizeof 测试
+   - 测试枚举类型的 sizeof 内置函数
+   - 验证枚举类型大小等于底层类型大小（默认 i32，4字节）
 
 ## 完整的测试程序列表
 
@@ -50,8 +52,13 @@
 14. complex_expr.uya - 复杂表达式测试
 15. void_function.uya - void 函数测试
 16. struct_assignment.uya - 结构体赋值测试
-17. extern_function.uya - extern 函数声明测试（新增）
-18. struct_comparison.uya - 结构体比较测试（新增）
+17. extern_function.uya - extern 函数声明测试
+18. struct_comparison.uya - 结构体比较测试
+19. test_enum_basic.uya - 枚举类型基本测试
+20. test_enum_explicit_value.uya - 枚举显式赋值测试
+21. test_enum_mixed_value.uya - 枚举混合赋值测试
+22. test_enum_auto_increment.uya - 枚举自动递增验证测试
+23. test_enum_sizeof.uya - 枚举类型 sizeof 测试
 
 ## 覆盖的语言特性
 
@@ -69,6 +76,16 @@
 - 结构体作为返回值
 - 结构体赋值
 - 结构体比较（==, !=）
+
+### ✅ 枚举类型（100%）
+- 枚举定义
+- 枚举变体声明
+- 枚举值访问（EnumName.Variant）
+- 枚举显式赋值（variant = value）
+- 枚举自动递增（从0开始，依次递增1）
+- 枚举混合赋值（部分显式值，部分自动递增）
+- 枚举值比较（==, !=, <, >, <=, >=）
+- 枚举类型 sizeof
 
 ### ✅ 变量声明（100%）
 - const 变量
@@ -125,6 +142,13 @@
 2. **结构体比较（==, !=）** ✅
    - 状态：已完整实现（逐字段比较，支持嵌套结构体）
    - 测试程序：struct_comparison.uya
+
+3. **枚举类型** ✅
+   - 状态：已完整实现
+   - 支持枚举定义、枚举值访问、显式赋值、自动递增、混合赋值
+   - 支持枚举值比较（==, !=, <, >, <=, >=）
+   - 支持枚举类型 sizeof
+   - 测试程序：test_enum_basic.uya, test_enum_explicit_value.uya, test_enum_mixed_value.uya, test_enum_auto_increment.uya, test_enum_sizeof.uya
 
 ## 测试方法
 
