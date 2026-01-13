@@ -219,6 +219,28 @@ void test_check_member_access(void) {
     printf("  ✓ 字段访问类型检查测试通过\n");
 }
 
+// 测试数组访问类型检查
+void test_check_array_access(void) {
+    printf("测试数组访问类型检查...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    TypeChecker checker;
+    checker_init(&checker, &arena);
+    
+    const char *source = 
+        "fn main() i32 { var arr: [i32: 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; var x: i32 = arr[0]; return x; }";
+    ASTNode *program = parse_source(source, &arena);
+    assert(program != NULL);
+    
+    int result = checker_check(&checker, program);
+    assert(result == 0);
+    assert(checker_get_error_count(&checker) == 0);
+    
+    printf("  ✓ 数组访问类型检查测试通过\n");
+}
+
 // 测试算术运算符类型检查（正确情况）
 void test_check_arithmetic_operator_correct(void) {
     printf("测试算术运算符类型检查（正确情况）...\n");
@@ -551,6 +573,7 @@ int main(void) {
     test_check_function_call_arg_type_mismatch();
     test_check_struct_type();
     test_check_member_access();
+    test_check_array_access();
     test_check_arithmetic_operator_correct();
     test_check_arithmetic_operator_type_error();
     test_check_comparison_operator_correct();

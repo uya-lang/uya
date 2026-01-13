@@ -1070,38 +1070,70 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             call->data.call_expr.args = args;
             call->data.call_expr.arg_count = arg_count;
             
-            // 字段访问可能跟在函数调用后面（例如：f().field），所以继续处理字段访问
-            // 但先返回函数调用，字段访问会在后续的循环中处理
+            // 字段访问和数组访问可能跟在函数调用后面（例如：f().field 或 f()[0]）
             ASTNode *result = call;
             
-            // 处理字段访问链（左结合：a.b.c 解析为 (a.b).c）
-            while (parser->current_token != NULL && parser_match(parser, TOKEN_DOT)) {
-                parser_consume(parser);  // 消费 '.'
-                
-                // 期望字段名称
-                if (!parser_match(parser, TOKEN_IDENTIFIER)) {
-                    return NULL;
+            // 处理字段访问和数组访问链
+            while (parser->current_token != NULL) {
+                if (parser_match(parser, TOKEN_DOT)) {
+                    // 字段访问：.field
+                    parser_consume(parser);  // 消费 '.'
+                    
+                    // 期望字段名称
+                    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                        return NULL;
+                    }
+                    
+                    const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
+                    if (field_name == NULL) {
+                        return NULL;
+                    }
+                    
+                    int field_line = parser->current_token->line;
+                    int field_column = parser->current_token->column;
+                    parser_consume(parser);  // 消费字段名称
+                    
+                    // 创建字段访问节点
+                    ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
+                    if (member_access == NULL) {
+                        return NULL;
+                    }
+                    
+                    member_access->data.member_access.object = result;
+                    member_access->data.member_access.field_name = field_name;
+                    
+                    result = member_access;
+                } else if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
+                    // 数组访问：[index]
+                    int bracket_line = parser->current_token->line;
+                    int bracket_column = parser->current_token->column;
+                    parser_consume(parser);  // 消费 '['
+                    
+                    // 解析索引表达式
+                    ASTNode *index_expr = parser_parse_expression(parser);
+                    if (index_expr == NULL) {
+                        return NULL;
+                    }
+                    
+                    // 期望 ']'
+                    if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
+                        return NULL;
+                    }
+                    
+                    // 创建数组访问节点
+                    ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena);
+                    if (array_access == NULL) {
+                        return NULL;
+                    }
+                    
+                    array_access->data.array_access.array = result;
+                    array_access->data.array_access.index = index_expr;
+                    
+                    result = array_access;
+                } else {
+                    // 既不是字段访问也不是数组访问，退出循环
+                    break;
                 }
-                
-                const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
-                if (field_name == NULL) {
-                    return NULL;
-                }
-                
-                int field_line = parser->current_token->line;
-                int field_column = parser->current_token->column;
-                parser_consume(parser);  // 消费字段名称
-                
-                // 创建字段访问节点
-                ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
-                if (member_access == NULL) {
-                    return NULL;
-                }
-                
-                member_access->data.member_access.object = result;  // 左操作数是当前结果
-                member_access->data.member_access.field_name = field_name;
-                
-                result = member_access;
             }
             
             return result;
@@ -1291,37 +1323,70 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             
             node->data.identifier.name = name;
             
-            // 字段访问可能跟在标识符后面（例如：obj.field）
+            // 字段访问和数组访问可能跟在标识符后面（例如：obj.field 或 arr[0]）
             ASTNode *result = node;
             
-            // 处理字段访问链（左结合：a.b.c 解析为 (a.b).c）
-            while (parser->current_token != NULL && parser_match(parser, TOKEN_DOT)) {
-                parser_consume(parser);  // 消费 '.'
-                
-                // 期望字段名称
-                if (!parser_match(parser, TOKEN_IDENTIFIER)) {
-                    return NULL;
+            // 处理字段访问和数组访问链（左结合：a.b.c 解析为 (a.b).c，arr[0][1] 解析为 (arr[0])[1]）
+            while (parser->current_token != NULL) {
+                if (parser_match(parser, TOKEN_DOT)) {
+                    // 字段访问：.field
+                    parser_consume(parser);  // 消费 '.'
+                    
+                    // 期望字段名称
+                    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                        return NULL;
+                    }
+                    
+                    const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
+                    if (field_name == NULL) {
+                        return NULL;
+                    }
+                    
+                    int field_line = parser->current_token->line;
+                    int field_column = parser->current_token->column;
+                    parser_consume(parser);  // 消费字段名称
+                    
+                    // 创建字段访问节点
+                    ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
+                    if (member_access == NULL) {
+                        return NULL;
+                    }
+                    
+                    member_access->data.member_access.object = result;
+                    member_access->data.member_access.field_name = field_name;
+                    
+                    result = member_access;
+                } else if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
+                    // 数组访问：[index]
+                    int bracket_line = parser->current_token->line;
+                    int bracket_column = parser->current_token->column;
+                    parser_consume(parser);  // 消费 '['
+                    
+                    // 解析索引表达式
+                    ASTNode *index_expr = parser_parse_expression(parser);
+                    if (index_expr == NULL) {
+                        return NULL;
+                    }
+                    
+                    // 期望 ']'
+                    if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
+                        return NULL;
+                    }
+                    
+                    // 创建数组访问节点
+                    ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena);
+                    if (array_access == NULL) {
+                        return NULL;
+                    }
+                    
+                    array_access->data.array_access.array = result;
+                    array_access->data.array_access.index = index_expr;
+                    
+                    result = array_access;
+                } else {
+                    // 既不是字段访问也不是数组访问，退出循环
+                    break;
                 }
-                
-                const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
-                if (field_name == NULL) {
-                    return NULL;
-                }
-                
-                int field_line = parser->current_token->line;
-                int field_column = parser->current_token->column;
-                parser_consume(parser);  // 消费字段名称
-                
-                // 创建字段访问节点
-                ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
-                if (member_access == NULL) {
-                    return NULL;
-                }
-                
-                member_access->data.member_access.object = result;
-                member_access->data.member_access.field_name = field_name;
-                
-                result = member_access;
             }
             
             return result;
@@ -1400,7 +1465,73 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         array_literal->data.array_literal.elements = elements;
         array_literal->data.array_literal.element_count = element_count;
         
-        return array_literal;
+        // 字段访问和数组访问可能跟在数组字面量后面（例如：[1,2,3][0]）
+        ASTNode *result = array_literal;
+        
+        // 处理字段访问和数组访问链
+        while (parser->current_token != NULL) {
+            if (parser_match(parser, TOKEN_DOT)) {
+                // 字段访问：.field
+                parser_consume(parser);  // 消费 '.'
+                
+                // 期望字段名称
+                if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                    return NULL;
+                }
+                
+                const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
+                if (field_name == NULL) {
+                    return NULL;
+                }
+                
+                int field_line = parser->current_token->line;
+                int field_column = parser->current_token->column;
+                parser_consume(parser);  // 消费字段名称
+                
+                // 创建字段访问节点
+                ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
+                if (member_access == NULL) {
+                    return NULL;
+                }
+                
+                member_access->data.member_access.object = result;
+                member_access->data.member_access.field_name = field_name;
+                
+                result = member_access;
+            } else if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
+                // 数组访问：[index]
+                int bracket_line = parser->current_token->line;
+                int bracket_column = parser->current_token->column;
+                parser_consume(parser);  // 消费 '['
+                
+                // 解析索引表达式
+                ASTNode *index_expr = parser_parse_expression(parser);
+                if (index_expr == NULL) {
+                    return NULL;
+                }
+                
+                // 期望 ']'
+                if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
+                    return NULL;
+                }
+                
+                // 创建数组访问节点
+                ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena);
+                if (array_access == NULL) {
+                    return NULL;
+                }
+                
+                array_access->data.array_access.array = result;
+                array_access->data.array_access.index = index_expr;
+                
+                result = array_access;
+            } else {
+                // 既不是字段访问也不是数组访问，退出循环
+                break;
+            }
+        }
+        
+        return result;
     }
     
     // 解析括号表达式
@@ -1418,37 +1549,70 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             return NULL;
         }
         
-        // 字段访问可能跟在括号表达式后面（例如：(expr).field）
+        // 字段访问和数组访问可能跟在括号表达式后面（例如：(expr).field 或 (expr)[0]）
         ASTNode *result = expr;
         
-        // 处理字段访问链
-        while (parser->current_token != NULL && parser_match(parser, TOKEN_DOT)) {
-            parser_consume(parser);  // 消费 '.'
-            
-            // 期望字段名称
-            if (!parser_match(parser, TOKEN_IDENTIFIER)) {
-                return NULL;
+        // 处理字段访问和数组访问链
+        while (parser->current_token != NULL) {
+            if (parser_match(parser, TOKEN_DOT)) {
+                // 字段访问：.field
+                parser_consume(parser);  // 消费 '.'
+                
+                // 期望字段名称
+                if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                    return NULL;
+                }
+                
+                const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
+                if (field_name == NULL) {
+                    return NULL;
+                }
+                
+                int field_line = parser->current_token->line;
+                int field_column = parser->current_token->column;
+                parser_consume(parser);  // 消费字段名称
+                
+                // 创建字段访问节点
+                ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
+                if (member_access == NULL) {
+                    return NULL;
+                }
+                
+                member_access->data.member_access.object = result;
+                member_access->data.member_access.field_name = field_name;
+                
+                result = member_access;
+            } else if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
+                // 数组访问：[index]
+                int bracket_line = parser->current_token->line;
+                int bracket_column = parser->current_token->column;
+                parser_consume(parser);  // 消费 '['
+                
+                // 解析索引表达式
+                ASTNode *index_expr = parser_parse_expression(parser);
+                if (index_expr == NULL) {
+                    return NULL;
+                }
+                
+                // 期望 ']'
+                if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
+                    return NULL;
+                }
+                
+                // 创建数组访问节点
+                ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena);
+                if (array_access == NULL) {
+                    return NULL;
+                }
+                
+                array_access->data.array_access.array = result;
+                array_access->data.array_access.index = index_expr;
+                
+                result = array_access;
+            } else {
+                // 既不是字段访问也不是数组访问，退出循环
+                break;
             }
-            
-            const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
-            if (field_name == NULL) {
-                return NULL;
-            }
-            
-            int field_line = parser->current_token->line;
-            int field_column = parser->current_token->column;
-            parser_consume(parser);  // 消费字段名称
-            
-            // 创建字段访问节点
-            ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
-            if (member_access == NULL) {
-                return NULL;
-            }
-            
-            member_access->data.member_access.object = result;
-            member_access->data.member_access.field_name = field_name;
-            
-            result = member_access;
         }
         
         return result;

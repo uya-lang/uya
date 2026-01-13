@@ -1,0 +1,11 @@
+fn main() i32 {
+    var arr: [i32: 5] = [1, 2, 3, 4, 5];
+    var x: i32 = arr[0];
+    var y: i32 = arr[1];
+    var sum: i32 = x + y;
+    if sum != 3 {
+        return 1;
+    }
+    return 0;
+}
+

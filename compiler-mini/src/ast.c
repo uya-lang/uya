@@ -64,6 +64,10 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena) {
             node->data.member_access.object = NULL;
             node->data.member_access.field_name = NULL;
             break;
+        case AST_ARRAY_ACCESS:
+            node->data.array_access.array = NULL;
+            node->data.array_access.index = NULL;
+            break;
         case AST_STRUCT_INIT:
             node->data.struct_init.struct_name = NULL;
             node->data.struct_init.field_names = NULL;

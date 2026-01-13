@@ -1410,6 +1410,76 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             // load 字段值
             return LLVMBuildLoad2(codegen->builder, field_type, field_ptr, "");
         }
+        
+        case AST_ARRAY_ACCESS: {
+            // 数组访问：使用 GEP + Load 获取元素值
+            ASTNode *array_expr = expr->data.array_access.array;
+            ASTNode *index_expr = expr->data.array_access.index;
+            
+            if (!array_expr || !index_expr) {
+                return NULL;
+            }
+            
+            // 生成数组表达式值（可能是标识符、数组字面量等）
+            LLVMValueRef array_val = codegen_gen_expr(codegen, array_expr);
+            if (!array_val) {
+                return NULL;
+            }
+            
+            LLVMTypeRef array_val_type = LLVMTypeOf(array_val);
+            if (!array_val_type) {
+                return NULL;
+            }
+            
+            // 检查是否是数组类型
+            LLVMTypeKind array_val_kind = LLVMGetTypeKind(array_val_type);
+            LLVMTypeRef array_type = NULL;
+            LLVMValueRef array_ptr = NULL;
+            
+            if (array_val_kind == LLVMArrayTypeKind) {
+                // 数组值类型，需要分配临时空间存储数组值
+                array_type = array_val_type;
+                array_ptr = LLVMBuildAlloca(codegen->builder, array_type, "");
+                if (!array_ptr) {
+                    return NULL;
+                }
+                LLVMBuildStore(codegen->builder, array_val, array_ptr);
+            } else if (array_val_kind == LLVMPointerTypeKind) {
+                // 指针类型（数组变量在栈上的地址）
+                array_ptr = array_val;
+                array_type = LLVMGetElementType(array_val_type);
+                if (!array_type || LLVMGetTypeKind(array_type) != LLVMArrayTypeKind) {
+                    return NULL;  // 指针指向的不是数组类型
+                }
+            } else {
+                return NULL;  // 不是数组类型
+            }
+            
+            // 生成索引表达式值
+            LLVMValueRef index_val = codegen_gen_expr(codegen, index_expr);
+            if (!index_val) {
+                return NULL;
+            }
+            
+            // 获取元素类型
+            LLVMTypeRef element_type = LLVMGetElementType(array_type);
+            if (!element_type) {
+                return NULL;
+            }
+            
+            // 使用 GEP 获取元素地址
+            LLVMValueRef indices[2];
+            indices[0] = LLVMConstInt(LLVMInt32Type(), 0ULL, 0);  // 数组指针本身
+            indices[1] = index_val;  // 元素索引（运行时值）
+            
+            LLVMValueRef element_ptr = LLVMBuildGEP2(codegen->builder, array_type, array_ptr, indices, 2, "");
+            if (!element_ptr) {
+                return NULL;
+            }
+            
+            // load 元素值
+            return LLVMBuildLoad2(codegen->builder, element_type, element_ptr, "");
+        }
             
         case AST_STRUCT_INIT: {
             // 结构体字面量：使用 alloca + store 创建结构体值

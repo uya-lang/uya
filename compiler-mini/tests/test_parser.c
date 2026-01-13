@@ -617,6 +617,72 @@ void test_parse_array_type(void) {
     printf("  ✓ 数组类型解析测试通过\n");
 }
 
+// 测试解析数组访问（arr[index]）
+void test_parse_array_access(void) {
+    printf("测试解析数组访问（arr[index]）...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "fn main() i32 { var arr: [i32: 10] = []; var x: i32 = arr[0]; return x; }";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *program = parser_parse(&parser);
+    assert(program != NULL);
+    assert(program->type == AST_PROGRAM);
+    assert(program->data.program.decl_count == 1);
+    
+    // 检查函数声明
+    ASTNode *fn = program->data.program.decls[0];
+    assert(fn != NULL);
+    assert(fn->type == AST_FN_DECL);
+    assert(fn->data.fn_decl.body != NULL);
+    
+    // 检查函数体中的语句
+    ASTNode *body = fn->data.fn_decl.body;
+    assert(body->type == AST_BLOCK);
+    assert(body->data.block.stmt_count >= 2);
+    
+    // 找到第二个变量声明（var x: i32 = arr[0]）
+    ASTNode *var_decl = NULL;
+    for (int i = 0; i < body->data.block.stmt_count; i++) {
+        ASTNode *stmt = body->data.block.stmts[i];
+        if (stmt->type == AST_VAR_DECL) {
+            ASTNode *init = stmt->data.var_decl.init;
+            if (init && init->type == AST_ARRAY_ACCESS) {
+                var_decl = stmt;
+                break;
+            }
+        }
+    }
+    
+    assert(var_decl != NULL);
+    assert(strcmp(var_decl->data.var_decl.name, "x") == 0);
+    
+    // 检查初始化表达式是数组访问
+    ASTNode *init = var_decl->data.var_decl.init;
+    assert(init != NULL);
+    assert(init->type == AST_ARRAY_ACCESS);
+    
+    // 检查数组表达式
+    ASTNode *array_expr = init->data.array_access.array;
+    assert(array_expr != NULL);
+    assert(array_expr->type == AST_IDENTIFIER);
+    assert(strcmp(array_expr->data.identifier.name, "arr") == 0);
+    
+    // 检查索引表达式
+    ASTNode *index_expr = init->data.array_access.index;
+    assert(index_expr != NULL);
+    assert(index_expr->type == AST_NUMBER);
+    assert(index_expr->data.number.value == 0);
+    
+    printf("  ✓ 数组访问解析测试通过\n");
+}
+
 // 测试解析嵌套类型（&[i32: 10]）
 void test_parse_nested_pointer_array_type(void) {
     printf("测试解析嵌套类型（&[i32: 10]）...\n");
@@ -682,6 +748,7 @@ int main(void) {
     test_parse_ffi_pointer_type();
     test_parse_array_type();
     test_parse_nested_pointer_array_type();
+    test_parse_array_access();
     
     printf("\n所有测试通过！\n");
     

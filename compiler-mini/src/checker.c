@@ -550,6 +550,19 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             return field_type;  // 如果字段不存在，field_type.kind 为 TYPE_VOID
         }
         
+        case AST_ARRAY_ACCESS: {
+            // 数组访问：推断数组表达式类型，然后返回元素类型
+            Type array_type = checker_infer_type(checker, expr->data.array_access.array);
+            if (array_type.kind != TYPE_ARRAY || array_type.data.array.element_type == NULL) {
+                // 数组表达式类型不是数组类型，返回void类型
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            
+            // 返回数组的元素类型
+            return *array_type.data.array.element_type;
+        }
+        
         case AST_STRUCT_INIT: {
             // 结构体字面量：返回结构体类型
             result.kind = TYPE_STRUCT;
@@ -940,6 +953,37 @@ static Type checker_check_member_access(TypeChecker *checker, ASTNode *node) {
     return field_type;
 }
 
+// 检查数组访问
+// 参数：checker - TypeChecker 指针，node - 数组访问节点
+// 返回：元素类型（如果检查失败返回TYPE_VOID）
+static Type checker_check_array_access(TypeChecker *checker, ASTNode *node) {
+    Type result;
+    result.kind = TYPE_VOID;
+    
+    if (checker == NULL || node == NULL || node->type != AST_ARRAY_ACCESS) {
+        return result;
+    }
+    
+    // 获取数组表达式类型
+    Type array_type = checker_infer_type(checker, node->data.array_access.array);
+    if (array_type.kind != TYPE_ARRAY || array_type.data.array.element_type == NULL) {
+        // 数组表达式类型不是数组类型
+        checker_report_error(checker);
+        return result;
+    }
+    
+    // 检查索引表达式类型是 i32
+    Type index_type = checker_infer_type(checker, node->data.array_access.index);
+    if (index_type.kind != TYPE_I32) {
+        // 索引表达式类型不是 i32
+        checker_report_error(checker);
+        return result;
+    }
+    
+    // 返回数组的元素类型
+    return *array_type.data.array.element_type;
+}
+
 // 检查结构体字面量
 // 参数：checker - TypeChecker 指针，node - 结构体字面量节点
 // 返回：结构体类型（如果检查失败返回TYPE_VOID）
@@ -1280,6 +1324,10 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             
         case AST_MEMBER_ACCESS:
             checker_check_member_access(checker, node);
+            return 1;
+            
+        case AST_ARRAY_ACCESS:
+            checker_check_array_access(checker, node);
             return 1;
             
         case AST_STRUCT_INIT:
