@@ -1,6 +1,11 @@
 fn main() i32 {
     var arr: [i32: 3] = [1, 2, 3];
     const len_val: i32 = len(arr);
-    return len_val;
+    // len_val 应该是 3，但测试期望返回 0 表示成功
+    // 所以我们需要检查 len_val == 3 然后返回 0
+    if len_val != 3 {
+        return 1;
+    }
+    return 0;
 }
 
