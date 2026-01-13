@@ -312,6 +312,7 @@ static ASTNode *find_struct_decl(CodeGenerator *codegen, const char *struct_name
 static int find_struct_field_index(ASTNode *struct_decl, const char *field_name);
 static const char *lookup_var_struct_name(CodeGenerator *codegen, const char *var_name);
 static LLVMTypeRef lookup_var_type(CodeGenerator *codegen, const char *var_name);
+static ASTNode *lookup_var_ast_type(CodeGenerator *codegen, const char *var_name);
 
 // 辅助函数：生成左值表达式的地址
 // 参数：codegen - 代码生成器指针
@@ -380,17 +381,19 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
                     object_ptr = lookup_var(codegen, var_name);
                     struct_name = lookup_var_struct_name(codegen, var_name);
                     
-                    // 如果对象是指针类型，需要先加载指针值
-                    if (object_ptr) {
-                        LLVMTypeRef object_ptr_type = LLVMTypeOf(object_ptr);
-                        if (object_ptr_type && LLVMGetTypeKind(object_ptr_type) == LLVMPointerTypeKind) {
-                            LLVMTypeRef pointed_type = LLVMGetElementType(object_ptr_type);
-                            if (pointed_type && LLVMGetTypeKind(pointed_type) == LLVMPointerTypeKind) {
-                                // 对象类型是指针的指针（如 &(&Point)），需要先加载
-                                LLVMTypeRef var_type = lookup_var_type(codegen, var_name);
-                                if (var_type) {
-                                    object_ptr = LLVMBuildLoad2(codegen->builder, var_type, object_ptr, var_name);
-                                }
+                    // 检查变量类型是否是指针类型（无论 struct_name 是否设置）
+                    ASTNode *var_ast_type = lookup_var_ast_type(codegen, var_name);
+                    if (var_ast_type && var_ast_type->type == AST_TYPE_POINTER) {
+                        // 变量是指针类型，需要加载指针值
+                        LLVMTypeRef var_type = lookup_var_type(codegen, var_name);
+                        if (var_type && object_ptr) {
+                            // 加载指针变量的值（即指针值本身）
+                            object_ptr = LLVMBuildLoad2(codegen->builder, var_type, object_ptr, var_name);
+                            
+                            // 从指针类型中获取指向的结构体类型名称
+                            ASTNode *pointed_type = var_ast_type->data.type_pointer.pointed_type;
+                            if (pointed_type && pointed_type->type == AST_TYPE_NAMED) {
+                                struct_name = pointed_type->data.type_named.name;
                             }
                         }
                     }
@@ -1216,6 +1219,12 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 return NULL;
             }
             
+            // 特殊处理 null 标识符：null 不是变量，但在比较运算符中会被特殊处理
+            // 这里返回 NULL，让调用者（比较运算符）来处理
+            if (strcmp(var_name, "null") == 0) {
+                return NULL;  // null 标识符在比较运算符中会被特殊处理
+            }
+            
             // 查找变量
             LLVMValueRef var_ptr = lookup_var(codegen, var_name);
             if (!var_ptr) {
@@ -1290,6 +1299,23 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 if (var_name) {
                     object_ptr = lookup_var(codegen, var_name);
                     struct_name = lookup_var_struct_name(codegen, var_name);
+                    
+                    // 检查变量类型是否是指针类型（无论 struct_name 是否设置）
+                    ASTNode *var_ast_type = lookup_var_ast_type(codegen, var_name);
+                    if (var_ast_type && var_ast_type->type == AST_TYPE_POINTER) {
+                        // 变量是指针类型，需要加载指针值
+                        LLVMTypeRef var_type = lookup_var_type(codegen, var_name);
+                        if (var_type && object_ptr) {
+                            // 加载指针变量的值（即指针值本身）
+                            object_ptr = LLVMBuildLoad2(codegen->builder, var_type, object_ptr, var_name);
+                            
+                            // 从指针类型中获取指向的结构体类型名称
+                            ASTNode *pointed_type = var_ast_type->data.type_pointer.pointed_type;
+                            if (pointed_type && pointed_type->type == AST_TYPE_NAMED) {
+                                struct_name = pointed_type->data.type_named.name;
+                            }
+                        }
+                    }
                 }
             }
             
@@ -1729,10 +1755,31 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             
             // 如果有初始值，生成初始值代码并 store
             if (init_expr) {
-                LLVMValueRef init_val = codegen_gen_expr(codegen, init_expr);
-                if (!init_val) {
-                    return -1;
+                LLVMValueRef init_val = NULL;
+                
+                // 特殊处理 null 标识符：检查是否是 null 字面量
+                if (init_expr->type == AST_IDENTIFIER) {
+                    const char *init_name = init_expr->data.identifier.name;
+                    if (init_name && strcmp(init_name, "null") == 0) {
+                        // null 字面量：检查变量类型是否为指针类型
+                        if (LLVMGetTypeKind(llvm_type) == LLVMPointerTypeKind) {
+                            init_val = LLVMConstNull(llvm_type);
+                        } else {
+                            fprintf(stderr, "错误: 变量 %s 的类型不是指针类型，不能初始化为 null\n", var_name);
+                            return -1;
+                        }
+                    }
                 }
+                
+                // 如果不是 null 标识符，使用通用方法生成初始值
+                if (!init_val) {
+                    init_val = codegen_gen_expr(codegen, init_expr);
+                    if (!init_val) {
+                        fprintf(stderr, "错误: 变量 %s 的初始值表达式生成失败\n", var_name);
+                        return -1;
+                    }
+                }
+                
                 LLVMBuildStore(codegen->builder, init_val, var_ptr);
             }
             

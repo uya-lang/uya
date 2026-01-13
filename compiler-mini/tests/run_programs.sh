@@ -52,9 +52,9 @@ for uya_file in "$TEST_DIR"/*.uya; do
                 continue
             fi
             # 链接主程序和外部函数实现
-            gcc "$BUILD_DIR/${base_name}.o" "$BUILD_DIR/extern_function_impl.o" -o "$BUILD_DIR/$base_name"
+            gcc -no-pie "$BUILD_DIR/${base_name}.o" "$BUILD_DIR/extern_function_impl.o" -o "$BUILD_DIR/$base_name"
         else
-            gcc "$BUILD_DIR/${base_name}.o" -o "$BUILD_DIR/$base_name"
+            gcc -no-pie "$BUILD_DIR/${base_name}.o" -o "$BUILD_DIR/$base_name"
         fi
         if [ $? -ne 0 ]; then
             echo "  ❌ 链接失败"
