@@ -61,8 +61,9 @@ typedef struct CodeGenerator {
     // 使用固定大小数组作为栈，支持嵌套循环
     #define LOOP_STACK_SIZE 16       // 最大嵌套深度
     struct {
-        LLVMBasicBlockRef cond_bb;  // 循环条件检查基本块（用于 continue）
+        LLVMBasicBlockRef cond_bb;  // 循环条件检查基本块
         LLVMBasicBlockRef end_bb;   // 循环结束基本块（用于 break）
+        LLVMBasicBlockRef inc_bb;   // 循环递增基本块（用于 for 循环的 continue，while 循环为 NULL）
     } loop_stack[LOOP_STACK_SIZE];
     int loop_stack_depth;           // 当前循环栈深度（0 表示不在循环中）
     

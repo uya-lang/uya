@@ -2189,6 +2189,7 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             }
             codegen->loop_stack[codegen->loop_stack_depth].cond_bb = cond_bb;
             codegen->loop_stack[codegen->loop_stack_depth].end_bb = end_bb;
+            codegen->loop_stack[codegen->loop_stack_depth].inc_bb = NULL;  // while 循环没有 inc_bb
             codegen->loop_stack_depth++;
             
             // 跳转到条件检查
@@ -2263,6 +2264,7 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             }
             codegen->loop_stack[codegen->loop_stack_depth].cond_bb = cond_bb;
             codegen->loop_stack[codegen->loop_stack_depth].end_bb = end_bb;
+            codegen->loop_stack[codegen->loop_stack_depth].inc_bb = inc_bb;  // for 循环有 inc_bb
             codegen->loop_stack_depth++;
             
             // 在当前基本块分配循环索引变量 i（在所有基本块中使用）
@@ -2279,41 +2281,40 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 return -1;
             }
             
-            // 生成数组表达式代码并获取数组类型和指针（在当前基本块中，这样可以在所有后续基本块中使用）
-            LLVMValueRef array_val = codegen_gen_expr(codegen, array_expr);
-            if (!array_val) {
+            // 获取数组变量的地址（指针）
+            // 对于数组变量，我们使用 lvalue_address 获取其地址，而不是加载整个数组的值
+            LLVMValueRef array_ptr = codegen_gen_lvalue_address(codegen, array_expr);
+            if (!array_ptr) {
                 codegen->loop_stack_depth--;
                 return -1;
             }
             
-            LLVMTypeRef array_val_type = LLVMTypeOf(array_val);
-            if (!array_val_type) {
-                codegen->loop_stack_depth--;
-                return -1;
-            }
-            
+            // 获取数组类型：如果 array_expr 是标识符，从变量表获取类型；否则从指针类型推导
             LLVMTypeRef array_type = NULL;
-            LLVMValueRef array_ptr = NULL;
-            LLVMTypeKind array_val_kind = LLVMGetTypeKind(array_val_type);
-            
-            if (array_val_kind == LLVMArrayTypeKind) {
-                // 数组值类型，需要分配临时空间存储数组值（在当前基本块中分配）
-                array_type = array_val_type;
-                array_ptr = LLVMBuildAlloca(codegen->builder, array_type, "");
-                if (!array_ptr) {
+            if (array_expr->type == AST_IDENTIFIER) {
+                // 标识符：从变量表获取类型（变量表中存储的是数组类型，不是指针类型）
+                const char *array_var_name = array_expr->data.identifier.name;
+                array_type = lookup_var_type(codegen, array_var_name);
+                if (!array_type) {
                     codegen->loop_stack_depth--;
                     return -1;
                 }
-                LLVMBuildStore(codegen->builder, array_val, array_ptr);
-            } else if (array_val_kind == LLVMPointerTypeKind) {
-                // 指针类型（数组变量在栈上的地址）
-                array_ptr = array_val;
-                array_type = LLVMGetElementType(array_val_type);
-                if (!array_type || LLVMGetTypeKind(array_type) != LLVMArrayTypeKind) {
-                    codegen->loop_stack_depth--;
-                    return -1;  // 指针指向的不是数组类型
-                }
             } else {
+                // 其他表达式：从指针类型推导数组类型
+                LLVMTypeRef array_ptr_type = LLVMTypeOf(array_ptr);
+                if (!array_ptr_type || LLVMGetTypeKind(array_ptr_type) != LLVMPointerTypeKind) {
+                    codegen->loop_stack_depth--;
+                    return -1;
+                }
+                array_type = LLVMGetElementType(array_ptr_type);
+                if (!array_type) {
+                    codegen->loop_stack_depth--;
+                    return -1;
+                }
+            }
+            
+            // 验证是数组类型
+            if (LLVMGetTypeKind(array_type) != LLVMArrayTypeKind) {
                 codegen->loop_stack_depth--;
                 return -1;  // 不是数组类型
             }
@@ -2331,12 +2332,44 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             
             // 确定循环变量类型（在当前基本块中，这样可以在所有后续基本块中使用）
             LLVMTypeRef loop_var_type = NULL;
+            ASTNode *loop_var_ast_type = NULL;
+            
             if (is_ref) {
                 // 引用迭代：循环变量是指向元素的指针
                 loop_var_type = LLVMPointerType(element_type, 0);
+                
+                // 创建指针类型的 AST 节点，以便 *item 解引用时能正确获取类型信息
+                // 首先需要获取元素类型的 AST 节点
+                ASTNode *element_ast_type = NULL;
+                if (array_expr->type == AST_IDENTIFIER) {
+                    // 从数组变量的 AST 类型节点中提取元素类型
+                    const char *array_var_name = array_expr->data.identifier.name;
+                    ASTNode *array_ast_type = lookup_var_ast_type(codegen, array_var_name);
+                    if (array_ast_type && array_ast_type->type == AST_TYPE_ARRAY) {
+                        element_ast_type = array_ast_type->data.type_array.element_type;
+                    }
+                }
+                
+                // 如果成功获取元素类型，创建指针类型节点
+                if (element_ast_type) {
+                    loop_var_ast_type = ast_new_node(AST_TYPE_POINTER, stmt->line, stmt->column, codegen->arena);
+                    if (loop_var_ast_type) {
+                        loop_var_ast_type->data.type_pointer.pointed_type = element_ast_type;
+                        loop_var_ast_type->data.type_pointer.is_ffi_pointer = 0;  // 普通指针
+                    }
+                }
             } else {
                 // 值迭代：循环变量是元素值
                 loop_var_type = element_type;
+                
+                // 对于值迭代，也需要获取元素类型的 AST 节点
+                if (array_expr->type == AST_IDENTIFIER) {
+                    const char *array_var_name = array_expr->data.identifier.name;
+                    ASTNode *array_ast_type = lookup_var_ast_type(codegen, array_var_name);
+                    if (array_ast_type && array_ast_type->type == AST_TYPE_ARRAY) {
+                        loop_var_ast_type = array_ast_type->data.type_array.element_type;
+                    }
+                }
             }
             
             // 分配循环变量空间（在当前基本块中分配，这样可以在所有后续基本块中使用）
@@ -2347,7 +2380,7 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             }
             
             // 添加循环变量到变量表（在循环开始前添加一次，而不是每次迭代都添加）
-            if (add_var(codegen, var_name, loop_var_ptr, loop_var_type, NULL, NULL) != 0) {
+            if (add_var(codegen, var_name, loop_var_ptr, loop_var_type, NULL, loop_var_ast_type) != 0) {
                 codegen->loop_stack_depth--;
                 return -1;
             }
@@ -2412,6 +2445,8 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             }
             
             // 存储循环变量值（变量已经在循环开始前添加到变量表）
+            // 对于引用迭代，loop_var_val 是指针值，需要存储到 loop_var_ptr（指针的指针）
+            // 对于值迭代，loop_var_val 是元素值，需要存储到 loop_var_ptr（指向元素的指针）
             LLVMBuildStore(codegen->builder, loop_var_val, loop_var_ptr);
             
             // 生成循环体代码
@@ -2464,12 +2499,19 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
         }
         
         case AST_CONTINUE_STMT: {
-            // continue 语句：跳转到循环条件检查基本块
+            // continue 语句：跳转到循环递增基本块（for 循环）或条件检查基本块（while 循环）
             if (codegen->loop_stack_depth == 0) {
                 return -1;  // continue 不在循环中（类型检查应该已经检查过了）
             }
-            LLVMBasicBlockRef cond_bb = codegen->loop_stack[codegen->loop_stack_depth - 1].cond_bb;
-            LLVMBuildBr(codegen->builder, cond_bb);
+            LLVMBasicBlockRef inc_bb = codegen->loop_stack[codegen->loop_stack_depth - 1].inc_bb;
+            if (inc_bb) {
+                // for 循环：跳转到递增基本块
+                LLVMBuildBr(codegen->builder, inc_bb);
+            } else {
+                // while 循环：跳转到条件检查基本块
+                LLVMBasicBlockRef cond_bb = codegen->loop_stack[codegen->loop_stack_depth - 1].cond_bb;
+                LLVMBuildBr(codegen->builder, cond_bb);
+            }
             return 0;
         }
         
