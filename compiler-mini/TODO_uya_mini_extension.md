@@ -536,9 +536,10 @@ fn get_token_type() TokenType {
 
 ### 7. 字符串字面量（有限支持）
 
-**状态**：⚠️ 规范已定义，编译器未实现  
-**规范状态**：✅ 已在 `spec/UYA_MINI_SPEC.md` 中定义（作为 FFI 函数参数），已标注为"计划支持，当前未实现"  
+**状态**：✅ 已实现  
+**规范状态**：✅ 已在 `spec/UYA_MINI_SPEC.md` 中定义（作为 FFI 函数参数）  
 **优先级**：P1（强烈建议）
+**实现日期**：2026-01-13
 
 **规范文档更新**（2026-01-11）：
 - ✅ 已在 `spec/UYA_MINI_SPEC.md` 中明确字符串字面量的支持范围
@@ -575,9 +576,23 @@ fn compare_string(s: *byte) bool {
 
 **实现要点**：
 - 字符串字面量类型：`*byte`（FFI 指针类型）
-- 字符串字面量存储：编译器在只读数据段中存储
+- 字符串字面量存储：编译器在只读数据段中存储（创建全局常量变量）
 - 字符串比较：需要通过 `extern` 函数（如 `strcmp`）
 - 注意：Uya Mini 不提供内置字符串操作，需要通过 `extern` 调用 C 函数
+
+**实现细节**（2026-01-13）：
+- ✅ 词法分析器：已支持字符串字面量解析（`TOKEN_STRING`）
+- ✅ 语法分析器：已支持字符串字面量表达式解析（`AST_STRING`）
+- ✅ 类型检查器：字符串字面量类型为 `*byte`
+- ✅ 代码生成器：创建全局常量变量，使用 `LLVMAddGlobal` 和 `LLVMSetGlobalConstant`
+- ✅ 测试：`test_string_literal.uya` 测试通过
+
+**实现文件**：
+- `compiler-mini/src/lexer.c` - 字符串字面量词法分析
+- `compiler-mini/src/parser.c` - 字符串字面量语法分析
+- `compiler-mini/src/codegen.c` - 字符串字面量代码生成（AST_STRING 处理）
+- `compiler-mini/src/codegen.h` - 添加 `string_literal_counter` 字段
+- `compiler-mini/tests/programs/test_string_literal.uya` - 测试用例
 
 **与完整 Uya 的对应关系**：
 - 与完整 Uya 的字符串字面量规则一致（仅用于 FFI）
