@@ -2,6 +2,7 @@
 #include "lexer.h"
 #include <string.h>
 #include <llvm-c/TargetMachine.h>
+#include <llvm-c/Target.h>
 #include <stdio.h>
 
 // 创建代码生成器
@@ -1542,12 +1543,25 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 // target 是类型节点
                 llvm_type = get_llvm_type_from_ast(codegen, target);
             } else {
-                // target 是表达式节点，先生成表达式代码获取类型
-                LLVMValueRef target_val = codegen_gen_expr(codegen, target);
-                if (!target_val) {
-                    return NULL;
+                // target 是表达式节点，需要获取类型而不生成代码
+                // 对于标识符（变量），直接从变量表获取类型
+                if (target->type == AST_IDENTIFIER) {
+                    const char *var_name = target->data.identifier.name;
+                    if (!var_name) {
+                        return NULL;
+                    }
+                    llvm_type = lookup_var_type(codegen, var_name);
+                    if (!llvm_type) {
+                        return NULL;
+                    }
+                } else {
+                    // 对于其他表达式类型，生成代码以获取类型
+                    LLVMValueRef target_val = codegen_gen_expr(codegen, target);
+                    if (!target_val) {
+                        return NULL;
+                    }
+                    llvm_type = LLVMTypeOf(target_val);
                 }
-                llvm_type = LLVMTypeOf(target_val);
             }
             
             if (!llvm_type) {
@@ -1577,7 +1591,6 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                     LLVMTypeRef element_type = LLVMGetElementType(llvm_type);
                     unsigned element_count = LLVMGetArrayLength(llvm_type);
                     // 获取元素大小（递归计算）
-                    // 简化实现：仅支持基础类型的数组
                     LLVMTypeKind element_kind = LLVMGetTypeKind(element_type);
                     unsigned long long element_size = 0;
                     if (element_kind == LLVMIntegerTypeKind) {
@@ -1585,18 +1598,29 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                         element_size = (width + 7) / 8;
                     } else if (element_kind == LLVMPointerTypeKind) {
                         element_size = 8;
+                    } else if (element_kind == LLVMStructTypeKind) {
+                        // 结构体类型的数组：使用 TargetData 获取元素大小
+                        LLVMTargetDataRef target_data = LLVMGetModuleDataLayout(codegen->module);
+                        if (!target_data) {
+                            return NULL;  // 模块的 DataLayout 未设置
+                        }
+                        element_size = LLVMStoreSizeOfType(target_data, element_type);
                     } else {
-                        // 复杂类型，无法简化计算
+                        // 其他复杂类型，无法计算大小
                         return NULL;
                     }
                     size = element_size * element_count;
                     break;
                 }
                 case LLVMStructTypeKind: {
-                    // 结构体类型：需要 TargetData 获取准确大小
-                    // 简化实现：暂时返回错误（需要 TargetData）
-                    // TODO: 使用 TargetData 获取结构体大小
-                    return NULL;
+                    // 结构体类型：使用 TargetData 获取准确大小
+                    LLVMTargetDataRef target_data = LLVMGetModuleDataLayout(codegen->module);
+                    if (!target_data) {
+                        return NULL;  // 模块的 DataLayout 未设置
+                    }
+                    // 使用 LLVMStoreSizeOfType 获取结构体的存储大小（字节数）
+                    size = LLVMStoreSizeOfType(target_data, llvm_type);
+                    break;
                 }
                 default:
                     // 其他类型，无法计算大小
@@ -2316,6 +2340,63 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
         return -1;
     }
     
+    // 第零步：初始化目标并设置模块的 DataLayout（需要在生成函数体之前设置，以便 sizeof 可以使用）
+    // 初始化LLVM目标（只需要初始化一次，但重复初始化是安全的）
+    LLVMInitializeNativeTarget();
+    LLVMInitializeNativeAsmPrinter();
+    LLVMInitializeNativeAsmParser();
+    
+    // 获取默认目标三元组（例如："x86_64-pc-linux-gnu"）
+    char *init_target_triple = LLVMGetDefaultTargetTriple();
+    if (!init_target_triple) {
+        return -1;
+    }
+    
+    // 查找目标
+    char *init_error_msg = NULL;
+    LLVMTargetRef init_target = NULL;
+    if (LLVMGetTargetFromTriple(init_target_triple, &init_target, &init_error_msg) != 0) {
+        // 错误处理：释放错误消息
+        if (init_error_msg) {
+            LLVMDisposeMessage(init_error_msg);
+        }
+        LLVMDisposeMessage(init_target_triple);
+        return -1;
+    }
+    
+    // 创建目标机器（使用默认的CPU和特性）
+    LLVMCodeGenOptLevel init_opt_level = LLVMCodeGenLevelDefault;
+    LLVMRelocMode init_reloc_mode = LLVMRelocDefault;
+    LLVMCodeModel init_code_model = LLVMCodeModelDefault;
+    
+    LLVMTargetMachineRef init_target_machine = LLVMCreateTargetMachine(
+        init_target,
+        init_target_triple,
+        "",  // CPU（空字符串表示默认）
+        "",  // Features（空字符串表示默认）
+        init_opt_level,
+        init_reloc_mode,
+        init_code_model
+    );
+    
+    if (!init_target_machine) {
+        LLVMDisposeMessage(init_target_triple);
+        return -1;
+    }
+    
+    // 配置模块的目标数据布局（需要在生成函数体之前设置）
+    LLVMSetTarget(codegen->module, init_target_triple);
+    LLVMTargetDataRef init_target_data = LLVMCreateTargetDataLayout(init_target_machine);
+    if (init_target_data) {
+        // LLVM 18中，LLVMSetModuleDataLayout 直接接受 LLVMTargetDataRef 类型
+        LLVMSetModuleDataLayout(codegen->module, init_target_data);
+        LLVMDisposeTargetData(init_target_data);
+    }
+    
+    // 释放资源（第零步创建的 target_machine 和 target_triple）
+    LLVMDisposeTargetMachine(init_target_machine);
+    LLVMDisposeMessage(init_target_triple);
+    
     // 第一步：注册所有结构体类型
     // 使用多次遍历的方式处理结构体依赖关系（如果结构体字段是其他结构体类型）
     // 每次遍历注册所有可以注册的结构体，直到所有结构体都注册或无法继续注册
@@ -2456,13 +2537,14 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
         return -1;
     }
     
-    // 配置模块的目标数据布局
+    // 配置模块的目标数据布局（如果还没有设置）
+    // 注意：在第零步可能已经设置了 DataLayout，但重复设置是安全的
     LLVMSetTarget(codegen->module, target_triple);
-    LLVMTargetDataRef target_data = LLVMCreateTargetDataLayout(target_machine);
-    if (target_data) {
+    LLVMTargetDataRef layout_data = LLVMCreateTargetDataLayout(target_machine);
+    if (layout_data) {
         // LLVM 18中，LLVMSetModuleDataLayout 直接接受 LLVMTargetDataRef 类型
-        LLVMSetModuleDataLayout(codegen->module, target_data);
-        LLVMDisposeTargetData(target_data);
+        LLVMSetModuleDataLayout(codegen->module, layout_data);
+        LLVMDisposeTargetData(layout_data);
     }
     
     // 生成LLVM IR文本到文件，用于调试
