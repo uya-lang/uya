@@ -44,6 +44,16 @@ typedef struct CodeGenerator {
     } func_map[64];                 // 固定大小（最多支持64个函数）
     int func_map_count;             // 当前函数数量
     
+    // 全局变量映射表（固定大小数组，存储全局变量名到LLVM全局变量值和类型的映射）
+    // 用于代码生成时查找全局变量引用
+    struct GlobalVarMap {
+        const char *name;           // 全局变量名称（存储在 Arena 中）
+        LLVMValueRef global_var;    // LLVM 全局变量值（指针）
+        LLVMTypeRef type;           // 全局变量类型（用于 LLVMBuildLoad2）
+        const char *struct_name;    // 结构体名称（仅当类型是结构体类型时有效，存储在 Arena 中）
+    } global_var_map[64];           // 固定大小（最多支持64个全局变量）
+    int global_var_map_count;       // 当前全局变量数量
+    
     int basic_block_counter;        // 基本块计数器（用于生成唯一的基本块名称）
     
     ASTNode *program_node;          // 程序节点（用于查找结构体声明等）

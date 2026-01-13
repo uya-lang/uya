@@ -2,12 +2,15 @@
 
 ## 📋 当前状态概览
 
-**测试结果**: 61 个测试中 58 个通过，3 个失败
+**测试结果**: 62 个测试中 59 个通过，3 个失败
 
 **失败的测试**:
 1. `pointer_deref_assign` - 段错误（Segmentation Fault）
-2. `pointer_test` - 函数体生成失败: get_global_pointer（全局变量支持未实现）
+2. `pointer_test` - 函数体生成失败: get_point_x（结构体指针字段访问问题，get_global_pointer 已支持）
 3. `sizeof_test` - 函数体生成失败: main（可能涉及数组字面量的其他问题或sizeof对数组的处理）
+
+**新增测试**:
+- `test_global_var` - 全局变量功能测试（✅ 通过）
 
 ---
 
@@ -252,23 +255,31 @@ valgrind --leak-check=full ./build/compiler-mini tests/programs/pointer_deref_as
 
 ## 🎯 下一步行动计划
 
-### 优先级 1: 实现全局变量支持（pointer_test - get_global_pointer）
+### 优先级 1: 实现全局变量支持（pointer_test - get_global_pointer）✅ 已完成
 
-**原因**: 这是导致pointer_test失败的直接原因，需要实现全局变量支持
-
-**步骤**:
-1. 在代码生成器中添加全局变量表（类似函数表）
-2. 在 `codegen_generate` 中处理全局变量声明（在函数声明之前）
-3. 在 `lookup_var` 中添加全局变量查找逻辑（如果局部变量表中找不到，查找全局变量表）
-4. 在取地址运算符中支持全局变量（`&global_var`）
+**完成的工作**:
+1. ✅ 在 `codegen.h` 中添加了全局变量表结构定义（`GlobalVarMap`，类似函数表）
+2. ✅ 在 `codegen_new` 中初始化全局变量表
+3. ✅ 实现了 `codegen_gen_global_var` 函数（创建 LLVM 全局变量，处理初始化）
+4. ✅ 在 `codegen_generate` 中添加了全局变量处理步骤（在函数声明之前，第二步）
+5. ✅ 修改了 `lookup_var`、`lookup_var_type`、`lookup_var_struct_name` 函数，添加全局变量查找逻辑
+6. ✅ 取地址运算符和标识符访问已自动支持全局变量（因为它们使用 `lookup_var`）
 
 **关键代码位置**:
 ```c
-// src/codegen.c:1913 - codegen_generate 函数（需要添加全局变量处理）
-// src/codegen.c:708 - AST_UNARY_EXPR case（取地址运算符）
-// src/codegen.c:290 - lookup_var 函数（需要添加全局变量查找）
-// src/codegen.h - 需要添加全局变量表定义
+// src/codegen.h - 全局变量表定义（GlobalVarMap）
+// src/codegen.c:1831 - codegen_gen_global_var 函数（全局变量生成）
+// src/codegen.c:2164 - codegen_generate 函数（全局变量处理步骤）
+// src/codegen.c:285 - lookup_var 函数（全局变量查找）
+// src/codegen.c:359 - lookup_var_type 函数（全局变量类型查找）
+// src/codegen.c:407 - lookup_var_struct_name 函数（全局变量结构体名称查找）
 ```
+
+**测试结果**:
+- ✅ 简单的全局变量声明和初始化测试通过
+- ✅ 全局变量的取地址运算符测试通过
+- ✅ `pointer_test` 中的 `get_global_pointer` 函数不再报错（现在失败的是 `get_point_x`，这是结构体指针字段访问的问题）
+- ✅ 新增测试程序 `test_global_var.uya` 测试通过（验证全局变量的声明、初始化和读取功能）
 
 ### 优先级 2: 修复问题 1（pointer_deref_assign 段错误）
 
@@ -317,6 +328,7 @@ valgrind --leak-check=full ./build/compiler-mini tests/programs/pointer_deref_as
 - `tests/programs/pointer_deref_assign.uya` - 问题 1 测试文件
 - `tests/programs/pointer_test.uya` - 问题 2 测试文件
 - `tests/programs/sizeof_test.uya` - 问题 3 测试文件
+- `tests/programs/test_global_var.uya` - 全局变量功能测试文件（新增）
 
 ---
 
@@ -357,12 +369,13 @@ valgrind --leak-check=full ./build/compiler-mini tests/programs/pointer_deref_as
 
 继续工作时，可以使用以下清单：
 
-- [ ] 编译是否成功？（`make`）
-- [ ] 简单测试是否通过？（`./tests/run_programs.sh`）
+- [x] 编译是否成功？（`make`）
+- [x] 简单测试是否通过？（`./tests/run_programs.sh` - 59/62 通过）
+- [x] 全局变量支持是否完成？（✅ 已完成，新增测试通过）
 - [ ] 问题 2 的调试输出是否显示正确的结构体名称？
 - [ ] 问题 1 的崩溃位置是否已定位？
 - [ ] 问题 3 的数组字面量代码生成是否使用正确的类型？
-- [ ] 所有三个测试是否都能通过？
+- [ ] 所有三个失败测试是否都能通过？
 
 ---
 
@@ -370,13 +383,16 @@ valgrind --leak-check=full ./build/compiler-mini tests/programs/pointer_deref_as
 **当前状态**: 
 - ✅ 数组字面量语法解析已完成（2024年当前会话）
 - ✅ 数组字面量类型检查和代码生成已完成（2024年当前会话）
-- ❌ 全局变量支持待实现（导致get_global_pointer失败）
+- ✅ 全局变量支持已完成（2024年当前会话）- get_global_pointer 已支持
 - ⚠️ 结构体指针字段访问部分完成（代码已实现但测试失败）
 - ❌ 指针解引用赋值段错误待调试
 - ⚠️ sizeof_test仍然失败，需要进一步调试（可能涉及sizeof对数组类型的处理或其他问题）
 
 **最新更新**（2024年当前会话）:
 - 完成了数组字面量的完整实现（语法解析、类型检查、代码生成）
-- 测试程序文件已整理到 `tests/programs/` 目录（61个.uya文件）
+- 测试程序文件已整理到 `tests/programs/` 目录（62个.uya文件）
 - 简单的数组字面量和结构体数组字面量测试通过
+- 完成了全局变量支持的完整实现（全局变量表、代码生成、查找逻辑）
+- `pointer_test` 中的 `get_global_pointer` 函数已支持（不再报错）
+- 新增全局变量测试程序 `test_global_var.uya`，测试通过
 

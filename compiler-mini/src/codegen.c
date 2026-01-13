@@ -56,6 +56,7 @@ int codegen_new(CodeGenerator *codegen, Arena *arena, const char *module_name) {
     // 初始化变量表和函数表
     codegen->var_map_count = 0;
     codegen->func_map_count = 0;
+    codegen->global_var_map_count = 0;
     codegen->basic_block_counter = 0;
     codegen->program_node = NULL;
     
@@ -277,7 +278,7 @@ int codegen_register_struct_type(CodeGenerator *codegen, ASTNode *struct_decl) {
     return 0;
 }
 
-// 辅助函数：在变量表中查找变量
+// 辅助函数：在变量表中查找变量（先查找局部变量，再查找全局变量）
 // 参数：codegen - 代码生成器指针
 //       var_name - 变量名称
 // 返回：LLVM值引用（变量指针），未找到返回NULL
@@ -286,11 +287,19 @@ static LLVMValueRef lookup_var(CodeGenerator *codegen, const char *var_name) {
         return NULL;
     }
     
-    // 线性查找（从后向前查找，由于禁止变量遮蔽，理论上只需要查找最后一个匹配项）
+    // 先查找局部变量表（从后向前查找，由于禁止变量遮蔽，理论上只需要查找最后一个匹配项）
     for (int i = codegen->var_map_count - 1; i >= 0; i--) {
         if (codegen->var_map[i].name != NULL && 
             strcmp(codegen->var_map[i].name, var_name) == 0) {
             return codegen->var_map[i].value;
+        }
+    }
+    
+    // 如果局部变量表中未找到，查找全局变量表
+    for (int i = 0; i < codegen->global_var_map_count; i++) {
+        if (codegen->global_var_map[i].name != NULL && 
+            strcmp(codegen->global_var_map[i].name, var_name) == 0) {
+            return codegen->global_var_map[i].global_var;
         }
     }
     
@@ -351,7 +360,7 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
     }
 }
 
-// 辅助函数：在变量表中查找变量类型
+// 辅助函数：在变量表中查找变量类型（先查找局部变量，再查找全局变量）
 // 参数：codegen - 代码生成器指针
 //       var_name - 变量名称
 // 返回：LLVM类型引用，未找到返回NULL
@@ -360,11 +369,19 @@ static LLVMTypeRef lookup_var_type(CodeGenerator *codegen, const char *var_name)
         return NULL;
     }
     
-    // 线性查找（从后向前查找，由于禁止变量遮蔽，理论上只需要查找最后一个匹配项）
+    // 先查找局部变量表（从后向前查找，由于禁止变量遮蔽，理论上只需要查找最后一个匹配项）
     for (int i = codegen->var_map_count - 1; i >= 0; i--) {
         if (codegen->var_map[i].name != NULL && 
             strcmp(codegen->var_map[i].name, var_name) == 0) {
             return codegen->var_map[i].type;
+        }
+    }
+    
+    // 如果局部变量表中未找到，查找全局变量表
+    for (int i = 0; i < codegen->global_var_map_count; i++) {
+        if (codegen->global_var_map[i].name != NULL && 
+            strcmp(codegen->global_var_map[i].name, var_name) == 0) {
+            return codegen->global_var_map[i].type;
         }
     }
     
@@ -399,7 +416,7 @@ static int add_var(CodeGenerator *codegen, const char *var_name, LLVMValueRef va
     return 0;
 }
 
-// 辅助函数：在变量表中查找变量结构体名称
+// 辅助函数：在变量表中查找变量结构体名称（先查找局部变量，再查找全局变量）
 // 参数：codegen - 代码生成器指针
 //       var_name - 变量名称
 // 返回：结构体名称（如果变量是结构体类型），未找到返回 NULL
@@ -408,7 +425,7 @@ static const char *lookup_var_struct_name(CodeGenerator *codegen, const char *va
         return NULL;
     }
     
-    // 线性查找（从后向前查找，由于禁止变量遮蔽，理论上只需要查找最后一个匹配项）
+    // 先查找局部变量表（从后向前查找，由于禁止变量遮蔽，理论上只需要查找最后一个匹配项）
     for (int i = codegen->var_map_count - 1; i >= 0; i--) {
         if (codegen->var_map[i].name != NULL && 
             strcmp(codegen->var_map[i].name, var_name) == 0) {
@@ -416,7 +433,43 @@ static const char *lookup_var_struct_name(CodeGenerator *codegen, const char *va
         }
     }
     
+    // 如果局部变量表中未找到，查找全局变量表
+    for (int i = 0; i < codegen->global_var_map_count; i++) {
+        if (codegen->global_var_map[i].name != NULL && 
+            strcmp(codegen->global_var_map[i].name, var_name) == 0) {
+            return codegen->global_var_map[i].struct_name;
+        }
+    }
+    
     return NULL;  // 未找到
+}
+
+// 辅助函数：在全局变量表中添加全局变量
+// 参数：codegen - 代码生成器指针
+//       var_name - 全局变量名称（存储在 Arena 中）
+//       global_var - LLVM全局变量值（指针）
+//       type - 全局变量类型（用于 LLVMBuildLoad2）
+//       struct_name - 结构体名称（仅当类型是结构体类型时有效，存储在 Arena 中，可为 NULL）
+// 返回：成功返回0，失败返回非0
+static int add_global_var(CodeGenerator *codegen, const char *var_name, LLVMValueRef global_var, LLVMTypeRef type, const char *struct_name) {
+    if (!codegen || !var_name || !global_var || !type) {
+        return -1;
+    }
+    
+    // 检查映射表是否已满
+    if (codegen->global_var_map_count >= 64) {
+        return -1;  // 映射表已满
+    }
+    
+    // 添加到映射表
+    int idx = codegen->global_var_map_count;
+    codegen->global_var_map[idx].name = var_name;
+    codegen->global_var_map[idx].global_var = global_var;
+    codegen->global_var_map[idx].type = type;
+    codegen->global_var_map[idx].struct_name = struct_name;  // 结构体名称（可为 NULL）
+    codegen->global_var_map_count++;
+    
+    return 0;
 }
 
 // 辅助函数：在函数表中查找函数
@@ -1771,6 +1824,86 @@ static int codegen_declare_function(CodeGenerator *codegen, ASTNode *fn_decl) {
     return 0;
 }
 
+// 生成全局变量代码（从变量声明AST节点生成LLVM全局变量）
+// 参数：codegen - 代码生成器指针
+//       var_decl - 变量声明AST节点（必须是顶层变量声明）
+// 返回：成功返回0，失败返回非0
+static int codegen_gen_global_var(CodeGenerator *codegen, ASTNode *var_decl) {
+    if (!codegen || !var_decl || var_decl->type != AST_VAR_DECL) {
+        return -1;
+    }
+    
+    const char *var_name = var_decl->data.var_decl.name;
+    ASTNode *var_type_node = var_decl->data.var_decl.type;
+    ASTNode *init_expr = var_decl->data.var_decl.init;
+    
+    if (!var_name || !var_type_node) {
+        return -1;
+    }
+    
+    // 获取变量类型
+    LLVMTypeRef llvm_type = get_llvm_type_from_ast(codegen, var_type_node);
+    if (!llvm_type) {
+        return -1;
+    }
+    
+    // 提取结构体名称（如果类型是结构体类型）
+    const char *struct_name = NULL;
+    if (var_type_node->type == AST_TYPE_NAMED) {
+        const char *type_name = var_type_node->data.type_named.name;
+        if (type_name && strcmp(type_name, "i32") != 0 && 
+            strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0) {
+            // 可能是结构体类型
+            if (codegen_get_struct_type(codegen, type_name) != NULL) {
+                struct_name = type_name;  // 名称已经在 Arena 中
+            }
+        }
+    }
+    
+    // 创建全局变量（使用内部链接，因为没有导出机制）
+    LLVMValueRef global_var = LLVMAddGlobal(codegen->module, llvm_type, var_name);
+    if (!global_var) {
+        return -1;
+    }
+    
+    // 设置链接属性（内部链接，全局变量在当前模块内可见）
+    LLVMSetLinkage(global_var, LLVMInternalLinkage);
+    
+    // 设置初始值
+    LLVMValueRef init_val = NULL;
+    if (init_expr) {
+        // 对于常量表达式（数字字面量、布尔字面量），可以直接使用
+        // 注意：这里简化处理，只支持常量字面量，不支持复杂表达式
+        if (init_expr->type == AST_NUMBER) {
+            int value = init_expr->data.number.value;
+            if (LLVMGetTypeKind(llvm_type) == LLVMIntegerTypeKind) {
+                init_val = LLVMConstInt(llvm_type, (unsigned long long)value, 1);  // 1 表示有符号
+            }
+        } else if (init_expr->type == AST_BOOL) {
+            int value = init_expr->data.bool_literal.value;
+            if (LLVMGetTypeKind(llvm_type) == LLVMIntegerTypeKind) {
+                init_val = LLVMConstInt(llvm_type, value ? 1ULL : 0ULL, 0);  // 0 表示无符号（布尔值）
+            }
+        }
+        // TODO: 支持其他常量表达式（如结构体字面量、数组字面量等）
+    }
+    
+    // 如果没有初始值或初始值不是常量，使用零初始化
+    if (!init_val) {
+        init_val = LLVMConstNull(llvm_type);
+    }
+    
+    // 设置全局变量的初始值
+    LLVMSetInitializer(global_var, init_val);
+    
+    // 添加到全局变量映射表
+    if (add_global_var(codegen, var_name, global_var, llvm_type, struct_name) != 0) {
+        return -1;
+    }
+    
+    return 0;
+}
+
 // 生成函数代码（从函数声明AST节点生成LLVM函数）
 // 参数：codegen - 代码生成器指针
 //       fn_decl - 函数声明AST节点
@@ -2026,7 +2159,25 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
         iteration++;
     }
     
-    // 第二步：声明所有函数（创建函数声明并添加到函数表，但不生成函数体）
+    // 第二步：生成所有全局变量（在函数声明之前，这样函数可以访问全局变量）
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl) {
+            continue;
+        }
+        
+        if (decl->type == AST_VAR_DECL) {
+            // 生成全局变量
+            const char *var_name = decl->data.var_decl.name;
+            int result = codegen_gen_global_var(codegen, decl);
+            if (result != 0) {
+                fprintf(stderr, "错误: 全局变量生成失败: %s\n", var_name ? var_name : "(null)");
+                return -1;
+            }
+        }
+    }
+    
+    // 第三步：声明所有函数（创建函数声明并添加到函数表，但不生成函数体）
     // 这样在生成函数体时，所有函数都已被声明，可以相互调用
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
@@ -2045,7 +2196,7 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
         }
     }
     
-    // 第三步：生成所有函数的函数体
+    // 第四步：生成所有函数的函数体
     // 此时所有函数都已被声明，可以相互调用
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
@@ -2071,7 +2222,7 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
     
 
     
-    // 第四步：生成目标代码
+    // 第五步：生成目标代码
     // 初始化LLVM目标（只需要初始化一次，但重复初始化是安全的）
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();

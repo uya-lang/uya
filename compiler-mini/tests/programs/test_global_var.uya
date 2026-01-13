@@ -1,0 +1,17 @@
+// 全局变量测试程序
+// 测试全局变量的基本功能：声明、初始化和读取
+
+// 全局变量声明和初始化
+var global_value: i32 = 100;
+
+// 测试：通过函数读取全局变量
+fn read_global() i32 {
+    return global_value;
+}
+
+fn main() i32 {
+    // 读取全局变量的值
+    const value: i32 = read_global();
+    // 如果值正确（100），返回 0
+    return value - 100;
+}
