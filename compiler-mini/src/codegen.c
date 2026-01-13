@@ -1666,6 +1666,60 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             }
             return LLVMConstInt(i32_type, size, 0);  // 无符号整数
         }
+        
+        case AST_CAST_EXPR: {
+            // 类型转换表达式（expr as type）
+            ASTNode *expr_node = expr->data.cast_expr.expr;
+            ASTNode *target_type_node = expr->data.cast_expr.target_type;
+            
+            if (!expr_node || !target_type_node) {
+                return NULL;
+            }
+            
+            // 生成源表达式代码
+            LLVMValueRef source_val = codegen_gen_expr(codegen, expr_node);
+            if (!source_val) {
+                return NULL;
+            }
+            
+            // 获取目标类型
+            LLVMTypeRef target_type = get_llvm_type_from_ast(codegen, target_type_node);
+            if (!target_type) {
+                return NULL;
+            }
+            
+            LLVMTypeRef source_type = LLVMTypeOf(source_val);
+            LLVMTypeKind source_kind = LLVMGetTypeKind(source_type);
+            LLVMTypeKind target_kind = LLVMGetTypeKind(target_type);
+            
+            // 根据源类型和目标类型进行转换
+            if (source_kind == LLVMIntegerTypeKind && target_kind == LLVMIntegerTypeKind) {
+                unsigned source_width = LLVMGetIntTypeWidth(source_type);
+                unsigned target_width = LLVMGetIntTypeWidth(target_type);
+                
+                if (source_width == 32 && target_width == 8) {
+                    // i32 as byte：截断转换（保留低 8 位）
+                    return LLVMBuildTrunc(codegen->builder, source_val, target_type, "");
+                } else if (source_width == 8 && target_width == 32) {
+                    // byte as i32：零扩展转换（无符号扩展）
+                    return LLVMBuildZExt(codegen->builder, source_val, target_type, "");
+                } else if (source_width == 32 && target_width == 1) {
+                    // i32 as bool：非零值为 true，零值为 false
+                    LLVMTypeRef i32_type = codegen_get_base_type(codegen, TYPE_I32);
+                    if (!i32_type) {
+                        return NULL;
+                    }
+                    LLVMValueRef zero = LLVMConstInt(i32_type, 0, 1);  // 有符号零
+                    return LLVMBuildICmp(codegen->builder, LLVMIntNE, source_val, zero, "");
+                } else if (source_width == 1 && target_width == 32) {
+                    // bool as i32：true 转换为 1，false 转换为 0（零扩展）
+                    return LLVMBuildZExt(codegen->builder, source_val, target_type, "");
+                }
+            }
+            
+            // 不支持的转换（类型检查阶段应该已经拒绝）
+            return NULL;
+        }
             
         default:
             return NULL;
@@ -1785,6 +1839,30 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                         fprintf(stderr, "错误: 变量 %s 的初始值表达式生成失败\n", var_name);
                         return -1;
                     }
+                }
+                
+                // 检查类型是否匹配，如果不匹配则进行类型转换
+                LLVMTypeRef init_type = LLVMTypeOf(init_val);
+                if (init_type != llvm_type) {
+                    // 类型不匹配，需要进行类型转换
+                    LLVMTypeKind var_type_kind = LLVMGetTypeKind(llvm_type);
+                    LLVMTypeKind init_type_kind = LLVMGetTypeKind(init_type);
+                    
+                    if (var_type_kind == LLVMIntegerTypeKind && init_type_kind == LLVMIntegerTypeKind) {
+                        // 整数类型之间的转换
+                        unsigned var_width = LLVMGetIntTypeWidth(llvm_type);
+                        unsigned init_width = LLVMGetIntTypeWidth(init_type);
+                        
+                        if (var_width < init_width) {
+                            // 截断转换（例如 i32 -> i8）
+                            init_val = LLVMBuildTrunc(codegen->builder, init_val, llvm_type, "");
+                        } else if (var_width > init_width) {
+                            // 零扩展转换（例如 i8 -> i32，byte 是无符号的，使用零扩展）
+                            init_val = LLVMBuildZExt(codegen->builder, init_val, llvm_type, "");
+                        }
+                        // 如果宽度相同，类型应该相同，不需要转换
+                    }
+                    // 其他类型不匹配的情况会在类型检查阶段被拒绝
                 }
                 
                 LLVMBuildStore(codegen->builder, init_val, var_ptr);

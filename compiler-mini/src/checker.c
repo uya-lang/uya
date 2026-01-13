@@ -22,6 +22,7 @@ static int function_table_insert(TypeChecker *checker, FunctionSignature *sig);
 static FunctionSignature *function_table_lookup(TypeChecker *checker, const char *name);
 static void checker_enter_scope(TypeChecker *checker);
 static void checker_exit_scope(TypeChecker *checker);
+static void checker_check_cast_expr(TypeChecker *checker, ASTNode *node);
 static int checker_check_node(TypeChecker *checker, ASTNode *node);
 static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char *struct_name);
 static Type find_struct_field_type(ASTNode *struct_decl, const char *field_name);
@@ -599,6 +600,17 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             return result;
         }
         
+        case AST_CAST_EXPR: {
+            // 类型转换表达式：返回目标类型
+            // 注意：这里不验证转换是否合法，类型检查阶段会验证
+            ASTNode *target_type_node = expr->data.cast_expr.target_type;
+            if (target_type_node == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            return type_from_ast(checker, target_type_node);
+        }
+        
         default:
             // 其他表达式类型，返回void类型
             result.kind = TYPE_VOID;
@@ -1029,6 +1041,46 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
     return result;
 }
 
+// 检查类型转换表达式
+// 参数：checker - TypeChecker 指针，node - 类型转换表达式节点
+// 返回：无（通过 checker_report_error 报告错误）
+static void checker_check_cast_expr(TypeChecker *checker, ASTNode *node) {
+    if (checker == NULL || node == NULL || node->type != AST_CAST_EXPR) {
+        return;
+    }
+    
+    ASTNode *expr = node->data.cast_expr.expr;
+    ASTNode *target_type_node = node->data.cast_expr.target_type;
+    
+    if (expr == NULL || target_type_node == NULL) {
+        checker_report_error(checker);
+        return;
+    }
+    
+    // 推断源表达式类型和目标类型
+    Type source_type = checker_infer_type(checker, expr);
+    Type target_type = type_from_ast(checker, target_type_node);
+    
+    // 验证类型转换是否合法（仅支持 i32 ↔ byte 和 i32 ↔ bool）
+    if (source_type.kind == TYPE_I32 && target_type.kind == TYPE_BYTE) {
+        // i32 as byte：允许
+        return;
+    } else if (source_type.kind == TYPE_BYTE && target_type.kind == TYPE_I32) {
+        // byte as i32：允许
+        return;
+    } else if (source_type.kind == TYPE_I32 && target_type.kind == TYPE_BOOL) {
+        // i32 as bool：允许
+        return;
+    } else if (source_type.kind == TYPE_BOOL && target_type.kind == TYPE_I32) {
+        // bool as i32：允许
+        return;
+    } else {
+        // 不支持的类型转换
+        checker_report_error(checker);
+        return;
+    }
+}
+
 // 检查一元表达式
 // 参数：checker - TypeChecker 指针，node - 一元表达式节点
 // 返回：表达式类型（如果检查失败返回TYPE_VOID）
@@ -1232,6 +1284,10 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             
         case AST_STRUCT_INIT:
             checker_check_struct_init(checker, node);
+            return 1;
+            
+        case AST_CAST_EXPR:
+            checker_check_cast_expr(checker, node);
             return 1;
             
         case AST_IDENTIFIER:

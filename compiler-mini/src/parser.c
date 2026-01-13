@@ -1498,15 +1498,56 @@ static ASTNode *parser_parse_unary_expr(Parser *parser) {
     return parser_parse_primary_expr(parser);
 }
 
+// 解析类型转换表达式（右结合）
+// cast_expr = unary_expr [ 'as' type ]
+static ASTNode *parser_parse_cast_expr(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    // 解析左操作数（一元表达式）
+    ASTNode *expr = parser_parse_unary_expr(parser);
+    if (expr == NULL) {
+        return NULL;
+    }
+    
+    // 检查是否有 'as' 关键字（类型转换）
+    if (parser->current_token != NULL && parser->current_token->type == TOKEN_AS) {
+        int line = parser->current_token->line;
+        int column = parser->current_token->column;
+        parser_consume(parser);  // 消费 'as'
+        
+        // 解析目标类型
+        ASTNode *target_type = parser_parse_type(parser);
+        if (target_type == NULL) {
+            return NULL;
+        }
+        
+        // 创建类型转换节点
+        ASTNode *node = ast_new_node(AST_CAST_EXPR, line, column, parser->arena);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        node->data.cast_expr.expr = expr;
+        node->data.cast_expr.target_type = target_type;
+        
+        return node;
+    }
+    
+    // 没有类型转换，返回原表达式
+    return expr;
+}
+
 // 解析乘除模表达式（左结合）
-// mul_expr = unary_expr { ('*' | '/' | '%') unary_expr }
+// mul_expr = cast_expr { ('*' | '/' | '%') cast_expr }
 static ASTNode *parser_parse_mul_expr(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
         return NULL;
     }
     
-    // 解析左操作数
-    ASTNode *left = parser_parse_unary_expr(parser);
+    // 解析左操作数（类型转换表达式）
+    ASTNode *left = parser_parse_cast_expr(parser);
     if (left == NULL) {
         return NULL;
     }
@@ -1522,8 +1563,8 @@ static ASTNode *parser_parse_mul_expr(Parser *parser) {
         TokenType op = parser->current_token->type;
         parser_consume(parser);  // 消费运算符
         
-        // 解析右操作数
-        ASTNode *right = parser_parse_unary_expr(parser);
+        // 解析右操作数（类型转换表达式）
+        ASTNode *right = parser_parse_cast_expr(parser);
         if (right == NULL) {
             return NULL;
         }

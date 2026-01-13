@@ -78,6 +78,10 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena) {
             node->data.sizeof_expr.target = NULL;
             node->data.sizeof_expr.is_type = 0;
             break;
+        case AST_CAST_EXPR:
+            node->data.cast_expr.expr = NULL;
+            node->data.cast_expr.target_type = NULL;
+            break;
         case AST_IDENTIFIER:
             node->data.identifier.name = NULL;
             break;
