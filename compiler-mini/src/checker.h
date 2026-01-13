@@ -9,6 +9,7 @@
 typedef enum {
     TYPE_I32,      // 32位有符号整数
     TYPE_BOOL,     // 布尔类型
+    TYPE_BYTE,     // 无符号字节（1 字节）
     TYPE_VOID,     // void 类型（仅用于函数返回类型）
     TYPE_STRUCT,   // 结构体类型（通过名称引用）
     TYPE_POINTER,  // 指针类型（&T 或 *T）

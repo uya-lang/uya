@@ -76,7 +76,7 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
 
 // 获取基础类型的LLVM类型
 // 参数：codegen - 代码生成器指针
-//       type_kind - 类型种类（TypeKind枚举：TYPE_I32, TYPE_BOOL, TYPE_VOID）
+//       type_kind - 类型种类（TypeKind枚举：TYPE_I32, TYPE_BOOL, TYPE_BYTE, TYPE_VOID）
 // 返回：LLVM类型引用，失败返回NULL
 // 注意：此函数仅支持基础类型，结构体类型需要使用其他函数
 LLVMTypeRef codegen_get_base_type(CodeGenerator *codegen, TypeKind type_kind);

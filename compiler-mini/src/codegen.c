@@ -66,7 +66,7 @@ int codegen_new(CodeGenerator *codegen, Arena *arena, const char *module_name) {
 
 // 获取基础类型的LLVM类型
 // 参数：codegen - 代码生成器指针
-//       type_kind - 类型种类（TypeKind枚举：TYPE_I32, TYPE_BOOL, TYPE_VOID）
+//       type_kind - 类型种类（TypeKind枚举：TYPE_I32, TYPE_BOOL, TYPE_BYTE, TYPE_VOID）
 // 返回：LLVM类型引用，失败返回NULL
 // 注意：此函数仅支持基础类型，结构体类型需要使用其他函数
 LLVMTypeRef codegen_get_base_type(CodeGenerator *codegen, TypeKind type_kind) {
@@ -82,6 +82,10 @@ LLVMTypeRef codegen_get_base_type(CodeGenerator *codegen, TypeKind type_kind) {
         case TYPE_BOOL:
             // bool 类型映射到 LLVM Int1 类型（1位整数，更精确，全局类型）
             return LLVMInt1Type();
+            
+        case TYPE_BYTE:
+            // byte 类型映射到 LLVM Int8 类型（8位无符号整数，全局类型）
+            return LLVMInt8Type();
             
         case TYPE_VOID:
             // void 类型映射到 LLVM Void 类型（全局类型）
@@ -118,6 +122,8 @@ static LLVMTypeRef get_llvm_type_from_ast(CodeGenerator *codegen, ASTNode *type_
                 return codegen_get_base_type(codegen, TYPE_I32);
             } else if (strcmp(type_name, "bool") == 0) {
                 return codegen_get_base_type(codegen, TYPE_BOOL);
+            } else if (strcmp(type_name, "byte") == 0) {
+                return codegen_get_base_type(codegen, TYPE_BYTE);
             } else if (strcmp(type_name, "void") == 0) {
                 return codegen_get_base_type(codegen, TYPE_VOID);
             }
@@ -1734,7 +1740,8 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             if (var_type->type == AST_TYPE_NAMED) {
                 const char *type_name = var_type->data.type_named.name;
                 if (type_name && strcmp(type_name, "i32") != 0 && 
-                    strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0) {
+                    strcmp(type_name, "bool") != 0 && strcmp(type_name, "byte") != 0 && 
+                    strcmp(type_name, "void") != 0) {
                     // 可能是结构体类型
                     if (codegen_get_struct_type(codegen, type_name) != NULL) {
                         struct_name = type_name;  // 名称已经在 Arena 中
@@ -2099,7 +2106,8 @@ static int codegen_gen_global_var(CodeGenerator *codegen, ASTNode *var_decl) {
     if (var_type_node->type == AST_TYPE_NAMED) {
         const char *type_name = var_type_node->data.type_named.name;
         if (type_name && strcmp(type_name, "i32") != 0 && 
-            strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0) {
+            strcmp(type_name, "bool") != 0 && strcmp(type_name, "byte") != 0 && 
+            strcmp(type_name, "void") != 0) {
             // 可能是结构体类型
             if (codegen_get_struct_type(codegen, type_name) != NULL) {
                 struct_name = type_name;  // 名称已经在 Arena 中
@@ -2290,7 +2298,8 @@ int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl) {
             if (pointed_type && pointed_type->type == AST_TYPE_NAMED) {
                 const char *type_name = pointed_type->data.type_named.name;
                 if (type_name && strcmp(type_name, "i32") != 0 && 
-                    strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0) {
+                    strcmp(type_name, "bool") != 0 && strcmp(type_name, "byte") != 0 && 
+                    strcmp(type_name, "void") != 0) {
                     // 可能是结构体类型
                     if (codegen_get_struct_type(codegen, type_name) != NULL) {
                         struct_name = type_name;  // 名称已经在 Arena 中

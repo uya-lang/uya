@@ -370,7 +370,7 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
         
         return result;
     } else if (type_node->type == AST_TYPE_NAMED) {
-        // 命名类型（i32, bool, void, 或结构体名称）
+        // 命名类型（i32, bool, byte, void, 或结构体名称）
         const char *type_name = type_node->data.type_named.name;
         if (type_name == NULL) {
             result.kind = TYPE_VOID;
@@ -382,6 +382,8 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
             result.kind = TYPE_I32;
         } else if (strcmp(type_name, "bool") == 0) {
             result.kind = TYPE_BOOL;
+        } else if (strcmp(type_name, "byte") == 0) {
+            result.kind = TYPE_BYTE;
         } else if (strcmp(type_name, "void") == 0) {
             result.kind = TYPE_VOID;
         } else {
@@ -691,7 +693,8 @@ static int checker_check_var_decl(TypeChecker *checker, ASTNode *node) {
         if (node->data.var_decl.type->type == AST_TYPE_NAMED) {
             const char *type_name = node->data.var_decl.type->data.type_named.name;
             if (type_name != NULL && strcmp(type_name, "i32") != 0 && 
-                strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0) {
+                strcmp(type_name, "bool") != 0 && strcmp(type_name, "byte") != 0 && 
+                strcmp(type_name, "void") != 0) {
                 // 可能是结构体类型，检查是否存在
                 ASTNode *struct_decl = find_struct_decl_from_program(checker->program_node, type_name);
                 if (struct_decl == NULL) {

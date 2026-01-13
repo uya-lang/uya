@@ -946,6 +946,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 // 检查是否是基础类型或 struct 关键字
                 if (strcmp(type_name, "i32") == 0 || 
                     strcmp(type_name, "bool") == 0 || 
+                    strcmp(type_name, "byte") == 0 ||
                     strcmp(type_name, "void") == 0 ||
                     strcmp(type_name, "struct") == 0) {
                     // 尝试解析类型

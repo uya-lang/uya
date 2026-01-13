@@ -26,7 +26,7 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 - **函数声明和调用**
 - **外部函数调用**：支持 `extern` 关键字，允许 `*T` 作为 FFI 指针参数和返回值
 - **基本控制流**：`if`、`while`、`for`（数组遍历）、`break`、`continue`
-- **基本表达式**：算术运算、逻辑运算、比较运算、函数调用、结构体字段访问、数组访问
+- **基本表达式**：算术运算、逻辑运算、比较运算、函数调用、结构体字段访问、数组访问、类型转换
 - **内置函数**：`sizeof`（类型大小查询）
 
 **不支持的特性**：
@@ -51,7 +51,7 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 ## 1. 关键字
 
 ```
-struct const var fn extern return true false if else while for break continue null
+struct const var fn extern return true false if else while for break continue null as
 ```
 
 **说明**：
@@ -68,6 +68,7 @@ struct const var fn extern return true false if else while for break continue nu
 - `for`：循环语句（数组遍历）
 - `break`：跳出循环
 - `continue`：跳过当前循环迭代，继续下一次
+- `as`：类型转换关键字
 
 ---
 
@@ -337,7 +338,8 @@ and_expr       = eq_expr { '&&' eq_expr }
 eq_expr        = rel_expr { ('==' | '!=') rel_expr }
 rel_expr       = add_expr { ('<' | '>' | '<=' | '>=') add_expr }
 add_expr       = mul_expr { ('+' | '-') mul_expr }
-mul_expr       = unary_expr { ('*' | '/' | '%') unary_expr }
+mul_expr       = cast_expr { ('*' | '/' | '%') cast_expr }
+cast_expr      = unary_expr [ 'as' type ]
 unary_expr     = ('!' | '-' | '&' | '*') unary_expr | primary_expr
 primary_expr   = ID | NUM | 'true' | 'false' | 'null' | STRING | struct_literal | array_literal | member_access | array_access | call_expr | sizeof_expr | '(' expr ')'
 sizeof_expr    = 'sizeof' '(' (type | expr) ')'
@@ -404,13 +406,14 @@ arg_list       = expr { ',' expr }
 
 - **运算符优先级**（从高到低）：
   1. 一元运算符：`!`（逻辑非）、`-`（负号）、`&`（取地址）、`*`（解引用）
-  2. 乘除模：`*` `/` `%`
-  3. 加减：`+` `-`
-  4. 比较：`<` `>` `<=` `>=`
-  5. 相等性：`==` `!=`
-  6. 逻辑与：`&&`
-  7. 逻辑或：`||`
-  8. 赋值：`=`
+  2. 类型转换：`as`
+  3. 乘除模：`*` `/` `%`
+  4. 加减：`+` `-`
+  5. 比较：`<` `>` `<=` `>=`
+  6. 相等性：`==` `!=`
+  7. 逻辑与：`&&`
+  8. 逻辑或：`||`
+  9. 赋值：`=`
 
 - **运算符说明**：
   - 算术运算符：`+` `-` `*` `/` `%`（操作数必须是 `i32`，结果类型为 `i32`）
@@ -429,7 +432,54 @@ arg_list       = expr { ',' expr }
 
 ---
 
-### 4.8 内置函数
+### 4.8 类型转换
+
+Uya Mini 支持显式类型转换，使用 `as` 关键字：
+
+**语法**：`expr as type`
+
+**功能**：将表达式转换为指定类型
+
+**支持的转换**：
+- `i32` ↔ `byte`：整数类型与字节类型之间的转换
+  - `i32 as byte`：将 i32 值截断为 byte（保留低 8 位）
+  - `byte as i32`：将 byte 值零扩展为 i32（无符号扩展）
+- `i32` ↔ `bool`：整数类型与布尔类型之间的转换
+  - `i32 as bool`：非零值为 `true`，零值为 `false`
+  - `bool as i32`：`true` 转换为 `1`，`false` 转换为 `0`
+
+**说明**：
+- 类型转换是显式的，必须使用 `as` 关键字
+- 转换可能改变值的表示（如 i32 截断为 byte）
+- 类型转换的优先级高于乘除运算，低于一元运算符
+- 仅在类型系统允许的转换之间进行（不支持指针、结构体等复杂类型的转换）
+
+**示例**：
+```uya
+// i32 与 byte 转换
+var x: i32 = 256;
+var b: byte = x as byte;  // b = 0（截断，只保留低 8 位）
+
+var b2: byte = 42;
+var x2: i32 = b2 as i32;  // x2 = 42（零扩展）
+
+// i32 与 bool 转换
+var n: i32 = 42;
+var flag: bool = n as bool;  // flag = true（非零值）
+
+var flag2: bool = false;
+var n2: i32 = flag2 as i32;  // n2 = 0
+
+// 用于比较运算（解决类型不匹配问题）
+var byte_val: byte = 42;
+if (byte_val as i32) != 0 {  // 转换为 i32 后再比较
+    // ...
+}
+```
+
+---
+
+### 4.9 内置函数
 
 Uya Mini 提供以下内置函数，无需导入即可使用：
 
@@ -718,6 +768,7 @@ Uya Mini 支持结构体和数组类型，这些特性使得编译器实现更�
 | 模块系统 | 不支持 | 完整的模块系统 |
 | 字符串 | 字符串字面量（类型为 `*byte`，仅用于 FFI 函数参数） | 完整的字符串支持 |
 | 类型推断 | 不支持 | 不支持（显式类型） |
+| 类型转换 | 支持 `as`（基础类型之间） | 支持 `as` 和 `as!`（完整类型系统） |
 | `sizeof` | 内置函数（无需导入） | 标准库函数（需导入 `std.mem`） |
 | 代码生成 | LLVM C API → 二进制 | C99 代码 → C 编译器 |
 
