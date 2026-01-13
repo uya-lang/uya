@@ -3,24 +3,24 @@
 
 fn main() i32 {
     // 测试1：byte 类型常量声明
-    const byte_const: byte = 0;
-    if byte_const != 0 {
+    const byte_const: byte = 0 as byte;
+    if byte_const != 0 as byte {
         return 1;  // 常量值应该是 0
     }
     
-    const byte_const2: byte = 255;
-    if byte_const2 != 255 {
+    const byte_const2: byte = 255 as byte;
+    if byte_const2 != 255 as byte {
         return 2;  // 常量值应该是 255
     }
     
     // 测试2：byte 类型变量声明和赋值
-    var byte_var: byte = 42;
-    if byte_var != 42 {
+    var byte_var: byte = 42 as byte;
+    if byte_var != 42 as byte {
         return 3;  // 变量值应该是 42
     }
     
-    byte_var = 100;
-    if byte_var != 100 {
+    byte_var = 100 as byte;
+    if byte_var != 100 as byte {
         return 4;  // 变量值应该被修改为 100
     }
     
@@ -50,13 +50,13 @@ fn main() i32 {
     
     // 测试7：通过指针读取 byte 值
     const byte_val: byte = *byte_ptr;
-    if byte_val != 100 {
+    if byte_val != 100 as byte {
         return 9;  // 通过指针读取的值应该是 100
     }
     
     // 测试8：通过指针修改 byte 值
-    *byte_ptr = 200;
-    if byte_var != 200 {
+    *byte_ptr = 200 as byte;
+    if byte_var != 200 as byte {
         return 10;  // 通过指针修改后，变量值应该是 200
     }
     
@@ -73,7 +73,7 @@ fn main() i32 {
     }
     
     // 测试11：指针比较
-    var byte_var2: byte = 50;
+    var byte_var2: byte = 50 as byte;
     var byte_ptr2: &byte = &byte_var2;
     if byte_ptr == byte_ptr2 {
         return 13;  // 两个指针不应该相等（指向不同变量）

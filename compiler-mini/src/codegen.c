@@ -1583,8 +1583,15 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                         return NULL;
                     }
                     llvm_type = lookup_var_type(codegen, var_name);
+                    // 如果变量表中找不到，可能是结构体类型名称（在 sizeof 中）
+                    // 尝试作为类型名称处理
                     if (!llvm_type) {
-                        return NULL;
+                        LLVMTypeRef struct_type = codegen_get_struct_type(codegen, var_name);
+                        if (struct_type) {
+                            llvm_type = struct_type;
+                        } else {
+                            return NULL;
+                        }
                     }
                 } else {
                     // 对于其他表达式类型，生成代码以获取类型
