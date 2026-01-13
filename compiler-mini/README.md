@@ -4,9 +4,9 @@ Uya Mini 是 Uya 语言的最小子集编译器，设计目标是能够编译自
 
 ## 项目状态
 
-✅ **核心功能已完成** - 当前进度：阶段1-9已完成（编译器实现完成）
+✅ **核心功能已完成** - Uya Mini 规范已全部实现，编译器功能完整
 
-详细进度请参考 [PROGRESS.md](PROGRESS.md)
+✅ **准备开始自举** - 可以开始将 C99 编译器翻译成 Uya Mini 版本
 
 **已完成模块**：
 - ✅ Arena 分配器
@@ -32,11 +32,10 @@ Uya Mini 是 Uya 语言的最小子集编译器，设计目标是能够编译自
 - **LLVM C API**：使用 LLVM C API 直接从 AST 生成二进制代码
 - **自举目标**：最终目标是用 Uya Mini 编译器编译自身
 
-**当前实现状态**（基于源码分析）：
-- ✅ **已实现**：基础类型（`i32`、`bool`、`void`、`byte`）、结构体、枚举、控制流（`if`、`while`、`for`、`break`、`continue`、`return`）、基本表达式、`extern` 函数（基础类型参数和FFI指针类型参数）、数组类型、指针类型、`sizeof`/`len` 内置函数
-- ⏳ **规范已定义，编译器未实现**：指针类型（`&T`、`*T`）、数组类型（`[T: N]`）、`sizeof` 内置函数、`for` 循环、`break`/`continue`、取地址/解引用运算符、`null` 字面量、`byte` 类型
-
-详细实现状态请参考 [TODO_uya_mini_extension.md](TODO_uya_mini_extension.md)
+**当前实现状态**：
+- ✅ **Uya Mini 规范已全部实现** - 所有语言特性已在编译器中实现
+- ✅ **编译器功能完整** - 可以编译所有 Uya Mini 程序
+- ✅ **准备开始自举** - 参考 [BOOTSTRAP_PLAN.md](BOOTSTRAP_PLAN.md) 了解自举实现计划
 
 ## 快速开始
 
@@ -67,10 +66,8 @@ make clean         # 清理编译产物
 ## 文档
 
 - [语言规范](spec/UYA_MINI_SPEC.md) - Uya Mini 完整语言规范
-- [规范扩展 TODO](TODO_uya_mini_extension.md) - Uya Mini 规范扩展任务（自举重构准备）
+- [自举实现计划](BOOTSTRAP_PLAN.md) - 将 C99 编译器翻译成 Uya Mini 的详细计划
 - [开发规则](.cursorrules) - 开发规则和规范
-- [待办事项](TODO.md) - 实现任务索引
-- [进度跟踪](PROGRESS.md) - 当前实现进度
 - [上下文切换指南](CONTEXT_SWITCH.md) - 多上下文协作指南
 
 ## 项目结构
