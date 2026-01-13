@@ -182,10 +182,10 @@ slice_op       = '[' expr ':' expr ']'  // 切片操作，完整语法为 &expr[
 struct_literal = ID '{' field_init_list '}'
 field_init_list = [ field_init { ',' field_init } ]
 field_init     = ID ':' expr
-array_literal  = '[' expr_list ']' | '[' expr ';' NUM ']'
+array_literal  = '[' expr_list ']' | '[' expr ';' NUM ']'  # 数组字面量，空列表 [] 表示未初始化（仅当变量类型已明确时可用）
 tuple_literal  = '(' expr_list ')'  # 元组字面量，如 (10, 20, 30)
 enum_literal   = ID '.' ID  # 枚举字面量，如 Color.RED, HttpStatus.OK
-expr_list      = [ expr { ',' expr } ]
+expr_list      = [ expr { ',' expr } ]  # 表达式列表，可以为空（空数组字面量 []）
 arg_list       = [ expr { ',' expr } ]
 pattern_list   = pattern '=>' expr { ',' pattern '=>' expr } [ ',' 'else' '=>' expr ]
 pattern        = literal | ID | '_' | struct_pattern | tuple_pattern | enum_pattern | error_pattern
