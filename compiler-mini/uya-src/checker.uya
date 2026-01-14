@@ -1,3 +1,378 @@
 // checker.uya - 类型检查器模块
-// 待阶段5填充
+// 对 AST 进行类型检查，验证类型正确性，构建符号表
+// 
+// 注意：需要先包含 arena.uya、ast.uya、lexer.uya 和 str_utils.uya
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+
+// ===== 外部函数声明 =====
+
+// 字符串函数（来自 str_utils.uya）
+extern fn strlen(s: *byte) i32;
+extern fn strcmp(s1: *byte, s2: *byte) i32;
+extern fn fprintf(stream: *void, format: *byte, ...) i32;
+
+// Arena 函数（来自 arena.uya）
+extern fn arena_alloc(arena: &Arena, size: i32) &void;
+
+// AST 函数（来自 ast.uya）
+// 注意：假设 ASTNode, ASTNodeType 类型已定义
+
+// ===== 常量定义 =====
+
+// 符号表大小（必须是2的幂）
+const SYMBOL_TABLE_SIZE: i32 = 256;
+
+// 函数表大小（必须是2的幂）
+const FUNCTION_TABLE_SIZE: i32 = 64;
+
+// ===== 类型定义 =====
+
+// 类型枚举（Uya Mini 支持的类型）
+enum TypeKind {
+    TYPE_I32,      // 32位有符号整数
+    TYPE_USIZE,    // 平台相关的无符号大小类型（32位平台=u32，64位平台=u64）
+    TYPE_BOOL,     // 布尔类型
+    TYPE_BYTE,     // 无符号字节（1 字节）
+    TYPE_VOID,     // void 类型（仅用于函数返回类型）
+    TYPE_ENUM,     // 枚举类型（通过名称引用）
+    TYPE_STRUCT,   // 结构体类型（通过名称引用）
+    TYPE_POINTER,  // 指针类型（&T 或 *T）
+    TYPE_ARRAY,    // 数组类型（[T: N]）
+}
+
+// 类型结构
+// 注意：Uya Mini 不支持 union，因此将所有 union 字段都放在结构体中
+struct Type {
+    kind: TypeKind;              // 类型种类
+    
+    // 枚举类型数据
+    enum_name: &byte;            // 枚举名称（仅当 kind == TYPE_ENUM 时有效）
+    
+    // 结构体类型数据
+    struct_name: &byte;           // 结构体名称（仅当 kind == TYPE_STRUCT 时有效）
+    
+    // 指针类型数据
+    pointer_to: &Type;            // 指向的类型（仅当 kind == TYPE_POINTER 时有效，从 Arena 分配）
+    is_ffi_pointer: i32;         // 是否为 FFI 指针（1 表示 *T，0 表示 &T，仅当 kind == TYPE_POINTER 时有效）
+    
+    // 数组类型数据
+    element_type: &Type;          // 元素类型（仅当 kind == TYPE_ARRAY 时有效，从 Arena 分配）
+    array_size: i32;              // 数组大小（编译期常量，仅当 kind == TYPE_ARRAY 时有效）
+}
+
+// 符号信息（变量、函数参数等）
+struct Symbol {
+    name: &byte;                 // 符号名称（存储在 Arena 中）
+    type: Type;                   // 符号类型
+    is_const: i32;                // 1 表示 const，0 表示 var
+    scope_level: i32;             // 作用域级别
+    line: i32;                    // 行号
+    column: i32;                  // 列号
+}
+
+// 函数签名信息
+struct FunctionSignature {
+    name: &byte;                  // 函数名称（存储在 Arena 中）
+    param_types: &Type;            // 参数类型数组（从 Arena 分配）
+    param_count: i32;             // 参数数量（固定参数数量，不包括可变参数）
+    return_type: Type;             // 返回类型
+    is_extern: i32;               // 是否为 extern 函数
+    is_varargs: i32;               // 是否为可变参数函数（1 表示是，0 表示否，仅用于 extern 函数）
+    line: i32;                    // 行号
+    column: i32;                  // 列号
+}
+
+// 符号表（固定大小哈希表，使用开放寻址）
+// 注意：Uya Mini 不支持固定大小数组，需要使用指针数组
+struct SymbolTable {
+    slots: &(&Symbol);            // 符号槽位数组指针（固定大小 256，从 Arena 分配）
+    count: i32;                   // 当前符号数量
+}
+
+// 函数表（固定大小哈希表，使用开放寻址）
+struct FunctionTable {
+    slots: &(&FunctionSignature); // 函数槽位数组指针（固定大小 64，从 Arena 分配）
+    count: i32;                   // 当前函数数量
+}
+
+// 类型检查器结构
+struct TypeChecker {
+    arena: &Arena;                // Arena 分配器（用于分配类型、符号等）
+    symbol_table: SymbolTable;    // 符号表
+    function_table: FunctionTable; // 函数表
+    scope_level: i32;             // 当前作用域级别
+    loop_depth: i32;              // 循环深度（用于检查 break/continue 是否在循环中）
+    program_node: &ASTNode;       // 程序节点（用于查找结构体声明等）
+    error_count: i32;             // 错误计数（简化版本，暂不存储错误消息）
+}
+
+// ===== 基础函数 =====
+
+// 哈希函数（djb2算法，用于字符串哈希）
+// 参数：str - 字符串指针
+// 返回：哈希值（i32）
+fn hash_string(str: *byte) i32 {
+    if str == null {
+        return 0;
+    }
+    
+    var hash: i32 = 5381;
+    var i: i32 = 0;
+    while (str[i] as i32) != 0 {
+        const c: i32 = str[i] as i32;
+        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
+        i = i + 1;
+    }
+    
+    return hash;
+}
+
+// 初始化 TypeChecker
+// 参数：checker - TypeChecker 结构体指针（由调用者提供），arena - Arena 分配器
+// 返回：成功返回 0，失败返回 -1
+// 注意：TypeChecker 结构体由调用者在栈上或静态分配，此函数只负责初始化
+fn checker_init(checker: &TypeChecker, arena: &Arena) i32 {
+    if checker == null || arena == null {
+        return -1;
+    }
+    
+    checker.arena = arena;
+    
+    // 分配符号表槽位数组（256 个指针，每个 8 字节）
+    const symbol_slots: &(&Symbol) = arena_alloc(arena, 8 * SYMBOL_TABLE_SIZE) as &(&Symbol);
+    if symbol_slots == null {
+        return -1;
+    }
+    
+    // 初始化符号表（所有槽位设为 null）
+    var i: i32 = 0;
+    while i < SYMBOL_TABLE_SIZE {
+        symbol_slots[i] = null;
+        i = i + 1;
+    }
+    checker.symbol_table.slots = symbol_slots;
+    checker.symbol_table.count = 0;
+    
+    // 分配函数表槽位数组（64 个指针，每个 8 字节）
+    const function_slots: &(&FunctionSignature) = arena_alloc(arena, 8 * FUNCTION_TABLE_SIZE) as &(&FunctionSignature);
+    if function_slots == null {
+        return -1;
+    }
+    
+    // 初始化函数表（所有槽位设为 null）
+    i = 0;
+    while i < FUNCTION_TABLE_SIZE {
+        function_slots[i] = null;
+        i = i + 1;
+    }
+    checker.function_table.slots = function_slots;
+    checker.function_table.count = 0;
+    
+    checker.scope_level = 0;
+    checker.loop_depth = 0;
+    checker.program_node = null;
+    checker.error_count = 0;
+    
+    return 0;
+}
+
+// 获取错误计数
+// 参数：checker - TypeChecker 指针
+// 返回：错误数量
+fn checker_get_error_count(checker: &TypeChecker) i32 {
+    if checker == null {
+        return 0;
+    }
+    return checker.error_count;
+}
+
+// ===== 符号表操作函数 =====
+
+// 符号表查找函数（支持作用域查找，返回最内层匹配的符号）
+// 参数：checker - TypeChecker 指针，name - 符号名称
+// 返回：找到的符号指针（最内层的匹配符号），未找到返回 null
+// 注意：查找所有匹配的符号，返回作用域级别最高的（最内层的）
+fn symbol_table_lookup(checker: &TypeChecker, name: *byte) &Symbol {
+    if checker == null || name == null {
+        return null;
+    }
+    
+    var found: &Symbol = null;
+    var found_scope: i32 = -1;
+    
+    // 遍历整个符号表，查找所有匹配的符号
+    // 由于使用开放寻址，同名符号可能存储在不同的位置（由于哈希冲突）
+    var i: i32 = 0;
+    while i < SYMBOL_TABLE_SIZE {
+        const symbol: &Symbol = checker.symbol_table.slots[i];
+        
+        if symbol != null {
+            // 检查是否是目标符号
+            if strcmp(symbol.name as *byte, name) == 0 {
+                // 找到匹配的符号，选择作用域级别最高的（最内层的）
+                if found == null || symbol.scope_level > found_scope {
+                    found = symbol;
+                    found_scope = symbol.scope_level;
+                }
+            }
+        }
+        
+        i = i + 1;
+    }
+    
+    return found;
+}
+
+// 符号表插入函数（使用开放寻址的哈希表）
+// 参数：checker - TypeChecker 指针，symbol - 要插入的符号（从 Arena 分配）
+// 返回：成功返回 0，失败返回 -1
+// 注意：禁止变量遮蔽，内层作用域不能声明与外层作用域同名的变量（应在类型检查时验证）
+//      如果符号已存在（相同名称和相同作用域级别），返回 -1
+fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
+    if checker == null || symbol == null || symbol.name == null {
+        return -1;
+    }
+    
+    // 首先检查是否已存在相同名称和相同作用域级别的符号
+    const existing: &Symbol = symbol_table_lookup(checker, symbol.name as *byte);
+    if existing != null && existing.scope_level == symbol.scope_level {
+        return -1;  // 符号已存在（相同作用域级别）
+    }
+    
+    // 计算哈希值
+    const hash: i32 = hash_string(symbol.name as *byte);
+    const index: i32 = hash & (SYMBOL_TABLE_SIZE - 1);  // 使用位与运算（表大小必须是2的幂）
+    
+    // 开放寻址：查找空槽位
+    var i: i32 = 0;
+    while i < SYMBOL_TABLE_SIZE {
+        const slot: i32 = (index + i) & (SYMBOL_TABLE_SIZE - 1);
+        
+        if checker.symbol_table.slots[slot] == null {
+            // 找到空槽位，插入符号
+            checker.symbol_table.slots[slot] = symbol;
+            checker.symbol_table.count = checker.symbol_table.count + 1;
+            return 0;
+        }
+        
+        i = i + 1;
+    }
+    
+    // 哈希表已满（理论上不应该发生，因为我们有足够大的表）
+    return -1;
+}
+
+// ===== 函数表操作函数 =====
+
+// 函数表查找函数
+// 参数：checker - TypeChecker 指针，name - 函数名称
+// 返回：找到的函数签名指针，未找到返回 null
+fn function_table_lookup(checker: &TypeChecker, name: *byte) &FunctionSignature {
+    if checker == null || name == null {
+        return null;
+    }
+    
+    // 计算哈希值
+    const hash: i32 = hash_string(name);
+    const index: i32 = hash & (FUNCTION_TABLE_SIZE - 1);
+    
+    // 开放寻址：查找函数
+    var i: i32 = 0;
+    while i < FUNCTION_TABLE_SIZE {
+        const slot: i32 = (index + i) & (FUNCTION_TABLE_SIZE - 1);
+        const sig: &FunctionSignature = checker.function_table.slots[slot];
+        
+        if sig == null {
+            // 空槽位，继续查找
+            i = i + 1;
+            continue;
+        }
+        
+        // 检查是否是目标函数
+        if strcmp(sig.name as *byte, name) == 0 {
+            return sig;
+        }
+        
+        i = i + 1;
+    }
+    
+    return null;  // 未找到
+}
+
+// 函数表插入函数（使用开放寻址的哈希表）
+// 参数：checker - TypeChecker 指针，sig - 要插入的函数签名（从 Arena 分配）
+// 返回：成功返回 0，失败返回 -1
+// 注意：如果函数已存在，返回 -1
+fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
+    if checker == null || sig == null || sig.name == null {
+        return -1;
+    }
+    
+    // 计算哈希值
+    const hash: i32 = hash_string(sig.name as *byte);
+    const index: i32 = hash & (FUNCTION_TABLE_SIZE - 1);
+    
+    // 开放寻址：查找空槽位或已存在的函数
+    var i: i32 = 0;
+    while i < FUNCTION_TABLE_SIZE {
+        const slot: i32 = (index + i) & (FUNCTION_TABLE_SIZE - 1);
+        const existing: &FunctionSignature = checker.function_table.slots[slot];
+        
+        if existing == null {
+            // 找到空槽位，插入函数签名
+            checker.function_table.slots[slot] = sig;
+            checker.function_table.count = checker.function_table.count + 1;
+            return 0;
+        }
+        
+        // 检查是否是相同名称的函数
+        if strcmp(existing.name as *byte, sig.name as *byte) == 0 {
+            // 函数已存在，返回错误
+            return -1;
+        }
+        
+        i = i + 1;
+    }
+    
+    // 哈希表已满（理论上不应该发生）
+    return -1;
+}
+
+// ===== 作用域管理函数 =====
+
+// 进入作用域（增加作用域级别）
+// 参数：checker - TypeChecker 指针
+fn checker_enter_scope(checker: &TypeChecker) {
+    if checker != null {
+        checker.scope_level = checker.scope_level + 1;
+    }
+}
+
+// 退出作用域（减少作用域级别，并移除该作用域的符号）
+// 参数：checker - TypeChecker 指针
+// 注意：退出作用域时，移除当前作用域级别的所有符号
+// 注意：在开放寻址哈希表中删除元素会导致查找链断裂，但我们的使用场景中，
+//      退出作用域时删除符号是必要的，因此遍历整个表进行删除
+fn checker_exit_scope(checker: &TypeChecker) {
+    if checker == null || checker.scope_level <= 0 {
+        return;
+    }
+    
+    const current_scope: i32 = checker.scope_level;
+    
+    // 移除当前作用域级别的所有符号
+    // 注意：在开放寻址哈希表中，删除元素会导致查找链断裂，但我们的使用场景中，
+    //      符号表主要用于类型检查阶段，退出作用域后不会再查找已删除的符号
+    var i: i32 = 0;
+    while i < SYMBOL_TABLE_SIZE {
+        const symbol: &Symbol = checker.symbol_table.slots[i];
+        if symbol != null && symbol.scope_level == current_scope {
+            checker.symbol_table.slots[i] = null;
+            checker.symbol_table.count = checker.symbol_table.count - 1;
+        }
+        i = i + 1;
+    }
+    
+    checker.scope_level = checker.scope_level - 1;
+}
 
