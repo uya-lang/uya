@@ -75,10 +75,10 @@ enum TokenType {
 // Token 结构体
 // 字符串值存储在 Arena 中，不分配堆内存
 struct Token {
-    type: TokenType;    // Token 类型
-    value: &byte;       // Token 值（字符串，存储在 Arena 中，可为 null）
-    line: i32;          // 行号
-    column: i32;        // 列号
+    type: TokenType,// Token 类型
+    value: &byte,// Token 值（字符串，存储在 Arena 中，可为 null）
+    line: i32,// 行号
+    column: i32// 列号
 }
 
 // ===== Lexer 结构体 =====
@@ -90,12 +90,12 @@ const LEXER_BUFFER_SIZE: i32 = 1048576;  // 1024 * 1024
 // 使用固定大小缓冲区，不分配堆内存
 // 注意：buffer 使用指针，由调用者提供缓冲区
 struct Lexer {
-    buffer: &byte;      // 源代码缓冲区指针
-    buffer_size: i32;   // 缓冲区实际大小（字节数）
-    position: i32;      // 当前读取位置
-    line: i32;          // 当前行号（从1开始）
-    column: i32;        // 当前列号（从1开始）
-    filename: &byte;    // 文件名（存储在 Arena 中，可为 null）
+    buffer: &byte,// 源代码缓冲区指针
+    buffer_size: i32,// 缓冲区实际大小（字节数）
+    position: i32,// 当前读取位置
+    line: i32,// 当前行号（从1开始）
+    column: i32,// 当前列号（从1开始）
+    filename: &byte// 文件名（存储在 Arena 中，可为 null）
 }
 
 // ===== 外部函数声明 =====
@@ -255,29 +255,29 @@ fn arena_strdup_from_literal(arena: &Arena, str: *byte) &byte {
     }
     
     // 计算字符串长度
-    const len: i32 = strlen(str);
+    const str_len: i32 = strlen(str);
     
-    // 分配 len + 1 字节（包括 null 终止符）
-    const result: &byte = arena_alloc(arena, len + 1) as &byte;
+    // 分配 str_len + 1 字节（包括 null 终止符）
+    const result: &byte = arena_alloc(arena, str_len + 1) as &byte;
     if result == null {
         return null;
     }
     
     // 复制字符串内容
     var i: i32 = 0;
-    while i < len {
+    while i < str_len {
         result[i] = (str as &byte)[i];
         i = i + 1;
     }
-    result[len] = 0;  // null 终止符
+    result[str_len] = 0;  // null 终止符
     
     return result;
 }
 
 // 从 Arena 复制字符串
-// 参数：arena - Arena 分配器，start - 字符串起始位置，len - 字符串长度
+// 参数：arena - Arena 分配器，start - 字符串起始位置，str_len - 字符串长度
 // 返回：复制后的字符串指针（存储在 Arena 中），失败返回 null
-fn arena_strdup(arena: &Arena, start: &byte, len: i32) &byte {
+fn arena_strdup(arena: &Arena, start: &byte, str_len: i32) &byte {
     if arena == null {
         return null;
     }
@@ -285,19 +285,19 @@ fn arena_strdup(arena: &Arena, start: &byte, len: i32) &byte {
         return null;
     }
     
-    // 分配 len + 1 字节（包括 null 终止符）
-    const result: &byte = arena_alloc(arena, len + 1) as &byte;
+    // 分配 str_len + 1 字节（包括 null 终止符）
+    const result: &byte = arena_alloc(arena, str_len + 1) as &byte;
     if result == null {
         return null;
     }
     
     // 复制字符串内容
     var i: i32 = 0;
-    while i < len {
+    while i < str_len {
         result[i] = start[i];
         i = i + 1;
     }
-    result[len] = 0;  // null 终止符
+    result[str_len] = 0;  // null 终止符
     
     return result;
 }
@@ -346,8 +346,8 @@ fn read_identifier_or_keyword(lexer: &Lexer, arena: &Arena) &Token {
         }
     }
     
-    const len: i32 = lexer.position - start_pos;  // 使用位置差计算长度
-    const value: &byte = arena_strdup(arena, start, len);
+    const str_len: i32 = lexer.position - start_pos;  // 使用位置差计算长度
+    const value: &byte = arena_strdup(arena, start, str_len);
     if value == null {
         return null;
     }
@@ -381,8 +381,8 @@ fn read_number(lexer: &Lexer, arena: &Arena) &Token {
         }
     }
     
-    const len: i32 = lexer.position - start_pos;  // 使用位置差计算长度
-    const value: &byte = arena_strdup(arena, start, len);
+    const str_len: i32 = lexer.position - start_pos;  // 使用位置差计算长度
+    const value: &byte = arena_strdup(arena, start, str_len);
     if value == null {
         return null;
     }
@@ -433,10 +433,10 @@ fn read_string(lexer: &Lexer, arena: &Arena) &Token {
     }
     
     // 计算字符串长度（不包括引号）
-    const len: i32 = lexer.position - start_pos;  // 使用位置差计算长度
+    const str_len: i32 = lexer.position - start_pos;  // 使用位置差计算长度
     
     // 复制字符串内容到 Arena（包括 null 终止符）
-    const value: &byte = arena_strdup(arena, start, len);
+    const value: &byte = arena_strdup(arena, start, str_len);
     if value == null {
         return null;
     }

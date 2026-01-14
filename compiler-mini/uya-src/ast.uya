@@ -4,10 +4,22 @@
 // 注意：需要先包含 arena.uya 中的 Arena 定义
 // 由于 Uya Mini 不支持模块系统，这里假设 Arena 类型已经定义
 
+// ===== 数组容量常量定义 =====
+// 用于固定大小数组的容量限制（替代动态指针数组）
+
+const MAX_PROGRAM_DECLS: i32 = 256;        // 程序最大声明数量
+const MAX_STRUCT_FIELDS: i32 = 64;          // 结构体最大字段数量
+const MAX_FN_PARAMS: i32 = 32;              // 函数最大参数数量
+const MAX_CALL_ARGS: i32 = 32;              // 函数调用最大参数数量
+const MAX_STRUCT_INIT_FIELDS: i32 = 64;     // 结构体初始化最大字段数量
+const MAX_ARRAY_LITERAL_ELEMENTS: i32 = 256;// 数组字面量最大元素数量
+const MAX_BLOCK_STMTS: i32 = 512;            // 代码块最大语句数量
+const MAX_STRUCT_INIT_FIELD_NAMES: i32 = 64;// 结构体初始化字段名称数组大小
+
 // 枚举变体结构
 struct EnumVariant {
-    name: &byte;   // 变体名称（字符串存储在 Arena 中）
-    value: &byte;  // 显式值（字符串形式，如果指定了 = NUM，否则为 null，存储在 Arena 中）
+    name: &byte,// 变体名称（字符串存储在 Arena 中）
+    value: &byte// 显式值（字符串形式，如果指定了 = NUM，否则为 null，存储在 Arena 中）
 }
 
 // AST 节点类型枚举
@@ -58,133 +70,133 @@ enum ASTNodeType {
 // 注意：Uya Mini 不支持 union，因此将所有 union 字段都放在结构体中
 // 虽然这会增加内存占用，但可以保持代码简单和类型安全
 struct ASTNode {
-    type: ASTNodeType;  // 节点类型
-    line: i32;          // 行号
-    column: i32;        // 列号
+    type: ASTNodeType,// 节点类型
+    line: i32,// 行号
+    column: i32,// 列号
     
     // 程序节点数据
-    program_decls: &(&ASTNode);      // 声明数组指针（从 Arena 分配）
-    program_decl_count: i32;         // 声明数量
+    program_decls: [&ASTNode: MAX_PROGRAM_DECLS],// 声明数组（固定大小）
+    program_decl_count: i32,// 声明数量
     
     // 枚举声明数据
-    enum_decl_name: &byte;           // 枚举名称（字符串存储在 Arena 中）
-    enum_decl_variants: &EnumVariant; // 变体数组指针（从 Arena 分配）
-    enum_decl_variant_count: i32;    // 变体数量
+    enum_decl_name: &byte,// 枚举名称（字符串存储在 Arena 中）
+    enum_decl_variants: &EnumVariant,// 变体数组指针（从 Arena 分配）
+    enum_decl_variant_count: i32,// 变体数量
     
     // 结构体声明数据
-    struct_decl_name: &byte;         // 结构体名称（字符串存储在 Arena 中）
-    struct_decl_fields: &(&ASTNode); // 字段数组指针（字段是 AST_VAR_DECL 节点）
-    struct_decl_field_count: i32;    // 字段数量
+    struct_decl_name: &byte,// 结构体名称（字符串存储在 Arena 中）
+    struct_decl_fields: [&ASTNode: MAX_STRUCT_FIELDS],// 字段数组（固定大小）
+    struct_decl_field_count: i32,// 字段数量
     
     // 函数声明数据
-    fn_decl_name: &byte;             // 函数名称
-    fn_decl_params: &(&ASTNode);     // 参数数组指针（参数是 AST_VAR_DECL 节点）
-    fn_decl_param_count: i32;        // 参数数量
-    fn_decl_return_type: &ASTNode;   // 返回类型（类型节点）
-    fn_decl_body: &ASTNode;          // 函数体（AST_BLOCK 节点）
-    fn_decl_is_varargs: i32;         // 是否为可变参数函数（1 表示是，0 表示否，仅用于 extern 函数）
+    fn_decl_name: &byte,// 函数名称
+    fn_decl_params: [&ASTNode: MAX_FN_PARAMS],// 参数数组（固定大小）
+    fn_decl_param_count: i32,// 参数数量
+    fn_decl_return_type: &ASTNode,// 返回类型（类型节点）
+    fn_decl_body: &ASTNode,// 函数体（AST_BLOCK 节点）
+    fn_decl_is_varargs: i32,// 是否为可变参数函数（1 表示是，0 表示否，仅用于 extern 函数）
     
     // 变量声明数据（用于变量声明、函数参数、结构体字段）
-    var_decl_name: &byte;            // 变量名称
-    var_decl_type: &ASTNode;         // 类型节点
-    var_decl_init: &ASTNode;         // 初始值表达式（可为 null）
-    var_decl_is_const: i32;          // 1 表示 const，0 表示 var
+    var_decl_name: &byte,// 变量名称
+    var_decl_type: &ASTNode,// 类型节点
+    var_decl_init: &ASTNode,// 初始值表达式（可为 null）
+    var_decl_is_const: i32,// 1 表示 const，0 表示 var
     
     // 二元表达式数据
-    binary_expr_left: &ASTNode;      // 左操作数
-    binary_expr_op: i32;             // 运算符（Token 类型，暂用 i32 表示）
-    binary_expr_right: &ASTNode;     // 右操作数
+    binary_expr_left: &ASTNode,// 左操作数
+    binary_expr_op: i32,// 运算符（Token 类型，暂用 i32 表示）
+    binary_expr_right: &ASTNode,// 右操作数
     
     // 一元表达式数据
-    unary_expr_op: i32;              // 运算符（Token 类型）
-    unary_expr_operand: &ASTNode;    // 操作数
+    unary_expr_op: i32,// 运算符（Token 类型）
+    unary_expr_operand: &ASTNode,// 操作数
     
     // 函数调用数据
-    call_expr_callee: &ASTNode;      // 被调用的函数（标识符节点）
-    call_expr_args: &(&ASTNode);      // 参数表达式数组指针
-    call_expr_arg_count: i32;        // 参数数量
+    call_expr_callee: &ASTNode,// 被调用的函数（标识符节点）
+    call_expr_args: [&ASTNode: MAX_CALL_ARGS],// 参数表达式数组（固定大小）
+    call_expr_arg_count: i32,// 参数数量
     
     // 字段访问数据（obj.field）
-    member_access_object: &ASTNode;  // 对象表达式
-    member_access_field_name: &byte; // 字段名称
+    member_access_object: &ASTNode,// 对象表达式
+    member_access_field_name: &byte,// 字段名称
     
     // 数组访问数据（arr[index]）
-    array_access_array: &ASTNode;    // 数组表达式
-    array_access_index: &ASTNode;    // 索引表达式
+    array_access_array: &ASTNode,// 数组表达式
+    array_access_index: &ASTNode,// 索引表达式
     
     // 结构体字面量数据（StructName{ field1: value1, field2: value2 }）
-    struct_init_struct_name: &byte;  // 结构体名称
-    struct_init_field_names: &(&byte); // 字段名称数组指针
-    struct_init_field_values: &(&ASTNode); // 字段值表达式数组指针
-    struct_init_field_count: i32;    // 字段数量
+    struct_init_struct_name: &byte,// 结构体名称
+    struct_init_field_names: [&byte: MAX_STRUCT_INIT_FIELD_NAMES],// 字段名称数组（固定大小）
+    struct_init_field_values: [&ASTNode: MAX_STRUCT_INIT_FIELDS],// 字段值表达式数组（固定大小）
+    struct_init_field_count: i32,// 字段数量
     
     // 数组字面量数据（[expr1, expr2, ..., exprN]）
-    array_literal_elements: &(&ASTNode); // 元素表达式数组指针
-    array_literal_element_count: i32;   // 元素数量
+    array_literal_elements: [&ASTNode: MAX_ARRAY_LITERAL_ELEMENTS],// 元素表达式数组（固定大小）
+    array_literal_element_count: i32,// 元素数量
     
     // sizeof 表达式数据（sizeof(Type) 或 sizeof(expr)）
-    sizeof_expr_target: &ASTNode;   // 目标节点（类型节点或表达式节点）
-    sizeof_expr_is_type: i32;       // 1 表示 target 是类型节点，0 表示 target 是表达式节点
+    sizeof_expr_target: &ASTNode,// 目标节点（类型节点或表达式节点）
+    sizeof_expr_is_type: i32,// 1 表示 target 是类型节点，0 表示 target 是表达式节点
     
     // len 表达式数据（len(array)）
-    len_expr_array: &ASTNode;       // 数组表达式节点
+    len_expr_array: &ASTNode,// 数组表达式节点
     
     // alignof 表达式数据（alignof(Type) 或 alignof(expr)）
-    alignof_expr_target: &ASTNode;  // 目标节点（类型节点或表达式节点）
-    alignof_expr_is_type: i32;      // 1 表示 target 是类型节点，0 表示 target 是表达式节点
+    alignof_expr_target: &ASTNode,// 目标节点（类型节点或表达式节点）
+    alignof_expr_is_type: i32,// 1 表示 target 是类型节点，0 表示 target 是表达式节点
     
     // 类型转换表达式数据（expr as type）
-    cast_expr_expr: &ASTNode;       // 源表达式
-    cast_expr_target_type: &ASTNode; // 目标类型节点
+    cast_expr_expr: &ASTNode,// 源表达式
+    cast_expr_target_type: &ASTNode,// 目标类型节点
     
     // 标识符数据
-    identifier_name: &byte;          // 标识符名称
+    identifier_name: &byte,// 标识符名称
     
     // 数字字面量数据
-    number_value: i32;               // 数值（i32）
+    number_value: i32,// 数值（i32）
     
     // 布尔字面量数据
-    bool_literal_value: i32;         // 1 表示 true，0 表示 false
+    bool_literal_value: i32,// 1 表示 true，0 表示 false
     
     // 字符串字面量数据
-    string_literal_value: &byte;     // 字符串内容（存储在 Arena 中，不包括引号，包括 null 终止符）
+    string_literal_value: &byte,// 字符串内容（存储在 Arena 中，不包括引号，包括 null 终止符）
     
     // if 语句数据
-    if_stmt_condition: &ASTNode;     // 条件表达式
-    if_stmt_then_branch: &ASTNode;   // then 分支（AST_BLOCK 节点）
-    if_stmt_else_branch: &ASTNode;   // else 分支（AST_BLOCK 节点，可为 null）
+    if_stmt_condition: &ASTNode,// 条件表达式
+    if_stmt_then_branch: &ASTNode,// then 分支（AST_BLOCK 节点）
+    if_stmt_else_branch: &ASTNode,// else 分支（AST_BLOCK 节点，可为 null）
     
     // while 语句数据
-    while_stmt_condition: &ASTNode;  // 条件表达式
-    while_stmt_body: &ASTNode;      // 循环体（AST_BLOCK 节点）
+    while_stmt_condition: &ASTNode,// 条件表达式
+    while_stmt_body: &ASTNode,// 循环体（AST_BLOCK 节点）
     
     // for 语句数据（数组遍历）
-    for_stmt_array: &ASTNode;       // 数组表达式
-    for_stmt_var_name: &byte;        // 循环变量名称（存储在 Arena 中）
-    for_stmt_is_ref: i32;            // 是否为引用迭代（1 表示引用迭代，0 表示值迭代）
-    for_stmt_body: &ASTNode;         // 循环体（AST_BLOCK 节点）
+    for_stmt_array: &ASTNode,// 数组表达式
+    for_stmt_var_name: &byte,// 循环变量名称（存储在 Arena 中）
+    for_stmt_is_ref: i32,// 是否为引用迭代（1 表示引用迭代，0 表示值迭代）
+    for_stmt_body: &ASTNode,// 循环体（AST_BLOCK 节点）
     
     // return 语句数据
-    return_stmt_expr: &ASTNode;      // 返回值表达式（可为 null，用于 void 函数）
+    return_stmt_expr: &ASTNode,// 返回值表达式（可为 null，用于 void 函数）
     
     // 赋值语句数据
-    assign_dest: &ASTNode;          // 目标表达式（标识符节点）
-    assign_src: &ASTNode;           // 源表达式
+    assign_dest: &ASTNode,// 目标表达式（标识符节点）
+    assign_src: &ASTNode,// 源表达式
     
     // 代码块数据
-    block_stmts: &(&ASTNode);       // 语句数组指针
-    block_stmt_count: i32;          // 语句数量
+    block_stmts: [&ASTNode: MAX_BLOCK_STMTS],// 语句数组（固定大小）
+    block_stmt_count: i32,// 语句数量
     
     // 类型节点数据（命名类型：i32, bool, void, struct Name）
-    type_named_name: &byte;         // 类型名称（"i32", "bool", "void", 或结构体名称）
+    type_named_name: &byte,// 类型名称（"i32", "bool", "void", 或结构体名称）
     
     // 指针类型节点数据（&T 或 *T）
-    type_pointer_pointed_type: &ASTNode; // 指向的类型节点（从 Arena 分配）
-    type_pointer_is_ffi_pointer: i32;    // 是否为 FFI 指针（1 表示 *T，0 表示 &T）
+    type_pointer_pointed_type: &ASTNode,// 指向的类型节点（从 Arena 分配）
+    type_pointer_is_ffi_pointer: i32,// 是否为 FFI 指针（1 表示 *T，0 表示 &T）
     
     // 数组类型节点数据（[T: N]）
-    type_array_element_type: &ASTNode;   // 元素类型节点（从 Arena 分配）
-    type_array_size_expr: &ASTNode;     // 数组大小表达式节点（必须是编译期常量，从 Arena 分配）
+    type_array_element_type: &ASTNode,// 元素类型节点（从 Arena 分配）
+    type_array_size_expr: &ASTNode// 数组大小表达式节点（必须是编译期常量，从 Arena 分配）
 }
 
 // 创建新的 AST 节点
@@ -206,108 +218,102 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena) &ASTNo
     node.line = line;
     node.column = column;
     
+    // 声明循环变量（在函数作用域内）
+    var i: i32 = 0;
+    
     // 根据节点类型初始化相应的数据字段
-    // 注意：所有指针字段初始化为 null，数组字段初始化为 null 和 0
+    // 注意：所有指针字段初始化为 null，数组字段初始化为空数组（所有元素为 null）和 0
     if type == AST_PROGRAM {
-        node.program_decls = null;
+        // 初始化数组为全 null（空数组）
+        i = 0;
+        while i < MAX_PROGRAM_DECLS {
+            node.program_decls[i] = null;
+            i = i + 1;
+        }
         node.program_decl_count = 0;
     } else if type == AST_ENUM_DECL {
-        node.enum_decl_name = null;
-        node.enum_decl_variants = null;
         node.enum_decl_variant_count = 0;
     } else if type == AST_STRUCT_DECL {
-        node.struct_decl_name = null;
-        node.struct_decl_fields = null;
+        i = 0;
+        while i < MAX_STRUCT_FIELDS {
+            node.struct_decl_fields[i] = null;
+            i = i + 1;
+        }
         node.struct_decl_field_count = 0;
     } else if type == AST_FN_DECL {
-        node.fn_decl_name = null;
-        node.fn_decl_params = null;
+        i = 0;
+        while i < MAX_FN_PARAMS {
+            node.fn_decl_params[i] = null;
+            i = i + 1;
+        }
         node.fn_decl_param_count = 0;
         node.fn_decl_return_type = null;
         node.fn_decl_body = null;
     } else if type == AST_VAR_DECL {
-        node.var_decl_name = null;
-        node.var_decl_type = null;
         node.var_decl_init = null;
         node.var_decl_is_const = 0;
     } else if type == AST_BINARY_EXPR {
-        node.binary_expr_left = null;
-        node.binary_expr_op = 0;
         node.binary_expr_right = null;
     } else if type == AST_UNARY_EXPR {
-        node.unary_expr_op = 0;
-        node.unary_expr_operand = null;
     } else if type == AST_CALL_EXPR {
-        node.call_expr_callee = null;
-        node.call_expr_args = null;
+        i = 0;
+        while i < MAX_CALL_ARGS {
+            node.call_expr_args[i] = null;
+            i = i + 1;
+        }
         node.call_expr_arg_count = 0;
     } else if type == AST_MEMBER_ACCESS {
-        node.member_access_object = null;
-        node.member_access_field_name = null;
     } else if type == AST_ARRAY_ACCESS {
-        node.array_access_array = null;
-        node.array_access_index = null;
     } else if type == AST_STRUCT_INIT {
-        node.struct_init_struct_name = null;
-        node.struct_init_field_names = null;
-        node.struct_init_field_values = null;
+        i = 0;
+        while i < MAX_STRUCT_INIT_FIELD_NAMES {
+            node.struct_init_field_names[i] = null;
+            i = i + 1;
+        }
+        i = 0;
+        while i < MAX_STRUCT_INIT_FIELDS {
+            node.struct_init_field_values[i] = null;
+            i = i + 1;
+        }
         node.struct_init_field_count = 0;
     } else if type == AST_ARRAY_LITERAL {
-        node.array_literal_elements = null;
+        while i < MAX_ARRAY_LITERAL_ELEMENTS {
+            node.array_literal_elements[i] = null;
+            i = i + 1;
+        }
         node.array_literal_element_count = 0;
     } else if type == AST_SIZEOF {
-        node.sizeof_expr_target = null;
-        node.sizeof_expr_is_type = 0;
     } else if type == AST_ALIGNOF {
-        node.alignof_expr_target = null;
-        node.alignof_expr_is_type = 0;
     } else if type == AST_LEN {
-        node.len_expr_array = null;
     } else if type == AST_CAST_EXPR {
-        node.cast_expr_expr = null;
         node.cast_expr_target_type = null;
     } else if type == AST_IDENTIFIER {
-        node.identifier_name = null;
     } else if type == AST_NUMBER {
-        node.number_value = 0;
     } else if type == AST_BOOL {
-        node.bool_literal_value = 0;
     } else if type == AST_STRING {
-        node.string_literal_value = null;
     } else if type == AST_IF_STMT {
-        node.if_stmt_condition = null;
-        node.if_stmt_then_branch = null;
         node.if_stmt_else_branch = null;
     } else if type == AST_WHILE_STMT {
-        node.while_stmt_condition = null;
-        node.while_stmt_body = null;
     } else if type == AST_FOR_STMT {
-        node.for_stmt_array = null;
-        node.for_stmt_var_name = null;
         node.for_stmt_is_ref = 0;
         node.for_stmt_body = null;
     } else if type == AST_RETURN_STMT {
-        node.return_stmt_expr = null;
     } else if type == AST_BREAK_STMT {
-        // break 语句不需要数据字段
     } else if type == AST_CONTINUE_STMT {
-        // continue 语句不需要数据字段
     } else if type == AST_ASSIGN {
-        node.assign_dest = null;
         node.assign_src = null;
     } else if type == AST_EXPR_STMT {
-        // 表达式语句的数据存储在表达式的节点中，这里不需要额外数据
     } else if type == AST_BLOCK {
-        node.block_stmts = null;
+        i = 0;
+        while i < MAX_BLOCK_STMTS {
+            node.block_stmts[i] = null;
+            i = i + 1;
+        }
         node.block_stmt_count = 0;
     } else if type == AST_TYPE_NAMED {
-        node.type_named_name = null;
     } else if type == AST_TYPE_POINTER {
-        node.type_pointer_pointed_type = null;
         node.type_pointer_is_ffi_pointer = 0;
     } else if type == AST_TYPE_ARRAY {
-        node.type_array_element_type = null;
-        node.type_array_size_expr = null;
     }
     
     return node;

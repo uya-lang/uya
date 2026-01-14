@@ -43,67 +43,67 @@ enum TypeKind {
 // 类型结构
 // 注意：Uya Mini 不支持 union，因此将所有 union 字段都放在结构体中
 struct Type {
-    kind: TypeKind;              // 类型种类
+    kind: TypeKind,// 类型种类
     
     // 枚举类型数据
-    enum_name: &byte;            // 枚举名称（仅当 kind == TYPE_ENUM 时有效）
+    enum_name: &byte,// 枚举名称（仅当 kind == TYPE_ENUM 时有效）
     
     // 结构体类型数据
-    struct_name: &byte;           // 结构体名称（仅当 kind == TYPE_STRUCT 时有效）
+    struct_name: &byte,// 结构体名称（仅当 kind == TYPE_STRUCT 时有效）
     
     // 指针类型数据
-    pointer_to: &Type;            // 指向的类型（仅当 kind == TYPE_POINTER 时有效，从 Arena 分配）
-    is_ffi_pointer: i32;         // 是否为 FFI 指针（1 表示 *T，0 表示 &T，仅当 kind == TYPE_POINTER 时有效）
+    pointer_to: &Type,// 指向的类型（仅当 kind == TYPE_POINTER 时有效，从 Arena 分配）
+    is_ffi_pointer: i32,// 是否为 FFI 指针（1 表示 *T，0 表示 &T，仅当 kind == TYPE_POINTER 时有效）
     
     // 数组类型数据
-    element_type: &Type;          // 元素类型（仅当 kind == TYPE_ARRAY 时有效，从 Arena 分配）
-    array_size: i32;              // 数组大小（编译期常量，仅当 kind == TYPE_ARRAY 时有效）
+    element_type: &Type,// 元素类型（仅当 kind == TYPE_ARRAY 时有效，从 Arena 分配）
+    array_size: i32// 数组大小（编译期常量，仅当 kind == TYPE_ARRAY 时有效）
 }
 
 // 符号信息（变量、函数参数等）
 struct Symbol {
-    name: &byte;                 // 符号名称（存储在 Arena 中）
-    type: Type;                   // 符号类型
-    is_const: i32;                // 1 表示 const，0 表示 var
-    scope_level: i32;             // 作用域级别
-    line: i32;                    // 行号
-    column: i32;                  // 列号
+    name: &byte,// 符号名称（存储在 Arena 中）
+    type: Type,// 符号类型
+    is_const: i32,// 1 表示 const，0 表示 var
+    scope_level: i32,// 作用域级别
+    line: i32,// 行号
+    column: i32// 列号
 }
 
 // 函数签名信息
 struct FunctionSignature {
-    name: &byte;                  // 函数名称（存储在 Arena 中）
-    param_types: &Type;            // 参数类型数组（从 Arena 分配）
-    param_count: i32;             // 参数数量（固定参数数量，不包括可变参数）
-    return_type: Type;             // 返回类型
-    is_extern: i32;               // 是否为 extern 函数
-    is_varargs: i32;               // 是否为可变参数函数（1 表示是，0 表示否，仅用于 extern 函数）
-    line: i32;                    // 行号
-    column: i32;                  // 列号
+    name: &byte,// 函数名称（存储在 Arena 中）
+    param_types: &Type,// 参数类型数组（从 Arena 分配）
+    param_count: i32,// 参数数量（固定参数数量，不包括可变参数）
+    return_type: Type,// 返回类型
+    is_extern: i32,// 是否为 extern 函数
+    is_varargs: i32,// 是否为可变参数函数（1 表示是，0 表示否，仅用于 extern 函数）
+    line: i32,// 行号
+    column: i32// 列号
 }
 
 // 符号表（固定大小哈希表，使用开放寻址）
-// 注意：Uya Mini 不支持固定大小数组，需要使用指针数组
+// 使用固定大小数组替代嵌套指针
 struct SymbolTable {
-    slots: &(&Symbol);            // 符号槽位数组指针（固定大小 256，从 Arena 分配）
-    count: i32;                   // 当前符号数量
+    slots: [&Symbol: SYMBOL_TABLE_SIZE],// 符号槽位数组（固定大小 256）
+    count: i32// 当前符号数量
 }
 
 // 函数表（固定大小哈希表，使用开放寻址）
 struct FunctionTable {
-    slots: &(&FunctionSignature); // 函数槽位数组指针（固定大小 64，从 Arena 分配）
-    count: i32;                   // 当前函数数量
+    slots: [&FunctionSignature: FUNCTION_TABLE_SIZE],// 函数槽位数组（固定大小 64）
+    count: i32// 当前函数数量
 }
 
 // 类型检查器结构
 struct TypeChecker {
-    arena: &Arena;                // Arena 分配器（用于分配类型、符号等）
-    symbol_table: SymbolTable;    // 符号表
-    function_table: FunctionTable; // 函数表
-    scope_level: i32;             // 当前作用域级别
-    loop_depth: i32;              // 循环深度（用于检查 break/continue 是否在循环中）
-    program_node: &ASTNode;       // 程序节点（用于查找结构体声明等）
-    error_count: i32;             // 错误计数（简化版本，暂不存储错误消息）
+    arena: &Arena,// Arena 分配器（用于分配类型、符号等）
+    symbol_table: SymbolTable,// 符号表
+    function_table: FunctionTable,// 函数表
+    scope_level: i32,// 当前作用域级别
+    loop_depth: i32,// 循环深度（用于检查 break/continue 是否在循环中）
+    program_node: &ASTNode,// 程序节点（用于查找结构体声明等）
+    error_count: i32// 错误计数（简化版本，暂不存储错误消息）
 }
 
 // ===== 基础函数 =====
@@ -138,34 +138,20 @@ fn checker_init(checker: &TypeChecker, arena: &Arena) i32 {
     
     checker.arena = arena;
     
-    // 分配符号表槽位数组（256 个指针，每个 8 字节）
-    const symbol_slots: &(&Symbol) = arena_alloc(arena, 8 * SYMBOL_TABLE_SIZE) as &(&Symbol);
-    if symbol_slots == null {
-        return -1;
-    }
-    
     // 初始化符号表（所有槽位设为 null）
     var i: i32 = 0;
     while i < SYMBOL_TABLE_SIZE {
-        symbol_slots[i] = null;
+        checker.symbol_table.slots[i] = null;
         i = i + 1;
     }
-    checker.symbol_table.slots = symbol_slots;
     checker.symbol_table.count = 0;
-    
-    // 分配函数表槽位数组（64 个指针，每个 8 字节）
-    const function_slots: &(&FunctionSignature) = arena_alloc(arena, 8 * FUNCTION_TABLE_SIZE) as &(&FunctionSignature);
-    if function_slots == null {
-        return -1;
-    }
     
     // 初始化函数表（所有槽位设为 null）
     i = 0;
     while i < FUNCTION_TABLE_SIZE {
-        function_slots[i] = null;
+        checker.function_table.slots[i] = null;
         i = i + 1;
     }
-    checker.function_table.slots = function_slots;
     checker.function_table.count = 0;
     
     checker.scope_level = 0;
@@ -878,7 +864,6 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
     } else if (expr.type as i32) == (AST_ARRAY_LITERAL as i32) {
         // 数组字面量：从第一个元素推断元素类型，使用元素数量作为数组大小
         const element_count: i32 = expr.array_literal_element_count;
-        const elements: &(&ASTNode) = expr.array_literal_elements;
         
         if element_count == 0 {
             // 空数组：无法推断类型，返回void类型（错误将在类型检查时报告）
@@ -886,8 +871,8 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             return result;
         }
         
-        // 从第一个元素推断元素类型
-        const element_type: Type = checker_infer_type(checker, elements[0]);
+        // 从第一个元素推断元素类型（直接访问固定大小数组）
+        const element_type: Type = checker_infer_type(checker, expr.array_literal_elements[0]);
         if (element_type.kind as i32) == (TYPE_VOID as i32) {
             // 元素类型无效
             result.kind = TYPE_VOID as TypeKind;

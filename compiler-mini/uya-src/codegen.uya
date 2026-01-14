@@ -46,79 +46,79 @@ const MAX_FUNC_PARAMS: i32 = 16;
 
 // 结构体类型映射表项
 struct StructTypeMap {
-    name: &byte;        // 结构体名称（存储在 Arena 中）
-    llvm_type: *void;   // LLVM 结构体类型（LLVMTypeRef）
+    name: &byte,// 结构体名称（存储在 Arena 中）
+    llvm_type: *void// LLVM 结构体类型（LLVMTypeRef）
 }
 
 // 变量映射表项（用于局部变量）
 struct VarMap {
-    name: &byte;            // 变量名称（存储在 Arena 中）
-    value: *void;           // LLVM 值（alloca 指令返回的指针，LLVMValueRef）
-    type: *void;            // 变量类型（用于 LLVMBuildLoad2，LLVMTypeRef）
-    struct_name: &byte;     // 结构体名称（仅当类型是结构体类型时有效，存储在 Arena 中）
-    ast_type: &ASTNode;     // AST 类型节点（用于从 AST 重新构建类型，避免使用 LLVMGetElementType）
+    name: &byte,// 变量名称（存储在 Arena 中）
+    value: *void,// LLVM 值（alloca 指令返回的指针，LLVMValueRef）
+    type: *void,// 变量类型（用于 LLVMBuildLoad2，LLVMTypeRef）
+    struct_name: &byte,// 结构体名称（仅当类型是结构体类型时有效，存储在 Arena 中）
+    ast_type: &ASTNode// AST 类型节点（用于从 AST 重新构建类型，避免使用 LLVMGetElementType）
 }
 
 // 函数映射表项
 struct FuncMap {
-    name: &byte;        // 函数名称（存储在 Arena 中）
-    func: *void;        // LLVM 函数值（LLVMValueRef）
-    func_type: *void;   // LLVM 函数类型（函数签名类型，用于 LLVMBuildCall2，LLVMTypeRef）
+    name: &byte,// 函数名称（存储在 Arena 中）
+    func: *void,// LLVM 函数值（LLVMValueRef）
+    func_type: *void// LLVM 函数类型（函数签名类型，用于 LLVMBuildCall2，LLVMTypeRef）
 }
 
 // 全局变量映射表项
 struct GlobalVarMap {
-    name: &byte;            // 全局变量名称（存储在 Arena 中）
-    global_var: *void;      // LLVM 全局变量值（指针，LLVMValueRef）
-    type: *void;            // 全局变量类型（用于 LLVMBuildLoad2，LLVMTypeRef）
-    struct_name: &byte;      // 结构体名称（仅当类型是结构体类型时有效，存储在 Arena 中）
+    name: &byte,// 全局变量名称（存储在 Arena 中）
+    global_var: *void,// LLVM 全局变量值（指针，LLVMValueRef）
+    type: *void,// 全局变量类型（用于 LLVMBuildLoad2，LLVMTypeRef）
+    struct_name: &byte// 结构体名称（仅当类型是结构体类型时有效，存储在 Arena 中）
 }
 
 // 循环基本块信息（用于 break/continue 语句）
 struct LoopInfo {
-    cond_bb: *void;     // 循环条件检查基本块（LLVMBasicBlockRef）
-    end_bb: *void;      // 循环结束基本块（用于 break，LLVMBasicBlockRef）
-    inc_bb: *void;      // 循环递增基本块（用于 for 循环的 continue，while 循环为 null，LLVMBasicBlockRef）
+    cond_bb: *void,// 循环条件检查基本块（LLVMBasicBlockRef）
+    end_bb: *void,// 循环结束基本块（用于 break，LLVMBasicBlockRef）
+    inc_bb: *void// 循环递增基本块（用于 for 循环的 continue，while 循环为 null，LLVMBasicBlockRef）
 }
 
 // 代码生成器结构
 // 使用 LLVM C API 生成 LLVM IR 并编译为二进制代码
 struct CodeGenerator {
-    arena: &Arena;                      // Arena 分配器（用于编译器自身内存分配）
-    context: *void;                     // LLVM 上下文（LLVMContextRef）
-    module: *void;                      // LLVM 模块（LLVMModuleRef）
-    builder: *void;                     // IR 构建器（用于生成指令，LLVMBuilderRef）
-    module_name: &byte;                 // 模块名称（存储在 Arena 中）
+    arena: &Arena,// Arena 分配器（用于编译器自身内存分配）
+    context: *void,// LLVM 上下文（LLVMContextRef）
+    module: *void,// LLVM 模块（LLVMModuleRef）
+    builder: *void,// IR 构建器（用于生成指令，LLVMBuilderRef）
+    module_name: &byte,// 模块名称（存储在 Arena 中）
     
     // 结构体类型映射表（固定大小数组，存储结构体名称到LLVM类型的映射）
     // 使用固定大小数组和线性查找（简单实现）
-    struct_types: [StructTypeMap: STRUCT_TYPE_MAP_SIZE];  // 固定大小（最多支持64个结构体类型）
-    struct_type_count: i32;             // 当前结构体类型数量
+    struct_types: [StructTypeMap: STRUCT_TYPE_MAP_SIZE],// 固定大小（最多支持64个结构体类型）
+    struct_type_count: i32,// 当前结构体类型数量
     
     // 当前函数的变量表（固定大小数组，存储变量名到LLVM值的映射）
     // 用于代码生成时查找局部变量（使用 alloca 分配的栈变量）
-    var_map: [VarMap: VAR_MAP_SIZE];    // 固定大小（最多支持256个局部变量）
-    var_map_count: i32;                 // 当前变量数量
+    var_map: [VarMap: VAR_MAP_SIZE],// 固定大小（最多支持256个局部变量）
+    var_map_count: i32,// 当前变量数量
     
     // 函数映射表（固定大小数组，存储函数名到LLVM函数值和类型的映射）
     // 用于代码生成时查找函数引用
-    func_map: [FuncMap: FUNC_MAP_SIZE]; // 固定大小（最多支持64个函数）
-    func_map_count: i32;                // 当前函数数量
+    func_map: [FuncMap: FUNC_MAP_SIZE],// 固定大小（最多支持64个函数）
+    func_map_count: i32,// 当前函数数量
     
     // 全局变量映射表（固定大小数组，存储全局变量名到LLVM全局变量值和类型的映射）
     // 用于代码生成时查找全局变量引用
-    global_var_map: [GlobalVarMap: GLOBAL_VAR_MAP_SIZE];  // 固定大小（最多支持64个全局变量）
-    global_var_map_count: i32;          // 当前全局变量数量
+    global_var_map: [GlobalVarMap: GLOBAL_VAR_MAP_SIZE],// 固定大小（最多支持64个全局变量）
+    global_var_map_count: i32,// 当前全局变量数量
     
-    basic_block_counter: i32;           // 基本块计数器（用于生成唯一的基本块名称）
-    string_literal_counter: i32;        // 字符串字面量计数器（用于生成唯一的字符串常量名称）
+    basic_block_counter: i32,// 基本块计数器（用于生成唯一的基本块名称）
+    string_literal_counter: i32,// 字符串字面量计数器（用于生成唯一的字符串常量名称）
     
     // 循环基本块栈（用于 break/continue 语句）
     // 使用固定大小数组作为栈，支持嵌套循环
-    loop_stack: [LoopInfo: LOOP_STACK_SIZE];
-    loop_stack_depth: i32;              // 当前循环栈深度（0 表示不在循环中）
+    loop_stack: [LoopInfo: LOOP_STACK_SIZE],
+    loop_stack_depth: i32,// 当前循环栈深度（0 表示不在循环中）
     
-    program_node: &ASTNode;             // 程序节点（用于查找结构体声明等）
+    program_node: &ASTNode// 程序节点（用于查找结构体声明等）
 }
 
 // ===== 辅助函数声明 =====
@@ -300,7 +300,7 @@ fn get_llvm_type_from_ast(codegen: &CodeGenerator, type_node: &ASTNode) *void {
     
     if type_node.type == AST_TYPE_NAMED {
         // 命名类型（基础类型或结构体类型）
-        const type_name: &byte = type_node.data.type_named.name;
+        const type_name: &byte = type_node.type_named_name;
         if type_name == null {
             return null;
         }
@@ -331,7 +331,7 @@ fn get_llvm_type_from_ast(codegen: &CodeGenerator, type_node: &ASTNode) *void {
     } else if type_node.type == AST_TYPE_POINTER {
         // 指针类型（&T 或 *T）
         // 普通指针和 FFI 指针在 LLVM 中都映射为指针类型
-        const pointed_type: &ASTNode = type_node.data.type_pointer.pointed_type;
+        const pointed_type: &ASTNode = type_node.type_pointer_pointed_type;
         if pointed_type == null {
             return null;
         }
@@ -346,8 +346,8 @@ fn get_llvm_type_from_ast(codegen: &CodeGenerator, type_node: &ASTNode) *void {
         return LLVMPointerType(pointed_llvm_type, 0);
     } else if type_node.type == AST_TYPE_ARRAY {
         // 数组类型（[T: N]）
-        const element_type: &ASTNode = type_node.data.type_array.element_type;
-        const size_expr: &ASTNode = type_node.data.type_array.size_expr;
+        const element_type: &ASTNode = type_node.type_array_element_type;
+        const size_expr: &ASTNode = type_node.type_array_size_expr;
         if element_type == null || size_expr == null {
             return null;
         }
@@ -357,7 +357,7 @@ fn get_llvm_type_from_ast(codegen: &CodeGenerator, type_node: &ASTNode) *void {
             return null;  // 数组大小必须是编译期常量
         }
         
-        const array_size: i32 = size_expr.data.number.value;
+        const array_size: i32 = size_expr.number_value;
         if array_size < 0 {
             return null;  // 数组大小必须非负
         }
@@ -386,7 +386,7 @@ fn codegen_register_struct_type(codegen: &CodeGenerator, struct_decl: &ASTNode) 
         return -1;
     }
     
-    const struct_name: &byte = struct_decl.data.struct_decl.name;
+    const struct_name: &byte = struct_decl.struct_decl_name;
     if struct_name == null {
         return -1;
     }
@@ -401,7 +401,7 @@ fn codegen_register_struct_type(codegen: &CodeGenerator, struct_decl: &ASTNode) 
         return -1;  // 映射表已满
     }
     
-    const field_count: i32 = struct_decl.data.struct_decl.field_count;
+    const field_count: i32 = struct_decl.struct_decl_field_count;
     if field_count < 0 {
         return -1;
     }
@@ -418,12 +418,12 @@ fn codegen_register_struct_type(codegen: &CodeGenerator, struct_decl: &ASTNode) 
     
     // 遍历字段，获取每个字段的LLVM类型
     while i < field_count {
-        const field: &ASTNode = struct_decl.data.struct_decl.fields[i];
+        const field: &ASTNode = struct_decl.struct_decl_fields[i];
         if field == null || field.type != AST_VAR_DECL {
             return -1;
         }
         
-        const field_type_node: &ASTNode = field.data.var_decl.type;
+        const field_type_node: &ASTNode = field.var_decl_type;
         const field_llvm_type: *void = get_llvm_type_from_ast(codegen, field_type_node);
         if field_llvm_type == null {
             return -1;  // 字段类型无效或未找到（结构体类型需要先注册）
@@ -551,10 +551,10 @@ fn find_struct_decl(codegen: &CodeGenerator, struct_name: &byte) &ASTNode {
     }
     
     var i: i32 = 0;
-    while i < program.data.program.decl_count {
-        const decl: &ASTNode = program.data.program.decls[i];
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
         if decl != null && decl.type == AST_STRUCT_DECL {
-            if decl.data.struct_decl.name != null && strcmp(decl.data.struct_decl.name, struct_name) == 0 {
+            if decl.struct_decl_name != null && strcmp(decl.struct_decl_name, struct_name) == 0 {
                 return decl;
             }
         }
@@ -579,10 +579,10 @@ fn find_enum_decl(codegen: &CodeGenerator, enum_name: &byte) &ASTNode {
     }
     
     var i: i32 = 0;
-    while i < program.data.program.decl_count {
-        const decl: &ASTNode = program.data.program.decls[i];
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
         if decl != null && decl.type == AST_ENUM_DECL {
-            if decl.data.enum_decl.name != null && strcmp(decl.data.enum_decl.name, enum_name) == 0 {
+            if decl.enum_decl_name != null && strcmp(decl.enum_decl_name, enum_name) == 0 {
                 return decl;
             }
         }
@@ -602,9 +602,10 @@ fn find_enum_variant_index(enum_decl: &ASTNode, variant_name: &byte) i32 {
     }
     
     var i: i32 = 0;
-    while i < enum_decl.data.enum_decl.variant_count {
-        if enum_decl.data.enum_decl.variants[i].name != null && 
-           strcmp(enum_decl.data.enum_decl.variants[i].name, variant_name) == 0 {
+    while i < enum_decl.enum_decl_variant_count {
+        if enum_decl.enum_decl_variants != null && 
+           enum_decl.enum_decl_variants[i].name != null && 
+           strcmp(enum_decl.enum_decl_variants[i].name, variant_name) == 0 {
             return i;
         }
         i = i + 1;
@@ -623,11 +624,14 @@ fn get_enum_variant_value(enum_decl: &ASTNode, variant_index: i32) i32 {
         return -1;
     }
     
-    if variant_index >= enum_decl.data.enum_decl.variant_count {
+    if variant_index >= enum_decl.enum_decl_variant_count {
         return -1;
     }
     
-    const variant: &EnumVariant = &enum_decl.data.enum_decl.variants[variant_index];
+    if enum_decl.enum_decl_variants == null {
+        return -1;
+    }
+    const variant: &EnumVariant = &enum_decl.enum_decl_variants[variant_index];
     
     // 如果变体有显式值，使用显式值
     if variant.value != null {
@@ -654,7 +658,7 @@ fn find_struct_field_index(struct_decl: &ASTNode, field_name: &byte) i32 {
     
     var i: i32 = 0;
     while i < struct_decl.data.struct_decl.field_count {
-        const field: &ASTNode = struct_decl.data.struct_decl.fields[i];
+        const field: &ASTNode = struct_decl.struct_decl_fields[i];
         if field != null && field.type == AST_VAR_DECL {
             if field.data.var_decl.name != null && 
                strcmp(field.data.var_decl.name, field_name) == 0 {
@@ -866,7 +870,7 @@ fn codegen_gen_struct_comparison(codegen: &CodeGenerator, left_val: *void, right
         return null;
     }
     
-    const field_count: i32 = struct_decl.data.struct_decl.field_count;
+    const field_count: i32 = struct_decl.struct_decl_field_count;
     
     // 处理空结构体（0个字段）
     if field_count == 0 {
@@ -890,12 +894,12 @@ fn codegen_gen_struct_comparison(codegen: &CodeGenerator, left_val: *void, right
     
     var i: i32 = 0;
     while i < field_count {
-        const field: &ASTNode = struct_decl.data.struct_decl.fields[i];
+        const field: &ASTNode = struct_decl.struct_decl_fields[i];
         if field == null || field.type != AST_VAR_DECL {
             return null;
         }
         
-        const field_type_node: &ASTNode = field.data.var_decl.type;
+        const field_type_node: &ASTNode = field.var_decl_type;
         if field_type_node == null || field_type_node.type != AST_TYPE_NAMED {
             return null;
         }
@@ -1553,11 +1557,8 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         var arg_values: [*void: MAX_FUNC_PARAMS] = [];
         var i: i32 = 0;
         while i < arg_count {
-            const args: &(&ASTNode) = expr.data.call_expr_args;
-            if args == null {
-                return null;
-            }
-            const arg_expr: &ASTNode = args[i];
+            // 直接访问固定大小数组，不需要嵌套指针
+            const arg_expr: &ASTNode = expr.call_expr_args[i];
             if arg_expr == null {
                 return null;
             }
@@ -1724,7 +1725,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         if field == null || field.type != AST_VAR_DECL {
             return null;
         }
-        const field_type_node: &ASTNode = field.data.var_decl.type;
+        const field_type_node: &ASTNode = field.var_decl_type;
         const field_type: *void = get_llvm_type_from_ast(codegen, field_type_node);
         if field_type == null {
             return null;
@@ -1807,20 +1808,12 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         return LLVMBuildLoad2(codegen.builder, element_type, element_ptr, "");
     } else if expr.type == AST_STRUCT_INIT {
         // 结构体字面量：使用 alloca + store 创建结构体值
-        const struct_name: &byte = expr.data.struct_init.struct_name;
-        const field_count: i32 = expr.data.struct_init.field_count;
-        const field_names: &(&byte) = expr.data.struct_init.field_names;
-        const field_values: &(&ASTNode) = expr.data.struct_init.field_values;
+        const struct_name: &byte = expr.struct_init_struct_name;
+        const field_count: i32 = expr.struct_init_field_count;
+        // 直接访问固定大小数组，不需要嵌套指针变量
         
         if struct_name == null {
             return null;
-        }
-        
-        // 检查字段数组：如果 field_count > 0，数组必须不为 null
-        if field_count > 0 {
-            if field_names == null || field_values == null {
-                return null;  // 字段数组为 null 但字段数量 > 0
-            }
         }
         
         // 获取结构体类型
@@ -1854,8 +1847,8 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         // 使用 GEP (GetElementPtr) 获取每个字段的地址，然后 store 字段值
         var i: i32 = 0;
         while i < field_count {
-            const field_name: &byte = field_names[i];
-            const field_value: &ASTNode = field_values[i];
+            const field_name: &byte = expr.struct_init_field_names[i];
+            const field_value: &ASTNode = expr.struct_init_field_values[i];
             
             if field_name == null || field_value == null {
                 return null;
@@ -1895,8 +1888,8 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         return LLVMBuildLoad2(codegen.builder, struct_type, struct_ptr, "" as *byte);
     } else if expr.type == AST_ARRAY_LITERAL {
         // 数组字面量：使用 alloca + store 创建数组值
-        const element_count: i32 = expr.data.array_literal.element_count;
-        const elements: &(&ASTNode) = expr.data.array_literal.elements;
+        const element_count: i32 = expr.array_literal_element_count;
+        // 直接访问固定大小数组，不需要嵌套指针变量
         
         if element_count == 0 {
             // 空数组：无法推断类型，返回null
@@ -1904,10 +1897,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         }
         
         // 从第一个元素生成值以推断元素类型
-        if elements == null {
-            return null;
-        }
-        const first_element_val: *void = codegen_gen_expr(codegen, elements[0]);
+        const first_element_val: *void = codegen_gen_expr(codegen, expr.array_literal_elements[0]);
         if first_element_val == null {
             return null;
         }
@@ -1932,7 +1922,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         // 为每个元素生成值并 store 到数组中
         var i: i32 = 0;
         while i < element_count {
-            const element: &ASTNode = elements[i];
+            const element: &ASTNode = expr.array_literal_elements[i];
             if element == null {
                 return null;
             }
@@ -2666,13 +2656,12 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
         return 0;
     } else if stmt.type == AST_BLOCK {
         // 代码块：递归处理语句列表
-        const stmt_count: i32 = stmt.data.block.stmt_count;
-        const stmts: &(&ASTNode) = stmt.data.block.stmts;
+        const stmt_count: i32 = stmt.block_stmt_count;
+        // 直接访问固定大小数组，不需要嵌套指针变量
         
         var i: i32 = 0;
         while i < stmt_count {
-            if stmts != null {
-                const stmt_node: &ASTNode = stmts[i];
+            const stmt_node: &ASTNode = stmt.block_stmts[i];
                 if stmt_node != null {
                     if codegen_gen_stmt(codegen, stmt_node) != 0 {
                         return -1;
@@ -3128,10 +3117,10 @@ fn codegen_declare_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32 {
         return -1;
     }
     
-    const func_name: &byte = fn_decl.data.fn_decl.name;
-    const return_type_node: &ASTNode = fn_decl.data.fn_decl.return_type;
-    const param_count: i32 = fn_decl.data.fn_decl.param_count;
-    const params: &(&ASTNode) = fn_decl.data.fn_decl.params;
+    const func_name: &byte = fn_decl.fn_decl_name;
+    const return_type_node: &ASTNode = fn_decl.fn_decl_return_type;
+    const param_count: i32 = fn_decl.fn_decl_param_count;
+    // 直接访问固定大小数组，不需要嵌套指针变量
     
     if func_name == null || return_type_node == null {
         return -1;
@@ -3177,7 +3166,7 @@ fn codegen_declare_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32 {
     }
     
     // 创建函数类型（最后一个参数 isVarArg 表示是否为可变参数函数）
-    const is_varargs: i32 = fn_decl.data.fn_decl.is_varargs;
+    const is_varargs: i32 = fn_decl.fn_decl_is_varargs;
     const func_type: *void = LLVMFunctionType(return_type, &param_types[0] as *void, param_count, is_varargs);
     if func_type == null {
         return -1;
@@ -3289,20 +3278,14 @@ fn codegen_gen_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32 {
         return -1;
     }
     
-    const func_name: &byte = fn_decl.data.fn_decl.name;
-    const return_type_node: &ASTNode = fn_decl.data.fn_decl.return_type;
-    const body: &ASTNode = fn_decl.data.fn_decl.body;
-    const param_count: i32 = fn_decl.data.fn_decl.param_count;
-    const params: &(&ASTNode) = fn_decl.data.fn_decl.params;
+    const func_name: &byte = fn_decl.fn_decl_name;
+    const return_type_node: &ASTNode = fn_decl.fn_decl_return_type;
+    const body: &ASTNode = fn_decl.fn_decl_body;
+    const param_count: i32 = fn_decl.fn_decl_param_count;
+    // 直接访问固定大小数组，不需要嵌套指针变量
     
     if func_name == null || return_type_node == null {
         fprintf(2 as *void, "错误: codegen_gen_function 函数名或返回类型为空: %s\n", if func_name != null { func_name } else { "(null)" as &byte });
-        return -1;
-    }
-    
-    // 检查参数数组：如果 param_count > 0，params 必须不为 null
-    if param_count > 0 && params == null {
-        fprintf(2 as *void, "错误: codegen_gen_function 参数数量 > 0 但参数数组为 null: %s\n", func_name);
         return -1;
     }
     
@@ -3323,15 +3306,12 @@ fn codegen_gen_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32 {
     var param_types: [*void: MAX_FUNC_PARAMS] = [];
     var i: i32 = 0;
     while i < param_count {
-        if params == null {
-            return -1;
-        }
-        const param: &ASTNode = params[i];
+        const param: &ASTNode = fn_decl.fn_decl_params[i];
         if param == null || param.type != AST_VAR_DECL {
             return -1;
         }
         
-        const param_type_node: &ASTNode = param.data.var_decl.type;
+        const param_type_node: &ASTNode = param.var_decl_type;
         const param_type: *void = get_llvm_type_from_ast(codegen, param_type_node);
         if param_type == null {
             return -1;
@@ -3382,16 +3362,13 @@ fn codegen_gen_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32 {
     // 处理函数参数：将参数值 store 到 alloca 分配的栈变量
     i = 0;
     while i < param_count {
-        if params == null {
-            return -1;
-        }
-        const param: &ASTNode = params[i];
+        const param: &ASTNode = fn_decl.fn_decl_params[i];
         if param == null || param.type != AST_VAR_DECL {
             return -1;
         }
         
-        const param_name: &byte = param.data.var_decl.name;
-        const param_type_node: &ASTNode = param.data.var_decl.type;
+        const param_name: &byte = param.var_decl_name;
+        const param_type_node: &ASTNode = param.var_decl_type;
         if param_name == null || param_type_node == null {
             return -1;
         }
@@ -3515,10 +3492,11 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
     codegen.program_node = ast;
     
     const decl_count: i32 = ast.data.program.decl_count;
-    const decls: &(&ASTNode) = ast.data.program.decls;
+    // 直接访问固定大小数组，不需要嵌套指针变量
     
-    if decls == null && decl_count > 0 {
-        return -1;
+    // 检查声明数组（固定大小数组不会为 null，但可以检查 count）
+    if decl_count > 0 && decl_count > MAX_PROGRAM_DECLS {
+        return -1;  // 声明数量超出限制
     }
     
     // 第零步：初始化目标并设置模块的 DataLayout（需要在生成函数体之前设置，以便 sizeof 可以使用）
@@ -3590,13 +3568,11 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
         // 遍历所有声明，尝试注册结构体类型
         var i: i32 = 0;
         while i < decl_count {
-            if decls != null {
-                const decl: &ASTNode = decls[i];
-                if decl != null && decl.type == AST_STRUCT_DECL {
-                    // 尝试注册结构体类型（如果已经注册，会返回成功）
-                    if codegen_register_struct_type(codegen, decl) == 0 {
-                        registered_this_iteration = 1;
-                    }
+            const decl: &ASTNode = ast.program_decls[i];
+            if decl != null && decl.type == AST_STRUCT_DECL {
+                // 尝试注册结构体类型（如果已经注册，会返回成功）
+                if codegen_register_struct_type(codegen, decl) == 0 {
+                    registered_this_iteration = 1;
                 }
             }
             i = i + 1;
@@ -3613,11 +3589,10 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
     // 第二步：生成所有全局变量（在函数声明之前，这样函数可以访问全局变量）
     i = 0;
     while i < decl_count {
-        if decls != null {
-            const decl: &ASTNode = decls[i];
-            if decl != null && decl.type == AST_VAR_DECL {
-                // 生成全局变量
-                const var_name: &byte = decl.data.var_decl.name;
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl != null && decl.type == AST_VAR_DECL {
+            // 生成全局变量
+            const var_name: &byte = decl.var_decl_name;
                 const result: i32 = codegen_gen_global_var(codegen, decl);
                 if result != 0 {
                     fprintf(2 as *void, "错误: 全局变量生成失败: %s\n", if var_name != null { var_name } else { "(null)" as &byte });
@@ -3632,11 +3607,10 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
     // 这样在生成函数体时，所有函数都已被声明，可以相互调用
     i = 0;
     while i < decl_count {
-        if decls != null {
-            const decl: &ASTNode = decls[i];
-            if decl != null && decl.type == AST_FN_DECL {
-                // 声明函数（不生成函数体）
-                const func_name: &byte = decl.data.fn_decl.name;
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl != null && decl.type == AST_FN_DECL {
+            // 声明函数（不生成函数体）
+            const func_name: &byte = decl.fn_decl_name;
                 const result: i32 = codegen_declare_function(codegen, decl);
                 if result != 0 {
                     fprintf(2 as *void, "错误: 函数声明失败: %s\n", if func_name != null { func_name } else { "(null)" as &byte });
@@ -3651,17 +3625,16 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
     // 此时所有函数都已被声明，可以相互调用
     i = 0;
     while i < decl_count {
-        if decls != null {
-            const decl: &ASTNode = decls[i];
-            if decl != null && decl.type == AST_FN_DECL {
-                // extern 函数没有函数体，跳过
-                if decl.data.fn_decl.body == null {
-                    i = i + 1;
-                    continue;
-                }
-                
-                // 生成函数体
-                const func_name: &byte = decl.data.fn_decl.name;
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl != null && decl.type == AST_FN_DECL {
+            // extern 函数没有函数体，跳过
+            if decl.fn_decl_body == null {
+                i = i + 1;
+                continue;
+            }
+            
+            // 生成函数体
+            const func_name: &byte = decl.fn_decl_name;
                 const result: i32 = codegen_gen_function(codegen, decl);
                 if result != 0 {
                     fprintf(2 as *void, "错误: 函数代码生成失败: %s\n", if func_name != null { func_name } else { "(null)" as &byte });

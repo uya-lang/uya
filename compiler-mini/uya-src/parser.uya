@@ -4,6 +4,16 @@
 // 注意：需要先包含 arena.uya、lexer.uya、ast.uya 和 str_utils.uya
 // 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
 
+// ===== 数组容量常量定义 =====
+// 用于解析过程中的临时数组（替代动态指针数组）
+const PARSER_MAX_STMTS: i32 = 512;          // 代码块最大语句数量
+const PARSER_MAX_FIELDS: i32 = 64;           // 结构体最大字段数量
+const PARSER_MAX_PARAMS: i32 = 32;           // 函数最大参数数量
+const PARSER_MAX_DECLS: i32 = 256;           // 程序最大声明数量
+const PARSER_MAX_CALL_ARGS: i32 = 32;        // 函数调用最大参数数量
+const PARSER_MAX_STRUCT_INIT_FIELDS: i32 = 64; // 结构体初始化最大字段数量
+const PARSER_MAX_ARRAY_ELEMENTS: i32 = 256;   // 数组字面量最大元素数量
+
 // ===== 外部函数声明 =====
 
 // 字符串函数（来自 str_utils.uya）
@@ -32,7 +42,7 @@ extern fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token;
 // 字符串辅助函数（来自 lexer.uya）
 // 注意：这些函数在 lexer.uya 中定义，但这里可能需要使用
 extern fn arena_strdup_from_literal(arena: &Arena, str: *byte) &byte;
-extern fn arena_strdup(arena: &Arena, start: &byte, len: i32) &byte;
+extern fn arena_strdup(arena: &Arena, start: &byte, str_len: i32) &byte;
 
 // 标准错误输出（stderr）
 // 注意：在 C 中，stderr 是一个 FILE* 指针，在 Uya Mini 中使用 *void 表示
@@ -47,9 +57,9 @@ extern fn arena_strdup(arena: &Arena, start: &byte, len: i32) &byte;
 // 使用 Lexer 读取 Token，构建 AST
 // 注意：假设 Lexer, Token, Arena 类型已定义
 struct Parser {
-    lexer: &Lexer;          // 词法分析器指针（由调用者提供，不分配）
-    current_token: &Token;  // 当前 Token（从 Arena 分配）
-    arena: &Arena;          // Arena 分配器（用于分配 Token 和 AST 节点）
+    lexer: &Lexer,// 词法分析器指针（由调用者提供，不分配）
+    current_token: &Token,// 当前 Token（从 Arena 分配）
+    arena: &Arena// Arena 分配器（用于分配 Token 和 AST 节点）
 }
 
 // ===== 基础函数 =====
@@ -184,10 +194,10 @@ fn arena_strdup_for_parser(arena: &Arena, src: &byte) &byte {
     }
     
     // 计算字符串长度
-    const len: i32 = strlen(src as *byte);
+    const str_len: i32 = strlen(src as *byte);
     
     // 使用 arena_strdup 复制字符串
-    return arena_strdup(arena, src, len);
+    return arena_strdup(arena, src, str_len);
 }
 
 // ===== 类型解析函数 =====
@@ -336,10 +346,17 @@ fn parser_parse_block(parser: &Parser) &ASTNode {
         return null;
     }
     
-    // 初始化语句列表
-    var stmts: &(&ASTNode) = null;
+    // 初始化语句列表（使用固定大小数组）
+    var stmts: [&ASTNode: PARSER_MAX_STMTS] = [];
     var stmt_count: i32 = 0;
-    var stmt_capacity: i32 = 0;
+    var i: i32 = 0;
+    
+    // 初始化数组为全 null
+    i = 0;
+    while i < PARSER_MAX_STMTS {
+        stmts[i] = null;
+        i = i + 1;
+    }
     
     // 消费 '{'
     parser_consume(parser);
@@ -349,37 +366,22 @@ fn parser_parse_block(parser: &Parser) &ASTNode {
           parser_match(parser, TOKEN_RIGHT_BRACE) == 0 && 
           parser_match(parser, TOKEN_EOF) == 0 {
         
+        // 检查容量
+        if stmt_count >= PARSER_MAX_STMTS {
+            // 超出容量，报错
+            const filename: *byte = parser.lexer.filename;
+            if filename == null {
+                filename = "<unknown>" as *byte;
+            }
+            fprintf(2 as *void, "错误: 代码块语句数量超出限制 (%d)\n", PARSER_MAX_STMTS);
+            return null;
+        }
+        
         // 解析语句
         const stmt: &ASTNode = parser_parse_statement(parser);
         if stmt == null {
             // 解析失败
             return null;
-        }
-        
-        // 扩展语句数组（使用 Arena 分配）
-        if stmt_count >= stmt_capacity {
-            var new_capacity: i32 = 0;
-            if stmt_capacity == 0 {
-                new_capacity = 4;
-            } else {
-                new_capacity = stmt_capacity * 2;
-            }
-            const new_stmts: &(&ASTNode) = arena_alloc(parser.arena, 8 * new_capacity) as &(&ASTNode);
-            if new_stmts == null {
-                return null;
-            }
-            
-            // 复制旧语句
-            if stmts != null {
-                var i: i32 = 0;
-                while i < stmt_count {
-                    new_stmts[i] = stmts[i];
-                    i = i + 1;
-                }
-            }
-            
-            stmts = new_stmts;
-            stmt_capacity = new_capacity;
         }
         
         stmts[stmt_count] = stmt;
@@ -391,7 +393,17 @@ fn parser_parse_block(parser: &Parser) &ASTNode {
         return null;
     }
     
-    block.block_stmts = stmts;
+    // 将语句列表复制到代码块节点的固定大小数组
+    i = 0;
+    while i < stmt_count {
+        block.block_stmts[i] = stmts[i];
+        i = i + 1;
+    }
+    // 剩余位置初始化为 null
+    while i < MAX_BLOCK_STMTS {
+        block.block_stmts[i] = null;
+        i = i + 1;
+    }
     block.block_stmt_count = stmt_count;
     
     return block;
@@ -451,13 +463,26 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
     // 解析字段列表
     // 字段列表：field { ',' field }
     // field = ID ':' type
-    var fields: &(&ASTNode) = null;
+    var fields: [&ASTNode: PARSER_MAX_FIELDS] = [];
     var field_count: i32 = 0;
-    var field_capacity: i32 = 0;
+    var i: i32 = 0;
+    
+    // 初始化数组为全 null
+    i = 0;
+    while i < PARSER_MAX_FIELDS {
+        fields[i] = null;
+        i = i + 1;
+    }
     
     while parser.current_token != null && 
           parser_match(parser, TOKEN_RIGHT_BRACE) == 0 && 
           parser_match(parser, TOKEN_EOF) == 0 {
+        
+        // 检查容量
+        if field_count >= PARSER_MAX_FIELDS {
+            fprintf(2 as *void, "错误: 结构体字段数量超出限制 (%d)\n", PARSER_MAX_FIELDS);
+            return null;
+        }
         
         // 解析字段名称
         if parser_match(parser, TOKEN_IDENTIFIER) == 0 {
@@ -495,32 +520,6 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
         field.var_decl_init = null;
         field.var_decl_is_const = 0;
         
-        // 扩展字段数组（使用 Arena 分配）
-        if field_count >= field_capacity {
-            var new_capacity: i32 = 0;
-            if field_capacity == 0 {
-                new_capacity = 4;
-            } else {
-                new_capacity = field_capacity * 2;
-            }
-            const new_fields: &(&ASTNode) = arena_alloc(parser.arena, 8 * new_capacity) as &(&ASTNode);
-            if new_fields == null {
-                return null;
-            }
-            
-            // 复制旧字段
-            if fields != null {
-                var i: i32 = 0;
-                while i < field_count {
-                    new_fields[i] = fields[i];
-                    i = i + 1;
-                }
-            }
-            
-            fields = new_fields;
-            field_capacity = new_capacity;
-        }
-        
         fields[field_count] = field;
         field_count = field_count + 1;
         
@@ -535,7 +534,17 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
         return null;
     }
     
-    struct_decl.struct_decl_fields = fields;
+    // 将字段列表复制到结构体节点的固定大小数组
+    i = 0;
+    while i < field_count {
+        struct_decl.struct_decl_fields[i] = fields[i];
+        i = i + 1;
+    }
+    // 剩余位置初始化为 null
+    while i < MAX_STRUCT_FIELDS {
+        struct_decl.struct_decl_fields[i] = null;
+        i = i + 1;
+    }
     struct_decl.struct_decl_field_count = field_count;
     
     return struct_decl;
@@ -734,15 +743,28 @@ fn parser_parse_function(parser: &Parser) &ASTNode {
     }
     
     // 解析参数列表（可选）
-    var params: &(&ASTNode) = null;
+    var params: [&ASTNode: PARSER_MAX_PARAMS] = [];
     var param_count: i32 = 0;
-    var param_capacity: i32 = 0;
+    var i: i32 = 0;
+    
+    // 初始化数组为全 null
+    i = 0;
+    while i < PARSER_MAX_PARAMS {
+        params[i] = null;
+        i = i + 1;
+    }
     
     if parser_match(parser, TOKEN_RIGHT_PAREN) == 0 {
         // 有参数
         while parser.current_token != null && 
               parser_match(parser, TOKEN_RIGHT_PAREN) == 0 && 
               parser_match(parser, TOKEN_EOF) == 0 {
+            
+            // 检查容量
+            if param_count >= PARSER_MAX_PARAMS {
+                fprintf(2 as *void, "错误: 函数参数数量超出限制 (%d)\n", PARSER_MAX_PARAMS);
+                return null;
+            }
             
             // 解析参数名称
             if parser_match(parser, TOKEN_IDENTIFIER) == 0 {
@@ -780,32 +802,6 @@ fn parser_parse_function(parser: &Parser) &ASTNode {
             param.var_decl_init = null;
             param.var_decl_is_const = 0;
             
-            // 扩展参数数组（使用 Arena 分配）
-            if param_count >= param_capacity {
-                var new_capacity: i32 = 0;
-                if param_capacity == 0 {
-                    new_capacity = 4;
-                } else {
-                    new_capacity = param_capacity * 2;
-                }
-                const new_params: &(&ASTNode) = arena_alloc(parser.arena, 8 * new_capacity) as &(&ASTNode);
-                if new_params == null {
-                    return null;
-                }
-                
-                // 复制旧参数
-                if params != null {
-                    var i: i32 = 0;
-                    while i < param_count {
-                        new_params[i] = params[i];
-                        i = i + 1;
-                    }
-                }
-                
-                params = new_params;
-                param_capacity = new_capacity;
-            }
-            
             params[param_count] = param;
             param_count = param_count + 1;
             
@@ -833,7 +829,17 @@ fn parser_parse_function(parser: &Parser) &ASTNode {
         return null;
     }
     
-    fn_decl.fn_decl_params = params;
+    // 将参数列表复制到函数节点的固定大小数组
+    i = 0;
+    while i < param_count {
+        fn_decl.fn_decl_params[i] = params[i];
+        i = i + 1;
+    }
+    // 剩余位置初始化为 null
+    while i < MAX_FN_PARAMS {
+        fn_decl.fn_decl_params[i] = null;
+        i = i + 1;
+    }
     fn_decl.fn_decl_param_count = param_count;
     fn_decl.fn_decl_return_type = return_type;
     fn_decl.fn_decl_body = body;
@@ -898,10 +904,17 @@ fn parser_parse_extern_function(parser: &Parser) &ASTNode {
     }
     
     // 解析参数列表（可选，支持可变参数）
-    var params: &(&ASTNode) = null;
+    var params: [&ASTNode: PARSER_MAX_PARAMS] = [];
     var param_count: i32 = 0;
-    var param_capacity: i32 = 0;
     var is_varargs: i32 = 0;
+    var i: i32 = 0;
+    
+    // 初始化数组为全 null
+    i = 0;
+    while i < PARSER_MAX_PARAMS {
+        params[i] = null;
+        i = i + 1;
+    }
     
     if parser_match(parser, TOKEN_RIGHT_PAREN) == 0 {
         // 有参数
@@ -915,6 +928,12 @@ fn parser_parse_extern_function(parser: &Parser) &ASTNode {
                 parser_consume(parser);  // 消费 '...'
                 is_varargs = 1;
                 break;  // 遇到 ... 后退出循环
+            }
+            
+            // 检查容量
+            if param_count >= PARSER_MAX_PARAMS {
+                fprintf(2 as *void, "错误: extern 函数参数数量超出限制 (%d)\n", PARSER_MAX_PARAMS);
+                return null;
             }
             
             // 解析参数名称
@@ -953,32 +972,6 @@ fn parser_parse_extern_function(parser: &Parser) &ASTNode {
             param.var_decl_init = null;
             param.var_decl_is_const = 0;
             
-            // 扩展参数数组（使用 Arena 分配）
-            if param_count >= param_capacity {
-                var new_capacity: i32 = 0;
-                if param_capacity == 0 {
-                    new_capacity = 4;
-                } else {
-                    new_capacity = param_capacity * 2;
-                }
-                const new_params: &(&ASTNode) = arena_alloc(parser.arena, 8 * new_capacity) as &(&ASTNode);
-                if new_params == null {
-                    return null;
-                }
-                
-                // 复制旧参数
-                if params != null {
-                    var i: i32 = 0;
-                    while i < param_count {
-                        new_params[i] = params[i];
-                        i = i + 1;
-                    }
-                }
-                
-                params = new_params;
-                param_capacity = new_capacity;
-            }
-            
             params[param_count] = param;
             param_count = param_count + 1;
             
@@ -1008,7 +1001,17 @@ fn parser_parse_extern_function(parser: &Parser) &ASTNode {
         return null;
     }
     
-    fn_decl.fn_decl_params = params;
+    // 将参数列表复制到函数节点的固定大小数组
+    i = 0;
+    while i < param_count {
+        fn_decl.fn_decl_params[i] = params[i];
+        i = i + 1;
+    }
+    // 剩余位置初始化为 null
+    while i < MAX_FN_PARAMS {
+        fn_decl.fn_decl_params[i] = null;
+        i = i + 1;
+    }
     fn_decl.fn_decl_param_count = param_count;
     fn_decl.fn_decl_return_type = return_type;
     fn_decl.fn_decl_body = null;  // extern 函数没有函数体
@@ -1066,11 +1069,24 @@ fn parser_parse(parser: &Parser) &ASTNode {
     program.program_decl_count = 0;
     
     // 解析顶层声明列表
-    var decls: &(&ASTNode) = null;
+    var decls: [&ASTNode: PARSER_MAX_DECLS] = [];
     var decl_count: i32 = 0;
-    var decl_capacity: i32 = 0;
+    var i: i32 = 0;
+    
+    // 初始化数组为全 null
+    i = 0;
+    while i < PARSER_MAX_DECLS {
+        decls[i] = null;
+        i = i + 1;
+    }
     
     while parser.current_token != null && parser_match(parser, TOKEN_EOF) == 0 {
+        // 检查容量
+        if decl_count >= PARSER_MAX_DECLS {
+            fprintf(2 as *void, "错误: 程序声明数量超出限制 (%d)\n", PARSER_MAX_DECLS);
+            return null;
+        }
+        
         const decl: &ASTNode = parser_parse_declaration(parser);
         if decl == null {
             // 解析失败：检查是否因为到达文件末尾（EOF）还是真正的错误
@@ -1100,37 +1116,21 @@ fn parser_parse(parser: &Parser) &ASTNode {
             break;
         }
         
-        // 扩展声明数组（使用 Arena 分配）
-        if decl_count >= decl_capacity {
-            var new_capacity: i32 = 0;
-            if decl_capacity == 0 {
-                new_capacity = 4;
-            } else {
-                new_capacity = decl_capacity * 2;
-            }
-            const new_decls: &(&ASTNode) = arena_alloc(parser.arena, 8 * new_capacity) as &(&ASTNode);
-            if new_decls == null {
-                return null;
-            }
-            
-            // 复制旧声明
-            if decls != null {
-                var i: i32 = 0;
-                while i < decl_count {
-                    new_decls[i] = decls[i];
-                    i = i + 1;
-                }
-            }
-            
-            decls = new_decls;
-            decl_capacity = new_capacity;
-        }
-        
         decls[decl_count] = decl;
         decl_count = decl_count + 1;
     }
     
-    program.program_decls = decls;
+    // 将声明列表复制到程序节点的固定大小数组
+    i = 0;
+    while i < decl_count {
+        program.program_decls[i] = decls[i];
+        i = i + 1;
+    }
+    // 剩余位置初始化为 null
+    while i < MAX_PROGRAM_DECLS {
+        program.program_decls[i] = null;
+        i = i + 1;
+    }
     program.program_decl_count = decl_count;
     
     return program;
@@ -1419,9 +1419,16 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             parser_consume(parser);
             
             // 解析参数列表（可选）
-            var args: &(&ASTNode) = null;
+            var args: [&ASTNode: PARSER_MAX_CALL_ARGS] = [];
             var arg_count: i32 = 0;
-            var arg_capacity: i32 = 0;
+            var i: i32 = 0;
+            
+            // 初始化数组为全 null
+            i = 0;
+            while i < PARSER_MAX_CALL_ARGS {
+                args[i] = null;
+                i = i + 1;
+            }
             
             if parser_match(parser, TOKEN_RIGHT_PAREN) == 0 {
                 // 有参数
@@ -1429,36 +1436,16 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                       parser_match(parser, TOKEN_RIGHT_PAREN) == 0 && 
                       parser_match(parser, TOKEN_EOF) == 0 {
                     
+                    // 检查容量
+                    if arg_count >= PARSER_MAX_CALL_ARGS {
+                        fprintf(2 as *void, "错误: 函数调用参数数量超出限制 (%d)\n", PARSER_MAX_CALL_ARGS);
+                        return null;
+                    }
+                    
                     // 解析参数表达式
                     const arg: &ASTNode = parser_parse_expression(parser);
                     if arg == null {
                         return null;
-                    }
-                    
-                    // 扩展参数数组
-                    if arg_count >= arg_capacity {
-                        var new_capacity: i32 = 0;
-                        if arg_capacity == 0 {
-                            new_capacity = 4;
-                        } else {
-                            new_capacity = arg_capacity * 2;
-                        }
-                        const new_args: &(&ASTNode) = arena_alloc(parser.arena, 8 * new_capacity) as &(&ASTNode);
-                        if new_args == null {
-                            return null;
-                        }
-                        
-                        // 复制旧参数
-                        if args != null {
-                            var i: i32 = 0;
-                            while i < arg_count {
-                                new_args[i] = args[i];
-                                i = i + 1;
-                            }
-                        }
-                        
-                        args = new_args;
-                        arg_capacity = new_capacity;
                     }
                     
                     args[arg_count] = arg;
@@ -1476,7 +1463,17 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                 return null;
             }
             
-            call.call_expr_args = args;
+            // 将参数列表复制到调用节点的固定大小数组
+            i = 0;
+            while i < arg_count {
+                call.call_expr_args[i] = args[i];
+                i = i + 1;
+            }
+            // 剩余位置初始化为 null
+            while i < MAX_CALL_ARGS {
+                call.call_expr_args[i] = null;
+                i = i + 1;
+            }
             call.call_expr_arg_count = arg_count;
             
             // 字段访问和数组访问可能跟在函数调用后面（例如：f().field 或 f()[0]）
@@ -1607,16 +1604,30 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             parser_consume(parser);
             
             // 解析字段初始化列表
-            var field_names: &(&byte) = null;
-            var field_values: &(&ASTNode) = null;
+            var field_names: [&byte: PARSER_MAX_STRUCT_INIT_FIELDS] = [];
+            var field_values: [&ASTNode: PARSER_MAX_STRUCT_INIT_FIELDS] = [];
             var field_count: i32 = 0;
-            var field_capacity: i32 = 0;
+            var i: i32 = 0;
+            
+            // 初始化数组为全 null
+            i = 0;
+            while i < PARSER_MAX_STRUCT_INIT_FIELDS {
+                field_names[i] = null;
+                field_values[i] = null;
+                i = i + 1;
+            }
             
             if parser_match(parser, TOKEN_RIGHT_BRACE) == 0 {
                 // 有字段初始化
                 while parser.current_token != null && 
                       parser_match(parser, TOKEN_RIGHT_BRACE) == 0 && 
                       parser_match(parser, TOKEN_EOF) == 0 {
+                    
+                    // 检查容量
+                    if field_count >= PARSER_MAX_STRUCT_INIT_FIELDS {
+                        fprintf(2 as *void, "错误: 结构体初始化字段数量超出限制 (%d)\n", PARSER_MAX_STRUCT_INIT_FIELDS);
+                        return null;
+                    }
                     
                     // 解析字段名称
                     if parser_match(parser, TOKEN_IDENTIFIER) == 0 {
@@ -1641,35 +1652,6 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                         return null;
                     }
                     
-                    // 扩展字段数组
-                    if field_count >= field_capacity {
-                        var new_capacity: i32 = 0;
-                        if field_capacity == 0 {
-                            new_capacity = 4;
-                        } else {
-                            new_capacity = field_capacity * 2;
-                        }
-                        const new_field_names: &(&byte) = arena_alloc(parser.arena, 8 * new_capacity) as &(&byte);
-                        const new_field_values: &(&ASTNode) = arena_alloc(parser.arena, 8 * new_capacity) as &(&ASTNode);
-                        if new_field_names == null || new_field_values == null {
-                            return null;
-                        }
-                        
-                        // 复制旧字段
-                        if field_names != null && field_values != null {
-                            var i: i32 = 0;
-                            while i < field_count {
-                                new_field_names[i] = field_names[i];
-                                new_field_values[i] = field_values[i];
-                                i = i + 1;
-                            }
-                        }
-                        
-                        field_names = new_field_names;
-                        field_values = new_field_values;
-                        field_capacity = new_capacity;
-                    }
-                    
                     field_names[field_count] = field_name;
                     field_values[field_count] = field_value;
                     field_count = field_count + 1;
@@ -1686,8 +1668,23 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                 return null;
             }
             
-            struct_init.struct_init_field_names = field_names;
-            struct_init.struct_init_field_values = field_values;
+            // 将字段列表复制到结构体初始化节点的固定大小数组
+            i = 0;
+            while i < field_count {
+                struct_init.struct_init_field_names[i] = field_names[i];
+                struct_init.struct_init_field_values[i] = field_values[i];
+                i = i + 1;
+            }
+            // 剩余位置初始化为 null
+            while i < MAX_STRUCT_INIT_FIELD_NAMES {
+                struct_init.struct_init_field_names[i] = null;
+                i = i + 1;
+            }
+            i = field_count;
+            while i < MAX_STRUCT_INIT_FIELDS {
+                struct_init.struct_init_field_values[i] = null;
+                i = i + 1;
+            }
             struct_init.struct_init_field_count = field_count;
             
             // 字段访问可能跟在结构体字面量后面（例如：Point{x:1,y:2}.x）
@@ -1816,9 +1813,16 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         }
         
         // 初始化元素数组
-        var elements: &(&ASTNode) = null;
+        var elements: [&ASTNode: PARSER_MAX_ARRAY_ELEMENTS] = [];
         var element_count: i32 = 0;
-        var element_capacity: i32 = 0;
+        var i: i32 = 0;
+        
+        // 初始化数组为全 null
+        i = 0;
+        while i < PARSER_MAX_ARRAY_ELEMENTS {
+            elements[i] = null;
+            i = i + 1;
+        }
         
         // 检查是否为空数组
         if parser_match(parser, TOKEN_RIGHT_BRACKET) == 0 {
@@ -1827,36 +1831,16 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                   parser_match(parser, TOKEN_RIGHT_BRACKET) == 0 && 
                   parser_match(parser, TOKEN_EOF) == 0 {
                 
+                // 检查容量
+                if element_count >= PARSER_MAX_ARRAY_ELEMENTS {
+                    fprintf(2 as *void, "错误: 数组字面量元素数量超出限制 (%d)\n", PARSER_MAX_ARRAY_ELEMENTS);
+                    return null;
+                }
+                
                 // 解析元素表达式
                 const element: &ASTNode = parser_parse_expression(parser);
                 if element == null {
                     return null;
-                }
-                
-                // 扩展元素数组
-                if element_count >= element_capacity {
-                    var new_capacity: i32 = 0;
-                    if element_capacity == 0 {
-                        new_capacity = 4;
-                    } else {
-                        new_capacity = element_capacity * 2;
-                    }
-                    const new_elements: &(&ASTNode) = arena_alloc(parser.arena, 8 * new_capacity) as &(&ASTNode);
-                    if new_elements == null {
-                        return null;
-                    }
-                    
-                    // 复制旧元素
-                    if elements != null {
-                        var i: i32 = 0;
-                        while i < element_count {
-                            new_elements[i] = elements[i];
-                            i = i + 1;
-                        }
-                    }
-                    
-                    elements = new_elements;
-                    element_capacity = new_capacity;
                 }
                 
                 elements[element_count] = element;
@@ -1877,7 +1861,17 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             return null;
         }
         
-        array_literal.array_literal_elements = elements;
+        // 将元素列表复制到数组字面量节点的固定大小数组
+        i = 0;
+        while i < element_count {
+            array_literal.array_literal_elements[i] = elements[i];
+            i = i + 1;
+        }
+        // 剩余位置初始化为 null
+        while i < MAX_ARRAY_LITERAL_ELEMENTS {
+            array_literal.array_literal_elements[i] = null;
+            i = i + 1;
+        }
         array_literal.array_literal_element_count = element_count;
         
         // 字段访问和数组访问可能跟在数组字面量后面（例如：[1,2,3][0]）

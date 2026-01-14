@@ -7,9 +7,9 @@ const ARENA_ALIGNMENT: i32 = 8;
 // Arena 分配器结构体
 // 使用静态缓冲区 + bump pointer 实现无堆分配的内存管理
 struct Arena {
-    buffer: &byte;  // 静态缓冲区指针
-    size: i32;      // 缓冲区总大小（字节）
-    offset: i32;     // 当前分配位置（bump pointer）
+    buffer: &byte,  // 静态缓冲区指针
+    size: i32,      // 缓冲区总大小（字节）
+    offset: i32,     // 当前分配位置（bump pointer）
 }
 
 // 对齐到指定边界
