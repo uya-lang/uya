@@ -97,10 +97,8 @@
 
 - [ ] 已阅读 `PROGRESS.md`
 - [ ] 已阅读 `TODO.md`（了解任务索引）和对应的 `TODO_phase*.md`（了解详细任务）
-- [ ] 如果进行自举重构，已阅读 `TODO_uya_mini_extension.md`（了解规范扩展任务）
 - [ ] 已阅读 `.cursorrules`（了解开发规范）
 - [ ] 已了解语言规范（`spec/UYA_MINI_SPEC.md`）
-- [ ] 如果扩展规范，已了解完整 Uya 语言规范（`uya_ai_prompt.md`）
 - [ ] 了解当前进度状态
 - [ ] 知道下一步要做什么
 - [ ] 确认依赖的模块已完成
@@ -126,12 +124,8 @@
 | `PROGRESS.md` | 当前进度和状态 | 每次新会话开始时 |
 | `TODO.md` | 任务索引 | 了解各阶段任务分布时 |
 | `TODO_phase*.md` | 各阶段详细任务列表 | 需要了解具体任务时 |
-| `TODO_bugfixes.md` | Bug 修复待办事项 | 修复测试失败问题时 |
-| `TODO_uya_mini_extension.md` | Uya Mini 规范扩展任务 | 进行自举重构（阶段10）时 |
 | `.cursorrules` | 开发规则和规范 | 新会话开始时确认规则 |
 | `spec/UYA_MINI_SPEC.md` | 语言规范（重要！） | 实现功能前必须参考 |
-| `uya_ai_prompt.md` | 完整 Uya 语言规范 | 扩展 Uya Mini 规范时参考 |
-| `.cursor/plans/*.plan.md` | 原始实现计划 | 需要了解整体架构时 |
 
 ## 💡 提示
 
@@ -209,6 +203,10 @@ A: 创建 Uya 测试程序，编译后运行并验证输出结果。参见下面
 ### 测试程序目录结构
 
 建议在 `tests/` 目录下创建 `programs/` 子目录，存放 Uya 测试程序：
+
+### 测试程序运行
+
+./tests/run_programs.sh
 
 ```
 compiler-mini/
