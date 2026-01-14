@@ -1,6 +1,7 @@
 // llvm_api.uya - LLVM C API 外部函数声明文件
 // 声明 CodeGen 模块需要的 LLVM C API 函数
 // 注意：根据代码生成模块翻译时的需要逐步添加
+// LLVM 版本：基于 LLVM 15+ C API（具体版本取决于编译时链接的 LLVM 库）
 
 // ===== 类型定义 =====
 // LLVM 类型在 Uya Mini 中使用 *void 或具体结构体指针类型表示
