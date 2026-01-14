@@ -1,3 +1,279 @@
 // main.uya - 主程序模块
-// 待阶段7填充
+// 编译器的入口点，协调所有编译阶段：词法分析 → 语法分析 → 类型检查 → 代码生成
+//
+// 注意：需要先包含 arena.uya、lexer.uya、parser.uya、checker.uya、codegen.uya 和 str_utils.uya
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
 
+// ===== 外部函数声明 =====
+
+// 字符串函数（来自 str_utils.uya）
+extern fn strlen(s: *byte) i32;
+extern fn strcmp(s1: *byte, s2: *byte) i32;
+extern fn fprintf(stream: *void, format: *byte, ...) i32;
+
+// 文件 I/O 函数（stdio.h）
+extern fn fopen(filename: *byte, mode: *byte) *void;  // FILE* 在 Uya Mini 中使用 *void 表示
+extern fn fread(ptr: *void, size: i32, nmemb: i32, stream: *void) i32;
+extern fn fclose(stream: *void) i32;
+extern fn fgetc(stream: *void) i32;  // 返回 int，EOF 为 -1
+
+// 命令行参数获取函数（C 运行时）
+// 注意：在 Uya Mini 中，main 函数签名是 fn main() i32，不支持 argc 和 argv
+// 因此需要使用 extern 函数来获取命令行参数
+// 这些函数由 C 运行时提供，或者由编译器特殊处理
+extern fn get_argc() i32;  // 获取命令行参数数量
+extern fn get_argv(index: i32) *byte;  // 获取第 index 个命令行参数（字符串指针）
+
+// Arena 函数（来自 arena.uya）
+extern fn arena_init(arena: &Arena, buffer: &void, size: i32) void;
+
+// Lexer 函数（来自 lexer.uya）
+extern fn lexer_init(lexer: &Lexer, source: *byte, source_len: i32, filename: *byte, arena: &Arena) i32;
+
+// Parser 函数（来自 parser.uya）
+extern fn parser_init(parser: &Parser, lexer: &Lexer, arena: &Arena) i32;
+extern fn parser_parse(parser: &Parser) &ASTNode;
+
+// Checker 函数（来自 checker.uya）
+extern fn checker_init(checker: &TypeChecker, arena: &Arena) i32;
+extern fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32;
+extern fn checker_get_error_count(checker: &TypeChecker) i32;
+
+// CodeGen 函数（来自 codegen.uya）
+extern fn codegen_new(codegen: &CodeGenerator, arena: &Arena, module_name: *byte) i32;
+extern fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: *byte) i32;
+
+// ===== 常量定义 =====
+
+// 文件读取缓冲区大小（与 Lexer 的缓冲区大小相同）
+const FILE_BUFFER_SIZE: i32 = 1024 * 1024;  // 1MB
+
+// Arena 分配器缓冲区大小
+const ARENA_BUFFER_SIZE: i32 = 1024 * 1024;  // 1MB
+
+// EOF 常量（文件结束符）
+const EOF: i32 = -1;
+
+// ===== 辅助函数 =====
+
+// 读取文件内容到缓冲区
+// 参数：filename - 文件名
+//       buffer - 缓冲区（固定大小数组）
+//       buffer_size - 缓冲区大小
+// 返回：成功返回读取的字节数，失败返回 -1
+// 注意：文件大小不能超过缓冲区大小
+fn read_file_content(filename: *byte, buffer: &byte, buffer_size: i32) i32 {
+    if filename == null || buffer == null || buffer_size <= 0 {
+        return -1;
+    }
+    
+    const file: *void = fopen(filename, "rb" as *byte);  // 二进制模式读取
+    if file == null {
+        return -1;
+    }
+    
+    // 读取文件内容（保留一个字节用于 '\0'）
+    const bytes_read: i32 = fread(buffer as *void, 1, buffer_size - 1, file);
+    
+    // 检查是否还有更多数据（文件太大）
+    if bytes_read >= buffer_size - 1 {
+        const c: i32 = fgetc(file);
+        fclose(file);
+        if c != EOF {
+            // 文件还有更多数据，文件太大
+            return -1;
+        }
+    } else {
+        fclose(file);
+    }
+    
+    // 添加字符串结束符
+    buffer[bytes_read] = 0;
+    
+    return bytes_read;
+}
+
+// 打印使用说明
+// 参数：program_name - 程序名称
+fn print_usage(program_name: *byte) void {
+    if program_name == null {
+        return;
+    }
+    fprintf(2 as *void, "用法: %s <输入文件> -o <输出文件>\n", program_name);
+    fprintf(2 as *void, "示例: %s program.uya -o program\n", program_name);
+}
+
+// 解析命令行参数
+// 参数：input_file - 输出参数：输入文件名（&(*byte) 表示指向 *byte 的指针）
+//       output_file - 输出参数：输出文件名
+// 返回：成功返回 0，失败返回 -1
+// 注意：在 Uya Mini 中，使用 extern 函数获取命令行参数
+fn parse_args(input_file: &(*byte), output_file: &(*byte)) i32 {
+    const argc: i32 = get_argc();
+    if argc < 4 {
+        if argc > 0 {
+            const program_name: *byte = get_argv(0);
+            if program_name != null {
+                print_usage(program_name);
+            }
+        }
+        return -1;
+    }
+    
+    // 简单的参数解析：程序名 <输入文件> -o <输出文件>
+    input_file[0] = null;
+    output_file[0] = null;
+    
+    var i: i32 = 1;
+    while i < argc {
+        const arg: *byte = get_argv(i);
+        if arg == null {
+            i = i + 1;
+            continue;
+        }
+        
+        // 检查是否是 -o 选项
+        if strcmp(arg, "-o" as *byte) == 0 {
+            if i + 1 < argc {
+                output_file[0] = get_argv(i + 1);
+                i = i + 2;  // 跳过 -o 和输出文件名
+            } else {
+                fprintf(2 as *void, "错误: -o 选项需要指定输出文件名\n");
+                return -1;
+            }
+        } else {
+            // 检查是否是选项（以 - 开头）
+            if arg[0] != 45 {  // 45 是 '-' 的 ASCII 码
+                // 非选项参数，应该是输入文件
+                if input_file[0] == null {
+                    input_file[0] = arg;
+                } else {
+                    fprintf(2 as *void, "错误: 只能指定一个输入文件\n");
+                    return -1;
+                }
+            }
+            i = i + 1;
+        }
+    }
+    
+    if input_file[0] == null {
+        fprintf(2 as *void, "错误: 未指定输入文件\n");
+        if argc > 0 {
+            const program_name: *byte = get_argv(0);
+            if program_name != null {
+                print_usage(program_name);
+            }
+        }
+        return -1;
+    }
+    
+    if output_file[0] == null {
+        fprintf(2 as *void, "错误: 未指定输出文件（使用 -o 选项）\n");
+        if argc > 0 {
+            const program_name: *byte = get_argv(0);
+            if program_name != null {
+                print_usage(program_name);
+            }
+        }
+        return -1;
+    }
+    
+    return 0;
+}
+
+// 主编译函数
+// 协调所有编译阶段：词法分析 → 语法分析 → 类型检查 → 代码生成
+// 参数：input_file - 输入文件名
+//       output_file - 输出文件名
+// 返回：成功返回 0，失败返回非 0
+fn compile_file(input_file: *byte, output_file: *byte) i32 {
+    if input_file == null || output_file == null {
+        return 1;
+    }
+    
+    // 文件读取缓冲区（栈上分配）
+    var file_buffer: [byte: FILE_BUFFER_SIZE] = [];
+    const file_size: i32 = read_file_content(input_file, &file_buffer[0], FILE_BUFFER_SIZE);
+    if file_size < 0 {
+        fprintf(2 as *void, "错误: 无法读取文件 '%s'\n", input_file);
+        return 1;
+    }
+    
+    // Arena 分配器缓冲区（栈上分配）
+    var arena_buffer: [byte: ARENA_BUFFER_SIZE] = [];
+    
+    // 初始化所有结构体（栈上分配，自动初始化为零值）
+    var arena: Arena;
+    var lexer: Lexer;
+    var parser: Parser;
+    var checker: TypeChecker;
+    var codegen: CodeGenerator;
+    
+    // 初始化 Arena 分配器
+    arena_init(&arena, &arena_buffer[0] as &void, ARENA_BUFFER_SIZE);
+    
+    // 1. 词法分析
+    if lexer_init(&lexer, &file_buffer[0], file_size, input_file, &arena) != 0 {
+        fprintf(2 as *void, "错误: Lexer 初始化失败\n");
+        return 1;
+    }
+    
+    // 2. 语法分析
+    if parser_init(&parser, &lexer, &arena) != 0 {
+        fprintf(2 as *void, "错误: Parser 初始化失败\n");
+        return 1;
+    }
+    
+    const ast: &ASTNode = parser_parse(&parser);
+    if ast == null {
+        // 错误信息已在 parser_parse 中输出
+        return 1;
+    }
+    
+    // 3. 类型检查
+    if checker_init(&checker, &arena) != 0 {
+        fprintf(2 as *void, "错误: TypeChecker 初始化失败\n");
+        return 1;
+    }
+    
+    if checker_check(&checker, ast) != 0 {
+        const error_count: i32 = checker_get_error_count(&checker);
+        fprintf(2 as *void, "错误: 类型检查失败（错误数量: %d）\n", error_count);
+        return 1;
+    }
+    
+    // 4. 代码生成
+    // 使用输入文件名（去掉扩展名）作为模块名
+    const module_name: *byte = input_file;  // 简化：直接使用输入文件名
+    
+    if codegen_new(&codegen, &arena, module_name) != 0 {
+        fprintf(2 as *void, "错误: CodeGenerator 初始化失败\n");
+        return 1;
+    }
+    
+    if codegen_generate(&codegen, ast, output_file) != 0 {
+        fprintf(2 as *void, "错误: 代码生成失败\n");
+        return 1;
+    }
+    
+    return 0;
+}
+
+// 主函数
+// 返回：成功返回 0，失败返回非 0
+// 注意：在 Uya Mini 中，main 函数签名是 fn main() i32，不支持 argc 和 argv
+//       使用 extern 函数 get_argc() 和 get_argv() 获取命令行参数
+fn main() i32 {
+    var input_file: *byte = null;
+    var output_file: *byte = null;
+    
+    // 解析命令行参数
+    if parse_args(&input_file, &output_file) != 0 {
+        return 1;
+    }
+    
+    // 编译文件
+    const result: i32 = compile_file(input_file, output_file);
+    
+    return result;
+}
