@@ -1,0 +1,113 @@
+// alignof 测试程序
+// 测试 alignof 内置函数（基础类型、指针类型、结构体类型、数组类型）
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Mixed {
+    a: byte,
+    b: i32,
+    c: i32,
+}
+
+fn main() i32 {
+    // 测试1：基础类型对齐
+    const i32_align: i32 = alignof(i32);
+    if i32_align != 4 {
+        return 1;  // i32 应该对齐到 4 字节
+    }
+    
+    const bool_align: i32 = alignof(bool);
+    if bool_align != 1 {
+        return 1;  // bool 应该对齐到 1 字节
+    }
+    
+    const byte_align: i32 = alignof(byte);
+    if byte_align != 1 {
+        return 1;  // byte 应该对齐到 1 字节
+    }
+    
+    // 测试2：指针类型对齐（平台相关，32位平台为 4 字节，64位平台为 8 字节）
+    const ptr_i32_align: i32 = alignof(&i32);
+    // 指针对齐值应该是 4（32位）或 8（64位）
+    if ptr_i32_align != 4 && ptr_i32_align != 8 {
+        return 1;  // 指针对齐值应该是 4 或 8 字节（平台字长）
+    }
+    
+    const ptr_bool_align: i32 = alignof(&bool);
+    if ptr_bool_align != ptr_i32_align {
+        return 1;  // bool 指针对齐值应该与 i32 指针对齐值相同（平台字长）
+    }
+    
+    // 保存平台字长用于后续测试
+    const platform_word_align: i32 = ptr_i32_align;
+    
+    // 测试3：表达式 alignof（基础类型变量）
+    var x: i32 = 42;
+    const x_align: i32 = alignof(x);
+    if x_align != 4 {
+        return 1;  // i32 变量应该对齐到 4 字节
+    }
+    
+    var b: bool = true;
+    const b_align: i32 = alignof(b);
+    if b_align != 1 {
+        return 1;  // bool 变量应该对齐到 1 字节
+    }
+    
+    var byte_val: byte = 0;
+    const byte_val_align: i32 = alignof(byte_val);
+    if byte_val_align != 1 {
+        return 1;  // byte 变量应该对齐到 1 字节
+    }
+    
+    // 测试4：结构体类型 alignof
+    const point_align: i32 = alignof(Point);
+    if point_align != 4 {
+        return 1;  // Point { x: i32, y: i32 } 应该对齐到 4 字节（最大字段对齐值）
+    }
+    
+    const mixed_align: i32 = alignof(Mixed);
+    if mixed_align != 4 {
+        return 1;  // Mixed { a: byte, b: i32, c: i32 } 应该对齐到 4 字节（最大字段对齐值）
+    }
+    
+    // 测试5：表达式 alignof（结构体变量）
+    var p: Point = Point{ x: 10, y: 20 };
+    const p_align: i32 = alignof(p);
+    if p_align != 4 {
+        return 1;  // Point 变量应该对齐到 4 字节
+    }
+    
+    // 测试6：数组类型 alignof（对齐值等于元素类型的对齐值）
+    const array_i32_align: i32 = alignof([i32: 10]);
+    if array_i32_align != 4 {
+        return 1;  // [i32: 10] 应该对齐到 4 字节（等于 i32 的对齐值）
+    }
+    
+    const array_bool_align: i32 = alignof([bool: 5]);
+    if array_bool_align != 1 {
+        return 1;  // [bool: 5] 应该对齐到 1 字节（等于 bool 的对齐值）
+    }
+    
+    // 测试7：表达式 alignof（数组变量）
+    var arr: [i32: 5] = [1, 2, 3, 4, 5];
+    const arr_align: i32 = alignof(arr);
+    if arr_align != 4 {
+        return 1;  // [i32: 5] 变量应该对齐到 4 字节
+    }
+    
+    // 测试8：alignof 与 sizeof 的区别
+    const arr_size: i32 = sizeof(arr);
+    const arr_align2: i32 = alignof(arr);
+    
+    // arr_size 应该是 20 (5 * 4 字节)，arr_align2 应该是 4
+    if arr_size != 20 || arr_align2 != 4 {
+        return 1;
+    }
+    
+    return 0;
+}
+

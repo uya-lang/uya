@@ -106,6 +106,7 @@ static TokenType is_keyword(const char *str) {
     if (strcmp(str, "null") == 0) return TOKEN_NULL;
     if (strcmp(str, "sizeof") == 0) return TOKEN_SIZEOF;
     if (strcmp(str, "len") == 0) return TOKEN_LEN;
+    if (strcmp(str, "alignof") == 0) return TOKEN_ALIGNOF;
     if (strcmp(str, "as") == 0) return TOKEN_AS;
     return TOKEN_IDENTIFIER;  // 不是关键字，是标识符
 }

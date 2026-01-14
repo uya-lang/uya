@@ -398,6 +398,8 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
         // 根据类型名称确定类型种类
         if (strcmp(type_name, "i32") == 0) {
             result.kind = TYPE_I32;
+        } else if (strcmp(type_name, "usize") == 0) {
+            result.kind = TYPE_USIZE;
         } else if (strcmp(type_name, "bool") == 0) {
             result.kind = TYPE_BOOL;
         } else if (strcmp(type_name, "byte") == 0) {
@@ -659,6 +661,13 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
         
         case AST_SIZEOF: {
             // sizeof 表达式：返回 i32 类型（字节数）
+            // 注意：这里不验证 target 是否有效，类型检查阶段会验证
+            result.kind = TYPE_I32;
+            return result;
+        }
+        
+        case AST_ALIGNOF: {
+            // alignof 表达式：返回 i32 类型（对齐字节数）
             // 注意：这里不验证 target 是否有效，类型检查阶段会验证
             result.kind = TYPE_I32;
             return result;
@@ -1082,6 +1091,47 @@ static Type checker_check_array_access(TypeChecker *checker, ASTNode *node) {
     return *array_type.data.array.element_type;
 }
 
+// 检查 alignof 表达式
+// 参数：checker - TypeChecker 指针，node - alignof 表达式节点
+// 返回：i32 类型（如果检查失败返回TYPE_VOID）
+static Type checker_check_alignof(TypeChecker *checker, ASTNode *node) {
+    Type result;
+    result.kind = TYPE_VOID;
+    
+    if (checker == NULL || node == NULL || node->type != AST_ALIGNOF) {
+        return result;
+    }
+    
+    // alignof 可以接受类型或表达式
+    // 如果 target 是类型节点，验证类型是否有效
+    // 如果 target 是表达式节点，验证表达式类型是否有效
+    ASTNode *target = node->data.alignof_expr.target;
+    if (target == NULL) {
+        checker_report_error(checker);
+        return result;
+    }
+    
+    if (node->data.alignof_expr.is_type) {
+        // target 是类型节点，验证类型是否有效
+        Type target_type = type_from_ast(checker, target);
+        if (target_type.kind == TYPE_VOID) {
+            checker_report_error(checker);
+            return result;
+        }
+    } else {
+        // target 是表达式节点，验证表达式类型是否有效
+        Type expr_type = checker_infer_type(checker, target);
+        if (expr_type.kind == TYPE_VOID) {
+            checker_report_error(checker);
+            return result;
+        }
+    }
+    
+    // alignof 返回 i32 类型（对齐字节数）
+    result.kind = TYPE_I32;
+    return result;
+}
+
 // 检查 len 表达式
 // 参数：checker - TypeChecker 指针，node - len 表达式节点
 // 返回：i32 类型（如果检查失败返回TYPE_VOID）
@@ -1172,25 +1222,42 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
     Type left_type = checker_infer_type(checker, node->data.binary_expr.left);
     Type right_type = checker_infer_type(checker, node->data.binary_expr.right);
     
-    // 算术运算符：操作数必须是i32
+    // 算术运算符：支持 i32 和 usize 混合运算
+    // 规则：如果两个操作数都是 i32，结果为 i32
+    //       如果至少有一个是 usize，结果为 usize
     if (op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_ASTERISK || 
         op == TOKEN_SLASH || op == TOKEN_PERCENT) {
-        if (left_type.kind != TYPE_I32 || right_type.kind != TYPE_I32) {
+        // 验证操作数类型：必须是 i32 或 usize
+        if ((left_type.kind != TYPE_I32 && left_type.kind != TYPE_USIZE) ||
+            (right_type.kind != TYPE_I32 && right_type.kind != TYPE_USIZE)) {
             checker_report_error(checker);
             return result;
         }
-        result.kind = TYPE_I32;
+        // 结果类型：如果至少有一个是 usize，结果为 usize，否则为 i32
+        if (left_type.kind == TYPE_USIZE || right_type.kind == TYPE_USIZE) {
+            result.kind = TYPE_USIZE;
+        } else {
+            result.kind = TYPE_I32;
+        }
         return result;
     }
     
-    // 比较运算符：操作数类型必须相同
+    // 比较运算符：支持 i32 和 usize 比较（操作数可以是 i32 或 usize，但必须都是数值类型）
     if (op == TOKEN_EQUAL || op == TOKEN_NOT_EQUAL || op == TOKEN_LESS || 
         op == TOKEN_GREATER || op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL) {
-        if (!type_equals(left_type, right_type)) {
-            checker_report_error(checker);
+        // 允许相同类型比较，也允许 i32 和 usize 之间的比较
+        if (type_equals(left_type, right_type)) {
+            result.kind = TYPE_BOOL;
             return result;
         }
-        result.kind = TYPE_BOOL;
+        // 允许 i32 和 usize 之间的比较
+        if ((left_type.kind == TYPE_I32 && right_type.kind == TYPE_USIZE) ||
+            (left_type.kind == TYPE_USIZE && right_type.kind == TYPE_I32)) {
+            result.kind = TYPE_BOOL;
+            return result;
+        }
+        // 其他类型不匹配
+        checker_report_error(checker);
         return result;
     }
     
@@ -1227,7 +1294,7 @@ static void checker_check_cast_expr(TypeChecker *checker, ASTNode *node) {
     Type source_type = checker_infer_type(checker, expr);
     Type target_type = type_from_ast(checker, target_type_node);
     
-    // 验证类型转换是否合法（仅支持 i32 ↔ byte 和 i32 ↔ bool）
+    // 验证类型转换是否合法（支持 i32 ↔ byte、i32 ↔ bool、i32 ↔ usize）
     if (source_type.kind == TYPE_I32 && target_type.kind == TYPE_BYTE) {
         // i32 as byte：允许
         return;
@@ -1239,6 +1306,12 @@ static void checker_check_cast_expr(TypeChecker *checker, ASTNode *node) {
         return;
     } else if (source_type.kind == TYPE_BOOL && target_type.kind == TYPE_I32) {
         // bool as i32：允许
+        return;
+    } else if (source_type.kind == TYPE_I32 && target_type.kind == TYPE_USIZE) {
+        // i32 as usize：允许
+        return;
+    } else if (source_type.kind == TYPE_USIZE && target_type.kind == TYPE_I32) {
+        // usize as i32：允许
         return;
     } else {
         // 不支持的类型转换
@@ -1554,6 +1627,10 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             
         case AST_CAST_EXPR:
             checker_check_cast_expr(checker, node);
+            return 1;
+            
+        case AST_ALIGNOF:
+            checker_check_alignof(checker, node);
             return 1;
             
         case AST_LEN:

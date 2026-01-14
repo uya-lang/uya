@@ -87,6 +87,10 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena) {
             node->data.sizeof_expr.target = NULL;
             node->data.sizeof_expr.is_type = 0;
             break;
+        case AST_ALIGNOF:
+            node->data.alignof_expr.target = NULL;
+            node->data.alignof_expr.is_type = 0;
+            break;
         case AST_LEN:
             node->data.len_expr.array = NULL;
             break;

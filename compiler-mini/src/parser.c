@@ -1118,6 +1118,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 const char *type_name = parser->current_token->value;
                 // 检查是否是基础类型或 struct 关键字
                 if (strcmp(type_name, "i32") == 0 || 
+                    strcmp(type_name, "usize") == 0 ||
                     strcmp(type_name, "bool") == 0 || 
                     strcmp(type_name, "byte") == 0 ||
                     strcmp(type_name, "void") == 0 ||
@@ -1157,6 +1158,72 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         }
         
         return sizeof_node;
+    }
+    
+    // 解析 alignof 表达式：alignof(Type) 或 alignof(expr)
+    if (parser->current_token->type == TOKEN_ALIGNOF) {
+        parser_consume(parser);  // 消费 'alignof'
+        
+        // 期望 '('
+        if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+            return NULL;
+        }
+        
+        ASTNode *alignof_node = ast_new_node(AST_ALIGNOF, line, column, parser->arena);
+        if (alignof_node == NULL) {
+            return NULL;
+        }
+        
+        // 尝试解析类型，如果失败则解析表达式
+        // 先检查是否是类型语法（基础类型或 struct 关键字）
+        int is_type = 0;
+        ASTNode *target = NULL;
+        
+        if (parser->current_token != NULL) {
+            if (parser->current_token->type == TOKEN_IDENTIFIER) {
+                const char *type_name = parser->current_token->value;
+                // 检查是否是基础类型或 struct 关键字
+                if (strcmp(type_name, "i32") == 0 || 
+                    strcmp(type_name, "usize") == 0 ||
+                    strcmp(type_name, "bool") == 0 || 
+                    strcmp(type_name, "byte") == 0 ||
+                    strcmp(type_name, "void") == 0 ||
+                    strcmp(type_name, "struct") == 0) {
+                    // 尝试解析类型
+                    target = parser_parse_type(parser);
+                    if (target != NULL) {
+                        is_type = 1;
+                    }
+                }
+            } else if (parser->current_token->type == TOKEN_AMPERSAND || 
+                      parser->current_token->type == TOKEN_ASTERISK ||
+                      parser->current_token->type == TOKEN_LEFT_BRACKET) {
+                // 指针类型或数组类型开始
+                target = parser_parse_type(parser);
+                if (target != NULL) {
+                    is_type = 1;
+                }
+            }
+        }
+        
+        // 如果不是类型，则解析表达式
+        if (target == NULL) {
+            target = parser_parse_expression(parser);
+            if (target == NULL) {
+                return NULL;
+            }
+            is_type = 0;
+        }
+        
+        alignof_node->data.alignof_expr.target = target;
+        alignof_node->data.alignof_expr.is_type = is_type;
+        
+        // 期望 ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            return NULL;
+        }
+        
+        return alignof_node;
     }
     
     // 解析 len 表达式：len(array)

@@ -8,6 +8,7 @@
 // 类型枚举（Uya Mini 支持的类型）
 typedef enum {
     TYPE_I32,      // 32位有符号整数
+    TYPE_USIZE,    // 平台相关的无符号大小类型（32位平台=u32，64位平台=u64）
     TYPE_BOOL,     // 布尔类型
     TYPE_BYTE,     // 无符号字节（1 字节）
     TYPE_VOID,     // void 类型（仅用于函数返回类型）

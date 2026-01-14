@@ -69,9 +69,10 @@ int codegen_new(CodeGenerator *codegen, Arena *arena, const char *module_name) {
 
 // 获取基础类型的LLVM类型
 // 参数：codegen - 代码生成器指针
-//       type_kind - 类型种类（TypeKind枚举：TYPE_I32, TYPE_BOOL, TYPE_BYTE, TYPE_VOID）
+//       type_kind - 类型种类（TypeKind枚举：TYPE_I32, TYPE_USIZE, TYPE_BOOL, TYPE_BYTE, TYPE_VOID）
 // 返回：LLVM类型引用，失败返回NULL
 // 注意：此函数仅支持基础类型，结构体类型需要使用其他函数
+//       usize 类型大小根据目标平台确定（32位平台=u32，64位平台=u64）
 LLVMTypeRef codegen_get_base_type(CodeGenerator *codegen, TypeKind type_kind) {
     if (!codegen) {
         return NULL;
@@ -81,6 +82,26 @@ LLVMTypeRef codegen_get_base_type(CodeGenerator *codegen, TypeKind type_kind) {
         case TYPE_I32:
             // i32 类型映射到 LLVM Int32 类型（全局类型，不依赖context）
             return LLVMInt32Type();
+            
+        case TYPE_USIZE:
+            // usize 类型：平台相关的无符号大小类型
+            // 根据目标平台的指针大小确定 usize 的大小
+            if (codegen->module) {
+                LLVMTargetDataRef target_data = LLVMGetModuleDataLayout(codegen->module);
+                if (target_data) {
+                    // 获取指针大小（字节数）
+                    unsigned pointer_size = LLVMPointerSize(target_data);
+                    if (pointer_size == 4) {
+                        // 32位平台：usize = u32
+                        return LLVMInt32Type();
+                    } else if (pointer_size == 8) {
+                        // 64位平台：usize = u64
+                        return LLVMInt64Type();
+                    }
+                }
+            }
+            // 如果无法获取目标平台信息，默认使用 64 位（大多数现代平台）
+            return LLVMInt64Type();
             
         case TYPE_BOOL:
             // bool 类型映射到 LLVM Int1 类型（1位整数，更精确，全局类型）
@@ -127,6 +148,8 @@ static LLVMTypeRef get_llvm_type_from_ast(CodeGenerator *codegen, ASTNode *type_
             // 基础类型
             if (strcmp(type_name, "i32") == 0) {
                 return codegen_get_base_type(codegen, TYPE_I32);
+            } else if (strcmp(type_name, "usize") == 0) {
+                return codegen_get_base_type(codegen, TYPE_USIZE);
             } else if (strcmp(type_name, "bool") == 0) {
                 return codegen_get_base_type(codegen, TYPE_BOOL);
             } else if (strcmp(type_name, "byte") == 0) {
@@ -1285,12 +1308,42 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             LLVMTypeRef left_type = LLVMTypeOf(left_val);
             LLVMTypeRef right_type = LLVMTypeOf(right_val);
             
-            // 简化：假设左右操作数类型相同（类型检查应该已经保证）
-            
-            // 算术运算符（i32）
+            // 算术运算符和比较运算符（支持 i32 和 usize 混合运算）
             if (LLVMGetTypeKind(left_type) == LLVMIntegerTypeKind && 
                 LLVMGetTypeKind(right_type) == LLVMIntegerTypeKind) {
                 
+                // 类型提升：如果操作数类型不同，将 i32 提升为 usize
+                unsigned left_width = LLVMGetIntTypeWidth(left_type);
+                unsigned right_width = LLVMGetIntTypeWidth(right_type);
+                
+                // 获取 usize 类型（用于类型提升）
+                LLVMTypeRef usize_type = codegen_get_base_type(codegen, TYPE_USIZE);
+                if (!usize_type) {
+                    return NULL;
+                }
+                unsigned usize_width = LLVMGetIntTypeWidth(usize_type);
+                
+                // 标记是否至少有一个操作数是 usize（用于决定使用有符号还是无符号运算）
+                int is_usize_op = 0;
+                
+                // 如果左操作数是 i32，右操作数是 usize，将左操作数提升为 usize
+                if (left_width == 32 && right_width == usize_width) {
+                    left_val = LLVMBuildZExt(codegen->builder, left_val, usize_type, "");
+                    left_type = usize_type;
+                    is_usize_op = 1;
+                }
+                // 如果左操作数是 usize，右操作数是 i32，将右操作数提升为 usize
+                else if (left_width == usize_width && right_width == 32) {
+                    right_val = LLVMBuildZExt(codegen->builder, right_val, usize_type, "");
+                    right_type = usize_type;
+                    is_usize_op = 1;
+                }
+                // 如果两个操作数都是 usize
+                else if (left_width == usize_width && right_width == usize_width) {
+                    is_usize_op = 1;
+                }
+                
+                // 算术运算符（i32 或 usize）
                 if (op == TOKEN_PLUS) {
                     return LLVMBuildAdd(codegen->builder, left_val, right_val, "");
                 } else if (op == TOKEN_MINUS) {
@@ -1298,25 +1351,40 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 } else if (op == TOKEN_ASTERISK) {
                     return LLVMBuildMul(codegen->builder, left_val, right_val, "");
                 } else if (op == TOKEN_SLASH) {
-                    return LLVMBuildSDiv(codegen->builder, left_val, right_val, "");  // 有符号除法
+                    // 对于 usize，使用无符号除法；对于 i32，使用有符号除法
+                    if (is_usize_op) {
+                        return LLVMBuildUDiv(codegen->builder, left_val, right_val, "");  // 无符号除法
+                    } else {
+                        return LLVMBuildSDiv(codegen->builder, left_val, right_val, "");  // 有符号除法
+                    }
                 } else if (op == TOKEN_PERCENT) {
-                    return LLVMBuildSRem(codegen->builder, left_val, right_val, "");  // 有符号取模
+                    // 对于 usize，使用无符号取模；对于 i32，使用有符号取模
+                    if (is_usize_op) {
+                        return LLVMBuildURem(codegen->builder, left_val, right_val, "");  // 无符号取模
+                    } else {
+                        return LLVMBuildSRem(codegen->builder, left_val, right_val, "");  // 有符号取模
+                    }
                 }
                 
                 // 比较运算符（返回 i1）
+                // 对于 i32 使用有符号比较，对于 usize 使用无符号比较
                 // LLVMBuildICmp 自动返回 i1 类型
                 if (op == TOKEN_EQUAL) {
                     return LLVMBuildICmp(codegen->builder, LLVMIntEQ, left_val, right_val, "");
                 } else if (op == TOKEN_NOT_EQUAL) {
                     return LLVMBuildICmp(codegen->builder, LLVMIntNE, left_val, right_val, "");
                 } else if (op == TOKEN_LESS) {
-                    return LLVMBuildICmp(codegen->builder, LLVMIntSLT, left_val, right_val, "");
+                    LLVMIntPredicate pred = is_usize_op ? LLVMIntULT : LLVMIntSLT;
+                    return LLVMBuildICmp(codegen->builder, pred, left_val, right_val, "");
                 } else if (op == TOKEN_LESS_EQUAL) {
-                    return LLVMBuildICmp(codegen->builder, LLVMIntSLE, left_val, right_val, "");
+                    LLVMIntPredicate pred = is_usize_op ? LLVMIntULE : LLVMIntSLE;
+                    return LLVMBuildICmp(codegen->builder, pred, left_val, right_val, "");
                 } else if (op == TOKEN_GREATER) {
-                    return LLVMBuildICmp(codegen->builder, LLVMIntSGT, left_val, right_val, "");
+                    LLVMIntPredicate pred = is_usize_op ? LLVMIntUGT : LLVMIntSGT;
+                    return LLVMBuildICmp(codegen->builder, pred, left_val, right_val, "");
                 } else if (op == TOKEN_GREATER_EQUAL) {
-                    return LLVMBuildICmp(codegen->builder, LLVMIntSGE, left_val, right_val, "");
+                    LLVMIntPredicate pred = is_usize_op ? LLVMIntUGE : LLVMIntSGE;
+                    return LLVMBuildICmp(codegen->builder, pred, left_val, right_val, "");
                 }
             }
             
@@ -1884,11 +1952,17 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                     size = (width + 7) / 8;  // 向上取整到字节
                     break;
                 }
-                case LLVMPointerTypeKind:
-                    // 指针类型：64位平台为 8 字节，32位平台为 4 字节
-                    // 这里假设 64 位平台（简化实现）
-                    size = 8;
+                case LLVMPointerTypeKind: {
+                    // 指针类型：使用 TargetData API 获取指针大小（平台相关）
+                    LLVMTargetDataRef target_data = LLVMGetModuleDataLayout(codegen->module);
+                    if (target_data) {
+                        size = LLVMPointerSize(target_data);
+                    } else {
+                        // 如果无法获取 TargetData，默认使用 8 字节（64位平台）
+                        size = 8;
+                    }
                     break;
+                }
                 case LLVMArrayTypeKind: {
                     // 数组类型：元素大小 * 元素数量
                     LLVMTypeRef element_type = LLVMGetElementType(llvm_type);
@@ -1900,7 +1974,14 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                         unsigned width = LLVMGetIntTypeWidth(element_type);
                         element_size = (width + 7) / 8;
                     } else if (element_kind == LLVMPointerTypeKind) {
-                        element_size = 8;
+                        // 指针类型：使用 TargetData API 获取指针大小（平台相关）
+                        LLVMTargetDataRef target_data = LLVMGetModuleDataLayout(codegen->module);
+                        if (target_data) {
+                            element_size = LLVMPointerSize(target_data);
+                        } else {
+                            // 如果无法获取 TargetData，默认使用 8 字节（64位平台）
+                            element_size = 8;
+                        }
                     } else if (element_kind == LLVMStructTypeKind) {
                         // 结构体类型的数组：使用 TargetData 获取元素大小
                         LLVMTargetDataRef target_data = LLVMGetModuleDataLayout(codegen->module);
@@ -1936,6 +2017,105 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 return NULL;
             }
             return LLVMConstInt(i32_type, size, 0);  // 无符号整数
+        }
+        
+        case AST_ALIGNOF: {
+            // alignof 表达式：返回类型对齐值（i32 常量）
+            ASTNode *target = expr->data.alignof_expr.target;
+            int is_type = expr->data.alignof_expr.is_type;
+            
+            if (!target) {
+                return NULL;
+            }
+            
+            LLVMTypeRef llvm_type = NULL;
+            
+            if (is_type) {
+                // target 是类型节点
+                llvm_type = get_llvm_type_from_ast(codegen, target);
+            } else {
+                // target 是表达式节点，需要获取类型而不生成代码
+                // 对于标识符（变量），直接从变量表获取类型
+                if (target->type == AST_IDENTIFIER) {
+                    const char *var_name = target->data.identifier.name;
+                    if (!var_name) {
+                        return NULL;
+                    }
+                    llvm_type = lookup_var_type(codegen, var_name);
+                    // 如果变量表中找不到，可能是枚举类型或结构体类型名称（在 alignof 中）
+                    // 尝试作为类型名称处理
+                    if (!llvm_type) {
+                        // 先检查是否是枚举类型（枚举类型在LLVM中就是i32类型）
+                        ASTNode *enum_decl = find_enum_decl(codegen, var_name);
+                        if (enum_decl != NULL) {
+                            llvm_type = codegen_get_base_type(codegen, TYPE_I32);
+                        } else {
+                            // 检查是否是结构体类型
+                            LLVMTypeRef struct_type = codegen_get_struct_type(codegen, var_name);
+                            if (struct_type) {
+                                llvm_type = struct_type;
+                            } else {
+                                return NULL;
+                            }
+                        }
+                    }
+                } else {
+                    // 对于其他表达式类型，生成代码以获取类型
+                    LLVMValueRef target_val = codegen_gen_expr(codegen, target);
+                    if (!target_val) {
+                        return NULL;
+                    }
+                    llvm_type = LLVMTypeOf(target_val);
+                }
+            }
+            
+            if (!llvm_type) {
+                return NULL;
+            }
+            
+            // 获取类型对齐值（字节数）
+            // 使用 TargetData 获取准确的对齐值
+            LLVMTargetDataRef target_data = LLVMGetModuleDataLayout(codegen->module);
+            if (!target_data) {
+                return NULL;  // 模块的 DataLayout 未设置
+            }
+            
+            unsigned long long alignment = 0;
+            
+            LLVMTypeKind kind = LLVMGetTypeKind(llvm_type);
+            switch (kind) {
+                case LLVMIntegerTypeKind: {
+                    // 整数类型：使用 TargetData 获取对齐值
+                    alignment = LLVMABIAlignmentOfType(target_data, llvm_type);
+                    break;
+                }
+                case LLVMPointerTypeKind: {
+                    // 指针类型：使用 TargetData 获取对齐值（平台相关）
+                    alignment = LLVMABIAlignmentOfType(target_data, llvm_type);
+                    break;
+                }
+                case LLVMArrayTypeKind: {
+                    // 数组类型：对齐值等于元素类型的对齐值
+                    LLVMTypeRef element_type = LLVMGetElementType(llvm_type);
+                    alignment = LLVMABIAlignmentOfType(target_data, element_type);
+                    break;
+                }
+                case LLVMStructTypeKind: {
+                    // 结构体类型：使用 TargetData 获取对齐值（等于最大字段对齐值）
+                    alignment = LLVMABIAlignmentOfType(target_data, llvm_type);
+                    break;
+                }
+                default:
+                    // 其他类型，无法计算对齐值
+                    return NULL;
+            }
+            
+            // 创建 i32 常量
+            LLVMTypeRef i32_type = codegen_get_base_type(codegen, TYPE_I32);
+            if (!i32_type) {
+                return NULL;
+            }
+            return LLVMConstInt(i32_type, alignment, 0);  // 无符号整数
         }
         
         case AST_LEN: {
@@ -2016,6 +2196,13 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 unsigned source_width = LLVMGetIntTypeWidth(source_type);
                 unsigned target_width = LLVMGetIntTypeWidth(target_type);
                 
+                // 获取 usize 类型宽度（用于判断 i32 ↔ usize 转换）
+                LLVMTypeRef usize_type = codegen_get_base_type(codegen, TYPE_USIZE);
+                unsigned usize_width = 0;
+                if (usize_type) {
+                    usize_width = LLVMGetIntTypeWidth(usize_type);
+                }
+                
                 if (source_width == 32 && target_width == 8) {
                     // i32 as byte：截断转换（保留低 8 位）
                     return LLVMBuildTrunc(codegen->builder, source_val, target_type, "");
@@ -2033,6 +2220,24 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 } else if (source_width == 1 && target_width == 32) {
                     // bool as i32：true 转换为 1，false 转换为 0（零扩展）
                     return LLVMBuildZExt(codegen->builder, source_val, target_type, "");
+                } else if (source_width == 32 && target_width == usize_width && usize_width > 0) {
+                    // i32 as usize：零扩展转换（如果 usize 是 64 位）或直接使用（如果 usize 是 32 位）
+                    if (usize_width > 32) {
+                        return LLVMBuildZExt(codegen->builder, source_val, target_type, "");
+                    } else {
+                        // 32位平台：usize 也是 32 位，直接返回（虽然类型不同，但宽度相同）
+                        // 实际上在这种情况下，我们可能需要重新解释，但 LLVM 不支持位相同的类型重新解释
+                        // 所以使用零扩展（虽然是 no-op）
+                        return LLVMBuildZExt(codegen->builder, source_val, target_type, "");
+                    }
+                } else if (source_width == usize_width && target_width == 32 && usize_width > 0) {
+                    // usize as i32：截断转换（如果 usize 是 64 位）或直接使用（如果 usize 是 32 位）
+                    if (usize_width > 32) {
+                        return LLVMBuildTrunc(codegen->builder, source_val, target_type, "");
+                    } else {
+                        // 32位平台：usize 也是 32 位，使用截断（虽然是 no-op）
+                        return LLVMBuildTrunc(codegen->builder, source_val, target_type, "");
+                    }
                 }
             }
             

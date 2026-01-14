@@ -39,6 +39,7 @@ typedef enum {
     TOKEN_NULL,         // null（空指针字面量）
     TOKEN_SIZEOF,       // sizeof
     TOKEN_LEN,          // len
+    TOKEN_ALIGNOF,      // alignof
     TOKEN_AS,           // as（类型转换关键字）
     
     // 运算符

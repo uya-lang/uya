@@ -1,0 +1,155 @@
+// usize 类型测试程序
+// 测试 usize 类型的基本功能：变量声明、sizeof、混合运算、类型转换等
+
+fn main() i32 {
+    // 测试1：usize 类型常量声明
+    const usize_const: usize = 0 as usize;
+    if usize_const != 0 as usize {
+        return 1;  // 常量值应该是 0
+    }
+    
+    const usize_const2: usize = 100 as usize;
+    if usize_const2 != 100 as usize {
+        return 2;  // 常量值应该是 100
+    }
+    
+    // 测试2：usize 类型变量声明和赋值
+    var usize_var: usize = 42 as usize;
+    if usize_var != 42 as usize {
+        return 3;  // 变量值应该是 42
+    }
+    
+    usize_var = 200 as usize;
+    if usize_var != 200 as usize {
+        return 4;  // 变量值应该被修改为 200
+    }
+    
+    // 测试3：sizeof(usize) 类型大小（平台相关）
+    const usize_size: i32 = sizeof(usize);
+    // usize 大小应该是 4（32位平台）或 8（64位平台）
+    if usize_size != 4 && usize_size != 8 {
+        return 5;  // usize 应该是 4 或 8 字节（平台字长）
+    }
+    
+    // 测试4：sizeof(usize 变量) 变量大小
+    const usize_var_size: i32 = sizeof(usize_var);
+    if usize_var_size != usize_size {
+        return 6;  // usize 变量大小应该与类型大小相同
+    }
+    
+    // 测试5：usize 指针类型大小（应该等于指针大小）
+    const ptr_usize_size: i32 = sizeof(&usize);
+    const ptr_i32_size: i32 = sizeof(&i32);
+    if ptr_usize_size != ptr_i32_size {
+        return 7;  // usize 指针大小应该与 i32 指针大小相同（平台字长）
+    }
+    
+    // 测试6：验证 usize 大小等于指针大小（规范要求）
+    if usize_size != ptr_usize_size {
+        return 8;  // usize 大小应该等于指针大小
+    }
+    
+    // 测试7：usize 与 i32 混合算术运算（加法）
+    var i32_val: i32 = 10;
+    var usize_val: usize = 20 as usize;
+    var result_usize: usize = (i32_val as usize) + usize_val;
+    if result_usize != 30 as usize {
+        return 9;  // 10 + 20 = 30
+    }
+    
+    // 测试8：usize 与 i32 混合算术运算（减法）
+    var result_usize2: usize = usize_val - (i32_val as usize);
+    if result_usize2 != 10 as usize {
+        return 10;  // 20 - 10 = 10
+    }
+    
+    // 测试9：usize 与 i32 混合算术运算（乘法）
+    var result_usize3: usize = (i32_val as usize) * usize_val;
+    if result_usize3 != 200 as usize {
+        return 11;  // 10 * 20 = 200
+    }
+    
+    // 测试10：两个 usize 运算
+    var usize_a: usize = 15 as usize;
+    var usize_b: usize = 5 as usize;
+    var result_usize4: usize = usize_a + usize_b;
+    if result_usize4 != 20 as usize {
+        return 12;  // 15 + 5 = 20
+    }
+    
+    // 测试11：usize 与 i32 比较运算
+    var i32_val2: i32 = 20;
+    var usize_val2: usize = 20 as usize;
+    if (i32_val2 as usize) != usize_val2 {
+        return 13;  // 20 == 20
+    }
+    
+    if (i32_val2 as usize) < usize_val2 {
+        return 14;  // 20 不应该小于 20
+    }
+    
+    if (i32_val2 as usize) > usize_val2 {
+        return 15;  // 20 不应该大于 20
+    }
+    
+    // 测试12：i32 as usize 类型转换
+    var i32_to_convert: i32 = 123;
+    var usize_from_i32: usize = i32_to_convert as usize;
+    if usize_from_i32 != 123 as usize {
+        return 16;  // i32 as usize 转换应该保持值
+    }
+    
+    // 测试13：usize as i32 类型转换
+    var usize_to_convert: usize = 456 as usize;
+    var i32_from_usize: i32 = usize_to_convert as i32;
+    if i32_from_usize != 456 {
+        return 17;  // usize as i32 转换应该保持值（如果值在 i32 范围内）
+    }
+    
+    // 测试14：alignof(usize) 对齐值
+    const usize_align: i32 = alignof(usize);
+    // usize 对齐值应该等于其大小（自然对齐）
+    if usize_align != usize_size {
+        return 18;  // usize 对齐值应该等于其大小
+    }
+    
+    // 测试15：alignof(usize 变量) 变量对齐值
+    const usize_var_align: i32 = alignof(usize_var);
+    if usize_var_align != usize_align {
+        return 19;  // usize 变量对齐值应该与类型对齐值相同
+    }
+    
+    // 测试16：usize 指针变量声明和初始化
+    var usize_ptr: &usize = &usize_var;
+    if usize_ptr == null {
+        return 20;  // 指针不应该是 null
+    }
+    
+    // 测试17：通过指针读取 usize 值
+    const usize_val_read: usize = *usize_ptr;
+    if usize_val_read != 200 as usize {
+        return 21;  // 通过指针读取的值应该是 200
+    }
+    
+    // 测试18：通过指针修改 usize 值
+    *usize_ptr = 300 as usize;
+    if usize_var != 300 as usize {
+        return 22;  // 通过指针修改后，变量值应该是 300
+    }
+    
+    // 测试19：usize 指针变量大小
+    const usize_ptr_var_size: i32 = sizeof(usize_ptr);
+    if usize_ptr_var_size != ptr_usize_size {
+        return 23;  // usize 指针变量大小应该与指针类型大小相同
+    }
+    
+    // 测试20：null 指针初始化
+    var null_usize_ptr: &usize = null;
+    if null_usize_ptr != null {
+        return 24;  // null_usize_ptr 应该是 null
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+
