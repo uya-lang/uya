@@ -28,7 +28,7 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 - **外部函数调用**：支持 `extern` 关键字，允许 `*T` 作为 FFI 指针参数和返回值
 - **基本控制流**：`if`、`while`、`for`（数组遍历）、`break`、`continue`
 - **基本表达式**：算术运算、逻辑运算、比较运算、函数调用、结构体字段访问、数组访问、类型转换
-- **内置函数**：`sizeof`（类型大小查询）、`len`（数组长度查询）
+- **内置函数**：`sizeof`（类型大小查询）、`len`（数组长度查询）、`alignof`（类型对齐查询）
 
 **不支持的特性**：
 - 接口
@@ -517,8 +517,9 @@ add_expr       = mul_expr { ('+' | '-') mul_expr }
 mul_expr       = cast_expr { ('*' | '/' | '%') cast_expr }
 cast_expr      = unary_expr [ 'as' type ]
 unary_expr     = ('!' | '-' | '&' | '*') unary_expr | primary_expr
-primary_expr   = ID | NUM | 'true' | 'false' | 'null' | STRING | struct_literal | array_literal | member_access | array_access | call_expr | sizeof_expr | len_expr | '(' expr ')'
+primary_expr   = ID | NUM | 'true' | 'false' | 'null' | STRING | struct_literal | array_literal | member_access | array_access | call_expr | sizeof_expr | alignof_expr | len_expr | '(' expr ')'
 sizeof_expr    = 'sizeof' '(' (type | expr) ')'
+alignof_expr   = 'alignof' '(' (type | expr) ')'
 len_expr       = 'len' '(' expr ')'
 struct_literal = ID '{' field_init_list '}'
 array_literal  = '[' expr_list ']'
@@ -728,8 +729,50 @@ const ptr_size_check: i32 = sizeof(&i32);
 
 **设计说明**：
 - Uya Mini 作为最小子集，不依赖模块系统
-- 因此 `sizeof` 作为内置函数而非标准库函数（完整 Uya 中 `sizeof` 是标准库函数，需要 `use std.mem;`）
-- 这简化了使用，无需导入即可使用
+- 因此 `sizeof` 和 `alignof` 作为内置函数，无需导入即可使用
+- 这简化了使用，与 `len` 函数保持一致
+
+#### `alignof(T)` - 类型对齐查询
+
+**语法**：`alignof(Type)` 或 `alignof(expr)`
+
+**功能**：返回类型或表达式的对齐字节数（编译期常量）
+
+**返回值**：`i32`（对齐字节数）
+
+**说明**：
+- `alignof(Type)` - 获取类型的对齐值（编译时计算）
+- `alignof(expr)` - 获取表达式结果类型的对齐值（编译时计算）
+- `alignof([T: N])` - 获取数组类型的对齐值（等于 `alignof(T)`）
+- `alignof(&T)` - 获取指针类型的对齐值（等于指针大小，平台相关）
+- `alignof(usize)` - 获取 `usize` 类型的对齐值（等于类型大小，平台相关）
+- `alignof(struct S)` - 获取结构体类型的对齐值（等于最大字段对齐值）
+- 必须是编译时常量，可在任何需要编译期常量的位置使用
+- 编译器在编译期直接折叠为常数，不生成函数调用
+
+**示例**：
+```uya
+struct Node {
+    value: i32;
+}
+
+const node_align: i32 = alignof(Node);        // 类型对齐（4字节）
+const ptr_align: i32 = alignof(&Node);        // 指针类型对齐（平台相关）
+
+var node: Node = Node{ value: 10 };
+const node_align2: i32 = alignof(node);       // 表达式对齐（与 alignof(Node) 相同）
+
+// 数组类型对齐
+const array_align: i32 = alignof([i32: 10]);  // 等于 alignof(i32) = 4
+
+// usize 类型对齐（平台相关）
+const usize_align: i32 = alignof(usize);  // 32位平台=4，64位平台=8
+```
+
+**设计说明**：
+- Uya Mini 作为最小子集，不依赖模块系统
+- 因此 `alignof` 作为内置函数，无需导入即可使用
+- 这简化了使用，与 `sizeof` 和 `len` 保持一致
 
 #### `len(array)` - 数组长度查询
 
@@ -1172,7 +1215,8 @@ Uya Mini 支持结构体和数组类型，这些特性使得编译器实现更�
 | 字符串 | 字符串字面量（类型为 `*byte`，仅用于 FFI 函数参数） | 完整的字符串支持 |
 | 类型推断 | 不支持 | 不支持（显式类型） |
 | 类型转换 | 支持 `as`（基础类型之间） | 支持 `as` 和 `as!`（完整类型系统） |
-| `sizeof` | 内置函数（无需导入） | 标准库函数（需导入 `std.mem`） |
+| `sizeof` | 内置函数（无需导入） | 内置函数（无需导入） |
+| `alignof` | 内置函数（无需导入） | 内置函数（无需导入） |
 | 代码生成 | LLVM C API → 二进制 | C99 代码 → C 编译器 |
 
 ---
