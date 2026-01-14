@@ -24,8 +24,8 @@ extern fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32;
 extern fn checker_get_error_count(checker: &TypeChecker) i32;
 
 // CodeGen 函数（来自 codegen.uya）
-extern fn codegen_new(codegen: &CodeGenerator, arena: &Arena, module_name: *byte) i32;
-extern fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: *byte) i32;
+extern fn codegen_new(codegen: &CodeGenerator, arena: &Arena, module_name: &byte) i32;
+extern fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) i32;
 
 // ===== 常量定义 =====
 
