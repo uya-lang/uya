@@ -116,7 +116,7 @@ extern fn LLVMCountStructElementTypes(struct_type: *void) i32;  // 获取结构�
 // ===== 常量创建函数 =====
 
 // 整数常量
-extern fn LLVMConstInt(type: *void, value: i64, sign_extend: i32) *void;
+extern fn LLVMConstInt(type: *void, value: usize, sign_extend: i32) *void;
 
 // 空指针常量
 extern fn LLVMConstNull(type: *void) *void;

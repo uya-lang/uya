@@ -388,7 +388,7 @@ fn codegen_register_struct_type(codegen: &CodeGenerator, struct_decl: &ASTNode) 
     }
     
     // 创建LLVM结构体类型
-    const struct_type: *void;
+    var struct_type: *void = null;
     if field_count == 0 {
         // 空结构体
         struct_type = LLVMStructTypeInContext(codegen.context, null, 0, 0);
@@ -833,7 +833,12 @@ fn codegen_gen_struct_comparison(codegen: &CodeGenerator, left_val: *void, right
         if bool_type == null {
             return null;
         }
-        const bool_value: i64 = if is_equal != 0 { 1 } else { 0 };
+        var bool_value: usize = 0;
+        if is_equal != 0 {
+            bool_value = 1;
+        } else {
+            bool_value = 0;
+        }
         return LLVMConstInt(bool_type, bool_value, 0);
     }
     
@@ -957,7 +962,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         if i32_type == null {
             return null;
         }
-        return LLVMConstInt(i32_type, value as i64, 1);  // 1 表示有符号
+        return LLVMConstInt(i32_type, value as usize, 1);  // 1 表示有符号
     } else if expr.type == AST_BOOL {
         // 布尔字面量：创建 i1 常量（true=1, false=0）
         const value: i32 = expr.bool_literal_value;
@@ -965,7 +970,12 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         if bool_type == null {
             return null;
         }
-        const bool_value: i64 = if value != 0 { 1 } else { 0 };
+        var bool_value: usize = 0;
+        if value != 0 {
+            bool_value = 1;
+        } else {
+            bool_value = 0;
+        }
         return LLVMConstInt(bool_type, bool_value, 0);  // 0 表示无符号（布尔值）
     } else if expr.type == AST_STRING {
         // 字符串字面量：创建全局字符串常量，返回指向它的指针（*byte 类型）
@@ -1466,7 +1476,12 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
                 }
                 
                 // 调用结构体比较函数
-                const is_equal: i32 = if op == TOKEN_EQUAL { 1 } else { 0 };
+                var is_equal: i32 = 0;
+                if op == TOKEN_EQUAL {
+                    is_equal = 1;
+                } else {
+                    is_equal = 0;
+                }
                 return codegen_gen_struct_comparison(
                     codegen,
                     left_val,
@@ -1559,7 +1574,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
                             if i32_type == null {
                                 return null;
                             }
-                            return LLVMConstInt(i32_type, enum_value as i64, 0);
+                            return LLVMConstInt(i32_type, enum_value as usize, 0);
                         }
                         // 变体不存在
                         return null;
@@ -1663,7 +1678,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         const i32_type: *void = LLVMInt32Type();
         const indices: [*void: 2] = [
             LLVMConstInt(i32_type, 0, 0),  // 结构体指针本身
-            LLVMConstInt(i32_type, field_index as i64, 0)  // 字段索引
+            LLVMConstInt(i32_type, field_index as usize, 0)  // 字段索引
         ];
         
         const field_ptr: *void = LLVMBuildGEP2(codegen.builder, struct_type, object_ptr, &indices[0] as *void, 2, "");
@@ -1824,7 +1839,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
             const i32_type: *void = LLVMInt32Type();
             const indices: [*void: 2] = [
                 LLVMConstInt(i32_type, 0, 0),  // 结构体指针本身
-                LLVMConstInt(i32_type, field_index as i64, 0)  // 字段索引
+                LLVMConstInt(i32_type, field_index as usize, 0)  // 字段索引
             ];
             
             const field_ptr: *void = LLVMBuildGEP2(codegen.builder, struct_type, struct_ptr, &indices[0] as *void, 2, "" as *byte);
@@ -1891,7 +1906,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
             const i32_type: *void = LLVMInt32Type();
             const indices: [*void: 2] = [
                 LLVMConstInt(i32_type, 0, 0),  // 数组指针本身
-                LLVMConstInt(i32_type, i as i64, 0)  // 元素索引
+                LLVMConstInt(i32_type, i as usize, 0)  // 元素索引
             ];
             
             const element_ptr: *void = LLVMBuildGEP2(codegen.builder, array_type, array_ptr, &indices[0] as *void, 2, "" as *byte);
@@ -1964,13 +1979,13 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         // 获取类型大小（字节数）
         // 注意：这里使用简化实现，对于基础类型直接返回常量
         // 对于复杂类型（结构体、数组），需要使用 TargetData 获取准确大小
-        var size: i64 = 0;
+        var size: usize = 0;
         
         const kind: i32 = LLVMGetTypeKind(llvm_type);
         if kind == LLVMIntegerTypeKind {
             // 整数类型：根据位宽计算字节数
             const width: i32 = LLVMGetIntTypeWidth(llvm_type);
-            size = ((width + 7) / 8) as i64;  // 向上取整到字节
+            size = ((width + 7) / 8) as usize;  // 向上取整到字节
         } else if kind == LLVMPointerTypeKind {
             // 指针类型：使用 TargetData API 获取指针大小（平台相关）
             // 注意：DataLayout 应该在 codegen_generate() 的第零步就已经设置
@@ -1979,36 +1994,36 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
                 // 如果无法获取 TargetData，返回错误（不应该发生，因为 DataLayout 已设置）
                 return null;
             }
-            size = LLVMPointerSize(target_data) as i64;
+            size = LLVMPointerSize(target_data) as usize;
         } else if kind == LLVMArrayTypeKind {
             // 数组类型：元素大小 * 元素数量
             const element_type: *void = LLVMGetElementType(llvm_type);
             const element_count: i32 = LLVMGetArrayLength(llvm_type);
             // 获取元素大小（递归计算）
             const element_kind: i32 = LLVMGetTypeKind(element_type);
-            var element_size: i64 = 0;
+            var element_size: usize = 0;
             if element_kind == LLVMIntegerTypeKind {
                 const width: i32 = LLVMGetIntTypeWidth(element_type);
-                element_size = ((width + 7) / 8) as i64;
+                element_size = ((width + 7) / 8) as usize;
             } else if element_kind == LLVMPointerTypeKind {
                 // 指针类型：使用 TargetData API 获取指针大小（平台相关）
                 const target_data: *void = LLVMGetModuleDataLayout(codegen.module);
                 if target_data == null {
                     return null;
                 }
-                element_size = LLVMPointerSize(target_data) as i64;
+                element_size = LLVMPointerSize(target_data) as usize;
             } else if element_kind == LLVMStructTypeKind {
                 // 结构体类型的数组：使用 TargetData 获取元素大小
                 const target_data: *void = LLVMGetModuleDataLayout(codegen.module);
                 if target_data == null {
                     return null;  // 模块的 DataLayout 未设置
                 }
-                element_size = LLVMStoreSizeOfType(target_data, element_type) as i64;
+                element_size = LLVMStoreSizeOfType(target_data, element_type) as usize;
             } else {
                 // 其他复杂类型，无法计算大小
                 return null;
             }
-            size = element_size * (element_count as i64);
+            size = element_size * (element_count as usize);
         } else if kind == LLVMStructTypeKind {
             // 结构体类型：使用 TargetData 获取准确大小
             const target_data: *void = LLVMGetModuleDataLayout(codegen.module);
@@ -2016,7 +2031,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
                 return null;  // 模块的 DataLayout 未设置
             }
             // 使用 LLVMStoreSizeOfType 获取结构体的存储大小（字节数）
-            size = LLVMStoreSizeOfType(target_data, llvm_type) as i64;
+            size = LLVMStoreSizeOfType(target_data, llvm_type) as usize;
             
             // 特殊处理：空结构体的大小应该是 1 字节（规范要求）
             // LLVM 对空结构体返回 0，但根据规范（2.3.6 节），空结构体大小为 1 字节
@@ -2099,25 +2114,25 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
             return null;  // 模块的 DataLayout 未设置
         }
         
-        var alignment: i64 = 0;
+        var alignment: usize = 0;
         
         const kind: i32 = LLVMGetTypeKind(llvm_type);
         if kind == LLVMIntegerTypeKind {
             // 整数类型：使用 TargetData 获取对齐值
-            alignment = LLVMABIAlignmentOfType(target_data, llvm_type) as i64;
+            alignment = LLVMABIAlignmentOfType(target_data, llvm_type) as usize;
         } else if kind == LLVMPointerTypeKind {
             // 指针类型：使用 TargetData 获取对齐值（平台相关）
-            alignment = LLVMABIAlignmentOfType(target_data, llvm_type) as i64;
+            alignment = LLVMABIAlignmentOfType(target_data, llvm_type) as usize;
         } else if kind == LLVMArrayTypeKind {
             // 数组类型：对齐值等于元素类型的对齐值
             const element_type: *void = LLVMGetElementType(llvm_type);
             if element_type == null {
                 return null;
             }
-            alignment = LLVMABIAlignmentOfType(target_data, element_type) as i64;
+            alignment = LLVMABIAlignmentOfType(target_data, element_type) as usize;
         } else if kind == LLVMStructTypeKind {
             // 结构体类型：使用 TargetData 获取对齐值（等于最大字段对齐值）
-            alignment = LLVMABIAlignmentOfType(target_data, llvm_type) as i64;
+            alignment = LLVMABIAlignmentOfType(target_data, llvm_type) as usize;
         } else {
             // 其他类型，无法计算对齐值
             return null;
@@ -2174,7 +2189,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         if i32_type == null {
             return null;
         }
-        return LLVMConstInt(i32_type, element_count as i64, 0);  // 无符号整数
+        return LLVMConstInt(i32_type, element_count as usize, 0);  // 无符号整数
     } else if expr.type == AST_CAST_EXPR {
         // 类型转换表达式（expr as type）
         const expr_node: &ASTNode = expr.cast_expr_expr;
@@ -2423,7 +2438,7 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) *void {
         const i32_type: *void = LLVMInt32Type();
         const indices: [*void: 2] = [
             LLVMConstInt(i32_type, 0, 0),  // 结构体指针本身
-            LLVMConstInt(i32_type, field_index as i64, 0)  // 字段索引
+            LLVMConstInt(i32_type, field_index as usize, 0)  // 字段索引
         ];
         
         const field_ptr: *void = LLVMBuildGEP2(codegen.builder, struct_type, object_ptr, &indices[0] as *void, 2, "");
@@ -2469,9 +2484,7 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
         var struct_name: &byte = null;
         if var_type.type == AST_TYPE_NAMED {
             const type_name: &byte = var_type.type_named_name;
-            if type_name != null && strcmp(type_name, "i32") != 0 && 
-               strcmp(type_name, "bool") != 0 && strcmp(type_name, "byte") != 0 && 
-               strcmp(type_name, "void") != 0) {
+            if type_name != null && strcmp(type_name, "i32") != 0 && strcmp(type_name, "bool") != 0 && strcmp(type_name, "byte") != 0 && strcmp(type_name, "void") != 0 {
                 // 可能是结构体类型
                 if codegen_get_struct_type(codegen, type_name) != null {
                     struct_name = type_name;  // 名称已经在 Arena 中
@@ -2616,10 +2629,9 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
         var i: i32 = 0;
         while i < stmt_count {
             const stmt_node: &ASTNode = stmt.block_stmts[i];
-                if stmt_node != null {
-                    if codegen_gen_stmt(codegen, stmt_node) != 0 {
-                        return -1;
-                    }
+            if stmt_node != null {
+                if codegen_gen_stmt(codegen, stmt_node) != 0 {
+                    return -1;
                 }
             }
             i = i + 1;
@@ -2796,8 +2808,6 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
             LLVMBuildBr(codegen.builder, cond_bb);
         }
         return 0;
-    }
-    
     } else if stmt.type == AST_FOR_STMT {
         // for 语句：数组遍历循环
         const array_expr: &ASTNode = stmt.for_stmt_array;
@@ -3194,12 +3204,17 @@ fn codegen_gen_global_var(codegen: &CodeGenerator, var_decl: &ASTNode) i32 {
         if init_expr.type == AST_NUMBER {
             const value: i32 = init_expr.number_value;
             if LLVMGetTypeKind(llvm_type) == LLVMIntegerTypeKind {
-                init_val = LLVMConstInt(llvm_type, value as i64, 1);  // 1 表示有符号
+                init_val = LLVMConstInt(llvm_type, value as usize, 1);  // 1 表示有符号
             }
         } else if init_expr.type == AST_BOOL {
             const value: i32 = init_expr.bool_literal_value;
             if LLVMGetTypeKind(llvm_type) == LLVMIntegerTypeKind {
-                const bool_value: i64 = if value != 0 { 1 } else { 0 };
+                var bool_value: usize = 0;
+                if value != 0 {
+                    bool_value = 1;
+                } else {
+                    bool_value = 0;
+                }
                 init_val = LLVMConstInt(llvm_type, bool_value, 0);  // 0 表示无符号（布尔值）
             }
         }
@@ -3239,12 +3254,21 @@ fn codegen_gen_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32 {
     // 直接访问固定大小数组，不需要嵌套指针变量
     
     if func_name == null || return_type_node == null {
-        fprintf(2 as *void, "错误: codegen_gen_function 函数名或返回类型为空: %s\n", if func_name != null { func_name } else { "(null)" as &byte });
+        var func_name_str: &byte = "(null)" as &byte;
+        if func_name != null {
+            func_name_str = func_name;
+        }
+        fprintf(2 as *void, "错误: codegen_gen_function 函数名或返回类型为空: %s\n", func_name_str);
         return -1;
     }
     
     // extern 函数没有函数体，只生成声明
-    const is_extern: i32 = if body == null { 1 } else { 0 };
+    var is_extern: i32 = 0;
+    if body == null {
+        is_extern = 1;
+    } else {
+        is_extern = 0;
+    }
     
     // 获取返回类型
     const return_type: *void = get_llvm_type_from_ast(codegen, return_type_node);
@@ -3549,10 +3573,13 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
             const var_name: &byte = decl.var_decl_name;
                 const result: i32 = codegen_gen_global_var(codegen, decl);
                 if result != 0 {
-                    fprintf(2 as *void, "错误: 全局变量生成失败: %s\n", if var_name != null { var_name } else { "(null)" as &byte });
+                    var var_name_str: &byte = "(null)" as &byte;
+                    if var_name != null {
+                        var_name_str = var_name;
+                    }
+                    fprintf(2 as *void, "错误: 全局变量生成失败: %s\n", var_name_str);
                     return -1;
                 }
-            }
         }
         i = i + 1;
     }
@@ -3567,10 +3594,13 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
             const func_name: &byte = decl.fn_decl_name;
                 const result: i32 = codegen_declare_function(codegen, decl);
                 if result != 0 {
-                    fprintf(2 as *void, "错误: 函数声明失败: %s\n", if func_name != null { func_name } else { "(null)" as &byte });
+                    var func_name_str2: &byte = "(null)" as &byte;
+                    if func_name != null {
+                        func_name_str2 = func_name;
+                    }
+                    fprintf(2 as *void, "错误: 函数声明失败: %s\n", func_name_str2);
                     return -1;
                 }
-            }
         }
         i = i + 1;
     }
@@ -3591,10 +3621,13 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
             const func_name: &byte = decl.fn_decl_name;
                 const result: i32 = codegen_gen_function(codegen, decl);
                 if result != 0 {
-                    fprintf(2 as *void, "错误: 函数代码生成失败: %s\n", if func_name != null { func_name } else { "(null)" as &byte });
+                    var func_name_str3: &byte = "(null)" as &byte;
+                    if func_name != null {
+                        func_name_str3 = func_name;
+                    }
+                    fprintf(2 as *void, "错误: 函数代码生成失败: %s\n", func_name_str3);
                     return -1;  // 函数代码生成失败
                 }
-            }
         }
         i = i + 1;
     }

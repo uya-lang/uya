@@ -140,12 +140,19 @@
 - 更新相应的检查代码（`codegen.c` 中的 `func_map_count >= 64` 改为 `>= 256`）
 **状态**：✅ 已完成 - 函数映射表大小限制已解决，可以编译到第118行（61个函数）
 
-### 问题8：i64 类型不支持（进行中）
+### 问题8：i64 类型不支持（已解决 ✅）
 **问题**：`llvm_api.uya` 中 `LLVMConstInt` 函数使用了 `i64` 类型参数，但 Uya Mini 不支持 `i64` 类型。
 **详情**：
 - Uya Mini 只支持：`i32`, `usize`, `bool`, `byte`, `void`
 - `LLVMConstInt(type: *void, value: i64, sign_extend: i32) *void` 中的 `i64` 类型无法被编译器识别
-**状态**：⏳ 待解决 - 需要找到所有使用 `i64` 的函数，考虑使用 `usize` 替代或扩展 Uya Mini 规范
+**解决方案**：
+- 将 `llvm_api.uya` 中 `LLVMConstInt` 的 `value` 参数类型从 `i64` 改为 `usize`
+- 将 `codegen.uya` 中所有 `i64` 类型声明改为 `usize`（6处变量声明）
+- 将 `codegen.uya` 中所有 `as i64` 类型转换改为 `as usize`（19处类型转换）
+- 修复了所有 `if` 表达式语法（Uya Mini 不支持 `if` 表达式，改为 `if` 语句）
+- 修复了多行条件表达式的语法问题
+- 修复了多余的花括号问题
+**状态**：✅ 已完成 - 所有 `i64` 类型已替换为 `usize`，语法检查通过
 
 ---
 
@@ -213,7 +220,6 @@
 - ✅ 已重新生成 compiler_mini_combined.uya 合并文件（包含所有修复）
 - ✅ 已解决函数映射表大小限制问题（codegen: 64->256, checker: 64->256）
 - ✅ 使用二分删除法定位问题：可以编译到第118行（61个函数）
-- ⏳ 发现类型支持问题：`LLVMConstInt` 使用 `i64` 类型，但 Uya Mini 不支持 `i64`
-- ⏳ 待解决 i64 类型支持问题
+- ✅ 已解决 i64 类型支持问题：将所有 `i64` 替换为 `usize`，语法检查通过
 - ⏳ 待验证自举编译器功能
 
