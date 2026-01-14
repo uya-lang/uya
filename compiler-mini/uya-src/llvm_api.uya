@@ -161,76 +161,76 @@ extern fn LLVMPrintModuleToFile(module: *void, filename: *byte, error_message: *
 extern fn LLVMDisposeMessage(message: *byte) void;
 
 // ===== 枚举常量 =====
-// 这些值在 C 代码中作为整数常量使用，在 Uya Mini 中可以直接使用整数
+// 这些值在 C 代码中作为整数常量使用，在 Uya Mini 中使用 const 常量定义
 
 // LLVMIntPredicate 枚举值（用于 LLVMBuildICmp）
-// LLVMIntEQ = 32
-// LLVMIntNE = 33
-// LLVMIntUGT = 34
-// LLVMIntUGE = 35
-// LLVMIntULT = 36
-// LLVMIntULE = 37
-// LLVMIntSGT = 38
-// LLVMIntSGE = 39
-// LLVMIntSLT = 40
-// LLVMIntSLE = 41
+const LLVMIntEQ: i32 = 32;
+const LLVMIntNE: i32 = 33;
+const LLVMIntUGT: i32 = 34;
+const LLVMIntUGE: i32 = 35;
+const LLVMIntULT: i32 = 36;
+const LLVMIntULE: i32 = 37;
+const LLVMIntSGT: i32 = 38;
+const LLVMIntSGE: i32 = 39;
+const LLVMIntSLT: i32 = 40;
+const LLVMIntSLE: i32 = 41;
 
 // LLVMTypeKind 枚举值（用于 LLVMGetTypeKind）
-// LLVMIntegerTypeKind = 0
-// LLVMFloatTypeKind = 1
-// LLVMDoubleTypeKind = 2
-// LLVMX86_FP80TypeKind = 3
-// LLVMFP128TypeKind = 4
-// LLVMPPC_FP128TypeKind = 5
-// LLVMNullTypeKind = 6
-// LLVMStructTypeKind = 7
-// LLVMArrayTypeKind = 8
-// LLVMPointerTypeKind = 9
-// LLVMVectorTypeKind = 10
-// LLVMFunctionTypeKind = 11
+const LLVMIntegerTypeKind: i32 = 0;
+const LLVMFloatTypeKind: i32 = 1;
+const LLVMDoubleTypeKind: i32 = 2;
+const LLVMX86_FP80TypeKind: i32 = 3;
+const LLVMFP128TypeKind: i32 = 4;
+const LLVMPPC_FP128TypeKind: i32 = 5;
+const LLVMNullTypeKind: i32 = 6;
+const LLVMStructTypeKind: i32 = 7;
+const LLVMArrayTypeKind: i32 = 8;
+const LLVMPointerTypeKind: i32 = 9;
+const LLVMVectorTypeKind: i32 = 10;
+const LLVMFunctionTypeKind: i32 = 11;
 
 // LLVMLinkage 枚举值（用于 LLVMSetLinkage）
-// LLVMExternalLinkage = 0
-// LLVMAvailableExternallyLinkage = 1
-// LLVMLinkOnceAnyLinkage = 2
-// LLVMLinkOnceODRLinkage = 3
-// LLVMWeakAnyLinkage = 4
-// LLVMWeakODRLinkage = 5
-// LLVMAppendingLinkage = 6
-// LLVMInternalLinkage = 7
-// LLVMPrivateLinkage = 8
-// LLVMDLLImportLinkage = 9
-// LLVMDLLExportLinkage = 10
-// LLVMExternalWeakLinkage = 11
-// LLVMGhostLinkage = 12
-// LLVMCommonLinkage = 13
-// LLVMLinkerPrivateLinkage = 14
-// LLVM linkerPrivateWeakLinkage = 15
+const LLVMExternalLinkage: i32 = 0;
+const LLVMAvailableExternallyLinkage: i32 = 1;
+const LLVMLinkOnceAnyLinkage: i32 = 2;
+const LLVMLinkOnceODRLinkage: i32 = 3;
+const LLVMWeakAnyLinkage: i32 = 4;
+const LLVMWeakODRLinkage: i32 = 5;
+const LLVMAppendingLinkage: i32 = 6;
+const LLVMInternalLinkage: i32 = 7;
+const LLVMPrivateLinkage: i32 = 8;
+const LLVMDLLImportLinkage: i32 = 9;
+const LLVMDLLExportLinkage: i32 = 10;
+const LLVMExternalWeakLinkage: i32 = 11;
+const LLVMGhostLinkage: i32 = 12;
+const LLVMCommonLinkage: i32 = 13;
+const LLVMLinkerPrivateLinkage: i32 = 14;
+const LLVMLinkerPrivateWeakLinkage: i32 = 15;
 
 // LLVMCodeGenOptLevel 枚举值（用于 LLVMCreateTargetMachine）
-// LLVMCodeGenLevelNone = 0
-// LLVMCodeGenLevelLess = 1
-// LLVMCodeGenLevelDefault = 2
-// LLVMCodeGenLevelAggressive = 3
+const LLVMCodeGenLevelNone: i32 = 0;
+const LLVMCodeGenLevelLess: i32 = 1;
+const LLVMCodeGenLevelDefault: i32 = 2;
+const LLVMCodeGenLevelAggressive: i32 = 3;
 
 // LLVMRelocMode 枚举值
-// LLVMRelocDefault = 0
-// LLVMRelocStatic = 1
-// LLVMRelocPIC = 2
-// LLVMRelocDynamicNoPic = 3
-// LLVMRelocROPI = 4
-// LLVMRelocRWPI = 5
-// LLVMRelocROPI_RWPI = 6
+const LLVMRelocDefault: i32 = 0;
+const LLVMRelocStatic: i32 = 1;
+const LLVMRelocPIC: i32 = 2;
+const LLVMRelocDynamicNoPic: i32 = 3;
+const LLVMRelocROPI: i32 = 4;
+const LLVMRelocRWPI: i32 = 5;
+const LLVMRelocROPI_RWPI: i32 = 6;
 
 // LLVMCodeModel 枚举值
-// LLVMCodeModelDefault = 0
-// LLVMCodeModelJITDefault = 1
-// LLVMCodeModelSmall = 2
-// LLVMCodeModelKernel = 3
-// LLVMCodeModelMedium = 4
-// LLVMCodeModelLarge = 5
+const LLVMCodeModelDefault: i32 = 0;
+const LLVMCodeModelJITDefault: i32 = 1;
+const LLVMCodeModelSmall: i32 = 2;
+const LLVMCodeModelKernel: i32 = 3;
+const LLVMCodeModelMedium: i32 = 4;
+const LLVMCodeModelLarge: i32 = 5;
 
 // LLVMCodeGenFileType 枚举值（用于 LLVMTargetMachineEmitToFile）
-// LLVMAssemblyFile = 0
-// LLVMObjectFile = 1
+const LLVMAssemblyFile: i32 = 0;
+const LLVMObjectFile: i32 = 1;
 

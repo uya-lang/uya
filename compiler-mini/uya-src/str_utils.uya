@@ -18,6 +18,11 @@ extern fn strncpy(dest: *byte, src: *byte, n: i32) *byte;
 extern fn strcat(dest: *byte, src: *byte) *byte;
 
 // 字符串格式化输出
+// 注意：这些函数使用可变参数（...），需要确认 Uya Mini 是否支持可变参数函数
+// 如果 Uya Mini 不支持可变参数，可能需要：
+// 1. 使用固定参数版本（如 fprintf2, fprintf3 等）
+// 2. 使用字符串拼接函数替代
+// 3. 在实现阶段提供替代方案
 extern fn sprintf(s: *byte, format: *byte, ...) i32;
 extern fn fprintf(stream: *void, format: *byte, ...) i32;
 extern fn snprintf(s: *byte, n: i32, format: *byte, ...) i32;

@@ -1,3 +1,86 @@
 // arena.uya - Arena 分配器模块
-// 待阶段1填充
+// 使用静态缓冲区 + bump pointer 实现无堆分配的内存管理
 
+// 内存对齐边界（字节）
+const ARENA_ALIGNMENT: i32 = 8;
+
+// Arena 分配器结构体
+// 使用静态缓冲区 + bump pointer 实现无堆分配的内存管理
+struct Arena {
+    buffer: &byte;  // 静态缓冲区指针
+    size: i32;      // 缓冲区总大小（字节）
+    offset: i32;     // 当前分配位置（bump pointer）
+}
+
+// 对齐到指定边界
+// 参数：size - 要对齐的大小，align - 对齐边界
+// 返回：对齐后的大小
+// 使用除法方式实现对齐（Uya Mini 不支持按位运算符）
+// 公式：align_up(value, alignment) = ((value + alignment - 1) / alignment) * alignment
+fn align_size(size: i32, align: i32) i32 {
+    return ((size + align - 1) / align) * align;
+}
+
+// 初始化 Arena 分配器
+// 参数：arena - Arena 结构体指针，buffer - 静态缓冲区，size - 缓冲区大小
+// 注意：buffer 必须是一个静态缓冲区（栈上或全局），不能是堆分配的内存
+// 注意：buffer 参数使用 &void 类型以支持任意类型的缓冲区指针
+fn arena_init(arena: &Arena, buffer: &void, size: i32) void {
+    if arena == null {
+        return;
+    }
+    if buffer == null {
+        return;
+    }
+    
+    arena.buffer = buffer as &byte;
+    arena.size = size;
+    arena.offset = 0;
+}
+
+// 从 Arena 分配内存
+// 参数：arena - Arena 分配器指针，size - 要分配的内存大小（字节）
+// 返回：分配的内存指针，如果分配失败（空间不足）返回 null
+// 注意：分配的内存会自动对齐到 8 字节边界
+fn arena_alloc(arena: &Arena, size: i32) &void {
+    if arena == null {
+        return null;
+    }
+    if arena.buffer == null {
+        return null;
+    }
+    
+    // 对齐当前的 offset，确保返回的地址是 8 字节对齐的
+    const aligned_offset: i32 = align_size(arena.offset, ARENA_ALIGNMENT);
+    
+    // 对齐请求的大小
+    const aligned_size: i32 = align_size(size, ARENA_ALIGNMENT);
+    
+    // 检查是否有足够空间
+    if aligned_offset + aligned_size > arena.size {
+        return null;  // 空间不足
+    }
+    
+    // 计算返回的地址（buffer + 对齐后的 offset）
+    // 在 Uya Mini 中，使用数组索引访问：&buffer[offset] 来获取偏移后的地址
+    // buffer 是 &byte 类型，buffer[aligned_offset] 访问元素，&buffer[aligned_offset] 获取地址
+    // 将 &byte 转换为 &void 以支持任意类型的指针返回
+    const result: &void = &arena.buffer[aligned_offset] as &void;
+    
+    // 更新 offset（移动到对齐后的位置 + 分配的大小）
+    arena.offset = aligned_offset + aligned_size;
+    
+    return result;
+}
+
+// 重置 Arena 分配器
+// 参数：arena - Arena 分配器指针
+// 将 bump pointer 重置到开始位置，释放所有已分配的内存
+// 注意：不会清除缓冲区内容，只是重置指针
+fn arena_reset(arena: &Arena) void {
+    if arena == null {
+        return;
+    }
+    
+    arena.offset = 0;
+}
