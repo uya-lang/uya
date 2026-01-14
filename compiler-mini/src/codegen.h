@@ -42,7 +42,7 @@ typedef struct CodeGenerator {
         const char *name;           // 函数名称（存储在 Arena 中）
         LLVMValueRef func;          // LLVM 函数值
         LLVMTypeRef func_type;      // LLVM 函数类型（函数签名类型，用于 LLVMBuildCall2）
-    } func_map[64];                 // 固定大小（最多支持64个函数）
+    } func_map[256];                // 固定大小（最多支持256个函数）
     int func_map_count;             // 当前函数数量
     
     // 全局变量映射表（固定大小数组，存储全局变量名到LLVM全局变量值和类型的映射）

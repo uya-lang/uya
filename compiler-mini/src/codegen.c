@@ -940,7 +940,7 @@ static int add_func(CodeGenerator *codegen, const char *func_name, LLVMValueRef 
     }
     
     // 检查映射表是否已满
-    if (codegen->func_map_count >= 64) {
+    if (codegen->func_map_count >= 256) {
         return -1;  // 映射表已满
     }
     
