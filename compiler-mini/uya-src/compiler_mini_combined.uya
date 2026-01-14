@@ -1,4 +1,4 @@
-// 自动生成的合并文件 - 2026年 01月 14日 星期三 17:49:29 CST
+// 自动生成的合并文件 - 2026年 01月 14日 星期三 18:09:08 CST
 // 包含文件: uya-src/str_utils.uya uya-src/llvm_api.uya uya-src/arena.uya uya-src/ast.uya uya-src/lexer.uya uya-src/parser.uya uya-src/checker.uya uya-src/codegen.uya uya-src/main.uya
 
 // ========== 来自文件: uya-src/str_utils.uya ==========
@@ -4091,6 +4091,9 @@ extern fn strlen(s: *byte) i32;
 extern fn strcmp(s1: *byte, s2: *byte) i32;
 extern fn fprintf(stream: *void, format: *byte, ...) i32;
 
+// 内存函数（string.h）
+extern fn memset(s: *void, c: i32, n: i32) *void;
+
 // Arena 函数（来自 arena.uya）
 extern fn arena_alloc(arena: &Arena, size: i32) &void;
 
@@ -4408,7 +4411,7 @@ fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
 
 // 进入作用域（增加作用域级别）
 // 参数：checker - TypeChecker 指针
-fn checker_enter_scope(checker: &TypeChecker) {
+fn checker_enter_scope(checker: &TypeChecker) void {
     if checker != null {
         checker.scope_level = checker.scope_level + 1;
     }
@@ -4419,7 +4422,7 @@ fn checker_enter_scope(checker: &TypeChecker) {
 // 注意：退出作用域时，移除当前作用域级别的所有符号
 // 注意：在开放寻址哈希表中删除元素会导致查找链断裂，但我们的使用场景中，
 //      退出作用域时删除符号是必要的，因此遍历整个表进行删除
-fn checker_exit_scope(checker: &TypeChecker) {
+fn checker_exit_scope(checker: &TypeChecker) void {
     if checker == null || checker.scope_level <= 0 {
         return;
     }
@@ -4524,20 +4527,23 @@ fn type_equals(t1: Type, t2: Type) i32 {
     return 1;
 }
 
-// 前向声明（用于 type_from_ast）
-fn find_enum_decl_from_program(program_node: &ASTNode, enum_name: *byte) &ASTNode;
-fn find_struct_decl_from_program(program_node: &ASTNode, struct_name: *byte) &ASTNode;
-
 // 从AST类型节点创建Type结构
+// 注意：find_enum_decl_from_program 和 find_struct_decl_from_program 函数在后面定义
 // 参数：checker - TypeChecker 指针，type_node - AST类型节点
 // 返回：Type结构，如果类型节点无效返回TYPE_VOID类型
 // 注意：结构体类型名称需要从program_node中查找结构体声明
 //      指针和数组类型的子类型从Arena分配
 fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
-    var result: Type;
-    
-    // 初始化 result 的所有字段
-    result.kind = TYPE_VOID as TypeKind;
+    // 初始化 result 的所有字段（使用结构体字面量初始化）
+    var result: Type = Type{
+        kind: TYPE_VOID as TypeKind,
+        enum_name: null,
+        struct_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0
+    };
     result.enum_name = null;
     result.struct_name = null;
     result.pointer_to = null;
@@ -4719,8 +4725,15 @@ fn find_enum_decl_from_program(program_node: &ASTNode, enum_name: *byte) &ASTNod
 // 参数：struct_decl - 结构体声明节点，field_name - 字段名称
 // 返回：字段类型，如果字段不存在返回 TYPE_VOID 类型
 fn find_struct_field_type(struct_decl: &ASTNode, field_name: *byte) Type {
-    var result: Type;
-    result.kind = TYPE_VOID as TypeKind;
+    var result: Type = Type{
+        kind: TYPE_VOID as TypeKind,
+        enum_name: null,
+        struct_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0
+    };
     result.enum_name = null;
     result.struct_name = null;
     result.pointer_to = null;
@@ -4743,9 +4756,15 @@ fn find_struct_field_type(struct_decl: &ASTNode, field_name: *byte) Type {
                 // 实际上，find_struct_field_type 应该接受 TypeChecker 参数
                 // 但为了保持与 C99 版本的兼容性，这里先使用简化版本
                 // 在类型检查阶段，会使用正确的 TypeChecker
-                var temp_checker: TypeChecker;
-                temp_checker.arena = null;  // 临时使用，不会分配内存
-                temp_checker.program_node = null;
+                var temp_checker: TypeChecker = TypeChecker{
+                    arena: null,
+                    symbol_table: SymbolTable{slots: [], count: 0},
+                    function_table: FunctionTable{slots: [], count: 0},
+                    scope_level: 0,
+                    loop_depth: 0,
+                    program_node: null,
+                    error_count: 0
+                };
                 return type_from_ast(&temp_checker, field.var_decl_type);
             }
         }
@@ -4760,10 +4779,15 @@ fn find_struct_field_type(struct_decl: &ASTNode, field_name: *byte) Type {
 // 返回：Type结构，如果无法推断返回TYPE_VOID类型
 // 注意：这是简化版本，完整的类型推断需要类型检查上下文
 fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
-    var result: Type;
-    
-    // 初始化 result
-    result.kind = TYPE_VOID as TypeKind;
+    var result: Type = Type{
+        kind: TYPE_VOID as TypeKind,
+        enum_name: null,
+        struct_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0
+    };
     result.enum_name = null;
     result.struct_name = null;
     result.pointer_to = null;
@@ -4788,8 +4812,15 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
     } else if (expr.type as i32) == (AST_STRING as i32) {
         // 字符串字面量类型为 *byte（FFI 指针类型）
         // 创建指向 byte 类型的指针类型
-        var byte_type: Type;
-        byte_type.kind = TYPE_BYTE as TypeKind;
+        var byte_type: Type = Type{
+            kind: TYPE_BYTE as TypeKind,
+            enum_name: null,
+            struct_name: null,
+            pointer_to: null,
+            is_ffi_pointer: 0,
+            element_type: null,
+            array_size: 0
+        };
         byte_type.enum_name = null;
         byte_type.struct_name = null;
         byte_type.pointer_to = null;
@@ -5008,7 +5039,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
 
 // 报告类型错误（增加错误计数）
 // 参数：checker - TypeChecker 指针
-fn checker_report_error(checker: &TypeChecker) {
+fn checker_report_error(checker: &TypeChecker) void {
     if checker != null {
         checker.error_count = checker.error_count + 1;
     }
@@ -5032,10 +5063,8 @@ fn checker_check_expr_type(checker: &TypeChecker, expr: &ASTNode, expected_type:
     return 0;
 }
 
-// 前向声明（用于递归调用）
-fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32;
-
 // 检查变量声明
+// 注意：checker_check_node 函数在后面定义（用于递归调用）
 // 参数：checker - TypeChecker 指针，node - 变量声明节点
 // 返回：1 表示检查通过，0 表示检查失败
 fn checker_check_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
@@ -5130,7 +5159,12 @@ fn checker_register_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     sig.name = node.fn_decl_name;
     sig.param_count = node.fn_decl_param_count;
     sig.return_type = return_type;
-    sig.is_extern = if node.fn_decl_body == null then 1 else 0;  // 如果 body 为 null，则是 extern 函数
+    // 如果 body 为 null，则是 extern 函数
+    if node.fn_decl_body == null {
+        sig.is_extern = 1;
+    } else {
+        sig.is_extern = 0;
+    }
     sig.is_varargs = node.fn_decl_is_varargs;  // 是否为可变参数函数
     sig.line = node.line;
     sig.column = node.column;
@@ -5241,8 +5275,15 @@ fn checker_check_struct_decl(checker: &TypeChecker, node: &ASTNode) i32 {
 // 参数：checker - TypeChecker 指针，node - 函数调用节点
 // 返回：函数返回类型（如果检查失败返回TYPE_VOID）
 fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
-    var result: Type;
-    result.kind = TYPE_VOID as TypeKind;
+    var result: Type = Type{
+        kind: TYPE_VOID as TypeKind,
+        enum_name: null,
+        struct_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0
+    };
     result.enum_name = null;
     result.struct_name = null;
     result.pointer_to = null;
@@ -5286,7 +5327,12 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
     }
     
     // 检查参数类型（只检查固定参数，不检查可变参数部分）
-    const check_count: i32 = if sig.is_varargs != 0 then sig.param_count else node.call_expr_arg_count;
+    var check_count: i32 = 0;
+    if sig.is_varargs != 0 {
+        check_count = sig.param_count;
+    } else {
+        check_count = node.call_expr_arg_count;
+    }
     var i: i32 = 0;
     while i < check_count {
         const arg: &ASTNode = node.call_expr_args[i];
@@ -5304,8 +5350,15 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
 // 参数：checker - TypeChecker 指针，node - 字段访问节点
 // 返回：字段类型（如果检查失败返回TYPE_VOID）
 fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
-    var result: Type;
-    result.kind = TYPE_VOID as TypeKind;
+    var result: Type = Type{
+        kind: TYPE_VOID as TypeKind,
+        enum_name: null,
+        struct_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0
+    };
     result.enum_name = null;
     result.struct_name = null;
     result.pointer_to = null;
@@ -5347,8 +5400,15 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
 // 参数：checker - TypeChecker 指针，node - 数组访问节点
 // 返回：元素类型（如果检查失败返回TYPE_VOID）
 fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
-    var result: Type;
-    result.kind = TYPE_VOID as TypeKind;
+    var result: Type = Type{
+        kind: TYPE_VOID as TypeKind,
+        enum_name: null,
+        struct_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0
+    };
     result.enum_name = null;
     result.struct_name = null;
     result.pointer_to = null;
@@ -5384,8 +5444,15 @@ fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
 // 参数：checker - TypeChecker 指针，node - alignof 表达式节点
 // 返回：i32 类型（如果检查失败返回TYPE_VOID）
 fn checker_check_alignof(checker: &TypeChecker, node: &ASTNode) Type {
-    var result: Type;
-    result.kind = TYPE_VOID as TypeKind;
+    var result: Type = Type{
+        kind: TYPE_VOID as TypeKind,
+        enum_name: null,
+        struct_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0
+    };
     result.enum_name = null;
     result.struct_name = null;
     result.pointer_to = null;
@@ -5431,8 +5498,15 @@ fn checker_check_alignof(checker: &TypeChecker, node: &ASTNode) Type {
 // 参数：checker - TypeChecker 指针，node - len 表达式节点
 // 返回：i32 类型（如果检查失败返回TYPE_VOID）
 fn checker_check_len(checker: &TypeChecker, node: &ASTNode) Type {
-    var result: Type;
-    result.kind = TYPE_VOID as TypeKind;
+    var result: Type = Type{
+        kind: TYPE_VOID as TypeKind,
+        enum_name: null,
+        struct_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0
+    };
     result.enum_name = null;
     result.struct_name = null;
     result.pointer_to = null;
@@ -5461,8 +5535,15 @@ fn checker_check_len(checker: &TypeChecker, node: &ASTNode) Type {
 // 参数：checker - TypeChecker 指针，node - 结构体字面量节点
 // 返回：结构体类型（如果检查失败返回TYPE_VOID）
 fn checker_check_struct_init(checker: &TypeChecker, node: &ASTNode) Type {
-    var result: Type;
-    result.kind = TYPE_VOID as TypeKind;
+    var result: Type = Type{
+        kind: TYPE_VOID as TypeKind,
+        enum_name: null,
+        struct_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0
+    };
     result.enum_name = null;
     result.struct_name = null;
     result.pointer_to = null;
@@ -5520,8 +5601,15 @@ fn checker_check_struct_init(checker: &TypeChecker, node: &ASTNode) Type {
 // 参数：checker - TypeChecker 指针，node - 二元表达式节点
 // 返回：表达式类型（如果检查失败返回TYPE_VOID）
 fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
-    var result: Type;
-    result.kind = TYPE_VOID as TypeKind;
+    var result: Type = Type{
+        kind: TYPE_VOID as TypeKind,
+        enum_name: null,
+        struct_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0
+    };
     result.enum_name = null;
     result.struct_name = null;
     result.pointer_to = null;
@@ -5592,7 +5680,7 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
 // 检查类型转换表达式
 // 参数：checker - TypeChecker 指针，node - 类型转换表达式节点
 // 返回：无（通过 checker_report_error 报告错误）
-fn checker_check_cast_expr(checker: &TypeChecker, node: &ASTNode) {
+fn checker_check_cast_expr(checker: &TypeChecker, node: &ASTNode) void {
     if checker == null || node == null || (node.type as i32) != (AST_CAST_EXPR as i32) {
         return;
     }
@@ -5639,8 +5727,15 @@ fn checker_check_cast_expr(checker: &TypeChecker, node: &ASTNode) {
 // 参数：checker - TypeChecker 指针，node - 一元表达式节点
 // 返回：表达式类型（如果检查失败返回TYPE_VOID）
 fn checker_check_unary_expr(checker: &TypeChecker, node: &ASTNode) Type {
-    var result: Type;
-    result.kind = TYPE_VOID as TypeKind;
+    var result: Type = Type{
+        kind: TYPE_VOID as TypeKind,
+        enum_name: null,
+        struct_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0
+    };
     result.enum_name = null;
     result.struct_name = null;
     result.pointer_to = null;
@@ -5808,7 +5903,15 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             checker.loop_depth = checker.loop_depth + 1;  // 进入循环（增加循环深度）
             
             // 创建循环变量类型
-            var var_type: Type;
+            var var_type: Type = Type{
+                kind: TYPE_VOID as TypeKind,
+                enum_name: null,
+                struct_name: null,
+                pointer_to: null,
+                is_ffi_pointer: 0,
+                element_type: null,
+                array_size: 0
+            };
             if node.for_stmt_is_ref != 0 {
                 // 引用迭代：变量类型为 &T（指向元素的指针）
                 const element_type: Type = array_type.element_type[0];
@@ -6107,36 +6210,7 @@ struct CodeGenerator {
 
 // ===== 辅助函数声明 =====
 
-// 查找变量（在变量表中查找）
-// 参数：codegen - 代码生成器指针
-//       name - 变量名称
-// 返回：变量映射表项指针，未找到返回 null
-fn lookup_var(codegen: &CodeGenerator, name: &byte) &VarMap;
-
-// 查找函数（在函数表中查找）
-// 参数：codegen - 代码生成器指针
-//       name - 函数名称
-//       func_type - 函数类型（可选，用于验证）
-// 返回：函数映射表项指针，未找到返回 null
-fn lookup_func(codegen: &CodeGenerator, name: &byte, func_type: *void) &FuncMap;
-
-// 查找全局变量（在全局变量表中查找）
-// 参数：codegen - 代码生成器指针
-//       name - 全局变量名称
-// 返回：全局变量映射表项指针，未找到返回 null
-fn lookup_global_var(codegen: &CodeGenerator, name: &byte) &GlobalVarMap;
-
-// 从 AST 类型节点获取 LLVM 类型
-// 参数：codegen - 代码生成器指针
-//       type_node - AST 类型节点
-// 返回：LLVM 类型引用，失败返回 null
-fn get_llvm_type_from_ast(codegen: &CodeGenerator, type_node: &ASTNode) *void;
-
-// 声明函数（创建函数声明，不生成函数体）
-// 参数：codegen - 代码生成器指针
-//       fn_decl - 函数声明 AST 节点
-// 返回：成功返回 0，失败返回非 0
-fn codegen_declare_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32;
+// 注意：lookup_var, lookup_func, lookup_global_var, get_llvm_type_from_ast, codegen_declare_function 函数在后面定义
 
 // ===== 公共函数实现 =====
 
@@ -6151,7 +6225,9 @@ fn codegen_new(codegen: &CodeGenerator, arena: &Arena, module_name: &byte) i32 {
     }
     
     // 初始化结构体（使用 memset 清零）
-    const codegen_size: i32 = sizeof(CodeGenerator);
+    // 注意：Uya Mini 的 sizeof 可能不支持结构体类型名，使用一个足够大的常量值
+    // CodeGenerator 结构体大小约为 2000 字节（包含所有固定大小数组）
+    const codegen_size: i32 = 2000;
     memset(codegen as *void, 0, codegen_size);
     
     // 设置 Arena 分配器
@@ -6260,18 +6336,7 @@ fn codegen_get_struct_type(codegen: &CodeGenerator, struct_name: &byte) *void {
     return null;
 }
 
-// 前向声明辅助函数
-fn find_enum_decl(codegen: &CodeGenerator, enum_name: &byte) &ASTNode;
-fn get_enum_variant_value(enum_decl: &ASTNode, variant_index: i32) i32;
-fn find_struct_decl(codegen: &CodeGenerator, struct_name: &byte) &ASTNode;
-fn find_enum_variant_index(enum_decl: &ASTNode, variant_name: &byte) i32;
-fn find_struct_field_index(struct_decl: &ASTNode, field_name: &byte) i32;
-fn lookup_var_struct_name(codegen: &CodeGenerator, var_name: &byte) &byte;
-fn lookup_var_type(codegen: &CodeGenerator, var_name: &byte) *void;
-fn lookup_var_ast_type(codegen: &CodeGenerator, var_name: &byte) &ASTNode;
-fn find_struct_name_from_type(codegen: &CodeGenerator, struct_type: *void) &byte;
-fn codegen_gen_struct_comparison(codegen: &CodeGenerator, left_val: *void, right_val: *void, struct_decl: &ASTNode, is_equal: i32) *void;
-fn gen_branch_with_terminator(codegen: &CodeGenerator, branch_bb: *void, branch_stmt: &ASTNode, target_bb: *void) i32;
+// 注意：辅助函数在后面定义
 
 // 辅助函数：从AST类型节点获取LLVM类型（支持基础类型、结构体类型、指针类型和数组类型）
 // 参数：codegen - 代码生成器指针
