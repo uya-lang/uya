@@ -23,11 +23,61 @@ fi
 
 # 创建构建输出目录
 mkdir -p "$BUILD_DIR"
+mkdir -p "$BUILD_DIR/multifile"
 
 echo "开始运行 Uya 测试程序..."
 echo ""
 
-# 遍历所有 .uya 文件
+# 处理多文件编译测试（multifile 子目录）
+MULTIFILE_DIR="$TEST_DIR/multifile"
+if [ -d "$MULTIFILE_DIR" ]; then
+    # 收集所有 .uya 文件
+    multifile_list=()
+    for uya_file in "$MULTIFILE_DIR"/*.uya; do
+        if [ -f "$uya_file" ]; then
+            multifile_list+=("$uya_file")
+        fi
+    done
+    
+    if [ ${#multifile_list[@]} -gt 0 ]; then
+        test_name="multifile"
+        echo "测试: $test_name (多文件编译)"
+        
+        # 多文件编译：将所有文件一起编译
+        $COMPILER "${multifile_list[@]}" -o "$BUILD_DIR/multifile/${test_name}.o"
+        if [ $? -ne 0 ]; then
+            echo "  ❌ 编译失败"
+            FAILED=$((FAILED + 1))
+        else
+            # 检查是否生成了 .o 文件，如果没有则尝试使用无扩展名的文件
+            if [ ! -f "$BUILD_DIR/multifile/${test_name}.o" ]; then
+                # 如果没有 .o 文件，可能生成了无扩展名的文件
+                if [ -f "$BUILD_DIR/multifile/${test_name}" ]; then
+                    mv "$BUILD_DIR/multifile/${test_name}" "$BUILD_DIR/multifile/${test_name}.o"
+                fi
+            fi
+            # 链接目标文件为可执行文件
+            gcc -no-pie "$BUILD_DIR/multifile/${test_name}.o" -o "$BUILD_DIR/multifile/$test_name"
+            if [ $? -ne 0 ]; then
+                echo "  ❌ 链接失败"
+                FAILED=$((FAILED + 1))
+            else
+                # 运行
+                "$BUILD_DIR/multifile/$test_name"
+                exit_code=$?
+                if [ $exit_code -eq 0 ]; then
+                    echo "  ✓ 测试通过"
+                    PASSED=$((PASSED + 1))
+                else
+                    echo "  ❌ 测试失败（退出码: $exit_code）"
+                    FAILED=$((FAILED + 1))
+                fi
+            fi
+        fi
+    fi
+fi
+
+# 遍历所有单文件 .uya 文件（排除 multifile 目录）
 for uya_file in "$TEST_DIR"/*.uya; do
     if [ -f "$uya_file" ]; then
         base_name=$(basename "$uya_file" .uya)

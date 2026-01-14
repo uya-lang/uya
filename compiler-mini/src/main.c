@@ -15,6 +15,9 @@
 // 但栈上分配不能太大，使用 2MB 作为折中（避免栈溢出）
 #define ARENA_BUFFER_SIZE (2 * 1024 * 1024)  // 2MB（增加缓冲区以支持大型文件编译）
 
+// 最大输入文件数量
+#define MAX_INPUT_FILES 64
+
 // 读取文件内容到缓冲区
 // 参数：filename - 文件名
 //       buffer - 缓冲区（固定大小数组）
@@ -51,24 +54,26 @@ static int read_file_content(const char *filename, char *buffer, size_t buffer_s
 // 打印使用说明
 // 参数：program_name - 程序名称
 static void print_usage(const char *program_name) {
-    fprintf(stderr, "用法: %s <输入文件> -o <输出文件>\n", program_name);
+    fprintf(stderr, "用法: %s [输入文件...] -o <输出文件>\n", program_name);
     fprintf(stderr, "示例: %s program.uya -o program\n", program_name);
+    fprintf(stderr, "示例: %s file1.uya file2.uya file3.uya -o output\n", program_name);
 }
 
 // 解析命令行参数
 // 参数：argc - 参数数量
 //       argv - 参数数组
-//       input_file - 输出参数：输入文件名
+//       input_files - 输出参数：输入文件名数组（由调用者分配，大小至少为 MAX_INPUT_FILES）
+//       input_file_count - 输出参数：输入文件数量
 //       output_file - 输出参数：输出文件名
 // 返回：成功返回0，失败返回-1
-static int parse_args(int argc, char *argv[], const char **input_file, const char **output_file) {
+static int parse_args(int argc, char *argv[], const char *input_files[], int *input_file_count, const char **output_file) {
     if (argc < 4) {
         print_usage(argv[0]);
         return -1;
     }
     
-    // 简单的参数解析：程序名 <输入文件> -o <输出文件>
-    *input_file = NULL;
+    // 简单的参数解析：程序名 [输入文件...] -o <输出文件>
+    *input_file_count = 0;
     *output_file = NULL;
     
     for (int i = 1; i < argc; i++) {
@@ -82,16 +87,16 @@ static int parse_args(int argc, char *argv[], const char **input_file, const cha
             }
         } else if (argv[i][0] != '-') {
             // 非选项参数，应该是输入文件
-            if (*input_file == NULL) {
-                *input_file = argv[i];
-            } else {
-                fprintf(stderr, "错误: 只能指定一个输入文件\n");
+            if (*input_file_count >= MAX_INPUT_FILES) {
+                fprintf(stderr, "错误: 输入文件数量超过最大限制 (%d)\n", MAX_INPUT_FILES);
                 return -1;
             }
+            input_files[*input_file_count] = argv[i];
+            (*input_file_count)++;
         }
     }
     
-    if (*input_file == NULL) {
+    if (*input_file_count == 0) {
         fprintf(stderr, "错误: 未指定输入文件\n");
         print_usage(argv[0]);
         return -1;
@@ -107,82 +112,95 @@ static int parse_args(int argc, char *argv[], const char **input_file, const cha
 }
 
 // 主编译函数
-// 协调所有编译阶段：词法分析 → 语法分析 → 类型检查 → 代码生成
-// 参数：input_file - 输入文件名
+// 协调所有编译阶段：词法分析 → 语法分析 → AST 合并 → 类型检查 → 代码生成
+// 参数：input_files - 输入文件名数组
+//       input_file_count - 输入文件数量
 //       output_file - 输出文件名
 // 返回：成功返回0，失败返回非0
-static int compile_file(const char *input_file, const char *output_file) {
-    // 文件读取缓冲区（栈上分配）
-    char file_buffer[FILE_BUFFER_SIZE];
-    int file_size = read_file_content(input_file, file_buffer, FILE_BUFFER_SIZE);
-    if (file_size < 0) {
-        fprintf(stderr, "错误: 无法读取文件 '%s'\n", input_file);
-        return 1;
-    }
-    
+static int compile_files(const char *input_files[], int input_file_count, const char *output_file) {
     // Arena 分配器缓冲区（栈上分配）
     uint8_t arena_buffer[ARENA_BUFFER_SIZE];
     
-    // 初始化所有结构体（栈上分配）
+    // 初始化 Arena 分配器（所有文件共享同一个 Arena）
     Arena arena;
-    Lexer lexer;
-    Parser parser;
-    TypeChecker checker;
-    CodeGenerator codegen;
-    
-    // 初始化 Arena 分配器
     arena_init(&arena, arena_buffer, ARENA_BUFFER_SIZE);
-    fprintf(stderr, "[调试] 文件大小: %d 字节，Arena 缓冲区: %d 字节\n", file_size, ARENA_BUFFER_SIZE);
     
-    // 1. 词法分析
-    fprintf(stderr, "[调试] 开始词法分析...\n");
-    if (lexer_init(&lexer, file_buffer, (size_t)file_size, input_file, &arena) != 0) {
-        fprintf(stderr, "错误: Lexer 初始化失败\n");
+    // 存储每个文件的 AST_PROGRAM 节点（栈上分配，只存储指针）
+    ASTNode *programs[MAX_INPUT_FILES];
+    
+    // 单个文件的缓冲区（栈上分配，每次处理一个文件）
+    char file_buffer[FILE_BUFFER_SIZE];
+    
+    // 解析每个文件
+    for (int i = 0; i < input_file_count; i++) {
+        const char *input_file = input_files[i];
+        
+        // 读取文件内容
+        int file_size = read_file_content(input_file, file_buffer, FILE_BUFFER_SIZE);
+        if (file_size < 0) {
+            fprintf(stderr, "错误: 无法读取文件 '%s'\n", input_file);
+            return 1;
+        }
+        
+        // 1. 词法分析
+        Lexer lexer;
+        if (lexer_init(&lexer, file_buffer, (size_t)file_size, input_file, &arena) != 0) {
+            fprintf(stderr, "错误: Lexer 初始化失败: %s\n", input_file);
+            return 1;
+        }
+        
+        // 2. 语法分析
+        Parser parser;
+        if (parser_init(&parser, &lexer, &arena) != 0) {
+            fprintf(stderr, "错误: Parser 初始化失败: %s\n", input_file);
+            return 1;
+        }
+        
+        ASTNode *ast = parser_parse(&parser);
+        if (ast == NULL) {
+            fprintf(stderr, "错误: 语法分析失败: %s\n", input_file);
+            // 错误信息已在 parser_parse 中输出
+            return 1;
+        }
+        
+        if (ast->type != AST_PROGRAM) {
+            fprintf(stderr, "错误: 解析结果不是程序节点: %s\n", input_file);
+            return 1;
+        }
+        
+        programs[i] = ast;
+    }
+    
+    // 3. 合并所有 AST_PROGRAM 节点
+    ASTNode *merged_ast = ast_merge_programs(programs, input_file_count, &arena);
+    if (merged_ast == NULL) {
+        fprintf(stderr, "错误: AST 合并失败\n");
         return 1;
     }
-    fprintf(stderr, "[调试] 词法分析完成\n");
     
-    // 2. 语法分析
-    fprintf(stderr, "[调试] 开始语法分析...\n");
-    if (parser_init(&parser, &lexer, &arena) != 0) {
-        fprintf(stderr, "错误: Parser 初始化失败\n");
-        return 1;
-    }
-    
-    ASTNode *ast = parser_parse(&parser);
-    if (ast == NULL) {
-        fprintf(stderr, "[调试] 语法分析失败\n");
-        // 错误信息已在 parser_parse 中输出
-        return 1;
-    }
-    fprintf(stderr, "[调试] 语法分析完成，AST 节点类型: %d\n", ast->type);
-    
-    // 3. 类型检查
-    fprintf(stderr, "[调试] 开始类型检查...\n");
+    // 4. 类型检查
+    TypeChecker checker;
     if (checker_init(&checker, &arena) != 0) {
         fprintf(stderr, "错误: TypeChecker 初始化失败\n");
         return 1;
     }
     
-    if (checker_check(&checker, ast) != 0) {
+    if (checker_check(&checker, merged_ast) != 0) {
         fprintf(stderr, "错误: 类型检查失败（错误数量: %d）\n", checker_get_error_count(&checker));
         return 1;
     }
-    fprintf(stderr, "[调试] 类型检查完成\n");
     
-    // 4. 代码生成
-    fprintf(stderr, "[调试] 开始代码生成...\n");
-    // 使用输入文件名（去掉扩展名）作为模块名
-    const char *module_name = input_file;  // 简化：直接使用输入文件名
+    // 5. 代码生成
+    // 使用第一个输入文件名作为模块名
+    const char *module_name = input_files[0];
     
-    fprintf(stderr, "[调试] 初始化 CodeGenerator，模块名: %s\n", module_name);
+    CodeGenerator codegen;
     if (codegen_new(&codegen, &arena, module_name) != 0) {
         fprintf(stderr, "错误: CodeGenerator 初始化失败\n");
         return 1;
     }
-    fprintf(stderr, "[调试] CodeGenerator 初始化成功\n");
     
-    if (codegen_generate(&codegen, ast, output_file) != 0) {
+    if (codegen_generate(&codegen, merged_ast, output_file) != 0) {
         fprintf(stderr, "错误: 代码生成失败\n");
         return 1;
     }
@@ -192,16 +210,17 @@ static int compile_file(const char *input_file, const char *output_file) {
 
 // 主函数
 int main(int argc, char *argv[]) {
-    const char *input_file = NULL;
+    const char *input_files[MAX_INPUT_FILES];
+    int input_file_count = 0;
     const char *output_file = NULL;
     
     // 解析命令行参数
-    if (parse_args(argc, argv, &input_file, &output_file) != 0) {
+    if (parse_args(argc, argv, input_files, &input_file_count, &output_file) != 0) {
         return 1;
     }
     
     // 编译文件
-    int result = compile_file(input_file, output_file);
+    int result = compile_files(input_files, input_file_count, output_file);
     
     return result;
 }

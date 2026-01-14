@@ -254,5 +254,12 @@ typedef struct ASTNode ASTNode;
 // 返回：新创建的 AST 节点指针，失败返回 NULL
 ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena);
 
+// 合并多个 AST_PROGRAM 节点为一个程序节点
+// 参数：programs - AST_PROGRAM 节点数组
+//       count - 程序节点数量
+//       arena - Arena 分配器
+// 返回：合并后的 AST_PROGRAM 节点，失败返回 NULL
+ASTNode *ast_merge_programs(ASTNode **programs, int count, Arena *arena);
+
 #endif // AST_H
 

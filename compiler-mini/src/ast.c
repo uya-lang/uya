@@ -162,3 +162,62 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena) {
     return node;
 }
 
+// 合并多个 AST_PROGRAM 节点为一个程序节点
+// 参数：programs - AST_PROGRAM 节点数组
+//       count - 程序节点数量
+//       arena - Arena 分配器
+// 返回：合并后的 AST_PROGRAM 节点，失败返回 NULL
+ASTNode *ast_merge_programs(ASTNode **programs, int count, Arena *arena) {
+    if (programs == NULL || count <= 0 || arena == NULL) {
+        return NULL;
+    }
+    
+    // 验证所有输入节点都是 AST_PROGRAM 类型
+    for (int i = 0; i < count; i++) {
+        if (programs[i] == NULL || programs[i]->type != AST_PROGRAM) {
+            return NULL;
+        }
+    }
+    
+    // 计算所有程序节点的声明总数
+    int total_decl_count = 0;
+    for (int i = 0; i < count; i++) {
+        total_decl_count += programs[i]->data.program.decl_count;
+    }
+    
+    // 创建新的 AST_PROGRAM 节点
+    // 使用第一个程序节点的行号和列号
+    ASTNode *merged = ast_new_node(AST_PROGRAM, programs[0]->line, programs[0]->column, arena);
+    if (merged == NULL) {
+        return NULL;
+    }
+    
+    // 如果总声明数为 0，直接返回空程序节点
+    if (total_decl_count == 0) {
+        merged->data.program.decls = NULL;
+        merged->data.program.decl_count = 0;
+        return merged;
+    }
+    
+    // 分配声明数组（使用 Arena）
+    ASTNode **decls = (ASTNode **)arena_alloc(arena, sizeof(ASTNode *) * total_decl_count);
+    if (decls == NULL) {
+        return NULL;
+    }
+    
+    // 遍历所有程序节点，复制声明到新数组
+    int decl_index = 0;
+    for (int i = 0; i < count; i++) {
+        ASTNode *program = programs[i];
+        for (int j = 0; j < program->data.program.decl_count; j++) {
+            decls[decl_index++] = program->data.program.decls[j];
+        }
+    }
+    
+    // 设置合并后的程序节点
+    merged->data.program.decls = decls;
+    merged->data.program.decl_count = total_decl_count;
+    
+    return merged;
+}
+
