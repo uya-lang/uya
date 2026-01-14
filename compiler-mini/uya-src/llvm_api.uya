@@ -111,6 +111,7 @@ extern fn LLVMGetIntTypeWidth(type: *void) i32;
 extern fn LLVMGetArrayLength(array_type: *void) i32;
 extern fn LLVMGetFirstBasicBlock(func: *void) *void;
 extern fn LLVMGetBasicBlockTerminator(basic_block: *void) *void;
+extern fn LLVMCountStructElementTypes(struct_type: *void) i32;  // 获取结构体字段数量
 
 // ===== 常量创建函数 =====
 
@@ -141,6 +142,8 @@ extern fn LLVMGetModuleDataLayout(module: *void) *void;
 extern fn LLVMPointerSize(target_data: *void) i32;
 extern fn LLVMCreateTargetDataLayout(target_machine: *void) *void;
 extern fn LLVMDisposeTargetData(target_data: *void) void;
+extern fn LLVMStoreSizeOfType(target_data: *void, type: *void) i32;  // 获取类型的存储大小（字节数）
+extern fn LLVMABIAlignmentOfType(target_data: *void, type: *void) i32;  // 获取类型的 ABI 对齐值（字节数）
 
 // ===== 目标代码生成函数 =====
 
