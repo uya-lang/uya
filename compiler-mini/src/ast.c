@@ -44,6 +44,7 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena) {
             node->data.fn_decl.param_count = 0;
             node->data.fn_decl.return_type = NULL;
             node->data.fn_decl.body = NULL;
+            node->data.fn_decl.is_varargs = 0;
             break;
         case AST_VAR_DECL:
             node->data.var_decl.name = NULL;

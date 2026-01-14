@@ -560,6 +560,73 @@ void test_check_extern_function_call_type_mismatch(void) {
     printf("  ✓ 调用extern函数的类型检查（参数类型不匹配）测试通过\n");
 }
 
+// 测试可变参数函数声明类型检查（正确情况）
+void test_check_varargs_function_decl(void) {
+    printf("测试可变参数函数声明类型检查（正确情况）...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    TypeChecker checker;
+    checker_init(&checker, &arena);
+    
+    const char *source = "extern fn printf(fmt: *byte, ...) i32;";
+    ASTNode *program = parse_source(source, &arena);
+    assert(program != NULL);
+    
+    int result = checker_check(&checker, program);
+    assert(result == 0);
+    assert(checker_get_error_count(&checker) == 0);
+    
+    printf("  ✓ 可变参数函数声明类型检查测试通过\n");
+}
+
+// 测试调用可变参数函数的类型检查（正确情况）
+void test_check_varargs_function_call(void) {
+    printf("测试调用可变参数函数的类型检查（正确情况）...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    TypeChecker checker;
+    checker_init(&checker, &arena);
+    
+    const char *source = 
+        "extern fn printf(fmt: *byte, ...) i32;\n"
+        "fn main() i32 { const x: i32 = printf(\"test\"); return 0; }";
+    ASTNode *program = parse_source(source, &arena);
+    assert(program != NULL);
+    
+    int result = checker_check(&checker, program);
+    assert(result == 0);
+    assert(checker_get_error_count(&checker) == 0);
+    
+    printf("  ✓ 调用可变参数函数的类型检查测试通过\n");
+}
+
+// 测试调用可变参数函数的类型检查（参数不足）
+void test_check_varargs_function_call_insufficient_args(void) {
+    printf("测试调用可变参数函数的类型检查（参数不足）...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    TypeChecker checker;
+    checker_init(&checker, &arena);
+    
+    const char *source = 
+        "extern fn printf(fmt: *byte, ...) i32;\n"
+        "fn main() i32 { const x: i32 = printf(); return 0; }";
+    ASTNode *program = parse_source(source, &arena);
+    assert(program != NULL);
+    
+    int result = checker_check(&checker, program);
+    assert(result == 0);
+    assert(checker_get_error_count(&checker) > 0);  // 应该有错误（参数不足）
+    
+    printf("  ✓ 调用可变参数函数的类型检查（参数不足）测试通过\n");
+}
+
 // 测试 len 表达式类型检查（正确情况）
 void test_check_len_expr_correct(void) {
     printf("测试 len 表达式类型检查（正确情况）...\n");
@@ -631,6 +698,9 @@ int main(void) {
     test_check_extern_function_decl();
     test_check_extern_function_call();
     test_check_extern_function_call_type_mismatch();
+    test_check_varargs_function_decl();
+    test_check_varargs_function_call();
+    test_check_varargs_function_call_insufficient_args();
     test_check_len_expr_correct();
     test_check_len_expr_type_error();
     

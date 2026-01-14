@@ -797,22 +797,32 @@ ASTNode *parser_parse_extern_function(Parser *parser) {
     fn_decl->data.fn_decl.param_count = 0;
     fn_decl->data.fn_decl.return_type = NULL;
     fn_decl->data.fn_decl.body = NULL;  // extern 函数没有函数体
+    fn_decl->data.fn_decl.is_varargs = 0;  // 默认不是可变参数函数
     
     // 期望 '('
     if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
         return NULL;
     }
     
-    // 解析参数列表（可选，与普通函数相同）
+    // 解析参数列表（可选，支持可变参数）
     ASTNode **params = NULL;
     int param_count = 0;
     int param_capacity = 0;
+    int is_varargs = 0;
     
     if (!parser_match(parser, TOKEN_RIGHT_PAREN)) {
         // 有参数
         while (parser->current_token != NULL && 
                !parser_match(parser, TOKEN_RIGHT_PAREN) && 
                !parser_match(parser, TOKEN_EOF)) {
+            
+            // 检查是否为可变参数标记（...）
+            if (parser_match(parser, TOKEN_ELLIPSIS)) {
+                // 可变参数标记必须是参数列表的最后一个元素
+                parser_consume(parser);  // 消费 '...'
+                is_varargs = 1;
+                break;  // 遇到 ... 后退出循环
+            }
             
             // 解析参数名称
             if (!parser_match(parser, TOKEN_IDENTIFIER)) {
@@ -877,6 +887,9 @@ ASTNode *parser_parse_extern_function(Parser *parser) {
             // 检查是否有逗号
             if (parser_match(parser, TOKEN_COMMA)) {
                 parser_consume(parser);
+            } else if (parser_match(parser, TOKEN_ELLIPSIS)) {
+                // 逗号后紧跟 ...，也是合法的
+                // 不消费逗号，让下次循环处理 ...
             }
         }
     }
@@ -901,6 +914,7 @@ ASTNode *parser_parse_extern_function(Parser *parser) {
     fn_decl->data.fn_decl.param_count = param_count;
     fn_decl->data.fn_decl.return_type = return_type;
     fn_decl->data.fn_decl.body = NULL;  // extern 函数没有函数体
+    fn_decl->data.fn_decl.is_varargs = is_varargs;
     
     return fn_decl;
 }

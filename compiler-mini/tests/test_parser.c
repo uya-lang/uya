@@ -471,6 +471,38 @@ void test_parse_extern_function_with_params(void) {
     printf("  ✓ extern函数声明（带参数）解析测试通过\n");
 }
 
+// 测试解析可变参数extern函数声明
+void test_parse_extern_function_varargs(void) {
+    printf("测试解析可变参数extern函数声明...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "extern fn printf(fmt: *byte, ...) i32;";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Parser parser;
+    parser_init(&parser, &lexer, &arena);
+    
+    ASTNode *decl = parser_parse_declaration(&parser);
+    assert(decl != NULL);
+    assert(decl->type == AST_FN_DECL);
+    assert(strcmp(decl->data.fn_decl.name, "printf") == 0);
+    assert(decl->data.fn_decl.param_count == 1);  // 只有一个固定参数
+    assert(decl->data.fn_decl.is_varargs == 1);  // 是可变参数函数
+    assert(decl->data.fn_decl.return_type != NULL);
+    assert(strcmp(decl->data.fn_decl.return_type->data.type_named.name, "i32") == 0);
+    assert(decl->data.fn_decl.body == NULL);  // extern函数没有函数体
+    
+    // 检查参数
+    assert(decl->data.fn_decl.params != NULL);
+    assert(decl->data.fn_decl.params[0]->type == AST_VAR_DECL);
+    assert(strcmp(decl->data.fn_decl.params[0]->data.var_decl.name, "fmt") == 0);
+    
+    printf("  ✓ 可变参数extern函数声明解析测试通过\n");
+}
+
 // 测试解析包含extern函数声明的程序
 void test_parse_program_with_extern_function(void) {
     printf("测试解析包含extern函数声明的程序...\n");
@@ -803,6 +835,7 @@ int main(void) {
     test_parse_assign_expr();
     test_parse_extern_function_no_params();
     test_parse_extern_function_with_params();
+    test_parse_extern_function_varargs();
     test_parse_program_with_extern_function();
     test_parse_pointer_type();
     test_parse_ffi_pointer_type();

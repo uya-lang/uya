@@ -50,9 +50,10 @@ typedef struct Symbol {
 typedef struct FunctionSignature {
     const char *name;           // 函数名称（存储在 Arena 中）
     Type *param_types;          // 参数类型数组（从 Arena 分配）
-    int param_count;            // 参数数量
+    int param_count;            // 参数数量（固定参数数量，不包括可变参数）
     Type return_type;           // 返回类型
     int is_extern;              // 是否为 extern 函数
+    int is_varargs;             // 是否为可变参数函数（1 表示是，0 表示否，仅用于 extern 函数）
     int line;                   // 行号
     int column;                 // 列号
 } FunctionSignature;

@@ -387,7 +387,7 @@ field          = ID ':' type ';'
 ```
 fn_decl        = 'fn' ID '(' [ param_list ] ')' type '{' statements '}'
                 | 'extern' 'fn' ID '(' [ param_list ] ')' type ';'
-param_list     = param { ',' param }
+param_list     = param { ',' param } [ ',' '...' ]
 param          = ID ':' type
 ```
 
@@ -415,6 +415,12 @@ param          = ID ':' type
     - 基础类型：`i32`、`usize`、`bool`、`byte`、`void`、结构体类型
     - FFI 指针类型：`*T`（如 `*byte`、`*void`、`*i32` 等）
   - 注意：`*T` 类型仅用于 extern 函数声明/调用，不能用于普通变量声明
+  - **可变参数支持**：
+    - 使用 `...` 表示可变参数列表（C 风格的变参函数）
+    - 语法：`extern fn name(param1: type1, param2: type2, ...) return_type;`
+    - `...` 必须是参数列表的最后一个元素
+    - 可变参数函数的调用必须提供至少等于固定参数数量的参数
+    - 示例：`extern printf(fmt: *byte, ...) i32;`
   - 示例：
     ```uya
     // 声明外部 C 函数
@@ -425,10 +431,19 @@ param          = ID ':' type
     extern fn fopen(filename: *byte, mode: *byte) *FILE;
     extern fn strcmp(s1: *byte, s2: *byte) i32;
     
+    // 可变参数函数声明
+    extern fn printf(fmt: *byte, ...) i32;
+    extern fn sprintf(buf: *byte, fmt: *byte, ...) i32;
+    
     fn main() i32 {
         llvm_context_create();
         // 字符串字面量可以作为 extern 函数参数
         const result: i32 = strcmp("i32", "i32");  // 字符串字面量类型为 *byte
+        
+        // 调用可变参数函数
+        printf("Hello, world!\n");
+        printf("x = %d, y = %d\n", 10, 20);
+        
         return result;
     }
     ```
@@ -620,6 +635,10 @@ arg_list       = expr { ',' expr }
   - 函数名必须是已声明的函数
   - 参数个数和类型必须匹配
   - 返回值类型必须匹配上下文要求
+  - **可变参数函数调用**：
+    - 可变参数函数调用必须提供至少等于固定参数数量的参数
+    - 可变参数部分可以传递任意数量的额外参数
+    - 编译器进行有限的编译期检查（参数数量至少满足固定参数要求）
 
 ---
 

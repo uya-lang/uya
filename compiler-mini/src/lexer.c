@@ -356,6 +356,12 @@ Token *lexer_next_token(Lexer *lexer, Arena *arena) {
             return make_token(arena, TOKEN_COMMA, ",", line, column);
         case '.':
             advance_char(lexer);
+            // 检查是否为 ...（可变参数）
+            if (peek_char(lexer, 0) == '.' && peek_char(lexer, 1) == '.') {
+                advance_char(lexer);  // 消费第二个 .
+                advance_char(lexer);  // 消费第三个 .
+                return make_token(arena, TOKEN_ELLIPSIS, "...", line, column);
+            }
             return make_token(arena, TOKEN_DOT, ".", line, column);
         case ':':
             advance_char(lexer);

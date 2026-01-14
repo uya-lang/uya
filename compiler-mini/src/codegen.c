@@ -2990,8 +2990,9 @@ static int codegen_declare_function(CodeGenerator *codegen, ASTNode *fn_decl) {
         }
     }
     
-    // 创建函数类型
-    LLVMTypeRef func_type = LLVMFunctionType(return_type, param_types, param_count, 0);
+    // 创建函数类型（最后一个参数 isVarArg 表示是否为可变参数函数）
+    int is_varargs = fn_decl->data.fn_decl.is_varargs;
+    LLVMTypeRef func_type = LLVMFunctionType(return_type, param_types, param_count, is_varargs);
     if (!func_type) {
         return -1;
     }

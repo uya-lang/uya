@@ -89,6 +89,7 @@ struct ASTNode {
             int param_count;          // 参数数量
             struct ASTNode *return_type;     // 返回类型（类型节点）
             struct ASTNode *body;            // 函数体（AST_BLOCK 节点）
+            int is_varargs;           // 是否为可变参数函数（1 表示是，0 表示否，仅用于 extern 函数）
         } fn_decl;
         
         // 变量声明（用于变量声明、函数参数、结构体字段）

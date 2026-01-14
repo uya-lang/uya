@@ -882,6 +882,7 @@ static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node) {
     sig->param_count = node->data.fn_decl.param_count;
     sig->return_type = return_type;
     sig->is_extern = (node->data.fn_decl.body == NULL) ? 1 : 0;  // 如果 body 为 NULL，则是 extern 函数
+    sig->is_varargs = node->data.fn_decl.is_varargs;  // 是否为可变参数函数
     sig->line = node->line;
     sig->column = node->column;
     
@@ -1006,13 +1007,25 @@ static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
     }
     
     // 检查参数个数
-    if (node->data.call_expr.arg_count != sig->param_count) {
-        checker_report_error(checker);
-        return result;
+    // 对于可变参数函数，参数个数必须 >= 固定参数数量
+    // 对于普通函数，参数个数必须 == 固定参数数量
+    if (sig->is_varargs) {
+        // 可变参数函数：参数个数必须 >= 固定参数数量
+        if (node->data.call_expr.arg_count < sig->param_count) {
+            checker_report_error(checker);
+            return result;
+        }
+    } else {
+        // 普通函数：参数个数必须 == 固定参数数量
+        if (node->data.call_expr.arg_count != sig->param_count) {
+            checker_report_error(checker);
+            return result;
+        }
     }
     
-    // 检查参数类型
-    for (int i = 0; i < node->data.call_expr.arg_count; i++) {
+    // 检查参数类型（只检查固定参数，不检查可变参数部分）
+    int check_count = (sig->is_varargs) ? sig->param_count : node->data.call_expr.arg_count;
+    for (int i = 0; i < check_count; i++) {
         ASTNode *arg = node->data.call_expr.args[i];
         if (arg != NULL && !checker_check_expr_type(checker, arg, sig->param_types[i])) {
             // 参数类型不匹配

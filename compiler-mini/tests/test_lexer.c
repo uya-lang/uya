@@ -203,6 +203,33 @@ void test_eof_token(void) {
     printf("  ✓ EOF Token 测试通过\n");
 }
 
+// 测试可变参数标记（...）识别
+void test_ellipsis_token(void) {
+    printf("测试可变参数标记（...）识别...\n");
+    
+    Arena arena;
+    arena_init(&arena, test_buffer, TEST_BUFFER_SIZE);
+    
+    Lexer lexer;
+    const char *source = "...";
+    lexer_init(&lexer, source, strlen(source), "test.uya", &arena);
+    
+    Token *token = lexer_next_token(&lexer, &arena);
+    assert(token != NULL);
+    assert(token_equals(token, TOKEN_ELLIPSIS, "..."));
+    
+    // 测试单独的点不会误识别为 ...
+    arena_reset(&arena);
+    const char *source2 = ".";
+    lexer_init(&lexer, source2, strlen(source2), "test.uya", &arena);
+    
+    token = lexer_next_token(&lexer, &arena);
+    assert(token != NULL);
+    assert(token_equals(token, TOKEN_DOT, "."));
+    
+    printf("  ✓ 可变参数标记（...）识别测试通过\n");
+}
+
 // 主测试函数
 int main(void) {
     printf("开始 Lexer 测试...\n\n");
@@ -216,6 +243,7 @@ int main(void) {
     test_whitespace_skip();
     test_comment_skip();
     test_eof_token();
+    test_ellipsis_token();
     
     printf("\n所有测试通过！\n");
     return 0;

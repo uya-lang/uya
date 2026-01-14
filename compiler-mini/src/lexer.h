@@ -72,6 +72,7 @@ typedef enum {
     TOKEN_DOT,          // .
     TOKEN_COLON,        // :
     TOKEN_PIPE,         // |（用于 for 循环）
+    TOKEN_ELLIPSIS,     // ...（可变参数，用于 extern 函数声明）
 } TokenType;
 
 // Token 结构体
