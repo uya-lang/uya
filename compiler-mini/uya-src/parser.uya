@@ -1135,3 +1135,1607 @@ fn parser_parse(parser: &Parser) &ASTNode {
     
     return program;
 }
+
+// ===== 表达式解析函数 =====
+
+// 解析基础表达式
+// 支持：数字、标识符、布尔字面量、括号表达式、函数调用、结构体字面量、字段访问
+// 参数：parser - Parser 指针
+// 返回：表达式节点，失败返回 null
+fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    const line: i32 = parser.current_token.line;
+    const column: i32 = parser.current_token.column;
+    
+    // 解析数字字面量
+    if parser.current_token.type == TOKEN_NUMBER {
+        const node: &ASTNode = ast_new_node(AST_NUMBER, line, column, parser.arena);
+        if node == null {
+            return null;
+        }
+        
+        // 将字符串转换为整数
+        const value: i32 = atoi(parser.current_token.value as *byte);
+        node.number_value = value;
+        
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析布尔字面量
+    if parser.current_token.type == TOKEN_TRUE {
+        const node: &ASTNode = ast_new_node(AST_BOOL, line, column, parser.arena);
+        if node == null {
+            return null;
+        }
+        
+        node.bool_literal_value = 1;  // true
+        
+        parser_consume(parser);
+        return node;
+    }
+    
+    if parser.current_token.type == TOKEN_FALSE {
+        const node: &ASTNode = ast_new_node(AST_BOOL, line, column, parser.arena);
+        if node == null {
+            return null;
+        }
+        
+        node.bool_literal_value = 0;  // false
+        
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析字符串字面量
+    if parser.current_token.type == TOKEN_STRING {
+        const node: &ASTNode = ast_new_node(AST_STRING, line, column, parser.arena);
+        if node == null {
+            return null;
+        }
+        
+        // 复制字符串内容到 Arena（token 的 value 已经在 Arena 中）
+        const str_value: &byte = parser.current_token.value;
+        if str_value == null {
+            return null;
+        }
+        
+        // 字符串内容已经在 token 中，直接使用（token 的 value 存储在 Arena 中）
+        node.string_literal_value = str_value;
+        
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析 null 字面量（null 被解析为标识符节点，在代码生成阶段通过字符串比较识别）
+    if parser.current_token.type == TOKEN_NULL {
+        const node: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena);
+        if node == null {
+            return null;
+        }
+        
+        // 复制 "null" 字符串到 Arena（代码生成器会通过字符串比较识别）
+        const null_name: &byte = arena_strdup_for_parser(parser.arena, parser.current_token.value);
+        if null_name == null {
+            return null;
+        }
+        node.identifier_name = null_name;
+        
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析 sizeof 表达式：sizeof(Type) 或 sizeof(expr)
+    if parser.current_token.type == TOKEN_SIZEOF {
+        parser_consume(parser);  // 消费 'sizeof'
+        
+        // 期望 '('
+        if parser_expect(parser, TOKEN_LEFT_PAREN) == null {
+            return null;
+        }
+        
+        const sizeof_node: &ASTNode = ast_new_node(AST_SIZEOF, line, column, parser.arena);
+        if sizeof_node == null {
+            return null;
+        }
+        
+        // 尝试解析类型，如果失败则解析表达式
+        // 先检查是否是类型语法（基础类型或 struct 关键字）
+        var is_type: i32 = 0;
+        var target: &ASTNode = null;
+        
+        if parser.current_token != null {
+            if parser.current_token.type == TOKEN_IDENTIFIER {
+                const type_name: *byte = parser.current_token.value as *byte;
+                // 检查是否是基础类型或 struct 关键字
+                if strcmp(type_name, "i32" as *byte) == 0 || 
+                   strcmp(type_name, "usize" as *byte) == 0 ||
+                   strcmp(type_name, "bool" as *byte) == 0 || 
+                   strcmp(type_name, "byte" as *byte) == 0 ||
+                   strcmp(type_name, "void" as *byte) == 0 ||
+                   strcmp(type_name, "struct" as *byte) == 0 {
+                    // 尝试解析类型
+                    target = parser_parse_type(parser);
+                    if target != null {
+                        is_type = 1;
+                    }
+                }
+            } else if parser.current_token.type == TOKEN_AMPERSAND || 
+                      parser.current_token.type == TOKEN_ASTERISK ||
+                      parser.current_token.type == TOKEN_LEFT_BRACKET {
+                // 指针类型或数组类型开始
+                target = parser_parse_type(parser);
+                if target != null {
+                    is_type = 1;
+                }
+            }
+        }
+        
+        // 如果不是类型，则解析表达式
+        if target == null {
+            target = parser_parse_expression(parser);
+            if target == null {
+                return null;
+            }
+            is_type = 0;
+        }
+        
+        sizeof_node.sizeof_expr_target = target;
+        sizeof_node.sizeof_expr_is_type = is_type;
+        
+        // 期望 ')'
+        if parser_expect(parser, TOKEN_RIGHT_PAREN) == null {
+            return null;
+        }
+        
+        return sizeof_node;
+    }
+    
+    // 解析 alignof 表达式：alignof(Type) 或 alignof(expr)
+    if parser.current_token.type == TOKEN_ALIGNOF {
+        parser_consume(parser);  // 消费 'alignof'
+        
+        // 期望 '('
+        if parser_expect(parser, TOKEN_LEFT_PAREN) == null {
+            return null;
+        }
+        
+        const alignof_node: &ASTNode = ast_new_node(AST_ALIGNOF, line, column, parser.arena);
+        if alignof_node == null {
+            return null;
+        }
+        
+        // 尝试解析类型，如果失败则解析表达式
+        // 先检查是否是类型语法（基础类型或 struct 关键字）
+        var is_type: i32 = 0;
+        var target: &ASTNode = null;
+        
+        if parser.current_token != null {
+            if parser.current_token.type == TOKEN_IDENTIFIER {
+                const type_name: *byte = parser.current_token.value as *byte;
+                // 检查是否是基础类型或 struct 关键字
+                if strcmp(type_name, "i32" as *byte) == 0 || 
+                   strcmp(type_name, "usize" as *byte) == 0 ||
+                   strcmp(type_name, "bool" as *byte) == 0 || 
+                   strcmp(type_name, "byte" as *byte) == 0 ||
+                   strcmp(type_name, "void" as *byte) == 0 ||
+                   strcmp(type_name, "struct" as *byte) == 0 {
+                    // 尝试解析类型
+                    target = parser_parse_type(parser);
+                    if target != null {
+                        is_type = 1;
+                    }
+                }
+            } else if parser.current_token.type == TOKEN_AMPERSAND || 
+                      parser.current_token.type == TOKEN_ASTERISK ||
+                      parser.current_token.type == TOKEN_LEFT_BRACKET {
+                // 指针类型或数组类型开始
+                target = parser_parse_type(parser);
+                if target != null {
+                    is_type = 1;
+                }
+            }
+        }
+        
+        // 如果不是类型，则解析表达式
+        if target == null {
+            target = parser_parse_expression(parser);
+            if target == null {
+                return null;
+            }
+            is_type = 0;
+        }
+        
+        alignof_node.alignof_expr_target = target;
+        alignof_node.alignof_expr_is_type = is_type;
+        
+        // 期望 ')'
+        if parser_expect(parser, TOKEN_RIGHT_PAREN) == null {
+            return null;
+        }
+        
+        return alignof_node;
+    }
+    
+    // 解析 len 表达式：len(array)
+    if parser.current_token.type == TOKEN_LEN {
+        parser_consume(parser);  // 消费 'len'
+        
+        // 期望 '('
+        if parser_expect(parser, TOKEN_LEFT_PAREN) == null {
+            return null;
+        }
+        
+        const len_node: &ASTNode = ast_new_node(AST_LEN, line, column, parser.arena);
+        if len_node == null {
+            return null;
+        }
+        
+        // 解析数组表达式
+        const array_expr: &ASTNode = parser_parse_expression(parser);
+        if array_expr == null {
+            return null;
+        }
+        
+        len_node.len_expr_array = array_expr;
+        
+        // 期望 ')'
+        if parser_expect(parser, TOKEN_RIGHT_PAREN) == null {
+            return null;
+        }
+        
+        return len_node;
+    }
+    
+    // 解析标识符（可能是普通标识符、函数调用、或结构体字面量的开始）
+    if parser.current_token.type == TOKEN_IDENTIFIER {
+        const name: &byte = arena_strdup_for_parser(parser.arena, parser.current_token.value);
+        if name == null {
+            return null;
+        }
+        
+        parser_consume(parser);  // 消费标识符
+        
+        // 检查下一个 token 类型
+        if parser.current_token != null && parser.current_token.type == TOKEN_LEFT_PAREN {
+            // 函数调用：ID '(' [ arg_list ] ')'
+            const call: &ASTNode = ast_new_node(AST_CALL_EXPR, line, column, parser.arena);
+            if call == null {
+                return null;
+            }
+            
+            // 创建标识符节点作为被调用的函数
+            const callee: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena);
+            if callee == null {
+                return null;
+            }
+            callee.identifier_name = name;
+            call.call_expr_callee = callee;
+            
+            // 消费 '('
+            parser_consume(parser);
+            
+            // 解析参数列表（可选）
+            var args: &(&ASTNode) = null;
+            var arg_count: i32 = 0;
+            var arg_capacity: i32 = 0;
+            
+            if parser_match(parser, TOKEN_RIGHT_PAREN) == 0 {
+                // 有参数
+                while parser.current_token != null && 
+                      parser_match(parser, TOKEN_RIGHT_PAREN) == 0 && 
+                      parser_match(parser, TOKEN_EOF) == 0 {
+                    
+                    // 解析参数表达式
+                    const arg: &ASTNode = parser_parse_expression(parser);
+                    if arg == null {
+                        return null;
+                    }
+                    
+                    // 扩展参数数组
+                    if arg_count >= arg_capacity {
+                        var new_capacity: i32 = 0;
+                        if arg_capacity == 0 {
+                            new_capacity = 4;
+                        } else {
+                            new_capacity = arg_capacity * 2;
+                        }
+                        const new_args: &(&ASTNode) = arena_alloc(parser.arena, 8 * new_capacity) as &(&ASTNode);
+                        if new_args == null {
+                            return null;
+                        }
+                        
+                        // 复制旧参数
+                        if args != null {
+                            var i: i32 = 0;
+                            while i < arg_count {
+                                new_args[i] = args[i];
+                                i = i + 1;
+                            }
+                        }
+                        
+                        args = new_args;
+                        arg_capacity = new_capacity;
+                    }
+                    
+                    args[arg_count] = arg;
+                    arg_count = arg_count + 1;
+                    
+                    // 检查是否有逗号
+                    if parser_match(parser, TOKEN_COMMA) != 0 {
+                        parser_consume(parser);
+                    }
+                }
+            }
+            
+            // 期望 ')'
+            if parser_expect(parser, TOKEN_RIGHT_PAREN) == null {
+                return null;
+            }
+            
+            call.call_expr_args = args;
+            call.call_expr_arg_count = arg_count;
+            
+            // 字段访问和数组访问可能跟在函数调用后面（例如：f().field 或 f()[0]）
+            var result: &ASTNode = call;
+            
+            // 处理字段访问和数组访问链
+            while parser.current_token != null {
+                if parser_match(parser, TOKEN_DOT) != 0 {
+                    // 字段访问：.field
+                    parser_consume(parser);  // 消费 '.'
+                    
+                    // 期望字段名称
+                    if parser_match(parser, TOKEN_IDENTIFIER) == 0 {
+                        return null;
+                    }
+                    
+                    const field_name: &byte = arena_strdup_for_parser(parser.arena, parser.current_token.value);
+                    if field_name == null {
+                        return null;
+                    }
+                    
+                    const field_line: i32 = parser.current_token.line;
+                    const field_column: i32 = parser.current_token.column;
+                    parser_consume(parser);  // 消费字段名称
+                    
+                    // 创建字段访问节点
+                    const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena);
+                    if member_access == null {
+                        return null;
+                    }
+                    
+                    member_access.member_access_object = result;
+                    member_access.member_access_field_name = field_name;
+                    
+                    result = member_access;
+                } else if parser_match(parser, TOKEN_LEFT_BRACKET) != 0 {
+                    // 数组访问：[index]
+                    const bracket_line: i32 = parser.current_token.line;
+                    const bracket_column: i32 = parser.current_token.column;
+                    parser_consume(parser);  // 消费 '['
+                    
+                    // 解析索引表达式
+                    const index_expr: &ASTNode = parser_parse_expression(parser);
+                    if index_expr == null {
+                        return null;
+                    }
+                    
+                    // 期望 ']'
+                    if parser_expect(parser, TOKEN_RIGHT_BRACKET) == null {
+                        return null;
+                    }
+                    
+                    // 创建数组访问节点
+                    const array_access: &ASTNode = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser.arena);
+                    if array_access == null {
+                        return null;
+                    }
+                    
+                    array_access.array_access_array = result;
+                    array_access.array_access_index = index_expr;
+                    
+                    result = array_access;
+                } else {
+                    // 既不是字段访问也不是数组访问，退出循环
+                    break;
+                }
+            }
+            
+            return result;
+        } else if parser.current_token != null && parser.current_token.type == TOKEN_LEFT_BRACE {
+            // 使用 peek 机制检测是否是结构体字面量
+            const is_struct_init: i32 = parser_peek_is_struct_init(parser);
+            
+            if is_struct_init == 0 {
+                // 不是结构体字面量，创建普通标识符（后面的'{'是代码块的开始，不是表达式的一部分）
+                const node: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena);
+                if node == null {
+                    return null;
+                }
+                
+                node.identifier_name = name;
+                
+                // 字段访问可能跟在标识符后面（例如：obj.field）
+                var result: &ASTNode = node;
+                
+                // 处理字段访问链（左结合：a.b.c 解析为 (a.b).c）
+                while parser.current_token != null && parser_match(parser, TOKEN_DOT) != 0 {
+                    parser_consume(parser);  // 消费 '.'
+                    
+                    // 期望字段名称
+                    if parser_match(parser, TOKEN_IDENTIFIER) == 0 {
+                        return null;
+                    }
+                    
+                    const field_name: &byte = arena_strdup_for_parser(parser.arena, parser.current_token.value);
+                    if field_name == null {
+                        return null;
+                    }
+                    
+                    const field_line: i32 = parser.current_token.line;
+                    const field_column: i32 = parser.current_token.column;
+                    parser_consume(parser);  // 消费字段名称
+                    
+                    // 创建字段访问节点
+                    const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena);
+                    if member_access == null {
+                        return null;
+                    }
+                    
+                    member_access.member_access_object = result;
+                    member_access.member_access_field_name = field_name;
+                    
+                    result = member_access;
+                }
+                
+                return result;
+            }
+            
+            // 结构体字面量：ID '{' field_init_list '}'
+            const struct_init: &ASTNode = ast_new_node(AST_STRUCT_INIT, line, column, parser.arena);
+            if struct_init == null {
+                return null;
+            }
+            
+            struct_init.struct_init_struct_name = name;
+            
+            // 消费 '{'
+            parser_consume(parser);
+            
+            // 解析字段初始化列表
+            var field_names: &(&byte) = null;
+            var field_values: &(&ASTNode) = null;
+            var field_count: i32 = 0;
+            var field_capacity: i32 = 0;
+            
+            if parser_match(parser, TOKEN_RIGHT_BRACE) == 0 {
+                // 有字段初始化
+                while parser.current_token != null && 
+                      parser_match(parser, TOKEN_RIGHT_BRACE) == 0 && 
+                      parser_match(parser, TOKEN_EOF) == 0 {
+                    
+                    // 解析字段名称
+                    if parser_match(parser, TOKEN_IDENTIFIER) == 0 {
+                        return null;
+                    }
+                    
+                    const field_name: &byte = arena_strdup_for_parser(parser.arena, parser.current_token.value);
+                    if field_name == null {
+                        return null;
+                    }
+                    
+                    parser_consume(parser);  // 消费字段名称
+                    
+                    // 期望 ':'
+                    if parser_expect(parser, TOKEN_COLON) == null {
+                        return null;
+                    }
+                    
+                    // 解析字段值表达式
+                    const field_value: &ASTNode = parser_parse_expression(parser);
+                    if field_value == null {
+                        return null;
+                    }
+                    
+                    // 扩展字段数组
+                    if field_count >= field_capacity {
+                        var new_capacity: i32 = 0;
+                        if field_capacity == 0 {
+                            new_capacity = 4;
+                        } else {
+                            new_capacity = field_capacity * 2;
+                        }
+                        const new_field_names: &(&byte) = arena_alloc(parser.arena, 8 * new_capacity) as &(&byte);
+                        const new_field_values: &(&ASTNode) = arena_alloc(parser.arena, 8 * new_capacity) as &(&ASTNode);
+                        if new_field_names == null || new_field_values == null {
+                            return null;
+                        }
+                        
+                        // 复制旧字段
+                        if field_names != null && field_values != null {
+                            var i: i32 = 0;
+                            while i < field_count {
+                                new_field_names[i] = field_names[i];
+                                new_field_values[i] = field_values[i];
+                                i = i + 1;
+                            }
+                        }
+                        
+                        field_names = new_field_names;
+                        field_values = new_field_values;
+                        field_capacity = new_capacity;
+                    }
+                    
+                    field_names[field_count] = field_name;
+                    field_values[field_count] = field_value;
+                    field_count = field_count + 1;
+                    
+                    // 检查是否有逗号
+                    if parser_match(parser, TOKEN_COMMA) != 0 {
+                        parser_consume(parser);
+                    }
+                }
+            }
+            
+            // 期望 '}'
+            if parser_expect(parser, TOKEN_RIGHT_BRACE) == null {
+                return null;
+            }
+            
+            struct_init.struct_init_field_names = field_names;
+            struct_init.struct_init_field_values = field_values;
+            struct_init.struct_init_field_count = field_count;
+            
+            // 字段访问可能跟在结构体字面量后面（例如：Point{x:1,y:2}.x）
+            var result: &ASTNode = struct_init;
+            
+            // 处理字段访问链
+            while parser.current_token != null && parser_match(parser, TOKEN_DOT) != 0 {
+                parser_consume(parser);  // 消费 '.'
+                
+                // 期望字段名称
+                if parser_match(parser, TOKEN_IDENTIFIER) == 0 {
+                    return null;
+                }
+                
+                const field_name: &byte = arena_strdup_for_parser(parser.arena, parser.current_token.value);
+                if field_name == null {
+                    return null;
+                }
+                
+                const field_line: i32 = parser.current_token.line;
+                const field_column: i32 = parser.current_token.column;
+                parser_consume(parser);  // 消费字段名称
+                
+                // 创建字段访问节点
+                const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena);
+                if member_access == null {
+                    return null;
+                }
+                
+                member_access.member_access_object = result;
+                member_access.member_access_field_name = field_name;
+                
+                result = member_access;
+            }
+            
+            return result;
+        } else {
+            // 普通标识符
+            const node: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena);
+            if node == null {
+                return null;
+            }
+            
+            node.identifier_name = name;
+            
+            // 字段访问和数组访问可能跟在标识符后面（例如：obj.field 或 arr[0]）
+            var result: &ASTNode = node;
+            
+            // 处理字段访问和数组访问链（左结合：a.b.c 解析为 (a.b).c，arr[0][1] 解析为 (arr[0])[1]）
+            while parser.current_token != null {
+                if parser_match(parser, TOKEN_DOT) != 0 {
+                    // 字段访问：.field
+                    parser_consume(parser);  // 消费 '.'
+                    
+                    // 期望字段名称
+                    if parser_match(parser, TOKEN_IDENTIFIER) == 0 {
+                        return null;
+                    }
+                    
+                    const field_name: &byte = arena_strdup_for_parser(parser.arena, parser.current_token.value);
+                    if field_name == null {
+                        return null;
+                    }
+                    
+                    const field_line: i32 = parser.current_token.line;
+                    const field_column: i32 = parser.current_token.column;
+                    parser_consume(parser);  // 消费字段名称
+                    
+                    // 创建字段访问节点
+                    const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena);
+                    if member_access == null {
+                        return null;
+                    }
+                    
+                    member_access.member_access_object = result;
+                    member_access.member_access_field_name = field_name;
+                    
+                    result = member_access;
+                } else if parser_match(parser, TOKEN_LEFT_BRACKET) != 0 {
+                    // 数组访问：[index]
+                    const bracket_line: i32 = parser.current_token.line;
+                    const bracket_column: i32 = parser.current_token.column;
+                    parser_consume(parser);  // 消费 '['
+                    
+                    // 解析索引表达式
+                    const index_expr: &ASTNode = parser_parse_expression(parser);
+                    if index_expr == null {
+                        return null;
+                    }
+                    
+                    // 期望 ']'
+                    if parser_expect(parser, TOKEN_RIGHT_BRACKET) == null {
+                        return null;
+                    }
+                    
+                    // 创建数组访问节点
+                    const array_access: &ASTNode = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser.arena);
+                    if array_access == null {
+                        return null;
+                    }
+                    
+                    array_access.array_access_array = result;
+                    array_access.array_access_index = index_expr;
+                    
+                    result = array_access;
+                } else {
+                    // 既不是字段访问也不是数组访问，退出循环
+                    break;
+                }
+            }
+            
+            return result;
+        }
+    }
+    
+    // 解析数组字面量：[expr1, expr2, ..., exprN] 或 []
+    if parser.current_token.type == TOKEN_LEFT_BRACKET {
+        const array_line: i32 = parser.current_token.line;
+        const array_column: i32 = parser.current_token.column;
+        parser_consume(parser);  // 消费 '['
+        
+        // 创建数组字面量节点
+        const array_literal: &ASTNode = ast_new_node(AST_ARRAY_LITERAL, array_line, array_column, parser.arena);
+        if array_literal == null {
+            return null;
+        }
+        
+        // 初始化元素数组
+        var elements: &(&ASTNode) = null;
+        var element_count: i32 = 0;
+        var element_capacity: i32 = 0;
+        
+        // 检查是否为空数组
+        if parser_match(parser, TOKEN_RIGHT_BRACKET) == 0 {
+            // 有元素，解析元素列表
+            while parser.current_token != null && 
+                  parser_match(parser, TOKEN_RIGHT_BRACKET) == 0 && 
+                  parser_match(parser, TOKEN_EOF) == 0 {
+                
+                // 解析元素表达式
+                const element: &ASTNode = parser_parse_expression(parser);
+                if element == null {
+                    return null;
+                }
+                
+                // 扩展元素数组
+                if element_count >= element_capacity {
+                    var new_capacity: i32 = 0;
+                    if element_capacity == 0 {
+                        new_capacity = 4;
+                    } else {
+                        new_capacity = element_capacity * 2;
+                    }
+                    const new_elements: &(&ASTNode) = arena_alloc(parser.arena, 8 * new_capacity) as &(&ASTNode);
+                    if new_elements == null {
+                        return null;
+                    }
+                    
+                    // 复制旧元素
+                    if elements != null {
+                        var i: i32 = 0;
+                        while i < element_count {
+                            new_elements[i] = elements[i];
+                            i = i + 1;
+                        }
+                    }
+                    
+                    elements = new_elements;
+                    element_capacity = new_capacity;
+                }
+                
+                elements[element_count] = element;
+                element_count = element_count + 1;
+                
+                // 检查是否有逗号
+                if parser_match(parser, TOKEN_COMMA) != 0 {
+                    parser_consume(parser);
+                } else {
+                    // 没有逗号，应该是最后一个元素
+                    break;
+                }
+            }
+        }
+        
+        // 期望 ']'
+        if parser_expect(parser, TOKEN_RIGHT_BRACKET) == null {
+            return null;
+        }
+        
+        array_literal.array_literal_elements = elements;
+        array_literal.array_literal_element_count = element_count;
+        
+        // 字段访问和数组访问可能跟在数组字面量后面（例如：[1,2,3][0]）
+        var result: &ASTNode = array_literal;
+        
+        // 处理字段访问和数组访问链
+        while parser.current_token != null {
+            if parser_match(parser, TOKEN_DOT) != 0 {
+                // 字段访问：.field
+                parser_consume(parser);  // 消费 '.'
+                
+                // 期望字段名称
+                if parser_match(parser, TOKEN_IDENTIFIER) == 0 {
+                    return null;
+                }
+                
+                const field_name: &byte = arena_strdup_for_parser(parser.arena, parser.current_token.value);
+                if field_name == null {
+                    return null;
+                }
+                
+                const field_line: i32 = parser.current_token.line;
+                const field_column: i32 = parser.current_token.column;
+                parser_consume(parser);  // 消费字段名称
+                
+                // 创建字段访问节点
+                const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena);
+                if member_access == null {
+                    return null;
+                }
+                
+                member_access.member_access_object = result;
+                member_access.member_access_field_name = field_name;
+                
+                result = member_access;
+            } else if parser_match(parser, TOKEN_LEFT_BRACKET) != 0 {
+                // 数组访问：[index]
+                const bracket_line: i32 = parser.current_token.line;
+                const bracket_column: i32 = parser.current_token.column;
+                parser_consume(parser);  // 消费 '['
+                
+                // 解析索引表达式
+                const index_expr: &ASTNode = parser_parse_expression(parser);
+                if index_expr == null {
+                    return null;
+                }
+                
+                // 期望 ']'
+                if parser_expect(parser, TOKEN_RIGHT_BRACKET) == null {
+                    return null;
+                }
+                
+                // 创建数组访问节点
+                const array_access: &ASTNode = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser.arena);
+                if array_access == null {
+                    return null;
+                }
+                
+                array_access.array_access_array = result;
+                array_access.array_access_index = index_expr;
+                
+                result = array_access;
+            } else {
+                // 既不是字段访问也不是数组访问，退出循环
+                break;
+            }
+        }
+        
+        return result;
+    }
+    
+    // 解析括号表达式
+    if parser.current_token.type == TOKEN_LEFT_PAREN {
+        parser_consume(parser);  // 消费 '('
+        
+        // 解析内部表达式（递归调用）
+        const expr: &ASTNode = parser_parse_expression(parser);
+        if expr == null {
+            return null;
+        }
+        
+        // 期望 ')'
+        if parser_expect(parser, TOKEN_RIGHT_PAREN) == null {
+            return null;
+        }
+        
+        // 字段访问和数组访问可能跟在括号表达式后面（例如：(expr).field 或 (expr)[0]）
+        var result: &ASTNode = expr;
+        
+        // 处理字段访问和数组访问链
+        while parser.current_token != null {
+            if parser_match(parser, TOKEN_DOT) != 0 {
+                // 字段访问：.field
+                parser_consume(parser);  // 消费 '.'
+                
+                // 期望字段名称
+                if parser_match(parser, TOKEN_IDENTIFIER) == 0 {
+                    return null;
+                }
+                
+                const field_name: &byte = arena_strdup_for_parser(parser.arena, parser.current_token.value);
+                if field_name == null {
+                    return null;
+                }
+                
+                const field_line: i32 = parser.current_token.line;
+                const field_column: i32 = parser.current_token.column;
+                parser_consume(parser);  // 消费字段名称
+                
+                // 创建字段访问节点
+                const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena);
+                if member_access == null {
+                    return null;
+                }
+                
+                member_access.member_access_object = result;
+                member_access.member_access_field_name = field_name;
+                
+                result = member_access;
+            } else if parser_match(parser, TOKEN_LEFT_BRACKET) != 0 {
+                // 数组访问：[index]
+                const bracket_line: i32 = parser.current_token.line;
+                const bracket_column: i32 = parser.current_token.column;
+                parser_consume(parser);  // 消费 '['
+                
+                // 解析索引表达式
+                const index_expr: &ASTNode = parser_parse_expression(parser);
+                if index_expr == null {
+                    return null;
+                }
+                
+                // 期望 ']'
+                if parser_expect(parser, TOKEN_RIGHT_BRACKET) == null {
+                    return null;
+                }
+                
+                // 创建数组访问节点
+                const array_access: &ASTNode = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser.arena);
+                if array_access == null {
+                    return null;
+                }
+                
+                array_access.array_access_array = result;
+                array_access.array_access_index = index_expr;
+                
+                result = array_access;
+            } else {
+                // 既不是字段访问也不是数组访问，退出循环
+                break;
+            }
+        }
+        
+        return result;
+    }
+    
+    // 无法识别的基础表达式
+    return null;
+}
+
+// 解析一元表达式（!, -, &, *，右结合）
+// unary_expr = ('!' | '-' | '&' | '*') unary_expr | primary_expr
+// 参数：parser - Parser 指针
+// 返回：表达式节点，失败返回 null
+fn parser_parse_unary_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    const line: i32 = parser.current_token.line;
+    const column: i32 = parser.current_token.column;
+    
+    // 检查一元运算符（!, -, &, *）
+    if parser_match(parser, TOKEN_EXCLAMATION) != 0 || 
+       parser_match(parser, TOKEN_MINUS) != 0 ||
+       parser_match(parser, TOKEN_AMPERSAND) != 0 ||
+       parser_match(parser, TOKEN_ASTERISK) != 0 {
+        const op: TokenType = parser.current_token.type;
+        parser_consume(parser);  // 消费运算符
+        
+        // 递归解析一元表达式（右结合）
+        const operand: &ASTNode = parser_parse_unary_expr(parser);
+        if operand == null {
+            return null;
+        }
+        
+        // 创建一元表达式节点
+        const node: &ASTNode = ast_new_node(AST_UNARY_EXPR, line, column, parser.arena);
+        if node == null {
+            return null;
+        }
+        
+        node.unary_expr_op = op as i32;
+        node.unary_expr_operand = operand;
+        
+        return node;
+    }
+    
+    // 不是一元运算符，解析基础表达式
+    return parser_parse_primary_expr(parser);
+}
+
+// 解析类型转换表达式（右结合）
+// cast_expr = unary_expr [ 'as' type ]
+// 参数：parser - Parser 指针
+// 返回：表达式节点，失败返回 null
+fn parser_parse_cast_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    // 解析左操作数（一元表达式）
+    const expr: &ASTNode = parser_parse_unary_expr(parser);
+    if expr == null {
+        return null;
+    }
+    
+    // 检查是否有 'as' 关键字（类型转换）
+    if parser.current_token != null && parser.current_token.type == TOKEN_AS {
+        const line: i32 = parser.current_token.line;
+        const column: i32 = parser.current_token.column;
+        parser_consume(parser);  // 消费 'as'
+        
+        // 解析目标类型
+        const target_type: &ASTNode = parser_parse_type(parser);
+        if target_type == null {
+            return null;
+        }
+        
+        // 创建类型转换节点
+        const node: &ASTNode = ast_new_node(AST_CAST_EXPR, line, column, parser.arena);
+        if node == null {
+            return null;
+        }
+        
+        node.cast_expr_expr = expr;
+        node.cast_expr_target_type = target_type;
+        
+        return node;
+    }
+    
+    // 没有类型转换，返回原表达式
+    return expr;
+}
+
+// 解析乘除模表达式（左结合）
+// mul_expr = cast_expr { ('*' | '/' | '%') cast_expr }
+// 参数：parser - Parser 指针
+// 返回：表达式节点，失败返回 null
+fn parser_parse_mul_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    // 解析左操作数（类型转换表达式）
+    var left: &ASTNode = parser_parse_cast_expr(parser);
+    if left == null {
+        return null;
+    }
+    
+    // 解析连续的乘除模运算符（左结合）
+    while parser.current_token != null && (
+        parser_match(parser, TOKEN_ASTERISK) != 0 ||
+        parser_match(parser, TOKEN_SLASH) != 0 ||
+        parser_match(parser, TOKEN_PERCENT) != 0
+    ) {
+        const line: i32 = parser.current_token.line;
+        const column: i32 = parser.current_token.column;
+        const op: TokenType = parser.current_token.type;
+        parser_consume(parser);  // 消费运算符
+        
+        // 解析右操作数（类型转换表达式）
+        const right: &ASTNode = parser_parse_cast_expr(parser);
+        if right == null {
+            return null;
+        }
+        
+        // 创建二元表达式节点
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena);
+        if node == null {
+            return null;
+        }
+        
+        node.binary_expr_left = left;
+        node.binary_expr_op = op as i32;
+        node.binary_expr_right = right;
+        
+        left = node;  // 左结合：继续以当前节点作为左操作数
+    }
+    
+    return left;
+}
+
+// 解析加减表达式（左结合）
+// add_expr = mul_expr { ('+' | '-') mul_expr }
+// 参数：parser - Parser 指针
+// 返回：表达式节点，失败返回 null
+fn parser_parse_add_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    // 解析左操作数
+    var left: &ASTNode = parser_parse_mul_expr(parser);
+    if left == null {
+        return null;
+    }
+    
+    // 解析连续的加减运算符（左结合）
+    while parser.current_token != null && (
+        parser_match(parser, TOKEN_PLUS) != 0 ||
+        parser_match(parser, TOKEN_MINUS) != 0
+    ) {
+        const line: i32 = parser.current_token.line;
+        const column: i32 = parser.current_token.column;
+        const op: TokenType = parser.current_token.type;
+        parser_consume(parser);  // 消费运算符
+        
+        // 解析右操作数
+        const right: &ASTNode = parser_parse_mul_expr(parser);
+        if right == null {
+            return null;
+        }
+        
+        // 创建二元表达式节点
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena);
+        if node == null {
+            return null;
+        }
+        
+        node.binary_expr_left = left;
+        node.binary_expr_op = op as i32;
+        node.binary_expr_right = right;
+        
+        left = node;  // 左结合：继续以当前节点作为左操作数
+    }
+    
+    return left;
+}
+
+// 解析比较表达式（左结合）
+// rel_expr = add_expr { ('<' | '>' | '<=' | '>=') add_expr }
+// 参数：parser - Parser 指针
+// 返回：表达式节点，失败返回 null
+fn parser_parse_rel_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    // 解析左操作数
+    var left: &ASTNode = parser_parse_add_expr(parser);
+    if left == null {
+        return null;
+    }
+    
+    // 解析连续的比较运算符（左结合）
+    while parser.current_token != null && (
+        parser_match(parser, TOKEN_LESS) != 0 ||
+        parser_match(parser, TOKEN_GREATER) != 0 ||
+        parser_match(parser, TOKEN_LESS_EQUAL) != 0 ||
+        parser_match(parser, TOKEN_GREATER_EQUAL) != 0
+    ) {
+        const line: i32 = parser.current_token.line;
+        const column: i32 = parser.current_token.column;
+        const op: TokenType = parser.current_token.type;
+        parser_consume(parser);  // 消费运算符
+        
+        // 解析右操作数
+        const right: &ASTNode = parser_parse_add_expr(parser);
+        if right == null {
+            return null;
+        }
+        
+        // 创建二元表达式节点
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena);
+        if node == null {
+            return null;
+        }
+        
+        node.binary_expr_left = left;
+        node.binary_expr_op = op as i32;
+        node.binary_expr_right = right;
+        
+        left = node;  // 左结合：继续以当前节点作为左操作数
+    }
+    
+    return left;
+}
+
+// 解析相等性表达式（左结合）
+// eq_expr = rel_expr { ('==' | '!=') rel_expr }
+// 参数：parser - Parser 指针
+// 返回：表达式节点，失败返回 null
+fn parser_parse_eq_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    // 解析左操作数
+    var left: &ASTNode = parser_parse_rel_expr(parser);
+    if left == null {
+        return null;
+    }
+    
+    // 解析连续的相等性运算符（左结合）
+    while parser.current_token != null && (
+        parser_match(parser, TOKEN_EQUAL) != 0 ||
+        parser_match(parser, TOKEN_NOT_EQUAL) != 0
+    ) {
+        const line: i32 = parser.current_token.line;
+        const column: i32 = parser.current_token.column;
+        const op: TokenType = parser.current_token.type;
+        parser_consume(parser);  // 消费运算符
+        
+        // 解析右操作数
+        const right: &ASTNode = parser_parse_rel_expr(parser);
+        if right == null {
+            return null;
+        }
+        
+        // 创建二元表达式节点
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena);
+        if node == null {
+            return null;
+        }
+        
+        node.binary_expr_left = left;
+        node.binary_expr_op = op as i32;
+        node.binary_expr_right = right;
+        
+        left = node;  // 左结合：继续以当前节点作为左操作数
+    }
+    
+    return left;
+}
+
+// 解析逻辑与表达式（左结合）
+// and_expr = eq_expr { '&&' eq_expr }
+// 参数：parser - Parser 指针
+// 返回：表达式节点，失败返回 null
+fn parser_parse_and_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    // 解析左操作数
+    var left: &ASTNode = parser_parse_eq_expr(parser);
+    if left == null {
+        return null;
+    }
+    
+    // 解析连续的逻辑与运算符（左结合）
+    while parser.current_token != null && parser_match(parser, TOKEN_LOGICAL_AND) != 0 {
+        const line: i32 = parser.current_token.line;
+        const column: i32 = parser.current_token.column;
+        const op: TokenType = parser.current_token.type;
+        parser_consume(parser);  // 消费运算符
+        
+        // 解析右操作数
+        const right: &ASTNode = parser_parse_eq_expr(parser);
+        if right == null {
+            return null;
+        }
+        
+        // 创建二元表达式节点
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena);
+        if node == null {
+            return null;
+        }
+        
+        node.binary_expr_left = left;
+        node.binary_expr_op = op as i32;
+        node.binary_expr_right = right;
+        
+        left = node;  // 左结合：继续以当前节点作为左操作数
+    }
+    
+    return left;
+}
+
+// 解析逻辑或表达式（左结合）
+// or_expr = and_expr { '||' and_expr }
+// 参数：parser - Parser 指针
+// 返回：表达式节点，失败返回 null
+fn parser_parse_or_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    // 解析左操作数
+    var left: &ASTNode = parser_parse_and_expr(parser);
+    if left == null {
+        return null;
+    }
+    
+    // 解析连续的逻辑或运算符（左结合）
+    while parser.current_token != null && parser_match(parser, TOKEN_LOGICAL_OR) != 0 {
+        const line: i32 = parser.current_token.line;
+        const column: i32 = parser.current_token.column;
+        const op: TokenType = parser.current_token.type;
+        parser_consume(parser);  // 消费运算符
+        
+        // 解析右操作数
+        const right: &ASTNode = parser_parse_and_expr(parser);
+        if right == null {
+            return null;
+        }
+        
+        // 创建二元表达式节点
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena);
+        if node == null {
+            return null;
+        }
+        
+        node.binary_expr_left = left;
+        node.binary_expr_op = op as i32;
+        node.binary_expr_right = right;
+        
+        left = node;  // 左结合：继续以当前节点作为左操作数
+    }
+    
+    return left;
+}
+
+// 解析赋值表达式（右结合）
+// assign_expr = or_expr [ '=' assign_expr ]
+// 参数：parser - Parser 指针
+// 返回：表达式节点，失败返回 null
+fn parser_parse_assign_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    // 解析左操作数
+    const left: &ASTNode = parser_parse_or_expr(parser);
+    if left == null {
+        return null;
+    }
+    
+    // 检查是否有赋值运算符
+    if parser.current_token != null && parser_match(parser, TOKEN_ASSIGN) != 0 {
+        const line: i32 = parser.current_token.line;
+        const column: i32 = parser.current_token.column;
+        parser_consume(parser);  // 消费 '='
+        
+        // 递归解析赋值表达式（右结合）
+        const right: &ASTNode = parser_parse_assign_expr(parser);
+        if right == null {
+            return null;
+        }
+        
+        // 创建赋值节点
+        const node: &ASTNode = ast_new_node(AST_ASSIGN, line, column, parser.arena);
+        if node == null {
+            return null;
+        }
+        
+        node.assign_dest = left;
+        node.assign_src = right;
+        
+        return node;
+    }
+    
+    // 没有赋值运算符，返回左操作数
+    return left;
+}
+
+// 解析表达式（完整版本）
+// expr = assign_expr
+// 参数：parser - Parser 指针
+// 返回：表达式节点，失败返回 null
+fn parser_parse_expression(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    // 从赋值表达式开始解析（最低优先级）
+    return parser_parse_assign_expr(parser);
+}
+
+// ===== 语句解析函数 =====
+
+// 解析语句
+// 参数：parser - Parser 指针
+// 返回：语句节点，失败返回 null
+fn parser_parse_statement(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    const line: i32 = parser.current_token.line;
+    const column: i32 = parser.current_token.column;
+    
+    // 根据第一个 Token 判断语句类型
+    if parser.current_token.type == TOKEN_RETURN {
+        // 解析 return 语句
+        parser_consume(parser);  // 消费 'return'
+        
+        const stmt: &ASTNode = ast_new_node(AST_RETURN_STMT, line, column, parser.arena);
+        if stmt == null {
+            return null;
+        }
+        
+        // 解析返回值表达式（可选，void 函数可以没有返回值）
+        if parser_match(parser, TOKEN_SEMICOLON) != 0 {
+            // 没有返回值（void 函数）
+            stmt.return_stmt_expr = null;
+            parser_consume(parser);  // 消费 ';'
+        } else {
+            // 有返回值表达式
+            const expr: &ASTNode = parser_parse_expression(parser);
+            if expr == null {
+                return null;
+            }
+            stmt.return_stmt_expr = expr;
+            
+            // 期望 ';'
+            if parser_expect(parser, TOKEN_SEMICOLON) == null {
+                return null;
+            }
+        }
+        
+        return stmt;
+    }
+    
+    if parser_match(parser, TOKEN_BREAK) != 0 {
+        // 解析 break 语句
+        parser_consume(parser);  // 消费 'break'
+        
+        const stmt: &ASTNode = ast_new_node(AST_BREAK_STMT, line, column, parser.arena);
+        if stmt == null {
+            return null;
+        }
+        
+        // 期望 ';'
+        if parser_expect(parser, TOKEN_SEMICOLON) == null {
+            return null;
+        }
+        
+        return stmt;
+    }
+    
+    if parser_match(parser, TOKEN_CONTINUE) != 0 {
+        // 解析 continue 语句
+        parser_consume(parser);  // 消费 'continue'
+        
+        const stmt: &ASTNode = ast_new_node(AST_CONTINUE_STMT, line, column, parser.arena);
+        if stmt == null {
+            return null;
+        }
+        
+        // 期望 ';'
+        if parser_expect(parser, TOKEN_SEMICOLON) == null {
+            return null;
+        }
+        
+        return stmt;
+    }
+    
+    if parser_match(parser, TOKEN_IF) != 0 {
+        // 解析 if 语句
+        parser_consume(parser);  // 消费 'if'
+        
+        const stmt: &ASTNode = ast_new_node(AST_IF_STMT, line, column, parser.arena);
+        if stmt == null {
+            return null;
+        }
+        
+        // 解析条件表达式
+        const condition: &ASTNode = parser_parse_expression(parser);
+        if condition == null {
+            return null;
+        }
+        stmt.if_stmt_condition = condition;
+        
+        // 解析 then 分支（代码块）
+        const then_branch: &ASTNode = parser_parse_block(parser);
+        if then_branch == null {
+            return null;
+        }
+        stmt.if_stmt_then_branch = then_branch;
+        
+        // 解析 else 分支（可选）
+        if parser_match(parser, TOKEN_ELSE) != 0 {
+            parser_consume(parser);  // 消费 'else'
+            
+            const else_branch: &ASTNode = parser_parse_block(parser);
+            if else_branch == null {
+                return null;
+            }
+            stmt.if_stmt_else_branch = else_branch;
+        } else {
+            stmt.if_stmt_else_branch = null;
+        }
+        
+        return stmt;
+    }
+    
+    if parser_match(parser, TOKEN_WHILE) != 0 {
+        // 解析 while 语句
+        parser_consume(parser);  // 消费 'while'
+        
+        const stmt: &ASTNode = ast_new_node(AST_WHILE_STMT, line, column, parser.arena);
+        if stmt == null {
+            return null;
+        }
+        
+        // 解析条件表达式
+        const condition: &ASTNode = parser_parse_expression(parser);
+        if condition == null {
+            return null;
+        }
+        stmt.while_stmt_condition = condition;
+        
+        // 解析循环体（代码块）
+        const body: &ASTNode = parser_parse_block(parser);
+        if body == null {
+            return null;
+        }
+        stmt.while_stmt_body = body;
+        
+        return stmt;
+    }
+    
+    if parser_match(parser, TOKEN_FOR) != 0 {
+        // 解析 for 语句（数组遍历）
+        // 语法：for expr | ID | { statements } 或 for expr | &ID | { statements }
+        parser_consume(parser);  // 消费 'for'
+        
+        const stmt: &ASTNode = ast_new_node(AST_FOR_STMT, line, column, parser.arena);
+        if stmt == null {
+            return null;
+        }
+        
+        // 解析数组表达式
+        const array_expr: &ASTNode = parser_parse_expression(parser);
+        if array_expr == null {
+            return null;
+        }
+        stmt.for_stmt_array = array_expr;
+        
+        // 期望 '|'
+        if parser_expect(parser, TOKEN_PIPE) == null {
+            return null;
+        }
+        
+        // 检查是否为引用迭代（&ID）还是值迭代（ID）
+        var is_ref: i32 = 0;
+        if parser_match(parser, TOKEN_AMPERSAND) != 0 {
+            // 引用迭代：for expr | &ID | { ... }
+            parser_consume(parser);  // 消费 '&'
+            is_ref = 1;
+        }
+        
+        // 期望循环变量名称
+        if parser_match(parser, TOKEN_IDENTIFIER) == 0 {
+            return null;
+        }
+        
+        const var_name: &byte = arena_strdup_for_parser(parser.arena, parser.current_token.value);
+        if var_name == null {
+            return null;
+        }
+        stmt.for_stmt_var_name = var_name;
+        parser_consume(parser);  // 消费变量名称
+        
+        // 期望 '|'
+        if parser_expect(parser, TOKEN_PIPE) == null {
+            return null;
+        }
+        
+        stmt.for_stmt_is_ref = is_ref;
+        
+        // 解析循环体（代码块）
+        const body: &ASTNode = parser_parse_block(parser);
+        if body == null {
+            return null;
+        }
+        stmt.for_stmt_body = body;
+        
+        return stmt;
+    }
+    
+    if parser_match(parser, TOKEN_CONST) != 0 || parser_match(parser, TOKEN_VAR) != 0 {
+        // 解析变量声明
+        const is_const: i32 = if parser_match(parser, TOKEN_CONST) != 0 { 1 } else { 0 };
+        parser_consume(parser);  // 消费 'const' 或 'var'
+        
+        // 期望变量名称
+        if parser_match(parser, TOKEN_IDENTIFIER) == 0 {
+            return null;
+        }
+        
+        const var_name: &byte = arena_strdup_for_parser(parser.arena, parser.current_token.value);
+        if var_name == null {
+            return null;
+        }
+        
+        parser_consume(parser);  // 消费变量名称
+        
+        const stmt: &ASTNode = ast_new_node(AST_VAR_DECL, line, column, parser.arena);
+        if stmt == null {
+            return null;
+        }
+        
+        stmt.var_decl_name = var_name;
+        stmt.var_decl_is_const = is_const;
+        
+        // 期望 ':'
+        if parser_expect(parser, TOKEN_COLON) == null {
+            return null;
+        }
+        
+        // 解析类型
+        const type: &ASTNode = parser_parse_type(parser);
+        if type == null {
+            return null;
+        }
+        stmt.var_decl_type = type;
+        
+        // 期望 '='
+        if parser_expect(parser, TOKEN_ASSIGN) == null {
+            return null;
+        }
+        
+        // 解析初始值表达式
+        const init: &ASTNode = parser_parse_expression(parser);
+        if init == null {
+            return null;
+        }
+        stmt.var_decl_init = init;
+        
+        // 期望 ';'
+        if parser_expect(parser, TOKEN_SEMICOLON) == null {
+            return null;
+        }
+        
+        return stmt;
+    }
+    
+    if parser_match(parser, TOKEN_LEFT_BRACE) != 0 {
+        // 解析代码块语句
+        return parser_parse_block(parser);
+    }
+    
+    // 解析表达式语句（表达式后加分号）
+    // 注意：AST_EXPR_STMT 节点在 union 中没有对应的数据结构
+    // 根据 ast.c 的注释，表达式语句的数据存储在表达式的节点中
+    // 所以这里直接返回表达式节点（表达式节点本身可以作为语句）
+    const expr: &ASTNode = parser_parse_expression(parser);
+    if expr == null {
+        return null;
+    }
+    
+    // 期望 ';'
+    if parser_expect(parser, TOKEN_SEMICOLON) == null {
+        return null;
+    }
+    
+    // 直接返回表达式节点（表达式节点可以作为语句）
+    return expr;
+}
