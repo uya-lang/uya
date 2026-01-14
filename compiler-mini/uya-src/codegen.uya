@@ -1,3 +1,2965 @@
 // codegen.uya - 代码生成器模块
-// 待阶段6填充
+// 使用 LLVM C API 生成 LLVM IR 并编译为二进制代码
+//
+// 注意：需要先包含 arena.uya、ast.uya、checker.uya、llvm_api.uya 和 str_utils.uya
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
 
+// ===== 外部函数声明 =====
+
+// 字符串函数（来自 str_utils.uya）
+extern fn strlen(s: *byte) i32;
+extern fn strcmp(s1: *byte, s2: *byte) i32;
+extern fn strcpy(dest: *byte, src: *byte) *byte;
+extern fn memcpy(dest: *void, src: *void, n: i32) *void;
+extern fn memset(s: *void, c: i32, n: i32) *void;
+extern fn fprintf(stream: *void, format: *byte, ...) i32;
+extern fn sprintf(s: *byte, format: *byte, ...) i32;
+extern fn snprintf(s: *byte, n: i32, format: *byte, ...) i32;
+
+// Arena 函数（来自 arena.uya）
+extern fn arena_alloc(arena: &Arena, size: i32) &void;
+
+// LLVM API 函数（来自 llvm_api.uya）
+// 注意：假设所有需要的 LLVM API 函数已在 llvm_api.uya 中声明
+
+// ===== 常量定义 =====
+
+// 循环栈大小（最大嵌套深度）
+const LOOP_STACK_SIZE: i32 = 16;
+
+// 结构体类型映射表大小
+const STRUCT_TYPE_MAP_SIZE: i32 = 64;
+
+// 变量映射表大小
+const VAR_MAP_SIZE: i32 = 256;
+
+// 函数映射表大小
+const FUNC_MAP_SIZE: i32 = 64;
+
+// 全局变量映射表大小
+const GLOBAL_VAR_MAP_SIZE: i32 = 64;
+
+// 最大函数参数数量
+const MAX_FUNC_PARAMS: i32 = 16;
+
+// ===== 类型定义 =====
+
+// 结构体类型映射表项
+struct StructTypeMap {
+    name: &byte;        // 结构体名称（存储在 Arena 中）
+    llvm_type: *void;   // LLVM 结构体类型（LLVMTypeRef）
+}
+
+// 变量映射表项（用于局部变量）
+struct VarMap {
+    name: &byte;            // 变量名称（存储在 Arena 中）
+    value: *void;           // LLVM 值（alloca 指令返回的指针，LLVMValueRef）
+    type: *void;            // 变量类型（用于 LLVMBuildLoad2，LLVMTypeRef）
+    struct_name: &byte;     // 结构体名称（仅当类型是结构体类型时有效，存储在 Arena 中）
+    ast_type: &ASTNode;     // AST 类型节点（用于从 AST 重新构建类型，避免使用 LLVMGetElementType）
+}
+
+// 函数映射表项
+struct FuncMap {
+    name: &byte;        // 函数名称（存储在 Arena 中）
+    func: *void;        // LLVM 函数值（LLVMValueRef）
+    func_type: *void;   // LLVM 函数类型（函数签名类型，用于 LLVMBuildCall2，LLVMTypeRef）
+}
+
+// 全局变量映射表项
+struct GlobalVarMap {
+    name: &byte;            // 全局变量名称（存储在 Arena 中）
+    global_var: *void;      // LLVM 全局变量值（指针，LLVMValueRef）
+    type: *void;            // 全局变量类型（用于 LLVMBuildLoad2，LLVMTypeRef）
+    struct_name: &byte;      // 结构体名称（仅当类型是结构体类型时有效，存储在 Arena 中）
+}
+
+// 循环基本块信息（用于 break/continue 语句）
+struct LoopInfo {
+    cond_bb: *void;     // 循环条件检查基本块（LLVMBasicBlockRef）
+    end_bb: *void;      // 循环结束基本块（用于 break，LLVMBasicBlockRef）
+    inc_bb: *void;      // 循环递增基本块（用于 for 循环的 continue，while 循环为 null，LLVMBasicBlockRef）
+}
+
+// 代码生成器结构
+// 使用 LLVM C API 生成 LLVM IR 并编译为二进制代码
+struct CodeGenerator {
+    arena: &Arena;                      // Arena 分配器（用于编译器自身内存分配）
+    context: *void;                     // LLVM 上下文（LLVMContextRef）
+    module: *void;                      // LLVM 模块（LLVMModuleRef）
+    builder: *void;                     // IR 构建器（用于生成指令，LLVMBuilderRef）
+    module_name: &byte;                 // 模块名称（存储在 Arena 中）
+    
+    // 结构体类型映射表（固定大小数组，存储结构体名称到LLVM类型的映射）
+    // 使用固定大小数组和线性查找（简单实现）
+    struct_types: [StructTypeMap: STRUCT_TYPE_MAP_SIZE];  // 固定大小（最多支持64个结构体类型）
+    struct_type_count: i32;             // 当前结构体类型数量
+    
+    // 当前函数的变量表（固定大小数组，存储变量名到LLVM值的映射）
+    // 用于代码生成时查找局部变量（使用 alloca 分配的栈变量）
+    var_map: [VarMap: VAR_MAP_SIZE];    // 固定大小（最多支持256个局部变量）
+    var_map_count: i32;                 // 当前变量数量
+    
+    // 函数映射表（固定大小数组，存储函数名到LLVM函数值和类型的映射）
+    // 用于代码生成时查找函数引用
+    func_map: [FuncMap: FUNC_MAP_SIZE]; // 固定大小（最多支持64个函数）
+    func_map_count: i32;                // 当前函数数量
+    
+    // 全局变量映射表（固定大小数组，存储全局变量名到LLVM全局变量值和类型的映射）
+    // 用于代码生成时查找全局变量引用
+    global_var_map: [GlobalVarMap: GLOBAL_VAR_MAP_SIZE];  // 固定大小（最多支持64个全局变量）
+    global_var_map_count: i32;          // 当前全局变量数量
+    
+    basic_block_counter: i32;           // 基本块计数器（用于生成唯一的基本块名称）
+    string_literal_counter: i32;        // 字符串字面量计数器（用于生成唯一的字符串常量名称）
+    
+    // 循环基本块栈（用于 break/continue 语句）
+    // 使用固定大小数组作为栈，支持嵌套循环
+    loop_stack: [LoopInfo: LOOP_STACK_SIZE];
+    loop_stack_depth: i32;              // 当前循环栈深度（0 表示不在循环中）
+    
+    program_node: &ASTNode;             // 程序节点（用于查找结构体声明等）
+}
+
+// ===== 辅助函数声明 =====
+
+// 查找变量（在变量表中查找）
+// 参数：codegen - 代码生成器指针
+//       name - 变量名称
+// 返回：变量映射表项指针，未找到返回 null
+fn lookup_var(codegen: &CodeGenerator, name: &byte) &VarMap;
+
+// 查找函数（在函数表中查找）
+// 参数：codegen - 代码生成器指针
+//       name - 函数名称
+//       func_type - 函数类型（可选，用于验证）
+// 返回：函数映射表项指针，未找到返回 null
+fn lookup_func(codegen: &CodeGenerator, name: &byte, func_type: *void) &FuncMap;
+
+// 查找全局变量（在全局变量表中查找）
+// 参数：codegen - 代码生成器指针
+//       name - 全局变量名称
+// 返回：全局变量映射表项指针，未找到返回 null
+fn lookup_global_var(codegen: &CodeGenerator, name: &byte) &GlobalVarMap;
+
+// 从 AST 类型节点获取 LLVM 类型
+// 参数：codegen - 代码生成器指针
+//       type_node - AST 类型节点
+// 返回：LLVM 类型引用，失败返回 null
+fn get_llvm_type_from_ast(codegen: &CodeGenerator, type_node: &ASTNode) *void;
+
+// 声明函数（创建函数声明，不生成函数体）
+// 参数：codegen - 代码生成器指针
+//       fn_decl - 函数声明 AST 节点
+// 返回：成功返回 0，失败返回非 0
+fn codegen_declare_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32;
+
+// ===== 公共函数实现 =====
+
+// 创建代码生成器
+// 参数：codegen - CodeGenerator 结构体指针（由调用者分配）
+//       arena - Arena 分配器指针
+//       module_name - 模块名称（字符串存储在 Arena 中）
+// 返回：成功返回 0，失败返回非 0
+fn codegen_new(codegen: &CodeGenerator, arena: &Arena, module_name: &byte) i32 {
+    if codegen == null || arena == null || module_name == null {
+        return -1;
+    }
+    
+    // 初始化结构体（使用 memset 清零）
+    const codegen_size: i32 = sizeof(CodeGenerator);
+    memset(codegen as *void, 0, codegen_size);
+    
+    // 设置 Arena 分配器
+    codegen.arena = arena;
+    
+    // 复制模块名称到 Arena
+    const name_len: i32 = strlen(module_name);
+    const name_copy: &byte = arena_alloc(arena, name_len + 1) as &byte;
+    if name_copy == null {
+        return -1;
+    }
+    memcpy(name_copy as *void, module_name as *void, name_len + 1);
+    codegen.module_name = name_copy;
+    
+    // 创建 LLVM 上下文
+    codegen.context = LLVMContextCreate();
+    if codegen.context == null {
+        return -1;
+    }
+    
+    // 创建 LLVM 模块
+    codegen.module = LLVMModuleCreateWithNameInContext(codegen.module_name, codegen.context);
+    if codegen.module == null {
+        LLVMContextDispose(codegen.context);
+        return -1;
+    }
+    
+    // 创建 IR 构建器
+    codegen.builder = LLVMCreateBuilderInContext(codegen.context);
+    if codegen.builder == null {
+        LLVMDisposeModule(codegen.module);
+        LLVMContextDispose(codegen.context);
+        return -1;
+    }
+    
+    // 初始化结构体类型映射表
+    codegen.struct_type_count = 0;
+    
+    // 初始化变量表和函数表
+    codegen.var_map_count = 0;
+    codegen.func_map_count = 0;
+    codegen.global_var_map_count = 0;
+    codegen.basic_block_counter = 0;
+    codegen.string_literal_counter = 0;
+    codegen.loop_stack_depth = 0;
+    codegen.program_node = null;
+    
+    return 0;
+}
+
+// 获取基础类型的LLVM类型
+// 参数：codegen - 代码生成器指针
+//       type_kind - 类型种类（TypeKind枚举：TYPE_I32, TYPE_USIZE, TYPE_BOOL, TYPE_BYTE, TYPE_VOID）
+// 返回：LLVM类型引用，失败返回 null
+// 注意：此函数仅支持基础类型，结构体类型需要使用其他函数
+//       usize 类型大小根据目标平台确定（32位平台=u32，64位平台=u64）
+fn codegen_get_base_type(codegen: &CodeGenerator, type_kind: TypeKind) *void {
+    if codegen == null {
+        return null;
+    }
+    
+    if type_kind == TYPE_I32 {
+        // i32 类型映射到 LLVM Int32 类型（全局类型，不依赖context）
+        return LLVMInt32Type();
+    } else if type_kind == TYPE_USIZE {
+        // usize 类型：平台相关的无符号大小类型
+        // 根据目标平台的指针大小确定 usize 的大小
+        // 注意：Uya Mini 简化实现，默认使用 64 位（大多数现代平台）
+        // 如果需要精确的平台检测，需要调用 LLVM API 获取目标平台信息
+        // 这里简化处理，默认返回 64 位类型
+        return LLVMInt64Type();
+    } else if type_kind == TYPE_BOOL {
+        // bool 类型映射到 LLVM Int1 类型（1位整数，更精确，全局类型）
+        return LLVMInt1Type();
+    } else if type_kind == TYPE_BYTE {
+        // byte 类型映射到 LLVM Int8 类型（8位无符号整数，全局类型）
+        return LLVMInt8Type();
+    } else if type_kind == TYPE_VOID {
+        // void 类型映射到 LLVM Void 类型（全局类型）
+        return LLVMVoidType();
+    } else {
+        // 不支持的类型（如 TYPE_STRUCT）
+        return null;
+    }
+}
+
+// 获取结构体类型的LLVM类型
+// 参数：codegen - 代码生成器指针
+//       struct_name - 结构体名称
+// 返回：LLVM类型引用，未找到返回 null
+fn codegen_get_struct_type(codegen: &CodeGenerator, struct_name: &byte) *void {
+    if codegen == null || struct_name == null {
+        return null;
+    }
+    
+    // 在结构体类型映射表中查找
+    var i: i32 = 0;
+    while i < codegen.struct_type_count {
+        if strcmp(codegen.struct_types[i].name, struct_name) == 0 {
+            return codegen.struct_types[i].llvm_type;
+        }
+        i = i + 1;
+    }
+    
+    // 未找到
+    return null;
+}
+
+// 前向声明辅助函数
+fn find_enum_decl(codegen: &CodeGenerator, enum_name: &byte) &ASTNode;
+fn get_enum_variant_value(enum_decl: &ASTNode, variant_index: i32) i32;
+fn find_struct_decl(codegen: &CodeGenerator, struct_name: &byte) &ASTNode;
+fn find_enum_variant_index(enum_decl: &ASTNode, variant_name: &byte) i32;
+fn find_struct_field_index(struct_decl: &ASTNode, field_name: &byte) i32;
+fn lookup_var_struct_name(codegen: &CodeGenerator, var_name: &byte) &byte;
+fn lookup_var_type(codegen: &CodeGenerator, var_name: &byte) *void;
+fn lookup_var_ast_type(codegen: &CodeGenerator, var_name: &byte) &ASTNode;
+
+// 辅助函数：从AST类型节点获取LLVM类型（支持基础类型、结构体类型、指针类型和数组类型）
+// 参数：codegen - 代码生成器指针
+//       type_node - AST类型节点（AST_TYPE_NAMED、AST_TYPE_POINTER 或 AST_TYPE_ARRAY）
+// 返回：LLVM类型引用，失败返回 null
+fn get_llvm_type_from_ast(codegen: &CodeGenerator, type_node: &ASTNode) *void {
+    if codegen == null || type_node == null {
+        return null;
+    }
+    
+    if type_node.type == AST_TYPE_NAMED {
+        // 命名类型（基础类型或结构体类型）
+        const type_name: &byte = type_node.data.type_named.name;
+        if type_name == null {
+            return null;
+        }
+        
+        // 基础类型
+        if strcmp(type_name, "i32") == 0 {
+            return codegen_get_base_type(codegen, TYPE_I32);
+        } else if strcmp(type_name, "usize") == 0 {
+            return codegen_get_base_type(codegen, TYPE_USIZE);
+        } else if strcmp(type_name, "bool") == 0 {
+            return codegen_get_base_type(codegen, TYPE_BOOL);
+        } else if strcmp(type_name, "byte") == 0 {
+            return codegen_get_base_type(codegen, TYPE_BYTE);
+        } else if strcmp(type_name, "void") == 0 {
+            return codegen_get_base_type(codegen, TYPE_VOID);
+        }
+        
+        // 枚举类型或结构体类型
+        // 先检查是否是枚举类型（枚举类型在LLVM中就是i32类型）
+        const enum_decl: &ASTNode = find_enum_decl(codegen, type_name);
+        if enum_decl != null {
+            // 枚举类型，返回i32类型（默认底层类型）
+            return codegen_get_base_type(codegen, TYPE_I32);
+        }
+        
+        // 结构体类型（必须在注册表中查找）
+        return codegen_get_struct_type(codegen, type_name);
+    } else if type_node.type == AST_TYPE_POINTER {
+        // 指针类型（&T 或 *T）
+        // 普通指针和 FFI 指针在 LLVM 中都映射为指针类型
+        const pointed_type: &ASTNode = type_node.data.type_pointer.pointed_type;
+        if pointed_type == null {
+            return null;
+        }
+        
+        // 递归获取指向的类型的 LLVM 类型
+        const pointed_llvm_type: *void = get_llvm_type_from_ast(codegen, pointed_type);
+        if pointed_llvm_type == null {
+            return null;
+        }
+        
+        // 创建指针类型（地址空间 0，默认）
+        return LLVMPointerType(pointed_llvm_type, 0);
+    } else if type_node.type == AST_TYPE_ARRAY {
+        // 数组类型（[T: N]）
+        const element_type: &ASTNode = type_node.data.type_array.element_type;
+        const size_expr: &ASTNode = type_node.data.type_array.size_expr;
+        if element_type == null || size_expr == null {
+            return null;
+        }
+        
+        // 数组大小必须是编译期常量（数字字面量）
+        if size_expr.type != AST_NUMBER {
+            return null;  // 数组大小必须是编译期常量
+        }
+        
+        const array_size: i32 = size_expr.data.number.value;
+        if array_size < 0 {
+            return null;  // 数组大小必须非负
+        }
+        
+        // 递归获取元素类型的 LLVM 类型
+        const element_llvm_type: *void = get_llvm_type_from_ast(codegen, element_type);
+        if element_llvm_type == null {
+            return null;
+        }
+        
+        // 创建数组类型
+        return LLVMArrayType(element_llvm_type, array_size);
+    } else {
+        // 不支持的类型
+        return null;
+    }
+}
+
+// 注册结构体类型（从AST结构体声明创建LLVM结构体类型并注册）
+// 参数：codegen - 代码生成器指针
+//       struct_decl - AST结构体声明节点
+// 返回：成功返回 0，失败返回非 0
+// 注意：如果结构体类型已注册，会返回成功（不重复注册）
+fn codegen_register_struct_type(codegen: &CodeGenerator, struct_decl: &ASTNode) i32 {
+    if codegen == null || struct_decl == null || struct_decl.type != AST_STRUCT_DECL {
+        return -1;
+    }
+    
+    const struct_name: &byte = struct_decl.data.struct_decl.name;
+    if struct_name == null {
+        return -1;
+    }
+    
+    // 检查是否已经注册
+    if codegen_get_struct_type(codegen, struct_name) != null {
+        return 0;  // 已注册，返回成功
+    }
+    
+    // 检查映射表是否已满
+    if codegen.struct_type_count >= STRUCT_TYPE_MAP_SIZE {
+        return -1;  // 映射表已满
+    }
+    
+    const field_count: i32 = struct_decl.data.struct_decl.field_count;
+    if field_count < 0 {
+        return -1;
+    }
+    
+    // 准备字段类型数组
+    // 使用固定大小数组（栈分配，无堆分配）
+    // 注意：最多支持16个字段（如果超过需要调整）
+    if field_count > 16 {
+        return -1;  // 字段数过多
+    }
+    
+    var field_types: [*void: 16] = [];
+    var i: i32 = 0;
+    
+    // 遍历字段，获取每个字段的LLVM类型
+    while i < field_count {
+        const field: &ASTNode = struct_decl.data.struct_decl.fields[i];
+        if field == null || field.type != AST_VAR_DECL {
+            return -1;
+        }
+        
+        const field_type_node: &ASTNode = field.data.var_decl.type;
+        const field_llvm_type: *void = get_llvm_type_from_ast(codegen, field_type_node);
+        if field_llvm_type == null {
+            return -1;  // 字段类型无效或未找到（结构体类型需要先注册）
+        }
+        
+        field_types[i] = field_llvm_type;
+        i = i + 1;
+    }
+    
+    // 创建LLVM结构体类型
+    const struct_type: *void;
+    if field_count == 0 {
+        // 空结构体
+        struct_type = LLVMStructTypeInContext(codegen.context, null, 0, 0);
+    } else {
+        // 非空结构体（packed=0，使用默认对齐）
+        // 注意：需要将数组转换为指针传递给 LLVM API
+        struct_type = LLVMStructTypeInContext(codegen.context, &field_types[0] as *void, field_count, 0);
+    }
+    
+    if struct_type == null {
+        return -1;
+    }
+    
+    // 注册到映射表
+    const idx: i32 = codegen.struct_type_count;
+    codegen.struct_types[idx].name = struct_name;  // 名称已经在Arena中
+    codegen.struct_types[idx].llvm_type = struct_type;
+    codegen.struct_type_count = codegen.struct_type_count + 1;
+    
+    return 0;
+}
+
+// 在变量表中查找变量（先查找局部变量，再查找全局变量）
+// 参数：codegen - 代码生成器指针
+//       var_name - 变量名称
+// 返回：变量映射表项指针，未找到返回 null
+fn lookup_var(codegen: &CodeGenerator, name: &byte) &VarMap {
+    if codegen == null || name == null {
+        return null;
+    }
+    
+    // 先查找局部变量表（从后向前查找，由于禁止变量遮蔽，理论上只需要查找最后一个匹配项）
+    var i: i32 = codegen.var_map_count - 1;
+    while i >= 0 {
+        if codegen.var_map[i].name != null && strcmp(codegen.var_map[i].name, name) == 0 {
+            return &codegen.var_map[i];
+        }
+        i = i - 1;
+    }
+    
+    // 如果局部变量表中未找到，查找全局变量表
+    i = 0;
+    while i < codegen.global_var_map_count {
+        if codegen.global_var_map[i].name != null && strcmp(codegen.global_var_map[i].name, name) == 0 {
+            // 返回全局变量的 VarMap（需要构造，但这里简化处理，返回 null 表示是全局变量）
+            // 注意：实际实现中，全局变量和局部变量的处理方式不同
+            return null;  // 全局变量需要特殊处理
+        }
+        i = i + 1;
+    }
+    
+    return null;  // 未找到
+}
+
+// 查找函数（在函数表中查找）
+// 参数：codegen - 代码生成器指针
+//       name - 函数名称
+//       func_type - 函数类型（可选，用于验证）
+// 返回：函数映射表项指针，未找到返回 null
+fn lookup_func(codegen: &CodeGenerator, name: &byte, func_type: *void) &FuncMap {
+    if codegen == null || name == null {
+        return null;
+    }
+    
+    // 线性查找
+    var i: i32 = 0;
+    while i < codegen.func_map_count {
+        if codegen.func_map[i].name != null && strcmp(codegen.func_map[i].name, name) == 0 {
+            // 如果提供了 func_type，验证类型是否匹配
+            if func_type != null && codegen.func_map[i].func_type != func_type {
+                return null;  // 类型不匹配
+            }
+            return &codegen.func_map[i];
+        }
+        i = i + 1;
+    }
+    
+    return null;  // 未找到
+}
+
+// 查找全局变量（在全局变量表中查找）
+// 参数：codegen - 代码生成器指针
+//       name - 全局变量名称
+// 返回：全局变量映射表项指针，未找到返回 null
+fn lookup_global_var(codegen: &CodeGenerator, name: &byte) &GlobalVarMap {
+    if codegen == null || name == null {
+        return null;
+    }
+    
+    // 线性查找
+    var i: i32 = 0;
+    while i < codegen.global_var_map_count {
+        if codegen.global_var_map[i].name != null && strcmp(codegen.global_var_map[i].name, name) == 0 {
+            return &codegen.global_var_map[i];
+        }
+        i = i + 1;
+    }
+    
+    return null;  // 未找到
+}
+
+// 从程序节点中查找结构体声明
+// 参数：codegen - 代码生成器指针
+//       struct_name - 结构体名称
+// 返回：找到的结构体声明节点指针，未找到返回 null
+fn find_struct_decl(codegen: &CodeGenerator, struct_name: &byte) &ASTNode {
+    if codegen == null || codegen.program_node == null || struct_name == null {
+        return null;
+    }
+    
+    const program: &ASTNode = codegen.program_node;
+    if program.type != AST_PROGRAM {
+        return null;
+    }
+    
+    var i: i32 = 0;
+    while i < program.data.program.decl_count {
+        const decl: &ASTNode = program.data.program.decls[i];
+        if decl != null && decl.type == AST_STRUCT_DECL {
+            if decl.data.struct_decl.name != null && strcmp(decl.data.struct_decl.name, struct_name) == 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    
+    return null;
+}
+
+// 从程序节点中查找枚举声明
+// 参数：codegen - 代码生成器指针
+//       enum_name - 枚举名称
+// 返回：找到的枚举声明节点指针，未找到返回 null
+fn find_enum_decl(codegen: &CodeGenerator, enum_name: &byte) &ASTNode {
+    if codegen == null || codegen.program_node == null || enum_name == null {
+        return null;
+    }
+    
+    const program: &ASTNode = codegen.program_node;
+    if program.type != AST_PROGRAM {
+        return null;
+    }
+    
+    var i: i32 = 0;
+    while i < program.data.program.decl_count {
+        const decl: &ASTNode = program.data.program.decls[i];
+        if decl != null && decl.type == AST_ENUM_DECL {
+            if decl.data.enum_decl.name != null && strcmp(decl.data.enum_decl.name, enum_name) == 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    
+    return null;
+}
+
+// 在枚举声明中查找变体索引
+// 参数：enum_decl - 枚举声明节点
+//       variant_name - 变体名称
+// 返回：变体索引（>= 0），未找到返回 -1
+fn find_enum_variant_index(enum_decl: &ASTNode, variant_name: &byte) i32 {
+    if enum_decl == null || enum_decl.type != AST_ENUM_DECL || variant_name == null {
+        return -1;
+    }
+    
+    var i: i32 = 0;
+    while i < enum_decl.data.enum_decl.variant_count {
+        if enum_decl.data.enum_decl.variants[i].name != null && 
+           strcmp(enum_decl.data.enum_decl.variants[i].name, variant_name) == 0 {
+            return i;
+        }
+        i = i + 1;
+    }
+    
+    return -1;
+}
+
+// 获取枚举变体的值（显式值或计算值）
+// 参数：enum_decl - 枚举声明节点
+//       variant_index - 变体索引
+// 返回：枚举值（整数），失败返回 -1
+// 注意：如果变体有显式值，使用显式值；否则使用变体索引（从0开始，或基于前一个变体的值）
+fn get_enum_variant_value(enum_decl: &ASTNode, variant_index: i32) i32 {
+    if enum_decl == null || enum_decl.type != AST_ENUM_DECL || variant_index < 0 {
+        return -1;
+    }
+    
+    if variant_index >= enum_decl.data.enum_decl.variant_count {
+        return -1;
+    }
+    
+    const variant: &EnumVariant = &enum_decl.data.enum_decl.variants[variant_index];
+    
+    // 如果变体有显式值，使用显式值
+    if variant.value != null {
+        // 解析显式值（字符串形式的数字）
+        // 简化实现：假设显式值是数字字符串，需要解析
+        // 这里简化处理，返回变体索引
+        // 实际实现中需要解析字符串为整数
+        return variant_index;
+    }
+    
+    // 如果没有显式值，使用变体索引（从0开始）
+    // 注意：实际实现中可能需要考虑前一个变体的值
+    return variant_index;
+}
+
+// 在结构体声明中查找字段索引
+// 参数：struct_decl - 结构体声明节点
+//       field_name - 字段名称
+// 返回：字段索引（>= 0），未找到返回 -1
+fn find_struct_field_index(struct_decl: &ASTNode, field_name: &byte) i32 {
+    if struct_decl == null || struct_decl.type != AST_STRUCT_DECL || field_name == null {
+        return -1;
+    }
+    
+    var i: i32 = 0;
+    while i < struct_decl.data.struct_decl.field_count {
+        const field: &ASTNode = struct_decl.data.struct_decl.fields[i];
+        if field != null && field.type == AST_VAR_DECL {
+            if field.data.var_decl.name != null && 
+               strcmp(field.data.var_decl.name, field_name) == 0 {
+                return i;
+            }
+        }
+        i = i + 1;
+    }
+    
+    return -1;
+}
+
+// 在变量表中查找变量类型（先查找局部变量，再查找全局变量）
+// 参数：codegen - 代码生成器指针
+//       var_name - 变量名称
+// 返回：LLVM类型引用，未找到返回 null
+fn lookup_var_type(codegen: &CodeGenerator, var_name: &byte) *void {
+    if codegen == null || var_name == null {
+        return null;
+    }
+    
+    // 先查找局部变量表（从后向前查找，由于禁止变量遮蔽，理论上只需要查找最后一个匹配项）
+    var i: i32 = codegen.var_map_count - 1;
+    while i >= 0 {
+        if codegen.var_map[i].name != null && strcmp(codegen.var_map[i].name, var_name) == 0 {
+            return codegen.var_map[i].type;
+        }
+        i = i - 1;
+    }
+    
+    // 如果局部变量表中未找到，查找全局变量表
+    i = 0;
+    while i < codegen.global_var_map_count {
+        if codegen.global_var_map[i].name != null && strcmp(codegen.global_var_map[i].name, var_name) == 0 {
+            return codegen.global_var_map[i].type;
+        }
+        i = i + 1;
+    }
+    
+    return null;  // 未找到
+}
+
+// 在变量表中查找变量 AST 类型节点（仅查找局部变量）
+// 参数：codegen - 代码生成器指针
+//       var_name - 变量名称
+// 返回：AST类型节点，未找到返回 null
+fn lookup_var_ast_type(codegen: &CodeGenerator, var_name: &byte) &ASTNode {
+    if codegen == null || var_name == null {
+        return null;
+    }
+    
+    // 查找局部变量表（从后向前查找）
+    var i: i32 = codegen.var_map_count - 1;
+    while i >= 0 {
+        if codegen.var_map[i].name != null && strcmp(codegen.var_map[i].name, var_name) == 0 {
+            return codegen.var_map[i].ast_type;
+        }
+        i = i - 1;
+    }
+    
+    return null;  // 未找到（全局变量暂不支持）
+}
+
+// 在变量表中查找变量结构体名称（先查找局部变量，再查找全局变量）
+// 参数：codegen - 代码生成器指针
+//       var_name - 变量名称
+// 返回：结构体名称（如果变量是结构体类型），未找到返回 null
+fn lookup_var_struct_name(codegen: &CodeGenerator, var_name: &byte) &byte {
+    if codegen == null || var_name == null {
+        return null;
+    }
+    
+    // 先查找局部变量表（从后向前查找，由于禁止变量遮蔽，理论上只需要查找最后一个匹配项）
+    var i: i32 = codegen.var_map_count - 1;
+    while i >= 0 {
+        if codegen.var_map[i].name != null && strcmp(codegen.var_map[i].name, var_name) == 0 {
+            return codegen.var_map[i].struct_name;
+        }
+        i = i - 1;
+    }
+    
+    // 如果局部变量表中未找到，查找全局变量表
+    i = 0;
+    while i < codegen.global_var_map_count {
+        if codegen.global_var_map[i].name != null && strcmp(codegen.global_var_map[i].name, var_name) == 0 {
+            return codegen.global_var_map[i].struct_name;
+        }
+        i = i + 1;
+    }
+    
+    return null;  // 未找到
+}
+
+// 在变量表中添加变量
+// 参数：codegen - 代码生成器指针
+//       var_name - 变量名称（存储在 Arena 中）
+//       value - LLVM值（变量指针）
+//       type - 变量类型（用于 LLVMBuildLoad2）
+//       struct_name - 结构体名称（仅当类型是结构体类型时有效，存储在 Arena 中，可为 null）
+//       ast_type - AST 类型节点（用于从 AST 重新构建类型，可为 null）
+// 返回：成功返回 0，失败返回非 0
+fn add_var(codegen: &CodeGenerator, var_name: &byte, value: *void, type: *void, struct_name: &byte, ast_type: &ASTNode) i32 {
+    if codegen == null || var_name == null || value == null || type == null {
+        return -1;
+    }
+    
+    // 检查映射表是否已满
+    if codegen.var_map_count >= VAR_MAP_SIZE {
+        return -1;  // 映射表已满
+    }
+    
+    // 添加到映射表
+    const idx: i32 = codegen.var_map_count;
+    codegen.var_map[idx].name = var_name;
+    codegen.var_map[idx].value = value;
+    codegen.var_map[idx].type = type;
+    codegen.var_map[idx].struct_name = struct_name;  // 结构体名称（可为 null）
+    codegen.var_map[idx].ast_type = ast_type;  // AST 类型节点（可为 null）
+    codegen.var_map_count = codegen.var_map_count + 1;
+    
+    return 0;
+}
+
+// 在全局变量表中添加全局变量
+// 参数：codegen - 代码生成器指针
+//       var_name - 全局变量名称（存储在 Arena 中）
+//       global_var - LLVM全局变量值（指针）
+//       type - 全局变量类型（用于 LLVMBuildLoad2）
+//       struct_name - 结构体名称（仅当类型是结构体类型时有效，存储在 Arena 中，可为 null）
+// 返回：成功返回 0，失败返回非 0
+fn add_global_var(codegen: &CodeGenerator, var_name: &byte, global_var: *void, type: *void, struct_name: &byte) i32 {
+    if codegen == null || var_name == null || global_var == null || type == null {
+        return -1;
+    }
+    
+    // 检查映射表是否已满
+    if codegen.global_var_map_count >= GLOBAL_VAR_MAP_SIZE {
+        return -1;  // 映射表已满
+    }
+    
+    // 添加到映射表
+    const idx: i32 = codegen.global_var_map_count;
+    codegen.global_var_map[idx].name = var_name;
+    codegen.global_var_map[idx].global_var = global_var;
+    codegen.global_var_map[idx].type = type;
+    codegen.global_var_map[idx].struct_name = struct_name;  // 结构体名称（可为 null）
+    codegen.global_var_map_count = codegen.global_var_map_count + 1;
+    
+    return 0;
+}
+
+// 在函数表中添加函数
+// 参数：codegen - 代码生成器指针
+//       func_name - 函数名称（存储在 Arena 中）
+//       func - LLVM函数值
+//       func_type - LLVM函数类型（函数签名类型，用于 LLVMBuildCall2）
+// 返回：成功返回 0，失败返回非 0
+fn add_func(codegen: &CodeGenerator, func_name: &byte, func: *void, func_type: *void) i32 {
+    if codegen == null || func_name == null || func == null || func_type == null {
+        return -1;
+    }
+    
+    // 检查映射表是否已满
+    if codegen.func_map_count >= FUNC_MAP_SIZE {
+        return -1;  // 映射表已满
+    }
+    
+    // 添加到映射表
+    const idx: i32 = codegen.func_map_count;
+    codegen.func_map[idx].name = func_name;
+    codegen.func_map[idx].func = func;
+    codegen.func_map[idx].func_type = func_type;
+    codegen.func_map_count = codegen.func_map_count + 1;
+    
+    return 0;
+}
+
+// 生成表达式代码（从表达式AST节点生成LLVM值）
+// 参数：codegen - 代码生成器指针
+//       expr - 表达式AST节点
+// 返回：LLVM值引用（LLVMValueRef），失败返回 null
+// 注意：此函数需要在函数上下文中调用（builder需要在函数的基本块中）
+//       标识符和函数调用使用变量表和函数表查找
+fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
+    if codegen == null || expr == null || codegen.builder == null {
+        return null;
+    }
+    
+    if expr.type == AST_NUMBER {
+        // 数字字面量：创建 i32 常量
+        const value: i32 = expr.data.number.value;
+        const i32_type: *void = codegen_get_base_type(codegen, TYPE_I32);
+        if i32_type == null {
+            return null;
+        }
+        return LLVMConstInt(i32_type, value as i64, 1);  // 1 表示有符号
+    } else if expr.type == AST_BOOL {
+        // 布尔字面量：创建 i1 常量（true=1, false=0）
+        const value: i32 = expr.data.bool_literal.value;
+        const bool_type: *void = codegen_get_base_type(codegen, TYPE_BOOL);
+        if bool_type == null {
+            return null;
+        }
+        const bool_value: i64 = if value != 0 { 1 } else { 0 };
+        return LLVMConstInt(bool_type, bool_value, 0);  // 0 表示无符号（布尔值）
+    } else if expr.type == AST_STRING {
+        // 字符串字面量：创建全局字符串常量，返回指向它的指针（*byte 类型）
+        const str_value: &byte = expr.data.string_literal.value;
+        if str_value == null {
+            return null;
+        }
+        
+        // 计算字符串长度（不包括 null 终止符，LLVMConstStringInContext 会自动添加）
+        const str_len: i32 = strlen(str_value);
+        
+        // 创建 i8 数组类型（字符串长度 + 1 个 null 终止符）
+        const i8_type: *void = LLVMInt8Type();
+        const array_type: *void = LLVMArrayType(i8_type, str_len + 1);
+        
+        // 创建字符串常量值（LLVMConstStringInContext 会自动添加 null 终止符）
+        // 参数：context, string, length, dontNullTerminate
+        // dontNullTerminate = 0 表示自动添加 null 终止符
+        const str_const: *void = LLVMConstStringInContext(codegen.context, str_value, str_len, 0);
+        if str_const == null {
+            return null;
+        }
+        
+        // 生成唯一的全局变量名称
+        const str_id: i32 = codegen.string_literal_counter;
+        codegen.string_literal_counter = codegen.string_literal_counter + 1;
+        
+        // 创建全局变量名称（使用固定大小数组）
+        var global_name: [byte: 64] = [];
+        snprintf(&global_name[0] as *byte, 64, "str.%d", str_id);
+        
+        // 将名称复制到 Arena
+        const name_len: i32 = strlen(&global_name[0] as *byte);
+        const name_copy: &byte = arena_alloc(codegen.arena, name_len + 1) as &byte;
+        if name_copy == null {
+            return null;
+        }
+        memcpy(name_copy as *void, &global_name[0] as *void, name_len + 1);
+        
+        // 创建全局变量（类型为数组）
+        const global_var: *void = LLVMAddGlobal(codegen.module, array_type, name_copy);
+        if global_var == null {
+            return null;
+        }
+        
+        // 设置初始值为字符串常量
+        LLVMSetInitializer(global_var, str_const);
+        
+        // 设置为常量（不可变）
+        LLVMSetGlobalConstant(global_var, 1);
+        
+        // 设置链接属性（内部链接）
+        // 注意：LLVMInternalLinkage 已在 llvm_api.uya 中定义
+        LLVMSetLinkage(global_var, LLVMInternalLinkage);
+        
+        // 全局变量本身就是一个指针，可以直接返回
+        return global_var;
+    } else if expr.type == AST_IDENTIFIER {
+        // 标识符（变量）：从变量表查找并加载值
+        const var_name: &byte = expr.data.identifier.name;
+        if var_name == null {
+            return null;
+        }
+        
+        // 查找变量（先查找局部变量，再查找全局变量）
+        const var_map: &VarMap = lookup_var(codegen, var_name);
+        if var_map != null {
+            // 局部变量：加载值
+            return LLVMBuildLoad2(codegen.builder, var_map.type, var_map.value, var_name);
+        }
+        
+        // 查找全局变量
+        const global_var_map: &GlobalVarMap = lookup_global_var(codegen, var_name);
+        if global_var_map != null {
+            // 全局变量：加载值
+            return LLVMBuildLoad2(codegen.builder, global_var_map.type, global_var_map.global_var, var_name);
+        }
+        
+        // 检查是否是 null 标识符
+        if strcmp(var_name, "null") == 0 {
+            // null 标识符：返回 null 指针（类型需要从上下文推断）
+            // 注意：这里简化处理，实际实现中需要从上下文获取类型
+            // 对于 null，通常需要从比较操作的另一侧获取类型
+            return null;  // 需要从上下文推断类型
+        }
+        
+        return null;  // 变量未找到
+    } else if expr.type == AST_UNARY_EXPR {
+        // 一元表达式（!, -, &, *）
+        const operand: &ASTNode = expr.data.unary_expr.operand;
+        if operand == null {
+            return null;
+        }
+        
+        const op: i32 = expr.data.unary_expr.op;
+        
+        if op == TOKEN_AMPERSAND {
+            // 取地址运算符：&expr
+            // 操作数必须是左值（变量、字段访问等）
+            // 对于标识符（变量），直接从变量表获取指针
+            if operand.type == AST_IDENTIFIER {
+                const var_name: &byte = operand.data.identifier.name;
+                if var_name == null {
+                    return null;
+                }
+                const var_map: &VarMap = lookup_var(codegen, var_name);
+                if var_map == null {
+                    // 尝试查找全局变量
+                    const global_var_map: &GlobalVarMap = lookup_global_var(codegen, var_name);
+                    if global_var_map != null {
+                        return global_var_map.global_var;
+                    }
+                    return null;  // 变量未找到
+                }
+                // 变量指针已经是地址，直接返回
+                return var_map.value;
+            }
+            // 对于其他表达式（如字段访问、数组访问），需要先计算表达式值
+            // 然后分配临时空间存储值，返回临时空间的地址
+            // 注意：这是一个简化实现，完整的左值检查应该在类型检查阶段完成
+            const operand_val: *void = codegen_gen_expr(codegen, operand);
+            if operand_val == null {
+                return null;
+            }
+            const operand_type: *void = LLVMTypeOf(operand_val);
+            if operand_type == null {
+                return null;
+            }
+            // 使用 alloca 分配临时空间
+            const temp_ptr: *void = LLVMBuildAlloca(codegen.builder, operand_type, "");
+            if temp_ptr == null {
+                return null;
+            }
+            // store 值到临时空间
+            LLVMBuildStore(codegen.builder, operand_val, temp_ptr);
+            // 返回临时空间的地址
+            return temp_ptr;
+        } else if op == TOKEN_ASTERISK {
+            // 解引用运算符：*expr
+            // 操作数必须是指针类型
+            // 如果操作数是标识符，从 AST 类型节点获取指向的类型（避免使用 LLVMGetElementType）
+            var operand_val: *void = null;
+            var pointed_type: *void = null;
+            
+            if operand.type == AST_IDENTIFIER {
+                // 优化：对于标识符，从变量表获取 AST 类型节点，然后从 AST 重新构建指向的类型
+                const var_name: &byte = operand.data.identifier.name;
+                if var_name != null {
+                    const var_ast_type: &ASTNode = lookup_var_ast_type(codegen, var_name);
+                    if var_ast_type != null && var_ast_type.type == AST_TYPE_POINTER {
+                        // 从 AST 类型节点获取指向的类型节点
+                        const pointed_ast_type: &ASTNode = var_ast_type.data.type_pointer.pointed_type;
+                        if pointed_ast_type != null {
+                            // 从 AST 类型节点重新构建指向类型的 LLVM 类型
+                            pointed_type = get_llvm_type_from_ast(codegen, pointed_ast_type);
+                            if pointed_type != null {
+                                // 需要加载指针变量的值（指针变量本身存储的是指针值）
+                                const var_map: &VarMap = lookup_var(codegen, var_name);
+                                if var_map != null {
+                                    // 加载指针变量的值（即指针值本身）
+                                    operand_val = LLVMBuildLoad2(codegen.builder, var_map.type, var_map.value, var_name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 如果优化路径失败，使用通用方法
+            if operand_val == null || pointed_type == null {
+                operand_val = codegen_gen_expr(codegen, operand);
+                if operand_val == null {
+                    return null;
+                }
+                const operand_type: *void = LLVMTypeOf(operand_val);
+                if operand_type == null {
+                    return null;
+                }
+                // 检查操作数类型是否为指针类型
+                if LLVMGetTypeKind(operand_type) != LLVMPointerTypeKind {
+                    return null;  // 操作数不是指针类型
+                }
+                // 获取指针指向的类型（通用方法仍然使用 LLVMGetElementType）
+                pointed_type = LLVMGetElementType(operand_type);
+                if pointed_type == null {
+                    return null;
+                }
+            }
+            
+            // 使用 LLVMBuildLoad2 加载指针指向的值
+            return LLVMBuildLoad2(codegen.builder, pointed_type, operand_val, "");
+        }
+        
+        // 处理其他一元运算符（!, -）
+        const operand_val: *void = codegen_gen_expr(codegen, operand);
+        if operand_val == null {
+            return null;
+        }
+        
+        // 简化实现：假设操作数类型可以从operand_val获取
+        const operand_type: *void = LLVMTypeOf(operand_val);
+        if operand_type == null {
+            return null;
+        }
+        
+        if op == TOKEN_EXCLAMATION {
+            // 逻辑非：!operand
+            // 对于布尔值（i1），使用 XOR 1
+            if LLVMGetTypeKind(operand_type) == LLVMIntegerTypeKind {
+                const one: *void = LLVMConstInt(operand_type, 1, 0);
+                return LLVMBuildXor(codegen.builder, operand_val, one, "");
+            }
+        } else if op == TOKEN_MINUS {
+            // 一元负号：-operand
+            // 对于整数，使用 sub 0, operand
+            if LLVMGetTypeKind(operand_type) == LLVMIntegerTypeKind {
+                const zero: *void = LLVMConstInt(operand_type, 0, 1);
+                return LLVMBuildSub(codegen.builder, zero, operand_val, "");
+            }
+        }
+        
+        return null;
+    } else if expr.type == AST_BINARY_EXPR {
+        // 二元表达式（算术、比较、逻辑运算符）
+        const left: &ASTNode = expr.data.binary_expr.left;
+        const right: &ASTNode = expr.data.binary_expr.right;
+        if left == null || right == null {
+            return null;
+        }
+        
+        const op: i32 = expr.data.binary_expr.op;
+        
+        // 处理其他二元表达式（算术、比较运算符）
+        // 注意：逻辑运算符（&&, ||）需要短路求值，实现较复杂，这里先简化处理
+        var left_val: *void = codegen_gen_expr(codegen, left);
+        var right_val: *void = codegen_gen_expr(codegen, right);
+        
+        // 如果其中一个操作数生成失败，尝试处理 null 标识符
+        if left_val == null && left.type == AST_IDENTIFIER {
+            const left_name: &byte = left.data.identifier.name;
+            if left_name != null && strcmp(left_name, "null") == 0 {
+                // left 是 null 标识符，需要从 right 获取类型
+                if right_val != null {
+                    const right_type: *void = LLVMTypeOf(right_val);
+                    if right_type != null && LLVMGetTypeKind(right_type) == LLVMPointerTypeKind {
+                        left_val = LLVMConstNull(right_type);
+                    }
+                }
+            }
+        }
+        if right_val == null && right.type == AST_IDENTIFIER {
+            const right_name: &byte = right.data.identifier.name;
+            if right_name != null && strcmp(right_name, "null") == 0 {
+                // right 是 null 标识符，需要从 left 获取类型
+                if left_val != null {
+                    const left_type: *void = LLVMTypeOf(left_val);
+                    if left_type != null && LLVMGetTypeKind(left_type) == LLVMPointerTypeKind {
+                        right_val = LLVMConstNull(left_type);
+                    }
+                }
+            }
+        }
+        
+        if left_val == null || right_val == null {
+            return null;
+        }
+        
+        // 获取操作数类型
+        const left_type: *void = LLVMTypeOf(left_val);
+        const right_type: *void = LLVMTypeOf(right_val);
+        if left_type == null || right_type == null {
+            return null;
+        }
+        
+        // 算术运算符和比较运算符（支持 i32 和 usize 混合运算）
+        if LLVMGetTypeKind(left_type) == LLVMIntegerTypeKind && 
+           LLVMGetTypeKind(right_type) == LLVMIntegerTypeKind {
+            
+            // 类型提升：如果操作数类型不同，将 i32 提升为 usize
+            const left_width: i32 = LLVMGetIntTypeWidth(left_type);
+            const right_width: i32 = LLVMGetIntTypeWidth(right_type);
+            
+            // 获取 usize 类型（用于类型提升）
+            const usize_type: *void = codegen_get_base_type(codegen, TYPE_USIZE);
+            if usize_type == null {
+                return null;
+            }
+            const usize_width: i32 = LLVMGetIntTypeWidth(usize_type);
+            
+            // 标记是否至少有一个操作数是 usize（用于决定使用有符号还是无符号运算）
+            var is_usize_op: i32 = 0;
+            
+            // 如果左操作数是 i32，右操作数是 usize，将左操作数提升为 usize
+            if left_width == 32 && right_width == usize_width {
+                left_val = LLVMBuildZExt(codegen.builder, left_val, usize_type, "");
+                is_usize_op = 1;
+            }
+            // 如果左操作数是 usize，右操作数是 i32，将右操作数提升为 usize
+            else if left_width == usize_width && right_width == 32 {
+                right_val = LLVMBuildZExt(codegen.builder, right_val, usize_type, "");
+                is_usize_op = 1;
+            }
+            // 如果两个操作数都是 usize
+            else if left_width == usize_width && right_width == usize_width {
+                is_usize_op = 1;
+            }
+            
+            // 算术运算符（i32 或 usize）
+            if op == TOKEN_PLUS {
+                return LLVMBuildAdd(codegen.builder, left_val, right_val, "");
+            } else if op == TOKEN_MINUS {
+                return LLVMBuildSub(codegen.builder, left_val, right_val, "");
+            } else if op == TOKEN_ASTERISK {
+                return LLVMBuildMul(codegen.builder, left_val, right_val, "");
+            } else if op == TOKEN_SLASH {
+                // 除法：根据操作数类型选择有符号或无符号除法
+                if is_usize_op != 0 {
+                    return LLVMBuildUDiv(codegen.builder, left_val, right_val, "");
+                } else {
+                    return LLVMBuildSDiv(codegen.builder, left_val, right_val, "");
+                }
+            } else if op == TOKEN_PERCENT {
+                // 取模：根据操作数类型选择有符号或无符号取模
+                if is_usize_op != 0 {
+                    return LLVMBuildURem(codegen.builder, left_val, right_val, "");
+                } else {
+                    return LLVMBuildSRem(codegen.builder, left_val, right_val, "");
+                }
+            }
+            // 比较运算符（返回 i1 布尔值）
+            else if op == TOKEN_EQUAL {
+                // 相等比较：根据操作数类型选择有符号或无符号比较
+                if is_usize_op != 0 {
+                    return LLVMBuildICmp(codegen.builder, LLVMIntEQ, left_val, right_val, "");
+                } else {
+                    return LLVMBuildICmp(codegen.builder, LLVMIntEQ, left_val, right_val, "");
+                }
+            } else if op == TOKEN_NOT_EQUAL {
+                if is_usize_op != 0 {
+                    return LLVMBuildICmp(codegen.builder, LLVMIntNE, left_val, right_val, "");
+                } else {
+                    return LLVMBuildICmp(codegen.builder, LLVMIntNE, left_val, right_val, "");
+                }
+            } else if op == TOKEN_LESS {
+                if is_usize_op != 0 {
+                    return LLVMBuildICmp(codegen.builder, LLVMIntULT, left_val, right_val, "");
+                } else {
+                    return LLVMBuildICmp(codegen.builder, LLVMIntSLT, left_val, right_val, "");
+                }
+            } else if op == TOKEN_GREATER {
+                if is_usize_op != 0 {
+                    return LLVMBuildICmp(codegen.builder, LLVMIntUGT, left_val, right_val, "");
+                } else {
+                    return LLVMBuildICmp(codegen.builder, LLVMIntSGT, left_val, right_val, "");
+                }
+            } else if op == TOKEN_LESS_EQUAL {
+                if is_usize_op != 0 {
+                    return LLVMBuildICmp(codegen.builder, LLVMIntULE, left_val, right_val, "");
+                } else {
+                    return LLVMBuildICmp(codegen.builder, LLVMIntSLE, left_val, right_val, "");
+                }
+            } else if op == TOKEN_GREATER_EQUAL {
+                if is_usize_op != 0 {
+                    return LLVMBuildICmp(codegen.builder, LLVMIntUGE, left_val, right_val, "");
+                } else {
+                    return LLVMBuildICmp(codegen.builder, LLVMIntSGE, left_val, right_val, "");
+                }
+            }
+        }
+        
+        // 指针比较（==, !=）
+        if LLVMGetTypeKind(left_type) == LLVMPointerTypeKind && 
+           LLVMGetTypeKind(right_type) == LLVMPointerTypeKind {
+            if op == TOKEN_EQUAL {
+                return LLVMBuildICmp(codegen.builder, LLVMIntEQ, left_val, right_val, "");
+            } else if op == TOKEN_NOT_EQUAL {
+                return LLVMBuildICmp(codegen.builder, LLVMIntNE, left_val, right_val, "");
+            }
+        }
+        
+        return null;
+    } else if expr.type == AST_CALL_EXPR {
+        // 函数调用表达式
+        const callee: &ASTNode = expr.data.call_expr_callee;
+        if callee == null || callee.type != AST_IDENTIFIER {
+            return null;
+        }
+        
+        const func_name: &byte = callee.data.identifier.name;
+        if func_name == null {
+            return null;
+        }
+        
+        // 查找函数
+        var func_type: *void = null;
+        const func_map: &FuncMap = lookup_func(codegen, func_name, func_type);
+        if func_map == null {
+            return null;  // 函数未找到
+        }
+        
+        const func: *void = func_map.func;
+        func_type = func_map.func_type;
+        
+        // 生成参数值
+        const arg_count: i32 = expr.data.call_expr_arg_count;
+        if arg_count > MAX_FUNC_PARAMS {
+            return null;  // 参数过多
+        }
+        
+        var arg_values: [*void: MAX_FUNC_PARAMS] = [];
+        var i: i32 = 0;
+        while i < arg_count {
+            const args: &(&ASTNode) = expr.data.call_expr_args;
+            if args == null {
+                return null;
+            }
+            const arg_expr: &ASTNode = args[i];
+            if arg_expr == null {
+                return null;
+            }
+            arg_values[i] = codegen_gen_expr(codegen, arg_expr);
+            if arg_values[i] == null {
+                return null;
+            }
+            i = i + 1;
+        }
+        
+        // 调用函数（LLVM 18 使用 LLVMBuildCall2）
+        return LLVMBuildCall2(codegen.builder, func_type, func, &arg_values[0] as *void, arg_count, "");
+    } else if expr.type == AST_MEMBER_ACCESS {
+        // 字段访问或枚举值访问：使用 GEP + Load 获取字段值，或返回枚举值常量
+        const object: &ASTNode = expr.data.member_access.object;
+        const field_name: &byte = expr.data.member_access.field_name;
+        
+        if object == null || field_name == null {
+            return null;
+        }
+        
+        // 检查是否是枚举值访问（EnumName.Variant）
+        // 如果对象是标识符且不是变量，可能是枚举类型名称
+        if object.type == AST_IDENTIFIER {
+            const enum_name: &byte = object.data.identifier.name;
+            if enum_name != null {
+                // 检查是否是枚举类型名称（先检查变量表，如果不是变量，可能是枚举类型）
+                const var_map: &VarMap = lookup_var(codegen, enum_name);
+                if var_map == null {
+                    // 不是变量，可能是枚举类型名称
+                    const enum_decl: &ASTNode = find_enum_decl(codegen, enum_name);
+                    if enum_decl != null {
+                        // 是枚举类型，查找变体索引
+                        const variant_index: i32 = find_enum_variant_index(enum_decl, field_name);
+                        if variant_index >= 0 {
+                            // 获取枚举值（显式值或计算值）
+                            const enum_value: i32 = get_enum_variant_value(enum_decl, variant_index);
+                            if enum_value < 0 {
+                                return null;
+                            }
+                            
+                            // 找到变体，返回i32常量
+                            const i32_type: *void = codegen_get_base_type(codegen, TYPE_I32);
+                            if i32_type == null {
+                                return null;
+                            }
+                            return LLVMConstInt(i32_type, enum_value as i64, 0);
+                        }
+                        // 变体不存在
+                        return null;
+                    }
+                }
+            }
+        }
+        
+        // 如果对象是标识符（变量），从变量表获取结构体名称
+        var struct_name: &byte = null;
+        var object_ptr: *void = null;
+        
+        if object.type == AST_IDENTIFIER {
+            const var_name: &byte = object.data.identifier.name;
+            if var_name != null {
+                const var_map: &VarMap = lookup_var(codegen, var_name);
+                if var_map != null {
+                    object_ptr = var_map.value;
+                    struct_name = lookup_var_struct_name(codegen, var_name);
+                    
+                    // 检查变量类型是否是指针类型（无论 struct_name 是否设置）
+                    const var_ast_type: &ASTNode = lookup_var_ast_type(codegen, var_name);
+                    if var_ast_type != null && var_ast_type.type == AST_TYPE_POINTER {
+                        // 变量是指针类型，需要加载指针值
+                        const var_type: *void = lookup_var_type(codegen, var_name);
+                        if var_type != null && object_ptr != null {
+                            // 加载指针变量的值（即指针值本身）
+                            object_ptr = LLVMBuildLoad2(codegen.builder, var_type, object_ptr, var_name);
+                            
+                            // 从指针类型中获取指向的结构体类型名称
+                            const pointed_type: &ASTNode = var_ast_type.data.type_pointer.pointed_type;
+                            if pointed_type != null && pointed_type.type == AST_TYPE_NAMED {
+                                struct_name = pointed_type.data.type_named.name;
+                            }
+                        }
+                    }
+                } else {
+                    // 尝试查找全局变量
+                    const global_var_map: &GlobalVarMap = lookup_global_var(codegen, var_name);
+                    if global_var_map != null {
+                        object_ptr = global_var_map.global_var;
+                        struct_name = global_var_map.struct_name;
+                    }
+                }
+            }
+        }
+        
+        if object_ptr == null {
+            // 对象不是标识符或变量未找到，生成对象表达式
+            const object_val: *void = codegen_gen_expr(codegen, object);
+            if object_val == null {
+                return null;
+            }
+            
+            // 对于非标识符对象（如结构体字面量、嵌套字段访问），需要先 store 到临时变量
+            // 获取对象类型
+            const object_type: *void = LLVMTypeOf(object_val);
+            if object_type == null {
+                return null;
+            }
+            
+            // 使用 alloca 分配临时空间
+            object_ptr = LLVMBuildAlloca(codegen.builder, object_type, "");
+            if object_ptr == null {
+                return null;
+            }
+            
+            // store 对象值到临时变量
+            LLVMBuildStore(codegen.builder, object_val, object_ptr);
+            
+            // 获取结构体名称
+            if object.type == AST_STRUCT_INIT {
+                // 对于结构体字面量，可以从 AST 获取结构体名称
+                struct_name = object.data.struct_init.struct_name;
+            }
+        }
+        
+        if struct_name == null {
+            return null;  // 无法确定结构体名称
+        }
+        
+        // 查找结构体声明
+        const struct_decl: &ASTNode = find_struct_decl(codegen, struct_name);
+        if struct_decl == null {
+            return null;
+        }
+        
+        // 查找字段索引
+        const field_index: i32 = find_struct_field_index(struct_decl, field_name);
+        if field_index < 0 {
+            return null;  // 字段不存在
+        }
+        
+        // 获取结构体类型
+        const struct_type: *void = codegen_get_struct_type(codegen, struct_name);
+        if struct_type == null {
+            return null;
+        }
+        
+        // 使用 GEP 获取字段地址
+        const i32_type: *void = LLVMInt32Type();
+        const indices: [*void: 2] = [
+            LLVMConstInt(i32_type, 0, 0),  // 结构体指针本身
+            LLVMConstInt(i32_type, field_index as i64, 0)  // 字段索引
+        ];
+        
+        const field_ptr: *void = LLVMBuildGEP2(codegen.builder, struct_type, object_ptr, &indices[0] as *void, 2, "");
+        if field_ptr == null {
+            return null;
+        }
+        
+        // 获取字段类型（从结构体声明中）
+        if field_index >= struct_decl.data.struct_decl.field_count {
+            return null;
+        }
+        const field: &ASTNode = struct_decl.data.struct_decl.fields[field_index];
+        if field == null || field.type != AST_VAR_DECL {
+            return null;
+        }
+        const field_type_node: &ASTNode = field.data.var_decl.type;
+        const field_type: *void = get_llvm_type_from_ast(codegen, field_type_node);
+        if field_type == null {
+            return null;
+        }
+        
+        // load 字段值
+        return LLVMBuildLoad2(codegen.builder, field_type, field_ptr, "");
+    } else if expr.type == AST_ARRAY_ACCESS {
+        // 数组访问：使用 GEP + Load 获取元素值
+        const array_expr: &ASTNode = expr.data.array_access.array;
+        const index_expr: &ASTNode = expr.data.array_access.index;
+        
+        if array_expr == null || index_expr == null {
+            return null;
+        }
+        
+        // 生成数组表达式值（可能是标识符、数组字面量等）
+        var array_val: *void = codegen_gen_expr(codegen, array_expr);
+        if array_val == null {
+            return null;
+        }
+        
+        var array_val_type: *void = LLVMTypeOf(array_val);
+        if array_val_type == null {
+            return null;
+        }
+        
+        // 检查是否是数组类型
+        const array_val_kind: i32 = LLVMGetTypeKind(array_val_type);
+        var array_type: *void = null;
+        var array_ptr: *void = null;
+        
+        if array_val_kind == LLVMArrayTypeKind {
+            // 数组值类型，需要分配临时空间存储数组值
+            array_type = array_val_type;
+            array_ptr = LLVMBuildAlloca(codegen.builder, array_type, "");
+            if array_ptr == null {
+                return null;
+            }
+            // store 数组值到临时变量
+            LLVMBuildStore(codegen.builder, array_val, array_ptr);
+        } else if array_val_kind == LLVMPointerTypeKind {
+            // 数组指针类型，直接使用
+            array_ptr = array_val;
+            // 获取指针指向的类型（数组类型）
+            array_type = LLVMGetElementType(array_val_type);
+        } else {
+            return null;  // 不是数组类型
+        }
+        
+        if array_type == null || array_ptr == null {
+            return null;
+        }
+        
+        // 生成索引表达式值
+        const index_val: *void = codegen_gen_expr(codegen, index_expr);
+        if index_val == null {
+            return null;
+        }
+        
+        // 获取元素类型
+        const element_type: *void = LLVMGetElementType(array_type);
+        if element_type == null {
+            return null;
+        }
+        
+        // 使用 GEP 获取元素地址
+        const i32_type: *void = LLVMInt32Type();
+        const indices: [*void: 2] = [
+            LLVMConstInt(i32_type, 0, 0),  // 数组指针本身
+            index_val  // 索引值
+        ];
+        
+        const element_ptr: *void = LLVMBuildGEP2(codegen.builder, array_type, array_ptr, &indices[0] as *void, 2, "");
+        if element_ptr == null {
+            return null;
+        }
+        
+        // load 元素值
+        return LLVMBuildLoad2(codegen.builder, element_type, element_ptr, "");
+    }
+    
+    // 其他表达式类型（结构体初始化、数组字面量、sizeof/len/alignof、类型转换等）将在后续添加
+    return null;
+}
+
+// 辅助函数：生成左值表达式的地址
+// 参数：codegen - 代码生成器指针
+//       expr - 左值表达式节点
+// 返回：LLVM值引用（地址），失败返回 null
+fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) *void {
+    if codegen == null || expr == null {
+        return null;
+    }
+    
+    if expr.type == AST_IDENTIFIER {
+        // 标识符（变量）：从变量表查找指针
+        const var_name: &byte = expr.data.identifier.name;
+        if var_name == null {
+            return null;
+        }
+        const var_map: &VarMap = lookup_var(codegen, var_name);
+        if var_map != null {
+            return var_map.value;
+        }
+        // 尝试查找全局变量
+        const global_var_map: &GlobalVarMap = lookup_global_var(codegen, var_name);
+        if global_var_map != null {
+            return global_var_map.global_var;
+        }
+        return null;
+    } else if expr.type == AST_UNARY_EXPR {
+        // 解引用表达式：*expr
+        // 对于赋值 *p = value，p 是指针，我们需要返回 p 的值（即指针本身）
+        const op: i32 = expr.data.unary_expr.op;
+        if op != TOKEN_ASTERISK {
+            return null;  // 只有解引用表达式可以作为左值
+        }
+        
+        const operand: &ASTNode = expr.data.unary_expr.operand;
+        if operand == null {
+            return null;
+        }
+        
+        // 操作数应该是指针类型，直接返回操作数的值（指针值本身）
+        const operand_val: *void = codegen_gen_expr(codegen, operand);
+        if operand_val == null {
+            return null;
+        }
+        
+        // 验证操作数是指针类型
+        const operand_type: *void = LLVMTypeOf(operand_val);
+        if operand_type == null || LLVMGetTypeKind(operand_type) != LLVMPointerTypeKind {
+            return null;  // 操作数不是指针类型
+        }
+        
+        // 返回指针值本身（这是我们要存储的地址）
+        return operand_val;
+    } else if expr.type == AST_MEMBER_ACCESS {
+        // 字段访问：使用 GEP 获取字段地址（用于赋值语句如 p.x = value）
+        const object: &ASTNode = expr.data.member_access.object;
+        const field_name: &byte = expr.data.member_access.field_name;
+        
+        if object == null || field_name == null {
+            return null;
+        }
+        
+        // 如果对象是标识符（变量），从变量表获取结构体名称和对象指针
+        var struct_name: &byte = null;
+        var object_ptr: *void = null;
+        
+        if object.type == AST_IDENTIFIER {
+            const var_name: &byte = object.data.identifier.name;
+            if var_name != null {
+                const var_map: &VarMap = lookup_var(codegen, var_name);
+                if var_map != null {
+                    object_ptr = var_map.value;
+                    struct_name = lookup_var_struct_name(codegen, var_name);
+                    
+                    // 检查变量类型是否是指针类型（无论 struct_name 是否设置）
+                    const var_ast_type: &ASTNode = lookup_var_ast_type(codegen, var_name);
+                    if var_ast_type != null && var_ast_type.type == AST_TYPE_POINTER {
+                        // 变量是指针类型，需要加载指针值
+                        const var_type: *void = lookup_var_type(codegen, var_name);
+                        if var_type != null && object_ptr != null {
+                            // 加载指针变量的值（即指针值本身）
+                            object_ptr = LLVMBuildLoad2(codegen.builder, var_type, object_ptr, var_name);
+                            
+                            // 从指针类型中获取指向的结构体类型名称
+                            const pointed_type: &ASTNode = var_ast_type.data.type_pointer.pointed_type;
+                            if pointed_type != null && pointed_type.type == AST_TYPE_NAMED {
+                                struct_name = pointed_type.data.type_named.name;
+                            }
+                        }
+                    }
+                } else {
+                    // 尝试查找全局变量
+                    const global_var_map: &GlobalVarMap = lookup_global_var(codegen, var_name);
+                    if global_var_map != null {
+                        object_ptr = global_var_map.global_var;
+                        struct_name = global_var_map.struct_name;
+                    }
+                }
+            }
+        }
+        
+        if object_ptr == null || struct_name == null {
+            // 对象不是标识符或变量未找到，需要生成对象表达式值
+            // 对于字段访问作为左值，我们暂时不支持复杂表达式
+            return null;
+        }
+        
+        // 查找结构体声明
+        const struct_decl: &ASTNode = find_struct_decl(codegen, struct_name);
+        if struct_decl == null {
+            return null;
+        }
+        
+        // 查找字段索引
+        const field_index: i32 = find_struct_field_index(struct_decl, field_name);
+        if field_index < 0 {
+            return null;  // 字段不存在
+        }
+        
+        // 获取结构体类型
+        const struct_type: *void = codegen_get_struct_type(codegen, struct_name);
+        if struct_type == null {
+            return null;
+        }
+        
+        // 使用 GEP 获取字段地址
+        const i32_type: *void = LLVMInt32Type();
+        const indices: [*void: 2] = [
+            LLVMConstInt(i32_type, 0, 0),  // 结构体指针本身
+            LLVMConstInt(i32_type, field_index as i64, 0)  // 字段索引
+        ];
+        
+        const field_ptr: *void = LLVMBuildGEP2(codegen.builder, struct_type, object_ptr, &indices[0] as *void, 2, "");
+        if field_ptr == null {
+            return null;
+        }
+        
+        // 返回字段地址（不需要加载值）
+        return field_ptr;
+    }
+    
+    // 暂不支持其他类型的左值（如数组访问等）
+    return null;
+}
+
+// 生成语句代码（从语句AST节点生成LLVM IR指令）
+// 参数：codegen - 代码生成器指针
+//       stmt - 语句AST节点
+// 返回：成功返回 0，失败返回非 0
+// 注意：此函数需要在函数上下文中调用（builder需要在函数的基本块中）
+fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
+    if codegen == null || stmt == null || codegen.builder == null {
+        return -1;
+    }
+    
+    if stmt.type == AST_VAR_DECL {
+        // 变量声明：使用 alloca 分配栈空间，如果有初始值则 store
+        const var_name: &byte = stmt.data.var_decl.name;
+        const var_type: &ASTNode = stmt.data.var_decl.type;
+        const init_expr: &ASTNode = stmt.data.var_decl.init;
+        
+        if var_name == null || var_type == null {
+            return -1;
+        }
+        
+        // 获取变量类型
+        const llvm_type: *void = get_llvm_type_from_ast(codegen, var_type);
+        if llvm_type == null {
+            return -1;
+        }
+        
+        // 提取结构体名称（如果类型是结构体类型）
+        var struct_name: &byte = null;
+        if var_type.type == AST_TYPE_NAMED {
+            const type_name: &byte = var_type.data.type_named.name;
+            if type_name != null && strcmp(type_name, "i32") != 0 && 
+               strcmp(type_name, "bool") != 0 && strcmp(type_name, "byte") != 0 && 
+               strcmp(type_name, "void") != 0) {
+                // 可能是结构体类型
+                if codegen_get_struct_type(codegen, type_name) != null {
+                    struct_name = type_name;  // 名称已经在 Arena 中
+                }
+            }
+        }
+        
+        // 使用 alloca 分配栈空间
+        const var_ptr: *void = LLVMBuildAlloca(codegen.builder, llvm_type, var_name);
+        if var_ptr == null {
+            return -1;
+        }
+        
+        // 添加到变量表
+        if add_var(codegen, var_name, var_ptr, llvm_type, struct_name, var_type) != 0 {
+            return -1;
+        }
+        
+        // 如果有初始值，生成初始值代码并 store
+        if init_expr != null {
+            var init_val: *void = null;
+            
+            // 特殊处理空数组字面量：如果变量类型是数组类型，空数组表示未初始化
+            if init_expr.type == AST_ARRAY_LITERAL &&
+               init_expr.data.array_literal.element_count == 0 &&
+               LLVMGetTypeKind(llvm_type) == LLVMArrayTypeKind {
+                // 空数组字面量用于数组类型变量，不进行初始化（变量已通过 alloca 分配，内容未定义）
+                // 跳过初始化代码生成
+                init_val = null;
+            }
+            // 特殊处理 null 标识符：检查是否是 null 字面量
+            else if init_expr.type == AST_IDENTIFIER {
+                const init_name: &byte = init_expr.data.identifier.name;
+                if init_name != null && strcmp(init_name, "null") == 0 {
+                    // null 字面量：检查变量类型是否为指针类型
+                    if LLVMGetTypeKind(llvm_type) == LLVMPointerTypeKind {
+                        init_val = LLVMConstNull(llvm_type);
+                    } else {
+                        fprintf(2 as *void, "错误: 变量 %s 的类型不是指针类型，不能初始化为 null\n", var_name);
+                        return -1;
+                    }
+                }
+            }
+            
+            // 如果不是特殊处理的情况，使用通用方法生成初始值
+            if init_val == null && !(init_expr.type == AST_ARRAY_LITERAL &&
+                                    init_expr.data.array_literal.element_count == 0 &&
+                                    LLVMGetTypeKind(llvm_type) == LLVMArrayTypeKind) {
+                init_val = codegen_gen_expr(codegen, init_expr);
+                if init_val == null {
+                    fprintf(2 as *void, "错误: 变量 %s 的初始值表达式生成失败\n", var_name);
+                    return -1;
+                }
+            }
+            
+            // 如果有初始值（空数组字面量时 init_val 为 null，跳过 store）
+            if init_val != null {
+                // 检查类型是否匹配，如果不匹配则进行类型转换
+                const init_type: *void = LLVMTypeOf(init_val);
+                if init_type != llvm_type {
+                    // 类型不匹配，需要进行类型转换
+                    const var_type_kind: i32 = LLVMGetTypeKind(llvm_type);
+                    const init_type_kind: i32 = LLVMGetTypeKind(init_type);
+                    
+                    if var_type_kind == LLVMIntegerTypeKind && init_type_kind == LLVMIntegerTypeKind {
+                        // 整数类型之间的转换
+                        const var_width: i32 = LLVMGetIntTypeWidth(llvm_type);
+                        const init_width: i32 = LLVMGetIntTypeWidth(init_type);
+                        
+                        if var_width < init_width {
+                            // 截断转换（例如 i32 -> i8）
+                            init_val = LLVMBuildTrunc(codegen.builder, init_val, llvm_type, "");
+                        } else if var_width > init_width {
+                            // 零扩展转换（例如 i8 -> i32，byte 是无符号的，使用零扩展）
+                            init_val = LLVMBuildZExt(codegen.builder, init_val, llvm_type, "");
+                        }
+                        // 如果宽度相同，类型应该相同，不需要转换
+                    }
+                    // 其他类型不匹配的情况会在类型检查阶段被拒绝
+                }
+                
+                LLVMBuildStore(codegen.builder, init_val, var_ptr);
+            }
+        }
+        
+        return 0;
+    } else if stmt.type == AST_RETURN_STMT {
+        // return 语句：生成返回值并返回（void函数返回null）
+        const return_expr: &ASTNode = stmt.data.return_stmt.expr;
+        
+        if return_expr != null {
+            // 有返回值：生成返回值表达式并返回
+            const return_val: *void = codegen_gen_expr(codegen, return_expr);
+            if return_val == null {
+                return -1;
+            }
+            LLVMBuildRet(codegen.builder, return_val);
+        } else {
+            // void 返回
+            LLVMBuildRetVoid(codegen.builder);
+        }
+        
+        return 0;
+    } else if stmt.type == AST_ASSIGN {
+        // 赋值语句：生成源表达式值，store 到目标左值表达式
+        const dest: &ASTNode = stmt.data.assign.dest;
+        const src: &ASTNode = stmt.data.assign.src;
+        
+        if dest == null || src == null {
+            return -1;
+        }
+        
+        // 生成目标左值表达式的地址
+        const dest_ptr: *void = codegen_gen_lvalue_address(codegen, dest);
+        if dest_ptr == null {
+            return -1;  // 无法生成左值地址（不支持的类型或错误）
+        }
+        
+        // 生成源表达式值
+        const src_val: *void = codegen_gen_expr(codegen, src);
+        if src_val == null {
+            return -1;
+        }
+        
+        // store 值到目标地址
+        // LLVMBuildStore 会自动处理类型匹配
+        LLVMBuildStore(codegen.builder, src_val, dest_ptr);
+        
+        return 0;
+    } else if stmt.type == AST_EXPR_STMT {
+        // 表达式语句：根据 parser 实现，表达式语句直接返回表达式节点
+        // 而不是 AST_EXPR_STMT 节点，所以这里不应该被执行
+        // 但为了完整性，如果遇到这种情况，尝试将其当作表达式处理
+        const expr_val: *void = codegen_gen_expr(codegen, stmt);
+        // 忽略返回值（即使失败也返回0，因为表达式语句的返回值不重要）
+        return 0;
+    } else if stmt.type == AST_BLOCK {
+        // 代码块：递归处理语句列表
+        const stmt_count: i32 = stmt.data.block.stmt_count;
+        const stmts: &(&ASTNode) = stmt.data.block.stmts;
+        
+        var i: i32 = 0;
+        while i < stmt_count {
+            if stmts != null {
+                const stmt_node: &ASTNode = stmts[i];
+                if stmt_node != null {
+                    if codegen_gen_stmt(codegen, stmt_node) != 0 {
+                        return -1;
+                    }
+                }
+            }
+            i = i + 1;
+        }
+        
+        return 0;
+    } else if stmt.type == AST_IF_STMT {
+        // if 语句：创建条件分支基本块
+        const condition: &ASTNode = stmt.data.if_stmt.condition;
+        const then_branch: &ASTNode = stmt.data.if_stmt.then_branch;
+        const else_branch: &ASTNode = stmt.data.if_stmt.else_branch;
+        
+        if condition == null || then_branch == null {
+            return -1;
+        }
+        
+        // 生成条件表达式
+        const cond_val: *void = codegen_gen_expr(codegen, condition);
+        if cond_val == null {
+            fprintf(2 as *void, "错误: 条件表达式生成失败\n");
+            return -1;
+        }
+        
+        // 获取当前函数
+        const current_bb: *void = LLVMGetInsertBlock(codegen.builder);
+        if current_bb == null {
+            return -1;
+        }
+        const current_func: *void = LLVMGetBasicBlockParent(current_bb);
+        if current_func == null {
+            return -1;
+        }
+        
+        // 创建基本块（使用计数器生成唯一名称）
+        const bb_id: i32 = codegen.basic_block_counter;
+        codegen.basic_block_counter = codegen.basic_block_counter + 1;
+        
+        var then_name: [byte: 32] = [];
+        var end_name: [byte: 32] = [];
+        snprintf(&then_name[0] as *byte, 32, "if.then.%d", bb_id);
+        snprintf(&end_name[0] as *byte, 32, "if.end.%d", bb_id);
+        const then_bb: *void = LLVMAppendBasicBlock(current_func, &then_name[0] as *byte);
+        const end_bb: *void = LLVMAppendBasicBlock(current_func, &end_name[0] as *byte);
+        
+        // 生成条件分支指令
+        if else_branch != null {
+            // 有else分支
+            var else_name: [byte: 32] = [];
+            snprintf(&else_name[0] as *byte, 32, "if.else.%d", bb_id);
+            const else_bb: *void = LLVMAppendBasicBlock(current_func, &else_name[0] as *byte);
+            
+            // 生成条件分支指令
+            LLVMBuildCondBr(codegen.builder, cond_val, then_bb, else_bb);
+            
+            // 生成then分支代码
+            LLVMPositionBuilderAtEnd(codegen.builder, then_bb);
+            if codegen_gen_stmt(codegen, then_branch) != 0 {
+                return -1;
+            }
+            // 检查是否需要添加跳转
+            const then_current_bb: *void = LLVMGetInsertBlock(codegen.builder);
+            if then_current_bb != null {
+                LLVMBuildBr(codegen.builder, end_bb);
+            }
+            
+            // 生成else分支代码
+            LLVMPositionBuilderAtEnd(codegen.builder, else_bb);
+            if codegen_gen_stmt(codegen, else_branch) != 0 {
+                return -1;
+            }
+            // 检查是否需要添加跳转
+            const else_current_bb: *void = LLVMGetInsertBlock(codegen.builder);
+            if else_current_bb != null {
+                LLVMBuildBr(codegen.builder, end_bb);
+            }
+        } else {
+            // 没有else分支
+            // 生成条件分支指令
+            LLVMBuildCondBr(codegen.builder, cond_val, then_bb, end_bb);
+            
+            // 生成then分支代码
+            LLVMPositionBuilderAtEnd(codegen.builder, then_bb);
+            if codegen_gen_stmt(codegen, then_branch) != 0 {
+                return -1;
+            }
+            // 检查是否需要添加跳转
+            const then_current_bb: *void = LLVMGetInsertBlock(codegen.builder);
+            if then_current_bb != null {
+                LLVMBuildBr(codegen.builder, end_bb);
+            }
+        }
+        
+        // 最后设置构建器到end_bb
+        LLVMPositionBuilderAtEnd(codegen.builder, end_bb);
+        
+        return 0;
+    } else if stmt.type == AST_WHILE_STMT {
+        // while 语句：创建循环基本块
+        const condition: &ASTNode = stmt.data.while_stmt.condition;
+        const body: &ASTNode = stmt.data.while_stmt.body;
+        
+        if condition == null || body == null {
+            return -1;
+        }
+        
+        // 获取当前函数
+        const current_bb: *void = LLVMGetInsertBlock(codegen.builder);
+        if current_bb == null {
+            return -1;
+        }
+        const current_func: *void = LLVMGetBasicBlockParent(current_bb);
+        if current_func == null {
+            return -1;
+        }
+        
+        // 创建基本块：cond（条件检查）、body（循环体）、end（结束）
+        const bb_id: i32 = codegen.basic_block_counter;
+        codegen.basic_block_counter = codegen.basic_block_counter + 1;
+        
+        var cond_name: [byte: 32] = [];
+        var body_name: [byte: 32] = [];
+        var end_name: [byte: 32] = [];
+        snprintf(&cond_name[0] as *byte, 32, "while.cond.%d", bb_id);
+        snprintf(&body_name[0] as *byte, 32, "while.body.%d", bb_id);
+        snprintf(&end_name[0] as *byte, 32, "while.end.%d", bb_id);
+        const cond_bb: *void = LLVMAppendBasicBlock(current_func, &cond_name[0] as *byte);
+        const body_bb: *void = LLVMAppendBasicBlock(current_func, &body_name[0] as *byte);
+        const end_bb: *void = LLVMAppendBasicBlock(current_func, &end_name[0] as *byte);
+        
+        // 将循环基本块推入栈（用于 break/continue）
+        if codegen.loop_stack_depth >= LOOP_STACK_SIZE {
+            return -1;  // 循环嵌套过深
+        }
+        codegen.loop_stack[codegen.loop_stack_depth].cond_bb = cond_bb;
+        codegen.loop_stack[codegen.loop_stack_depth].end_bb = end_bb;
+        codegen.loop_stack[codegen.loop_stack_depth].inc_bb = null;  // while 循环没有 inc_bb
+        codegen.loop_stack_depth = codegen.loop_stack_depth + 1;
+        
+        // 跳转到条件检查
+        LLVMBuildBr(codegen.builder, cond_bb);
+        
+        // 生成条件检查
+        LLVMPositionBuilderAtEnd(codegen.builder, cond_bb);
+        const cond_val: *void = codegen_gen_expr(codegen, condition);
+        if cond_val == null {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;  // 错误恢复：弹出栈
+            return -1;
+        }
+        LLVMBuildCondBr(codegen.builder, cond_val, body_bb, end_bb);
+        
+        // 生成循环体
+        LLVMPositionBuilderAtEnd(codegen.builder, body_bb);
+        if codegen_gen_stmt(codegen, body) != 0 {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;  // 错误恢复：弹出栈
+            return -1;
+        }
+        
+        // 检查循环体结束前是否需要跳转（如果已经有终止符，不需要再跳转）
+        const current_bb_after: *void = LLVMGetInsertBlock(codegen.builder);
+        if current_bb_after != null {
+            // 循环体结束前跳转到条件检查（continue 会跳过这里）
+            LLVMBuildBr(codegen.builder, cond_bb);
+        }
+        
+        // 从栈中弹出循环信息
+        codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+        
+        // 设置构建器到 end 基本块
+        LLVMPositionBuilderAtEnd(codegen.builder, end_bb);
+        
+        return 0;
+    } else if stmt.type == AST_BREAK_STMT {
+        // break 语句：跳转到循环结束基本块
+        if codegen.loop_stack_depth == 0 {
+            return -1;  // break 不在循环中（类型检查应该已经检查过了）
+        }
+        const end_bb: *void = codegen.loop_stack[codegen.loop_stack_depth - 1].end_bb;
+        LLVMBuildBr(codegen.builder, end_bb);
+        return 0;
+    } else if stmt.type == AST_CONTINUE_STMT {
+        // continue 语句：跳转到循环递增基本块（for 循环）或条件检查基本块（while 循环）
+        if codegen.loop_stack_depth == 0 {
+            return -1;  // continue 不在循环中（类型检查应该已经检查过了）
+        }
+        const inc_bb: *void = codegen.loop_stack[codegen.loop_stack_depth - 1].inc_bb;
+        if inc_bb != null {
+            // for 循环：跳转到递增基本块
+            LLVMBuildBr(codegen.builder, inc_bb);
+        } else {
+            // while 循环：跳转到条件检查基本块
+            const cond_bb: *void = codegen.loop_stack[codegen.loop_stack_depth - 1].cond_bb;
+            LLVMBuildBr(codegen.builder, cond_bb);
+        }
+        return 0;
+    }
+    
+    } else if stmt.type == AST_FOR_STMT {
+        // for 语句：数组遍历循环
+        const array_expr: &ASTNode = stmt.data.for_stmt.array;
+        const var_name: &byte = stmt.data.for_stmt.var_name;
+        const is_ref: i32 = stmt.data.for_stmt.is_ref;
+        const body: &ASTNode = stmt.data.for_stmt.body;
+        
+        if array_expr == null || var_name == null || body == null {
+            return -1;
+        }
+        
+        // 获取当前函数
+        const current_bb: *void = LLVMGetInsertBlock(codegen.builder);
+        if current_bb == null {
+            return -1;
+        }
+        const current_func: *void = LLVMGetBasicBlockParent(current_bb);
+        if current_func == null {
+            return -1;
+        }
+        
+        // 创建基本块：init（初始化）、cond（条件检查）、body（循环体）、inc（递增）、end（结束）
+        const bb_id: i32 = codegen.basic_block_counter;
+        codegen.basic_block_counter = codegen.basic_block_counter + 1;
+        
+        var init_name: [byte: 32] = [];
+        var cond_name: [byte: 32] = [];
+        var body_name: [byte: 32] = [];
+        var inc_name: [byte: 32] = [];
+        var end_name: [byte: 32] = [];
+        snprintf(&init_name[0] as *byte, 32, "for.init.%d", bb_id);
+        snprintf(&cond_name[0] as *byte, 32, "for.cond.%d", bb_id);
+        snprintf(&body_name[0] as *byte, 32, "for.body.%d", bb_id);
+        snprintf(&inc_name[0] as *byte, 32, "for.inc.%d", bb_id);
+        snprintf(&end_name[0] as *byte, 32, "for.end.%d", bb_id);
+        const init_bb: *void = LLVMAppendBasicBlock(current_func, &init_name[0] as *byte);
+        const cond_bb: *void = LLVMAppendBasicBlock(current_func, &cond_name[0] as *byte);
+        const body_bb: *void = LLVMAppendBasicBlock(current_func, &body_name[0] as *byte);
+        const inc_bb: *void = LLVMAppendBasicBlock(current_func, &inc_name[0] as *byte);
+        const end_bb: *void = LLVMAppendBasicBlock(current_func, &end_name[0] as *byte);
+        
+        // 将循环基本块推入栈（用于 break/continue）
+        if codegen.loop_stack_depth >= LOOP_STACK_SIZE {
+            return -1;  // 循环嵌套过深
+        }
+        codegen.loop_stack[codegen.loop_stack_depth].cond_bb = cond_bb;
+        codegen.loop_stack[codegen.loop_stack_depth].end_bb = end_bb;
+        codegen.loop_stack[codegen.loop_stack_depth].inc_bb = inc_bb;  // for 循环有 inc_bb
+        codegen.loop_stack_depth = codegen.loop_stack_depth + 1;
+        
+        // 在当前基本块分配循环索引变量 i（在所有基本块中使用）
+        const i32_type: *void = codegen_get_base_type(codegen, TYPE_I32);
+        if i32_type == null {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+            return -1;
+        }
+        
+        // 分配循环索引变量 i（在当前基本块中分配，这样可以在所有后续基本块中使用）
+        const index_ptr: *void = LLVMBuildAlloca(codegen.builder, i32_type, "");
+        if index_ptr == null {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+            return -1;
+        }
+        
+        // 获取数组变量的地址（指针）
+        // 对于数组变量，我们使用 lvalue_address 获取其地址，而不是加载整个数组的值
+        const array_ptr: *void = codegen_gen_lvalue_address(codegen, array_expr);
+        if array_ptr == null {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+            return -1;
+        }
+        
+        // 获取数组类型：如果 array_expr 是标识符，从变量表获取类型；否则从指针类型推导
+        var array_type: *void = null;
+        if array_expr.type == AST_IDENTIFIER {
+            // 标识符：从变量表获取类型（变量表中存储的是数组类型，不是指针类型）
+            const array_var_name: &byte = array_expr.data.identifier.name;
+            array_type = lookup_var_type(codegen, array_var_name);
+            if array_type == null {
+                codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+                return -1;
+            }
+        } else {
+            // 其他表达式：从指针类型推导数组类型
+            const array_ptr_type: *void = LLVMTypeOf(array_ptr);
+            if array_ptr_type == null || LLVMGetTypeKind(array_ptr_type) != LLVMPointerTypeKind {
+                codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+                return -1;
+            }
+            array_type = LLVMGetElementType(array_ptr_type);
+            if array_type == null {
+                codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+                return -1;
+            }
+        }
+        
+        // 验证是数组类型
+        if LLVMGetTypeKind(array_type) != LLVMArrayTypeKind {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+            return -1;  // 不是数组类型
+        }
+        
+        // 获取数组长度：从 AST 类型节点获取数组大小
+        var array_length: i32 = 0;
+        if array_expr.type == AST_IDENTIFIER {
+            const array_var_name: &byte = array_expr.data.identifier.name;
+            const array_ast_type: &ASTNode = lookup_var_ast_type(codegen, array_var_name);
+            if array_ast_type != null && array_ast_type.type == AST_TYPE_ARRAY {
+                const size_expr: &ASTNode = array_ast_type.data.type_array.size_expr;
+                if size_expr != null && size_expr.type == AST_NUMBER {
+                    array_length = size_expr.data.number.value;
+                }
+            }
+        }
+        if array_length <= 0 {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+            return -1;  // 无法获取数组长度
+        }
+        const array_length_val: *void = LLVMConstInt(i32_type, array_length, 0);
+        
+        // 获取元素类型
+        const element_type: *void = LLVMGetElementType(array_type);
+        if element_type == null {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+            return -1;
+        }
+        
+        // 确定循环变量类型
+        var loop_var_type: *void = null;
+        var loop_var_ast_type: &ASTNode = null;
+        
+        if is_ref != 0 {
+            // 引用迭代：循环变量是指向元素的指针
+            loop_var_type = LLVMPointerType(element_type, 0);
+            // 简化处理：暂时不创建 AST 类型节点
+        } else {
+            // 值迭代：循环变量是元素值
+            loop_var_type = element_type;
+            // 简化处理：暂时不创建 AST 类型节点
+        }
+        
+        // 分配循环变量空间（在当前基本块中分配，这样可以在所有后续基本块中使用）
+        const loop_var_ptr: *void = LLVMBuildAlloca(codegen.builder, loop_var_type, "");
+        if loop_var_ptr == null {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+            return -1;
+        }
+        
+        // 添加循环变量到变量表（在循环开始前添加一次，而不是每次迭代都添加）
+        if add_var(codegen, var_name, loop_var_ptr, loop_var_type, null, loop_var_ast_type) != 0 {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+            return -1;
+        }
+        
+        // 跳转到初始化基本块
+        LLVMBuildBr(codegen.builder, init_bb);
+        
+        // 生成初始化代码（初始化循环索引 i = 0）
+        LLVMPositionBuilderAtEnd(codegen.builder, init_bb);
+        LLVMBuildStore(codegen.builder, LLVMConstInt(i32_type, 0, 0), index_ptr);
+        
+        // 跳转到条件检查
+        LLVMBuildBr(codegen.builder, cond_bb);
+        
+        // 生成条件检查（i < array_length）
+        LLVMPositionBuilderAtEnd(codegen.builder, cond_bb);
+        const index_val: *void = LLVMBuildLoad2(codegen.builder, i32_type, index_ptr, "");
+        if index_val == null {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+            return -1;
+        }
+        const cond_val: *void = LLVMBuildICmp(codegen.builder, LLVMIntSLT, index_val, array_length_val, "");
+        if cond_val == null {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+            return -1;
+        }
+        LLVMBuildCondBr(codegen.builder, cond_val, body_bb, end_bb);
+        
+        // 生成循环体
+        LLVMPositionBuilderAtEnd(codegen.builder, body_bb);
+        
+        // 重新加载索引值（因为在不同的基本块中，index_val 不可用）
+        const index_val_body: *void = LLVMBuildLoad2(codegen.builder, i32_type, index_ptr, "");
+        if index_val_body == null {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+            return -1;
+        }
+        
+        // 生成循环变量（值迭代：load array[i]，引用迭代：getelementptr array[i]）
+        const i32_type_for_gep: *void = LLVMInt32Type();
+        const indices: [*void: 2] = [
+            LLVMConstInt(i32_type_for_gep, 0, 0),  // 数组指针本身
+            index_val_body  // 元素索引（运行时值）
+        ];
+        
+        const element_ptr: *void = LLVMBuildGEP2(codegen.builder, array_type, array_ptr, &indices[0] as *void, 2, "");
+        if element_ptr == null {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+            return -1;
+        }
+        
+        var loop_var_val: *void = null;
+        
+        if is_ref != 0 {
+            // 引用迭代：循环变量是指向元素的指针
+            loop_var_val = element_ptr;
+        } else {
+            // 值迭代：循环变量是元素值
+            loop_var_val = LLVMBuildLoad2(codegen.builder, element_type, element_ptr, "");
+            if loop_var_val == null {
+                codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+                return -1;
+            }
+        }
+        
+        // 存储循环变量值（变量已经在循环开始前添加到变量表）
+        LLVMBuildStore(codegen.builder, loop_var_val, loop_var_ptr);
+        
+        // 生成循环体代码
+        if codegen_gen_stmt(codegen, body) != 0 {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+            return -1;
+        }
+        
+        // 检查循环体结束前是否需要跳转（如果已经有终止符，不需要再跳转）
+        const current_bb_after: *void = LLVMGetInsertBlock(codegen.builder);
+        if current_bb_after != null {
+            // 循环体结束前跳转到递增基本块（continue 会跳过这里）
+            LLVMBuildBr(codegen.builder, inc_bb);
+        }
+        
+        // 生成递增代码（i = i + 1）
+        LLVMPositionBuilderAtEnd(codegen.builder, inc_bb);
+        const index_val_inc: *void = LLVMBuildLoad2(codegen.builder, i32_type, index_ptr, "");
+        if index_val_inc == null {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+            return -1;
+        }
+        const index_val_next: *void = LLVMBuildAdd(codegen.builder, index_val_inc, LLVMConstInt(i32_type, 1, 0), "");
+        if index_val_next == null {
+            codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+            return -1;
+        }
+        LLVMBuildStore(codegen.builder, index_val_next, index_ptr);
+        
+        // 跳转到条件检查
+        LLVMBuildBr(codegen.builder, cond_bb);
+        
+        // 从栈中弹出循环信息
+        codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
+        
+        // 设置构建器到 end 基本块
+        LLVMPositionBuilderAtEnd(codegen.builder, end_bb);
+        
+        return 0;
+    }
+    
+    // 其他未知语句类型
+    // 如果是表达式节点（表达式语句），尝试将其当作表达式处理
+    const expr_val: *void = codegen_gen_expr(codegen, stmt);
+    // 忽略返回值（即使失败也返回0，因为表达式语句的返回值不重要）
+    return 0;
+}
+
+// 声明函数（创建函数声明并添加到函数表，但不生成函数体）
+// 参数：codegen - 代码生成器指针
+//       fn_decl - 函数声明AST节点
+// 返回：成功返回 0，失败返回非 0
+fn codegen_declare_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32 {
+    if codegen == null || fn_decl == null || fn_decl.type != AST_FN_DECL {
+        return -1;
+    }
+    
+    const func_name: &byte = fn_decl.data.fn_decl.name;
+    const return_type_node: &ASTNode = fn_decl.data.fn_decl.return_type;
+    const param_count: i32 = fn_decl.data.fn_decl.param_count;
+    const params: &(&ASTNode) = fn_decl.data.fn_decl.params;
+    
+    if func_name == null || return_type_node == null {
+        return -1;
+    }
+    
+    // 检查函数是否已经声明（在函数表中查找）
+    var func_type_check: *void = null;
+    const func_map_check: &FuncMap = lookup_func(codegen, func_name, func_type_check);
+    if func_map_check != null {
+        return 0;  // 已在函数表中，跳过
+    }
+    
+    // 获取返回类型
+    const return_type: *void = get_llvm_type_from_ast(codegen, return_type_node);
+    if return_type == null {
+        return -1;
+    }
+    
+    // 准备参数类型数组
+    if param_count > MAX_FUNC_PARAMS {
+        return -1;
+    }
+    
+    var param_types: [*void: MAX_FUNC_PARAMS] = [];
+    var i: i32 = 0;
+    while i < param_count {
+        if params == null {
+            return -1;
+        }
+        const param: &ASTNode = params[i];
+        if param == null || param.type != AST_VAR_DECL {
+            return -1;
+        }
+        
+        const param_type_node: &ASTNode = param.data.var_decl.type;
+        const param_type: *void = get_llvm_type_from_ast(codegen, param_type_node);
+        if param_type == null {
+            return -1;
+        }
+        
+        param_types[i] = param_type;
+        i = i + 1;
+    }
+    
+    // 创建函数类型（最后一个参数 isVarArg 表示是否为可变参数函数）
+    const is_varargs: i32 = fn_decl.data.fn_decl.is_varargs;
+    const func_type: *void = LLVMFunctionType(return_type, &param_types[0] as *void, param_count, is_varargs);
+    if func_type == null {
+        return -1;
+    }
+    
+    // 创建函数声明（添加到模块）
+    const func: *void = LLVMAddFunction(codegen.module, func_name, func_type);
+    if func == null {
+        return -1;
+    }
+    
+    // 添加到函数表
+    if add_func(codegen, func_name, func, func_type) != 0 {
+        return -1;
+    }
+    
+    return 0;
+}
+
+// 生成全局变量代码（从变量声明AST节点生成LLVM全局变量）
+// 参数：codegen - 代码生成器指针
+//       var_decl - 变量声明AST节点（必须是顶层变量声明）
+// 返回：成功返回 0，失败返回非 0
+fn codegen_gen_global_var(codegen: &CodeGenerator, var_decl: &ASTNode) i32 {
+    if codegen == null || var_decl == null || var_decl.type != AST_VAR_DECL {
+        return -1;
+    }
+    
+    const var_name: &byte = var_decl.data.var_decl.name;
+    const var_type_node: &ASTNode = var_decl.data.var_decl.type;
+    const init_expr: &ASTNode = var_decl.data.var_decl.init;
+    
+    if var_name == null || var_type_node == null {
+        return -1;
+    }
+    
+    // 获取变量类型
+    const llvm_type: *void = get_llvm_type_from_ast(codegen, var_type_node);
+    if llvm_type == null {
+        return -1;
+    }
+    
+    // 提取结构体名称（如果类型是结构体类型）
+    var struct_name: &byte = null;
+    if var_type_node.type == AST_TYPE_NAMED {
+        const type_name: &byte = var_type_node.data.type_named.name;
+        if type_name != null && strcmp(type_name, "i32") != 0 && 
+           strcmp(type_name, "bool") != 0 && strcmp(type_name, "byte") != 0 && 
+           strcmp(type_name, "void") != 0 {
+            // 可能是结构体类型
+            if codegen_get_struct_type(codegen, type_name) != null {
+                struct_name = type_name;  // 名称已经在 Arena 中
+            }
+        }
+    }
+    
+    // 创建全局变量（使用内部链接，因为没有导出机制）
+    const global_var: *void = LLVMAddGlobal(codegen.module, llvm_type, var_name);
+    if global_var == null {
+        return -1;
+    }
+    
+    // 设置链接属性（内部链接，全局变量在当前模块内可见）
+    LLVMSetLinkage(global_var, LLVMInternalLinkage);
+    
+    // 设置初始值
+    var init_val: *void = null;
+    if init_expr != null {
+        // 对于常量表达式（数字字面量、布尔字面量），可以直接使用
+        // 注意：这里简化处理，只支持常量字面量，不支持复杂表达式
+        if init_expr.type == AST_NUMBER {
+            const value: i32 = init_expr.data.number.value;
+            if LLVMGetTypeKind(llvm_type) == LLVMIntegerTypeKind {
+                init_val = LLVMConstInt(llvm_type, value as i64, 1);  // 1 表示有符号
+            }
+        } else if init_expr.type == AST_BOOL {
+            const value: i32 = init_expr.data.bool_literal.value;
+            if LLVMGetTypeKind(llvm_type) == LLVMIntegerTypeKind {
+                const bool_value: i64 = if value != 0 { 1 } else { 0 };
+                init_val = LLVMConstInt(llvm_type, bool_value, 0);  // 0 表示无符号（布尔值）
+            }
+        }
+        // TODO: 支持其他常量表达式（如结构体字面量、数组字面量等）
+    }
+    
+    // 如果没有初始值或初始值不是常量，使用零初始化
+    if init_val == null {
+        init_val = LLVMConstNull(llvm_type);
+    }
+    
+    // 设置全局变量的初始值
+    LLVMSetInitializer(global_var, init_val);
+    
+    // 添加到全局变量映射表
+    if add_global_var(codegen, var_name, global_var, llvm_type, struct_name) != 0 {
+        return -1;
+    }
+    
+    return 0;
+}
+
+// 生成函数代码（从函数声明AST节点生成LLVM函数）
+// 参数：codegen - 代码生成器指针
+//       fn_decl - 函数声明AST节点
+// 返回：成功返回 0，失败返回非 0
+fn codegen_gen_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32 {
+    if codegen == null || fn_decl == null || fn_decl.type != AST_FN_DECL {
+        fprintf(2 as *void, "错误: codegen_gen_function 参数检查失败\n");
+        return -1;
+    }
+    
+    const func_name: &byte = fn_decl.data.fn_decl.name;
+    const return_type_node: &ASTNode = fn_decl.data.fn_decl.return_type;
+    const body: &ASTNode = fn_decl.data.fn_decl.body;
+    const param_count: i32 = fn_decl.data.fn_decl.param_count;
+    const params: &(&ASTNode) = fn_decl.data.fn_decl.params;
+    
+    if func_name == null || return_type_node == null {
+        fprintf(2 as *void, "错误: codegen_gen_function 函数名或返回类型为空: %s\n", if func_name != null { func_name } else { "(null)" as &byte });
+        return -1;
+    }
+    
+    // 检查参数数组：如果 param_count > 0，params 必须不为 null
+    if param_count > 0 && params == null {
+        fprintf(2 as *void, "错误: codegen_gen_function 参数数量 > 0 但参数数组为 null: %s\n", func_name);
+        return -1;
+    }
+    
+    // extern 函数没有函数体，只生成声明
+    const is_extern: i32 = if body == null { 1 } else { 0 };
+    
+    // 获取返回类型
+    const return_type: *void = get_llvm_type_from_ast(codegen, return_type_node);
+    if return_type == null {
+        return -1;
+    }
+    
+    // 准备参数类型数组
+    if param_count > MAX_FUNC_PARAMS {
+        return -1;  // 参数过多
+    }
+    
+    var param_types: [*void: MAX_FUNC_PARAMS] = [];
+    var i: i32 = 0;
+    while i < param_count {
+        if params == null {
+            return -1;
+        }
+        const param: &ASTNode = params[i];
+        if param == null || param.type != AST_VAR_DECL {
+            return -1;
+        }
+        
+        const param_type_node: &ASTNode = param.data.var_decl.type;
+        const param_type: *void = get_llvm_type_from_ast(codegen, param_type_node);
+        if param_type == null {
+            return -1;
+        }
+        
+        param_types[i] = param_type;
+        i = i + 1;
+    }
+    
+    // 获取函数（应该已经在声明阶段创建）
+    const func_map: &FuncMap = lookup_func(codegen, func_name, null);
+    if func_map == null {
+        fprintf(2 as *void, "错误: codegen_gen_function 函数未声明: %s\n", func_name);
+        return -1;
+    }
+    const func: *void = func_map.func;
+    
+    // 检查函数体是否已经定义
+    if LLVMGetFirstBasicBlock(func) != null {
+        // 函数体已存在，跳过函数体生成
+        return 0;
+    }
+    
+    // extern 函数只生成声明，不生成函数体
+    if is_extern != 0 {
+        return 0;  // extern 函数处理完成
+    }
+    
+    // 普通函数需要生成函数体
+    // 确保函数体不为 null
+    if body == null {
+        fprintf(2 as *void, "错误: codegen_gen_function 非 extern 函数但函数体为 null: %s\n", func_name);
+        return -1;
+    }
+    
+    // 创建函数体的基本块
+    const entry_bb: *void = LLVMAppendBasicBlock(func, "entry");
+    if entry_bb == null {
+        return -1;
+    }
+    
+    // 设置构建器位置到入口基本块
+    LLVMPositionBuilderAtEnd(codegen.builder, entry_bb);
+    
+    // 保存当前变量表状态（用于函数结束后恢复）
+    const saved_var_map_count: i32 = codegen.var_map_count;
+    
+    // 处理函数参数：将参数值 store 到 alloca 分配的栈变量
+    i = 0;
+    while i < param_count {
+        if params == null {
+            return -1;
+        }
+        const param: &ASTNode = params[i];
+        if param == null || param.type != AST_VAR_DECL {
+            return -1;
+        }
+        
+        const param_name: &byte = param.data.var_decl.name;
+        const param_type_node: &ASTNode = param.data.var_decl.type;
+        if param_name == null || param_type_node == null {
+            return -1;
+        }
+        
+        // 获取参数类型
+        const param_type: *void = get_llvm_type_from_ast(codegen, param_type_node);
+        if param_type == null {
+            return -1;
+        }
+        
+        // 提取结构体名称（如果类型是结构体类型或指针指向结构体类型）
+        var struct_name: &byte = null;
+        if param_type_node.type == AST_TYPE_NAMED {
+            const type_name: &byte = param_type_node.data.type_named.name;
+            if type_name != null && strcmp(type_name, "i32") != 0 && 
+               strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0 {
+                // 可能是结构体类型
+                if codegen_get_struct_type(codegen, type_name) != null {
+                    struct_name = type_name;  // 名称已经在 Arena 中
+                }
+            }
+        } else if param_type_node.type == AST_TYPE_POINTER {
+            // 指针类型：检查指向的类型是否为结构体类型
+            const pointed_type: &ASTNode = param_type_node.data.type_pointer.pointed_type;
+            if pointed_type != null && pointed_type.type == AST_TYPE_NAMED {
+                const type_name: &byte = pointed_type.data.type_named.name;
+                if type_name != null && strcmp(type_name, "i32") != 0 && 
+                   strcmp(type_name, "bool") != 0 && strcmp(type_name, "byte") != 0 && 
+                   strcmp(type_name, "void") != 0 {
+                    // 可能是结构体类型
+                    if codegen_get_struct_type(codegen, type_name) != null {
+                        struct_name = type_name;  // 名称已经在 Arena 中
+                    }
+                }
+            }
+        }
+        
+        // 使用 alloca 分配栈空间（存储参数值）
+        const param_ptr: *void = LLVMBuildAlloca(codegen.builder, param_type, param_name);
+        if param_ptr == null {
+            return -1;
+        }
+        
+        // 获取函数参数值（LLVMGetParam）
+        const param_val: *void = LLVMGetParam(func, i);
+        if param_val == null {
+            return -1;
+        }
+        
+        // store 参数值到栈变量
+        LLVMBuildStore(codegen.builder, param_val, param_ptr);
+        
+        // 添加到变量表
+        if add_var(codegen, param_name, param_ptr, param_type, struct_name, param_type_node) != 0 {
+            return -1;
+        }
+        
+        i = i + 1;
+    }
+    
+    // 生成函数体代码
+    const stmt_result: i32 = codegen_gen_stmt(codegen, body);
+    if stmt_result != 0 {
+        fprintf(2 as *void, "错误: 函数体生成失败: %s (返回值: %d)\n", func_name, stmt_result);
+        // 恢复变量表状态（如果失败）
+        codegen.var_map_count = saved_var_map_count;
+        return -1;
+    }
+    
+    // 检查函数是否已经有返回语句
+    // 如果当前基本块没有终止符（return），需要添加默认返回
+    const current_bb: *void = LLVMGetInsertBlock(codegen.builder);
+    if current_bb != null {
+        const terminator: *void = LLVMGetBasicBlockTerminator(current_bb);
+        if terminator == null {
+            // 没有终止符，添加默认返回
+            // 检查返回类型是否为 void（通过比较类型）
+            const void_type: *void = LLVMVoidType();
+            if return_type == void_type {
+                // void 返回
+                LLVMBuildRetVoid(codegen.builder);
+            } else {
+                // 非 void 返回，生成默认返回值（0）
+                // 注意：这应该不会发生，因为类型检查应该确保所有非 void 函数都有返回值
+                // 但为了安全，我们生成一个默认值
+                var default_val: *void = null;
+                if LLVMGetTypeKind(return_type) == LLVMIntegerTypeKind {
+                    default_val = LLVMConstInt(return_type, 0, 0);
+                }
+                if default_val != null {
+                    LLVMBuildRet(codegen.builder, default_val);
+                } else {
+                    return -1;  // 无法生成默认返回值
+                }
+            }
+        }
+    }
+    
+    // 恢复变量表状态（函数结束）
+    codegen.var_map_count = saved_var_map_count;
+    
+    return 0;
+}
+
+// 从AST生成代码
+// 参数：codegen - 代码生成器指针
+//       ast - AST 根节点（程序节点）
+//       output_file - 输出文件路径
+// 返回：成功返回 0，失败返回非 0
+fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) i32 {
+    if codegen == null || ast == null || output_file == null {
+        return -1;
+    }
+    
+    // 检查是否是程序节点
+    if ast.type != AST_PROGRAM {
+        return -1;
+    }
+    
+    // 保存程序节点（用于查找结构体声明）
+    codegen.program_node = ast;
+    
+    const decl_count: i32 = ast.data.program.decl_count;
+    const decls: &(&ASTNode) = ast.data.program.decls;
+    
+    if decls == null && decl_count > 0 {
+        return -1;
+    }
+    
+    // 第零步：初始化目标并设置模块的 DataLayout（需要在生成函数体之前设置，以便 sizeof 可以使用）
+    // 初始化LLVM目标（只需要初始化一次，但重复初始化是安全的）
+    LLVMInitializeNativeTarget();
+    LLVMInitializeNativeAsmPrinter();
+    LLVMInitializeNativeAsmParser();
+    
+    // 获取默认目标三元组（例如："x86_64-pc-linux-gnu"）
+    const init_target_triple: &byte = LLVMGetDefaultTargetTriple();
+    if init_target_triple == null {
+        return -1;
+    }
+    
+    // 查找目标
+    var init_error_msg: &byte = null;
+    var init_target: *void = null;
+    if LLVMGetTargetFromTriple(init_target_triple, &init_target as *void, &init_error_msg as *void) != 0 {
+        // 错误处理：释放错误消息
+        if init_error_msg != null {
+            LLVMDisposeMessage(init_error_msg);
+        }
+        LLVMDisposeMessage(init_target_triple);
+        return -1;
+    }
+    
+    // 创建目标机器（使用默认的CPU和特性）
+    const init_opt_level: i32 = LLVMCodeGenLevelDefault;
+    const init_reloc_mode: i32 = LLVMRelocDefault;
+    const init_code_model: i32 = LLVMCodeModelDefault;
+    
+    const init_target_machine: *void = LLVMCreateTargetMachine(
+        init_target,
+        init_target_triple,
+        "" as &byte,  // CPU（空字符串表示默认）
+        "" as &byte,  // Features（空字符串表示默认）
+        init_opt_level,
+        init_reloc_mode,
+        init_code_model
+    );
+    
+    if init_target_machine == null {
+        LLVMDisposeMessage(init_target_triple);
+        return -1;
+    }
+    
+    // 配置模块的目标数据布局（需要在生成函数体之前设置）
+    LLVMSetTarget(codegen.module, init_target_triple);
+    const init_target_data: *void = LLVMCreateTargetDataLayout(init_target_machine);
+    if init_target_data != null {
+        // LLVM 18中，LLVMSetModuleDataLayout 直接接受 LLVMTargetDataRef 类型
+        LLVMSetModuleDataLayout(codegen.module, init_target_data);
+        LLVMDisposeTargetData(init_target_data);
+    }
+    
+    // 释放资源（第零步创建的 target_machine 和 target_triple）
+    LLVMDisposeTargetMachine(init_target_machine);
+    LLVMDisposeMessage(init_target_triple);
+    
+    // 第一步：注册所有结构体类型
+    // 使用多次遍历的方式处理结构体依赖关系（如果结构体字段是其他结构体类型）
+    // 每次遍历注册所有可以注册的结构体，直到所有结构体都注册或无法继续注册
+    const max_iterations: i32 = decl_count + 1;  // 最多迭代 decl_count + 1 次
+    var iteration: i32 = 0;
+    
+    while iteration < max_iterations {
+        var registered_this_iteration: i32 = 0;
+        
+        // 遍历所有声明，尝试注册结构体类型
+        var i: i32 = 0;
+        while i < decl_count {
+            if decls != null {
+                const decl: &ASTNode = decls[i];
+                if decl != null && decl.type == AST_STRUCT_DECL {
+                    // 尝试注册结构体类型（如果已经注册，会返回成功）
+                    if codegen_register_struct_type(codegen, decl) == 0 {
+                        registered_this_iteration = 1;
+                    }
+                }
+            }
+            i = i + 1;
+        }
+        
+        // 如果这一轮没有注册任何结构体，说明所有可以注册的结构体都已注册
+        if registered_this_iteration == 0 {
+            break;
+        }
+        
+        iteration = iteration + 1;
+    }
+    
+    // 第二步：生成所有全局变量（在函数声明之前，这样函数可以访问全局变量）
+    i = 0;
+    while i < decl_count {
+        if decls != null {
+            const decl: &ASTNode = decls[i];
+            if decl != null && decl.type == AST_VAR_DECL {
+                // 生成全局变量
+                const var_name: &byte = decl.data.var_decl.name;
+                const result: i32 = codegen_gen_global_var(codegen, decl);
+                if result != 0 {
+                    fprintf(2 as *void, "错误: 全局变量生成失败: %s\n", if var_name != null { var_name } else { "(null)" as &byte });
+                    return -1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    
+    // 第三步：声明所有函数（创建函数声明并添加到函数表，但不生成函数体）
+    // 这样在生成函数体时，所有函数都已被声明，可以相互调用
+    i = 0;
+    while i < decl_count {
+        if decls != null {
+            const decl: &ASTNode = decls[i];
+            if decl != null && decl.type == AST_FN_DECL {
+                // 声明函数（不生成函数体）
+                const func_name: &byte = decl.data.fn_decl.name;
+                const result: i32 = codegen_declare_function(codegen, decl);
+                if result != 0 {
+                    fprintf(2 as *void, "错误: 函数声明失败: %s\n", if func_name != null { func_name } else { "(null)" as &byte });
+                    return -1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    
+    // 第四步：生成所有函数的函数体
+    // 此时所有函数都已被声明，可以相互调用
+    i = 0;
+    while i < decl_count {
+        if decls != null {
+            const decl: &ASTNode = decls[i];
+            if decl != null && decl.type == AST_FN_DECL {
+                // extern 函数没有函数体，跳过
+                if decl.data.fn_decl.body == null {
+                    i = i + 1;
+                    continue;
+                }
+                
+                // 生成函数体
+                const func_name: &byte = decl.data.fn_decl.name;
+                const result: i32 = codegen_gen_function(codegen, decl);
+                if result != 0 {
+                    fprintf(2 as *void, "错误: 函数代码生成失败: %s\n", if func_name != null { func_name } else { "(null)" as &byte });
+                    return -1;  // 函数代码生成失败
+                }
+            }
+        }
+        i = i + 1;
+    }
+    
+    // 第五步：生成目标代码
+    // 初始化LLVM目标（只需要初始化一次，但重复初始化是安全的）
+    LLVMInitializeNativeTarget();
+    LLVMInitializeNativeAsmPrinter();
+    LLVMInitializeNativeAsmParser();
+    
+    // 获取默认目标三元组（例如："x86_64-pc-linux-gnu"）
+    const target_triple: &byte = LLVMGetDefaultTargetTriple();
+    if target_triple == null {
+        return -1;
+    }
+    
+    // 查找目标
+    var error_msg: &byte = null;
+    var target: *void = null;
+    if LLVMGetTargetFromTriple(target_triple, &target as *void, &error_msg as *void) != 0 {
+        // 错误处理：释放错误消息
+        if error_msg != null {
+            LLVMDisposeMessage(error_msg);
+        }
+        LLVMDisposeMessage(target_triple);
+        return -1;
+    }
+    
+    // 创建目标机器（使用默认的CPU和特性）
+    // 优化级别：0 = 无优化，1 = 少量优化，2 = 默认优化，3 = 激进优化
+    const opt_level: i32 = LLVMCodeGenLevelDefault;
+    const reloc_mode: i32 = LLVMRelocDefault;
+    const code_model: i32 = LLVMCodeModelDefault;
+    
+    const target_machine: *void = LLVMCreateTargetMachine(
+        target,
+        target_triple,
+        "" as &byte,  // CPU（空字符串表示默认）
+        "" as &byte,  // Features（空字符串表示默认）
+        opt_level,
+        reloc_mode,
+        code_model
+    );
+    
+    if target_machine == null {
+        LLVMDisposeMessage(target_triple);
+        return -1;
+    }
+    
+    // 配置模块的目标数据布局（如果还没有设置）
+    // 注意：在第零步可能已经设置了 DataLayout，但重复设置是安全的
+    LLVMSetTarget(codegen.module, target_triple);
+    const layout_data: *void = LLVMCreateTargetDataLayout(target_machine);
+    if layout_data != null {
+        // LLVM 18中，LLVMSetModuleDataLayout 直接接受 LLVMTargetDataRef 类型
+        LLVMSetModuleDataLayout(codegen.module, layout_data);
+        LLVMDisposeTargetData(layout_data);
+    }
+    
+    // 生成LLVM IR文本到文件，用于调试
+    // 基于输出文件名生成 .ll 文件路径（将 .o 替换为 .ll）
+    // 简化处理：直接追加 .ll
+    var ir_file: [byte: 512] = [];
+    const output_len: i32 = strlen(output_file);
+    if output_len > 511 {
+        LLVMDisposeTargetMachine(target_machine);
+        LLVMDisposeMessage(target_triple);
+        return -1;
+    }
+    strncpy(&ir_file[0] as *byte, output_file, output_len);
+    ir_file[output_len] = 0;
+    
+    // 追加 .ll
+    strcat(&ir_file[0] as *byte, ".ll");
+    
+    var ir_error: &byte = null;
+    LLVMPrintModuleToFile(codegen.module, &ir_file[0] as *byte, &ir_error as *void);
+    if ir_error != null {
+        LLVMDisposeMessage(ir_error);
+    }
+    
+    // 生成目标代码到文件
+    var error: &byte = null;
+    if LLVMTargetMachineEmitToFile(target_machine, codegen.module, output_file, LLVMObjectFile, &error as *void) != 0 {
+        // 生成失败
+        if error != null {
+            fprintf(2 as *void, "错误: LLVM 代码生成失败: %s\n", error);
+            LLVMDisposeMessage(error);
+        } else {
+            fprintf(2 as *void, "错误: LLVM 代码生成失败（未知错误）\n");
+        }
+        LLVMDisposeTargetMachine(target_machine);
+        LLVMDisposeMessage(target_triple);
+        return -1;
+    }
+    
+    // 清理资源
+    LLVMDisposeTargetMachine(target_machine);
+    LLVMDisposeMessage(target_triple);
+    
+    return 0;
+}

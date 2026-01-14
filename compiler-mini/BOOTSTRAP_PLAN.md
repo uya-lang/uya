@@ -463,38 +463,38 @@ slots[hash] = symbol;
 ### 步骤1：准备工作
 
 1. ✅ 创建实现计划文档（本文档）
-2. ⏳ 创建翻译工作目录结构
-   - `compiler-mini/uya-src/` - Uya Mini 源代码目录
-   - `compiler-mini/uya-src/arena.uya` - Arena 模块
-   - `compiler-mini/uya-src/ast.uya` - AST 模块
-   - `compiler-mini/uya-src/lexer.uya` - Lexer 模块
-   - `compiler-mini/uya-src/parser.uya` - Parser 模块
-   - `compiler-mini/uya-src/checker.uya` - Checker 模块
-   - `compiler-mini/uya-src/codegen.uya` - CodeGen 模块
-   - `compiler-mini/uya-src/main.uya` - Main 模块
-3. ⏳ 创建字符串辅助函数模块
-   - `compiler-mini/uya-src/str_utils.uya` - 字符串辅助函数 extern 声明
-4. ⏳ 创建 LLVM C API 外部函数声明文件
-   - `compiler-mini/uya-src/llvm_api.uya` - LLVM C API extern 声明（逐步添加）
+2. ✅ 创建翻译工作目录结构
+   - ✅ `compiler-mini/uya-src/` - Uya Mini 源代码目录
+   - ✅ `compiler-mini/uya-src/arena.uya` - Arena 模块
+   - ✅ `compiler-mini/uya-src/ast.uya` - AST 模块
+   - ✅ `compiler-mini/uya-src/lexer.uya` - Lexer 模块
+   - ✅ `compiler-mini/uya-src/parser.uya` - Parser 模块
+   - ✅ `compiler-mini/uya-src/checker.uya` - Checker 模块
+   - ⏳ `compiler-mini/uya-src/codegen.uya` - CodeGen 模块
+   - ⏳ `compiler-mini/uya-src/main.uya` - Main 模块
+3. ✅ 创建字符串辅助函数模块
+   - ✅ `compiler-mini/uya-src/str_utils.uya` - 字符串辅助函数 extern 声明
+4. ✅ 创建 LLVM C API 外部函数声明文件
+   - ✅ `compiler-mini/uya-src/llvm_api.uya` - LLVM C API extern 声明（逐步添加）
 
 ### 步骤2：翻译基础模块（阶段0-2）
 
-1. 创建 `str_utils.uya` 和 `llvm_api.uya` 框架（阶段0）
-2. 翻译 `arena.uya`（阶段1）
-3. 翻译 `ast.uya`（阶段2）
-4. 验证基础模块功能
+1. ✅ 创建 `str_utils.uya` 和 `llvm_api.uya` 框架（阶段0）
+2. ✅ 翻译 `arena.uya`（阶段1）
+3. ✅ 翻译 `ast.uya`（阶段2）
+4. ✅ 验证基础模块功能
 
 ### 步骤3：翻译核心模块（阶段3-4）
 
-1. 翻译 `lexer.uya`（使用 `str_utils.uya`）
-2. 翻译 `parser.uya`（使用 `str_utils.uya`）
-3. 验证词法和语法分析功能
+1. ✅ 翻译 `lexer.uya`（使用 `str_utils.uya`）
+2. ✅ 翻译 `parser.uya`（使用 `str_utils.uya`）
+3. ✅ 验证词法和语法分析功能
 
 ### 步骤4：翻译高级模块（阶段5-6）
 
-1. 翻译 `checker.uya`（使用 `str_utils.uya`）
-2. 翻译 `codegen.uya`（使用 `llvm_api.uya` 和 `str_utils.uya`）
-3. 验证类型检查和代码生成功能
+1. ✅ 翻译 `checker.uya`（使用 `str_utils.uya`）
+2. ⏳ 翻译 `codegen.uya`（使用 `llvm_api.uya` 和 `str_utils.uya`）
+3. ⏳ 验证类型检查和代码生成功能
 
 ### 步骤5：整合和测试（阶段7）
 
@@ -704,9 +704,23 @@ compiler-mini/
 ## 状态跟踪
 
 - **创建日期**：2026-01-13
-- **最后更新**：2026-01-13（Uya Mini 规范已全部实现）
-- **当前状态**：✅ 准备开始实施（Uya Mini 规范全部实现，可以开始自举）
-- **下一步行动**：开始阶段0（字符串函数封装和 LLVM API 声明框架）
+- **最后更新**：2026-01-13（阶段0-5已完成，准备开始阶段6）
+- **当前状态**：✅ 阶段0-5已完成（75%进度），准备开始阶段6（代码生成器）
+- **下一步行动**：开始阶段6（代码生成器翻译）
+
+### 已完成阶段
+
+- ✅ **阶段0**：准备工作（字符串函数封装和 LLVM API 声明）- `str_utils.uya`, `llvm_api.uya`
+- ✅ **阶段1**：Arena 分配器 - `arena.uya`（80行）
+- ✅ **阶段2**：AST 数据结构 - `ast.uya`（409行）
+- ✅ **阶段3**：词法分析器 - `lexer.uya`（626行）
+- ✅ **阶段4**：语法分析器 - `parser.uya`（2741行，26个函数）
+- ✅ **阶段5**：类型检查器 - `checker.uya`（1917行，35个函数）
+
+### 待完成阶段
+
+- ⏳ **阶段6**：代码生成器 - `codegen.uya`（约3456行，最复杂）
+- ⏳ **阶段7**：主程序 - `main.uya`（约187行）
 
 ---
 

@@ -108,6 +108,9 @@ extern fn LLVMTypeOf(value: *void) *void;
 extern fn LLVMGetTypeKind(type: *void) i32;
 extern fn LLVMGetElementType(type: *void) *void;
 extern fn LLVMGetIntTypeWidth(type: *void) i32;
+extern fn LLVMGetArrayLength(array_type: *void) i32;
+extern fn LLVMGetFirstBasicBlock(func: *void) *void;
+extern fn LLVMGetBasicBlockTerminator(basic_block: *void) *void;
 
 // ===== 常量创建函数 =====
 
