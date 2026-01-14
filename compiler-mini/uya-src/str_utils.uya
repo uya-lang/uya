@@ -1,40 +1,8 @@
 // str_utils.uya - 字符串辅助函数模块
 // 封装 C 标准库字符串函数，简化 Uya Mini 代码中的字符串操作
-
-// ===== C 标准库字符串函数声明 =====
-
-// 字符串长度
-extern fn strlen(s: *byte) i32;
-
-// 字符串比较
-extern fn strcmp(s1: *byte, s2: *byte) i32;
-extern fn strncmp(s1: *byte, s2: *byte, n: i32) i32;
-
-// 字符串复制
-extern fn strcpy(dest: *byte, src: *byte) *byte;
-extern fn strncpy(dest: *byte, src: *byte, n: i32) *byte;
-
-// 字符串连接
-extern fn strcat(dest: *byte, src: *byte) *byte;
-
-// 字符串查找
-extern fn strrchr(s: *byte, c: i32) *byte;  // 查找字符最后一次出现的位置
-
-// 字符串格式化输出
-// 注意：这些函数使用可变参数（...），需要确认 Uya Mini 是否支持可变参数函数
-// 如果 Uya Mini 不支持可变参数，可能需要：
-// 1. 使用固定参数版本（如 fprintf2, fprintf3 等）
-// 2. 使用字符串拼接函数替代
-// 3. 在实现阶段提供替代方案
-extern fn sprintf(s: *byte, format: *byte, ...) i32;
-extern fn fprintf(stream: *void, format: *byte, ...) i32;
-extern fn snprintf(s: *byte, n: i32, format: *byte, ...) i32;
-
-// 字符分类（ctype.h）
-extern fn isalpha(c: i32) i32;
-extern fn isdigit(c: i32) i32;
-extern fn isalnum(c: i32) i32;
-extern fn isspace(c: i32) i32;
+//
+// 注意：C 标准库函数声明在 extern_decls.uya 中
+// 编译时需要包含 extern_decls.uya 文件
 
 // ===== 封装函数（可选，提供更友好的接口）=====
 

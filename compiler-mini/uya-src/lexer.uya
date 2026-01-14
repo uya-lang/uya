@@ -99,16 +99,8 @@ struct Lexer {
 }
 
 // ===== 外部函数声明 =====
-
-// 内存复制函数（string.h）
-extern fn memcpy(dest: &byte, src: &byte, n: i32) &void;
-
-// 字符串函数（来自 str_utils.uya）
-extern fn strlen(s: *byte) i32;
-extern fn strcmp(s1: *byte, s2: *byte) i32;
-extern fn isalpha(c: i32) i32;
-extern fn isdigit(c: i32) i32;
-extern fn isalnum(c: i32) i32;
+// 注意：C 标准库函数（strlen, strcmp, memcpy, isalpha 等）在 extern_decls.uya 中声明
+// 编译时需要包含 extern_decls.uya 文件
 
 // Arena 函数（来自 arena.uya）
 // 注意：假设 Arena 类型已定义

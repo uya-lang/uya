@@ -5,24 +5,8 @@
 // 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
 
 // ===== 外部函数声明 =====
-
-// 字符串函数（来自 str_utils.uya）
-extern fn strlen(s: *byte) i32;
-extern fn strcmp(s1: *byte, s2: *byte) i32;
-extern fn fprintf(stream: *void, format: *byte, ...) i32;
-
-// 文件 I/O 函数（stdio.h）
-extern fn fopen(filename: *byte, mode: *byte) *void;  // FILE* 在 Uya Mini 中使用 *void 表示
-extern fn fread(ptr: *void, size: i32, nmemb: i32, stream: *void) i32;
-extern fn fclose(stream: *void) i32;
-extern fn fgetc(stream: *void) i32;  // 返回 int，EOF 为 -1
-
-// 命令行参数获取函数（C 运行时）
-// 注意：在 Uya Mini 中，main 函数签名是 fn main() i32，不支持 argc 和 argv
-// 因此需要使用 extern 函数来获取命令行参数
-// 这些函数由 C 运行时提供，或者由编译器特殊处理
-extern fn get_argc() i32;  // 获取命令行参数数量
-extern fn get_argv(index: i32) *byte;  // 获取第 index 个命令行参数（字符串指针）
+// 注意：C 标准库函数（strlen, strcmp, fprintf, fopen, fread, fclose, fgetc, get_argc, get_argv 等）在 extern_decls.uya 中声明
+// 编译时需要包含 extern_decls.uya 文件
 
 // Arena 函数（来自 arena.uya）
 extern fn arena_init(arena: &Arena, buffer: &void, size: i32) void;

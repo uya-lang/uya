@@ -5,14 +5,8 @@
 // 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
 
 // ===== 外部函数声明 =====
-
-// 字符串函数（来自 str_utils.uya）
-extern fn strlen(s: *byte) i32;
-extern fn strcmp(s1: *byte, s2: *byte) i32;
-extern fn fprintf(stream: *void, format: *byte, ...) i32;
-
-// 内存函数（string.h）
-extern fn memset(s: *void, c: i32, n: i32) *void;
+// 注意：C 标准库函数（strlen, strcmp, fprintf, memset 等）在 extern_decls.uya 中声明
+// 编译时需要包含 extern_decls.uya 文件
 
 // Arena 函数（来自 arena.uya）
 extern fn arena_alloc(arena: &Arena, size: i32) &void;
