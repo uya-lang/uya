@@ -1,0 +1,94 @@
+// else if 语句测试
+// 测试 else if 语法和多个条件分支
+
+fn main() i32 {
+    var result: i32 = 0;
+    
+    // 测试简单的 else if
+    const x: i32 = 2;
+    if x == 1 {
+        result = 10;
+    } else if x == 2 {
+        result = 20;
+    } else {
+        result = 30;
+    }
+    
+    // 应该执行 result = 20
+    if result != 20 {
+        return 1;
+    }
+    
+    // 测试多个 else if 链
+    const y: i32 = 3;
+    var result2: i32 = 0;
+    if y == 1 {
+        result2 = 100;
+    } else if y == 2 {
+        result2 = 200;
+    } else if y == 3 {
+        result2 = 300;
+    } else if y == 4 {
+        result2 = 400;
+    } else {
+        result2 = 500;
+    }
+    
+    // 应该执行 result2 = 300
+    if result2 != 300 {
+        return 2;
+    }
+    
+    // 测试第一个条件为真
+    const z: i32 = 1;
+    var result3: i32 = 0;
+    if z == 1 {
+        result3 = 1000;
+    } else if z == 2 {
+        result3 = 2000;
+    } else if z == 3 {
+        result3 = 3000;
+    } else {
+        result3 = 4000;
+    }
+    
+    // 应该执行 result3 = 1000
+    if result3 != 1000 {
+        return 3;
+    }
+    
+    // 测试所有条件都为假，执行 else
+    const w: i32 = 99;
+    var result4: i32 = 0;
+    if w == 1 {
+        result4 = 10000;
+    } else if w == 2 {
+        result4 = 20000;
+    } else if w == 3 {
+        result4 = 30000;
+    } else {
+        result4 = 40000;
+    }
+    
+    // 应该执行 result4 = 40000
+    if result4 != 40000 {
+        return 4;
+    }
+    
+    // 测试没有最终 else 的 else if
+    const v: i32 = 2;
+    var result5: i32 = 0;
+    if v == 1 {
+        result5 = 100000;
+    } else if v == 2 {
+        result5 = 200000;
+    }
+    
+    // 应该执行 result5 = 200000
+    if result5 != 200000 {
+        return 5;
+    }
+    
+    return 0;
+}
+

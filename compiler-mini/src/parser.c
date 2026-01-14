@@ -2405,14 +2405,28 @@ ASTNode *parser_parse_statement(Parser *parser) {
         stmt->data.if_stmt.then_branch = then_branch;
         
         // 解析 else 分支（可选）
+        // 支持 else if 语法：else 后面可以是代码块，也可以是 if 语句
         if (parser_match(parser, TOKEN_ELSE)) {
             parser_consume(parser);  // 消费 'else'
             
-            ASTNode *else_branch = parser_parse_block(parser);
-            if (else_branch == NULL) {
-                return NULL;
+            // 检查是否是 else if（下一个 token 是 if）
+            if (parser_match(parser, TOKEN_IF)) {
+                // else if：递归解析 if 语句作为 else 分支
+                ASTNode *else_if_stmt = parser_parse_statement(parser);
+                if (else_if_stmt == NULL) {
+                    return NULL;
+                }
+                // else if 语句本身作为 else 分支
+                // 注意：这里将整个 if 语句作为 else 分支，而不是只取 then 分支
+                stmt->data.if_stmt.else_branch = else_if_stmt;
+            } else {
+                // else { block }：解析代码块
+                ASTNode *else_branch = parser_parse_block(parser);
+                if (else_branch == NULL) {
+                    return NULL;
+                }
+                stmt->data.if_stmt.else_branch = else_branch;
             }
-            stmt->data.if_stmt.else_branch = else_branch;
         } else {
             stmt->data.if_stmt.else_branch = NULL;
         }
