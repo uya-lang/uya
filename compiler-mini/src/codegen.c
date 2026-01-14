@@ -486,8 +486,136 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
             return field_ptr;
         }
         
+        case AST_ARRAY_ACCESS: {
+            // 数组访问：使用 GEP 获取元素地址（用于赋值语句如 arr[i] = value 或 &arr[i]）
+            ASTNode *array_expr = expr->data.array_access.array;
+            ASTNode *index_expr = expr->data.array_access.index;
+            
+            if (!array_expr || !index_expr) {
+                fprintf(stderr, "错误: codegen_gen_lvalue_address AST_ARRAY_ACCESS 参数检查失败\n");
+                return NULL;
+            }
+            
+            // 获取数组指针
+            // 如果数组表达式是标识符（变量），尝试从变量表获取指针
+            LLVMValueRef array_ptr = NULL;
+            LLVMTypeRef array_type = NULL;
+            
+            if (array_expr->type == AST_IDENTIFIER) {
+                const char *var_name = array_expr->data.identifier.name;
+                if (var_name) {
+                    array_ptr = lookup_var(codegen, var_name);
+                    if (array_ptr) {
+                        LLVMTypeRef var_type = lookup_var_type(codegen, var_name);
+                        if (var_type) {
+                            LLVMTypeKind var_type_kind = LLVMGetTypeKind(var_type);
+                            if (var_type_kind == LLVMPointerTypeKind) {
+                                // 变量是指针类型（包括栈上数组变量的地址）
+                                LLVMTypeRef pointed_type = LLVMGetElementType(var_type);
+                                if (pointed_type && LLVMGetTypeKind(pointed_type) == LLVMArrayTypeKind) {
+                                    // 指针指向数组（栈上数组变量），array_ptr 已经是地址，直接使用
+                                    array_type = pointed_type;
+                                    // array_ptr 已经是正确的指针，不需要加载
+                                } else {
+                                    // 指针指向单个元素（如 &byte），需要加载指针值
+                                    array_type = pointed_type;
+                                    array_ptr = LLVMBuildLoad2(codegen->builder, var_type, array_ptr, var_name);
+                                    // 对于单个元素指针，我们将在后面使用元素类型和单个索引进行 GEP
+                                    // 不需要创建数组类型
+                                }
+                            } else if (var_type_kind == LLVMArrayTypeKind) {
+                                // 变量是数组类型（这种情况不应该发生，因为数组变量在栈上，类型应该是指针）
+                                // 但为了安全，我们仍然处理
+                                array_type = var_type;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 如果通过标识符路径失败，使用通用方法生成数组表达式
+            if (!array_ptr || !array_type) {
+                // 生成数组表达式值
+                LLVMValueRef array_val = codegen_gen_expr(codegen, array_expr);
+                if (!array_val) {
+                    fprintf(stderr, "错误: codegen_gen_lvalue_address 数组表达式生成失败\n");
+                    return NULL;
+                }
+                
+                LLVMTypeRef array_val_type = LLVMTypeOf(array_val);
+                if (!array_val_type) {
+                    return NULL;
+                }
+                
+                LLVMTypeKind array_val_kind = LLVMGetTypeKind(array_val_type);
+                if (array_val_kind == LLVMArrayTypeKind) {
+                    // 数组值类型，需要分配临时空间存储数组值
+                    array_type = array_val_type;
+                    array_ptr = LLVMBuildAlloca(codegen->builder, array_type, "");
+                    if (!array_ptr) {
+                        return NULL;
+                    }
+                    LLVMBuildStore(codegen->builder, array_val, array_ptr);
+                } else if (array_val_kind == LLVMPointerTypeKind) {
+                    // 指针类型（如 &byte 或指向数组的指针）
+                    array_ptr = array_val;
+                    array_type = LLVMGetElementType(array_val_type);
+                    if (!array_type) {
+                        return NULL;
+                    }
+                    // 检查指向的类型是否是数组类型
+                    // 如果不是数组类型，是指向单个元素的指针（如 &byte）
+                    // 对于这种情况，我们将在后面使用元素类型和单个索引进行 GEP
+                    // 参考 clang 生成的 IR: getelementptr inbounds i8, ptr %buffer_ptr, i64 0
+                } else {
+                    return NULL;  // 不是数组类型或指针类型
+                }
+            }
+            
+            // 生成索引表达式值
+            LLVMValueRef index_val = codegen_gen_expr(codegen, index_expr);
+            if (!index_val) {
+                return NULL;
+            }
+            
+            // 使用 GEP 获取元素地址
+            if (!array_ptr || !array_type) {
+                fprintf(stderr, "错误: codegen_gen_lvalue_address 数组指针或类型为空\n");
+                return NULL;
+            }
+            
+            LLVMValueRef element_ptr = NULL;
+            
+            // 检查是否是数组类型还是指针类型
+            if (LLVMGetTypeKind(array_type) == LLVMArrayTypeKind) {
+                // 数组类型：使用两个索引的 GEP
+                LLVMValueRef indices[2];
+                indices[0] = LLVMConstInt(LLVMInt32Type(), 0ULL, 0);  // 数组指针本身
+                indices[1] = index_val;  // 元素索引（运行时值）
+                
+                element_ptr = LLVMBuildGEP2(codegen->builder, array_type, array_ptr, indices, 2, "");
+            } else {
+                // 指针类型（指向单个元素）：直接使用元素类型和单个索引
+                // 参考 clang 生成的 IR: getelementptr inbounds i8, ptr %buffer_ptr, i64 0
+                LLVMTypeRef element_type = array_type;  // array_type 已经是元素类型（如 i8）
+                
+                LLVMValueRef indices[1];
+                indices[0] = index_val;  // 单个索引
+                
+                element_ptr = LLVMBuildGEP2(codegen->builder, element_type, array_ptr, indices, 1, "");
+            }
+            
+            if (!element_ptr) {
+                fprintf(stderr, "错误: codegen_gen_lvalue_address GEP 失败 (array_type kind: %d)\n", (int)LLVMGetTypeKind(array_type));
+                return NULL;
+            }
+            
+            // 返回元素地址（不需要加载值）
+            return element_ptr;
+        }
+        
         default:
-            // 暂不支持其他类型的左值（如数组访问等）
+            // 暂不支持其他类型的左值
             return NULL;
     }
 }
@@ -1051,23 +1179,15 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             
             if (op == TOKEN_AMPERSAND) {
                 // 取地址运算符：&expr
-                // 操作数必须是左值（变量、字段访问等）
-                // 对于标识符（变量），直接从变量表获取指针
-                if (operand->type == AST_IDENTIFIER) {
-                    const char *var_name = operand->data.identifier.name;
-                    if (!var_name) {
-                        return NULL;
-                    }
-                    LLVMValueRef var_ptr = lookup_var(codegen, var_name);
-                    if (!var_ptr) {
-                        return NULL;  // 变量未找到
-                    }
-                    // 变量指针已经是地址，直接返回
-                    return var_ptr;
+                // 操作数必须是左值（变量、字段访问、数组访问等）
+                // 尝试使用 lvalue_address 获取左值地址
+                LLVMValueRef addr = codegen_gen_lvalue_address(codegen, operand);
+                if (addr) {
+                    // 成功获取左值地址，直接返回
+                    return addr;
                 }
-                // 对于其他表达式（如字段访问、数组访问），需要先计算表达式值
-                // 然后分配临时空间存储值，返回临时空间的地址
-                // 注意：这是一个简化实现，完整的左值检查应该在类型检查阶段完成
+                // 如果 lvalue_address 失败，可能是非左值表达式
+                // 对于这种情况，先计算表达式值，然后分配临时空间存储值
                 LLVMValueRef operand_val = codegen_gen_expr(codegen, operand);
                 if (!operand_val) {
                     return NULL;
@@ -1703,14 +1823,23 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 }
                 LLVMBuildStore(codegen->builder, array_val, array_ptr);
             } else if (array_val_kind == LLVMPointerTypeKind) {
-                // 指针类型（数组变量在栈上的地址）
+                // 指针类型（可能是数组指针或单个元素指针）
                 array_ptr = array_val;
                 array_type = LLVMGetElementType(array_val_type);
-                if (!array_type || LLVMGetTypeKind(array_type) != LLVMArrayTypeKind) {
-                    return NULL;  // 指针指向的不是数组类型
+                if (!array_type) {
+                    return NULL;
+                }
+                // 检查指向的类型是否是数组类型
+                if (LLVMGetTypeKind(array_type) != LLVMArrayTypeKind) {
+                    // 不是数组类型，是指向单个元素的指针（如 &byte）
+                    // 对于这种情况，我们可以直接使用元素类型进行 GEP，不需要创建数组类型
+                    // 参考 clang 生成的 IR: getelementptr inbounds i8, ptr %buffer_ptr, i64 0
+                    // 我们使用元素类型（array_type）和单个索引进行 GEP
+                    // 注意：这里 array_type 已经是元素类型（如 i8），array_ptr 是指针值
+                    // 我们将在后面使用单个索引的 GEP，而不是两个索引
                 }
             } else {
-                return NULL;  // 不是数组类型
+                return NULL;  // 不是数组类型或指针类型
             }
             
             // 生成索引表达式值
@@ -1720,23 +1849,63 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             }
             
             // 获取元素类型
-            LLVMTypeRef element_type = LLVMGetElementType(array_type);
-            if (!element_type) {
-                return NULL;
+            LLVMTypeRef element_type = NULL;
+            LLVMValueRef element_ptr = NULL;
+            
+            // 检查是否是数组类型还是指针类型
+            if (LLVMGetTypeKind(array_type) == LLVMArrayTypeKind) {
+                // 数组类型：使用两个索引的 GEP
+                element_type = LLVMGetElementType(array_type);
+                if (!element_type) {
+                    return NULL;
+                }
+                
+                LLVMValueRef indices[2];
+                indices[0] = LLVMConstInt(LLVMInt32Type(), 0ULL, 0);  // 数组指针本身
+                indices[1] = index_val;  // 元素索引（运行时值）
+                
+                element_ptr = LLVMBuildGEP2(codegen->builder, array_type, array_ptr, indices, 2, "");
+            } else {
+                // 指针类型（指向单个元素）：直接使用元素类型和单个索引
+                // 参考 clang 生成的 IR: getelementptr inbounds i8, ptr %buffer_ptr, i64 0
+                element_type = array_type;  // array_type 已经是元素类型（如 i8）
+                
+                // 验证 element_type 是否有效
+                if (!element_type) {
+                    fprintf(stderr, "错误: codegen_gen_expr 指针类型数组访问 element_type 为空\n");
+                    return NULL;
+                }
+                
+                LLVMValueRef indices[1];
+                indices[0] = index_val;  // 单个索引
+                
+                // 注意：LLVMBuildGEP2 的第一个参数应该是源类型（指针指向的类型）
+                // 对于 ptr 指向 i8，我们应该传递 i8 作为类型
+                fprintf(stderr, "调试: 调用 LLVMBuildGEP2(builder, element_type=%p, array_ptr=%p, indices[0], 1)\n", 
+                        (void*)element_type, (void*)array_ptr);
+                element_ptr = LLVMBuildGEP2(codegen->builder, element_type, array_ptr, indices, 1, "");
+                if (!element_ptr) {
+                    fprintf(stderr, "错误: codegen_gen_expr LLVMBuildGEP2 失败\n");
+                    return NULL;
+                }
+                fprintf(stderr, "调试: LLVMBuildGEP2 成功，element_ptr = %p\n", (void*)element_ptr);
             }
             
-            // 使用 GEP 获取元素地址
-            LLVMValueRef indices[2];
-            indices[0] = LLVMConstInt(LLVMInt32Type(), 0ULL, 0);  // 数组指针本身
-            indices[1] = index_val;  // 元素索引（运行时值）
-            
-            LLVMValueRef element_ptr = LLVMBuildGEP2(codegen->builder, array_type, array_ptr, indices, 2, "");
-            if (!element_ptr) {
+            if (!element_ptr || !element_type) {
+                fprintf(stderr, "错误: codegen_gen_expr element_ptr 或 element_type 为空\n");
                 return NULL;
             }
             
             // load 元素值
-            return LLVMBuildLoad2(codegen->builder, element_type, element_ptr, "");
+            fprintf(stderr, "调试: 调用 LLVMBuildLoad2(builder, element_type=%p, element_ptr=%p)\n", 
+                    (void*)element_type, (void*)element_ptr);
+            LLVMValueRef load_result = LLVMBuildLoad2(codegen->builder, element_type, element_ptr, "");
+            if (!load_result) {
+                fprintf(stderr, "错误: codegen_gen_expr LLVMBuildLoad2 失败\n");
+                return NULL;
+            }
+            fprintf(stderr, "调试: LLVMBuildLoad2 成功，load_result = %p\n", (void*)load_result);
+            return load_result;
         }
             
         case AST_STRUCT_INIT: {
@@ -2252,6 +2421,18 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                         return LLVMBuildTrunc(codegen->builder, source_val, target_type, "");
                     }
                 }
+            } else if (source_kind == LLVMPointerTypeKind && target_kind == LLVMPointerTypeKind) {
+                // 指针类型之间的转换（如 &byte as &void 或 &byte as *void）
+                // 使用 bitcast 进行指针类型转换
+                return LLVMBuildBitCast(codegen->builder, source_val, target_type, "");
+            } else if (source_kind == LLVMPointerTypeKind && target_kind == LLVMIntegerTypeKind) {
+                // 指针转整数（如 &T as usize）
+                // 使用 ptrtoint 转换
+                return LLVMBuildPtrToInt(codegen->builder, source_val, target_type, "");
+            } else if (source_kind == LLVMIntegerTypeKind && target_kind == LLVMPointerTypeKind) {
+                // 整数转指针（如 usize as &T）
+                // 使用 inttoptr 转换
+                return LLVMBuildIntToPtr(codegen->builder, source_val, target_type, "");
             }
             
             // 不支持的转换（类型检查阶段应该已经拒绝）
@@ -2392,29 +2573,129 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 if (init_val) {
                     // 检查类型是否匹配，如果不匹配则进行类型转换
                     LLVMTypeRef init_type = LLVMTypeOf(init_val);
+                    
+                    // 获取 var_ptr 指向的类型（应该是 llvm_type）
+                    LLVMTypeRef var_ptr_type = LLVMTypeOf(var_ptr);
+                    LLVMTypeRef var_ptr_pointee_type = NULL;
+                    if (var_ptr_type && LLVMGetTypeKind(var_ptr_type) == LLVMPointerTypeKind) {
+                        var_ptr_pointee_type = LLVMGetElementType(var_ptr_type);
+                    }
+                    
+                    fprintf(stderr, "调试: 类型检查 - init_type=%p, llvm_type=%p, var_ptr_pointee_type=%p\n",
+                            (void*)init_type, (void*)llvm_type, (void*)var_ptr_pointee_type);
+                    
                     if (init_type != llvm_type) {
                         // 类型不匹配，需要进行类型转换
                         LLVMTypeKind var_type_kind = LLVMGetTypeKind(llvm_type);
                         LLVMTypeKind init_type_kind = LLVMGetTypeKind(init_type);
+                        
+                        fprintf(stderr, "调试: 类型不匹配 - var_kind=%d, init_kind=%d\n",
+                                (int)var_type_kind, (int)init_type_kind);
                         
                         if (var_type_kind == LLVMIntegerTypeKind && init_type_kind == LLVMIntegerTypeKind) {
                             // 整数类型之间的转换
                             unsigned var_width = LLVMGetIntTypeWidth(llvm_type);
                             unsigned init_width = LLVMGetIntTypeWidth(init_type);
                             
+                            fprintf(stderr, "调试: 整数类型 - var_width=%u, init_width=%u\n",
+                                    var_width, init_width);
+                            
                             if (var_width < init_width) {
                                 // 截断转换（例如 i32 -> i8）
+                                fprintf(stderr, "调试: 执行截断转换 i%u -> i%u\n", init_width, var_width);
                                 init_val = LLVMBuildTrunc(codegen->builder, init_val, llvm_type, "");
+                                if (!init_val) {
+                                    fprintf(stderr, "错误: LLVMBuildTrunc 失败\n");
+                                    return -1;
+                                }
+                                // 更新 init_type 为转换后的类型
+                                init_type = LLVMTypeOf(init_val);
                             } else if (var_width > init_width) {
                                 // 零扩展转换（例如 i8 -> i32，byte 是无符号的，使用零扩展）
+                                fprintf(stderr, "调试: 执行零扩展转换 i%u -> i%u\n", init_width, var_width);
                                 init_val = LLVMBuildZExt(codegen->builder, init_val, llvm_type, "");
+                                if (!init_val) {
+                                    fprintf(stderr, "错误: LLVMBuildZExt 失败\n");
+                                    return -1;
+                                }
+                                // 更新 init_type 为转换后的类型
+                                init_type = LLVMTypeOf(init_val);
+                            } else {
+                                // 宽度相同但类型对象不同 - 这不应该发生，但我们需要处理
+                                // 可能是由于不同的 context 或类型创建方式导致的
+                                // 在这种情况下，我们仍然需要确保类型匹配
+                                fprintf(stderr, "警告: 类型宽度相同但类型对象不同 (var_type=%p, init_type=%p)\n",
+                                        (void*)llvm_type, (void*)init_type);
+                                // 尝试使用 bitcast 进行类型转换（虽然宽度相同，但类型对象不同）
+                                // 注意：bitcast 只适用于相同大小的类型
+                                if (var_width == init_width) {
+                                    fprintf(stderr, "调试: 尝试使用 bitcast 转换类型\n");
+                                    init_val = LLVMBuildBitCast(codegen->builder, init_val, llvm_type, "");
+                                    if (!init_val) {
+                                        fprintf(stderr, "错误: LLVMBuildBitCast 失败\n");
+                                        return -1;
+                                    }
+                                    init_type = LLVMTypeOf(init_val);
+                                }
                             }
-                            // 如果宽度相同，类型应该相同，不需要转换
                         }
                         // 其他类型不匹配的情况会在类型检查阶段被拒绝
                     }
                     
-                    LLVMBuildStore(codegen->builder, init_val, var_ptr);
+                    // 最终类型验证：确保 init_type 和 llvm_type 匹配
+                    init_type = LLVMTypeOf(init_val);  // 重新获取，以防转换后改变
+                    if (init_type != llvm_type) {
+                        // 如果类型仍然不匹配，尝试使用 bitcast（仅当大小相同时）
+                        LLVMTypeKind var_kind = LLVMGetTypeKind(llvm_type);
+                        LLVMTypeKind init_kind = LLVMGetTypeKind(init_type);
+                        if (var_kind == init_kind) {
+                            // 类型种类相同，检查大小
+                            if (var_kind == LLVMIntegerTypeKind) {
+                                unsigned var_width = LLVMGetIntTypeWidth(llvm_type);
+                                unsigned init_width = LLVMGetIntTypeWidth(init_type);
+                                if (var_width == init_width) {
+                                    // 大小相同，使用 bitcast
+                                    init_val = LLVMBuildBitCast(codegen->builder, init_val, llvm_type, "");
+                                    if (!init_val) {
+                                        fprintf(stderr, "错误: LLVMBuildBitCast 失败\n");
+                                        return -1;
+                                    }
+                                    init_type = LLVMTypeOf(init_val);
+                                }
+                            }
+                        }
+                        if (init_type != llvm_type) {
+                            fprintf(stderr, "错误: 类型转换后仍不匹配 (init_type=%p, llvm_type=%p)\n",
+                                    (void*)init_type, (void*)llvm_type);
+                            // 不直接返回错误，让 LLVM 自己处理（可能会报更详细的错误）
+                        }
+                    }
+                    
+                    // 验证 init_val 和 var_ptr 是否有效
+                    if (!init_val || !var_ptr) {
+                        fprintf(stderr, "错误: codegen_gen_stmt LLVMBuildStore 参数无效 (init_val=%p, var_ptr=%p)\n", 
+                                (void*)init_val, (void*)var_ptr);
+                        return -1;
+                    }
+                    
+                    // 验证 builder 是否有效
+                    if (!codegen->builder) {
+                        fprintf(stderr, "错误: codegen_gen_stmt builder 为空\n");
+                        return -1;
+                    }
+                    
+                    fprintf(stderr, "调试: 调用 LLVMBuildStore(builder=%p, init_val=%p(type=%p), var_ptr=%p(type=%p))\n", 
+                            (void*)codegen->builder, (void*)init_val, (void*)init_type,
+                            (void*)var_ptr, (void*)var_ptr_pointee_type);
+                    
+                    // 注意：类型转换已经在前面完成，这里直接 store
+                    // 如果类型仍然不匹配，LLVM 可能会在内部处理或报错
+                    LLVMValueRef store_result = LLVMBuildStore(codegen->builder, init_val, var_ptr);
+                    if (!store_result) {
+                        fprintf(stderr, "错误: LLVMBuildStore 返回 NULL\n");
+                        return -1;
+                    }
+                    fprintf(stderr, "调试: LLVMBuildStore 成功，result=%p\n", (void*)store_result);
                 }
             }
             
@@ -2428,10 +2709,42 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             if (return_expr) {
                 // 有返回值：生成返回值表达式并返回
                 LLVMValueRef return_val = codegen_gen_expr(codegen, return_expr);
+                
+                // 如果生成失败，检查是否是 null 标识符（需要特殊处理）
+                if (!return_val && return_expr->type == AST_IDENTIFIER) {
+                    const char *ident_name = return_expr->data.identifier.name;
+                    if (ident_name && strcmp(ident_name, "null") == 0) {
+                        // null 标识符：需要获取函数返回类型并生成 null 指针常量
+                        LLVMBasicBlockRef current_bb = LLVMGetInsertBlock(codegen->builder);
+                        if (current_bb) {
+                            LLVMValueRef func = LLVMGetBasicBlockParent(current_bb);
+                            if (func) {
+                                LLVMTypeRef func_type = LLVMGlobalGetValueType(func);
+                                if (func_type && LLVMGetTypeKind(func_type) == LLVMFunctionTypeKind) {
+                                    LLVMTypeRef return_type = LLVMGetReturnType(func_type);
+                                    if (return_type && LLVMGetTypeKind(return_type) == LLVMPointerTypeKind) {
+                                        // 返回类型是指针类型，生成 null 指针常量
+                                        return_val = LLVMConstNull(return_type);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
                 if (!return_val) {
+                    fprintf(stderr, "错误: return 语句返回值生成失败\n");
                     return -1;
                 }
-                LLVMBuildRet(codegen->builder, return_val);
+                
+                fprintf(stderr, "调试: 调用 LLVMBuildRet(builder=%p, return_val=%p)\n", 
+                        (void*)codegen->builder, (void*)return_val);
+                LLVMValueRef ret_result = LLVMBuildRet(codegen->builder, return_val);
+                if (!ret_result) {
+                    fprintf(stderr, "错误: LLVMBuildRet 返回 NULL\n");
+                    return -1;
+                }
+                fprintf(stderr, "调试: LLVMBuildRet 成功\n");
             } else {
                 // void 返回
                 LLVMBuildRetVoid(codegen->builder);

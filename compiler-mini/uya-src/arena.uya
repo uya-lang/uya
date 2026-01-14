@@ -43,6 +43,10 @@ fn arena_init(arena: &Arena, buffer: &void, size: i32) void {
 // 参数：arena - Arena 分配器指针，size - 要分配的内存大小（字节）
 // 返回：分配的内存指针，如果分配失败（空间不足）返回 null
 // 注意：分配的内存会自动对齐到 8 字节边界
+// 从 Arena 分配内存
+// 参数：arena - Arena 分配器指针，size - 要分配的内存大小（字节）
+// 返回：分配的内存指针，如果分配失败（空间不足）返回 null
+// 注意：分配的内存会自动对齐到 8 字节边界
 fn arena_alloc(arena: &Arena, size: i32) &void {
     if arena == null {
         return null;
@@ -62,11 +66,11 @@ fn arena_alloc(arena: &Arena, size: i32) &void {
         return null;  // 空间不足
     }
     
-    // 计算返回的地址（buffer + 对齐后的 offset）
-    // 在 Uya Mini 中，使用数组索引访问：&buffer[offset] 来获取偏移后的地址
-    // buffer 是 &byte 类型，buffer[aligned_offset] 访问元素，&buffer[aligned_offset] 获取地址
-    // 将 &byte 转换为 &void 以支持任意类型的指针返回
-    const result: &void = &arena.buffer[aligned_offset] as &void;
+    // 二分屏蔽测试：测试字段访问返回的类型
+    const buffer_ptr: &byte = arena.buffer;
+    // 测试：直接使用 buffer_ptr 进行数组访问
+    const temp: byte = buffer_ptr[0];
+    const result: &void = null;  // 临时替换
     
     // 更新 offset（移动到对齐后的位置 + 分配的大小）
     arena.offset = aligned_offset + aligned_size;
