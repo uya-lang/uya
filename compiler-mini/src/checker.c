@@ -27,6 +27,7 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node);
 static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char *struct_name);
 static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *enum_name);
 static Type find_struct_field_type(ASTNode *struct_decl, const char *field_name);
+static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node);
 
 // 初始化 TypeChecker
 int checker_init(TypeChecker *checker, Arena *arena) {
@@ -851,10 +852,11 @@ static int checker_check_var_decl(TypeChecker *checker, ASTNode *node) {
     return 1;
 }
 
-// 检查函数声明
+// 注册函数声明（仅收集函数签名，不检查函数体）
 // 参数：checker - TypeChecker 指针，node - 函数声明节点
-// 返回：1 表示检查通过，0 表示检查失败
-static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
+// 返回：1 表示注册成功，0 表示注册失败
+// 注意：此函数用于第一遍检查，只收集函数签名到函数表，不检查函数体
+static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node) {
     if (checker == NULL || node == NULL || node->type != AST_FN_DECL) {
         return 0;
     }
@@ -897,6 +899,18 @@ static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
     if (function_table_insert(checker, sig) != 0) {
         // 函数重复定义
         checker_report_error(checker);
+        return 0;
+    }
+    
+    return 1;
+}
+
+// 检查函数声明
+// 参数：checker - TypeChecker 指针，node - 函数声明节点
+// 返回：1 表示检查通过，0 表示检查失败
+// 注意：此函数假设函数签名已经通过 checker_register_fn_decl 注册到函数表
+static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
+    if (checker == NULL || node == NULL || node->type != AST_FN_DECL) {
         return 0;
     }
     
@@ -1559,15 +1573,28 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
 }
 
 // 类型检查主函数
+// 实现两遍检查机制：
+// 第一遍：收集所有函数声明（解决函数循环依赖问题）
+// 第二遍：检查所有声明（包括函数体、结构体、变量等）
 int checker_check(TypeChecker *checker, ASTNode *ast) {
-    if (checker == NULL || ast == NULL) {
+    if (checker == NULL || ast == NULL || ast->type != AST_PROGRAM) {
         return -1;
     }
     
     checker->program_node = ast;
     checker->error_count = 0;
     
-    // 检查程序节点
+    // 第一遍：收集所有函数声明（只注册函数签名，不检查函数体）
+    // 这样在第二遍检查函数体时，所有函数都已被注册，可以相互调用
+    for (int i = 0; i < ast->data.program.decl_count; i++) {
+        ASTNode *decl = ast->data.program.decls[i];
+        if (decl != NULL && decl->type == AST_FN_DECL) {
+            checker_register_fn_decl(checker, decl);
+        }
+    }
+    
+    // 第二遍：检查所有声明（包括函数体、结构体、变量等）
+    // 此时所有函数都已被注册，函数体中的函数调用可以正确解析
     checker_check_node(checker, ast);
     
     return 0;

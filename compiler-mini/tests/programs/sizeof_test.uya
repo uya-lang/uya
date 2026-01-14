@@ -29,16 +29,21 @@ fn main() i32 {
         return 1;  // byte 应该是 1 字节
     }
     
-    // 测试2：指针类型大小（64位平台为 8 字节）
+    // 测试2：指针类型大小（平台相关，32位平台为 4 字节，64位平台为 8 字节）
+    // 检测平台字长（指针大小）
     const ptr_i32_size: i32 = sizeof(&i32);
-    if ptr_i32_size != 8 {
-        return 1;  // 指针应该是 8 字节（64位平台）
+    // 指针大小应该是 4（32位）或 8（64位）
+    if ptr_i32_size != 4 && ptr_i32_size != 8 {
+        return 1;  // 指针大小应该是 4 或 8 字节（平台字长）
     }
     
     const ptr_bool_size: i32 = sizeof(&bool);
-    if ptr_bool_size != 8 {
-        return 1;  // bool 指针应该是 8 字节
+    if ptr_bool_size != ptr_i32_size {
+        return 1;  // bool 指针大小应该与 i32 指针大小相同（平台字长）
     }
+    
+    // 保存平台字长用于后续测试
+    const platform_word_size: i32 = ptr_i32_size;
     
     // 测试3：表达式 sizeof（基础类型变量）
     var x: i32 = 42;
@@ -89,13 +94,13 @@ fn main() i32 {
     
     // 测试6：结构体指针类型 sizeof
     const point_ptr_size: i32 = sizeof(&Point);
-    if point_ptr_size != 8 {
-        return 1;  // 结构体指针应该是 8 字节
+    if point_ptr_size != platform_word_size {
+        return 1;  // 结构体指针大小应该等于平台字长
     }
     
     const mixed_ptr_size: i32 = sizeof(&Mixed);
-    if mixed_ptr_size != 8 {
-        return 1;  // Mixed 指针应该是 8 字节
+    if mixed_ptr_size != platform_word_size {
+        return 1;  // Mixed 指针大小应该等于平台字长
     }
     
     // 测试7：数组类型 sizeof
@@ -136,14 +141,14 @@ fn main() i32 {
     // 测试9：指针变量 sizeof
     var ptr: &i32 = null;
     const ptr_var_size: i32 = sizeof(ptr);
-    if ptr_var_size != 8 {
-        return 1;  // 指针变量应该是 8 字节
+    if ptr_var_size != platform_word_size {
+        return 1;  // 指针变量大小应该等于平台字长
     }
     
     var point_ptr: &Point = null;
     const point_ptr_var_size: i32 = sizeof(point_ptr);
-    if point_ptr_var_size != 8 {
-        return 1;  // 结构体指针变量应该是 8 字节
+    if point_ptr_var_size != platform_word_size {
+        return 1;  // 结构体指针变量大小应该等于平台字长
     }
     
     // 测试10：sizeof 在表达式中的使用
@@ -153,8 +158,9 @@ fn main() i32 {
     }
     
     const ptr_array_size: i32 = sizeof(&Point) * 5;
-    if ptr_array_size != 40 {
-        return 1;  // sizeof(&Point) * 5 应该是 40（5 * 8）
+    const expected_ptr_array_size: i32 = platform_word_size * 5;
+    if ptr_array_size != expected_ptr_array_size {
+        return 1;  // sizeof(&Point) * 5 应该是平台字长 * 5（平台相关）
     }
     
     // 所有测试通过
