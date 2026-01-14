@@ -1,0 +1,42 @@
+// str_utils.uya - 字符串辅助函数模块
+// 封装 C 标准库字符串函数，简化 Uya Mini 代码中的字符串操作
+
+// ===== C 标准库字符串函数声明 =====
+
+// 字符串长度
+extern fn strlen(s: *byte) i32;
+
+// 字符串比较
+extern fn strcmp(s1: *byte, s2: *byte) i32;
+extern fn strncmp(s1: *byte, s2: *byte, n: i32) i32;
+
+// 字符串复制
+extern fn strcpy(dest: *byte, src: *byte) *byte;
+extern fn strncpy(dest: *byte, src: *byte, n: i32) *byte;
+
+// 字符串连接
+extern fn strcat(dest: *byte, src: *byte) *byte;
+
+// 字符串格式化输出
+extern fn sprintf(s: *byte, format: *byte, ...) i32;
+extern fn fprintf(stream: *void, format: *byte, ...) i32;
+extern fn snprintf(s: *byte, n: i32, format: *byte, ...) i32;
+
+// 字符分类（ctype.h）
+extern fn isalpha(c: i32) i32;
+extern fn isdigit(c: i32) i32;
+extern fn isalnum(c: i32) i32;
+extern fn isspace(c: i32) i32;
+
+// ===== 封装函数（可选，提供更友好的接口）=====
+
+// 字符串相等判断
+fn str_equals(s1: *byte, s2: *byte) bool {
+    return strcmp(s1, s2) == 0;
+}
+
+// 字符串长度（类型为 i32）
+fn str_length(s: *byte) i32 {
+    return strlen(s);
+}
+

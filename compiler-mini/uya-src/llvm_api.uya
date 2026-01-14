@@ -1,0 +1,236 @@
+// llvm_api.uya - LLVM C API 外部函数声明文件
+// 声明 CodeGen 模块需要的 LLVM C API 函数
+// 注意：根据代码生成模块翻译时的需要逐步添加
+
+// ===== 类型定义 =====
+// LLVM 类型在 Uya Mini 中使用 *void 或具体结构体指针类型表示
+// LLVMContextRef, LLVMModuleRef, LLVMBuilderRef, LLVMValueRef, LLVMTypeRef 等都映射为 *void
+
+// ===== 基础类型和上下文函数 =====
+
+// 创建和销毁上下文
+extern fn LLVMContextCreate() *void;
+extern fn LLVMContextDispose(context: *void) void;
+
+// 基础类型创建（全局函数，不依赖 context）
+extern fn LLVMInt1Type() *void;   // bool
+extern fn LLVMInt8Type() *void;  // byte
+extern fn LLVMInt32Type() *void;  // i32
+extern fn LLVMInt64Type() *void;  // usize (64位平台)
+extern fn LLVMVoidType() *void;   // void
+
+// ===== 模块和函数创建函数 =====
+
+// 模块创建
+extern fn LLVMModuleCreateWithNameInContext(name: *byte, context: *void) *void;
+extern fn LLVMDisposeModule(module: *void) void;
+extern fn LLVMSetTarget(module: *void, triple: *byte) void;
+extern fn LLVMSetModuleDataLayout(module: *void, layout: *void) void;
+
+// 函数创建和声明
+extern fn LLVMAddFunction(module: *void, name: *byte, function_type: *void) *void;
+extern fn LLVMGetParam(func: *void, index: i32) *void;
+extern fn LLVMSetValueName(value: *void, name: *byte) void;
+extern fn LLVMSetLinkage(value: *void, linkage: i32) void;
+
+// ===== 基本块和指令构建函数 =====
+
+// 构建器创建
+extern fn LLVMCreateBuilderInContext(context: *void) *void;
+extern fn LLVMDisposeBuilder(builder: *void) void;
+extern fn LLVMPositionBuilderAtEnd(builder: *void, basic_block: *void) void;
+extern fn LLVMGetInsertBlock(builder: *void) *void;
+extern fn LLVMGetBasicBlockParent(basic_block: *void) *void;
+
+// 基本块创建
+extern fn LLVMAppendBasicBlock(func: *void, name: *byte) *void;
+
+// 控制流指令
+extern fn LLVMBuildBr(builder: *void, dest: *void) *void;
+extern fn LLVMBuildCondBr(builder: *void, condition: *void, then_bb: *void, else_bb: *void) *void;
+extern fn LLVMBuildRet(builder: *void, value: *void) *void;
+extern fn LLVMBuildRetVoid(builder: *void) *void;
+
+// 内存操作指令
+extern fn LLVMBuildAlloca(builder: *void, type: *void, name: *byte) *void;
+extern fn LLVMBuildLoad2(builder: *void, type: *void, pointer: *void, name: *byte) *void;
+extern fn LLVMBuildStore(builder: *void, value: *void, pointer: *void) *void;
+
+// 算术运算指令
+extern fn LLVMBuildAdd(builder: *void, lhs: *void, rhs: *void, name: *byte) *void;
+extern fn LLVMBuildSub(builder: *void, lhs: *void, rhs: *void, name: *byte) *void;
+extern fn LLVMBuildMul(builder: *void, lhs: *void, rhs: *void, name: *byte) *void;
+extern fn LLVMBuildUDiv(builder: *void, lhs: *void, rhs: *void, name: *byte) *void;  // 无符号除法
+extern fn LLVMBuildSDiv(builder: *void, lhs: *void, rhs: *void, name: *byte) *void;  // 有符号除法
+extern fn LLVMBuildURem(builder: *void, lhs: *void, rhs: *void, name: *byte) *void;  // 无符号取模
+extern fn LLVMBuildSRem(builder: *void, lhs: *void, rhs: *void, name: *byte) *void;  // 有符号取模
+
+// 逻辑运算指令
+extern fn LLVMBuildAnd(builder: *void, lhs: *void, rhs: *void, name: *byte) *void;
+extern fn LLVMBuildOr(builder: *void, lhs: *void, rhs: *void, name: *byte) *void;
+extern fn LLVMBuildXor(builder: *void, lhs: *void, rhs: *void, name: *byte) *void;
+
+// 比较指令
+extern fn LLVMBuildICmp(builder: *void, predicate: i32, lhs: *void, rhs: *void, name: *byte) *void;
+
+// 类型转换指令
+extern fn LLVMBuildZExt(builder: *void, value: *void, dest_type: *void, name: *byte) *void;  // 零扩展
+extern fn LLVMBuildSExt(builder: *void, value: *void, dest_type: *void, name: *byte) *void;  // 符号扩展
+extern fn LLVMBuildTrunc(builder: *void, value: *void, dest_type: *void, name: *byte) *void;  // 截断
+extern fn LLVMBuildPtrToInt(builder: *void, value: *void, dest_type: *void, name: *byte) *void;  // 指针转整数
+extern fn LLVMBuildIntToPtr(builder: *void, value: *void, dest_type: *void, name: *byte) *void;  // 整数转指针
+
+// 结构体和数组操作指令
+extern fn LLVMBuildGEP2(builder: *void, type: *void, pointer: *void, indices: *void, num_indices: i32, name: *byte) *void;  // GetElementPtr
+extern fn LLVMBuildExtractValue(builder: *void, aggregate_value: *void, index: i32, name: *byte) *void;
+extern fn LLVMBuildInsertValue(builder: *void, aggregate_value: *void, element_value: *void, index: i32, name: *byte) *void;
+
+// 函数调用指令
+extern fn LLVMBuildCall2(builder: *void, function_type: *void, function: *void, args: *void, num_args: i32, name: *byte) *void;
+
+// ===== 类型创建函数 =====
+
+// 指针类型
+extern fn LLVMPointerType(element_type: *void, address_space: i32) *void;
+
+// 数组类型
+extern fn LLVMArrayType(element_type: *void, element_count: i32) *void;
+
+// 结构体类型
+extern fn LLVMStructTypeInContext(context: *void, element_types: *void, element_count: i32, packed: i32) *void;
+
+// 函数类型
+extern fn LLVMFunctionType(return_type: *void, param_types: *void, param_count: i32, is_var_arg: i32) *void;
+
+// 类型查询
+extern fn LLVMTypeOf(value: *void) *void;
+extern fn LLVMGetTypeKind(type: *void) i32;
+extern fn LLVMGetElementType(type: *void) *void;
+extern fn LLVMGetIntTypeWidth(type: *void) i32;
+
+// ===== 常量创建函数 =====
+
+// 整数常量
+extern fn LLVMConstInt(type: *void, value: i64, sign_extend: i32) *void;
+
+// 空指针常量
+extern fn LLVMConstNull(type: *void) *void;
+
+// 字符串常量
+extern fn LLVMConstStringInContext(context: *void, str: *byte, length: i32, dont_null_terminate: i32) *void;
+
+// 数组常量
+extern fn LLVMConstArray(element_type: *void, constant_values: *void, length: i32) *void;
+
+// 结构体常量
+extern fn LLVMConstStructInContext(context: *void, constant_values: *void, count: i32, packed: i32) *void;
+
+// ===== 全局变量函数 =====
+
+extern fn LLVMAddGlobal(module: *void, type: *void, name: *byte) *void;
+extern fn LLVMSetInitializer(global_var: *void, constant: *void) void;
+extern fn LLVMSetGlobalConstant(global_var: *void, is_constant: i32) void;
+
+// ===== 目标数据布局函数 =====
+
+extern fn LLVMGetModuleDataLayout(module: *void) *void;
+extern fn LLVMPointerSize(target_data: *void) i32;
+extern fn LLVMCreateTargetDataLayout(target_machine: *void) *void;
+extern fn LLVMDisposeTargetData(target_data: *void) void;
+
+// ===== 目标代码生成函数 =====
+
+// 目标初始化
+extern fn LLVMInitializeNativeTarget() void;
+extern fn LLVMInitializeNativeAsmPrinter() void;
+extern fn LLVMInitializeNativeAsmParser() void;
+
+// 目标机器
+extern fn LLVMGetDefaultTargetTriple() *byte;
+extern fn LLVMGetTargetFromTriple(triple: *byte, target: *void, error_message: *void) i32;
+extern fn LLVMCreateTargetMachine(target: *void, triple: *byte, cpu: *byte, features: *byte, level: i32, reloc: i32, code_model: i32) *void;
+extern fn LLVMDisposeTargetMachine(target_machine: *void) void;
+
+// 代码生成
+extern fn LLVMTargetMachineEmitToFile(target_machine: *void, module: *void, filename: *byte, codegen: i32, error_message: *void) i32;
+
+// IR 输出
+extern fn LLVMPrintModuleToFile(module: *void, filename: *byte, error_message: *void) i32;
+
+// 消息处理
+extern fn LLVMDisposeMessage(message: *byte) void;
+
+// ===== 枚举常量 =====
+// 这些值在 C 代码中作为整数常量使用，在 Uya Mini 中可以直接使用整数
+
+// LLVMIntPredicate 枚举值（用于 LLVMBuildICmp）
+// LLVMIntEQ = 32
+// LLVMIntNE = 33
+// LLVMIntUGT = 34
+// LLVMIntUGE = 35
+// LLVMIntULT = 36
+// LLVMIntULE = 37
+// LLVMIntSGT = 38
+// LLVMIntSGE = 39
+// LLVMIntSLT = 40
+// LLVMIntSLE = 41
+
+// LLVMTypeKind 枚举值（用于 LLVMGetTypeKind）
+// LLVMIntegerTypeKind = 0
+// LLVMFloatTypeKind = 1
+// LLVMDoubleTypeKind = 2
+// LLVMX86_FP80TypeKind = 3
+// LLVMFP128TypeKind = 4
+// LLVMPPC_FP128TypeKind = 5
+// LLVMNullTypeKind = 6
+// LLVMStructTypeKind = 7
+// LLVMArrayTypeKind = 8
+// LLVMPointerTypeKind = 9
+// LLVMVectorTypeKind = 10
+// LLVMFunctionTypeKind = 11
+
+// LLVMLinkage 枚举值（用于 LLVMSetLinkage）
+// LLVMExternalLinkage = 0
+// LLVMAvailableExternallyLinkage = 1
+// LLVMLinkOnceAnyLinkage = 2
+// LLVMLinkOnceODRLinkage = 3
+// LLVMWeakAnyLinkage = 4
+// LLVMWeakODRLinkage = 5
+// LLVMAppendingLinkage = 6
+// LLVMInternalLinkage = 7
+// LLVMPrivateLinkage = 8
+// LLVMDLLImportLinkage = 9
+// LLVMDLLExportLinkage = 10
+// LLVMExternalWeakLinkage = 11
+// LLVMGhostLinkage = 12
+// LLVMCommonLinkage = 13
+// LLVMLinkerPrivateLinkage = 14
+// LLVM linkerPrivateWeakLinkage = 15
+
+// LLVMCodeGenOptLevel 枚举值（用于 LLVMCreateTargetMachine）
+// LLVMCodeGenLevelNone = 0
+// LLVMCodeGenLevelLess = 1
+// LLVMCodeGenLevelDefault = 2
+// LLVMCodeGenLevelAggressive = 3
+
+// LLVMRelocMode 枚举值
+// LLVMRelocDefault = 0
+// LLVMRelocStatic = 1
+// LLVMRelocPIC = 2
+// LLVMRelocDynamicNoPic = 3
+// LLVMRelocROPI = 4
+// LLVMRelocRWPI = 5
+// LLVMRelocROPI_RWPI = 6
+
+// LLVMCodeModel 枚举值
+// LLVMCodeModelDefault = 0
+// LLVMCodeModelJITDefault = 1
+// LLVMCodeModelSmall = 2
+// LLVMCodeModelKernel = 3
+// LLVMCodeModelMedium = 4
+// LLVMCodeModelLarge = 5
+
+// LLVMCodeGenFileType 枚举值（用于 LLVMTargetMachineEmitToFile）
+// LLVMAssemblyFile = 0
+// LLVMObjectFile = 1
+
