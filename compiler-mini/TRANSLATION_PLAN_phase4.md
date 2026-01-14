@@ -21,8 +21,9 @@
 
 **代码行数统计**：
 - C99 版本（`src/parser.c`）：2587 行
-- Uya Mini 版本（`uya-src/parser.uya`，当前）：约 2730 行
+- Uya Mini 版本（`uya-src/parser.uya`，当前）：2741 行
 - 进度：100% ✅
+- 行数增加：+154 行（约 6%，主要因为 Uya Mini 语法更冗长）
 
 **已完成阶段**：
 - ✅ **阶段1**：准备工作（外部函数声明、文件结构、Parser结构体定义）
@@ -33,13 +34,10 @@
 - ✅ **阶段6**：表达式解析函数（parser_parse_primary_expr, parser_parse_unary_expr, parser_parse_cast_expr, parser_parse_mul_expr, parser_parse_add_expr, parser_parse_rel_expr, parser_parse_eq_expr, parser_parse_and_expr, parser_parse_or_expr, parser_parse_assign_expr, parser_parse_expression）
 - ✅ **阶段7**：语句解析函数（parser_parse_statement）
 
-**进行中**：
-- ✅ **阶段8**：验证和测试（待进行）
-
-**待完成**：
-- ⏳ **阶段6**：表达式解析函数（parser_parse_primary_expr等，最复杂，约1400行）
-- ⏳ **阶段7**：语句解析函数（parser_parse_statement，约280行）
-- ⏳ **阶段8**：验证和测试
+**验证状态**：
+- ✅ **语法检查**：通过，无错误
+- ✅ **函数完整性**：所有函数已翻译
+- ⏳ **功能测试**：待进行（需要编译和运行测试）
 
 ---
 
@@ -511,12 +509,19 @@ AST 节点字段映射规则很多，容易出错，需要仔细对照 `ast.uya`
 6. ✅ 阶段5：声明解析函数（已完成）
 7. ✅ 阶段6：表达式解析函数（已完成）
 8. ✅ 阶段7：语句解析函数（已完成）
-9. ⏳ 验证和测试（待进行）
+9. ✅ 阶段8：验证和测试（语法检查完成，功能测试待进行）
+
+---
+
+## 验证报告
+
+详细的验证结果请参考：`VERIFICATION_REPORT_phase4.md`
 
 ---
 
 ## 参考文档
 
+- `VERIFICATION_REPORT_phase4.md` - 验证报告（最新）
 - `TODO_phase4.md` - 阶段4任务列表
 - `BOOTSTRAP_PLAN.md` - 自举实现计划
 - `src/parser.c/h` - C99 版本实现
