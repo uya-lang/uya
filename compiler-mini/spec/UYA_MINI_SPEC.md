@@ -494,7 +494,9 @@ statement      = expr_stmt | var_decl | return_stmt | if_stmt | while_stmt | for
 
 expr_stmt      = expr ';'
 return_stmt    = 'return' [ expr ] ';'
-if_stmt        = 'if' expr '{' statements '}' [ 'else' '{' statements '}' ]
+if_stmt        = 'if' expr '{' statements '}' [ else_clause ]
+else_clause    = 'else' 'if' expr '{' statements '}' [ else_clause ]
+               | 'else' '{' statements '}'
 while_stmt     = 'while' expr '{' statements '}'
 for_stmt       = 'for' expr '|' ID '|' '{' statements '}'           # 值迭代（只读）
                | 'for' expr '|' '&' ID '|' '{' statements '}'        # 引用迭代（可修改）
@@ -507,7 +509,22 @@ statements     = { statement }
 **说明**：
 - 表达式语句：表达式后加分号
 - return 语句：`void` 函数可以省略返回值
-- if 语句：条件必须为 `bool` 类型，else 分支可选
+- if 语句：条件必须为 `bool` 类型，支持 `else if` 链和可选的 `else` 分支
+  - 语法：`if expr { statements } [ else if expr { statements } ]* [ else { statements } ]`
+  - 可以包含多个 `else if` 分支，形成条件链
+  - 可选的最终 `else` 分支处理所有其他情况
+  - 示例：
+    ```uya
+    if x == 1 {
+        // ...
+    } else if x == 2 {
+        // ...
+    } else if x == 3 {
+        // ...
+    } else {
+        // ...
+    }
+    ```
 - while 语句：条件必须为 `bool` 类型
 - for 语句：
   - `for expr | ID | { statements }`：值迭代（只读），遍历 expr 的元素，将每个元素赋值给 ID
@@ -1253,6 +1270,7 @@ Uya Mini 支持结构体和数组类型，这些特性使得编译器实现更�
   - 2026-01-13：添加类型检查器两遍检查机制说明（解决函数循环依赖问题）
   - 2026-01-13：确认 `len` 函数已完整实现
   - 2026-01-13：添加枚举类型支持（从"不支持的特性"列表中移除"枚举"，添加枚举语法和语义规则）
+  - 2026-01-13：添加 `else if` 语句支持（更新语法规范和示例）
 
 ---
 
