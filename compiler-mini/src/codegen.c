@@ -1954,13 +1954,13 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 }
                 case LLVMPointerTypeKind: {
                     // 指针类型：使用 TargetData API 获取指针大小（平台相关）
+                    // 注意：DataLayout 应该在 codegen_generate() 的第零步就已经设置
                     LLVMTargetDataRef target_data = LLVMGetModuleDataLayout(codegen->module);
-                    if (target_data) {
-                        size = LLVMPointerSize(target_data);
-                    } else {
-                        // 如果无法获取 TargetData，默认使用 8 字节（64位平台）
-                        size = 8;
+                    if (!target_data) {
+                        // 如果无法获取 TargetData，返回错误（不应该发生，因为 DataLayout 已设置）
+                        return NULL;
                     }
+                    size = LLVMPointerSize(target_data);
                     break;
                 }
                 case LLVMArrayTypeKind: {
@@ -1975,13 +1975,13 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                         element_size = (width + 7) / 8;
                     } else if (element_kind == LLVMPointerTypeKind) {
                         // 指针类型：使用 TargetData API 获取指针大小（平台相关）
+                        // 注意：DataLayout 应该在 codegen_generate() 的第零步就已经设置
                         LLVMTargetDataRef target_data = LLVMGetModuleDataLayout(codegen->module);
-                        if (target_data) {
-                            element_size = LLVMPointerSize(target_data);
-                        } else {
-                            // 如果无法获取 TargetData，默认使用 8 字节（64位平台）
-                            element_size = 8;
+                        if (!target_data) {
+                            // 如果无法获取 TargetData，返回错误（不应该发生，因为 DataLayout 已设置）
+                            return NULL;
                         }
+                        element_size = LLVMPointerSize(target_data);
                     } else if (element_kind == LLVMStructTypeKind) {
                         // 结构体类型的数组：使用 TargetData 获取元素大小
                         LLVMTargetDataRef target_data = LLVMGetModuleDataLayout(codegen->module);
@@ -2004,6 +2004,16 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                     }
                     // 使用 LLVMStoreSizeOfType 获取结构体的存储大小（字节数）
                     size = LLVMStoreSizeOfType(target_data, llvm_type);
+                    
+                    // 特殊处理：空结构体的大小应该是 1 字节（规范要求）
+                    // LLVM 对空结构体返回 0，但根据规范（2.3.6 节），空结构体大小为 1 字节
+                    if (size == 0) {
+                        // 检查是否是空结构体（通过检查字段数）
+                        unsigned element_count = LLVMCountStructElementTypes(llvm_type);
+                        if (element_count == 0) {
+                            size = 1;  // 空结构体大小为 1 字节
+                        }
+                    }
                     break;
                 }
                 default:
