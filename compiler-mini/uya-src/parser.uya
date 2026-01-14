@@ -1,3 +1,53 @@
 // parser.uya - 语法分析器模块
-// 待阶段4填充
+// 将 Token 序列转换为抽象语法树（AST）
+// 
+// 注意：需要先包含 arena.uya、lexer.uya、ast.uya 和 str_utils.uya
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
 
+// ===== 外部函数声明 =====
+
+// 字符串函数（来自 str_utils.uya）
+extern fn strlen(s: *byte) i32;
+extern fn strcmp(s1: *byte, s2: *byte) i32;
+extern fn fprintf(stream: *void, format: *byte, ...) i32;
+
+// 内存复制函数（string.h）
+extern fn memcpy(dest: &byte, src: &byte, n: i32) &void;
+
+// 字符串转整数函数（stdlib.h）
+extern fn atoi(s: *byte) i32;
+
+// Arena 函数（来自 arena.uya）
+// 注意：假设 Arena 类型已定义
+extern fn arena_alloc(arena: &Arena, size: i32) &void;
+
+// AST 函数（来自 ast.uya）
+// 注意：假设 ASTNode, ASTNodeType 类型已定义
+extern fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena) &ASTNode;
+
+// Lexer 函数（来自 lexer.uya）
+// 注意：假设 Lexer, Token, TokenType 类型已定义
+extern fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token;
+
+// 字符串辅助函数（来自 lexer.uya）
+// 注意：这些函数在 lexer.uya 中定义，但这里可能需要使用
+extern fn arena_strdup_from_literal(arena: &Arena, str: *byte) &byte;
+extern fn arena_strdup(arena: &Arena, start: &byte, len: i32) &byte;
+
+// 标准错误输出（stderr）
+// 注意：在 C 中，stderr 是一个 FILE* 指针，在 Uya Mini 中使用 *void 表示
+// 通常 stderr 的值是 2（文件描述符），但作为 FILE* 指针，这里使用 extern 声明
+// 实际上，fprintf 的第一个参数是 *void，可以直接传递数值
+// 在实现时，如果需要，可以使用 extern 声明，或者直接使用数值 2
+// 为了简化，这里不声明 stderr，在代码中直接使用数值常量（通过注释说明）
+
+// ===== Parser 结构体 =====
+
+// 语法分析器结构体
+// 使用 Lexer 读取 Token，构建 AST
+// 注意：假设 Lexer, Token, Arena 类型已定义
+struct Parser {
+    lexer: &Lexer;          // 词法分析器指针（由调用者提供，不分配）
+    current_token: &Token;  // 当前 Token（从 Arena 分配）
+    arena: &Arena;          // Arena 分配器（用于分配 Token 和 AST 节点）
+}
