@@ -1,4 +1,4 @@
-// 自动生成的合并文件 - 2026年 01月 14日 星期三 17:12:53 CST
+// 自动生成的合并文件 - 2026年 01月 14日 星期三 17:40:05 CST
 // 包含文件: uya-src/str_utils.uya uya-src/llvm_api.uya uya-src/arena.uya uya-src/ast.uya uya-src/lexer.uya uya-src/parser.uya uya-src/checker.uya uya-src/codegen.uya uya-src/main.uya
 
 // ========== 来自文件: uya-src/str_utils.uya ==========
@@ -6638,11 +6638,11 @@ fn find_struct_field_index(struct_decl: &ASTNode, field_name: &byte) i32 {
     }
     
     var i: i32 = 0;
-    while i < struct_decl.data.struct_decl.field_count {
+    while i < struct_decl.struct_decl_field_count {
         const field: &ASTNode = struct_decl.struct_decl_fields[i];
         if field != null && field.type == AST_VAR_DECL {
-            if field.data.var_decl.name != null && 
-               strcmp(field.data.var_decl.name, field_name) == 0 {
+            if field.var_decl_name != null && 
+               strcmp(field.var_decl_name, field_name) == 0 {
                 return i;
             }
         }
@@ -6885,7 +6885,7 @@ fn codegen_gen_struct_comparison(codegen: &CodeGenerator, left_val: *void, right
             return null;
         }
         
-        const field_type_name: &byte = field_type_node.data.type_named.name;
+        const field_type_name: &byte = field_type_node.type_named_name;
         if field_type_name == null {
             return null;
         }
@@ -6979,7 +6979,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
     
     if expr.type == AST_NUMBER {
         // 数字字面量：创建 i32 常量
-        const value: i32 = expr.data.number.value;
+        const value: i32 = expr.number_value;
         const i32_type: *void = codegen_get_base_type(codegen, TYPE_I32);
         if i32_type == null {
             return null;
@@ -6987,7 +6987,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         return LLVMConstInt(i32_type, value as i64, 1);  // 1 表示有符号
     } else if expr.type == AST_BOOL {
         // 布尔字面量：创建 i1 常量（true=1, false=0）
-        const value: i32 = expr.data.bool_literal.value;
+        const value: i32 = expr.bool_literal_value;
         const bool_type: *void = codegen_get_base_type(codegen, TYPE_BOOL);
         if bool_type == null {
             return null;
@@ -6996,7 +6996,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         return LLVMConstInt(bool_type, bool_value, 0);  // 0 表示无符号（布尔值）
     } else if expr.type == AST_STRING {
         // 字符串字面量：创建全局字符串常量，返回指向它的指针（*byte 类型）
-        const str_value: &byte = expr.data.string_literal.value;
+        const str_value: &byte = expr.string_literal_value;
         if str_value == null {
             return null;
         }
@@ -7052,7 +7052,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         return global_var;
     } else if expr.type == AST_IDENTIFIER {
         // 标识符（变量）：从变量表查找并加载值
-        const var_name: &byte = expr.data.identifier.name;
+        const var_name: &byte = expr.identifier_name;
         if var_name == null {
             return null;
         }
@@ -7082,19 +7082,19 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         return null;  // 变量未找到
     } else if expr.type == AST_UNARY_EXPR {
         // 一元表达式（!, -, &, *）
-        const operand: &ASTNode = expr.data.unary_expr.operand;
+        const operand: &ASTNode = expr.unary_expr_operand;
         if operand == null {
             return null;
         }
         
-        const op: i32 = expr.data.unary_expr.op;
+        const op: i32 = expr.unary_expr_op;
         
         if op == TOKEN_AMPERSAND {
             // 取地址运算符：&expr
             // 操作数必须是左值（变量、字段访问等）
             // 对于标识符（变量），直接从变量表获取指针
             if operand.type == AST_IDENTIFIER {
-                const var_name: &byte = operand.data.identifier.name;
+                const var_name: &byte = operand.identifier_name;
                 if var_name == null {
                     return null;
                 }
@@ -7139,12 +7139,12 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
             
             if operand.type == AST_IDENTIFIER {
                 // 优化：对于标识符，从变量表获取 AST 类型节点，然后从 AST 重新构建指向的类型
-                const var_name: &byte = operand.data.identifier.name;
+                const var_name: &byte = operand.identifier_name;
                 if var_name != null {
                     const var_ast_type: &ASTNode = lookup_var_ast_type(codegen, var_name);
                     if var_ast_type != null && var_ast_type.type == AST_TYPE_POINTER {
                         // 从 AST 类型节点获取指向的类型节点
-                        const pointed_ast_type: &ASTNode = var_ast_type.data.type_pointer.pointed_type;
+                        const pointed_ast_type: &ASTNode = var_ast_type.type_pointer_pointed_type;
                         if pointed_ast_type != null {
                             // 从 AST 类型节点重新构建指向类型的 LLVM 类型
                             pointed_type = get_llvm_type_from_ast(codegen, pointed_ast_type);
@@ -7217,13 +7217,13 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         return null;
     } else if expr.type == AST_BINARY_EXPR {
         // 二元表达式（算术、比较、逻辑运算符）
-        const left: &ASTNode = expr.data.binary_expr.left;
-        const right: &ASTNode = expr.data.binary_expr.right;
+        const left: &ASTNode = expr.binary_expr_left;
+        const right: &ASTNode = expr.binary_expr_right;
         if left == null || right == null {
             return null;
         }
         
-        const op: i32 = expr.data.binary_expr.op;
+        const op: i32 = expr.binary_expr_op;
         
         // 特殊处理逻辑运算符（&&, ||）以实现短路求值
         if op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR {
@@ -7331,7 +7331,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         
         // 如果其中一个操作数生成失败，尝试处理 null 标识符
         if left_val == null && left.type == AST_IDENTIFIER {
-            const left_name: &byte = left.data.identifier.name;
+            const left_name: &byte = left.identifier_name;
             if left_name != null && strcmp(left_name, "null") == 0 {
                 // left 是 null 标识符，需要从 right 获取类型
                 if right_val != null {
@@ -7343,7 +7343,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
             }
         }
         if right_val == null && right.type == AST_IDENTIFIER {
-            const right_name: &byte = right.data.identifier.name;
+            const right_name: &byte = right.identifier_name;
             if right_name != null && strcmp(right_name, "null") == 0 {
                 // right 是 null 标识符，需要从 left 获取类型
                 if left_val != null {
@@ -7509,12 +7509,12 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         return null;
     } else if expr.type == AST_CALL_EXPR {
         // 函数调用表达式
-        const callee: &ASTNode = expr.data.call_expr_callee;
+        const callee: &ASTNode = expr.call_expr_callee;
         if callee == null || callee.type != AST_IDENTIFIER {
             return null;
         }
         
-        const func_name: &byte = callee.data.identifier.name;
+        const func_name: &byte = callee.identifier_name;
         if func_name == null {
             return null;
         }
@@ -7530,7 +7530,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         func_type = func_map.func_type;
         
         // 生成参数值
-        const arg_count: i32 = expr.data.call_expr_arg_count;
+        const arg_count: i32 = expr.call_expr_arg_count;
         if arg_count > MAX_FUNC_PARAMS {
             return null;  // 参数过多
         }
@@ -7554,8 +7554,8 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         return LLVMBuildCall2(codegen.builder, func_type, func, &arg_values[0] as *void, arg_count, "");
     } else if expr.type == AST_MEMBER_ACCESS {
         // 字段访问或枚举值访问：使用 GEP + Load 获取字段值，或返回枚举值常量
-        const object: &ASTNode = expr.data.member_access.object;
-        const field_name: &byte = expr.data.member_access.field_name;
+        const object: &ASTNode = expr.member_access_object;
+        const field_name: &byte = expr.member_access_field_name;
         
         if object == null || field_name == null {
             return null;
@@ -7564,7 +7564,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         // 检查是否是枚举值访问（EnumName.Variant）
         // 如果对象是标识符且不是变量，可能是枚举类型名称
         if object.type == AST_IDENTIFIER {
-            const enum_name: &byte = object.data.identifier.name;
+            const enum_name: &byte = object.identifier_name;
             if enum_name != null {
                 // 检查是否是枚举类型名称（先检查变量表，如果不是变量，可能是枚举类型）
                 const var_map: &VarMap = lookup_var(codegen, enum_name);
@@ -7600,7 +7600,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         var object_ptr: *void = null;
         
         if object.type == AST_IDENTIFIER {
-            const var_name: &byte = object.data.identifier.name;
+            const var_name: &byte = object.identifier_name;
             if var_name != null {
                 const var_map: &VarMap = lookup_var(codegen, var_name);
                 if var_map != null {
@@ -7617,9 +7617,9 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
                             object_ptr = LLVMBuildLoad2(codegen.builder, var_type, object_ptr, var_name);
                             
                             // 从指针类型中获取指向的结构体类型名称
-                            const pointed_type: &ASTNode = var_ast_type.data.type_pointer.pointed_type;
+                            const pointed_type: &ASTNode = var_ast_type.type_pointer_pointed_type;
                             if pointed_type != null && pointed_type.type == AST_TYPE_NAMED {
-                                struct_name = pointed_type.data.type_named.name;
+                                struct_name = pointed_type.type_named_name;
                             }
                         }
                     }
@@ -7660,7 +7660,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
             // 获取结构体名称
             if object.type == AST_STRUCT_INIT {
                 // 对于结构体字面量，可以从 AST 获取结构体名称
-                struct_name = object.data.struct_init.struct_name;
+                struct_name = object.struct_init_struct_name;
             }
         }
         
@@ -7699,10 +7699,10 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         }
         
         // 获取字段类型（从结构体声明中）
-        if field_index >= struct_decl.data.struct_decl.field_count {
+        if field_index >= struct_decl.struct_decl_field_count {
             return null;
         }
-        const field: &ASTNode = struct_decl.data.struct_decl.fields[field_index];
+        const field: &ASTNode = struct_decl.struct_decl_fields[field_index];
         if field == null || field.type != AST_VAR_DECL {
             return null;
         }
@@ -7716,8 +7716,8 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         return LLVMBuildLoad2(codegen.builder, field_type, field_ptr, "");
     } else if expr.type == AST_ARRAY_ACCESS {
         // 数组访问：使用 GEP + Load 获取元素值
-        const array_expr: &ASTNode = expr.data.array_access.array;
-        const index_expr: &ASTNode = expr.data.array_access.index;
+        const array_expr: &ASTNode = expr.array_access_array;
+        const index_expr: &ASTNode = expr.array_access_index;
         
         if array_expr == null || index_expr == null {
             return null;
@@ -7936,8 +7936,8 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         return LLVMBuildLoad2(codegen.builder, array_type, array_ptr, "" as *byte);
     } else if expr.type == AST_SIZEOF {
         // sizeof 表达式：返回类型大小（i32 常量）
-        const target: &ASTNode = expr.data.sizeof_expr.target;
-        const is_type: i32 = expr.data.sizeof_expr.is_type;
+        const target: &ASTNode = expr.sizeof_expr_target;
+        const is_type: i32 = expr.sizeof_expr_is_type;
         
         if target == null {
             return null;
@@ -7952,7 +7952,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
             // target 是表达式节点，需要获取类型而不生成代码
             // 对于标识符（变量），直接从变量表获取类型
             if target.type == AST_IDENTIFIER {
-                const var_name: &byte = target.data.identifier.name;
+                const var_name: &byte = target.identifier_name;
                 if var_name == null {
                     return null;
                 }
@@ -8067,8 +8067,8 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         return LLVMConstInt(i32_type, size, 0);  // 无符号整数
     } else if expr.type == AST_ALIGNOF {
         // alignof 表达式：返回类型对齐值（i32 常量）
-        const target: &ASTNode = expr.data.alignof_expr.target;
-        const is_type: i32 = expr.data.alignof_expr.is_type;
+        const target: &ASTNode = expr.alignof_expr_target;
+        const is_type: i32 = expr.alignof_expr_is_type;
         
         if target == null {
             return null;
@@ -8083,7 +8083,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
             // target 是表达式节点，需要获取类型而不生成代码
             // 对于标识符（变量），直接从变量表获取类型
             if target.type == AST_IDENTIFIER {
-                const var_name: &byte = target.data.identifier.name;
+                const var_name: &byte = target.identifier_name;
                 if var_name == null {
                     return null;
                 }
@@ -8158,7 +8158,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         return LLVMConstInt(i32_type, alignment, 0);  // 无符号整数
     } else if expr.type == AST_LEN {
         // len 表达式：返回数组元素个数（i32 常量）
-        const array_expr: &ASTNode = expr.data.len_expr.array;
+        const array_expr: &ASTNode = expr.len_expr_array;
         
         if array_expr == null {
             return null;
@@ -8169,7 +8169,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         // 获取数组表达式的类型
         if array_expr.type == AST_IDENTIFIER {
             // 标识符（变量）：从变量表获取类型
-            const var_name: &byte = array_expr.data.identifier.name;
+            const var_name: &byte = array_expr.identifier_name;
             if var_name == null {
                 return null;
             }
@@ -8204,8 +8204,8 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
         return LLVMConstInt(i32_type, element_count as i64, 0);  // 无符号整数
     } else if expr.type == AST_CAST_EXPR {
         // 类型转换表达式（expr as type）
-        const expr_node: &ASTNode = expr.data.cast_expr.expr;
-        const target_type_node: &ASTNode = expr.data.cast_expr.target_type;
+        const expr_node: &ASTNode = expr.cast_expr_expr;
+        const target_type_node: &ASTNode = expr.cast_expr_target_type;
         
         if expr_node == null || target_type_node == null {
             return null;
@@ -8333,7 +8333,7 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) *void {
     
     if expr.type == AST_IDENTIFIER {
         // 标识符（变量）：从变量表查找指针
-        const var_name: &byte = expr.data.identifier.name;
+        const var_name: &byte = expr.identifier_name;
         if var_name == null {
             return null;
         }
@@ -8350,12 +8350,12 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) *void {
     } else if expr.type == AST_UNARY_EXPR {
         // 解引用表达式：*expr
         // 对于赋值 *p = value，p 是指针，我们需要返回 p 的值（即指针本身）
-        const op: i32 = expr.data.unary_expr.op;
+        const op: i32 = expr.unary_expr_op;
         if op != TOKEN_ASTERISK {
             return null;  // 只有解引用表达式可以作为左值
         }
         
-        const operand: &ASTNode = expr.data.unary_expr.operand;
+        const operand: &ASTNode = expr.unary_expr_operand;
         if operand == null {
             return null;
         }
@@ -8376,8 +8376,8 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) *void {
         return operand_val;
     } else if expr.type == AST_MEMBER_ACCESS {
         // 字段访问：使用 GEP 获取字段地址（用于赋值语句如 p.x = value）
-        const object: &ASTNode = expr.data.member_access.object;
-        const field_name: &byte = expr.data.member_access.field_name;
+        const object: &ASTNode = expr.member_access_object;
+        const field_name: &byte = expr.member_access_field_name;
         
         if object == null || field_name == null {
             return null;
@@ -8388,7 +8388,7 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) *void {
         var object_ptr: *void = null;
         
         if object.type == AST_IDENTIFIER {
-            const var_name: &byte = object.data.identifier.name;
+            const var_name: &byte = object.identifier_name;
             if var_name != null {
                 const var_map: &VarMap = lookup_var(codegen, var_name);
                 if var_map != null {
@@ -8405,9 +8405,9 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) *void {
                             object_ptr = LLVMBuildLoad2(codegen.builder, var_type, object_ptr, var_name);
                             
                             // 从指针类型中获取指向的结构体类型名称
-                            const pointed_type: &ASTNode = var_ast_type.data.type_pointer.pointed_type;
+                            const pointed_type: &ASTNode = var_ast_type.type_pointer_pointed_type;
                             if pointed_type != null && pointed_type.type == AST_TYPE_NAMED {
-                                struct_name = pointed_type.data.type_named.name;
+                                struct_name = pointed_type.type_named_name;
                             }
                         }
                     }
@@ -8478,9 +8478,9 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
     
     if stmt.type == AST_VAR_DECL {
         // 变量声明：使用 alloca 分配栈空间，如果有初始值则 store
-        const var_name: &byte = stmt.data.var_decl.name;
-        const var_type: &ASTNode = stmt.data.var_decl.type;
-        const init_expr: &ASTNode = stmt.data.var_decl.init;
+        const var_name: &byte = stmt.var_decl_name;
+        const var_type: &ASTNode = stmt.var_decl_type;
+        const init_expr: &ASTNode = stmt.var_decl_init;
         
         if var_name == null || var_type == null {
             return -1;
@@ -8495,7 +8495,7 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
         // 提取结构体名称（如果类型是结构体类型）
         var struct_name: &byte = null;
         if var_type.type == AST_TYPE_NAMED {
-            const type_name: &byte = var_type.data.type_named.name;
+            const type_name: &byte = var_type.type_named_name;
             if type_name != null && strcmp(type_name, "i32") != 0 && 
                strcmp(type_name, "bool") != 0 && strcmp(type_name, "byte") != 0 && 
                strcmp(type_name, "void") != 0) {
@@ -8523,7 +8523,7 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
             
             // 特殊处理空数组字面量：如果变量类型是数组类型，空数组表示未初始化
             if init_expr.type == AST_ARRAY_LITERAL &&
-               init_expr.data.array_literal.element_count == 0 &&
+               init_expr.array_literal_element_count == 0 &&
                LLVMGetTypeKind(llvm_type) == LLVMArrayTypeKind {
                 // 空数组字面量用于数组类型变量，不进行初始化（变量已通过 alloca 分配，内容未定义）
                 // 跳过初始化代码生成
@@ -8531,7 +8531,7 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
             }
             // 特殊处理 null 标识符：检查是否是 null 字面量
             else if init_expr.type == AST_IDENTIFIER {
-                const init_name: &byte = init_expr.data.identifier.name;
+                const init_name: &byte = init_expr.identifier_name;
                 if init_name != null && strcmp(init_name, "null") == 0 {
                     // null 字面量：检查变量类型是否为指针类型
                     if LLVMGetTypeKind(llvm_type) == LLVMPointerTypeKind {
@@ -8545,7 +8545,7 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
             
             // 如果不是特殊处理的情况，使用通用方法生成初始值
             if init_val == null && !(init_expr.type == AST_ARRAY_LITERAL &&
-                                    init_expr.data.array_literal.element_count == 0 &&
+                                    init_expr.array_literal_element_count == 0 &&
                                     LLVMGetTypeKind(llvm_type) == LLVMArrayTypeKind) {
                 init_val = codegen_gen_expr(codegen, init_expr);
                 if init_val == null {
@@ -8587,7 +8587,7 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
         return 0;
     } else if stmt.type == AST_RETURN_STMT {
         // return 语句：生成返回值并返回（void函数返回null）
-        const return_expr: &ASTNode = stmt.data.return_stmt.expr;
+        const return_expr: &ASTNode = stmt.return_stmt_expr;
         
         if return_expr != null {
             // 有返回值：生成返回值表达式并返回
@@ -8604,8 +8604,8 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
         return 0;
     } else if stmt.type == AST_ASSIGN {
         // 赋值语句：生成源表达式值，store 到目标左值表达式
-        const dest: &ASTNode = stmt.data.assign.dest;
-        const src: &ASTNode = stmt.data.assign.src;
+        const dest: &ASTNode = stmt.assign_dest;
+        const src: &ASTNode = stmt.assign_src;
         
         if dest == null || src == null {
             return -1;
@@ -8655,9 +8655,9 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
         return 0;
     } else if stmt.type == AST_IF_STMT {
         // if 语句：创建条件分支基本块
-        const condition: &ASTNode = stmt.data.if_stmt.condition;
-        const then_branch: &ASTNode = stmt.data.if_stmt.then_branch;
-        const else_branch: &ASTNode = stmt.data.if_stmt.else_branch;
+        const condition: &ASTNode = stmt.if_stmt_condition;
+        const then_branch: &ASTNode = stmt.if_stmt_then_branch;
+        const else_branch: &ASTNode = stmt.if_stmt_else_branch;
         
         if condition == null || then_branch == null {
             return -1;
@@ -8727,8 +8727,8 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
         return 0;
     } else if stmt.type == AST_WHILE_STMT {
         // while 语句：创建循环基本块
-        const condition: &ASTNode = stmt.data.while_stmt.condition;
-        const body: &ASTNode = stmt.data.while_stmt.body;
+        const condition: &ASTNode = stmt.while_stmt_condition;
+        const body: &ASTNode = stmt.while_stmt_body;
         
         if condition == null || body == null {
             return -1;
@@ -8827,10 +8827,10 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
     
     } else if stmt.type == AST_FOR_STMT {
         // for 语句：数组遍历循环
-        const array_expr: &ASTNode = stmt.data.for_stmt.array;
-        const var_name: &byte = stmt.data.for_stmt.var_name;
-        const is_ref: i32 = stmt.data.for_stmt.is_ref;
-        const body: &ASTNode = stmt.data.for_stmt.body;
+        const array_expr: &ASTNode = stmt.for_stmt_array;
+        const var_name: &byte = stmt.for_stmt_var_name;
+        const is_ref: i32 = stmt.for_stmt_is_ref;
+        const body: &ASTNode = stmt.for_stmt_body;
         
         if array_expr == null || var_name == null || body == null {
             return -1;
@@ -8901,7 +8901,7 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
         var array_type: *void = null;
         if array_expr.type == AST_IDENTIFIER {
             // 标识符：从变量表获取类型（变量表中存储的是数组类型，不是指针类型）
-            const array_var_name: &byte = array_expr.data.identifier.name;
+            const array_var_name: &byte = array_expr.identifier_name;
             array_type = lookup_var_type(codegen, array_var_name);
             if array_type == null {
                 codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
@@ -8930,12 +8930,12 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
         // 获取数组长度：从 AST 类型节点获取数组大小
         var array_length: i32 = 0;
         if array_expr.type == AST_IDENTIFIER {
-            const array_var_name: &byte = array_expr.data.identifier.name;
+            const array_var_name: &byte = array_expr.identifier_name;
             const array_ast_type: &ASTNode = lookup_var_ast_type(codegen, array_var_name);
             if array_ast_type != null && array_ast_type.type == AST_TYPE_ARRAY {
-                const size_expr: &ASTNode = array_ast_type.data.type_array.size_expr;
+                const size_expr: &ASTNode = array_ast_type.type_array_size_expr;
                 if size_expr != null && size_expr.type == AST_NUMBER {
-                    array_length = size_expr.data.number.value;
+                    array_length = size_expr.number_value;
                 }
             }
         }
@@ -9136,7 +9136,7 @@ fn codegen_declare_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32 {
             return -1;
         }
         
-        const param_type_node: &ASTNode = param.data.var_decl.type;
+        const param_type_node: &ASTNode = param.var_decl_type;
         const param_type: *void = get_llvm_type_from_ast(codegen, param_type_node);
         if param_type == null {
             return -1;
@@ -9176,9 +9176,9 @@ fn codegen_gen_global_var(codegen: &CodeGenerator, var_decl: &ASTNode) i32 {
         return -1;
     }
     
-    const var_name: &byte = var_decl.data.var_decl.name;
-    const var_type_node: &ASTNode = var_decl.data.var_decl.type;
-    const init_expr: &ASTNode = var_decl.data.var_decl.init;
+    const var_name: &byte = var_decl.var_decl_name;
+    const var_type_node: &ASTNode = var_decl.var_decl_type;
+    const init_expr: &ASTNode = var_decl.var_decl_init;
     
     if var_name == null || var_type_node == null {
         return -1;
@@ -9193,7 +9193,7 @@ fn codegen_gen_global_var(codegen: &CodeGenerator, var_decl: &ASTNode) i32 {
     // 提取结构体名称（如果类型是结构体类型）
     var struct_name: &byte = null;
     if var_type_node.type == AST_TYPE_NAMED {
-        const type_name: &byte = var_type_node.data.type_named.name;
+            const type_name: &byte = var_type_node.type_named_name;
         if type_name != null && strcmp(type_name, "i32") != 0 && 
            strcmp(type_name, "bool") != 0 && strcmp(type_name, "byte") != 0 && 
            strcmp(type_name, "void") != 0 {
@@ -9219,12 +9219,12 @@ fn codegen_gen_global_var(codegen: &CodeGenerator, var_decl: &ASTNode) i32 {
         // 对于常量表达式（数字字面量、布尔字面量），可以直接使用
         // 注意：这里简化处理，只支持常量字面量，不支持复杂表达式
         if init_expr.type == AST_NUMBER {
-            const value: i32 = init_expr.data.number.value;
+            const value: i32 = init_expr.number_value;
             if LLVMGetTypeKind(llvm_type) == LLVMIntegerTypeKind {
                 init_val = LLVMConstInt(llvm_type, value as i64, 1);  // 1 表示有符号
             }
         } else if init_expr.type == AST_BOOL {
-            const value: i32 = init_expr.data.bool_literal.value;
+            const value: i32 = init_expr.bool_literal_value;
             if LLVMGetTypeKind(llvm_type) == LLVMIntegerTypeKind {
                 const bool_value: i64 = if value != 0 { 1 } else { 0 };
                 init_val = LLVMConstInt(llvm_type, bool_value, 0);  // 0 表示无符号（布尔值）
@@ -9363,7 +9363,7 @@ fn codegen_gen_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32 {
         // 提取结构体名称（如果类型是结构体类型或指针指向结构体类型）
         var struct_name: &byte = null;
         if param_type_node.type == AST_TYPE_NAMED {
-            const type_name: &byte = param_type_node.data.type_named.name;
+            const type_name: &byte = param_type_node.type_named_name;
             if type_name != null && strcmp(type_name, "i32") != 0 && 
                strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0 {
                 // 可能是结构体类型
@@ -9373,9 +9373,9 @@ fn codegen_gen_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32 {
             }
         } else if param_type_node.type == AST_TYPE_POINTER {
             // 指针类型：检查指向的类型是否为结构体类型
-            const pointed_type: &ASTNode = param_type_node.data.type_pointer.pointed_type;
+            const pointed_type: &ASTNode = param_type_node.type_pointer_pointed_type;
             if pointed_type != null && pointed_type.type == AST_TYPE_NAMED {
-                const type_name: &byte = pointed_type.data.type_named.name;
+                const type_name: &byte = pointed_type.type_named_name;
                 if type_name != null && strcmp(type_name, "i32") != 0 && 
                    strcmp(type_name, "bool") != 0 && strcmp(type_name, "byte") != 0 && 
                    strcmp(type_name, "void") != 0 {
@@ -9472,7 +9472,7 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
     // 保存程序节点（用于查找结构体声明）
     codegen.program_node = ast;
     
-    const decl_count: i32 = ast.data.program.decl_count;
+    const decl_count: i32 = ast.program_decl_count;
     // 直接访问固定大小数组，不需要嵌套指针变量
     
     // 检查声明数组（固定大小数组不会为 null，但可以检查 count）
