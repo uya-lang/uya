@@ -11,7 +11,9 @@
 #define FILE_BUFFER_SIZE (1024 * 1024)  // 1MB
 
 // Arena 分配器缓冲区大小
-#define ARENA_BUFFER_SIZE (1024 * 1024)  // 1MB
+// 注意：编译大型文件（如 compiler_mini_combined.uya，约 385KB）需要更大的缓冲区
+// 但栈上分配不能太大，使用 2MB 作为折中（避免栈溢出）
+#define ARENA_BUFFER_SIZE (2 * 1024 * 1024)  // 2MB（增加缓冲区以支持大型文件编译）
 
 // 读取文件内容到缓冲区
 // 参数：filename - 文件名
@@ -130,14 +132,18 @@ static int compile_file(const char *input_file, const char *output_file) {
     
     // 初始化 Arena 分配器
     arena_init(&arena, arena_buffer, ARENA_BUFFER_SIZE);
+    fprintf(stderr, "[调试] 文件大小: %d 字节，Arena 缓冲区: %d 字节\n", file_size, ARENA_BUFFER_SIZE);
     
     // 1. 词法分析
+    fprintf(stderr, "[调试] 开始词法分析...\n");
     if (lexer_init(&lexer, file_buffer, (size_t)file_size, input_file, &arena) != 0) {
         fprintf(stderr, "错误: Lexer 初始化失败\n");
         return 1;
     }
+    fprintf(stderr, "[调试] 词法分析完成\n");
     
     // 2. 语法分析
+    fprintf(stderr, "[调试] 开始语法分析...\n");
     if (parser_init(&parser, &lexer, &arena) != 0) {
         fprintf(stderr, "错误: Parser 初始化失败\n");
         return 1;
@@ -145,11 +151,14 @@ static int compile_file(const char *input_file, const char *output_file) {
     
     ASTNode *ast = parser_parse(&parser);
     if (ast == NULL) {
+        fprintf(stderr, "[调试] 语法分析失败\n");
         // 错误信息已在 parser_parse 中输出
         return 1;
     }
+    fprintf(stderr, "[调试] 语法分析完成，AST 节点类型: %d\n", ast->type);
     
     // 3. 类型检查
+    fprintf(stderr, "[调试] 开始类型检查...\n");
     if (checker_init(&checker, &arena) != 0) {
         fprintf(stderr, "错误: TypeChecker 初始化失败\n");
         return 1;
@@ -159,15 +168,19 @@ static int compile_file(const char *input_file, const char *output_file) {
         fprintf(stderr, "错误: 类型检查失败（错误数量: %d）\n", checker_get_error_count(&checker));
         return 1;
     }
+    fprintf(stderr, "[调试] 类型检查完成\n");
     
     // 4. 代码生成
+    fprintf(stderr, "[调试] 开始代码生成...\n");
     // 使用输入文件名（去掉扩展名）作为模块名
     const char *module_name = input_file;  // 简化：直接使用输入文件名
     
+    fprintf(stderr, "[调试] 初始化 CodeGenerator，模块名: %s\n", module_name);
     if (codegen_new(&codegen, &arena, module_name) != 0) {
         fprintf(stderr, "错误: CodeGenerator 初始化失败\n");
         return 1;
     }
+    fprintf(stderr, "[调试] CodeGenerator 初始化成功\n");
     
     if (codegen_generate(&codegen, ast, output_file) != 0) {
         fprintf(stderr, "错误: 代码生成失败\n");

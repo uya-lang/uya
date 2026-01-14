@@ -13,8 +13,11 @@
 // 返回：成功返回0，失败返回非0
 int codegen_new(CodeGenerator *codegen, Arena *arena, const char *module_name) {
     if (!codegen || !arena || !module_name) {
+        fprintf(stderr, "[调试] codegen_new: 参数检查失败\n");
         return -1;
     }
+    
+    fprintf(stderr, "[调试] codegen_new: 开始初始化，模块名: %s\n", module_name);
     
     // 初始化结构体
     memset(codegen, 0, sizeof(CodeGenerator));
@@ -24,33 +27,49 @@ int codegen_new(CodeGenerator *codegen, Arena *arena, const char *module_name) {
     
     // 复制模块名称到 Arena
     size_t name_len = strlen(module_name);
+    fprintf(stderr, "[调试] codegen_new: 模块名长度: %zu\n", name_len);
+    // 注意：需要检查 Arena 的剩余空间
+    extern size_t arena_get_used(Arena *arena);  // 前向声明（如果存在）
+    fprintf(stderr, "[调试] codegen_new: 尝试分配 %zu 字节\n", name_len + 1);
     char *name_copy = (char *)arena_alloc(arena, name_len + 1);
     if (!name_copy) {
+        fprintf(stderr, "[调试] codegen_new: Arena 分配失败（需要 %zu 字节）\n", name_len + 1);
+        // 尝试获取 Arena 使用情况（如果可能）
         return -1;
     }
     memcpy(name_copy, module_name, name_len + 1);
     codegen->module_name = name_copy;
+    fprintf(stderr, "[调试] codegen_new: 模块名已复制\n");
     
     // 创建 LLVM 上下文
+    fprintf(stderr, "[调试] codegen_new: 创建 LLVM 上下文...\n");
     codegen->context = LLVMContextCreate();
     if (!codegen->context) {
+        fprintf(stderr, "[调试] codegen_new: LLVM 上下文创建失败\n");
         return -1;
     }
+    fprintf(stderr, "[调试] codegen_new: LLVM 上下文创建成功\n");
     
     // 创建 LLVM 模块
+    fprintf(stderr, "[调试] codegen_new: 创建 LLVM 模块...\n");
     codegen->module = LLVMModuleCreateWithNameInContext(codegen->module_name, codegen->context);
     if (!codegen->module) {
+        fprintf(stderr, "[调试] codegen_new: LLVM 模块创建失败\n");
         LLVMContextDispose(codegen->context);
         return -1;
     }
+    fprintf(stderr, "[调试] codegen_new: LLVM 模块创建成功\n");
     
     // 创建 IR 构建器
+    fprintf(stderr, "[调试] codegen_new: 创建 IR 构建器...\n");
     codegen->builder = LLVMCreateBuilderInContext(codegen->context);
     if (!codegen->builder) {
+        fprintf(stderr, "[调试] codegen_new: IR 构建器创建失败\n");
         LLVMDisposeModule(codegen->module);
         LLVMContextDispose(codegen->context);
         return -1;
     }
+    fprintf(stderr, "[调试] codegen_new: IR 构建器创建成功\n");
     
     // 初始化结构体类型映射表
     codegen->struct_type_count = 0;

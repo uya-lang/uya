@@ -1,4 +1,4 @@
-// 自动生成的合并文件 - 2026年 01月 14日 星期三 17:40:05 CST
+// 自动生成的合并文件 - 2026年 01月 14日 星期三 17:49:29 CST
 // 包含文件: uya-src/str_utils.uya uya-src/llvm_api.uya uya-src/arena.uya uya-src/ast.uya uya-src/lexer.uya uya-src/parser.uya uya-src/checker.uya uya-src/codegen.uya uya-src/main.uya
 
 // ========== 来自文件: uya-src/str_utils.uya ==========
@@ -3996,7 +3996,10 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
     
     if parser_match(parser, TOKEN_CONST) != 0 || parser_match(parser, TOKEN_VAR) != 0 {
         // 解析变量声明
-        const is_const: i32 = if parser_match(parser, TOKEN_CONST) != 0 { 1 } else { 0 };
+        var is_const: i32 = 0;
+        if parser_match(parser, TOKEN_CONST) != 0 {
+            is_const = 1;
+        }
         parser_consume(parser);  // 消费 'const' 或 'var'
         
         // 期望变量名称
@@ -4197,7 +4200,7 @@ fn hash_string(str: *byte) i32 {
     var i: i32 = 0;
     while (str[i] as i32) != 0 {
         const c: i32 = str[i] as i32;
-        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
+        hash = ((hash * 32) + hash) + c;  // hash * 33 + c (使用 * 32 替代 << 5，因为 Uya Mini 不支持位移运算符)
         i = i + 1;
     }
     
@@ -4304,12 +4307,12 @@ fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
     
     // 计算哈希值
     const hash: i32 = hash_string(symbol.name as *byte);
-    const index: i32 = hash & (SYMBOL_TABLE_SIZE - 1);  // 使用位与运算（表大小必须是2的幂）
+    const index: i32 = hash % SYMBOL_TABLE_SIZE;  // 使用模运算（替代位与运算，因为 Uya Mini 不支持位运算符）
     
     // 开放寻址：查找空槽位
     var i: i32 = 0;
     while i < SYMBOL_TABLE_SIZE {
-        const slot: i32 = (index + i) & (SYMBOL_TABLE_SIZE - 1);
+        const slot: i32 = (index + i) % SYMBOL_TABLE_SIZE;  // 使用模运算（替代位与运算）
         
         if checker.symbol_table.slots[slot] == null {
             // 找到空槽位，插入符号
@@ -4337,12 +4340,12 @@ fn function_table_lookup(checker: &TypeChecker, name: *byte) &FunctionSignature 
     
     // 计算哈希值
     const hash: i32 = hash_string(name);
-    const index: i32 = hash & (FUNCTION_TABLE_SIZE - 1);
+    const index: i32 = hash % FUNCTION_TABLE_SIZE;  // 使用模运算（替代位与运算）
     
     // 开放寻址：查找函数
     var i: i32 = 0;
     while i < FUNCTION_TABLE_SIZE {
-        const slot: i32 = (index + i) & (FUNCTION_TABLE_SIZE - 1);
+        const slot: i32 = (index + i) % FUNCTION_TABLE_SIZE;  // 使用模运算（替代位与运算）
         const sig: &FunctionSignature = checker.function_table.slots[slot];
         
         if sig == null {
@@ -4373,12 +4376,12 @@ fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
     
     // 计算哈希值
     const hash: i32 = hash_string(sig.name as *byte);
-    const index: i32 = hash & (FUNCTION_TABLE_SIZE - 1);
+    const index: i32 = hash % FUNCTION_TABLE_SIZE;  // 使用模运算（替代位与运算）
     
     // 开放寻址：查找空槽位或已存在的函数
     var i: i32 = 0;
     while i < FUNCTION_TABLE_SIZE {
-        const slot: i32 = (index + i) & (FUNCTION_TABLE_SIZE - 1);
+        const slot: i32 = (index + i) % FUNCTION_TABLE_SIZE;  // 使用模运算（替代位与运算）
         const existing: &FunctionSignature = checker.function_table.slots[slot];
         
         if existing == null {

@@ -120,7 +120,7 @@ fn hash_string(str: *byte) i32 {
     var i: i32 = 0;
     while (str[i] as i32) != 0 {
         const c: i32 = str[i] as i32;
-        hash = ((hash << 5) + hash) + c;  // hash * 33 + c
+        hash = ((hash * 32) + hash) + c;  // hash * 33 + c (使用 * 32 替代 << 5，因为 Uya Mini 不支持位移运算符)
         i = i + 1;
     }
     
@@ -227,12 +227,12 @@ fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
     
     // 计算哈希值
     const hash: i32 = hash_string(symbol.name as *byte);
-    const index: i32 = hash & (SYMBOL_TABLE_SIZE - 1);  // 使用位与运算（表大小必须是2的幂）
+    const index: i32 = hash % SYMBOL_TABLE_SIZE;  // 使用模运算（替代位与运算，因为 Uya Mini 不支持位运算符）
     
     // 开放寻址：查找空槽位
     var i: i32 = 0;
     while i < SYMBOL_TABLE_SIZE {
-        const slot: i32 = (index + i) & (SYMBOL_TABLE_SIZE - 1);
+        const slot: i32 = (index + i) % SYMBOL_TABLE_SIZE;  // 使用模运算（替代位与运算）
         
         if checker.symbol_table.slots[slot] == null {
             // 找到空槽位，插入符号
@@ -260,12 +260,12 @@ fn function_table_lookup(checker: &TypeChecker, name: *byte) &FunctionSignature 
     
     // 计算哈希值
     const hash: i32 = hash_string(name);
-    const index: i32 = hash & (FUNCTION_TABLE_SIZE - 1);
+    const index: i32 = hash % FUNCTION_TABLE_SIZE;  // 使用模运算（替代位与运算）
     
     // 开放寻址：查找函数
     var i: i32 = 0;
     while i < FUNCTION_TABLE_SIZE {
-        const slot: i32 = (index + i) & (FUNCTION_TABLE_SIZE - 1);
+        const slot: i32 = (index + i) % FUNCTION_TABLE_SIZE;  // 使用模运算（替代位与运算）
         const sig: &FunctionSignature = checker.function_table.slots[slot];
         
         if sig == null {
@@ -296,12 +296,12 @@ fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
     
     // 计算哈希值
     const hash: i32 = hash_string(sig.name as *byte);
-    const index: i32 = hash & (FUNCTION_TABLE_SIZE - 1);
+    const index: i32 = hash % FUNCTION_TABLE_SIZE;  // 使用模运算（替代位与运算）
     
     // 开放寻址：查找空槽位或已存在的函数
     var i: i32 = 0;
     while i < FUNCTION_TABLE_SIZE {
-        const slot: i32 = (index + i) & (FUNCTION_TABLE_SIZE - 1);
+        const slot: i32 = (index + i) % FUNCTION_TABLE_SIZE;  // 使用模运算（替代位与运算）
         const existing: &FunctionSignature = checker.function_table.slots[slot];
         
         if existing == null {
