@@ -17,21 +17,22 @@
 
 **最后更新**：2026-01-13
 
-**当前状态**：阶段4已完成，准备开始阶段5
+**当前状态**：阶段5已完成，准备开始阶段6
 
 **代码行数统计**：
 - C99 版本（`src/parser.c`）：2587 行
-- Uya Mini 版本（`uya-src/parser.uya`，当前）：398 行
-- 进度：约 15-20%
+- Uya Mini 版本（`uya-src/parser.uya`，当前）：约 1050 行
+- 进度：约 40-45%
 
 **已完成阶段**：
 - ✅ **阶段1**：准备工作（外部函数声明、文件结构、Parser结构体定义）
 - ✅ **阶段2**：基础函数翻译（parser_init, parser_match, parser_consume, parser_expect, parser_peek_is_struct_init, arena_strdup_for_parser）
 - ✅ **阶段3**：类型解析函数（parser_parse_type）
 - ✅ **阶段4**：代码块解析函数（parser_parse_block）
+- ✅ **阶段5**：声明解析函数（parser_parse_struct, parser_parse_enum, parser_parse_function, parser_parse_extern_function, parser_parse_declaration, parser_parse）
 
 **进行中**：
-- ⏳ **阶段5**：声明解析函数（parser_parse_struct, parser_parse_enum, parser_parse_function等）
+- ⏳ **阶段6**：表达式解析函数（parser_parse_primary_expr等，最复杂，约1400行）
 
 **待完成**：
 - ⏳ **阶段6**：表达式解析函数（parser_parse_primary_expr等，最复杂，约1400行）
@@ -480,25 +481,25 @@ AST 节点字段映射规则很多，容易出错，需要仔细对照 `ast.uya`
 
 **最后更新**：2026-01-13
 
-**当前状态**：阶段4已完成，准备开始阶段5
+**当前状态**：阶段5已完成，准备开始阶段6
 
 **已完成阶段**：
 - ✅ 阶段1：准备工作（外部函数声明、文件结构）
 - ✅ 阶段2：基础函数翻译（parser_init, parser_match, parser_consume等）
 - ✅ 阶段3：类型解析函数（parser_parse_type）
 - ✅ 阶段4：代码块解析函数（parser_parse_block）
+- ✅ 阶段5：声明解析函数（parser_parse_struct, parser_parse_enum, parser_parse_function, parser_parse_extern_function, parser_parse_declaration, parser_parse）
 
 **进行中**：
-- ⏳ 阶段5：声明解析函数（parser_parse_struct, parser_parse_enum等）
+- ⏳ 阶段6：表达式解析函数（parser_parse_primary_expr等，最复杂）
 
 **待完成**：
-- ⏳ 阶段6：表达式解析函数（parser_parse_primary_expr等，最复杂）
 - ⏳ 阶段7：语句解析函数（parser_parse_statement）
 
 **代码行数**：
 - C99 版本：2587 行
-- Uya Mini 版本（当前）：398 行
-- 进度：约 15-20%
+- Uya Mini 版本（当前）：约 1050 行
+- 进度：约 40-45%
 
 ---
 
@@ -509,7 +510,7 @@ AST 节点字段映射规则很多，容易出错，需要仔细对照 `ast.uya`
 3. ✅ 阶段2：基础函数（已完成）
 4. ✅ 阶段3：类型解析函数（已完成）
 5. ✅ 阶段4：代码块解析函数（已完成）
-6. ⏳ 阶段5：声明解析函数（进行中）
+6. ✅ 阶段5：声明解析函数（已完成）
 7. ⏳ 阶段6：表达式解析函数（待开始）
 8. ⏳ 阶段7：语句解析函数（待开始）
 9. ⏳ 验证和测试（待开始）

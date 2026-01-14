@@ -82,6 +82,7 @@ struct ASTNode {
     fn_decl_param_count: i32;        // 参数数量
     fn_decl_return_type: &ASTNode;   // 返回类型（类型节点）
     fn_decl_body: &ASTNode;          // 函数体（AST_BLOCK 节点）
+    fn_decl_is_varargs: i32;         // 是否为可变参数函数（1 表示是，0 表示否，仅用于 extern 函数）
     
     // 变量声明数据（用于变量声明、函数参数、结构体字段）
     var_decl_name: &byte;            // 变量名称
