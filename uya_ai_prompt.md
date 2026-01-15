@@ -435,7 +435,16 @@ const i: i32 = f as i32;        // ❌ 编译错误，可能损失精度
 
 // 强转（as!）- 返回错误联合类型
 const i: i32 = try f as! i32;   // ✅ 可能损失精度，返回!i32
+
+// 指针类型转换（FFI调用）
+extern write(fd: i32, buf: *byte, count: i32) i32;
+var buffer: [byte: 100] = [];
+const result: i32 = write(1, &buffer[0] as *byte, 100);  // ✅ &T as *T
 ```
+
+**指针转换规则**：
+- ✅ `&T as *T`：Uya普通指针→FFI指针（安全转换，仅用于FFI调用）
+- ❌ `*T as &T`：不支持 `as`，需要使用 `as!` 强转（不推荐）
 
 ### 模块系统
 
@@ -484,6 +493,12 @@ extern fn compare(a: *void, b: *void) i32 {
 - 支持所有C兼容类型：`*i8` `*i16` `*i32` `*i64` `*u8` `*u16` `*u32` `*u64` `*f32` `*f64` `*bool` `*byte` `*void` `*CStruct`
 - 支持下标访问 `ptr[i]`，但必须提供长度约束证明
 - 不能用于普通变量声明
+
+**Uya指针传递给FFI函数**：
+- ✅ `&T as *T`：Uya普通指针可以通过 `as` 显式转换为FFI指针类型（安全转换，无精度损失）
+- 仅在FFI函数调用时使用，符合"显式控制"设计哲学
+- 示例：`extern write(fd: i32, buf: *byte, count: i32) i32;` 调用时使用 `write(1, &buffer[0] as *byte, 100);`
+- 编译期检查，无运行时开销
 
 **函数指针类型**：
 ```uya

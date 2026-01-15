@@ -306,6 +306,24 @@ type ComparFunc = fn(*void, *void) i32;
 const cmp: ComparFunc = &my_compare;
 ```
 
+### Uya 指针传递给 FFI 函数
+
+```uya
+extern write(fd: i32, buf: *byte, count: i32) i32;
+
+fn main() i32 {
+    var buffer: [byte: 100] = [];
+    // Uya 普通指针通过 as 显式转换为 FFI 指针类型
+    const result: i32 = write(1, &buffer[0] as *byte, 100);
+    return result;
+}
+```
+
+**说明**：
+- ✅ `&T as *T`：Uya 普通指针可以显式转换为 FFI 指针类型（安全转换，无精度损失）
+- 仅在 FFI 函数调用时使用，符合"显式控制"设计哲学
+- 编译期检查，无运行时开销
+
 ---
 
 ## 九、切片语法速查

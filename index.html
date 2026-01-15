@@ -723,7 +723,7 @@
                     </div>
                     <h1>Uya 语言</h1>
                 </div>
-                <div class="version">完整版 · 2026-01-09 · v0.29</div>
+                <div class="version">完整版 · 2026-01-15 · v0.30</div>
                 <p class="tagline">AI友好 · 内存安全 · 并发安全 · 零 GC · 简单易学</p>
                 
                 <div class="core-features">
@@ -798,7 +798,7 @@
             <div class="content">
                 <!-- 核心特性部分 -->
                 <section id="core-features" class="content-section">
-                    <h2>0.29 核心特性</h2>
+                    <h2>0.30 核心特性</h2>
                     
                     <div class="feature-grid">
                         <div class="feature-card atomic">
@@ -851,7 +851,7 @@
                     </div>
                     
                     <div class="note" style="margin-top: 2rem;">
-                        <h3>0.29 核心创新</h3>
+                        <h3>0.30 核心创新</h3>
                         <h4>1. 彻底去掉尖括号 &lt;&gt;</h4>
                         <div class="code-block">
                             <div class="code-header">
@@ -1225,7 +1225,7 @@ fn divide(a: i32, b: i32) !i32 {
                                     <td><code>&T</code></td>
                                     <td>普通指针</td>
                                     <td>8 B</td>
-                                    <td>无 lifetime 符号</td>
+                                    <td>无 lifetime 符号；可通过 <code>as</code> 显式转换为 FFI 指针类型 <code>*T</code>（仅用于 FFI 调用）</td>
                                 </tr>
                                 <tr>
                                     <td><code>&atomic T</code></td>
@@ -1280,7 +1280,7 @@ fn divide(a: i32, b: i32) !i32 {
                     </div>
                     
                     <div class="note">
-                        <p><strong>重要特性：</strong>无隐式转换；无指针算术；<strong>零 lifetime 符号</strong>。</p>
+                        <p><strong>重要特性：</strong>无隐式转换；<strong>指针类型转换</strong>：<code>&T as *T</code>（仅用于 FFI 调用，显式转换）；无指针算术；<strong>零 lifetime 符号</strong>。</p>
                     </div>
                     
                     <h3>类型相关的极值常量</h3>
@@ -1336,6 +1336,40 @@ fn main() i32 {
   print_mat(m);
   return 0;
 }</code></pre>
+                    </div>
+                    
+                    <h3>Uya 指针传递给 FFI 函数</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>示例：指针类型转换</span>
+                            <button class="code-copy">复制</button>
+                        </div>
+                        <pre><code class="language-uya">// 声明外部 C 函数
+extern write(fd: i32, buf: *byte, count: i32) i32;
+extern printf(fmt: *byte, ...) i32;
+
+fn main() i32 {
+    var buffer: [byte: 100] = [];
+    
+    // Uya 普通指针通过 as 显式转换为 FFI 指针类型
+    const result: i32 = write(1, &buffer[0] as *byte, 100);
+    
+    if result < 0 {
+        printf("Write failed\n");
+        return 1;
+    }
+    
+    return 0;
+}</code></pre>
+                    </div>
+                    
+                    <div class="note">
+                        <p><strong>指针转换规则：</strong></p>
+                        <ul>
+                            <li>✅ <code>&T as *T</code>：Uya 普通指针可以显式转换为 FFI 指针类型（安全转换，无精度损失）</li>
+                            <li>仅在 FFI 函数调用时使用，符合"显式控制"设计哲学</li>
+                            <li>编译期检查，无运行时开销</li>
+                        </ul>
                     </div>
                     
                     <h3>错误处理 + defer/errdefer</h3>
@@ -1856,7 +1890,7 @@ fn main() i32 {
                 <section id="summary" class="content-section">
                     <div class="philosophy-card" style="background: linear-gradient(135deg, #e0f2fe, #f0f9ff);">
                         <h3 style="color: var(--primary);">一句话总结</h3>
-                        <p><strong>Uya 0.29 = AI友好 · 默认即高级内存安全 + 并发安全 + 显式错误处理 + 泛型系统（用()不是&lt;&gt;） + 统一结构体标准（C内存布局+完整Uya能力） + 切片类型系统 + 函数指针类型 + 枚举类型系统 + 元组类型系统</strong>；<br>
+                        <p><strong>Uya 0.30 = AI友好 · 默认即高级内存安全 + 并发安全 + 显式错误处理 + 泛型系统（用()不是&lt;&gt;） + 统一结构体标准（C内存布局+完整Uya能力） + 切片类型系统 + 函数指针类型 + 枚举类型系统 + 元组类型系统 + 指针类型转换（&T as *T）</strong>；<br>
                         <strong>只加 1 个关键字 <code>atomic T</code>，零 lifetime 符号，零 GC</strong>；<br>
                         <strong>所有 UB 必须被编译期证明为安全 → 失败即编译错误</strong>；<br>
                         <strong>编译期证明（本函数内），证明超时则自动插入运行时检查，不降级、不插运行时锁。</strong></p>
@@ -1908,7 +1942,7 @@ fn main() i32 {
             </div>
             
                 <div class="copyright">
-                <p>Uya 语言规范 0.29（完整版 · 2026-01-09）</p>
+                <p>Uya 语言规范 0.30（完整版 · 2026-01-15）</p>
                 <p>© 2025 Uya 语言项目团队。保留所有权利。</p>
             </div>
         </div>
