@@ -446,7 +446,7 @@ fn read_string(lexer: &Lexer, arena: &Arena) &Token {
 // 返回：成功返回 0，失败返回 -1
 // 注意：Lexer 结构体由调用者在栈上或静态分配，此函数只负责初始化
 // 注意：buffer 需要由调用者提供，此函数只是设置指针
-fn lexer_init(lexer: &Lexer, source: *byte, source_len: i32, filename: *byte, arena: &Arena) i32 {
+fn lexer_init(lexer: &Lexer, source: &byte, source_len: i32, filename: *byte, arena: &Arena) i32 {
     if lexer == null || source == null || arena == null {
         return -1;
     }
@@ -457,7 +457,8 @@ fn lexer_init(lexer: &Lexer, source: *byte, source_len: i32, filename: *byte, ar
     }
     
     // 设置缓冲区指针（调用者需要确保 source 指向有效的缓冲区）
-    lexer.buffer = source as &byte;
+    // 注意：source 是 &byte 类型（普通指针），直接赋值即可
+    lexer.buffer = source;
     lexer.buffer_size = source_len;
     
     // 初始化位置信息
@@ -468,7 +469,7 @@ fn lexer_init(lexer: &Lexer, source: *byte, source_len: i32, filename: *byte, ar
     // 复制文件名到 Arena
     if filename != null {
         const filename_len: i32 = strlen(filename) + 1;
-        const filename_copy: &byte = arena_alloc(arena, filename_len) as &byte;
+        const filename_copy: &byte = arena_alloc(arena, filename_len);
         if filename_copy == null {
             return -1;
         }

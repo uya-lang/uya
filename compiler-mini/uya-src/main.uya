@@ -12,7 +12,7 @@
 extern fn arena_init(arena: &Arena, buffer: &void, size: i32) void;
 
 // Lexer 函数（来自 lexer.uya）
-extern fn lexer_init(lexer: &Lexer, source: *byte, source_len: i32, filename: *byte, arena: &Arena) i32;
+extern fn lexer_init(lexer: &Lexer, source: &byte, source_len: i32, filename: *byte, arena: &Arena) i32;
 
 // Parser 函数（来自 parser.uya）
 extern fn parser_init(parser: &Parser, lexer: &Lexer, arena: &Arena) i32;
@@ -33,7 +33,10 @@ extern fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: 
 const FILE_BUFFER_SIZE: i32 = 1024 * 1024;  // 1MB
 
 // Arena 分配器缓冲区大小
-const ARENA_BUFFER_SIZE: i32 = 1024 * 1024;  // 1MB
+const ARENA_BUFFER_SIZE: i32 = 2 * 1024 * 1024;  // 2MB
+
+// 最大输入文件数量
+const MAX_INPUT_FILES: i32 = 64;
 
 // EOF 常量（文件结束符）
 const EOF: i32 = -1;
@@ -88,11 +91,13 @@ fn print_usage(program_name: *byte) void {
 }
 
 // 解析命令行参数
-// 参数：input_file - 输出参数：输入文件名（&(*byte) 表示指向 *byte 的指针）
-//       output_file - 输出参数：输出文件名
+// 参数：input_files - 输出参数：输入文件名数组（固定大小数组，存储 *byte 指针）
+//       input_file_count - 输出参数：输入文件数量
+//       output_file - 输出参数：输出文件名（固定大小数组，存储 *byte 指针）
 // 返回：成功返回 0，失败返回 -1
 // 注意：在 Uya Mini 中，使用 extern 函数获取命令行参数
-fn parse_args(input_file: &(*byte), output_file: &(*byte)) i32 {
+// 注意：由于 Uya Mini 不支持嵌套指针，使用固定大小数组存储指针
+fn parse_args(input_files: [*byte: MAX_INPUT_FILES], input_file_count: &i32, output_file: [*byte: 1]) i32 {
     const argc: i32 = get_argc();
     if argc < 4 {
         if argc > 0 {
@@ -104,8 +109,8 @@ fn parse_args(input_file: &(*byte), output_file: &(*byte)) i32 {
         return -1;
     }
     
-    // 简单的参数解析：程序名 <输入文件> -o <输出文件>
-    input_file[0] = null;
+    // 简单的参数解析：程序名 [输入文件...] -o <输出文件>
+    input_file_count[0] = 0;
     output_file[0] = null;
     
     var i: i32 = 1;
@@ -129,18 +134,18 @@ fn parse_args(input_file: &(*byte), output_file: &(*byte)) i32 {
             // 检查是否是选项（以 - 开头）
             if arg[0] != 45 {  // 45 是 '-' 的 ASCII 码
                 // 非选项参数，应该是输入文件
-                if input_file[0] == null {
-                    input_file[0] = arg;
-                } else {
-                    fprintf(2 as *void, "错误: 只能指定一个输入文件\n");
+                if input_file_count[0] >= MAX_INPUT_FILES {
+                    fprintf(2 as *void, "错误: 输入文件数量超过最大限制 (%d)\n", MAX_INPUT_FILES);
                     return -1;
                 }
+                input_files[input_file_count[0]] = arg;
+                input_file_count[0] = input_file_count[0] + 1;
             }
-            i = i + 1;
         }
+        i = i + 1;
     }
     
-    if input_file[0] == null {
+    if input_file_count[0] == 0 {
         fprintf(2 as *void, "错误: 未指定输入文件\n");
         if argc > 0 {
             const program_name: *byte = get_argv(0);
@@ -165,77 +170,130 @@ fn parse_args(input_file: &(*byte), output_file: &(*byte)) i32 {
     return 0;
 }
 
-// 主编译函数
-// 协调所有编译阶段：词法分析 → 语法分析 → 类型检查 → 代码生成
-// 参数：input_file - 输入文件名
+// 主编译函数（多文件版本）
+// 协调所有编译阶段：词法分析 → 语法分析 → AST 合并 → 类型检查 → 代码生成
+// 参数：input_files - 输入文件名数组
+//       input_file_count - 输入文件数量
 //       output_file - 输出文件名
 // 返回：成功返回 0，失败返回非 0
-fn compile_file(input_file: *byte, output_file: *byte) i32 {
-    if input_file == null || output_file == null {
-        return 1;
-    }
-    
-    // 文件读取缓冲区（栈上分配）
-    var file_buffer: [byte: FILE_BUFFER_SIZE] = [];
-    const file_size: i32 = read_file_content(input_file, &file_buffer[0], FILE_BUFFER_SIZE);
-    if file_size < 0 {
-        fprintf(2 as *void, "错误: 无法读取文件 '%s'\n", input_file);
+fn compile_files(input_files: [*byte: MAX_INPUT_FILES], input_file_count: i32, output_file: *byte) i32 {
+    if input_file_count <= 0 || output_file == null {
         return 1;
     }
     
     // Arena 分配器缓冲区（栈上分配）
     var arena_buffer: [byte: ARENA_BUFFER_SIZE] = [];
     
-    // 初始化所有结构体（栈上分配，自动初始化为零值）
-    var arena: Arena;
-    var lexer: Lexer;
-    var parser: Parser;
-    var checker: TypeChecker;
-    var codegen: CodeGenerator;
+    // 初始化 Arena 分配器（所有文件共享同一个 Arena）
+    // 手动初始化 Arena 结构体字段
+    // 注意：Uya Mini 要求变量必须初始化，所以使用字节数组作为存储空间，然后手动设置字段
+    var arena_storage: [byte: 16] = [];  // Arena 结构体大小约为 16 字节（3个字段：&byte + i32 + i32）
+    var arena: &Arena = &arena_storage[0] as &Arena;
+    // 手动初始化字段
+    arena.buffer = &arena_buffer[0];
+    arena.size = ARENA_BUFFER_SIZE;
+    arena.offset = 0;
     
-    // 初始化 Arena 分配器
-    arena_init(&arena, &arena_buffer[0] as &void, ARENA_BUFFER_SIZE);
+    // 存储每个文件的 AST_PROGRAM 节点（栈上分配，只存储指针）
+    var programs: [&ASTNode: MAX_INPUT_FILES] = [];
     
-    // 1. 词法分析
-    if lexer_init(&lexer, &file_buffer[0], file_size, input_file, &arena) != 0 {
-        fprintf(2 as *void, "错误: Lexer 初始化失败\n");
+    // 单个文件的缓冲区（栈上分配，每次处理一个文件）
+    var file_buffer: [byte: FILE_BUFFER_SIZE] = [];
+    
+    // 解析每个文件
+    var i: i32 = 0;
+    while i < input_file_count {
+        const input_file: *byte = input_files[i];
+        if input_file == null {
+            i = i + 1;
+            continue;
+        }
+        
+        // 读取文件内容
+        const file_size: i32 = read_file_content(input_file, &file_buffer[0], FILE_BUFFER_SIZE);
+        if file_size < 0 {
+            fprintf(2 as *void, "错误: 无法读取文件 '%s'\n", input_file);
+            return 1;
+        }
+        
+        // 1. 词法分析
+        // 使用零初始化的字节数组作为结构体的存储空间，通过指针访问
+        var lexer_storage: [byte: 32] = [];  // Lexer 结构体大小约为 32 字节
+        var lexer: &Lexer = &lexer_storage[0] as &Lexer;
+        if lexer_init(lexer, &file_buffer[0], file_size, input_file, arena) != 0 {
+            fprintf(2 as *void, "错误: Lexer 初始化失败: %s\n", input_file);
+            return 1;
+        }
+        
+        // 2. 语法分析
+        // 使用零初始化的字节数组作为结构体的存储空间，通过指针访问
+        var parser_storage: [byte: 24] = [];  // Parser 结构体大小约为 24 字节
+        var parser: &Parser = &parser_storage[0] as &Parser;
+        if parser_init(parser, lexer, arena) != 0 {
+            fprintf(2 as *void, "错误: Parser 初始化失败: %s\n", input_file);
+            return 1;
+        }
+        
+        const ast: &ASTNode = parser_parse(parser);
+        if ast == null {
+            fprintf(2 as *void, "错误: 语法分析失败: %s\n", input_file);
+            return 1;
+        }
+        
+        if ast.type != AST_PROGRAM {
+            fprintf(2 as *void, "错误: 解析结果不是程序节点: %s\n", input_file);
+            return 1;
+        }
+        
+        programs[i] = ast;
+        i = i + 1;
+    }
+    
+    // 3. 合并所有 AST_PROGRAM 节点
+    // 注意：ast_merge_programs 函数需要在 ast.uya 中实现
+    // 这里先简化处理：如果只有一个文件，直接使用该文件的 AST
+    var merged_ast: &ASTNode = null;
+    if input_file_count == 1 {
+        merged_ast = programs[0];
+    } else {
+        // TODO: 实现多文件 AST 合并
+        fprintf(2 as *void, "错误: 多文件 AST 合并功能尚未实现\n");
         return 1;
     }
     
-    // 2. 语法分析
-    if parser_init(&parser, &lexer, &arena) != 0 {
-        fprintf(2 as *void, "错误: Parser 初始化失败\n");
+    if merged_ast == null {
+        fprintf(2 as *void, "错误: AST 合并失败\n");
         return 1;
     }
     
-    const ast: &ASTNode = parser_parse(&parser);
-    if ast == null {
-        // 错误信息已在 parser_parse 中输出
-        return 1;
-    }
-    
-    // 3. 类型检查
-    if checker_init(&checker, &arena) != 0 {
+    // 4. 类型检查
+    // 使用零初始化的字节数组作为结构体的存储空间，通过指针访问
+    var checker_storage: [byte: 200] = [];  // TypeChecker 结构体大小约为 200 字节
+    var checker: &TypeChecker = &checker_storage[0] as &TypeChecker;
+    if checker_init(checker, arena) != 0 {
         fprintf(2 as *void, "错误: TypeChecker 初始化失败\n");
         return 1;
     }
     
-    if checker_check(&checker, ast) != 0 {
-        const error_count: i32 = checker_get_error_count(&checker);
+    if checker_check(checker, merged_ast) != 0 {
+        const error_count: i32 = checker_get_error_count(checker);
         fprintf(2 as *void, "错误: 类型检查失败（错误数量: %d）\n", error_count);
         return 1;
     }
     
-    // 4. 代码生成
-    // 使用输入文件名（去掉扩展名）作为模块名
-    const module_name: *byte = input_file;  // 简化：直接使用输入文件名
+    // 5. 代码生成
+    // 使用第一个输入文件名作为模块名
+    const module_name: *byte = input_files[0];
     
-    if codegen_new(&codegen, &arena, module_name) != 0 {
+    // 使用零初始化的字节数组作为结构体的存储空间，通过指针访问
+    var codegen_storage: [byte: 2000] = [];  // CodeGenerator 结构体大小约为 2000 字节
+    var codegen: &CodeGenerator = &codegen_storage[0] as &CodeGenerator;
+    if codegen_new(codegen, arena, module_name) != 0 {
         fprintf(2 as *void, "错误: CodeGenerator 初始化失败\n");
         return 1;
     }
     
-    if codegen_generate(&codegen, ast, output_file) != 0 {
+    if codegen_generate(codegen, merged_ast, output_file) != 0 {
         fprintf(2 as *void, "错误: 代码生成失败\n");
         return 1;
     }
@@ -248,16 +306,17 @@ fn compile_file(input_file: *byte, output_file: *byte) i32 {
 // 注意：在 Uya Mini 中，main 函数签名是 fn main() i32，不支持 argc 和 argv
 //       使用 extern 函数 get_argc() 和 get_argv() 获取命令行参数
 fn main() i32 {
-    var input_file: *byte = null;
-    var output_file: *byte = null;
+    var input_files: [*byte: MAX_INPUT_FILES] = [];
+    var input_file_count: i32 = 0;
+    var output_file: [*byte: 1] = [];
     
     // 解析命令行参数
-    if parse_args(&input_file, &output_file) != 0 {
+    if parse_args(input_files, &input_file_count, output_file) != 0 {
         return 1;
     }
     
     // 编译文件
-    const result: i32 = compile_file(input_file, output_file);
+    const result: i32 = compile_files(input_files, input_file_count, output_file[0]);
     
     return result;
 }
