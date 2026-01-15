@@ -86,13 +86,19 @@ for uya_file in "$TEST_DIR"/*.uya; do
         # 编译（生成目标文件）
         $COMPILER "$uya_file" -o "$BUILD_DIR/${base_name}.o"
         if [ $? -ne 0 ]; then
-            echo "  ❌ 编译失败"
-            FAILED=$((FAILED + 1))
+            # 特殊处理：test_ffi_ptr_in_normal_fn 的编译失败是预期行为（普通函数不能使用 FFI 指针）
+            if [ "$base_name" = "test_ffi_ptr_in_normal_fn" ]; then
+                echo "  ✓ 测试通过（预期编译失败）"
+                PASSED=$((PASSED + 1))
+            else
+                echo "  ❌ 编译失败"
+                FAILED=$((FAILED + 1))
+            fi
             continue
         fi
         
         # 链接目标文件为可执行文件
-        # 对于 extern_function 测试，需要链接外部函数实现
+        # 对于需要外部函数的测试，需要链接外部函数实现
         if [ "$base_name" = "extern_function" ]; then
             # 编译外部函数实现
             gcc -c tests/programs/extern_function_impl.c -o "$BUILD_DIR/extern_function_impl.o"
@@ -103,6 +109,16 @@ for uya_file in "$TEST_DIR"/*.uya; do
             fi
             # 链接主程序和外部函数实现
             gcc -no-pie "$BUILD_DIR/${base_name}.o" "$BUILD_DIR/extern_function_impl.o" -o "$BUILD_DIR/$base_name"
+        elif [ "$base_name" = "test_comprehensive_cast" ] || [ "$base_name" = "test_ffi_cast" ] || [ "$base_name" = "test_pointer_cast" ] || [ "$base_name" = "test_simple_cast" ]; then
+            # 编译通用外部函数实现
+            gcc -c tests/external_functions.c -o "$BUILD_DIR/external_functions.o"
+            if [ $? -ne 0 ]; then
+                echo "  ❌ 编译外部函数实现失败"
+                FAILED=$((FAILED + 1))
+                continue
+            fi
+            # 链接主程序和外部函数实现
+            gcc -no-pie "$BUILD_DIR/${base_name}.o" "$BUILD_DIR/external_functions.o" -o "$BUILD_DIR/$base_name"
         else
             gcc -no-pie "$BUILD_DIR/${base_name}.o" -o "$BUILD_DIR/$base_name"
         fi

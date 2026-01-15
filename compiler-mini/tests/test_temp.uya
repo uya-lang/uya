@@ -1,0 +1,1 @@
+struct Data { value: i32, } fn test_fn(ptr: *Data) i32 { return 0; } fn main() i32 { return 0; }

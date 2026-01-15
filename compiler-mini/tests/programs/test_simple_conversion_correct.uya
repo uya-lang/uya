@@ -1,0 +1,17 @@
+// 最简单的 FFI 指针转换测试
+struct Node {
+    id: i32,
+}
+
+fn main() i32 {
+    var node: Node = Node{ id: 1 };
+    var node_ptr: &Node = &node;  // 普通指针
+
+    // 测试 &T as *T 转换 - 这应该在类型检查阶段失败，因为结果没有被使用
+    // 让我们直接在表达式中使用转换
+    var ffi_ptr: *Node = node_ptr as *Node;  // 这是正确的用法
+    if ffi_ptr == null {
+        return 1;
+    }
+    return 0;
+}

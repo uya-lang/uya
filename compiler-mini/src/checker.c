@@ -898,20 +898,35 @@ static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node) {
             ASTNode *param = node->data.fn_decl.params[i];
             if (param != NULL && param->type == AST_VAR_DECL) {
                 Type param_type = type_from_ast(checker, param->data.var_decl.type);
+
+                // 检查是否为 FFI 指针类型（*T），如果是普通函数则不允许
+                if (!sig->is_extern && param_type.kind == TYPE_POINTER && param_type.data.pointer.is_ffi_pointer) {
+                    // 普通函数不能使用 FFI 指针类型作为参数
+                    checker_report_error(checker);
+                    return 0;
+                }
+
                 sig->param_types[i] = param_type;
             }
         }
     } else {
         sig->param_types = NULL;
     }
-    
+
+    // 检查返回类型是否为 FFI 指针类型（如果是普通函数则不允许）
+    if (!sig->is_extern && return_type.kind == TYPE_POINTER && return_type.data.pointer.is_ffi_pointer) {
+        // 普通函数不能使用 FFI 指针类型作为返回类型
+        checker_report_error(checker);
+        return 0;
+    }
+
     // 将函数添加到函数表
     if (function_table_insert(checker, sig) != 0) {
         // 函数重复定义
         checker_report_error(checker);
         return 0;
     }
-    
+
     return 1;
 }
 
@@ -1679,7 +1694,9 @@ int checker_check(TypeChecker *checker, ASTNode *ast) {
     for (int i = 0; i < ast->data.program.decl_count; i++) {
         ASTNode *decl = ast->data.program.decls[i];
         if (decl != NULL && decl->type == AST_FN_DECL) {
-            checker_register_fn_decl(checker, decl);
+            if (checker_register_fn_decl(checker, decl) == 0) {
+                return -1;  // 注册失败，返回错误
+            }
         }
     }
     
