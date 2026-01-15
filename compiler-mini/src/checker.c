@@ -26,7 +26,7 @@ static void checker_check_cast_expr(TypeChecker *checker, ASTNode *node);
 static int checker_check_node(TypeChecker *checker, ASTNode *node);
 static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char *struct_name);
 static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *enum_name);
-static Type find_struct_field_type(ASTNode *struct_decl, const char *field_name);
+static Type find_struct_field_type(TypeChecker *checker, ASTNode *struct_decl, const char *field_name);
 static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node);
 
 // 初始化 TypeChecker
@@ -599,7 +599,7 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             }
             
             // 查找字段类型
-            Type field_type = find_struct_field_type(struct_decl, expr->data.member_access.field_name);
+            Type field_type = find_struct_field_type(checker, struct_decl, expr->data.member_access.field_name);
             return field_type;  // 如果字段不存在，field_type.kind 为 TYPE_VOID
         }
         
@@ -765,13 +765,13 @@ static int checker_check_expr_type(TypeChecker *checker, ASTNode *expr, Type exp
 }
 
 // 在结构体声明中查找字段
-// 参数：struct_decl - 结构体声明节点，field_name - 字段名称
+// 参数：checker - 类型检查器指针，struct_decl - 结构体声明节点，field_name - 字段名称
 // 返回：找到的字段类型，未找到返回TYPE_VOID类型
-static Type find_struct_field_type(ASTNode *struct_decl, const char *field_name) {
+static Type find_struct_field_type(TypeChecker *checker, ASTNode *struct_decl, const char *field_name) {
     Type result;
     result.kind = TYPE_VOID;
     
-    if (struct_decl == NULL || struct_decl->type != AST_STRUCT_DECL || field_name == NULL) {
+    if (checker == NULL || struct_decl == NULL || struct_decl->type != AST_STRUCT_DECL || field_name == NULL) {
         return result;
     }
     
@@ -781,7 +781,7 @@ static Type find_struct_field_type(ASTNode *struct_decl, const char *field_name)
             if (field->data.var_decl.name != NULL && 
                 strcmp(field->data.var_decl.name, field_name) == 0) {
                 // 找到字段，返回字段类型
-                return type_from_ast(NULL, field->data.var_decl.type);
+                return type_from_ast(checker, field->data.var_decl.type);
             }
         }
     }
@@ -1063,7 +1063,7 @@ static Type checker_check_member_access(TypeChecker *checker, ASTNode *node) {
     }
     
     // 查找字段类型
-    Type field_type = find_struct_field_type(struct_decl, node->data.member_access.field_name);
+    Type field_type = find_struct_field_type(checker, struct_decl, node->data.member_access.field_name);
     if (field_type.kind == TYPE_VOID) {
         // 字段不存在
         checker_report_error(checker);
@@ -1204,7 +1204,7 @@ static Type checker_check_struct_init(TypeChecker *checker, ASTNode *node) {
         const char *field_name = node->data.struct_init.field_names[i];
         ASTNode *field_value = node->data.struct_init.field_values[i];
         
-        Type field_type = find_struct_field_type(struct_decl, field_name);
+        Type field_type = find_struct_field_type(checker, struct_decl, field_name);
         if (field_type.kind == TYPE_VOID) {
             checker_report_error(checker);
             return result;

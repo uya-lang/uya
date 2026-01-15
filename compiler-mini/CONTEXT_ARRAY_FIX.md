@@ -4,7 +4,9 @@
 
 **最后更新**：2026-01-14
 
-**总体进度**：核心逻辑已修复，段错误问题待解决
+**总体进度**：指针类型数组访问返回类型问题已修复，字段访问问题待解决
+
+**测试状态**：90/92 测试通过（剩余 2 个失败：`test_arena_buffer` 和 `test_field_array`）
 
 ## 已完成的工作
 
@@ -15,6 +17,19 @@
   - 参考 clang 生成的 IR：`getelementptr inbounds i8, ptr %buffer_ptr, i64 0`
   - 修改了 `codegen_gen_expr` 和 `codegen_gen_lvalue_address` 中的数组访问处理
   - 对于指针类型，直接使用元素类型（`i8`）和单个索引进行 GEP，而不是创建数组类型
+
+### 1.1 返回类型修复 ✅（2026-01-14）
+
+- **问题**：`buffer_ptr[0]` 语义上应该返回 `byte` 类型，但 `LLVMBuildLoad2` 返回了 `&byte` 类型
+- **根本原因**：`LLVMGetElementType` 在某些情况下返回错误的类型（指针类型而不是基础类型）
+- **解决方案**：
+  - 从 AST 类型节点直接获取元素类型，而不是依赖 `LLVMGetElementType`
+  - 在 `codegen_gen_expr` 的 `AST_ARRAY_ACCESS` 处理中，使用 `array_expr->type_node` 获取正确的元素类型
+  - 确保 `LLVMBuildLoad2` 使用正确的元素类型（`byte` 而不是 `&byte`）
+- **修复效果**：
+  - ✅ `test_pointer_array_access` 测试通过
+  - ✅ `test_return` 测试通过
+  - 测试失败从 4 个减少到 2 个
 
 ### 2. 修复位置
 
@@ -29,21 +44,20 @@
 
 ## 当前问题
 
-### 段错误问题 ⏳
+### 字段访问段错误问题 ⏳
 
-- **位置**：`codegen_gen_stmt` 中的 `LLVMBuildStore` 调用（约第2616行）
+- **位置**：`test_arena_buffer` 和 `test_field_array` 测试在编译时发生段错误
 - **现象**：
-  - `LLVMBuildGEP2` 和 `LLVMBuildLoad2` 调用都成功
-  - 段错误发生在最后一个 `LLVMBuildStore` 调用时
-  - 堆栈跟踪显示问题发生在 `llvm::Value::setName` 中
+  - `test_arena_buffer`：访问 `arena.buffer[0]` 时发生段错误
+  - `test_field_array`：访问 `test.size` 时发生段错误
+  - 两个测试都涉及字段访问（`AST_MEMBER_ACCESS`）
 - **可能原因**：
-  - 类型不匹配（即使宽度相同，类型对象可能不同）
-  - LLVM context 问题（基础类型使用全局类型，其他类型在 context 中创建）
-  - 内存问题
+  - 字段访问的代码生成有问题
+  - 结构体字段类型获取不正确
+  - 字段访问后的数组访问处理有问题
 - **最新进展**（2026-01-14）：
-  - 添加了详细的类型验证和调试输出
-  - 改进了类型转换逻辑，处理宽度相同但类型对象不同的情况
-  - 添加了 bitcast 转换作为最后的类型匹配手段
+  - ✅ 修复了指针类型数组访问的返回类型问题
+  - ⏳ 字段访问问题待进一步调试
 
 ## 测试程序
 
@@ -76,20 +90,20 @@
 
 ## 下一步工作
 
-1. **调试段错误**（进行中）：
-   - ✅ 添加了详细的类型验证和调试输出
-   - ✅ 改进了类型转换逻辑，处理宽度相同但类型对象不同的情况
-   - ⏳ 运行测试程序，查看调试输出，定位具体问题
-   - ⏳ 检查是否所有类型都来自同一个 LLVM context
+1. **调试字段访问段错误**（进行中）：
+   - ⏳ 调试 `test_arena_buffer`：检查 `arena.buffer[0]` 的代码生成
+   - ⏳ 调试 `test_field_array`：检查 `test.size` 的代码生成
+   - ⏳ 检查 `codegen_gen_expr` 中 `AST_MEMBER_ACCESS` 的处理逻辑
+   - ⏳ 检查结构体字段类型的获取是否正确
 
 2. **验证修复**：
-   - 编译 `arena.uya` 验证修复
-   - 运行测试程序验证功能
-   - 查看调试输出，确认类型匹配情况
+   - ✅ `test_pointer_array_access` 测试通过
+   - ✅ `test_return` 测试通过
+   - ⏳ 修复 `test_arena_buffer` 和 `test_field_array` 测试
 
 3. **代码清理**：
-   - 移除调试输出
-   - 整理代码注释
+   - ⏳ 移除调试输出（`fprintf(stderr, "调试: ...")`）
+   - ⏳ 整理代码注释
 
 ## 参考文档
 

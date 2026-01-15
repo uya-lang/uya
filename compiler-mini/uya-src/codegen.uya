@@ -1093,9 +1093,14 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
                 // 变量指针已经是地址，直接返回
                 return var_map.value;
             }
-            // 对于其他表达式（如字段访问、数组访问），需要先计算表达式值
-            // 然后分配临时空间存储值，返回临时空间的地址
-            // 注意：这是一个简化实现，完整的左值检查应该在类型检查阶段完成
+            // 对于其他表达式（如字段访问、数组访问），尝试使用 lvalue_address 获取左值地址
+            const addr: *void = codegen_gen_lvalue_address(codegen, operand);
+            if addr != null {
+                // 成功获取左值地址，直接返回
+                return addr;
+            }
+            // 如果 lvalue_address 失败，可能是非左值表达式
+            // 对于这种情况，先计算表达式值，然后分配临时空间存储值
             const operand_val: *void = codegen_gen_expr(codegen, operand);
             if operand_val == null {
                 return null;
@@ -3300,10 +3305,7 @@ fn codegen_declare_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32 {
     var param_types: [*void: MAX_FUNC_PARAMS] = [];
     var i: i32 = 0;
     while i < param_count {
-        if params == null {
-            return -1;
-        }
-        const param: &ASTNode = params[i];
+        const param: &ASTNode = fn_decl.fn_decl_params[i];
         if param == null || param.type != AST_VAR_DECL {
             return -1;
         }

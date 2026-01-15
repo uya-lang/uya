@@ -4,6 +4,11 @@
 // 注意：需要先包含 arena.uya 中的 Arena 定义
 // 由于 Uya Mini 不支持模块系统，这里假设 Arena 类型已经定义
 
+// ===== 外部函数声明 =====
+// Arena 函数（来自 arena.uya）
+// 注意：假设 Arena 类型已定义
+extern fn arena_alloc(arena: &Arena, size: i32) &void;
+
 // ===== 数组容量常量定义 =====
 // 用于固定大小数组的容量限制（替代动态指针数组）
 

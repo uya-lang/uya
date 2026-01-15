@@ -1633,10 +1633,15 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             
         case AST_MEMBER_ACCESS: {
             // 字段访问或枚举值访问：使用 GEP + Load 获取字段值，或返回枚举值常量
+            fprintf(stderr, "调试: 进入 AST_MEMBER_ACCESS 处理\n");
             ASTNode *object = expr->data.member_access.object;
             const char *field_name = expr->data.member_access.field_name;
             
+            fprintf(stderr, "调试: AST_MEMBER_ACCESS - object=%p, field_name=%s\n", 
+                    (void*)object, field_name ? field_name : "(null)");
+            
             if (!object || !field_name) {
+                fprintf(stderr, "调试: AST_MEMBER_ACCESS - object 或 field_name 为 NULL\n");
                 return NULL;
             }
             
@@ -1758,35 +1763,52 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             // 获取结构体类型
             LLVMTypeRef struct_type = codegen_get_struct_type(codegen, struct_name);
             if (!struct_type) {
+                fprintf(stderr, "调试: 字段访问 - 无法获取结构体类型 struct_name=%s\n", struct_name ? struct_name : "(null)");
                 return NULL;
             }
+            
+            fprintf(stderr, "调试: 字段访问 - struct_name=%s, field_name=%s, field_index=%d\n", 
+                    struct_name, field_name, field_index);
+            fprintf(stderr, "调试: 字段访问 - struct_type=%p, object_ptr=%p\n", 
+                    (void*)struct_type, (void*)object_ptr);
             
             // 使用 GEP 获取字段地址
             LLVMValueRef indices[2];
             indices[0] = LLVMConstInt(LLVMInt32Type(), 0ULL, 0);  // 结构体指针本身
             indices[1] = LLVMConstInt(LLVMInt32Type(), (unsigned long long)field_index, 0);  // 字段索引
             
+            fprintf(stderr, "调试: 字段访问 - 调用 LLVMBuildGEP2\n");
             LLVMValueRef field_ptr = LLVMBuildGEP2(codegen->builder, struct_type, object_ptr, indices, 2, "");
             if (!field_ptr) {
+                fprintf(stderr, "调试: 字段访问 - LLVMBuildGEP2 失败\n");
                 return NULL;
             }
+            fprintf(stderr, "调试: 字段访问 - LLVMBuildGEP2 成功，field_ptr=%p\n", (void*)field_ptr);
             
             // 获取字段类型（从结构体声明中）
             if (field_index >= struct_decl->data.struct_decl.field_count) {
+                fprintf(stderr, "调试: 字段访问 - 字段索引超出范围\n");
                 return NULL;
             }
             ASTNode *field = struct_decl->data.struct_decl.fields[field_index];
             if (!field || field->type != AST_VAR_DECL) {
+                fprintf(stderr, "调试: 字段访问 - 字段节点无效\n");
                 return NULL;
             }
             ASTNode *field_type_node = field->data.var_decl.type;
+            fprintf(stderr, "调试: 字段访问 - 调用 get_llvm_type_from_ast\n");
             LLVMTypeRef field_type = get_llvm_type_from_ast(codegen, field_type_node);
             if (!field_type) {
+                fprintf(stderr, "调试: 字段访问 - get_llvm_type_from_ast 返回 NULL\n");
                 return NULL;
             }
+            fprintf(stderr, "调试: 字段访问 - field_type=%p\n", (void*)field_type);
             
             // load 字段值
-            return LLVMBuildLoad2(codegen->builder, field_type, field_ptr, "");
+            fprintf(stderr, "调试: 字段访问 - 调用 LLVMBuildLoad2\n");
+            LLVMValueRef result = LLVMBuildLoad2(codegen->builder, field_type, field_ptr, "");
+            fprintf(stderr, "调试: 字段访问 - LLVMBuildLoad2 成功，result=%p\n", (void*)result);
+            return result;
         }
         
         case AST_ARRAY_ACCESS: {
@@ -1825,18 +1847,60 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             } else if (array_val_kind == LLVMPointerTypeKind) {
                 // 指针类型（可能是数组指针或单个元素指针）
                 array_ptr = array_val;
+                
+                // 尝试从 AST 类型节点获取元素类型（更可靠）
+                // 支持标识符和字段访问两种情况
+                LLVMTypeRef element_type_from_ast = NULL;
+                if (array_expr->type == AST_IDENTIFIER) {
+                    // 标识符：从变量表获取 AST 类型节点
+                    const char *var_name = array_expr->data.identifier.name;
+                    if (var_name) {
+                        ASTNode *var_ast_type = lookup_var_ast_type(codegen, var_name);
+                        if (var_ast_type && var_ast_type->type == AST_TYPE_POINTER) {
+                            // 变量类型是指针类型，获取指向的类型
+                            ASTNode *pointed_type = var_ast_type->data.type_pointer.pointed_type;
+                            if (pointed_type) {
+                                element_type_from_ast = get_llvm_type_from_ast(codegen, pointed_type);
+                            }
+                        }
+                    }
+                }
+                // 注意：字段访问的情况暂时不处理，因为可能触发段错误
+                // 如果 array_val_type 是指针类型但 array_type 也是指针类型，
+                // 说明 LLVMGetElementType 返回了错误的结果，我们会在后面处理
+                
+                // 对于指针类型，我们需要获取指向的类型
                 array_type = LLVMGetElementType(array_val_type);
                 if (!array_type) {
                     return NULL;
                 }
+                LLVMTypeKind array_type_kind = LLVMGetTypeKind(array_type);
+                
                 // 检查指向的类型是否是数组类型
-                if (LLVMGetTypeKind(array_type) != LLVMArrayTypeKind) {
+                if (array_type_kind != LLVMArrayTypeKind) {
                     // 不是数组类型，是指向单个元素的指针（如 &byte）
-                    // 对于这种情况，我们可以直接使用元素类型进行 GEP，不需要创建数组类型
-                    // 参考 clang 生成的 IR: getelementptr inbounds i8, ptr %buffer_ptr, i64 0
-                    // 我们使用元素类型（array_type）和单个索引进行 GEP
-                    // 注意：这里 array_type 已经是元素类型（如 i8），array_ptr 是指针值
-                    // 我们将在后面使用单个索引的 GEP，而不是两个索引
+                    // 如果从 AST 获取到了元素类型，优先使用它
+                    if (element_type_from_ast) {
+                        array_type = element_type_from_ast;
+                        fprintf(stderr, "调试: 从 AST 获取元素类型，kind=%d\n", 
+                                (int)LLVMGetTypeKind(array_type));
+                    } else if (array_type_kind == 12 || array_type_kind == 18) {  // LLVMPointerTypeKind
+                        // array_type 仍然是指针类型，尝试递归获取
+                        // 这种情况不应该发生，但如果发生了，我们尝试修复
+                        fprintf(stderr, "警告: array_type 仍然是指针类型，尝试递归获取元素类型\n");
+                        LLVMTypeRef temp_type = array_type;
+                        int depth = 0;
+                        while ((LLVMGetTypeKind(temp_type) == 12 || LLVMGetTypeKind(temp_type) == 18) && depth < 5) {
+                            temp_type = LLVMGetElementType(temp_type);
+                            if (!temp_type) break;
+                            depth++;
+                        }
+                        if (temp_type && depth < 5) {
+                            array_type = temp_type;
+                            fprintf(stderr, "调试: 递归获取到元素类型，kind=%d\n", 
+                                    (int)LLVMGetTypeKind(array_type));
+                        }
+                    }
                 }
             } else {
                 return NULL;  // 不是数组类型或指针类型
@@ -1868,7 +1932,42 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             } else {
                 // 指针类型（指向单个元素）：直接使用元素类型和单个索引
                 // 参考 clang 生成的 IR: getelementptr inbounds i8, ptr %buffer_ptr, i64 0
-                element_type = array_type;  // array_type 已经是元素类型（如 i8）
+                // 注意：如果 array_type 仍然是指针类型，需要再次获取元素类型
+                element_type = array_type;
+                LLVMTypeKind array_type_kind = LLVMGetTypeKind(array_type);
+                // LLVMPointerTypeKind 在 LLVM 17 中是 12，但实际运行时可能是其他值
+                // 检查类型是否为指针类型（kind >= 12 或 == 12）
+                // 从调试信息看，kind=18 也是指针类型，所以需要检查所有可能的指针类型值
+                // 注意：如果 array_type 是指针类型，说明 LLVMGetElementType 返回的仍然是指针
+                // 这可能是因为 buffer_ptr 的类型是 &byte，而 LLVMGetElementType(&byte) 返回的还是 &byte
+                // 我们需要检查 array_val_type（原始指针类型）来获取真正的元素类型
+                if (array_type_kind == 12 || array_type_kind == 18) {  // LLVMPointerTypeKind 的可能值
+                    // array_type 仍然是指针类型，需要再次获取元素类型
+                    fprintf(stderr, "调试: array_type 仍然是指针类型 (kind=%d)，再次获取元素类型\n", (int)array_type_kind);
+                    // 从原始的 array_val_type 获取元素类型
+                    LLVMTypeRef pointed_type = LLVMGetElementType(array_val_type);
+                    if (pointed_type) {
+                        LLVMTypeKind pointed_kind = LLVMGetTypeKind(pointed_type);
+                        if (pointed_kind == 12 || pointed_kind == 18) {
+                            // 仍然是指针类型，再次获取
+                            element_type = LLVMGetElementType(pointed_type);
+                            fprintf(stderr, "调试: 从 pointed_type 获取元素类型，kind=%d\n", 
+                                    element_type ? (int)LLVMGetTypeKind(element_type) : -1);
+                        } else {
+                            element_type = pointed_type;
+                            fprintf(stderr, "调试: 使用 pointed_type 作为元素类型，kind=%d\n", (int)pointed_kind);
+                        }
+                    } else {
+                        element_type = LLVMGetElementType(array_type);
+                        fprintf(stderr, "调试: 从 array_type 获取元素类型，kind=%d\n", 
+                                element_type ? (int)LLVMGetTypeKind(element_type) : -1);
+                    }
+                    if (!element_type) {
+                        fprintf(stderr, "错误: codegen_gen_expr 无法获取元素类型\n");
+                        return NULL;
+                    }
+                    fprintf(stderr, "调试: 最终元素类型 kind=%d\n", (int)LLVMGetTypeKind(element_type));
+                }
                 
                 // 验证 element_type 是否有效
                 if (!element_type) {
@@ -1971,7 +2070,37 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 
                 // 生成字段值
                 LLVMValueRef field_val = codegen_gen_expr(codegen, field_value);
+                
+                // 特殊处理 null 标识符
+                if (!field_val && field_value->type == AST_IDENTIFIER) {
+                    const char *field_value_name = field_value->data.identifier.name;
+                    if (field_value_name && strcmp(field_value_name, "null") == 0) {
+                        // null 标识符：需要获取字段类型并生成 null 指针常量
+                        // 获取字段类型
+                        if (field_index >= struct_decl->data.struct_decl.field_count) {
+                            return NULL;
+                        }
+                        ASTNode *field = struct_decl->data.struct_decl.fields[field_index];
+                        if (!field || field->type != AST_VAR_DECL) {
+                            return NULL;
+                        }
+                        ASTNode *field_type_node = field->data.var_decl.type;
+                        LLVMTypeRef field_llvm_type = get_llvm_type_from_ast(codegen, field_type_node);
+                        if (!field_llvm_type) {
+                            return NULL;
+                        }
+                        // 检查字段类型是否为指针类型
+                        if (LLVMGetTypeKind(field_llvm_type) == LLVMPointerTypeKind) {
+                            field_val = LLVMConstNull(field_llvm_type);
+                        } else {
+                            fprintf(stderr, "错误: 字段 %s 的类型不是指针类型，不能初始化为 null\n", field_name);
+                            return NULL;
+                        }
+                    }
+                }
+                
                 if (!field_val) {
+                    fprintf(stderr, "错误: 字段 %s 的值生成失败\n", field_name);
                     return NULL;
                 }
                 

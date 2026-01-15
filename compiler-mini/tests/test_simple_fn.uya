@@ -1,0 +1,13 @@
+// 最简单的函数声明测试
+struct Test {
+    x: i32,
+}
+
+fn test_simple(x: i32) i32 {
+    return x;
+}
+
+fn main() i32 {
+    return test_simple(42);
+}
+
