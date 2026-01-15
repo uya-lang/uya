@@ -66,11 +66,10 @@ fn arena_alloc(arena: &Arena, size: i32) &void {
         return null;  // 空间不足
     }
     
-    // 二分屏蔽测试：测试字段访问返回的类型
+    // 计算分配地址：buffer + aligned_offset
+    // 返回指向分配内存的指针（对齐后的地址）
     const buffer_ptr: &byte = arena.buffer;
-    // 测试：直接使用 buffer_ptr 进行数组访问
-    const temp: byte = buffer_ptr[0];
-    const result: &void = null;  // 临时替换
+    const result: &void = &buffer_ptr[aligned_offset] as &void;
     
     // 更新 offset（移动到对齐后的位置 + 分配的大小）
     arena.offset = aligned_offset + aligned_size;

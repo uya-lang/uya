@@ -1744,34 +1744,37 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
                 return null;
             }
             // 检查指向的类型是否是数组类型
-            if LLVMGetTypeKind(array_type) != LLVMArrayTypeKind {
+            if LLVMGetTypeKind(array_type) == LLVMArrayTypeKind {
+                // 是指向数组的指针，使用标准的双索引 GEP
+                // array_ptr 已经是正确的指针，不需要转换
+            } else {
                 // 不是数组类型，是指向单个元素的指针（如 &byte）
-                // 对于这种情况，我们需要使用 GEP 进行指针偏移
-                // 但 GEP2 需要数组类型，所以我们创建一个单元素数组类型
-                // 注意：虽然创建了单元素数组，但 GEP 的索引可以超出范围，会正确计算偏移
+                // 对于这种情况，直接使用元素类型和单个索引进行 GEP
+                // 参考 clang 生成的 IR: getelementptr inbounds i8, ptr %buffer_ptr, i64 index
                 const element_type: *void = array_type;
                 // 检查元素类型是否有效
                 if element_type == null {
                     return null;
                 }
-                // 检查元素类型种类，确保不是 void 类型（void 类型不能作为数组元素类型）
-                const element_type_kind: i32 = LLVMGetTypeKind(element_type);
-                // void 类型不能作为数组元素类型，但其他类型都可以
-                // 注意：这里不检查 void 类型，因为 LLVMArrayType 会自动处理无效类型
-                // 创建单元素数组类型
-                array_type = LLVMArrayType(element_type, 1);
-                if array_type == null {
+                
+                // 生成索引表达式值
+                const index_val: *void = codegen_gen_expr(codegen, index_expr);
+                if index_val == null {
                     return null;
                 }
-                // 需要将 array_ptr 转换为指向数组类型的指针
-                const array_ptr_type: *void = LLVMPointerType(array_type, 0);
-                if array_ptr_type == null {
+                
+                // 使用单个索引的 GEP（直接使用元素类型）
+                const indices: [*void: 1] = [
+                    index_val  // 单个索引
+                ];
+                
+                const element_ptr: *void = LLVMBuildGEP2(codegen.builder, element_type, array_ptr, &indices[0] as *void, 1, "");
+                if element_ptr == null {
                     return null;
                 }
-                array_ptr = LLVMBuildBitCast(codegen.builder, array_ptr, array_ptr_type, "");
-                if array_ptr == null {
-                    return null;
-                }
+                
+                // load 元素值
+                return LLVMBuildLoad2(codegen.builder, element_type, element_ptr, "");
             }
         } else {
             return null;  // 不是数组类型或指针类型
@@ -1793,7 +1796,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) *void {
             return null;
         }
         
-        // 使用 GEP 获取元素地址
+        // 使用 GEP 获取元素地址（对于数组类型，使用双索引）
         const i32_type: *void = LLVMInt32Type();
         const indices: [*void: 2] = [
             LLVMConstInt(i32_type, 0, 0),  // 数组指针本身
@@ -2514,10 +2517,8 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) *void {
                                 // 指针指向单个元素（如 &byte），需要加载指针值
                                 array_type = pointed_type;
                                 array_ptr = LLVMBuildLoad2(codegen.builder, var_type, array_ptr, var_name);
-                                // 对于单个元素指针，创建单元素数组类型用于 GEP
-                                if array_type != null && LLVMGetTypeKind(array_type) != LLVMArrayTypeKind {
-                                    array_type = LLVMArrayType(array_type, 1);
-                                }
+                                // 对于单个元素指针，我们将在后面使用元素类型和单个索引进行 GEP
+                                // 不需要创建数组类型
                             }
                         } else if var_type_kind == LLVMArrayTypeKind {
                             // 变量是数组类型（这种情况不应该发生，因为数组变量在栈上，类型应该是指针）
@@ -2559,15 +2560,36 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) *void {
                     return null;
                 }
                 // 检查指向的类型是否是数组类型
-                if LLVMGetTypeKind(array_type) != LLVMArrayTypeKind {
+                if LLVMGetTypeKind(array_type) == LLVMArrayTypeKind {
+                    // 是指向数组的指针，使用标准的双索引 GEP
+                    // array_ptr 已经是正确的指针，不需要转换
+                } else {
                     // 不是数组类型，是指向单个元素的指针（如 &byte）
-                    // 对于这种情况，我们需要创建一个数组类型用于 GEP
-                    // 使用单元素数组类型，GEP 会正确计算偏移
-                    // 注意：虽然创建了单元素数组，但 GEP 的索引仍然可以超出范围，会正确计算偏移
-                    array_type = LLVMArrayType(array_type, 1);
-                    if array_type == null {
+                    // 对于这种情况，直接使用元素类型和单个索引进行 GEP
+                    const element_type: *void = array_type;
+                    // 检查元素类型是否有效
+                    if element_type == null {
                         return null;
                     }
+                    
+                    // 生成索引表达式值
+                    const index_val: *void = codegen_gen_expr(codegen, index_expr);
+                    if index_val == null {
+                        return null;
+                    }
+                    
+                    // 使用单个索引的 GEP（直接使用元素类型）
+                    const indices: [*void: 1] = [
+                        index_val  // 单个索引
+                    ];
+                    
+                    const element_ptr: *void = LLVMBuildGEP2(codegen.builder, element_type, array_ptr, &indices[0] as *void, 1, "");
+                    if element_ptr == null {
+                        return null;
+                    }
+                    
+                    // 返回元素地址（不需要加载值）
+                    return element_ptr;
                 }
             } else {
                 return null;  // 不是数组类型或指针类型
@@ -2585,13 +2607,30 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) *void {
             return null;
         }
         
-        const i32_type: *void = LLVMInt32Type();
-        const indices: [*void: 2] = [
-            LLVMConstInt(i32_type, 0, 0),  // 数组指针本身
-            index_val  // 元素索引（运行时值）
-        ];
+        var element_ptr: *void = null;
         
-        const element_ptr: *void = LLVMBuildGEP2(codegen.builder, array_type, array_ptr, &indices[0] as *void, 2, "");
+        // 检查是否是数组类型还是指针类型
+        if LLVMGetTypeKind(array_type) == LLVMArrayTypeKind {
+            // 数组类型：使用两个索引的 GEP
+            const i32_type: *void = LLVMInt32Type();
+            const indices: [*void: 2] = [
+                LLVMConstInt(i32_type, 0, 0),  // 数组指针本身
+                index_val  // 元素索引（运行时值）
+            ];
+            
+            element_ptr = LLVMBuildGEP2(codegen.builder, array_type, array_ptr, &indices[0] as *void, 2, "");
+        } else {
+            // 指针类型（指向单个元素）：直接使用元素类型和单个索引
+            // 参考 clang 生成的 IR: getelementptr inbounds i8, ptr %buffer_ptr, i64 index
+            const element_type: *void = array_type;  // array_type 已经是元素类型（如 i8）
+            
+            const indices: [*void: 1] = [
+                index_val  // 单个索引
+            ];
+            
+            element_ptr = LLVMBuildGEP2(codegen.builder, element_type, array_ptr, &indices[0] as *void, 1, "");
+        }
+        
         if element_ptr == null {
             return null;
         }

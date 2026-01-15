@@ -17,7 +17,7 @@
 - ✅ **指针类型转换支持**：添加了 `as *void` 和 `as &void` 等指针类型转换的支持
 - ✅ **取地址操作符修复**：修复了 `&` 操作符的处理，使其能够调用 `codegen_gen_lvalue_address`
 - ✅ **数组访问左值支持**：在 `codegen_gen_lvalue_address` 中添加了对 `AST_ARRAY_ACCESS` 的支持
-- ⏳ **指针类型数组访问问题**：`&byte` 类型指针的数组访问（如 `buffer_ptr[index]`）仍有段错误，需要进一步修复
+- ✅ **指针类型数组访问问题**：已修复 `&byte` 类型指针的数组访问（如 `buffer_ptr[index]`），使用单个索引的 GEP，与 C 版本保持一致
 
 ---
 
@@ -192,7 +192,7 @@
 - 添加指针和整数之间的转换支持（`ptrtoint` 和 `inttoptr`）
 **状态**：✅ 已完成 - 指针类型转换现在可以正常工作
 
-### 问题12：&array[index] 代码生成问题（部分解决 ⏳）
+### 问题12：&array[index] 代码生成问题（已解决 ✅）
 **问题**：`&array[index]` 和 `&arena.buffer[index]` 表达式无法正确生成代码。
 **详情**：
 - `codegen_gen_lvalue_address` 不支持 `AST_ARRAY_ACCESS`
@@ -201,20 +201,15 @@
 **解决方案**：
 - ✅ 在 `codegen_gen_lvalue_address` 中添加了对 `AST_ARRAY_ACCESS` 的支持
 - ✅ 修复了取地址操作符 `&` 的处理，使其调用 `codegen_gen_lvalue_address`
-- ✅ 在 `codegen_gen_expr` 的 `AST_ARRAY_ACCESS` 中添加了对指针类型的处理（创建单元素数组类型用于 GEP）
 - ✅ **已修复**：指针类型数组访问的核心问题已解决
 - **修复内容**：
-  - 参考 clang 生成的 IR，发现对于指针类型数组访问应使用 `getelementptr i8, ptr %buffer_ptr, i64 0`
+  - 参考 clang 生成的 IR 和 C 版本实现，发现对于指针类型数组访问应使用 `getelementptr i8, ptr %buffer_ptr, i64 index`
   - 修改了 `codegen_gen_expr` 和 `codegen_gen_lvalue_address` 中的数组访问处理
-  - 对于指针类型（如 `&byte`），直接使用元素类型（`i8`）和单个索引进行 GEP，而不是创建数组类型
-  - 通过 C 测试程序验证了 LLVM C API 的正确使用
-- ⏳ **待修复**：段错误仍然存在，发生在最后一个 `LLVMBuildStore` 调用时
-- **调试信息**：
-  - `LLVMBuildGEP2` 和 `LLVMBuildLoad2` 调用都成功
-  - 段错误发生在 `LLVMBuildStore` 调用时，可能是在 LLVM 内部设置名称时
-  - 问题可能与类型匹配或 LLVM context 有关
-- **下一步**：需要进一步调试 `LLVMBuildStore` 调用，检查类型匹配和 context 问题
-**状态**：⏳ 部分完成 - 数组访问的核心逻辑已修复，但段错误问题仍需解决
+  - 对于指针类型（如 `&byte`），直接使用元素类型（`i8`）和单个索引进行 GEP，而不是创建单元素数组类型
+  - 在 `codegen_gen_expr` 中：对于指针类型，使用 `LLVMBuildGEP2(builder, element_type, array_ptr, indices, 1)` 
+  - 在 `codegen_gen_lvalue_address` 中：同样使用单个索引的 GEP，与 C 版本保持一致
+  - 恢复了 `arena.uya` 中被注释掉的代码，使用 `&buffer_ptr[aligned_offset] as &void`
+**状态**：✅ 已完成 - 指针类型数组访问问题已修复，与 C 版本实现保持一致
 
 ---
 
@@ -291,7 +286,7 @@
 - ✅ 已添加 `&array[index]` 左值地址生成支持
 - ✅ `llvm_api.uya` 可以单独编译成功
 - ✅ `extern_decls.uya`, `str_utils.uya` 可以单独编译成功
-- ⏳ `arena.uya` 编译失败：`&arena.buffer[index]` 表达式导致段错误
-- ⏳ 指针类型数组访问（如 `&byte` 类型的 `buffer_ptr[index]`）仍有段错误问题
+- ✅ **已修复** 指针类型数组访问问题：对于 `&byte` 类型指针，使用单个索引的 GEP，与 C 版本保持一致
+- ✅ `arena.uya` 中 `&buffer_ptr[aligned_offset]` 表达式现在可以正常工作
 - ⏳ 待验证自举编译器功能
 
