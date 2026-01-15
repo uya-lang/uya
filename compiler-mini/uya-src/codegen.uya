@@ -165,7 +165,9 @@ fn codegen_new(codegen: &CodeGenerator, arena: &Arena, module_name: &byte) i32 {
     }
     
     // 创建 IR 构建器
-    codegen.builder = LLVMCreateBuilderInContext(codegen.context);
+    // 注意：使用临时变量存储字段值，避免函数调用参数中的字段访问解析问题
+    const temp_context2: *void = codegen.context;
+    codegen.builder = LLVMCreateBuilderInContext(temp_context2);
     if codegen.builder == null {
         LLVMDisposeModule(codegen.module);
         LLVMContextDispose(codegen.context);
