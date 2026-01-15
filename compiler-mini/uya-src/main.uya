@@ -10,6 +10,7 @@
 
 // Arena 函数（来自 arena.uya）
 extern fn arena_init(arena: &Arena, buffer: &void, size: i32) void;
+extern fn arena_alloc(arena: &Arena, size: i32) &void;
 
 // Lexer 函数（来自 lexer.uya）
 extern fn lexer_init(lexer: &Lexer, source: &byte, source_len: i32, filename: *byte, arena: &Arena) i32;
@@ -185,14 +186,13 @@ fn compile_files(input_files: [*byte: MAX_INPUT_FILES], input_file_count: i32, o
     var arena_buffer: [byte: ARENA_BUFFER_SIZE] = [];
     
     // 初始化 Arena 分配器（所有文件共享同一个 Arena）
-    // 手动初始化 Arena 结构体字段
-    // 注意：Uya Mini 要求变量必须初始化，所以使用字节数组作为存储空间，然后手动设置字段
-    var arena_storage: [byte: 16] = [];  // Arena 结构体大小约为 16 字节（3个字段：&byte + i32 + i32）
-    var arena: &Arena = &arena_storage[0] as &Arena;
-    // 手动初始化字段
-    arena.buffer = &arena_buffer[0];
-    arena.size = ARENA_BUFFER_SIZE;
-    arena.offset = 0;
+    // 直接声明结构体变量并初始化
+    var arena: Arena = Arena{
+        buffer: &arena_buffer[0],
+        size: ARENA_BUFFER_SIZE,
+        offset: 0
+    };
+    var arena_ptr: &Arena = &arena;
     
     // 存储每个文件的 AST_PROGRAM 节点（栈上分配，只存储指针）
     var programs: [&ASTNode: MAX_INPUT_FILES] = [];
@@ -217,24 +217,39 @@ fn compile_files(input_files: [*byte: MAX_INPUT_FILES], input_file_count: i32, o
         }
         
         // 1. 词法分析
-        // 使用零初始化的字节数组作为结构体的存储空间，通过指针访问
-        var lexer_storage: [byte: 32] = [];  // Lexer 结构体大小约为 32 字节
-        var lexer: &Lexer = &lexer_storage[0] as &Lexer;
-        if lexer_init(lexer, &file_buffer[0], file_size, input_file, arena) != 0 {
+        // 复制文件名到 Arena
+        const filename_len: i32 = strlen(input_file) + 1;
+        const filename_copy: &byte = arena_alloc(arena_ptr, filename_len) as &byte;
+        if filename_copy == null {
             fprintf(2 as *void, "错误: Lexer 初始化失败: %s\n", input_file);
             return 1;
         }
+        var j: i32 = 0;
+        while j < filename_len {
+            filename_copy[j] = (input_file as &byte)[j];
+            j = j + 1;
+        }
+        // 直接声明 Lexer 结构体变量并初始化
+        var lexer: Lexer = Lexer{
+            buffer: &file_buffer[0],
+            buffer_size: file_size,
+            position: 0,
+            line: 1,
+            column: 1,
+            filename: filename_copy
+        };
+        var lexer_ptr: &Lexer = &lexer;
         
         // 2. 语法分析
-        // 使用零初始化的字节数组作为结构体的存储空间，通过指针访问
-        var parser_storage: [byte: 24] = [];  // Parser 结构体大小约为 24 字节
-        var parser: &Parser = &parser_storage[0] as &Parser;
-        if parser_init(parser, lexer, arena) != 0 {
-            fprintf(2 as *void, "错误: Parser 初始化失败: %s\n", input_file);
-            return 1;
-        }
+        // 直接声明 Parser 结构体变量并初始化
+        var parser: Parser = Parser{
+            lexer: lexer_ptr,
+            current_token: null,
+            arena: arena_ptr
+        };
+        var parser_ptr: &Parser = &parser;
         
-        const ast: &ASTNode = parser_parse(parser);
+        const ast: &ASTNode = parser_parse(parser_ptr);
         if ast == null {
             fprintf(2 as *void, "错误: 语法分析失败: %s\n", input_file);
             return 1;
@@ -267,16 +282,25 @@ fn compile_files(input_files: [*byte: MAX_INPUT_FILES], input_file_count: i32, o
     }
     
     // 4. 类型检查
-    // 使用零初始化的字节数组作为结构体的存储空间，通过指针访问
-    var checker_storage: [byte: 200] = [];  // TypeChecker 结构体大小约为 200 字节
-    var checker: &TypeChecker = &checker_storage[0] as &TypeChecker;
-    if checker_init(checker, arena) != 0 {
+    // 直接声明 TypeChecker 结构体变量并初始化
+    // 注意：嵌套结构体需要使用空数组字面量初始化
+    var checker: TypeChecker = TypeChecker{
+        arena: arena_ptr,
+        symbol_table: SymbolTable{slots: [], count: 0},
+        function_table: FunctionTable{slots: [], count: 0},
+        scope_level: 0,
+        loop_depth: 0,
+        program_node: null,
+        error_count: 0
+    };
+    var checker_ptr: &TypeChecker = &checker;
+    if checker_init(checker_ptr, arena_ptr) != 0 {
         fprintf(2 as *void, "错误: TypeChecker 初始化失败\n");
         return 1;
     }
     
-    if checker_check(checker, merged_ast) != 0 {
-        const error_count: i32 = checker_get_error_count(checker);
+    if checker_check(checker_ptr, merged_ast) != 0 {
+        const error_count: i32 = checker_get_error_count(checker_ptr);
         fprintf(2 as *void, "错误: 类型检查失败（错误数量: %d）\n", error_count);
         return 1;
     }
@@ -285,15 +309,34 @@ fn compile_files(input_files: [*byte: MAX_INPUT_FILES], input_file_count: i32, o
     // 使用第一个输入文件名作为模块名
     const module_name: *byte = input_files[0];
     
-    // 使用零初始化的字节数组作为结构体的存储空间，通过指针访问
-    var codegen_storage: [byte: 2000] = [];  // CodeGenerator 结构体大小约为 2000 字节
-    var codegen: &CodeGenerator = &codegen_storage[0] as &CodeGenerator;
-    if codegen_new(codegen, arena, module_name) != 0 {
+    // 直接声明 CodeGenerator 结构体变量并初始化
+    // 注意：由于结构体复杂，使用空数组字面量和默认值初始化，然后通过 codegen_new 函数完成初始化
+    var codegen: CodeGenerator = CodeGenerator{
+        arena: arena_ptr,
+        context: null,
+        module: null,
+        builder: null,
+        module_name: null,
+        struct_types: [],
+        struct_type_count: 0,
+        var_map: [],
+        var_map_count: 0,
+        func_map: [],
+        func_map_count: 0,
+        global_var_map: [],
+        global_var_map_count: 0,
+        basic_block_counter: 0,
+        string_literal_counter: 0,
+        loop_stack: [],
+        loop_stack_depth: 0
+    };
+    var codegen_ptr: &CodeGenerator = &codegen;
+    if codegen_new(codegen_ptr, arena_ptr, module_name) != 0 {
         fprintf(2 as *void, "错误: CodeGenerator 初始化失败\n");
         return 1;
     }
     
-    if codegen_generate(codegen, merged_ast, output_file) != 0 {
+    if codegen_generate(codegen_ptr, merged_ast, output_file) != 0 {
         fprintf(2 as *void, "错误: 代码生成失败\n");
         return 1;
     }
