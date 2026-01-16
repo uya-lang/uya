@@ -199,7 +199,7 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
 - 语法：`export fn`, `export struct`, `export interface`, `export const`, `export error`
 - **FFI 导出**：
   - `export extern` 用于导出 C FFI 函数：`export extern printf(fmt: *byte, ...) i32;`
-  - `export struct` 用于导出结构体：`export struct MyStruct { field1: i32; field2: f64; }`
+  - `export struct` 用于导出结构体：`export struct MyStruct { field1: i32, field2: f64 }`
   - **统一标准**：
     - 所有结构体统一使用 C 内存布局，支持所有类型（包括切片、interface 等）
     - 导出的结构体可以直接与 C 代码互操作

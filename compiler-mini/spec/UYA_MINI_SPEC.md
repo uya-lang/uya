@@ -373,7 +373,7 @@ enum_variant_list = enum_variant { ',' enum_variant }
 enum_variant   = ID [ '=' NUM ]
 struct_decl    = 'struct' ID '{' field_list '}'
 field_list     = field { ',' field }
-field          = ID ':' type ';'
+field          = ID ':' type
 ```
 
 **说明**：

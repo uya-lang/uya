@@ -106,8 +106,8 @@ typedef struct {
 
 // Uya Mini
 struct StructName {
-    field1: i32;
-    field2: &byte;  // 或 *byte（如果是extern函数参数）
+    field1: i32,
+    field2: &byte  // 或 *byte（如果是extern函数参数）
 }
 ```
 
