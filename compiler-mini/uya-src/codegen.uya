@@ -3451,11 +3451,11 @@ fn codegen_gen_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32 {
     // 直接访问固定大小数组，不需要嵌套指针变量
     
     if func_name == null || return_type_node == null {
-        var func_name_str: &byte = "(null)" as &byte;
         if func_name != null {
-            func_name_str = func_name;
+            fprintf(2 as *void, "错误: codegen_gen_function 函数名或返回类型为空: %s\n", func_name as *byte);
+        } else {
+            fprintf(2 as *void, "错误: codegen_gen_function 函数名或返回类型为空: %s\n", "(null)");
         }
-        fprintf(2 as *void, "错误: codegen_gen_function 函数名或返回类型为空: %s\n", func_name_str);
         return -1;
     }
     
@@ -3706,8 +3706,8 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
     const init_target_machine: *void = LLVMCreateTargetMachine(
         init_target,
         init_target_triple,
-        "" as &byte,  // CPU（空字符串表示默认）
-        "" as &byte,  // Features（空字符串表示默认）
+        "",  // CPU（空字符串表示默认）
+        "",  // Features（空字符串表示默认）
         init_opt_level,
         init_reloc_mode,
         init_code_model
@@ -3770,11 +3770,11 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
             const var_name: &byte = decl.var_decl_name;
                 const result: i32 = codegen_gen_global_var(codegen, decl);
                 if result != 0 {
-                    var var_name_str: &byte = "(null)" as &byte;
                     if var_name != null {
-                        var_name_str = var_name;
+                        fprintf(2 as *void, "错误: 全局变量生成失败: %s\n", var_name as *byte);
+                    } else {
+                        fprintf(2 as *void, "错误: 全局变量生成失败: %s\n", "(null)");
                     }
-                    fprintf(2 as *void, "错误: 全局变量生成失败: %s\n", var_name_str);
                     return -1;
                 }
         }
@@ -3791,11 +3791,11 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
             const func_name: &byte = decl.fn_decl_name;
                 const result: i32 = codegen_declare_function(codegen, decl);
                 if result != 0 {
-                    var func_name_str2: &byte = "(null)" as &byte;
                     if func_name != null {
-                        func_name_str2 = func_name;
+                        fprintf(2 as *void, "错误: 函数声明失败: %s\n", func_name as *byte);
+                    } else {
+                        fprintf(2 as *void, "错误: 函数声明失败: %s\n", "(null)");
                     }
-                    fprintf(2 as *void, "错误: 函数声明失败: %s\n", func_name_str2);
                     return -1;
                 }
         }
@@ -3818,11 +3818,11 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
             const func_name: &byte = decl.fn_decl_name;
                 const result: i32 = codegen_gen_function(codegen, decl);
                 if result != 0 {
-                    var func_name_str3: &byte = "(null)" as &byte;
                     if func_name != null {
-                        func_name_str3 = func_name;
+                        fprintf(2 as *void, "错误: 函数代码生成失败: %s\n", func_name as *byte);
+                    } else {
+                        fprintf(2 as *void, "错误: 函数代码生成失败: %s\n", "(null)");
                     }
-                    fprintf(2 as *void, "错误: 函数代码生成失败: %s\n", func_name_str3);
                     return -1;  // 函数代码生成失败
                 }
         }
@@ -3862,8 +3862,8 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
     const target_machine: *void = LLVMCreateTargetMachine(
         target,
         target_triple,
-        "" as &byte,  // CPU（空字符串表示默认）
-        "" as &byte,  // Features（空字符串表示默认）
+        "",  // CPU（空字符串表示默认）
+        "",  // Features（空字符串表示默认）
         opt_level,
         reloc_mode,
         code_model

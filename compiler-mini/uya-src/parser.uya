@@ -360,10 +360,6 @@ fn parser_parse_block(parser: &Parser) &ASTNode {
         // 检查容量
         if stmt_count >= PARSER_MAX_STMTS {
             // 超出容量，报错
-            const filename: *byte = parser.lexer.filename;
-            if filename == null {
-                filename = "<unknown>" as *byte;
-            }
             fprintf(2 as *void, "错误: 代码块语句数量超出限制 (%d)\n", PARSER_MAX_STMTS);
             return null;
         }
@@ -1086,19 +1082,22 @@ fn parser_parse(parser: &Parser) &ASTNode {
                 // 真正的解析错误：输出错误信息并返回 null
                 // 注意：stderr 在 C 中通常是文件描述符 2，这里使用数值常量
                 const stderr_fd: *void = 2 as *void;
-                var filename: *byte = "<unknown>" as *byte;
                 if parser.lexer.filename != null {
-                    filename = parser.lexer.filename as *byte;
-                }
-                var token_value: *byte = "" as *byte;
-                if parser.current_token.value != null {
-                    token_value = parser.current_token.value as *byte;
-                }
-                fprintf(stderr_fd, "错误: 语法分析失败 (%s:%d:%d): 意外的 token", 
-                        filename, parser.current_token.line, parser.current_token.column);
-                // 检查 token_value 是否非空（如果指针不为 null，假设字符串非空）
-                if token_value != null && strcmp(token_value, "" as *byte) != 0 {
-                    fprintf(stderr_fd, " '%s'", token_value);
+                    const token_value: *byte = parser.current_token.value != null ? parser.current_token.value as *byte : "";
+                    fprintf(stderr_fd, "错误: 语法分析失败 (%s:%d:%d): 意外的 token", 
+                            parser.lexer.filename as *byte, parser.current_token.line, parser.current_token.column);
+                    // 检查 token_value 是否非空
+                    if parser.current_token.value != null && strcmp(token_value, "") != 0 {
+                        fprintf(stderr_fd, " '%s'", token_value);
+                    }
+                } else {
+                    const token_value: *byte = parser.current_token.value != null ? parser.current_token.value as *byte : "";
+                    fprintf(stderr_fd, "错误: 语法分析失败 (<unknown>:%d:%d): 意外的 token", 
+                            parser.current_token.line, parser.current_token.column);
+                    // 检查 token_value 是否非空
+                    if parser.current_token.value != null && strcmp(token_value, "") != 0 {
+                        fprintf(stderr_fd, " '%s'", token_value);
+                    }
                 }
                 fprintf(stderr_fd, "\n");
                 return null;
