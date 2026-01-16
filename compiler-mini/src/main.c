@@ -111,15 +111,26 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
     return 0;
 }
 
-// 主编译函数
-// 协调所有编译阶段：词法分析 → 语法分析 → AST 合并 → 类型检查 → 代码生成
-// 参数：input_files - 输入文件名数组
-//       input_file_count - 输入文件数量
-//       output_file - 输出文件名
-// 返回：成功返回0，失败返回非0
-static int compile_files(const char *input_files[], int input_file_count, const char *output_file) {
-    // Arena 分配器缓冲区（栈上分配）
-    uint8_t arena_buffer[ARENA_BUFFER_SIZE];
+    // 主编译函数
+    // 协调所有编译阶段：词法分析 → 语法分析 → AST 合并 → 类型检查 → 代码生成
+    // 参数：input_files - 输入文件名数组
+    //       input_file_count - 输入文件数量
+    //       output_file - 输出文件名
+    // 返回：成功返回0，失败返回非0
+    static int compile_files(const char *input_files[], int input_file_count, const char *output_file) {
+        fprintf(stderr, "=== 开始编译 ===\n");
+        fprintf(stderr, "输入文件数量: %d\n", input_file_count);
+        for (int i = 0; i < input_file_count; i++) {
+            fprintf(stderr, "  %d: %s\n", i, input_files[i]);
+        }
+        fprintf(stderr, "输出文件: %s\n", output_file);
+        
+        // Arena 分配器缓冲区（堆上分配）
+        uint8_t *arena_buffer = malloc(ARENA_BUFFER_SIZE);
+        if (!arena_buffer) {
+            fprintf(stderr, "错误: 内存分配失败\n");
+            return 1;
+        }
     
     // 初始化 Arena 分配器（所有文件共享同一个 Arena）
     Arena arena;
@@ -128,8 +139,13 @@ static int compile_files(const char *input_files[], int input_file_count, const 
     // 存储每个文件的 AST_PROGRAM 节点（栈上分配，只存储指针）
     ASTNode *programs[MAX_INPUT_FILES];
     
-    // 单个文件的缓冲区（栈上分配，每次处理一个文件）
-    char file_buffer[FILE_BUFFER_SIZE];
+    // 单个文件的缓冲区（堆上分配）
+    char *file_buffer = malloc(FILE_BUFFER_SIZE);
+    if (!file_buffer) {
+        free(arena_buffer);
+        fprintf(stderr, "错误: 内存分配失败\n");
+        return 1;
+    }
     
     // 解析每个文件
     for (int i = 0; i < input_file_count; i++) {
@@ -143,6 +159,8 @@ static int compile_files(const char *input_files[], int input_file_count, const 
         }
         
         // 1. 词法分析
+        fprintf(stderr, "=== 词法分析阶段 ===\n");
+        fprintf(stderr, "文件: %s (大小: %d 字节)\n", input_file, file_size);
         Lexer lexer;
         if (lexer_init(&lexer, file_buffer, (size_t)file_size, input_file, &arena) != 0) {
             fprintf(stderr, "错误: Lexer 初始化失败: %s\n", input_file);
@@ -150,6 +168,7 @@ static int compile_files(const char *input_files[], int input_file_count, const 
         }
         
         // 2. 语法分析
+        fprintf(stderr, "=== 语法分析阶段 ===\n");
         Parser parser;
         if (parser_init(&parser, &lexer, &arena) != 0) {
             fprintf(stderr, "错误: Parser 初始化失败: %s\n", input_file);
@@ -171,16 +190,18 @@ static int compile_files(const char *input_files[], int input_file_count, const 
         programs[i] = ast;
     }
     
-    // 3. 合并所有 AST_PROGRAM 节点
-    ASTNode *merged_ast = ast_merge_programs(programs, input_file_count, &arena);
+        // 3. 合并所有 AST_PROGRAM 节点
+        fprintf(stderr, "=== AST 合并阶段 ===\n");
+        ASTNode *merged_ast = ast_merge_programs(programs, input_file_count, &arena);
     if (merged_ast == NULL) {
         fprintf(stderr, "错误: AST 合并失败\n");
         return 1;
     }
     
-    // 4. 类型检查
-    TypeChecker checker;
-    if (checker_init(&checker, &arena) != 0) {
+        // 4. 类型检查
+        fprintf(stderr, "=== 类型检查阶段 ===\n");
+        TypeChecker checker;
+        if (checker_init(&checker, &arena) != 0) {
         fprintf(stderr, "错误: TypeChecker 初始化失败\n");
         return 1;
     }
@@ -190,9 +211,11 @@ static int compile_files(const char *input_files[], int input_file_count, const 
         return 1;
     }
     
-    // 5. 代码生成
-    // 使用第一个输入文件名作为模块名
-    const char *module_name = input_files[0];
+        // 5. 代码生成
+        fprintf(stderr, "=== 代码生成阶段 ===\n");
+        // 使用第一个输入文件名作为模块名
+        const char *module_name = input_files[0];
+        fprintf(stderr, "模块名: %s\n", module_name);
     
     CodeGenerator codegen;
     if (codegen_new(&codegen, &arena, module_name) != 0) {

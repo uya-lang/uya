@@ -285,21 +285,32 @@ int codegen_register_struct_type(CodeGenerator *codegen, ASTNode *struct_decl) {
         LLVMTypeRef field_types_array[16];
         field_types = field_types_array;
         
-        // 遍历字段，获取每个字段的LLVM类型
-        for (int i = 0; i < field_count; i++) {
-            ASTNode *field = struct_decl->data.struct_decl.fields[i];
-            if (!field || field->type != AST_VAR_DECL) {
-                return -1;
-            }
-            
-            ASTNode *field_type_node = field->data.var_decl.type;
-            LLVMTypeRef field_llvm_type = get_llvm_type_from_ast(codegen, field_type_node);
-            if (!field_llvm_type) {
-                return -1;  // 字段类型无效或未找到（结构体类型需要先注册）
-            }
-            
-            field_types[i] = field_llvm_type;
+    // 遍历字段，获取每个字段的LLVM类型
+    for (int i = 0; i < field_count; i++) {
+        ASTNode *field = struct_decl->data.struct_decl.fields[i];
+        if (!field || field->type != AST_VAR_DECL) {
+            return -1;
         }
+        
+        ASTNode *field_type_node = field->data.var_decl.type;
+        LLVMTypeRef field_llvm_type = get_llvm_type_from_ast(codegen, field_type_node);
+        
+        // 如果字段类型是结构体类型且未找到，创建不完整类型占位符
+        if (!field_llvm_type && field_type_node->type == AST_TYPE_NAMED) {
+            const char *field_type_name = field_type_node->data.type_named.name;
+            if (field_type_name && codegen_get_struct_type(codegen, field_type_name) == NULL) {
+                // 创建不完整类型占位符（void指针作为临时占位）
+                field_llvm_type = LLVMPointerType(LLVMInt8Type(), 0);
+                fprintf(stderr, "警告: 使用占位符类型处理未注册的结构体字段: %s\n", field_type_name);
+            }
+        }
+        
+        if (!field_llvm_type) {
+            return -1;  // 字段类型无效
+        }
+        
+        field_types[i] = field_llvm_type;
+    }
     }
     
     // 创建LLVM结构体类型
@@ -429,7 +440,7 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
                     object_ptr = lookup_var(codegen, var_name);
                     struct_name = lookup_var_struct_name(codegen, var_name);
                     
-                    // 检查变量类型是否是指针类型（无论 struct_name 是否设置）
+                    // 检查变量类型是否是指针类型
                     ASTNode *var_ast_type = lookup_var_ast_type(codegen, var_name);
                     if (var_ast_type && var_ast_type->type == AST_TYPE_POINTER) {
                         // 变量是指针类型，需要加载指针值
@@ -443,6 +454,26 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
                             if (pointed_type && pointed_type->type == AST_TYPE_NAMED) {
                                 struct_name = pointed_type->data.type_named.name;
                             }
+                        }
+                    }
+                }
+            }
+            
+            // 如果对象不是标识符或 struct_name 仍然为空，尝试从 AST 获取
+            if (!struct_name && object->type == AST_IDENTIFIER) {
+                const char *var_name = object->data.identifier.name;
+                if (var_name) {
+                    ASTNode *var_ast_type = lookup_var_ast_type(codegen, var_name);
+                    if (var_ast_type) {
+                        if (var_ast_type->type == AST_TYPE_POINTER) {
+                            // 指针类型：获取指向的类型
+                            ASTNode *pointed_type = var_ast_type->data.type_pointer.pointed_type;
+                            if (pointed_type && pointed_type->type == AST_TYPE_NAMED) {
+                                struct_name = pointed_type->data.type_named.name;
+                            }
+                        } else if (var_ast_type->type == AST_TYPE_NAMED) {
+                            // 直接是命名类型（如结构体）
+                            struct_name = var_ast_type->data.type_named.name;
                         }
                     }
                 }
@@ -480,6 +511,35 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
             LLVMValueRef field_ptr = LLVMBuildGEP2(codegen->builder, struct_type, object_ptr, indices, 2, "");
             if (!field_ptr) {
                 return NULL;
+            }
+            
+            // 获取字段类型（从结构体声明中）
+            if (field_index >= struct_decl->data.struct_decl.field_count) {
+                return NULL;
+            }
+            ASTNode *field = struct_decl->data.struct_decl.fields[field_index];
+            if (!field || field->type != AST_VAR_DECL) {
+                return NULL;
+            }
+            ASTNode *field_type_node = field->data.var_decl.type;
+            
+            LLVMTypeRef field_type = get_llvm_type_from_ast(codegen, field_type_node);
+            if (!field_type) {
+                return NULL;
+            }
+            
+            // 检查字段类型是否是数组类型
+            LLVMTypeKind field_type_kind = LLVMGetTypeKind(field_type);
+            if (field_type_kind == LLVMArrayTypeKind) {
+                // 对于数组类型，需要返回指向数组的指针
+                // field_ptr 的类型是 struct_type*，指向整个结构体
+                // 使用索引 0 的 GEP 获取第一个字段的地址（即数组的地址）
+                LLVMValueRef indices[1];
+                indices[0] = LLVMConstInt(LLVMInt32Type(), 0ULL, 0);
+                LLVMValueRef array_ptr = LLVMBuildGEP2(codegen->builder, struct_type, field_ptr, indices, 1, "");
+                if (array_ptr) {
+                    return array_ptr;
+                }
             }
             
             // 返回字段地址（不需要加载值）
@@ -1801,8 +1861,15 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             }
             
             
-            // load 字段值
+            // 检查字段类型是否是数组类型
+            LLVMTypeKind field_type_kind = LLVMGetTypeKind(field_type);
+            if (field_type_kind == LLVMArrayTypeKind) {
+                // 对于数组类型，返回字段的指针（地址），而不是加载整个数组
+                // 这样可以避免大数组复制导致的栈溢出
+                return field_ptr;
+            }
             
+            // load 字段值
             LLVMValueRef result = LLVMBuildLoad2(codegen->builder, field_type, field_ptr, "");
             
             return result;
@@ -3820,6 +3887,7 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
     // 使用多次遍历的方式处理结构体依赖关系（如果结构体字段是其他结构体类型）
     // 每次遍历注册所有可以注册的结构体，直到所有结构体都注册或无法继续注册
     int max_iterations = decl_count + 1;  // 最多迭代 decl_count + 1 次
+    fprintf(stderr, "结构体注册: 处理 %d 个声明，最多迭代 %d 次\n", decl_count, max_iterations);
     int iteration = 0;
     
     while (iteration < max_iterations) {
