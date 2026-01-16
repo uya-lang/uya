@@ -1224,14 +1224,20 @@ fn divide(a: i32, b: i32) !i32 {
                                 <tr>
                                     <td><code>&T</code></td>
                                     <td>普通指针</td>
-                                    <td>8 B</td>
-                                    <td>无 lifetime 符号；可通过 <code>as</code> 显式转换为 FFI 指针类型 <code>*T</code>（仅用于 FFI 调用）</td>
+                                    <td>4/8 B（平台相关）</td>
+                                    <td>无 lifetime 符号；32位平台=4B，64位平台=8B；可通过 <code>as</code> 显式转换为 FFI 指针类型 <code>*T</code>（仅用于 FFI 调用）；<code>&void</code> 是通用指针类型，可转换为任何指针类型</td>
+                                </tr>
+                                <tr>
+                                    <td><code>&void</code></td>
+                                    <td>通用指针</td>
+                                    <td>4/8 B（平台相关）</td>
+                                    <td>通用指针类型，可以转换为任何指针类型（<code>&void</code> → <code>&T</code>），用于实现类型擦除和通用指针操作；32位平台=4B，64位平台=8B</td>
                                 </tr>
                                 <tr>
                                     <td><code>&atomic T</code></td>
                                     <td>原子指针</td>
-                                    <td>8 B</td>
-                                    <td>关键字驱动</td>
+                                    <td>4/8 B（平台相关）</td>
+                                    <td>关键字驱动；32位平台=4B，64位平台=8B</td>
                                 </tr>
                                 <tr>
                                     <td><code>atomic T</code></td>
@@ -1254,8 +1260,8 @@ fn divide(a: i32, b: i32) !i32 {
                                 <tr>
                                     <td><code>interface I { }</code></td>
                                     <td>-</td>
-                                    <td>16 B (64位)</td>
-                                    <td>vtable 指针(8B) + 数据指针(8B)</td>
+                                    <td>8/16 B（平台相关）</td>
+                                    <td>vtable 指针(4/8B) + 数据指针(4/8B)；32位平台=8B，64位平台=16B</td>
                                 </tr>
                                 <tr>
                                     <td><code>enum E { }</code></td>
@@ -1280,7 +1286,7 @@ fn divide(a: i32, b: i32) !i32 {
                     </div>
                     
                     <div class="note">
-                        <p><strong>重要特性：</strong>无隐式转换；<strong>指针类型转换</strong>：<code>&T as *T</code>（仅用于 FFI 调用，显式转换）；无指针算术；<strong>零 lifetime 符号</strong>。</p>
+                        <p><strong>重要特性：</strong>无隐式转换；<strong>指针类型转换</strong>：<code>&T as *T</code>（仅用于 FFI 调用，显式转换）、<code>&void ↔ &T</code>（通用指针转换）；<strong>指针自动解引用</strong>：<code>ptr.field</code> 等价于 <code>(*ptr).field</code>；<strong>字段赋值</strong>：支持 <code>obj.field = value</code> 和 <code>ptr.field = value</code>；无指针算术；<strong>零 lifetime 符号</strong>。</p>
                     </div>
                     
                     <h3>类型相关的极值常量</h3>
@@ -1367,6 +1373,7 @@ fn main() i32 {
                         <p><strong>指针转换规则：</strong></p>
                         <ul>
                             <li>✅ <code>&T as *T</code>：Uya 普通指针可以显式转换为 FFI 指针类型（安全转换，无精度损失）</li>
+                            <li>✅ <code>&void ↔ &T</code>：通用指针与具体指针类型之间的转换（类型擦除）</li>
                             <li>仅在 FFI 函数调用时使用，符合"显式控制"设计哲学</li>
                             <li>编译期检查，无运行时开销</li>
                         </ul>

@@ -212,7 +212,9 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
         // 4. 类型检查
         fprintf(stderr, "=== 类型检查阶段 ===\n");
         TypeChecker checker;
-        if (checker_init(&checker, &arena) != 0) {
+        // 使用第一个输入文件名作为默认文件名（用于错误报告）
+        const char *default_filename = input_file_count > 0 ? input_files[0] : "(unknown)";
+        if (checker_init(&checker, &arena, default_filename) != 0) {
         fprintf(stderr, "错误: TypeChecker 初始化失败\n");
         return 1;
     }

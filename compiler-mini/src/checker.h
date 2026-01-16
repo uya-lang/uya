@@ -83,13 +83,14 @@ typedef struct TypeChecker {
     int loop_depth;             // 循环深度（用于检查 break/continue 是否在循环中）
     ASTNode *program_node;      // 程序节点（用于查找结构体声明等）
     int error_count;            // 错误计数（简化版本，暂不存储错误消息）
+    const char *default_filename; // 默认文件名（用于错误报告，可为 NULL）
 } TypeChecker;
 
 // 初始化 TypeChecker
-// 参数：checker - TypeChecker 结构体指针（由调用者提供），arena - Arena 分配器
+// 参数：checker - TypeChecker 结构体指针（由调用者提供），arena - Arena 分配器，default_filename - 默认文件名（用于错误报告，可为 NULL）
 // 返回：成功返回 0，失败返回 -1
 // 注意：TypeChecker 结构体由调用者在栈上或静态分配，此函数只负责初始化
-int checker_init(TypeChecker *checker, Arena *arena);
+int checker_init(TypeChecker *checker, Arena *arena, const char *default_filename);
 
 // 类型检查主函数
 // 参数：checker - TypeChecker 指针，ast - AST 根节点

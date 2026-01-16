@@ -413,7 +413,13 @@ A: 使用 `!` 返回类型：`fn may_fail() !i32`
 A: `use std.io;` 或 `use std.io.read_file;`
 
 ### Q: 如何获取指针？
-A: `const ptr: &i32 = &variable;`（Uya指针）或 `const fptr: *void = ...;`（FFI指针）
+A: `const ptr: &i32 = &variable;`（Uya指针）、`const void_ptr: &void = &buffer as &void;`（通用指针）或 `const fptr: *void = ...;`（FFI指针）
+
+### Q: 如何访问结构体字段？
+A: `obj.field`（直接访问）或 `ptr.field`（指针自动解引用，等价于 `(*ptr).field`）
+
+### Q: 如何给结构体字段赋值？
+A: `obj.field = value;`（直接赋值）或 `ptr.field = value;`（指针自动解引用后赋值）
 
 ### Q: 如何定义结构体方法？
 A: 在结构体内部定义，或使用外部方法块 `StructName { fn method(self: *Self) ... }`
