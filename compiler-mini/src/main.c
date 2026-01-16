@@ -11,9 +11,10 @@
 #define FILE_BUFFER_SIZE (1024 * 1024)  // 1MB
 
 // Arena 分配器缓冲区大小
-// 注意：编译大型文件（如 compiler_mini_combined.uya，约 385KB）需要更大的缓冲区
-// 但栈上分配不能太大，使用 2MB 作为折中（避免栈溢出）
-#define ARENA_BUFFER_SIZE (2 * 1024 * 1024)  // 2MB（增加缓冲区以支持大型文件编译）
+// 注意：编译大型文件和多文件编译需要更大的缓冲区
+// 多文件编译时，所有文件的 AST 节点都存储在同一个 Arena 中
+// 使用 8MB 以支持多文件编译（10个文件，每个文件约 100-200KB）
+#define ARENA_BUFFER_SIZE (8 * 1024 * 1024)  // 8MB（增加缓冲区以支持多文件编译）
 
 // 最大输入文件数量
 #define MAX_INPUT_FILES 64
@@ -154,7 +155,9 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
         // 读取文件内容
         int file_size = read_file_content(input_file, file_buffer, FILE_BUFFER_SIZE);
         if (file_size < 0) {
-            fprintf(stderr, "错误: 无法读取文件 '%s'\n", input_file);
+            fprintf(stderr, "错误: 无法读取文件 '%s' (可能文件太大或不存在)\n", input_file);
+            free(file_buffer);
+            free(arena_buffer);
             return 1;
         }
         
@@ -163,7 +166,9 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
         fprintf(stderr, "文件: %s (大小: %d 字节)\n", input_file, file_size);
         Lexer lexer;
         if (lexer_init(&lexer, file_buffer, (size_t)file_size, input_file, &arena) != 0) {
-            fprintf(stderr, "错误: Lexer 初始化失败: %s\n", input_file);
+            fprintf(stderr, "错误: Lexer 初始化失败: %s (可能 Arena 内存不足或文件太大)\n", input_file);
+            free(file_buffer);
+            free(arena_buffer);
             return 1;
         }
         
@@ -171,7 +176,9 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
         fprintf(stderr, "=== 语法分析阶段 ===\n");
         Parser parser;
         if (parser_init(&parser, &lexer, &arena) != 0) {
-            fprintf(stderr, "错误: Parser 初始化失败: %s\n", input_file);
+            fprintf(stderr, "错误: Parser 初始化失败: %s (可能 Arena 内存不足)\n", input_file);
+            free(file_buffer);
+            free(arena_buffer);
             return 1;
         }
         
@@ -179,11 +186,15 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
         if (ast == NULL) {
             fprintf(stderr, "错误: 语法分析失败: %s\n", input_file);
             // 错误信息已在 parser_parse 中输出
+            free(file_buffer);
+            free(arena_buffer);
             return 1;
         }
         
         if (ast->type != AST_PROGRAM) {
             fprintf(stderr, "错误: 解析结果不是程序节点: %s\n", input_file);
+            free(file_buffer);
+            free(arena_buffer);
             return 1;
         }
         
