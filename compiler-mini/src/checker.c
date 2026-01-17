@@ -609,7 +609,14 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
         
         case AST_MEMBER_ACCESS: {
             // 字段访问：推断对象类型，然后查找字段类型
+            // 支持结构体类型和指针类型（指针自动解引用）
             Type object_type = checker_infer_type(checker, expr->data.member_access.object);
+            
+            // 如果对象是指针类型，自动解引用（Uya Mini 支持指针自动解引用访问字段）
+            if (object_type.kind == TYPE_POINTER && object_type.data.pointer.pointer_to != NULL) {
+                object_type = *object_type.data.pointer.pointer_to;
+            }
+            
             if (object_type.kind != TYPE_STRUCT || object_type.data.struct_name == NULL) {
                 // 对象类型不是结构体，返回void类型
                 result.kind = TYPE_VOID;
@@ -631,15 +638,20 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
         
         case AST_ARRAY_ACCESS: {
             // 数组访问：推断数组表达式类型，然后返回元素类型
+            // 支持数组类型 [T: N] 和指针类型 &T（指针类型的数组访问如 &byte[offset]）
             Type array_type = checker_infer_type(checker, expr->data.array_access.array);
-            if (array_type.kind != TYPE_ARRAY || array_type.data.array.element_type == NULL) {
-                // 数组表达式类型不是数组类型，返回void类型
-                result.kind = TYPE_VOID;
-                return result;
+            
+            if (array_type.kind == TYPE_ARRAY && array_type.data.array.element_type != NULL) {
+                // 数组类型：返回数组的元素类型
+                return *array_type.data.array.element_type;
+            } else if (array_type.kind == TYPE_POINTER && array_type.data.pointer.pointer_to != NULL) {
+                // 指针类型：返回指针指向的类型（如 &byte[offset] 返回 byte）
+                return *array_type.data.pointer.pointer_to;
             }
             
-            // 返回数组的元素类型
-            return *array_type.data.array.element_type;
+            // 数组表达式类型不是数组类型或指针类型，返回void类型
+            result.kind = TYPE_VOID;
+            return result;
         }
         
         case AST_STRUCT_INIT: {
@@ -1165,6 +1177,7 @@ static Type checker_check_member_access(TypeChecker *checker, ASTNode *node) {
 // 检查数组访问
 // 参数：checker - TypeChecker 指针，node - 数组访问节点
 // 返回：元素类型（如果检查失败返回TYPE_VOID）
+// 注意：支持数组类型 [T: N] 和指针类型 &T（指针类型的数组访问如 &byte[offset]）
 static Type checker_check_array_access(TypeChecker *checker, ASTNode *node) {
     Type result;
     result.kind = TYPE_VOID;
@@ -1175,22 +1188,35 @@ static Type checker_check_array_access(TypeChecker *checker, ASTNode *node) {
     
     // 获取数组表达式类型
     Type array_type = checker_infer_type(checker, node->data.array_access.array);
-    if (array_type.kind != TYPE_ARRAY || array_type.data.array.element_type == NULL) {
-        // 数组表达式类型不是数组类型
-        checker_report_error(checker, node, "类型检查错误");
-        return result;
+    
+    // 支持数组类型和指针类型
+    if (array_type.kind == TYPE_ARRAY && array_type.data.array.element_type != NULL) {
+        // 数组类型：检查索引表达式类型是 i32
+        Type index_type = checker_infer_type(checker, node->data.array_access.index);
+        if (index_type.kind != TYPE_I32) {
+            // 索引表达式类型不是 i32
+            checker_report_error(checker, node, "类型检查错误");
+            return result;
+        }
+        
+        // 返回数组的元素类型
+        return *array_type.data.array.element_type;
+    } else if (array_type.kind == TYPE_POINTER && array_type.data.pointer.pointer_to != NULL) {
+        // 指针类型：检查索引表达式类型是 i32
+        Type index_type = checker_infer_type(checker, node->data.array_access.index);
+        if (index_type.kind != TYPE_I32) {
+            // 索引表达式类型不是 i32
+            checker_report_error(checker, node, "类型检查错误");
+            return result;
+        }
+        
+        // 返回指针指向的类型（如 &byte[offset] 返回 byte）
+        return *array_type.data.pointer.pointer_to;
     }
     
-    // 检查索引表达式类型是 i32
-    Type index_type = checker_infer_type(checker, node->data.array_access.index);
-    if (index_type.kind != TYPE_I32) {
-        // 索引表达式类型不是 i32
-        checker_report_error(checker, node, "类型检查错误");
-        return result;
-    }
-    
-    // 返回数组的元素类型
-    return *array_type.data.array.element_type;
+    // 数组表达式类型不是数组类型或指针类型
+    checker_report_error(checker, node, "类型检查错误");
+    return result;
 }
 
 // 检查 alignof 表达式
