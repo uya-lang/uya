@@ -1,0 +1,226 @@
+#!/bin/bash
+# Uya Mini 多文件编译脚本
+# 编译 uya-src 目录中的所有 .uya 文件
+
+set -e  # 遇到错误时退出（除了编译失败）
+
+# 脚本目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 项目根目录（compiler-mini）
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# uya-src 目录
+UYA_SRC_DIR="$SCRIPT_DIR"
+# 编译器路径
+COMPILER="$PROJECT_ROOT/build/compiler-mini"
+# 默认输出目录
+BUILD_DIR="$PROJECT_ROOT/build/uya-compiler"
+# 默认输出文件名
+OUTPUT_NAME="compiler"
+
+# 颜色输出
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# 使用说明
+usage() {
+    cat << EOF
+用法: $0 [选项] [输出文件]
+
+选项:
+  -h, --help          显示此帮助信息
+  -v, --verbose       详细输出模式
+  -d, --debug         调试模式（保留中间文件）
+  -o, --output DIR    指定输出目录（默认: $BUILD_DIR）
+  -n, --name NAME     指定输出文件名（默认: $OUTPUT_NAME）
+  -c, --clean         清理输出目录后再编译
+  --compiler PATH     指定编译器路径（默认: $COMPILER）
+
+示例:
+  $0                           # 使用默认设置编译
+  $0 -o /tmp/uyac -n my_compiler  # 指定输出目录和文件名
+  $0 -v -d                      # 详细输出和调试模式
+  $0 -c                         # 清理后编译
+
+EOF
+    exit 1
+}
+
+# 默认选项
+VERBOSE=false
+DEBUG=false
+CLEAN=false
+
+# 解析命令行选项
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            usage
+            ;;
+        -v|--verbose)
+            VERBOSE=true
+            shift
+            ;;
+        -d|--debug)
+            DEBUG=true
+            shift
+            ;;
+        -c|--clean)
+            CLEAN=true
+            shift
+            ;;
+        -o|--output)
+            BUILD_DIR="$2"
+            shift 2
+            ;;
+        -n|--name)
+            OUTPUT_NAME="$2"
+            shift 2
+            ;;
+        --compiler)
+            COMPILER="$2"
+            shift 2
+            ;;
+        *)
+            # 如果参数不以 - 开头，可能是输出文件
+            if [[ "$1" != -* ]]; then
+                OUTPUT_NAME="$1"
+                shift
+            else
+                echo -e "${RED}错误: 未知选项 $1${NC}"
+                usage
+            fi
+            ;;
+    esac
+done
+
+# 检查编译器是否存在
+if [ ! -f "$COMPILER" ]; then
+    echo -e "${RED}错误: 编译器 '$COMPILER' 不存在${NC}"
+    echo "请先运行 'make build' 构建编译器"
+    exit 1
+fi
+
+# 检查 uya-src 目录是否存在
+if [ ! -d "$UYA_SRC_DIR" ]; then
+    echo -e "${RED}错误: 源代码目录 '$UYA_SRC_DIR' 不存在${NC}"
+    exit 1
+fi
+
+# 清理输出目录
+if [ "$CLEAN" = true ]; then
+    if [ -d "$BUILD_DIR" ]; then
+        echo -e "${YELLOW}清理输出目录: $BUILD_DIR${NC}"
+        rm -rf "$BUILD_DIR"
+    fi
+fi
+
+# 创建输出目录
+mkdir -p "$BUILD_DIR"
+
+# 输出文件路径
+OUTPUT_FILE="$BUILD_DIR/$OUTPUT_NAME"
+
+# 收集所有 .uya 文件（按依赖顺序排列）
+# 注意：文件顺序可能影响编译结果，按逻辑顺序排列
+UYA_FILES=(
+    "arena.uya"
+    "str_utils.uya"
+    "extern_decls.uya"
+    "llvm_api.uya"
+    "ast.uya"
+    "lexer.uya"
+    "parser.uya"
+    "checker.uya"
+    "codegen.uya"
+    "main.uya"
+)
+
+# 验证文件存在并构建完整路径
+FULL_PATHS=()
+for file in "${UYA_FILES[@]}"; do
+    full_path="$UYA_SRC_DIR/$file"
+    if [ ! -f "$full_path" ]; then
+        echo -e "${RED}警告: 文件 $file 不存在，跳过${NC}"
+        continue
+    fi
+    FULL_PATHS+=("$full_path")
+done
+
+if [ ${#FULL_PATHS[@]} -eq 0 ]; then
+    echo -e "${RED}错误: 没有找到任何 .uya 文件${NC}"
+    exit 1
+fi
+
+# 显示编译信息
+echo "=========================================="
+echo "Uya Mini 多文件编译"
+echo "=========================================="
+echo "编译器: $COMPILER"
+echo "源代码目录: $UYA_SRC_DIR"
+echo "输出文件: $OUTPUT_FILE"
+echo "文件数量: ${#FULL_PATHS[@]}"
+if [ "$VERBOSE" = true ]; then
+    echo ""
+    echo "源文件列表:"
+    for i in "${!FULL_PATHS[@]}"; do
+        printf "  %2d. %s\n" $((i+1)) "$(basename "${FULL_PATHS[$i]}")"
+    done
+    echo ""
+fi
+echo "=========================================="
+echo ""
+
+# 执行编译
+if [ "$VERBOSE" = true ]; then
+    echo "开始编译..."
+    echo "命令: $COMPILER ${FULL_PATHS[@]} -o $OUTPUT_FILE"
+    echo ""
+fi
+
+# 编译（不使用 set -e，以便捕获错误）
+if "$COMPILER" "${FULL_PATHS[@]}" -o "$OUTPUT_FILE"; then
+    echo ""
+    echo -e "${GREEN}✓ 编译成功！${NC}"
+    echo ""
+    echo "输出文件: $OUTPUT_FILE"
+    
+    # 显示文件信息
+    if [ -f "$OUTPUT_FILE" ]; then
+        file_size=$(du -h "$OUTPUT_FILE" | cut -f1)
+        echo "文件大小: $file_size"
+        
+        # 检查是否是可执行文件
+        if [ -x "$OUTPUT_FILE" ]; then
+            echo "类型: 可执行文件"
+        else
+            echo "类型: 目标文件（.o）"
+            echo ""
+            echo "提示: 如果要生成可执行文件，需要使用链接器链接："
+            echo "  gcc -no-pie $OUTPUT_FILE -o ${OUTPUT_FILE}.exe"
+        fi
+    fi
+    
+    # 如果是调试模式，显示详细信息
+    if [ "$DEBUG" = true ]; then
+        echo ""
+        echo "调试信息:"
+        echo "  输出目录: $BUILD_DIR"
+        echo "  编译器版本信息: $($COMPILER --version 2>&1 || echo '版本信息不可用')"
+    fi
+    
+    exit 0
+else
+    EXIT_CODE=$?
+    echo ""
+    echo -e "${RED}✗ 编译失败（退出码: $EXIT_CODE）${NC}"
+    
+    # 如果输出文件存在但编译失败，保留它（可能包含有用的信息）
+    if [ "$DEBUG" = true ] && [ -f "$OUTPUT_FILE" ]; then
+        echo "调试模式: 保留输出文件 $OUTPUT_FILE"
+    fi
+    
+    exit $EXIT_CODE
+fi
+

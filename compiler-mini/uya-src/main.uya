@@ -50,7 +50,9 @@ const EOF: i32 = -1;
 //       buffer_size - 缓冲区大小
 // 返回：成功返回读取的字节数，失败返回 -1
 // 注意：文件大小不能超过缓冲区大小
-fn read_file_content(filename: *byte, buffer: &byte, buffer_size: i32) i32 {
+fn read_file_content(_filename: &byte, buffer: &byte, buffer_size: i32) i32 {
+    const filename:*byte = _filename as *byte;
+
     if filename == null || buffer == null || buffer_size <= 0 {
         return -1;
     }
@@ -83,7 +85,9 @@ fn read_file_content(filename: *byte, buffer: &byte, buffer_size: i32) i32 {
 
 // 打印使用说明
 // 参数：program_name - 程序名称
-fn print_usage(program_name: *byte) void {
+fn print_usage(_program_name: &byte) void {
+    const program_name:*byte = _program_name as *byte;
+
     if program_name == null {
         return;
     }
@@ -104,7 +108,7 @@ fn parse_args(input_files: [*byte: MAX_INPUT_FILES], input_file_count: &i32, out
         if argc > 0 {
             const program_name: *byte = get_argv(0);
             if program_name != null {
-                print_usage(program_name);
+                print_usage(program_name as &byte);
             }
         }
         return -1;
@@ -151,7 +155,7 @@ fn parse_args(input_files: [*byte: MAX_INPUT_FILES], input_file_count: &i32, out
         if argc > 0 {
             const program_name: *byte = get_argv(0);
             if program_name != null {
-                print_usage(program_name);
+                print_usage(program_name as &byte);
             }
         }
         return -1;
@@ -162,7 +166,7 @@ fn parse_args(input_files: [*byte: MAX_INPUT_FILES], input_file_count: &i32, out
         if argc > 0 {
             const program_name: *byte = get_argv(0);
             if program_name != null {
-                print_usage(program_name);
+                print_usage(program_name as &byte);
             }
         }
         return -1;
@@ -177,7 +181,9 @@ fn parse_args(input_files: [*byte: MAX_INPUT_FILES], input_file_count: &i32, out
 //       input_file_count - 输入文件数量
 //       output_file - 输出文件名
 // 返回：成功返回 0，失败返回非 0
-fn compile_files(input_files: [*byte: MAX_INPUT_FILES], input_file_count: i32, output_file: *byte) i32 {
+fn compile_files(input_files: [*byte: MAX_INPUT_FILES], input_file_count: i32, _output_file: &byte) i32 {
+    const output_file:*byte = _output_file as *byte;
+
     if input_file_count <= 0 || output_file == null {
         return 1;
     }
@@ -210,7 +216,7 @@ fn compile_files(input_files: [*byte: MAX_INPUT_FILES], input_file_count: i32, o
         }
         
         // 读取文件内容
-        const file_size: i32 = read_file_content(input_file, &file_buffer[0], FILE_BUFFER_SIZE);
+        const file_size: i32 = read_file_content(input_file as &byte, &file_buffer[0], FILE_BUFFER_SIZE);
         if file_size < 0 {
             fprintf(2 as *void, "错误: 无法读取文件 '%s'\n", input_file);
             return 1;
@@ -359,7 +365,7 @@ fn main() i32 {
     }
     
     // 编译文件
-    const result: i32 = compile_files(input_files, input_file_count, output_file[0]);
+    const result: i32 = compile_files(input_files, input_file_count, output_file[0] as &byte);
     
     return result;
 }

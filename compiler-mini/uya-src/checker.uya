@@ -108,7 +108,9 @@ struct TypeChecker {
 // 哈希函数（djb2算法，用于字符串哈希）
 // 参数：str - 字符串指针
 // 返回：哈希值（i32）
-fn hash_string(str: *byte) i32 {
+fn hash_string(_str: &byte) i32 {
+    const str:*byte = _str as *byte;
+
     if str == null {
         return 0;
     }
@@ -175,7 +177,9 @@ fn checker_get_error_count(checker: &TypeChecker) i32 {
 // 参数：checker - TypeChecker 指针，name - 符号名称
 // 返回：找到的符号指针（最内层的匹配符号），未找到返回 null
 // 注意：查找所有匹配的符号，返回作用域级别最高的（最内层的）
-fn symbol_table_lookup(checker: &TypeChecker, name: *byte) &Symbol {
+fn symbol_table_lookup(checker: &TypeChecker, _name: &byte) &Symbol {
+    const name:*byte = _name as *byte;
+
     if checker == null || name == null {
         return null;
     }
@@ -217,13 +221,13 @@ fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
     }
     
     // 首先检查是否已存在相同名称和相同作用域级别的符号
-    const existing: &Symbol = symbol_table_lookup(checker, symbol.name as *byte);
+    const existing: &Symbol = symbol_table_lookup(checker, symbol.name);
     if existing != null && existing.scope_level == symbol.scope_level {
         return -1;  // 符号已存在（相同作用域级别）
     }
     
     // 计算哈希值
-    const hash: i32 = hash_string(symbol.name as *byte);
+    const hash: i32 = hash_string(symbol.name);
     const index: i32 = hash % SYMBOL_TABLE_SIZE;  // 使用模运算（替代位与运算，因为 Uya Mini 不支持位运算符）
     
     // 开放寻址：查找空槽位
@@ -250,7 +254,9 @@ fn symbol_table_insert(checker: &TypeChecker, symbol: &Symbol) i32 {
 // 函数表查找函数
 // 参数：checker - TypeChecker 指针，name - 函数名称
 // 返回：找到的函数签名指针，未找到返回 null
-fn function_table_lookup(checker: &TypeChecker, name: *byte) &FunctionSignature {
+fn function_table_lookup(checker: &TypeChecker, _name: &byte) &FunctionSignature {
+    const name:*byte = _name as *byte;
+
     if checker == null || name == null {
         return null;
     }
@@ -292,7 +298,7 @@ fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
     }
     
     // 计算哈希值
-    const hash: i32 = hash_string(sig.name as *byte);
+    const hash: i32 = hash_string(sig.name);
     const index: i32 = hash % FUNCTION_TABLE_SIZE;  // 使用模运算（替代位与运算）
     
     // 开放寻址：查找空槽位或已存在的函数
@@ -563,7 +569,7 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
             // 需要从program_node中查找枚举或结构体声明（在类型检查阶段验证）
             if checker != null && checker.program_node != null {
                 // 先检查是否是枚举类型
-                const enum_decl: &ASTNode = find_enum_decl_from_program(checker.program_node, type_name as *byte);
+                const enum_decl: &ASTNode = find_enum_decl_from_program(checker.program_node, type_name);
                 if enum_decl != null {
                     result.kind = TYPE_ENUM as TypeKind;
                     result.enum_name = type_name;
@@ -592,7 +598,9 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
 // 从程序节点中查找结构体声明
 // 参数：program_node - 程序节点，struct_name - 结构体名称
 // 返回：找到的结构体声明节点指针，未找到返回 null
-fn find_struct_decl_from_program(program_node: &ASTNode, struct_name: *byte) &ASTNode {
+fn find_struct_decl_from_program(program_node: &ASTNode, _struct_name: &byte) &ASTNode {
+    const struct_name:*byte = _struct_name as *byte;
+
     if program_node == null || (program_node.type as i32) != (AST_PROGRAM as i32) || struct_name == null {
         return null;
     }
@@ -615,7 +623,9 @@ fn find_struct_decl_from_program(program_node: &ASTNode, struct_name: *byte) &AS
 // 从程序节点中查找枚举声明
 // 参数：program_node - 程序节点，enum_name - 枚举名称
 // 返回：找到的枚举声明节点指针，未找到返回 null
-fn find_enum_decl_from_program(program_node: &ASTNode, enum_name: *byte) &ASTNode {
+fn find_enum_decl_from_program(program_node: &ASTNode, _enum_name: &byte) &ASTNode {
+    const enum_name:*byte = _enum_name as *byte;
+
     if program_node == null || (program_node.type as i32) != (AST_PROGRAM as i32) || enum_name == null {
         return null;
     }
@@ -638,7 +648,9 @@ fn find_enum_decl_from_program(program_node: &ASTNode, enum_name: *byte) &ASTNod
 // 查找结构体字段类型
 // 参数：struct_decl - 结构体声明节点，field_name - 字段名称
 // 返回：字段类型，如果字段不存在返回 TYPE_VOID 类型
-fn find_struct_field_type(struct_decl: &ASTNode, field_name: *byte) Type {
+fn find_struct_field_type(struct_decl: &ASTNode, _field_name: &byte) Type {
+    const field_name:*byte = _field_name as *byte;
+
     var result: Type = Type{
         kind: TYPE_VOID as TypeKind,
         enum_name: null,
@@ -757,7 +769,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         return result;
     } else if (expr.type as i32) == (AST_IDENTIFIER as i32) {
         // 标识符类型需要从符号表中查找
-        const symbol: &Symbol = symbol_table_lookup(checker, expr.identifier_name as *byte);
+        const symbol: &Symbol = symbol_table_lookup(checker, expr.identifier_name);
         if symbol != null {
             return symbol.type;
         }
@@ -841,7 +853,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             return result;
         }
         
-        const sig: &FunctionSignature = function_table_lookup(checker, callee.identifier_name as *byte);
+        const sig: &FunctionSignature = function_table_lookup(checker, callee.identifier_name);
         if sig != null {
             return sig.return_type;
         }
@@ -859,7 +871,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         }
         
         // 查找结构体声明
-        const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, object_type.struct_name as *byte);
+        const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, object_type.struct_name);
         if struct_decl == null {
             // 结构体声明未找到，返回void类型
             result.kind = TYPE_VOID as TypeKind;
@@ -867,7 +879,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         }
         
         // 查找字段类型
-        const field_type: Type = find_struct_field_type(struct_decl, expr.member_access_field_name as *byte);
+        const field_type: Type = find_struct_field_type(struct_decl, expr.member_access_field_name);
         return field_type;  // 如果字段不存在，field_type.kind 为 TYPE_VOID
     } else if (expr.type as i32) == (AST_ARRAY_ACCESS as i32) {
         // 数组访问：推断数组表达式类型，然后返回元素类型
@@ -997,7 +1009,7 @@ fn checker_check_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
                strcmp(type_name as *byte, "byte" as *byte) != 0 && 
                strcmp(type_name as *byte, "void" as *byte) != 0 {
                 // 可能是结构体类型，检查是否存在
-                const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, type_name as *byte);
+                const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, type_name);
                 if struct_decl == null {
                     // 结构体类型未定义
                     checker_report_error(checker);
@@ -1300,7 +1312,7 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
     }
     
     // 查找字段类型
-    const field_type: Type = find_struct_field_type(struct_decl, node.member_access_field_name as *byte);
+    const field_type: Type = find_struct_field_type(struct_decl, node.member_access_field_name);
     if (field_type.kind as i32) == (TYPE_VOID as i32) {
         // 字段不存在
         checker_report_error(checker);
@@ -1476,7 +1488,7 @@ fn checker_check_struct_init(checker: &TypeChecker, node: &ASTNode) Type {
     }
     
     // 查找结构体声明
-    const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, struct_name as *byte);
+    const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, struct_name);
     if struct_decl == null {
         checker_report_error(checker);
         return result;
@@ -1494,7 +1506,7 @@ fn checker_check_struct_init(checker: &TypeChecker, node: &ASTNode) Type {
         const field_name: &byte = node.struct_init_field_names[i];
         const field_value: &ASTNode = node.struct_init_field_values[i];
         
-        const field_type: Type = find_struct_field_type(struct_decl, field_name as *byte);
+        const field_type: Type = find_struct_field_type(struct_decl, field_name);
         if (field_type.kind as i32) == (TYPE_VOID as i32) {
             checker_report_error(checker);
             return result;
@@ -1803,7 +1815,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
                 // 需要检查数组表达式是否是可变变量
                 // 注意：这里简化处理，如果数组表达式是标识符，检查符号表
                 if (node.for_stmt_array.type as i32) == (AST_IDENTIFIER as i32) {
-                    const symbol: &Symbol = symbol_table_lookup(checker, node.for_stmt_array.identifier_name as *byte);
+                    const symbol: &Symbol = symbol_table_lookup(checker, node.for_stmt_array.identifier_name);
                     if symbol != null && symbol.is_const != 0 {
                         // 引用迭代形式不能用于 const 变量
                         checker_report_error(checker);
@@ -1902,7 +1914,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             return 0;
         }
         
-        const symbol: &Symbol = symbol_table_lookup(checker, dest.identifier_name as *byte);
+        const symbol: &Symbol = symbol_table_lookup(checker, dest.identifier_name);
         if symbol == null {
             checker_report_error(checker);
             return 0;

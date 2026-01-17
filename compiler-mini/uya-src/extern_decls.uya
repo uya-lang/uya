@@ -67,7 +67,5 @@ extern fn get_argv(index: i32) *byte;  // 获取第 index 个命令行参数（�
 // 注意：LLVM API 函数声明在 llvm_api.uya 中，编译时需要一起包含
 // 这里不重复声明，请参考 llvm_api.uya 文件
 
-// 测试：将有问题的小数移到 extern_decls.uya
-extern fn LLVMBuildZExt(builder: *void, value: *void, dest_type: *void, name: *byte) *void;  // 零扩展
-extern fn LLVMBuildICmp(builder: *void, predicate: i32, lhs: *void, rhs: *void, name: *byte) *void;
+// LLVMBuildZExt 和 LLVMBuildICmp 已在 llvm_api.uya 中声明，此处不再重复声明
 

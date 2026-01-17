@@ -173,7 +173,9 @@ fn skip_whitespace_and_comments(lexer: &Lexer) void {
 // 检查是否为关键字
 // 参数：str - 字符串指针（*byte 类型用于 extern 函数）
 // 返回：如果是关键字返回对应的 TokenType，否则返回 TOKEN_IDENTIFIER
-fn is_keyword(str: *byte) TokenType {
+fn is_keyword(_str: &byte) TokenType {
+    const str:*byte = _str as *byte;
+
     if strcmp(str, "enum") == 0 {
         return TOKEN_ENUM;
     }
@@ -241,7 +243,9 @@ fn is_keyword(str: *byte) TokenType {
 // 从字符串字面量（*byte）复制到 Arena
 // 参数：arena - Arena 分配器，str - 字符串字面量（*byte 类型）
 // 返回：复制后的字符串指针（存储在 Arena 中），失败返回 null
-fn arena_strdup_from_literal(arena: &Arena, str: *byte) &byte {
+fn arena_strdup_from_literal(arena: &Arena, _str: &byte) &byte {
+    const str:*byte = _str as *byte;
+
     if arena == null || str == null {
         return null;
     }
@@ -446,7 +450,9 @@ fn read_string(lexer: &Lexer, arena: &Arena) &Token {
 // 返回：成功返回 0，失败返回 -1
 // 注意：Lexer 结构体由调用者在栈上或静态分配，此函数只负责初始化
 // 注意：buffer 需要由调用者提供，此函数只是设置指针
-fn lexer_init(lexer: &Lexer, source: &byte, source_len: i32, filename: *byte, arena: &Arena) i32 {
+fn lexer_init(lexer: &Lexer, source: &byte, source_len: i32, _filename: &byte, arena: &Arena) i32 {
+    const filename:*byte = _filename as *byte;
+
     if lexer == null || source == null || arena == null {
         return -1;
     }

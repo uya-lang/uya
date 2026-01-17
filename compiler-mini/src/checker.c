@@ -164,8 +164,34 @@ static int function_table_insert(TypeChecker *checker, FunctionSignature *sig) {
         
         // 检查是否是相同名称的函数
         if (strcmp(existing->name, sig->name) == 0) {
-            // 函数已存在，返回错误
-            return -1;
+            // 函数已存在
+            // 如果都是 extern 声明，允许重复（跳过插入，不报错）
+            if (existing->is_extern && sig->is_extern) {
+                // 检查签名是否相同（参数类型和返回类型）
+                if (existing->param_count == sig->param_count &&
+                    type_equals(existing->return_type, sig->return_type) &&
+                    existing->is_varargs == sig->is_varargs) {
+                    // 签名相同，允许重复的 extern 声明（跳过插入）
+                    return 0;
+                } else {
+                    // 签名不同，这是错误（extern 声明冲突）
+                    return -1;
+                }
+            } else if (!existing->is_extern && !sig->is_extern) {
+                // 都是定义，不允许重复定义
+                return -1;
+            } else {
+                // 一个是 extern，一个是定义，允许（extern 声明可以与定义共存）
+                // 但如果已有定义，跳过插入；如果已有 extern，插入定义
+                if (existing->is_extern) {
+                    // 已有 extern 声明，现在插入定义，替换它
+                    checker->function_table.slots[slot] = sig;
+                    return 0;
+                } else {
+                    // 已有定义，现在是 extern 声明，跳过插入
+                    return 0;
+                }
+            }
         }
     }
     
@@ -331,7 +357,8 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
             result.kind = TYPE_VOID;
             return result;
         }
-        
+
+
         // 递归解析指向的类型
         Type pointed_type = type_from_ast(checker, pointed_type_node);
         
@@ -783,17 +810,27 @@ static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *e
 static void checker_report_error(TypeChecker *checker, ASTNode *node, const char *message) {
     if (checker != NULL) {
         checker->error_count++;
-        
+
         // 输出错误信息（格式：文件名:(行:列)）
         const char *filename = checker->default_filename ? checker->default_filename : "(unknown)";
         if (node != NULL) {
-            fprintf(stderr, "%s:(%d:%d): 错误: %s\n", 
+            // 如果是函数声明节点，尝试获取函数名称用于调试
+            const char *node_info = "";
+            char info_buf[128];
+            if (node->type == AST_FN_DECL && node->data.fn_decl.name != NULL) {
+                snprintf(info_buf, sizeof(info_buf), " [函数: %s]", node->data.fn_decl.name);
+                node_info = info_buf;
+            }
+            
+            fprintf(stderr, "%s:(%d:%d): 错误: %s (节点类型: %d)%s\n",
                     filename,
-                    node->line, 
+                    node->line,
                     node->column,
-                    message ? message : "类型检查错误");
+                    message ? message : "类型检查错误",
+                    node->type,
+                    node_info);
         } else {
-            fprintf(stderr, "%s: 错误: %s\n", 
+            fprintf(stderr, "%s: 错误: %s\n",
                     filename,
                     message ? message : "类型检查错误");
         }
@@ -956,7 +993,7 @@ static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node) {
                 // 检查是否为 FFI 指针类型（*T），如果是普通函数则不允许
                 if (!sig->is_extern && param_type.kind == TYPE_POINTER && param_type.data.pointer.is_ffi_pointer) {
                     // 普通函数不能使用 FFI 指针类型作为参数
-                    checker_report_error(checker, node, "类型检查错误");
+                    checker_report_error(checker, node, "普通函数不能使用 FFI 指针类型作为参数");
                     return 0;
                 }
 
@@ -970,14 +1007,18 @@ static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node) {
     // 检查返回类型是否为 FFI 指针类型（如果是普通函数则不允许）
     if (!sig->is_extern && return_type.kind == TYPE_POINTER && return_type.data.pointer.is_ffi_pointer) {
         // 普通函数不能使用 FFI 指针类型作为返回类型
-        checker_report_error(checker, node, "类型检查错误");
+        char buf[256];
+        snprintf(buf, sizeof(buf), "普通函数 '%s' 不能使用 FFI 指针类型作为返回类型", sig->name ? sig->name : "(unknown)");
+        checker_report_error(checker, node, buf);
         return 0;
     }
 
     // 将函数添加到函数表
     if (function_table_insert(checker, sig) != 0) {
         // 函数重复定义
-        checker_report_error(checker, node, "类型检查错误");
+        char buf[256];
+        snprintf(buf, sizeof(buf), "函数 '%s' 重复定义", sig->name ? sig->name : "(unknown)");
+        checker_report_error(checker, node, buf);
         return 0;
     }
 
@@ -1044,7 +1085,7 @@ static int checker_check_struct_decl(TypeChecker *checker, ASTNode *node) {
                 checker_report_error(checker, field, "结构体字段类型不能为空");
                 return 0;
             }
-            
+
             Type field_type = type_from_ast(checker, field_type_node);
             if (field_type.kind == TYPE_VOID) {
                 // 字段类型无效，检查是否是结构体前向引用
@@ -1056,17 +1097,40 @@ static int checker_check_struct_decl(TypeChecker *checker, ASTNode *node) {
                             strcmp(type_name, "bool") == 0 || strcmp(type_name, "byte") == 0 ||
                             strcmp(type_name, "void") == 0) {
                             // 基础类型应该能正确解析，如果返回 TYPE_VOID 说明有问题
-                            checker_report_error(checker, field_type_node, "无效的字段类型");
+                            checker_report_error(checker, field, "无效的字段类型");
                             return 0;
                         }
                         // 可能是结构体或枚举类型的前向引用，暂时允许（TODO: 支持前向声明或两遍检查）
                     } else {
-                        checker_report_error(checker, field_type_node, "字段类型名称为空");
+                        checker_report_error(checker, field, "字段类型名称为空");
                         return 0;
                     }
+                } else if (field_type_node->type == AST_TYPE_POINTER) {
+                    // 指针类型：检查指向的类型节点
+                    ASTNode *pointed_type_node = field_type_node->data.type_pointer.pointed_type;
+                    if (pointed_type_node == NULL) {
+                        checker_report_error(checker, field, "指针类型缺少指向的类型");
+                        return 0;
+                    }
+                    // 检查指向的类型是否有效
+                    if (pointed_type_node->type == AST_TYPE_NAMED) {
+                        const char *pointed_type_name = pointed_type_node->data.type_named.name;
+                        if (pointed_type_name != NULL) {
+                            // 检查是否是已知的基础类型（这些不应该返回 TYPE_VOID）
+                            if (strcmp(pointed_type_name, "i32") == 0 || strcmp(pointed_type_name, "usize") == 0 ||
+                                strcmp(pointed_type_name, "bool") == 0 || strcmp(pointed_type_name, "byte") == 0 ||
+                                strcmp(pointed_type_name, "void") == 0) {
+                                // 基础类型应该能正确解析，如果返回 TYPE_VOID 说明有问题
+                                checker_report_error(checker, field, "指针指向的类型无效");
+                                return 0;
+                            }
+                        }
+                    }
+                    // 指向的类型可能无效（可能是前向引用的结构体），暂时允许
+                    // TODO: 支持前向声明或两遍检查
                 } else {
-                    // 非命名类型（指针、数组等）如果返回 TYPE_VOID，说明类型无效
-                    checker_report_error(checker, field_type_node, "无效的字段类型");
+                    // 其他非命名类型（数组等）如果返回 TYPE_VOID，说明类型无效
+                    checker_report_error(checker, field, "无效的字段类型");
                     return 0;
                 }
             }
@@ -1144,7 +1208,7 @@ static Type checker_check_member_access(TypeChecker *checker, ASTNode *node) {
     
     // 获取对象类型
     Type object_type = checker_infer_type(checker, node->data.member_access.object);
-    
+
     // 如果对象是指针类型，自动解引用（Uya Mini 支持指针自动解引用访问字段）
     if (object_type.kind == TYPE_POINTER && object_type.data.pointer.pointer_to != NULL) {
         object_type = *object_type.data.pointer.pointer_to;
@@ -1152,14 +1216,25 @@ static Type checker_check_member_access(TypeChecker *checker, ASTNode *node) {
     
     if (object_type.kind != TYPE_STRUCT || object_type.data.struct_name == NULL) {
         // 对象类型不是结构体
-        checker_report_error(checker, node, "对象类型不是结构体，无法访问字段");
+        const char *field_name = node->data.member_access.field_name;
+        char buf[256];
+        if (object_type.kind == TYPE_VOID) {
+            snprintf(buf, sizeof(buf), "无法访问字段 '%s'：对象类型推断失败", field_name ? field_name : "(unknown)");
+        } else {
+            snprintf(buf, sizeof(buf), "无法访问字段 '%s'：对象类型不是结构体（类型：%d）", field_name ? field_name : "(unknown)", object_type.kind);
+        }
+        checker_report_error(checker, node, buf);
         return result;
     }
     
     // 查找结构体声明
     ASTNode *struct_decl = find_struct_decl_from_program(checker->program_node, object_type.data.struct_name);
     if (struct_decl == NULL) {
-        checker_report_error(checker, node, "类型检查错误");
+        const char *struct_name = object_type.data.struct_name;
+        const char *field_name = node->data.member_access.field_name;
+        char buf[256];
+        snprintf(buf, sizeof(buf), "结构体 '%s' 未找到，无法访问字段 '%s'", struct_name ? struct_name : "(unknown)", field_name ? field_name : "(unknown)");
+        checker_report_error(checker, node, buf);
         return result;
     }
     
@@ -1167,7 +1242,11 @@ static Type checker_check_member_access(TypeChecker *checker, ASTNode *node) {
     Type field_type = find_struct_field_type(checker, struct_decl, node->data.member_access.field_name);
     if (field_type.kind == TYPE_VOID) {
         // 字段不存在
-        checker_report_error(checker, node, "类型检查错误");
+        const char *struct_name = object_type.data.struct_name;
+        const char *field_name = node->data.member_access.field_name;
+        char buf[256];
+        snprintf(buf, sizeof(buf), "结构体 '%s' 中没有字段 '%s'", struct_name ? struct_name : "(unknown)", field_name ? field_name : "(unknown)");
+        checker_report_error(checker, node, buf);
         return result;
     }
     
@@ -1300,6 +1379,7 @@ static Type checker_check_struct_init(TypeChecker *checker, ASTNode *node) {
         checker_report_error(checker, node, "类型检查错误");
         return result;
     }
+
     
     // 查找结构体声明
     ASTNode *struct_decl = find_struct_decl_from_program(checker->program_node, struct_name);
@@ -1753,10 +1833,13 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                 dest_type = checker_check_member_access(checker, dest);
                 if (dest_type.kind == TYPE_VOID) {
                     // 字段访问失败（错误已在 checker_check_member_access 中报告）
+                    // 使用字段访问节点报告错误，而不是赋值节点
                     return 0;
                 }
             } else {
-                checker_report_error(checker, dest, "无效的赋值目标");
+                char buf[256];
+                snprintf(buf, sizeof(buf), "无效的赋值目标（节点类型：%d）", dest->type);
+                checker_report_error(checker, dest, buf);
                 return 0;
             }
             
