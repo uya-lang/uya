@@ -1131,8 +1131,12 @@ static int checker_check_struct_decl(TypeChecker *checker, ASTNode *node) {
                     }
                     // 指向的类型可能无效（可能是前向引用的结构体），暂时允许
                     // TODO: 支持前向声明或两遍检查
+                } else if (field_type_node->type == AST_TYPE_ARRAY) {
+                    // 数组类型：即使type_from_ast返回TYPE_VOID（因为数组大小可能是常量表达式），
+                    // 也暂时允许通过，因为常量表达式需要在后续阶段求值
+                    // TODO: 支持常量表达式求值
                 } else {
-                    // 其他非命名类型（数组等）如果返回 TYPE_VOID，说明类型无效
+                    // 其他非命名类型如果返回 TYPE_VOID，说明类型无效
                     checker_report_error(checker, field, "无效的字段类型");
                     return 0;
                 }
@@ -1837,6 +1841,13 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                 if (dest_type.kind == TYPE_VOID) {
                     // 字段访问失败（错误已在 checker_check_member_access 中报告）
                     // 使用字段访问节点报告错误，而不是赋值节点
+                    return 0;
+                }
+            } else if (dest->type == AST_ARRAY_ACCESS) {
+                // 数组访问赋值：检查元素类型
+                dest_type = checker_check_array_access(checker, dest);
+                if (dest_type.kind == TYPE_VOID) {
+                    // 数组访问失败（错误已在 checker_check_array_access 中报告）
                     return 0;
                 }
             } else {
