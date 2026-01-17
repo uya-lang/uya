@@ -137,10 +137,12 @@ UYA_FILES=(
     "main.uya"
 )
 
-# 验证文件存在并构建完整路径
+# 验证文件存在并构建完整路径（使用绝对路径）
 FULL_PATHS=()
 for file in "${UYA_FILES[@]}"; do
     full_path="$UYA_SRC_DIR/$file"
+    # 转换为绝对路径
+    full_path=$(cd "$(dirname "$full_path")" && pwd)/$(basename "$full_path")
     if [ ! -f "$full_path" ]; then
         echo -e "${RED}警告: 文件 $file 不存在，跳过${NC}"
         continue
@@ -172,14 +174,15 @@ fi
 echo "=========================================="
 echo ""
 
-# 执行编译
+# 执行编译（多文件编译模式）
 if [ "$VERBOSE" = true ]; then
-    echo "开始编译..."
+    echo "开始多文件编译..."
     echo "命令: $COMPILER ${FULL_PATHS[@]} -o $OUTPUT_FILE"
     echo ""
 fi
 
-# 编译（不使用 set -e，以便捕获错误）
+# 使用多文件编译（传递多个 .uya 文件给编译器，不使用文件合并）
+# 编译器会自动处理多文件编译，包括 AST 合并和类型检查
 if "$COMPILER" "${FULL_PATHS[@]}" -o "$OUTPUT_FILE"; then
     echo ""
     echo -e "${GREEN}✓ 编译成功！${NC}"

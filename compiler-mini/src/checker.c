@@ -812,7 +812,10 @@ static void checker_report_error(TypeChecker *checker, ASTNode *node, const char
         checker->error_count++;
 
         // 输出错误信息（格式：文件名:(行:列)）
-        const char *filename = checker->default_filename ? checker->default_filename : "(unknown)";
+        // 优先使用节点中保存的文件名，如果没有则使用默认文件名
+        const char *filename = (node != NULL && node->filename != NULL) 
+            ? node->filename 
+            : (checker->default_filename ? checker->default_filename : "(unknown)");
         if (node != NULL) {
             // 如果是函数声明节点，尝试获取函数名称用于调试
             const char *node_info = "";

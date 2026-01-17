@@ -3,9 +3,9 @@
 #include <string.h>
 
 // 创建新的 AST 节点
-// 参数：type - 节点类型，line - 行号，column - 列号，arena - Arena 分配器
+// 参数：type - 节点类型，line - 行号，column - 列号，arena - Arena 分配器，filename - 文件名（可选）
 // 返回：新创建的 AST 节点指针，失败返回 NULL
-ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena) {
+ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, const char *filename) {
     if (arena == NULL) {
         return NULL;
     }
@@ -20,6 +20,7 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena) {
     node->type = type;
     node->line = line;
     node->column = column;
+    node->filename = filename;  // 保存文件名用于错误报告
     
     // 根据节点类型初始化 union 数据
     // 注意：所有指针字段初始化为 NULL，数组字段初始化为 NULL 和 0
@@ -186,8 +187,8 @@ ASTNode *ast_merge_programs(ASTNode **programs, int count, Arena *arena) {
     }
     
     // 创建新的 AST_PROGRAM 节点
-    // 使用第一个程序节点的行号和列号
-    ASTNode *merged = ast_new_node(AST_PROGRAM, programs[0]->line, programs[0]->column, arena);
+    // 使用第一个程序节点的行号、列号和文件名
+    ASTNode *merged = ast_new_node(AST_PROGRAM, programs[0]->line, programs[0]->column, arena, programs[0]->filename);
     if (merged == NULL) {
         return NULL;
     }

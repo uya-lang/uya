@@ -3586,7 +3586,7 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 
                 // 如果成功获取元素类型，创建指针类型节点
                 if (element_ast_type) {
-                    loop_var_ast_type = ast_new_node(AST_TYPE_POINTER, stmt->line, stmt->column, codegen->arena);
+                    loop_var_ast_type = ast_new_node(AST_TYPE_POINTER, stmt->line, stmt->column, codegen->arena, stmt->filename);
                     if (loop_var_ast_type) {
                         loop_var_ast_type->data.type_pointer.pointed_type = element_ast_type;
                         loop_var_ast_type->data.type_pointer.is_ffi_pointer = 0;  // 普通指针

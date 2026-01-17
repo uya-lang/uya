@@ -60,6 +60,7 @@ struct ASTNode {
     ASTNodeType type;   // 节点类型
     int line;           // 行号
     int column;         // 列号
+    const char *filename; // 文件名（从 Lexer 中获取，用于错误报告）
     
     union {
         // 程序节点
@@ -252,7 +253,7 @@ typedef struct ASTNode ASTNode;
 // AST 节点创建函数
 // 参数：type - 节点类型，line - 行号，column - 列号，arena - Arena 分配器
 // 返回：新创建的 AST 节点指针，失败返回 NULL
-ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena);
+ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, const char *filename);
 
 // 合并多个 AST_PROGRAM 节点为一个程序节点
 // 参数：programs - AST_PROGRAM 节点数组

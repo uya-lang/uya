@@ -151,7 +151,7 @@ static ASTNode *parser_parse_type(Parser *parser) {
         }
         
         // 创建指针类型节点
-        ASTNode *pointer_type = ast_new_node(AST_TYPE_POINTER, line, column, parser->arena);
+        ASTNode *pointer_type = ast_new_node(AST_TYPE_POINTER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (pointer_type == NULL) {
             return NULL;
         }
@@ -171,7 +171,7 @@ static ASTNode *parser_parse_type(Parser *parser) {
         }
         
         // 创建 FFI 指针类型节点
-        ASTNode *pointer_type = ast_new_node(AST_TYPE_POINTER, line, column, parser->arena);
+        ASTNode *pointer_type = ast_new_node(AST_TYPE_POINTER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (pointer_type == NULL) {
             return NULL;
         }
@@ -208,7 +208,7 @@ static ASTNode *parser_parse_type(Parser *parser) {
         }
         
         // 创建数组类型节点
-        ASTNode *array_type = ast_new_node(AST_TYPE_ARRAY, line, column, parser->arena);
+        ASTNode *array_type = ast_new_node(AST_TYPE_ARRAY, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (array_type == NULL) {
             return NULL;
         }
@@ -219,7 +219,7 @@ static ASTNode *parser_parse_type(Parser *parser) {
         return array_type;
     } else if (parser->current_token->type == TOKEN_IDENTIFIER) {
         // 命名类型（i32, bool, void, 或结构体名称）
-        ASTNode *type_node = ast_new_node(AST_TYPE_NAMED, line, column, parser->arena);
+        ASTNode *type_node = ast_new_node(AST_TYPE_NAMED, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (type_node == NULL) {
             return NULL;
         }
@@ -269,7 +269,7 @@ static ASTNode *parser_parse_block(Parser *parser) {
     int column = parser->current_token->column;
     
     // 创建代码块节点
-    ASTNode *block = ast_new_node(AST_BLOCK, line, column, parser->arena);
+    ASTNode *block = ast_new_node(AST_BLOCK, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
     if (block == NULL) {
         return NULL;
     }
@@ -363,7 +363,7 @@ ASTNode *parser_parse_struct(Parser *parser) {
     parser_consume(parser);
     
     // 创建结构体声明节点
-    ASTNode *struct_decl = ast_new_node(AST_STRUCT_DECL, line, column, parser->arena);
+    ASTNode *struct_decl = ast_new_node(AST_STRUCT_DECL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
     if (struct_decl == NULL) {
         return NULL;
     }
@@ -414,7 +414,7 @@ ASTNode *parser_parse_struct(Parser *parser) {
         }
         
         // 创建字段节点（使用 AST_VAR_DECL，is_const = 0）
-        ASTNode *field = ast_new_node(AST_VAR_DECL, field_line, field_column, parser->arena);
+        ASTNode *field = ast_new_node(AST_VAR_DECL, field_line, field_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (field == NULL) {
             return NULL;
         }
@@ -498,7 +498,7 @@ ASTNode *parser_parse_enum(Parser *parser) {
     parser_consume(parser);
     
     // 创建枚举声明节点
-    ASTNode *enum_decl = ast_new_node(AST_ENUM_DECL, line, column, parser->arena);
+    ASTNode *enum_decl = ast_new_node(AST_ENUM_DECL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
     if (enum_decl == NULL) {
         return NULL;
     }
@@ -631,7 +631,7 @@ ASTNode *parser_parse_function(Parser *parser) {
     parser_consume(parser);
     
     // 创建函数声明节点
-    ASTNode *fn_decl = ast_new_node(AST_FN_DECL, line, column, parser->arena);
+    ASTNode *fn_decl = ast_new_node(AST_FN_DECL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
     if (fn_decl == NULL) {
         return NULL;
     }
@@ -684,7 +684,7 @@ ASTNode *parser_parse_function(Parser *parser) {
             }
             
             // 创建参数节点（使用 AST_VAR_DECL，is_const = 0）
-            ASTNode *param = ast_new_node(AST_VAR_DECL, param_line, param_column, parser->arena);
+            ASTNode *param = ast_new_node(AST_VAR_DECL, param_line, param_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
             if (param == NULL) {
                 return NULL;
             }
@@ -787,7 +787,7 @@ ASTNode *parser_parse_extern_function(Parser *parser) {
     parser_consume(parser);
     
     // 创建函数声明节点
-    ASTNode *fn_decl = ast_new_node(AST_FN_DECL, line, column, parser->arena);
+    ASTNode *fn_decl = ast_new_node(AST_FN_DECL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
     if (fn_decl == NULL) {
         return NULL;
     }
@@ -850,7 +850,7 @@ ASTNode *parser_parse_extern_function(Parser *parser) {
             }
             
             // 创建参数节点（使用 AST_VAR_DECL，is_const = 0）
-            ASTNode *param = ast_new_node(AST_VAR_DECL, param_line, param_column, parser->arena);
+            ASTNode *param = ast_new_node(AST_VAR_DECL, param_line, param_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
             if (param == NULL) {
                 return NULL;
             }
@@ -954,7 +954,7 @@ ASTNode *parser_parse(Parser *parser) {
     int line = parser->current_token->line;
     int column = parser->current_token->column;
     
-    ASTNode *program = ast_new_node(AST_PROGRAM, line, column, parser->arena);
+    ASTNode *program = ast_new_node(AST_PROGRAM, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
     if (program == NULL) {
         return NULL;
     }
@@ -1032,7 +1032,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
     
     // 解析数字字面量
     if (parser->current_token->type == TOKEN_NUMBER) {
-        ASTNode *node = ast_new_node(AST_NUMBER, line, column, parser->arena);
+        ASTNode *node = ast_new_node(AST_NUMBER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
         }
@@ -1047,7 +1047,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
     
     // 解析布尔字面量
     if (parser->current_token->type == TOKEN_TRUE) {
-        ASTNode *node = ast_new_node(AST_BOOL, line, column, parser->arena);
+        ASTNode *node = ast_new_node(AST_BOOL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
         }
@@ -1059,7 +1059,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
     }
     
     if (parser->current_token->type == TOKEN_FALSE) {
-        ASTNode *node = ast_new_node(AST_BOOL, line, column, parser->arena);
+        ASTNode *node = ast_new_node(AST_BOOL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
         }
@@ -1072,7 +1072,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
     
     // 解析字符串字面量
     if (parser->current_token->type == TOKEN_STRING) {
-        ASTNode *node = ast_new_node(AST_STRING, line, column, parser->arena);
+        ASTNode *node = ast_new_node(AST_STRING, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
         }
@@ -1092,7 +1092,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
     
     // 解析 null 字面量（null 被解析为标识符节点，在代码生成阶段通过字符串比较识别）
     if (parser->current_token->type == TOKEN_NULL) {
-        ASTNode *node = ast_new_node(AST_IDENTIFIER, line, column, parser->arena);
+        ASTNode *node = ast_new_node(AST_IDENTIFIER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
         }
@@ -1117,7 +1117,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             return NULL;
         }
         
-        ASTNode *sizeof_node = ast_new_node(AST_SIZEOF, line, column, parser->arena);
+        ASTNode *sizeof_node = ast_new_node(AST_SIZEOF, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (sizeof_node == NULL) {
             return NULL;
         }
@@ -1183,7 +1183,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             return NULL;
         }
         
-        ASTNode *alignof_node = ast_new_node(AST_ALIGNOF, line, column, parser->arena);
+        ASTNode *alignof_node = ast_new_node(AST_ALIGNOF, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (alignof_node == NULL) {
             return NULL;
         }
@@ -1249,7 +1249,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             return NULL;
         }
         
-        ASTNode *len_node = ast_new_node(AST_LEN, line, column, parser->arena);
+        ASTNode *len_node = ast_new_node(AST_LEN, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (len_node == NULL) {
             return NULL;
         }
@@ -1282,13 +1282,13 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         // 检查下一个 token 类型
         if (parser->current_token != NULL && parser->current_token->type == TOKEN_LEFT_PAREN) {
             // 函数调用：ID '(' [ arg_list ] ')'
-            ASTNode *call = ast_new_node(AST_CALL_EXPR, line, column, parser->arena);
+            ASTNode *call = ast_new_node(AST_CALL_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
             if (call == NULL) {
                 return NULL;
             }
             
             // 创建标识符节点作为被调用的函数
-            ASTNode *callee = ast_new_node(AST_IDENTIFIER, line, column, parser->arena);
+            ASTNode *callee = ast_new_node(AST_IDENTIFIER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
             if (callee == NULL) {
                 return NULL;
             }
@@ -1378,7 +1378,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     parser_consume(parser);  // 消费字段名称
                     
                     // 创建字段访问节点
-                    ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
+                    ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
                     if (member_access == NULL) {
                         return NULL;
                     }
@@ -1405,7 +1405,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     }
                     
                     // 创建数组访问节点
-                    ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena);
+                    ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
                     if (array_access == NULL) {
                         return NULL;
                     }
@@ -1427,7 +1427,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             
             if (!is_struct_init) {
                 // 不是结构体字面量，创建普通标识符（后面的'{'是代码块的开始，不是表达式的一部分）
-                ASTNode *node = ast_new_node(AST_IDENTIFIER, line, column, parser->arena);
+                ASTNode *node = ast_new_node(AST_IDENTIFIER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
                 if (node == NULL) {
                     return NULL;
                 }
@@ -1456,7 +1456,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     parser_consume(parser);  // 消费字段名称
                     
                     // 创建字段访问节点
-                    ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
+                    ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
                     if (member_access == NULL) {
                         return NULL;
                     }
@@ -1471,7 +1471,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             }
             
             // 结构体字面量：ID '{' field_init_list '}'
-            ASTNode *struct_init = ast_new_node(AST_STRUCT_INIT, line, column, parser->arena);
+            ASTNode *struct_init = ast_new_node(AST_STRUCT_INIT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
             if (struct_init == NULL) {
                 return NULL;
             }
@@ -1586,7 +1586,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 parser_consume(parser);  // 消费字段名称
                 
                 // 创建字段访问节点
-                ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
+                ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
                 if (member_access == NULL) {
                     return NULL;
                 }
@@ -1600,7 +1600,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             return result;
         } else {
             // 普通标识符
-            ASTNode *node = ast_new_node(AST_IDENTIFIER, line, column, parser->arena);
+            ASTNode *node = ast_new_node(AST_IDENTIFIER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
             if (node == NULL) {
                 return NULL;
             }
@@ -1631,7 +1631,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     parser_consume(parser);  // 消费字段名称
                     
                     // 创建字段访问节点
-                    ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
+                    ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
                     if (member_access == NULL) {
                         return NULL;
                     }
@@ -1658,7 +1658,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     }
                     
                     // 创建数组访问节点
-                    ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena);
+                    ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
                     if (array_access == NULL) {
                         return NULL;
                     }
@@ -1684,7 +1684,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         parser_consume(parser);  // 消费 '['
         
         // 创建数组字面量节点
-        ASTNode *array_literal = ast_new_node(AST_ARRAY_LITERAL, array_line, array_column, parser->arena);
+        ASTNode *array_literal = ast_new_node(AST_ARRAY_LITERAL, array_line, array_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (array_literal == NULL) {
             return NULL;
         }
@@ -1773,7 +1773,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 parser_consume(parser);  // 消费字段名称
                 
                 // 创建字段访问节点
-                ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
+                ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
                 if (member_access == NULL) {
                     return NULL;
                 }
@@ -1800,7 +1800,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 }
                 
                 // 创建数组访问节点
-                ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena);
+                ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
                 if (array_access == NULL) {
                     return NULL;
                 }
@@ -1857,7 +1857,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 parser_consume(parser);  // 消费字段名称
                 
                 // 创建字段访问节点
-                ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena);
+                ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
                 if (member_access == NULL) {
                     return NULL;
                 }
@@ -1884,7 +1884,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 }
                 
                 // 创建数组访问节点
-                ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena);
+                ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
                 if (array_access == NULL) {
                     return NULL;
                 }
@@ -1931,7 +1931,7 @@ static ASTNode *parser_parse_unary_expr(Parser *parser) {
         }
         
         // 创建一元表达式节点
-        ASTNode *node = ast_new_node(AST_UNARY_EXPR, line, column, parser->arena);
+        ASTNode *node = ast_new_node(AST_UNARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
         }
@@ -1972,7 +1972,7 @@ static ASTNode *parser_parse_cast_expr(Parser *parser) {
         }
         
         // 创建类型转换节点
-        ASTNode *node = ast_new_node(AST_CAST_EXPR, line, column, parser->arena);
+        ASTNode *node = ast_new_node(AST_CAST_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
         }
@@ -2018,7 +2018,7 @@ static ASTNode *parser_parse_mul_expr(Parser *parser) {
         }
         
         // 创建二元表达式节点
-        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena);
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
         }
@@ -2063,7 +2063,7 @@ static ASTNode *parser_parse_add_expr(Parser *parser) {
         }
         
         // 创建二元表达式节点
-        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena);
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
         }
@@ -2110,7 +2110,7 @@ static ASTNode *parser_parse_rel_expr(Parser *parser) {
         }
         
         // 创建二元表达式节点
-        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena);
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
         }
@@ -2155,7 +2155,7 @@ static ASTNode *parser_parse_eq_expr(Parser *parser) {
         }
         
         // 创建二元表达式节点
-        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena);
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
         }
@@ -2197,7 +2197,7 @@ static ASTNode *parser_parse_and_expr(Parser *parser) {
         }
         
         // 创建二元表达式节点
-        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena);
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
         }
@@ -2239,7 +2239,7 @@ static ASTNode *parser_parse_or_expr(Parser *parser) {
         }
         
         // 创建二元表达式节点
-        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena);
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
         }
@@ -2280,7 +2280,7 @@ static ASTNode *parser_parse_assign_expr(Parser *parser) {
         }
         
         // 创建赋值节点
-        ASTNode *node = ast_new_node(AST_ASSIGN, line, column, parser->arena);
+        ASTNode *node = ast_new_node(AST_ASSIGN, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
         }
@@ -2320,7 +2320,7 @@ ASTNode *parser_parse_statement(Parser *parser) {
         // 解析 return 语句
         parser_consume(parser);  // 消费 'return'
         
-        ASTNode *stmt = ast_new_node(AST_RETURN_STMT, line, column, parser->arena);
+        ASTNode *stmt = ast_new_node(AST_RETURN_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (stmt == NULL) {
             return NULL;
         }
@@ -2351,7 +2351,7 @@ ASTNode *parser_parse_statement(Parser *parser) {
         // 解析 break 语句
         parser_consume(parser);  // 消费 'break'
         
-        ASTNode *stmt = ast_new_node(AST_BREAK_STMT, line, column, parser->arena);
+        ASTNode *stmt = ast_new_node(AST_BREAK_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (stmt == NULL) {
             return NULL;
         }
@@ -2368,7 +2368,7 @@ ASTNode *parser_parse_statement(Parser *parser) {
         // 解析 continue 语句
         parser_consume(parser);  // 消费 'continue'
         
-        ASTNode *stmt = ast_new_node(AST_CONTINUE_STMT, line, column, parser->arena);
+        ASTNode *stmt = ast_new_node(AST_CONTINUE_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (stmt == NULL) {
             return NULL;
         }
@@ -2385,7 +2385,7 @@ ASTNode *parser_parse_statement(Parser *parser) {
         // 解析 if 语句
         parser_consume(parser);  // 消费 'if'
         
-        ASTNode *stmt = ast_new_node(AST_IF_STMT, line, column, parser->arena);
+        ASTNode *stmt = ast_new_node(AST_IF_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (stmt == NULL) {
             return NULL;
         }
@@ -2438,7 +2438,7 @@ ASTNode *parser_parse_statement(Parser *parser) {
         // 解析 while 语句
         parser_consume(parser);  // 消费 'while'
         
-        ASTNode *stmt = ast_new_node(AST_WHILE_STMT, line, column, parser->arena);
+        ASTNode *stmt = ast_new_node(AST_WHILE_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (stmt == NULL) {
             return NULL;
         }
@@ -2465,7 +2465,7 @@ ASTNode *parser_parse_statement(Parser *parser) {
         // 语法：for expr | ID | { statements } 或 for expr | &ID | { statements }
         parser_consume(parser);  // 消费 'for'
         
-        ASTNode *stmt = ast_new_node(AST_FOR_STMT, line, column, parser->arena);
+        ASTNode *stmt = ast_new_node(AST_FOR_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (stmt == NULL) {
             return NULL;
         }
@@ -2536,7 +2536,7 @@ ASTNode *parser_parse_statement(Parser *parser) {
         
         parser_consume(parser);  // 消费变量名称
         
-        ASTNode *stmt = ast_new_node(AST_VAR_DECL, line, column, parser->arena);
+        ASTNode *stmt = ast_new_node(AST_VAR_DECL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (stmt == NULL) {
             return NULL;
         }
