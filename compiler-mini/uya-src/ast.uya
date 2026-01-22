@@ -78,6 +78,7 @@ struct ASTNode {
     type: ASTNodeType,// 节点类型
     line: i32,// 行号
     column: i32,// 列号
+    filename: &byte,// 文件名（从 Lexer 中获取，用于错误报告）
     
     // 程序节点数据
     program_decls: [&ASTNode: MAX_PROGRAM_DECLS],// 声明数组（固定大小）
@@ -205,9 +206,9 @@ struct ASTNode {
 }
 
 // 创建新的 AST 节点
-// 参数：type - 节点类型，line - 行号，column - 列号，arena - Arena 分配器
+// 参数：type - 节点类型，line - 行号，column - 列号，arena - Arena 分配器，filename - 文件名（可选）
 // 返回：新创建的 AST 节点指针，失败返回 null
-fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena) &ASTNode {
+fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filename: &byte) &ASTNode {
     if arena == null {
         return null;
     }
@@ -222,6 +223,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena) &ASTNo
     node.type = type;
     node.line = line;
     node.column = column;
+    node.filename = filename;  // 保存文件名用于错误报告
     
     // 声明循环变量（在函数作用域内）
     var i: i32 = 0;

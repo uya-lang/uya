@@ -863,7 +863,14 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         return result;
     } else if (expr.type as i32) == (AST_MEMBER_ACCESS as i32) {
         // 字段访问：推断对象类型，然后查找字段类型
-        const object_type: Type = checker_infer_type(checker, expr.member_access_object);
+        // 支持结构体类型和指针类型（指针自动解引用）
+        var object_type: Type = checker_infer_type(checker, expr.member_access_object);
+        
+        // 如果对象是指针类型，自动解引用（Uya Mini 支持指针自动解引用访问字段）
+        if (object_type.kind as i32) == (TYPE_POINTER as i32) && object_type.pointer_to != null {
+            object_type = object_type.pointer_to[0];
+        }
+        
         if (object_type.kind as i32) != (TYPE_STRUCT as i32) || object_type.struct_name == null {
             // 对象类型不是结构体，返回void类型
             result.kind = TYPE_VOID as TypeKind;
@@ -883,15 +890,20 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         return field_type;  // 如果字段不存在，field_type.kind 为 TYPE_VOID
     } else if (expr.type as i32) == (AST_ARRAY_ACCESS as i32) {
         // 数组访问：推断数组表达式类型，然后返回元素类型
+        // 支持数组类型 [T: N] 和指针类型 &T（指针类型的数组访问如 &byte[offset]）
         const array_type: Type = checker_infer_type(checker, expr.array_access_array);
-        if (array_type.kind as i32) != (TYPE_ARRAY as i32) || array_type.element_type == null {
-            // 数组表达式类型不是数组类型，返回void类型
-            result.kind = TYPE_VOID as TypeKind;
-            return result;
+        
+        if (array_type.kind as i32) == (TYPE_ARRAY as i32) && array_type.element_type != null {
+            // 数组类型：返回数组的元素类型
+            return array_type.element_type[0];
+        } else if (array_type.kind as i32) == (TYPE_POINTER as i32) && array_type.pointer_to != null {
+            // 指针类型：返回指针指向的类型（如 &byte[offset] 返回 byte）
+            return array_type.pointer_to[0];
         }
         
-        // 返回数组的元素类型
-        return array_type.element_type[0];
+        // 数组表达式类型不是数组类型或指针类型，返回void类型
+        result.kind = TYPE_VOID as TypeKind;
+        return result;
     } else if (expr.type as i32) == (AST_STRUCT_INIT as i32) {
         // 结构体字面量：返回结构体类型
         result.kind = TYPE_STRUCT as TypeKind;
@@ -1297,7 +1309,13 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
     }
     
     // 获取对象类型
-    const object_type: Type = checker_infer_type(checker, node.member_access_object);
+    var object_type: Type = checker_infer_type(checker, node.member_access_object);
+    
+    // 如果对象是指针类型，自动解引用（Uya Mini 支持指针自动解引用访问字段）
+    if (object_type.kind as i32) == (TYPE_POINTER as i32) && object_type.pointer_to != null {
+        object_type = object_type.pointer_to[0];
+    }
+    
     if (object_type.kind as i32) != (TYPE_STRUCT as i32) || object_type.struct_name == null {
         // 对象类型不是结构体
         checker_report_error(checker);
@@ -1348,11 +1366,6 @@ fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
     
     // 获取数组表达式类型
     const array_type: Type = checker_infer_type(checker, node.array_access_array);
-    if (array_type.kind as i32) != (TYPE_ARRAY as i32) || array_type.element_type == null {
-        // 数组表达式类型不是数组类型
-        checker_report_error(checker);
-        return result;
-    }
     
     // 检查索引表达式类型是 i32
     const index_type: Type = checker_infer_type(checker, node.array_access_index);
@@ -1362,8 +1375,18 @@ fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
         return result;
     }
     
-    // 返回数组的元素类型
-    return array_type.element_type[0];
+    // 支持数组类型和指针类型
+    if (array_type.kind as i32) == (TYPE_ARRAY as i32) && array_type.element_type != null {
+        // 数组类型：返回数组的元素类型
+        return array_type.element_type[0];
+    } else if (array_type.kind as i32) == (TYPE_POINTER as i32) && array_type.pointer_to != null {
+        // 指针类型：返回指针指向的类型（如 &byte[offset] 返回 byte）
+        return array_type.pointer_to[0];
+    }
+    
+    // 数组表达式类型不是数组类型或指针类型
+    checker_report_error(checker);
+    return result;
 }
 
 // 检查 alignof 表达式
@@ -1907,27 +1930,66 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         }
         return 1;
     } else if (node.type as i32) == (AST_ASSIGN as i32) {
-        // 检查目标是否为var（不能是const）
+        // 检查赋值目标（可以是标识符、字段访问或数组访问）
         const dest: &ASTNode = node.assign_dest;
-        if dest == null || (dest.type as i32) != (AST_IDENTIFIER as i32) {
+        if dest == null {
             checker_report_error(checker);
             return 0;
         }
         
-        const symbol: &Symbol = symbol_table_lookup(checker, dest.identifier_name);
-        if symbol == null {
-            checker_report_error(checker);
-            return 0;
-        }
+        var dest_type: Type = Type{
+            kind: TYPE_VOID as TypeKind,
+            enum_name: null,
+            struct_name: null,
+            pointer_to: null,
+            is_ffi_pointer: 0,
+            element_type: null,
+            array_size: 0
+        };
+        dest_type.enum_name = null;
+        dest_type.struct_name = null;
+        dest_type.pointer_to = null;
+        dest_type.is_ffi_pointer = 0;
+        dest_type.element_type = null;
+        dest_type.array_size = 0;
         
-        if symbol.is_const != 0 {
-            // 不能给const变量赋值
+        if (dest.type as i32) == (AST_IDENTIFIER as i32) {
+            // 标识符赋值：检查是否为 var（不能是 const）
+            const symbol: &Symbol = symbol_table_lookup(checker, dest.identifier_name);
+            if symbol == null {
+                checker_report_error(checker);
+                return 0;
+            }
+            
+            if symbol.is_const != 0 {
+                // 不能给 const 变量赋值
+                checker_report_error(checker);
+                return 0;
+            }
+            
+            dest_type = symbol.type;
+        } else if (dest.type as i32) == (AST_MEMBER_ACCESS as i32) {
+            // 字段访问赋值：检查字段类型
+            dest_type = checker_check_member_access(checker, dest);
+            if (dest_type.kind as i32) == (TYPE_VOID as i32) {
+                // 字段访问失败（错误已在 checker_check_member_access 中报告）
+                return 0;
+            }
+        } else if (dest.type as i32) == (AST_ARRAY_ACCESS as i32) {
+            // 数组访问赋值：检查元素类型
+            dest_type = checker_check_array_access(checker, dest);
+            if (dest_type.kind as i32) == (TYPE_VOID as i32) {
+                // 数组访问失败（错误已在 checker_check_array_access 中报告）
+                return 0;
+            }
+        } else {
+            // 无效的赋值目标
             checker_report_error(checker);
             return 0;
         }
         
         // 检查赋值类型匹配
-        if checker_check_expr_type(checker, node.assign_src, symbol.type) == 0 {
+        if checker_check_expr_type(checker, node.assign_src, dest_type) == 0 {
             return 0;
         }
         

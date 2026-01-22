@@ -52,7 +52,7 @@ typedef struct CodeGenerator {
         LLVMValueRef global_var;    // LLVM 全局变量值（指针）
         LLVMTypeRef type;           // 全局变量类型（用于 LLVMBuildLoad2）
         const char *struct_name;    // 结构体名称（仅当类型是结构体类型时有效，存储在 Arena 中）
-    } global_var_map[64];           // 固定大小（最多支持64个全局变量）
+    } global_var_map[128];          // 固定大小（最多支持128个全局变量）
     int global_var_map_count;       // 当前全局变量数量
     
     int basic_block_counter;        // 基本块计数器（用于生成唯一的基本块名称）

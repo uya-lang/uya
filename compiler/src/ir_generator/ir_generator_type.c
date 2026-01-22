@@ -400,3 +400,4 @@ IRInst *find_struct_decl(IRGenerator *ir_gen, const char *struct_name) {
     return NULL;
 }
 
+
