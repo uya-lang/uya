@@ -1460,10 +1460,34 @@ static Type checker_check_alignof(TypeChecker *checker, ASTNode *node) {
         }
     } else {
         // target 是表达式节点，验证表达式类型是否有效
-        Type expr_type = checker_infer_type(checker, target);
-        if (expr_type.kind == TYPE_VOID) {
-            checker_report_error(checker, node, "类型检查错误");
-            return result;
+        // 特殊情况：如果 target 是标识符，可能是结构体类型名称（如 alignof(Point)）
+        if (target->type == AST_IDENTIFIER) {
+            const char *name = target->data.identifier.name;
+            if (name != NULL) {
+                // 检查是否是结构体类型名称
+                ASTNode *struct_decl = find_struct_decl_from_program(checker->program_node, name);
+                if (struct_decl != NULL) {
+                    // 这是结构体类型名称，允许使用（alignof 可以接受类型名称）
+                    // 不需要进一步检查，直接允许
+                } else {
+                    // 不是结构体类型，尝试作为表达式推断类型
+                    Type expr_type = checker_infer_type(checker, target);
+                    if (expr_type.kind == TYPE_VOID) {
+                        checker_report_error(checker, node, "类型检查错误");
+                        return result;
+                    }
+                }
+            } else {
+                checker_report_error(checker, node, "类型检查错误");
+                return result;
+            }
+        } else {
+            // 其他表达式类型，正常推断类型
+            Type expr_type = checker_infer_type(checker, target);
+            if (expr_type.kind == TYPE_VOID) {
+                checker_report_error(checker, node, "类型检查错误");
+                return result;
+            }
         }
     }
     
@@ -2083,6 +2107,32 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                     // 数组访问失败（错误已在 checker_check_array_access 中报告）
                     return 0;
                 }
+            } else if (dest->type == AST_UNARY_EXPR) {
+                // 解引用赋值（*p = value）：检查解引用表达式
+                // 解引用表达式必须是 *expr 形式，其中 expr 是指针类型
+                int op = dest->data.unary_expr.op;
+                if (op != TOKEN_ASTERISK) {
+                    // 不是解引用运算符，不能作为赋值目标
+                    checker_report_error(checker, dest, "无效的赋值目标（只有解引用表达式可以作为赋值目标）");
+                    return 0;
+                }
+                
+                // 检查操作数类型：必须是指针类型
+                Type operand_type = checker_infer_type(checker, dest->data.unary_expr.operand);
+                if (operand_type.kind != TYPE_POINTER) {
+                    checker_report_error(checker, dest->data.unary_expr.operand, "解引用操作数必须是指针类型");
+                    return 0;
+                }
+                
+                if (operand_type.data.pointer.pointer_to == NULL) {
+                    // 指针类型无效（可能是 void 指针）
+                    // 对于 void 指针，不允许解引用赋值（类型不明确）
+                    checker_report_error(checker, dest, "不能对 void 指针进行解引用赋值");
+                    return 0;
+                }
+                
+                // 解引用表达式的类型是指针指向的类型
+                dest_type = *operand_type.data.pointer.pointer_to;
             } else {
                 char buf[256];
                 snprintf(buf, sizeof(buf), "无效的赋值目标（节点类型：%d）", dest->type);
