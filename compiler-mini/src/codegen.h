@@ -22,6 +22,7 @@ typedef struct CodeGenerator {
     struct StructTypeMap {
         const char *name;           // 结构体名称（存储在 Arena 中）
         LLVMTypeRef llvm_type;      // LLVM 结构体类型
+        ASTNode *ast_node;          // AST 节点引用（用于查找结构体声明）
     } struct_types[64];             // 固定大小（最多支持64个结构体类型）
     int struct_type_count;          // 当前结构体类型数量
     
