@@ -713,7 +713,25 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
                                 if (pointed_type) {
                                     // 对于指针类型变量，需要加载指针值
                                     array_type = pointed_type;
-                                    array_ptr = LLVMBuildLoad2(codegen->builder, var_type, array_ptr, var_name);
+                                    // 检查 array_ptr 和 var_type 是否有效
+                                    if (array_ptr && array_ptr != (LLVMValueRef)1 && 
+                                        var_type && var_type != (LLVMTypeRef)1 &&
+                                        codegen && codegen->builder) {
+                                        // 验证 builder 是否有效
+                                        LLVMValueRef loaded_ptr = LLVMBuildLoad2(codegen->builder, var_type, array_ptr, var_name);
+                                        if (!loaded_ptr || loaded_ptr == (LLVMValueRef)1) {
+                                            fprintf(stderr, "错误: codegen_gen_lvalue_address LLVMBuildLoad2 返回无效值 (变量: %s)\n", var_name);
+                                            return NULL;
+                                        }
+                                        array_ptr = loaded_ptr;
+                                    } else {
+                                        fprintf(stderr, "错误: codegen_gen_lvalue_address 无效的 array_ptr、var_type 或 builder (变量: %s, array_ptr=%p, var_type=%p, builder=%p)\n", 
+                                                var_name, (void*)array_ptr, (void*)var_type, (void*)(codegen ? codegen->builder : NULL));
+                                        return NULL;
+                                    }
+                                } else {
+                                    fprintf(stderr, "错误: codegen_gen_lvalue_address 无法获取指针指向的类型 (变量: %s)\n", var_name);
+                                    return NULL;
                                 }
                             }
                         } else {
@@ -733,7 +751,18 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
                                         } else {
                                             // 指针指向单个元素（如 &byte），需要加载指针值
                                             array_type = pointed_type;
-                                            array_ptr = LLVMBuildLoad2(codegen->builder, var_ptr_type, array_ptr, var_name);
+                                            // 检查 array_ptr 和 var_ptr_type 是否有效
+                                            if (array_ptr && array_ptr != (LLVMValueRef)1 && 
+                                                var_ptr_type && var_ptr_type != (LLVMTypeRef)1) {
+                                                array_ptr = LLVMBuildLoad2(codegen->builder, var_ptr_type, array_ptr, var_name);
+                                                if (!array_ptr) {
+                                                    fprintf(stderr, "错误: codegen_gen_lvalue_address LLVMBuildLoad2 失败 (变量: %s, 路径2)\n", var_name ? var_name : "(null)");
+                                                    return NULL;
+                                                }
+                                            } else {
+                                                fprintf(stderr, "错误: codegen_gen_lvalue_address 无效的 array_ptr 或 var_ptr_type (变量: %s, 路径2)\n", var_name ? var_name : "(null)");
+                                                return NULL;
+                                            }
                                             // 对于单个元素指针，我们将在后面使用元素类型和单个索引进行 GEP
                                             // 不需要创建数组类型
                                         }
@@ -780,13 +809,20 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
                     array_ptr = array_val;
                     array_type = safe_LLVMGetElementType(array_val_type);
                     if (!array_type) {
+                        fprintf(stderr, "错误: codegen_gen_lvalue_address 无法获取指针指向的类型\n");
                         return NULL;
                     }
                     // 检查指向的类型是否是数组类型
                     // 如果不是数组类型，是指向单个元素的指针（如 &byte）
                     // 对于这种情况，我们将在后面使用元素类型和单个索引进行 GEP
                     // 参考 clang 生成的 IR: getelementptr inbounds i8, ptr %buffer_ptr, i64 0
+                    // 验证 array_type 是否有效
+                    if (array_type == (LLVMTypeRef)1) {
+                        fprintf(stderr, "错误: codegen_gen_lvalue_address array_type 是标记值\n");
+                        return NULL;
+                    }
                 } else {
+                    fprintf(stderr, "错误: codegen_gen_lvalue_address 数组值类型不是数组或指针类型 (kind=%d)\n", (int)array_val_kind);
                     return NULL;  // 不是数组类型或指针类型
                 }
             }
@@ -3230,6 +3266,17 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                         fprintf(stderr, "错误: 变量 %s 的初始值表达式生成失败\n", var_name);
                         return -1;
                     }
+                    // 检查 init_val 是否是标记值
+                    if (init_val == (LLVMValueRef)1) {
+                        fprintf(stderr, "错误: 变量 %s 的初始值表达式返回标记值\n", var_name);
+                        return -1;
+                    }
+                    // 验证 init_val 的类型是否有效
+                    LLVMTypeRef init_val_type = safe_LLVMTypeOf(init_val);
+                    if (!init_val_type) {
+                        fprintf(stderr, "错误: 变量 %s 的初始值类型无效\n", var_name);
+                        return -1;
+                    }
                 }
                 
                 // 如果有初始值（空数组字面量时 init_val 为 NULL，跳过 store）
@@ -3405,7 +3452,15 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                         return -1;
                     }
                     
-                    
+                    // 验证 init_val 和 var_ptr 是否有效
+                    if (!init_val || init_val == (LLVMValueRef)1) {
+                        fprintf(stderr, "错误: codegen_gen_stmt init_val 无效 (变量: %s)\n", var_name ? var_name : "(null)");
+                        return -1;
+                    }
+                    if (!var_ptr || var_ptr == (LLVMValueRef)1) {
+                        fprintf(stderr, "错误: codegen_gen_stmt var_ptr 无效 (变量: %s)\n", var_name ? var_name : "(null)");
+                        return -1;
+                    }
                     
                     // 注意：类型转换已经在前面完成，这里直接 store
                     // 如果类型仍然不匹配，LLVM 可能会在内部处理或报错
