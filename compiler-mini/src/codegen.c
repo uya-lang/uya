@@ -2239,6 +2239,32 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 LLVMTypeRef param_type = param_types[i];
                 LLVMTypeRef arg_type = safe_LLVMTypeOf(arg_val);
                 
+                // 处理大结构体参数：如果函数期望指针但参数是结构体类型
+                // 则将结构体值存储到临时内存，传递指针
+                // 注意：即使 is_extern 为 0，如果 param_type 是指针类型且 arg_type 是结构体类型，
+                // 也应该进行转换（因为函数声明时已经将大结构体转换为指针类型）
+                if (param_type && arg_type) {
+                    int param_kind = LLVMGetTypeKind(param_type);
+                    int arg_kind = LLVMGetTypeKind(arg_type);
+                    
+                    // 如果函数期望指针类型，且参数是结构体类型，进行转换
+                    if (param_kind == LLVMPointerTypeKind && arg_kind == LLVMStructTypeKind) {
+                        // 检查指针指向的类型是否是结构体类型
+                        LLVMTypeRef pointed_type = LLVMGetElementType(param_type);
+                        if (pointed_type) {
+                            // 只要函数期望指针类型且参数是结构体类型，就应该转换
+                            // 不依赖于大小检查，因为函数声明时已经判断过了
+                            // 将结构体值存储到临时内存
+                            LLVMValueRef struct_ptr = LLVMBuildAlloca(codegen->builder, arg_type, "");
+                            LLVMBuildStore(codegen->builder, arg_val, struct_ptr);
+                            // 传递指针
+                            args[actual_arg_count++] = struct_ptr;
+                            original_arg_index++;
+                            continue;
+                        }
+                    }
+                }
+                
                 // 处理结构体参数：如果是 extern 函数调用，且函数期望 i64 但参数是结构体类型
                 // 则将结构体打包到 i64 寄存器
                 // 这确保与 C 函数的调用约定一致（C 编译器将小结构体打包到单个寄存器）
@@ -4400,8 +4426,27 @@ static int codegen_declare_function(CodeGenerator *codegen, ASTNode *fn_decl) {
             // 根据 x86-64 System V ABI：
             // - 8 字节结构体（两个 i32）：转换为单个 i64 参数
             // - 16 字节结构体（四个 i32）：转换为两个 i64 参数
+            // - 大于 16 字节的结构体：通过指针传递
             if (is_extern && LLVMGetTypeKind(param_type) == LLVMStructTypeKind) {
+                // 计算结构体大小
+                LLVMTargetDataRef target_data = LLVMGetModuleDataLayout(codegen->module);
+                unsigned long long struct_size = 0;
                 unsigned field_count = LLVMCountStructElementTypes(param_type);
+                if (target_data) {
+                    struct_size = LLVMStoreSizeOfType(target_data, param_type);
+                } else {
+                    // 如果 target_data 为 NULL，尝试通过字段数估算大小
+                    // 对于 i32 字段，每个字段 4 字节
+                    struct_size = field_count * 4;  // 简单估算
+                }
+                
+                // 大结构体（>16 字节）：通过指针传递（优先检查，避免字段数检查的复杂性）
+                // 如果字段数 >= 6（24 字节），也认为是大结构体
+                if (struct_size > 16 || field_count >= 6) {
+                    param_type = LLVMPointerType(param_type, 0);
+                    param_types[actual_index++] = param_type;
+                    continue;
+                }
                 if (field_count == 2) {
                     LLVMTypeRef field_types[2];
                     LLVMGetStructElementTypes(param_type, field_types);

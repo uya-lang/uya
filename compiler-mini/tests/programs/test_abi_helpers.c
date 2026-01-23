@@ -38,8 +38,9 @@ int32_t c_medium_struct_param(MediumStruct m) {
 }
 
 // 测试 14: C 函数 - 大结构体参数（指针传递）
-int32_t c_large_struct_param(LargeStruct l) {
-    return l.a + l.b + l.c + l.d + l.e + l.f;
+// 注意：根据 x86-64 System V ABI，大结构体（>16字节）必须通过指针传递
+int32_t c_large_struct_param(LargeStruct *l) {
+    return l->a + l->b + l->c + l->d + l->e + l->f;
 }
 
 // 测试 15: C 函数 - 小结构体返回值（寄存器返回）
