@@ -1617,8 +1617,9 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
             result.kind = TYPE_BOOL;
             return result;
         }
-        // 其他类型不匹配：放宽检查，允许通过（不报错）
-        result.kind = TYPE_BOOL;
+        // 其他类型不匹配：报告错误
+        checker_report_error(checker, node, "类型不匹配：比较运算符的操作数类型必须相同或兼容");
+        result.kind = TYPE_BOOL;  // 仍然返回 bool 类型，但已报告错误
         return result;
     }
     
@@ -1839,10 +1840,14 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             return 1;
             
         case AST_IF_STMT: {
+            // 先检查条件表达式（这会进行类型检查，包括类型不匹配的错误）
+            if (node->data.if_stmt.condition != NULL) {
+                checker_check_node(checker, node->data.if_stmt.condition);
+            }
             // 检查条件类型（必须是bool）
             Type cond_type = checker_infer_type(checker, node->data.if_stmt.condition);
-            if (cond_type.kind != TYPE_BOOL) {
-                checker_report_error(checker, node, "类型检查错误");
+            if (cond_type.kind != TYPE_BOOL && cond_type.kind != TYPE_VOID) {
+                checker_report_error(checker, node, "if 语句的条件表达式必须是 bool 类型");
             }
             // 检查then分支
             if (node->data.if_stmt.then_branch != NULL) {
@@ -2056,8 +2061,9 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                     dest_type.data.pointer.is_ffi_pointer = 0;
                 } else {
                     if (symbol->is_const) {
-                        // 不能给 const 变量赋值：放宽检查，允许通过（不报错）
-                        // 这在编译器自举时可能发生
+                        // 不能给 const 变量赋值
+                        checker_report_error(checker, dest, "const 变量不能重新赋值");
+                        return 0;
                     }
                     
                     dest_type = symbol->type;
