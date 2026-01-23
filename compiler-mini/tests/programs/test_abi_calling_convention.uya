@@ -198,8 +198,7 @@ fn test_recursive_struct_call() i32 {
 // 声明外部 C 函数，用于验证 ABI 兼容性
 extern fn c_small_struct_param(s: SmallStruct) i32;
 extern fn c_medium_struct_param(m: MediumStruct) i32;
-// 注意：大结构体必须通过指针传递（符合 x86-64 System V ABI）
-extern fn c_large_struct_param(l: *LargeStruct) i32;
+extern fn c_large_struct_param(l: LargeStruct) i32;
 extern fn c_small_struct_return() SmallStruct;
 extern fn c_medium_struct_return() MediumStruct;
 extern fn c_large_struct_return() LargeStruct;
@@ -233,8 +232,7 @@ fn test_c_medium_struct_param() i32 {
 
 fn test_c_large_struct_param() i32 {
     var l: LargeStruct = LargeStruct{ a: 1, b: 2, c: 3, d: 4, e: 5, f: 6 };
-    // 注意：&LargeStruct 需要显式转换为 *LargeStruct 才能传递给 FFI 函数
-    const result: i32 = c_large_struct_param(&l as *LargeStruct);
+    const result: i32 = c_large_struct_param(l);
     // C 函数应该返回 a+b+c+d+e+f = 21
     if result != 21 {
         return 1;
