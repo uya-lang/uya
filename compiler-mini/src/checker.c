@@ -1906,17 +1906,41 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             // 1. 检查数组表达式类型（必须是数组类型）
             Type array_type = checker_infer_type(checker, node->data.for_stmt.array);
             if (array_type.kind != TYPE_ARRAY || array_type.data.array.element_type == NULL) {
-                // 类型推断失败或不是数组类型：放宽检查，允许通过（不报错）
-                // 这在编译器自举时很常见，因为类型推断可能失败
-                // 继续检查循环体（以便报告更多错误）
-                checker_enter_scope(checker);
-                checker->loop_depth++;
-                if (node->data.for_stmt.body != NULL) {
-                    checker_check_node(checker, node->data.for_stmt.body);
+                // 类型推断失败或不是数组类型
+                // 如果数组表达式是标识符，尝试从符号表获取类型
+                if (node->data.for_stmt.array->type == AST_IDENTIFIER) {
+                    Symbol *symbol = symbol_table_lookup(checker, node->data.for_stmt.array->data.identifier.name);
+                    if (symbol != NULL && symbol->type.kind == TYPE_ARRAY && symbol->type.data.array.element_type != NULL) {
+                        // 从符号表获取到了有效的数组类型，使用它
+                        array_type = symbol->type;
+                    } else {
+                        // 符号表中也没有有效的数组类型，报告错误但继续检查
+                        checker_report_error(checker, node, "for 循环需要数组类型，但无法推断数组表达式类型");
+                        checker_enter_scope(checker);
+                        checker->loop_depth++;
+                        if (node->data.for_stmt.body != NULL) {
+                            checker_check_node(checker, node->data.for_stmt.body);
+                        }
+                        checker->loop_depth--;
+                        checker_exit_scope(checker);
+                        return 1;
+                    }
+                } else {
+                    // 不是标识符，无法从符号表获取，报告错误但继续检查
+                    checker_report_error(checker, node, "for 循环需要数组类型，但无法推断数组表达式类型");
+                    checker_enter_scope(checker);
+                    checker->loop_depth++;
+                    if (node->data.for_stmt.body != NULL) {
+                        checker_check_node(checker, node->data.for_stmt.body);
+                    }
+                    checker->loop_depth--;
+                    checker_exit_scope(checker);
+                    return 1;
                 }
-                checker->loop_depth--;
-                checker_exit_scope(checker);
-            } else {
+            }
+            
+            // 确保 array_type 是有效的数组类型
+            if (array_type.kind == TYPE_ARRAY && array_type.data.array.element_type != NULL) {
                 // 2. 如果引用迭代形式，检查数组是否为可变变量
                 if (node->data.for_stmt.is_ref) {
                     // 引用迭代形式只能用于可变数组（var arr）
@@ -1938,12 +1962,33 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                 
                 // 创建循环变量类型
                 Type var_type;
+                if (array_type.data.array.element_type == NULL) {
+                    // 元素类型无效，报告错误
+                    checker_report_error(checker, node, "for 循环数组类型无效：无法确定元素类型");
+                    checker_enter_scope(checker);
+                    checker->loop_depth++;
+                    if (node->data.for_stmt.body != NULL) {
+                        checker_check_node(checker, node->data.for_stmt.body);
+                    }
+                    checker->loop_depth--;
+                    checker_exit_scope(checker);
+                    return 1;  // 继续检查，但已报告错误
+                }
+                
                 if (node->data.for_stmt.is_ref) {
                     // 引用迭代：变量类型为 &T（指向元素的指针）
                     Type element_type = *array_type.data.array.element_type;
                     Type *element_type_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
                     if (element_type_ptr == NULL) {
-                        checker_report_error(checker, node, "类型检查错误");
+                        checker_report_error(checker, node, "类型检查错误：内存分配失败");
+                        checker_enter_scope(checker);
+                        checker->loop_depth++;
+                        if (node->data.for_stmt.body != NULL) {
+                            checker_check_node(checker, node->data.for_stmt.body);
+                        }
+                        checker->loop_depth--;
+                        checker_exit_scope(checker);
+                        return 1;
                     } else {
                         *element_type_ptr = element_type;
                         var_type.kind = TYPE_POINTER;
