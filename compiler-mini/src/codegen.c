@@ -2353,10 +2353,49 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             LLVMTypeRef return_type = LLVMGetReturnType(func_type);
             
             // 调用函数（LLVM 18 使用 LLVMBuildCall2）
-            // 对于返回结构体类型的函数，LLVM 的行为取决于结构体大小：
-            // - 小结构体（通常 <= 平台指针大小）：直接返回结构体值
-            // - 大结构体：使用 sret 约定（通过第一个隐式参数传递返回值的指针）
             LLVMValueRef call_result = LLVMBuildCall2(codegen->builder, func_type, func, args, actual_arg_count, "");
+            
+            // 特殊处理：对于 extern 函数返回小结构体，需要手动解包 ABI
+            if (call_result && return_type && LLVMGetTypeKind(return_type) == LLVMStructTypeKind) {
+                // 检查是否为小结构体（8字节）且是 extern 函数调用
+                LLVMTargetDataRef target_data = LLVMGetModuleDataLayout(codegen->module);
+                if (target_data) {
+                    unsigned long long struct_size = LLVMStoreSizeOfType(target_data, return_type);
+                    unsigned field_count = LLVMCountStructElementTypes(return_type);
+                    
+                    // 小结构体（8字节，两个i32）通过寄存器返回，需要手动解包
+                    if (struct_size == 8 && field_count == 2) {
+                        // 检查是否为 extern 函数
+                        LLVMValueRef called_func = func;
+                        if (LLVMGetValueKind(called_func) == LLVMFunctionValueKind) {
+                            const char *func_name = LLVMGetValueName(called_func);
+                            if (func_name) {
+                                // 查找函数签名判断是否为 extern
+                                LLVMTypeRef func_type_check = NULL;
+                                if (lookup_func(codegen, func_name, &func_type_check) != NULL) {
+                                        // 检查函数是否有函数体（extern 函数没有基本块）
+                                        if (LLVMGetFirstBasicBlock(called_func) == NULL) {
+                                            fprintf(stderr, "调试: 手动解包 extern 函数 %s 的结构体返回值 (call_result kind: %d)\n", 
+                                                   func_name, LLVMGetValueKind(call_result));
+                                            
+                                            // 将 i64 返回值转换为结构体
+                                            LLVMTypeRef i64_type = LLVMInt64TypeInContext(codegen->context);
+                                            LLVMValueRef struct_ptr = LLVMBuildAlloca(codegen->builder, return_type, "");
+                                            
+                                            // 将结构体指针转换为 i64 指针并存储返回值
+                                            LLVMValueRef i64_ptr = LLVMBuildBitCast(codegen->builder, struct_ptr, 
+                                                                                     LLVMPointerType(i64_type, 0), "");
+                                            LLVMBuildStore(codegen->builder, call_result, i64_ptr);
+                                            
+                                            // 从内存加载结构体值
+                                            return LLVMBuildLoad2(codegen->builder, return_type, struct_ptr, "");
+                                        }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             
             if (!call_result && return_type && LLVMGetTypeKind(return_type) == LLVMStructTypeKind) {
                 // 函数调用失败，且返回类型是结构体类型
@@ -4346,7 +4385,6 @@ static int codegen_declare_function(CodeGenerator *codegen, ASTNode *fn_decl) {
         } else {
             // 对于返回类型，如果是命名类型但获取失败，可能是结构体类型未注册
             // 这种情况下，我们跳过这个函数的声明，继续处理其他函数
-            // 这在编译器自举时很常见，因为结构体类型可能尚未注册
             if (return_type_node && return_type_node->type == AST_TYPE_NAMED) {
                 const char *type_name = return_type_node->data.type_named.name;
                 if (type_name != NULL) {
@@ -4491,6 +4529,53 @@ static int codegen_declare_function(CodeGenerator *codegen, ASTNode *fn_decl) {
         
         // 更新实际参数数量
         param_count = actual_param_count;
+    }
+    
+    // 处理 extern 函数返回小/中等结构体的 ABI 问题
+    if (fn_decl->data.fn_decl.body == NULL && return_type && LLVMGetTypeKind(return_type) == LLVMStructTypeKind) {
+        LLVMTargetDataRef target_data = LLVMGetModuleDataLayout(codegen->module);
+        if (target_data) {
+            unsigned long long struct_size = LLVMStoreSizeOfType(target_data, return_type);
+            unsigned field_count = LLVMCountStructElementTypes(return_type);
+            
+            // 小结构体（8字节，两个i32）：改为 i64 类型返回
+            if (struct_size == 8 && field_count == 2) {
+                LLVMTypeRef field_types[2];
+                LLVMGetStructElementTypes(return_type, field_types);
+                int is_small_struct = 1;
+                for (unsigned j = 0; j < 2; j++) {
+                    if (LLVMGetTypeKind(field_types[j]) != LLVMIntegerTypeKind ||
+                        LLVMGetIntTypeWidth(field_types[j]) != 32) {
+                        is_small_struct = 0;
+                        break;
+                    }
+                }
+                if (is_small_struct) {
+                    fprintf(stderr, "调试: 将 extern 函数 %s 的返回类型从 SmallStruct 改为 i64\n", func_name);
+                    return_type = LLVMInt64TypeInContext(codegen->context);
+                }
+            }
+            // 中等结构体（16字节，四个i32）：改为两个 i64 类型返回（通过结构体包装）
+            else if (struct_size == 16 && field_count == 4) {
+                LLVMTypeRef field_types[4];
+                LLVMGetStructElementTypes(return_type, field_types);
+                int is_medium_struct = 1;
+                for (unsigned j = 0; j < 4; j++) {
+                    if (LLVMGetTypeKind(field_types[j]) != LLVMIntegerTypeKind ||
+                        LLVMGetIntTypeWidth(field_types[j]) != 32) {
+                        is_medium_struct = 0;
+                        break;
+                    }
+                }
+                if (is_medium_struct) {
+                    fprintf(stderr, "调试: 将 extern 函数 %s 的返回类型从 MediumStruct 改为 { i64, i64 }\n", func_name);
+                    // 创建 { i64, i64 } 结构体类型，使用正确的上下文
+                    LLVMTypeRef i64_type = LLVMInt64TypeInContext(codegen->context);
+                    LLVMTypeRef field_types_2i64[2] = { i64_type, i64_type };
+                    return_type = LLVMStructTypeInContext(codegen->context, field_types_2i64, 2, 0);
+                }
+            }
+        }
     }
     
     // 创建函数类型（最后一个参数 isVarArg 表示是否为可变参数函数）
