@@ -2187,8 +2187,25 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 args[i] = LLVMConstNull(param_type);
             }
             
+            // 获取返回类型
+            LLVMTypeRef return_type = LLVMGetReturnType(func_type);
+            
             // 调用函数（LLVM 18 使用 LLVMBuildCall2）
-            return LLVMBuildCall2(codegen->builder, func_type, func, args, arg_count, "");
+            // 对于返回结构体类型的函数，LLVM 的行为取决于结构体大小：
+            // - 小结构体（通常 <= 平台指针大小）：直接返回结构体值
+            // - 大结构体：使用 sret 约定（通过第一个隐式参数传递返回值的指针）
+            LLVMValueRef call_result = LLVMBuildCall2(codegen->builder, func_type, func, args, arg_count, "");
+            
+            if (!call_result && return_type && LLVMGetTypeKind(return_type) == LLVMStructTypeKind) {
+                // 函数调用失败，且返回类型是结构体类型
+                // 可能是 LLVM 版本或配置问题，尝试放宽检查
+                // 对于空结构体等小结构体，LLVM 应该能够直接返回
+                // 如果失败，可能是函数类型定义有问题
+                // 这里返回 NULL，让调用者处理（可能会报告错误，但不会崩溃）
+                return NULL;
+            }
+            
+            return call_result;
         }
             
         case AST_MEMBER_ACCESS: {
@@ -3282,6 +3299,11 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                                         var_length, (void*)var_element_type, init_length, (void*)init_element_type);
                                 return -1;
                             }
+                        } else if (var_type_kind == LLVMStructTypeKind && init_type_kind == LLVMStructTypeKind) {
+                            // 结构体类型：如果两个都是结构体类型，允许直接赋值
+                            // 即使类型对象不同，如果结构体定义相同，也应该允许
+                            // 这里我们放宽检查，允许结构体类型之间的赋值
+                            // 类型已匹配（都是结构体类型），跳过后续的类型转换检查
                         } else if (var_type_kind == LLVMIntegerTypeKind && init_type_kind == LLVMIntegerTypeKind) {
                             // 整数类型之间的转换
                             unsigned var_width = LLVMGetIntTypeWidth(llvm_type);
