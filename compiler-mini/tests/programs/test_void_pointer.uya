@@ -68,8 +68,8 @@ fn main() i32 {
     }
     
     void_ptr2 = i32_ptr as &void;
-    if void_ptr != void_ptr2 {
-        return 10;  // 两个 &void 指针应该相等（指向同一地址）
+    if void_ptr == void_ptr2 {
+        return 10;  // 两个 &void 指针应该不相等（指向不同地址）
     }
     
     // 测试8：&void 指针作为函数参数（模拟通用指针操作）
