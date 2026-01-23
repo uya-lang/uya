@@ -1,0 +1,74 @@
+// null 字面量测试程序
+// 测试 null 字面量的使用：指针初始化、指针比较
+
+struct Node {
+    value: i32,
+    next: &Node,
+}
+
+fn main() i32 {
+    // 测试1：null 指针初始化（i32 指针）
+    var ptr1: &i32 = null;
+    if ptr1 != null {
+        return 1;  // ptr1 应该是 null
+    }
+    
+    // 测试2：null 指针初始化（结构体指针）
+    var node_ptr: &Node = null;
+    if node_ptr != null {
+        return 2;  // node_ptr 应该是 null
+    }
+    
+    // 测试3：null 指针比较（==）
+    var ptr2: &i32 = null;
+    if ptr1 != ptr2 {
+        return 3;  // 两个 null 指针应该相等
+    }
+    
+    // 测试4：null 指针比较（!=）
+    var x: i32 = 42;
+    var ptr3: &i32 = &x;
+    if ptr3 == null {
+        return 4;  // ptr3 不应该是 null
+    }
+    
+    // 测试5：null 指针与非 null 指针比较
+    if ptr3 == null {
+        return 5;  // ptr3 不应该是 null
+    }
+    if ptr3 == ptr1 {
+        return 6;  // ptr3 不应该等于 null 指针
+    }
+    
+    // 测试6：null 指针赋值
+    var ptr4: &i32 = &x;
+    ptr4 = null;
+    if ptr4 != null {
+        return 7;  // ptr4 应该被设置为 null
+    }
+    
+    // 测试7：null 指针作为函数参数（如果函数接受指针参数）
+    // 注意：这里只是测试 null 字面量本身，不涉及函数调用
+    
+    // 测试8：null 指针与 usize 指针
+    var usize_ptr: &usize = null;
+    if usize_ptr != null {
+        return 8;  // usize_ptr 应该是 null
+    }
+    
+    // 测试9：null 指针与 bool 指针
+    var bool_ptr: &bool = null;
+    if bool_ptr != null {
+        return 9;  // bool_ptr 应该是 null
+    }
+    
+    // 测试10：null 指针与 byte 指针
+    var byte_ptr: &byte = null;
+    if byte_ptr != null {
+        return 10;  // byte_ptr 应该是 null
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+

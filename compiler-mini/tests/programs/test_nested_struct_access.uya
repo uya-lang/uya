@@ -1,0 +1,178 @@
+// 嵌套结构体字段访问测试程序
+// 测试嵌套结构体的字段访问、自动解引用、字段赋值
+
+struct Inner {
+    value: i32,
+}
+
+struct Outer {
+    inner: Inner,
+    count: i32,
+}
+
+struct DeepInner {
+    data: i32,
+}
+
+struct DeepMiddle {
+    deep: DeepInner,
+    middle: i32,
+}
+
+struct DeepOuter {
+    middle: DeepMiddle,
+    outer: i32,
+}
+
+fn main() i32 {
+    // ========== 测试1：基本嵌套结构体字段访问 ==========
+    
+    // 1.1 值访问
+    var outer: Outer = Outer{ inner: Inner{ value: 42 }, count: 10 };
+    var inner_value: i32 = outer.inner.value;
+    if inner_value != 42 {
+        return 1;  // outer.inner.value 应该是 42
+    }
+    
+    // 1.2 字段赋值
+    outer.inner.value = 100;
+    if outer.inner.value != 100 {
+        return 2;  // 修改后 outer.inner.value 应该是 100
+    }
+    
+    // ========== 测试2：嵌套结构体指针字段访问 ==========
+    
+    // 2.1 指针字段访问（自动解引用）
+    var inner: Inner = Inner{ value: 50 };
+    var outer2: Outer = Outer{ inner: inner, count: 20 };
+    var inner_ptr: &Inner = &outer2.inner;
+    
+    // 通过指针访问嵌套字段
+    var value1: i32 = inner_ptr.value;
+    if value1 != 50 {
+        return 3;  // inner_ptr.value 应该是 50（自动解引用）
+    }
+    
+    // 2.2 通过指针修改嵌套字段
+    inner_ptr.value = 200;
+    if outer2.inner.value != 200 {
+        return 4;  // 通过指针修改后，outer2.inner.value 应该是 200
+    }
+    
+    // ========== 测试3：多层嵌套结构体字段访问 ==========
+    
+    // 3.1 三层嵌套访问
+    var deep: DeepOuter = DeepOuter{
+        middle: DeepMiddle{
+            deep: DeepInner{ data: 300 },
+            middle: 200,
+        },
+        outer: 100,
+    };
+    
+    var deep_data: i32 = deep.middle.deep.data;
+    if deep_data != 300 {
+        return 5;  // deep.middle.deep.data 应该是 300
+    }
+    
+    // 3.2 三层嵌套字段赋值
+    deep.middle.deep.data = 400;
+    if deep.middle.deep.data != 400 {
+        return 6;  // 修改后 deep.middle.deep.data 应该是 400
+    }
+    
+    // 3.3 中间层字段访问
+    var middle_value: i32 = deep.middle.middle;
+    if middle_value != 200 {
+        return 7;  // deep.middle.middle 应该是 200
+    }
+    
+    // ========== 测试4：嵌套结构体指针访问 ==========
+    
+    // 4.1 外层指针访问嵌套字段
+    var deep_ptr: &DeepOuter = &deep;
+    var data1: i32 = deep_ptr.middle.deep.data;
+    if data1 != 400 {
+        return 8;  // deep_ptr.middle.deep.data 应该是 400（自动解引用）
+    }
+    
+    // 4.2 通过外层指针修改嵌套字段
+    deep_ptr.middle.deep.data = 500;
+    if deep.middle.deep.data != 500 {
+        return 9;  // 通过指针修改后，deep.middle.deep.data 应该是 500
+    }
+    
+    // 4.3 中间层指针访问
+    var middle_ptr: &DeepMiddle = &deep.middle;
+    var data2: i32 = middle_ptr.deep.data;
+    if data2 != 500 {
+        return 10;  // middle_ptr.deep.data 应该是 500
+    }
+    
+    // ========== 测试5：嵌套结构体数组字段访问 ==========
+    
+    struct ArrayOuter {
+        items: [Inner: 3],
+        size: i32,
+    }
+    
+    var array_outer: ArrayOuter = ArrayOuter{
+        items: [
+            Inner{ value: 1 },
+            Inner{ value: 2 },
+            Inner{ value: 3 },
+        ],
+        size: 3,
+    };
+    
+    // 5.1 访问数组元素的结构体字段
+    var item_value: i32 = array_outer.items[0].value;
+    if item_value != 1 {
+        return 11;  // array_outer.items[0].value 应该是 1
+    }
+    
+    // 5.2 修改数组元素的结构体字段
+    array_outer.items[1].value = 20;
+    if array_outer.items[1].value != 20 {
+        return 12;  // 修改后 array_outer.items[1].value 应该是 20
+    }
+    
+    // ========== 测试6：嵌套结构体在函数中使用 ==========
+    
+    fn get_inner_value(o: Outer) i32 {
+        return o.inner.value;
+    }
+    
+    var outer3: Outer = Outer{ inner: Inner{ value: 600 }, count: 30 };
+    var value2: i32 = get_inner_value(outer3);
+    if value2 != 600 {
+        return 13;  // get_inner_value 应该返回 600
+    }
+    
+    fn modify_inner_value(o: &Outer) void {
+        o.inner.value = 700;
+    }
+    
+    modify_inner_value(&outer3);
+    if outer3.inner.value != 700 {
+        return 14;  // 通过函数修改后，outer3.inner.value 应该是 700
+    }
+    
+    // ========== 测试7：嵌套结构体比较 ==========
+    
+    var outer4: Outer = Outer{ inner: Inner{ value: 100 }, count: 10 };
+    var outer5: Outer = Outer{ inner: Inner{ value: 100 }, count: 10 };
+    
+    if outer4 != outer5 {
+        return 15;  // 两个结构体应该相等（逐字段比较）
+    }
+    
+    var outer6: Outer = Outer{ inner: Inner{ value: 200 }, count: 10 };
+    if outer4 == outer6 {
+        return 16;  // 两个结构体不应该相等（inner.value 不同）
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+

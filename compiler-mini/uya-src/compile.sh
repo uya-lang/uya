@@ -2,7 +2,7 @@
 # Uya Mini 多文件编译脚本
 # 编译 uya-src 目录中的所有 .uya 文件
 
-set -e  # 遇到错误时退出（除了编译失败）
+# 注意：不使用 set -e，因为我们需要捕获编译器的退出码并处理错误
 
 # 脚本目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -183,7 +183,34 @@ fi
 
 # 使用多文件编译（传递多个 .uya 文件给编译器，不使用文件合并）
 # 编译器会自动处理多文件编译，包括 AST 合并和类型检查
-if "$COMPILER" "${FULL_PATHS[@]}" -o "$OUTPUT_FILE"; then
+
+# 创建临时文件来捕获编译输出
+TEMP_OUTPUT=$(mktemp)
+TEMP_ERRORS=$(mktemp)
+trap "rm -f '$TEMP_OUTPUT' '$TEMP_ERRORS'" EXIT
+
+# 执行编译，捕获所有输出
+if [ "$VERBOSE" = true ] || [ "$DEBUG" = true ]; then
+    # 详细模式：显示所有输出
+    "$COMPILER" "${FULL_PATHS[@]}" -o "$OUTPUT_FILE" 2>&1 | tee "$TEMP_OUTPUT"
+    COMPILER_EXIT=${PIPESTATUS[0]}
+else
+    # 普通模式：只显示关键信息，过滤调试输出
+    "$COMPILER" "${FULL_PATHS[@]}" -o "$OUTPUT_FILE" > "$TEMP_OUTPUT" 2>&1
+    COMPILER_EXIT=$?
+    
+    # 提取关键信息：阶段标题、错误、警告
+    # 显示编译阶段信息（=== 开头的行）
+    grep -E "^===" "$TEMP_OUTPUT" | head -20
+    # 显示错误和警告（但不显示调试信息）
+    grep -E "错误:|警告:" "$TEMP_OUTPUT" | grep -v "调试:" | head -30
+fi
+
+# 提取所有错误信息到单独文件
+grep -E "错误:" "$TEMP_OUTPUT" > "$TEMP_ERRORS" || true
+
+# 检查编译结果
+if [ $COMPILER_EXIT -eq 0 ]; then
     echo ""
     echo -e "${GREEN}✓ 编译成功！${NC}"
     echo ""
@@ -215,13 +242,37 @@ if "$COMPILER" "${FULL_PATHS[@]}" -o "$OUTPUT_FILE"; then
     
     exit 0
 else
-    EXIT_CODE=$?
+    EXIT_CODE=$COMPILER_EXIT
     echo ""
     echo -e "${RED}✗ 编译失败（退出码: $EXIT_CODE）${NC}"
     
+    # 显示错误摘要
+    ERROR_COUNT=$(wc -l < "$TEMP_ERRORS" 2>/dev/null || echo "0")
+    if [ "$ERROR_COUNT" -gt 0 ]; then
+        echo ""
+        echo -e "${YELLOW}错误摘要（共 $ERROR_COUNT 个错误）:${NC}"
+        # 显示前10个唯一错误（去除重复）
+        grep -E "错误:" "$TEMP_ERRORS" | sed 's/.*错误: //' | sort -u | head -10 | while read -r err; do
+            echo "  - $err"
+        done
+        
+        if [ "$ERROR_COUNT" -gt 10 ]; then
+            echo "  ... 还有 $((ERROR_COUNT - 10)) 个错误（使用 -v 查看完整输出）"
+        fi
+    fi
+    
     # 如果输出文件存在但编译失败，保留它（可能包含有用的信息）
     if [ "$DEBUG" = true ] && [ -f "$OUTPUT_FILE" ]; then
+        echo ""
         echo "调试模式: 保留输出文件 $OUTPUT_FILE"
+        echo "完整错误日志已保存到: $TEMP_OUTPUT"
+    fi
+    
+    # 在详细模式下，显示更多错误信息
+    if [ "$VERBOSE" = true ] && [ "$ERROR_COUNT" -gt 0 ]; then
+        echo ""
+        echo -e "${YELLOW}所有错误列表:${NC}"
+        cat "$TEMP_ERRORS"
     fi
     
     exit $EXIT_CODE

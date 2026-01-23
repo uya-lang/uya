@@ -1,0 +1,181 @@
+// 多维数组测试程序
+// 测试多维数组的定义、初始化、访问、sizeof、len
+
+fn main() i32 {
+    // ========== 测试1：二维数组定义和初始化 ==========
+    
+    // 1.1 二维数组字面量初始化
+    var arr2d: [[i32: 2]: 3] = [
+        [1, 2],
+        [3, 4],
+        [5, 6],
+    ];
+    
+    if arr2d[0][0] != 1 || arr2d[0][1] != 2 {
+        return 1;  // arr2d[0] 应该是 [1, 2]
+    }
+    if arr2d[1][0] != 3 || arr2d[1][1] != 4 {
+        return 2;  // arr2d[1] 应该是 [3, 4]
+    }
+    if arr2d[2][0] != 5 || arr2d[2][1] != 6 {
+        return 3;  // arr2d[2] 应该是 [5, 6]
+    }
+    
+    // ========== 测试2：二维数组访问和修改 ==========
+    
+    // 2.1 修改元素
+    arr2d[0][0] = 10;
+    if arr2d[0][0] != 10 {
+        return 4;  // 修改后 arr2d[0][0] 应该是 10
+    }
+    
+    arr2d[1][1] = 40;
+    if arr2d[1][1] != 40 {
+        return 5;  // 修改后 arr2d[1][1] 应该是 40
+    }
+    
+    // ========== 测试3：二维数组 sizeof ==========
+    
+    // 3.1 二维数组类型 sizeof
+    const arr2d_type_size: i32 = sizeof([[i32: 2]: 3]);
+    // [[i32: 2]: 3] 大小 = 3 * sizeof([i32: 2]) = 3 * 8 = 24
+    if arr2d_type_size != 24 {
+        return 6;  // 二维数组大小应该是 24 字节
+    }
+    
+    // 3.2 二维数组变量 sizeof
+    const arr2d_var_size: i32 = sizeof(arr2d);
+    if arr2d_var_size != 24 {
+        return 7;  // 二维数组变量大小应该是 24 字节
+    }
+    
+    // 3.3 一维数组元素 sizeof
+    const arr1d_size: i32 = sizeof(arr2d[0]);
+    // arr2d[0] 类型是 [i32: 2]，大小 = 8
+    if arr1d_size != 8 {
+        return 8;  // 一维数组元素大小应该是 8 字节
+    }
+    
+    // ========== 测试4：二维数组 len ==========
+    
+    // 4.1 二维数组 len（外层数组长度）
+    const arr2d_len: i32 = len(arr2d);
+    if arr2d_len != 3 {
+        return 9;  // 二维数组长度应该是 3
+    }
+    
+    // 4.2 一维数组元素 len（内层数组长度）
+    const arr1d_len: i32 = len(arr2d[0]);
+    if arr1d_len != 2 {
+        return 10;  // 一维数组元素长度应该是 2
+    }
+    
+    // ========== 测试5：三维数组 ==========
+    
+    // 5.1 三维数组定义和初始化
+    var arr3d: [[[i32: 2]: 2]: 2] = [
+        [
+            [1, 2],
+            [3, 4],
+        ],
+        [
+            [5, 6],
+            [7, 8],
+        ],
+    ];
+    
+    if arr3d[0][0][0] != 1 || arr3d[0][0][1] != 2 {
+        return 11;  // arr3d[0][0] 应该是 [1, 2]
+    }
+    if arr3d[1][1][0] != 7 || arr3d[1][1][1] != 8 {
+        return 12;  // arr3d[1][1] 应该是 [7, 8]
+    }
+    
+    // 5.2 三维数组 sizeof
+    const arr3d_size: i32 = sizeof(arr3d);
+    // [[[i32: 2]: 2]: 2] 大小 = 2 * sizeof([[i32: 2]: 2]) = 2 * 16 = 32
+    if arr3d_size != 32 {
+        return 13;  // 三维数组大小应该是 32 字节
+    }
+    
+    // 5.3 三维数组 len
+    const arr3d_len: i32 = len(arr3d);
+    if arr3d_len != 2 {
+        return 14;  // 三维数组长度应该是 2
+    }
+    
+    const arr2d_inner_len: i32 = len(arr3d[0]);
+    if arr2d_inner_len != 2 {
+        return 15;  // 内层二维数组长度应该是 2
+    }
+    
+    // ========== 测试6：多维数组在循环中使用 ==========
+    
+    // 6.1 遍历二维数组
+    var sum: i32 = 0;
+    var i: i32 = 0;
+    while i < len(arr2d) {
+        var j: i32 = 0;
+        while j < len(arr2d[i]) {
+            sum = sum + arr2d[i][j];
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    // sum = 10 + 2 + 3 + 40 + 5 + 6 = 66
+    if sum != 66 {
+        return 16;  // sum 应该是 66
+    }
+    
+    // 6.2 for 循环遍历二维数组
+    var sum2: i32 = 0;
+    for arr2d |row| {
+        var j2: i32 = 0;
+        while j2 < len(row) {
+            sum2 = sum2 + row[j2];
+            j2 = j2 + 1;
+        }
+    }
+    if sum2 != 66 {
+        return 17;  // sum2 应该是 66
+    }
+    
+    // ========== 测试7：多维数组作为函数参数 ==========
+    
+    fn sum_2d_array(arr: [[i32: 2]: 3]) i32 {
+        var total: i32 = 0;
+        var i3: i32 = 0;
+        while i3 < len(arr) {
+            var j3: i32 = 0;
+            while j3 < len(arr[i3]) {
+                total = total + arr[i3][j3];
+                j3 = j3 + 1;
+            }
+            i3 = i3 + 1;
+        }
+        return total;
+    }
+    
+    var arr2d2: [[i32: 2]: 3] = [
+        [1, 1],
+        [1, 1],
+        [1, 1],
+    ];
+    var total: i32 = sum_2d_array(arr2d2);
+    if total != 6 {
+        return 18;  // total 应该是 6
+    }
+    
+    // ========== 测试8：多维数组对齐 ==========
+    
+    // 8.1 二维数组 alignof
+    const arr2d_align: i32 = alignof(arr2d);
+    // 二维数组对齐 = 元素类型对齐 = i32 对齐 = 4
+    if arr2d_align != 4 {
+        return 19;  // 二维数组对齐应该是 4
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+

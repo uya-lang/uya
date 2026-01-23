@@ -1,0 +1,235 @@
+// 复杂表达式完整测试程序
+// 测试复杂表达式的组合：字段访问、数组访问、函数调用、类型转换等
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Data {
+    value: i32,
+    points: [Point: 2],
+}
+
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+fn multiply(a: i32, b: i32) i32 {
+    return a * b;
+}
+
+fn get_value(d: Data) i32 {
+    return d.value;
+}
+
+fn get_point_x(p: &Point) i32 {
+    return p.x;
+}
+
+fn main() i32 {
+    // ========== 测试1：复杂算术表达式 ==========
+    
+    // 1.1 混合运算
+    var result1: i32 = 2 * 3 + 4 * 5 - 6 / 2;
+    if result1 != 23 {
+        return 1;  // 2*3 + 4*5 - 6/2 = 6 + 20 - 3 = 23
+    }
+    
+    // 1.2 带括号的表达式
+    var result2: i32 = (2 + 3) * (4 + 5);
+    if result2 != 45 {
+        return 2;  // (2+3) * (4+5) = 5 * 9 = 45
+    }
+    
+    // ========== 测试2：字段访问和数组访问组合 ==========
+    
+    // 2.1 结构体数组字段访问
+    var data: Data = Data{
+        value: 100,
+        points: [
+            Point{ x: 10, y: 20 },
+            Point{ x: 30, y: 40 },
+        ],
+    };
+    
+    var point_x: i32 = data.points[0].x;
+    if point_x != 10 {
+        return 3;  // data.points[0].x 应该是 10
+    }
+    
+    var point_y: i32 = data.points[1].y;
+    if point_y != 40 {
+        return 4;  // data.points[1].y 应该是 40
+    }
+    
+    // 2.2 修改嵌套字段
+    data.points[0].x = 50;
+    if data.points[0].x != 50 {
+        return 5;  // 修改后 data.points[0].x 应该是 50
+    }
+    
+    // ========== 测试3：函数调用链 ==========
+    
+    // 3.1 嵌套函数调用
+    var result3: i32 = add(multiply(2, 3), multiply(4, 5));
+    if result3 != 26 {
+        return 6;  // add(6, 20) = 26
+    }
+    
+    // 3.2 函数调用作为参数
+    var result4: i32 = multiply(add(1, 2), add(3, 4));
+    if result4 != 21 {
+        return 7;  // multiply(3, 7) = 21
+    }
+    
+    // ========== 测试4：字段访问和函数调用组合 ==========
+    
+    // 4.1 结构体字段作为函数参数
+    var p: Point = Point{ x: 100, y: 200 };
+    var result5: i32 = add(p.x, p.y);
+    if result5 != 300 {
+        return 8;  // add(100, 200) = 300
+    }
+    
+    // 4.2 函数返回结构体字段
+    var result6: i32 = get_value(data);
+    if result6 != 100 {
+        return 9;  // get_value 应该返回 100
+    }
+    
+    // 4.3 函数返回指针字段
+    var result7: i32 = get_point_x(&p);
+    if result7 != 100 {
+        return 10;  // get_point_x 应该返回 100
+    }
+    
+    // ========== 测试5：类型转换在复杂表达式中使用 ==========
+    
+    // 5.1 类型转换与算术运算
+    var byte_val: byte = 10;
+    var i32_val: i32 = 20;
+    var result8: i32 = (byte_val as i32) + i32_val;
+    if result8 != 30 {
+        return 11;  // 10 + 20 = 30
+    }
+    
+    // 5.2 类型转换与比较运算
+    var bool_val: bool = (i32_val as bool);
+    if bool_val != true {
+        return 12;  // 20 转换为 bool 应该是 true
+    }
+    
+    // 5.3 类型转换与函数调用
+    var result9: i32 = add(byte_val as i32, i32_val);
+    if result9 != 30 {
+        return 13;  // add(10, 20) = 30
+    }
+    
+    // ========== 测试6：指针解引用和字段访问组合 ==========
+    
+    // 6.1 指针解引用后访问字段
+    var ptr: &Point = &p;
+    var x_value: i32 = (*ptr).x;
+    if x_value != 100 {
+        return 14;  // (*ptr).x 应该是 100
+    }
+    
+    // 6.2 自动解引用字段访问
+    var y_value: i32 = ptr.y;
+    if y_value != 200 {
+        return 15;  // ptr.y 应该是 200（自动解引用）
+    }
+    
+    // 6.3 通过指针修改字段
+    ptr.x = 300;
+    if p.x != 300 {
+        return 16;  // 通过指针修改后，p.x 应该是 300
+    }
+    
+    // ========== 测试7：数组访问和函数调用组合 ==========
+    
+    // 7.1 数组元素作为函数参数
+    var arr: [i32: 3] = [10, 20, 30];
+    var result10: i32 = add(arr[0], arr[1]);
+    if result10 != 30 {
+        return 17;  // add(10, 20) = 30
+    }
+    
+    // 7.2 函数返回数组索引
+    fn get_index(arr: [i32: 3], index: i32) i32 {
+        return arr[index];
+    }
+    var result11: i32 = get_index(arr, 2);
+    if result11 != 30 {
+        return 18;  // get_index 应该返回 30
+    }
+    
+    // ========== 测试8：逻辑表达式组合 ==========
+    
+    // 8.1 复杂逻辑表达式
+    var a: i32 = 10;
+    var b: i32 = 20;
+    var c: i32 = 30;
+    var result12: bool = a < b && b < c && c > a;
+    if result12 != true {
+        return 19;  // 10 < 20 && 20 < 30 && 30 > 10 = true
+    }
+    
+    // 8.2 逻辑表达式与函数调用
+    var result13: bool = add(a, b) > 25 && multiply(a, 2) < 30;
+    if result13 != true {
+        return 20;  // 30 > 25 && 20 < 30 = true
+    }
+    
+    // ========== 测试9：赋值表达式组合 ==========
+    
+    // 9.1 字段赋值
+    var p2: Point = Point{ x: 1, y: 2 };
+    p2.x = add(5, 5);
+    if p2.x != 10 {
+        return 21;  // p2.x 应该是 10
+    }
+    
+    // 9.2 数组元素赋值
+    arr[0] = multiply(3, 4);
+    if arr[0] != 12 {
+        return 22;  // arr[0] 应该是 12
+    }
+    
+    // 9.3 嵌套字段赋值
+    data.points[1].x = add(10, 20);
+    if data.points[1].x != 30 {
+        return 23;  // data.points[1].x 应该是 30
+    }
+    
+    // ========== 测试10：sizeof 和 alignof 在表达式中使用 ==========
+    
+    // 10.1 sizeof 在算术表达式中
+    var size1: i32 = sizeof(Point) * 2;
+    if size1 != 16 {
+        return 24;  // sizeof(Point) = 8, 8 * 2 = 16
+    }
+    
+    // 10.2 alignof 在比较表达式中
+    var align1: i32 = alignof(Point);
+    if align1 != 4 {
+        return 25;  // alignof(Point) 应该是 4
+    }
+    
+    // 10.3 len 在循环条件中
+    var arr2: [i32: 5] = [1, 2, 3, 4, 5];
+    var sum: i32 = 0;
+    var i: i32 = 0;
+    while i < len(arr2) {
+        sum = sum + arr2[i];
+        i = i + 1;
+    }
+    if sum != 15 {
+        return 26;  // sum 应该是 15
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+

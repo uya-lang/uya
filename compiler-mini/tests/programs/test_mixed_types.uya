@@ -1,0 +1,439 @@
+// 混合类型组合场景测试程序
+// 测试枚举、结构体、数组、指针等类型的复杂组合场景
+
+// 枚举类型
+enum Color {
+    Red = 1,
+    Green = 2,
+    Blue = 3,
+}
+
+enum Status {
+    Pending,
+    Processing,
+    Completed,
+}
+
+// 结构体类型
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Rect {
+    top_left: Point,
+    bottom_right: Point,
+    color: Color,
+    status: Status,
+}
+
+struct Node {
+    value: i32,
+    color: Color,
+    children: [&Node: 4],  // 指针数组
+    point: Point,
+}
+
+// 测试 1: 枚举 + 结构体组合
+fn test_enum_struct() i32 {
+    const rect: Rect = Rect{
+        top_left: Point{ x: 0, y: 0 },
+        bottom_right: Point{ x: 10, y: 10 },
+        color: Color.Red,
+        status: Status.Pending,
+    };
+    
+    if rect.color != Color.Red || rect.status != Status.Pending {
+        return 1;
+    }
+    
+    if rect.top_left.x != 0 || rect.top_left.y != 0 {
+        return 2;
+    }
+    
+    return 0;
+}
+
+// 测试 2: 枚举 + 数组组合
+fn test_enum_array() i32 {
+    const colors: [Color: 3] = [Color.Red, Color.Green, Color.Blue];
+    
+    if colors[0] != Color.Red || colors[1] != Color.Green || colors[2] != Color.Blue {
+        return 1;
+    }
+    
+    // 测试枚举数组比较
+    var count: i32 = 0;
+    for colors |color| {
+        if color == Color.Red || color == Color.Green || color == Color.Blue {
+            count = count + 1;
+        }
+    }
+    
+    if count != 3 {
+        return 2;
+    }
+    
+    return 0;
+}
+
+// 测试 3: 结构体 + 数组组合
+fn test_struct_array() i32 {
+    const points: [Point: 3] = [
+        Point{ x: 0, y: 0 },
+        Point{ x: 10, y: 10 },
+        Point{ x: 20, y: 20 },
+    ];
+    
+    if points[0].x != 0 || points[0].y != 0 {
+        return 1;
+    }
+    
+    if points[1].x != 10 || points[1].y != 10 {
+        return 2;
+    }
+    
+    // 测试结构体数组赋值
+    var points2: [Point: 3] = [];
+    points2[0] = points[0];
+    points2[1] = points[1];
+    points2[2] = points[2];
+    
+    if points2[0].x != 0 || points2[2].x != 20 {
+        return 3;
+    }
+    
+    return 0;
+}
+
+// 测试 4: 枚举 + 结构体 + 数组组合
+fn test_enum_struct_array() i32 {
+    const rects: [Rect: 2] = [
+        Rect{
+            top_left: Point{ x: 0, y: 0 },
+            bottom_right: Point{ x: 10, y: 10 },
+            color: Color.Red,
+            status: Status.Pending,
+        },
+        Rect{
+            top_left: Point{ x: 20, y: 20 },
+            bottom_right: Point{ x: 30, y: 30 },
+            color: Color.Blue,
+            status: Status.Completed,
+        },
+    ];
+    
+    if rects[0].color != Color.Red || rects[0].status != Status.Pending {
+        return 1;
+    }
+    
+    if rects[1].color != Color.Blue || rects[1].status != Status.Completed {
+        return 2;
+    }
+    
+    if rects[0].top_left.x != 0 || rects[1].bottom_right.x != 30 {
+        return 3;
+    }
+    
+    return 0;
+}
+
+// 测试 5: 指针 + 结构体 + 枚举组合
+fn test_pointer_struct_enum() i32 {
+    var rect: Rect = Rect{
+        top_left: Point{ x: 0, y: 0 },
+        bottom_right: Point{ x: 10, y: 10 },
+        color: Color.Red,
+        status: Status.Pending,
+    };
+    
+    const rect_ptr: &Rect = &rect;
+    
+    // 通过指针访问结构体字段（自动解引用）
+    if rect_ptr.color != Color.Red || rect_ptr.status != Status.Pending {
+        return 1;
+    }
+    
+    // 通过指针修改结构体字段
+    rect_ptr.color = Color.Blue;
+    rect_ptr.status = Status.Completed;
+    
+    if rect.color != Color.Blue || rect.status != Status.Completed {
+        return 2;
+    }
+    
+    // 通过指针访问嵌套结构体字段
+    if rect_ptr.top_left.x != 0 || rect_ptr.bottom_right.x != 10 {
+        return 3;
+    }
+    
+    return 0;
+}
+
+// 测试 6: 多维数组 + 结构体组合
+fn test_multidim_struct_array() i32 {
+    const grid: [[Point: 2]: 2] = [
+        [Point{ x: 0, y: 0 }, Point{ x: 1, y: 1 }],
+        [Point{ x: 2, y: 2 }, Point{ x: 3, y: 3 }],
+    ];
+    
+    if grid[0][0].x != 0 || grid[0][0].y != 0 {
+        return 1;
+    }
+    
+    if grid[1][1].x != 3 || grid[1][1].y != 3 {
+        return 2;
+    }
+    
+    return 0;
+}
+
+// 测试 7: 枚举比较 + 结构体比较组合
+fn test_enum_struct_comparison() i32 {
+    const rect1: Rect = Rect{
+        top_left: Point{ x: 0, y: 0 },
+        bottom_right: Point{ x: 10, y: 10 },
+        color: Color.Red,
+        status: Status.Pending,
+    };
+    
+    const rect2: Rect = Rect{
+        top_left: Point{ x: 0, y: 0 },
+        bottom_right: Point{ x: 10, y: 10 },
+        color: Color.Red,
+        status: Status.Pending,
+    };
+    
+    const rect3: Rect = Rect{
+        top_left: Point{ x: 0, y: 0 },
+        bottom_right: Point{ x: 10, y: 10 },
+        color: Color.Blue,
+        status: Status.Pending,
+    };
+    
+    // 结构体比较（包括枚举字段）
+    if rect1 != rect2 {
+        return 1;  // 相同结构体应该相等
+    }
+    
+    if rect1 == rect3 {
+        return 2;  // 不同枚举值应该不相等
+    }
+    
+    // 枚举比较
+    if rect1.color != Color.Red || rect1.color == Color.Blue {
+        return 3;
+    }
+    
+    return 0;
+}
+
+// 测试 8: 函数参数和返回值中的混合类型
+fn test_mixed_function_params(p: Point, c: Color, s: Status) Rect {
+    return Rect{
+        top_left: p,
+        bottom_right: Point{ x: p.x + 10, y: p.y + 10 },
+        color: c,
+        status: s,
+    };
+}
+
+fn test_mixed_function() i32 {
+    const p: Point = Point{ x: 5, y: 5 };
+    const rect: Rect = test_mixed_function_params(p, Color.Green, Status.Processing);
+    
+    if rect.top_left.x != 5 || rect.top_left.y != 5 {
+        return 1;
+    }
+    
+    if rect.bottom_right.x != 15 || rect.bottom_right.y != 15 {
+        return 2;
+    }
+    
+    if rect.color != Color.Green || rect.status != Status.Processing {
+        return 3;
+    }
+    
+    return 0;
+}
+
+// 测试 9: sizeof 和 alignof 在混合类型中的使用
+fn test_mixed_sizeof_alignof() i32 {
+    const point_size: i32 = sizeof(Point);
+    const color_size: i32 = sizeof(Color);
+    const rect_size: i32 = sizeof(Rect);
+    
+    // Point 应该包含 2 个 i32，大小为 8 字节
+    if point_size != 8 {
+        return 1;
+    }
+    
+    // Color 枚举底层为 i32，大小为 4 字节
+    if color_size != 4 {
+        return 2;
+    }
+    
+    // Rect 大小应该正确计算（包含 Point、Color、Status）
+    // Point(8) + Point(8) + Color(4) + Status(4) + 填充 = 至少 24 字节
+    if rect_size < 24 {
+        return 3;
+    }
+    
+    const point_align: i32 = alignof(Point);
+    const rect_align: i32 = alignof(Rect);
+    
+    // Point 对齐应该是 4（最大字段 i32 的对齐）
+    if point_align != 4 {
+        return 4;
+    }
+    
+    // Rect 对齐应该是 4（最大字段对齐值）
+    if rect_align != 4 {
+        return 5;
+    }
+    
+    return 0;
+}
+
+// 测试 10: 类型转换在混合类型中的使用
+fn test_mixed_type_conversion() i32 {
+    const color_val: i32 = Color.Red as i32;
+    if color_val != 1 {
+        return 1;  // Color.Red = 1
+    }
+    
+    const status_val: i32 = Status.Pending as i32;
+    if status_val != 0 {
+        return 2;  // Status.Pending = 0
+    }
+    
+    // 枚举值可以转换为 i32 进行比较
+    const color_as_i32: i32 = Color.Green as i32;
+    if color_as_i32 != 2 {
+        return 3;
+    }
+    
+    return 0;
+}
+
+// 测试 11: 数组 + 枚举 + 结构体的复杂组合
+fn test_complex_combination() i32 {
+    const rects: [Rect: 3] = [
+        Rect{
+            top_left: Point{ x: 0, y: 0 },
+            bottom_right: Point{ x: 10, y: 10 },
+            color: Color.Red,
+            status: Status.Pending,
+        },
+        Rect{
+            top_left: Point{ x: 10, y: 10 },
+            bottom_right: Point{ x: 20, y: 20 },
+            color: Color.Green,
+            status: Status.Processing,
+        },
+        Rect{
+            top_left: Point{ x: 20, y: 20 },
+            bottom_right: Point{ x: 30, y: 30 },
+            color: Color.Blue,
+            status: Status.Completed,
+        },
+    ];
+    
+    // 遍历数组，检查枚举和结构体字段
+    var red_count: i32 = 0;
+    var green_count: i32 = 0;
+    var blue_count: i32 = 0;
+    
+    for rects |rect| {
+        if rect.color == Color.Red {
+            red_count = red_count + 1;
+        } else if rect.color == Color.Green {
+            green_count = green_count + 1;
+        } else if rect.color == Color.Blue {
+            blue_count = blue_count + 1;
+        }
+    }
+    
+    if red_count != 1 || green_count != 1 || blue_count != 1 {
+        return 1;
+    }
+    
+    // 检查结构体字段
+    if rects[0].top_left.x != 0 || rects[2].bottom_right.x != 30 {
+        return 2;
+    }
+    
+    return 0;
+}
+
+fn main() i32 {
+    // 测试 1: 枚举 + 结构体组合
+    const result1: i32 = test_enum_struct();
+    if result1 != 0 {
+        return result1;
+    }
+    
+    // 测试 2: 枚举 + 数组组合
+    const result2: i32 = test_enum_array();
+    if result2 != 0 {
+        return 10 + result2;
+    }
+    
+    // 测试 3: 结构体 + 数组组合
+    const result3: i32 = test_struct_array();
+    if result3 != 0 {
+        return 20 + result3;
+    }
+    
+    // 测试 4: 枚举 + 结构体 + 数组组合
+    const result4: i32 = test_enum_struct_array();
+    if result4 != 0 {
+        return 30 + result4;
+    }
+    
+    // 测试 5: 指针 + 结构体 + 枚举组合
+    const result5: i32 = test_pointer_struct_enum();
+    if result5 != 0 {
+        return 40 + result5;
+    }
+    
+    // 测试 6: 多维数组 + 结构体组合
+    const result6: i32 = test_multidim_struct_array();
+    if result6 != 0 {
+        return 50 + result6;
+    }
+    
+    // 测试 7: 枚举比较 + 结构体比较组合
+    const result7: i32 = test_enum_struct_comparison();
+    if result7 != 0 {
+        return 60 + result7;
+    }
+    
+    // 测试 8: 函数参数和返回值中的混合类型
+    const result8: i32 = test_mixed_function();
+    if result8 != 0 {
+        return 70 + result8;
+    }
+    
+    // 测试 9: sizeof 和 alignof 在混合类型中的使用
+    const result9: i32 = test_mixed_sizeof_alignof();
+    if result9 != 0 {
+        return 80 + result9;
+    }
+    
+    // 测试 10: 类型转换在混合类型中的使用
+    const result10: i32 = test_mixed_type_conversion();
+    if result10 != 0 {
+        return 90 + result10;
+    }
+    
+    // 测试 11: 数组 + 枚举 + 结构体的复杂组合
+    const result11: i32 = test_complex_combination();
+    if result11 != 0 {
+        return 100 + result11;
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+

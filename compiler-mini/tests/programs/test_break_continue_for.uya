@@ -1,0 +1,171 @@
+// break 和 continue 在 for 循环中的测试程序
+// 测试 break 和 continue 在 for 循环（值迭代和引用迭代）中的使用
+
+fn main() i32 {
+    // ========== 测试1：break 在 for 值迭代中 ==========
+    
+    // 1.1 提前退出循环
+    var arr1: [i32: 5] = [1, 2, 3, 4, 5];
+    var sum1: i32 = 0;
+    for arr1 |item| {
+        if item == 3 {
+            break;  // 遇到 3 时退出循环
+        }
+        sum1 = sum1 + item;
+    }
+    if sum1 != 3 {
+        return 1;  // sum1 应该是 1 + 2 = 3
+    }
+    
+    // 1.2 第一个元素就退出
+    var arr2: [i32: 3] = [10, 20, 30];
+    var count1: i32 = 0;
+    for arr2 |item| {
+        count1 = count1 + 1;
+        break;  // 第一次迭代就退出
+    }
+    if count1 != 1 {
+        return 2;  // count1 应该是 1
+    }
+    
+    // ========== 测试2：continue 在 for 值迭代中 ==========
+    
+    // 2.1 跳过特定元素
+    var arr3: [i32: 5] = [1, 2, 3, 4, 5];
+    var sum2: i32 = 0;
+    for arr3 |item| {
+        if item == 3 {
+            continue;  // 跳过 3
+        }
+        sum2 = sum2 + item;
+    }
+    if sum2 != 12 {
+        return 3;  // sum2 应该是 1 + 2 + 4 + 5 = 12
+    }
+    
+    // 2.2 跳过多个元素
+    var arr4: [i32: 6] = [10, 20, 30, 40, 50, 60];
+    var sum3: i32 = 0;
+    for arr4 |item| {
+        if item == 20 || item == 40 {
+            continue;  // 跳过 20 和 40
+        }
+        sum3 = sum3 + item;
+    }
+    if sum3 != 150 {
+        return 4;  // sum3 应该是 10 + 30 + 50 + 60 = 150
+    }
+    
+    // ========== 测试3：break 在 for 引用迭代中 ==========
+    
+    // 3.1 提前退出循环并修改元素
+    var arr5: [i32: 5] = [1, 2, 3, 4, 5];
+    for arr5 |&item| {
+        if *item == 3 {
+            break;  // 遇到 3 时退出循环
+        }
+        *item = *item * 2;  // 修改元素
+    }
+    if arr5[0] != 2 || arr5[1] != 4 || arr5[2] != 3 {
+        return 5;  // arr5 应该是 [2, 4, 3, 4, 5]
+    }
+    
+    // ========== 测试4：continue 在 for 引用迭代中 ==========
+    
+    // 4.1 跳过特定元素并修改其他元素
+    var arr6: [i32: 5] = [1, 2, 3, 4, 5];
+    for arr6 |&item| {
+        if *item == 3 {
+            continue;  // 跳过 3
+        }
+        *item = *item * 2;  // 修改元素
+    }
+    if arr6[0] != 2 || arr6[1] != 4 || arr6[2] != 3 || arr6[3] != 8 || arr6[4] != 10 {
+        return 6;  // arr6 应该是 [2, 4, 3, 8, 10]
+    }
+    
+    // ========== 测试5：break 和 continue 组合使用 ==========
+    
+    // 5.1 在值迭代中组合使用
+    var arr7: [i32: 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    var sum4: i32 = 0;
+    for arr7 |item| {
+        if item == 8 {
+            break;  // 遇到 8 时退出
+        }
+        if item == 3 || item == 5 {
+            continue;  // 跳过 3 和 5
+        }
+        sum4 = sum4 + item;
+    }
+    if sum4 != 18 {
+        return 7;  // sum4 应该是 1 + 2 + 4 + 6 + 7 = 20（但遇到 8 退出，所以是 1+2+4+6+7=20）
+    }
+    
+    // 5.2 在引用迭代中组合使用
+    var arr8: [i32: 6] = [1, 2, 3, 4, 5, 6];
+    for arr8 |&item| {
+        if *item == 5 {
+            break;  // 遇到 5 时退出
+        }
+        if *item == 2 || *item == 4 {
+            continue;  // 跳过 2 和 4
+        }
+        *item = *item * 10;  // 修改元素
+    }
+    if arr8[0] != 10 || arr8[1] != 2 || arr8[2] != 30 || arr8[3] != 4 || arr8[4] != 5 {
+        return 8;  // arr8 应该是 [10, 2, 30, 4, 5, 6]
+    }
+    
+    // ========== 测试6：嵌套循环中的 break ==========
+    
+    // 6.1 内层循环 break
+    var arr9: [i32: 3] = [1, 2, 3];
+    var arr10: [i32: 3] = [10, 20, 30];
+    var sum5: i32 = 0;
+    for arr9 |item1| {
+        for arr10 |item2| {
+            if item2 == 20 {
+                break;  // 只退出内层循环
+            }
+            sum5 = sum5 + item2;
+        }
+    }
+    if sum5 != 30 {
+        return 9;  // sum5 应该是 10 * 3 = 30（每个外层迭代，内层只处理 10）
+    }
+    
+    // ========== 测试7：continue 在循环开始 ==========
+    
+    // 7.1 第一个元素就 continue
+    var arr11: [i32: 3] = [1, 2, 3];
+    var sum6: i32 = 0;
+    for arr11 |item| {
+        if item == 1 {
+            continue;  // 跳过第一个元素
+        }
+        sum6 = sum6 + item;
+    }
+    if sum6 != 5 {
+        return 10;  // sum6 应该是 2 + 3 = 5
+    }
+    
+    // ========== 测试8：break 在循环结束 ==========
+    
+    // 8.1 最后一个元素才 break
+    var arr12: [i32: 4] = [1, 2, 3, 4];
+    var sum7: i32 = 0;
+    for arr12 |item| {
+        sum7 = sum7 + item;
+        if item == 4 {
+            break;  // 处理完最后一个元素后退出
+        }
+    }
+    if sum7 != 10 {
+        return 11;  // sum7 应该是 1 + 2 + 3 + 4 = 10
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+

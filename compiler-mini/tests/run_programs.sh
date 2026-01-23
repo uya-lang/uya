@@ -86,8 +86,10 @@ for uya_file in "$TEST_DIR"/*.uya; do
         # 编译（生成目标文件）
         $COMPILER "$uya_file" -o "$BUILD_DIR/${base_name}.o"
         if [ $? -ne 0 ]; then
-            # 特殊处理：test_ffi_ptr_in_normal_fn 的编译失败是预期行为（普通函数不能使用 FFI 指针）
-            if [ "$base_name" = "test_ffi_ptr_in_normal_fn" ]; then
+            # 特殊处理：预期编译失败的测试文件
+            # test_ffi_ptr_in_normal_fn: 普通函数不能使用 FFI 指针
+            # test_error_*: 各种编译错误测试（类型不匹配、未初始化变量、变量遮蔽、const 重新赋值、返回值类型错误等）
+            if [ "$base_name" = "test_ffi_ptr_in_normal_fn" ] || [[ "$base_name" =~ ^test_error_ ]]; then
                 echo "  ✓ 测试通过（预期编译失败）"
                 PASSED=$((PASSED + 1))
             else
@@ -119,6 +121,16 @@ for uya_file in "$TEST_DIR"/*.uya; do
             fi
             # 链接主程序和外部函数实现
             gcc -no-pie "$BUILD_DIR/${base_name}.o" "$BUILD_DIR/external_functions.o" -o "$BUILD_DIR/$base_name"
+        elif [ "$base_name" = "test_abi_calling_convention" ]; then
+            # 编译 ABI 测试辅助函数
+            gcc -c tests/programs/test_abi_helpers.c -o "$BUILD_DIR/test_abi_helpers.o"
+            if [ $? -ne 0 ]; then
+                echo "  ❌ 编译 ABI 辅助函数失败"
+                FAILED=$((FAILED + 1))
+                continue
+            fi
+            # 链接主程序和 ABI 辅助函数
+            gcc -no-pie "$BUILD_DIR/${base_name}.o" "$BUILD_DIR/test_abi_helpers.o" -o "$BUILD_DIR/$base_name"
         else
             gcc -no-pie "$BUILD_DIR/${base_name}.o" -o "$BUILD_DIR/$base_name"
         fi

@@ -1,0 +1,194 @@
+// 结构体比较完整测试程序
+// 测试结构体的 == 和 != 比较运算符（逐字段比较）
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Data {
+    value: i32,
+    flag: bool,
+}
+
+struct Nested {
+    point: Point,
+    count: i32,
+}
+
+fn main() i32 {
+    // ========== 测试1：基本结构体相等比较（==） ==========
+    
+    // 1.1 相同字段值的结构体应该相等
+    var p1: Point = Point{ x: 10, y: 20 };
+    var p2: Point = Point{ x: 10, y: 20 };
+    if p1 != p2 {
+        return 1;  // 两个相同字段值的结构体应该相等
+    }
+    
+    // 1.2 不同字段值的结构体应该不相等
+    var p3: Point = Point{ x: 10, y: 30 };
+    if p1 == p3 {
+        return 2;  // x 相同但 y 不同，应该不相等
+    }
+    
+    var p4: Point = Point{ x: 20, y: 20 };
+    if p1 == p4 {
+        return 3;  // y 相同但 x 不同，应该不相等
+    }
+    
+    // ========== 测试2：基本结构体不等比较（!=） ==========
+    
+    // 2.1 不同字段值的结构体应该不相等
+    var d1: Data = Data{ value: 42, flag: true };
+    var d2: Data = Data{ value: 100, flag: true };
+    if d1 == d2 {
+        return 4;  // value 不同，应该不相等
+    }
+    
+    var d3: Data = Data{ value: 42, flag: false };
+    if d1 == d3 {
+        return 5;  // flag 不同，应该不相等
+    }
+    
+    // 2.2 相同字段值的结构体应该相等
+    var d4: Data = Data{ value: 42, flag: true };
+    if d1 != d4 {
+        return 6;  // 所有字段相同，应该相等
+    }
+    
+    // ========== 测试3：嵌套结构体比较 ==========
+    
+    // 3.1 嵌套结构体相等比较
+    var n1: Nested = Nested{
+        point: Point{ x: 1, y: 2 },
+        count: 10,
+    };
+    var n2: Nested = Nested{
+        point: Point{ x: 1, y: 2 },
+        count: 10,
+    };
+    if n1 != n2 {
+        return 7;  // 所有字段（包括嵌套字段）相同，应该相等
+    }
+    
+    // 3.2 嵌套结构体不等比较（嵌套字段不同）
+    var n3: Nested = Nested{
+        point: Point{ x: 1, y: 3 },
+        count: 10,
+    };
+    if n1 == n3 {
+        return 8;  // point.y 不同，应该不相等
+    }
+    
+    // 3.3 嵌套结构体不等比较（顶层字段不同）
+    var n4: Nested = Nested{
+        point: Point{ x: 1, y: 2 },
+        count: 20,
+    };
+    if n1 == n4 {
+        return 9;  // count 不同，应该不相等
+    }
+    
+    // ========== 测试4：结构体数组字段比较 ==========
+    
+    struct ArrayStruct {
+        items: [i32: 3],
+        size: i32,
+    }
+    
+    var a1: ArrayStruct = ArrayStruct{
+        items: [1, 2, 3],
+        size: 3,
+    };
+    var a2: ArrayStruct = ArrayStruct{
+        items: [1, 2, 3],
+        size: 3,
+    };
+    if a1 != a2 {
+        return 10;  // 所有字段（包括数组字段）相同，应该相等
+    }
+    
+    var a3: ArrayStruct = ArrayStruct{
+        items: [1, 2, 4],
+        size: 3,
+    };
+    if a1 == a3 {
+        return 11;  // items[2] 不同，应该不相等
+    }
+    
+    // ========== 测试5：结构体比较在条件表达式中使用 ==========
+    
+    // 5.1 在 if 语句中使用
+    var p5: Point = Point{ x: 5, y: 6 };
+    var p6: Point = Point{ x: 5, y: 6 };
+    var result: i32 = 0;
+    if p5 == p6 {
+        result = 100;
+    } else {
+        result = 200;
+    }
+    if result != 100 {
+        return 12;  // 应该执行 if 分支
+    }
+    
+    // 5.2 在 while 条件中使用
+    var p7: Point = Point{ x: 1, y: 1 };
+    var p8: Point = Point{ x: 2, y: 2 };
+    var count: i32 = 0;
+    while p7 != p8 && count < 1 {
+        p7 = p8;
+        count = count + 1;
+    }
+    if p7 != p8 {
+        return 13;  // 循环后 p7 应该等于 p8
+    }
+    
+    // ========== 测试6：结构体赋值后比较 ==========
+    
+    // 6.1 赋值后比较
+    var p9: Point = Point{ x: 10, y: 20 };
+    var p10: Point = p9;
+    if p9 != p10 {
+        return 14;  // 赋值后的结构体应该相等
+    }
+    
+    // 6.2 修改字段后比较
+    p10.x = 30;
+    if p9 == p10 {
+        return 15;  // 修改后应该不相等（按值复制）
+    }
+    
+    // ========== 测试7：结构体指针比较 ==========
+    
+    // 注意：结构体指针比较的是指针值（地址），不是结构体内容
+    var p11: Point = Point{ x: 1, y: 2 };
+    var ptr1: &Point = &p11;
+    var ptr2: &Point = &p11;
+    
+    if ptr1 != ptr2 {
+        return 16;  // 指向同一对象的指针应该相等
+    }
+    
+    var p12: Point = Point{ x: 1, y: 2 };
+    var ptr3: &Point = &p12;
+    
+    if ptr1 == ptr3 {
+        return 17;  // 指向不同对象的指针应该不相等（即使内容相同）
+    }
+    
+    // ========== 测试8：空结构体比较 ==========
+    
+    struct Empty {
+    }
+    
+    var e1: Empty = Empty{};
+    var e2: Empty = Empty{};
+    if e1 != e2 {
+        return 18;  // 两个空结构体应该相等
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+

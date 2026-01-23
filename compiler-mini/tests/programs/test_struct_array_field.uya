@@ -1,0 +1,203 @@
+// 结构体数组字段测试程序
+// 测试结构体中包含数组字段的访问、修改、sizeof、alignof
+
+fn main() i32 {
+    // ========== 测试1：基本结构体数组字段 ==========
+    
+    struct Data {
+        values: [i32: 3],
+        count: i32,
+    }
+    
+    // 1.1 结构体字面量初始化
+    var data: Data = Data{
+        values: [10, 20, 30],
+        count: 3,
+    };
+    
+    if data.values[0] != 10 || data.values[1] != 20 || data.values[2] != 30 {
+        return 1;  // data.values 应该包含 [10, 20, 30]
+    }
+    if data.count != 3 {
+        return 2;  // data.count 应该是 3
+    }
+    
+    // ========== 测试2：结构体数组字段访问和修改 ==========
+    
+    // 2.1 访问数组元素
+    var value1: i32 = data.values[0];
+    if value1 != 10 {
+        return 3;  // value1 应该是 10
+    }
+    
+    // 2.2 修改数组元素
+    data.values[1] = 200;
+    if data.values[1] != 200 {
+        return 4;  // 修改后 data.values[1] 应该是 200
+    }
+    
+    // 2.3 修改 count 字段
+    data.count = 5;
+    if data.count != 5 {
+        return 5;  // data.count 应该是 5
+    }
+    
+    // ========== 测试3：结构体数组字段 sizeof ==========
+    
+    // 3.1 结构体类型 sizeof
+    const data_type_size: i32 = sizeof(Data);
+    // Data 大小 = values(12) + count(4) = 16（对齐到 4）
+    if data_type_size != 16 {
+        return 6;  // Data 大小应该是 16 字节
+    }
+    
+    // 3.2 结构体变量 sizeof
+    const data_var_size: i32 = sizeof(data);
+    if data_var_size != 16 {
+        return 7;  // data 大小应该是 16 字节
+    }
+    
+    // 3.3 数组字段 sizeof
+    const values_size: i32 = sizeof(data.values);
+    if values_size != 12 {
+        return 8;  // values 大小应该是 12 字节（3 * 4）
+    }
+    
+    // ========== 测试4：结构体数组字段 len ==========
+    
+    // 4.1 数组字段 len
+    const values_len: i32 = len(data.values);
+    if values_len != 3 {
+        return 9;  // values 长度应该是 3
+    }
+    
+    // ========== 测试5：结构体数组字段在循环中使用 ==========
+    
+    // 5.1 while 循环遍历数组字段
+    var sum: i32 = 0;
+    var i: i32 = 0;
+    while i < len(data.values) {
+        sum = sum + data.values[i];
+        i = i + 1;
+    }
+    if sum != 240 {
+        return 10;  // sum 应该是 10 + 200 + 30 = 240
+    }
+    
+    // 5.2 for 循环遍历数组字段
+    var sum2: i32 = 0;
+    for data.values |item| {
+        sum2 = sum2 + item;
+    }
+    if sum2 != 240 {
+        return 11;  // sum2 应该是 240
+    }
+    
+    // 5.3 for 循环引用迭代修改数组字段
+    for data.values |&item| {
+        *item = *item * 2;
+    }
+    if data.values[0] != 20 || data.values[1] != 400 || data.values[2] != 60 {
+        return 12;  // data.values 应该是 [20, 400, 60]
+    }
+    
+    // ========== 测试6：结构体数组字段对齐 ==========
+    
+    // 6.1 结构体类型 alignof
+    const data_align: i32 = alignof(Data);
+    // Data 对齐 = max(alignof([i32: 3]), alignof(i32)) = max(4, 4) = 4
+    if data_align != 4 {
+        return 13;  // Data 对齐应该是 4
+    }
+    
+    // ========== 测试7：多个数组字段 ==========
+    
+    struct MultiArray {
+        arr1: [i32: 2],
+        arr2: [byte: 4],
+        count: i32,
+    }
+    
+    var multi: MultiArray = MultiArray{
+        arr1: [1, 2],
+        arr2: [10, 20, 30, 40],
+        count: 2,
+    };
+    
+    if multi.arr1[0] != 1 || multi.arr1[1] != 2 {
+        return 14;  // multi.arr1 应该是 [1, 2]
+    }
+    if multi.arr2[0] != 10 || multi.arr2[3] != 40 {
+        return 15;  // multi.arr2 应该是 [10, 20, 30, 40]
+    }
+    
+    // ========== 测试8：结构体数组字段作为函数参数 ==========
+    
+    fn process_array_field(d: Data) i32 {
+        var total: i32 = 0;
+        var i2: i32 = 0;
+        while i2 < len(d.values) {
+            total = total + d.values[i2];
+            i2 = i2 + 1;
+        }
+        return total;
+    }
+    
+    var data2: Data = Data{
+        values: [1, 2, 3],
+        count: 3,
+    };
+    var total: i32 = process_array_field(data2);
+    if total != 6 {
+        return 16;  // total 应该是 6
+    }
+    
+    // ========== 测试9：结构体数组字段通过指针访问 ==========
+    
+    var data3: Data = Data{
+        values: [100, 200, 300],
+        count: 3,
+    };
+    var ptr: &Data = &data3;
+    
+    // 通过指针访问数组字段
+    var value2: i32 = ptr.values[0];
+    if value2 != 100 {
+        return 17;  // ptr.values[0] 应该是 100（自动解引用）
+    }
+    
+    // 通过指针修改数组字段
+    ptr.values[1] = 250;
+    if data3.values[1] != 250 {
+        return 18;  // 通过指针修改后，data3.values[1] 应该是 250
+    }
+    
+    // ========== 测试10：嵌套结构体数组字段 ==========
+    
+    struct Inner {
+        items: [i32: 2],
+    }
+    
+    struct Outer {
+        inner: Inner,
+        size: i32,
+    }
+    
+    var outer: Outer = Outer{
+        inner: Inner{ items: [10, 20] },
+        size: 2,
+    };
+    
+    if outer.inner.items[0] != 10 || outer.inner.items[1] != 20 {
+        return 19;  // outer.inner.items 应该是 [10, 20]
+    }
+    
+    outer.inner.items[0] = 100;
+    if outer.inner.items[0] != 100 {
+        return 20;  // 修改后 outer.inner.items[0] 应该是 100
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+

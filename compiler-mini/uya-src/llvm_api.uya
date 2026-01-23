@@ -110,6 +110,7 @@ extern fn LLVMGetElementType(type: *void) *void;
 extern fn LLVMGetIntTypeWidth(type: *void) i32;
 extern fn LLVMGetArrayLength(array_type: *void) i32;
 extern fn LLVMGetFirstBasicBlock(func: *void) *void;
+extern fn LLVMGetNextBasicBlock(basic_block: *void) *void;
 extern fn LLVMGetBasicBlockTerminator(basic_block: *void) *void;
 extern fn LLVMCountStructElementTypes(struct_type: *void) i32;  // 获取结构体字段数量
 

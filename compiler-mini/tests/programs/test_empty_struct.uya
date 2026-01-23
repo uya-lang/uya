@@ -1,0 +1,96 @@
+// 空结构体测试程序
+// 测试空结构体的定义、实例化、sizeof、alignof
+// 根据规范，空结构体大小为 1 字节，对齐为 1 字节
+
+struct Empty {
+    // 空结构体，无字段
+}
+
+fn main() i32 {
+    // 测试1：空结构体 sizeof（类型）
+    const empty_size: i32 = sizeof(Empty);
+    if empty_size != 1 {
+        return 1;  // 空结构体大小应该是 1 字节（C 标准要求）
+    }
+    
+    // 测试2：空结构体变量 sizeof（表达式）
+    var empty: Empty = Empty{};
+    const empty_var_size: i32 = sizeof(empty);
+    if empty_var_size != 1 {
+        return 2;  // 空结构体变量大小应该是 1 字节
+    }
+    
+    // 测试3：空结构体 alignof（类型）
+    const empty_align: i32 = alignof(Empty);
+    if empty_align != 1 {
+        return 3;  // 空结构体对齐应该是 1 字节
+    }
+    
+    // 测试4：空结构体变量 alignof（表达式）
+    const empty_var_align: i32 = alignof(empty);
+    if empty_var_align != 1 {
+        return 4;  // 空结构体变量对齐应该是 1 字节
+    }
+    
+    // 测试5：空结构体指针 sizeof
+    const empty_ptr_size: i32 = sizeof(&Empty);
+    // 指针大小应该是平台字长（4 或 8 字节）
+    if empty_ptr_size != 4 && empty_ptr_size != 8 {
+        return 5;  // 空结构体指针大小应该是 4 或 8 字节
+    }
+    
+    // 测试6：空结构体指针变量
+    var empty_ptr: &Empty = &empty;
+    if empty_ptr == null {
+        return 6;  // empty_ptr 不应该是 null
+    }
+    
+    // 测试7：空结构体比较（==）
+    var empty1: Empty = Empty{};
+    var empty2: Empty = Empty{};
+    // 空结构体可以比较（虽然字段相同，但比较的是内存内容）
+    if empty1 != empty2 {
+        return 7;  // 两个空结构体应该相等（内存内容相同）
+    }
+    
+    // 测试8：空结构体赋值（按值复制）
+    var empty3: Empty = empty1;
+    if empty3 != empty1 {
+        return 8;  // 赋值后的空结构体应该相等
+    }
+    
+    // 测试9：空结构体数组
+    var empty_array: [Empty: 3] = [Empty{}, Empty{}, Empty{}];
+    const empty_array_size: i32 = sizeof(empty_array);
+    if empty_array_size != 3 {
+        return 9;  // 3 个空结构体的数组大小应该是 3 字节（每个 1 字节）
+    }
+    
+    // 测试10：空结构体作为函数参数和返回值
+    fn process_empty(e: Empty) Empty {
+        return e;
+    }
+    
+    var empty4: Empty = process_empty(empty1);
+    if empty4 != empty1 {
+        return 10;  // 函数返回的空结构体应该相等
+    }
+    
+    // 测试11：空结构体在结构体中作为字段
+    struct Container {
+        data: i32,
+        empty: Empty,
+    }
+    
+    var container: Container = Container{ data: 42, empty: Empty{} };
+    const container_size: i32 = sizeof(Container);
+    // Container 大小 = data(4) + empty(1) = 5 字节，但需要对齐到 4 的倍数
+    // 实际大小应该是 8 字节（对齐到 4）
+    if container_size != 8 {
+        return 11;  // Container 大小应该是 8 字节（4 + 1 + 3 填充）
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+

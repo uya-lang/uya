@@ -1,0 +1,142 @@
+// 枚举类型比较运算符测试程序
+// 测试枚举类型的完整比较运算符：==, !=, <, >, <=, >=
+// 根据规范，枚举比较的是枚举值的数值
+
+enum Priority {
+    LOW = 1,
+    MEDIUM = 2,
+    HIGH = 3,
+}
+
+enum Status {
+    PENDING,
+    RUNNING,
+    COMPLETED,
+}
+
+fn main() i32 {
+    // 测试1：枚举相等比较（==）
+    var p1: Priority = Priority.LOW;
+    var p2: Priority = Priority.LOW;
+    if p1 != p2 {
+        return 1;  // 相同的枚举值应该相等
+    }
+    
+    var p3: Priority = Priority.MEDIUM;
+    if p1 == p3 {
+        return 2;  // 不同的枚举值不应该相等
+    }
+    
+    // 测试2：枚举不等比较（!=）
+    if p1 == p3 {
+        return 3;  // LOW != MEDIUM
+    }
+    if p1 != p2 {
+        return 4;  // LOW == LOW
+    }
+    
+    // 测试3：枚举小于比较（<）
+    if p1 >= p3 {
+        return 5;  // LOW < MEDIUM (1 < 2)
+    }
+    if p3 >= Priority.HIGH {
+        return 6;  // MEDIUM < HIGH (2 < 3)
+    }
+    if p1 < p2 {
+        return 7;  // LOW 不应该小于 LOW
+    }
+    
+    // 测试4：枚举大于比较（>）
+    if p3 <= p1 {
+        return 8;  // MEDIUM > LOW (2 > 1)
+    }
+    if Priority.HIGH <= p3 {
+        return 9;  // HIGH > MEDIUM (3 > 2)
+    }
+    if p1 > p2 {
+        return 10;  // LOW 不应该大于 LOW
+    }
+    
+    // 测试5：枚举小于等于比较（<=）
+    if p1 > p2 {
+        return 11;  // LOW <= LOW
+    }
+    if p1 > p3 {
+        return 12;  // LOW <= MEDIUM
+    }
+    if p3 > Priority.HIGH {
+        return 13;  // MEDIUM <= HIGH
+    }
+    
+    // 测试6：枚举大于等于比较（>=）
+    if p1 < p2 {
+        return 14;  // LOW >= LOW
+    }
+    if p3 < p1 {
+        return 15;  // MEDIUM >= LOW
+    }
+    if Priority.HIGH < p3 {
+        return 16;  // HIGH >= MEDIUM
+    }
+    
+    // 测试7：自动递增枚举的比较
+    var s1: Status = Status.PENDING;   // 0
+    var s2: Status = Status.RUNNING;   // 1
+    var s3: Status = Status.COMPLETED; // 2
+    
+    if s1 >= s2 {
+        return 17;  // PENDING < RUNNING (0 < 1)
+    }
+    if s2 >= s3 {
+        return 18;  // RUNNING < COMPLETED (1 < 2)
+    }
+    if s3 <= s2 {
+        return 19;  // COMPLETED > RUNNING (2 > 1)
+    }
+    
+    // 测试8：混合显式赋值和自动递增枚举的比较
+    enum Mixed {
+        FIRST = 10,
+        SECOND,      // 11
+        THIRD = 20,
+        FOURTH,     // 21
+    }
+    
+    var m1: Mixed = Mixed.FIRST;   // 10
+    var m2: Mixed = Mixed.SECOND;   // 11
+    var m3: Mixed = Mixed.THIRD;    // 20
+    var m4: Mixed = Mixed.FOURTH;   // 21
+    
+    if m1 >= m2 {
+        return 20;  // FIRST < SECOND (10 < 11)
+    }
+    if m2 >= m3 {
+        return 21;  // SECOND < THIRD (11 < 20)
+    }
+    if m3 >= m4 {
+        return 22;  // THIRD < FOURTH (20 < 21)
+    }
+    
+    // 测试9：枚举比较在条件表达式中使用
+    var result: i32 = 0;
+    if p1 < p3 {
+        result = 100;
+    } else {
+        result = 200;
+    }
+    if result != 100 {
+        return 23;  // 应该执行 if 分支
+    }
+    
+    // 测试10：枚举比较链
+    var p4: Priority = Priority.HIGH;
+    if p1 < p3 && p3 < p4 {
+        // LOW < MEDIUM < HIGH
+    } else {
+        return 24;  // 应该满足条件
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+
