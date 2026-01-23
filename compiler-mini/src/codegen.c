@@ -2788,7 +2788,7 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             // 从第一个元素生成值以推断元素类型
             LLVMValueRef first_element_val = codegen_gen_expr(codegen, elements[0]);
             if (!first_element_val) {
-                fprintf(stderr, "错误: 数组字面量第一个元素生成失败 (元素类型: %d)\n", elements[0] ? elements[0]->type : -1);
+                fprintf(stderr, "错误: 数组字面量第一个元素生成失败 (元素类型: %d)\n", elements[0] ? (int)elements[0]->type : -1);
                 return NULL;
             }
             
@@ -2819,7 +2819,7 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 // 生成元素值
                 LLVMValueRef element_val = codegen_gen_expr(codegen, element);
                 if (!element_val) {
-                    fprintf(stderr, "错误: 数组字面量第 %d 个元素生成失败 (元素类型: %d)\n", i, element ? element->type : -1);
+                    fprintf(stderr, "错误: 数组字面量第 %d 个元素生成失败 (元素类型: %d)\n", i, element ? (int)element->type : -1);
                     return NULL;
                 }
                 

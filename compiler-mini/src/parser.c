@@ -89,9 +89,8 @@ static int parser_peek_is_struct_init(Parser *parser) {
     }
     
     // 保存 lexer 在 after_brace 之后的状态（lexer_next_token 已经跳过了空白字符和注释）
-    size_t after_brace_position = lexer->position;
-    int after_brace_line = lexer->line;
-    int after_brace_column = lexer->column;
+    // 这些变量用于调试目的，但当前未使用
+    (void)lexer; // 抑制未使用变量警告
     
     TokenType token_type = after_brace->type;
     int is_struct_init = 0;
