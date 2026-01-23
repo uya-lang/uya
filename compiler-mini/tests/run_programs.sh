@@ -44,34 +44,42 @@ if [ -d "$MULTIFILE_DIR" ]; then
         echo "测试: $test_name (多文件编译)"
         
         # 多文件编译：将所有文件一起编译
-        $COMPILER "${multifile_list[@]}" -o "$BUILD_DIR/multifile/${test_name}.o"
+        # 捕获编译输出，过滤调试信息但保留错误信息
+        compiler_output=$($COMPILER "${multifile_list[@]}" -o "$BUILD_DIR/multifile/${test_name}.o" 2>&1)
+        compiler_exit=$?
+        if [ $compiler_exit -ne 0 ]; then
+            # 如果有错误信息，显示它（排除调试信息）
+            echo "$compiler_output" | grep -v "^调试:" | grep -E "(错误|错误:|失败)" | head -5
+            echo "  ❌ 编译失败（退出码: $compiler_exit）"
+            FAILED=$((FAILED + 1))
+            continue
+        fi
+        # 检查是否生成了 .o 文件，如果没有则尝试使用无扩展名的文件
+        if [ ! -f "$BUILD_DIR/multifile/${test_name}.o" ]; then
+            # 如果没有 .o 文件，可能生成了无扩展名的文件
+            if [ -f "$BUILD_DIR/multifile/${test_name}" ]; then
+                mv "$BUILD_DIR/multifile/${test_name}" "$BUILD_DIR/multifile/${test_name}.o"
+            else
+                echo "  ❌ 编译失败（未生成输出文件）"
+                FAILED=$((FAILED + 1))
+                continue
+            fi
+        fi
+        # 链接目标文件为可执行文件
+        gcc -no-pie "$BUILD_DIR/multifile/${test_name}.o" -o "$BUILD_DIR/multifile/$test_name"
         if [ $? -ne 0 ]; then
-            echo "  ❌ 编译失败"
+            echo "  ❌ 链接失败"
             FAILED=$((FAILED + 1))
         else
-            # 检查是否生成了 .o 文件，如果没有则尝试使用无扩展名的文件
-            if [ ! -f "$BUILD_DIR/multifile/${test_name}.o" ]; then
-                # 如果没有 .o 文件，可能生成了无扩展名的文件
-                if [ -f "$BUILD_DIR/multifile/${test_name}" ]; then
-                    mv "$BUILD_DIR/multifile/${test_name}" "$BUILD_DIR/multifile/${test_name}.o"
-                fi
-            fi
-            # 链接目标文件为可执行文件
-            gcc -no-pie "$BUILD_DIR/multifile/${test_name}.o" -o "$BUILD_DIR/multifile/$test_name"
-            if [ $? -ne 0 ]; then
-                echo "  ❌ 链接失败"
-                FAILED=$((FAILED + 1))
+            # 运行
+            "$BUILD_DIR/multifile/$test_name"
+            exit_code=$?
+            if [ $exit_code -eq 0 ]; then
+                echo "  ✓ 测试通过"
+                PASSED=$((PASSED + 1))
             else
-                # 运行
-                "$BUILD_DIR/multifile/$test_name"
-                exit_code=$?
-                if [ $exit_code -eq 0 ]; then
-                    echo "  ✓ 测试通过"
-                    PASSED=$((PASSED + 1))
-                else
-                    echo "  ❌ 测试失败（退出码: $exit_code）"
-                    FAILED=$((FAILED + 1))
-                fi
+                echo "  ❌ 测试失败（退出码: $exit_code）"
+                FAILED=$((FAILED + 1))
             fi
         fi
     fi
@@ -84,8 +92,12 @@ for uya_file in "$TEST_DIR"/*.uya; do
         echo "测试: $base_name"
         
         # 编译（生成目标文件）
-        $COMPILER "$uya_file" -o "$BUILD_DIR/${base_name}.o"
-        if [ $? -ne 0 ]; then
+        # 捕获编译输出，过滤调试信息但保留错误信息
+        compiler_output=$($COMPILER "$uya_file" -o "$BUILD_DIR/${base_name}.o" 2>&1)
+        compiler_exit=$?
+        if [ $compiler_exit -ne 0 ]; then
+            # 如果有错误信息，显示它（排除调试信息）
+            echo "$compiler_output" | grep -v "^调试:" | grep -E "(错误|错误:|失败)" | head -5
             # 特殊处理：预期编译失败的测试文件
             # test_ffi_ptr_in_normal_fn: 普通函数不能使用 FFI 指针
             # test_error_*: 各种编译错误测试（类型不匹配、未初始化变量、变量遮蔽、const 重新赋值、返回值类型错误等）
@@ -93,9 +105,15 @@ for uya_file in "$TEST_DIR"/*.uya; do
                 echo "  ✓ 测试通过（预期编译失败）"
                 PASSED=$((PASSED + 1))
             else
-                echo "  ❌ 编译失败"
+                echo "  ❌ 编译失败（退出码: $compiler_exit）"
                 FAILED=$((FAILED + 1))
             fi
+            continue
+        fi
+        # 检查输出文件是否生成
+        if [ ! -f "$BUILD_DIR/${base_name}.o" ]; then
+            echo "  ❌ 编译失败（未生成输出文件）"
+            FAILED=$((FAILED + 1))
             continue
         fi
         
