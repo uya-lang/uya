@@ -24,68 +24,83 @@ fi
 # 创建构建输出目录
 mkdir -p "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/multifile"
+mkdir -p "$BUILD_DIR/cross_deps"
 
 echo "开始运行 Uya 测试程序..."
 echo ""
 
-# 处理多文件编译测试（multifile 子目录）
-MULTIFILE_DIR="$TEST_DIR/multifile"
-if [ -d "$MULTIFILE_DIR" ]; then
+# 处理多文件编译测试的函数
+process_multifile_test() {
+    local test_dir="$1"
+    local test_name="$2"
+    local build_subdir="$3"
+    
+    if [ ! -d "$test_dir" ]; then
+        return
+    fi
+    
     # 收集所有 .uya 文件
-    multifile_list=()
-    for uya_file in "$MULTIFILE_DIR"/*.uya; do
+    local file_list=()
+    for uya_file in "$test_dir"/*.uya; do
         if [ -f "$uya_file" ]; then
-            multifile_list+=("$uya_file")
+            file_list+=("$uya_file")
         fi
     done
     
-    if [ ${#multifile_list[@]} -gt 0 ]; then
-        test_name="multifile"
-        echo "测试: $test_name (多文件编译)"
-        
-        # 多文件编译：将所有文件一起编译
-        # 捕获编译输出，过滤调试信息但保留错误信息
-        compiler_output=$($COMPILER "${multifile_list[@]}" -o "$BUILD_DIR/multifile/${test_name}.o" 2>&1)
-        compiler_exit=$?
-        if [ $compiler_exit -ne 0 ]; then
-            # 如果有错误信息，显示它（排除调试信息）
-            echo "$compiler_output" | grep -v "^调试:" | grep -E "(错误|错误:|失败)" | head -5
-            echo "  ❌ 编译失败（退出码: $compiler_exit）"
-            FAILED=$((FAILED + 1))
-            continue
-        fi
-        # 检查是否生成了 .o 文件，如果没有则尝试使用无扩展名的文件
-        if [ ! -f "$BUILD_DIR/multifile/${test_name}.o" ]; then
-            # 如果没有 .o 文件，可能生成了无扩展名的文件
-            if [ -f "$BUILD_DIR/multifile/${test_name}" ]; then
-                mv "$BUILD_DIR/multifile/${test_name}" "$BUILD_DIR/multifile/${test_name}.o"
-            else
-                echo "  ❌ 编译失败（未生成输出文件）"
-                FAILED=$((FAILED + 1))
-                continue
-            fi
-        fi
-        # 链接目标文件为可执行文件
-        gcc -no-pie "$BUILD_DIR/multifile/${test_name}.o" -o "$BUILD_DIR/multifile/$test_name"
-        if [ $? -ne 0 ]; then
-            echo "  ❌ 链接失败"
-            FAILED=$((FAILED + 1))
+    if [ ${#file_list[@]} -eq 0 ]; then
+        return
+    fi
+    
+    echo "测试: $test_name (多文件编译)"
+    
+    # 多文件编译：将所有文件一起编译
+    # 捕获编译输出，过滤调试信息但保留错误信息
+    local compiler_output=$($COMPILER "${file_list[@]}" -o "$BUILD_DIR/$build_subdir/${test_name}.o" 2>&1)
+    local compiler_exit=$?
+    if [ $compiler_exit -ne 0 ]; then
+        # 如果有错误信息，显示它（排除调试信息）
+        echo "$compiler_output" | grep -v "^调试:" | grep -E "(错误|错误:|失败)" | head -5
+        echo "  ❌ 编译失败（退出码: $compiler_exit）"
+        FAILED=$((FAILED + 1))
+        return
+    fi
+    # 检查是否生成了 .o 文件，如果没有则尝试使用无扩展名的文件
+    if [ ! -f "$BUILD_DIR/$build_subdir/${test_name}.o" ]; then
+        # 如果没有 .o 文件，可能生成了无扩展名的文件
+        if [ -f "$BUILD_DIR/$build_subdir/${test_name}" ]; then
+            mv "$BUILD_DIR/$build_subdir/${test_name}" "$BUILD_DIR/$build_subdir/${test_name}.o"
         else
-            # 运行
-            "$BUILD_DIR/multifile/$test_name"
-            exit_code=$?
-            if [ $exit_code -eq 0 ]; then
-                echo "  ✓ 测试通过"
-                PASSED=$((PASSED + 1))
-            else
-                echo "  ❌ 测试失败（退出码: $exit_code）"
-                FAILED=$((FAILED + 1))
-            fi
+            echo "  ❌ 编译失败（未生成输出文件）"
+            FAILED=$((FAILED + 1))
+            return
         fi
     fi
-fi
+    # 链接目标文件为可执行文件
+    gcc -no-pie "$BUILD_DIR/$build_subdir/${test_name}.o" -o "$BUILD_DIR/$build_subdir/$test_name"
+    if [ $? -ne 0 ]; then
+        echo "  ❌ 链接失败"
+        FAILED=$((FAILED + 1))
+    else
+        # 运行
+        "$BUILD_DIR/$build_subdir/$test_name"
+        local exit_code=$?
+        if [ $exit_code -eq 0 ]; then
+            echo "  ✓ 测试通过"
+            PASSED=$((PASSED + 1))
+        else
+            echo "  ❌ 测试失败（退出码: $exit_code）"
+            FAILED=$((FAILED + 1))
+        fi
+    fi
+}
 
-# 遍历所有单文件 .uya 文件（排除 multifile 目录）
+# 处理多文件编译测试（multifile 子目录）
+process_multifile_test "$TEST_DIR/multifile" "multifile" "multifile"
+
+# 处理多文件编译测试（cross_deps 子目录）
+process_multifile_test "$TEST_DIR/cross_deps" "cross_deps" "cross_deps"
+
+# 遍历所有单文件 .uya 文件（排除 multifile 和 cross_deps 目录）
 for uya_file in "$TEST_DIR"/*.uya; do
     if [ -f "$uya_file" ]; then
         base_name=$(basename "$uya_file" .uya)
