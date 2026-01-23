@@ -84,8 +84,12 @@ static int parser_peek_is_struct_init(Parser *parser) {
     TokenType token_type = after_brace->type;
     int is_struct_init = 0;
     
-    // 只检查 identifier: 模式，不检查空的 {}（因为空代码块 {} 和空结构体字面量 {} 无法区分）
-    if (token_type == TOKEN_IDENTIFIER) {
+    // 检查 identifier: 模式或空的 {}
+    if (token_type == TOKEN_RIGHT_BRACE) {
+        // 空的 {}：在表达式上下文中，优先认为是结构体字面量
+        // 注意：这可能会与代码块冲突，但在表达式解析中，结构体字面量更常见
+        is_struct_init = 1;
+    } else if (token_type == TOKEN_IDENTIFIER) {
         // 检查标识符后面是否有 ':'
         size_t saved_position2 = lexer->position;
         int saved_line2 = lexer->line;
@@ -287,10 +291,20 @@ static ASTNode *parser_parse_block(Parser *parser) {
            !parser_match(parser, TOKEN_RIGHT_BRACE) && 
            !parser_match(parser, TOKEN_EOF)) {
         
+        // 如果当前token是右大括号，说明是空块，直接退出循环
+        if (parser->current_token != NULL && parser_match(parser, TOKEN_RIGHT_BRACE)) {
+            break;
+        }
+        
         // 解析语句
         ASTNode *stmt = parser_parse_statement(parser);
         if (stmt == NULL) {
-            // 解析失败
+            // 解析失败：检查是否是因为遇到了右大括号（空块的情况）
+            if (parser->current_token != NULL && parser_match(parser, TOKEN_RIGHT_BRACE)) {
+                // 空块，正常退出循环
+                break;
+            }
+            // 否则是真正的解析错误
             return NULL;
         }
         
@@ -320,7 +334,11 @@ static ASTNode *parser_parse_block(Parser *parser) {
     }
     
     // 期望 '}'
+    // 注意：如果当前 token 是 'else'，说明可能是 if 语句的 else 分支
+    // 但 block 必须以 '}' 结束，所以这里仍然期望 '}'
     if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
+        // 如果期望 '}' 失败，但当前 token 是 'else'，可能是解析器状态异常
+        // 这种情况不应该发生，因为 block 应该以 '}' 结束
         return NULL;
     }
     
@@ -2576,6 +2594,19 @@ ASTNode *parser_parse_statement(Parser *parser) {
         return stmt;
     }
     
+    // 支持函数内部的结构体和函数声明
+    if (parser_match(parser, TOKEN_STRUCT)) {
+        return parser_parse_struct(parser);
+    }
+    
+    if (parser_match(parser, TOKEN_FN)) {
+        return parser_parse_function(parser);
+    }
+    
+    if (parser_match(parser, TOKEN_ENUM)) {
+        return parser_parse_enum(parser);
+    }
+    
     if (parser_match(parser, TOKEN_LEFT_BRACE)) {
         // 解析代码块语句
         return parser_parse_block(parser);
@@ -2585,8 +2616,18 @@ ASTNode *parser_parse_statement(Parser *parser) {
     // 注意：AST_EXPR_STMT 节点在 union 中没有对应的数据结构
     // 根据 ast.c 的注释，表达式语句的数据存储在表达式的节点中
     // 所以这里直接返回表达式节点（表达式节点本身可以作为语句）
+    
+    // 如果当前token是右大括号，说明是空块，返回NULL（由调用者处理）
+    if (parser_match(parser, TOKEN_RIGHT_BRACE)) {
+        return NULL;
+    }
+    
     ASTNode *expr = parser_parse_expression(parser);
     if (expr == NULL) {
+        // 如果当前token是右大括号，说明是空块，返回NULL（由调用者处理）
+        if (parser->current_token != NULL && parser_match(parser, TOKEN_RIGHT_BRACE)) {
+            return NULL;
+        }
         return NULL;
     }
     

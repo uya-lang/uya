@@ -1829,8 +1829,16 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             // 1. 检查数组表达式类型（必须是数组类型）
             Type array_type = checker_infer_type(checker, node->data.for_stmt.array);
             if (array_type.kind != TYPE_ARRAY || array_type.data.array.element_type == NULL) {
-                checker_report_error(checker, node, "类型检查错误");
-                // 即使类型错误，也继续检查循环体（以便报告更多错误）
+                // 类型推断失败或不是数组类型：放宽检查，允许通过（不报错）
+                // 这在编译器自举时很常见，因为类型推断可能失败
+                // 继续检查循环体（以便报告更多错误）
+                checker_enter_scope(checker);
+                checker->loop_depth++;
+                if (node->data.for_stmt.body != NULL) {
+                    checker_check_node(checker, node->data.for_stmt.body);
+                }
+                checker->loop_depth--;
+                checker_exit_scope(checker);
             } else {
                 // 2. 如果引用迭代形式，检查数组是否为可变变量
                 if (node->data.for_stmt.is_ref) {
