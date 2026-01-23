@@ -55,6 +55,8 @@ int checker_init(TypeChecker *checker, Arena *arena, const char *default_filenam
     checker->program_node = NULL;
     checker->error_count = 0;
     checker->default_filename = default_filename;
+    checker->current_return_type.kind = TYPE_VOID;
+    checker->in_function = 0;
     
     return 0;
 }
@@ -262,6 +264,37 @@ static void checker_exit_scope(TypeChecker *checker) {
     }
     
     checker->scope_level--;
+}
+
+// 检查类型是否可以隐式转换（用于返回值类型检查）
+// 参数：from - 源类型，to - 目标类型
+// 返回：1 表示可以隐式转换，0 表示不能
+// 注意：只允许非常有限的隐式转换，其他转换需要显式使用 as
+static int type_can_implicitly_convert(Type from, Type to) {
+    // 如果类型相等，可以转换
+    if (type_equals(from, to)) {
+        return 1;
+    }
+    
+    // 注意：bool → i32 的转换需要显式使用 as，不允许隐式转换
+    // 这样可以确保类型安全，避免意外的类型转换
+    
+    // byte → i32 (零扩展) - 允许隐式转换
+    if (from.kind == TYPE_BYTE && to.kind == TYPE_I32) {
+        return 1;
+    }
+    
+    // i32 → usize (在某些平台上) - 允许隐式转换
+    if (from.kind == TYPE_I32 && to.kind == TYPE_USIZE) {
+        return 1;
+    }
+    
+    // usize → i32 (在某些平台上，可能截断) - 允许隐式转换
+    if (from.kind == TYPE_USIZE && to.kind == TYPE_I32) {
+        return 1;
+    }
+    
+    return 0;
 }
 
 // 类型比较函数（比较两个Type是否相等）
@@ -1129,6 +1162,17 @@ static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
         return 0;
     }
     
+    // 获取函数返回类型
+    Type return_type = type_from_ast(checker, node->data.fn_decl.return_type);
+    
+    // 保存之前的函数状态
+    Type prev_return_type = checker->current_return_type;
+    int prev_in_function = checker->in_function;
+    
+    // 设置当前函数的返回类型
+    checker->current_return_type = return_type;
+    checker->in_function = 1;
+    
     // 检查函数体（如果有）
     if (node->data.fn_decl.body != NULL) {
         checker_enter_scope(checker);
@@ -1158,6 +1202,10 @@ static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
         
         checker_exit_scope(checker);
     }
+    
+    // 恢复之前的函数状态
+    checker->current_return_type = prev_return_type;
+    checker->in_function = prev_in_function;
     
     return 1;
 }
@@ -1925,10 +1973,64 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
         }
         
         case AST_RETURN_STMT: {
-            // TODO: 检查返回值类型是否匹配函数返回类型
-            // 这需要在函数上下文中检查，暂时跳过
+            // 检查返回值类型是否匹配函数返回类型
+            if (!checker->in_function) {
+                // 不在函数中，不应该有 return 语句（这通常不应该发生）
+                checker_report_error(checker, node, "return 语句不在函数中");
+                return 0;
+            }
+            
             if (node->data.return_stmt.expr != NULL) {
-                checker_infer_type(checker, node->data.return_stmt.expr);
+                // 有返回值的 return 语句
+                Type expr_type = checker_infer_type(checker, node->data.return_stmt.expr);
+                
+                // 检查返回类型是否匹配（允许隐式类型转换）
+                if (!type_equals(expr_type, checker->current_return_type) && 
+                    !type_can_implicitly_convert(expr_type, checker->current_return_type)) {
+                    // 类型不匹配且不能隐式转换，报告错误
+                    char buf[256];
+                    const char *expected_type_str = "未知类型";
+                    const char *actual_type_str = "未知类型";
+                    
+                    // 获取期望的返回类型字符串
+                    if (checker->current_return_type.kind == TYPE_I32) {
+                        expected_type_str = "i32";
+                    } else if (checker->current_return_type.kind == TYPE_BOOL) {
+                        expected_type_str = "bool";
+                    } else if (checker->current_return_type.kind == TYPE_BYTE) {
+                        expected_type_str = "byte";
+                    } else if (checker->current_return_type.kind == TYPE_USIZE) {
+                        expected_type_str = "usize";
+                    } else if (checker->current_return_type.kind == TYPE_VOID) {
+                        expected_type_str = "void";
+                    }
+                    
+                    // 获取实际的返回类型字符串
+                    if (expr_type.kind == TYPE_I32) {
+                        actual_type_str = "i32";
+                    } else if (expr_type.kind == TYPE_BOOL) {
+                        actual_type_str = "bool";
+                    } else if (expr_type.kind == TYPE_BYTE) {
+                        actual_type_str = "byte";
+                    } else if (expr_type.kind == TYPE_USIZE) {
+                        actual_type_str = "usize";
+                    } else if (expr_type.kind == TYPE_VOID) {
+                        actual_type_str = "void";
+                    }
+                    
+                    snprintf(buf, sizeof(buf), "返回值类型不匹配：期望 %s，实际 %s", expected_type_str, actual_type_str);
+                    checker_report_error(checker, node, buf);
+                    return 0;
+                }
+            } else {
+                // 无返回值的 return 语句（return;）
+                // 检查函数返回类型是否为 void
+                if (checker->current_return_type.kind != TYPE_VOID) {
+                    char buf[256];
+                    snprintf(buf, sizeof(buf), "函数必须返回值，但 return 语句没有返回值");
+                    checker_report_error(checker, node, buf);
+                    return 0;
+                }
             }
             return 1;
         }
@@ -2073,6 +2175,9 @@ int checker_check(TypeChecker *checker, ASTNode *ast) {
     // 此时所有函数都已被注册，函数体中的函数调用可以正确解析
     checker_check_node(checker, ast);
     
+    // 注意：即使有错误，也返回0，让编译器继续执行
+    // 错误信息已经通过 checker_report_error 输出
+    // 主函数会根据错误计数决定是否继续代码生成
     return 0;
 }
 

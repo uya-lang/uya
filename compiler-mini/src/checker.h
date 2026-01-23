@@ -84,6 +84,8 @@ typedef struct TypeChecker {
     ASTNode *program_node;      // 程序节点（用于查找结构体声明等）
     int error_count;            // 错误计数（简化版本，暂不存储错误消息）
     const char *default_filename; // 默认文件名（用于错误报告，可为 NULL）
+    Type current_return_type;   // 当前函数的返回类型（用于检查 return 语句）
+    int in_function;            // 是否在函数中（1 表示是，0 表示否）
 } TypeChecker;
 
 // 初始化 TypeChecker

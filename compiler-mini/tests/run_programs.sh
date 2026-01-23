@@ -95,13 +95,20 @@ for uya_file in "$TEST_DIR"/*.uya; do
         # 捕获编译输出，过滤调试信息但保留错误信息
         compiler_output=$($COMPILER "$uya_file" -o "$BUILD_DIR/${base_name}.o" 2>&1)
         compiler_exit=$?
+        
+        # 检查是否是预期编译失败的测试文件
+        # test_ffi_ptr_in_normal_fn: 普通函数不能使用 FFI 指针
+        # test_error_*: 各种编译错误测试（类型不匹配、未初始化变量、变量遮蔽、const 重新赋值、返回值类型错误等）
+        is_expected_fail=false
+        if [ "$base_name" = "test_ffi_ptr_in_normal_fn" ] || [[ "$base_name" =~ ^test_error_ ]]; then
+            is_expected_fail=true
+        fi
+        
         if [ $compiler_exit -ne 0 ]; then
             # 如果有错误信息，显示它（排除调试信息）
-            echo "$compiler_output" | grep -v "^调试:" | grep -E "(错误|错误:|失败)" | head -5
-            # 特殊处理：预期编译失败的测试文件
-            # test_ffi_ptr_in_normal_fn: 普通函数不能使用 FFI 指针
-            # test_error_*: 各种编译错误测试（类型不匹配、未初始化变量、变量遮蔽、const 重新赋值、返回值类型错误等）
-            if [ "$base_name" = "test_ffi_ptr_in_normal_fn" ] || [[ "$base_name" =~ ^test_error_ ]]; then
+            echo "$compiler_output" | grep -v "^调试:" | grep -E "(错误|错误:|失败)" | head -5 || true
+            # 如果是预期的编译失败，则测试通过
+            if [ "$is_expected_fail" = true ]; then
                 echo "  ✓ 测试通过（预期编译失败）"
                 PASSED=$((PASSED + 1))
             else
@@ -110,6 +117,14 @@ for uya_file in "$TEST_DIR"/*.uya; do
             fi
             continue
         fi
+        
+        # 如果编译成功，但这是预期编译失败的测试，则测试失败
+        if [ "$is_expected_fail" = true ]; then
+            echo "  ❌ 测试失败（预期编译失败，但编译器未检测到错误）"
+            FAILED=$((FAILED + 1))
+            continue
+        fi
+        
         # 检查输出文件是否生成
         if [ ! -f "$BUILD_DIR/${base_name}.o" ]; then
             echo "  ❌ 编译失败（未生成输出文件）"

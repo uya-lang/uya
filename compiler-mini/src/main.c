@@ -224,6 +224,12 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
         return 1;
     }
     
+    // 检查是否有类型检查错误
+    if (checker_get_error_count(&checker) > 0) {
+        fprintf(stderr, "错误: 类型检查失败（错误数量: %d）\n", checker_get_error_count(&checker));
+        return 1;
+    }
+    
         // 5. 代码生成
         fprintf(stderr, "=== 代码生成阶段 ===\n");
         // 使用第一个输入文件名作为模块名

@@ -18,6 +18,6 @@ fn test_field_array() i32 {
 
 fn main() i32 {
     const result: i32 = test_field_array();
-    return result != 100;
+    return (result != 100) as i32;
 }
 
