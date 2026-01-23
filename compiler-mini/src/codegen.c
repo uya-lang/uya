@@ -5,6 +5,7 @@
 #include <llvm-c/TargetMachine.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/Analysis.h>
+#include <llvm-c/Core.h>
 #include <stdio.h>
 
 // 安全的 LLVMTypeOf 包装函数，避免对标记值调用
@@ -2206,8 +2207,53 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             if (param_count > 0) {
                 LLVMGetParamTypes(func_type, param_types);
             }
+            
+            // 检查是否为 extern 函数（通过检查函数是否有基本块）
+            int is_extern = (LLVMGetFirstBasicBlock(func) == NULL) ? 1 : 0;
+            
             for (int i = 0; i < arg_count; i++) {
                 if (args[i] != (LLVMValueRef)1) {
+                    // 处理结构体参数：如果是 extern 函数调用，且函数期望 i64 但参数是结构体类型
+                    // 则将结构体打包到 i64 寄存器
+                    // 这确保与 C 函数的调用约定一致（C 编译器将小结构体打包到单个寄存器）
+                    if (is_extern && (unsigned)i < param_count) {
+                        LLVMTypeRef param_type = param_types[i];
+                        LLVMTypeRef arg_type = safe_LLVMTypeOf(args[i]);
+                        
+                        // 如果函数期望 i64，但参数是结构体类型，则需要转换
+                        if (param_type && arg_type && 
+                            LLVMGetTypeKind(param_type) == LLVMIntegerTypeKind &&
+                            LLVMGetIntTypeWidth(param_type) == 64 &&
+                            LLVMGetTypeKind(arg_type) == LLVMStructTypeKind) {
+                            // 检查结构体是否是 8 字节（两个 i32 字段）
+                            unsigned field_count = LLVMCountStructElementTypes(arg_type);
+                            if (field_count == 2) {
+                                LLVMTypeRef field_types[2];
+                                LLVMGetStructElementTypes(arg_type, field_types);
+                                int is_small_struct = 1;
+                                for (unsigned j = 0; j < 2; j++) {
+                                    if (LLVMGetTypeKind(field_types[j]) != LLVMIntegerTypeKind ||
+                                        LLVMGetIntTypeWidth(field_types[j]) != 32) {
+                                        is_small_struct = 0;
+                                        break;
+                                    }
+                                }
+                                if (is_small_struct) {
+                                    // 8 字节结构体（两个 i32）：打包到 i64 寄存器
+                                    LLVMTypeRef i64_type = LLVMInt64TypeInContext(codegen->context);
+                                    
+                                    // 将结构体值存储到临时内存，然后加载为 i64
+                                    LLVMValueRef struct_ptr = LLVMBuildAlloca(codegen->builder, arg_type, "");
+                                    LLVMBuildStore(codegen->builder, args[i], struct_ptr);
+                                    
+                                    // 将结构体指针转换为 i64 指针，然后加载
+                                    LLVMValueRef i64_ptr = LLVMBuildBitCast(codegen->builder, struct_ptr, 
+                                                                             LLVMPointerType(i64_type, 0), "");
+                                    args[i] = LLVMBuildLoad2(codegen->builder, i64_type, i64_ptr, "");
+                                }
+                            }
+                        }
+                    }
                     continue;
                 }
                 if ((unsigned)i >= param_count) {
@@ -4287,6 +4333,29 @@ static int codegen_declare_function(CodeGenerator *codegen, ASTNode *fn_decl) {
                         }
                     }
                     return -1;
+                }
+            }
+            
+            // 检查是否为 extern 函数，且参数是 8 字节结构体（两个 i32 字段）
+            // 如果是，将参数类型改为 i64，以匹配 C 函数的调用约定
+            int is_extern = (fn_decl->data.fn_decl.body == NULL) ? 1 : 0;
+            if (is_extern && LLVMGetTypeKind(param_type) == LLVMStructTypeKind) {
+                unsigned field_count = LLVMCountStructElementTypes(param_type);
+                if (field_count == 2) {
+                    LLVMTypeRef field_types[2];
+                    LLVMGetStructElementTypes(param_type, field_types);
+                    int is_small_struct = 1;
+                    for (unsigned j = 0; j < 2; j++) {
+                        if (LLVMGetTypeKind(field_types[j]) != LLVMIntegerTypeKind ||
+                            LLVMGetIntTypeWidth(field_types[j]) != 32) {
+                            is_small_struct = 0;
+                            break;
+                        }
+                    }
+                    if (is_small_struct) {
+                        // 8 字节结构体（两个 i32）：改为 i64 类型
+                        param_type = LLVMInt64TypeInContext(codegen->context);
+                    }
                 }
             }
             
