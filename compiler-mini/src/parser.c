@@ -12,6 +12,7 @@ int parser_init(Parser *parser, Lexer *lexer, Arena *arena) {
     
     parser->lexer = lexer;
     parser->arena = arena;
+    parser->context = PARSER_CONTEXT_NORMAL;  // 默认上下文
     
     // 获取第一个 Token
     parser->current_token = lexer_next_token(lexer, arena);
@@ -46,6 +47,12 @@ static Token *parser_expect(Parser *parser, TokenType type) {
     
     if (parser->current_token->type != type) {
         // 错误：期望的类型不匹配
+        // 调试输出
+        if (type == TOKEN_RIGHT_BRACE && parser->current_token->type == TOKEN_ELSE) {
+            fprintf(stderr, "调试: parser_expect 失败 - 期望 '}', 得到 'else'\n");
+            fprintf(stderr, "调试: lexer position=%zu, line=%d, column=%d\n", 
+                    parser->lexer->position, parser->lexer->line, parser->lexer->column);
+        }
         return NULL;
     }
     
@@ -81,13 +88,23 @@ static int parser_peek_is_struct_init(Parser *parser) {
         return 0;
     }
     
+    // 保存 lexer 在 after_brace 之后的状态（lexer_next_token 已经跳过了空白字符和注释）
+    size_t after_brace_position = lexer->position;
+    int after_brace_line = lexer->line;
+    int after_brace_column = lexer->column;
+    
     TokenType token_type = after_brace->type;
     int is_struct_init = 0;
     
     // 检查 identifier: 模式或空的 {}
     if (token_type == TOKEN_RIGHT_BRACE) {
-        // 空的 {}：在表达式上下文中，优先认为是结构体字面量
-        // 注意：这可能会与代码块冲突，但在表达式解析中，结构体字面量更常见
+        // 空的 {}：在表达式上下文中，可能是结构体字面量，也可能是代码块
+        // 但是，如果是在比较表达式之后（如 `p1 == p2 {`），`{` 应该是代码块的开始
+        // 而不是结构体字面量。为了区分，我们需要检查上下文。
+        // 但是，`parser_peek_is_struct_init` 无法访问上下文信息。
+        // 因此，我们采用保守策略：空的 `{}` 在表达式上下文中，优先认为是结构体字面量
+        // 这样可以保持变量初始化的兼容性，但需要调用者根据上下文判断
+        // 如果是在 if 条件表达式之后，调用者应该直接处理 `{` 作为代码块，而不调用此函数
         is_struct_init = 1;
     } else if (token_type == TOKEN_IDENTIFIER) {
         // 检查标识符后面是否有 ':'
@@ -100,13 +117,16 @@ static int parser_peek_is_struct_init(Parser *parser) {
             is_struct_init = 1;
         }
         
-        // 恢复状态到标识符之前
+        // 恢复状态到标识符之前（after_brace 之后）
         lexer->position = saved_position2;
         lexer->line = saved_line2;
         lexer->column = saved_column2;
     }
     
-    // 恢复 lexer 状态到 '{' 之后
+    // 恢复 lexer 状态到 '{' 之后（原始位置）
+    // 注意：这里恢复到 '{' 之后的原始位置，而不是 after_brace 之后的位置
+    // 因为 parser->current_token 仍然是 '{'，我们需要确保下次调用 lexer_next_token 时
+    // 能够正确返回 '{' 后面的 token
     lexer->position = saved_position;
     lexer->line = saved_line;
     lexer->column = saved_column;
@@ -305,6 +325,13 @@ static ASTNode *parser_parse_block(Parser *parser) {
                 break;
             }
             // 否则是真正的解析错误
+            // 调试输出
+            if (parser->current_token != NULL) {
+                fprintf(stderr, "调试: parser_parse_block 解析语句失败，当前 token type=%d\n", parser->current_token->type);
+                if (parser->current_token->value) {
+                    fprintf(stderr, "调试: token value=%s\n", parser->current_token->value);
+                }
+            }
             return NULL;
         }
         
@@ -337,8 +364,12 @@ static ASTNode *parser_parse_block(Parser *parser) {
     // 注意：如果当前 token 是 'else'，说明可能是 if 语句的 else 分支
     // 但 block 必须以 '}' 结束，所以这里仍然期望 '}'
     if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
-        // 如果期望 '}' 失败，但当前 token 是 'else'，可能是解析器状态异常
-        // 这种情况不应该发生，因为 block 应该以 '}' 结束
+        // 调试输出
+        if (parser->current_token != NULL && parser->current_token->type == TOKEN_ELSE) {
+            fprintf(stderr, "调试: parser_parse_block 期望 '}' 失败，当前 token 是 'else'\n");
+            fprintf(stderr, "调试: lexer position=%zu, line=%d, column=%d\n", 
+                    parser->lexer->position, parser->lexer->line, parser->lexer->column);
+        }
         return NULL;
     }
     
@@ -1001,6 +1032,12 @@ ASTNode *parser_parse(Parser *parser) {
                     fprintf(stderr, " '%s'", token_value);
                 }
                 fprintf(stderr, "\n");
+                // 调试输出
+                if (parser->current_token->type == TOKEN_ELSE) {
+                    fprintf(stderr, "调试: 在 parser_parse 中遇到意外的 'else'\n");
+                    fprintf(stderr, "调试: lexer position=%zu, line=%d, column=%d\n", 
+                            parser->lexer->position, parser->lexer->line, parser->lexer->column);
+                }
                 return NULL;
             }
             // 到达文件末尾，正常退出循环
@@ -1441,10 +1478,39 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             return result;
         } else if (parser->current_token != NULL && parser->current_token->type == TOKEN_LEFT_BRACE) {
             // 使用 peek 机制检测是否是结构体字面量
+            // 注意：在表达式解析中，如果标识符后面是 '{'，我们需要区分是结构体字面量还是代码块
+            // 但是，在表达式解析的上下文中，如果 '{' 后面是 '}' 或 'identifier:' 模式，它应该是结构体字面量
+            // 然而，在某些情况下（如 if 条件表达式后），'{' 应该是代码块的开始
+            // 为了区分，我们检查 '{' 后面是否是空的 '}'，如果是，我们需要更仔细地判断
+            // 如果是在比较表达式之后（如 `p1 == p2 {`），`{` 应该是代码块的开始
+            // 但在变量初始化等上下文中，空的 `{}` 应该是结构体字面量
+            // 由于 `parser_peek_is_struct_init` 无法访问上下文，我们采用保守策略：
+            // 如果 '{' 后面是 '}'（空块），我们假设它是结构体字面量（因为变量初始化更常见）
+            // 但如果调用者知道这是代码块上下文，应该直接处理，而不调用此函数
             int is_struct_init = parser_peek_is_struct_init(parser);
+            
+            // 特殊情况：如果 '{' 后面是 '}'（空块），且这是在表达式解析中，
+            // 我们需要检查这是否是在比较表达式之后（如 `p1 == p2 {`）
+            // 如果是，`{` 应该是代码块的开始，而不是结构体字面量
+            // 但是，我们无法直接知道这是否是在比较表达式之后
+            // 因此，我们采用启发式方法：如果标识符后面直接是 '{'，且 '{' 后面是 '}'（空块），
+            // 我们需要更仔细地判断
+            // 如果是在变量初始化等上下文中（如 `var e1: Empty = Empty{};`），空的 `{}` 应该是结构体字面量
+            // 如果是在 if 条件表达式之后（如 `if p1 == p2 {`），`{` 应该是代码块的开始
+            // 由于我们无法区分上下文，我们采用保守策略：假设它是结构体字面量
+            // 如果这导致问题（如 if 条件表达式），我们需要在更高层处理
+            // 实际上，我们已经在 `parser_parse_eq_expr` 中处理了这种情况
+            // 所以这里我们保持 `is_struct_init` 的值不变
+            // 但是，为了兼容变量初始化，我们需要检查：如果这是在变量初始化等上下文中，
+            // 空的 `{}` 应该是结构体字面量
+            // 由于我们无法区分上下文，我们采用保守策略：假设它是结构体字面量
+            // 如果这导致问题（如 if 条件表达式），我们需要在更高层处理
+            // 实际上，我们已经在 `parser_parse_eq_expr` 中处理了这种情况
+            // 所以这里我们保持 `is_struct_init` 的值不变
             
             if (!is_struct_init) {
                 // 不是结构体字面量，创建普通标识符（后面的'{'是代码块的开始，不是表达式的一部分）
+                // 这种情况不应该出现在表达式解析中，但为了健壮性，我们处理它
                 ASTNode *node = ast_new_node(AST_IDENTIFIER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
                 if (node == NULL) {
                     return NULL;
@@ -1489,6 +1555,57 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             }
             
             // 结构体字面量：ID '{' field_init_list '}'
+            // 但是，如果 '{' 后面是 '}'（空块），且这是在表达式解析中，
+            // 我们需要检查这是否是在比较表达式之后（如 `p1 == p2 {`）
+            // 如果是，`{` 应该是代码块的开始，而不是结构体字面量的一部分
+            // 为了区分，我们检查 '{' 后面是否是 '}'（空块）
+            // 如果是，我们假设这是代码块的开始，而不是结构体字面量
+            // 这样可以解决 if 条件表达式的问题，但可能会破坏变量初始化的情况
+            // 为了兼容，我们需要检查：如果这是在变量初始化等上下文中，
+            // 空的 `{}` 应该是结构体字面量
+            // 由于我们无法区分上下文，我们采用保守策略：假设它是结构体字面量
+            // 如果这导致问题（如 if 条件表达式），我们需要在更高层处理
+            // 实际上，我们已经在 `parser_parse_eq_expr` 中处理了这种情况
+            // 所以这里我们继续解析结构体字面量
+            // 但是，如果 '{' 后面是 '}'（空块），我们需要检查这是否是在比较表达式之后
+            // 如果是，我们不应该解析结构体字面量，而应该返回标识符
+            // 为了检查，我们 peek 一下 '{' 后面的内容
+            Lexer *lexer = parser->lexer;
+            size_t saved_position = lexer->position;
+            int saved_line = lexer->line;
+            int saved_column = lexer->column;
+            
+            // Peek '{' 后面的 token
+            Token *after_brace = lexer_next_token(lexer, parser->arena);
+            if (after_brace && after_brace->type == TOKEN_RIGHT_BRACE) {
+                // '{' 后面是 '}'（空块）
+                // 恢复 lexer 状态
+                lexer->position = saved_position;
+                lexer->line = saved_line;
+                lexer->column = saved_column;
+                
+                // 根据上下文判断
+                if (parser->context == PARSER_CONTEXT_CONDITION) {
+                    // 在条件表达式上下文中，`{}` 应该是代码块的开始
+                    // 返回标识符，让调用者处理 '{' 作为代码块
+                    ASTNode *node = ast_new_node(AST_IDENTIFIER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                    if (node == NULL) {
+                        return NULL;
+                    }
+                    
+                    node->data.identifier.name = name;
+                    return node;
+                }
+                // 在变量初始化上下文或普通上下文中，`{}` 应该是结构体字面量
+                // 继续解析结构体字面量
+            }
+            
+            // 恢复 lexer 状态
+            lexer->position = saved_position;
+            lexer->line = saved_line;
+            lexer->column = saved_column;
+            
+            // 继续解析结构体字面量
             ASTNode *struct_init = ast_new_node(AST_STRUCT_INIT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
             if (struct_init == NULL) {
                 return NULL;
@@ -2172,6 +2289,69 @@ static ASTNode *parser_parse_eq_expr(Parser *parser) {
             return NULL;
         }
         
+        // 特殊情况：如果右操作数是结构体初始化，且当前 token 是 '{'，且 '{' 后面是 '}'（空块），
+        // 这可能是代码块的开始（如 `if p1 == p2 {`），而不是结构体字面量的一部分
+        // 为了区分，我们检查当前 token 是否是 '{'
+        // 如果是，我们 peek 一下 '{' 后面的内容，如果是 '}'（空块），我们假设这是代码块的开始
+        // 在这种情况下，我们需要回退：如果 right 是结构体初始化，我们需要将其替换为标识符
+        if (parser->current_token != NULL && 
+            parser->current_token->type == TOKEN_LEFT_BRACE) {
+            // 调试输出
+            fprintf(stderr, "调试: parser_parse_eq_expr 检测到 '{'，right type=%d\n", right->type);
+            
+            // 保存 lexer 状态
+            Lexer *lexer = parser->lexer;
+            size_t saved_position = lexer->position;
+            int saved_line = lexer->line;
+            int saved_column = lexer->column;
+            
+            // Peek '{' 后面的 token
+            Token *after_brace = lexer_next_token(lexer, parser->arena);
+            if (after_brace && after_brace->type == TOKEN_RIGHT_BRACE) {
+                // '{' 后面是 '}'（空块），这可能是代码块的开始
+                // 恢复 lexer 状态
+                lexer->position = saved_position;
+                lexer->line = saved_line;
+                lexer->column = saved_column;
+                
+                fprintf(stderr, "调试: parser_parse_eq_expr 检测到空块，right type=%d\n", right->type);
+                
+                // 如果 right 是结构体初始化，我们需要将其替换为标识符
+                // 因为 '{' 应该是代码块的开始，而不是结构体字面量的一部分
+                if (right->type == AST_STRUCT_INIT) {
+                    // 获取结构体名称
+                    const char *struct_name = right->data.struct_init.struct_name;
+                    if (struct_name) {
+                        fprintf(stderr, "调试: 将结构体初始化替换为标识符 '%s'\n", struct_name);
+                        // 创建标识符节点
+                        ASTNode *identifier = ast_new_node(AST_IDENTIFIER, right->line, right->column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                        if (identifier != NULL) {
+                            identifier->data.identifier.name = struct_name;
+                            right = identifier;
+                        }
+                    }
+                }
+                
+                // 停止表达式解析，返回完整的比较表达式（不包含 '{'）
+                // 调用者（如 if 语句解析）会处理 '{' 作为代码块
+                ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                if (node == NULL) {
+                    return NULL;
+                }
+                
+                node->data.binary_expr.left = left;
+                node->data.binary_expr.op = op;
+                node->data.binary_expr.right = right;
+                
+                return node;
+            }
+            
+            // 恢复 lexer 状态
+            lexer->position = saved_position;
+            lexer->line = saved_line;
+            lexer->column = saved_column;
+        }
+        
         // 创建二元表达式节点
         ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
@@ -2409,13 +2589,19 @@ ASTNode *parser_parse_statement(Parser *parser) {
         }
         
         // 解析条件表达式
+        // 设置上下文为条件表达式上下文，以便在解析表达式时正确区分结构体字面量和代码块
+        ParserContext saved_context = parser->context;
+        parser->context = PARSER_CONTEXT_CONDITION;
         ASTNode *condition = parser_parse_expression(parser);
+        parser->context = saved_context;  // 恢复上下文
         if (condition == NULL) {
             return NULL;
         }
         stmt->data.if_stmt.condition = condition;
         
         // 解析 then 分支（代码块）
+        // 注意：如果当前 token 是 '{'，它应该是代码块的开始，而不是表达式的一部分
+        // 因此，我们直接解析代码块，而不需要担心结构体字面量的歧义
         ASTNode *then_branch = parser_parse_block(parser);
         if (then_branch == NULL) {
             return NULL;
@@ -2462,7 +2648,11 @@ ASTNode *parser_parse_statement(Parser *parser) {
         }
         
         // 解析条件表达式
+        // 设置上下文为条件表达式上下文，以便在解析表达式时正确区分结构体字面量和代码块
+        ParserContext saved_context = parser->context;
+        parser->context = PARSER_CONTEXT_CONDITION;
         ASTNode *condition = parser_parse_expression(parser);
+        parser->context = saved_context;  // 恢复上下文
         if (condition == NULL) {
             return NULL;
         }
@@ -2580,7 +2770,11 @@ ASTNode *parser_parse_statement(Parser *parser) {
         }
         
         // 解析初始值表达式
+        // 设置上下文为变量初始化上下文，以便在解析表达式时正确区分结构体字面量和代码块
+        ParserContext saved_context = parser->context;
+        parser->context = PARSER_CONTEXT_VAR_INIT;
         ASTNode *init = parser_parse_expression(parser);
+        parser->context = saved_context;  // 恢复上下文
         if (init == NULL) {
             return NULL;
         }

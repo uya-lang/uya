@@ -5,12 +5,20 @@
 #include "lexer.h"
 #include "arena.h"
 
+// 解析上下文类型
+typedef enum {
+    PARSER_CONTEXT_NORMAL,          // 普通表达式上下文
+    PARSER_CONTEXT_VAR_INIT,        // 变量初始化上下文（var/const 声明中的 = 后面的表达式）
+    PARSER_CONTEXT_CONDITION        // 条件表达式上下文（if/while 后面的表达式）
+} ParserContext;
+
 // 语法分析器结构体
 // 使用 Lexer 读取 Token，构建 AST
 typedef struct Parser {
     Lexer *lexer;           // 词法分析器指针（由调用者提供，不分配）
     Token *current_token;   // 当前 Token（从 Arena 分配）
     Arena *arena;           // Arena 分配器（用于分配 Token 和 AST 节点）
+    ParserContext context;  // 当前解析上下文
 } Parser;
 
 // 初始化 Parser
