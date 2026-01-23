@@ -699,14 +699,22 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
         case AST_ARRAY_ACCESS: {
             // 数组访问：推断数组表达式类型，然后返回元素类型
             // 支持数组类型 [T: N] 和指针类型 &T（指针类型的数组访问如 &byte[offset]）
+            // 也支持指向数组的指针 &[T: N]（如 &[i32: 3]）
             Type array_type = checker_infer_type(checker, expr->data.array_access.array);
             
             if (array_type.kind == TYPE_ARRAY && array_type.data.array.element_type != NULL) {
                 // 数组类型：返回数组的元素类型
                 return *array_type.data.array.element_type;
             } else if (array_type.kind == TYPE_POINTER && array_type.data.pointer.pointer_to != NULL) {
-                // 指针类型：返回指针指向的类型（如 &byte[offset] 返回 byte）
-                return *array_type.data.pointer.pointer_to;
+                // 指针类型：检查指针指向的类型
+                Type pointed_type = *array_type.data.pointer.pointer_to;
+                if (pointed_type.kind == TYPE_ARRAY && pointed_type.data.array.element_type != NULL) {
+                    // 指向数组的指针（如 &[i32: 3]）：返回数组的元素类型
+                    return *pointed_type.data.array.element_type;
+                } else {
+                    // 指向非数组类型的指针（如 &byte）：返回指针指向的类型
+                    return pointed_type;
+                }
             }
             
             // 数组表达式类型不是数组类型或指针类型，返回void类型
@@ -1413,16 +1421,29 @@ static Type checker_check_array_access(TypeChecker *checker, ASTNode *node) {
         // 返回数组的元素类型
         return *array_type.data.array.element_type;
     } else if (array_type.kind == TYPE_POINTER && array_type.data.pointer.pointer_to != NULL) {
-        // 指针类型：检查索引表达式类型是 i32
-        Type index_type = checker_infer_type(checker, node->data.array_access.index);
-        if (index_type.kind != TYPE_I32) {
-            // 索引表达式类型不是 i32：放宽检查，允许通过（不报错）
-            // 返回指针指向的类型
-            return *array_type.data.pointer.pointer_to;
+        // 指针类型：检查指针指向的类型
+        Type pointed_type = *array_type.data.pointer.pointer_to;
+        if (pointed_type.kind == TYPE_ARRAY && pointed_type.data.array.element_type != NULL) {
+            // 指向数组的指针（如 &[i32: 3]）：返回数组的元素类型
+            Type index_type = checker_infer_type(checker, node->data.array_access.index);
+            if (index_type.kind != TYPE_I32) {
+                // 索引表达式类型不是 i32：放宽检查，允许通过（不报错）
+                // 返回数组的元素类型
+                return *pointed_type.data.array.element_type;
+            }
+            // 返回数组的元素类型
+            return *pointed_type.data.array.element_type;
+        } else {
+            // 指向非数组类型的指针（如 &byte）：检查索引表达式类型是 i32
+            Type index_type = checker_infer_type(checker, node->data.array_access.index);
+            if (index_type.kind != TYPE_I32) {
+                // 索引表达式类型不是 i32：放宽检查，允许通过（不报错）
+                // 返回指针指向的类型
+                return pointed_type;
+            }
+            // 返回指针指向的类型（如 &byte[offset] 返回 byte）
+            return pointed_type;
         }
-        
-        // 返回指针指向的类型（如 &byte[offset] 返回 byte）
-        return *array_type.data.pointer.pointer_to;
     }
     
     // 数组表达式类型不是数组类型或指针类型：放宽检查，允许通过（不报错）

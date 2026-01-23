@@ -2766,6 +2766,16 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                             return NULL;  // 模块的 DataLayout 未设置
                         }
                         element_size = LLVMStoreSizeOfType(target_data, element_type);
+                        
+                        // 特殊处理：空结构体的大小应该是 1 字节（规范要求）
+                        // LLVM 对空结构体返回 0，但根据规范，空结构体大小为 1 字节
+                        if (element_size == 0) {
+                            // 检查是否是空结构体（通过检查字段数）
+                            unsigned struct_field_count = LLVMCountStructElementTypes(element_type);
+                            if (struct_field_count == 0) {
+                                element_size = 1;  // 空结构体大小为 1 字节
+                            }
+                        }
                     } else {
                         // 其他复杂类型，无法计算大小
                         return NULL;
