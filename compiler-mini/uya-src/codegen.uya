@@ -26,10 +26,10 @@ const STRUCT_TYPE_MAP_SIZE: i32 = 64;
 const VAR_MAP_SIZE: i32 = 256;
 
 // 函数映射表大小
-const FUNC_MAP_SIZE: i32 = 64;
+const FUNC_MAP_SIZE: i32 = 256;
 
 // 全局变量映射表大小
-const GLOBAL_VAR_MAP_SIZE: i32 = 64;
+const GLOBAL_VAR_MAP_SIZE: i32 = 128;
 
 // 最大函数参数数量
 const MAX_FUNC_PARAMS: i32 = 16;
@@ -39,7 +39,8 @@ const MAX_FUNC_PARAMS: i32 = 16;
 // 结构体类型映射表项
 struct StructTypeMap {
     name: &byte,// 结构体名称（存储在 Arena 中）
-    llvm_type: *void// LLVM 结构体类型（LLVMTypeRef）
+    llvm_type: *void,// LLVM 结构体类型（LLVMTypeRef）
+    ast_node: &ASTNode// AST 节点引用（用于查找结构体声明）
 }
 
 // 变量映射表项（用于局部变量）
@@ -412,6 +413,7 @@ fn codegen_register_struct_type(codegen: &CodeGenerator, struct_decl: &ASTNode) 
     const idx: i32 = codegen.struct_type_count;
     codegen.struct_types[idx].name = struct_name;  // 名称已经在Arena中
     codegen.struct_types[idx].llvm_type = struct_type;
+    codegen.struct_types[idx].ast_node = struct_decl;  // 存储 AST 节点引用
     codegen.struct_type_count = codegen.struct_type_count + 1;
     
     return 0;
@@ -503,22 +505,33 @@ fn lookup_global_var(codegen: &CodeGenerator, name: &byte) &GlobalVarMap {
 //       struct_name - 结构体名称
 // 返回：找到的结构体声明节点指针，未找到返回 null
 fn find_struct_decl(codegen: &CodeGenerator, struct_name: &byte) &ASTNode {
-    if codegen == null || codegen.program_node == null || struct_name == null {
+    if codegen == null || struct_name == null {
         return null;
     }
     
-    const program: &ASTNode = codegen.program_node;
-    if program.type != AST_PROGRAM {
-        return null;
-    }
-    
-    var i: i32 = 0;
-    while i < program.program_decl_count {
-        const decl: &ASTNode = program.program_decls[i];
-        if decl != null && decl.type == AST_STRUCT_DECL {
-            if decl.struct_decl_name != null && strcmp(decl.struct_decl_name, struct_name) == 0 {
-                return decl;
+    // 首先在全局作用域查找
+    if codegen.program_node != null {
+        const program: &ASTNode = codegen.program_node;
+        if program.type == AST_PROGRAM {
+            var i: i32 = 0;
+            while i < program.program_decl_count {
+                const decl: &ASTNode = program.program_decls[i];
+                if decl != null && decl.type == AST_STRUCT_DECL {
+                    if decl.struct_decl_name != null && strcmp(decl.struct_decl_name, struct_name) == 0 {
+                        return decl;
+                    }
+                }
+                i = i + 1;
             }
+        }
+    }
+    
+    // 如果全局作用域未找到，在已注册的结构体类型中查找（包括函数内部注册的）
+    var i: i32 = 0;
+    while i < codegen.struct_type_count {
+        if codegen.struct_types[i].name != null && strcmp(codegen.struct_types[i].name, struct_name) == 0 {
+            // 返回存储的 AST 节点
+            return codegen.struct_types[i].ast_node;
         }
         i = i + 1;
     }

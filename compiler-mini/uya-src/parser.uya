@@ -44,13 +44,21 @@ extern fn arena_strdup(arena: &Arena, start: &byte, str_len: i32) &byte;
 
 // ===== Parser 结构体 =====
 
+// 解析上下文类型
+enum ParserContext {
+    PARSER_CONTEXT_NORMAL,          // 普通表达式上下文
+    PARSER_CONTEXT_VAR_INIT,        // 变量初始化上下文（var/const 声明中的 = 后面的表达式）
+    PARSER_CONTEXT_CONDITION        // 条件表达式上下文（if/while 后面的表达式）
+}
+
 // 语法分析器结构体
 // 使用 Lexer 读取 Token，构建 AST
 // 注意：假设 Lexer, Token, Arena 类型已定义
 struct Parser {
     lexer: &Lexer,// 词法分析器指针（由调用者提供，不分配）
     current_token: &Token,// 当前 Token（从 Arena 分配）
-    arena: &Arena// Arena 分配器（用于分配 Token 和 AST 节点）
+    arena: &Arena,// Arena 分配器（用于分配 Token 和 AST 节点）
+    context: ParserContext// 当前解析上下文
 }
 
 // ===== 基础函数 =====
@@ -66,6 +74,7 @@ fn parser_init(parser: &Parser, lexer: &Lexer, arena: &Arena) i32 {
     
     parser.lexer = lexer;
     parser.arena = arena;
+    parser.context = PARSER_CONTEXT_NORMAL;  // 默认上下文
     
     // 获取第一个 Token
     parser.current_token = lexer_next_token(lexer, arena);
@@ -1534,6 +1543,19 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             
             return result;
         } else if parser.current_token != null && parser.current_token.type == TokenType.TOKEN_LEFT_BRACE {
+            // 根据上下文判断
+            if parser.context == PARSER_CONTEXT_CONDITION {
+                // 在条件表达式上下文中，`{}` 应该是代码块的开始
+                // 返回标识符，让调用者处理 '{' 作为代码块
+                const node: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena, parser.lexer.filename);
+                if node == null {
+                    return null;
+                }
+                
+                node.identifier_name = name;
+                return node;
+            }
+            // 在变量初始化上下文或普通上下文中，`{}` 应该是结构体字面量
             // 使用 peek 机制检测是否是结构体字面量
             const is_struct_init: i32 = parser_peek_is_struct_init(parser);
             
@@ -2530,7 +2552,11 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
         }
         
         // 解析条件表达式
+        // 设置上下文为条件表达式上下文，以便在解析表达式时正确区分结构体字面量和代码块
+        const saved_context: ParserContext = parser.context;
+        parser.context = PARSER_CONTEXT_CONDITION;
         const condition: &ASTNode = parser_parse_expression(parser);
+        parser.context = saved_context;  // 恢复上下文
         if condition == null {
             return null;
         }
@@ -2569,7 +2595,11 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
         }
         
         // 解析条件表达式
+        // 设置上下文为条件表达式上下文，以便在解析表达式时正确区分结构体字面量和代码块
+        const saved_context: ParserContext = parser.context;
+        parser.context = PARSER_CONTEXT_CONDITION;
         const condition: &ASTNode = parser_parse_expression(parser);
+        parser.context = saved_context;  // 恢复上下文
         if condition == null {
             return null;
         }
@@ -2690,7 +2720,11 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
         }
         
         // 解析初始值表达式
+        // 设置上下文为变量初始化上下文，以便在解析表达式时正确区分结构体字面量和代码块
+        const saved_context: ParserContext = parser.context;
+        parser.context = PARSER_CONTEXT_VAR_INIT;
         const init: &ASTNode = parser_parse_expression(parser);
+        parser.context = saved_context;  // 恢复上下文
         if init == null {
             return null;
         }

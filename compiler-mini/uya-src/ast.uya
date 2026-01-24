@@ -325,3 +325,75 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     
     return node;
 }
+
+// 合并多个 AST_PROGRAM 节点为一个程序节点
+// 参数：programs - AST_PROGRAM 节点数组（固定大小数组）
+//       count - 程序节点数量
+//       arena - Arena 分配器
+// 返回：合并后的 AST_PROGRAM 节点，失败返回 null
+// 注意：由于 Uya Mini 使用固定大小数组，如果总声明数超过 MAX_PROGRAM_DECLS，将返回 null
+fn ast_merge_programs(programs: [&ASTNode: 64], count: i32, arena: &Arena) &ASTNode {
+    if count <= 0 {
+        return null;
+    }
+    if arena == null {
+        return null;
+    }
+    
+    // 验证所有输入节点都是 AST_PROGRAM 类型
+    var i: i32 = 0;
+    while i < count {
+        if programs[i] == null {
+            return null;
+        }
+        if programs[i].type != AST_PROGRAM {
+            return null;
+        }
+        i = i + 1;
+    }
+    
+    // 计算所有程序节点的声明总数
+    var total_decl_count: i32 = 0;
+    i = 0;
+    while i < count {
+        total_decl_count = total_decl_count + programs[i].program_decl_count;
+        i = i + 1;
+    }
+    
+    // 检查总声明数是否超过最大限制
+    if total_decl_count > MAX_PROGRAM_DECLS {
+        return null;
+    }
+    
+    // 创建新的 AST_PROGRAM 节点
+    // 使用第一个程序节点的行号、列号和文件名
+    const merged: &ASTNode = ast_new_node(AST_PROGRAM, programs[0].line, programs[0].column, arena, programs[0].filename);
+    if merged == null {
+        return null;
+    }
+    
+    // 如果总声明数为 0，直接返回空程序节点
+    if total_decl_count == 0 {
+        merged.program_decl_count = 0;
+        return merged;
+    }
+    
+    // 遍历所有程序节点，复制声明到新数组
+    var decl_index: i32 = 0;
+    i = 0;
+    while i < count {
+        const program: &ASTNode = programs[i];
+        var j: i32 = 0;
+        while j < program.program_decl_count {
+            merged.program_decls[decl_index] = program.program_decls[j];
+            decl_index = decl_index + 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    
+    // 设置合并后的程序节点
+    merged.program_decl_count = total_decl_count;
+    
+    return merged;
+}

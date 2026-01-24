@@ -33,7 +33,10 @@ extern fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: 
 const FILE_BUFFER_SIZE: i32 = 1024 * 1024;  // 1MB
 
 // Arena 分配器缓冲区大小
-const ARENA_BUFFER_SIZE: i32 = 2097152;  // 2MB
+// 注意：编译大型文件和多文件编译需要更大的缓冲区
+// 多文件编译时，所有文件的 AST 节点都存储在同一个 Arena 中
+// 使用 8MB 以支持多文件编译（10个文件，每个文件约 100-200KB）
+const ARENA_BUFFER_SIZE: i32 = 8388608;  // 8MB（增加缓冲区以支持多文件编译）
 
 // 最大输入文件数量
 const MAX_INPUT_FILES: i32 = 64;

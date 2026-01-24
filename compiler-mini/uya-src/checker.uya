@@ -100,7 +100,10 @@ struct TypeChecker {
     scope_level: i32,// 当前作用域级别
     loop_depth: i32,// 循环深度（用于检查 break/continue 是否在循环中）
     program_node: &ASTNode,// 程序节点（用于查找结构体声明等）
-    error_count: i32// 错误计数（简化版本，暂不存储错误消息）
+    error_count: i32,// 错误计数（简化版本，暂不存储错误消息）
+    default_filename: &byte,// 默认文件名（用于错误报告，可为 null）
+    current_return_type: Type,// 当前函数的返回类型（用于检查 return 语句）
+    in_function: i32// 是否在函数中（1 表示是，0 表示否）
 }
 
 // ===== 基础函数 =====
@@ -127,10 +130,10 @@ fn hash_string(_str: &byte) i32 {
 }
 
 // 初始化 TypeChecker
-// 参数：checker - TypeChecker 结构体指针（由调用者提供），arena - Arena 分配器
+// 参数：checker - TypeChecker 结构体指针（由调用者提供），arena - Arena 分配器，default_filename - 默认文件名（用于错误报告，可为 null）
 // 返回：成功返回 0，失败返回 -1
 // 注意：TypeChecker 结构体由调用者在栈上或静态分配，此函数只负责初始化
-fn checker_init(checker: &TypeChecker, arena: &Arena) i32 {
+fn checker_init(checker: &TypeChecker, arena: &Arena, default_filename: &byte) i32 {
     if checker == null || arena == null {
         return -1;
     }
@@ -157,6 +160,9 @@ fn checker_init(checker: &TypeChecker, arena: &Arena) i32 {
     checker.loop_depth = 0;
     checker.program_node = null;
     checker.error_count = 0;
+    checker.default_filename = default_filename;
+    checker.current_return_type.kind = TYPE_VOID;
+    checker.in_function = 0;
     
     return 0;
 }
@@ -1148,6 +1154,17 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         return 0;
     }
     
+    // 获取函数返回类型
+    const return_type: Type = type_from_ast(checker, node.fn_decl_return_type);
+    
+    // 保存之前的函数状态
+    const prev_return_type: Type = checker.current_return_type;
+    const prev_in_function: i32 = checker.in_function;
+    
+    // 设置当前函数的返回类型
+    checker.current_return_type = return_type;
+    checker.in_function = 1;
+    
     // 检查函数体（如果有）
     if node.fn_decl_body != null {
         checker_enter_scope(checker);
@@ -1179,6 +1196,10 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         
         checker_exit_scope(checker);
     }
+    
+    // 恢复之前的函数状态
+    checker.current_return_type = prev_return_type;
+    checker.in_function = prev_in_function;
     
     return 1;
 }
@@ -1923,10 +1944,45 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         }
         return 1;
     } else if (node.type as i32) == (AST_RETURN_STMT as i32) {
-        // TODO: 检查返回值类型是否匹配函数返回类型
-        // 这需要在函数上下文中检查，暂时跳过
+        // 检查返回值类型是否匹配函数返回类型
+        if checker.in_function == 0 {
+            // 不在函数中，不应该有 return 语句（这通常不应该发生）
+            checker_report_error(checker);
+            return 0;
+        }
+        
         if node.return_stmt_expr != null {
-            checker_infer_type(checker, node.return_stmt_expr);
+            // 有返回值的 return 语句
+            const expr_type: Type = checker_infer_type(checker, node.return_stmt_expr);
+            
+            // 特殊处理：检查是否是 null 字面量（AST_IDENTIFIER 且名称为 "null"）
+            // null 字面量可以赋值给任何指针类型
+            var is_null_literal: i32 = 0;
+            if (node.return_stmt_expr.type as i32) == (AST_IDENTIFIER as i32) {
+                const name: &byte = node.return_stmt_expr.identifier_name;
+                if name != null {
+                    const name_ptr: *byte = name as *byte;
+                    if strcmp(name_ptr, "null") == 0 {
+                        is_null_literal = 1;
+                    }
+                }
+            }
+            
+            // 如果表达式是 null 字面量且期望类型是指针类型，允许通过
+            if is_null_literal != 0 && (checker.current_return_type.kind as i32) == (TYPE_POINTER as i32) {
+                // null 可以赋值给任何指针类型，允许通过
+            } else if type_equals(expr_type, checker.current_return_type) == 0 {
+                // 类型不匹配，报告错误
+                checker_report_error(checker);
+                return 0;
+            }
+        } else {
+            // 无返回值的 return 语句（return;）
+            // 检查函数返回类型是否为 void
+            if (checker.current_return_type.kind as i32) != (TYPE_VOID as i32) {
+                checker_report_error(checker);
+                return 0;
+            }
         }
         return 1;
     } else if (node.type as i32) == (AST_ASSIGN as i32) {
