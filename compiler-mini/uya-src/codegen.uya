@@ -1091,9 +1091,9 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) &void {
             return null;
         }
         
-        const op: i32 = expr.unary_expr_op;
+        const op: TokenType = expr.unary_expr_op;
         
-        if op == TOKEN_AMPERSAND {
+        if op == TokenType.TOKEN_AMPERSAND {
             // 取地址运算符：&expr
             // 操作数必须是左值（变量、字段访问等）
             // 对于标识符（变量），直接从变量表获取指针
@@ -1139,7 +1139,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) &void {
             LLVMBuildStore(codegen.builder, operand_val, temp_ptr);
             // 返回临时空间的地址
             return temp_ptr as &void;
-        } else if op == TOKEN_ASTERISK {
+        } else if op == TokenType.TOKEN_ASTERISK {
             // 解引用运算符：*expr
             // 操作数必须是指针类型
             // 如果操作数是标识符，从 AST 类型节点获取指向的类型（避免使用 LLVMGetElementType）
@@ -1207,14 +1207,14 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) &void {
             return null;
         }
         
-        if op == TOKEN_EXCLAMATION {
+        if op == TokenType.TOKEN_EXCLAMATION {
             // 逻辑非：!operand
             // 对于布尔值（i1），使用 XOR 1
             if LLVMGetTypeKind(operand_type) == LLVMIntegerTypeKind {
                 const one: *void = LLVMConstInt(operand_type, 1 as usize, 0) as &void;
                 return LLVMBuildXor(codegen.builder, operand_val, one, "") as &void;
             }
-        } else if op == TOKEN_MINUS {
+        } else if op == TokenType.TOKEN_MINUS {
             // 一元负号：-operand
             // 对于整数，使用 sub 0, operand
             if LLVMGetTypeKind(operand_type) == LLVMIntegerTypeKind {
@@ -1232,10 +1232,10 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) &void {
             return null;
         }
         
-        const op: i32 = expr.binary_expr_op;
+        const op: TokenType = expr.binary_expr_op;
         
         // 特殊处理逻辑运算符（&&, ||）以实现短路求值
-        if op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR {
+        if op == TokenType.TOKEN_LOGICAL_AND || op == TokenType.TOKEN_LOGICAL_OR {
             // 获取当前基本块
             const current_bb: *void = LLVMGetInsertBlock(codegen.builder);
             if current_bb == null {
@@ -1281,7 +1281,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) &void {
             const else_bb: *void = LLVMAppendBasicBlock(func, &else_name[0] as *byte);
             const merge_bb: *void = LLVMAppendBasicBlock(func, &merge_name[0] as *byte);
             
-            if op == TOKEN_LOGICAL_AND {
+            if op == TokenType.TOKEN_LOGICAL_AND {
                 // 短路与：if (left) then evaluate right else result = false
                 LLVMBuildCondBr(codegen.builder, left_val, then_bb, else_bb);
                 
@@ -1304,7 +1304,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) &void {
                 LLVMPositionBuilderAtEnd(codegen.builder, else_bb);
                 LLVMBuildStore(codegen.builder, LLVMConstInt(left_type, 0 as usize, 0) as &void, result);
                 LLVMBuildBr(codegen.builder, merge_bb);
-            } else if op == TOKEN_LOGICAL_OR {
+            } else if op == TokenType.TOKEN_LOGICAL_OR {
                 // 短路或：if (left) then result = true else evaluate right
                 LLVMBuildCondBr(codegen.builder, left_val, then_bb, else_bb);
                 
@@ -1409,20 +1409,20 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) &void {
             }
             
             // 算术运算符（i32 或 usize）
-            if op == TOKEN_PLUS {
+            if op == TokenType.TOKEN_PLUS {
                 return LLVMBuildAdd(codegen.builder, left_val, right_val, "") as &void;
-            } else if op == TOKEN_MINUS {
+            } else if op == TokenType.TOKEN_MINUS {
                 return LLVMBuildSub(codegen.builder, left_val, right_val, "") as &void;
-            } else if op == TOKEN_ASTERISK {
+            } else if op == TokenType.TOKEN_ASTERISK {
                 return LLVMBuildMul(codegen.builder, left_val, right_val, "") as &void;
-            } else if op == TOKEN_SLASH {
+            } else if op == TokenType.TOKEN_SLASH {
                 // 除法：根据操作数类型选择有符号或无符号除法
                 if is_usize_op != 0 {
                     return LLVMBuildUDiv(codegen.builder, left_val, right_val, "") as &void;
                 } else {
                     return LLVMBuildSDiv(codegen.builder, left_val, right_val, "") as &void;
                 }
-            } else if op == TOKEN_PERCENT {
+            } else if op == TokenType.TOKEN_PERCENT {
                 // 取模：根据操作数类型选择有符号或无符号取模
                 if is_usize_op != 0 {
                     return LLVMBuildURem(codegen.builder, left_val, right_val, "") as &void;
@@ -1431,38 +1431,38 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) &void {
                 }
             }
             // 比较运算符（返回 i1 布尔值）
-            else if op == TOKEN_EQUAL {
+            else if op == TokenType.TOKEN_EQUAL {
                 // 相等比较：根据操作数类型选择有符号或无符号比较
                 if is_usize_op != 0 {
                     return LLVMBuildICmp(codegen.builder, LLVMIntEQ, left_val, right_val, "") as &void;
                 } else {
                     return LLVMBuildICmp(codegen.builder, LLVMIntEQ, left_val, right_val, "") as &void;
                 }
-            } else if op == TOKEN_NOT_EQUAL {
+            } else if op == TokenType.TOKEN_NOT_EQUAL {
                 if is_usize_op != 0 {
                     return LLVMBuildICmp(codegen.builder, LLVMIntNE, left_val, right_val, "") as &void;
                 } else {
                     return LLVMBuildICmp(codegen.builder, LLVMIntNE, left_val, right_val, "") as &void;
                 }
-            } else if op == TOKEN_LESS {
+            } else if op == TokenType.TOKEN_LESS {
                 if is_usize_op != 0 {
                     return LLVMBuildICmp(codegen.builder, LLVMIntULT, left_val, right_val, "") as &void;
                 } else {
                     return LLVMBuildICmp(codegen.builder, LLVMIntSLT, left_val, right_val, "") as &void;
                 }
-            } else if op == TOKEN_GREATER {
+            } else if op == TokenType.TOKEN_GREATER {
                 if is_usize_op != 0 {
                     return LLVMBuildICmp(codegen.builder, LLVMIntUGT, left_val, right_val, "") as &void;
                 } else {
                     return LLVMBuildICmp(codegen.builder, LLVMIntSGT, left_val, right_val, "") as &void;
                 }
-            } else if op == TOKEN_LESS_EQUAL {
+            } else if op == TokenType.TOKEN_LESS_EQUAL {
                 if is_usize_op != 0 {
                     return LLVMBuildICmp(codegen.builder, LLVMIntULE, left_val, right_val, "") as &void;
                 } else {
                     return LLVMBuildICmp(codegen.builder, LLVMIntSLE, left_val, right_val, "") as &void;
                 }
-            } else if op == TOKEN_GREATER_EQUAL {
+            } else if op == TokenType.TOKEN_GREATER_EQUAL {
                 if is_usize_op != 0 {
                     return LLVMBuildICmp(codegen.builder, LLVMIntUGE, left_val, right_val, "") as &void;
                 } else {
@@ -1474,9 +1474,9 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) &void {
         // 指针比较（==, !=）
         if LLVMGetTypeKind(left_type) == LLVMPointerTypeKind && 
            LLVMGetTypeKind(right_type) == LLVMPointerTypeKind {
-            if op == TOKEN_EQUAL {
+            if op == TokenType.TOKEN_EQUAL {
                 return LLVMBuildICmp(codegen.builder, LLVMIntEQ, left_val, right_val, "") as &void;
-            } else if op == TOKEN_NOT_EQUAL {
+            } else if op == TokenType.TOKEN_NOT_EQUAL {
                 return LLVMBuildICmp(codegen.builder, LLVMIntNE, left_val, right_val, "") as &void;
             }
             // 指针不支持其他比较运算符（<, >, <=, >=）
@@ -1488,7 +1488,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) &void {
            LLVMGetTypeKind(right_type) == LLVMStructTypeKind {
             
             // 仅支持 == 和 != 运算符
-            if op == TOKEN_EQUAL || op == TOKEN_NOT_EQUAL {
+            if op == TokenType.TOKEN_EQUAL || op == TokenType.TOKEN_NOT_EQUAL {
                 // 从LLVM类型查找结构体名称
                 const struct_name: &byte = find_struct_name_from_type(codegen, left_type as &void);
                 if struct_name == null {
@@ -1503,7 +1503,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) &void {
                 
                 // 调用结构体比较函数
                 var is_equal: i32 = 0;
-                if op == TOKEN_EQUAL {
+                if op == TokenType.TOKEN_EQUAL {
                     is_equal = 1;
                 } else {
                     is_equal = 0;
@@ -2436,8 +2436,8 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
     } else if expr.type == AST_UNARY_EXPR {
         // 解引用表达式：*expr
         // 对于赋值 *p = value，p 是指针，我们需要返回 p 的值（即指针本身）
-        const op: i32 = expr.unary_expr_op;
-        if op != TOKEN_ASTERISK {
+        const op: TokenType = expr.unary_expr_op;
+        if op != TokenType.TOKEN_ASTERISK {
             return null;  // 只有解引用表达式可以作为左值
         }
         

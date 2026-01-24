@@ -778,17 +778,17 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         return result;
     } else if (expr.type as i32) == (AST_UNARY_EXPR as i32) {
         // 一元表达式：根据运算符推断类型
-        const op: i32 = expr.unary_expr_op;
+        const op: TokenType = expr.unary_expr_op;
         const operand_type: Type = checker_infer_type(checker, expr.unary_expr_operand);
         
-        if op == TOKEN_EXCLAMATION {
+        if op == TokenType.TOKEN_EXCLAMATION {
             // 逻辑非（!）返回bool类型
             result.kind = TYPE_BOOL as TypeKind;
             return result;
-        } else if op == TOKEN_MINUS {
+        } else if op == TokenType.TOKEN_MINUS {
             // 一元负号（-）返回操作数类型（应为i32）
             return operand_type;
-        } else if op == TOKEN_AMPERSAND {
+        } else if op == TokenType.TOKEN_AMPERSAND {
             // 取地址（&expr）：返回指向操作数类型的指针类型
             if (operand_type.kind as i32) == (TYPE_VOID as i32) {
                 // 操作数类型无效
@@ -809,7 +809,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             result.pointer_to = pointed_type_ptr;
             result.is_ffi_pointer = 0;  // 普通指针
             return result;
-        } else if op == TOKEN_ASTERISK {
+        } else if op == TokenType.TOKEN_ASTERISK {
             // 解引用（*expr）：操作数必须是指针类型，返回指针指向的类型
             if (operand_type.kind as i32) != (TYPE_POINTER as i32) {
                 // 操作数不是指针类型
@@ -831,13 +831,13 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         return operand_type;
     } else if (expr.type as i32) == (AST_BINARY_EXPR as i32) {
         // 二元表达式：根据运算符推断类型
-        const op: i32 = expr.binary_expr_op;
+        const op: TokenType = expr.binary_expr_op;
         
         // 比较运算符和逻辑运算符返回bool类型
-        if op == TOKEN_EQUAL || op == TOKEN_NOT_EQUAL ||
-           op == TOKEN_LESS || op == TOKEN_GREATER ||
-           op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL ||
-           op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR {
+        if op == TokenType.TOKEN_EQUAL || op == TokenType.TOKEN_NOT_EQUAL ||
+           op == TokenType.TOKEN_LESS || op == TokenType.TOKEN_GREATER ||
+           op == TokenType.TOKEN_LESS_EQUAL || op == TokenType.TOKEN_GREATER_EQUAL ||
+           op == TokenType.TOKEN_LOGICAL_AND || op == TokenType.TOKEN_LOGICAL_OR {
             result.kind = TYPE_BOOL as TypeKind;
             return result;
         }
@@ -1570,15 +1570,15 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
         return result;
     }
     
-    const op: i32 = node.binary_expr_op;
+    const op: TokenType = node.binary_expr_op;
     const left_type: Type = checker_infer_type(checker, node.binary_expr_left);
     const right_type: Type = checker_infer_type(checker, node.binary_expr_right);
     
     // 算术运算符：支持 i32 和 usize 混合运算
     // 规则：如果两个操作数都是 i32，结果为 i32
     //       如果至少有一个是 usize，结果为 usize
-    if op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_ASTERISK || 
-       op == TOKEN_SLASH || op == TOKEN_PERCENT {
+    if op == TokenType.TOKEN_PLUS || op == TokenType.TOKEN_MINUS || op == TokenType.TOKEN_ASTERISK || 
+       op == TokenType.TOKEN_SLASH || op == TokenType.TOKEN_PERCENT {
         // 验证操作数类型：必须是 i32 或 usize
         if ((left_type.kind as i32) != (TYPE_I32 as i32) && (left_type.kind as i32) != (TYPE_USIZE as i32) ||
             (right_type.kind as i32) != (TYPE_I32 as i32) && (right_type.kind as i32) != (TYPE_USIZE as i32)) {
@@ -1595,8 +1595,8 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
     }
     
     // 比较运算符：支持 i32 和 usize 比较（操作数可以是 i32 或 usize，但必须都是数值类型）
-    if op == TOKEN_EQUAL || op == TOKEN_NOT_EQUAL || op == TOKEN_LESS || 
-       op == TOKEN_GREATER || op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL {
+    if op == TokenType.TOKEN_EQUAL || op == TokenType.TOKEN_NOT_EQUAL || op == TokenType.TOKEN_LESS || 
+       op == TokenType.TOKEN_GREATER || op == TokenType.TOKEN_LESS_EQUAL || op == TokenType.TOKEN_GREATER_EQUAL {
         // 允许相同类型比较，也允许 i32 和 usize 之间的比较
         if type_equals(left_type, right_type) != 0 {
             result.kind = TYPE_BOOL as TypeKind;
@@ -1614,7 +1614,7 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
     }
     
     // 逻辑运算符：操作数必须是bool
-    if op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR {
+    if op == TokenType.TOKEN_LOGICAL_AND || op == TokenType.TOKEN_LOGICAL_OR {
         if (left_type.kind as i32) != (TYPE_BOOL as i32) || (right_type.kind as i32) != (TYPE_BOOL as i32) {
             checker_report_error(checker);
             return result;
@@ -1696,10 +1696,10 @@ fn checker_check_unary_expr(checker: &TypeChecker, node: &ASTNode) Type {
         return result;
     }
     
-    const op: i32 = node.unary_expr_op;
+    const op: TokenType = node.unary_expr_op;
     const operand_type: Type = checker_infer_type(checker, node.unary_expr_operand);
     
-    if op == TOKEN_EXCLAMATION {
+    if op == TokenType.TOKEN_EXCLAMATION {
         // 逻辑非：操作数必须是bool
         if (operand_type.kind as i32) != (TYPE_BOOL as i32) {
             checker_report_error(checker);
@@ -1707,7 +1707,7 @@ fn checker_check_unary_expr(checker: &TypeChecker, node: &ASTNode) Type {
         }
         result.kind = TYPE_BOOL as TypeKind;
         return result;
-    } else if op == TOKEN_MINUS {
+    } else if op == TokenType.TOKEN_MINUS {
         // 一元负号：操作数必须是i32
         if (operand_type.kind as i32) != (TYPE_I32 as i32) {
             checker_report_error(checker);
@@ -1715,7 +1715,7 @@ fn checker_check_unary_expr(checker: &TypeChecker, node: &ASTNode) Type {
         }
         result.kind = TYPE_I32 as TypeKind;
         return result;
-    } else if op == TOKEN_AMPERSAND {
+    } else if op == TokenType.TOKEN_AMPERSAND {
         // 取地址（&expr）：操作数必须是左值（变量、字段访问等）
         // 注意：这里简化处理，只要操作数类型有效就允许取地址
         // 完整的左值检查需要在更详细的语义分析阶段进行
@@ -1737,7 +1737,7 @@ fn checker_check_unary_expr(checker: &TypeChecker, node: &ASTNode) Type {
         result.pointer_to = pointed_type_ptr;
         result.is_ffi_pointer = 0;
         return result;
-    } else if op == TOKEN_ASTERISK {
+    } else if op == TokenType.TOKEN_ASTERISK {
         // 解引用（*expr）：操作数必须是指针类型
         if (operand_type.kind as i32) != (TYPE_POINTER as i32) {
             checker_report_error(checker);

@@ -177,67 +177,67 @@ fn is_keyword(_str: &byte) TokenType {
     const str:*byte = _str as *byte;
 
     if strcmp(str, "enum") == 0 {
-        return TOKEN_ENUM;
+        return TokenType.TOKEN_ENUM;
     }
     if strcmp(str, "struct") == 0 {
-        return TOKEN_STRUCT;
+        return TokenType.TOKEN_STRUCT;
     }
     if strcmp(str, "const") == 0 {
-        return TOKEN_CONST;
+        return TokenType.TOKEN_CONST;
     }
     if strcmp(str, "var") == 0 {
-        return TOKEN_VAR;
+        return TokenType.TOKEN_VAR;
     }
     if strcmp(str, "fn") == 0 {
-        return TOKEN_FN;
+        return TokenType.TOKEN_FN;
     }
     if strcmp(str, "extern") == 0 {
-        return TOKEN_EXTERN;
+        return TokenType.TOKEN_EXTERN;
     }
     if strcmp(str, "return") == 0 {
-        return TOKEN_RETURN;
+        return TokenType.TOKEN_RETURN;
     }
     if strcmp(str, "if") == 0 {
-        return TOKEN_IF;
+        return TokenType.TOKEN_IF;
     }
     if strcmp(str, "else") == 0 {
-        return TOKEN_ELSE;
+        return TokenType.TOKEN_ELSE;
     }
     if strcmp(str, "while") == 0 {
-        return TOKEN_WHILE;
+        return TokenType.TOKEN_WHILE;
     }
     if strcmp(str, "for") == 0 {
-        return TOKEN_FOR;
+        return TokenType.TOKEN_FOR;
     }
     if strcmp(str, "break") == 0 {
-        return TOKEN_BREAK;
+        return TokenType.TOKEN_BREAK;
     }
     if strcmp(str, "continue") == 0 {
-        return TOKEN_CONTINUE;
+        return TokenType.TOKEN_CONTINUE;
     }
     if strcmp(str, "true") == 0 {
-        return TOKEN_TRUE;
+        return TokenType.TOKEN_TRUE;
     }
     if strcmp(str, "false") == 0 {
-        return TOKEN_FALSE;
+        return TokenType.TOKEN_FALSE;
     }
     if strcmp(str, "null") == 0 {
-        return TOKEN_NULL;
+        return TokenType.TOKEN_NULL;
     }
     if strcmp(str, "sizeof") == 0 {
-        return TOKEN_SIZEOF;
+        return TokenType.TOKEN_SIZEOF;
     }
     if strcmp(str, "len") == 0 {
-        return TOKEN_LEN;
+        return TokenType.TOKEN_LEN;
     }
     if strcmp(str, "alignof") == 0 {
-        return TOKEN_ALIGNOF;
+        return TokenType.TOKEN_ALIGNOF;
     }
     if strcmp(str, "as") == 0 {
-        return TOKEN_AS;
+        return TokenType.TOKEN_AS;
     }
     
-    return TOKEN_IDENTIFIER;  // 不是关键字，是标识符
+    return TokenType.TOKEN_IDENTIFIER;  // 不是关键字，是标识符
 }
 
 // 从字符串字面量（*byte）复制到 Arena

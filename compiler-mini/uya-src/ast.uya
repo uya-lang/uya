@@ -110,11 +110,11 @@ struct ASTNode {
     
     // 二元表达式数据
     binary_expr_left: &ASTNode,// 左操作数
-    binary_expr_op: i32,// 运算符（Token 类型，暂用 i32 表示）
+    binary_expr_op: TokenType,// 运算符（Token 类型）
     binary_expr_right: &ASTNode,// 右操作数
     
     // 一元表达式数据
-    unary_expr_op: i32,// 运算符（Token 类型）
+    unary_expr_op: TokenType,// 运算符（Token 类型）
     unary_expr_operand: &ASTNode,// 操作数
     
     // 函数调用数据
