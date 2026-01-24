@@ -1,0 +1,70 @@
+// 嵌套字段访问测试程序
+// 测试 parser.current_token.type 这样的嵌套字段访问
+
+struct Token {
+    type: TokenType,
+    value: &byte,
+    line: i32,
+    column: i32,
+}
+
+enum TokenType {
+    TOKEN_EOF,
+    TOKEN_IDENTIFIER,
+    TOKEN_NUMBER,
+}
+
+struct Parser {
+    current_token: &Token,
+    arena: &Arena,
+}
+
+struct Arena {
+    buffer: &byte,
+    size: i32,
+    offset: i32,
+}
+
+fn test_nested_access(parser: &Parser) i32 {
+    // 测试1：嵌套字段访问 parser.current_token.type
+    if parser.current_token.type == TokenType.TOKEN_EOF {
+        return 1;
+    }
+    
+    // 测试2：嵌套字段访问 parser.current_token.line
+    const line: i32 = parser.current_token.line;
+    if line < 0 {
+        return 2;
+    }
+    
+    // 测试3：嵌套字段访问 parser.current_token.column
+    const column: i32 = parser.current_token.column;
+    if column < 0 {
+        return 3;
+    }
+    
+    // 测试4：嵌套字段访问 parser.arena.size
+    const size: i32 = parser.arena.size;
+    if size < 0 {
+        return 4;
+    }
+    
+    // 测试5：嵌套字段访问 parser.arena.offset
+    const offset: i32 = parser.arena.offset;
+    if offset < 0 {
+        return 5;
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+
+fn main() i32 {
+    // 注意：这里不能真正创建 Parser 和 Token，因为需要堆分配
+    // 这里只是测试嵌套字段访问的语法和类型检查
+    // 实际运行时需要外部提供有效的指针
+    
+    // 测试通过（如果编译成功，说明嵌套字段访问的语法和类型检查都正确）
+    return 0;
+}
+

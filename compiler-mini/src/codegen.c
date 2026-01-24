@@ -1328,6 +1328,29 @@ static int find_struct_field_index(ASTNode *struct_decl, const char *field_name)
     return -1;  // 未找到
 }
 
+// 查找结构体字段的 AST 类型节点
+// 参数：codegen - 代码生成器指针
+//       struct_decl - 结构体声明节点
+//       field_name - 字段名称
+// 返回：字段的 AST 类型节点，未找到返回 NULL
+static ASTNode *find_struct_field_ast_type(CodeGenerator *codegen, ASTNode *struct_decl, const char *field_name) {
+    if (!codegen || !struct_decl || struct_decl->type != AST_STRUCT_DECL || !field_name) {
+        return NULL;
+    }
+    
+    for (int i = 0; i < struct_decl->data.struct_decl.field_count; i++) {
+        ASTNode *field = struct_decl->data.struct_decl.fields[i];
+        if (field != NULL && field->type == AST_VAR_DECL) {
+            if (field->data.var_decl.name != NULL && 
+                strcmp(field->data.var_decl.name, field_name) == 0) {
+                return field->data.var_decl.type;  // 返回字段的类型节点
+            }
+        }
+    }
+    
+    return NULL;  // 未找到
+}
+
 // 生成结构体比较代码（逐字段比较）
 // 参数：codegen - 代码生成器指针
 //       left_val - 左操作数的结构体值
@@ -2521,6 +2544,44 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                     // 检查类型是否为结构体类型
                     if (LLVMGetTypeKind(object_type) == LLVMStructTypeKind) {
                         struct_name = find_struct_name_from_type(codegen, object_type);
+                    } else if (LLVMGetTypeKind(object_type) == LLVMPointerTypeKind) {
+                        // 如果是指针类型，获取指向的类型
+                        LLVMTypeRef pointed_type = LLVMGetElementType(object_type);
+                        if (pointed_type && LLVMGetTypeKind(pointed_type) == LLVMStructTypeKind) {
+                            struct_name = find_struct_name_from_type(codegen, pointed_type);
+                        } else {
+                            // 尝试从嵌套字段访问的 AST 中获取类型信息
+                            // 如果对象是 parser.current_token，需要知道 current_token 的类型是 &Token
+                            // 从变量表中查找 parser 的类型，然后查找 Parser 结构体的 current_token 字段类型
+                            ASTNode *nested_object = object->data.member_access.object;
+                            if (nested_object && nested_object->type == AST_IDENTIFIER) {
+                                const char *nested_var_name = nested_object->data.identifier.name;
+                                if (nested_var_name) {
+                                    ASTNode *nested_var_ast_type = lookup_var_ast_type(codegen, nested_var_name);
+                                    if (nested_var_ast_type && nested_var_ast_type->type == AST_TYPE_POINTER) {
+                                        ASTNode *nested_pointed_type = nested_var_ast_type->data.type_pointer.pointed_type;
+                                        if (nested_pointed_type && nested_pointed_type->type == AST_TYPE_NAMED) {
+                                            const char *nested_struct_name = nested_pointed_type->data.type_named.name;
+                                            if (nested_struct_name) {
+                                                // 查找嵌套结构体声明
+                                                ASTNode *nested_struct_decl = find_struct_decl(codegen, nested_struct_name);
+                                                if (nested_struct_decl) {
+                                                    // 查找字段类型（如 Parser.current_token 的类型是 &Token）
+                                                    const char *field_name_in_nested = object->data.member_access.field_name;
+                                                    ASTNode *field_type = find_struct_field_ast_type(codegen, nested_struct_decl, field_name_in_nested);
+                                                    if (field_type && field_type->type == AST_TYPE_POINTER) {
+                                                        ASTNode *field_pointed_type = field_type->data.type_pointer.pointed_type;
+                                                        if (field_pointed_type && field_pointed_type->type == AST_TYPE_NAMED) {
+                                                            struct_name = field_pointed_type->data.type_named.name;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 } else if (object->type == AST_ARRAY_ACCESS) {
                     // 对于数组访问（如 arr[0]），从数组元素类型中获取结构体名称
