@@ -3132,12 +3132,12 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
             if index_val != null {
                 const index_type_check: *void = LLVMTypeOf(index_val);
                 if index_type_check != null {
-                    const index_kind: i32 = LLVMGetTypeKind(index_type_check);
+                    const index_kind_check: i32 = LLVMGetTypeKind(index_type_check);
                     var index_width: i32 = 0;
-                    if index_kind == LLVMIntegerTypeKind {
+                    if index_kind_check == LLVMIntegerTypeKind {
                         index_width = LLVMGetIntTypeWidth(index_type_check);
                     }
-                    fprintf(2 as *void, "调试: 索引值类型 kind=%d, 宽度=%d\n", index_kind, index_width);
+                    fprintf(2 as *void, "调试: 索引值类型 kind=%d, 宽度=%d\n", index_kind_check, index_width);
                 }
             }
             return null;
