@@ -1,0 +1,47 @@
+// 函数调用返回指针类型测试程序
+// 测试函数调用返回指针类型（如 &ASTNode）的情况
+
+struct Node {
+    value: i32,
+    next: &Node,
+}
+
+// 测试函数：返回 &Node 类型
+fn create_node(value: i32) &Node {
+    // 注意：这里不能真正创建 Node，因为需要堆分配
+    // 这里只是测试函数调用的语法和类型检查
+    return null;
+}
+
+// 测试函数：返回 &i32 类型
+fn get_ptr(x: &i32) &i32 {
+    return x;
+}
+
+fn main() i32 {
+    // 测试1：函数调用返回 &Node 类型
+    var node_ptr: &Node = create_node(42);
+    if node_ptr != null {
+        return 1;  // node_ptr 应该是 null（因为函数返回 null）
+    }
+    
+    // 测试2：函数调用返回 &i32 类型
+    var x: i32 = 10;
+    var ptr: &i32 = get_ptr(&x);
+    if ptr == null {
+        return 2;  // ptr 不应该是 null
+    }
+    if *ptr != 10 {
+        return 3;  // ptr 应该指向值 10
+    }
+    
+    // 测试3：函数调用作为变量初始值
+    var node_ptr2: &Node = create_node(100);
+    if node_ptr2 != null {
+        return 4;  // node_ptr2 应该是 null
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+
