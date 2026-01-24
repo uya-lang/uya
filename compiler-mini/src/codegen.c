@@ -175,6 +175,132 @@ static void format_error_location(const CodeGenerator *codegen, const ASTNode *n
     snprintf(buffer, buffer_size, "%s(%d:%d)", filename, node->line, node->column);
 }
 
+// 获取语句类型的名称（用于错误报告）
+static const char *get_stmt_type_name(ASTNodeType type) {
+    switch (type) {
+        case AST_VAR_DECL: return "变量声明";
+        case AST_ASSIGN: return "赋值语句";
+        case AST_RETURN_STMT: return "return 语句";
+        case AST_IF_STMT: return "if 语句";
+        case AST_WHILE_STMT: return "while 语句";
+        case AST_FOR_STMT: return "for 语句";
+        case AST_BREAK_STMT: return "break 语句";
+        case AST_CONTINUE_STMT: return "continue 语句";
+        case AST_EXPR_STMT: return "表达式语句";
+        case AST_BLOCK: return "代码块";
+        default: return "未知语句类型";
+    }
+}
+
+// 生成详细的错误信息（包含原因和建议）
+static void report_stmt_error(const CodeGenerator *codegen, const ASTNode *stmt, int stmt_index, const char *context) {
+    (void)codegen;  // 暂时未使用，保留以备将来使用
+    (void)context;   // 暂时未使用，保留以备将来使用
+    
+    if (!stmt) {
+        fprintf(stderr, "错误: 语句节点为 NULL\n");
+        return;
+    }
+    
+    const char *filename = stmt->filename ? stmt->filename : "<unknown>";
+    const char *stmt_type_name = get_stmt_type_name(stmt->type);
+    
+    fprintf(stderr, "错误: 处理 AST_BLOCK 中的第 %d 个语句失败 (%s:%d:%d)\n", 
+            stmt_index, filename, stmt->line, stmt->column);
+    fprintf(stderr, "  语句类型: %s (类型代码: %d)\n", stmt_type_name, (int)stmt->type);
+    
+    // 根据语句类型提供具体的错误原因和修改建议
+    switch (stmt->type) {
+        case AST_VAR_DECL: {
+            const char *var_name = stmt->data.var_decl.name;
+            fprintf(stderr, "  错误原因: 变量声明 '%s' 的代码生成失败\n", var_name ? var_name : "(未命名)");
+            fprintf(stderr, "  可能原因:\n");
+            fprintf(stderr, "    - 变量类型未定义或无效\n");
+            fprintf(stderr, "    - 初始值表达式包含错误（如未定义的变量、类型不匹配等）\n");
+            fprintf(stderr, "    - 数组大小表达式不是编译期常量\n");
+            fprintf(stderr, "  修改建议:\n");
+            fprintf(stderr, "    - 检查变量类型是否正确声明\n");
+            fprintf(stderr, "    - 检查初始值表达式中使用的变量是否已定义\n");
+            fprintf(stderr, "    - 确保数组大小是编译期常量表达式\n");
+            break;
+        }
+        case AST_ASSIGN: {
+            ASTNode *dest = stmt->data.assign.dest;
+            const char *dest_name = dest && dest->type == AST_IDENTIFIER ? dest->data.identifier.name : NULL;
+            fprintf(stderr, "  错误原因: 赋值语句代码生成失败\n");
+            if (dest_name) {
+                fprintf(stderr, "  目标变量: %s\n", dest_name);
+            }
+            fprintf(stderr, "  可能原因:\n");
+            fprintf(stderr, "    - 目标变量未定义\n");
+            fprintf(stderr, "    - 目标不是左值（不能赋值，如常量或表达式结果）\n");
+            fprintf(stderr, "    - 源表达式类型与目标类型不匹配\n");
+            fprintf(stderr, "    - 源表达式包含错误（如未定义的变量、函数调用失败等）\n");
+            fprintf(stderr, "  修改建议:\n");
+            if (dest_name) {
+                fprintf(stderr, "    - 检查变量 '%s' 是否已声明\n", dest_name);
+            }
+            fprintf(stderr, "    - 确保赋值目标是一个变量或可修改的左值\n");
+            fprintf(stderr, "    - 检查源表达式的类型是否与目标变量类型兼容\n");
+            fprintf(stderr, "    - 检查源表达式中使用的变量和函数是否已定义\n");
+            break;
+        }
+        case AST_RETURN_STMT: {
+            ASTNode *return_expr = stmt->data.return_stmt.expr;
+            fprintf(stderr, "  错误原因: return 语句代码生成失败\n");
+            fprintf(stderr, "  可能原因:\n");
+            if (return_expr) {
+                fprintf(stderr, "    - 返回值表达式生成失败\n");
+                fprintf(stderr, "    - 返回值类型与函数返回类型不匹配\n");
+            } else {
+                fprintf(stderr, "    - 函数期望返回值但使用了 void return\n");
+                fprintf(stderr, "    - 函数期望 void 返回但提供了返回值\n");
+            }
+            fprintf(stderr, "  修改建议:\n");
+            if (return_expr) {
+                fprintf(stderr, "    - 检查返回值表达式是否正确\n");
+                fprintf(stderr, "    - 确保返回值类型与函数声明的返回类型匹配\n");
+            } else {
+                fprintf(stderr, "    - 检查函数返回类型声明是否正确\n");
+            }
+            break;
+        }
+        case AST_IF_STMT:
+        case AST_WHILE_STMT:
+        case AST_FOR_STMT: {
+            fprintf(stderr, "  错误原因: 控制流语句代码生成失败\n");
+            fprintf(stderr, "  可能原因:\n");
+            fprintf(stderr, "    - 条件表达式生成失败或类型不是布尔类型\n");
+            fprintf(stderr, "    - 循环体或分支代码块包含错误\n");
+            fprintf(stderr, "  修改建议:\n");
+            fprintf(stderr, "    - 检查条件表达式是否正确且返回布尔值\n");
+            fprintf(stderr, "    - 检查循环体或分支中的语句是否正确\n");
+            break;
+        }
+        case AST_EXPR_STMT: {
+            fprintf(stderr, "  错误原因: 表达式语句代码生成失败\n");
+            fprintf(stderr, "  可能原因:\n");
+            fprintf(stderr, "    - 表达式包含未定义的变量或函数\n");
+            fprintf(stderr, "    - 表达式类型错误或操作数类型不匹配\n");
+            fprintf(stderr, "    - 函数调用失败（函数未定义或参数不匹配）\n");
+            fprintf(stderr, "  修改建议:\n");
+            fprintf(stderr, "    - 检查表达式中使用的变量和函数是否已定义\n");
+            fprintf(stderr, "    - 检查操作数类型是否匹配\n");
+            fprintf(stderr, "    - 检查函数调用的参数类型和数量是否正确\n");
+            break;
+        }
+        default:
+            fprintf(stderr, "  错误原因: 语句代码生成失败\n");
+            fprintf(stderr, "  可能原因: 语句包含语法错误或语义错误\n");
+            fprintf(stderr, "  修改建议: 检查语句的语法和语义是否正确\n");
+            break;
+    }
+    
+    if (context && strlen(context) > 0) {
+        fprintf(stderr, "  上下文: %s\n", context);
+    }
+}
+
 static ASTNode *find_enum_decl(CodeGenerator *codegen, const char *enum_name);
 static int get_enum_variant_value(ASTNode *enum_decl, int variant_index);
 static int find_enum_constant_value(CodeGenerator *codegen, const char *constant_name);
@@ -842,7 +968,16 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
             ASTNode *index_expr = expr->data.array_access.index;
             
             if (!array_expr || !index_expr) {
-                fprintf(stderr, "错误: codegen_gen_lvalue_address AST_ARRAY_ACCESS 参数检查失败\n");
+                const char *filename = expr->filename ? expr->filename : "<unknown>";
+                fprintf(stderr, "错误: 数组访问表达式参数无效 (%s:%d:%d)\n",
+                        filename, expr->line, expr->column);
+                fprintf(stderr, "  错误原因: 数组访问表达式的数组部分或索引部分为 NULL\n");
+                fprintf(stderr, "  可能原因:\n");
+                fprintf(stderr, "    - 语法解析错误，数组访问表达式不完整\n");
+                fprintf(stderr, "    - 数组表达式或索引表达式解析失败\n");
+                fprintf(stderr, "  修改建议:\n");
+                fprintf(stderr, "    - 检查数组访问语法是否正确，例如: arr[index]\n");
+                fprintf(stderr, "    - 确保数组表达式和索引表达式都已正确解析\n");
                 return NULL;
             }
             
@@ -1017,7 +1152,18 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
                     // 递归获取数组的地址（这会返回指向数组的指针）
                     array_ptr = codegen_gen_lvalue_address(codegen, array_expr);
                     if (!array_ptr || array_ptr == (LLVMValueRef)1) {
-                        fprintf(stderr, "错误: codegen_gen_lvalue_address 嵌套数组访问地址生成失败\n");
+                        const char *filename = array_expr->filename ? array_expr->filename : "<unknown>";
+                        fprintf(stderr, "错误: 嵌套数组访问地址生成失败 (%s:%d:%d)\n",
+                                filename, array_expr->line, array_expr->column);
+                        fprintf(stderr, "  错误原因: 多维数组访问中，内层数组访问表达式生成失败\n");
+                        fprintf(stderr, "  可能原因:\n");
+                        fprintf(stderr, "    - 内层数组表达式不是有效的数组或指针类型\n");
+                        fprintf(stderr, "    - 内层数组访问的索引表达式生成失败\n");
+                        fprintf(stderr, "    - 数组变量未定义或类型不正确\n");
+                        fprintf(stderr, "  修改建议:\n");
+                        fprintf(stderr, "    - 检查多维数组的声明是否正确，例如: var arr: [[i32: 2]: 3]\n");
+                        fprintf(stderr, "    - 确保内层数组访问的索引是有效的整数表达式\n");
+                        fprintf(stderr, "    - 检查数组变量是否已正确声明和初始化\n");
                         return NULL;
                     }
                     
@@ -1078,7 +1224,18 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
                     // 生成数组表达式值
                     LLVMValueRef array_val = codegen_gen_expr(codegen, array_expr);
                     if (!array_val) {
-                        fprintf(stderr, "错误: codegen_gen_lvalue_address 数组表达式生成失败\n");
+                        const char *filename = array_expr->filename ? array_expr->filename : "<unknown>";
+                        fprintf(stderr, "错误: 数组表达式生成失败 (%s:%d:%d)\n",
+                                filename, array_expr->line, array_expr->column);
+                        fprintf(stderr, "  错误原因: 无法生成数组表达式的值\n");
+                        fprintf(stderr, "  可能原因:\n");
+                        fprintf(stderr, "    - 数组变量未定义\n");
+                        fprintf(stderr, "    - 数组表达式包含未定义的变量或函数调用\n");
+                        fprintf(stderr, "    - 数组类型不匹配或无效\n");
+                        fprintf(stderr, "  修改建议:\n");
+                        fprintf(stderr, "    - 检查数组变量是否已声明，例如: var arr: [i32: 10]\n");
+                        fprintf(stderr, "    - 确保数组表达式中使用的变量都已定义\n");
+                        fprintf(stderr, "    - 检查数组类型声明是否正确\n");
                         return NULL;
                     }
                     
@@ -3633,7 +3790,17 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
 
             LLVMValueRef load_result = LLVMBuildLoad2(codegen->builder, element_type, element_ptr, "");
             if (!load_result) {
-                fprintf(stderr, "错误: codegen_gen_expr LLVMBuildLoad2 失败\n");
+                const char *filename = expr->filename ? expr->filename : "<unknown>";
+                fprintf(stderr, "错误: 数组元素加载失败 (%s:%d:%d)\n",
+                        filename, expr->line, expr->column);
+                fprintf(stderr, "  错误原因: 无法从数组访问地址加载元素值\n");
+                fprintf(stderr, "  可能原因:\n");
+                fprintf(stderr, "    - 数组访问地址无效或类型不匹配\n");
+                fprintf(stderr, "    - LLVM 内部错误（内存不足或类型系统错误）\n");
+                fprintf(stderr, "  修改建议:\n");
+                fprintf(stderr, "    - 检查数组访问表达式是否正确，例如: arr[i]\n");
+                fprintf(stderr, "    - 确保数组和索引类型都正确\n");
+                fprintf(stderr, "    - 如果问题持续，可能是编译器内部错误，请报告\n");
                 return NULL;
             }
 
@@ -3728,7 +3895,17 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                         if (LLVMGetTypeKind(field_llvm_type) == LLVMPointerTypeKind) {
                             field_val = LLVMConstNull(field_llvm_type);
                         } else {
-                            fprintf(stderr, "错误: 字段 %s 的类型不是指针类型，不能初始化为 null\n", field_name);
+                            const char *filename = field_value->filename ? field_value->filename : "<unknown>";
+                            fprintf(stderr, "错误: 结构体字段 '%s' 不能初始化为 null (%s:%d:%d)\n", 
+                                    field_name, filename, field_value->line, field_value->column);
+                            fprintf(stderr, "  错误原因: 字段类型不是指针类型，不能使用 null 初始化\n");
+                            fprintf(stderr, "  可能原因:\n");
+                            fprintf(stderr, "    - 字段类型是值类型（如 i32, bool），不是指针类型\n");
+                            fprintf(stderr, "    - 尝试将 null 赋值给非指针类型的字段\n");
+                            fprintf(stderr, "  修改建议:\n");
+                            fprintf(stderr, "    - 如果字段应该是可选的，将其类型改为指针类型，例如: &i32\n");
+                            fprintf(stderr, "    - 如果字段不是可选的，使用适当的默认值而不是 null\n");
+                            fprintf(stderr, "    - 检查结构体字段的类型声明是否正确\n");
                             return NULL;
                         }
                     }
@@ -3737,19 +3914,41 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 if (!field_val) {
                     // 自举兜底：字段值生成失败时，用字段类型的零值继续（避免级联失败）
                     // 获取字段类型
+                    const char *filename = field_value->filename ? field_value->filename : "<unknown>";
                     if (field_index < 0 || field_index >= struct_decl->data.struct_decl.field_count) {
-                        fprintf(stderr, "错误: 字段 %s 的值生成失败，且字段索引无效\n", field_name);
+                        fprintf(stderr, "错误: 结构体字段 '%s' 的值生成失败 (%s:%d:%d)\n", 
+                                field_name, filename, field_value->line, field_value->column);
+                        fprintf(stderr, "  错误原因: 字段索引无效，无法找到对应的字段定义\n");
+                        fprintf(stderr, "  可能原因:\n");
+                        fprintf(stderr, "    - 结构体字段名称拼写错误\n");
+                        fprintf(stderr, "    - 字段值表达式包含错误（未定义的变量、类型不匹配等）\n");
+                        fprintf(stderr, "  修改建议:\n");
+                        fprintf(stderr, "    - 检查字段名称是否正确，例如: StructName{ field: value }\n");
+                        fprintf(stderr, "    - 检查字段值表达式中使用的变量是否已定义\n");
+                        fprintf(stderr, "    - 确保字段值类型与结构体字段类型匹配\n");
                         return NULL;
                     }
                     ASTNode *field = struct_decl->data.struct_decl.fields[field_index];
                     if (!field || field->type != AST_VAR_DECL) {
-                        fprintf(stderr, "错误: 字段 %s 的值生成失败，且无法获取字段类型\n", field_name);
+                        fprintf(stderr, "错误: 结构体字段 '%s' 的类型信息无效 (%s:%d:%d)\n", 
+                                field_name, filename, field_value->line, field_value->column);
+                        fprintf(stderr, "  错误原因: 无法获取字段的类型定义\n");
+                        fprintf(stderr, "  可能原因: 结构体定义损坏或解析错误\n");
+                        fprintf(stderr, "  修改建议: 检查结构体定义是否正确\n");
                         return NULL;
                     }
                     ASTNode *field_type_node = field->data.var_decl.type;
                     LLVMTypeRef field_llvm_type = field_type_node ? get_llvm_type_from_ast(codegen, field_type_node) : NULL;
                     if (!field_llvm_type) {
-                        fprintf(stderr, "错误: 字段 %s 的值生成失败，且无法获取字段 LLVM 类型\n", field_name);
+                        fprintf(stderr, "错误: 结构体字段 '%s' 的 LLVM 类型生成失败 (%s:%d:%d)\n", 
+                                field_name, filename, field_value->line, field_value->column);
+                        fprintf(stderr, "  错误原因: 无法将字段类型转换为 LLVM 类型\n");
+                        fprintf(stderr, "  可能原因:\n");
+                        fprintf(stderr, "    - 字段类型未定义或无效\n");
+                        fprintf(stderr, "    - 字段类型是未声明的结构体或枚举\n");
+                        fprintf(stderr, "  修改建议:\n");
+                        fprintf(stderr, "    - 检查字段类型是否正确声明\n");
+                        fprintf(stderr, "    - 确保所有使用的类型都已定义\n");
                         return NULL;
                     }
                     if (LLVMGetTypeKind(field_llvm_type) == LLVMIntegerTypeKind) {
@@ -3824,7 +4023,20 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             // 从第一个元素生成值以推断元素类型
             LLVMValueRef first_element_val = codegen_gen_expr(codegen, elements[0]);
             if (!first_element_val) {
-                fprintf(stderr, "错误: 数组字面量第一个元素生成失败 (元素类型: %d)\n", elements[0] ? (int)elements[0]->type : -1);
+                const char *filename = elements[0] ? (elements[0]->filename ? elements[0]->filename : "<unknown>") : "<unknown>";
+                int line = elements[0] ? elements[0]->line : 0;
+                int column = elements[0] ? elements[0]->column : 0;
+                fprintf(stderr, "错误: 数组字面量第一个元素生成失败 (%s:%d:%d)\n", 
+                        filename, line, column);
+                fprintf(stderr, "  错误原因: 无法生成数组字面量第一个元素的值（用于类型推断）\n");
+                fprintf(stderr, "  可能原因:\n");
+                fprintf(stderr, "    - 第一个元素表达式包含未定义的变量或函数\n");
+                fprintf(stderr, "    - 第一个元素类型错误或操作数类型不匹配\n");
+                fprintf(stderr, "    - 第一个元素是无效的表达式\n");
+                fprintf(stderr, "  修改建议:\n");
+                fprintf(stderr, "    - 检查数组字面量的第一个元素，例如: [1, 2, 3]\n");
+                fprintf(stderr, "    - 确保第一个元素表达式中使用的变量和函数都已定义\n");
+                fprintf(stderr, "    - 检查第一个元素的类型是否正确\n");
                 return NULL;
             }
             
@@ -3855,7 +4067,20 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 // 生成元素值
                 LLVMValueRef element_val = codegen_gen_expr(codegen, element);
                 if (!element_val) {
-                    fprintf(stderr, "错误: 数组字面量第 %d 个元素生成失败 (元素类型: %d)\n", i, element ? (int)element->type : -1);
+                    const char *filename = element ? (element->filename ? element->filename : "<unknown>") : "<unknown>";
+                    int line = element ? element->line : 0;
+                    int column = element ? element->column : 0;
+                    fprintf(stderr, "错误: 数组字面量第 %d 个元素生成失败 (%s:%d:%d)\n", 
+                            i, filename, line, column);
+                    fprintf(stderr, "  错误原因: 无法生成数组字面量第 %d 个元素的值\n", i);
+                    fprintf(stderr, "  可能原因:\n");
+                    fprintf(stderr, "    - 第 %d 个元素表达式包含未定义的变量或函数\n", i);
+                    fprintf(stderr, "    - 第 %d 个元素类型与第一个元素类型不匹配\n", i);
+                    fprintf(stderr, "    - 第 %d 个元素是无效的表达式\n", i);
+                    fprintf(stderr, "  修改建议:\n");
+                    fprintf(stderr, "    - 检查数组字面量第 %d 个元素的表达式\n", i);
+                    fprintf(stderr, "    - 确保所有元素类型一致（数组字面量要求所有元素类型相同）\n");
+                    fprintf(stderr, "    - 确保第 %d 个元素表达式中使用的变量和函数都已定义\n", i);
                     return NULL;
                 }
                 
@@ -4517,7 +4742,13 @@ static int gen_branch_with_terminator(CodeGenerator *codegen,
 // 注意：此函数需要在函数上下文中调用（builder需要在函数的基本块中）
 int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
     if (!codegen || !stmt || !codegen->builder) {
-        fprintf(stderr, "错误: codegen_gen_stmt 参数检查失败\n");
+        if (stmt) {
+            const char *filename = stmt->filename ? stmt->filename : "<unknown>";
+            fprintf(stderr, "错误: codegen_gen_stmt 参数检查失败 (%s:%d:%d)\n",
+                    filename, stmt->line, stmt->column);
+        } else {
+            fprintf(stderr, "错误: codegen_gen_stmt 参数检查失败 (stmt 为 NULL)\n");
+        }
         return -1;
     }
     
@@ -4616,8 +4847,18 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                     if (!init_val) {
                         // 添加源码位置信息
                         const char *filename = stmt->filename ? stmt->filename : "<unknown>";
-                        fprintf(stderr, "错误: 变量 %s 的初始值表达式生成失败 (%s:%d:%d)\n", 
+                        fprintf(stderr, "错误: 变量 '%s' 的初始值表达式生成失败 (%s:%d:%d)\n", 
                                 var_name, filename, stmt->line, stmt->column);
+                        fprintf(stderr, "  错误原因: 无法生成变量初始值表达式的值\n");
+                        fprintf(stderr, "  可能原因:\n");
+                        fprintf(stderr, "    - 初始值表达式中包含未定义的变量或函数\n");
+                        fprintf(stderr, "    - 初始值表达式类型与变量类型不匹配\n");
+                        fprintf(stderr, "    - 初始值表达式包含语法错误或语义错误\n");
+                        fprintf(stderr, "  修改建议:\n");
+                        fprintf(stderr, "    - 检查变量声明，例如: var x: i32 = 10\n");
+                        fprintf(stderr, "    - 确保初始值表达式中使用的变量和函数都已定义\n");
+                        fprintf(stderr, "    - 确保初始值类型与变量类型匹配\n");
+                        fprintf(stderr, "    - 如果不需要初始值，可以省略初始化部分\n");
                         
                         // 放宽检查：在编译器自举时，某些函数可能尚未声明，导致表达式生成失败
                         // 尝试生成默认值（0 或 null）作为占位符
@@ -5282,7 +5523,8 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 }
                 fprintf(stderr, "调试: 递归调用 codegen_gen_stmt 处理子语句（类型: %d）...\n", stmts[i]->type);
                 if (codegen_gen_stmt(codegen, stmts[i]) != 0) {
-                    fprintf(stderr, "错误: 处理 AST_BLOCK 中的第 %d 个语句失败\n", i);
+                    // 生成详细的错误信息（包含原因和建议）
+                    report_stmt_error(codegen, stmts[i], i, "在代码块中");
                     return -1;
                 }
                 fprintf(stderr, "调试: AST_BLOCK 中的第 %d 个语句处理完成\n", i + 1);
