@@ -2765,6 +2765,23 @@ ASTNode *parser_parse_statement(Parser *parser) {
         
         // 期望 '='
         if (!parser_expect(parser, TOKEN_ASSIGN)) {
+            // 变量未初始化：给出明确的错误提示
+            const char *filename = parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+            int error_line = line;
+            int error_column = column;
+            if (parser->current_token != NULL) {
+                error_line = parser->current_token->line;
+                error_column = parser->current_token->column;
+            }
+            const char *token_value = "";
+            if (parser->current_token != NULL && parser->current_token->value != NULL) {
+                token_value = parser->current_token->value;
+            }
+            fprintf(stderr, "错误: 变量 %s 未初始化 (%s:%d:%d)\n", var_name, filename, error_line, error_column);
+            fprintf(stderr, "提示: 所有变量必须初始化，请使用 '=' 提供初始值\n");
+            if (token_value[0] != '\0') {
+                fprintf(stderr, "      当前 token: '%s'\n", token_value);
+            }
             return NULL;
         }
         
