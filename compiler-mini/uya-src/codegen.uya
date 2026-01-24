@@ -267,15 +267,15 @@ fn get_llvm_type_from_ast(codegen: &CodeGenerator, type_node: &ASTNode) &void {
         
         // 基础类型
         if strcmp(type_name, "i32") == 0 {
-            return codegen_get_base_type(codegen, TYPE_I32) as *void;
+            return codegen_get_base_type(codegen, TYPE_I32);
         } else if strcmp(type_name, "usize") == 0 {
-            return codegen_get_base_type(codegen, TYPE_USIZE) as *void;
+            return codegen_get_base_type(codegen, TYPE_USIZE);
         } else if strcmp(type_name, "bool") == 0 {
-            return codegen_get_base_type(codegen, TYPE_BOOL) as *void;
+            return codegen_get_base_type(codegen, TYPE_BOOL);
         } else if strcmp(type_name, "byte") == 0 {
-            return codegen_get_base_type(codegen, TYPE_BYTE) as *void;
+            return codegen_get_base_type(codegen, TYPE_BYTE);
         } else if strcmp(type_name, "void") == 0 {
-            return codegen_get_base_type(codegen, TYPE_VOID) as *void;
+            return codegen_get_base_type(codegen, TYPE_VOID);
         }
         
         // 枚举类型或结构体类型
@@ -283,11 +283,11 @@ fn get_llvm_type_from_ast(codegen: &CodeGenerator, type_node: &ASTNode) &void {
         const enum_decl: &ASTNode = find_enum_decl(codegen, type_name);
         if enum_decl != null {
             // 枚举类型，返回i32类型（默认底层类型）
-            return codegen_get_base_type(codegen, TYPE_I32) as *void;
+            return codegen_get_base_type(codegen, TYPE_I32);
         }
         
         // 结构体类型（必须在注册表中查找）
-        return codegen_get_struct_type(codegen, type_name) as *void;
+        return codegen_get_struct_type(codegen, type_name);
     } else if type_node.type == AST_TYPE_POINTER {
         // 指针类型（&T 或 *T）
         // 普通指针和 FFI 指针在 LLVM 中都映射为指针类型
@@ -1514,7 +1514,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) &void {
                     right_val as &void,
                     struct_decl,
                     is_equal
-                ) as *void;
+                );
             }
             // 结构体不支持其他比较运算符（<, >, <=, >=）
             return null;
@@ -2652,7 +2652,7 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
                     }
                     
                     // 返回元素地址（不需要加载值）
-                    return element_ptr;
+                    return element_ptr as &void;
                 }
             } else {
                 return null;  // 不是数组类型或指针类型
@@ -2699,7 +2699,7 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
         }
         
         // 返回元素地址（不需要加载值）
-        return element_ptr;
+        return element_ptr as &void;
     }
     
     // 暂不支持其他类型的左值
