@@ -228,7 +228,12 @@ if [ $COMPILER_EXIT -eq 0 ]; then
             echo "类型: 目标文件（.o）"
             echo ""
             echo "提示: 如果要生成可执行文件，需要使用链接器链接："
-            echo "  gcc -no-pie $OUTPUT_FILE -o ${OUTPUT_FILE}.exe"
+            # 在 Windows 上使用 .exe 扩展名，在 Linux/Unix 上不使用
+            if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+                echo "  gcc -no-pie $OUTPUT_FILE -o ${OUTPUT_FILE}.exe"
+            else
+                echo "  gcc -no-pie $OUTPUT_FILE -o ${OUTPUT_FILE%.o}"
+            fi
         fi
     fi
     
