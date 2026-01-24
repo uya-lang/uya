@@ -1,6 +1,10 @@
 // 混合类型算术运算测试程序
 // 测试 i32 和 usize 混合运算（根据规范，结果类型为较大的类型）
 
+fn add_usize(a: usize, b: usize) usize {
+    return a + b;
+}
+
 fn main() i32 {
     // ========== 测试1：i32 + usize ==========
     
@@ -90,10 +94,6 @@ fn main() i32 {
     }
     
     // ========== 测试12：混合运算在函数调用中 ==========
-    
-    fn add_usize(a: usize, b: usize) usize {
-        return a + b;
-    }
     
     var i32_val5: i32 = 10;
     var usize_val5: usize = 20 as usize;

@@ -149,6 +149,18 @@ fn get_struct_array_element_and_modify() &Point {
     return &array[0];
 }
 
+fn get_x(p: &Point) i32 {
+    return p.x;
+}
+
+fn get_point_x_from_ptr(p: &Point) i32 {
+    return p.x;
+}
+
+fn get_value_from_ptr(p: &i32) i32 {
+    return *p;
+}
+
 fn main() i32 {
     // ========== 测试1：返回全局结构体指针并访问字段 ==========
     
@@ -320,10 +332,6 @@ fn main() i32 {
     
     // ========== 测试12：返回的指针作为函数参数 ==========
     
-    fn get_x(p: &Point) i32 {
-        return p.x;
-    }
-    
     var point5: Point = Point{ x: 555, y: 666 };
     var ptr9: &Point = get_point_pointer(&point5);
     var x_val: i32 = get_x(ptr9);
@@ -491,10 +499,6 @@ fn main() i32 {
     
     // ========== 测试28：返回的结构体数组指针作为函数参数 ==========
     
-    fn get_point_x_from_ptr(p: &Point) i32 {
-        return p.x;
-    }
-    
     var point_arr_ptr5: &Point = get_struct_array_element_by_index(1);
     var x_val2: i32 = get_point_x_from_ptr(point_arr_ptr5);
     if x_val2 != 3 {
@@ -578,10 +582,6 @@ fn main() i32 {
     }
     
     // ========== 测试19：返回的数组指针作为函数参数 ==========
-    
-    fn get_value_from_ptr(p: &i32) i32 {
-        return *p;
-    }
     
     var arr_ptr3: &i32 = get_array_first_element();
     var val: i32 = get_value_from_ptr(arr_ptr3);

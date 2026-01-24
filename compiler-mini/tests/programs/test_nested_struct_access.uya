@@ -24,6 +24,19 @@ struct DeepOuter {
     outer: i32,
 }
 
+struct ArrayOuter {
+    items: [Inner: 3],
+    size: i32,
+}
+
+fn get_inner_value(o: Outer) i32 {
+    return o.inner.value;
+}
+
+fn modify_inner_value(o: &Outer) void {
+    o.inner.value = 700;
+}
+
 fn main() i32 {
     // ========== 测试1：基本嵌套结构体字段访问 ==========
     
@@ -111,11 +124,6 @@ fn main() i32 {
     
     // ========== 测试5：嵌套结构体数组字段访问 ==========
     
-    struct ArrayOuter {
-        items: [Inner: 3],
-        size: i32,
-    }
-    
     var array_outer: ArrayOuter = ArrayOuter{
         items: [
             Inner{ value: 1 },
@@ -139,18 +147,10 @@ fn main() i32 {
     
     // ========== 测试6：嵌套结构体在函数中使用 ==========
     
-    fn get_inner_value(o: Outer) i32 {
-        return o.inner.value;
-    }
-    
     var outer3: Outer = Outer{ inner: Inner{ value: 600 }, count: 30 };
     var value2: i32 = get_inner_value(outer3);
     if value2 != 600 {
         return 13;  // get_inner_value 应该返回 600
-    }
-    
-    fn modify_inner_value(o: &Outer) void {
-        o.inner.value = 700;
     }
     
     modify_inner_value(&outer3);

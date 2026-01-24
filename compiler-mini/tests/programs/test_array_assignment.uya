@@ -6,6 +6,22 @@ struct Point {
     y: i32,
 }
 
+fn process_array(arr: [i32: 3]) i32 {
+    var sum: i32 = 0;
+    var i: i32 = 0;
+    while i < len(arr) {
+        sum = sum + arr[i];
+        i = i + 1;
+    }
+    // 修改数组元素（不影响原数组）
+    arr[0] = 999;
+    return sum;
+}
+
+fn create_array() [i32: 3] {
+    return [100, 200, 300];
+}
+
 fn main() i32 {
     // ========== 测试1：基本数组赋值（按值复制） ==========
     
@@ -82,18 +98,6 @@ fn main() i32 {
     
     // ========== 测试6：数组作为函数参数（按值传递） ==========
     
-    fn process_array(arr: [i32: 3]) i32 {
-        var sum: i32 = 0;
-        var i: i32 = 0;
-        while i < len(arr) {
-            sum = sum + arr[i];
-            i = i + 1;
-        }
-        // 修改数组元素（不影响原数组）
-        arr[0] = 999;
-        return sum;
-    }
-    
     var arr11: [i32: 3] = [1, 2, 3];
     var sum: i32 = process_array(arr11);
     if sum != 6 {
@@ -104,10 +108,6 @@ fn main() i32 {
     }
     
     // ========== 测试7：数组作为函数返回值 ==========
-    
-    fn create_array() [i32: 3] {
-        return [100, 200, 300];
-    }
     
     var arr12: [i32: 3] = create_array();
     if arr12[0] != 100 || arr12[1] != 200 || arr12[2] != 300 {

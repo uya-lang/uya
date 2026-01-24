@@ -2398,6 +2398,16 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 fprintf(stderr, "错误: 变量 '%s' 的类型未找到 %s\n", var_name, location);
                 return NULL;
             }
+            
+            // 检查变量类型是否是数组类型
+            // 数组类型不能直接加载（数组不是 first-class 类型）
+            // 对于数组类型，返回数组的指针（即 var_ptr 本身）
+            LLVMTypeKind var_type_kind = LLVMGetTypeKind(var_type);
+            if (var_type_kind == LLVMArrayTypeKind) {
+                // 数组类型：返回数组指针
+                return var_ptr;
+            }
+            
             LLVMValueRef result = LLVMBuildLoad2(codegen->builder, var_type, var_ptr, var_name);
             if (!result) {
                 char location[256];
@@ -4413,6 +4423,118 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 return -1;  // 无法生成左值地址（不支持的类型或错误）
             }
             
+            // 检查目标类型是否是数组类型
+            LLVMTypeRef dest_ptr_type = safe_LLVMTypeOf(dest_ptr);
+            if (!dest_ptr_type) {
+                return -1;
+            }
+            LLVMTypeKind dest_ptr_type_kind = LLVMGetTypeKind(dest_ptr_type);
+            if (dest_ptr_type_kind != LLVMPointerTypeKind) {
+                return -1;
+            }
+            LLVMTypeRef dest_type = safe_LLVMGetElementType(dest_ptr_type);
+            if (!dest_type || dest_type == (LLVMTypeRef)1) {
+                // 不是指针类型或无法获取元素类型，使用正常的赋值处理
+                // 生成源表达式值
+                LLVMValueRef src_val = codegen_gen_expr(codegen, src);
+                if (!src_val) {
+                    return -1;
+                }
+                // 处理 null 标识符标记值
+                if (src_val == (LLVMValueRef)1) {
+                    return -1;  // null 不能赋值给非指针类型
+                }
+                // store 值到目标地址
+                LLVMBuildStore(codegen->builder, src_val, dest_ptr);
+                return 0;
+            }
+            // 检查是否是数组类型
+            // 对于结构体类型，LLVMGetElementType 可能返回无效指针
+            // 为了安全，我们只在源和目标都是标识符（变量）时才检查数组类型
+            // 对于其他情况，直接使用正常的 store 操作
+            int is_array = 0;
+            if (dest->type == AST_IDENTIFIER && src->type == AST_IDENTIFIER) {
+                // 两个都是标识符，可以安全地检查类型
+                const char *dest_var_name = dest->data.identifier.name;
+                const char *src_var_name = src->data.identifier.name;
+                if (dest_var_name && src_var_name) {
+                    LLVMTypeRef dest_var_type = lookup_var_type(codegen, dest_var_name);
+                    if (dest_var_type) {
+                        LLVMTypeKind dest_var_type_kind = LLVMGetTypeKind(dest_var_type);
+                        if (dest_var_type_kind == LLVMArrayTypeKind) {
+                            is_array = 1;
+                        }
+                    }
+                }
+            }
+            
+            // 如果目标是数组类型，需要特殊处理（使用 memcpy）
+            if (is_array) {
+                // 数组赋值：使用 memcpy 复制数组
+                // 获取源数组的地址（如果源是标识符，直接获取变量指针）
+                LLVMValueRef src_ptr = NULL;
+                if (src->type == AST_IDENTIFIER) {
+                    const char *src_var_name = src->data.identifier.name;
+                    if (src_var_name) {
+                        src_ptr = lookup_var(codegen, src_var_name);
+                    }
+                } else {
+                    // 如果源不是标识符，尝试生成左值地址
+                    src_ptr = codegen_gen_lvalue_address(codegen, src);
+                }
+                
+                if (!src_ptr) {
+                    return -1;
+                }
+                
+                // 获取数组大小（字节数）
+                LLVMTargetDataRef target_data = LLVMGetModuleDataLayout(codegen->module);
+                if (!target_data) {
+                    return -1;
+                }
+                uint64_t array_size = LLVMStoreSizeOfType(target_data, dest_type);
+                if (array_size == 0) {
+                    return -1;
+                }
+                
+                // 创建 memcpy intrinsic
+                LLVMTypeRef i8_type = LLVMInt8TypeInContext(codegen->context);
+                LLVMTypeRef i8_ptr_type = LLVMPointerType(i8_type, 0);
+                LLVMTypeRef i32_type = LLVMInt32TypeInContext(codegen->context);
+                LLVMTypeRef i64_type = LLVMInt64TypeInContext(codegen->context);
+                LLVMTypeRef memcpy_params[] = {i8_ptr_type, i8_ptr_type, i64_type, i32_type, LLVMInt1TypeInContext(codegen->context)};
+                LLVMTypeRef memcpy_type = LLVMFunctionType(LLVMVoidTypeInContext(codegen->context), memcpy_params, 5, 0);
+                
+                // 查找或创建 memcpy 函数
+                LLVMValueRef memcpy_func = LLVMGetNamedFunction(codegen->module, "llvm.memcpy.p0i8.p0i8.i64");
+                if (!memcpy_func) {
+                    // 函数不存在，创建它
+                    memcpy_func = LLVMAddFunction(codegen->module, "llvm.memcpy.p0i8.p0i8.i64", memcpy_type);
+                    if (!memcpy_func) {
+                        return -1;
+                    }
+                    // 设置函数属性
+                    LLVMSetLinkage(memcpy_func, LLVMExternalLinkage);
+                }
+                
+                // 将指针转换为 i8* 类型
+                LLVMValueRef dest_i8_ptr = LLVMBuildBitCast(codegen->builder, dest_ptr, i8_ptr_type, "");
+                LLVMValueRef src_i8_ptr = LLVMBuildBitCast(codegen->builder, src_ptr, i8_ptr_type, "");
+                if (!dest_i8_ptr || !src_i8_ptr) {
+                    return -1;
+                }
+                
+                // 调用 memcpy
+                LLVMValueRef size_val = LLVMConstInt(i64_type, array_size, 0);
+                LLVMValueRef align_val = LLVMConstInt(i32_type, 1, 0);  // 对齐为 1
+                LLVMValueRef is_volatile = LLVMConstInt(LLVMInt1TypeInContext(codegen->context), 0, 0);
+                LLVMValueRef args[] = {dest_i8_ptr, src_i8_ptr, size_val, align_val, is_volatile};
+                LLVMBuildCall2(codegen->builder, memcpy_type, memcpy_func, args, 5, "");
+                
+                return 0;
+            }
+            
+            // 非数组类型：正常处理
             // 生成源表达式值
             LLVMValueRef src_val = codegen_gen_expr(codegen, src);
             if (!src_val) {
@@ -4421,17 +4543,16 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
 
             // 处理 null 标识符标记值
             if (src_val == (LLVMValueRef)1) {
-                LLVMTypeRef dest_ptr_type = safe_LLVMTypeOf(dest_ptr);
                 if (!dest_ptr_type || LLVMGetTypeKind(dest_ptr_type) != LLVMPointerTypeKind) {
                     fprintf(stderr, "错误: 赋值目标不是指针类型，不能赋 null\n");
                     return -1;
                 }
-                LLVMTypeRef dest_type = LLVMGetElementType(dest_ptr_type);
-                if (!dest_type || LLVMGetTypeKind(dest_type) != LLVMPointerTypeKind) {
+                LLVMTypeRef dest_type_for_null = LLVMGetElementType(dest_ptr_type);
+                if (!dest_type_for_null || LLVMGetTypeKind(dest_type_for_null) != LLVMPointerTypeKind) {
                     fprintf(stderr, "错误: 赋值目标类型不是指针，不能赋 null\n");
                     return -1;
                 }
-                src_val = LLVMConstNull(dest_type);
+                src_val = LLVMConstNull(dest_type_for_null);
             }
             
             // store 值到目标地址
@@ -4516,7 +4637,11 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             }
             
             // 获取当前函数
-            LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(codegen->builder));
+            LLVMBasicBlockRef current_bb = LLVMGetInsertBlock(codegen->builder);
+            if (!current_bb) {
+                return -1;
+            }
+            LLVMValueRef current_func = LLVMGetBasicBlockParent(current_bb);
             if (!current_func) {
                 return -1;
             }
@@ -4582,7 +4707,11 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             }
             
             // 获取当前函数
-            LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(codegen->builder));
+            LLVMBasicBlockRef current_bb = LLVMGetInsertBlock(codegen->builder);
+            if (!current_bb) {
+                return -1;
+            }
+            LLVMValueRef current_func = LLVMGetBasicBlockParent(current_bb);
             if (!current_func) {
                 return -1;
             }
@@ -4626,7 +4755,7 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             }
             
             // 检查循环体结束前是否需要跳转（如果已经有终止符，不需要再跳转）
-            LLVMBasicBlockRef current_bb = LLVMGetInsertBlock(codegen->builder);
+            current_bb = LLVMGetInsertBlock(codegen->builder);
             if (current_bb && !LLVMGetBasicBlockTerminator(current_bb)) {
                 // 循环体结束前跳转到条件检查（continue 会跳过这里）
                 LLVMBuildBr(codegen->builder, cond_bb);
@@ -4653,7 +4782,11 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             }
             
             // 获取当前函数
-            LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(codegen->builder));
+            LLVMBasicBlockRef current_bb = LLVMGetInsertBlock(codegen->builder);
+            if (!current_bb) {
+                return -1;
+            }
+            LLVMValueRef current_func = LLVMGetBasicBlockParent(current_bb);
             if (!current_func) {
                 return -1;
             }
@@ -4870,7 +5003,7 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             }
             
             // 检查循环体结束前是否需要跳转（如果已经有终止符，不需要再跳转）
-            LLVMBasicBlockRef current_bb = LLVMGetInsertBlock(codegen->builder);
+            current_bb = LLVMGetInsertBlock(codegen->builder);
             if (current_bb && !LLVMGetBasicBlockTerminator(current_bb)) {
                 // 循环体结束前跳转到递增基本块（continue 会跳过这里）
                 LLVMBuildBr(codegen->builder, inc_bb);

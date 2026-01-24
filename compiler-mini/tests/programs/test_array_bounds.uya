@@ -8,6 +8,14 @@ struct Point {
     y: i32,
 }
 
+fn get_index() i32 {
+    return 3;
+}
+
+fn process_element(val: i32) i32 {
+    return val * 2;
+}
+
 fn main() i32 {
     // ========== 测试 1: 基本数组边界访问 ==========
     
@@ -116,10 +124,6 @@ fn main() i32 {
     }
     
     // 5.3 使用函数返回值作为索引
-    fn get_index() i32 {
-        return 3;
-    }
-    
     if arr4[get_index()] != 400 {
         return 13;
     }
@@ -218,10 +222,6 @@ fn main() i32 {
     }
     
     // ========== 测试 11: 数组访问作为函数参数 ==========
-    
-    fn process_element(val: i32) i32 {
-        return val * 2;
-    }
     
     const arr12: [i32: 3] = [10, 20, 30];
     const result: i32 = process_element(arr12[1]);

@@ -21,6 +21,16 @@ struct Outer {
     size: i32,
 }
 
+fn process_array_field(d: Data) i32 {
+    var total: i32 = 0;
+    var i2: i32 = 0;
+    while i2 < len(d.values) {
+        total = total + d.values[i2];
+        i2 = i2 + 1;
+    }
+    return total;
+}
+
 fn main() i32 {
     // ========== 测试1：基本结构体数组字段 ==========
     
@@ -141,16 +151,6 @@ fn main() i32 {
     }
     
     // ========== 测试8：结构体数组字段作为函数参数 ==========
-    
-    fn process_array_field(d: Data) i32 {
-        var total: i32 = 0;
-        var i2: i32 = 0;
-        while i2 < len(d.values) {
-            total = total + d.values[i2];
-            i2 = i2 + 1;
-        }
-        return total;
-    }
     
     var data2: Data = Data{
         values: [1, 2, 3],

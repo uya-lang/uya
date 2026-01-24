@@ -1,6 +1,20 @@
 // 多维数组测试程序
 // 测试多维数组的定义、初始化、访问、sizeof、len
 
+fn sum_2d_array(arr: [[i32: 2]: 3]) i32 {
+    var total: i32 = 0;
+    var i3: i32 = 0;
+    while i3 < len(arr) {
+        var j3: i32 = 0;
+        while j3 < len(arr[i3]) {
+            total = total + arr[i3][j3];
+            j3 = j3 + 1;
+        }
+        i3 = i3 + 1;
+    }
+    return total;
+}
+
 fn main() i32 {
     // ========== 测试1：二维数组定义和初始化 ==========
     
@@ -141,20 +155,6 @@ fn main() i32 {
     }
     
     // ========== 测试7：多维数组作为函数参数 ==========
-    
-    fn sum_2d_array(arr: [[i32: 2]: 3]) i32 {
-        var total: i32 = 0;
-        var i3: i32 = 0;
-        while i3 < len(arr) {
-            var j3: i32 = 0;
-            while j3 < len(arr[i3]) {
-                total = total + arr[i3][j3];
-                j3 = j3 + 1;
-            }
-            i3 = i3 + 1;
-        }
-        return total;
-    }
     
     var arr2d2: [[i32: 2]: 3] = [
         [1, 1],

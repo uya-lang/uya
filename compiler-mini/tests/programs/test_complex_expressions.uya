@@ -27,6 +27,10 @@ fn get_point_x(p: &Point) i32 {
     return p.x;
 }
 
+fn get_index(arr: [i32: 3], index: i32) i32 {
+    return arr[index];
+}
+
 fn main() i32 {
     // ========== 测试1：复杂算术表达式 ==========
     
@@ -157,9 +161,6 @@ fn main() i32 {
     }
     
     // 7.2 函数返回数组索引
-    fn get_index(arr: [i32: 3], index: i32) i32 {
-        return arr[index];
-    }
     var result11: i32 = get_index(arr, 2);
     if result11 != 30 {
         return 18;  // get_index 应该返回 30

@@ -11,6 +11,10 @@ struct Container {
     empty: Empty,
 }
 
+fn process_empty(e: Empty) Empty {
+    return e;
+}
+
 fn main() i32 {
     // 测试1：空结构体 sizeof（类型）
     const empty_size: i32 = sizeof(Empty);
@@ -72,10 +76,6 @@ fn main() i32 {
     }
     
     // 测试10：空结构体作为函数参数和返回值
-    fn process_empty(e: Empty) Empty {
-        return e;
-    }
-    
     var empty4: Empty = process_empty(empty1);
     if empty4 != empty1 {
         return 10;  // 函数返回的空结构体应该相等
