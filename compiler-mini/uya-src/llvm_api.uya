@@ -78,6 +78,8 @@ extern fn LLVMBuildICmp(builder: *void, predicate: i32, lhs: *void, rhs: *void, 
 extern fn LLVMBuildZExt(builder: *void, value: *void, dest_type: *void, name: *byte) *void;  // 零扩展
 extern fn LLVMBuildSExt(builder: *void, value: *void, dest_type: *void, name: *byte) *void;  // 符号扩展
 extern fn LLVMBuildTrunc(builder: *void, value: *void, dest_type: *void, name: *byte) *void;  // 截断
+extern fn LLVMBuildZExt(builder: *void, value: *void, dest_type: *void, name: *byte) *void;  // 零扩展
+extern fn LLVMBuildBitCast(builder: *void, value: *void, dest_type: *void, name: *byte) *void;  // 位转换（用于指针类型转换）
 extern fn LLVMBuildPtrToInt(builder: *void, value: *void, dest_type: *void, name: *byte) *void;  // 指针转整数
 extern fn LLVMBuildIntToPtr(builder: *void, value: *void, dest_type: *void, name: *byte) *void;  // 整数转指针
 

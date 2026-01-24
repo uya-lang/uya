@@ -48,6 +48,11 @@ const MAX_INPUT_FILES: i32 = 64;
 // EOF 常量（文件结束符）
 const EOF: i32 = -1;
 
+// ===== 全局变量 =====
+
+// 单个文件的缓冲区（固定大小数组，全局分配）
+var file_buffer: [byte: FILE_BUFFER_SIZE] = [];
+
 // ===== 辅助函数 =====
 
 // 读取文件内容到缓冲区
@@ -185,9 +190,6 @@ fn compile_files(input_files: [&byte: MAX_INPUT_FILES], input_file_count: i32, o
     
     // 存储每个文件的 AST_PROGRAM 节点（固定大小数组，只存储指针）
     var programs: [&ASTNode: MAX_INPUT_FILES] = [];
-    
-    // 单个文件的缓冲区（固定大小数组，在栈上分配）
-    var file_buffer: [byte: FILE_BUFFER_SIZE] = [];
     
     // 解析每个文件
     i = 0;
