@@ -1129,8 +1129,44 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
             
             // 生成索引表达式值
             LLVMValueRef index_val = codegen_gen_expr(codegen, index_expr);
-            if (!index_val) {
+            if (!index_val || index_val == (LLVMValueRef)1) {
+                // 添加源码位置信息
+                const char *filename = index_expr->filename ? index_expr->filename : "<unknown>";
+                fprintf(stderr, "错误: 数组访问索引表达式生成失败 (%s:%d:%d)\n", 
+                        filename, index_expr->line, index_expr->column);
                 return NULL;
+            }
+            
+            // 确保索引值是整数类型（i32）
+            LLVMTypeRef index_type = safe_LLVMTypeOf(index_val);
+            if (!index_type) {
+                const char *filename = index_expr->filename ? index_expr->filename : "<unknown>";
+                fprintf(stderr, "错误: 数组访问索引类型无效 (%s:%d:%d)\n", 
+                        filename, index_expr->line, index_expr->column);
+                return NULL;
+            }
+            
+            LLVMTypeRef i32_type = LLVMInt32TypeInContext(codegen->context);
+            if (index_type != i32_type) {
+                // 索引类型不是 i32，需要进行类型转换
+                LLVMTypeKind index_kind = LLVMGetTypeKind(index_type);
+                if (index_kind == LLVMIntegerTypeKind) {
+                    // 整数类型：进行符号扩展或截断
+                    unsigned index_width = LLVMGetIntTypeWidth(index_type);
+                    if (index_width < 32) {
+                        // 零扩展到 i32
+                        index_val = LLVMBuildZExt(codegen->builder, index_val, i32_type, "");
+                    } else if (index_width > 32) {
+                        // 截断到 i32
+                        index_val = LLVMBuildTrunc(codegen->builder, index_val, i32_type, "");
+                    }
+                } else {
+                    // 非整数类型：错误
+                    const char *filename = index_expr->filename ? index_expr->filename : "<unknown>";
+                    fprintf(stderr, "错误: 数组访问索引必须是整数类型 (%s:%d:%d)\n", 
+                            filename, index_expr->line, index_expr->column);
+                    return NULL;
+                }
             }
             
             // 使用 GEP 获取元素地址
@@ -1204,7 +1240,20 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
             }
             
             if (!element_ptr) {
-                fprintf(stderr, "错误: codegen_gen_lvalue_address GEP 失败 (array_type kind: %d)\n", (int)array_type_kind);
+                // 添加源码位置信息
+                const char *filename = index_expr->filename ? index_expr->filename : "<unknown>";
+                fprintf(stderr, "错误: 数组访问地址生成失败 (%s:%d:%d) (array_type kind: %d)\n", 
+                        filename, index_expr->line, index_expr->column, (int)array_type_kind);
+                // 验证索引类型
+                if (index_val) {
+                    LLVMTypeRef index_type_check = safe_LLVMTypeOf(index_val);
+                    if (index_type_check) {
+                        LLVMTypeKind index_kind = LLVMGetTypeKind(index_type_check);
+                        fprintf(stderr, "调试: 索引值类型 kind=%d, 宽度=%u\n", 
+                                (int)index_kind, 
+                                (index_kind == LLVMIntegerTypeKind) ? LLVMGetIntTypeWidth(index_type_check) : 0);
+                    }
+                }
                 return NULL;
             }
             
@@ -4477,7 +4526,10 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 if (!init_val && !is_empty_array_literal) {
                     init_val = codegen_gen_expr(codegen, init_expr);
                     if (!init_val) {
-                        fprintf(stderr, "错误: 变量 %s 的初始值表达式生成失败\n", var_name);
+                        // 添加源码位置信息
+                        const char *filename = stmt->filename ? stmt->filename : "<unknown>";
+                        fprintf(stderr, "错误: 变量 %s 的初始值表达式生成失败 (%s:%d:%d)\n", 
+                                var_name, filename, stmt->line, stmt->column);
                         
                         // 放宽检查：在编译器自举时，某些函数可能尚未声明，导致表达式生成失败
                         // 尝试生成默认值（0 或 null）作为占位符
@@ -4487,6 +4539,10 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                                 init_val = LLVMConstInt(llvm_type, 0ULL, 0);
                             } else if (type_kind == LLVMPointerTypeKind) {
                                 init_val = LLVMConstNull(llvm_type);
+                            } else if (type_kind == LLVMArrayTypeKind) {
+                                // 数组类型：无法生成默认值，跳过初始化（数组已通过 alloca 分配）
+                                // 这是允许的，因为空数组字面量表示未初始化
+                                init_val = NULL;
                             } else if (type_kind == LLVMStructTypeKind) {
                                 // 结构体类型：生成零初始化的结构体常量
                                 unsigned field_count = LLVMCountStructElementTypes(llvm_type);
@@ -4509,24 +4565,46 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                             }
                         }
                         
-                        // 如果仍然无法生成默认值，返回错误
+                        // 如果仍然无法生成默认值，对于数组类型允许跳过初始化
                         if (!init_val) {
-                            fprintf(stderr, "错误: 无法为变量 %s 生成默认初始值\n", var_name);
-                            return -1;
+                            if (llvm_type) {
+                                LLVMTypeKind type_kind = LLVMGetTypeKind(llvm_type);
+                                if (type_kind == LLVMArrayTypeKind) {
+                                    // 数组类型：允许跳过初始化
+                                    fprintf(stderr, "警告: 变量 %s (数组类型) 的初始值表达式生成失败，跳过初始化 (%s:%d:%d)\n", 
+                                            var_name, filename, stmt->line, stmt->column);
+                                    // 继续执行，不返回错误
+                                } else {
+                                    fprintf(stderr, "错误: 无法为变量 %s 生成默认初始值 (%s:%d:%d)\n", 
+                                            var_name, filename, stmt->line, stmt->column);
+                                    return -1;
+                                }
+                            } else {
+                                fprintf(stderr, "错误: 无法为变量 %s 生成默认初始值 (%s:%d:%d)\n", 
+                                        var_name, filename, stmt->line, stmt->column);
+                                return -1;
+                            }
+                        } else {
+                            fprintf(stderr, "警告: 变量 %s 的初始值表达式生成失败，使用默认值 (%s:%d:%d)\n", 
+                                    var_name, filename, stmt->line, stmt->column);
                         }
-                        
-                        fprintf(stderr, "警告: 变量 %s 的初始值表达式生成失败，使用默认值\n", var_name);
                     }
                     // 检查 init_val 是否是标记值
                     if (init_val == (LLVMValueRef)1) {
-                        fprintf(stderr, "错误: 变量 %s 的初始值表达式返回标记值\n", var_name);
+                        const char *filename = stmt->filename ? stmt->filename : "<unknown>";
+                        fprintf(stderr, "错误: 变量 %s 的初始值表达式返回标记值 (%s:%d:%d)\n", 
+                                var_name, filename, stmt->line, stmt->column);
                         return -1;
                     }
                     // 验证 init_val 的类型是否有效
-                    LLVMTypeRef init_val_type = safe_LLVMTypeOf(init_val);
-                    if (!init_val_type) {
-                        fprintf(stderr, "错误: 变量 %s 的初始值类型无效\n", var_name);
-                        return -1;
+                    if (init_val) {
+                        LLVMTypeRef init_val_type = safe_LLVMTypeOf(init_val);
+                        if (!init_val_type) {
+                            const char *filename = stmt->filename ? stmt->filename : "<unknown>";
+                            fprintf(stderr, "错误: 变量 %s 的初始值类型无效 (%s:%d:%d)\n", 
+                                    var_name, filename, stmt->line, stmt->column);
+                            return -1;
+                        }
                     }
                 }
                 

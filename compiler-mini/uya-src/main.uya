@@ -13,13 +13,17 @@ extern fn arena_init(arena: &Arena, buffer: &void, size: i32) void;
 extern fn arena_alloc(arena: &Arena, size: i32) &void;
 
 // Lexer 函数（来自 lexer.uya）
-extern fn lexer_init(lexer: &Lexer, source: &byte, source_len: i32, filename: *byte, arena: &Arena) i32;
+extern fn lexer_init(lexer: &Lexer, source: &byte, source_len: i32, filename: &byte, arena: &Arena) i32;
 
 // Parser 函数（来自 parser.uya）
 extern fn parser_init(parser: &Parser, lexer: &Lexer, arena: &Arena) i32;
+extern fn parser_parse(parser: &Parser) &ASTNode;
+
+// AST 函数（来自 ast.uya）
+extern fn ast_merge_programs(programs: [&ASTNode: 64], count: i32, arena: &Arena) &ASTNode;
 
 // Checker 函数（来自 checker.uya）
-extern fn checker_init(checker: &TypeChecker, arena: &Arena) i32;
+extern fn checker_init(checker: &TypeChecker, arena: &Arena, default_filename: &byte) i32;
 extern fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32;
 extern fn checker_get_error_count(checker: &TypeChecker) i32;
 
@@ -52,15 +56,43 @@ const EOF: i32 = -1;
 //       buffer_size - 缓冲区大小
 // 返回：成功返回读取的字节数，失败返回 -1
 // 注意：文件大小不能超过缓冲区大小
-fn read_file_content(_filename: &byte, buffer: &byte, buffer_size: i32) i32 {
-    // 简化版本：暂时返回错误
-    return -1;
+fn read_file_content(filename: &byte, buffer: &byte, buffer_size: i32) i32 {
+    // 打开文件（二进制模式读取）
+    // 注意：filename 是 &byte 类型，但 fopen 需要 *byte 类型，需要转换
+    const file: *void = fopen(filename as *byte, "rb" as *byte);
+    if file == null {
+        return -1;
+    }
+    
+    // 读取文件内容（保留一个字节用于 '\0'）
+    const bytes_read: i32 = fread(buffer as *void, 1, buffer_size - 1, file);
+    
+    // 检查是否还有更多数据（文件太大）
+    if bytes_read >= buffer_size - 1 {
+        const c: i32 = fgetc(file);
+        fclose(file);
+        if c != EOF {
+            // 文件还有更多数据，文件太大
+            return -1;
+        }
+    } else {
+        fclose(file);
+    }
+    
+    // 添加字符串结束符
+    buffer[bytes_read] = 0 as byte;
+    
+    return bytes_read;
 }
 
 // 打印使用说明
 // 参数：program_name - 程序名称
-fn print_usage(_program_name: &byte) void {
-    // 简化版本：暂时什么都不做
+fn print_usage(program_name: &byte) void {
+    const stderr: *void = null;  // stderr 在 Uya Mini 中需要特殊处理，这里暂时使用 null
+    // 注意：program_name 是 &byte 类型，但 fprintf 需要 *byte 类型，需要转换
+    fprintf(stderr, "用法: %s [输入文件...] -o <输出文件>\n" as *byte, program_name as *byte);
+    fprintf(stderr, "示例: %s program.uya -o program\n" as *byte, program_name as *byte);
+    fprintf(stderr, "示例: %s file1.uya file2.uya file3.uya -o output\n" as *byte, program_name as *byte);
 }
 
 // 解析命令行参数
@@ -70,11 +102,59 @@ fn print_usage(_program_name: &byte) void {
 // 返回：成功返回 0，失败返回 -1
 // 注意：在 Uya Mini 中，使用 extern 函数获取命令行参数
 // 注意：由于 Uya Mini 不支持嵌套指针，使用固定大小数组存储指针
-fn parse_args(input_files: [*byte: MAX_INPUT_FILES], input_file_count: &i32, output_file: [*byte: 1]) i32 {
-    // 简化版本：设置一些默认值
-    input_file_count[0] = 1;
-    input_files[0] = "main.uya" as *byte;
-    output_file[0] = "output" as *byte;
+fn parse_args(input_files: [&byte: MAX_INPUT_FILES], input_file_count: &i32, output_file: [&byte: 1]) i32 {
+    const argc: i32 = get_argc();
+    if argc < 4 {
+        const program_name: *byte = get_argv(0);
+        print_usage(program_name as &byte);
+        return -1;
+    }
+    
+    // 简单的参数解析：程序名 [输入文件...] -o <输出文件>
+    input_file_count[0] = 0;
+    output_file[0] = null;
+    
+    var i: i32 = 1;
+    while i < argc {
+        const arg: *byte = get_argv(i);
+        if strcmp(arg, "-o" as *byte) == 0 {
+            if i + 1 < argc {
+                output_file[0] = get_argv(i + 1) as &byte;
+                i = i + 1;  // 跳过输出文件名
+            } else {
+                const stderr: *void = null;
+                fprintf(stderr, "错误: -o 选项需要指定输出文件名\n" as *byte);
+                return -1;
+            }
+        } else {
+            // 非选项参数，应该是输入文件
+            if input_file_count[0] >= MAX_INPUT_FILES {
+                const stderr: *void = null;
+                fprintf(stderr, "错误: 输入文件数量超过最大限制 (%d)\n" as *byte, MAX_INPUT_FILES);
+                return -1;
+            }
+            input_files[input_file_count[0]] = arg as &byte;
+            input_file_count[0] = input_file_count[0] + 1;
+        }
+        i = i + 1;
+    }
+    
+    if input_file_count[0] == 0 {
+        const program_name: *byte = get_argv(0);
+        const stderr: *void = null;
+        fprintf(stderr, "错误: 未指定输入文件\n" as *byte);
+        print_usage(program_name as &byte);
+        return -1;
+    }
+    
+    if output_file[0] == null {
+        const program_name: *byte = get_argv(0);
+        const stderr: *void = null;
+        fprintf(stderr, "错误: 未指定输出文件（使用 -o 选项）\n" as *byte);
+        print_usage(program_name as &byte);
+        return -1;
+    }
+    
     return 0;
 }
 
@@ -84,8 +164,129 @@ fn parse_args(input_files: [*byte: MAX_INPUT_FILES], input_file_count: &i32, out
 //       input_file_count - 输入文件数量
 //       output_file - 输出文件名
 // 返回：成功返回 0，失败返回非 0
-fn compile_files(input_files: [*byte: MAX_INPUT_FILES], input_file_count: i32, _output_file: &byte) i32 {
-    // 简化版本：暂时返回成功
+fn compile_files(input_files: [&byte: MAX_INPUT_FILES], input_file_count: i32, output_file: &byte) i32 {
+    const stderr: *void = null;
+    fprintf(stderr, "=== 开始编译 ===\n" as *byte);
+    fprintf(stderr, "输入文件数量: %d\n" as *byte, input_file_count);
+    var i: i32 = 0;
+    while i < input_file_count {
+        fprintf(stderr, "  %d: %s\n" as *byte, i, input_files[i] as *byte);
+        i = i + 1;
+    }
+    fprintf(stderr, "输出文件: %s\n" as *byte, output_file as *byte);
+    
+    // Arena 分配器缓冲区（固定大小数组，在栈上分配）
+    var arena_buffer: [byte: ARENA_BUFFER_SIZE] = [];
+    
+    // 初始化 Arena 分配器（所有文件共享同一个 Arena）
+    var arena: Arena = Arena{};
+    // 注意：数组名会自动转换为指向第一个元素的指针
+    arena_init(&arena, arena_buffer as &void, ARENA_BUFFER_SIZE);
+    
+    // 存储每个文件的 AST_PROGRAM 节点（固定大小数组，只存储指针）
+    var programs: [&ASTNode: MAX_INPUT_FILES] = [];
+    
+    // 单个文件的缓冲区（固定大小数组，在栈上分配）
+    var file_buffer: [byte: FILE_BUFFER_SIZE] = [];
+    
+    // 解析每个文件
+    i = 0;
+    while i < input_file_count {
+        const input_file: &byte = input_files[i];
+        
+        // 读取文件内容
+        // 注意：read_file_content 需要 &byte，但 fopen 需要 *byte，所以需要转换
+        // 注意：数组名会自动转换为指向第一个元素的指针，所以直接使用 file_buffer 而不是 &file_buffer[0]
+        const file_size: i32 = read_file_content(input_file, file_buffer, FILE_BUFFER_SIZE);
+        if file_size < 0 {
+            fprintf(stderr, "错误: 无法读取文件 '%s' (可能文件太大或不存在)\n" as *byte, input_file as *byte);
+            return 1;
+        }
+        
+        // 1. 词法分析
+        fprintf(stderr, "=== 词法分析阶段 ===\n" as *byte);
+        fprintf(stderr, "文件: %s (大小: %d 字节)\n" as *byte, input_file as *byte, file_size);
+        var lexer: Lexer = Lexer{};
+        // 注意：数组名会自动转换为指向第一个元素的指针
+        if lexer_init(&lexer, file_buffer, file_size, input_file, &arena) != 0 {
+            fprintf(stderr, "错误: Lexer 初始化失败: %s (可能 Arena 内存不足或文件太大)\n" as *byte, input_file);
+            return 1;
+        }
+        
+        // 2. 语法分析
+        fprintf(stderr, "=== 语法分析阶段 ===\n" as *byte);
+        var parser: Parser = Parser{};
+        if parser_init(&parser, &lexer, &arena) != 0 {
+            fprintf(stderr, "错误: Parser 初始化失败: %s (可能 Arena 内存不足)\n" as *byte, input_file);
+            return 1;
+        }
+        
+        const ast: &ASTNode = parser_parse(&parser);
+        if ast == null {
+            fprintf(stderr, "错误: 语法分析失败: %s\n" as *byte, input_file as *byte);
+            // 错误信息已在 parser_parse 中输出
+            return 1;
+        }
+        
+        if ast.type != AST_PROGRAM {
+            fprintf(stderr, "错误: 解析结果不是程序节点: %s\n" as *byte, input_file as *byte);
+            return 1;
+        }
+        
+        programs[i] = ast;
+        i = i + 1;
+    }
+    
+    // 3. 合并所有 AST_PROGRAM 节点
+    fprintf(stderr, "=== AST 合并阶段 ===\n" as *byte);
+    const merged_ast: &ASTNode = ast_merge_programs(programs, input_file_count, &arena);
+    if merged_ast == null {
+        fprintf(stderr, "错误: AST 合并失败\n" as *byte);
+        return 1;
+    }
+    
+    // 4. 类型检查
+    fprintf(stderr, "=== 类型检查阶段 ===\n" as *byte);
+    var checker: TypeChecker = TypeChecker{};
+    // 使用第一个输入文件名作为默认文件名（用于错误报告）
+    // 注意：如果 input_file_count > 0，使用第一个文件名；否则使用 null
+    var default_filename: &byte = null;
+    if input_file_count > 0 {
+        default_filename = input_files[0];
+    }
+    if checker_init(&checker, &arena, default_filename) != 0 {
+        fprintf(stderr, "错误: TypeChecker 初始化失败\n" as *byte);
+        return 1;
+    }
+    
+    if checker_check(&checker, merged_ast) != 0 {
+        fprintf(stderr, "错误: 类型检查失败（错误数量: %d）\n" as *byte, checker_get_error_count(&checker));
+        return 1;
+    }
+    
+    // 检查是否有类型检查错误
+    if checker_get_error_count(&checker) > 0 {
+        fprintf(stderr, "错误: 类型检查失败（错误数量: %d）\n" as *byte, checker_get_error_count(&checker));
+        return 1;
+    }
+    
+    // 5. 代码生成
+    fprintf(stderr, "=== 代码生成阶段 ===\n" as *byte);
+    // 使用第一个输入文件名作为模块名
+    const module_name: &byte = input_files[0];
+    fprintf(stderr, "模块名: %s\n" as *byte, module_name as *byte);
+    
+    var codegen: CodeGenerator = CodeGenerator{};
+    if codegen_new(&codegen, &arena, module_name) != 0 {
+        fprintf(stderr, "错误: CodeGenerator 初始化失败\n" as *byte);
+        return 1;
+    }
+    
+    if codegen_generate(&codegen, merged_ast, output_file) != 0 {
+        fprintf(stderr, "错误: 代码生成失败\n" as *byte);
+        return 1;
+    }
+    
     return 0;
 }
 
@@ -93,9 +294,9 @@ fn compile_files(input_files: [*byte: MAX_INPUT_FILES], input_file_count: i32, _
 // 注意：在 Uya Mini 中，main 函数签名是 fn main() i32，不支持 argc 和 argv
 //       使用 extern 函数 get_argc() 和 get_argv() 获取命令行参数
 fn main() i32 {
-    var input_files: [*byte: MAX_INPUT_FILES] = [];
+    var input_files: [&byte: MAX_INPUT_FILES] = [];
     var input_file_count: i32 = 0;
-    var output_file: [*byte: 1] = [];
+    var output_file: [&byte: 1] = [];
     
     // 解析命令行参数
     if parse_args(input_files, &input_file_count, output_file) != 0 {
@@ -103,7 +304,7 @@ fn main() i32 {
     }
     
     // 编译文件
-    const result: i32 = compile_files(input_files, input_file_count, output_file[0] as &byte);
+    const result: i32 = compile_files(input_files, input_file_count, output_file[0]);
     
     return result;
 }

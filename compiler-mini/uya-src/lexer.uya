@@ -446,12 +446,12 @@ fn read_string(lexer: &Lexer, arena: &Arena) &Token {
 // ===== 主要函数 =====
 
 // 初始化 Lexer
-// 参数：lexer - Lexer 结构体指针（由调用者提供，栈上或静态分配），source - 源代码字符串（*byte 类型用于 extern 函数），source_len - 源代码长度，filename - 文件名（存储在 Arena 中），arena - Arena 分配器
+// 参数：lexer - Lexer 结构体指针（由调用者提供，栈上或静态分配），source - 源代码字符串（&byte 类型），source_len - 源代码长度，filename - 文件名（&byte 类型），arena - Arena 分配器
 // 返回：成功返回 0，失败返回 -1
 // 注意：Lexer 结构体由调用者在栈上或静态分配，此函数只负责初始化
 // 注意：buffer 需要由调用者提供，此函数只是设置指针
-fn lexer_init(lexer: &Lexer, source: &byte, source_len: i32, _filename: &byte, arena: &Arena) i32 {
-    const filename:*byte = _filename as *byte;
+// 注意：如果传入的是字符串字面量（*byte 类型），需要在调用时使用 `as &byte` 进行转换
+fn lexer_init(lexer: &Lexer, source: &byte, source_len: i32, filename: &byte, arena: &Arena) i32 {
 
     if lexer == null || source == null || arena == null {
         return -1;
@@ -474,15 +474,15 @@ fn lexer_init(lexer: &Lexer, source: &byte, source_len: i32, _filename: &byte, a
     
     // 复制文件名到 Arena
     if filename != null {
-        const filename_len: i32 = strlen(filename) + 1;
-        const filename_copy: &byte = arena_alloc(arena, filename_len);
+        const filename_len: i32 = strlen(filename as *byte) + 1;
+        const filename_copy: &byte = arena_alloc(arena, filename_len) as &byte;
         if filename_copy == null {
             return -1;
         }
         // 复制文件名（使用循环）
         var i: i32 = 0;
         while i < filename_len {
-            filename_copy[i] = (filename as &byte)[i];
+            filename_copy[i] = filename[i];
             i = i + 1;
         }
         lexer.filename = filename_copy;

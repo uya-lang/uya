@@ -113,6 +113,7 @@ extern fn LLVMGetFirstBasicBlock(func: *void) *void;
 extern fn LLVMGetNextBasicBlock(basic_block: *void) *void;
 extern fn LLVMGetBasicBlockTerminator(basic_block: *void) *void;
 extern fn LLVMCountStructElementTypes(struct_type: *void) i32;  // 获取结构体字段数量
+extern fn LLVMGetStructElementTypes(struct_type: *void, dest: *void) void;  // 获取结构体字段类型数组
 
 // ===== 常量创建函数 =====
 
@@ -130,6 +131,7 @@ extern fn LLVMConstArray(element_type: *void, constant_values: *void, length: i3
 
 // 结构体常量
 extern fn LLVMConstStructInContext(context: *void, constant_values: *void, count: i32, packed: i32) *void;
+extern fn LLVMConstStruct(constant_values: *void, count: i32, packed: i32) *void;  // 结构体常量（使用默认上下文）
 
 // ===== 全局变量函数 =====
 
@@ -184,18 +186,21 @@ const LLVMIntSLT: i32 = 40;
 const LLVMIntSLE: i32 = 41;
 
 // LLVMTypeKind 枚举值（用于 LLVMGetTypeKind）
-const LLVMIntegerTypeKind: i32 = 0;
-const LLVMFloatTypeKind: i32 = 1;
-const LLVMDoubleTypeKind: i32 = 2;
-const LLVMX86_FP80TypeKind: i32 = 3;
-const LLVMFP128TypeKind: i32 = 4;
-const LLVMPPC_FP128TypeKind: i32 = 5;
-const LLVMNullTypeKind: i32 = 6;
-const LLVMStructTypeKind: i32 = 7;
-const LLVMArrayTypeKind: i32 = 8;
-const LLVMPointerTypeKind: i32 = 9;
-const LLVMVectorTypeKind: i32 = 10;
-const LLVMFunctionTypeKind: i32 = 11;
+// 注意：这些值必须与 LLVM C API 头文件中的定义一致
+const LLVMVoidTypeKind: i32 = 0;
+const LLVMHalfTypeKind: i32 = 1;
+const LLVMFloatTypeKind: i32 = 2;
+const LLVMDoubleTypeKind: i32 = 3;
+const LLVMX86_FP80TypeKind: i32 = 4;
+const LLVMFP128TypeKind: i32 = 5;
+const LLVMPPC_FP128TypeKind: i32 = 6;
+const LLVMLabelTypeKind: i32 = 7;
+const LLVMIntegerTypeKind: i32 = 8;
+const LLVMFunctionTypeKind: i32 = 9;
+const LLVMStructTypeKind: i32 = 10;
+const LLVMArrayTypeKind: i32 = 11;
+const LLVMPointerTypeKind: i32 = 12;
+const LLVMVectorTypeKind: i32 = 13;
 
 // LLVMLinkage 枚举值（用于 LLVMSetLinkage）
 const LLVMExternalLinkage: i32 = 0;
