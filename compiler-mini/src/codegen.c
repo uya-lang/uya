@@ -3327,34 +3327,24 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                             }
                         }
                     } else if (object->type == AST_MEMBER_ACCESS) {
-                        // 嵌套字段访问：尝试从嵌套对象中推断
-                        ASTNode *nested_object = object->data.member_access.object;
-                        if (nested_object && nested_object->type == AST_IDENTIFIER) {
-                            const char *nested_var_name = nested_object->data.identifier.name;
-                            if (nested_var_name) {
-                                ASTNode *nested_var_ast_type = lookup_var_ast_type(codegen, nested_var_name);
-                                if (nested_var_ast_type && nested_var_ast_type->type == AST_TYPE_POINTER) {
-                                    ASTNode *nested_pointed_type = nested_var_ast_type->data.type_pointer.pointed_type;
-                                    if (nested_pointed_type && nested_pointed_type->type == AST_TYPE_NAMED) {
-                                        const char *nested_struct_name = nested_pointed_type->data.type_named.name;
-                                        if (nested_struct_name) {
-                                            // 查找嵌套结构体声明
-                                            ASTNode *nested_struct_decl = find_struct_decl(codegen, nested_struct_name);
-                                            if (nested_struct_decl) {
-                                                // 查找字段类型
-                                                const char *field_name_in_nested = object->data.member_access.field_name;
-                                                ASTNode *field_type = find_struct_field_ast_type(codegen, nested_struct_decl, field_name_in_nested);
-                                                if (field_type && field_type->type == AST_TYPE_POINTER) {
-                                                    ASTNode *field_pointed_type = field_type->data.type_pointer.pointed_type;
-                                                    if (field_pointed_type && field_pointed_type->type == AST_TYPE_NAMED) {
-                                                        struct_name = field_pointed_type->data.type_named.name;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
+                        // 嵌套字段访问：递归生成嵌套字段访问的地址
+                        LLVMValueRef nested_addr = codegen_gen_lvalue_address(codegen, object);
+                        if (nested_addr != NULL && nested_addr != (LLVMValueRef)1) {
+                            object_ptr = nested_addr;
+
+                            // 从嵌套字段访问的结果类型中推断结构体名称
+                            LLVMTypeRef nested_addr_type = safe_LLVMTypeOf(nested_addr);
+                            if (nested_addr_type != NULL && nested_addr_type != (LLVMTypeRef)1 &&
+                                LLVMGetTypeKind(nested_addr_type) == LLVMPointerTypeKind) {
+                                LLVMTypeRef nested_elem_type = safe_LLVMGetElementType(nested_addr_type);
+                                if (nested_elem_type != NULL && nested_elem_type != (LLVMTypeRef)1 &&
+                                    LLVMGetTypeKind(nested_elem_type) == LLVMStructTypeKind) {
+                                    struct_name = find_struct_name_from_type(codegen, nested_elem_type);
                                 }
                             }
+                        } else {
+                            // 递归调用失败，返回NULL
+                            return NULL;
                         }
                     }
                     
@@ -4542,6 +4532,27 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                             }
                         }
                     }
+                }
+            } else if (array_expr->type == AST_MEMBER_ACCESS) {
+                // 字段访问表达式：可能是结构体数组字段
+                // 首先生成字段访问的值（对于数组字段，返回指向数组的指针）
+                LLVMValueRef field_val = codegen_gen_expr(codegen, array_expr);
+                if (!field_val) {
+                    return NULL;
+                }
+
+                LLVMTypeRef field_val_type = safe_LLVMTypeOf(field_val);
+                if (!field_val_type) {
+                    return NULL;
+                }
+
+                LLVMTypeKind field_val_kind = LLVMGetTypeKind(field_val_type);
+                if (field_val_kind == LLVMPointerTypeKind) {
+                    // 如果是指针类型，获取指向的类型（可能是数组类型）
+                    array_type = safe_LLVMGetElementType(field_val_type);
+                } else {
+                    // 直接是数组类型
+                    array_type = field_val_type;
                 }
             } else {
                 // 其他表达式类型：生成代码以获取类型
