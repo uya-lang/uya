@@ -3513,11 +3513,79 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                     
                     // 特殊处理：空结构体的大小应该是 1 字节（规范要求）
                     // LLVM 对空结构体返回 0，但根据规范（2.3.6 节），空结构体大小为 1 字节
-                    if (size == 0) {
-                        // 检查是否是空结构体（通过检查字段数）
-                        unsigned element_count = LLVMCountStructElementTypes(llvm_type);
-                        if (element_count == 0) {
-                            size = 1;  // 空结构体大小为 1 字节
+                    unsigned element_count = LLVMCountStructElementTypes(llvm_type);
+                    if (element_count == 0) {
+                        // 空结构体：大小为 1 字节
+                        size = 1;
+                    } else {
+                        // 检查结构体字段中是否有空结构体字段
+                        // 如果字段是空结构体，LLVM 可能将其大小视为 0，需要调整
+                        // 从结构体名称获取结构体声明，检查字段类型
+                        const char *struct_name = find_struct_name_from_type(codegen, llvm_type);
+                        if (struct_name) {
+                            ASTNode *struct_decl = find_struct_decl(codegen, struct_name);
+                            if (struct_decl && struct_decl->type == AST_STRUCT_DECL) {
+                                // 检查每个字段，如果字段是空结构体，需要调整大小
+                                int field_count = struct_decl->data.struct_decl.field_count;
+                                int has_empty_struct_field = 0;
+                                for (int i = 0; i < field_count; i++) {
+                                    ASTNode *field = struct_decl->data.struct_decl.fields[i];
+                                    if (field && field->type == AST_VAR_DECL) {
+                                        ASTNode *field_type = field->data.var_decl.type;
+                                        if (field_type && field_type->type == AST_TYPE_NAMED) {
+                                            const char *field_type_name = field_type->data.type_named.name;
+                                            if (field_type_name) {
+                                                // 检查字段类型是否是空结构体
+                                                LLVMTypeRef field_llvm_type = codegen_get_struct_type(codegen, field_type_name);
+                                                if (field_llvm_type) {
+                                                    unsigned field_element_count = LLVMCountStructElementTypes(field_llvm_type);
+                                                    if (field_element_count == 0) {
+                                                        has_empty_struct_field = 1;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                // 如果结构体包含空结构体字段，需要重新计算大小
+                                // LLVM 可能将空结构体字段的大小视为 0，但根据规范应该是 1
+                                if (has_empty_struct_field) {
+                                    // 重新计算：遍历字段，累加每个字段的大小
+                                    unsigned long long calculated_size = 0;
+                                    unsigned max_alignment = 1;
+                                    for (int i = 0; i < field_count; i++) {
+                                        ASTNode *field = struct_decl->data.struct_decl.fields[i];
+                                        if (field && field->type == AST_VAR_DECL) {
+                                            ASTNode *field_type = field->data.var_decl.type;
+                                            LLVMTypeRef field_llvm_type = get_llvm_type_from_ast(codegen, field_type);
+                                            if (field_llvm_type) {
+                                                unsigned long long field_size = LLVMStoreSizeOfType(target_data, field_llvm_type);
+                                                unsigned field_alignment = LLVMABIAlignmentOfType(target_data, field_llvm_type);
+                                                // 特殊处理：空结构体字段大小为 1
+                                                unsigned field_element_count = LLVMCountStructElementTypes(field_llvm_type);
+                                                if (field_element_count == 0 && field_size == 0) {
+                                                    field_size = 1;
+                                                    field_alignment = 1;
+                                                }
+                                                // 对齐到字段对齐要求
+                                                if (calculated_size % field_alignment != 0) {
+                                                    calculated_size = ((calculated_size / field_alignment) + 1) * field_alignment;
+                                                }
+                                                calculated_size += field_size;
+                                                if (field_alignment > max_alignment) {
+                                                    max_alignment = field_alignment;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // 对齐到最大对齐要求
+                                    if (calculated_size % max_alignment != 0) {
+                                        calculated_size = ((calculated_size / max_alignment) + 1) * max_alignment;
+                                    }
+                                    size = calculated_size;
+                                }
+                            }
                         }
                     }
                     break;
