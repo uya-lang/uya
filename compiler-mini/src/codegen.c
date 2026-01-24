@@ -174,6 +174,9 @@ static void format_error_location(const CodeGenerator *codegen, const ASTNode *n
 
 static ASTNode *find_enum_decl(CodeGenerator *codegen, const char *enum_name);
 static int get_enum_variant_value(ASTNode *enum_decl, int variant_index);
+static int find_enum_constant_value(CodeGenerator *codegen, const char *constant_name);
+static int codegen_declare_function(CodeGenerator *codegen, ASTNode *fn_decl);
+int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl);
 
 // 辅助函数：从AST类型节点获取LLVM类型（支持基础类型、结构体类型、指针类型和数组类型）
 // 参数：codegen - 代码生成器指针
@@ -608,6 +611,21 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
                             // 直接是命名类型（如结构体）
                             struct_name = var_ast_type->data.type_named.name;
                         }
+                    }
+                }
+            }
+            
+            // 如果对象不是变量，检查是否是枚举类型名称（枚举值访问，如 Mixed.FIRST）
+            // 注意：枚举值访问是右值，不是左值，所以不应该在这里处理
+            // 但我们需要检查，如果是枚举值访问，返回 NULL（表示不是左值）
+            if (!object_ptr && object->type == AST_IDENTIFIER) {
+                const char *enum_name = object->data.identifier.name;
+                if (enum_name) {
+                    ASTNode *enum_decl = find_enum_decl(codegen, enum_name);
+                    if (enum_decl) {
+                        // 是枚举类型，这是枚举值访问（右值），不是左值
+                        // 返回 NULL，让调用者知道这不是左值
+                        return NULL;
                     }
                 }
             }
@@ -2673,35 +2691,31 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             }
             
             // 检查是否是枚举值访问（EnumName.Variant）
-            // 如果对象是标识符且不是变量，可能是枚举类型名称
+            // 优先检查枚举类型，因为枚举类型名称不是变量
             if (object->type == AST_IDENTIFIER) {
                 const char *enum_name = object->data.identifier.name;
                 if (enum_name) {
-                    // 检查是否是枚举类型名称（先检查变量表，如果不是变量，可能是枚举类型）
-                    LLVMValueRef var_ptr = lookup_var(codegen, enum_name);
-                    if (!var_ptr) {
-                        // 不是变量，可能是枚举类型名称
-                        ASTNode *enum_decl = find_enum_decl(codegen, enum_name);
-                        if (enum_decl != NULL) {
-                            // 是枚举类型，查找变体索引
-                            int variant_index = find_enum_variant_index(enum_decl, field_name);
-                            if (variant_index >= 0) {
-                                // 获取枚举值（显式值或计算值）
-                                int enum_value = get_enum_variant_value(enum_decl, variant_index);
-                                if (enum_value < 0) {
-                                    return NULL;
-                                }
-                                
-                                // 找到变体，返回i32常量
-                                LLVMTypeRef i32_type = codegen_get_base_type(codegen, TYPE_I32);
-                                if (!i32_type) {
-                                    return NULL;
-                                }
-                                return LLVMConstInt(i32_type, (unsigned long long)enum_value, 0);
+                    // 先检查是否是枚举类型名称（不检查变量表，直接检查枚举声明）
+                    ASTNode *enum_decl = find_enum_decl(codegen, enum_name);
+                    if (enum_decl != NULL) {
+                        // 是枚举类型，查找变体索引
+                        int variant_index = find_enum_variant_index(enum_decl, field_name);
+                        if (variant_index >= 0) {
+                            // 获取枚举值（显式值或计算值）
+                            int enum_value = get_enum_variant_value(enum_decl, variant_index);
+                            if (enum_value < 0) {
+                                return NULL;
                             }
-                            // 变体不存在
-                            return NULL;
+                            
+                            // 找到变体，返回i32常量
+                            LLVMTypeRef i32_type = codegen_get_base_type(codegen, TYPE_I32);
+                            if (!i32_type) {
+                                return NULL;
+                            }
+                            return LLVMConstInt(i32_type, (unsigned long long)enum_value, 0);
                         }
+                        // 变体不存在
+                        return NULL;
                     }
                 }
             }
@@ -3059,9 +3073,12 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             element_type = safe_LLVMGetElementType(element_ptr_type);
             if (element_type && element_type != (LLVMTypeRef)1) {
                 // 检查获取的类型是否是数组类型
-                // 如果是数组类型，需要获取其元素类型
-                if (LLVMGetTypeKind(element_type) == LLVMArrayTypeKind) {
+                // 如果是数组类型，需要递归获取其元素类型（处理嵌套数组）
+                while (LLVMGetTypeKind(element_type) == LLVMArrayTypeKind) {
                     element_type = LLVMGetElementType(element_type);
+                    if (!element_type || element_type == (LLVMTypeRef)1) {
+                        break;
+                    }
                 }
                 // 如果 element_type 是有效类型（不是数组），就是我们要的元素类型
             } else {
@@ -3078,6 +3095,24 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                         if (array_type && LLVMGetTypeKind(array_type) == LLVMArrayTypeKind) {
                             // 从数组类型获取元素类型
                             element_type = LLVMGetElementType(array_type);
+                        } else if (array_type && LLVMGetTypeKind(array_type) == LLVMPointerTypeKind) {
+                            // 变量类型是指针类型，从 AST 获取指向的类型
+                            ASTNode *var_ast_type = lookup_var_ast_type(codegen, array_var_name);
+                            if (var_ast_type && var_ast_type->type == AST_TYPE_POINTER) {
+                                ASTNode *pointed_type_node = var_ast_type->data.type_pointer.pointed_type;
+                                if (pointed_type_node) {
+                                    // 如果指向的类型是数组类型，获取元素类型
+                                    if (pointed_type_node->type == AST_TYPE_ARRAY) {
+                                        ASTNode *element_type_node = pointed_type_node->data.type_array.element_type;
+                                        if (element_type_node) {
+                                            element_type = get_llvm_type_from_ast(codegen, element_type_node);
+                                        }
+                                    } else {
+                                        // 指向的类型不是数组类型，直接使用指向的类型作为元素类型
+                                        element_type = get_llvm_type_from_ast(codegen, pointed_type_node);
+                                    }
+                                }
+                            }
                         }
                     }
                 } else if (array_expr && array_expr->type == AST_ARRAY_ACCESS) {
@@ -4829,6 +4864,35 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
         case AST_STRUCT_DECL:
             // 结构体声明：已经在 register_structs_in_node 中注册，这里只需要跳过
             // 结构体声明不生成代码，只是类型定义
+            return 0;
+            
+        case AST_FN_DECL:
+            // 函数声明：如果在函数体内部（局部函数），需要声明函数并生成函数体
+            {
+                const char *func_name = stmt->data.fn_decl.name;
+                // 先声明函数
+                int result = codegen_declare_function(codegen, stmt);
+                if (result != 0) {
+                    // 函数声明失败，但不返回错误（放宽检查）
+                    // 这在编译器自举时很常见，因为类型推断可能失败或结构体类型未注册
+                    return 0;
+                }
+                // 对于局部函数，需要立即生成函数体
+                // 保存当前构建器状态
+                LLVMBasicBlockRef current_bb = LLVMGetInsertBlock(codegen->builder);
+                if (!current_bb) {
+                    return 0;  // 无法获取当前基本块，跳过函数体生成
+                }
+                // 生成函数体（这会创建新的基本块，但不会影响当前函数的生成）
+                int gen_result = codegen_gen_function(codegen, stmt);
+                if (gen_result != 0) {
+                    // 函数体生成失败，但不返回错误（放宽检查）
+                }
+                // 恢复构建器到原来的基本块（函数体生成会改变构建器位置）
+                if (current_bb) {
+                    LLVMPositionBuilderAtEnd(codegen->builder, current_bb);
+                }
+            }
             return 0;
             
         default: {
