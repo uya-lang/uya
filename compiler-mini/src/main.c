@@ -19,6 +19,10 @@
 // 最大输入文件数量
 #define MAX_INPUT_FILES 64
 
+// 全局缓冲区（替代 malloc）
+static uint8_t arena_buffer[ARENA_BUFFER_SIZE];  // Arena 分配器缓冲区
+static char file_buffer[FILE_BUFFER_SIZE];        // 文件读取缓冲区
+
 // 读取文件内容到缓冲区
 // 参数：filename - 文件名
 //       buffer - 缓冲区（固定大小数组）
@@ -126,27 +130,13 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
         }
         fprintf(stderr, "输出文件: %s\n", output_file);
         
-        // Arena 分配器缓冲区（堆上分配）
-        uint8_t *arena_buffer = malloc(ARENA_BUFFER_SIZE);
-        if (!arena_buffer) {
-            fprintf(stderr, "错误: 内存分配失败\n");
-            return 1;
-        }
-    
-    // 初始化 Arena 分配器（所有文件共享同一个 Arena）
-    Arena arena;
-    arena_init(&arena, arena_buffer, ARENA_BUFFER_SIZE);
-    
-    // 存储每个文件的 AST_PROGRAM 节点（栈上分配，只存储指针）
-    ASTNode *programs[MAX_INPUT_FILES];
-    
-    // 单个文件的缓冲区（堆上分配）
-    char *file_buffer = malloc(FILE_BUFFER_SIZE);
-    if (!file_buffer) {
-        free(arena_buffer);
-        fprintf(stderr, "错误: 内存分配失败\n");
-        return 1;
-    }
+        // 初始化 Arena 分配器（所有文件共享同一个 Arena）
+        // 使用全局缓冲区，无需动态分配
+        Arena arena;
+        arena_init(&arena, arena_buffer, ARENA_BUFFER_SIZE);
+        
+        // 存储每个文件的 AST_PROGRAM 节点（栈上分配，只存储指针）
+        ASTNode *programs[MAX_INPUT_FILES];
     
     // 解析每个文件
     for (int i = 0; i < input_file_count; i++) {
@@ -156,8 +146,6 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
         int file_size = read_file_content(input_file, file_buffer, FILE_BUFFER_SIZE);
         if (file_size < 0) {
             fprintf(stderr, "错误: 无法读取文件 '%s' (可能文件太大或不存在)\n", input_file);
-            free(file_buffer);
-            free(arena_buffer);
             return 1;
         }
         
@@ -167,8 +155,6 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
         Lexer lexer;
         if (lexer_init(&lexer, file_buffer, (size_t)file_size, input_file, &arena) != 0) {
             fprintf(stderr, "错误: Lexer 初始化失败: %s (可能 Arena 内存不足或文件太大)\n", input_file);
-            free(file_buffer);
-            free(arena_buffer);
             return 1;
         }
         
@@ -177,8 +163,6 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
         Parser parser;
         if (parser_init(&parser, &lexer, &arena) != 0) {
             fprintf(stderr, "错误: Parser 初始化失败: %s (可能 Arena 内存不足)\n", input_file);
-            free(file_buffer);
-            free(arena_buffer);
             return 1;
         }
         
@@ -186,15 +170,11 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
         if (ast == NULL) {
             fprintf(stderr, "错误: 语法分析失败: %s\n", input_file);
             // 错误信息已在 parser_parse 中输出
-            free(file_buffer);
-            free(arena_buffer);
             return 1;
         }
         
         if (ast->type != AST_PROGRAM) {
             fprintf(stderr, "错误: 解析结果不是程序节点: %s\n", input_file);
-            free(file_buffer);
-            free(arena_buffer);
             return 1;
         }
         
