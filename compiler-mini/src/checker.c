@@ -294,6 +294,12 @@ static int type_can_implicitly_convert(Type from, Type to) {
         return 1;
     }
     
+    // null 字面量（TYPE_VOID）可以赋值给任何指针类型
+    // 在 Uya 中，null 字面量可能被推断为 TYPE_VOID，但应该允许赋值给指针类型
+    if (from.kind == TYPE_VOID && to.kind == TYPE_POINTER) {
+        return 1;
+    }
+    
     return 0;
 }
 
@@ -2146,8 +2152,20 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                 // 有返回值的 return 语句
                 Type expr_type = checker_infer_type(checker, node->data.return_stmt.expr);
                 
-                // 检查返回类型是否匹配（允许隐式类型转换）
-                if (!type_equals(expr_type, checker->current_return_type) && 
+                // 特殊处理：检查是否是 null 字面量（AST_IDENTIFIER 且名称为 "null"）
+                // null 字面量可以赋值给任何指针类型
+                int is_null_literal = 0;
+                if (node->data.return_stmt.expr->type == AST_IDENTIFIER) {
+                    const char *name = node->data.return_stmt.expr->data.identifier.name;
+                    if (name != NULL && strcmp(name, "null") == 0) {
+                        is_null_literal = 1;
+                    }
+                }
+                
+                // 如果表达式是 null 字面量且期望类型是指针类型，允许通过
+                if (is_null_literal && checker->current_return_type.kind == TYPE_POINTER) {
+                    // null 可以赋值给任何指针类型，允许通过
+                } else if (!type_equals(expr_type, checker->current_return_type) && 
                     !type_can_implicitly_convert(expr_type, checker->current_return_type)) {
                     // 类型不匹配且不能隐式转换，报告错误
                     char buf[256];
@@ -2165,6 +2183,24 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                         expected_type_str = "usize";
                     } else if (checker->current_return_type.kind == TYPE_VOID) {
                         expected_type_str = "void";
+                    } else if (checker->current_return_type.kind == TYPE_POINTER) {
+                        // 指针类型：根据指向的类型生成字符串
+                        static char ptr_type_buf[128];
+                        if (checker->current_return_type.data.pointer.pointer_to == NULL) {
+                            expected_type_str = "&void";
+                        } else {
+                            Type *pointed = checker->current_return_type.data.pointer.pointer_to;
+                            if (pointed->kind == TYPE_VOID) {
+                                expected_type_str = checker->current_return_type.data.pointer.is_ffi_pointer ? "*void" : "&void";
+                            } else if (pointed->kind == TYPE_STRUCT && pointed->data.struct_name != NULL) {
+                                snprintf(ptr_type_buf, sizeof(ptr_type_buf), "%s%s", 
+                                    checker->current_return_type.data.pointer.is_ffi_pointer ? "*" : "&",
+                                    pointed->data.struct_name);
+                                expected_type_str = ptr_type_buf;
+                            } else {
+                                expected_type_str = "指针类型";
+                            }
+                        }
                     } else if (checker->current_return_type.kind == TYPE_ENUM) {
                         // 枚举类型：使用枚举名称
                         if (checker->current_return_type.data.enum_name != NULL) {
@@ -2188,6 +2224,13 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                         actual_type_str = "usize";
                     } else if (expr_type.kind == TYPE_VOID) {
                         actual_type_str = "void";
+                    } else if (expr_type.kind == TYPE_POINTER) {
+                        // 指针类型：根据指向的类型生成字符串
+                        if (expr_type.data.pointer.pointer_to == NULL) {
+                            actual_type_str = "&void";
+                        } else {
+                            actual_type_str = "指针类型";
+                        }
                     } else if (expr_type.kind == TYPE_ENUM) {
                         // 枚举类型：使用枚举名称
                         if (expr_type.data.enum_name != NULL) {

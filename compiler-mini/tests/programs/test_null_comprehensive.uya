@@ -1,0 +1,172 @@
+// null 字面量综合测试程序
+// 测试 null 字面量的所有使用场景：变量初始化、赋值、函数返回值、比较、类型转换
+
+struct Node {
+    value: i32,
+    next: &Node,
+}
+
+struct Data {
+    x: i32,
+    y: i32,
+    ptr: &Data,
+}
+
+// 辅助函数：返回非 null 指针
+fn create_node(value: i32) &Node {
+    // 注意：这里不能直接创建 Node，因为需要堆分配
+    // 这里只是测试函数签名，实际实现需要外部分配
+    return null;  // 占位符
+}
+
+fn main() i32 {
+    // ========== 测试1：null 变量初始化 ==========
+    var ptr_i32: &i32 = null;
+    var ptr_void: &void = null;
+    var ptr_node: &Node = null;
+    var ptr_usize: &usize = null;
+    var ptr_bool: &bool = null;
+    var ptr_byte: &byte = null;
+    
+    // 验证所有指针都是 null
+    if ptr_i32 != null || ptr_void != null || ptr_node != null ||
+       ptr_usize != null || ptr_bool != null || ptr_byte != null {
+        return 1;
+    }
+    
+    // ========== 测试2：null 赋值 ==========
+    var x: i32 = 42;
+    var ptr: &i32 = &x;
+    if ptr == null {
+        return 2;  // ptr 不应该是 null
+    }
+    
+    // 将非 null 指针赋值为 null
+    ptr = null;
+    if ptr != null {
+        return 3;  // ptr 应该被设置为 null
+    }
+    
+    // ========== 测试3：null 比较 ==========
+    var ptr1: &i32 = null;
+    var ptr2: &i32 = null;
+    
+    // 两个 null 指针应该相等
+    if ptr1 != ptr2 {
+        return 4;
+    }
+    
+    // null 指针应该等于 null
+    if ptr1 != null {
+        return 5;
+    }
+    
+    // 非 null 指针不应该等于 null
+    var y: i32 = 10;
+    var ptr3: &i32 = &y;
+    if ptr3 == null {
+        return 6;
+    }
+    
+    // ========== 测试4：null 作为函数返回值 ==========
+    // 注意：函数必须在顶层声明，这里直接测试 null 赋值
+    var ptr4: &i32 = null;
+    if ptr4 != null {
+        return 7;
+    }
+    
+    // ========== 测试5：null 在条件语句中 ==========
+    var ptr5: &i32 = null;
+    if ptr5 != null {
+        return 8;  // 不应该进入这个分支
+    }
+    
+    var z: i32 = 20;
+    var ptr6: &i32 = &z;
+    if ptr6 == null {
+        return 9;  // 不应该进入这个分支
+    }
+    
+    // ========== 测试6：null 与结构体指针 ==========
+    var node_ptr: &Node = null;
+    if node_ptr != null {
+        return 10;
+    }
+    
+    // ========== 测试7：null 与嵌套结构体指针 ==========
+    var data_ptr: &Data = null;
+    if data_ptr != null {
+        return 11;
+    }
+    
+    // ========== 测试8：null 与 &void 通用指针 ==========
+    var void_ptr: &void = null;
+    if void_ptr != null {
+        return 12;
+    }
+    
+    // 将具体指针转换为 &void
+    var w: i32 = 30;
+    var i32_ptr: &i32 = &w;
+    void_ptr = i32_ptr as &void;
+    if void_ptr == null {
+        return 13;  // void_ptr 不应该是 null
+    }
+    
+    // 将 &void 重新赋值为 null
+    void_ptr = null;
+    if void_ptr != null {
+        return 14;  // void_ptr 应该被设置为 null
+    }
+    
+    // ========== 测试9：null 在循环中 ==========
+    var ptr7: &i32 = null;
+    var count: i32 = 0;
+    while ptr7 == null && count < 5 {
+        count = count + 1;
+    }
+    if count != 1 {
+        return 15;  // 应该只执行一次就退出
+    }
+    
+    // ========== 测试10：null 指针的 sizeof ==========
+    // 注意：sizeof 可以用于类型或表达式
+    const ptr_type_size: i32 = sizeof(&i32);
+    // 验证指针类型大小（null 指针的大小与指针类型大小相同）
+    if ptr_type_size <= 0 {
+        return 16;  // 指针类型大小应该大于 0
+    }
+    
+    // ========== 测试11：多个 null 指针比较 ==========
+    var null1: &i32 = null;
+    var null2: &i32 = null;
+    var null3: &Node = null;
+    
+    if null1 != null2 {
+        return 17;  // 两个相同类型的 null 指针应该相等
+    }
+    
+    // 注意：不同类型的 null 指针在语义上都是 null，但类型不同
+    // 这里只测试相同类型的 null 指针比较
+    
+    // ========== 测试12：null 指针赋值链 ==========
+    var ptr_a: &i32 = null;
+    var ptr_b: &i32 = null;
+    var ptr_c: &i32 = null;
+    
+    ptr_a = null;
+    ptr_b = ptr_a;  // ptr_b 应该是 null
+    ptr_c = ptr_b;  // ptr_c 应该是 null
+    
+    if ptr_a != null || ptr_b != null || ptr_c != null {
+        return 18;
+    }
+    
+    // ========== 测试13：null 在函数参数中（模拟） ==========
+    // 注意：这里不能直接测试函数参数，因为需要函数调用
+    // 但可以测试将 null 赋值给变量，然后作为参数传递（如果有函数接受指针参数）
+    
+    // 所有测试通过
+    return 0;
+}
+
