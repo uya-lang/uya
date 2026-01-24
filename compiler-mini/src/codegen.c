@@ -3922,6 +3922,48 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                             }
                         }
                     }
+                } else if (target->type == AST_ARRAY_ACCESS) {
+                    // 数组访问表达式（如 arr2d[0]）：需要获取结果数组类型
+                    // 对于 arr2d[0]，arr2d 的类型是 [[i32: 2]: 3]，结果类型是 [i32: 2]
+                    ASTNode *base_array_expr = target->data.array_access.array;
+                    
+                    // 递归查找基础数组类型
+                    ASTNode *current_expr = base_array_expr;
+                    int depth = 0;
+                    const int max_depth = 10;  // 防止无限递归
+                    
+                    // 找到最底层的标识符
+                    while (current_expr && current_expr->type == AST_ARRAY_ACCESS && depth < max_depth) {
+                        current_expr = current_expr->data.array_access.array;
+                        depth++;
+                    }
+                    
+                    if (current_expr && current_expr->type == AST_IDENTIFIER) {
+                        const char *base_var_name = current_expr->data.identifier.name;
+                        if (base_var_name) {
+                            LLVMTypeRef base_var_type = lookup_var_type(codegen, base_var_name);
+                            if (base_var_type && LLVMGetTypeKind(base_var_type) == LLVMArrayTypeKind) {
+                                // 递归获取元素类型（根据嵌套深度）
+                                // 对于 arr2d[0]（depth=0），base_var_type 是 [[i32: 2]: 3]
+                                // arr2d[0] 的结果类型是 [i32: 2]，即元素类型
+                                LLVMTypeRef current_type = base_var_type;
+                                // 需要获取 depth+1 层的元素类型
+                                for (int i = 0; i <= depth && current_type; i++) {
+                                    if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind) {
+                                        // 获取元素类型
+                                        current_type = LLVMGetElementType(current_type);
+                                        if (i == depth) {
+                                            // 这就是我们要找的数组类型
+                                            llvm_type = current_type;
+                                            break;
+                                        }
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } else {
                     // 对于其他表达式类型，生成代码以获取类型
                     LLVMValueRef target_val = codegen_gen_expr(codegen, target);
@@ -4230,6 +4272,52 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                     return NULL;
                 }
                 array_type = lookup_var_type(codegen, var_name);
+            } else if (array_expr->type == AST_ARRAY_ACCESS) {
+                // 数组访问表达式（如 arr2d[i]）：需要获取结果数组类型
+                // 对于 arr2d[i]，arr2d 的类型是 [[i32: 2]: 3]，结果类型是 [i32: 2]
+                ASTNode *base_array_expr = array_expr->data.array_access.array;
+                
+                // 递归查找基础数组类型
+                ASTNode *current_expr = base_array_expr;
+                int depth = 0;
+                const int max_depth = 10;  // 防止无限递归
+                
+                // 找到最底层的标识符
+                while (current_expr && current_expr->type == AST_ARRAY_ACCESS && depth < max_depth) {
+                    current_expr = current_expr->data.array_access.array;
+                    depth++;
+                }
+                
+                if (current_expr && current_expr->type == AST_IDENTIFIER) {
+                    const char *base_var_name = current_expr->data.identifier.name;
+                    if (base_var_name) {
+                        LLVMTypeRef base_var_type = lookup_var_type(codegen, base_var_name);
+                        if (base_var_type && LLVMGetTypeKind(base_var_type) == LLVMArrayTypeKind) {
+                            // 递归获取元素类型（根据嵌套深度）
+                            // 对于 arr2d[i]，depth=0，base_var_type 是 [[i32: 2]: 3]
+                            // arr2d[i] 的结果类型是 [i32: 2]，即元素类型
+                            // 对于 arr3d[0][0]，depth=1，base_var_type 是 [[[i32: 2]: 2]: 2]
+                            // arr3d[0][0] 的结果类型是 [i32: 2]，即深度为1的元素类型
+                            LLVMTypeRef current_type = base_var_type;
+                            // 需要获取 depth+1 层的元素类型
+                            // 对于 arr2d[i]（depth=0），需要获取1层元素类型：[i32: 2]
+                            // 对于 arr3d[0][0]（depth=1），需要获取2层元素类型：[i32: 2]
+                            for (int i = 0; i <= depth && current_type; i++) {
+                                if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind) {
+                                    // 获取元素类型
+                                    current_type = LLVMGetElementType(current_type);
+                                    if (i == depth) {
+                                        // 这就是我们要找的数组类型
+                                        array_type = current_type;
+                                        break;
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
                 // 其他表达式类型：生成代码以获取类型
                 LLVMValueRef array_val = codegen_gen_expr(codegen, array_expr);
