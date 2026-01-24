@@ -6,6 +6,11 @@ struct Empty {
     // 空结构体，无字段
 }
 
+struct Container {
+    data: i32,
+    empty: Empty,
+}
+
 fn main() i32 {
     // 测试1：空结构体 sizeof（类型）
     const empty_size: i32 = sizeof(Empty);
@@ -77,11 +82,6 @@ fn main() i32 {
     }
     
     // 测试11：空结构体在结构体中作为字段
-    struct Container {
-        data: i32,
-        empty: Empty,
-    }
-    
     var container: Container = Container{ data: 42, empty: Empty{} };
     const container_size: i32 = sizeof(Container);
     // Container 大小 = data(4) + empty(1) = 5 字节，但需要对齐到 4 的倍数

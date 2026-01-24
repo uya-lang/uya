@@ -1922,7 +1922,23 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             return 1;
             
         case AST_STRUCT_DECL:
+            // 检查结构体声明是否在顶层（只能通过AST_PROGRAM访问）
+            // 如果不在顶层，报告错误
+            if (checker->scope_level > 0) {
+                checker_report_error(checker, node, "结构体声明只能在顶层定义，不能在函数内部或其他局部作用域内定义");
+                return 0;
+            }
             return checker_check_struct_decl(checker, node);
+            
+        case AST_ENUM_DECL:
+            // 检查枚举声明是否在顶层（只能通过AST_PROGRAM访问）
+            // 如果不在顶层，报告错误
+            if (checker->scope_level > 0) {
+                checker_report_error(checker, node, "枚举声明只能在顶层定义，不能在函数内部或其他局部作用域内定义");
+                return 0;
+            }
+            // 枚举声明检查（暂时只检查基本结构，后续可以扩展）
+            return 1;
             
         case AST_FN_DECL:
             return checker_check_fn_decl(checker, node);
@@ -1937,6 +1953,13 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             for (int i = 0; i < node->data.block.stmt_count; i++) {
                 ASTNode *stmt = node->data.block.stmts[i];
                 if (stmt != NULL) {
+                    // 检查是否在局部作用域中定义了类型（这是不允许的）
+                    if (stmt->type == AST_STRUCT_DECL || stmt->type == AST_ENUM_DECL) {
+                        checker_report_error(checker, stmt, 
+                            stmt->type == AST_STRUCT_DECL ? 
+                            "结构体声明只能在顶层定义，不能在函数内部或其他局部作用域内定义" :
+                            "枚举声明只能在顶层定义，不能在函数内部或其他局部作用域内定义");
+                    }
                     // 检查语句，但不报告错误（放宽检查）
                     checker_check_node(checker, stmt);
                 }

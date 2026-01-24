@@ -2804,18 +2804,9 @@ ASTNode *parser_parse_statement(Parser *parser) {
         return stmt;
     }
     
-    // 支持函数内部的结构体和函数声明
-    if (parser_match(parser, TOKEN_STRUCT)) {
-        return parser_parse_struct(parser);
-    }
-    
-    if (parser_match(parser, TOKEN_FN)) {
-        return parser_parse_function(parser);
-    }
-    
-    if (parser_match(parser, TOKEN_ENUM)) {
-        return parser_parse_enum(parser);
-    }
+    // 注意：根据规范，enum 和 struct 只能在顶层定义，不能在函数内部或其他局部作用域内定义
+    // 因此这里不处理 TOKEN_STRUCT 和 TOKEN_ENUM
+    // 函数内部也不允许定义函数（嵌套函数不支持）
     
     if (parser_match(parser, TOKEN_LEFT_BRACE)) {
         // 解析代码块语句

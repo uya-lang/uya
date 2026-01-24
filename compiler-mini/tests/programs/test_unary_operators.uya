@@ -1,6 +1,11 @@
 // 一元运算符完整测试程序
 // 测试所有一元运算符：!（逻辑非）、-（负号）、&（取地址）、*（解引用）
 
+struct Point {
+    x: i32,
+    y: i32,
+}
+
 fn main() i32 {
     // ========== 测试1：逻辑非运算符 ! ==========
     
@@ -88,10 +93,6 @@ fn main() i32 {
     }
     
     // 3.3 取结构体变量地址
-    struct Point {
-        x: i32,
-        y: i32,
-    }
     var p: Point = Point{ x: 10, y: 20 };
     var ptr2: &Point = &p;
     if ptr2 == null {

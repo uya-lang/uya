@@ -1,13 +1,28 @@
 // 结构体数组字段测试程序
 // 测试结构体中包含数组字段的访问、修改、sizeof、alignof
 
+struct Data {
+    values: [i32: 3],
+    count: i32,
+}
+
+struct MultiArray {
+    arr1: [i32: 2],
+    arr2: [byte: 4],
+    count: i32,
+}
+
+struct Inner {
+    items: [i32: 2],
+}
+
+struct Outer {
+    inner: Inner,
+    size: i32,
+}
+
 fn main() i32 {
     // ========== 测试1：基本结构体数组字段 ==========
-    
-    struct Data {
-        values: [i32: 3],
-        count: i32,
-    }
     
     // 1.1 结构体字面量初始化
     var data: Data = Data{
@@ -112,12 +127,6 @@ fn main() i32 {
     
     // ========== 测试7：多个数组字段 ==========
     
-    struct MultiArray {
-        arr1: [i32: 2],
-        arr2: [byte: 4],
-        count: i32,
-    }
-    
     var multi: MultiArray = MultiArray{
         arr1: [1, 2],
         arr2: [10, 20, 30, 40],
@@ -173,15 +182,6 @@ fn main() i32 {
     }
     
     // ========== 测试10：嵌套结构体数组字段 ==========
-    
-    struct Inner {
-        items: [i32: 2],
-    }
-    
-    struct Outer {
-        inner: Inner,
-        size: i32,
-    }
     
     var outer: Outer = Outer{
         inner: Inner{ items: [10, 20] },

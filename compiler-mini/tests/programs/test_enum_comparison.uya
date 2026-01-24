@@ -14,6 +14,13 @@ enum Status {
     COMPLETED,
 }
 
+enum Mixed {
+    FIRST = 10,
+    SECOND,      // 11
+    THIRD = 20,
+    FOURTH,     // 21
+}
+
 fn main() i32 {
     // 测试1：枚举相等比较（==）
     var p1: Priority = Priority.LOW;
@@ -95,13 +102,6 @@ fn main() i32 {
     }
     
     // 测试8：混合显式赋值和自动递增枚举的比较
-    enum Mixed {
-        FIRST = 10,
-        SECOND,      // 11
-        THIRD = 20,
-        FOURTH,     // 21
-    }
-    
     var m1: Mixed = Mixed.FIRST;   // 10
     var m2: Mixed = Mixed.SECOND;   // 11
     var m3: Mixed = Mixed.THIRD;    // 20
