@@ -198,8 +198,9 @@ fn compile_files(input_files: [&byte: MAX_INPUT_FILES], input_file_count: i32, o
         
         // 读取文件内容
         // 注意：read_file_content 需要 &byte，但 fopen 需要 *byte，所以需要转换
-        // 注意：数组名会自动转换为指向第一个元素的指针，所以直接使用 file_buffer 而不是 &file_buffer[0]
-        const file_size: i32 = read_file_content(input_file, file_buffer, FILE_BUFFER_SIZE);
+        // 注意：全局数组变量在传递给函数时，需要获取其地址
+        // 直接使用数组名，编译器应该自动转换为指向第一个元素的指针
+        const file_size: i32 = read_file_content(input_file, file_buffer as &byte, FILE_BUFFER_SIZE);
         if file_size < 0 {
             fprintf(stderr, "错误: 无法读取文件 '%s' (可能文件太大或不存在)\n" as *byte, input_file as *byte);
             return 1;
@@ -209,8 +210,8 @@ fn compile_files(input_files: [&byte: MAX_INPUT_FILES], input_file_count: i32, o
         fprintf(stderr, "=== 词法分析阶段 ===\n" as *byte);
         fprintf(stderr, "文件: %s (大小: %d 字节)\n" as *byte, input_file as *byte, file_size);
         var lexer: Lexer = Lexer{};
-        // 注意：数组名会自动转换为指向第一个元素的指针
-        if lexer_init(&lexer, file_buffer, file_size, input_file, &arena) != 0 {
+        // 注意：直接使用数组名，编译器应该自动转换为指向第一个元素的指针
+        if lexer_init(&lexer, file_buffer as &byte, file_size, input_file, &arena) != 0 {
             fprintf(stderr, "错误: Lexer 初始化失败: %s (可能 Arena 内存不足或文件太大)\n" as *byte, input_file);
             return 1;
         }
