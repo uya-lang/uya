@@ -5193,16 +5193,11 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                     continue;
                 }
                 fprintf(stderr, "调试: 递归调用 codegen_gen_stmt 处理子语句（类型: %d）...\n", stmts[i]->type);
-                int stmt_result = codegen_gen_stmt(codegen, stmts[i]);
-                if (stmt_result != 0) {
-                    // 在编译器自举时，允许部分语句失败但继续处理其他语句
-                    // 这样可以生成更多可用的代码，即使某些语句类型推断失败
-                    // 不打印警告，静默跳过失败的语句（避免输出过多警告）
-                    // fprintf(stderr, "警告: 处理 AST_BLOCK 中的第 %d 个语句失败，继续处理下一个语句\n", i);
-                    // 不返回错误，继续处理下一个语句
-                } else {
-                    fprintf(stderr, "调试: AST_BLOCK 中的第 %d 个语句处理完成\n", i + 1);
+                if (codegen_gen_stmt(codegen, stmts[i]) != 0) {
+                    fprintf(stderr, "错误: 处理 AST_BLOCK 中的第 %d 个语句失败\n", i);
+                    return -1;
                 }
+                fprintf(stderr, "调试: AST_BLOCK 中的第 %d 个语句处理完成\n", i + 1);
 
                 // 如果当前基本块已经有 terminator（return/br 等），后续语句不可再插入到该块
                 // 直接停止处理剩余语句，避免 “Terminator found in the middle of a basic block!”
