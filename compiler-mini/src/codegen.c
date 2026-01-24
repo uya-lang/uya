@@ -863,47 +863,54 @@ static LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *
                         return NULL;
                     }
                     
-                    // 从 AST 获取数组类型
-                    // 对于 arr2d[0]，我们需要获取 arr2d[0] 的类型，即 [i32: 2]
-                    // 从变量表获取原始数组类型，然后获取元素类型
-                    ASTNode *nested_array_expr = array_expr->data.array_access.array;
-                    if (nested_array_expr && nested_array_expr->type == AST_IDENTIFIER) {
-                        const char *nested_var_name = nested_array_expr->data.identifier.name;
-                        if (nested_var_name) {
-                            LLVMTypeRef nested_var_type = lookup_var_type(codegen, nested_var_name);
-                            if (nested_var_type && LLVMGetTypeKind(nested_var_type) == LLVMArrayTypeKind) {
-                                // 获取数组的元素类型（对于多维数组，这是内层数组类型）
-                                array_type = LLVMGetElementType(nested_var_type);
-                                if (!array_type || array_type == (LLVMTypeRef)1) {
-                                    // 如果 LLVMGetElementType 失败，尝试从 AST 获取
-                                    ASTNode *var_ast_type = lookup_var_ast_type(codegen, nested_var_name);
-                                    if (var_ast_type && var_ast_type->type == AST_TYPE_ARRAY) {
-                                        ASTNode *element_type_node = var_ast_type->data.type_array.element_type;
-                                        if (element_type_node) {
-                                            array_type = get_llvm_type_from_ast(codegen, element_type_node);
+                    // 优先从指针类型获取数组类型（这是最可靠的方法）
+                    LLVMTypeRef array_ptr_type = safe_LLVMTypeOf(array_ptr);
+                    if (array_ptr_type && LLVMGetTypeKind(array_ptr_type) == LLVMPointerTypeKind) {
+                        array_type = safe_LLVMGetElementType(array_ptr_type);
+                        // 验证获取的类型是否是数组类型
+                        if (array_type && array_type != (LLVMTypeRef)1 && 
+                            LLVMGetTypeKind(array_type) == LLVMArrayTypeKind) {
+                            // 成功从指针类型获取数组类型
+                        } else {
+                            array_type = NULL;  // 重置，尝试其他方法
+                        }
+                    }
+                    
+                    // 如果从指针类型获取失败，尝试从 AST 获取
+                    if (!array_type) {
+                        ASTNode *nested_array_expr = array_expr->data.array_access.array;
+                        if (nested_array_expr && nested_array_expr->type == AST_IDENTIFIER) {
+                            const char *nested_var_name = nested_array_expr->data.identifier.name;
+                            if (nested_var_name) {
+                                LLVMTypeRef nested_var_type = lookup_var_type(codegen, nested_var_name);
+                                if (nested_var_type && LLVMGetTypeKind(nested_var_type) == LLVMArrayTypeKind) {
+                                    // 获取数组的元素类型（对于多维数组，这是内层数组类型）
+                                    array_type = LLVMGetElementType(nested_var_type);
+                                    if (!array_type || array_type == (LLVMTypeRef)1) {
+                                        // 如果 LLVMGetElementType 失败，尝试从 AST 获取
+                                        ASTNode *var_ast_type = lookup_var_ast_type(codegen, nested_var_name);
+                                        if (var_ast_type && var_ast_type->type == AST_TYPE_ARRAY) {
+                                            ASTNode *element_type_node = var_ast_type->data.type_array.element_type;
+                                            if (element_type_node) {
+                                                array_type = get_llvm_type_from_ast(codegen, element_type_node);
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                    }
-                    
-                    // 如果从变量表获取类型失败，尝试从指针类型获取
-                    if (!array_type) {
-                        LLVMTypeRef array_ptr_type = safe_LLVMTypeOf(array_ptr);
-                        if (array_ptr_type && LLVMGetTypeKind(array_ptr_type) == LLVMPointerTypeKind) {
-                            array_type = safe_LLVMGetElementType(array_ptr_type);
-                            // 如果 safe_LLVMGetElementType 返回 NULL 或标记值，尝试从 AST 获取
-                            if (!array_type || array_type == (LLVMTypeRef)1) {
-                                // 从 AST 节点获取类型
-                                ASTNode *nested_array_expr = array_expr->data.array_access.array;
-                                if (nested_array_expr && nested_array_expr->type == AST_IDENTIFIER) {
-                                    ASTNode *var_ast_type = lookup_var_ast_type(codegen, nested_array_expr->data.identifier.name);
-                                    if (var_ast_type && var_ast_type->type == AST_TYPE_ARRAY) {
-                                        ASTNode *element_type_node = var_ast_type->data.type_array.element_type;
-                                        if (element_type_node) {
-                                            array_type = get_llvm_type_from_ast(codegen, element_type_node);
-                                        }
+                        } else if (nested_array_expr && nested_array_expr->type == AST_ARRAY_ACCESS) {
+                            // 嵌套数组访问：递归获取类型
+                            // 对于 arr2d[0][0]，nested_array_expr 是 arr2d[0]
+                            // 我们需要获取 arr2d[0] 的类型，即 [i32: 2]
+                            // 从 arr2d 的类型获取元素类型
+                            ASTNode *base_array_expr = nested_array_expr->data.array_access.array;
+                            if (base_array_expr && base_array_expr->type == AST_IDENTIFIER) {
+                                ASTNode *var_ast_type = lookup_var_ast_type(codegen, base_array_expr->data.identifier.name);
+                                if (var_ast_type && var_ast_type->type == AST_TYPE_ARRAY) {
+                                    ASTNode *element_type_node = var_ast_type->data.type_array.element_type;
+                                    if (element_type_node) {
+                                        // element_type_node 是 [i32: 2]，这就是我们需要的类型
+                                        array_type = get_llvm_type_from_ast(codegen, element_type_node);
                                     }
                                 }
                             }
@@ -3047,27 +3054,90 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             // 尝试从数组表达式的类型获取元素类型
             LLVMTypeRef element_type = NULL;
             ASTNode *array_expr = expr->data.array_access.array;
-            if (array_expr && array_expr->type == AST_IDENTIFIER) {
-                // 数组表达式是标识符，从变量表获取类型
-                const char *array_var_name = array_expr->data.identifier.name;
-                if (array_var_name) {
-                    LLVMTypeRef array_type = lookup_var_type(codegen, array_var_name);
-                    if (array_type && LLVMGetTypeKind(array_type) == LLVMArrayTypeKind) {
-                        // 从数组类型获取元素类型
-                        element_type = LLVMGetElementType(array_type);
+            
+            // 优先从指针类型获取元素类型（这是最可靠的方法）
+            element_type = safe_LLVMGetElementType(element_ptr_type);
+            if (element_type && element_type != (LLVMTypeRef)1) {
+                // 检查获取的类型是否是数组类型
+                // 如果是数组类型，需要获取其元素类型
+                if (LLVMGetTypeKind(element_type) == LLVMArrayTypeKind) {
+                    element_type = LLVMGetElementType(element_type);
+                }
+                // 如果 element_type 是有效类型（不是数组），就是我们要的元素类型
+            } else {
+                element_type = NULL;  // 重置，尝试其他方法
+            }
+            
+            // 如果从指针类型获取失败，尝试从变量表或AST获取
+            if (!element_type) {
+                if (array_expr && array_expr->type == AST_IDENTIFIER) {
+                    // 数组表达式是标识符，从变量表获取类型
+                    const char *array_var_name = array_expr->data.identifier.name;
+                    if (array_var_name) {
+                        LLVMTypeRef array_type = lookup_var_type(codegen, array_var_name);
+                        if (array_type && LLVMGetTypeKind(array_type) == LLVMArrayTypeKind) {
+                            // 从数组类型获取元素类型
+                            element_type = LLVMGetElementType(array_type);
+                        }
+                    }
+                } else if (array_expr && array_expr->type == AST_ARRAY_ACCESS) {
+                    // 嵌套数组访问：递归获取类型
+                    // 对于 arr2d[0][0]，array_expr 是 arr2d[0]
+                    // 对于 arr3d[0][0][0]，array_expr 是 arr3d[0][0]
+                    // 我们需要递归处理，直到找到基础数组类型
+                    
+                    // 方法1：从指针类型获取（最可靠）
+                    // element_ptr 是指向当前数组元素的指针
+                    // 如果当前是 arr3d[0][0][0]，element_ptr 指向 [i32: 2] 的指针
+                    // 我们需要获取 [i32: 2] 的元素类型 i32
+                    // 但 element_ptr_type 已经是指向元素的指针，所以 element_type 应该就是元素类型
+                    // 实际上，element_ptr 是指向数组的指针，我们需要获取数组的元素类型
+                    // 但这里 element_ptr 已经是指向当前访问结果的指针，所以应该直接使用
+                    
+                    // 方法2：从变量表递归获取
+                    ASTNode *current_expr = array_expr;
+                    int depth = 0;
+                    const int max_depth = 10;  // 防止无限递归
+                    
+                    // 找到最底层的标识符
+                    while (current_expr && current_expr->type == AST_ARRAY_ACCESS && depth < max_depth) {
+                        current_expr = current_expr->data.array_access.array;
+                        depth++;
+                    }
+                    
+                    if (current_expr && current_expr->type == AST_IDENTIFIER) {
+                        const char *base_var_name = current_expr->data.identifier.name;
+                        if (base_var_name) {
+                            LLVMTypeRef base_var_type = lookup_var_type(codegen, base_var_name);
+                            if (base_var_type && LLVMGetTypeKind(base_var_type) == LLVMArrayTypeKind) {
+                                // 递归获取元素类型（根据嵌套深度）
+                                LLVMTypeRef current_type = base_var_type;
+                                for (int i = 0; i < depth && current_type; i++) {
+                                    if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind) {
+                                        current_type = LLVMGetElementType(current_type);
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                if (current_type && LLVMGetTypeKind(current_type) == LLVMArrayTypeKind) {
+                                    // 当前类型是数组，获取其元素类型
+                                    element_type = LLVMGetElementType(current_type);
+                                } else if (current_type) {
+                                    // 当前类型不是数组，就是元素类型
+                                    element_type = current_type;
+                                }
+                            }
+                        }
                     }
                 }
             }
             
-            // 如果从变量表获取失败，尝试从指针类型获取
+            // 如果所有方法都失败，报告错误
             if (!element_type) {
-                element_type = safe_LLVMGetElementType(element_ptr_type);
-                if (!element_type) {
-                    char location[256];
-                    format_error_location(codegen, expr, location, sizeof(location));
-                    fprintf(stderr, "错误: 无法获取数组元素类型 %s\n", location);
-                    return NULL;
-                }
+                char location[256];
+                format_error_location(codegen, expr, location, sizeof(location));
+                fprintf(stderr, "错误: 无法获取数组元素类型 %s\n", location);
+                return NULL;
             }
 
             LLVMValueRef load_result = LLVMBuildLoad2(codegen->builder, element_type, element_ptr, "");
@@ -3276,6 +3346,11 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             if (is_type) {
                 // target 是类型节点
                 llvm_type = get_llvm_type_from_ast(codegen, target);
+                if (!llvm_type) {
+                    char location[256];
+                    format_error_location(codegen, expr, location, sizeof(location));
+                    fprintf(stderr, "错误: sizeof 无法从 AST 获取类型 %s (target type: %d)\n", location, target ? (int)target->type : -1);
+                }
             } else {
                 // target 是表达式节点，需要获取类型而不生成代码
                 // 对于标识符（变量），直接从变量表获取类型
@@ -3376,6 +3451,15 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                                 element_size = 1;  // 空结构体大小为 1 字节
                             }
                         }
+                    } else if (element_kind == LLVMArrayTypeKind) {
+                        // 嵌套数组类型：递归计算元素大小
+                        // 对于 [[i32: 2]: 3]，element_type 是 [i32: 2]
+                        // 需要递归计算 [i32: 2] 的大小
+                        LLVMTargetDataRef target_data = LLVMGetModuleDataLayout(codegen->module);
+                        if (!target_data) {
+                            return NULL;
+                        }
+                        element_size = LLVMStoreSizeOfType(target_data, element_type);
                     } else {
                         // 其他复杂类型，无法计算大小
                         return NULL;
