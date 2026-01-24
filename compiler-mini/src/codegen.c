@@ -168,13 +168,17 @@ static void format_error_location(const CodeGenerator *codegen, const ASTNode *n
         }
         return;
     }
-    const char *filename = codegen->module_name ? codegen->module_name : "(unknown)";
+    // 优先使用 AST 节点自带的 filename（多文件编译时每个节点来自不同源文件）
+    // 回退到 module_name（通常是第一个输入文件名）
+    const char *filename = node->filename ? node->filename :
+                           (codegen->module_name ? codegen->module_name : "(unknown)");
     snprintf(buffer, buffer_size, "%s(%d:%d)", filename, node->line, node->column);
 }
 
 static ASTNode *find_enum_decl(CodeGenerator *codegen, const char *enum_name);
 static int get_enum_variant_value(ASTNode *enum_decl, int variant_index);
 static int find_enum_constant_value(CodeGenerator *codegen, const char *constant_name);
+static ASTNode *find_fn_decl(CodeGenerator *codegen, const char *func_name);
 static int codegen_declare_function(CodeGenerator *codegen, ASTNode *fn_decl);
 int codegen_gen_function(CodeGenerator *codegen, ASTNode *fn_decl);
 
@@ -1540,6 +1544,70 @@ static ASTNode *find_struct_decl(CodeGenerator *codegen, const char *struct_name
     return NULL;
 }
 
+// 辅助函数：从程序节点中按名称查找函数声明（仅顶层）
+// 参数：codegen - 代码生成器指针
+//       func_name - 函数名称
+// 返回：找到的 AST_FN_DECL 节点，未找到返回 NULL
+static ASTNode *find_fn_decl_in_node(ASTNode *node, const char *func_name) {
+    if (!node || !func_name) {
+        return NULL;
+    }
+    switch (node->type) {
+        case AST_FN_DECL: {
+            const char *name = node->data.fn_decl.name;
+            if (name && strcmp(name, func_name) == 0) {
+                return node;
+            }
+            // 继续在函数体内查找（容忍解析器把函数误解析为嵌套声明的情况）
+            ASTNode *body = node->data.fn_decl.body;
+            return body ? find_fn_decl_in_node(body, func_name) : NULL;
+        }
+        case AST_PROGRAM: {
+            ASTNode **decls = node->data.program.decls;
+            int decl_count = node->data.program.decl_count;
+            for (int i = 0; i < decl_count; i++) {
+                ASTNode *found = (decls && decls[i]) ? find_fn_decl_in_node(decls[i], func_name) : NULL;
+                if (found) {
+                    return found;
+                }
+            }
+            return NULL;
+        }
+        case AST_BLOCK: {
+            ASTNode **stmts = node->data.block.stmts;
+            int stmt_count = node->data.block.stmt_count;
+            for (int i = 0; i < stmt_count; i++) {
+                ASTNode *found = (stmts && stmts[i]) ? find_fn_decl_in_node(stmts[i], func_name) : NULL;
+                if (found) {
+                    return found;
+                }
+            }
+            return NULL;
+        }
+        case AST_IF_STMT: {
+            ASTNode *found = node->data.if_stmt.then_branch ? find_fn_decl_in_node(node->data.if_stmt.then_branch, func_name) : NULL;
+            if (found) return found;
+            return node->data.if_stmt.else_branch ? find_fn_decl_in_node(node->data.if_stmt.else_branch, func_name) : NULL;
+        }
+        case AST_WHILE_STMT:
+            return node->data.while_stmt.body ? find_fn_decl_in_node(node->data.while_stmt.body, func_name) : NULL;
+        case AST_FOR_STMT:
+            return node->data.for_stmt.body ? find_fn_decl_in_node(node->data.for_stmt.body, func_name) : NULL;
+        default:
+            return NULL;
+    }
+}
+
+static ASTNode *find_fn_decl(CodeGenerator *codegen, const char *func_name) {
+    if (!codegen || !func_name) {
+        return NULL;
+    }
+    if (!codegen->program_node) {
+        return NULL;
+    }
+    return find_fn_decl_in_node(codegen->program_node, func_name);
+}
+
 // 辅助函数：从程序节点中查找枚举声明
 // 参数：codegen - 代码生成器指针
 //       enum_name - 枚举名称
@@ -2656,9 +2724,18 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 }
             }
 
-            // 查找函数（在生成完实参后再查找；如果不存在，使用兜底声明避免级联失败）
+            // 查找函数（在生成完实参后再查找；如果不存在，尝试按需声明/兜底声明避免级联失败）
             LLVMTypeRef func_type = NULL;
             LLVMValueRef func = lookup_func(codegen, func_name, &func_type);
+            if (!func || !func_type) {
+                // 按需声明：多文件/前向引用场景下，函数可能尚未进入 func_map
+                ASTNode *fn_decl = find_fn_decl(codegen, func_name);
+                if (fn_decl) {
+                    if (codegen_declare_function(codegen, fn_decl) == 0) {
+                        func = lookup_func(codegen, func_name, &func_type);
+                    }
+                }
+            }
             if (!func || !func_type) {
                 char location[256];
                 format_error_location(codegen, expr, location, sizeof(location));
@@ -3195,18 +3272,85 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                     } else {
                         // 如果不是结构体类型，尝试从数组表达式的类型中获取元素类型
                         ASTNode *array_expr = object->data.array_access.array;
-                        if (array_expr && array_expr->type == AST_IDENTIFIER) {
-                            const char *array_var_name = array_expr->data.identifier.name;
-                            if (array_var_name) {
-                                ASTNode *array_ast_type = lookup_var_ast_type(codegen, array_var_name);
-                                if (array_ast_type && array_ast_type->type == AST_TYPE_ARRAY) {
-                                    ASTNode *element_type = array_ast_type->data.type_array.element_type;
-                                    if (element_type && element_type->type == AST_TYPE_NAMED) {
-                                        struct_name = element_type->data.type_named.name;
+                        if (array_expr) {
+                            // 情况1：数组变量标识符（arr[0]）
+                            if (array_expr->type == AST_IDENTIFIER) {
+                                const char *array_var_name = array_expr->data.identifier.name;
+                                if (array_var_name) {
+                                    ASTNode *array_ast_type = lookup_var_ast_type(codegen, array_var_name);
+                                    if (array_ast_type && array_ast_type->type == AST_TYPE_ARRAY) {
+                                        ASTNode *element_type = array_ast_type->data.type_array.element_type;
+                                        if (element_type) {
+                                            // [T: N]
+                                            if (element_type->type == AST_TYPE_NAMED) {
+                                                struct_name = element_type->data.type_named.name;
+                                            }
+                                            // [&T: N] / [*T: N]
+                                            else if (element_type->type == AST_TYPE_POINTER) {
+                                                ASTNode *pt = element_type->data.type_pointer.pointed_type;
+                                                if (pt && pt->type == AST_TYPE_NAMED) {
+                                                    struct_name = pt->data.type_named.name;
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
+                            // 情况2：数组表达式是成员访问（obj.field[i]），尝试从 AST 类型信息推断
+                            else if (array_expr->type == AST_MEMBER_ACCESS) {
+                                ASTNode *base_obj = array_expr->data.member_access.object;
+                                const char *array_field_name = array_expr->data.member_access.field_name;
+                                if (base_obj && base_obj->type == AST_IDENTIFIER && array_field_name) {
+                                    const char *base_var_name = base_obj->data.identifier.name;
+                                    if (base_var_name) {
+                                        ASTNode *base_var_ast_type = lookup_var_ast_type(codegen, base_var_name);
+                                        // 目前主要覆盖 &Struct
+                                        if (base_var_ast_type && base_var_ast_type->type == AST_TYPE_POINTER) {
+                                            ASTNode *pt = base_var_ast_type->data.type_pointer.pointed_type;
+                                            if (pt && pt->type == AST_TYPE_NAMED) {
+                                                const char *base_struct_name = pt->data.type_named.name;
+                                                if (base_struct_name) {
+                                                    ASTNode *base_struct_decl = find_struct_decl(codegen, base_struct_name);
+                                                    if (base_struct_decl) {
+                                                        ASTNode *field_type = find_struct_field_ast_type(codegen, base_struct_decl, array_field_name);
+                                                        if (field_type) {
+                                                            // 字段类型是固定数组：[T: N]
+                                                            if (field_type->type == AST_TYPE_ARRAY) {
+                                                                ASTNode *elem = field_type->data.type_array.element_type;
+                                                                if (elem) {
+                                                                    if (elem->type == AST_TYPE_NAMED) {
+                                                                        struct_name = elem->data.type_named.name;
+                                                                    } else if (elem->type == AST_TYPE_POINTER) {
+                                                                        ASTNode *elem_pt = elem->data.type_pointer.pointed_type;
+                                                                        if (elem_pt && elem_pt->type == AST_TYPE_NAMED) {
+                                                                            struct_name = elem_pt->data.type_named.name;
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                            // 字段类型是指针：&T / *T（用于“指针当数组”下标访问）
+                                                            else if (field_type->type == AST_TYPE_POINTER) {
+                                                                ASTNode *pt2 = field_type->data.type_pointer.pointed_type;
+                                                                if (pt2) {
+                                                                    if (pt2->type == AST_TYPE_NAMED) {
+                                                                        struct_name = pt2->data.type_named.name;
+                                                                    } else if (pt2->type == AST_TYPE_POINTER) {
+                                                                        ASTNode *pt3 = pt2->data.type_pointer.pointed_type;
+                                                                        if (pt3 && pt3->type == AST_TYPE_NAMED) {
+                                                                            struct_name = pt3->data.type_named.name;
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        } // field_type
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } // array_expr
                     }
                 }
                 }
@@ -5438,6 +5582,7 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             // 函数声明：如果在函数体内部（局部函数），需要声明函数并生成函数体
             {
                 const char *func_name = stmt->data.fn_decl.name;
+                (void)func_name;
                 // 先声明函数
                 int result = codegen_declare_function(codegen, stmt);
                 if (result != 0) {
@@ -5578,12 +5723,12 @@ static int codegen_declare_function(CodeGenerator *codegen, ASTNode *fn_decl) {
                 // 这在编译器自举时很常见，因为结构体类型可能尚未注册
                 if (param_type_node && param_type_node->type == AST_TYPE_POINTER) {
                     // 如果是指针类型但获取失败，使用通用指针类型（i8*）
-                    LLVMTypeRef i8_type = LLVMInt8Type();
+                    LLVMTypeRef i8_type = LLVMInt8TypeInContext(codegen->context);
                     param_type = LLVMPointerType(i8_type, 0);
                 } else if (param_type_node && param_type_node->type == AST_TYPE_NAMED) {
                     // 如果是命名类型但获取失败（可能是结构体类型未注册），
                     // 使用通用指针类型（i8*）作为参数类型
-                    LLVMTypeRef i8_type = LLVMInt8Type();
+                    LLVMTypeRef i8_type = LLVMInt8TypeInContext(codegen->context);
                     param_type = LLVMPointerType(i8_type, 0);
                 } else {
                     // 调试信息

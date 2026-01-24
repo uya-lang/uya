@@ -1092,7 +1092,11 @@ fn parser_parse(parser: &Parser) &ASTNode {
                 // 注意：stderr 在 C 中通常是文件描述符 2，这里使用数值常量
                 const stderr_fd: *void = 2 as *void;
                 if parser.lexer.filename != null {
-                    const token_value: *byte = parser.current_token.value != null ? parser.current_token.value as *byte : "";
+                    // 注意：Uya Mini 不支持三元表达式 (?:)，这里用 if 代替
+                    var token_value: *byte = "";
+                    if parser.current_token.value != null {
+                        token_value = parser.current_token.value as *byte;
+                    }
                     fprintf(stderr_fd, "错误: 语法分析失败 (%s:%d:%d): 意外的 token", 
                             parser.lexer.filename as *byte, parser.current_token.line, parser.current_token.column);
                     // 检查 token_value 是否非空
@@ -1100,7 +1104,11 @@ fn parser_parse(parser: &Parser) &ASTNode {
                         fprintf(stderr_fd, " '%s'", token_value);
                     }
                 } else {
-                    const token_value: *byte = parser.current_token.value != null ? parser.current_token.value as *byte : "";
+                    // 注意：Uya Mini 不支持三元表达式 (?:)，这里用 if 代替
+                    var token_value: *byte = "";
+                    if parser.current_token.value != null {
+                        token_value = parser.current_token.value as *byte;
+                    }
                     fprintf(stderr_fd, "错误: 语法分析失败 (<unknown>:%d:%d): 意外的 token", 
                             parser.current_token.line, parser.current_token.column);
                     // 检查 token_value 是否非空
