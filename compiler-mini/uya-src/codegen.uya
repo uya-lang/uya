@@ -3206,7 +3206,7 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
             
             // 特殊处理空数组字面量：如果变量类型是数组类型，空数组表示未初始化
             var is_empty_array_literal: i32 = 0;
-            if init_expr.type == AST_ARRAY_LITERAL &&
+            if init_expr != null && init_expr.type == AST_ARRAY_LITERAL &&
                init_expr.array_literal_element_count == 0 &&
                llvm_type != null {
                 const llvm_type_kind: i32 = LLVMGetTypeKind(llvm_type);

@@ -111,7 +111,7 @@ fn parse_args(input_files: [&byte: MAX_INPUT_FILES], input_file_count: &i32, out
     }
     
     // 简单的参数解析：程序名 [输入文件...] -o <输出文件>
-    input_file_count[0] = 0;
+    *input_file_count = 0;
     output_file[0] = null;
     
     var i: i32 = 1;
@@ -128,18 +128,18 @@ fn parse_args(input_files: [&byte: MAX_INPUT_FILES], input_file_count: &i32, out
             }
         } else {
             // 非选项参数，应该是输入文件
-            if input_file_count[0] >= MAX_INPUT_FILES {
+            if *input_file_count >= MAX_INPUT_FILES {
                 const stderr: *void = null;
                 fprintf(stderr, "错误: 输入文件数量超过最大限制 (%d)\n" as *byte, MAX_INPUT_FILES);
                 return -1;
             }
-            input_files[input_file_count[0]] = arg as &byte;
-            input_file_count[0] = input_file_count[0] + 1;
+            input_files[*input_file_count] = arg as &byte;
+            *input_file_count = *input_file_count + 1;
         }
         i = i + 1;
     }
     
-    if input_file_count[0] == 0 {
+    if *input_file_count == 0 {
         const program_name: *byte = get_argv(0);
         const stderr: *void = null;
         fprintf(stderr, "错误: 未指定输入文件\n" as *byte);
