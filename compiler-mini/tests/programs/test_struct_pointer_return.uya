@@ -1,0 +1,633 @@
+// 结构体指针作为返回值测试程序
+// 测试结构体指针 &T 作为函数返回值的功能
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Node {
+    value: i32,
+    next: &Node,
+}
+
+struct Inner {
+    data: i32,
+}
+
+struct Outer {
+    inner: Inner,
+    count: i32,
+}
+
+// 全局结构体变量用于测试返回指针
+// 注意：由于编译器目前不支持全局结构体变量的结构体字面量初始化，
+// 使用空结构体字面量进行初始化（会被零初始化），需要在 main 函数中手动设置初始值
+var global_point: Point = Point{ x: 0, y: 0 };
+var global_node: Node = Node{ value: 0, next: null };
+
+// ========== 测试1：返回全局结构体的指针 ==========
+
+fn get_global_point() &Point {
+    return &global_point;
+}
+
+fn get_global_node() &Node {
+    return &global_node;
+}
+
+// ========== 测试2：返回局部结构体的指针（通过参数传递） ==========
+
+fn get_point_pointer(p: &Point) &Point {
+    // 返回传入的结构体指针
+    return p;
+}
+
+fn get_node_pointer(n: &Node) &Node {
+    // 返回传入的节点指针
+    return n;
+}
+
+// ========== 测试3：返回嵌套结构体的指针 ==========
+
+fn get_outer_pointer(o: &Outer) &Outer {
+    return o;
+}
+
+fn get_inner_pointer_from_outer(o: &Outer) &Inner {
+    // 返回嵌套结构体的指针
+    return &o.inner;
+}
+
+// ========== 测试4：返回结构体字段的指针 ==========
+
+fn get_point_x_pointer(p: &Point) &i32 {
+    // 返回结构体字段的指针
+    return &p.x;
+}
+
+fn get_point_y_pointer(p: &Point) &i32 {
+    // 返回结构体字段的指针
+    return &p.y;
+}
+
+// ========== 测试5：链式调用返回结构体指针 ==========
+
+fn get_point_from_node(n: &Node) &Point {
+    // 创建一个临时结构体并返回其指针（通过全局变量）
+    global_point.x = n.value;
+    global_point.y = n.value * 2;
+    return &global_point;
+}
+
+// ========== 测试6：返回数组第一个元素的指针 ==========
+
+fn get_array_first_element() &i32 {
+    var array: [i32: 5] = [10, 20, 30, 40, 50];
+    return &array[0];
+}
+
+fn get_byte_array_first_element() &byte {
+    var array: [byte: 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    return &array[0];
+}
+
+fn get_struct_array_first_element() &Point {
+    var array: [Point: 3] = [
+        Point{ x: 100, y: 200 },
+        Point{ x: 300, y: 400 },
+        Point{ x: 500, y: 600 },
+    ];
+    return &array[0];
+}
+
+fn get_array_element_by_index(index: i32) &i32 {
+    var array: [i32: 5] = [10, 20, 30, 40, 50];
+    return &array[index];
+}
+
+// ========== 测试7：返回结构体数组元素的指针（更详细的测试） ==========
+
+fn get_struct_array_element_by_index(index: i32) &Point {
+    var array: [Point: 5] = [
+        Point{ x: 1, y: 2 },
+        Point{ x: 3, y: 4 },
+        Point{ x: 5, y: 6 },
+        Point{ x: 7, y: 8 },
+        Point{ x: 9, y: 10 },
+    ];
+    return &array[index];
+}
+
+fn get_nested_struct_array_first_element() &Outer {
+    var array: [Outer: 3] = [
+        Outer{ inner: Inner{ data: 100 }, count: 1 },
+        Outer{ inner: Inner{ data: 200 }, count: 2 },
+        Outer{ inner: Inner{ data: 300 }, count: 3 },
+    ];
+    return &array[0];
+}
+
+fn get_node_array_first_element() &Node {
+    var array: [Node: 3] = [
+        Node{ value: 10, next: null },
+        Node{ value: 20, next: null },
+        Node{ value: 30, next: null },
+    ];
+    return &array[0];
+}
+
+fn get_struct_array_element_and_modify() &Point {
+    var array: [Point: 3] = [
+        Point{ x: 100, y: 200 },
+        Point{ x: 300, y: 400 },
+        Point{ x: 500, y: 600 },
+    ];
+    // 在返回前修改数组元素
+    array[0].x = 111;
+    array[0].y = 222;
+    return &array[0];
+}
+
+fn main() i32 {
+    // ========== 测试1：返回全局结构体指针并访问字段 ==========
+    
+    // 注意：由于编译器目前不支持全局结构体变量的结构体字面量初始化，
+    // 全局变量会被零初始化。因此我们先手动设置初始值。
+    global_point.x = 100;
+    global_point.y = 200;
+    
+    var ptr1: &Point = get_global_point();
+    if ptr1 == null {
+        return 1;  // 不应该返回 null
+    }
+    
+    // 通过返回的指针访问字段
+    if ptr1.x != 100 || ptr1.y != 200 {
+        return 2;  // 字段值应该正确
+    }
+    
+    // 通过返回的指针修改字段
+    ptr1.x = 300;
+    ptr1.y = 400;
+    if global_point.x != 300 || global_point.y != 400 {
+        return 3;  // 全局变量应该被修改
+    }
+    
+    // ========== 测试2：返回局部结构体指针 ==========
+    
+    var local_point: Point = Point{ x: 10, y: 20 };
+    var ptr2: &Point = get_point_pointer(&local_point);
+    
+    if ptr2.x != 10 || ptr2.y != 20 {
+        return 4;  // 字段值应该正确
+    }
+    
+    // 通过返回的指针修改字段
+    ptr2.x = 50;
+    ptr2.y = 60;
+    if local_point.x != 50 || local_point.y != 60 {
+        return 5;  // 局部变量应该被修改
+    }
+    
+    // ========== 测试3：返回节点指针并访问字段 ==========
+    
+    var local_node: Node = Node{ value: 99, next: null };
+    var node_ptr: &Node = get_node_pointer(&local_node);
+    
+    if node_ptr.value != 99 {
+        return 6;  // 节点值应该正确
+    }
+    
+    // 通过返回的指针修改节点值
+    node_ptr.value = 77;
+    if local_node.value != 77 {
+        return 7;  // 节点值应该被修改
+    }
+    
+    // ========== 测试4：返回嵌套结构体指针 ==========
+    
+    var outer: Outer = Outer{
+        inner: Inner{ data: 500 },
+        count: 10,
+    };
+    
+    var outer_ptr: &Outer = get_outer_pointer(&outer);
+    if outer_ptr.inner.data != 500 || outer_ptr.count != 10 {
+        return 8;  // 嵌套字段应该正确
+    }
+    
+    // 通过返回的指针修改嵌套字段
+    outer_ptr.inner.data = 600;
+    outer_ptr.count = 20;
+    if outer.inner.data != 600 || outer.count != 20 {
+        return 9;  // 嵌套字段应该被修改
+    }
+    
+    // ========== 测试5：返回嵌套结构体的指针 ==========
+    
+    var inner_ptr: &Inner = get_inner_pointer_from_outer(&outer);
+    if inner_ptr.data != 600 {
+        return 10;  // 嵌套结构体字段应该正确
+    }
+    
+    // 通过返回的嵌套结构体指针修改字段
+    inner_ptr.data = 700;
+    if outer.inner.data != 700 {
+        return 11;  // 嵌套结构体字段应该被修改
+    }
+    
+    // ========== 测试6：返回结构体字段的指针 ==========
+    
+    var point: Point = Point{ x: 1000, y: 2000 };
+    var x_ptr: &i32 = get_point_x_pointer(&point);
+    var y_ptr: &i32 = get_point_y_pointer(&point);
+    
+    if *x_ptr != 1000 || *y_ptr != 2000 {
+        return 12;  // 字段指针应该正确
+    }
+    
+    // 通过返回的字段指针修改值
+    *x_ptr = 3000;
+    *y_ptr = 4000;
+    if point.x != 3000 || point.y != 4000 {
+        return 13;  // 字段应该被修改
+    }
+    
+    // ========== 测试7：链式调用返回结构体指针 ==========
+    
+    // 先设置全局节点的初始值
+    global_node.value = 42;
+    global_node.next = null;
+    
+    var node: Node = Node{ value: 123, next: null };
+    var point_ptr: &Point = get_point_from_node(&node);
+    
+    if point_ptr.x != 123 || point_ptr.y != 246 {
+        return 14;  // 链式调用应该正确设置字段
+    }
+    
+    // ========== 测试8：返回的指针进行比较 ==========
+    
+    // 确保全局变量有值（之前已经设置过）
+    global_point.x = 300;
+    global_point.y = 400;
+    
+    var ptr3: &Point = get_global_point();
+    var ptr4: &Point = get_global_point();
+    
+    if ptr3 != ptr4 {
+        return 15;  // 两个指针应该指向同一个全局变量
+    }
+    
+    var point1: Point = Point{ x: 1, y: 2 };
+    var point2: Point = Point{ x: 1, y: 2 };
+    var ptr5: &Point = get_point_pointer(&point1);
+    var ptr6: &Point = get_point_pointer(&point2);
+    
+    if ptr5 == ptr6 {
+        return 16;  // 两个指针不应该相等（指向不同变量）
+    }
+    
+    // ========== 测试9：返回的指针与 null 比较 ==========
+    
+    var null_node: &Node = null;
+    var node_ptr2: &Node = get_node_pointer(null_node);
+    
+    if node_ptr2 != null {
+        return 17;  // 如果传入 null，应该返回 null
+    }
+    
+    // ========== 测试10：返回的指针解引用 ==========
+    
+    var point3: Point = Point{ x: 999, y: 888 };
+    var ptr7: &Point = get_point_pointer(&point3);
+    
+    var point_copy: Point = *ptr7;
+    if point_copy.x != 999 || point_copy.y != 888 {
+        return 18;  // 解引用应该得到结构体值
+    }
+    
+    // ========== 测试11：返回的指针在表达式中使用 ==========
+    
+    var point4: Point = Point{ x: 100, y: 200 };
+    var ptr8: &Point = get_point_pointer(&point4);
+    
+    var sum: i32 = ptr8.x + ptr8.y;
+    if sum != 300 {
+        return 19;  // 字段访问和运算应该正确
+    }
+    
+    // ========== 测试12：返回的指针作为函数参数 ==========
+    
+    fn get_x(p: &Point) i32 {
+        return p.x;
+    }
+    
+    var point5: Point = Point{ x: 555, y: 666 };
+    var ptr9: &Point = get_point_pointer(&point5);
+    var x_val: i32 = get_x(ptr9);
+    
+    if x_val != 555 {
+        return 20;  // 返回的指针作为参数应该正确
+    }
+    
+    // ========== 测试13：返回的指针赋值给变量 ==========
+    
+    var point6: Point = Point{ x: 777, y: 888 };
+    var ptr10: &Point = get_point_pointer(&point6);
+    var ptr11: &Point = ptr10;  // 指针赋值
+    
+    if ptr11.x != 777 || ptr11.y != 888 {
+        return 21;  // 指针赋值后应该正确
+    }
+    
+    // 通过 ptr11 修改字段
+    ptr11.x = 999;
+    if point6.x != 999 {
+        return 22;  // 通过赋值后的指针修改应该正确
+    }
+    
+    // ========== 测试14：返回数组第一个元素的指针（i32 数组） ==========
+    
+    var arr_ptr: &i32 = get_array_first_element();
+    if arr_ptr == null {
+        return 23;  // 不应该返回 null
+    }
+    
+    // 通过返回的指针访问数组元素（使用指针算术）
+    var first_val: i32 = *arr_ptr;
+    if first_val != 10 {
+        return 24;  // 第一个元素应该是 10
+    }
+    
+    // 通过返回的指针修改数组元素
+    *arr_ptr = 999;
+    var first_val2: i32 = *arr_ptr;
+    if first_val2 != 999 {
+        return 25;  // 修改后第一个元素应该是 999
+    }
+    
+    // ========== 测试15：返回数组第一个元素的指针（byte 数组） ==========
+    
+    var byte_ptr: &byte = get_byte_array_first_element();
+    if byte_ptr == null {
+        return 26;  // 不应该返回 null
+    }
+    
+    var first_byte: byte = *byte_ptr;
+    if first_byte != 1 {
+        return 27;  // 第一个元素应该是 1
+    }
+    
+    // 通过返回的指针修改数组元素
+    *byte_ptr = 100;
+    var first_byte2: byte = *byte_ptr;
+    if first_byte2 != 100 {
+        return 28;  // 修改后第一个元素应该是 100
+    }
+    
+    // ========== 测试16：返回结构体数组第一个元素的指针 ==========
+    
+    var point_arr_ptr: &Point = get_struct_array_first_element();
+    if point_arr_ptr == null {
+        return 29;  // 不应该返回 null
+    }
+    
+    // 通过返回的指针访问结构体字段
+    if point_arr_ptr.x != 100 || point_arr_ptr.y != 200 {
+        return 30;  // 字段值应该正确
+    }
+    
+    // 通过返回的指针修改结构体字段
+    point_arr_ptr.x = 777;
+    point_arr_ptr.y = 888;
+    if point_arr_ptr.x != 777 || point_arr_ptr.y != 888 {
+        return 31;  // 字段应该被修改
+    }
+    
+    // ========== 测试23：返回结构体数组指定索引元素的指针 ==========
+    
+    var point_arr_ptr2: &Point = get_struct_array_element_by_index(2);
+    if point_arr_ptr2 == null {
+        return 42;  // 不应该返回 null
+    }
+    
+    // 通过返回的指针访问结构体字段
+    if point_arr_ptr2.x != 5 || point_arr_ptr2.y != 6 {
+        return 43;  // 索引 2 的字段值应该正确
+    }
+    
+    // 通过返回的指针修改结构体字段
+    point_arr_ptr2.x = 555;
+    point_arr_ptr2.y = 666;
+    if point_arr_ptr2.x != 555 || point_arr_ptr2.y != 666 {
+        return 44;  // 字段应该被修改
+    }
+    
+    // ========== 测试24：返回嵌套结构体数组第一个元素的指针 ==========
+    
+    var outer_arr_ptr: &Outer = get_nested_struct_array_first_element();
+    if outer_arr_ptr == null {
+        return 45;  // 不应该返回 null
+    }
+    
+    // 通过返回的指针访问嵌套结构体字段
+    if outer_arr_ptr.inner.data != 100 || outer_arr_ptr.count != 1 {
+        return 46;  // 嵌套字段值应该正确
+    }
+    
+    // 通过返回的指针修改嵌套结构体字段
+    outer_arr_ptr.inner.data = 999;
+    outer_arr_ptr.count = 888;
+    if outer_arr_ptr.inner.data != 999 || outer_arr_ptr.count != 888 {
+        return 47;  // 嵌套字段应该被修改
+    }
+    
+    // ========== 测试25：返回节点数组第一个元素的指针 ==========
+    
+    var node_arr_ptr: &Node = get_node_array_first_element();
+    if node_arr_ptr == null {
+        return 48;  // 不应该返回 null
+    }
+    
+    // 通过返回的指针访问节点字段
+    if node_arr_ptr.value != 10 {
+        return 49;  // 节点值应该正确
+    }
+    
+    // 通过返回的指针修改节点字段
+    node_arr_ptr.value = 999;
+    if node_arr_ptr.value != 999 {
+        return 50;  // 节点值应该被修改
+    }
+    
+    // ========== 测试26：返回结构体数组元素指针（返回前已修改） ==========
+    
+    var point_arr_ptr3: &Point = get_struct_array_element_and_modify();
+    if point_arr_ptr3 == null {
+        return 51;  // 不应该返回 null
+    }
+    
+    // 通过返回的指针访问结构体字段（应该是在函数内修改后的值）
+    if point_arr_ptr3.x != 111 || point_arr_ptr3.y != 222 {
+        return 52;  // 字段值应该是函数内修改后的值
+    }
+    
+    // 通过返回的指针再次修改结构体字段
+    point_arr_ptr3.x = 333;
+    point_arr_ptr3.y = 444;
+    if point_arr_ptr3.x != 333 || point_arr_ptr3.y != 444 {
+        return 53;  // 字段应该被修改
+    }
+    
+    // ========== 测试27：返回的结构体数组指针在表达式中使用 ==========
+    
+    var point_arr_ptr4: &Point = get_struct_array_first_element();
+    var sum3: i32 = point_arr_ptr4.x + point_arr_ptr4.y;
+    if sum3 != 1665 {  // 777 + 888 = 1665（之前修改的值）
+        return 54;  // 表达式计算应该正确
+    }
+    
+    // ========== 测试28：返回的结构体数组指针作为函数参数 ==========
+    
+    fn get_point_x_from_ptr(p: &Point) i32 {
+        return p.x;
+    }
+    
+    var point_arr_ptr5: &Point = get_struct_array_element_by_index(1);
+    var x_val2: i32 = get_point_x_from_ptr(point_arr_ptr5);
+    if x_val2 != 3 {
+        return 55;  // 返回的指针作为参数应该正确
+    }
+    
+    // ========== 测试29：返回的结构体数组指针赋值给变量 ==========
+    
+    var point_arr_ptr6: &Point = get_struct_array_first_element();
+    var point_arr_ptr7: &Point = point_arr_ptr6;  // 指针赋值
+    
+    if point_arr_ptr7.x != 777 || point_arr_ptr7.y != 888 {
+        return 56;  // 指针赋值后应该正确
+    }
+    
+    // 通过赋值后的指针修改字段
+    point_arr_ptr7.x = 1111;
+    point_arr_ptr7.y = 2222;
+    if point_arr_ptr6.x != 1111 || point_arr_ptr6.y != 2222 {
+        return 57;  // 通过赋值后的指针修改应该正确
+    }
+    
+    // ========== 测试30：返回的结构体数组指针解引用 ==========
+    
+    var point_arr_ptr8: &Point = get_struct_array_element_by_index(0);
+    var point_copy2: Point = *point_arr_ptr8;
+    if point_copy2.x != 1 || point_copy2.y != 2 {
+        return 58;  // 解引用应该得到结构体值
+    }
+    
+    // ========== 测试31：返回的结构体数组指针访问嵌套字段 ==========
+    
+    var outer_arr_ptr2: &Outer = get_nested_struct_array_first_element();
+    var inner_data: i32 = outer_arr_ptr2.inner.data;
+    if inner_data != 999 {  // 之前修改的值
+        return 59;  // 嵌套字段访问应该正确
+    }
+    
+    // 通过返回的指针访问嵌套结构体指针
+    var inner_ptr2: &Inner = &outer_arr_ptr2.inner;
+    if inner_ptr2.data != 999 {
+        return 60;  // 嵌套结构体指针应该正确
+    }
+    
+    // ========== 测试32：返回的结构体数组指针比较 ==========
+    
+    var point_arr_ptr9: &Point = get_struct_array_first_element();
+    var point_arr_ptr10: &Point = get_struct_array_first_element();
+    
+    // 注意：由于是局部数组，每次调用返回的指针可能不同
+    // 但指针本身应该有效
+    if point_arr_ptr9 == null || point_arr_ptr10 == null {
+        return 61;  // 指针应该有效
+    }
+    
+    // ========== 测试17：返回数组指定索引元素的指针 ==========
+    
+    var elem_ptr: &i32 = get_array_element_by_index(2);
+    if elem_ptr == null {
+        return 32;  // 不应该返回 null
+    }
+    
+    var elem_val: i32 = *elem_ptr;
+    if elem_val != 30 {
+        return 33;  // 索引 2 的元素应该是 30
+    }
+    
+    // 通过返回的指针修改数组元素
+    *elem_ptr = 333;
+    var elem_val2: i32 = *elem_ptr;
+    if elem_val2 != 333 {
+        return 34;  // 修改后元素应该是 333
+    }
+    
+    // ========== 测试18：返回的数组指针在表达式中使用 ==========
+    
+    var arr_ptr2: &i32 = get_array_first_element();
+    var sum2: i32 = *arr_ptr2 + 100;
+    if sum2 != 1099 {  // 999 + 100 = 1099（之前修改为 999）
+        return 35;  // 表达式计算应该正确
+    }
+    
+    // ========== 测试19：返回的数组指针作为函数参数 ==========
+    
+    fn get_value_from_ptr(p: &i32) i32 {
+        return *p;
+    }
+    
+    var arr_ptr3: &i32 = get_array_first_element();
+    var val: i32 = get_value_from_ptr(arr_ptr3);
+    if val != 999 {
+        return 36;  // 返回的指针作为参数应该正确
+    }
+    
+    // ========== 测试20：返回的数组指针赋值给变量 ==========
+    
+    var arr_ptr4: &i32 = get_array_first_element();
+    var arr_ptr5: &i32 = arr_ptr4;  // 指针赋值
+    
+    if *arr_ptr5 != 999 {
+        return 37;  // 指针赋值后应该正确
+    }
+    
+    // 通过赋值后的指针修改值
+    *arr_ptr5 = 1111;
+    if *arr_ptr4 != 1111 {
+        return 38;  // 通过赋值后的指针修改应该正确
+    }
+    
+    // ========== 测试21：返回的数组指针与 null 比较 ==========
+    
+    var arr_ptr6: &i32 = get_array_first_element();
+    if arr_ptr6 == null {
+        return 39;  // 不应该为 null
+    }
+    if arr_ptr6 != null {
+        // 正确，继续测试
+    } else {
+        return 40;
+    }
+    
+    // ========== 测试22：返回的数组指针比较 ==========
+    
+    var arr_ptr7: &i32 = get_array_first_element();
+    var arr_ptr8: &i32 = get_array_first_element();
+    
+    // 注意：由于是局部数组，每次调用返回的指针可能不同
+    // 但指针本身应该有效
+    if arr_ptr7 == null || arr_ptr8 == null {
+        return 41;  // 指针应该有效
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+
