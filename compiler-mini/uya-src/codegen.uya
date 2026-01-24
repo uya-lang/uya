@@ -670,6 +670,61 @@ fn find_struct_name_from_type(codegen: &CodeGenerator, _struct_type: &void) &byt
     return null;  // 未找到
 }
 
+// 辅助函数：递归遍历 AST 节点，注册所有结构体声明
+// 参数：codegen - 代码生成器指针
+//       node - AST 节点
+fn register_structs_in_node(codegen: &CodeGenerator, node: &ASTNode) void {
+    if codegen == null || node == null {
+        return;
+    }
+
+    // 如果是结构体声明，注册它
+    if node.type == AST_STRUCT_DECL {
+        codegen_register_struct_type(codegen, node);
+        return;
+    }
+
+    // 如果是代码块，递归遍历其中的语句
+    if node.type == AST_BLOCK {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            const stmt: &ASTNode = node.block_stmts[i];
+            if stmt != null {
+                register_structs_in_node(codegen, stmt);
+            }
+            i = i + 1;
+        }
+        return;
+    }
+
+    // 如果是 if 语句，递归遍历 then 和 else 分支
+    if node.type == AST_IF_STMT {
+        if node.if_stmt_then_branch != null {
+            register_structs_in_node(codegen, node.if_stmt_then_branch);
+        }
+        if node.if_stmt_else_branch != null {
+            register_structs_in_node(codegen, node.if_stmt_else_branch);
+        }
+        return;
+    }
+
+    // 如果是 while 语句，递归遍历循环体
+    if node.type == AST_WHILE_STMT {
+        if node.while_stmt_body != null {
+            register_structs_in_node(codegen, node.while_stmt_body);
+        }
+        return;
+    }
+
+    // 如果是 for 语句，递归遍历循环体
+    if node.type == AST_FOR_STMT {
+        if node.for_stmt_body != null {
+            register_structs_in_node(codegen, node.for_stmt_body);
+        }
+        return;
+    }
+}
+
 // 在变量表中查找变量类型（先查找局部变量，再查找全局变量）
 // 参数：codegen - 代码生成器指针
 //       var_name - 变量名称
@@ -2751,9 +2806,33 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
         }
         
         if object_ptr == null || struct_name == null {
-            // 对象不是标识符或变量未找到，需要生成对象表达式值
-            // 对于字段访问作为左值，我们暂时不支持复杂表达式
-            return null;
+            // 对象不是标识符，可能是嵌套的结构体字段访问（如 checker.symbol_table.count）
+            // 递归处理嵌套的字段访问
+            if object.type == AST_MEMBER_ACCESS {
+                // 递归获取对象的地址
+                object_ptr = codegen_gen_lvalue_address(codegen, object);
+                if object_ptr == null {
+                    return null;
+                }
+
+                // 获取对象指针的类型（应该是结构体指针类型）
+                const object_ptr_type: *void = LLVMTypeOf(object_ptr);
+                if object_ptr_type == null || LLVMGetTypeKind(object_ptr_type) != LLVMPointerTypeKind {
+                    return null;
+                }
+
+                // 获取指向的结构体类型
+                const pointed_struct_type: *void = LLVMGetElementType(object_ptr_type);
+                if pointed_struct_type == null || LLVMGetTypeKind(pointed_struct_type) != LLVMStructTypeKind {
+                    return null;
+                }
+
+                // 从结构体类型中获取结构体名称
+                struct_name = find_struct_name_from_type(codegen, pointed_struct_type as &void);
+            } else {
+                // 其他复杂表达式暂时不支持
+                return null;
+            }
         }
         
         // 查找结构体声明
@@ -2837,8 +2916,26 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
         
         // 如果通过标识符路径失败，使用通用方法生成数组表达式
         if array_ptr == null || array_type == null {
-            // 生成数组表达式值
-            const array_val: *void = codegen_gen_expr(codegen, array_expr);
+            // 对于左值表达式（如结构体字段），需要获取地址而不是值
+            if array_expr.type == AST_MEMBER_ACCESS {
+                // 结构体字段访问：获取字段地址
+                array_ptr = codegen_gen_lvalue_address(codegen, array_expr);
+                if array_ptr != null {
+                    // 获取字段的类型（指针数组类型）
+                    const field_type: *void = LLVMTypeOf(array_ptr);
+                    if field_type != null && LLVMGetTypeKind(field_type) == LLVMPointerTypeKind {
+                        const pointed_type: *void = LLVMGetElementType(field_type);
+                        if pointed_type != null && LLVMGetTypeKind(pointed_type) == LLVMArrayTypeKind {
+                            array_type = pointed_type;
+                        } else {
+                            // 如果不是数组类型，可能是指针类型（如 &byte）
+                            array_type = pointed_type;
+                        }
+                    }
+                }
+            } else {
+                // 生成数组表达式值
+                const array_val: *void = codegen_gen_expr(codegen, array_expr);
             if array_val == null {
                 return null;
             }
@@ -3010,6 +3107,7 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
                 }
             } else {
                 return null;  // 不是数组类型或指针类型
+            }
             }
         }
         
@@ -4383,7 +4481,11 @@ fn codegen_gen_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32 {
         
         i = i + 1;
     }
-    
+
+    // 在生成函数体代码之前，先注册函数内部的结构体声明
+    // 这样在生成代码时，结构体类型已经可用
+    register_structs_in_node(codegen, body);
+
     // 生成函数体代码
     const stmt_result: i32 = codegen_gen_stmt(codegen, body);
     if stmt_result != 0 {
