@@ -670,7 +670,48 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
         case AST_MEMBER_ACCESS: {
             // 字段访问：推断对象类型，然后查找字段类型
             // 支持结构体类型和指针类型（指针自动解引用）
-            Type object_type = checker_infer_type(checker, expr->data.member_access.object);
+            // 也支持枚举类型访问（如 Color.RED）
+            ASTNode *object = expr->data.member_access.object;
+            if (object == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            
+            // 检查是否是枚举类型访问（如 Color.RED）
+            // 如果对象是标识符且不是变量，可能是枚举类型名称
+            if (object->type == AST_IDENTIFIER) {
+                const char *enum_name = object->data.identifier.name;
+                if (enum_name != NULL && checker != NULL && checker->program_node != NULL) {
+                    // 检查是否是变量（如果是变量，则不是枚举类型访问）
+                    Symbol *symbol = symbol_table_lookup(checker, enum_name);
+                    if (symbol == NULL) {
+                        // 不是变量，可能是枚举类型名称
+                        ASTNode *enum_decl = find_enum_decl_from_program(checker->program_node, enum_name);
+                        if (enum_decl != NULL) {
+                            // 是枚举类型，验证变体是否存在
+                            const char *variant_name = expr->data.member_access.field_name;
+                            if (variant_name != NULL) {
+                                // 查找变体索引
+                                for (int i = 0; i < enum_decl->data.enum_decl.variant_count; i++) {
+                                    if (enum_decl->data.enum_decl.variants[i].name != NULL &&
+                                        strcmp(enum_decl->data.enum_decl.variants[i].name, variant_name) == 0) {
+                                        // 找到变体，返回枚举类型
+                                        result.kind = TYPE_ENUM;
+                                        result.data.enum_name = enum_name;
+                                        return result;
+                                    }
+                                }
+                            }
+                            // 变体不存在，返回void类型
+                            result.kind = TYPE_VOID;
+                            return result;
+                        }
+                    }
+                }
+            }
+            
+            // 不是枚举类型访问，按结构体字段访问处理
+            Type object_type = checker_infer_type(checker, object);
             
             // 如果对象是指针类型，自动解引用（Uya Mini 支持指针自动解引用访问字段）
             if (object_type.kind == TYPE_POINTER && object_type.data.pointer.pointer_to != NULL) {
@@ -2124,6 +2165,16 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                         expected_type_str = "usize";
                     } else if (checker->current_return_type.kind == TYPE_VOID) {
                         expected_type_str = "void";
+                    } else if (checker->current_return_type.kind == TYPE_ENUM) {
+                        // 枚举类型：使用枚举名称
+                        if (checker->current_return_type.data.enum_name != NULL) {
+                            expected_type_str = checker->current_return_type.data.enum_name;
+                        }
+                    } else if (checker->current_return_type.kind == TYPE_STRUCT) {
+                        // 结构体类型：使用结构体名称
+                        if (checker->current_return_type.data.struct_name != NULL) {
+                            expected_type_str = checker->current_return_type.data.struct_name;
+                        }
                     }
                     
                     // 获取实际的返回类型字符串
@@ -2137,6 +2188,16 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                         actual_type_str = "usize";
                     } else if (expr_type.kind == TYPE_VOID) {
                         actual_type_str = "void";
+                    } else if (expr_type.kind == TYPE_ENUM) {
+                        // 枚举类型：使用枚举名称
+                        if (expr_type.data.enum_name != NULL) {
+                            actual_type_str = expr_type.data.enum_name;
+                        }
+                    } else if (expr_type.kind == TYPE_STRUCT) {
+                        // 结构体类型：使用结构体名称
+                        if (expr_type.data.struct_name != NULL) {
+                            actual_type_str = expr_type.data.struct_name;
+                        }
                     }
                     
                     snprintf(buf, sizeof(buf), "返回值类型不匹配：期望 %s，实际 %s", expected_type_str, actual_type_str);

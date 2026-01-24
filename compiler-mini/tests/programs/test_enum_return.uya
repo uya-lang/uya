@@ -1,0 +1,187 @@
+// 枚举类型作为返回值测试程序
+// 测试枚举类型作为函数返回类型的功能
+// 根据规范，枚举类型可以作为函数返回类型
+
+enum Color {
+    RED,
+    GREEN,
+    BLUE,
+}
+
+enum Status {
+    PENDING = 1,
+    RUNNING = 2,
+    COMPLETED = 3,
+}
+
+enum Priority {
+    LOW = 10,
+    MEDIUM = 20,
+    HIGH = 30,
+}
+
+// 测试1：返回枚举值的简单函数
+fn get_red() Color {
+    return Color.RED;
+}
+
+fn get_green() Color {
+    return Color.GREEN;
+}
+
+fn get_blue() Color {
+    return Color.BLUE;
+}
+
+// 测试2：根据条件返回不同的枚举值
+fn get_status_by_value(value: i32) Status {
+    if value == 1 {
+        return Status.PENDING;
+    } else if value == 2 {
+        return Status.RUNNING;
+    } else {
+        return Status.COMPLETED;
+    }
+}
+
+// 测试3：返回枚举值的函数，使用参数
+fn get_priority_by_level(level: i32) Priority {
+    if level < 15 {
+        return Priority.LOW;
+    } else if level < 25 {
+        return Priority.MEDIUM;
+    } else {
+        return Priority.HIGH;
+    }
+}
+
+// 测试4：嵌套函数调用返回枚举值
+fn get_default_color() Color {
+    return get_red();
+}
+
+// 测试5：返回枚举值并立即比较
+fn check_color_match(c: Color) bool {
+    return c == Color.RED;
+}
+
+fn main() i32 {
+    // 测试1：调用返回枚举值的函数
+    const c1: Color = get_red();
+    if c1 != Color.RED {
+        return 1;  // get_red() 应该返回 Color.RED
+    }
+    
+    const c2: Color = get_green();
+    if c2 != Color.GREEN {
+        return 2;  // get_green() 应该返回 Color.GREEN
+    }
+    
+    const c3: Color = get_blue();
+    if c3 != Color.BLUE {
+        return 3;  // get_blue() 应该返回 Color.BLUE
+    }
+    
+    // 测试2：调用返回枚举值的函数并直接比较
+    if get_red() != Color.RED {
+        return 4;  // 直接比较函数返回值
+    }
+    
+    if get_green() != Color.GREEN {
+        return 5;
+    }
+    
+    if get_blue() != Color.BLUE {
+        return 6;
+    }
+    
+    // 测试3：根据条件返回不同的枚举值
+    const s1: Status = get_status_by_value(1);
+    if s1 != Status.PENDING {
+        return 7;  // get_status_by_value(1) 应该返回 Status.PENDING
+    }
+    
+    const s2: Status = get_status_by_value(2);
+    if s2 != Status.RUNNING {
+        return 8;  // get_status_by_value(2) 应该返回 Status.RUNNING
+    }
+    
+    const s3: Status = get_status_by_value(3);
+    if s3 != Status.COMPLETED {
+        return 9;  // get_status_by_value(3) 应该返回 Status.COMPLETED
+    }
+    
+    // 测试4：返回枚举值的函数，使用参数
+    const p1: Priority = get_priority_by_level(10);
+    if p1 != Priority.LOW {
+        return 10;  // get_priority_by_level(10) 应该返回 Priority.LOW
+    }
+    
+    const p2: Priority = get_priority_by_level(20);
+    if p2 != Priority.MEDIUM {
+        return 11;  // get_priority_by_level(20) 应该返回 Priority.MEDIUM
+    }
+    
+    const p3: Priority = get_priority_by_level(30);
+    if p3 != Priority.HIGH {
+        return 12;  // get_priority_by_level(30) 应该返回 Priority.HIGH
+    }
+    
+    // 测试5：嵌套函数调用返回枚举值
+    const c4: Color = get_default_color();
+    if c4 != Color.RED {
+        return 13;  // get_default_color() 应该返回 Color.RED
+    }
+    
+    // 测试6：返回枚举值并立即比较
+    if !check_color_match(Color.RED) {
+        return 14;  // check_color_match(Color.RED) 应该返回 true
+    }
+    
+    if check_color_match(Color.GREEN) {
+        return 15;  // check_color_match(Color.GREEN) 应该返回 false
+    }
+    
+    // 测试7：函数返回枚举值，在 if 条件中使用
+    if get_red() == Color.RED {
+        // 正确
+    } else {
+        return 16;  // get_red() == Color.RED 应该为 true
+    }
+    
+    // 测试8：多个函数调用返回不同的枚举值
+    var color: Color = get_red();
+    if color != Color.RED {
+        return 17;
+    }
+    
+    color = get_green();
+    if color != Color.GREEN {
+        return 18;
+    }
+    
+    color = get_blue();
+    if color != Color.BLUE {
+        return 19;
+    }
+    
+    // 测试9：函数返回枚举值，赋值给变量后比较
+    const status: Status = get_status_by_value(2);
+    if status == Status.RUNNING {
+        // 正确
+    } else {
+        return 20;  // status 应该是 Status.RUNNING
+    }
+    
+    // 测试10：函数返回枚举值，在复杂表达式中使用
+    const priority: Priority = get_priority_by_level(25);
+    if priority == Priority.HIGH && priority != Priority.LOW {
+        // 正确
+    } else {
+        return 21;  // priority 应该是 Priority.HIGH
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+
