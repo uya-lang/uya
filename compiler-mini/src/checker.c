@@ -1111,6 +1111,24 @@ static int checker_check_var_decl(TypeChecker *checker, ASTNode *node) {
         }
     }
     
+    // 检查变量遮蔽：内层作用域不能声明与外层作用域同名的变量
+    Symbol *existing = symbol_table_lookup(checker, node->data.var_decl.name);
+    if (existing != NULL && existing->scope_level < checker->scope_level) {
+        // 存在外层作用域的同名变量，这是变量遮蔽错误
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "变量遮蔽错误：内层作用域不能声明与外层作用域同名的变量 '%s'", node->data.var_decl.name);
+        checker_report_error(checker, node, error_msg);
+        return 0;
+    }
+    
+    // 检查相同作用域级别的重复定义
+    if (existing != NULL && existing->scope_level == checker->scope_level) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "变量重复定义：变量 '%s' 在同一作用域中已定义", node->data.var_decl.name);
+        checker_report_error(checker, node, error_msg);
+        return 0;
+    }
+    
     // 将变量添加到符号表
     Symbol *symbol = (Symbol *)arena_alloc(checker->arena, sizeof(Symbol));
     if (symbol == NULL) {
@@ -1126,10 +1144,11 @@ static int checker_check_var_decl(TypeChecker *checker, ASTNode *node) {
     symbol->column = node->column;
     
     if (symbol_table_insert(checker, symbol) != 0) {
-        // 符号插入失败（可能是重复定义）：放宽检查，允许通过（不报错）
-        // 这在编译器自举时可能发生，因为变量可能在不同作用域中重复定义
-        // 不再报告错误，直接允许通过
-        return 1;
+        // 符号插入失败（哈希表已满）：报告错误
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "符号表已满，无法添加变量 '%s'", node->data.var_decl.name);
+        checker_report_error(checker, node, error_msg);
+        return 0;
     }
     
     return 1;
