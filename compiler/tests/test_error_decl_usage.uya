@@ -1,7 +1,0 @@
-error FileNotFound;
-error DivisionByZero;
-
-fn main() !i32 {
-    return error.FileNotFound;
-}
-

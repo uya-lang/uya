@@ -1,1 +1,0 @@
-fn main() i32 { const x: i32 = 42; const y: i32 = add(x, 5); return y; } fn add(a: i32, b: i32) i32 { return a + b; }

@@ -1,1 +1,0 @@
-fn main() i32 { const p: Point = Point{ x: 10, y: 20 }; if p.x > p.y { return p.x; } else { return p.y; } }

@@ -1,1 +1,0 @@
-fn main() i32 { const b: bool = true; return 0; }

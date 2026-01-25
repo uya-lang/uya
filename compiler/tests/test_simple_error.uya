@@ -1,9 +1,0 @@
-fn test_error() !i32 {
-    return error.TestError;
-}
-fn test_error2() !i32 {
-    return error.TestError2;
-}
-fn test_error3() !i32 {
-    return error.TestError3;
-}

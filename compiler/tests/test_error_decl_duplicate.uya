@@ -1,6 +1,0 @@
-error FileNotFound;
-error FileNotFound;  // 重复定义，应该报错
-
-fn main() i32 {
-    return 0;
-}

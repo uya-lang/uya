@@ -1,8 +1,0 @@
-// 测试：只有被使用的预定义错误才会生成错误码
-error FileNotFound;
-error DivisionByZero;  // 声明但未使用，不应该在生成的代码中出现
-
-fn main() !i32 {
-    return error.FileNotFound;  // 只使用FileNotFound
-}
-

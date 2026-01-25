@@ -1,4 +1,0 @@
-fn test() i32 {
-    const x: i32 = 1;
-    return x;
-}

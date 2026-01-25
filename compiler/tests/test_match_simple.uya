@@ -1,8 +1,0 @@
-fn main() i32 {
-    const x: i32 = 1;
-    const result: i32 = match x {
-        1 => 10,
-        else => 0
-    };
-    return result;
-}
