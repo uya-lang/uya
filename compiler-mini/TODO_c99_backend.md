@@ -377,23 +377,41 @@
 **进展**：
 - ✅ 添加C99关键字冲突处理，修复`double`等关键字作为函数名的问题
 - ✅ 实现get_safe_c_identifier函数，自动处理C语言关键字
-- ✅ 13个基础测试用例全部通过：arithmetic, comparison, boolean_logic, control_flow, array_access, assignment, logical_expr, nested_control, multi_param, nested_function_calls, struct_test, struct_assignment, nested_struct
-- ⚠️ 结构体类型支持部分完成：
+- ✅ 15个基础测试用例全部通过：arithmetic, comparison, boolean_logic, control_flow, array_access, assignment, logical_expr, nested_control, multi_param, nested_function_calls, struct_test, struct_assignment, nested_struct, struct_comparison, nested_struct_access
+- ✅ 结构体比较运算符问题已修复：
+  - 实现`is_identifier_struct_type`函数检测变量是否为结构体类型
+  - 在二元表达式生成中检测结构体比较（==, !=）
+  - 使用`memcmp(&left, &right, sizeof(struct))`进行结构体比较
+  - 添加`#include <string.h>`支持memcmp函数
+  - 修复局部变量表，确保结构体类型检测正常工作
+  - ✅ 测试验证通过：`test_struct_comparison.uya`测试用例全部通过
+- ✅ 嵌套结构体访问测试通过：
+  - 支持嵌套结构体定义（struct中包含struct）
+  - 支持多级字段访问（如rect.top_left.x）
+  - 支持嵌套结构体的比较运算
+  - ✅ 测试验证通过：`test_nested_struct_access.uya`测试用例全部通过
+- ✅ 函数原型中的结构体类型问题已修复：
+  - 在收集阶段添加结构体到定义表
+  - `c99_type_to_c`函数自动为结构体类型添加`struct`前缀
+  - 函数参数、返回类型中的结构体类型正确处理
+- ✅ 结构体类型支持基本完成：
   - ✅ 结构体定义生成（`struct Point { ... }`）
   - ✅ 结构体初始化（`(struct Point){.x = 10, .y = 20}`）
   - ✅ 字段访问（`p.x`, `p.y`）
   - ✅ 简单结构体变量声明（`const struct Point p = ...`）
-  - ❌ 函数原型中的结构体类型（需要添加`struct`前缀）
-  - ❌ 结构体比较运算符（C语言不支持，需要特殊处理）
-  - ❌ 嵌套结构体访问
-  - ❌ 空结构体
-  - ❌ sizeof表达式中的结构体类型
+  - ✅ 函数原型中的结构体类型（自动添加`struct`前缀）
+  - ✅ 结构体比较运算符（使用memcmp转换）
+  - ✅ 嵌套结构体访问（支持多级字段访问）
+  - ⚠️ 空结构体（待验证）
+  - ⚠️ sizeof表达式中的结构体类型（待验证）
 
 **待解决问题**：
-1. 函数原型中结构体类型未添加`struct`前缀（需要在收集阶段正确添加结构体到表）
-2. 结构体比较运算符（==, !=）在C99中不支持，需要转换为逐字段比较或memcmp
-3. 嵌套结构体和结构体指针的处理
+1. ✅ 函数原型中结构体类型未添加`struct`前缀 - 已解决
+2. ✅ 结构体比较运算符（==, !=）在C99中不支持 - 已解决（使用memcmp）
+3. 嵌套结构体和结构体指针的处理（需要测试验证）
 4. null关键字的处理（可能需要替换为NULL）
+5. 外部函数声明支持
+6. 完整测试集验证
 
 ---
 

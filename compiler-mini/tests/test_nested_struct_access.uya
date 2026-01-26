@@ -1,0 +1,78 @@
+// 测试嵌套结构体访问
+// 验证嵌套结构体的字段访问
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Rectangle {
+    top_left: Point,
+    bottom_right: Point,
+}
+
+fn test_nested_struct_access() i32 {
+    // 测试嵌套结构体初始化
+    const rect: Rectangle = Rectangle{
+        top_left: Point{ x: 0, y: 0 },
+        bottom_right: Point{ x: 10, y: 20 },
+    };
+    
+    // 测试嵌套字段访问
+    if rect.top_left.x != 0 {
+        return 1;
+    }
+    if rect.top_left.y != 0 {
+        return 2;
+    }
+    if rect.bottom_right.x != 10 {
+        return 3;
+    }
+    if rect.bottom_right.y != 20 {
+        return 4;
+    }
+    
+    // 测试嵌套字段赋值
+    var rect2: Rectangle = Rectangle{
+        top_left: Point{ x: 5, y: 5 },
+        bottom_right: Point{ x: 15, y: 25 },
+    };
+    
+    rect2.top_left.x = 10;
+    rect2.top_left.y = 15;
+    
+    if rect2.top_left.x != 10 {
+        return 5;
+    }
+    if rect2.top_left.y != 15 {
+        return 6;
+    }
+    
+    // 测试嵌套结构体比较
+    const p1: Point = Point{ x: 1, y: 2 };
+    const p2: Point = Point{ x: 1, y: 2 };
+    
+    if !(p1 == p2) {
+        return 7;
+    }
+    
+    // 测试包含嵌套结构体的结构体比较
+    const rect3: Rectangle = Rectangle{
+        top_left: Point{ x: 0, y: 0 },
+        bottom_right: Point{ x: 10, y: 10 },
+    };
+    const rect4: Rectangle = Rectangle{
+        top_left: Point{ x: 0, y: 0 },
+        bottom_right: Point{ x: 10, y: 10 },
+    };
+    
+    if !(rect3 == rect4) {
+        return 8;
+    }
+    
+    return 0;
+}
+
+fn main() i32 {
+    return test_nested_struct_access();
+}

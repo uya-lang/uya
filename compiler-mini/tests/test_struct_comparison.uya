@@ -1,0 +1,51 @@
+// 测试结构体比较运算符
+// 验证结构体相等和不相等比较
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn test_struct_equality() i32 {
+    const p1: Point = Point{ x: 10, y: 20 };
+    const p2: Point = Point{ x: 10, y: 20 };
+    const p3: Point = Point{ x: 30, y: 40 };
+    
+    // 测试结构体相等
+    if !(p1 == p2) {
+        return 1;  // 应该相等
+    }
+    
+    // 测试结构体不相等
+    if !(p1 != p3) {
+        return 2;  // 应该不相等
+    }
+    
+    // 测试相同结构体变量
+    var p4: Point = Point{ x: 5, y: 5 };
+    var p5: Point = Point{ x: 5, y: 5 };
+    
+    if !(p4 == p5) {
+        return 3;  // 应该相等
+    }
+    
+    p5.x = 10;
+    if !(p4 != p5) {
+        return 4;  // 修改后应该不相等
+    }
+    
+    // 测试结构体字面量比较
+    if !(Point{ x: 1, y: 2 } == Point{ x: 1, y: 2 }) {
+        return 5;
+    }
+    
+    if !(Point{ x: 1, y: 2 } != Point{ x: 3, y: 4 }) {
+        return 6;
+    }
+    
+    return 0;
+}
+
+fn main() i32 {
+    return test_struct_equality();
+}

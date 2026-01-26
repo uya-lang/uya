@@ -316,6 +316,31 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
     }
 }
 
+// 检查标识符对应的类型是否为结构体
+static int is_identifier_struct_type(C99CodeGenerator *codegen, const char *name) {
+    if (!name) return 0;
+    
+    // 检查局部变量
+    for (int i = codegen->local_variable_count - 1; i >= 0; i--) {
+        if (strcmp(codegen->local_variables[i].name, name) == 0) {
+            const char *type_c = codegen->local_variables[i].type_c;
+            // 检查类型是否以"struct "开头
+            return (type_c && strncmp(type_c, "struct ", 7) == 0);
+        }
+    }
+    
+    // 检查全局变量
+    for (int i = 0; i < codegen->global_variable_count; i++) {
+        if (strcmp(codegen->global_variables[i].name, name) == 0) {
+            const char *type_c = codegen->global_variables[i].type_c;
+            // 检查类型是否以"struct "开头
+            return (type_c && strncmp(type_c, "struct ", 7) == 0);
+        }
+    }
+    
+    return 0;
+}
+
 // 检查结构体是否已添加到表中
 static int is_struct_in_table(C99CodeGenerator *codegen, const char *struct_name) {
     for (int i = 0; i < codegen->struct_definition_count; i++) {
@@ -717,40 +742,95 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             ASTNode *left = expr->data.binary_expr.left;
             ASTNode *right = expr->data.binary_expr.right;
             int op = expr->data.binary_expr.op;
-            fputc('(', codegen->output);
-            gen_expr(codegen, left);
-            // 操作符映射
-            if (op == TOKEN_PLUS) {
-                fputs(" + ", codegen->output);
-            } else if (op == TOKEN_MINUS) {
-                fputs(" - ", codegen->output);
-            } else if (op == TOKEN_ASTERISK) {
-                fputs(" * ", codegen->output);
-            } else if (op == TOKEN_SLASH) {
-                fputs(" / ", codegen->output);
-            } else if (op == TOKEN_PERCENT) {
-                fputs(" % ", codegen->output);
-            } else if (op == TOKEN_EQUAL) {
-                fputs(" == ", codegen->output);
-            } else if (op == TOKEN_NOT_EQUAL) {
-                fputs(" != ", codegen->output);
-            } else if (op == TOKEN_LESS) {
-                fputs(" < ", codegen->output);
-            } else if (op == TOKEN_GREATER) {
-                fputs(" > ", codegen->output);
-            } else if (op == TOKEN_LESS_EQUAL) {
-                fputs(" <= ", codegen->output);
-            } else if (op == TOKEN_GREATER_EQUAL) {
-                fputs(" >= ", codegen->output);
-            } else if (op == TOKEN_LOGICAL_AND) {
-                fputs(" && ", codegen->output);
-            } else if (op == TOKEN_LOGICAL_OR) {
-                fputs(" || ", codegen->output);
-            } else {
-                fputs(" + ", codegen->output); // 默认为加法
+            
+            // 检查是否是结构体比较（== 或 !=）
+            int is_struct_comparison = 0;
+            if ((op == TOKEN_EQUAL || op == TOKEN_NOT_EQUAL) &&
+                left && right) {
+                // 检查左操作数是否是结构体类型
+                if (left->type == AST_IDENTIFIER) {
+                    if (is_identifier_struct_type(codegen, left->data.identifier.name)) {
+                        is_struct_comparison = 1;
+                    }
+                } else if (left->type == AST_STRUCT_INIT) {
+                    is_struct_comparison = 1;
+                }
             }
-            gen_expr(codegen, right);
-            fputc(')', codegen->output);
+            
+            if (is_struct_comparison) {
+                // 使用memcmp比较结构体
+                // 需要获取左操作数的类型来确定结构体大小
+                const char *struct_name = NULL;
+                if (left->type == AST_IDENTIFIER) {
+                    // 对于变量，我们需要查找其类型
+                    // 这里简化处理，使用sizeof运算符
+                    fputs("memcmp(&", codegen->output);
+                    gen_expr(codegen, left);
+                    fputs(", &", codegen->output);
+                    gen_expr(codegen, right);
+                    fputs(", sizeof(", codegen->output);
+                    gen_expr(codegen, left);
+                    fputs("))", codegen->output);
+                } else if (left->type == AST_STRUCT_INIT) {
+                    // 对于结构体字面量，使用结构体名称
+                    struct_name = left->data.struct_init.struct_name;
+                    fputs("memcmp(&", codegen->output);
+                    gen_expr(codegen, left);
+                    fputs(", &", codegen->output);
+                    gen_expr(codegen, right);
+                    fprintf(codegen->output, ", sizeof(struct %s))", struct_name);
+                } else {
+                    // 默认情况，使用sizeof左操作数
+                    fputs("memcmp(&", codegen->output);
+                    gen_expr(codegen, left);
+                    fputs(", &", codegen->output);
+                    gen_expr(codegen, right);
+                    fputs(", sizeof(", codegen->output);
+                    gen_expr(codegen, left);
+                    fputs("))", codegen->output);
+                }
+                if (op == TOKEN_EQUAL) {
+                    fputs(" == 0", codegen->output);
+                } else if (op == TOKEN_NOT_EQUAL) {
+                    fputs(" != 0", codegen->output);
+                }
+            } else {
+                // 普通二元表达式
+                fputc('(', codegen->output);
+                gen_expr(codegen, left);
+                // 操作符映射
+                if (op == TOKEN_PLUS) {
+                    fputs(" + ", codegen->output);
+                } else if (op == TOKEN_MINUS) {
+                    fputs(" - ", codegen->output);
+                } else if (op == TOKEN_ASTERISK) {
+                    fputs(" * ", codegen->output);
+                } else if (op == TOKEN_SLASH) {
+                    fputs(" / ", codegen->output);
+                } else if (op == TOKEN_PERCENT) {
+                    fputs(" % ", codegen->output);
+                } else if (op == TOKEN_EQUAL) {
+                    fputs(" == ", codegen->output);
+                } else if (op == TOKEN_NOT_EQUAL) {
+                    fputs(" != ", codegen->output);
+                } else if (op == TOKEN_LESS) {
+                    fputs(" < ", codegen->output);
+                } else if (op == TOKEN_GREATER) {
+                    fputs(" > ", codegen->output);
+                } else if (op == TOKEN_LESS_EQUAL) {
+                    fputs(" <= ", codegen->output);
+                } else if (op == TOKEN_GREATER_EQUAL) {
+                    fputs(" >= ", codegen->output);
+                } else if (op == TOKEN_LOGICAL_AND) {
+                    fputs(" && ", codegen->output);
+                } else if (op == TOKEN_LOGICAL_OR) {
+                    fputs(" || ", codegen->output);
+                } else {
+                    fputs(" + ", codegen->output); // 默认为加法
+                }
+                gen_expr(codegen, right);
+                fputc(')', codegen->output);
+            }
             break;
         }
         case AST_UNARY_EXPR: {
@@ -931,6 +1011,8 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             ASTNode *init_expr = stmt->data.var_decl.init;
             int is_const = stmt->data.var_decl.is_const;
             
+            // 计算类型字符串
+            const char *type_c = NULL;
             if (var_type->type == AST_TYPE_ARRAY) {
                 // 数组类型特殊处理
                 ASTNode *element_type = var_type->data.type_array.element_type;
@@ -948,11 +1030,18 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                     array_size = 1;  // 占位符
                 }
                 
+                // 为数组类型分配缓冲区
+                size_t len = strlen(elem_type_c) + 32;  // 元素类型 + "[%d]" + null
+                type_c = arena_alloc(codegen->arena, len);
+                if (type_c) {
+                    snprintf((char*)type_c, len, "%s[%d]", elem_type_c, array_size);
+                }
+                
                 // 生成数组声明：const elem_type var_name[size]
-                c99_emit(codegen, "/* array type */ %s %s %s[%d]", is_const ? "const" : "", elem_type_c, var_name, array_size);
+                c99_emit(codegen, "/* array type */ %s %s %s", is_const ? "const" : "", elem_type_c, var_name, array_size);
             } else {
                 // 非数组类型
-                const char *type_c = c99_type_to_c(codegen, var_type);
+                type_c = c99_type_to_c(codegen, var_type);
                 c99_emit(codegen, "%s %s %s", is_const ? "const" : "", type_c, var_name);
             }
             
@@ -961,6 +1050,13 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 gen_expr(codegen, init_expr);
             }
             fputs(";\n", codegen->output);
+            
+            // 添加到局部变量表（用于类型检测）
+            if (var_name && type_c && codegen->local_variable_count < 128) {
+                codegen->local_variables[codegen->local_variable_count].name = var_name;
+                codegen->local_variables[codegen->local_variable_count].type_c = type_c;
+                codegen->local_variable_count++;
+            }
             break;
         }
         case AST_IF_STMT: {
@@ -1219,6 +1315,7 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     fputs("#include <stdint.h>\n", codegen->output);
     fputs("#include <stdbool.h>\n", codegen->output);
     fputs("#include <stddef.h>\n", codegen->output);
+    fputs("#include <string.h>\n", codegen->output);  // for memcmp
     fputs("\n", codegen->output);
     
     // 第一步：收集所有字符串常量（从全局变量初始化和函数体）
