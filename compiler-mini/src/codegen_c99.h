@@ -26,6 +26,13 @@ typedef struct C99CodeGenerator {
     } struct_definitions[64];
     int struct_definition_count;
     
+    // 枚举定义表（用于跟踪已定义的枚举）
+    struct EnumDefinition {
+        const char *name;           // 枚举名称
+        int defined;               // 是否已定义（1表示是，0表示否）
+    } enum_definitions[64];
+    int enum_definition_count;
+    
     // 函数声明表（用于跟踪已声明的函数）
     struct FunctionDeclaration {
         const char *name;           // 函数名称

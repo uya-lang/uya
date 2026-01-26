@@ -19,6 +19,7 @@ int c99_codegen_new(C99CodeGenerator *codegen, Arena *arena, FILE *output, const
     // 初始化表
     codegen->string_constant_count = 0;
     codegen->struct_definition_count = 0;
+    codegen->enum_definition_count = 0;
     codegen->function_declaration_count = 0;
     codegen->global_variable_count = 0;
     codegen->local_variable_count = 0;
@@ -121,6 +122,12 @@ static const char *get_safe_c_identifier(C99CodeGenerator *codegen, const char *
     // 如果仍然冲突，返回原名称（虽然可能导致编译错误）
     return name;
 }
+
+// 前向声明
+static int is_struct_defined(C99CodeGenerator *codegen, const char *struct_name);
+static int is_enum_defined(C99CodeGenerator *codegen, const char *enum_name);
+static int is_struct_in_table(C99CodeGenerator *codegen, const char *struct_name);
+static int is_enum_in_table(C99CodeGenerator *codegen, const char *enum_name);
 
 // 添加字符串常量
 static const char *add_string_constant(C99CodeGenerator *codegen, const char *value) {
@@ -235,7 +242,26 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
                 return "void";
             } else {
                 // 结构体或枚举类型
-                return name;
+                const char *safe_name = get_safe_c_identifier(codegen, name);
+                
+                // 检查是否是结构体（检查是否在表中，不管是否已定义）
+                if (is_struct_in_table(codegen, safe_name)) {
+                    // 临时缓冲区来构建类型字符串
+                    static char type_buf[256];
+                    snprintf(type_buf, sizeof(type_buf), "struct %s", safe_name);
+                    return type_buf;
+                }
+                
+                // 检查是否是枚举
+                if (is_enum_in_table(codegen, safe_name)) {
+                    // 临时缓冲区来构建类型字符串
+                    static char type_buf[256];
+                    snprintf(type_buf, sizeof(type_buf), "enum %s", safe_name);
+                    return type_buf;
+                }
+                
+                // 未知类型，直接返回名称
+                return safe_name;
             }
         }
         
@@ -290,6 +316,16 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
     }
 }
 
+// 检查结构体是否已添加到表中
+static int is_struct_in_table(C99CodeGenerator *codegen, const char *struct_name) {
+    for (int i = 0; i < codegen->struct_definition_count; i++) {
+        if (strcmp(codegen->struct_definitions[i].name, struct_name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 // 检查结构体是否已定义
 static int is_struct_defined(C99CodeGenerator *codegen, const char *struct_name) {
     for (int i = 0; i < codegen->struct_definition_count; i++) {
@@ -327,6 +363,52 @@ static void add_struct_definition(C99CodeGenerator *codegen, const char *struct_
         codegen->struct_definitions[codegen->struct_definition_count].name = struct_name;
         codegen->struct_definitions[codegen->struct_definition_count].defined = 0;
         codegen->struct_definition_count++;
+    }
+}
+
+// 检查枚举是否已定义
+static int is_enum_defined(C99CodeGenerator *codegen, const char *enum_name) {
+    for (int i = 0; i < codegen->enum_definition_count; i++) {
+        if (strcmp(codegen->enum_definitions[i].name, enum_name) == 0) {
+            return codegen->enum_definitions[i].defined;
+        }
+    }
+    return 0;
+}
+
+// 检查枚举是否已添加到表中
+static int is_enum_in_table(C99CodeGenerator *codegen, const char *enum_name) {
+    for (int i = 0; i < codegen->enum_definition_count; i++) {
+        if (strcmp(codegen->enum_definitions[i].name, enum_name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// 标记枚举已定义
+static void mark_enum_defined(C99CodeGenerator *codegen, const char *enum_name) {
+    for (int i = 0; i < codegen->enum_definition_count; i++) {
+        if (strcmp(codegen->enum_definitions[i].name, enum_name) == 0) {
+            codegen->enum_definitions[i].defined = 1;
+            return;
+        }
+    }
+}
+
+// 添加枚举定义
+static void add_enum_definition(C99CodeGenerator *codegen, const char *enum_name) {
+    // 如果已存在，则返回
+    for (int i = 0; i < codegen->enum_definition_count; i++) {
+        if (strcmp(codegen->enum_definitions[i].name, enum_name) == 0) {
+            return;
+        }
+    }
+    
+    if (codegen->enum_definition_count < 64) {
+        codegen->enum_definitions[codegen->enum_definition_count].name = enum_name;
+        codegen->enum_definitions[codegen->enum_definition_count].defined = 0;
+        codegen->enum_definition_count++;
     }
 }
 
@@ -413,6 +495,14 @@ static int gen_enum_definition(C99CodeGenerator *codegen, ASTNode *enum_decl) {
         return -1;
     }
     
+    // 如果已定义，跳过
+    if (is_enum_defined(codegen, enum_name)) {
+        return 0;
+    }
+    
+    // 添加枚举定义标记
+    add_enum_definition(codegen, enum_name);
+    
     // 输出枚举定义
     c99_emit(codegen, "enum %s {\n", enum_name);
     codegen->indent_level++;
@@ -449,6 +539,9 @@ static int gen_enum_definition(C99CodeGenerator *codegen, ASTNode *enum_decl) {
     
     codegen->indent_level--;
     c99_emit(codegen, "};\n");
+    
+    // 标记为已定义
+    mark_enum_defined(codegen, enum_name);
     return 0;
 }
 
@@ -702,7 +795,7 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             int field_count = expr->data.struct_init.field_count;
             const char **field_names = expr->data.struct_init.field_names;
             ASTNode **field_values = expr->data.struct_init.field_values;
-            fprintf(codegen->output, "(%s){", struct_name);
+            fprintf(codegen->output, "(struct %s){", struct_name);
             for (int i = 0; i < field_count; i++) {
                 const char *safe_field_name = get_safe_c_identifier(codegen, field_names[i]);
                 fprintf(codegen->output, ".%s = ", safe_field_name);
@@ -1141,6 +1234,24 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     // 第二步：输出字符串常量定义（在所有其他代码之前）
     emit_string_constants(codegen);
     fputs("\n", codegen->output);
+    
+    // 第二步：收集所有结构体和枚举定义（添加到表中但不生成代码）
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl) continue;
+        
+        if (decl->type == AST_STRUCT_DECL) {
+            const char *struct_name = get_safe_c_identifier(codegen, decl->data.struct_decl.name);
+            if (!is_struct_in_table(codegen, struct_name)) {
+                add_struct_definition(codegen, struct_name);
+            }
+        } else if (decl->type == AST_ENUM_DECL) {
+            const char *enum_name = get_safe_c_identifier(codegen, decl->data.enum_decl.name);
+            if (!is_enum_in_table(codegen, enum_name)) {
+                add_enum_definition(codegen, enum_name);
+            }
+        }
+    }
     
     // 第三步：生成所有函数的前向声明（解决相互递归调用）
     for (int i = 0; i < decl_count; i++) {
