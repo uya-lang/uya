@@ -35,11 +35,13 @@ usage() {
   -o, --output DIR    指定输出目录（默认: $BUILD_DIR）
   -n, --name NAME     指定输出文件名（默认: $OUTPUT_NAME）
   -c, --clean         清理输出目录后再编译
+  -e, --exec          生成可执行文件（自动链接）
   --compiler PATH     指定编译器路径（默认: $COMPILER）
 
 示例:
-  $0                           # 使用默认设置编译
-  $0 -o /tmp/uyac -n my_compiler  # 指定输出目录和文件名
+  $0                           # 使用默认设置编译（生成目标文件）
+  $0 -e                        # 生成可执行文件
+  $0 -o /tmp/uyac -n my_compiler -e  # 指定输出目录和文件名，生成可执行文件
   $0 -v -d                      # 详细输出和调试模式
   $0 -c                         # 清理后编译
 
@@ -51,6 +53,7 @@ EOF
 VERBOSE=false
 DEBUG=false
 CLEAN=false
+GENERATE_EXEC=false
 
 # 解析命令行选项
 while [[ $# -gt 0 ]]; do
@@ -68,6 +71,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -c|--clean)
             CLEAN=true
+            shift
+            ;;
+        -e|--exec)
+            GENERATE_EXEC=true
             shift
             ;;
         -o|--output)
@@ -175,9 +182,15 @@ echo "=========================================="
 echo ""
 
 # 执行编译（多文件编译模式）
+# 构建编译命令
+COMPILER_CMD=("$COMPILER" "${FULL_PATHS[@]}" -o "$OUTPUT_FILE")
+if [ "$GENERATE_EXEC" = true ]; then
+    COMPILER_CMD+=(-exec)
+fi
+
 if [ "$VERBOSE" = true ]; then
     echo "开始多文件编译..."
-    echo "命令: $COMPILER ${FULL_PATHS[@]} -o $OUTPUT_FILE"
+    echo "命令: ${COMPILER_CMD[*]}"
     echo ""
 fi
 
@@ -192,11 +205,11 @@ trap "rm -f '$TEMP_OUTPUT' '$TEMP_ERRORS'" EXIT
 # 执行编译，捕获所有输出
 if [ "$VERBOSE" = true ] || [ "$DEBUG" = true ]; then
     # 详细模式：显示所有输出
-    "$COMPILER" "${FULL_PATHS[@]}" -o "$OUTPUT_FILE" 2>&1 | tee "$TEMP_OUTPUT"
+    "${COMPILER_CMD[@]}" 2>&1 | tee "$TEMP_OUTPUT"
     COMPILER_EXIT=${PIPESTATUS[0]}
 else
     # 普通模式：只显示关键信息，过滤调试输出
-    "$COMPILER" "${FULL_PATHS[@]}" -o "$OUTPUT_FILE" > "$TEMP_OUTPUT" 2>&1
+    "${COMPILER_CMD[@]}" > "$TEMP_OUTPUT" 2>&1
     COMPILER_EXIT=$?
     
     # 提取关键信息：阶段标题、错误、警告
@@ -214,10 +227,33 @@ if [ $COMPILER_EXIT -eq 0 ]; then
     echo ""
     echo -e "${GREEN}✓ 编译成功！${NC}"
     echo ""
-    echo "输出文件: $OUTPUT_FILE"
+    
+    # 确定实际生成的文件路径
+    # 如果使用 -exec，编译器会生成可执行文件（去掉 .o 或添加 _exec）
+    EXECUTABLE_FILE=""
+    if [ "$GENERATE_EXEC" = true ]; then
+        # 如果输出文件以 .o 结尾，可执行文件去掉 .o
+        if [[ "$OUTPUT_FILE" == *.o ]]; then
+            EXECUTABLE_FILE="${OUTPUT_FILE%.o}"
+        else
+            # 否则添加 _exec 后缀
+            EXECUTABLE_FILE="${OUTPUT_FILE}_exec"
+        fi
+    fi
     
     # 显示文件信息
-    if [ -f "$OUTPUT_FILE" ]; then
+    if [ "$GENERATE_EXEC" = true ] && [ -f "$EXECUTABLE_FILE" ]; then
+        # 生成了可执行文件
+        echo "可执行文件: $EXECUTABLE_FILE"
+        file_size=$(du -h "$EXECUTABLE_FILE" | cut -f1)
+        echo "文件大小: $file_size"
+        echo "类型: 可执行文件"
+        if [ -f "$OUTPUT_FILE" ]; then
+            echo "目标文件: $OUTPUT_FILE（中间文件）"
+        fi
+    elif [ -f "$OUTPUT_FILE" ]; then
+        # 只生成了目标文件
+        echo "输出文件: $OUTPUT_FILE"
         file_size=$(du -h "$OUTPUT_FILE" | cut -f1)
         echo "文件大小: $file_size"
         
@@ -227,7 +263,9 @@ if [ $COMPILER_EXIT -eq 0 ]; then
         else
             echo "类型: 目标文件（.o）"
             echo ""
-            echo "提示: 如果要生成可执行文件，需要使用链接器链接："
+            echo "提示: 如果要生成可执行文件，使用 -e 或 --exec 选项："
+            echo "  $0 -e"
+            echo "或者手动链接："
             # 在 Windows 上使用 .exe 扩展名，在 Linux/Unix 上不使用
             if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
                 echo "  gcc -no-pie $OUTPUT_FILE -o ${OUTPUT_FILE}.exe"
