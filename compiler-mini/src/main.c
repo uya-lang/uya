@@ -59,9 +59,12 @@ static int read_file_content(const char *filename, char *buffer, size_t buffer_s
 // 打印使用说明
 // 参数：program_name - 程序名称
 static void print_usage(const char *program_name) {
-    fprintf(stderr, "用法: %s [输入文件...] -o <输出文件>\n", program_name);
+    fprintf(stderr, "用法: %s [输入文件...] -o <输出文件> [选项]\n", program_name);
     fprintf(stderr, "示例: %s program.uya -o program\n", program_name);
     fprintf(stderr, "示例: %s file1.uya file2.uya file3.uya -o output\n", program_name);
+    fprintf(stderr, "示例: %s program.uya -o program -exec  # 直接生成可执行文件\n", program_name);
+    fprintf(stderr, "\n选项:\n");
+    fprintf(stderr, "  -exec    生成可执行文件（自动链接目标文件）\n");
 }
 
 // 解析命令行参数
@@ -70,16 +73,18 @@ static void print_usage(const char *program_name) {
 //       input_files - 输出参数：输入文件名数组（由调用者分配，大小至少为 MAX_INPUT_FILES）
 //       input_file_count - 输出参数：输入文件数量
 //       output_file - 输出参数：输出文件名
+//       generate_executable - 输出参数：是否生成可执行文件（1 表示是，0 表示否）
 // 返回：成功返回0，失败返回-1
-static int parse_args(int argc, char *argv[], const char *input_files[], int *input_file_count, const char **output_file) {
+static int parse_args(int argc, char *argv[], const char *input_files[], int *input_file_count, const char **output_file, int *generate_executable) {
     if (argc < 4) {
         print_usage(argv[0]);
         return -1;
     }
     
-    // 简单的参数解析：程序名 [输入文件...] -o <输出文件>
+    // 简单的参数解析：程序名 [输入文件...] -o <输出文件> [选项]
     *input_file_count = 0;
     *output_file = NULL;
+    *generate_executable = 0;
     
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-o") == 0) {
@@ -90,6 +95,8 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
                 fprintf(stderr, "错误: -o 选项需要指定输出文件名\n");
                 return -1;
             }
+        } else if (strcmp(argv[i], "-exec") == 0) {
+            *generate_executable = 1;
         } else if (argv[i][0] != '-') {
             // 非选项参数，应该是输入文件
             if (*input_file_count >= MAX_INPUT_FILES) {
@@ -230,20 +237,104 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
     return 0;
 }
 
+// 链接目标文件生成可执行文件
+// 参数：object_file - 目标文件路径
+//       executable_file - 可执行文件路径
+// 返回：成功返回0，失败返回-1
+// 注意：优先尝试使用 LLVM lld（如果可用），否则使用 gcc/clang
+static int link_executable(const char *object_file, const char *executable_file) {
+    if (!object_file || !executable_file) {
+        return -1;
+    }
+    
+    // 检查目标文件是否存在
+    FILE *f = fopen(object_file, "rb");
+    if (!f) {
+        fprintf(stderr, "错误: 目标文件 '%s' 不存在\n", object_file);
+        return -1;
+    }
+    fclose(f);
+    
+    // 尝试使用不同的链接器（按优先级）
+    const char *linkers[] = {
+        "lld -flavor gnu",  // LLVM lld（如果可用）
+        "clang -no-pie",    // Clang（通常可用）
+        "gcc -no-pie"       // GCC（最常用）
+    };
+    const int num_linkers = sizeof(linkers) / sizeof(linkers[0]);
+    
+    char link_cmd[1024];
+    int result = -1;
+    
+    for (int i = 0; i < num_linkers; i++) {
+        // 构建链接命令
+        int len = snprintf(link_cmd, sizeof(link_cmd), "%s \"%s\" -o \"%s\"", 
+                          linkers[i], object_file, executable_file);
+        if (len >= (int)sizeof(link_cmd)) {
+            continue;  // 命令过长，尝试下一个
+        }
+        
+        // 执行链接命令
+        result = system(link_cmd);
+        if (result == 0) {
+            // 链接成功
+            return 0;
+        }
+    }
+    
+    // 所有链接器都失败
+    fprintf(stderr, "错误: 链接失败（尝试了 %d 种链接器）\n", num_linkers);
+    fprintf(stderr, "提示: 请确保系统安装了 gcc、clang 或 lld 之一\n");
+    return -1;
+}
+
 // 主函数
 int main(int argc, char *argv[]) {
     const char *input_files[MAX_INPUT_FILES];
     int input_file_count = 0;
     const char *output_file = NULL;
+    int generate_executable = 0;
     
     // 解析命令行参数
-    if (parse_args(argc, argv, input_files, &input_file_count, &output_file) != 0) {
+    if (parse_args(argc, argv, input_files, &input_file_count, &output_file, &generate_executable) != 0) {
         return 1;
     }
     
     // 编译文件
     int result = compile_files(input_files, input_file_count, output_file);
+    if (result != 0) {
+        return result;
+    }
     
-    return result;
+    // 如果指定了 -exec 选项，自动链接生成可执行文件
+    if (generate_executable) {
+        // 确定目标文件和可执行文件路径
+        // 如果输出文件以 .o 结尾，则目标文件就是输出文件，可执行文件去掉 .o
+        // 否则，目标文件是输出文件，可执行文件添加 _exec 后缀
+        char object_file[512];
+        char executable_file[512];
+        
+        strncpy(object_file, output_file, sizeof(object_file) - 1);
+        object_file[sizeof(object_file) - 1] = '\0';
+        
+        size_t len = strlen(output_file);
+        if (len >= 2 && output_file[len - 2] == '.' && output_file[len - 1] == 'o') {
+            // 以 .o 结尾，去掉 .o 作为可执行文件名
+            strncpy(executable_file, output_file, len - 2);
+            executable_file[len - 2] = '\0';
+        } else {
+            // 不以 .o 结尾，添加 _exec 后缀
+            snprintf(executable_file, sizeof(executable_file), "%s_exec", output_file);
+        }
+        
+        // 链接生成可执行文件
+        if (link_executable(object_file, executable_file) != 0) {
+            return 1;
+        }
+        
+        fprintf(stderr, "可执行文件已生成: %s\n", executable_file);
+    }
+    
+    return 0;
 }
 
