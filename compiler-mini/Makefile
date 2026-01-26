@@ -54,6 +54,7 @@ MAIN_SRC = src/main.c \
 	src/codegen/function.c \
 	src/codegen/global.c \
 	src/codegen/main.c \
+	src/codegen_c99.c \
 	src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
 
 # LLVM 库链接选项

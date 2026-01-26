@@ -6,6 +6,14 @@
 #include "parser.h"
 #include "checker.h"
 #include "codegen.h"
+#include "codegen_c99.h"
+
+// 后端类型
+typedef enum {
+    BACKEND_LLVM,
+    BACKEND_C99
+} BackendType;
+
 
 // 文件读取缓冲区大小（与Lexer的缓冲区大小相同）
 #define FILE_BUFFER_SIZE (1024 * 1024)  // 1MB
@@ -63,8 +71,13 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "示例: %s program.uya -o program\n", program_name);
     fprintf(stderr, "示例: %s file1.uya file2.uya file3.uya -o output\n", program_name);
     fprintf(stderr, "示例: %s program.uya -o program -exec  # 直接生成可执行文件\n", program_name);
+    fprintf(stderr, "示例: %s program.uya -o program.c --c99  # 生成 C99 代码\n", program_name);
     fprintf(stderr, "\n选项:\n");
     fprintf(stderr, "  -exec    生成可执行文件（自动链接目标文件）\n");
+    fprintf(stderr, "  --c99    使用 C99 后端生成 C 代码（默认根据输出文件后缀检测）\n");
+    fprintf(stderr, "\n说明:\n");
+    fprintf(stderr, "  - 输出文件后缀为 .c 时自动使用 C99 后端\n");
+    fprintf(stderr, "  - 输出文件后缀为 .o 或无后缀时使用 LLVM 后端\n");
 }
 
 // 解析命令行参数
@@ -74,8 +87,9 @@ static void print_usage(const char *program_name) {
 //       input_file_count - 输出参数：输入文件数量
 //       output_file - 输出参数：输出文件名
 //       generate_executable - 输出参数：是否生成可执行文件（1 表示是，0 表示否）
+//       backend_type - 输出参数：后端类型（LLVM 或 C99）
 // 返回：成功返回0，失败返回-1
-static int parse_args(int argc, char *argv[], const char *input_files[], int *input_file_count, const char **output_file, int *generate_executable) {
+static int parse_args(int argc, char *argv[], const char *input_files[], int *input_file_count, const char **output_file, int *generate_executable, BackendType *backend_type) {
     if (argc < 4) {
         print_usage(argv[0]);
         return -1;
@@ -85,6 +99,7 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
     *input_file_count = 0;
     *output_file = NULL;
     *generate_executable = 0;
+    *backend_type = BACKEND_LLVM;  // 默认使用 LLVM 后端
     
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-o") == 0) {
@@ -97,6 +112,8 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
             }
         } else if (strcmp(argv[i], "-exec") == 0) {
             *generate_executable = 1;
+        } else if (strcmp(argv[i], "--c99") == 0) {
+            *backend_type = BACKEND_C99;
         } else if (argv[i][0] != '-') {
             // 非选项参数，应该是输入文件
             if (*input_file_count >= MAX_INPUT_FILES) {
@@ -120,6 +137,14 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
         return -1;
     }
     
+    // 如果没有显式指定后端类型，根据输出文件后缀自动检测
+    if (*backend_type == BACKEND_LLVM) {
+        const char *ext = strrchr(*output_file, '.');
+        if (ext && strcmp(ext, ".c") == 0) {
+            *backend_type = BACKEND_C99;
+        }
+    }
+    
     return 0;
 }
 
@@ -129,13 +154,14 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
     //       input_file_count - 输入文件数量
     //       output_file - 输出文件名
     // 返回：成功返回0，失败返回非0
-    static int compile_files(const char *input_files[], int input_file_count, const char *output_file) {
+    static int compile_files(const char *input_files[], int input_file_count, const char *output_file, BackendType backend) {
         fprintf(stderr, "=== 开始编译 ===\n");
         fprintf(stderr, "输入文件数量: %d\n", input_file_count);
         for (int i = 0; i < input_file_count; i++) {
             fprintf(stderr, "  %d: %s\n", i, input_files[i]);
         }
         fprintf(stderr, "输出文件: %s\n", output_file);
+        fprintf(stderr, "后端类型: %s\n", backend == BACKEND_C99 ? "C99" : "LLVM");
         
         // 初始化 Arena 分配器（所有文件共享同一个 Arena）
         // 使用全局缓冲区，无需动态分配
@@ -223,15 +249,43 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
         const char *module_name = input_files[0];
         fprintf(stderr, "模块名: %s\n", module_name);
     
-    CodeGenerator codegen;
-    if (codegen_new(&codegen, &arena, module_name) != 0) {
-        fprintf(stderr, "错误: CodeGenerator 初始化失败\n");
-        return 1;
-    }
-    
-    if (codegen_generate(&codegen, merged_ast, output_file) != 0) {
-        fprintf(stderr, "错误: 代码生成失败\n");
-        return 1;
+    if (backend == BACKEND_C99) {
+        // C99 后端：生成 C 源代码
+        FILE *out_file = fopen(output_file, "w");
+        if (!out_file) {
+            fprintf(stderr, "错误: 无法打开输出文件 '%s'\n", output_file);
+            return 1;
+        }
+        
+        C99CodeGenerator c99_codegen;
+        if (c99_codegen_new(&c99_codegen, &arena, out_file, module_name) != 0) {
+            fprintf(stderr, "错误: C99CodeGenerator 初始化失败\n");
+            fclose(out_file);
+            return 1;
+        }
+        
+        if (c99_codegen_generate(&c99_codegen, merged_ast, output_file) != 0) {
+            fprintf(stderr, "错误: C99 代码生成失败\n");
+            c99_codegen_free(&c99_codegen);
+            fclose(out_file);
+            return 1;
+        }
+        
+        c99_codegen_free(&c99_codegen);
+        fclose(out_file);
+        fprintf(stderr, "C99 源代码已生成: %s\n", output_file);
+    } else {
+        // LLVM 后端：生成目标文件
+        CodeGenerator codegen;
+        if (codegen_new(&codegen, &arena, module_name) != 0) {
+            fprintf(stderr, "错误: CodeGenerator 初始化失败\n");
+            return 1;
+        }
+        
+        if (codegen_generate(&codegen, merged_ast, output_file) != 0) {
+            fprintf(stderr, "错误: 代码生成失败\n");
+            return 1;
+        }
     }
     
     return 0;
@@ -370,14 +424,15 @@ int main(int argc, char *argv[]) {
     int input_file_count = 0;
     const char *output_file = NULL;
     int generate_executable = 0;
+    BackendType backend = BACKEND_LLVM;
     
     // 解析命令行参数
-    if (parse_args(argc, argv, input_files, &input_file_count, &output_file, &generate_executable) != 0) {
+    if (parse_args(argc, argv, input_files, &input_file_count, &output_file, &generate_executable, &backend) != 0) {
         return 1;
     }
     
     // 编译文件
-    int result = compile_files(input_files, input_file_count, output_file);
+    int result = compile_files(input_files, input_file_count, output_file, backend);
     if (result != 0) {
         return result;
     }
@@ -403,12 +458,25 @@ int main(int argc, char *argv[]) {
             snprintf(executable_file, sizeof(executable_file), "%s_exec", output_file);
         }
         
-        // 链接生成可执行文件
-        if (link_executable(object_file, executable_file) != 0) {
-            return 1;
+        // 根据后端类型选择合适的链接方式
+        if (backend == BACKEND_C99) {
+            // 对于 C99 后端，使用 gcc 编译 C 源代码
+            char cmd[1024];
+            snprintf(cmd, sizeof(cmd), "gcc --std=c99 -o \"%s\" \"%s\"", executable_file, output_file);
+            fprintf(stderr, "执行编译命令: %s\n", cmd);
+            int compile_result = system(cmd);
+            if (compile_result != 0) {
+                fprintf(stderr, "错误: 编译 C99 代码失败\n");
+                return 1;
+            }
+            fprintf(stderr, "C99 可执行文件已生成: %s\n", executable_file);
+        } else {
+            // LLVM 后端：使用现有的链接逻辑
+            if (link_executable(object_file, executable_file) != 0) {
+                return 1;
+            }
+            fprintf(stderr, "可执行文件已生成: %s\n", executable_file);
         }
-        
-        fprintf(stderr, "可执行文件已生成: %s\n", executable_file);
     }
     
     return 0;
