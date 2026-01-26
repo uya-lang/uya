@@ -85,9 +85,9 @@ static const char *add_string_constant(C99CodeGenerator *codegen, const char *va
         return NULL;
     }
     
-    // 生成常量名称（如 .str0）
+    // 生成常量名称（如 str0）
     char name[32];
-    snprintf(name, sizeof(name), ".str%d", codegen->string_constant_count);
+    snprintf(name, sizeof(name), "str%d", codegen->string_constant_count);
     
     // 存储到表中
     codegen->string_constants[codegen->string_constant_count].name = arena_strdup(codegen->arena, name);
@@ -911,6 +911,7 @@ static void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) 
     ASTNode *return_type = fn_decl->data.fn_decl.return_type;
     ASTNode **params = fn_decl->data.fn_decl.params;
     int param_count = fn_decl->data.fn_decl.param_count;
+    int is_varargs = fn_decl->data.fn_decl.is_varargs;
     
     // 返回类型
     const char *return_c = c99_type_to_c(codegen, return_type);
@@ -929,6 +930,12 @@ static void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) 
         if (i < param_count - 1) fputs(", ", codegen->output);
     }
     
+    // 处理可变参数
+    if (is_varargs) {
+        if (param_count > 0) fputs(", ", codegen->output);
+        fputs("...", codegen->output);
+    }
+    
     fputs(");\n", codegen->output);
 }
 
@@ -940,6 +947,7 @@ static void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     ASTNode *return_type = fn_decl->data.fn_decl.return_type;
     ASTNode **params = fn_decl->data.fn_decl.params;
     int param_count = fn_decl->data.fn_decl.param_count;
+    int is_varargs = fn_decl->data.fn_decl.is_varargs;
     ASTNode *body = fn_decl->data.fn_decl.body;
     
     // 如果没有函数体（外部函数），则不生成定义
@@ -960,6 +968,12 @@ static void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
         
         fprintf(codegen->output, "%s %s", param_type_c, param_name);
         if (i < param_count - 1) fputs(", ", codegen->output);
+    }
+    
+    // 处理可变参数
+    if (is_varargs) {
+        if (param_count > 0) fputs(", ", codegen->output);
+        fputs("...", codegen->output);
     }
     
     fputs(") {\n", codegen->output);
