@@ -111,6 +111,53 @@ static void emit_string_constants(C99CodeGenerator *codegen) {
     }
 }
 
+// 评估编译时常量表达式（返回 -1 表示无法评估）
+static int eval_const_expr(C99CodeGenerator *codegen, ASTNode *expr) {
+    if (!expr) return -1;
+    
+    switch (expr->type) {
+        case AST_NUMBER:
+            return expr->data.number.value;
+        case AST_BINARY_EXPR: {
+            ASTNode *left = expr->data.binary_expr.left;
+            ASTNode *right = expr->data.binary_expr.right;
+            int op = expr->data.binary_expr.op;
+            int left_val = eval_const_expr(codegen, left);
+            int right_val = eval_const_expr(codegen, right);
+            if (left_val == -1 || right_val == -1) return -1;
+            
+            switch (op) {
+                case TOKEN_PLUS: return left_val + right_val;
+                case TOKEN_MINUS: return left_val - right_val;
+                case TOKEN_ASTERISK: return left_val * right_val;
+                case TOKEN_SLASH: 
+                    if (right_val == 0) return -1;
+                    return left_val / right_val;
+                case TOKEN_PERCENT: 
+                    if (right_val == 0) return -1;
+                    return left_val % right_val;
+                default:
+                    // 不支持的操作符
+                    return -1;
+            }
+        }
+        case AST_UNARY_EXPR: {
+            int op = expr->data.unary_expr.op;
+            ASTNode *operand = expr->data.unary_expr.operand;
+            int operand_val = eval_const_expr(codegen, operand);
+            if (operand_val == -1) return -1;
+            
+            if (op == TOKEN_PLUS) return operand_val;
+            if (op == TOKEN_MINUS) return -operand_val;
+            // 不支持的其他一元操作符
+            return -1;
+        }
+        default:
+            // 不是常量表达式
+            return -1;
+    }
+}
+
 // 类型映射函数
 const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
     if (!type_node) {
@@ -158,8 +205,22 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
         
         case AST_TYPE_ARRAY: {
             ASTNode *element_type = type_node->data.type_array.element_type;
-            // size_expr 是一个表达式节点，需要评估编译时常量
-            // 暂时返回一个通用数组类型，后续实现常量评估
+            ASTNode *size_expr = type_node->data.type_array.size_expr;
+            
+            // 评估数组大小（编译时常量）
+            int array_size = -1;
+            if (size_expr) {
+                array_size = eval_const_expr(codegen, size_expr);
+                if (array_size <= 0) {
+                    // 如果评估失败或大小无效，使用占位符大小
+                    array_size = 1;  // 占位符
+                }
+            } else {
+                // 无大小表达式（如 [T]），在 C99 中需要指定大小
+                // 暂时使用占位符
+                array_size = 1;
+            }
+            
             const char *element_c = c99_type_to_c(codegen, element_type);
             
             // 分配缓冲区
@@ -169,8 +230,7 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
                 return "void";
             }
             
-            // 假设大小为 1，占位符
-            snprintf(result, len, "%s[1]", element_c);
+            snprintf(result, len, "%s[%d]", element_c, array_size);
             return result;
         }
         
@@ -259,8 +319,28 @@ static int gen_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl
             return -1;
         }
         
-        const char *field_type_c = c99_type_to_c(codegen, field_type);
-        c99_emit(codegen, "%s %s;\n", field_type_c, field_name);
+        // 检查是否为数组类型
+        if (field_type->type == AST_TYPE_ARRAY) {
+            ASTNode *element_type = field_type->data.type_array.element_type;
+            ASTNode *size_expr = field_type->data.type_array.size_expr;
+            const char *elem_type_c = c99_type_to_c(codegen, element_type);
+            
+            // 评估数组大小
+            int array_size = -1;
+            if (size_expr) {
+                array_size = eval_const_expr(codegen, size_expr);
+                if (array_size <= 0) {
+                    array_size = 1;  // 占位符
+                }
+            } else {
+                array_size = 1;  // 占位符
+            }
+            
+            c99_emit(codegen, "%s %s[%d];\n", elem_type_c, field_name, array_size);
+        } else {
+            const char *field_type_c = c99_type_to_c(codegen, field_type);
+            c99_emit(codegen, "%s %s;\n", field_type_c, field_name);
+        }
     }
     
     codegen->indent_level--;
@@ -269,6 +349,202 @@ static int gen_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl
     // 标记为已定义
     mark_struct_defined(codegen, struct_name);
     return 0;
+}
+
+// 生成枚举定义
+static int gen_enum_definition(C99CodeGenerator *codegen, ASTNode *enum_decl) {
+    if (!enum_decl || enum_decl->type != AST_ENUM_DECL) {
+        return -1;
+    }
+    
+    const char *enum_name = enum_decl->data.enum_decl.name;
+    if (!enum_name) {
+        return -1;
+    }
+    
+    // 输出枚举定义
+    c99_emit(codegen, "enum %s {\n", enum_name);
+    codegen->indent_level++;
+    
+    EnumVariant *variants = enum_decl->data.enum_decl.variants;
+    int variant_count = enum_decl->data.enum_decl.variant_count;
+    int current_value = 0;
+    
+    for (int i = 0; i < variant_count; i++) {
+        EnumVariant *variant = &variants[i];
+        if (!variant->name) {
+            return -1;
+        }
+        
+        // 确定变体的值
+        if (variant->value) {
+            // 有显式值，使用atoi转换
+            current_value = atoi(variant->value);
+            c99_emit(codegen, "%s = %d", variant->name, current_value);
+        } else {
+            // 无显式值，使用当前值（从0开始或基于前一个值）
+            c99_emit(codegen, "%s", variant->name);
+            // 当前值保持不变，供下一个变体使用（C中隐式递增）
+        }
+        
+        // 添加逗号（除非是最后一个）
+        if (i < variant_count - 1) {
+            fputs(",", codegen->output);
+        }
+        fputs("\n", codegen->output);
+    }
+    
+    codegen->indent_level--;
+    c99_emit(codegen, "};\n");
+    return 0;
+}
+
+// 收集表达式中的字符串常量（不生成代码）
+static void collect_string_constants_from_expr(C99CodeGenerator *codegen, ASTNode *expr) {
+    if (!expr) return;
+    
+    switch (expr->type) {
+        case AST_STRING:
+            add_string_constant(codegen, expr->data.string_literal.value);
+            break;
+        case AST_BINARY_EXPR:
+            collect_string_constants_from_expr(codegen, expr->data.binary_expr.left);
+            collect_string_constants_from_expr(codegen, expr->data.binary_expr.right);
+            break;
+        case AST_UNARY_EXPR:
+            collect_string_constants_from_expr(codegen, expr->data.unary_expr.operand);
+            break;
+        case AST_CALL_EXPR: {
+            collect_string_constants_from_expr(codegen, expr->data.call_expr.callee);
+            for (int i = 0; i < expr->data.call_expr.arg_count; i++) {
+                collect_string_constants_from_expr(codegen, expr->data.call_expr.args[i]);
+            }
+            break;
+        }
+        case AST_MEMBER_ACCESS:
+            collect_string_constants_from_expr(codegen, expr->data.member_access.object);
+            break;
+        case AST_ARRAY_ACCESS:
+            collect_string_constants_from_expr(codegen, expr->data.array_access.array);
+            collect_string_constants_from_expr(codegen, expr->data.array_access.index);
+            break;
+        case AST_STRUCT_INIT:
+            for (int i = 0; i < expr->data.struct_init.field_count; i++) {
+                collect_string_constants_from_expr(codegen, expr->data.struct_init.field_values[i]);
+            }
+            break;
+        case AST_ARRAY_LITERAL:
+            for (int i = 0; i < expr->data.array_literal.element_count; i++) {
+                collect_string_constants_from_expr(codegen, expr->data.array_literal.elements[i]);
+            }
+            break;
+        case AST_SIZEOF:
+        case AST_LEN:
+        case AST_ALIGNOF:
+            // 这些表达式内部可能包含表达式或类型，但类型节点不包含字符串
+            // 暂时忽略
+            break;
+        case AST_CAST_EXPR:
+            collect_string_constants_from_expr(codegen, expr->data.cast_expr.expr);
+            break;
+        default:
+            // 其他表达式类型（标识符、数字、布尔值）不包含字符串
+            break;
+    }
+}
+
+// 收集语句中的字符串常量
+static void collect_string_constants_from_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
+    if (!stmt) return;
+    
+    switch (stmt->type) {
+        case AST_EXPR_STMT:
+            // 表达式语句的数据存储在表达式的节点中，直接忽略此节点
+            break;
+        case AST_ASSIGN: {
+            ASTNode *dest = stmt->data.assign.dest;
+            ASTNode *src = stmt->data.assign.src;
+            collect_string_constants_from_expr(codegen, dest);
+            collect_string_constants_from_expr(codegen, src);
+            break;
+        }
+        case AST_RETURN_STMT: {
+            ASTNode *expr = stmt->data.return_stmt.expr;
+            collect_string_constants_from_expr(codegen, expr);
+            break;
+        }
+        case AST_BLOCK: {
+            ASTNode **stmts = stmt->data.block.stmts;
+            int stmt_count = stmt->data.block.stmt_count;
+            for (int i = 0; i < stmt_count; i++) {
+                collect_string_constants_from_stmt(codegen, stmts[i]);
+            }
+            break;
+        }
+        case AST_VAR_DECL: {
+            ASTNode *init_expr = stmt->data.var_decl.init;
+            if (init_expr) {
+                collect_string_constants_from_expr(codegen, init_expr);
+            }
+            break;
+        }
+        case AST_IF_STMT: {
+            ASTNode *condition = stmt->data.if_stmt.condition;
+            ASTNode *then_branch = stmt->data.if_stmt.then_branch;
+            ASTNode *else_branch = stmt->data.if_stmt.else_branch;
+            collect_string_constants_from_expr(codegen, condition);
+            collect_string_constants_from_stmt(codegen, then_branch);
+            if (else_branch) {
+                collect_string_constants_from_stmt(codegen, else_branch);
+            }
+            break;
+        }
+        case AST_WHILE_STMT: {
+            ASTNode *condition = stmt->data.while_stmt.condition;
+            ASTNode *body = stmt->data.while_stmt.body;
+            collect_string_constants_from_expr(codegen, condition);
+            collect_string_constants_from_stmt(codegen, body);
+            break;
+        }
+        case AST_FOR_STMT: {
+            ASTNode *array = stmt->data.for_stmt.array;
+            ASTNode *body = stmt->data.for_stmt.body;
+            collect_string_constants_from_expr(codegen, array);
+            collect_string_constants_from_stmt(codegen, body);
+            break;
+        }
+        case AST_BREAK_STMT:
+        case AST_CONTINUE_STMT:
+            // 不包含表达式
+            break;
+        default:
+            // 可能是表达式节点（如 AST_BINARY_EXPR 等）
+            // 在这种情况下，将其视为表达式处理
+            collect_string_constants_from_expr(codegen, stmt);
+            break;
+    }
+}
+
+// 收集声明中的字符串常量（全局变量初始化、函数体）
+static void collect_string_constants_from_decl(C99CodeGenerator *codegen, ASTNode *decl) {
+    if (!decl) return;
+    
+    switch (decl->type) {
+        case AST_VAR_DECL:
+            if (decl->data.var_decl.init) {
+                collect_string_constants_from_expr(codegen, decl->data.var_decl.init);
+            }
+            break;
+        case AST_FN_DECL: {
+            ASTNode *body = decl->data.fn_decl.body;
+            if (body) {
+                collect_string_constants_from_stmt(codegen, body);
+            }
+            break;
+        }
+        default:
+            break;
+    }
 }
 
 // 生成表达式
@@ -505,8 +781,31 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             ASTNode *init_expr = stmt->data.var_decl.init;
             int is_const = stmt->data.var_decl.is_const;
             
-            const char *type_c = c99_type_to_c(codegen, var_type);
-            c99_emit(codegen, "%s %s %s", is_const ? "const" : "", type_c, var_name);
+            if (var_type->type == AST_TYPE_ARRAY) {
+                // 数组类型特殊处理
+                ASTNode *element_type = var_type->data.type_array.element_type;
+                ASTNode *size_expr = var_type->data.type_array.size_expr;
+                const char *elem_type_c = c99_type_to_c(codegen, element_type);
+                
+                // 评估数组大小
+                int array_size = -1;
+                if (size_expr) {
+                    array_size = eval_const_expr(codegen, size_expr);
+                    if (array_size <= 0) {
+                        array_size = 1;  // 占位符
+                    }
+                } else {
+                    array_size = 1;  // 占位符
+                }
+                
+                // 生成数组声明：const elem_type var_name[size]
+                c99_emit(codegen, "/* array type */ %s %s %s[%d]", is_const ? "const" : "", elem_type_c, var_name, array_size);
+            } else {
+                // 非数组类型
+                const char *type_c = c99_type_to_c(codegen, var_type);
+                c99_emit(codegen, "%s %s %s", is_const ? "const" : "", type_c, var_name);
+            }
+            
             if (init_expr) {
                 fputs(" = ", codegen->output);
                 gen_expr(codegen, init_expr);
@@ -604,6 +903,35 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
     }
 }
 
+// 生成函数原型（前向声明）
+static void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) {
+    if (!fn_decl || fn_decl->type != AST_FN_DECL) return;
+    
+    const char *func_name = fn_decl->data.fn_decl.name;
+    ASTNode *return_type = fn_decl->data.fn_decl.return_type;
+    ASTNode **params = fn_decl->data.fn_decl.params;
+    int param_count = fn_decl->data.fn_decl.param_count;
+    
+    // 返回类型
+    const char *return_c = c99_type_to_c(codegen, return_type);
+    fprintf(codegen->output, "%s %s(", return_c, func_name);
+    
+    // 参数列表
+    for (int i = 0; i < param_count; i++) {
+        ASTNode *param = params[i];
+        if (!param || param->type != AST_VAR_DECL) continue;
+        
+        const char *param_name = param->data.var_decl.name;
+        ASTNode *param_type = param->data.var_decl.type;
+        const char *param_type_c = c99_type_to_c(codegen, param_type);
+        
+        fprintf(codegen->output, "%s %s", param_type_c, param_name);
+        if (i < param_count - 1) fputs(", ", codegen->output);
+    }
+    
+    fputs(");\n", codegen->output);
+}
+
 // 生成函数定义
 static void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     if (!fn_decl || fn_decl->type != AST_FN_DECL) return;
@@ -613,6 +941,9 @@ static void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     ASTNode **params = fn_decl->data.fn_decl.params;
     int param_count = fn_decl->data.fn_decl.param_count;
     ASTNode *body = fn_decl->data.fn_decl.body;
+    
+    // 如果没有函数体（外部函数），则不生成定义
+    if (!body) return;
     
     // 返回类型
     const char *return_c = c99_type_to_c(codegen, return_type);
@@ -635,12 +966,72 @@ static void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     codegen->indent_level++;
     
     // 生成函数体
-    if (body) {
-        gen_stmt(codegen, body);
-    }
+    gen_stmt(codegen, body);
     
     codegen->indent_level--;
     c99_emit(codegen, "}\n");
+}
+
+// 生成全局变量定义
+static void gen_global_var(C99CodeGenerator *codegen, ASTNode *var_decl) {
+    if (!var_decl || var_decl->type != AST_VAR_DECL) return;
+    
+    const char *var_name = var_decl->data.var_decl.name;
+    ASTNode *var_type = var_decl->data.var_decl.type;
+    ASTNode *init_expr = var_decl->data.var_decl.init;
+    int is_const = var_decl->data.var_decl.is_const;
+    
+    if (!var_name || !var_type) return;
+    
+    const char *type_c = NULL;
+    int array_size = -1;
+    
+    // 检查是否为数组类型
+    if (var_type->type == AST_TYPE_ARRAY) {
+        ASTNode *element_type = var_type->data.type_array.element_type;
+        ASTNode *size_expr = var_type->data.type_array.size_expr;
+        type_c = c99_type_to_c(codegen, element_type);
+        
+        // 评估数组大小
+        if (size_expr) {
+            array_size = eval_const_expr(codegen, size_expr);
+            if (array_size <= 0) {
+                array_size = 1;  // 占位符
+            }
+        } else {
+            array_size = 1;  // 占位符
+        }
+        
+        // 生成数组声明：const elem_type var_name[size]
+        if (is_const) {
+            fprintf(codegen->output, "const %s %s[%d]", type_c, var_name, array_size);
+        } else {
+            fprintf(codegen->output, "%s %s[%d]", type_c, var_name, array_size);
+        }
+    } else {
+        type_c = c99_type_to_c(codegen, var_type);
+        if (is_const) {
+            fprintf(codegen->output, "const %s %s", type_c, var_name);
+        } else {
+            fprintf(codegen->output, "%s %s", type_c, var_name);
+        }
+    }
+    
+    // 初始化表达式
+    if (init_expr) {
+        fputs(" = ", codegen->output);
+        gen_expr(codegen, init_expr);
+    }
+    
+    fputs(";\n", codegen->output);
+    
+    // 添加到全局变量表（可选，用于后续引用）
+    if (codegen->global_variable_count < 128) {
+        codegen->global_variables[codegen->global_variable_count].name = var_name;
+        codegen->global_variables[codegen->global_variable_count].type_c = type_c;
+        codegen->global_variables[codegen->global_variable_count].is_const = is_const;
+        codegen->global_variable_count++;
+    }
 }
 
 // 主生成函数
@@ -666,16 +1057,48 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     fputs("#include <stddef.h>\n", codegen->output);
     fputs("\n", codegen->output);
     
-    // 遍历所有声明
+    // 第一步：收集所有字符串常量（从全局变量初始化和函数体）
     ASTNode **decls = ast->data.program.decls;
     int decl_count = ast->data.program.decl_count;
     
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) continue;
+        collect_string_constants_from_decl(codegen, decl);
+    }
+    
+    // 第二步：输出字符串常量定义（在所有其他代码之前）
+    emit_string_constants(codegen);
+    fputs("\n", codegen->output);
+    
+    // 第三步：生成所有函数的前向声明（解决相互递归调用）
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_FN_DECL) continue;
+        gen_function_prototype(codegen, decl);
+    }
+    fputs("\n", codegen->output);
+    
+    // 第四步：生成所有声明（结构体、枚举、全局变量、函数定义）
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl) continue;
         
         switch (decl->type) {
+            case AST_ENUM_DECL:
+                gen_enum_definition(codegen, decl);
+                fputs("\n", codegen->output);
+                break;
+            case AST_STRUCT_DECL:
+                gen_struct_definition(codegen, decl);
+                fputs("\n", codegen->output);
+                break;
+            case AST_VAR_DECL:
+                gen_global_var(codegen, decl);
+                fputs("\n", codegen->output);
+                break;
             case AST_FN_DECL:
+                // 只生成有函数体的定义（外部函数由前向声明处理）
                 gen_function(codegen, decl);
                 fputs("\n", codegen->output);
                 break;
