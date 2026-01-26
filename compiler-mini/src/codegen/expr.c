@@ -1457,24 +1457,34 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                         // 如果不是结构体类型，尝试从数组表达式的类型中获取元素类型
                         ASTNode *array_expr = object->data.array_access.array;
                         if (array_expr) {
-                            // 情况1：数组变量标识符（arr[0]）
+                            // 情况1：数组变量标识符（arr[0]）或指针变量（ptr[0]）
                             if (array_expr->type == AST_IDENTIFIER) {
                                 const char *array_var_name = array_expr->data.identifier.name;
                                 if (array_var_name) {
                                     ASTNode *array_ast_type = lookup_var_ast_type(codegen, array_var_name);
-                                    if (array_ast_type && array_ast_type->type == AST_TYPE_ARRAY) {
-                                        ASTNode *element_type = array_ast_type->data.type_array.element_type;
-                                        if (element_type) {
-                                            // [T: N]
-                                            if (element_type->type == AST_TYPE_NAMED) {
-                                                struct_name = element_type->data.type_named.name;
-                                            }
-                                            // [&T: N] / [*T: N]
-                                            else if (element_type->type == AST_TYPE_POINTER) {
-                                                ASTNode *pt = element_type->data.type_pointer.pointed_type;
-                                                if (pt && pt->type == AST_TYPE_NAMED) {
-                                                    struct_name = pt->data.type_named.name;
+                                    if (array_ast_type) {
+                                        // 处理数组类型：[T: N]
+                                        if (array_ast_type->type == AST_TYPE_ARRAY) {
+                                            ASTNode *element_type = array_ast_type->data.type_array.element_type;
+                                            if (element_type) {
+                                                // [T: N]
+                                                if (element_type->type == AST_TYPE_NAMED) {
+                                                    struct_name = element_type->data.type_named.name;
                                                 }
+                                                // [&T: N] / [*T: N]
+                                                else if (element_type->type == AST_TYPE_POINTER) {
+                                                    ASTNode *pt = element_type->data.type_pointer.pointed_type;
+                                                    if (pt && pt->type == AST_TYPE_NAMED) {
+                                                        struct_name = pt->data.type_named.name;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        // 处理指针类型：&T（ptr[i] 其中 ptr 是 &T 类型）
+                                        else if (array_ast_type->type == AST_TYPE_POINTER) {
+                                            ASTNode *pointed_type = array_ast_type->data.type_pointer.pointed_type;
+                                            if (pointed_type && pointed_type->type == AST_TYPE_NAMED) {
+                                                struct_name = pointed_type->data.type_named.name;
                                             }
                                         }
                                     }

@@ -178,6 +178,40 @@ LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *expr) {
                 }
             }
             
+            // 如果对象是数组访问（如 ptr[i]），尝试从数组表达式的类型获取结构体名称
+            if (!struct_name && object->type == AST_ARRAY_ACCESS) {
+                ASTNode *array_expr = object->data.array_access.array;
+                if (array_expr && array_expr->type == AST_IDENTIFIER) {
+                    const char *array_var_name = array_expr->data.identifier.name;
+                    if (array_var_name) {
+                        ASTNode *array_ast_type = lookup_var_ast_type(codegen, array_var_name);
+                        if (array_ast_type) {
+                            // 处理数组类型：[T: N]
+                            if (array_ast_type->type == AST_TYPE_ARRAY) {
+                                ASTNode *element_type = array_ast_type->data.type_array.element_type;
+                                if (element_type) {
+                                    if (element_type->type == AST_TYPE_NAMED) {
+                                        struct_name = element_type->data.type_named.name;
+                                    } else if (element_type->type == AST_TYPE_POINTER) {
+                                        ASTNode *pt = element_type->data.type_pointer.pointed_type;
+                                        if (pt && pt->type == AST_TYPE_NAMED) {
+                                            struct_name = pt->data.type_named.name;
+                                        }
+                                    }
+                                }
+                            }
+                            // 处理指针类型：&T（ptr[i] 其中 ptr 是 &T 类型）
+                            else if (array_ast_type->type == AST_TYPE_POINTER) {
+                                ASTNode *pointed_type = array_ast_type->data.type_pointer.pointed_type;
+                                if (pointed_type && pointed_type->type == AST_TYPE_NAMED) {
+                                    struct_name = pointed_type->data.type_named.name;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
             // 如果对象不是变量，检查是否是枚举类型名称（枚举值访问，如 Mixed.FIRST）
             // 注意：枚举值访问是右值，不是左值，所以不应该在这里处理
             // 但我们需要检查，如果是枚举值访问，返回 NULL（表示不是左值）
