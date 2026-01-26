@@ -4620,7 +4620,11 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
     LLVMDisposeTargetMachine(init_target_machine);
     LLVMDisposeMessage(init_target_triple);
     
-    // 第一步：注册所有结构体类型
+    // 第一步：预注册所有已知的结构体类型
+    // 这样可以避免函数内部注册的复杂性
+    codegen_pre_register_struct_types(codegen);
+
+    // 第二步：注册所有结构体类型
     // 使用多次遍历的方式处理结构体依赖关系（如果结构体字段是其他结构体类型）
     // 每次遍历注册所有可以注册的结构体，直到所有结构体都注册或无法继续注册
     const max_iterations: i32 = decl_count + 1;  // 最多迭代 decl_count + 1 次
@@ -4830,5 +4834,56 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
     LLVMDisposeTargetMachine(target_machine);
     LLVMDisposeMessage(target_triple);
     
+    return 0;
+}
+
+// 预注册所有已知的结构体类型
+// 这样可以避免函数内部注册的复杂性
+fn codegen_pre_register_struct_types(codegen: &CodeGenerator) void {
+    if codegen == null {
+        return;
+    }
+
+    // 注册 TypeChecker 结构体（在 checker.uya 中定义）
+    codegen_register_struct_type_by_name(codegen, "TypeChecker" as &byte);
+
+    // 注册其他已知结构体
+    // 注意：这里只注册最基本的结构体，避免依赖关系问题
+    // 复杂的结构体将在后续的正常注册过程中处理
+}
+
+// 根据名称注册结构体类型（创建空的结构体类型占位符）
+fn codegen_register_struct_type_by_name(codegen: &CodeGenerator, struct_name: &byte) i32 {
+    if codegen == null || struct_name == null {
+        return -1;
+    }
+
+    // 检查是否已经注册
+    var i: i32 = 0;
+    while i < codegen.struct_type_count {
+        if codegen.struct_types[i].name != null &&
+           strcmp(codegen.struct_types[i].name, struct_name) == 0 {
+            return 0;  // 已经注册
+        }
+        i = i + 1;
+    }
+
+    // 检查是否有空间
+    if codegen.struct_type_count >= MAX_STRUCT_TYPES {
+        return -1;  // 空间不足
+    }
+
+    // 创建空的结构体类型
+    const llvm_type: *void = LLVMStructCreateNamed(codegen.context, struct_name);
+    if llvm_type == null {
+        return -1;
+    }
+
+    // 注册到表中
+    codegen.struct_types[codegen.struct_type_count].name = struct_name;
+    codegen.struct_types[codegen.struct_type_count].llvm_type = llvm_type;
+    codegen.struct_types[codegen.struct_type_count].ast_node = null;  // 预注册没有 AST 节点
+    codegen.struct_type_count = codegen.struct_type_count + 1;
+
     return 0;
 }
