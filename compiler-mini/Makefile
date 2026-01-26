@@ -24,11 +24,37 @@ PARSER_TEST_SRC = tests/test_parser.c src/parser.c src/lexer.c src/ast.c src/are
 CHECKER_TEST = $(BUILD_DIR)/tests/test_checker
 CHECKER_TEST_SRC = tests/test_checker.c src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
 CODEGEN_TEST = $(BUILD_DIR)/tests/test_codegen
-CODEGEN_TEST_SRC = tests/test_codegen.c src/codegen.c src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
+CODEGEN_TEST_SRC = tests/test_codegen.c \
+	src/codegen/utils.c \
+	src/codegen/init.c \
+	src/codegen/types.c \
+	src/codegen/vars.c \
+	src/codegen/funcs.c \
+	src/codegen/structs.c \
+	src/codegen/enums.c \
+	src/codegen/expr.c \
+	src/codegen/stmt.c \
+	src/codegen/function.c \
+	src/codegen/global.c \
+	src/codegen/main.c \
+	src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
 
 # 主程序目标
 TARGET = $(BUILD_DIR)/compiler-mini
-MAIN_SRC = src/main.c src/codegen.c src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
+MAIN_SRC = src/main.c \
+	src/codegen/utils.c \
+	src/codegen/init.c \
+	src/codegen/types.c \
+	src/codegen/vars.c \
+	src/codegen/funcs.c \
+	src/codegen/structs.c \
+	src/codegen/enums.c \
+	src/codegen/expr.c \
+	src/codegen/stmt.c \
+	src/codegen/function.c \
+	src/codegen/global.c \
+	src/codegen/main.c \
+	src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
 
 # LLVM 库链接选项
 # 使用 llvm-config 获取编译和链接选项（如果可用）
