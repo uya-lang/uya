@@ -71,6 +71,57 @@ static const char *arena_strdup(Arena *arena, const char *src) {
     return dst;
 }
 
+// C99 关键字列表
+static const char *c99_keywords[] = {
+    "auto", "break", "case", "char", "const", "continue", "default", "do",
+    "double", "else", "enum", "extern", "float", "for", "goto", "if",
+    "int", "long", "register", "return", "short", "signed", "sizeof", "static",
+    "struct", "switch", "typedef", "union", "unsigned", "void", "volatile", "while",
+    "bool", "_Bool", "_Complex", "_Imaginary", "inline", "restrict",
+    NULL
+};
+
+// 检查标识符是否为C关键字
+static int is_c_keyword(const char *name) {
+    if (!name) return 0;
+    for (int i = 0; c99_keywords[i]; i++) {
+        if (strcmp(name, c99_keywords[i]) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// 获取安全的C标识符（如果需要则添加下划线前缀）
+static const char *get_safe_c_identifier(C99CodeGenerator *codegen, const char *name) {
+    if (!name) return NULL;
+    
+    // 如果不是关键字，直接返回原名称
+    if (!is_c_keyword(name)) {
+        return name;
+    }
+    
+    // 如果是关键字，添加前缀（最多尝试几次以避免重复）
+    for (int prefix = 1; prefix <= 3; prefix++) {
+        char buf[128];
+        if (prefix == 1) {
+            snprintf(buf, sizeof(buf), "_%s", name);
+        } else if (prefix == 2) {
+            snprintf(buf, sizeof(buf), "_%s_", name);
+        } else {
+            snprintf(buf, sizeof(buf), "uya_%s", name);
+        }
+        
+        // 检查这个名称是否已经用作关键字（理论上应该不会冲突）
+        if (!is_c_keyword(buf)) {
+            return arena_strdup(codegen->arena, buf);
+        }
+    }
+    
+    // 如果仍然冲突，返回原名称（虽然可能导致编译错误）
+    return name;
+}
+
 // 添加字符串常量
 static const char *add_string_constant(C99CodeGenerator *codegen, const char *value) {
     // 检查是否已存在相同的字符串常量
@@ -285,7 +336,7 @@ static int gen_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl
         return -1;
     }
     
-    const char *struct_name = struct_decl->data.struct_decl.name;
+    const char *struct_name = get_safe_c_identifier(codegen, struct_decl->data.struct_decl.name);
     if (!struct_name) {
         return -1;
     }
@@ -312,7 +363,7 @@ static int gen_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl
             return -1;
         }
         
-        const char *field_name = field->data.var_decl.name;
+        const char *field_name = get_safe_c_identifier(codegen, field->data.var_decl.name);
         ASTNode *field_type = field->data.var_decl.type;
         
         if (!field_name || !field_type) {
@@ -357,7 +408,7 @@ static int gen_enum_definition(C99CodeGenerator *codegen, ASTNode *enum_decl) {
         return -1;
     }
     
-    const char *enum_name = enum_decl->data.enum_decl.name;
+    const char *enum_name = get_safe_c_identifier(codegen, enum_decl->data.enum_decl.name);
     if (!enum_name) {
         return -1;
     }
@@ -379,11 +430,13 @@ static int gen_enum_definition(C99CodeGenerator *codegen, ASTNode *enum_decl) {
         // 确定变体的值
         if (variant->value) {
             // 有显式值，使用atoi转换
+            const char *safe_variant_name = get_safe_c_identifier(codegen, variant->name);
             current_value = atoi(variant->value);
-            c99_emit(codegen, "%s = %d", variant->name, current_value);
+            c99_emit(codegen, "%s = %d", safe_variant_name, current_value);
         } else {
             // 无显式值，使用当前值（从0开始或基于前一个值）
-            c99_emit(codegen, "%s", variant->name);
+            const char *safe_variant_name = get_safe_c_identifier(codegen, variant->name);
+            c99_emit(codegen, "%s", safe_variant_name);
             // 当前值保持不变，供下一个变体使用（C中隐式递增）
         }
         
@@ -630,7 +683,7 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         }
         case AST_MEMBER_ACCESS: {
             ASTNode *object = expr->data.member_access.object;
-            const char *field_name = expr->data.member_access.field_name;
+            const char *field_name = get_safe_c_identifier(codegen, expr->data.member_access.field_name);
             gen_expr(codegen, object);
             fprintf(codegen->output, ".%s", field_name);
             break;
@@ -645,13 +698,14 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             break;
         }
         case AST_STRUCT_INIT: {
-            const char *struct_name = expr->data.struct_init.struct_name;
+            const char *struct_name = get_safe_c_identifier(codegen, expr->data.struct_init.struct_name);
             int field_count = expr->data.struct_init.field_count;
             const char **field_names = expr->data.struct_init.field_names;
             ASTNode **field_values = expr->data.struct_init.field_values;
             fprintf(codegen->output, "(%s){", struct_name);
             for (int i = 0; i < field_count; i++) {
-                fprintf(codegen->output, ".%s = ", field_names[i]);
+                const char *safe_field_name = get_safe_c_identifier(codegen, field_names[i]);
+                fprintf(codegen->output, ".%s = ", safe_field_name);
                 gen_expr(codegen, field_values[i]);
                 if (i < field_count - 1) fputs(", ", codegen->output);
             }
@@ -713,9 +767,11 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             gen_expr(codegen, src_expr);
             break;
         }
-        case AST_IDENTIFIER:
-            fprintf(codegen->output, "%s", expr->data.identifier.name);
+        case AST_IDENTIFIER: {
+            const char *safe_name = get_safe_c_identifier(codegen, expr->data.identifier.name);
+            fprintf(codegen->output, "%s", safe_name);
             break;
+        }
         case AST_CALL_EXPR: {
             ASTNode *callee = expr->data.call_expr.callee;
             ASTNode **args = expr->data.call_expr.args;
@@ -723,7 +779,8 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             
             // 生成被调用函数名
             if (callee && callee->type == AST_IDENTIFIER) {
-                fprintf(codegen->output, "%s(", callee->data.identifier.name);
+                const char *safe_name = get_safe_c_identifier(codegen, callee->data.identifier.name);
+                fprintf(codegen->output, "%s(", safe_name);
             } else {
                 fputs("unknown(", codegen->output);
             }
@@ -776,7 +833,7 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             break;
         }
         case AST_VAR_DECL: {
-            const char *var_name = stmt->data.var_decl.name;
+            const char *var_name = get_safe_c_identifier(codegen, stmt->data.var_decl.name);
             ASTNode *var_type = stmt->data.var_decl.type;
             ASTNode *init_expr = stmt->data.var_decl.init;
             int is_const = stmt->data.var_decl.is_const;
@@ -851,7 +908,7 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
         case AST_FOR_STMT: {
             // Uya Mini 的 for 循环是数组遍历：for item in array { ... }
             ASTNode *array = stmt->data.for_stmt.array;
-            const char *var_name = stmt->data.for_stmt.var_name;
+            const char *var_name = get_safe_c_identifier(codegen, stmt->data.for_stmt.var_name);
             int is_ref = stmt->data.for_stmt.is_ref;
             ASTNode *body = stmt->data.for_stmt.body;
             
@@ -907,7 +964,7 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
 static void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     if (!fn_decl || fn_decl->type != AST_FN_DECL) return;
     
-    const char *func_name = fn_decl->data.fn_decl.name;
+    const char *func_name = get_safe_c_identifier(codegen, fn_decl->data.fn_decl.name);
     ASTNode *return_type = fn_decl->data.fn_decl.return_type;
     ASTNode **params = fn_decl->data.fn_decl.params;
     int param_count = fn_decl->data.fn_decl.param_count;
@@ -922,7 +979,7 @@ static void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) 
         ASTNode *param = params[i];
         if (!param || param->type != AST_VAR_DECL) continue;
         
-        const char *param_name = param->data.var_decl.name;
+        const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
         ASTNode *param_type = param->data.var_decl.type;
         const char *param_type_c = c99_type_to_c(codegen, param_type);
         
@@ -943,7 +1000,7 @@ static void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) 
 static void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     if (!fn_decl || fn_decl->type != AST_FN_DECL) return;
     
-    const char *func_name = fn_decl->data.fn_decl.name;
+    const char *func_name = get_safe_c_identifier(codegen, fn_decl->data.fn_decl.name);
     ASTNode *return_type = fn_decl->data.fn_decl.return_type;
     ASTNode **params = fn_decl->data.fn_decl.params;
     int param_count = fn_decl->data.fn_decl.param_count;
@@ -962,7 +1019,7 @@ static void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
         ASTNode *param = params[i];
         if (!param || param->type != AST_VAR_DECL) continue;
         
-        const char *param_name = param->data.var_decl.name;
+        const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
         ASTNode *param_type = param->data.var_decl.type;
         const char *param_type_c = c99_type_to_c(codegen, param_type);
         
@@ -990,7 +1047,7 @@ static void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
 static void gen_global_var(C99CodeGenerator *codegen, ASTNode *var_decl) {
     if (!var_decl || var_decl->type != AST_VAR_DECL) return;
     
-    const char *var_name = var_decl->data.var_decl.name;
+    const char *var_name = get_safe_c_identifier(codegen, var_decl->data.var_decl.name);
     ASTNode *var_type = var_decl->data.var_decl.type;
     ASTNode *init_expr = var_decl->data.var_decl.init;
     int is_const = var_decl->data.var_decl.is_const;
