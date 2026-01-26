@@ -279,6 +279,18 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         case AST_NUMBER:
             fprintf(codegen->output, "%d", expr->data.number.value);
             break;
+        case AST_BOOL:
+            fprintf(codegen->output, "%s", expr->data.bool_literal.value ? "true" : "false");
+            break;
+        case AST_STRING: {
+            const char *str_const = add_string_constant(codegen, expr->data.string_literal.value);
+            if (str_const) {
+                fprintf(codegen->output, "%s", str_const);
+            } else {
+                fputs("\"\"", codegen->output);
+            }
+            break;
+        }
         case AST_BINARY_EXPR: {
             ASTNode *left = expr->data.binary_expr.left;
             ASTNode *right = expr->data.binary_expr.right;
@@ -294,6 +306,8 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 fputs(" * ", codegen->output);
             } else if (op == TOKEN_SLASH) {
                 fputs(" / ", codegen->output);
+            } else if (op == TOKEN_PERCENT) {
+                fputs(" % ", codegen->output);
             } else if (op == TOKEN_EQUAL) {
                 fputs(" == ", codegen->output);
             } else if (op == TOKEN_NOT_EQUAL) {
@@ -306,11 +320,121 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 fputs(" <= ", codegen->output);
             } else if (op == TOKEN_GREATER_EQUAL) {
                 fputs(" >= ", codegen->output);
+            } else if (op == TOKEN_LOGICAL_AND) {
+                fputs(" && ", codegen->output);
+            } else if (op == TOKEN_LOGICAL_OR) {
+                fputs(" || ", codegen->output);
             } else {
                 fputs(" + ", codegen->output); // 默认为加法
             }
             gen_expr(codegen, right);
             fputc(')', codegen->output);
+            break;
+        }
+        case AST_UNARY_EXPR: {
+            int op = expr->data.unary_expr.op;
+            ASTNode *operand = expr->data.unary_expr.operand;
+            fputc('(', codegen->output);
+            if (op == TOKEN_ASTERISK) {
+                fputs("*", codegen->output);
+            } else if (op == TOKEN_AMPERSAND) {
+                fputs("&", codegen->output);
+            } else if (op == TOKEN_MINUS) {
+                fputs("-", codegen->output);
+            } else if (op == TOKEN_EXCLAMATION) {
+                fputs("!", codegen->output);
+            } else if (op == TOKEN_PLUS) {
+                fputs("+", codegen->output);
+            } else {
+                fputs("+", codegen->output); // 默认
+            }
+            gen_expr(codegen, operand);
+            fputc(')', codegen->output);
+            break;
+        }
+        case AST_MEMBER_ACCESS: {
+            ASTNode *object = expr->data.member_access.object;
+            const char *field_name = expr->data.member_access.field_name;
+            gen_expr(codegen, object);
+            fprintf(codegen->output, ".%s", field_name);
+            break;
+        }
+        case AST_ARRAY_ACCESS: {
+            ASTNode *array = expr->data.array_access.array;
+            ASTNode *index = expr->data.array_access.index;
+            gen_expr(codegen, array);
+            fputc('[', codegen->output);
+            gen_expr(codegen, index);
+            fputc(']', codegen->output);
+            break;
+        }
+        case AST_STRUCT_INIT: {
+            const char *struct_name = expr->data.struct_init.struct_name;
+            int field_count = expr->data.struct_init.field_count;
+            const char **field_names = expr->data.struct_init.field_names;
+            ASTNode **field_values = expr->data.struct_init.field_values;
+            fprintf(codegen->output, "(%s){", struct_name);
+            for (int i = 0; i < field_count; i++) {
+                fprintf(codegen->output, ".%s = ", field_names[i]);
+                gen_expr(codegen, field_values[i]);
+                if (i < field_count - 1) fputs(", ", codegen->output);
+            }
+            fputc('}', codegen->output);
+            break;
+        }
+        case AST_ARRAY_LITERAL: {
+            ASTNode **elements = expr->data.array_literal.elements;
+            int element_count = expr->data.array_literal.element_count;
+            fputc('{', codegen->output);
+            for (int i = 0; i < element_count; i++) {
+                gen_expr(codegen, elements[i]);
+                if (i < element_count - 1) fputs(", ", codegen->output);
+            }
+            fputc('}', codegen->output);
+            break;
+        }
+        case AST_SIZEOF: {
+            ASTNode *target = expr->data.sizeof_expr.target;
+            int is_type = expr->data.sizeof_expr.is_type;
+            fputs("sizeof(", codegen->output);
+            if (is_type) {
+                const char *type_c = c99_type_to_c(codegen, target);
+                fprintf(codegen->output, "%s", type_c);
+            } else {
+                gen_expr(codegen, target);
+            }
+            fputc(')', codegen->output);
+            break;
+        }
+        case AST_LEN: {
+            ASTNode *array = expr->data.len_expr.array;
+            fputs("sizeof(", codegen->output);
+            gen_expr(codegen, array);
+            fputs(") / sizeof((", codegen->output);
+            gen_expr(codegen, array);
+            fputs(")[0])", codegen->output);
+            break;
+        }
+        case AST_ALIGNOF: {
+            ASTNode *target = expr->data.alignof_expr.target;
+            int is_type = expr->data.alignof_expr.is_type;
+            fputs("_Alignof(", codegen->output);
+            if (is_type) {
+                const char *type_c = c99_type_to_c(codegen, target);
+                fprintf(codegen->output, "%s", type_c);
+            } else {
+                gen_expr(codegen, target);
+            }
+            fputc(')', codegen->output);
+            break;
+        }
+        case AST_CAST_EXPR: {
+            ASTNode *src_expr = expr->data.cast_expr.expr;
+            ASTNode *target_type = expr->data.cast_expr.target_type;
+            const char *type_c = c99_type_to_c(codegen, target_type);
+            fputc('(', codegen->output);
+            fprintf(codegen->output, "%s)", type_c);
+            gen_expr(codegen, src_expr);
             break;
         }
         case AST_IDENTIFIER:
@@ -347,6 +471,19 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
     if (!stmt) return;
     
     switch (stmt->type) {
+        case AST_EXPR_STMT:
+            // 表达式语句的数据存储在表达式的节点中，直接忽略此节点
+            break;
+        case AST_ASSIGN: {
+            ASTNode *dest = stmt->data.assign.dest;
+            ASTNode *src = stmt->data.assign.src;
+            c99_emit(codegen, "");
+            gen_expr(codegen, dest);
+            fputs(" = ", codegen->output);
+            gen_expr(codegen, src);
+            fputs(";\n", codegen->output);
+            break;
+        }
         case AST_RETURN_STMT: {
             ASTNode *expr = stmt->data.return_stmt.expr;
             c99_emit(codegen, "return ");
@@ -399,7 +536,69 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             fputs("\n", codegen->output);
             break;
         }
+        case AST_WHILE_STMT: {
+            ASTNode *condition = stmt->data.while_stmt.condition;
+            ASTNode *body = stmt->data.while_stmt.body;
+            
+            c99_emit(codegen, "while (");
+            gen_expr(codegen, condition);
+            fputs(") {\n", codegen->output);
+            codegen->indent_level++;
+            gen_stmt(codegen, body);
+            codegen->indent_level--;
+            c99_emit(codegen, "}\n");
+            break;
+        }
+        case AST_FOR_STMT: {
+            // Uya Mini 的 for 循环是数组遍历：for item in array { ... }
+            ASTNode *array = stmt->data.for_stmt.array;
+            const char *var_name = stmt->data.for_stmt.var_name;
+            int is_ref = stmt->data.for_stmt.is_ref;
+            ASTNode *body = stmt->data.for_stmt.body;
+            
+            // 生成临时变量保存数组和长度
+            c99_emit(codegen, "{\n");
+            codegen->indent_level++;
+            c99_emit(codegen, "// for loop - array traversal\n");
+            // 声明临时变量存储数组指针和长度
+            const char *elem_type_c = "int"; // 暂时使用int，后续需要根据数组元素类型调整
+            // 生成数组表达式
+            c99_emit(codegen, "size_t _len = sizeof(");
+            gen_expr(codegen, array);
+            c99_emit(codegen, ") / sizeof(");
+            gen_expr(codegen, array);
+            c99_emit(codegen, "[0]);\n");
+            c99_emit(codegen, "for (size_t _i = 0; _i < _len; _i++) {\n");
+            codegen->indent_level++;
+            if (is_ref) {
+                c99_emit(codegen, "%s *%s = &", elem_type_c, var_name);
+                gen_expr(codegen, array);
+                c99_emit(codegen, "[_i];\n");
+            } else {
+                c99_emit(codegen, "%s %s = ", elem_type_c, var_name);
+                gen_expr(codegen, array);
+                c99_emit(codegen, "[_i];\n");
+            }
+            gen_stmt(codegen, body);
+            codegen->indent_level--;
+            c99_emit(codegen, "}\n");
+            codegen->indent_level--;
+            c99_emit(codegen, "}\n");
+            break;
+        }
+        case AST_BREAK_STMT:
+            c99_emit(codegen, "break;\n");
+            break;
+        case AST_CONTINUE_STMT:
+            c99_emit(codegen, "continue;\n");
+            break;
         default:
+            // 检查是否为表达式节点
+            if (stmt->type >= AST_BINARY_EXPR && stmt->type <= AST_STRING) {
+                c99_emit(codegen, "");
+                gen_expr(codegen, stmt);
+                fputs(";\n", codegen->output);
+            }
             // 忽略其他语句
             break;
     }

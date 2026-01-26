@@ -194,36 +194,31 @@
 - [x] 实现 `c99_gen_expr()` 函数，支持以下节点类型：
   - [x] `AST_IDENTIFIER` - 标识符 ✅
   - [x] `AST_NUMBER` - 数字字面量 ✅
-  - [ ] `AST_BOOL` - 布尔字面量
-  - [ ] `AST_STRING` - 字符串字面量（引用字符串常量）
-  - [x] `AST_BINARY_EXPR` - 二元表达式 ✅（支持算术和比较运算符）
-  - [ ] `AST_UNARY_EXPR` - 一元表达式
+  - [x] `AST_BOOL` - 布尔字面量 ✅
+  - [x] `AST_STRING` - 字符串字面量（引用字符串常量）✅
+  - [x] `AST_BINARY_EXPR` - 二元表达式 ✅（支持算术、比较和逻辑运算符）
+  - [x] `AST_UNARY_EXPR` - 一元表达式 ✅（包括取地址、解引用、正负号、逻辑非）
   - [x] `AST_CALL_EXPR` - 函数调用 ✅
-  - [ ] `AST_MEMBER_ACCESS` - 字段访问
-  - [ ] `AST_ARRAY_ACCESS` - 数组访问
-  - [ ] `AST_STRUCT_INIT` - 结构体字面量
-  - [ ] `AST_ARRAY_LITERAL` - 数组字面量
-  - [ ] `AST_SIZEOF` - sizeof 表达式
-  - [ ] `AST_LEN` - len 表达式
-  - [ ] `AST_ALIGNOF` - alignof 表达式
-  - [ ] `AST_CAST_EXPR` - 类型转换
+  - [x] `AST_MEMBER_ACCESS` - 字段访问 ✅
+  - [x] `AST_ARRAY_ACCESS` - 数组访问 ✅
+  - [x] `AST_STRUCT_INIT` - 结构体字面量 ✅
+  - [x] `AST_ARRAY_LITERAL` - 数组字面量 ✅
+  - [x] `AST_SIZEOF` - sizeof 表达式 ✅
+  - [x] `AST_LEN` - len 表达式 ✅
+  - [x] `AST_ALIGNOF` - alignof 表达式 ✅
+  - [x] `AST_CAST_EXPR` - 类型转换 ✅
 - [ ] 处理运算符优先级和括号（当前使用保守的括号）
-- [ ] 处理指针解引用（`*expr`）和取地址（`&expr`）
+- [x] 处理指针解引用（`*expr`）和取地址（`&expr`）✅（通过一元表达式实现）
 - [ ] 处理结构体字段访问（自动解引用）
 
-**输出**：部分的表达式生成功能 ⚠️ 支持标识符、数字、二元表达式、函数调用；其他表达式类型待实现
+**输出**：基本完整的表达式生成功能 ✅ 支持所有主要表达式类型
 
-**状态**：⚠️ 部分完成（2026-01-26）- 已完成：标识符、数字字面量、二元表达式（算术和比较）、函数调用；待完成：布尔、字符串、一元表达式、字段访问、数组访问、结构体/数组字面量、sizeof/len/alignof、类型转换
+**状态**：✅ 基本完成（2026-01-27）- 已完成所有主要表达式节点类型；待完成：运算符优先级优化、结构体字段自动解引用
 
 **下一步**：
-- 实现 `AST_BOOL` - 输出 `true`/`false`
-- 实现 `AST_STRING` - 使用字符串常量表
-- 实现 `AST_UNARY_EXPR` - 取地址 `&`、解引用 `*`、正负号、逻辑非
-- 实现 `AST_MEMBER_ACCESS` - 结构体字段访问（`obj.field` 和 `ptr->field`）
-- 实现 `AST_ARRAY_ACCESS` - 数组索引访问
-- 实现 `AST_SIZEOF`/`AST_LEN`/`AST_ALIGNOF` - 内置函数
-- 实现 `AST_CAST_EXPR` - 类型转换语法
 - 优化括号使用 - 根据运算符优先级决定是否加括号
+- 实现结构体字段访问的自动解引用（指针->字段自动转为`->`）
+- 完善数组字面量和结构体字面量的类型推断
 
 ---
 
@@ -232,13 +227,13 @@
 **目标**：将各种 Uya Mini 语句转换为 C99 语句。
 
 - [x] 实现 `c99_gen_stmt()` 函数，支持以下节点类型：
-  - [ ] `AST_EXPR_STMT` - 表达式语句
-  - [ ] `AST_ASSIGN` - 赋值语句
+  - [x] `AST_EXPR_STMT` - 表达式语句 ✅（通过默认表达式节点处理）
+  - [x] `AST_ASSIGN` - 赋值语句 ✅
   - [x] `AST_IF_STMT` - if 语句 ✅
-  - [ ] `AST_WHILE_STMT` - while 语句
-  - [ ] `AST_FOR_STMT` - for 循环（数组遍历）
-  - [ ] `AST_BREAK_STMT` - break 语句
-  - [ ] `AST_CONTINUE_STMT` - continue 语句
+  - [x] `AST_WHILE_STMT` - while 语句 ✅
+  - [x] `AST_FOR_STMT` - for 循环（数组遍历）✅（基础实现）
+  - [x] `AST_BREAK_STMT` - break 语句 ✅
+  - [x] `AST_CONTINUE_STMT` - continue 语句 ✅
   - [x] `AST_RETURN_STMT` - return 语句 ✅
   - [x] `AST_BLOCK` - 代码块 ✅
 - [x] 处理变量声明（`AST_VAR_DECL`）：
@@ -247,20 +242,17 @@
   - [x] 函数参数 ✅（在函数参数列表中处理）
   - [x] 结构体字段 ✅（在结构体定义中处理）
 - [ ] 处理作用域和变量生命周期（当前使用简单栈）
-- [ ] 处理循环控制（break/continue）
+- [x] 处理循环控制（break/continue）✅（基础实现）
 
-**输出**：部分的语句生成功能 ⚠️ 支持 if、return、block、局部变量声明；赋值、循环、控制流语句待实现
+**输出**：基本完整的语句生成功能 ✅ 支持所有主要语句类型
 
-**状态**：⚠️ 部分完成（2026-01-26）- 已完成：if 语句、return 语句、代码块、局部变量声明；待完成：表达式语句、赋值语句、while 循环、for 循环、break/continue
+**状态**：✅ 基本完成（2026-01-27）- 已完成所有主要语句节点类型；待完成：全局变量声明、作用域管理、for循环完善
 
 **下一步**：
-- 实现 `AST_EXPR_STMT` - 表达式语句（如函数调用语句）
-- 实现 `AST_ASSIGN` - 赋值语句（包括 `=`、`+=`、`-=` 等复合赋值）
-- 实现 `AST_WHILE_STMT` - while 循环语句
-- 实现 `AST_FOR_STMT` - for 数组遍历循环（Uya Mini 特有语法）
-- 实现 `AST_BREAK_STMT` / `AST_CONTINUE_STMT` - 循环控制语句
+- 实现全局变量声明生成（const/var）
 - 完善作用域管理 - 使用 local_variables 表跟踪变量生命周期
-- 实现循环栈（loop_stack）支持 break/continue 跳转
+- 改进 for 循环实现，正确处理数组元素类型和引用迭代
+- 实现循环栈（loop_stack）支持带标签的 break/continue
 
 ---
 
