@@ -1,0 +1,51 @@
+// 测试程序：验证指针类型数组访问后访问字段
+// 测试 ptr[i].field 这种表达式，其中 ptr 是指向结构体的指针（如 &EnumVariant）
+
+struct TestStruct {
+    name: &byte,
+    value: i32,
+}
+
+fn test_pointer_array_field_access() i32 {
+    // 创建一个结构体数组
+    var arr: [TestStruct: 3] = [
+        TestStruct{ name: null, value: 10 },
+        TestStruct{ name: null, value: 20 },
+        TestStruct{ name: null, value: 30 },
+    ];
+    
+    // 获取指向数组第一个元素的指针
+    const ptr: &TestStruct = &arr[0] as &TestStruct;
+    
+    // 测试：使用指针进行数组访问，然后访问字段
+    // 这类似于 parser.uya 中的 new_variants[i].name = variants[i].name;
+    var i: i32 = 0;
+    while i < 3 {
+        // 访问 ptr[i].value
+        var val: i32 = ptr[i].value;
+        if val != (i * 10 + 10) {
+            return 1;  // ptr[i].value 应该等于 (i * 10 + 10)
+        }
+        
+        // 修改 ptr[i].value
+        ptr[i].value = (i * 10 + 100);
+        if ptr[i].value != (i * 10 + 100) {
+            return 2;  // 修改后 ptr[i].value 应该等于 (i * 10 + 100)
+        }
+        
+        i = i + 1;
+    }
+    
+    // 验证修改是否生效
+    if arr[0].value != 100 || arr[1].value != 110 || arr[2].value != 120 {
+        return 3;  // 数组元素应该被正确修改
+    }
+    
+    return 0;
+}
+
+fn main() i32 {
+    const result: i32 = test_pointer_array_field_access();
+    return result;
+}
+
