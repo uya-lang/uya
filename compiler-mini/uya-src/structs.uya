@@ -133,6 +133,13 @@ struct TypeChecker {
 
 // ===== 代码生成器相关 =====
 
+// 常量定义（与 codegen.uya 中的定义保持一致）
+const STRUCT_TYPE_MAP_SIZE: i32 = 64;        // 结构体类型映射表大小
+const VAR_MAP_SIZE: i32 = 256;                // 变量映射表大小
+const FUNC_MAP_SIZE: i32 = 256;               // 函数映射表大小
+const GLOBAL_VAR_MAP_SIZE: i32 = 128;         // 全局变量映射表大小
+const LOOP_STACK_SIZE: i32 = 16;              // 循环栈大小
+
 // StructTypeMap 结构
 struct StructTypeMap {
     name: &byte,// 结构体名称（存储在 Arena 中）
@@ -178,14 +185,14 @@ struct CodeGenerator {
     module: *void,// LLVM 模块（LLVMModuleRef）
     builder: *void,// IR 构建器（用于生成指令，LLVMBuilderRef）
     module_name: &byte,// 模块名称（存储在 Arena 中）
-    struct_types: [StructTypeMap: MAX_STRUCT_TYPES],// 结构体类型映射表（固定大小数组）
+    struct_types: [StructTypeMap: STRUCT_TYPE_MAP_SIZE],// 结构体类型映射表（固定大小数组）
     struct_type_count: i32,// 当前注册的结构体类型数量
-    var_maps: [VarMap: MAX_VAR_MAPS],// 变量映射表（局部变量，栈分配）
+    var_maps: [VarMap: VAR_MAP_SIZE],// 变量映射表（局部变量，栈分配）
     var_map_count: i32,// 当前变量数量
-    func_maps: [FuncMap: MAX_FUNC_MAPS],// 函数映射表
+    func_maps: [FuncMap: FUNC_MAP_SIZE],// 函数映射表
     func_map_count: i32,// 当前函数数量
-    global_var_maps: [GlobalVarMap: MAX_GLOBAL_VAR_MAPS],// 全局变量映射表
+    global_var_maps: [GlobalVarMap: GLOBAL_VAR_MAP_SIZE],// 全局变量映射表
     global_var_map_count: i32,// 当前全局变量数量
-    loop_stack: [LoopInfo: MAX_LOOP_DEPTH],// 循环栈（用于 break/continue）
+    loop_stack: [LoopInfo: LOOP_STACK_SIZE],// 循环栈（用于 break/continue）
     loop_stack_depth: i32// 循环栈深度
 }

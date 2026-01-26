@@ -239,22 +239,52 @@ if [ $COMPILER_EXIT -eq 0 ]; then
             # 否则添加 _exec 后缀
             EXECUTABLE_FILE="${OUTPUT_FILE}_exec"
         fi
-    fi
-    
-    # 显示文件信息
-    if [ "$GENERATE_EXEC" = true ] && [ -f "$EXECUTABLE_FILE" ]; then
-        # 生成了可执行文件
+        
+        # 检查可执行文件是否成功生成
+        if [ ! -f "$EXECUTABLE_FILE" ]; then
+            echo ""
+            echo -e "${RED}✗ 可执行文件生成失败${NC}"
+            echo "预期可执行文件路径: $EXECUTABLE_FILE"
+            echo "目标文件路径: $OUTPUT_FILE"
+            if [ -f "$OUTPUT_FILE" ]; then
+                echo ""
+                echo "目标文件已生成，但链接失败。可能的原因："
+                echo "  1. 系统未安装链接器（gcc、clang 或 lld）"
+                echo "  2. 链接器执行失败（检查编译输出中的错误信息）"
+                echo ""
+                echo "可以尝试手动链接："
+                if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+                    echo "  gcc -no-pie \"$OUTPUT_FILE\" -o \"${EXECUTABLE_FILE}.exe\""
+                else
+                    echo "  gcc -no-pie \"$OUTPUT_FILE\" -o \"$EXECUTABLE_FILE\""
+                fi
+            fi
+            exit 1
+        fi
+        
+        # 检查文件是否可执行
+        if [ ! -x "$EXECUTABLE_FILE" ]; then
+            echo ""
+            echo -e "${YELLOW}警告: 生成的文件不可执行${NC}"
+            echo "文件路径: $EXECUTABLE_FILE"
+            echo "尝试添加执行权限..."
+            chmod +x "$EXECUTABLE_FILE" 2>/dev/null || true
+        fi
+        
+        # 显示可执行文件信息
+        echo ""
         echo "可执行文件: $EXECUTABLE_FILE"
-        file_size=$(du -h "$EXECUTABLE_FILE" | cut -f1)
+        file_size=$(du -h "$EXECUTABLE_FILE" 2>/dev/null | cut -f1 || echo "未知")
         echo "文件大小: $file_size"
         echo "类型: 可执行文件"
         if [ -f "$OUTPUT_FILE" ]; then
-            echo "目标文件: $OUTPUT_FILE（中间文件）"
+            echo "目标文件: $OUTPUT_FILE（中间文件，可删除）"
         fi
     elif [ -f "$OUTPUT_FILE" ]; then
         # 只生成了目标文件
+        echo ""
         echo "输出文件: $OUTPUT_FILE"
-        file_size=$(du -h "$OUTPUT_FILE" | cut -f1)
+        file_size=$(du -h "$OUTPUT_FILE" 2>/dev/null | cut -f1 || echo "未知")
         echo "文件大小: $file_size"
         
         # 检查是否是可执行文件
@@ -268,11 +298,17 @@ if [ $COMPILER_EXIT -eq 0 ]; then
             echo "或者手动链接："
             # 在 Windows 上使用 .exe 扩展名，在 Linux/Unix 上不使用
             if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-                echo "  gcc -no-pie $OUTPUT_FILE -o ${OUTPUT_FILE}.exe"
+                echo "  gcc -no-pie \"$OUTPUT_FILE\" -o \"${OUTPUT_FILE%.o}.exe\""
             else
-                echo "  gcc -no-pie $OUTPUT_FILE -o ${OUTPUT_FILE%.o}"
+                echo "  gcc -no-pie \"$OUTPUT_FILE\" -o \"${OUTPUT_FILE%.o}\""
             fi
         fi
+    else
+        # 没有生成任何文件
+        echo ""
+        echo -e "${RED}✗ 未生成输出文件${NC}"
+        echo "预期输出文件: $OUTPUT_FILE"
+        exit 1
     fi
     
     # 如果是调试模式，显示详细信息
@@ -288,6 +324,12 @@ else
     EXIT_CODE=$COMPILER_EXIT
     echo ""
     echo -e "${RED}✗ 编译失败（退出码: $EXIT_CODE）${NC}"
+    
+    # 如果使用了 -e 选项，提示不会生成可执行文件
+    if [ "$GENERATE_EXEC" = true ]; then
+        echo ""
+        echo -e "${YELLOW}注意: 由于编译失败，不会生成可执行文件${NC}"
+    fi
     
     # 显示错误摘要
     ERROR_COUNT=$(wc -l < "$TEMP_ERRORS" 2>/dev/null || echo "0")

@@ -101,6 +101,9 @@ extern fn LLVMArrayType(element_type: *void, element_count: i32) *void;
 
 // 结构体类型
 extern fn LLVMStructTypeInContext(context: *void, element_types: *void, element_count: i32, packed: i32) *void;
+extern fn LLVMStructCreateNamed(context: *void, name: *byte) *void;  // 创建命名结构体类型（占位符）
+extern fn LLVMIsOpaqueStruct(struct_type: *void) i32;  // 检查结构体是否为不透明类型（占位符）
+extern fn LLVMStructSetBody(struct_type: *void, element_types: *void, element_count: i32, packed: i32) void;  // 设置结构体字段
 
 // 函数类型
 extern fn LLVMFunctionType(return_type: *void, param_types: *void, param_count: i32, is_var_arg: i32) *void;

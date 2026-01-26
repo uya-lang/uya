@@ -4869,7 +4869,7 @@ fn codegen_register_struct_type_by_name(codegen: &CodeGenerator, struct_name: &b
     }
 
     // 检查是否有空间
-    if codegen.struct_type_count >= MAX_STRUCT_TYPES {
+    if codegen.struct_type_count >= STRUCT_TYPE_MAP_SIZE {
         return -1;  // 空间不足
     }
 
