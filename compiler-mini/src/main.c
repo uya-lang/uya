@@ -255,23 +255,99 @@ static int link_executable(const char *object_file, const char *executable_file)
     }
     fclose(f);
     
+    // 获取 LLVM 链接选项
+    const char *llvm_ldflags = "";
+    const char *llvm_libs = "-lLLVM-17";  // 默认使用 LLVM-17
+    char llvm_ldflags_buf[256] = "";
+    char llvm_libs_buf[256] = "";
+    
+    // 尝试使用 llvm-config 获取链接选项
+    FILE *llvm_config = popen("llvm-config --ldflags 2>/dev/null", "r");
+    if (llvm_config) {
+        if (fgets(llvm_ldflags_buf, sizeof(llvm_ldflags_buf), llvm_config)) {
+            // 移除换行符
+            size_t len = strlen(llvm_ldflags_buf);
+            if (len > 0 && llvm_ldflags_buf[len - 1] == '\n') {
+                llvm_ldflags_buf[len - 1] = '\0';
+            }
+            llvm_ldflags = llvm_ldflags_buf;
+        }
+        pclose(llvm_config);
+    }
+    
+    FILE *llvm_libs_cmd = popen("llvm-config --libs core target 2>/dev/null", "r");
+    if (llvm_libs_cmd) {
+        if (fgets(llvm_libs_buf, sizeof(llvm_libs_buf), llvm_libs_cmd)) {
+            // 移除换行符
+            size_t len = strlen(llvm_libs_buf);
+            if (len > 0 && llvm_libs_buf[len - 1] == '\n') {
+                llvm_libs_buf[len - 1] = '\0';
+            }
+            llvm_libs = llvm_libs_buf;
+        }
+        pclose(llvm_libs_cmd);
+    }
+    
     // 尝试使用不同的链接器（按优先级）
     const char *linkers[] = {
-        "lld -flavor gnu",  // LLVM lld（如果可用）
         "clang -no-pie",    // Clang（通常可用）
         "gcc -no-pie"       // GCC（最常用）
     };
     const int num_linkers = sizeof(linkers) / sizeof(linkers[0]);
     
-    char link_cmd[1024];
+    char link_cmd[2048];
     int result = -1;
     
+    // 检查是否存在 bridge.c 文件（用于提供 get_argc/get_argv 和 LLVM 初始化函数）
+    char bridge_c_path[512];
+    char renamed_object_file[512];
+    
+    // 尝试在目标文件目录中查找 bridge.c
+    char *last_slash = strrchr(object_file, '/');
+    if (last_slash) {
+        size_t dir_len = last_slash - object_file;
+        snprintf(bridge_c_path, sizeof(bridge_c_path), "%.*s/bridge.c", (int)dir_len, object_file);
+        snprintf(renamed_object_file, sizeof(renamed_object_file), "%.*s/compiler_renamed.o", (int)dir_len, object_file);
+    } else {
+        snprintf(bridge_c_path, sizeof(bridge_c_path), "bridge.c");
+        snprintf(renamed_object_file, sizeof(renamed_object_file), "compiler_renamed.o");
+    }
+    
+    // 检查 bridge.c 是否存在
+    FILE *bridge_check = fopen(bridge_c_path, "r");
+    const char *bridge_file = NULL;
+    const char *object_file_to_link = object_file;
+    
+    if (bridge_check) {
+        fclose(bridge_check);
+        bridge_file = bridge_c_path;
+        
+        // 使用 objcopy 将 main 函数重命名为 uya_main（避免与 bridge.c 的 main 冲突）
+        char objcopy_cmd[1024];
+        snprintf(objcopy_cmd, sizeof(objcopy_cmd), "objcopy --redefine-sym main=uya_main \"%s\" \"%s\"", 
+                 object_file, renamed_object_file);
+        if (system(objcopy_cmd) == 0) {
+            object_file_to_link = renamed_object_file;
+        } else {
+            // objcopy 失败，尝试不使用重命名（可能会失败）
+            fprintf(stderr, "警告: objcopy 失败，尝试直接链接（可能会失败）\n");
+        }
+    }
+    
     for (int i = 0; i < num_linkers; i++) {
-        // 构建链接命令
-        int len = snprintf(link_cmd, sizeof(link_cmd), "%s \"%s\" -o \"%s\"", 
-                          linkers[i], object_file, executable_file);
-        if (len >= (int)sizeof(link_cmd)) {
-            continue;  // 命令过长，尝试下一个
+        // 构建链接命令（包含 LLVM 库和 bridge.c）
+        if (bridge_file) {
+            int len = snprintf(link_cmd, sizeof(link_cmd), "%s %s \"%s\" \"%s\" -o \"%s\" %s", 
+                              linkers[i], llvm_ldflags, bridge_file, object_file_to_link, executable_file, llvm_libs);
+            if (len >= (int)sizeof(link_cmd)) {
+                continue;  // 命令过长，尝试下一个
+            }
+        } else {
+            int len = snprintf(link_cmd, sizeof(link_cmd), "%s %s \"%s\" -o \"%s\" %s", 
+                              linkers[i], llvm_ldflags, object_file_to_link, executable_file, llvm_libs);
+            if (len >= (int)sizeof(link_cmd)) {
+                continue;  // 命令过长，尝试下一个
+            }
         }
         
         // 执行链接命令

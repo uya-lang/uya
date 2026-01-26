@@ -133,12 +133,8 @@ struct TypeChecker {
 
 // ===== 代码生成器相关 =====
 
-// 常量定义（与 codegen.uya 中的定义保持一致）
-const STRUCT_TYPE_MAP_SIZE: i32 = 64;        // 结构体类型映射表大小
-const VAR_MAP_SIZE: i32 = 256;                // 变量映射表大小
-const FUNC_MAP_SIZE: i32 = 256;               // 函数映射表大小
-const GLOBAL_VAR_MAP_SIZE: i32 = 128;         // 全局变量映射表大小
-const LOOP_STACK_SIZE: i32 = 16;              // 循环栈大小
+// 注意：常量定义（STRUCT_TYPE_MAP_SIZE, VAR_MAP_SIZE, FUNC_MAP_SIZE, 
+// GLOBAL_VAR_MAP_SIZE, LOOP_STACK_SIZE）在 codegen.uya 中定义，这里不重复定义
 
 // StructTypeMap 结构
 struct StructTypeMap {
