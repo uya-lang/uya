@@ -1,0 +1,19 @@
+// 测试字符串字面量转义字符支持
+
+extern fn printf(fmt: *byte, ...) i32;
+
+fn main() i32 {
+    // 测试各种转义序列
+    printf("hello\n");           // 换行符
+    printf("tab\ttest\n");       // 制表符
+    printf("backslash\\test\n"); // 反斜杠
+    printf("quote\"test\n");    // 双引号
+    printf("null\0test\n");     // 空字符
+    
+    // 组合使用
+    printf("line1\nline2\ttabbed\n");
+    printf("path\\to\\file\n");
+    printf("say \"hello\"\n");
+    
+    return 0;
+}

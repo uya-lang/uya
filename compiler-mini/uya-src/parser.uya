@@ -627,7 +627,7 @@ fn parser_parse_enum(parser: &Parser) &ASTNode {
             } else {
                 new_capacity = variant_capacity * 2;
             }
-            const new_variants: &EnumVariant = arena_alloc(parser.arena, 16 * new_capacity) as &EnumVariant;
+            const new_variants: &EnumVariant = arena_alloc(parser.arena, sizeof(EnumVariant) * new_capacity) as &EnumVariant;
             if new_variants == null {
                 return null;
             }

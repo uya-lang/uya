@@ -5528,7 +5528,7 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
             
             for (int i = 0; i < stmt_count; i++) {
                 fprintf(stderr, "调试: 处理 AST_BLOCK 中的第 %d/%d 个语句...\n", i + 1, stmt_count);
-                if (!stmts[i]) {
+                if (!stmts || !stmts[i]) {  // 添加双重检查
                     fprintf(stderr, "警告: AST_BLOCK 中的第 %d 个语句为 NULL，跳过\n", i);
                     continue;
                 }

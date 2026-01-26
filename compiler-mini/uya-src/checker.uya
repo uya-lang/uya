@@ -151,7 +151,9 @@ fn checker_init(checker: &TypeChecker, arena: &Arena, default_filename: &byte) i
     // 初始化函数表（所有槽位设为 null）
     i = 0;
     while i < FUNCTION_TABLE_SIZE {
-        checker.function_table.slots[i] = null;
+        if i < FUNCTION_TABLE_SIZE {  // 添加边界检查
+            checker.function_table.slots[i] = null;
+        }
         i = i + 1;
     }
     checker.function_table.count = 0;

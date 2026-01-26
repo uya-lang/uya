@@ -624,10 +624,15 @@ ASTNode *parser_parse_enum(Parser *parser) {
             parser_consume(parser);  // 消费数字值
         }
         
-        // 添加变体
-        variants[variant_count].name = variant_name;
-        variants[variant_count].value = variant_value;  // NULL 表示没有显式赋值
-        variant_count++;
+            // 添加变体（确保数组索引有效）
+            if (variant_count < variant_capacity) {
+                variants[variant_count].name = variant_name;
+                variants[variant_count].value = variant_value;  // NULL 表示没有显式赋值
+                variant_count++;
+            } else {
+                fprintf(stderr, "错误: 枚举变体数量超出容量\n");
+                return NULL;
+            }
         
         // 检查是否有逗号（可选，最后一个变体后不需要逗号）
         if (parser_match(parser, TOKEN_COMMA)) {

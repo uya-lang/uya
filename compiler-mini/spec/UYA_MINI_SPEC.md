@@ -317,14 +317,27 @@ boolean = 'true' | 'false'
 ### 3.4 字符串字面量
 
 ```
-string_literal = '"' { character } '"'
+string_literal = '"' { character | escape_sequence } '"'
+escape_sequence = '\\' ( 'n' | 't' | '\\' | '"' | '0' )
 ```
 
 - 字符串字面量，用双引号包围
 - 类型为 `*byte`（FFI 指针类型）
 - 仅可作为 `extern` 函数参数使用（不能赋值给变量、不能用于普通表达式）
 - 编译器在只读数据段中存储字符串字面量（null 终止，创建全局常量变量）
-- 示例：`"hello"`、`"i32"`、`"filename.txt"`
+- **转义序列支持**：
+  - `\n`：换行符（LF，ASCII 0x0A）
+  - `\t`：制表符（TAB，ASCII 0x09）
+  - `\\`：反斜杠（ASCII 0x5C）
+  - `\"`：双引号（ASCII 0x22）
+  - `\0`：空字符（NULL，ASCII 0x00）
+- **不支持**：`\xHH`、`\uXXXX` 等十六进制/Unicode 转义序列（未来可能支持）
+- 示例：
+  - `"hello"`：普通字符串
+  - `"hello\n"`：包含换行符
+  - `"path\\to\\file"`：包含反斜杠的路径
+  - `"say \"hello\""`：包含双引号的字符串
+  - `"null\0terminated"`：包含空字符的字符串
 - 注意：Uya Mini 不提供内置字符串操作，需要通过 `extern` 调用 C 函数（如 `strcmp`）
 
 ### 3.5 运算符

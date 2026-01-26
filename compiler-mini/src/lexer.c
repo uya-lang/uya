@@ -163,8 +163,16 @@ static Token *read_identifier_or_keyword(Lexer *lexer, Arena *arena) {
     }
     
     size_t len = (lexer->buffer + lexer->position) - start;
+    
+    // 检查标识符长度是否合法
+    if (len <= 0 || len > 256) {
+        fprintf(stderr, "错误: 标识符长度无效 (%zu)\n", len);
+        return NULL;
+    }
+    
     const char *value = arena_strdup(arena, start, len);
     if (value == NULL) {
+        fprintf(stderr, "错误: 无法为标识符分配内存\n");
         return NULL;
     }
     
@@ -202,7 +210,7 @@ static Token *read_number(Lexer *lexer, Arena *arena) {
 // 读取字符串字面量
 // 参数：lexer - Lexer 指针，arena - Arena 分配器
 // 返回：字符串字面量 Token，失败返回 NULL
-// 注意：Uya Mini 字符串字面量不支持转义序列，仅支持普通字符
+// 支持转义序列：\n, \t, \\, \", \0
 static Token *read_string(Lexer *lexer, Arena *arena) {
     int line = lexer->line;
     int column = lexer->column;
@@ -210,24 +218,75 @@ static Token *read_string(Lexer *lexer, Arena *arena) {
     // 消费开始的引号
     advance_char(lexer);
     
-    const char *start = lexer->buffer + lexer->position;
+    // 使用临时缓冲区构建转义后的字符串（最大 4KB）
+    #define STRING_BUFFER_SIZE 4096
+    char temp_buffer[STRING_BUFFER_SIZE];
+    size_t temp_len = 0;
     
     // 读取字符串内容（直到遇到结束引号）
     while (lexer->position < lexer->buffer_size) {
         char c = peek_char(lexer, 0);
+        
         if (c == '\0') {
             // 文件结束，字符串未闭合
             return NULL;
         }
+        
         if (c == '"') {
             // 遇到结束引号
             break;
         }
+        
         if (c == '\n') {
-            // 字符串字面量不能跨行（Uya Mini 不支持转义序列）
+            // 字符串字面量不能跨行（除非使用 \n 转义）
             return NULL;
         }
-        advance_char(lexer);
+        
+        // 处理转义序列
+        if (c == '\\') {
+            advance_char(lexer);  // 消费反斜杠
+            
+            if (temp_len >= STRING_BUFFER_SIZE - 1) {
+                // 缓冲区溢出
+                return NULL;
+            }
+            
+            // 读取转义字符
+            char escape_char = peek_char(lexer, 0);
+            char escaped_value;
+            
+            switch (escape_char) {
+                case 'n':
+                    escaped_value = '\n';  // 换行符
+                    break;
+                case 't':
+                    escaped_value = '\t';  // 制表符
+                    break;
+                case '\\':
+                    escaped_value = '\\';  // 反斜杠
+                    break;
+                case '"':
+                    escaped_value = '"';   // 双引号
+                    break;
+                case '0':
+                    escaped_value = '\0';  // 空字符
+                    break;
+                default:
+                    // 未知的转义序列，返回错误
+                    return NULL;
+            }
+            
+            temp_buffer[temp_len++] = escaped_value;
+            advance_char(lexer);  // 消费转义字符
+        } else {
+            // 普通字符
+            if (temp_len >= STRING_BUFFER_SIZE - 1) {
+                // 缓冲区溢出
+                return NULL;
+            }
+            temp_buffer[temp_len++] = c;
+            advance_char(lexer);
+        }
     }
     
     // 检查是否找到了结束引号
@@ -236,17 +295,16 @@ static Token *read_string(Lexer *lexer, Arena *arena) {
         return NULL;
     }
     
-    // 计算字符串长度（不包括引号）
-    size_t len = (lexer->buffer + lexer->position) - start;
+    // 消费结束引号
+    advance_char(lexer);
     
-    // 复制字符串内容到 Arena（包括 null 终止符）
-    const char *value = arena_strdup(arena, start, len);
+    // 将转义后的字符串复制到 Arena（包括 null 终止符）
+    char *value = (char *)arena_alloc(arena, temp_len + 1);
     if (value == NULL) {
         return NULL;
     }
-    
-    // 消费结束引号
-    advance_char(lexer);
+    memcpy(value, temp_buffer, temp_len);
+    value[temp_len] = '\0';
     
     return make_token(arena, TOKEN_STRING, value, line, column);
 }
