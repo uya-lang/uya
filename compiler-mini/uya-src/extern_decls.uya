@@ -55,6 +55,9 @@ extern fn fread(ptr: *void, size: i32, nmemb: i32, stream: *void) i32;
 extern fn fclose(stream: *void) i32;
 extern fn fgetc(stream: *void) i32;  // 返回 int，EOF 为 -1
 
+// 获取标准错误流指针（由 bridge.c 提供）
+extern fn get_stderr() *void;  // 返回 stderr FILE* 指针
+
 // ===== 命令行参数获取函数 =====
 // 注意：在 Uya Mini 中，main 函数签名是 fn main() i32，不支持 argc 和 argv
 // 因此需要使用 extern 函数来获取命令行参数

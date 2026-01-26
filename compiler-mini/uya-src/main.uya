@@ -93,7 +93,7 @@ fn read_file_content(filename: &byte, buffer: &byte, buffer_size: i32) i32 {
 // 打印使用说明
 // 参数：program_name - 程序名称
 fn print_usage(program_name: &byte) void {
-    const stderr: *void = null;  // stderr 在 Uya Mini 中需要特殊处理，这里暂时使用 null
+    const stderr: *void = get_stderr();  // 获取标准错误流指针
     // 注意：program_name 是 &byte 类型，但 fprintf 需要 *byte 类型，需要转换
     fprintf(stderr, "用法: %s [输入文件...] -o <输出文件>\n" as *byte, program_name as *byte);
     fprintf(stderr, "示例: %s program.uya -o program\n" as *byte, program_name as *byte);
@@ -127,14 +127,14 @@ fn parse_args(input_files: [&byte: MAX_INPUT_FILES], input_file_count: &i32, out
                 output_file[0] = get_argv(i + 1) as &byte;
                 i = i + 1;  // 跳过输出文件名
             } else {
-                const stderr: *void = null;
+                const stderr: *void = get_stderr();
                 fprintf(stderr, "错误: -o 选项需要指定输出文件名\n" as *byte);
                 return -1;
             }
         } else {
             // 非选项参数，应该是输入文件
             if *input_file_count >= MAX_INPUT_FILES {
-                const stderr: *void = null;
+                const stderr: *void = get_stderr();
                 fprintf(stderr, "错误: 输入文件数量超过最大限制 (%d)\n" as *byte, MAX_INPUT_FILES);
                 return -1;
             }
@@ -146,7 +146,7 @@ fn parse_args(input_files: [&byte: MAX_INPUT_FILES], input_file_count: &i32, out
     
     if *input_file_count == 0 {
         const program_name: *byte = get_argv(0);
-        const stderr: *void = null;
+        const stderr: *void = get_stderr();
         fprintf(stderr, "错误: 未指定输入文件\n" as *byte);
         print_usage(program_name as &byte);
         return -1;
@@ -154,7 +154,7 @@ fn parse_args(input_files: [&byte: MAX_INPUT_FILES], input_file_count: &i32, out
     
     if output_file[0] == null {
         const program_name: *byte = get_argv(0);
-        const stderr: *void = null;
+        const stderr: *void = get_stderr();
         fprintf(stderr, "错误: 未指定输出文件（使用 -o 选项）\n" as *byte);
         print_usage(program_name as &byte);
         return -1;
@@ -170,7 +170,7 @@ fn parse_args(input_files: [&byte: MAX_INPUT_FILES], input_file_count: &i32, out
 //       output_file - 输出文件名
 // 返回：成功返回 0，失败返回非 0
 fn compile_files(input_files: [&byte: MAX_INPUT_FILES], input_file_count: i32, output_file: &byte) i32 {
-    const stderr: *void = null;
+    const stderr: *void = get_stderr();
     fprintf(stderr, "=== 开始编译 ===\n" as *byte);
     fprintf(stderr, "输入文件数量: %d\n" as *byte, input_file_count);
     var i: i32 = 0;

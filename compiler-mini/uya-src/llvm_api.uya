@@ -30,6 +30,7 @@ extern fn LLVMSetModuleDataLayout(module: *void, layout: *void) void;
 
 // 函数创建和声明
 extern fn LLVMAddFunction(module: *void, name: *byte, function_type: *void) *void;
+extern fn LLVMGetNamedFunction(module: *void, name: *byte) *void;  // 查找已存在的函数（包括外部函数）
 extern fn LLVMGetParam(func: *void, index: i32) *void;
 extern fn LLVMSetValueName(value: *void, name: *byte) void;
 extern fn LLVMSetLinkage(value: *void, linkage: i32) void;

@@ -1604,13 +1604,25 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) &void {
         
         // 查找函数
         var func_type: *void = null;
+        var func: *void = null;
         const func_map: &FuncMap = lookup_func(codegen, func_name, func_type as &void);
-        if func_map == null {
-            return null;  // 函数未找到
+        if func_map != null {
+            func = func_map.func;
+            func_type = func_map.func_type;
+        } else {
+            // 函数未在函数表中找到，尝试查找外部函数
+            func = LLVMGetNamedFunction(codegen.module, func_name);
+            if func != null {
+                // 找到外部函数，获取函数类型
+                func_type = LLVMTypeOf(func);
+                if func_type == null {
+                    return null;  // 无法获取函数类型
+                }
+                // 注意：LLVMTypeOf 对于函数值返回的是函数类型，可以直接使用
+            } else {
+                return null;  // 函数未找到
+            }
         }
-        
-        const func: *void = func_map.func;
-        func_type = func_map.func_type;
         
         // 生成参数值
         const arg_count: i32 = expr.call_expr_arg_count;
