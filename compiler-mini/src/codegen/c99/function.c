@@ -37,7 +37,10 @@ void format_param_type(C99CodeGenerator *codegen __attribute__((unused)), const 
         size_t len = bracket - type_c;
         fprintf(output, "%.*s %s%s", (int)len, type_c, param_name, bracket);
     } else {
-        // 非数组类型，直接输出
+        // 非数组类型
+        // 检查是否是指针类型（包含 '*'）
+        // 如果是指针类型，格式应该是 "type * name"（* 紧跟在类型后面）
+        // c99_type_to_c 已经返回了正确的格式（如 "struct Type *"），所以直接输出即可
         fprintf(output, "%s %s", type_c, param_name);
     }
 }
@@ -228,6 +231,17 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     // 保存当前函数的返回类型（用于生成返回语句）
     codegen->current_function_return_type = return_type;
     
+    // 保存函数开始时的局部变量表状态（用于函数结束时恢复）
+    // 每个函数有自己独立的局部变量表，函数结束后恢复之前的状态
+    int saved_local_variable_count = codegen->local_variable_count;
+    int saved_current_depth = codegen->current_depth;
+    
+    // 重置当前函数的局部变量表（从 0 开始）
+    // 这样每个函数都有自己独立的局部变量表，避免大文件时表被填满
+    // 参数和局部变量都从索引 0 开始添加
+    codegen->local_variable_count = 0;
+    codegen->current_depth = 0;
+    
     // 处理数组参数：为数组参数创建局部副本（实现按值传递）
     for (int i = 0; i < param_count; i++) {
         ASTNode *param = params[i];
@@ -272,6 +286,11 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     
     // 清除当前函数的返回类型
     codegen->current_function_return_type = NULL;
+    
+    // 恢复函数开始时的局部变量表状态
+    // 这样下一个函数可以从干净的状态开始
+    codegen->local_variable_count = saved_local_variable_count;
+    codegen->current_depth = saved_current_depth;
     
     codegen->indent_level--;
     c99_emit(codegen, "}\n");

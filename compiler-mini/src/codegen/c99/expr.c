@@ -176,6 +176,10 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             } else if (object->type == AST_MEMBER_ACCESS) {
                 // 嵌套成员访问：检查嵌套访问的结果类型是否是指针
                 is_pointer = is_member_access_pointer_type(codegen, object);
+            } else if (object->type == AST_ARRAY_ACCESS) {
+                // 数组访问：检查数组元素类型是否是指针
+                // 例如：programs[i] 如果 programs 的类型是 [&ASTNode: 64]，那么 programs[i] 是指针类型
+                is_pointer = is_array_access_pointer_type(codegen, object);
             } else if (object->type == AST_UNARY_EXPR) {
                 // 一元表达式：检查操作符
                 int op = object->data.unary_expr.op;

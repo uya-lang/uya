@@ -474,6 +474,74 @@ int is_identifier_pointer_to_array_type(C99CodeGenerator *codegen, const char *n
     return 0;
 }
 
+// 检查数组访问表达式的结果类型是否是指针
+// 例如：如果 arr 的类型是 [&ASTNode: 64]，那么 arr[i] 的结果类型是 &ASTNode，在 C 中是 struct ASTNode *
+int is_array_access_pointer_type(C99CodeGenerator *codegen, ASTNode *array_access) {
+    if (!codegen || !array_access || array_access->type != AST_ARRAY_ACCESS) {
+        return 0;
+    }
+    
+    ASTNode *array = array_access->data.array_access.array;
+    if (!array) return 0;
+    
+    // 如果数组表达式是标识符，查找变量类型
+    if (array->type == AST_IDENTIFIER) {
+        const char *array_name = array->data.identifier.name;
+        if (!array_name) return 0;
+        
+        // 查找变量类型
+        const char *array_type_c = NULL;
+        for (int i = codegen->local_variable_count - 1; i >= 0; i--) {
+            if (codegen->local_variables[i].name && strcmp(codegen->local_variables[i].name, array_name) == 0) {
+                array_type_c = codegen->local_variables[i].type_c;
+                break;
+            }
+        }
+        if (!array_type_c) {
+            for (int i = 0; i < codegen->global_variable_count; i++) {
+                if (codegen->global_variables[i].name && strcmp(codegen->global_variables[i].name, array_name) == 0) {
+                    array_type_c = codegen->global_variables[i].type_c;
+                    break;
+                }
+            }
+        }
+        
+        if (!array_type_c) return 0;
+        
+        // 检查数组类型：如果类型字符串包含 '['，说明是数组类型
+        // 数组元素类型是指针类型，如果元素类型字符串包含 '*'
+        // 例如："struct ASTNode *[64]" 表示数组元素是指针类型
+        const char *bracket = strchr(array_type_c, '[');
+        if (bracket) {
+            // 这是数组类型，检查元素类型是否包含 '*'
+            // 在 C 中，数组声明格式是 "element_type array_name[size]"
+            // 如果 element_type 包含 '*'，说明元素是指针类型
+            // 例如："struct ASTNode *[64]" -> 元素类型是 "struct ASTNode *"
+            const char *asterisk = strchr(array_type_c, '*');
+            if (asterisk && asterisk < bracket) {
+                // '*' 在 '[' 之前，说明元素类型是指针
+                return 1;
+            }
+        }
+    }
+    
+    // 如果数组表达式是嵌套的数组访问，递归检查
+    if (array->type == AST_ARRAY_ACCESS) {
+        return is_array_access_pointer_type(codegen, array);
+    }
+    
+    // 如果数组表达式是成员访问，检查成员访问的结果类型
+    if (array->type == AST_MEMBER_ACCESS) {
+        // 成员访问的结果类型可能是指针，需要检查
+        // 这里简化处理：如果成员访问的结果类型是指针，那么数组访问的结果也是指针
+        // 但实际上，我们需要检查成员访问的结果类型是否是数组类型，然后检查数组元素类型
+        // 暂时返回 0，因为这种情况比较复杂
+        return 0;
+    }
+    
+    return 0;
+}
+
 // 检查标识符对应的类型是否为结构体
 int is_identifier_struct_type(C99CodeGenerator *codegen, const char *name) {
     if (!name) return 0;
