@@ -26,6 +26,7 @@ int c99_codegen_new(C99CodeGenerator *codegen, Arena *arena, FILE *output, const
     codegen->current_depth = 0;
     codegen->loop_stack_depth = 0;
     codegen->program_node = NULL;
+    codegen->current_function_return_type = NULL;
     
     return 0;
 }
@@ -619,46 +620,165 @@ static int is_identifier_struct_type(C99CodeGenerator *codegen, const char *name
     return 0;
 }
 
-// 将数组返回类型转换为指针类型（C99不允许函数返回数组）
-// 例如：[i32: 3] -> int32_t*, [struct Point: 5] -> struct Point*
-// 对于多维数组，需要特殊处理：[[i32: 2]: 3] -> int32_t(*)[2], 其中第一个维度被移除
+// 生成数组包装结构体的名称
+// 例如：[i32: 3] -> "uya_array_i32_3", [[i32: 2]: 3] -> "uya_array_i32_2_3"
+static const char *get_array_wrapper_struct_name(C99CodeGenerator *codegen, ASTNode *array_type) {
+    if (!array_type || array_type->type != AST_TYPE_ARRAY) {
+        return NULL;
+    }
+    
+    // 构建结构体名称
+    char name_buf[256] = "uya_array_";
+    int pos = strlen(name_buf);
+    
+    // 递归处理数组维度
+    ASTNode *current = array_type;
+    int first = 1;
+    while (current && current->type == AST_TYPE_ARRAY) {
+        ASTNode *element_type = current->data.type_array.element_type;
+        ASTNode *size_expr = current->data.type_array.size_expr;
+        
+        // 获取元素类型名称
+        const char *elem_name = NULL;
+        if (element_type->type == AST_TYPE_NAMED) {
+            const char *type_name = element_type->data.type_named.name;
+            if (type_name) {
+                // 简化类型名称（i32 -> i32, Point -> Point）
+                if (strcmp(type_name, "i32") == 0) {
+                    elem_name = "i32";
+                } else if (strcmp(type_name, "i64") == 0) {
+                    elem_name = "i64";
+                } else if (strcmp(type_name, "i16") == 0) {
+                    elem_name = "i16";
+                } else if (strcmp(type_name, "i8") == 0 || strcmp(type_name, "byte") == 0) {
+                    elem_name = "i8";
+                } else if (strcmp(type_name, "bool") == 0) {
+                    elem_name = "bool";
+                } else {
+                    // 结构体或其他类型，使用简化名称
+                    const char *safe_name = get_safe_c_identifier(codegen, type_name);
+                    elem_name = safe_name;
+                }
+            }
+        }
+        
+        if (!elem_name) {
+            elem_name = "unknown";
+        }
+        
+        if (!first) {
+            name_buf[pos++] = '_';
+        }
+        first = 0;
+        
+        // 添加元素类型名称
+        int name_len = strlen(elem_name);
+        if (pos + name_len < 255) {
+            memcpy(name_buf + pos, elem_name, name_len);
+            pos += name_len;
+        }
+        
+        // 添加数组大小
+        if (size_expr) {
+            int size = eval_const_expr(codegen, size_expr);
+            if (size > 0) {
+                char size_str[32];
+                snprintf(size_str, sizeof(size_str), "_%d", size);
+                int size_len = strlen(size_str);
+                if (pos + size_len < 255) {
+                    memcpy(name_buf + pos, size_str, size_len);
+                    pos += size_len;
+                }
+            }
+        }
+        
+        current = element_type;
+    }
+    
+    name_buf[pos] = '\0';
+    return arena_strdup(codegen->arena, name_buf);
+}
+
+// 生成数组包装结构体的定义
+static void gen_array_wrapper_struct(C99CodeGenerator *codegen, ASTNode *array_type, const char *struct_name) {
+    if (!array_type || array_type->type != AST_TYPE_ARRAY || !struct_name) {
+        return;
+    }
+    
+    // 检查是否已生成
+    if (is_struct_defined(codegen, struct_name)) {
+        return;
+    }
+    
+    // 添加到结构体定义表（避免重复生成）
+    if (codegen->struct_definition_count < 64) {
+        codegen->struct_definitions[codegen->struct_definition_count].name = struct_name;
+        codegen->struct_definitions[codegen->struct_definition_count].defined = 0;
+        codegen->struct_definition_count++;
+    }
+    
+    // 生成结构体定义
+    fprintf(codegen->output, "struct %s {\n", struct_name);
+    
+    // 生成数组字段：需要将数组类型转换为正确的格式
+    // 例如：[i32: 3] -> int32_t data[3]
+    ASTNode *element_type = array_type->data.type_array.element_type;
+    ASTNode *size_expr = array_type->data.type_array.size_expr;
+    const char *elem_type_c = c99_type_to_c(codegen, element_type);
+    
+    int array_size = -1;
+    if (size_expr) {
+        array_size = eval_const_expr(codegen, size_expr);
+        if (array_size <= 0) {
+            array_size = 1;
+        }
+    } else {
+        array_size = 1;
+    }
+    
+    fprintf(codegen->output, "    %s data[%d];\n", elem_type_c, array_size);
+    
+    fprintf(codegen->output, "};\n");
+    
+    // 标记为已定义
+    for (int i = 0; i < codegen->struct_definition_count; i++) {
+        if (strcmp(codegen->struct_definitions[i].name, struct_name) == 0) {
+            codegen->struct_definitions[i].defined = 1;
+            break;
+        }
+    }
+}
+
+// 将数组返回类型转换为包装结构体类型（C99不允许函数返回数组）
+// 例如：[i32: 3] -> struct uya_array_i32_3
 static const char *convert_array_return_type(C99CodeGenerator *codegen, ASTNode *return_type) {
     if (!return_type || return_type->type != AST_TYPE_ARRAY) {
         return c99_type_to_c(codegen, return_type);
     }
     
-    // 处理多维数组：移除最外层的维度
-    ASTNode *element_type = return_type->data.type_array.element_type;
-    
-    // 如果元素类型仍然是数组，说明是多维数组，需要特殊处理
-    if (element_type->type == AST_TYPE_ARRAY) {
-        // 多维数组返回时，去掉最外层维度，转换为指向内部数组的指针
-        const char *inner_array_type = c99_type_to_c(codegen, element_type);
-        
-        // 分配缓冲区："(" + inner_array_type + " (*))", 例如 "(int32_t[2] (*))"
-        size_t len = strlen(inner_array_type) + 10;  // "(" + " (*))" + '\0'
-        char *result = arena_alloc(codegen->arena, len);
-        if (!result) {
-            return "void*";
-        }
-        
-        snprintf(result, len, "(%s (*))", inner_array_type);
-        return result;
-    } else {
-        // 单层数组，直接转换为指针
-        const char *element_c = c99_type_to_c(codegen, element_type);
-        
-        // 分配缓冲区：元素类型 + " *" + '\0'
-        size_t len = strlen(element_c) + 3;  // 元素类型 + " *" + '\0'
-        char *result = arena_alloc(codegen->arena, len);
-        if (!result) {
-            return "void*";
-        }
-        
-        snprintf(result, len, "%s *", element_c);
-        return result;
+    // 生成包装结构体名称
+    const char *struct_name = get_array_wrapper_struct_name(codegen, return_type);
+    if (!struct_name) {
+        return "void";
     }
+    
+    // 生成包装结构体定义（如果尚未生成）
+    gen_array_wrapper_struct(codegen, return_type, struct_name);
+    
+    // 返回结构体类型
+    size_t len = strlen(struct_name) + 8;  // "struct " + name + '\0'
+    char *result = arena_alloc(codegen->arena, len);
+    if (!result) {
+        return "void";
+    }
+    
+    snprintf(result, len, "struct %s", struct_name);
+    return result;
 }
+
+// 前向声明
+static void mark_struct_defined(C99CodeGenerator *codegen, const char *struct_name);
+static void add_struct_definition(C99CodeGenerator *codegen, const char *struct_name);
 
 // 检查结构体是否已添加到表中
 static int is_struct_in_table(C99CodeGenerator *codegen, const char *struct_name) {
@@ -1670,29 +1790,53 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
         case AST_RETURN_STMT: {
             ASTNode *expr = stmt->data.return_stmt.expr;
             
-            // 检查是否返回数组字面量（例如：return [100, 200, 300];）
-            if (expr && expr->type == AST_ARRAY_LITERAL) {
-                // 创建临时静态数组并返回其地址
-                static int temp_array_counter = 0;
-                temp_array_counter++;
-                
-                // 获取数组元素类型（假设是int32_t，实际应该推断）
-                const char *elem_type = "int32_t";
-                int element_count = expr->data.array_literal.element_count;
-                
-                // 生成静态数组
-                c99_emit(codegen, "static %s _temp_arr_%d[] = {", elem_type, temp_array_counter);
-                ASTNode **elements = expr->data.array_literal.elements;
-                for (int i = 0; i < element_count; i++) {
-                    if (i > 0) fputs(", ", codegen->output);
-                    gen_expr(codegen, elements[i]);
+            // 检查函数返回类型是否为数组
+            int is_array_return = 0;
+            ASTNode *return_type = codegen->current_function_return_type;
+            if (return_type && return_type->type == AST_TYPE_ARRAY) {
+                is_array_return = 1;
+            }
+            
+            if (is_array_return && expr) {
+                // 返回数组类型：需要包装在结构体中
+                const char *struct_name = get_array_wrapper_struct_name(codegen, return_type);
+                if (struct_name) {
+                    // 生成包装结构体定义（如果尚未生成）
+                    gen_array_wrapper_struct(codegen, return_type, struct_name);
+                    
+                    // 生成返回语句：return (struct uya_array_xxx) { .data = { ... } };
+                    c99_emit(codegen, "return (struct %s) { .data = ", struct_name);
+                    
+                    if (expr->type == AST_ARRAY_LITERAL) {
+                        // 数组字面量
+                        fputc('{', codegen->output);
+                        ASTNode **elements = expr->data.array_literal.elements;
+                        int element_count = expr->data.array_literal.element_count;
+                        for (int i = 0; i < element_count; i++) {
+                            if (i > 0) fputs(", ", codegen->output);
+                            gen_expr(codegen, elements[i]);
+                        }
+                        fputc('}', codegen->output);
+                    } else {
+                        // 其他表达式（如变量）
+                        gen_expr(codegen, expr);
+                    }
+                    
+                    fputs(" };\n", codegen->output);
+                } else {
+                    // 回退到普通返回
+                    c99_emit(codegen, "return ");
+                    gen_expr(codegen, expr);
+                    fputs(";\n", codegen->output);
                 }
-                fputs("};\n", codegen->output);
-                c99_emit_indent(codegen);
-                c99_emit(codegen, "return _temp_arr_%d;\n", temp_array_counter);
             } else {
+                // 非数组返回类型，正常处理
                 c99_emit(codegen, "return ");
-                gen_expr(codegen, expr);
+                if (expr) {
+                    gen_expr(codegen, expr);
+                } else {
+                    fputs("0", codegen->output);
+                }
                 fputs(";\n", codegen->output);
             }
             break;
@@ -1784,13 +1928,33 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             }
             
             if (init_expr) {
+                // 检查是否是数组类型且初始化表达式是函数调用（返回数组）
+                int is_array_from_function = 0;
+                if (var_type->type == AST_TYPE_ARRAY && init_expr->type == AST_CALL_EXPR) {
+                    // 需要检查函数返回类型是否为数组
+                    // 这里简化处理：假设函数调用返回数组类型
+                    is_array_from_function = 1;
+                }
+                
                 // 检查是否是数组类型且初始化表达式是另一个数组（需要memcpy）
                 int needs_memcpy = 0;
                 if (var_type->type == AST_TYPE_ARRAY && init_expr->type == AST_IDENTIFIER) {
                     needs_memcpy = 1;
                 }
                 
-                if (needs_memcpy) {
+                if (is_array_from_function) {
+                    // 从函数调用接收数组：需要从包装结构体中提取
+                    // 先完成变量声明（不包含初始化）
+                    fputs(";\n", codegen->output);
+                    // 然后使用 memcpy 从结构体中提取数组
+                    c99_emit(codegen, "memcpy(");
+                    c99_emit(codegen, "%s", var_name);
+                    fputs(", ", codegen->output);
+                    gen_expr(codegen, init_expr);
+                    fputs(".data, sizeof(", codegen->output);
+                    c99_emit(codegen, "%s", var_name);
+                    fputs("));\n", codegen->output);
+                } else if (needs_memcpy) {
                     // 数组初始化：使用memcpy
                     fputs(";\n", codegen->output);
                     c99_emit(codegen, "memcpy(");
@@ -2017,6 +2181,9 @@ static void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     fputs(") {\n", codegen->output);
     codegen->indent_level++;
     
+    // 保存当前函数的返回类型（用于生成返回语句）
+    codegen->current_function_return_type = return_type;
+    
     // 将函数参数添加到局部变量表（用于类型检查）
     for (int i = 0; i < param_count; i++) {
         ASTNode *param = params[i];
@@ -2035,6 +2202,9 @@ static void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     
     // 生成函数体
     gen_stmt(codegen, body);
+    
+    // 清除当前函数的返回类型
+    codegen->current_function_return_type = NULL;
     
     codegen->indent_level--;
     c99_emit(codegen, "}\n");

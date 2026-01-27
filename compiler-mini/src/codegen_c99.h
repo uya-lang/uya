@@ -65,6 +65,7 @@ typedef struct C99CodeGenerator {
     int loop_stack_depth;
     
     ASTNode *program_node;          // 程序节点引用
+    ASTNode *current_function_return_type;  // 当前函数的返回类型（用于生成返回语句）
 } C99CodeGenerator;
 
 // 创建 C99 代码生成器
