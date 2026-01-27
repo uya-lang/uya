@@ -2097,7 +2097,7 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
 }
 
 // 格式化函数参数类型（将数组类型从 T[N] 转换为 T name[N]）
-static void format_param_type(C99CodeGenerator *codegen, const char *type_c, const char *param_name, FILE *output) {
+static void format_param_type(C99CodeGenerator *codegen __attribute__((unused)), const char *type_c, const char *param_name, FILE *output) {
     if (!type_c || !param_name) return;
     
     // 检查是否是数组类型（包含 [数字]）
@@ -2110,6 +2110,19 @@ static void format_param_type(C99CodeGenerator *codegen, const char *type_c, con
         // 非数组类型，直接输出
         fprintf(output, "%s %s", type_c, param_name);
     }
+}
+
+// 检查是否是标准库函数（需要特殊处理参数类型）
+static int is_stdlib_function(const char *func_name) {
+    if (!func_name) return 0;
+    // 标准库函数列表：这些函数的字符串参数应该是 const char * 而不是 uint8_t *
+    return (strcmp(func_name, "printf") == 0 ||
+            strcmp(func_name, "sprintf") == 0 ||
+            strcmp(func_name, "fprintf") == 0 ||
+            strcmp(func_name, "snprintf") == 0 ||
+            strcmp(func_name, "scanf") == 0 ||
+            strcmp(func_name, "fscanf") == 0 ||
+            strcmp(func_name, "sscanf") == 0);
 }
 
 // 生成函数原型（前向声明）
@@ -2126,8 +2139,18 @@ static void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) 
     // 检查是否为extern函数（body为NULL表示extern函数）
     int is_extern = (body == NULL) ? 1 : 0;
     
+    // 检查是否是标准库函数
+    int is_stdlib = is_stdlib_function(func_name);
+    
     // 返回类型（如果是数组类型，转换为指针类型）
     const char *return_c = convert_array_return_type(codegen, return_type);
+    
+    // 对于标准库函数，包含相应的头文件而不是重新声明
+    if (is_extern && is_stdlib) {
+        // 标准库函数应该包含 <stdio.h>，不生成 extern 声明
+        // 但为了兼容性，我们仍然生成声明，但使用正确的类型
+        // 注意：这里我们仍然生成声明，但会在参数类型转换时处理
+    }
     
     // 对于extern函数，添加extern关键字
     if (is_extern) {
@@ -2144,6 +2167,18 @@ static void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) 
         const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
         ASTNode *param_type = param->data.var_decl.type;
         const char *param_type_c = c99_type_to_c(codegen, param_type);
+        
+        // 对于标准库函数，将 uint8_t * 转换为 const char *
+        if (is_stdlib && param_type->type == AST_TYPE_POINTER) {
+            ASTNode *pointed_type = param_type->data.type_pointer.pointed_type;
+            if (pointed_type && pointed_type->type == AST_TYPE_NAMED) {
+                const char *pointed_name = pointed_type->data.type_named.name;
+                if (pointed_name && strcmp(pointed_name, "byte") == 0) {
+                    // 将 uint8_t * 替换为 const char *
+                    param_type_c = "const char *";
+                }
+            }
+        }
         
         // 数组参数：在参数名后添加 _param 后缀，函数内部会创建副本
         if (param_type->type == AST_TYPE_ARRAY) {
