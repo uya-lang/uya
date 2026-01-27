@@ -4603,6 +4603,7 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
     codegen.program_node = ast;
     
     const decl_count: i32 = ast.program_decl_count;
+    var i: i32 = 0;  // 循环变量，在多个地方使用
     // 直接访问固定大小数组，不需要嵌套指针变量
     
     // 检查声明数组（固定大小数组不会为 null，但可以检查 count）
@@ -4681,7 +4682,8 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
         var registered_this_iteration: i32 = 0;
         
         // 遍历所有声明，尝试注册结构体类型
-        var i: i32 = 0;
+        // 重用函数开始处声明的 i 变量
+        i = 0;
         while i < decl_count {
             const decl: &ASTNode = ast.program_decls[i];
             if decl != null && decl.type == AST_STRUCT_DECL {
@@ -4836,13 +4838,14 @@ fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) 
     
     // 查找最后一个点号，如果以 .o 结尾则替换，否则追加 .ll
     var last_dot: *byte = null;
-    var i: i32 = output_len - 1;
-    while i >= 0 {
-        if ir_file[i] == 46 {  // 46 是 '.' 的 ASCII 码
-            last_dot = &ir_file[i] as *byte;
+    // 使用不同的变量名避免与函数开始处的 i 冲突
+    var j: i32 = output_len - 1;
+    while j >= 0 {
+        if ir_file[j] == 46 {  // 46 是 '.' 的 ASCII 码
+            last_dot = &ir_file[j] as *byte;
             break;
         }
-        i = i - 1;
+        j = j - 1;
     }
     
     if last_dot != null && strcmp(last_dot, ".o" as *byte) == 0 {

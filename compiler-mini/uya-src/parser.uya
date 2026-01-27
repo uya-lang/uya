@@ -448,7 +448,13 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
     }
     
     struct_decl.struct_decl_name = struct_name;
-    struct_decl.struct_decl_fields = null;
+    // 初始化固定大小数组（不能直接赋值为 null）
+    // 注意：i 变量在后面会声明，这里先不声明
+    var i: i32 = 0;
+    while i < MAX_STRUCT_FIELDS {
+        struct_decl.struct_decl_fields[i] = null;
+        i = i + 1;
+    }
     struct_decl.struct_decl_field_count = 0;
     
     // 期望 '{'
@@ -461,7 +467,8 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
     // field = ID ':' type
     var fields: [&ASTNode: PARSER_MAX_FIELDS] = [];
     var field_count: i32 = 0;
-    var i: i32 = 0;
+    // 重新声明 i 用于字段解析循环
+    i = 0;
     
     // 初始化数组为全 null
     i = 0;
@@ -728,7 +735,12 @@ fn parser_parse_function(parser: &Parser) &ASTNode {
     }
     
     fn_decl.fn_decl_name = fn_name;
-    fn_decl.fn_decl_params = null;
+    // 初始化固定大小数组（不能直接赋值为 null）
+    var i: i32 = 0;
+    while i < MAX_FN_PARAMS {
+        fn_decl.fn_decl_params[i] = null;
+        i = i + 1;
+    }
     fn_decl.fn_decl_param_count = 0;
     fn_decl.fn_decl_return_type = null;
     fn_decl.fn_decl_body = null;
@@ -741,10 +753,10 @@ fn parser_parse_function(parser: &Parser) &ASTNode {
     // 解析参数列表（可选）
     var params: [&ASTNode: PARSER_MAX_PARAMS] = [];
     var param_count: i32 = 0;
-    var i: i32 = 0;
+    // 重用前面声明的 i 变量
+    i = 0;
     
     // 初始化数组为全 null
-    i = 0;
     while i < PARSER_MAX_PARAMS {
         params[i] = null;
         i = i + 1;
@@ -888,7 +900,12 @@ fn parser_parse_extern_function(parser: &Parser) &ASTNode {
     }
     
     fn_decl.fn_decl_name = fn_name;
-    fn_decl.fn_decl_params = null;
+    // 初始化固定大小数组（不能直接赋值为 null）
+    var i: i32 = 0;
+    while i < MAX_FN_PARAMS {
+        fn_decl.fn_decl_params[i] = null;
+        i = i + 1;
+    }
     fn_decl.fn_decl_param_count = 0;
     fn_decl.fn_decl_return_type = null;
     fn_decl.fn_decl_body = null;  // extern 函数没有函数体
@@ -903,10 +920,10 @@ fn parser_parse_extern_function(parser: &Parser) &ASTNode {
     var params: [&ASTNode: PARSER_MAX_PARAMS] = [];
     var param_count: i32 = 0;
     var is_varargs: i32 = 0;
-    var i: i32 = 0;
+    // 重用前面声明的 i 变量
+    i = 0;
     
     // 初始化数组为全 null
-    i = 0;
     while i < PARSER_MAX_PARAMS {
         params[i] = null;
         i = i + 1;
@@ -1060,17 +1077,21 @@ fn parser_parse(parser: &Parser) &ASTNode {
         return null;
     }
     
-    // 初始化声明列表
-    program.program_decls = null;
+    // 初始化声明列表（固定大小数组不能直接赋值为 null）
+    var i: i32 = 0;
+    while i < MAX_PROGRAM_DECLS {
+        program.program_decls[i] = null;
+        i = i + 1;
+    }
     program.program_decl_count = 0;
     
     // 解析顶层声明列表
     var decls: [&ASTNode: PARSER_MAX_DECLS] = [];
     var decl_count: i32 = 0;
-    var i: i32 = 0;
+    // 重用前面声明的 i 变量
+    i = 0;
     
     // 初始化数组为全 null
-    i = 0;
     while i < PARSER_MAX_DECLS {
         decls[i] = null;
         i = i + 1;

@@ -80,6 +80,24 @@ int is_stdlib_function(const char *func_name) {
         strcmp(func_name, "strndup") == 0) {
         return 1;
     }
+    // 内存操作函数
+    if (strcmp(func_name, "memcpy") == 0 ||
+        strcmp(func_name, "memset") == 0 ||
+        strcmp(func_name, "memcmp") == 0 ||
+        strcmp(func_name, "memmove") == 0) {
+        return 1;
+    }
+    // 文件 I/O 函数
+    if (strcmp(func_name, "fopen") == 0 ||
+        strcmp(func_name, "fread") == 0 ||
+        strcmp(func_name, "fwrite") == 0 ||
+        strcmp(func_name, "fclose") == 0 ||
+        strcmp(func_name, "fgetc") == 0 ||
+        strcmp(func_name, "fputc") == 0 ||
+        strcmp(func_name, "fgets") == 0 ||
+        strcmp(func_name, "fputs") == 0) {
+        return 1;
+    }
     return 0;
 }
 
