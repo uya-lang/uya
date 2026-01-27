@@ -36,6 +36,7 @@ usage() {
   -n, --name NAME     指定输出文件名（默认: $OUTPUT_NAME）
   -c, --clean         清理输出目录后再编译
   -e, --exec          生成可执行文件（自动链接）
+  --c99               使用 C99 后端生成 C 代码（输出文件后缀为 .c 时自动启用）
   --compiler PATH     指定编译器路径（默认: $COMPILER）
 
 示例:
@@ -44,6 +45,8 @@ usage() {
   $0 -o /tmp/uyac -n my_compiler -e  # 指定输出目录和文件名，生成可执行文件
   $0 -v -d                      # 详细输出和调试模式
   $0 -c                         # 清理后编译
+  $0 --c99                      # 使用 C99 后端生成 C 代码
+  $0 -n compiler.c              # 输出文件为 .c 时自动使用 C99 后端
 
 EOF
     exit 1
@@ -54,6 +57,7 @@ VERBOSE=false
 DEBUG=false
 CLEAN=false
 GENERATE_EXEC=false
+USE_C99=false
 
 # 解析命令行选项
 while [[ $# -gt 0 ]]; do
@@ -75,6 +79,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -e|--exec)
             GENERATE_EXEC=true
+            shift
+            ;;
+        --c99)
+            USE_C99=true
             shift
             ;;
         -o|--output)
@@ -128,6 +136,16 @@ mkdir -p "$BUILD_DIR"
 
 # 输出文件路径
 OUTPUT_FILE="$BUILD_DIR/$OUTPUT_NAME"
+
+# 如果输出文件后缀是 .c，自动使用 C99 后端
+if [[ "$OUTPUT_NAME" == *.c ]]; then
+    USE_C99=true
+fi
+
+# 如果使用 C99 后端但输出文件不是 .c 后缀，添加 .c 后缀
+if [ "$USE_C99" = true ] && [[ "$OUTPUT_NAME" != *.c ]]; then
+    OUTPUT_FILE="$BUILD_DIR/${OUTPUT_NAME}.c"
+fi
 
 # 收集所有 .uya 文件（按依赖顺序排列）
 # 注意：文件顺序可能影响编译结果，按逻辑顺序排列
@@ -184,6 +202,9 @@ echo ""
 # 执行编译（多文件编译模式）
 # 构建编译命令
 COMPILER_CMD=("$COMPILER" "${FULL_PATHS[@]}" -o "$OUTPUT_FILE")
+if [ "$USE_C99" = true ]; then
+    COMPILER_CMD+=(--c99)
+fi
 if [ "$GENERATE_EXEC" = true ]; then
     COMPILER_CMD+=(-exec)
 fi
