@@ -2128,7 +2128,19 @@ static void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) 
         ASTNode *param_type = param->data.var_decl.type;
         const char *param_type_c = c99_type_to_c(codegen, param_type);
         
-        format_param_type(codegen, param_type_c, param_name, codegen->output);
+        // 数组参数：在参数名后添加 _param 后缀，函数内部会创建副本
+        if (param_type->type == AST_TYPE_ARRAY) {
+            // 数组参数格式：T name_param[N]
+            const char *bracket = strchr(param_type_c, '[');
+            if (bracket) {
+                size_t len = bracket - param_type_c;
+                fprintf(codegen->output, "%.*s %s_param%s", (int)len, param_type_c, param_name, bracket);
+            } else {
+                fprintf(codegen->output, "%s %s_param", param_type_c, param_name);
+            }
+        } else {
+            format_param_type(codegen, param_type_c, param_name, codegen->output);
+        }
         if (i < param_count - 1) fputs(", ", codegen->output);
     }
     
@@ -2168,7 +2180,19 @@ static void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
         ASTNode *param_type = param->data.var_decl.type;
         const char *param_type_c = c99_type_to_c(codegen, param_type);
         
-        format_param_type(codegen, param_type_c, param_name, codegen->output);
+        // 数组参数：在参数名后添加 _param 后缀，函数内部会创建副本
+        if (param_type->type == AST_TYPE_ARRAY) {
+            // 数组参数格式：T name_param[N]
+            const char *bracket = strchr(param_type_c, '[');
+            if (bracket) {
+                size_t len = bracket - param_type_c;
+                fprintf(codegen->output, "%.*s %s_param%s", (int)len, param_type_c, param_name, bracket);
+            } else {
+                fprintf(codegen->output, "%s %s_param", param_type_c, param_name);
+            }
+        } else {
+            format_param_type(codegen, param_type_c, param_name, codegen->output);
+        }
         if (i < param_count - 1) fputs(", ", codegen->output);
     }
     
@@ -2184,19 +2208,42 @@ static void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     // 保存当前函数的返回类型（用于生成返回语句）
     codegen->current_function_return_type = return_type;
     
-    // 将函数参数添加到局部变量表（用于类型检查）
+    // 处理数组参数：为数组参数创建局部副本（实现按值传递）
     for (int i = 0; i < param_count; i++) {
         ASTNode *param = params[i];
         if (!param || param->type != AST_VAR_DECL) continue;
         
-        const char *param_name = param->data.var_decl.name;
+        const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
         ASTNode *param_type = param->data.var_decl.type;
-        const char *param_type_c = c99_type_to_c(codegen, param_type);
         
-        if (param_name && param_type_c && codegen->local_variable_count < 128) {
-            codegen->local_variables[codegen->local_variable_count].name = param_name;
-            codegen->local_variables[codegen->local_variable_count].type_c = param_type_c;
-            codegen->local_variable_count++;
+        if (param_type->type == AST_TYPE_ARRAY) {
+            // 数组参数：创建局部数组副本
+            const char *array_type_c = c99_type_to_c(codegen, param_type);
+            // 解析数组类型格式：int32_t[3] -> int32_t arr[3]
+            const char *bracket = strchr(array_type_c, '[');
+            c99_emit(codegen, "// 数组参数按值传递：创建局部副本\n");
+            if (bracket) {
+                size_t len = bracket - array_type_c;
+                fprintf(codegen->output, "    %.*s %s%s;\n", (int)len, array_type_c, param_name, bracket);
+            } else {
+                c99_emit(codegen, "%s %s;\n", array_type_c, param_name);
+            }
+            c99_emit(codegen, "    memcpy(%s, %s_param, sizeof(%s));\n", param_name, param_name, param_name);
+            
+            // 将参数名注册为局部数组（而不是参数）
+            if (param_name && codegen->local_variable_count < 128) {
+                codegen->local_variables[codegen->local_variable_count].name = param->data.var_decl.name;  // 使用原始名称
+                codegen->local_variables[codegen->local_variable_count].type_c = array_type_c;
+                codegen->local_variable_count++;
+            }
+        } else {
+            // 非数组参数：正常添加到局部变量表
+            const char *param_type_c = c99_type_to_c(codegen, param_type);
+            if (param_name && param_type_c && codegen->local_variable_count < 128) {
+                codegen->local_variables[codegen->local_variable_count].name = param->data.var_decl.name;
+                codegen->local_variables[codegen->local_variable_count].type_c = param_type_c;
+                codegen->local_variable_count++;
+            }
         }
     }
     
