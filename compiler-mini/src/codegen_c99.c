@@ -316,6 +316,93 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
     }
 }
 
+// 查找枚举声明（从程序节点中查找）
+static ASTNode *find_enum_decl(C99CodeGenerator *codegen, const char *enum_name) {
+    if (!codegen || !enum_name || !codegen->program_node) {
+        return NULL;
+    }
+    
+    ASTNode **decls = codegen->program_node->data.program.decls;
+    int decl_count = codegen->program_node->data.program.decl_count;
+    
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_ENUM_DECL) {
+            continue;
+        }
+        
+        const char *decl_name = decl->data.enum_decl.name;
+        if (decl_name && strcmp(decl_name, enum_name) == 0) {
+            return decl;
+        }
+    }
+    
+    return NULL;
+}
+
+// 查找枚举变体的值（返回-1表示未找到）
+static int find_enum_variant_value(C99CodeGenerator *codegen, ASTNode *enum_decl, const char *variant_name) {
+    (void)codegen;  // 未使用参数
+    if (!enum_decl || enum_decl->type != AST_ENUM_DECL || !variant_name) {
+        return -1;
+    }
+    
+    EnumVariant *variants = enum_decl->data.enum_decl.variants;
+    int variant_count = enum_decl->data.enum_decl.variant_count;
+    int current_value = 0;
+    
+    for (int i = 0; i < variant_count; i++) {
+        EnumVariant *variant = &variants[i];
+        if (!variant->name) {
+            continue;
+        }
+        
+        // 确定当前变体的值
+        if (variant->value) {
+            current_value = atoi(variant->value);
+        }
+        
+        // 检查是否匹配
+        if (strcmp(variant->name, variant_name) == 0) {
+            return current_value;
+        }
+        
+        // 如果没有显式值，下一个变体的值会自动递增
+        if (!variant->value) {
+            current_value++;
+        }
+    }
+    
+    return -1;
+}
+
+// 检查标识符是否为指针类型
+static int is_identifier_pointer_type(C99CodeGenerator *codegen, const char *name) {
+    if (!name) return 0;
+    
+    // 检查局部变量
+    for (int i = codegen->local_variable_count - 1; i >= 0; i--) {
+        if (strcmp(codegen->local_variables[i].name, name) == 0) {
+            const char *type_c = codegen->local_variables[i].type_c;
+            if (!type_c) return 0;
+            // 检查类型是否包含'*'（即是指针）
+            return (strchr(type_c, '*') != NULL);
+        }
+    }
+    
+    // 检查全局变量
+    for (int i = 0; i < codegen->global_variable_count; i++) {
+        if (strcmp(codegen->global_variables[i].name, name) == 0) {
+            const char *type_c = codegen->global_variables[i].type_c;
+            if (!type_c) return 0;
+            // 检查类型是否包含'*'（即是指针）
+            return (strchr(type_c, '*') != NULL);
+        }
+    }
+    
+    return 0;
+}
+
 // 检查标识符对应的类型是否为结构体
 static int is_identifier_struct_type(C99CodeGenerator *codegen, const char *name) {
     if (!name) return 0;
@@ -935,9 +1022,52 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         }
         case AST_MEMBER_ACCESS: {
             ASTNode *object = expr->data.member_access.object;
-            const char *field_name = get_safe_c_identifier(codegen, expr->data.member_access.field_name);
+            const char *field_name = expr->data.member_access.field_name;
+            
+            if (!object || !field_name) {
+                break;
+            }
+            
+            // 检查是否是枚举值访问（EnumName.Variant）
+            if (object->type == AST_IDENTIFIER) {
+                const char *enum_name = object->data.identifier.name;
+                if (enum_name) {
+                    // 检查是否是枚举类型名称（不检查变量表，直接检查枚举声明）
+                    ASTNode *enum_decl = find_enum_decl(codegen, enum_name);
+                    if (enum_decl != NULL) {
+                        // 是枚举类型，查找变体值
+                        int enum_value = find_enum_variant_value(codegen, enum_decl, field_name);
+                        if (enum_value >= 0) {
+                            // 找到变体，直接输出枚举值名称（C中枚举值不需要前缀）
+                            const char *safe_variant_name = get_safe_c_identifier(codegen, field_name);
+                            fprintf(codegen->output, "%s", safe_variant_name);
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // 普通字段访问（结构体字段）
+            const char *safe_field_name = get_safe_c_identifier(codegen, field_name);
+            
+            // 检查对象是否是指针类型（需要自动解引用）
+            int is_pointer = 0;
+            if (object->type == AST_IDENTIFIER) {
+                is_pointer = is_identifier_pointer_type(codegen, object->data.identifier.name);
+            } else if (object->type == AST_UNARY_EXPR && 
+                       object->data.unary_expr.op == TOKEN_ASTERISK) {
+                // 解引用表达式的结果是指针
+                is_pointer = 1;
+            }
+            
             gen_expr(codegen, object);
-            fprintf(codegen->output, ".%s", field_name);
+            if (is_pointer) {
+                // 指针类型使用 -> 操作符
+                fprintf(codegen->output, "->%s", safe_field_name);
+            } else {
+                // 非指针类型使用 . 操作符
+                fprintf(codegen->output, ".%s", safe_field_name);
+            }
             break;
         }
         case AST_ARRAY_ACCESS: {
