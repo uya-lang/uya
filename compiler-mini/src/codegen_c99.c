@@ -1739,6 +1739,19 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             fputc(')', codegen->output);
             break;
         }
+        case AST_ASSIGN: {
+            // 赋值表达式（右结合）：dest = src
+            // 在表达式中使用时，需要生成 (dest = src) 的形式
+            ASTNode *dest = expr->data.assign.dest;
+            ASTNode *src = expr->data.assign.src;
+            
+            fputc('(', codegen->output);
+            gen_expr(codegen, dest);
+            fputs(" = ", codegen->output);
+            gen_expr(codegen, src);
+            fputc(')', codegen->output);
+            break;
+        }
         default:
             fputs("0", codegen->output);
             break;
