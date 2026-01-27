@@ -1853,10 +1853,11 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         case AST_ALIGNOF: {
             ASTNode *target = expr->data.alignof_expr.target;
             int is_type = expr->data.alignof_expr.is_type;
-            fputs("uya_alignof(", codegen->output);
+            
+            // 获取类型字符串
+            const char *type_c = NULL;
             if (is_type) {
-                const char *type_c = c99_type_to_c(codegen, target);
-                fprintf(codegen->output, "%s", type_c);
+                type_c = c99_type_to_c(codegen, target);
             } else {
                 // 即使 is_type = 0，也检查是否是类型标识符（如 alignof(usize) 中的 usize）
                 if (target->type == AST_IDENTIFIER) {
@@ -1864,35 +1865,92 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                     if (name && !is_c_keyword(name)) {
                         const char *safe_name = get_safe_c_identifier(codegen, name);
                         if (is_struct_in_table(codegen, safe_name)) {
-                            fprintf(codegen->output, "struct %s", safe_name);
+                            // 结构体类型
+                            size_t len = strlen(safe_name) + 8;  // "struct " + name + '\0'
+                            char *buf = arena_alloc(codegen->arena, len);
+                            if (buf) {
+                                snprintf(buf, len, "struct %s", safe_name);
+                                type_c = buf;
+                            }
                         } else {
                             // 对于变量名，需要获取变量的类型
                             // 查找局部变量表
-                            const char *var_type = NULL;
                             for (int i = codegen->local_variable_count - 1; i >= 0; i--) {
                                 if (strcmp(codegen->local_variables[i].name, safe_name) == 0) {
-                                    var_type = codegen->local_variables[i].type_c;
+                                    type_c = codegen->local_variables[i].type_c;
                                     break;
                                 }
                             }
                             
-                            // 如果找到变量类型，使用变量类型而不是变量名
-                            if (var_type) {
-                                fprintf(codegen->output, "%s", var_type);
-                            } else {
-                                // 如果找不到，可能是类型名（如 alignof(usize)）
-                                // 尝试直接使用标识符名称
-                                fprintf(codegen->output, "%s", safe_name);
+                            // 如果局部变量表中找不到，查找全局变量表
+                            if (!type_c) {
+                                for (int i = 0; i < codegen->global_variable_count; i++) {
+                                    if (strcmp(codegen->global_variables[i].name, safe_name) == 0) {
+                                        type_c = codegen->global_variables[i].type_c;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            // 如果找不到，可能是类型名（如 alignof(usize)）
+                            if (!type_c) {
+                                type_c = safe_name;
                             }
                         }
-                    } else {
-                        gen_expr(codegen, target);
                     }
-                } else {
+                }
+                
+                // 如果仍然没有类型，生成表达式（用于复杂情况）
+                if (!type_c) {
+                    // 对于复杂表达式，我们需要使用 typeof，但 C99 不支持
+                    // 所以这里我们尝试使用变量的类型
+                    // 如果失败，将生成错误的代码，但这是 C99 的限制
+                    fputs("uya_alignof(", codegen->output);
                     gen_expr(codegen, target);
+                    fputc(')', codegen->output);
+                    break;
                 }
             }
-            fputc(')', codegen->output);
+            
+            if (!type_c) {
+                // 回退：生成表达式
+                fputs("uya_alignof(", codegen->output);
+                gen_expr(codegen, target);
+                fputc(')', codegen->output);
+                break;
+            }
+            
+            // 检查类型是否是数组类型（包含 '['）
+            const char *bracket = strchr(type_c, '[');
+            if (bracket) {
+                // 数组类型：提取元素类型（数组的对齐值等于元素类型的对齐值）
+                size_t elem_len = bracket - type_c;
+                char *elem_type = arena_alloc(codegen->arena, elem_len + 1);
+                if (elem_type) {
+                    memcpy(elem_type, type_c, elem_len);
+                    elem_type[elem_len] = '\0';
+                    // 移除可能的 const 限定符（如果存在）
+                    if (strncmp(elem_type, "const ", 6) == 0) {
+                        fputs("uya_alignof(", codegen->output);
+                        fprintf(codegen->output, "%s", elem_type + 6);
+                        fputc(')', codegen->output);
+                    } else {
+                        fputs("uya_alignof(", codegen->output);
+                        fprintf(codegen->output, "%s", elem_type);
+                        fputc(')', codegen->output);
+                    }
+                } else {
+                    // 分配失败，回退到原始类型（会失败，但至少不会崩溃）
+                    fputs("uya_alignof(", codegen->output);
+                    fprintf(codegen->output, "%s", type_c);
+                    fputc(')', codegen->output);
+                }
+            } else {
+                // 非数组类型：直接使用
+                fputs("uya_alignof(", codegen->output);
+                fprintf(codegen->output, "%s", type_c);
+                fputc(')', codegen->output);
+            }
             break;
         }
         case AST_CAST_EXPR: {
