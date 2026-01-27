@@ -272,15 +272,21 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
                 // 结构体或枚举类型
                 const char *safe_name = get_safe_c_identifier(codegen, name);
                 
-                // 检查是否是结构体（检查是否在表中，不管是否已定义）
+                // 显式检查是否是结构体（检查是否在表中，不管是否已定义）
+                // 优先使用表查找，更可靠
                 if (is_struct_in_table(codegen, safe_name)) {
-                    // 临时缓冲区来构建类型字符串
-                    static char type_buf[256];
-                    snprintf(type_buf, sizeof(type_buf), "struct %s", safe_name);
-                    return type_buf;
+                    // 使用 arena 分配器来分配字符串，避免 static 缓冲区被覆盖
+                    // "struct " (7 chars) + name + '\0' = strlen(safe_name) + 8
+                    size_t len = strlen(safe_name) + 8;
+                    char *buf = arena_alloc(codegen->arena, len);
+                    if (buf) {
+                        snprintf(buf, len, "struct %s", safe_name);
+                        return buf;
+                    }
+                    return "void"; // 内存不足时的回退方案
                 }
                 
-                // 如果不在表中，尝试从程序节点中查找结构体声明
+                // 如果表查找失败，尝试从程序节点中查找结构体声明（备用方案）
                 if (codegen->program_node) {
                     ASTNode **decls = codegen->program_node->data.program.decls;
                     int decl_count = codegen->program_node->data.program.decl_count;
@@ -293,24 +299,33 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
                                 // 比较 safe_name 和 safe_struct_name
                                 if (strcmp(safe_struct_name, safe_name) == 0) {
                                     // 找到结构体声明，添加 struct 前缀
-                                    static char type_buf[256];
-                                    snprintf(type_buf, sizeof(type_buf), "struct %s", safe_name);
-                                    return type_buf;
+                                    size_t len = strlen(safe_name) + 8; // "struct " + name + '\0'
+                                    char *buf = arena_alloc(codegen->arena, len);
+                                    if (buf) {
+                                        snprintf(buf, len, "struct %s", safe_name);
+                                        return buf;
+                                    }
+                                    return "void";
                                 }
                             }
                         }
                     }
                 }
                 
-                // 检查是否是枚举
+                // 检查是否是枚举（检查是否在表中，不管是否已定义）
                 if (is_enum_in_table(codegen, safe_name)) {
-                    // 临时缓冲区来构建类型字符串
-                    static char type_buf[256];
-                    snprintf(type_buf, sizeof(type_buf), "enum %s", safe_name);
-                    return type_buf;
+                    // 使用 arena 分配器来分配字符串
+                    // "enum " (5 chars) + name + '\0' = strlen(safe_name) + 6
+                    size_t len = strlen(safe_name) + 6;
+                    char *buf = arena_alloc(codegen->arena, len);
+                    if (buf) {
+                        snprintf(buf, len, "enum %s", safe_name);
+                        return buf;
+                    }
+                    return "void";
                 }
                 
-                // 如果不在表中，尝试从程序节点中查找枚举声明
+                // 如果不在表中，尝试从程序节点中查找枚举声明（备用方案）
                 if (codegen->program_node) {
                     ASTNode **decls = codegen->program_node->data.program.decls;
                     int decl_count = codegen->program_node->data.program.decl_count;
@@ -323,9 +338,13 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
                                 // 比较 safe_name 和 safe_enum_name
                                 if (strcmp(safe_enum_name, safe_name) == 0) {
                                     // 找到枚举声明，添加 enum 前缀
-                                    static char type_buf[256];
-                                    snprintf(type_buf, sizeof(type_buf), "enum %s", safe_name);
-                                    return type_buf;
+                                    size_t len = strlen(safe_name) + 6; // "enum " + name + '\0'
+                                    char *buf = arena_alloc(codegen->arena, len);
+                                    if (buf) {
+                                        snprintf(buf, len, "enum %s", safe_name);
+                                        return buf;
+                                    }
+                                    return "void";
                                 }
                             }
                         }
@@ -504,8 +523,10 @@ static int is_identifier_struct_type(C99CodeGenerator *codegen, const char *name
 
 // 检查结构体是否已添加到表中
 static int is_struct_in_table(C99CodeGenerator *codegen, const char *struct_name) {
+    if (!struct_name) return 0;
     for (int i = 0; i < codegen->struct_definition_count; i++) {
-        if (strcmp(codegen->struct_definitions[i].name, struct_name) == 0) {
+        if (codegen->struct_definitions[i].name && 
+            strcmp(codegen->struct_definitions[i].name, struct_name) == 0) {
             return 1;
         }
     }
@@ -1182,34 +1203,93 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             int is_type = expr->data.sizeof_expr.is_type;
             fputs("sizeof(", codegen->output);
             if (is_type) {
-                const char *type_c = c99_type_to_c(codegen, target);
-                // 检查是否是数组指针类型（包含 [数字] *，且 * 在末尾）
-                const char *bracket = strchr(type_c, '[');
-                const char *asterisk = strrchr(type_c, '*');  // 从后往前找最后一个 *
-                if (bracket && asterisk && bracket < asterisk) {
-                    // 检查 * 是否在末尾（后面只有空格或结束）
-                    const char *after_asterisk = asterisk + 1;
-                    while (*after_asterisk == ' ') after_asterisk++;
-                    if (*after_asterisk == '\0') {
-                        // 数组指针类型：T[N] * -> T(*)[N]
-                        // 找到 ']' 的位置
-                        const char *close_bracket = strchr(bracket, ']');
-                        if (close_bracket) {
-                            size_t base_len = bracket - type_c;
-                            size_t array_spec_len = close_bracket - bracket + 1;
-                            fprintf(codegen->output, "%.*s(*)", (int)base_len, type_c);
-                            fprintf(codegen->output, "%.*s", (int)array_spec_len, bracket);
+                // 显式检查是否是结构体类型（即使在 c99_type_to_c 中查找失败）
+                if (target->type == AST_TYPE_NAMED) {
+                    const char *name = target->data.type_named.name;
+                    if (name && !is_c_keyword(name)) {
+                        // 检查是否是结构体（检查是否在表中，不管是否已定义）
+                        const char *safe_name = get_safe_c_identifier(codegen, name);
+                        if (is_struct_in_table(codegen, safe_name)) {
+                            fprintf(codegen->output, "struct %s", safe_name);
+                        } else {
+                            // 如果不在表中，尝试从程序节点中查找结构体声明
+                            if (codegen->program_node) {
+                                ASTNode **decls = codegen->program_node->data.program.decls;
+                                int decl_count = codegen->program_node->data.program.decl_count;
+                                int found = 0;
+                                for (int i = 0; i < decl_count; i++) {
+                                    ASTNode *decl = decls[i];
+                                    if (decl && decl->type == AST_STRUCT_DECL) {
+                                        const char *struct_name = decl->data.struct_decl.name;
+                                        if (struct_name) {
+                                            const char *safe_struct_name = get_safe_c_identifier(codegen, struct_name);
+                                            if (strcmp(safe_struct_name, safe_name) == 0) {
+                                                fprintf(codegen->output, "struct %s", safe_name);
+                                                found = 1;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                if (!found) {
+                                    // 不是结构体，使用默认类型转换
+                                    const char *type_c = c99_type_to_c(codegen, target);
+                                    fprintf(codegen->output, "%s", type_c);
+                                }
+                            } else {
+                                const char *type_c = c99_type_to_c(codegen, target);
+                                fprintf(codegen->output, "%s", type_c);
+                            }
+                        }
+                    } else {
+                        const char *type_c = c99_type_to_c(codegen, target);
+                        fprintf(codegen->output, "%s", type_c);
+                    }
+                } else {
+                    const char *type_c = c99_type_to_c(codegen, target);
+                    // 检查是否是数组指针类型（包含 [数字] *，且 * 在末尾）
+                    const char *bracket = strchr(type_c, '[');
+                    const char *asterisk = strrchr(type_c, '*');  // 从后往前找最后一个 *
+                    if (bracket && asterisk && bracket < asterisk) {
+                        // 检查 * 是否在末尾（后面只有空格或结束）
+                        const char *after_asterisk = asterisk + 1;
+                        while (*after_asterisk == ' ') after_asterisk++;
+                        if (*after_asterisk == '\0') {
+                            // 数组指针类型：T[N] * -> T(*)[N]
+                            // 找到 ']' 的位置
+                            const char *close_bracket = strchr(bracket, ']');
+                            if (close_bracket) {
+                                size_t base_len = bracket - type_c;
+                                size_t array_spec_len = close_bracket - bracket + 1;
+                                fprintf(codegen->output, "%.*s(*)", (int)base_len, type_c);
+                                fprintf(codegen->output, "%.*s", (int)array_spec_len, bracket);
+                            } else {
+                                fprintf(codegen->output, "%s", type_c);
+                            }
                         } else {
                             fprintf(codegen->output, "%s", type_c);
                         }
                     } else {
                         fprintf(codegen->output, "%s", type_c);
                     }
-                } else {
-                    fprintf(codegen->output, "%s", type_c);
                 }
             } else {
-                gen_expr(codegen, target);
+                // 即使 is_type = 0，也检查是否是结构体标识符（如 sizeof(Point) 中的 Point）
+                if (target->type == AST_IDENTIFIER) {
+                    const char *name = target->data.identifier.name;
+                    if (name && !is_c_keyword(name)) {
+                        const char *safe_name = get_safe_c_identifier(codegen, name);
+                        if (is_struct_in_table(codegen, safe_name)) {
+                            fprintf(codegen->output, "struct %s", safe_name);
+                        } else {
+                            gen_expr(codegen, target);
+                        }
+                    } else {
+                        gen_expr(codegen, target);
+                    }
+                } else {
+                    gen_expr(codegen, target);
+                }
             }
             fputc(')', codegen->output);
             break;
@@ -1231,7 +1311,22 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 const char *type_c = c99_type_to_c(codegen, target);
                 fprintf(codegen->output, "%s", type_c);
             } else {
-                gen_expr(codegen, target);
+                // 即使 is_type = 0，也检查是否是结构体标识符（如 sizeof(Point) 中的 Point）
+                if (target->type == AST_IDENTIFIER) {
+                    const char *name = target->data.identifier.name;
+                    if (name && !is_c_keyword(name)) {
+                        const char *safe_name = get_safe_c_identifier(codegen, name);
+                        if (is_struct_in_table(codegen, safe_name)) {
+                            fprintf(codegen->output, "struct %s", safe_name);
+                        } else {
+                            gen_expr(codegen, target);
+                        }
+                    } else {
+                        gen_expr(codegen, target);
+                    }
+                } else {
+                    gen_expr(codegen, target);
+                }
             }
             fputc(')', codegen->output);
             break;
