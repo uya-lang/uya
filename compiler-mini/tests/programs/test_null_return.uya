@@ -11,6 +11,9 @@ struct Point {
     y: i32,
 }
 
+// 全局变量用于测试返回指针
+var global_x: i32 = 42;
+
 // 测试1：返回 &i32 类型的 null
 fn return_null_i32() &i32 {
     return null;
@@ -51,8 +54,9 @@ fn conditional_return_null(condition: bool) &i32 {
     if condition {
         return null;
     }
-    var x: i32 = 42;
-    return &x;
+    // 使用全局变量，避免返回局部变量地址
+    global_x = 42;
+    return &global_x;
 }
 
 // 测试9：多个 return null 语句
