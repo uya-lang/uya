@@ -367,6 +367,23 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
                 return "void*";
             }
             
+            // 如果指向数组类型，生成指向数组的指针（T [N] -> T (*)[N]）
+            const char *bracket = strchr(pointee_type, '[');
+            if (bracket) {
+                size_t base_len = bracket - pointee_type;
+                const char *dims = bracket;
+                size_t dims_len = strlen(dims);
+                // 重新分配更大的缓冲区
+                size_t total_len = base_len + dims_len + 6; // " (*)" + null
+                char *arr_ptr = arena_alloc(codegen->arena, total_len);
+                if (!arr_ptr) {
+                    snprintf(result, len, "%s *", pointee_type);
+                    return result;
+                }
+                snprintf(arr_ptr, total_len, "%.*s (*)%s", (int)base_len, pointee_type, dims);
+                return arr_ptr;
+            }
+            
             snprintf(result, len, "%s *", pointee_type);
             return result;
         }
@@ -414,14 +431,15 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
                 // 现在 current_type 是基础类型（不是数组）
                 base_type = c99_type_to_c(codegen, current_type);
                 
-                // 构建结果类型：base_type[dims[dim_count-1]][dims[dim_count-2]]...
-                // 维度需要反转，因为内层数组的维度在后
+                // 构建结果类型：base_type[dims[0]][dims[1]]...
+                // 维度按顺序输出：外层维度在前，内层维度在后
+                // 例如：[[i32: 2]: 3] -> dims = [3, 2] -> int32_t[3][2]
                 size_t total_len = strlen(base_type) + dim_count * 16 + 1;  // 足够空间
                 char *result = arena_alloc(codegen->arena, total_len);
                 if (!result) return "void";
                 
                 strcpy(result, base_type);
-                for (int i = dim_count - 1; i >= 0; i--) {
+                for (int i = 0; i < dim_count; i++) {
                     char dim_str[16];
                     snprintf(dim_str, sizeof(dim_str), "[%d]", dims[i]);
                     strcat(result, dim_str);
@@ -530,6 +548,44 @@ static int is_identifier_pointer_type(C99CodeGenerator *codegen, const char *nam
             if (!type_c) return 0;
             // 检查类型是否包含'*'（即是指针）
             return (strchr(type_c, '*') != NULL);
+        }
+    }
+    
+    return 0;
+}
+
+// 检查标识符是否是指向数组的指针类型（格式：T (*)[N] 或 T (* const var)[N]）
+static int is_identifier_pointer_to_array_type(C99CodeGenerator *codegen, const char *name) {
+    if (!name) return 0;
+    
+    const char *type_c = NULL;
+    
+    // 检查局部变量
+    for (int i = codegen->local_variable_count - 1; i >= 0; i--) {
+        if (strcmp(codegen->local_variables[i].name, name) == 0) {
+            type_c = codegen->local_variables[i].type_c;
+            break;
+        }
+    }
+    
+    // 如果局部变量中没找到，检查全局变量
+    if (!type_c) {
+        for (int i = 0; i < codegen->global_variable_count; i++) {
+            if (strcmp(codegen->global_variables[i].name, name) == 0) {
+                type_c = codegen->global_variables[i].type_c;
+                break;
+            }
+        }
+    }
+    
+    if (!type_c) return 0;
+    
+    // 检查是否是指向数组的指针格式：包含 "(*" 和 ")["
+    const char *open_paren_asterisk = strstr(type_c, "(*");
+    if (open_paren_asterisk) {
+        const char *close_paren_bracket = strstr(open_paren_asterisk, ")[");
+        if (close_paren_bracket) {
+            return 1;  // 是指向数组的指针
         }
     }
     
@@ -1249,7 +1305,26 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         case AST_ARRAY_ACCESS: {
             ASTNode *array = expr->data.array_access.array;
             ASTNode *index = expr->data.array_access.index;
-            gen_expr(codegen, array);
+            
+            // 检查数组表达式是否是指向数组的指针
+            int is_ptr_to_array = 0;
+            if (array->type == AST_IDENTIFIER) {
+                const char *array_name = array->data.identifier.name;
+                if (array_name) {
+                    is_ptr_to_array = is_identifier_pointer_to_array_type(codegen, array_name);
+                }
+            }
+            
+            if (is_ptr_to_array) {
+                // 指向数组的指针需要先解引用：(*ptr)[index]
+                fputc('(', codegen->output);
+                fputc('*', codegen->output);
+                gen_expr(codegen, array);
+                fputc(')', codegen->output);
+            } else {
+                gen_expr(codegen, array);
+            }
+            
             fputc('[', codegen->output);
             gen_expr(codegen, index);
             fputc(']', codegen->output);
@@ -1664,7 +1739,27 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 // 非数组类型
                 type_c = c99_type_to_c(codegen, var_type);
                 if (is_const && var_type->type == AST_TYPE_POINTER) {
-                    c99_emit(codegen, "%s const %s", type_c, var_name);
+                    // 检查是否是指向数组的指针类型（格式：T (*)[N]）
+                    const char *open_paren = strstr(type_c, "(*");
+                    if (open_paren) {
+                        // 找到对应的 ')' 和 '['
+                        const char *close_paren = strchr(open_paren, ')');
+                        const char *bracket = strchr(open_paren, '[');
+                        if (close_paren && bracket && close_paren < bracket) {
+                            // 这是指向数组的指针：T (*)[N]
+                            // 需要生成：T (* const var_name)[N]
+                            size_t prefix_len = open_paren - type_c;
+                            size_t suffix_len = strlen(bracket);
+                            fprintf(codegen->output, "%.*s(* const %s)%.*s", 
+                                    (int)prefix_len, type_c, var_name, (int)suffix_len, bracket);
+                        } else {
+                            // 普通指针：T * -> T * const var_name
+                            c99_emit(codegen, "%s const %s", type_c, var_name);
+                        }
+                    } else {
+                        // 普通指针：T * -> T * const var_name
+                        c99_emit(codegen, "%s const %s", type_c, var_name);
+                    }
                 } else if (is_const) {
                     c99_emit(codegen, "const %s %s", type_c, var_name);
                 } else {
