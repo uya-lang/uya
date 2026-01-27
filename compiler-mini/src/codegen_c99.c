@@ -552,6 +552,30 @@ static ASTNode *find_struct_decl_c99(C99CodeGenerator *codegen, const char *stru
     return NULL;
 }
 
+// 查找函数声明
+static ASTNode *find_function_decl_c99(C99CodeGenerator *codegen, const char *func_name) {
+    if (!codegen || !func_name || !codegen->program_node) {
+        return NULL;
+    }
+    
+    ASTNode **decls = codegen->program_node->data.program.decls;
+    int decl_count = codegen->program_node->data.program.decl_count;
+    
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_FN_DECL) {
+            continue;
+        }
+        
+        const char *decl_name = decl->data.fn_decl.name;
+        if (decl_name && strcmp(decl_name, func_name) == 0) {
+            return decl;
+        }
+    }
+    
+    return NULL;
+}
+
 // 查找结构体字段类型
 static ASTNode *find_struct_field_type(C99CodeGenerator *codegen, ASTNode *struct_decl, const char *field_name) {
     if (!codegen || !struct_decl || struct_decl->type != AST_STRUCT_DECL || !field_name) {
@@ -568,6 +592,31 @@ static ASTNode *find_struct_field_type(C99CodeGenerator *codegen, ASTNode *struc
     }
     
     return NULL;
+}
+
+// 计算结构体大小（估算，每个 i32 字段 4 字节）
+static int calculate_struct_size(C99CodeGenerator *codegen, ASTNode *type_node) {
+    if (!codegen || !type_node) {
+        return 0;
+    }
+    
+    // 如果是命名类型（结构体），查找结构体声明
+    if (type_node->type == AST_TYPE_NAMED) {
+        const char *struct_name = type_node->data.type_named.name;
+        if (!struct_name) return 0;
+        
+        ASTNode *struct_decl = find_struct_decl_c99(codegen, struct_name);
+        if (!struct_decl || struct_decl->type != AST_STRUCT_DECL) {
+            return 0;
+        }
+        
+        int field_count = struct_decl->data.struct_decl.field_count;
+        // 简单估算：每个字段 4 字节（i32）
+        // 实际大小可能因对齐而不同，但用于判断是否 >16 字节足够
+        return field_count * 4;
+    }
+    
+    return 0;
 }
 
 // 检查成员访问表达式的结果类型是否是指针
@@ -1977,6 +2026,13 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             ASTNode **args = expr->data.call_expr.args;
             int arg_count = expr->data.call_expr.arg_count;
             
+            // 查找函数声明（用于检查参数类型）
+            ASTNode *fn_decl = NULL;
+            if (callee && callee->type == AST_IDENTIFIER) {
+                const char *func_name = callee->data.identifier.name;
+                fn_decl = find_function_decl_c99(codegen, func_name);
+            }
+            
             // 生成被调用函数名
             if (callee && callee->type == AST_IDENTIFIER) {
                 const char *safe_name = get_safe_c_identifier(codegen, callee->data.identifier.name);
@@ -1991,6 +2047,32 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 int is_string_arg = (args[i] && args[i]->type == AST_STRING);
                 if (is_string_arg) {
                     fputs("(uint8_t *)", codegen->output);
+                }
+                
+                // 检查是否是大结构体参数且函数期望指针
+                // 对于 extern 函数，如果参数类型是大结构体（>16字节），则传递地址
+                int need_address = 0;
+                if (fn_decl && fn_decl->type == AST_FN_DECL) {
+                    ASTNode *body = fn_decl->data.fn_decl.body;
+                    int is_extern = (body == NULL) ? 1 : 0;
+                    
+                    if (is_extern && args[i] && i < fn_decl->data.fn_decl.param_count) {
+                        ASTNode *param = fn_decl->data.fn_decl.params[i];
+                        if (param && param->type == AST_VAR_DECL) {
+                            ASTNode *param_type = param->data.var_decl.type;
+                            if (param_type && param_type->type == AST_TYPE_NAMED) {
+                                int struct_size = calculate_struct_size(codegen, param_type);
+                                if (struct_size > 16) {
+                                    // 函数期望指针，需要传递地址
+                                    need_address = 1;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (need_address) {
+                    fputc('&', codegen->output);
                 }
                 gen_expr(codegen, args[i]);
                 if (i < arg_count - 1) fputs(", ", codegen->output);
@@ -2490,6 +2572,19 @@ static void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) 
         const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
         ASTNode *param_type = param->data.var_decl.type;
         const char *param_type_c = c99_type_to_c(codegen, param_type);
+        
+        // 对于 extern 函数，检查大结构体参数（>16字节），转换为指针类型
+        // 根据 x86-64 System V ABI，大于 16 字节的结构体通过指针传递
+        if (is_extern && param_type->type == AST_TYPE_NAMED) {
+            int struct_size = calculate_struct_size(codegen, param_type);
+            if (struct_size > 16) {
+                // 大结构体：转换为指针类型
+                param_type_c = c99_type_to_c(codegen, param_type);
+                fprintf(codegen->output, "%s *%s", param_type_c, param_name);
+                if (i < param_count - 1) fputs(", ", codegen->output);
+                continue;
+            }
+        }
         
         // 对于标准库函数，将 uint8_t * 转换为 const char *
         if (is_stdlib && param_type->type == AST_TYPE_POINTER) {
