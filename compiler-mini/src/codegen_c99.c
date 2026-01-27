@@ -1929,6 +1929,11 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             
             // 生成参数
             for (int i = 0; i < arg_count; i++) {
+                // 检查参数是否是字符串常量，如果是则添加类型转换以消除 const 警告
+                int is_string_arg = (args[i] && args[i]->type == AST_STRING);
+                if (is_string_arg) {
+                    fputs("(uint8_t *)", codegen->output);
+                }
                 gen_expr(codegen, args[i]);
                 if (i < arg_count - 1) fputs(", ", codegen->output);
             }
@@ -2057,13 +2062,28 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 }
             } else {
                 // 非数组返回类型，正常处理
-                c99_emit(codegen, "return ");
-                if (expr) {
-                    gen_expr(codegen, expr);
-                } else {
-                    fputs("0", codegen->output);
+                // 检查返回类型是否为 void
+                int is_void = 0;
+                if (return_type && return_type->type == AST_TYPE_NAMED) {
+                    const char *type_name = return_type->data.type_named.name;
+                    if (type_name && strcmp(type_name, "void") == 0) {
+                        is_void = 1;
+                    }
                 }
-                fputs(";\n", codegen->output);
+                
+                if (is_void && !expr) {
+                    // void 函数且无返回值：生成 return;
+                    c99_emit(codegen, "return;\n");
+                } else {
+                    // 非 void 函数或 void 函数有返回值（错误情况，但让编译器处理）
+                    c99_emit(codegen, "return ");
+                    if (expr) {
+                        gen_expr(codegen, expr);
+                    } else {
+                        fputs("0", codegen->output);
+                    }
+                    fputs(";\n", codegen->output);
+                }
             }
             break;
         }
@@ -2083,10 +2103,25 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             
             // 计算类型字符串
             const char *type_c = NULL;
+            const char *stored_type_c = NULL;  // 用于存储到变量表的完整类型字符串
             if (var_type->type == AST_TYPE_ARRAY) {
                 // 使用 c99_type_to_c 来处理数组类型（包括多维数组）
                 // 它会返回正确的格式，如 "int32_t[3][2]" 对于 [[i32: 2]: 3]
                 type_c = c99_type_to_c(codegen, var_type);
+                
+                // 保存完整的类型字符串（包括 const 和维度）用于存储到变量表
+                if (type_c) {
+                    size_t type_len = strlen(type_c);
+                    if (is_const) {
+                        // 为 "const " 前缀分配空间
+                        stored_type_c = arena_alloc(codegen->arena, type_len + 7);
+                        if (stored_type_c) {
+                            snprintf((char *)stored_type_c, type_len + 7, "const %s", type_c);
+                        }
+                    } else {
+                        stored_type_c = arena_strdup(codegen->arena, type_c);
+                    }
+                }
                 
                 // 解析类型字符串，分离基类型和数组维度
                 // 例如："int32_t[3][2]" -> 基类型="int32_t", 维度="[3][2]"
@@ -2201,9 +2236,11 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             }
             
             // 添加到局部变量表（用于类型检测）
-            if (var_name && type_c && codegen->local_variable_count < 128) {
+            // 对于数组类型，使用 stored_type_c；对于其他类型，使用 type_c
+            const char *type_to_store = (var_type->type == AST_TYPE_ARRAY && stored_type_c) ? stored_type_c : type_c;
+            if (var_name && type_to_store && codegen->local_variable_count < 128) {
                 codegen->local_variables[codegen->local_variable_count].name = var_name;
-                codegen->local_variables[codegen->local_variable_count].type_c = type_c;
+                codegen->local_variables[codegen->local_variable_count].type_c = type_to_store;
                 codegen->local_variable_count++;
             }
             break;
