@@ -1,0 +1,130 @@
+// 测试程序：专门测试 C99 代码生成器中的指针访问
+// 验证生成的 C 代码是否正确使用 -> 操作符
+
+struct CodeGen {
+    count: i32,
+    name: &byte,
+}
+
+struct Parser {
+    codegen: &CodeGen,
+    token_count: i32,
+}
+
+// 测试单层指针访问
+fn test_single_pointer(codegen: &CodeGen) i32 {
+    // 应该生成 codegen->count 而不是 codegen.count
+    const count: i32 = codegen.count;
+    if count != 0 {
+        return 1;
+    }
+    
+    codegen.count = 10;
+    if codegen.count != 10 {
+        return 2;
+    }
+    
+    return 0;
+}
+
+// 测试嵌套指针访问
+fn test_nested_pointer(parser: &Parser) i32 {
+    // 应该生成 parser->codegen->count 而不是 parser.codegen.count
+    const count: i32 = parser.codegen.count;
+    if count != 0 {
+        return 1;
+    }
+    
+    parser.codegen.count = 20;
+    if parser.codegen.count != 20 {
+        return 2;
+    }
+    
+    parser.token_count = 5;
+    if parser.token_count != 5 {
+        return 3;
+    }
+    
+    return 0;
+}
+
+// 测试指针类型作为局部变量
+fn test_local_pointer() i32 {
+    var codegen: CodeGen = CodeGen{ count: 0, name: null };
+    const ptr: &CodeGen = &codegen;
+    
+    // 局部指针变量访问
+    if ptr.count != 0 {
+        return 1;
+    }
+    
+    ptr.count = 30;
+    if codegen.count != 30 {
+        return 2;
+    }
+    
+    return 0;
+}
+
+// 测试指针类型作为结构体字段
+fn test_struct_pointer_field(parser: &Parser) i32 {
+    // parser.codegen 是指针类型字段，应该生成 parser->codegen->count
+    const count: i32 = parser.codegen.count;
+    if count != 0 {
+        return 1;
+    }
+    
+    parser.codegen.count = 40;
+    if parser.codegen.count != 40 {
+        return 2;
+    }
+    
+    return 0;
+}
+
+fn main() i32 {
+    var codegen: CodeGen = CodeGen{ count: 0, name: null };
+    var parser: Parser = Parser{ codegen: &codegen, token_count: 0 };
+    
+    // 测试单层指针访问
+    const result1: i32 = test_single_pointer(&codegen);
+    if result1 != 0 {
+        return result1;
+    }
+    if codegen.count != 10 {
+        return 10;
+    }
+    
+    // 重置
+    codegen.count = 0;
+    
+    // 测试嵌套指针访问
+    const result2: i32 = test_nested_pointer(&parser);
+    if result2 != 0 {
+        return result2 + 20;
+    }
+    if codegen.count != 20 || parser.token_count != 5 {
+        return 30;
+    }
+    
+    // 测试局部指针
+    const result3: i32 = test_local_pointer();
+    if result3 != 0 {
+        return result3 + 40;
+    }
+    
+    // 重置
+    codegen.count = 0;
+    
+    // 测试结构体指针字段
+    const result4: i32 = test_struct_pointer_field(&parser);
+    if result4 != 0 {
+        return result4 + 50;
+    }
+    if codegen.count != 40 {
+        return 60;
+    }
+    
+    return 0;
+}
+

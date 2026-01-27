@@ -1,0 +1,106 @@
+// 测试程序：验证类型转换和指针类型
+// 测试指针类型转换、类型推断等
+
+struct Data {
+    value: i32,
+    next: &Data,
+}
+
+// 测试指针类型转换
+fn test_pointer_cast() i32 {
+    var data: Data = Data{ value: 42, next: null };
+    var data2: Data = Data{ value: 100, next: null };
+    
+    // 指针类型转换
+    const ptr: &Data = &data;
+    const ptr2: &Data = &data2;
+    
+    // 访问指针成员
+    if ptr.value != 42 {
+        return 1;
+    }
+    
+    // 修改指针成员
+    ptr.value = 200;
+    if data.value != 200 {
+        return 2;
+    }
+    
+    // 指针赋值
+    data.next = ptr2;
+    if data.next.value != 100 {
+        return 3;
+    }
+    
+    // 通过指针链访问
+    data.next.value = 300;
+    if data2.value != 300 {
+        return 4;
+    }
+    
+    return 0;
+}
+
+// 测试空指针
+fn test_null_pointer() i32 {
+    const ptr: &Data = null;
+    
+    if ptr != null {
+        return 1;
+    }
+    
+    // 空指针比较
+    var data: Data = Data{ value: 0, next: null };
+    const ptr2: &Data = &data;
+    
+    if ptr2 == null {
+        return 2;
+    }
+    
+    data.next = null;
+    if data.next != null {
+        return 3;
+    }
+    
+    return 0;
+}
+
+// 测试指针类型推断
+fn test_pointer_type_inference() i32 {
+    var data: Data = Data{ value: 10, next: null };
+    
+    // 指针类型：&data 的类型是 &Data
+    const ptr: &Data = &data;
+    
+    // 应该能够访问成员
+    if ptr.value != 10 {
+        return 1;
+    }
+    
+    ptr.value = 20;
+    if data.value != 20 {
+        return 2;
+    }
+    
+    return 0;
+}
+
+fn main() i32 {
+    const result1: i32 = test_pointer_cast();
+    if result1 != 0 {
+        return result1;
+    }
+    
+    const result2: i32 = test_null_pointer();
+    if result2 != 0 {
+        return result2 + 10;
+    }
+    
+    const result3: i32 = test_pointer_type_inference();
+    if result3 != 0 {
+        return result3 + 20;
+    }
+    
+    return 0;
+}
+

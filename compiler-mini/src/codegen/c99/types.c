@@ -402,23 +402,34 @@ int is_member_access_pointer_type(C99CodeGenerator *codegen, ASTNode *member_acc
 int is_identifier_pointer_type(C99CodeGenerator *codegen, const char *name) {
     if (!name) return 0;
     
-    // 检查局部变量
+    // 检查局部变量（从后向前查找，支持变量遮蔽）
     for (int i = codegen->local_variable_count - 1; i >= 0; i--) {
-        if (strcmp(codegen->local_variables[i].name, name) == 0) {
+        if (codegen->local_variables[i].name && strcmp(codegen->local_variables[i].name, name) == 0) {
             const char *type_c = codegen->local_variables[i].type_c;
             if (!type_c) return 0;
             // 检查类型是否包含'*'（即是指针）
-            return (strchr(type_c, '*') != NULL);
+            // 注意：'*' 可能在类型名称之后（如 "struct Type *"）或之前（如 "*Type"）
+            const char *asterisk = strchr(type_c, '*');
+            if (asterisk) {
+                // 找到 '*'，确认它是指针类型的一部分
+                // 简单检查：'*' 前后可能有空格，但应该是指针类型
+                return 1;
+            }
+            return 0;
         }
     }
     
     // 检查全局变量
     for (int i = 0; i < codegen->global_variable_count; i++) {
-        if (strcmp(codegen->global_variables[i].name, name) == 0) {
+        if (codegen->global_variables[i].name && strcmp(codegen->global_variables[i].name, name) == 0) {
             const char *type_c = codegen->global_variables[i].type_c;
             if (!type_c) return 0;
             // 检查类型是否包含'*'（即是指针）
-            return (strchr(type_c, '*') != NULL);
+            const char *asterisk = strchr(type_c, '*');
+            if (asterisk) {
+                return 1;
+            }
+            return 0;
         }
     }
     

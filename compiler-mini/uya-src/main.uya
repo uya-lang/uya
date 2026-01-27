@@ -45,8 +45,8 @@ const ARENA_BUFFER_SIZE: i32 = 8388608;  // 8MB（增加缓冲区以支持多文
 // 最大输入文件数量
 const MAX_INPUT_FILES: i32 = 64;
 
-// EOF 常量（文件结束符）
-const EOF: i32 = -1;
+// EOF 常量（文件结束符，重命名为 UYA_EOF 避免与标准库 EOF 宏冲突）
+const UYA_EOF: i32 = -1;
 
 // ===== 全局变量 =====
 

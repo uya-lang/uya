@@ -1,0 +1,139 @@
+// 测试程序：验证指针类型的成员访问
+// 测试指针类型参数在函数内部使用 -> 操作符访问成员
+// 这个测试主要用于验证 C99 代码生成器是否正确生成 -> 而不是 .
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+struct Rectangle {
+    top_left: Point,
+    bottom_right: Point,
+}
+
+// 测试函数：接收指针类型参数，访问其成员
+fn test_pointer_param(rect: &Rectangle) i32 {
+    // 应该生成 rect->top_left.x 而不是 rect.top_left.x
+    const x1: i32 = rect.top_left.x;
+    const y1: i32 = rect.top_left.y;
+    const x2: i32 = rect.bottom_right.x;
+    const y2: i32 = rect.bottom_right.y;
+    
+    // 验证值
+    if x1 != 0 || y1 != 0 || x2 != 10 || y2 != 20 {
+        return 1;
+    }
+    
+    // 修改成员
+    rect.top_left.x = 5;
+    rect.top_left.y = 5;
+    rect.bottom_right.x = 15;
+    rect.bottom_right.y = 25;
+    
+    // 验证修改
+    if rect.top_left.x != 5 || rect.top_left.y != 5 {
+        return 2;
+    }
+    if rect.bottom_right.x != 15 || rect.bottom_right.y != 25 {
+        return 3;
+    }
+    
+    return 0;
+}
+
+// 测试嵌套指针访问
+fn test_nested_pointer(point: &Point) i32 {
+    // 应该生成 point->x 而不是 point.x
+    const x: i32 = point.x;
+    const y: i32 = point.y;
+    
+    if x != 0 || y != 0 {
+        return 1;
+    }
+    
+    point.x = 100;
+    point.y = 200;
+    
+    if point.x != 100 || point.y != 200 {
+        return 2;
+    }
+    
+    return 0;
+}
+
+// 测试指针类型作为结构体字段
+struct Container {
+    point: &Point,
+}
+
+fn test_struct_with_pointer_field(container: &Container) i32 {
+    // 应该生成 container->point->x 而不是 container.point.x
+    const x: i32 = container.point.x;
+    const y: i32 = container.point.y;
+    
+    if x != 0 || y != 0 {
+        return 1;
+    }
+    
+    container.point.x = 50;
+    container.point.y = 60;
+    
+    if container.point.x != 50 || container.point.y != 60 {
+        return 2;
+    }
+    
+    return 0;
+}
+
+fn main() i32 {
+    // 创建测试数据
+    var rect: Rectangle = Rectangle{
+        top_left: Point{ x: 0, y: 0 },
+        bottom_right: Point{ x: 10, y: 20 },
+    };
+    
+    var point: Point = Point{ x: 0, y: 0 };
+    
+    var container_point: Point = Point{ x: 0, y: 0 };
+    var container: Container = Container{ point: &container_point };
+    
+    // 测试指针参数
+    const result1: i32 = test_pointer_param(&rect);
+    if result1 != 0 {
+        return result1;
+    }
+    
+    // 验证 rect 被修改
+    if rect.top_left.x != 5 || rect.top_left.y != 5 {
+        return 10;
+    }
+    if rect.bottom_right.x != 15 || rect.bottom_right.y != 25 {
+        return 11;
+    }
+    
+    // 测试嵌套指针访问
+    const result2: i32 = test_nested_pointer(&point);
+    if result2 != 0 {
+        return result2 + 20;
+    }
+    
+    // 验证 point 被修改
+    if point.x != 100 || point.y != 200 {
+        return 30;
+    }
+    
+    // 测试结构体中的指针字段
+    const result3: i32 = test_struct_with_pointer_field(&container);
+    if result3 != 0 {
+        return result3 + 40;
+    }
+    
+    // 验证 container_point 被修改
+    if container_point.x != 50 || container_point.y != 60 {
+        return 50;
+    }
+    
+    return 0;
+}
+
