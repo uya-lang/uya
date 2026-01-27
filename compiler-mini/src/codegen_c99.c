@@ -1423,15 +1423,30 @@ static const char *get_array_element_type(C99CodeGenerator *codegen, ASTNode *ar
                 if (!type_c) return NULL;
                 
                 // 检查是否为数组类型（包含'['）
-                const char *bracket = strchr(type_c, '[');
-                if (bracket) {
-                    // 提取元素类型（bracket之前的部分）
-                    size_t len = bracket - type_c;
-                    char *elem_type = arena_alloc(codegen->arena, len + 1);
-                    if (!elem_type) return NULL;
-                    memcpy(elem_type, type_c, len);
-                    elem_type[len] = '\0';
-                    return elem_type;
+                const char *first_bracket = strchr(type_c, '[');
+                if (first_bracket) {
+                    // 检查是否有第二个 '['（多维数组）
+                    const char *second_bracket = strchr(first_bracket + 1, '[');
+                    if (second_bracket) {
+                        // 多维数组：提取基类型 + 从第二个 '[' 开始的所有维度
+                        // 例如：int32_t[3][2] -> int32_t[2]
+                        size_t base_len = first_bracket - type_c;
+                        size_t inner_dims_len = strlen(second_bracket);
+                        char *elem_type = arena_alloc(codegen->arena, base_len + inner_dims_len + 1);
+                        if (!elem_type) return NULL;
+                        memcpy(elem_type, type_c, base_len);
+                        memcpy(elem_type + base_len, second_bracket, inner_dims_len);
+                        elem_type[base_len + inner_dims_len] = '\0';
+                        return elem_type;
+                    } else {
+                        // 单层数组：提取基类型
+                        size_t len = first_bracket - type_c;
+                        char *elem_type = arena_alloc(codegen->arena, len + 1);
+                        if (!elem_type) return NULL;
+                        memcpy(elem_type, type_c, len);
+                        elem_type[len] = '\0';
+                        return elem_type;
+                    }
                 }
                 return NULL;
             }
@@ -1444,15 +1459,30 @@ static const char *get_array_element_type(C99CodeGenerator *codegen, ASTNode *ar
                 if (!type_c) return NULL;
                 
                 // 检查是否为数组类型（包含'['）
-                const char *bracket = strchr(type_c, '[');
-                if (bracket) {
-                    // 提取元素类型（bracket之前的部分）
-                    size_t len = bracket - type_c;
-                    char *elem_type = arena_alloc(codegen->arena, len + 1);
-                    if (!elem_type) return NULL;
-                    memcpy(elem_type, type_c, len);
-                    elem_type[len] = '\0';
-                    return elem_type;
+                const char *first_bracket = strchr(type_c, '[');
+                if (first_bracket) {
+                    // 检查是否有第二个 '['（多维数组）
+                    const char *second_bracket = strchr(first_bracket + 1, '[');
+                    if (second_bracket) {
+                        // 多维数组：提取基类型 + 从第二个 '[' 开始的所有维度
+                        // 例如：int32_t[3][2] -> int32_t[2]
+                        size_t base_len = first_bracket - type_c;
+                        size_t inner_dims_len = strlen(second_bracket);
+                        char *elem_type = arena_alloc(codegen->arena, base_len + inner_dims_len + 1);
+                        if (!elem_type) return NULL;
+                        memcpy(elem_type, type_c, base_len);
+                        memcpy(elem_type + base_len, second_bracket, inner_dims_len);
+                        elem_type[base_len + inner_dims_len] = '\0';
+                        return elem_type;
+                    } else {
+                        // 单层数组：提取基类型
+                        size_t len = first_bracket - type_c;
+                        char *elem_type = arena_alloc(codegen->arena, len + 1);
+                        if (!elem_type) return NULL;
+                        memcpy(elem_type, type_c, len);
+                        elem_type[len] = '\0';
+                        return elem_type;
+                    }
                 }
                 return NULL;
             }
@@ -2448,14 +2478,38 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             codegen->indent_level++;
             if (is_ref) {
                 // 引用迭代：生成指针类型
-                c99_emit(codegen, "%s *%s = &", elem_type_c, var_name);
-                gen_expr(codegen, array);
-                c99_emit(codegen, "[_i];\n");
+                // 检查 elem_type_c 是否包含数组维度（如 "int32_t[2]"）
+                const char *bracket = strchr(elem_type_c, '[');
+                if (bracket) {
+                    // 数组类型：分离基类型和维度
+                    size_t base_len = bracket - elem_type_c;
+                    c99_emit(codegen, "%.*s *%s = &", (int)base_len, elem_type_c, var_name);
+                    gen_expr(codegen, array);
+                    c99_emit(codegen, "[_i];\n");
+                } else {
+                    // 非数组类型：直接使用
+                    c99_emit(codegen, "%s *%s = &", elem_type_c, var_name);
+                    gen_expr(codegen, array);
+                    c99_emit(codegen, "[_i];\n");
+                }
             } else {
                 // 值迭代：生成值类型
-                c99_emit(codegen, "%s %s = ", elem_type_c, var_name);
-                gen_expr(codegen, array);
-                c99_emit(codegen, "[_i];\n");
+                // 检查 elem_type_c 是否包含数组维度（如 "int32_t[2]"）
+                const char *bracket = strchr(elem_type_c, '[');
+                if (bracket) {
+                    // 数组类型：使用 memcpy 复制数组内容
+                    // 转换为 C 数组声明格式 "base_type var_name[dims]"
+                    size_t base_len = bracket - elem_type_c;
+                    c99_emit(codegen, "%.*s %s%s;\n", (int)base_len, elem_type_c, var_name, bracket);
+                    c99_emit(codegen, "memcpy(%s, ", var_name);
+                    gen_expr(codegen, array);
+                    c99_emit(codegen, "[_i], sizeof(%s));\n", var_name);
+                } else {
+                    // 非数组类型：直接使用
+                    c99_emit(codegen, "%s %s = ", elem_type_c, var_name);
+                    gen_expr(codegen, array);
+                    c99_emit(codegen, "[_i];\n");
+                }
             }
             gen_stmt(codegen, body);
             codegen->indent_level--;
