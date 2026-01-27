@@ -280,12 +280,56 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
                     return type_buf;
                 }
                 
+                // 如果不在表中，尝试从程序节点中查找结构体声明
+                if (codegen->program_node) {
+                    ASTNode **decls = codegen->program_node->data.program.decls;
+                    int decl_count = codegen->program_node->data.program.decl_count;
+                    for (int i = 0; i < decl_count; i++) {
+                        ASTNode *decl = decls[i];
+                        if (decl && decl->type == AST_STRUCT_DECL) {
+                            const char *struct_name = decl->data.struct_decl.name;
+                            if (struct_name) {
+                                const char *safe_struct_name = get_safe_c_identifier(codegen, struct_name);
+                                // 比较 safe_name 和 safe_struct_name
+                                if (strcmp(safe_struct_name, safe_name) == 0) {
+                                    // 找到结构体声明，添加 struct 前缀
+                                    static char type_buf[256];
+                                    snprintf(type_buf, sizeof(type_buf), "struct %s", safe_name);
+                                    return type_buf;
+                                }
+                            }
+                        }
+                    }
+                }
+                
                 // 检查是否是枚举
                 if (is_enum_in_table(codegen, safe_name)) {
                     // 临时缓冲区来构建类型字符串
                     static char type_buf[256];
                     snprintf(type_buf, sizeof(type_buf), "enum %s", safe_name);
                     return type_buf;
+                }
+                
+                // 如果不在表中，尝试从程序节点中查找枚举声明
+                if (codegen->program_node) {
+                    ASTNode **decls = codegen->program_node->data.program.decls;
+                    int decl_count = codegen->program_node->data.program.decl_count;
+                    for (int i = 0; i < decl_count; i++) {
+                        ASTNode *decl = decls[i];
+                        if (decl && decl->type == AST_ENUM_DECL) {
+                            const char *enum_name = decl->data.enum_decl.name;
+                            if (enum_name) {
+                                const char *safe_enum_name = get_safe_c_identifier(codegen, enum_name);
+                                // 比较 safe_name 和 safe_enum_name
+                                if (strcmp(safe_enum_name, safe_name) == 0) {
+                                    // 找到枚举声明，添加 enum 前缀
+                                    static char type_buf[256];
+                                    snprintf(type_buf, sizeof(type_buf), "enum %s", safe_name);
+                                    return type_buf;
+                                }
+                            }
+                        }
+                    }
                 }
                 
                 // 未知类型，直接返回名称
@@ -1139,7 +1183,31 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             fputs("sizeof(", codegen->output);
             if (is_type) {
                 const char *type_c = c99_type_to_c(codegen, target);
-                fprintf(codegen->output, "%s", type_c);
+                // 检查是否是数组指针类型（包含 [数字] *，且 * 在末尾）
+                const char *bracket = strchr(type_c, '[');
+                const char *asterisk = strrchr(type_c, '*');  // 从后往前找最后一个 *
+                if (bracket && asterisk && bracket < asterisk) {
+                    // 检查 * 是否在末尾（后面只有空格或结束）
+                    const char *after_asterisk = asterisk + 1;
+                    while (*after_asterisk == ' ') after_asterisk++;
+                    if (*after_asterisk == '\0') {
+                        // 数组指针类型：T[N] * -> T(*)[N]
+                        // 找到 ']' 的位置
+                        const char *close_bracket = strchr(bracket, ']');
+                        if (close_bracket) {
+                            size_t base_len = bracket - type_c;
+                            size_t array_spec_len = close_bracket - bracket + 1;
+                            fprintf(codegen->output, "%.*s(*)", (int)base_len, type_c);
+                            fprintf(codegen->output, "%.*s", (int)array_spec_len, bracket);
+                        } else {
+                            fprintf(codegen->output, "%s", type_c);
+                        }
+                    } else {
+                        fprintf(codegen->output, "%s", type_c);
+                    }
+                } else {
+                    fprintf(codegen->output, "%s", type_c);
+                }
             } else {
                 gen_expr(codegen, target);
             }
@@ -1225,11 +1293,52 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
         case AST_ASSIGN: {
             ASTNode *dest = stmt->data.assign.dest;
             ASTNode *src = stmt->data.assign.src;
-            c99_emit(codegen, "");
-            gen_expr(codegen, dest);
-            fputs(" = ", codegen->output);
-            gen_expr(codegen, src);
-            fputs(";\n", codegen->output);
+            
+            // 检查左侧是否是数组类型
+            int is_array_assign = 0;
+            if (dest->type == AST_IDENTIFIER) {
+                const char *var_name = dest->data.identifier.name;
+                // 检查局部变量
+                for (int i = codegen->local_variable_count - 1; i >= 0; i--) {
+                    if (strcmp(codegen->local_variables[i].name, var_name) == 0) {
+                        const char *type_c = codegen->local_variables[i].type_c;
+                        if (type_c && strchr(type_c, '[') != NULL) {
+                            is_array_assign = 1;
+                        }
+                        break;
+                    }
+                }
+                // 检查全局变量
+                if (!is_array_assign) {
+                    for (int i = 0; i < codegen->global_variable_count; i++) {
+                        if (strcmp(codegen->global_variables[i].name, var_name) == 0) {
+                            const char *type_c = codegen->global_variables[i].type_c;
+                            if (type_c && strchr(type_c, '[') != NULL) {
+                                is_array_assign = 1;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (is_array_assign) {
+                // 数组赋值：使用 memcpy
+                c99_emit(codegen, "memcpy(");
+                gen_expr(codegen, dest);
+                fputs(", ", codegen->output);
+                gen_expr(codegen, src);
+                fputs(", sizeof(", codegen->output);
+                gen_expr(codegen, dest);
+                fputs("));\n", codegen->output);
+            } else {
+                // 普通赋值
+                c99_emit(codegen, "");
+                gen_expr(codegen, dest);
+                fputs(" = ", codegen->output);
+                gen_expr(codegen, src);
+                fputs(";\n", codegen->output);
+            }
             break;
         }
         case AST_RETURN_STMT: {
@@ -1402,6 +1511,22 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
     }
 }
 
+// 格式化函数参数类型（将数组类型从 T[N] 转换为 T name[N]）
+static void format_param_type(C99CodeGenerator *codegen, const char *type_c, const char *param_name, FILE *output) {
+    if (!type_c || !param_name) return;
+    
+    // 检查是否是数组类型（包含 [数字]）
+    const char *bracket = strchr(type_c, '[');
+    if (bracket) {
+        // 提取元素类型（bracket之前的部分）
+        size_t len = bracket - type_c;
+        fprintf(output, "%.*s %s%s", (int)len, type_c, param_name, bracket);
+    } else {
+        // 非数组类型，直接输出
+        fprintf(output, "%s %s", type_c, param_name);
+    }
+}
+
 // 生成函数原型（前向声明）
 static void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     if (!fn_decl || fn_decl->type != AST_FN_DECL) return;
@@ -1435,7 +1560,7 @@ static void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) 
         ASTNode *param_type = param->data.var_decl.type;
         const char *param_type_c = c99_type_to_c(codegen, param_type);
         
-        fprintf(codegen->output, "%s %s", param_type_c, param_name);
+        format_param_type(codegen, param_type_c, param_name, codegen->output);
         if (i < param_count - 1) fputs(", ", codegen->output);
     }
     
@@ -1475,7 +1600,7 @@ static void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
         ASTNode *param_type = param->data.var_decl.type;
         const char *param_type_c = c99_type_to_c(codegen, param_type);
         
-        fprintf(codegen->output, "%s %s", param_type_c, param_name);
+        format_param_type(codegen, param_type_c, param_name, codegen->output);
         if (i < param_count - 1) fputs(", ", codegen->output);
     }
     
@@ -1487,6 +1612,22 @@ static void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     
     fputs(") {\n", codegen->output);
     codegen->indent_level++;
+    
+    // 将函数参数添加到局部变量表（用于类型检查）
+    for (int i = 0; i < param_count; i++) {
+        ASTNode *param = params[i];
+        if (!param || param->type != AST_VAR_DECL) continue;
+        
+        const char *param_name = param->data.var_decl.name;
+        ASTNode *param_type = param->data.var_decl.type;
+        const char *param_type_c = c99_type_to_c(codegen, param_type);
+        
+        if (param_name && param_type_c && codegen->local_variable_count < 128) {
+            codegen->local_variables[codegen->local_variable_count].name = param_name;
+            codegen->local_variables[codegen->local_variable_count].type_c = param_type_c;
+            codegen->local_variable_count++;
+        }
+    }
     
     // 生成函数体
     gen_stmt(codegen, body);
