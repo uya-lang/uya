@@ -2509,7 +2509,13 @@ static int is_stdlib_function(const char *func_name) {
         strcmp(func_name, "snprintf") == 0 ||
         strcmp(func_name, "scanf") == 0 ||
         strcmp(func_name, "fscanf") == 0 ||
-        strcmp(func_name, "sscanf") == 0) {
+        strcmp(func_name, "sscanf") == 0 ||
+        strcmp(func_name, "puts") == 0 ||
+        strcmp(func_name, "fputs") == 0 ||
+        strcmp(func_name, "putchar") == 0 ||
+        strcmp(func_name, "getchar") == 0 ||
+        strcmp(func_name, "gets") == 0 ||
+        strcmp(func_name, "fgets") == 0) {
         return 1;
     }
     // 字符串处理函数
@@ -2550,11 +2556,11 @@ static void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) 
     // 返回类型（如果是数组类型，转换为指针类型）
     const char *return_c = convert_array_return_type(codegen, return_type);
     
-    // 对于标准库函数，包含相应的头文件而不是重新声明
+    // 对于标准库函数，不生成 extern 声明（应该包含相应的头文件）
     if (is_extern && is_stdlib) {
-        // 标准库函数应该包含 <stdio.h>，不生成 extern 声明
-        // 但为了兼容性，我们仍然生成声明，但使用正确的类型
-        // 注意：这里我们仍然生成声明，但会在参数类型转换时处理
+        // 标准库函数应该包含相应的头文件（如 <stdio.h>），不生成 extern 声明
+        // 这样可以避免与标准库的声明冲突
+        return;
     }
     
     // 对于extern函数，添加extern关键字
@@ -2849,6 +2855,7 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     fputs("#include <stdbool.h>\n", codegen->output);
     fputs("#include <stddef.h>\n", codegen->output);
     fputs("#include <string.h>\n", codegen->output);  // for memcmp
+    fputs("#include <stdio.h>\n", codegen->output);  // for standard I/O functions (printf, puts, etc.)
     fputs("\n", codegen->output);
     // C99 兼容的 alignof 宏（使用 offsetof 技巧）
     fputs("// C99 兼容的 alignof 实现\n", codegen->output);
