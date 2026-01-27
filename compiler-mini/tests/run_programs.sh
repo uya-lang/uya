@@ -133,14 +133,16 @@ process_multifile_test() {
     if [ "$USE_C99" = true ]; then
         # C99 后端：生成 .c 文件
         output_file="$BUILD_DIR/$build_subdir/${test_name}.c"
-        compiler_cmd="$COMPILER --c99 \"${file_list[@]}\" -o \"$output_file\""
+        # 直接执行命令，让数组正确展开
+        local compiler_output=$("$COMPILER" --c99 "${file_list[@]}" -o "$output_file" 2>&1)
+        local compiler_exit=$?
     else
         # LLVM 后端：生成 .o 文件
         output_file="$BUILD_DIR/$build_subdir/${test_name}.o"
-        compiler_cmd="$COMPILER \"${file_list[@]}\" -o \"$output_file\""
+        # 直接执行命令，让数组正确展开
+        local compiler_output=$("$COMPILER" "${file_list[@]}" -o "$output_file" 2>&1)
+        local compiler_exit=$?
     fi
-    local compiler_output=$(eval "$compiler_cmd" 2>&1)
-    local compiler_exit=$?
     if [ $compiler_exit -ne 0 ]; then
         # 如果有错误信息，显示它（排除调试信息）
         if [ "$ERRORS_ONLY" = true ]; then
