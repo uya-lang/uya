@@ -246,6 +246,30 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                     needs_memcpy = 1;
                 }
                 
+                // 检查是否是结构体初始化且包含数组字段（初始化值是标识符）
+                // 在C中，数组不能直接赋值，需要使用memcpy
+                int struct_init_needs_memcpy = 0;
+                if (init_expr->type == AST_STRUCT_INIT) {
+                    const char *struct_name = get_safe_c_identifier(codegen, init_expr->data.struct_init.struct_name);
+                    ASTNode *struct_decl = find_struct_decl_c99(codegen, struct_name);
+                    if (struct_decl) {
+                        int field_count = init_expr->data.struct_init.field_count;
+                        const char **field_names = init_expr->data.struct_init.field_names;
+                        ASTNode **field_values = init_expr->data.struct_init.field_values;
+                        for (int i = 0; i < field_count; i++) {
+                            const char *field_name = field_names[i];
+                            ASTNode *field_type = find_struct_field_type(codegen, struct_decl, field_name);
+                            if (field_type && field_type->type == AST_TYPE_ARRAY) {
+                                ASTNode *field_value = field_values[i];
+                                if (field_value && field_value->type == AST_IDENTIFIER) {
+                                    struct_init_needs_memcpy = 1;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                
                 if (is_array_from_function) {
                     // 从函数调用接收数组：需要从包装结构体中提取
                     // 先完成变量声明（不包含初始化）
@@ -268,6 +292,52 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                     fputs(", sizeof(", codegen->output);
                     c99_emit(codegen, "%s", var_name);
                     fputs("));\n", codegen->output);
+                } else if (struct_init_needs_memcpy) {
+                    // 结构体初始化包含数组字段：先声明变量，然后使用复合字面量初始化非数组字段，最后用memcpy复制数组字段
+                    fputs(" = ", codegen->output);
+                    
+                    // 生成复合字面量，但数组字段使用空初始化
+                    const char *struct_name = get_safe_c_identifier(codegen, init_expr->data.struct_init.struct_name);
+                    ASTNode *struct_decl = find_struct_decl_c99(codegen, struct_name);
+                    int field_count = init_expr->data.struct_init.field_count;
+                    const char **field_names = init_expr->data.struct_init.field_names;
+                    ASTNode **field_values = init_expr->data.struct_init.field_values;
+                    
+                    fprintf(codegen->output, "(struct %s){", struct_name);
+                    for (int i = 0; i < field_count; i++) {
+                        const char *safe_field_name = get_safe_c_identifier(codegen, field_names[i]);
+                        ASTNode *field_type = find_struct_field_type(codegen, struct_decl, field_names[i]);
+                        ASTNode *field_value = field_values[i];
+                        
+                        fprintf(codegen->output, ".%s = ", safe_field_name);
+                        
+                        // 如果是数组字段且初始化值是标识符，使用空初始化（后续用memcpy填充）
+                        if (field_type && field_type->type == AST_TYPE_ARRAY && 
+                            field_value && field_value->type == AST_IDENTIFIER) {
+                            fputs("{}", codegen->output);
+                        } else {
+                            gen_expr(codegen, field_value);
+                        }
+                        
+                        if (i < field_count - 1) fputs(", ", codegen->output);
+                    }
+                    fputs("};\n", codegen->output);
+                    
+                    // 使用memcpy复制数组字段
+                    for (int i = 0; i < field_count; i++) {
+                        const char *field_name = field_names[i];
+                        ASTNode *field_type = find_struct_field_type(codegen, struct_decl, field_name);
+                        ASTNode *field_value = field_values[i];
+                        
+                        if (field_type && field_type->type == AST_TYPE_ARRAY && 
+                            field_value && field_value->type == AST_IDENTIFIER) {
+                            const char *safe_field_name = get_safe_c_identifier(codegen, field_name);
+                            c99_emit(codegen, "memcpy(");
+                            c99_emit(codegen, "%s.%s, ", var_name, safe_field_name);
+                            gen_expr(codegen, field_value);
+                            c99_emit(codegen, ", sizeof(%s.%s));\n", var_name, safe_field_name);
+                        }
+                    }
                 } else {
                     // 普通初始化
                     fputs(" = ", codegen->output);

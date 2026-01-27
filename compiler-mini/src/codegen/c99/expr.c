@@ -239,14 +239,85 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             int field_count = expr->data.struct_init.field_count;
             const char **field_names = expr->data.struct_init.field_names;
             ASTNode **field_values = expr->data.struct_init.field_values;
-            fprintf(codegen->output, "(struct %s){", struct_name);
-            for (int i = 0; i < field_count; i++) {
-                const char *safe_field_name = get_safe_c_identifier(codegen, field_names[i]);
-                fprintf(codegen->output, ".%s = ", safe_field_name);
-                gen_expr(codegen, field_values[i]);
-                if (i < field_count - 1) fputs(", ", codegen->output);
+            
+            // 检查是否有数组字段且初始化值是标识符（另一个数组变量）
+            // 在C中，数组不能直接赋值，需要使用memcpy
+            int has_array_field_with_identifier = 0;
+            ASTNode *struct_decl = find_struct_decl_c99(codegen, struct_name);
+            if (struct_decl) {
+                for (int i = 0; i < field_count; i++) {
+                    const char *field_name = field_names[i];
+                    ASTNode *field_type = find_struct_field_type(codegen, struct_decl, field_name);
+                    if (field_type && field_type->type == AST_TYPE_ARRAY) {
+                        ASTNode *field_value = field_values[i];
+                        if (field_value && field_value->type == AST_IDENTIFIER) {
+                            has_array_field_with_identifier = 1;
+                            break;
+                        }
+                    }
+                }
             }
-            fputc('}', codegen->output);
+            
+            if (has_array_field_with_identifier) {
+                // 不能使用复合字面量，需要改用临时变量和memcpy
+                // 生成临时变量名
+                static int temp_counter = 0;
+                char temp_name[32];
+                snprintf(temp_name, sizeof(temp_name), "_temp_struct_%d", temp_counter++);
+                
+                // 先声明临时变量
+                fprintf(codegen->output, "((struct %s){", struct_name);
+                for (int i = 0; i < field_count; i++) {
+                    const char *safe_field_name = get_safe_c_identifier(codegen, field_names[i]);
+                    ASTNode *field_type = find_struct_field_type(codegen, struct_decl, safe_field_name);
+                    ASTNode *field_value = field_values[i];
+                    
+                    fprintf(codegen->output, ".%s = ", safe_field_name);
+                    
+                    // 如果是数组字段且初始化值是标识符，使用空初始化（后续用memcpy填充）
+                    if (field_type && field_type->type == AST_TYPE_ARRAY && 
+                        field_value && field_value->type == AST_IDENTIFIER) {
+                        fputs("{}", codegen->output);
+                    } else {
+                        gen_expr(codegen, field_value);
+                    }
+                    
+                    if (i < field_count - 1) fputs(", ", codegen->output);
+                }
+                fputc('}', codegen->output);
+                
+                // 生成memcpy调用
+                fputs(", ", codegen->output);
+                fprintf(codegen->output, "memcpy(%s.", temp_name);
+                
+                // 找到第一个数组字段（标识符类型）
+                for (int i = 0; i < field_count; i++) {
+                    const char *field_name = field_names[i];
+                    ASTNode *field_type = find_struct_field_type(codegen, struct_decl, field_name);
+                    ASTNode *field_value = field_values[i];
+                    
+                    if (field_type && field_type->type == AST_TYPE_ARRAY && 
+                        field_value && field_value->type == AST_IDENTIFIER) {
+                        const char *safe_field_name = get_safe_c_identifier(codegen, field_name);
+                        fprintf(codegen->output, "%s, ", safe_field_name);
+                        gen_expr(codegen, field_value);
+                        fprintf(codegen->output, ", sizeof(%s.%s))", temp_name, safe_field_name);
+                        break;
+                    }
+                }
+                
+                fputc(')', codegen->output);
+            } else {
+                // 正常情况：使用复合字面量
+                fprintf(codegen->output, "(struct %s){", struct_name);
+                for (int i = 0; i < field_count; i++) {
+                    const char *safe_field_name = get_safe_c_identifier(codegen, field_names[i]);
+                    fprintf(codegen->output, ".%s = ", safe_field_name);
+                    gen_expr(codegen, field_values[i]);
+                    if (i < field_count - 1) fputs(", ", codegen->output);
+                }
+                fputc('}', codegen->output);
+            }
             break;
         }
         case AST_ARRAY_LITERAL: {
