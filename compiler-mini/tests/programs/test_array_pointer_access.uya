@@ -1,0 +1,166 @@
+// 测试程序：测试数组元素为指针类型时的成员访问
+// 验证生成的 C 代码是否正确使用 -> 操作符
+
+struct ASTNode {
+    type: i32,
+    line: i32,
+    column: i32,
+}
+
+struct CodeGen {
+    nodes: [&ASTNode: 10],
+    count: i32,
+}
+
+// 测试数组元素为指针类型时的成员访问
+fn test_array_pointer_access(codegen: &CodeGen) i32 {
+    // codegen.nodes 的类型是 [&ASTNode: 10]
+    // codegen.nodes[i] 的结果类型是 &ASTNode，在 C 中应该是 struct ASTNode *
+    // 所以 codegen.nodes[i].type 应该生成 codegen->nodes[i]->type
+    
+    var i: i32 = 0;
+    while i < codegen.count {
+        // 数组访问结果是指针类型，应该使用 ->
+        if codegen.nodes[i].type != 0 {
+            return 1;
+        }
+        
+        // 访问其他字段
+        if codegen.nodes[i].line != 0 {
+            return 2;
+        }
+        
+        if codegen.nodes[i].column != 0 {
+            return 3;
+        }
+        
+        i = i + 1;
+    }
+    
+    return 0;
+}
+
+// 测试从 AST 节点字段提取的引用类型变量
+fn test_extracted_pointer_vars(codegen: &CodeGen) i32 {
+    // 模拟从 AST 节点字段提取的引用类型变量
+    // 这些变量在生成的 C 代码中应该是指针类型
+    
+    if codegen.nodes[0] == null {
+        return 1;
+    }
+    
+    // 提取引用类型变量（类似 codegen.uya 中的 array_expr, target 等）
+    const node: &ASTNode = codegen.nodes[0];
+    
+    // 这些变量应该被识别为指针类型，访问成员时使用 ->
+    if node.type != 0 {
+        return 2;
+    }
+    
+    if node.line != 0 {
+        return 3;
+    }
+    
+    if node.column != 0 {
+        return 4;
+    }
+    
+    // 测试嵌套提取
+    const first_node: &ASTNode = codegen.nodes[0];
+    if first_node.type != 0 {
+        return 5;
+    }
+    
+    return 0;
+}
+
+// 测试数组访问链
+fn test_nested_array_access(codegen: &CodeGen) i32 {
+    // 测试嵌套数组访问：codegen.nodes[i].type
+    var i: i32 = 0;
+    while i < codegen.count {
+        // 数组访问结果是指针类型
+        const node: &ASTNode = codegen.nodes[i];
+        
+        // 访问指针类型的成员
+        if node.type != 0 {
+            return 1;
+        }
+        
+        i = i + 1;
+    }
+    
+    return 0;
+}
+
+// 测试赋值操作
+fn test_pointer_assignment(codegen: &CodeGen) i32 {
+    // 测试对指针类型成员的赋值
+    if codegen.nodes[0] == null {
+        return 1;
+    }
+    
+    // 赋值给指针类型的成员
+    codegen.nodes[0].type = 10;
+    if codegen.nodes[0].type != 10 {
+        return 2;
+    }
+    
+    codegen.nodes[0].line = 20;
+    if codegen.nodes[0].line != 20 {
+        return 3;
+    }
+    
+    codegen.nodes[0].column = 30;
+    if codegen.nodes[0].column != 30 {
+        return 4;
+    }
+    
+    return 0;
+}
+
+fn main() i32 {
+    // 创建测试数据
+    var nodes: [&ASTNode: 10] = [];
+    var node0: ASTNode = ASTNode{ type: 0, line: 0, column: 0 };
+    var node1: ASTNode = ASTNode{ type: 0, line: 0, column: 0 };
+    var node2: ASTNode = ASTNode{ type: 0, line: 0, column: 0 };
+    
+    nodes[0] = &node0;
+    nodes[1] = &node1;
+    nodes[2] = &node2;
+    
+    var codegen: CodeGen = CodeGen{ nodes: nodes, count: 3 };
+    
+    // 测试数组指针访问
+    const result1: i32 = test_array_pointer_access(&codegen);
+    if result1 != 0 {
+        return result1;
+    }
+    
+    // 测试提取的指针变量
+    const result2: i32 = test_extracted_pointer_vars(&codegen);
+    if result2 != 0 {
+        return result2 + 10;
+    }
+    
+    // 测试嵌套数组访问
+    const result3: i32 = test_nested_array_access(&codegen);
+    if result3 != 0 {
+        return result3 + 20;
+    }
+    
+    // 测试指针赋值
+    const result4: i32 = test_pointer_assignment(&codegen);
+    if result4 != 0 {
+        return result4 + 30;
+    }
+    
+    // 验证赋值结果
+    if codegen.nodes[0].type != 10 || codegen.nodes[0].line != 20 || codegen.nodes[0].column != 30 {
+        return 40;
+    }
+    
+    return 0;
+}
+
