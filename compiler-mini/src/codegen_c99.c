@@ -1290,11 +1290,22 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             // 检查对象是否是指针类型（需要自动解引用）
             int is_pointer = 0;
             if (object->type == AST_IDENTIFIER) {
+                // 标识符：检查变量类型是否是指针
                 is_pointer = is_identifier_pointer_type(codegen, object->data.identifier.name);
-            } else if (object->type == AST_UNARY_EXPR && 
-                       object->data.unary_expr.op == TOKEN_ASTERISK) {
-                // 解引用表达式的结果是指针
-                is_pointer = 1;
+            } else if (object->type == AST_UNARY_EXPR) {
+                // 一元表达式：检查操作符
+                int op = object->data.unary_expr.op;
+                if (op == TOKEN_AMPERSAND) {
+                    // &expr：取地址表达式的结果是指针，但这里访问的是 expr 的字段
+                    // 实际上不应该发生这种情况，因为 &expr.field 在语法上不合法
+                    // 但为了安全，我们假设不是指针
+                    is_pointer = 0;
+                } else if (op == TOKEN_ASTERISK) {
+                    // *ptr：解引用表达式的结果是结构体本身，不是指针
+                    // 所以应该使用 . 而不是 ->
+                    is_pointer = 0;
+                }
+                // 其他一元操作符（!, -, +）不影响类型判断
             }
             
             gen_expr(codegen, object);
