@@ -532,10 +532,88 @@ int is_array_access_pointer_type(C99CodeGenerator *codegen, ASTNode *array_acces
     
     // 如果数组表达式是成员访问，检查成员访问的结果类型
     if (array->type == AST_MEMBER_ACCESS) {
-        // 成员访问的结果类型可能是指针，需要检查
-        // 这里简化处理：如果成员访问的结果类型是指针，那么数组访问的结果也是指针
-        // 但实际上，我们需要检查成员访问的结果类型是否是数组类型，然后检查数组元素类型
-        // 暂时返回 0，因为这种情况比较复杂
+        ASTNode *object = array->data.member_access.object;
+        const char *field_name = array->data.member_access.field_name;
+        
+        if (!object || !field_name) return 0;
+        
+        // 获取对象的类型（类似 is_member_access_pointer_type 的逻辑）
+        const char *var_type_c = NULL;
+        const char *var_name = NULL;
+        
+        if (object->type == AST_IDENTIFIER) {
+            var_name = object->data.identifier.name;
+            if (!var_name) return 0;
+            
+            // 查找变量类型
+            for (int i = codegen->local_variable_count - 1; i >= 0; i--) {
+                if (codegen->local_variables[i].name && strcmp(codegen->local_variables[i].name, var_name) == 0) {
+                    var_type_c = codegen->local_variables[i].type_c;
+                    break;
+                }
+            }
+            if (!var_type_c) {
+                for (int i = 0; i < codegen->global_variable_count; i++) {
+                    if (codegen->global_variables[i].name && strcmp(codegen->global_variables[i].name, var_name) == 0) {
+                        var_type_c = codegen->global_variables[i].type_c;
+                        break;
+                    }
+                }
+            }
+        } else if (object->type == AST_MEMBER_ACCESS) {
+            // 嵌套成员访问：递归处理（暂时简化，只处理一层嵌套）
+            // 对于 codegen->nodes[i]，object 是 codegen（标识符），所以上面已经处理了
+            return 0;
+        } else {
+            return 0;
+        }
+        
+        if (!var_type_c) return 0;
+        
+        // 提取结构体名称（去除 "struct " 前缀和 "*" 后缀）
+        const char *struct_name = NULL;
+        if (strncmp(var_type_c, "struct ", 7) == 0) {
+            const char *start = var_type_c + 7;
+            const char *asterisk = strchr(start, '*');
+            if (asterisk) {
+                // 提取 '*' 之前的部分，去除尾部空格
+                size_t len = asterisk - start;
+                while (len > 0 && (start[len - 1] == ' ' || start[len - 1] == '\t')) {
+                    len--;
+                }
+                if (len > 0) {
+                    char *name_buf = arena_alloc(codegen->arena, len + 1);
+                    if (name_buf) {
+                        memcpy(name_buf, start, len);
+                        name_buf[len] = '\0';
+                        struct_name = name_buf;
+                    }
+                }
+            } else {
+                struct_name = start;
+            }
+        }
+        
+        if (!struct_name) return 0;
+        
+        // 查找结构体声明
+        ASTNode *struct_decl = find_struct_decl_c99(codegen, struct_name);
+        if (!struct_decl) return 0;
+        
+        // 查找字段类型
+        ASTNode *field_type = find_struct_field_type(codegen, struct_decl, field_name);
+        if (!field_type) return 0;
+        
+        // 检查字段类型是否是数组类型
+        if (field_type->type == AST_TYPE_ARRAY) {
+            // 获取数组元素类型
+            ASTNode *element_type = field_type->data.type_array.element_type;
+            if (!element_type) return 0;
+            
+            // 检查数组元素类型是否是指针类型
+            return (element_type->type == AST_TYPE_POINTER);
+        }
+        
         return 0;
     }
     
