@@ -69,7 +69,7 @@ PROGRAMS_DIR = tests/programs
 PROGRAMS = $(wildcard $(PROGRAMS_DIR)/*.uya)
 PROGRAM_BINARIES = $(patsubst $(PROGRAMS_DIR)/%.uya,$(BUILD_DIR)/$(PROGRAMS_DIR)/%,$(PROGRAMS))
 
-.PHONY: all build test clean test-arena test-ast test-lexer test-parser test-checker test-codegen compile-programs test-programs
+.PHONY: all build test clean test-arena test-ast test-lexer test-parser test-checker test-codegen compile-programs test-programs c99-backend test-c99
 
 # 默认目标
 all: build
@@ -151,6 +151,30 @@ $(PROGRAM_BINARIES): $(BUILD_DIR)/$(PROGRAMS_DIR)/%: $(PROGRAMS_DIR)/%.uya | $(B
 test-programs: compile-programs
 	@echo "运行 Uya 测试程序..."
 	@bash tests/run_programs.sh
+
+# C99 后端示例：编译示例程序并生成 C99 代码
+c99-backend: $(TARGET)
+	@echo "使用 C99 后端编译示例程序..."
+	@mkdir -p $(BUILD_DIR)/c99_examples
+	@if [ -f tests/programs/test_simple.uya ]; then \
+		./$(TARGET) tests/programs/test_simple.uya -o $(BUILD_DIR)/c99_examples/test_simple.c --c99; \
+		echo "生成的 C99 代码已保存到: $(BUILD_DIR)/c99_examples/test_simple.c"; \
+		echo "使用以下命令编译: gcc --std=c99 -o $(BUILD_DIR)/c99_examples/test_simple $(BUILD_DIR)/c99_examples/test_simple.c"; \
+	else \
+		echo "示例文件不存在，使用第一个测试程序..."; \
+		FIRST_UYA=$$(ls tests/programs/*.uya 2>/dev/null | head -1); \
+		if [ -n "$$FIRST_UYA" ]; then \
+			./$(TARGET) $$FIRST_UYA -o $(BUILD_DIR)/c99_examples/example.c --c99; \
+			echo "生成的 C99 代码已保存到: $(BUILD_DIR)/c99_examples/example.c"; \
+		else \
+			echo "错误: 未找到测试程序文件"; \
+		fi; \
+	fi
+
+# 运行 C99 后端测试
+test-c99: $(TARGET)
+	@echo "运行 C99 后端测试..."
+	@bash tests/run_programs.sh --c99
 
 # 创建构建目录（使用中间目标避免与 build 目标冲突）
 $(BUILD_DIR)/.dir:

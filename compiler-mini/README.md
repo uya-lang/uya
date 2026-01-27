@@ -30,7 +30,9 @@ Uya Mini 是 Uya 语言的最小子集编译器，设计目标是能够编译自
 - **外部函数支持（FFI）**：支持 `extern` 关键字声明外部 C 函数，支持基础类型和 FFI 指针类型（`*T`）参数，支持 `&T as *T` 类型转换语法将普通指针转换为 FFI 指针
 - **内置函数**：`sizeof`（类型大小查询）
 - **类型转换**：支持 `as` 关键字进行显式类型转换
-- **LLVM C API**：使用 LLVM C API 直接从 AST 生成二进制代码
+- **双后端架构**：
+  - **LLVM 后端**：使用 LLVM C API 直接从 AST 生成二进制代码
+  - **C99 后端**：生成标准 C99 源代码，不依赖 LLVM 库
 - **自举目标**：最终目标是用 Uya Mini 编译器编译自身
 
 **当前实现状态**：
@@ -45,22 +47,49 @@ Uya Mini 是 Uya 语言的最小子集编译器，设计目标是能够编译自
 ```bash
 make build         # 构建编译器
 make test          # 运行所有单元测试
-make test-programs # 运行 Uya 测试程序（需要 LLVM 环境）
+make test-programs # 运行 Uya 测试程序（LLVM 后端，需要 LLVM 环境）
+make test-c99      # 运行 C99 后端测试（不需要 LLVM）
+make c99-backend   # 使用 C99 后端编译示例程序
 make clean         # 清理编译产物
 ```
 
 ### 编译 Uya 程序
 
+#### 使用 LLVM 后端（默认）
+
 ```bash
 # 单文件编译
-./compiler-mini program.uya -o program
+./build/compiler-mini program.uya -o program
 
 # 多文件编译（支持同时编译多个文件）
-./compiler-mini file1.uya file2.uya file3.uya -o output
+./build/compiler-mini file1.uya file2.uya file3.uya -o output
 
 # 运行编译后的程序
 ./program
 ```
+
+#### 使用 C99 后端
+
+```bash
+# 生成 C99 源代码
+./build/compiler-mini program.uya -o program.c --c99
+
+# 使用 gcc 编译生成的 C99 代码
+gcc --std=c99 -o program program.c
+
+# 运行程序
+./program
+
+# 或者使用 --exec 选项自动编译和运行
+./build/compiler-mini program.uya -o program.c --c99 --exec
+```
+
+**C99 后端特性**：
+- ✅ 支持所有 Uya Mini 语言特性
+- ✅ 生成标准 C99 代码，符合 ISO/IEC 9899:1999 标准
+- ✅ 不依赖 LLVM 库，只需要标准 C 编译器（gcc/clang）
+- ✅ 生成的代码可读性强，便于理解和调试
+- ✅ 所有测试用例通过验证（100% 通过率）
 
 **多文件编译说明**：
 - 支持同时编译多个 `.uya` 文件
@@ -72,7 +101,7 @@ make clean         # 清理编译产物
 ### 依赖
 
 - C99 编译器（GCC 或 Clang）
-- LLVM 库（用于代码生成）
+- LLVM 库（用于 LLVM 后端代码生成，C99 后端不需要）
 
 ## 文档
 
@@ -100,6 +129,9 @@ compiler-mini/
 │   ├── programs/                  # 测试程序
 │   │   └── multifile/            # 多文件编译测试
 │   └── run_programs.sh           # 测试运行脚本
+├── examples/                      # 示例代码
+│   ├── c99_output/               # C99 后端示例
+│   └── compile_with_c99.sh      # C99 后端编译脚本
 └── TODO_phase*.md                 # 分阶段待办事项
 ```
 

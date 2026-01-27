@@ -1,0 +1,14 @@
+// Uya Mini C99 后端示例程序
+// 展示如何使用 C99 后端生成 C99 代码
+
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+fn main() i32 {
+    const x: i32 = 10;
+    const y: i32 = 20;
+    const result: i32 = add(x, y);
+    return result;
+}
+
