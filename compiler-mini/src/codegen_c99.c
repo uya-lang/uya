@@ -324,8 +324,9 @@ static int is_identifier_struct_type(C99CodeGenerator *codegen, const char *name
     for (int i = codegen->local_variable_count - 1; i >= 0; i--) {
         if (strcmp(codegen->local_variables[i].name, name) == 0) {
             const char *type_c = codegen->local_variables[i].type_c;
-            // 检查类型是否以"struct "开头
-            return (type_c && strncmp(type_c, "struct ", 7) == 0);
+            if (!type_c) return 0;
+            // 检查类型是否以"struct "开头且不包含'*'（即不是指针）
+            return (strncmp(type_c, "struct ", 7) == 0 && strchr(type_c, '*') == NULL);
         }
     }
     
@@ -333,8 +334,9 @@ static int is_identifier_struct_type(C99CodeGenerator *codegen, const char *name
     for (int i = 0; i < codegen->global_variable_count; i++) {
         if (strcmp(codegen->global_variables[i].name, name) == 0) {
             const char *type_c = codegen->global_variables[i].type_c;
-            // 检查类型是否以"struct "开头
-            return (type_c && strncmp(type_c, "struct ", 7) == 0);
+            if (!type_c) return 0;
+            // 检查类型是否以"struct "开头且不包含'*'（即不是指针）
+            return (strncmp(type_c, "struct ", 7) == 0 && strchr(type_c, '*') == NULL);
         }
     }
     
@@ -941,8 +943,13 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             break;
         }
         case AST_IDENTIFIER: {
-            const char *safe_name = get_safe_c_identifier(codegen, expr->data.identifier.name);
-            fprintf(codegen->output, "%s", safe_name);
+            const char *name = expr->data.identifier.name;
+            if (name && strcmp(name, "null") == 0) {
+                fputs("NULL", codegen->output);
+            } else {
+                const char *safe_name = get_safe_c_identifier(codegen, name);
+                fprintf(codegen->output, "%s", safe_name);
+            }
             break;
         }
         case AST_CALL_EXPR: {
