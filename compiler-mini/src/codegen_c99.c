@@ -155,6 +155,34 @@ static const char *add_string_constant(C99CodeGenerator *codegen, const char *va
     return codegen->string_constants[codegen->string_constant_count - 1].name;
 }
 
+// 转义字符串中的特殊字符
+static void escape_string_for_c(FILE *output, const char *str) {
+    if (!str) return;
+    
+    for (const char *p = str; *p != '\0'; p++) {
+        switch (*p) {
+            case '\n':
+                fputs("\\n", output);
+                break;
+            case '\t':
+                fputs("\\t", output);
+                break;
+            case '\r':
+                fputs("\\r", output);
+                break;
+            case '\\':
+                fputs("\\\\", output);
+                break;
+            case '"':
+                fputs("\\\"", output);
+                break;
+            default:
+                fputc(*p, output);
+                break;
+        }
+    }
+}
+
 // 输出所有字符串常量
 static void emit_string_constants(C99CodeGenerator *codegen) {
     if (codegen->string_constant_count == 0) {
@@ -163,9 +191,9 @@ static void emit_string_constants(C99CodeGenerator *codegen) {
     
     fputs("\n// 字符串常量\n", codegen->output);
     for (int i = 0; i < codegen->string_constant_count; i++) {
-        fprintf(codegen->output, "static const char %s[] = \"%s\";\n",
-                codegen->string_constants[i].name,
-                codegen->string_constants[i].value);
+        fprintf(codegen->output, "static const char %s[] = \"", codegen->string_constants[i].name);
+        escape_string_for_c(codegen->output, codegen->string_constants[i].value);
+        fputs("\";\n", codegen->output);
     }
 }
 
