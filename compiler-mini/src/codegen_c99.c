@@ -528,6 +528,199 @@ static int find_enum_variant_value(C99CodeGenerator *codegen, ASTNode *enum_decl
     return -1;
 }
 
+// 查找结构体声明
+static ASTNode *find_struct_decl_c99(C99CodeGenerator *codegen, const char *struct_name) {
+    if (!codegen || !struct_name || !codegen->program_node) {
+        return NULL;
+    }
+    
+    ASTNode **decls = codegen->program_node->data.program.decls;
+    int decl_count = codegen->program_node->data.program.decl_count;
+    
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_STRUCT_DECL) {
+            continue;
+        }
+        
+        const char *decl_name = decl->data.struct_decl.name;
+        if (decl_name && strcmp(decl_name, struct_name) == 0) {
+            return decl;
+        }
+    }
+    
+    return NULL;
+}
+
+// 查找结构体字段类型
+static ASTNode *find_struct_field_type(C99CodeGenerator *codegen, ASTNode *struct_decl, const char *field_name) {
+    if (!codegen || !struct_decl || struct_decl->type != AST_STRUCT_DECL || !field_name) {
+        return NULL;
+    }
+    
+    for (int i = 0; i < struct_decl->data.struct_decl.field_count; i++) {
+        ASTNode *field = struct_decl->data.struct_decl.fields[i];
+        if (field && field->type == AST_VAR_DECL) {
+            if (field->data.var_decl.name && strcmp(field->data.var_decl.name, field_name) == 0) {
+                return field->data.var_decl.type;
+            }
+        }
+    }
+    
+    return NULL;
+}
+
+// 检查成员访问表达式的结果类型是否是指针
+static int is_member_access_pointer_type(C99CodeGenerator *codegen, ASTNode *member_access) {
+    if (!codegen || !member_access || member_access->type != AST_MEMBER_ACCESS) {
+        return 0;
+    }
+    
+    ASTNode *object = member_access->data.member_access.object;
+    const char *field_name = member_access->data.member_access.field_name;
+    
+    if (!object || !field_name) {
+        return 0;
+    }
+    
+    // 如果 object 是标识符，查找变量类型，然后查找结构体字段类型
+    if (object->type == AST_IDENTIFIER) {
+        const char *var_name = object->data.identifier.name;
+        if (!var_name) return 0;
+        
+        // 查找变量类型
+        const char *var_type_c = NULL;
+        for (int i = codegen->local_variable_count - 1; i >= 0; i--) {
+            if (strcmp(codegen->local_variables[i].name, var_name) == 0) {
+                var_type_c = codegen->local_variables[i].type_c;
+                break;
+            }
+        }
+        if (!var_type_c) {
+            for (int i = 0; i < codegen->global_variable_count; i++) {
+                if (strcmp(codegen->global_variables[i].name, var_name) == 0) {
+                    var_type_c = codegen->global_variables[i].type_c;
+                    break;
+                }
+            }
+        }
+        
+        if (!var_type_c) return 0;
+        
+            // 提取结构体名称（去除 "struct " 前缀和 "*" 后缀）
+            const char *struct_name = NULL;
+            if (strncmp(var_type_c, "struct ", 7) == 0) {
+                const char *start = var_type_c + 7;
+                // 查找 '*' 或空格后的 '*'
+                const char *asterisk = strchr(start, '*');
+                if (asterisk) {
+                    // 提取 '*' 之前的部分，去除尾部空格
+                    size_t len = asterisk - start;
+                    // 去除尾部空格
+                    while (len > 0 && (start[len - 1] == ' ' || start[len - 1] == '\t')) {
+                        len--;
+                    }
+                    if (len > 0) {
+                        char *name_buf = arena_alloc(codegen->arena, len + 1);
+                        if (name_buf) {
+                            memcpy(name_buf, start, len);
+                            name_buf[len] = '\0';
+                            struct_name = name_buf;
+                        }
+                    }
+                } else {
+                    struct_name = start;
+                }
+            }
+        
+        if (!struct_name) return 0;
+        
+        // 查找结构体声明
+        ASTNode *struct_decl = find_struct_decl_c99(codegen, struct_name);
+        if (!struct_decl) return 0;
+        
+        // 查找字段类型
+        ASTNode *field_type = find_struct_field_type(codegen, struct_decl, field_name);
+        if (!field_type) return 0;
+        
+        // 检查字段类型是否是指针
+        return (field_type->type == AST_TYPE_POINTER);
+    }
+    
+    // 如果 object 是嵌套的成员访问，递归检查
+    if (object->type == AST_MEMBER_ACCESS) {
+        // 递归检查嵌套成员访问的结果类型
+        // 对于 parser.current_token，需要：
+        // 1. 检查 parser 的类型（应该是 struct Parser *）
+        // 2. 查找 Parser 结构体的 current_token 字段类型（应该是 &Token）
+        // 3. 如果字段类型是指针，则当前访问应该使用 ->
+        ASTNode *nested_object = object->data.member_access.object;
+        const char *nested_field_name = object->data.member_access.field_name;
+        
+        if (nested_object && nested_object->type == AST_IDENTIFIER && nested_field_name) {
+            const char *var_name = nested_object->data.identifier.name;
+            if (!var_name) return 0;
+            
+            // 查找变量类型
+            const char *var_type_c = NULL;
+            for (int i = codegen->local_variable_count - 1; i >= 0; i--) {
+                if (strcmp(codegen->local_variables[i].name, var_name) == 0) {
+                    var_type_c = codegen->local_variables[i].type_c;
+                    break;
+                }
+            }
+            if (!var_type_c) {
+                for (int i = 0; i < codegen->global_variable_count; i++) {
+                    if (strcmp(codegen->global_variables[i].name, var_name) == 0) {
+                        var_type_c = codegen->global_variables[i].type_c;
+                        break;
+                    }
+                }
+            }
+            
+            if (!var_type_c) return 0;
+            
+            // 提取结构体名称
+            const char *struct_name = NULL;
+            if (strncmp(var_type_c, "struct ", 7) == 0) {
+                const char *start = var_type_c + 7;
+                const char *asterisk = strchr(start, '*');
+                if (asterisk) {
+                    size_t len = asterisk - start;
+                    char *name_buf = arena_alloc(codegen->arena, len + 1);
+                    if (name_buf) {
+                        memcpy(name_buf, start, len);
+                        name_buf[len] = '\0';
+                        struct_name = name_buf;
+                    }
+                } else {
+                    struct_name = start;
+                }
+            }
+            
+            if (!struct_name) return 0;
+            
+            // 查找结构体声明
+            ASTNode *struct_decl = find_struct_decl_c99(codegen, struct_name);
+            if (!struct_decl) return 0;
+            
+            // 查找嵌套字段类型（如 parser.current_token 中的 current_token）
+            ASTNode *nested_field_type = find_struct_field_type(codegen, struct_decl, nested_field_name);
+            if (!nested_field_type) return 0;
+            
+            // 检查嵌套字段类型是否是指针
+            if (nested_field_type->type == AST_TYPE_POINTER) {
+                // 嵌套字段是指针，所以当前字段访问应该使用 ->
+                return 1;
+            }
+        }
+        
+        return 0;
+    }
+    
+    return 0;
+}
+
 // 检查标识符是否为指针类型
 static int is_identifier_pointer_type(C99CodeGenerator *codegen, const char *name) {
     if (!name) return 0;
@@ -1412,6 +1605,9 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             if (object->type == AST_IDENTIFIER) {
                 // 标识符：检查变量类型是否是指针
                 is_pointer = is_identifier_pointer_type(codegen, object->data.identifier.name);
+            } else if (object->type == AST_MEMBER_ACCESS) {
+                // 嵌套成员访问：检查嵌套访问的结果类型是否是指针
+                is_pointer = is_member_access_pointer_type(codegen, object);
             } else if (object->type == AST_UNARY_EXPR) {
                 // 一元表达式：检查操作符
                 int op = object->data.unary_expr.op;
@@ -2511,20 +2707,27 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
         fputs("\n", codegen->output);
     }
 
-    // 第五步：生成所有结构体和枚举定义（确保函数原型有完整类型）
+    // 第五步：生成所有枚举定义（在结构体之前，因为结构体可能使用枚举类型）
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl) continue;
+        if (decl->type == AST_ENUM_DECL) {
+            gen_enum_definition(codegen, decl);
+            fputs("\n", codegen->output);
+        }
+    }
+    
+    // 第六步：生成所有结构体定义（在枚举之后）
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) continue;
         if (decl->type == AST_STRUCT_DECL) {
             gen_struct_definition(codegen, decl);
             fputs("\n", codegen->output);
-        } else if (decl->type == AST_ENUM_DECL) {
-            gen_enum_definition(codegen, decl);
-            fputs("\n", codegen->output);
         }
     }
 
-    // 第六步：生成所有函数的前向声明（解决相互递归调用）
+    // 第七步：生成所有函数的前向声明（解决相互递归调用）
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl || decl->type != AST_FN_DECL) continue;
