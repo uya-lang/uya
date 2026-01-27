@@ -785,40 +785,45 @@ static int gen_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl
     int field_count = struct_decl->data.struct_decl.field_count;
     ASTNode **fields = struct_decl->data.struct_decl.fields;
     
-    for (int i = 0; i < field_count; i++) {
-        ASTNode *field = fields[i];
-        if (!field || field->type != AST_VAR_DECL) {
-            return -1;
-        }
-        
-        const char *field_name = get_safe_c_identifier(codegen, field->data.var_decl.name);
-        ASTNode *field_type = field->data.var_decl.type;
-        
-        if (!field_name || !field_type) {
-            return -1;
-        }
-        
-        // 检查是否为数组类型
-        if (field_type->type == AST_TYPE_ARRAY) {
-            ASTNode *element_type = field_type->data.type_array.element_type;
-            ASTNode *size_expr = field_type->data.type_array.size_expr;
-            const char *elem_type_c = c99_type_to_c(codegen, element_type);
-            
-            // 评估数组大小
-            int array_size = -1;
-            if (size_expr) {
-                array_size = eval_const_expr(codegen, size_expr);
-                if (array_size <= 0) {
-                    array_size = 1;  // 占位符
-                }
-            } else {
-                array_size = 1;  // 占位符
+    // 如果是空结构体，添加一个占位符字段以确保大小为 1（符合 Uya 规范）
+    if (field_count == 0) {
+        c99_emit(codegen, "char _empty;\n");
+    } else {
+        for (int i = 0; i < field_count; i++) {
+            ASTNode *field = fields[i];
+            if (!field || field->type != AST_VAR_DECL) {
+                return -1;
             }
             
-            c99_emit(codegen, "%s %s[%d];\n", elem_type_c, field_name, array_size);
-        } else {
-            const char *field_type_c = c99_type_to_c(codegen, field_type);
-            c99_emit(codegen, "%s %s;\n", field_type_c, field_name);
+            const char *field_name = get_safe_c_identifier(codegen, field->data.var_decl.name);
+            ASTNode *field_type = field->data.var_decl.type;
+            
+            if (!field_name || !field_type) {
+                return -1;
+            }
+            
+            // 检查是否为数组类型
+            if (field_type->type == AST_TYPE_ARRAY) {
+                ASTNode *element_type = field_type->data.type_array.element_type;
+                ASTNode *size_expr = field_type->data.type_array.size_expr;
+                const char *elem_type_c = c99_type_to_c(codegen, element_type);
+                
+                // 评估数组大小
+                int array_size = -1;
+                if (size_expr) {
+                    array_size = eval_const_expr(codegen, size_expr);
+                    if (array_size <= 0) {
+                        array_size = 1;  // 占位符
+                    }
+                } else {
+                    array_size = 1;  // 占位符
+                }
+                
+                c99_emit(codegen, "%s %s[%d];\n", elem_type_c, field_name, array_size);
+            } else {
+                const char *field_type_c = c99_type_to_c(codegen, field_type);
+                c99_emit(codegen, "%s %s;\n", field_type_c, field_name);
+            }
         }
     }
     
@@ -1521,7 +1526,7 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         case AST_ALIGNOF: {
             ASTNode *target = expr->data.alignof_expr.target;
             int is_type = expr->data.alignof_expr.is_type;
-            fputs("_Alignof(", codegen->output);
+            fputs("uya_alignof(", codegen->output);
             if (is_type) {
                 const char *type_c = c99_type_to_c(codegen, target);
                 fprintf(codegen->output, "%s", type_c);
@@ -2146,6 +2151,10 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     fputs("#include <stdbool.h>\n", codegen->output);
     fputs("#include <stddef.h>\n", codegen->output);
     fputs("#include <string.h>\n", codegen->output);  // for memcmp
+    fputs("\n", codegen->output);
+    // C99 兼容的 alignof 宏（使用 offsetof 技巧）
+    fputs("// C99 兼容的 alignof 实现\n", codegen->output);
+    fputs("#define uya_alignof(type) offsetof(struct { char c; type t; }, t)\n", codegen->output);
     fputs("\n", codegen->output);
     
     // 第一步：收集所有字符串常量（从全局变量初始化和函数体）
