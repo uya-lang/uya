@@ -1358,14 +1358,24 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 }
             } else {
                 // 即使 is_type = 0，也检查是否是结构体标识符（如 sizeof(Point) 中的 Point）
-                if (target->type == AST_IDENTIFIER) {
-                    const char *name = target->data.identifier.name;
+                if (target->type == AST_IDENTIFIER || target->type == AST_TYPE_NAMED) {
+                    const char *name = (target->type == AST_IDENTIFIER)
+                        ? target->data.identifier.name
+                        : target->data.type_named.name;
                     if (name && !is_c_keyword(name)) {
                         const char *safe_name = get_safe_c_identifier(codegen, name);
                         if (is_struct_in_table(codegen, safe_name)) {
                             fprintf(codegen->output, "struct %s", safe_name);
                         } else {
-                            gen_expr(codegen, target);
+                            int is_enum = is_enum_in_table(codegen, safe_name);
+                            if (!is_enum && find_enum_decl(codegen, safe_name)) {
+                                is_enum = 1;
+                            }
+                            if (is_enum) {
+                                fprintf(codegen->output, "enum %s", safe_name);
+                            } else {
+                                gen_expr(codegen, target);
+                            }
                         }
                     } else {
                         gen_expr(codegen, target);
@@ -1620,10 +1630,10 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 // 解析类型字符串，分离基类型和数组维度
                 // 例如："int32_t[3][2]" -> 基类型="int32_t", 维度="[3][2]"
                 // 或者 "int32_t[3]" -> 基类型="int32_t", 维度="[3]"
-                const char *last_bracket = strrchr(type_c, '[');
-                if (last_bracket) {
-                    // 找到最后一个 '['，分割基类型和维度
-                    size_t base_len = last_bracket - type_c;
+                const char *first_bracket = strchr(type_c, '[');
+                if (first_bracket) {
+                    // 找到第一个 '['，分割基类型和维度
+                    size_t base_len = first_bracket - type_c;
                     char *base_type = arena_alloc(codegen->arena, base_len + 1);
                     if (base_type) {
                         memcpy(base_type, type_c, base_len);
@@ -1653,7 +1663,13 @@ static void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             } else {
                 // 非数组类型
                 type_c = c99_type_to_c(codegen, var_type);
-                c99_emit(codegen, "%s %s %s", is_const ? "const" : "", type_c, var_name);
+                if (is_const && var_type->type == AST_TYPE_POINTER) {
+                    c99_emit(codegen, "%s const %s", type_c, var_name);
+                } else if (is_const) {
+                    c99_emit(codegen, "const %s %s", type_c, var_name);
+                } else {
+                    c99_emit(codegen, "%s %s", type_c, var_name);
+                }
             }
             
             if (init_expr) {
@@ -2040,28 +2056,37 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     if (codegen->struct_definition_count > 0) {
         fputs("\n", codegen->output);
     }
-    
-    // 第五步：生成所有函数的前向声明（解决相互递归调用）
+
+    // 第五步：生成所有结构体和枚举定义（确保函数原型有完整类型）
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl) continue;
+        if (decl->type == AST_STRUCT_DECL) {
+            gen_struct_definition(codegen, decl);
+            fputs("\n", codegen->output);
+        } else if (decl->type == AST_ENUM_DECL) {
+            gen_enum_definition(codegen, decl);
+            fputs("\n", codegen->output);
+        }
+    }
+
+    // 第六步：生成所有函数的前向声明（解决相互递归调用）
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl || decl->type != AST_FN_DECL) continue;
         gen_function_prototype(codegen, decl);
     }
     fputs("\n", codegen->output);
-    
-    // 第六步：生成所有声明（结构体、枚举、全局变量、函数定义）
+
+    // 第七步：生成所有声明（全局变量、函数定义）
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) continue;
         
         switch (decl->type) {
-            case AST_ENUM_DECL:
-                gen_enum_definition(codegen, decl);
-                fputs("\n", codegen->output);
-                break;
             case AST_STRUCT_DECL:
-                gen_struct_definition(codegen, decl);
-                fputs("\n", codegen->output);
+            case AST_ENUM_DECL:
+                // 已在前面生成
                 break;
             case AST_VAR_DECL:
                 gen_global_var(codegen, decl);
