@@ -25,35 +25,35 @@ CHECKER_TEST = $(BUILD_DIR)/tests/test_checker
 CHECKER_TEST_SRC = tests/test_checker.c src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
 CODEGEN_TEST = $(BUILD_DIR)/tests/test_codegen
 CODEGEN_TEST_SRC = tests/test_codegen.c \
-	src/codegen/utils.c \
-	src/codegen/init.c \
-	src/codegen/types.c \
-	src/codegen/vars.c \
-	src/codegen/funcs.c \
-	src/codegen/structs.c \
-	src/codegen/enums.c \
-	src/codegen/expr.c \
-	src/codegen/stmt.c \
-	src/codegen/function.c \
-	src/codegen/global.c \
-	src/codegen/main.c \
+	src/codegen/llvm_capi/utils.c \
+	src/codegen/llvm_capi/init.c \
+	src/codegen/llvm_capi/types.c \
+	src/codegen/llvm_capi/vars.c \
+	src/codegen/llvm_capi/funcs.c \
+	src/codegen/llvm_capi/structs.c \
+	src/codegen/llvm_capi/enums.c \
+	src/codegen/llvm_capi/expr.c \
+	src/codegen/llvm_capi/stmt.c \
+	src/codegen/llvm_capi/function.c \
+	src/codegen/llvm_capi/global.c \
+	src/codegen/llvm_capi/main.c \
 	src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
 
 # 主程序目标
 TARGET = $(BUILD_DIR)/compiler-mini
 MAIN_SRC = src/main.c \
-	src/codegen/utils.c \
-	src/codegen/init.c \
-	src/codegen/types.c \
-	src/codegen/vars.c \
-	src/codegen/funcs.c \
-	src/codegen/structs.c \
-	src/codegen/enums.c \
-	src/codegen/expr.c \
-	src/codegen/stmt.c \
-	src/codegen/function.c \
-	src/codegen/global.c \
-	src/codegen/main.c \
+	src/codegen/llvm_capi/utils.c \
+	src/codegen/llvm_capi/init.c \
+	src/codegen/llvm_capi/types.c \
+	src/codegen/llvm_capi/vars.c \
+	src/codegen/llvm_capi/funcs.c \
+	src/codegen/llvm_capi/structs.c \
+	src/codegen/llvm_capi/enums.c \
+	src/codegen/llvm_capi/expr.c \
+	src/codegen/llvm_capi/stmt.c \
+	src/codegen/llvm_capi/function.c \
+	src/codegen/llvm_capi/global.c \
+	src/codegen/llvm_capi/main.c \
 	src/codegen/c99/utils.c \
 	src/codegen/c99/types.c \
 	src/codegen/c99/structs.c \

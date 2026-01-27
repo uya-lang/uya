@@ -22,10 +22,10 @@
 ### 当前代码生成器架构
 
 1. **主要文件**：
-   - `src/codegen/` - LLVM 后端实现
-   - `src/codegen/main.c` - 代码生成器入口（`codegen_generate` 函数）
+   - `src/codegen/llvm_capi/` - LLVM 后端实现
+   - `src/codegen/llvm_capi/main.c` - 代码生成器入口（`codegen_generate` 函数）
    - `src/codegen.h` - 代码生成器接口定义
-   - `src/codegen/internal.h` - 内部函数声明
+   - `src/codegen/llvm_capi/internal.h` - 内部函数声明
 
 2. **核心结构**：
    ```c
