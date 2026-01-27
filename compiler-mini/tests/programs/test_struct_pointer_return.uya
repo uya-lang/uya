@@ -26,6 +26,37 @@ struct Outer {
 var global_point: Point = Point{ x: 0, y: 0 };
 var global_node: Node = Node{ value: 0, next: null };
 
+// 全局数组变量用于测试返回数组元素指针
+var global_array: [i32: 5] = [10, 20, 30, 40, 50];
+var global_byte_array: [byte: 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+var global_point_array: [Point: 3] = [
+    Point{ x: 100, y: 200 },
+    Point{ x: 300, y: 400 },
+    Point{ x: 500, y: 600 },
+];
+var global_point_array2: [Point: 5] = [
+    Point{ x: 1, y: 2 },
+    Point{ x: 3, y: 4 },
+    Point{ x: 5, y: 6 },
+    Point{ x: 7, y: 8 },
+    Point{ x: 9, y: 10 },
+];
+var global_outer_array: [Outer: 3] = [
+    Outer{ inner: Inner{ data: 100 }, count: 1 },
+    Outer{ inner: Inner{ data: 200 }, count: 2 },
+    Outer{ inner: Inner{ data: 300 }, count: 3 },
+];
+var global_node_array: [Node: 3] = [
+    Node{ value: 10, next: null },
+    Node{ value: 20, next: null },
+    Node{ value: 30, next: null },
+];
+var global_point_array3: [Point: 3] = [
+    Point{ x: 100, y: 200 },
+    Point{ x: 300, y: 400 },
+    Point{ x: 500, y: 600 },
+];
+
 // ========== 测试1：返回全局结构体的指针 ==========
 
 fn get_global_point() &Point {
@@ -83,70 +114,48 @@ fn get_point_from_node(n: &Node) &Point {
 // ========== 测试6：返回数组第一个元素的指针 ==========
 
 fn get_array_first_element() &i32 {
-    var array: [i32: 5] = [10, 20, 30, 40, 50];
-    return &array[0];
+    // 使用全局数组，避免返回局部变量地址
+    return &global_array[0];
 }
 
 fn get_byte_array_first_element() &byte {
-    var array: [byte: 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    return &array[0];
+    // 使用全局数组，避免返回局部变量地址
+    return &global_byte_array[0];
 }
 
 fn get_struct_array_first_element() &Point {
-    var array: [Point: 3] = [
-        Point{ x: 100, y: 200 },
-        Point{ x: 300, y: 400 },
-        Point{ x: 500, y: 600 },
-    ];
-    return &array[0];
+    // 使用全局数组，避免返回局部变量地址
+    return &global_point_array[0];
 }
 
 fn get_array_element_by_index(index: i32) &i32 {
-    var array: [i32: 5] = [10, 20, 30, 40, 50];
-    return &array[index];
+    // 使用全局数组，避免返回局部变量地址
+    return &global_array[index];
 }
 
 // ========== 测试7：返回结构体数组元素的指针（更详细的测试） ==========
 
 fn get_struct_array_element_by_index(index: i32) &Point {
-    var array: [Point: 5] = [
-        Point{ x: 1, y: 2 },
-        Point{ x: 3, y: 4 },
-        Point{ x: 5, y: 6 },
-        Point{ x: 7, y: 8 },
-        Point{ x: 9, y: 10 },
-    ];
-    return &array[index];
+    // 使用全局数组，避免返回局部变量地址
+    return &global_point_array2[index];
 }
 
 fn get_nested_struct_array_first_element() &Outer {
-    var array: [Outer: 3] = [
-        Outer{ inner: Inner{ data: 100 }, count: 1 },
-        Outer{ inner: Inner{ data: 200 }, count: 2 },
-        Outer{ inner: Inner{ data: 300 }, count: 3 },
-    ];
-    return &array[0];
+    // 使用全局数组，避免返回局部变量地址
+    return &global_outer_array[0];
 }
 
 fn get_node_array_first_element() &Node {
-    var array: [Node: 3] = [
-        Node{ value: 10, next: null },
-        Node{ value: 20, next: null },
-        Node{ value: 30, next: null },
-    ];
-    return &array[0];
+    // 使用全局数组，避免返回局部变量地址
+    return &global_node_array[0];
 }
 
 fn get_struct_array_element_and_modify() &Point {
-    var array: [Point: 3] = [
-        Point{ x: 100, y: 200 },
-        Point{ x: 300, y: 400 },
-        Point{ x: 500, y: 600 },
-    ];
+    // 使用全局数组，避免返回局部变量地址
     // 在返回前修改数组元素
-    array[0].x = 111;
-    array[0].y = 222;
-    return &array[0];
+    global_point_array3[0].x = 111;
+    global_point_array3[0].y = 222;
+    return &global_point_array3[0];
 }
 
 fn get_x(p: &Point) i32 {

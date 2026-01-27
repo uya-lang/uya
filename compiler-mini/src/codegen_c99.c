@@ -2024,6 +2024,44 @@ static void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     c99_emit(codegen, "}\n");
 }
 
+// 生成全局作用域兼容的初始化表达式（不使用复合字面量）
+static void gen_global_init_expr(C99CodeGenerator *codegen, ASTNode *expr) {
+    if (!expr) return;
+    
+    switch (expr->type) {
+        case AST_STRUCT_INIT: {
+            // 对于全局作用域，生成标准初始化器列表，不使用复合字面量
+            int field_count = expr->data.struct_init.field_count;
+            const char **field_names = expr->data.struct_init.field_names;
+            ASTNode **field_values = expr->data.struct_init.field_values;
+            fputc('{', codegen->output);
+            for (int i = 0; i < field_count; i++) {
+                const char *safe_field_name = get_safe_c_identifier(codegen, field_names[i]);
+                fprintf(codegen->output, ".%s = ", safe_field_name);
+                gen_global_init_expr(codegen, field_values[i]);
+                if (i < field_count - 1) fputs(", ", codegen->output);
+            }
+            fputc('}', codegen->output);
+            break;
+        }
+        case AST_ARRAY_LITERAL: {
+            ASTNode **elements = expr->data.array_literal.elements;
+            int element_count = expr->data.array_literal.element_count;
+            fputc('{', codegen->output);
+            for (int i = 0; i < element_count; i++) {
+                gen_global_init_expr(codegen, elements[i]);
+                if (i < element_count - 1) fputs(", ", codegen->output);
+            }
+            fputc('}', codegen->output);
+            break;
+        }
+        default:
+            // 对于其他表达式类型（数字、布尔值、字符串等），使用标准生成方式
+            gen_expr(codegen, expr);
+            break;
+    }
+}
+
 // 生成全局变量定义
 static void gen_global_var(C99CodeGenerator *codegen, ASTNode *var_decl) {
     if (!var_decl || var_decl->type != AST_VAR_DECL) return;
@@ -2069,10 +2107,10 @@ static void gen_global_var(C99CodeGenerator *codegen, ASTNode *var_decl) {
         }
     }
     
-    // 初始化表达式
+    // 初始化表达式（使用全局作用域兼容的生成方式）
     if (init_expr) {
         fputs(" = ", codegen->output);
-        gen_expr(codegen, init_expr);
+        gen_global_init_expr(codegen, init_expr);
     }
     
     fputs(";\n", codegen->output);
