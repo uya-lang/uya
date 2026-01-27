@@ -1662,7 +1662,7 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 const char *type_c = c99_type_to_c(codegen, target);
                 fprintf(codegen->output, "%s", type_c);
             } else {
-                // 即使 is_type = 0，也检查是否是结构体标识符（如 sizeof(Point) 中的 Point）
+                // 即使 is_type = 0，也检查是否是类型标识符（如 alignof(usize) 中的 usize）
                 if (target->type == AST_IDENTIFIER) {
                     const char *name = target->data.identifier.name;
                     if (name && !is_c_keyword(name)) {
@@ -1670,7 +1670,24 @@ static void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                         if (is_struct_in_table(codegen, safe_name)) {
                             fprintf(codegen->output, "struct %s", safe_name);
                         } else {
-                            gen_expr(codegen, target);
+                            // 对于变量名，需要获取变量的类型
+                            // 查找局部变量表
+                            const char *var_type = NULL;
+                            for (int i = codegen->local_variable_count - 1; i >= 0; i--) {
+                                if (strcmp(codegen->local_variables[i].name, safe_name) == 0) {
+                                    var_type = codegen->local_variables[i].type_c;
+                                    break;
+                                }
+                            }
+                            
+                            // 如果找到变量类型，使用变量类型而不是变量名
+                            if (var_type) {
+                                fprintf(codegen->output, "%s", var_type);
+                            } else {
+                                // 如果找不到，可能是类型名（如 alignof(usize)）
+                                // 尝试直接使用标识符名称
+                                fprintf(codegen->output, "%s", safe_name);
+                            }
                         }
                     } else {
                         gen_expr(codegen, target);
