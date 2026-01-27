@@ -2116,13 +2116,32 @@ static void format_param_type(C99CodeGenerator *codegen __attribute__((unused)),
 static int is_stdlib_function(const char *func_name) {
     if (!func_name) return 0;
     // 标准库函数列表：这些函数的字符串参数应该是 const char * 而不是 uint8_t *
-    return (strcmp(func_name, "printf") == 0 ||
-            strcmp(func_name, "sprintf") == 0 ||
-            strcmp(func_name, "fprintf") == 0 ||
-            strcmp(func_name, "snprintf") == 0 ||
-            strcmp(func_name, "scanf") == 0 ||
-            strcmp(func_name, "fscanf") == 0 ||
-            strcmp(func_name, "sscanf") == 0);
+    // I/O 函数
+    if (strcmp(func_name, "printf") == 0 ||
+        strcmp(func_name, "sprintf") == 0 ||
+        strcmp(func_name, "fprintf") == 0 ||
+        strcmp(func_name, "snprintf") == 0 ||
+        strcmp(func_name, "scanf") == 0 ||
+        strcmp(func_name, "fscanf") == 0 ||
+        strcmp(func_name, "sscanf") == 0) {
+        return 1;
+    }
+    // 字符串处理函数
+    if (strcmp(func_name, "strcmp") == 0 ||
+        strcmp(func_name, "strncmp") == 0 ||
+        strcmp(func_name, "strlen") == 0 ||
+        strcmp(func_name, "strcpy") == 0 ||
+        strcmp(func_name, "strncpy") == 0 ||
+        strcmp(func_name, "strcat") == 0 ||
+        strcmp(func_name, "strncat") == 0 ||
+        strcmp(func_name, "strstr") == 0 ||
+        strcmp(func_name, "strchr") == 0 ||
+        strcmp(func_name, "strrchr") == 0 ||
+        strcmp(func_name, "strdup") == 0 ||
+        strcmp(func_name, "strndup") == 0) {
+        return 1;
+    }
+    return 0;
 }
 
 // 生成函数原型（前向声明）
