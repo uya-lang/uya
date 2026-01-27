@@ -1,0 +1,72 @@
+#ifndef CODEGEN_C99_INTERNAL_H
+#define CODEGEN_C99_INTERNAL_H
+
+#include "codegen_c99.h"
+#include "lexer.h"
+#include <stdio.h>
+
+// 工具函数（utils.c）
+const char *arena_strdup(Arena *arena, const char *src);
+int is_c_keyword(const char *name);
+const char *get_safe_c_identifier(C99CodeGenerator *codegen, const char *name);
+void escape_string_for_c(FILE *output, const char *str);
+int eval_const_expr(C99CodeGenerator *codegen, ASTNode *expr);
+
+// 字符串常量（utils.c）
+const char *add_string_constant(C99CodeGenerator *codegen, const char *value);
+void emit_string_constants(C99CodeGenerator *codegen);
+void collect_string_constants_from_expr(C99CodeGenerator *codegen, ASTNode *expr);
+void collect_string_constants_from_stmt(C99CodeGenerator *codegen, ASTNode *stmt);
+void collect_string_constants_from_decl(C99CodeGenerator *codegen, ASTNode *decl);
+
+// 类型系统（types.c）
+const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node);
+const char *convert_array_return_type(C99CodeGenerator *codegen, ASTNode *return_type);
+const char *get_array_element_type(C99CodeGenerator *codegen, ASTNode *array_expr);
+const char *get_array_wrapper_struct_name(C99CodeGenerator *codegen, ASTNode *array_type);
+void gen_array_wrapper_struct(C99CodeGenerator *codegen, ASTNode *array_type, const char *struct_name);
+
+// 类型检查（types.c）
+int is_identifier_pointer_type(C99CodeGenerator *codegen, const char *name);
+int is_identifier_pointer_to_array_type(C99CodeGenerator *codegen, const char *name);
+int is_identifier_struct_type(C99CodeGenerator *codegen, const char *name);
+int is_member_access_pointer_type(C99CodeGenerator *codegen, ASTNode *member_access);
+int calculate_struct_size(C99CodeGenerator *codegen, ASTNode *type_node);
+
+// 结构体相关（structs.c）
+int is_struct_in_table(C99CodeGenerator *codegen, const char *struct_name);
+int is_struct_defined(C99CodeGenerator *codegen, const char *struct_name);
+void mark_struct_defined(C99CodeGenerator *codegen, const char *struct_name);
+void add_struct_definition(C99CodeGenerator *codegen, const char *struct_name);
+ASTNode *find_struct_decl_c99(C99CodeGenerator *codegen, const char *struct_name);
+ASTNode *find_struct_field_type(C99CodeGenerator *codegen, ASTNode *struct_decl, const char *field_name);
+int gen_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl);
+
+// 枚举相关（enums.c）
+int is_enum_in_table(C99CodeGenerator *codegen, const char *enum_name);
+int is_enum_defined(C99CodeGenerator *codegen, const char *enum_name);
+void mark_enum_defined(C99CodeGenerator *codegen, const char *enum_name);
+void add_enum_definition(C99CodeGenerator *codegen, const char *enum_name);
+ASTNode *find_enum_decl_c99(C99CodeGenerator *codegen, const char *enum_name);
+int find_enum_variant_value(C99CodeGenerator *codegen, ASTNode *enum_decl, const char *variant_name);
+int gen_enum_definition(C99CodeGenerator *codegen, ASTNode *enum_decl);
+
+// 函数查找（function.c）
+ASTNode *find_function_decl_c99(C99CodeGenerator *codegen, const char *func_name);
+int is_stdlib_function(const char *func_name);
+void format_param_type(C99CodeGenerator *codegen, const char *type_c, const char *param_name, FILE *output);
+void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl);
+void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl);
+
+// 表达式生成（expr.c）
+void gen_expr(C99CodeGenerator *codegen, ASTNode *expr);
+
+// 语句生成（stmt.c）
+void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt);
+
+// 全局变量生成（global.c）
+void gen_global_init_expr(C99CodeGenerator *codegen, ASTNode *expr);
+void gen_global_var(C99CodeGenerator *codegen, ASTNode *var_decl);
+
+#endif // CODEGEN_C99_INTERNAL_H
+
