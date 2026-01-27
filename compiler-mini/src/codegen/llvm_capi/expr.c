@@ -1285,122 +1285,261 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             
             if (!object_ptr) {
                 // 对象不是标识符或变量未找到，生成对象表达式
-                LLVMValueRef object_val = codegen_gen_expr(codegen, object);
-                if (!object_val) {
-                    char location[256];
-                    format_error_location(codegen, expr, location, sizeof(location));
-                    fprintf(stderr, "错误: 字段访问的对象表达式生成失败 %s (对象类型: %d, 字段: %s)\n", 
-                            location, object->type, field_name);
-                    
-                    // 放宽检查：在编译器自举时，某些表达式可能生成失败
-                    // 尝试从对象 AST 节点中推断结构体名称
-                    if (object->type == AST_IDENTIFIER) {
-                        const char *var_name = object->data.identifier.name;
-                        if (var_name) {
-                            // 尝试从变量表中获取结构体名称
-                            struct_name = lookup_var_struct_name(codegen, var_name);
-                            if (!struct_name) {
-                                // 尝试从变量类型中获取结构体名称
-                                ASTNode *var_ast_type = lookup_var_ast_type(codegen, var_name);
-                                if (var_ast_type) {
-                                    if (var_ast_type->type == AST_TYPE_NAMED) {
-                                        struct_name = var_ast_type->data.type_named.name;
-                                    } else if (var_ast_type->type == AST_TYPE_POINTER) {
-                                        ASTNode *pointed_type = var_ast_type->data.type_pointer.pointed_type;
-                                        if (pointed_type && pointed_type->type == AST_TYPE_NAMED) {
-                                            struct_name = pointed_type->data.type_named.name;
+                // 对于数组访问表达式，优先使用左值地址生成逻辑（获取指针）
+                if (object->type == AST_ARRAY_ACCESS) {
+                    // 数组访问：使用左值地址生成逻辑获取元素地址（指针）
+                    LLVMValueRef array_addr = codegen_gen_lvalue_address(codegen, object);
+                    if (array_addr != NULL && array_addr != (LLVMValueRef)1) {
+                        object_ptr = array_addr;
+
+                        // 从数组访问的结果类型中推断结构体名称
+                        LLVMTypeRef array_addr_type = safe_LLVMTypeOf(array_addr);
+                        if (array_addr_type != NULL && array_addr_type != (LLVMTypeRef)1 &&
+                            LLVMGetTypeKind(array_addr_type) == LLVMPointerTypeKind) {
+                            LLVMTypeRef array_elem_type = safe_LLVMGetElementType(array_addr_type);
+                            if (array_elem_type != NULL && array_elem_type != (LLVMTypeRef)1 &&
+                                LLVMGetTypeKind(array_elem_type) == LLVMStructTypeKind) {
+                                struct_name = find_struct_name_from_type(codegen, array_elem_type);
+                            }
+                        }
+                        
+                        // 如果从类型推断失败，尝试从数组表达式的 AST 中获取结构体名称
+                        if (!struct_name) {
+                            ASTNode *array_expr = object->data.array_access.array;
+                            if (array_expr) {
+                                // 处理数组表达式是标识符的情况（如 arr[i]）
+                                if (array_expr->type == AST_IDENTIFIER) {
+                                    const char *array_var_name = array_expr->data.identifier.name;
+                                    if (array_var_name) {
+                                        ASTNode *array_ast_type = lookup_var_ast_type(codegen, array_var_name);
+                                        if (array_ast_type) {
+                                            // 处理指针类型：&T（ptr[i] 其中 ptr 是 &T 类型）
+                                            if (array_ast_type->type == AST_TYPE_POINTER) {
+                                                ASTNode *pointed_type = array_ast_type->data.type_pointer.pointed_type;
+                                                if (pointed_type && pointed_type->type == AST_TYPE_NAMED) {
+                                                    struct_name = pointed_type->data.type_named.name;
+                                                }
+                                            }
+                                            // 处理数组类型：[T: N]（arr[i] 其中 arr 是 [T: N] 类型）
+                                            else if (array_ast_type->type == AST_TYPE_ARRAY) {
+                                                ASTNode *element_type = array_ast_type->data.type_array.element_type;
+                                                if (element_type) {
+                                                    if (element_type->type == AST_TYPE_NAMED) {
+                                                        struct_name = element_type->data.type_named.name;
+                                                    } else if (element_type->type == AST_TYPE_POINTER) {
+                                                        ASTNode *pt = element_type->data.type_pointer.pointed_type;
+                                                        if (pt && pt->type == AST_TYPE_NAMED) {
+                                                            struct_name = pt->data.type_named.name;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                // 处理数组表达式是字段访问的情况（如 data.points[0]）
+                                else if (array_expr->type == AST_MEMBER_ACCESS) {
+                                    ASTNode *member_object = array_expr->data.member_access.object;
+                                    const char *member_field_name = array_expr->data.member_access.field_name;
+                                    if (member_object && member_field_name) {
+                                        // 获取成员对象的结构体名称
+                                        const char *member_struct_name = NULL;
+                                        if (member_object->type == AST_IDENTIFIER) {
+                                            member_struct_name = lookup_var_struct_name(codegen, member_object->data.identifier.name);
+                                        }
+                                        if (member_struct_name) {
+                                            // 查找结构体声明
+                                            ASTNode *member_struct_decl = find_struct_decl(codegen, member_struct_name);
+                                            if (member_struct_decl) {
+                                                // 查找字段的类型
+                                                ASTNode *member_field_type = find_struct_field_ast_type(codegen, member_struct_decl, member_field_name);
+                                                if (member_field_type) {
+                                                    // 处理数组类型字段：[T: N]
+                                                    if (member_field_type->type == AST_TYPE_ARRAY) {
+                                                        ASTNode *element_type = member_field_type->data.type_array.element_type;
+                                                        if (element_type) {
+                                                            if (element_type->type == AST_TYPE_NAMED) {
+                                                                struct_name = element_type->data.type_named.name;
+                                                            } else if (element_type->type == AST_TYPE_POINTER) {
+                                                                ASTNode *pt = element_type->data.type_pointer.pointed_type;
+                                                                if (pt && pt->type == AST_TYPE_NAMED) {
+                                                                    struct_name = pt->data.type_named.name;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    } else if (object->type == AST_MEMBER_ACCESS) {
-                        // 嵌套字段访问：递归生成嵌套字段访问的地址
-                        LLVMValueRef nested_addr = codegen_gen_lvalue_address(codegen, object);
-                        if (nested_addr != NULL && nested_addr != (LLVMValueRef)1) {
-                            object_ptr = nested_addr;
+                    }
+                } else if (object->type == AST_MEMBER_ACCESS) {
+                    // 嵌套字段访问：递归生成嵌套字段访问的地址
+                    LLVMValueRef nested_addr = codegen_gen_lvalue_address(codegen, object);
+                    if (nested_addr != NULL && nested_addr != (LLVMValueRef)1) {
+                        object_ptr = nested_addr;
 
-                            // 从嵌套字段访问的结果类型中推断结构体名称
-                            LLVMTypeRef nested_addr_type = safe_LLVMTypeOf(nested_addr);
-                            if (nested_addr_type != NULL && nested_addr_type != (LLVMTypeRef)1 &&
-                                LLVMGetTypeKind(nested_addr_type) == LLVMPointerTypeKind) {
-                                LLVMTypeRef nested_elem_type = safe_LLVMGetElementType(nested_addr_type);
-                                if (nested_elem_type != NULL && nested_elem_type != (LLVMTypeRef)1 &&
-                                    LLVMGetTypeKind(nested_elem_type) == LLVMStructTypeKind) {
-                                    struct_name = find_struct_name_from_type(codegen, nested_elem_type);
+                        // 从嵌套字段访问的 AST 中获取结构体名称
+                        // 注意：nested_addr 已经是字段地址，其类型是"指向字段类型的指针"
+                        // 如果字段类型是结构体，我们可以从 AST 中获取结构体名称
+                        // 这比从 LLVM 类型推断更可靠，因为 LLVMGetTypeKind 可能崩溃
+                        if (!struct_name) {
+                            // 从嵌套字段访问的 AST 中获取字段类型
+                            ASTNode *nested_object = object->data.member_access.object;
+                            const char *nested_field_name = object->data.member_access.field_name;
+                            if (nested_object && nested_field_name) {
+                                // 获取嵌套对象的结构体名称
+                                const char *nested_struct_name = NULL;
+                                if (nested_object->type == AST_IDENTIFIER) {
+                                    const char *nested_var_name = nested_object->data.identifier.name;
+                                    if (nested_var_name) {
+                                        // 先尝试从变量表获取结构体名称
+                                        nested_struct_name = lookup_var_struct_name(codegen, nested_var_name);
+                                        
+                                        // 如果变量是指针类型，从指针类型中获取指向的结构体类型名称
+                                        if (!nested_struct_name) {
+                                            ASTNode *nested_var_ast_type = lookup_var_ast_type(codegen, nested_var_name);
+                                            if (nested_var_ast_type && nested_var_ast_type->type == AST_TYPE_POINTER) {
+                                                ASTNode *nested_pointed_type = nested_var_ast_type->data.type_pointer.pointed_type;
+                                                if (nested_pointed_type && nested_pointed_type->type == AST_TYPE_NAMED) {
+                                                    nested_struct_name = nested_pointed_type->data.type_named.name;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if (nested_struct_name) {
+                                    // 查找嵌套结构体声明
+                                    ASTNode *nested_struct_decl = find_struct_decl(codegen, nested_struct_name);
+                                    if (nested_struct_decl) {
+                                        // 查找嵌套字段的类型
+                                        ASTNode *nested_field_type = find_struct_field_ast_type(codegen, nested_struct_decl, nested_field_name);
+                                        if (nested_field_type && nested_field_type->type == AST_TYPE_NAMED) {
+                                            struct_name = nested_field_type->data.type_named.name;
+                                        }
+                                    }
                                 }
                             }
-                        } else {
-                            // 递归调用失败，返回NULL
-                            return NULL;
                         }
                     }
-                    
-                    // 如果仍然无法确定结构体名称，返回 NULL
-                    if (!struct_name) {
+                }
+                
+                // 如果还没有获取到 object_ptr，尝试使用 codegen_gen_expr
+                if (!object_ptr) {
+                    LLVMValueRef object_val = codegen_gen_expr(codegen, object);
+                    if (!object_val) {
+                        char location[256];
+                        format_error_location(codegen, expr, location, sizeof(location));
+                        fprintf(stderr, "错误: 字段访问的对象表达式生成失败 %s (对象类型: %d, 字段: %s)\n", 
+                                location, object->type, field_name);
+                        
+                        // 放宽检查：在编译器自举时，某些表达式可能生成失败
+                        // 尝试从对象 AST 节点中推断结构体名称
+                        if (object->type == AST_IDENTIFIER) {
+                            const char *var_name = object->data.identifier.name;
+                            if (var_name) {
+                                // 尝试从变量表中获取结构体名称
+                                struct_name = lookup_var_struct_name(codegen, var_name);
+                                if (!struct_name) {
+                                    // 尝试从变量类型中获取结构体名称
+                                    ASTNode *var_ast_type = lookup_var_ast_type(codegen, var_name);
+                                    if (var_ast_type) {
+                                        if (var_ast_type->type == AST_TYPE_NAMED) {
+                                            struct_name = var_ast_type->data.type_named.name;
+                                        } else if (var_ast_type->type == AST_TYPE_POINTER) {
+                                            ASTNode *pointed_type = var_ast_type->data.type_pointer.pointed_type;
+                                            if (pointed_type && pointed_type->type == AST_TYPE_NAMED) {
+                                                struct_name = pointed_type->data.type_named.name;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // 如果仍然无法确定结构体名称，返回 NULL
+                        if (!struct_name) {
+                            return NULL;
+                        }
+                        
+                        // 如果能够确定结构体名称，尝试查找字段类型并生成占位符值
+                        fprintf(stderr, "警告: 字段访问的对象表达式生成失败，但已推断结构体名称: %s\n", struct_name);
+                        
+                        // 查找结构体声明和字段类型
+                        ASTNode *struct_decl = find_struct_decl(codegen, struct_name);
+                        if (struct_decl) {
+                            ASTNode *field_type = find_struct_field_ast_type(codegen, struct_decl, field_name);
+                            if (field_type) {
+                                // 获取字段的 LLVM 类型
+                                LLVMTypeRef field_llvm_type = get_llvm_type_from_ast(codegen, field_type);
+                                if (field_llvm_type) {
+                                    // 生成占位符值
+                                    LLVMTypeKind field_kind = LLVMGetTypeKind(field_llvm_type);
+                                    if (field_kind == LLVMIntegerTypeKind) {
+                                        return LLVMConstInt(field_llvm_type, 0ULL, 0);
+                                    } else if (field_kind == LLVMPointerTypeKind) {
+                                        return LLVMConstNull(field_llvm_type);
+                                    } else if (field_kind == LLVMStructTypeKind) {
+                                        // 结构体类型：生成零初始化的结构体常量
+                                        unsigned field_count = LLVMCountStructElementTypes(field_llvm_type);
+                                        if (field_count > 0 && field_count <= 32) {
+                                            LLVMTypeRef struct_field_types[32];
+                                            LLVMGetStructElementTypes(field_llvm_type, struct_field_types);
+                                            LLVMValueRef struct_field_values[32];
+                                            for (unsigned i = 0; i < field_count; i++) {
+                                                LLVMTypeRef struct_field_type = struct_field_types[i];
+                                                if (LLVMGetTypeKind(struct_field_type) == LLVMIntegerTypeKind) {
+                                                    struct_field_values[i] = LLVMConstInt(struct_field_type, 0ULL, 0);
+                                                } else {
+                                                    struct_field_values[i] = LLVMConstNull(struct_field_type);
+                                                }
+                                            }
+                                            return LLVMConstStruct(struct_field_values, field_count, 0);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // 如果无法生成占位符值，返回 NULL
+                        return NULL;
+                    } else {
+                        // 对于非标识符对象（如结构体字面量、嵌套字段访问），需要先 store 到临时变量
+                    // 获取对象类型
+                    LLVMTypeRef object_type = safe_LLVMTypeOf(object_val);
+                    if (!object_type) {
                         return NULL;
                     }
                     
-                    // 如果能够确定结构体名称，尝试查找字段类型并生成占位符值
-                    fprintf(stderr, "警告: 字段访问的对象表达式生成失败，但已推断结构体名称: %s\n", struct_name);
-                    
-                    // 查找结构体声明和字段类型
-                    ASTNode *struct_decl = find_struct_decl(codegen, struct_name);
-                    if (struct_decl) {
-                        ASTNode *field_type = find_struct_field_ast_type(codegen, struct_decl, field_name);
-                        if (field_type) {
-                            // 获取字段的 LLVM 类型
-                            LLVMTypeRef field_llvm_type = get_llvm_type_from_ast(codegen, field_type);
-                            if (field_llvm_type) {
-                                // 生成占位符值
-                                LLVMTypeKind field_kind = LLVMGetTypeKind(field_llvm_type);
-                                if (field_kind == LLVMIntegerTypeKind) {
-                                    return LLVMConstInt(field_llvm_type, 0ULL, 0);
-                                } else if (field_kind == LLVMPointerTypeKind) {
-                                    return LLVMConstNull(field_llvm_type);
-                                } else if (field_kind == LLVMStructTypeKind) {
-                                    // 结构体类型：生成零初始化的结构体常量
-                                    unsigned field_count = LLVMCountStructElementTypes(field_llvm_type);
-                                    if (field_count > 0 && field_count <= 32) {
-                                        LLVMTypeRef struct_field_types[32];
-                                        LLVMGetStructElementTypes(field_llvm_type, struct_field_types);
-                                        LLVMValueRef struct_field_values[32];
-                                        for (unsigned i = 0; i < field_count; i++) {
-                                            LLVMTypeRef struct_field_type = struct_field_types[i];
-                                            if (LLVMGetTypeKind(struct_field_type) == LLVMIntegerTypeKind) {
-                                                struct_field_values[i] = LLVMConstInt(struct_field_type, 0ULL, 0);
-                                            } else {
-                                                struct_field_values[i] = LLVMConstNull(struct_field_type);
-                                            }
-                                        }
-                                        return LLVMConstStruct(struct_field_values, field_count, 0);
-                                    }
-                                }
-                            }
+                    // 检查对象类型是否是指针类型
+                    // 如果是指针类型（如 ptr[i] 返回的指针），直接使用它作为 object_ptr
+                    LLVMTypeKind object_type_kind = LLVMGetTypeKind(object_type);
+                    if (object_type_kind == LLVMPointerTypeKind) {
+                        // 对象值是指针类型，直接使用
+                        object_ptr = object_val;
+                        
+                        // 从指针类型中获取指向的结构体类型名称
+                        LLVMTypeRef pointed_type = safe_LLVMGetElementType(object_type);
+                        if (pointed_type != NULL && pointed_type != (LLVMTypeRef)1 &&
+                            LLVMGetTypeKind(pointed_type) == LLVMStructTypeKind) {
+                            struct_name = find_struct_name_from_type(codegen, pointed_type);
                         }
+                    } else {
+                        // 对象值不是指针类型，需要 store 到临时变量
+                        // 使用 alloca 分配临时空间
+                        object_ptr = LLVMBuildAlloca(codegen->builder, object_type, "");
+                        if (!object_ptr) {
+                            return NULL;
+                        }
+                        
+                        // store 对象值到临时变量
+                        LLVMBuildStore(codegen->builder, object_val, object_ptr);
                     }
                     
-                    // 如果无法生成占位符值，返回 NULL
-                    return NULL;
-                } else {
-                
-                // 对于非标识符对象（如结构体字面量、嵌套字段访问），需要先 store 到临时变量
-                // 获取对象类型
-                LLVMTypeRef object_type = safe_LLVMTypeOf(object_val);
-                if (!object_type) {
-                    return NULL;
-                }
-                
-                // 使用 alloca 分配临时空间
-                object_ptr = LLVMBuildAlloca(codegen->builder, object_type, "");
-                if (!object_ptr) {
-                    return NULL;
-                }
-                
-                // store 对象值到临时变量
-                LLVMBuildStore(codegen->builder, object_val, object_ptr);
-                
-                // 获取结构体名称
+                    // 获取结构体名称
                 if (object->type == AST_STRUCT_INIT) {
                     // 对于结构体字面量，可以从 AST 获取结构体名称
                     struct_name = object->data.struct_init.struct_name;
@@ -1547,6 +1686,54 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                         } // array_expr
                     }
                 }
+                    }
+                }
+            }
+            
+            // 如果 object_ptr 已经设置但 struct_name 还没有设置，尝试从 object_ptr 的类型中获取
+            if (object_ptr && !struct_name) {
+                LLVMTypeRef object_ptr_type = safe_LLVMTypeOf(object_ptr);
+                if (object_ptr_type != NULL && object_ptr_type != (LLVMTypeRef)1 &&
+                    LLVMGetTypeKind(object_ptr_type) == LLVMPointerTypeKind) {
+                    LLVMTypeRef pointed_type = safe_LLVMGetElementType(object_ptr_type);
+                    if (pointed_type != NULL && pointed_type != (LLVMTypeRef)1 &&
+                        LLVMGetTypeKind(pointed_type) == LLVMStructTypeKind) {
+                        struct_name = find_struct_name_from_type(codegen, pointed_type);
+                    }
+                }
+                
+                // 如果仍然无法获取，尝试从对象的 AST 中获取
+                if (!struct_name && object && object->type == AST_ARRAY_ACCESS) {
+                    ASTNode *array_expr = object->data.array_access.array;
+                    if (array_expr && array_expr->type == AST_IDENTIFIER) {
+                        const char *array_var_name = array_expr->data.identifier.name;
+                        if (array_var_name) {
+                            ASTNode *array_ast_type = lookup_var_ast_type(codegen, array_var_name);
+                            if (array_ast_type) {
+                                // 处理指针类型：&T（ptr[i] 其中 ptr 是 &T 类型）
+                                if (array_ast_type->type == AST_TYPE_POINTER) {
+                                    ASTNode *pointed_type = array_ast_type->data.type_pointer.pointed_type;
+                                    if (pointed_type && pointed_type->type == AST_TYPE_NAMED) {
+                                        struct_name = pointed_type->data.type_named.name;
+                                    }
+                                }
+                                // 处理数组类型：[T: N]（arr[i] 其中 arr 是 [T: N] 类型）
+                                else if (array_ast_type->type == AST_TYPE_ARRAY) {
+                                    ASTNode *element_type = array_ast_type->data.type_array.element_type;
+                                    if (element_type) {
+                                        if (element_type->type == AST_TYPE_NAMED) {
+                                            struct_name = element_type->data.type_named.name;
+                                        } else if (element_type->type == AST_TYPE_POINTER) {
+                                            ASTNode *pt = element_type->data.type_pointer.pointed_type;
+                                            if (pt && pt->type == AST_TYPE_NAMED) {
+                                                struct_name = pt->data.type_named.name;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             
@@ -1591,7 +1778,6 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             LLVMValueRef indices[2];
             indices[0] = LLVMConstInt(LLVMInt32TypeInContext(codegen->context), 0ULL, 0);  // 结构体指针本身
             indices[1] = LLVMConstInt(LLVMInt32TypeInContext(codegen->context), (unsigned long long)field_index, 0);  // 字段索引
-            
             
             LLVMValueRef field_ptr = LLVMBuildGEP2(codegen->builder, struct_type, object_ptr, indices, 2, "");
             if (!field_ptr) {

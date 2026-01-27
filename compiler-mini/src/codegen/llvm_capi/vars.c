@@ -266,7 +266,8 @@ LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *expr) {
                             LLVMTypeRef elem_ty = safe_LLVMGetElementType(addr_ty);
                             if (elem_ty && elem_ty != (LLVMTypeRef)1) {
                                 // 如果拿到的是"指向指针的指针"（比如 identifier 的 alloca），先 load 一次
-                                if (LLVMGetTypeKind(elem_ty) == LLVMPointerTypeKind) {
+                                // 但是，如果 object 是 AST_ARRAY_ACCESS，maybe_addr 已经是元素地址，不应该再 load
+                                if (LLVMGetTypeKind(elem_ty) == LLVMPointerTypeKind && object->type != AST_ARRAY_ACCESS) {
                                     LLVMValueRef loaded = LLVMBuildLoad2(codegen->builder, elem_ty, maybe_addr, "");
                                     if (loaded && loaded != (LLVMValueRef)1) {
                                         object_ptr = loaded;
@@ -439,16 +440,18 @@ LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *expr) {
                                 // 注意：对于栈上数组变量，变量表中存储的类型应该已经是数组类型
                                 // 如果存储的是指针类型，说明变量本身是指针类型（如 &byte），不是数组变量
                                 // 在这种情况下，我们需要加载指针值
-                                LLVMTypeRef pointed_type = safe_LLVMGetElementType(var_type);
-                                // 如果 safe_LLVMGetElementType 失败，尝试从 AST 获取类型
-                                if (!pointed_type || pointed_type == (LLVMTypeRef)1) {
-                                    ASTNode *var_ast_type = lookup_var_ast_type(codegen, var_name);
-                                    if (var_ast_type && var_ast_type->type == AST_TYPE_POINTER) {
-                                        ASTNode *pointed_type_node = var_ast_type->data.type_pointer.pointed_type;
-                                        if (pointed_type_node) {
-                                            pointed_type = get_llvm_type_from_ast(codegen, pointed_type_node);
-                                        }
+                                // 修复：优先从 AST 获取类型，因为从 safe_LLVMGetElementType 获取的类型可能不准确
+                                LLVMTypeRef pointed_type = NULL;
+                                ASTNode *var_ast_type = lookup_var_ast_type(codegen, var_name);
+                                if (var_ast_type && var_ast_type->type == AST_TYPE_POINTER) {
+                                    ASTNode *pointed_type_node = var_ast_type->data.type_pointer.pointed_type;
+                                    if (pointed_type_node) {
+                                        pointed_type = get_llvm_type_from_ast(codegen, pointed_type_node);
                                     }
+                                }
+                                // 如果从 AST 获取失败，尝试从 LLVM 类型获取
+                                if (!pointed_type || pointed_type == (LLVMTypeRef)1) {
+                                    pointed_type = safe_LLVMGetElementType(var_type);
                                 }
                                 if (pointed_type && pointed_type != (LLVMTypeRef)1) {
                                     // 对于指针类型变量，需要加载指针值
@@ -796,27 +799,42 @@ LLVMValueRef codegen_gen_lvalue_address(CodeGenerator *codegen, ASTNode *expr) {
             LLVMValueRef element_ptr = NULL;
             
             // 检查是否是数组类型还是指针类型
+            // 注意：当 array_type 是结构体类型时，我们也应该使用两个索引的 GEP
+            // 将 ptr 当成 struct TestStruct ptr[N]，使用数组访问方式
             if (array_type_kind == LLVMArrayTypeKind) {
                 // 数组类型：使用两个索引的 GEP
-                // 注意：array_ptr 应该是指向数组的指针类型，array_type 是数组类型
-                // 验证 array_ptr 的类型是指向 array_type 的指针
+                // array_type 是数组类型，array_ptr 是指向数组的指针
                 LLVMTypeRef array_ptr_type = safe_LLVMTypeOf(array_ptr);
                 if (!array_ptr_type || LLVMGetTypeKind(array_ptr_type) != LLVMPointerTypeKind) {
                     fprintf(stderr, "错误: codegen_gen_lvalue_address array_ptr 不是指针类型\n");
                     return NULL;
                 }
                 
-                // 验证 array_ptr 的类型是指向数组的指针
-                // 注意：我们不需要严格比较类型，只需要确保 array_type 是数组类型即可
-                // array_ptr 的类型应该是指向 array_type 的指针，这在逻辑上已经满足
-                
                 LLVMValueRef indices[2];
                 indices[0] = LLVMConstInt(LLVMInt32TypeInContext(codegen->context), 0ULL, 0);  // 数组指针本身
                 indices[1] = index_val;  // 元素索引（运行时值）
                 
                 element_ptr = LLVMBuildGEP2(codegen->builder, array_type, array_ptr, indices, 2, "");
+            } else if (array_type_kind == LLVMStructTypeKind) {
+                // 结构体类型：将 ptr 当成 struct TestStruct ptr[N]，使用数组访问方式
+                // 直接使用结构体类型和单个索引的 GEP，LLVM 会自动计算 ptr + i * sizeof(TestStruct)
+                LLVMTypeRef array_ptr_type = safe_LLVMTypeOf(array_ptr);
+                if (!array_ptr_type || LLVMGetTypeKind(array_ptr_type) != LLVMPointerTypeKind) {
+                    fprintf(stderr, "错误: codegen_gen_lvalue_address array_ptr 不是指针类型\n");
+                    return NULL;
+                }
+                
+                // 调试输出：验证结构体类型
+                fprintf(stderr, "调试: GEP 使用结构体类型，array_type=%p\n", (void*)array_type);
+                
+                // 直接使用结构体类型和单个索引的 GEP
+                // GEP TestStruct, ptr, i 会自动计算 ptr + i * sizeof(TestStruct)
+                LLVMValueRef indices[1];
+                indices[0] = index_val;  // 元素索引（运行时值）
+                
+                element_ptr = LLVMBuildGEP2(codegen->builder, array_type, array_ptr, indices, 1, "");
             } else {
-                // 指针类型（指向单个元素）：直接使用元素类型和单个索引
+                // 指针类型（指向单个元素，如 i8）：直接使用元素类型和单个索引
                 // 参考 clang 生成的 IR: getelementptr inbounds i8, ptr %buffer_ptr, i64 0
                 LLVMTypeRef element_type = array_type;  // array_type 已经是元素类型（如 i8）
                 

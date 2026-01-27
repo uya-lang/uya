@@ -100,6 +100,14 @@ int codegen_generate(CodeGenerator *codegen, ASTNode *ast, const char *output_fi
                     // 注意：这里不填充字段，只是注册名称
                     LLVMTypeRef placeholder_type = LLVMStructCreateNamed(codegen->context, struct_name);
                     if (placeholder_type != NULL) {
+                        // 验证类型种类
+                        LLVMTypeKind kind = LLVMGetTypeKind(placeholder_type);
+                        if (kind != LLVMStructTypeKind) {
+                            fprintf(stderr, "错误: LLVMStructCreateNamed 返回的类型不是结构体类型！kind=%d (期望 %d)\n", 
+                                    (int)kind, (int)LLVMStructTypeKind);
+                            // 不注册错误的类型
+                            continue;
+                        }
                         // 添加到结构体类型映射表
                         if (codegen->struct_type_count < 64) {
                             int idx = codegen->struct_type_count;
