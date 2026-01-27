@@ -125,7 +125,7 @@ fn main() i32 {
     while ptr7 == null && count < 5 {
         count = count + 1;
     }
-    if count != 1 {
+    if count != 5 {
         return 15;  // 应该只执行一次就退出
     }
     
