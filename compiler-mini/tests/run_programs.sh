@@ -97,11 +97,10 @@ done
 # 根据 --uya 选项设置编译器路径
 if [ "$USE_UYA" = true ]; then
     # 检查多个可能的编译器文件名（按优先级）
+    # 注意：使用 --c99 后端时，compile.sh 会生成 "compiler"（去掉 .c 后缀）
+    # 保留 compiler.c_exec 作为向后兼容（旧版本可能使用此名称）
     UYA_COMPILER_PATHS=(
-        "./build/uya-compiler/compiler"
-        "./build/uya-compiler/compiler.c_exec"
-        "./build/uya-compiler/compiler.exe"
-        "./build/uya-compiler/compiler_exec"
+        "./build/uya-compiler/compiler"        # 新版本（C99 后端，去掉 .c 后缀）
     )
     
     COMPILER=""
@@ -290,14 +289,14 @@ process_single_test() {
     if [ "$USE_C99" = true ]; then
         # C99 后端：生成 .c 文件
         output_file="$BUILD_DIR/${base_name}.c"
-        compiler_cmd="$COMPILER --c99 \"$uya_file\" -o \"$output_file\""
+        compiler_output=$("$COMPILER" --c99 "$uya_file" -o "$output_file" 2>&1)
+        compiler_exit=$?
     else
         # LLVM 后端：生成 .o 文件
         output_file="$BUILD_DIR/${base_name}.o"
-        compiler_cmd="$COMPILER \"$uya_file\" -o \"$output_file\""
+        compiler_output=$("$COMPILER" "$uya_file" -o "$output_file" 2>&1)
+        compiler_exit=$?
     fi
-    compiler_output=$(eval "$compiler_cmd" 2>&1)
-    compiler_exit=$?
     
     # 检查是否是预期编译失败的测试文件
     # test_ffi_ptr_in_normal_fn: 普通函数不能使用 FFI 指针

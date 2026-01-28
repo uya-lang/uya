@@ -361,6 +361,9 @@ if [ $COMPILER_EXIT -eq 0 ]; then
         # 如果输出文件以 .o 结尾，可执行文件去掉 .o
         if [[ "$OUTPUT_FILE" == *.o ]]; then
             EXECUTABLE_FILE="${OUTPUT_FILE%.o}"
+        elif [[ "$OUTPUT_FILE" == *.c ]]; then
+            # 如果输出文件以 .c 结尾（C99 后端），可执行文件去掉 .c
+            EXECUTABLE_FILE="${OUTPUT_FILE%.c}"
         else
             # 否则添加 _exec 后缀
             EXECUTABLE_FILE="${OUTPUT_FILE}_exec"

@@ -109,8 +109,28 @@ fn print_usage(program_name: &byte) void {
 // 注意：由于 Uya Mini 不支持嵌套指针，使用固定大小数组存储指针
 fn parse_args(input_files: [&byte: MAX_INPUT_FILES], input_file_count: &i32, output_file: [&byte: 1]) i32 {
     const argc: i32 = get_argc();
+    const stderr: *void = get_stderr();
+    fprintf(stderr, "调试: argc = %d\n" as *byte, argc);
+    
+    // 调试：打印所有参数
+    var debug_i: i32 = 0;
+    while debug_i < argc {
+        const debug_arg: *byte = get_argv(debug_i);
+        if debug_arg == null {
+            fprintf(stderr, "调试: argv[%d] = NULL\n" as *byte, debug_i);
+        } else {
+            fprintf(stderr, "调试: argv[%d] = %s\n" as *byte, debug_i, debug_arg as *byte);
+        }
+        debug_i = debug_i + 1;
+    }
+    
     if argc < 4 {
         const program_name: *byte = get_argv(0);
+        if program_name != null {
+            fprintf(stderr, "调试: program_name = %s\n" as *byte, program_name as *byte);
+        } else {
+            fprintf(stderr, "调试: program_name 是 NULL\n" as *byte);
+        }
         print_usage(program_name as &byte);
         return -1;
     }
@@ -122,19 +142,26 @@ fn parse_args(input_files: [&byte: MAX_INPUT_FILES], input_file_count: &i32, out
     var i: i32 = 1;
     while i < argc {
         const arg: *byte = get_argv(i);
+        if arg == null {
+            fprintf(stderr, "错误: 无法获取参数 %d (get_argv 返回 NULL)\n" as *byte, i);
+            return -1;
+        }
         if strcmp(arg, "-o" as *byte) == 0 {
             if i + 1 < argc {
-                output_file[0] = get_argv(i + 1) as &byte;
+                const output_arg: *byte = get_argv(i + 1);
+                if output_arg == null {
+                    fprintf(stderr, "错误: -o 选项后的输出文件名是 NULL\n" as *byte);
+                    return -1;
+                }
+                output_file[0] = output_arg as &byte;
                 i = i + 1;  // 跳过输出文件名
             } else {
-                const stderr: *void = get_stderr();
                 fprintf(stderr, "错误: -o 选项需要指定输出文件名\n" as *byte);
                 return -1;
             }
         } else {
             // 非选项参数，应该是输入文件
             if *input_file_count >= MAX_INPUT_FILES {
-                const stderr: *void = get_stderr();
                 fprintf(stderr, "错误: 输入文件数量超过最大限制 (%d)\n" as *byte, MAX_INPUT_FILES);
                 return -1;
             }
@@ -146,7 +173,6 @@ fn parse_args(input_files: [&byte: MAX_INPUT_FILES], input_file_count: &i32, out
     
     if *input_file_count == 0 {
         const program_name: *byte = get_argv(0);
-        const stderr: *void = get_stderr();
         fprintf(stderr, "错误: 未指定输入文件\n" as *byte);
         print_usage(program_name as &byte);
         return -1;
@@ -154,7 +180,6 @@ fn parse_args(input_files: [&byte: MAX_INPUT_FILES], input_file_count: &i32, out
     
     if output_file[0] == null {
         const program_name: *byte = get_argv(0);
-        const stderr: *void = get_stderr();
         fprintf(stderr, "错误: 未指定输出文件（使用 -o 选项）\n" as *byte);
         print_usage(program_name as &byte);
         return -1;
