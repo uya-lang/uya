@@ -6,13 +6,13 @@
 #include <stdio.h>
 
 // C99 代码生成器常量定义（数组大小）
-#define C99_MAX_STRING_CONSTANTS    256
-#define C99_MAX_STRUCT_DEFINITIONS  64
-#define C99_MAX_ENUM_DEFINITIONS    64
+#define C99_MAX_STRING_CONSTANTS    512
+#define C99_MAX_STRUCT_DEFINITIONS  128
+#define C99_MAX_ENUM_DEFINITIONS    128
 #define C99_MAX_FUNCTION_DECLS      256
-#define C99_MAX_GLOBAL_VARS         128
-#define C99_MAX_LOCAL_VARS          128
-#define C99_MAX_LOOP_STACK          16
+#define C99_MAX_GLOBAL_VARS         256
+#define C99_MAX_LOCAL_VARS          512
+#define C99_MAX_LOOP_STACK          32
 
 // C99 代码生成器结构体
 typedef struct C99CodeGenerator {
