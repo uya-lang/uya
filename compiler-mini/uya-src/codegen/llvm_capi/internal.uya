@@ -1,0 +1,116 @@
+// internal.uya - 代码生成器内部类型定义和函数声明
+// 使用 LLVM C API 生成 LLVM IR 并编译为二进制代码
+//
+// 注意：需要先包含 arena.uya、ast.uya、checker.uya、llvm_api.uya 和 str_utils.uya
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+
+// ===== 外部函数声明 =====
+// 注意：C 标准库函数（strlen, strcmp, strcpy, memcpy, memset, fprintf, sprintf, snprintf 等）在 extern_decls.uya 中声明
+// 编译时需要包含 extern_decls.uya 文件
+
+// Arena 函数（来自 arena.uya）
+extern fn arena_alloc(arena: &Arena, size: i32) &void;
+
+// LLVM API 函数（来自 llvm_api.uya）
+// 注意：假设所有需要的 LLVM API 函数已在 llvm_api.uya 中声明
+
+// ===== 常量定义 =====
+
+// 循环栈大小（最大嵌套深度）
+const LOOP_STACK_SIZE: i32 = 16;
+
+// 结构体类型映射表大小
+const STRUCT_TYPE_MAP_SIZE: i32 = 64;
+
+// 变量映射表大小
+const VAR_MAP_SIZE: i32 = 256;
+
+// 函数映射表大小
+const FUNC_MAP_SIZE: i32 = 256;
+
+// 全局变量映射表大小
+const GLOBAL_VAR_MAP_SIZE: i32 = 128;
+
+// 最大函数参数数量
+const MAX_FUNC_PARAMS: i32 = 16;
+
+// ===== 类型定义 =====
+
+// 结构体类型映射表项
+struct StructTypeMap {
+    name: &byte,// 结构体名称（存储在 Arena 中）
+    llvm_type: *void,// LLVM 结构体类型（LLVMTypeRef）
+    ast_node: &ASTNode// AST 节点引用（用于查找结构体声明）
+}
+
+// 变量映射表项（用于局部变量）
+struct VarMap {
+    name: &byte,// 变量名称（存储在 Arena 中）
+    value: *void,// LLVM 值（alloca 指令返回的指针，LLVMValueRef）
+    type: *void,// 变量类型（用于 LLVMBuildLoad2，LLVMTypeRef）
+    struct_name: &byte,// 结构体名称（仅当类型是结构体类型时有效，存储在 Arena 中）
+    ast_type: &ASTNode// AST 类型节点（用于从 AST 重新构建类型，避免使用 LLVMGetElementType）
+}
+
+// 函数映射表项
+struct FuncMap {
+    name: &byte,// 函数名称（存储在 Arena 中）
+    func: *void,// LLVM 函数值（LLVMValueRef）
+    func_type: *void// LLVM 函数类型（函数签名类型，用于 LLVMBuildCall2，LLVMTypeRef）
+}
+
+// 全局变量映射表项
+struct GlobalVarMap {
+    name: &byte,// 全局变量名称（存储在 Arena 中）
+    global_var: *void,// LLVM 全局变量值（指针，LLVMValueRef）
+    type: *void,// 全局变量类型（用于 LLVMBuildLoad2，LLVMTypeRef）
+    struct_name: &byte// 结构体名称（仅当类型是结构体类型时有效，存储在 Arena 中）
+}
+
+// 循环基本块信息（用于 break/continue 语句）
+struct LoopInfo {
+    cond_bb: *void,// 循环条件检查基本块（LLVMBasicBlockRef）
+    end_bb: *void,// 循环结束基本块（用于 break，LLVMBasicBlockRef）
+    inc_bb: *void// 循环递增基本块（用于 for 循环的 continue，while 循环为 null，LLVMBasicBlockRef）
+}
+
+// 代码生成器结构
+// 使用 LLVM C API 生成 LLVM IR 并编译为二进制代码
+struct CodeGenerator {
+    arena: &Arena,// Arena 分配器（用于编译器自身内存分配）
+    context: *void,// LLVM 上下文（LLVMContextRef）
+    module: *void,// LLVM 模块（LLVMModuleRef）
+    builder: *void,// IR 构建器（用于生成指令，LLVMBuilderRef）
+    module_name: &byte,// 模块名称（存储在 Arena 中）
+    
+    // 结构体类型映射表（固定大小数组，存储结构体名称到LLVM类型的映射）
+    // 使用固定大小数组和线性查找（简单实现）
+    struct_types: [StructTypeMap: STRUCT_TYPE_MAP_SIZE],// 固定大小（最多支持64个结构体类型）
+    struct_type_count: i32,// 当前结构体类型数量
+    
+    // 当前函数的变量表（固定大小数组，存储变量名到LLVM值的映射）
+    // 用于代码生成时查找局部变量（使用 alloca 分配的栈变量）
+    var_map: [VarMap: VAR_MAP_SIZE],// 固定大小（最多支持256个局部变量）
+    var_map_count: i32,// 当前变量数量
+    
+    // 函数映射表（固定大小数组，存储函数名到LLVM函数值和类型的映射）
+    // 用于代码生成时查找函数引用
+    func_map: [FuncMap: FUNC_MAP_SIZE],// 固定大小（最多支持64个函数）
+    func_map_count: i32,// 当前函数数量
+    
+    // 全局变量映射表（固定大小数组，存储全局变量名到LLVM全局变量值和类型的映射）
+    // 用于代码生成时查找全局变量引用
+    global_var_map: [GlobalVarMap: GLOBAL_VAR_MAP_SIZE],// 固定大小（最多支持64个全局变量）
+    global_var_map_count: i32,// 当前全局变量数量
+    
+    basic_block_counter: i32,// 基本块计数器（用于生成唯一的基本块名称）
+    string_literal_counter: i32,// 字符串字面量计数器（用于生成唯一的字符串常量名称）
+    
+    // 循环基本块栈（用于 break/continue 语句）
+    // 使用固定大小数组作为栈，支持嵌套循环
+    loop_stack: [LoopInfo: LOOP_STACK_SIZE],
+    loop_stack_depth: i32,// 当前循环栈深度（0 表示不在循环中）
+    
+    program_node: &ASTNode// 程序节点（用于查找结构体声明等）
+}
+

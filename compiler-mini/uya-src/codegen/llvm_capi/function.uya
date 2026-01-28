@@ -1,0 +1,227 @@
+// function.uya - 代码生成器 function 模块
+// 使用 LLVM C API 生成 LLVM IR 并编译为二进制代码
+//
+// 注意：需要先包含 internal.uya（包含类型定义和函数声明）
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+
+fn codegen_gen_function(codegen: &CodeGenerator, fn_decl: &ASTNode) i32 {
+    if codegen == null || fn_decl == null || fn_decl.type != AST_FN_DECL {
+        fprintf(2 as *void, "错误: codegen_gen_function 参数检查失败\n");
+        return -1;
+    }
+    
+    const func_name: &byte = fn_decl.fn_decl_name;
+    const return_type_node: &ASTNode = fn_decl.fn_decl_return_type;
+    const body: &ASTNode = fn_decl.fn_decl_body;
+    const param_count: i32 = fn_decl.fn_decl_param_count;
+    // 直接访问固定大小数组，不需要嵌套指针变量
+    
+    if func_name == null || return_type_node == null {
+        if func_name != null {
+            fprintf(2 as *void, "错误: codegen_gen_function 函数名或返回类型为空: %s\n", func_name as *byte);
+        } else {
+            fprintf(2 as *void, "错误: codegen_gen_function 函数名或返回类型为空: %s\n", "(null)");
+        }
+        return -1;
+    }
+    
+    // extern 函数没有函数体，只生成声明
+    var is_extern: i32 = 0;
+    if body == null {
+        is_extern = 1;
+    } else {
+        is_extern = 0;
+    }
+    
+    // 获取返回类型
+    const return_type: *void = get_llvm_type_from_ast(codegen, return_type_node) as *void;
+    if return_type == null {
+        return -1;
+    }
+    
+    // 准备参数类型数组
+    if param_count > MAX_FUNC_PARAMS {
+        return -1;  // 参数过多
+    }
+    
+    var param_types: [*void: MAX_FUNC_PARAMS] = [];
+    var i: i32 = 0;
+    while i < param_count {
+        const param: &ASTNode = fn_decl.fn_decl_params[i];
+        if param == null || param.type != AST_VAR_DECL {
+            return -1;
+        }
+        
+        const param_type_node: &ASTNode = param.var_decl_type;
+        const param_type: *void = get_llvm_type_from_ast(codegen, param_type_node) as *void;
+        if param_type == null {
+            return -1;
+        }
+        
+        param_types[i] = param_type;
+        i = i + 1;
+    }
+    
+    // 获取函数（应该已经在声明阶段创建）
+    const func_map: &FuncMap = lookup_func(codegen, func_name, null as &void);
+    if func_map == null {
+        fprintf(2 as *void, "错误: codegen_gen_function 函数未声明: %s\n", func_name);
+        return -1;
+    }
+    const func: *void = func_map.func;
+    
+    // 检查函数体是否已经定义
+    if LLVMGetFirstBasicBlock(func) != null {
+        // 函数体已存在，跳过函数体生成
+        return 0;
+    }
+    
+    // extern 函数只生成声明，不生成函数体
+    if is_extern != 0 {
+        return 0;  // extern 函数处理完成
+    }
+    
+    // 普通函数需要生成函数体
+    // 确保函数体不为 null
+    if body == null {
+        fprintf(2 as *void, "错误: codegen_gen_function 非 extern 函数但函数体为 null: %s\n", func_name);
+        return -1;
+    }
+    
+    // 创建函数体的基本块
+    const entry_bb: *void = LLVMAppendBasicBlock(func, "entry");
+    if entry_bb == null {
+        return -1;
+    }
+    
+    // 设置构建器位置到入口基本块
+    LLVMPositionBuilderAtEnd(codegen.builder, entry_bb);
+    
+    // 保存当前变量表状态（用于函数结束后恢复）
+    const saved_var_map_count: i32 = codegen.var_map_count;
+    
+    // 处理函数参数：将参数值 store 到 alloca 分配的栈变量
+    i = 0;
+    while i < param_count {
+        const param: &ASTNode = fn_decl.fn_decl_params[i];
+        if param == null || param.type != AST_VAR_DECL {
+            return -1;
+        }
+        
+        const param_name: &byte = param.var_decl_name;
+        const param_type_node: &ASTNode = param.var_decl_type;
+        if param_name == null || param_type_node == null {
+            return -1;
+        }
+        
+        // 获取参数类型
+        const param_type: *void = get_llvm_type_from_ast(codegen, param_type_node) as *void;
+        if param_type == null {
+            return -1;
+        }
+        
+        // 提取结构体名称（如果类型是结构体类型或指针指向结构体类型）
+        var struct_name: &byte = null;
+        if param_type_node.type == AST_TYPE_NAMED {
+            const type_name: &byte = param_type_node.type_named_name;
+            if type_name != null && strcmp(type_name, "i32") != 0 && 
+               strcmp(type_name, "bool") != 0 && strcmp(type_name, "void") != 0 {
+                // 可能是结构体类型
+                if codegen_get_struct_type(codegen, type_name) as *void != null {
+                    struct_name = type_name;  // 名称已经在 Arena 中
+                }
+            }
+        } else if param_type_node.type == AST_TYPE_POINTER {
+            // 指针类型：检查指向的类型是否为结构体类型
+            const pointed_type: &ASTNode = param_type_node.type_pointer_pointed_type;
+            if pointed_type != null && pointed_type.type == AST_TYPE_NAMED {
+                const type_name: &byte = pointed_type.type_named_name;
+                if type_name != null && strcmp(type_name, "i32") != 0 && 
+                   strcmp(type_name, "bool") != 0 && strcmp(type_name, "byte") != 0 && 
+                   strcmp(type_name, "void") != 0 {
+                    // 可能是结构体类型
+                    if codegen_get_struct_type(codegen, type_name) as *void != null {
+                        struct_name = type_name;  // 名称已经在 Arena 中
+                    }
+                }
+            }
+        }
+        
+        // 使用 alloca 分配栈空间（存储参数值）
+        const param_ptr: *void = LLVMBuildAlloca(codegen.builder, param_type, param_name);
+        if param_ptr == null {
+            return -1;
+        }
+        
+        // 获取函数参数值（LLVMGetParam）
+        const param_val: *void = LLVMGetParam(func, i);
+        if param_val == null {
+            return -1;
+        }
+        
+        // store 参数值到栈变量
+        LLVMBuildStore(codegen.builder, param_val, param_ptr);
+        
+        // 添加到变量表
+        if add_var(codegen, param_name, param_ptr as &void, param_type as &void, struct_name, param_type_node) != 0 {
+            return -1;
+        }
+        
+        i = i + 1;
+    }
+
+    // 在生成函数体代码之前，先注册函数内部的结构体声明
+    // 这样在生成代码时，结构体类型已经可用
+    register_structs_in_node(codegen, body);
+
+    // 生成函数体代码
+    const stmt_result: i32 = codegen_gen_stmt(codegen, body);
+    if stmt_result != 0 {
+        // 添加源码位置信息
+        var filename: &byte = body.filename;
+        if filename == null {
+            filename = "<unknown>" as &byte;
+        }
+        fprintf(2 as *void, "警告: 生成函数体代码失败，跳过函数: %s (%s:%d:%d)\n", 
+                func_name, filename as *byte, body.line, body.column);
+        // 恢复变量表状态（如果失败）
+        codegen.var_map_count = saved_var_map_count;
+        // 不返回错误，允许继续编译其他函数（在编译器自举时，某些函数可能暂时无法生成）
+        return 0;
+    }
+    
+    // 检查函数是否已经有返回语句
+    // 如果当前基本块没有终止符（return），需要添加默认返回
+    const current_bb: *void = LLVMGetInsertBlock(codegen.builder);
+    if current_bb != null {
+        const terminator: *void = LLVMGetBasicBlockTerminator(current_bb);
+        if terminator == null {
+            // 没有终止符，添加默认返回
+            // 检查返回类型是否为 void（通过比较类型）
+            const void_type: *void = LLVMVoidType();
+            if return_type == void_type {
+                // void 返回
+                LLVMBuildRetVoid(codegen.builder);
+            } else {
+                // 非 void 返回，生成默认返回值（0）
+                // 注意：这应该不会发生，因为类型检查应该确保所有非 void 函数都有返回值
+                // 但为了安全，我们生成一个默认值
+                var default_val: *void = null;
+                if LLVMGetTypeKind(return_type) == LLVMIntegerTypeKind {
+                    default_val = LLVMConstInt(return_type, 0 as usize, 0) as &void;
+                }
+                if default_val != null {
+                    LLVMBuildRet(codegen.builder, default_val);
+                } else {
+                    return -1;  // 无法生成默认返回值
+                }
+            }
+        }
+    }
+    
+    // 恢复变量表状态（函数结束）
+    codegen.var_map_count = saved_var_map_count;
+    
+    return 0;
+}
+

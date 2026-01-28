@@ -1,0 +1,72 @@
+// init.uya - 代码生成器 init 模块
+// 使用 LLVM C API 生成 LLVM IR 并编译为二进制代码
+//
+// 注意：需要先包含 internal.uya（包含类型定义和函数声明）
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+
+fn codegen_new(codegen: &CodeGenerator, arena: &Arena, module_name: &byte) i32 {
+    if codegen == null || arena == null || module_name == null {
+        return -1;
+    }
+    
+    // 初始化结构体（使用 memset 清零）
+    // 注意：Uya Mini 的 sizeof 可能不支持结构体类型名，使用一个足够大的常量值
+    // CodeGenerator 结构体大小约为 2000 字节（包含所有固定大小数组）
+    const codegen_size: i32 = 2000;
+    memset(codegen as *void, 0, codegen_size);
+    
+    // 设置 Arena 分配器
+    codegen.arena = arena;
+    
+    // 复制模块名称到 Arena
+    // 注意：module_name 是 &byte 类型，但 strlen 需要 *byte 类型，需要转换
+    const name_len: i32 = strlen(module_name as *byte);
+    const name_copy: &byte = arena_alloc(arena, name_len + 1) as &byte;
+    if name_copy == null {
+        return -1;
+    }
+    memcpy(name_copy as *void, module_name as *void, name_len + 1);
+    codegen.module_name = name_copy;
+    
+    // 创建 LLVM 上下文
+    codegen.context = LLVMContextCreate();
+    if codegen.context == null {
+        return -1;
+    }
+    
+    // 创建 LLVM 模块
+    // 注意：codegen.module_name 是 &byte 类型，LLVMModuleCreateWithNameInContext 需要 *byte 类型
+    // 使用临时变量存储字段值，避免函数调用参数中的字段访问解析问题
+    const temp_module_name: &byte = codegen.module_name;
+    const temp_context: *void = codegen.context;
+    codegen.module = LLVMModuleCreateWithNameInContext(temp_module_name as *byte, temp_context);
+    if codegen.module == null {
+        LLVMContextDispose(codegen.context);
+        return -1;
+    }
+    
+    // 创建 IR 构建器
+    // 注意：使用临时变量存储字段值，避免函数调用参数中的字段访问解析问题
+    const temp_context2: *void = codegen.context;
+    codegen.builder = LLVMCreateBuilderInContext(temp_context2);
+    if codegen.builder == null {
+        LLVMDisposeModule(codegen.module);
+        LLVMContextDispose(codegen.context);
+        return -1;
+    }
+    
+    // 初始化结构体类型映射表
+    codegen.struct_type_count = 0;
+    
+    // 初始化变量表和函数表
+    codegen.var_map_count = 0;
+    codegen.func_map_count = 0;
+    codegen.global_var_map_count = 0;
+    codegen.basic_block_counter = 0;
+    codegen.string_literal_counter = 0;
+    codegen.loop_stack_depth = 0;
+    codegen.program_node = null;
+    
+    return 0;
+}
+

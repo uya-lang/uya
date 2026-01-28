@@ -1,0 +1,132 @@
+// structs.uya - 代码生成器 structs 模块
+// 使用 LLVM C API 生成 LLVM IR 并编译为二进制代码
+//
+// 注意：需要先包含 internal.uya（包含类型定义和函数声明）
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+
+fn find_struct_decl(codegen: &CodeGenerator, struct_name: &byte) &ASTNode {
+    if codegen == null || struct_name == null {
+        return null;
+    }
+    
+    // 首先在全局作用域查找
+    if codegen.program_node != null {
+        const program: &ASTNode = codegen.program_node;
+        if program.type == AST_PROGRAM {
+            var i: i32 = 0;
+            while i < program.program_decl_count {
+                const decl: &ASTNode = program.program_decls[i];
+                if decl != null && decl.type == AST_STRUCT_DECL {
+                    if decl.struct_decl_name != null && strcmp(decl.struct_decl_name, struct_name) == 0 {
+                        return decl;
+                    }
+                }
+                i = i + 1;
+            }
+        }
+    }
+    
+    // 如果全局作用域未找到，在已注册的结构体类型中查找（包括函数内部注册的）
+    var i: i32 = 0;
+    while i < codegen.struct_type_count {
+        if codegen.struct_types[i].name != null && strcmp(codegen.struct_types[i].name, struct_name) == 0 {
+            // 返回存储的 AST 节点
+            return codegen.struct_types[i].ast_node;
+        }
+        i = i + 1;
+    }
+    
+    return null;
+}
+
+fn find_struct_field_index(struct_decl: &ASTNode, field_name: &byte) i32 {
+    if struct_decl == null || struct_decl.type != AST_STRUCT_DECL || field_name == null {
+        return -1;
+    }
+    
+    var i: i32 = 0;
+    while i < struct_decl.struct_decl_field_count {
+        const field: &ASTNode = struct_decl.struct_decl_fields[i];
+        if field != null && field.type == AST_VAR_DECL {
+            if field.var_decl_name != null && 
+               strcmp(field.var_decl_name, field_name) == 0 {
+                return i;
+            }
+        }
+        i = i + 1;
+    }
+    
+    return -1;
+}
+
+fn find_struct_name_from_type(codegen: &CodeGenerator, _struct_type: &void) &byte {
+    const struct_type:*void = _struct_type as *void;
+
+    if codegen == null || struct_type == null {
+        return null;
+    }
+    
+    // 在结构体类型映射表中查找匹配的类型
+    var i: i32 = 0;
+    while i < codegen.struct_type_count {
+        if codegen.struct_types[i].llvm_type == struct_type {
+            return codegen.struct_types[i].name;
+        }
+        i = i + 1;
+    }
+    
+    return null;  // 未找到
+}
+
+fn register_structs_in_node(codegen: &CodeGenerator, node: &ASTNode) void {
+    if codegen == null || node == null {
+        return;
+    }
+
+    // 如果是结构体声明，注册它
+    if node.type == AST_STRUCT_DECL {
+        codegen_register_struct_type(codegen, node);
+        return;
+    }
+
+    // 如果是代码块，递归遍历其中的语句
+    if node.type == AST_BLOCK {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            const stmt: &ASTNode = node.block_stmts[i];
+            if stmt != null {
+                register_structs_in_node(codegen, stmt);
+            }
+            i = i + 1;
+        }
+        return;
+    }
+
+    // 如果是 if 语句，递归遍历 then 和 else 分支
+    if node.type == AST_IF_STMT {
+        if node.if_stmt_then_branch != null {
+            register_structs_in_node(codegen, node.if_stmt_then_branch);
+        }
+        if node.if_stmt_else_branch != null {
+            register_structs_in_node(codegen, node.if_stmt_else_branch);
+        }
+        return;
+    }
+
+    // 如果是 while 语句，递归遍历循环体
+    if node.type == AST_WHILE_STMT {
+        if node.while_stmt_body != null {
+            register_structs_in_node(codegen, node.while_stmt_body);
+        }
+        return;
+    }
+
+    // 如果是 for 语句，递归遍历循环体
+    if node.type == AST_FOR_STMT {
+        if node.for_stmt_body != null {
+            register_structs_in_node(codegen, node.for_stmt_body);
+        }
+        return;
+    }
+}
+

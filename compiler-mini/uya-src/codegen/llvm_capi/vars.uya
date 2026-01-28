@@ -1,0 +1,801 @@
+// vars.uya - 代码生成器 vars 模块
+// 使用 LLVM C API 生成 LLVM IR 并编译为二进制代码
+//
+// 注意：需要先包含 internal.uya（包含类型定义和函数声明）
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+
+fn lookup_var(codegen: &CodeGenerator, name: &byte) &VarMap {
+    if codegen == null || name == null {
+        return null;
+    }
+    
+    // 先查找局部变量表（从后向前查找，由于禁止变量遮蔽，理论上只需要查找最后一个匹配项）
+    var i: i32 = codegen.var_map_count - 1;
+    while i >= 0 {
+        if codegen.var_map[i].name != null && strcmp(codegen.var_map[i].name, name) == 0 {
+            return &codegen.var_map[i];
+        }
+        i = i - 1;
+    }
+    
+    // 如果局部变量表中未找到，查找全局变量表
+    i = 0;
+    while i < codegen.global_var_map_count {
+        if codegen.global_var_map[i].name != null && strcmp(codegen.global_var_map[i].name, name) == 0 {
+            // 返回全局变量的 VarMap（需要构造，但这里简化处理，返回 null 表示是全局变量）
+            // 注意：实际实现中，全局变量和局部变量的处理方式不同
+            return null;  // 全局变量需要特殊处理
+        }
+        i = i + 1;
+    }
+    
+    return null;  // 未找到
+}
+
+fn lookup_global_var(codegen: &CodeGenerator, name: &byte) &GlobalVarMap {
+    if codegen == null || name == null {
+        return null;
+    }
+    
+    // 线性查找
+    var i: i32 = 0;
+    while i < codegen.global_var_map_count {
+        if codegen.global_var_map[i].name != null && strcmp(codegen.global_var_map[i].name, name) == 0 {
+            return &codegen.global_var_map[i];
+        }
+        i = i + 1;
+    }
+    
+    return null;  // 未找到
+}
+
+fn lookup_var_type(codegen: &CodeGenerator, var_name: &byte) &void {
+    if codegen == null || var_name == null {
+        return null;
+    }
+    
+    // 先查找局部变量表（从后向前查找，由于禁止变量遮蔽，理论上只需要查找最后一个匹配项）
+    var i: i32 = codegen.var_map_count - 1;
+    while i >= 0 {
+        if codegen.var_map[i].name != null && strcmp(codegen.var_map[i].name, var_name) == 0 {
+            return codegen.var_map[i].type as &void;
+        }
+        i = i - 1;
+    }
+    
+    // 如果局部变量表中未找到，查找全局变量表
+    i = 0;
+    while i < codegen.global_var_map_count {
+        if codegen.global_var_map[i].name != null && strcmp(codegen.global_var_map[i].name, var_name) == 0 {
+            return codegen.global_var_map[i].type as &void;
+        }
+        i = i + 1;
+    }
+    
+    return null;  // 未找到
+}
+
+fn lookup_var_ast_type(codegen: &CodeGenerator, var_name: &byte) &ASTNode {
+    if codegen == null || var_name == null {
+        return null;
+    }
+    
+    // 查找局部变量表（从后向前查找）
+    var i: i32 = codegen.var_map_count - 1;
+    while i >= 0 {
+        if codegen.var_map[i].name != null && strcmp(codegen.var_map[i].name, var_name) == 0 {
+            return codegen.var_map[i].ast_type;
+        }
+        i = i - 1;
+    }
+    
+    return null;  // 未找到（全局变量暂不支持）
+}
+
+fn lookup_var_struct_name(codegen: &CodeGenerator, var_name: &byte) &byte {
+    if codegen == null || var_name == null {
+        return null;
+    }
+    
+    // 先查找局部变量表（从后向前查找，由于禁止变量遮蔽，理论上只需要查找最后一个匹配项）
+    var i: i32 = codegen.var_map_count - 1;
+    while i >= 0 {
+        if codegen.var_map[i].name != null && strcmp(codegen.var_map[i].name, var_name) == 0 {
+            return codegen.var_map[i].struct_name;
+        }
+        i = i - 1;
+    }
+    
+    // 如果局部变量表中未找到，查找全局变量表
+    i = 0;
+    while i < codegen.global_var_map_count {
+        if codegen.global_var_map[i].name != null && strcmp(codegen.global_var_map[i].name, var_name) == 0 {
+            return codegen.global_var_map[i].struct_name;
+        }
+        i = i + 1;
+    }
+    
+    return null;  // 未找到
+}
+
+fn add_var(codegen: &CodeGenerator, var_name: &byte, _value: &void, _type: &void, struct_name: &byte, ast_type: &ASTNode) i32 {
+    const value:*void = _value as *void;
+    const type:*void = _type as *void;
+
+    if codegen == null || var_name == null || value == null || type == null {
+        return -1;
+    }
+    
+    // 检查映射表是否已满
+    if codegen.var_map_count >= VAR_MAP_SIZE {
+        return -1;  // 映射表已满
+    }
+    
+    // 添加到映射表
+    const idx: i32 = codegen.var_map_count;
+    codegen.var_map[idx].name = var_name;
+    codegen.var_map[idx].value = value;
+    codegen.var_map[idx].type = type;
+    codegen.var_map[idx].struct_name = struct_name;  // 结构体名称（可为 null）
+    codegen.var_map[idx].ast_type = ast_type;  // AST 类型节点（可为 null）
+    codegen.var_map_count = codegen.var_map_count + 1;
+    
+    return 0;
+}
+
+fn add_global_var(codegen: &CodeGenerator, var_name: &byte, _global_var: &void, _type: &void, struct_name: &byte) i32 {
+    const global_var:*void = _global_var as *void;
+    const type:*void = _type as *void;
+
+    if codegen == null || var_name == null || global_var == null || type == null {
+        return -1;
+    }
+    
+    // 检查映射表是否已满
+    if codegen.global_var_map_count >= GLOBAL_VAR_MAP_SIZE {
+        return -1;  // 映射表已满
+    }
+    
+    // 添加到映射表
+    const idx: i32 = codegen.global_var_map_count;
+    codegen.global_var_map[idx].name = var_name;
+    codegen.global_var_map[idx].global_var = global_var;
+    codegen.global_var_map[idx].type = type;
+    codegen.global_var_map[idx].struct_name = struct_name;  // 结构体名称（可为 null）
+    codegen.global_var_map_count = codegen.global_var_map_count + 1;
+    
+    return 0;
+}
+
+fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
+    if codegen == null || expr == null {
+        return null;
+    }
+    
+    if expr.type == AST_IDENTIFIER {
+        // 标识符（变量）：从变量表查找指针
+        const var_name: &byte = expr.identifier_name;
+        if var_name == null {
+            return null;
+        }
+        const var_map: &VarMap = lookup_var(codegen, var_name);
+        if var_map != null {
+            return var_map.value as &void;
+        }
+        // 尝试查找全局变量
+        const global_var_map: &GlobalVarMap = lookup_global_var(codegen, var_name);
+        if global_var_map != null {
+            return global_var_map.global_var as &void;
+        }
+        return null;
+    } else if expr.type == AST_UNARY_EXPR {
+        // 解引用表达式：*expr
+        // 对于赋值 *p = value，p 是指针，我们需要返回 p 的值（即指针本身）
+        const op: TokenType = expr.unary_expr_op;
+        if op != TokenType.TOKEN_ASTERISK {
+            return null;  // 只有解引用表达式可以作为左值
+        }
+        
+        const operand: &ASTNode = expr.unary_expr_operand;
+        if operand == null {
+            return null;
+        }
+        
+        // 操作数应该是指针类型，直接返回操作数的值（指针值本身）
+        const operand_val: *void = codegen_gen_expr(codegen, operand);
+        if operand_val == null {
+            return null;
+        }
+        
+        // 验证操作数是指针类型
+        const operand_type: *void = LLVMTypeOf(operand_val);
+        if operand_type == null || LLVMGetTypeKind(operand_type) != LLVMPointerTypeKind {
+            return null;  // 操作数不是指针类型
+        }
+        
+        // 返回指针值本身（这是我们要存储的地址）
+        return operand_val as &void;
+    } else if expr.type == AST_MEMBER_ACCESS {
+        // 字段访问：使用 GEP 获取字段地址（用于赋值语句如 p.x = value）
+        const object: &ASTNode = expr.member_access_object;
+        const field_name: &byte = expr.member_access_field_name;
+        
+        if object == null || field_name == null {
+            return null;
+        }
+        
+        // 如果对象是标识符（变量），从变量表获取结构体名称和对象指针
+        var struct_name: &byte = null;
+        var object_ptr: *void = null;
+        
+        if object.type == AST_IDENTIFIER {
+            const var_name: &byte = object.identifier_name;
+            if var_name != null {
+                const var_map: &VarMap = lookup_var(codegen, var_name);
+                if var_map != null {
+                    object_ptr = var_map.value;
+                    struct_name = lookup_var_struct_name(codegen, var_name);
+                    
+                    // 检查变量类型是否是指针类型（无论 struct_name 是否设置）
+                    const var_ast_type: &ASTNode = lookup_var_ast_type(codegen, var_name);
+                    if var_ast_type != null && var_ast_type.type == AST_TYPE_POINTER {
+                        // 变量是指针类型，需要加载指针值
+                        const var_type: *void = lookup_var_type(codegen, var_name) as *void;
+                        if var_type != null && object_ptr != null {
+                            // 加载指针变量的值（即指针值本身）
+                            object_ptr = LLVMBuildLoad2(codegen.builder, var_type, object_ptr, var_name);
+                            
+                            // 从指针类型中获取指向的结构体类型名称
+                            const pointed_type: &ASTNode = var_ast_type.type_pointer_pointed_type;
+                            if pointed_type != null && pointed_type.type == AST_TYPE_NAMED {
+                                struct_name = pointed_type.type_named_name;
+                            }
+                        }
+                    }
+                } else {
+                    // 尝试查找全局变量
+                    const global_var_map: &GlobalVarMap = lookup_global_var(codegen, var_name);
+                    if global_var_map != null {
+                        object_ptr = global_var_map.global_var;
+                        struct_name = global_var_map.struct_name;
+                    }
+                }
+            }
+        }
+        
+        if object_ptr == null || struct_name == null {
+            // 对象不是标识符，可能是嵌套的结构体字段访问（如 checker.symbol_table.count）
+            // 或数组访问（如 new_variants[i]）
+            // 递归处理嵌套的字段访问或数组访问
+            if object.type == AST_MEMBER_ACCESS || object.type == AST_ARRAY_ACCESS {
+                // 递归获取对象的地址
+                object_ptr = codegen_gen_lvalue_address(codegen, object);
+                if object_ptr == null {
+                    return null;
+                }
+
+                // 获取对象指针的类型（应该是结构体指针类型）
+                const object_ptr_type: *void = LLVMTypeOf(object_ptr);
+                if object_ptr_type == null || LLVMGetTypeKind(object_ptr_type) != LLVMPointerTypeKind {
+                    return null;
+                }
+
+                // 获取指向的结构体类型
+                var pointed_struct_type: *void = LLVMGetElementType(object_ptr_type);
+                if pointed_struct_type == null {
+                    return null;
+                }
+                
+                // 检查指向的类型是否是结构体类型
+                var pointed_type_kind: i32 = LLVMGetTypeKind(pointed_struct_type);
+                if pointed_type_kind != LLVMStructTypeKind {
+                    // 如果指向的类型不是结构体类型，可能是指针类型（如 &EnumVariant）
+                    // 需要再次获取元素类型
+                    if pointed_type_kind == LLVMPointerTypeKind {
+                        pointed_struct_type = LLVMGetElementType(pointed_struct_type);
+                        if pointed_struct_type == null {
+                            return null;
+                        }
+                        pointed_type_kind = LLVMGetTypeKind(pointed_struct_type);
+                    }
+                    
+                    if pointed_type_kind != LLVMStructTypeKind {
+                        return null;
+                    }
+                }
+
+                // 从结构体类型中获取结构体名称
+                struct_name = find_struct_name_from_type(codegen, pointed_struct_type as &void);
+            } else {
+                // 其他复杂表达式暂时不支持
+                return null;
+            }
+        }
+        
+        // 查找结构体声明
+        const struct_decl: &ASTNode = find_struct_decl(codegen, struct_name);
+        if struct_decl == null {
+            return null;
+        }
+        
+        // 查找字段索引
+        const field_index: i32 = find_struct_field_index(struct_decl, field_name);
+        if field_index < 0 {
+            return null;  // 字段不存在
+        }
+        
+        // 获取结构体类型
+        const struct_type: *void = codegen_get_struct_type(codegen, struct_name) as *void;
+        if struct_type == null {
+            return null;
+        }
+        
+        // 使用 GEP 获取字段地址
+        const i32_type: *void = LLVMInt32Type();
+        const indices: [*void: 2] = [
+            LLVMConstInt(i32_type, 0 as usize, 0) as &void,  // 结构体指针本身
+            LLVMConstInt(i32_type, field_index as usize, 0) as &void  // 字段索引
+        ];
+        
+        const field_ptr: *void = LLVMBuildGEP2(codegen.builder, struct_type, object_ptr, &indices[0] as *void, 2, "");
+        if field_ptr == null {
+            return null;
+        }
+        
+        // 返回字段地址（不需要加载值）
+        return field_ptr as &void;
+    } else if expr.type == AST_ARRAY_ACCESS {
+        // 数组访问：使用 GEP 获取元素地址（用于赋值语句如 arr[i] = value 或 &arr[i]）
+        const array_expr: &ASTNode = expr.array_access_array;
+        const index_expr: &ASTNode = expr.array_access_index;
+        
+        if array_expr == null || index_expr == null {
+            return null;
+        }
+        
+        // 获取数组指针
+        // 如果数组表达式是标识符（变量），尝试从变量表获取指针
+        var array_ptr: *void = null;
+        var array_type: *void = null;
+        
+        if array_expr.type == AST_IDENTIFIER {
+            const var_name: &byte = array_expr.identifier_name;
+            if var_name != null {
+                const var_map: &VarMap = lookup_var(codegen, var_name);
+                if var_map != null {
+                    array_ptr = var_map.value;
+                    const var_type: *void = lookup_var_type(codegen, var_name);
+                    if var_type != null {
+                        const var_type_kind: i32 = LLVMGetTypeKind(var_type);
+                        if var_type_kind == LLVMPointerTypeKind {
+                            // 变量是指针类型（包括栈上数组变量的地址）
+                            const pointed_type: *void = LLVMGetElementType(var_type);
+                            if pointed_type != null && LLVMGetTypeKind(pointed_type) == LLVMArrayTypeKind {
+                                // 指针指向数组（栈上数组变量），array_ptr 已经是地址，直接使用
+                                array_type = pointed_type;
+                                // array_ptr 已经是正确的指针，不需要加载
+                            } else {
+                                // 指针指向单个元素（如 &byte），需要加载指针值
+                                array_type = pointed_type;
+                                array_ptr = LLVMBuildLoad2(codegen.builder, var_type, array_ptr, var_name);
+                                // 对于单个元素指针，我们将在后面使用元素类型和单个索引进行 GEP
+                                // 不需要创建数组类型
+                            }
+                        } else if var_type_kind == LLVMArrayTypeKind {
+                            // 变量是数组类型（这种情况不应该发生，因为数组变量在栈上，类型应该是指针）
+                            // 但为了安全，我们仍然处理
+                            array_type = var_type;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 如果通过标识符路径失败，使用通用方法生成数组表达式
+        if array_ptr == null || array_type == null {
+            // 对于左值表达式（如结构体字段或嵌套数组访问），需要获取地址而不是值
+            if array_expr.type == AST_MEMBER_ACCESS {
+                // 结构体字段访问：获取字段地址
+                array_ptr = codegen_gen_lvalue_address(codegen, array_expr);
+                if array_ptr != null {
+                    // 获取字段的类型（指针数组类型）
+                    const field_type: *void = LLVMTypeOf(array_ptr);
+                    if field_type != null && LLVMGetTypeKind(field_type) == LLVMPointerTypeKind {
+                        const pointed_type: *void = LLVMGetElementType(field_type);
+                        if pointed_type != null && LLVMGetTypeKind(pointed_type) == LLVMArrayTypeKind {
+                            array_type = pointed_type;
+                        } else {
+                            // 如果不是数组类型，可能是指针类型（如 &byte）
+                            array_type = pointed_type;
+                        }
+                    }
+                }
+            } else if array_expr.type == AST_ARRAY_ACCESS {
+                // 嵌套数组访问：递归获取数组的地址（这会返回指向数组的指针）
+                array_ptr = codegen_gen_lvalue_address(codegen, array_expr);
+                if array_ptr != null && array_ptr != 1 as *void {
+                    // 优先从指针类型获取数组类型（这是最可靠的方法）
+                    const array_ptr_type: *void = LLVMTypeOf(array_ptr);
+                    if array_ptr_type != null && LLVMGetTypeKind(array_ptr_type) == LLVMPointerTypeKind {
+                        const pointed_type: *void = LLVMGetElementType(array_ptr_type);
+                        if pointed_type != null && LLVMGetTypeKind(pointed_type) == LLVMArrayTypeKind {
+                            array_type = pointed_type;
+                        } else {
+                            // 如果不是数组类型，可能是指针类型（如 &byte）
+                            array_type = pointed_type;
+                        }
+                    }
+                }
+            } else {
+                // 生成数组表达式值
+                const array_val: *void = codegen_gen_expr(codegen, array_expr);
+            if array_val == null {
+                return null;
+            }
+            
+            const array_val_type: *void = LLVMTypeOf(array_val);
+            if array_val_type == null {
+                return null;
+            }
+            
+            const array_val_kind: i32 = LLVMGetTypeKind(array_val_type);
+            if array_val_kind == LLVMArrayTypeKind {
+                // 数组值类型，需要分配临时空间存储数组值
+                array_type = array_val_type;
+                array_ptr = LLVMBuildAlloca(codegen.builder, array_type, "");
+                if array_ptr == null {
+                    return null;
+                }
+                LLVMBuildStore(codegen.builder, array_val, array_ptr);
+            } else if array_val_kind == LLVMPointerTypeKind {
+                // 指针类型（如 &byte 或指向数组的指针）
+                array_ptr = array_val;
+                array_type = LLVMGetElementType(array_val_type);
+                if array_type == null {
+                    return null;
+                }
+                // 检查指向的类型是否是数组类型
+                if LLVMGetTypeKind(array_type) == LLVMArrayTypeKind {
+                    // 是指向数组的指针，使用标准的双索引 GEP
+                    // array_ptr 已经是正确的指针，不需要转换
+                } else {
+                    // 不是数组类型，是指向单个元素的指针（如 &byte）
+                    // 对于这种情况，直接使用元素类型和单个索引进行 GEP
+                    const element_type: *void = array_type;
+                    // 检查元素类型是否有效
+                    if element_type == null {
+                        return null;
+                    }
+                    
+                    // 生成索引表达式值
+                    var index_val: *void = codegen_gen_expr(codegen, index_expr) as *void;
+                    if index_val == null || index_val == 1 as *void {
+                        // 添加源码位置信息
+                        var filename: &byte = index_expr.filename;
+                        if filename == null {
+                            filename = "<unknown>" as &byte;
+                        }
+                        fprintf(2 as *void, "错误: 数组访问索引表达式生成失败 (%s:%d:%d)\n", 
+                                filename as *byte, index_expr.line, index_expr.column);
+                        return null;
+                    }
+                    
+                    // 确保索引值是整数类型（i32）
+                    const index_type: *void = LLVMTypeOf(index_val);
+                    if index_type == null {
+                        var filename: &byte = index_expr.filename;
+                        if filename == null {
+                            filename = "<unknown>" as &byte;
+                        }
+                        fprintf(2 as *void, "错误: 数组访问索引类型无效 (%s:%d:%d)\n", 
+                                filename as *byte, index_expr.line, index_expr.column);
+                        return null;
+                    }
+                    
+                    const i32_type: *void = LLVMInt32Type();
+                    const index_kind: i32 = LLVMGetTypeKind(index_type);
+                    
+                    // 如果索引类型是指针类型，需要先加载值
+                    if index_kind == LLVMPointerTypeKind {
+                        // 索引表达式返回了指针类型，需要加载值
+                        const pointed_type: *void = LLVMGetElementType(index_type);
+                        if pointed_type != null {
+                            const pointed_kind: i32 = LLVMGetTypeKind(pointed_type);
+                            if pointed_kind == LLVMIntegerTypeKind {
+                                // 指向整数类型，加载值
+                                index_val = LLVMBuildLoad2(codegen.builder, pointed_type, index_val, "");
+                                if index_val == null {
+                                    var filename: &byte = index_expr.filename;
+                                    if filename == null {
+                                        filename = "<unknown>" as &byte;
+                                    }
+                                    fprintf(2 as *void, "错误: 数组访问索引加载失败 (%s:%d:%d)\n", 
+                                            filename as *byte, index_expr.line, index_expr.column);
+                                    return null;
+                                }
+                                // 重新获取类型
+                                const new_index_type: *void = LLVMTypeOf(index_val);
+                                if new_index_type != null && new_index_type == i32_type {
+                                    // 已经是 i32 类型，继续
+                                } else if new_index_type != null {
+                                    const new_index_kind: i32 = LLVMGetTypeKind(new_index_type);
+                                    if new_index_kind == LLVMIntegerTypeKind {
+                                        const new_index_width: i32 = LLVMGetIntTypeWidth(new_index_type);
+                                        if new_index_width < 32 {
+                                            index_val = LLVMBuildZExt(codegen.builder, index_val, i32_type, "");
+                                        } else if new_index_width > 32 {
+                                            index_val = LLVMBuildTrunc(codegen.builder, index_val, i32_type, "");
+                                        }
+                                    } else {
+                                        var filename: &byte = index_expr.filename;
+                                        if filename == null {
+                                            filename = "<unknown>" as &byte;
+                                        }
+                                        fprintf(2 as *void, "错误: 数组访问索引必须是整数类型 (%s:%d:%d)\n", 
+                                                filename as *byte, index_expr.line, index_expr.column);
+                                        return null;
+                                    }
+                                }
+                            } else {
+                                var filename: &byte = index_expr.filename;
+                                if filename == null {
+                                    filename = "<unknown>" as &byte;
+                                }
+                                fprintf(2 as *void, "错误: 数组访问索引必须是整数类型 (%s:%d:%d)\n", 
+                                        filename as *byte, index_expr.line, index_expr.column);
+                                return null;
+                            }
+                        } else {
+                            var filename: &byte = index_expr.filename;
+                            if filename == null {
+                                filename = "<unknown>" as &byte;
+                            }
+                            fprintf(2 as *void, "错误: 数组访问索引类型无效 (%s:%d:%d)\n", 
+                                    filename as *byte, index_expr.line, index_expr.column);
+                            return null;
+                        }
+                    } else if index_type != i32_type {
+                        // 索引类型不是 i32，需要进行类型转换
+                        if index_kind == LLVMIntegerTypeKind {
+                            // 整数类型：进行符号扩展或截断
+                            const index_width: i32 = LLVMGetIntTypeWidth(index_type);
+                            if index_width < 32 {
+                                // 零扩展到 i32
+                                index_val = LLVMBuildZExt(codegen.builder, index_val, i32_type, "");
+                            } else if index_width > 32 {
+                                // 截断到 i32
+                                index_val = LLVMBuildTrunc(codegen.builder, index_val, i32_type, "");
+                            }
+                        } else {
+                            // 非整数类型：错误
+                            var filename: &byte = index_expr.filename;
+                            if filename == null {
+                                filename = "<unknown>" as &byte;
+                            }
+                            fprintf(2 as *void, "错误: 数组访问索引必须是整数类型 (%s:%d:%d)\n", 
+                                    filename as *byte, index_expr.line, index_expr.column);
+                            return null;
+                        }
+                    }
+                    
+                    // 使用单个索引的 GEP（直接使用元素类型）
+                    const indices: [*void: 1] = [
+                        index_val  // 单个索引
+                    ];
+                    
+                    const element_ptr: *void = LLVMBuildGEP2(codegen.builder, element_type, array_ptr, &indices[0] as *void, 1, "");
+                    if element_ptr == null {
+                        // 添加源码位置信息
+                        var filename: &byte = index_expr.filename;
+                        if filename == null {
+                            filename = "<unknown>" as &byte;
+                        }
+                        fprintf(2 as *void, "错误: 数组访问地址生成失败 (%s:%d:%d)\n", 
+                                filename as *byte, index_expr.line, index_expr.column);
+                        return null;
+                    }
+                    
+                    // 返回元素地址（不需要加载值）
+                    return element_ptr as &void;
+                }
+            } else {
+                return null;  // 不是数组类型或指针类型
+            }
+            }
+        }
+        
+        // 生成索引表达式值
+        var index_val: *void = codegen_gen_expr(codegen, index_expr);
+        if index_val == null || index_val == 1 as *void {
+            // 添加源码位置信息
+            var filename: &byte = index_expr.filename;
+            if filename == null {
+                filename = "<unknown>" as &byte;
+            }
+            fprintf(2 as *void, "错误: 数组访问索引表达式生成失败 (%s:%d:%d)\n", 
+                    filename as *byte, index_expr.line, index_expr.column);
+            return null;
+        }
+        
+        // 确保索引值是整数类型（i32）
+        const index_type: *void = LLVMTypeOf(index_val);
+        if index_type == null {
+            var filename: &byte = index_expr.filename;
+            if filename == null {
+                filename = "<unknown>" as &byte;
+            }
+            fprintf(2 as *void, "错误: 数组访问索引类型无效 (%s:%d:%d)\n", 
+                    filename as *byte, index_expr.line, index_expr.column);
+            return null;
+        }
+        
+        const i32_type: *void = LLVMInt32Type();
+        const index_kind: i32 = LLVMGetTypeKind(index_type);
+        
+        // 如果索引类型是指针类型，需要先加载值
+        if index_kind == LLVMPointerTypeKind {
+            // 索引表达式返回了指针类型，需要加载值
+            const pointed_type: *void = LLVMGetElementType(index_type);
+            if pointed_type != null {
+                const pointed_kind: i32 = LLVMGetTypeKind(pointed_type);
+                if pointed_kind == LLVMIntegerTypeKind {
+                    // 指向整数类型，加载值
+                    index_val = LLVMBuildLoad2(codegen.builder, pointed_type, index_val, "");
+                    if index_val == null {
+                        var filename: &byte = index_expr.filename;
+                        if filename == null {
+                            filename = "<unknown>" as &byte;
+                        }
+                        fprintf(2 as *void, "错误: 数组访问索引加载失败 (%s:%d:%d)\n", 
+                                filename as *byte, index_expr.line, index_expr.column);
+                        return null;
+                    }
+                    // 重新获取类型
+                    const new_index_type: *void = LLVMTypeOf(index_val);
+                    if new_index_type != null && new_index_type == i32_type {
+                        // 已经是 i32 类型，继续
+                    } else if new_index_type != null {
+                        const new_index_kind: i32 = LLVMGetTypeKind(new_index_type);
+                        if new_index_kind == LLVMIntegerTypeKind {
+                            const new_index_width: i32 = LLVMGetIntTypeWidth(new_index_type);
+                            if new_index_width < 32 {
+                                index_val = LLVMBuildZExt(codegen.builder, index_val, i32_type, "");
+                            } else if new_index_width > 32 {
+                                index_val = LLVMBuildTrunc(codegen.builder, index_val, i32_type, "");
+                            }
+                        } else {
+                            var filename: &byte = index_expr.filename;
+                            if filename == null {
+                                filename = "<unknown>" as &byte;
+                            }
+                            fprintf(2 as *void, "错误: 数组访问索引必须是整数类型 (%s:%d:%d)\n", 
+                                    filename as *byte, index_expr.line, index_expr.column);
+                            return null;
+                        }
+                    }
+                } else {
+                    var filename: &byte = index_expr.filename;
+                    if filename == null {
+                        filename = "<unknown>" as &byte;
+                    }
+                    fprintf(2 as *void, "错误: 数组访问索引必须是整数类型 (%s:%d:%d)\n", 
+                            filename as *byte, index_expr.line, index_expr.column);
+                    return null;
+                }
+            } else {
+                var filename: &byte = index_expr.filename;
+                if filename == null {
+                    filename = "<unknown>" as &byte;
+                }
+                fprintf(2 as *void, "错误: 数组访问索引类型无效 (%s:%d:%d)\n", 
+                        filename as *byte, index_expr.line, index_expr.column);
+                return null;
+            }
+        } else if index_type != i32_type {
+            // 索引类型不是 i32，需要进行类型转换
+            if index_kind == LLVMIntegerTypeKind {
+                // 整数类型：进行符号扩展或截断
+                const index_width: i32 = LLVMGetIntTypeWidth(index_type);
+                if index_width < 32 {
+                    // 零扩展到 i32
+                    index_val = LLVMBuildZExt(codegen.builder, index_val, i32_type, "");
+                } else if index_width > 32 {
+                    // 截断到 i32
+                    index_val = LLVMBuildTrunc(codegen.builder, index_val, i32_type, "");
+                }
+            } else {
+                // 非整数类型：错误
+                var filename: &byte = index_expr.filename;
+                if filename == null {
+                    filename = "<unknown>" as &byte;
+                }
+                fprintf(2 as *void, "错误: 数组访问索引必须是整数类型 (%s:%d:%d)\n", 
+                        filename as *byte, index_expr.line, index_expr.column);
+                return null;
+            }
+        }
+        
+        // 使用 GEP 获取元素地址
+        if array_ptr == null || array_type == null {
+            fprintf(2 as *void, "错误: codegen_gen_lvalue_address 数组指针或类型为空\n");
+            return null;
+        }
+        
+        // 检查 array_type 是否有效（避免段错误）
+        if array_type == 1 as *void {
+            return null;
+        }
+        
+        // 验证 array_ptr 不是标记值
+        if array_ptr == 1 as *void {
+            return null;
+        }
+        
+        const array_type_kind: i32 = LLVMGetTypeKind(array_type);
+        if array_type_kind == LLVMVoidTypeKind || array_type_kind == LLVMLabelTypeKind {
+            // 无效类型
+            fprintf(2 as *void, "警告: codegen_gen_lvalue_address 数组类型无效，跳过生成\n");
+            return null;
+        }
+        
+        var element_ptr: *void = null;
+        
+        // 检查是否是数组类型还是指针类型
+        if array_type_kind == LLVMArrayTypeKind {
+            // 数组类型：使用两个索引的 GEP
+            // 验证 array_ptr 的类型是指向数组的指针
+            const array_ptr_type: *void = LLVMTypeOf(array_ptr);
+            if array_ptr_type == null || LLVMGetTypeKind(array_ptr_type) != LLVMPointerTypeKind {
+                fprintf(2 as *void, "错误: codegen_gen_lvalue_address array_ptr 不是指针类型\n");
+                return null;
+            }
+            
+            const indices: [*void: 2] = [
+                LLVMConstInt(i32_type, 0 as usize, 0) as &void,  // 数组指针本身
+                index_val  // 元素索引（运行时值）
+            ];
+            
+            element_ptr = LLVMBuildGEP2(codegen.builder, array_type, array_ptr, &indices[0] as *void, 2, "");
+        } else {
+            // 指针类型（指向单个元素）：直接使用元素类型和单个索引
+            // 参考 clang 生成的 IR: getelementptr inbounds i8, ptr %buffer_ptr, i64 index
+            const element_type: *void = array_type;  // array_type 已经是元素类型（如 i8）
+            
+            const indices: [*void: 1] = [
+                index_val  // 单个索引
+            ];
+            
+            element_ptr = LLVMBuildGEP2(codegen.builder, element_type, array_ptr, &indices[0] as *void, 1, "");
+        }
+        
+        if element_ptr == null {
+            // 添加源码位置信息
+            var filename: &byte = index_expr.filename;
+            if filename == null {
+                filename = "<unknown>" as &byte;
+            }
+            fprintf(2 as *void, "错误: 数组访问地址生成失败 (%s:%d:%d) (array_type kind: %d)\n", 
+                    filename as *byte, index_expr.line, index_expr.column, array_type_kind);
+            // 验证索引类型
+            if index_val != null {
+                const index_type_check: *void = LLVMTypeOf(index_val);
+                if index_type_check != null {
+                    const index_kind_check: i32 = LLVMGetTypeKind(index_type_check);
+                    var index_width: i32 = 0;
+                    if index_kind_check == LLVMIntegerTypeKind {
+                        index_width = LLVMGetIntTypeWidth(index_type_check);
+                    }
+                    fprintf(2 as *void, "调试: 索引值类型 kind=%d, 宽度=%d\n", index_kind_check, index_width);
+                }
+            }
+            return null;
+        }
+        
+        // 返回元素地址（不需要加载值）
+        return element_ptr as &void;
+    }
+    
+    // 暂不支持其他类型的左值
+    return null;
+}
+

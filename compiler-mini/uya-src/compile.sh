@@ -247,7 +247,19 @@ UYA_FILES=(
     "lexer.uya"
     "parser.uya"
     "checker.uya"
-    "codegen.uya"
+    # codegen 模块（按依赖顺序）
+    "codegen/llvm_capi/internal.uya"
+    "codegen/llvm_capi/init.uya"
+    "codegen/llvm_capi/types.uya"
+    "codegen/llvm_capi/vars.uya"
+    "codegen/llvm_capi/funcs.uya"
+    "codegen/llvm_capi/structs.uya"
+    "codegen/llvm_capi/enums.uya"
+    "codegen/llvm_capi/expr.uya"
+    "codegen/llvm_capi/stmt.uya"
+    "codegen/llvm_capi/function.uya"
+    "codegen/llvm_capi/global.uya"
+    "codegen/llvm_capi/main.uya"
     "main.uya"
 )
 

@@ -1,0 +1,304 @@
+// main.uya - 代码生成器 main 模块
+// 使用 LLVM C API 生成 LLVM IR 并编译为二进制代码
+//
+// 注意：需要先包含 internal.uya（包含类型定义和函数声明）
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+
+fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) i32 {
+    if codegen == null || ast == null || output_file == null {
+        return -1;
+    }
+    
+    // 检查是否是程序节点
+    if ast.type != AST_PROGRAM {
+        return -1;
+    }
+    
+    // 保存程序节点（用于查找结构体声明）
+    codegen.program_node = ast;
+    
+    const decl_count: i32 = ast.program_decl_count;
+    var i: i32 = 0;  // 循环变量，在多个地方使用
+    // 直接访问固定大小数组，不需要嵌套指针变量
+    
+    // 检查声明数组（固定大小数组不会为 null，但可以检查 count）
+    if decl_count > 0 && decl_count > MAX_PROGRAM_DECLS {
+        return -1;  // 声明数量超出限制
+    }
+    
+    // 第零步：初始化目标并设置模块的 DataLayout（需要在生成函数体之前设置，以便 sizeof 可以使用）
+    // 初始化LLVM目标（只需要初始化一次，但重复初始化是安全的）
+    LLVMInitializeNativeTarget();
+    LLVMInitializeNativeAsmPrinter();
+    LLVMInitializeNativeAsmParser();
+    
+    // 获取默认目标三元组（例如："x86_64-pc-linux-gnu"）
+    const init_target_triple: &byte = LLVMGetDefaultTargetTriple();
+    if init_target_triple == null {
+        return -1;
+    }
+    
+    // 查找目标
+    var init_error_msg: &byte = null;
+    var init_target: *void = null;
+    if LLVMGetTargetFromTriple(init_target_triple, &init_target as *void, &init_error_msg as *void) != 0 {
+        // 错误处理：释放错误消息
+        if init_error_msg != null {
+            LLVMDisposeMessage(init_error_msg);
+        }
+        LLVMDisposeMessage(init_target_triple);
+        return -1;
+    }
+    
+    // 创建目标机器（使用默认的CPU和特性）
+    const init_opt_level: i32 = LLVMCodeGenLevelDefault;
+    const init_reloc_mode: i32 = LLVMRelocDefault;
+    const init_code_model: i32 = LLVMCodeModelDefault;
+    
+    const init_target_machine: *void = LLVMCreateTargetMachine(
+        init_target,
+        init_target_triple,
+        "",  // CPU（空字符串表示默认）
+        "",  // Features（空字符串表示默认）
+        init_opt_level,
+        init_reloc_mode,
+        init_code_model
+    );
+    
+    if init_target_machine == null {
+        LLVMDisposeMessage(init_target_triple);
+        return -1;
+    }
+    
+    // 配置模块的目标数据布局（需要在生成函数体之前设置）
+    LLVMSetTarget(codegen.module, init_target_triple);
+    const init_target_data: *void = LLVMCreateTargetDataLayout(init_target_machine);
+    if init_target_data != null {
+        // LLVM 18中，LLVMSetModuleDataLayout 直接接受 LLVMTargetDataRef 类型
+        LLVMSetModuleDataLayout(codegen.module, init_target_data);
+        LLVMDisposeTargetData(init_target_data);
+    }
+    
+    // 释放资源（第零步创建的 target_machine 和 target_triple）
+    LLVMDisposeTargetMachine(init_target_machine);
+    LLVMDisposeMessage(init_target_triple);
+    
+    // 第一步：预注册所有已知的结构体类型
+    // 这样可以避免函数内部注册的复杂性
+    codegen_pre_register_struct_types(codegen);
+
+    // 第二步：注册所有结构体类型
+    // 使用多次遍历的方式处理结构体依赖关系（如果结构体字段是其他结构体类型）
+    // 每次遍历注册所有可以注册的结构体，直到所有结构体都注册或无法继续注册
+    const max_iterations: i32 = decl_count + 1;  // 最多迭代 decl_count + 1 次
+    var iteration: i32 = 0;
+    
+    while iteration < max_iterations {
+        var registered_this_iteration: i32 = 0;
+        
+        // 遍历所有声明，尝试注册结构体类型
+        // 重用函数开始处声明的 i 变量
+        i = 0;
+        while i < decl_count {
+            const decl: &ASTNode = ast.program_decls[i];
+            if decl != null && decl.type == AST_STRUCT_DECL {
+                // 尝试注册结构体类型（如果已经注册，会返回成功）
+                if codegen_register_struct_type(codegen, decl) == 0 {
+                    registered_this_iteration = 1;
+                }
+            }
+            i = i + 1;
+        }
+        
+        // 如果这一轮没有注册任何结构体，说明所有可以注册的结构体都已注册
+        if registered_this_iteration == 0 {
+            break;
+        }
+        
+        iteration = iteration + 1;
+    }
+    
+    // 第二步：生成所有全局变量（在函数声明之前，这样函数可以访问全局变量）
+    i = 0;
+    while i < decl_count {
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl != null && decl.type == AST_VAR_DECL {
+            // 生成全局变量
+            const var_name: &byte = decl.var_decl_name;
+                const result: i32 = codegen_gen_global_var(codegen, decl);
+                if result != 0 {
+                    if var_name != null {
+                        fprintf(2 as *void, "错误: 全局变量生成失败: %s\n", var_name as *byte);
+                    } else {
+                        fprintf(2 as *void, "错误: 全局变量生成失败: %s\n", "(null)");
+                    }
+                    return -1;
+                }
+        }
+        i = i + 1;
+    }
+    
+    // 第三步：声明所有函数（创建函数声明并添加到函数表，但不生成函数体）
+    // 这样在生成函数体时，所有函数都已被声明，可以相互调用
+    i = 0;
+    while i < decl_count {
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl != null && decl.type == AST_FN_DECL {
+            // 声明函数（不生成函数体）
+            const func_name: &byte = decl.fn_decl_name;
+                const result: i32 = codegen_declare_function(codegen, decl);
+                if result != 0 {
+                    if func_name != null {
+                        fprintf(2 as *void, "错误: 函数声明失败: %s\n", func_name as *byte);
+                    } else {
+                        fprintf(2 as *void, "错误: 函数声明失败: %s\n", "(null)");
+                    }
+                    return -1;
+                }
+        }
+        i = i + 1;
+    }
+    
+    // 第四步：生成所有函数的函数体
+    // 此时所有函数都已被声明，可以相互调用
+    i = 0;
+    while i < decl_count {
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl != null && decl.type == AST_FN_DECL {
+            // extern 函数没有函数体，跳过
+            if decl.fn_decl_body == null {
+                i = i + 1;
+                continue;
+            }
+            
+            // 生成函数体
+            const func_name: &byte = decl.fn_decl_name;
+            const result: i32 = codegen_gen_function(codegen, decl);
+            if result != 0 {
+                // 函数生成失败已经在 codegen_gen_function 中报告了警告
+                // 在编译器自举时，某些函数可能暂时无法生成，允许继续编译其他函数
+                // 不返回错误，继续处理下一个函数
+            }
+        }
+        i = i + 1;
+    }
+    
+    // 第五步：生成目标代码
+    // 初始化LLVM目标（只需要初始化一次，但重复初始化是安全的）
+    LLVMInitializeNativeTarget();
+    LLVMInitializeNativeAsmPrinter();
+    LLVMInitializeNativeAsmParser();
+    
+    // 获取默认目标三元组（例如："x86_64-pc-linux-gnu"）
+    const target_triple: &byte = LLVMGetDefaultTargetTriple();
+    if target_triple == null {
+        return -1;
+    }
+    
+    // 查找目标
+    var error_msg: &byte = null;
+    var target: *void = null;
+    if LLVMGetTargetFromTriple(target_triple, &target as *void, &error_msg as *void) != 0 {
+        // 错误处理：释放错误消息
+        if error_msg != null {
+            LLVMDisposeMessage(error_msg);
+        }
+        LLVMDisposeMessage(target_triple);
+        return -1;
+    }
+    
+    // 创建目标机器（使用默认的CPU和特性）
+    // 优化级别：0 = 无优化，1 = 少量优化，2 = 默认优化，3 = 激进优化
+    const opt_level: i32 = LLVMCodeGenLevelDefault;
+    const reloc_mode: i32 = LLVMRelocDefault;
+    const code_model: i32 = LLVMCodeModelDefault;
+    
+    const target_machine: *void = LLVMCreateTargetMachine(
+        target,
+        target_triple,
+        "",  // CPU（空字符串表示默认）
+        "",  // Features（空字符串表示默认）
+        opt_level,
+        reloc_mode,
+        code_model
+    );
+    
+    if target_machine == null {
+        LLVMDisposeMessage(target_triple);
+        return -1;
+    }
+    
+    // 配置模块的目标数据布局（如果还没有设置）
+    // 注意：在第零步可能已经设置了 DataLayout，但重复设置是安全的
+    LLVMSetTarget(codegen.module, target_triple);
+    const layout_data: *void = LLVMCreateTargetDataLayout(target_machine);
+    if layout_data != null {
+        // LLVM 18中，LLVMSetModuleDataLayout 直接接受 LLVMTargetDataRef 类型
+        LLVMSetModuleDataLayout(codegen.module, layout_data);
+        LLVMDisposeTargetData(layout_data);
+    }
+    
+    // 生成LLVM IR文本到文件，用于调试
+    // 基于输出文件名生成 .ll 文件路径（将 .o 替换为 .ll）
+    // 简化处理：直接追加 .ll
+    var ir_file: [byte: 512] = [];
+    const output_len: i32 = strlen(output_file as *byte);
+    if output_len > 511 {
+        LLVMDisposeTargetMachine(target_machine);
+        LLVMDisposeMessage(target_triple);
+        return -1;
+    }
+    strncpy(&ir_file[0] as *byte, output_file as *byte, output_len);
+    ir_file[output_len] = 0;
+    
+    // 查找最后一个点号，如果以 .o 结尾则替换，否则追加 .ll
+    var last_dot: *byte = null;
+    // 使用不同的变量名避免与函数开始处的 i 冲突
+    var j: i32 = output_len - 1;
+    while j >= 0 {
+        if ir_file[j] == 46 {  // 46 是 '.' 的 ASCII 码
+            last_dot = &ir_file[j] as *byte;
+            break;
+        }
+        j = j - 1;
+    }
+    
+    if last_dot != null && strcmp(last_dot, ".o" as *byte) == 0 {
+        // 替换 .o 为 .ll
+        last_dot[0] = 46;  // '.'
+        last_dot[1] = 108;  // 'l'
+        last_dot[2] = 108;  // 'l'
+        last_dot[3] = 0;  // '\0'
+    } else {
+        // 追加 .ll
+        strcat(&ir_file[0] as *byte, ".ll" as *byte);
+    }
+    
+    var ir_error: &byte = null;
+    LLVMPrintModuleToFile(codegen.module, &ir_file[0] as *byte, &ir_error as *void);
+    if ir_error != null {
+        LLVMDisposeMessage(ir_error);
+    }
+    
+    // 生成目标代码到文件
+    var error: &byte = null;
+    if LLVMTargetMachineEmitToFile(target_machine, codegen.module, output_file as *byte, LLVMObjectFile, &error as *void) != 0 {
+        // 生成失败
+        if error != null {
+            fprintf(2 as *void, "错误: LLVM 代码生成失败: %s\n", error);
+            LLVMDisposeMessage(error);
+        } else {
+            fprintf(2 as *void, "错误: LLVM 代码生成失败（未知错误）\n");
+        }
+        LLVMDisposeTargetMachine(target_machine);
+        LLVMDisposeMessage(target_triple);
+        return -1;
+    }
+    
+    // 清理资源
+    LLVMDisposeTargetMachine(target_machine);
+    LLVMDisposeMessage(target_triple);
+    
+    return 0;
+}
+
