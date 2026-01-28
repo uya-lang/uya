@@ -60,7 +60,7 @@ DEBUG=false
 CLEAN=false
 GENERATE_EXEC=false
 USE_C99=false
-NO_LINE_DIRECTIVES=false
+USE_LINE_DIRECTIVES=false
 
 # 解析命令行选项
 while [[ $# -gt 0 ]]; do
@@ -89,7 +89,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --line-directives)
-            NO_LINE_DIRECTIVES=false
+            USE_LINE_DIRECTIVES=true
             shift
             ;;
         -o|--output)
@@ -212,8 +212,8 @@ COMPILER_CMD=("$COMPILER" "${FULL_PATHS[@]}" -o "$OUTPUT_FILE")
 if [ "$USE_C99" = true ]; then
     COMPILER_CMD+=(--c99)
 fi
-if [ "$NO_LINE_DIRECTIVES" = true ]; then
-    COMPILER_CMD+=(--no-line-directives)
+if [ "$USE_LINE_DIRECTIVES" = true ]; then
+    COMPILER_CMD+=(--line-directives)
 fi
 if [ "$GENERATE_EXEC" = true ]; then
     COMPILER_CMD+=(-exec)
