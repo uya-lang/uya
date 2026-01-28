@@ -16,6 +16,7 @@ PASSED=0
 FAILED=0
 ERRORS_ONLY=false
 USE_C99=false
+USE_UYA=false
 
 # 显示使用说明
 show_usage() {
@@ -25,6 +26,7 @@ show_usage() {
     echo "  -h, --help          显示此帮助信息"
     echo "  -e, --errors-only   只显示失败的测试"
     echo "  --c99               使用 C99 后端（默认使用 LLVM 后端）"
+    echo "  --uya               使用 uya-src 编译的编译器（默认使用 C 版本编译器）"
     echo ""
     echo "参数:"
     echo "  无参数              运行所有测试"
@@ -35,19 +37,14 @@ show_usage() {
     echo "  $0                                    # 运行所有测试"
     echo "  $0 -e                                 # 只显示失败的测试"
     echo "  $0 --c99                             # 使用 C99 后端运行所有测试"
+    echo "  $0 --uya                              # 使用 uya-src 编译的编译器运行所有测试"
     echo "  $0 test_struct_pointer_return.uya     # 运行单个测试文件"
     echo "  $0 -e test_struct_pointer_return.uya # 只显示失败信息"
     echo "  $0 --c99 test_struct_pointer_return.uya # 使用 C99 后端运行单个测试"
+    echo "  $0 --uya test_struct_pointer_return.uya # 使用 uya-src 编译器运行单个测试"
     echo "  $0 tests/programs                     # 运行指定目录下的所有测试"
     echo "  $0 tests/programs/multifile          # 运行指定子目录的测试"
 }
-
-# 检查编译器是否存在
-if [ ! -f "$COMPILER" ]; then
-    echo "错误: 编译器 '$COMPILER' 不存在"
-    echo "请先运行 'make build' 构建编译器"
-    exit 1
-fi
 
 # 检查测试目录是否存在
 if [ ! -d "$TEST_DIR" ]; then
@@ -76,6 +73,10 @@ while [ $# -gt 0 ]; do
             USE_C99=true
             shift
             ;;
+        --uya)
+            USE_UYA=true
+            shift
+            ;;
         -*)
             echo "错误: 未知选项 '$1'"
             echo "使用 '$0 --help' 查看帮助信息"
@@ -93,8 +94,65 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# 根据 --uya 选项设置编译器路径
+if [ "$USE_UYA" = true ]; then
+    # 检查多个可能的编译器文件名（按优先级）
+    UYA_COMPILER_PATHS=(
+        "./build/uya-compiler/compiler"
+        "./build/uya-compiler/compiler.c_exec"
+        "./build/uya-compiler/compiler.exe"
+        "./build/uya-compiler/compiler_exec"
+    )
+    
+    COMPILER=""
+    for path in "${UYA_COMPILER_PATHS[@]}"; do
+        if [ -f "$path" ] && [ -x "$path" ]; then
+            COMPILER="$path"
+            break
+        fi
+    done
+    
+    # 如果没找到，使用默认路径（用于错误提示）
+    if [ -z "$COMPILER" ]; then
+        COMPILER="./build/uya-compiler/compiler"
+    fi
+fi
+
+# 检查编译器是否存在
+if [ -z "$COMPILER" ] || [ ! -f "$COMPILER" ] || [ ! -x "$COMPILER" ]; then
+    if [ "$USE_UYA" = true ]; then
+        echo "错误: Uya 编译器不存在"
+        echo "已检查以下路径："
+        for path in "${UYA_COMPILER_PATHS[@]}"; do
+            if [ -f "$path" ]; then
+                if [ -x "$path" ]; then
+                    echo "  $path (存在且可执行)"
+                else
+                    echo "  $path (存在但不可执行)"
+                fi
+            else
+                echo "  $path (不存在)"
+            fi
+        done
+        echo ""
+        echo "请先运行 'cd uya-src && ./compile.sh -e --c99' 构建 Uya 编译器"
+    else
+        echo "错误: 编译器 '$COMPILER' 不存在"
+        echo "请先运行 'make build' 构建编译器"
+    fi
+    exit 1
+fi
+
 if [ "$ERRORS_ONLY" = false ]; then
     echo "开始运行 Uya 测试程序..."
+    echo "使用编译器: $COMPILER"
+    if [ "$USE_UYA" = true ]; then
+        echo "（Uya 版本编译器）"
+    elif [ "$USE_C99" = true ]; then
+        echo "（C99 后端）"
+    else
+        echo "（LLVM 后端）"
+    fi
     if [ -n "$TARGET_PATH" ]; then
         echo "目标: $TARGET_PATH"
     fi
