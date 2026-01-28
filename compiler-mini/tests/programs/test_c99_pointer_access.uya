@@ -39,7 +39,13 @@ fn test_nested_pointer(parser: &Parser) i32 {
     if parser.codegen.count != 20 {
         return 2;
     }
-    
+    const codegen: &CodeGen = parser.codegen;
+    codegen.count = 30;
+    if parser.codegen.count != 30 {
+        return 21;
+    }
+    codegen.count = 20;
+
     parser.token_count = 5;
     if parser.token_count != 5 {
         return 3;
