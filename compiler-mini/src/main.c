@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "arena.h"
 #include "lexer.h"
 #include "parser.h"
@@ -472,15 +473,148 @@ int main(int argc, char *argv[]) {
         
         // 根据后端类型选择合适的链接方式
         if (backend == BACKEND_C99) {
-            // 对于 C99 后端，使用 gcc 编译 C 源代码
-            char cmd[1024];
-            snprintf(cmd, sizeof(cmd), "gcc --std=c99 -o \"%s\" \"%s\"", executable_file, output_file);
+            // 对于 C99 后端，需要链接 bridge.c 和生成的 C 源代码
+            // 首先检查是否存在 bridge.c
+            char bridge_c_path[512];
+            char *last_slash = strrchr(output_file, '/');
+            if (last_slash) {
+                size_t dir_len = last_slash - output_file;
+                snprintf(bridge_c_path, sizeof(bridge_c_path), "%.*s/bridge.c", (int)dir_len, output_file);
+            } else {
+                snprintf(bridge_c_path, sizeof(bridge_c_path), "bridge.c");
+            }
+            
+            // 检查 bridge.c 是否存在
+            FILE *bridge_check = fopen(bridge_c_path, "r");
+            const char *bridge_file = NULL;
+            if (bridge_check) {
+                fclose(bridge_check);
+                bridge_file = bridge_c_path;
+            }
+            
+            // 构建编译命令
+            char cmd[2048];
+            int cmd_len;
+            
+            // 检测 LLVM 路径
+            const char *llvm_include = "";
+            const char *llvm_libdir = "";
+            const char *llvm_libs = "-lLLVM-17";
+            
+            // 检查 LLVM 头文件路径
+            FILE *llvm_include_check = fopen("/usr/include/llvm-c/Target.h", "r");
+            if (llvm_include_check) {
+                fclose(llvm_include_check);
+                llvm_include = "-I/usr/include/llvm-c";
+            }
+            
+            // 检查 LLVM 库路径
+            FILE *llvm_lib_check = fopen("/usr/lib/llvm-17/lib/libLLVM-17.so", "r");
+            if (llvm_lib_check) {
+                fclose(llvm_lib_check);
+                llvm_libdir = "-L/usr/lib/llvm-17/lib";
+            } else {
+                llvm_lib_check = fopen("/usr/lib/llvm-17/libLLVM-17.so", "r");
+                if (llvm_lib_check) {
+                    fclose(llvm_lib_check);
+                    llvm_libdir = "-L/usr/lib/llvm-17";
+                }
+            }
+            
+            if (bridge_file) {
+                // 使用 bridge.c 链接
+                // 需要先将 main 重命名为 uya_main
+                // 方法1：使用 objcopy（如果可用）
+                char renamed_object[512];
+                char objcopy_cmd[1024];
+                const char *link_object = output_file;
+                
+                if (last_slash) {
+                    size_t dir_len = last_slash - output_file;
+                    snprintf(renamed_object, sizeof(renamed_object), "%.*s/compiler_renamed.o", (int)dir_len, output_file);
+                } else {
+                    snprintf(renamed_object, sizeof(renamed_object), "compiler_renamed.o");
+                }
+                
+                // 先编译为对象文件
+                char compile_cmd[1024];
+                char object_file[512];
+                if (last_slash) {
+                    size_t dir_len = last_slash - output_file;
+                    snprintf(object_file, sizeof(object_file), "%.*s/compiler_temp.o", (int)dir_len, output_file);
+                } else {
+                    snprintf(object_file, sizeof(object_file), "compiler_temp.o");
+                }
+                
+                snprintf(compile_cmd, sizeof(compile_cmd), "gcc --std=c99 -c \"%s\" -o \"%s\" %s", 
+                         output_file, object_file, llvm_include);
+                int compile_obj_result = system(compile_cmd);
+                
+                if (compile_obj_result == 0) {
+                    // 尝试使用 objcopy 重命名 main 为 uya_main
+                    snprintf(objcopy_cmd, sizeof(objcopy_cmd), "objcopy --redefine-sym main=uya_main \"%s\" \"%s\"", 
+                             object_file, renamed_object);
+                    if (system(objcopy_cmd) == 0) {
+                        link_object = renamed_object;
+                    } else {
+                        link_object = object_file;
+                    }
+                }
+                
+                // 构建链接命令
+                cmd_len = snprintf(cmd, sizeof(cmd), 
+                    "gcc --std=c99 -no-pie %s %s \"%s\" \"%s\" -o \"%s\" %s -lstdc++ -lm -ldl -lpthread",
+                    llvm_include, llvm_libdir, link_object, bridge_file, executable_file, llvm_libs);
+            } else {
+                // 没有 bridge.c，直接编译（可能会失败，因为缺少运行时函数）
+                cmd_len = snprintf(cmd, sizeof(cmd), "gcc --std=c99 -o \"%s\" \"%s\"", executable_file, output_file);
+            }
+            
+            if (cmd_len >= (int)sizeof(cmd)) {
+                fprintf(stderr, "错误: 编译命令过长\n");
+                return 1;
+            }
+            
             fprintf(stderr, "执行编译命令: %s\n", cmd);
             int compile_result = system(cmd);
             if (compile_result != 0) {
                 fprintf(stderr, "错误: 编译 C99 代码失败\n");
+                // 清理临时文件
+                if (bridge_file) {
+                    char temp_files[3][512];
+                    int temp_count = 0;
+                    if (last_slash) {
+                        size_t dir_len = last_slash - output_file;
+                        snprintf(temp_files[temp_count++], sizeof(temp_files[0]), "%.*s/compiler_temp.o", (int)dir_len, output_file);
+                        snprintf(temp_files[temp_count++], sizeof(temp_files[0]), "%.*s/compiler_renamed.o", (int)dir_len, output_file);
+                    } else {
+                        snprintf(temp_files[temp_count++], sizeof(temp_files[0]), "compiler_temp.o");
+                        snprintf(temp_files[temp_count++], sizeof(temp_files[0]), "compiler_renamed.o");
+                    }
+                    for (int i = 0; i < temp_count; i++) {
+                        unlink(temp_files[i]);
+                    }
+                }
                 return 1;
             }
+            
+            // 清理临时文件
+            if (bridge_file) {
+                char temp_files[3][512];
+                int temp_count = 0;
+                if (last_slash) {
+                    size_t dir_len = last_slash - output_file;
+                    snprintf(temp_files[temp_count++], sizeof(temp_files[0]), "%.*s/compiler_temp.o", (int)dir_len, output_file);
+                    snprintf(temp_files[temp_count++], sizeof(temp_files[0]), "%.*s/compiler_renamed.o", (int)dir_len, output_file);
+                } else {
+                    snprintf(temp_files[temp_count++], sizeof(temp_files[0]), "compiler_temp.o");
+                    snprintf(temp_files[temp_count++], sizeof(temp_files[0]), "compiler_renamed.o");
+                }
+                for (int i = 0; i < temp_count; i++) {
+                    unlink(temp_files[i]);
+                }
+            }
+            
             fprintf(stderr, "C99 可执行文件已生成: %s\n", executable_file);
         } else {
             // LLVM 后端：使用现有的链接逻辑

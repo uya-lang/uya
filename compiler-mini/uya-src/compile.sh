@@ -141,6 +141,88 @@ fi
 # 创建输出目录
 mkdir -p "$BUILD_DIR"
 
+# 检查并创建 bridge.c 文件（如果不存在）
+BRIDGE_C="$BUILD_DIR/bridge.c"
+if [ ! -f "$BRIDGE_C" ]; then
+    if [ "$VERBOSE" = true ]; then
+        echo -e "${YELLOW}创建 bridge.c 文件...${NC}"
+    fi
+    cat > "$BRIDGE_C" << 'BRIDGE_EOF'
+// bridge.c - 提供运行时桥接函数
+// 这个文件提供了 Uya 程序需要的运行时函数，包括：
+// 1. 命令行参数访问函数（get_argc, get_argv）
+// 2. 标准错误流访问函数（get_stderr）
+// 3. LLVM 初始化函数（通过包含头文件提供内联实现）
+// 4. main 函数（调用 uya_main）
+
+#include <stdio.h>
+#include <stdint.h>
+
+// 注意：LLVM 初始化函数需要链接 LLVM 库
+// 这里不包含 LLVM 头文件，而是提供简单的包装函数
+// 实际的 LLVM 初始化由链接的 LLVM 库提供
+
+// 前向声明：Uya 程序的主函数（由编译器生成，使用 objcopy 重命名）
+extern int32_t uya_main(void);
+
+// 全局变量：保存命令行参数
+static int saved_argc = 0;
+static char **saved_argv = NULL;
+
+// 初始化函数：在 main 中调用，保存命令行参数
+void bridge_init(int argc, char **argv) {
+    saved_argc = argc;
+    saved_argv = argv;
+}
+
+// 获取命令行参数数量
+int32_t get_argc(void) {
+    return (int32_t)saved_argc;
+}
+
+// 获取第 index 个命令行参数
+uint8_t *get_argv(int32_t index) {
+    if (index < 0 || index >= saved_argc || saved_argv == NULL) {
+        return NULL;
+    }
+    return (uint8_t *)saved_argv[index];
+}
+
+// 获取标准错误流指针
+void *get_stderr(void) {
+    return (void *)stderr;
+}
+
+// LLVM 初始化函数的弱符号实现
+// 如果 LLVM 库提供了这些函数，链接器会使用库中的版本
+// 否则使用这里的空实现（对于不使用 LLVM 后端的程序）
+__attribute__((weak)) void LLVMInitializeNativeTarget(void) {
+    // 空实现：如果链接了 LLVM 库，库中的实现会被使用
+}
+
+__attribute__((weak)) void LLVMInitializeNativeAsmPrinter(void) {
+    // 空实现
+}
+
+__attribute__((weak)) void LLVMInitializeNativeAsmParser(void) {
+    // 空实现
+}
+
+// C 程序的 main 函数
+// 它初始化桥接函数，然后调用 Uya 程序的 main 函数（重命名为 uya_main）
+int main(int argc, char **argv) {
+    // 初始化桥接函数（保存命令行参数）
+    bridge_init(argc, argv);
+    
+    // 调用 Uya 程序的主函数
+    return (int)uya_main();
+}
+BRIDGE_EOF
+    if [ "$VERBOSE" = true ]; then
+        echo -e "${GREEN}✓ bridge.c 已创建${NC}"
+    fi
+fi
+
 # 输出文件路径
 OUTPUT_FILE="$BUILD_DIR/$OUTPUT_NAME"
 
@@ -274,23 +356,102 @@ if [ $COMPILER_EXIT -eq 0 ]; then
         # 检查可执行文件是否成功生成
         if [ ! -f "$EXECUTABLE_FILE" ]; then
             echo ""
-            echo -e "${RED}✗ 可执行文件生成失败${NC}"
-            echo "预期可执行文件路径: $EXECUTABLE_FILE"
-            echo "目标文件路径: $OUTPUT_FILE"
-            if [ -f "$OUTPUT_FILE" ]; then
-                echo ""
-                echo "目标文件已生成，但链接失败。可能的原因："
-                echo "  1. 系统未安装链接器（gcc、clang 或 lld）"
-                echo "  2. 链接器执行失败（检查编译输出中的错误信息）"
-                echo ""
-                echo "可以尝试手动链接："
-                if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-                    echo "  gcc -no-pie \"$OUTPUT_FILE\" -o \"${EXECUTABLE_FILE}.exe\""
+            echo -e "${YELLOW}可执行文件未自动生成，尝试手动链接...${NC}"
+            
+            # 检查是否存在 bridge.c
+            BRIDGE_C="$BUILD_DIR/bridge.c"
+            
+            # 对于 C99 后端，尝试自动链接
+            if [ "$USE_C99" = true ] && [ -f "$OUTPUT_FILE" ]; then
+                if [ -f "$BRIDGE_C" ]; then
+                    # 使用 objcopy 将 main 重命名为 uya_main（如果可用）
+                    RENAMED_OBJECT="${OUTPUT_FILE%.c}_renamed.o"
+                    LINK_OBJECT="$OUTPUT_FILE"
+                    
+                    if command -v objcopy >/dev/null 2>&1 && command -v gcc >/dev/null 2>&1; then
+                        # 先编译为对象文件
+                        if gcc --std=c99 -c "$OUTPUT_FILE" -o "${OUTPUT_FILE%.c}.o" 2>/dev/null; then
+                            # 尝试重命名 main 为 uya_main
+                            if objcopy --redefine-sym main=uya_main "${OUTPUT_FILE%.c}.o" "$RENAMED_OBJECT" 2>/dev/null; then
+                                LINK_OBJECT="$RENAMED_OBJECT"
+                            else
+                                LINK_OBJECT="${OUTPUT_FILE%.c}.o"
+                            fi
+                        fi
+                    fi
+                    
+                    # 尝试检测 LLVM 路径
+                    LLVM_INCLUDE=""
+                    LLVM_LIBDIR=""
+                    LLVM_LIBS="-lLLVM-17"
+                    
+                    if [ -d "/usr/include/llvm-c" ]; then
+                        LLVM_INCLUDE="-I/usr/include/llvm-c"
+                    fi
+                    if [ -d "/usr/lib/llvm-17/lib" ]; then
+                        LLVM_LIBDIR="-L/usr/lib/llvm-17/lib"
+                    elif [ -d "/usr/lib/llvm-17" ]; then
+                        LLVM_LIBDIR="-L/usr/lib/llvm-17"
+                    fi
+                    
+                    # 构建链接命令
+                    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+                        LINK_CMD="gcc --std=c99 -no-pie $LLVM_INCLUDE $LLVM_LIBDIR \"$LINK_OBJECT\" \"$BRIDGE_C\" -o \"${EXECUTABLE_FILE}.exe\" $LLVM_LIBS -lstdc++ -lm -ldl -lpthread"
+                    else
+                        LINK_CMD="gcc --std=c99 -no-pie $LLVM_INCLUDE $LLVM_LIBDIR \"$LINK_OBJECT\" \"$BRIDGE_C\" -o \"$EXECUTABLE_FILE\" $LLVM_LIBS -lstdc++ -lm -ldl -lpthread"
+                    fi
+                    
+                    if [ "$VERBOSE" = true ]; then
+                        echo "执行链接命令: $LINK_CMD"
+                    fi
+                    
+                    if eval "$LINK_CMD" 2>&1; then
+                        echo -e "${GREEN}✓ C99 可执行文件已生成: $EXECUTABLE_FILE${NC}"
+                        # 清理临时文件
+                        [ -f "$RENAMED_OBJECT" ] && rm -f "$RENAMED_OBJECT"
+                        [ -f "${OUTPUT_FILE%.c}.o" ] && rm -f "${OUTPUT_FILE%.c}.o"
+                    else
+                        echo -e "${RED}✗ 链接失败${NC}"
+                        echo ""
+                        echo "可以尝试手动链接："
+                        echo "  $LINK_CMD"
+                        exit 1
+                    fi
                 else
-                    echo "  gcc -no-pie \"$OUTPUT_FILE\" -o \"$EXECUTABLE_FILE\""
+                    echo -e "${RED}✗ bridge.c 文件不存在${NC}"
+                    echo "预期路径: $BRIDGE_C"
+                    exit 1
                 fi
+            else
+                # 非 C99 后端或文件不存在
+                echo -e "${RED}✗ 可执行文件生成失败${NC}"
+                echo "预期可执行文件路径: $EXECUTABLE_FILE"
+                echo "目标文件路径: $OUTPUT_FILE"
+                if [ -f "$OUTPUT_FILE" ]; then
+                    echo ""
+                    echo "目标文件已生成，但链接失败。可能的原因："
+                    echo "  1. 系统未安装链接器（gcc、clang 或 lld）"
+                    echo "  2. 链接器执行失败（检查编译输出中的错误信息）"
+                    echo ""
+                    echo "可以尝试手动链接："
+                    if [ -f "$BRIDGE_C" ]; then
+                        # LLVM 后端
+                        if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+                            echo "  gcc -no-pie \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${EXECUTABLE_FILE}.exe\" -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lm -ldl -lpthread"
+                        else
+                            echo "  gcc -no-pie \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"$EXECUTABLE_FILE\" -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lm -ldl -lpthread"
+                        fi
+                    else
+                        # 没有 bridge.c，使用简单链接
+                        if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+                            echo "  gcc -no-pie \"$OUTPUT_FILE\" -o \"${EXECUTABLE_FILE}.exe\""
+                        else
+                            echo "  gcc -no-pie \"$OUTPUT_FILE\" -o \"$EXECUTABLE_FILE\""
+                        fi
+                    fi
+                fi
+                exit 1
             fi
-            exit 1
         fi
         
         # 检查文件是否可执行
@@ -327,11 +488,31 @@ if [ $COMPILER_EXIT -eq 0 ]; then
             echo "提示: 如果要生成可执行文件，使用 -e 或 --exec 选项："
             echo "  $0 -e"
             echo "或者手动链接："
-            # 在 Windows 上使用 .exe 扩展名，在 Linux/Unix 上不使用
-            if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-                echo "  gcc -no-pie \"$OUTPUT_FILE\" -o \"${OUTPUT_FILE%.o}.exe\""
+            # 检查是否存在 bridge.c
+            BRIDGE_C="$BUILD_DIR/bridge.c"
+            if [ -f "$BRIDGE_C" ]; then
+                # 对于 C99 后端，需要链接 bridge.c
+                if [ "$USE_C99" = true ]; then
+                    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+                        echo "  gcc --std=c99 -no-pie \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}.exe\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lm -ldl -lpthread"
+                    else
+                        echo "  gcc --std=c99 -no-pie \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lm -ldl -lpthread"
+                    fi
+                else
+                    # LLVM 后端
+                    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+                        echo "  gcc -no-pie \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}.exe\" -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lm -ldl -lpthread"
+                    else
+                        echo "  gcc -no-pie \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}\" -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lm -ldl -lpthread"
+                    fi
+                fi
             else
-                echo "  gcc -no-pie \"$OUTPUT_FILE\" -o \"${OUTPUT_FILE%.o}\""
+                # 没有 bridge.c，使用简单链接
+                if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+                    echo "  gcc -no-pie \"$OUTPUT_FILE\" -o \"${OUTPUT_FILE%.o}.exe\""
+                else
+                    echo "  gcc -no-pie \"$OUTPUT_FILE\" -o \"${OUTPUT_FILE%.o}\""
+                fi
             fi
         fi
     else
