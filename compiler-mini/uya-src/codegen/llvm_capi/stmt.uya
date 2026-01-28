@@ -71,8 +71,8 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
             }
         }
         
-        // 使用 alloca 分配栈空间
-        const var_ptr: *void = LLVMBuildAlloca(codegen.builder, llvm_type, var_name);
+        // 使用 alloca 分配栈空间（放到函数入口基本块，避免支配性/终止符相关验证错误）
+        const var_ptr: *void = build_entry_alloca(codegen, llvm_type, var_name);
         if var_ptr == null {
             return -1;
         }
@@ -223,7 +223,7 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
                 
                 // 验证 init_val 的类型是否有效
                 if init_val != null {
-                    const init_val_type: *void = LLVMTypeOf(init_val);
+                    const init_val_type: &void = safe_LLVMTypeOf(init_val as &void);
                     if init_val_type == null {
                         var filename: &byte = stmt.filename;
                         if filename == null {
@@ -239,16 +239,16 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
             // 如果有初始值（空数组字面量时 init_val 为 null，跳过 store）
             if init_val != null {
                 // 检查类型是否匹配，如果不匹配则进行类型转换
-                const init_type: *void = LLVMTypeOf(init_val);
-                if init_type != llvm_type {
+                const init_type: &void = safe_LLVMTypeOf(init_val as &void);
+                if (init_type as *void) != llvm_type {
                     // 类型不匹配，需要进行类型转换
                     const var_type_kind: i32 = LLVMGetTypeKind(llvm_type);
-                    const init_type_kind: i32 = LLVMGetTypeKind(init_type);
+                    const init_type_kind: i32 = LLVMGetTypeKind(init_type as *void);
                     
                     if var_type_kind == LLVMIntegerTypeKind && init_type_kind == LLVMIntegerTypeKind {
                         // 整数类型之间的转换
                         const var_width: i32 = LLVMGetIntTypeWidth(llvm_type);
-                        const init_width: i32 = LLVMGetIntTypeWidth(init_type);
+                        const init_width: i32 = LLVMGetIntTypeWidth(init_type as *void);
                         
                         if var_width < init_width {
                             // 截断转换（例如 i32 -> i8）
@@ -260,16 +260,16 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
                         // 如果宽度相同，类型应该相同，不需要转换
                     } else if var_type_kind == LLVMArrayTypeKind && init_type_kind == LLVMArrayTypeKind {
                         // 数组类型：检查元素类型和长度是否匹配
-                        const var_element_type: *void = LLVMGetElementType(llvm_type);
-                        const init_element_type: *void = LLVMGetElementType(init_type);
+                        const var_element_type: &void = safe_LLVMGetElementType(llvm_type as &void);
+                        const init_element_type: &void = safe_LLVMGetElementType(init_type);
                         const var_length: i32 = LLVMGetArrayLength(llvm_type);
-                        const init_length: i32 = LLVMGetArrayLength(init_type);
+                        const init_length: i32 = LLVMGetArrayLength(init_type as *void);
                         
                         if var_element_type != null && init_element_type != null && 
                            var_length == init_length {
                             // 长度相同，检查元素类型
-                            const var_element_kind: i32 = LLVMGetTypeKind(var_element_type);
-                            const init_element_kind: i32 = LLVMGetTypeKind(init_element_type);
+                            const var_element_kind: i32 = LLVMGetTypeKind(var_element_type as *void);
+                            const init_element_kind: i32 = LLVMGetTypeKind(init_element_type as *void);
                             
                             if var_element_kind == LLVMIntegerTypeKind && init_element_kind == LLVMIntegerTypeKind {
                                 const var_element_width: i32 = LLVMGetIntTypeWidth(var_element_type);
@@ -354,11 +354,11 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
         }
         
         // 获取目标类型（用于 null 字面量处理）
-        const dest_ptr_type: *void = LLVMTypeOf(dest_ptr);
+        const dest_ptr_type: &void = safe_LLVMTypeOf(dest_ptr as &void);
         if dest_ptr_type == null {
             return -1;
         }
-        const dest_type: *void = LLVMGetElementType(dest_ptr_type);
+        const dest_type: &void = safe_LLVMGetElementType(dest_ptr_type);
         if dest_type == null {
             return -1;
         }
@@ -369,7 +369,7 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
             const src_name: &byte = src.identifier_name;
             if src_name != null && strcmp(src_name, "null") == 0 {
                 // null 字面量：检查目标类型是否为指针类型
-                const dest_type_kind: i32 = LLVMGetTypeKind(dest_type);
+                const dest_type_kind: i32 = LLVMGetTypeKind(dest_type as *void);
                 if dest_type_kind == LLVMPointerTypeKind {
                     src_val = LLVMConstNull(dest_type);
                 } else {
@@ -415,13 +415,8 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
             if stmt_node != null {
                 const result: i32 = codegen_gen_stmt(codegen, stmt_node);
                 if result != 0 {
-                    // 添加源码位置信息
-                    var filename: &byte = stmt_node.filename;
-                    if filename == null {
-                        filename = "<unknown>" as &byte;
-                    }
-                    fprintf(2 as *void, "错误: 处理 AST_BLOCK 中的第 %d 个语句失败 (%s:%d:%d)\n", 
-                            i, filename as *byte, stmt_node.line, stmt_node.column);
+                    // 生成详细的错误信息（包含原因和建议）
+                    report_stmt_error(codegen, stmt_node, i, "在代码块中" as *byte);
                     return -1;
                 }
             }
@@ -664,7 +659,7 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
         }
         
         // 分配循环索引变量 i（在当前基本块中分配，这样可以在所有后续基本块中使用）
-        const index_ptr: *void = LLVMBuildAlloca(codegen.builder, i32_type, "");
+        const index_ptr: *void = build_entry_alloca(codegen, i32_type, "");
         if index_ptr == null {
             codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
             return -1;
@@ -690,12 +685,12 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
             }
         } else {
             // 其他表达式：从指针类型推导数组类型
-            const array_ptr_type: *void = LLVMTypeOf(array_ptr);
-            if array_ptr_type == null || LLVMGetTypeKind(array_ptr_type) != LLVMPointerTypeKind {
+            const array_ptr_type: &void = safe_LLVMTypeOf(array_ptr as &void);
+            if array_ptr_type == null || LLVMGetTypeKind(array_ptr_type as *void) != LLVMPointerTypeKind {
                 codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
                 return -1;
             }
-            array_type = LLVMGetElementType(array_ptr_type);
+            array_type = safe_LLVMGetElementType(array_ptr_type) as *void;
             if array_type == null {
                 codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
                 return -1;
@@ -727,7 +722,7 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
         const array_length_val: *void = LLVMConstInt(i32_type, array_length, 0) as &void;
         
         // 获取元素类型
-        const element_type: *void = LLVMGetElementType(array_type);
+        const element_type: &void = safe_LLVMGetElementType(array_type as &void);
         if element_type == null {
             codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
             return -1;
@@ -748,7 +743,7 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
         }
         
         // 分配循环变量空间（在当前基本块中分配，这样可以在所有后续基本块中使用）
-        const loop_var_ptr: *void = LLVMBuildAlloca(codegen.builder, loop_var_type, "");
+        const loop_var_ptr: *void = build_entry_alloca(codegen, loop_var_type, "");
         if loop_var_ptr == null {
             codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
             return -1;
@@ -814,7 +809,7 @@ fn codegen_gen_stmt(codegen: &CodeGenerator, stmt: &ASTNode) i32 {
             loop_var_val = element_ptr;
         } else {
             // 值迭代：循环变量是元素值
-            loop_var_val = LLVMBuildLoad2(codegen.builder, element_type, element_ptr, "");
+            loop_var_val = LLVMBuildLoad2(codegen.builder, element_type as *void, element_ptr, "");
             if loop_var_val == null {
                 codegen.loop_stack_depth = codegen.loop_stack_depth - 1;
                 return -1;

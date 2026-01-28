@@ -118,6 +118,9 @@ extern fn LLVMGetArrayLength(array_type: *void) i32;
 extern fn LLVMGetFirstBasicBlock(func: *void) *void;
 extern fn LLVMGetNextBasicBlock(basic_block: *void) *void;
 extern fn LLVMGetBasicBlockTerminator(basic_block: *void) *void;
+extern fn LLVMGetEntryBasicBlock(func: *void) *void;  // 获取函数的入口基本块
+extern fn LLVMGetFirstInstruction(basic_block: *void) *void;  // 获取基本块的第一条指令
+extern fn LLVMPositionBuilderBefore(builder: *void, instruction: *void) void;  // 将构建器定位到指令之前
 extern fn LLVMCountStructElementTypes(struct_type: *void) i32;  // 获取结构体字段数量
 extern fn LLVMGetStructElementTypes(struct_type: *void, dest: *void) void;  // 获取结构体字段类型数组
 

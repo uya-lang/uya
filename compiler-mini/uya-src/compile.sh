@@ -250,6 +250,7 @@ UYA_FILES=(
     # codegen 模块（按依赖顺序）
     "codegen/llvm_capi/internal.uya"
     "codegen/llvm_capi/init.uya"
+    "codegen/llvm_capi/utils.uya"
     "codegen/llvm_capi/types.uya"
     "codegen/llvm_capi/vars.uya"
     "codegen/llvm_capi/funcs.uya"

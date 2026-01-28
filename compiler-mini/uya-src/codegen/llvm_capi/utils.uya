@@ -1,0 +1,204 @@
+// utils.uya - 代码生成器工具函数模块
+// 提供安全的 LLVM API 包装函数和错误报告函数
+//
+// 注意：需要先包含 internal.uya（包含类型定义和函数声明）
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+
+// ===== 外部函数声明 =====
+// C 标准库函数（在 extern_decls.uya 中声明）
+// LLVM API 函数（在 llvm_api.uya 中声明）
+
+// 安全的 LLVMTypeOf 包装函数，避免对标记值调用
+// 注意：参数和返回值使用 &void（普通指针），但在调用 extern 函数时需要转换为 *void（FFI 指针）
+fn safe_LLVMTypeOf(val: &void) &void {
+    if val == (1 as &void) {
+        return null;  // 标记值，返回 null
+    }
+    // 将普通指针转换为 FFI 指针以调用 extern 函数
+    const result: *void = LLVMTypeOf(val as *void);
+    // 将 FFI 指针转换回普通指针返回
+    return result as &void;
+}
+
+// 安全的 LLVMGetElementType 包装函数，避免对无效类型调用
+// 注意：参数和返回值使用 &void（普通指针），但在调用 extern 函数时需要转换为 *void（FFI 指针）
+fn safe_LLVMGetElementType(type: &void) &void {
+    if type == null {
+        return null;  // 无效类型，返回 null
+    }
+    
+    // 将普通指针转换为 FFI 指针以调用 extern 函数
+    const result: *void = LLVMGetElementType(type as *void);
+    
+    // 验证返回值是否有效
+    // 检查是否是标记值（如 0xffff00000107）
+    if result != null {
+        // 在 Uya Mini 中，我们无法直接检查指针的高位
+        // 但可以通过检查指针值是否在合理范围内来验证
+        // 注意：这是一个简化的实现，实际标记值检测可能需要更复杂的逻辑
+        // 如果 LLVMGetElementType 返回了无效值，LLVM 可能会在后续操作中失败
+        // 这里我们假设如果 result 不为 null，它就是有效的
+        // 如果需要更严格的检查，可以在调用后验证结果是否有效
+    }
+    
+    // 将 FFI 指针转换回普通指针返回
+    return result as &void;
+}
+
+// 格式化错误位置信息：源文件名(行:列)
+fn format_error_location(codegen: &CodeGenerator, node: &ASTNode, buffer: &byte, buffer_size: i32) void {
+    if codegen == null || node == null || buffer == null || buffer_size == 0 {
+        if buffer != null && buffer_size > 0 {
+            buffer[0] = 0;  // 空字符串（null 终止）
+        }
+        return;
+    }
+    // 优先使用 AST 节点自带的 filename（多文件编译时每个节点来自不同源文件）
+    // 回退到 module_name（通常是第一个输入文件名）
+    var filename: &byte = null;
+    if node.filename != null {
+        filename = node.filename;
+    } else if codegen.module_name != null {
+        filename = codegen.module_name;
+    } else {
+        filename = ("(unknown)" as *byte) as &byte;
+    }
+    snprintf(buffer as *byte, buffer_size, "%s(%d:%d)" as *byte, filename as *byte, node.line, node.column);
+}
+
+// 获取语句类型的名称（用于错误报告）
+// 注意：字符串字面量类型是 *byte（FFI 指针），需要转换为 &byte（普通指针）
+fn get_stmt_type_name(type: ASTNodeType) &byte {
+    if type == AST_VAR_DECL {
+        return ("变量声明" as *byte) as &byte;
+    } else if type == AST_ASSIGN {
+        return ("赋值语句" as *byte) as &byte;
+    } else if type == AST_RETURN_STMT {
+        return ("return 语句" as *byte) as &byte;
+    } else if type == AST_IF_STMT {
+        return ("if 语句" as *byte) as &byte;
+    } else if type == AST_WHILE_STMT {
+        return ("while 语句" as *byte) as &byte;
+    } else if type == AST_FOR_STMT {
+        return ("for 语句" as *byte) as &byte;
+    } else if type == AST_BREAK_STMT {
+        return ("break 语句" as *byte) as &byte;
+    } else if type == AST_CONTINUE_STMT {
+        return ("continue 语句" as *byte) as &byte;
+    } else if type == AST_EXPR_STMT {
+        return ("表达式语句" as *byte) as &byte;
+    } else if type == AST_BLOCK {
+        return ("代码块" as *byte) as &byte;
+    } else {
+        return ("未知语句类型" as *byte) as &byte;
+    }
+}
+
+// 生成详细的错误信息（包含原因和建议）
+fn report_stmt_error(codegen: &CodeGenerator, stmt: &ASTNode, stmt_index: i32, context: &byte) void {
+    // codegen 和 context 暂时未使用，保留以备将来使用
+    
+    if stmt == null {
+        fprintf(2 as *void, "错误: 语句节点为 NULL\n" as *byte);
+        return;
+    }
+    
+    var filename: &byte = null;
+    if stmt.filename != null {
+        filename = stmt.filename;
+    } else {
+        filename = ("<unknown>" as *byte) as &byte;
+    }
+    const stmt_type_name: &byte = get_stmt_type_name(stmt.type);
+    
+    fprintf(2 as *void, "错误: 处理 AST_BLOCK 中的第 %d 个语句失败 (%s:%d:%d)\n" as *byte, 
+            stmt_index, filename as *byte, stmt.line, stmt.column);
+    fprintf(2 as *void, "  语句类型: %s (类型代码: %d)\n" as *byte, stmt_type_name, stmt.type as i32);
+    
+    // 根据语句类型提供具体的错误原因和修改建议
+    if stmt.type == AST_VAR_DECL {
+        const var_name: &byte = stmt.var_decl_name;
+        var display_name: &byte = null;
+        if var_name != null {
+            display_name = var_name;
+        } else {
+            display_name = ("(未命名)" as *byte) as &byte;
+        }
+        fprintf(2 as *void, "  错误原因: 变量声明 '%s' 的代码生成失败\n" as *byte, display_name);
+        fprintf(2 as *void, "  可能原因:\n" as *byte);
+        fprintf(2 as *void, "    - 变量类型未定义或无效\n" as *byte);
+        fprintf(2 as *void, "    - 初始值表达式包含错误（如未定义的变量、类型不匹配等）\n" as *byte);
+        fprintf(2 as *void, "    - 数组大小表达式不是编译期常量\n" as *byte);
+        fprintf(2 as *void, "  修改建议:\n" as *byte);
+        fprintf(2 as *void, "    - 检查变量类型是否正确声明\n" as *byte);
+        fprintf(2 as *void, "    - 检查初始值表达式中使用的变量是否已定义\n" as *byte);
+        fprintf(2 as *void, "    - 确保数组大小是编译期常量表达式\n" as *byte);
+    } else if stmt.type == AST_ASSIGN {
+        const dest: &ASTNode = stmt.assign_dest;  // 赋值语句的目标
+        var dest_name: &byte = null;
+        if dest != null && dest.type == AST_IDENTIFIER {
+            dest_name = dest.identifier_name;
+        }
+        fprintf(2 as *void, "  错误原因: 赋值语句代码生成失败\n" as *byte);
+        if dest_name != null {
+            fprintf(2 as *void, "  目标变量: %s\n" as *byte, dest_name);
+        }
+        fprintf(2 as *void, "  可能原因:\n" as *byte);
+        fprintf(2 as *void, "    - 目标变量未定义\n" as *byte);
+        fprintf(2 as *void, "    - 目标不是左值（不能赋值，如常量或表达式结果）\n" as *byte);
+        fprintf(2 as *void, "    - 源表达式类型与目标类型不匹配\n" as *byte);
+        fprintf(2 as *void, "    - 源表达式包含错误（如未定义的变量、函数调用失败等）\n" as *byte);
+        fprintf(2 as *void, "  修改建议:\n" as *byte);
+        if dest_name != null {
+            fprintf(2 as *void, "    - 检查变量 '%s' 是否已声明\n" as *byte, dest_name);
+        }
+        fprintf(2 as *void, "    - 确保赋值目标是一个变量或可修改的左值\n" as *byte);
+        fprintf(2 as *void, "    - 检查源表达式的类型是否与目标变量类型兼容\n" as *byte);
+        fprintf(2 as *void, "    - 检查源表达式中使用的变量和函数是否已定义\n" as *byte);
+    } else if stmt.type == AST_RETURN_STMT {
+        const return_expr: &ASTNode = stmt.return_stmt_expr;
+        fprintf(2 as *void, "  错误原因: return 语句代码生成失败\n" as *byte);
+        fprintf(2 as *void, "  可能原因:\n" as *byte);
+        if return_expr != null {
+            fprintf(2 as *void, "    - 返回值表达式生成失败\n" as *byte);
+            fprintf(2 as *void, "    - 返回值类型与函数返回类型不匹配\n" as *byte);
+        } else {
+            fprintf(2 as *void, "    - 函数期望返回值但使用了 void return\n" as *byte);
+            fprintf(2 as *void, "    - 函数期望 void 返回但提供了返回值\n" as *byte);
+        }
+        fprintf(2 as *void, "  修改建议:\n" as *byte);
+        if return_expr != null {
+            fprintf(2 as *void, "    - 检查返回值表达式是否正确\n" as *byte);
+            fprintf(2 as *void, "    - 确保返回值类型与函数声明的返回类型匹配\n" as *byte);
+        } else {
+            fprintf(2 as *void, "    - 检查函数返回类型声明是否正确\n" as *byte);
+        }
+    } else if stmt.type == AST_IF_STMT || stmt.type == AST_WHILE_STMT || stmt.type == AST_FOR_STMT {
+        fprintf(2 as *void, "  错误原因: 控制流语句代码生成失败\n" as *byte);
+        fprintf(2 as *void, "  可能原因:\n" as *byte);
+        fprintf(2 as *void, "    - 条件表达式生成失败或类型不是布尔类型\n" as *byte);
+        fprintf(2 as *void, "    - 循环体或分支代码块包含错误\n" as *byte);
+        fprintf(2 as *void, "  修改建议:\n" as *byte);
+        fprintf(2 as *void, "    - 检查条件表达式是否正确且返回布尔值\n" as *byte);
+        fprintf(2 as *void, "    - 检查循环体或分支中的语句是否正确\n" as *byte);
+    } else if stmt.type == AST_EXPR_STMT {
+        fprintf(2 as *void, "  错误原因: 表达式语句代码生成失败\n" as *byte);
+        fprintf(2 as *void, "  可能原因:\n" as *byte);
+        fprintf(2 as *void, "    - 表达式包含未定义的变量或函数\n" as *byte);
+        fprintf(2 as *void, "    - 表达式类型错误或操作数类型不匹配\n" as *byte);
+        fprintf(2 as *void, "    - 函数调用失败（函数未定义或参数不匹配）\n" as *byte);
+        fprintf(2 as *void, "  修改建议:\n" as *byte);
+        fprintf(2 as *void, "    - 检查表达式中使用的变量和函数是否已定义\n" as *byte);
+        fprintf(2 as *void, "    - 检查操作数类型是否匹配\n" as *byte);
+        fprintf(2 as *void, "    - 检查函数调用的参数类型和数量是否正确\n" as *byte);
+    } else {
+        fprintf(2 as *void, "  错误原因: 语句代码生成失败\n" as *byte);
+        fprintf(2 as *void, "  可能原因: 语句包含语法错误或语义错误\n" as *byte);
+        fprintf(2 as *void, "  修改建议: 检查语句的语法和语义是否正确\n" as *byte);
+    }
+    
+    if context != null && strlen(context as *byte) > 0 {
+        fprintf(2 as *void, "  上下文: %s\n" as *byte, context as *byte);
+    }
+}
+

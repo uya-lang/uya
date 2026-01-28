@@ -118,6 +118,51 @@ fn lookup_var_struct_name(codegen: &CodeGenerator, var_name: &byte) &byte {
     return null;  // 未找到
 }
 
+// 在函数入口基本块中创建 alloca 指令
+// 这避免了支配性/终止符相关验证错误
+// 注意：参数和返回值使用 &void（普通指针），但在调用 extern 函数时需要转换为 *void（FFI 指针）
+fn build_entry_alloca(codegen: &CodeGenerator, type: &void, name: &byte) &void {
+    if codegen == null || codegen.builder == null || codegen.context == null || type == null {
+        return null;
+    }
+
+    // 将普通指针转换为 FFI 指针以调用 extern 函数
+    const current_bb: *void = LLVMGetInsertBlock(codegen.builder as *void);
+    if current_bb == null {
+        return null;
+    }
+    const func: *void = LLVMGetBasicBlockParent(current_bb);
+    if func == null {
+        return null;
+    }
+    const entry_bb: *void = LLVMGetEntryBasicBlock(func);
+    if entry_bb == null {
+        return null;
+    }
+
+    const tmp_builder: *void = LLVMCreateBuilderInContext(codegen.context as *void);
+    if tmp_builder == null {
+        return null;
+    }
+
+    const first_inst: *void = LLVMGetFirstInstruction(entry_bb);
+    if first_inst != null {
+        LLVMPositionBuilderBefore(tmp_builder, first_inst);
+    } else {
+        LLVMPositionBuilderAtEnd(tmp_builder, entry_bb);
+    }
+
+    var alloca_name: &byte = name;
+    if alloca_name == null {
+        alloca_name = "" as *byte;
+    }
+    // 将普通指针转换为 FFI 指针以调用 extern 函数
+    const alloca_inst: *void = LLVMBuildAlloca(tmp_builder, type as *void, alloca_name as *byte);
+    LLVMDisposeBuilder(tmp_builder);
+    // 将 FFI 指针转换回普通指针返回
+    return alloca_inst as &void;
+}
+
 fn add_var(codegen: &CodeGenerator, var_name: &byte, _value: &void, _type: &void, struct_name: &byte, ast_type: &ASTNode) i32 {
     const value:*void = _value as *void;
     const type:*void = _type as *void;
@@ -208,8 +253,8 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
         }
         
         // 验证操作数是指针类型
-        const operand_type: *void = LLVMTypeOf(operand_val);
-        if operand_type == null || LLVMGetTypeKind(operand_type) != LLVMPointerTypeKind {
+        const operand_type: &void = safe_LLVMTypeOf(operand_val as &void);
+        if operand_type == null || LLVMGetTypeKind(operand_type as *void) != LLVMPointerTypeKind {
             return null;  // 操作数不是指针类型
         }
         
@@ -275,28 +320,28 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
                 }
 
                 // 获取对象指针的类型（应该是结构体指针类型）
-                const object_ptr_type: *void = LLVMTypeOf(object_ptr);
-                if object_ptr_type == null || LLVMGetTypeKind(object_ptr_type) != LLVMPointerTypeKind {
+                const object_ptr_type: &void = safe_LLVMTypeOf(object_ptr as &void);
+                if object_ptr_type == null || LLVMGetTypeKind(object_ptr_type as *void) != LLVMPointerTypeKind {
                     return null;
                 }
 
                 // 获取指向的结构体类型
-                var pointed_struct_type: *void = LLVMGetElementType(object_ptr_type);
+                var pointed_struct_type: &void = safe_LLVMGetElementType(object_ptr_type);
                 if pointed_struct_type == null {
                     return null;
                 }
                 
                 // 检查指向的类型是否是结构体类型
-                var pointed_type_kind: i32 = LLVMGetTypeKind(pointed_struct_type);
+                var pointed_type_kind: i32 = LLVMGetTypeKind(pointed_struct_type as *void);
                 if pointed_type_kind != LLVMStructTypeKind {
                     // 如果指向的类型不是结构体类型，可能是指针类型（如 &EnumVariant）
                     // 需要再次获取元素类型
                     if pointed_type_kind == LLVMPointerTypeKind {
-                        pointed_struct_type = LLVMGetElementType(pointed_struct_type);
+                        pointed_struct_type = safe_LLVMGetElementType(pointed_struct_type);
                         if pointed_struct_type == null {
                             return null;
                         }
-                        pointed_type_kind = LLVMGetTypeKind(pointed_struct_type);
+                        pointed_type_kind = LLVMGetTypeKind(pointed_struct_type as *void);
                     }
                     
                     if pointed_type_kind != LLVMStructTypeKind {
@@ -369,8 +414,8 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
                         const var_type_kind: i32 = LLVMGetTypeKind(var_type);
                         if var_type_kind == LLVMPointerTypeKind {
                             // 变量是指针类型（包括栈上数组变量的地址）
-                            const pointed_type: *void = LLVMGetElementType(var_type);
-                            if pointed_type != null && LLVMGetTypeKind(pointed_type) == LLVMArrayTypeKind {
+                            const pointed_type: &void = safe_LLVMGetElementType(var_type as &void);
+                            if pointed_type != null && LLVMGetTypeKind(pointed_type as *void) == LLVMArrayTypeKind {
                                 // 指针指向数组（栈上数组变量），array_ptr 已经是地址，直接使用
                                 array_type = pointed_type;
                                 // array_ptr 已经是正确的指针，不需要加载
@@ -399,10 +444,10 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
                 array_ptr = codegen_gen_lvalue_address(codegen, array_expr);
                 if array_ptr != null {
                     // 获取字段的类型（指针数组类型）
-                    const field_type: *void = LLVMTypeOf(array_ptr);
-                    if field_type != null && LLVMGetTypeKind(field_type) == LLVMPointerTypeKind {
-                        const pointed_type: *void = LLVMGetElementType(field_type);
-                        if pointed_type != null && LLVMGetTypeKind(pointed_type) == LLVMArrayTypeKind {
+                    const field_type: &void = safe_LLVMTypeOf(array_ptr as &void);
+                    if field_type != null && LLVMGetTypeKind(field_type as *void) == LLVMPointerTypeKind {
+                        const pointed_type: &void = safe_LLVMGetElementType(field_type);
+                        if pointed_type != null && LLVMGetTypeKind(pointed_type as *void) == LLVMArrayTypeKind {
                             array_type = pointed_type;
                         } else {
                             // 如果不是数组类型，可能是指针类型（如 &byte）
@@ -415,10 +460,10 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
                 array_ptr = codegen_gen_lvalue_address(codegen, array_expr);
                 if array_ptr != null && array_ptr != 1 as *void {
                     // 优先从指针类型获取数组类型（这是最可靠的方法）
-                    const array_ptr_type: *void = LLVMTypeOf(array_ptr);
-                    if array_ptr_type != null && LLVMGetTypeKind(array_ptr_type) == LLVMPointerTypeKind {
-                        const pointed_type: *void = LLVMGetElementType(array_ptr_type);
-                        if pointed_type != null && LLVMGetTypeKind(pointed_type) == LLVMArrayTypeKind {
+                    const array_ptr_type: &void = safe_LLVMTypeOf(array_ptr as &void);
+                    if array_ptr_type != null && LLVMGetTypeKind(array_ptr_type as *void) == LLVMPointerTypeKind {
+                        const pointed_type: &void = safe_LLVMGetElementType(array_ptr_type);
+                        if pointed_type != null && LLVMGetTypeKind(pointed_type as *void) == LLVMArrayTypeKind {
                             array_type = pointed_type;
                         } else {
                             // 如果不是数组类型，可能是指针类型（如 &byte）
@@ -433,15 +478,15 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
                 return null;
             }
             
-            const array_val_type: *void = LLVMTypeOf(array_val);
+            const array_val_type: &void = safe_LLVMTypeOf(array_val as &void);
             if array_val_type == null {
                 return null;
             }
             
-            const array_val_kind: i32 = LLVMGetTypeKind(array_val_type);
+            const array_val_kind: i32 = LLVMGetTypeKind(array_val_type as *void);
             if array_val_kind == LLVMArrayTypeKind {
                 // 数组值类型，需要分配临时空间存储数组值
-                array_type = array_val_type;
+                array_type = array_val_type as *void;
                 array_ptr = LLVMBuildAlloca(codegen.builder, array_type, "");
                 if array_ptr == null {
                     return null;
@@ -450,7 +495,7 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
             } else if array_val_kind == LLVMPointerTypeKind {
                 // 指针类型（如 &byte 或指向数组的指针）
                 array_ptr = array_val;
-                array_type = LLVMGetElementType(array_val_type);
+                array_type = safe_LLVMGetElementType(array_val_type) as *void;
                 if array_type == null {
                     return null;
                 }
@@ -481,7 +526,7 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
                     }
                     
                     // 确保索引值是整数类型（i32）
-                    const index_type: *void = LLVMTypeOf(index_val);
+                    const index_type: &void = safe_LLVMTypeOf(index_val as &void);
                     if index_type == null {
                         var filename: &byte = index_expr.filename;
                         if filename == null {
@@ -493,17 +538,17 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
                     }
                     
                     const i32_type: *void = LLVMInt32Type();
-                    const index_kind: i32 = LLVMGetTypeKind(index_type);
+                    const index_kind: i32 = LLVMGetTypeKind(index_type as *void);
                     
                     // 如果索引类型是指针类型，需要先加载值
                     if index_kind == LLVMPointerTypeKind {
                         // 索引表达式返回了指针类型，需要加载值
-                        const pointed_type: *void = LLVMGetElementType(index_type);
+                        const pointed_type: &void = safe_LLVMGetElementType(index_type);
                         if pointed_type != null {
-                            const pointed_kind: i32 = LLVMGetTypeKind(pointed_type);
+                            const pointed_kind: i32 = LLVMGetTypeKind(pointed_type as *void);
                             if pointed_kind == LLVMIntegerTypeKind {
                                 // 指向整数类型，加载值
-                                index_val = LLVMBuildLoad2(codegen.builder, pointed_type, index_val, "");
+                                index_val = LLVMBuildLoad2(codegen.builder, pointed_type as *void, index_val, "");
                                 if index_val == null {
                                     var filename: &byte = index_expr.filename;
                                     if filename == null {
@@ -514,13 +559,13 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
                                     return null;
                                 }
                                 // 重新获取类型
-                                const new_index_type: *void = LLVMTypeOf(index_val);
-                                if new_index_type != null && new_index_type == i32_type {
+                                const new_index_type: &void = safe_LLVMTypeOf(index_val as &void);
+                                if new_index_type != null && (new_index_type as *void) == i32_type {
                                     // 已经是 i32 类型，继续
                                 } else if new_index_type != null {
-                                    const new_index_kind: i32 = LLVMGetTypeKind(new_index_type);
+                                    const new_index_kind: i32 = LLVMGetTypeKind(new_index_type as *void);
                                     if new_index_kind == LLVMIntegerTypeKind {
-                                        const new_index_width: i32 = LLVMGetIntTypeWidth(new_index_type);
+                                        const new_index_width: i32 = LLVMGetIntTypeWidth(new_index_type as *void);
                                         if new_index_width < 32 {
                                             index_val = LLVMBuildZExt(codegen.builder, index_val, i32_type, "");
                                         } else if new_index_width > 32 {
@@ -554,11 +599,11 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
                                     filename as *byte, index_expr.line, index_expr.column);
                             return null;
                         }
-                    } else if index_type != i32_type {
+                    } else if (index_type as *void) != i32_type {
                         // 索引类型不是 i32，需要进行类型转换
                         if index_kind == LLVMIntegerTypeKind {
                             // 整数类型：进行符号扩展或截断
-                            const index_width: i32 = LLVMGetIntTypeWidth(index_type);
+                            const index_width: i32 = LLVMGetIntTypeWidth(index_type as *void);
                             if index_width < 32 {
                                 // 零扩展到 i32
                                 index_val = LLVMBuildZExt(codegen.builder, index_val, i32_type, "");
@@ -618,7 +663,7 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
         }
         
         // 确保索引值是整数类型（i32）
-        const index_type: *void = LLVMTypeOf(index_val);
+        const index_type: &void = safe_LLVMTypeOf(index_val as &void);
         if index_type == null {
             var filename: &byte = index_expr.filename;
             if filename == null {
@@ -635,7 +680,7 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
         // 如果索引类型是指针类型，需要先加载值
         if index_kind == LLVMPointerTypeKind {
             // 索引表达式返回了指针类型，需要加载值
-            const pointed_type: *void = LLVMGetElementType(index_type);
+            const pointed_type: &void = safe_LLVMGetElementType(index_type);
             if pointed_type != null {
                 const pointed_kind: i32 = LLVMGetTypeKind(pointed_type);
                 if pointed_kind == LLVMIntegerTypeKind {
@@ -651,13 +696,13 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
                         return null;
                     }
                     // 重新获取类型
-                    const new_index_type: *void = LLVMTypeOf(index_val);
-                    if new_index_type != null && new_index_type == i32_type {
+                    const new_index_type: &void = safe_LLVMTypeOf(index_val as &void);
+                    if new_index_type != null && (new_index_type as *void) == i32_type {
                         // 已经是 i32 类型，继续
                     } else if new_index_type != null {
                         const new_index_kind: i32 = LLVMGetTypeKind(new_index_type);
                         if new_index_kind == LLVMIntegerTypeKind {
-                            const new_index_width: i32 = LLVMGetIntTypeWidth(new_index_type);
+                            const new_index_width: i32 = LLVMGetIntTypeWidth(new_index_type as *void);
                             if new_index_width < 32 {
                                 index_val = LLVMBuildZExt(codegen.builder, index_val, i32_type, "");
                             } else if new_index_width > 32 {
@@ -691,11 +736,11 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
                         filename as *byte, index_expr.line, index_expr.column);
                 return null;
             }
-        } else if index_type != i32_type {
+        } else if (index_type as *void) != i32_type {
             // 索引类型不是 i32，需要进行类型转换
             if index_kind == LLVMIntegerTypeKind {
                 // 整数类型：进行符号扩展或截断
-                const index_width: i32 = LLVMGetIntTypeWidth(index_type);
+                const index_width: i32 = LLVMGetIntTypeWidth(index_type as *void);
                 if index_width < 32 {
                     // 零扩展到 i32
                     index_val = LLVMBuildZExt(codegen.builder, index_val, i32_type, "");
@@ -744,7 +789,7 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
         if array_type_kind == LLVMArrayTypeKind {
             // 数组类型：使用两个索引的 GEP
             // 验证 array_ptr 的类型是指向数组的指针
-            const array_ptr_type: *void = LLVMTypeOf(array_ptr);
+            const array_ptr_type: &void = safe_LLVMTypeOf(array_ptr as &void);
             if array_ptr_type == null || LLVMGetTypeKind(array_ptr_type) != LLVMPointerTypeKind {
                 fprintf(2 as *void, "错误: codegen_gen_lvalue_address array_ptr 不是指针类型\n");
                 return null;
@@ -778,12 +823,12 @@ fn codegen_gen_lvalue_address(codegen: &CodeGenerator, expr: &ASTNode) &void {
                     filename as *byte, index_expr.line, index_expr.column, array_type_kind);
             // 验证索引类型
             if index_val != null {
-                const index_type_check: *void = LLVMTypeOf(index_val);
+                const index_type_check: &void = safe_LLVMTypeOf(index_val as &void);
                 if index_type_check != null {
                     const index_kind_check: i32 = LLVMGetTypeKind(index_type_check);
                     var index_width: i32 = 0;
                     if index_kind_check == LLVMIntegerTypeKind {
-                        index_width = LLVMGetIntTypeWidth(index_type_check);
+                        index_width = LLVMGetIntTypeWidth(index_type_check as *void);
                     }
                     fprintf(2 as *void, "调试: 索引值类型 kind=%d, 宽度=%d\n", index_kind_check, index_width);
                 }
