@@ -286,7 +286,7 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
             c99_emit(codegen, "    memcpy(%s, %s_param, sizeof(%s));\n", param_name, param_name, param_name);
             
             // 将参数名注册为局部数组（而不是参数）
-            if (param_name && codegen->local_variable_count < 128) {
+            if (param_name && codegen->local_variable_count < C99_MAX_LOCAL_VARS) {
                 codegen->local_variables[codegen->local_variable_count].name = param->data.var_decl.name;  // 使用原始名称
                 codegen->local_variables[codegen->local_variable_count].type_c = array_type_c;
                 codegen->local_variable_count++;
@@ -294,7 +294,7 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
         } else {
             // 非数组参数：正常添加到局部变量表
             const char *param_type_c = c99_type_to_c(codegen, param_type);
-            if (param_name && param_type_c && codegen->local_variable_count < 128) {
+            if (param_name && param_type_c && codegen->local_variable_count < C99_MAX_LOCAL_VARS) {
                 codegen->local_variables[codegen->local_variable_count].name = param->data.var_decl.name;
                 codegen->local_variables[codegen->local_variable_count].type_c = param_type_c;
                 codegen->local_variable_count++;

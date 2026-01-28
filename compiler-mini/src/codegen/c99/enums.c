@@ -98,7 +98,7 @@ void add_enum_definition(C99CodeGenerator *codegen, const char *enum_name) {
         }
     }
     
-    if (codegen->enum_definition_count < 64) {
+    if (codegen->enum_definition_count < C99_MAX_ENUM_DEFINITIONS) {
         codegen->enum_definitions[codegen->enum_definition_count].name = enum_name;
         codegen->enum_definitions[codegen->enum_definition_count].defined = 0;
         codegen->enum_definition_count++;

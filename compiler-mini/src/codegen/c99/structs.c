@@ -33,7 +33,7 @@ void mark_struct_defined(C99CodeGenerator *codegen, const char *struct_name) {
     }
     
     // 如果不在表中，添加
-    if (codegen->struct_definition_count < 64) {
+    if (codegen->struct_definition_count < C99_MAX_STRUCT_DEFINITIONS) {
         codegen->struct_definitions[codegen->struct_definition_count].name = struct_name;
         codegen->struct_definitions[codegen->struct_definition_count].defined = 1;
         codegen->struct_definition_count++;
@@ -46,7 +46,7 @@ void add_struct_definition(C99CodeGenerator *codegen, const char *struct_name) {
         return;
     }
     
-    if (codegen->struct_definition_count < 64) {
+    if (codegen->struct_definition_count < C99_MAX_STRUCT_DEFINITIONS) {
         codegen->struct_definitions[codegen->struct_definition_count].name = struct_name;
         codegen->struct_definitions[codegen->struct_definition_count].defined = 0;
         codegen->struct_definition_count++;

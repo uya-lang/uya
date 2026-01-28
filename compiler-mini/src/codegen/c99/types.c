@@ -630,8 +630,9 @@ int is_identifier_struct_type(C99CodeGenerator *codegen, const char *name) {
         if (strcmp(codegen->local_variables[i].name, name) == 0) {
             const char *type_c = codegen->local_variables[i].type_c;
             if (!type_c) return 0;
-            // 检查类型是否以"struct "开头且不包含'*'（即不是指针）
-            return (strncmp(type_c, "struct ", 7) == 0 && strchr(type_c, '*') == NULL);
+            // 检查类型是否包含"struct "且不包含'*'（即不是指针）
+            // 支持 "const struct Point" 和 "struct Point" 两种情况
+            return (strstr(type_c, "struct ") != NULL && strchr(type_c, '*') == NULL);
         }
     }
     
@@ -640,8 +641,9 @@ int is_identifier_struct_type(C99CodeGenerator *codegen, const char *name) {
         if (strcmp(codegen->global_variables[i].name, name) == 0) {
             const char *type_c = codegen->global_variables[i].type_c;
             if (!type_c) return 0;
-            // 检查类型是否以"struct "开头且不包含'*'（即不是指针）
-            return (strncmp(type_c, "struct ", 7) == 0 && strchr(type_c, '*') == NULL);
+            // 检查类型是否包含"struct "且不包含'*'（即不是指针）
+            // 支持 "const struct Point" 和 "struct Point" 两种情况
+            return (strstr(type_c, "struct ") != NULL && strchr(type_c, '*') == NULL);
         }
     }
     
@@ -738,7 +740,7 @@ void gen_array_wrapper_struct(C99CodeGenerator *codegen, ASTNode *array_type, co
     }
     
     // 添加到结构体定义表（避免重复生成）
-    if (codegen->struct_definition_count < 64) {
+    if (codegen->struct_definition_count < C99_MAX_STRUCT_DEFINITIONS) {
         codegen->struct_definitions[codegen->struct_definition_count].name = struct_name;
         codegen->struct_definitions[codegen->struct_definition_count].defined = 0;
         codegen->struct_definition_count++;

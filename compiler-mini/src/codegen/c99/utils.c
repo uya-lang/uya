@@ -174,7 +174,7 @@ const char *add_string_constant(C99CodeGenerator *codegen, const char *value) {
     }
     
     // 创建新的字符串常量
-    if (codegen->string_constant_count >= 256) {
+    if (codegen->string_constant_count >= C99_MAX_STRING_CONSTANTS) {
         return NULL;
     }
     

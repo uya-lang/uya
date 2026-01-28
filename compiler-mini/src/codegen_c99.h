@@ -5,6 +5,15 @@
 #include "arena.h"
 #include <stdio.h>
 
+// C99 代码生成器常量定义（数组大小）
+#define C99_MAX_STRING_CONSTANTS    256
+#define C99_MAX_STRUCT_DEFINITIONS  64
+#define C99_MAX_ENUM_DEFINITIONS    64
+#define C99_MAX_FUNCTION_DECLS      256
+#define C99_MAX_GLOBAL_VARS         128
+#define C99_MAX_LOCAL_VARS          128
+#define C99_MAX_LOOP_STACK          16
+
 // C99 代码生成器结构体
 typedef struct C99CodeGenerator {
     Arena *arena;                   // Arena 分配器
@@ -16,28 +25,28 @@ typedef struct C99CodeGenerator {
     struct StringConstant {
         const char *name;           // 常量名称（如 .str0）
         const char *value;          // 字符串值
-    } string_constants[256];
+    } string_constants[C99_MAX_STRING_CONSTANTS];
     int string_constant_count;
     
     // 结构体定义表（用于跟踪已定义的结构体）
     struct StructDefinition {
         const char *name;           // 结构体名称
         int defined;               // 是否已定义（1表示是，0表示否）
-    } struct_definitions[64];
+    } struct_definitions[C99_MAX_STRUCT_DEFINITIONS];
     int struct_definition_count;
     
     // 枚举定义表（用于跟踪已定义的枚举）
     struct EnumDefinition {
         const char *name;           // 枚举名称
         int defined;               // 是否已定义（1表示是，0表示否）
-    } enum_definitions[64];
+    } enum_definitions[C99_MAX_ENUM_DEFINITIONS];
     int enum_definition_count;
     
     // 函数声明表（用于跟踪已声明的函数）
     struct FunctionDeclaration {
         const char *name;           // 函数名称
         int declared;               // 是否已声明（1表示是，0表示否）
-    } function_declarations[256];
+    } function_declarations[C99_MAX_FUNCTION_DECLS];
     int function_declaration_count;
     
     // 全局变量表
@@ -45,7 +54,7 @@ typedef struct C99CodeGenerator {
         const char *name;           // 变量名称
         const char *type_c;         // C 类型字符串
         int is_const;               // 是否为 const
-    } global_variables[128];
+    } global_variables[C99_MAX_GLOBAL_VARS];
     int global_variable_count;
     
     // 当前函数的局部变量表（栈式管理）
@@ -53,7 +62,7 @@ typedef struct C99CodeGenerator {
         const char *name;           // 变量名称
         const char *type_c;         // C 类型字符串
         int depth;                 // 嵌套深度
-    } local_variables[256];
+    } local_variables[C99_MAX_LOCAL_VARS];
     int local_variable_count;
     int current_depth;              // 当前作用域深度
     
@@ -61,7 +70,7 @@ typedef struct C99CodeGenerator {
     struct LoopStack {
         const char *break_label;    // break 标签
         const char *continue_label; // continue 标签
-    } loop_stack[16];
+    } loop_stack[C99_MAX_LOOP_STACK];
     int loop_stack_depth;
     
     ASTNode *program_node;          // 程序节点引用

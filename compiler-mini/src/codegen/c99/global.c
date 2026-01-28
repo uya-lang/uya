@@ -94,7 +94,7 @@ void gen_global_var(C99CodeGenerator *codegen, ASTNode *var_decl) {
     fputs(";\n", codegen->output);
     
     // 添加到全局变量表（可选，用于后续引用）
-    if (codegen->global_variable_count < 128) {
+    if (codegen->global_variable_count < C99_MAX_GLOBAL_VARS) {
         codegen->global_variables[codegen->global_variable_count].name = var_name;
         codegen->global_variables[codegen->global_variable_count].type_c = type_c;
         codegen->global_variables[codegen->global_variable_count].is_const = is_const;

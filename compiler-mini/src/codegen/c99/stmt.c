@@ -288,7 +288,7 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             } else {
                 type_to_store = type_c;
             }
-            if (var_name && type_to_store && codegen->local_variable_count < 128) {
+            if (var_name && type_to_store && codegen->local_variable_count < C99_MAX_LOCAL_VARS) {
                 codegen->local_variables[codegen->local_variable_count].name = var_name;
                 codegen->local_variables[codegen->local_variable_count].type_c = type_to_store;
                 codegen->local_variable_count++;
