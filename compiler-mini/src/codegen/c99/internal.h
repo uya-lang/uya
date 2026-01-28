@@ -11,6 +11,7 @@ int is_c_keyword(const char *name);
 const char *get_safe_c_identifier(C99CodeGenerator *codegen, const char *name);
 void escape_string_for_c(FILE *output, const char *str);
 int eval_const_expr(C99CodeGenerator *codegen, ASTNode *expr);
+void emit_line_directive(C99CodeGenerator *codegen, int line, const char *filename);
 
 // 字符串常量（utils.c）
 const char *add_string_constant(C99CodeGenerator *codegen, const char *value);

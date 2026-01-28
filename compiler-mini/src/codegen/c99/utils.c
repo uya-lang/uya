@@ -4,7 +4,7 @@
 #include <stdlib.h>
 
 // 创建 C99 代码生成器
-int c99_codegen_new(C99CodeGenerator *codegen, Arena *arena, FILE *output, const char *module_name) {
+int c99_codegen_new(C99CodeGenerator *codegen, Arena *arena, FILE *output, const char *module_name, int emit_line_directives) {
     if (!codegen || !arena || !output || !module_name) {
         return -1;
     }
@@ -26,6 +26,9 @@ int c99_codegen_new(C99CodeGenerator *codegen, Arena *arena, FILE *output, const
     codegen->loop_stack_depth = 0;
     codegen->program_node = NULL;
     codegen->current_function_return_type = NULL;
+    codegen->current_line = 0;  // 当前行号（用于优化 #line 指令）
+    codegen->current_filename = NULL;  // 当前文件名（用于优化 #line 指令）
+    codegen->emit_line_directives = emit_line_directives;  // 是否生成 #line 指令
     
     return 0;
 }
@@ -34,6 +37,44 @@ int c99_codegen_new(C99CodeGenerator *codegen, Arena *arena, FILE *output, const
 void c99_codegen_free(C99CodeGenerator *codegen) {
     // 当前没有动态分配的资源需要释放
     (void)codegen;
+}
+
+// 生成 #line 指令（用于调试，让C编译器错误信息指向原始Uya源文件）
+// 优化：只在行号或文件名变化时才生成，避免重复
+void emit_line_directive(C99CodeGenerator *codegen, int line, const char *filename) {
+    if (!codegen || !codegen->output) return;
+    
+    // 如果禁用了 #line 指令生成，跳过
+    if (!codegen->emit_line_directives) return;
+    
+    // 如果行号无效（<=0），跳过
+    if (line <= 0) return;
+    
+    // 如果行号和文件名都没有变化，跳过
+    if (codegen->current_line == line && 
+        codegen->current_filename == filename) {
+        return;
+    }
+    
+    // 更新当前行号和文件名
+    codegen->current_line = line;
+    codegen->current_filename = filename;
+    
+    if (filename && filename[0] != '\0') {
+        // 转义文件名中的特殊字符（如引号、反斜杠）
+        fprintf(codegen->output, "#line %d \"", line);
+        const char *p = filename;
+        while (*p) {
+            if (*p == '\\' || *p == '"') {
+                fputc('\\', codegen->output);
+            }
+            fputc(*p, codegen->output);
+            p++;
+        }
+        fprintf(codegen->output, "\"\n");
+    } else {
+        fprintf(codegen->output, "#line %d\n", line);
+    }
 }
 
 // 缩进输出

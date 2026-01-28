@@ -2474,7 +2474,7 @@ fn codegen_gen_expr(codegen: &CodeGenerator, expr: &ASTNode) &void {
             
             var nested_array_type: *void = null;
             if nested_array_expr.type == AST_IDENTIFIER {
-                const var_name: &byte = nested_array_expr.identifier_name;
+                const var_name: &byte = array_expr.array_access_array.identifier_name;
                 if var_name != null {
                     nested_array_type = lookup_var_type(codegen, var_name) as *void;
                 }

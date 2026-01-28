@@ -6,6 +6,11 @@
 void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
     if (!stmt) return;
     
+    // 生成 #line 指令，指向语句的位置（如果行号有效）
+    if (stmt->line > 0) {
+        emit_line_directive(codegen, stmt->line, stmt->filename);
+    }
+    
     switch (stmt->type) {
         case AST_EXPR_STMT:
             // 表达式语句的数据存储在表达式的节点中，直接忽略此节点
@@ -147,6 +152,7 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             // 计算类型字符串
             const char *type_c = NULL;
             const char *stored_type_c = NULL;  // 用于存储到变量表的完整类型字符串
+            const char *stored_type_c_for_pointer = NULL;  // 用于存储指针类型的完整类型字符串（包括 const）
             if (var_type->type == AST_TYPE_ARRAY) {
                 // 使用 c99_type_to_c 来处理数组类型（包括多维数组）
                 // 它会返回正确的格式，如 "int32_t[3][2]" 对于 [[i32: 2]: 3]
@@ -202,6 +208,7 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             } else {
                 // 非数组类型
                 type_c = c99_type_to_c(codegen, var_type);
+                // 为存储到变量表准备完整的类型字符串（包括 const 修饰符）
                 if (is_const && var_type->type == AST_TYPE_POINTER) {
                     // 检查是否是指向数组的指针类型（格式：T (*)[N]）
                     const char *open_paren = strstr(type_c, "(*");
@@ -216,19 +223,75 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                             size_t suffix_len = strlen(bracket);
                             fprintf(codegen->output, "%.*s(* const %s)%.*s", 
                                     (int)prefix_len, type_c, var_name, (int)suffix_len, bracket);
+                            // 存储类型字符串：T (* const)[N]（用于变量表）
+                            size_t total_len = prefix_len + suffix_len + 10; // "(* const)" + null
+                            stored_type_c_for_pointer = arena_alloc(codegen->arena, total_len);
+                            if (stored_type_c_for_pointer) {
+                                snprintf((char *)stored_type_c_for_pointer, total_len, "%.*s(* const)%.*s",
+                                        (int)prefix_len, type_c, (int)suffix_len, bracket);
+                            }
                         } else {
                             // 普通指针：T * -> T * const var_name
                             c99_emit(codegen, "%s const %s", type_c, var_name);
+                            // 存储类型字符串：T * const（用于变量表）
+                            size_t len = strlen(type_c) + 7; // " const" + null
+                            stored_type_c_for_pointer = arena_alloc(codegen->arena, len);
+                            if (stored_type_c_for_pointer) {
+                                snprintf((char *)stored_type_c_for_pointer, len, "%s const", type_c);
+                            }
                         }
                     } else {
                         // 普通指针：T * -> T * const var_name
                         c99_emit(codegen, "%s const %s", type_c, var_name);
+                        // 存储类型字符串：T * const（用于变量表）
+                        size_t len = strlen(type_c) + 7; // " const" + null
+                        stored_type_c_for_pointer = arena_alloc(codegen->arena, len);
+                        if (stored_type_c_for_pointer) {
+                            snprintf((char *)stored_type_c_for_pointer, len, "%s const", type_c);
+                        }
                     }
                 } else if (is_const) {
                     c99_emit(codegen, "const %s %s", type_c, var_name);
+                    // 存储类型字符串：const T（用于变量表）
+                    size_t len = strlen(type_c) + 7; // "const " + null
+                    stored_type_c_for_pointer = arena_alloc(codegen->arena, len);
+                    if (stored_type_c_for_pointer) {
+                        snprintf((char *)stored_type_c_for_pointer, len, "const %s", type_c);
+                    }
                 } else {
                     c99_emit(codegen, "%s %s", type_c, var_name);
                 }
+            }
+            
+            // *关键修改*：在生成初始化表达式之前，先将变量添加到局部变量表
+            // 这样如果初始化表达式或后续表达式使用了这个变量，就能正确识别其类型
+            const char *type_to_store = NULL;
+            if (var_type->type == AST_TYPE_ARRAY && stored_type_c) {
+                type_to_store = stored_type_c;
+            } else if (stored_type_c_for_pointer) {
+                type_to_store = stored_type_c_for_pointer;
+            } else if (var_type->type == AST_TYPE_POINTER && is_const && type_c) {
+                // 如果 stored_type_c_for_pointer 为 NULL（arena_alloc 失败），但类型是指针且是 const，
+                // 手动构造类型字符串：T * const
+                size_t len = strlen(type_c) + 7; // " const" + null
+                char *manual_type = arena_alloc(codegen->arena, len);
+                if (manual_type) {
+                    snprintf(manual_type, len, "%s const", type_c);
+                    type_to_store = manual_type;
+                } else {
+                    // 如果还是失败，使用 type_c（至少包含 *，应该能被识别为指针）
+                    type_to_store = type_c;
+                }
+            } else if (var_type->type == AST_TYPE_POINTER && type_c) {
+                // 非 const 指针：直接使用 type_c（应该包含 *）
+                type_to_store = type_c;
+            } else {
+                type_to_store = type_c;
+            }
+            if (var_name && type_to_store && codegen->local_variable_count < 128) {
+                codegen->local_variables[codegen->local_variable_count].name = var_name;
+                codegen->local_variables[codegen->local_variable_count].type_c = type_to_store;
+                codegen->local_variable_count++;
             }
             
             if (init_expr) {
@@ -348,14 +411,6 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 fputs(";\n", codegen->output);
             }
             
-            // 添加到局部变量表（用于类型检测）
-            // 对于数组类型，使用 stored_type_c；对于其他类型，使用 type_c
-            const char *type_to_store = (var_type->type == AST_TYPE_ARRAY && stored_type_c) ? stored_type_c : type_c;
-            if (var_name && type_to_store && codegen->local_variable_count < 128) {
-                codegen->local_variables[codegen->local_variable_count].name = var_name;
-                codegen->local_variables[codegen->local_variable_count].type_c = type_to_store;
-                codegen->local_variable_count++;
-            }
             break;
         }
         case AST_IF_STMT: {

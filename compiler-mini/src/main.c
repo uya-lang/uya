@@ -72,9 +72,12 @@ static void print_usage(const char *program_name) {
     fprintf(stderr, "示例: %s file1.uya file2.uya file3.uya -o output\n", program_name);
     fprintf(stderr, "示例: %s program.uya -o program -exec  # 直接生成可执行文件\n", program_name);
     fprintf(stderr, "示例: %s program.uya -o program.c --c99  # 生成 C99 代码\n", program_name);
+    fprintf(stderr, "示例: %s program.uya -o program.c --c99 --line-directives  # 生成 C99 代码（包含 #line 指令）\n", program_name);
     fprintf(stderr, "\n选项:\n");
-    fprintf(stderr, "  -exec    生成可执行文件（自动链接目标文件）\n");
-    fprintf(stderr, "  --c99    使用 C99 后端生成 C 代码（默认根据输出文件后缀检测）\n");
+    fprintf(stderr, "  -exec                生成可执行文件（自动链接目标文件）\n");
+    fprintf(stderr, "  --c99                使用 C99 后端生成 C 代码（默认根据输出文件后缀检测）\n");
+    fprintf(stderr, "  --no-line-directives 禁用 #line 指令生成（C99 后端，默认禁用）\n");
+    fprintf(stderr, "  --line-directives    启用 #line 指令生成（C99 后端，默认禁用）\n");
     fprintf(stderr, "\n说明:\n");
     fprintf(stderr, "  - 输出文件后缀为 .c 时自动使用 C99 后端\n");
     fprintf(stderr, "  - 输出文件后缀为 .o 或无后缀时使用 LLVM 后端\n");
@@ -88,8 +91,9 @@ static void print_usage(const char *program_name) {
 //       output_file - 输出参数：输出文件名
 //       generate_executable - 输出参数：是否生成可执行文件（1 表示是，0 表示否）
 //       backend_type - 输出参数：后端类型（LLVM 或 C99）
+//       emit_line_directives - 输出参数：是否生成 #line 指令（1 表示是，0 表示否）
 // 返回：成功返回0，失败返回-1
-static int parse_args(int argc, char *argv[], const char *input_files[], int *input_file_count, const char **output_file, int *generate_executable, BackendType *backend_type) {
+static int parse_args(int argc, char *argv[], const char *input_files[], int *input_file_count, const char **output_file, int *generate_executable, BackendType *backend_type, int *emit_line_directives) {
     if (argc < 4) {
         print_usage(argv[0]);
         return -1;
@@ -100,6 +104,7 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
     *output_file = NULL;
     *generate_executable = 0;
     *backend_type = BACKEND_LLVM;  // 默认使用 LLVM 后端
+    *emit_line_directives = 0;     // 默认不生成 #line 指令
     
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-o") == 0) {
@@ -114,6 +119,10 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
             *generate_executable = 1;
         } else if (strcmp(argv[i], "--c99") == 0) {
             *backend_type = BACKEND_C99;
+        } else if (strcmp(argv[i], "--no-line-directives") == 0) {
+            *emit_line_directives = 0;  // 禁用 #line 指令生成
+        } else if (strcmp(argv[i], "--line-directives") == 0) {
+            *emit_line_directives = 1;  // 启用 #line 指令生成（默认）
         } else if (argv[i][0] != '-') {
             // 非选项参数，应该是输入文件
             if (*input_file_count >= MAX_INPUT_FILES) {
@@ -153,8 +162,10 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
     // 参数：input_files - 输入文件名数组
     //       input_file_count - 输入文件数量
     //       output_file - 输出文件名
+    //       backend - 后端类型
+    //       emit_line_directives - 是否生成 #line 指令（C99 后端）
     // 返回：成功返回0，失败返回非0
-    static int compile_files(const char *input_files[], int input_file_count, const char *output_file, BackendType backend) {
+    static int compile_files(const char *input_files[], int input_file_count, const char *output_file, BackendType backend, int emit_line_directives) {
         fprintf(stderr, "=== 开始编译 ===\n");
         fprintf(stderr, "输入文件数量: %d\n", input_file_count);
         for (int i = 0; i < input_file_count; i++) {
@@ -258,7 +269,7 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
         }
         
         C99CodeGenerator c99_codegen;
-        if (c99_codegen_new(&c99_codegen, &arena, out_file, module_name) != 0) {
+        if (c99_codegen_new(&c99_codegen, &arena, out_file, module_name, emit_line_directives) != 0) {
             fprintf(stderr, "错误: C99CodeGenerator 初始化失败\n");
             fclose(out_file);
             return 1;
@@ -425,14 +436,15 @@ int main(int argc, char *argv[]) {
     const char *output_file = NULL;
     int generate_executable = 0;
     BackendType backend = BACKEND_LLVM;
+    int emit_line_directives = 0;  // 默认不生成 #line 指令
     
     // 解析命令行参数
-    if (parse_args(argc, argv, input_files, &input_file_count, &output_file, &generate_executable, &backend) != 0) {
+    if (parse_args(argc, argv, input_files, &input_file_count, &output_file, &generate_executable, &backend, &emit_line_directives) != 0) {
         return 1;
     }
     
     // 编译文件
-    int result = compile_files(input_files, input_file_count, output_file, backend);
+    int result = compile_files(input_files, input_file_count, output_file, backend, emit_line_directives);
     if (result != 0) {
         return result;
     }

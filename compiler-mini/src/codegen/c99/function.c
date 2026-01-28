@@ -208,6 +208,9 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     // 如果没有函数体（外部函数），则不生成定义
     if (!body) return;
     
+    // 生成 #line 指令，指向函数定义的位置
+    emit_line_directive(codegen, fn_decl->line, fn_decl->filename);
+    
     // 返回类型（如果是数组类型，转换为指针类型）
     const char *return_c = convert_array_return_type(codegen, return_type);
     fprintf(codegen->output, "%s %s(", return_c, func_name);

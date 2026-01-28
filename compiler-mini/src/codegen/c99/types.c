@@ -407,6 +407,7 @@ int is_identifier_pointer_type(C99CodeGenerator *codegen, const char *name) {
         if (codegen->local_variables[i].name && strcmp(codegen->local_variables[i].name, name) == 0) {
             const char *type_c = codegen->local_variables[i].type_c;
             if (!type_c) return 0;
+            
             // 检查类型是否包含'*'（即是指针）
             // 注意：'*' 可能在类型名称之后（如 "struct Type *"）或之前（如 "*Type"）
             const char *asterisk = strchr(type_c, '*');

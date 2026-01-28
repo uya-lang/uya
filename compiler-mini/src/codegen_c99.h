@@ -66,6 +66,11 @@ typedef struct C99CodeGenerator {
     
     ASTNode *program_node;          // 程序节点引用
     ASTNode *current_function_return_type;  // 当前函数的返回类型（用于生成返回语句）
+    
+    // 用于优化 #line 指令生成
+    int current_line;               // 当前行号（用于避免重复的 #line 指令）
+    const char *current_filename;  // 当前文件名（用于避免重复的 #line 指令）
+    int emit_line_directives;      // 是否生成 #line 指令（1 表示是，0 表示否）
 } C99CodeGenerator;
 
 // 创建 C99 代码生成器
@@ -73,8 +78,9 @@ typedef struct C99CodeGenerator {
 //       arena - Arena 分配器指针
 //       output - 输出文件指针（已打开的文件）
 //       module_name - 模块名称
+//       emit_line_directives - 是否生成 #line 指令（1 表示是，0 表示否）
 // 返回：成功返回0，失败返回非0
-int c99_codegen_new(C99CodeGenerator *codegen, Arena *arena, FILE *output, const char *module_name);
+int c99_codegen_new(C99CodeGenerator *codegen, Arena *arena, FILE *output, const char *module_name, int emit_line_directives);
 
 // 生成 C99 代码
 // 参数：codegen - C99CodeGenerator 结构体指针

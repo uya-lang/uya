@@ -172,7 +172,12 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             int is_pointer = 0;
             if (object->type == AST_IDENTIFIER) {
                 // 标识符：检查变量类型是否是指针
-                is_pointer = is_identifier_pointer_type(codegen, object->data.identifier.name);
+                // 注意：需要使用 get_safe_c_identifier 转换名称，因为变量表中存储的是转换后的名称
+                const char *var_name = object->data.identifier.name;
+                if (var_name) {
+                    const char *safe_name = get_safe_c_identifier(codegen, var_name);
+                    is_pointer = is_identifier_pointer_type(codegen, safe_name);
+                }
             } else if (object->type == AST_MEMBER_ACCESS) {
                 // 嵌套成员访问：检查嵌套访问的结果类型是否是指针
                 is_pointer = is_member_access_pointer_type(codegen, object);
