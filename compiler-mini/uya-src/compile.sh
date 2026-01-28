@@ -37,7 +37,7 @@ usage() {
   -c, --clean         清理输出目录后再编译
   -e, --exec          生成可执行文件（自动链接）
   --c99               使用 C99 后端生成 C 代码（输出文件后缀为 .c 时自动启用）
-  --no-line-directives 禁用 #line 指令生成（C99 后端，默认启用）
+  --line-directives    启用 #line 指令生成（C99 后端，默认禁用）
   --compiler PATH     指定编译器路径（默认: $COMPILER）
 
 示例:
@@ -48,7 +48,7 @@ usage() {
   $0 -c                         # 清理后编译
   $0 --c99                      # 使用 C99 后端生成 C 代码
   $0 -n compiler.c              # 输出文件为 .c 时自动使用 C99 后端
-  $0 --c99 --no-line-directives # 使用 C99 后端，不生成 #line 指令
+  $0 --c99 --line-directives    # 使用 C99 后端，生成 #line 指令
 
 EOF
     exit 1
@@ -88,8 +88,8 @@ while [[ $# -gt 0 ]]; do
             USE_C99=true
             shift
             ;;
-        --no-line-directives)
-            NO_LINE_DIRECTIVES=true
+        --line-directives)
+            NO_LINE_DIRECTIVES=false
             shift
             ;;
         -o|--output)
