@@ -389,7 +389,7 @@ static int link_executable(const char *object_file, const char *executable_file)
         bridge_file = bridge_c_path;
         
         // 使用 objcopy 将 main 函数重命名为 uya_main（避免与 bridge.c 的 main 冲突）
-        char objcopy_cmd[1024];
+        char objcopy_cmd[2048];
         snprintf(objcopy_cmd, sizeof(objcopy_cmd), "objcopy --redefine-sym main=uya_main \"%s\" \"%s\"", 
                  object_file, renamed_object_file);
         if (system(objcopy_cmd) == 0) {
@@ -526,7 +526,7 @@ int main(int argc, char *argv[]) {
                 // 需要先将 main 重命名为 uya_main
                 // 方法1：使用 objcopy（如果可用）
                 char renamed_object[512];
-                char objcopy_cmd[1024];
+                char objcopy_cmd[2048];
                 const char *link_object = output_file;
                 
                 if (last_slash) {
