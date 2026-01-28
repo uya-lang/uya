@@ -239,6 +239,39 @@ int eval_const_expr(C99CodeGenerator *codegen, ASTNode *expr) {
     switch (expr->type) {
         case AST_NUMBER:
             return expr->data.number.value;
+        case AST_IDENTIFIER: {
+            // 查找常量变量声明
+            if (!codegen || !codegen->program_node) return -1;
+            
+            const char *const_name = expr->data.identifier.name;
+            if (!const_name) return -1;
+            
+            // 从程序节点中查找常量变量声明
+            ASTNode *program = codegen->program_node;
+            if (program->type != AST_PROGRAM) return -1;
+            
+            for (int i = 0; i < program->data.program.decl_count; i++) {
+                ASTNode *decl = program->data.program.decls[i];
+                if (decl != NULL && decl->type == AST_VAR_DECL) {
+                    const char *var_name = decl->data.var_decl.name;
+                    if (var_name != NULL && strcmp(var_name, const_name) == 0) {
+                        // 找到常量变量，检查是否为 const
+                        if (decl->data.var_decl.is_const) {
+                            // 递归评估初始值表达式
+                            // 注意：这里不检查循环引用，因为常量应该是编译时确定的简单表达式
+                            ASTNode *init_expr = decl->data.var_decl.init;
+                            if (init_expr != NULL) {
+                                // 如果初始值也是标识符，递归查找（支持常量链）
+                                return eval_const_expr(codegen, init_expr);
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+            // 未找到常量变量或不是 const
+            return -1;
+        }
         case AST_BINARY_EXPR: {
             ASTNode *left = expr->data.binary_expr.left;
             ASTNode *right = expr->data.binary_expr.right;
