@@ -1,0 +1,28 @@
+// extern_decls.uya - C 标准库与 bridge 外部函数声明
+// 供 codegen/c99、main 等模块使用
+// 注意：*T 为 FFI 指针类型，仅用于 extern 函数参数/返回值
+
+// ===== bridge.c 提供的函数（程序入口与命令行参数）=====
+extern fn get_argc() i32;
+extern fn get_argv(index: i32) *byte;
+extern fn get_stderr() *void;
+
+// ===== C 标准库 - 文件 I/O =====
+extern fn fopen(filename: *byte, mode: *byte) *void;
+extern fn fread(ptr: *byte, size: usize, nmemb: usize, stream: *void) usize;
+extern fn fclose(stream: *void) i32;
+extern fn fgetc(stream: *void) i32;
+extern fn fputs(s: *byte, stream: *void) i32;
+extern fn fprintf(stream: *void, format: *byte, ...) i32;
+
+// ===== C 标准库 - 字符串 =====
+extern fn strlen(s: *byte) usize;
+extern fn strcmp(s1: *byte, s2: *byte) i32;
+extern fn strrchr(s: *byte, c: i32) *byte;
+extern fn strncpy(dest: *byte, src: *byte, n: usize) *byte;
+extern fn snprintf(buf: *byte, n: usize, format: *byte, ...) i32;
+extern fn sprintf(buf: *byte, format: *byte, ...) i32;
+
+// ===== C 标准库 - 内存 =====
+extern fn memcpy(dest: *byte, src: *byte, n: usize) *byte;
+extern fn memset(s: *byte, c: i32, n: usize) *byte;

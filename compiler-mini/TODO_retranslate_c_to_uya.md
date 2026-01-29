@@ -235,13 +235,16 @@
 - 自举版本：`compiler-mini/uya-src/arena.uya`
 
 #### 6. `src/main.c` → `uya-src/main.uya`
-**状态：** ⚠️ 需要检查
+**状态：** ✅ 已完成（从 C 版本覆盖式翻译）
 **优先级：** P0（最高）
 **说明：** 编译器主程序
 
 **需要检查的函数：**
-- [ ] `main` - 主函数
-- [ ] 其他主程序函数...
+- [x] `uya_main` - 程序入口（对应 C 的 main，由 bridge.c 调用）
+- [x] `read_file_content` - 读取文件到缓冲区
+- [x] `print_usage` - 打印使用说明
+- [x] `parse_args` - 解析命令行参数（使用 get_argc/get_argv）
+- [x] `compile_files` - 主编译流程（词法→语法→AST 合并→类型检查→C99 代码生成）
 
 **参考文件：**
 - C 版本：`compiler-mini/src/main.c`
@@ -559,7 +562,7 @@ diff /tmp/test_c.c /tmp/test_uya.c
 - [x] `lexer.c` → `lexer.uya` - ✅ 已完成（从 C 覆盖式翻译，已通过词法/语法/类型检查）
 - [x] `ast.c` → `ast.uya` - ✅ 已完成（从 C 覆盖式翻译，ASTNode 扁平化无 union）
 - [x] `arena.c` → `arena.uya` - ✅ 已完成（从 C 覆盖式翻译）
-- [ ] `main.c` → `main.uya` - ⏳ 待翻译
+- [x] `main.c` → `main.uya` - ✅ 已完成（从 C 覆盖式翻译，仅 C99 后端，无 -exec 链接）
 
 ### LLVM C API 代码生成模块（P1）
 
@@ -815,6 +818,12 @@ const field_name: &byte = enum_type.field_name;  // 直接访问字段
 ---
 
 ## 📝 更新日志
+
+**2025-01-29：** 完成 `main.c` → `main.uya` 的覆盖式翻译
+- ✅ 新建 `main.uya`：uya_main、read_file_content、print_usage、parse_args、compile_files；仅实现 C99 后端，未实现 LLVM 后端与 -exec 链接
+- ✅ 新建 `extern_decls.uya`：get_argc、get_argv、get_stderr、fopen、fread、fclose、fgetc、fputs、fprintf、strlen、strcmp、strrchr、strncpy、snprintf、sprintf、memcpy、memset
+- ✅ 新建 `str_utils.uya`：占位文件（供 compile.sh 引用）
+- ✅ 自举编译通过：`./compile.sh --c99` 成功生成 compiler.c
 
 **2025-01-29：** 完成 `ast.c` 的覆盖式翻译
 - ✅ 新建 `ast.uya`（从 src/ast.c + ast.h）：EnumVariant、ASTNodeType、ASTNode（union 扁平化为独立字段）、ast_new_node、ast_merge_programs
