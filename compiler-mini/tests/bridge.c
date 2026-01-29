@@ -1,8 +1,10 @@
 // bridge.c - 提供运行时桥接函数（测试版本）
 // 这个文件提供了 Uya 程序需要的运行时函数，包括：
-// 1. 命令行参数访问函数（get_argc, get_argv）
-// 2. 标准错误流访问函数（get_stderr）
-// 3. 指针运算辅助函数（ptr_diff）
+// 1. 真正的 C main 函数（程序入口点）
+// 2. 命令行参数访问函数（get_argc, get_argv）
+// 3. 标准错误流访问函数（get_stderr）
+// 4. 指针运算辅助函数（ptr_diff）
+// 注意：Uya 的 main 函数被重命名为 uya_main，由 bridge.c 的 main 函数调用
 
 #include <stdio.h>
 #include <stdint.h>
@@ -12,10 +14,21 @@
 static int saved_argc = 0;
 static char **saved_argv = NULL;
 
-// 初始化函数：由生成的 main 函数调用，保存命令行参数
+// 初始化函数：由 bridge.c 的 main 函数调用，保存命令行参数
 void bridge_init(int argc, char **argv) {
     saved_argc = argc;
     saved_argv = argv;
+}
+
+// Uya 程序的 main 函数（被重命名为 uya_main）
+extern int32_t uya_main(void);
+
+// 真正的 C main 函数（程序入口点）
+int main(int argc, char **argv) {
+    // 初始化命令行参数
+    bridge_init(argc, argv);
+    // 调用 Uya 的 main 函数
+    return (int)uya_main();
 }
 
 // 获取命令行参数数量

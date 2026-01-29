@@ -26,9 +26,6 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     fputs("#include <string.h>\n", codegen->output);  // for memcmp
     fputs("#include <stdio.h>\n", codegen->output);  // for standard I/O functions (printf, puts, etc.)
     fputs("\n", codegen->output);
-    // bridge.c 提供的初始化函数（用于 main 函数初始化命令行参数）
-    fputs("extern void bridge_init(int argc, char **argv);\n", codegen->output);
-    fputs("\n", codegen->output);
     // C99 兼容的 alignof 宏（使用 offsetof 技巧）
     fputs("// C99 兼容的 alignof 实现\n", codegen->output);
     fputs("#define uya_alignof(type) offsetof(struct { char c; type t; }, t)\n", codegen->output);

@@ -112,10 +112,13 @@ void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     int is_varargs = fn_decl->data.fn_decl.is_varargs;
     ASTNode *body = fn_decl->data.fn_decl.body;
     
-    // 特殊处理：main 函数不生成前向声明（它是入口点，不需要前向声明）
+    // 特殊处理：main 函数需要重命名为 uya_main（符合 Uya 规范：main 函数无参数）
     const char *orig_name = fn_decl->data.fn_decl.name;
     int is_main = (orig_name && strcmp(orig_name, "main") == 0) ? 1 : 0;
     if (is_main) {
+        // main 函数生成 uya_main 的前向声明
+        const char *return_c = convert_array_return_type(codegen, return_type);
+        fprintf(codegen->output, "%s uya_main(void);\n", return_c);
         return;
     }
     
@@ -218,7 +221,7 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     // 生成 #line 指令，指向函数定义的位置
     emit_line_directive(codegen, fn_decl->line, fn_decl->filename);
     
-    // 特殊处理：main 函数需要生成 C 的 main(int argc, char **argv) 并初始化 bridge
+    // 特殊处理：main 函数需要重命名为 uya_main（符合 Uya 规范：main 函数无参数）
     const char *orig_name = fn_decl->data.fn_decl.name;
     int is_main = (orig_name && strcmp(orig_name, "main") == 0) ? 1 : 0;
     
@@ -226,8 +229,8 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     const char *return_c = convert_array_return_type(codegen, return_type);
     
     if (is_main) {
-        // 生成 C 的 main 函数签名
-        fprintf(codegen->output, "%s main(int argc, char **argv)", return_c);
+        // main 函数重命名为 uya_main（符合 Uya 规范：main 函数无参数）
+        fprintf(codegen->output, "%s uya_main(void)", return_c);
     } else {
         fprintf(codegen->output, "%s %s(", return_c, func_name);
         
@@ -263,18 +266,13 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
         }
     }
     
-    // main 函数签名已经完整，直接添加函数体开始
+    // 添加函数体开始
     if (is_main) {
         fputs(" {\n", codegen->output);
     } else {
         fputs(") {\n", codegen->output);
     }
     codegen->indent_level++;
-    
-    // 特殊处理：main 函数需要在开头调用 bridge_init 初始化命令行参数
-    if (is_main) {
-        c99_emit(codegen, "bridge_init(argc, argv);\n");
-    }
     
     // 保存当前函数的返回类型（用于生成返回语句）
     codegen->current_function_return_type = return_type;
