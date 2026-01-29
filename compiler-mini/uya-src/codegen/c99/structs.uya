@@ -74,12 +74,11 @@ fn find_struct_decl_c99(codegen: &C99CodeGenerator, struct_name: &byte) &ASTNode
         return null;
     }
     
-    const decls: [&ASTNode: MAX_PROGRAM_DECLS] = codegen.program_node.program_decls;
     const decl_count: i32 = codegen.program_node.program_decl_count;
     
     var i: i32 = 0;
     while i < decl_count {
-        const decl: &ASTNode = decls[i];
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
         if decl != null && decl.type == AST_STRUCT_DECL {
             const decl_name: &byte = decl.struct_decl_name;
             if decl_name != null && strcmp(decl_name as *byte, struct_name as *byte) == 0 {
@@ -138,7 +137,6 @@ fn gen_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode) i32 
     
     // 生成字段
     const field_count: i32 = struct_decl.struct_decl_field_count;
-    const fields: [&ASTNode: MAX_STRUCT_FIELDS] = struct_decl.struct_decl_fields;
     
     // 如果是空结构体，添加一个占位符字段以确保大小为 1（符合 Uya 规范）
     if field_count == 0 {
@@ -147,7 +145,7 @@ fn gen_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode) i32 
     } else {
         var i: i32 = 0;
         while i < field_count {
-            const field: &ASTNode = fields[i];
+            const field: &ASTNode = struct_decl.struct_decl_fields[i];
             if field == null || field.type != AST_VAR_DECL {
                 return -1;
             }

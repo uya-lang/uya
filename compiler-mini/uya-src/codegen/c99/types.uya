@@ -50,11 +50,10 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
             
             // 如果表查找失败，尝试从程序节点中查找结构体声明（备用方案）
             if codegen.program_node != null {
-                const decls: [&ASTNode: MAX_PROGRAM_DECLS] = codegen.program_node.program_decls;
                 const decl_count: i32 = codegen.program_node.program_decl_count;
                 var i: i32 = 0;
                 while i < decl_count {
-                    const decl: &ASTNode = decls[i];
+                    const decl: &ASTNode = codegen.program_node.program_decls[i];
                     if decl != null && decl.type == AST_STRUCT_DECL {
                         const struct_name: &byte = decl.struct_decl_name;
                         if struct_name != null {
@@ -91,11 +90,10 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
             
             // 如果不在表中，尝试从程序节点中查找枚举声明（备用方案）
             if codegen.program_node != null {
-                const decls2: [&ASTNode: MAX_PROGRAM_DECLS] = codegen.program_node.program_decls;
                 const decl_count2: i32 = codegen.program_node.program_decl_count;
                 var i2: i32 = 0;
                 while i2 < decl_count2 {
-                    const decl2: &ASTNode = decls2[i2];
+                    const decl2: &ASTNode = codegen.program_node.program_decls[i2];
                     if decl2 != null && decl2.type == AST_ENUM_DECL {
                         const enum_name: &byte = decl2.enum_decl_name;
                         if enum_name != null {
@@ -371,22 +369,22 @@ fn is_member_access_pointer_type(codegen: &C99CodeGenerator, member_access: &AST
             
             // 查找变量类型
             var var_type_c2: &byte = null;
-            i = codegen.local_variable_count - 1;
-            while i >= 0 {
-                if codegen.local_variables[i].name != null && strcmp(codegen.local_variables[i].name as *byte, var_name2 as *byte) == 0 {
-                    var_type_c2 = codegen.local_variables[i].type_c;
+            var i2: i32 = codegen.local_variable_count - 1;
+            while i2 >= 0 {
+                if codegen.local_variables[i2].name != null && strcmp(codegen.local_variables[i2].name as *byte, var_name2 as *byte) == 0 {
+                    var_type_c2 = codegen.local_variables[i2].type_c;
                     break;
                 }
-                i = i - 1;
+                i2 = i2 - 1;
             }
             if var_type_c2 == null {
-                i = 0;
-                while i < codegen.global_variable_count {
-                    if codegen.global_variables[i].name != null && strcmp(codegen.global_variables[i].name as *byte, var_name2 as *byte) == 0 {
-                        var_type_c2 = codegen.global_variables[i].type_c;
+                i2 = 0;
+                while i2 < codegen.global_variable_count {
+                    if codegen.global_variables[i2].name != null && strcmp(codegen.global_variables[i2].name as *byte, var_name2 as *byte) == 0 {
+                        var_type_c2 = codegen.global_variables[i2].type_c;
                         break;
                     }
-                    i = i + 1;
+                    i2 = i2 + 1;
                 }
             }
             
@@ -954,7 +952,7 @@ fn get_array_element_type(codegen: &C99CodeGenerator, array_expr: &ASTNode) &byt
                             return null;
                         }
                         memcpy(elem_type as *void, type_c as *void, base_len);
-                        memcpy(elem_type + base_len as *void, second_bracket as *void, inner_dims_len);
+                        memcpy((elem_type + base_len) as *void, second_bracket as *void, inner_dims_len);
                         elem_type[base_len + inner_dims_len] = 0;
                         return elem_type;
                     } else {
@@ -998,7 +996,7 @@ fn get_array_element_type(codegen: &C99CodeGenerator, array_expr: &ASTNode) &byt
                             return null;
                         }
                         memcpy(elem_type3 as *void, type_c2 as *void, base_len2);
-                        memcpy(elem_type3 + base_len2 as *void, second_bracket2 as *void, inner_dims_len2);
+                        memcpy((elem_type3 + base_len2) as *void, second_bracket2 as *void, inner_dims_len2);
                         elem_type3[base_len2 + inner_dims_len2] = 0;
                         return elem_type3;
                     } else {
@@ -1029,9 +1027,8 @@ fn get_array_element_type(codegen: &C99CodeGenerator, array_expr: &ASTNode) &byt
     
     // 如果是数组字面量，从第一个元素推断类型
     if array_expr.type == AST_ARRAY_LITERAL {
-        const elements: [&ASTNode: MAX_ARRAY_LITERAL_ELEMENTS] = array_expr.array_literal_elements;
         const element_count: i32 = array_expr.array_literal_element_count;
-        if element_count > 0 && elements[0] != null {
+        if element_count > 0 && array_expr.array_literal_elements[0] != null {
             // 对于数组字面量，我们需要推断第一个元素的类型
             // 这是一个简化实现，实际应该从类型检查器获取类型信息
             // 暂时返回NULL，让调用者使用默认类型

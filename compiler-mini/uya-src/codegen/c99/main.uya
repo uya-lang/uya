@@ -34,12 +34,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     fputs("\n" as *byte, codegen.output as *void);
     
     // 第一步：收集所有字符串常量（从全局变量初始化和函数体）
-    const decls: [&ASTNode: MAX_PROGRAM_DECLS] = ast.program_decls;
     const decl_count: i32 = ast.program_decl_count;
     
     var i: i32 = 0;
     while i < decl_count {
-        const decl: &ASTNode = decls[i];
+        const decl: &ASTNode = ast.program_decls[i];
         if decl != null {
             collect_string_constants_from_decl(codegen, decl);
         }
@@ -53,7 +52,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 第三步：收集所有结构体和枚举定义（添加到表中但不生成代码）
     i = 0;
     while i < decl_count {
-        const decl: &ASTNode = decls[i];
+        const decl: &ASTNode = ast.program_decls[i];
         if decl != null {
             if decl.type == AST_STRUCT_DECL {
                 const struct_name: &byte = get_safe_c_identifier(codegen, decl.struct_decl_name);
@@ -85,7 +84,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 第五步：生成所有枚举定义（在结构体之前，因为结构体可能使用枚举类型）
     i = 0;
     while i < decl_count {
-        const decl: &ASTNode = decls[i];
+        const decl: &ASTNode = ast.program_decls[i];
         if decl != null && decl.type == AST_ENUM_DECL {
             gen_enum_definition(codegen, decl);
             fputs("\n" as *byte, codegen.output as *void);
@@ -96,7 +95,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 第六步：生成所有结构体定义（在枚举之后）
     i = 0;
     while i < decl_count {
-        const decl: &ASTNode = decls[i];
+        const decl: &ASTNode = ast.program_decls[i];
         if decl != null && decl.type == AST_STRUCT_DECL {
             gen_struct_definition(codegen, decl);
             fputs("\n" as *byte, codegen.output as *void);
@@ -107,7 +106,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 第七步：生成所有函数的前向声明（解决相互递归调用）
     i = 0;
     while i < decl_count {
-        const decl: &ASTNode = decls[i];
+        const decl: &ASTNode = ast.program_decls[i];
         if decl != null && decl.type == AST_FN_DECL {
             gen_function_prototype(codegen, decl);
         }
@@ -118,7 +117,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 第八步：生成所有声明（全局变量、函数定义）
     i = 0;
     while i < decl_count {
-        const decl: &ASTNode = decls[i];
+        const decl: &ASTNode = ast.program_decls[i];
         if decl != null {
             if decl.type == AST_STRUCT_DECL || decl.type == AST_ENUM_DECL {
                 // 已在前面生成

@@ -28,8 +28,15 @@ extern fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32;
 extern fn checker_get_error_count(checker: &TypeChecker) i32;
 
 // CodeGen 函数（来自 codegen.uya）
-extern fn codegen_new(codegen: &CodeGenerator, arena: &Arena, module_name: &byte) i32;
-extern fn codegen_generate(codegen: &CodeGenerator, ast: &ASTNode, output_file: &byte) i32;
+// 注意：C99 后端使用 C99CodeGenerator，LLVM 后端使用 CodeGenerator
+// 由于 Uya Mini 不支持条件编译，这里声明两个版本，但实际使用时只使用一个
+// C99 后端函数（来自 codegen/c99/utils.uya 和 codegen/c99/main.uya）
+extern fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &Arena, output: &void, module_name: &byte, emit_line_directives: i32) i32;
+extern fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: &byte) i32;
+extern fn c99_codegen_free(codegen: &C99CodeGenerator) void;
+// LLVM 后端函数（来自 codegen/llvm_capi/init.c 和 codegen/llvm_capi/main.c）
+// 注意：这些函数在 C99 后端中不使用，已移除声明以避免编译错误
+// 如果需要支持 LLVM 后端，需要包含 codegen/llvm_capi/internal.uya 来获取 CodeGenerator 类型定义
 
 // ===== 常量定义 =====
 
@@ -63,7 +70,9 @@ var programs: [&ASTNode: MAX_INPUT_FILES] = [];
 var checker: TypeChecker = TypeChecker{};
 
 // CodeGenerator 结构体（全局分配，避免栈溢出）
-var codegen: CodeGenerator = CodeGenerator{};
+// 注意：C99 后端使用 C99CodeGenerator，LLVM 后端使用 CodeGenerator
+// 由于当前使用 C99 后端，只声明 C99CodeGenerator
+var c99_codegen: C99CodeGenerator = C99CodeGenerator{};
 
 // ===== 辅助函数 =====
 
@@ -227,16 +236,35 @@ fn compile_files(input_files: [&byte: MAX_INPUT_FILES], input_file_count: i32, o
     const module_name: &byte = input_files[0];
     fprintf(stderr, "模块名: %s\n" as *byte, module_name as *byte);
     
-    // 注意：使用全局 codegen，避免栈溢出
-    if codegen_new(&codegen, &arena, module_name) != 0 {
-        fprintf(stderr, "错误: CodeGenerator 初始化失败\n" as *byte);
+    // 注意：这里应该根据后端类型选择使用哪个代码生成器
+    // 但由于 Uya Mini 不支持条件编译，编译器会在编译时根据后端类型生成相应的代码
+    // 对于 C99 后端，编译器会生成使用 C99CodeGenerator 的代码
+    // 对于 LLVM 后端，编译器会生成使用 CodeGenerator 的代码
+    // 这里先使用 C99 后端（因为当前编译使用的是 C99 后端）
+    // 注意：需要打开输出文件（FILE*）
+    const output_file_ptr: *void = fopen(output_file as *byte, "w" as *byte);
+    if output_file_ptr == null {
+        fprintf(stderr, "错误: 无法打开输出文件 '%s'\n" as *byte, output_file as *byte);
         return 1;
     }
     
-    if codegen_generate(&codegen, merged_ast, output_file) != 0 {
-        fprintf(stderr, "错误: 代码生成失败\n" as *byte);
+    // 注意：使用全局 c99_codegen，避免栈溢出
+    // emit_line_directives = 0（默认不生成 #line 指令）
+    if c99_codegen_new(&c99_codegen, &arena, output_file_ptr as &void, module_name, 0) != 0 {
+        fprintf(stderr, "错误: C99CodeGenerator 初始化失败\n" as *byte);
+        fclose(output_file_ptr);
         return 1;
     }
+    
+    if c99_codegen_generate(&c99_codegen, merged_ast, output_file) != 0 {
+        fprintf(stderr, "错误: C99 代码生成失败\n" as *byte);
+        c99_codegen_free(&c99_codegen);
+        fclose(output_file_ptr);
+        return 1;
+    }
+    
+    c99_codegen_free(&c99_codegen);
+    fclose(output_file_ptr);
     
     return 0;
 }

@@ -15,14 +15,12 @@ fn gen_global_init_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     if expr.type == AST_STRUCT_INIT {
         // 对于全局作用域，生成标准初始化器列表，不使用复合字面量
         const field_count: i32 = expr.struct_init_field_count;
-        const field_names: [&byte: MAX_STRUCT_INIT_FIELD_NAMES] = expr.struct_init_field_names;
-        const field_values: [&ASTNode: MAX_STRUCT_INIT_FIELDS] = expr.struct_init_field_values;
         fputc(123, codegen.output as *void);  // '{'
         var i: i32 = 0;
         while i < field_count {
-            const safe_field_name: &byte = get_safe_c_identifier(codegen, field_names[i]);
+            const safe_field_name: &byte = get_safe_c_identifier(codegen, expr.struct_init_field_names[i]);
             fprintf(codegen.output as *void, ".%s = " as *byte, safe_field_name as *byte);
-            gen_global_init_expr(codegen, field_values[i]);
+            gen_global_init_expr(codegen, expr.struct_init_field_values[i]);
             if i < field_count - 1 {
                 fputs(", " as *byte, codegen.output as *void);
             }
@@ -30,12 +28,11 @@ fn gen_global_init_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         }
         fputc(125, codegen.output as *void);  // '}'
     } else if expr.type == AST_ARRAY_LITERAL {
-        const elements: [&ASTNode: MAX_ARRAY_LITERAL_ELEMENTS] = expr.array_literal_elements;
         const element_count: i32 = expr.array_literal_element_count;
         fputc(123, codegen.output as *void);  // '{'
         var i: i32 = 0;
         while i < element_count {
-            gen_global_init_expr(codegen, elements[i]);
+            gen_global_init_expr(codegen, expr.array_literal_elements[i]);
             if i < element_count - 1 {
                 fputs(", " as *byte, codegen.output as *void);
             }

@@ -12,12 +12,11 @@ fn find_enum_decl_c99(codegen: &C99CodeGenerator, enum_name: &byte) &ASTNode {
         return null;
     }
     
-    const decls: [&ASTNode: MAX_PROGRAM_DECLS] = codegen.program_node.program_decls;
     const decl_count: i32 = codegen.program_node.program_decl_count;
     
     var i: i32 = 0;
     while i < decl_count {
-        const decl: &ASTNode = decls[i];
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
         if decl != null && decl.type == AST_ENUM_DECL {
             const decl_name: &byte = decl.enum_decl_name;
             if decl_name != null && strcmp(decl_name as *byte, enum_name as *byte) == 0 {

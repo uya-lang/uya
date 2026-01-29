@@ -13,12 +13,11 @@ fn find_function_decl_c99(codegen: &C99CodeGenerator, func_name: &byte) &ASTNode
         return null;
     }
     
-    const decls: [&ASTNode: MAX_PROGRAM_DECLS] = codegen.program_node.program_decls;
     const decl_count: i32 = codegen.program_node.program_decl_count;
     
     var i: i32 = 0;
     while i < decl_count {
-        const decl: &ASTNode = decls[i];
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
         if decl != null && decl.type == AST_FN_DECL {
             const decl_name: &byte = decl.fn_decl_name;
             if decl_name != null && strcmp(decl_name as *byte, func_name as *byte) == 0 {
@@ -127,7 +126,6 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     
     const func_name: &byte = get_safe_c_identifier(codegen, fn_decl.fn_decl_name);
     const return_type: &ASTNode = fn_decl.fn_decl_return_type;
-    const params: [&ASTNode: MAX_FN_PARAMS] = fn_decl.fn_decl_params;
     const param_count: i32 = fn_decl.fn_decl_param_count;
     const is_varargs: i32 = fn_decl.fn_decl_is_varargs;
     const body: &ASTNode = fn_decl.fn_decl_body;
@@ -158,7 +156,7 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     // 参数列表
     var i: i32 = 0;
     while i < param_count {
-        const param: &ASTNode = params[i];
+        const param: &ASTNode = fn_decl.fn_decl_params[i];
         if param != null && param.type == AST_VAR_DECL {
             const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
             const param_type: &ASTNode = param.var_decl_type;
@@ -239,7 +237,6 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     
     const func_name: &byte = get_safe_c_identifier(codegen, fn_decl.fn_decl_name);
     const return_type: &ASTNode = fn_decl.fn_decl_return_type;
-    const params: [&ASTNode: MAX_FN_PARAMS] = fn_decl.fn_decl_params;
     const param_count: i32 = fn_decl.fn_decl_param_count;
     const is_varargs: i32 = fn_decl.fn_decl_is_varargs;
     const body: &ASTNode = fn_decl.fn_decl_body;
@@ -259,7 +256,7 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     // 参数列表
     var i: i32 = 0;
     while i < param_count {
-        const param: &ASTNode = params[i];
+        const param: &ASTNode = fn_decl.fn_decl_params[i];
         if param != null && param.type == AST_VAR_DECL {
             const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
             const param_type: &ASTNode = param.var_decl_type;
@@ -321,7 +318,7 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     // 处理数组参数：为数组参数创建局部副本（实现按值传递）
     i = 0;
     while i < param_count {
-        const param: &ASTNode = params[i];
+        const param: &ASTNode = fn_decl.fn_decl_params[i];
         if param != null && param.type == AST_VAR_DECL {
             const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
             const param_type: &ASTNode = param.var_decl_type;
