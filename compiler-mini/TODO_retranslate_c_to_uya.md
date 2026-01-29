@@ -207,14 +207,13 @@
 - 自举版本：`compiler-mini/uya-src/lexer.uya`
 
 #### 4. `src/ast.c` → `uya-src/ast.uya`
-**状态：** ⚠️ 需要检查
+**状态：** ✅ 已完成（从 C 版本覆盖式翻译）
 **优先级：** P0（最高）
 **说明：** AST 节点创建和操作
 
 **需要检查的函数：**
-- [ ] `ast_new_node` - 创建新节点
-- [ ] `ast_merge_programs` - 合并程序节点
-- [ ] 其他 AST 操作函数...
+- [x] `ast_new_node` - 创建新节点
+- [x] `ast_merge_programs` - 合并程序节点（参数改为 `[&ASTNode: MAX_MERGE_PROGRAMS]`，因 Uya 无指针数组）
 
 **参考文件：**
 - C 版本：`compiler-mini/src/ast.c`
@@ -558,7 +557,7 @@ diff /tmp/test_c.c /tmp/test_uya.c
 - [x] `checker.c` → `checker.uya` - ✅ 核心框架已完成（已完成主要函数翻译，已通过语法分析，约1600行）
 - [x] `parser.c` → `parser.uya` - ✅ 核心框架已完成（已完成所有主要函数翻译，已通过语法分析，约2800+行）
 - [x] `lexer.c` → `lexer.uya` - ✅ 已完成（从 C 覆盖式翻译，已通过词法/语法/类型检查）
-- [ ] `ast.c` → `ast.uya` - ⏳ 待翻译
+- [x] `ast.c` → `ast.uya` - ✅ 已完成（从 C 覆盖式翻译，ASTNode 扁平化无 union）
 - [x] `arena.c` → `arena.uya` - ✅ 已完成（从 C 覆盖式翻译）
 - [ ] `main.c` → `main.uya` - ⏳ 待翻译
 
@@ -816,6 +815,10 @@ const field_name: &byte = enum_type.field_name;  // 直接访问字段
 ---
 
 ## 📝 更新日志
+
+**2025-01-29：** 完成 `ast.c` 的覆盖式翻译
+- ✅ 新建 `ast.uya`（从 src/ast.c + ast.h）：EnumVariant、ASTNodeType、ASTNode（union 扁平化为独立字段）、ast_new_node、ast_merge_programs
+- ✅ ast_merge_programs 参数改为 `[&ASTNode: MAX_MERGE_PROGRAMS]`（Uya 无 ASTNode** 指针数组）
 
 **2025-01-29：** 完成 `lexer.c`、`arena.c` 的覆盖式翻译
 - ✅ 新建 `arena.uya`（从 src/arena.c 翻译）：arena_init、arena_alloc、arena_reset、align_size

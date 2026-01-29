@@ -1,0 +1,284 @@
+// ast.uya - AST 节点创建和操作
+// 从 compiler-mini/src/ast.c 和 ast.h 重新覆盖式翻译
+//
+// 注意：Uya 没有 union，所有 union 字段都转换为结构体的独立字段（扁平化）
+
+// 枚举变体结构
+struct EnumVariant {
+    name: &byte,
+    value: &byte,  // 显式值字符串（若指定 = NUM），否则 null
+}
+
+// AST 节点类型枚举（与 C 版本 ast.h 一致）
+enum ASTNodeType {
+    AST_PROGRAM,
+    AST_ENUM_DECL,
+    AST_STRUCT_DECL,
+    AST_FN_DECL,
+    AST_VAR_DECL,
+    AST_IF_STMT,
+    AST_WHILE_STMT,
+    AST_FOR_STMT,
+    AST_BREAK_STMT,
+    AST_CONTINUE_STMT,
+    AST_RETURN_STMT,
+    AST_ASSIGN,
+    AST_EXPR_STMT,
+    AST_BLOCK,
+    AST_BINARY_EXPR,
+    AST_UNARY_EXPR,
+    AST_CALL_EXPR,
+    AST_MEMBER_ACCESS,
+    AST_ARRAY_ACCESS,
+    AST_STRUCT_INIT,
+    AST_ARRAY_LITERAL,
+    AST_SIZEOF,
+    AST_LEN,
+    AST_ALIGNOF,
+    AST_CAST_EXPR,
+    AST_IDENTIFIER,
+    AST_NUMBER,
+    AST_BOOL,
+    AST_STRING,
+    AST_TYPE_NAMED,
+    AST_TYPE_POINTER,
+    AST_TYPE_ARRAY,
+}
+
+// AST 节点结构（Uya 无 union，所有变体字段扁平化为独立字段）
+struct ASTNode {
+    type: ASTNodeType,
+    line: i32,
+    column: i32,
+    filename: &byte,
+    // program
+    program_decls: &ASTNode,
+    program_decl_count: i32,
+    // enum_decl
+    enum_decl_name: &byte,
+    enum_decl_variants: &EnumVariant,
+    enum_decl_variant_count: i32,
+    // struct_decl
+    struct_decl_name: &byte,
+    struct_decl_fields: &ASTNode,
+    struct_decl_field_count: i32,
+    // fn_decl
+    fn_decl_name: &byte,
+    fn_decl_params: &ASTNode,
+    fn_decl_param_count: i32,
+    fn_decl_return_type: &ASTNode,
+    fn_decl_body: &ASTNode,
+    fn_decl_is_varargs: i32,
+    // var_decl
+    var_decl_name: &byte,
+    var_decl_type: &ASTNode,
+    var_decl_init: &ASTNode,
+    var_decl_is_const: i32,
+    // binary_expr
+    binary_expr_left: &ASTNode,
+    binary_expr_op: i32,
+    binary_expr_right: &ASTNode,
+    // unary_expr
+    unary_expr_op: i32,
+    unary_expr_operand: &ASTNode,
+    // call_expr
+    call_expr_callee: &ASTNode,
+    call_expr_args: &ASTNode,
+    call_expr_arg_count: i32,
+    // member_access
+    member_access_object: &ASTNode,
+    member_access_field_name: &byte,
+    // array_access
+    array_access_array: &ASTNode,
+    array_access_index: &ASTNode,
+    // struct_init
+    struct_init_struct_name: &byte,
+    struct_init_field_names: &byte,
+    struct_init_field_values: &ASTNode,
+    struct_init_field_count: i32,
+    // array_literal
+    array_literal_elements: &ASTNode,
+    array_literal_element_count: i32,
+    // sizeof_expr
+    sizeof_expr_target: &ASTNode,
+    sizeof_expr_is_type: i32,
+    // len_expr
+    len_expr_array: &ASTNode,
+    // alignof_expr
+    alignof_expr_target: &ASTNode,
+    alignof_expr_is_type: i32,
+    // cast_expr
+    cast_expr_expr: &ASTNode,
+    cast_expr_target_type: &ASTNode,
+    // identifier
+    identifier_name: &byte,
+    // number
+    number_value: i32,
+    // bool_literal
+    bool_literal_value: i32,
+    // string_literal
+    string_literal_value: &byte,
+    // if_stmt
+    if_stmt_condition: &ASTNode,
+    if_stmt_then_branch: &ASTNode,
+    if_stmt_else_branch: &ASTNode,
+    // while_stmt
+    while_stmt_condition: &ASTNode,
+    while_stmt_body: &ASTNode,
+    // for_stmt
+    for_stmt_array: &ASTNode,
+    for_stmt_var_name: &byte,
+    for_stmt_is_ref: i32,
+    for_stmt_body: &ASTNode,
+    // return_stmt
+    return_stmt_expr: &ASTNode,
+    // assign
+    assign_dest: &ASTNode,
+    assign_src: &ASTNode,
+    // block
+    block_stmts: &ASTNode,
+    block_stmt_count: i32,
+    // type_named
+    type_named_name: &byte,
+    // type_pointer
+    type_pointer_pointed_type: &ASTNode,
+    type_pointer_is_ffi_pointer: i32,
+    // type_array
+    type_array_element_type: &ASTNode,
+    type_array_size_expr: &ASTNode,
+}
+
+// 创建新的 AST 节点
+fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filename: &byte) &ASTNode {
+    if arena == null {
+        return null;
+    }
+    const node: &ASTNode = arena_alloc(arena, sizeof(ASTNode)) as &ASTNode;
+    if node == null {
+        return null;
+    }
+    node.type = type;
+    node.line = line;
+    node.column = column;
+    node.filename = filename;
+    node.program_decls = null;
+    node.program_decl_count = 0;
+    node.enum_decl_name = null;
+    node.enum_decl_variants = null;
+    node.enum_decl_variant_count = 0;
+    node.struct_decl_name = null;
+    node.struct_decl_fields = null;
+    node.struct_decl_field_count = 0;
+    node.fn_decl_name = null;
+    node.fn_decl_params = null;
+    node.fn_decl_param_count = 0;
+    node.fn_decl_return_type = null;
+    node.fn_decl_body = null;
+    node.fn_decl_is_varargs = 0;
+    node.var_decl_name = null;
+    node.var_decl_type = null;
+    node.var_decl_init = null;
+    node.var_decl_is_const = 0;
+    node.binary_expr_left = null;
+    node.binary_expr_op = 0;
+    node.binary_expr_right = null;
+    node.unary_expr_op = 0;
+    node.unary_expr_operand = null;
+    node.call_expr_callee = null;
+    node.call_expr_args = null;
+    node.call_expr_arg_count = 0;
+    node.member_access_object = null;
+    node.member_access_field_name = null;
+    node.array_access_array = null;
+    node.array_access_index = null;
+    node.struct_init_struct_name = null;
+    node.struct_init_field_names = null;
+    node.struct_init_field_values = null;
+    node.struct_init_field_count = 0;
+    node.array_literal_elements = null;
+    node.array_literal_element_count = 0;
+    node.sizeof_expr_target = null;
+    node.sizeof_expr_is_type = 0;
+    node.len_expr_array = null;
+    node.alignof_expr_target = null;
+    node.alignof_expr_is_type = 0;
+    node.cast_expr_expr = null;
+    node.cast_expr_target_type = null;
+    node.identifier_name = null;
+    node.number_value = 0;
+    node.bool_literal_value = 0;
+    node.string_literal_value = null;
+    node.if_stmt_condition = null;
+    node.if_stmt_then_branch = null;
+    node.if_stmt_else_branch = null;
+    node.while_stmt_condition = null;
+    node.while_stmt_body = null;
+    node.for_stmt_array = null;
+    node.for_stmt_var_name = null;
+    node.for_stmt_is_ref = 0;
+    node.for_stmt_body = null;
+    node.return_stmt_expr = null;
+    node.assign_dest = null;
+    node.assign_src = null;
+    node.block_stmts = null;
+    node.block_stmt_count = 0;
+    node.type_named_name = null;
+    node.type_pointer_pointed_type = null;
+    node.type_pointer_is_ffi_pointer = 0;
+    node.type_array_element_type = null;
+    node.type_array_size_expr = null;
+    return node;
+}
+
+const MAX_MERGE_PROGRAMS: i32 = 64;
+
+// 合并多个 AST_PROGRAM 节点为一个程序节点
+// 参数：programs - 程序节点数组（元素类型为 &ASTNode），count - 数量，arena - Arena
+fn ast_merge_programs(programs: [&ASTNode: MAX_MERGE_PROGRAMS], count: i32, arena: &Arena) &ASTNode {
+    if count <= 0 || arena == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < count {
+        const p: &ASTNode = programs[i];
+        if p == null || p.type != AST_PROGRAM {
+            return null;
+        }
+        i = i + 1;
+    }
+    var total_decl_count: i32 = 0;
+    i = 0;
+    while i < count {
+        total_decl_count = total_decl_count + programs[i].program_decl_count;
+        i = i + 1;
+    }
+    const first: &ASTNode = programs[0];
+    const merged: &ASTNode = ast_new_node(AST_PROGRAM, first.line, first.column, arena, first.filename);
+    if merged == null {
+        return null;
+    }
+    if total_decl_count <= 0 {
+        merged.program_decls = null;
+        merged.program_decl_count = 0;
+        return merged;
+    }
+    const decls: &ASTNode = arena_alloc(arena, sizeof(&ASTNode) * total_decl_count as usize) as &ASTNode;
+    if decls == null {
+        return null;
+    }
+    var decl_index: i32 = 0;
+    i = 0;
+    while i < count {
+        const program: &ASTNode = programs[i];
+        var j: i32 = 0;
+        while j < program.program_decl_count {
+            decls[decl_index] = program.program_decls[j];
+            decl_index = decl_index + 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    merged.program_decls = decls;
+    merged.program_decl_count = total_decl_count;
+    return merged;
+}
