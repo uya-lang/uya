@@ -618,7 +618,19 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
         } else if isdigit(c) != 0 {
             return read_number(lexer, arena);
         } else {
-            // 未知字符，跳过并返回错误（这里返回 EOF 作为错误标记）
+            // 未知字符，输出错误信息并返回 EOF 作为错误标记
+            var filename: &byte = lexer.filename;
+            if filename == null {
+                filename = "<unknown>" as &byte;
+            }
+            fprintf(2 as *void, "错误: 词法分析失败 (%s:%d:%d): 未知字符 '", filename, line, column);
+            if isprint(c) != 0 {
+                fprintf(2 as *void, "%c", c);
+            } else {
+                fprintf(2 as *void, "\\x%02x", c);
+            }
+            fprintf(2 as *void, "' (ASCII %d)\n", c);
+            fprintf(2 as *void, "提示: Uya Mini 不支持此字符。如果是三元运算符 '?'，请使用 if-else 语句替代。\n");
             advance_char(lexer);
             return make_token(arena, TOKEN_EOF, null, line, column);
         }

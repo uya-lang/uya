@@ -360,9 +360,12 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         } else {
             // 即使 is_type = 0，也检查是否是结构体标识符（如 sizeof(Point) 中的 Point）
             if target.type == AST_IDENTIFIER || target.type == AST_TYPE_NAMED {
-                const name: &byte = (target.type == AST_IDENTIFIER)
-                    ? target.identifier_name
-                    : target.type_named_name;
+                var name: &byte = null;
+                if target.type == AST_IDENTIFIER {
+                    name = target.identifier_name;
+                } else {
+                    name = target.type_named_name;
+                }
                 if name != null && is_c_keyword(name) == 0 {
                     const safe_name: &byte = get_safe_c_identifier(codegen, name);
                     if is_struct_in_table(codegen, safe_name) != 0 {
@@ -549,7 +552,10 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         var i: i32 = 0;
         while i < arg_count {
             // 检查参数是否是字符串常量，如果是则添加类型转换以消除 const 警告
-            const is_string_arg: i32 = (expr.call_expr_args[i] != null && expr.call_expr_args[i].type == AST_STRING) ? 1 : 0;
+            var is_string_arg: i32 = 0;
+            if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == AST_STRING {
+                is_string_arg = 1;
+            }
             if is_string_arg != 0 {
                 fputs("(uint8_t *)" as *byte, codegen.output as *void);
             }
@@ -559,7 +565,10 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             var need_address: i32 = 0;
             if fn_decl != null && fn_decl.type == AST_FN_DECL {
                 const body: &ASTNode = fn_decl.fn_decl_body;
-                const is_extern: i32 = (body == null) ? 1 : 0;
+                var is_extern: i32 = 0;
+                if body == null {
+                    is_extern = 1;
+                }
                 
                 if is_extern != 0 && expr.call_expr_args[i] != null && i < fn_decl.fn_decl_param_count {
                     const param: &ASTNode = fn_decl.fn_decl_params[i];

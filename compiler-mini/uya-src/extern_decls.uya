@@ -40,6 +40,7 @@ extern fn memset(s: *void, c: i32, n: i32) *void;
 extern fn isalpha(c: i32) i32;
 extern fn isdigit(c: i32) i32;
 extern fn isalnum(c: i32) i32;
+extern fn isprint(c: i32) i32;  // 检查字符是否可打印
 extern fn isspace(c: i32) i32;
 
 // ===== C 标准库 - 字符串转换函数 (stdlib.h) =====

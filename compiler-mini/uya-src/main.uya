@@ -34,8 +34,8 @@ const FILE_BUFFER_SIZE: i32 = 1024 * 1024;  // 1MB
 // Arena 分配器缓冲区大小
 // 注意：编译大型文件和多文件编译需要更大的缓冲区
 // 多文件编译时，所有文件的 AST 节点都存储在同一个 Arena 中
-// 使用 8MB 以支持多文件编译（10个文件，每个文件约 100-200KB）
-const ARENA_BUFFER_SIZE: i32 = 8388608;  // 8MB（增加缓冲区以支持多文件编译）
+// 使用 16MB 以支持多文件编译和大型函数（gen_expr 等函数很大，需要更多内存）
+const ARENA_BUFFER_SIZE: i32 = 16777216;  // 16MB（增加缓冲区以支持大型函数和多文件编译）
 
 // 最大输入文件数量
 const MAX_INPUT_FILES: i32 = 64;

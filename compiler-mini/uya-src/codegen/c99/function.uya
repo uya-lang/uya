@@ -131,7 +131,10 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     const body: &ASTNode = fn_decl.fn_decl_body;
     
     // 检查是否为extern函数（body为NULL表示extern函数）
-    const is_extern: i32 = (body == null) ? 1 : 0;
+    var is_extern: i32 = 0;
+    if body == null {
+        is_extern = 1;
+    }
     
     // 检查是否是标准库函数
     const is_stdlib: i32 = is_stdlib_function(func_name);
