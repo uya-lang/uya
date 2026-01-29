@@ -1,6 +1,7 @@
 #include "ast.h"
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
 
 // 创建新的 AST 节点
 // 参数：type - 节点类型，line - 行号，column - 列号，arena - Arena 分配器，filename - 文件名（可选）
@@ -13,6 +14,9 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
     // 从 Arena 分配器分配节点内存
     ASTNode *node = (ASTNode *)arena_alloc(arena, sizeof(ASTNode));
     if (node == NULL) {
+        const char *filename_str = filename ? filename : "<unknown>";
+        fprintf(stderr, "错误: Arena 内存不足 (%s:%d:%d): 无法分配 AST 节点\n", filename_str, line, column);
+        fprintf(stderr, "提示: 请增加 ARENA_BUFFER_SIZE（当前建议至少 16MB）\n");
         return NULL;
     }
     
@@ -203,6 +207,10 @@ ASTNode *ast_merge_programs(ASTNode **programs, int count, Arena *arena) {
     // 分配声明数组（使用 Arena）
     ASTNode **decls = (ASTNode **)arena_alloc(arena, sizeof(ASTNode *) * total_decl_count);
     if (decls == NULL) {
+        const char *filename_str = programs[0]->filename ? programs[0]->filename : "<unknown>";
+        fprintf(stderr, "错误: Arena 内存不足 (%s:%d:%d): 无法分配 AST 合并数组（需要 %d 个声明）\n", 
+                filename_str, programs[0]->line, programs[0]->column, total_decl_count);
+        fprintf(stderr, "提示: 请增加 ARENA_BUFFER_SIZE（当前建议至少 16MB）\n");
         return NULL;
     }
     

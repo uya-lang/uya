@@ -22,8 +22,8 @@ typedef enum {
 // Arena 分配器缓冲区大小
 // 注意：编译大型文件和多文件编译需要更大的缓冲区
 // 多文件编译时，所有文件的 AST 节点都存储在同一个 Arena 中
-// 使用 8MB 以支持多文件编译（10个文件，每个文件约 100-200KB）
-#define ARENA_BUFFER_SIZE (8 * 1024 * 1024)  // 8MB（增加缓冲区以支持多文件编译）
+// 使用 16MB 以支持大型函数和多文件编译（gen_expr 等函数很大，需要更多内存）
+#define ARENA_BUFFER_SIZE (16 * 1024 * 1024)  // 16MB（增加缓冲区以支持大型函数和多文件编译）
 
 // 最大输入文件数量
 #define MAX_INPUT_FILES 64

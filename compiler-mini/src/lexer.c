@@ -433,7 +433,16 @@ Token *lexer_next_token(Lexer *lexer, Arena *arena) {
             } else if (isdigit((unsigned char)c)) {
                 return read_number(lexer, arena);
             } else {
-                // 未知字符，跳过并返回错误（这里返回 EOF 作为错误标记）
+                // 未知字符，输出错误信息并返回 EOF 作为错误标记
+                const char *filename = lexer->filename ? lexer->filename : "<unknown>";
+                fprintf(stderr, "错误: 词法分析失败 (%s:%d:%d): 未知字符 '", filename, line, column);
+                if (isprint((unsigned char)c)) {
+                    fprintf(stderr, "%c", c);
+                } else {
+                    fprintf(stderr, "\\x%02x", (unsigned char)c);
+                }
+                fprintf(stderr, "' (ASCII %d)\n", (unsigned char)c);
+                fprintf(stderr, "提示: Uya Mini 不支持此字符。如果是三元运算符 '?'，请使用 if-else 语句替代。\n");
                 advance_char(lexer);
                 return make_token(arena, TOKEN_EOF, NULL, line, column);
             }

@@ -323,6 +323,11 @@ static ASTNode *parser_parse_block(Parser *parser) {
                 // 空块，正常退出循环
                 break;
             }
+            // 检查是否是 EOF（TOKEN_EOF = 0）
+            if (parser->current_token != NULL && parser->current_token->type == TOKEN_EOF) {
+                // 遇到文件末尾，正常退出循环（可能是函数体不完整，但这是语法错误，会在其他地方报告）
+                break;
+            }
             // 否则是真正的解析错误
             // 调试输出
             if (parser->current_token != NULL) {
@@ -330,6 +335,8 @@ static ASTNode *parser_parse_block(Parser *parser) {
                 if (parser->current_token->value) {
                     fprintf(stderr, "调试: token value=%s\n", parser->current_token->value);
                 }
+            } else {
+                fprintf(stderr, "调试: parser_parse_block 解析语句失败，current_token 为 NULL\n");
             }
             return NULL;
         }
@@ -342,6 +349,9 @@ static ASTNode *parser_parse_block(Parser *parser) {
                 sizeof(ASTNode *) * new_capacity
             );
             if (new_stmts == NULL) {
+                const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+                fprintf(stderr, "错误: Arena 内存不足 (%s:%d:%d): 无法分配语句数组\n", filename, line, column);
+                fprintf(stderr, "提示: 请增加 ARENA_BUFFER_SIZE（当前建议至少 16MB）\n");
                 return NULL;
             }
             
@@ -364,10 +374,23 @@ static ASTNode *parser_parse_block(Parser *parser) {
     // 但 block 必须以 '}' 结束，所以这里仍然期望 '}'
     if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
         // 调试输出
-        if (parser->current_token != NULL && parser->current_token->type == TOKEN_ELSE) {
-            fprintf(stderr, "调试: parser_parse_block 期望 '}' 失败，当前 token 是 'else'\n");
-            fprintf(stderr, "调试: lexer position=%zu, line=%d, column=%d\n", 
-                    parser->lexer->position, parser->lexer->line, parser->lexer->column);
+        if (parser->current_token != NULL) {
+            if (parser->current_token->type == TOKEN_ELSE) {
+                fprintf(stderr, "调试: parser_parse_block 期望 '}' 失败，当前 token 是 'else'\n");
+                fprintf(stderr, "调试: lexer position=%zu, line=%d, column=%d\n", 
+                        parser->lexer->position, parser->lexer->line, parser->lexer->column);
+            } else if (parser->current_token->type == TOKEN_EOF) {
+                fprintf(stderr, "错误: 代码块未正确关闭 (%s:%d:%d): 期望 '}' 但遇到文件末尾\n",
+                        parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>",
+                        parser->current_token->line, parser->current_token->column);
+                fprintf(stderr, "提示: 可能是函数体缺少右大括号 '}'\n");
+            } else {
+                const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+                fprintf(stderr, "错误: 代码块未正确关闭 (%s:%d:%d): 期望 '}' 但遇到 token type=%d\n",
+                        filename, parser->current_token->line, parser->current_token->column, parser->current_token->type);
+            }
+        } else {
+            fprintf(stderr, "错误: 代码块未正确关闭: 期望 '}' 但 current_token 为 NULL\n");
         }
         return NULL;
     }
@@ -480,6 +503,9 @@ ASTNode *parser_parse_struct(Parser *parser) {
                 sizeof(ASTNode *) * new_capacity
             );
             if (new_fields == NULL) {
+                const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+                fprintf(stderr, "错误: Arena 内存不足 (%s:%d:%d): 无法分配结构体字段数组\n", filename, field_line, field_column);
+                fprintf(stderr, "提示: 请增加 ARENA_BUFFER_SIZE（当前建议至少 16MB）\n");
                 return NULL;
             }
             
@@ -755,6 +781,9 @@ ASTNode *parser_parse_function(Parser *parser) {
                     sizeof(ASTNode *) * new_capacity
                 );
                 if (new_params == NULL) {
+                    const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+                    fprintf(stderr, "错误: Arena 内存不足 (%s:%d:%d): 无法分配函数参数数组\n", filename, line, column);
+                    fprintf(stderr, "提示: 请增加 ARENA_BUFFER_SIZE（当前建议至少 16MB）\n");
                     return NULL;
                 }
                 
@@ -792,6 +821,10 @@ ASTNode *parser_parse_function(Parser *parser) {
     // 解析函数体（代码块）
     ASTNode *body = parser_parse_block(parser);
     if (body == NULL) {
+        const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+        fprintf(stderr, "错误: 无法解析函数体 (%s:%d:%d): 函数 '%s' 的函数体解析失败\n", 
+                filename, line, column, fn_name);
+        fprintf(stderr, "提示: 可能是语法错误、内存不足或文件不完整\n");
         return NULL;
     }
     
