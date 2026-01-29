@@ -116,17 +116,17 @@
 - [x] `checker_register_fn_decl` - 注册函数声明（第一遍检查）
 - [x] `checker_check_fn_decl` - 检查函数声明（第二遍检查）
 - [x] `checker_check_var_decl` - 检查变量声明
-- [ ] `checker_check_struct_decl` - 检查结构体声明（在 checker_check_node 中简化处理）
+- [x] `checker_check_struct_decl` - 检查结构体声明
 - [x] `checker_check_expr_type` - 检查表达式类型是否匹配预期类型
-- [ ] `checker_check_array_access` - 检查数组访问表达式（在 checker_infer_type 中已处理）
-- [ ] `checker_check_member_access` - 检查成员访问表达式（在 checker_infer_type 中已处理）
-- [ ] `checker_check_call_expr` - 检查函数调用表达式（在 checker_infer_type 中已处理）
-- [ ] `checker_check_binary_expr` - 检查二元表达式（在 checker_infer_type 中已处理）
-- [ ] `checker_check_unary_expr` - 检查一元表达式（在 checker_infer_type 中已处理）
-- [ ] `checker_check_cast_expr` - 检查类型转换表达式（在 checker_infer_type 中已处理）
-- [ ] `checker_check_struct_init` - 检查结构体初始化表达式（在 checker_infer_type 中已处理）
-- [ ] `checker_check_alignof` - 检查 alignof 表达式（在 checker_infer_type 中已处理）
-- [ ] `checker_check_len` - 检查 len 表达式（在 checker_infer_type 中已处理）
+- [x] `checker_check_array_access` - 检查数组访问表达式
+- [x] `checker_check_member_access` - 检查成员访问表达式
+- [x] `checker_check_call_expr` - 检查函数调用表达式
+- [x] `checker_check_binary_expr` - 检查二元表达式
+- [x] `checker_check_unary_expr` - 检查一元表达式
+- [x] `checker_check_cast_expr` - 检查类型转换表达式
+- [x] `checker_check_struct_init` - 检查结构体初始化表达式
+- [x] `checker_check_alignof` - 检查 alignof 表达式
+- [x] `checker_check_len` - 检查 len 表达式
 
 **参考文件：**
 - C 版本：`compiler-mini/src/checker.c`
