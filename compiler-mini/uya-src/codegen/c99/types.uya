@@ -309,7 +309,7 @@ fn is_member_access_pointer_type(codegen: &C99CodeGenerator, member_access: &AST
         // 提取结构体名称（去除 "struct " 前缀和 "*" 后缀）
         var struct_name: &byte = null;
         if strncmp(var_type_c as *byte, "struct " as *byte, 7) == 0 {
-            const start: &byte = var_type_c + 7;
+            const start: &byte = &var_type_c[7] as &byte;
             // 查找 '*' 或空格后的 '*'
             const asterisk: *byte = strchr(start as *byte, 42);  // '*'
             if asterisk != null {
@@ -395,7 +395,7 @@ fn is_member_access_pointer_type(codegen: &C99CodeGenerator, member_access: &AST
             // 提取结构体名称
             var struct_name2: &byte = null;
             if strncmp(var_type_c2 as *byte, "struct " as *byte, 7) == 0 {
-                const start2: &byte = var_type_c2 + 7;
+                const start2: &byte = &var_type_c2[7] as &byte;
                 const asterisk2: *byte = strchr(start2 as *byte, 42);  // '*'
                 if asterisk2 != null {
                     const len2: i32 = ptr_diff(asterisk2, start2 as *byte);
@@ -653,7 +653,7 @@ fn is_array_access_pointer_type(codegen: &C99CodeGenerator, array_access: &ASTNo
         // 提取结构体名称（去除 "struct " 前缀和 "*" 后缀）
         var struct_name: &byte = null;
         if strncmp(var_type_c as *byte, "struct " as *byte, 7) == 0 {
-            const start: &byte = var_type_c + 7;
+            const start: &byte = &var_type_c[7] as &byte;
             const asterisk: *byte = strchr(start as *byte, 42);  // '*'
             if asterisk != null {
                 // 提取 '*' 之前的部分，去除尾部空格
@@ -941,18 +941,19 @@ fn get_array_element_type(codegen: &C99CodeGenerator, array_expr: &ASTNode) &byt
                 const first_bracket: *byte = strchr(type_c as *byte, 91);  // '['
                 if first_bracket != null {
                     // 检查是否有第二个 '['（多维数组）
-                    const second_bracket: *byte = strchr(first_bracket + 1, 91);  // '['
+                    const first_bracket_offset: i32 = ptr_diff(first_bracket, type_c as *byte);
+                    const second_bracket: *byte = strchr(&type_c[first_bracket_offset + 1] as *byte, 91);  // '['
                     if second_bracket != null {
                         // 多维数组：提取基类型 + 从第二个 '[' 开始的所有维度
                         // 例如：int32_t[3][2] -> int32_t[2]
-                        const base_len: i32 = ptr_diff(first_bracket, type_c as *byte);
+                        const base_len: i32 = first_bracket_offset;
                         const inner_dims_len: i32 = strlen(second_bracket);
                         const elem_type: &byte = arena_alloc(codegen.arena, base_len + inner_dims_len + 1) as &byte;
                         if elem_type == null {
                             return null;
                         }
                         memcpy(elem_type as *void, type_c as *void, base_len);
-                        memcpy((elem_type + base_len) as *void, second_bracket as *void, inner_dims_len);
+                        memcpy(&elem_type[base_len] as *void, second_bracket as *void, inner_dims_len);
                         elem_type[base_len + inner_dims_len] = 0;
                         return elem_type;
                     } else {
@@ -985,18 +986,19 @@ fn get_array_element_type(codegen: &C99CodeGenerator, array_expr: &ASTNode) &byt
                 const first_bracket2: *byte = strchr(type_c2 as *byte, 91);  // '['
                 if first_bracket2 != null {
                     // 检查是否有第二个 '['（多维数组）
-                    const second_bracket2: *byte = strchr(first_bracket2 + 1, 91);  // '['
+                    const first_bracket2_offset: i32 = ptr_diff(first_bracket2, type_c2 as *byte);
+                    const second_bracket2: *byte = strchr(&type_c2[first_bracket2_offset + 1] as *byte, 91);  // '['
                     if second_bracket2 != null {
                         // 多维数组：提取基类型 + 从第二个 '[' 开始的所有维度
                         // 例如：int32_t[3][2] -> int32_t[2]
-                        const base_len2: i32 = ptr_diff(first_bracket2, type_c2 as *byte);
+                        const base_len2: i32 = first_bracket2_offset;
                         const inner_dims_len2: i32 = strlen(second_bracket2);
                         const elem_type3: &byte = arena_alloc(codegen.arena, base_len2 + inner_dims_len2 + 1) as &byte;
                         if elem_type3 == null {
                             return null;
                         }
                         memcpy(elem_type3 as *void, type_c2 as *void, base_len2);
-                        memcpy((elem_type3 + base_len2) as *void, second_bracket2 as *void, inner_dims_len2);
+                        memcpy(&elem_type3[base_len2] as *void, second_bracket2 as *void, inner_dims_len2);
                         elem_type3[base_len2 + inner_dims_len2] = 0;
                         return elem_type3;
                     } else {

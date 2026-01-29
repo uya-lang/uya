@@ -119,6 +119,7 @@ fn is_stdlib_function(func_name: &byte) i32 {
 }
 
 // 生成函数原型（前向声明）
+// 注意：此函数在 main.uya 中被调用，但由于 function.uya 在 main.uya 之前编译，函数已经可见
 fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     if fn_decl == null || fn_decl.type != AST_FN_DECL {
         return;
@@ -146,6 +147,19 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     if is_extern != 0 && is_stdlib != 0 {
         // 标准库函数应该包含相应的头文件（如 <stdio.h>），不生成 extern 声明
         // 这样可以避免与标准库的声明冲突
+        return;
+    }
+    
+    // 特殊处理：main 函数需要重命名为 uya_main（符合 Uya 规范：main 函数无参数）
+    // 注意：Uya Mini 不支持三元运算符，使用 if-else 代替
+    var is_main: i32 = 0;
+    if fn_decl.fn_decl_name != null && strcmp(fn_decl.fn_decl_name as *byte, "main" as *byte) == 0 {
+        is_main = 1;
+    }
+    
+    if is_main != 0 {
+        // main 函数生成 uya_main 的前向声明（使用外层的 return_c）
+        fprintf(codegen.output, "%s uya_main(void);\n" as *byte, return_c as *byte);
         return;
     }
     
@@ -233,6 +247,7 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
 }
 
 // 生成函数定义
+// 注意：此函数在 main.uya 中被调用，但由于 function.uya 在 main.uya 之前编译，函数已经可见
 fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     if fn_decl == null || fn_decl.type != AST_FN_DECL {
         return;
@@ -252,56 +267,77 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     // 生成 #line 指令，指向函数定义的位置
     emit_line_directive(codegen, fn_decl.line, fn_decl.filename);
     
+    // 特殊处理：main 函数需要重命名为 uya_main（符合 Uya 规范：main 函数无参数）
+    // 注意：Uya Mini 不支持三元运算符，使用 if-else 代替
+    var is_main: i32 = 0;
+    if fn_decl.fn_decl_name != null && strcmp(fn_decl.fn_decl_name as *byte, "main" as *byte) == 0 {
+        is_main = 1;
+    }
+    
     // 返回类型（如果是数组类型，转换为指针类型）
     const return_c: &byte = convert_array_return_type(codegen, return_type);
-    fprintf(codegen.output, "%s %s(" as *byte, return_c as *byte, func_name as *byte);
     
-    // 参数列表
+    // 声明循环变量 i（在 if-else 之前声明，确保在所有分支都可见）
     var i: i32 = 0;
-    while i < param_count {
-        const param: &ASTNode = fn_decl.fn_decl_params[i];
-        if param != null && param.type == AST_VAR_DECL {
-            const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
-            const param_type: &ASTNode = param.var_decl_type;
-            var param_type_c: &byte = c99_type_to_c(codegen, param_type);
-            
-            // 数组参数：在参数名后添加 _param 后缀，函数内部会创建副本
-            if param_type.type == AST_TYPE_ARRAY {
-                // 数组参数格式：T name_param[N]
-                const bracket: *byte = strchr(param_type_c as *byte, 91);  // '['
-                if bracket != null {
-                    const str_len: i32 = ptr_diff(bracket, param_type_c as *byte);
-                    // 注意：Uya Mini 不支持 %.*s，需要手动处理
-                    var temp_buf: [byte: 256] = [];
-                    var j: i32 = 0;
-                    while j < str_len && j < 255 {
-                        temp_buf[j] = param_type_c[j];
-                        j = j + 1;
+    
+    if is_main != 0 {
+        // main 函数重命名为 uya_main（符合 Uya 规范：main 函数无参数）
+        fprintf(codegen.output, "%s uya_main(void)" as *byte, return_c as *byte);
+    } else {
+        fprintf(codegen.output, "%s %s(" as *byte, return_c as *byte, func_name as *byte);
+        
+        // 参数列表
+        i = 0;
+        while i < param_count {
+            const param: &ASTNode = fn_decl.fn_decl_params[i];
+            if param != null && param.type == AST_VAR_DECL {
+                const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
+                const param_type: &ASTNode = param.var_decl_type;
+                var param_type_c: &byte = c99_type_to_c(codegen, param_type);
+                
+                // 数组参数：在参数名后添加 _param 后缀，函数内部会创建副本
+                if param_type.type == AST_TYPE_ARRAY {
+                    // 数组参数格式：T name_param[N]
+                    const bracket: *byte = strchr(param_type_c as *byte, 91);  // '['
+                    if bracket != null {
+                        const str_len: i32 = ptr_diff(bracket, param_type_c as *byte);
+                        // 注意：Uya Mini 不支持 %.*s，需要手动处理
+                        var temp_buf: [byte: 256] = [];
+                        var j: i32 = 0;
+                        while j < str_len && j < 255 {
+                            temp_buf[j] = param_type_c[j];
+                            j = j + 1;
+                        }
+                        temp_buf[j] = 0;
+                        fprintf(codegen.output, "%s %s_param%s" as *byte, &temp_buf[0] as *byte, param_name as *byte, bracket);
+                    } else {
+                        fprintf(codegen.output, "%s %s_param" as *byte, param_type_c as *byte, param_name as *byte);
                     }
-                    temp_buf[j] = 0;
-                    fprintf(codegen.output, "%s %s_param%s" as *byte, &temp_buf[0] as *byte, param_name as *byte, bracket);
                 } else {
-                    fprintf(codegen.output, "%s %s_param" as *byte, param_type_c as *byte, param_name as *byte);
+                    format_param_type(codegen, param_type_c, param_name, codegen.output);
                 }
-            } else {
-                format_param_type(codegen, param_type_c, param_name, codegen.output);
+                if i < param_count - 1 {
+                    fputs(", " as *byte, codegen.output);
+                }
             }
-            if i < param_count - 1 {
+            i = i + 1;
+        }
+        
+        // 处理可变参数
+        if is_varargs != 0 {
+            if param_count > 0 {
                 fputs(", " as *byte, codegen.output);
             }
+            fputs("..." as *byte, codegen.output);
         }
-        i = i + 1;
     }
     
-    // 处理可变参数
-    if is_varargs != 0 {
-        if param_count > 0 {
-            fputs(", " as *byte, codegen.output);
-        }
-        fputs("..." as *byte, codegen.output);
+    // 添加函数体开始
+    if is_main != 0 {
+        fputs(" {\n" as *byte, codegen.output);
+    } else {
+        fputs(") {\n" as *byte, codegen.output);
     }
-    
-    fputs(") {\n" as *byte, codegen.output);
     codegen.indent_level = codegen.indent_level + 1;
     
     // 保存当前函数的返回类型（用于生成返回语句）

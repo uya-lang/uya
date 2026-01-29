@@ -279,12 +279,11 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     } else {
                         // 如果不在表中，尝试从程序节点中查找结构体声明
                         if codegen.program_node != null {
-                            const decls: [&ASTNode: MAX_PROGRAM_DECLS] = codegen.program_node.program_decls;
                             const decl_count: i32 = codegen.program_node.program_decl_count;
                             var found: i32 = 0;
                             var i: i32 = 0;
                             while i < decl_count {
-                                const decl: &ASTNode = decls[i];
+                                const decl: &ASTNode = codegen.program_node.program_decls[i];
                                 if decl != null && decl.type == AST_STRUCT_DECL {
                                     const struct_name: &byte = decl.struct_decl_name;
                                     if struct_name != null {
@@ -319,11 +318,13 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 const asterisk: *byte = strrchr(type_c as *byte, 42);  // '*' 从后往前找最后一个 *
                 if bracket != null && asterisk != null && bracket < asterisk {
                     // 检查 * 是否在末尾（后面只有空格或结束）
-                    var after_asterisk: *byte = asterisk + 1;
-                    while after_asterisk[0] == 32 {  // ' '
-                        after_asterisk = after_asterisk + 1;
+                    const asterisk_offset: i32 = ptr_diff(asterisk, type_c as *byte);
+                    var after_asterisk_offset: i32 = asterisk_offset + 1;
+                    const type_c_len: i32 = strlen(type_c as *byte);
+                    while after_asterisk_offset < type_c_len && type_c[after_asterisk_offset] == 32 {  // ' '
+                        after_asterisk_offset = after_asterisk_offset + 1;
                     }
-                    if after_asterisk[0] == 0 {
+                    if after_asterisk_offset >= type_c_len || type_c[after_asterisk_offset] == 0 {
                         // 数组指针类型：T[N] * -> T(*)[N]
                         // 找到 ']' 的位置
                         const close_bracket: *byte = strchr(bracket, 93);  // ']'
@@ -409,13 +410,14 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                         // 从类型字符串中提取数组大小，格式如 "int32_t[3]"
                         const bracket: *byte = strchr(type_c as *byte, 91);  // '['
                         if bracket != null {
-                            const close_bracket: *byte = strchr(bracket + 1, 93);  // ']'
+                            const bracket_offset: i32 = ptr_diff(bracket, type_c as *byte);
+                            const close_bracket: *byte = strchr(&type_c[bracket_offset + 1] as *byte, 93);  // ']'
                             if close_bracket != null {
                                 // 提取数字部分
                                 const num_len: i32 = ptr_diff(close_bracket, bracket) - 1;
                                 var num_buf: [byte: 32] = [];
-                                if num_len < 32 {
-                                    memcpy(&num_buf[0] as *void, bracket + 1 as *void, num_len);
+                                if num_len < 32 && num_len > 0 {
+                                    memcpy(&num_buf[0] as *void, &type_c[bracket_offset + 1] as *void, num_len);
                                     num_buf[num_len] = 0;
                                     array_size = atoi(&num_buf[0] as *byte);
                                     if array_size > 0 {
@@ -495,7 +497,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 // 移除可能的 const 限定符（如果存在）
                 if strncmp(elem_type as *byte, "const " as *byte, 6) == 0 {
                     fputs("uya_alignof(" as *byte, codegen.output as *void);
-                    fprintf(codegen.output as *void, "%s" as *byte, elem_type + 6 as *byte);
+                    fprintf(codegen.output as *void, "%s" as *byte, &elem_type[6] as *byte);
                     fputc(41, codegen.output as *void);  // ')'
                 } else {
                     fputs("uya_alignof(" as *byte, codegen.output as *void);
@@ -542,7 +544,8 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         
         // 生成被调用函数名
         if callee != null && callee.type == AST_IDENTIFIER {
-            const safe_name: &byte = get_safe_c_identifier(codegen, callee.identifier_name);
+            const func_name: &byte = callee.identifier_name;
+            const safe_name: &byte = get_safe_c_identifier(codegen, func_name);
             fprintf(codegen.output as *void, "%s(" as *byte, safe_name as *byte);
         } else {
             fputs("unknown(" as *byte, codegen.output as *void);

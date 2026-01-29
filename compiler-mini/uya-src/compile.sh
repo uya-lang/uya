@@ -150,11 +150,12 @@ if [ ! -f "$BRIDGE_C" ]; then
     cat > "$BRIDGE_C" << 'BRIDGE_EOF'
 // bridge.c - 提供运行时桥接函数
 // 这个文件提供了 Uya 程序需要的运行时函数，包括：
-// 1. 命令行参数访问函数（get_argc, get_argv）
-// 2. 标准错误流访问函数（get_stderr）
-// 3. 指针运算辅助函数（ptr_diff）
-// 4. LLVM 初始化函数（通过包含头文件提供内联实现）
-// 5. main 函数（调用 uya_main）
+// 1. 真正的 C main 函数（程序入口点）
+// 2. 命令行参数访问函数（get_argc, get_argv）
+// 3. 标准错误流访问函数（get_stderr）
+// 4. 指针运算辅助函数（ptr_diff）
+// 5. LLVM 初始化函数（通过包含头文件提供内联实现）
+// 注意：Uya 的 main 函数被重命名为 uya_main，由 bridge.c 的 main 函数调用
 
 #include <stdio.h>
 #include <stdint.h>
@@ -164,17 +165,25 @@ if [ ! -f "$BRIDGE_C" ]; then
 // 这里不包含 LLVM 头文件，而是提供简单的包装函数
 // 实际的 LLVM 初始化由链接的 LLVM 库提供
 
-// 前向声明：Uya 程序的主函数（由编译器生成，使用 objcopy 重命名）
-extern int32_t uya_main(void);
-
 // 全局变量：保存命令行参数
 static int saved_argc = 0;
 static char **saved_argv = NULL;
 
-// 初始化函数：在 main 中调用，保存命令行参数
+// 初始化函数：由 bridge.c 的 main 函数调用，保存命令行参数
 void bridge_init(int argc, char **argv) {
     saved_argc = argc;
     saved_argv = argv;
+}
+
+// Uya 程序的 main 函数（被重命名为 uya_main）
+extern int32_t uya_main(void);
+
+// 真正的 C main 函数（程序入口点）
+int main(int argc, char **argv) {
+    // 初始化命令行参数
+    bridge_init(argc, argv);
+    // 调用 Uya 的 main 函数
+    return (int)uya_main();
 }
 
 // 获取命令行参数数量
@@ -217,16 +226,6 @@ __attribute__((weak)) void LLVMInitializeNativeAsmPrinter(void) {
 
 __attribute__((weak)) void LLVMInitializeNativeAsmParser(void) {
     // 空实现
-}
-
-// C 程序的 main 函数
-// 它初始化桥接函数，然后调用 Uya 程序的 main 函数（重命名为 uya_main）
-int main(int argc, char **argv) {
-    // 初始化桥接函数（保存命令行参数）
-    bridge_init(argc, argv);
-    
-    // 调用 Uya 程序的主函数
-    return (int)uya_main();
 }
 BRIDGE_EOF
     if [ "$VERBOSE" = true ]; then
@@ -414,22 +413,6 @@ if [ $COMPILER_EXIT -eq 0 ]; then
             # 对于 C99 后端，尝试自动链接
             if [ "$USE_C99" = true ] && [ -f "$OUTPUT_FILE" ]; then
                 if [ -f "$BRIDGE_C" ]; then
-                    # 使用 objcopy 将 main 重命名为 uya_main（如果可用）
-                    RENAMED_OBJECT="${OUTPUT_FILE%.c}_renamed.o"
-                    LINK_OBJECT="$OUTPUT_FILE"
-                    
-                    if command -v objcopy >/dev/null 2>&1 && command -v gcc >/dev/null 2>&1; then
-                        # 先编译为对象文件
-                        if gcc --std=c99 -c "$OUTPUT_FILE" -o "${OUTPUT_FILE%.c}.o" 2>/dev/null; then
-                            # 尝试重命名 main 为 uya_main
-                            if objcopy --redefine-sym main=uya_main "${OUTPUT_FILE%.c}.o" "$RENAMED_OBJECT" 2>/dev/null; then
-                                LINK_OBJECT="$RENAMED_OBJECT"
-                            else
-                                LINK_OBJECT="${OUTPUT_FILE%.c}.o"
-                            fi
-                        fi
-                    fi
-                    
                     # 尝试检测 LLVM 路径
                     LLVM_INCLUDE=""
                     LLVM_LIBDIR=""
@@ -444,11 +427,11 @@ if [ $COMPILER_EXIT -eq 0 ]; then
                         LLVM_LIBDIR="-L/usr/lib/llvm-17"
                     fi
                     
-                    # 构建链接命令
+                    # 构建链接命令（直接链接 .c 文件，不需要 objcopy 重命名）
                     if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-                        LINK_CMD="gcc --std=c99 -no-pie $LLVM_INCLUDE $LLVM_LIBDIR \"$LINK_OBJECT\" \"$BRIDGE_C\" -o \"${EXECUTABLE_FILE}.exe\" $LLVM_LIBS -lstdc++ -lm -ldl -lpthread"
+                        LINK_CMD="gcc --std=c99 -no-pie $LLVM_INCLUDE $LLVM_LIBDIR \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${EXECUTABLE_FILE}.exe\" $LLVM_LIBS -lstdc++ -lm -ldl -lpthread"
                     else
-                        LINK_CMD="gcc --std=c99 -no-pie $LLVM_INCLUDE $LLVM_LIBDIR \"$LINK_OBJECT\" \"$BRIDGE_C\" -o \"$EXECUTABLE_FILE\" $LLVM_LIBS -lstdc++ -lm -ldl -lpthread"
+                        LINK_CMD="gcc --std=c99 -no-pie $LLVM_INCLUDE $LLVM_LIBDIR \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"$EXECUTABLE_FILE\" $LLVM_LIBS -lstdc++ -lm -ldl -lpthread"
                     fi
                     
                     if [ "$VERBOSE" = true ]; then
@@ -457,9 +440,6 @@ if [ $COMPILER_EXIT -eq 0 ]; then
                     
                     if eval "$LINK_CMD" 2>&1; then
                         echo -e "${GREEN}✓ C99 可执行文件已生成: $EXECUTABLE_FILE${NC}"
-                        # 清理临时文件
-                        [ -f "$RENAMED_OBJECT" ] && rm -f "$RENAMED_OBJECT"
-                        [ -f "${OUTPUT_FILE%.c}.o" ] && rm -f "${OUTPUT_FILE%.c}.o"
                     else
                         echo -e "${RED}✗ 链接失败${NC}"
                         echo ""

@@ -262,7 +262,7 @@ fn arena_strdup_from_literal(arena: &Arena, _str: &byte) &byte {
     // 复制字符串内容
     var i: i32 = 0;
     while i < str_len {
-        result[i] = (str as &byte)[i];
+        result[i] = str[i];
         i = i + 1;
     }
     result[str_len] = 0;  // null 终止符

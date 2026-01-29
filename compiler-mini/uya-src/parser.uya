@@ -1140,26 +1140,32 @@ fn parser_parse(parser: &Parser) &ASTNode {
                 const stderr_fd: *void = 2 as *void;
                 if parser.lexer.filename != null {
                     // 注意：Uya Mini 不支持三元表达式 (?:)，这里用 if 代替
-                    var token_value: *byte = "";
+                    // 使用 const 指针避免警告，或者使用类型转换
+                    var token_value: *byte = null;
                     if parser.current_token.value != null {
                         token_value = parser.current_token.value as *byte;
+                    } else {
+                        token_value = "" as *byte;  // 类型转换避免 const 警告
                     }
                     fprintf(stderr_fd, "错误: 语法分析失败 (%s:%d:%d): 意外的 token", 
                             parser.lexer.filename as *byte, parser.current_token.line, parser.current_token.column);
                     // 检查 token_value 是否非空
-                    if parser.current_token.value != null && strcmp(token_value, "") != 0 {
+                    if parser.current_token.value != null && strcmp(token_value, "" as *byte) != 0 {
                         fprintf(stderr_fd, " '%s'", token_value);
                     }
                 } else {
                     // 注意：Uya Mini 不支持三元表达式 (?:)，这里用 if 代替
-                    var token_value: *byte = "";
+                    // 使用 const 指针避免警告，或者使用类型转换
+                    var token_value: *byte = null;
                     if parser.current_token.value != null {
                         token_value = parser.current_token.value as *byte;
+                    } else {
+                        token_value = "" as *byte;  // 类型转换避免 const 警告
                     }
                     fprintf(stderr_fd, "错误: 语法分析失败 (<unknown>:%d:%d): 意外的 token", 
                             parser.current_token.line, parser.current_token.column);
                     // 检查 token_value 是否非空
-                    if parser.current_token.value != null && strcmp(token_value, "") != 0 {
+                    if parser.current_token.value != null && strcmp(token_value, "" as *byte) != 0 {
                         fprintf(stderr_fd, " '%s'", token_value);
                     }
                 }

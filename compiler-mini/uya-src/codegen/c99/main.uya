@@ -3,6 +3,8 @@
 //
 // 注意：需要先包含 internal.uya（包含类型定义和函数声明）
 // 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+// 注意：gen_function_prototype 和 gen_function 在 function.uya 中定义，
+//       由于 function.uya 在 main.uya 之前编译，函数已经可见
 
 // 生成 C99 代码
 fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: &byte) i32 {
