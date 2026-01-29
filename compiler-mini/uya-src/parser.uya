@@ -45,7 +45,11 @@ fn parser_match(parser: &Parser, type: TokenType) i32 {
     if parser == null || parser.current_token == null {
         return 0;
     }
-    return if parser.current_token.type == type then 1 else 0;
+    if parser.current_token.type == type {
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 // 辅助函数：消费当前 Token 并获取下一个
@@ -84,13 +88,13 @@ fn arena_strdup(arena: &Arena, src: &byte) &byte {
         return null;
     }
     
-    const len: usize = strlen(src as *byte) + 1;
-    const result: &byte = arena_alloc(arena, len) as &byte;
+    const str_len: usize = strlen(src as *byte) + 1;
+    const result: &byte = arena_alloc(arena, str_len) as &byte;
     if result == null {
         return null;
     }
     
-    memcpy(result as *byte, src as *byte, len);
+    memcpy(result as *byte, src as *byte, str_len);
     return result;
 }
 
@@ -161,6 +165,14 @@ fn parser_peek_is_struct_init(parser: &Parser) i32 {
 // 由于 Uya 不支持前向声明，我们需要重新组织函数顺序
 // 这里先定义基础表达式解析函数，然后定义更复杂的表达式解析函数
 
+// 辅助函数：获取文件名（用于 ast_new_node）
+fn parser_get_filename(parser: &Parser) &byte {
+    if parser != null && parser.lexer != null {
+        return parser.lexer.filename;
+    }
+    return null;
+}
+
 // 解析类型（支持命名类型、指针类型和数组类型）
 // type = named_type | pointer_type | array_type
 // named_type = ID
@@ -187,7 +199,8 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
         }
         
         // 创建指针类型节点
-        const pointer_type: &ASTNode = ast_new_node(AST_TYPE_POINTER, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const filename: &byte = parser_get_filename(parser);
+        const pointer_type: &ASTNode = ast_new_node(AST_TYPE_POINTER, line, column, parser.arena, filename);
         if pointer_type == null {
             return null;
         }
@@ -207,7 +220,7 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
         }
         
         // 创建 FFI 指针类型节点
-        const pointer_type: &ASTNode = ast_new_node(AST_TYPE_POINTER, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const pointer_type: &ASTNode = ast_new_node(AST_TYPE_POINTER, line, column, parser.arena, parser_get_filename(parser));
         if pointer_type == null {
             return null;
         }
@@ -245,7 +258,7 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
         }
         
         // 创建数组类型节点
-        const array_type: &ASTNode = ast_new_node(AST_TYPE_ARRAY, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const array_type: &ASTNode = ast_new_node(AST_TYPE_ARRAY, line, column, parser.arena, parser_get_filename(parser));
         if array_type == null {
             return null;
         }
@@ -256,7 +269,7 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
         return array_type;
     } else if parser.current_token.type == TOKEN_IDENTIFIER {
         // 命名类型（i32, bool, void, 或结构体名称）
-        const type_node: &ASTNode = ast_new_node(AST_TYPE_NAMED, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const type_node: &ASTNode = ast_new_node(AST_TYPE_NAMED, line, column, parser.arena, parser_get_filename(parser));
         if type_node == null {
             return null;
         }
@@ -279,30 +292,6 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
     return null;
 }
 
-// 字符串比较辅助函数（Uya 没有 strcmp）
-// 注意：这个函数在 checker.uya 中也有定义，但为了 parser.uya 的独立性，这里也定义一份
-fn str_equals(s1: &byte, s2: &byte) i32 {
-    if s1 == null && s2 == null {
-        return 1;
-    }
-    if s1 == null || s2 == null {
-        return 0;
-    }
-    var i: i32 = 0;
-    while true {
-        const c1: byte = s1[i] as byte;
-        const c2: byte = s2[i] as byte;
-        if c1 != c2 {
-            return 0;
-        }
-        if c1 == 0 {
-            return 1;
-        }
-        i = i + 1;
-    }
-    return 0;
-}
-
 // 字符串转整数辅助函数（Uya 没有 atoi）
 // 注意：需要 extern 函数 atoi，或者自己实现
 extern fn atoi(s: *byte) i32;
@@ -319,7 +308,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
     
     // 解析数字字面量
     if parser.current_token.type == TOKEN_NUMBER {
-        const node: &ASTNode = ast_new_node(AST_NUMBER, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const node: &ASTNode = ast_new_node(AST_NUMBER, line, column, parser.arena, parser_get_filename(parser));
         if node == null {
             return null;
         }
@@ -334,7 +323,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
     
     // 解析布尔字面量
     if parser.current_token.type == TOKEN_TRUE {
-        const node: &ASTNode = ast_new_node(AST_BOOL, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const node: &ASTNode = ast_new_node(AST_BOOL, line, column, parser.arena, parser_get_filename(parser));
         if node == null {
             return null;
         }
@@ -346,7 +335,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
     }
     
     if parser.current_token.type == TOKEN_FALSE {
-        const node: &ASTNode = ast_new_node(AST_BOOL, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const node: &ASTNode = ast_new_node(AST_BOOL, line, column, parser.arena, parser_get_filename(parser));
         if node == null {
             return null;
         }
@@ -359,7 +348,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
     
     // 解析字符串字面量
     if parser.current_token.type == TOKEN_STRING {
-        const node: &ASTNode = ast_new_node(AST_STRING, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const node: &ASTNode = ast_new_node(AST_STRING, line, column, parser.arena, parser_get_filename(parser));
         if node == null {
             return null;
         }
@@ -379,7 +368,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
     
     // 解析 null 字面量（null 被解析为标识符节点，在代码生成阶段通过字符串比较识别）
     if parser.current_token.type == TOKEN_NULL {
-        const node: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const node: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena, parser_get_filename(parser));
         if node == null {
             return null;
         }
@@ -404,7 +393,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             return null;
         }
         
-        const sizeof_node: &ASTNode = ast_new_node(AST_SIZEOF, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const sizeof_node: &ASTNode = ast_new_node(AST_SIZEOF, line, column, parser.arena, parser_get_filename(parser));
         if sizeof_node == null {
             return null;
         }
@@ -470,7 +459,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             return null;
         }
         
-        const alignof_node: &ASTNode = ast_new_node(AST_ALIGNOF, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const alignof_node: &ASTNode = ast_new_node(AST_ALIGNOF, line, column, parser.arena, parser_get_filename(parser));
         if alignof_node == null {
             return null;
         }
@@ -536,7 +525,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             return null;
         }
         
-        const len_node: &ASTNode = ast_new_node(AST_LEN, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const len_node: &ASTNode = ast_new_node(AST_LEN, line, column, parser.arena, parser_get_filename(parser));
         if len_node == null {
             return null;
         }
@@ -569,13 +558,13 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         // 检查下一个 token 类型
         if parser.current_token != null && parser.current_token.type == TOKEN_LEFT_PAREN {
             // 函数调用：ID '(' [ arg_list ] ')'
-            const call: &ASTNode = ast_new_node(AST_CALL_EXPR, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+            const call: &ASTNode = ast_new_node(AST_CALL_EXPR, line, column, parser.arena, parser_get_filename(parser));
             if call == null {
                 return null;
             }
             
             // 创建标识符节点作为被调用的函数
-            const callee: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+            const callee: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena, parser_get_filename(parser));
             if callee == null {
                 return null;
             }
@@ -586,7 +575,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             parser_consume(parser);
             
             // 解析参数列表（可选）
-            var args: &&ASTNode = null;
+            var args: &ASTNode = null;
             var arg_count: i32 = 0;
             var arg_capacity: i32 = 0;
             
@@ -604,8 +593,13 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                     
                     // 扩展参数数组
                     if arg_count >= arg_capacity {
-                        const new_capacity: i32 = if arg_capacity == 0 then 4 else arg_capacity * 2;
-                        const new_args: &&ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &&ASTNode;
+                        var new_capacity: i32 = 0;
+                        if arg_capacity == 0 {
+                            new_capacity = 4;
+                        } else {
+                            new_capacity = arg_capacity * 2;
+                        }
+                        const new_args: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
                         if new_args == null {
                             return null;
                         }
@@ -665,7 +659,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                     parser_consume(parser);  // 消费字段名称
                     
                     // 创建字段访问节点
-                    const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+                    const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena, parser_get_filename(parser));
                     if member_access == null {
                         return null;
                     }
@@ -692,7 +686,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                     }
                     
                     // 创建数组访问节点
-                    const array_access: &ASTNode = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+                    const array_access: &ASTNode = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser.arena, parser_get_filename(parser));
                     if array_access == null {
                         return null;
                     }
@@ -733,7 +727,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                     if parser.context == PARSER_CONTEXT_CONDITION {
                         // 在条件表达式上下文中，`{}` 应该是代码块的开始
                         // 返回标识符，让调用者处理 '{' 作为代码块
-                        const node: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+                        const node: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena, parser_get_filename(parser));
                         if node == null {
                             return null;
                         }
@@ -753,7 +747,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             
             if is_struct_init == 0 {
                 // 不是结构体字面量，创建普通标识符（后面的'{'是代码块的开始，不是表达式的一部分）
-                const node: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+                const node: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena, parser_get_filename(parser));
                 if node == null {
                     return null;
                 }
@@ -782,7 +776,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                     parser_consume(parser);  // 消费字段名称
                     
                     // 创建字段访问节点
-                    const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+                    const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena, parser_get_filename(parser));
                     if member_access == null {
                         return null;
                     }
@@ -797,7 +791,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             }
             
             // 结构体字面量：ID '{' field_init_list '}'
-            const struct_init: &ASTNode = ast_new_node(AST_STRUCT_INIT, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+            const struct_init: &ASTNode = ast_new_node(AST_STRUCT_INIT, line, column, parser.arena, parser_get_filename(parser));
             if struct_init == null {
                 return null;
             }
@@ -808,8 +802,8 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             parser_consume(parser);
             
             // 解析字段初始化列表
-            var field_names: &&byte = null;
-            var field_values: &&ASTNode = null;
+            var field_names: &byte = null;
+            var field_values: &ASTNode = null;
             var field_count: i32 = 0;
             var field_capacity: i32 = 0;
             
@@ -844,9 +838,14 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                     
                     // 扩展字段数组
                     if field_count >= field_capacity {
-                        const new_capacity: i32 = if field_capacity == 0 then 4 else field_capacity * 2;
-                        const new_field_names: &&byte = arena_alloc(parser.arena, sizeof(&byte) * new_capacity) as &&byte;
-                        const new_field_values: &&ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &&ASTNode;
+                        var new_capacity: i32 = 0;
+                        if field_capacity == 0 {
+                            new_capacity = 4;
+                        } else {
+                            new_capacity = field_capacity * 2;
+                        }
+                        const new_field_names: &byte = arena_alloc(parser.arena, sizeof(&byte) * new_capacity) as &byte;
+                        const new_field_values: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
                         if new_field_names == null || new_field_values == null {
                             return null;
                         }
@@ -908,7 +907,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                 parser_consume(parser);  // 消费字段名称
                 
                 // 创建字段访问节点
-                const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+                const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena, parser_get_filename(parser));
                 if member_access == null {
                     return null;
                 }
@@ -922,7 +921,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             return result;
         } else {
             // 普通标识符
-            const node: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+            const node: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena, parser_get_filename(parser));
             if node == null {
                 return null;
             }
@@ -953,7 +952,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                     parser_consume(parser);  // 消费字段名称
                     
                     // 创建字段访问节点
-                    const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+                    const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena, parser_get_filename(parser));
                     if member_access == null {
                         return null;
                     }
@@ -980,7 +979,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                     }
                     
                     // 创建数组访问节点
-                    const array_access: &ASTNode = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+                    const array_access: &ASTNode = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser.arena, parser_get_filename(parser));
                     if array_access == null {
                         return null;
                     }
@@ -1006,13 +1005,13 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         parser_consume(parser);  // 消费 '['
         
         // 创建数组字面量节点
-        const array_literal: &ASTNode = ast_new_node(AST_ARRAY_LITERAL, array_line, array_column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const array_literal: &ASTNode = ast_new_node(AST_ARRAY_LITERAL, array_line, array_column, parser.arena, parser_get_filename(parser));
         if array_literal == null {
             return null;
         }
         
         // 初始化元素数组
-        var elements: &&ASTNode = null;
+        var elements: &ASTNode = null;
         var element_count: i32 = 0;
         var element_capacity: i32 = 0;
         
@@ -1031,8 +1030,13 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                 
                 // 扩展元素数组
                 if element_count >= element_capacity {
-                    const new_capacity: i32 = if element_capacity == 0 then 4 else element_capacity * 2;
-                    const new_elements: &&ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &&ASTNode;
+                    var new_capacity: i32 = 0;
+                        if element_capacity == 0 {
+                            new_capacity = 4;
+                        } else {
+                            new_capacity = element_capacity * 2;
+                        }
+                    const new_elements: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
                     if new_elements == null {
                         return null;
                     }
@@ -1095,7 +1099,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                 parser_consume(parser);  // 消费字段名称
                 
                 // 创建字段访问节点
-                const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+                const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena, parser_get_filename(parser));
                 if member_access == null {
                     return null;
                 }
@@ -1122,7 +1126,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                 }
                 
                 // 创建数组访问节点
-                const array_access: &ASTNode = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+                const array_access: &ASTNode = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser.arena, parser_get_filename(parser));
                 if array_access == null {
                     return null;
                 }
@@ -1179,7 +1183,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                 parser_consume(parser);  // 消费字段名称
                 
                 // 创建字段访问节点
-                const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+                const member_access: &ASTNode = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser.arena, parser_get_filename(parser));
                 if member_access == null {
                     return null;
                 }
@@ -1206,7 +1210,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                 }
                 
                 // 创建数组访问节点
-                const array_access: &ASTNode = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+                const array_access: &ASTNode = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser.arena, parser_get_filename(parser));
                 if array_access == null {
                     return null;
                 }
@@ -1253,7 +1257,7 @@ fn parser_parse_unary_expr(parser: &Parser) &ASTNode {
         }
         
         // 创建一元表达式节点
-        const node: &ASTNode = ast_new_node(AST_UNARY_EXPR, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const node: &ASTNode = ast_new_node(AST_UNARY_EXPR, line, column, parser.arena, parser_get_filename(parser));
         if node == null {
             return null;
         }
@@ -1294,7 +1298,7 @@ fn parser_parse_cast_expr(parser: &Parser) &ASTNode {
         }
         
         // 创建类型转换节点
-        const node: &ASTNode = ast_new_node(AST_CAST_EXPR, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const node: &ASTNode = ast_new_node(AST_CAST_EXPR, line, column, parser.arena, parser_get_filename(parser));
         if node == null {
             return null;
         }
@@ -1340,7 +1344,7 @@ fn parser_parse_mul_expr(parser: &Parser) &ASTNode {
         }
         
         // 创建二元表达式节点
-        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, parser_get_filename(parser));
         if node == null {
             return null;
         }
@@ -1385,7 +1389,7 @@ fn parser_parse_add_expr(parser: &Parser) &ASTNode {
         }
         
         // 创建二元表达式节点
-        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, parser_get_filename(parser));
         if node == null {
             return null;
         }
@@ -1432,7 +1436,7 @@ fn parser_parse_rel_expr(parser: &Parser) &ASTNode {
         }
         
         // 创建二元表达式节点
-        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, parser_get_filename(parser));
         if node == null {
             return null;
         }
@@ -1505,7 +1509,7 @@ fn parser_parse_eq_expr(parser: &Parser) &ASTNode {
                     const struct_name: &byte = right.struct_init_struct_name;
                     if struct_name != null {
                         // 创建标识符节点
-                        const identifier: &ASTNode = ast_new_node(AST_IDENTIFIER, right.line, right.column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+                        const identifier: &ASTNode = ast_new_node(AST_IDENTIFIER, right.line, right.column, parser.arena, parser_get_filename(parser));
                         if identifier != null {
                             identifier.identifier_name = struct_name;
                             right = identifier;
@@ -1515,7 +1519,7 @@ fn parser_parse_eq_expr(parser: &Parser) &ASTNode {
                 
                 // 停止表达式解析，返回完整的比较表达式（不包含 '{'）
                 // 调用者（如 if 语句解析）会处理 '{' 作为代码块
-                const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+                const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, parser_get_filename(parser));
                 if node == null {
                     return null;
                 }
@@ -1534,7 +1538,7 @@ fn parser_parse_eq_expr(parser: &Parser) &ASTNode {
         }
         
         // 创建二元表达式节点
-        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, parser_get_filename(parser));
         if node == null {
             return null;
         }
@@ -1576,7 +1580,7 @@ fn parser_parse_and_expr(parser: &Parser) &ASTNode {
         }
         
         // 创建二元表达式节点
-        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, parser_get_filename(parser));
         if node == null {
             return null;
         }
@@ -1618,7 +1622,7 @@ fn parser_parse_or_expr(parser: &Parser) &ASTNode {
         }
         
         // 创建二元表达式节点
-        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, parser_get_filename(parser));
         if node == null {
             return null;
         }
@@ -1659,7 +1663,7 @@ fn parser_parse_assign_expr(parser: &Parser) &ASTNode {
         }
         
         // 创建赋值节点
-        const node: &ASTNode = ast_new_node(AST_ASSIGN, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const node: &ASTNode = ast_new_node(AST_ASSIGN, line, column, parser.arena, parser_get_filename(parser));
         if node == null {
             return null;
         }
@@ -1700,13 +1704,13 @@ fn parser_parse_block(parser: &Parser) &ASTNode {
     const column: i32 = parser.current_token.column;
     
     // 创建代码块节点
-    const block: &ASTNode = ast_new_node(AST_BLOCK, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+    const block: &ASTNode = ast_new_node(AST_BLOCK, line, column, parser.arena, parser_get_filename(parser));
     if block == null {
         return null;
     }
     
     // 初始化语句列表
-    var stmts: &&ASTNode = null;
+    var stmts: &ASTNode = null;
     var stmt_count: i32 = 0;
     var stmt_capacity: i32 = 0;
     
@@ -1743,8 +1747,13 @@ fn parser_parse_block(parser: &Parser) &ASTNode {
         
         // 扩展语句数组（使用 Arena 分配）
         if stmt_count >= stmt_capacity {
-            const new_capacity: i32 = if stmt_capacity == 0 then 4 else stmt_capacity * 2;
-            const new_stmts: &&ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &&ASTNode;
+            var new_capacity: i32 = 0;
+                        if stmt_capacity == 0 {
+                            new_capacity = 4;
+                        } else {
+                            new_capacity = stmt_capacity * 2;
+                        }
+            const new_stmts: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
             if new_stmts == null {
                 // 注意：Uya 版本简化错误报告
                 return null;
@@ -1795,7 +1804,7 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
         // 解析 return 语句
         parser_consume(parser);  // 消费 'return'
         
-        const stmt: &ASTNode = ast_new_node(AST_RETURN_STMT, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const stmt: &ASTNode = ast_new_node(AST_RETURN_STMT, line, column, parser.arena, parser_get_filename(parser));
         if stmt == null {
             return null;
         }
@@ -1826,7 +1835,7 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
         // 解析 break 语句
         parser_consume(parser);  // 消费 'break'
         
-        const stmt: &ASTNode = ast_new_node(AST_BREAK_STMT, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const stmt: &ASTNode = ast_new_node(AST_BREAK_STMT, line, column, parser.arena, parser_get_filename(parser));
         if stmt == null {
             return null;
         }
@@ -1843,7 +1852,7 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
         // 解析 continue 语句
         parser_consume(parser);  // 消费 'continue'
         
-        const stmt: &ASTNode = ast_new_node(AST_CONTINUE_STMT, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const stmt: &ASTNode = ast_new_node(AST_CONTINUE_STMT, line, column, parser.arena, parser_get_filename(parser));
         if stmt == null {
             return null;
         }
@@ -1860,7 +1869,7 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
         // 解析 if 语句
         parser_consume(parser);  // 消费 'if'
         
-        const stmt: &ASTNode = ast_new_node(AST_IF_STMT, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const stmt: &ASTNode = ast_new_node(AST_IF_STMT, line, column, parser.arena, parser_get_filename(parser));
         if stmt == null {
             return null;
         }
@@ -1919,7 +1928,7 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
         // 解析 while 语句
         parser_consume(parser);  // 消费 'while'
         
-        const stmt: &ASTNode = ast_new_node(AST_WHILE_STMT, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const stmt: &ASTNode = ast_new_node(AST_WHILE_STMT, line, column, parser.arena, parser_get_filename(parser));
         if stmt == null {
             return null;
         }
@@ -1950,7 +1959,7 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
         // 语法：for expr | ID | { statements } 或 for expr | &ID | { statements }
         parser_consume(parser);  // 消费 'for'
         
-        const stmt: &ASTNode = ast_new_node(AST_FOR_STMT, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const stmt: &ASTNode = ast_new_node(AST_FOR_STMT, line, column, parser.arena, parser_get_filename(parser));
         if stmt == null {
             return null;
         }
@@ -2006,7 +2015,12 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
     
     if parser_match(parser, TOKEN_CONST) != 0 || parser_match(parser, TOKEN_VAR) != 0 {
         // 解析变量声明
-        const is_const: i32 = if parser_match(parser, TOKEN_CONST) != 0 then 1 else 0;
+        var is_const: i32 = 0;
+        if parser_match(parser, TOKEN_CONST) != 0 {
+            is_const = 1;
+        } else {
+            is_const = 0;
+        }
         parser_consume(parser);  // 消费 'const' 或 'var'
         
         // 期望变量名称
@@ -2021,7 +2035,7 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
         
         parser_consume(parser);  // 消费变量名称
         
-        const stmt: &ASTNode = ast_new_node(AST_VAR_DECL, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const stmt: &ASTNode = ast_new_node(AST_VAR_DECL, line, column, parser.arena, parser_get_filename(parser));
         if stmt == null {
             return null;
         }
@@ -2136,7 +2150,7 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
     parser_consume(parser);
     
     // 创建结构体声明节点
-    const struct_decl: &ASTNode = ast_new_node(AST_STRUCT_DECL, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+    const struct_decl: &ASTNode = ast_new_node(AST_STRUCT_DECL, line, column, parser.arena, parser_get_filename(parser));
     if struct_decl == null {
         return null;
     }
@@ -2153,7 +2167,7 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
     // 解析字段列表
     // 字段列表：field { ',' field }
     // field = ID ':' type
-    var fields: &&ASTNode = null;
+    var fields: &ASTNode = null;
     var field_count: i32 = 0;
     var field_capacity: i32 = 0;
     
@@ -2187,7 +2201,7 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
         }
         
         // 创建字段节点（使用 AST_VAR_DECL，is_const = 0）
-        const field: &ASTNode = ast_new_node(AST_VAR_DECL, field_line, field_column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        const field: &ASTNode = ast_new_node(AST_VAR_DECL, field_line, field_column, parser.arena, parser_get_filename(parser));
         if field == null {
             return null;
         }
@@ -2199,8 +2213,13 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
         
         // 扩展字段数组（使用 Arena 分配）
         if field_count >= field_capacity {
-            const new_capacity: i32 = if field_capacity == 0 then 4 else field_capacity * 2;
-            const new_fields: &&ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &&ASTNode;
+            var new_capacity: i32 = 0;
+                        if field_capacity == 0 {
+                            new_capacity = 4;
+                        } else {
+                            new_capacity = field_capacity * 2;
+                        }
+            const new_fields: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
             if new_fields == null {
                 // 注意：Uya 版本简化错误报告
                 return null;
@@ -2272,7 +2291,7 @@ fn parser_parse_enum(parser: &Parser) &ASTNode {
     parser_consume(parser);
     
     // 创建枚举声明节点
-    const enum_decl: &ASTNode = ast_new_node(AST_ENUM_DECL, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+    const enum_decl: &ASTNode = ast_new_node(AST_ENUM_DECL, line, column, parser.arena, parser_get_filename(parser));
     if enum_decl == null {
         return null;
     }
@@ -2311,7 +2330,12 @@ fn parser_parse_enum(parser: &Parser) &ASTNode {
         
         // 扩展变体数组（使用 Arena 分配）
         if variant_count >= variant_capacity {
-            const new_capacity: i32 = if variant_capacity == 0 then 4 else variant_capacity * 2;
+            var new_capacity: i32 = 0;
+                        if variant_capacity == 0 {
+                            new_capacity = 4;
+                        } else {
+                            new_capacity = variant_capacity * 2;
+                        }
             const new_variants: &EnumVariant = arena_alloc(parser.arena, sizeof(EnumVariant) * new_capacity) as &EnumVariant;
             if new_variants == null {
                 return null;
@@ -2409,7 +2433,7 @@ fn parser_parse_function(parser: &Parser) &ASTNode {
     parser_consume(parser);
     
     // 创建函数声明节点
-    const fn_decl: &ASTNode = ast_new_node(AST_FN_DECL, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+    const fn_decl: &ASTNode = ast_new_node(AST_FN_DECL, line, column, parser.arena, parser_get_filename(parser));
     if fn_decl == null {
         return null;
     }
@@ -2426,7 +2450,7 @@ fn parser_parse_function(parser: &Parser) &ASTNode {
     }
     
     // 解析参数列表（可选）
-    var params: &&ASTNode = null;
+    var params: &ASTNode = null;
     var param_count: i32 = 0;
     var param_capacity: i32 = 0;
     
@@ -2462,7 +2486,7 @@ fn parser_parse_function(parser: &Parser) &ASTNode {
             }
             
             // 创建参数节点（使用 AST_VAR_DECL，is_const = 0）
-            const param: &ASTNode = ast_new_node(AST_VAR_DECL, param_line, param_column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+            const param: &ASTNode = ast_new_node(AST_VAR_DECL, param_line, param_column, parser.arena, parser_get_filename(parser));
             if param == null {
                 return null;
             }
@@ -2474,8 +2498,13 @@ fn parser_parse_function(parser: &Parser) &ASTNode {
             
             // 扩展参数数组（使用 Arena 分配）
             if param_count >= param_capacity {
-                const new_capacity: i32 = if param_capacity == 0 then 4 else param_capacity * 2;
-                const new_params: &&ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &&ASTNode;
+                var new_capacity: i32 = 0;
+                        if param_capacity == 0 {
+                            new_capacity = 4;
+                        } else {
+                            new_capacity = param_capacity * 2;
+                        }
+                const new_params: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
                 if new_params == null {
                     // 注意：Uya 版本简化错误报告
                     return null;
@@ -2567,7 +2596,7 @@ fn parser_parse_extern_function(parser: &Parser) &ASTNode {
     parser_consume(parser);
     
     // 创建函数声明节点
-    const fn_decl: &ASTNode = ast_new_node(AST_FN_DECL, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+    const fn_decl: &ASTNode = ast_new_node(AST_FN_DECL, line, column, parser.arena, parser_get_filename(parser));
     if fn_decl == null {
         return null;
     }
@@ -2585,7 +2614,7 @@ fn parser_parse_extern_function(parser: &Parser) &ASTNode {
     }
     
     // 解析参数列表（可选，支持可变参数）
-    var params: &&ASTNode = null;
+    var params: &ASTNode = null;
     var param_count: i32 = 0;
     var param_capacity: i32 = 0;
     var is_varargs: i32 = 0;
@@ -2630,7 +2659,7 @@ fn parser_parse_extern_function(parser: &Parser) &ASTNode {
             }
             
             // 创建参数节点（使用 AST_VAR_DECL，is_const = 0）
-            const param: &ASTNode = ast_new_node(AST_VAR_DECL, param_line, param_column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+            const param: &ASTNode = ast_new_node(AST_VAR_DECL, param_line, param_column, parser.arena, parser_get_filename(parser));
             if param == null {
                 return null;
             }
@@ -2642,8 +2671,13 @@ fn parser_parse_extern_function(parser: &Parser) &ASTNode {
             
             // 扩展参数数组（使用 Arena 分配）
             if param_count >= param_capacity {
-                const new_capacity: i32 = if param_capacity == 0 then 4 else param_capacity * 2;
-                const new_params: &&ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &&ASTNode;
+                var new_capacity: i32 = 0;
+                        if param_capacity == 0 {
+                            new_capacity = 4;
+                        } else {
+                            new_capacity = param_capacity * 2;
+                        }
+                const new_params: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
                 if new_params == null {
                     return null;
                 }
@@ -2734,7 +2768,7 @@ fn parser_parse(parser: &Parser) &ASTNode {
     const line: i32 = parser.current_token.line;
     const column: i32 = parser.current_token.column;
     
-    const program: &ASTNode = ast_new_node(AST_PROGRAM, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+    const program: &ASTNode = ast_new_node(AST_PROGRAM, line, column, parser.arena, parser_get_filename(parser));
     if program == null {
         return null;
     }
@@ -2744,7 +2778,7 @@ fn parser_parse(parser: &Parser) &ASTNode {
     program.program_decl_count = 0;
     
     // 解析顶层声明列表
-    var decls: &&ASTNode = null;
+    var decls: &ASTNode = null;
     var decl_count: i32 = 0;
     var decl_capacity: i32 = 0;
     
@@ -2763,8 +2797,13 @@ fn parser_parse(parser: &Parser) &ASTNode {
         
         // 扩展声明数组（使用 Arena 分配）
         if decl_count >= decl_capacity {
-            const new_capacity: i32 = if decl_capacity == 0 then 4 else decl_capacity * 2;
-            const new_decls: &&ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &&ASTNode;
+            var new_capacity: i32 = 0;
+                        if decl_capacity == 0 {
+                            new_capacity = 4;
+                        } else {
+                            new_capacity = decl_capacity * 2;
+                        }
+            const new_decls: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
             if new_decls == null {
                 return null;
             }

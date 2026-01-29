@@ -558,7 +558,7 @@ diff /tmp/test_c.c /tmp/test_uya.c
 ### 核心模块（P0）
 
 - [x] `checker.c` → `checker.uya` - ✅ 核心框架已完成（已完成主要函数翻译，已通过语法分析，约1600行）
-- [x] `parser.c` → `parser.uya` - ✅ 核心框架已完成（已完成所有主要函数翻译，已通过语法分析，约3000+行）
+- [x] `parser.c` → `parser.uya` - ✅ 核心框架已完成（已完成所有主要函数翻译，已通过语法分析，约2800+行）
 - [ ] `lexer.c` → `lexer.uya` - ⏳ 待翻译
 - [ ] `ast.c` → `ast.uya` - ⏳ 待翻译
 - [ ] `arena.c` → `arena.uya` - ⏳ 待翻译
