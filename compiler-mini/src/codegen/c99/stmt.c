@@ -295,6 +295,24 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             }
             
             if (init_expr) {
+                // 检查是否是空结构体初始化（field_count == 0）
+                // 如果是，改为手动初始化，避免 gcc 生成错误的 memset 调用
+                int is_empty_struct_init = 0;
+                ASTNode *struct_decl_for_empty_init = NULL;
+                if (init_expr->type == AST_STRUCT_INIT) {
+                    int field_count = init_expr->data.struct_init.field_count;
+                    if (field_count == 0) {
+                        // 空结构体初始化：从初始化表达式中获取结构体名称
+                        const char *struct_name = get_safe_c_identifier(codegen, init_expr->data.struct_init.struct_name);
+                        if (struct_name) {
+                            struct_decl_for_empty_init = find_struct_decl_c99(codegen, struct_name);
+                            if (struct_decl_for_empty_init) {
+                                is_empty_struct_init = 1;
+                            }
+                        }
+                    }
+                }
+                
                 // 检查是否是数组类型且初始化表达式是函数调用（返回数组）
                 int is_array_from_function = 0;
                 if (var_type->type == AST_TYPE_ARRAY && init_expr->type == AST_CALL_EXPR) {
@@ -312,7 +330,7 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 // 检查是否是结构体初始化且包含数组字段（初始化值是标识符）
                 // 在C中，数组不能直接赋值，需要使用memcpy
                 int struct_init_needs_memcpy = 0;
-                if (init_expr->type == AST_STRUCT_INIT) {
+                if (init_expr->type == AST_STRUCT_INIT && !is_empty_struct_init) {
                     const char *struct_name = get_safe_c_identifier(codegen, init_expr->data.struct_init.struct_name);
                     ASTNode *struct_decl = find_struct_decl_c99(codegen, struct_name);
                     if (struct_decl) {
@@ -333,7 +351,44 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                     }
                 }
                 
-                if (is_array_from_function) {
+                if (is_empty_struct_init) {
+                    // 空结构体初始化：手动初始化各个字段，避免 gcc 生成错误的 memset 调用
+                    // 先完成变量声明（不包含初始化）
+                    fputs(";\n", codegen->output);
+                    
+                    // 获取结构体定义中的所有字段
+                    ASTNode *struct_decl = struct_decl_for_empty_init;
+                    int field_count = struct_decl->data.struct_decl.field_count;
+                    ASTNode **fields = struct_decl->data.struct_decl.fields;
+                    
+                    // 手动初始化每个字段
+                    for (int i = 0; i < field_count; i++) {
+                        ASTNode *field = fields[i];
+                        if (!field || field->type != AST_VAR_DECL) {
+                            continue;
+                        }
+                        
+                        const char *field_name = get_safe_c_identifier(codegen, field->data.var_decl.name);
+                        ASTNode *field_type = field->data.var_decl.type;
+                        
+                        if (!field_name || !field_type) {
+                            continue;
+                        }
+                        
+                        // 根据字段类型生成初始化代码
+                        if (field_type->type == AST_TYPE_POINTER) {
+                            // 指针类型：初始化为 NULL
+                            c99_emit(codegen, "%s.%s = NULL;\n", var_name, field_name);
+                        } else if (field_type->type == AST_TYPE_ARRAY) {
+                            // 数组类型：使用 memset 清零
+                            c99_emit(codegen, "memset(%s.%s, 0, sizeof(%s.%s));\n", 
+                                    var_name, field_name, var_name, field_name);
+                        } else {
+                            // 其他类型（整数、浮点数等）：初始化为 0
+                            c99_emit(codegen, "%s.%s = 0;\n", var_name, field_name);
+                        }
+                    }
+                } else if (is_array_from_function) {
                     // 从函数调用接收数组：需要从包装结构体中提取
                     // 先完成变量声明（不包含初始化）
                     fputs(";\n", codegen->output);

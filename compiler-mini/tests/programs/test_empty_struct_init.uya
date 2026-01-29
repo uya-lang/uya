@@ -1,0 +1,11 @@
+// 测试空结构体初始化
+struct TestStruct {
+    field1: i32,
+    field2: &byte,
+}
+
+fn main() i32 {
+    var s: TestStruct = TestStruct{};
+    return 0;
+}
+
