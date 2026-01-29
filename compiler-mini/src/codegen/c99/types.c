@@ -649,6 +649,23 @@ int is_identifier_struct_type(C99CodeGenerator *codegen, const char *name) {
     
     return 0;
 }
+
+// 获取标识符（变量）的 C 类型字符串，用于按字段比较时查找结构体
+const char *get_identifier_type_c(C99CodeGenerator *codegen, const char *name) {
+    if (!name) return NULL;
+    for (int i = codegen->local_variable_count - 1; i >= 0; i--) {
+        if (strcmp(codegen->local_variables[i].name, name) == 0) {
+            return codegen->local_variables[i].type_c;
+        }
+    }
+    for (int i = 0; i < codegen->global_variable_count; i++) {
+        if (strcmp(codegen->global_variables[i].name, name) == 0) {
+            return codegen->global_variables[i].type_c;
+        }
+    }
+    return NULL;
+}
+
 // 生成数组包装结构体的名称
 // 例如：[i32: 3] -> "uya_array_i32_3", [[i32: 2]: 3] -> "uya_array_i32_2_3"
 const char *get_array_wrapper_struct_name(C99CodeGenerator *codegen, ASTNode *array_type) {

@@ -352,41 +352,46 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 }
                 
                 if (is_empty_struct_init) {
-                    // 空结构体初始化：手动初始化各个字段，避免 gcc 生成错误的 memset 调用
+                    // 空结构体初始化：C 中空结构体有占位字段 _empty，需零初始化
                     // 先完成变量声明（不包含初始化）
                     fputs(";\n", codegen->output);
                     
-                    // 获取结构体定义中的所有字段
+                    // 获取结构体定义中的所有字段（AST 中空结构体 field_count 为 0）
                     ASTNode *struct_decl = struct_decl_for_empty_init;
                     int field_count = struct_decl->data.struct_decl.field_count;
                     ASTNode **fields = struct_decl->data.struct_decl.fields;
                     
-                    // 手动初始化每个字段
-                    for (int i = 0; i < field_count; i++) {
-                        ASTNode *field = fields[i];
-                        if (!field || field->type != AST_VAR_DECL) {
-                            continue;
+                    if (field_count > 0) {
+                        // 手动初始化每个字段（非空结构体但初始化列表为空的情况）
+                        for (int i = 0; i < field_count; i++) {
+                            ASTNode *field = fields[i];
+                            if (!field || field->type != AST_VAR_DECL) {
+                                continue;
+                            }
+                            
+                            const char *field_name = get_safe_c_identifier(codegen, field->data.var_decl.name);
+                            ASTNode *field_type = field->data.var_decl.type;
+                            
+                            if (!field_name || !field_type) {
+                                continue;
+                            }
+                            
+                            // 根据字段类型生成初始化代码
+                            if (field_type->type == AST_TYPE_POINTER) {
+                                // 指针类型：初始化为 NULL
+                                c99_emit(codegen, "%s.%s = NULL;\n", var_name, field_name);
+                            } else if (field_type->type == AST_TYPE_ARRAY) {
+                                // 数组类型：使用 memset 清零
+                                c99_emit(codegen, "memset(%s.%s, 0, sizeof(%s.%s));\n", 
+                                        var_name, field_name, var_name, field_name);
+                            } else {
+                                // 其他类型（整数、浮点数等）：初始化为 0
+                                c99_emit(codegen, "%s.%s = 0;\n", var_name, field_name);
+                            }
                         }
-                        
-                        const char *field_name = get_safe_c_identifier(codegen, field->data.var_decl.name);
-                        ASTNode *field_type = field->data.var_decl.type;
-                        
-                        if (!field_name || !field_type) {
-                            continue;
-                        }
-                        
-                        // 根据字段类型生成初始化代码
-                        if (field_type->type == AST_TYPE_POINTER) {
-                            // 指针类型：初始化为 NULL
-                            c99_emit(codegen, "%s.%s = NULL;\n", var_name, field_name);
-                        } else if (field_type->type == AST_TYPE_ARRAY) {
-                            // 数组类型：使用 memset 清零
-                            c99_emit(codegen, "memset(%s.%s, 0, sizeof(%s.%s));\n", 
-                                    var_name, field_name, var_name, field_name);
-                        } else {
-                            // 其他类型（整数、浮点数等）：初始化为 0
-                            c99_emit(codegen, "%s.%s = 0;\n", var_name, field_name);
-                        }
+                    } else {
+                        // 空结构体（AST 无字段）：C 端有 char _empty 占位，整体零初始化
+                        c99_emit(codegen, "memset(&%s, 0, sizeof(%s));\n", var_name, var_name);
                     }
                 } else if (is_array_from_function) {
                     // 从函数调用接收数组：需要从包装结构体中提取

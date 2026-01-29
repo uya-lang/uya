@@ -31,6 +31,7 @@ void gen_array_wrapper_struct(C99CodeGenerator *codegen, ASTNode *array_type, co
 int is_identifier_pointer_type(C99CodeGenerator *codegen, const char *name);
 int is_identifier_pointer_to_array_type(C99CodeGenerator *codegen, const char *name);
 int is_identifier_struct_type(C99CodeGenerator *codegen, const char *name);
+const char *get_identifier_type_c(C99CodeGenerator *codegen, const char *name);
 int is_member_access_pointer_type(C99CodeGenerator *codegen, ASTNode *member_access);
 int is_array_access_pointer_type(C99CodeGenerator *codegen, ASTNode *array_access);
 int calculate_struct_size(C99CodeGenerator *codegen, ASTNode *type_node);
@@ -41,6 +42,8 @@ int is_struct_defined(C99CodeGenerator *codegen, const char *struct_name);
 void mark_struct_defined(C99CodeGenerator *codegen, const char *struct_name);
 void add_struct_definition(C99CodeGenerator *codegen, const char *struct_name);
 ASTNode *find_struct_decl_c99(C99CodeGenerator *codegen, const char *struct_name);
+/* 根据 C 类型字符串（如 "struct Data"）查找结构体声明，用于按字段比较 */
+ASTNode *find_struct_decl_from_type_c(C99CodeGenerator *codegen, const char *type_c);
 ASTNode *find_struct_field_type(C99CodeGenerator *codegen, ASTNode *struct_decl, const char *field_name);
 int gen_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl);
 

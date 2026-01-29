@@ -77,6 +77,46 @@ ASTNode *find_struct_decl_c99(C99CodeGenerator *codegen, const char *struct_name
     return NULL;
 }
 
+// 从 C 类型字符串（如 "struct Data"）中提取结构体名并查找声明
+ASTNode *find_struct_decl_from_type_c(C99CodeGenerator *codegen, const char *type_c) {
+    if (!codegen || !type_c || !codegen->program_node) {
+        return NULL;
+    }
+    const char *p = strstr(type_c, "struct ");
+    if (!p) {
+        return NULL;
+    }
+    p += 7;  /* skip "struct " */
+    const char *start = p;
+    while (*p && *p != ' ' && *p != '*') {
+        p++;
+    }
+    if (p == start) {
+        return NULL;
+    }
+    /* 提取的名称可能是 "Data" 等，与 get_safe_c_identifier 结果一致 */
+    char name_buf[128];
+    size_t len = (size_t)(p - start);
+    if (len >= sizeof(name_buf)) {
+        len = sizeof(name_buf) - 1;
+    }
+    memcpy(name_buf, start, len);
+    name_buf[len] = '\0';
+    ASTNode **decls = codegen->program_node->data.program.decls;
+    int decl_count = codegen->program_node->data.program.decl_count;
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_STRUCT_DECL) {
+            continue;
+        }
+        const char *safe = get_safe_c_identifier(codegen, decl->data.struct_decl.name);
+        if (safe && strcmp(safe, name_buf) == 0) {
+            return decl;
+        }
+    }
+    return NULL;
+}
+
 // 查找结构体字段类型
 ASTNode *find_struct_field_type(C99CodeGenerator *codegen, ASTNode *struct_decl, const char *field_name) {
     if (!codegen || !struct_decl || struct_decl->type != AST_STRUCT_DECL || !field_name) {

@@ -42,41 +42,116 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             }
             
             if (is_struct_comparison) {
-                // 使用memcmp比较结构体
-                // 需要获取左操作数的类型来确定结构体大小
-                const char *struct_name = NULL;
+                // 按字段比较，避免 padding 未初始化导致 memcmp 结果错误
+                ASTNode *struct_decl = NULL;
                 if (left->type == AST_IDENTIFIER) {
-                    // 对于变量，我们需要查找其类型
-                    // 这里简化处理，使用sizeof运算符
-                    fputs("memcmp(&", codegen->output);
-                    gen_expr(codegen, left);
-                    fputs(", &", codegen->output);
-                    gen_expr(codegen, right);
-                    fputs(", sizeof(", codegen->output);
-                    gen_expr(codegen, left);
-                    fputs("))", codegen->output);
+                    const char *type_c = get_identifier_type_c(codegen, left->data.identifier.name);
+                    struct_decl = type_c ? find_struct_decl_from_type_c(codegen, type_c) : NULL;
                 } else if (left->type == AST_STRUCT_INIT) {
-                    // 对于结构体字面量，使用结构体名称
-                    struct_name = left->data.struct_init.struct_name;
-                    fputs("memcmp(&", codegen->output);
-                    gen_expr(codegen, left);
-                    fputs(", &", codegen->output);
-                    gen_expr(codegen, right);
-                    fprintf(codegen->output, ", sizeof(struct %s))", struct_name);
-                } else {
-                    // 默认情况，使用sizeof左操作数
-                    fputs("memcmp(&", codegen->output);
-                    gen_expr(codegen, left);
-                    fputs(", &", codegen->output);
-                    gen_expr(codegen, right);
-                    fputs(", sizeof(", codegen->output);
-                    gen_expr(codegen, left);
-                    fputs("))", codegen->output);
+                    struct_decl = find_struct_decl_c99(codegen, left->data.struct_init.struct_name);
                 }
-                if (op == TOKEN_EQUAL) {
-                    fputs(" == 0", codegen->output);
-                } else if (op == TOKEN_NOT_EQUAL) {
-                    fputs(" != 0", codegen->output);
+                if (struct_decl && struct_decl->type == AST_STRUCT_DECL) {
+                    int field_count = struct_decl->data.struct_decl.field_count;
+                    ASTNode **fields = struct_decl->data.struct_decl.fields;
+                    if (field_count == 0) {
+                        /* 空结构体：视为相等，直接输出 1(==) 或 0(!=)，不再包括号 */
+                        if (op == TOKEN_EQUAL) {
+                            fputs("(1)", codegen->output);
+                        } else {
+                            fputs("(0)", codegen->output);
+                        }
+                    } else {
+                    if (op == TOKEN_NOT_EQUAL) {
+                        fputs("(!(", codegen->output);
+                    } else {
+                        fputc('(', codegen->output);
+                    }
+                        for (int i = 0; i < field_count; i++) {
+                            ASTNode *field = fields[i];
+                            if (!field || field->type != AST_VAR_DECL) continue;
+                            const char *field_name = field->data.var_decl.name;
+                            ASTNode *field_type = field->data.var_decl.type;
+                            const char *safe_field = get_safe_c_identifier(codegen, field_name);
+                            if (!safe_field) continue;
+                            /* 嵌套结构体或数组字段在 C 中不能直接用 ==，用 memcmp */
+                            int field_needs_memcmp = 0;
+                            if (field_type) {
+                                if (field_type->type == AST_TYPE_NAMED) {
+                                    const char *type_name = field_type->data.type_named.name;
+                                    if (type_name && find_struct_decl_c99(codegen, type_name)) {
+                                        field_needs_memcmp = 1;
+                                    }
+                                } else if (field_type->type == AST_TYPE_ARRAY) {
+                                    field_needs_memcmp = 1;
+                                }
+                            }
+                            if (field_needs_memcmp) {
+                                fputs("(memcmp(&(", codegen->output);
+                                gen_expr(codegen, left);
+                                fputs(").", codegen->output);
+                                fputs(safe_field, codegen->output);
+                                fputs(", &(", codegen->output);
+                                gen_expr(codegen, right);
+                                fputs(").", codegen->output);
+                                fputs(safe_field, codegen->output);
+                                fputs(", sizeof((", codegen->output);
+                                gen_expr(codegen, left);
+                                fputs(").", codegen->output);
+                                fputs(safe_field, codegen->output);
+                                fputs(")) == 0)", codegen->output);
+                            } else {
+                                fputs("((", codegen->output);
+                                gen_expr(codegen, left);
+                                fputs(").", codegen->output);
+                                fputs(safe_field, codegen->output);
+                                fputs(" == (", codegen->output);
+                                gen_expr(codegen, right);
+                                fputs(").", codegen->output);
+                                fputs(safe_field, codegen->output);
+                                fputs(")", codegen->output);
+                            }
+                            if (i < field_count - 1) fputs(" && ", codegen->output);
+                        }
+                    fputc(')', codegen->output);
+                    if (op == TOKEN_NOT_EQUAL) {
+                        fputc(')', codegen->output);
+                    }
+                    }
+                } else {
+                    /* 回退：无法按字段比较时用 memcmp，整体加括号 */
+                    const char *struct_name = NULL;
+                    fputc('(', codegen->output);
+                    if (left->type == AST_IDENTIFIER) {
+                        fputs("memcmp(&", codegen->output);
+                        gen_expr(codegen, left);
+                        fputs(", &", codegen->output);
+                        gen_expr(codegen, right);
+                        fputs(", sizeof(", codegen->output);
+                        gen_expr(codegen, left);
+                        fputs("))", codegen->output);
+                    } else if (left->type == AST_STRUCT_INIT) {
+                        struct_name = get_safe_c_identifier(codegen, left->data.struct_init.struct_name);
+                        fputs("memcmp(&", codegen->output);
+                        gen_expr(codegen, left);
+                        fputs(", &", codegen->output);
+                        gen_expr(codegen, right);
+                        fprintf(codegen->output, ", sizeof(struct %s))", struct_name ? struct_name : "void");
+                    } else {
+                        fputs("memcmp(&", codegen->output);
+                        gen_expr(codegen, left);
+                        fputs(", &", codegen->output);
+                        gen_expr(codegen, right);
+                        fputs(", sizeof(", codegen->output);
+                        gen_expr(codegen, left);
+                        fputs("))", codegen->output);
+                    }
+                    if (op == TOKEN_EQUAL) {
+                        fputs(" == 0)", codegen->output);
+                    } else if (op == TOKEN_NOT_EQUAL) {
+                        fputs(" != 0)", codegen->output);
+                    } else {
+                        fputc(')', codegen->output);
+                    }
                 }
             } else {
                 // 普通二元表达式
