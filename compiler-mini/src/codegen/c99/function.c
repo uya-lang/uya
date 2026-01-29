@@ -112,6 +112,13 @@ void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     int is_varargs = fn_decl->data.fn_decl.is_varargs;
     ASTNode *body = fn_decl->data.fn_decl.body;
     
+    // 特殊处理：main 函数不生成前向声明（它是入口点，不需要前向声明）
+    const char *orig_name = fn_decl->data.fn_decl.name;
+    int is_main = (orig_name && strcmp(orig_name, "main") == 0) ? 1 : 0;
+    if (is_main) {
+        return;
+    }
+    
     // 检查是否为extern函数（body为NULL表示extern函数）
     int is_extern = (body == NULL) ? 1 : 0;
     
@@ -211,43 +218,63 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     // 生成 #line 指令，指向函数定义的位置
     emit_line_directive(codegen, fn_decl->line, fn_decl->filename);
     
+    // 特殊处理：main 函数需要生成 C 的 main(int argc, char **argv) 并初始化 bridge
+    const char *orig_name = fn_decl->data.fn_decl.name;
+    int is_main = (orig_name && strcmp(orig_name, "main") == 0) ? 1 : 0;
+    
     // 返回类型（如果是数组类型，转换为指针类型）
     const char *return_c = convert_array_return_type(codegen, return_type);
-    fprintf(codegen->output, "%s %s(", return_c, func_name);
     
-    // 参数列表
-    for (int i = 0; i < param_count; i++) {
-        ASTNode *param = params[i];
-        if (!param || param->type != AST_VAR_DECL) continue;
+    if (is_main) {
+        // 生成 C 的 main 函数签名
+        fprintf(codegen->output, "%s main(int argc, char **argv)", return_c);
+    } else {
+        fprintf(codegen->output, "%s %s(", return_c, func_name);
         
-        const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
-        ASTNode *param_type = param->data.var_decl.type;
-        const char *param_type_c = c99_type_to_c(codegen, param_type);
-        
-        // 数组参数：在参数名后添加 _param 后缀，函数内部会创建副本
-        if (param_type->type == AST_TYPE_ARRAY) {
-            // 数组参数格式：T name_param[N]
-            const char *bracket = strchr(param_type_c, '[');
-            if (bracket) {
-                size_t len = bracket - param_type_c;
-                fprintf(codegen->output, "%.*s %s_param%s", (int)len, param_type_c, param_name, bracket);
+        // 参数列表
+        for (int i = 0; i < param_count; i++) {
+            ASTNode *param = params[i];
+            if (!param || param->type != AST_VAR_DECL) continue;
+            
+            const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
+            ASTNode *param_type = param->data.var_decl.type;
+            const char *param_type_c = c99_type_to_c(codegen, param_type);
+            
+            // 数组参数：在参数名后添加 _param 后缀，函数内部会创建副本
+            if (param_type->type == AST_TYPE_ARRAY) {
+                // 数组参数格式：T name_param[N]
+                const char *bracket = strchr(param_type_c, '[');
+                if (bracket) {
+                    size_t len = bracket - param_type_c;
+                    fprintf(codegen->output, "%.*s %s_param%s", (int)len, param_type_c, param_name, bracket);
+                } else {
+                    fprintf(codegen->output, "%s %s_param", param_type_c, param_name);
+                }
             } else {
-                fprintf(codegen->output, "%s %s_param", param_type_c, param_name);
+                format_param_type(codegen, param_type_c, param_name, codegen->output);
             }
-        } else {
-            format_param_type(codegen, param_type_c, param_name, codegen->output);
+            if (i < param_count - 1) fputs(", ", codegen->output);
         }
-        if (i < param_count - 1) fputs(", ", codegen->output);
+        
+        // 处理可变参数
+        if (is_varargs) {
+            if (param_count > 0) fputs(", ", codegen->output);
+            fputs("...", codegen->output);
+        }
     }
     
-    // 处理可变参数
-    if (is_varargs) {
-        if (param_count > 0) fputs(", ", codegen->output);
-        fputs("...", codegen->output);
+    // main 函数签名已经完整，直接添加函数体开始
+    if (is_main) {
+        fputs(" {\n", codegen->output);
+    } else {
+        fputs(") {\n", codegen->output);
     }
-    
-    fputs(") {\n", codegen->output);
     codegen->indent_level++;
+    
+    // 特殊处理：main 函数需要在开头调用 bridge_init 初始化命令行参数
+    if (is_main) {
+        c99_emit(codegen, "bridge_init(argc, argv);\n");
+    }
     
     // 保存当前函数的返回类型（用于生成返回语句）
     codegen->current_function_return_type = return_type;

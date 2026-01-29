@@ -227,9 +227,17 @@ process_multifile_test() {
     # 链接目标文件为可执行文件
     link_succeeded=false
     if [ "$USE_C99" = true ]; then
-        # C99 后端：直接编译 .c 文件为可执行文件
-        if gcc -std=c99 -o "$BUILD_DIR/$build_subdir/$test_name" "$output_file"; then
-            link_succeeded=true
+        # C99 后端：直接编译 .c 文件为可执行文件（需要链接 bridge.c 提供运行时支持）
+        BRIDGE_C="tests/bridge.c"
+        if [ -f "$BRIDGE_C" ]; then
+            if gcc -std=c99 -o "$BUILD_DIR/$build_subdir/$test_name" "$output_file" "$BRIDGE_C"; then
+                link_succeeded=true
+            fi
+        else
+            # 如果没有 bridge.c，尝试不链接（可能会失败）
+            if gcc -std=c99 -o "$BUILD_DIR/$build_subdir/$test_name" "$output_file"; then
+                link_succeeded=true
+            fi
         fi
     else
         # LLVM 后端：链接 .o 文件
@@ -387,25 +395,52 @@ process_single_test() {
     link_succeeded=false
     if [ "$USE_C99" = true ]; then
         # C99 后端：直接编译 .c 文件为可执行文件
+        BRIDGE_C="tests/bridge.c"
         if [ "$base_name" = "extern_function" ]; then
-            # 编译主程序和外部函数实现
-            if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/extern_function_impl.c; then
-                link_succeeded=true
+            # 编译主程序和外部函数实现（需要链接 bridge.c）
+            if [ -f "$BRIDGE_C" ]; then
+                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/extern_function_impl.c "$BRIDGE_C"; then
+                    link_succeeded=true
+                fi
+            else
+                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/extern_function_impl.c; then
+                    link_succeeded=true
+                fi
             fi
         elif [ "$base_name" = "test_comprehensive_cast" ] || [ "$base_name" = "test_ffi_cast" ] || [ "$base_name" = "test_pointer_cast" ] || [ "$base_name" = "test_simple_cast" ]; then
-            # 编译主程序和通用外部函数实现
-            if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/external_functions.c; then
-                link_succeeded=true
+            # 编译主程序和通用外部函数实现（需要链接 bridge.c）
+            if [ -f "$BRIDGE_C" ]; then
+                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/external_functions.c "$BRIDGE_C"; then
+                    link_succeeded=true
+                fi
+            else
+                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/external_functions.c; then
+                    link_succeeded=true
+                fi
             fi
         elif [ "$base_name" = "test_abi_calling_convention" ]; then
-            # 编译主程序和 ABI 辅助函数
-            if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/test_abi_helpers.c; then
-                link_succeeded=true
+            # 编译主程序和 ABI 辅助函数（需要链接 bridge.c）
+            if [ -f "$BRIDGE_C" ]; then
+                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/test_abi_helpers.c "$BRIDGE_C"; then
+                    link_succeeded=true
+                fi
+            else
+                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/test_abi_helpers.c; then
+                    link_succeeded=true
+                fi
             fi
         else
-            # 普通 C99 编译
-            if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file"; then
-                link_succeeded=true
+            # 普通 C99 编译（需要链接 bridge.c 提供运行时支持）
+            BRIDGE_C="tests/bridge.c"
+            if [ -f "$BRIDGE_C" ]; then
+                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" "$BRIDGE_C"; then
+                    link_succeeded=true
+                fi
+            else
+                # 如果没有 bridge.c，尝试不链接（可能会失败）
+                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file"; then
+                    link_succeeded=true
+                fi
             fi
         fi
     else
