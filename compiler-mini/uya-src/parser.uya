@@ -1,0 +1,567 @@
+// parser.uya - 语法分析器
+// 从 compiler-mini/src/parser.c 重新覆盖式翻译
+//
+// 注意：Uya 没有 union，所有 union 字段都转换为结构体的独立字段
+// 注意：Uya 不支持指针运算，ptr + i 必须转换为 &ptr[i]
+// 注意：Uya 不支持函数前向声明，函数必须在使用前定义
+
+// 解析上下文类型
+enum ParserContext {
+    PARSER_CONTEXT_NORMAL,          // 普通表达式上下文
+    PARSER_CONTEXT_VAR_INIT,        // 变量初始化上下文（var/const 声明中的 = 后面的表达式）
+    PARSER_CONTEXT_CONDITION        // 条件表达式上下文（if/while 后面的表达式）
+}
+
+// 语法分析器结构体
+// 使用 Lexer 读取 Token，构建 AST
+struct Parser {
+    lexer: &Lexer,           // 词法分析器指针（由调用者提供，不分配）
+    current_token: &Token,    // 当前 Token（从 Arena 分配）
+    arena: &Arena,            // Arena 分配器（用于分配 Token 和 AST 节点）
+    context: ParserContext,  // 当前解析上下文
+}
+
+// 初始化 Parser
+// 参数：parser - Parser 结构体指针（由调用者提供），lexer - Lexer 指针，arena - Arena 分配器
+// 返回：成功返回 0，失败返回 -1
+// 注意：Parser 结构体由调用者在栈上或静态分配，此函数只负责初始化
+fn parser_init(parser: &Parser, lexer: &Lexer, arena: &Arena) i32 {
+    if parser == null || lexer == null || arena == null {
+        return -1;
+    }
+    
+    parser.lexer = lexer;
+    parser.arena = arena;
+    parser.context = PARSER_CONTEXT_NORMAL;  // 默认上下文
+    
+    // 获取第一个 Token
+    parser.current_token = lexer_next_token(lexer, arena);
+    
+    return 0;
+}
+
+// 辅助函数：检查当前 Token 类型是否匹配
+fn parser_match(parser: &Parser, type: TokenType) i32 {
+    if parser == null || parser.current_token == null {
+        return 0;
+    }
+    return if parser.current_token.type == type then 1 else 0;
+}
+
+// 辅助函数：消费当前 Token 并获取下一个
+fn parser_consume(parser: &Parser) &Token {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    const current: &Token = parser.current_token;
+    parser.current_token = lexer_next_token(parser.lexer, parser.arena);
+    return current;
+}
+
+// 辅助函数：期望特定类型的 Token
+fn parser_expect(parser: &Parser, type: TokenType) &Token {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    if parser.current_token.type != type {
+        // 错误：期望的类型不匹配
+        // 注意：Uya 版本简化错误报告，不使用 fprintf（需要 extern 函数）
+        return null;
+    }
+    
+    return parser_consume(parser);
+}
+
+// 从 Arena 复制字符串
+// 注意：需要 extern 函数 strlen 和 memcpy
+extern fn strlen(s: *byte) usize;
+extern fn memcpy(dest: *byte, src: *byte, n: usize) *byte;
+
+fn arena_strdup(arena: &Arena, src: &byte) &byte {
+    if arena == null || src == null {
+        return null;
+    }
+    
+    const len: usize = strlen(src as *byte) + 1;
+    const result: &byte = arena_alloc(arena, len) as &byte;
+    if result == null {
+        return null;
+    }
+    
+    memcpy(result as *byte, src as *byte, len);
+    return result;
+}
+
+// 辅助函数：检查当前 token（'{'）后面是否是结构体字段初始化列表的开始
+// 结构体字段初始化列表格式：identifier: expr 或 }
+// 注意：调用此函数时，parser.current_token 应该是 '{'
+fn parser_peek_is_struct_init(parser: &Parser) i32 {
+    if parser == null || parser.lexer == null || parser.current_token == null {
+        return 0;
+    }
+    
+    if parser.current_token.type != TOKEN_LEFT_BRACE {
+        return 0;
+    }
+    
+    // 保存 lexer 状态（当前 lexer 的 position 已经在 '{' 之后）
+    const lexer: &Lexer = parser.lexer;
+    var saved_position: usize = lexer.position;
+    var saved_line: i32 = lexer.line;
+    var saved_column: i32 = lexer.column;
+    
+    // 获取 '{' 后面的 token（lexer_next_token 会跳过空白字符和注释）
+    const after_brace: &Token = lexer_next_token(lexer, parser.arena);
+    
+    if after_brace == null {
+        // 恢复状态
+        lexer.position = saved_position;
+        lexer.line = saved_line;
+        lexer.column = saved_column;
+        return 0;
+    }
+    
+    const token_type: TokenType = after_brace.type;
+    var is_struct_init: i32 = 0;
+    
+    // 检查 identifier: 模式或空的 {}
+    if token_type == TOKEN_RIGHT_BRACE {
+        // 空的 {}：在表达式上下文中，可能是结构体字面量，也可能是代码块
+        // 采用保守策略：空的 `{}` 在表达式上下文中，优先认为是结构体字面量
+        is_struct_init = 1;
+    } else if token_type == TOKEN_IDENTIFIER {
+        // 检查标识符后面是否有 ':'
+        var saved_position2: usize = lexer.position;
+        var saved_line2: i32 = lexer.line;
+        var saved_column2: i32 = lexer.column;
+        
+        const after_identifier: &Token = lexer_next_token(lexer, parser.arena);
+        if after_identifier != null && after_identifier.type == TOKEN_COLON {
+            is_struct_init = 1;
+        }
+        
+        // 恢复状态到标识符之前（after_brace 之后）
+        lexer.position = saved_position2;
+        lexer.line = saved_line2;
+        lexer.column = saved_column2;
+    }
+    
+    // 恢复 lexer 状态到 '{' 之后（原始位置）
+    lexer.position = saved_position;
+    lexer.line = saved_line;
+    lexer.column = saved_column;
+    
+    return is_struct_init;
+}
+
+// 前向声明（Uya 不支持，需要重新组织函数顺序）
+// 注意：这些函数会在后面定义，但需要先声明以便递归调用
+// 由于 Uya 不支持前向声明，我们需要重新组织函数顺序
+// 这里先定义基础表达式解析函数，然后定义更复杂的表达式解析函数
+
+// 解析类型（支持命名类型、指针类型和数组类型）
+// type = named_type | pointer_type | array_type
+// named_type = ID
+// pointer_type = '&' type | '*' type
+// array_type = '[' type ':' expr ']'
+// 注意：此函数会递归调用 parser_parse_expression，所以需要先定义基础表达式解析函数
+fn parser_parse_type(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    const line: i32 = parser.current_token.line;
+    const column: i32 = parser.current_token.column;
+    
+    // 检查是否是指针类型（&Type 或 *Type）
+    if parser.current_token.type == TOKEN_AMPERSAND {
+        // 普通指针类型 &Type
+        parser_consume(parser);  // 消费 '&'
+        
+        // 递归解析指向的类型
+        const pointed_type: &ASTNode = parser_parse_type(parser);
+        if pointed_type == null {
+            return null;
+        }
+        
+        // 创建指针类型节点
+        const pointer_type: &ASTNode = ast_new_node(AST_TYPE_POINTER, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        if pointer_type == null {
+            return null;
+        }
+        
+        pointer_type.type_pointer_pointed_type = pointed_type;
+        pointer_type.type_pointer_is_ffi_pointer = 0;  // 普通指针
+        
+        return pointer_type;
+    } else if parser.current_token.type == TOKEN_ASTERISK {
+        // FFI 指针类型 *Type（仅用于 extern 函数）
+        parser_consume(parser);  // 消费 '*'
+        
+        // 递归解析指向的类型
+        const pointed_type: &ASTNode = parser_parse_type(parser);
+        if pointed_type == null {
+            return null;
+        }
+        
+        // 创建 FFI 指针类型节点
+        const pointer_type: &ASTNode = ast_new_node(AST_TYPE_POINTER, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        if pointer_type == null {
+            return null;
+        }
+        
+        pointer_type.type_pointer_pointed_type = pointed_type;
+        pointer_type.type_pointer_is_ffi_pointer = 1;  // FFI 指针
+        
+        return pointer_type;
+    } else if parser.current_token.type == TOKEN_LEFT_BRACKET {
+        // 数组类型 [Type: Size]
+        parser_consume(parser);  // 消费 '['
+        
+        // 解析元素类型
+        const element_type: &ASTNode = parser_parse_type(parser);
+        if element_type == null {
+            return null;
+        }
+        
+        // 期望 ':'
+        if parser_expect(parser, TOKEN_COLON) == null {
+            return null;
+        }
+        
+        // 解析数组大小表达式（必须是编译期常量，但解析阶段先解析为表达式）
+        // 注意：这里解析为表达式节点，类型检查阶段会验证是否为编译期常量
+        // 注意：这里需要调用 parser_parse_expression，该函数会在后面定义
+        const size_expr: &ASTNode = parser_parse_expression(parser);
+        if size_expr == null {
+            return null;
+        }
+        
+        // 期望 ']'
+        if parser_expect(parser, TOKEN_RIGHT_BRACKET) == null {
+            return null;
+        }
+        
+        // 创建数组类型节点
+        const array_type: &ASTNode = ast_new_node(AST_TYPE_ARRAY, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        if array_type == null {
+            return null;
+        }
+        
+        array_type.type_array_element_type = element_type;
+        array_type.type_array_size_expr = size_expr;
+        
+        return array_type;
+    } else if parser.current_token.type == TOKEN_IDENTIFIER {
+        // 命名类型（i32, bool, void, 或结构体名称）
+        const type_node: &ASTNode = ast_new_node(AST_TYPE_NAMED, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        if type_node == null {
+            return null;
+        }
+        
+        // 复制类型名称到 Arena
+        const type_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+        if type_name == null {
+            return null;
+        }
+        
+        type_node.type_named_name = type_name;
+        
+        // 消费类型标识符
+        parser_consume(parser);
+        
+        return type_node;
+    }
+    
+    // 无法识别的类型语法
+    return null;
+}
+
+// 字符串比较辅助函数（Uya 没有 strcmp）
+// 注意：这个函数在 checker.uya 中也有定义，但为了 parser.uya 的独立性，这里也定义一份
+fn str_equals(s1: &byte, s2: &byte) i32 {
+    if s1 == null && s2 == null {
+        return 1;
+    }
+    if s1 == null || s2 == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while true {
+        const c1: byte = s1[i] as byte;
+        const c2: byte = s2[i] as byte;
+        if c1 != c2 {
+            return 0;
+        }
+        if c1 == 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 字符串转整数辅助函数（Uya 没有 atoi）
+// 注意：需要 extern 函数 atoi，或者自己实现
+extern fn atoi(s: *byte) i32;
+
+// 解析基础表达式
+// 支持：数字、标识符、布尔字面量、括号表达式、函数调用、结构体字面量、字段访问
+fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    const line: i32 = parser.current_token.line;
+    const column: i32 = parser.current_token.column;
+    
+    // 解析数字字面量
+    if parser.current_token.type == TOKEN_NUMBER {
+        const node: &ASTNode = ast_new_node(AST_NUMBER, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        if node == null {
+            return null;
+        }
+        
+        // 将字符串转换为整数
+        const value: i32 = atoi(parser.current_token.value as *byte);
+        node.number_value = value;
+        
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析布尔字面量
+    if parser.current_token.type == TOKEN_TRUE {
+        const node: &ASTNode = ast_new_node(AST_BOOL, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        if node == null {
+            return null;
+        }
+        
+        node.bool_literal_value = 1;  // true
+        
+        parser_consume(parser);
+        return node;
+    }
+    
+    if parser.current_token.type == TOKEN_FALSE {
+        const node: &ASTNode = ast_new_node(AST_BOOL, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        if node == null {
+            return null;
+        }
+        
+        node.bool_literal_value = 0;  // false
+        
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析字符串字面量
+    if parser.current_token.type == TOKEN_STRING {
+        const node: &ASTNode = ast_new_node(AST_STRING, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        if node == null {
+            return null;
+        }
+        
+        // 复制字符串内容到 Arena（token 的 value 已经在 Arena 中）
+        const str_value: &byte = parser.current_token.value;
+        if str_value == null {
+            return null;
+        }
+        
+        // 字符串内容已经在 token 中，直接使用（token 的 value 存储在 Arena 中）
+        node.string_literal_value = str_value;
+        
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析 null 字面量（null 被解析为标识符节点，在代码生成阶段通过字符串比较识别）
+    if parser.current_token.type == TOKEN_NULL {
+        const node: &ASTNode = ast_new_node(AST_IDENTIFIER, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        if node == null {
+            return null;
+        }
+        
+        // 复制 "null" 字符串到 Arena（代码生成器会通过字符串比较识别）
+        const null_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+        if null_name == null {
+            return null;
+        }
+        node.identifier_name = null_name;
+        
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析 sizeof 表达式：sizeof(Type) 或 sizeof(expr)
+    if parser.current_token.type == TOKEN_SIZEOF {
+        parser_consume(parser);  // 消费 'sizeof'
+        
+        // 期望 '('
+        if parser_expect(parser, TOKEN_LEFT_PAREN) == null {
+            return null;
+        }
+        
+        const sizeof_node: &ASTNode = ast_new_node(AST_SIZEOF, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        if sizeof_node == null {
+            return null;
+        }
+        
+        // 尝试解析类型，如果失败则解析表达式
+        // 先检查是否是类型语法（基础类型或 struct 关键字）
+        var is_type: i32 = 0;
+        var target: &ASTNode = null;
+        
+        if parser.current_token != null {
+            if parser.current_token.type == TOKEN_IDENTIFIER {
+                const type_name: &byte = parser.current_token.value;
+                // 检查是否是基础类型或 struct 关键字
+                if str_equals(type_name, "i32" as *byte) != 0 || 
+                    str_equals(type_name, "usize" as *byte) != 0 ||
+                    str_equals(type_name, "bool" as *byte) != 0 || 
+                    str_equals(type_name, "byte" as *byte) != 0 ||
+                    str_equals(type_name, "void" as *byte) != 0 ||
+                    str_equals(type_name, "struct" as *byte) != 0 {
+                    // 尝试解析类型
+                    target = parser_parse_type(parser);
+                    if target != null {
+                        is_type = 1;
+                    }
+                }
+            } else if parser.current_token.type == TOKEN_AMPERSAND || 
+                      parser.current_token.type == TOKEN_ASTERISK ||
+                      parser.current_token.type == TOKEN_LEFT_BRACKET {
+                // 指针类型或数组类型开始
+                target = parser_parse_type(parser);
+                if target != null {
+                    is_type = 1;
+                }
+            }
+        }
+        
+        // 如果不是类型，则解析表达式
+        if target == null {
+            target = parser_parse_expression(parser);
+            if target == null {
+                return null;
+            }
+            is_type = 0;
+        }
+        
+        sizeof_node.sizeof_expr_target = target;
+        sizeof_node.sizeof_expr_is_type = is_type;
+        
+        // 期望 ')'
+        if parser_expect(parser, TOKEN_RIGHT_PAREN) == null {
+            return null;
+        }
+        
+        return sizeof_node;
+    }
+    
+    // 解析 alignof 表达式：alignof(Type) 或 alignof(expr)
+    if parser.current_token.type == TOKEN_ALIGNOF {
+        parser_consume(parser);  // 消费 'alignof'
+        
+        // 期望 '('
+        if parser_expect(parser, TOKEN_LEFT_PAREN) == null {
+            return null;
+        }
+        
+        const alignof_node: &ASTNode = ast_new_node(AST_ALIGNOF, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        if alignof_node == null {
+            return null;
+        }
+        
+        // 尝试解析类型，如果失败则解析表达式
+        // 先检查是否是类型语法（基础类型或 struct 关键字）
+        var is_type: i32 = 0;
+        var target: &ASTNode = null;
+        
+        if parser.current_token != null {
+            if parser.current_token.type == TOKEN_IDENTIFIER {
+                const type_name: &byte = parser.current_token.value;
+                // 检查是否是基础类型或 struct 关键字
+                if str_equals(type_name, "i32" as *byte) != 0 || 
+                    str_equals(type_name, "usize" as *byte) != 0 ||
+                    str_equals(type_name, "bool" as *byte) != 0 || 
+                    str_equals(type_name, "byte" as *byte) != 0 ||
+                    str_equals(type_name, "void" as *byte) != 0 ||
+                    str_equals(type_name, "struct" as *byte) != 0 {
+                    // 尝试解析类型
+                    target = parser_parse_type(parser);
+                    if target != null {
+                        is_type = 1;
+                    }
+                }
+            } else if parser.current_token.type == TOKEN_AMPERSAND || 
+                      parser.current_token.type == TOKEN_ASTERISK ||
+                      parser.current_token.type == TOKEN_LEFT_BRACKET {
+                // 指针类型或数组类型开始
+                target = parser_parse_type(parser);
+                if target != null {
+                    is_type = 1;
+                }
+            }
+        }
+        
+        // 如果不是类型，则解析表达式
+        if target == null {
+            target = parser_parse_expression(parser);
+            if target == null {
+                return null;
+            }
+            is_type = 0;
+        }
+        
+        alignof_node.alignof_expr_target = target;
+        alignof_node.alignof_expr_is_type = is_type;
+        
+        // 期望 ')'
+        if parser_expect(parser, TOKEN_RIGHT_PAREN) == null {
+            return null;
+        }
+        
+        return alignof_node;
+    }
+    
+    // 解析 len 表达式：len(array)
+    if parser.current_token.type == TOKEN_LEN {
+        parser_consume(parser);  // 消费 'len'
+        
+        // 期望 '('
+        if parser_expect(parser, TOKEN_LEFT_PAREN) == null {
+            return null;
+        }
+        
+        const len_node: &ASTNode = ast_new_node(AST_LEN, line, column, parser.arena, if parser.lexer != null then parser.lexer.filename else null);
+        if len_node == null {
+            return null;
+        }
+        
+        // 解析数组表达式
+        const array_expr: &ASTNode = parser_parse_expression(parser);
+        if array_expr == null {
+            return null;
+        }
+        
+        len_node.len_expr_array = array_expr;
+        
+        // 期望 ')'
+        if parser_expect(parser, TOKEN_RIGHT_PAREN) == null {
+            return null;
+        }
+        
+        return len_node;
+    }
+    
+    // 注意：标识符解析、函数调用、结构体字面量、数组字面量、括号表达式等
+    // 由于代码量很大，将在后续继续添加
+    // TODO: 继续添加标识符解析、函数调用、结构体字面量、数组字面量、括号表达式等
+    
+    // 无法识别的基础表达式
+    return null;
+}
+
