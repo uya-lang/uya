@@ -53,6 +53,18 @@ const UYA_EOF: i32 = -1;
 // 单个文件的缓冲区（固定大小数组，全局分配）
 var file_buffer: [byte: FILE_BUFFER_SIZE] = [];
 
+// Arena 分配器缓冲区（固定大小数组，全局分配，避免栈溢出）
+var arena_buffer: [byte: ARENA_BUFFER_SIZE] = [];
+
+// 存储每个文件的 AST_PROGRAM 节点（固定大小数组，全局分配，避免栈溢出）
+var programs: [&ASTNode: MAX_INPUT_FILES] = [];
+
+// TypeChecker 结构体（全局分配，避免栈溢出）
+var checker: TypeChecker = TypeChecker{};
+
+// CodeGenerator 结构体（全局分配，避免栈溢出）
+var codegen: CodeGenerator = CodeGenerator{};
+
 // ===== 辅助函数 =====
 
 // 读取文件内容到缓冲区
@@ -100,93 +112,7 @@ fn print_usage(program_name: &byte) void {
     fprintf(stderr, "示例: %s file1.uya file2.uya file3.uya -o output\n" as *byte, program_name as *byte);
 }
 
-// 解析命令行参数
-// 参数：input_files - 输出参数：输入文件名数组（固定大小数组，存储 *byte 指针）
-//       input_file_count - 输出参数：输入文件数量
-//       output_file - 输出参数：输出文件名（固定大小数组，存储 *byte 指针）
-// 返回：成功返回 0，失败返回 -1
-// 注意：在 Uya Mini 中，使用 extern 函数获取命令行参数
-// 注意：由于 Uya Mini 不支持嵌套指针，使用固定大小数组存储指针
-fn parse_args(input_files: [&byte: MAX_INPUT_FILES], input_file_count: &i32, output_file: [&byte: 1]) i32 {
-    const argc: i32 = get_argc();
-    const stderr: *void = get_stderr();
-    fprintf(stderr, "调试: argc = %d\n" as *byte, argc);
-    
-    // 调试：打印所有参数
-    var debug_i: i32 = 0;
-    while debug_i < argc {
-        const debug_arg: *byte = get_argv(debug_i);
-        if debug_arg == null {
-            fprintf(stderr, "调试: argv[%d] = NULL\n" as *byte, debug_i);
-        } else {
-            fprintf(stderr, "调试: argv[%d] = %s\n" as *byte, debug_i, debug_arg as *byte);
-        }
-        debug_i = debug_i + 1;
-    }
-    
-    if argc < 4 {
-        const program_name: *byte = get_argv(0);
-        if program_name != null {
-            fprintf(stderr, "调试: program_name = %s\n" as *byte, program_name as *byte);
-        } else {
-            fprintf(stderr, "调试: program_name 是 NULL\n" as *byte);
-        }
-        print_usage(program_name as &byte);
-        return -1;
-    }
-    
-    // 简单的参数解析：程序名 [输入文件...] -o <输出文件>
-    *input_file_count = 0;
-    output_file[0] = null;
-    
-    var i: i32 = 1;
-    while i < argc {
-        const arg: *byte = get_argv(i);
-        if arg == null {
-            fprintf(stderr, "错误: 无法获取参数 %d (get_argv 返回 NULL)\n" as *byte, i);
-            return -1;
-        }
-        if strcmp(arg, "-o" as *byte) == 0 {
-            if i + 1 < argc {
-                const output_arg: *byte = get_argv(i + 1);
-                if output_arg == null {
-                    fprintf(stderr, "错误: -o 选项后的输出文件名是 NULL\n" as *byte);
-                    return -1;
-                }
-                output_file[0] = output_arg as &byte;
-                i = i + 1;  // 跳过输出文件名
-            } else {
-                fprintf(stderr, "错误: -o 选项需要指定输出文件名\n" as *byte);
-                return -1;
-            }
-        } else {
-            // 非选项参数，应该是输入文件
-            if *input_file_count >= MAX_INPUT_FILES {
-                fprintf(stderr, "错误: 输入文件数量超过最大限制 (%d)\n" as *byte, MAX_INPUT_FILES);
-                return -1;
-            }
-            input_files[*input_file_count] = arg as &byte;
-            *input_file_count = *input_file_count + 1;
-        }
-        i = i + 1;
-    }
-    
-    if *input_file_count == 0 {
-        const program_name: *byte = get_argv(0);
-        fprintf(stderr, "错误: 未指定输入文件\n" as *byte);
-        print_usage(program_name as &byte);
-        return -1;
-    }
-    
-    if output_file[0] == null {
-        const program_name: *byte = get_argv(0);
-        fprintf(stderr, "错误: 未指定输出文件（使用 -o 选项）\n" as *byte);
-        print_usage(program_name as &byte);
-        return -1;
-    }
-    
-    return 0;
-}
+// 注意：参数解析逻辑已移到 main 函数中，避免数组参数按值传递的问题
 
 // 主编译函数（多文件版本）
 // 协调所有编译阶段：词法分析 → 语法分析 → AST 合并 → 类型检查 → 代码生成
@@ -205,16 +131,13 @@ fn compile_files(input_files: [&byte: MAX_INPUT_FILES], input_file_count: i32, o
     }
     fprintf(stderr, "输出文件: %s\n" as *byte, output_file as *byte);
     
-    // Arena 分配器缓冲区（固定大小数组，在栈上分配）
-    var arena_buffer: [byte: ARENA_BUFFER_SIZE] = [];
-    
     // 初始化 Arena 分配器（所有文件共享同一个 Arena）
+    // 注意：使用全局 arena_buffer，避免栈溢出
     var arena: Arena = Arena{};
     // 注意：数组名会自动转换为指向第一个元素的指针
     arena_init(&arena, arena_buffer as &void, ARENA_BUFFER_SIZE);
     
-    // 存储每个文件的 AST_PROGRAM 节点（固定大小数组，只存储指针）
-    var programs: [&ASTNode: MAX_INPUT_FILES] = [];
+    // 注意：使用全局 programs 数组，避免栈溢出
     
     // 解析每个文件
     i = 0;
@@ -275,7 +198,7 @@ fn compile_files(input_files: [&byte: MAX_INPUT_FILES], input_file_count: i32, o
     
     // 4. 类型检查
     fprintf(stderr, "=== 类型检查阶段 ===\n" as *byte);
-    var checker: TypeChecker = TypeChecker{};
+    // 注意：使用全局 checker，避免栈溢出
     // 使用第一个输入文件名作为默认文件名（用于错误报告）
     // 注意：如果 input_file_count > 0，使用第一个文件名；否则使用 null
     var default_filename: &byte = null;
@@ -304,7 +227,7 @@ fn compile_files(input_files: [&byte: MAX_INPUT_FILES], input_file_count: i32, o
     const module_name: &byte = input_files[0];
     fprintf(stderr, "模块名: %s\n" as *byte, module_name as *byte);
     
-    var codegen: CodeGenerator = CodeGenerator{};
+    // 注意：使用全局 codegen，避免栈溢出
     if codegen_new(&codegen, &arena, module_name) != 0 {
         fprintf(stderr, "错误: CodeGenerator 初始化失败\n" as *byte);
         return 1;
@@ -322,17 +245,74 @@ fn compile_files(input_files: [&byte: MAX_INPUT_FILES], input_file_count: i32, o
 // 注意：在 Uya Mini 中，main 函数签名是 fn main() i32，不支持 argc 和 argv
 //       使用 extern 函数 get_argc() 和 get_argv() 获取命令行参数
 fn main() i32 {
+    const stderr: *void = get_stderr();
+    const argc: i32 = get_argc();
+    
+    if argc < 4 {
+        const program_name: *byte = get_argv(0);
+        if program_name != null {
+            print_usage(program_name as &byte);
+        }
+        return 1;
+    }
+    
+    // 直接在 main 函数中解析参数，避免数组参数按值传递的问题
     var input_files: [&byte: MAX_INPUT_FILES] = [];
     var input_file_count: i32 = 0;
-    var output_file: [&byte: 1] = [];
+    var output_file: &byte = null;
     
-    // 解析命令行参数
-    if parse_args(input_files, &input_file_count, output_file) != 0 {
+    var i: i32 = 1;
+    while i < argc {
+        const arg: *byte = get_argv(i);
+        if arg == null {
+            fprintf(stderr, "错误: 无法获取参数 %d\n" as *byte, i);
+            return 1;
+        }
+        if strcmp(arg, "-o" as *byte) == 0 {
+            if i + 1 < argc {
+                const output_arg: *byte = get_argv(i + 1);
+                if output_arg == null {
+                    fprintf(stderr, "错误: -o 选项后的输出文件名是 NULL\n" as *byte);
+                    return 1;
+                }
+                output_file = output_arg as &byte;
+                i = i + 1;  // 跳过输出文件名
+            } else {
+                fprintf(stderr, "错误: -o 选项需要指定输出文件名\n" as *byte);
+                return 1;
+            }
+        } else {
+            // 非选项参数，应该是输入文件
+            if input_file_count >= MAX_INPUT_FILES {
+                fprintf(stderr, "错误: 输入文件数量超过最大限制 (%d)\n" as *byte, MAX_INPUT_FILES);
+                return 1;
+            }
+            input_files[input_file_count] = arg as &byte;
+            input_file_count = input_file_count + 1;
+        }
+        i = i + 1;
+    }
+    
+    if input_file_count == 0 {
+        const program_name: *byte = get_argv(0);
+        fprintf(stderr, "错误: 未指定输入文件\n" as *byte);
+        if program_name != null {
+            print_usage(program_name as &byte);
+        }
+        return 1;
+    }
+    
+    if output_file == null {
+        const program_name: *byte = get_argv(0);
+        fprintf(stderr, "错误: 未指定输出文件（使用 -o 选项）\n" as *byte);
+        if program_name != null {
+            print_usage(program_name as &byte);
+        }
         return 1;
     }
     
     // 编译文件
-    const result: i32 = compile_files(input_files, input_file_count, output_file[0]);
+    const result: i32 = compile_files(input_files, input_file_count, output_file);
     
     return result;
 }
