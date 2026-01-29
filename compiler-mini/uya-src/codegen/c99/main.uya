@@ -1,0 +1,141 @@
+// main.uya - C99 代码生成器 main 模块
+// 生成 C99 源代码
+//
+// 注意：需要先包含 internal.uya（包含类型定义和函数声明）
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+
+// 生成 C99 代码
+fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: &byte) i32 {
+    if codegen == null || ast == null || output_file == null {
+        return -1;
+    }
+    
+    // 检查是否是程序节点
+    if ast.type != AST_PROGRAM {
+        return -1;
+    }
+    
+    // 保存程序节点引用
+    codegen.program_node = ast;
+    
+    // 输出文件头
+    fputs("// C99 代码由 Uya Mini 编译器生成\n" as *byte, codegen.output as *void);
+    fputs("// 使用 -std=c99 编译\n" as *byte, codegen.output as *void);
+    fputs("//\n" as *byte, codegen.output as *void);
+    fputs("#include <stdint.h>\n" as *byte, codegen.output as *void);
+    fputs("#include <stdbool.h>\n" as *byte, codegen.output as *void);
+    fputs("#include <stddef.h>\n" as *byte, codegen.output as *void);
+    fputs("#include <string.h>\n" as *byte, codegen.output as *void);  // for memcmp
+    fputs("#include <stdio.h>\n" as *byte, codegen.output as *void);  // for standard I/O functions (printf, puts, etc.)
+    fputs("\n" as *byte, codegen.output as *void);
+    // C99 兼容的 alignof 宏（使用 offsetof 技巧）
+    fputs("// C99 兼容的 alignof 实现\n" as *byte, codegen.output as *void);
+    fputs("#define uya_alignof(type) offsetof(struct { char c; type t; }, t)\n" as *byte, codegen.output as *void);
+    fputs("\n" as *byte, codegen.output as *void);
+    
+    // 第一步：收集所有字符串常量（从全局变量初始化和函数体）
+    const decls: [&ASTNode: MAX_PROGRAM_DECLS] = ast.program_decls;
+    const decl_count: i32 = ast.program_decl_count;
+    
+    var i: i32 = 0;
+    while i < decl_count {
+        const decl: &ASTNode = decls[i];
+        if decl != null {
+            collect_string_constants_from_decl(codegen, decl);
+        }
+        i = i + 1;
+    }
+    
+    // 第二步：输出字符串常量定义（在所有其他代码之前）
+    emit_string_constants(codegen);
+    fputs("\n" as *byte, codegen.output as *void);
+    
+    // 第三步：收集所有结构体和枚举定义（添加到表中但不生成代码）
+    i = 0;
+    while i < decl_count {
+        const decl: &ASTNode = decls[i];
+        if decl != null {
+            if decl.type == AST_STRUCT_DECL {
+                const struct_name: &byte = get_safe_c_identifier(codegen, decl.struct_decl_name);
+                if is_struct_in_table(codegen, struct_name) == 0 {
+                    add_struct_definition(codegen, struct_name);
+                }
+            } else if decl.type == AST_ENUM_DECL {
+                const enum_name: &byte = get_safe_c_identifier(codegen, decl.enum_decl_name);
+                if is_enum_in_table(codegen, enum_name) == 0 {
+                    add_enum_definition(codegen, enum_name);
+                }
+            }
+        }
+        i = i + 1;
+    }
+    
+    // 第四步：生成所有结构体的前向声明（解决相互依赖）
+    i = 0;
+    while i < codegen.struct_definition_count {
+        if is_struct_defined(codegen, codegen.struct_definitions[i].name) == 0 {
+            fprintf(codegen.output as *void, "struct %s;\n" as *byte, codegen.struct_definitions[i].name as *byte);
+        }
+        i = i + 1;
+    }
+    if codegen.struct_definition_count > 0 {
+        fputs("\n" as *byte, codegen.output as *void);
+    }
+    
+    // 第五步：生成所有枚举定义（在结构体之前，因为结构体可能使用枚举类型）
+    i = 0;
+    while i < decl_count {
+        const decl: &ASTNode = decls[i];
+        if decl != null && decl.type == AST_ENUM_DECL {
+            gen_enum_definition(codegen, decl);
+            fputs("\n" as *byte, codegen.output as *void);
+        }
+        i = i + 1;
+    }
+    
+    // 第六步：生成所有结构体定义（在枚举之后）
+    i = 0;
+    while i < decl_count {
+        const decl: &ASTNode = decls[i];
+        if decl != null && decl.type == AST_STRUCT_DECL {
+            gen_struct_definition(codegen, decl);
+            fputs("\n" as *byte, codegen.output as *void);
+        }
+        i = i + 1;
+    }
+    
+    // 第七步：生成所有函数的前向声明（解决相互递归调用）
+    i = 0;
+    while i < decl_count {
+        const decl: &ASTNode = decls[i];
+        if decl != null && decl.type == AST_FN_DECL {
+            gen_function_prototype(codegen, decl);
+        }
+        i = i + 1;
+    }
+    fputs("\n" as *byte, codegen.output as *void);
+    
+    // 第八步：生成所有声明（全局变量、函数定义）
+    i = 0;
+    while i < decl_count {
+        const decl: &ASTNode = decls[i];
+        if decl != null {
+            if decl.type == AST_STRUCT_DECL || decl.type == AST_ENUM_DECL {
+                // 已在前面生成
+            } else if decl.type == AST_VAR_DECL {
+                gen_global_var(codegen, decl);
+                fputs("\n" as *byte, codegen.output as *void);
+            } else if decl.type == AST_FN_DECL {
+                // 只生成有函数体的定义（外部函数由前向声明处理）
+                gen_function(codegen, decl);
+                fputs("\n" as *byte, codegen.output as *void);
+            } else {
+                // 忽略其他声明类型（暂时）
+            }
+        }
+        i = i + 1;
+    }
+    
+    return 0;
+}
+

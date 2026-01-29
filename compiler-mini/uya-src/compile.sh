@@ -152,11 +152,13 @@ if [ ! -f "$BRIDGE_C" ]; then
 // 这个文件提供了 Uya 程序需要的运行时函数，包括：
 // 1. 命令行参数访问函数（get_argc, get_argv）
 // 2. 标准错误流访问函数（get_stderr）
-// 3. LLVM 初始化函数（通过包含头文件提供内联实现）
-// 4. main 函数（调用 uya_main）
+// 3. 指针运算辅助函数（ptr_diff）
+// 4. LLVM 初始化函数（通过包含头文件提供内联实现）
+// 5. main 函数（调用 uya_main）
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stddef.h>
 
 // 注意：LLVM 初始化函数需要链接 LLVM 库
 // 这里不包含 LLVM 头文件，而是提供简单的包装函数
@@ -191,6 +193,15 @@ uint8_t *get_argv(int32_t index) {
 // 获取标准错误流指针
 void *get_stderr(void) {
     return (void *)stderr;
+}
+
+// 计算两个指针之间的字节偏移量（ptr1 - ptr2）
+// 用于替代 Uya Mini 中不支持的指针到整数直接转换
+int32_t ptr_diff(uint8_t *ptr1, uint8_t *ptr2) {
+    if (ptr1 == NULL || ptr2 == NULL) {
+        return 0;
+    }
+    return (int32_t)(ptr1 - ptr2);
 }
 
 // LLVM 初始化函数的弱符号实现
@@ -238,31 +249,54 @@ fi
 
 # 收集所有 .uya 文件（按依赖顺序排列）
 # 注意：文件顺序可能影响编译结果，按逻辑顺序排列
+# 根据后端类型选择包含的文件
 UYA_FILES=(
     "arena.uya"
     "str_utils.uya"
     "extern_decls.uya"
-    "llvm_api.uya"
     "ast.uya"
     "lexer.uya"
     "parser.uya"
     "checker.uya"
-    # codegen 模块（按依赖顺序）
-    "codegen/llvm_capi/internal.uya"
-    "codegen/llvm_capi/init.uya"
-    "codegen/llvm_capi/utils.uya"
-    "codegen/llvm_capi/types.uya"
-    "codegen/llvm_capi/vars.uya"
-    "codegen/llvm_capi/funcs.uya"
-    "codegen/llvm_capi/structs.uya"
-    "codegen/llvm_capi/enums.uya"
-    "codegen/llvm_capi/expr.uya"
-    "codegen/llvm_capi/stmt.uya"
-    "codegen/llvm_capi/function.uya"
-    "codegen/llvm_capi/global.uya"
-    "codegen/llvm_capi/main.uya"
-    "main.uya"
 )
+
+# 根据后端类型添加相应的 codegen 模块
+if [ "$USE_C99" = true ]; then
+    # C99 后端模块（按依赖顺序）
+    UYA_FILES+=(
+        "codegen/c99/internal.uya"
+        "codegen/c99/utils.uya"
+        "codegen/c99/types.uya"
+        "codegen/c99/structs.uya"
+        "codegen/c99/enums.uya"
+        "codegen/c99/function.uya"
+        "codegen/c99/expr.uya"
+        "codegen/c99/stmt.uya"
+        "codegen/c99/global.uya"
+        "codegen/c99/main.uya"
+    )
+else
+    # LLVM C API 后端模块（按依赖顺序）
+    UYA_FILES+=(
+        "llvm_api.uya"
+        "codegen/llvm_capi/internal.uya"
+        "codegen/llvm_capi/init.uya"
+        "codegen/llvm_capi/utils.uya"
+        "codegen/llvm_capi/types.uya"
+        "codegen/llvm_capi/vars.uya"
+        "codegen/llvm_capi/funcs.uya"
+        "codegen/llvm_capi/structs.uya"
+        "codegen/llvm_capi/enums.uya"
+        "codegen/llvm_capi/expr.uya"
+        "codegen/llvm_capi/stmt.uya"
+        "codegen/llvm_capi/function.uya"
+        "codegen/llvm_capi/global.uya"
+        "codegen/llvm_capi/main.uya"
+    )
+fi
+
+# 添加主文件
+UYA_FILES+=("main.uya")
 
 # 验证文件存在并构建完整路径（使用绝对路径）
 FULL_PATHS=()

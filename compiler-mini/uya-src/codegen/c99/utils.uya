@@ -1,0 +1,514 @@
+// utils.uya - C99 代码生成器工具函数模块
+// 提供初始化、输出、字符串处理等工具函数
+//
+// 注意：需要先包含 internal.uya（包含类型定义和函数声明）
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+
+// ===== 外部函数声明 =====
+// C 标准库函数（在 extern_decls.uya 中声明）
+
+// 创建 C99 代码生成器
+fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &Arena, output: &void, module_name: &byte, emit_line_directives: i32) i32 {
+    if codegen == null || arena == null || output == null || module_name == null {
+        return -1;
+    }
+    
+    // 初始化字段
+    codegen.arena = arena;
+    codegen.output = output;
+    codegen.indent_level = 0;
+    codegen.module_name = module_name;
+    
+    // 初始化表
+    codegen.string_constant_count = 0;
+    codegen.struct_definition_count = 0;
+    codegen.enum_definition_count = 0;
+    codegen.function_declaration_count = 0;
+    codegen.global_variable_count = 0;
+    codegen.local_variable_count = 0;
+    codegen.current_depth = 0;
+    codegen.loop_stack_depth = 0;
+    codegen.program_node = null;
+    codegen.current_function_return_type = null;
+    codegen.current_line = 0;  // 当前行号（用于优化 #line 指令）
+    codegen.current_filename = null;  // 当前文件名（用于优化 #line 指令）
+    codegen.emit_line_directives = emit_line_directives;  // 是否生成 #line 指令
+    
+    return 0;
+}
+
+// 释放资源（不关闭输出文件）
+fn c99_codegen_free(codegen: &C99CodeGenerator) void {
+    // 当前没有动态分配的资源需要释放
+    // codegen 参数未使用，但保留以保持接口一致性
+}
+
+// 生成 #line 指令（用于调试，让C编译器错误信息指向原始Uya源文件）
+// 优化：只在行号或文件名变化时才生成，避免重复
+fn emit_line_directive(codegen: &C99CodeGenerator, line: i32, filename: &byte) void {
+    if codegen == null || codegen.output as *void == null {
+        return;
+    }
+    
+    // 如果禁用了 #line 指令生成，跳过
+    if codegen.emit_line_directives == 0 {
+        return;
+    }
+    
+    // 如果行号无效（<=0），跳过
+    if line <= 0 {
+        return;
+    }
+    
+    // 如果行号和文件名都没有变化，跳过
+    if codegen.current_line == line && codegen.current_filename == filename {
+        return;
+    }
+    
+    // 更新当前行号和文件名
+    codegen.current_line = line;
+    codegen.current_filename = filename;
+    
+    if filename != null && filename[0] != 0 {
+        // 转义文件名中的特殊字符（如引号、反斜杠）
+        fprintf(codegen.output as *void, "#line %d \"" as *byte, line);
+        var p: &byte = filename;
+        while p[0] != 0 {
+            if p[0] == 92 || p[0] == 34 {  // '\' 或 '"'
+                fputc(92, codegen.output as *void);  // '\\'
+            }
+            fputc(p[0] as i32, codegen.output as *void);
+            p = p + 1;
+        }
+        fputs("\"\n" as *byte, codegen.output as *void);
+    } else {
+        fprintf(codegen.output as *void, "#line %d\n" as *byte, line);
+    }
+}
+
+// 缩进输出
+fn c99_emit_indent(codegen: &C99CodeGenerator) void {
+    var i: i32 = 0;
+    while i < codegen.indent_level {
+        fputs("    " as *byte, codegen.output as *void);
+        i = i + 1;
+    }
+}
+
+// 换行
+fn c99_emit_newline(codegen: &C99CodeGenerator) void {
+    fputc(10, codegen.output as *void);  // '\n'
+}
+
+// 简单输出（带缩进处理）
+// 注意：Uya Mini 不支持普通函数的可变参数
+// 对于需要格式化的输出，直接使用 fprintf 而不是 c99_emit
+fn c99_emit(codegen: &C99CodeGenerator, str: &byte) void {
+    // 输出缩进
+    c99_emit_indent(codegen);
+    
+    // 输出字符串（使用 fputs）
+    fputs(str as *byte, codegen.output as *void);
+}
+
+// 简单的字符串复制到 Arena（用于 C99 代码生成器）
+// 注意：与 lexer.uya 中的 arena_strdup 不同，这个版本接受 &byte 并使用 strlen 计算长度
+fn c99_arena_strdup(arena: &Arena, src: &byte) &byte {
+    if src == null {
+        return null;
+    }
+    const str_len: i32 = strlen(src as *byte) + 1;
+    const dst: &byte = arena_alloc(arena, str_len) as &byte;
+    if dst == null {
+        return null;
+    }
+    memcpy(dst as *void, src as *void, str_len);
+    return dst;
+}
+
+// C99 关键字列表（作为全局常量数组）
+// 注意：Uya Mini 不支持全局数组，这里使用函数内静态数组
+fn is_c_keyword(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    
+    // C99 关键字列表
+    // 注意：字符串字面量类型是 *byte，需要转换为 &byte 用于数组元素
+    const keywords: [&byte: 38] = [
+        "auto" as &byte,
+        "break" as &byte,
+        "case" as &byte,
+        "char" as &byte,
+        "const" as &byte,
+        "continue" as &byte,
+        "default" as &byte,
+        "do" as &byte,
+        "double" as &byte,
+        "else" as &byte,
+        "enum" as &byte,
+        "extern" as &byte,
+        "float" as &byte,
+        "for" as &byte,
+        "goto" as &byte,
+        "if" as &byte,
+        "int" as &byte,
+        "long" as &byte,
+        "register" as &byte,
+        "return" as &byte,
+        "short" as &byte,
+        "signed" as &byte,
+        "sizeof" as &byte,
+        "static" as &byte,
+        "struct" as &byte,
+        "switch" as &byte,
+        "typedef" as &byte,
+        "union" as &byte,
+        "unsigned" as &byte,
+        "void" as &byte,
+        "volatile" as &byte,
+        "while" as &byte,
+        "bool" as &byte,
+        "_Bool" as &byte,
+        "_Complex" as &byte,
+        "_Imaginary" as &byte,
+        "inline" as &byte,
+        "restrict" as &byte
+    ];
+    
+    var i: i32 = 0;
+    while i < 38 {
+        if strcmp(name as *byte, keywords[i] as *byte) == 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    
+    return 0;
+}
+
+// 获取安全的C标识符（如果需要则添加下划线前缀）
+fn get_safe_c_identifier(codegen: &C99CodeGenerator, name: &byte) &byte {
+    if name == null {
+        return null;
+    }
+    
+    // 如果不是关键字，直接返回原名称
+    if is_c_keyword(name) == 0 {
+        return name;
+    }
+    
+    // 如果是关键字，添加前缀（最多尝试几次以避免重复）
+    var buf: [byte: 128] = [];
+    var prefix: i32 = 1;
+    while prefix <= 3 {
+        if prefix == 1 {
+            snprintf(&buf[0] as *byte, 128, "_%s" as *byte, name as *byte);
+        } else if prefix == 2 {
+            snprintf(&buf[0] as *byte, 128, "_%s_" as *byte, name as *byte);
+        } else {
+            snprintf(&buf[0] as *byte, 128, "uya_%s" as *byte, name as *byte);
+        }
+        
+        // 检查这个名称是否已经用作关键字（理论上应该不会冲突）
+        if is_c_keyword(&buf[0] as &byte) == 0 {
+            return c99_arena_strdup(codegen.arena, &buf[0] as &byte);
+        }
+        prefix = prefix + 1;
+    }
+    
+    // 如果仍然冲突，返回原名称（虽然可能导致编译错误）
+    return name;
+}
+
+// 添加字符串常量
+fn add_string_constant(codegen: &C99CodeGenerator, value: &byte) &byte {
+    // 检查是否已存在相同的字符串常量
+    var i: i32 = 0;
+    while i < codegen.string_constant_count {
+        if strcmp(codegen.string_constants[i].value as *byte, value as *byte) == 0 {
+            return codegen.string_constants[i].name;
+        }
+        i = i + 1;
+    }
+    
+    // 创建新的字符串常量
+    if codegen.string_constant_count >= C99_MAX_STRING_CONSTANTS {
+        return null;
+    }
+    
+    // 生成常量名称（如 str0）
+    var name_buf: [byte: 32] = [];
+    snprintf(&name_buf[0] as *byte, 32, "str%d" as *byte, codegen.string_constant_count);
+    
+    // 存储到表中
+    codegen.string_constants[codegen.string_constant_count].name = c99_arena_strdup(codegen.arena, &name_buf[0] as &byte);
+    codegen.string_constants[codegen.string_constant_count].value = value;  // 注意：value 应该已经在 Arena 中
+    codegen.string_constant_count = codegen.string_constant_count + 1;
+    
+    return codegen.string_constants[codegen.string_constant_count - 1].name;
+}
+
+// 转义字符串中的特殊字符
+fn escape_string_for_c(output: &void, str: &byte) void {
+    if str == null {
+        return;
+    }
+    
+    var p: &byte = str;
+    while p[0] != 0 {
+        if p[0] == 10 {  // '\n'
+            fputs("\\n" as *byte, output as *void);
+        } else if p[0] == 9 {  // '\t'
+            fputs("\\t" as *byte, output as *void);
+        } else if p[0] == 13 {  // '\r'
+            fputs("\\r" as *byte, output as *void);
+        } else if p[0] == 92 {  // '\\'
+            fputs("\\\\" as *byte, output as *void);
+        } else if p[0] == 34 {  // '"'
+            fputs("\\\"" as *byte, output as *void);
+        } else {
+            fputc(p[0] as i32, output as *void);
+        }
+        p = p + 1;
+    }
+}
+
+// 输出所有字符串常量
+fn emit_string_constants(codegen: &C99CodeGenerator) void {
+    if codegen.string_constant_count == 0 {
+        return;
+    }
+    
+    fputs("\n// 字符串常量\n" as *byte, codegen.output as *void);
+    var i: i32 = 0;
+    while i < codegen.string_constant_count {
+        fprintf(codegen.output as *void, "static const char %s[] = \"" as *byte, codegen.string_constants[i].name as *byte);
+        escape_string_for_c(codegen.output, codegen.string_constants[i].value);
+        fputs("\";\n" as *byte, codegen.output as *void);
+        i = i + 1;
+    }
+}
+
+// 评估编译时常量表达式（返回 -1 表示无法评估）
+fn eval_const_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
+    if expr == null {
+        return -1;
+    }
+    
+    if expr.type == AST_NUMBER {
+        return expr.number_value;
+    } else if expr.type == AST_IDENTIFIER {
+        // 查找常量变量声明
+        if codegen == null || codegen.program_node == null {
+            return -1;
+        }
+        
+        const const_name: &byte = expr.identifier_name;
+        if const_name == null {
+            return -1;
+        }
+        
+        // 从程序节点中查找常量变量声明
+        const program: &ASTNode = codegen.program_node;
+        if program.type != AST_PROGRAM {
+            return -1;
+        }
+        
+        var i: i32 = 0;
+        while i < program.program_decl_count {
+            const decl: &ASTNode = program.program_decls[i];
+            if decl != null && decl.type == AST_VAR_DECL {
+                const var_name: &byte = decl.var_decl_name;
+                if var_name != null && strcmp(var_name as *byte, const_name as *byte) == 0 {
+                    // 找到常量变量，检查是否为 const
+                    if decl.var_decl_is_const != 0 {
+                        // 递归评估初始值表达式
+                        // 注意：这里不检查循环引用，因为常量应该是编译时确定的简单表达式
+                        const init_expr: &ASTNode = decl.var_decl_init;
+                        if init_expr != null {
+                            // 如果初始值也是标识符，递归查找（支持常量链）
+                            return eval_const_expr(codegen, init_expr);
+                        }
+                    }
+                    break;
+                }
+            }
+            i = i + 1;
+        }
+        // 未找到常量变量或不是 const
+        return -1;
+    } else if expr.type == AST_BINARY_EXPR {
+        const left: &ASTNode = expr.binary_expr_left;
+        const right: &ASTNode = expr.binary_expr_right;
+        const op: i32 = expr.binary_expr_op;
+        const left_val: i32 = eval_const_expr(codegen, left);
+        const right_val: i32 = eval_const_expr(codegen, right);
+        if left_val == -1 || right_val == -1 {
+            return -1;
+        }
+        
+        if op == TOKEN_PLUS {
+            return left_val + right_val;
+        } else if op == TOKEN_MINUS {
+            return left_val - right_val;
+        } else if op == TOKEN_ASTERISK {
+            return left_val * right_val;
+        } else if op == TOKEN_SLASH {
+            if right_val == 0 {
+                return -1;
+            }
+            return left_val / right_val;
+        } else if op == TOKEN_PERCENT {
+            if right_val == 0 {
+                return -1;
+            }
+            return left_val % right_val;
+        } else {
+            // 不支持的操作符
+            return -1;
+        }
+    } else if expr.type == AST_UNARY_EXPR {
+        const op: i32 = expr.unary_expr_op;
+        const operand: &ASTNode = expr.unary_expr_operand;
+        const operand_val: i32 = eval_const_expr(codegen, operand);
+        if operand_val == -1 {
+            return -1;
+        }
+        
+        if op == TOKEN_PLUS {
+            return operand_val;
+        } else if op == TOKEN_MINUS {
+            return -operand_val;
+        } else {
+            // 不支持的其他一元操作符
+            return -1;
+        }
+    } else {
+        // 不是常量表达式
+        return -1;
+    }
+}
+
+// 收集表达式中的字符串常量（不生成代码）
+fn collect_string_constants_from_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
+    if expr == null {
+        return;
+    }
+    
+    if expr.type == AST_STRING {
+        add_string_constant(codegen, expr.string_literal_value);
+    } else if expr.type == AST_BINARY_EXPR {
+        collect_string_constants_from_expr(codegen, expr.binary_expr_left);
+        collect_string_constants_from_expr(codegen, expr.binary_expr_right);
+    } else if expr.type == AST_UNARY_EXPR {
+        collect_string_constants_from_expr(codegen, expr.unary_expr_operand);
+    } else if expr.type == AST_CALL_EXPR {
+        collect_string_constants_from_expr(codegen, expr.call_expr_callee);
+        var i: i32 = 0;
+        while i < expr.call_expr_arg_count {
+            collect_string_constants_from_expr(codegen, expr.call_expr_args[i]);
+            i = i + 1;
+        }
+    } else if expr.type == AST_MEMBER_ACCESS {
+        collect_string_constants_from_expr(codegen, expr.member_access_object);
+    } else if expr.type == AST_ARRAY_ACCESS {
+        collect_string_constants_from_expr(codegen, expr.array_access_array);
+        collect_string_constants_from_expr(codegen, expr.array_access_index);
+    } else if expr.type == AST_STRUCT_INIT {
+        var i: i32 = 0;
+        while i < expr.struct_init_field_count {
+            collect_string_constants_from_expr(codegen, expr.struct_init_field_values[i]);
+            i = i + 1;
+        }
+    } else if expr.type == AST_ARRAY_LITERAL {
+        var i: i32 = 0;
+        while i < expr.array_literal_element_count {
+            collect_string_constants_from_expr(codegen, expr.array_literal_elements[i]);
+            i = i + 1;
+        }
+    } else if expr.type == AST_SIZEOF || expr.type == AST_LEN || expr.type == AST_ALIGNOF {
+        // 这些表达式内部可能包含表达式或类型，但类型节点不包含字符串
+        // 暂时忽略
+    } else if expr.type == AST_CAST_EXPR {
+        collect_string_constants_from_expr(codegen, expr.cast_expr_expr);
+    } else {
+        // 其他表达式类型（标识符、数字、布尔值）不包含字符串
+    }
+}
+
+// 收集语句中的字符串常量
+fn collect_string_constants_from_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
+    if stmt == null {
+        return;
+    }
+    
+    if stmt.type == AST_EXPR_STMT {
+        // 表达式语句的数据存储在表达式的节点中，直接忽略此节点
+    } else if stmt.type == AST_ASSIGN {
+        const dest: &ASTNode = stmt.assign_dest;
+        const src: &ASTNode = stmt.assign_src;
+        collect_string_constants_from_expr(codegen, dest);
+        collect_string_constants_from_expr(codegen, src);
+    } else if stmt.type == AST_RETURN_STMT {
+        const expr: &ASTNode = stmt.return_stmt_expr;
+        collect_string_constants_from_expr(codegen, expr);
+    } else if stmt.type == AST_BLOCK {
+        var i: i32 = 0;
+        while i < stmt.block_stmt_count {
+            collect_string_constants_from_stmt(codegen, stmt.block_stmts[i]);
+            i = i + 1;
+        }
+    } else if stmt.type == AST_VAR_DECL {
+        const init_expr: &ASTNode = stmt.var_decl_init;
+        if init_expr != null {
+            collect_string_constants_from_expr(codegen, init_expr);
+        }
+    } else if stmt.type == AST_IF_STMT {
+        const condition: &ASTNode = stmt.if_stmt_condition;
+        const then_branch: &ASTNode = stmt.if_stmt_then_branch;
+        const else_branch: &ASTNode = stmt.if_stmt_else_branch;
+        collect_string_constants_from_expr(codegen, condition);
+        collect_string_constants_from_stmt(codegen, then_branch);
+        if else_branch != null {
+            collect_string_constants_from_stmt(codegen, else_branch);
+        }
+    } else if stmt.type == AST_WHILE_STMT {
+        const condition: &ASTNode = stmt.while_stmt_condition;
+        const body: &ASTNode = stmt.while_stmt_body;
+        collect_string_constants_from_expr(codegen, condition);
+        collect_string_constants_from_stmt(codegen, body);
+    } else if stmt.type == AST_FOR_STMT {
+        const array: &ASTNode = stmt.for_stmt_array;
+        const body: &ASTNode = stmt.for_stmt_body;
+        collect_string_constants_from_expr(codegen, array);
+        collect_string_constants_from_stmt(codegen, body);
+    } else if stmt.type == AST_BREAK_STMT || stmt.type == AST_CONTINUE_STMT {
+        // 不包含表达式
+    } else {
+        // 可能是表达式节点（如 AST_BINARY_EXPR 等）
+        // 在这种情况下，将其视为表达式处理
+        collect_string_constants_from_expr(codegen, stmt);
+    }
+}
+
+// 收集声明中的字符串常量（全局变量初始化、函数体）
+fn collect_string_constants_from_decl(codegen: &C99CodeGenerator, decl: &ASTNode) void {
+    if decl == null {
+        return;
+    }
+    
+    if decl.type == AST_VAR_DECL {
+        if decl.var_decl_init != null {
+            collect_string_constants_from_expr(codegen, decl.var_decl_init);
+        }
+    } else if decl.type == AST_FN_DECL {
+        const body: &ASTNode = decl.fn_decl_body;
+        if body != null {
+            collect_string_constants_from_stmt(codegen, body);
+        }
+    } else {
+        // 其他声明类型
+    }
+}
+

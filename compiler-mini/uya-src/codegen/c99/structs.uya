@@ -1,0 +1,199 @@
+// structs.uya - C99 代码生成器结构体模块
+// 提供结构体定义生成功能
+//
+// 注意：需要先包含 internal.uya（包含类型定义和函数声明）
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+
+// ===== 外部函数声明 =====
+// C 标准库函数（在 extern_decls.uya 中声明）
+
+// 检查结构体是否已添加到表中
+fn is_struct_in_table(codegen: &C99CodeGenerator, struct_name: &byte) i32 {
+    if struct_name == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < codegen.struct_definition_count {
+        if codegen.struct_definitions[i].name != null && 
+            strcmp(codegen.struct_definitions[i].name as *byte, struct_name as *byte) == 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 检查结构体是否已定义
+fn is_struct_defined(codegen: &C99CodeGenerator, struct_name: &byte) i32 {
+    var i: i32 = 0;
+    while i < codegen.struct_definition_count {
+        if strcmp(codegen.struct_definitions[i].name as *byte, struct_name as *byte) == 0 {
+            const result: i32 = codegen.struct_definitions[i].defined;
+            return result;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 标记结构体已定义
+fn mark_struct_defined(codegen: &C99CodeGenerator, struct_name: &byte) void {
+    var i: i32 = 0;
+    while i < codegen.struct_definition_count {
+        if strcmp(codegen.struct_definitions[i].name as *byte, struct_name as *byte) == 0 {
+            codegen.struct_definitions[i].defined = 1;
+            return;
+        }
+        i = i + 1;
+    }
+    
+    // 如果不在表中，添加
+    if codegen.struct_definition_count < C99_MAX_STRUCT_DEFINITIONS {
+        codegen.struct_definitions[codegen.struct_definition_count].name = struct_name;
+        codegen.struct_definitions[codegen.struct_definition_count].defined = 1;
+        codegen.struct_definition_count = codegen.struct_definition_count + 1;
+    }
+}
+
+// 添加结构体定义
+fn add_struct_definition(codegen: &C99CodeGenerator, struct_name: &byte) void {
+    if is_struct_defined(codegen, struct_name) != 0 {
+        return;
+    }
+    
+    if codegen.struct_definition_count < C99_MAX_STRUCT_DEFINITIONS {
+        codegen.struct_definitions[codegen.struct_definition_count].name = struct_name;
+        codegen.struct_definitions[codegen.struct_definition_count].defined = 0;
+        codegen.struct_definition_count = codegen.struct_definition_count + 1;
+    }
+}
+
+// 查找结构体声明
+fn find_struct_decl_c99(codegen: &C99CodeGenerator, struct_name: &byte) &ASTNode {
+    if codegen == null || struct_name == null || codegen.program_node == null {
+        return null;
+    }
+    
+    const decls: [&ASTNode: MAX_PROGRAM_DECLS] = codegen.program_node.program_decls;
+    const decl_count: i32 = codegen.program_node.program_decl_count;
+    
+    var i: i32 = 0;
+    while i < decl_count {
+        const decl: &ASTNode = decls[i];
+        if decl != null && decl.type == AST_STRUCT_DECL {
+            const decl_name: &byte = decl.struct_decl_name;
+            if decl_name != null && strcmp(decl_name as *byte, struct_name as *byte) == 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    
+    return null;
+}
+
+// 查找结构体字段类型（C99 版本，返回 ASTNode）
+fn c99_find_struct_field_type(codegen: &C99CodeGenerator, struct_decl: &ASTNode, field_name: &byte) &ASTNode {
+    if codegen == null || struct_decl == null || struct_decl.type != AST_STRUCT_DECL || field_name == null {
+        return null;
+    }
+    
+    var i: i32 = 0;
+    while i < struct_decl.struct_decl_field_count {
+        const field: &ASTNode = struct_decl.struct_decl_fields[i];
+        if field != null && field.type == AST_VAR_DECL {
+            if field.var_decl_name != null && strcmp(field.var_decl_name as *byte, field_name as *byte) == 0 {
+                return field.var_decl_type;
+            }
+        }
+        i = i + 1;
+    }
+    
+    return null;
+}
+
+// 生成结构体定义
+fn gen_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode) i32 {
+    if struct_decl == null || struct_decl.type != AST_STRUCT_DECL {
+        return -1;
+    }
+    
+    const struct_name: &byte = get_safe_c_identifier(codegen, struct_decl.struct_decl_name);
+    if struct_name == null {
+        return -1;
+    }
+    
+    // 如果已定义，跳过
+    if is_struct_defined(codegen, struct_name) != 0 {
+        return 0;
+    }
+    
+    // 添加结构体定义标记
+    add_struct_definition(codegen, struct_name);
+    
+    // 输出结构体定义
+    c99_emit_indent(codegen);
+    fprintf(codegen.output as *void, "struct %s {\n" as *byte, struct_name as *byte);
+    codegen.indent_level = codegen.indent_level + 1;
+    
+    // 生成字段
+    const field_count: i32 = struct_decl.struct_decl_field_count;
+    const fields: [&ASTNode: MAX_STRUCT_FIELDS] = struct_decl.struct_decl_fields;
+    
+    // 如果是空结构体，添加一个占位符字段以确保大小为 1（符合 Uya 规范）
+    if field_count == 0 {
+        c99_emit_indent(codegen);
+        fputs("char _empty;\n" as *byte, codegen.output as *void);
+    } else {
+        var i: i32 = 0;
+        while i < field_count {
+            const field: &ASTNode = fields[i];
+            if field == null || field.type != AST_VAR_DECL {
+                return -1;
+            }
+            
+            const field_name: &byte = get_safe_c_identifier(codegen, field.var_decl_name);
+            const field_type: &ASTNode = field.var_decl_type;
+            
+            if field_name == null || field_type == null {
+                return -1;
+            }
+            
+            // 检查是否为数组类型
+            if field_type.type == AST_TYPE_ARRAY {
+                const element_type: &ASTNode = field_type.type_array_element_type;
+                const size_expr: &ASTNode = field_type.type_array_size_expr;
+                const elem_type_c: &byte = c99_type_to_c(codegen, element_type);
+                
+                // 评估数组大小
+                var array_size: i32 = -1;
+                if size_expr != null {
+                    array_size = eval_const_expr(codegen, size_expr);
+                    if array_size <= 0 {
+                        array_size = 1;  // 占位符
+                    }
+                } else {
+                    array_size = 1;  // 占位符
+                }
+                
+                c99_emit_indent(codegen);
+                fprintf(codegen.output as *void, "%s %s[%d];\n" as *byte, elem_type_c as *byte, field_name as *byte, array_size);
+            } else {
+                const field_type_c: &byte = c99_type_to_c(codegen, field_type);
+                c99_emit_indent(codegen);
+                fprintf(codegen.output as *void, "%s %s;\n" as *byte, field_type_c as *byte, field_name as *byte);
+            }
+            
+            i = i + 1;
+        }
+    }
+    
+    codegen.indent_level = codegen.indent_level - 1;
+    c99_emit_indent(codegen);
+    fputs("};\n" as *byte, codegen.output as *void);
+    
+    // 标记为已定义
+    mark_struct_defined(codegen, struct_name);
+    return 0;
+}
+

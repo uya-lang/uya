@@ -1,0 +1,1045 @@
+// types.uya - C99 代码生成器类型系统模块
+// 提供类型映射和类型检查功能
+//
+// 注意：需要先包含 internal.uya（包含类型定义和函数声明）
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+
+// ===== 外部函数声明 =====
+// C 标准库函数（在 extern_decls.uya 中声明）
+
+// 类型映射函数
+fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
+    if type_node == null {
+        return ("void" as *byte) as &byte;
+    }
+    
+    if type_node.type == AST_TYPE_NAMED {
+        const name: &byte = type_node.type_named_name;
+        if name == null {
+            return ("void" as *byte) as &byte;
+        }
+        
+        // 基础类型映射
+        if strcmp(name as *byte, "i32" as *byte) == 0 {
+            return ("int32_t" as *byte) as &byte;
+        } else if strcmp(name as *byte, "usize" as *byte) == 0 {
+            return ("size_t" as *byte) as &byte;
+        } else if strcmp(name as *byte, "bool" as *byte) == 0 {
+            return ("bool" as *byte) as &byte;
+        } else if strcmp(name as *byte, "byte" as *byte) == 0 {
+            return ("uint8_t" as *byte) as &byte;
+        } else if strcmp(name as *byte, "void" as *byte) == 0 {
+            return ("void" as *byte) as &byte;
+        } else {
+            // 结构体或枚举类型
+            const safe_name: &byte = get_safe_c_identifier(codegen, name);
+            
+            // 显式检查是否是结构体（检查是否在表中，不管是否已定义）
+            // 优先使用表查找，更可靠
+            if is_struct_in_table(codegen, safe_name) != 0 {
+                // 使用 arena 分配器来分配字符串，避免 static 缓冲区被覆盖
+                // "struct " (7 chars) + name + '\0' = strlen(safe_name) + 8
+                const str_len: i32 = strlen(safe_name as *byte) + 8;
+                const buf: &byte = arena_alloc(codegen.arena, str_len) as &byte;
+                if buf != null {
+                    snprintf(buf as *byte, str_len, "struct %s" as *byte, safe_name as *byte);
+                    return buf;
+                }
+                return ("void" as *byte) as &byte; // 内存不足时的回退方案
+            }
+            
+            // 如果表查找失败，尝试从程序节点中查找结构体声明（备用方案）
+            if codegen.program_node != null {
+                const decls: [&ASTNode: MAX_PROGRAM_DECLS] = codegen.program_node.program_decls;
+                const decl_count: i32 = codegen.program_node.program_decl_count;
+                var i: i32 = 0;
+                while i < decl_count {
+                    const decl: &ASTNode = decls[i];
+                    if decl != null && decl.type == AST_STRUCT_DECL {
+                        const struct_name: &byte = decl.struct_decl_name;
+                        if struct_name != null {
+                            const safe_struct_name: &byte = get_safe_c_identifier(codegen, struct_name);
+                            // 比较 safe_name 和 safe_struct_name
+                            if strcmp(safe_struct_name as *byte, safe_name as *byte) == 0 {
+                                // 找到结构体声明，添加 struct 前缀
+                                const len2: i32 = strlen(safe_name as *byte) + 8; // "struct " + name + '\0'
+                                const buf2: &byte = arena_alloc(codegen.arena, len2) as &byte;
+                                if buf2 != null {
+                                    snprintf(buf2 as *byte, len2, "struct %s" as *byte, safe_name as *byte);
+                                    return buf2;
+                                }
+                                return ("void" as *byte) as &byte;
+                            }
+                        }
+                    }
+                    i = i + 1;
+                }
+            }
+            
+            // 检查是否是枚举（检查是否在表中，不管是否已定义）
+            if is_enum_in_table(codegen, safe_name) != 0 {
+                // 使用 arena 分配器来分配字符串
+                // "enum " (5 chars) + name + '\0' = strlen(safe_name) + 6
+                const len3: i32 = strlen(safe_name as *byte) + 6;
+                const buf3: &byte = arena_alloc(codegen.arena, len3) as &byte;
+                if buf3 != null {
+                    snprintf(buf3 as *byte, len3, "enum %s" as *byte, safe_name as *byte);
+                    return buf3;
+                }
+                return ("void" as *byte) as &byte;
+            }
+            
+            // 如果不在表中，尝试从程序节点中查找枚举声明（备用方案）
+            if codegen.program_node != null {
+                const decls2: [&ASTNode: MAX_PROGRAM_DECLS] = codegen.program_node.program_decls;
+                const decl_count2: i32 = codegen.program_node.program_decl_count;
+                var i2: i32 = 0;
+                while i2 < decl_count2 {
+                    const decl2: &ASTNode = decls2[i2];
+                    if decl2 != null && decl2.type == AST_ENUM_DECL {
+                        const enum_name: &byte = decl2.enum_decl_name;
+                        if enum_name != null {
+                            const safe_enum_name: &byte = get_safe_c_identifier(codegen, enum_name);
+                            // 比较 safe_name 和 safe_enum_name
+                            if strcmp(safe_enum_name as *byte, safe_name as *byte) == 0 {
+                                // 找到枚举声明，添加 enum 前缀
+                                const len4: i32 = strlen(safe_name as *byte) + 6; // "enum " + name + '\0'
+                                const buf4: &byte = arena_alloc(codegen.arena, len4) as &byte;
+                                if buf4 != null {
+                                    snprintf(buf4 as *byte, len4, "enum %s" as *byte, safe_name as *byte);
+                                    return buf4;
+                                }
+                                return ("void" as *byte) as &byte;
+                            }
+                        }
+                    }
+                    i2 = i2 + 1;
+                }
+            }
+            
+            // 未知类型，直接返回名称
+            return safe_name;
+        }
+    } else if type_node.type == AST_TYPE_POINTER {
+        const pointed_type: &ASTNode = type_node.type_pointer_pointed_type;
+        const pointee_type: &byte = c99_type_to_c(codegen, pointed_type);
+        
+        // 分配缓冲区（在 Arena 中）
+        const str_len: i32 = strlen(pointee_type as *byte) + 3;  // 类型 + " *" + null
+        const result: &byte = arena_alloc(codegen.arena, str_len) as &byte;
+        if result == null {
+            return ("void*" as *byte) as &byte;
+        }
+        
+        // 如果指向数组类型，生成指向数组的指针（T [N] -> T (*)[N]）
+        const bracket: *byte = strchr(pointee_type as *byte, 91);  // '['
+        if bracket != null {
+            const base_len: i32 = ptr_diff(bracket, pointee_type as *byte);
+            const dims: *byte = bracket;
+            const dims_len: i32 = strlen(dims);
+            // 重新分配更大的缓冲区
+            const total_len: i32 = base_len + dims_len + 6; // " (*)" + null
+            const arr_ptr: &byte = arena_alloc(codegen.arena, total_len) as &byte;
+            if arr_ptr == null {
+                snprintf(result as *byte, str_len, "%s *" as *byte, pointee_type as *byte);
+                return result;
+            }
+            // 注意：Uya Mini 不支持 %.*s，需要手动处理
+            // 简化处理：使用 snprintf 的完整字符串
+            snprintf(arr_ptr as *byte, total_len, "%s (*)%s" as *byte, pointee_type as *byte, dims);
+            return arr_ptr;
+        }
+        
+        snprintf(result as *byte, str_len, "%s *" as *byte, pointee_type as *byte);
+        return result;
+    } else if type_node.type == AST_TYPE_ARRAY {
+        const element_type: &ASTNode = type_node.type_array_element_type;
+        const size_expr: &ASTNode = type_node.type_array_size_expr;
+        
+        // 评估数组大小（编译时常量）
+        var array_size: i32 = -1;
+        if size_expr != null {
+            array_size = eval_const_expr(codegen, size_expr);
+            if array_size <= 0 {
+                // 如果评估失败或大小无效，使用占位符大小
+                array_size = 1;  // 占位符
+            }
+        } else {
+            // 无大小表达式（如 [T]），在 C99 中需要指定大小
+            // 暂时使用占位符
+            array_size = 1;
+        }
+        
+        // 对于嵌套数组，需要正确处理维度顺序
+        // 例如：[[i32: 2]: 3] 应该生成 int32_t[3][2]，而不是 int32_t[2][3]
+        
+        // 如果元素类型也是数组，先获取其基础类型和累积维度
+        if element_type.type == AST_TYPE_ARRAY {
+            // 递归获取内部数组的维度和基础类型
+            var base_type: &byte = null;
+            var dims: [i32: 10] = [];
+            var dim_count: i32 = 0;
+            
+            var current_type: &ASTNode = type_node;
+            while current_type != null && current_type.type == AST_TYPE_ARRAY && dim_count < 10 {
+                const curr_size_expr: &ASTNode = current_type.type_array_size_expr;
+                var curr_size: i32 = 1;
+                if curr_size_expr != null {
+                    curr_size = eval_const_expr(codegen, curr_size_expr);
+                    if curr_size <= 0 {
+                        curr_size = 1;
+                    }
+                }
+                dims[dim_count] = curr_size;
+                dim_count = dim_count + 1;
+                current_type = current_type.type_array_element_type;
+            }
+            
+            // 现在 current_type 是基础类型（不是数组）
+            base_type = c99_type_to_c(codegen, current_type);
+            
+            // 构建结果类型：base_type[dims[0]][dims[1]]...
+            // 维度按顺序输出：外层维度在前，内层维度在后
+            // 例如：[[i32: 2]: 3] -> dims = [3, 2] -> int32_t[3][2]
+            const total_len: i32 = strlen(base_type as *byte) + dim_count * 16 + 1;  // 足够空间
+            const result: &byte = arena_alloc(codegen.arena, total_len) as &byte;
+            if result == null {
+                return ("void" as *byte) as &byte;
+            }
+            
+            strcpy(result as *byte, base_type as *byte);
+            var i: i32 = 0;
+            while i < dim_count {
+                var dim_str: [byte: 16] = [];
+                snprintf(&dim_str[0] as *byte, 16, "[%d]" as *byte, dims[i]);
+                strcat(result as *byte, &dim_str[0] as *byte);
+                i = i + 1;
+            }
+            
+            return result;
+        } else {
+            // 单层数组，直接生成
+            const element_c: &byte = c99_type_to_c(codegen, element_type);
+            
+            // 分配缓冲区
+            const buf_len: i32 = strlen(element_c as *byte) + 32;  // 元素类型 + "[%d]" + null
+            const result: &byte = arena_alloc(codegen.arena, buf_len) as &byte;
+            if result == null {
+                return ("void" as *byte) as &byte;
+            }
+            
+            snprintf(result as *byte, buf_len, "%s[%d]" as *byte, element_c as *byte, array_size);
+            return result;
+        }
+    } else {
+        return ("void" as *byte) as &byte;
+    }
+}
+
+// 计算结构体大小（估算，每个 i32 字段 4 字节）
+fn calculate_struct_size(codegen: &C99CodeGenerator, type_node: &ASTNode) i32 {
+    if codegen == null || type_node == null {
+        return 0;
+    }
+    
+    // 如果是命名类型（结构体），查找结构体声明
+    if type_node.type == AST_TYPE_NAMED {
+        const struct_name: &byte = type_node.type_named_name;
+        if struct_name == null {
+            return 0;
+        }
+        
+        const struct_decl: &ASTNode = find_struct_decl_c99(codegen, struct_name);
+        if struct_decl == null || struct_decl.type != AST_STRUCT_DECL {
+            return 0;
+        }
+        
+        const field_count: i32 = struct_decl.struct_decl_field_count;
+        // 简单估算：每个字段 4 字节（i32）
+        // 实际大小可能因对齐而不同，但用于判断是否 >16 字节足够
+        return field_count * 4;
+    }
+    
+    return 0;
+}
+
+// 检查成员访问表达式的结果类型是否是指针
+fn is_member_access_pointer_type(codegen: &C99CodeGenerator, member_access: &ASTNode) i32 {
+    if codegen == null || member_access == null || member_access.type != AST_MEMBER_ACCESS {
+        return 0;
+    }
+    
+    const object: &ASTNode = member_access.member_access_object;
+    const field_name: &byte = member_access.member_access_field_name;
+    
+    if object == null || field_name == null {
+        return 0;
+    }
+    
+    // 如果 object 是标识符，查找变量类型，然后查找结构体字段类型
+    if object.type == AST_IDENTIFIER {
+        const var_name: &byte = object.identifier_name;
+        if var_name == null {
+            return 0;
+        }
+        
+        // 查找变量类型
+        var var_type_c: &byte = null;
+        var i: i32 = codegen.local_variable_count - 1;
+        while i >= 0 {
+            if codegen.local_variables[i].name != null && strcmp(codegen.local_variables[i].name as *byte, var_name as *byte) == 0 {
+                var_type_c = codegen.local_variables[i].type_c;
+                break;
+            }
+            i = i - 1;
+        }
+        if var_type_c == null {
+            i = 0;
+            while i < codegen.global_variable_count {
+                if codegen.global_variables[i].name != null && strcmp(codegen.global_variables[i].name as *byte, var_name as *byte) == 0 {
+                    var_type_c = codegen.global_variables[i].type_c;
+                    break;
+                }
+                i = i + 1;
+            }
+        }
+        
+        if var_type_c == null {
+            return 0;
+        }
+        
+        // 提取结构体名称（去除 "struct " 前缀和 "*" 后缀）
+        var struct_name: &byte = null;
+        if strncmp(var_type_c as *byte, "struct " as *byte, 7) == 0 {
+            const start: &byte = var_type_c + 7;
+            // 查找 '*' 或空格后的 '*'
+            const asterisk: *byte = strchr(start as *byte, 42);  // '*'
+            if asterisk != null {
+                // 提取 '*' 之前的部分，去除尾部空格
+                var name_len: i32 = ptr_diff(asterisk, start as *byte);
+                // 去除尾部空格
+                while name_len > 0 && (start[name_len - 1] == 32 || start[name_len - 1] == 9) {  // ' ' 或 '\t'
+                    name_len = name_len - 1;
+                }
+                if name_len > 0 {
+                    const name_buf: &byte = arena_alloc(codegen.arena, name_len + 1) as &byte;
+                    if name_buf != null {
+                        memcpy(name_buf as *void, start as *void, name_len);
+                        name_buf[name_len] = 0;
+                        struct_name = name_buf;
+                    }
+                }
+            } else {
+                struct_name = start;
+            }
+        }
+        
+        if struct_name == null {
+            return 0;
+        }
+        
+        // 查找结构体声明
+        const struct_decl: &ASTNode = find_struct_decl_c99(codegen, struct_name);
+        if struct_decl == null {
+            return 0;
+        }
+        
+        // 查找字段类型
+        const field_type: &ASTNode = c99_find_struct_field_type(codegen, struct_decl, field_name);
+        if field_type == null {
+            return 0;
+        }
+        
+        // 检查字段类型是否是指针
+        if field_type.type == AST_TYPE_POINTER {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // 如果 object 是嵌套的成员访问，递归检查
+    if object.type == AST_MEMBER_ACCESS {
+        // 递归检查嵌套成员访问的结果类型
+        const nested_object: &ASTNode = object.member_access_object;
+        const nested_field_name: &byte = object.member_access_field_name;
+        
+        if nested_object != null && nested_object.type == AST_IDENTIFIER && nested_field_name != null {
+            const var_name2: &byte = nested_object.identifier_name;
+            if var_name2 == null {
+                return 0;
+            }
+            
+            // 查找变量类型
+            var var_type_c2: &byte = null;
+            i = codegen.local_variable_count - 1;
+            while i >= 0 {
+                if codegen.local_variables[i].name != null && strcmp(codegen.local_variables[i].name as *byte, var_name2 as *byte) == 0 {
+                    var_type_c2 = codegen.local_variables[i].type_c;
+                    break;
+                }
+                i = i - 1;
+            }
+            if var_type_c2 == null {
+                i = 0;
+                while i < codegen.global_variable_count {
+                    if codegen.global_variables[i].name != null && strcmp(codegen.global_variables[i].name as *byte, var_name2 as *byte) == 0 {
+                        var_type_c2 = codegen.global_variables[i].type_c;
+                        break;
+                    }
+                    i = i + 1;
+                }
+            }
+            
+            if var_type_c2 == null {
+                return 0;
+            }
+            
+            // 提取结构体名称
+            var struct_name2: &byte = null;
+            if strncmp(var_type_c2 as *byte, "struct " as *byte, 7) == 0 {
+                const start2: &byte = var_type_c2 + 7;
+                const asterisk2: *byte = strchr(start2 as *byte, 42);  // '*'
+                if asterisk2 != null {
+                    const len2: i32 = ptr_diff(asterisk2, start2 as *byte);
+                    const name_buf2: &byte = arena_alloc(codegen.arena, len2 + 1) as &byte;
+                    if name_buf2 != null {
+                        memcpy(name_buf2 as *void, start2 as *void, len2);
+                        name_buf2[len2] = 0;
+                        struct_name2 = name_buf2;
+                    }
+                } else {
+                    struct_name2 = start2;
+                }
+            }
+            
+            if struct_name2 == null {
+                return 0;
+            }
+            
+            // 查找结构体声明
+            const struct_decl2: &ASTNode = find_struct_decl_c99(codegen, struct_name2);
+            if struct_decl2 == null {
+                return 0;
+            }
+            
+            // 查找嵌套字段类型（如 parser.current_token 中的 current_token）
+            const nested_field_type: &ASTNode = c99_find_struct_field_type(codegen, struct_decl2, nested_field_name);
+            if nested_field_type == null {
+                return 0;
+            }
+            
+            // 检查嵌套字段类型是否是指针
+            if nested_field_type.type == AST_TYPE_POINTER {
+                // 嵌套字段是指针，所以当前字段访问应该使用 ->
+                return 1;
+            }
+        }
+        
+        return 0;
+    }
+    
+    return 0;
+}
+
+// 检查标识符是否为指针类型
+fn is_identifier_pointer_type(codegen: &C99CodeGenerator, name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    
+    // 检查局部变量（从后向前查找，支持变量遮蔽）
+    var i: i32 = codegen.local_variable_count - 1;
+    while i >= 0 {
+        if codegen.local_variables[i].name != null && strcmp(codegen.local_variables[i].name as *byte, name as *byte) == 0 {
+            const type_c: &byte = codegen.local_variables[i].type_c;
+            if type_c == null {
+                return 0;
+            }
+            
+            // 检查类型是否包含'*'（即是指针）
+            // 注意：'*' 可能在类型名称之后（如 "struct Type *"）或之前（如 "*Type"）
+            const asterisk: *byte = strchr(type_c as *byte, 42);  // '*'
+            if asterisk != null {
+                // 找到 '*'，确认它是指针类型的一部分
+                // 简单检查：'*' 前后可能有空格，但应该是指针类型
+                return 1;
+            }
+            return 0;
+        }
+        i = i - 1;
+    }
+    
+    // 检查全局变量
+    i = 0;
+    while i < codegen.global_variable_count {
+        if codegen.global_variables[i].name != null && strcmp(codegen.global_variables[i].name as *byte, name as *byte) == 0 {
+            const type_c2: &byte = codegen.global_variables[i].type_c;
+            if type_c2 == null {
+                return 0;
+            }
+            // 检查类型是否包含'*'（即是指针）
+            const asterisk2: *byte = strchr(type_c2 as *byte, 42);  // '*'
+            if asterisk2 != null {
+                return 1;
+            }
+            return 0;
+        }
+        i = i + 1;
+    }
+    
+    return 0;
+}
+
+// 检查标识符是否是指向数组的指针类型（格式：T (*)[N] 或 T (* const var)[N]）
+fn is_identifier_pointer_to_array_type(codegen: &C99CodeGenerator, name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    
+    var type_c: &byte = null;
+    
+    // 检查局部变量
+    var i: i32 = codegen.local_variable_count - 1;
+    while i >= 0 {
+        if strcmp(codegen.local_variables[i].name as *byte, name as *byte) == 0 {
+            type_c = codegen.local_variables[i].type_c;
+            break;
+        }
+        i = i - 1;
+    }
+    
+    // 如果局部变量中没找到，检查全局变量
+    if type_c == null {
+        i = 0;
+        while i < codegen.global_variable_count {
+            if strcmp(codegen.global_variables[i].name as *byte, name as *byte) == 0 {
+                type_c = codegen.global_variables[i].type_c;
+                break;
+            }
+            i = i + 1;
+        }
+    }
+    
+    if type_c == null {
+        return 0;
+    }
+    
+    // 检查是否是指向数组的指针格式：包含 "(*" 和 ")["
+    const open_paren_asterisk: *byte = strstr(type_c as *byte, "(*" as *byte);
+    if open_paren_asterisk != null {
+        const close_paren_bracket: *byte = strstr(open_paren_asterisk, ")[" as *byte);
+        if close_paren_bracket != null {
+            return 1;  // 是指向数组的指针
+        }
+    }
+    
+    return 0;
+}
+
+// 检查数组访问表达式的结果类型是否是指针
+// 例如：如果 arr 的类型是 [&ASTNode: 64]，那么 arr[i] 的结果类型是 &ASTNode，在 C 中是 struct ASTNode *
+fn is_array_access_pointer_type(codegen: &C99CodeGenerator, array_access: &ASTNode) i32 {
+    if codegen == null || array_access == null || array_access.type != AST_ARRAY_ACCESS {
+        return 0;
+    }
+    
+    const array: &ASTNode = array_access.array_access_array;
+    if array == null {
+        return 0;
+    }
+    
+    // 如果数组表达式是标识符，查找变量类型
+    if array.type == AST_IDENTIFIER {
+        const array_name: &byte = array.identifier_name;
+        if array_name == null {
+            return 0;
+        }
+        
+        // 查找变量类型
+        var array_type_c: &byte = null;
+        var i: i32 = codegen.local_variable_count - 1;
+        while i >= 0 {
+            if codegen.local_variables[i].name != null && strcmp(codegen.local_variables[i].name as *byte, array_name as *byte) == 0 {
+                array_type_c = codegen.local_variables[i].type_c;
+                break;
+            }
+            i = i - 1;
+        }
+        if array_type_c == null {
+            i = 0;
+            while i < codegen.global_variable_count {
+                if codegen.global_variables[i].name != null && strcmp(codegen.global_variables[i].name as *byte, array_name as *byte) == 0 {
+                    array_type_c = codegen.global_variables[i].type_c;
+                    break;
+                }
+                i = i + 1;
+            }
+        }
+        
+        if array_type_c == null {
+            return 0;
+        }
+        
+        // 检查数组类型：如果类型字符串包含 '['，说明是数组类型
+        // 数组元素类型是指针类型，如果元素类型字符串包含 '*'
+        // 例如："struct ASTNode *[64]" 表示数组元素是指针类型
+        const bracket: *byte = strchr(array_type_c as *byte, 91);  // '['
+        if bracket != null {
+            // 这是数组类型，检查元素类型是否包含 '*'
+            // 在 C 中，数组声明格式是 "element_type array_name[size]"
+            // 如果 element_type 包含 '*'，说明元素是指针类型
+            // 例如："struct ASTNode *[64]" -> 元素类型是 "struct ASTNode *"
+            const asterisk: *byte = strchr(array_type_c as *byte, 42);  // '*'
+            if asterisk != null && asterisk < bracket {
+                // '*' 在 '[' 之前，说明元素类型是指针
+                return 1;
+            }
+        }
+    }
+    
+    // 如果数组表达式是嵌套的数组访问，递归检查
+    if array.type == AST_ARRAY_ACCESS {
+        return is_array_access_pointer_type(codegen, array);
+    }
+    
+    // 如果数组表达式是成员访问，检查成员访问的结果类型
+    if array.type == AST_MEMBER_ACCESS {
+        const object: &ASTNode = array.member_access_object;
+        const field_name: &byte = array.member_access_field_name;
+        
+        if object == null || field_name == null {
+            return 0;
+        }
+        
+        // 获取对象的类型（类似 is_member_access_pointer_type 的逻辑）
+        var var_type_c: &byte = null;
+        var var_name: &byte = null;
+        
+        if object.type == AST_IDENTIFIER {
+            var_name = object.identifier_name;
+            if var_name == null {
+                return 0;
+            }
+            
+            // 查找变量类型
+            var i: i32 = codegen.local_variable_count - 1;
+            while i >= 0 {
+                if codegen.local_variables[i].name != null && strcmp(codegen.local_variables[i].name as *byte, var_name as *byte) == 0 {
+                    var_type_c = codegen.local_variables[i].type_c;
+                    break;
+                }
+                i = i - 1;
+            }
+            if var_type_c == null {
+                i = 0;
+                while i < codegen.global_variable_count {
+                    if codegen.global_variables[i].name != null && strcmp(codegen.global_variables[i].name as *byte, var_name as *byte) == 0 {
+                        var_type_c = codegen.global_variables[i].type_c;
+                        break;
+                    }
+                    i = i + 1;
+                }
+            }
+        } else if object.type == AST_MEMBER_ACCESS {
+            // 嵌套成员访问：递归处理（暂时简化，只处理一层嵌套）
+            // 对于 codegen->nodes[i]，object 是 codegen（标识符），所以上面已经处理了
+            return 0;
+        } else {
+            return 0;
+        }
+        
+        if var_type_c == null {
+            return 0;
+        }
+        
+        // 提取结构体名称（去除 "struct " 前缀和 "*" 后缀）
+        var struct_name: &byte = null;
+        if strncmp(var_type_c as *byte, "struct " as *byte, 7) == 0 {
+            const start: &byte = var_type_c + 7;
+            const asterisk: *byte = strchr(start as *byte, 42);  // '*'
+            if asterisk != null {
+                // 提取 '*' 之前的部分，去除尾部空格
+                var name_len: i32 = ptr_diff(asterisk, start as *byte);
+                while name_len > 0 && (start[name_len - 1] == 32 || start[name_len - 1] == 9) {  // ' ' 或 '\t'
+                    name_len = name_len - 1;
+                }
+                if name_len > 0 {
+                    const name_buf: &byte = arena_alloc(codegen.arena, name_len + 1) as &byte;
+                    if name_buf != null {
+                        memcpy(name_buf as *void, start as *void, name_len);
+                        name_buf[name_len] = 0;
+                        struct_name = name_buf;
+                    }
+                }
+            } else {
+                struct_name = start;
+            }
+        }
+        
+        if struct_name == null {
+            return 0;
+        }
+        
+        // 查找结构体声明
+        const struct_decl: &ASTNode = find_struct_decl_c99(codegen, struct_name);
+        if struct_decl == null {
+            return 0;
+        }
+        
+        // 查找字段类型
+        const field_type: &ASTNode = c99_find_struct_field_type(codegen, struct_decl, field_name);
+        if field_type == null {
+            return 0;
+        }
+        
+        // 检查字段类型是否是数组类型
+        if field_type.type == AST_TYPE_ARRAY {
+            // 获取数组元素类型
+            const element_type: &ASTNode = field_type.type_array_element_type;
+            if element_type == null {
+                return 0;
+            }
+            
+            // 检查数组元素类型是否是指针类型
+            if element_type.type == AST_TYPE_POINTER {
+                return 1;
+            }
+        }
+        
+        return 0;
+    }
+    
+    return 0;
+}
+
+// 检查标识符对应的类型是否为结构体
+fn is_identifier_struct_type(codegen: &C99CodeGenerator, name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    
+    // 检查局部变量
+    var i: i32 = codegen.local_variable_count - 1;
+    while i >= 0 {
+        if strcmp(codegen.local_variables[i].name as *byte, name as *byte) == 0 {
+            const type_c: &byte = codegen.local_variables[i].type_c;
+            if type_c == null {
+                return 0;
+            }
+            // 检查类型是否包含"struct "且不包含'*'（即不是指针）
+            // 支持 "const struct Point" 和 "struct Point" 两种情况
+            if strstr(type_c as *byte, "struct " as *byte) != null && strchr(type_c as *byte, 42) == null {  // '*'
+                return 1;
+            }
+            return 0;
+        }
+        i = i - 1;
+    }
+    
+    // 检查全局变量
+    i = 0;
+    while i < codegen.global_variable_count {
+        if strcmp(codegen.global_variables[i].name as *byte, name as *byte) == 0 {
+            const type_c2: &byte = codegen.global_variables[i].type_c;
+            if type_c2 == null {
+                return 0;
+            }
+            // 检查类型是否包含"struct "且不包含'*'（即不是指针）
+            // 支持 "const struct Point" 和 "struct Point" 两种情况
+            if strstr(type_c2 as *byte, "struct " as *byte) != null && strchr(type_c2 as *byte, 42) == null {  // '*'
+                return 1;
+            }
+            return 0;
+        }
+        i = i + 1;
+    }
+    
+    return 0;
+}
+
+// 生成数组包装结构体的名称
+// 例如：[i32: 3] -> "uya_array_i32_3", [[i32: 2]: 3] -> "uya_array_i32_2_3"
+fn get_array_wrapper_struct_name(codegen: &C99CodeGenerator, array_type: &ASTNode) &byte {
+    if array_type == null || array_type.type != AST_TYPE_ARRAY {
+        return null;
+    }
+    
+    // 构建结构体名称
+    var name_buf: [byte: 256] = [];
+    strcpy(&name_buf[0] as *byte, "uya_array_" as *byte);
+    var pos: i32 = strlen(&name_buf[0] as *byte);
+    
+    // 递归处理数组维度
+    var current: &ASTNode = array_type;
+    var first: i32 = 1;
+    while current != null && current.type == AST_TYPE_ARRAY {
+        const element_type: &ASTNode = current.type_array_element_type;
+        const size_expr: &ASTNode = current.type_array_size_expr;
+        
+        // 获取元素类型名称
+        var elem_name: &byte = null;
+        if element_type.type == AST_TYPE_NAMED {
+            const type_name: &byte = element_type.type_named_name;
+            if type_name != null {
+                // 简化类型名称（i32 -> i32, Point -> Point）
+                if strcmp(type_name as *byte, "i32" as *byte) == 0 {
+                    elem_name = ("i32" as *byte) as &byte;
+                } else if strcmp(type_name as *byte, "i64" as *byte) == 0 {
+                    elem_name = ("i64" as *byte) as &byte;
+                } else if strcmp(type_name as *byte, "i16" as *byte) == 0 {
+                    elem_name = ("i16" as *byte) as &byte;
+                } else if strcmp(type_name as *byte, "i8" as *byte) == 0 || strcmp(type_name as *byte, "byte" as *byte) == 0 {
+                    elem_name = ("i8" as *byte) as &byte;
+                } else if strcmp(type_name as *byte, "bool" as *byte) == 0 {
+                    elem_name = ("bool" as *byte) as &byte;
+                } else {
+                    // 结构体或其他类型，使用简化名称
+                    elem_name = get_safe_c_identifier(codegen, type_name);
+                }
+            }
+        }
+        
+        if elem_name == null {
+            elem_name = ("unknown" as *byte) as &byte;
+        }
+        
+        if first == 0 {
+            name_buf[pos] = 95;  // '_'
+            pos = pos + 1;
+        }
+        first = 0;
+        
+        // 添加元素类型名称
+        const name_len: i32 = strlen(elem_name as *byte);
+        if pos + name_len < 255 {
+            memcpy(&name_buf[pos] as *void, elem_name as *void, name_len);
+            pos = pos + name_len;
+        }
+        
+        // 添加数组大小
+        if size_expr != null {
+            const size: i32 = eval_const_expr(codegen, size_expr);
+            if size > 0 {
+                var size_str: [byte: 32] = [];
+                snprintf(&size_str[0] as *byte, 32, "_%d" as *byte, size);
+                const size_len: i32 = strlen(&size_str[0] as *byte);
+                if pos + size_len < 255 {
+                    memcpy(&name_buf[pos] as *void, &size_str[0] as *void, size_len);
+                    pos = pos + size_len;
+                }
+            }
+        }
+        
+        current = element_type;
+    }
+    
+    name_buf[pos] = 0;
+    return c99_arena_strdup(codegen.arena, &name_buf[0] as &byte);
+}
+
+// 生成数组包装结构体的定义
+fn gen_array_wrapper_struct(codegen: &C99CodeGenerator, array_type: &ASTNode, struct_name: &byte) void {
+    if array_type == null || array_type.type != AST_TYPE_ARRAY || struct_name == null {
+        return;
+    }
+    
+    // 检查是否已生成
+    if is_struct_defined(codegen, struct_name) != 0 {
+        return;
+    }
+    
+    // 添加到结构体定义表（避免重复生成）
+    if codegen.struct_definition_count < C99_MAX_STRUCT_DEFINITIONS {
+        codegen.struct_definitions[codegen.struct_definition_count].name = struct_name;
+        codegen.struct_definitions[codegen.struct_definition_count].defined = 0;
+        codegen.struct_definition_count = codegen.struct_definition_count + 1;
+    }
+    
+    // 生成结构体定义
+    fprintf(codegen.output as *void, "struct %s {\n" as *byte, struct_name as *byte);
+    
+    // 生成数组字段：需要将数组类型转换为正确的格式
+    // 例如：[i32: 3] -> int32_t data[3]
+    const element_type: &ASTNode = array_type.type_array_element_type;
+    const size_expr: &ASTNode = array_type.type_array_size_expr;
+    const elem_type_c: &byte = c99_type_to_c(codegen, element_type);
+    
+    var array_size: i32 = -1;
+    if size_expr != null {
+        array_size = eval_const_expr(codegen, size_expr);
+        if array_size <= 0 {
+            array_size = 1;
+        }
+    } else {
+        array_size = 1;
+    }
+    
+    fprintf(codegen.output as *void, "    %s data[%d];\n" as *byte, elem_type_c as *byte, array_size);
+    
+    fputs("};\n" as *byte, codegen.output as *void);
+    
+    // 标记为已定义
+    var i: i32 = 0;
+    while i < codegen.struct_definition_count {
+        if strcmp(codegen.struct_definitions[i].name as *byte, struct_name as *byte) == 0 {
+            codegen.struct_definitions[i].defined = 1;
+            break;
+        }
+        i = i + 1;
+    }
+}
+
+// 将数组返回类型转换为包装结构体类型（C99不允许函数返回数组）
+// 例如：[i32: 3] -> struct uya_array_i32_3
+fn convert_array_return_type(codegen: &C99CodeGenerator, return_type: &ASTNode) &byte {
+    if return_type == null || return_type.type != AST_TYPE_ARRAY {
+        return c99_type_to_c(codegen, return_type);
+    }
+    
+    // 生成包装结构体名称
+    const struct_name: &byte = get_array_wrapper_struct_name(codegen, return_type);
+    if struct_name == null {
+        return ("void" as *byte) as &byte;
+    }
+    
+    // 生成包装结构体定义（如果尚未生成）
+    gen_array_wrapper_struct(codegen, return_type, struct_name);
+    
+    // 返回结构体类型
+    const str_len: i32 = strlen(struct_name as *byte) + 8;  // "struct " + name + '\0'
+    const result: &byte = arena_alloc(codegen.arena, str_len) as &byte;
+    if result == null {
+        return ("void" as *byte) as &byte;
+    }
+    
+    snprintf(result as *byte, str_len, "struct %s" as *byte, struct_name as *byte);
+    return result;
+}
+
+// 获取数组表达式的元素类型（返回C类型字符串）
+// 如果无法确定类型，返回NULL
+fn get_array_element_type(codegen: &C99CodeGenerator, array_expr: &ASTNode) &byte {
+    if array_expr == null {
+        return null;
+    }
+    
+    // 如果是标识符，从变量表查找类型
+    if array_expr.type == AST_IDENTIFIER {
+        const var_name: &byte = array_expr.identifier_name;
+        if var_name == null {
+            return null;
+        }
+        
+        // 检查局部变量
+        var i: i32 = codegen.local_variable_count - 1;
+        while i >= 0 {
+            if strcmp(codegen.local_variables[i].name as *byte, var_name as *byte) == 0 {
+                const type_c: &byte = codegen.local_variables[i].type_c;
+                if type_c == null {
+                    return null;
+                }
+                
+                // 检查是否为数组类型（包含'['）
+                const first_bracket: *byte = strchr(type_c as *byte, 91);  // '['
+                if first_bracket != null {
+                    // 检查是否有第二个 '['（多维数组）
+                    const second_bracket: *byte = strchr(first_bracket + 1, 91);  // '['
+                    if second_bracket != null {
+                        // 多维数组：提取基类型 + 从第二个 '[' 开始的所有维度
+                        // 例如：int32_t[3][2] -> int32_t[2]
+                        const base_len: i32 = ptr_diff(first_bracket, type_c as *byte);
+                        const inner_dims_len: i32 = strlen(second_bracket);
+                        const elem_type: &byte = arena_alloc(codegen.arena, base_len + inner_dims_len + 1) as &byte;
+                        if elem_type == null {
+                            return null;
+                        }
+                        memcpy(elem_type as *void, type_c as *void, base_len);
+                        memcpy(elem_type + base_len as *void, second_bracket as *void, inner_dims_len);
+                        elem_type[base_len + inner_dims_len] = 0;
+                        return elem_type;
+                    } else {
+                        // 单层数组：提取基类型
+                        const base_len: i32 = ptr_diff(first_bracket, type_c as *byte);
+                        const elem_type2: &byte = arena_alloc(codegen.arena, base_len + 1) as &byte;
+                        if elem_type2 == null {
+                            return null;
+                        }
+                        memcpy(elem_type2 as *void, type_c as *void, base_len);
+                        elem_type2[base_len] = 0;
+                        return elem_type2;
+                    }
+                }
+                return null;
+            }
+            i = i - 1;
+        }
+        
+        // 检查全局变量
+        i = 0;
+        while i < codegen.global_variable_count {
+            if strcmp(codegen.global_variables[i].name as *byte, var_name as *byte) == 0 {
+                const type_c2: &byte = codegen.global_variables[i].type_c;
+                if type_c2 == null {
+                    return null;
+                }
+                
+                // 检查是否为数组类型（包含'['）
+                const first_bracket2: *byte = strchr(type_c2 as *byte, 91);  // '['
+                if first_bracket2 != null {
+                    // 检查是否有第二个 '['（多维数组）
+                    const second_bracket2: *byte = strchr(first_bracket2 + 1, 91);  // '['
+                    if second_bracket2 != null {
+                        // 多维数组：提取基类型 + 从第二个 '[' 开始的所有维度
+                        // 例如：int32_t[3][2] -> int32_t[2]
+                        const base_len2: i32 = ptr_diff(first_bracket2, type_c2 as *byte);
+                        const inner_dims_len2: i32 = strlen(second_bracket2);
+                        const elem_type3: &byte = arena_alloc(codegen.arena, base_len2 + inner_dims_len2 + 1) as &byte;
+                        if elem_type3 == null {
+                            return null;
+                        }
+                        memcpy(elem_type3 as *void, type_c2 as *void, base_len2);
+                        memcpy(elem_type3 + base_len2 as *void, second_bracket2 as *void, inner_dims_len2);
+                        elem_type3[base_len2 + inner_dims_len2] = 0;
+                        return elem_type3;
+                    } else {
+                        // 单层数组：提取基类型
+                        const len2: i32 = ptr_diff(first_bracket2, type_c2 as *byte);
+                        const elem_type4: &byte = arena_alloc(codegen.arena, len2 + 1) as &byte;
+                        if elem_type4 == null {
+                            return null;
+                        }
+                        memcpy(elem_type4 as *void, type_c2 as *void, len2);
+                        elem_type4[len2] = 0;
+                        return elem_type4;
+                    }
+                }
+                return null;
+            }
+            i = i + 1;
+        }
+        
+        return null;
+    }
+    
+    // 如果是数组访问，递归获取元素类型
+    if array_expr.type == AST_ARRAY_ACCESS {
+        const base_array: &ASTNode = array_expr.array_access_array;
+        return get_array_element_type(codegen, base_array);
+    }
+    
+    // 如果是数组字面量，从第一个元素推断类型
+    if array_expr.type == AST_ARRAY_LITERAL {
+        const elements: [&ASTNode: MAX_ARRAY_LITERAL_ELEMENTS] = array_expr.array_literal_elements;
+        const element_count: i32 = array_expr.array_literal_element_count;
+        if element_count > 0 && elements[0] != null {
+            // 对于数组字面量，我们需要推断第一个元素的类型
+            // 这是一个简化实现，实际应该从类型检查器获取类型信息
+            // 暂时返回NULL，让调用者使用默认类型
+            return null;
+        }
+        return null;
+    }
+    
+    return null;
+}
+

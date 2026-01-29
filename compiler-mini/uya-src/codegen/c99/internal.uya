@@ -1,0 +1,132 @@
+// internal.uya - C99 代码生成器内部类型定义和函数声明
+// 生成 C99 源代码
+//
+// 注意：需要先包含 arena.uya、ast.uya、checker.uya 和 str_utils.uya
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+
+// ===== 外部函数声明 =====
+// 注意：C 标准库函数（strlen, strcmp, strcpy, memcpy, memset, fprintf, sprintf, snprintf 等）在 extern_decls.uya 中声明
+// 编译时需要包含 extern_decls.uya 文件
+
+// Arena 函数（来自 arena.uya）
+extern fn arena_alloc(arena: &Arena, size: i32) &void;
+
+// ===== 常量定义 =====
+
+// 字符串常量表大小
+const C99_MAX_STRING_CONSTANTS: i32 = 512;
+
+// 结构体定义表大小
+const C99_MAX_STRUCT_DEFINITIONS: i32 = 128;
+
+// 枚举定义表大小
+const C99_MAX_ENUM_DEFINITIONS: i32 = 128;
+
+// 函数声明表大小
+const C99_MAX_FUNCTION_DECLS: i32 = 256;
+
+// 全局变量表大小
+const C99_MAX_GLOBAL_VARS: i32 = 256;
+
+// 局部变量表大小
+const C99_MAX_LOCAL_VARS: i32 = 512;
+
+// 循环栈大小
+const C99_MAX_LOOP_STACK: i32 = 32;
+
+// ===== 类型定义 =====
+
+// 字符串常量表项
+struct StringConstant {
+    name: &byte,  // 常量名称（如 str0）
+    value: &byte  // 字符串值
+}
+
+// 结构体定义表项
+struct StructDefinition {
+    name: &byte,  // 结构体名称
+    defined: i32  // 是否已定义（1表示是，0表示否）
+}
+
+// 枚举定义表项
+struct EnumDefinition {
+    name: &byte,  // 枚举名称
+    defined: i32  // 是否已定义（1表示是，0表示否）
+}
+
+// 函数声明表项
+struct FunctionDeclaration {
+    name: &byte,  // 函数名称
+    declared: i32  // 是否已声明（1表示是，0表示否）
+}
+
+// 全局变量表项
+struct GlobalVariable {
+    name: &byte,  // 变量名称
+    type_c: &byte,  // C 类型字符串
+    is_const: i32  // 是否为 const
+}
+
+// 局部变量表项
+struct LocalVariable {
+    name: &byte,  // 变量名称
+    type_c: &byte,  // C 类型字符串
+    depth: i32  // 嵌套深度
+}
+
+// 循环栈项
+struct LoopStack {
+    break_label: &byte,  // break 标签
+    continue_label: &byte  // continue 标签
+}
+
+// C99 代码生成器结构
+struct C99CodeGenerator {
+    arena: &Arena,  // Arena 分配器
+    output: &void,  // 输出文件指针（FILE*），使用普通指针类型以便在普通函数中使用
+    indent_level: i32,  // 当前缩进级别
+    module_name: &byte,  // 模块名称
+    
+    // 字符串常量表
+    string_constants: [StringConstant: C99_MAX_STRING_CONSTANTS],
+    string_constant_count: i32,
+    
+    // 结构体定义表
+    struct_definitions: [StructDefinition: C99_MAX_STRUCT_DEFINITIONS],
+    struct_definition_count: i32,
+    
+    // 枚举定义表
+    enum_definitions: [EnumDefinition: C99_MAX_ENUM_DEFINITIONS],
+    enum_definition_count: i32,
+    
+    // 函数声明表
+    function_declarations: [FunctionDeclaration: C99_MAX_FUNCTION_DECLS],
+    function_declaration_count: i32,
+    
+    // 全局变量表
+    global_variables: [GlobalVariable: C99_MAX_GLOBAL_VARS],
+    global_variable_count: i32,
+    
+    // 局部变量表
+    local_variables: [LocalVariable: C99_MAX_LOCAL_VARS],
+    local_variable_count: i32,
+    current_depth: i32,  // 当前作用域深度
+    
+    // 循环栈
+    loop_stack: [LoopStack: C99_MAX_LOOP_STACK],
+    loop_stack_depth: i32,
+    
+    program_node: &ASTNode,  // 程序节点引用
+    current_function_return_type: &ASTNode,  // 当前函数的返回类型
+    
+    // 用于优化 #line 指令生成
+    current_line: i32,  // 当前行号
+    current_filename: &byte,  // 当前文件名
+    emit_line_directives: i32  // 是否生成 #line 指令（1 表示是，0 表示否）
+}
+
+// ===== 函数声明 =====
+// 注意：Uya Mini 不支持普通函数的前向声明
+// 所有函数定义都在对应的实现文件中，通过文件编译顺序保证依赖关系
+// 只有 extern 函数可以前向声明（如上面的 arena_alloc）
+

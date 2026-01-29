@@ -1,0 +1,116 @@
+// global.uya - C99 代码生成器全局变量模块
+// 提供全局变量生成功能
+//
+// 注意：需要先包含 internal.uya（包含类型定义和函数声明）
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+
+// ===== 外部函数声明 =====
+// C 标准库函数（在 extern_decls.uya 中声明）
+
+fn gen_global_init_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
+    if expr == null {
+        return;
+    }
+    
+    if expr.type == AST_STRUCT_INIT {
+        // 对于全局作用域，生成标准初始化器列表，不使用复合字面量
+        const field_count: i32 = expr.struct_init_field_count;
+        const field_names: [&byte: MAX_STRUCT_INIT_FIELD_NAMES] = expr.struct_init_field_names;
+        const field_values: [&ASTNode: MAX_STRUCT_INIT_FIELDS] = expr.struct_init_field_values;
+        fputc(123, codegen.output as *void);  // '{'
+        var i: i32 = 0;
+        while i < field_count {
+            const safe_field_name: &byte = get_safe_c_identifier(codegen, field_names[i]);
+            fprintf(codegen.output as *void, ".%s = " as *byte, safe_field_name as *byte);
+            gen_global_init_expr(codegen, field_values[i]);
+            if i < field_count - 1 {
+                fputs(", " as *byte, codegen.output as *void);
+            }
+            i = i + 1;
+        }
+        fputc(125, codegen.output as *void);  // '}'
+    } else if expr.type == AST_ARRAY_LITERAL {
+        const elements: [&ASTNode: MAX_ARRAY_LITERAL_ELEMENTS] = expr.array_literal_elements;
+        const element_count: i32 = expr.array_literal_element_count;
+        fputc(123, codegen.output as *void);  // '{'
+        var i: i32 = 0;
+        while i < element_count {
+            gen_global_init_expr(codegen, elements[i]);
+            if i < element_count - 1 {
+                fputs(", " as *byte, codegen.output as *void);
+            }
+            i = i + 1;
+        }
+        fputc(125, codegen.output as *void);  // '}'
+    } else {
+        // 对于其他表达式类型（数字、布尔值、字符串等），使用标准生成方式
+        gen_expr(codegen, expr);
+    }
+}
+
+// 生成全局变量定义
+fn gen_global_var(codegen: &C99CodeGenerator, var_decl: &ASTNode) void {
+    if var_decl == null || var_decl.type != AST_VAR_DECL {
+        return;
+    }
+    
+    const var_name: &byte = get_safe_c_identifier(codegen, var_decl.var_decl_name);
+    const var_type: &ASTNode = var_decl.var_decl_type;
+    const init_expr: &ASTNode = var_decl.var_decl_init;
+    const is_const: i32 = var_decl.var_decl_is_const;
+    
+    if var_name == null || var_type == null {
+        return;
+    }
+    
+    var type_c: &byte = null;
+    var array_size: i32 = -1;
+    
+    // 检查是否为数组类型
+    if var_type.type == AST_TYPE_ARRAY {
+        const element_type: &ASTNode = var_type.type_array_element_type;
+        const size_expr: &ASTNode = var_type.type_array_size_expr;
+        type_c = c99_type_to_c(codegen, element_type);
+        
+        // 评估数组大小
+        if size_expr != null {
+            array_size = eval_const_expr(codegen, size_expr);
+            if array_size <= 0 {
+                array_size = 1;  // 占位符
+            }
+        } else {
+            array_size = 1;  // 占位符
+        }
+        
+        // 生成数组声明：const elem_type var_name[size]
+        if is_const != 0 {
+            fprintf(codegen.output as *void, "const %s %s[%d]", type_c as *byte, var_name as *byte, array_size);
+        } else {
+            fprintf(codegen.output as *void, "%s %s[%d]", type_c as *byte, var_name as *byte, array_size);
+        }
+    } else {
+        type_c = c99_type_to_c(codegen, var_type);
+        if is_const != 0 {
+            fprintf(codegen.output as *void, "const %s %s", type_c as *byte, var_name as *byte);
+        } else {
+            fprintf(codegen.output as *void, "%s %s", type_c as *byte, var_name as *byte);
+        }
+    }
+    
+    // 初始化表达式（使用全局作用域兼容的生成方式）
+    if init_expr != null {
+        fputs(" = " as *byte, codegen.output as *void);
+        gen_global_init_expr(codegen, init_expr);
+    }
+    
+    fputs(";\n" as *byte, codegen.output as *void);
+    
+    // 添加到全局变量表（可选，用于后续引用）
+    if codegen.global_variable_count < C99_MAX_GLOBAL_VARS {
+        codegen.global_variables[codegen.global_variable_count].name = var_name;
+        codegen.global_variables[codegen.global_variable_count].type_c = type_c;
+        codegen.global_variables[codegen.global_variable_count].is_const = is_const;
+        codegen.global_variable_count = codegen.global_variable_count + 1;
+    }
+}
+

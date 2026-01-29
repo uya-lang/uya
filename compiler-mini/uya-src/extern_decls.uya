@@ -19,7 +19,12 @@ extern fn strncpy(dest: *byte, src: *byte, n: i32) *byte;
 extern fn strcat(dest: *byte, src: *byte) *byte;
 
 // 字符串查找
+extern fn strchr(s: *byte, c: i32) *byte;  // 查找字符第一次出现的位置
 extern fn strrchr(s: *byte, c: i32) *byte;  // 查找字符最后一次出现的位置
+extern fn strstr(haystack: *byte, needle: *byte) *byte;  // 查找子字符串
+
+// 指针运算辅助函数（用于计算指针偏移，替代不支持的指针到整数转换）
+extern fn ptr_diff(ptr1: *byte, ptr2: *byte) i32;  // 计算两个指针之间的字节偏移量（ptr1 - ptr2）
 
 // ===== C 标准库 - 内存操作函数 (string.h) =====
 
@@ -54,6 +59,8 @@ extern fn fopen(filename: *byte, mode: *byte) *void;  // FILE* 在 Uya Mini 中�
 extern fn fread(ptr: *void, size: i32, nmemb: i32, stream: *void) i32;
 extern fn fclose(stream: *void) i32;
 extern fn fgetc(stream: *void) i32;  // 返回 int，EOF 为 -1
+extern fn fputc(c: i32, stream: *void) i32;  // 写入一个字符到文件流
+extern fn fputs(s: *byte, stream: *void) i32;  // 写入字符串到文件流
 
 // 获取标准错误流指针（由 bridge.c 提供）
 extern fn get_stderr() *void;  // 返回 stderr FILE* 指针
