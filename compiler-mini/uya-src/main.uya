@@ -7,25 +7,13 @@
 // ===== 外部函数声明 =====
 // 注意：C 标准库函数（strlen, strcmp, fprintf, fopen, fread, fclose, fgetc, get_argc, get_argv 等）在 extern_decls.uya 中声明
 // 编译时需要包含 extern_decls.uya 文件
-
-// Arena 函数（来自 arena.uya）
-extern fn arena_init(arena: &Arena, buffer: &void, size: i32) void;
-extern fn arena_alloc(arena: &Arena, size: i32) &void;
-
-// Lexer 函数（来自 lexer.uya）
-extern fn lexer_init(lexer: &Lexer, source: &byte, source_len: i32, filename: &byte, arena: &Arena) i32;
-
-// Parser 函数（来自 parser.uya）
-extern fn parser_init(parser: &Parser, lexer: &Lexer, arena: &Arena) i32;
-extern fn parser_parse(parser: &Parser) &ASTNode;
-
-// AST 函数（来自 ast.uya）
-extern fn ast_merge_programs(programs: [&ASTNode: 64], count: i32, arena: &Arena) &ASTNode;
-
-// Checker 函数（来自 checker.uya）
-extern fn checker_init(checker: &TypeChecker, arena: &Arena, default_filename: &byte) i32;
-extern fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32;
-extern fn checker_get_error_count(checker: &TypeChecker) i32;
+//
+// 注意：Uya Mini 函数（arena_init, lexer_init, parser_parse 等）不需要 extern 声明
+// 因为：
+// 1. 它们是在其他 .uya 文件中定义的普通函数，不是外部 C 函数
+// 2. 多文件编译时，所有文件合并到一个编译单元，函数已经可见
+// 3. 由于编译顺序（arena.uya 在 main.uya 之前），函数已经定义，可以直接调用
+// 4. extern 关键字仅用于声明外部 C 函数（如 C 标准库函数）
 
 // CodeGen 函数（来自 codegen.uya）
 // 注意：C99 后端使用 C99CodeGenerator，LLVM 后端使用 CodeGenerator
