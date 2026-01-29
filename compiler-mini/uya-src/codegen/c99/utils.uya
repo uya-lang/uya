@@ -297,7 +297,7 @@ fn eval_const_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
     }
     
     if expr.type == AST_NUMBER {
-        return expr.number_value;
+        return expr.number_value as i32;
     } else if expr.type == AST_IDENTIFIER {
         // 查找常量变量声明
         if codegen == null || codegen.program_node == null {

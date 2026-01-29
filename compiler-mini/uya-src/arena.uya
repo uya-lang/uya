@@ -1,0 +1,64 @@
+// arena.uya - Arena 分配器
+// 从 compiler-mini/src/arena.c 重新覆盖式翻译
+//
+// 注意：Uya 不支持指针运算，ptr + i 必须转换为 &ptr[i]
+// 注意：对齐计算使用算术代替位运算（Uya Mini 位运算受限时）
+
+// Arena 分配器结构体
+// 使用静态缓冲区 + bump pointer 实现无堆分配的内存管理
+struct Arena {
+    buffer: &byte,   // 静态缓冲区指针
+    size: usize,     // 缓冲区总大小（字节）
+    offset: usize,  // 当前分配位置（bump pointer）
+}
+
+// 内存对齐边界（字节）
+const ARENA_ALIGNMENT: usize = 8;
+
+// 对齐到指定边界（使用算术实现，代替 C 的 (size + align - 1) & ~(align - 1)）
+// 参数：size - 要对齐的大小，align - 对齐边界
+// 返回：对齐后的大小
+fn align_size(size: usize, align: usize) usize {
+    return ((size + align - 1) / align) * align;
+}
+
+// 初始化 Arena 分配器
+// 参数：arena - Arena 结构体指针，buffer - 静态缓冲区，size - 缓冲区大小
+// 注意：buffer 必须是一个静态缓冲区（栈上或全局），不能是堆分配的内存
+fn arena_init(arena: &Arena, buffer: &byte, size: usize) void {
+    if arena == null || buffer == null {
+        return;
+    }
+    arena.buffer = buffer;
+    arena.size = size;
+    arena.offset = 0;
+}
+
+// 从 Arena 分配内存
+// 参数：arena - Arena 分配器指针，size - 要分配的内存大小（字节）
+// 返回：分配的内存指针（&byte），如果分配失败（空间不足）返回 null
+// 注意：分配的内存会自动对齐到 8 字节边界
+fn arena_alloc(arena: &Arena, size: usize) &byte {
+    if arena == null || arena.buffer == null {
+        return null;
+    }
+    const aligned_offset: usize = align_size(arena.offset, ARENA_ALIGNMENT);
+    const aligned_size: usize = align_size(size, ARENA_ALIGNMENT);
+    if aligned_offset + aligned_size > arena.size {
+        return null;
+    }
+    const result: &byte = &arena.buffer[aligned_offset];
+    arena.offset = aligned_offset + aligned_size;
+    return result;
+}
+
+// 重置 Arena 分配器
+// 参数：arena - Arena 分配器指针
+// 将 bump pointer 重置到开始位置，释放所有已分配的内存
+// 注意：不会清除缓冲区内容，只是重置指针
+fn arena_reset(arena: &Arena) void {
+    if arena == null {
+        return;
+    }
+    arena.offset = 0;
+}

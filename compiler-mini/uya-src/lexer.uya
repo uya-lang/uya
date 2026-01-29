@@ -1,0 +1,532 @@
+// lexer.uya - 词法分析器
+// 从 compiler-mini/src/lexer.c 重新覆盖式翻译
+//
+// 注意：Uya 没有 union，本模块无 union
+// 注意：Uya 不支持指针运算，ptr + i 转换为 &ptr[i]
+// 注意：isalpha/isdigit 等用字符比较实现
+
+// Token 类型枚举（与 C 版本 lexer.h 一致）
+enum TokenType {
+    TOKEN_EOF,
+    TOKEN_IDENTIFIER,
+    TOKEN_NUMBER,
+    TOKEN_STRING,
+    TOKEN_ENUM,
+    TOKEN_STRUCT,
+    TOKEN_CONST,
+    TOKEN_VAR,
+    TOKEN_FN,
+    TOKEN_EXTERN,
+    TOKEN_RETURN,
+    TOKEN_IF,
+    TOKEN_ELSE,
+    TOKEN_WHILE,
+    TOKEN_FOR,
+    TOKEN_BREAK,
+    TOKEN_CONTINUE,
+    TOKEN_TRUE,
+    TOKEN_FALSE,
+    TOKEN_NULL,
+    TOKEN_SIZEOF,
+    TOKEN_LEN,
+    TOKEN_ALIGNOF,
+    TOKEN_AS,
+    TOKEN_PLUS,
+    TOKEN_MINUS,
+    TOKEN_ASTERISK,
+    TOKEN_SLASH,
+    TOKEN_PERCENT,
+    TOKEN_EQUAL,
+    TOKEN_NOT_EQUAL,
+    TOKEN_LESS,
+    TOKEN_GREATER,
+    TOKEN_LESS_EQUAL,
+    TOKEN_GREATER_EQUAL,
+    TOKEN_LOGICAL_AND,
+    TOKEN_LOGICAL_OR,
+    TOKEN_EXCLAMATION,
+    TOKEN_AMPERSAND,
+    TOKEN_LEFT_PAREN,
+    TOKEN_RIGHT_PAREN,
+    TOKEN_LEFT_BRACE,
+    TOKEN_RIGHT_BRACE,
+    TOKEN_LEFT_BRACKET,
+    TOKEN_RIGHT_BRACKET,
+    TOKEN_SEMICOLON,
+    TOKEN_COMMA,
+    TOKEN_ASSIGN,
+    TOKEN_DOT,
+    TOKEN_COLON,
+    TOKEN_PIPE,
+    TOKEN_ELLIPSIS,
+}
+
+// Token 结构体
+struct Token {
+    type: TokenType,
+    value: &byte,  // 可为 null，存储在 Arena 中
+    line: i32,
+    column: i32,
+}
+
+// 1MB 缓冲区大小（与 C 版本 LEXER_BUFFER_SIZE 一致）
+const LEXER_BUFFER_SIZE: i32 = 1024 * 1024;
+
+// 字符串临时缓冲区大小（用于 read_string）
+const STRING_BUFFER_SIZE: i32 = 4096;
+
+// Lexer 结构体
+struct Lexer {
+    buffer: [byte: LEXER_BUFFER_SIZE],
+    buffer_size: usize,
+    position: usize,
+    line: i32,
+    column: i32,
+    filename: &byte,  // 可为 null，存储在 Arena 中
+}
+
+// 辅助：查看指定偏移的字符
+fn peek_char(lexer: &Lexer, offset: usize) byte {
+    const pos: usize = lexer.position + offset;
+    if pos >= lexer.buffer_size {
+        return 0 as byte;
+    }
+    return lexer.buffer[pos] as byte;
+}
+
+// 辅助：前进一个字符，更新位置信息
+fn advance_char(lexer: &Lexer) byte {
+    if lexer.position >= lexer.buffer_size {
+        return 0 as byte;
+    }
+    const c: byte = lexer.buffer[lexer.position];
+    lexer.position = lexer.position + 1;
+    if c == 10 {
+        lexer.line = lexer.line + 1;
+        lexer.column = 1;
+    } else {
+        lexer.column = lexer.column + 1;
+    }
+    return c;
+}
+
+// 跳过空白字符和注释
+fn skip_whitespace_and_comments(lexer: &Lexer) void {
+    while lexer.position < lexer.buffer_size {
+        const c: byte = peek_char(lexer, 0);
+        if c == 32 || c == 9 || c == 13 || c == 10 {
+            advance_char(lexer);
+        } else if c == 47 && peek_char(lexer, 1) == 47 {
+            while lexer.position < lexer.buffer_size && peek_char(lexer, 0) != 10 {
+                advance_char(lexer);
+            }
+        } else {
+            return;
+        }
+    }
+}
+
+// 字符串相等比较（用于关键字判断，Uya 无 strcmp）
+fn str_equals_lexer(s1: &byte, s2: &byte) i32 {
+    if s1 == null && s2 == null {
+        return 1;
+    }
+    if s1 == null || s2 == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while true {
+        const c1: byte = s1[i] as byte;
+        const c2: byte = s2[i] as byte;
+        if c1 != c2 {
+            return 0;
+        }
+        if c1 == 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 检查是否为关键字
+fn is_keyword(str: &byte) TokenType {
+    var result: TokenType = TOKEN_IDENTIFIER;
+    if str_equals_lexer(str, "enum" as &byte) != 0 {
+        result = TOKEN_ENUM;
+    } else if str_equals_lexer(str, "struct" as &byte) != 0 {
+        result = TOKEN_STRUCT;
+    } else if str_equals_lexer(str, "const" as &byte) != 0 {
+        result = TOKEN_CONST;
+    } else if str_equals_lexer(str, "var" as &byte) != 0 {
+        result = TOKEN_VAR;
+    } else if str_equals_lexer(str, "fn" as &byte) != 0 {
+        result = TOKEN_FN;
+    } else if str_equals_lexer(str, "extern" as &byte) != 0 {
+        result = TOKEN_EXTERN;
+    } else if str_equals_lexer(str, "return" as &byte) != 0 {
+        result = TOKEN_RETURN;
+    } else if str_equals_lexer(str, "if" as &byte) != 0 {
+        result = TOKEN_IF;
+    } else if str_equals_lexer(str, "else" as &byte) != 0 {
+        result = TOKEN_ELSE;
+    } else if str_equals_lexer(str, "while" as &byte) != 0 {
+        result = TOKEN_WHILE;
+    } else if str_equals_lexer(str, "for" as &byte) != 0 {
+        result = TOKEN_FOR;
+    } else if str_equals_lexer(str, "break" as &byte) != 0 {
+        result = TOKEN_BREAK;
+    } else if str_equals_lexer(str, "continue" as &byte) != 0 {
+        result = TOKEN_CONTINUE;
+    } else if str_equals_lexer(str, "true" as &byte) != 0 {
+        result = TOKEN_TRUE;
+    } else if str_equals_lexer(str, "false" as &byte) != 0 {
+        result = TOKEN_FALSE;
+    } else if str_equals_lexer(str, "null" as &byte) != 0 {
+        result = TOKEN_NULL;
+    } else if str_equals_lexer(str, "sizeof" as &byte) != 0 {
+        result = TOKEN_SIZEOF;
+    } else if str_equals_lexer(str, "len" as &byte) != 0 {
+        result = TOKEN_LEN;
+    } else if str_equals_lexer(str, "alignof" as &byte) != 0 {
+        result = TOKEN_ALIGNOF;
+    } else if str_equals_lexer(str, "as" as &byte) != 0 {
+        result = TOKEN_AS;
+    }
+    return result;
+}
+
+// 从 Arena 复制指定长度的字符串（含结尾 null）
+fn arena_copy_str(arena: &Arena, start: &byte, n: usize) &byte {
+    if arena == null || start == null {
+        return null;
+    }
+    const result: &byte = arena_alloc(arena, n + 1) as &byte;
+    if result == null {
+        return null;
+    }
+    var i: usize = 0;
+    while i < n {
+        result[i] = start[i];
+        i = i + 1;
+    }
+    result[n] = 0;
+    return result;
+}
+
+// 创建 Token
+fn make_token(arena: &Arena, type: TokenType, value: &byte, line: i32, column: i32) &Token {
+    if arena == null {
+        return null;
+    }
+    const token: &Token = arena_alloc(arena, sizeof(Token)) as &Token;
+    if token == null {
+        return null;
+    }
+    token.type = type;
+    token.value = value;
+    token.line = line;
+    token.column = column;
+    return token;
+}
+
+// 读取标识符或关键字
+fn read_identifier_or_keyword(lexer: &Lexer, arena: &Arena) &Token {
+    const start_index: usize = lexer.position;
+    const line: i32 = lexer.line;
+    const column: i32 = lexer.column;
+    while lexer.position < lexer.buffer_size {
+        const c: byte = peek_char(lexer, 0);
+        const cu: i32 = c as i32;
+        const is_alpha: i32 = (cu >= 97 && cu <= 122) || (cu >= 65 && cu <= 90) ? 1 : 0;
+        const is_digit: i32 = (cu >= 48 && cu <= 57) ? 1 : 0;
+        if is_alpha != 0 || is_digit != 0 || c == 95 {
+            advance_char(lexer);
+        } else {
+            break;
+        }
+    }
+    const n: usize = lexer.position - start_index;
+    if n <= 0 || n > 256 {
+        return null;
+    }
+    const start_ptr: &byte = &lexer.buffer[start_index];
+    const value: &byte = arena_copy_str(arena, start_ptr, n);
+    if value == null {
+        return null;
+    }
+    const tok_type: TokenType = is_keyword(value);
+    return make_token(arena, tok_type, value, line, column);
+}
+
+// 读取数字字面量
+fn read_number(lexer: &Lexer, arena: &Arena) &Token {
+    const start_index: usize = lexer.position;
+    const line: i32 = lexer.line;
+    const column: i32 = lexer.column;
+    while lexer.position < lexer.buffer_size {
+        const c: byte = peek_char(lexer, 0);
+        if c >= 48 && c <= 57 {
+            advance_char(lexer);
+        } else {
+            break;
+        }
+    }
+    const n: usize = lexer.position - start_index;
+    const start_ptr: &byte = &lexer.buffer[start_index];
+    const value: &byte = arena_copy_str(arena, start_ptr, n);
+    if value == null {
+        return null;
+    }
+    return make_token(arena, TOKEN_NUMBER, value, line, column);
+}
+
+// 读取字符串字面量（支持 \n \t \\ \" \0）
+fn read_string(lexer: &Lexer, arena: &Arena) &Token {
+    const line: i32 = lexer.line;
+    const column: i32 = lexer.column;
+    advance_char(lexer);
+    var temp_buffer: [byte: STRING_BUFFER_SIZE];
+    var temp_len: usize = 0;
+    while lexer.position < lexer.buffer_size {
+        const c: byte = peek_char(lexer, 0);
+        if c == 0 {
+            return null;
+        }
+        if c == 34 {
+            break;
+        }
+        if c == 10 {
+            return null;
+        }
+        if c == 92 {
+            advance_char(lexer);
+            if temp_len >= (STRING_BUFFER_SIZE - 1) as usize {
+                return null;
+            }
+            const escape_char: byte = peek_char(lexer, 0);
+            var escaped_value: byte = 0;
+            if escape_char == 110 {
+                escaped_value = 10;
+            } else if escape_char == 116 {
+                escaped_value = 9;
+            } else if escape_char == 92 {
+                escaped_value = 92;
+            } else if escape_char == 34 {
+                escaped_value = 34;
+            } else if escape_char == 48 {
+                escaped_value = 0;
+            } else {
+                return null;
+            }
+            temp_buffer[temp_len] = escaped_value;
+            temp_len = temp_len + 1;
+            advance_char(lexer);
+        } else {
+            if temp_len >= (STRING_BUFFER_SIZE - 1) as usize {
+                return null;
+            }
+            temp_buffer[temp_len] = c;
+            temp_len = temp_len + 1;
+            advance_char(lexer);
+        }
+    }
+    if lexer.position >= lexer.buffer_size || peek_char(lexer, 0) != 34 {
+        return null;
+    }
+    advance_char(lexer);
+    const value: &byte = arena_alloc(arena, temp_len + 1) as &byte;
+    if value == null {
+        return null;
+    }
+    var i: usize = 0;
+    while i < temp_len {
+        value[i] = temp_buffer[i];
+        i = i + 1;
+    }
+    value[temp_len] = 0;
+    return make_token(arena, TOKEN_STRING, value, line, column);
+}
+
+// 获取下一个 Token
+fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
+    if lexer == null || arena == null {
+        return null;
+    }
+    skip_whitespace_and_comments(lexer);
+    if lexer.position >= lexer.buffer_size {
+        return make_token(arena, TOKEN_EOF, null, lexer.line, lexer.column);
+    }
+    const c: byte = peek_char(lexer, 0);
+    const line: i32 = lexer.line;
+    const column: i32 = lexer.column;
+    if c == 43 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_PLUS, "+" as &byte, line, column);
+    }
+    if c == 45 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_MINUS, "-" as &byte, line, column);
+    }
+    if c == 42 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_ASTERISK, "*" as &byte, line, column);
+    }
+    if c == 47 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_SLASH, "/" as &byte, line, column);
+    }
+    if c == 37 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_PERCENT, "%" as &byte, line, column);
+    }
+    if c == 61 {
+        advance_char(lexer);
+        if peek_char(lexer, 0) == 61 {
+            advance_char(lexer);
+            return make_token(arena, TOKEN_EQUAL, "==" as &byte, line, column);
+        }
+        return make_token(arena, TOKEN_ASSIGN, "=" as &byte, line, column);
+    }
+    if c == 33 {
+        advance_char(lexer);
+        if peek_char(lexer, 0) == 61 {
+            advance_char(lexer);
+            return make_token(arena, TOKEN_NOT_EQUAL, "!=" as &byte, line, column);
+        }
+        return make_token(arena, TOKEN_EXCLAMATION, "!" as &byte, line, column);
+    }
+    if c == 60 {
+        advance_char(lexer);
+        if peek_char(lexer, 0) == 61 {
+            advance_char(lexer);
+            return make_token(arena, TOKEN_LESS_EQUAL, "<=" as &byte, line, column);
+        }
+        return make_token(arena, TOKEN_LESS, "<" as &byte, line, column);
+    }
+    if c == 62 {
+        advance_char(lexer);
+        if peek_char(lexer, 0) == 61 {
+            advance_char(lexer);
+            return make_token(arena, TOKEN_GREATER_EQUAL, ">=" as &byte, line, column);
+        }
+        return make_token(arena, TOKEN_GREATER, ">" as &byte, line, column);
+    }
+    if c == 38 {
+        advance_char(lexer);
+        if peek_char(lexer, 0) == 38 {
+            advance_char(lexer);
+            return make_token(arena, TOKEN_LOGICAL_AND, "&&" as &byte, line, column);
+        }
+        return make_token(arena, TOKEN_AMPERSAND, "&" as &byte, line, column);
+    }
+    if c == 124 {
+        advance_char(lexer);
+        if peek_char(lexer, 0) == 124 {
+            advance_char(lexer);
+            return make_token(arena, TOKEN_LOGICAL_OR, "||" as &byte, line, column);
+        }
+        return make_token(arena, TOKEN_PIPE, "|" as &byte, line, column);
+    }
+    if c == 40 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_LEFT_PAREN, "(" as &byte, line, column);
+    }
+    if c == 41 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_RIGHT_PAREN, ")" as &byte, line, column);
+    }
+    if c == 123 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_LEFT_BRACE, "{" as &byte, line, column);
+    }
+    if c == 125 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_RIGHT_BRACE, "}" as &byte, line, column);
+    }
+    if c == 91 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_LEFT_BRACKET, "[" as &byte, line, column);
+    }
+    if c == 93 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_RIGHT_BRACKET, "]" as &byte, line, column);
+    }
+    if c == 59 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_SEMICOLON, ";" as &byte, line, column);
+    }
+    if c == 44 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_COMMA, "," as &byte, line, column);
+    }
+    if c == 46 {
+        advance_char(lexer);
+        if peek_char(lexer, 0) == 46 && peek_char(lexer, 1) == 46 {
+            advance_char(lexer);
+            advance_char(lexer);
+            return make_token(arena, TOKEN_ELLIPSIS, "..." as &byte, line, column);
+        }
+        return make_token(arena, TOKEN_DOT, "." as &byte, line, column);
+    }
+    if c == 58 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_COLON, ":" as &byte, line, column);
+    }
+    if c == 34 {
+        return read_string(lexer, arena);
+    }
+    const cu: i32 = c as i32;
+    const is_alpha: i32 = (cu >= 97 && cu <= 122) || (cu >= 65 && cu <= 90) ? 1 : 0;
+    const is_digit: i32 = (cu >= 48 && cu <= 57) ? 1 : 0;
+    if is_alpha != 0 || c == 95 {
+        return read_identifier_or_keyword(lexer, arena);
+    }
+    if is_digit != 0 {
+        return read_number(lexer, arena);
+    }
+    advance_char(lexer);
+    return make_token(arena, TOKEN_EOF, null, line, column);
+}
+
+// 初始化 Lexer
+// 参数：lexer - 由调用者提供，source - 源代码，source_len - 长度，filename - 文件名（存 Arena），arena - Arena
+// 返回：成功 0，失败 -1
+fn lexer_init(lexer: &Lexer, source: &byte, source_len: usize, filename: &byte, arena: &Arena) i32 {
+    if lexer == null || source == null || arena == null {
+        return -1;
+    }
+    if source_len >= LEXER_BUFFER_SIZE as usize {
+        return -1;
+    }
+    var i: usize = 0;
+    while i < source_len {
+        lexer.buffer[i] = source[i];
+        i = i + 1;
+    }
+    lexer.buffer[source_len] = 0;
+    lexer.buffer_size = source_len;
+    lexer.position = 0;
+    lexer.line = 1;
+    lexer.column = 1;
+    if filename != null {
+        var n: usize = 0;
+        while filename[n] != 0 {
+            n = n + 1;
+        }
+        n = n + 1;
+        const filename_copy: &byte = arena_alloc(arena, n) as &byte;
+        if filename_copy == null {
+            return -1;
+        }
+        var j: usize = 0;
+        while j < n {
+            filename_copy[j] = filename[j];
+            j = j + 1;
+        }
+        lexer.filename = filename_copy;
+    } else {
+        lexer.filename = null;
+    }
+    return 0;
+}
