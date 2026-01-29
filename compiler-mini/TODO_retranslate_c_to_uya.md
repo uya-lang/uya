@@ -39,9 +39,14 @@
 > 3. **保持函数签名一致**：函数名、参数、返回值类型必须一致
 > 4. **保持错误处理逻辑一致**：错误报告、放宽检查的逻辑必须一致
 > 5. **注意类型系统差异**（在翻译时进行转换，但逻辑必须一致）：
-   - C 版本使用 `union`，Uya 版本使用结构体包含所有字段
+   - **⚠️ Uya 没有联合体（union）**：必须将 C 版本的 `union` 改为结构体，包含所有字段
+     - C: `union { int i; bool b; }` → Uya: `struct { i: int; b: bool; }`
+     - C: `type.data.array.element_type` → Uya: `type.element_type`（直接访问字段）
    - C 版本使用 `->` 访问指针成员，Uya 版本使用 `.` 访问
    - C 版本使用 `*` 解引用，Uya 版本直接访问
+   - **⚠️ 枚举访问差异**：枚举要用 `enum_type.field` 形式访问
+     - C: `enum_type->data.enum_type.field_name`
+     - Uya: `enum_type.field_name`
    - **⚠️ Uya 不支持指针运算**：必须将 `ptr + i` 转换为 `&ptr[i]`
    - **⚠️ Uya 不支持函数前向声明**：必须重新组织函数顺序或使用函数表机制
 
@@ -395,9 +400,10 @@ diff /tmp/test_c.c /tmp/test_uya.c
    - 从头开始翻译整个函数
    - 翻译完成后，完全覆盖现有的 Uya 版本代码
 2. **注意类型系统差异**：
-   - C 版本使用 `union`，Uya 版本使用结构体包含所有字段
-     - C: `type.data.array.element_type`
-     - Uya: `type.element_type`
+   - **⚠️ Uya 没有联合体（union）**：必须将 C 版本的 `union` 改为结构体，包含所有字段
+     - C: `union { int i; bool b; }` → Uya: `struct { i: int; b: bool; }`
+     - C: `type.data.array.element_type` → Uya: `type.element_type`（直接访问字段）
+     - C: `node->data.var_decl.name` → Uya: `node.var_decl_name`（直接访问字段）
    - C 版本使用 `->` 访问指针成员，Uya 版本使用 `.` 访问
      - C: `node->data.var_decl.name`
      - Uya: `node.var_decl_name`
@@ -407,6 +413,9 @@ diff /tmp/test_c.c /tmp/test_uya.c
    - C 版本使用 `const char *`，Uya 版本使用 `&byte`
      - C: `const char *name`
      - Uya: `name: &byte`
+   - **⚠️ 枚举访问差异**：枚举要用 `enum_type.field` 形式访问
+     - C: `enum_type->data.enum_type.field_name` 或 `enum_type.data.enum_type.field_name`
+     - Uya: `enum_type.field_name`
 3. **处理指针运算**（⚠️ 重要）：
    - **Uya 不支持指针运算**，必须转换为数组访问
    - C: `ptr + i` → Uya: `&ptr[i]`
@@ -483,7 +492,8 @@ diff /tmp/test_c.c /tmp/test_uya.c
 - [ ] 结构体字段访问是否正确（C 版本 `->` vs Uya 版本 `.`）
 - [ ] 数组访问是否正确
 - [ ] 指针解引用是否正确（C 版本 `*` vs Uya 版本直接访问）
-- [ ] union 访问是否正确（C 版本 union vs Uya 版本结构体字段）
+- [ ] **联合体是否已改为结构体**（⚠️ Uya 没有联合体，必须将 C 版本的 `union` 改为结构体，包含所有字段）
+- [ ] **枚举访问是否正确**（C 版本 `enum_type->data.enum_type.field` → Uya 版本 `enum_type.field`）
 - [ ] **指针运算是否已转换为数组访问**（C 版本 `ptr + i` → Uya 版本 `&ptr[i]`）
 - [ ] **函数定义顺序是否正确**（Uya 不支持前向声明，函数必须在使用前定义）
 
@@ -544,13 +554,49 @@ diff /tmp/test_c.c /tmp/test_uya.c
 
 ## 🔍 常见翻译问题
 
-### 1. 类型系统差异
+### 1. 联合体改为结构体（重要）
 
-**问题：** C 版本使用 `union`，Uya 版本使用结构体包含所有字段
+**问题：** **Uya 没有联合体（union）**，必须将 C 版本的 `union` 改为结构体，包含所有字段
 
 **解决方案：**
-- C 版本：`type.data.array.element_type`
-- Uya 版本：`type.element_type`（直接访问字段）
+- C 版本使用 `union` 来存储不同类型的字段（同一时间只能使用其中一个）
+- Uya 版本使用结构体包含所有字段（所有字段同时存在）
+
+**示例：**
+```c
+// C 版本：使用 union
+typedef struct {
+    TypeKind kind;
+    union {
+        struct { Type *element_type; } array;
+        struct { const char *name; } enum_type;
+        struct { const char *name; } struct_type;
+    } data;
+} Type;
+
+// 访问方式
+Type *type = ...;
+Type *element_type = type->data.array.element_type;
+```
+
+```uya
+// Uya 版本：使用结构体包含所有字段
+struct Type {
+    kind: TypeKind,
+    element_type: &Type,      // 数组类型使用
+    enum_type_name: &byte,     // 枚举类型使用
+    struct_type_name: &byte,   // 结构体类型使用
+}
+
+// 访问方式
+const type: Type = ...;
+const element_type: &Type = type.element_type;  // 直接访问字段
+```
+
+**注意事项：**
+- 所有 union 字段都必须转换为结构体的独立字段
+- 访问时直接使用字段名，不需要通过 `data` 中间层
+- 虽然所有字段都存在，但在使用时应该根据 `kind` 字段判断使用哪个字段
 
 ### 2. 指针访问差异
 
@@ -632,7 +678,28 @@ fn function_a() void {
 - 使用两遍检查机制：第一遍注册函数签名，第二遍检查函数体
 - 参考 `checker_check` 函数的实现方式
 
-### 6. 字符串处理差异
+### 6. 枚举访问差异
+
+**问题：** C 版本使用 union 嵌套访问枚举字段，Uya 版本直接访问字段
+
+**解决方案：**
+- C 版本：`enum_type->data.enum_type.field_name` 或 `enum_type.data.enum_type.field_name`
+- Uya 版本：`enum_type.field_name`（直接访问字段）
+
+**示例：**
+```c
+// C 版本
+Type *enum_type = ...;
+const char *field_name = enum_type->data.enum_type.field_name;
+```
+
+```uya
+// Uya 版本
+const enum_type: Type = ...;
+const field_name: &byte = enum_type.field_name;  // 直接访问字段
+```
+
+### 7. 字符串处理差异
 
 **问题：** C 版本使用 `const char *`，Uya 版本使用 `&byte`
 
@@ -640,7 +707,7 @@ fn function_a() void {
 - C 版本：`const char *name`
 - Uya 版本：`name: &byte`
 
-### 7. 错误处理差异
+### 8. 错误处理差异
 
 **问题：** C 版本可能使用不同的错误处理方式
 
@@ -687,11 +754,15 @@ fn function_a() void {
 
 5. **记录翻译内容：** 在代码中添加注释说明翻译的要点
 
-6. **⚠️ 指针运算限制：** Uya Mini 不支持指针运算，所有 `ptr + i` 必须转换为 `&ptr[i]`
+6. **⚠️ 联合体限制：** Uya 没有联合体（union），必须将 C 版本的 `union` 改为结构体，包含所有字段。所有 union 字段都必须转换为结构体的独立字段。
 
-7. **⚠️ 函数前向声明限制：** Uya Mini 不支持函数前向声明，必须重新组织函数顺序或使用函数表机制
+7. **⚠️ 枚举访问限制：** 枚举要用 `enum_type.field` 形式访问，不能使用 C 版本的 union 嵌套访问方式
 
-8. **⚠️ 及时更新 TODO：** 每完成一个函数或文件的翻译，立即更新本文档中的检查框和状态标记，不要等到所有工作完成后再更新
+8. **⚠️ 指针运算限制：** Uya Mini 不支持指针运算，所有 `ptr + i` 必须转换为 `&ptr[i]`
+
+9. **⚠️ 函数前向声明限制：** Uya Mini 不支持函数前向声明，必须重新组织函数顺序或使用函数表机制
+
+10. **⚠️ 及时更新 TODO：** 每完成一个函数或文件的翻译，立即更新本文档中的检查框和状态标记，不要等到所有工作完成后再更新
 
 ---
 
