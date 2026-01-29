@@ -96,6 +96,10 @@ done
 
 # 根据 --uya 选项设置编译器路径
 if [ "$USE_UYA" = true ]; then
+    # 自举编译器总是使用 C99 后端（因为它本身就是用 C99 后端编译的）
+    # 所以自动启用 C99 后端
+    USE_C99=true
+    
     # 检查多个可能的编译器文件名（按优先级）
     # 注意：使用 --c99 后端时，compile.sh 会生成 "compiler"（去掉 .c 后缀）
     # 保留 compiler.c_exec 作为向后兼容（旧版本可能使用此名称）
@@ -191,7 +195,15 @@ process_multifile_test() {
         # C99 后端：生成 .c 文件
         output_file="$BUILD_DIR/$build_subdir/${test_name}.c"
         # 直接执行命令，让数组正确展开
-        local compiler_output=$("$COMPILER" --c99 "${file_list[@]}" -o "$output_file" 2>&1)
+        # 注意：自举编译器不支持 --c99 选项，它总是使用 C99 后端
+        # 通过输出文件后缀（.c）来指示使用 C99 后端
+        if [ "$USE_UYA" = true ]; then
+            # 自举编译器：不传递 --c99 选项
+            local compiler_output=$("$COMPILER" "${file_list[@]}" -o "$output_file" 2>&1)
+        else
+            # C 版本编译器：传递 --c99 选项
+            local compiler_output=$("$COMPILER" --c99 "${file_list[@]}" -o "$output_file" 2>&1)
+        fi
         local compiler_exit=$?
     else
         # LLVM 后端：生成 .o 文件
@@ -297,7 +309,15 @@ process_single_test() {
     if [ "$USE_C99" = true ]; then
         # C99 后端：生成 .c 文件
         output_file="$BUILD_DIR/${base_name}.c"
-        compiler_output=$("$COMPILER" --c99 "$uya_file" -o "$output_file" 2>&1)
+        # 注意：自举编译器不支持 --c99 选项，它总是使用 C99 后端
+        # 通过输出文件后缀（.c）来指示使用 C99 后端
+        if [ "$USE_UYA" = true ]; then
+            # 自举编译器：不传递 --c99 选项
+            compiler_output=$("$COMPILER" "$uya_file" -o "$output_file" 2>&1)
+        else
+            # C 版本编译器：传递 --c99 选项
+            compiler_output=$("$COMPILER" --c99 "$uya_file" -o "$output_file" 2>&1)
+        fi
         compiler_exit=$?
     else
         # LLVM 后端：生成 .o 文件
