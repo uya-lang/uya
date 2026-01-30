@@ -51,8 +51,8 @@ struct ASTNode {
     line: i32,
     column: i32,
     filename: &byte,
-    // program
-    program_decls: &ASTNode,
+    // program（指针数组在 C 中为 T**，Uya 中用 & & T 表示）
+    program_decls: & & ASTNode,
     program_decl_count: i32,
     // enum_decl
     enum_decl_name: &byte,
@@ -60,11 +60,11 @@ struct ASTNode {
     enum_decl_variant_count: i32,
     // struct_decl
     struct_decl_name: &byte,
-    struct_decl_fields: &ASTNode,
+    struct_decl_fields: & & ASTNode,
     struct_decl_field_count: i32,
     // fn_decl
     fn_decl_name: &byte,
-    fn_decl_params: &ASTNode,
+    fn_decl_params: & & ASTNode,
     fn_decl_param_count: i32,
     fn_decl_return_type: &ASTNode,
     fn_decl_body: &ASTNode,
@@ -83,7 +83,7 @@ struct ASTNode {
     unary_expr_operand: &ASTNode,
     // call_expr
     call_expr_callee: &ASTNode,
-    call_expr_args: &ASTNode,
+    call_expr_args: & & ASTNode,
     call_expr_arg_count: i32,
     // member_access
     member_access_object: &ASTNode,
@@ -93,11 +93,11 @@ struct ASTNode {
     array_access_index: &ASTNode,
     // struct_init
     struct_init_struct_name: &byte,
-    struct_init_field_names: &byte,
-    struct_init_field_values: &ASTNode,
+    struct_init_field_names: & & byte,
+    struct_init_field_values: & & ASTNode,
     struct_init_field_count: i32,
     // array_literal
-    array_literal_elements: &ASTNode,
+    array_literal_elements: & & ASTNode,
     array_literal_element_count: i32,
     // sizeof_expr
     sizeof_expr_target: &ASTNode,
@@ -136,7 +136,7 @@ struct ASTNode {
     assign_dest: &ASTNode,
     assign_src: &ASTNode,
     // block
-    block_stmts: &ASTNode,
+    block_stmts: & & ASTNode,
     block_stmt_count: i32,
     // type_named
     type_named_name: &byte,
@@ -262,7 +262,7 @@ fn ast_merge_programs(programs: [&ASTNode: MAX_MERGE_PROGRAMS], count: i32, aren
         merged.program_decl_count = 0;
         return merged;
     }
-    const decls: &ASTNode = arena_alloc(arena, sizeof(&ASTNode) * total_decl_count as usize) as &ASTNode;
+    const decls: & & ASTNode = arena_alloc(arena, sizeof(&ASTNode) * total_decl_count as usize) as & & ASTNode;
     if decls == null {
         return null;
     }

@@ -5,6 +5,10 @@
 // 注意：Uya 不支持指针运算，ptr + i 必须转换为 &ptr[i]
 // 注意：Uya 不支持函数前向声明，函数必须在使用前定义
 
+// Lexer 函数前向声明（确保生成的 C 中在 parser_init 之前有声明，避免隐式声明）
+extern fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token;
+extern fn lexer_init(lexer: &Lexer, source: &byte, source_len: usize, filename: &byte, arena: &Arena) i32;
+
 // 解析上下文类型
 enum ParserContext {
     PARSER_CONTEXT_NORMAL,          // 普通表达式上下文
@@ -575,7 +579,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             parser_consume(parser);
             
             // 解析参数列表（可选）
-            var args: &ASTNode = null;
+            var args: & & ASTNode = null;
             var arg_count: i32 = 0;
             var arg_capacity: i32 = 0;
             
@@ -599,7 +603,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = arg_capacity * 2;
                         }
-                        const new_args: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
+                        const new_args: & & ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as & & ASTNode;
                         if new_args == null {
                             return null;
                         }
@@ -802,8 +806,8 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             parser_consume(parser);
             
             // 解析字段初始化列表
-            var field_names: &byte = null;
-            var field_values: &ASTNode = null;
+            var field_names: & & byte = null;
+            var field_values: & & ASTNode = null;
             var field_count: i32 = 0;
             var field_capacity: i32 = 0;
             
@@ -844,8 +848,8 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = field_capacity * 2;
                         }
-                        const new_field_names: &byte = arena_alloc(parser.arena, sizeof(&byte) * new_capacity) as &byte;
-                        const new_field_values: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
+                        const new_field_names: & & byte = arena_alloc(parser.arena, sizeof(&byte) * new_capacity) as & & byte;
+                        const new_field_values: & & ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as & & ASTNode;
                         if new_field_names == null || new_field_values == null {
                             return null;
                         }
@@ -1011,7 +1015,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         }
         
         // 初始化元素数组
-        var elements: &ASTNode = null;
+        var elements: & & ASTNode = null;
         var element_count: i32 = 0;
         var element_capacity: i32 = 0;
         
@@ -1036,7 +1040,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = element_capacity * 2;
                         }
-                    const new_elements: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
+                    const new_elements: & & ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as & & ASTNode;
                     if new_elements == null {
                         return null;
                     }
@@ -1710,7 +1714,7 @@ fn parser_parse_block(parser: &Parser) &ASTNode {
     }
     
     // 初始化语句列表
-    var stmts: &ASTNode = null;
+    var stmts: & & ASTNode = null;
     var stmt_count: i32 = 0;
     var stmt_capacity: i32 = 0;
     
@@ -1753,7 +1757,7 @@ fn parser_parse_block(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = stmt_capacity * 2;
                         }
-            const new_stmts: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
+            const new_stmts: & & ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as & & ASTNode;
             if new_stmts == null {
                 // 注意：Uya 版本简化错误报告
                 return null;
@@ -2167,7 +2171,7 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
     // 解析字段列表
     // 字段列表：field { ',' field }
     // field = ID ':' type
-    var fields: &ASTNode = null;
+    var fields: & & ASTNode = null;
     var field_count: i32 = 0;
     var field_capacity: i32 = 0;
     
@@ -2219,7 +2223,7 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = field_capacity * 2;
                         }
-            const new_fields: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
+            const new_fields: & & ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as & & ASTNode;
             if new_fields == null {
                 // 注意：Uya 版本简化错误报告
                 return null;
@@ -2450,7 +2454,7 @@ fn parser_parse_function(parser: &Parser) &ASTNode {
     }
     
     // 解析参数列表（可选）
-    var params: &ASTNode = null;
+    var params: & & ASTNode = null;
     var param_count: i32 = 0;
     var param_capacity: i32 = 0;
     
@@ -2504,7 +2508,7 @@ fn parser_parse_function(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = param_capacity * 2;
                         }
-                const new_params: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
+                const new_params: & & ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as & & ASTNode;
                 if new_params == null {
                     // 注意：Uya 版本简化错误报告
                     return null;
@@ -2614,7 +2618,7 @@ fn parser_parse_extern_function(parser: &Parser) &ASTNode {
     }
     
     // 解析参数列表（可选，支持可变参数）
-    var params: &ASTNode = null;
+    var params: & & ASTNode = null;
     var param_count: i32 = 0;
     var param_capacity: i32 = 0;
     var is_varargs: i32 = 0;
@@ -2677,7 +2681,7 @@ fn parser_parse_extern_function(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = param_capacity * 2;
                         }
-                const new_params: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
+                const new_params: & & ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as & & ASTNode;
                 if new_params == null {
                     return null;
                 }
@@ -2778,7 +2782,7 @@ fn parser_parse(parser: &Parser) &ASTNode {
     program.program_decl_count = 0;
     
     // 解析顶层声明列表
-    var decls: &ASTNode = null;
+    var decls: & & ASTNode = null;
     var decl_count: i32 = 0;
     var decl_capacity: i32 = 0;
     
@@ -2803,7 +2807,7 @@ fn parser_parse(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = decl_capacity * 2;
                         }
-            const new_decls: &ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as &ASTNode;
+            const new_decls: & & ASTNode = arena_alloc(parser.arena, sizeof(&ASTNode) * new_capacity) as & & ASTNode;
             if new_decls == null {
                 return null;
             }

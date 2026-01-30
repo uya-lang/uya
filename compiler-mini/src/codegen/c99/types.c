@@ -509,18 +509,19 @@ int is_array_access_pointer_type(C99CodeGenerator *codegen, ASTNode *array_acces
         
         if (!array_type_c) return 0;
         
+        // 指针的指针（类型中含 " * *"）：x[i] 为指针，用 ->
+        if (strstr(array_type_c, " * *") != NULL) {
+            return 1;
+        }
+        
         // 检查数组类型：如果类型字符串包含 '['，说明是数组类型
         // 数组元素类型是指针类型，如果元素类型字符串包含 '*'
         // 例如："struct ASTNode *[64]" 表示数组元素是指针类型
         const char *bracket = strchr(array_type_c, '[');
         if (bracket) {
             // 这是数组类型，检查元素类型是否包含 '*'
-            // 在 C 中，数组声明格式是 "element_type array_name[size]"
-            // 如果 element_type 包含 '*'，说明元素是指针类型
-            // 例如："struct ASTNode *[64]" -> 元素类型是 "struct ASTNode *"
             const char *asterisk = strchr(array_type_c, '*');
             if (asterisk && asterisk < bracket) {
-                // '*' 在 '[' 之前，说明元素类型是指针
                 return 1;
             }
         }
@@ -607,12 +608,15 @@ int is_array_access_pointer_type(C99CodeGenerator *codegen, ASTNode *array_acces
         
         // 检查字段类型是否是数组类型
         if (field_type->type == AST_TYPE_ARRAY) {
-            // 获取数组元素类型
             ASTNode *element_type = field_type->data.type_array.element_type;
             if (!element_type) return 0;
-            
-            // 检查数组元素类型是否是指针类型
             return (element_type->type == AST_TYPE_POINTER);
+        }
+        
+        // 字段为“指针的指针”（& & T）时索引结果为指针，用 ->；单指针 &T 索引结果为值，用 .
+        if (field_type->type == AST_TYPE_POINTER) {
+            ASTNode *pointee = field_type->data.type_pointer.pointed_type;
+            return (pointee && pointee->type == AST_TYPE_POINTER);
         }
         
         return 0;

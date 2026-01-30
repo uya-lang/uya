@@ -6,6 +6,8 @@
 extern fn get_argc() i32;
 extern fn get_argv(index: i32) *byte;
 extern fn get_stderr() *void;
+// 指针差（bridge.c 提供，用于 Uya 中不支持的 ptr1 - ptr2）
+extern fn ptr_diff(ptr1: &byte, ptr2: &byte) i32;
 
 // ===== C 标准库 - 文件 I/O =====
 extern fn fopen(filename: *byte, mode: *byte) *void;

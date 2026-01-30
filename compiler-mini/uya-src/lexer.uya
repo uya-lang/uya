@@ -238,8 +238,14 @@ fn read_identifier_or_keyword(lexer: &Lexer, arena: &Arena) &Token {
     while lexer.position < lexer.buffer_size {
         const c: byte = peek_char(lexer, 0);
         const cu: i32 = c as i32;
-        const is_alpha: i32 = (cu >= 97 && cu <= 122) || (cu >= 65 && cu <= 90) ? 1 : 0;
-        const is_digit: i32 = (cu >= 48 && cu <= 57) ? 1 : 0;
+        var is_alpha: i32 = 0;
+        if (cu >= 97 && cu <= 122) || (cu >= 65 && cu <= 90) {
+            is_alpha = 1;
+        }
+        var is_digit: i32 = 0;
+        if cu >= 48 && cu <= 57 {
+            is_digit = 1;
+        }
         if is_alpha != 0 || is_digit != 0 || c == 95 {
             advance_char(lexer);
         } else {
@@ -250,7 +256,7 @@ fn read_identifier_or_keyword(lexer: &Lexer, arena: &Arena) &Token {
     if n <= 0 || n > 256 {
         return null;
     }
-    const start_ptr: &byte = &lexer.buffer[start_index];
+    const start_ptr: &byte = &lexer.buffer[start_index] as &byte;
     const value: &byte = arena_copy_str(arena, start_ptr, n);
     if value == null {
         return null;
@@ -273,7 +279,7 @@ fn read_number(lexer: &Lexer, arena: &Arena) &Token {
         }
     }
     const n: usize = lexer.position - start_index;
-    const start_ptr: &byte = &lexer.buffer[start_index];
+    const start_ptr: &byte = &lexer.buffer[start_index] as &byte;
     const value: &byte = arena_copy_str(arena, start_ptr, n);
     if value == null {
         return null;
@@ -286,7 +292,7 @@ fn read_string(lexer: &Lexer, arena: &Arena) &Token {
     const line: i32 = lexer.line;
     const column: i32 = lexer.column;
     advance_char(lexer);
-    var temp_buffer: [byte: STRING_BUFFER_SIZE];
+    var temp_buffer: [byte: STRING_BUFFER_SIZE] = [];
     var temp_len: usize = 0;
     while lexer.position < lexer.buffer_size {
         const c: byte = peek_char(lexer, 0);
@@ -477,8 +483,14 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
         return read_string(lexer, arena);
     }
     const cu: i32 = c as i32;
-    const is_alpha: i32 = (cu >= 97 && cu <= 122) || (cu >= 65 && cu <= 90) ? 1 : 0;
-    const is_digit: i32 = (cu >= 48 && cu <= 57) ? 1 : 0;
+    var is_alpha: i32 = 0;
+    if (cu >= 97 && cu <= 122) || (cu >= 65 && cu <= 90) {
+        is_alpha = 1;
+    }
+    var is_digit: i32 = 0;
+    if cu >= 48 && cu <= 57 {
+        is_digit = 1;
+    }
     if is_alpha != 0 || c == 95 {
         return read_identifier_or_keyword(lexer, arena);
     }

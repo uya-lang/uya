@@ -8,8 +8,8 @@
 // 注意：C 标准库函数（strlen, strcmp, strcpy, memcpy, memset, fprintf, sprintf, snprintf 等）在 extern_decls.uya 中声明
 // 编译时需要包含 extern_decls.uya 文件
 
-// Arena 函数（来自 arena.uya）
-extern fn arena_alloc(arena: &Arena, size: i32) &void;
+// Arena 函数（来自 arena.uya，与 arena.uya 定义一致）
+extern fn arena_alloc(arena: &Arena, size: usize) &byte;
 
 // ===== 常量定义 =====
 

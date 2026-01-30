@@ -578,6 +578,11 @@ fn is_array_access_pointer_type(codegen: &C99CodeGenerator, array_access: &ASTNo
             return 0;
         }
         
+        // 指针的指针（类型中含 " * *"）：x[i] 为指针，用 ->
+        if strstr(array_type_c as *byte, " * *" as *byte) != null {
+            return 1;
+        }
+        
         // 检查数组类型：如果类型字符串包含 '['，说明是数组类型
         // 数组元素类型是指针类型，如果元素类型字符串包含 '*'
         // 例如："struct ASTNode *[64]" 表示数组元素是指针类型
@@ -704,6 +709,14 @@ fn is_array_access_pointer_type(codegen: &C99CodeGenerator, array_access: &ASTNo
             }
         }
         
+        // 字段为“指针的指针”（& & T）时索引结果为指针，用 ->；单指针 &T 索引结果为值，用 .
+        if field_type.type == AST_TYPE_POINTER {
+            const pointee: &ASTNode = field_type.type_pointer_pointed_type;
+            if pointee != null && pointee.type == AST_TYPE_POINTER {
+                return 1;
+            }
+        }
+        
         return 0;
     }
     
@@ -753,6 +766,28 @@ fn is_identifier_struct_type(codegen: &C99CodeGenerator, name: &byte) i32 {
     }
     
     return 0;
+}
+
+// 获取标识符（变量）的 C 类型字符串，用于按字段比较时查找结构体
+fn get_identifier_type_c(codegen: &C99CodeGenerator, name: &byte) &byte {
+    if name == null {
+        return null;
+    }
+    var i: i32 = codegen.local_variable_count - 1;
+    while i >= 0 {
+        if strcmp(codegen.local_variables[i].name as *byte, name as *byte) == 0 {
+            return codegen.local_variables[i].type_c;
+        }
+        i = i - 1;
+    }
+    i = 0;
+    while i < codegen.global_variable_count {
+        if strcmp(codegen.global_variables[i].name as *byte, name as *byte) == 0 {
+            return codegen.global_variables[i].type_c;
+        }
+        i = i + 1;
+    }
+    return null;
 }
 
 // 生成数组包装结构体的名称
