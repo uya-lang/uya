@@ -470,19 +470,30 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                             type_c = buf;
                         }
                     } else {
-                        // 非结构体类型，使用标准类型转换
-                        type_c = c99_type_to_c(codegen, target);
+                        // 对于变量名，需要获取变量的类型（从局部/全局变量表查找）
+                        type_c = get_identifier_type_c(codegen, safe_name);
+                        if type_c == null {
+                            // 如果找不到，可能是类型名（如 alignof(usize)）
+                            type_c = c99_type_to_c(codegen, target);
+                        }
                     }
                 } else {
                     type_c = c99_type_to_c(codegen, target);
                 }
             } else {
+                // 其他表达式类型：尝试从变量表查找（如成员访问的基变量）
                 type_c = c99_type_to_c(codegen, target);
             }
         }
         
         if type_c == null {
             type_c = ("void" as *byte) as &byte;
+        }
+        
+        // void 类型不能用于 uya_alignof 宏（struct { char c; void t; } 非法），直接输出 1
+        if strcmp(type_c as *byte, "void" as *byte) == 0 {
+            fputs("1" as *byte, codegen.output as *void);
+            return;
         }
         
         // 检查类型是否是数组类型（包含 '['）

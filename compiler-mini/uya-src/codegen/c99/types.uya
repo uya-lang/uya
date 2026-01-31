@@ -130,21 +130,28 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
         }
         
         // 如果指向数组类型，生成指向数组的指针（T [N] -> T (*)[N]）
+        // 正确 C 语法是 base_type (*)[N]，而非 element_type[N] (*)[N]
         const bracket: *byte = strchr(pointee_type as *byte, 91);  // '['
         if bracket != null {
             const base_len: i32 = ptr_diff(bracket, pointee_type as *byte);
             const dims: *byte = bracket;
             const dims_len: i32 = strlen(dims);
             // 重新分配更大的缓冲区
-            const total_len: i32 = base_len + dims_len + 6; // " (*)" + null
+            const total_len: i32 = base_len + dims_len + 8; // " (*)" + null
             const arr_ptr: &byte = arena_alloc(codegen.arena, total_len) as &byte;
             if arr_ptr == null {
                 snprintf(result as *byte, str_len, "%s *" as *byte, pointee_type as *byte);
                 return result;
             }
-            // 注意：Uya Mini 不支持 %.*s，需要手动处理
-            // 简化处理：使用 snprintf 的完整字符串
-            snprintf(arr_ptr as *byte, total_len, "%s (*)%s" as *byte, pointee_type as *byte, dims);
+            // 提取 base_type（[ 之前的部分），生成 T (*)[N] 而非 T[N] (*)[N]
+            var base_buf: [byte: 128] = [];
+            if base_len < 128 {
+                memcpy(&base_buf[0] as *void, pointee_type as *void, base_len);
+                base_buf[base_len] = 0;
+                snprintf(arr_ptr as *byte, total_len, "%s (*)%s" as *byte, &base_buf[0] as *byte, dims);
+            } else {
+                snprintf(arr_ptr as *byte, total_len, "%s *" as *byte, pointee_type as *byte);
+            }
             return arr_ptr;
         }
         
