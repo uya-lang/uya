@@ -40,9 +40,39 @@
 
 ---
 
+## 编译器开发工作流
+
+新增或修改语言特性时，按以下顺序进行：
+
+### 1. 规范优先
+- 更新 `compiler-mini/spec/UYA_MINI_SPEC.md`
+- 定义类型、字面量、BNF、语义规则、LLVM 映射等
+
+### 2. 测试先行
+- 在 `tests/programs/` 添加测试用例（如 `test_xxx.uya`）
+- 覆盖目标场景，返回 0 表示通过
+
+### 3. C 编译器实现
+按编译流水线依次修改：Lexer → AST → Parser → Checker → LLVM Codegen → C99 Codegen
+
+### 4. 自举编译器同步
+同步修改 `compiler-mini/uya-src/` 中对应模块，保持 C 版与 Uya 版行为一致。
+
+### 5. 验证流程
+```
+make build                                    # 构建 C 版编译器
+./tests/run_programs.sh --c99 test_xxx.uya    # C 版测试
+cd uya-src && ./compile.sh --c99 -e           # 构建自举编译器
+./tests/run_programs.sh --uya --c99 test_xxx.uya  # 自举版测试
+./compile.sh --c99 -b                         # 自举对比（C 输出必须完全一致）
+```
+
+---
+
 ## AI 辅助开发提示
 
 当进行编译器开发时：
 1. 参考 `RELEASE_v0.1.0.md` 了解当前状态
 2. 参考 `uya.md` 和 `grammar_formal.md` 确认语法规范
+3. 遵循上述「编译器开发工作流」
 
