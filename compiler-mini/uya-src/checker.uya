@@ -2391,16 +2391,8 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             } else if type_equals(expr_type, checker.current_return_type) == 0 &&
                 type_can_implicitly_convert(expr_type, checker.current_return_type) == 0 {
                 // 兼容：若期望为 i32 而表达式被推断为结构体（type_from_ast 将内置类型误判为结构体名时），视为匹配
-                // 兼容：期望为 i32 时放宽检查（与 C 版一致，避免全局变量等符号推断差异导致误报）
                 var allow: i32 = 0;
                 if checker.current_return_type.kind == TYPE_I32 && expr_type.kind == TYPE_STRUCT {
-                    allow = 1;
-                }
-                if checker.current_return_type.kind == TYPE_I32 && expr_type.kind == TYPE_I32 {
-                    allow = 1;
-                }
-                if checker.current_return_type.kind == TYPE_I32 {
-                    // 期望 i32 时放宽：允许通过，避免 Uya 编译器与 C 编译器在全局变量等推断上的差异
                     allow = 1;
                 }
                 if allow == 0 {
