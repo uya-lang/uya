@@ -565,10 +565,12 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             }
             
             if (!type_c) {
-                // 回退：生成表达式
-                fputs("uya_alignof(", codegen->output);
-                gen_expr(codegen, target);
-                fputc(')', codegen->output);
+                type_c = "void";
+            }
+            
+            /* void 类型不能用于 uya_alignof 宏（struct { char c; void t; } 非法），直接输出 1 */
+            if (strcmp(type_c, "void") == 0) {
+                fputs("1", codegen->output);
                 break;
             }
             
