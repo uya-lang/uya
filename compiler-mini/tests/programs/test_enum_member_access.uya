@@ -1,0 +1,20 @@
+// 枚举访问方式测试：Uya 只支持 T.member 方式访问枚举（T 为枚举类型名）
+// 合法：Color.RED；非法：c.RED（c 为枚举类型变量）
+
+enum Color {
+    RED,
+    GREEN,
+    BLUE,
+}
+
+fn main() i32 {
+    const c: Color = Color.RED;
+    // 合法：类型名.member
+    if c == Color.GREEN {
+        return 1;
+    }
+    if c != Color.RED {
+        return 2;
+    }
+    return 0;
+}

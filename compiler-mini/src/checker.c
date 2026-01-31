@@ -1394,6 +1394,12 @@ static Type checker_check_member_access(TypeChecker *checker, ASTNode *node) {
         object_type = *object_type.data.pointer.pointer_to;
     }
     
+    // Uya 只支持 T.member 方式访问枚举（T 为枚举类型名），不支持变量.member
+    if (object_type.kind == TYPE_ENUM) {
+        checker_report_error(checker, node, "枚举只能通过 T.member 方式访问（T 为枚举类型名），不能通过变量.member 访问");
+        return result;
+    }
+    
     if (object_type.kind != TYPE_STRUCT || object_type.data.struct_name == NULL) {
         // 对象类型不是结构体：放宽检查，允许通过（不报错）
         // 这在编译器自举时很常见，因为类型推断可能失败（不支持类型缩小）
