@@ -7,6 +7,26 @@
 // ===== 外部函数声明 =====
 // C 标准库函数（在 extern_decls.uya 中声明）
 
+// 已知 C 变参函数对应的 va_list 版本（用于 ... 转发）
+fn get_vprintf_style_name(c_name: &byte) &byte {
+    if c_name == null {
+        return null;
+    }
+    if str_equals(c_name as *byte, "printf" as *byte) != 0 {
+        return "vprintf" as &byte;
+    }
+    if str_equals(c_name as *byte, "sprintf" as *byte) != 0 {
+        return "vsprintf" as &byte;
+    }
+    if str_equals(c_name as *byte, "fprintf" as *byte) != 0 {
+        return "vfprintf" as &byte;
+    }
+    if str_equals(c_name as *byte, "snprintf" as *byte) != 0 {
+        return "vsnprintf" as &byte;
+    }
+    return null;
+}
+
 // 根据整数类型与 max/min 生成 C 极值字面量（resolved_kind 为 TypeKind 值）
 fn gen_int_limit_literal(codegen: &C99CodeGenerator, is_max: i32, resolved_kind: i32) void {
     if resolved_kind == 0 {
@@ -465,6 +485,62 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 fputc(125, codegen.output as *void);  // '}'
             }
         }
+    } else if expr.type == ASTNodeType.AST_PARAMS {
+        // @params -> 当前函数参数的元组复合字面量 (struct { T0 f0; ... }){ .f0 = p0, ... }
+        const cur_fn: &ASTNode = codegen.current_function_decl;
+        if cur_fn == null || cur_fn.type != ASTNodeType.AST_FN_DECL || cur_fn.fn_decl_param_count <= 0 || cur_fn.fn_decl_params == null {
+            fputs("(struct { int32_t f0; }){ .f0 = 0 }" as *byte, codegen.output as *void);
+        } else {
+            const params: & & ASTNode = cur_fn.fn_decl_params;
+            const n: i32 = cur_fn.fn_decl_param_count;
+            var total_len: i32 = 128;
+            var i: i32 = 0;
+            while i < n {
+                const p: &ASTNode = params[i];
+                if p != null && p.type == ASTNodeType.AST_VAR_DECL && p.var_decl_type != null {
+                    total_len = total_len + 64;
+                }
+                i = i + 1;
+            }
+            const type_buf: &byte = arena_alloc(codegen.arena, total_len) as &byte;
+            if type_buf == null {
+                fputs("(struct { int32_t f0; }){ .f0 = 0 }" as *byte, codegen.output as *void);
+            } else {
+                var off: i32 = 0;
+                off = off + snprintf(type_buf as *byte + off, total_len - off, "struct { " as *byte);
+                i = 0;
+                while i < n {
+                    const p: &ASTNode = params[i];
+                    var et: &byte = "int32_t" as *byte;
+                    if p != null && p.type == ASTNodeType.AST_VAR_DECL && p.var_decl_type != null {
+                        const etc: &byte = c99_type_to_c(codegen, p.var_decl_type);
+                        if etc != null {
+                            et = etc;
+                        }
+                    }
+                    off = off + snprintf(type_buf as *byte + off, total_len - off, "%s f%d; " as *byte, et as *byte, i);
+                    i = i + 1;
+                }
+                snprintf(type_buf as *byte + off, total_len - off, "}" as *byte);
+                fprintf(codegen.output as *void, "(%s){" as *byte, type_buf as *byte);
+                i = 0;
+                while i < n {
+                    fprintf(codegen.output as *void, ".f%d = " as *byte, i);
+                    const p: &ASTNode = params[i];
+                    if p != null && p.type == ASTNodeType.AST_VAR_DECL && p.var_decl_name != null {
+                        const pname: &byte = get_safe_c_identifier(codegen, p.var_decl_name);
+                        fprintf(codegen.output as *void, "%s" as *byte, pname as *byte);
+                    } else {
+                        fputs("0" as *byte, codegen.output as *void);
+                    }
+                    if i < n - 1 {
+                        fputs(", " as *byte, codegen.output as *void);
+                    }
+                    i = i + 1;
+                }
+                fputc(125, codegen.output as *void);  // '}'
+            }
+        }
     } else if expr.type == ASTNodeType.AST_SIZEOF {
         const target: &ASTNode = expr.sizeof_expr_target;
         const is_type: i32 = expr.sizeof_expr_is_type;
@@ -747,26 +823,72 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     } else if expr.type == ASTNodeType.AST_CALL_EXPR {
         const callee: &ASTNode = expr.call_expr_callee;
         const arg_count: i32 = expr.call_expr_arg_count;
+        const has_ellipsis: i32 = expr.call_expr_has_ellipsis_forward;
         
         // 查找函数声明（用于检查参数类型）
         var fn_decl: &ASTNode = null;
+        var callee_name: &byte = null;
         if callee != null && callee.type == ASTNodeType.AST_IDENTIFIER {
-            const func_name: &byte = callee.identifier_name;
-            fn_decl = find_function_decl_c99(codegen, func_name);
+            callee_name = callee.identifier_name;
+            fn_decl = find_function_decl_c99(codegen, callee_name);
         }
         
-        // 生成被调用函数名
-        if callee != null && callee.type == ASTNodeType.AST_IDENTIFIER {
-            const func_name: &byte = callee.identifier_name;
-            const safe_name: &byte = get_safe_c_identifier(codegen, func_name);
-            fprintf(codegen.output as *void, "%s(" as *byte, safe_name as *byte);
+        // 无 ... 转发的调用不生成 va_list（零开销转发）
+        var do_va_forward: i32 = 0;
+        if has_ellipsis != 0 && codegen.current_function_decl != null &&
+            codegen.current_function_decl.type == ASTNodeType.AST_FN_DECL &&
+            codegen.current_function_decl.fn_decl_is_varargs != 0 &&
+            codegen.current_function_decl.fn_decl_param_count > 0 &&
+            callee_name != null {
+            do_va_forward = 1;
+        }
+        var vname: &byte = null;
+        var last_param: &byte = null;
+        if do_va_forward != 0 {
+            vname = get_vprintf_style_name(callee_name);
+            const cur_fn: &ASTNode = codegen.current_function_decl;
+            const last_p: &ASTNode = cur_fn.fn_decl_params[cur_fn.fn_decl_param_count - 1];
+            if last_p != null && last_p.type == ASTNodeType.AST_VAR_DECL {
+                last_param = last_p.var_decl_name;
+            }
+        }
+        if do_va_forward != 0 && vname != null && last_param != null {
+            const last_safe: &byte = get_safe_c_identifier(codegen, last_param);
+            c99_emit(codegen, "((void)0, ({\n" as *byte);
+            codegen.indent_level = codegen.indent_level + 1;
+            c99_emit(codegen, "va_list uya_va;\n" as *byte);
+            c99_emit_indent(codegen);
+            fprintf(codegen.output as *void, "va_start(uya_va, %s);\n" as *byte, last_safe as *byte);
+            fprintf(codegen.output as *void, "%*sint32_t _uya_ret = %s(" as *byte, codegen.indent_level * 4, "" as *byte, vname as *byte);
+            var i: i32 = 0;
+            while i < arg_count {
+                if i > 0 {
+                    fputs(", " as *byte, codegen.output as *void);
+                }
+                if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
+                    fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                }
+                gen_expr(codegen, expr.call_expr_args[i]);
+                i = i + 1;
+            }
+            fputs(", uya_va);\n" as *byte, codegen.output as *void);
+            c99_emit(codegen, "va_end(uya_va);\n" as *byte);
+            c99_emit(codegen, "_uya_ret;\n" as *byte);
+            codegen.indent_level = codegen.indent_level - 1;
+            c99_emit(codegen, "}))" as *byte);
         } else {
-            fputs("unknown(" as *byte, codegen.output as *void);
-        }
-        
-        // 生成参数
-        var i: i32 = 0;
-        while i < arg_count {
+            // 生成被调用函数名
+            if callee != null && callee.type == ASTNodeType.AST_IDENTIFIER {
+                const func_name: &byte = callee.identifier_name;
+                const safe_name: &byte = get_safe_c_identifier(codegen, func_name);
+                fprintf(codegen.output as *void, "%s(" as *byte, safe_name as *byte);
+            } else {
+                fputs("unknown(" as *byte, codegen.output as *void);
+            }
+            
+            // 生成参数
+            var i: i32 = 0;
+            while i < arg_count {
             // 检查参数是否是字符串常量，如果是则添加类型转换以消除 const 警告
             var is_string_arg: i32 = 0;
             if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
@@ -811,6 +933,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             i = i + 1;
         }
         fputc(41, codegen.output as *void);  // ')'
+        }
     } else if expr.type == ASTNodeType.AST_ASSIGN {
         // 赋值表达式（右结合）：dest = src
         // 在表达式中使用时，需要生成 (dest = src) 的形式

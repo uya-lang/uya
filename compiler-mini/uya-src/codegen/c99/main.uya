@@ -27,6 +27,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     fputs("#include <stdint.h>\n" as *byte, codegen.output as *void);
     fputs("#include <stdbool.h>\n" as *byte, codegen.output as *void);
     fputs("#include <stddef.h>\n" as *byte, codegen.output as *void);
+    fputs("#include <stdarg.h>\n" as *byte, codegen.output as *void);  // for va_list (variadic forward)
     fputs("#include <string.h>\n" as *byte, codegen.output as *void);  // for memcmp
     fputs("#include <stdio.h>\n" as *byte, codegen.output as *void);  // for standard I/O functions (printf, puts, etc.)
     fputs("\n" as *byte, codegen.output as *void);

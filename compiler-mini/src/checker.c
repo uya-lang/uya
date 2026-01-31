@@ -78,6 +78,7 @@ int checker_init(TypeChecker *checker, Arena *arena, const char *default_filenam
     checker->default_filename = default_filename;
     checker->current_return_type.kind = TYPE_VOID;
     checker->in_function = 0;
+    checker->current_function_decl = NULL;
     
     return 0;
 }
@@ -671,6 +672,38 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             return result;
         }
             
+        case AST_PARAMS: {
+            // @params 仅在函数体内有效，类型为当前函数参数元组（可变参数时仅含固定参数）
+            if (!checker->in_function || checker->current_function_decl == NULL) {
+                checker_report_error(checker, expr, "@params 只能在函数体内使用");
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            ASTNode *fn = checker->current_function_decl;
+            if (fn->type != AST_FN_DECL || fn->data.fn_decl.param_count <= 0) {
+                result.kind = TYPE_TUPLE;
+                result.data.tuple.element_types = NULL;
+                result.data.tuple.count = 0;
+                return result;
+            }
+            Type *elem_types = (Type *)arena_alloc(checker->arena, sizeof(Type) * (size_t)fn->data.fn_decl.param_count);
+            if (elem_types == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            for (int i = 0; i < fn->data.fn_decl.param_count; i++) {
+                ASTNode *p = fn->data.fn_decl.params[i];
+                if (p != NULL && p->type == AST_VAR_DECL && p->data.var_decl.type != NULL)
+                    elem_types[i] = type_from_ast(checker, p->data.var_decl.type);
+                else
+                    elem_types[i].kind = TYPE_VOID;
+            }
+            result.kind = TYPE_TUPLE;
+            result.data.tuple.element_types = elem_types;
+            result.data.tuple.count = fn->data.fn_decl.param_count;
+            return result;
+        }
+        
         case AST_IDENTIFIER: {
             // 标识符类型需要从符号表中查找
             Symbol *symbol = symbol_table_lookup(checker, expr->data.identifier.name);
@@ -1478,9 +1511,9 @@ static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node) {
             if (param != NULL && param->type == AST_VAR_DECL) {
                 Type param_type = type_from_ast(checker, param->data.var_decl.type);
 
-                // 检查是否为 FFI 指针类型（*T），如果是普通函数则不允许
-                if (!sig->is_extern && param_type.kind == TYPE_POINTER && param_type.data.pointer.is_ffi_pointer) {
-                    // 普通函数不能使用 FFI 指针类型作为参数
+                // 检查是否为 FFI 指针类型（*T）：普通函数仅在可变参数包装等场景下允许 *byte 等 FFI 指针形参（如 printf(fmt, ...)）
+                if (!sig->is_extern && param_type.kind == TYPE_POINTER && param_type.data.pointer.is_ffi_pointer
+                    && !node->data.fn_decl.is_varargs) {
                     checker_report_error(checker, node, "普通函数不能使用 FFI 指针类型作为参数");
                     return 0;
                 }
@@ -1532,6 +1565,8 @@ static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
     // 设置当前函数的返回类型
     checker->current_return_type = return_type;
     checker->in_function = 1;
+    ASTNode *prev_fn_decl = checker->current_function_decl;
+    checker->current_function_decl = node;
     
     // 检查函数体（如果有）
     if (node->data.fn_decl.body != NULL) {
@@ -1566,6 +1601,7 @@ static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
     // 恢复之前的函数状态
     checker->current_return_type = prev_return_type;
     checker->in_function = prev_in_function;
+    checker->current_function_decl = prev_fn_decl;
     
     return 1;
 }
@@ -1630,10 +1666,33 @@ static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
         return result;
     }
     
+    // 末尾 ... 转发可变参数：仅允许在可变参数函数体内，且被调函数也必须是可变参数
+    if (node->data.call_expr.has_ellipsis_forward) {
+        if (!checker->in_function || checker->current_function_decl == NULL) {
+            checker_report_error(checker, node, "使用 ... 转发可变参数只能在可变参数函数体内");
+            return result;
+        }
+        if (!checker->current_function_decl->data.fn_decl.is_varargs) {
+            checker_report_error(checker, node, "使用 ... 转发时当前函数必须是可变参数函数");
+            return result;
+        }
+        if (!sig->is_varargs) {
+            checker_report_error(checker, node, "使用 ... 转发时被调函数必须是可变参数函数");
+            return result;
+        }
+        // 转发时实参个数必须等于被调函数的固定参数个数（固定参数 + ...）
+        if (node->data.call_expr.arg_count != sig->param_count) {
+            checker_report_error(checker, node, "可变参数转发时实参个数必须等于被调函数的固定参数个数");
+            return result;
+        }
+    }
+    
     // 检查参数个数
     // 对于可变参数函数，参数个数必须 >= 固定参数数量
     // 对于普通函数，参数个数必须 == 固定参数数量
-    if (sig->is_varargs) {
+    if (node->data.call_expr.has_ellipsis_forward) {
+        // 已在上方检查：arg_count == sig->param_count
+    } else if (sig->is_varargs) {
         // 可变参数函数：参数个数必须 >= 固定参数数量
         if (node->data.call_expr.arg_count < sig->param_count) {
             checker_report_error(checker, node, "类型检查错误");
@@ -2856,6 +2915,9 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             checker_check_len(checker, node);
             return 1;
             
+        case AST_PARAMS:
+            // @params 类型在 checker_infer_type 中已推断并校验（仅函数体内）
+            return 1;
         case AST_IDENTIFIER:
         case AST_NUMBER:
         case AST_BOOL:

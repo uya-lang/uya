@@ -421,7 +421,7 @@ param          = ID ':' type
 **说明**：
 - **普通函数声明**：`fn ID(...) type { ... }`
   - 函数必须指定返回类型（可以是 `void`）
-  - 参数列表可以为空
+  - 参数列表可以为空；支持可变参数：最后一个形参可为 `...`（与 extern 一致）
   - 函数体必须用花括号包围
   - 示例：
     ```uya
@@ -449,11 +449,12 @@ param          = ID ':' type
     - 这是 FFI 调用时的显式规则，符合 Uya Mini "显式控制"的设计原则
   - **可变参数支持**（C 语法兼容，详见 uya.md §5.4）：
     - 使用 `...` 表示可变参数列表（C 风格的变参函数）
-    - 语法：`extern fn name(param1: type1, param2: type2, ...) return_type;` 或 `fn name(..., ...) type { ... }`
+    - 语法：`extern fn name(param1: type1, param2: type2, ...) return_type;` 或 `fn name(fmt: *byte, ...) type { ... }`
     - `...` 必须是参数列表的最后一个元素
     - 可变参数函数的调用必须提供至少等于固定参数数量的参数
-    - 完整规范：函数体内使用 `@params` 访问所有参数作为元组；未使用 `@params` 时零开销转发
-    - 示例：`extern printf(fmt: *byte, ...) i32;`
+    - **@params**：函数体内可用 `@params` 访问参数元组（固定参数部分；可变参数仅支持通过 `...` 转发）
+    - **参数转发**：在可变参数函数体内可用 `callee(fixed_args, ...)` 将可变参数转发给另一可变参数函数（仅支持转发给已知的 C 变参函数如 printf→vprintf）
+    - 示例：`extern printf(fmt: *byte, ...) i32;`、`fn wrap(fmt: *byte, ...) i32 { return printf(fmt, ...); }`
   - 示例：
     ```uya
     // 声明外部 C 函数
@@ -588,7 +589,8 @@ add_expr       = mul_expr { ('+' | '-') mul_expr }
 mul_expr       = cast_expr { ('*' | '/' | '%') cast_expr }
 cast_expr      = unary_expr [ 'as' type ]
 unary_expr     = ('!' | '-' | '~' | '&' | '*') unary_expr | primary_expr
-primary_expr   = ID | NUM | FLOAT | 'true' | 'false' | 'null' | STRING | struct_literal | array_literal | member_access | array_access | call_expr | sizeof_expr | alignof_expr | len_expr | int_limit_expr | '(' expr ')'
+primary_expr   = ID | NUM | FLOAT | 'true' | 'false' | 'null' | STRING | params_expr | struct_literal | array_literal | member_access | array_access | call_expr | sizeof_expr | alignof_expr | len_expr | int_limit_expr | '(' expr ')'
+params_expr    = '@params'   // 仅函数体内有效，类型为参数元组（可变参数时仅含固定参数）
 sizeof_expr    = '@sizeof' '(' (type | expr) ')'
 alignof_expr   = '@alignof' '(' (type | expr) ')'
 len_expr       = '@len' '(' expr ')'
@@ -601,7 +603,7 @@ field_init     = ID ':' expr
 member_access  = primary_expr '.' ID
 array_access   = primary_expr '[' expr ']'
 call_expr      = ID '(' [ arg_list ] ')'
-arg_list       = expr { ',' expr }
+arg_list       = expr { ',' expr } [ ',' '...' ]   // 末尾 '...' 表示转发当前函数的可变参数，仅可变参数函数体内有效
 ```
 
 **说明**：

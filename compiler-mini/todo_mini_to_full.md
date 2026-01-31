@@ -28,11 +28,13 @@
 
 以下三项来自 uya.md 0.34 规范变更，建议在阶段 2（错误处理）之前或与之并行时优先实现。
 
-- [ ] **参数列表即元组**：函数体内通过 `@params` 访问整份参数列表作为元组，与现有元组类型、解构声明衔接；规范 uya.md 规范变更 0.34
-- [ ] **可变参数**：`...` 形参（C 语法兼容）、`printf(fmt, ...)` 参数转发、`@params` 元组访问；编译器智能优化（未用 `@params` 时零开销）；规范 uya.md §5.4
+- [x] **参数列表即元组**：函数体内通过 `@params` 访问整份参数列表作为元组，与现有元组类型、解构声明衔接；规范 uya.md 规范变更 0.34
+- [x] **可变参数**：`...` 形参（C 语法兼容）、`printf(fmt, ...)` 参数转发、`@params` 元组访问；编译器智能优化（未用 `@params` 时零开销）；规范 uya.md §5.4
 - [ ] **字符串插值与 printf 结合**：`"a${x}"`、`"a${x:format}"`，结果类型与 printf 格式一致，规范 uya.md §17；可与阶段 10 合并实现
 
-**涉及**：Parser（形参 `...`、`@params` 内置变量）、Checker（元组与可变参数类型、`@params` 类型推断）、Codegen（元组打包/转发、va_list/va_arg）、Lexer/字符串插值；uya-src 同步。实现时先更新 [spec/UYA_MINI_SPEC.md](spec/UYA_MINI_SPEC.md) 与测试用例，再按 Lexer → AST → Parser → Checker → Codegen 顺序推进。
+**涉及**：Parser（形参 `...`、`@params` 内置变量）、Checker（元组与可变参数类型、`@params` 类型推断）、Codegen（元组打包/转发、va_list/v*）、Lexer/字符串插值；uya-src 同步。
+
+**可变参数与 @params（C 实现与 uya-src 同步已完成）**：Lexer 支持 `@params`；AST 新增 AST_PARAMS、call 的 has_ellipsis_forward；Parser 支持 fn 形参 `...`、primary 中 `@params`/`@params.0`、调用末尾 `...`；Checker 中 `@params` 仅函数体内、类型为参数元组，`...` 转发仅可变参数函数、实参个数=被调固定参数个数；Codegen 按需生成（未用 @params 不生成元组、无 `...` 转发不生成 va_list），转发时用 va_list+vprintf 等。测试 `test_varargs.uya`、`test_varargs_full.uya` 通过 `--c99` 与 `--uya --c99`。
 
 ---
 

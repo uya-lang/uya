@@ -383,6 +383,35 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         }
         
         if init_expr != null {
+            // @params 作为初始化器：用大括号列表 { .f0 = p0, .f1 = p1 } 避免 C99 匿名 struct 类型不兼容
+            var is_params_init: i32 = 0;
+            if init_expr.type == ASTNodeType.AST_PARAMS && codegen.current_function_decl != null &&
+                codegen.current_function_decl.type == ASTNodeType.AST_FN_DECL &&
+                codegen.current_function_decl.fn_decl_param_count > 0 {
+                is_params_init = 1;
+            }
+            if is_params_init != 0 {
+                const cur_fn: &ASTNode = codegen.current_function_decl;
+                const params: & & ASTNode = cur_fn.fn_decl_params;
+                const n: i32 = cur_fn.fn_decl_param_count;
+                fputs(" = {" as *byte, codegen.output as *void);
+                var i: i32 = 0;
+                while i < n {
+                    fprintf(codegen.output as *void, ".f%d = " as *byte, i);
+                    const p: &ASTNode = params[i];
+                    if p != null && p.type == ASTNodeType.AST_VAR_DECL && p.var_decl_name != null {
+                        const pname: &byte = get_safe_c_identifier(codegen, p.var_decl_name);
+                        fprintf(codegen.output as *void, "%s" as *byte, pname as *byte);
+                    } else {
+                        fputs("0" as *byte, codegen.output as *void);
+                    }
+                    if i < n - 1 {
+                        fputs(", " as *byte, codegen.output as *void);
+                    }
+                    i = i + 1;
+                }
+                fputs("};\n" as *byte, codegen.output as *void);
+            } else {
             // 元组变量用元组字面量初始化：用 { .f0 = e0, .f1 = e1 } 避免 C 匿名结构体类型不兼容
             var is_tuple_init: i32 = 0;
             if var_type.type == ASTNodeType.AST_TYPE_TUPLE && init_expr.type == ASTNodeType.AST_TUPLE_LITERAL {
@@ -582,6 +611,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 fputs(" = " as *byte, codegen.output as *void);
                 gen_expr(codegen, init_expr);
                 fputs(";\n" as *byte, codegen.output as *void);
+            }
             }
             }
         } else {

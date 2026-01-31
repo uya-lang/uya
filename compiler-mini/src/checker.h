@@ -101,6 +101,7 @@ typedef struct TypeChecker {
     const char *default_filename; // 默认文件名（用于错误报告，可为 NULL）
     Type current_return_type;   // 当前函数的返回类型（用于检查 return 语句）
     int in_function;            // 是否在函数中（1 表示是，0 表示否）
+    ASTNode *current_function_decl;  // 当前正在检查的函数声明（用于 @params 类型推断，可为 NULL）
 } TypeChecker;
 
 // 初始化 TypeChecker

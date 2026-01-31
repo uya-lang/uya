@@ -783,22 +783,31 @@ ASTNode *parser_parse_function(Parser *parser) {
     fn_decl->data.fn_decl.param_count = 0;
     fn_decl->data.fn_decl.return_type = NULL;
     fn_decl->data.fn_decl.body = NULL;
+    fn_decl->data.fn_decl.is_varargs = 0;
     
     // 期望 '('
     if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
         return NULL;
     }
     
-    // 解析参数列表（可选）
+    // 解析参数列表（可选，支持可变参数 ...）
     ASTNode **params = NULL;
     int param_count = 0;
     int param_capacity = 0;
+    int is_varargs = 0;
     
     if (!parser_match(parser, TOKEN_RIGHT_PAREN)) {
         // 有参数
         while (parser->current_token != NULL && 
                !parser_match(parser, TOKEN_RIGHT_PAREN) && 
                !parser_match(parser, TOKEN_EOF)) {
+            
+            // 检查是否为可变参数标记（...）
+            if (parser_match(parser, TOKEN_ELLIPSIS)) {
+                parser_consume(parser);
+                is_varargs = 1;
+                break;
+            }
             
             // 解析参数名称
             if (!parser_match(parser, TOKEN_IDENTIFIER)) {
@@ -863,9 +872,11 @@ ASTNode *parser_parse_function(Parser *parser) {
             
             params[param_count++] = param;
             
-            // 检查是否有逗号
+            // 检查是否有逗号或逗号后 ...
             if (parser_match(parser, TOKEN_COMMA)) {
                 parser_consume(parser);
+            } else if (parser_match(parser, TOKEN_ELLIPSIS)) {
+                // 逗号后紧跟 ...，下次循环处理
             }
         }
     }
@@ -895,6 +906,7 @@ ASTNode *parser_parse_function(Parser *parser) {
     fn_decl->data.fn_decl.param_count = param_count;
     fn_decl->data.fn_decl.return_type = return_type;
     fn_decl->data.fn_decl.body = body;
+    fn_decl->data.fn_decl.is_varargs = is_varargs;
     
     return fn_decl;
 }
@@ -1277,6 +1289,34 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return node;
     }
     
+    // 解析 @params（函数体内参数元组），支持 @params.0、@params.1 等后缀
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "params") == 0) {
+        ASTNode *node = ast_new_node(AST_PARAMS, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (node == NULL) {
+            return NULL;
+        }
+        parser_consume(parser);
+        ASTNode *result = node;
+        while (parser->current_token != NULL && parser_match(parser, TOKEN_DOT)) {
+            parser_consume(parser);
+            if (parser->current_token == NULL || (parser->current_token->type != TOKEN_IDENTIFIER && parser->current_token->type != TOKEN_NUMBER)) {
+                return NULL;
+            }
+            const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
+            if (field_name == NULL) return NULL;
+            int field_line = parser->current_token->line;
+            int field_column = parser->current_token->column;
+            parser_consume(parser);
+            ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (member_access == NULL) return NULL;
+            member_access->data.member_access.object = result;
+            member_access->data.member_access.field_name = field_name;
+            result = member_access;
+        }
+        return result;
+    }
+    
     // 解析 @max/@min 整数极值字面量（类型由 Checker 从上下文推断）
     if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
         strcmp(parser->current_token->value, "max") == 0) {
@@ -1496,11 +1536,12 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             }
             callee->data.identifier.name = name;
             call->data.call_expr.callee = callee;
+            call->data.call_expr.has_ellipsis_forward = 0;
             
             // 消费 '('
             parser_consume(parser);
             
-            // 解析参数列表（可选）
+            // 解析参数列表（可选），末尾允许 ... 表示转发可变参数
             ASTNode **args = NULL;
             int arg_count = 0;
             int arg_capacity = 0;
@@ -1510,6 +1551,13 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 while (parser->current_token != NULL && 
                        !parser_match(parser, TOKEN_RIGHT_PAREN) && 
                        !parser_match(parser, TOKEN_EOF)) {
+                    
+                    // 检查是否为末尾的 ...（转发可变参数）
+                    if (parser_match(parser, TOKEN_ELLIPSIS)) {
+                        parser_consume(parser);
+                        call->data.call_expr.has_ellipsis_forward = 1;
+                        break;
+                    }
                     
                     // 解析参数表达式
                     ASTNode *arg = parser_parse_expression(parser);
@@ -1541,7 +1589,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     
                     args[arg_count++] = arg;
                     
-                    // 检查是否有逗号
+                    // 检查是否有逗号或逗号后 ...
                     if (parser_match(parser, TOKEN_COMMA)) {
                         parser_consume(parser);
                     }

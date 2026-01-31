@@ -343,6 +343,10 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     // 保存当前函数的返回类型（用于生成返回语句）
     codegen.current_function_return_type = return_type;
     
+    // 保存当前函数声明（用于 @params 与 ... 转发）
+    const saved_current_function_decl: &ASTNode = codegen.current_function_decl;
+    codegen.current_function_decl = fn_decl;
+    
     // 保存函数开始时的局部变量表状态（用于函数结束时恢复）
     // 每个函数有自己独立的局部变量表，函数结束后恢复之前的状态
     const saved_local_variable_count: i32 = codegen.local_variable_count;
@@ -411,6 +415,9 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     
     // 清除当前函数的返回类型
     codegen.current_function_return_type = null;
+    
+    // 恢复当前函数声明
+    codegen.current_function_decl = saved_current_function_decl;
     
     // 恢复函数开始时的局部变量表状态
     // 这样下一个函数可以从干净的状态开始

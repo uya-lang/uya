@@ -44,6 +44,7 @@ enum ASTNodeType {
     AST_BOOL,
     AST_INT_LIMIT,
     AST_STRING,
+    AST_PARAMS,   // @params 内置变量（函数体内参数元组）
     AST_TYPE_NAMED,
     AST_TYPE_POINTER,
     AST_TYPE_ARRAY,
@@ -95,6 +96,7 @@ struct ASTNode {
     call_expr_callee: &ASTNode,
     call_expr_args: & & ASTNode,
     call_expr_arg_count: i32,
+    call_expr_has_ellipsis_forward: i32,  // 1 表示末尾为 ... 转发可变参数
     // member_access
     member_access_object: &ASTNode,
     member_access_field_name: &byte,
@@ -213,6 +215,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.call_expr_callee = null;
     node.call_expr_args = null;
     node.call_expr_arg_count = 0;
+    node.call_expr_has_ellipsis_forward = 0;
     node.member_access_object = null;
     node.member_access_field_name = null;
     node.array_access_array = null;

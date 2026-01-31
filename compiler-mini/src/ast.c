@@ -76,6 +76,10 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.call_expr.callee = NULL;
             node->data.call_expr.args = NULL;
             node->data.call_expr.arg_count = 0;
+            node->data.call_expr.has_ellipsis_forward = 0;
+            break;
+        case AST_PARAMS:
+            /* 无额外数据 */
             break;
         case AST_MEMBER_ACCESS:
             node->data.member_access.object = NULL;

@@ -26,6 +26,7 @@ int c99_codegen_new(C99CodeGenerator *codegen, Arena *arena, FILE *output, const
     codegen->loop_stack_depth = 0;
     codegen->program_node = NULL;
     codegen->current_function_return_type = NULL;
+    codegen->current_function_decl = NULL;
     codegen->current_line = 0;  // 当前行号（用于优化 #line 指令）
     codegen->current_filename = NULL;  // 当前文件名（用于优化 #line 指令）
     codegen->emit_line_directives = emit_line_directives;  // 是否生成 #line 指令

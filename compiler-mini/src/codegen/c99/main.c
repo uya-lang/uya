@@ -23,6 +23,7 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     fputs("#include <stdint.h>\n", codegen->output);
     fputs("#include <stdbool.h>\n", codegen->output);
     fputs("#include <stddef.h>\n", codegen->output);
+    fputs("#include <stdarg.h>\n", codegen->output);  // for va_list (variadic forward)
     fputs("#include <string.h>\n", codegen->output);  // for memcmp
     fputs("#include <stdio.h>\n", codegen->output);  // for standard I/O functions (printf, puts, etc.)
     fputs("\n", codegen->output);

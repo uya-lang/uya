@@ -347,11 +347,31 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             }
             
             if (init_expr) {
+                // @params 作为初始化器：用大括号列表 { .f0 = p0, .f1 = p1 } 避免 C99 匿名 struct 类型不兼容
+                int is_params_init = (init_expr->type == AST_PARAMS &&
+                    codegen->current_function_decl && codegen->current_function_decl->type == AST_FN_DECL &&
+                    codegen->current_function_decl->data.fn_decl.param_count > 0);
+                if (is_params_init) {
+                    ASTNode **params = codegen->current_function_decl->data.fn_decl.params;
+                    int n = codegen->current_function_decl->data.fn_decl.param_count;
+                    fputs(" = {", codegen->output);
+                    for (int i = 0; i < n; i++) {
+                        fprintf(codegen->output, ".f%d = ", i);
+                        if (params[i] && params[i]->type == AST_VAR_DECL && params[i]->data.var_decl.name) {
+                            const char *pname = get_safe_c_identifier(codegen, params[i]->data.var_decl.name);
+                            fprintf(codegen->output, "%s", pname);
+                        } else {
+                            fputs("0", codegen->output);
+                        }
+                        if (i < n - 1) fputs(", ", codegen->output);
+                    }
+                    fputs("};\n", codegen->output);
+                }
                 // 检查是否是空结构体初始化（field_count == 0）
                 // 如果是，改为手动初始化，避免 gcc 生成错误的 memset 调用
                 int is_empty_struct_init = 0;
                 ASTNode *struct_decl_for_empty_init = NULL;
-                if (init_expr->type == AST_STRUCT_INIT) {
+                if (!is_params_init && init_expr->type == AST_STRUCT_INIT) {
                     int field_count = init_expr->data.struct_init.field_count;
                     if (field_count == 0) {
                         // 空结构体初始化：从初始化表达式中获取结构体名称
@@ -530,8 +550,8 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                         gen_expr(codegen, init_expr);
                         fputs(";\n", codegen->output);
                     }
-                } else {
-                    // 普通初始化
+                } else if (!is_params_init) {
+                    // 普通初始化（@params 已在上方单独处理）
                     fputs(" = ", codegen->output);
                     gen_expr(codegen, init_expr);
                     fputs(";\n", codegen->output);

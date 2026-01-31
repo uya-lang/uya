@@ -75,6 +75,7 @@ typedef struct C99CodeGenerator {
     
     ASTNode *program_node;          // 程序节点引用
     ASTNode *current_function_return_type;  // 当前函数的返回类型（用于生成返回语句）
+    ASTNode *current_function_decl;  // 当前正在生成的函数声明（用于 @params 与 ... 转发，可为 NULL）
     
     // 用于优化 #line 指令生成
     int current_line;               // 当前行号（用于避免重复的 #line 指令）

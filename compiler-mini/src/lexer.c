@@ -496,12 +496,13 @@ Token *lexer_next_token(Lexer *lexer, Arena *arena) {
                     fprintf(stderr, "错误: 无法为 @ 标识符分配内存\n");
                     return NULL;
                 }
-                // 仅接受已知内置函数
+                // 仅接受已知内置函数与内置变量
                 if (strcmp(value, "sizeof") == 0 || strcmp(value, "alignof") == 0 ||
-                    strcmp(value, "len") == 0 || strcmp(value, "max") == 0 || strcmp(value, "min") == 0) {
+                    strcmp(value, "len") == 0 || strcmp(value, "max") == 0 || strcmp(value, "min") == 0 ||
+                    strcmp(value, "params") == 0) {
                     return make_token(arena, TOKEN_AT_IDENTIFIER, value, line, column);
                 }
-                fprintf(stderr, "错误: 未知内置函数 @%s，支持的内置函数：@sizeof、@alignof、@len、@max、@min\n", value);
+                fprintf(stderr, "错误: 未知内置 @%s，支持：@sizeof、@alignof、@len、@max、@min、@params\n", value);
                 return NULL;
             }
             fprintf(stderr, "错误: @ 后必须是标识符\n");

@@ -120,6 +120,7 @@ struct C99CodeGenerator {
     
     program_node: &ASTNode,  // 程序节点引用
     current_function_return_type: &ASTNode,  // 当前函数的返回类型
+    current_function_decl: &ASTNode,  // 当前正在生成的函数声明（用于 @params 与 ... 转发，可为 null）
     
     // 用于优化 #line 指令生成
     current_line: i32,  // 当前行号

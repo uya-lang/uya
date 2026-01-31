@@ -277,6 +277,10 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     // 保存当前函数的返回类型（用于生成返回语句）
     codegen->current_function_return_type = return_type;
     
+    // 保存当前函数声明（用于 @params 与 ... 转发）；不在入口生成 va_start/元组，仅按需在表达式/语句处生成
+    ASTNode *saved_current_function_decl = codegen->current_function_decl;
+    codegen->current_function_decl = fn_decl;
+    
     // 保存函数开始时的局部变量表状态（用于函数结束时恢复）
     // 每个函数有自己独立的局部变量表，函数结束后恢复之前的状态
     int saved_local_variable_count = codegen->local_variable_count;
@@ -330,8 +334,9 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     // 生成函数体
     gen_stmt(codegen, body);
     
-    // 清除当前函数的返回类型
+    // 清除当前函数的返回类型与声明
     codegen->current_function_return_type = NULL;
+    codegen->current_function_decl = saved_current_function_decl;
     
     // 恢复函数开始时的局部变量表状态
     // 这样下一个函数可以从干净的状态开始

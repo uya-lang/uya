@@ -4,6 +4,16 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
+/* 已知 C 变参函数对应的 va_list 版本（用于 ... 转发） */
+static const char *get_vprintf_style_name(const char *c_name) {
+    if (!c_name) return NULL;
+    if (strcmp(c_name, "printf") == 0) return "vprintf";
+    if (strcmp(c_name, "sprintf") == 0) return "vsprintf";
+    if (strcmp(c_name, "fprintf") == 0) return "vfprintf";
+    if (strcmp(c_name, "snprintf") == 0) return "vsnprintf";
+    return NULL;
+}
+
 /* 根据整数类型与 max/min 生成 C 极值字面量（resolved_kind 为 TypeKind） */
 static void gen_int_limit_literal(C99CodeGenerator *codegen, int is_max, int resolved_kind) {
     if (resolved_kind == 0) {
@@ -427,6 +437,50 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             fputc('}', codegen->output);
             break;
         }
+        case AST_PARAMS: {
+            /* 仅在此处生成：未使用 @params 的函数不会生成任何元组/va 代码（零开销） */
+            /* @params -> 当前函数参数的元组复合字面量 (struct { T0 f0; ... }){ .f0 = p0, ... } */
+            ASTNode *fn = codegen->current_function_decl;
+            if (!fn || fn->type != AST_FN_DECL || fn->data.fn_decl.param_count <= 0 ||
+                !fn->data.fn_decl.params) {
+                fputs("(struct { int32_t f0; }){ .f0 = 0 }", codegen->output);
+                break;
+            }
+            ASTNode **params = fn->data.fn_decl.params;
+            int n = fn->data.fn_decl.param_count;
+            size_t total_len = 128;
+            for (int i = 0; i < n; i++) {
+                if (params[i] && params[i]->type == AST_VAR_DECL && params[i]->data.var_decl.type)
+                    total_len += 64;
+            }
+            char *type_buf = (char *)arena_alloc(codegen->arena, total_len);
+            if (!type_buf) {
+                fputs("(struct { int32_t f0; }){ .f0 = 0 }", codegen->output);
+                break;
+            }
+            size_t off = 0;
+            off += (size_t)snprintf(type_buf + off, total_len - off, "struct { ");
+            for (int i = 0; i < n; i++) {
+                const char *et = "int32_t";
+                if (params[i] && params[i]->type == AST_VAR_DECL && params[i]->data.var_decl.type)
+                    et = c99_type_to_c(codegen, params[i]->data.var_decl.type);
+                off += (size_t)snprintf(type_buf + off, total_len - off, "%s f%d; ", et, i);
+            }
+            snprintf(type_buf + off, total_len - off, "}");
+            fprintf(codegen->output, "(%s){", type_buf);
+            for (int i = 0; i < n; i++) {
+                fprintf(codegen->output, ".f%d = ", i);
+                if (params[i] && params[i]->type == AST_VAR_DECL && params[i]->data.var_decl.name) {
+                    const char *pname = get_safe_c_identifier(codegen, params[i]->data.var_decl.name);
+                    fprintf(codegen->output, "%s", pname);
+                } else {
+                    fputs("0", codegen->output);
+                }
+                if (i < n - 1) fputs(", ", codegen->output);
+            }
+            fputc('}', codegen->output);
+            break;
+        }
         case AST_TUPLE_LITERAL: {
             /* 元组字面量 (e0, e1, ...) -> (struct { T0 f0; T1 f1; }) { .f0 = e0, .f1 = e1 } */
             ASTNode **elements = expr->data.tuple_literal.elements;
@@ -752,12 +806,45 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             ASTNode *callee = expr->data.call_expr.callee;
             ASTNode **args = expr->data.call_expr.args;
             int arg_count = expr->data.call_expr.arg_count;
+            int has_ellipsis = expr->data.call_expr.has_ellipsis_forward;
             
             // 查找函数声明（用于检查参数类型）
             ASTNode *fn_decl = NULL;
+            const char *callee_name = NULL;
             if (callee && callee->type == AST_IDENTIFIER) {
-                const char *func_name = callee->data.identifier.name;
-                fn_decl = find_function_decl_c99(codegen, func_name);
+                callee_name = callee->data.identifier.name;
+                fn_decl = find_function_decl_c99(codegen, callee_name);
+            }
+            
+            /* 仅在此处生成：无 ... 转发的调用不生成 va_list（零开销转发） */
+            if (has_ellipsis && codegen->current_function_decl &&
+                codegen->current_function_decl->type == AST_FN_DECL &&
+                codegen->current_function_decl->data.fn_decl.is_varargs &&
+                codegen->current_function_decl->data.fn_decl.param_count > 0 &&
+                callee_name) {
+                const char *vname = get_vprintf_style_name(callee_name);
+                const char *last_param = codegen->current_function_decl->data.fn_decl.params[
+                    codegen->current_function_decl->data.fn_decl.param_count - 1]->data.var_decl.name;
+                if (vname && last_param) {
+                    const char *last_safe = get_safe_c_identifier(codegen, last_param);
+                    /* GCC statement expression: ({ ...; expr }) 的值是最后的 expr */
+                    fprintf(codegen->output, "((void)0, ({\n");
+                    codegen->indent_level++;
+                    c99_emit(codegen, "va_list uya_va;\n");
+                    c99_emit(codegen, "va_start(uya_va, %s);\n", last_safe);
+                    fprintf(codegen->output, "%*sint32_t _uya_ret = %s(", codegen->indent_level * 4, "", vname);
+                    for (int i = 0; i < arg_count; i++) {
+                        if (i > 0) fputs(", ", codegen->output);
+                        if (args[i] && args[i]->type == AST_STRING) fputs("(uint8_t *)", codegen->output);
+                        gen_expr(codegen, args[i]);
+                    }
+                    fputs(", uya_va);\n", codegen->output);
+                    c99_emit(codegen, "va_end(uya_va);\n");
+                    c99_emit(codegen, "_uya_ret;\n");  /* 语句表达式的值 */
+                    codegen->indent_level--;
+                    c99_emit(codegen, "}))");
+                    break;
+                }
             }
             
             // 生成被调用函数名

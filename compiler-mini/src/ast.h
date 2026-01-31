@@ -51,6 +51,7 @@ typedef enum {
     AST_BOOL,           // 布尔字面量（true/false）
     AST_INT_LIMIT,      // 整数极值字面量（max/min，类型由上下文推断）
     AST_STRING,         // 字符串字面量
+    AST_PARAMS,         // @params 内置变量（函数体内参数元组）
     
     // 类型节点
     AST_TYPE_NAMED,     // 命名类型（i32, bool, void, 或 struct Name）
@@ -95,7 +96,7 @@ struct ASTNode {
             int param_count;          // 参数数量
             struct ASTNode *return_type;     // 返回类型（类型节点）
             struct ASTNode *body;            // 函数体（AST_BLOCK 节点）
-            int is_varargs;           // 是否为可变参数函数（1 表示是，0 表示否，仅用于 extern 函数）
+            int is_varargs;           // 是否为可变参数函数（1 表示是，0 表示否）
         } fn_decl;
         
         // 变量声明（用于变量声明、函数参数、结构体字段）
@@ -132,6 +133,7 @@ struct ASTNode {
             struct ASTNode *callee;          // 被调用的函数（标识符节点）
             struct ASTNode **args;           // 参数表达式数组
             int arg_count;            // 参数数量
+            int has_ellipsis_forward;  // 1 表示末尾为 ... 转发可变参数
         } call_expr;
         
         // 字段访问（obj.field）
