@@ -47,6 +47,7 @@ typedef enum {
     AST_NUMBER,         // 整数字面量
     AST_FLOAT,          // 浮点字面量
     AST_BOOL,           // 布尔字面量（true/false）
+    AST_INT_LIMIT,      // 整数极值字面量（max/min，类型由上下文推断）
     AST_STRING,         // 字符串字面量
     
     // 类型节点
@@ -190,6 +191,12 @@ struct ASTNode {
         struct {
             int value;                // 1 表示 true，0 表示 false
         } bool_literal;
+        
+        // 整数极值字面量（max/min）
+        struct {
+            int is_max;               // 1 表示 max，0 表示 min
+            int resolved_kind;       // 解析后的整数类型（0=未解析，否则为 TypeKind 值）
+        } int_limit;
         
         // 字符串字面量
         struct {

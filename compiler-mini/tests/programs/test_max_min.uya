@@ -1,0 +1,12 @@
+// 测试 max/min 关键字：类型极值（编译期常量，从上下文推断类型）
+fn main() i32 {
+    const MAX: i32 = max;
+    const MIN: i32 = min;
+    if (MAX != 2147483647) { return 1; }
+    if (MIN != (-2147483647 - 1)) { return 2; }
+    // 表达式上下文中从另一操作数推断
+    const a: i32 = 10;
+    if (a > max - 20) { return 3; }
+    if (min + 1 >= 0) { return 4; }
+    return 0;
+}

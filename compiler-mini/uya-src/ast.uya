@@ -40,6 +40,7 @@ enum ASTNodeType {
     AST_NUMBER,
     AST_FLOAT,
     AST_BOOL,
+    AST_INT_LIMIT,
     AST_STRING,
     AST_TYPE_NAMED,
     AST_TYPE_POINTER,
@@ -119,6 +120,9 @@ struct ASTNode {
     float_literal_value: f64,
     // bool_literal
     bool_literal_value: i32,
+    // int_limit (max/min)
+    int_limit_is_max: i32,
+    int_limit_resolved_kind: i32,
     // string_literal
     string_literal_value: &byte,
     // if_stmt
@@ -211,6 +215,8 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.number_value = 0;
     node.float_literal_value = 0.0;
     node.bool_literal_value = 0;
+    node.int_limit_is_max = 0;
+    node.int_limit_resolved_kind = 0;
     node.string_literal_value = null;
     node.if_stmt_condition = null;
     node.if_stmt_then_branch = null;

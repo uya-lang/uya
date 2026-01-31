@@ -104,6 +104,8 @@ static TokenType is_keyword(const char *str) {
     if (strcmp(str, "true") == 0) return TOKEN_TRUE;
     if (strcmp(str, "false") == 0) return TOKEN_FALSE;
     if (strcmp(str, "null") == 0) return TOKEN_NULL;
+    if (strcmp(str, "max") == 0) return TOKEN_MAX;
+    if (strcmp(str, "min") == 0) return TOKEN_MIN;
     if (strcmp(str, "sizeof") == 0) return TOKEN_SIZEOF;
     if (strcmp(str, "len") == 0) return TOKEN_LEN;
     if (strcmp(str, "alignof") == 0) return TOKEN_ALIGNOF;

@@ -25,6 +25,7 @@ enum TypeKind {
     TYPE_STRUCT,   // 结构体类型（通过名称引用）
     TYPE_POINTER,  // 指针类型（&T 或 *T）
     TYPE_ARRAY,    // 数组类型（[T: N]）
+    TYPE_INT_LIMIT,// 未解析的 max/min 极值（需从上下文推断整数类型）
 }
 
 // 类型结构
@@ -455,6 +456,17 @@ fn is_integer_type(k: TypeKind) i32 {
         return 1;
     }
     return 0;
+}
+
+// 将 max/min 节点解析为指定整数类型（用于从上下文推断）
+fn resolve_int_limit_node(node: &ASTNode, type: Type) void {
+    if node == null || node.type != ASTNodeType.AST_INT_LIMIT {
+        return;
+    }
+    if is_integer_type(type.kind) == 0 {
+        return;
+    }
+    node.int_limit_resolved_kind = type.kind;
 }
 
 // 类型比较函数（比较两个Type是否相等）
@@ -912,6 +924,15 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         // 布尔字面量类型为bool
         result.kind = TypeKind.TYPE_BOOL;
         return result;
+    } else if expr.type == ASTNodeType.AST_INT_LIMIT {
+        // max/min：若已从上下文解析则返回该整数类型，否则返回 TypeKind.TYPE_INT_LIMIT
+        const r: i32 = expr.int_limit_resolved_kind;
+        if r != 0 && is_integer_type(r as TypeKind) != 0 {
+            result.kind = r as TypeKind;
+            return result;
+        }
+        result.kind = TypeKind.TYPE_INT_LIMIT;
+        return result;
     } else if expr.type == ASTNodeType.AST_STRING {
         // 字符串字面量类型为 *byte（FFI 指针类型）
         // 创建指向 byte 类型的指针类型
@@ -1226,6 +1247,12 @@ fn checker_check_expr_type(checker: &TypeChecker, expr: &ASTNode, expected_type:
         return 1;
     }
     
+    // 特殊情况：max/min（TypeKind.TYPE_INT_LIMIT）从期望的整数类型解析
+    if actual_type.kind == TypeKind.TYPE_INT_LIMIT && is_integer_type(expected_type.kind) != 0 {
+        resolve_int_limit_node(expr, expected_type);
+        return 1;
+    }
+    
     // 特殊情况：允许 null（TypeKind.TYPE_VOID）赋值给任何指针类型
     // 在 Uya 中，null 字面量可能被推断为 TypeKind.TYPE_VOID，但应该允许赋值给指针类型
     if actual_type.kind == TypeKind.TYPE_VOID && expected_type.kind == TypeKind.TYPE_POINTER {
@@ -1331,6 +1358,8 @@ fn checker_check_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
             // 先递归检查初始化表达式本身（包括函数调用、运算符等的类型检查）
             // 注意：如果表达式包含赋值（如 node.field = null），可能会报告错误，但我们应该继续
             checker_check_node(checker, node.var_decl_init);
+            // 用期望类型检查并解析（如 max/min 从 var_type 推断）
+            checker_check_expr_type(checker, node.var_decl_init, var_type);
             // 然后推断类型并比较
             const init_type: Type = checker_infer_type(checker, node.var_decl_init);
             
@@ -2067,8 +2096,18 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
     }
     
     const op: TokenType = node.binary_expr_op as TokenType;
-    const left_type: Type = checker_infer_type(checker, node.binary_expr_left);
-    const right_type: Type = checker_infer_type(checker, node.binary_expr_right);
+    var left_type: Type = checker_infer_type(checker, node.binary_expr_left);
+    var right_type: Type = checker_infer_type(checker, node.binary_expr_right);
+    
+    // 从另一侧解析 max/min（TypeKind.TYPE_INT_LIMIT）的整数类型
+    if left_type.kind == TypeKind.TYPE_INT_LIMIT && is_integer_type(right_type.kind) != 0 {
+        resolve_int_limit_node(node.binary_expr_left, right_type);
+        left_type = right_type;
+    }
+    if right_type.kind == TypeKind.TYPE_INT_LIMIT && is_integer_type(left_type.kind) != 0 {
+        resolve_int_limit_node(node.binary_expr_right, left_type);
+        right_type = left_type;
+    }
     
     // 算术运算符：支持所有整数类型及 f32、f64
     if op == TokenType.TOKEN_PLUS || op == TokenType.TOKEN_MINUS || op == TokenType.TOKEN_ASTERISK || 
@@ -2312,7 +2351,11 @@ fn checker_check_unary_expr(checker: &TypeChecker, node: &ASTNode) Type {
         result.kind = TypeKind.TYPE_BOOL;
         return result;
     } else if op == TokenType.TOKEN_MINUS {
-        // 一元负号：操作数必须是整数或浮点类型
+        // 一元负号：操作数必须是整数或浮点类型；max/min 在此无法推断类型
+        if operand_type.kind == TypeKind.TYPE_INT_LIMIT {
+            checker_report_error(checker, node, "max/min 在此上下文中无法推断类型，请使用类型注解（如 const x: i32 = max）或与同类型操作数运算" as *byte);
+            return result;
+        }
         if is_integer_type(operand_type.kind) == 0 && operand_type.kind != TypeKind.TYPE_F32 && operand_type.kind != TypeKind.TYPE_F64 {
             checker_report_error(checker, node, "类型检查错误" as *byte);
             return result;
@@ -2320,7 +2363,11 @@ fn checker_check_unary_expr(checker: &TypeChecker, node: &ASTNode) Type {
         result = operand_type;
         return result;
     } else if op == TokenType.TOKEN_TILDE {
-        // 按位取反（~）：操作数必须是整数类型
+        // 按位取反（~）：操作数必须是整数类型；max/min 在此无法推断类型
+        if operand_type.kind == TypeKind.TYPE_INT_LIMIT {
+            checker_report_error(checker, node, "max/min 在此上下文中无法推断类型，请使用类型注解（如 const x: i32 = max）或与同类型操作数运算" as *byte);
+            return result;
+        }
         if is_integer_type(operand_type.kind) == 0 {
             if operand_type.kind != TypeKind.TYPE_VOID {
                 checker_report_error(checker, node, "按位取反 ~ 的操作数必须为整数类型" as *byte);

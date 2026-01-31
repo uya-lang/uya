@@ -1,7 +1,49 @@
 #include "internal.h"
+#include "checker.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
+
+/* 根据整数类型与 max/min 生成 C 极值字面量（resolved_kind 为 TypeKind） */
+static void gen_int_limit_literal(C99CodeGenerator *codegen, int is_max, int resolved_kind) {
+    if (resolved_kind == 0) {
+        fputs("0", codegen->output);
+        return;
+    }
+    switch ((TypeKind)resolved_kind) {
+        case TYPE_I8:
+            fprintf(codegen->output, "%s", is_max ? "127" : "(-128)");
+            break;
+        case TYPE_I16:
+            fprintf(codegen->output, "%s", is_max ? "32767" : "(-32768)");
+            break;
+        case TYPE_I32:
+            fprintf(codegen->output, "%s", is_max ? "2147483647" : "(-2147483647-1)");
+            break;
+        case TYPE_I64:
+            fprintf(codegen->output, "%s", is_max ? "9223372036854775807LL" : "(-9223372036854775807LL-1LL)");
+            break;
+        case TYPE_U8:
+        case TYPE_BYTE:
+            fprintf(codegen->output, "%s", is_max ? "255" : "0");
+            break;
+        case TYPE_U16:
+            fprintf(codegen->output, "%s", is_max ? "65535" : "0");
+            break;
+        case TYPE_U32:
+            fprintf(codegen->output, "%s", is_max ? "4294967295U" : "0");
+            break;
+        case TYPE_USIZE:
+            fprintf(codegen->output, "%s", is_max ? "((size_t)-1)" : "0");
+            break;
+        case TYPE_U64:
+            fprintf(codegen->output, "%s", is_max ? "18446744073709551615ULL" : "0");
+            break;
+        default:
+            fputs("0", codegen->output);
+            break;
+    }
+}
 
 void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
     if (!expr) return;
@@ -17,6 +59,9 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         }
         case AST_BOOL:
             fprintf(codegen->output, "%s", expr->data.bool_literal.value ? "true" : "false");
+            break;
+        case AST_INT_LIMIT:
+            gen_int_limit_literal(codegen, expr->data.int_limit.is_max, expr->data.int_limit.resolved_kind);
             break;
         case AST_STRING: {
             const char *str_const = add_string_constant(codegen, expr->data.string_literal.value);

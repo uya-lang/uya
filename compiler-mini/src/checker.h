@@ -25,6 +25,7 @@ typedef enum {
     TYPE_STRUCT,   // 结构体类型（通过名称引用）
     TYPE_POINTER,  // 指针类型（&T 或 *T）
     TYPE_ARRAY,    // 数组类型（[T: N]）
+    TYPE_INT_LIMIT,// 未解析的 max/min 极值（需从上下文推断整数类型）
 } TypeKind;
 
 // 类型结构

@@ -397,6 +397,28 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         return node;
     }
     
+    // 解析 max/min 整数极值字面量（类型由 Checker 从上下文推断）
+    if parser.current_token.type == TokenType.TOKEN_MAX {
+        const node: &ASTNode = ast_new_node(ASTNodeType.AST_INT_LIMIT, line, column, parser.arena, parser_get_filename(parser));
+        if node == null {
+            return null;
+        }
+        node.int_limit_is_max = 1;
+        node.int_limit_resolved_kind = 0;
+        parser_consume(parser);
+        return node;
+    }
+    if parser.current_token.type == TokenType.TOKEN_MIN {
+        const node: &ASTNode = ast_new_node(ASTNodeType.AST_INT_LIMIT, line, column, parser.arena, parser_get_filename(parser));
+        if node == null {
+            return null;
+        }
+        node.int_limit_is_max = 0;
+        node.int_limit_resolved_kind = 0;
+        parser_consume(parser);
+        return node;
+    }
+    
     // 解析 sizeof 表达式：sizeof(Type) 或 sizeof(expr)
     if parser.current_token.type == TokenType.TOKEN_SIZEOF {
         parser_consume(parser);  // 消费 'sizeof'

@@ -28,6 +28,8 @@ enum TokenType {
     TOKEN_TRUE,
     TOKEN_FALSE,
     TOKEN_NULL,
+    TOKEN_MAX,
+    TOKEN_MIN,
     TOKEN_SIZEOF,
     TOKEN_LEN,
     TOKEN_ALIGNOF,
@@ -189,6 +191,10 @@ fn is_keyword(str: &byte) TokenType {
         result = TokenType.TOKEN_FALSE;
     } else if str_equals_lexer(str, "null" as &byte) != 0 {
         result = TokenType.TOKEN_NULL;
+    } else if str_equals_lexer(str, "max" as &byte) != 0 {
+        result = TokenType.TOKEN_MAX;
+    } else if str_equals_lexer(str, "min" as &byte) != 0 {
+        result = TokenType.TOKEN_MIN;
     } else if str_equals_lexer(str, "sizeof" as &byte) != 0 {
         result = TokenType.TOKEN_SIZEOF;
     } else if str_equals_lexer(str, "len" as &byte) != 0 {

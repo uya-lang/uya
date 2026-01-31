@@ -1218,6 +1218,28 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return node;
     }
     
+    // 解析 max/min 整数极值字面量（类型由 Checker 从上下文推断）
+    if (parser->current_token->type == TOKEN_MAX) {
+        ASTNode *node = ast_new_node(AST_INT_LIMIT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (node == NULL) {
+            return NULL;
+        }
+        node->data.int_limit.is_max = 1;
+        node->data.int_limit.resolved_kind = 0;
+        parser_consume(parser);
+        return node;
+    }
+    if (parser->current_token->type == TOKEN_MIN) {
+        ASTNode *node = ast_new_node(AST_INT_LIMIT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (node == NULL) {
+            return NULL;
+        }
+        node->data.int_limit.is_max = 0;
+        node->data.int_limit.resolved_kind = 0;
+        parser_consume(parser);
+        return node;
+    }
+    
     // 解析 sizeof 表达式：sizeof(Type) 或 sizeof(expr)
     if (parser->current_token->type == TOKEN_SIZEOF) {
         parser_consume(parser);  // 消费 'sizeof'

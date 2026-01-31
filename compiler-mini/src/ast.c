@@ -116,6 +116,10 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_BOOL:
             node->data.bool_literal.value = 0;
             break;
+        case AST_INT_LIMIT:
+            node->data.int_limit.is_max = 0;
+            node->data.int_limit.resolved_kind = 0;
+            break;
         case AST_STRING:
             node->data.string_literal.value = NULL;
             break;

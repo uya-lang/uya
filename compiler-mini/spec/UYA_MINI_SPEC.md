@@ -52,7 +52,7 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 ## 1. 关键字
 
 ```
-enum struct const var fn extern return true false if else while for break continue null as
+enum struct const var fn extern return true false if else while for break continue null max min as
 ```
 
 **说明**：
@@ -65,6 +65,7 @@ enum struct const var fn extern return true false if else while for break contin
 - `return`：函数返回
 - `true`、`false`：布尔字面量
 - `null`：空指针字面量
+- `max`、`min`：整数类型极值关键字（编译期常量，类型从上下文推断）
 - `if`、`else`：条件语句
 - `while`：循环语句
 - `for`：循环语句（数组遍历）
@@ -122,6 +123,12 @@ enum struct const var fn extern return true false if else while for break contin
 - **无隐式转换**：类型必须完全一致
 - **显式类型注解**：所有变量和函数参数必须显式指定类型
 - **类型检查**：编译期进行类型检查，类型不匹配即编译错误
+
+**类型极值（max/min）**：
+- 整数类型（`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `usize`, `u64`, `byte`）支持通过 `max` 和 `min` 关键字访问极值
+- 语法：`max` 和 `min`（编译器从上下文类型推断）
+- 推断规则：常量定义从类型注解推断（如 `const MAX: i32 = max`）；表达式从操作数类型推断（如 `a > max - b` 中 a、b 为 i32 则 max 为 i32）；return 从函数返回类型推断
+- 编译期常量，生成对应类型的 C 极值字面量（如 i32 max → 2147483647，i32 min → (-2147483647-1)）
 
 ### 2.3 结构体内存布局详细规则
 

@@ -38,6 +38,8 @@ typedef enum {
     TOKEN_TRUE,         // true
     TOKEN_FALSE,        // false
     TOKEN_NULL,         // null（空指针字面量）
+    TOKEN_MAX,          // max（整数类型极值常量）
+    TOKEN_MIN,          // min（整数类型极值常量）
     TOKEN_SIZEOF,       // sizeof
     TOKEN_LEN,          // len
     TOKEN_ALIGNOF,      // alignof
