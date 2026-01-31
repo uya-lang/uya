@@ -20,10 +20,24 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
         }
         
         // 基础类型映射
-        if strcmp(name as *byte, "i32" as *byte) == 0 {
+        if strcmp(name as *byte, "i8" as *byte) == 0 {
+            return ("int8_t" as *byte) as &byte;
+        } else if strcmp(name as *byte, "i16" as *byte) == 0 {
+            return ("int16_t" as *byte) as &byte;
+        } else if strcmp(name as *byte, "i32" as *byte) == 0 {
             return ("int32_t" as *byte) as &byte;
+        } else if strcmp(name as *byte, "i64" as *byte) == 0 {
+            return ("int64_t" as *byte) as &byte;
+        } else if strcmp(name as *byte, "u8" as *byte) == 0 {
+            return ("uint8_t" as *byte) as &byte;
+        } else if strcmp(name as *byte, "u16" as *byte) == 0 {
+            return ("uint16_t" as *byte) as &byte;
+        } else if strcmp(name as *byte, "u32" as *byte) == 0 {
+            return ("uint32_t" as *byte) as &byte;
         } else if strcmp(name as *byte, "usize" as *byte) == 0 {
             return ("size_t" as *byte) as &byte;
+        } else if strcmp(name as *byte, "u64" as *byte) == 0 {
+            return ("uint64_t" as *byte) as &byte;
         } else if strcmp(name as *byte, "bool" as *byte) == 0 {
             return ("bool" as *byte) as &byte;
         } else if strcmp(name as *byte, "byte" as *byte) == 0 {

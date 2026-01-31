@@ -28,6 +28,13 @@ static void checker_check_cast_expr(TypeChecker *checker, ASTNode *node);
 static int checker_check_node(TypeChecker *checker, ASTNode *node);
 static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char *struct_name);
 static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *enum_name);
+
+// 是否为整数类型（用于算术、比较、位运算）
+static int is_integer_type(TypeKind k) {
+    return k == TYPE_I8 || k == TYPE_I16 || k == TYPE_I32 || k == TYPE_I64
+        || k == TYPE_U8 || k == TYPE_U16 || k == TYPE_U32 || k == TYPE_USIZE || k == TYPE_U64
+        || k == TYPE_BYTE;
+}
 static int is_enum_variant_name_in_program(ASTNode *program_node, const char *name);
 static void checker_report_error(TypeChecker *checker, ASTNode *node, const char *message);
 static Type find_struct_field_type(TypeChecker *checker, ASTNode *struct_decl, const char *field_name);
@@ -297,6 +304,11 @@ static int type_can_implicitly_convert(Type from, Type to) {
         return 1;
     }
     
+    // i32 字面量 → 其他整数类型（用于 const x: i8 = 42 等）
+    if (from.kind == TYPE_I32 && is_integer_type(to.kind)) {
+        return 1;
+    }
+    
     // null 字面量（TYPE_VOID）可以赋值给任何指针类型
     // 在 Uya 中，null 字面量可能被推断为 TYPE_VOID，但应该允许赋值给指针类型
     if (from.kind == TYPE_VOID && to.kind == TYPE_POINTER) {
@@ -491,10 +503,24 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
         }
         
         // 根据类型名称确定类型种类
-        if (strcmp(type_name, "i32") == 0) {
+        if (strcmp(type_name, "i8") == 0) {
+            result.kind = TYPE_I8;
+        } else if (strcmp(type_name, "i16") == 0) {
+            result.kind = TYPE_I16;
+        } else if (strcmp(type_name, "i32") == 0) {
             result.kind = TYPE_I32;
+        } else if (strcmp(type_name, "i64") == 0) {
+            result.kind = TYPE_I64;
+        } else if (strcmp(type_name, "u8") == 0) {
+            result.kind = TYPE_U8;
+        } else if (strcmp(type_name, "u16") == 0) {
+            result.kind = TYPE_U16;
+        } else if (strcmp(type_name, "u32") == 0) {
+            result.kind = TYPE_U32;
         } else if (strcmp(type_name, "usize") == 0) {
             result.kind = TYPE_USIZE;
+        } else if (strcmp(type_name, "u64") == 0) {
+            result.kind = TYPE_U64;
         } else if (strcmp(type_name, "bool") == 0) {
             result.kind = TYPE_BOOL;
         } else if (strcmp(type_name, "byte") == 0) {
@@ -1717,13 +1743,12 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
     Type left_type = checker_infer_type(checker, node->data.binary_expr.left);
     Type right_type = checker_infer_type(checker, node->data.binary_expr.right);
     
-    // 算术运算符：支持 i32、usize、f32、f64
+    // 算术运算符：支持所有整数类型及 f32、f64
     if (op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_ASTERISK || 
         op == TOKEN_SLASH || op == TOKEN_PERCENT) {
         /* % 仅支持整数 */
         if (op == TOKEN_PERCENT) {
-            if ((left_type.kind != TYPE_I32 && left_type.kind != TYPE_USIZE) ||
-                (right_type.kind != TYPE_I32 && right_type.kind != TYPE_USIZE)) {
+            if (!is_integer_type(left_type.kind) || !is_integer_type(right_type.kind)) {
                 if (left_type.kind == TYPE_VOID || right_type.kind == TYPE_VOID) {
                     result.kind = TYPE_I32;
                     return result;
@@ -1731,8 +1756,10 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
                 result.kind = TYPE_I32;
                 return result;
             }
-            result.kind = (left_type.kind == TYPE_USIZE || right_type.kind == TYPE_USIZE)
-                ? TYPE_USIZE : TYPE_I32;
+            if (left_type.kind != right_type.kind) {
+                checker_report_error(checker, node, "取模 %% 的两个操作数类型必须一致");
+            }
+            result.kind = left_type.kind;
             return result;
         }
         /* 浮点运算：f32 与 f64 混合结果为 f64 */
@@ -1742,9 +1769,8 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
                 ? TYPE_F64 : TYPE_F32;
             return result;
         }
-        /* 整数运算 */
-        if ((left_type.kind != TYPE_I32 && left_type.kind != TYPE_USIZE) ||
-            (right_type.kind != TYPE_I32 && right_type.kind != TYPE_USIZE)) {
+        /* 整数运算：两操作数必须为相同整数类型 */
+        if (!is_integer_type(left_type.kind) || !is_integer_type(right_type.kind)) {
             if (left_type.kind == TYPE_VOID || right_type.kind == TYPE_VOID) {
                 result.kind = TYPE_I32;
                 return result;
@@ -1752,59 +1778,45 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
             result.kind = TYPE_I32;
             return result;
         }
-        result.kind = (left_type.kind == TYPE_USIZE || right_type.kind == TYPE_USIZE)
-            ? TYPE_USIZE : TYPE_I32;
+        if (left_type.kind != right_type.kind) {
+            /* 允许混合整数类型（如 i32 + usize），结果取左操作数类型 */
+        }
+        result.kind = left_type.kind;
         return result;
     }
     
-    // 比较运算符：支持 i32 和 usize 比较（操作数可以是 i32 或 usize，但必须都是数值类型）
-    // 也支持 byte 和 i32 之间的比较
+    // 比较运算符：支持任意整数类型之间、f32/f64 之间
     if (op == TOKEN_EQUAL || op == TOKEN_NOT_EQUAL || op == TOKEN_LESS || 
         op == TOKEN_GREATER || op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL) {
-        // 允许相同类型比较，也允许 i32 和 usize 之间的比较
         if (type_equals(left_type, right_type)) {
             result.kind = TYPE_BOOL;
             return result;
         }
-        // 允许 i32 和 usize 之间的比较
-        if ((left_type.kind == TYPE_I32 && right_type.kind == TYPE_USIZE) ||
-            (left_type.kind == TYPE_USIZE && right_type.kind == TYPE_I32)) {
+        if (is_integer_type(left_type.kind) && is_integer_type(right_type.kind)) {
             result.kind = TYPE_BOOL;
             return result;
         }
-        // 允许 byte 和 i32 之间的比较
-        if ((left_type.kind == TYPE_BYTE && right_type.kind == TYPE_I32) ||
-            (left_type.kind == TYPE_I32 && right_type.kind == TYPE_BYTE)) {
-            result.kind = TYPE_BOOL;
-            return result;
-        }
-        // 允许 f32、f64 之间比较（相同类型或混合）
         if ((left_type.kind == TYPE_F32 || left_type.kind == TYPE_F64) &&
             (right_type.kind == TYPE_F32 || right_type.kind == TYPE_F64)) {
             result.kind = TYPE_BOOL;
             return result;
         }
-        // 如果类型推断失败（TYPE_VOID），放宽检查，允许通过（不报错）
         if (left_type.kind == TYPE_VOID || right_type.kind == TYPE_VOID) {
             result.kind = TYPE_BOOL;
             return result;
         }
-        // 其他类型不匹配：报告错误
         checker_report_error(checker, node, "类型不匹配：比较运算符的操作数类型必须相同或兼容");
-        result.kind = TYPE_BOOL;  // 仍然返回 bool 类型，但已报告错误
+        result.kind = TYPE_BOOL;
         return result;
     }
     
     // 逻辑运算符：操作数必须是bool
     if (op == TOKEN_LOGICAL_AND || op == TOKEN_LOGICAL_OR) {
         if (left_type.kind != TYPE_BOOL || right_type.kind != TYPE_BOOL) {
-            // 放宽检查，允许通过（不报错）
-            // 如果类型推断失败（TYPE_VOID），允许通过
             if (left_type.kind == TYPE_VOID || right_type.kind == TYPE_VOID) {
                 result.kind = TYPE_BOOL;
                 return result;
             }
-            // 即使类型不匹配，也允许通过（放宽检查）
             result.kind = TYPE_BOOL;
             return result;
         }
@@ -1812,42 +1824,41 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
         return result;
     }
     
-    // 位运算符：& | ^，操作数必须为整数（i32 或 usize），类型一致
+    // 位运算符：& | ^，操作数必须为整数且类型一致
     if (op == TOKEN_AMPERSAND || op == TOKEN_PIPE || op == TOKEN_CARET) {
-        if ((left_type.kind != TYPE_I32 && left_type.kind != TYPE_USIZE) ||
-            (right_type.kind != TYPE_I32 && right_type.kind != TYPE_USIZE)) {
+        if (!is_integer_type(left_type.kind) || !is_integer_type(right_type.kind)) {
             if (left_type.kind == TYPE_VOID || right_type.kind == TYPE_VOID) {
                 result.kind = TYPE_I32;
                 return result;
             }
-            checker_report_error(checker, node, "位运算符 & | ^ 的操作数必须为 i32 或 usize，且类型一致");
-            result.kind = (left_type.kind == TYPE_USIZE || right_type.kind == TYPE_USIZE) ? TYPE_USIZE : TYPE_I32;
+            checker_report_error(checker, node, "位运算符 & | ^ 的操作数必须为整数类型，且类型一致");
+            result.kind = TYPE_I32;
             return result;
         }
         if (left_type.kind != right_type.kind) {
             checker_report_error(checker, node, "位运算符 & | ^ 的两个操作数类型必须一致");
         }
-        result.kind = (left_type.kind == TYPE_USIZE || right_type.kind == TYPE_USIZE) ? TYPE_USIZE : TYPE_I32;
+        result.kind = left_type.kind;
         return result;
     }
     
     // 位移运算符：<< >>，左操作数整数，右操作数 i32
     if (op == TOKEN_LSHIFT || op == TOKEN_RSHIFT) {
-        if (left_type.kind != TYPE_I32 && left_type.kind != TYPE_USIZE) {
+        if (!is_integer_type(left_type.kind)) {
             if (left_type.kind == TYPE_VOID) {
                 result.kind = TYPE_I32;
                 return result;
             }
-            checker_report_error(checker, node, "位移运算符 << >> 的左操作数必须为 i32 或 usize");
+            checker_report_error(checker, node, "位移运算符 << >> 的左操作数必须为整数类型");
         }
         if (right_type.kind != TYPE_I32) {
             if (right_type.kind == TYPE_VOID) {
-                result.kind = left_type.kind == TYPE_USIZE ? TYPE_USIZE : TYPE_I32;
+                result.kind = is_integer_type(left_type.kind) ? left_type.kind : TYPE_I32;
                 return result;
             }
             checker_report_error(checker, node, "位移运算符 << >> 的右操作数必须为 i32");
         }
-        result.kind = (left_type.kind == TYPE_USIZE) ? TYPE_USIZE : TYPE_I32;
+        result.kind = is_integer_type(left_type.kind) ? left_type.kind : TYPE_I32;
         return result;
     }
     
@@ -1883,35 +1894,31 @@ static void checker_check_cast_expr(TypeChecker *checker, ASTNode *node) {
     }
     
     // 验证类型转换是否合法
-    // 1. 支持 i32 ↔ byte、i32 ↔ bool、i32 ↔ usize
-    if (source_type.kind == TYPE_I32 && target_type.kind == TYPE_BYTE) {
-        // i32 as byte：允许
-        return;
-    } else if (source_type.kind == TYPE_BYTE && target_type.kind == TYPE_I32) {
-        // byte as i32：允许
-        return;
-    } else if (source_type.kind == TYPE_I32 && target_type.kind == TYPE_BOOL) {
-        // i32 as bool：允许
-        return;
-    } else if (source_type.kind == TYPE_BOOL && target_type.kind == TYPE_I32) {
-        // bool as i32：允许
-        return;
-    } else if (source_type.kind == TYPE_I32 && target_type.kind == TYPE_USIZE) {
-        // i32 as usize：允许
-        return;
-    } else if (source_type.kind == TYPE_USIZE && target_type.kind == TYPE_I32) {
-        // usize as i32：允许
-        return;
-    } else if (source_type.kind == TYPE_F32 && target_type.kind == TYPE_F64) {
-        return;
-    } else if (source_type.kind == TYPE_F64 && target_type.kind == TYPE_F32) {
-        return;
-    } else if (source_type.kind == TYPE_I32 && (target_type.kind == TYPE_F32 || target_type.kind == TYPE_F64)) {
-        return;
-    } else if ((source_type.kind == TYPE_F32 || source_type.kind == TYPE_F64) && target_type.kind == TYPE_I32) {
+    // 1. 任意整数类型之间（含 byte）
+    if (is_integer_type(source_type.kind) && is_integer_type(target_type.kind)) {
         return;
     }
-    // 2. 支持指针类型之间的转换（&void 可以转换为任何指针类型）
+    // 2. 整数与 bool
+    if (source_type.kind == TYPE_I32 && target_type.kind == TYPE_BOOL) {
+        return;
+    }
+    if (source_type.kind == TYPE_BOOL && target_type.kind == TYPE_I32) {
+        return;
+    }
+    // 3. 整数与浮点
+    if (source_type.kind == TYPE_F32 && target_type.kind == TYPE_F64) {
+        return;
+    }
+    if (source_type.kind == TYPE_F64 && target_type.kind == TYPE_F32) {
+        return;
+    }
+    if (is_integer_type(source_type.kind) && (target_type.kind == TYPE_F32 || target_type.kind == TYPE_F64)) {
+        return;
+    }
+    if ((source_type.kind == TYPE_F32 || source_type.kind == TYPE_F64) && is_integer_type(target_type.kind)) {
+        return;
+    }
+    // 4. 支持指针类型之间的转换（&void 可以转换为任何指针类型）
     else if (source_type.kind == TYPE_POINTER && target_type.kind == TYPE_POINTER) {
         // 指针类型转换：允许 &void 转换为任何指针类型
         // 也允许相同类型的指针转换（虽然通常不需要）
@@ -1968,18 +1975,18 @@ static Type checker_check_unary_expr(TypeChecker *checker, ASTNode *node) {
         result.kind = TYPE_BOOL;
         return result;
     } else if (op == TOKEN_MINUS) {
-        // 一元负号：操作数必须是 i32、f32 或 f64
-        if (operand_type.kind != TYPE_I32 && operand_type.kind != TYPE_F32 && operand_type.kind != TYPE_F64) {
+        // 一元负号：操作数必须是整数或浮点类型
+        if (!is_integer_type(operand_type.kind) && operand_type.kind != TYPE_F32 && operand_type.kind != TYPE_F64) {
             checker_report_error(checker, node, "类型检查错误");
             return result;
         }
         result = operand_type;
         return result;
     } else if (op == TOKEN_TILDE) {
-        // 按位取反（~）：操作数必须是 i32 或 usize
-        if (operand_type.kind != TYPE_I32 && operand_type.kind != TYPE_USIZE) {
+        // 按位取反（~）：操作数必须是整数类型
+        if (!is_integer_type(operand_type.kind)) {
             if (operand_type.kind != TYPE_VOID) {
-                checker_report_error(checker, node, "按位取反 ~ 的操作数必须为 i32 或 usize");
+                checker_report_error(checker, node, "按位取反 ~ 的操作数必须为整数类型");
             }
             result.kind = TYPE_I32;
             return result;
@@ -2326,14 +2333,28 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                     const char *actual_type_str = "未知类型";
                     
                     // 获取期望的返回类型字符串
-                    if (checker->current_return_type.kind == TYPE_I32) {
+                    if (checker->current_return_type.kind == TYPE_I8) {
+                        expected_type_str = "i8";
+                    } else if (checker->current_return_type.kind == TYPE_I16) {
+                        expected_type_str = "i16";
+                    } else if (checker->current_return_type.kind == TYPE_I32) {
                         expected_type_str = "i32";
+                    } else if (checker->current_return_type.kind == TYPE_I64) {
+                        expected_type_str = "i64";
+                    } else if (checker->current_return_type.kind == TYPE_U8) {
+                        expected_type_str = "u8";
+                    } else if (checker->current_return_type.kind == TYPE_U16) {
+                        expected_type_str = "u16";
+                    } else if (checker->current_return_type.kind == TYPE_U32) {
+                        expected_type_str = "u32";
+                    } else if (checker->current_return_type.kind == TYPE_USIZE) {
+                        expected_type_str = "usize";
+                    } else if (checker->current_return_type.kind == TYPE_U64) {
+                        expected_type_str = "u64";
                     } else if (checker->current_return_type.kind == TYPE_BOOL) {
                         expected_type_str = "bool";
                     } else if (checker->current_return_type.kind == TYPE_BYTE) {
                         expected_type_str = "byte";
-                    } else if (checker->current_return_type.kind == TYPE_USIZE) {
-                        expected_type_str = "usize";
                     } else if (checker->current_return_type.kind == TYPE_VOID) {
                         expected_type_str = "void";
                     } else if (checker->current_return_type.kind == TYPE_POINTER) {
@@ -2367,14 +2388,28 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                     }
                     
                     // 获取实际的返回类型字符串
-                    if (expr_type.kind == TYPE_I32) {
+                    if (expr_type.kind == TYPE_I8) {
+                        actual_type_str = "i8";
+                    } else if (expr_type.kind == TYPE_I16) {
+                        actual_type_str = "i16";
+                    } else if (expr_type.kind == TYPE_I32) {
                         actual_type_str = "i32";
+                    } else if (expr_type.kind == TYPE_I64) {
+                        actual_type_str = "i64";
+                    } else if (expr_type.kind == TYPE_U8) {
+                        actual_type_str = "u8";
+                    } else if (expr_type.kind == TYPE_U16) {
+                        actual_type_str = "u16";
+                    } else if (expr_type.kind == TYPE_U32) {
+                        actual_type_str = "u32";
+                    } else if (expr_type.kind == TYPE_USIZE) {
+                        actual_type_str = "usize";
+                    } else if (expr_type.kind == TYPE_U64) {
+                        actual_type_str = "u64";
                     } else if (expr_type.kind == TYPE_BOOL) {
                         actual_type_str = "bool";
                     } else if (expr_type.kind == TYPE_BYTE) {
                         actual_type_str = "byte";
-                    } else if (expr_type.kind == TYPE_USIZE) {
-                        actual_type_str = "usize";
                     } else if (expr_type.kind == TYPE_VOID) {
                         actual_type_str = "void";
                     } else if (expr_type.kind == TYPE_POINTER) {

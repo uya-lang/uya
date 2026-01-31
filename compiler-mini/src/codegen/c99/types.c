@@ -16,10 +16,24 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
             }
             
             // 基础类型映射
-            if (strcmp(name, "i32") == 0) {
+            if (strcmp(name, "i8") == 0) {
+                return "int8_t";
+            } else if (strcmp(name, "i16") == 0) {
+                return "int16_t";
+            } else if (strcmp(name, "i32") == 0) {
                 return "int32_t";
+            } else if (strcmp(name, "i64") == 0) {
+                return "int64_t";
+            } else if (strcmp(name, "u8") == 0) {
+                return "uint8_t";
+            } else if (strcmp(name, "u16") == 0) {
+                return "uint16_t";
+            } else if (strcmp(name, "u32") == 0) {
+                return "uint32_t";
             } else if (strcmp(name, "usize") == 0) {
                 return "size_t";
+            } else if (strcmp(name, "u64") == 0) {
+                return "uint64_t";
             } else if (strcmp(name, "bool") == 0) {
                 return "bool";
             } else if (strcmp(name, "byte") == 0) {
