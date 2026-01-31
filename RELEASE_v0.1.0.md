@@ -31,6 +31,7 @@ Uya Mini 是 Uya 语言的**最小可自举子集**，本版本包含：
   - **C99 后端**：生成符合 ISO C99 的源代码，仅需 gcc/clang，不依赖 LLVM。
 - **前端统一**：词法、语法、类型检查与两套后端共用，保证语义一致。
 - **实现语言**：当前宿主实现为 C99（`compiler-mini/src/`）；自举实现为 Uya Mini（`compiler-mini/uya-src/`）。
+- **C 实现维护**：C 版编译器（`compiler-mini/src/`）将维护至 Uya 版编译器（`uya-src/`）完整实现。在此之前，C 版为唯一 bootstrap 与自举验证参考；新特性需在 C 与 Uya 两套实现中同步，以保证 `--c99 -b` 自举对比有效。
 
 ---
 
