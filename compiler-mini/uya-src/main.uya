@@ -75,7 +75,7 @@ fn parse_args(
     }
     input_file_count[0] = 0;
     output_file_index[0] = -1;
-    backend_type[0] = BACKEND_LLVM;
+    backend_type[0] = BackendType.BACKEND_LLVM;
     emit_line_directives[0] = 0;
 
     var i: i32 = 1;
@@ -90,7 +90,7 @@ fn parse_args(
                 return -1;
             }
         } else if strcmp(arg, "--c99" as *byte) == 0 {
-            backend_type[0] = BACKEND_C99;
+            backend_type[0] = BackendType.BACKEND_C99;
         } else if strcmp(arg, "--no-line-directives" as *byte) == 0 {
             emit_line_directives[0] = 0;
         } else if strcmp(arg, "--line-directives" as *byte) == 0 {
@@ -122,10 +122,10 @@ fn parse_args(
     }
     const out_idx: i32 = output_file_index[0];
     const out_path: *byte = get_argv(out_idx);
-    if backend_type[0] == BACKEND_LLVM {
+    if backend_type[0] == BackendType.BACKEND_LLVM {
         const ext: *byte = strrchr(out_path, 46);
         if ext != null && strcmp(ext, ".c" as *byte) == 0 {
-            backend_type[0] = BACKEND_C99;
+            backend_type[0] = BackendType.BACKEND_C99;
         }
     }
     return 0;
@@ -151,7 +151,7 @@ fn compile_files(
     const output_file: *byte = get_argv(output_file_index);
     fprintf(stderr, "输出文件: %s\n" as *byte, output_file);
     var backend_str: *byte = "LLVM" as *byte;
-    if backend == BACKEND_C99 {
+    if backend == BackendType.BACKEND_C99 {
         backend_str = "C99" as *byte;
     }
     fprintf(stderr, "后端类型: %s\n" as *byte, backend_str);
@@ -179,7 +179,7 @@ fn compile_files(
             return 1;
         }
         fprintf(stderr, "=== 语法分析阶段 ===\n" as *byte);
-        var parser: Parser = Parser { lexer: null, current_token: null, arena: null, context: PARSER_CONTEXT_NORMAL };
+        var parser: Parser = Parser { lexer: null, current_token: null, arena: null, context: ParserContext.PARSER_CONTEXT_NORMAL };
         if parser_init(&parser, &lexer, &arena) != 0 {
             fprintf(stderr, "错误: Parser 初始化失败: %s\n" as *byte, input_path);
             return 1;
@@ -189,7 +189,7 @@ fn compile_files(
             fprintf(stderr, "错误: 语法分析失败: %s\n" as *byte, input_path);
             return 1;
         }
-        if ast.type != AST_PROGRAM {
+        if ast.type != ASTNodeType.AST_PROGRAM {
             fprintf(stderr, "错误: 解析结果不是程序节点: %s\n" as *byte, input_path);
             return 1;
         }
@@ -205,7 +205,7 @@ fn compile_files(
     }
 
     fprintf(stderr, "=== 类型检查阶段 ===\n" as *byte);
-    const void_type: Type = Type { kind: TYPE_VOID, enum_name: null, struct_name: null, pointer_to: null, is_ffi_pointer: 0, element_type: null, array_size: 0 };
+    const void_type: Type = Type { kind: TypeKind.TYPE_VOID, enum_name: null, struct_name: null, pointer_to: null, is_ffi_pointer: 0, element_type: null, array_size: 0 };
     var checker: TypeChecker = TypeChecker { arena: null, symbol_table: SymbolTable { slots: [], count: 0 }, function_table: FunctionTable { slots: [], count: 0 }, scope_level: 0, loop_depth: 0, program_node: null, error_count: 0, default_filename: null, current_return_type: void_type, in_function: 0 };
     var default_filename: *byte = "(unknown)" as *byte;
     if input_file_count > 0 {
@@ -237,7 +237,7 @@ fn compile_files(
     const module_name: *byte = get_argv(first_file_idx);
     fprintf(stderr, "模块名: %s\n" as *byte, module_name);
 
-    if backend == BACKEND_C99 {
+    if backend == BackendType.BACKEND_C99 {
         const out_file: *void = fopen(output_file, "w" as *byte);
         if out_file == null {
             fprintf(stderr, "错误: 无法打开输出文件 '%s'\n" as *byte, output_file);
@@ -270,7 +270,7 @@ fn uya_main() i32 {
     var input_file_indices: [i32: 64] = [];
     var input_file_count: i32 = 0;
     var output_file_index: i32 = -1;
-    var backend: BackendType = BACKEND_LLVM;
+    var backend: BackendType = BackendType.BACKEND_LLVM;
     var emit_line_directives: i32 = 0;
 
     if parse_args(&input_file_indices[0], &input_file_count, &output_file_index, &backend, &emit_line_directives) != 0 {

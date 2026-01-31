@@ -79,7 +79,7 @@ fn find_struct_decl_c99(codegen: &C99CodeGenerator, struct_name: &byte) &ASTNode
     var i: i32 = 0;
     while i < decl_count {
         const decl: &ASTNode = codegen.program_node.program_decls[i];
-        if decl != null && decl.type == AST_STRUCT_DECL {
+        if decl != null && decl.type == ASTNodeType.AST_STRUCT_DECL {
             const decl_name: &byte = decl.struct_decl_name;
             if decl_name != null && strcmp(decl_name as *byte, struct_name as *byte) == 0 {
                 return decl;
@@ -93,14 +93,14 @@ fn find_struct_decl_c99(codegen: &C99CodeGenerator, struct_name: &byte) &ASTNode
 
 // 查找结构体字段类型（C99 版本，返回 ASTNode）
 fn c99_find_struct_field_type(codegen: &C99CodeGenerator, struct_decl: &ASTNode, field_name: &byte) &ASTNode {
-    if codegen == null || struct_decl == null || struct_decl.type != AST_STRUCT_DECL || field_name == null {
+    if codegen == null || struct_decl == null || struct_decl.type != ASTNodeType.AST_STRUCT_DECL || field_name == null {
         return null;
     }
     
     var i: i32 = 0;
     while i < struct_decl.struct_decl_field_count {
         const field: &ASTNode = struct_decl.struct_decl_fields[i];
-        if field != null && field.type == AST_VAR_DECL {
+        if field != null && field.type == ASTNodeType.AST_VAR_DECL {
             if field.var_decl_name != null && strcmp(field.var_decl_name as *byte, field_name as *byte) == 0 {
                 return field.var_decl_type;
             }
@@ -113,7 +113,7 @@ fn c99_find_struct_field_type(codegen: &C99CodeGenerator, struct_decl: &ASTNode,
 
 // 生成结构体定义
 fn gen_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode) i32 {
-    if struct_decl == null || struct_decl.type != AST_STRUCT_DECL {
+    if struct_decl == null || struct_decl.type != ASTNodeType.AST_STRUCT_DECL {
         return -1;
     }
     
@@ -146,7 +146,7 @@ fn gen_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode) i32 
         var i: i32 = 0;
         while i < field_count {
             const field: &ASTNode = struct_decl.struct_decl_fields[i];
-            if field == null || field.type != AST_VAR_DECL {
+            if field == null || field.type != ASTNodeType.AST_VAR_DECL {
                 return -1;
             }
             
@@ -158,7 +158,7 @@ fn gen_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode) i32 
             }
             
             // 检查是否为数组类型
-            if field_type.type == AST_TYPE_ARRAY {
+            if field_type.type == ASTNodeType.AST_TYPE_ARRAY {
                 const element_type: &ASTNode = field_type.type_array_element_type;
                 const size_expr: &ASTNode = field_type.type_array_size_expr;
                 const elem_type_c: &byte = c99_type_to_c(codegen, element_type);

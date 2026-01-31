@@ -17,16 +17,16 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         emit_line_directive(codegen, stmt.line, stmt.filename);
     }
     
-    if stmt.type == AST_EXPR_STMT {
+    if stmt.type == ASTNodeType.AST_EXPR_STMT {
         // 表达式语句的数据存储在表达式的节点中，直接忽略此节点
         return;
-    } else if stmt.type == AST_ASSIGN {
+    } else if stmt.type == ASTNodeType.AST_ASSIGN {
         const dest: &ASTNode = stmt.assign_dest;
         const src: &ASTNode = stmt.assign_src;
         
         // 检查左侧是否是数组类型
         var is_array_assign: i32 = 0;
-        if dest.type == AST_IDENTIFIER {
+        if dest.type == ASTNodeType.AST_IDENTIFIER {
             const var_name: &byte = dest.identifier_name;
             // 检查局部变量
             var i: i32 = codegen.local_variable_count - 1;
@@ -73,13 +73,13 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             gen_expr(codegen, src);
             fputs(";\n" as *byte, codegen.output as *void);
         }
-    } else if stmt.type == AST_RETURN_STMT {
+    } else if stmt.type == ASTNodeType.AST_RETURN_STMT {
         const expr: &ASTNode = stmt.return_stmt_expr;
         
         // 检查函数返回类型是否为数组
         var is_array_return: i32 = 0;
         const return_type: &ASTNode = codegen.current_function_return_type;
-        if return_type != null && return_type.type == AST_TYPE_ARRAY {
+        if return_type != null && return_type.type == ASTNodeType.AST_TYPE_ARRAY {
             is_array_return = 1;
         }
         
@@ -94,7 +94,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 c99_emit_indent(codegen);
                 fprintf(codegen.output as *void, "return (struct %s) { .data = " as *byte, struct_name as *byte);
                 
-                if expr.type == AST_ARRAY_LITERAL {
+                if expr.type == ASTNodeType.AST_ARRAY_LITERAL {
                     // 数组字面量
                     fputc(123, codegen.output as *void);  // '{'
                     const element_count: i32 = expr.array_literal_element_count;
@@ -123,7 +123,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             // 非数组返回类型，正常处理
             // 检查返回类型是否为 void
             var is_void: i32 = 0;
-            if return_type != null && return_type.type == AST_TYPE_NAMED {
+            if return_type != null && return_type.type == ASTNodeType.AST_TYPE_NAMED {
                 const type_name: &byte = return_type.type_named_name;
                 if type_name != null && strcmp(type_name as *byte, "void" as *byte) == 0 {
                     is_void = 1;
@@ -144,14 +144,14 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 fputs(";\n" as *byte, codegen.output as *void);
             }
         }
-    } else if stmt.type == AST_BLOCK {
+    } else if stmt.type == ASTNodeType.AST_BLOCK {
         const stmt_count: i32 = stmt.block_stmt_count;
         var i: i32 = 0;
         while i < stmt_count {
             gen_stmt(codegen, stmt.block_stmts[i]);
             i = i + 1;
         }
-    } else if stmt.type == AST_VAR_DECL {
+    } else if stmt.type == ASTNodeType.AST_VAR_DECL {
         const var_name: &byte = get_safe_c_identifier(codegen, stmt.var_decl_name);
         const var_type: &ASTNode = stmt.var_decl_type;
         const init_expr: &ASTNode = stmt.var_decl_init;
@@ -161,7 +161,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         var type_c: &byte = null;
         var stored_type_c: &byte = null;  // 用于存储到变量表的完整类型字符串
         var stored_type_c_for_pointer: &byte = null;  // 用于存储指针类型的完整类型字符串（包括 const）
-        if var_type.type == AST_TYPE_ARRAY {
+        if var_type.type == ASTNodeType.AST_TYPE_ARRAY {
             // 使用 c99_type_to_c 来处理数组类型（包括多维数组）
             // 它会返回正确的格式，如 "int32_t[3][2]" 对于 [[i32: 2]: 3]
             type_c = c99_type_to_c(codegen, var_type);
@@ -219,7 +219,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             // 非数组类型
             type_c = c99_type_to_c(codegen, var_type);
             // 为存储到变量表准备完整的类型字符串（包括 const 修饰符）
-            if is_const != 0 && var_type.type == AST_TYPE_POINTER {
+            if is_const != 0 && var_type.type == ASTNodeType.AST_TYPE_POINTER {
                 // 检查是否是指向数组的指针类型（格式：T (*)[N]）
                 const open_paren: *byte = strstr(type_c as *byte, "(*" as *byte);
                 if open_paren != null {
@@ -293,11 +293,11 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         // *关键修改*：在生成初始化表达式之前，先将变量添加到局部变量表
         // 这样如果初始化表达式或后续表达式使用了这个变量，就能正确识别其类型
         var type_to_store: &byte = null;
-        if var_type.type == AST_TYPE_ARRAY && stored_type_c != null {
+        if var_type.type == ASTNodeType.AST_TYPE_ARRAY && stored_type_c != null {
             type_to_store = stored_type_c;
         } else if stored_type_c_for_pointer != null {
             type_to_store = stored_type_c_for_pointer;
-        } else if var_type.type == AST_TYPE_POINTER && is_const != 0 && type_c != null {
+        } else if var_type.type == ASTNodeType.AST_TYPE_POINTER && is_const != 0 && type_c != null {
             // 如果 stored_type_c_for_pointer 为 NULL（arena_alloc 失败），但类型是指针且是 const，
             // 手动构造类型字符串：T * const
             const str_len4: i32 = strlen(type_c as *byte) + 7; // " const" + null
@@ -309,7 +309,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 // 如果还是失败，使用 type_c（至少包含 *，应该能被识别为指针）
                 type_to_store = type_c;
             }
-        } else if var_type.type == AST_TYPE_POINTER && type_c != null {
+        } else if var_type.type == ASTNodeType.AST_TYPE_POINTER && type_c != null {
             // 非 const 指针：直接使用 type_c（应该包含 *）
             type_to_store = type_c;
         } else {
@@ -326,7 +326,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             // 如果是，改为手动初始化，避免 gcc 生成错误的 memset 调用
             var is_empty_struct_init: i32 = 0;
             var struct_decl_for_empty_init: &ASTNode = null;
-            if init_expr.type == AST_STRUCT_INIT {
+            if init_expr.type == ASTNodeType.AST_STRUCT_INIT {
                 const field_count: i32 = init_expr.struct_init_field_count;
                 if field_count == 0 {
                     // 空结构体初始化：从初始化表达式中获取结构体名称
@@ -342,7 +342,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             
             // 检查是否是数组类型且初始化表达式是函数调用（返回数组）
             var is_array_from_function: i32 = 0;
-            if var_type.type == AST_TYPE_ARRAY && init_expr.type == AST_CALL_EXPR {
+            if var_type.type == ASTNodeType.AST_TYPE_ARRAY && init_expr.type == ASTNodeType.AST_CALL_EXPR {
                 // 需要检查函数返回类型是否为数组
                 // 这里简化处理：假设函数调用返回数组类型
                 is_array_from_function = 1;
@@ -350,14 +350,14 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             
             // 检查是否是数组类型且初始化表达式是另一个数组（需要memcpy）
             var needs_memcpy: i32 = 0;
-            if var_type.type == AST_TYPE_ARRAY && init_expr.type == AST_IDENTIFIER {
+            if var_type.type == ASTNodeType.AST_TYPE_ARRAY && init_expr.type == ASTNodeType.AST_IDENTIFIER {
                 needs_memcpy = 1;
             }
             
             // 检查是否是结构体初始化且包含数组字段（初始化值是标识符）
             // 在C中，数组不能直接赋值，需要使用memcpy
             var struct_init_needs_memcpy: i32 = 0;
-            if init_expr.type == AST_STRUCT_INIT && is_empty_struct_init == 0 {
+            if init_expr.type == ASTNodeType.AST_STRUCT_INIT && is_empty_struct_init == 0 {
                 const struct_name2: &byte = get_safe_c_identifier(codegen, init_expr.struct_init_struct_name);
                 const struct_decl: &ASTNode = find_struct_decl_c99(codegen, struct_name2);
                 if struct_decl != null {
@@ -366,9 +366,9 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                     while i < field_count2 {
                         const field_name: &byte = init_expr.struct_init_field_names[i];
                         const field_type: &ASTNode = c99_find_struct_field_type(codegen, struct_decl, field_name);
-                        if field_type != null && field_type.type == AST_TYPE_ARRAY {
+                        if field_type != null && field_type.type == ASTNodeType.AST_TYPE_ARRAY {
                             const field_value: &ASTNode = init_expr.struct_init_field_values[i];
-                            if field_value != null && field_value.type == AST_IDENTIFIER {
+                            if field_value != null && field_value.type == ASTNodeType.AST_IDENTIFIER {
                                 struct_init_needs_memcpy = 1;
                                 break;
                             }
@@ -390,17 +390,17 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 var i2: i32 = 0;
                 while i2 < field_count3 {
                     const field: &ASTNode = struct_decl2.struct_decl_fields[i2];
-                    if field != null && field.type == AST_VAR_DECL {
+                    if field != null && field.type == ASTNodeType.AST_VAR_DECL {
                         const field_name2: &byte = get_safe_c_identifier(codegen, field.var_decl_name);
                         const field_type2: &ASTNode = field.var_decl_type;
                         
                         if field_name2 != null && field_type2 != null {
                             // 根据字段类型生成初始化代码
-                            if field_type2.type == AST_TYPE_POINTER {
+                            if field_type2.type == ASTNodeType.AST_TYPE_POINTER {
                                 // 指针类型：初始化为 NULL
                                 c99_emit_indent(codegen);
                                 fprintf(codegen.output as *void, "%s.%s = NULL;\n" as *byte, var_name as *byte, field_name2 as *byte);
-                            } else if field_type2.type == AST_TYPE_ARRAY {
+                            } else if field_type2.type == ASTNodeType.AST_TYPE_ARRAY {
                                 // 数组类型：使用 memset 清零
                                 c99_emit_indent(codegen);
                                 fprintf(codegen.output as *void, "memset(%s.%s, 0, sizeof(%s.%s));\n" as *byte, var_name as *byte, field_name2 as *byte, var_name as *byte, field_name2 as *byte);
@@ -459,8 +459,8 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                     fprintf(codegen.output as *void, ".%s = " as *byte, safe_field_name as *byte);
                     
                     // 如果是数组字段且初始化值是标识符，使用空初始化（后续用memcpy填充）
-                    if field_type3 != null && field_type3.type == AST_TYPE_ARRAY && 
-                        field_value2 != null && field_value2.type == AST_IDENTIFIER {
+                    if field_type3 != null && field_type3.type == ASTNodeType.AST_TYPE_ARRAY && 
+                        field_value2 != null && field_value2.type == ASTNodeType.AST_IDENTIFIER {
                         fputs("{}" as *byte, codegen.output as *void);
                     } else {
                         gen_expr(codegen, field_value2);
@@ -480,8 +480,8 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                     const field_type4: &ASTNode = c99_find_struct_field_type(codegen, struct_decl3, field_name3);
                     const field_value3: &ASTNode = init_expr.struct_init_field_values[i3];
                     
-                    if field_type4 != null && field_type4.type == AST_TYPE_ARRAY && 
-                        field_value3 != null && field_value3.type == AST_IDENTIFIER {
+                    if field_type4 != null && field_type4.type == ASTNodeType.AST_TYPE_ARRAY && 
+                        field_value3 != null && field_value3.type == ASTNodeType.AST_IDENTIFIER {
                         const safe_field_name2: &byte = get_safe_c_identifier(codegen, field_name3);
                         c99_emit_indent(codegen);
                         fprintf(codegen.output as *void, "memcpy(%s.%s, " as *byte, var_name as *byte, safe_field_name2 as *byte);
@@ -499,7 +499,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         } else {
             fputs(";\n" as *byte, codegen.output as *void);
         }
-    } else if stmt.type == AST_IF_STMT {
+    } else if stmt.type == ASTNodeType.AST_IF_STMT {
         const condition: &ASTNode = stmt.if_stmt_condition;
         const then_branch: &ASTNode = stmt.if_stmt_then_branch;
         const else_branch: &ASTNode = stmt.if_stmt_else_branch;
@@ -520,7 +520,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             c99_emit(codegen, "}" as *byte);
         }
         fputs("\n" as *byte, codegen.output as *void);
-    } else if stmt.type == AST_WHILE_STMT {
+    } else if stmt.type == ASTNodeType.AST_WHILE_STMT {
         const condition: &ASTNode = stmt.while_stmt_condition;
         const body: &ASTNode = stmt.while_stmt_body;
         
@@ -532,7 +532,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         gen_stmt(codegen, body);
         codegen.indent_level = codegen.indent_level - 1;
         c99_emit(codegen, "}\n" as *byte);
-    } else if stmt.type == AST_FOR_STMT {
+    } else if stmt.type == ASTNodeType.AST_FOR_STMT {
         // Uya Mini 的 for 循环是数组遍历：for item in array { ... }
         const array: &ASTNode = stmt.for_stmt_array;
         const var_name2: &byte = get_safe_c_identifier(codegen, stmt.for_stmt_var_name);
@@ -623,13 +623,13 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         c99_emit(codegen, "}\n" as *byte);
         codegen.indent_level = codegen.indent_level - 1;
         c99_emit(codegen, "}\n" as *byte);
-    } else if stmt.type == AST_BREAK_STMT {
+    } else if stmt.type == ASTNodeType.AST_BREAK_STMT {
         c99_emit(codegen, "break;\n" as *byte);
-    } else if stmt.type == AST_CONTINUE_STMT {
+    } else if stmt.type == ASTNodeType.AST_CONTINUE_STMT {
         c99_emit(codegen, "continue;\n" as *byte);
     } else {
         // 检查是否为表达式节点
-        if stmt.type >= AST_BINARY_EXPR && stmt.type <= AST_STRING {
+        if stmt.type >= ASTNodeType.AST_BINARY_EXPR && stmt.type <= ASTNodeType.AST_STRING {
             c99_emit(codegen, "" as *byte);
             gen_expr(codegen, stmt);
             fputs(";\n" as *byte, codegen.output as *void);

@@ -296,11 +296,11 @@ fn eval_const_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
         return -1;
     }
     
-    if expr.type == AST_NUMBER {
+    if expr.type == ASTNodeType.AST_NUMBER {
         return expr.number_value as i32;
-    } else if expr.type == AST_FLOAT {
+    } else if expr.type == ASTNodeType.AST_FLOAT {
         return -1;
-    } else if expr.type == AST_IDENTIFIER {
+    } else if expr.type == ASTNodeType.AST_IDENTIFIER {
         // 查找常量变量声明
         if codegen == null || codegen.program_node == null {
             return -1;
@@ -313,14 +313,14 @@ fn eval_const_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
         
         // 从程序节点中查找常量变量声明
         const program: &ASTNode = codegen.program_node;
-        if program.type != AST_PROGRAM {
+        if program.type != ASTNodeType.AST_PROGRAM {
             return -1;
         }
         
         var i: i32 = 0;
         while i < program.program_decl_count {
             const decl: &ASTNode = program.program_decls[i];
-            if decl != null && decl.type == AST_VAR_DECL {
+            if decl != null && decl.type == ASTNodeType.AST_VAR_DECL {
                 const var_name: &byte = decl.var_decl_name;
                 if var_name != null && strcmp(var_name as *byte, const_name as *byte) == 0 {
                     // 找到常量变量，检查是否为 const
@@ -340,28 +340,28 @@ fn eval_const_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
         }
         // 未找到常量变量或不是 const
         return -1;
-    } else if expr.type == AST_BINARY_EXPR {
+    } else if expr.type == ASTNodeType.AST_BINARY_EXPR {
         const left: &ASTNode = expr.binary_expr_left;
         const right: &ASTNode = expr.binary_expr_right;
-        const op: i32 = expr.binary_expr_op;
+        const op: TokenType = expr.binary_expr_op as TokenType;
         const left_val: i32 = eval_const_expr(codegen, left);
         const right_val: i32 = eval_const_expr(codegen, right);
         if left_val == -1 || right_val == -1 {
             return -1;
         }
         
-        if op == TOKEN_PLUS {
+        if op == TokenType.TOKEN_PLUS {
             return left_val + right_val;
-        } else if op == TOKEN_MINUS {
+        } else if op == TokenType.TOKEN_MINUS {
             return left_val - right_val;
-        } else if op == TOKEN_ASTERISK {
+        } else if op == TokenType.TOKEN_ASTERISK {
             return left_val * right_val;
-        } else if op == TOKEN_SLASH {
+        } else if op == TokenType.TOKEN_SLASH {
             if right_val == 0 {
                 return -1;
             }
             return left_val / right_val;
-        } else if op == TOKEN_PERCENT {
+        } else if op == TokenType.TOKEN_PERCENT {
             if right_val == 0 {
                 return -1;
             }
@@ -370,17 +370,17 @@ fn eval_const_expr(codegen: &C99CodeGenerator, expr: &ASTNode) i32 {
             // 不支持的操作符
             return -1;
         }
-    } else if expr.type == AST_UNARY_EXPR {
-        const op: i32 = expr.unary_expr_op;
+    } else if expr.type == ASTNodeType.AST_UNARY_EXPR {
+        const op: TokenType = expr.unary_expr_op as TokenType;
         const operand: &ASTNode = expr.unary_expr_operand;
         const operand_val: i32 = eval_const_expr(codegen, operand);
         if operand_val == -1 {
             return -1;
         }
         
-        if op == TOKEN_PLUS {
+        if op == TokenType.TOKEN_PLUS {
             return operand_val;
-        } else if op == TOKEN_MINUS {
+        } else if op == TokenType.TOKEN_MINUS {
             return -operand_val;
         } else {
             // 不支持的其他一元操作符
@@ -398,41 +398,41 @@ fn collect_string_constants_from_expr(codegen: &C99CodeGenerator, expr: &ASTNode
         return;
     }
     
-    if expr.type == AST_STRING {
+    if expr.type == ASTNodeType.AST_STRING {
         add_string_constant(codegen, expr.string_literal_value);
-    } else if expr.type == AST_BINARY_EXPR {
+    } else if expr.type == ASTNodeType.AST_BINARY_EXPR {
         collect_string_constants_from_expr(codegen, expr.binary_expr_left);
         collect_string_constants_from_expr(codegen, expr.binary_expr_right);
-    } else if expr.type == AST_UNARY_EXPR {
+    } else if expr.type == ASTNodeType.AST_UNARY_EXPR {
         collect_string_constants_from_expr(codegen, expr.unary_expr_operand);
-    } else if expr.type == AST_CALL_EXPR {
+    } else if expr.type == ASTNodeType.AST_CALL_EXPR {
         collect_string_constants_from_expr(codegen, expr.call_expr_callee);
         var i: i32 = 0;
         while i < expr.call_expr_arg_count {
             collect_string_constants_from_expr(codegen, expr.call_expr_args[i]);
             i = i + 1;
         }
-    } else if expr.type == AST_MEMBER_ACCESS {
+    } else if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
         collect_string_constants_from_expr(codegen, expr.member_access_object);
-    } else if expr.type == AST_ARRAY_ACCESS {
+    } else if expr.type == ASTNodeType.AST_ARRAY_ACCESS {
         collect_string_constants_from_expr(codegen, expr.array_access_array);
         collect_string_constants_from_expr(codegen, expr.array_access_index);
-    } else if expr.type == AST_STRUCT_INIT {
+    } else if expr.type == ASTNodeType.AST_STRUCT_INIT {
         var i: i32 = 0;
         while i < expr.struct_init_field_count {
             collect_string_constants_from_expr(codegen, expr.struct_init_field_values[i]);
             i = i + 1;
         }
-    } else if expr.type == AST_ARRAY_LITERAL {
+    } else if expr.type == ASTNodeType.AST_ARRAY_LITERAL {
         var i: i32 = 0;
         while i < expr.array_literal_element_count {
             collect_string_constants_from_expr(codegen, expr.array_literal_elements[i]);
             i = i + 1;
         }
-    } else if expr.type == AST_SIZEOF || expr.type == AST_LEN || expr.type == AST_ALIGNOF {
+    } else if expr.type == ASTNodeType.AST_SIZEOF || expr.type == ASTNodeType.AST_LEN || expr.type == ASTNodeType.AST_ALIGNOF {
         // 这些表达式内部可能包含表达式或类型，但类型节点不包含字符串
         // 暂时忽略
-    } else if expr.type == AST_CAST_EXPR {
+    } else if expr.type == ASTNodeType.AST_CAST_EXPR {
         collect_string_constants_from_expr(codegen, expr.cast_expr_expr);
     } else {
         // 其他表达式类型（标识符、数字、布尔值）不包含字符串
@@ -445,28 +445,28 @@ fn collect_string_constants_from_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode
         return;
     }
     
-    if stmt.type == AST_EXPR_STMT {
+    if stmt.type == ASTNodeType.AST_EXPR_STMT {
         // 表达式语句的数据存储在表达式的节点中，直接忽略此节点
-    } else if stmt.type == AST_ASSIGN {
+    } else if stmt.type == ASTNodeType.AST_ASSIGN {
         const dest: &ASTNode = stmt.assign_dest;
         const src: &ASTNode = stmt.assign_src;
         collect_string_constants_from_expr(codegen, dest);
         collect_string_constants_from_expr(codegen, src);
-    } else if stmt.type == AST_RETURN_STMT {
+    } else if stmt.type == ASTNodeType.AST_RETURN_STMT {
         const expr: &ASTNode = stmt.return_stmt_expr;
         collect_string_constants_from_expr(codegen, expr);
-    } else if stmt.type == AST_BLOCK {
+    } else if stmt.type == ASTNodeType.AST_BLOCK {
         var i: i32 = 0;
         while i < stmt.block_stmt_count {
             collect_string_constants_from_stmt(codegen, stmt.block_stmts[i]);
             i = i + 1;
         }
-    } else if stmt.type == AST_VAR_DECL {
+    } else if stmt.type == ASTNodeType.AST_VAR_DECL {
         const init_expr: &ASTNode = stmt.var_decl_init;
         if init_expr != null {
             collect_string_constants_from_expr(codegen, init_expr);
         }
-    } else if stmt.type == AST_IF_STMT {
+    } else if stmt.type == ASTNodeType.AST_IF_STMT {
         const condition: &ASTNode = stmt.if_stmt_condition;
         const then_branch: &ASTNode = stmt.if_stmt_then_branch;
         const else_branch: &ASTNode = stmt.if_stmt_else_branch;
@@ -475,20 +475,20 @@ fn collect_string_constants_from_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode
         if else_branch != null {
             collect_string_constants_from_stmt(codegen, else_branch);
         }
-    } else if stmt.type == AST_WHILE_STMT {
+    } else if stmt.type == ASTNodeType.AST_WHILE_STMT {
         const condition: &ASTNode = stmt.while_stmt_condition;
         const body: &ASTNode = stmt.while_stmt_body;
         collect_string_constants_from_expr(codegen, condition);
         collect_string_constants_from_stmt(codegen, body);
-    } else if stmt.type == AST_FOR_STMT {
+    } else if stmt.type == ASTNodeType.AST_FOR_STMT {
         const array: &ASTNode = stmt.for_stmt_array;
         const body: &ASTNode = stmt.for_stmt_body;
         collect_string_constants_from_expr(codegen, array);
         collect_string_constants_from_stmt(codegen, body);
-    } else if stmt.type == AST_BREAK_STMT || stmt.type == AST_CONTINUE_STMT {
+    } else if stmt.type == ASTNodeType.AST_BREAK_STMT || stmt.type == ASTNodeType.AST_CONTINUE_STMT {
         // 不包含表达式
     } else {
-        // 可能是表达式节点（如 AST_BINARY_EXPR 等）
+        // 可能是表达式节点（如 ASTNodeType.AST_BINARY_EXPR 等）
         // 在这种情况下，将其视为表达式处理
         collect_string_constants_from_expr(codegen, stmt);
     }
@@ -500,11 +500,11 @@ fn collect_string_constants_from_decl(codegen: &C99CodeGenerator, decl: &ASTNode
         return;
     }
     
-    if decl.type == AST_VAR_DECL {
+    if decl.type == ASTNodeType.AST_VAR_DECL {
         if decl.var_decl_init != null {
             collect_string_constants_from_expr(codegen, decl.var_decl_init);
         }
-    } else if decl.type == AST_FN_DECL {
+    } else if decl.type == ASTNodeType.AST_FN_DECL {
         const body: &ASTNode = decl.fn_decl_body;
         if body != null {
             collect_string_constants_from_stmt(codegen, body);

@@ -236,7 +236,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
 
 const MAX_MERGE_PROGRAMS: i32 = 64;
 
-// 合并多个 AST_PROGRAM 节点为一个程序节点
+// 合并多个 ASTNodeType.AST_PROGRAM 节点为一个程序节点
 // 参数：programs - 程序节点数组（元素类型为 &ASTNode），count - 数量，arena - Arena
 fn ast_merge_programs(programs: [&ASTNode: MAX_MERGE_PROGRAMS], count: i32, arena: &Arena) &ASTNode {
     if count <= 0 || arena == null {
@@ -245,7 +245,7 @@ fn ast_merge_programs(programs: [&ASTNode: MAX_MERGE_PROGRAMS], count: i32, aren
     var i: i32 = 0;
     while i < count {
         const p: &ASTNode = programs[i];
-        if p == null || p.type != AST_PROGRAM {
+        if p == null || p.type != ASTNodeType.AST_PROGRAM {
             return null;
         }
         i = i + 1;
@@ -257,7 +257,7 @@ fn ast_merge_programs(programs: [&ASTNode: MAX_MERGE_PROGRAMS], count: i32, aren
         i = i + 1;
     }
     const first: &ASTNode = programs[0];
-    const merged: &ASTNode = ast_new_node(AST_PROGRAM, first.line, first.column, arena, first.filename);
+    const merged: &ASTNode = ast_new_node(ASTNodeType.AST_PROGRAM, first.line, first.column, arena, first.filename);
     if merged == null {
         return null;
     }

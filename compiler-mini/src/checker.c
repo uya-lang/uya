@@ -28,6 +28,8 @@ static void checker_check_cast_expr(TypeChecker *checker, ASTNode *node);
 static int checker_check_node(TypeChecker *checker, ASTNode *node);
 static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char *struct_name);
 static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *enum_name);
+static int is_enum_variant_name_in_program(ASTNode *program_node, const char *name);
+static void checker_report_error(TypeChecker *checker, ASTNode *node, const char *message);
 static Type find_struct_field_type(TypeChecker *checker, ASTNode *struct_decl, const char *field_name);
 static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node);
 
@@ -587,7 +589,13 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             if (symbol != NULL) {
                 return symbol->type;
             }
-            // 如果找不到符号，返回void类型（错误将在类型检查时报告）
+            // 找不到符号时，仅当该名是程序中某枚举的变体名时才报“裸枚举常量”（Uya 只支持 T.member）
+            // 枚举类型名、null、stderr 等非变体名不在此报错，由 T.member 在 AST_MEMBER_ACCESS 分支处理
+            if (expr->data.identifier.name != NULL && checker != NULL && checker->program_node != NULL &&
+                is_enum_variant_name_in_program(checker->program_node, expr->data.identifier.name)) {
+                checker_report_error(checker, expr,
+                    "不能使用裸枚举常量，应使用 枚举类型名.变体名 方式访问（如 Color.RED）");
+            }
             result.kind = TYPE_VOID;
             return result;
         }
@@ -905,6 +913,26 @@ static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *e
     }
     
     return NULL;
+}
+
+// 检查 name 是否是程序中任意枚举的变体名（裸枚举常量检测）
+// 返回 1 表示是枚举变体名，0 表示不是
+static int is_enum_variant_name_in_program(ASTNode *program_node, const char *name) {
+    if (program_node == NULL || program_node->type != AST_PROGRAM || name == NULL) {
+        return 0;
+    }
+    for (int i = 0; i < program_node->data.program.decl_count; i++) {
+        ASTNode *decl = program_node->data.program.decls[i];
+        if (decl != NULL && decl->type == AST_ENUM_DECL && decl->data.enum_decl.variants != NULL) {
+            for (int j = 0; j < decl->data.enum_decl.variant_count; j++) {
+                if (decl->data.enum_decl.variants[j].name != NULL &&
+                    strcmp(decl->data.enum_decl.variants[j].name, name) == 0) {
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
 }
 
 // 报告类型错误（增加错误计数）

@@ -18,7 +18,7 @@ fn find_function_decl_c99(codegen: &C99CodeGenerator, func_name: &byte) &ASTNode
     var i: i32 = 0;
     while i < decl_count {
         const decl: &ASTNode = codegen.program_node.program_decls[i];
-        if decl != null && decl.type == AST_FN_DECL {
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
             const decl_name: &byte = decl.fn_decl_name;
             if decl_name != null && strcmp(decl_name as *byte, func_name as *byte) == 0 {
                 return decl;
@@ -121,7 +121,7 @@ fn is_stdlib_function(func_name: &byte) i32 {
 // 生成函数原型（前向声明）
 // 注意：此函数在 main.uya 中被调用，但由于 function.uya 在 main.uya 之前编译，函数已经可见
 fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
-    if fn_decl == null || fn_decl.type != AST_FN_DECL {
+    if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
         return;
     }
     
@@ -174,14 +174,14 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     var i: i32 = 0;
     while i < param_count {
         const param: &ASTNode = fn_decl.fn_decl_params[i];
-        if param != null && param.type == AST_VAR_DECL {
+        if param != null && param.type == ASTNodeType.AST_VAR_DECL {
             const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
             const param_type: &ASTNode = param.var_decl_type;
             var param_type_c: &byte = c99_type_to_c(codegen, param_type);
             
             // 对于 extern 函数，检查大结构体参数（>16字节），转换为指针类型
             // 根据 x86-64 System V ABI，大于 16 字节的结构体通过指针传递
-            if is_extern != 0 && param_type.type == AST_TYPE_NAMED {
+            if is_extern != 0 && param_type.type == ASTNodeType.AST_TYPE_NAMED {
                 const struct_size: i32 = calculate_struct_size(codegen, param_type);
                 if struct_size > 16 {
                     // 大结构体：转换为指针类型
@@ -196,9 +196,9 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
             }
             
             // 对于标准库函数，将 uint8_t * 转换为 const char *
-            if is_stdlib != 0 && param_type.type == AST_TYPE_POINTER {
+            if is_stdlib != 0 && param_type.type == ASTNodeType.AST_TYPE_POINTER {
                 const pointed_type: &ASTNode = param_type.type_pointer_pointed_type;
-                if pointed_type != null && pointed_type.type == AST_TYPE_NAMED {
+                if pointed_type != null && pointed_type.type == ASTNodeType.AST_TYPE_NAMED {
                     const pointed_name: &byte = pointed_type.type_named_name;
                     if pointed_name != null && strcmp(pointed_name as *byte, "byte" as *byte) == 0 {
                         // 将 uint8_t * 替换为 const char *
@@ -208,7 +208,7 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
             }
             
             // 数组参数：在参数名后添加 _param 后缀，函数内部会创建副本
-            if param_type.type == AST_TYPE_ARRAY {
+            if param_type.type == ASTNodeType.AST_TYPE_ARRAY {
                 // 数组参数格式：T name_param[N]
                 const bracket: *byte = strchr(param_type_c as *byte, 91);  // '['
                 if bracket != null {
@@ -249,7 +249,7 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
 // 生成函数定义
 // 注意：此函数在 main.uya 中被调用，但由于 function.uya 在 main.uya 之前编译，函数已经可见
 fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
-    if fn_decl == null || fn_decl.type != AST_FN_DECL {
+    if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
         return;
     }
     
@@ -290,13 +290,13 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
         i = 0;
         while i < param_count {
             const param: &ASTNode = fn_decl.fn_decl_params[i];
-            if param != null && param.type == AST_VAR_DECL {
+            if param != null && param.type == ASTNodeType.AST_VAR_DECL {
                 const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
                 const param_type: &ASTNode = param.var_decl_type;
                 var param_type_c: &byte = c99_type_to_c(codegen, param_type);
                 
                 // 数组参数：在参数名后添加 _param 后缀，函数内部会创建副本
-                if param_type.type == AST_TYPE_ARRAY {
+                if param_type.type == ASTNodeType.AST_TYPE_ARRAY {
                     // 数组参数格式：T name_param[N]
                     const bracket: *byte = strchr(param_type_c as *byte, 91);  // '['
                     if bracket != null {
@@ -358,11 +358,11 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     i = 0;
     while i < param_count {
         const param: &ASTNode = fn_decl.fn_decl_params[i];
-        if param != null && param.type == AST_VAR_DECL {
+        if param != null && param.type == ASTNodeType.AST_VAR_DECL {
             const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
             const param_type: &ASTNode = param.var_decl_type;
             
-            if param_type.type == AST_TYPE_ARRAY {
+            if param_type.type == ASTNodeType.AST_TYPE_ARRAY {
                 // 数组参数：创建局部数组副本
                 const array_type_c: &byte = c99_type_to_c(codegen, param_type);
                 // 解析数组类型格式：int32_t[3] -> int32_t arr[3]

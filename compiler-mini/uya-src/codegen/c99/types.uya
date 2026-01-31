@@ -13,7 +13,7 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
         return ("void" as *byte) as &byte;
     }
     
-    if type_node.type == AST_TYPE_NAMED {
+    if type_node.type == ASTNodeType.AST_TYPE_NAMED {
         const name: &byte = type_node.type_named_name;
         if name == null {
             return ("void" as *byte) as &byte;
@@ -58,7 +58,7 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
                 var i: i32 = 0;
                 while i < decl_count {
                     const decl: &ASTNode = codegen.program_node.program_decls[i];
-                    if decl != null && decl.type == AST_STRUCT_DECL {
+                    if decl != null && decl.type == ASTNodeType.AST_STRUCT_DECL {
                         const struct_name: &byte = decl.struct_decl_name;
                         if struct_name != null {
                             const safe_struct_name: &byte = get_safe_c_identifier(codegen, struct_name);
@@ -98,7 +98,7 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
                 var i2: i32 = 0;
                 while i2 < decl_count2 {
                     const decl2: &ASTNode = codegen.program_node.program_decls[i2];
-                    if decl2 != null && decl2.type == AST_ENUM_DECL {
+                    if decl2 != null && decl2.type == ASTNodeType.AST_ENUM_DECL {
                         const enum_name: &byte = decl2.enum_decl_name;
                         if enum_name != null {
                             const safe_enum_name: &byte = get_safe_c_identifier(codegen, enum_name);
@@ -122,7 +122,7 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
             // 未知类型，直接返回名称
             return safe_name;
         }
-    } else if type_node.type == AST_TYPE_POINTER {
+    } else if type_node.type == ASTNodeType.AST_TYPE_POINTER {
         const pointed_type: &ASTNode = type_node.type_pointer_pointed_type;
         const pointee_type: &byte = c99_type_to_c(codegen, pointed_type);
         
@@ -161,7 +161,7 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
         
         snprintf(result as *byte, str_len, "%s *" as *byte, pointee_type as *byte);
         return result;
-    } else if type_node.type == AST_TYPE_ARRAY {
+    } else if type_node.type == ASTNodeType.AST_TYPE_ARRAY {
         const element_type: &ASTNode = type_node.type_array_element_type;
         const size_expr: &ASTNode = type_node.type_array_size_expr;
         
@@ -183,14 +183,14 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
         // 例如：[[i32: 2]: 3] 应该生成 int32_t[3][2]，而不是 int32_t[2][3]
         
         // 如果元素类型也是数组，先获取其基础类型和累积维度
-        if element_type.type == AST_TYPE_ARRAY {
+        if element_type.type == ASTNodeType.AST_TYPE_ARRAY {
             // 递归获取内部数组的维度和基础类型
             var base_type: &byte = null;
             var dims: [i32: 10] = [];
             var dim_count: i32 = 0;
             
             var current_type: &ASTNode = type_node;
-            while current_type != null && current_type.type == AST_TYPE_ARRAY && dim_count < 10 {
+            while current_type != null && current_type.type == ASTNodeType.AST_TYPE_ARRAY && dim_count < 10 {
                 const curr_size_expr: &ASTNode = current_type.type_array_size_expr;
                 var curr_size: i32 = 1;
                 if curr_size_expr != null {
@@ -252,14 +252,14 @@ fn calculate_struct_size(codegen: &C99CodeGenerator, type_node: &ASTNode) i32 {
     }
     
     // 如果是命名类型（结构体），查找结构体声明
-    if type_node.type == AST_TYPE_NAMED {
+    if type_node.type == ASTNodeType.AST_TYPE_NAMED {
         const struct_name: &byte = type_node.type_named_name;
         if struct_name == null {
             return 0;
         }
         
         const struct_decl: &ASTNode = find_struct_decl_c99(codegen, struct_name);
-        if struct_decl == null || struct_decl.type != AST_STRUCT_DECL {
+        if struct_decl == null || struct_decl.type != ASTNodeType.AST_STRUCT_DECL {
             return 0;
         }
         
@@ -274,7 +274,7 @@ fn calculate_struct_size(codegen: &C99CodeGenerator, type_node: &ASTNode) i32 {
 
 // 检查成员访问表达式的结果类型是否是指针
 fn is_member_access_pointer_type(codegen: &C99CodeGenerator, member_access: &ASTNode) i32 {
-    if codegen == null || member_access == null || member_access.type != AST_MEMBER_ACCESS {
+    if codegen == null || member_access == null || member_access.type != ASTNodeType.AST_MEMBER_ACCESS {
         return 0;
     }
     
@@ -286,7 +286,7 @@ fn is_member_access_pointer_type(codegen: &C99CodeGenerator, member_access: &AST
     }
     
     // 如果 object 是标识符，查找变量类型，然后查找结构体字段类型
-    if object.type == AST_IDENTIFIER {
+    if object.type == ASTNodeType.AST_IDENTIFIER {
         const var_name: &byte = object.identifier_name;
         if var_name == null {
             return 0;
@@ -360,19 +360,19 @@ fn is_member_access_pointer_type(codegen: &C99CodeGenerator, member_access: &AST
         }
         
         // 检查字段类型是否是指针
-        if field_type.type == AST_TYPE_POINTER {
+        if field_type.type == ASTNodeType.AST_TYPE_POINTER {
             return 1;
         }
         return 0;
     }
     
     // 如果 object 是嵌套的成员访问，递归检查
-    if object.type == AST_MEMBER_ACCESS {
+    if object.type == ASTNodeType.AST_MEMBER_ACCESS {
         // 递归检查嵌套成员访问的结果类型
         const nested_object: &ASTNode = object.member_access_object;
         const nested_field_name: &byte = object.member_access_field_name;
         
-        if nested_object != null && nested_object.type == AST_IDENTIFIER && nested_field_name != null {
+        if nested_object != null && nested_object.type == ASTNodeType.AST_IDENTIFIER && nested_field_name != null {
             const var_name2: &byte = nested_object.identifier_name;
             if var_name2 == null {
                 return 0;
@@ -438,7 +438,7 @@ fn is_member_access_pointer_type(codegen: &C99CodeGenerator, member_access: &AST
             }
             
             // 检查嵌套字段类型是否是指针
-            if nested_field_type.type == AST_TYPE_POINTER {
+            if nested_field_type.type == ASTNodeType.AST_TYPE_POINTER {
                 // 嵌套字段是指针，所以当前字段访问应该使用 ->
                 return 1;
             }
@@ -548,7 +548,7 @@ fn is_identifier_pointer_to_array_type(codegen: &C99CodeGenerator, name: &byte) 
 // 检查数组访问表达式的结果类型是否是指针
 // 例如：如果 arr 的类型是 [&ASTNode: 64]，那么 arr[i] 的结果类型是 &ASTNode，在 C 中是 struct ASTNode *
 fn is_array_access_pointer_type(codegen: &C99CodeGenerator, array_access: &ASTNode) i32 {
-    if codegen == null || array_access == null || array_access.type != AST_ARRAY_ACCESS {
+    if codegen == null || array_access == null || array_access.type != ASTNodeType.AST_ARRAY_ACCESS {
         return 0;
     }
     
@@ -558,7 +558,7 @@ fn is_array_access_pointer_type(codegen: &C99CodeGenerator, array_access: &ASTNo
     }
     
     // 如果数组表达式是标识符，查找变量类型
-    if array.type == AST_IDENTIFIER {
+    if array.type == ASTNodeType.AST_IDENTIFIER {
         const array_name: &byte = array.identifier_name;
         if array_name == null {
             return 0;
@@ -612,12 +612,12 @@ fn is_array_access_pointer_type(codegen: &C99CodeGenerator, array_access: &ASTNo
     }
     
     // 如果数组表达式是嵌套的数组访问，递归检查
-    if array.type == AST_ARRAY_ACCESS {
+    if array.type == ASTNodeType.AST_ARRAY_ACCESS {
         return is_array_access_pointer_type(codegen, array);
     }
     
     // 如果数组表达式是成员访问，检查成员访问的结果类型
-    if array.type == AST_MEMBER_ACCESS {
+    if array.type == ASTNodeType.AST_MEMBER_ACCESS {
         const object: &ASTNode = array.member_access_object;
         const field_name: &byte = array.member_access_field_name;
         
@@ -629,7 +629,7 @@ fn is_array_access_pointer_type(codegen: &C99CodeGenerator, array_access: &ASTNo
         var var_type_c: &byte = null;
         var var_name: &byte = null;
         
-        if object.type == AST_IDENTIFIER {
+        if object.type == ASTNodeType.AST_IDENTIFIER {
             var_name = object.identifier_name;
             if var_name == null {
                 return 0;
@@ -654,7 +654,7 @@ fn is_array_access_pointer_type(codegen: &C99CodeGenerator, array_access: &ASTNo
                     i = i + 1;
                 }
             }
-        } else if object.type == AST_MEMBER_ACCESS {
+        } else if object.type == ASTNodeType.AST_MEMBER_ACCESS {
             // 嵌套成员访问：递归处理（暂时简化，只处理一层嵌套）
             // 对于 codegen->nodes[i]，object 是 codegen（标识符），所以上面已经处理了
             return 0;
@@ -707,7 +707,7 @@ fn is_array_access_pointer_type(codegen: &C99CodeGenerator, array_access: &ASTNo
         }
         
         // 检查字段类型是否是数组类型
-        if field_type.type == AST_TYPE_ARRAY {
+        if field_type.type == ASTNodeType.AST_TYPE_ARRAY {
             // 获取数组元素类型
             const element_type: &ASTNode = field_type.type_array_element_type;
             if element_type == null {
@@ -715,15 +715,15 @@ fn is_array_access_pointer_type(codegen: &C99CodeGenerator, array_access: &ASTNo
             }
             
             // 检查数组元素类型是否是指针类型
-            if element_type.type == AST_TYPE_POINTER {
+            if element_type.type == ASTNodeType.AST_TYPE_POINTER {
                 return 1;
             }
         }
         
         // 字段为“指针的指针”（& & T）时索引结果为指针，用 ->；单指针 &T 索引结果为值，用 .
-        if field_type.type == AST_TYPE_POINTER {
+        if field_type.type == ASTNodeType.AST_TYPE_POINTER {
             const pointee: &ASTNode = field_type.type_pointer_pointed_type;
-            if pointee != null && pointee.type == AST_TYPE_POINTER {
+            if pointee != null && pointee.type == ASTNodeType.AST_TYPE_POINTER {
                 return 1;
             }
         }
@@ -804,7 +804,7 @@ fn get_identifier_type_c(codegen: &C99CodeGenerator, name: &byte) &byte {
 // 生成数组包装结构体的名称
 // 例如：[i32: 3] -> "uya_array_i32_3", [[i32: 2]: 3] -> "uya_array_i32_2_3"
 fn get_array_wrapper_struct_name(codegen: &C99CodeGenerator, array_type: &ASTNode) &byte {
-    if array_type == null || array_type.type != AST_TYPE_ARRAY {
+    if array_type == null || array_type.type != ASTNodeType.AST_TYPE_ARRAY {
         return null;
     }
     
@@ -816,13 +816,13 @@ fn get_array_wrapper_struct_name(codegen: &C99CodeGenerator, array_type: &ASTNod
     // 递归处理数组维度
     var current: &ASTNode = array_type;
     var first: i32 = 1;
-    while current != null && current.type == AST_TYPE_ARRAY {
+    while current != null && current.type == ASTNodeType.AST_TYPE_ARRAY {
         const element_type: &ASTNode = current.type_array_element_type;
         const size_expr: &ASTNode = current.type_array_size_expr;
         
         // 获取元素类型名称
         var elem_name: &byte = null;
-        if element_type.type == AST_TYPE_NAMED {
+        if element_type.type == ASTNodeType.AST_TYPE_NAMED {
             const type_name: &byte = element_type.type_named_name;
             if type_name != null {
                 // 简化类型名称（i32 -> i32, Point -> Point）
@@ -883,7 +883,7 @@ fn get_array_wrapper_struct_name(codegen: &C99CodeGenerator, array_type: &ASTNod
 
 // 生成数组包装结构体的定义
 fn gen_array_wrapper_struct(codegen: &C99CodeGenerator, array_type: &ASTNode, struct_name: &byte) void {
-    if array_type == null || array_type.type != AST_TYPE_ARRAY || struct_name == null {
+    if array_type == null || array_type.type != ASTNodeType.AST_TYPE_ARRAY || struct_name == null {
         return;
     }
     
@@ -936,7 +936,7 @@ fn gen_array_wrapper_struct(codegen: &C99CodeGenerator, array_type: &ASTNode, st
 // 将数组返回类型转换为包装结构体类型（C99不允许函数返回数组）
 // 例如：[i32: 3] -> struct uya_array_i32_3
 fn convert_array_return_type(codegen: &C99CodeGenerator, return_type: &ASTNode) &byte {
-    if return_type == null || return_type.type != AST_TYPE_ARRAY {
+    if return_type == null || return_type.type != ASTNodeType.AST_TYPE_ARRAY {
         return c99_type_to_c(codegen, return_type);
     }
     
@@ -968,7 +968,7 @@ fn get_array_element_type(codegen: &C99CodeGenerator, array_expr: &ASTNode) &byt
     }
     
     // 如果是标识符，从变量表查找类型
-    if array_expr.type == AST_IDENTIFIER {
+    if array_expr.type == ASTNodeType.AST_IDENTIFIER {
         const var_name: &byte = array_expr.identifier_name;
         if var_name == null {
             return null;
@@ -1068,13 +1068,13 @@ fn get_array_element_type(codegen: &C99CodeGenerator, array_expr: &ASTNode) &byt
     }
     
     // 如果是数组访问，递归获取元素类型
-    if array_expr.type == AST_ARRAY_ACCESS {
+    if array_expr.type == ASTNodeType.AST_ARRAY_ACCESS {
         const base_array: &ASTNode = array_expr.array_access_array;
         return get_array_element_type(codegen, base_array);
     }
     
     // 如果是数组字面量，从第一个元素推断类型
-    if array_expr.type == AST_ARRAY_LITERAL {
+    if array_expr.type == ASTNodeType.AST_ARRAY_LITERAL {
         const element_count: i32 = array_expr.array_literal_element_count;
         if element_count > 0 && array_expr.array_literal_elements[0] != null {
             // 对于数组字面量，我们需要推断第一个元素的类型

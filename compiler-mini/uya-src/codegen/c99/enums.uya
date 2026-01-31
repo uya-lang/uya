@@ -17,7 +17,7 @@ fn find_enum_decl_c99(codegen: &C99CodeGenerator, enum_name: &byte) &ASTNode {
     var i: i32 = 0;
     while i < decl_count {
         const decl: &ASTNode = codegen.program_node.program_decls[i];
-        if decl != null && decl.type == AST_ENUM_DECL {
+        if decl != null && decl.type == ASTNodeType.AST_ENUM_DECL {
             const decl_name: &byte = decl.enum_decl_name;
             if decl_name != null && strcmp(decl_name as *byte, enum_name as *byte) == 0 {
                 return decl;
@@ -32,7 +32,7 @@ fn find_enum_decl_c99(codegen: &C99CodeGenerator, enum_name: &byte) &ASTNode {
 // 查找枚举变体的值（返回-1表示未找到）
 fn find_enum_variant_value(codegen: &C99CodeGenerator, enum_decl: &ASTNode, variant_name: &byte) i32 {
     // codegen 参数未使用，但保留以保持接口一致性
-    if enum_decl == null || enum_decl.type != AST_ENUM_DECL || variant_name == null {
+    if enum_decl == null || enum_decl.type != ASTNodeType.AST_ENUM_DECL || variant_name == null {
         return -1;
     }
     
@@ -125,7 +125,7 @@ fn add_enum_definition(codegen: &C99CodeGenerator, enum_name: &byte) void {
 
 // 生成枚举定义
 fn gen_enum_definition(codegen: &C99CodeGenerator, enum_decl: &ASTNode) i32 {
-    if enum_decl == null || enum_decl.type != AST_ENUM_DECL {
+    if enum_decl == null || enum_decl.type != ASTNodeType.AST_ENUM_DECL {
         return -1;
     }
     

@@ -156,47 +156,47 @@ fn str_equals_lexer(s1: &byte, s2: &byte) i32 {
 
 // 检查是否为关键字
 fn is_keyword(str: &byte) TokenType {
-    var result: TokenType = TOKEN_IDENTIFIER;
+    var result: TokenType = TokenType.TOKEN_IDENTIFIER;
     if str_equals_lexer(str, "enum" as &byte) != 0 {
-        result = TOKEN_ENUM;
+        result = TokenType.TOKEN_ENUM;
     } else if str_equals_lexer(str, "struct" as &byte) != 0 {
-        result = TOKEN_STRUCT;
+        result = TokenType.TOKEN_STRUCT;
     } else if str_equals_lexer(str, "const" as &byte) != 0 {
-        result = TOKEN_CONST;
+        result = TokenType.TOKEN_CONST;
     } else if str_equals_lexer(str, "var" as &byte) != 0 {
-        result = TOKEN_VAR;
+        result = TokenType.TOKEN_VAR;
     } else if str_equals_lexer(str, "fn" as &byte) != 0 {
-        result = TOKEN_FN;
+        result = TokenType.TOKEN_FN;
     } else if str_equals_lexer(str, "extern" as &byte) != 0 {
-        result = TOKEN_EXTERN;
+        result = TokenType.TOKEN_EXTERN;
     } else if str_equals_lexer(str, "return" as &byte) != 0 {
-        result = TOKEN_RETURN;
+        result = TokenType.TOKEN_RETURN;
     } else if str_equals_lexer(str, "if" as &byte) != 0 {
-        result = TOKEN_IF;
+        result = TokenType.TOKEN_IF;
     } else if str_equals_lexer(str, "else" as &byte) != 0 {
-        result = TOKEN_ELSE;
+        result = TokenType.TOKEN_ELSE;
     } else if str_equals_lexer(str, "while" as &byte) != 0 {
-        result = TOKEN_WHILE;
+        result = TokenType.TOKEN_WHILE;
     } else if str_equals_lexer(str, "for" as &byte) != 0 {
-        result = TOKEN_FOR;
+        result = TokenType.TOKEN_FOR;
     } else if str_equals_lexer(str, "break" as &byte) != 0 {
-        result = TOKEN_BREAK;
+        result = TokenType.TOKEN_BREAK;
     } else if str_equals_lexer(str, "continue" as &byte) != 0 {
-        result = TOKEN_CONTINUE;
+        result = TokenType.TOKEN_CONTINUE;
     } else if str_equals_lexer(str, "true" as &byte) != 0 {
-        result = TOKEN_TRUE;
+        result = TokenType.TOKEN_TRUE;
     } else if str_equals_lexer(str, "false" as &byte) != 0 {
-        result = TOKEN_FALSE;
+        result = TokenType.TOKEN_FALSE;
     } else if str_equals_lexer(str, "null" as &byte) != 0 {
-        result = TOKEN_NULL;
+        result = TokenType.TOKEN_NULL;
     } else if str_equals_lexer(str, "sizeof" as &byte) != 0 {
-        result = TOKEN_SIZEOF;
+        result = TokenType.TOKEN_SIZEOF;
     } else if str_equals_lexer(str, "len" as &byte) != 0 {
-        result = TOKEN_LEN;
+        result = TokenType.TOKEN_LEN;
     } else if str_equals_lexer(str, "alignof" as &byte) != 0 {
-        result = TOKEN_ALIGNOF;
+        result = TokenType.TOKEN_ALIGNOF;
     } else if str_equals_lexer(str, "as" as &byte) != 0 {
-        result = TOKEN_AS;
+        result = TokenType.TOKEN_AS;
     }
     return result;
 }
@@ -322,9 +322,9 @@ fn read_number(lexer: &Lexer, arena: &Arena) &Token {
         return null;
     }
     if is_float != 0 {
-        return make_token(arena, TOKEN_FLOAT, value, line, column);
+        return make_token(arena, TokenType.TOKEN_FLOAT, value, line, column);
     }
-    return make_token(arena, TOKEN_NUMBER, value, line, column);
+    return make_token(arena, TokenType.TOKEN_NUMBER, value, line, column);
 }
 
 // 读取字符串字面量（支持 \n \t \\ \" \0）
@@ -391,7 +391,7 @@ fn read_string(lexer: &Lexer, arena: &Arena) &Token {
         i = i + 1;
     }
     value[temp_len] = 0;
-    return make_token(arena, TOKEN_STRING, value, line, column);
+    return make_token(arena, TokenType.TOKEN_STRING, value, line, column);
 }
 
 // 获取下一个 Token
@@ -401,139 +401,139 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
     }
     skip_whitespace_and_comments(lexer);
     if lexer.position >= lexer.buffer_size {
-        return make_token(arena, TOKEN_EOF, null, lexer.line, lexer.column);
+        return make_token(arena, TokenType.TOKEN_EOF, null, lexer.line, lexer.column);
     }
     const c: byte = peek_char(lexer, 0);
     const line: i32 = lexer.line;
     const column: i32 = lexer.column;
     if c == 43 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_PLUS, "+" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_PLUS, "+" as &byte, line, column);
     }
     if c == 45 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_MINUS, "-" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_MINUS, "-" as &byte, line, column);
     }
     if c == 42 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_ASTERISK, "*" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_ASTERISK, "*" as &byte, line, column);
     }
     if c == 47 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_SLASH, "/" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_SLASH, "/" as &byte, line, column);
     }
     if c == 37 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_PERCENT, "%" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_PERCENT, "%" as &byte, line, column);
     }
     if c == 61 {
         advance_char(lexer);
         if peek_char(lexer, 0) == 61 {
             advance_char(lexer);
-            return make_token(arena, TOKEN_EQUAL, "==" as &byte, line, column);
+            return make_token(arena, TokenType.TOKEN_EQUAL, "==" as &byte, line, column);
         }
-        return make_token(arena, TOKEN_ASSIGN, "=" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_ASSIGN, "=" as &byte, line, column);
     }
     if c == 33 {
         advance_char(lexer);
         if peek_char(lexer, 0) == 61 {
             advance_char(lexer);
-            return make_token(arena, TOKEN_NOT_EQUAL, "!=" as &byte, line, column);
+            return make_token(arena, TokenType.TOKEN_NOT_EQUAL, "!=" as &byte, line, column);
         }
-        return make_token(arena, TOKEN_EXCLAMATION, "!" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_EXCLAMATION, "!" as &byte, line, column);
     }
     if c == 60 {
         advance_char(lexer);
         if peek_char(lexer, 0) == 60 {
             advance_char(lexer);
-            return make_token(arena, TOKEN_LSHIFT, "<<" as &byte, line, column);
+            return make_token(arena, TokenType.TOKEN_LSHIFT, "<<" as &byte, line, column);
         }
         if peek_char(lexer, 0) == 61 {
             advance_char(lexer);
-            return make_token(arena, TOKEN_LESS_EQUAL, "<=" as &byte, line, column);
+            return make_token(arena, TokenType.TOKEN_LESS_EQUAL, "<=" as &byte, line, column);
         }
-        return make_token(arena, TOKEN_LESS, "<" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_LESS, "<" as &byte, line, column);
     }
     if c == 62 {
         advance_char(lexer);
         if peek_char(lexer, 0) == 62 {
             advance_char(lexer);
-            return make_token(arena, TOKEN_RSHIFT, ">>" as &byte, line, column);
+            return make_token(arena, TokenType.TOKEN_RSHIFT, ">>" as &byte, line, column);
         }
         if peek_char(lexer, 0) == 61 {
             advance_char(lexer);
-            return make_token(arena, TOKEN_GREATER_EQUAL, ">=" as &byte, line, column);
+            return make_token(arena, TokenType.TOKEN_GREATER_EQUAL, ">=" as &byte, line, column);
         }
-        return make_token(arena, TOKEN_GREATER, ">" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_GREATER, ">" as &byte, line, column);
     }
     if c == 94 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_CARET, "^" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_CARET, "^" as &byte, line, column);
     }
     if c == 126 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_TILDE, "~" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_TILDE, "~" as &byte, line, column);
     }
     if c == 38 {
         advance_char(lexer);
         if peek_char(lexer, 0) == 38 {
             advance_char(lexer);
-            return make_token(arena, TOKEN_LOGICAL_AND, "&&" as &byte, line, column);
+            return make_token(arena, TokenType.TOKEN_LOGICAL_AND, "&&" as &byte, line, column);
         }
-        return make_token(arena, TOKEN_AMPERSAND, "&" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_AMPERSAND, "&" as &byte, line, column);
     }
     if c == 124 {
         advance_char(lexer);
         if peek_char(lexer, 0) == 124 {
             advance_char(lexer);
-            return make_token(arena, TOKEN_LOGICAL_OR, "||" as &byte, line, column);
+            return make_token(arena, TokenType.TOKEN_LOGICAL_OR, "||" as &byte, line, column);
         }
-        return make_token(arena, TOKEN_PIPE, "|" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_PIPE, "|" as &byte, line, column);
     }
     if c == 40 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_LEFT_PAREN, "(" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_LEFT_PAREN, "(" as &byte, line, column);
     }
     if c == 41 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_RIGHT_PAREN, ")" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_RIGHT_PAREN, ")" as &byte, line, column);
     }
     if c == 123 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_LEFT_BRACE, "{" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_LEFT_BRACE, "{" as &byte, line, column);
     }
     if c == 125 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_RIGHT_BRACE, "}" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_RIGHT_BRACE, "}" as &byte, line, column);
     }
     if c == 91 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_LEFT_BRACKET, "[" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_LEFT_BRACKET, "[" as &byte, line, column);
     }
     if c == 93 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_RIGHT_BRACKET, "]" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_RIGHT_BRACKET, "]" as &byte, line, column);
     }
     if c == 59 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_SEMICOLON, ";" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_SEMICOLON, ";" as &byte, line, column);
     }
     if c == 44 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_COMMA, "," as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_COMMA, "," as &byte, line, column);
     }
     if c == 46 {
         advance_char(lexer);
         if peek_char(lexer, 0) == 46 && peek_char(lexer, 1) == 46 {
             advance_char(lexer);
             advance_char(lexer);
-            return make_token(arena, TOKEN_ELLIPSIS, "..." as &byte, line, column);
+            return make_token(arena, TokenType.TOKEN_ELLIPSIS, "..." as &byte, line, column);
         }
-        return make_token(arena, TOKEN_DOT, "." as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_DOT, "." as &byte, line, column);
     }
     if c == 58 {
         advance_char(lexer);
-        return make_token(arena, TOKEN_COLON, ":" as &byte, line, column);
+        return make_token(arena, TokenType.TOKEN_COLON, ":" as &byte, line, column);
     }
     if c == 34 {
         return read_string(lexer, arena);
@@ -554,7 +554,7 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
         return read_number(lexer, arena);
     }
     advance_char(lexer);
-    return make_token(arena, TOKEN_EOF, null, line, column);
+    return make_token(arena, TokenType.TOKEN_EOF, null, line, column);
 }
 
 // 初始化 Lexer

@@ -13,7 +13,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     }
     
     // 检查是否是程序节点
-    if ast.type != AST_PROGRAM {
+    if ast.type != ASTNodeType.AST_PROGRAM {
         return -1;
     }
     
@@ -56,12 +56,12 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null {
-            if decl.type == AST_STRUCT_DECL {
+            if decl.type == ASTNodeType.AST_STRUCT_DECL {
                 const struct_name: &byte = get_safe_c_identifier(codegen, decl.struct_decl_name);
                 if is_struct_in_table(codegen, struct_name) == 0 {
                     add_struct_definition(codegen, struct_name);
                 }
-            } else if decl.type == AST_ENUM_DECL {
+            } else if decl.type == ASTNodeType.AST_ENUM_DECL {
                 const enum_name: &byte = get_safe_c_identifier(codegen, decl.enum_decl_name);
                 if is_enum_in_table(codegen, enum_name) == 0 {
                     add_enum_definition(codegen, enum_name);
@@ -87,7 +87,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
-        if decl != null && decl.type == AST_ENUM_DECL {
+        if decl != null && decl.type == ASTNodeType.AST_ENUM_DECL {
             gen_enum_definition(codegen, decl);
             fputs("\n" as *byte, codegen.output as *void);
         }
@@ -98,7 +98,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
-        if decl != null && decl.type == AST_STRUCT_DECL {
+        if decl != null && decl.type == ASTNodeType.AST_STRUCT_DECL {
             gen_struct_definition(codegen, decl);
             fputs("\n" as *byte, codegen.output as *void);
         }
@@ -109,7 +109,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
-        if decl != null && decl.type == AST_FN_DECL {
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
             gen_function_prototype(codegen, decl);
         }
         i = i + 1;
@@ -121,12 +121,12 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null {
-            if decl.type == AST_STRUCT_DECL || decl.type == AST_ENUM_DECL {
+            if decl.type == ASTNodeType.AST_STRUCT_DECL || decl.type == ASTNodeType.AST_ENUM_DECL {
                 // 已在前面生成
-            } else if decl.type == AST_VAR_DECL {
+            } else if decl.type == ASTNodeType.AST_VAR_DECL {
                 gen_global_var(codegen, decl);
                 fputs("\n" as *byte, codegen.output as *void);
-            } else if decl.type == AST_FN_DECL {
+            } else if decl.type == ASTNodeType.AST_FN_DECL {
                 // 只生成有函数体的定义（外部函数由前向声明处理）
                 gen_function(codegen, decl);
                 fputs("\n" as *byte, codegen.output as *void);
