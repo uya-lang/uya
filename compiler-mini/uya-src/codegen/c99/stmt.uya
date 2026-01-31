@@ -383,11 +383,10 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 // 先完成变量声明（不包含初始化）
                 fputs(";\n" as *byte, codegen.output as *void);
                 
-                // 获取结构体定义中的所有字段
                 const struct_decl2: &ASTNode = struct_decl_for_empty_init;
                 const field_count3: i32 = struct_decl2.struct_decl_field_count;
                 
-                // 手动初始化每个字段
+                if field_count3 > 0 {
                 var i2: i32 = 0;
                 while i2 < field_count3 {
                     const field: &ASTNode = struct_decl2.struct_decl_fields[i2];
@@ -413,6 +412,11 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                         }
                     }
                     i2 = i2 + 1;
+                }
+                } else {
+                    // 空结构体（AST 无字段）：与 C 编译器一致，整体零初始化
+                    c99_emit_indent(codegen);
+                    fprintf(codegen.output as *void, "memset(&%s, 0, sizeof(%s));\n" as *byte, var_name as *byte, var_name as *byte);
                 }
             } else if is_array_from_function != 0 {
                 // 从函数调用接收数组：需要从包装结构体中提取

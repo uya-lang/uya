@@ -8,6 +8,11 @@
 #   ./run_programs.sh test_file.uya      # 运行单个测试文件
 #   ./run_programs.sh tests/programs     # 运行指定目录下的所有测试
 #   ./run_programs.sh tests/programs/multifile  # 运行指定子目录的测试
+#
+# 快速验证单个测试（在 compiler-mini 目录下执行）:
+#   ./tests/run_programs.sh --uya -e test_global_var.uya
+#   ./tests/run_programs.sh --uya tests/programs/test_global_var.uya
+#   仅传文件名时会在 tests/programs/ 下查找，例如 test_global_var.uya
 
 COMPILER="./build/compiler-mini"
 TEST_DIR="tests/programs"
@@ -38,10 +43,10 @@ show_usage() {
     echo "  $0 -e                                 # 只显示失败的测试"
     echo "  $0 --c99                             # 使用 C99 后端运行所有测试"
     echo "  $0 --uya                              # 使用 uya-src 编译的编译器运行所有测试"
-    echo "  $0 test_struct_pointer_return.uya     # 运行单个测试文件"
-    echo "  $0 -e test_struct_pointer_return.uya # 只显示失败信息"
-    echo "  $0 --c99 test_struct_pointer_return.uya # 使用 C99 后端运行单个测试"
-    echo "  $0 --uya test_struct_pointer_return.uya # 使用 uya-src 编译器运行单个测试"
+    echo "  # 指定单个文件可加快验证（文件名或相对 tests/programs 的路径均可）:"
+    echo "  $0 test_global_var.uya               # 运行单个测试（在 tests/programs 下查找）"
+    echo "  $0 --uya -e test_global_var.uya      # 用 uya 编译器只测该文件并仅显示失败信息"
+    echo "  $0 tests/programs/test_global_var.uya # 或写完整相对路径"
     echo "  $0 tests/programs                     # 运行指定目录下的所有测试"
     echo "  $0 tests/programs/multifile          # 运行指定子目录的测试"
 }
@@ -84,11 +89,7 @@ while [ $# -gt 0 ]; do
             ;;
         *)
             TARGET_PATH="$1"
-            # 检查路径是否存在
-            if [ ! -e "$TARGET_PATH" ]; then
-                echo "错误: 路径 '$TARGET_PATH' 不存在"
-                exit 1
-            fi
+            # 若为相对路径且当前不存在，稍后会在 TEST_DIR 下再尝试（见下方 process_path 前）
             shift
             ;;
     esac
@@ -592,16 +593,18 @@ process_path() {
 
 # 如果指定了目标路径，只处理该路径
 if [ -n "$TARGET_PATH" ]; then
-    # 转换为绝对路径或相对于当前目录的路径
+    # 转换为绝对路径或相对于当前目录的路径；支持裸文件名（在 tests/programs 下查找）
     if [[ "$TARGET_PATH" != /* ]]; then
-        # 相对路径，尝试相对于测试目录
         if [ -f "$TARGET_PATH" ] || [ -d "$TARGET_PATH" ]; then
             TARGET_PATH=$(realpath "$TARGET_PATH" 2>/dev/null || echo "$TARGET_PATH")
         elif [ -f "$TEST_DIR/$TARGET_PATH" ] || [ -d "$TEST_DIR/$TARGET_PATH" ]; then
             TARGET_PATH="$TEST_DIR/$TARGET_PATH"
         fi
     fi
-    
+    if [ ! -e "$TARGET_PATH" ]; then
+        echo "错误: 路径 '$TARGET_PATH' 不存在（裸文件名会在 $TEST_DIR 下查找）"
+        exit 1
+    fi
     process_path "$TARGET_PATH"
 else
     # 没有指定路径，运行所有测试
