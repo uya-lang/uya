@@ -42,8 +42,40 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &Arena, output: &void, mod
         codegen.interp_arg_temp_names[ii] = null;
         ii = ii + 1;
     }
+    codegen.error_count = 0;
+    codegen.defer_stack_depth = 0;
+    ii = 0;
+    while ii < C99_MAX_DEFER_STACK {
+        codegen.defer_count[ii] = 0;
+        codegen.errdefer_count[ii] = 0;
+        ii = ii + 1;
+    }
     
     return 0;
+}
+
+// 获取或添加错误 ID（1-based），用于 return error.X 等（codegen 版本，与 checker 的 get_or_add_error_id 区分）
+fn c99_get_or_add_error_id(codegen: &C99CodeGenerator, name: &byte) i32 {
+    if codegen == null || name == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < codegen.error_count {
+        if codegen.error_names[i] != null && strcmp(codegen.error_names[i] as *byte, name as *byte) == 0 {
+            return i + 1;
+        }
+        i = i + 1;
+    }
+    if codegen.error_count >= 128 {
+        return 0;
+    }
+    const copy: &byte = c99_arena_strdup(codegen.arena, name);
+    if copy == null {
+        return 0;
+    }
+    codegen.error_names[codegen.error_count] = copy;
+    codegen.error_count = codegen.error_count + 1;
+    return codegen.error_count;
 }
 
 // 释放资源（不关闭输出文件）
@@ -491,6 +523,18 @@ fn collect_string_constants_from_expr(codegen: &C99CodeGenerator, expr: &ASTNode
         // 暂时忽略
     } else if expr.type == ASTNodeType.AST_CAST_EXPR {
         collect_string_constants_from_expr(codegen, expr.cast_expr_expr);
+    } else if expr.type == ASTNodeType.AST_TRY_EXPR {
+        collect_string_constants_from_expr(codegen, expr.try_expr_operand);
+    } else if expr.type == ASTNodeType.AST_CATCH_EXPR {
+        collect_string_constants_from_expr(codegen, expr.catch_expr_operand);
+        if expr.catch_expr_catch_block != null {
+            const block: &ASTNode = expr.catch_expr_catch_block;
+            var i: i32 = 0;
+            while i < block.block_stmt_count {
+                collect_string_constants_from_stmt(codegen, block.block_stmts[i]);
+                i = i + 1;
+            }
+        }
     } else {
         // 其他表达式类型（标识符、数字、布尔值）不包含字符串
     }
@@ -549,6 +593,14 @@ fn collect_string_constants_from_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode
         collect_string_constants_from_stmt(codegen, body);
     } else if stmt.type == ASTNodeType.AST_BREAK_STMT || stmt.type == ASTNodeType.AST_CONTINUE_STMT {
         // 不包含表达式
+    } else if stmt.type == ASTNodeType.AST_DEFER_STMT {
+        if stmt.defer_stmt_body != null {
+            collect_string_constants_from_stmt(codegen, stmt.defer_stmt_body);
+        }
+    } else if stmt.type == ASTNodeType.AST_ERRDEFER_STMT {
+        if stmt.errdefer_stmt_body != null {
+            collect_string_constants_from_stmt(codegen, stmt.errdefer_stmt_body);
+        }
     } else {
         // 可能是表达式节点（如 ASTNodeType.AST_BINARY_EXPR 等）
         // 在这种情况下，将其视为表达式处理

@@ -175,6 +175,59 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
         
         snprintf(result as *byte, str_len, "%s *" as *byte, pointee_type as *byte);
         return result;
+    } else if type_node.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+        // 错误联合类型 !T -> struct { uint32_t error_id; T value; }
+        const payload_node: &ASTNode = type_node.type_error_union_payload_type;
+        if payload_node == null {
+            return ("void" as *byte) as &byte;
+        }
+        const payload_c: &byte = c99_type_to_c(codegen, payload_node);
+        var is_void: i32 = 0;
+        if payload_node.type == ASTNodeType.AST_TYPE_NAMED && payload_node.type_named_name != null && strcmp(payload_node.type_named_name as *byte, "void" as *byte) == 0 {
+            is_void = 1;
+        }
+        var struct_name_buf: [byte: 128] = [];
+        if is_void != 0 {
+            snprintf(&struct_name_buf[0] as *byte, 128, "err_union_void" as *byte);
+        } else {
+            var safe: [byte: 64] = [];
+            var j: i32 = 0;
+            var p: &byte = payload_c;
+            while p[0] != 0 && j < 63 {
+                const c: i32 = p[0] as i32;
+                if (c >= 97 && c <= 122) || (c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c == 95 {
+                    safe[j] = p[0];
+                    j = j + 1;
+                }
+                p = p + 1;
+            }
+            safe[j] = 0;
+            if j > 0 {
+                snprintf(&struct_name_buf[0] as *byte, 128, "err_union_%s" as *byte, &safe[0] as *byte);
+            } else {
+                snprintf(&struct_name_buf[0] as *byte, 128, "err_union_T" as *byte);
+            }
+        }
+        const name_copy: &byte = c99_arena_strdup(codegen.arena, &struct_name_buf[0]);
+        if name_copy == null {
+            return ("void" as *byte) as &byte;
+        }
+        if is_struct_defined(codegen, name_copy) == 0 {
+            add_struct_definition(codegen, name_copy);
+            fprintf(codegen.output as *void, "struct %s { uint32_t error_id;" as *byte, name_copy as *byte);
+            if is_void == 0 {
+                fprintf(codegen.output as *void, " %s value;" as *byte, payload_c as *byte);
+            }
+            fputs(" };\n" as *byte, codegen.output as *void);
+            mark_struct_defined(codegen, name_copy);
+        }
+        const len: i32 = strlen(name_copy as *byte) + 9;
+        const result: &byte = arena_alloc(codegen.arena, len) as &byte;
+        if result == null {
+            return ("void" as *byte) as &byte;
+        }
+        snprintf(result as *byte, len, "struct %s" as *byte, name_copy as *byte);
+        return result;
     } else if type_node.type == ASTNodeType.AST_TYPE_ARRAY {
         const element_type: &ASTNode = type_node.type_array_element_type;
         const size_expr: &ASTNode = type_node.type_array_size_expr;

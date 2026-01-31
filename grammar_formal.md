@@ -159,6 +159,10 @@ break_stmt     = 'break' ';'
 continue_stmt  = 'continue' ';'
 defer_stmt     = 'defer' ( statement | '{' statements '}' )
 errdefer_stmt  = 'errdefer' ( statement | '{' statements '}' )
+
+# defer/errdefer 块内禁止：return、break、continue 等控制流语句
+# 允许：表达式、赋值、函数调用、语句块
+# 替代方案：使用变量记录状态，在 defer/errdefer 外处理控制流
 block_stmt     = '{' statements '}'
 match_stmt     = match_expr
 match_expr     = 'match' expr '{' pattern_list '}'

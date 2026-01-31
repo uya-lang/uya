@@ -452,6 +452,11 @@ fn example() !void {
 }
 ```
 
+**块内禁止控制流语句**（defer/errdefer 相同）：
+- ✅ 允许：表达式、赋值、函数调用、语句块
+- ❌ 禁止：`return`、`break`、`continue` 等控制流语句
+- ✅ 替代：使用变量记录状态，在 defer/errdefer 外处理控制流
+
 ---
 
 ## 十三、常见问题与解答

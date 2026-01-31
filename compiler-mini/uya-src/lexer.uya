@@ -34,6 +34,11 @@ enum TokenType {
     TOKEN_TRUE,
     TOKEN_FALSE,
     TOKEN_NULL,
+    TOKEN_TRY,          // try（错误传播/溢出检查）
+    TOKEN_CATCH,        // catch（错误捕获）
+    TOKEN_ERROR,        // error（错误声明/错误类型前缀）
+    TOKEN_DEFER,        // defer（作用域结束执行）
+    TOKEN_ERRDEFER,     // errdefer（仅错误返回时执行）
     TOKEN_AT_IDENTIFIER,  // @ 后跟内置函数标识符（@sizeof、@alignof、@len、@max、@min）
     TOKEN_AS,
     TOKEN_PLUS,
@@ -201,6 +206,16 @@ fn is_keyword(str: &byte) TokenType {
         result = TokenType.TOKEN_FALSE;
     } else if str_equals_lexer(str, "null" as &byte) != 0 {
         result = TokenType.TOKEN_NULL;
+    } else if str_equals_lexer(str, "try" as &byte) != 0 {
+        result = TokenType.TOKEN_TRY;
+    } else if str_equals_lexer(str, "catch" as &byte) != 0 {
+        result = TokenType.TOKEN_CATCH;
+    } else if str_equals_lexer(str, "error" as &byte) != 0 {
+        result = TokenType.TOKEN_ERROR;
+    } else if str_equals_lexer(str, "defer" as &byte) != 0 {
+        result = TokenType.TOKEN_DEFER;
+    } else if str_equals_lexer(str, "errdefer" as &byte) != 0 {
+        result = TokenType.TOKEN_ERRDEFER;
     } else if str_equals_lexer(str, "as" as &byte) != 0 {
         result = TokenType.TOKEN_AS;
     }

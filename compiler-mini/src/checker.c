@@ -80,6 +80,7 @@ int checker_init(TypeChecker *checker, Arena *arena, const char *default_filenam
     checker->default_filename = default_filename;
     checker->current_return_type.kind = TYPE_VOID;
     checker->in_function = 0;
+    checker->in_defer_or_errdefer = 0;
     checker->current_function_decl = NULL;
     checker->error_name_count = 0;
     for (int i = 0; i < 128; i++) {
@@ -2846,18 +2847,24 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
         }
         
         case AST_BREAK_STMT: {
-            // 检查 break 是否在循环中
+            if (checker->in_defer_or_errdefer) {
+                checker_report_error(checker, node, "defer/errdefer 块中不能使用 break 语句");
+                return 0;
+            }
             if (checker->loop_depth == 0) {
-                checker_report_error(checker, node, "类型检查错误");
+                checker_report_error(checker, node, "break 只能在循环中使用");
                 return 0;
             }
             return 1;
         }
         
         case AST_CONTINUE_STMT: {
-            // 检查 continue 是否在循环中
+            if (checker->in_defer_or_errdefer) {
+                checker_report_error(checker, node, "defer/errdefer 块中不能使用 continue 语句");
+                return 0;
+            }
             if (checker->loop_depth == 0) {
-                checker_report_error(checker, node, "类型检查错误");
+                checker_report_error(checker, node, "continue 只能在循环中使用");
                 return 0;
             }
             return 1;
@@ -2865,7 +2872,11 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
         
         case AST_DEFER_STMT: {
             if (node->data.defer_stmt.body != NULL) {
-                return checker_check_node(checker, node->data.defer_stmt.body);
+                int prev = checker->in_defer_or_errdefer;
+                checker->in_defer_or_errdefer = 1;
+                int ret = checker_check_node(checker, node->data.defer_stmt.body);
+                checker->in_defer_or_errdefer = prev;
+                return ret;
             }
             return 1;
         }
@@ -2876,15 +2887,21 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                 return 0;
             }
             if (node->data.errdefer_stmt.body != NULL) {
-                return checker_check_node(checker, node->data.errdefer_stmt.body);
+                int prev = checker->in_defer_or_errdefer;
+                checker->in_defer_or_errdefer = 1;
+                int ret = checker_check_node(checker, node->data.errdefer_stmt.body);
+                checker->in_defer_or_errdefer = prev;
+                return ret;
             }
             return 1;
         }
         
         case AST_RETURN_STMT: {
-            // 检查返回值类型是否匹配函数返回类型
+            if (checker->in_defer_or_errdefer) {
+                checker_report_error(checker, node, "defer/errdefer 块中不能使用 return 语句");
+                return 0;
+            }
             if (!checker->in_function) {
-                // 不在函数中，不应该有 return 语句（这通常不应该发生）
                 checker_report_error(checker, node, "return 语句不在函数中");
                 return 0;
             }

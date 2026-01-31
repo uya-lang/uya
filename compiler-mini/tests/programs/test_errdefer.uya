@@ -11,5 +11,5 @@ fn main() i32 {
     var y: i32 = 0;
     defer { y = 1; }  // main 返回 i32，不能用 errdefer；仅测 defer
     if (r != 0) { return 1; }
-    return 1 - y;  // 正常返回：执行 defer (y=1)，返回 0
+    return (1 - y) - 1;  // 规范 §9：先计算 1-y=1，再 defer(y=1)，返回 0 表示通过
 }

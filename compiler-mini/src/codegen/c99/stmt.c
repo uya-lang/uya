@@ -3,7 +3,8 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
-/* 在 return/break/continue/块结束前执行当前层的 defer（及可选的 errdefer）。LIFO 顺序。 */
+/* 在 return/break/continue/块结束前执行当前层的 defer（及可选的 errdefer）。LIFO 顺序。
+ * 规范 §9：return 时先计算返回值，再执行 defer，最后返回；defer 不能修改返回值。 */
 static void emit_defer_cleanup(C99CodeGenerator *codegen, int emit_errdefer) {
     if (codegen->defer_stack_depth <= 0) return;
     int d = codegen->defer_stack_depth - 1;
@@ -96,7 +97,12 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             ASTNode *expr = stmt->data.return_stmt.expr;
             ASTNode *return_type = codegen->current_function_return_type;
             int is_error_return = (expr && expr->type == AST_ERROR_VALUE);
-            emit_defer_cleanup(codegen, is_error_return);
+            
+            // return error.X 与 return;：先执行 defer，再返回（error 值不依赖变量）
+            if ((expr && expr->type == AST_ERROR_VALUE) || (!expr && return_type && return_type->type == AST_TYPE_NAMED &&
+                    return_type->data.type_named.name && strcmp(return_type->data.type_named.name, "void") == 0)) {
+                emit_defer_cleanup(codegen, is_error_return);
+            }
             
             // return error.X：生成错误联合复合字面量
             if (expr && expr->type == AST_ERROR_VALUE && return_type && return_type->type == AST_TYPE_ERROR_UNION) {
@@ -115,24 +121,31 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 break;
             }
             
-            // 检查函数返回类型是否为数组
-            int is_array_return = 0;
-            if (return_type && return_type->type == AST_TYPE_ARRAY) {
-                is_array_return = 1;
+            // return;（void 函数）
+            if (!expr) {
+                int is_void = 0;
+                if (return_type && return_type->type == AST_TYPE_NAMED) {
+                    const char *tn = return_type->data.type_named.name;
+                    if (tn && strcmp(tn, "void") == 0) is_void = 1;
+                }
+                if (is_void) {
+                    c99_emit(codegen, "return;\n");
+                    break;
+                }
             }
             
+            // 有返回值的 return expr：规范要求先计算返回值，再执行 defer，最后返回
+            int is_array_return = (return_type && return_type->type == AST_TYPE_ARRAY);
+            const char *ret_c = convert_array_return_type(codegen, return_type);
+            if (!ret_c) ret_c = "int32_t";
+            
+            // 1. 先将返回值计算到临时变量 _uya_ret
             if (is_array_return && expr) {
-                // 返回数组类型：需要包装在结构体中
                 const char *struct_name = get_array_wrapper_struct_name(codegen, return_type);
                 if (struct_name) {
-                    // 生成包装结构体定义（如果尚未生成）
                     gen_array_wrapper_struct(codegen, return_type, struct_name);
-                    
-                    // 生成返回语句：return (struct uya_array_xxx) { .data = { ... } };
-                    c99_emit(codegen, "return (struct %s) { .data = ", struct_name);
-                    
+                    c99_emit(codegen, "%s _uya_ret = (struct %s) { .data = ", ret_c, struct_name);
                     if (expr->type == AST_ARRAY_LITERAL) {
-                        // 数组字面量（列表形式或 [value: N]）
                         fputc('{', codegen->output);
                         ASTNode **elements = expr->data.array_literal.elements;
                         int element_count = expr->data.array_literal.element_count;
@@ -152,55 +165,43 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                         }
                         fputc('}', codegen->output);
                     } else {
-                        // 其他表达式（如变量）
                         gen_expr(codegen, expr);
                     }
-                    
                     fputs(" };\n", codegen->output);
                 } else {
-                    // 回退到普通返回
-                    c99_emit(codegen, "return ");
+                    c99_emit(codegen, "%s _uya_ret = ", ret_c);
                     gen_expr(codegen, expr);
                     fputs(";\n", codegen->output);
                 }
             } else {
-                // 非数组返回类型，正常处理
-                // 检查返回类型是否为 void
                 int is_void = 0;
                 if (return_type && return_type->type == AST_TYPE_NAMED) {
-                    const char *type_name = return_type->data.type_named.name;
-                    if (type_name && strcmp(type_name, "void") == 0) {
-                        is_void = 1;
-                    }
+                    const char *tn = return_type->data.type_named.name;
+                    if (tn && strcmp(tn, "void") == 0) is_void = 1;
                 }
-                
-                // 返回类型为 !T 且返回成功值：return (struct X){ .error_id = 0, .value = expr };
                 if (return_type && return_type->type == AST_TYPE_ERROR_UNION && expr && expr->type != AST_ERROR_VALUE) {
-                    const char *ret_c = c99_type_to_c(codegen, return_type);
                     ASTNode *payload_node = return_type->data.type_error_union.payload_type;
                     int payload_void = (!payload_node || (payload_node->type == AST_TYPE_NAMED &&
                         payload_node->data.type_named.name && strcmp(payload_node->data.type_named.name, "void") == 0));
                     if (payload_void) {
-                        c99_emit(codegen, "return (%s){ .error_id = 0 };\n", ret_c);
+                        c99_emit(codegen, "%s _uya_ret = (%s){ .error_id = 0 };\n", ret_c, ret_c);
                     } else {
-                        c99_emit(codegen, "return (%s){ .error_id = 0, .value = ", ret_c);
+                        c99_emit(codegen, "%s _uya_ret = (%s){ .error_id = 0, .value = ", ret_c, ret_c);
                         gen_expr(codegen, expr);
                         fputs(" };\n", codegen->output);
                     }
-                } else if (is_void && !expr) {
-                    // void 函数且无返回值：生成 return;
-                    c99_emit(codegen, "return;\n");
-                } else {
-                    // 非 void 函数或 void 函数有返回值（错误情况，但让编译器处理）
-                    c99_emit(codegen, "return ");
-                    if (expr) {
-                        gen_expr(codegen, expr);
-                    } else {
-                        fputs("0", codegen->output);
-                    }
+                } else if (!is_void && expr) {
+                    c99_emit(codegen, "%s _uya_ret = ", ret_c);
+                    gen_expr(codegen, expr);
                     fputs(";\n", codegen->output);
+                } else {
+                    c99_emit(codegen, "%s _uya_ret = 0;\n", ret_c);
                 }
             }
+            // 2. 执行 defer（defer 不能修改已计算的返回值）
+            emit_defer_cleanup(codegen, is_error_return);
+            // 3. 返回临时变量
+            c99_emit(codegen, "return _uya_ret;\n");
             break;
         }
         case AST_BLOCK: {

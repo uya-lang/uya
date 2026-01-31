@@ -13,6 +13,7 @@ struct EnumVariant {
 enum ASTNodeType {
     AST_PROGRAM,
     AST_ENUM_DECL,
+    AST_ERROR_DECL,    // 预定义错误声明（error Name;）
     AST_STRUCT_DECL,
     AST_FN_DECL,
     AST_VAR_DECL,
@@ -23,6 +24,8 @@ enum ASTNodeType {
     AST_BREAK_STMT,
     AST_CONTINUE_STMT,
     AST_RETURN_STMT,
+    AST_DEFER_STMT,     // defer 语句（作用域结束 LIFO 执行）
+    AST_ERRDEFER_STMT,  // errdefer 语句（仅错误返回时 LIFO 执行）
     AST_ASSIGN,
     AST_EXPR_STMT,
     AST_BLOCK,
@@ -47,10 +50,14 @@ enum ASTNodeType {
     AST_STRING,
     AST_STRING_INTERP,  // 字符串插值 "text${expr}text" 或 "text${expr:spec}text"，结果为 [i8: N]
     AST_PARAMS,   // @params 内置变量（函数体内参数元组）
+    AST_TRY_EXPR,       // try expr（错误传播）
+    AST_CATCH_EXPR,     // expr catch [|err|] { stmts }（错误捕获）
+    AST_ERROR_VALUE,    // error.Name（错误值，用于 return error.X）
     AST_TYPE_NAMED,
     AST_TYPE_POINTER,
     AST_TYPE_ARRAY,
     AST_TYPE_TUPLE,  // 元组类型（(T1, T2, ...)）
+    AST_TYPE_ERROR_UNION,  // 错误联合类型 !T
 }
 
 // 字符串插值段（用于 AST_STRING_INTERP）
@@ -74,6 +81,8 @@ struct ASTNode {
     enum_decl_name: &byte,
     enum_decl_variants: &EnumVariant,
     enum_decl_variant_count: i32,
+    // error_decl（预定义错误声明 error Name;）
+    error_decl_name: &byte,
     // struct_decl
     struct_decl_name: &byte,
     struct_decl_fields: & & ASTNode,
@@ -102,6 +111,14 @@ struct ASTNode {
     // unary_expr
     unary_expr_op: i32,
     unary_expr_operand: &ASTNode,
+    // try_expr（try expr）
+    try_expr_operand: &ASTNode,
+    // catch_expr（expr catch [|err|] { stmts }）
+    catch_expr_operand: &ASTNode,
+    catch_expr_err_name: &byte,
+    catch_expr_catch_block: &ASTNode,
+    // error_value（error.Name）
+    error_value_name: &byte,
     // call_expr
     call_expr_callee: &ASTNode,
     call_expr_args: & & ASTNode,
@@ -167,6 +184,10 @@ struct ASTNode {
     for_stmt_body: &ASTNode,
     // return_stmt
     return_stmt_expr: &ASTNode,
+    // defer_stmt（defer stmt 或 defer { ... }）
+    defer_stmt_body: &ASTNode,
+    // errdefer_stmt（errdefer stmt 或 errdefer { ... }）
+    errdefer_stmt_body: &ASTNode,
     // assign
     assign_dest: &ASTNode,
     assign_src: &ASTNode,
@@ -184,6 +205,8 @@ struct ASTNode {
     // type_tuple（(T1, T2, ...)）
     type_tuple_element_types: & & ASTNode,
     type_tuple_element_count: i32,
+    // type_error_union（!T）
+    type_error_union_payload_type: &ASTNode,
 }
 
 // 创建新的 AST 节点
@@ -204,6 +227,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.enum_decl_name = null;
     node.enum_decl_variants = null;
     node.enum_decl_variant_count = 0;
+    node.error_decl_name = null;
     node.struct_decl_name = null;
     node.struct_decl_fields = null;
     node.struct_decl_field_count = 0;
@@ -226,6 +250,11 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.binary_expr_right = null;
     node.unary_expr_op = 0;
     node.unary_expr_operand = null;
+    node.try_expr_operand = null;
+    node.catch_expr_operand = null;
+    node.catch_expr_err_name = null;
+    node.catch_expr_catch_block = null;
+    node.error_value_name = null;
     node.call_expr_callee = null;
     node.call_expr_args = null;
     node.call_expr_arg_count = 0;
@@ -270,6 +299,8 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.for_stmt_is_ref = 0;
     node.for_stmt_body = null;
     node.return_stmt_expr = null;
+    node.defer_stmt_body = null;
+    node.errdefer_stmt_body = null;
     node.assign_dest = null;
     node.assign_src = null;
     node.block_stmts = null;
@@ -281,6 +312,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.type_array_size_expr = null;
     node.type_tuple_element_types = null;
     node.type_tuple_element_count = 0;
+    node.type_error_union_payload_type = null;
     return node;
 }
 

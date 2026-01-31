@@ -206,7 +206,7 @@ fn compile_files(
 
     fprintf(stderr, "=== 类型检查阶段 ===\n" as *byte);
     const void_type: Type = Type { kind: TypeKind.TYPE_VOID, enum_name: null, struct_name: null, pointer_to: null, is_ffi_pointer: 0, element_type: null, array_size: 0 };
-    var checker: TypeChecker = TypeChecker { arena: null, symbol_table: SymbolTable { slots: [], count: 0 }, function_table: FunctionTable { slots: [], count: 0 }, scope_level: 0, loop_depth: 0, program_node: null, error_count: 0, default_filename: null, current_return_type: void_type, in_function: 0 };
+    var checker: TypeChecker = TypeChecker { arena: null, symbol_table: SymbolTable { slots: [], count: 0 }, function_table: FunctionTable { slots: [], count: 0 }, scope_level: 0, loop_depth: 0, program_node: null, error_count: 0, default_filename: null, current_return_type: void_type, in_function: 0, in_defer_or_errdefer: 0 };
     var default_filename: *byte = "(unknown)" as *byte;
     if input_file_count > 0 {
         default_filename = get_argv(input_file_indices[0]);
@@ -243,7 +243,7 @@ fn compile_files(
             fprintf(stderr, "错误: 无法打开输出文件 '%s'\n" as *byte, output_file);
             return 1;
         }
-        var c99_codegen: C99CodeGenerator = C99CodeGenerator { arena: null, output: null, indent_level: 0, module_name: null, string_constants: [], string_constant_count: 0, struct_definitions: [], struct_definition_count: 0, enum_definitions: [], enum_definition_count: 0, function_declarations: [], function_declaration_count: 0, global_variables: [], global_variable_count: 0, local_variables: [], local_variable_count: 0, current_depth: 0, loop_stack: [], loop_stack_depth: 0, program_node: null, current_function_return_type: null, current_function_decl: null, current_line: 0, current_filename: null, emit_line_directives: 0, string_interp_buf: null, interp_arg_temp_names: [], interp_temp_counter: 0, interp_fill_counter: 0 };
+        var c99_codegen: C99CodeGenerator = C99CodeGenerator { };
         if c99_codegen_new(&c99_codegen, &arena, out_file, module_name as &byte, emit_line_directives) != 0 {
             fprintf(stderr, "错误: C99CodeGenerator 初始化失败\n" as *byte);
             fclose(out_file);

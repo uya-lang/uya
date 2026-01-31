@@ -52,7 +52,19 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     emit_string_constants(codegen);
     fputs("\n" as *byte, codegen.output as *void);
     
-    // 第三步：收集所有结构体和枚举定义（添加到表中但不生成代码）
+    // 第三步：注册所有错误声明（用于 return error.X 等）
+    i = 0;
+    while i < decl_count {
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_ERROR_DECL {
+            if decl.error_decl_name != null {
+                c99_get_or_add_error_id(codegen, decl.error_decl_name);
+            }
+        }
+        i = i + 1;
+    }
+    
+    // 第四步：收集所有结构体和枚举定义（添加到表中但不生成代码）
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
@@ -72,7 +84,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         i = i + 1;
     }
     
-    // 第四步：生成所有结构体的前向声明（解决相互依赖）
+    // 第五步：生成所有结构体的前向声明（解决相互依赖）
     i = 0;
     while i < codegen.struct_definition_count {
         if is_struct_defined(codegen, codegen.struct_definitions[i].name) == 0 {
@@ -95,7 +107,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         i = i + 1;
     }
     
-    // 第六步：生成所有结构体定义（在枚举之后）
+    // 第七步：生成所有结构体定义（在枚举之后）
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
@@ -106,7 +118,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         i = i + 1;
     }
     
-    // 第七步：生成所有函数的前向声明（解决相互递归调用）
+    // 第八步：生成所有函数的前向声明（解决相互递归调用）
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
@@ -117,7 +129,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     }
     fputs("\n" as *byte, codegen.output as *void);
     
-    // 第八步：生成所有声明（全局变量、函数定义）
+    // 第九步：生成所有声明（全局变量、函数定义）
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
