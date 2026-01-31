@@ -82,5 +82,9 @@ fn main() i32 {
   const head_tail: [i8: 64] = ">${n}<\n";
   printf(&head_tail[0]);
 
+  // 19. 表达式插值（插值内为表达式 a+b，非仅变量）
+  const sum: [i8: 32] = "sum=${a+b}\n";
+  printf(&sum[0]);
+
   return 0;
 }

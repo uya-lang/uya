@@ -973,6 +973,10 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 const func_name: &byte = callee.identifier_name;
                 const safe_name: &byte = get_safe_c_identifier(codegen, func_name);
                 fprintf(codegen.output as *void, "%s(" as *byte, safe_name as *byte);
+                // 单参数 printf 用字面量格式避免 -Wformat-security
+                if callee_name != null && strcmp(callee_name as *byte, "printf" as *byte) == 0 && arg_count == 1 {
+                    fputs("\"%s\", " as *byte, codegen.output as *void);
+                }
             } else {
                 fputs("unknown(" as *byte, codegen.output as *void);
             }

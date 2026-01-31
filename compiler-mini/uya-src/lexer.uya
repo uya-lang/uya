@@ -81,10 +81,7 @@ struct Token {
 // 1MB 缓冲区大小（与 C 版本 LEXER_BUFFER_SIZE 一致）
 const LEXER_BUFFER_SIZE: i32 = 1024 * 1024;
 
-// 字符串临时缓冲区大小（用于 read_string）
-const STRING_BUFFER_SIZE: i32 = 4096;
-
-// 字符串插值内部缓冲区大小
+// 字符串插值内部缓冲区大小（read_string 也复用此缓冲，避免栈上再分配 4096）
 const LEXER_STRING_INTERP_BUFFER_SIZE: i32 = 4096;
 
 // Lexer 结构体
@@ -341,8 +338,7 @@ fn read_string(lexer: &Lexer, arena: &Arena) &Token {
     const line: i32 = lexer.line;
     const column: i32 = lexer.column;
     advance_char(lexer);
-    var temp_buffer: [byte: STRING_BUFFER_SIZE] = [];
-    var temp_len: usize = 0;
+    lexer.string_text_len = 0;
     while lexer.position < lexer.buffer_size {
         const c: byte = peek_char(lexer, 0);
         if c == 0 {
@@ -356,7 +352,7 @@ fn read_string(lexer: &Lexer, arena: &Arena) &Token {
         }
         if c == 92 {
             advance_char(lexer);
-            if temp_len >= (STRING_BUFFER_SIZE - 1) as usize {
+            if lexer.string_text_len >= (LEXER_STRING_INTERP_BUFFER_SIZE - 1) as usize {
                 return null;
             }
             const escape_char: byte = peek_char(lexer, 0);
@@ -374,15 +370,15 @@ fn read_string(lexer: &Lexer, arena: &Arena) &Token {
             } else {
                 return null;
             }
-            temp_buffer[temp_len] = escaped_value;
-            temp_len = temp_len + 1;
+            lexer.string_text_buffer[lexer.string_text_len] = escaped_value;
+            lexer.string_text_len = lexer.string_text_len + 1;
             advance_char(lexer);
         } else {
-            if temp_len >= (STRING_BUFFER_SIZE - 1) as usize {
+            if lexer.string_text_len >= (LEXER_STRING_INTERP_BUFFER_SIZE - 1) as usize {
                 return null;
             }
-            temp_buffer[temp_len] = c;
-            temp_len = temp_len + 1;
+            lexer.string_text_buffer[lexer.string_text_len] = c;
+            lexer.string_text_len = lexer.string_text_len + 1;
             advance_char(lexer);
         }
     }
@@ -390,16 +386,16 @@ fn read_string(lexer: &Lexer, arena: &Arena) &Token {
         return null;
     }
     advance_char(lexer);
-    const value: &byte = arena_alloc(arena, temp_len + 1) as &byte;
+    const value: &byte = arena_alloc(arena, lexer.string_text_len + 1) as &byte;
     if value == null {
         return null;
     }
     var i: usize = 0;
-    while i < temp_len {
-        value[i] = temp_buffer[i];
+    while i < lexer.string_text_len {
+        value[i] = lexer.string_text_buffer[i];
         i = i + 1;
     }
-    value[temp_len] = 0;
+    value[lexer.string_text_len] = 0;
     return make_token(arena, TokenType.TOKEN_STRING, value, line, column);
 }
 

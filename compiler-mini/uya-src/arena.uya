@@ -4,6 +4,11 @@
 // 注意：Uya 不支持指针运算，ptr + i 必须转换为 &ptr[i]
 // 注意：对齐计算使用算术代替位运算（Uya Mini 位运算受限时）
 
+// 分配失败时报错退出（需与 extern_decls 中的声明一致，或由编译脚本合并）
+extern fn get_stderr() *void;
+extern fn fprintf(stream: *void, format: *byte, ...) i32;
+extern fn exit(code: i32) void;
+
 // Arena 分配器结构体
 // 使用静态缓冲区 + bump pointer 实现无堆分配的内存管理
 struct Arena {
@@ -36,16 +41,18 @@ fn arena_init(arena: &Arena, buffer: &byte, size: usize) void {
 
 // 从 Arena 分配内存
 // 参数：arena - Arena 分配器指针，size - 要分配的内存大小（字节）
-// 返回：分配的内存指针（&byte），如果分配失败（空间不足）返回 null
-// 注意：分配的内存会自动对齐到 8 字节边界
+// 返回：分配的内存指针（&byte）
+// 注意：分配失败时打印错误并 exit(1)，不返回 null
 fn arena_alloc(arena: &Arena, size: usize) &byte {
     if arena == null || arena.buffer == null {
-        return null;
+        fprintf(get_stderr(), "错误: Arena 分配失败（arena 或 buffer 为 null）\n" as *byte);
+        exit(1);
     }
     const aligned_offset: usize = align_size(arena.offset, ARENA_ALIGNMENT);
     const aligned_size: usize = align_size(size, ARENA_ALIGNMENT);
     if aligned_offset + aligned_size > arena.size {
-        return null;
+        fprintf(get_stderr(), "错误: Arena 分配失败（内存不足，需要 %zu 字节）\n" as *byte, aligned_size);
+        exit(1);
     }
     const result: &byte = &arena.buffer[aligned_offset];
     arena.offset = aligned_offset + aligned_size;

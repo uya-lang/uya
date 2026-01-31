@@ -14,8 +14,8 @@ enum BackendType {
 // 文件读取缓冲区大小（与 Lexer 一致）
 const FILE_BUFFER_SIZE: i32 = 1024 * 1024;
 
-// Arena 缓冲区大小（16MB）
-const ARENA_BUFFER_SIZE: i32 = 32 * 1024 * 1024;
+// Arena 缓冲区大小（48MB，自举 18 个文件需更大空间）
+const ARENA_BUFFER_SIZE: i32 = 48 * 1024 * 1024;
 
 // 最大输入文件数
 const MAX_INPUT_FILES: i32 = 64;

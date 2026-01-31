@@ -544,7 +544,10 @@ if [ $COMPILER_EXIT -eq 0 ]; then
                 echo "自举输出: $BOOTSTRAP_C"
             fi
             BOOTSTRAP_LOG=$(mktemp)
-            if ! "$EXECUTABLE_FILE" "${FULL_PATHS[@]}" -o "$BOOTSTRAP_C" --c99 >"$BOOTSTRAP_LOG" 2>&1; then
+            # 自举编译器栈上大数组多，增大栈限制（与 C 版行为一致，参考 src/main.c ARENA/LEXER 等）
+            (ulimit -s 32768 2>/dev/null || true; exec "$EXECUTABLE_FILE" "${FULL_PATHS[@]}" -o "$BOOTSTRAP_C" --c99) >"$BOOTSTRAP_LOG" 2>&1
+            BOOTSTRAP_EXIT=$?
+            if [ "$BOOTSTRAP_EXIT" -ne 0 ]; then
                 echo -e "${RED}✗ 自举编译器编译失败${NC}"
                 echo ""
                 echo "自举编译器输出:"

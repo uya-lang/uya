@@ -787,7 +787,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             call.call_expr_callee = callee;
             call.call_expr_has_ellipsis_forward = 0;
             
-            // 消费 '('
+            // 消费 '('（与 C 版 parser.c 第 1636-1637 行一致）
             parser_consume(parser);
             
             // 解析参数列表（可选），末尾允许 ... 表示转发可变参数

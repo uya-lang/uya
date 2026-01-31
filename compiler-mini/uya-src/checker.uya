@@ -1830,6 +1830,14 @@ fn checker_register_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
 // 注意：此函数用于第一遍检查，只收集函数签名到函数表，不检查函数体
 fn checker_register_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     if checker == null || node == null || node.type != ASTNodeType.AST_FN_DECL {
+        if checker != null && node != null {
+            checker_report_error(checker, node, "内部错误：节点不是函数声明" as *byte);
+        }
+        return 0;
+    }
+    // 防止异常 param_count 导致 arena 分配异常（自举时可能因布局/未初始化导致）
+    if node.fn_decl_param_count < 0 {
+        checker_report_error(checker, node, "无效的函数参数数量" as *byte);
         return 0;
     }
     
@@ -1839,6 +1847,7 @@ fn checker_register_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     // 创建函数签名
     const sig: &FunctionSignature = arena_alloc(checker.arena, @sizeof(FunctionSignature)) as &FunctionSignature;
     if sig == null {
+        checker_report_error(checker, node, "Arena 内存不足，无法注册函数声明" as *byte);
         return 0;
     }
     sig.name = node.fn_decl_name;
@@ -1858,6 +1867,7 @@ fn checker_register_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     if sig.param_count > 0 {
         sig.param_types = arena_alloc(checker.arena, @sizeof(Type) * (sig.param_count as usize)) as &Type;
         if sig.param_types == null {
+            checker_report_error(checker, node, "Arena 内存不足，无法分配参数类型" as *byte);
             return 0;
         }
         

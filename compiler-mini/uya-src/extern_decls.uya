@@ -29,3 +29,6 @@ extern fn sprintf(buf: *byte, format: *byte, ...) i32;
 // ===== C 标准库 - 内存 =====
 extern fn memcpy(dest: *byte, src: *byte, n: usize) *byte;
 extern fn memset(s: *byte, c: i32, n: usize) *byte;
+
+// ===== C 标准库 - 进程 =====
+extern fn exit(code: i32) void;
