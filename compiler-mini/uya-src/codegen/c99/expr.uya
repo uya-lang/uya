@@ -57,6 +57,64 @@ fn gen_int_limit_literal(codegen: &C99CodeGenerator, is_max: i32, resolved_kind:
     }
 }
 
+fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_name: &byte) void {
+    if codegen == null || expr == null || expr.type != ASTNodeType.AST_STRING_INTERP || buf_name == null {
+        return;
+    }
+    const n: i32 = expr.string_interp_segment_count;
+    if n <= 0 || expr.string_interp_computed_size <= 0 {
+        return;
+    }
+    const fill_id: i32 = codegen.interp_fill_counter;
+    codegen.interp_fill_counter = codegen.interp_fill_counter + 1;
+    c99_emit_indent(codegen);
+    fprintf(codegen.output as *void, "int _off_%d = 0;\n" as *byte, fill_id);
+    var i: i32 = 0;
+    while i < n {
+        const seg: &ASTStringInterpSegment = &expr.string_interp_segments[i];
+        if seg.is_text != 0 {
+            var len: usize = 0;
+            if seg.text != null {
+                len = strlen(seg.text as *byte);
+            }
+            const cn: &byte = add_string_constant(codegen, seg.text);
+            if cn != null {
+                c99_emit_indent(codegen);
+                fprintf(codegen.output as *void, "memcpy(%s + _off_%d, %s, %zu);\n" as *byte, buf_name as *byte, fill_id, cn as *byte, len);
+                c99_emit_indent(codegen);
+                fprintf(codegen.output as *void, "_off_%d += %zu;\n" as *byte, fill_id, len);
+            }
+        } else {
+            var fmt_buf: [byte: 64] = [];
+            fmt_buf[0] = 37;
+            var j: i32 = 1;
+            if seg.format_spec != null && seg.format_spec[0] != 0 {
+                var k: i32 = 0;
+                while seg.format_spec[k] != 0 && j < 62 {
+                    fmt_buf[j] = seg.format_spec[k];
+                    j = j + 1;
+                    k = k + 1;
+                }
+            } else {
+                fmt_buf[1] = 100;
+                j = 2;
+            }
+            fmt_buf[j] = 0;
+            const fmt_in_arena: &byte = c99_arena_strdup(codegen.arena, &fmt_buf[0] as &byte);
+            const fmt_const: &byte = add_string_constant(codegen, fmt_in_arena);
+            if fmt_const != null && fmt_in_arena != null {
+                c99_emit_indent(codegen);
+                fprintf(codegen.output as *void, "_off_%d += sprintf(%s + _off_%d, %s, " as *byte, fill_id, buf_name as *byte, fill_id, fmt_const as *byte);
+                gen_expr(codegen, seg.expr);
+                fputs(");\n" as *byte, codegen.output as *void);
+            }
+        }
+        i = i + 1;
+    }
+    c99_emit_indent(codegen);
+    fprintf(codegen.output as *void, "%s[_off_%d] = '\\0';\n" as *byte, buf_name as *byte, fill_id);
+}
+
 fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     if expr == null {
         return;
@@ -81,6 +139,12 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             fprintf(codegen.output as *void, "%s" as *byte, str_const as *byte);
         } else {
             fputs("\"\"" as *byte, codegen.output as *void);
+        }
+    } else if expr.type == ASTNodeType.AST_STRING_INTERP {
+        if codegen.string_interp_buf != null {
+            fputs(codegen.string_interp_buf as *byte, codegen.output as *void);
+        } else {
+            fputs("((char*)0)" as *byte, codegen.output as *void);
         }
     } else if expr.type == ASTNodeType.AST_BINARY_EXPR {
         const left: &ASTNode = expr.binary_expr_left;
@@ -852,6 +916,28 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 last_param = last_p.var_decl_name;
             }
         }
+        var arg_idx: i32 = 0;
+        while arg_idx < arg_count && arg_idx < C99_MAX_CALL_ARGS {
+            codegen.interp_arg_temp_names[arg_idx] = null;
+            arg_idx = arg_idx + 1;
+        }
+        arg_idx = 0;
+        while arg_idx < arg_count && arg_idx < C99_MAX_CALL_ARGS {
+            const arg: &ASTNode = expr.call_expr_args[arg_idx];
+            if arg != null && arg.type == ASTNodeType.AST_STRING_INTERP && arg.string_interp_computed_size > 0 {
+                var name_buf: [byte: 64] = [];
+                snprintf(&name_buf[0] as *byte, 64, "__uya_interp_%d" as *byte, codegen.interp_temp_counter);
+                codegen.interp_temp_counter = codegen.interp_temp_counter + 1;
+                const temp_name: &byte = c99_arena_strdup(codegen.arena, &name_buf[0] as &byte);
+                if temp_name != null {
+                    codegen.interp_arg_temp_names[arg_idx] = temp_name;
+                    c99_emit_indent(codegen);
+                    fprintf(codegen.output as *void, "char %s[%d];\n" as *byte, temp_name as *byte, arg.string_interp_computed_size);
+                    c99_emit_string_interp_fill(codegen, arg, temp_name);
+                }
+            }
+            arg_idx = arg_idx + 1;
+        }
         if do_va_forward != 0 && vname != null && last_param != null {
             const last_safe: &byte = get_safe_c_identifier(codegen, last_param);
             c99_emit(codegen, "((void)0, ({\n" as *byte);
@@ -865,10 +951,15 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 if i > 0 {
                     fputs(", " as *byte, codegen.output as *void);
                 }
-                if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
+                if codegen.interp_arg_temp_names[i] != null {
                     fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                    fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.output as *void);
+                } else {
+                    if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
+                        fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                    }
+                    gen_expr(codegen, expr.call_expr_args[i]);
                 }
-                gen_expr(codegen, expr.call_expr_args[i]);
                 i = i + 1;
             }
             fputs(", uya_va);\n" as *byte, codegen.output as *void);
@@ -889,6 +980,10 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             // 生成参数
             var i: i32 = 0;
             while i < arg_count {
+            if codegen.interp_arg_temp_names[i] != null {
+                fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.output as *void);
+            } else {
             // 检查参数是否是字符串常量，如果是则添加类型转换以消除 const 警告
             var is_string_arg: i32 = 0;
             if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
@@ -927,6 +1022,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 fputc(38, codegen.output as *void);  // '&'
             }
             gen_expr(codegen, expr.call_expr_args[i]);
+            }
             if i < arg_count - 1 {
                 fputs(", " as *byte, codegen.output as *void);
             }

@@ -225,6 +225,10 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         const var_type: &ASTNode = stmt.var_decl_type;
         const init_expr: &ASTNode = stmt.var_decl_init;
         const is_const: i32 = stmt.var_decl_is_const;
+        var is_string_interp_init: i32 = 0;
+        if init_expr != null && init_expr.type == ASTNodeType.AST_STRING_INTERP {
+            is_string_interp_init = 1;
+        }
         
         // 计算类型字符串
         var type_c: &byte = null;
@@ -264,8 +268,8 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                     // 维度部分是从 '[' 开始到结尾
                     const dimensions: *byte = type_c as *byte + base_len;
                     
-                    // 生成数组声明：const base_type var_name dimensions
-                    if is_const != 0 {
+                    // 生成数组声明：const base_type var_name dimensions（字符串插值初始化时不使用 const）
+                    if is_const != 0 && is_string_interp_init == 0 {
                         fprintf(codegen.output as *void, "const %s %s%s" as *byte, base_type as *byte, var_name as *byte, dimensions);
                     } else {
                         fprintf(codegen.output as *void, "%s %s%s" as *byte, base_type as *byte, var_name as *byte, dimensions);
@@ -276,7 +280,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             
             // 如果上面的解析失败，回退到简单处理
             if type_c != null {
-                if is_const != 0 {
+                if is_const != 0 && is_string_interp_init == 0 {
                     c99_emit_indent(codegen);
                     fprintf(codegen.output as *void, "const %s %s" as *byte, type_c as *byte, var_name as *byte);
                 } else {
@@ -564,6 +568,9 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 fputs(", sizeof(" as *byte, codegen.output as *void);
                 fprintf(codegen.output as *void, "%s" as *byte, var_name as *byte);
                 fputs("));\n" as *byte, codegen.output as *void);
+            } else if is_string_interp_init != 0 {
+                fputs(";\n" as *byte, codegen.output as *void);
+                c99_emit_string_interp_fill(codegen, init_expr, var_name);
             } else if struct_init_needs_memcpy != 0 {
                 // 结构体初始化包含数组字段：先声明变量，然后使用复合字面量初始化非数组字段，最后用memcpy复制数组字段
                 fputs(" = " as *byte, codegen.output as *void);

@@ -45,11 +45,20 @@ enum ASTNodeType {
     AST_BOOL,
     AST_INT_LIMIT,
     AST_STRING,
+    AST_STRING_INTERP,  // 字符串插值 "text${expr}text" 或 "text${expr:spec}text"，结果为 [i8: N]
     AST_PARAMS,   // @params 内置变量（函数体内参数元组）
     AST_TYPE_NAMED,
     AST_TYPE_POINTER,
     AST_TYPE_ARRAY,
     AST_TYPE_TUPLE,  // 元组类型（(T1, T2, ...)）
+}
+
+// 字符串插值段（用于 AST_STRING_INTERP）
+struct ASTStringInterpSegment {
+    is_text: i32,       // 1=纯文本段，0=插值表达式段
+    text: &byte,        // 纯文本段内容（is_text=1 时）
+    expr: &ASTNode,     // 插值表达式（is_text=0 时）
+    format_spec: &byte, // 格式说明符（如 ".2f"，可选）
 }
 
 // AST 节点结构（Uya 无 union，所有变体字段扁平化为独立字段）
@@ -140,6 +149,10 @@ struct ASTNode {
     int_limit_resolved_kind: i32,
     // string_literal
     string_literal_value: &byte,
+    // string_interp（"text${expr}text" 或 "text${expr:spec}text"）
+    string_interp_segments: &ASTStringInterpSegment,
+    string_interp_segment_count: i32,
+    string_interp_computed_size: i32,  // 由 checker 填充
     // if_stmt
     if_stmt_condition: &ASTNode,
     if_stmt_then_branch: &ASTNode,
@@ -244,6 +257,9 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.int_limit_is_max = 0;
     node.int_limit_resolved_kind = 0;
     node.string_literal_value = null;
+    node.string_interp_segments = null;
+    node.string_interp_segment_count = 0;
+    node.string_interp_computed_size = 0;
     node.if_stmt_condition = null;
     node.if_stmt_then_branch = null;
     node.if_stmt_else_branch = null;

@@ -6,6 +6,43 @@
 // 注意：Uya 不支持函数前向声明，函数必须在使用前定义
 
 extern fn atoi(s: *byte) i32;
+extern fn strlen(s: *byte) usize;
+
+// 插值格式说明符对应类型的最大输出宽度（用于计算 [i8: N] 的 N）
+fn checker_interp_format_max_width(t: Type, spec: &byte) i32 {
+    if t.kind == TypeKind.TYPE_I32 || t.kind == TypeKind.TYPE_U32 {
+        if spec != null {
+            var i: i32 = 0;
+            while spec[i] != 0 {
+                if spec[i] == 108 {
+                    return 21;
+                }
+                i = i + 1;
+            }
+        }
+        return 11;
+    }
+    if t.kind == TypeKind.TYPE_I64 || t.kind == TypeKind.TYPE_U64 {
+        return 21;
+    }
+    if t.kind == TypeKind.TYPE_I8 || t.kind == TypeKind.TYPE_I16 ||
+        t.kind == TypeKind.TYPE_U8 || t.kind == TypeKind.TYPE_U16 {
+        return 11;
+    }
+    if t.kind == TypeKind.TYPE_USIZE {
+        return 21;
+    }
+    if t.kind == TypeKind.TYPE_F32 {
+        return 16;
+    }
+    if t.kind == TypeKind.TYPE_F64 {
+        return 24;
+    }
+    if t.kind == TypeKind.TYPE_POINTER {
+        return 18;
+    }
+    return -1;
+}
 
 // 类型枚举（Uya Mini 支持的类型）
 enum TypeKind {
@@ -1095,6 +1132,44 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         result.kind = TypeKind.TYPE_POINTER;
         result.pointer_to = pointed_type_ptr;
         result.is_ffi_pointer = 1;  // FFI 指针类型
+        return result;
+    } else if expr.type == ASTNodeType.AST_STRING_INTERP {
+        var total: i32 = 1;
+        var i: i32 = 0;
+        while i < expr.string_interp_segment_count {
+            const seg: &ASTStringInterpSegment = &expr.string_interp_segments[i];
+            if seg.is_text != 0 {
+                total = total + (strlen(seg.text as *byte) as i32);
+            } else {
+                const seg_type: Type = checker_infer_type(checker, seg.expr);
+                const w: i32 = checker_interp_format_max_width(seg_type, seg.format_spec);
+                if w < 0 {
+                    checker_report_error(checker, seg.expr, "不支持的插值类型或格式说明符" as *byte);
+                    result.kind = TypeKind.TYPE_VOID;
+                    return result;
+                }
+                total = total + w;
+            }
+            i = i + 1;
+        }
+        expr.string_interp_computed_size = total;
+        const i8_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+        if i8_ptr == null {
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        i8_ptr[0].kind = TypeKind.TYPE_I8;
+        i8_ptr[0].enum_name = null;
+        i8_ptr[0].struct_name = null;
+        i8_ptr[0].pointer_to = null;
+        i8_ptr[0].is_ffi_pointer = 0;
+        i8_ptr[0].element_type = null;
+        i8_ptr[0].array_size = 0;
+        i8_ptr[0].tuple_element_types = null;
+        i8_ptr[0].tuple_count = 0;
+        result.kind = TypeKind.TYPE_ARRAY;
+        result.element_type = i8_ptr;
+        result.array_size = total;
         return result;
     } else if expr.type == ASTNodeType.AST_PARAMS {
         // @params 仅在函数体内有效，类型为当前函数参数元组（可变参数时仅含固定参数）

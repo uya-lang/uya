@@ -35,6 +35,7 @@ const C99_MAX_LOCAL_VARS: i32 = 512;
 
 // 循环栈大小
 const C99_MAX_LOOP_STACK: i32 = 32;
+const C99_MAX_CALL_ARGS: i32 = 32;
 
 // ===== 类型定义 =====
 
@@ -125,7 +126,11 @@ struct C99CodeGenerator {
     // 用于优化 #line 指令生成
     current_line: i32,  // 当前行号
     current_filename: &byte,  // 当前文件名
-    emit_line_directives: i32  // 是否生成 #line 指令（1 表示是，0 表示否）
+    emit_line_directives: i32,  // 是否生成 #line 指令（1 表示是，0 表示否）
+    string_interp_buf: &byte,
+    interp_arg_temp_names: [&byte: C99_MAX_CALL_ARGS],
+    interp_temp_counter: i32,
+    interp_fill_counter: i32
 }
 
 // ===== 函数声明 =====
