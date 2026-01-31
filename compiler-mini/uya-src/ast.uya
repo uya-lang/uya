@@ -39,6 +39,7 @@ enum ASTNodeType {
     AST_ALIGNOF,
     AST_CAST_EXPR,
     AST_IDENTIFIER,
+    AST_UNDERSCORE,  // 忽略占位 _（仅用于赋值左侧、解构，不能引用）
     AST_NUMBER,
     AST_FLOAT,
     AST_BOOL,

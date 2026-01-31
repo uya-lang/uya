@@ -1,0 +1,17 @@
+// 测试忽略标识符 _：显式忽略返回值、解构忽略
+fn side_effect() i32 {
+    return 42;
+}
+fn main() i32 {
+    // 显式忽略返回值：_ = expr
+    _ = side_effect();
+    // 解构中忽略中间元素（使用字面量避免元组返回类型 C 代码问题）
+    const (a, _, c) = (10, 20, 30);
+    if a != 10 { return 1; }
+    if c != 30 { return 2; }
+    const (x, y) = (1, 2);
+    if x != 1 || y != 2 { return 3; }
+    const (m, _) = (7, 8);
+    if m != 7 { return 4; }
+    return 0;
+}

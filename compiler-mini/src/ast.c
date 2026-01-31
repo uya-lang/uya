@@ -159,6 +159,9 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_BREAK_STMT:
             // break 语句不需要数据字段
             break;
+        case AST_UNDERSCORE:
+            // _ 忽略占位，无数据字段
+            break;
         case AST_CONTINUE_STMT:
             // continue 语句不需要数据字段
             break;

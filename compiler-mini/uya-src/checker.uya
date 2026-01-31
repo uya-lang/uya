@@ -1129,6 +1129,10 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         result.tuple_element_types = elem_types;
         result.tuple_count = cur_fn.fn_decl_param_count;
         return result;
+    } else if expr.type == ASTNodeType.AST_UNDERSCORE {
+        checker_report_error(checker, expr, "不能引用 _" as *byte);
+        result.kind = TypeKind.TYPE_VOID;
+        return result;
     } else if expr.type == ASTNodeType.AST_IDENTIFIER {
         // 标识符类型需要从符号表中查找
         const symbol: &Symbol = symbol_table_lookup(checker, expr.identifier_name);
@@ -1596,6 +1600,10 @@ fn checker_check_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         // 参数无效：放宽检查，允许通过（不报错）
         return 1;
     }
+    if node.var_decl_name != null && str_equals(node.var_decl_name, "_" as *byte) != 0 {
+        checker_report_error(checker, node, "不能将 _ 用作普通变量名" as *byte);
+        return 0;
+    }
     
     // 获取变量类型
     var var_type: Type = type_from_ast(checker, node.var_decl_type);
@@ -1847,6 +1855,10 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         while i < node.fn_decl_param_count {
             const param: &ASTNode = node.fn_decl_params[i];
             if param != null && param.type == ASTNodeType.AST_VAR_DECL {
+                if param.var_decl_name != null && str_equals(param.var_decl_name, "_" as *byte) != 0 {
+                    checker_report_error(checker, param, "不能将 _ 用作参数名" as *byte);
+                    return 0;
+                }
                 const param_type: Type = type_from_ast(checker, param.var_decl_type);
                 
                 // 将参数添加到符号表
@@ -3033,6 +3045,14 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             element_type: null,
             array_size: 0,
         };
+        if dest.type == ASTNodeType.AST_UNDERSCORE {
+            // _ = expr：仅检查右侧，显式忽略返回值
+            if checker_check_node(checker, node.assign_src) == 0 {
+                return 0;
+            }
+            const _dummy: Type = checker_infer_type(checker, node.assign_src);
+            return 1;
+        }
         if dest.type == ASTNodeType.AST_IDENTIFIER {
             // 标识符赋值：检查是否为 var（不能是 const）
             const symbol: &Symbol = symbol_table_lookup(checker, dest.identifier_name);

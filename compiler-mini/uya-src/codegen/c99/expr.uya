@@ -935,15 +935,18 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         fputc(41, codegen.output as *void);  // ')'
         }
     } else if expr.type == ASTNodeType.AST_ASSIGN {
-        // 赋值表达式（右结合）：dest = src
-        // 在表达式中使用时，需要生成 (dest = src) 的形式
+        // 赋值表达式（右结合）：dest = src；dest 为 _ 时仅求值右侧
         const dest: &ASTNode = expr.assign_dest;
         const src: &ASTNode = expr.assign_src;
         
         fputc(40, codegen.output as *void);  // '('
-        gen_expr(codegen, dest);
-        fputs(" = " as *byte, codegen.output as *void);
-        gen_expr(codegen, src);
+        if dest.type == ASTNodeType.AST_UNDERSCORE {
+            gen_expr(codegen, src);
+        } else {
+            gen_expr(codegen, dest);
+            fputs(" = " as *byte, codegen.output as *void);
+            gen_expr(codegen, src);
+        }
         fputc(41, codegen.output as *void);  // ')'
     } else {
         fputs("0" as *byte, codegen.output as *void);

@@ -704,6 +704,12 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             return result;
         }
         
+        case AST_UNDERSCORE: {
+            checker_report_error(checker, expr, "不能引用 _");
+            result.kind = TYPE_VOID;
+            return result;
+        }
+            
         case AST_IDENTIFIER: {
             // 标识符类型需要从符号表中查找
             Symbol *symbol = symbol_table_lookup(checker, expr->data.identifier.name);
@@ -1292,6 +1298,10 @@ static int checker_check_var_decl(TypeChecker *checker, ASTNode *node) {
         // 参数无效：放宽检查，允许通过（不报错）
         return 1;
     }
+    if (node->data.var_decl.name != NULL && strcmp(node->data.var_decl.name, "_") == 0) {
+        checker_report_error(checker, node, "不能将 _ 用作普通变量名");
+        return 0;
+    }
     
     // 获取变量类型
     Type var_type = type_from_ast(checker, node->data.var_decl.type);
@@ -1576,6 +1586,10 @@ static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
         for (int i = 0; i < node->data.fn_decl.param_count; i++) {
             ASTNode *param = node->data.fn_decl.params[i];
             if (param != NULL && param->type == AST_VAR_DECL) {
+                if (param->data.var_decl.name != NULL && strcmp(param->data.var_decl.name, "_") == 0) {
+                    checker_report_error(checker, param, "不能将 _ 用作参数名");
+                    return 0;
+                }
                 Type param_type = type_from_ast(checker, param->data.var_decl.type);
                 
                 // 将参数添加到符号表
@@ -2776,11 +2790,19 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
         }
         
         case AST_ASSIGN: {
-            // 检查赋值目标（可以是标识符或字段访问）
+            // 检查赋值目标（可以是标识符、_ 忽略占位、或字段访问）
             ASTNode *dest = node->data.assign.dest;
             if (dest == NULL) {
                 checker_report_error(checker, node, "赋值目标不能为空");
                 return 0;
+            }
+            if (dest->type == AST_UNDERSCORE) {
+                /* _ = expr：仅检查右侧，显式忽略返回值 */
+                if (!checker_check_node(checker, node->data.assign.src)) {
+                    return 0;
+                }
+                (void)checker_infer_type(checker, node->data.assign.src);
+                return 1;
             }
             
             Type dest_type;

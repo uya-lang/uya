@@ -181,7 +181,9 @@
 
 - [ ] **@sizeof/@alignof**：保持（以 @ 开头），并支持上述完整类型集合
 - [ ] **@len**：扩展至切片等，规范 uya.md §16
-- [ ] **忽略标识符 _**：用于忽略返回值、解构、match，规范 uya.md §3
+- [x] **忽略标识符 _**：用于忽略返回值、解构、match，规范 uya.md §3
+
+**忽略标识符 _（已实现）**：Parser 在 primary_expr 中当标识符为 `_` 时生成 AST_UNDERSCORE；解构中 `_` 已支持（names 含 `"_"` 时 checker/codegen 跳过）。Checker：`_ = expr` 仅检查右侧；禁止 `var _`、参数 `_`；infer_type 对 AST_UNDERSCORE 报错「不能引用 _」。Codegen：`_ = expr` 语句生成 `(void)(expr);`，表达式生成 `(expr)`。测试 `test_underscore.uya` 通过 `--c99`；uya-src 已同步，自举编译通过。
 
 ---
 

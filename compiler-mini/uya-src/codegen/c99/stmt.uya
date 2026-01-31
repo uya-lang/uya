@@ -24,6 +24,14 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         const dest: &ASTNode = stmt.assign_dest;
         const src: &ASTNode = stmt.assign_src;
         
+        // _ = expr：仅求值右侧（显式忽略返回值）
+        if dest.type == ASTNodeType.AST_UNDERSCORE {
+            c99_emit(codegen, "(void)(" as *byte);
+            gen_expr(codegen, src);
+            fputs(");\n" as *byte, codegen.output as *void);
+            return;
+        }
+        
         // 检查左侧是否是数组类型
         var is_array_assign: i32 = 0;
         if dest.type == ASTNodeType.AST_IDENTIFIER {

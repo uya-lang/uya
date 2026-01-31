@@ -46,6 +46,7 @@ typedef enum {
     AST_ALIGNOF,        // alignof 表达式（alignof(Type) 或 alignof(expr)）
     AST_CAST_EXPR,      // 类型转换表达式（expr as type）
     AST_IDENTIFIER,     // 标识符
+    AST_UNDERSCORE,     // 忽略占位 _（仅用于赋值左侧、解构，不能引用）
     AST_NUMBER,         // 整数字面量
     AST_FLOAT,          // 浮点字面量
     AST_BOOL,           // 布尔字面量（true/false）

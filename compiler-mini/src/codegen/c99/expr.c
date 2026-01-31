@@ -895,15 +895,18 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             break;
         }
         case AST_ASSIGN: {
-            // 赋值表达式（右结合）：dest = src
-            // 在表达式中使用时，需要生成 (dest = src) 的形式
+            // 赋值表达式（右结合）：dest = src；dest 为 _ 时仅求值右侧
             ASTNode *dest = expr->data.assign.dest;
             ASTNode *src = expr->data.assign.src;
             
             fputc('(', codegen->output);
-            gen_expr(codegen, dest);
-            fputs(" = ", codegen->output);
-            gen_expr(codegen, src);
+            if (dest->type == AST_UNDERSCORE) {
+                gen_expr(codegen, src);
+            } else {
+                gen_expr(codegen, dest);
+                fputs(" = ", codegen->output);
+                gen_expr(codegen, src);
+            }
             fputc(')', codegen->output);
             break;
         }

@@ -1513,7 +1513,16 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
     }
     
     // 解析标识符（可能是普通标识符、函数调用、或结构体字面量的开始）
+    // 忽略占位 _：仅允许在赋值左侧、解构中使用，生成 AST_UNDERSCORE
     if (parser->current_token->type == TOKEN_IDENTIFIER) {
+        if (parser->current_token->value != NULL && strcmp(parser->current_token->value, "_") == 0) {
+            ASTNode *node = ast_new_node(AST_UNDERSCORE, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (node == NULL) {
+                return NULL;
+            }
+            parser_consume(parser);
+            return node;
+        }
         const char *name = arena_strdup(parser->arena, parser->current_token->value);
         if (name == NULL) {
             return NULL;

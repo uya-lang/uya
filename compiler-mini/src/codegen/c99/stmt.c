@@ -19,6 +19,14 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             ASTNode *dest = stmt->data.assign.dest;
             ASTNode *src = stmt->data.assign.src;
             
+            /* _ = expr：仅求值右侧（显式忽略返回值） */
+            if (dest->type == AST_UNDERSCORE) {
+                c99_emit(codegen, "(void)(");
+                gen_expr(codegen, src);
+                fputs(");\n", codegen->output);
+                break;
+            }
+            
             // 检查左侧是否是数组类型
             int is_array_assign = 0;
             if (dest->type == AST_IDENTIFIER) {
