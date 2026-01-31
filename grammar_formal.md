@@ -173,8 +173,8 @@ primary_expr   = ID | NUM | STRING | 'true' | 'false' | 'null'
                | builtin_expr
                | struct_literal | array_literal | tuple_literal | enum_literal
                | match_expr | '(' expr ')'
-builtin_expr   = '@' ('sizeof' | 'alignof' | 'len' | 'max' | 'min')
-               # @sizeof(T)、@alignof(T)、@len(expr) 为调用形式；@max、@min 为值形式（类型从上下文推断）
+builtin_expr   = '@' ('sizeof' | 'alignof' | 'len' | 'max' | 'min' | 'params')
+               # @sizeof(T)、@alignof(T)、@len(expr) 为调用形式；@max、@min 为值形式；@params 为函数体内参数元组（uya.md §5.4）
 ```
 
 ### 特殊表达式
@@ -189,7 +189,7 @@ array_literal  = '[' expr_list ']' | '[' expr ':' expr ']'  # 数组字面量；
 tuple_literal  = '(' expr_list ')'  # 元组字面量，如 (10, 20, 30)
 enum_literal   = ID '.' ID  # 枚举字面量，如 Color.RED, HttpStatus.OK
 expr_list      = [ expr { ',' expr } ]  # 表达式列表，可以为空（空数组字面量 []）
-arg_list       = [ expr { ',' expr } ]
+arg_list       = [ expr { ',' expr } [ ',' '...' ] ]  # 可变参数转发：末尾 ... 表示转发剩余参数
 pattern_list   = pattern '=>' expr { ',' pattern '=>' expr } [ ',' 'else' '=>' expr ]
 pattern        = literal | ID | '_' | struct_pattern | tuple_pattern | enum_pattern | error_pattern
 struct_pattern = ID '{' field_pattern_list '}'

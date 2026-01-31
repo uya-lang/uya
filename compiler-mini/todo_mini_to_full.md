@@ -28,11 +28,11 @@
 
 以下三项来自 uya.md 0.34 规范变更，建议在阶段 2（错误处理）之前或与之并行时优先实现。
 
-- [ ] **参数列表即元组**：函数形参表 `(a: T1, b: T2)` 视为元组类型，实参为元组字面量或解构；与现有元组类型、解构声明衔接
-- [ ] **可变参数**：`...T` 或 `...` 形参、`...expr` 展开实参，规范 uya.md 可变参数与调用约定
+- [ ] **参数列表即元组**：函数体内通过 `@params` 访问整份参数列表作为元组，与现有元组类型、解构声明衔接；规范 uya.md 规范变更 0.34
+- [ ] **可变参数**：`...` 形参（C 语法兼容）、`printf(fmt, ...)` 参数转发、`@params` 元组访问；编译器智能优化（未用 `@params` 时零开销）；规范 uya.md §5.4
 - [ ] **字符串插值与 printf 结合**：`"a${x}"`、`"a${x:format}"`，结果类型与 printf 格式一致，规范 uya.md §17；可与阶段 10 合并实现
 
-**涉及**：Parser（形参/实参元组、`...`）、Checker（元组与可变参数类型）、Codegen（元组传参、va_list/va_arg）、Lexer/字符串插值；uya-src 同步。实现时先更新 [spec/UYA_MINI_SPEC.md](spec/UYA_MINI_SPEC.md) 与测试用例，再按 Lexer → AST → Parser → Checker → Codegen 顺序推进。
+**涉及**：Parser（形参 `...`、`@params` 内置变量）、Checker（元组与可变参数类型、`@params` 类型推断）、Codegen（元组打包/转发、va_list/va_arg）、Lexer/字符串插值；uya-src 同步。实现时先更新 [spec/UYA_MINI_SPEC.md](spec/UYA_MINI_SPEC.md) 与测试用例，再按 Lexer → AST → Parser → Checker → Codegen 顺序推进。
 
 ---
 

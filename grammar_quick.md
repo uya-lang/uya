@@ -291,6 +291,27 @@ use std.io as io_module;
 extern printf(fmt: *byte, ...) i32;
 ```
 
+### 可变参数与 @params（uya.md §5.4）
+
+```uya
+// Uya 可变参数函数
+fn log_error(fmt: *byte, ...) void {
+    printf("ERROR: ");
+    printf(fmt, ...);  // 使用 ... 转发可变参数
+}
+
+fn sum(...) i32 {
+    const args = @params;  // 所有参数作为元组
+    var total: i32 = 0;
+    for args |val| { total += val; }
+    return total;
+}
+```
+
+- 声明：`...` 为参数列表最后一项
+- 转发：`printf(fmt, ...)` 将可变参数转发
+- `@params`：函数体内访问所有参数作为元组
+
 ### 导出函数给 C
 
 ```uya
