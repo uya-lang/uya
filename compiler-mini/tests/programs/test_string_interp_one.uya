@@ -1,0 +1,8 @@
+extern fn printf(fmt: *byte, ...) i32;
+
+fn main() i32 {
+  const x: u32 = 255;
+  const msg: [i8: 64] = "hex=${x:#06x}\n";
+  printf(&msg[0]);
+  return 0;
+}

@@ -55,6 +55,46 @@ static void gen_int_limit_literal(C99CodeGenerator *codegen, int is_max, int res
     }
 }
 
+void c99_emit_string_interp_fill(C99CodeGenerator *codegen, ASTNode *expr, const char *buf_name) {
+    if (!codegen || !expr || expr->type != AST_STRING_INTERP || !buf_name) return;
+    int n = expr->data.string_interp.segment_count;
+    if (n <= 0 || expr->data.string_interp.computed_size <= 0) return;
+    
+    int fill_id = codegen->interp_fill_counter++;
+    c99_emit_indent(codegen);
+    fprintf(codegen->output, "int _off_%d = 0;\n", fill_id);
+    for (int i = 0; i < n; i++) {
+        ASTStringInterpSegment *seg = &expr->data.string_interp.segments[i];
+        if (seg->is_text) {
+            size_t len = seg->text ? strlen(seg->text) : 0;
+            const char *cn = add_string_constant(codegen, seg->text ? seg->text : "");
+            if (cn) {
+                c99_emit_indent(codegen);
+                fprintf(codegen->output, "memcpy(%s + _off_%d, %s, %zu);\n", buf_name, fill_id, cn, len);
+                c99_emit_indent(codegen);
+                fprintf(codegen->output, "_off_%d += %zu;\n", fill_id, len);
+            }
+            continue;
+        }
+        {
+            char fmt_buf[64];
+            if (seg->format_spec && seg->format_spec[0]) {
+                snprintf(fmt_buf, sizeof(fmt_buf), "%%%s", seg->format_spec);
+            } else {
+                strcpy(fmt_buf, "%d");
+            }
+            const char *fmt_const = add_string_constant(codegen, fmt_buf);
+            if (!fmt_const) continue;
+            c99_emit_indent(codegen);
+            fprintf(codegen->output, "_off_%d += sprintf(%s + _off_%d, %s, ", fill_id, buf_name, fill_id, fmt_const);
+            gen_expr(codegen, seg->expr);
+            fputs(");\n", codegen->output);
+        }
+    }
+    c99_emit_indent(codegen);
+    fprintf(codegen->output, "%s[_off_%d] = '\\0';\n", buf_name, fill_id);
+}
+
 void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
     if (!expr) return;
     
@@ -79,6 +119,14 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 fprintf(codegen->output, "%s", str_const);
             } else {
                 fputs("\"\"", codegen->output);
+            }
+            break;
+        }
+        case AST_STRING_INTERP: {
+            if (codegen->string_interp_buf) {
+                fputs(codegen->string_interp_buf, codegen->output);
+            } else {
+                fputs("((char*)0)", codegen->output);
             }
             break;
         }
@@ -816,6 +864,24 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 fn_decl = find_function_decl_c99(codegen, callee_name);
             }
             
+            /* 实参中的字符串插值：先为每个 AST_STRING_INTERP 生成临时缓冲区并填充 */
+            for (int i = 0; i < arg_count && i < C99_MAX_CALL_ARGS; i++) {
+                codegen->interp_arg_temp_names[i] = NULL;
+            }
+            for (int i = 0; i < arg_count && i < C99_MAX_CALL_ARGS; i++) {
+                if (!args[i] || args[i]->type != AST_STRING_INTERP) continue;
+                int size = args[i]->data.string_interp.computed_size;
+                if (size <= 0) continue;
+                char name_buf[64];
+                snprintf(name_buf, sizeof(name_buf), "__uya_interp_%d", codegen->interp_temp_counter++);
+                const char *temp_name = arena_strdup(codegen->arena, name_buf);
+                if (!temp_name) continue;
+                codegen->interp_arg_temp_names[i] = temp_name;
+                c99_emit_indent(codegen);
+                fprintf(codegen->output, "char %s[%d];\n", temp_name, size);
+                c99_emit_string_interp_fill(codegen, args[i], temp_name);
+            }
+            
             /* 仅在此处生成：无 ... 转发的调用不生成 va_list（零开销转发） */
             if (has_ellipsis && codegen->current_function_decl &&
                 codegen->current_function_decl->type == AST_FN_DECL &&
@@ -848,15 +914,25 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             }
             
             // 生成被调用函数名
+            int printf_one_fmt = (callee_name && strcmp(callee_name, "printf") == 0 && arg_count == 1);
             if (callee && callee->type == AST_IDENTIFIER) {
                 const char *safe_name = get_safe_c_identifier(codegen, callee->data.identifier.name);
                 fprintf(codegen->output, "%s(", safe_name);
+                if (printf_one_fmt) {
+                    fputs("\"%s\", ", codegen->output);  /* 单参数 printf 用字面量格式避免 -Wformat-security */
+                }
             } else {
                 fputs("unknown(", codegen->output);
             }
             
             // 生成参数
             for (int i = 0; i < arg_count; i++) {
+                if (i > 0) fputs(", ", codegen->output);
+                if (codegen->interp_arg_temp_names[i]) {
+                    fputs("(uint8_t *)", codegen->output);
+                    fputs(codegen->interp_arg_temp_names[i], codegen->output);
+                    continue;
+                }
                 // 检查参数是否是字符串常量，如果是则添加类型转换以消除 const 警告
                 int is_string_arg = (args[i] && args[i]->type == AST_STRING);
                 if (is_string_arg) {
@@ -889,7 +965,6 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                     fputc('&', codegen->output);
                 }
                 gen_expr(codegen, args[i]);
-                if (i < arg_count - 1) fputs(", ", codegen->output);
             }
             fputc(')', codegen->output);
             break;

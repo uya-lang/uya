@@ -51,7 +51,8 @@ typedef enum {
     AST_FLOAT,          // 浮点字面量
     AST_BOOL,           // 布尔字面量（true/false）
     AST_INT_LIMIT,      // 整数极值字面量（max/min，类型由上下文推断）
-    AST_STRING,         // 字符串字面量
+    AST_STRING,         // 字符串字面量（无插值）
+    AST_STRING_INTERP,  // 字符串插值 "text${expr}text" 或 "text${expr:spec}text"，结果为 [i8: N]
     AST_PARAMS,         // @params 内置变量（函数体内参数元组）
     
     // 类型节点
@@ -60,6 +61,9 @@ typedef enum {
     AST_TYPE_ARRAY,     // 数组类型（[T: N]）
     AST_TYPE_TUPLE,     // 元组类型（(T1, T2, ...)）
 } ASTNodeType;
+
+struct ASTNode;  /* 前向声明 */
+struct ASTStringInterpSegment;  /* 前向声明，用于字符串插值段 */
 
 // 基础 AST 节点结构
 // 使用 union 存储不同类型节点的数据，使用 Arena 分配器管理内存
@@ -224,6 +228,13 @@ struct ASTNode {
             const char *value;        // 字符串内容（存储在 Arena 中，不包括引号，包括 null 终止符）
         } string_literal;
         
+        // 字符串插值（"text${expr}text" 或 "text${expr:spec}text"）
+        struct {
+            struct ASTStringInterpSegment *segments;
+            int segment_count;
+            int computed_size;  // 由 checker 填写的总字节数（含 NUL），0 表示未设置
+        } string_interp;
+        
         // if 语句
         struct {
             struct ASTNode *condition;       // 条件表达式
@@ -289,6 +300,14 @@ struct ASTNode {
 
 // 类型别名
 typedef struct ASTNode ASTNode;
+
+// 字符串插值段（用于 AST_STRING_INTERP）
+typedef struct ASTStringInterpSegment {
+    int is_text;             // 1=纯文本段，0=插值表达式段
+    const char *text;         // 文本段内容（is_text 时为非 NULL，存储在 Arena）
+    struct ASTNode *expr;    // 插值表达式（!is_text 时为非 NULL）
+    const char *format_spec;  // 格式说明符（!is_text 时可选，如 ".2f"，存储在 Arena）
+} ASTStringInterpSegment;
 
 // AST 节点创建函数
 // 参数：type - 节点类型，line - 行号，column - 列号，arena - Arena 分配器

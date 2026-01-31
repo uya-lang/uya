@@ -13,6 +13,7 @@
 #define C99_MAX_GLOBAL_VARS         256
 #define C99_MAX_LOCAL_VARS          512
 #define C99_MAX_LOOP_STACK          32
+#define C99_MAX_CALL_ARGS           32
 
 // C99 代码生成器结构体
 typedef struct C99CodeGenerator {
@@ -81,6 +82,13 @@ typedef struct C99CodeGenerator {
     int current_line;               // 当前行号（用于避免重复的 #line 指令）
     const char *current_filename;  // 当前文件名（用于避免重复的 #line 指令）
     int emit_line_directives;      // 是否生成 #line 指令（1 表示是，0 表示否）
+    
+    // 字符串插值：当前作为表达式输出时的缓冲区名（由赋值/实参等设置后 gen_expr 输出此名）
+    const char *string_interp_buf;
+    // 调用实参中的字符串插值：为每个 AST_STRING_INTERP 实参预生成临时变量名
+    const char *interp_arg_temp_names[C99_MAX_CALL_ARGS];
+    int interp_temp_counter;
+    int interp_fill_counter;  // 每次 c99_emit_string_interp_fill 递增，用于唯一 _off 变量名
 } C99CodeGenerator;
 
 // 创建 C99 代码生成器

@@ -612,6 +612,37 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
     return result;
 }
 
+// 字符串插值：根据类型与格式说明符返回该段最大字节数（不含 NUL），不支持的返回 -1
+// 与 uya.md §17 宽度常量表一致
+static int checker_interp_format_max_width(const Type *t, const char *spec) {
+    if (t == NULL) return -1;
+    (void)spec;
+    switch (t->kind) {
+        case TYPE_I32:
+        case TYPE_U32:
+            if (spec != NULL && (strstr(spec, "l") != NULL)) return 21; /* %ld %lu */
+            return 11; /* %d %u */
+        case TYPE_I64:
+        case TYPE_U64:
+            return 21; /* %ld %lu */
+        case TYPE_I8:
+        case TYPE_I16:
+        case TYPE_U8:
+        case TYPE_U16:
+            return 11;
+        case TYPE_USIZE:
+            return 21; /* 保守按 64 位 */
+        case TYPE_F32:
+            return 16;
+        case TYPE_F64:
+            return 24;
+        case TYPE_POINTER:
+            return 18; /* %p 64 位平台 */
+        default:
+            return -1;
+    }
+}
+
 // 表达式类型推断函数（从表达式AST节点推断类型）
 // 参数：checker - TypeChecker 指针，expr - 表达式AST节点
 // 返回：Type结构，如果无法推断返回TYPE_VOID类型
@@ -669,6 +700,37 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             result.kind = TYPE_POINTER;
             result.data.pointer.pointer_to = pointed_type_ptr;
             result.data.pointer.is_ffi_pointer = 1;  // FFI 指针类型
+            return result;
+        }
+        
+        case AST_STRING_INTERP: {
+            // 字符串插值结果类型为 [i8: N]，N 由文本段长度与格式段最大宽度之和加 1（NUL）得出
+            int total = 1;  /* NUL */
+            for (int i = 0; i < expr->data.string_interp.segment_count; i++) {
+                ASTStringInterpSegment *seg = &expr->data.string_interp.segments[i];
+                if (seg->is_text) {
+                    total += (int)(seg->text ? strlen(seg->text) : 0);
+                    continue;
+                }
+                Type seg_type = checker_infer_type(checker, seg->expr);
+                int w = checker_interp_format_max_width(&seg_type, seg->format_spec);
+                if (w < 0) {
+                    checker_report_error(checker, seg->expr, "不支持的插值类型或格式说明符");
+                    result.kind = TYPE_VOID;
+                    return result;
+                }
+                total += w;
+            }
+            expr->data.string_interp.computed_size = total;
+            Type *i8_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
+            if (i8_ptr == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            i8_ptr->kind = TYPE_I8;
+            result.kind = TYPE_ARRAY;
+            result.data.array.element_type = i8_ptr;
+            result.data.array.array_size = total;
             return result;
         }
             

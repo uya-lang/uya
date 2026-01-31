@@ -18,7 +18,7 @@
 | 7 | 接口 | [ ] |
 | 8 | 结构体方法 + drop + 移动语义 | [ ] |
 | 9 | 模块系统 | [ ] |
-| 10 | 字符串插值 | [ ] |
+| 10 | 字符串插值 | [x] C 完成 / [ ] uya-src |
 | 11 | 原子类型 | [ ] |
 | 12 | 运算符与安全 | [ ] |
 
@@ -30,7 +30,8 @@
 
 - [x] **参数列表即元组**：函数体内通过 `@params` 访问整份参数列表作为元组，与现有元组类型、解构声明衔接；规范 uya.md 规范变更 0.34
 - [x] **可变参数**：`...` 形参（C 语法兼容）、`printf(fmt, ...)` 参数转发、`@params` 元组访问；编译器智能优化（未用 `@params` 时零开销）；规范 uya.md §5.4
-- [ ] **字符串插值与 printf 结合**：`"a${x}"`、`"a${x:format}"`，结果类型与 printf 格式一致，规范 uya.md §17；可与阶段 10 合并实现
+- [x] **字符串插值与 printf 结合**：`"a${x}"`、`"a${x:format}"`，结果类型与 printf 格式一致，规范 uya.md §17；可与阶段 10 合并实现  
+  **C 实现**：Lexer（INTERP_*、string_mode/interp_depth、返回 INTERP_SPEC 后重置 reading_spec 修复 type=8）、AST、Parser、Checker、Codegen 已完成。支持多段、带 `:spec`（如 `#06x`、`.2f`、`ld`、`zu`）、连续插值、变量初始化、printf 单参（`printf("%s", arg)` 消除 -Wformat-security）、i64/f32/usize/u8 等类型。测试 test_string_interp.uya（18 条用例）、test_string_interp_minimal/simple/one 通过 `--c99`。**uya-src 未同步**。
 
 **涉及**：Parser（形参 `...`、`@params` 内置变量）、Checker（元组与可变参数类型、`@params` 类型推断）、Codegen（元组打包/转发、va_list/v*）、Lexer/字符串插值；uya-src 同步。
 
@@ -148,7 +149,8 @@
 
 ## 10. 字符串插值
 
-- [ ] **插值语法**：`"a${x}"`、`"a${x:format}"`，结果类型 `[i8: N]`，与 printf 格式一致，规范 uya.md §17
+- [x] **插值语法（C 实现）**：`"a${x}"`、`"a${x:format}"`，结果类型 `[i8: N]`，与 printf 格式一致，规范 uya.md §17  
+  已实现：多段、`:spec`（#06x、.2f、ld、zu）、连续插值、变量/数组初始化、printf 单参、i32/u32/i64/f32/f64/usize/u8 等；test_string_interp.uya 等通过 `--c99`。uya-src 未同步。
 - [ ] **原始字符串**：`` `...` ``，无转义，规范 uya.md §1
 
 **涉及**：Lexer、Parser、类型与宽度计算、Codegen，uya-src。

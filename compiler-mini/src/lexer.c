@@ -25,6 +25,14 @@ int lexer_init(Lexer *lexer, const char *source, size_t source_len, const char *
     lexer->line = 1;
     lexer->column = 1;
     
+    // 字符串插值状态初始化
+    lexer->string_mode = 0;
+    lexer->interp_depth = 0;
+    lexer->pending_interp_open = 0;
+    lexer->reading_spec = 0;
+    lexer->string_text_len = 0;
+    lexer->has_seen_interp_in_string = 0;
+    
     // 复制文件名到 Arena
     if (filename != NULL) {
         size_t filename_len = strlen(filename) + 1;
@@ -242,112 +250,169 @@ static Token *read_number(Lexer *lexer, Arena *arena) {
     return make_token(arena, is_float ? TOKEN_FLOAT : TOKEN_NUMBER, value, line, column);
 }
 
-// 读取字符串字面量
-// 参数：lexer - Lexer 指针，arena - Arena 分配器
-// 返回：字符串字面量 Token，失败返回 NULL
-// 支持转义序列：\n, \t, \\, \", \0
-static Token *read_string(Lexer *lexer, Arena *arena) {
-    int line = lexer->line;
-    int column = lexer->column;
-    
-    // 消费开始的引号
+// 在字符串插值模式下读取一个逻辑字符（处理转义），追加到 string_text_buffer，成功返回 0，失败返回 -1
+static int read_string_char_into_buffer(Lexer *lexer) {
+    if (lexer->position >= lexer->buffer_size) {
+        return -1;
+    }
+    char c = peek_char(lexer, 0);
+    if (c == '\\') {
+        advance_char(lexer);
+        if (lexer->position >= lexer->buffer_size) {
+            return -1;
+        }
+        char e = peek_char(lexer, 0);
+        char escaped;
+        switch (e) {
+            case 'n': escaped = '\n'; break;
+            case 't': escaped = '\t'; break;
+            case '\\': escaped = '\\'; break;
+            case '"': escaped = '"'; break;
+            case '0': escaped = '\0'; break;
+            default: return -1;
+        }
+        if (lexer->string_text_len >= LEXER_STRING_INTERP_BUFFER_SIZE - 1) {
+            return -1;
+        }
+        lexer->string_text_buffer[lexer->string_text_len++] = escaped;
+        advance_char(lexer);
+        return 0;
+    }
+    if (lexer->string_text_len >= LEXER_STRING_INTERP_BUFFER_SIZE - 1) {
+        return -1;
+    }
+    lexer->string_text_buffer[lexer->string_text_len++] = c;
     advance_char(lexer);
-    
-    // 使用临时缓冲区构建转义后的字符串（最大 4KB）
-    #define STRING_BUFFER_SIZE 4096
-    char temp_buffer[STRING_BUFFER_SIZE];
-    size_t temp_len = 0;
-    
-    // 读取字符串内容（直到遇到结束引号）
-    while (lexer->position < lexer->buffer_size) {
-        char c = peek_char(lexer, 0);
-        
-        if (c == '\0') {
-            // 文件结束，字符串未闭合
-            return NULL;
-        }
-        
-        if (c == '"') {
-            // 遇到结束引号
-            break;
-        }
-        
-        if (c == '\n') {
-            // 字符串字面量不能跨行（除非使用 \n 转义）
-            return NULL;
-        }
-        
-        // 处理转义序列
-        if (c == '\\') {
-            advance_char(lexer);  // 消费反斜杠
-            
-            if (temp_len >= STRING_BUFFER_SIZE - 1) {
-                // 缓冲区溢出
-                return NULL;
-            }
-            
-            // 读取转义字符
-            char escape_char = peek_char(lexer, 0);
-            char escaped_value;
-            
-            switch (escape_char) {
-                case 'n':
-                    escaped_value = '\n';  // 换行符
-                    break;
-                case 't':
-                    escaped_value = '\t';  // 制表符
-                    break;
-                case '\\':
-                    escaped_value = '\\';  // 反斜杠
-                    break;
-                case '"':
-                    escaped_value = '"';   // 双引号
-                    break;
-                case '0':
-                    escaped_value = '\0';  // 空字符
-                    break;
-                default:
-                    // 未知的转义序列，返回错误
-                    return NULL;
-            }
-            
-            temp_buffer[temp_len++] = escaped_value;
-            advance_char(lexer);  // 消费转义字符
-        } else {
-            // 普通字符
-            if (temp_len >= STRING_BUFFER_SIZE - 1) {
-                // 缓冲区溢出
-                return NULL;
-            }
-            temp_buffer[temp_len++] = c;
-            advance_char(lexer);
-        }
-    }
-    
-    // 检查是否找到了结束引号
-    if (lexer->position >= lexer->buffer_size || peek_char(lexer, 0) != '"') {
-        // 字符串未闭合
-        return NULL;
-    }
-    
-    // 消费结束引号
-    advance_char(lexer);
-    
-    // 将转义后的字符串复制到 Arena（包括 null 终止符）
-    char *value = (char *)arena_alloc(arena, temp_len + 1);
-    if (value == NULL) {
-        return NULL;
-    }
-    memcpy(value, temp_buffer, temp_len);
-    value[temp_len] = '\0';
-    
-    return make_token(arena, TOKEN_STRING, value, line, column);
+    return 0;
 }
 
 // 获取下一个 Token
 Token *lexer_next_token(Lexer *lexer, Arena *arena) {
     if (lexer == NULL || arena == NULL) {
         return NULL;
+    }
+    
+    int line = lexer->line;
+    int column = lexer->column;
+    
+top_of_token:
+    // ----- 字符串插值 / 插值内部状态：优先于空白与普通 switch -----
+    if (lexer->reading_spec) {
+        lexer->string_text_len = 0;
+        while (lexer->position < lexer->buffer_size && peek_char(lexer, 0) != '}') {
+            if (lexer->string_text_len >= LEXER_STRING_INTERP_BUFFER_SIZE - 1) {
+                return NULL;
+            }
+            lexer->string_text_buffer[lexer->string_text_len++] = peek_char(lexer, 0);
+            advance_char(lexer);
+        }
+        if (lexer->position >= lexer->buffer_size || peek_char(lexer, 0) != '}') {
+            return NULL;
+        }
+        lexer->string_text_buffer[lexer->string_text_len] = '\0';
+        const char *spec_value = arena_strdup(arena, lexer->string_text_buffer, lexer->string_text_len);
+        if (spec_value == NULL) {
+            return NULL;
+        }
+        advance_char(lexer);  /* 消费 } */
+        lexer->interp_depth = 0;
+        lexer->reading_spec = 0;
+        lexer->pending_interp_open = 0;  /* 插值段结束，避免下一 token 误走 pending_interp_open */
+        return make_token(arena, TOKEN_INTERP_SPEC, spec_value, line, column);
+    }
+    
+    if (lexer->pending_interp_open) {
+        if (lexer->position + 2 > lexer->buffer_size ||
+            peek_char(lexer, 0) != '$' || peek_char(lexer, 1) != '{') {
+            return NULL;
+        }
+        advance_char(lexer);
+        advance_char(lexer);
+        lexer->pending_interp_open = 0;
+        lexer->interp_depth = 1;
+        return make_token(arena, TOKEN_INTERP_OPEN, NULL, line, column);
+    }
+    
+    if (lexer->interp_depth > 0) {
+        char p = peek_char(lexer, 0);
+        if (p == '}') {
+            advance_char(lexer);
+            lexer->interp_depth = 0;
+            return make_token(arena, TOKEN_INTERP_CLOSE, NULL, lexer->line, lexer->column);
+        }
+        if (p == ':') {
+            advance_char(lexer);
+            lexer->reading_spec = 1;
+            lexer->string_text_len = 0;
+            while (lexer->position < lexer->buffer_size && peek_char(lexer, 0) != '}') {
+                if (lexer->string_text_len >= LEXER_STRING_INTERP_BUFFER_SIZE - 1) {
+                    return NULL;
+                }
+                lexer->string_text_buffer[lexer->string_text_len++] = peek_char(lexer, 0);
+                advance_char(lexer);
+            }
+            if (lexer->position >= lexer->buffer_size || peek_char(lexer, 0) != '}') {
+                return NULL;
+            }
+            lexer->string_text_buffer[lexer->string_text_len] = '\0';
+            const char *spec_value = arena_strdup(arena, lexer->string_text_buffer, lexer->string_text_len);
+            if (spec_value == NULL) {
+                return NULL;
+            }
+            advance_char(lexer);
+            lexer->interp_depth = 0;
+            lexer->pending_interp_open = 0;  /* 同上 */
+            lexer->reading_spec = 0;  /* 避免下次 next_token 误入 reading_spec 分支再返回错误 INTERP_SPEC */
+            return make_token(arena, TOKEN_INTERP_SPEC, spec_value, line, column);
+        }
+    }
+    
+    if (lexer->string_mode && lexer->interp_depth == 0) {
+        /* 每段新文本开始时清空缓冲，避免 INTERP_SPEC/INTERP_CLOSE 后的残留 */
+        lexer->string_text_len = 0;
+        while (lexer->position < lexer->buffer_size) {
+            char p = peek_char(lexer, 0);
+            if (p == '"') {
+                if (!lexer->has_seen_interp_in_string) {
+                    lexer->string_text_buffer[lexer->string_text_len] = '\0';
+                    const char *value = arena_strdup(arena, lexer->string_text_buffer, lexer->string_text_len);
+                    if (value == NULL) {
+                        return NULL;
+                    }
+                    advance_char(lexer);
+                    lexer->string_mode = 0;
+                    return make_token(arena, TOKEN_STRING, value, line, column);
+                }
+                if (lexer->string_text_len > 0) {
+                    lexer->string_text_buffer[lexer->string_text_len] = '\0';
+                    const char *value = arena_strdup(arena, lexer->string_text_buffer, lexer->string_text_len);
+                    if (value == NULL) {
+                        return NULL;
+                    }
+                    lexer->string_text_len = 0;
+                    return make_token(arena, TOKEN_INTERP_TEXT, value, line, column);
+                }
+                advance_char(lexer);
+                lexer->string_mode = 0;
+                lexer->has_seen_interp_in_string = 0;
+                return make_token(arena, TOKEN_INTERP_END, NULL, lexer->line, lexer->column);
+            }
+            if (p == '$' && peek_char(lexer, 1) == '{') {
+                lexer->has_seen_interp_in_string = 1;
+                lexer->pending_interp_open = 1;
+                lexer->string_text_buffer[lexer->string_text_len] = '\0';
+                const char *value = arena_strdup(arena, lexer->string_text_buffer, lexer->string_text_len);
+                if (value == NULL) {
+                    return NULL;
+                }
+                lexer->string_text_len = 0;
+                return make_token(arena, TOKEN_INTERP_TEXT, value, line, column);
+            }
+            if (read_string_char_into_buffer(lexer) != 0) {
+                return NULL;
+            }
+        }
+        return NULL;  /* 字符串未闭合 */
     }
     
     // 跳过空白字符和注释
@@ -359,8 +424,10 @@ Token *lexer_next_token(Lexer *lexer, Arena *arena) {
     }
     
     char c = peek_char(lexer, 0);
-    int line = lexer->line;
-    int column = lexer->column;
+    line = lexer->line;
+    column = lexer->column;
+    
+    /* 在插值外部，} 为普通 TOKEN_RIGHT_BRACE；在 interp_depth>0 时已在上面处理 */
     
     // 根据第一个字符判断 Token 类型
     switch (c) {
@@ -507,9 +574,13 @@ Token *lexer_next_token(Lexer *lexer, Arena *arena) {
             }
             fprintf(stderr, "错误: @ 后必须是标识符\n");
             return NULL;
-        case '"':
-            // 字符串字面量
-            return read_string(lexer, arena);
+        case '"': {
+            advance_char(lexer);
+            lexer->string_mode = 1;
+            lexer->has_seen_interp_in_string = 0;
+            lexer->string_text_len = 0;
+            goto top_of_token;
+        }
         default:
             if (isalpha((unsigned char)c) || c == '_') {
                 return read_identifier_or_keyword(lexer, arena);

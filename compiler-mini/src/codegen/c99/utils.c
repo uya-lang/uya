@@ -1,5 +1,6 @@
 #include "internal.h"
 #include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -30,6 +31,12 @@ int c99_codegen_new(C99CodeGenerator *codegen, Arena *arena, FILE *output, const
     codegen->current_line = 0;  // 当前行号（用于优化 #line 指令）
     codegen->current_filename = NULL;  // 当前文件名（用于优化 #line 指令）
     codegen->emit_line_directives = emit_line_directives;  // 是否生成 #line 指令
+    codegen->string_interp_buf = NULL;
+    codegen->interp_temp_counter = 0;
+    codegen->interp_fill_counter = 0;
+    for (int i = 0; i < C99_MAX_CALL_ARGS; i++) {
+        codegen->interp_arg_temp_names[i] = NULL;
+    }
     
     return 0;
 }
@@ -183,9 +190,11 @@ const char *add_string_constant(C99CodeGenerator *codegen, const char *value) {
     char name[32];
     snprintf(name, sizeof(name), "str%d", codegen->string_constant_count);
     
-    // 存储到表中
+    // 存储到表中（value 用 arena 持久化，避免收集阶段局部 fmt_buf 等栈指针失效）
+    const char *value_copy = arena_strdup(codegen->arena, value);
+    if (!value_copy) return NULL;
     codegen->string_constants[codegen->string_constant_count].name = arena_strdup(codegen->arena, name);
-    codegen->string_constants[codegen->string_constant_count].value = value;  // 注意：value 应该已经在 Arena 中
+    codegen->string_constants[codegen->string_constant_count].value = value_copy;
     codegen->string_constant_count++;
     
     return codegen->string_constants[codegen->string_constant_count - 1].name;
@@ -321,6 +330,25 @@ void collect_string_constants_from_expr(C99CodeGenerator *codegen, ASTNode *expr
         case AST_STRING:
             add_string_constant(codegen, expr->data.string_literal.value);
             break;
+        case AST_STRING_INTERP: {
+            for (int i = 0; i < expr->data.string_interp.segment_count; i++) {
+                ASTStringInterpSegment *seg = &expr->data.string_interp.segments[i];
+                if (seg->is_text && seg->text) {
+                    add_string_constant(codegen, seg->text);
+                } else if (!seg->is_text) {
+                    if (seg->expr)
+                        collect_string_constants_from_expr(codegen, seg->expr);
+                    if (seg->format_spec && seg->format_spec[0]) {
+                        char fmt_buf[64];
+                        snprintf(fmt_buf, sizeof(fmt_buf), "%%%s", seg->format_spec);
+                        add_string_constant(codegen, fmt_buf);
+                    } else {
+                        add_string_constant(codegen, "%d");
+                    }
+                }
+            }
+            break;
+        }
         case AST_BINARY_EXPR:
             collect_string_constants_from_expr(codegen, expr->data.binary_expr.left);
             collect_string_constants_from_expr(codegen, expr->data.binary_expr.right);

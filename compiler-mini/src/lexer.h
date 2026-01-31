@@ -19,7 +19,14 @@ typedef enum {
     TOKEN_IDENTIFIER,   // 标识符
     TOKEN_NUMBER,       // 整数字面量
     TOKEN_FLOAT,        // 浮点字面量
-    TOKEN_STRING,       // 字符串字面量
+    TOKEN_STRING,       // 字符串字面量（无插值）
+    
+    // 字符串插值相关（"text${expr}text" 或 "text${expr:spec}text"）
+    TOKEN_INTERP_TEXT,   // 插值中的纯文本段，value 为文本内容
+    TOKEN_INTERP_OPEN,   // ${ 开始插值表达式
+    TOKEN_INTERP_CLOSE,  // } 结束插值表达式
+    TOKEN_INTERP_SPEC,   // 可选格式说明符，value 为 spec 字符串（如 ".2f"）
+    TOKEN_INTERP_END,    // 插值字符串结束 "
     
     // 关键字
     TOKEN_ENUM,         // enum
@@ -91,6 +98,9 @@ typedef struct Token {
 // 使用固定大小缓冲区，不分配堆内存
 #define LEXER_BUFFER_SIZE (1024 * 1024)  // 1MB 缓冲区大小
 
+// 字符串插值内部缓冲区大小
+#define LEXER_STRING_INTERP_BUFFER_SIZE 4096
+
 typedef struct Lexer {
     char buffer[LEXER_BUFFER_SIZE];  // 源代码缓冲区（固定大小数组）
     size_t buffer_size;              // 缓冲区实际大小（字节数）
@@ -98,6 +108,14 @@ typedef struct Lexer {
     int line;                        // 当前行号（从1开始）
     int column;                      // 当前列号（从1开始）
     const char *filename;            // 文件名（存储在 Arena 中，可为 NULL）
+    // 字符串插值状态（仅当 string_mode 或 interp_depth 非 0 时有效）
+    int string_mode;                 // 1 表示在 "..." 内
+    int interp_depth;                // 在 ${ } 内时为 1，用于区分 } 是插值结束还是代码
+    int pending_interp_open;         // 1 表示已返回 INTERP_TEXT，下一 token 应为 INTERP_OPEN
+    int reading_spec;                 // 1 表示正在读取 :spec 直到 }
+    int has_seen_interp_in_string;   // 当前字符串中是否出现过 ${
+    char string_text_buffer[LEXER_STRING_INTERP_BUFFER_SIZE];  // 当前文本段缓冲
+    size_t string_text_len;           // 当前文本段长度
 } Lexer;
 
 // 初始化 Lexer

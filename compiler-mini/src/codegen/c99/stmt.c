@@ -208,6 +208,9 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             ASTNode *var_type = stmt->data.var_decl.type;
             ASTNode *init_expr = stmt->data.var_decl.init;
             int is_const = stmt->data.var_decl.is_const;
+            int is_string_interp_init = (init_expr != NULL && init_expr->type == AST_STRING_INTERP);
+            /* 字符串插值初始化需先写入缓冲区，const 数组在 C 中改为非 const 声明 */
+            int emit_const = is_const && !is_string_interp_init;
             
             // 计算类型字符串
             const char *type_c = NULL;
@@ -222,7 +225,7 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 if (type_c) {
                     size_t type_len = strlen(type_c);
                     if (is_const) {
-                        // 为 "const " 前缀分配空间
+                        // 为 "const " 前缀分配空间（变量表仍记录为 const）
                         stored_type_c = arena_alloc(codegen->arena, type_len + 7);
                         if (stored_type_c) {
                             snprintf((char *)stored_type_c, type_len + 7, "const %s", type_c);
@@ -247,8 +250,8 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                         // 维度部分是从 '[' 开始到结尾
                         const char *dimensions = type_c + base_len;
                         
-                        // 生成数组声明：const base_type var_name dimensions
-                        if (is_const) {
+                        // 生成数组声明：const base_type var_name dimensions（字符串插值初始化时不加 const 以便填充）
+                        if (emit_const) {
                             fprintf(codegen->output, "const %s %s%s", base_type, var_name, dimensions);
                         } else {
                             fprintf(codegen->output, "%s %s%s", base_type, var_name, dimensions);
@@ -259,7 +262,7 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 
                 // 如果上面的解析失败，回退到简单处理
                 if (type_c) {
-                    if (is_const) {
+                    if (emit_const) {
                         c99_emit(codegen, "const %s %s", type_c, var_name);
                     } else {
                         c99_emit(codegen, "%s %s", type_c, var_name);
@@ -407,6 +410,9 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                     needs_memcpy = 1;
                 }
                 
+                // 字符串插值初始化：先声明变量，再填充
+                int is_string_interp_init = (init_expr->type == AST_STRING_INTERP);
+                
                 // 检查是否是结构体初始化且包含数组字段（初始化值是标识符）
                 // 在C中，数组不能直接赋值，需要使用memcpy
                 int struct_init_needs_memcpy = 0;
@@ -485,6 +491,9 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                     fputs(".data, sizeof(", codegen->output);
                     c99_emit(codegen, "%s", var_name);
                     fputs("));\n", codegen->output);
+                } else if (is_string_interp_init) {
+                    fputs(";\n", codegen->output);
+                    c99_emit_string_interp_fill(codegen, init_expr, var_name);
                 } else if (needs_memcpy) {
                     // 数组初始化：使用memcpy
                     fputs(";\n", codegen->output);

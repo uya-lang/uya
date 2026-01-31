@@ -138,6 +138,11 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_STRING:
             node->data.string_literal.value = NULL;
             break;
+        case AST_STRING_INTERP:
+            node->data.string_interp.segments = NULL;
+            node->data.string_interp.segment_count = 0;
+            node->data.string_interp.computed_size = 0;
+            break;
         case AST_IF_STMT:
             node->data.if_stmt.condition = NULL;
             node->data.if_stmt.then_branch = NULL;

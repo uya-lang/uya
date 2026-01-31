@@ -71,8 +71,13 @@ static int parser_peek_is_struct_init(Parser *parser) {
         return 0;
     }
     
-    // 保存 lexer 状态（当前 lexer 的 position 已经在 '{' 之后）
     Lexer *lexer = parser->lexer;
+    /* 在字符串/插值内部不能做 lookahead，会破坏 string_mode/interp_depth 等状态 */
+    if (lexer->string_mode || lexer->interp_depth > 0) {
+        return 0;
+    }
+    
+    // 保存 lexer 状态（当前 lexer 的 position 已经在 '{' 之后）
     size_t saved_position = lexer->position;
     int saved_line = lexer->line;
     int saved_column = lexer->column;
@@ -1251,7 +1256,89 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return node;
     }
     
-    // 解析字符串字面量
+    // 解析字符串插值（"text${expr}text" 或 "text${expr:spec}text"），以 TOKEN_INTERP_TEXT 或 TOKEN_INTERP_OPEN 开始
+    if (parser->current_token->type == TOKEN_INTERP_TEXT || parser->current_token->type == TOKEN_INTERP_OPEN) {
+        #define MAX_INTERP_SEGMENTS 64
+        struct { int is_text; const char *text; ASTNode *expr; const char *format_spec; } segs[MAX_INTERP_SEGMENTS];
+        int seg_count = 0;
+        int saw_end = 0;
+        while (seg_count < MAX_INTERP_SEGMENTS && parser->current_token != NULL) {
+            if (parser->current_token->type == TOKEN_INTERP_TEXT) {
+                segs[seg_count].is_text = 1;
+                segs[seg_count].text = parser->current_token->value;
+                segs[seg_count].expr = NULL;
+                segs[seg_count].format_spec = NULL;
+                seg_count++;
+                parser_consume(parser);
+                continue;
+            }
+            if (parser->current_token->type == TOKEN_INTERP_OPEN) {
+                parser_consume(parser);
+                ASTNode *expr = parser_parse_expression(parser);
+                if (expr == NULL) {
+                    return NULL;
+                }
+                const char *spec = NULL;
+                if (parser->current_token != NULL && parser->current_token->type == TOKEN_INTERP_SPEC) {
+                    spec = parser->current_token->value;
+                    parser_consume(parser);
+                    /* 有 :spec 时 lexer 已消费 }，无需再读 INTERP_CLOSE */
+                } else {
+                    if (parser->current_token == NULL || parser->current_token->type != TOKEN_INTERP_CLOSE) {
+                        fprintf(stderr, "错误: 字符串插值缺少 }\n");
+                        return NULL;
+                    }
+                    parser_consume(parser);
+                }
+                segs[seg_count].is_text = 0;
+                segs[seg_count].text = NULL;
+                segs[seg_count].expr = expr;
+                segs[seg_count].format_spec = spec;
+                seg_count++;
+                continue;
+            }
+            if (parser->current_token->type == TOKEN_INTERP_END) {
+                parser_consume(parser);
+                saw_end = 1;
+                break;
+            }
+            /* INTERP_SPEC 出现在循环顶：应为 ${expr} 后已消费，若未消费说明上一段是插值且缺 spec，补上 */
+            if (parser->current_token->type == TOKEN_INTERP_SPEC && seg_count > 0 &&
+                !segs[seg_count - 1].is_text && segs[seg_count - 1].expr != NULL && segs[seg_count - 1].format_spec == NULL) {
+                segs[seg_count - 1].format_spec = parser->current_token->value;
+                parser_consume(parser);
+                continue;
+            }
+            fprintf(stderr, "错误: 字符串插值中出现意外 token (type=%d)\n", (int)parser->current_token->type);
+            return NULL;
+        }
+        if (!saw_end || seg_count == 0 || seg_count >= MAX_INTERP_SEGMENTS) {
+            if (seg_count >= MAX_INTERP_SEGMENTS) {
+                fprintf(stderr, "错误: 字符串插值段数超过上限 %d\n", MAX_INTERP_SEGMENTS);
+            } else if (!saw_end) {
+                fprintf(stderr, "错误: 字符串插值未闭合\n");
+            }
+            return NULL;
+        }
+        ASTNode *node = ast_new_node(AST_STRING_INTERP, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (node == NULL) {
+            return NULL;
+        }
+        node->data.string_interp.segments = (ASTStringInterpSegment *)arena_alloc(parser->arena, (size_t)seg_count * sizeof(ASTStringInterpSegment));
+        if (node->data.string_interp.segments == NULL) {
+            return NULL;
+        }
+        for (int i = 0; i < seg_count; i++) {
+            node->data.string_interp.segments[i].is_text = segs[i].is_text;
+            node->data.string_interp.segments[i].text = segs[i].text;
+            node->data.string_interp.segments[i].expr = segs[i].expr;
+            node->data.string_interp.segments[i].format_spec = segs[i].format_spec;
+        }
+        node->data.string_interp.segment_count = seg_count;
+        return node;
+    }
+    
+    // 解析字符串字面量（无插值）
     if (parser->current_token->type == TOKEN_STRING) {
         ASTNode *node = ast_new_node(AST_STRING, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {

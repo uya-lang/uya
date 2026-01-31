@@ -1,0 +1,86 @@
+extern fn printf(fmt: *byte, ...) i32;
+
+fn main() i32 {
+  const x: u32 = 255;
+  const pi: f64 = 3.1415926;
+  const n: i32 = -42;
+  const u: u32 = 100;
+
+  // 1. 变量初始化：带格式的插值（单段）
+  const msg: [i8: 64] = "hex=${x:#06x}\n";
+  printf(&msg[0]);
+
+  // 2. 变量初始化：多段 文本+插值+文本+插值
+  const msg2: [i8: 64] = "x=${x}, pi=${pi:.2f}\n";
+  printf(&msg2[0]);
+
+  // 3. 直接作为 printf 实参
+  printf("n=${n}\n");
+
+  // 4. 仅插值（无前后文本）
+  const only_interp: [i8: 32] = "${n}";
+  printf(&only_interp[0]);
+
+  // 5. 仅文本（无插值）
+  printf("plain\n");
+
+  // 6. 多段：文本 + 插值 + 文本 + 插值
+  const multi: [i8: 64] = "a=${u} b=${n} end\n";
+  printf(&multi[0]);
+
+  // 7. 整数无格式说明符
+  const simple: [i8: 32] = "n=${n}\n";
+  printf(&simple[0]);
+
+  // 8. printf 直接插值：${v} world\n（变量 + 字面文本）
+  const v: i32 = 123;
+  printf("${v} world\n");
+
+  // 9. var 在插值中（可变变量）
+  var w: i32 = 99;
+  printf("w=${w}\n");
+
+  // 10. 连续插值（空文本段）：a${x}${n}b
+  const ab: [i8: 64] = "a=${x}${n}b\n";
+  printf(&ab[0]);
+
+  // 11. 仅连续插值：${x}${n}
+  const concat: [i8: 32] = "${x}${n}";
+  printf(&concat[0]);
+
+  // 12. 三段及以上：1=${a} 2=${b} 3=${c}
+  const a: i32 = 1;
+  const b: i32 = 2;
+  const c: i32 = 3;
+  const three: [i8: 64] = "1=${a} 2=${b} 3=${c}\n";
+  printf(&three[0]);
+
+  // 13. 文本中含转义：\n${n}\t
+  const escaped: [i8: 64] = "\n${n}\t\n";
+  printf(&escaped[0]);
+
+  // 14. i64 带格式说明符（%ld）
+  const k: i64 = 999;
+  const ki: [i8: 64] = "k=${k:ld}\n";
+  printf(&ki[0]);
+
+  // 15. f32 带格式说明符
+  const f: f32 = 1.5;
+  printf("f=${f:.1f}\n");
+
+  // 16. usize 带格式说明符（%zu）
+  const z: usize = 42 as usize;
+  const zmsg: [i8: 32] = "z=${z:zu}\n";
+  printf(&zmsg[0]);
+
+  // 17. u8 插值（小整数类型）
+  const b8: u8 = 200;
+  const u8msg: [i8: 32] = "u8=${b8}\n";
+  printf(&u8msg[0]);
+
+  // 18. 前导文本 + 单插值 + 尾随文本（覆盖 parser 各分支）
+  const head_tail: [i8: 64] = ">${n}<\n";
+  printf(&head_tail[0]);
+
+  return 0;
+}

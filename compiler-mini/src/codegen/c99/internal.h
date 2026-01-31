@@ -67,6 +67,8 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl);
 
 // 表达式生成（expr.c）
 void gen_expr(C99CodeGenerator *codegen, ASTNode *expr);
+/* 将字符串插值填充到指定缓冲区，生成 memcpy/sprintf 等语句；buf_name 为缓冲区变量名 */
+void c99_emit_string_interp_fill(C99CodeGenerator *codegen, ASTNode *expr, const char *buf_name);
 
 // 语句生成（stmt.c）
 void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt);

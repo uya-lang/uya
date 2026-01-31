@@ -1,0 +1,8 @@
+extern fn printf(fmt: *byte, ...) i32;
+
+fn main() i32 {
+  const n: i32 = 42;
+  const msg: [i8: 32] = "${n}";
+  printf(&msg[0]);
+  return 0;
+}
