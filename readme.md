@@ -250,12 +250,19 @@ fn increment(counter: *Counter) void {
 }
 ```
 
+## 当前状态（v0.1.0）
+
+- **Uya Mini 编译器**：已实现 Uya 语言最小可自举子集，支持 LLVM 与 C99 双后端；**自举已达成**（编译器能编译自身，且与 C 编译器生成的 C 输出一致）。详见 [RELEASE_v0.1.0.md](./RELEASE_v0.1.0.md)。
+- **语言规范**：完整版见 [uya.md](./uya.md)；当前编译器仅实现 Uya Mini 子集。
+
 ## 文档
 
 - **[uya.md](./uya.md)** - 完整语言规范（Markdown）
-- **[index.html](./index.html)** - 完整语言规范（HTML，深色主题）
+- **[index.html](./index.html)** - 语言介绍与规范（HTML）
+- **[RELEASE_v0.1.0.md](./RELEASE_v0.1.0.md)** - v0.1.0 版本说明
 - **[comparison.md](./comparison.md)** - 与其他语言的对比
-- **[compiler-mini/](./compiler-mini/)** - Uya Mini 编译器（最小子集，用于自举）
+- **[compiler-mini/](./compiler-mini/)** - Uya Mini 编译器（最小子集，已自举）
+- **[changelog.md](./changelog.md)** - 语言规范变更历史
 
 ## 一句话总结
 
@@ -271,8 +278,8 @@ fn increment(counter: *Counter) void {
 
 ---
 
-**注意**：Uya 语言目前处于开发阶段（**0.31 版本**），部分特性可能尚未完全实现。请参考 [uya.md](./uya.md) 了解当前版本的限制和未来计划。
+**注意**：语言规范为完整版（0.31）；**v0.1.0** 发布的是 Uya Mini 编译器（最小子集，已自举）。完整特性与未来计划见 [uya.md](./uya.md)。
 
-**许可证**：本项目采用 [MIT 许可证](./LICENSE)。Copyright (c) 2025 zigger
+**许可证**：本项目采用 [MIT 许可证](./LICENSE)。Copyright (c) 2025 Uya 语言项目
 
 

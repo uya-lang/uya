@@ -1319,7 +1319,7 @@ Uya Mini 支持结构体和数组类型，这些特性使得编译器实现更�
 - **最后更新**：2026-01-16（类型检查器改进）
 - **基于 Uya 规范版本**：0.31
 - **目的**：Uya Mini 编译器自举实现
-- **状态说明**：规范文档定义了完整的语法和语义规则。编译器实现状态请参考 `TODO_implementation.md`
+- **状态说明**：规范文档定义了完整的语法和语义规则。编译器 v0.1.0 已自举，详见项目根目录 `RELEASE_v0.1.0.md`
 - **更新说明**：
   - 2026-01-13：同步 Uya 0.29 版本的结构体内存布局详细规则和函数调用约定详细说明
   - 2026-01-13：添加类型检查器两遍检查机制说明（解决函数循环依赖问题）
@@ -1339,5 +1339,5 @@ Uya Mini 支持结构体和数组类型，这些特性使得编译器实现更�
 - [uya.md](../uya.md) - Uya 语言完整规范
 - [uya_ai_prompt.md](../uya_ai_prompt.md) - Uya 语言 AI 提示词
 - [grammar_formal.md](../grammar_formal.md) - Uya 语言正式 BNF 语法
-- [compiler/architecture.md](../compiler/architecture.md) - Uya 编译器架构设计
+- [RELEASE_v0.1.0.md](../RELEASE_v0.1.0.md) - v0.1.0 版本说明与编译器自举说明
 

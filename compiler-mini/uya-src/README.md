@@ -148,7 +148,7 @@ make build
 ## 参考
 
 - [Uya Mini 规范](../spec/UYA_MINI_SPEC.md) - 完整语言规范
-- [自举计划](../BOOTSTRAP_PLAN.md) - 自举实现计划
+- [v0.1.0 版本说明](../../RELEASE_v0.1.0.md) - 自举达成与发布说明
 
 
 

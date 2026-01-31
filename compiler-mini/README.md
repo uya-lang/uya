@@ -2,11 +2,11 @@
 
 Uya Mini 是 Uya 语言的最小子集编译器，设计目标是能够编译自身，实现编译器的自举。
 
-## 项目状态
+## 项目状态（v0.1.0）
 
 ✅ **核心功能已完成** - Uya Mini 规范已全部实现，编译器功能完整
 
-✅ **准备开始自举** - 可以开始将 C99 编译器翻译成 Uya Mini 版本
+✅ **自举已达成** - 用 Uya 编写的编译器可编译自身，且与 C 编译器生成的 C 文件完全一致（`./uya-src/compile.sh --c99 -b` 验证）。详见项目根目录 [RELEASE_v0.1.0.md](../RELEASE_v0.1.0.md)
 
 **已完成模块**：
 - ✅ Arena 分配器
@@ -38,7 +38,7 @@ Uya Mini 是 Uya 语言的最小子集编译器，设计目标是能够编译自
 **当前实现状态**：
 - ✅ **Uya Mini 规范已全部实现** - 所有语言特性已在编译器中实现
 - ✅ **编译器功能完整** - 可以编译所有 Uya Mini 程序
-- ✅ **准备开始自举** - 参考 [BOOTSTRAP_PLAN.md](BOOTSTRAP_PLAN.md) 了解自举实现计划
+- ✅ **自举已达成** - Uya 版编译器可编译自身，C 输出与 C 版一致
 
 ## 快速开始
 
@@ -106,9 +106,8 @@ gcc --std=c99 -o program program.c
 ## 文档
 
 - [语言规范](spec/UYA_MINI_SPEC.md) - Uya Mini 完整语言规范
-- [自举实现计划](BOOTSTRAP_PLAN.md) - 将 C99 编译器翻译成 Uya Mini 的详细计划
+- [v0.1.0 版本说明](../RELEASE_v0.1.0.md) - 自举达成与发布说明
 - [开发规则](.cursorrules) - 开发规则和规范
-- [上下文切换指南](CONTEXT_SWITCH.md) - 多上下文协作指南
 
 ## 项目结构
 
@@ -129,10 +128,9 @@ compiler-mini/
 │   ├── programs/                  # 测试程序
 │   │   └── multifile/            # 多文件编译测试
 │   └── run_programs.sh           # 测试运行脚本
-├── examples/                      # 示例代码
-│   ├── c99_output/               # C99 后端示例
-│   └── compile_with_c99.sh      # C99 后端编译脚本
-└── TODO_phase*.md                 # 分阶段待办事项
+└── examples/                      # 示例代码
+    ├── c99_output/               # C99 后端示例
+    └── compile_with_c99.sh       # C99 后端编译脚本
 ```
 
 ## 相关项目

@@ -4,20 +4,13 @@
 
 ## 重要文档
 
-### 编译器实现待办事项
+### 编译器实现待办事项（v0.1.0）
 
-请参考 `compiler/todo_implementation.md` 了解编译器的实现状态和待办事项。
-
-该文档包含：
-- 按优先级组织的待实现功能（P0-P3）
-- 每个功能的详细任务清单
-- 相关文件和技术文档引用
-- 推荐的实现顺序
+项目 v0.1.0 已达成自举，详见 `RELEASE_v0.1.0.md`。
 
 **使用场景**：
-- 开始新的实现任务前，先查看此文档了解当前状态
-- 实现功能时，参考文档中的详细任务清单
-- 更新实现状态后，同步更新此文档
+- 开始新的实现任务前，先查看上述文档了解当前状态
+- 实现功能后，同步更新相应待办文档
 
 ---
 
@@ -27,9 +20,8 @@
 - `grammar_formal.md` - 正式BNF语法规范
 - `grammar_quick.md` - 语法速查手册
 - `uya_ai_prompt.md` - AI代码生成提示词
-- `compiler/` - 编译器源代码
-- `compiler/todo_implementation.md` - 编译器实现待办事项
-- `compiler/TODO_error_handling.md` - 错误处理待办事项
+- `compiler-mini/` - Uya Mini 编译器源代码（C 实现 + uya-src 自举）
+- `RELEASE_v0.1.0.md` - v0.1.0 版本说明
 
 ---
 
@@ -51,7 +43,6 @@
 ## AI 辅助开发提示
 
 当进行编译器开发时：
-1. 首先查看 `compiler/todo_implementation.md` 了解任务优先级和详细要求
+1. 参考 `RELEASE_v0.1.0.md` 了解当前状态
 2. 参考 `uya.md` 和 `grammar_formal.md` 确认语法规范
-3. 实现功能后更新相应的待办事项文档
 
