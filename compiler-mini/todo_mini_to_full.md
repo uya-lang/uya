@@ -61,7 +61,7 @@
 
 **涉及**：`checker.h`/`checker.c`（TypeKind、type_from_ast、运算/转换）、`codegen/c99/types.c`（c99_type_to_c）、parser 数组字面量（`;` 分支）、uya-src 对应模块。
 
-**说明**：元组类型已在 C 实现中完成（类型、字面量、.0/.1、解构），测试 `test_tuple.uya` 已加入，`--c99` 全部通过。uya-src 同步尚未完成，故 `--uya --c99` 运行元组测试会失败，待后续同步。
+**说明**：元组类型已在 C 实现与 uya-src 自举中完成（类型、字面量、.0/.1、解构）。测试 `test_tuple.uya` 已加入，`--c99` 与 `--uya --c99` 均通过。
 
 ---
 

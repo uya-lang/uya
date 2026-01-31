@@ -11,6 +11,8 @@
 // Arena 函数（来自 arena.uya，与 arena.uya 定义一致）
 extern fn arena_alloc(arena: &Arena, size: usize) &byte;
 
+extern fn atoi(s: *byte) i32;
+
 // ===== 常量定义 =====
 
 // 字符串常量表大小

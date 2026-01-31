@@ -5,6 +5,8 @@
 // 注意：Uya 不支持指针运算，ptr + i 必须转换为 &ptr[i]
 // 注意：Uya 不支持函数前向声明，函数必须在使用前定义
 
+extern fn atoi(s: *byte) i32;
+
 // 类型枚举（Uya Mini 支持的类型）
 enum TypeKind {
     TYPE_I8,       // 8位有符号整数
@@ -25,6 +27,7 @@ enum TypeKind {
     TYPE_STRUCT,   // 结构体类型（通过名称引用）
     TYPE_POINTER,  // 指针类型（&T 或 *T）
     TYPE_ARRAY,    // 数组类型（[T: N]）
+    TYPE_TUPLE,    // 元组类型（(T1, T2, ...)）
     TYPE_INT_LIMIT,// 未解析的 max/min 极值（需从上下文推断整数类型）
 }
 
@@ -39,6 +42,8 @@ struct Type {
     is_ffi_pointer: i32,         // 是否为 FFI 指针（1 表示 *T，0 表示 &T，仅当 kind == TypeKind.TYPE_POINTER 时有效）
     element_type: &Type,         // 元素类型（仅当 kind == TypeKind.TYPE_ARRAY 时有效，从 Arena 分配）
     array_size: i32,              // 数组大小（编译期常量，仅当 kind == TypeKind.TYPE_ARRAY 时有效）
+    tuple_element_types: &Type,   // 元素类型数组（仅当 kind == TypeKind.TYPE_TUPLE 时有效，连续存储 tuple_count 个 Type）
+    tuple_count: i32,             // 元组元素个数（仅当 kind == TypeKind.TYPE_TUPLE 时有效）
 }
 
 // 符号信息（变量、函数参数等）
@@ -537,6 +542,27 @@ fn type_equals(t1: Type, t2: Type) i32 {
         return type_equals(t1.element_type[0], t2.element_type[0]);
     }
     
+    // 对于元组类型，需要比较元素类型和个数
+    if t1.kind == TypeKind.TYPE_TUPLE {
+        if t1.tuple_count != t2.tuple_count {
+            return 0;
+        }
+        if t1.tuple_element_types == null && t2.tuple_element_types == null {
+            return 1;
+        }
+        if t1.tuple_element_types == null || t2.tuple_element_types == null {
+            return 0;
+        }
+        var i: i32 = 0;
+        while i < t1.tuple_count {
+            if type_equals(t1.tuple_element_types[i], t2.tuple_element_types[i]) == 0 {
+                return 0;
+            }
+            i = i + 1;
+        }
+        return 1;
+    }
+    
     // 对于其他类型（i32, bool, void），种类相同即相等
     return 1;
 }
@@ -662,6 +688,8 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
     };
     
     // 如果类型节点为null，返回void类型
@@ -762,6 +790,32 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
         result.element_type = element_type_ptr;
         result.array_size = array_size;
         
+        return result;
+    } else if type_node.type == ASTNodeType.AST_TYPE_TUPLE {
+        // 元组类型（(T1, T2, ...)）
+        const n: i32 = type_node.type_tuple_element_count;
+        if n <= 0 || type_node.type_tuple_element_types == null {
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        const element_types: &Type = arena_alloc(checker.arena, @sizeof(Type) * n as usize) as &Type;
+        if element_types == null {
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        var i: i32 = 0;
+        while i < n {
+            const et: Type = type_from_ast(checker, type_node.type_tuple_element_types[i]);
+            if et.kind == TypeKind.TYPE_VOID && type_node.type_tuple_element_types[i] != null {
+                result.kind = TypeKind.TYPE_VOID;
+                return result;
+            }
+            element_types[i] = et;
+            i = i + 1;
+        }
+        result.kind = TypeKind.TYPE_TUPLE;
+        result.tuple_element_types = element_types;
+        result.tuple_count = n;
         return result;
     } else if type_node.type == ASTNodeType.AST_TYPE_NAMED {
         // 命名类型（i32, bool, byte, void, 或结构体名称）
@@ -947,6 +1001,8 @@ fn find_struct_field_type(checker: &TypeChecker, struct_decl: &ASTNode, field_na
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
     };
     
     if checker == null || struct_decl == null || struct_decl.type != ASTNodeType.AST_STRUCT_DECL || field_name == null {
@@ -983,6 +1039,8 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
     };
     
     if checker == null || expr == null {
@@ -1181,6 +1239,21 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             object_type = object_type.pointer_to[0];
         }
         
+        // 元组类型：.0, .1, ... 访问
+        if object_type.kind == TypeKind.TYPE_TUPLE {
+            const field_name: &byte = expr.member_access_field_name;
+            if field_name == null || object_type.tuple_element_types == null {
+                result.kind = TypeKind.TYPE_VOID;
+                return result;
+            }
+            const idx: i32 = atoi(field_name as *byte);
+            if idx < 0 || idx >= object_type.tuple_count {
+                result.kind = TypeKind.TYPE_VOID;
+                return result;
+            }
+            return object_type.tuple_element_types[idx];
+        }
+        
         if object_type.kind != TypeKind.TYPE_STRUCT || object_type.struct_name == null {
             // 对象类型不是结构体，返回void类型
             result.kind = TypeKind.TYPE_VOID;
@@ -1230,6 +1303,33 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         result.kind = TypeKind.TYPE_STRUCT;
         // 结构体名称需要存储在Arena中（从AST节点获取的名称已经在Arena中）
         result.struct_name = expr.struct_init_struct_name;
+        return result;
+    } else if expr.type == ASTNodeType.AST_TUPLE_LITERAL {
+        // 元组字面量：(expr1, expr2, ...) 推断为 (T1, T2, ...)
+        const n: i32 = expr.tuple_literal_element_count;
+        const elements: & & ASTNode = expr.tuple_literal_elements;
+        if n <= 0 || elements == null {
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        const element_types: &Type = arena_alloc(checker.arena, @sizeof(Type) * n as usize) as &Type;
+        if element_types == null {
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        var i: i32 = 0;
+        while i < n {
+            const et: Type = checker_infer_type(checker, elements[i]);
+            if et.kind == TypeKind.TYPE_VOID {
+                result.kind = TypeKind.TYPE_VOID;
+                return result;
+            }
+            element_types[i] = et;
+            i = i + 1;
+        }
+        result.kind = TypeKind.TYPE_TUPLE;
+        result.tuple_element_types = element_types;
+        result.tuple_count = n;
         return result;
     } else if expr.type == ASTNodeType.AST_ARRAY_LITERAL {
         // 数组字面量：列表形式或 [value: N] 重复形式
@@ -1389,6 +1489,67 @@ fn checker_check_expr_type(checker: &TypeChecker, expr: &ASTNode, expected_type:
     
     // 类型不匹配：放宽检查，允许通过（不报错）
     // 这在编译器自举时很常见，因为类型推断可能失败或类型系统不够完善
+    return 1;
+}
+
+// 检查解构声明：const (x, y) = expr; 或 var (x, _) = expr;
+// 参数：checker - TypeChecker 指针，node - 解构声明节点
+// 返回：1 表示检查通过，0 表示检查失败
+fn checker_check_destructure_decl(checker: &TypeChecker, node: &ASTNode) i32 {
+    if checker == null || node == null || node.type != ASTNodeType.AST_DESTRUCTURE_DECL {
+        return 1;
+    }
+    const init: &ASTNode = node.destructure_decl_init;
+    if init == null {
+        checker_report_error(checker, node, "解构声明缺少初始值" as *byte);
+        return 0;
+    }
+    checker_check_node(checker, init);
+    const init_type: Type = checker_infer_type(checker, init);
+    if init_type.kind != TypeKind.TYPE_TUPLE {
+        checker_report_error(checker, node, "解构声明的初始值必须是元组类型" as *byte);
+        return 0;
+    }
+    const name_count: i32 = node.destructure_decl_name_count;
+    const tuple_count: i32 = init_type.tuple_count;
+    if name_count != tuple_count {
+        checker_report_error(checker, node, "解构名称数量与元组元素数量不匹配" as *byte);
+        return 0;
+    }
+    const names: & & byte = node.destructure_decl_names;
+    const element_types: &Type = init_type.tuple_element_types;
+    if names == null || element_types == null {
+        return 0;
+    }
+    const is_const: i32 = node.destructure_decl_is_const;
+    var i: i32 = 0;
+    while i < name_count {
+        const name: &byte = names[i];
+        if name != null && str_equals(name, "_" as *byte) != 0 {
+            // 忽略 "_"，不加入符号表
+        } else if name != null {
+            const symbol: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
+            if symbol == null {
+                return 1;
+            }
+            symbol.name = name;
+            symbol.type = element_types[i];
+            symbol.is_const = is_const;
+            symbol.scope_level = checker.scope_level;
+            symbol.line = node.line;
+            symbol.column = node.column;
+            const existing: &Symbol = symbol_table_lookup(checker, name);
+            if existing != null && existing.scope_level == checker.scope_level {
+                checker_report_error(checker, node, "变量重复定义" as *byte);
+                return 0;
+            }
+            if symbol_table_insert(checker, symbol) != 0 {
+                checker_report_error(checker, node, "符号表已满" as *byte);
+                return 0;
+            }
+        }
+        i = i + 1;
+    }
     return 1;
 }
 
@@ -1729,6 +1890,8 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
     };
     
     if checker == null || node == null || node.type != ASTNodeType.AST_CALL_EXPR {
@@ -1800,6 +1963,8 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
     };
     
     if checker == null || node == null || node.type != ASTNodeType.AST_MEMBER_ACCESS {
@@ -1813,6 +1978,22 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
     if object_type.kind == TypeKind.TYPE_POINTER && object_type.pointer_to != null {
         // 注意：Uya 不支持指针解引用，需要使用数组访问
         object_type = object_type.pointer_to[0];
+    }
+    
+    // 元组类型：.0, .1, ... 访问
+    if object_type.kind == TypeKind.TYPE_TUPLE {
+        const field_name: &byte = node.member_access_field_name;
+        if field_name == null || object_type.tuple_element_types == null {
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        const idx: i32 = atoi(field_name as *byte);
+        if idx < 0 || idx >= object_type.tuple_count {
+            checker_report_error(checker, node, "元组下标越界（.0/.1/... 必须在元组元素个数内）" as *byte);
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        return object_type.tuple_element_types[idx];
     }
     
     // T.member：对象是标识符且不在符号表中、且是枚举类型名时，允许访问并校验 member 为该枚举变体
@@ -1931,6 +2112,8 @@ fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
     };
     
     if checker == null || node == null || node.type != ASTNodeType.AST_ARRAY_ACCESS {
@@ -2002,6 +2185,8 @@ fn checker_check_alignof(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
     };
     
     if checker == null || node == null || node.type != ASTNodeType.AST_ALIGNOF {
@@ -2074,6 +2259,8 @@ fn checker_check_len(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
     };
     
     if checker == null || node == null || node.type != ASTNodeType.AST_LEN {
@@ -2108,6 +2295,8 @@ fn checker_check_struct_init(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
     };
     
     if checker == null || node == null || node.type != ASTNodeType.AST_STRUCT_INIT {
@@ -2179,6 +2368,8 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
     };
     
     if checker == null || node == null || node.type != ASTNodeType.AST_BINARY_EXPR {
@@ -2423,6 +2614,8 @@ fn checker_check_unary_expr(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
     };
     
     if checker == null || node == null || node.type != ASTNodeType.AST_UNARY_EXPR {
@@ -2606,6 +2799,8 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         return checker_check_fn_decl(checker, node);
     } else if node.type == ASTNodeType.AST_VAR_DECL {
         return checker_check_var_decl(checker, node);
+    } else if node.type == ASTNodeType.AST_DESTRUCTURE_DECL {
+        return checker_check_destructure_decl(checker, node);
     } else if node.type == ASTNodeType.AST_BLOCK {
         // 放宽检查：代码块中的语句检查失败不报告错误
         // 这在编译器自举时很常见，因为类型推断可能失败

@@ -166,6 +166,52 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             gen_stmt(codegen, stmt.block_stmts[i]);
             i = i + 1;
         }
+    } else if stmt.type == ASTNodeType.AST_DESTRUCTURE_DECL {
+        const init: &ASTNode = stmt.destructure_decl_init;
+        const names: & & byte = stmt.destructure_decl_names;
+        const name_count: i32 = stmt.destructure_decl_name_count;
+        const is_const: i32 = stmt.destructure_decl_is_const;
+        if init != null && names != null && name_count > 0 {
+            var i: i32 = 0;
+            while i < name_count {
+                const name: &byte = names[i];
+                if name != null && strcmp(name as *byte, "_" as *byte) != 0 {
+                    var elem_type_c: &byte = ("int32_t" as *byte) as &byte;
+                    if init.type == ASTNodeType.AST_TUPLE_LITERAL && init.tuple_literal_elements != null && i < init.tuple_literal_element_count {
+                        const et: &byte = get_c_type_of_expr(codegen, init.tuple_literal_elements[i]);
+                        if et != null {
+                            elem_type_c = et;
+                        }
+                    }
+                    const safe_name: &byte = get_safe_c_identifier(codegen, name);
+                    if safe_name != null {
+                        if is_const != 0 {
+                            c99_emit(codegen, "const " as *byte);
+                            fprintf(codegen.output as *void, "%s %s = " as *byte, elem_type_c as *byte, safe_name as *byte);
+                        } else {
+                            fprintf(codegen.output as *void, "%s %s = " as *byte, elem_type_c as *byte, safe_name as *byte);
+                        }
+                        gen_expr(codegen, init);
+                        fprintf(codegen.output as *void, ".f%d;\n" as *byte, i);
+                        if codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+                            var type_to_store: &byte = elem_type_c;
+                            if is_const != 0 && elem_type_c != null {
+                                const str_len: i32 = strlen(elem_type_c as *byte) + 8;
+                                const buf: &byte = arena_alloc(codegen.arena, str_len) as &byte;
+                                if buf != null {
+                                    snprintf(buf as *byte, str_len, "const %s" as *byte, elem_type_c as *byte);
+                                    type_to_store = buf;
+                                }
+                            }
+                            codegen.local_variables[codegen.local_variable_count].name = safe_name;
+                            codegen.local_variables[codegen.local_variable_count].type_c = type_to_store;
+                            codegen.local_variable_count = codegen.local_variable_count + 1;
+                        }
+                    }
+                }
+                i = i + 1;
+            }
+        }
     } else if stmt.type == ASTNodeType.AST_VAR_DECL {
         const var_name: &byte = get_safe_c_identifier(codegen, stmt.var_decl_name);
         const var_type: &ASTNode = stmt.var_decl_type;
@@ -337,6 +383,32 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         }
         
         if init_expr != null {
+            // 元组变量用元组字面量初始化：用 { .f0 = e0, .f1 = e1 } 避免 C 匿名结构体类型不兼容
+            var is_tuple_init: i32 = 0;
+            if var_type.type == ASTNodeType.AST_TYPE_TUPLE && init_expr.type == ASTNodeType.AST_TUPLE_LITERAL {
+                is_tuple_init = 1;
+            }
+            if is_tuple_init != 0 {
+                const n: i32 = init_expr.tuple_literal_element_count;
+                const elements: & & ASTNode = init_expr.tuple_literal_elements;
+                if n > 0 && elements != null {
+                    fputs(" = { " as *byte, codegen.output as *void);
+                    var i: i32 = 0;
+                    while i < n {
+                        fprintf(codegen.output as *void, ".f%d = " as *byte, i);
+                        gen_expr(codegen, elements[i]);
+                        if i < n - 1 {
+                            fputs(", " as *byte, codegen.output as *void);
+                        }
+                        i = i + 1;
+                    }
+                    fputs(" };\n" as *byte, codegen.output as *void);
+                } else {
+                    fputs(" = " as *byte, codegen.output as *void);
+                    gen_expr(codegen, init_expr);
+                    fputs(";\n" as *byte, codegen.output as *void);
+                }
+            } else {
             // 检查是否是空结构体初始化（field_count == 0）
             // 如果是，改为手动初始化，避免 gcc 生成错误的 memset 调用
             var is_empty_struct_init: i32 = 0;
@@ -510,6 +582,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 fputs(" = " as *byte, codegen.output as *void);
                 gen_expr(codegen, init_expr);
                 fputs(";\n" as *byte, codegen.output as *void);
+            }
             }
         } else {
             fputs(";\n" as *byte, codegen.output as *void);

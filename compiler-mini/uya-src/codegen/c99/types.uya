@@ -254,8 +254,63 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
             snprintf(result as *byte, buf_len, "%s[%d]" as *byte, element_c as *byte, array_size);
             return result;
         }
+    } else if type_node.type == ASTNodeType.AST_TYPE_TUPLE {
+        // 元组类型 (T1, T2, ...) -> struct { T0 f0; T1 f1; ... }
+        const n: i32 = type_node.type_tuple_element_count;
+        const element_types: & & ASTNode = type_node.type_tuple_element_types;
+        if n <= 0 || element_types == null {
+            return ("void" as *byte) as &byte;
+        }
+        var total_len: i32 = 64;
+        var i: i32 = 0;
+        while i < n {
+            const et: &byte = c99_type_to_c(codegen, element_types[i]);
+            total_len = total_len + strlen(et as *byte) + 24;
+            i = i + 1;
+        }
+        const result: &byte = arena_alloc(codegen.arena, total_len) as &byte;
+        if result == null {
+            return ("void" as *byte) as &byte;
+        }
+        var off: i32 = 0;
+        off = off + snprintf(result as *byte + off, total_len - off, "struct { " as *byte);
+        i = 0;
+        while i < n {
+            const et: &byte = c99_type_to_c(codegen, element_types[i]);
+            var et_str: &byte = ("void" as *byte) as &byte;
+            if et != null {
+                et_str = et;
+            }
+            off = off + snprintf(result as *byte + off, total_len - off, "%s f%d; " as *byte, et_str as *byte, i);
+            i = i + 1;
+        }
+        snprintf(result as *byte + off, total_len - off, "}" as *byte);
+        return result;
     } else {
         return ("void" as *byte) as &byte;
+    }
+}
+
+// 从表达式推断 C 类型字符串（用于元组字面量等），尽力而为
+fn get_c_type_of_expr(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
+    if codegen == null || expr == null {
+        return ("int32_t" as *byte) as &byte;
+    }
+    if expr.type == ASTNodeType.AST_NUMBER {
+        return ("int32_t" as *byte) as &byte;
+    } else if expr.type == ASTNodeType.AST_FLOAT {
+        return ("double" as *byte) as &byte;
+    } else if expr.type == ASTNodeType.AST_BOOL {
+        return ("bool" as *byte) as &byte;
+    } else if expr.type == ASTNodeType.AST_IDENTIFIER {
+        const t: &byte = get_identifier_type_c(codegen, expr.identifier_name);
+        if t != null {
+            return t;
+        } else {
+            return ("int32_t" as *byte) as &byte;
+        }
+    } else {
+        return ("int32_t" as *byte) as &byte;
     }
 }
 

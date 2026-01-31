@@ -16,6 +16,7 @@ enum ASTNodeType {
     AST_STRUCT_DECL,
     AST_FN_DECL,
     AST_VAR_DECL,
+    AST_DESTRUCTURE_DECL,  // 解构声明（const (x, y) = expr）
     AST_IF_STMT,
     AST_WHILE_STMT,
     AST_FOR_STMT,
@@ -32,6 +33,7 @@ enum ASTNodeType {
     AST_ARRAY_ACCESS,
     AST_STRUCT_INIT,
     AST_ARRAY_LITERAL,
+    AST_TUPLE_LITERAL,  // 元组字面量（(expr1, expr2, ...)）
     AST_SIZEOF,
     AST_LEN,
     AST_ALIGNOF,
@@ -45,6 +47,7 @@ enum ASTNodeType {
     AST_TYPE_NAMED,
     AST_TYPE_POINTER,
     AST_TYPE_ARRAY,
+    AST_TYPE_TUPLE,  // 元组类型（(T1, T2, ...)）
 }
 
 // AST 节点结构（Uya 无 union，所有变体字段扁平化为独立字段）
@@ -76,6 +79,11 @@ struct ASTNode {
     var_decl_type: &ASTNode,
     var_decl_init: &ASTNode,
     var_decl_is_const: i32,
+    // destructure_decl（const (x, y) = expr）
+    destructure_decl_names: & & byte,
+    destructure_decl_name_count: i32,
+    destructure_decl_is_const: i32,
+    destructure_decl_init: &ASTNode,
     // binary_expr
     binary_expr_left: &ASTNode,
     binary_expr_op: i32,
@@ -102,6 +110,9 @@ struct ASTNode {
     array_literal_elements: & & ASTNode,
     array_literal_element_count: i32,
     array_literal_repeat_count_expr: &ASTNode,
+    // tuple_literal（(expr1, expr2, ...)）
+    tuple_literal_elements: & & ASTNode,
+    tuple_literal_element_count: i32,
     // sizeof_expr
     sizeof_expr_target: &ASTNode,
     sizeof_expr_is_type: i32,
@@ -154,6 +165,9 @@ struct ASTNode {
     // type_array
     type_array_element_type: &ASTNode,
     type_array_size_expr: &ASTNode,
+    // type_tuple（(T1, T2, ...)）
+    type_tuple_element_types: & & ASTNode,
+    type_tuple_element_count: i32,
 }
 
 // 创建新的 AST 节点
@@ -187,6 +201,10 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.var_decl_type = null;
     node.var_decl_init = null;
     node.var_decl_is_const = 0;
+    node.destructure_decl_names = null;
+    node.destructure_decl_name_count = 0;
+    node.destructure_decl_is_const = 0;
+    node.destructure_decl_init = null;
     node.binary_expr_left = null;
     node.binary_expr_op = 0;
     node.binary_expr_right = null;
@@ -206,6 +224,8 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.array_literal_elements = null;
     node.array_literal_element_count = 0;
     node.array_literal_repeat_count_expr = null;
+    node.tuple_literal_elements = null;
+    node.tuple_literal_element_count = 0;
     node.sizeof_expr_target = null;
     node.sizeof_expr_is_type = 0;
     node.len_expr_array = null;
@@ -239,6 +259,8 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.type_pointer_is_ffi_pointer = 0;
     node.type_array_element_type = null;
     node.type_array_size_expr = null;
+    node.type_tuple_element_types = null;
+    node.type_tuple_element_count = 0;
     return node;
 }
 
