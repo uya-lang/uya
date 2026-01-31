@@ -302,8 +302,22 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 }
             }
             
-            // 普通字段访问（结构体字段）
-            const char *safe_field_name = get_safe_c_identifier(codegen, field_name);
+            // 普通字段访问（结构体字段）或元组下标（.0, .1 -> .f0, .f1）
+            const char *safe_field_name;
+            if (field_name && field_name[0] >= '0' && field_name[0] <= '9') {
+                /* 元组下标 .0, .1, ... -> C 成员名 f0, f1, ... */
+                int idx = atoi(field_name);
+                size_t len = 16;
+                char *buf = (char *)arena_alloc(codegen->arena, len);
+                if (buf) {
+                    snprintf(buf, len, "f%d", idx);
+                    safe_field_name = buf;
+                } else {
+                    safe_field_name = "f0";
+                }
+            } else {
+                safe_field_name = get_safe_c_identifier(codegen, field_name);
+            }
             
             // 检查对象是否是指针类型（需要自动解引用）
             int is_pointer = 0;
@@ -409,6 +423,41 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                     gen_expr(codegen, elements[i]);
                     if (i < element_count - 1) fputs(", ", codegen->output);
                 }
+            }
+            fputc('}', codegen->output);
+            break;
+        }
+        case AST_TUPLE_LITERAL: {
+            /* 元组字面量 (e0, e1, ...) -> (struct { T0 f0; T1 f1; }) { .f0 = e0, .f1 = e1 } */
+            ASTNode **elements = expr->data.tuple_literal.elements;
+            int n = expr->data.tuple_literal.element_count;
+            if (n <= 0 || !elements) {
+                fputs("(struct { int32_t f0; }){ .f0 = 0 }", codegen->output);
+                break;
+            }
+            size_t total_len = 64;
+            for (int i = 0; i < n; i++) {
+                const char *et = get_c_type_of_expr(codegen, elements[i]);
+                total_len += (et ? strlen(et) : 4) + 24;
+            }
+            char *type_buf = (char *)arena_alloc(codegen->arena, total_len);
+            if (!type_buf) {
+                fputs("(struct { int32_t f0; }){ .f0 = 0 }", codegen->output);
+                break;
+            }
+            size_t off = 0;
+            off += (size_t)snprintf(type_buf + off, total_len - off, "struct { ");
+            for (int i = 0; i < n; i++) {
+                const char *et = get_c_type_of_expr(codegen, elements[i]);
+                if (!et) et = "int32_t";
+                off += (size_t)snprintf(type_buf + off, total_len - off, "%s f%d; ", et, i);
+            }
+            snprintf(type_buf + off, total_len - off, "}");
+            fprintf(codegen->output, "(%s){", type_buf);
+            for (int i = 0; i < n; i++) {
+                fprintf(codegen->output, ".f%d = ", i);
+                gen_expr(codegen, elements[i]);
+                if (i < n - 1) fputs(", ", codegen->output);
             }
             fputc('}', codegen->output);
             break;

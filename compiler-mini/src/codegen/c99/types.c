@@ -238,6 +238,31 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
             }
         }
         
+        case AST_TYPE_TUPLE: {
+            /* 元组类型 (T1, T2, ...) -> struct { T0 f0; T1 f1; ... } */
+            int n = type_node->data.type_tuple.element_count;
+            ASTNode **element_types = type_node->data.type_tuple.element_types;
+            if (n <= 0 || !element_types) {
+                return "void";
+            }
+            size_t total_len = 64;
+            for (int i = 0; i < n; i++) {
+                const char *et = c99_type_to_c(codegen, element_types[i]);
+                total_len += (et ? strlen(et) : 4) + 24;
+            }
+            char *result = arena_alloc(codegen->arena, total_len);
+            if (!result) return "void";
+            size_t off = 0;
+            off += (size_t)snprintf(result + off, total_len - off, "struct { ");
+            for (int i = 0; i < n; i++) {
+                const char *et = c99_type_to_c(codegen, element_types[i]);
+                if (!et) et = "void";
+                off += (size_t)snprintf(result + off, total_len - off, "%s f%d; ", et, i);
+            }
+            snprintf(result + off, total_len - off, "}");
+            return result;
+        }
+        
         default:
             return "void";
     }
@@ -686,6 +711,28 @@ const char *get_identifier_type_c(C99CodeGenerator *codegen, const char *name) {
         }
     }
     return NULL;
+}
+
+/* 从表达式推断 C 类型字符串（用于元组字面量复合字面量），尽力而为 */
+const char *get_c_type_of_expr(C99CodeGenerator *codegen, ASTNode *expr) {
+    if (!codegen || !expr) return "int32_t";
+    switch (expr->type) {
+        case AST_NUMBER:
+            return "int32_t";
+        case AST_FLOAT:
+            return "double";
+        case AST_BOOL:
+            return "bool";
+        case AST_IDENTIFIER: {
+            const char *t = get_identifier_type_c(codegen, expr->data.identifier.name);
+            return t ? t : "int32_t";
+        }
+        case AST_MEMBER_ACCESS:
+        case AST_ARRAY_ACCESS:
+        case AST_CALL_EXPR:
+        default:
+            return "int32_t";
+    }
 }
 
 // 生成数组包装结构体的名称

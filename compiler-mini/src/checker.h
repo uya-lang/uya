@@ -25,6 +25,7 @@ typedef enum {
     TYPE_STRUCT,   // 结构体类型（通过名称引用）
     TYPE_POINTER,  // 指针类型（&T 或 *T）
     TYPE_ARRAY,    // 数组类型（[T: N]）
+    TYPE_TUPLE,    // 元组类型（(T1, T2, ...)）
     TYPE_INT_LIMIT,// 未解析的 max/min 极值（需从上下文推断整数类型）
 } TypeKind;
 
@@ -43,6 +44,10 @@ typedef struct Type {
             struct Type *element_type; // 元素类型（仅当 kind == TYPE_ARRAY 时有效，从 Arena 分配）
             int array_size;            // 数组大小（编译期常量，仅当 kind == TYPE_ARRAY 时有效）
         } array;
+        struct {
+            struct Type *element_types; // 元素类型数组（仅当 kind == TYPE_TUPLE 时有效，从 Arena 分配，连续存储 count 个 Type）
+            int count;                  // 元组元素个数
+        } tuple;
     } data;
 } Type;
 

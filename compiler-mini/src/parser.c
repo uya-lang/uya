@@ -162,6 +162,65 @@ static ASTNode *parser_parse_type(Parser *parser) {
     int line = parser->current_token->line;
     int column = parser->current_token->column;
     
+    // 检查是否是元组类型（(T1, T2, ...)）
+    if (parser->current_token->type == TOKEN_LEFT_PAREN) {
+        parser_consume(parser);  // 消费 '('
+        
+        ASTNode *first = parser_parse_type(parser);
+        if (first == NULL) {
+            return NULL;
+        }
+        
+        if (parser->current_token != NULL && parser->current_token->type == TOKEN_COMMA) {
+            // 元组类型：(T1, T2, ...)
+            ASTNode **elements = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * 16);
+            if (elements == NULL) {
+                return NULL;
+            }
+            int cap = 16;
+            int count = 0;
+            elements[count++] = first;
+            
+            while (parser->current_token != NULL && parser->current_token->type == TOKEN_COMMA) {
+                parser_consume(parser);  // 消费 ','
+                ASTNode *elem = parser_parse_type(parser);
+                if (elem == NULL) {
+                    return NULL;
+                }
+                if (count >= cap) {
+                    ASTNode **new_elements = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * (cap * 2));
+                    if (new_elements == NULL) {
+                        return NULL;
+                    }
+                    for (int i = 0; i < count; i++) {
+                        new_elements[i] = elements[i];
+                    }
+                    elements = new_elements;
+                    cap *= 2;
+                }
+                elements[count++] = elem;
+            }
+            
+            if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+                return NULL;
+            }
+            
+            ASTNode *tuple_type = ast_new_node(AST_TYPE_TUPLE, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (tuple_type == NULL) {
+                return NULL;
+            }
+            tuple_type->data.type_tuple.element_types = elements;
+            tuple_type->data.type_tuple.element_count = count;
+            return tuple_type;
+        }
+        
+        // 单类型括号 (T) => 等价于 T
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            return NULL;
+        }
+        return first;
+    }
+    
     // 检查是否是指针类型（&Type 或 *Type）
     if (parser->current_token->type == TOKEN_AMPERSAND) {
         // 普通指针类型 &Type
@@ -1282,8 +1341,9 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 }
             } else if (parser->current_token->type == TOKEN_AMPERSAND || 
                       parser->current_token->type == TOKEN_ASTERISK ||
-                      parser->current_token->type == TOKEN_LEFT_BRACKET) {
-                // 指针类型或数组类型开始
+                      parser->current_token->type == TOKEN_LEFT_BRACKET ||
+                      parser->current_token->type == TOKEN_LEFT_PAREN) {
+                // 指针类型、数组类型或元组类型开始
                 target = parser_parse_type(parser);
                 if (target != NULL) {
                     is_type = 1;
@@ -1351,8 +1411,9 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 }
             } else if (parser->current_token->type == TOKEN_AMPERSAND || 
                       parser->current_token->type == TOKEN_ASTERISK ||
-                      parser->current_token->type == TOKEN_LEFT_BRACKET) {
-                // 指针类型或数组类型开始
+                      parser->current_token->type == TOKEN_LEFT_BRACKET ||
+                      parser->current_token->type == TOKEN_LEFT_PAREN) {
+                // 指针类型、数组类型或元组类型开始
                 target = parser_parse_type(parser);
                 if (target != NULL) {
                     is_type = 1;
@@ -1504,8 +1565,8 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     // 字段访问：.field
                     parser_consume(parser);  // 消费 '.'
                     
-                    // 期望字段名称
-                    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                    // 期望字段名称或元组下标（.0, .1, ...）
+                    if (parser->current_token == NULL || (parser->current_token->type != TOKEN_IDENTIFIER && parser->current_token->type != TOKEN_NUMBER)) {
                         return NULL;
                     }
                     
@@ -1611,8 +1672,8 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 while (parser->current_token != NULL && parser_match(parser, TOKEN_DOT)) {
                     parser_consume(parser);  // 消费 '.'
                     
-                    // 期望字段名称
-                    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                    // 期望字段名称或元组下标（.0, .1, ...）
+                    if (parser->current_token == NULL || (parser->current_token->type != TOKEN_IDENTIFIER && parser->current_token->type != TOKEN_NUMBER)) {
                         return NULL;
                     }
                     
@@ -1837,8 +1898,8 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     // 字段访问：.field
                     parser_consume(parser);  // 消费 '.'
                     
-                    // 期望字段名称
-                    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                    // 期望字段名称或元组下标（.0, .1, ...）
+                    if (parser->current_token == NULL || (parser->current_token->type != TOKEN_IDENTIFIER && parser->current_token->type != TOKEN_NUMBER)) {
                         return NULL;
                     }
                     
@@ -2003,11 +2064,11 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         // 处理字段访问和数组访问链
         while (parser->current_token != NULL) {
             if (parser_match(parser, TOKEN_DOT)) {
-                // 字段访问：.field
+                // 字段访问：.field 或元组下标 .0/.1
                 parser_consume(parser);  // 消费 '.'
                 
-                // 期望字段名称
-                if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                // 期望字段名称或元组下标（.0, .1, ...）
+                if (parser->current_token == NULL || (parser->current_token->type != TOKEN_IDENTIFIER && parser->current_token->type != TOKEN_NUMBER)) {
                     return NULL;
                 }
                 
@@ -2018,7 +2079,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 
                 int field_line = parser->current_token->line;
                 int field_column = parser->current_token->column;
-                parser_consume(parser);  // 消费字段名称
+                parser_consume(parser);  // 消费字段名称或元组下标
                 
                 // 创建字段访问节点
                 ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
@@ -2066,23 +2127,70 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return result;
     }
     
-    // 解析括号表达式
+    // 解析括号表达式或元组字面量
     if (parser->current_token->type == TOKEN_LEFT_PAREN) {
+        int paren_line = parser->current_token->line;
+        int paren_column = parser->current_token->column;
         parser_consume(parser);  // 消费 '('
         
-        // 解析内部表达式（递归调用）
-        ASTNode *expr = parser_parse_expression(parser);
-        if (expr == NULL) {
+        ASTNode *first = parser_parse_expression(parser);
+        if (first == NULL) {
             return NULL;
         }
         
-        // 期望 ')'
+        ASTNode *result;
+        if (parser->current_token != NULL && parser->current_token->type == TOKEN_COMMA) {
+            // 元组字面量：(expr1, expr2, ...)
+            ASTNode **elements = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * 16);
+            if (elements == NULL) {
+                return NULL;
+            }
+            int cap = 16;
+            int count = 0;
+            elements[count++] = first;
+            
+            while (parser->current_token != NULL && parser->current_token->type == TOKEN_COMMA) {
+                parser_consume(parser);  // 消费 ','
+                ASTNode *elem = parser_parse_expression(parser);
+                if (elem == NULL) {
+                    return NULL;
+                }
+                if (count >= cap) {
+                    ASTNode **new_elements = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * (cap * 2));
+                    if (new_elements == NULL) {
+                        return NULL;
+                    }
+                    for (int i = 0; i < count; i++) {
+                        new_elements[i] = elements[i];
+                    }
+                    elements = new_elements;
+                    cap *= 2;
+                }
+                elements[count++] = elem;
+            }
+            
+            if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+                return NULL;
+            }
+            
+            ASTNode *tuple_lit = ast_new_node(AST_TUPLE_LITERAL, paren_line, paren_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (tuple_lit == NULL) {
+                return NULL;
+            }
+            tuple_lit->data.tuple_literal.elements = elements;
+            tuple_lit->data.tuple_literal.element_count = count;
+            
+            result = tuple_lit;
+            goto post_paren_suffix;
+        }
+        
+        // 单表达式括号 (expr) => expr
         if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
             return NULL;
         }
         
-        // 字段访问和数组访问可能跟在括号表达式后面（例如：(expr).field 或 (expr)[0]）
-        ASTNode *result = expr;
+        result = first;
+post_paren_suffix:
         
         // 处理字段访问和数组访问链
         while (parser->current_token != NULL) {
@@ -2090,8 +2198,8 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 // 字段访问：.field
                 parser_consume(parser);  // 消费 '.'
                 
-                // 期望字段名称
-                if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                // 期望字段名称或元组下标（.0, .1, ...）
+                if (parser->current_token == NULL || (parser->current_token->type != TOKEN_IDENTIFIER && parser->current_token->type != TOKEN_NUMBER)) {
                     return NULL;
                 }
                 
@@ -2102,7 +2210,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 
                 int field_line = parser->current_token->line;
                 int field_column = parser->current_token->column;
-                parser_consume(parser);  // 消费字段名称
+                parser_consume(parser);  // 消费字段名称或元组下标
                 
                 // 创建字段访问节点
                 ASTNode *member_access = ast_new_node(AST_MEMBER_ACCESS, field_line, field_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
@@ -2971,11 +3079,87 @@ ASTNode *parser_parse_statement(Parser *parser) {
     }
     
     if (parser_match(parser, TOKEN_CONST) || parser_match(parser, TOKEN_VAR)) {
-        // 解析变量声明
+        // 解析变量声明或解构声明
         int is_const = parser_match(parser, TOKEN_CONST);
         parser_consume(parser);  // 消费 'const' 或 'var'
         
-        // 期望变量名称
+        // 解构声明：const (x, y) = expr; 或 var (x, _) = expr;
+        if (parser->current_token != NULL && parser->current_token->type == TOKEN_LEFT_PAREN) {
+            parser_consume(parser);  // 消费 '('
+            
+            const char **names = (const char **)arena_alloc(parser->arena, sizeof(const char *) * 16);
+            if (names == NULL) {
+                return NULL;
+            }
+            int cap = 16;
+            int count = 0;
+            
+            while (parser->current_token != NULL && parser->current_token->type != TOKEN_RIGHT_PAREN) {
+                if (count > 0) {
+                    if (!parser_expect(parser, TOKEN_COMMA)) {
+                        return NULL;
+                    }
+                }
+                if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                    fprintf(stderr, "错误: 解构中期望标识符或 _ (%s:%d:%d)\n",
+                        parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>",
+                        parser->current_token ? parser->current_token->line : line,
+                        parser->current_token ? parser->current_token->column : column);
+                    return NULL;
+                }
+                const char *name = arena_strdup(parser->arena, parser->current_token->value);
+                if (name == NULL) {
+                    return NULL;
+                }
+                parser_consume(parser);  // 消费标识符
+                if (count >= cap) {
+                    const char **new_names = (const char **)arena_alloc(parser->arena, sizeof(const char *) * (cap * 2));
+                    if (new_names == NULL) {
+                        return NULL;
+                    }
+                    for (int i = 0; i < count; i++) {
+                        new_names[i] = names[i];
+                    }
+                    names = new_names;
+                    cap *= 2;
+                }
+                names[count++] = name;
+            }
+            
+            if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+                return NULL;
+            }
+            if (!parser_expect(parser, TOKEN_ASSIGN)) {
+                fprintf(stderr, "错误: 解构声明期望 '=' (%s:%d:%d)\n",
+                    parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>",
+                    parser->current_token ? parser->current_token->line : line,
+                    parser->current_token ? parser->current_token->column : column);
+                return NULL;
+            }
+            
+            ParserContext saved_ctx = parser->context;
+            parser->context = PARSER_CONTEXT_VAR_INIT;
+            ASTNode *init = parser_parse_expression(parser);
+            parser->context = saved_ctx;
+            if (init == NULL) {
+                return NULL;
+            }
+            if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+                return NULL;
+            }
+            
+            ASTNode *stmt = ast_new_node(AST_DESTRUCTURE_DECL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (stmt == NULL) {
+                return NULL;
+            }
+            stmt->data.destructure_decl.names = names;
+            stmt->data.destructure_decl.name_count = count;
+            stmt->data.destructure_decl.is_const = is_const ? 1 : 0;
+            stmt->data.destructure_decl.init = init;
+            return stmt;
+        }
+        
+        // 普通变量声明
         if (!parser_match(parser, TOKEN_IDENTIFIER)) {
             return NULL;
         }

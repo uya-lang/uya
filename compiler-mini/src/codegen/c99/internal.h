@@ -32,6 +32,8 @@ int is_identifier_pointer_type(C99CodeGenerator *codegen, const char *name);
 int is_identifier_pointer_to_array_type(C99CodeGenerator *codegen, const char *name);
 int is_identifier_struct_type(C99CodeGenerator *codegen, const char *name);
 const char *get_identifier_type_c(C99CodeGenerator *codegen, const char *name);
+/* 从表达式推断 C 类型字符串（用于元组字面量复合字面量），尽力而为 */
+const char *get_c_type_of_expr(C99CodeGenerator *codegen, ASTNode *expr);
 int is_member_access_pointer_type(C99CodeGenerator *codegen, ASTNode *member_access);
 int is_array_access_pointer_type(C99CodeGenerator *codegen, ASTNode *array_access);
 int calculate_struct_size(C99CodeGenerator *codegen, ASTNode *type_node);

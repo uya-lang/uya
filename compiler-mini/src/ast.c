@@ -57,6 +57,12 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.var_decl.init = NULL;
             node->data.var_decl.is_const = 0;
             break;
+        case AST_DESTRUCTURE_DECL:
+            node->data.destructure_decl.names = NULL;
+            node->data.destructure_decl.name_count = 0;
+            node->data.destructure_decl.is_const = 0;
+            node->data.destructure_decl.init = NULL;
+            break;
         case AST_BINARY_EXPR:
             node->data.binary_expr.left = NULL;
             node->data.binary_expr.op = 0;
@@ -89,6 +95,10 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.array_literal.elements = NULL;
             node->data.array_literal.element_count = 0;
             node->data.array_literal.repeat_count_expr = NULL;
+            break;
+        case AST_TUPLE_LITERAL:
+            node->data.tuple_literal.elements = NULL;
+            node->data.tuple_literal.element_count = 0;
             break;
         case AST_SIZEOF:
             node->data.sizeof_expr.target = NULL;
@@ -169,6 +179,10 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_TYPE_ARRAY:
             node->data.type_array.element_type = NULL;
             node->data.type_array.size_expr = NULL;
+            break;
+        case AST_TYPE_TUPLE:
+            node->data.type_tuple.element_types = NULL;
+            node->data.type_tuple.element_count = 0;
             break;
     }
     

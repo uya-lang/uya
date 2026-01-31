@@ -19,6 +19,7 @@ typedef enum {
     AST_STRUCT_DECL,    // 结构体声明
     AST_FN_DECL,        // 函数声明
     AST_VAR_DECL,       // 变量声明（const/var）
+    AST_DESTRUCTURE_DECL, // 解构声明（const (x, y) = expr）
     
     // 语句节点
     AST_IF_STMT,        // if 语句
@@ -39,6 +40,7 @@ typedef enum {
     AST_ARRAY_ACCESS,   // 数组访问（arr[index]）
     AST_STRUCT_INIT,    // 结构体字面量（StructName{ field: value, ... }）
     AST_ARRAY_LITERAL,  // 数组字面量（[expr1, expr2, ..., exprN]）
+    AST_TUPLE_LITERAL,  // 元组字面量（(expr1, expr2, ...)）
     AST_SIZEOF,         // sizeof 表达式（sizeof(Type) 或 sizeof(expr)）
     AST_LEN,            // len 表达式（len(array)）
     AST_ALIGNOF,        // alignof 表达式（alignof(Type) 或 alignof(expr)）
@@ -54,6 +56,7 @@ typedef enum {
     AST_TYPE_NAMED,     // 命名类型（i32, bool, void, 或 struct Name）
     AST_TYPE_POINTER,   // 指针类型（&T 或 *T）
     AST_TYPE_ARRAY,     // 数组类型（[T: N]）
+    AST_TYPE_TUPLE,     // 元组类型（(T1, T2, ...)）
 } ASTNodeType;
 
 // 基础 AST 节点结构
@@ -103,6 +106,14 @@ struct ASTNode {
             int is_const;             // 1 表示 const，0 表示 var
         } var_decl;
         
+        // 解构声明（const (x, y) = expr 或 var (x, y) = expr）
+        struct {
+            const char **names;       // 名称数组（"_" 表示忽略，存储在 Arena）
+            int name_count;           // 名称数量
+            int is_const;             // 1 表示 const，0 表示 var
+            struct ASTNode *init;     // 初始值表达式（必须为元组类型）
+        } destructure_decl;
+        
         // 二元表达式
         struct {
             struct ASTNode *left;            // 左操作数
@@ -149,6 +160,12 @@ struct ASTNode {
             int element_count;          // 元素数量（列表形式）或 1（重复形式）
             struct ASTNode *repeat_count_expr;  // 非 NULL 表示 [value: N]，N 为此表达式（编译期常量）
         } array_literal;
+        
+        // 元组字面量（(expr1, expr2, ...)）
+        struct {
+            struct ASTNode **elements;  // 元素表达式数组
+            int element_count;          // 元素数量
+        } tuple_literal;
         
         // sizeof 表达式（sizeof(Type) 或 sizeof(expr)）
         struct {
@@ -258,6 +275,12 @@ struct ASTNode {
             struct ASTNode *element_type;  // 元素类型节点（从 Arena 分配）
             struct ASTNode *size_expr;     // 数组大小表达式节点（必须是编译期常量，从 Arena 分配）
         } type_array;
+        
+        // 元组类型节点（(T1, T2, ...)）
+        struct {
+            struct ASTNode **element_types;  // 元素类型节点数组（从 Arena 分配）
+            int element_count;               // 元素数量
+        } type_tuple;
     } data;
 };
 

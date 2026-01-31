@@ -153,6 +153,48 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             }
             break;
         }
+        case AST_DESTRUCTURE_DECL: {
+            /* const (x, y) = init; -> const T0 x = init.f0; const T1 y = init.f1; */
+            ASTNode *init = stmt->data.destructure_decl.init;
+            const char **names = stmt->data.destructure_decl.names;
+            int name_count = stmt->data.destructure_decl.name_count;
+            int is_const = stmt->data.destructure_decl.is_const;
+            if (!init || !names || name_count <= 0) break;
+            for (int i = 0; i < name_count; i++) {
+                if (!names[i] || strcmp(names[i], "_") == 0) continue;
+                const char *elem_type_c = "int32_t";
+                if (init->type == AST_TUPLE_LITERAL && init->data.tuple_literal.elements &&
+                    i < init->data.tuple_literal.element_count) {
+                    elem_type_c = get_c_type_of_expr(codegen, init->data.tuple_literal.elements[i]);
+                    if (!elem_type_c) elem_type_c = "int32_t";
+                }
+                const char *safe_name = get_safe_c_identifier(codegen, names[i]);
+                if (!safe_name) continue;
+                if (is_const) {
+                    fprintf(codegen->output, "const %s %s = ", elem_type_c, safe_name);
+                } else {
+                    fprintf(codegen->output, "%s %s = ", elem_type_c, safe_name);
+                }
+                gen_expr(codegen, init);
+                fprintf(codegen->output, ".f%d;\n", i);
+                /* 注册局部变量供后续引用 */
+                if (codegen->local_variable_count < C99_MAX_LOCAL_VARS) {
+                    const char *type_to_store = elem_type_c;
+                    if (is_const && elem_type_c) {
+                        size_t len = strlen(elem_type_c) + 8;
+                        char *buf = (char *)arena_alloc(codegen->arena, len);
+                        if (buf) {
+                            snprintf(buf, len, "const %s", elem_type_c);
+                            type_to_store = buf;
+                        }
+                    }
+                    codegen->local_variables[codegen->local_variable_count].name = safe_name;
+                    codegen->local_variables[codegen->local_variable_count].type_c = type_to_store;
+                    codegen->local_variable_count++;
+                }
+            }
+            break;
+        }
         case AST_VAR_DECL: {
             const char *var_name = get_safe_c_identifier(codegen, stmt->data.var_decl.name);
             ASTNode *var_type = stmt->data.var_decl.type;
@@ -470,6 +512,23 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                             gen_expr(codegen, field_value);
                             c99_emit(codegen, ", sizeof(%s.%s));\n", var_name, safe_field_name);
                         }
+                    }
+                } else if (var_type->type == AST_TYPE_TUPLE && init_expr->type == AST_TUPLE_LITERAL) {
+                    /* 元组变量用元组字面量初始化：用 { .f0 = e0, .f1 = e1 } 避免 C 匿名结构体类型不兼容 */
+                    int n = init_expr->data.tuple_literal.element_count;
+                    ASTNode **elements = init_expr->data.tuple_literal.elements;
+                    if (n > 0 && elements) {
+                        fputs(" = { ", codegen->output);
+                        for (int i = 0; i < n; i++) {
+                            fprintf(codegen->output, ".f%d = ", i);
+                            gen_expr(codegen, elements[i]);
+                            if (i < n - 1) fputs(", ", codegen->output);
+                        }
+                        fputs(" };\n", codegen->output);
+                    } else {
+                        fputs(" = ", codegen->output);
+                        gen_expr(codegen, init_expr);
+                        fputs(";\n", codegen->output);
                     }
                 } else {
                     // 普通初始化

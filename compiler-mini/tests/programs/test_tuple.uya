@@ -1,0 +1,21 @@
+// 元组类型测试：(T1,T2)、字面量、.0/.1 访问、解构
+fn main() i32 {
+    const p: (i32, i32) = (10, 20);
+    const x: i32 = p.0;
+    const y: i32 = p.1;
+    if (x != 10) { return 1; }
+    if (y != 20) { return 2; }
+
+    const q: (i32, i32) = (1, 2);
+    if (q.0 != 1) { return 3; }
+    if (q.1 != 2) { return 4; }
+
+    const (a, b) = (100, 200);
+    if (a != 100) { return 5; }
+    if (b != 200) { return 6; }
+
+    const (m, _) = (7, 8);
+    if (m != 7) { return 7; }
+
+    return 0;
+}

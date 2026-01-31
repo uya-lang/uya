@@ -2,6 +2,7 @@
 #include "lexer.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 // 哈希函数（djb2算法，用于字符串哈希）
 static unsigned int hash_string(const char *str) {
@@ -394,6 +395,22 @@ static int type_equals(Type t1, Type t2) {
         return type_equals(*t1.data.array.element_type, *t2.data.array.element_type);
     }
     
+    // 对于元组类型，比较元素类型和数量
+    if (t1.kind == TYPE_TUPLE) {
+        if (t1.data.tuple.count != t2.data.tuple.count) {
+            return 0;
+        }
+        if (t1.data.tuple.element_types == NULL || t2.data.tuple.element_types == NULL) {
+            return t1.data.tuple.element_types == t2.data.tuple.element_types;
+        }
+        for (int i = 0; i < t1.data.tuple.count; i++) {
+            if (!type_equals(t1.data.tuple.element_types[i], t2.data.tuple.element_types[i])) {
+                return 0;
+            }
+        }
+        return 1;
+    }
+    
     // 对于其他类型（i32, bool, void），种类相同即相等
     return 1;
 }
@@ -503,6 +520,30 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
         result.data.array.element_type = element_type_ptr;
         result.data.array.array_size = array_size;
         
+        return result;
+    } else if (type_node->type == AST_TYPE_TUPLE) {
+        // 元组类型（(T1, T2, ...)）
+        int n = type_node->data.type_tuple.element_count;
+        if (n <= 0 || type_node->data.type_tuple.element_types == NULL) {
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        Type *element_types = (Type *)arena_alloc(checker->arena, sizeof(Type) * (size_t)n);
+        if (element_types == NULL) {
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        for (int i = 0; i < n; i++) {
+            Type et = type_from_ast(checker, type_node->data.type_tuple.element_types[i]);
+            if (et.kind == TYPE_VOID && type_node->data.type_tuple.element_types[i] != NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            element_types[i] = et;
+        }
+        result.kind = TYPE_TUPLE;
+        result.data.tuple.element_types = element_types;
+        result.data.tuple.count = n;
         return result;
     } else if (type_node->type == AST_TYPE_NAMED) {
         // 命名类型（i32, bool, byte, void, 或结构体名称）
@@ -885,6 +926,33 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             result.data.array.element_type = element_type_ptr;
             result.data.array.array_size = element_count;
             
+            return result;
+        }
+        
+        case AST_TUPLE_LITERAL: {
+            // 元组字面量：(expr1, expr2, ...)
+            int n = expr->data.tuple_literal.element_count;
+            ASTNode **elements = expr->data.tuple_literal.elements;
+            if (n <= 0 || elements == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            Type *element_types = (Type *)arena_alloc(checker->arena, sizeof(Type) * (size_t)n);
+            if (element_types == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            for (int i = 0; i < n; i++) {
+                Type et = checker_infer_type(checker, elements[i]);
+                if (et.kind == TYPE_VOID) {
+                    result.kind = TYPE_VOID;
+                    return result;
+                }
+                element_types[i] = et;
+            }
+            result.kind = TYPE_TUPLE;
+            result.data.tuple.element_types = element_types;
+            result.data.tuple.count = n;
             return result;
         }
         
@@ -1309,6 +1377,69 @@ static int checker_check_var_decl(TypeChecker *checker, ASTNode *node) {
     return 1;
 }
 
+// 检查解构声明：const (x, y) = expr; 或 var (x, _) = expr;
+// 参数：checker - TypeChecker 指针，node - 解构声明节点
+// 返回：1 表示检查通过，0 表示检查失败
+static int checker_check_destructure_decl(TypeChecker *checker, ASTNode *node) {
+    if (checker == NULL || node == NULL || node->type != AST_DESTRUCTURE_DECL) {
+        return 1;
+    }
+    ASTNode *init = node->data.destructure_decl.init;
+    if (init == NULL) {
+        checker_report_error(checker, node, "解构声明缺少初始值");
+        return 0;
+    }
+    checker_check_node(checker, init);
+    Type init_type = checker_infer_type(checker, init);
+    if (init_type.kind != TYPE_TUPLE) {
+        checker_report_error(checker, node, "解构声明的初始值必须是元组类型");
+        return 0;
+    }
+    int name_count = node->data.destructure_decl.name_count;
+    int tuple_count = init_type.data.tuple.count;
+    if (name_count != tuple_count) {
+        checker_report_error(checker, node, "解构名称数量与元组元素数量不匹配");
+        return 0;
+    }
+    const char **names = node->data.destructure_decl.names;
+    Type *element_types = init_type.data.tuple.element_types;
+    if (names == NULL || element_types == NULL) {
+        return 0;
+    }
+    int is_const = node->data.destructure_decl.is_const;
+    for (int i = 0; i < name_count; i++) {
+        const char *name = names[i];
+        if (name == NULL) {
+            continue;
+        }
+        if (strcmp(name, "_") == 0) {
+            continue;  /* 忽略占位，不加入符号表 */
+        }
+        Symbol *symbol = (Symbol *)arena_alloc(checker->arena, sizeof(Symbol));
+        if (symbol == NULL) {
+            return 1;
+        }
+        symbol->name = name;
+        symbol->type = element_types[i];
+        symbol->is_const = is_const;
+        symbol->scope_level = checker->scope_level;
+        symbol->line = node->line;
+        symbol->column = node->column;
+        Symbol *existing = symbol_table_lookup(checker, name);
+        if (existing != NULL && existing->scope_level == checker->scope_level) {
+            char error_msg[256];
+            snprintf(error_msg, sizeof(error_msg), "变量重复定义：变量 '%s' 在同一作用域中已定义", name);
+            checker_report_error(checker, node, error_msg);
+            return 0;
+        }
+        if (symbol_table_insert(checker, symbol) != 0) {
+            checker_report_error(checker, node, "符号表已满");
+            return 0;
+        }
+    }
+    return 1;
+}
+
 // 注册函数声明（仅收集函数签名，不检查函数体）
 // 参数：checker - TypeChecker 指针，node - 函数声明节点
 // 返回：1 表示注册成功，0 表示注册失败
@@ -1546,6 +1677,22 @@ static Type checker_check_member_access(TypeChecker *checker, ASTNode *node) {
     // 如果对象是指针类型，自动解引用（Uya Mini 支持指针自动解引用访问字段）
     if (object_type.kind == TYPE_POINTER && object_type.data.pointer.pointer_to != NULL) {
         object_type = *object_type.data.pointer.pointer_to;
+    }
+    
+    // 元组类型：.0, .1, ... 访问
+    if (object_type.kind == TYPE_TUPLE) {
+        const char *field_name = node->data.member_access.field_name;
+        if (field_name == NULL || object_type.data.tuple.element_types == NULL) {
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        int idx = atoi(field_name);
+        if (idx < 0 || idx >= object_type.data.tuple.count) {
+            checker_report_error(checker, node, "元组下标越界（.0/.1/... 必须在元组元素个数内）");
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        return object_type.data.tuple.element_types[idx];
     }
     
     // Uya 只支持 T.member 方式访问枚举（T 为枚举类型名），不支持变量.member
@@ -2201,6 +2348,9 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
         case AST_VAR_DECL:
             return checker_check_var_decl(checker, node);
             
+        case AST_DESTRUCTURE_DECL:
+            return checker_check_destructure_decl(checker, node);
+            
         case AST_BLOCK:
             // 放宽检查：代码块中的语句检查失败不报告错误
             // 这在编译器自举时很常见，因为类型推断可能失败
@@ -2680,6 +2830,19 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
         case AST_STRUCT_INIT:
             checker_check_struct_init(checker, node);
             return 1;
+            
+        case AST_TUPLE_LITERAL: {
+            int n = node->data.tuple_literal.element_count;
+            ASTNode **elements = node->data.tuple_literal.elements;
+            if (elements != NULL) {
+                for (int i = 0; i < n; i++) {
+                    if (elements[i] != NULL) {
+                        checker_check_node(checker, elements[i]);
+                    }
+                }
+            }
+            return 1;
+        }
             
         case AST_CAST_EXPR:
             checker_check_cast_expr(checker, node);
