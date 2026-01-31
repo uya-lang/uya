@@ -10,9 +10,11 @@ Uya 是系统编程语言，零GC、默认高级安全、编译期证明（本�
 
 ```
 struct const var fn return extern true false if while break continue
-defer errdefer try catch error null interface atomic max min
+defer errdefer try catch error null interface atomic
 export use
 ```
+
+**内置函数**（以 `@` 开头）：`@sizeof`、`@alignof`、`@len`、`@max`、`@min`
 
 ## 类型系统
 
@@ -41,8 +43,8 @@ export use
 | `fn(...) type` | 4/8 B（平台相关） | 函数指针类型，用于FFI回调 |
 | `!T` | max(sizeof(T), sizeof(错误标记)) | 错误联合类型，T\|Error |
 
-**类型关键字**：
-- `max`/`min`：访问整数类型极值常量（编译期推断类型）
+**内置函数**（以 `@` 开头）：
+- `@max`/`@min`：访问整数类型极值常量（编译期推断类型）
 - 无隐式转换，类型必须完全一致
 
 ## 基本语法
@@ -631,17 +633,19 @@ const msg3: [i8: 64] = "pi=${pi:.2e}\n";  // 科学计数法
 - 格式说明符与C printf保持一致
 - 零运行时解析开销，零堆分配
 
-### 内置函数
+### 内置函数（以 @ 开头）
 
 ```uya
-// 内置函数（无需导入，自动可用）
-len(arr)           // 返回数组元素个数（编译期常量）
-// 对于空数组字面量 []，len 返回数组声明时的大小，而不是 0
+// 内置函数（以 @ 开头，无需导入，自动可用）
+@len(arr)           // 返回数组元素个数（编译期常量）
+// 对于空数组字面量 []，@len 返回数组声明时的大小，而不是 0
 var buffer: [i32: 100] = [];
-const len_val: i32 = len(buffer);  // 100（从声明中获取）
+const len_val: i32 = @len(buffer);  // 100（从声明中获取）
 
-sizeof(T)          // 返回类型大小（编译期常量）
-alignof(T)         // 返回类型对齐（编译期常量）
+@sizeof(T)          // 返回类型大小（编译期常量）
+@alignof(T)         // 返回类型对齐（编译期常量）
+@max               // 整数类型最大值（类型从上下文推断）
+@min               // 整数类型最小值（类型从上下文推断）
 ```
 
 ## 完整示例

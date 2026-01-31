@@ -1183,7 +1183,7 @@ fn divide(a: i32, b: i32) !i32 {
                                     <td><code>i8</code> <code>i16</code> <code>i32</code> <code>i64</code></td>
                                     <td>同宽 signed</td>
                                     <td>1 2 4 8 B</td>
-                                    <td>对齐 = 类型大小；支持 <code>max/min</code> 关键字访问极值</td>
+                                    <td>对齐 = 类型大小；支持 <code>@max</code>/<code>@min</code> 内置函数访问极值</td>
                                 </tr>
                                 <tr>
                                     <td><code>u8</code> <code>u16</code> <code>u32</code> <code>u64</code></td>
@@ -1292,17 +1292,17 @@ fn divide(a: i32, b: i32) !i32 {
                     <h3>类型相关的极值常量</h3>
                     <div class="code-block">
                         <div class="code-header">
-                            <span>max/min 关键字示例</span>
+                            <span>@max/@min 内置函数示例</span>
                             <button class="code-copy">复制</button>
                         </div>
-                        <pre><code class="language-uya">// max/min 关键字访问极值（类型推断）
-const MAX: i32 = max;  // 2147483647（从类型注解 i32 推断）
-const MIN: i32 = min;  // -2147483648（从类型注解 i32 推断）
+                        <pre><code class="language-uya">// @max/@min 内置函数访问极值（类型推断）
+const MAX: i32 = @max;  // 2147483647（从类型注解 i32 推断）
+const MIN: i32 = @min;  // -2147483648（从类型注解 i32 推断）
 
 // 在溢出检查中使用（从变量类型推断）
 const a: i32 = ...;
 const b: i32 = ...;
-if a > 0 && b > 0 && a > max - b {  // 从 a 和 b 的类型 i32 推断
+if a > 0 && b > 0 && a > @max - b {  // 从 a 和 b 的类型 i32 推断
     return error.Overflow;  // 运行时错误，无需预定义
 }</code></pre>
                     </div>
@@ -1771,7 +1771,7 @@ fn main() i32 {
     printf("Result with try: %d\n", result1);
     
     // 使用饱和运算符（溢出时返回极值）
-    const result2: i32 = a +| b;  // 返回 max (2147483647)
+    const result2: i32 = a +| b;  // 返回 @max (2147483647)
     printf("Result with +|: %d\n", result2);
     
     // 使用包装运算符（溢出时包装）
@@ -1781,7 +1781,7 @@ fn main() i32 {
     // 减法示例
     const c: i32 = -2000000000;
     const d: i32 = 2000000000;
-    const result4: i32 = c -| d;  // 饱和减法，返回 min
+    const result4: i32 = c -| d;  // 饱和减法，返回 @min
     const result5: i32 = c -% d;  // 包装减法
     
     // 乘法示例
@@ -1811,19 +1811,19 @@ fn main() i32 {
                             </thead>
                             <tbody>
                                 <tr>
-                                    <td><code>len</code></td>
-                                    <td><code>fn len(a: [T; N]) i32</code></td>
+                                    <td><code>@len</code></td>
+                                    <td><code>fn @len(a: [T; N]) i32</code></td>
                                     <td>返回数组元素个数 <code>N</code>（编译期常量）。对于空数组字面量 <code>[]</code>，返回数组声明时的大小，而不是 0</td>
                                 </tr>
                                 <tr>
-                                    <td><code>sizeof</code></td>
-                                    <td><code>fn sizeof(T) i32</code></td>
-                                    <td>返回类型 <code>T</code> 的字节大小（编译期常量，内置函数）</td>
+                                    <td><code>@sizeof</code></td>
+                                    <td><code>fn @sizeof(T) i32</code></td>
+                                    <td>返回类型 <code>T</code> 的字节大小（编译期常量，以 @ 开头）</td>
                                 </tr>
                                 <tr>
-                                    <td><code>alignof</code></td>
-                                    <td><code>fn alignof(T) i32</code></td>
-                                    <td>返回类型 <code>T</code> 的对齐字节数（编译期常量，内置函数）</td>
+                                    <td><code>@alignof</code></td>
+                                    <td><code>fn @alignof(T) i32</code></td>
+                                    <td>返回类型 <code>T</code> 的对齐字节数（编译期常量，以 @ 开头）</td>
                                 </tr>
                                 <tr>
                                     <td><code>try</code> 关键字</td>
@@ -1845,10 +1845,10 @@ fn main() i32 {
                     </div>
                     
                     <div class="note">
-                        <p><strong>说明：</strong><code>len</code>、<code>sizeof</code>、<code>alignof</code>、<code>try</code> 关键字和运算符是编译器内置的，编译期展开，自动可用，无需导入或声明。</p>
+                        <p><strong>说明：</strong><code>@len</code>、<code>@sizeof</code>、<code>@alignof</code>、<code>@max</code>、<code>@min</code> 为内置函数（以 @ 开头），<code>try</code> 关键字和运算符是编译器内置的，编译期展开，自动可用，无需导入或声明。</p>
                     </div>
                     
-                    <h3>sizeof 和 alignof 示例</h3>
+                    <h3>@sizeof 和 @alignof 示例</h3>
                     <div class="code-block">
                         <div class="code-header">
                             <span>示例：类型大小和对齐</span>
@@ -1868,25 +1868,25 @@ struct Packet {
 
 fn main() i32 {
     // 获取类型大小
-    const vec3_size: i32 = sizeof(struct Vec3{});      // 12
-    const packet_size: i32 = sizeof(struct Packet{}); // 68
+    const vec3_size: i32 = @sizeof(struct Vec3{});      // 12
+    const packet_size: i32 = @sizeof(struct Packet{}); // 68
     
     // 获取类型对齐
-    const vec3_align: i32 = alignof(struct Vec3{});    // 4
-    const packet_align: i32 = alignof(struct Packet{}); // 4
+    const vec3_align: i32 = @alignof(struct Vec3{});    // 4
+    const packet_align: i32 = @alignof(struct Packet{}); // 4
     
     // FFI 分配
     extern malloc(size: i32) *void;
     // 注意：*byte 不能用于普通变量声明，这里仅作示例说明类型
-    // const ptr: *byte = malloc(sizeof(struct Packet));  // ❌ 编译错误：*byte 不能用于普通变量声明
+    // const ptr: *byte = malloc(@sizeof(struct Packet));  // ❌ 编译错误：*byte 不能用于普通变量声明
     
     // 对齐检查
-    if alignof(struct Packet) != 4 {
+    if @alignof(struct Packet) != 4 {
         return error.BadAlign;
     }
     
     // 零拷贝序列化缓冲区
-    const MSG: [byte; sizeof(struct Packet)] = [];
+    const MSG: [byte; @sizeof(struct Packet)] = [];
     
     return 0;
 }</code></pre>
@@ -1949,7 +1949,7 @@ fn main() i32 {
             </div>
             
                 <div class="copyright">
-                <p>Uya 语言规范 0.31（完整版） · 项目 v0.1.0（Uya Mini 编译器已自举）</p>
+                <p>Uya 语言规范 0.32（完整版） · 项目 v0.1.0（Uya Mini 编译器已自举）</p>
                 <p>© 2025 Uya 语言项目。MIT 许可证。</p>
             </div>
         </div>
@@ -1961,7 +1961,8 @@ fn main() i32 {
     <script>
         // 添加自定义Uya语言高亮
         Prism.languages.uya = Prism.languages.extend('c', {
-            'keyword': /\b(struct|const|var|fn|return|extern|true|false|if|while|break|continue|defer|errdefer|try|catch|error|null|interface|atomic|max|min|as|as!|type|mc)\b/,
+            'keyword': /\b(struct|const|var|fn|return|extern|true|false|if|while|break|continue|defer|errdefer|try|catch|error|null|interface|atomic|as|as!|type|mc)\b/,
+            'builtin-fn': /@(?:sizeof|alignof|len|max|min)\b/,
             'operator': /=>|\.\.|\+=|\-=|\*=|\/=|%=|&=|\|=|\^=|<<=|>>=|&&|\|\||<<|>>|<=|>=|==|!=|\.\.\.?|\+\||\-\||\*\||\+%|\-%|\*%/,
             'builtin': /\b(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|byte|void|Self)\b/,
             'error': /\berror\.[A-Z][A-Za-z0-9]*\b/,  // 高亮错误类型，如 error.FileNotFound

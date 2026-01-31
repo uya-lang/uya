@@ -169,9 +169,12 @@ cast_expr      = postfix_expr [ ('as' | 'as!') type ]
 postfix_expr   = primary_expr { '.' (ID | NUM) | '[' expr ']' | '(' arg_list ')' | slice_op | catch_op }
                 # '.' NUM 用于元组字段访问，如 tuple.0, tuple.1
 catch_op       = 'catch' [ '|' ID '|' ] '{' statements '}'
-primary_expr   = ID | NUM | STRING | 'true' | 'false' | 'null' | 'max' | 'min'
+primary_expr   = ID | NUM | STRING | 'true' | 'false' | 'null'
+               | builtin_expr
                | struct_literal | array_literal | tuple_literal | enum_literal
                | match_expr | '(' expr ')'
+builtin_expr   = '@' ('sizeof' | 'alignof' | 'len' | 'max' | 'min')
+               # @sizeof(T)、@alignof(T)、@len(expr) 为调用形式；@max、@min 为值形式（类型从上下文推断）
 ```
 
 ### 特殊表达式
@@ -336,9 +339,11 @@ identifier = [A-Za-z_][A-Za-z0-9_]*
 
 ```
 struct const var fn return extern true false if while break continue
-defer errdefer try catch error null interface atomic max min
+defer errdefer try catch error null interface atomic
 export use as as! test
 ```
+
+**说明**：内置函数以 `@` 开头（`@sizeof`、`@alignof`、`@len`、`@max`、`@min`），非关键字，见 `builtin_expr`。
 
 ### 1.3 字符串插值
 
@@ -602,7 +607,8 @@ block_comment  = '/*' .* '*/'
 - `NUM`：数字字面量（整数或浮点数）
 - `STRING`：字符串字面量（`"..."`）
 - `TEXT`：普通文本（字符串插值中的非插值部分）
-- 关键字：`struct`, `const`, `var`, `fn`, `return`, `extern`, `true`, `false`, `if`, `while`, `break`, `continue`, `defer`, `errdefer`, `try`, `catch`, `error`, `null`, `interface`, `atomic`, `max`, `min`, `export`, `use`, `as`, `as!`, `test`
+- 关键字：`struct`, `const`, `var`, `fn`, `return`, `extern`, `true`, `false`, `if`, `while`, `break`, `continue`, `defer`, `errdefer`, `try`, `catch`, `error`, `null`, `interface`, `atomic`, `export`, `use`, `as`, `as!`, `test`
+- 内置函数（以 `@` 开头）：`@sizeof`, `@alignof`, `@len`, `@max`, `@min`
 
 ### 非终结符
 
