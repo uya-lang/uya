@@ -217,10 +217,18 @@ fn compile_files(
     }
     if checker_check(&checker, merged_ast) != 0 {
         fprintf(stderr, "错误: 类型检查失败（错误数量: %d）\n" as *byte, checker_get_error_count(&checker));
+        const err_msg: &byte = get_last_checker_error();
+        if err_msg != null {
+            fprintf(stderr, "最后错误: %s\n" as *byte, err_msg as *byte);
+        }
         return 1;
     }
     if checker_get_error_count(&checker) > 0 {
         fprintf(stderr, "错误: 类型检查失败（错误数量: %d）\n" as *byte, checker_get_error_count(&checker));
+        const err_msg: &byte = get_last_checker_error();
+        if err_msg != null {
+            fprintf(stderr, "最后错误: %s\n" as *byte, err_msg as *byte);
+        }
         return 1;
     }
 

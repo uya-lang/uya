@@ -46,42 +46,59 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         }
         
         if is_struct_comparison != 0 {
-            // 使用memcmp比较结构体
-            // 需要获取左操作数的类型来确定结构体大小
-            var struct_name: &byte = null;
+            // 解析出结构体声明，空结构体直接输出 (1)/(0)
+            var struct_decl: &ASTNode = null;
             if left.type == AST_IDENTIFIER {
-                // 对于变量，我们需要查找其类型
-                // 这里简化处理，使用sizeof运算符
-                fputs("memcmp(&" as *byte, codegen.output as *void);
-                gen_expr(codegen, left);
-                fputs(", &" as *byte, codegen.output as *void);
-                gen_expr(codegen, right);
-                fputs(", sizeof(" as *byte, codegen.output as *void);
-                gen_expr(codegen, left);
-                fputs("))" as *byte, codegen.output as *void);
+                const type_c: &byte = get_identifier_type_c(codegen, left.identifier_name);
+                if type_c != null {
+                    const struct_prefix: *byte = strstr(type_c as *byte, "struct " as *byte);
+                    if struct_prefix != null {
+                        const name_start: &byte = (struct_prefix + 7) as &byte;
+                        struct_decl = find_struct_decl_c99(codegen, name_start);
+                    }
+                }
             } else if left.type == AST_STRUCT_INIT {
-                // 对于结构体字面量，使用结构体名称
-                struct_name = left.struct_init_struct_name;
-                fputs("memcmp(&" as *byte, codegen.output as *void);
-                gen_expr(codegen, left);
-                fputs(", &" as *byte, codegen.output as *void);
-                gen_expr(codegen, right);
-                const safe_struct_name: &byte = get_safe_c_identifier(codegen, struct_name);
-                fprintf(codegen.output as *void, ", sizeof(struct %s))" as *byte, safe_struct_name as *byte);
-            } else {
-                // 默认情况，使用sizeof左操作数
-                fputs("memcmp(&" as *byte, codegen.output as *void);
-                gen_expr(codegen, left);
-                fputs(", &" as *byte, codegen.output as *void);
-                gen_expr(codegen, right);
-                fputs(", sizeof(" as *byte, codegen.output as *void);
-                gen_expr(codegen, left);
-                fputs("))" as *byte, codegen.output as *void);
+                struct_decl = find_struct_decl_c99(codegen, left.struct_init_struct_name);
             }
-            if op == TOKEN_EQUAL {
-                fputs(" == 0" as *byte, codegen.output as *void);
-            } else if op == TOKEN_NOT_EQUAL {
-                fputs(" != 0" as *byte, codegen.output as *void);
+            if struct_decl != null && struct_decl.struct_decl_field_count == 0 {
+                if op == TOKEN_EQUAL {
+                    fputs("(1)" as *byte, codegen.output as *void);
+                } else if op == TOKEN_NOT_EQUAL {
+                    fputs("(0)" as *byte, codegen.output as *void);
+                }
+            } else {
+                // 使用 memcmp 比较结构体
+                var struct_name: &byte = null;
+                if left.type == AST_IDENTIFIER {
+                    fputs("memcmp(&" as *byte, codegen.output as *void);
+                    gen_expr(codegen, left);
+                    fputs(", &" as *byte, codegen.output as *void);
+                    gen_expr(codegen, right);
+                    fputs(", sizeof(" as *byte, codegen.output as *void);
+                    gen_expr(codegen, left);
+                    fputs("))" as *byte, codegen.output as *void);
+                } else if left.type == AST_STRUCT_INIT {
+                    struct_name = left.struct_init_struct_name;
+                    fputs("memcmp(&" as *byte, codegen.output as *void);
+                    gen_expr(codegen, left);
+                    fputs(", &" as *byte, codegen.output as *void);
+                    gen_expr(codegen, right);
+                    const safe_struct_name: &byte = get_safe_c_identifier(codegen, struct_name);
+                    fprintf(codegen.output as *void, ", sizeof(struct %s))" as *byte, safe_struct_name as *byte);
+                } else {
+                    fputs("memcmp(&" as *byte, codegen.output as *void);
+                    gen_expr(codegen, left);
+                    fputs(", &" as *byte, codegen.output as *void);
+                    gen_expr(codegen, right);
+                    fputs(", sizeof(" as *byte, codegen.output as *void);
+                    gen_expr(codegen, left);
+                    fputs("))" as *byte, codegen.output as *void);
+                }
+                if op == TOKEN_EQUAL {
+                    fputs(" == 0" as *byte, codegen.output as *void);
+                } else if op == TOKEN_NOT_EQUAL {
+                    fputs(" != 0" as *byte, codegen.output as *void);
+                }
             }
         } else {
             // 普通二元表达式
