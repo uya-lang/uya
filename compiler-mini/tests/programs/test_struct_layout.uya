@@ -65,51 +65,51 @@ struct Empty {
 
 fn main() i32 {
     // 验证测试 1: 基本对齐
-    const size1: i32 = sizeof(Example1);
-    const align1: i32 = alignof(Example1);
+    const size1: i32 = @sizeof(Example1);
+    const align1: i32 = @alignof(Example1);
     if size1 != 12 || align1 != 4 {
         return 1;  // Example1 应该大小为 12 字节，对齐 4 字节
     }
     
     // 验证测试 2: 需要填充的结构体
-    const size2: i32 = sizeof(Example2);
-    const align2: i32 = alignof(Example2);
+    const size2: i32 = @sizeof(Example2);
+    const align2: i32 = @alignof(Example2);
     if size2 != 12 || align2 != 4 {
         return 2;  // Example2 应该大小为 12 字节，对齐 4 字节
     }
     
     // 验证测试 3: 嵌套结构体
-    const inner_size: i32 = sizeof(Inner);
-    const inner_align: i32 = alignof(Inner);
+    const inner_size: i32 = @sizeof(Inner);
+    const inner_align: i32 = @alignof(Inner);
     if inner_size != 8 || inner_align != 4 {
         return 3;  // Inner 应该大小为 8 字节，对齐 4 字节
     }
     
-    const outer_size: i32 = sizeof(Outer);
-    const outer_align: i32 = alignof(Outer);
+    const outer_size: i32 = @sizeof(Outer);
+    const outer_align: i32 = @alignof(Outer);
     if outer_size != 16 || outer_align != 4 {
         return 4;  // Outer 应该大小为 16 字节，对齐 4 字节
     }
     
     // 验证测试 4: 数组字段
-    const size4: i32 = sizeof(Example4);
-    const align4: i32 = alignof(Example4);
+    const size4: i32 = @sizeof(Example4);
+    const align4: i32 = @alignof(Example4);
     if size4 != 20 || align4 != 4 {
         return 5;  // Example4 应该大小为 20 字节，对齐 4 字节
     }
     
     // 验证测试 5: 结构体大小计算
-    const size5: i32 = sizeof(Example5);
-    const align5: i32 = alignof(Example5);
+    const size5: i32 = @sizeof(Example5);
+    const align5: i32 = @alignof(Example5);
     if size5 != 12 || align5 != 4 {
         return 6;  // Example5 应该大小为 12 字节，对齐 4 字节
     }
     
     // 验证测试 6: 平台差异（指针和 usize）
-    const platform_size: i32 = sizeof(PlatformStruct);
-    const platform_align: i32 = alignof(PlatformStruct);
-    const ptr_size: i32 = sizeof(&i32);
-    const usize_size: i32 = sizeof(usize);
+    const platform_size: i32 = @sizeof(PlatformStruct);
+    const platform_align: i32 = @alignof(PlatformStruct);
+    const ptr_size: i32 = @sizeof(&i32);
+    const usize_size: i32 = @sizeof(usize);
     
     // 指针大小应该是 4（32位）或 8（64位）
     if ptr_size != 4 && ptr_size != 8 {
@@ -132,8 +132,8 @@ fn main() i32 {
     }
     
     // 验证测试 7: 空结构体
-    const empty_size: i32 = sizeof(Empty);
-    const empty_align: i32 = alignof(Empty);
+    const empty_size: i32 = @sizeof(Empty);
+    const empty_align: i32 = @alignof(Empty);
     if empty_size != 1 || empty_align != 1 {
         return 11;  // Empty 应该大小为 1 字节，对齐 1 字节
     }

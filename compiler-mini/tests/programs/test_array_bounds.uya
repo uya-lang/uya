@@ -65,7 +65,7 @@ fn main() i32 {
     var i: i32 = 0;
     
     // 3.1 合法范围内的循环访问
-    while i < len(arr2) {
+    while i < @len(arr2) {
         sum = sum + arr2[i];
         i = i + 1;
     }
@@ -256,14 +256,14 @@ fn main() i32 {
         return 29;
     }
     
-    // ========== 测试 13: 使用 len() 函数进行边界检查 ==========
-    // 注意：虽然编译器不进行边界检查，但程序可以使用 len() 进行运行时检查
+    // ========== 测试 13: 使用 @len() 函数进行边界检查 ==========
+    // 注意：虽然编译器不进行边界检查，但程序可以使用 @len() 进行运行时检查
     
     const arr15: [i32: 5] = [1, 2, 3, 4, 5];
     var safe_index: i32 = 3;
     
-    // 使用 len() 进行运行时边界检查
-    if safe_index >= 0 && safe_index < len(arr15) {
+    // 使用 @len() 进行运行时边界检查
+    if safe_index >= 0 && safe_index < @len(arr15) {
         if arr15[safe_index] != 4 {
             return 30;
         }

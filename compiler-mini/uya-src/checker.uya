@@ -706,7 +706,7 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
         
         // 分配指向的类型结构（从Arena分配）
         // 注意：Uya 不支持指针运算，需要使用数组访问
-        const pointed_type_ptr: &Type = arena_alloc(checker.arena, sizeof(Type)) as &Type;
+        const pointed_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
         if pointed_type_ptr == null {
             // Arena 分配失败
             result.kind = TypeKind.TYPE_VOID;
@@ -732,7 +732,7 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
         
         // 分配元素类型结构（从Arena分配）
         // 注意：Uya 不支持指针运算，需要使用数组访问
-        const element_type_ptr: &Type = arena_alloc(checker.arena, sizeof(Type)) as &Type;
+        const element_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
         if element_type_ptr == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
@@ -949,7 +949,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         
         // 分配指向的类型结构（从Arena分配）
         // 注意：Uya 不支持指针运算，需要使用数组访问
-        const pointed_type_ptr: &Type = arena_alloc(checker.arena, sizeof(Type)) as &Type;
+        const pointed_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
         if pointed_type_ptr == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
@@ -1001,7 +1001,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             
             // 分配操作数类型结构（从Arena分配）
             // 注意：Uya 不支持指针运算，需要使用数组访问
-            const pointed_type_ptr: &Type = arena_alloc(checker.arena, sizeof(Type)) as &Type;
+            const pointed_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
             if pointed_type_ptr == null {
                 result.kind = TypeKind.TYPE_VOID;
                 return result;
@@ -1180,7 +1180,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         
         // 分配元素类型结构（从Arena分配）
         // 注意：Uya 不支持指针运算，需要使用数组访问
-        const element_type_ptr: &Type = arena_alloc(checker.arena, sizeof(Type)) as &Type;
+        const element_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
         if element_type_ptr == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
@@ -1397,7 +1397,7 @@ fn checker_check_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     } else {
         // 将变量添加到符号表（顶层且已第一遍注册时跳过插入）
         if checker.scope_level != 0 || existing == null || existing.scope_level != 0 || existing.line != node.line || existing.column != node.column {
-            const symbol: &Symbol = arena_alloc(checker.arena, sizeof(Symbol)) as &Symbol;
+            const symbol: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
             if symbol == null {
                 return 1;
             }
@@ -1439,7 +1439,7 @@ fn checker_register_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     if existing != null && existing.scope_level == 0 {
         return 1;
     }
-    const symbol: &Symbol = arena_alloc(checker.arena, sizeof(Symbol)) as &Symbol;
+    const symbol: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
     if symbol == null {
         return 0;
     }
@@ -1468,7 +1468,7 @@ fn checker_register_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     const return_type: Type = type_from_ast(checker, node.fn_decl_return_type);
     
     // 创建函数签名
-    const sig: &FunctionSignature = arena_alloc(checker.arena, sizeof(FunctionSignature)) as &FunctionSignature;
+    const sig: &FunctionSignature = arena_alloc(checker.arena, @sizeof(FunctionSignature)) as &FunctionSignature;
     if sig == null {
         return 0;
     }
@@ -1487,7 +1487,7 @@ fn checker_register_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     
     // 分配参数类型数组
     if sig.param_count > 0 {
-        sig.param_types = arena_alloc(checker.arena, sizeof(Type) * (sig.param_count as usize)) as &Type;
+        sig.param_types = arena_alloc(checker.arena, @sizeof(Type) * (sig.param_count as usize)) as &Type;
         if sig.param_types == null {
             return 0;
         }
@@ -1561,7 +1561,7 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
                 const param_type: Type = type_from_ast(checker, param.var_decl_type);
                 
                 // 将参数添加到符号表
-                const param_symbol: &Symbol = arena_alloc(checker.arena, sizeof(Symbol)) as &Symbol;
+                const param_symbol: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
                 if param_symbol != null {
                     param_symbol.name = param.var_decl_name;
                     param_symbol.type = param_type;
@@ -1789,7 +1789,7 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
                 // 返回 &ASTNode 类型（数组元素类型）
                 result.kind = TypeKind.TYPE_POINTER;
                 // 注意：Uya 不支持指针运算，需要使用数组访问
-                const pointed_type_ptr: &Type = arena_alloc(checker.arena, sizeof(Type)) as &Type;
+                const pointed_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
                 if pointed_type_ptr != null {
                     pointed_type_ptr[0].kind = TypeKind.TYPE_STRUCT;
                     pointed_type_ptr[0].struct_name = "ASTNode" as *byte;
@@ -2387,7 +2387,7 @@ fn checker_check_unary_expr(checker: &TypeChecker, node: &ASTNode) Type {
         }
         
         // 分配操作数类型结构（从Arena分配）
-        const pointed_type_ptr: &Type = arena_alloc(checker.arena, sizeof(Type)) as &Type;
+        const pointed_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
         if pointed_type_ptr == null {
             checker_report_error(checker, node, "类型检查错误" as *byte);
             return result;
@@ -2849,7 +2849,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
                 // 注意：Uya 不支持指针解引用，需要使用数组访问
                 const element_type: Type = array_type.element_type[0];
                 // 注意：Uya 不支持指针运算，需要使用数组访问
-                const element_type_ptr: &Type = arena_alloc(checker.arena, sizeof(Type)) as &Type;
+                const element_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
                 if element_type_ptr == null {
                     checker_report_error(checker, node, "类型检查错误：内存分配失败" as *byte);
                     checker_enter_scope(checker);
@@ -2873,7 +2873,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             }
             
             // 添加循环变量到符号表（var，可修改）
-            const loop_var: &Symbol = arena_alloc(checker.arena, sizeof(Symbol)) as &Symbol;
+            const loop_var: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
             if loop_var == null {
                 // 内存分配失败：放宽检查，允许通过（不报错），继续检查循环体
             } else {

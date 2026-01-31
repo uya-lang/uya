@@ -18,7 +18,7 @@ const FINAL_SIZE: i32 = OFFSET + 20;  // 应该是 120
 // 测试函数：使用常量作为数组大小
 fn test_basic_const_array() i32 {
     var arr: [i32: MAX_SIZE] = [];
-    if len(arr) != 64 {
+    if @len(arr) != 64 {
         return 1;
     }
     return 0;
@@ -26,7 +26,7 @@ fn test_basic_const_array() i32 {
 
 fn test_const_expr_array() i32 {
     var arr: [i32: TOTAL_SIZE] = [];
-    if len(arr) != 15 {
+    if @len(arr) != 15 {
         return 1;
     }
     return 0;
@@ -34,7 +34,7 @@ fn test_const_expr_array() i32 {
 
 fn test_const_chain_array() i32 {
     var arr: [i32: FINAL_SIZE] = [];
-    if len(arr) != 120 {
+    if @len(arr) != 120 {
         return 1;
     }
     return 0;
@@ -45,13 +45,13 @@ fn test_multiple_const_arrays() i32 {
     var arr2: [i32: SMALL_SIZE] = [];
     var arr3: [i32: TOTAL_SIZE] = [];
     
-    if len(arr1) != 64 {
+    if @len(arr1) != 64 {
         return 1;
     }
-    if len(arr2) != 8 {
+    if @len(arr2) != 8 {
         return 2;
     }
-    if len(arr3) != 15 {
+    if @len(arr3) != 15 {
         return 3;
     }
     return 0;
@@ -64,7 +64,7 @@ const NESTED_C: i32 = NESTED_B + 10;
 
 fn test_nested_const() i32 {
     var arr: [i32: NESTED_C] = [];
-    if len(arr) != 60 {
+    if @len(arr) != 60 {
         return 1;
     }
     return 0;

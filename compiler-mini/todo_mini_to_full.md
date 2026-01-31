@@ -8,7 +8,7 @@
 
 | 序号 | 阶段 | 状态 |
 |------|------|------|
-| 0 | 规范同步：内置函数以 @ 开头 | [ ] |
+| 0 | 规范同步：内置函数以 @ 开头 | [x] |
 | 1 | 基础类型与字面量 | [ ] |
 | 2 | 错误处理 | [ ] |
 | 3 | defer / errdefer | [ ] |
@@ -26,15 +26,15 @@
 
 ## 0. 规范同步：内置函数以 @ 开头
 
-规范已升级为所有内置函数以 `@` 开头（uya.md 0.32、UYA_MINI_SPEC.md）。编译器当前仍使用旧语法（`sizeof`、`alignof`、`len`、`max`、`min`），需实现新语法并迁移测试。
+规范已升级为所有内置函数以 `@` 开头（uya.md 0.32、UYA_MINI_SPEC.md）。已实现新语法并迁移测试。
 
-- [ ] **Lexer**：识别 `@` 及 `@` 后标识符（如 `@sizeof`、`@alignof`、`@len`、`@max`、`@min`）；或新增 token 类型（如 `TK_AT` + 标识符）
-- [ ] **AST**：内置函数节点支持 `@` 前缀命名（或沿用现有节点，名称改为带 `@` 的标识）
-- [ ] **Parser**：`primary_expr` 支持 `@max`、`@min`（无参）；`postfix_expr` 支持 `@sizeof(...)`、`@alignof(...)`、`@len(...)` 调用形式
-- [ ] **Checker**：识别并校验 `@sizeof`、`@alignof`、`@len`、`@max`、`@min` 的语义（类型推断、参数类型等）
-- [ ] **Codegen**：生成与现有一致的 C 代码（仅调用处由旧名改为新名，输出不变）
-- [ ] **测试用例迁移**：将 `tests/programs/` 中所有使用 `sizeof`、`alignof`、`len`、`max`、`min` 的用例改为 `@sizeof`、`@alignof`、`@len`、`@max`、`@min`
-- [ ] **C 实现与 uya-src 同步**：`src/` 与 `uya-src/` 两套实现同步修改；验证 `--c99` 与 `--uya --c99` 均通过，`--c99 -b` 自举对比一致
+- [x] **Lexer**：识别 `@` 及 `@` 后标识符（如 `@sizeof`、`@alignof`、`@len`、`@max`、`@min`）；新增 `TOKEN_AT_IDENTIFIER` 类型
+- [x] **AST**：沿用现有节点（AST_SIZEOF、AST_ALIGNOF、AST_LEN、AST_INT_LIMIT）
+- [x] **Parser**：`primary_expr` 支持 `@max`、`@min`（无参）；支持 `@sizeof(...)`、`@alignof(...)`、`@len(...)` 调用形式
+- [x] **Checker**：识别并校验 `@sizeof`、`@alignof`、`@len`、`@max`、`@min` 的语义
+- [x] **Codegen**：生成与现有一致的 C 代码（输出不变）
+- [x] **测试用例迁移**：将 `tests/programs/` 中所有用例改为 `@sizeof`、`@alignof`、`@len`、`@max`、`@min`
+- [x] **C 实现与 uya-src 同步**：`src/` 与 `uya-src/` 两套实现同步修改；`--c99` 与 `--uya --c99` 均通过，`--c99 -b` 自举对比一致
 
 **涉及**：`lexer.c`/`lexer.uya`、`ast.c`/`ast.uya`、`parser.c`/`parser.uya`、`checker.c`/`checker.uya`、`codegen/c99/expr.c`/`expr.uya` 等；`tests/programs/*.uya` 中引用内置的用例。
 

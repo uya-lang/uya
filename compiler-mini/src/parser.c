@@ -1218,8 +1218,9 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return node;
     }
     
-    // 解析 max/min 整数极值字面量（类型由 Checker 从上下文推断）
-    if (parser->current_token->type == TOKEN_MAX) {
+    // 解析 @max/@min 整数极值字面量（类型由 Checker 从上下文推断）
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "max") == 0) {
         ASTNode *node = ast_new_node(AST_INT_LIMIT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
@@ -1229,7 +1230,8 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         parser_consume(parser);
         return node;
     }
-    if (parser->current_token->type == TOKEN_MIN) {
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "min") == 0) {
         ASTNode *node = ast_new_node(AST_INT_LIMIT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
@@ -1240,8 +1242,9 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return node;
     }
     
-    // 解析 sizeof 表达式：sizeof(Type) 或 sizeof(expr)
-    if (parser->current_token->type == TOKEN_SIZEOF) {
+    // 解析 @sizeof 表达式：@sizeof(Type) 或 @sizeof(expr)
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "sizeof") == 0) {
         parser_consume(parser);  // 消费 'sizeof'
         
         // 期望 '('
@@ -1308,8 +1311,9 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return sizeof_node;
     }
     
-    // 解析 alignof 表达式：alignof(Type) 或 alignof(expr)
-    if (parser->current_token->type == TOKEN_ALIGNOF) {
+    // 解析 @alignof 表达式：@alignof(Type) 或 @alignof(expr)
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "alignof") == 0) {
         parser_consume(parser);  // 消费 'alignof'
         
         // 期望 '('
@@ -1376,8 +1380,9 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return alignof_node;
     }
     
-    // 解析 len 表达式：len(array)
-    if (parser->current_token->type == TOKEN_LEN) {
+    // 解析 @len 表达式：@len(array)
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "len") == 0) {
         parser_consume(parser);  // 消费 'len'
         
         // 期望 '('

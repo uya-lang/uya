@@ -28,11 +28,7 @@ enum TokenType {
     TOKEN_TRUE,
     TOKEN_FALSE,
     TOKEN_NULL,
-    TOKEN_MAX,
-    TOKEN_MIN,
-    TOKEN_SIZEOF,
-    TOKEN_LEN,
-    TOKEN_ALIGNOF,
+    TOKEN_AT_IDENTIFIER,  // @ 后跟内置函数标识符（@sizeof、@alignof、@len、@max、@min）
     TOKEN_AS,
     TOKEN_PLUS,
     TOKEN_MINUS,
@@ -191,16 +187,6 @@ fn is_keyword(str: &byte) TokenType {
         result = TokenType.TOKEN_FALSE;
     } else if str_equals_lexer(str, "null" as &byte) != 0 {
         result = TokenType.TOKEN_NULL;
-    } else if str_equals_lexer(str, "max" as &byte) != 0 {
-        result = TokenType.TOKEN_MAX;
-    } else if str_equals_lexer(str, "min" as &byte) != 0 {
-        result = TokenType.TOKEN_MIN;
-    } else if str_equals_lexer(str, "sizeof" as &byte) != 0 {
-        result = TokenType.TOKEN_SIZEOF;
-    } else if str_equals_lexer(str, "len" as &byte) != 0 {
-        result = TokenType.TOKEN_LEN;
-    } else if str_equals_lexer(str, "alignof" as &byte) != 0 {
-        result = TokenType.TOKEN_ALIGNOF;
     } else if str_equals_lexer(str, "as" as &byte) != 0 {
         result = TokenType.TOKEN_AS;
     }
@@ -230,7 +216,7 @@ fn make_token(arena: &Arena, type: TokenType, value: &byte, line: i32, column: i
     if arena == null {
         return null;
     }
-    const token: &Token = arena_alloc(arena, sizeof(Token)) as &Token;
+    const token: &Token = arena_alloc(arena, @sizeof(Token)) as &Token;
     if token == null {
         return null;
     }
@@ -540,6 +526,51 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
     if c == 58 {
         advance_char(lexer);
         return make_token(arena, TokenType.TOKEN_COLON, ":" as &byte, line, column);
+    }
+    if c == 64 {
+        advance_char(lexer);
+        const next_c: byte = peek_char(lexer, 0);
+        const next_cu: i32 = next_c as i32;
+        var next_is_alpha: i32 = 0;
+        if (next_cu >= 97 && next_cu <= 122) || (next_cu >= 65 && next_cu <= 90) {
+            next_is_alpha = 1;
+        }
+        if next_is_alpha != 0 || next_c == 95 {
+            const start_index: usize = lexer.position;
+            while lexer.position < lexer.buffer_size {
+                const cc: byte = peek_char(lexer, 0);
+                const ccu: i32 = cc as i32;
+                var cc_alpha: i32 = 0;
+                if (ccu >= 97 && ccu <= 122) || (ccu >= 65 && ccu <= 90) {
+                    cc_alpha = 1;
+                }
+                var cc_digit: i32 = 0;
+                if ccu >= 48 && ccu <= 57 {
+                    cc_digit = 1;
+                }
+                if cc_alpha != 0 || cc_digit != 0 || cc == 95 {
+                    advance_char(lexer);
+                } else {
+                    break;
+                }
+            }
+            const n: usize = lexer.position - start_index;
+            if n <= 0 || n > 256 {
+                return null;
+            }
+            const start_ptr: &byte = &lexer.buffer[start_index] as &byte;
+            const value: &byte = arena_copy_str(arena, start_ptr, n);
+            if value == null {
+                return null;
+            }
+            if str_equals_lexer(value, "sizeof" as &byte) != 0 || str_equals_lexer(value, "alignof" as &byte) != 0 ||
+                str_equals_lexer(value, "len" as &byte) != 0 || str_equals_lexer(value, "max" as &byte) != 0 ||
+                str_equals_lexer(value, "min" as &byte) != 0 {
+                return make_token(arena, TokenType.TOKEN_AT_IDENTIFIER, value, line, column);
+            }
+            return null;
+        }
+        return null;
     }
     if c == 34 {
         return read_string(lexer, arena);

@@ -104,11 +104,6 @@ static TokenType is_keyword(const char *str) {
     if (strcmp(str, "true") == 0) return TOKEN_TRUE;
     if (strcmp(str, "false") == 0) return TOKEN_FALSE;
     if (strcmp(str, "null") == 0) return TOKEN_NULL;
-    if (strcmp(str, "max") == 0) return TOKEN_MAX;
-    if (strcmp(str, "min") == 0) return TOKEN_MIN;
-    if (strcmp(str, "sizeof") == 0) return TOKEN_SIZEOF;
-    if (strcmp(str, "len") == 0) return TOKEN_LEN;
-    if (strcmp(str, "alignof") == 0) return TOKEN_ALIGNOF;
     if (strcmp(str, "as") == 0) return TOKEN_AS;
     return TOKEN_IDENTIFIER;  // 不是关键字，是标识符
 }
@@ -478,6 +473,39 @@ Token *lexer_next_token(Lexer *lexer, Arena *arena) {
         case ':':
             advance_char(lexer);
             return make_token(arena, TOKEN_COLON, ":", line, column);
+        case '@':
+            advance_char(lexer);
+            // @ 后必须是标识符（内置函数名）
+            if (isalpha((unsigned char)peek_char(lexer, 0)) || peek_char(lexer, 0) == '_') {
+                const char *start = lexer->buffer + lexer->position;
+                while (lexer->position < lexer->buffer_size) {
+                    char c = peek_char(lexer, 0);
+                    if (isalnum((unsigned char)c) || c == '_') {
+                        advance_char(lexer);
+                    } else {
+                        break;
+                    }
+                }
+                size_t len = (lexer->buffer + lexer->position) - start;
+                if (len <= 0 || len > 256) {
+                    fprintf(stderr, "错误: @ 后标识符长度无效 (%zu)\n", len);
+                    return NULL;
+                }
+                const char *value = arena_strdup(arena, start, len);
+                if (value == NULL) {
+                    fprintf(stderr, "错误: 无法为 @ 标识符分配内存\n");
+                    return NULL;
+                }
+                // 仅接受已知内置函数
+                if (strcmp(value, "sizeof") == 0 || strcmp(value, "alignof") == 0 ||
+                    strcmp(value, "len") == 0 || strcmp(value, "max") == 0 || strcmp(value, "min") == 0) {
+                    return make_token(arena, TOKEN_AT_IDENTIFIER, value, line, column);
+                }
+                fprintf(stderr, "错误: 未知内置函数 @%s，支持的内置函数：@sizeof、@alignof、@len、@max、@min\n", value);
+                return NULL;
+            }
+            fprintf(stderr, "错误: @ 后必须是标识符\n");
+            return NULL;
         case '"':
             // 字符串字面量
             return read_string(lexer, arena);

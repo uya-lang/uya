@@ -259,9 +259,9 @@ fn test_mixed_function() i32 {
 
 // 测试 9: sizeof 和 alignof 在混合类型中的使用
 fn test_mixed_sizeof_alignof() i32 {
-    const point_size: i32 = sizeof(Point);
-    const color_size: i32 = sizeof(Color);
-    const rect_size: i32 = sizeof(Rect);
+    const point_size: i32 = @sizeof(Point);
+    const color_size: i32 = @sizeof(Color);
+    const rect_size: i32 = @sizeof(Rect);
     
     // Point 应该包含 2 个 i32，大小为 8 字节
     if point_size != 8 {
@@ -279,8 +279,8 @@ fn test_mixed_sizeof_alignof() i32 {
         return 3;
     }
     
-    const point_align: i32 = alignof(Point);
-    const rect_align: i32 = alignof(Rect);
+    const point_align: i32 = @alignof(Point);
+    const rect_align: i32 = @alignof(Rect);
     
     // Point 对齐应该是 4（最大字段 i32 的对齐）
     if point_align != 4 {

@@ -587,10 +587,11 @@ add_expr       = mul_expr { ('+' | '-') mul_expr }
 mul_expr       = cast_expr { ('*' | '/' | '%') cast_expr }
 cast_expr      = unary_expr [ 'as' type ]
 unary_expr     = ('!' | '-' | '~' | '&' | '*') unary_expr | primary_expr
-primary_expr   = ID | NUM | FLOAT | 'true' | 'false' | 'null' | STRING | struct_literal | array_literal | member_access | array_access | call_expr | sizeof_expr | alignof_expr | len_expr | '(' expr ')'
-sizeof_expr    = 'sizeof' '(' (type | expr) ')'
-alignof_expr   = 'alignof' '(' (type | expr) ')'
-len_expr       = 'len' '(' expr ')'
+primary_expr   = ID | NUM | FLOAT | 'true' | 'false' | 'null' | STRING | struct_literal | array_literal | member_access | array_access | call_expr | sizeof_expr | alignof_expr | len_expr | int_limit_expr | '(' expr ')'
+sizeof_expr    = '@sizeof' '(' (type | expr) ')'
+alignof_expr   = '@alignof' '(' (type | expr) ')'
+len_expr       = '@len' '(' expr ')'
+int_limit_expr = '@max' | '@min'
 struct_literal = ID '{' field_init_list '}'
 array_literal  = '[' expr_list ']'
 expr_list      = [ expr { ',' expr } ]
@@ -618,7 +619,7 @@ arg_list       = expr { ',' expr }
     - 仅当变量类型已明确指定时可以使用（如 `var arr: [i32: 100] = [];`）
     - 表示未初始化，数组内容未定义
     - 类型和大小从变量声明中获取，不能独立使用空数组字面量进行类型推断
-    - 示例：`var arr: [i32: 100] = [];`（未初始化数组，`len(arr)` 返回 100）
+    - 示例：`var arr: [i32: 100] = [];`（未初始化数组，`@len(arr)` 返回 100）
 
 - **字段访问**：`expr.field_name`
   - 左侧表达式必须是结构体类型或指向结构体的指针类型（`&StructName`）
@@ -1050,7 +1051,7 @@ for arr |item| {
    - 枚举赋值：按值复制（复制枚举值）
    - 枚举值访问：`EnumName.VariantName`，返回枚举类型
    - 枚举底层类型：`i32`（大小为 4 字节）
-   - 枚举 sizeof：`sizeof(EnumName)` 和 `sizeof(enum_var)` 都返回 `i32` 类型，值为 4
+   - 枚举 sizeof：`@sizeof(EnumName)` 和 `@sizeof(enum_var)` 都返回 `i32` 类型，值为 4
 
 8. **结构体类型规则**：
    - 结构体比较：仅支持 `==` 和 `!=`，逐字段比较

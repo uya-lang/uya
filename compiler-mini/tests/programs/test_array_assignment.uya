@@ -9,7 +9,7 @@ struct Point {
 fn process_array(arr: [i32: 3]) i32 {
     var sum: i32 = 0;
     var i: i32 = 0;
-    while i < len(arr) {
+    while i < @len(arr) {
         sum = sum + arr[i];
         i = i + 1;
     }

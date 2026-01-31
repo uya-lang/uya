@@ -160,7 +160,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     if arena == null {
         return null;
     }
-    const node: &ASTNode = arena_alloc(arena, sizeof(ASTNode)) as &ASTNode;
+    const node: &ASTNode = arena_alloc(arena, @sizeof(ASTNode)) as &ASTNode;
     if node == null {
         return null;
     }
@@ -272,7 +272,7 @@ fn ast_merge_programs(programs: [&ASTNode: MAX_MERGE_PROGRAMS], count: i32, aren
         merged.program_decl_count = 0;
         return merged;
     }
-    const decls: & & ASTNode = arena_alloc(arena, sizeof(&ASTNode) * total_decl_count as usize) as & & ASTNode;
+    const decls: & & ASTNode = arena_alloc(arena, @sizeof(&ASTNode) * total_decl_count as usize) as & & ASTNode;
     if decls == null {
         return null;
     }
