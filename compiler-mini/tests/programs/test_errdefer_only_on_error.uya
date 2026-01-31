@@ -1,0 +1,14 @@
+// errdefer 仅在错误返回时执行；正常返回只执行 defer（语义验证：编译与运行不崩溃）
+error E;
+fn f(flag: i32) !i32 {
+    var x: i32 = 0;
+    errdefer { x = 99; }
+    defer { x = x + 1; }
+    if (flag != 0) { return error.E; }
+    return 42;
+}
+fn main() i32 {
+    _ = f(0) catch { 0; };
+    _ = f(1) catch { 0; };
+    return 0;
+}

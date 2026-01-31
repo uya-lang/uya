@@ -1,0 +1,19 @@
+error DivisionByZero;
+error NotFound;
+fn div(a: i32, b: i32) !i32 {
+    if (b == 0) {
+        return error.DivisionByZero;
+    }
+    return a / b;
+}
+fn main() !i32 {
+    const x: i32 = try div(10, 2);
+    const y: i32 = div(10, 0) catch { 0; };
+    const z: i32 = div(8, 4) catch |e| {
+        if (e == error.DivisionByZero) {
+            return 1;
+        }
+        0;
+    };
+    return x;
+}

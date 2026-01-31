@@ -1,0 +1,15 @@
+// errdefer 绑定到当前作用域；嵌套块内 errdefer 仅在该块错误退出时执行
+error E;
+fn f() !i32 {
+    var outer: i32 = 0;
+    errdefer { outer = 1; }
+    {
+        var inner: i32 = 0;
+        errdefer { inner = 1; }
+        return error.E;     // 错误退出内层：先 errdefer(inner=1)，再 errdefer(outer=1)，再 defer
+    }
+}
+fn main() i32 {
+    const r: i32 = f() catch { 0; };  // 捕获后 r=0
+    return 0;  // 仅验证嵌套 errdefer 编译与运行
+}

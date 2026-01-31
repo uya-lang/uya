@@ -1,0 +1,9 @@
+// defer 在 break 前执行（作用域退出）
+fn main() i32 {
+    var x: i32 = 0;
+    while (true) {
+        defer { x = 1; }
+        break;             // 先执行 defer(x=1)，再 break
+    }
+    return 1 - x;          // x=1 则返回 0
+}

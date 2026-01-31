@@ -45,6 +45,11 @@ typedef enum {
     TOKEN_TRUE,         // true
     TOKEN_FALSE,        // false
     TOKEN_NULL,         // null（空指针字面量）
+    TOKEN_TRY,          // try（错误传播/溢出检查）
+    TOKEN_CATCH,        // catch（错误捕获）
+    TOKEN_ERROR,        // error（错误声明/错误类型前缀）
+    TOKEN_DEFER,        // defer（作用域结束执行）
+    TOKEN_ERRDEFER,     // errdefer（仅错误返回时执行）
     TOKEN_AT_IDENTIFIER,// @ 后跟内置函数标识符（@sizeof、@alignof、@len、@max、@min）
     TOKEN_AS,           // as（类型转换关键字）
     

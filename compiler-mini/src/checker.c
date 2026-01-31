@@ -46,6 +46,8 @@ static void resolve_int_limit_node(ASTNode *node, Type type) {
 
 static int is_enum_variant_name_in_program(ASTNode *program_node, const char *name);
 static void checker_report_error(TypeChecker *checker, ASTNode *node, const char *message);
+/* 获取或注册错误名称，返回 1-based error_id，0 表示失败（表满） */
+static uint32_t get_or_add_error_id(TypeChecker *checker, const char *name);
 static Type find_struct_field_type(TypeChecker *checker, ASTNode *struct_decl, const char *field_name);
 static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node);
 /* 评估编译时常量表达式，返回整数值；-1 表示无法评估或非常量 */
@@ -79,6 +81,10 @@ int checker_init(TypeChecker *checker, Arena *arena, const char *default_filenam
     checker->current_return_type.kind = TYPE_VOID;
     checker->in_function = 0;
     checker->current_function_decl = NULL;
+    checker->error_name_count = 0;
+    for (int i = 0; i < 128; i++) {
+        checker->error_names[i] = NULL;
+    }
     
     return 0;
 }
@@ -412,6 +418,20 @@ static int type_equals(Type t1, Type t2) {
         return 1;
     }
     
+    // 错误联合类型 !T：比较载荷类型
+    if (t1.kind == TYPE_ERROR_UNION) {
+        if (t2.kind != TYPE_ERROR_UNION) return 0;
+        if (t1.data.error_union.payload_type == NULL || t2.data.error_union.payload_type == NULL) {
+            return t1.data.error_union.payload_type == t2.data.error_union.payload_type;
+        }
+        return type_equals(*t1.data.error_union.payload_type, *t2.data.error_union.payload_type);
+    }
+    
+    // 错误值类型：比较 error_id
+    if (t1.kind == TYPE_ERROR) {
+        return t2.kind == TYPE_ERROR && t1.data.error.error_id == t2.data.error.error_id;
+    }
+    
     // 对于其他类型（i32, bool, void），种类相同即相等
     return 1;
 }
@@ -545,6 +565,27 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
         result.kind = TYPE_TUPLE;
         result.data.tuple.element_types = element_types;
         result.data.tuple.count = n;
+        return result;
+    } else if (type_node->type == AST_TYPE_ERROR_UNION) {
+        // 错误联合类型 !T
+        ASTNode *payload_node = type_node->data.type_error_union.payload_type;
+        if (payload_node == NULL) {
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        Type payload = type_from_ast(checker, payload_node);
+        if (payload.kind == TYPE_VOID && payload_node != NULL) {
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        Type *payload_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
+        if (payload_ptr == NULL) {
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        *payload_ptr = payload;
+        result.kind = TYPE_ERROR_UNION;
+        result.data.error_union.payload_type = payload_ptr;
         return result;
     } else if (type_node->type == AST_TYPE_NAMED) {
         // 命名类型（i32, bool, byte, void, 或结构体名称）
@@ -770,6 +811,87 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             checker_report_error(checker, expr, "不能引用 _");
             result.kind = TYPE_VOID;
             return result;
+        }
+        
+        case AST_ERROR_VALUE: {
+            const char *name = expr->data.error_value.name;
+            if (name == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            uint32_t id = get_or_add_error_id(checker, name);
+            if (id == 0) {
+                checker_report_error(checker, expr, "错误集已满");
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            result.kind = TYPE_ERROR;
+            result.data.error.error_id = id;
+            return result;
+        }
+        
+        case AST_TRY_EXPR: {
+            Type operand_type = checker_infer_type(checker, expr->data.try_expr.operand);
+            if (operand_type.kind != TYPE_ERROR_UNION) {
+                checker_report_error(checker, expr->data.try_expr.operand, "try 的操作数必须是错误联合类型 !T");
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            if (!checker->in_function || checker->current_return_type.kind != TYPE_ERROR_UNION) {
+                checker_report_error(checker, expr, "try 只能在返回错误联合类型的函数中使用");
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            if (operand_type.data.error_union.payload_type == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            return *operand_type.data.error_union.payload_type;
+        }
+        
+        case AST_CATCH_EXPR: {
+            Type operand_type = checker_infer_type(checker, expr->data.catch_expr.operand);
+            if (operand_type.kind != TYPE_ERROR_UNION) {
+                checker_report_error(checker, expr->data.catch_expr.operand, "catch 的操作数必须是错误联合类型 !T");
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            if (operand_type.data.error_union.payload_type == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            Type payload = *operand_type.data.error_union.payload_type;
+            if (expr->data.catch_expr.err_name != NULL) {
+                Type err_type;
+                err_type.kind = TYPE_ERROR;
+                err_type.data.error.error_id = 0;
+                checker_enter_scope(checker);
+                Symbol *sym = (Symbol *)arena_alloc(checker->arena, sizeof(Symbol));
+                if (sym != NULL) {
+                    sym->name = expr->data.catch_expr.err_name;
+                    sym->type = err_type;
+                    sym->is_const = 1;
+                    sym->scope_level = checker->scope_level;
+                    sym->line = expr->line;
+                    sym->column = expr->column;
+                    symbol_table_insert(checker, sym);
+                }
+                checker_check_node(checker, expr->data.catch_expr.catch_block);
+                checker_exit_scope(checker);
+            } else {
+                checker_check_node(checker, expr->data.catch_expr.catch_block);
+            }
+            ASTNode *block = expr->data.catch_expr.catch_block;
+            if (block != NULL && block->type == AST_BLOCK && block->data.block.stmt_count > 0) {
+                ASTNode *last = block->data.block.stmts[block->data.block.stmt_count - 1];
+                if (last != NULL && last->type != AST_RETURN_STMT) {
+                    Type last_type = checker_infer_type(checker, last);
+                    if (!type_equals(last_type, payload)) {
+                        checker_report_error(checker, last, "catch 块最后表达式类型必须与成功值类型一致");
+                    }
+                }
+            }
+            return payload;
         }
             
         case AST_IDENTIFIER: {
@@ -1257,6 +1379,30 @@ static void checker_report_error(TypeChecker *checker, ASTNode *node, const char
                     message ? message : "类型检查错误");
         }
     }
+}
+
+static const char *checker_arena_strdup(Arena *arena, const char *src) {
+    if (arena == NULL || src == NULL) return NULL;
+    size_t len = strlen(src) + 1;
+    char *p = (char *)arena_alloc(arena, len);
+    if (p == NULL) return NULL;
+    memcpy(p, src, len);
+    return p;
+}
+
+static uint32_t get_or_add_error_id(TypeChecker *checker, const char *name) {
+    if (checker == NULL || name == NULL) return 0;
+    for (int i = 0; i < checker->error_name_count; i++) {
+        if (checker->error_names[i] != NULL && strcmp(checker->error_names[i], name) == 0) {
+            return (uint32_t)(i + 1);
+        }
+    }
+    if (checker->error_name_count >= 128) return 0;
+    const char *copy = checker_arena_strdup(checker->arena, name);
+    if (copy == NULL) return 0;
+    checker->error_names[checker->error_name_count] = copy;
+    checker->error_name_count++;
+    return (uint32_t)checker->error_name_count;
 }
 
 // 检查表达式类型是否匹配预期类型
@@ -2193,6 +2339,10 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
             result.kind = TYPE_BOOL;
             return result;
         }
+        if (left_type.kind == TYPE_ERROR && right_type.kind == TYPE_ERROR) {
+            result.kind = TYPE_BOOL;
+            return result;
+        }
         if (left_type.kind == TYPE_VOID || right_type.kind == TYPE_VOID) {
             result.kind = TYPE_BOOL;
             return result;
@@ -2476,6 +2626,16 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             }
             // 枚举声明检查（暂时只检查基本结构，后续可以扩展）
             return 1;
+        
+        case AST_ERROR_DECL:
+            if (checker->scope_level > 0) {
+                checker_report_error(checker, node, "错误声明只能在顶层定义");
+                return 0;
+            }
+            if (node->data.error_decl.name != NULL) {
+                get_or_add_error_id(checker, node->data.error_decl.name);
+            }
+            return 1;
             
         case AST_FN_DECL:
             return checker_check_fn_decl(checker, node);
@@ -2703,6 +2863,24 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             return 1;
         }
         
+        case AST_DEFER_STMT: {
+            if (node->data.defer_stmt.body != NULL) {
+                return checker_check_node(checker, node->data.defer_stmt.body);
+            }
+            return 1;
+        }
+        
+        case AST_ERRDEFER_STMT: {
+            if (!checker->in_function || checker->current_return_type.kind != TYPE_ERROR_UNION) {
+                checker_report_error(checker, node, "errdefer 只能在返回错误联合类型 !T 的函数中使用");
+                return 0;
+            }
+            if (node->data.errdefer_stmt.body != NULL) {
+                return checker_check_node(checker, node->data.errdefer_stmt.body);
+            }
+            return 1;
+        }
+        
         case AST_RETURN_STMT: {
             // 检查返回值类型是否匹配函数返回类型
             if (!checker->in_function) {
@@ -2714,6 +2892,15 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             if (node->data.return_stmt.expr != NULL) {
                 // 有返回值的 return 语句
                 Type expr_type = checker_infer_type(checker, node->data.return_stmt.expr);
+                
+                // 特殊处理：return error.X 仅当函数返回 !T 时合法
+                if (expr_type.kind == TYPE_ERROR) {
+                    if (checker->current_return_type.kind != TYPE_ERROR_UNION) {
+                        checker_report_error(checker, node, "返回错误值只能在返回错误联合类型 !T 的函数中使用");
+                        return 0;
+                    }
+                    return 1;
+                }
                 
                 // 特殊处理：检查是否是 null 字面量（AST_IDENTIFIER 且名称为 "null"）
                 // null 字面量可以赋值给任何指针类型
@@ -2728,6 +2915,11 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                 // 如果表达式是 null 字面量且期望类型是指针类型，允许通过
                 if (is_null_literal && checker->current_return_type.kind == TYPE_POINTER) {
                     // null 可以赋值给任何指针类型，允许通过
+                } else if (checker->current_return_type.kind == TYPE_ERROR_UNION &&
+                    checker->current_return_type.data.error_union.payload_type != NULL &&
+                    type_equals(expr_type, *checker->current_return_type.data.error_union.payload_type)) {
+                    // 返回成功值：表达式类型与 !T 的载荷 T 一致
+                    return 1;
                 } else if (!type_equals(expr_type, checker->current_return_type) && 
                     !type_can_implicitly_convert(expr_type, checker->current_return_type)) {
                     // 类型不匹配且不能隐式转换，报告错误
@@ -2788,6 +2980,8 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                         if (checker->current_return_type.data.struct_name != NULL) {
                             expected_type_str = checker->current_return_type.data.struct_name;
                         }
+                    } else if (checker->current_return_type.kind == TYPE_ERROR_UNION) {
+                        expected_type_str = "!T";
                     }
                     
                     // 获取实际的返回类型字符串
@@ -3001,6 +3195,21 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             
         case AST_PARAMS:
             // @params 类型在 checker_infer_type 中已推断并校验（仅函数体内）
+            return 1;
+        case AST_TRY_EXPR:
+            if (node->data.try_expr.operand != NULL) {
+                checker_check_node(checker, node->data.try_expr.operand);
+            }
+            return 1;
+        case AST_CATCH_EXPR:
+            if (node->data.catch_expr.operand != NULL) {
+                checker_check_node(checker, node->data.catch_expr.operand);
+            }
+            if (node->data.catch_expr.catch_block != NULL) {
+                checker_check_node(checker, node->data.catch_expr.catch_block);
+            }
+            return 1;
+        case AST_ERROR_VALUE:
             return 1;
         case AST_IDENTIFIER:
         case AST_NUMBER:

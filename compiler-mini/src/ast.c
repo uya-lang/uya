@@ -38,6 +38,9 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.enum_decl.variants = NULL;
             node->data.enum_decl.variant_count = 0;
             break;
+        case AST_ERROR_DECL:
+            node->data.error_decl.name = NULL;
+            break;
         case AST_STRUCT_DECL:
             node->data.struct_decl.name = NULL;
             node->data.struct_decl.fields = NULL;
@@ -71,6 +74,17 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_UNARY_EXPR:
             node->data.unary_expr.op = 0;
             node->data.unary_expr.operand = NULL;
+            break;
+        case AST_TRY_EXPR:
+            node->data.try_expr.operand = NULL;
+            break;
+        case AST_CATCH_EXPR:
+            node->data.catch_expr.operand = NULL;
+            node->data.catch_expr.err_name = NULL;
+            node->data.catch_expr.catch_block = NULL;
+            break;
+        case AST_ERROR_VALUE:
+            node->data.error_value.name = NULL;
             break;
         case AST_CALL_EXPR:
             node->data.call_expr.callee = NULL;
@@ -161,6 +175,12 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_RETURN_STMT:
             node->data.return_stmt.expr = NULL;
             break;
+        case AST_DEFER_STMT:
+            node->data.defer_stmt.body = NULL;
+            break;
+        case AST_ERRDEFER_STMT:
+            node->data.errdefer_stmt.body = NULL;
+            break;
         case AST_BREAK_STMT:
             // break 语句不需要数据字段
             break;
@@ -195,6 +215,9 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_TYPE_TUPLE:
             node->data.type_tuple.element_types = NULL;
             node->data.type_tuple.element_count = 0;
+            break;
+        case AST_TYPE_ERROR_UNION:
+            node->data.type_error_union.payload_type = NULL;
             break;
     }
     

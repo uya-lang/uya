@@ -1,0 +1,12 @@
+// defer 绑定到当前作用域；嵌套块内层 defer 先于外层执行
+fn main() i32 {
+    var a: i32 = 0;
+    var b: i32 = 0;
+    defer { a = 1; }       // 外层：最后执行
+    {
+        defer { b = 1; }   // 内层：先执行（离开内层块时）
+        a = 10;
+    }                     // 离开内层：执行 b=1
+    if (b != 1) { return 1; }
+    return 1 - a;         // 离开 main：执行 a=1，返回 0
+}

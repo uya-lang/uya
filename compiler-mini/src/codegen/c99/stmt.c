@@ -3,6 +3,24 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
+/* 在 return/break/continue/块结束前执行当前层的 defer（及可选的 errdefer）。LIFO 顺序。 */
+static void emit_defer_cleanup(C99CodeGenerator *codegen, int emit_errdefer) {
+    if (codegen->defer_stack_depth <= 0) return;
+    int d = codegen->defer_stack_depth - 1;
+    if (emit_errdefer) {
+        for (int i = codegen->errdefer_count[d] - 1; i >= 0; i--) {
+            ASTNode *n = codegen->errdefer_stack[d][i];
+            if (n && n->type == AST_ERRDEFER_STMT && n->data.errdefer_stmt.body)
+                gen_stmt(codegen, n->data.errdefer_stmt.body);
+        }
+    }
+    for (int i = codegen->defer_count[d] - 1; i >= 0; i--) {
+        ASTNode *n = codegen->defer_stack[d][i];
+        if (n && n->type == AST_DEFER_STMT && n->data.defer_stmt.body)
+            gen_stmt(codegen, n->data.defer_stmt.body);
+    }
+}
+
 void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
     if (!stmt) return;
     
@@ -76,10 +94,29 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
         }
         case AST_RETURN_STMT: {
             ASTNode *expr = stmt->data.return_stmt.expr;
+            ASTNode *return_type = codegen->current_function_return_type;
+            int is_error_return = (expr && expr->type == AST_ERROR_VALUE);
+            emit_defer_cleanup(codegen, is_error_return);
+            
+            // return error.X：生成错误联合复合字面量
+            if (expr && expr->type == AST_ERROR_VALUE && return_type && return_type->type == AST_TYPE_ERROR_UNION) {
+                unsigned id = expr->data.error_value.name ? get_or_add_error_id(codegen, expr->data.error_value.name) : 0;
+                if (id == 0) { id = 1; }
+                const char *ret_c = c99_type_to_c(codegen, return_type);
+                int is_void = (return_type->data.type_error_union.payload_type &&
+                    return_type->data.type_error_union.payload_type->type == AST_TYPE_NAMED &&
+                    return_type->data.type_error_union.payload_type->data.type_named.name &&
+                    strcmp(return_type->data.type_error_union.payload_type->data.type_named.name, "void") == 0);
+                if (is_void) {
+                    c99_emit(codegen, "return (%s){ .error_id = %uU };\n", ret_c, id);
+                } else {
+                    c99_emit(codegen, "return (%s){ .error_id = %uU, .value = 0 };\n", ret_c, id);
+                }
+                break;
+            }
             
             // 检查函数返回类型是否为数组
             int is_array_return = 0;
-            ASTNode *return_type = codegen->current_function_return_type;
             if (return_type && return_type->type == AST_TYPE_ARRAY) {
                 is_array_return = 1;
             }
@@ -137,7 +174,20 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                     }
                 }
                 
-                if (is_void && !expr) {
+                // 返回类型为 !T 且返回成功值：return (struct X){ .error_id = 0, .value = expr };
+                if (return_type && return_type->type == AST_TYPE_ERROR_UNION && expr && expr->type != AST_ERROR_VALUE) {
+                    const char *ret_c = c99_type_to_c(codegen, return_type);
+                    ASTNode *payload_node = return_type->data.type_error_union.payload_type;
+                    int payload_void = (!payload_node || (payload_node->type == AST_TYPE_NAMED &&
+                        payload_node->data.type_named.name && strcmp(payload_node->data.type_named.name, "void") == 0));
+                    if (payload_void) {
+                        c99_emit(codegen, "return (%s){ .error_id = 0 };\n", ret_c);
+                    } else {
+                        c99_emit(codegen, "return (%s){ .error_id = 0, .value = ", ret_c);
+                        gen_expr(codegen, expr);
+                        fputs(" };\n", codegen->output);
+                    }
+                } else if (is_void && !expr) {
                     // void 函数且无返回值：生成 return;
                     c99_emit(codegen, "return;\n");
                 } else {
@@ -156,11 +206,32 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
         case AST_BLOCK: {
             ASTNode **stmts = stmt->data.block.stmts;
             int stmt_count = stmt->data.block.stmt_count;
-            for (int i = 0; i < stmt_count; i++) {
-                gen_stmt(codegen, stmts[i]);
+            int d = codegen->defer_stack_depth;
+            if (d >= C99_MAX_DEFER_STACK) {
+                for (int i = 0; i < stmt_count; i++) gen_stmt(codegen, stmts[i]);
+                break;
             }
+            int nd = 0, ne = 0;
+            for (int i = 0; i < stmt_count && nd < C99_MAX_DEFERS_PER_BLOCK && ne < C99_MAX_DEFERS_PER_BLOCK; i++) {
+                if (stmts[i]->type == AST_DEFER_STMT)
+                    codegen->defer_stack[d][nd++] = stmts[i];
+                else if (stmts[i]->type == AST_ERRDEFER_STMT)
+                    codegen->errdefer_stack[d][ne++] = stmts[i];
+            }
+            codegen->defer_count[d] = nd;
+            codegen->errdefer_count[d] = ne;
+            codegen->defer_stack_depth++;
+            for (int i = 0; i < stmt_count; i++) {
+                if (stmts[i]->type != AST_DEFER_STMT && stmts[i]->type != AST_ERRDEFER_STMT)
+                    gen_stmt(codegen, stmts[i]);
+            }
+            emit_defer_cleanup(codegen, 0);
+            codegen->defer_stack_depth--;
             break;
         }
+        case AST_DEFER_STMT:
+        case AST_ERRDEFER_STMT:
+            break;
         case AST_DESTRUCTURE_DECL: {
             /* const (x, y) = init; -> const T0 x = init.f0; const T1 y = init.f1; */
             ASTNode *init = stmt->data.destructure_decl.init;
@@ -683,9 +754,11 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             break;
         }
         case AST_BREAK_STMT:
+            emit_defer_cleanup(codegen, 0);
             c99_emit(codegen, "break;\n");
             break;
         case AST_CONTINUE_STMT:
+            emit_defer_cleanup(codegen, 0);
             c99_emit(codegen, "continue;\n");
             break;
         default:

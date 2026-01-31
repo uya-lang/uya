@@ -1,0 +1,15 @@
+// 测试 errdefer：仅错误返回时 LIFO 执行
+error E;
+fn f() !i32 {
+    var x: i32 = 0;
+    errdefer { x = 2; }
+    defer { x = x + 1; }
+    return error.E;  // 错误返回：先 errdefer (x=2)，再 defer (x=2+1=3)
+}
+fn main() i32 {
+    const r: i32 = f() catch { 0; };  // 捕获后 r=0
+    var y: i32 = 0;
+    defer { y = 1; }  // main 返回 i32，不能用 errdefer；仅测 defer
+    if (r != 0) { return 1; }
+    return 1 - y;  // 正常返回：执行 defer (y=1)，返回 0
+}

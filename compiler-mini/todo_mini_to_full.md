@@ -10,8 +10,8 @@
 |------|------|------|
 | 0 | 规范同步：内置函数以 @ 开头 | [x] |
 | 1 | 基础类型与字面量 | [x] |
-| 2 | 错误处理 | [ ] |
-| 3 | defer / errdefer | [ ] |
+| 2 | 错误处理 | [x] |
+| 3 | defer / errdefer | [x] |
 | 4 | 切片 | [ ] |
 | 5 | match 表达式 | [ ] |
 | 6 | for 扩展 | [ ] |
@@ -71,10 +71,10 @@
 
 ## 2. 错误处理
 
-- [ ] **错误类型与 !T**：预定义 `error Name;`、运行时 `error.Name`、`!T` 类型与内存布局，规范 uya.md §2 错误类型、§5
-- [ ] **try 关键字**：`try expr` 传播错误、算术溢出检查（返回 error.Overflow），规范 uya.md §5、§10、§16
-- [ ] **catch 语法**：`expr catch |err| { }`、`expr catch { }`，两种返回方式，规范 uya.md §5
-- [ ] **main 签名**：支持 `fn main() !i32`，错误→退出码，规范 uya.md §5.1.1
+- [x] **错误类型与 !T**：预定义 `error Name;`、运行时 `error.Name`、`!T` 类型与内存布局，规范 uya.md §2 错误类型、§5
+- [x] **try 关键字**：`try expr` 传播错误、算术溢出检查（返回 error.Overflow），规范 uya.md §5、§10、§16
+- [x] **catch 语法**：`expr catch |err| { }`、`expr catch { }`，两种返回方式，规范 uya.md §5
+- [x] **main 签名**：支持 `fn main() !i32`，错误→退出码，规范 uya.md §5.1.1
 
 **涉及**：Lexer（try、catch、error）、AST（!T、try/catch 节点）、Parser、Checker、Codegen、uya-src。
 
@@ -82,10 +82,12 @@
 
 ## 3. defer / errdefer
 
-- [ ] **defer**：作用域结束 LIFO 执行（正常+错误返回），规范 uya.md §9
-- [ ] **errdefer**：仅错误返回时 LIFO 执行，用于资源清理，规范 uya.md §9
+- [x] **defer**：作用域结束 LIFO 执行（正常+错误返回），规范 uya.md §9
+- [x] **errdefer**：仅错误返回时 LIFO 执行，用于资源清理，规范 uya.md §9
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen（作用域退出点插入），uya-src。
+
+**C 实现与用例（作用域 100% 覆盖）**：Lexer（TOKEN_DEFER/TOKEN_ERRDEFER）、AST（AST_DEFER_STMT/AST_ERRDEFER_STMT）、Parser（defer/errdefer 后单句或块）、Checker（errdefer 仅允许在 !T 函数内）、Codegen（块内收集 defer/errdefer 栈，return/break/continue/块尾 LIFO 插入）。用例：test_defer（return 前）、test_defer_lifo（同作用域 LIFO）、test_defer_scope（嵌套块内层先于外层）、test_defer_break、test_defer_continue（break/continue 前执行）、test_defer_single_stmt（单句语法）、test_errdefer、test_errdefer_lifo、test_errdefer_scope（嵌套 errdefer）、test_errdefer_only_on_error；均通过 `--c99`。uya-src 待同步。
 
 ---
 

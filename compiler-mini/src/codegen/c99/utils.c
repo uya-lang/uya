@@ -34,8 +34,13 @@ int c99_codegen_new(C99CodeGenerator *codegen, Arena *arena, FILE *output, const
     codegen->string_interp_buf = NULL;
     codegen->interp_temp_counter = 0;
     codegen->interp_fill_counter = 0;
+    codegen->error_count = 0;
+    codegen->defer_stack_depth = 0;
     for (int i = 0; i < C99_MAX_CALL_ARGS; i++) {
         codegen->interp_arg_temp_names[i] = NULL;
+    }
+    for (int i = 0; i < 128; i++) {
+        codegen->error_names[i] = NULL;
     }
     
     return 0;
@@ -119,6 +124,22 @@ const char *arena_strdup(Arena *arena, const char *src) {
     if (!dst) return NULL;
     memcpy(dst, src, len);
     return dst;
+}
+
+// 获取或注册错误名称，返回 1-based error_id，0 表示失败
+unsigned get_or_add_error_id(C99CodeGenerator *codegen, const char *name) {
+    if (!codegen || !name) return 0;
+    for (int i = 0; i < codegen->error_count; i++) {
+        if (codegen->error_names[i] && strcmp(codegen->error_names[i], name) == 0) {
+            return (unsigned)(i + 1);
+        }
+    }
+    if (codegen->error_count >= 128) return 0;
+    const char *copy = arena_strdup(codegen->arena, name);
+    if (!copy) return 0;
+    codegen->error_names[codegen->error_count] = copy;
+    codegen->error_count++;
+    return (unsigned)codegen->error_count;
 }
 
 // C99 关键字列表
@@ -465,6 +486,14 @@ void collect_string_constants_from_stmt(C99CodeGenerator *codegen, ASTNode *stmt
         case AST_BREAK_STMT:
         case AST_CONTINUE_STMT:
             // 不包含表达式
+            break;
+        case AST_DEFER_STMT:
+            if (stmt->data.defer_stmt.body)
+                collect_string_constants_from_stmt(codegen, stmt->data.defer_stmt.body);
+            break;
+        case AST_ERRDEFER_STMT:
+            if (stmt->data.errdefer_stmt.body)
+                collect_string_constants_from_stmt(codegen, stmt->data.errdefer_stmt.body);
             break;
         default:
             // 可能是表达式节点（如 AST_BINARY_EXPR 等）

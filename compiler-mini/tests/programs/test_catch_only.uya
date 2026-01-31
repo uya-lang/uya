@@ -1,0 +1,5 @@
+error E;
+fn f() !i32 { return error.E; }
+fn main() i32 {
+    return f() catch { 0; };
+}

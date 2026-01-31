@@ -1,0 +1,6 @@
+// defer 单条语句（非块）语法
+fn main() i32 {
+    var x: i32 = 0;
+    defer x = 1;
+    return 1 - x;
+}

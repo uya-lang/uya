@@ -1,0 +1,8 @@
+error X;
+fn f() !i32 {
+    return error.X;
+}
+fn main() !i32 {
+    const v: i32 = try f();
+    return v;
+}

@@ -7,6 +7,7 @@
 
 // 工具函数（utils.c）
 const char *arena_strdup(Arena *arena, const char *src);
+unsigned get_or_add_error_id(C99CodeGenerator *codegen, const char *name);
 int is_c_keyword(const char *name);
 const char *get_safe_c_identifier(C99CodeGenerator *codegen, const char *name);
 void escape_string_for_c(FILE *output, const char *str);

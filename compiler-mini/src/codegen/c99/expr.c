@@ -135,6 +135,30 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             ASTNode *right = expr->data.binary_expr.right;
             int op = expr->data.binary_expr.op;
             
+            // 错误类型比较：err == error.X 或 error.X == err -> .error_id 比较
+            if ((op == TOKEN_EQUAL || op == TOKEN_NOT_EQUAL) && left && right) {
+                if (left->type == AST_IDENTIFIER && right->type == AST_ERROR_VALUE) {
+                    unsigned id = right->data.error_value.name ? get_or_add_error_id(codegen, right->data.error_value.name) : 0;
+                    if (id == 0) id = 1;
+                    const char *safe = get_safe_c_identifier(codegen, left->data.identifier.name);
+                    if (op == TOKEN_NOT_EQUAL)
+                        fprintf(codegen->output, "(%s.error_id != %uU)", safe, id);
+                    else
+                        fprintf(codegen->output, "(%s.error_id == %uU)", safe, id);
+                    break;
+                }
+                if (left->type == AST_ERROR_VALUE && right->type == AST_IDENTIFIER) {
+                    unsigned id = left->data.error_value.name ? get_or_add_error_id(codegen, left->data.error_value.name) : 0;
+                    if (id == 0) id = 1;
+                    const char *safe = get_safe_c_identifier(codegen, right->data.identifier.name);
+                    if (op == TOKEN_NOT_EQUAL)
+                        fprintf(codegen->output, "(%uU != %s.error_id)", id, safe);
+                    else
+                        fprintf(codegen->output, "(%uU == %s.error_id)", id, safe);
+                    break;
+                }
+            }
+            
             // 检查是否是结构体比较（== 或 !=）
             int is_struct_comparison = 0;
             if ((op == TOKEN_EQUAL || op == TOKEN_NOT_EQUAL) &&
@@ -848,6 +872,65 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 const char *safe_name = get_safe_c_identifier(codegen, name);
                 fprintf(codegen->output, "%s", safe_name);
             }
+            break;
+        }
+        case AST_ERROR_VALUE: {
+            unsigned id = expr->data.error_value.name ? get_or_add_error_id(codegen, expr->data.error_value.name) : 0;
+            if (id == 0) id = 1;
+            fprintf(codegen->output, "%uU", id);
+            break;
+        }
+        case AST_TRY_EXPR: {
+            ASTNode *operand = expr->data.try_expr.operand;
+            ASTNode *ret_type = codegen->current_function_return_type;
+            if (!operand || !ret_type || ret_type->type != AST_TYPE_ERROR_UNION) {
+                fputs("0", codegen->output);
+                break;
+            }
+            const char *union_c = c99_type_to_c(codegen, ret_type);
+            fprintf(codegen->output, "({ %s _uya_try_tmp = ", union_c);
+            gen_expr(codegen, operand);
+            fprintf(codegen->output, "; if (_uya_try_tmp.error_id != 0) return _uya_try_tmp; _uya_try_tmp.value; })");
+            break;
+        }
+        case AST_CATCH_EXPR: {
+            ASTNode *operand = expr->data.catch_expr.operand;
+            ASTNode *block = expr->data.catch_expr.catch_block;
+            const char *err_name = expr->data.catch_expr.err_name;
+            ASTNode *ret_type = codegen->current_function_return_type;
+            if (!operand || !block || !ret_type || ret_type->type != AST_TYPE_ERROR_UNION) {
+                fputs("0", codegen->output);
+                break;
+            }
+            ASTNode *payload_node = ret_type->data.type_error_union.payload_type;
+            const char *union_c = c99_type_to_c(codegen, ret_type);
+            const char *payload_c = payload_node ? c99_type_to_c(codegen, payload_node) : "void";
+            int n = block->data.block.stmt_count;
+            ASTNode *last_stmt = (n > 0) ? block->data.block.stmts[n - 1] : NULL;
+            fprintf(codegen->output, "({ %s _uya_catch_result; %s _uya_catch_tmp = ", payload_c, union_c);
+            gen_expr(codegen, operand);
+            fputs("; if (_uya_catch_tmp.error_id != 0) {\n", codegen->output);
+            codegen->indent_level++;
+            if (err_name) {
+                const char *safe = get_safe_c_identifier(codegen, err_name);
+                c99_emit_indent(codegen);
+                fprintf(codegen->output, "uint32_t %s = _uya_catch_tmp.error_id;\n", safe);
+            }
+            for (int i = 0; i < n; i++) {
+                ASTNode *s = block->data.block.stmts[i];
+                if (!s) continue;
+                if (i == n - 1 && last_stmt && last_stmt->type != AST_RETURN_STMT) {
+                    c99_emit_indent(codegen);
+                    fputs("_uya_catch_result = (", codegen->output);
+                    gen_expr(codegen, last_stmt);
+                    fputs(");\n", codegen->output);
+                } else {
+                    gen_stmt(codegen, s);
+                }
+            }
+            codegen->indent_level--;
+            c99_emit_indent(codegen);
+            fputs("} else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; })", codegen->output);
             break;
         }
         case AST_CALL_EXPR: {

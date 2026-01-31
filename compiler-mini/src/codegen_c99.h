@@ -14,6 +14,8 @@
 #define C99_MAX_LOCAL_VARS          512
 #define C99_MAX_LOOP_STACK          32
 #define C99_MAX_CALL_ARGS           32
+#define C99_MAX_DEFER_STACK         32
+#define C99_MAX_DEFERS_PER_BLOCK    64
 
 // C99 代码生成器结构体
 typedef struct C99CodeGenerator {
@@ -89,6 +91,17 @@ typedef struct C99CodeGenerator {
     const char *interp_arg_temp_names[C99_MAX_CALL_ARGS];
     int interp_temp_counter;
     int interp_fill_counter;  // 每次 c99_emit_string_interp_fill 递增，用于唯一 _off 变量名
+    
+    // 错误集：与 checker 一致，1-based error_id，用于生成 return error.X
+    const char *error_names[128];
+    int error_count;
+    
+    // defer/errdefer 栈：每层块收集的 defer/errdefer 节点，退出时 LIFO 执行
+    ASTNode *defer_stack[C99_MAX_DEFER_STACK][C99_MAX_DEFERS_PER_BLOCK];
+    int defer_count[C99_MAX_DEFER_STACK];
+    ASTNode *errdefer_stack[C99_MAX_DEFER_STACK][C99_MAX_DEFERS_PER_BLOCK];
+    int errdefer_count[C99_MAX_DEFER_STACK];
+    int defer_stack_depth;
 } C99CodeGenerator;
 
 // 创建 C99 代码生成器

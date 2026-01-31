@@ -19,7 +19,7 @@ void arena_init(Arena *arena, void *buffer, size_t size);
 
 // 从 Arena 分配内存
 // 参数：arena - Arena 分配器指针，size - 要分配的内存大小（字节）
-// 返回：分配的内存指针，如果分配失败（空间不足）返回 NULL
+// 返回：分配的内存指针；空间不足时打印错误并 exit(1)，不会返回 NULL
 // 注意：分配的内存会自动对齐到 8 字节边界
 void *arena_alloc(Arena *arena, size_t size);
 

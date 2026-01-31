@@ -1,0 +1,14 @@
+// errdefer + defer 在错误返回时：先 errdefer LIFO，再 defer LIFO
+error E;
+fn f() !i32 {
+    var x: i32 = 0;
+    defer { x = x + 100; }   // 第2批执行：x = 2+100 = 102
+    errdefer { x = x + 1; }  // 第2个 errdefer：x = 1+1 = 2
+    errdefer { x = 1; }      // 第1个 errdefer：x = 1
+    return error.E;
+}
+fn main() i32 {
+    const r: i32 = f() catch { 0; };
+    if (r != 0) { return 1; }
+    return 0;  // 仅验证编译与运行；x 在 f 内，无法从 main 观测
+}

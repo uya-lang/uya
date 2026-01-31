@@ -1,6 +1,7 @@
 #include "internal.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 // 类型映射函数
 const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
@@ -236,6 +237,44 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
                 snprintf(result, len, "%s[%d]", element_c, array_size);
                 return result;
             }
+        }
+        
+        case AST_TYPE_ERROR_UNION: {
+            /* 错误联合类型 !T -> struct { uint32_t error_id; T value; } */
+            ASTNode *payload_node = type_node->data.type_error_union.payload_type;
+            if (!payload_node) return "void";
+            const char *payload_c = c99_type_to_c(codegen, payload_node);
+            int is_void = (payload_node->type == AST_TYPE_NAMED && payload_node->data.type_named.name &&
+                strcmp(payload_node->data.type_named.name, "void") == 0);
+            char struct_name_buf[128];
+            if (is_void) {
+                snprintf(struct_name_buf, sizeof(struct_name_buf), "err_union_void");
+            } else {
+                char safe[64];
+                size_t j = 0;
+                for (const char *p = payload_c; *p && j < sizeof(safe) - 1; p++) {
+                    if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || *p == '_')
+                        safe[j++] = *p;
+                }
+                safe[j] = '\0';
+                snprintf(struct_name_buf, sizeof(struct_name_buf), "err_union_%s", safe[0] ? safe : "T");
+            }
+            const char *name_copy = (const char *)arena_strdup(codegen->arena, struct_name_buf);
+            if (!name_copy) return "void";
+            if (!is_struct_defined(codegen, name_copy)) {
+                add_struct_definition(codegen, name_copy);
+                fprintf(codegen->output, "struct %s { uint32_t error_id;", name_copy);
+                if (!is_void) {
+                    fprintf(codegen->output, " %s value;", payload_c);
+                }
+                fprintf(codegen->output, " };\n");
+                mark_struct_defined(codegen, name_copy);
+            }
+            size_t len = strlen(name_copy) + 9;
+            char *result = arena_alloc(codegen->arena, len);
+            if (!result) return "void";
+            snprintf(result, len, "struct %s", name_copy);
+            return result;
         }
         
         case AST_TYPE_TUPLE: {

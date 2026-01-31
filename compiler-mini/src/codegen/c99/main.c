@@ -46,7 +46,16 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     emit_string_constants(codegen);
     fputs("\n", codegen->output);
     
-    // 第三步：收集所有结构体和枚举定义（添加到表中但不生成代码）
+    // 第三步：收集错误名称（error Name; 及后续 error.X 使用）
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_ERROR_DECL) continue;
+        if (decl->data.error_decl.name) {
+            get_or_add_error_id(codegen, decl->data.error_decl.name);
+        }
+    }
+    
+    // 第四步：收集所有结构体和枚举定义（添加到表中但不生成代码）
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) continue;
@@ -121,10 +130,31 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
                 gen_function(codegen, decl);
                 fputs("\n", codegen->output);
                 break;
+            case AST_ERROR_DECL:
+                break;
             // 忽略其他声明类型（暂时）
             default:
                 break;
         }
+    }
+    
+    // main() !i32：生成 int main(void) 包装，错误码作为退出码
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_FN_DECL) continue;
+        if (!decl->data.fn_decl.name || strcmp(decl->data.fn_decl.name, "main") != 0) continue;
+        ASTNode *ret = decl->data.fn_decl.return_type;
+        if (!ret || ret->type != AST_TYPE_ERROR_UNION) continue;
+        ASTNode *payload = ret->data.type_error_union.payload_type;
+        if (!payload || payload->type != AST_TYPE_NAMED || !payload->data.type_named.name ||
+            strcmp(payload->data.type_named.name, "i32") != 0) continue;
+        const char *union_c = c99_type_to_c(codegen, ret);
+        fprintf(codegen->output, "int main(void) {\n");
+        fprintf(codegen->output, "    %s _r = uya_main();\n", union_c);
+        fprintf(codegen->output, "    if (_r.error_id != 0) return (int)_r.error_id;\n");
+        fprintf(codegen->output, "    return (int)_r.value;\n");
+        fprintf(codegen->output, "}\n");
+        break;
     }
     
     return 0;

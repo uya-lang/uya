@@ -112,6 +112,11 @@ static TokenType is_keyword(const char *str) {
     if (strcmp(str, "true") == 0) return TOKEN_TRUE;
     if (strcmp(str, "false") == 0) return TOKEN_FALSE;
     if (strcmp(str, "null") == 0) return TOKEN_NULL;
+    if (strcmp(str, "try") == 0) return TOKEN_TRY;
+    if (strcmp(str, "catch") == 0) return TOKEN_CATCH;
+    if (strcmp(str, "error") == 0) return TOKEN_ERROR;
+    if (strcmp(str, "defer") == 0) return TOKEN_DEFER;
+    if (strcmp(str, "errdefer") == 0) return TOKEN_ERRDEFER;
     if (strcmp(str, "as") == 0) return TOKEN_AS;
     return TOKEN_IDENTIFIER;  // 不是关键字，是标识符
 }

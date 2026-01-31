@@ -4,6 +4,7 @@
 #include "ast.h"
 #include "arena.h"
 #include <stddef.h>
+#include <stdint.h>
 
 // 类型枚举（Uya Mini 支持的类型）
 typedef enum {
@@ -26,6 +27,8 @@ typedef enum {
     TYPE_POINTER,  // 指针类型（&T 或 *T）
     TYPE_ARRAY,    // 数组类型（[T: N]）
     TYPE_TUPLE,    // 元组类型（(T1, T2, ...)）
+    TYPE_ERROR_UNION, // 错误联合类型 !T
+    TYPE_ERROR,    // 错误值类型（仅用于 return error.X、catch |err| 等，error_id 非 0）
     TYPE_INT_LIMIT,// 未解析的 max/min 极值（需从上下文推断整数类型）
 } TypeKind;
 
@@ -48,6 +51,12 @@ typedef struct Type {
             struct Type *element_types; // 元素类型数组（仅当 kind == TYPE_TUPLE 时有效，从 Arena 分配，连续存储 count 个 Type）
             int count;                  // 元组元素个数
         } tuple;
+        struct {
+            struct Type *payload_type;  // 载荷类型 T（仅当 kind == TYPE_ERROR_UNION 时有效，从 Arena 分配）
+        } error_union;
+        struct {
+            uint32_t error_id;          // 错误码（仅当 kind == TYPE_ERROR 时有效，0 表示无效）
+        } error;
     } data;
 } Type;
 
@@ -102,6 +111,9 @@ typedef struct TypeChecker {
     Type current_return_type;   // 当前函数的返回类型（用于检查 return 语句）
     int in_function;            // 是否在函数中（1 表示是，0 表示否）
     ASTNode *current_function_decl;  // 当前正在检查的函数声明（用于 @params 类型推断，可为 NULL）
+    // 错误集：收集所有使用的错误名称，分配 error_id（1-based）
+    const char *error_names[128];  // 错误名称（Arena 存储）
+    int error_name_count;           // 已注册错误数量（与 error_count 区分：error_count 为类型检查错误数）
 } TypeChecker;
 
 // 初始化 TypeChecker

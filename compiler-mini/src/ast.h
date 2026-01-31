@@ -16,6 +16,7 @@ typedef enum {
     // 声明节点
     AST_PROGRAM,        // 程序节点（根节点）
     AST_ENUM_DECL,      // 枚举声明
+    AST_ERROR_DECL,     // 预定义错误声明（error Name;）
     AST_STRUCT_DECL,    // 结构体声明
     AST_FN_DECL,        // 函数声明
     AST_VAR_DECL,       // 变量声明（const/var）
@@ -28,6 +29,8 @@ typedef enum {
     AST_BREAK_STMT,     // break 语句
     AST_CONTINUE_STMT,  // continue 语句
     AST_RETURN_STMT,    // return 语句
+    AST_DEFER_STMT,     // defer 语句（作用域结束 LIFO 执行）
+    AST_ERRDEFER_STMT,  // errdefer 语句（仅错误返回时 LIFO 执行）
     AST_ASSIGN,         // 赋值语句
     AST_EXPR_STMT,      // 表达式语句
     AST_BLOCK,          // 代码块
@@ -54,9 +57,13 @@ typedef enum {
     AST_STRING,         // 字符串字面量（无插值）
     AST_STRING_INTERP,  // 字符串插值 "text${expr}text" 或 "text${expr:spec}text"，结果为 [i8: N]
     AST_PARAMS,         // @params 内置变量（函数体内参数元组）
+    AST_TRY_EXPR,       // try expr（错误传播）
+    AST_CATCH_EXPR,     // expr catch [|err|] { stmts }（错误捕获）
+    AST_ERROR_VALUE,    // error.Name（错误值，用于 return error.X）
     
     // 类型节点
     AST_TYPE_NAMED,     // 命名类型（i32, bool, void, 或 struct Name）
+    AST_TYPE_ERROR_UNION, // 错误联合类型 !T
     AST_TYPE_POINTER,   // 指针类型（&T 或 *T）
     AST_TYPE_ARRAY,     // 数组类型（[T: N]）
     AST_TYPE_TUPLE,     // 元组类型（(T1, T2, ...)）
@@ -86,6 +93,11 @@ struct ASTNode {
             EnumVariant *variants;         // 变体数组（从 Arena 分配）
             int variant_count;             // 变体数量
         } enum_decl;
+        
+        // 预定义错误声明（error Name;）
+        struct {
+            const char *name;              // 错误名称（字符串存储在 Arena 中）
+        } error_decl;
         
         // 结构体声明
         struct {
@@ -132,6 +144,23 @@ struct ASTNode {
             int op;                   // 运算符（Token 类型）
             struct ASTNode *operand;         // 操作数
         } unary_expr;
+        
+        // try 表达式（try expr）
+        struct {
+            struct ASTNode *operand;         // 被 try 的表达式（必须为 !T 类型）
+        } try_expr;
+        
+        // catch 表达式（expr catch [|err|] { stmts }）
+        struct {
+            struct ASTNode *operand;         // 被 catch 的表达式（必须为 !T 类型）
+            const char *err_name;      // 错误变量名（可为 NULL 表示不绑定）
+            struct ASTNode *catch_block;    // catch 块（AST_BLOCK）
+        } catch_expr;
+        
+        // 错误值（error.Name）
+        struct {
+            const char *name;         // 错误名称（点号后的标识符）
+        } error_value;
         
         // 函数调用
         struct {
@@ -261,6 +290,16 @@ struct ASTNode {
             struct ASTNode *expr;            // 返回值表达式（可为 NULL，用于 void 函数）
         } return_stmt;
         
+        // defer 语句（defer stmt 或 defer { ... }）
+        struct {
+            struct ASTNode *body;            // 单条语句或块（AST_BLOCK）
+        } defer_stmt;
+        
+        // errdefer 语句（errdefer stmt 或 errdefer { ... }）
+        struct {
+            struct ASTNode *body;            // 单条语句或块（AST_BLOCK）
+        } errdefer_stmt;
+        
         // 赋值语句
         struct {
             struct ASTNode *dest;            // 目标表达式（标识符节点）
@@ -295,6 +334,11 @@ struct ASTNode {
             struct ASTNode **element_types;  // 元素类型节点数组（从 Arena 分配）
             int element_count;               // 元素数量
         } type_tuple;
+        
+        // 错误联合类型节点（!T）
+        struct {
+            struct ASTNode *payload_type;    // 载荷类型 T（从 Arena 分配）
+        } type_error_union;
     } data;
 };
 
