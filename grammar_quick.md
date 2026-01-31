@@ -23,6 +23,12 @@ struct Point {
     y: f32
 }
 
+// 联合体定义
+union IntOrFloat {
+    i: i32,
+    f: f64
+}
+
 // 变量声明
 const x: i32 = 42;
 var y: i32 = 10;
@@ -41,6 +47,7 @@ var y: i32 = 10;
 | **切片** | `&[T]` `&[T: N]` | `const slice: &[i32] = &arr[2:5];` | 动态/已知长度切片 |
 | **指针** | `&T` `*T` | `const ptr: &i32 = &x;` | Uya指针/FFI指针 |
 | **结构体** | `StructName` | `const p: Point = Point{x: 1.0, y: 2.0};` | 结构体类型 |
+| **联合体** | `UnionName` | `const v: IntOrFloat = IntOrFloat.i(42);` | 标签联合体，编译期证明安全 |
 | **接口** | `InterfaceName` | `const writer: IWriter = ...;` | 接口类型 |
 | **元组** | `(T1, T2, ...)` | `const t: (i32, f64) = (10, 3.14);` | 元组类型 |
 | **错误联合** | `!T` | `fn may_fail() !i32 { ... }` | 可能返回错误 |
@@ -103,6 +110,12 @@ match value {
     error.Err => handle_err(),
     else => default()
 };
+
+// 联合体模式匹配（必须处理所有变体）
+match union_value {
+    .i(x) => printf("整数: %d\n", x),
+    .f(x) => printf("浮点: %f\n", x)
+}
 ```
 
 ---
@@ -194,6 +207,25 @@ Name {
     fn method(self: *Self) ReturnType {
         // 方法体
     }
+}
+
+### 联合体定义模板
+
+```uya
+// 基本联合体
+union Name {
+    variant1: Type1,
+    variant2: Type2
+}
+
+// 创建：UnionName.variant(expr)
+const v = IntOrFloat.i(42);
+const f = IntOrFloat.f(3.14);
+
+// 访问：必须 match 或已知标签直接访问
+match v {
+    .i(x) => printf("%d\n", x),
+    .f(x) => printf("%f\n", x)
 }
 ```
 

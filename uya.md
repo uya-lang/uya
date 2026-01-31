@@ -1,4 +1,4 @@
-# Uya 语言规范 0.34（完整版 · 2026-01-31）
+# Uya 语言规范 0.35（完整版 · 2026-02-01）
 
 > 零GC · 默认高级安全 · 单页纸可读完  
 > 无lifetime符号 · 无隐式控制 · 编译期证明（本函数内）
@@ -18,6 +18,7 @@
 - [4. 结构体](#4-结构体)
   - [4.1. C 内存布局说明](#41-c-内存布局说明)
   - [4.2. 结构体内存布局详细规则](#42-结构体内存布局详细规则)
+- [4.5. 联合体（union）](#45-联合体union)
 - [5. 函数](#5-函数)
   - [5.1. 普通函数](#51-普通函数)
     - [5.1.1. main函数签名](#511-main函数签名)
@@ -47,6 +48,17 @@
 
 ## 规范变更
 
+### 0.35（2026-02-01）
+
+- **联合体支持**：
+  - 添加 `union` 关键字定义标签联合体
+  - 编译期标签跟踪确保类型安全
+  - 强制模式匹配访问，处理所有变体
+  - 与 C union 100% 内存布局兼容
+  - 支持联合体方法和接口实现
+  - 零运行时开销，标签仅在编译期使用
+  - 详细错误信息指导正确使用
+
 ### 0.34（2026-01-31）
 
 - **参数列表即元组（在函数体内可当元组访问）**
@@ -72,6 +84,7 @@
 
 ## 核心特性
 
+- **联合体**（第 4.5 章）：`union` 关键字，编译期标签跟踪，与 C union 100% 互操作，零运行时开销
 - **原子类型**（第 13 章）：`atomic T` 关键字，自动原子指令，零运行时锁
 - **内存安全强制**（第 14 章）：所有 UB 必须被编译期证明为安全（在当前函数内），常量错误→编译错误，变量证明超时→自动插入运行时检查
 - **并发安全强制**（第 15 章）：零数据竞争
@@ -142,8 +155,8 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
   - 目录下的所有 `.uya` 文件都属于同一个模块
 - 关键字保留：
   ```
-  struct const var fn return extern true false if while break continue
-  defer errdefer try catch error null interface atomic
+  struct   const var fn return extern true false if while break continue
+  defer errdefer try catch error null interface atomic union
   export use
   ```
 - **内置函数**：所有内置函数均以 `@` 开头，无需导入。包括：`@sizeof(T)`、`@alignof(T)`、`@len(a)`（数组长度）、`@max`、`@min`（整数类型极值，类型由上下文推断）。
@@ -366,6 +379,8 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
 | `&[T]`          | 8/16 B（平台相关） | 切片引用（动态长度），指针(4/8B) + 长度(4/8B)；32位平台=8B，64位平台=16B |
 | `&[T: N]`       | 8/16 B（平台相关） | 切片引用（编译期已知长度），指针(4/8B) + 长度(4/8B)；32位平台=8B，64位平台=16B |
 | `struct S { }`  | 字段顺序布局 | 对齐 = 最大字段对齐，见下方说明 |
+| `union U { ... }` | 最大变体大小 | 对齐 = 最大变体对齐，见[第 4.5 章](#45-联合体union) |
+| `union U { ... }`（嵌套） | 最大变体大小 | 可嵌套结构体、数组、其他联合体 |
 | `interface I { }` | 8/16 B（平台相关） | vtable 指针(4/8B) + 数据指针(4/8B)，[见第 6 章接口](#6-接口interface)；32位平台=8B，64位平台=16B |
 | `fn(...) type` | 4/8 B（平台相关） | 函数指针类型，用于 FFI 回调，[见 5.2](#52-外部-c-函数ffi) |
 | `enum E { }` | sizeof(底层类型) | 枚举类型，默认底层类型为 i32，见下方说明 |
@@ -532,6 +547,28 @@ type Point = (i32, i32);
 const p: (i32, i32) = (10, 20);
 const x = p.0;  // 访问第一个元素
 const y = p.1;  // 访问第二个元素
+```
+
+**联合体类型说明**：
+
+- **语法**：`union UnionName { variant1: Type1, variant2: Type2, ... }`
+- **内存布局**：与 C union 完全兼容，大小为最大变体的大小，对齐为最大变体的对齐值
+- **编译期标签跟踪**：标签在编译期跟踪，不占用运行时内存
+- **安全访问**：所有访问必须通过模式匹配或已知标签的直接访问
+- **零运行时开销**：无标签存储，无运行时检查，性能与 C union 相同
+- **C 互操作**：内存布局与 C union 完全相同，可直接互操作
+- **示例**：
+```uya
+union IntOrFloat {
+    i: i32,
+    f: f64
+}
+
+union NetworkPacket {
+    ipv4: [byte: 4],
+    ipv6: [byte: 16],
+    raw: *byte
+}
 ```
 
 ---
@@ -1051,6 +1088,457 @@ struct PlatformStruct {
 ```uya
 struct Empty { }  // 大小 = 1 字节，对齐 = 1 字节
 ```
+
+---
+
+## 4.5 联合体（union）
+
+### 4.5.1 设计目标
+
+Uya 联合体提供编译期证明安全的标签联合体：
+- **编译期类型安全**：通过编译期标签跟踪确保访问正确的成员
+- **内存安全强制**：所有访问必须通过编译期证明安全
+- **C 内存布局兼容**：与 C union 100% 互操作
+- **零运行时开销**：标签仅在编译期使用，运行时无额外检查
+- **显式控制**：强制模式匹配，无隐式类型转换
+
+### 4.5.2 联合体定义
+
+- **语法**：`union UnionName { variant1: Type1, variant2: Type2, ... }`
+- **变体命名**：变体名遵循标识符规则 `[A-Za-z_][A-Za-z0-9_]*`
+- **变体类型**：支持所有类型（基础类型、数组、结构体、指针、其他联合体）
+- **嵌套支持**：联合体可以嵌套结构体、数组和其他联合体
+- **内存布局**：大小为最大变体的大小，对齐为最大变体的对齐值
+- **空联合体**：不允许空联合体（至少需要一个变体）
+- **示例**：
+```uya
+union IntOrFloat {
+    i: i32,
+    f: f64
+}
+
+union NetworkPacket {
+    ipv4: [byte: 4],
+    ipv6: [byte: 16],
+    raw: *byte
+}
+
+union ComplexUnion {
+    simple: IntOrFloat,
+    pair: (i32, f64),
+    buffer: [byte: 64]
+}
+```
+
+### 4.5.3 联合体创建
+
+使用联合体名和变体名创建联合体值：
+
+```uya
+// 创建联合体
+const int_val: IntOrFloat = IntOrFloat.i(42);
+const float_val: IntOrFloat = IntOrFloat.f(3.14159);
+
+// 数组变体
+const ipv4_packet: NetworkPacket = NetworkPacket.ipv4([192, 168, 1, 1]);
+
+// 指针变体
+extern malloc(size: usize) *void;
+const raw_packet: NetworkPacket = NetworkPacket.raw(malloc(1024) as *byte);
+```
+
+### 4.5.4 安全访问机制
+
+所有联合体访问必须通过安全机制：
+
+#### 4.5.4.1 模式匹配（主要访问方式）
+
+使用 `match` 表达式访问联合体，必须处理所有变体：
+
+```uya
+fn process_value(value: IntOrFloat) void {
+    match value {
+        .i(x) => printf("整数: %d\n", x),
+        .f(x) => printf("浮点: %.2f\n", x)
+    }
+}
+
+fn process_packet(packet: NetworkPacket) !void {
+    match packet {
+        .ipv4(addr) => {
+            printf("IPv4: %d.%d.%d.%d\n", addr[0], addr[1], addr[2], addr[3]);
+        },
+        .ipv6(addr) => {
+            for 0..16 |i| {
+                printf("%02x", addr[i]);
+                if i % 2 == 1 && i < 15 { printf(":"); }
+            }
+            printf("\n");
+        },
+        .raw(ptr) => {
+            // 处理原始数据
+            return error.UnsupportedFormat;
+        }
+    }
+}
+```
+
+#### 4.5.4.2 已知标签的直接访问
+
+当编译器可以证明当前标签时，允许直接访问：
+
+```uya
+fn direct_access() void {
+    var value: IntOrFloat = IntOrFloat.i(42);
+    
+    // ✅ 编译器知道当前标签是 .i
+    const x: i32 = value.i;
+    
+    // ❌ 编译错误：编译器知道当前标签不是 .f
+    // const y: f64 = value.f;
+    
+    // 重新赋值后标签状态更新
+    value = IntOrFloat.f(3.14);
+    
+    // ✅ 编译器知道当前标签是 .f
+    const z: f64 = value.f;
+    
+    // ❌ 编译错误：编译器知道当前标签不是 .i
+    // const w: i32 = value.i;
+}
+```
+
+#### 4.5.4.3 编译期标签跟踪
+
+编译器在编译期跟踪联合体的标签状态：
+
+| 标签状态 | 描述 | 访问规则 |
+|---------|------|---------|
+| `Known(.variant)` | 已知具体标签 | 允许直接访问对应变体 |
+| `Unknown` | 未知标签 | 必须使用模式匹配 |
+| `Multiple([.v1, .v2])` | 多个可能标签 | 必须使用模式匹配 |
+
+### 4.5.5 编译期证明规则
+
+编译器必须在编译期证明联合体访问安全：
+
+1. **常量创建证明**：
+```uya
+const v = IntOrFloat.i(42);
+// 编译器证明：v 的标签是 .i
+```
+
+2. **赋值证明**：
+```uya
+var v: IntOrFloat;
+v = IntOrFloat.f(3.14);
+// 编译器更新：v 的标签现在是 .f
+```
+
+3. **分支证明**：
+```uya
+fn branch_example(cond: bool) void {
+    var v: IntOrFloat;
+    
+    if cond {
+        v = IntOrFloat.i(10);
+    } else {
+        v = IntOrFloat.f(3.14);
+    }
+    
+    // 编译器无法确定标签 → 必须使用模式匹配
+    match v {
+        .i(x) => printf("%d\n", x),
+        .f(x) => printf("%f\n", x)
+    }
+}
+```
+
+4. **循环证明**：
+```uya
+fn loop_example() void {
+    var v: IntOrFloat = IntOrFloat.i(0);
+    
+    while some_condition() {
+        // 循环可能修改标签 → 标签状态为 Unknown
+        v = get_next_value();
+        
+        // 必须使用模式匹配
+        match v {
+            .i(x) => process_int(x),
+            .f(x) => process_float(x)
+        }
+    }
+}
+```
+
+### 4.5.6 与 C 互操作
+
+#### 4.5.6.1 外部 C 联合体
+
+声明和使用 C 联合体：
+
+```uya
+// 声明外部 C 联合体
+extern union CValue {
+    i: i32,
+    f: f64,
+    buffer: [byte: 16]
+}
+
+// 使用外部联合体
+fn use_c_union() void {
+    extern get_c_value() union CValue;
+    const cv: union CValue = get_c_value();
+    
+    // 访问外部联合体需要模式匹配
+    match cv {
+        .i(val) => printf("C 整数: %d\n", val),
+        .f(val) => printf("C 浮点: %f\n", val),
+        .buffer(buf) => printf("C 缓冲区: %p\n", &buf[0])
+    }
+}
+```
+
+#### 4.5.6.2 Uya 联合体传递给 C
+
+Uya 联合体可直接传递给 C 函数：
+
+```uya
+// C 函数声明
+extern process_c_union(u: union CValue) void;
+
+fn pass_to_c() void {
+    const u: IntOrFloat = IntOrFloat.i(42);
+    
+    // 安全转换：内存布局相同
+    process_c_union(u as union CValue);
+}
+```
+
+#### 4.5.6.3 内存布局保证
+
+Uya 联合体与 C union 内存布局完全相同：
+
+```c
+// C 代码看到的 Uya 联合体
+union IntOrFloat {
+    int32_t i;
+    double f;
+};
+
+union NetworkPacket {
+    uint8_t ipv4[4];
+    uint8_t ipv6[16];
+    void* raw;
+};
+```
+
+### 4.5.7 联合体方法
+
+联合体支持方法定义，使用 `Self` 占位符：
+
+```uya
+union IntOrFloat {
+    i: i32,
+    f: f64,
+    
+    // 联合体方法
+    fn as_f64(self: *Self) f64 {
+        match *self {
+            .i(x) => x as f64,
+            .f(x) => x
+        }
+    }
+    
+    fn is_int(self: *Self) bool {
+        match *self {
+            .i(_) => true,
+            .f(_) => false
+        }
+    }
+}
+
+// 使用方法
+const v = IntOrFloat.i(42);
+const as_float = v.as_f64();  // 42.0
+const is_int = v.is_int();    // true
+```
+
+### 4.5.8 联合体实现接口
+
+联合体可实现接口：
+
+```uya
+interface Printable {
+    fn print(self: *Self) void;
+}
+
+union IntOrFloat : Printable {
+    i: i32,
+    f: f64,
+    
+    fn print(self: *Self) void {
+        match *self {
+            .i(x) => printf("整数: %d\n", x),
+            .f(x) => printf("浮点: %.2f\n", x)
+        }
+    }
+}
+
+// 使用接口
+const printable: Printable = IntOrFloat.f(3.14);
+printable.print();  // 输出: 浮点: 3.14
+```
+
+### 4.5.9 移动语义
+
+联合体支持移动语义：
+
+```uya
+union BufferOrString {
+    buffer: [byte: 64],
+    str: *byte
+}
+
+fn move_example() void {
+    var u1: BufferOrString = BufferOrString.buffer([]);
+    
+    // 移动联合体
+    const u2: BufferOrString = u1;  // u1 被移动
+    
+    // ❌ 编译错误：u1 已移动，不能再次使用
+    // const x = u1.buffer;
+    
+    // ✅ u2 可以使用
+    match u2 {
+        .buffer(buf) => printf("缓冲区大小: %d\n", @len(buf)),
+        .str(s) => printf("字符串: %s\n", s)
+    }
+}
+```
+
+### 4.5.10 drop 机制
+
+联合体支持 `drop` 函数，仅对当前活跃变体调用清理：
+
+```uya
+union FileOrBuffer {
+    file: File,      // 有 drop 函数
+    buffer: [byte: 1024]  // 无 drop 函数
+}
+
+fn drop(self: FileOrBuffer) void {
+    match self {
+        .file(f) => {
+            // 调用 File 的 drop
+            drop(f);
+        },
+        .buffer(_) => {
+            // 缓冲区无需清理
+        }
+    }
+}
+```
+
+### 4.5.11 编译期常量联合体
+
+联合体可在编译期构造和使用：
+
+```uya
+const PI_UNION: IntOrFloat = IntOrFloat.f(3.141592653589793);
+const ANSWER_UNION: IntOrFloat = IntOrFloat.i(42);
+
+// 编译期模式匹配
+const PI_VALUE: f64 = match PI_UNION {
+    .i(x) => x as f64,
+    .f(x) => x
+};  // 编译期求值：3.141592653589793
+```
+
+### 4.5.12 限制
+
+1. **无默认初始化**：必须显式指定变体创建联合体
+2. **禁止无标签访问**：必须通过模式匹配或已知标签的直接访问
+3. **禁止类型双关**：不能通过一种类型写入，另一种类型读取（除非显式模式匹配）
+4. **变体类型限制**：变体类型不能包含引用（`&T`）或切片（`&[T]`），防止生命周期问题
+5. **标签状态传播**：函数间标签信息不传播，返回联合体的函数调用者必须使用模式匹配
+
+### 4.5.13 错误信息示例
+
+```uya
+fn error_examples() void {
+    var u: IntOrFloat = IntOrFloat.i(10);
+    
+    // 错误：访问错误的变体
+    // const x: f64 = u.f;
+    // 错误信息：联合体 'u' 当前标签是 '.i'，不能访问变体 '.f'
+    
+    // 错误：未处理所有变体
+    // match u {
+    //     .i(x) => printf("%d\n", x)
+    // }
+    // 错误信息：模式匹配必须处理所有变体，缺少: .f
+    
+    // 错误：未知标签时直接访问
+    // fn get_union() IntOrFloat { ... }
+    // const v = get_union();
+    // const x = v.i;
+    // 错误信息：联合体 'v' 标签未知，必须使用模式匹配访问
+}
+```
+
+### 4.5.14 完整示例
+
+```uya
+// 定义联合体
+union Result {
+    ok: i32,
+    err: *byte
+}
+
+// 处理方法
+fn process_result(result: Result) !i32 {
+    match result {
+        .ok(value) => {
+            printf("成功: %d\n", value);
+            return value;
+        },
+        .err(msg) => {
+            printf("错误: %s\n", msg);
+            return error.OperationFailed;
+        }
+    }
+}
+
+// 主函数
+fn main() !i32 {
+    const success = Result.ok(42);
+    const failure = Result.err("文件未找到");
+    
+    const value1 = try process_result(success);
+    const value2 = try process_result(failure) catch |e| {
+        printf("捕获错误: %v\n", e);
+        return 1;
+    };
+    
+    return 0;
+}
+```
+
+### 4.5.15 设计哲学一致性
+
+Uya 联合体设计完全符合「坚如磐石」哲学：
+
+1. ✅ **程序员提供证明**：通过模式匹配显式处理所有情况
+2. ✅ **编译器验证证明**：在编译期验证标签一致性和完全性
+3. ✅ **运行时绝对安全**：无未定义行为，所有访问都是类型安全的
+4. ✅ **零运行时开销**：无标签存储，无运行时检查
+5. ✅ **C 兼容性**：内存布局与 C union 完全相同
+6. ✅ **显式控制**：强制模式匹配，无隐式转换
+7. ✅ **编译期证明**：所有安全检查在编译期完成
+
+**一句话总结**：Uya 联合体 = C union 内存布局 + Rust enum 类型安全 + 编译期标签证明，零运行时开销，100% 内存安全。
 
 ---
 
@@ -3346,7 +3834,149 @@ for hello |byte| {
 
 ---
 
-### A.4-A.6 其他示例
+### A.4 联合体示例
+
+```uya
+// A.4.1 基本联合体使用
+union IntOrFloat {
+    i: i32,
+    f: f64
+}
+
+fn basic_union_example() void {
+    // 创建联合体
+    const int_val = IntOrFloat.i(42);
+    const float_val = IntOrFloat.f(3.14159);
+    
+    // 模式匹配访问
+    match int_val {
+        .i(x) => printf("整数: %d\n", x),
+        .f(x) => printf("浮点: %f\n", x)
+    }
+    
+    // 直接访问（已知标签）
+    var v: IntOrFloat = IntOrFloat.i(10);
+    const x: i32 = v.i;  // ✅
+    
+    v = IntOrFloat.f(3.14);
+    const y: f64 = v.f;  // ✅
+}
+
+// A.4.2 网络数据包示例
+union NetworkPacket {
+    ipv4: [byte: 4],
+    ipv6: [byte: 16],
+    raw: *byte,
+    error: *byte
+}
+
+fn process_packet(packet: NetworkPacket) !void {
+    match packet {
+        .ipv4(addr) => {
+            printf("IPv4: %d.%d.%d.%d\n", addr[0], addr[1], addr[2], addr[3]);
+        },
+        .ipv6(addr) => {
+            printf("IPv6: ");
+            for 0..16 |i| {
+                printf("%02x", addr[i]);
+                if i % 2 == 1 && i < 15 { printf(":"); }
+            }
+            printf("\n");
+        },
+        .raw(ptr) => {
+            printf("原始数据: %p\n", ptr);
+            // 处理原始数据
+        },
+        .error(msg) => {
+            printf("错误包: %s\n", msg);
+            return error.InvalidPacket;
+        }
+    }
+}
+
+// A.4.3 与 C 互操作示例
+extern union CData {
+    integer: i32,
+    floating: f64,
+    text: [i8: 32]
+}
+
+extern process_c_data(data: union CData) void;
+
+fn ffi_example() void {
+    // 创建 Uya 联合体
+    const uya_data: union CData = union CData.integer(100);
+    
+    // 直接传递给 C 函数
+    process_c_data(uya_data);
+    
+    // 接收 C 联合体
+    extern get_c_data() union CData;
+    const c_data: union CData = get_c_data();
+    
+    // 模式匹配处理
+    match c_data {
+        .integer(val) => printf("C 整数: %d\n", val),
+        .floating(val) => printf("C 浮点: %f\n", val),
+        .text(str) => printf("C 文本: %s\n", &str[0])
+    }
+}
+
+// A.4.4 联合体方法示例
+union ConfigValue {
+    int_val: i32,
+    float_val: f64,
+    bool_val: bool,
+    str_val: [i8: 64]
+}
+
+ConfigValue {
+    fn to_string(self: *Self) [i8: 128] {
+        match *self {
+            .int_val(x) => "int=${x}",
+            .float_val(x) => "float=${x:.2f}",
+            .bool_val(x) => x ? "true" : "false",
+            .str_val(s) => "str=${s}"
+        }
+    }
+    
+    fn is_truthy(self: *Self) bool {
+        match *self {
+            .int_val(x) => x != 0,
+            .float_val(x) => x != 0.0,
+            .bool_val(x) => x,
+            .str_val(s) => @len(s) > 0
+        }
+    }
+}
+
+// 主函数
+fn main() !i32 {
+    basic_union_example();
+    
+    const packet1 = NetworkPacket.ipv4([192, 168, 1, 1]);
+    try process_packet(packet1);
+    
+    const packet2 = NetworkPacket.ipv6([
+        0x20, 0x01, 0x0d, 0xb8, 0x85, 0xa3, 0x00, 0x00,
+        0x00, 0x00, 0x8a, 0x2e, 0x03, 0x70, 0x73, 0x34
+    ]);
+    try process_packet(packet2);
+    
+    ffi_example();
+    
+    const config = ConfigValue.int_val(42);
+    const str = config.to_string();
+    printf("配置值: %s\n", &str[0]);
+    printf("是否为真: %s\n", config.is_truthy() ? "是" : "否");
+    
+    return 0;
+}
+```
+
+---
+
+### A.5 其他示例
 
 for循环、切片语法、多维数组的完整示例请参考对应章节。
 
@@ -3367,6 +3997,20 @@ for循环、切片语法、多维数组的完整示例请参考对应章节。
 - **vtable (Virtual Table)**：虚函数表。接口系统使用 vtable 实现动态派发，所有 vtable 在编译期生成，零运行时注册。
 
 ### 类型系统
+
+- **联合体（union）**：一种复合类型，可以存储多种变体中的一种，所有变体共享同一内存区域。Uya 联合体通过编译期标签跟踪确保类型安全。
+
+- **变体（variant）**：联合体中的一种可能类型。每个变体有名称和类型，如 `IntOrFloat.i` 中的 `.i` 变体。
+
+- **编译期标签跟踪**：Uya 编译器在编译期跟踪联合体当前活跃的变体标签，用于确保类型安全的访问。
+
+- **模式匹配（pattern matching）**：访问联合体的主要方式，通过 `match` 表达式处理所有可能的变体。
+
+- **标签状态（tag state）**：编译器内部跟踪的联合体标签状态，包括已知标签、未知标签或多个可能标签。
+
+- **类型双关（type punning）**：通过一种类型写入联合体，然后通过另一种类型读取。Uya 禁止类型双关，必须通过显式模式匹配。
+
+- **C 联合体互操作**：Uya 联合体与 C 语言 union 具有相同的内存布局，可以直接相互转换和传递。
 
 - **错误联合类型 (`!T`)**：表示 `T | Error` 的联合类型，用于函数错误返回。`!i32` 表示返回 `i32` 或 `Error`。
 

@@ -16,9 +16,9 @@
 
 ```
 program        = { declaration }
-declaration    = fn_decl | struct_decl | struct_method_block | interface_decl | enum_decl
-               | const_decl | error_decl | extern_decl | export_decl | import_stmt
-               | test_stmt
+declaration    = fn_decl | struct_decl | struct_method_block | union_decl | union_method_block
+               | interface_decl | enum_decl | const_decl | error_decl | extern_decl | export_decl
+               | import_stmt | test_stmt
 ```
 
 ### 函数声明
@@ -71,6 +71,20 @@ interface_name = ID ';'  # 组合接口名，用分号分隔
 - 接口实现：结构体在定义时声明接口（`struct StructName : InterfaceName { ... }`），接口方法作为结构体方法定义
 - 详细语法说明见 [uya.md](./uya.md#6-接口interface)
 
+### 联合体声明
+
+```
+union_decl     = 'union' ID [ ':' interface_list ] '{' union_body '}'
+union_body     = ( field_list | method_list | field_list method_list )
+union_method_block = ID '{' method_list '}'  # 联合体外部方法定义（同结构体方式2）
+```
+
+**说明**：
+- 联合体语法与结构体类似，但所有变体共享同一内存区域
+- 变体命名遵循标识符规则，创建语法：`UnionName.variant(expr)`
+- 访问必须通过模式匹配（`match`）或编译器可证明的已知标签直接访问
+- 详细语法说明见 [uya.md](./uya.md#45-联合体union)
+
 ### 枚举声明
 
 ```
@@ -91,7 +105,7 @@ enum_variant   = ID [ '=' NUM ]  # 枚举变体，可选显式赋值
 
 ```
 type           = base_type | pointer_type | array_type | slice_type 
-               | struct_type | interface_type | enum_type | tuple_type
+               | struct_type | union_type | interface_type | enum_type | tuple_type
                | atomic_type | error_union_type | function_pointer_type | extern_type
 
 base_type      = 'i8' | 'i16' | 'i32' | 'i64' | 'u8' | 'u16' | 'u32' | 'u64'
@@ -100,6 +114,7 @@ pointer_type   = '&' type | '*' type
 array_type     = '[' type ':' NUM ']'
 slice_type     = '&[' type ']' | '&[' type ';' NUM ']'
 struct_type    = ID
+union_type     = ID | 'union' ID  # 联合体类型；'union' ID 用于外部 C 联合体
 interface_type = ID
 enum_type      = ID  # 枚举类型，通过枚举声明定义
 tuple_type     = '(' type { ',' type } ')'  # 元组类型，如 (i32, f64)
@@ -171,10 +186,11 @@ postfix_expr   = primary_expr { '.' (ID | NUM) | '[' expr ']' | '(' arg_list ')'
 catch_op       = 'catch' [ '|' ID '|' ] '{' statements '}'
 primary_expr   = ID | NUM | STRING | 'true' | 'false' | 'null'
                | builtin_expr
-               | struct_literal | array_literal | tuple_literal | enum_literal
+               | struct_literal | array_literal | tuple_literal | enum_literal | union_literal
                | match_expr | '(' expr ')'
 builtin_expr   = '@' ('sizeof' | 'alignof' | 'len' | 'max' | 'min' | 'params')
                # @sizeof(T)、@alignof(T)、@len(expr) 为调用形式；@max、@min 为值形式；@params 为函数体内参数元组（uya.md §5.4）
+union_literal  = ID '.' ID '(' expr ')'  # 联合体创建，如 IntOrFloat.i(42)、NetworkPacket.ipv4([...])
 ```
 
 ### 特殊表达式
@@ -191,13 +207,15 @@ enum_literal   = ID '.' ID  # 枚举字面量，如 Color.RED, HttpStatus.OK
 expr_list      = [ expr { ',' expr } ]  # 表达式列表，可以为空（空数组字面量 []）
 arg_list       = [ expr { ',' expr } [ ',' '...' ] ]  # 可变参数转发：末尾 ... 表示转发剩余参数
 pattern_list   = pattern '=>' expr { ',' pattern '=>' expr } [ ',' 'else' '=>' expr ]
-pattern        = literal | ID | '_' | struct_pattern | tuple_pattern | enum_pattern | error_pattern
+pattern        = literal | ID | '_' | struct_pattern | tuple_pattern | enum_pattern
+               | union_pattern | error_pattern
 struct_pattern = ID '{' field_pattern_list '}'
 field_pattern_list = [ field_pattern { ',' field_pattern } ]
 field_pattern  = ID ':' (literal | ID | '_')
 tuple_pattern  = '(' tuple_pattern_list ')'  # 元组模式，如 (x, _, z)
 tuple_pattern_list = pattern { ',' pattern }  # 用于元组模式的模式列表
 enum_pattern   = ID '.' ID  # 枚举模式，如 Color.RED, HttpStatus.OK
+union_pattern  = '.' ID [ '(' (ID | '_') ')' ]  # 联合体模式，如 .i(x)、.f(_)
 error_pattern  = 'error' '.' ID
 literal        = NUM | STRING | 'true' | 'false' | 'null'
 ```
@@ -205,8 +223,8 @@ literal        = NUM | STRING | 'true' | 'false' | 'null'
 ### 模块系统
 
 ```
-export_decl    = 'export' (fn_decl | struct_decl | interface_decl | const_decl 
-               | error_decl | extern_decl)
+export_decl    = 'export' (fn_decl | struct_decl | union_decl | interface_decl | enum_decl
+               | const_decl | error_decl | extern_decl)
 import_stmt    = 'use' module_path [ 'as' ID ] ';'
 module_path    = ID { '.' ID }
 ```
@@ -233,6 +251,7 @@ module_path    = ID { '.' ID }
 
 ```
 extern_decl    = 'extern' 'fn' ID '(' [ param_list ] ')' type (';' | '{' statements '}')
+               | 'extern' 'union' ID '{' field_list '}'  # 外部 C 联合体声明
 ```
 
 **说明**：
@@ -339,7 +358,7 @@ identifier = [A-Za-z_][A-Za-z0-9_]*
 
 ```
 struct const var fn return extern true false if while break continue
-defer errdefer try catch error null interface atomic
+defer errdefer try catch error null interface atomic union
 export use as as! test
 ```
 
@@ -477,7 +496,7 @@ atomic_type = 'atomic' type
 ### 7.1 导出语法
 
 ```
-export_decl = 'export' (fn_decl | struct_decl | interface_decl | enum_decl | const_decl | error_decl | extern_decl)
+export_decl = 'export' (fn_decl | struct_decl | union_decl | interface_decl | enum_decl | const_decl | error_decl | extern_decl)
 ```
 
 **导出示例**：
