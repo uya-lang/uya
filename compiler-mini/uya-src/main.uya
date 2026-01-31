@@ -15,7 +15,7 @@ enum BackendType {
 const FILE_BUFFER_SIZE: i32 = 1024 * 1024;
 
 // Arena 缓冲区大小（16MB）
-const ARENA_BUFFER_SIZE: i32 = 16 * 1024 * 1024;
+const ARENA_BUFFER_SIZE: i32 = 32 * 1024 * 1024;
 
 // 最大输入文件数
 const MAX_INPUT_FILES: i32 = 64;

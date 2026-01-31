@@ -2792,7 +2792,25 @@ fn parser_parse(parser: &Parser) &ASTNode {
             // 解析失败：检查是否因为到达文件末尾（EOF）还是真正的错误
             // 如果当前 token 不是 EOF，说明遇到了真正的解析错误
             if parser.current_token != null && parser_match(parser, TOKEN_EOF) == 0 {
-                // 真正的解析错误：注意：Uya 版本简化错误报告
+                // 真正的解析错误：输出错误信息并返回 null（与 C 版一致）
+                var filename: &byte = "(unknown)" as *byte;
+                if parser.lexer != null && parser.lexer.filename != null {
+                    filename = parser.lexer.filename;
+                }
+                fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 意外的 token" as *byte, filename, parser.current_token.line, parser.current_token.column);
+                if parser.current_token.value != null {
+                    fprintf(stderr, " '%s'" as *byte, parser.current_token.value);
+                }
+                fprintf(stderr, "\n" as *byte);
+                return null;
+            }
+            if parser.current_token == null {
+                // current_token 为 null 时也报告，便于排查自举失败
+                var filename: &byte = "(unknown)" as *byte;
+                if parser.lexer != null && parser.lexer.filename != null {
+                    filename = parser.lexer.filename;
+                }
+                fprintf(stderr, "错误: 语法分析失败 (%s): 当前 token 为 null\n" as *byte, filename);
                 return null;
             }
             // 到达文件末尾，正常退出循环

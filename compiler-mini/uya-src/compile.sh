@@ -418,10 +418,21 @@ if [ $COMPILER_EXIT -eq 0 ]; then
             EXECUTABLE_FILE="${OUTPUT_FILE}_exec"
         fi
         
-        # 检查可执行文件是否成功生成
+        # 检查可执行文件是否需要生成或重新链接（C99 时若 .c 比可执行文件新则需重新链接）
+        NEED_LINK=false
         if [ ! -f "$EXECUTABLE_FILE" ]; then
-            echo ""
-            echo -e "${YELLOW}可执行文件未自动生成，尝试手动链接...${NC}"
+            NEED_LINK=true
+        elif [ "$USE_C99" = true ] && [ -f "$OUTPUT_FILE" ] && [ -f "$EXECUTABLE_FILE" ] && [ "$OUTPUT_FILE" -nt "$EXECUTABLE_FILE" ]; then
+            NEED_LINK=true
+        fi
+        if [ "$NEED_LINK" = true ]; then
+            if [ ! -f "$EXECUTABLE_FILE" ]; then
+                echo ""
+                echo -e "${YELLOW}可执行文件未自动生成，尝试手动链接...${NC}"
+            else
+                echo ""
+                echo -e "${YELLOW}C 源文件已更新，重新链接可执行文件...${NC}"
+            fi
             
             # 检查是否存在 bridge.c
             BRIDGE_C="$BUILD_DIR/bridge.c"
@@ -532,11 +543,18 @@ if [ $COMPILER_EXIT -eq 0 ]; then
                 echo "C 编译器输出: $OUTPUT_FILE"
                 echo "自举输出: $BOOTSTRAP_C"
             fi
-            if ! "$EXECUTABLE_FILE" "${FULL_PATHS[@]}" -o "$BOOTSTRAP_C" --c99 >/dev/null 2>&1; then
+            BOOTSTRAP_LOG=$(mktemp)
+            if ! "$EXECUTABLE_FILE" "${FULL_PATHS[@]}" -o "$BOOTSTRAP_C" --c99 >"$BOOTSTRAP_LOG" 2>&1; then
                 echo -e "${RED}✗ 自举编译器编译失败${NC}"
-                echo "请用 -v 查看详细输出: $EXECUTABLE_FILE ... -o $BOOTSTRAP_C --c99"
+                echo ""
+                echo "自举编译器输出:"
+                echo "----------------------------------------"
+                cat "$BOOTSTRAP_LOG"
+                echo "----------------------------------------"
+                rm -f "$BOOTSTRAP_LOG"
                 exit 1
             fi
+            rm -f "$BOOTSTRAP_LOG"
             if diff -q "$OUTPUT_FILE" "$BOOTSTRAP_C" >/dev/null 2>&1; then
                 echo -e "${GREEN}✓ 自举对比一致：C 编译器与自举编译器生成的 C 文件完全一致${NC}"
             else
