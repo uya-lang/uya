@@ -1,14 +1,14 @@
 // 1. FFI 函数声明（支持所有 C 兼容指针类型）
-extern process_u16_array(data: *u16, len: i32) i32;
-extern process_i32_array(data: *i32, len: i32) i32;
-extern process_f32_array(data: *f32, len: i32) i32;
+extern fn process_u16_array(data: *u16, len: i32) i32;
+extern fn process_i32_array(data: *i32, len: i32) i32;
+extern fn process_f32_array(data: *f32, len: i32) i32;
 
 // 2. FFI 函数调用
 const data: [u16: 10] = [0; 10];
 process_u16_array(&data[0], 10);
 
 // 3. 下标访问（需要长度约束证明）
-extern get_u16_element(arr: *u16, index: i32) u16;
+extern fn get_u16_element(arr: *u16, index: i32) u16;
 
 fn safe_access(arr: *u16, len: i32, index: i32) !u16 {
     if index < 0 || index >= len {

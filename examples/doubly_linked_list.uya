@@ -1,9 +1,9 @@
 // 双向链表实现
 // 使用 FFI 指针和堆内存管理
 
-extern malloc(size: i32) *void;
-extern free(ptr: *void) void;
-extern printf(fmt: *byte, ...) i32;
+extern fn malloc(size: i32) *void;
+extern fn free(ptr: *void) void;
+extern fn printf(fmt: *byte, ...) i32;
 
 // 链表节点结构体
 struct Node {

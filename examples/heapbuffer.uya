@@ -1,5 +1,5 @@
-extern malloc(size: i32) *void;
-extern free(ptr: *void) void;
+extern fn malloc(size: i32) *void;
+extern fn free(ptr: *void) void;
 
 struct HeapBuffer {
     data: *byte,

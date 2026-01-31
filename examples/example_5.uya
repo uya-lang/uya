@@ -1,11 +1,11 @@
    // ❌ 编译错误：s 的生命周期不足以支撑返回的接口值
-   fn example() IWriter {
+   fn example_err() IWriter {
        const s: Console = Console{ fd: 1 };
        return s;  // 编译错误：s 的生命周期不足
    }
    
    // ✅ 编译通过：返回具体类型，调用者装箱
-   fn example() Console {
+   fn example_ok() Console {
        return Console{ fd: 1 };
    }
    

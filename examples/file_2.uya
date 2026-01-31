@@ -1,6 +1,6 @@
 // 示例 1：文件句柄自动关闭
-extern open(path: *byte, flags: i32) i32;
-extern close(fd: i32) i32;
+extern fn open(path: *byte, flags: i32) i32;
+extern fn close(fd: i32) i32;
 
 struct File {
     fd: i32
@@ -19,8 +19,8 @@ fn example1() void {
 }
 
 // 示例 2：堆内存自动释放
-extern malloc(size: i32) *void;
-extern free(ptr: *void) void;
+extern fn malloc(size: i32) *void;
+extern fn free(ptr: *void) void;
 
 struct HeapBuffer {
     data: *byte,

@@ -2,10 +2,10 @@
 error FileError;
 error ParseError;
 
-extern open(path: *byte, flags: i32) i32;  // 简化示例，实际 C 函数需要 flags 参数
-extern close(fd: i32) i32;
-extern read(fd: i32, buf: *byte, size: i32) i32;
-extern printf(fmt: *byte, ...) i32;
+extern fn open(path: *byte, flags: i32) i32;  // 简化示例，实际 C 函数需要 flags 参数
+extern fn close(fd: i32) i32;
+extern fn read(fd: i32, buf: *byte, size: i32) i32;
+extern fn printf(fmt: *byte, ...) i32;
 
 struct File {
     fd: i32

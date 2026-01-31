@@ -1,13 +1,13 @@
-fn process(ptr: *File) void {
-    // 函数参数是指针，不涉及移动
-    const fd: i32 = ptr.fd;  // 通过指针访问
+fn process(ptr: &File) void {
+    // 函数参数是引用，不涉及移动（规范：普通函数参数用 &T）
+    const fd: i32 = ptr.fd;  // 通过引用访问
 }
 
 fn example() void {
     const file: File = File{ fd: 1 };
-    const ptr: *File = &file;
+    const ptr: &File = &file;
     
-    process(ptr);  // 传递指针给函数
+    process(ptr);  // 传递引用给函数
     
     // ❌ 编译错误：ptr 仍然存在，指向 file，不能移动
     // const file2: File = file;  // 错误：存在指向 file 的活跃指针（ptr）

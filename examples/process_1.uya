@@ -1,10 +1,10 @@
-fn process(ptr: *File) void {
-    // 通过指针访问，不涉及移动
+fn process(ptr: &File) void {
+    // 通过指针访问，不涉及移动（规范：普通函数参数用 &T）
 }
 
 fn example() void {
     const file: File = File{ fd: 1 };
-    const ptr: *File = &file;
-    process(ptr);  // ✅ 编译通过：传递指针，file 不被移动
+    const ptr: &File = &file;
+    process(ptr);  // ✅ 编译通过：传递引用，file 不被移动
     // file 仍然可以使用
 }

@@ -2,7 +2,7 @@ struct Mat4 {
   m: [f32: 16]
 }
 
-extern printf(fmt: *byte, ...) i32;
+extern fn printf(fmt: *byte, ...) i32;
 
 fn print_mat(mat: Mat4) void {
   var i: i32 = 0;

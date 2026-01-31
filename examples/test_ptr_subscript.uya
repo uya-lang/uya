@@ -1,4 +1,4 @@
-extern printf(fmt: *byte, ...) i32;
+extern fn printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
     var arr: [i32: 10];

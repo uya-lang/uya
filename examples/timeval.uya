@@ -5,7 +5,7 @@ extern struct timeval {
 }
 
 // 声明使用该结构体的 C 函数
-extern gettimeofday(tv: *timeval, tz: *void) i32;
+extern fn gettimeofday(tv: *timeval, tz: *void) i32;
 
 // 使用
 fn get_current_time() timeval {

@@ -1,3 +1,5 @@
+extern fn printf(fmt: *byte, ...) i32;
+
 // ✅ 使用错误联合类型处理可预测错误
 fn safe_divide(a: i32, b: i32) !i32 {
     if b == 0 {

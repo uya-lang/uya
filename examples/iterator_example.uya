@@ -1,4 +1,4 @@
-extern printf(fmt: *byte, ...) i32;
+extern fn printf(fmt: *byte, ...) i32;
 
 // 迭代器接口定义（需要先定义接口，然后定义结构体）
 interface IIteratorI32 {
