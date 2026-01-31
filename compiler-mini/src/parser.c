@@ -3233,10 +3233,29 @@ ASTNode *parser_parse_statement(Parser *parser) {
         }
         stmt->data.if_stmt.condition = condition;
         
-        // 解析 then 分支（代码块）
-        // 注意：如果当前 token 是 '{'，它应该是代码块的开始，而不是表达式的一部分
-        // 因此，我们直接解析代码块，而不需要担心结构体字面量的歧义
-        ASTNode *then_branch = parser_parse_block(parser);
+        // 解析 then 分支：允许 { block } 或单条语句（如 if (x) return 2;）
+        ASTNode *then_branch = NULL;
+        if (parser_match(parser, TOKEN_LEFT_BRACE)) {
+            then_branch = parser_parse_block(parser);
+        } else {
+            ASTNode *single = parser_parse_statement(parser);
+            if (single == NULL) {
+                return NULL;
+            }
+            // 包装单条语句为块节点
+            ASTNode *block = ast_new_node(AST_BLOCK, single->line, single->column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (block == NULL) {
+                return NULL;
+            }
+            ASTNode **stmts = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *));
+            if (stmts == NULL) {
+                return NULL;
+            }
+            stmts[0] = single;
+            block->data.block.stmts = stmts;
+            block->data.block.stmt_count = 1;
+            then_branch = block;
+        }
         if (then_branch == NULL) {
             return NULL;
         }
@@ -3257,13 +3276,31 @@ ASTNode *parser_parse_statement(Parser *parser) {
                 // else if 语句本身作为 else 分支
                 // 注意：这里将整个 if 语句作为 else 分支，而不是只取 then 分支
                 stmt->data.if_stmt.else_branch = else_if_stmt;
-            } else {
+            } else if (parser_match(parser, TOKEN_LEFT_BRACE)) {
                 // else { block }：解析代码块
                 ASTNode *else_branch = parser_parse_block(parser);
                 if (else_branch == NULL) {
                     return NULL;
                 }
                 stmt->data.if_stmt.else_branch = else_branch;
+            } else {
+                // else 单条语句：包装为块
+                ASTNode *single = parser_parse_statement(parser);
+                if (single == NULL) {
+                    return NULL;
+                }
+                ASTNode *block = ast_new_node(AST_BLOCK, single->line, single->column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                if (block == NULL) {
+                    return NULL;
+                }
+                ASTNode **stmts = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *));
+                if (stmts == NULL) {
+                    return NULL;
+                }
+                stmts[0] = single;
+                block->data.block.stmts = stmts;
+                block->data.block.stmt_count = 1;
+                stmt->data.if_stmt.else_branch = block;
             }
         } else {
             stmt->data.if_stmt.else_branch = NULL;

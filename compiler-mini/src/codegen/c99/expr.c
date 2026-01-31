@@ -914,7 +914,7 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             if (err_name) {
                 const char *safe = get_safe_c_identifier(codegen, err_name);
                 c99_emit_indent(codegen);
-                fprintf(codegen->output, "uint32_t %s = _uya_catch_tmp.error_id;\n", safe);
+                fprintf(codegen->output, "%s %s = _uya_catch_tmp;\n", union_c, safe);
             }
             for (int i = 0; i < n; i++) {
                 ASTNode *s = block->data.block.stmts[i];

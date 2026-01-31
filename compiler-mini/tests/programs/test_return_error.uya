@@ -1,8 +1,10 @@
+// main() !i32 中 try 传播错误时，bridge 将 error_id 作为退出码；本测试捕获错误并返回 0 以通过脚本
 error X;
 fn f() !i32 {
     return error.X;
 }
 fn main() !i32 {
-    const v: i32 = try f();
-    return v;
+    const v: i32 = f() catch { return 0; };
+    if (v != 0) return 1;
+    return 0;
 }

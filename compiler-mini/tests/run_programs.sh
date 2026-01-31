@@ -283,27 +283,10 @@ process_single_test() {
     compiler_exit=$?
     
     # 检查是否是预期编译失败的测试文件
-    # test_ffi_ptr_in_normal_fn: 普通函数不能使用 FFI 指针
-    # test_error_*: 各种编译错误测试（类型不匹配、未初始化变量、变量遮蔽、const 重新赋值、返回值类型错误等）
-    # 已知编译崩溃的测试（编译器 bug，退出码 139）：
-    # - test_buffer_ptr_access: 指针数组访问导致编译器崩溃
-    # - test_pointer_array_access: 指针数组访问导致编译器崩溃
-    # - test_complex_expressions: 复杂表达式导致编译器崩溃
-    # - test_mixed_types: 混合类型导致编译器崩溃
-    # - test_struct_array_field: 结构体数组字段导致编译器崩溃
-    # - test_unary_operators: 一元运算符导致编译器崩溃
+    # 约定：文件名（不含后缀）以 error_ 开头表示期望编译失败
     is_expected_fail=false
-    is_known_crash=false
-    if [ "$base_name" = "test_ffi_ptr_in_normal_fn" ] || [[ "$base_name" =~ ^test_error_ ]]; then
+    if [[ "$base_name" =~ ^error_ ]]; then
         is_expected_fail=true
-    fi
-    if [ "$base_name" = "test_buffer_ptr_access" ] || \
-       [ "$base_name" = "test_pointer_array_access" ] || \
-       [ "$base_name" = "test_complex_expressions" ] || \
-       [ "$base_name" = "test_mixed_types" ] || \
-       [ "$base_name" = "test_struct_array_field" ] || \
-       [ "$base_name" = "test_unary_operators" ]; then
-        is_known_crash=true
     fi
     
     if [ $compiler_exit -ne 0 ]; then
@@ -314,12 +297,6 @@ process_single_test() {
                 echo "  ✓ 测试通过（预期编译失败）"
             fi
             PASSED=$((PASSED + 1))
-        elif [ "$is_known_crash" = true ] && [ $compiler_exit -eq 139 ]; then
-            # 已知的编译器崩溃（段错误），标记为跳过
-            if [ "$ERRORS_ONLY" = false ]; then
-                echo "  ⚠ 跳过（已知编译器崩溃，退出码: $compiler_exit）"
-            fi
-            PASSED=$((PASSED + 1))  # 不计算为失败，但也不计算为真正的通过
         else
             # 显示错误信息
             if [ "$ERRORS_ONLY" = true ]; then
@@ -346,11 +323,6 @@ process_single_test() {
             echo ""
         fi
         return
-    fi
-    
-    # 如果编译成功，但这是已知崩溃的测试，说明问题已修复
-    if [ "$is_known_crash" = true ] && [ "$ERRORS_ONLY" = false ]; then
-        echo "  ℹ 已知崩溃测试已修复"
     fi
     
     # 检查输出文件是否生成
