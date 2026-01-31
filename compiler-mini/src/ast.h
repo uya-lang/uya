@@ -143,10 +143,11 @@ struct ASTNode {
             int field_count;          // 字段数量
         } struct_init;
         
-        // 数组字面量（[expr1, expr2, ..., exprN]）
+        // 数组字面量（[expr1, expr2, ..., exprN] 或 [value: N]）
         struct {
             struct ASTNode **elements;  // 元素表达式数组
-            int element_count;          // 元素数量
+            int element_count;          // 元素数量（列表形式）或 1（重复形式）
+            struct ASTNode *repeat_count_expr;  // 非 NULL 表示 [value: N]，N 为此表达式（编译期常量）
         } array_literal;
         
         // sizeof 表达式（sizeof(Type) 或 sizeof(expr)）

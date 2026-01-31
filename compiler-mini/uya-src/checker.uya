@@ -836,6 +836,81 @@ fn get_last_checker_error() &byte {
     return last_checker_error_message;
 }
 
+// 评估编译时常量表达式（用于 [value: N] 的 N 等），返回整数值；-1 表示无法评估
+fn checker_eval_const_expr(checker: &TypeChecker, expr: &ASTNode) i32 {
+    if expr == null || checker == null {
+        return -1;
+    }
+    if expr.type == ASTNodeType.AST_NUMBER {
+        return expr.number_value as i32;
+    } else if expr.type == ASTNodeType.AST_IDENTIFIER {
+        if checker.program_node == null {
+            return -1;
+        }
+        const program: &ASTNode = checker.program_node;
+        if program.type != ASTNodeType.AST_PROGRAM {
+            return -1;
+        }
+        var i: i32 = 0;
+        while i < program.program_decl_count {
+            const decl: &ASTNode = program.program_decls[i];
+            if decl != null && decl.type == ASTNodeType.AST_VAR_DECL &&
+               decl.var_decl_name != null &&
+               strcmp(decl.var_decl_name as *byte, expr.identifier_name as *byte) == 0 &&
+               decl.var_decl_is_const != 0 {
+                const init: &ASTNode = decl.var_decl_init;
+                if init != null {
+                    return checker_eval_const_expr(checker, init);
+                }
+                return -1;
+            }
+            i = i + 1;
+        }
+        return -1;
+    } else if expr.type == ASTNodeType.AST_BINARY_EXPR {
+        const left_val: i32 = checker_eval_const_expr(checker, expr.binary_expr_left);
+        const right_val: i32 = checker_eval_const_expr(checker, expr.binary_expr_right);
+        if left_val == -1 || right_val == -1 {
+            return -1;
+        }
+        const op: TokenType = expr.binary_expr_op as TokenType;
+        if op == TokenType.TOKEN_PLUS {
+            return left_val + right_val;
+        } else if op == TokenType.TOKEN_MINUS {
+            return left_val - right_val;
+        } else if op == TokenType.TOKEN_ASTERISK {
+            return left_val * right_val;
+        } else if op == TokenType.TOKEN_SLASH {
+            if right_val == 0 {
+                return -1;
+            }
+            return left_val / right_val;
+        } else if op == TokenType.TOKEN_PERCENT {
+            if right_val == 0 {
+                return -1;
+            }
+            return left_val % right_val;
+        } else {
+            return -1;
+        }
+    } else if expr.type == ASTNodeType.AST_UNARY_EXPR {
+        const operand_val: i32 = checker_eval_const_expr(checker, expr.unary_expr_operand);
+        if operand_val == -1 {
+            return -1;
+        }
+        const op: TokenType = expr.unary_expr_op as TokenType;
+        if op == TokenType.TOKEN_PLUS {
+            return operand_val;
+        } else if op == TokenType.TOKEN_MINUS {
+            return -operand_val;
+        } else {
+            return -1;
+        }
+    } else {
+        return -1;
+    }
+}
+
 // 报告类型检查错误
 // 参数：checker - TypeChecker 指针，node - AST 节点（用于获取行号、列号和文件名），message - 错误消息
 fn checker_report_error(checker: &TypeChecker, node: &ASTNode, message: &byte) void {
@@ -1157,29 +1232,45 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         result.struct_name = expr.struct_init_struct_name;
         return result;
     } else if expr.type == ASTNodeType.AST_ARRAY_LITERAL {
-        // 数组字面量：从第一个元素推断元素类型，使用元素数量作为数组大小
+        // 数组字面量：列表形式或 [value: N] 重复形式
+        const repeat_count_expr: &ASTNode = expr.array_literal_repeat_count_expr;
         const element_count: i32 = expr.array_literal_element_count;
         const elements: & & ASTNode = expr.array_literal_elements;
         
+        if repeat_count_expr != null {
+            const n: i32 = checker_eval_const_expr(checker, repeat_count_expr);
+            if n < 0 || elements == null || element_count < 1 {
+                result.kind = TypeKind.TYPE_VOID;
+                return result;
+            }
+            const element_type: Type = checker_infer_type(checker, elements[0]);
+            if element_type.kind == TypeKind.TYPE_VOID {
+                result.kind = TypeKind.TYPE_VOID;
+                return result;
+            }
+            const element_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+            if element_type_ptr == null {
+                result.kind = TypeKind.TYPE_VOID;
+                return result;
+            }
+            element_type_ptr[0] = element_type;
+            result.kind = TypeKind.TYPE_ARRAY;
+            result.element_type = element_type_ptr;
+            result.array_size = n;
+            return result;
+        }
+        
         if element_count == 0 {
-            // 空数组：无法推断类型，返回void类型
-            // 放宽检查：允许空数组字面量（类型检查时可能从上下文推断类型）
             result.kind = TypeKind.TYPE_VOID;
             return result;
         }
         
-        // 从第一个元素推断元素类型
-        // 注意：Uya 不支持指针运算，需要使用数组访问
         const element_type: Type = checker_infer_type(checker, elements[0]);
         if element_type.kind == TypeKind.TYPE_VOID {
-            // 元素类型无效：放宽检查，允许类型推断失败的情况
-            // 这在编译器自举时很常见，因为类型推断可能失败
             result.kind = TypeKind.TYPE_VOID;
             return result;
         }
         
-        // 分配元素类型结构（从Arena分配）
-        // 注意：Uya 不支持指针运算，需要使用数组访问
         const element_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
         if element_type_ptr == null {
             result.kind = TypeKind.TYPE_VOID;
@@ -1187,7 +1278,6 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         }
         element_type_ptr[0] = element_type;
         
-        // 创建数组类型
         result.kind = TypeKind.TYPE_ARRAY;
         result.element_type = element_type_ptr;
         result.array_size = element_count;

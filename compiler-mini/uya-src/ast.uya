@@ -98,9 +98,10 @@ struct ASTNode {
     struct_init_field_names: & & byte,
     struct_init_field_values: & & ASTNode,
     struct_init_field_count: i32,
-    // array_literal
+    // array_literal（[expr1, ...] 或 [value: N]）
     array_literal_elements: & & ASTNode,
     array_literal_element_count: i32,
+    array_literal_repeat_count_expr: &ASTNode,
     // sizeof_expr
     sizeof_expr_target: &ASTNode,
     sizeof_expr_is_type: i32,
@@ -204,6 +205,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.struct_init_field_count = 0;
     node.array_literal_elements = null;
     node.array_literal_element_count = 0;
+    node.array_literal_repeat_count_expr = null;
     node.sizeof_expr_target = null;
     node.sizeof_expr_is_type = 0;
     node.len_expr_array = null;

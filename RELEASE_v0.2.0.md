@@ -10,7 +10,7 @@
 
 ### 规范同步：内置函数以 @ 开头
 
-- **统一语法**：所有内置函数均以 `@` 开头，与完整 Uya 规范（uya.md 0.32）一致。
+- **统一语法**：所有内置函数均以 `@` 开头，与完整 Uya 规范（uya.md 0.33）一致。
 - **支持的内置**：`@sizeof`（类型/表达式大小）、`@alignof`（对齐）、`@len`（数组长度）、`@max`、`@min`（整数类型极值）。
 - **迁移**：原有无前缀写法已废弃；测试与示例已全部迁移为 `@sizeof`、`@alignof`、`@len`、`@max`、`@min`。
 
@@ -105,7 +105,7 @@ cd compiler-mini/uya-src
 
 ## 已知限制与后续方向
 
-- **本版本未包含**：元组类型、重复数组字面量 `[value; N]`、错误处理、defer/errdefer、切片、match 等（见 `compiler-mini/todo_mini_to_full.md`）。
+- **本版本未包含**：元组类型、重复数组字面量 `[value: N]`、错误处理、defer/errdefer、切片、match 等（见 `compiler-mini/todo_mini_to_full.md`）。
 - **后续计划**：在稳定 0.2.0 基础上，按待办顺序继续实现错误处理、defer/errdefer、切片等特性。
 
 ---

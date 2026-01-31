@@ -346,11 +346,18 @@ void collect_string_constants_from_expr(C99CodeGenerator *codegen, ASTNode *expr
                 collect_string_constants_from_expr(codegen, expr->data.struct_init.field_values[i]);
             }
             break;
-        case AST_ARRAY_LITERAL:
-            for (int i = 0; i < expr->data.array_literal.element_count; i++) {
-                collect_string_constants_from_expr(codegen, expr->data.array_literal.elements[i]);
+        case AST_ARRAY_LITERAL: {
+            ASTNode *repeat = expr->data.array_literal.repeat_count_expr;
+            int count = expr->data.array_literal.element_count;
+            if (repeat != NULL && count >= 1) {
+                collect_string_constants_from_expr(codegen, expr->data.array_literal.elements[0]);
+            } else {
+                for (int i = 0; i < count; i++) {
+                    collect_string_constants_from_expr(codegen, expr->data.array_literal.elements[i]);
+                }
             }
             break;
+        }
         case AST_SIZEOF:
         case AST_LEN:
         case AST_ALIGNOF:

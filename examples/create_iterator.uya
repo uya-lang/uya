@@ -1,4 +1,4 @@
-fn create_iterator(arr: *[i32; 10]) ArrayIteratorI32 {
+fn create_iterator(arr: *[i32: 10]) ArrayIteratorI32 {
     return ArrayIteratorI32{
         arr: arr,
         current: 0,

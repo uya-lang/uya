@@ -88,6 +88,7 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_ARRAY_LITERAL:
             node->data.array_literal.elements = NULL;
             node->data.array_literal.element_count = 0;
+            node->data.array_literal.repeat_count_expr = NULL;
             break;
         case AST_SIZEOF:
             node->data.sizeof_expr.target = NULL;

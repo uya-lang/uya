@@ -14,7 +14,7 @@ interface IIteratorI32WithIndex {
 }
 
 struct ArrayIteratorI32 : IIteratorI32WithIndex {
-    arr: *[i32; 5],
+    arr: *[i32: 5],
     current: i32,
     len: i32
 }

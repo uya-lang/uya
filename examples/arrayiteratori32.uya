@@ -1,6 +1,6 @@
 // i32数组迭代器结构体
 struct ArrayIteratorI32 : IIteratorI32, IIteratorI32WithIndex {
-    arr: *[i32; N],  // 指向数组的指针
+    arr: *[i32: N],  // 指向数组的指针
     current: i32,    // 当前索引（从0开始，指向下一个要访问的元素）
     len: i32         // 数组长度
 }

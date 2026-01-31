@@ -1,4 +1,4 @@
-# Uya 语言规范 0.32（完整版 · 2026-01-31）
+# Uya 语言规范 0.33（完整版 · 2026-01-31）
 
 > 零GC · 默认高级安全 · 单页纸可读完  
 > 无lifetime符号 · 无隐式控制 · 编译期证明（本函数内）
@@ -158,7 +158,7 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
     - 示例：`const msg: [i8: 64] = "hex=${x:#06x}, pi=${pi:.2f}\n";`
 - 数组字面量：
   - 列表式：`[expr1, expr2, ..., exprN]`（元素数量必须等于数组大小）
-  - 重复式：`[value; N]`（value 重复 N 次，N 为编译期常量）
+  - 重复式：`[value: N]`（value 重复 N 次，与数组类型 `[T: N]` 一致；N 为编译期常量）
   - 数组字面量的所有元素类型必须完全一致
   - 元素类型必须与数组声明类型匹配（不支持类型推断）
   - 示例：`const arr: [f32: 4] = [1.0, 2.0, 3.0, 4.0];`（元素类型 `f32` 必须与数组元素类型 `f32` 完全匹配）
@@ -1176,7 +1176,7 @@ fn get_large_result() LargeResult {
     // 返回值 40 字节 > 16 字节 -> 使用 sret 指针
     // 调用者在栈上分配内存，传递指针作为隐式第一个参数（rdi）
     // 函数将结果写入 [rdi]，返回 rdi 的值（rax = rdi）
-    var result: LargeResult = LargeResult{ data: [0; 10] };
+    var result: LargeResult = LargeResult{ data: [0: 10] };
     return result;
 }
 ```
@@ -1273,7 +1273,7 @@ struct LargeResult {
 fn process() !LargeResult {
     // !LargeResult 大小 = max(40, 4) = 40 字节
     // 40 字节 > 16 字节（x86-64），使用 sret 指针返回
-    var result: LargeResult = LargeResult{ data: [0; 10] };
+    var result: LargeResult = LargeResult{ data: [0: 10] };
     return result;
 }
 ```

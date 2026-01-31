@@ -4,7 +4,7 @@ extern fn process_i32_array(data: *i32, len: i32) i32;
 extern fn process_f32_array(data: *f32, len: i32) i32;
 
 // 2. FFI 函数调用
-const data: [u16: 10] = [0; 10];
+const data: [u16: 10] = [0: 10];
 process_u16_array(&data[0], 10);
 
 // 3. 下标访问（需要长度约束证明）

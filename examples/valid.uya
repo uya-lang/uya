@@ -1,11 +1,11 @@
    // ✅ 合法：切片绑定到参数的生命周期
-   fn valid(arr: &[i32; 10]) &[i32] {
+   fn valid(arr: &[i32: 10]) &[i32] {
        return &arr[2:5];  // 切片绑定到arr的生命周期
    }
    
    // ❌ 非法：局部数据的生命周期不足
    fn invalid() &[i32] {
-       const local: [i32: 10] = [0; 10];
+       const local: [i32: 10] = [0: 10];
        return &local[2:5];  // 编译错误：local的生命周期不足
    }
    

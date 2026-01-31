@@ -1032,50 +1032,59 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         }
     }
     
-    // 解析数组字面量：[expr1, expr2, ..., exprN] 或 []
+    // 解析数组字面量：[expr1, expr2, ..., exprN]、[value: N] 或 []
     if parser.current_token.type == TokenType.TOKEN_LEFT_BRACKET {
         const array_line: i32 = parser.current_token.line;
         const array_column: i32 = parser.current_token.column;
         parser_consume(parser);  // 消费 '['
         
-        // 创建数组字面量节点
         const array_literal: &ASTNode = ast_new_node(ASTNodeType.AST_ARRAY_LITERAL, array_line, array_column, parser.arena, parser_get_filename(parser));
         if array_literal == null {
             return null;
         }
         
-        // 初始化元素数组
-        var elements: & & ASTNode = null;
-        var element_count: i32 = 0;
-        var element_capacity: i32 = 0;
-        
-        // 检查是否为空数组
-        if parser_match(parser, TokenType.TOKEN_RIGHT_BRACKET) == 0 {
-            // 有元素，解析元素列表
-            while parser.current_token != null && 
-                  parser_match(parser, TokenType.TOKEN_RIGHT_BRACKET) == 0 && 
-                  parser_match(parser, TokenType.TOKEN_EOF) == 0 {
-                
-                // 解析元素表达式
-                const element: &ASTNode = parser_parse_expression(parser);
-                if element == null {
+        if parser_match(parser, TokenType.TOKEN_RIGHT_BRACKET) != 0 {
+            parser_consume(parser);
+            array_literal.array_literal_elements = null;
+            array_literal.array_literal_element_count = 0;
+            array_literal.array_literal_repeat_count_expr = null;
+        } else {
+            const first: &ASTNode = parser_parse_expression(parser);
+            if first == null {
+                return null;
+            }
+            if parser.current_token != null && parser.current_token.type == TokenType.TOKEN_COLON {
+                parser_consume(parser);
+                const count_expr: &ASTNode = parser_parse_expression(parser);
+                if count_expr == null {
                     return null;
                 }
-                
-                // 扩展元素数组
+                if parser_expect(parser, TokenType.TOKEN_RIGHT_BRACKET) == null {
+                    return null;
+                }
+                const elements: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode)) as & & ASTNode;
+                if elements == null {
+                    return null;
+                }
+                elements[0] = first;
+                array_literal.array_literal_elements = elements;
+                array_literal.array_literal_element_count = 1;
+                array_literal.array_literal_repeat_count_expr = count_expr;
+            } else {
+                var elements: & & ASTNode = null;
+                var element_count: i32 = 0;
+                var element_capacity: i32 = 0;
                 if element_count >= element_capacity {
                     var new_capacity: i32 = 0;
-                        if element_capacity == 0 {
-                            new_capacity = 4;
-                        } else {
-                            new_capacity = element_capacity * 2;
-                        }
+                    if element_capacity == 0 {
+                        new_capacity = 4;
+                    } else {
+                        new_capacity = element_capacity * 2;
+                    }
                     const new_elements: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_capacity) as & & ASTNode;
                     if new_elements == null {
                         return null;
                     }
-                    
-                    // 复制旧元素
                     if elements != null {
                         var i: i32 = 0;
                         while i < element_count {
@@ -1083,31 +1092,54 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                             i = i + 1;
                         }
                     }
-                    
                     elements = new_elements;
                     element_capacity = new_capacity;
                 }
-                
-                elements[element_count] = element;
+                elements[element_count] = first;
                 element_count = element_count + 1;
-                
-                // 检查是否有逗号
-                if parser_match(parser, TokenType.TOKEN_COMMA) != 0 {
-                    parser_consume(parser);
-                } else {
-                    // 没有逗号，应该是最后一个元素
-                    break;
+                while parser.current_token != null &&
+                      parser_match(parser, TokenType.TOKEN_RIGHT_BRACKET) == 0 &&
+                      parser_match(parser, TokenType.TOKEN_EOF) == 0 {
+                    if parser_match(parser, TokenType.TOKEN_COMMA) != 0 {
+                        parser_consume(parser);
+                    }
+                    if parser.current_token != null && parser_match(parser, TokenType.TOKEN_RIGHT_BRACKET) != 0 {
+                        break;
+                    }
+                    const element: &ASTNode = parser_parse_expression(parser);
+                    if element == null {
+                        return null;
+                    }
+                    if element_count >= element_capacity {
+                        var new_capacity: i32 = 0;
+                        if element_capacity == 0 {
+                            new_capacity = 4;
+                        } else {
+                            new_capacity = element_capacity * 2;
+                        }
+                        const new_elements: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_capacity) as & & ASTNode;
+                        if new_elements == null {
+                            return null;
+                        }
+                        var i: i32 = 0;
+                        while i < element_count {
+                            new_elements[i] = elements[i];
+                            i = i + 1;
+                        }
+                        elements = new_elements;
+                        element_capacity = new_capacity;
+                    }
+                    elements[element_count] = element;
+                    element_count = element_count + 1;
                 }
+                if parser_expect(parser, TokenType.TOKEN_RIGHT_BRACKET) == null {
+                    return null;
+                }
+                array_literal.array_literal_elements = elements;
+                array_literal.array_literal_element_count = element_count;
+                array_literal.array_literal_repeat_count_expr = null;
             }
         }
-        
-        // 期望 ']'
-        if parser_expect(parser, TokenType.TOKEN_RIGHT_BRACKET) == null {
-            return null;
-        }
-        
-        array_literal.array_literal_elements = elements;
-        array_literal.array_literal_element_count = element_count;
         
         // 字段访问和数组访问可能跟在数组字面量后面（例如：[1,2,3][0]）
         var result: &ASTNode = array_literal;

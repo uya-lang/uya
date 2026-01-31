@@ -87,13 +87,23 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                     c99_emit(codegen, "return (struct %s) { .data = ", struct_name);
                     
                     if (expr->type == AST_ARRAY_LITERAL) {
-                        // 数组字面量
+                        // 数组字面量（列表形式或 [value: N]）
                         fputc('{', codegen->output);
                         ASTNode **elements = expr->data.array_literal.elements;
                         int element_count = expr->data.array_literal.element_count;
-                        for (int i = 0; i < element_count; i++) {
-                            if (i > 0) fputs(", ", codegen->output);
-                            gen_expr(codegen, elements[i]);
+                        ASTNode *repeat_count_expr = expr->data.array_literal.repeat_count_expr;
+                        if (repeat_count_expr != NULL && element_count >= 1) {
+                            int n = eval_const_expr(codegen, repeat_count_expr);
+                            if (n <= 0) n = 1;
+                            for (int i = 0; i < n; i++) {
+                                if (i > 0) fputs(", ", codegen->output);
+                                gen_expr(codegen, elements[0]);
+                            }
+                        } else {
+                            for (int i = 0; i < element_count; i++) {
+                                if (i > 0) fputs(", ", codegen->output);
+                                gen_expr(codegen, elements[i]);
+                            }
                         }
                         fputc('}', codegen->output);
                     } else {

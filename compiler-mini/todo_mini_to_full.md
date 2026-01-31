@@ -26,7 +26,7 @@
 
 ## 0. 规范同步：内置函数以 @ 开头
 
-规范已升级为所有内置函数以 `@` 开头（uya.md 0.32、UYA_MINI_SPEC.md）。已实现新语法并迁移测试。
+规范已升级为所有内置函数以 `@` 开头（uya.md 0.33、UYA_MINI_SPEC.md）。已实现新语法并迁移测试。
 
 - [x] **Lexer**：识别 `@` 及 `@` 后标识符（如 `@sizeof`、`@alignof`、`@len`、`@max`、`@min`）；新增 `TOKEN_AT_IDENTIFIER` 类型
 - [x] **AST**：沿用现有节点（AST_SIZEOF、AST_ALIGNOF、AST_LEN、AST_INT_LIMIT）
@@ -45,7 +45,7 @@
 - [x] **整数类型**：增加 `i8`、`i16`、`i64`、`u8`、`u16`、`u32`、`u64`（Lexer 无需改，Checker + Codegen 类型映射）
 - [x] **类型极值**：`@max`、`@min` 内置函数（编译期常量，以 @ 开头），规范 uya.md §2、§16
 - [ ] **元组类型**：`(T1, T2, ...)`，字面量、`.0`/`.1` 访问、解构，规范 uya.md §2 元组类型说明
-- [ ] **重复数组字面量**：`[value; N]`，规范 uya.md §1、§7
+- [x] **重复数组字面量**：`[value: N]`（与类型 `[T: N]` 一致），规范 uya.md §1、§7
 
 **涉及**：`checker.h`/`checker.c`（TypeKind、type_from_ast、运算/转换）、`codegen/c99/types.c`（c99_type_to_c）、parser 数组字面量（`;` 分支）、uya-src 对应模块。
 

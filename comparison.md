@@ -40,7 +40,7 @@ if i < arr.len() {
 **Uya 示例**：
 ```uya
 // Uya：程序员提供证明，编译器验证证明
-const arr: [i32; 10] = [0; 10];
+const arr: [i32: 10] = [0: 10];
 const i: i32 = get_index();
 if i < 0 || i >= 10 {
     return error.OutOfBounds;  // 显式检查，返回错误
@@ -69,7 +69,7 @@ const x: i32 = arr[i];  // 编译器证明 i >= 0 && i < 10，安全
 **Uya 的编译期证明**：
 ```uya
 // Uya：编译期证明，零运行时检查
-fn safe_access(arr: [i32; 10], i: i32) !i32 {
+fn safe_access(arr: [i32: 10], i: i32) !i32 {
     if i < 0 || i >= 10 {
         return error.OutOfBounds;  // 显式错误返回
     }
@@ -95,8 +95,8 @@ fn safe_access(arr: [i32; 10], i: i32) !i32 {
 | `&T`            | 普通指针      | 4/8 B（平台相关） | 无 lifetime 符号；32位平台=4B，64位平台=8B |
 | `&atomic T`  | 原子指针      | 4/8 B（平台相关） | 关键字驱动；32位平台=4B，64位平台=8B |
 | `atomic T`      | 原子类型      | sizeof(T) | 语言级原子类型 |
-| `[T; N]`        | T[N]          | N·sizeof(T) | N 为编译期正整数，对齐 = T 的对齐 |
-| `[[T; N]; M]`   | T[N][M]       | M·N·sizeof(T) | 多维数组，M 和 N 为编译期正整数，对齐 = T 的对齐 |
+| `[T: N]`        | T[N]          | N·sizeof(T) | N 为编译期正整数，对齐 = T 的对齐 |
+| `[[T: N]: M]`   | T[N][M]       | M·N·sizeof(T) | 多维数组，M 和 N 为编译期正整数，对齐 = T 的对齐 |
 | `struct S { }`  | struct S      | 字段顺序布局 | 对齐 = 最大字段对齐 |
 | `interface I { }` | -         | 8/16 B（平台相关） | vtable 指针(4/8B) + 数据指针(4/8B)；32位平台=8B，64位平台=16B |
 | `enum E { }` | enum E        | sizeof(底层类型) | 枚举类型，默认底层类型为 i32，与 C 枚举兼容 |
@@ -147,9 +147,9 @@ Uya 支持类似 Python 的切片语法，但返回切片视图（引用）而�
 
 ```uya
 // 支持类似 Python 的切片语法 `&arr[start:len]`，返回切片视图
-var arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+var arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 const slice: &[i32] = &arr[2:5];      // 动态长度切片视图
-const exact_slice: &[i32; 3] = &arr[2:3]; // 已知长度切片视图
+const exact_slice: &[i32: 3] = &arr[2:3]; // 已知长度切片视图
 const tail: &[i32] = &arr[-3:3];      // 负数索引，等价于 &arr[7:3]
 
 // 切片是原数据的视图，修改原数组会影响切片
@@ -172,7 +172,7 @@ Uya 支持 Zig 风格的 for 循环迭代：
 
 ```uya
 // Zig 风格的 for 循环迭代
-const arr: [i32; 5] = [1, 2, 3, 4, 5];
+const arr: [i32: 5] = [1, 2, 3, 4, 5];
 for arr |item, index| {
     printf("%d: %d\n", index, item);
 }
@@ -228,7 +228,7 @@ HashMap<K, V>
 Result<T, E>
 ```
 
-**Uya（0.31 版本）**：
+**Uya（0.33 版本）**：
 ```uya
 // Uya：使用括号，更清晰，更一致
 Vec(T)
@@ -265,7 +265,7 @@ struct timeval {
 }
 ```
 
-**Uya（0.31 版本）**：
+**Uya（0.33 版本）**：
 ```uya
 // Uya：extern struct 完全解放
 extern struct timeval {
@@ -306,10 +306,10 @@ timeval : ITime {
 
 Uya 从多种语言中汲取灵感，但形成了自己独特的设计哲学：**程序员提供证明，编译器验证证明**。
 
-**核心创新（0.31 版本）**：
+**核心创新（0.33 版本）**：
 1. **泛型用 `()` 不是 `<>`**：更清晰，更一致，零新符号
 2. **extern struct 完全解放**：C 兼容结构体获得 Uya 超能力，可以有方法、drop、实现接口
-3. **切片类型系统**：`&[T]` 和 `&[T; N]` 切片视图，零分配，生命周期自动绑定
+3. **切片类型系统**：`&[T]` 和 `&[T: N]` 切片视图，零分配，生命周期自动绑定
 4. **零新符号**：复用已有语法，不发明新符号
 5. **单页纸可读完**：语法简单到可以记在脑子里，概念最少但能力完整
 

@@ -593,7 +593,7 @@ alignof_expr   = '@alignof' '(' (type | expr) ')'
 len_expr       = '@len' '(' expr ')'
 int_limit_expr = '@max' | '@min'
 struct_literal = ID '{' field_init_list '}'
-array_literal  = '[' expr_list ']'
+array_literal  = '[' expr_list ']' | '[' expr ':' expr ']'
 expr_list      = [ expr { ',' expr } ]
 field_init_list = field_init { ',' field_init }
 field_init     = ID ':' expr
@@ -609,9 +609,10 @@ arg_list       = expr { ',' expr }
   - 字段顺序必须与结构体定义一致
   - 示例：`Point{ x: 10, y: 20 }`
 
-- **数组字面量**：`[expr1, expr2, ...]` 或 `[]`
+- **数组字面量**：`[expr1, expr2, ...]`、`[value: N]` 或 `[]`
   - 所有元素类型必须相同
-  - **非空数组字面量**（`[expr1, expr2, ...]`）：
+  - **重复形式**（`[value: N]`）：value 重复 N 次，与数组类型 `[T: N]` 一致用冒号；N 须为编译期常量（字面量或顶层 const）
+  - **非空数组字面量**（列表形式 `[expr1, expr2, ...]`）：
     - 元素类型从第一个元素推断，数组大小从元素个数推断
     - 元素个数必须与数组大小匹配（如果显式指定了数组类型）
     - 示例：`[1, 2, 3]`（类型推断为 `[i32: 3]`），`var arr: [i32: 3] = [1, 2, 3];`（类型显式指定）
@@ -1355,7 +1356,7 @@ Uya Mini 支持结构体和数组类型，这些特性使得编译器实现更�
 - **版本**：0.1.0
 - **创建日期**：2026-01-09
 - **最后更新**：2026-01-16（类型检查器改进）
-- **基于 Uya 规范版本**：0.32（内置函数以 @ 开头：@sizeof、@alignof、@len、@max、@min）
+- **基于 Uya 规范版本**：0.33（内置函数以 @ 开头；数组类型与重复字面量统一为 `[T: N]`、`[value: N]`）
 - **目的**：Uya Mini 编译器自举实现
 - **状态说明**：规范文档定义了完整的语法和语义规则。编译器 v0.1.0 已自举，详见项目根目录 `RELEASE_v0.1.0.md`
 - **更新说明**：

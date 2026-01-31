@@ -25,10 +25,20 @@ void gen_global_init_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         case AST_ARRAY_LITERAL: {
             ASTNode **elements = expr->data.array_literal.elements;
             int element_count = expr->data.array_literal.element_count;
+            ASTNode *repeat_count_expr = expr->data.array_literal.repeat_count_expr;
             fputc('{', codegen->output);
-            for (int i = 0; i < element_count; i++) {
-                gen_global_init_expr(codegen, elements[i]);
-                if (i < element_count - 1) fputs(", ", codegen->output);
+            if (repeat_count_expr != NULL && element_count >= 1) {
+                int n = eval_const_expr(codegen, repeat_count_expr);
+                if (n <= 0) n = 1;
+                for (int i = 0; i < n; i++) {
+                    gen_global_init_expr(codegen, elements[0]);
+                    if (i < n - 1) fputs(", ", codegen->output);
+                }
+            } else {
+                for (int i = 0; i < element_count; i++) {
+                    gen_global_init_expr(codegen, elements[i]);
+                    if (i < element_count - 1) fputs(", ", codegen->output);
+                }
             }
             fputc('}', codegen->output);
             break;

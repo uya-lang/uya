@@ -723,7 +723,7 @@
                     </div>
                     <h1>Uya 语言</h1>
                 </div>
-                <div class="version">语言规范 0.31 · 项目 v0.1.0（Uya Mini 编译器已自举）</div>
+                <div class="version">语言规范 0.33 · 项目 v0.1.0（Uya Mini 编译器已自举）</div>
                 <p class="tagline">AI友好 · 内存安全 · 并发安全 · 零 GC · 简单易学</p>
                 
                 <div class="core-features">
@@ -916,7 +916,7 @@ File {
                             </div>
                             <pre><code class="language-uya">const x: u32 = 255;
 const pi: f64 = 3.1415926;
-const msg: [i8; 64] = "hex=${x:#06x}, pi=${pi:.2f}\n";</code></pre>
+const msg: [i8: 64] = "hex=${x:#06x}, pi=${pi:.2f}\n";</code></pre>
                         </div>
                     </div>
                     
@@ -1012,7 +1012,7 @@ if i < arr.len() {
                             <button class="code-copy">复制</button>
                         </div>
                         <pre><code class="language-uya">// Uya：程序员提供证明，编译器验证证明
-const arr: [i32; 10] = [0; 10];
+const arr: [i32: 10] = [0: 10];
 const i: i32 = get_index();
 if i < 0 || i >= 10 {
     return error.OutOfBounds;  // 显式检查，返回预定义错误（可选）
@@ -1071,7 +1071,7 @@ const x: i32 = arr[i];  // 编译器证明 i >= 0 && i < 10，安全</code></pre
                             <button class="code-copy">复制</button>
                         </div>
                         <pre><code class="language-uya">// Uya：开发者编写显式检查，编译器在当前函数内验证
-fn safe_access(arr: [i32; 10], i: i32) !i32 {
+fn safe_access(arr: [i32: 10], i: i32) !i32 {
     if i < 0 || i >= 10 {
         return error.OutOfBounds;  // 显式错误处理
     }
@@ -1246,7 +1246,7 @@ fn divide(a: i32, b: i32) !i32 {
                                     <td>语言级原子类型</td>
                                 </tr>
                                 <tr>
-                                    <td><code>[T; N]</code></td>
+                                    <td><code>[T: N]</code></td>
                                     <td>T[N]</td>
                                     <td>N·sizeof(T)</td>
                                     <td>N 为编译期正整数</td>
@@ -1319,7 +1319,7 @@ if a > 0 && b > 0 && a > @max - b {  // 从 a 和 b 的类型 i32 推断
                             <button class="code-copy">复制</button>
                         </div>
                         <pre><code class="language-uya">struct Mat4 {
-  m: [f32; 16]
+  m: [f32: 16]
 }
 
 extern printf(fmt: *byte, ...) i32;
@@ -1334,7 +1334,7 @@ fn print_mat(mat: Mat4) void {
 }
 
 fn main() i32 {
-  var m: Mat4 = Mat4{ m: [0.0; 16] };
+  var m: Mat4 = Mat4{ m: [0.0: 16] };
   m.m[0]  = 1.0;
   m.m[5]  = 1.0;
   m.m[10] = 1.0;
@@ -1424,7 +1424,7 @@ fn read_file(path: *byte) !i32 {
         printf("Error occurred, cleaning up\n");
     }
 
-    var buf: [byte; 1024] = [];
+    var buf: [byte: 1024] = [];
     const n: i32 = read(file.fd, &buf[0], 1024);
     if n < 0 {
         return error.FileError;      // 预定义错误
@@ -1476,7 +1476,7 @@ fn main() i32 {
                         <pre><code class="language-uya">extern printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
-    const arr: [i32; 5] = [10, 20, 30, 40, 50];
+    const arr: [i32: 5] = [10, 20, 30, 40, 50];
     
     // 基本迭代（只获取元素值）
     printf("Basic iteration:\n");
@@ -1491,7 +1491,7 @@ fn main() i32 {
     }
     
     // 可修改迭代
-    var arr2: [i32; 5] = [10, 20, 30, 40, 50];
+    var arr2: [i32: 5] = [10, 20, 30, 40, 50];
     printf("\nMutable iteration:\n");
     for arr2 |&item| {
         *item = *item * 2;  // 修改每个元素
@@ -1511,7 +1511,7 @@ fn main() i32 {
                         <pre><code class="language-uya">extern printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
-    var arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    var arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     
     // 基本切片语法：&arr[start:len] 返回切片视图
     const slice: &[i32] = &arr[2:5];  // 动态长度切片
@@ -1540,7 +1540,7 @@ fn main() i32 {
     printf("\n");
     
     // 已知长度切片
-    const exact_slice: &[i32; 3] = &arr[0:3];
+    const exact_slice: &[i32: 3] = &arr[0:3];
     printf("Exact slice [0:3]: ");
     for exact_slice |value| {
         printf("%d ", value);  // 输出：0 1 2
@@ -1584,7 +1584,7 @@ fn process(p: &[i32]) void {
 }
 
 // 使用已知长度切片作为参数
-fn process_exact(p: &[i32; 3]) void {
+fn process_exact(p: &[i32: 3]) void {
     printf("Processing exact slice: ");
     for p |value| {
         printf("%d ", value);
@@ -1607,14 +1607,14 @@ fn process_multiple(a: i32, p1: &[i32], b: i32, p2: &[f32], c: i32) void {
 }
 
 fn main() i32 {
-    const arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-    const floats: [f32; 5] = [1.1, 2.2, 3.3, 4.4, 5.5];
+    const arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const floats: [f32: 5] = [1.1, 2.2, 3.3, 4.4, 5.5];
     
     // 传递动态长度切片
     process(&arr[2:3]);        // 传递切片 &arr[2:3]
     
     // 传递已知长度切片
-    process_exact(&arr[0:3]);  // 传递已知长度切片 &[i32; 3]
+    process_exact(&arr[0:3]);  // 传递已知长度切片 &[i32: 3]
     
     // 传递多个切片
     process_multiple(10, &arr[1:4], 20, &floats[0:3], 30);
@@ -1632,7 +1632,7 @@ fn main() i32 {
                         <pre><code class="language-uya">extern printf(fmt: *byte, ...) i32;
 
 fn main() i32 {
-    const arr: [i32; 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const arr: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     var ptr: &i32 = &arr[0];  // 指向数组首元素的指针
 
     // 基本指针算术
@@ -1671,7 +1671,7 @@ fn main() i32 {
 }
 
 // 安全的指针算术函数
-fn safe_ptr_arith(arr: [i32; 10], offset: i32) !&i32 {
+fn safe_ptr_arith(arr: [i32: 10], offset: i32) !&i32 {
     if offset < 0 || offset >= 10 {
         return error.OutOfBounds;
     }
@@ -1733,7 +1733,7 @@ fn find_index(items: &[T], target: T) i32 {
 
 fn main() i32 {
     // 创建具体类型的 ArrayList（与定义对称）
-    var buffer: [i32; 100] = [0; 100];
+    var buffer: [i32: 100] = [0: 100];
     const list: ArrayList(i32) = ArrayList(i32){
         items: &buffer[0:100],
         capacity: 100,
@@ -1812,7 +1812,7 @@ fn main() i32 {
                             <tbody>
                                 <tr>
                                     <td><code>@len</code></td>
-                                    <td><code>fn @len(a: [T; N]) i32</code></td>
+                                    <td><code>fn @len(a: [T: N]) i32</code></td>
                                     <td>返回数组元素个数 <code>N</code>（编译期常量）。对于空数组字面量 <code>[]</code>，返回数组声明时的大小，而不是 0</td>
                                 </tr>
                                 <tr>
@@ -1863,7 +1863,7 @@ struct Vec3 {
 
 struct Packet {
     id: i32,
-    data: [byte; 64]
+    data: [byte: 64]
 }
 
 fn main() i32 {
@@ -1949,7 +1949,7 @@ fn main() i32 {
             </div>
             
                 <div class="copyright">
-                <p>Uya 语言规范 0.32（完整版） · 项目 v0.1.0（Uya Mini 编译器已自举）</p>
+                <p>Uya 语言规范 0.33（完整版） · 项目 v0.1.0（Uya Mini 编译器已自举）</p>
                 <p>© 2025 Uya 语言项目。MIT 许可证。</p>
             </div>
         </div>

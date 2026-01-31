@@ -47,6 +47,8 @@ static int is_enum_variant_name_in_program(ASTNode *program_node, const char *na
 static void checker_report_error(TypeChecker *checker, ASTNode *node, const char *message);
 static Type find_struct_field_type(TypeChecker *checker, ASTNode *struct_decl, const char *field_name);
 static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node);
+/* 评估编译时常量表达式，返回整数值；-1 表示无法评估或非常量 */
+static int checker_eval_const_expr(TypeChecker *checker, ASTNode *expr);
 
 // 初始化 TypeChecker
 int checker_init(TypeChecker *checker, Arena *arena, const char *default_filename) {
@@ -831,27 +833,47 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
         }
         
         case AST_ARRAY_LITERAL: {
-            // 数组字面量：从第一个元素推断元素类型，使用元素数量作为数组大小
+            // 数组字面量：列表形式或 [value: N] 重复形式
+            ASTNode *repeat_count_expr = expr->data.array_literal.repeat_count_expr;
             int element_count = expr->data.array_literal.element_count;
             ASTNode **elements = expr->data.array_literal.elements;
             
+            if (repeat_count_expr != NULL) {
+                // [value: N] 形式：elements[0] 为 value，N 为 repeat_count_expr（须为编译期常量）
+                int n = checker_eval_const_expr(checker, repeat_count_expr);
+                if (n < 0 || (elements == NULL || element_count < 1)) {
+                    result.kind = TYPE_VOID;
+                    return result;
+                }
+                Type element_type = checker_infer_type(checker, elements[0]);
+                if (element_type.kind == TYPE_VOID) {
+                    result.kind = TYPE_VOID;
+                    return result;
+                }
+                Type *element_type_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
+                if (element_type_ptr == NULL) {
+                    result.kind = TYPE_VOID;
+                    return result;
+                }
+                *element_type_ptr = element_type;
+                result.kind = TYPE_ARRAY;
+                result.data.array.element_type = element_type_ptr;
+                result.data.array.array_size = n;
+                return result;
+            }
+            
             if (element_count == 0) {
-                // 空数组：无法推断类型，返回void类型
-                // 放宽检查：允许空数组字面量（类型检查时可能从上下文推断类型）
                 result.kind = TYPE_VOID;
                 return result;
             }
             
-            // 从第一个元素推断元素类型
+            // 列表形式：从第一个元素推断元素类型，元素数量作为数组大小
             Type element_type = checker_infer_type(checker, elements[0]);
             if (element_type.kind == TYPE_VOID) {
-                // 元素类型无效：放宽检查，允许类型推断失败的情况
-                // 这在编译器自举时很常见，因为类型推断可能失败
                 result.kind = TYPE_VOID;
                 return result;
             }
             
-            // 分配元素类型结构（从Arena分配）
             Type *element_type_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
             if (element_type_ptr == NULL) {
                 result.kind = TYPE_VOID;
@@ -859,7 +881,6 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             }
             *element_type_ptr = element_type;
             
-            // 创建数组类型
             result.kind = TYPE_ARRAY;
             result.data.array.element_type = element_type_ptr;
             result.data.array.array_size = element_count;
@@ -978,6 +999,58 @@ static int is_enum_variant_name_in_program(ASTNode *program_node, const char *na
         }
     }
     return 0;
+}
+
+// 评估编译时常量表达式（用于 [value: N] 的 N 等），返回整数值；-1 表示无法评估
+static int checker_eval_const_expr(TypeChecker *checker, ASTNode *expr) {
+    if (expr == NULL || checker == NULL) return -1;
+    switch (expr->type) {
+        case AST_NUMBER:
+            return expr->data.number.value;
+        case AST_IDENTIFIER: {
+            Symbol *sym = symbol_table_lookup(checker, expr->data.identifier.name);
+            if (sym == NULL || !sym->is_const) return -1;
+            /* 常量：从程序/块中找其 init 并求值；符号表不存 init，需从当前作用域找声明 */
+            if (checker->program_node == NULL) return -1;
+            ASTNode *program = checker->program_node;
+            if (program->type != AST_PROGRAM) return -1;
+            for (int i = 0; i < program->data.program.decl_count; i++) {
+                ASTNode *decl = program->data.program.decls[i];
+                if (decl != NULL && decl->type == AST_VAR_DECL &&
+                    decl->data.var_decl.name != NULL &&
+                    strcmp(decl->data.var_decl.name, expr->data.identifier.name) == 0 &&
+                    decl->data.var_decl.is_const) {
+                    ASTNode *init = decl->data.var_decl.init;
+                    if (init != NULL)
+                        return checker_eval_const_expr(checker, init);
+                    return -1;
+                }
+            }
+            return -1;
+        }
+        case AST_BINARY_EXPR: {
+            int left_val = checker_eval_const_expr(checker, expr->data.binary_expr.left);
+            int right_val = checker_eval_const_expr(checker, expr->data.binary_expr.right);
+            if (left_val == -1 || right_val == -1) return -1;
+            switch ((int)expr->data.binary_expr.op) {
+                case TOKEN_PLUS: return left_val + right_val;
+                case TOKEN_MINUS: return left_val - right_val;
+                case TOKEN_ASTERISK: return left_val * right_val;
+                case TOKEN_SLASH: return (right_val == 0) ? -1 : (left_val / right_val);
+                case TOKEN_PERCENT: return (right_val == 0) ? -1 : (left_val % right_val);
+                default: return -1;
+            }
+        }
+        case AST_UNARY_EXPR: {
+            int operand_val = checker_eval_const_expr(checker, expr->data.unary_expr.operand);
+            if (operand_val == -1) return -1;
+            if (expr->data.unary_expr.op == TOKEN_PLUS) return operand_val;
+            if (expr->data.unary_expr.op == TOKEN_MINUS) return -operand_val;
+            return -1;
+        }
+        default:
+            return -1;
+    }
 }
 
 // 报告类型错误（增加错误计数）

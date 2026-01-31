@@ -1898,7 +1898,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         }
     }
     
-    // 解析数组字面量：[expr1, expr2, ..., exprN] 或 []
+    // 解析数组字面量：[expr1, expr2, ..., exprN]、[value: N] 或 []
     if (parser->current_token->type == TOKEN_LEFT_BRACKET) {
         int array_line = parser->current_token->line;
         int array_column = parser->current_token->column;
@@ -1910,65 +1910,92 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             return NULL;
         }
         
-        // 初始化元素数组
-        ASTNode **elements = NULL;
-        int element_count = 0;
-        int element_capacity = 0;
-        
         // 检查是否为空数组
-        if (!parser_match(parser, TOKEN_RIGHT_BRACKET)) {
-            // 有元素，解析元素列表
-            while (parser->current_token != NULL && 
-                   !parser_match(parser, TOKEN_RIGHT_BRACKET) && 
-                   !parser_match(parser, TOKEN_EOF)) {
-                
-                // 解析元素表达式
-                ASTNode *element = parser_parse_expression(parser);
-                if (element == NULL) {
+        if (parser_match(parser, TOKEN_RIGHT_BRACKET)) {
+            parser_consume(parser);  // 消费 ']'
+            array_literal->data.array_literal.elements = NULL;
+            array_literal->data.array_literal.element_count = 0;
+            array_literal->data.array_literal.repeat_count_expr = NULL;
+        } else {
+            // 解析第一个表达式（可能是列表的第一个元素，或 [value: N] 的 value）
+            ASTNode *first = parser_parse_expression(parser);
+            if (first == NULL) {
+                return NULL;
+            }
+            // 检查是否为重复形式 [value: N]（与数组类型 [T: N] 一致）
+            if (parser->current_token != NULL && parser->current_token->type == TOKEN_COLON) {
+                parser_consume(parser);  // 消费 ':'
+                ASTNode *count_expr = parser_parse_expression(parser);
+                if (count_expr == NULL) {
                     return NULL;
                 }
-                
-                // 扩展元素数组
+                if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
+                    return NULL;
+                }
+                ASTNode **elements = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *));
+                if (elements == NULL) {
+                    return NULL;
+                }
+                elements[0] = first;
+                array_literal->data.array_literal.elements = elements;
+                array_literal->data.array_literal.element_count = 1;
+                array_literal->data.array_literal.repeat_count_expr = count_expr;
+            } else {
+                // 列表形式：已有 first，继续解析剩余元素
+                ASTNode **elements = NULL;
+                int element_count = 0;
+                int element_capacity = 0;
                 if (element_count >= element_capacity) {
                     int new_capacity = element_capacity == 0 ? 4 : element_capacity * 2;
-                    ASTNode **new_elements = (ASTNode **)arena_alloc(
-                        parser->arena, 
-                        sizeof(ASTNode *) * new_capacity
-                    );
+                    ASTNode **new_elements = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_capacity);
                     if (new_elements == NULL) {
                         return NULL;
                     }
-                    
-                    // 复制旧元素
                     if (elements != NULL) {
                         for (int i = 0; i < element_count; i++) {
                             new_elements[i] = elements[i];
                         }
                     }
-                    
                     elements = new_elements;
                     element_capacity = new_capacity;
                 }
-                
-                elements[element_count++] = element;
-                
-                // 检查是否有逗号
-                if (parser_match(parser, TOKEN_COMMA)) {
-                    parser_consume(parser);
-                } else {
-                    // 没有逗号，应该是最后一个元素
-                    break;
+                elements[element_count++] = first;
+                while (parser->current_token != NULL &&
+                       !parser_match(parser, TOKEN_RIGHT_BRACKET) &&
+                       !parser_match(parser, TOKEN_EOF)) {
+                    if (parser_match(parser, TOKEN_COMMA)) {
+                        parser_consume(parser);
+                    }
+                    /* 尾随逗号：消费逗号后若已是 ] 则不再解析元素 */
+                    if (parser->current_token != NULL && parser_match(parser, TOKEN_RIGHT_BRACKET)) {
+                        break;
+                    }
+                    ASTNode *element = parser_parse_expression(parser);
+                    if (element == NULL) {
+                        return NULL;
+                    }
+                    if (element_count >= element_capacity) {
+                        int new_capacity = element_capacity == 0 ? 4 : element_capacity * 2;
+                        ASTNode **new_elements = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_capacity);
+                        if (new_elements == NULL) {
+                            return NULL;
+                        }
+                        for (int i = 0; i < element_count; i++) {
+                            new_elements[i] = elements[i];
+                        }
+                        elements = new_elements;
+                        element_capacity = new_capacity;
+                    }
+                    elements[element_count++] = element;
                 }
+                if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
+                    return NULL;
+                }
+                array_literal->data.array_literal.elements = elements;
+                array_literal->data.array_literal.element_count = element_count;
+                array_literal->data.array_literal.repeat_count_expr = NULL;
             }
         }
-        
-        // 期望 ']'
-        if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
-            return NULL;
-        }
-        
-        array_literal->data.array_literal.elements = elements;
-        array_literal->data.array_literal.element_count = element_count;
         
         // 字段访问和数组访问可能跟在数组字面量后面（例如：[1,2,3][0]）
         ASTNode *result = array_literal;

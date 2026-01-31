@@ -6,14 +6,14 @@
     }
     
     // 使用已知长度切片
-    fn process_exact(p: &[i32; 3]) void {
+    fn process_exact(p: &[i32: 3]) void {
         for p |value| {
             // 使用切片元素
         }
     }
     
     // 调用
-    const arr: [i32: 10] = [0; 10];
+    const arr: [i32: 10] = [0: 10];
     process(&arr[2:3]);        // 传递动态长度切片
     process_exact(&arr[0:3]);  // 传递已知长度切片
     
