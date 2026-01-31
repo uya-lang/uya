@@ -44,7 +44,8 @@ typedef enum {
     AST_ALIGNOF,        // alignof 表达式（alignof(Type) 或 alignof(expr)）
     AST_CAST_EXPR,      // 类型转换表达式（expr as type）
     AST_IDENTIFIER,     // 标识符
-    AST_NUMBER,         // 数字字面量
+    AST_NUMBER,         // 整数字面量
+    AST_FLOAT,          // 浮点字面量
     AST_BOOL,           // 布尔字面量（true/false）
     AST_STRING,         // 字符串字面量
     
@@ -175,10 +176,15 @@ struct ASTNode {
             const char *name;         // 标识符名称
         } identifier;
         
-        // 数字字面量
+        // 整数字面量
         struct {
             int value;                // 数值（i32）
         } number;
+        
+        // 浮点字面量
+        struct {
+            double value;             // 数值（f64）
+        } float_literal;
         
         // 布尔字面量
         struct {

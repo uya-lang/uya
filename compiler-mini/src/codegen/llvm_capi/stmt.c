@@ -84,6 +84,7 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                 const char *type_name = var_type->data.type_named.name;
                 if (type_name && strcmp(type_name, "i32") != 0 && 
                     strcmp(type_name, "bool") != 0 && strcmp(type_name, "byte") != 0 && 
+                    strcmp(type_name, "f32") != 0 && strcmp(type_name, "f64") != 0 &&
                     strcmp(type_name, "void") != 0) {
                     // 可能是结构体类型
                     if (codegen_get_struct_type(codegen, type_name) != NULL) {
@@ -164,6 +165,8 @@ int codegen_gen_stmt(CodeGenerator *codegen, ASTNode *stmt) {
                             LLVMTypeKind type_kind = LLVMGetTypeKind(llvm_type);
                             if (type_kind == LLVMIntegerTypeKind) {
                                 init_val = LLVMConstInt(llvm_type, 0ULL, 0);
+                            } else if (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind) {
+                                init_val = LLVMConstReal(llvm_type, 0.0);
                             } else if (type_kind == LLVMPointerTypeKind) {
                                 init_val = LLVMConstNull(llvm_type);
                             } else if (type_kind == LLVMArrayTypeKind) {

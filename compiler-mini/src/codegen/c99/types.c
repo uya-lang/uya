@@ -24,6 +24,10 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
                 return "bool";
             } else if (strcmp(name, "byte") == 0) {
                 return "uint8_t";
+            } else if (strcmp(name, "f32") == 0) {
+                return "float";
+            } else if (strcmp(name, "f64") == 0) {
+                return "double";
             } else if (strcmp(name, "void") == 0) {
                 return "void";
             } else {

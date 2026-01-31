@@ -47,6 +47,12 @@ LLVMTypeRef codegen_get_base_type(CodeGenerator *codegen, TypeKind type_kind) {
             // byte 类型映射到 LLVM Int8 类型（8位无符号整数，使用当前上下文）
             return LLVMInt8TypeInContext(codegen->context);
             
+        case TYPE_F32:
+            return LLVMFloatTypeInContext(codegen->context);
+            
+        case TYPE_F64:
+            return LLVMDoubleTypeInContext(codegen->context);
+            
         case TYPE_VOID:
             // void 类型映射到 LLVM Void 类型（使用当前上下文）
             return LLVMVoidTypeInContext(codegen->context);
@@ -86,6 +92,10 @@ LLVMTypeRef get_llvm_type_from_ast(CodeGenerator *codegen, ASTNode *type_node) {
                 return codegen_get_base_type(codegen, TYPE_BOOL);
             } else if (strcmp(type_name, "byte") == 0) {
                 return codegen_get_base_type(codegen, TYPE_BYTE);
+            } else if (strcmp(type_name, "f32") == 0) {
+                return codegen_get_base_type(codegen, TYPE_F32);
+            } else if (strcmp(type_name, "f64") == 0) {
+                return codegen_get_base_type(codegen, TYPE_F64);
             } else if (strcmp(type_name, "void") == 0) {
                 return codegen_get_base_type(codegen, TYPE_VOID);
             }

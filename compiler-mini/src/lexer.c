@@ -182,13 +182,14 @@ static Token *read_identifier_or_keyword(Lexer *lexer, Arena *arena) {
     return make_token(arena, type, value, line, column);
 }
 
-// 读取数字字面量
+// 读取数字字面量（整数或浮点数）
 static Token *read_number(Lexer *lexer, Arena *arena) {
     const char *start = lexer->buffer + lexer->position;
     int line = lexer->line;
     int column = lexer->column;
+    int is_float = 0;
     
-    // 读取数字（仅支持整数）
+    // 读取整数部分
     while (lexer->position < lexer->buffer_size) {
         char c = peek_char(lexer, 0);
         if (isdigit((unsigned char)c)) {
@@ -198,13 +199,50 @@ static Token *read_number(Lexer *lexer, Arena *arena) {
         }
     }
     
+    // 检查小数点
+    if (peek_char(lexer, 0) == '.') {
+        advance_char(lexer);
+        is_float = 1;
+        while (lexer->position < lexer->buffer_size) {
+            char c = peek_char(lexer, 0);
+            if (isdigit((unsigned char)c)) {
+                advance_char(lexer);
+            } else {
+                break;
+            }
+        }
+    }
+    
+    // 检查指数部分 (e/E [+-]? digits)
+    if (!is_float && (peek_char(lexer, 0) == 'e' || peek_char(lexer, 0) == 'E')) {
+        is_float = 1;
+    }
+    if (peek_char(lexer, 0) == 'e' || peek_char(lexer, 0) == 'E') {
+        advance_char(lexer);
+        is_float = 1;
+        if (peek_char(lexer, 0) == '+' || peek_char(lexer, 0) == '-') {
+            advance_char(lexer);
+        }
+        if (!isdigit((unsigned char)peek_char(lexer, 0))) {
+            return NULL;  /* 指数后必须有数字 */
+        }
+        while (lexer->position < lexer->buffer_size) {
+            char c = peek_char(lexer, 0);
+            if (isdigit((unsigned char)c)) {
+                advance_char(lexer);
+            } else {
+                break;
+            }
+        }
+    }
+    
     size_t len = (lexer->buffer + lexer->position) - start;
     const char *value = arena_strdup(arena, start, len);
     if (value == NULL) {
         return NULL;
     }
     
-    return make_token(arena, TOKEN_NUMBER, value, line, column);
+    return make_token(arena, is_float ? TOKEN_FLOAT : TOKEN_NUMBER, value, line, column);
 }
 
 // 读取字符串字面量

@@ -18,7 +18,7 @@ Uya Mini 是 Uya 语言的最小子集，设计目标是能够编译自身，实
 
 Uya Mini 是 Uya 语言的最小子集，包含：
 
-- **基础类型**：`i32`（32位有符号整数）、`usize`（平台相关的无符号大小类型）、`bool`（布尔类型）、`byte`（无符号字节）、`void`（仅用于函数返回类型）
+- **基础类型**：`i32`（32位有符号整数）、`usize`（平台相关的无符号大小类型）、`bool`（布尔类型）、`byte`（无符号字节）、`f32`（32位浮点数）、`f64`（64位浮点数）、`void`（仅用于函数返回类型）
 - **枚举类型**：支持枚举定义、枚举值访问、显式赋值、自动递增
 - **数组类型**：固定大小数组（`[T: N]`），N 为编译期常量
 - **指针类型**：`&T`（普通指针）和 `*T`（FFI 指针）
@@ -84,6 +84,8 @@ enum struct const var fn extern return true false if else while for break contin
 | `usize` | 4/8 B（平台相关） | 无符号大小类型，用于内存地址和大小；32位平台=4B，64位平台=8B |
 | `bool` | 1 B | 布尔类型（true/false） |
 | `byte` | 1 B | 无符号字节，对齐 1 B，用于字节数组 |
+| `f32` | 4 B | 32位浮点数（IEEE 754 单精度） |
+| `f64` | 8 B | 64位浮点数（IEEE 754 双精度） |
 | `void` | 0 B | 仅用于函数返回类型 |
 | `enum Name` | 4 B | 枚举类型（底层类型为 i32） |
 | `struct Name` | 字段大小之和（含对齐填充） | 用户定义的结构体类型 |
@@ -132,8 +134,8 @@ enum struct const var fn extern return true false if else while for break contin
 1. **基础类型对齐**：
    - `i8`, `byte`, `bool`：对齐值 = 1 字节
    - `i16`：对齐值 = 2 字节
-   - `i32`：对齐值 = 4 字节
-   - `i64`：对齐值 = 8 字节
+   - `i32`, `f32`：对齐值 = 4 字节
+   - `i64`, `f64`：对齐值 = 8 字节
    - `usize`, `&T`, `*T`（FFI指针）：对齐值 = 4/8 字节（平台相关）
 
 2. **字段偏移计算**：
@@ -297,12 +299,14 @@ identifier = [A-Za-z_][A-Za-z0-9_]*
 ### 3.2 数字字面量
 
 ```
-number = [0-9]+
+integer   = [0-9]+
+float     = [0-9]+ '.' [0-9]+ [ exponent ]?
+          | [0-9]+ exponent
+exponent  = [eE] [+-]? [0-9]+
 ```
 
-- 十进制整数
-- 类型为 `i32`
-- 示例：`0`、`42`、`100`
+- **整数字面量**：`[0-9]+`，类型为 `i32`，示例：`0`、`42`、`100`
+- **浮点字面量**：包含小数点或指数部分的数字，默认类型为 `f64`，示例：`3.14`、`1.0e-10`、`2.5E3`
 
 ### 3.3 布尔字面量
 
@@ -426,7 +430,7 @@ param          = ID ':' type
   - 以分号结尾，无函数体
   - 必须在顶层声明
   - 参数和返回值类型支持：
-    - 基础类型：`i32`、`usize`、`bool`、`byte`、`void`、结构体类型
+    - 基础类型：`i32`、`usize`、`bool`、`byte`、`f32`、`f64`、`void`、结构体类型
     - FFI 指针类型：`*T`（如 `*byte`、`*void`、`*i32` 等）
   - 注意：`*T` 类型仅用于 extern 函数声明/调用，不能用于普通变量声明
   - **Uya 指针传递给 FFI 函数**：
@@ -488,7 +492,7 @@ var_decl       = ('const' | 'var') ID ':' type '=' expr ';'
 ### 4.4 类型
 
 ```
-type           = 'i32' | 'usize' | 'bool' | 'byte' | 'void' | array_type | pointer_type | ffi_pointer_type | struct_type
+type           = 'i32' | 'usize' | 'bool' | 'byte' | 'f32' | 'f64' | 'void' | array_type | pointer_type | ffi_pointer_type | struct_type
 array_type     = '[' type ':' NUM ']'
 pointer_type   = '&' type
 ffi_pointer_type = '*' type
@@ -500,6 +504,8 @@ struct_type    = 'struct' ID
 - `usize`：平台相关的无符号大小类型（32位平台=4B，64位平台=8B），用于内存地址和大小
 - `bool`：布尔类型
 - `byte`：无符号字节（1 字节）
+- `f32`：32位浮点数（IEEE 754 单精度）
+- `f64`：64位浮点数（IEEE 754 双精度）
 - `void`：仅用于函数返回类型
 - `&T`：普通指针类型，用于普通变量和函数参数
 - `*T`：FFI 指针类型，仅用于 extern 函数声明/调用
@@ -568,7 +574,7 @@ add_expr       = mul_expr { ('+' | '-') mul_expr }
 mul_expr       = cast_expr { ('*' | '/' | '%') cast_expr }
 cast_expr      = unary_expr [ 'as' type ]
 unary_expr     = ('!' | '-' | '&' | '*') unary_expr | primary_expr
-primary_expr   = ID | NUM | 'true' | 'false' | 'null' | STRING | struct_literal | array_literal | member_access | array_access | call_expr | sizeof_expr | alignof_expr | len_expr | '(' expr ')'
+primary_expr   = ID | NUM | FLOAT | 'true' | 'false' | 'null' | STRING | struct_literal | array_literal | member_access | array_access | call_expr | sizeof_expr | alignof_expr | len_expr | '(' expr ')'
 sizeof_expr    = 'sizeof' '(' (type | expr) ')'
 alignof_expr   = 'alignof' '(' (type | expr) ')'
 len_expr       = 'len' '(' expr ')'
@@ -653,17 +659,18 @@ arg_list       = expr { ',' expr }
 
 - **运算符说明**：
   - 算术运算符：`+` `-` `*` `/` `%`
-    - 操作数类型：`i32` 或 `usize`（`i32` 和 `usize` 可以混合运算）
-    - 结果类型：如果两个操作数都是 `i32`，结果为 `i32`；如果至少有一个是 `usize`，结果为 `usize`
-    - 示例：`i32 + i32` → `i32`，`i32 + usize` → `usize`，`usize + usize` → `usize`
+    - 整数运算：操作数类型 `i32` 或 `usize`（可混合），结果类型同整数规则
+    - 浮点运算：操作数类型 `f32` 或 `f64`（可混合），`%` 不支持浮点
+    - `f32` 与 `f64` 混合运算结果为 `f64`
+    - 示例：`i32 + i32` → `i32`，`f32 + f64` → `f64`，`3.14 * 2.0` → `f64`
   - 比较运算符：`==` `!=` `<` `>` `<=` `>=`
-    - 操作数类型必须相同（`i32`、`usize`、`bool`、相同枚举类型或相同结构体类型）
-    - `i32` 和 `usize` 不能直接比较，需要显式转换（如 `(i32_val as usize) == usize_val`）
-    - 枚举类型可以进行比较，比较的是枚举值的数值
+    - 操作数类型必须相同（`i32`、`usize`、`bool`、`f32`、`f64`、相同枚举类型或相同结构体类型）
+    - 浮点类型可比较，遵循 IEEE 754 语义
+    - `i32` 和 `usize` 不能直接比较，需要显式转换
     - 结果类型为 `bool`
   - 逻辑运算符：`&&` `||`（操作数必须是 `bool`，结果类型为 `bool`）
   - 逻辑非：`!`（操作数必须是 `bool`，结果类型为 `bool`）
-  - 一元负号：`-`（操作数必须是 `i32`，结果类型为 `i32`；`usize` 是无符号类型，不支持负号）
+  - 一元负号：`-`（操作数 `i32`→`i32`，`f32`→`f32`，`f64`→`f64`；`usize` 不支持负号）
   - 取地址运算符：`&expr`（操作数必须是左值，返回指向操作数的指针类型 `&T`）
   - 解引用运算符：`*expr`（操作数必须是指针类型 `&T`，返回类型 `T`）
   - 赋值：`=`（左侧必须是 `var` 变量或字段访问，类型必须匹配）
@@ -700,6 +707,12 @@ Uya Mini 支持显式类型转换，使用 `as` 关键字：
   - `usize as i32`：将 usize 值转换为 i32（保持数值，但类型变为有符号）
   - **注意**：转换时数值保持不变，但类型改变（有符号 ↔ 无符号）
   - **平台相关**：`usize` 的大小取决于平台（32位=4B，64位=8B），转换时需要考虑大小匹配
+- **浮点类型之间的转换**：
+  - `f32 as f64`：单精度扩展为双精度，无精度损失
+  - `f64 as f32`：双精度截断为单精度，可能损失精度
+- **整数与浮点转换**：
+  - `i32 as f32`、`i32 as f64`：整数转浮点
+  - `f32 as i32`、`f64 as i32`：浮点截断为整数（向零舍入）
 - **指针类型之间的转换**：
   - `&void` ↔ `&T`：通用指针类型与具体指针类型之间的转换
     - `&void as &T`：将通用指针转换为具体指针类型（安全转换，用于类型擦除后的恢复）
@@ -988,8 +1001,8 @@ for arr |item| {
    - 返回值类型必须匹配使用上下文
 
 3. **运算符类型要求**：
-   - 算术运算符：操作数必须是 `i32` 或 `usize`（`i32` 和 `usize` 可以混合运算，结果类型为较大的类型）
-   - 比较运算符：操作数类型必须相同（`i32`、`usize`、`bool`、相同枚举类型或相同结构体类型），`i32` 和 `usize` 可以比较（需要显式转换）
+   - 算术运算符：整数操作数 `i32` 或 `usize`；浮点操作数 `f32` 或 `f64`（`%` 仅用于整数）
+   - 比较运算符：操作数类型必须相同（`i32`、`usize`、`bool`、`f32`、`f64`、相同枚举类型或相同结构体类型）
    - 逻辑运算符：操作数必须是 `bool`
    - 取地址运算符：`&expr`，返回指向 expr 的指针类型 `&T`
 
@@ -1238,6 +1251,8 @@ Uya Mini 编译器应包含以下阶段：
 - `usize` → `LLVMInt32Type()`（32位平台）或 `LLVMInt64Type()`（64位平台），根据目标平台自动选择
 - `bool` → `LLVMInt1Type()` 或 `LLVMInt8Type()`（使用 1 位更精确）
 - `byte` → `LLVMInt8Type()`
+- `f32` → `LLVMFloatType()`
+- `f64` → `LLVMDoubleType()`
 - `void` → `LLVMVoidType()`
 - `struct Type` → `LLVMStructType()`（结构体类型）
 
@@ -1295,7 +1310,7 @@ Uya Mini 支持结构体和数组类型，这些特性使得编译器实现更�
 
 | 特性 | Uya Mini | 完整 Uya |
 |------|----------|----------|
-| 类型系统 | i32, usize, bool, byte, void, enum, struct, [T: N], &T, *T | 完整的类型系统（结构体、数组、指针、枚举、接口等） |
+| 类型系统 | i32, usize, bool, byte, f32, f64, void, enum, struct, [T: N], &T, *T | 完整的类型系统（结构体、数组、指针、枚举、接口等） |
 | 结构体 | 支持（无方法、无接口实现） | 完整支持（方法、接口实现、drop） |
 | 数组 | 支持固定大小数组 `[T: N]` | 支持固定大小数组和切片 |
 | 指针 | 支持 `&T`（普通指针）和 `*T`（FFI指针） | 完整支持（包括 lifetime） |

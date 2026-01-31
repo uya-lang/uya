@@ -10,6 +10,11 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         case AST_NUMBER:
             fprintf(codegen->output, "%d", expr->data.number.value);
             break;
+        case AST_FLOAT: {
+            double val = expr->data.float_literal.value;
+            fprintf(codegen->output, "%.17g", val);
+            break;
+        }
         case AST_BOOL:
             fprintf(codegen->output, "%s", expr->data.bool_literal.value ? "true" : "false");
             break;

@@ -38,6 +38,7 @@ enum ASTNodeType {
     AST_CAST_EXPR,
     AST_IDENTIFIER,
     AST_NUMBER,
+    AST_FLOAT,
     AST_BOOL,
     AST_STRING,
     AST_TYPE_NAMED,
@@ -114,6 +115,8 @@ struct ASTNode {
     identifier_name: &byte,
     // number
     number_value: i32,
+    // float_literal
+    float_literal_value: f64,
     // bool_literal
     bool_literal_value: i32,
     // string_literal
@@ -206,6 +209,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.cast_expr_target_type = null;
     node.identifier_name = null;
     node.number_value = 0;
+    node.float_literal_value = 0.0;
     node.bool_literal_value = 0;
     node.string_literal_value = null;
     node.if_stmt_condition = null;

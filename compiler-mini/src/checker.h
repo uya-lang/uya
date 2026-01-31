@@ -11,6 +11,8 @@ typedef enum {
     TYPE_USIZE,    // 平台相关的无符号大小类型（32位平台=u32，64位平台=u64）
     TYPE_BOOL,     // 布尔类型
     TYPE_BYTE,     // 无符号字节（1 字节）
+    TYPE_F32,      // 32位浮点数（IEEE 754 单精度）
+    TYPE_F64,      // 64位浮点数（IEEE 754 双精度）
     TYPE_VOID,     // void 类型（仅用于函数返回类型）
     TYPE_ENUM,     // 枚举类型（通过名称引用）
     TYPE_STRUCT,   // 结构体类型（通过名称引用）

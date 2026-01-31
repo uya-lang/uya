@@ -1122,7 +1122,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
     int line = parser->current_token->line;
     int column = parser->current_token->column;
     
-    // 解析数字字面量
+    // 解析整数字面量
     if (parser->current_token->type == TOKEN_NUMBER) {
         ASTNode *node = ast_new_node(AST_NUMBER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
@@ -1132,6 +1132,20 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         // 将字符串转换为整数
         int value = atoi(parser->current_token->value);
         node->data.number.value = value;
+        
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析浮点字面量
+    if (parser->current_token->type == TOKEN_FLOAT) {
+        ASTNode *node = ast_new_node(AST_FLOAT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (node == NULL) {
+            return NULL;
+        }
+        
+        double value = strtod(parser->current_token->value, NULL);
+        node->data.float_literal.value = value;
         
         parser_consume(parser);
         return node;
@@ -1227,6 +1241,8 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     strcmp(type_name, "usize") == 0 ||
                     strcmp(type_name, "bool") == 0 || 
                     strcmp(type_name, "byte") == 0 ||
+                    strcmp(type_name, "f32") == 0 ||
+                    strcmp(type_name, "f64") == 0 ||
                     strcmp(type_name, "void") == 0 ||
                     strcmp(type_name, "struct") == 0) {
                     // 尝试解析类型
@@ -1293,6 +1309,8 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     strcmp(type_name, "usize") == 0 ||
                     strcmp(type_name, "bool") == 0 || 
                     strcmp(type_name, "byte") == 0 ||
+                    strcmp(type_name, "f32") == 0 ||
+                    strcmp(type_name, "f64") == 0 ||
                     strcmp(type_name, "void") == 0 ||
                     strcmp(type_name, "struct") == 0) {
                     // 尝试解析类型

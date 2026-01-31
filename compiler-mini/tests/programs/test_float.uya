@@ -1,0 +1,85 @@
+// f32 和 f64 浮点类型测试程序
+
+fn main() i32 {
+    // ========== 测试1：f32 基本运算 ==========
+    
+    const x: f32 = 3.14;
+    const y: f32 = 2.0;
+    var sum: f32 = x + y;
+    if sum < 5.13 || sum > 5.15 {
+        return 1;  // 3.14 + 2.0 = 5.14
+    }
+    
+    // ========== 测试2：f64 基本运算 ==========
+    
+    const a: f64 = 1.5;
+    const b: f64 = 2.5;
+    var product: f64 = a * b;
+    if product < 3.74 || product > 3.76 {
+        return 2;  // 1.5 * 2.5 = 3.75
+    }
+    
+    // ========== 测试3：f32 与 f64 混合运算 ==========
+    
+    var f32_val: f32 = 1.0;
+    var f64_val: f64 = 2.0;
+    var mixed: f64 = f32_val as f64 + f64_val;
+    if mixed < 2.99 || mixed > 3.01 {
+        return 3;  // 1.0 + 2.0 = 3.0
+    }
+    
+    // ========== 测试4：浮点比较 ==========
+    
+    if 3.14 > 3.0 {
+        // 正确
+    } else {
+        return 4;
+    }
+    
+    if 1.0 == 1.0 {
+        // 正确
+    } else {
+        return 5;
+    }
+    
+    // ========== 测试5：一元负号 ==========
+    
+    var neg: f32 = -2.5;
+    if neg > -2.51 && neg < -2.49 {
+        // 正确
+    } else {
+        return 6;
+    }
+    
+    // ========== 测试6：类型转换 i32 <-> f64 ==========
+    
+    const int_val: i32 = 42;
+    var f_from_int: f64 = int_val as f64;
+    if f_from_int < 41.99 || f_from_int > 42.01 {
+        return 7;
+    }
+    
+    var i2: i32 = f_from_int as i32;
+    if i2 != 42 {
+        return 8;
+    }
+    
+    // ========== 测试7：sizeof f32/f64 ==========
+    
+    if sizeof(f32) != 4 {
+        return 9;
+    }
+    if sizeof(f64) != 8 {
+        return 10;
+    }
+    
+    // ========== 测试8：浮点字面量 ==========
+    
+    var lit: f64 = 1.5e1;  // 15.0
+    if lit < 14.99 || lit > 15.01 {
+        return 11;
+    }
+    
+    // 所有测试通过
+    return 0;
+}

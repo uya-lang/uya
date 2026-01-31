@@ -110,6 +110,9 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_NUMBER:
             node->data.number.value = 0;
             break;
+        case AST_FLOAT:
+            node->data.float_literal.value = 0.0;
+            break;
         case AST_BOOL:
             node->data.bool_literal.value = 0;
             break;

@@ -17,7 +17,8 @@ extern fn fgetc(stream: *void) i32;
 extern fn fputs(s: *byte, stream: *void) i32;
 extern fn fprintf(stream: *void, format: *byte, ...) i32;
 
-// ===== C 标准库 - 字符串 =====
+// ===== C 标准库 - 字符串与数值 =====
+extern fn strtod(nptr: *byte, endptr: * *byte) f64;
 extern fn strlen(s: *byte) usize;
 extern fn strcmp(s1: *byte, s2: *byte) i32;
 extern fn strrchr(s: *byte, c: i32) *byte;

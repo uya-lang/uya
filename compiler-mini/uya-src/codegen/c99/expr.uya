@@ -14,6 +14,9 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     
     if expr.type == AST_NUMBER {
         fprintf(codegen.output as *void, "%d" as *byte, expr.number_value);
+    } else if expr.type == AST_FLOAT {
+        const val: f64 = expr.float_literal_value;
+        fprintf(codegen.output as *void, "%.17g" as *byte, val);
     } else if expr.type == AST_BOOL {
         if expr.bool_literal_value != 0 {
             fputs("true" as *byte, codegen.output as *void);

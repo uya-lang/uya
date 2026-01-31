@@ -153,13 +153,23 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
     
     switch (expr->type) {
         case AST_NUMBER: {
-            // 数字字面量：创建 i32 常量
+            // 整数字面量：创建 i32 常量
             int value = expr->data.number.value;
             LLVMTypeRef i32_type = codegen_get_base_type(codegen, TYPE_I32);
             if (!i32_type) {
                 return NULL;
             }
             return LLVMConstInt(i32_type, (unsigned long long)value, 1);  // 1 表示有符号
+        }
+        
+        case AST_FLOAT: {
+            // 浮点字面量：创建 f64 常量
+            double value = expr->data.float_literal.value;
+            LLVMTypeRef f64_type = codegen_get_base_type(codegen, TYPE_F64);
+            if (!f64_type) {
+                return NULL;
+            }
+            return LLVMConstReal(f64_type, value);
         }
         
         case AST_BOOL: {
@@ -345,6 +355,11 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 if (LLVMGetTypeKind(operand_type) == LLVMIntegerTypeKind) {
                     LLVMValueRef zero = LLVMConstInt(operand_type, 0ULL, 1);
                     return LLVMBuildSub(codegen->builder, zero, operand_val, "");
+                }
+                if (LLVMGetTypeKind(operand_type) == LLVMFloatTypeKind || 
+                    LLVMGetTypeKind(operand_type) == LLVMDoubleTypeKind) {
+                    LLVMValueRef zero = LLVMConstReal(operand_type, 0.0);
+                    return LLVMBuildFSub(codegen->builder, zero, operand_val, "");
                 }
             }
             
@@ -726,6 +741,47 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 } else if (op == TOKEN_GREATER_EQUAL) {
                     LLVMIntPredicate pred = is_usize_op ? LLVMIntUGE : LLVMIntSGE;
                     return LLVMBuildICmp(codegen->builder, pred, left_val, right_val, "");
+                }
+            }
+            // 浮点算术和比较（f32、f64）
+            if ((LLVMGetTypeKind(left_type) == LLVMFloatTypeKind || LLVMGetTypeKind(left_type) == LLVMDoubleTypeKind) &&
+                (LLVMGetTypeKind(right_type) == LLVMFloatTypeKind || LLVMGetTypeKind(right_type) == LLVMDoubleTypeKind)) {
+                LLVMTypeRef f32_type = codegen_get_base_type(codegen, TYPE_F32);
+                LLVMTypeRef f64_type = codegen_get_base_type(codegen, TYPE_F64);
+                if (!f32_type || !f64_type) {
+                    return NULL;
+                }
+                // 类型提升：f32 提升为 f64
+                if (left_type == f32_type && right_type == f64_type) {
+                    left_val = LLVMBuildFPExt(codegen->builder, left_val, f64_type, "");
+                    left_type = f64_type;
+                } else if (left_type == f64_type && right_type == f32_type) {
+                    right_val = LLVMBuildFPExt(codegen->builder, right_val, f64_type, "");
+                    right_type = f64_type;
+                }
+                // 算术运算符（不含 %）
+                if (op == TOKEN_PLUS) {
+                    return LLVMBuildFAdd(codegen->builder, left_val, right_val, "");
+                } else if (op == TOKEN_MINUS) {
+                    return LLVMBuildFSub(codegen->builder, left_val, right_val, "");
+                } else if (op == TOKEN_ASTERISK) {
+                    return LLVMBuildFMul(codegen->builder, left_val, right_val, "");
+                } else if (op == TOKEN_SLASH) {
+                    return LLVMBuildFDiv(codegen->builder, left_val, right_val, "");
+                }
+                // 比较运算符
+                if (op == TOKEN_EQUAL) {
+                    return LLVMBuildFCmp(codegen->builder, LLVMRealOEQ, left_val, right_val, "");
+                } else if (op == TOKEN_NOT_EQUAL) {
+                    return LLVMBuildFCmp(codegen->builder, LLVMRealONE, left_val, right_val, "");
+                } else if (op == TOKEN_LESS) {
+                    return LLVMBuildFCmp(codegen->builder, LLVMRealOLT, left_val, right_val, "");
+                } else if (op == TOKEN_LESS_EQUAL) {
+                    return LLVMBuildFCmp(codegen->builder, LLVMRealOLE, left_val, right_val, "");
+                } else if (op == TOKEN_GREATER) {
+                    return LLVMBuildFCmp(codegen->builder, LLVMRealOGT, left_val, right_val, "");
+                } else if (op == TOKEN_GREATER_EQUAL) {
+                    return LLVMBuildFCmp(codegen->builder, LLVMRealOGE, left_val, right_val, "");
                 }
             }
             // 指针比较运算符（仅支持 == 和 !=）
@@ -2871,8 +2927,22 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
                 return LLVMBuildPtrToInt(codegen->builder, source_val, target_type, "");
             } else if (source_kind == LLVMIntegerTypeKind && target_kind == LLVMPointerTypeKind) {
                 // 整数转指针（如 usize as &T）
-                // 使用 inttoptr 转换
                 return LLVMBuildIntToPtr(codegen->builder, source_val, target_type, "");
+            } else if ((source_kind == LLVMFloatTypeKind || source_kind == LLVMDoubleTypeKind) &&
+                       (target_kind == LLVMFloatTypeKind || target_kind == LLVMDoubleTypeKind)) {
+                // 浮点之间：f32->f64 扩展，f64->f32 截断
+                if (source_kind == LLVMFloatTypeKind && target_kind == LLVMDoubleTypeKind) {
+                    return LLVMBuildFPExt(codegen->builder, source_val, target_type, "");
+                } else if (source_kind == LLVMDoubleTypeKind && target_kind == LLVMFloatTypeKind) {
+                    return LLVMBuildFPTrunc(codegen->builder, source_val, target_type, "");
+                }
+                return source_val;
+            } else if (source_kind == LLVMIntegerTypeKind && (target_kind == LLVMFloatTypeKind || target_kind == LLVMDoubleTypeKind)) {
+                // 整数转浮点
+                return LLVMBuildSIToFP(codegen->builder, source_val, target_type, "");
+            } else if ((source_kind == LLVMFloatTypeKind || source_kind == LLVMDoubleTypeKind) && target_kind == LLVMIntegerTypeKind) {
+                // 浮点转整数（向零舍入）
+                return LLVMBuildFPToSI(codegen->builder, source_val, target_type, "");
             }
             
             // 不支持的转换（类型检查阶段应该已经拒绝）
@@ -2882,6 +2952,9 @@ LLVMValueRef codegen_gen_expr(CodeGenerator *codegen, ASTNode *expr) {
             }
             if (LLVMGetTypeKind(target_type) == LLVMIntegerTypeKind) {
                 return LLVMConstInt(target_type, 0ULL, 0);
+            }
+            if (LLVMGetTypeKind(target_type) == LLVMFloatTypeKind || LLVMGetTypeKind(target_type) == LLVMDoubleTypeKind) {
+                return LLVMConstReal(target_type, 0.0);
             }
             if (target_type == source_type) {
                 return source_val;

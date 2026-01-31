@@ -28,6 +28,10 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
             return ("bool" as *byte) as &byte;
         } else if strcmp(name as *byte, "byte" as *byte) == 0 {
             return ("uint8_t" as *byte) as &byte;
+        } else if strcmp(name as *byte, "f32" as *byte) == 0 {
+            return ("float" as *byte) as &byte;
+        } else if strcmp(name as *byte, "f64" as *byte) == 0 {
+            return ("double" as *byte) as &byte;
         } else if strcmp(name as *byte, "void" as *byte) == 0 {
             return ("void" as *byte) as &byte;
         } else {
