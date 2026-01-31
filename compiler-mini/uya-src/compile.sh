@@ -36,6 +36,7 @@ usage() {
   -n, --name NAME     指定输出文件名（默认: $OUTPUT_NAME）
   -c, --clean         清理输出目录后再编译
   -e, --exec          生成可执行文件（自动链接）
+  -b, --bootstrap-compare  自举对比：用自举编译器再编译自身，与 C 编译器输出的 C 文件对比（需 --c99，建议与 -e 同用）
   --c99               使用 C99 后端生成 C 代码（输出文件后缀为 .c 时自动启用）
   --line-directives    启用 #line 指令生成（C99 后端，默认禁用）
   --compiler PATH     指定编译器路径（默认: $COMPILER）
@@ -49,6 +50,7 @@ usage() {
   $0 --c99                      # 使用 C99 后端生成 C 代码
   $0 -n compiler.c              # 输出文件为 .c 时自动使用 C99 后端
   $0 --c99 --line-directives    # 使用 C99 后端，生成 #line 指令
+  $0 --c99 -e -b                # C99 编译并生成可执行文件，然后自举对比（两次 C 输出应完全一致）
 
 EOF
     exit 1
@@ -59,6 +61,7 @@ VERBOSE=false
 DEBUG=false
 CLEAN=false
 GENERATE_EXEC=false
+BOOTSTRAP_COMPARE=false
 USE_C99=false
 USE_LINE_DIRECTIVES=false
 
@@ -82,6 +85,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -e|--exec)
             GENERATE_EXEC=true
+            shift
+            ;;
+        -b|--bootstrap-compare)
+            BOOTSTRAP_COMPARE=true
             shift
             ;;
         --c99)
@@ -116,6 +123,15 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# 自举对比需要 C99 后端；若启用自举对比则必须生成可执行文件以便运行自举编译器
+if [ "$BOOTSTRAP_COMPARE" = true ]; then
+    if [ "$USE_C99" != true ]; then
+        echo -e "${RED}错误: --bootstrap-compare 需要同时使用 --c99${NC}"
+        exit 1
+    fi
+    GENERATE_EXEC=true
+fi
 
 # 检查编译器是否存在
 if [ ! -f "$COMPILER" ]; then
@@ -501,6 +517,36 @@ if [ $COMPILER_EXIT -eq 0 ]; then
         echo "类型: 可执行文件"
         if [ -f "$OUTPUT_FILE" ]; then
             echo "目标文件: $OUTPUT_FILE（中间文件，可删除）"
+        fi
+
+        # 自举对比：用自举编译器再编译自身，与 C 编译器输出的 C 文件对比
+        if [ "$BOOTSTRAP_COMPARE" = true ] && [ -f "$EXECUTABLE_FILE" ] && [ -f "$OUTPUT_FILE" ]; then
+            echo ""
+            echo "=========================================="
+            echo "自举对比：用自举编译器编译自身，对比 C 输出"
+            echo "=========================================="
+            BOOTSTRAP_C="$BUILD_DIR/compiler_bootstrap.c"
+            if [ "$VERBOSE" = true ]; then
+                echo "自举编译器: $EXECUTABLE_FILE"
+                echo "源文件: ${#FULL_PATHS[@]} 个 .uya"
+                echo "C 编译器输出: $OUTPUT_FILE"
+                echo "自举输出: $BOOTSTRAP_C"
+            fi
+            if ! "$EXECUTABLE_FILE" "${FULL_PATHS[@]}" -o "$BOOTSTRAP_C" --c99 >/dev/null 2>&1; then
+                echo -e "${RED}✗ 自举编译器编译失败${NC}"
+                echo "请用 -v 查看详细输出: $EXECUTABLE_FILE ... -o $BOOTSTRAP_C --c99"
+                exit 1
+            fi
+            if diff -q "$OUTPUT_FILE" "$BOOTSTRAP_C" >/dev/null 2>&1; then
+                echo -e "${GREEN}✓ 自举对比一致：C 编译器与自举编译器生成的 C 文件完全一致${NC}"
+            else
+                echo -e "${RED}✗ 自举对比不一致：两次生成的 C 文件有差异${NC}"
+                echo "  C 编译器输出: $OUTPUT_FILE"
+                echo "  自举编译器输出: $BOOTSTRAP_C"
+                echo "  查看差异: diff -u \"$OUTPUT_FILE\" \"$BOOTSTRAP_C\""
+                diff -u "$OUTPUT_FILE" "$BOOTSTRAP_C" | head -100
+                exit 1
+            fi
         fi
     elif [ -f "$OUTPUT_FILE" ]; then
         # 只生成了目标文件
