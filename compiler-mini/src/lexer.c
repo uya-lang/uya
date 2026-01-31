@@ -398,6 +398,10 @@ Token *lexer_next_token(Lexer *lexer, Arena *arena) {
             return make_token(arena, TOKEN_EXCLAMATION, "!", line, column);
         case '<':
             advance_char(lexer);
+            if (peek_char(lexer, 0) == '<') {
+                advance_char(lexer);
+                return make_token(arena, TOKEN_LSHIFT, "<<", line, column);
+            }
             if (peek_char(lexer, 0) == '=') {
                 advance_char(lexer);
                 return make_token(arena, TOKEN_LESS_EQUAL, "<=", line, column);
@@ -405,11 +409,21 @@ Token *lexer_next_token(Lexer *lexer, Arena *arena) {
             return make_token(arena, TOKEN_LESS, "<", line, column);
         case '>':
             advance_char(lexer);
+            if (peek_char(lexer, 0) == '>') {
+                advance_char(lexer);
+                return make_token(arena, TOKEN_RSHIFT, ">>", line, column);
+            }
             if (peek_char(lexer, 0) == '=') {
                 advance_char(lexer);
                 return make_token(arena, TOKEN_GREATER_EQUAL, ">=", line, column);
             }
             return make_token(arena, TOKEN_GREATER, ">", line, column);
+        case '^':
+            advance_char(lexer);
+            return make_token(arena, TOKEN_CARET, "^", line, column);
+        case '~':
+            advance_char(lexer);
+            return make_token(arena, TOKEN_TILDE, "~", line, column);
         case '&':
             advance_char(lexer);
             if (peek_char(lexer, 0) == '&') {

@@ -51,6 +51,7 @@
 ### 2. 测试先行
 - 在 `tests/programs/` 添加测试用例（如 `test_xxx.uya`）
 - 覆盖目标场景，返回 0 表示通过
+- **测试验证要求**：每个测试用例必须同时通过 `--c99`（C 版编译器）和 `--uya --c99`（自举版编译器），二者都通过才算测试通过
 
 ### 3. C 编译器实现
 按编译流水线依次修改：Lexer → AST → Parser → Checker → C99 Codegen
@@ -61,11 +62,12 @@
 ### 5. 验证流程
 ```
 make build                                    # 构建 C 版编译器
-./tests/run_programs.sh --c99 test_xxx.uya    # C 版测试
-cd uya-src && ./compile.sh --c99 -e           # 构建自举编译器
-./tests/run_programs.sh --uya --c99 test_xxx.uya  # 自举版测试
+./tests/run_programs.sh --c99 test_xxx.uya    # C 版测试（必须通过）
+cd compiler-mini/uya-src && ./compile.sh --c99 -e   # 构建自举编译器
+./tests/run_programs.sh --uya --c99 test_xxx.uya    # 自举版测试（必须通过）
 ./compile.sh --c99 -b                         # 自举对比（C 输出必须完全一致）
 ```
+**要求**：新增或修改的测试用例必须保证 `--c99` 与 `--uya --c99` 两种方式均通过。
 
 ---
 

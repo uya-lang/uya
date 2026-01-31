@@ -271,9 +271,13 @@ ASTNode *parser_parse_expression(Parser *parser);  // 前向声明，用于递�
 static ASTNode *parser_parse_unary_expr(Parser *parser);
 static ASTNode *parser_parse_mul_expr(Parser *parser);
 static ASTNode *parser_parse_add_expr(Parser *parser);
+static ASTNode *parser_parse_shift_expr(Parser *parser);
 static ASTNode *parser_parse_rel_expr(Parser *parser);
+static ASTNode *parser_parse_bitand_expr(Parser *parser);
 static ASTNode *parser_parse_eq_expr(Parser *parser);
 static ASTNode *parser_parse_and_expr(Parser *parser);
+static ASTNode *parser_parse_xor_expr(Parser *parser);
+static ASTNode *parser_parse_bitor_expr(Parser *parser);
 static ASTNode *parser_parse_or_expr(Parser *parser);
 static ASTNode *parser_parse_assign_expr(Parser *parser);
 
@@ -2109,6 +2113,7 @@ static ASTNode *parser_parse_unary_expr(Parser *parser) {
     // 检查一元运算符（!, -, &, *）
     if (parser_match(parser, TOKEN_EXCLAMATION) || 
         parser_match(parser, TOKEN_MINUS) ||
+        parser_match(parser, TOKEN_TILDE) ||
         parser_match(parser, TOKEN_AMPERSAND) ||
         parser_match(parser, TOKEN_ASTERISK)) {
         TokenType op = parser->current_token->type;
@@ -2268,15 +2273,51 @@ static ASTNode *parser_parse_add_expr(Parser *parser) {
     return left;
 }
 
+// 解析位移表达式（左结合）
+// shift_expr = add_expr { ('<<' | '>>') add_expr }
+static ASTNode *parser_parse_shift_expr(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    ASTNode *left = parser_parse_add_expr(parser);
+    if (left == NULL) {
+        return NULL;
+    }
+    
+    while (parser->current_token != NULL && (
+        parser_match(parser, TOKEN_LSHIFT) ||
+        parser_match(parser, TOKEN_RSHIFT)
+    )) {
+        int line = parser->current_token->line;
+        int column = parser->current_token->column;
+        TokenType op = parser->current_token->type;
+        parser_consume(parser);
+        ASTNode *right = parser_parse_add_expr(parser);
+        if (right == NULL) {
+            return NULL;
+        }
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (node == NULL) {
+            return NULL;
+        }
+        node->data.binary_expr.left = left;
+        node->data.binary_expr.op = op;
+        node->data.binary_expr.right = right;
+        left = node;
+    }
+    return left;
+}
+
 // 解析比较表达式（左结合）
-// rel_expr = add_expr { ('<' | '>' | '<=' | '>=') add_expr }
+// rel_expr = shift_expr { ('<' | '>' | '<=' | '>=') shift_expr }
 static ASTNode *parser_parse_rel_expr(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
         return NULL;
     }
     
     // 解析左操作数
-    ASTNode *left = parser_parse_add_expr(parser);
+    ASTNode *left = parser_parse_shift_expr(parser);
     if (left == NULL) {
         return NULL;
     }
@@ -2294,7 +2335,7 @@ static ASTNode *parser_parse_rel_expr(Parser *parser) {
         parser_consume(parser);  // 消费运算符
         
         // 解析右操作数
-        ASTNode *right = parser_parse_add_expr(parser);
+        ASTNode *right = parser_parse_shift_expr(parser);
         if (right == NULL) {
             return NULL;
         }
@@ -2312,6 +2353,37 @@ static ASTNode *parser_parse_rel_expr(Parser *parser) {
         left = node;  // 左结合：继续以当前节点作为左操作数
     }
     
+    return left;
+}
+
+// 解析按位与表达式（左结合）
+// bitand_expr = eq_expr { '&' eq_expr }
+static ASTNode *parser_parse_bitand_expr(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    ASTNode *left = parser_parse_eq_expr(parser);
+    if (left == NULL) {
+        return NULL;
+    }
+    while (parser->current_token != NULL && parser_match(parser, TOKEN_AMPERSAND)) {
+        int line = parser->current_token->line;
+        int column = parser->current_token->column;
+        TokenType op = parser->current_token->type;
+        parser_consume(parser);
+        ASTNode *right = parser_parse_eq_expr(parser);
+        if (right == NULL) {
+            return NULL;
+        }
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (node == NULL) {
+            return NULL;
+        }
+        node->data.binary_expr.left = left;
+        node->data.binary_expr.op = op;
+        node->data.binary_expr.right = right;
+        left = node;
+    }
     return left;
 }
 
@@ -2423,15 +2495,77 @@ static ASTNode *parser_parse_eq_expr(Parser *parser) {
     return left;
 }
 
+// 解析按位异或表达式（左结合）
+// xor_expr = and_expr { '^' and_expr }
+static ASTNode *parser_parse_xor_expr(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    ASTNode *left = parser_parse_and_expr(parser);
+    if (left == NULL) {
+        return NULL;
+    }
+    while (parser->current_token != NULL && parser_match(parser, TOKEN_CARET)) {
+        int line = parser->current_token->line;
+        int column = parser->current_token->column;
+        TokenType op = parser->current_token->type;
+        parser_consume(parser);
+        ASTNode *right = parser_parse_and_expr(parser);
+        if (right == NULL) {
+            return NULL;
+        }
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (node == NULL) {
+            return NULL;
+        }
+        node->data.binary_expr.left = left;
+        node->data.binary_expr.op = op;
+        node->data.binary_expr.right = right;
+        left = node;
+    }
+    return left;
+}
+
+// 解析按位或表达式（左结合）
+// bitor_expr = xor_expr { '|' xor_expr }
+static ASTNode *parser_parse_bitor_expr(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    ASTNode *left = parser_parse_xor_expr(parser);
+    if (left == NULL) {
+        return NULL;
+    }
+    while (parser->current_token != NULL && parser_match(parser, TOKEN_PIPE)) {
+        int line = parser->current_token->line;
+        int column = parser->current_token->column;
+        TokenType op = parser->current_token->type;
+        parser_consume(parser);
+        ASTNode *right = parser_parse_xor_expr(parser);
+        if (right == NULL) {
+            return NULL;
+        }
+        ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (node == NULL) {
+            return NULL;
+        }
+        node->data.binary_expr.left = left;
+        node->data.binary_expr.op = op;
+        node->data.binary_expr.right = right;
+        left = node;
+    }
+    return left;
+}
+
 // 解析逻辑与表达式（左结合）
-// and_expr = eq_expr { '&&' eq_expr }
+// and_expr = bitand_expr { '&&' bitand_expr }
 static ASTNode *parser_parse_and_expr(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
         return NULL;
     }
     
     // 解析左操作数
-    ASTNode *left = parser_parse_eq_expr(parser);
+    ASTNode *left = parser_parse_bitand_expr(parser);
     if (left == NULL) {
         return NULL;
     }
@@ -2444,7 +2578,7 @@ static ASTNode *parser_parse_and_expr(Parser *parser) {
         parser_consume(parser);  // 消费运算符
         
         // 解析右操作数
-        ASTNode *right = parser_parse_eq_expr(parser);
+        ASTNode *right = parser_parse_bitand_expr(parser);
         if (right == NULL) {
             return NULL;
         }
@@ -2466,14 +2600,14 @@ static ASTNode *parser_parse_and_expr(Parser *parser) {
 }
 
 // 解析逻辑或表达式（左结合）
-// or_expr = and_expr { '||' and_expr }
+// or_expr = bitor_expr { '||' bitor_expr }
 static ASTNode *parser_parse_or_expr(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
         return NULL;
     }
     
     // 解析左操作数
-    ASTNode *left = parser_parse_and_expr(parser);
+    ASTNode *left = parser_parse_bitor_expr(parser);
     if (left == NULL) {
         return NULL;
     }
@@ -2486,7 +2620,7 @@ static ASTNode *parser_parse_or_expr(Parser *parser) {
         parser_consume(parser);  // 消费运算符
         
         // 解析右操作数
-        ASTNode *right = parser_parse_and_expr(parser);
+        ASTNode *right = parser_parse_bitor_expr(parser);
         if (right == NULL) {
             return NULL;
         }
@@ -2733,8 +2867,8 @@ ASTNode *parser_parse_statement(Parser *parser) {
             return NULL;
         }
         
-        // 解析数组表达式
-        ASTNode *array_expr = parser_parse_expression(parser);
+        // 解析数组表达式（仅解析到 xor_expr，不包含 |，以便 for expr | id | 中的 | 作为分隔符）
+        ASTNode *array_expr = parser_parse_xor_expr(parser);
         if (array_expr == NULL) {
             return NULL;
         }

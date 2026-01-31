@@ -47,6 +47,11 @@ enum TokenType {
     TOKEN_LOGICAL_OR,
     TOKEN_EXCLAMATION,
     TOKEN_AMPERSAND,
+    TOKEN_PIPE,
+    TOKEN_CARET,
+    TOKEN_TILDE,
+    TOKEN_LSHIFT,
+    TOKEN_RSHIFT,
     TOKEN_LEFT_PAREN,
     TOKEN_RIGHT_PAREN,
     TOKEN_LEFT_BRACE,
@@ -58,7 +63,6 @@ enum TokenType {
     TOKEN_ASSIGN,
     TOKEN_DOT,
     TOKEN_COLON,
-    TOKEN_PIPE,
     TOKEN_ELLIPSIS,
 }
 
@@ -440,6 +444,10 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
     }
     if c == 60 {
         advance_char(lexer);
+        if peek_char(lexer, 0) == 60 {
+            advance_char(lexer);
+            return make_token(arena, TOKEN_LSHIFT, "<<" as &byte, line, column);
+        }
         if peek_char(lexer, 0) == 61 {
             advance_char(lexer);
             return make_token(arena, TOKEN_LESS_EQUAL, "<=" as &byte, line, column);
@@ -448,11 +456,23 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
     }
     if c == 62 {
         advance_char(lexer);
+        if peek_char(lexer, 0) == 62 {
+            advance_char(lexer);
+            return make_token(arena, TOKEN_RSHIFT, ">>" as &byte, line, column);
+        }
         if peek_char(lexer, 0) == 61 {
             advance_char(lexer);
             return make_token(arena, TOKEN_GREATER_EQUAL, ">=" as &byte, line, column);
         }
         return make_token(arena, TOKEN_GREATER, ">" as &byte, line, column);
+    }
+    if c == 94 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_CARET, "^" as &byte, line, column);
+    }
+    if c == 126 {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_TILDE, "~" as &byte, line, column);
     }
     if c == 38 {
         advance_char(lexer);

@@ -604,6 +604,9 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             } else if (op == TOKEN_MINUS) {
                 // 一元负号（-）返回操作数类型（应为i32）
                 return operand_type;
+            } else if (op == TOKEN_TILDE) {
+                // 按位取反（~）：操作数必须是整数，返回操作数类型
+                return operand_type;
             } else if (op == TOKEN_AMPERSAND) {
                 // 取地址（&expr）：返回指向操作数类型的指针类型
                 if (operand_type.kind == TYPE_VOID) {
@@ -1775,6 +1778,45 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
         return result;
     }
     
+    // 位运算符：& | ^，操作数必须为整数（i32 或 usize），类型一致
+    if (op == TOKEN_AMPERSAND || op == TOKEN_PIPE || op == TOKEN_CARET) {
+        if ((left_type.kind != TYPE_I32 && left_type.kind != TYPE_USIZE) ||
+            (right_type.kind != TYPE_I32 && right_type.kind != TYPE_USIZE)) {
+            if (left_type.kind == TYPE_VOID || right_type.kind == TYPE_VOID) {
+                result.kind = TYPE_I32;
+                return result;
+            }
+            checker_report_error(checker, node, "位运算符 & | ^ 的操作数必须为 i32 或 usize，且类型一致");
+            result.kind = (left_type.kind == TYPE_USIZE || right_type.kind == TYPE_USIZE) ? TYPE_USIZE : TYPE_I32;
+            return result;
+        }
+        if (left_type.kind != right_type.kind) {
+            checker_report_error(checker, node, "位运算符 & | ^ 的两个操作数类型必须一致");
+        }
+        result.kind = (left_type.kind == TYPE_USIZE || right_type.kind == TYPE_USIZE) ? TYPE_USIZE : TYPE_I32;
+        return result;
+    }
+    
+    // 位移运算符：<< >>，左操作数整数，右操作数 i32
+    if (op == TOKEN_LSHIFT || op == TOKEN_RSHIFT) {
+        if (left_type.kind != TYPE_I32 && left_type.kind != TYPE_USIZE) {
+            if (left_type.kind == TYPE_VOID) {
+                result.kind = TYPE_I32;
+                return result;
+            }
+            checker_report_error(checker, node, "位移运算符 << >> 的左操作数必须为 i32 或 usize");
+        }
+        if (right_type.kind != TYPE_I32) {
+            if (right_type.kind == TYPE_VOID) {
+                result.kind = left_type.kind == TYPE_USIZE ? TYPE_USIZE : TYPE_I32;
+                return result;
+            }
+            checker_report_error(checker, node, "位移运算符 << >> 的右操作数必须为 i32");
+        }
+        result.kind = (left_type.kind == TYPE_USIZE) ? TYPE_USIZE : TYPE_I32;
+        return result;
+    }
+    
     return result;
 }
 
@@ -1895,6 +1937,17 @@ static Type checker_check_unary_expr(TypeChecker *checker, ASTNode *node) {
         // 一元负号：操作数必须是 i32、f32 或 f64
         if (operand_type.kind != TYPE_I32 && operand_type.kind != TYPE_F32 && operand_type.kind != TYPE_F64) {
             checker_report_error(checker, node, "类型检查错误");
+            return result;
+        }
+        result = operand_type;
+        return result;
+    } else if (op == TOKEN_TILDE) {
+        // 按位取反（~）：操作数必须是 i32 或 usize
+        if (operand_type.kind != TYPE_I32 && operand_type.kind != TYPE_USIZE) {
+            if (operand_type.kind != TYPE_VOID) {
+                checker_report_error(checker, node, "按位取反 ~ 的操作数必须为 i32 或 usize");
+            }
+            result.kind = TYPE_I32;
             return result;
         }
         result = operand_type;

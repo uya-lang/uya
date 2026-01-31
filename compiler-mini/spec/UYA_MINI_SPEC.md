@@ -349,10 +349,12 @@ escape_sequence = '\\' ( 'n' | 't' | '\\' | '"' | '0' )
 ```
 运算符列表：
 +  -  *  /  %        // 算术运算符
+<< >>               // 位移运算符（左移、右移）
 == != < > <= >=     // 比较运算符
+&  |  ^             // 位运算符（按位与、或、异或）
 && ||               // 逻辑运算符
 !                   // 逻辑非
--                   // 一元负号（与减法运算符相同符号）
+-  ~                // 一元负号、按位取反
 &                   // 取地址运算符（用于获取变量的地址）
 *                   // 解引用运算符（用于获取指针指向的值）
 ```
@@ -566,14 +568,18 @@ statements     = { statement }
 ```
 expr           = assign_expr
 assign_expr    = or_expr [ '=' assign_expr ]
-or_expr        = and_expr { '||' and_expr }
+or_expr        = bitor_expr { '||' bitor_expr }
+bitor_expr     = bitand_expr { '|' bitand_expr }
+bitand_expr    = xor_expr { '&' xor_expr }
+xor_expr       = and_expr { '^' and_expr }
 and_expr       = eq_expr { '&&' eq_expr }
 eq_expr        = rel_expr { ('==' | '!=') rel_expr }
-rel_expr       = add_expr { ('<' | '>' | '<=' | '>=') add_expr }
+rel_expr       = shift_expr { ('<' | '>' | '<=' | '>=') shift_expr }
+shift_expr     = add_expr { ('<<' | '>>') add_expr }
 add_expr       = mul_expr { ('+' | '-') mul_expr }
 mul_expr       = cast_expr { ('*' | '/' | '%') cast_expr }
 cast_expr      = unary_expr [ 'as' type ]
-unary_expr     = ('!' | '-' | '&' | '*') unary_expr | primary_expr
+unary_expr     = ('!' | '-' | '~' | '&' | '*') unary_expr | primary_expr
 primary_expr   = ID | NUM | FLOAT | 'true' | 'false' | 'null' | STRING | struct_literal | array_literal | member_access | array_access | call_expr | sizeof_expr | alignof_expr | len_expr | '(' expr ')'
 sizeof_expr    = 'sizeof' '(' (type | expr) ')'
 alignof_expr   = 'alignof' '(' (type | expr) ')'
@@ -647,15 +653,19 @@ arg_list       = expr { ',' expr }
   - 注意：`ptr.field` 是语法糖，等价于 `(*ptr).field`（当 ptr 是指向结构体的指针时）
 
 - **运算符优先级**（从高到低）：
-  1. 一元运算符：`!`（逻辑非）、`-`（负号）、`&`（取地址）、`*`（解引用）
+  1. 一元运算符：`!`（逻辑非）、`-`（负号）、`~`（按位取反）、`&`（取地址）、`*`（解引用）
   2. 类型转换：`as`
   3. 乘除模：`*` `/` `%`
   4. 加减：`+` `-`
-  5. 比较：`<` `>` `<=` `>=`
-  6. 相等性：`==` `!=`
-  7. 逻辑与：`&&`
-  8. 逻辑或：`||`
-  9. 赋值：`=`
+  5. 位移：`<<` `>>`
+  6. 比较：`<` `>` `<=` `>=`
+  7. 相等性：`==` `!=`
+  8. 按位与：`&`
+  9. 按位异或：`^`
+  10. 按位或：`|`
+  11. 逻辑与：`&&`
+  12. 逻辑或：`||`
+  13. 赋值：`=`
 
 - **运算符说明**：
   - 算术运算符：`+` `-` `*` `/` `%`
@@ -668,6 +678,11 @@ arg_list       = expr { ',' expr }
     - 浮点类型可比较，遵循 IEEE 754 语义
     - `i32` 和 `usize` 不能直接比较，需要显式转换
     - 结果类型为 `bool`
+  - 位运算符：`&`（按位与）、`|`（按位或）、`^`（按位异或）
+    - 操作数类型必须为整数（`i32` 或 `usize`），类型必须一致，结果类型与操作数相同
+  - 位移运算符：`<<`（左移）、`>>`（右移，算术右移）
+    - 左操作数必须是整数（`i32` 或 `usize`），右操作数必须是 `i32`，结果类型与左操作数相同
+  - 按位取反：`~`（一元），操作数必须是整数（`i32` 或 `usize`），结果类型与操作数相同
   - 逻辑运算符：`&&` `||`（操作数必须是 `bool`，结果类型为 `bool`）
   - 逻辑非：`!`（操作数必须是 `bool`，结果类型为 `bool`）
   - 一元负号：`-`（操作数 `i32`→`i32`，`f32`→`f32`，`f64`→`f64`；`usize` 不支持负号）

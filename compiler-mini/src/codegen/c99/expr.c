@@ -189,6 +189,16 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                     fputs(" && ", codegen->output);
                 } else if (op == TOKEN_LOGICAL_OR) {
                     fputs(" || ", codegen->output);
+                } else if (op == TOKEN_AMPERSAND) {
+                    fputs(" & ", codegen->output);
+                } else if (op == TOKEN_PIPE) {
+                    fputs(" | ", codegen->output);
+                } else if (op == TOKEN_CARET) {
+                    fputs(" ^ ", codegen->output);
+                } else if (op == TOKEN_LSHIFT) {
+                    fputs(" << ", codegen->output);
+                } else if (op == TOKEN_RSHIFT) {
+                    fputs(" >> ", codegen->output);
                 } else {
                     fputs(" + ", codegen->output); // 默认为加法
                 }
@@ -209,6 +219,8 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 fputs("-", codegen->output);
             } else if (op == TOKEN_EXCLAMATION) {
                 fputs("!", codegen->output);
+            } else if (op == TOKEN_TILDE) {
+                fputs("~", codegen->output);
             } else if (op == TOKEN_PLUS) {
                 fputs("+", codegen->output);
             } else {

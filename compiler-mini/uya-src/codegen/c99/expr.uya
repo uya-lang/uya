@@ -197,6 +197,16 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 fputs(" && " as *byte, codegen.output as *void);
             } else if op == TOKEN_LOGICAL_OR {
                 fputs(" || " as *byte, codegen.output as *void);
+            } else if op == TOKEN_AMPERSAND {
+                fputs(" & " as *byte, codegen.output as *void);
+            } else if op == TOKEN_PIPE {
+                fputs(" | " as *byte, codegen.output as *void);
+            } else if op == TOKEN_CARET {
+                fputs(" ^ " as *byte, codegen.output as *void);
+            } else if op == TOKEN_LSHIFT {
+                fputs(" << " as *byte, codegen.output as *void);
+            } else if op == TOKEN_RSHIFT {
+                fputs(" >> " as *byte, codegen.output as *void);
             } else {
                 fputs(" + " as *byte, codegen.output as *void); // 默认为加法
             }
@@ -215,6 +225,8 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             fputs("-" as *byte, codegen.output as *void);
         } else if op == TOKEN_EXCLAMATION {
             fputs("!" as *byte, codegen.output as *void);
+        } else if op == TOKEN_TILDE {
+            fputs("~" as *byte, codegen.output as *void);
         } else if op == TOKEN_PLUS {
             fputs("+" as *byte, codegen.output as *void);
         } else {

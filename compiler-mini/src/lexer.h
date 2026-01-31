@@ -58,7 +58,12 @@ typedef enum {
     TOKEN_LOGICAL_AND,  // &&
     TOKEN_LOGICAL_OR,   // ||
     TOKEN_EXCLAMATION,  // !
-    TOKEN_AMPERSAND,    // &（取地址运算符）
+    TOKEN_AMPERSAND,    // &（取地址/按位与）
+    TOKEN_PIPE,         // |（for 循环/按位或）
+    TOKEN_CARET,        // ^（按位异或）
+    TOKEN_TILDE,        // ~（按位取反）
+    TOKEN_LSHIFT,       // <<（左移）
+    TOKEN_RSHIFT,       // >>（右移）
     
     // 标点符号
     TOKEN_LEFT_PAREN,   // (
@@ -72,7 +77,6 @@ typedef enum {
     TOKEN_ASSIGN,       // =
     TOKEN_DOT,          // .
     TOKEN_COLON,        // :
-    TOKEN_PIPE,         // |（用于 for 循环）
     TOKEN_ELLIPSIS,     // ...（可变参数，用于 extern 函数声明）
 } TokenType;
 

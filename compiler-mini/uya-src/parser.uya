@@ -1249,9 +1249,10 @@ fn parser_parse_unary_expr(parser: &Parser) &ASTNode {
     const line: i32 = parser.current_token.line;
     const column: i32 = parser.current_token.column;
     
-    // 检查一元运算符（!, -, &, *）
+    // 检查一元运算符（!, -, ~, &, *）
     if parser_match(parser, TOKEN_EXCLAMATION) != 0 || 
        parser_match(parser, TOKEN_MINUS) != 0 ||
+       parser_match(parser, TOKEN_TILDE) != 0 ||
        parser_match(parser, TOKEN_AMPERSAND) != 0 ||
        parser_match(parser, TOKEN_ASTERISK) != 0 {
         const op: TokenType = parser.current_token.type;
@@ -1411,15 +1412,49 @@ fn parser_parse_add_expr(parser: &Parser) &ASTNode {
     return left;
 }
 
+// 解析位移表达式（左结合）
+// shift_expr = add_expr { ('<<' | '>>') add_expr }
+fn parser_parse_shift_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    var left: &ASTNode = parser_parse_add_expr(parser);
+    if left == null {
+        return null;
+    }
+    while parser.current_token != null && (
+        parser_match(parser, TOKEN_LSHIFT) != 0 ||
+        parser_match(parser, TOKEN_RSHIFT) != 0
+    ) {
+        const line: i32 = parser.current_token.line;
+        const column: i32 = parser.current_token.column;
+        const op: TokenType = parser.current_token.type;
+        parser_consume(parser);
+        const right: &ASTNode = parser_parse_add_expr(parser);
+        if right == null {
+            return null;
+        }
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, parser_get_filename(parser));
+        if node == null {
+            return null;
+        }
+        node.binary_expr_left = left;
+        node.binary_expr_op = op;
+        node.binary_expr_right = right;
+        left = node;
+    }
+    return left;
+}
+
 // 解析比较表达式（左结合）
-// rel_expr = add_expr { ('<' | '>' | '<=' | '>=') add_expr }
+// rel_expr = shift_expr { ('<' | '>' | '<=' | '>=') shift_expr }
 fn parser_parse_rel_expr(parser: &Parser) &ASTNode {
     if parser == null || parser.current_token == null {
         return null;
     }
     
     // 解析左操作数
-    var left: &ASTNode = parser_parse_add_expr(parser);
+    var left: &ASTNode = parser_parse_shift_expr(parser);
     if left == null {
         return null;
     }
@@ -1437,7 +1472,7 @@ fn parser_parse_rel_expr(parser: &Parser) &ASTNode {
         parser_consume(parser);  // 消费运算符
         
         // 解析右操作数
-        const right: &ASTNode = parser_parse_add_expr(parser);
+        const right: &ASTNode = parser_parse_shift_expr(parser);
         if right == null {
             return null;
         }
@@ -1455,6 +1490,37 @@ fn parser_parse_rel_expr(parser: &Parser) &ASTNode {
         left = node;  // 左结合：继续以当前节点作为左操作数
     }
     
+    return left;
+}
+
+// 解析按位与表达式（左结合）
+// bitand_expr = eq_expr { '&' eq_expr }
+fn parser_parse_bitand_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    var left: &ASTNode = parser_parse_eq_expr(parser);
+    if left == null {
+        return null;
+    }
+    while parser.current_token != null && parser_match(parser, TOKEN_AMPERSAND) != 0 {
+        const line: i32 = parser.current_token.line;
+        const column: i32 = parser.current_token.column;
+        const op: TokenType = parser.current_token.type;
+        parser_consume(parser);
+        const right: &ASTNode = parser_parse_eq_expr(parser);
+        if right == null {
+            return null;
+        }
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, parser_get_filename(parser));
+        if node == null {
+            return null;
+        }
+        node.binary_expr_left = left;
+        node.binary_expr_op = op;
+        node.binary_expr_right = right;
+        left = node;
+    }
     return left;
 }
 
@@ -1560,15 +1626,77 @@ fn parser_parse_eq_expr(parser: &Parser) &ASTNode {
     return left;
 }
 
+// 解析按位异或表达式（左结合）
+// xor_expr = and_expr { '^' and_expr }
+fn parser_parse_xor_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    var left: &ASTNode = parser_parse_and_expr(parser);
+    if left == null {
+        return null;
+    }
+    while parser.current_token != null && parser_match(parser, TOKEN_CARET) != 0 {
+        const line: i32 = parser.current_token.line;
+        const column: i32 = parser.current_token.column;
+        const op: TokenType = parser.current_token.type;
+        parser_consume(parser);
+        const right: &ASTNode = parser_parse_and_expr(parser);
+        if right == null {
+            return null;
+        }
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, parser_get_filename(parser));
+        if node == null {
+            return null;
+        }
+        node.binary_expr_left = left;
+        node.binary_expr_op = op;
+        node.binary_expr_right = right;
+        left = node;
+    }
+    return left;
+}
+
+// 解析按位或表达式（左结合）
+// bitor_expr = xor_expr { '|' xor_expr }
+fn parser_parse_bitor_expr(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    var left: &ASTNode = parser_parse_xor_expr(parser);
+    if left == null {
+        return null;
+    }
+    while parser.current_token != null && parser_match(parser, TOKEN_PIPE) != 0 {
+        const line: i32 = parser.current_token.line;
+        const column: i32 = parser.current_token.column;
+        const op: TokenType = parser.current_token.type;
+        parser_consume(parser);
+        const right: &ASTNode = parser_parse_xor_expr(parser);
+        if right == null {
+            return null;
+        }
+        const node: &ASTNode = ast_new_node(AST_BINARY_EXPR, line, column, parser.arena, parser_get_filename(parser));
+        if node == null {
+            return null;
+        }
+        node.binary_expr_left = left;
+        node.binary_expr_op = op;
+        node.binary_expr_right = right;
+        left = node;
+    }
+    return left;
+}
+
 // 解析逻辑与表达式（左结合）
-// and_expr = eq_expr { '&&' eq_expr }
+// and_expr = bitand_expr { '&&' bitand_expr }
 fn parser_parse_and_expr(parser: &Parser) &ASTNode {
     if parser == null || parser.current_token == null {
         return null;
     }
     
     // 解析左操作数
-    var left: &ASTNode = parser_parse_eq_expr(parser);
+    var left: &ASTNode = parser_parse_bitand_expr(parser);
     if left == null {
         return null;
     }
@@ -1581,7 +1709,7 @@ fn parser_parse_and_expr(parser: &Parser) &ASTNode {
         parser_consume(parser);  // 消费运算符
         
         // 解析右操作数
-        const right: &ASTNode = parser_parse_eq_expr(parser);
+        const right: &ASTNode = parser_parse_bitand_expr(parser);
         if right == null {
             return null;
         }
@@ -1603,14 +1731,14 @@ fn parser_parse_and_expr(parser: &Parser) &ASTNode {
 }
 
 // 解析逻辑或表达式（左结合）
-// or_expr = and_expr { '||' and_expr }
+// or_expr = bitor_expr { '||' bitor_expr }
 fn parser_parse_or_expr(parser: &Parser) &ASTNode {
     if parser == null || parser.current_token == null {
         return null;
     }
     
     // 解析左操作数
-    var left: &ASTNode = parser_parse_and_expr(parser);
+    var left: &ASTNode = parser_parse_bitor_expr(parser);
     if left == null {
         return null;
     }
@@ -1623,7 +1751,7 @@ fn parser_parse_or_expr(parser: &Parser) &ASTNode {
         parser_consume(parser);  // 消费运算符
         
         // 解析右操作数
-        const right: &ASTNode = parser_parse_and_expr(parser);
+        const right: &ASTNode = parser_parse_bitor_expr(parser);
         if right == null {
             return null;
         }
@@ -1964,6 +2092,7 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
     if parser_match(parser, TOKEN_FOR) != 0 {
         // 解析 for 语句（数组遍历）
         // 语法：for expr | ID | { statements } 或 for expr | &ID | { statements }
+        // 仅解析到 xor_expr，不包含 |，以便 for expr | id | 中的 | 作为分隔符
         parser_consume(parser);  // 消费 'for'
         
         const stmt: &ASTNode = ast_new_node(AST_FOR_STMT, line, column, parser.arena, parser_get_filename(parser));
@@ -1971,8 +2100,8 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
             return null;
         }
         
-        // 解析数组表达式
-        const array_expr: &ASTNode = parser_parse_expression(parser);
+        // 解析数组表达式（不包含 |，避免与 for 的 | 分隔符冲突）
+        const array_expr: &ASTNode = parser_parse_xor_expr(parser);
         if array_expr == null {
             return null;
         }
