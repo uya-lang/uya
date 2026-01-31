@@ -46,14 +46,14 @@
 
 ### 1. 规范优先
 - 更新 `compiler-mini/spec/UYA_MINI_SPEC.md`
-- 定义类型、字面量、BNF、语义规则、LLVM 映射等
+- 定义类型、字面量、BNF、语义规则、C99 映射等
 
 ### 2. 测试先行
 - 在 `tests/programs/` 添加测试用例（如 `test_xxx.uya`）
 - 覆盖目标场景，返回 0 表示通过
 
 ### 3. C 编译器实现
-按编译流水线依次修改：Lexer → AST → Parser → Checker → LLVM Codegen → C99 Codegen
+按编译流水线依次修改：Lexer → AST → Parser → Checker → C99 Codegen
 
 ### 4. 自举编译器同步
 同步修改 `compiler-mini/uya-src/` 中对应模块，保持 C 版与 Uya 版行为一致。

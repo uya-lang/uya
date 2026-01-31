@@ -58,7 +58,7 @@ compiler-mini/
 │   ├── lexer.h / lexer.c          # 词法分析器
 │   ├── parser.h / parser.c        # 语法分析器
 │   ├── checker.h / checker.c      # 类型检查器（简化，支持结构体）
-│   ├── codegen.h / codegen.c      # 代码生成器（LLVM C API）
+│   ├── codegen/c99/               # C99 代码生成器
 │   ├── ast.h / ast.c              # AST 定义（简化，支持结构体）
 │   └── main.c                     # 主程序
 ├── tests/                         # 测试用例

@@ -20,7 +20,7 @@ BUILD_DIR="$TEST_DIR/build"
 PASSED=0
 FAILED=0
 ERRORS_ONLY=false
-USE_C99=false
+USE_C99=true
 USE_UYA=false
 
 # 显示使用说明
@@ -30,7 +30,7 @@ show_usage() {
     echo "选项:"
     echo "  -h, --help          显示此帮助信息"
     echo "  -e, --errors-only   只显示失败的测试"
-    echo "  --c99               使用 C99 后端（默认使用 LLVM 后端）"
+    echo "  --c99               使用 C99 后端（默认，保留以兼容旧脚本）"
     echo "  --uya               使用 uya-src 编译的编译器（默认使用 C 版本编译器）"
     echo ""
     echo "参数:"
@@ -152,10 +152,8 @@ if [ "$ERRORS_ONLY" = false ]; then
     echo "使用编译器: $COMPILER"
     if [ "$USE_UYA" = true ]; then
         echo "（Uya 版本编译器）"
-    elif [ "$USE_C99" = true ]; then
-        echo "（C99 后端）"
     else
-        echo "（LLVM 后端）"
+        echo "（C99 后端）"
     fi
     if [ -n "$TARGET_PATH" ]; then
         echo "目标: $TARGET_PATH"
@@ -189,30 +187,14 @@ process_multifile_test() {
         echo "测试: $test_name (多文件编译)"
     fi
     
-    # 多文件编译：将所有文件一起编译
-    # 捕获编译输出，过滤调试信息但保留错误信息
-    local output_file
-    if [ "$USE_C99" = true ]; then
-        # C99 后端：生成 .c 文件
-        output_file="$BUILD_DIR/$build_subdir/${test_name}.c"
-        # 直接执行命令，让数组正确展开
-        # 注意：自举编译器不支持 --c99 选项，它总是使用 C99 后端
-        # 通过输出文件后缀（.c）来指示使用 C99 后端
-        if [ "$USE_UYA" = true ]; then
-            # 自举编译器：不传递 --c99 选项
-            local compiler_output=$("$COMPILER" "${file_list[@]}" -o "$output_file" 2>&1)
-        else
-            # C 版本编译器：传递 --c99 选项
-            local compiler_output=$("$COMPILER" --c99 "${file_list[@]}" -o "$output_file" 2>&1)
-        fi
-        local compiler_exit=$?
-    else
-        # LLVM 后端：生成 .o 文件
-        output_file="$BUILD_DIR/$build_subdir/${test_name}.o"
-        # 直接执行命令，让数组正确展开
+    # 多文件编译：将所有文件一起编译（C99 后端生成 .c 文件）
+    local output_file="$BUILD_DIR/$build_subdir/${test_name}.c"
+    if [ "$USE_UYA" = true ]; then
         local compiler_output=$("$COMPILER" "${file_list[@]}" -o "$output_file" 2>&1)
-        local compiler_exit=$?
+    else
+        local compiler_output=$("$COMPILER" --c99 "${file_list[@]}" -o "$output_file" 2>&1)
     fi
+    local compiler_exit=$?
     if [ $compiler_exit -ne 0 ]; then
         # 如果有错误信息，显示它（排除调试信息）
         if [ "$ERRORS_ONLY" = true ]; then
@@ -228,33 +210,19 @@ process_multifile_test() {
     fi
     # 检查是否生成了输出文件
     if [ ! -f "$output_file" ]; then
-        # 如果没有输出文件，可能生成了无扩展名的文件（仅限 LLVM 后端）
-        if [ "$USE_C99" = false ] && [ -f "$BUILD_DIR/$build_subdir/${test_name}" ]; then
-            mv "$BUILD_DIR/$build_subdir/${test_name}" "$output_file"
-        else
-            echo "  ❌ 编译失败（未生成输出文件: $output_file）"
-            FAILED=$((FAILED + 1))
-            return
-        fi
+        echo "  ❌ 编译失败（未生成输出文件: $output_file）"
+        FAILED=$((FAILED + 1))
+        return
     fi
-    # 链接目标文件为可执行文件
+    # 链接：编译 .c 文件为可执行文件（需要链接 bridge.c 提供运行时支持）
     link_succeeded=false
-    if [ "$USE_C99" = true ]; then
-        # C99 后端：直接编译 .c 文件为可执行文件（需要链接 bridge.c 提供运行时支持）
-        BRIDGE_C="tests/bridge.c"
-        if [ -f "$BRIDGE_C" ]; then
-            if gcc -std=c99 -o "$BUILD_DIR/$build_subdir/$test_name" "$output_file" "$BRIDGE_C"; then
-                link_succeeded=true
-            fi
-        else
-            # 如果没有 bridge.c，尝试不链接（可能会失败）
-            if gcc -std=c99 -o "$BUILD_DIR/$build_subdir/$test_name" "$output_file"; then
-                link_succeeded=true
-            fi
+    BRIDGE_C="tests/bridge.c"
+    if [ -f "$BRIDGE_C" ]; then
+        if gcc -std=c99 -o "$BUILD_DIR/$build_subdir/$test_name" "$output_file" "$BRIDGE_C"; then
+            link_succeeded=true
         fi
     else
-        # LLVM 后端：链接 .o 文件
-        if gcc -no-pie "$output_file" -o "$BUILD_DIR/$build_subdir/$test_name"; then
+        if gcc -std=c99 -o "$BUILD_DIR/$build_subdir/$test_name" "$output_file"; then
             link_succeeded=true
         fi
     fi
@@ -305,27 +273,14 @@ process_single_test() {
         echo "测试: $base_name"
     fi
     
-    # 编译（生成目标文件）
-    # 捕获编译输出，过滤调试信息但保留错误信息
-    if [ "$USE_C99" = true ]; then
-        # C99 后端：生成 .c 文件
-        output_file="$BUILD_DIR/${base_name}.c"
-        # 注意：自举编译器不支持 --c99 选项，它总是使用 C99 后端
-        # 通过输出文件后缀（.c）来指示使用 C99 后端
-        if [ "$USE_UYA" = true ]; then
-            # 自举编译器：不传递 --c99 选项
-            compiler_output=$("$COMPILER" "$uya_file" -o "$output_file" 2>&1)
-        else
-            # C 版本编译器：传递 --c99 选项
-            compiler_output=$("$COMPILER" --c99 "$uya_file" -o "$output_file" 2>&1)
-        fi
-        compiler_exit=$?
-    else
-        # LLVM 后端：生成 .o 文件
-        output_file="$BUILD_DIR/${base_name}.o"
+    # 编译（C99 后端生成 .c 文件）
+    output_file="$BUILD_DIR/${base_name}.c"
+    if [ "$USE_UYA" = true ]; then
         compiler_output=$("$COMPILER" "$uya_file" -o "$output_file" 2>&1)
-        compiler_exit=$?
+    else
+        compiler_output=$("$COMPILER" --c99 "$uya_file" -o "$output_file" 2>&1)
     fi
+    compiler_exit=$?
     
     # 检查是否是预期编译失败的测试文件
     # test_ffi_ptr_in_normal_fn: 普通函数不能使用 FFI 指针
@@ -411,13 +366,10 @@ process_single_test() {
         return
     fi
     
-    # 链接目标文件为可执行文件
-    # 对于需要外部函数的测试，需要链接外部函数实现
+    # 链接：编译 .c 文件为可执行文件（对于需要外部函数的测试，需链接实现）
     link_succeeded=false
-    if [ "$USE_C99" = true ]; then
-        # C99 后端：直接编译 .c 文件为可执行文件
-        BRIDGE_C="tests/bridge.c"
-        if [ "$base_name" = "extern_function" ]; then
+    BRIDGE_C="tests/bridge.c"
+    if [ "$base_name" = "extern_function" ]; then
             # 编译主程序和外部函数实现（需要链接 bridge.c）
             if [ -f "$BRIDGE_C" ]; then
                 if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/extern_function_impl.c "$BRIDGE_C"; then
@@ -428,7 +380,7 @@ process_single_test() {
                     link_succeeded=true
                 fi
             fi
-        elif [ "$base_name" = "test_comprehensive_cast" ] || [ "$base_name" = "test_ffi_cast" ] || [ "$base_name" = "test_pointer_cast" ] || [ "$base_name" = "test_simple_cast" ]; then
+    elif [ "$base_name" = "test_comprehensive_cast" ] || [ "$base_name" = "test_ffi_cast" ] || [ "$base_name" = "test_pointer_cast" ] || [ "$base_name" = "test_simple_cast" ]; then
             # 编译主程序和通用外部函数实现（需要链接 bridge.c）
             if [ -f "$BRIDGE_C" ]; then
                 if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/external_functions.c "$BRIDGE_C"; then
@@ -439,7 +391,7 @@ process_single_test() {
                     link_succeeded=true
                 fi
             fi
-        elif [ "$base_name" = "test_abi_calling_convention" ]; then
+    elif [ "$base_name" = "test_abi_calling_convention" ]; then
             # 编译主程序和 ABI 辅助函数（需要链接 bridge.c）
             if [ -f "$BRIDGE_C" ]; then
                 if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/test_abi_helpers.c "$BRIDGE_C"; then
@@ -450,64 +402,18 @@ process_single_test() {
                     link_succeeded=true
                 fi
             fi
-        else
+    else
             # 普通 C99 编译（需要链接 bridge.c 提供运行时支持）
-            BRIDGE_C="tests/bridge.c"
             if [ -f "$BRIDGE_C" ]; then
                 if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" "$BRIDGE_C"; then
                     link_succeeded=true
                 fi
             else
-                # 如果没有 bridge.c，尝试不链接（可能会失败）
                 if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file"; then
                     link_succeeded=true
                 fi
             fi
         fi
-    else
-        # LLVM 后端：链接 .o 文件
-        if [ "$base_name" = "extern_function" ]; then
-            # 编译外部函数实现
-            gcc -c tests/programs/extern_function_impl.c -o "$BUILD_DIR/extern_function_impl.o"
-            if [ $? -ne 0 ]; then
-                echo "  ❌ 编译外部函数实现失败"
-                FAILED=$((FAILED + 1))
-                return
-            fi
-            # 链接主程序和外部函数实现
-            if gcc -no-pie "$output_file" "$BUILD_DIR/extern_function_impl.o" -o "$BUILD_DIR/$base_name"; then
-                link_succeeded=true
-            fi
-        elif [ "$base_name" = "test_comprehensive_cast" ] || [ "$base_name" = "test_ffi_cast" ] || [ "$base_name" = "test_pointer_cast" ] || [ "$base_name" = "test_simple_cast" ]; then
-            # 编译通用外部函数实现
-            gcc -c tests/external_functions.c -o "$BUILD_DIR/external_functions.o"
-            if [ $? -ne 0 ]; then
-                echo "  ❌ 编译外部函数实现失败"
-                FAILED=$((FAILED + 1))
-                return
-            fi
-            # 链接主程序和外部函数实现
-            if gcc -no-pie "$output_file" "$BUILD_DIR/external_functions.o" -o "$BUILD_DIR/$base_name"; then
-                link_succeeded=true
-            fi
-        elif [ "$base_name" = "test_abi_calling_convention" ]; then
-            # 编译 ABI 测试辅助函数
-            gcc -c tests/programs/test_abi_helpers.c -o "$BUILD_DIR/test_abi_helpers.o"
-            if [ $? -ne 0 ]; then
-                echo "  ❌ 编译 ABI 辅助函数失败"
-                FAILED=$((FAILED + 1))
-                return
-            fi
-            # 链接主程序和 ABI 辅助函数
-            if gcc -no-pie "$output_file" "$BUILD_DIR/test_abi_helpers.o" -o "$BUILD_DIR/$base_name"; then
-                link_succeeded=true
-            fi
-        else
-            if gcc -no-pie "$output_file" -o "$BUILD_DIR/$base_name"; then
-                link_succeeded=true
-            fi
-        fi
-    fi
     
     if [ "$link_succeeded" = false ]; then
         if [ "$ERRORS_ONLY" = true ]; then

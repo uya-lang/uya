@@ -23,37 +23,10 @@ PARSER_TEST = $(BUILD_DIR)/tests/test_parser
 PARSER_TEST_SRC = tests/test_parser.c src/parser.c src/lexer.c src/ast.c src/arena.c
 CHECKER_TEST = $(BUILD_DIR)/tests/test_checker
 CHECKER_TEST_SRC = tests/test_checker.c src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
-CODEGEN_TEST = $(BUILD_DIR)/tests/test_codegen
-CODEGEN_TEST_SRC = tests/test_codegen.c \
-	src/codegen/llvm_capi/utils.c \
-	src/codegen/llvm_capi/init.c \
-	src/codegen/llvm_capi/types.c \
-	src/codegen/llvm_capi/vars.c \
-	src/codegen/llvm_capi/funcs.c \
-	src/codegen/llvm_capi/structs.c \
-	src/codegen/llvm_capi/enums.c \
-	src/codegen/llvm_capi/expr.c \
-	src/codegen/llvm_capi/stmt.c \
-	src/codegen/llvm_capi/function.c \
-	src/codegen/llvm_capi/global.c \
-	src/codegen/llvm_capi/main.c \
-	src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
 
 # 主程序目标
 TARGET = $(BUILD_DIR)/compiler-mini
 MAIN_SRC = src/main.c \
-	src/codegen/llvm_capi/utils.c \
-	src/codegen/llvm_capi/init.c \
-	src/codegen/llvm_capi/types.c \
-	src/codegen/llvm_capi/vars.c \
-	src/codegen/llvm_capi/funcs.c \
-	src/codegen/llvm_capi/structs.c \
-	src/codegen/llvm_capi/enums.c \
-	src/codegen/llvm_capi/expr.c \
-	src/codegen/llvm_capi/stmt.c \
-	src/codegen/llvm_capi/function.c \
-	src/codegen/llvm_capi/global.c \
-	src/codegen/llvm_capi/main.c \
 	src/codegen/c99/utils.c \
 	src/codegen/c99/types.c \
 	src/codegen/c99/structs.c \
@@ -65,19 +38,12 @@ MAIN_SRC = src/main.c \
 	src/codegen/c99/main.c \
 	src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
 
-# LLVM 库链接选项
-# 使用 llvm-config 获取编译和链接选项（如果可用）
-LLVM_CONFIG ?= llvm-config
-LLVM_CFLAGS = $(shell $(LLVM_CONFIG) --cflags 2>/dev/null || echo "")
-LLVM_LDFLAGS = $(shell $(LLVM_CONFIG) --ldflags 2>/dev/null || echo "")
-LLVM_LIBS = $(shell $(LLVM_CONFIG) --libs core target 2>/dev/null || echo "-llvm")
-
 # 测试程序目录
 PROGRAMS_DIR = tests/programs
 PROGRAMS = $(wildcard $(PROGRAMS_DIR)/*.uya)
-PROGRAM_BINARIES = $(patsubst $(PROGRAMS_DIR)/%.uya,$(BUILD_DIR)/$(PROGRAMS_DIR)/%,$(PROGRAMS))
+PROGRAM_BINARIES = $(patsubst $(PROGRAMS_DIR)/%.uya,$(BUILD_DIR)/$(PROGRAMS_DIR)/%.c,$(PROGRAMS))
 
-.PHONY: all build test clean test-arena test-ast test-lexer test-parser test-checker test-codegen compile-programs test-programs c99-backend test-c99
+.PHONY: all build test clean test-arena test-ast test-lexer test-parser test-checker compile-programs test-programs c99-backend test-c99
 
 # 默认目标
 all: build
@@ -86,12 +52,12 @@ all: build
 build: $(TARGET)
 	@echo "构建完成: $(TARGET)"
 
-# 编译主程序（需要链接 LLVM 库）
+# 编译主程序
 $(TARGET): $(MAIN_SRC) | $(BUILD_DIR)/.dir
-	$(CC) $(CFLAGS) $(LLVM_CFLAGS) $(INCLUDES) -o $@ $^ $(LLVM_LDFLAGS) $(LLVM_LIBS)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 # 运行所有测试
-test: test-arena test-ast test-lexer test-parser test-checker test-codegen
+test: test-arena test-ast test-lexer test-parser test-checker
 	@echo "所有测试完成"
 
 # Arena 分配器测试
@@ -139,19 +105,10 @@ test-checker: $(CHECKER_TEST)
 $(CHECKER_TEST): $(CHECKER_TEST_SRC) | $(BUILD_DIR)/tests/.dir
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
-# CodeGen 测试
-test-codegen: $(CODEGEN_TEST)
-	@echo "运行 CodeGen 测试..."
-	./$(CODEGEN_TEST)
-
-# 编译 CodeGen 测试（需要链接 LLVM 库）
-$(CODEGEN_TEST): $(CODEGEN_TEST_SRC) | $(BUILD_DIR)/tests/.dir
-	$(CC) $(CFLAGS) $(LLVM_CFLAGS) $(INCLUDES) -o $@ $^ $(LLVM_LDFLAGS) $(LLVM_LIBS)
-
 # 编译所有测试程序
 compile-programs: $(TARGET) $(PROGRAM_BINARIES)
 
-$(PROGRAM_BINARIES): $(BUILD_DIR)/$(PROGRAMS_DIR)/%: $(PROGRAMS_DIR)/%.uya | $(BUILD_DIR)/$(PROGRAMS_DIR)/.dir
+$(PROGRAM_BINARIES): $(BUILD_DIR)/$(PROGRAMS_DIR)/%.c: $(PROGRAMS_DIR)/%.uya | $(BUILD_DIR)/$(PROGRAMS_DIR)/.dir
 	@echo "编译测试程序: $<"
 	./$(TARGET) $< -o $@
 
