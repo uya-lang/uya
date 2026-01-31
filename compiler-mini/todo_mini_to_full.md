@@ -24,9 +24,21 @@
 
 ---
 
+## 下次优先实现（规范 0.34 变更）
+
+以下三项来自 uya.md 0.34 规范变更，建议在阶段 2（错误处理）之前或与之并行时优先实现。
+
+- [ ] **参数列表即元组**：函数形参表 `(a: T1, b: T2)` 视为元组类型，实参为元组字面量或解构；与现有元组类型、解构声明衔接
+- [ ] **可变参数**：`...T` 或 `...` 形参、`...expr` 展开实参，规范 uya.md 可变参数与调用约定
+- [ ] **字符串插值与 printf 结合**：`"a${x}"`、`"a${x:format}"`，结果类型与 printf 格式一致，规范 uya.md §17；可与阶段 10 合并实现
+
+**涉及**：Parser（形参/实参元组、`...`）、Checker（元组与可变参数类型）、Codegen（元组传参、va_list/va_arg）、Lexer/字符串插值；uya-src 同步。实现时先更新 [spec/UYA_MINI_SPEC.md](spec/UYA_MINI_SPEC.md) 与测试用例，再按 Lexer → AST → Parser → Checker → Codegen 顺序推进。
+
+---
+
 ## 0. 规范同步：内置函数以 @ 开头
 
-规范已升级为所有内置函数以 `@` 开头（uya.md 0.33、UYA_MINI_SPEC.md）。已实现新语法并迁移测试。
+规范已升级为所有内置函数以 `@` 开头（uya.md 0.34、UYA_MINI_SPEC.md）。已实现新语法并迁移测试。
 
 - [x] **Lexer**：识别 `@` 及 `@` 后标识符（如 `@sizeof`、`@alignof`、`@len`、`@max`、`@min`）；新增 `TOKEN_AT_IDENTIFIER` 类型
 - [x] **AST**：沿用现有节点（AST_SIZEOF、AST_ALIGNOF、AST_LEN、AST_INT_LIMIT）
