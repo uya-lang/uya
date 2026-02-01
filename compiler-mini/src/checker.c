@@ -1427,14 +1427,26 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
         }
         
         case AST_CAST_EXPR: {
-            // 类型转换表达式：返回目标类型
-            // 注意：这里不验证转换是否合法，类型检查阶段会验证
+            // 类型转换表达式：as 返回目标类型 T，as! 返回 !T
             ASTNode *target_type_node = expr->data.cast_expr.target_type;
             if (target_type_node == NULL) {
                 result.kind = TYPE_VOID;
                 return result;
             }
-            return type_from_ast(checker, target_type_node);
+            Type target_type = type_from_ast(checker, target_type_node);
+            if (expr->data.cast_expr.is_force_cast) {
+                // as! 强转：返回 !T（错误联合类型）
+                Type *payload_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
+                if (payload_ptr == NULL) {
+                    result.kind = TYPE_VOID;
+                    return result;
+                }
+                *payload_ptr = target_type;
+                result.kind = TYPE_ERROR_UNION;
+                result.data.error_union.payload_type = payload_ptr;
+                return result;
+            }
+            return target_type;
         }
         
         case AST_BLOCK: {

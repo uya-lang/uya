@@ -646,10 +646,18 @@ fn get_c_type_of_expr(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
         return ("int32_t" as *byte) as &byte;
     } else if expr.type == ASTNodeType.AST_CAST_EXPR {
         const target_type: &ASTNode = expr.cast_expr_target_type;
-        if target_type != null {
-            return c99_type_to_c(codegen, target_type);
+        if target_type == null {
+            return ("int32_t" as *byte) as &byte;
         }
-        return ("int32_t" as *byte) as &byte;
+        if expr.cast_expr_is_force_cast != 0 {
+            const tmp: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_ERROR_UNION, 0, 0, codegen.arena, null);
+            if tmp != null {
+                tmp.type_error_union_payload_type = target_type;
+                return c99_type_to_c(codegen, tmp);
+            }
+            return ("int32_t" as *byte) as &byte;
+        }
+        return c99_type_to_c(codegen, target_type);
     } else {
         return ("int32_t" as *byte) as &byte;
     }

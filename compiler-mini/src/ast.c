@@ -166,6 +166,7 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_CAST_EXPR:
             node->data.cast_expr.expr = NULL;
             node->data.cast_expr.target_type = NULL;
+            node->data.cast_expr.is_force_cast = 0;
             break;
         case AST_IDENTIFIER:
             node->data.identifier.name = NULL;

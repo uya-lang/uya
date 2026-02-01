@@ -1024,7 +1024,28 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         case AST_CAST_EXPR: {
             ASTNode *src_expr = expr->data.cast_expr.expr;
             ASTNode *target_type = expr->data.cast_expr.target_type;
+            int is_force_cast = expr->data.cast_expr.is_force_cast;
             const char *type_c = c99_type_to_c(codegen, target_type);
+            if (is_force_cast) {
+                /* as! 强转：返回 !T，包装为 { .error_id = 0, .value = (T)(expr) } */
+                ASTNode tmp = {0};
+                tmp.type = AST_TYPE_ERROR_UNION;
+                tmp.data.type_error_union.payload_type = target_type;
+                const char *union_c = c99_type_to_c(codegen, &tmp);
+                int is_void = (target_type->type == AST_TYPE_NAMED && target_type->data.type_named.name &&
+                    strcmp(target_type->data.type_named.name, "void") == 0);
+                fprintf(codegen->output, "({ %s _uya_asbang = { .error_id = 0", union_c);
+                if (!is_void) {
+                    fprintf(codegen->output, ", .value = (%s)(", type_c);
+                    gen_expr(codegen, src_expr);
+                    fputs(") }; _uya_asbang; })", codegen->output);
+                } else {
+                    fputs(" }; ", codegen->output);
+                    gen_expr(codegen, src_expr);
+                    fputs("; _uya_asbang; })", codegen->output);
+                }
+                break;
+            }
             fputc('(', codegen->output);
             fprintf(codegen->output, "%s)", type_c);
             gen_expr(codegen, src_expr);
@@ -1049,14 +1070,30 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         case AST_TRY_EXPR: {
             ASTNode *operand = expr->data.try_expr.operand;
             ASTNode *ret_type = codegen->current_function_return_type;
-            if (!operand || !ret_type || ret_type->type != AST_TYPE_ERROR_UNION) {
+            if (!operand) {
                 fputs("0", codegen->output);
                 break;
             }
-            const char *union_c = c99_type_to_c(codegen, ret_type);
-            fprintf(codegen->output, "({ %s _uya_try_tmp = ", union_c);
+            /* 操作数类型（如 !f32），可能与函数返回类型（如 !i32）不同 */
+            const char *operand_union_c = get_c_type_of_expr(codegen, operand);
+            int operand_is_err_union = (operand_union_c && strstr(operand_union_c, "err_union_") != NULL);
+            if (!operand_is_err_union || !ret_type || ret_type->type != AST_TYPE_ERROR_UNION) {
+                /* 回退：操作数非 !T 或不在 !T 函数内 */
+                if (ret_type && ret_type->type == AST_TYPE_ERROR_UNION) {
+                    const char *union_c = c99_type_to_c(codegen, ret_type);
+                    fprintf(codegen->output, "({ %s _uya_try_tmp = ", union_c);
+                    gen_expr(codegen, operand);
+                    fprintf(codegen->output, "; if (_uya_try_tmp.error_id != 0) return _uya_try_tmp; _uya_try_tmp.value; })");
+                } else {
+                    fputs("0", codegen->output);
+                }
+                break;
+            }
+            const char *ret_union_c = c99_type_to_c(codegen, ret_type);
+            fprintf(codegen->output, "({ %s _uya_try_tmp = ", operand_union_c);
             gen_expr(codegen, operand);
-            fprintf(codegen->output, "; if (_uya_try_tmp.error_id != 0) return _uya_try_tmp; _uya_try_tmp.value; })");
+            /* 错误传播时需转换为函数返回类型 */
+            fprintf(codegen->output, "; if (_uya_try_tmp.error_id != 0) return (%s){ .error_id = _uya_try_tmp.error_id, .value = 0 }; _uya_try_tmp.value; })", ret_union_c);
             break;
         }
         case AST_CATCH_EXPR: {
@@ -1064,13 +1101,36 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             ASTNode *block = expr->data.catch_expr.catch_block;
             const char *err_name = expr->data.catch_expr.err_name;
             ASTNode *ret_type = codegen->current_function_return_type;
-            if (!operand || !block || !ret_type || ret_type->type != AST_TYPE_ERROR_UNION) {
+            if (!operand || !block) {
                 fputs("0", codegen->output);
                 break;
             }
-            ASTNode *payload_node = ret_type->data.type_error_union.payload_type;
-            const char *union_c = c99_type_to_c(codegen, ret_type);
-            const char *payload_c = payload_node ? c99_type_to_c(codegen, payload_node) : "void";
+            /* 操作数类型（如 !f32）可能与函数返回类型（如 !i32）不同 */
+            const char *operand_union_c = get_c_type_of_expr(codegen, operand);
+            int operand_is_err_union = (operand_union_c && strstr(operand_union_c, "err_union_") != NULL);
+            const char *union_c;
+            const char *payload_c;
+            if (operand_is_err_union) {
+                /* 使用操作数的 !T 类型及 payload 类型 */
+                union_c = operand_union_c;
+                /* 从操作数推断 payload：as! T 的 payload 为 T */
+                if (operand->type == AST_CAST_EXPR && operand->data.cast_expr.is_force_cast &&
+                    operand->data.cast_expr.target_type) {
+                    payload_c = c99_type_to_c(codegen, operand->data.cast_expr.target_type);
+                } else if (ret_type && ret_type->type == AST_TYPE_ERROR_UNION &&
+                    ret_type->data.type_error_union.payload_type) {
+                    payload_c = c99_type_to_c(codegen, ret_type->data.type_error_union.payload_type);
+                } else {
+                    payload_c = "int32_t";
+                }
+            } else if (ret_type && ret_type->type == AST_TYPE_ERROR_UNION) {
+                union_c = c99_type_to_c(codegen, ret_type);
+                ASTNode *payload_node = ret_type->data.type_error_union.payload_type;
+                payload_c = payload_node ? c99_type_to_c(codegen, payload_node) : "void";
+            } else {
+                fputs("0", codegen->output);
+                break;
+            }
             int n = block->data.block.stmt_count;
             ASTNode *last_stmt = (n > 0) ? block->data.block.stmts[n - 1] : NULL;
             fprintf(codegen->output, "({ %s _uya_catch_result; %s _uya_catch_tmp = ", payload_c, union_c);

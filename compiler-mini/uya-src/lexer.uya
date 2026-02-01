@@ -43,6 +43,7 @@ enum TokenType {
     TOKEN_ERRDEFER,     // errdefer（仅错误返回时执行）
     TOKEN_AT_IDENTIFIER,  // @ 后跟内置函数标识符（@sizeof、@alignof、@len、@max、@min）
     TOKEN_AS,
+    TOKEN_AS_BANG,     // as!（强转，返回 !T，规范 uya.md §11.3）
     TOKEN_MATCH,       // match（模式匹配）
     TOKEN_FAT_ARROW,   // =>（match 臂箭头）
     TOKEN_PLUS,
@@ -304,7 +305,12 @@ fn read_identifier_or_keyword(lexer: &Lexer, arena: &Arena) &Token {
     if value == null {
         return null;
     }
-    const tok_type: TokenType = is_keyword(value);
+    var tok_type: TokenType = is_keyword(value);
+    // as! 为单 token：识别 "as" 后若下一字符为 '!'，则消费并返回 TOKEN_AS_BANG
+    if tok_type == TokenType.TOKEN_AS && n == 2 && lexer.position < lexer.buffer_size && peek_char(lexer, 0) == 33 {
+        advance_char(lexer);
+        return make_token(arena, TokenType.TOKEN_AS_BANG, "as!" as &byte, line, column);
+    }
     return make_token(arena, tok_type, value, line, column);
 }
 

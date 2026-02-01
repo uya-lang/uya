@@ -133,6 +133,13 @@ fn collect_slice_types_from_node(codegen: &C99CodeGenerator, node: &ASTNode) voi
         collect_slice_types_from_node(codegen, node.cast_expr_expr);
         if node.cast_expr_target_type != null {
             collect_slice_types_from_node(codegen, node.cast_expr_target_type);
+            if node.cast_expr_is_force_cast != 0 {
+                const tmp: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_ERROR_UNION, 0, 0, codegen.arena, null);
+                if tmp != null {
+                    tmp.type_error_union_payload_type = node.cast_expr_target_type;
+                    c99_type_to_c(codegen, tmp);
+                }
+            }
         }
     } else if node.type == ASTNodeType.AST_LEN {
         collect_slice_types_from_node(codegen, node.len_expr_array);

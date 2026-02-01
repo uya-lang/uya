@@ -1,0 +1,18 @@
+// as! 强转：返回 !T，需 try 或 catch 处理
+// 规范 uya.md §11.3
+
+fn main() !i32 {
+    const x: f64 = 3.14;
+    const y: f32 = try (x as! f32);
+    if y < 3.13 || y > 3.15 { return 1; }
+
+    const large: i32 = 100;
+    const f: f32 = large as! f32 catch |_| { 0.0 };
+    if f < 99.0 || f > 101.0 { return 2; }
+
+    const pi: f64 = 3.14;
+    const n: i32 = try (pi as! i32);
+    if n != 3 { return 3; }
+
+    return 0;  // 成功值（!i32 的 payload）
+}

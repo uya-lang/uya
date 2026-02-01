@@ -3071,11 +3071,12 @@ static ASTNode *parser_parse_cast_expr(Parser *parser) {
         return NULL;
     }
     
-    // 检查是否有 'as' 关键字（类型转换）
-    if (parser->current_token != NULL && parser->current_token->type == TOKEN_AS) {
+    // 检查是否有 'as' 或 'as!' 关键字（类型转换）
+    if (parser->current_token != NULL && (parser->current_token->type == TOKEN_AS || parser->current_token->type == TOKEN_AS_BANG)) {
+        int is_force_cast = (parser->current_token->type == TOKEN_AS_BANG);
         int line = parser->current_token->line;
         int column = parser->current_token->column;
-        parser_consume(parser);  // 消费 'as'
+        parser_consume(parser);  // 消费 'as' 或 'as!'
         
         // 解析目标类型
         ASTNode *target_type = parser_parse_type(parser);
@@ -3091,6 +3092,7 @@ static ASTNode *parser_parse_cast_expr(Parser *parser) {
         
         node->data.cast_expr.expr = expr;
         node->data.cast_expr.target_type = target_type;
+        node->data.cast_expr.is_force_cast = is_force_cast;
         
         expr = node;
     }

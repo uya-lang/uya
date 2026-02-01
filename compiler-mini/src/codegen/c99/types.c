@@ -981,8 +981,15 @@ const char *get_c_type_of_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         }
         case AST_CAST_EXPR: {
             ASTNode *target_type = expr->data.cast_expr.target_type;
-            if (target_type) return c99_type_to_c(codegen, target_type);
-            return "int32_t";
+            if (!target_type) return "int32_t";
+            if (expr->data.cast_expr.is_force_cast) {
+                /* as! 返回 !T，需返回错误联合结构体类型 */
+                ASTNode tmp = {0};
+                tmp.type = AST_TYPE_ERROR_UNION;
+                tmp.data.type_error_union.payload_type = target_type;
+                return c99_type_to_c(codegen, &tmp);
+            }
+            return c99_type_to_c(codegen, target_type);
         }
         case AST_ARRAY_ACCESS:
         case AST_CALL_EXPR:

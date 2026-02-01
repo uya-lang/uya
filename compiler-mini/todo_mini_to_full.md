@@ -224,7 +224,8 @@
 - [x] **饱和运算**：`+|`、`-|`、`*|`，规范 uya.md §10、§16
 - [x] **包装运算**：`+%`、`-%`、`*%`，规范 uya.md §10、§16
 - [x] **切片运算符**：`[start:len]` 用于切片语法，规范 uya.md §10（已实现：base[start:len] 得 &[T]，test_slice.uya 通过）
-- [ ] **类型转换 as!**：强转返回 `!T`，需 try/catch，规范 uya.md §11
+- [x] **类型转换 as!**：强转返回 `!T`，需 try/catch，规范 uya.md §11  
+  **C 实现**：Lexer（TOKEN_AS_BANG，read_identifier_or_keyword 识别 as!）、AST（cast_expr.is_force_cast）、Parser（TOKEN_AS/AS_BANG 分支）、Checker（infer_type 对 as! 返回 TYPE_ERROR_UNION）、Codegen（as! 包装 !T、collect 预定义 !T 结构体、try/catch 使用操作数类型）、types（get_c_type_of_expr 对 as! 返回 err_union_X）。测试 test_as_force_cast.uya 通过 `--c99`。**uya-src 已同步**：lexer.uya、ast.uya、parser.uya、checker.uya、codegen expr/types/main.uya。通过 `--uya --c99`。
 - [ ] **内存安全证明**：数组越界/空指针/未初始化/溢出/除零：证明或插入运行时检查，规范 uya.md §14
 
 **涉及**：Lexer（新运算符）、Parser、Checker、Codegen，uya-src。

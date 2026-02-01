@@ -116,10 +116,20 @@ static void collect_slice_types_from_node(C99CodeGenerator *codegen, ASTNode *no
             }
             break;
         }
-        case AST_CAST_EXPR:
+        case AST_CAST_EXPR: {
             collect_slice_types_from_node(codegen, node->data.cast_expr.expr);
-            if (node->data.cast_expr.target_type) collect_slice_types_from_node(codegen, node->data.cast_expr.target_type);
+            if (node->data.cast_expr.target_type) {
+                collect_slice_types_from_node(codegen, node->data.cast_expr.target_type);
+                /* as! 强转需要 !T 结构体，预先定义以免在表达式内联生成 */
+                if (node->data.cast_expr.is_force_cast) {
+                    ASTNode tmp = {0};
+                    tmp.type = AST_TYPE_ERROR_UNION;
+                    tmp.data.type_error_union.payload_type = node->data.cast_expr.target_type;
+                    (void)c99_type_to_c(codegen, &tmp);
+                }
+            }
             break;
+        }
         case AST_LEN:
             collect_slice_types_from_node(codegen, node->data.len_expr.array);
             break;

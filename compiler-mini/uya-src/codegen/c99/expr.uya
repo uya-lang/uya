@@ -190,28 +190,64 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     } else if expr.type == ASTNodeType.AST_TRY_EXPR {
         const operand: &ASTNode = expr.try_expr_operand;
         const ret_type: &ASTNode = codegen.current_function_return_type;
-        if operand == null || ret_type == null || ret_type.type != ASTNodeType.AST_TYPE_ERROR_UNION {
+        if operand == null {
             fputs("0" as *byte, codegen.output as *void);
             return;
         }
-        const union_c: &byte = c99_type_to_c(codegen, ret_type);
-        fprintf(codegen.output as *void, "({ %s _uya_try_tmp = " as *byte, union_c as *byte);
+        const operand_union_c: &byte = get_c_type_of_expr(codegen, operand);
+        var operand_is_err_union: i32 = 0;
+        if operand_union_c != null && strstr(operand_union_c as *byte, "err_union_" as *byte) != null {
+            operand_is_err_union = 1;
+        }
+        if operand_is_err_union == 0 || ret_type == null || ret_type.type != ASTNodeType.AST_TYPE_ERROR_UNION {
+            if ret_type != null && ret_type.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+                const union_c: &byte = c99_type_to_c(codegen, ret_type);
+                fprintf(codegen.output as *void, "({ %s _uya_try_tmp = " as *byte, union_c as *byte);
+                gen_expr(codegen, operand);
+                fputs("; if (_uya_try_tmp.error_id != 0) return _uya_try_tmp; _uya_try_tmp.value; })" as *byte, codegen.output as *void);
+            } else {
+                fputs("0" as *byte, codegen.output as *void);
+            }
+            return;
+        }
+        const ret_union_c: &byte = c99_type_to_c(codegen, ret_type);
+        fprintf(codegen.output as *void, "({ %s _uya_try_tmp = " as *byte, operand_union_c as *byte);
         gen_expr(codegen, operand);
-        fputs("; if (_uya_try_tmp.error_id != 0) return _uya_try_tmp; _uya_try_tmp.value; })" as *byte, codegen.output as *void);
+        fprintf(codegen.output as *void, "; if (_uya_try_tmp.error_id != 0) return (%s){ .error_id = _uya_try_tmp.error_id, .value = 0 }; _uya_try_tmp.value; })" as *byte, ret_union_c as *byte);
     } else if expr.type == ASTNodeType.AST_CATCH_EXPR {
         const operand: &ASTNode = expr.catch_expr_operand;
         const block: &ASTNode = expr.catch_expr_catch_block;
         const err_name: &byte = expr.catch_expr_err_name;
         const ret_type: &ASTNode = codegen.current_function_return_type;
-        if operand == null || block == null || ret_type == null || ret_type.type != ASTNodeType.AST_TYPE_ERROR_UNION {
+        if operand == null || block == null {
             fputs("0" as *byte, codegen.output as *void);
             return;
         }
-        const payload_node: &ASTNode = ret_type.type_error_union_payload_type;
-        const union_c: &byte = c99_type_to_c(codegen, ret_type);
-        var payload_c: &byte = ("void" as *byte) as &byte;
-        if payload_node != null {
-            payload_c = c99_type_to_c(codegen, payload_node);
+        const operand_union_c: &byte = get_c_type_of_expr(codegen, operand);
+        var operand_is_err_union: i32 = 0;
+        if operand_union_c != null && strstr(operand_union_c as *byte, "err_union_" as *byte) != null {
+            operand_is_err_union = 1;
+        }
+        var union_c: &byte = ("int32_t" as *byte) as &byte;
+        var payload_c: &byte = ("int32_t" as *byte) as &byte;
+        if operand_is_err_union != 0 {
+            union_c = operand_union_c;
+            if operand != null && operand.type == ASTNodeType.AST_CAST_EXPR && operand.cast_expr_is_force_cast != 0 && operand.cast_expr_target_type != null {
+                payload_c = c99_type_to_c(codegen, operand.cast_expr_target_type);
+            } else if ret_type != null && ret_type.type == ASTNodeType.AST_TYPE_ERROR_UNION && ret_type.type_error_union_payload_type != null {
+                payload_c = c99_type_to_c(codegen, ret_type.type_error_union_payload_type);
+            } else {
+                payload_c = "int32_t" as &byte;
+            }
+        } else if ret_type != null && ret_type.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+            union_c = c99_type_to_c(codegen, ret_type);
+            const payload_node: &ASTNode = ret_type.type_error_union_payload_type;
+            if payload_node != null {
+                payload_c = c99_type_to_c(codegen, payload_node);
+            }
+        } else {
+            fputs("0" as *byte, codegen.output as *void);
+            return;
         }
         const n: i32 = block.block_stmt_count;
         var last_stmt: &ASTNode = null;
@@ -1143,10 +1179,35 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     } else if expr.type == ASTNodeType.AST_CAST_EXPR {
         const src_expr: &ASTNode = expr.cast_expr_expr;
         const target_type: &ASTNode = expr.cast_expr_target_type;
+        const is_force_cast: i32 = expr.cast_expr_is_force_cast;
         const type_c: &byte = c99_type_to_c(codegen, target_type);
-        fputc(40, codegen.output as *void);  // '('
-        fprintf(codegen.output as *void, "%s)" as *byte, type_c as *byte);
-        gen_expr(codegen, src_expr);
+        if is_force_cast != 0 {
+            // as! 强转：返回 !T，包装为 { .error_id = 0, .value = (T)(expr) }
+            const tmp: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_ERROR_UNION, 0, 0, codegen.arena, null);
+            var union_c: &byte = "void" as &byte;
+            if tmp != null {
+                tmp.type_error_union_payload_type = target_type;
+                union_c = c99_type_to_c(codegen, tmp);
+            }
+            var is_void: i32 = 0;
+            if target_type != null && target_type.type == ASTNodeType.AST_TYPE_NAMED && target_type.type_named_name != null && strcmp(target_type.type_named_name as *byte, "void" as *byte) == 0 {
+                is_void = 1;
+            }
+            fprintf(codegen.output as *void, "({ %s _uya_asbang = { .error_id = 0" as *byte, union_c as *byte);
+            if is_void == 0 {
+                fprintf(codegen.output as *void, ", .value = (%s)(" as *byte, type_c as *byte);
+                gen_expr(codegen, src_expr);
+                fputs(") }; _uya_asbang; })" as *byte, codegen.output as *void);
+            } else {
+                fputs(" }; " as *byte, codegen.output as *void);
+                gen_expr(codegen, src_expr);
+                fputs("; _uya_asbang; })" as *byte, codegen.output as *void);
+            }
+        } else {
+            fputc(40, codegen.output as *void);  // '('
+            fprintf(codegen.output as *void, "%s)" as *byte, type_c as *byte);
+            gen_expr(codegen, src_expr);
+        }
     } else if expr.type == ASTNodeType.AST_IDENTIFIER {
         const name: &byte = expr.identifier_name;
         if name != null && strcmp(name as *byte, "null" as *byte) == 0 {

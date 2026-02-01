@@ -1983,11 +1983,13 @@ fn parser_parse_cast_expr(parser: &Parser) &ASTNode {
         return null;
     }
     
-    // 检查是否有 'as' 关键字（类型转换）
-    if parser.current_token != null && parser.current_token.type == TokenType.TOKEN_AS {
+    // 检查是否有 'as' 或 'as!' 关键字（类型转换）
+    if parser.current_token != null && (parser.current_token.type == TokenType.TOKEN_AS || parser.current_token.type == TokenType.TOKEN_AS_BANG) {
+        var is_force_cast: i32 = 0;
+        if parser.current_token.type == TokenType.TOKEN_AS_BANG { is_force_cast = 1; }
         const line: i32 = parser.current_token.line;
         const column: i32 = parser.current_token.column;
-        parser_consume(parser);  // 消费 'as'
+        parser_consume(parser);  // 消费 'as' 或 'as!'
         
         // 解析目标类型
         const target_type: &ASTNode = parser_parse_type(parser);
@@ -2003,6 +2005,7 @@ fn parser_parse_cast_expr(parser: &Parser) &ASTNode {
         
         node.cast_expr_expr = expr;
         node.cast_expr_target_type = target_type;
+        node.cast_expr_is_force_cast = is_force_cast;
         
         expr = node;
     }

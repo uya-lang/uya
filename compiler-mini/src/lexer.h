@@ -54,6 +54,7 @@ typedef enum {
     TOKEN_ERRDEFER,     // errdefer（仅错误返回时执行）
     TOKEN_AT_IDENTIFIER,// @ 后跟内置函数标识符（@sizeof、@alignof、@len、@max、@min）
     TOKEN_AS,           // as（类型转换关键字）
+    TOKEN_AS_BANG,      // as!（强转，返回 !T，规范 uya.md §11.3）
     TOKEN_MATCH,        // match（模式匹配）
     TOKEN_FAT_ARROW,    // =>（match 臂箭头）
     

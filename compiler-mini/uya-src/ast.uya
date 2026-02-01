@@ -211,9 +211,10 @@ struct ASTNode {
     // alignof_expr
     alignof_expr_target: &ASTNode,
     alignof_expr_is_type: i32,
-    // cast_expr
+    // cast_expr（expr as type 或 expr as! type）
     cast_expr_expr: &ASTNode,
     cast_expr_target_type: &ASTNode,
+    cast_expr_is_force_cast: i32,  // 1 表示 as!（强转，返回 !T），0 表示 as
     // identifier
     identifier_name: &byte,
     // number
@@ -370,6 +371,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.alignof_expr_is_type = 0;
     node.cast_expr_expr = null;
     node.cast_expr_target_type = null;
+    node.cast_expr_is_force_cast = 0;
     node.identifier_name = null;
     node.number_value = 0;
     node.float_literal_value = 0.0;

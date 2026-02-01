@@ -192,6 +192,12 @@ static Token *read_identifier_or_keyword(Lexer *lexer, Arena *arena) {
     // 检查是否为关键字
     TokenType type = is_keyword(value);
     
+    /* as! 为单 token：识别 "as" 后若下一字符为 '!'，则消费并返回 TOKEN_AS_BANG */
+    if (type == TOKEN_AS && len == 2 && lexer->position < lexer->buffer_size && peek_char(lexer, 0) == '!') {
+        advance_char(lexer);
+        return make_token(arena, TOKEN_AS_BANG, "as!", line, column);
+    }
+    
     return make_token(arena, type, value, line, column);
 }
 

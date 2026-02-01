@@ -287,10 +287,11 @@ struct ASTNode {
             int is_type;              // 1 表示 target 是类型节点，0 表示 target 是表达式节点
         } alignof_expr;
         
-        // 类型转换表达式（expr as type）
+        // 类型转换表达式（expr as type 或 expr as! type）
         struct {
             struct ASTNode *expr;     // 源表达式
             struct ASTNode *target_type;  // 目标类型节点
+            int is_force_cast;        // 1 表示 as!（强转，返回 !T），0 表示 as
         } cast_expr;
         
         // 标识符
