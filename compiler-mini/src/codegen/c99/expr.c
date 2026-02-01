@@ -447,8 +447,25 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         case AST_ARRAY_ACCESS: {
             ASTNode *array = expr->data.array_access.array;
             ASTNode *index = expr->data.array_access.index;
-            
-            // 检查数组表达式是否是指向数组的指针
+            if (array->type == AST_SLICE_EXPR) {
+                fputc('(', codegen->output);
+                gen_expr(codegen, array);
+                fputs(").ptr[", codegen->output);
+                gen_expr(codegen, index);
+                fputc(']', codegen->output);
+                break;
+            }
+            if (array->type == AST_IDENTIFIER) {
+                const char *type_c = get_identifier_type_c(codegen, array->data.identifier.name);
+                if (type_c && strstr(type_c, "uya_slice_")) {
+                    fputc('(', codegen->output);
+                    gen_expr(codegen, array);
+                    fputs(").ptr[", codegen->output);
+                    gen_expr(codegen, index);
+                    fputc(']', codegen->output);
+                    break;
+                }
+            }
             int is_ptr_to_array = 0;
             if (array->type == AST_IDENTIFIER) {
                 const char *array_name = array->data.identifier.name;
@@ -456,9 +473,7 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                     is_ptr_to_array = is_identifier_pointer_to_array_type(codegen, array_name);
                 }
             }
-            
             if (is_ptr_to_array) {
-                // 指向数组的指针需要先解引用：(*ptr)[index]
                 fputc('(', codegen->output);
                 fputc('*', codegen->output);
                 gen_expr(codegen, array);
@@ -466,10 +481,41 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             } else {
                 gen_expr(codegen, array);
             }
-            
             fputc('[', codegen->output);
             gen_expr(codegen, index);
             fputc(']', codegen->output);
+            break;
+        }
+        case AST_SLICE_EXPR: {
+            ASTNode *base = expr->data.slice_expr.base;
+            ASTNode *start_expr = expr->data.slice_expr.start_expr;
+            ASTNode *len_expr = expr->data.slice_expr.len_expr;
+            const char *slice_type_c = get_c_type_of_expr(codegen, expr);
+            if (!slice_type_c) slice_type_c = "struct uya_slice_int32_t";
+            fputc('(', codegen->output);
+            fprintf(codegen->output, "%s){ .ptr = ", slice_type_c);
+            if (base->type == AST_SLICE_EXPR) {
+                fputc('(', codegen->output);
+                gen_expr(codegen, base);
+                fputs(").ptr + ", codegen->output);
+            } else if (base->type == AST_IDENTIFIER) {
+                const char *type_c = get_identifier_type_c(codegen, base->data.identifier.name);
+                if (type_c && strstr(type_c, "uya_slice_")) {
+                    fputc('(', codegen->output);
+                    gen_expr(codegen, base);
+                    fputs(").ptr + ", codegen->output);
+                } else {
+                    gen_expr(codegen, base);
+                    fputs(" + ", codegen->output);
+                }
+            } else {
+                gen_expr(codegen, base);
+                fputs(" + ", codegen->output);
+            }
+            gen_expr(codegen, start_expr);
+            fputs(", .len = ", codegen->output);
+            gen_expr(codegen, len_expr);
+            fputc('}', codegen->output);
             break;
         }
         case AST_STRUCT_INIT: {
@@ -696,8 +742,21 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         }
         case AST_LEN: {
             ASTNode *array = expr->data.len_expr.array;
-            
-            // 检查数组表达式是否是标识符（局部变量或参数）
+            if (array->type == AST_SLICE_EXPR) {
+                fputc('(', codegen->output);
+                gen_expr(codegen, array);
+                fputs(").len", codegen->output);
+                break;
+            }
+            if (array->type == AST_IDENTIFIER) {
+                const char *var_name = array->data.identifier.name;
+                const char *type_c = get_identifier_type_c(codegen, var_name);
+                if (type_c && strstr(type_c, "uya_slice_")) {
+                    gen_expr(codegen, array);
+                    fputs(".len", codegen->output);
+                    break;
+                }
+            }
             if (array->type == AST_IDENTIFIER) {
                 const char *var_name = array->data.identifier.name;
                 

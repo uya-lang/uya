@@ -241,12 +241,38 @@ static ASTNode *parser_parse_type(Parser *parser) {
         return first;
     }
     
-    // 检查是否是指针类型（&Type 或 *Type）
+    // 检查是否是指针类型（&Type 或 *Type）或切片类型（&[T] / &[T: N]）
     if (parser->current_token->type == TOKEN_AMPERSAND) {
-        // 普通指针类型 &Type
         parser_consume(parser);  // 消费 '&'
         
-        // 递归解析指向的类型
+        // 切片类型 &[T] 或 &[T: N]：& 后紧跟 [
+        if (parser->current_token != NULL && parser->current_token->type == TOKEN_LEFT_BRACKET) {
+            parser_consume(parser);  // 消费 '['
+            ASTNode *element_type = parser_parse_type(parser);
+            if (element_type == NULL) {
+                return NULL;
+            }
+            ASTNode *size_expr = NULL;
+            if (parser->current_token != NULL && parser->current_token->type == TOKEN_COLON) {
+                parser_consume(parser);  // 消费 ':'
+                size_expr = parser_parse_expression(parser);
+                if (size_expr == NULL) {
+                    return NULL;
+                }
+            }
+            if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
+                return NULL;
+            }
+            ASTNode *slice_type = ast_new_node(AST_TYPE_SLICE, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (slice_type == NULL) {
+                return NULL;
+            }
+            slice_type->data.type_slice.element_type = element_type;
+            slice_type->data.type_slice.size_expr = size_expr;
+            return slice_type;
+        }
+        
+        // 普通指针类型 &Type
         ASTNode *pointed_type = parser_parse_type(parser);
         if (pointed_type == NULL) {
             return NULL;
@@ -1798,32 +1824,30 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     
                     result = member_access;
                 } else if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
-                    // 数组访问：[index]
                     int bracket_line = parser->current_token->line;
                     int bracket_column = parser->current_token->column;
                     parser_consume(parser);  // 消费 '['
-                    
-                    // 解析索引表达式
-                    ASTNode *index_expr = parser_parse_expression(parser);
-                    if (index_expr == NULL) {
-                        return NULL;
+                    ASTNode *first_expr = parser_parse_expression(parser);
+                    if (first_expr == NULL) return NULL;
+                    if (parser->current_token != NULL && parser->current_token->type == TOKEN_COLON) {
+                        parser_consume(parser);
+                        ASTNode *len_expr = parser_parse_expression(parser);
+                        if (len_expr == NULL) return NULL;
+                        if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) return NULL;
+                        ASTNode *slice_expr = ast_new_node(AST_SLICE_EXPR, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                        if (slice_expr == NULL) return NULL;
+                        slice_expr->data.slice_expr.base = result;
+                        slice_expr->data.slice_expr.start_expr = first_expr;
+                        slice_expr->data.slice_expr.len_expr = len_expr;
+                        result = slice_expr;
+                    } else {
+                        if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) return NULL;
+                        ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                        if (array_access == NULL) return NULL;
+                        array_access->data.array_access.array = result;
+                        array_access->data.array_access.index = first_expr;
+                        result = array_access;
                     }
-                    
-                    // 期望 ']'
-                    if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
-                        return NULL;
-                    }
-                    
-                    // 创建数组访问节点
-                    ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
-                    if (array_access == NULL) {
-                        return NULL;
-                    }
-                    
-                    array_access->data.array_access.array = result;
-                    array_access->data.array_access.index = index_expr;
-                    
-                    result = array_access;
                 } else {
                     // 既不是字段访问也不是数组访问，退出循环
                     break;
@@ -2131,32 +2155,30 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     
                     result = member_access;
                 } else if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
-                    // 数组访问：[index]
                     int bracket_line = parser->current_token->line;
                     int bracket_column = parser->current_token->column;
-                    parser_consume(parser);  // 消费 '['
-                    
-                    // 解析索引表达式
-                    ASTNode *index_expr = parser_parse_expression(parser);
-                    if (index_expr == NULL) {
-                        return NULL;
+                    parser_consume(parser);
+                    ASTNode *first_expr = parser_parse_expression(parser);
+                    if (first_expr == NULL) return NULL;
+                    if (parser->current_token != NULL && parser->current_token->type == TOKEN_COLON) {
+                        parser_consume(parser);
+                        ASTNode *len_expr = parser_parse_expression(parser);
+                        if (len_expr == NULL) return NULL;
+                        if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) return NULL;
+                        ASTNode *slice_expr = ast_new_node(AST_SLICE_EXPR, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                        if (slice_expr == NULL) return NULL;
+                        slice_expr->data.slice_expr.base = result;
+                        slice_expr->data.slice_expr.start_expr = first_expr;
+                        slice_expr->data.slice_expr.len_expr = len_expr;
+                        result = slice_expr;
+                    } else {
+                        if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) return NULL;
+                        ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                        if (array_access == NULL) return NULL;
+                        array_access->data.array_access.array = result;
+                        array_access->data.array_access.index = first_expr;
+                        result = array_access;
                     }
-                    
-                    // 期望 ']'
-                    if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
-                        return NULL;
-                    }
-                    
-                    // 创建数组访问节点
-                    ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
-                    if (array_access == NULL) {
-                        return NULL;
-                    }
-                    
-                    array_access->data.array_access.array = result;
-                    array_access->data.array_access.index = index_expr;
-                    
-                    result = array_access;
                 } else {
                     // 既不是字段访问也不是数组访问，退出循环
                     break;
@@ -2300,32 +2322,30 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 
                 result = member_access;
             } else if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
-                // 数组访问：[index]
                 int bracket_line = parser->current_token->line;
                 int bracket_column = parser->current_token->column;
-                parser_consume(parser);  // 消费 '['
-                
-                // 解析索引表达式
-                ASTNode *index_expr = parser_parse_expression(parser);
-                if (index_expr == NULL) {
-                    return NULL;
+                parser_consume(parser);
+                ASTNode *first_expr = parser_parse_expression(parser);
+                if (first_expr == NULL) return NULL;
+                if (parser->current_token != NULL && parser->current_token->type == TOKEN_COLON) {
+                    parser_consume(parser);
+                    ASTNode *len_expr = parser_parse_expression(parser);
+                    if (len_expr == NULL) return NULL;
+                    if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) return NULL;
+                    ASTNode *slice_expr = ast_new_node(AST_SLICE_EXPR, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                    if (slice_expr == NULL) return NULL;
+                    slice_expr->data.slice_expr.base = result;
+                    slice_expr->data.slice_expr.start_expr = first_expr;
+                    slice_expr->data.slice_expr.len_expr = len_expr;
+                    result = slice_expr;
+                } else {
+                    if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) return NULL;
+                    ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                    if (array_access == NULL) return NULL;
+                    array_access->data.array_access.array = result;
+                    array_access->data.array_access.index = first_expr;
+                    result = array_access;
                 }
-                
-                // 期望 ']'
-                if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
-                    return NULL;
-                }
-                
-                // 创建数组访问节点
-                ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
-                if (array_access == NULL) {
-                    return NULL;
-                }
-                
-                array_access->data.array_access.array = result;
-                array_access->data.array_access.index = index_expr;
-                
-                result = array_access;
             } else {
                 // 既不是字段访问也不是数组访问，退出循环
                 break;
@@ -2431,32 +2451,30 @@ post_paren_suffix:
                 
                 result = member_access;
             } else if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
-                // 数组访问：[index]
                 int bracket_line = parser->current_token->line;
                 int bracket_column = parser->current_token->column;
-                parser_consume(parser);  // 消费 '['
-                
-                // 解析索引表达式
-                ASTNode *index_expr = parser_parse_expression(parser);
-                if (index_expr == NULL) {
-                    return NULL;
+                parser_consume(parser);
+                ASTNode *first_expr = parser_parse_expression(parser);
+                if (first_expr == NULL) return NULL;
+                if (parser->current_token != NULL && parser->current_token->type == TOKEN_COLON) {
+                    parser_consume(parser);
+                    ASTNode *len_expr = parser_parse_expression(parser);
+                    if (len_expr == NULL) return NULL;
+                    if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) return NULL;
+                    ASTNode *slice_expr = ast_new_node(AST_SLICE_EXPR, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                    if (slice_expr == NULL) return NULL;
+                    slice_expr->data.slice_expr.base = result;
+                    slice_expr->data.slice_expr.start_expr = first_expr;
+                    slice_expr->data.slice_expr.len_expr = len_expr;
+                    result = slice_expr;
+                } else {
+                    if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) return NULL;
+                    ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                    if (array_access == NULL) return NULL;
+                    array_access->data.array_access.array = result;
+                    array_access->data.array_access.index = first_expr;
+                    result = array_access;
                 }
-                
-                // 期望 ']'
-                if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
-                    return NULL;
-                }
-                
-                // 创建数组访问节点
-                ASTNode *array_access = ast_new_node(AST_ARRAY_ACCESS, bracket_line, bracket_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
-                if (array_access == NULL) {
-                    return NULL;
-                }
-                
-                array_access->data.array_access.array = result;
-                array_access->data.array_access.index = index_expr;
-                
-                result = array_access;
             } else {
                 // 既不是字段访问也不是数组访问，退出循环
                 break;

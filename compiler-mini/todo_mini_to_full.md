@@ -14,7 +14,7 @@
 | 1 | 基础类型与字面量 | [x] |
 | 2 | 错误处理 | [x] |
 | 3 | defer / errdefer | [x] |
-| 4 | 切片 | [ ] |
+| 4 | 切片 | [x] |
 | 5 | match 表达式 | [ ] |
 | 6 | for 扩展 | [ ] |
 | 7 | 接口 | [ ] |
@@ -98,11 +98,14 @@
 
 ## 4. 切片
 
-- [ ] **切片类型**：`&[T]`、`&[T: N]`，胖指针（ptr+len），规范 uya.md §2、§4
-- [ ] **切片语法**：`&arr[start:len]`（含负索引），规范 uya.md §4 切片语法
-- [ ] **结构体切片字段**：结构体含 `&[T]` 字段，规范 uya.md §4
+- [x] **切片类型**：`&[T]`、`&[T: N]`，胖指针（ptr+len），规范 uya.md §2、§4
+- [x] **切片语法**：`base[start:len]`（C 实现：arr[start:len]、slice[start:len]；负索引待扩展），规范 uya.md §4
+- [ ] **结构体切片字段**：结构体含 `&[T]` 字段（类型与 Codegen 已支持，测试待补）
 
 **涉及**：类型系统、Parser（切片表达式）、Checker、Codegen（胖指针布局）、uya-src。
+
+**C 实现（已完成）**：AST_TYPE_SLICE、AST_SLICE_EXPR；Parser 解析 `&[T]`/`&[T: N]` 与 `base[start:len]`；Checker TYPE_SLICE、type_equals、@len(slice)；Codegen 切片结构体 `struct uya_slice_X { T* ptr; size_t len; }`、切片复合字面量、slice.ptr[i]、@len(slice).len。测试 test_slice.uya 通过 `--c99`。
+**uya-src 同步**：待做。
 
 ---
 
@@ -232,7 +235,7 @@
 |------|-----------|------------|------|
 | 整数类型 | i32, usize, byte | + i8, i16, i64, u8, u16, u32, u64 | uya.md §2 | [x] |
 | 类型极值 | 无 | @max, @min 内置函数（以 @ 开头） | uya.md §2、§16 | [x] |
-| 切片类型 | 无 | &[T], &[T: N] | uya.md §2、§4 |
+| 切片类型 | 无 | &[T], &[T: N] | uya.md §2、§4 | [x] |
 | 元组类型 | 无 | (T1, T2,...), .0/.1, 解构 | uya.md §2 | [x] |
 | 错误联合 !T | 无 | !T, error 定义 | uya.md §2、§5 |
 | 联合体类型 | 无 | union U { v1: T1, v2: T2 } | uya.md §4.5 |

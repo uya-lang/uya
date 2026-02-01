@@ -103,6 +103,11 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.array_access.array = NULL;
             node->data.array_access.index = NULL;
             break;
+        case AST_SLICE_EXPR:
+            node->data.slice_expr.base = NULL;
+            node->data.slice_expr.start_expr = NULL;
+            node->data.slice_expr.len_expr = NULL;
+            break;
         case AST_STRUCT_INIT:
             node->data.struct_init.struct_name = NULL;
             node->data.struct_init.field_names = NULL;
@@ -211,6 +216,10 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_TYPE_ARRAY:
             node->data.type_array.element_type = NULL;
             node->data.type_array.size_expr = NULL;
+            break;
+        case AST_TYPE_SLICE:
+            node->data.type_slice.element_type = NULL;
+            node->data.type_slice.size_expr = NULL;
             break;
         case AST_TYPE_TUPLE:
             node->data.type_tuple.element_types = NULL;

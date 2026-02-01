@@ -37,6 +37,7 @@ int c99_codegen_new(C99CodeGenerator *codegen, Arena *arena, FILE *output, const
     codegen->interp_fill_counter = 0;
     codegen->error_count = 0;
     codegen->defer_stack_depth = 0;
+    codegen->slice_struct_count = 0;
     for (int i = 0; i < C99_MAX_CALL_ARGS; i++) {
         codegen->interp_arg_temp_names[i] = NULL;
     }
@@ -402,6 +403,11 @@ void collect_string_constants_from_expr(C99CodeGenerator *codegen, ASTNode *expr
         case AST_ARRAY_ACCESS:
             collect_string_constants_from_expr(codegen, expr->data.array_access.array);
             collect_string_constants_from_expr(codegen, expr->data.array_access.index);
+            break;
+        case AST_SLICE_EXPR:
+            collect_string_constants_from_expr(codegen, expr->data.slice_expr.base);
+            collect_string_constants_from_expr(codegen, expr->data.slice_expr.start_expr);
+            collect_string_constants_from_expr(codegen, expr->data.slice_expr.len_expr);
             break;
         case AST_STRUCT_INIT:
             for (int i = 0; i < expr->data.struct_init.field_count; i++) {

@@ -23,6 +23,7 @@ void collect_string_constants_from_decl(C99CodeGenerator *codegen, ASTNode *decl
 
 // 类型系统（types.c）
 const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node);
+void emit_pending_slice_structs(C99CodeGenerator *codegen);
 const char *convert_array_return_type(C99CodeGenerator *codegen, ASTNode *return_type);
 const char *get_array_element_type(C99CodeGenerator *codegen, ASTNode *array_expr);
 const char *get_array_wrapper_struct_name(C99CodeGenerator *codegen, ASTNode *array_type);

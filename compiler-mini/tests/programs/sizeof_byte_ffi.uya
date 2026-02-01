@@ -45,10 +45,10 @@ fn main() i32 {
         return 7;  // [byte: 10] 数组应该是 10 字节（10 * 1）
     }
     
-    // 测试7：@sizeof(&[byte: 10]) - 指向数组类型的指针大小
+    // 测试7：@sizeof(&[byte: 10]) - 切片类型大小（胖指针 ptr+len，64位平台 16 字节）
     const byte_array_ptr_size: i32 = @sizeof(&[byte: 10]);
-    if byte_array_ptr_size != 8 {
-        return 8;  // 指向数组的指针应该是 8 字节（64位平台）
+    if byte_array_ptr_size != 16 {
+        return 8;  // 切片类型应该是 16 字节（64位平台）
     }
     
     // 测试8：比较 @sizeof(*byte) 和 @sizeof(&byte) - 应该相同（都是指针）
@@ -58,9 +58,6 @@ fn main() i32 {
     }
     if ffi_byte_ptr_size != normal_byte_ptr_size {
         return 10;  // FFI 指针和普通指针大小应该相同
-    }
-    if byte_array_ptr_size != normal_byte_ptr_size {
-        return 11;  // 指向数组的指针和普通指针大小应该相同
     }
     
     // 测试9：sizeof 在表达式中的使用
@@ -74,9 +71,9 @@ fn main() i32 {
         return 13;  // @sizeof(*byte) * 5 应该是 40（5 * 8）
     }
     
-    // 测试10：验证指向数组的指针大小和数组大小不同
+    // 测试10：验证切片大小和数组大小不同
     if byte_array_ptr_size == byte_array_size {
-        return 14;  // 指针大小（8字节）应该不等于数组大小（10字节）
+        return 14;  // 切片大小（16字节）应该不等于数组大小（10字节）
     }
     
     // 所有测试通过

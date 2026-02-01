@@ -92,6 +92,8 @@ enum struct const var fn extern return true false if else while for break contin
 | `enum Name` | 4 B | 枚举类型（底层类型为 i32） |
 | `struct Name` | 字段大小之和（含对齐填充） | 用户定义的结构体类型 |
 | `[T: N]` | `sizeof(T) * N` | 固定大小数组类型，其中 T 为元素类型，N 为编译期常量 |
+| `&[T]` | 8/16 B（平台相关） | 切片引用（动态长度），胖指针 ptr+len；32位=8B，64位=16B |
+| `&[T: N]` | 8/16 B（平台相关） | 切片引用（已知长度 N），胖指针 ptr+len；32位=8B，64位=16B |
 | `&T` | 4/8 B（平台相关） | 普通指针类型，用于普通变量和函数参数；32位平台=4B，64位平台=8B |
 | `*T` | 4/8 B（平台相关） | FFI 指针类型，仅用于 extern 函数声明/调用；32位平台=4B，64位平台=8B |
 
@@ -112,6 +114,11 @@ enum struct const var fn extern return true false if else while for break contin
   - 对齐值 = 类型大小（自然对齐）
   - 用途：表示指针大小、数组索引、内存大小等平台相关的值
   - 示例：`const ptr_size: usize = @sizeof(&i32);`（用于检测平台字长）
+- **切片类型**（`&[T]`、`&[T: N]`）：
+  - 胖指针：指针(4/8B) + 长度(4/8B)，无堆分配
+  - `&[T]`：动态长度切片；`&[T: N]`：编译期已知长度 N 的切片
+  - 创建方式：切片语法 `base[start:len]`，其中 base 为数组或切片类型
+  - `@len(slice)` 可获取切片长度（返回 `i32`）；结构体可包含 `&[T]` 字段（布局见 2.3.7）
 - **指针类型**：
   - `&T`：普通指针类型，用于普通变量和函数参数，可通过 `&expr` 获取地址
   - `&void`：通用指针类型，可以转换为任何指针类型（`&void` → `&T`），用于实现类型擦除和通用指针操作
@@ -277,7 +284,14 @@ struct PlatformStruct {
 // 64位平台：ptr(8B, offset=0) + len(8B, offset=8) = 16字节，对齐=8
 ```
 
-#### 2.3.6 空结构体
+#### 2.3.6 切片字段布局
+
+结构体中切片类型字段在 C 中表示为两个连续字段 `ptr` 与 `len`：
+
+- 切片字段对齐：与 `usize` 对齐一致（4/8 字节，平台相关）
+- 布局：`struct { void* ptr; size_t len; }`（匿名结构体或具名 slice 类型）
+
+#### 2.3.7 空结构体
 
 空结构体（无字段）的特殊规则：
 
@@ -504,8 +518,9 @@ var_decl       = ('const' | 'var') ID ':' type '=' expr ';'
 ### 4.4 类型
 
 ```
-type           = 'i32' | 'usize' | 'bool' | 'byte' | 'f32' | 'f64' | 'void' | array_type | pointer_type | ffi_pointer_type | struct_type
+type           = 'i32' | 'usize' | 'bool' | 'byte' | 'f32' | 'f64' | 'void' | array_type | slice_type | pointer_type | ffi_pointer_type | struct_type
 array_type     = '[' type ':' NUM ']'
+slice_type     = '&' '[' type ']' | '&' '[' type ':' NUM ']'   // 动态长度 &[T]，已知长度 &[T: N]
 pointer_type   = '&' type
 ffi_pointer_type = '*' type
 struct_type    = 'struct' ID
@@ -522,6 +537,7 @@ struct_type    = 'struct' ID
 - `&T`：普通指针类型，用于普通变量和函数参数
 - `*T`：FFI 指针类型，仅用于 extern 函数声明/调用
 - `[T: N]`：固定大小数组类型，N 为编译期常量
+- `&[T]`、`&[T: N]`：切片类型，胖指针（ptr+len），见 2.1 与 2.3.6
 - `struct Name`：结构体类型
 
 ### 4.5 语句
@@ -590,9 +606,9 @@ add_expr       = mul_expr { ('+' | '-') mul_expr }
 mul_expr       = cast_expr { ('*' | '/' | '%') cast_expr }
 cast_expr      = unary_expr [ 'as' type ]
 unary_expr     = ('!' | '-' | '~' | '&' | '*') unary_expr | primary_expr
-primary_expr   = ID | NUM | FLOAT | 'true' | 'false' | 'null' | STRING | params_expr | struct_literal | array_literal | member_access | array_access | call_expr | sizeof_expr | alignof_expr | len_expr | int_limit_expr | '(' expr ')'
+primary_expr   = ID | NUM | FLOAT | 'true' | 'false' | 'null' | STRING | params_expr | struct_literal | array_literal | member_access | array_access | slice_expr | call_expr | sizeof_expr | alignof_expr | len_expr | int_limit_expr | '(' expr ')'
 params_expr    = '@params'   // 仅函数体内有效，类型为参数元组（可变参数时仅含固定参数）
-sizeof_expr    = '@sizeof' '(' (type | expr) ')'
+sizeof_expr    = '@sizeof' '(' (type | expr) ')' 
 alignof_expr   = '@alignof' '(' (type | expr) ')'
 len_expr       = '@len' '(' expr ')'
 int_limit_expr = '@max' | '@min'
@@ -602,7 +618,8 @@ expr_list      = [ expr { ',' expr } ]
 field_init_list = field_init { ',' field_init }
 field_init     = ID ':' expr
 member_access  = primary_expr '.' ID
-array_access   = primary_expr '[' expr ']'
+array_access   = primary_expr '[' expr ']'           // 单下标为数组/切片元素访问
+slice_expr     = primary_expr '[' expr ':' expr ']' // 切片语法：base[start:len]，结果类型 &[T] 或 &[T: N]
 call_expr      = ID '(' [ arg_list ] ')'
 arg_list       = expr { ',' expr } [ ',' '...' ]   // 末尾 '...' 表示转发当前函数的可变参数，仅可变参数函数体内有效
 ```
@@ -634,10 +651,17 @@ arg_list       = expr { ',' expr } [ ',' '...' ]   // 末尾 '...' 表示转发�
   - 示例：`p.x`、`p.y`、`ptr.field`（如果 ptr 是 `&Point` 类型，自动解引用）
 
 - **数组访问**：`arr[index]`
-  - 左侧表达式必须是数组类型或指针类型
+  - 左侧表达式必须是数组类型或指针类型（或切片类型）
   - index 必须是 `i32` 类型
   - 结果类型为数组元素类型
   - 示例：`arr[0]`、`arr[i]`
+
+- **切片语法**：`base[start:len]`
+  - base 必须是数组类型 `[T: N]` 或切片类型 `&[T]`/`&[T: M]`
+  - start、len 为 `i32`；支持负数 start（-1 表示最后一个元素起算）
+  - 结果类型：动态长度 `&[T]`；若 len 为编译期常量可显式标注为 `&[T: N]`
+  - 语义：胖指针（ptr + len），无堆分配；切片是原数据的视图
+  - 示例：`const s: &[i32] = arr[2:5];`、`const t: &[i32: 3] = arr[0:3];`
 
 - **null 字面量**：`null`
   - 类型为指针类型（`&T` 或 `*T`），从上下文推断或显式指定
@@ -943,7 +967,7 @@ const arr_size: i32 = @sizeof(arr);  // 400（100 * 4 字节）
 - `@len` 作为内置函数（以 `@` 开头），与 `@sizeof` 类似，无需导入即可使用
 - `@len` 返回数组的元素个数，`@sizeof` 返回数组的字节大小
 - 对于数组 `[T: N]`：`@len(array)` 返回 `N`（元素个数），`@sizeof(array)` 返回 `@sizeof(T) * N`（字节大小）
-- `@len` 只接受数组表达式，不接受类型参数（与 `@sizeof` 不同，`@sizeof` 可以接受类型或表达式）
+- `@len` 接受数组表达式或切片表达式；对数组返回元素个数（编译期常量），对切片返回长度（i32）；不接受类型参数（与 `@sizeof` 不同）
 
 **实现状态**：✅ 已完整实现
 - 词法分析器：识别 `@len`（`@` + 标识符）

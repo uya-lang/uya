@@ -41,6 +41,7 @@ typedef enum {
     AST_CALL_EXPR,      // 函数调用
     AST_MEMBER_ACCESS,  // 字段访问（obj.field）
     AST_ARRAY_ACCESS,   // 数组访问（arr[index]）
+    AST_SLICE_EXPR,     // 切片表达式（base[start:len]，结果类型 &[T] 或 &[T: N]）
     AST_STRUCT_INIT,    // 结构体字面量（StructName{ field: value, ... }）
     AST_ARRAY_LITERAL,  // 数组字面量（[expr1, expr2, ..., exprN]）
     AST_TUPLE_LITERAL,  // 元组字面量（(expr1, expr2, ...)）
@@ -66,6 +67,7 @@ typedef enum {
     AST_TYPE_ERROR_UNION, // 错误联合类型 !T
     AST_TYPE_POINTER,   // 指针类型（&T 或 *T）
     AST_TYPE_ARRAY,     // 数组类型（[T: N]）
+    AST_TYPE_SLICE,     // 切片类型（&[T] 或 &[T: N]）
     AST_TYPE_TUPLE,     // 元组类型（(T1, T2, ...)）
 } ASTNodeType;
 
@@ -181,6 +183,13 @@ struct ASTNode {
             struct ASTNode *array;           // 数组表达式
             struct ASTNode *index;           // 索引表达式
         } array_access;
+        
+        // 切片表达式（base[start:len]）
+        struct {
+            struct ASTNode *base;            // 基表达式（数组或切片）
+            struct ASTNode *start_expr;       // 起始索引
+            struct ASTNode *len_expr;         // 长度
+        } slice_expr;
         
         // 结构体字面量（StructName{ field1: value1, field2: value2 }）
         struct {
@@ -328,6 +337,12 @@ struct ASTNode {
             struct ASTNode *element_type;  // 元素类型节点（从 Arena 分配）
             struct ASTNode *size_expr;     // 数组大小表达式节点（必须是编译期常量，从 Arena 分配）
         } type_array;
+        
+        // 切片类型节点（&[T] 或 &[T: N]）
+        struct {
+            struct ASTNode *element_type;  // 元素类型节点（从 Arena 分配）
+            struct ASTNode *size_expr;     // NULL 表示 &[T] 动态长度；非 NULL 表示 &[T: N] 已知长度（编译期常量）
+        } type_slice;
         
         // 元组类型节点（(T1, T2, ...)）
         struct {

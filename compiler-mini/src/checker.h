@@ -26,6 +26,7 @@ typedef enum {
     TYPE_STRUCT,   // 结构体类型（通过名称引用）
     TYPE_POINTER,  // 指针类型（&T 或 *T）
     TYPE_ARRAY,    // 数组类型（[T: N]）
+    TYPE_SLICE,    // 切片类型（&[T] 或 &[T: N]，胖指针 ptr+len）
     TYPE_TUPLE,    // 元组类型（(T1, T2, ...)）
     TYPE_ERROR_UNION, // 错误联合类型 !T
     TYPE_ERROR,    // 错误值类型（仅用于 return error.X、catch |err| 等，error_id 非 0）
@@ -47,6 +48,10 @@ typedef struct Type {
             struct Type *element_type; // 元素类型（仅当 kind == TYPE_ARRAY 时有效，从 Arena 分配）
             int array_size;            // 数组大小（编译期常量，仅当 kind == TYPE_ARRAY 时有效）
         } array;
+        struct {
+            struct Type *element_type; // 元素类型（仅当 kind == TYPE_SLICE 时有效，从 Arena 分配）
+            int slice_len;             // 已知长度（-1 表示 &[T] 动态长度，>=0 表示 &[T: N]）
+        } slice;
         struct {
             struct Type *element_types; // 元素类型数组（仅当 kind == TYPE_TUPLE 时有效，从 Arena 分配，连续存储 count 个 Type）
             int count;                  // 元组元素个数

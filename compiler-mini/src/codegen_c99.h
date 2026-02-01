@@ -17,6 +17,7 @@
 #define C99_MAX_CALL_ARGS           32
 #define C99_MAX_DEFER_STACK         32
 #define C99_MAX_DEFERS_PER_BLOCK    64
+#define C99_MAX_SLICE_STRUCTS       32
 
 // C99 代码生成器结构体
 typedef struct C99CodeGenerator {
@@ -104,6 +105,11 @@ typedef struct C99CodeGenerator {
     ASTNode *errdefer_stack[C99_MAX_DEFER_STACK][C99_MAX_DEFERS_PER_BLOCK];
     int errdefer_count[C99_MAX_DEFER_STACK];
     int defer_stack_depth;
+    
+    // 待输出的切片结构体（&[T] -> struct uya_slice_X { T* ptr; size_t len; }）
+    const char *slice_struct_names[C99_MAX_SLICE_STRUCTS];
+    ASTNode *slice_struct_element_types[C99_MAX_SLICE_STRUCTS];
+    int slice_struct_count;
 } C99CodeGenerator;
 
 // 创建 C99 代码生成器

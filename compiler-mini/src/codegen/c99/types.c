@@ -277,6 +277,47 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
             return result;
         }
         
+        case AST_TYPE_SLICE: {
+            ASTNode *element_type = type_node->data.type_slice.element_type;
+            if (!element_type) return "void";
+            const char *elem_c = c99_type_to_c(codegen, element_type);
+            if (!elem_c) return "void";
+            const char *elem_simple = elem_c;
+            if (strncmp(elem_c, "struct ", 7) == 0) elem_simple = elem_c + 7;
+            else if (strncmp(elem_c, "enum ", 5) == 0) elem_simple = elem_c + 5;
+            char name_buf[128];
+            snprintf(name_buf, sizeof(name_buf), "uya_slice_%s", elem_simple);
+            const char *safe = arena_strdup(codegen->arena, name_buf);
+            if (!safe) return "void";
+            if (is_struct_defined(codegen, safe)) {
+                size_t len = strlen(safe) + 9;
+                char *result = arena_alloc(codegen->arena, len);
+                if (!result) return "void";
+                snprintf(result, len, "struct %s", safe);
+                return result;
+            }
+            int found = 0;
+            for (int i = 0; i < codegen->slice_struct_count; i++) {
+                if (codegen->slice_struct_names[i] && strcmp(codegen->slice_struct_names[i], safe) == 0) {
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found && codegen->slice_struct_count < C99_MAX_SLICE_STRUCTS) {
+                codegen->slice_struct_names[codegen->slice_struct_count] = safe;
+                codegen->slice_struct_element_types[codegen->slice_struct_count] = element_type;
+                codegen->slice_struct_count++;
+                add_struct_definition(codegen, safe);
+            }
+            {
+                size_t len = strlen(safe) + 9;
+                char *result = arena_alloc(codegen->arena, len);
+                if (!result) return "void";
+                snprintf(result, len, "struct %s", safe);
+                return result;
+            }
+        }
+        
         case AST_TYPE_TUPLE: {
             /* 元组类型 (T1, T2, ...) -> struct { T0 f0; T1 f1; ... } */
             int n = type_node->data.type_tuple.element_count;
@@ -306,6 +347,21 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
             return "void";
     }
 }
+
+void emit_pending_slice_structs(C99CodeGenerator *codegen) {
+    if (!codegen) return;
+    for (int i = 0; i < codegen->slice_struct_count; i++) {
+        const char *name = codegen->slice_struct_names[i];
+        ASTNode *elem = codegen->slice_struct_element_types[i];
+        if (!name || !elem) continue;
+        if (is_struct_defined(codegen, name)) continue;
+        const char *elem_c = c99_type_to_c(codegen, elem);
+        if (!elem_c) continue;
+        fprintf(codegen->output, "struct %s { %s *ptr; size_t len; };\n", name, elem_c);
+        mark_struct_defined(codegen, name);
+    }
+}
+
 // 计算结构体大小（估算，每个 i32 字段 4 字节）
 int calculate_struct_size(C99CodeGenerator *codegen, ASTNode *type_node) {
     if (!codegen || !type_node) {
@@ -752,6 +808,36 @@ const char *get_identifier_type_c(C99CodeGenerator *codegen, const char *name) {
     return NULL;
 }
 
+/* 从切片表达式推断切片结构体 C 类型（struct uya_slice_X） */
+static const char *get_slice_struct_type_c(C99CodeGenerator *codegen, ASTNode *slice_expr) {
+    if (!codegen || !slice_expr || slice_expr->type != AST_SLICE_EXPR) return "struct uya_slice_int32_t";
+    ASTNode *base = slice_expr->data.slice_expr.base;
+    if (base->type == AST_SLICE_EXPR) {
+        return get_slice_struct_type_c(codegen, base);
+    }
+    if (base->type == AST_IDENTIFIER) {
+        const char *type_c = get_identifier_type_c(codegen, base->data.identifier.name);
+        if (type_c && strstr(type_c, "uya_slice_")) {
+            return type_c;
+        }
+        const char *elem_c = get_array_element_type(codegen, base);
+        if (!elem_c) return "struct uya_slice_int32_t";
+        const char *elem_simple = elem_c;
+        if (strncmp(elem_c, "struct ", 7) == 0) elem_simple = elem_c + 7;
+        else if (strncmp(elem_c, "enum ", 5) == 0) elem_simple = elem_c + 5;
+        char name_buf[128];
+        snprintf(name_buf, sizeof(name_buf), "uya_slice_%s", elem_simple);
+        const char *safe = get_safe_c_identifier(codegen, name_buf);
+        if (!safe) return "struct uya_slice_int32_t";
+        size_t len = strlen(safe) + 9;
+        char *result = arena_alloc(codegen->arena, len);
+        if (!result) return "struct uya_slice_int32_t";
+        snprintf(result, len, "struct %s", safe);
+        return result;
+    }
+    return "struct uya_slice_int32_t";
+}
+
 /* 从表达式推断 C 类型字符串（用于元组字面量复合字面量），尽力而为 */
 const char *get_c_type_of_expr(C99CodeGenerator *codegen, ASTNode *expr) {
     if (!codegen || !expr) return "int32_t";
@@ -766,6 +852,8 @@ const char *get_c_type_of_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             const char *t = get_identifier_type_c(codegen, expr->data.identifier.name);
             return t ? t : "int32_t";
         }
+        case AST_SLICE_EXPR:
+            return get_slice_struct_type_c(codegen, expr);
         case AST_MEMBER_ACCESS:
         case AST_ARRAY_ACCESS:
         case AST_CALL_EXPR:
@@ -1014,10 +1102,33 @@ const char *get_array_element_type(C99CodeGenerator *codegen, ASTNode *array_exp
         return NULL;
     }
     
-    // 如果是数组访问，递归获取元素类型
     if (array_expr->type == AST_ARRAY_ACCESS) {
         ASTNode *base_array = array_expr->data.array_access.array;
         return get_array_element_type(codegen, base_array);
+    }
+    
+    if (array_expr->type == AST_SLICE_EXPR) {
+        ASTNode *base = array_expr->data.slice_expr.base;
+        if (base->type == AST_SLICE_EXPR) {
+            return get_array_element_type(codegen, base);
+        }
+        if (base->type == AST_IDENTIFIER) {
+            const char *type_c = get_identifier_type_c(codegen, base->data.identifier.name);
+            if (type_c) {
+                const char *p = strstr(type_c, "uya_slice_");
+                if (p) {
+                    p += 10;
+                    size_t len = strlen(p);
+                    char *elem = arena_alloc(codegen->arena, len + 1);
+                    if (elem) {
+                        memcpy(elem, p, len + 1);
+                        return elem;
+                    }
+                }
+            }
+            return get_array_element_type(codegen, base);
+        }
+        return NULL;
     }
     
     // 如果是数组字面量，从第一个元素推断类型

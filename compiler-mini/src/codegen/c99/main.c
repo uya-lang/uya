@@ -3,6 +3,115 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
+/* 递归收集 AST 中使用的切片类型，以便 step 6b 输出对应 struct */
+static void collect_slice_types_from_node(C99CodeGenerator *codegen, ASTNode *node) {
+    if (!codegen || !node) return;
+    if (node->type == AST_VAR_DECL && node->data.var_decl.type) {
+        if (node->data.var_decl.type->type == AST_TYPE_SLICE) {
+            (void)c99_type_to_c(codegen, node->data.var_decl.type);
+        }
+        collect_slice_types_from_node(codegen, node->data.var_decl.type);
+        if (node->data.var_decl.init)
+            collect_slice_types_from_node(codegen, node->data.var_decl.init);
+        return;
+    }
+    if (node->type == AST_FN_DECL) {
+        if (node->data.fn_decl.return_type) {
+            if (node->data.fn_decl.return_type->type == AST_TYPE_SLICE)
+                (void)c99_type_to_c(codegen, node->data.fn_decl.return_type);
+            collect_slice_types_from_node(codegen, node->data.fn_decl.return_type);
+        }
+        for (int j = 0; j < node->data.fn_decl.param_count && node->data.fn_decl.params; j++) {
+            ASTNode *p = node->data.fn_decl.params[j];
+            if (p) collect_slice_types_from_node(codegen, p);
+        }
+        if (node->data.fn_decl.body) collect_slice_types_from_node(codegen, node->data.fn_decl.body);
+        return;
+    }
+    if (node->type == AST_BLOCK && node->data.block.stmts) {
+        for (int i = 0; i < node->data.block.stmt_count; i++) {
+            collect_slice_types_from_node(codegen, node->data.block.stmts[i]);
+        }
+        return;
+    }
+    if (node->type == AST_IF_STMT) {
+        collect_slice_types_from_node(codegen, node->data.if_stmt.condition);
+        collect_slice_types_from_node(codegen, node->data.if_stmt.then_branch);
+        if (node->data.if_stmt.else_branch) collect_slice_types_from_node(codegen, node->data.if_stmt.else_branch);
+        return;
+    }
+    if (node->type == AST_WHILE_STMT) {
+        collect_slice_types_from_node(codegen, node->data.while_stmt.condition);
+        collect_slice_types_from_node(codegen, node->data.while_stmt.body);
+        return;
+    }
+    if (node->type == AST_FOR_STMT) {
+        collect_slice_types_from_node(codegen, node->data.for_stmt.array);
+        collect_slice_types_from_node(codegen, node->data.for_stmt.body);
+        return;
+    }
+    if (node->type == AST_RETURN_STMT && node->data.return_stmt.expr) {
+        collect_slice_types_from_node(codegen, node->data.return_stmt.expr);
+        return;
+    }
+    /* AST_EXPR_STMT 在 union 中无数据，跳过 */
+    if (node->type == AST_ASSIGN) {
+        collect_slice_types_from_node(codegen, node->data.assign.dest);
+        collect_slice_types_from_node(codegen, node->data.assign.src);
+        return;
+    }
+    if (node->type == AST_SLICE_EXPR) {
+        collect_slice_types_from_node(codegen, node->data.slice_expr.base);
+        collect_slice_types_from_node(codegen, node->data.slice_expr.start_expr);
+        collect_slice_types_from_node(codegen, node->data.slice_expr.len_expr);
+        return;
+    }
+    /* 其他表达式节点：递归子节点 */
+    switch (node->type) {
+        case AST_BINARY_EXPR:
+            collect_slice_types_from_node(codegen, node->data.binary_expr.left);
+            collect_slice_types_from_node(codegen, node->data.binary_expr.right);
+            break;
+        case AST_UNARY_EXPR:
+            collect_slice_types_from_node(codegen, node->data.unary_expr.operand);
+            break;
+        case AST_TRY_EXPR:
+            collect_slice_types_from_node(codegen, node->data.try_expr.operand);
+            break;
+        case AST_MEMBER_ACCESS:
+            collect_slice_types_from_node(codegen, node->data.member_access.object);
+            break;
+        case AST_ARRAY_ACCESS:
+            collect_slice_types_from_node(codegen, node->data.array_access.array);
+            collect_slice_types_from_node(codegen, node->data.array_access.index);
+            break;
+        case AST_CALL_EXPR: {
+            collect_slice_types_from_node(codegen, node->data.call_expr.callee);
+            for (int i = 0; i < node->data.call_expr.arg_count && node->data.call_expr.args; i++) {
+                collect_slice_types_from_node(codegen, node->data.call_expr.args[i]);
+            }
+            break;
+        }
+        case AST_CAST_EXPR:
+            collect_slice_types_from_node(codegen, node->data.cast_expr.expr);
+            if (node->data.cast_expr.target_type) collect_slice_types_from_node(codegen, node->data.cast_expr.target_type);
+            break;
+        case AST_LEN:
+            collect_slice_types_from_node(codegen, node->data.len_expr.array);
+            break;
+        case AST_SIZEOF:
+            if (node->data.sizeof_expr.target) {
+                if (node->data.sizeof_expr.is_type && node->data.sizeof_expr.target->type == AST_TYPE_SLICE) {
+                    (void)c99_type_to_c(codegen, node->data.sizeof_expr.target);
+                }
+                collect_slice_types_from_node(codegen, node->data.sizeof_expr.target);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
 int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *output_file) {
     if (!codegen || !ast || !output_file) {
         return -1;
@@ -101,6 +210,15 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
             gen_struct_definition(codegen, decl);
             fputs("\n", codegen->output);
         }
+    }
+    // 第六步 a：收集所有使用的切片类型（递归遍历 AST，含函数体内的 var_decl）
+    for (int i = 0; i < decl_count; i++) {
+        collect_slice_types_from_node(codegen, decls[i]);
+    }
+    // 第六步 b：生成切片结构体（&[T] -> struct uya_slice_X）
+    emit_pending_slice_structs(codegen);
+    if (codegen->slice_struct_count > 0) {
+        fputs("\n", codegen->output);
     }
 
     // 第七步：生成所有函数的前向声明（解决相互递归调用）

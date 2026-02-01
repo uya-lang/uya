@@ -403,6 +403,14 @@ static int type_equals(Type t1, Type t2) {
         return type_equals(*t1.data.array.element_type, *t2.data.array.element_type);
     }
     
+    // 对于切片类型，比较元素类型（已知长度可不同，&[T] 与 &[T: N] 可赋值兼容）
+    if (t1.kind == TYPE_SLICE) {
+        if (t2.kind != TYPE_SLICE) return 0;
+        if (t1.data.slice.element_type == NULL && t2.data.slice.element_type == NULL) return 1;
+        if (t1.data.slice.element_type == NULL || t2.data.slice.element_type == NULL) return 0;
+        return type_equals(*t1.data.slice.element_type, *t2.data.slice.element_type);
+    }
+    
     // 对于元组类型，比较元素类型和数量
     if (t1.kind == TYPE_TUPLE) {
         if (t1.data.tuple.count != t2.data.tuple.count) {
@@ -542,6 +550,29 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
         result.data.array.element_type = element_type_ptr;
         result.data.array.array_size = array_size;
         
+        return result;
+    } else if (type_node->type == AST_TYPE_SLICE) {
+        // 切片类型（&[T] 或 &[T: N]）
+        Type element_type = type_from_ast(checker, type_node->data.type_slice.element_type);
+        if (element_type.kind == TYPE_VOID && type_node->data.type_slice.element_type != NULL) {
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        Type *element_type_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
+        if (element_type_ptr == NULL) {
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        *element_type_ptr = element_type;
+        int slice_len = -1;  // -1 表示动态长度 &[T]
+        if (type_node->data.type_slice.size_expr != NULL &&
+            type_node->data.type_slice.size_expr->type == AST_NUMBER) {
+            slice_len = type_node->data.type_slice.size_expr->data.number.value;
+            if (slice_len < 0) slice_len = -1;
+        }
+        result.kind = TYPE_SLICE;
+        result.data.slice.element_type = element_type_ptr;
+        result.data.slice.slice_len = slice_len;
         return result;
     } else if (type_node->type == AST_TYPE_TUPLE) {
         // 元组类型（(T1, T2, ...)）
@@ -1064,28 +1095,44 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
         }
         
         case AST_ARRAY_ACCESS: {
-            // 数组访问：推断数组表达式类型，然后返回元素类型
-            // 支持数组类型 [T: N] 和指针类型 &T（指针类型的数组访问如 &byte[offset]）
-            // 也支持指向数组的指针 &[T: N]（如 &[i32: 3]）
-            Type array_type = checker_infer_type(checker, expr->data.array_access.array);
-            
-            if (array_type.kind == TYPE_ARRAY && array_type.data.array.element_type != NULL) {
-                // 数组类型：返回数组的元素类型
-                return *array_type.data.array.element_type;
-            } else if (array_type.kind == TYPE_POINTER && array_type.data.pointer.pointer_to != NULL) {
-                // 指针类型：检查指针指向的类型
-                Type pointed_type = *array_type.data.pointer.pointer_to;
-                if (pointed_type.kind == TYPE_ARRAY && pointed_type.data.array.element_type != NULL) {
-                    // 指向数组的指针（如 &[i32: 3]）：返回数组的元素类型
-                    return *pointed_type.data.array.element_type;
-                } else {
-                    // 指向非数组类型的指针（如 &byte）：返回指针指向的类型
-                    return pointed_type;
-                }
+            Type base_type = checker_infer_type(checker, expr->data.array_access.array);
+            if (base_type.kind == TYPE_ARRAY && base_type.data.array.element_type != NULL) {
+                return *base_type.data.array.element_type;
             }
-            
-            // 数组表达式类型不是数组类型或指针类型，返回void类型
+            if (base_type.kind == TYPE_SLICE && base_type.data.slice.element_type != NULL) {
+                return *base_type.data.slice.element_type;
+            }
+            if (base_type.kind == TYPE_POINTER && base_type.data.pointer.pointer_to != NULL) {
+                Type pointed_type = *base_type.data.pointer.pointer_to;
+                if (pointed_type.kind == TYPE_ARRAY && pointed_type.data.array.element_type != NULL) {
+                    return *pointed_type.data.array.element_type;
+                }
+                return pointed_type;
+            }
             result.kind = TYPE_VOID;
+            return result;
+        }
+        
+        case AST_SLICE_EXPR: {
+            Type base_type = checker_infer_type(checker, expr->data.slice_expr.base);
+            if (base_type.kind != TYPE_ARRAY && base_type.kind != TYPE_SLICE) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            Type *elem = base_type.kind == TYPE_ARRAY ? base_type.data.array.element_type : base_type.data.slice.element_type;
+            if (elem == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            Type *element_type_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
+            if (element_type_ptr == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            *element_type_ptr = *elem;
+            result.kind = TYPE_SLICE;
+            result.data.slice.element_type = element_type_ptr;
+            result.data.slice.slice_len = -1;  // 动态长度，若 len 为编译期常量可在后续优化
             return result;
         }
         
@@ -2202,17 +2249,15 @@ static Type checker_check_len(TypeChecker *checker, ASTNode *node) {
         return result;
     }
     
-    // 获取数组表达式类型
-    Type array_type = checker_infer_type(checker, node->data.len_expr.array);
-    if (array_type.kind != TYPE_ARRAY || array_type.data.array.element_type == NULL) {
-        // 数组表达式类型不是数组类型：放宽检查，允许通过（不报错）
-        // 这在编译器自举时很常见，因为类型推断可能失败（如结构体字段访问）
-        // len 仍然返回 i32 类型
+    Type base_type = checker_infer_type(checker, node->data.len_expr.array);
+    if (base_type.kind == TYPE_ARRAY && base_type.data.array.element_type != NULL) {
         result.kind = TYPE_I32;
         return result;
     }
-    
-    // len 返回 i32 类型（元素个数）
+    if (base_type.kind == TYPE_SLICE && base_type.data.slice.element_type != NULL) {
+        result.kind = TYPE_I32;
+        return result;
+    }
     result.kind = TYPE_I32;
     return result;
 }
