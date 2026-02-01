@@ -2021,6 +2021,20 @@ static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
     if (checker == NULL || node == NULL || node->type != AST_FN_DECL) {
         return 0;
     }
+    /* drop 只能在结构体内部或方法块中定义，禁止顶层 fn drop(self: T) void */
+    if (node->data.fn_decl.name && strcmp(node->data.fn_decl.name, "drop") == 0 &&
+        node->data.fn_decl.param_count == 1 && node->data.fn_decl.params && node->data.fn_decl.params[0]) {
+        ASTNode *param = node->data.fn_decl.params[0];
+        if (param->type == AST_VAR_DECL && param->data.var_decl.name && strcmp(param->data.var_decl.name, "self") == 0 &&
+            param->data.var_decl.type && param->data.var_decl.type->type == AST_TYPE_NAMED &&
+            param->data.var_decl.type->data.type_named.name) {
+            ASTNode *ret = node->data.fn_decl.return_type;
+            if (ret && ret->type == AST_TYPE_NAMED && ret->data.type_named.name && strcmp(ret->data.type_named.name, "void") == 0) {
+                checker_report_error(checker, node, "drop 只能在结构体内部或方法块中定义");
+                return 0;
+            }
+        }
+    }
     
     // 获取函数返回类型
     Type return_type = type_from_ast(checker, node->data.fn_decl.return_type);

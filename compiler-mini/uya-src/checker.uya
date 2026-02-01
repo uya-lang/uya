@@ -2384,6 +2384,20 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     if checker == null || node == null || node.type != ASTNodeType.AST_FN_DECL {
         return 0;
     }
+    if node.fn_decl_name != null && str_equals(node.fn_decl_name, "drop" as *byte) != 0 &&
+        node.fn_decl_param_count == 1 && node.fn_decl_params != null && node.fn_decl_params[0] != null {
+        const param: &ASTNode = node.fn_decl_params[0];
+        if param.type == ASTNodeType.AST_VAR_DECL && param.var_decl_name != null &&
+            str_equals(param.var_decl_name, "self" as *byte) != 0 && param.var_decl_type != null &&
+            param.var_decl_type.type == ASTNodeType.AST_TYPE_NAMED && param.var_decl_type.type_named_name != null {
+            const ret: &ASTNode = node.fn_decl_return_type;
+            if ret != null && ret.type == ASTNodeType.AST_TYPE_NAMED && ret.type_named_name != null &&
+                str_equals(ret.type_named_name, "void" as *byte) != 0 {
+                checker_report_error(checker, node, "drop 只能在结构体内部或方法块中定义" as *byte);
+                return 0;
+            }
+        }
+    }
     
     // 获取函数返回类型
     const return_type: Type = type_from_ast(checker, node.fn_decl_return_type);
