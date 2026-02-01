@@ -34,7 +34,7 @@ static ASTNode *find_method_block_for_struct(ASTNode *program_node, const char *
 static ASTNode *find_method_in_struct(ASTNode *program_node, const char *struct_name, const char *method_name);
 static int moved_set_contains(TypeChecker *checker, const char *name);
 static int has_active_pointer_to(TypeChecker *checker, const char *var_name);
-static void checker_mark_moved(TypeChecker *checker, ASTNode *node, const char *var_name);
+static void checker_mark_moved(TypeChecker *checker, ASTNode *node, const char *var_name, const char *struct_name);
 static void checker_mark_moved_call_args(TypeChecker *checker, ASTNode *node);
 
 // 是否为整数类型（用于算术、比较、位运算）
