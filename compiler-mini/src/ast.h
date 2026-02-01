@@ -4,6 +4,28 @@
 #include "arena.h"
 #include <stddef.h>
 
+// match 模式种类
+typedef enum {
+    MATCH_PAT_LITERAL,   // 字面量（整数、true、false）
+    MATCH_PAT_ENUM,      // 枚举变体（EnumName.Variant）
+    MATCH_PAT_ERROR,     // 错误类型（error.Name）
+    MATCH_PAT_BIND,      // 变量绑定（identifier 捕获值）
+    MATCH_PAT_WILDCARD,  // 通配符 _
+    MATCH_PAT_ELSE       // else 分支
+} MatchPatternKind;
+
+// match 臂结构
+typedef struct ASTMatchArm {
+    MatchPatternKind kind;
+    union {
+        struct { struct ASTNode *expr; } literal;   // NUMBER 或 BOOL
+        struct { const char *enum_name; const char *variant_name; } enum_pat;
+        struct { const char *error_name; } error_pat;
+        struct { const char *var_name; } bind;
+    } data;
+    struct ASTNode *result_expr;
+} ASTMatchArm;
+
 // 枚举变体结构
 typedef struct EnumVariant {
     const char *name;      // 变体名称（字符串存储在 Arena 中）
@@ -61,6 +83,7 @@ typedef enum {
     AST_TRY_EXPR,       // try expr（错误传播）
     AST_CATCH_EXPR,     // expr catch [|err|] { stmts }（错误捕获）
     AST_ERROR_VALUE,    // error.Name（错误值，用于 return error.X）
+    AST_MATCH_EXPR,     // match expr { pat => expr, ... else => expr }
     
     // 类型节点
     AST_TYPE_NAMED,     // 命名类型（i32, bool, void, 或 struct Name）
@@ -354,6 +377,13 @@ struct ASTNode {
         struct {
             struct ASTNode *payload_type;    // 载荷类型 T（从 Arena 分配）
         } type_error_union;
+
+        // match 表达式
+        struct {
+            struct ASTNode *expr;            // 被匹配的表达式
+            ASTMatchArm *arms;               // 模式臂数组
+            int arm_count;                   // 臂数量（含 else）
+        } match_expr;
     } data;
 };
 

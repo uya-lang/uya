@@ -52,10 +52,8 @@ int find_enum_variant_value(C99CodeGenerator *codegen, ASTNode *enum_decl, const
             return current_value;
         }
         
-        // 如果没有显式值，下一个变体的值会自动递增
-        if (!variant->value) {
-            current_value++;
-        }
+        // 为下一变体准备值（显式值则已设置，否则递增）
+        current_value++;
     }
     
     return -1;

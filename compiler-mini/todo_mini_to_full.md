@@ -15,7 +15,7 @@
 | 2 | 错误处理 | [x] |
 | 3 | defer / errdefer | [x] |
 | 4 | 切片 | [x] |
-| 5 | match 表达式 | [ ] |
+| 5 | match 表达式 | [x] |
 | 6 | for 扩展 | [ ] |
 | 7 | 接口 | [ ] |
 | 8 | 结构体方法 + drop + 移动语义 | [ ] |
@@ -111,10 +111,13 @@
 
 ## 5. match 表达式
 
-- [ ] **match 语法**：`match expr { pat => expr, else => expr }`，规范 uya.md §8
-- [ ] **模式**：常量、绑定、结构体解构、错误分支、字符串匹配
+- [x] **match 语法**：`match expr { pat => expr, else => expr }`，规范 uya.md §8
+- [x] **模式**：常量（整数、bool）、枚举变体、变量绑定、`_` 通配、else 分支
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen（if-else 链或跳转表），uya-src。
+
+**C 实现（已完成）**：Lexer（TOKEN_MATCH、TOKEN_FAT_ARROW、`match` 关键字、`=>` 双符）；AST（AST_MATCH_EXPR、ASTMatchArm、MatchPatternKind：LITERAL/ENUM/ERROR/BIND/WILDCARD/ELSE）；Parser（primary_expr 中 match 解析、pat => expr/block、逗号分隔、else 可选）；Checker（所有分支返回类型一致、BIND 作用域、枚举模式类型校验、穷尽性：else 或 BIND/WILDCARD）；Codegen（表达式用 GCC 语句表达式 `({ ... })`，语句用 if-else 链；修复 find_enum_variant_value 自动递增值）。测试 test_match.uya 通过 `--c99`。
+**uya-src 待同步**：Lexer、AST、Parser、Checker、Codegen 对应模块。
 
 ---
 

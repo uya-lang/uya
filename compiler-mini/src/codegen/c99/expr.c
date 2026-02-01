@@ -1127,6 +1127,65 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             fputc(')', codegen->output);
             break;
         }
+        case AST_MATCH_EXPR: {
+            /* match expr { pat => result, ... } 作为表达式：GCC 语句表达式 */
+            ASTNode *match_expr = expr->data.match_expr.expr;
+            const char *m_type = get_c_type_of_expr(codegen, match_expr);
+            if (!m_type) m_type = "int32_t";
+            const char *res_type = "int32_t";
+            if (expr->data.match_expr.arm_count > 0) {
+                const char *t = get_c_type_of_expr(codegen, expr->data.match_expr.arms[0].result_expr);
+                if (t) res_type = t;
+            }
+            fputs("({ ", codegen->output);
+            fprintf(codegen->output, "%s _uya_m = ", m_type);
+            gen_expr(codegen, match_expr);
+            fputs("; ", codegen->output);
+            fprintf(codegen->output, "%s _uya_r; ", res_type);
+            int first = 1;
+            for (int i = 0; i < expr->data.match_expr.arm_count; i++) {
+                ASTMatchArm *arm = &expr->data.match_expr.arms[i];
+                const char *prefix = first ? "" : "else ";
+                first = 0;
+                if (arm->kind == MATCH_PAT_LITERAL && arm->data.literal.expr) {
+                    if (arm->data.literal.expr->type == AST_NUMBER) {
+                        fprintf(codegen->output, "%sif (_uya_m == %d) _uya_r = ", prefix, arm->data.literal.expr->data.number.value);
+                    } else if (arm->data.literal.expr->type == AST_BOOL) {
+                        fprintf(codegen->output, "%sif (_uya_m == %s) _uya_r = ", prefix, arm->data.literal.expr->data.bool_literal.value ? "1" : "0");
+                    }
+                    gen_expr(codegen, arm->result_expr);
+                    fputs("; ", codegen->output);
+                } else if (arm->kind == MATCH_PAT_ENUM) {
+                    ASTNode *enum_decl = find_enum_decl_c99(codegen, arm->data.enum_pat.enum_name);
+                    int ev = enum_decl ? find_enum_variant_value(codegen, enum_decl, arm->data.enum_pat.variant_name) : -1;
+                    if (ev >= 0) {
+                        fprintf(codegen->output, "%sif (_uya_m == %d) _uya_r = ", prefix, ev);
+                    } else {
+                        fprintf(codegen->output, "%sif (0) _uya_r = ", prefix);  /* 占位 */
+                    }
+                    gen_expr(codegen, arm->result_expr);
+                    fputs("; ", codegen->output);
+                } else if (arm->kind == MATCH_PAT_BIND) {
+                    const char *v = get_safe_c_identifier(codegen, arm->data.bind.var_name);
+                    if (v) fprintf(codegen->output, "%s{ %s %s = _uya_m; _uya_r = ", prefix, m_type, v);
+                    gen_expr(codegen, arm->result_expr);
+                    if (v) fputs("; } ", codegen->output);
+                    else fputs("; ", codegen->output);
+                } else if (arm->kind == MATCH_PAT_WILDCARD || arm->kind == MATCH_PAT_ELSE) {
+                    fprintf(codegen->output, "%s{ _uya_r = ", prefix);
+                    gen_expr(codegen, arm->result_expr);
+                    fputs("; } ", codegen->output);
+                } else if (arm->kind == MATCH_PAT_ERROR) {
+                    unsigned id = arm->data.error_pat.error_name ? get_or_add_error_id(codegen, arm->data.error_pat.error_name) : 0;
+                    if (id == 0) id = 1;
+                    fprintf(codegen->output, "%sif (_uya_m.error_id == %uU) _uya_r = ", prefix, id);
+                    gen_expr(codegen, arm->result_expr);
+                    fputs("; ", codegen->output);
+                }
+            }
+            fputs("_uya_r; })", codegen->output);
+            break;
+        }
         default:
             fputs("0", codegen->output);
             break;

@@ -1448,6 +1448,96 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return node;
     }
     
+    // 解析 match 表达式：match expr { pat => expr, ... [else => expr] }
+    if (parser->current_token->type == TOKEN_MATCH) {
+        parser_consume(parser);
+        ASTNode *match_expr_node = ast_new_node(AST_MATCH_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (match_expr_node == NULL) return NULL;
+        ASTNode *expr_val = parser_parse_expression(parser);
+        if (expr_val == NULL) return NULL;
+        match_expr_node->data.match_expr.expr = expr_val;
+        if (!parser_expect(parser, TOKEN_LEFT_BRACE)) return NULL;
+        ASTMatchArm arms[64];
+        int arm_count = 0;
+        while (arm_count < 64 && parser->current_token != NULL && parser->current_token->type != TOKEN_RIGHT_BRACE) {
+            MatchPatternKind kind = MATCH_PAT_ELSE;
+            ASTNode *lit_expr = NULL;
+            const char *enum_name = NULL, *variant_name = NULL, *err_name = NULL, *bind_name = NULL;
+            if (parser->current_token->type == TOKEN_ELSE) {
+                kind = MATCH_PAT_ELSE;
+                parser_consume(parser);
+            } else if (parser->current_token->type == TOKEN_NUMBER) {
+                kind = MATCH_PAT_LITERAL;
+                lit_expr = ast_new_node(AST_NUMBER, parser->current_token->line, parser->current_token->column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                if (lit_expr) lit_expr->data.number.value = atoi(parser->current_token->value);
+                parser_consume(parser);
+            } else if (parser->current_token->type == TOKEN_TRUE) {
+                kind = MATCH_PAT_LITERAL;
+                lit_expr = ast_new_node(AST_BOOL, parser->current_token->line, parser->current_token->column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                if (lit_expr) lit_expr->data.bool_literal.value = 1;
+                parser_consume(parser);
+            } else if (parser->current_token->type == TOKEN_FALSE) {
+                kind = MATCH_PAT_LITERAL;
+                lit_expr = ast_new_node(AST_BOOL, parser->current_token->line, parser->current_token->column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                if (lit_expr) lit_expr->data.bool_literal.value = 0;
+                parser_consume(parser);
+            } else if (parser->current_token->type == TOKEN_ERROR) {
+                kind = MATCH_PAT_ERROR;
+                parser_consume(parser);
+                if (!parser_match(parser, TOKEN_DOT) || parser->current_token == NULL) return NULL;
+                parser_consume(parser);
+                if (parser->current_token->type != TOKEN_IDENTIFIER) return NULL;
+                err_name = arena_strdup(parser->arena, parser->current_token->value);
+                parser_consume(parser);
+            } else if (parser->current_token->type == TOKEN_IDENTIFIER) {
+                const char *first = parser->current_token->value;
+                parser_consume(parser);
+                if (parser_match(parser, TOKEN_DOT)) {
+                    kind = MATCH_PAT_ENUM;
+                    enum_name = first;
+                    parser_consume(parser);
+                    if (parser->current_token == NULL || parser->current_token->type != TOKEN_IDENTIFIER) return NULL;
+                    variant_name = arena_strdup(parser->arena, parser->current_token->value);
+                    if (variant_name == NULL) return NULL;
+                    parser_consume(parser);
+                } else {
+                    kind = MATCH_PAT_BIND;
+                    bind_name = arena_strdup(parser->arena, first);
+                }
+            } else if (parser->current_token->type == TOKEN_IDENTIFIER && parser->current_token->value != NULL && strcmp(parser->current_token->value, "_") == 0) {
+                kind = MATCH_PAT_WILDCARD;
+                parser_consume(parser);
+            } else {
+                fprintf(stderr, "错误: match 中期望模式，得到 token type=%d\n", (int)parser->current_token->type);
+                return NULL;
+            }
+            if (!parser_expect(parser, TOKEN_FAT_ARROW)) return NULL;
+            ASTNode *result_expr = NULL;
+            if (parser_match(parser, TOKEN_LEFT_BRACE)) {
+                result_expr = parser_parse_block(parser);
+            } else {
+                result_expr = parser_parse_expression(parser);
+            }
+            if (result_expr == NULL) return NULL;
+            arms[arm_count].kind = kind;
+            arms[arm_count].result_expr = result_expr;
+            if (kind == MATCH_PAT_LITERAL) arms[arm_count].data.literal.expr = lit_expr;
+            else if (kind == MATCH_PAT_ENUM) { arms[arm_count].data.enum_pat.enum_name = enum_name; arms[arm_count].data.enum_pat.variant_name = variant_name; }
+            else if (kind == MATCH_PAT_ERROR) arms[arm_count].data.error_pat.error_name = err_name;
+            else if (kind == MATCH_PAT_BIND) arms[arm_count].data.bind.var_name = bind_name;
+            arm_count++;
+            if (parser->current_token != NULL && parser->current_token->type == TOKEN_COMMA) parser_consume(parser);
+        }
+        if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) return NULL;
+        match_expr_node->data.match_expr.arms = (ASTMatchArm *)arena_alloc(parser->arena, (size_t)arm_count * sizeof(ASTMatchArm));
+        if (match_expr_node->data.match_expr.arms == NULL) return NULL;
+        for (int i = 0; i < arm_count; i++) {
+            match_expr_node->data.match_expr.arms[i] = arms[i];
+        }
+        match_expr_node->data.match_expr.arm_count = arm_count;
+        return match_expr_node;
+    }
+    
     // 解析 null 字面量（null 被解析为标识符节点，在代码生成阶段通过字符串比较识别）
     if (parser->current_token->type == TOKEN_NULL) {
         ASTNode *node = ast_new_node(AST_IDENTIFIER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);

@@ -30,12 +30,15 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 - **基本表达式**：算术运算、逻辑运算、比较运算、函数调用、结构体字段访问、数组访问、类型转换
 - **内置函数**：所有内置函数以 `@` 开头：`@sizeof`（类型大小查询）、`@len`（数组长度查询）、`@alignof`（类型对齐查询）、`@max`/`@min`（整数类型极值）
 
+**match 表达式**（✅ 已实现）：
+- 语法：`match expr { pat => expr, else => expr }`
+- 支持模式：常量（整数、bool）、枚举变体（EnumName.Variant）、变量绑定、`_` 通配、`else` 分支
+- 可作为表达式或语句；表达式时所有分支返回类型一致；语句时所有分支返回 void
+- 代码生成：展开为 if-else 链
+
 **不支持的特性**：
 - 联合体（union）
 - 接口
-- 错误处理（error、try/catch）
-- defer/errdefer
-- match 表达式
 - 模块系统
 - 字符串插值（不支持字符串插值语法）
 - 整数范围 for 循环（仅支持数组遍历）
@@ -53,10 +56,11 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 ## 1. 关键字
 
 ```
-enum struct const var fn extern return true false if else while for break continue null as
+enum struct const var fn extern return true false if else while for break continue null as match
 ```
 
 **说明**：
+- `match`：match 表达式/语句（模式匹配）
 - `enum`：枚举声明
 - `struct`：结构体声明
 - `const`：不可变变量声明
@@ -543,8 +547,9 @@ struct_type    = 'struct' ID
 ### 4.5 语句
 
 ```
-statement      = expr_stmt | var_decl | return_stmt | if_stmt | while_stmt | for_stmt | break_stmt | continue_stmt | block_stmt
+statement      = expr_stmt | var_decl | return_stmt | if_stmt | while_stmt | for_stmt | break_stmt | continue_stmt | block_stmt | match_stmt
 
+match_stmt     = match_expr   // match 可作为语句（所有分支返回 void）
 expr_stmt      = expr ';'
 return_stmt    = 'return' [ expr ] ';'
 if_stmt        = 'if' expr '{' statements '}' [ else_clause ]
@@ -606,7 +611,11 @@ add_expr       = mul_expr { ('+' | '-') mul_expr }
 mul_expr       = cast_expr { ('*' | '/' | '%') cast_expr }
 cast_expr      = unary_expr [ 'as' type ]
 unary_expr     = ('!' | '-' | '~' | '&' | '*') unary_expr | primary_expr
-primary_expr   = ID | NUM | FLOAT | 'true' | 'false' | 'null' | STRING | params_expr | struct_literal | array_literal | member_access | array_access | slice_expr | call_expr | sizeof_expr | alignof_expr | len_expr | int_limit_expr | '(' expr ')'
+primary_expr   = ID | NUM | FLOAT | 'true' | 'false' | 'null' | STRING | params_expr | struct_literal | array_literal | member_access | array_access | slice_expr | call_expr | sizeof_expr | alignof_expr | len_expr | int_limit_expr | match_expr | '(' expr ')'
+
+match_expr     = 'match' expr '{' pattern_list '}'
+pattern_list   = pattern '=>' expr { ',' pattern '=>' expr } [ ',' 'else' '=>' expr ]
+pattern        = NUM | 'true' | 'false' | ID '.' ID | 'error' '.' ID | ID | '_'
 params_expr    = '@params'   // 仅函数体内有效，类型为参数元组（可变参数时仅含固定参数）
 sizeof_expr    = '@sizeof' '(' (type | expr) ')' 
 alignof_expr   = '@alignof' '(' (type | expr) ')'

@@ -50,6 +50,12 @@ static void collect_slice_types_from_node(C99CodeGenerator *codegen, ASTNode *no
         collect_slice_types_from_node(codegen, node->data.for_stmt.body);
         return;
     }
+    if (node->type == AST_MATCH_EXPR) {
+        collect_slice_types_from_node(codegen, node->data.match_expr.expr);
+        for (int i = 0; i < node->data.match_expr.arm_count; i++)
+            collect_slice_types_from_node(codegen, node->data.match_expr.arms[i].result_expr);
+        return;
+    }
     if (node->type == AST_RETURN_STMT && node->data.return_stmt.expr) {
         collect_slice_types_from_node(codegen, node->data.return_stmt.expr);
         return;

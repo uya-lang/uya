@@ -1,0 +1,60 @@
+// match 表达式测试：常量模式、变量绑定、else 分支
+// 返回 0 表示通过
+
+enum Color { Red = 1, Green, Blue }
+
+fn main() i32 {
+    // 整数常量匹配
+    const x: i32 = 1;
+    const r1: i32 = match x {
+        0 => 10,
+        1 => 20,
+        2 => 30,
+        else => 40,
+    };
+    if r1 != 20 { return 1; }
+
+    // 变量绑定
+    const r2: i32 = match 42 {
+        v => v,
+    };
+    if r2 != 42 { return 2; }
+
+    // else 分支
+    const r3: i32 = match 99 {
+        0 => 0,
+        1 => 1,
+        else => 99,
+    };
+    if r3 != 99 { return 3; }
+
+    // 枚举匹配
+    const c: Color = Color.Green;
+    const r4: i32 = match c {
+        Color.Red => 1,
+        Color.Green => 2,
+        Color.Blue => 3,
+        else => 0,
+    };
+    if r4 != 2 { return 4; }
+
+    // bool 常量匹配
+    const b: bool = true;
+    const r5: i32 = match b {
+        true => 1,
+        false => 0,
+        else => 0,
+    };
+    if r5 != 1 { return 5; }
+
+    // match 作为语句（void 分支）
+    var n: i32 = 0;
+    match 1 {
+        0 => { n = 10; },
+        1 => { n = 20; },
+        else => { n = 30; },
+    };
+    if n != 20 { return 6; }
+
+    return 0;
+}

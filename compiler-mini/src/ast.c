@@ -86,6 +86,11 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_ERROR_VALUE:
             node->data.error_value.name = NULL;
             break;
+        case AST_MATCH_EXPR:
+            node->data.match_expr.expr = NULL;
+            node->data.match_expr.arms = NULL;
+            node->data.match_expr.arm_count = 0;
+            break;
         case AST_CALL_EXPR:
             node->data.call_expr.callee = NULL;
             node->data.call_expr.args = NULL;

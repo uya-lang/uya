@@ -118,6 +118,7 @@ static TokenType is_keyword(const char *str) {
     if (strcmp(str, "defer") == 0) return TOKEN_DEFER;
     if (strcmp(str, "errdefer") == 0) return TOKEN_ERRDEFER;
     if (strcmp(str, "as") == 0) return TOKEN_AS;
+    if (strcmp(str, "match") == 0) return TOKEN_MATCH;
     return TOKEN_IDENTIFIER;  // 不是关键字，是标识符
 }
 
@@ -453,6 +454,10 @@ top_of_token:
             return make_token(arena, TOKEN_PERCENT, "%", line, column);
         case '=':
             advance_char(lexer);
+            if (peek_char(lexer, 0) == '>') {
+                advance_char(lexer);
+                return make_token(arena, TOKEN_FAT_ARROW, "=>", line, column);
+            }
             if (peek_char(lexer, 0) == '=') {
                 advance_char(lexer);
                 return make_token(arena, TOKEN_EQUAL, "==", line, column);

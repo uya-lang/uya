@@ -1266,6 +1266,23 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             return result;
         }
         
+        case AST_MATCH_EXPR: {
+            // match 表达式：所有臂的返回类型必须一致
+            Type unified = { .kind = TYPE_VOID };
+            int first = 1;
+            for (int i = 0; i < expr->data.match_expr.arm_count; i++) {
+                ASTMatchArm *arm = &expr->data.match_expr.arms[i];
+                Type t = checker_infer_type(checker, arm->result_expr);
+                if (first) {
+                    unified = t;
+                    first = 0;
+                } else if (!type_equals(unified, t)) {
+                    checker_report_error(checker, arm->result_expr, "match 所有分支的返回类型必须一致");
+                }
+            }
+            return unified;
+        }
+        
         case AST_STRUCT_DECL: {
             // 结构体声明：不应该作为表达式使用，但放宽检查
             // 返回void类型，允许通过（不报错）
@@ -2815,7 +2832,7 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                         checker_check_node(checker, node->data.for_stmt.body);
                     }
                     checker->loop_depth--;
-                    checker_exit_scope(checker);
+                        checker_exit_scope(checker);
                     return 1;
                 }
             }
@@ -2906,6 +2923,49 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                 // 5. 退出循环作用域和循环深度
                 checker->loop_depth--;
                 checker_exit_scope(checker);
+            }
+            return 1;
+        }
+        
+        case AST_MATCH_EXPR: {
+            Type expr_type = checker_infer_type(checker, node->data.match_expr.expr);
+            checker_check_node(checker, node->data.match_expr.expr);
+            int has_else = 0;
+            for (int i = 0; i < node->data.match_expr.arm_count; i++) {
+                ASTMatchArm *arm = &node->data.match_expr.arms[i];
+                if (arm->kind == MATCH_PAT_ELSE) has_else = 1;
+                checker_enter_scope(checker);
+                if (arm->kind == MATCH_PAT_BIND && arm->data.bind.var_name != NULL) {
+                    Symbol *sym = (Symbol *)arena_alloc(checker->arena, sizeof(Symbol));
+                    if (sym != NULL) {
+                        sym->name = arm->data.bind.var_name;
+                        sym->type = expr_type;
+                        sym->is_const = 1;
+                        sym->scope_level = checker->scope_level;
+                        sym->line = node->line;
+                        sym->column = node->column;
+                        symbol_table_insert(checker, sym);
+                    }
+                }
+                if (arm->kind == MATCH_PAT_ENUM && arm->data.enum_pat.enum_name != NULL && arm->data.enum_pat.variant_name != NULL) {
+                    if (expr_type.kind != TYPE_ENUM) {
+                        checker_report_error(checker, node, "枚举模式只能匹配枚举类型");
+                    } else if (expr_type.data.enum_name != NULL && strcmp(expr_type.data.enum_name, arm->data.enum_pat.enum_name) != 0) {
+                        checker_report_error(checker, node, "match 枚举模式与表达式类型不匹配");
+                    }
+                }
+                checker_check_node(checker, arm->result_expr);
+                checker_exit_scope(checker);
+            }
+            {
+                int has_catch_all = has_else;
+                for (int j = 0; j < node->data.match_expr.arm_count && !has_catch_all; j++) {
+                    if (node->data.match_expr.arms[j].kind == MATCH_PAT_BIND || node->data.match_expr.arms[j].kind == MATCH_PAT_WILDCARD)
+                        has_catch_all = 1;
+                }
+                if (!has_catch_all && node->data.match_expr.arm_count > 0) {
+                    checker_report_error(checker, node, "match 必须包含 else 分支或变量绑定/通配符");
+                }
             }
             return 1;
         }

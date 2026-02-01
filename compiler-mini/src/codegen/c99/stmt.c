@@ -768,6 +768,96 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             c99_emit(codegen, "}\n");
             break;
         }
+        case AST_MATCH_EXPR: {
+            /* match expr { pat => result, ... } 作为语句 */
+            ASTNode *match_expr = stmt->data.match_expr.expr;
+            const char *m_type = get_c_type_of_expr(codegen, match_expr);
+            if (!m_type) m_type = "int32_t";
+            c99_emit(codegen, "{\n");
+            codegen->indent_level++;
+            c99_emit(codegen, "%s _uya_m = ", m_type);
+            gen_expr(codegen, match_expr);
+            fputs(";\n", codegen->output);
+            int first = 1;
+            for (int i = 0; i < stmt->data.match_expr.arm_count; i++) {
+                ASTMatchArm *arm = &stmt->data.match_expr.arms[i];
+                const char *prefix = first ? "" : "else ";
+                first = 0;
+                if (arm->kind == MATCH_PAT_LITERAL && arm->data.literal.expr) {
+                    if (arm->data.literal.expr->type == AST_NUMBER) {
+                        c99_emit(codegen, "%sif (_uya_m == %d) ", prefix, arm->data.literal.expr->data.number.value);
+                    } else if (arm->data.literal.expr->type == AST_BOOL) {
+                        c99_emit(codegen, "%sif (_uya_m == %s) ", prefix, arm->data.literal.expr->data.bool_literal.value ? "1" : "0");
+                    }
+                    if (arm->result_expr->type == AST_BLOCK) {
+                        fputs("{\n", codegen->output);
+                        codegen->indent_level++;
+                        gen_stmt(codegen, arm->result_expr);
+                        codegen->indent_level--;
+                        c99_emit(codegen, "}\n");
+                    } else {
+                        gen_expr(codegen, arm->result_expr);
+                        fputs(";\n", codegen->output);
+                    }
+                } else if (arm->kind == MATCH_PAT_ENUM) {
+                    ASTNode *enum_decl = find_enum_decl_c99(codegen, arm->data.enum_pat.enum_name);
+                    int ev = enum_decl ? find_enum_variant_value(codegen, enum_decl, arm->data.enum_pat.variant_name) : -1;
+                    if (ev >= 0) c99_emit(codegen, "%sif (_uya_m == %d) ", prefix, ev);
+                    else c99_emit(codegen, "%sif (0) ", prefix);
+                    if (arm->result_expr->type == AST_BLOCK) {
+                        fputs("{\n", codegen->output);
+                        codegen->indent_level++;
+                        gen_stmt(codegen, arm->result_expr);
+                        codegen->indent_level--;
+                        c99_emit(codegen, "}\n");
+                    } else {
+                        gen_expr(codegen, arm->result_expr);
+                        fputs(";\n", codegen->output);
+                    }
+                } else if (arm->kind == MATCH_PAT_BIND) {
+                    const char *v = get_safe_c_identifier(codegen, arm->data.bind.var_name);
+                    if (v) c99_emit(codegen, "%s{ %s %s = _uya_m;\n", prefix, m_type, v);
+                    else c99_emit(codegen, "%s{\n", prefix);
+                    codegen->indent_level++;
+                    if (arm->result_expr->type == AST_BLOCK)
+                        gen_stmt(codegen, arm->result_expr);
+                    else {
+                        gen_expr(codegen, arm->result_expr);
+                        fputs(";\n", codegen->output);
+                    }
+                    codegen->indent_level--;
+                    c99_emit(codegen, "}\n");
+                } else if (arm->kind == MATCH_PAT_WILDCARD || arm->kind == MATCH_PAT_ELSE) {
+                    c99_emit(codegen, "%s{\n", prefix);
+                    codegen->indent_level++;
+                    if (arm->result_expr->type == AST_BLOCK)
+                        gen_stmt(codegen, arm->result_expr);
+                    else {
+                        gen_expr(codegen, arm->result_expr);
+                        fputs(";\n", codegen->output);
+                    }
+                    codegen->indent_level--;
+                    c99_emit(codegen, "}\n");
+                } else if (arm->kind == MATCH_PAT_ERROR) {
+                    unsigned id = arm->data.error_pat.error_name ? get_or_add_error_id(codegen, arm->data.error_pat.error_name) : 0;
+                    if (id == 0) id = 1;
+                    c99_emit(codegen, "%sif (_uya_m.error_id == %uU) ", prefix, id);
+                    if (arm->result_expr->type == AST_BLOCK) {
+                        fputs("{\n", codegen->output);
+                        codegen->indent_level++;
+                        gen_stmt(codegen, arm->result_expr);
+                        codegen->indent_level--;
+                        c99_emit(codegen, "}\n");
+                    } else {
+                        gen_expr(codegen, arm->result_expr);
+                        fputs(";\n", codegen->output);
+                    }
+                }
+            }
+            codegen->indent_level--;
+            c99_emit(codegen, "}\n");
+            break;
+        }
         case AST_BREAK_STMT:
             emit_defer_cleanup(codegen, 0);
             c99_emit(codegen, "break;\n");
