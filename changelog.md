@@ -6,6 +6,12 @@
 
 ## 0.35 版本变更（相对于 0.34）
 
+### 0.35.1 error_id 分配与稳定性（规范补充）
+
+- **error_id 分配**：`error_id = hash(error_name)`（djb2 算法），相同错误名在任意编译中映射到相同 `error_id`
+- **hash 冲突**：不同错误名 hash 冲突时，编译器报错并提示冲突的两个名称，开发者需重命名其一
+- **规范更新**：uya.md、grammar_formal.md、grammar_quick.md、uya_ai_prompt.md 已同步
+
 ### 0.35 联合体（union）支持
 
 - **联合体类型**（规范 0.35，第 4.5 章）：

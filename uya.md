@@ -490,6 +490,10 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
   - `!T` 在内存中表示为 `T` 或错误码的联合体
   - **标记位实现**：使用 `error_id` 字段（32位无符号整数）作为标记位，`error_id == 0` 表示成功（使用 `value` 字段），`error_id != 0` 表示错误（使用 `error_id` 字段）
   - 错误码使用 32 位无符号整数（`uint32_t`）表示
+  - **error_id 分配与稳定性**：
+    - `error_id` 由 `hash(error_name)` 生成（djb2 算法）
+    - 相同错误名在任意编译中映射到相同 `error_id`，保证稳定性
+    - 不同错误名 hash 冲突时，编译器报错并提示冲突的两个名称，开发者需重命名其一
   - 示例：`!i32` 表示 `i32 | Error`，`!void` 表示 `void | Error`
 
 - **错误类型的大小和对齐**：
@@ -768,6 +772,7 @@ struct error_union_Point {
 - 对齐：`max(alignof(uint32_t), alignof(T))`
 - 错误码（`error_id`）为 32 位无符号整数，用于标识错误类型
 - `error_id == 0` 表示成功，非零值表示不同的错误类型
+- **error_id 稳定性**：`error_id = hash(error_name)`，相同错误名在任意编译中映射到相同值
 
 **使用示例**：
 ```c

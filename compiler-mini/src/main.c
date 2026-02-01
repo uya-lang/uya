@@ -178,15 +178,12 @@ static int compile_files(const char *input_files[], int input_file_count, const 
             return 1;
         }
 
-        fprintf(stderr, "=== 词法分析阶段 ===\n");
-        fprintf(stderr, "文件: %s (大小: %d 字节)\n", input_file, file_size);
         Lexer lexer;
         if (lexer_init(&lexer, file_buffer, (size_t)file_size, input_file, &arena) != 0) {
             fprintf(stderr, "错误: Lexer 初始化失败: %s (可能 Arena 内存不足或文件太大)\n", input_file);
             return 1;
         }
 
-        fprintf(stderr, "=== 语法分析阶段 ===\n");
         Parser parser;
         if (parser_init(&parser, &lexer, &arena) != 0) {
             fprintf(stderr, "错误: Parser 初始化失败: %s (可能 Arena 内存不足)\n", input_file);

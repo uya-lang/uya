@@ -72,6 +72,7 @@
 ## 2. 错误处理
 
 - [x] **错误类型与 !T**：预定义 `error Name;`、运行时 `error.Name`、`!T` 类型与内存布局，规范 uya.md §2 错误类型、§5
+- [x] **error_id 稳定性**：`error_id = hash(error_name)`，相同错误名在任意编译中映射到相同值；hash 冲突时报错，规范 uya.md §2
 - [x] **try 关键字**：`try expr` 传播错误、算术溢出检查（返回 error.Overflow），规范 uya.md §5、§10、§16
 - [x] **catch 语法**：`expr catch |err| { }`、`expr catch { }`，两种返回方式，规范 uya.md §5
 - [x] **main 签名**：支持 `fn main() !i32`，错误→退出码，规范 uya.md §5.1.1

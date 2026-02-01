@@ -1438,6 +1438,10 @@ fn read_file(path: *byte) !i32 {
 }</code></pre>
                     </div>
                     
+                    <div class="note">
+                        <p><strong>error_id 稳定性：</strong><code>error_id = hash(error_name)</code>，相同错误名在任意编译中映射到相同 <code>error_id</code>；hash 冲突时编译器报错并提示冲突名称。</p>
+                    </div>
+                    
                     <h3>默认安全并发</h3>
                     <div class="code-block">
                         <div class="code-header">

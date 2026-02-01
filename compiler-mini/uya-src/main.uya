@@ -170,15 +170,12 @@ fn compile_files(
             fprintf(stderr, "错误: 无法读取文件 '%s' (可能文件太大或不存在)\n" as *byte, input_path);
             return 1;
         }
-        fprintf(stderr, "=== 词法分析阶段 ===\n" as *byte);
-        fprintf(stderr, "文件: %s (大小: %d 字节)\n" as *byte, input_path, file_size);
         var lexer: Lexer = Lexer { buffer: [], buffer_size: 0 as usize, position: 0 as usize, line: 0, column: 0, filename: null };
         const input_path_ref: &byte = input_path as &byte;
         if lexer_init(&lexer, &file_buffer[0], file_size as usize, input_path_ref, &arena) != 0 {
             fprintf(stderr, "错误: Lexer 初始化失败: %s\n" as *byte, input_path);
             return 1;
         }
-        fprintf(stderr, "=== 语法分析阶段 ===\n" as *byte);
         var parser: Parser = Parser { lexer: null, current_token: null, arena: null, context: ParserContext.PARSER_CONTEXT_NORMAL };
         if parser_init(&parser, &lexer, &arena) != 0 {
             fprintf(stderr, "错误: Parser 初始化失败: %s\n" as *byte, input_path);

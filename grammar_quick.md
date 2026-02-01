@@ -132,6 +132,8 @@ error MyError;
 // 直接使用 error.ErrorName
 ```
 
+**error_id 稳定性**：`error_id = hash(error_name)`，相同错误名在任意编译中映射到相同 `error_id`；hash 冲突时编译器报错并提示冲突名称。
+
 ### 返回错误
 
 ```uya

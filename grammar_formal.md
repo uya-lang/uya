@@ -277,6 +277,7 @@ error_type     = 'error' '.' ID                              # 错误类型引�
 - **预定义错误**（可选）：使用 `error ErrorName;` 在顶层声明，属于全局命名空间
 - **运行时错误**：使用 `error.ErrorName` 语法直接创建，无需预先声明
 - 两种错误类型在语法上使用相同的引用形式 `error.ErrorName`
+- **error_id 稳定性**：`error_id = hash(error_name)`，相同错误名在任意编译中映射到相同 `error_id`；hash 冲突时编译器报错
 - 详细说明见 [uya.md](./uya.md#2-类型系统) 错误类型部分
 
 ### 字符串插值
