@@ -147,16 +147,19 @@ struct ASTNode {
             int method_count;         // 内部方法数量
         } struct_decl;
         
-        // 联合体声明（union Name { variant1: T1, variant2: T2 }）
+        // 联合体声明（union Name { variant1: T1, variant2: T2 [ , fn ... ] }）
         struct {
             const char *name;         // 联合体名称（字符串存储在 Arena 中）
             struct ASTNode **variants;       // 变体数组（变体是 AST_VAR_DECL 节点，name=变体名，type=变体类型）
             int variant_count;        // 变体数量
+            struct ASTNode **methods;        // 内部方法数组（AST_FN_DECL 节点，可为 NULL）
+            int method_count;         // 内部方法数量
         } union_decl;
         
-        // 方法块（StructName { fn method(...) { ... } ... }）
+        // 方法块（StructName/UnionName { fn method(...) { ... } ... }）
         struct {
-            const char *struct_name;   // 结构体名称（字符串存储在 Arena 中）
+            const char *struct_name;   // 结构体名称（字符串存储在 Arena 中），为 NULL 时表示联合体方法块
+            const char *union_name;    // 联合体名称（为 NULL 时表示结构体方法块）
             struct ASTNode **methods; // 方法数组（AST_FN_DECL 节点）
             int method_count;         // 方法数量
         } method_block;

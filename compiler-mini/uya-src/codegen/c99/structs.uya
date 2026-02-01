@@ -111,6 +111,77 @@ fn find_union_decl_c99(codegen: &C99CodeGenerator, union_name: &byte) &ASTNode {
     return null;
 }
 
+// 查找联合体对应的方法块
+fn find_method_block_for_union_c99(codegen: &C99CodeGenerator, union_name: &byte) &ASTNode {
+    if codegen == null || union_name == null || codegen.program_node == null {
+        return null;
+    }
+    const decl_count: i32 = codegen.program_node.program_decl_count;
+    var i: i32 = 0;
+    while i < decl_count {
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_METHOD_BLOCK {
+            if decl.method_block_union_name != null &&
+                strcmp(decl.method_block_union_name as *byte, union_name as *byte) == 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 查找联合体方法（同时检查外部方法块和内部定义的方法）
+fn find_method_in_union_c99(codegen: &C99CodeGenerator, union_name: &byte, method_name: &byte) &ASTNode {
+    if codegen == null || union_name == null || method_name == null {
+        return null;
+    }
+    const method_block: &ASTNode = find_method_block_for_union_c99(codegen, union_name);
+    if method_block != null {
+        const m: &ASTNode = find_method_in_block(method_block, method_name);
+        if m != null {
+            return m;
+        }
+    }
+    const union_decl: &ASTNode = find_union_decl_c99(codegen, union_name);
+    if union_decl != null && union_decl.union_decl_methods != null {
+        var i: i32 = 0;
+        while i < union_decl.union_decl_method_count {
+            const m: &ASTNode = union_decl.union_decl_methods[i];
+            if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+                strcmp(m.fn_decl_name as *byte, method_name as *byte) == 0 {
+                return m;
+            }
+            i = i + 1;
+        }
+    }
+    return null;
+}
+
+// 根据 C 类型后缀（如 "uya_tagged_IntOrFloat"）查找联合体声明
+fn find_union_decl_by_tagged_c99(codegen: &C99CodeGenerator, tagged_suffix: &byte) &ASTNode {
+    if codegen == null || codegen.program_node == null || tagged_suffix == null {
+        return null;
+    }
+    if strncmp(tagged_suffix as *byte, "uya_tagged_" as *byte, 11) != 0 {
+        return null;
+    }
+    const suffix: *byte = tagged_suffix as *byte + 11;
+    const decl_count: i32 = codegen.program_node.program_decl_count;
+    var i: i32 = 0;
+    while i < decl_count {
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_UNION_DECL && decl.union_decl_name != null {
+            const safe: &byte = get_safe_c_identifier(codegen, decl.union_decl_name);
+            if safe != null && strcmp(safe as *byte, suffix) == 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
 // 根据变体名查找包含该变体的联合体声明（用于 match 代码生成）
 fn find_union_decl_by_variant_c99(codegen: &C99CodeGenerator, variant_name: &byte) &ASTNode {
     if codegen == null || codegen.program_node == null || variant_name == null {

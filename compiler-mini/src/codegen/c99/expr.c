@@ -1086,7 +1086,7 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                         break;
                     }
                 }
-                /* 结构体方法调用：obj.method(args) -> uya_StructName_method(&obj, args...) */
+                /* 联合体/结构体方法调用：obj.method(args) -> uya_UnionName_method(&obj, args...) 或 uya_StructName_method(&obj, args...) */
                 if (obj_type_c && strstr(obj_type_c, "uya_interface_") == NULL) {
                     const char *base = obj_type_c;
                     if (strncmp(base, "const ", 6) == 0) base += 6;
@@ -1099,32 +1099,59 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                     if (asterisk && asterisk < end) end = asterisk;
                     while (end > start && (end[-1] == ' ' || end[-1] == '\t')) end--;
                     if (end > start) {
-                        char struct_name_buf[128];
+                        char type_name_buf[128];
                         size_t slen = (size_t)(end - start);
-                        if (slen < sizeof(struct_name_buf)) {
-                            memcpy(struct_name_buf, start, slen);
-                            struct_name_buf[slen] = '\0';
-                            // 使用 find_method_in_struct_c99 同时查找外部方法块和内部方法
-                            ASTNode *method_fn = find_method_in_struct_c99(codegen, struct_name_buf, method_name);
-                            if (method_fn) {
-                                const char *cname = get_method_c_name(codegen, struct_name_buf, method_name);
-                                if (cname) {
-                                    int is_ptr = (strchr(obj_type_c, '*') != NULL);
-                                    fprintf(codegen->output, "%s(%s(", cname, is_ptr ? "" : "&");
-                                    gen_expr(codegen, obj);
-                                    fputs(")", codegen->output);
-                                    for (int i = 0; i < arg_count; i++) {
-                                        fputs(", ", codegen->output);
-                                        if (codegen->interp_arg_temp_names[i]) {
-                                            fputs("(uint8_t *)", codegen->output);
-                                            fputs(codegen->interp_arg_temp_names[i], codegen->output);
-                                        } else {
-                                            if (args[i] && args[i]->type == AST_STRING) fputs("(uint8_t *)", codegen->output);
-                                            gen_expr(codegen, args[i]);
+                        if (slen < sizeof(type_name_buf)) {
+                            memcpy(type_name_buf, start, slen);
+                            type_name_buf[slen] = '\0';
+                            /* 联合体类型为 struct uya_tagged_UnionName，先尝试联合体方法 */
+                            ASTNode *union_decl = find_union_decl_by_tagged_c99(codegen, type_name_buf);
+                            if (union_decl) {
+                                ASTNode *method_fn = find_method_in_union_c99(codegen, union_decl->data.union_decl.name, method_name);
+                                if (method_fn) {
+                                    const char *cname = get_method_c_name(codegen, union_decl->data.union_decl.name, method_name);
+                                    if (cname) {
+                                        int is_ptr = (strchr(obj_type_c, '*') != NULL);
+                                        fprintf(codegen->output, "%s(%s(", cname, is_ptr ? "" : "&");
+                                        gen_expr(codegen, obj);
+                                        fputs(")", codegen->output);
+                                        for (int i = 0; i < arg_count; i++) {
+                                            fputs(", ", codegen->output);
+                                            if (codegen->interp_arg_temp_names[i]) {
+                                                fputs("(uint8_t *)", codegen->output);
+                                                fputs(codegen->interp_arg_temp_names[i], codegen->output);
+                                            } else {
+                                                if (args[i] && args[i]->type == AST_STRING) fputs("(uint8_t *)", codegen->output);
+                                                gen_expr(codegen, args[i]);
+                                            }
                                         }
+                                        fputc(')', codegen->output);
+                                        break;
                                     }
-                                    fputc(')', codegen->output);
-                                    break;
+                                }
+                            } else {
+                                /* 结构体方法 */
+                                ASTNode *method_fn = find_method_in_struct_c99(codegen, type_name_buf, method_name);
+                                if (method_fn) {
+                                    const char *cname = get_method_c_name(codegen, type_name_buf, method_name);
+                                    if (cname) {
+                                        int is_ptr = (strchr(obj_type_c, '*') != NULL);
+                                        fprintf(codegen->output, "%s(%s(", cname, is_ptr ? "" : "&");
+                                        gen_expr(codegen, obj);
+                                        fputs(")", codegen->output);
+                                        for (int i = 0; i < arg_count; i++) {
+                                            fputs(", ", codegen->output);
+                                            if (codegen->interp_arg_temp_names[i]) {
+                                                fputs("(uint8_t *)", codegen->output);
+                                                fputs(codegen->interp_arg_temp_names[i], codegen->output);
+                                            } else {
+                                                if (args[i] && args[i]->type == AST_STRING) fputs("(uint8_t *)", codegen->output);
+                                                gen_expr(codegen, args[i]);
+                                            }
+                                        }
+                                        fputc(')', codegen->output);
+                                        break;
+                                    }
                                 }
                             }
                         }

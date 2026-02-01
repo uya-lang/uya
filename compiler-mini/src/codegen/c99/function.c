@@ -19,6 +19,22 @@ ASTNode *find_method_block_for_struct_c99(C99CodeGenerator *codegen, const char 
     return NULL;
 }
 
+// 查找联合体对应的方法块
+ASTNode *find_method_block_for_union_c99(C99CodeGenerator *codegen, const char *union_name) {
+    if (!codegen || !union_name || !codegen->program_node) return NULL;
+    ASTNode **decls = codegen->program_node->data.program.decls;
+    int decl_count = codegen->program_node->data.program.decl_count;
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_METHOD_BLOCK) continue;
+        if (decl->data.method_block.union_name &&
+            strcmp(decl->data.method_block.union_name, union_name) == 0) {
+            return decl;
+        }
+    }
+    return NULL;
+}
+
 // 在方法块中按名称查找方法
 ASTNode *find_method_in_block(ASTNode *method_block, const char *method_name) {
     if (!method_block || method_block->type != AST_METHOD_BLOCK || !method_name) return NULL;
@@ -46,6 +62,27 @@ ASTNode *find_method_in_struct_c99(C99CodeGenerator *codegen, const char *struct
     if (struct_decl && struct_decl->data.struct_decl.methods) {
         for (int i = 0; i < struct_decl->data.struct_decl.method_count; i++) {
             ASTNode *m = struct_decl->data.struct_decl.methods[i];
+            if (m && m->type == AST_FN_DECL && m->data.fn_decl.name &&
+                strcmp(m->data.fn_decl.name, method_name) == 0) {
+                return m;
+            }
+        }
+    }
+    return NULL;
+}
+
+// 查找联合体方法（同时检查外部方法块和内部定义的方法）
+ASTNode *find_method_in_union_c99(C99CodeGenerator *codegen, const char *union_name, const char *method_name) {
+    if (!codegen || !union_name || !method_name) return NULL;
+    ASTNode *method_block = find_method_block_for_union_c99(codegen, union_name);
+    if (method_block) {
+        ASTNode *m = find_method_in_block(method_block, method_name);
+        if (m) return m;
+    }
+    ASTNode *union_decl = find_union_decl_c99(codegen, union_name);
+    if (union_decl && union_decl->data.union_decl.methods) {
+        for (int i = 0; i < union_decl->data.union_decl.method_count; i++) {
+            ASTNode *m = union_decl->data.union_decl.methods[i];
             if (m && m->type == AST_FN_DECL && m->data.fn_decl.name &&
                 strcmp(m->data.fn_decl.name, method_name) == 0) {
                 return m;

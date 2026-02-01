@@ -3585,9 +3585,43 @@ fn parser_parse_union(parser: &Parser) &ASTNode {
     var variants: & & ASTNode = null;
     var variant_count: i32 = 0;
     var variant_capacity: i32 = 0;
+    var methods: & & ASTNode = null;
+    var method_count: i32 = 0;
+    var method_capacity: i32 = 0;
     while parser.current_token != null &&
           parser_match(parser, TokenType.TOKEN_RIGHT_BRACE) == 0 &&
           parser_match(parser, TokenType.TOKEN_EOF) == 0 {
+        if parser_match(parser, TokenType.TOKEN_FN) != 0 {
+            const method: &ASTNode = parser_parse_function(parser);
+            if method == null {
+                return null;
+            }
+            if method_count >= method_capacity {
+                var new_cap: i32 = 0;
+                if method_capacity == 0 {
+                    new_cap = 4;
+                } else {
+                    new_cap = method_capacity * 2;
+                }
+                const new_m: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_cap) as & & ASTNode;
+                if new_m == null {
+                    return null;
+                }
+                var i: i32 = 0;
+                while i < method_count {
+                    new_m[i] = methods[i];
+                    i = i + 1;
+                }
+                methods = new_m;
+                method_capacity = new_cap;
+            }
+            methods[method_count] = method;
+            method_count = method_count + 1;
+            if parser_match(parser, TokenType.TOKEN_COMMA) != 0 {
+                parser_consume(parser);
+            }
+            continue;
+        }
         if parser_match(parser, TokenType.TOKEN_IDENTIFIER) == 0 {
             return null;
         }
@@ -3643,6 +3677,8 @@ fn parser_parse_union(parser: &Parser) &ASTNode {
     }
     union_decl.union_decl_variants = variants;
     union_decl.union_decl_variant_count = variant_count;
+    union_decl.union_decl_methods = methods;
+    union_decl.union_decl_method_count = method_count;
     return union_decl;
 }
 

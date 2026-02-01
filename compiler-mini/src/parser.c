@@ -751,9 +751,27 @@ ASTNode *parser_parse_union(Parser *parser) {
     ASTNode **variants = NULL;
     int variant_count = 0;
     int variant_capacity = 0;
+    ASTNode **methods = NULL;
+    int method_count = 0;
+    int method_capacity = 0;
     while (parser->current_token != NULL &&
            !parser_match(parser, TOKEN_RIGHT_BRACE) &&
            !parser_match(parser, TOKEN_EOF)) {
+        if (parser_match(parser, TOKEN_FN)) {
+            ASTNode *method = parser_parse_function(parser);
+            if (method == NULL) return NULL;
+            if (method_count >= method_capacity) {
+                int new_cap = method_capacity == 0 ? 4 : method_capacity * 2;
+                ASTNode **new_m = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
+                if (!new_m) return NULL;
+                for (int i = 0; i < method_count; i++) new_m[i] = methods[i];
+                methods = new_m;
+                method_capacity = new_cap;
+            }
+            methods[method_count++] = method;
+            if (parser_match(parser, TOKEN_COMMA)) parser_consume(parser);
+            continue;
+        }
         if (!parser_match(parser, TOKEN_IDENTIFIER)) {
             return NULL;
         }
@@ -797,6 +815,8 @@ ASTNode *parser_parse_union(Parser *parser) {
     }
     union_decl->data.union_decl.variants = variants;
     union_decl->data.union_decl.variant_count = variant_count;
+    union_decl->data.union_decl.methods = methods;
+    union_decl->data.union_decl.method_count = method_count;
     return union_decl;
 }
 

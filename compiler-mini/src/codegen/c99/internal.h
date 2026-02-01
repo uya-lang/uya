@@ -52,6 +52,8 @@ ASTNode *find_interface_decl_c99(C99CodeGenerator *codegen, const char *interfac
 ASTNode *find_struct_decl_c99(C99CodeGenerator *codegen, const char *struct_name);
 ASTNode *find_union_decl_c99(C99CodeGenerator *codegen, const char *union_name);
 ASTNode *find_union_decl_by_variant_c99(C99CodeGenerator *codegen, const char *variant_name);
+/* 根据 C 类型后缀（如 "uya_tagged_IntOrFloat"）查找联合体声明，用于方法调用代码生成 */
+ASTNode *find_union_decl_by_tagged_c99(C99CodeGenerator *codegen, const char *tagged_suffix);
 int find_union_variant_index(ASTNode *union_decl, const char *variant_name);
 /* 根据 C 类型字符串（如 "struct Data"）查找结构体声明，用于按字段比较 */
 ASTNode *find_struct_decl_from_type_c(C99CodeGenerator *codegen, const char *type_c);
@@ -73,8 +75,10 @@ int gen_enum_definition(C99CodeGenerator *codegen, ASTNode *enum_decl);
 // 函数查找（function.c）
 ASTNode *find_function_decl_c99(C99CodeGenerator *codegen, const char *func_name);
 ASTNode *find_method_block_for_struct_c99(C99CodeGenerator *codegen, const char *struct_name);
+ASTNode *find_method_block_for_union_c99(C99CodeGenerator *codegen, const char *union_name);
 ASTNode *find_method_in_block(ASTNode *method_block, const char *method_name);
 ASTNode *find_method_in_struct_c99(C99CodeGenerator *codegen, const char *struct_name, const char *method_name);
+ASTNode *find_method_in_union_c99(C99CodeGenerator *codegen, const char *union_name, const char *method_name);
 const char *get_method_c_name(C99CodeGenerator *codegen, const char *struct_name, const char *method_name);
 int type_has_drop_c99(C99CodeGenerator *codegen, const char *struct_name);
 void gen_method_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl, const char *struct_name);

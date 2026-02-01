@@ -287,14 +287,21 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
             gen_function_prototype(codegen, decl);
         } else if decl != null && decl.type == ASTNodeType.AST_METHOD_BLOCK {
-            const struct_name: &byte = decl.method_block_struct_name;
-            var j: i32 = 0;
-            while j < decl.method_block_method_count {
-                const m: &ASTNode = decl.method_block_methods[j];
-                if m != null && m.type == ASTNodeType.AST_FN_DECL {
-                    gen_method_prototype(codegen, m, struct_name);
+            var type_name: &byte = null;
+            if decl.method_block_struct_name != null {
+                type_name = decl.method_block_struct_name;
+            } else {
+                type_name = decl.method_block_union_name;
+            }
+            if type_name != null {
+                var j: i32 = 0;
+                while j < decl.method_block_method_count {
+                    const m: &ASTNode = decl.method_block_methods[j];
+                    if m != null && m.type == ASTNodeType.AST_FN_DECL {
+                        gen_method_prototype(codegen, m, type_name);
+                    }
+                    j = j + 1;
                 }
-                j = j + 1;
             }
         } else if decl != null && decl.type == ASTNodeType.AST_STRUCT_DECL {
             // 生成结构体内部定义的方法的前向声明
@@ -304,6 +311,17 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                 const m: &ASTNode = decl.struct_decl_methods[j];
                 if m != null && m.type == ASTNodeType.AST_FN_DECL {
                     gen_method_prototype(codegen, m, struct_name);
+                }
+                j = j + 1;
+            }
+        } else if decl != null && decl.type == ASTNodeType.AST_UNION_DECL {
+            // 生成联合体内部方法的前向声明
+            const union_name: &byte = decl.union_decl_name;
+            var j: i32 = 0;
+            while j < decl.union_decl_method_count {
+                const m: &ASTNode = decl.union_decl_methods[j];
+                if m != null && m.type == ASTNodeType.AST_FN_DECL {
+                    gen_method_prototype(codegen, m, union_name);
                 }
                 j = j + 1;
             }
@@ -333,7 +351,17 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                     j = j + 1;
                 }
             } else if decl.type == ASTNodeType.AST_UNION_DECL {
-                // 联合体已在前面生成定义，此处跳过
+                // 生成联合体内部方法定义
+                const union_name: &byte = decl.union_decl_name;
+                var j: i32 = 0;
+                while j < decl.union_decl_method_count {
+                    const m: &ASTNode = decl.union_decl_methods[j];
+                    if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_body != null {
+                        gen_method_function(codegen, m, union_name);
+                        fputs("\n" as *byte, codegen.output as *void);
+                    }
+                    j = j + 1;
+                }
             } else if decl.type == ASTNodeType.AST_ENUM_DECL {
                 // 已在前面生成
             } else if decl.type == ASTNodeType.AST_VAR_DECL {
@@ -344,15 +372,22 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                 gen_function(codegen, decl);
                 fputs("\n" as *byte, codegen.output as *void);
             } else if decl.type == ASTNodeType.AST_METHOD_BLOCK {
-                const struct_name: &byte = decl.method_block_struct_name;
-                var j: i32 = 0;
-                while j < decl.method_block_method_count {
-                    const m: &ASTNode = decl.method_block_methods[j];
-                    if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_body != null {
-                        gen_method_function(codegen, m, struct_name);
-                        fputs("\n" as *byte, codegen.output as *void);
+                var type_name: &byte = null;
+                if decl.method_block_struct_name != null {
+                    type_name = decl.method_block_struct_name;
+                } else {
+                    type_name = decl.method_block_union_name;
+                }
+                if type_name != null {
+                    var j: i32 = 0;
+                    while j < decl.method_block_method_count {
+                        const m: &ASTNode = decl.method_block_methods[j];
+                        if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_body != null {
+                            gen_method_function(codegen, m, type_name);
+                            fputs("\n" as *byte, codegen.output as *void);
+                        }
+                        j = j + 1;
                     }
-                    j = j + 1;
                 }
             } else {
                 // 忽略其他声明类型（暂时）

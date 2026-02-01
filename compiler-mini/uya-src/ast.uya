@@ -127,12 +127,15 @@ struct ASTNode {
     struct_decl_field_count: i32,
     struct_decl_methods: & & ASTNode,  // 内部方法数组（AST_FN_DECL 节点，可为 null）
     struct_decl_method_count: i32,     // 内部方法数量
-    // union_decl（union Name { variant1: T1, variant2: T2 }）
+    // union_decl（union Name { variant1: T1, variant2: T2 [ , fn ... ] }）
     union_decl_name: &byte,
     union_decl_variants: & & ASTNode,  // 变体数组（变体是 AST_VAR_DECL 节点）
     union_decl_variant_count: i32,
-    // method_block（StructName { fn method(...) { ... } ... }）
+    union_decl_methods: & & ASTNode,   // 内部方法数组（AST_FN_DECL 节点，可为 null）
+    union_decl_method_count: i32,
+    // method_block（StructName/UnionName { fn method(...) { ... } ... }）
     method_block_struct_name: &byte,
+    method_block_union_name: &byte,    // 联合体名称（为 null 时表示结构体方法块）
     method_block_methods: & & ASTNode,
     method_block_method_count: i32,
     // fn_decl
@@ -304,7 +307,10 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.union_decl_name = null;
     node.union_decl_variants = null;
     node.union_decl_variant_count = 0;
+    node.union_decl_methods = null;
+    node.union_decl_method_count = 0;
     node.method_block_struct_name = null;
+    node.method_block_union_name = null;
     node.method_block_methods = null;
     node.method_block_method_count = 0;
     node.fn_decl_name = null;

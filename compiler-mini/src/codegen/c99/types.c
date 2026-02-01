@@ -11,25 +11,27 @@ const char *c99_type_to_c_with_self(C99CodeGenerator *codegen, ASTNode *type_nod
 /* const_self: 1 表示 self 参数使用 const struct X *（消除 const 调用者时的 -Wdiscarded-qualifiers 警告）*/
 const char *c99_type_to_c_with_self_opt(C99CodeGenerator *codegen, ASTNode *type_node, const char *self_struct_name, int const_self) {
     if (!type_node || !self_struct_name) return c99_type_to_c(codegen, type_node);
+    const char *safe = get_safe_c_identifier(codegen, self_struct_name);
+    int is_union = find_union_decl_c99(codegen, self_struct_name) != NULL;
+    const char *struct_fmt = is_union ? (const_self ? "const struct uya_tagged_%s *" : "struct uya_tagged_%s *") : (const_self ? "const struct %s *" : "struct %s *");
+    const char *named_fmt = is_union ? "struct uya_tagged_%s" : "struct %s";
     if (type_node->type == AST_TYPE_POINTER) {
         ASTNode *pt = type_node->data.type_pointer.pointed_type;
         if (pt && pt->type == AST_TYPE_NAMED && pt->data.type_named.name &&
             strcmp(pt->data.type_named.name, "Self") == 0) {
-            const char *safe = get_safe_c_identifier(codegen, self_struct_name);
-            size_t len = strlen(safe) + 20;
+            size_t len = strlen(safe) + 32;
             char *buf = arena_alloc(codegen->arena, len);
             if (buf) {
-                snprintf(buf, len, const_self ? "const struct %s *" : "struct %s *", safe);
+                snprintf(buf, len, struct_fmt, safe);
                 return buf;
             }
         }
     } else if (type_node->type == AST_TYPE_NAMED && type_node->data.type_named.name &&
                strcmp(type_node->data.type_named.name, "Self") == 0) {
-        const char *safe = get_safe_c_identifier(codegen, self_struct_name);
-        size_t len = strlen(safe) + 8;
+        size_t len = strlen(safe) + 24;
         char *buf = arena_alloc(codegen->arena, len);
         if (buf) {
-            snprintf(buf, len, "struct %s", safe);
+            snprintf(buf, len, named_fmt, safe);
             return buf;
         }
     }
@@ -896,6 +898,25 @@ static const char *get_slice_struct_type_c(C99CodeGenerator *codegen, ASTNode *s
 const char *get_c_type_of_expr(C99CodeGenerator *codegen, ASTNode *expr) {
     if (!codegen || !expr) return "int32_t";
     switch (expr->type) {
+        case AST_UNARY_EXPR: {
+            int op = expr->data.unary_expr.op;
+            ASTNode *operand = expr->data.unary_expr.operand;
+            if (!operand) return "int32_t";
+            if (op == TOKEN_ASTERISK) {
+                const char *ptr_type = get_c_type_of_expr(codegen, operand);
+                if (!ptr_type) return "int32_t";
+                const char *asterisk = strchr(ptr_type, '*');
+                if (!asterisk) return "int32_t";
+                size_t len = (size_t)(asterisk - ptr_type);
+                while (len > 0 && (ptr_type[len - 1] == ' ' || ptr_type[len - 1] == '\t')) len--;
+                char *buf = arena_alloc(codegen->arena, len + 1);
+                if (!buf) return "int32_t";
+                memcpy(buf, ptr_type, len);
+                buf[len] = '\0';
+                return buf;
+            }
+            return "int32_t";
+        }
         case AST_NUMBER:
             return "int32_t";
         case AST_FLOAT:
@@ -945,6 +966,11 @@ const char *get_c_type_of_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             ASTNode *field_type = find_struct_field_type(codegen, struct_decl, field_name);
             if (!field_type) return "int32_t";
             return c99_type_to_c(codegen, field_type);
+        }
+        case AST_CAST_EXPR: {
+            ASTNode *target_type = expr->data.cast_expr.target_type;
+            if (target_type) return c99_type_to_c(codegen, target_type);
+            return "int32_t";
         }
         case AST_ARRAY_ACCESS:
         case AST_CALL_EXPR:

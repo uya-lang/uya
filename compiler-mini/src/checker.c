@@ -33,6 +33,8 @@ static ASTNode *find_interface_decl_from_program(ASTNode *program_node, const ch
 static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *enum_name);
 static ASTNode *find_method_block_for_struct(ASTNode *program_node, const char *struct_name);
 static ASTNode *find_method_in_struct(ASTNode *program_node, const char *struct_name, const char *method_name);
+static ASTNode *find_method_block_for_union(ASTNode *program_node, const char *union_name);
+static ASTNode *find_method_in_union(ASTNode *program_node, const char *union_name, const char *method_name);
 static int moved_set_contains(TypeChecker *checker, const char *name);
 static int has_active_pointer_to(TypeChecker *checker, const char *var_name);
 static void checker_mark_moved(TypeChecker *checker, ASTNode *node, const char *var_name, const char *struct_name);
@@ -1616,10 +1618,54 @@ static ASTNode *find_method_in_struct(ASTNode *program_node, const char *struct_
     return NULL;
 }
 
+static ASTNode *find_method_block_for_union(ASTNode *program_node, const char *union_name) {
+    if (program_node == NULL || program_node->type != AST_PROGRAM || union_name == NULL) {
+        return NULL;
+    }
+    for (int i = 0; i < program_node->data.program.decl_count; i++) {
+        ASTNode *decl = program_node->data.program.decls[i];
+        if (decl != NULL && decl->type == AST_METHOD_BLOCK) {
+            if (decl->data.method_block.union_name != NULL &&
+                strcmp(decl->data.method_block.union_name, union_name) == 0) {
+                return decl;
+            }
+        }
+    }
+    return NULL;
+}
+
+static ASTNode *find_method_in_union(ASTNode *program_node, const char *union_name, const char *method_name) {
+    if (program_node == NULL || program_node->type != AST_PROGRAM || union_name == NULL || method_name == NULL) {
+        return NULL;
+    }
+    ASTNode *method_block = find_method_block_for_union(program_node, union_name);
+    if (method_block != NULL) {
+        for (int i = 0; i < method_block->data.method_block.method_count; i++) {
+            ASTNode *m = method_block->data.method_block.methods[i];
+            if (m != NULL && m->type == AST_FN_DECL && m->data.fn_decl.name != NULL &&
+                strcmp(m->data.fn_decl.name, method_name) == 0) {
+                return m;
+            }
+        }
+    }
+    ASTNode *union_decl = find_union_decl_from_program(program_node, union_name);
+    if (union_decl != NULL && union_decl->data.union_decl.methods != NULL) {
+        for (int i = 0; i < union_decl->data.union_decl.method_count; i++) {
+            ASTNode *m = union_decl->data.union_decl.methods[i];
+            if (m != NULL && m->type == AST_FN_DECL && m->data.fn_decl.name != NULL &&
+                strcmp(m->data.fn_decl.name, method_name) == 0) {
+                return m;
+            }
+        }
+    }
+    return NULL;
+}
+
 // 校验 drop 方法签名（规范 §12）：fn drop(self: T) void，T 为按值（非指针），每类型仅一个
+// type_name 为结构体或联合体名称，is_union 为 1 表示联合体
 // 返回 1 表示合法，0 表示非法（已报错）
-static int check_drop_method_signature(TypeChecker *checker, ASTNode *fn_decl, const char *struct_name) {
-    if (checker == NULL || fn_decl == NULL || fn_decl->type != AST_FN_DECL || struct_name == NULL) return 1;
+static int check_drop_method_signature(TypeChecker *checker, ASTNode *fn_decl, const char *type_name, int is_union) {
+    if (checker == NULL || fn_decl == NULL || fn_decl->type != AST_FN_DECL || type_name == NULL) return 1;
     if (fn_decl->data.fn_decl.param_count != 1) {
         checker_report_error(checker, fn_decl, "drop 方法必须恰好有一个参数 self: T（按值）");
         return 0;
@@ -1640,8 +1686,8 @@ static int check_drop_method_signature(TypeChecker *checker, ASTNode *fn_decl, c
         return 0;
     }
     if (param_type->type != AST_TYPE_NAMED || !param_type->data.type_named.name ||
-        strcmp(param_type->data.type_named.name, struct_name) != 0) {
-        checker_report_error(checker, fn_decl, "drop 方法 self 类型必须为该结构体类型（按值）");
+        strcmp(param_type->data.type_named.name, type_name) != 0) {
+        checker_report_error(checker, fn_decl, is_union ? "drop 方法 self 类型必须为该联合体类型（按值）" : "drop 方法 self 类型必须为该结构体类型（按值）");
         return 0;
     }
     ASTNode *ret = fn_decl->data.fn_decl.return_type;
@@ -2338,7 +2384,7 @@ static int checker_check_struct_decl(TypeChecker *checker, ASTNode *node) {
             if (m && m->type == AST_FN_DECL && m->data.fn_decl.name) {
                 if (strcmp(m->data.fn_decl.name, "drop") == 0) {
                     drop_count++;
-                    if (!check_drop_method_signature(checker, m, struct_name)) return 0;
+                    if (!check_drop_method_signature(checker, m, struct_name, 0)) return 0;
                 } else if (!check_method_self_param(checker, m)) return 0;
             }
         }
@@ -2456,6 +2502,28 @@ static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
                 checker_report_error(checker, node, "结构体上不存在该方法");
             }
         }
+        // 联合体方法调用：callee 为 obj.method，obj 类型为联合体
+        if (object_type.kind == TYPE_UNION && object_type.data.union_name != NULL && method_name != NULL && checker->program_node != NULL) {
+            ASTNode *m = find_method_in_union(checker->program_node, object_type.data.union_name, method_name);
+            if (m != NULL) {
+                int expected_args = m->data.fn_decl.param_count - 1;
+                if (expected_args < 0) expected_args = 0;
+                if (node->data.call_expr.arg_count != expected_args) {
+                    checker_report_error(checker, node, "联合体方法调用实参个数不匹配");
+                    return result;
+                }
+                for (int j = 0; j < expected_args && j < node->data.call_expr.arg_count; j++) {
+                    Type param_type = type_from_ast(checker, m->data.fn_decl.params[j + 1]->data.var_decl.type);
+                    if (!checker_check_expr_type(checker, node->data.call_expr.args[j], param_type)) {
+                        checker_report_error(checker, node, "联合体方法调用参数类型不匹配");
+                        return result;
+                    }
+                }
+                return type_from_ast(checker, m->data.fn_decl.return_type);
+            } else {
+                checker_report_error(checker, node, "联合体上不存在该方法");
+            }
+        }
         return result;
     }
     
@@ -2561,6 +2629,16 @@ static Type checker_check_member_access(TypeChecker *checker, ASTNode *node) {
     // Uya 只支持 T.member 方式访问枚举（T 为枚举类型名），不支持变量.member
     if (object_type.kind == TYPE_ENUM) {
         checker_report_error(checker, node, "枚举只能通过 T.member 方式访问（T 为枚举类型名），不能通过变量.member 访问");
+        return result;
+    }
+    
+    if (object_type.kind == TYPE_UNION && object_type.data.union_name != NULL && checker->program_node != NULL) {
+        ASTNode *m = find_method_in_union(checker->program_node, object_type.data.union_name, node->data.member_access.field_name);
+        if (m != NULL) {
+            return type_from_ast(checker, m->data.fn_decl.return_type);
+        }
+        checker_report_error(checker, node, "联合体只能通过 match 访问变体，或调用方法");
+        result.kind = TYPE_VOID;
         return result;
     }
     
@@ -3218,6 +3296,35 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                     }
                 }
             }
+            const char *union_name = node->data.union_decl.name;
+            int drop_count = 0;
+            if (node->data.union_decl.methods) {
+                for (int i = 0; i < node->data.union_decl.method_count; i++) {
+                    ASTNode *m = node->data.union_decl.methods[i];
+                    if (m && m->type == AST_FN_DECL && m->data.fn_decl.name) {
+                        if (strcmp(m->data.fn_decl.name, "drop") == 0) {
+                            drop_count++;
+                            if (!check_drop_method_signature(checker, m, union_name, 1)) return 0;
+                        } else if (!check_method_self_param(checker, m)) return 0;
+                    }
+                }
+            }
+            if (drop_count > 1) {
+                checker_report_error(checker, node, "每个类型只能有一个 drop 方法");
+                return 0;
+            }
+            if (drop_count > 0) {
+                ASTNode *method_block = find_method_block_for_union(checker->program_node, union_name);
+                if (method_block && method_block->data.method_block.methods) {
+                    for (int i = 0; i < method_block->data.method_block.method_count; i++) {
+                        ASTNode *bm = method_block->data.method_block.methods[i];
+                        if (bm && bm->type == AST_FN_DECL && bm->data.fn_decl.name && strcmp(bm->data.fn_decl.name, "drop") == 0) {
+                            checker_report_error(checker, node, "每个类型只能有一个 drop 方法（联合体内部与方法块不能同时定义 drop）");
+                            return 0;
+                        }
+                    }
+                }
+            }
             return 1;
         }
         
@@ -3238,18 +3345,63 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                 checker_report_error(checker, node, "方法块只能在顶层定义");
                 return 0;
             }
-            if (find_struct_decl_from_program(checker->program_node, node->data.method_block.struct_name) == NULL) {
+            const char *block_name = node->data.method_block.struct_name ? node->data.method_block.struct_name : node->data.method_block.union_name;
+            if (!block_name) {
+                checker_report_error(checker, node, "方法块缺少目标类型名称");
+                return 0;
+            }
+            if (node->data.method_block.struct_name != NULL) {
+                if (find_union_decl_from_program(checker->program_node, block_name) != NULL) {
+                    node->data.method_block.union_name = block_name;
+                    node->data.method_block.struct_name = NULL;
+                }
+            }
+            if (node->data.method_block.union_name != NULL) {
+                const char *union_name = node->data.method_block.union_name;
+                if (find_union_decl_from_program(checker->program_node, union_name) == NULL) {
+                    checker_report_error(checker, node, "方法块对应的联合体未定义");
+                    return 0;
+                }
+                int drop_count = 0;
+                for (int i = 0; i < node->data.method_block.method_count; i++) {
+                    ASTNode *m = node->data.method_block.methods[i];
+                    if (m && m->type == AST_FN_DECL && m->data.fn_decl.name) {
+                        if (strcmp(m->data.fn_decl.name, "drop") == 0) {
+                            drop_count++;
+                            if (!check_drop_method_signature(checker, m, union_name, 1)) return 0;
+                        } else if (!check_method_self_param(checker, m)) return 0;
+                    }
+                }
+                if (drop_count > 1) {
+                    checker_report_error(checker, node, "每个类型只能有一个 drop 方法");
+                    return 0;
+                }
+                if (drop_count > 0) {
+                    ASTNode *union_decl = find_union_decl_from_program(checker->program_node, union_name);
+                    if (union_decl && union_decl->data.union_decl.methods) {
+                        for (int i = 0; i < union_decl->data.union_decl.method_count; i++) {
+                            ASTNode *im = union_decl->data.union_decl.methods[i];
+                            if (im && im->type == AST_FN_DECL && im->data.fn_decl.name && strcmp(im->data.fn_decl.name, "drop") == 0) {
+                                checker_report_error(checker, node, "每个类型只能有一个 drop 方法（联合体内部与方法块不能同时定义 drop）");
+                                return 0;
+                            }
+                        }
+                    }
+                }
+                return 1;
+            }
+            const char *struct_name = node->data.method_block.struct_name;
+            if (find_struct_decl_from_program(checker->program_node, struct_name) == NULL) {
                 checker_report_error(checker, node, "方法块对应的结构体未定义");
                 return 0;
             }
-            const char *struct_name = node->data.method_block.struct_name;
             int drop_count = 0;
             for (int i = 0; i < node->data.method_block.method_count; i++) {
                 ASTNode *m = node->data.method_block.methods[i];
                 if (m && m->type == AST_FN_DECL && m->data.fn_decl.name) {
                     if (strcmp(m->data.fn_decl.name, "drop") == 0) {
                         drop_count++;
-                        if (!check_drop_method_signature(checker, m, struct_name)) return 0;
+                        if (!check_drop_method_signature(checker, m, struct_name, 0)) return 0;
                     } else if (!check_method_self_param(checker, m)) return 0;
                 }
             }

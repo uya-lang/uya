@@ -139,6 +139,21 @@ ASTNode *find_union_decl_by_variant_c99(C99CodeGenerator *codegen, const char *v
     return NULL;
 }
 
+// 根据 C 类型后缀（如 "uya_tagged_IntOrFloat"）查找联合体声明
+ASTNode *find_union_decl_by_tagged_c99(C99CodeGenerator *codegen, const char *tagged_suffix) {
+    if (!codegen || !codegen->program_node || !tagged_suffix || strncmp(tagged_suffix, "uya_tagged_", 11) != 0) return NULL;
+    const char *suffix = tagged_suffix + 11;
+    ASTNode **decls = codegen->program_node->data.program.decls;
+    int decl_count = codegen->program_node->data.program.decl_count;
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_UNION_DECL) continue;
+        const char *safe = get_safe_c_identifier(codegen, decl->data.union_decl.name);
+        if (safe && strcmp(suffix, safe) == 0) return decl;
+    }
+    return NULL;
+}
+
 // 返回联合体变体索引（0-based），不存在返回 -1
 int find_union_variant_index(ASTNode *union_decl, const char *variant_name) {
     if (!union_decl || union_decl->type != AST_UNION_DECL || !variant_name) return -1;

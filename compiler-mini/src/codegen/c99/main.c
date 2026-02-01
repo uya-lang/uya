@@ -264,20 +264,29 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
         if (decl->type == AST_FN_DECL) {
             gen_function_prototype(codegen, decl);
         } else if (decl->type == AST_METHOD_BLOCK) {
-            const char *struct_name = decl->data.method_block.struct_name;
-            for (int j = 0; j < decl->data.method_block.method_count; j++) {
-                ASTNode *m = decl->data.method_block.methods[j];
-                if (m && m->type == AST_FN_DECL) {
-                    gen_method_prototype(codegen, m, struct_name);
+            const char *type_name = decl->data.method_block.struct_name ? decl->data.method_block.struct_name : decl->data.method_block.union_name;
+            if (type_name) {
+                for (int j = 0; j < decl->data.method_block.method_count; j++) {
+                    ASTNode *m = decl->data.method_block.methods[j];
+                    if (m && m->type == AST_FN_DECL) {
+                        gen_method_prototype(codegen, m, type_name);
+                    }
                 }
             }
         } else if (decl->type == AST_STRUCT_DECL) {
-            // 生成结构体内部定义的方法的前向声明
             const char *struct_name = decl->data.struct_decl.name;
             for (int j = 0; j < decl->data.struct_decl.method_count; j++) {
                 ASTNode *m = decl->data.struct_decl.methods[j];
                 if (m && m->type == AST_FN_DECL) {
                     gen_method_prototype(codegen, m, struct_name);
+                }
+            }
+        } else if (decl->type == AST_UNION_DECL) {
+            const char *union_name = decl->data.union_decl.name;
+            for (int j = 0; j < decl->data.union_decl.method_count; j++) {
+                ASTNode *m = decl->data.union_decl.methods[j];
+                if (m && m->type == AST_FN_DECL) {
+                    gen_method_prototype(codegen, m, union_name);
                 }
             }
         }
@@ -292,10 +301,18 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
         if (!decl) continue;
         
         switch (decl->type) {
-            case AST_UNION_DECL:
+            case AST_UNION_DECL: {
+                const char *union_name = decl->data.union_decl.name;
+                for (int j = 0; j < decl->data.union_decl.method_count; j++) {
+                    ASTNode *m = decl->data.union_decl.methods[j];
+                    if (m && m->type == AST_FN_DECL && m->data.fn_decl.body) {
+                        gen_method_function(codegen, m, union_name);
+                        fputs("\n", codegen->output);
+                    }
+                }
                 break;
+            }
             case AST_STRUCT_DECL: {
-                // 生成结构体内部定义的方法
                 const char *struct_name = decl->data.struct_decl.name;
                 for (int j = 0; j < decl->data.struct_decl.method_count; j++) {
                     ASTNode *m = decl->data.struct_decl.methods[j];
@@ -319,12 +336,14 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
                 fputs("\n", codegen->output);
                 break;
             case AST_METHOD_BLOCK: {
-                const char *struct_name = decl->data.method_block.struct_name;
-                for (int j = 0; j < decl->data.method_block.method_count; j++) {
-                    ASTNode *m = decl->data.method_block.methods[j];
-                    if (m && m->type == AST_FN_DECL && m->data.fn_decl.body) {
-                        gen_method_function(codegen, m, struct_name);
-                        fputs("\n", codegen->output);
+                const char *type_name = decl->data.method_block.struct_name ? decl->data.method_block.struct_name : decl->data.method_block.union_name;
+                if (type_name) {
+                    for (int j = 0; j < decl->data.method_block.method_count; j++) {
+                        ASTNode *m = decl->data.method_block.methods[j];
+                        if (m && m->type == AST_FN_DECL && m->data.fn_decl.body) {
+                            gen_method_function(codegen, m, type_name);
+                            fputs("\n", codegen->output);
+                        }
                     }
                 }
                 break;
