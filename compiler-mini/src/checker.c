@@ -2943,6 +2943,25 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
         right_type = left_type;
     }
     
+    // 饱和运算 +| -| *|、包装运算 +% -% *%：仅支持整数 i8/i16/i32/i64，两操作数类型必须一致（规范 uya.md §10、§16）
+    if (op == TOKEN_PLUS_PIPE || op == TOKEN_MINUS_PIPE || op == TOKEN_ASTERISK_PIPE ||
+        op == TOKEN_PLUS_PERCENT || op == TOKEN_MINUS_PERCENT || op == TOKEN_ASTERISK_PERCENT) {
+        if (!is_integer_type(left_type.kind) || !is_integer_type(right_type.kind)) {
+            if (left_type.kind == TYPE_VOID || right_type.kind == TYPE_VOID) {
+                result.kind = TYPE_I32;
+                return result;
+            }
+            checker_report_error(checker, node, "饱和/包装运算符的操作数必须为整数类型（i8/i16/i32/i64），且类型一致");
+            result.kind = TYPE_I32;
+            return result;
+        }
+        if (left_type.kind != right_type.kind) {
+            checker_report_error(checker, node, "饱和/包装运算符的两个操作数类型必须一致");
+        }
+        result.kind = left_type.kind;
+        return result;
+    }
+    
     // 算术运算符：支持所有整数类型及 f32、f64
     if (op == TOKEN_PLUS || op == TOKEN_MINUS || op == TOKEN_ASTERISK || 
         op == TOKEN_SLASH || op == TOKEN_PERCENT) {

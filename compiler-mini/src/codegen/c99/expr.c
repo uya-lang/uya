@@ -14,6 +14,41 @@ static const char *get_vprintf_style_name(const char *c_name) {
     return NULL;
 }
 
+/* 根据 C 类型字符串返回无符号类型（用于包装运算），无匹配则返回 "unsigned" */
+static const char *unsigned_type_for_wrapping(const char *type_c) {
+    if (!type_c) return "unsigned";
+    if (strstr(type_c, "int8")) return "uint8_t";
+    if (strstr(type_c, "int16")) return "uint16_t";
+    if (strstr(type_c, "int32")) return "uint32_t";
+    if (strstr(type_c, "int64")) return "uint64_t";
+    return "unsigned";
+}
+
+/* 根据 C 类型字符串生成整数极值字面量（用于饱和运算），无匹配则用 i32 极值 */
+static void gen_saturate_limit(C99CodeGenerator *codegen, const char *type_c, int is_max) {
+    if (!type_c) {
+        fprintf(codegen->output, "%s", is_max ? "2147483647" : "(-2147483647-1)");
+        return;
+    }
+    if (strstr(type_c, "int8")) {
+        fprintf(codegen->output, "%s", is_max ? "127" : "(-128)");
+        return;
+    }
+    if (strstr(type_c, "int16")) {
+        fprintf(codegen->output, "%s", is_max ? "32767" : "(-32768)");
+        return;
+    }
+    if (strstr(type_c, "int32")) {
+        fprintf(codegen->output, "%s", is_max ? "2147483647" : "(-2147483647-1)");
+        return;
+    }
+    if (strstr(type_c, "int64")) {
+        fprintf(codegen->output, "%s", is_max ? "9223372036854775807LL" : "(-9223372036854775807LL-1LL)");
+        return;
+    }
+    fprintf(codegen->output, "%s", is_max ? "2147483647" : "(-2147483647-1)");
+}
+
 /* 根据整数类型与 max/min 生成 C 极值字面量（resolved_kind 为 TypeKind） */
 static void gen_int_limit_literal(C99CodeGenerator *codegen, int is_max, int resolved_kind) {
     if (resolved_kind == 0) {
@@ -284,6 +319,52 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                     } else {
                         fputc(')', codegen->output);
                     }
+                }
+            } else if (op == TOKEN_PLUS_PIPE || op == TOKEN_MINUS_PIPE || op == TOKEN_ASTERISK_PIPE ||
+                       op == TOKEN_PLUS_PERCENT || op == TOKEN_MINUS_PERCENT || op == TOKEN_ASTERISK_PERCENT) {
+                /* 饱和运算 +| -| *| 或包装运算 +% -% *%（规范 uya.md §10、§16） */
+                const char *type_c = get_c_type_of_expr(codegen, left);
+                if (!type_c) type_c = "int32_t";
+                if (op == TOKEN_PLUS_PIPE || op == TOKEN_MINUS_PIPE || op == TOKEN_ASTERISK_PIPE) {
+                    /* 饱和：GCC/Clang 语句表达式 + __builtin_*_overflow，溢出时返回 MAX/MIN；_s 须非 const 以便 &_s 可写 */
+                    const char *base_type = type_c;
+                    if (base_type && strncmp(base_type, "const ", 6) == 0) base_type = base_type + 6;
+                    if (!base_type) base_type = "int32_t";
+                    fputs("({ ", codegen->output);
+                    fprintf(codegen->output, "%s _l = (", base_type);
+                    gen_expr(codegen, left);
+                    fputs("); ", codegen->output);
+                    fprintf(codegen->output, "%s _r = (", base_type);
+                    gen_expr(codegen, right);
+                    fputs("); ", codegen->output);
+                    fprintf(codegen->output, "%s _s; ", base_type);
+                    if (op == TOKEN_PLUS_PIPE) {
+                        fputs("__builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? ", codegen->output);
+                    } else if (op == TOKEN_MINUS_PIPE) {
+                        fputs("__builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? ", codegen->output);
+                    } else {
+                        /* 乘法饱和：用 if-else 避免嵌套三元运算符的 C 解析歧义 */
+                        fprintf(codegen->output, "%s _res; ", base_type);
+                        fputs("if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? ", codegen->output);
+                    }
+                    gen_saturate_limit(codegen, type_c, 1);
+                    fputs(" : ", codegen->output);
+                    gen_saturate_limit(codegen, type_c, 0);
+                    if (op == TOKEN_ASTERISK_PIPE)
+                        fputs("; else _res = _s; _res; })", codegen->output);
+                    else
+                        fputs(") : _s; })", codegen->output);
+                } else {
+                    /* 包装：(T)((UT)(a) op (UT)(b)) */
+                    const char *ut = unsigned_type_for_wrapping(type_c);
+                    fprintf(codegen->output, "((%s)((%s)(", type_c, ut);
+                    gen_expr(codegen, left);
+                    if (op == TOKEN_PLUS_PERCENT) fputs(") + (", codegen->output);
+                    else if (op == TOKEN_MINUS_PERCENT) fputs(") - (", codegen->output);
+                    else fputs(") * (", codegen->output);
+                    fprintf(codegen->output, "%s)(", ut);
+                    gen_expr(codegen, right);
+                    fputs(")))", codegen->output);
                 }
             } else {
                 // 普通二元表达式

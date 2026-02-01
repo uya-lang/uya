@@ -3156,11 +3156,13 @@ static ASTNode *parser_parse_mul_expr(Parser *parser) {
         return NULL;
     }
     
-    // 解析连续的乘除模运算符（左结合）
+    // 解析连续的乘除模运算符（左结合），含饱和乘法 *|、包装乘法 *%
     while (parser->current_token != NULL && (
         parser_match(parser, TOKEN_ASTERISK) ||
         parser_match(parser, TOKEN_SLASH) ||
-        parser_match(parser, TOKEN_PERCENT)
+        parser_match(parser, TOKEN_PERCENT) ||
+        parser_match(parser, TOKEN_ASTERISK_PIPE) ||
+        parser_match(parser, TOKEN_ASTERISK_PERCENT)
     )) {
         int line = parser->current_token->line;
         int column = parser->current_token->column;
@@ -3202,10 +3204,14 @@ static ASTNode *parser_parse_add_expr(Parser *parser) {
         return NULL;
     }
     
-    // 解析连续的加减运算符（左结合）
+    // 解析连续的加减运算符（左结合），含饱和 +|/-|、包装 +%/-% 
     while (parser->current_token != NULL && (
         parser_match(parser, TOKEN_PLUS) ||
-        parser_match(parser, TOKEN_MINUS)
+        parser_match(parser, TOKEN_MINUS) ||
+        parser_match(parser, TOKEN_PLUS_PIPE) ||
+        parser_match(parser, TOKEN_MINUS_PIPE) ||
+        parser_match(parser, TOKEN_PLUS_PERCENT) ||
+        parser_match(parser, TOKEN_MINUS_PERCENT)
     )) {
         int line = parser->current_token->line;
         int column = parser->current_token->column;

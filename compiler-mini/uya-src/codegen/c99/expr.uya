@@ -27,6 +27,41 @@ fn get_vprintf_style_name(c_name: &byte) &byte {
     return null;
 }
 
+// 根据 C 类型字符串返回无符号类型（用于包装运算）
+fn unsigned_type_for_wrapping(type_c: &byte) &byte {
+    if type_c == null { return "unsigned" as &byte; }
+    if strstr(type_c as *byte, "int8" as *byte) != null { return "uint8_t" as &byte; }
+    if strstr(type_c as *byte, "int16" as *byte) != null { return "uint16_t" as &byte; }
+    if strstr(type_c as *byte, "int32" as *byte) != null { return "uint32_t" as &byte; }
+    if strstr(type_c as *byte, "int64" as *byte) != null { return "uint64_t" as &byte; }
+    return "unsigned" as &byte;
+}
+
+// 根据 C 类型字符串生成整数极值字面量（用于饱和运算）
+fn gen_saturate_limit_from_type_c(codegen: &C99CodeGenerator, type_c: &byte, is_max: i32) void {
+    if type_c == null {
+        if is_max != 0 { fputs("2147483647" as *byte, codegen.output as *void); } else { fputs("(-2147483647-1)" as *byte, codegen.output as *void); }
+        return;
+    }
+    if strstr(type_c as *byte, "int8" as *byte) != null {
+        if is_max != 0 { fputs("127" as *byte, codegen.output as *void); } else { fputs("(-128)" as *byte, codegen.output as *void); }
+        return;
+    }
+    if strstr(type_c as *byte, "int16" as *byte) != null {
+        if is_max != 0 { fputs("32767" as *byte, codegen.output as *void); } else { fputs("(-32768)" as *byte, codegen.output as *void); }
+        return;
+    }
+    if strstr(type_c as *byte, "int32" as *byte) != null {
+        if is_max != 0 { fputs("2147483647" as *byte, codegen.output as *void); } else { fputs("(-2147483647-1)" as *byte, codegen.output as *void); }
+        return;
+    }
+    if strstr(type_c as *byte, "int64" as *byte) != null {
+        if is_max != 0 { fputs("9223372036854775807LL" as *byte, codegen.output as *void); } else { fputs("(-9223372036854775807LL-1LL)" as *byte, codegen.output as *void); }
+        return;
+    }
+    if is_max != 0 { fputs("2147483647" as *byte, codegen.output as *void); } else { fputs("(-2147483647-1)" as *byte, codegen.output as *void); }
+}
+
 // 根据整数类型与 max/min 生成 C 极值字面量（resolved_kind 为 TypeKind 值）
 fn gen_int_limit_literal(codegen: &C99CodeGenerator, is_max: i32, resolved_kind: i32) void {
     if resolved_kind == 0 {
@@ -377,6 +412,50 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 } else {
                     fputc(41, codegen.output as *void);  // ')'
                 }
+            }
+        } else if op == TokenType.TOKEN_PLUS_PIPE || op == TokenType.TOKEN_MINUS_PIPE || op == TokenType.TOKEN_ASTERISK_PIPE ||
+            op == TokenType.TOKEN_PLUS_PERCENT || op == TokenType.TOKEN_MINUS_PERCENT || op == TokenType.TOKEN_ASTERISK_PERCENT {
+            // 饱和运算 +| -| *| 或包装运算 +% -% *%
+            var type_c: &byte = get_c_type_of_expr(codegen, left);
+            if type_c == null { type_c = "int32_t" as &byte; }
+            if op == TokenType.TOKEN_PLUS_PIPE || op == TokenType.TOKEN_MINUS_PIPE || op == TokenType.TOKEN_ASTERISK_PIPE {
+                var base_type: &byte = type_c;
+                if type_c != null && strncmp(type_c as *byte, "const " as *byte, 6) == 0 { base_type = (type_c as *byte + 6) as &byte; }
+                if base_type == null { base_type = "int32_t" as &byte; }
+                fputs("({ " as *byte, codegen.output as *void);
+                fprintf(codegen.output as *void, "%s _l = (" as *byte, base_type as *byte);
+                gen_expr(codegen, left);
+                fputs("); " as *byte, codegen.output as *void);
+                fprintf(codegen.output as *void, "%s _r = (" as *byte, base_type as *byte);
+                gen_expr(codegen, right);
+                fputs("); " as *byte, codegen.output as *void);
+                fprintf(codegen.output as *void, "%s _s; " as *byte, base_type as *byte);
+                if op == TokenType.TOKEN_PLUS_PIPE {
+                    fputs("__builtin_add_overflow(_l, _r, &_s) ? (_l>=0 && _r>=0 ? " as *byte, codegen.output as *void);
+                } else if op == TokenType.TOKEN_MINUS_PIPE {
+                    fputs("__builtin_sub_overflow(_l, _r, &_s) ? (_l>=0 && _r<0 ? " as *byte, codegen.output as *void);
+                } else {
+                    fprintf(codegen.output as *void, "%s _res; " as *byte, base_type as *byte);
+                    fputs("if (__builtin_mul_overflow(_l, _r, &_s)) _res = ((_l>=0 && _r>=0) || (_l<0 && _r<0)) ? " as *byte, codegen.output as *void);
+                }
+                gen_saturate_limit_from_type_c(codegen, type_c, 1);
+                fputs(" : " as *byte, codegen.output as *void);
+                gen_saturate_limit_from_type_c(codegen, type_c, 0);
+                if op == TokenType.TOKEN_ASTERISK_PIPE {
+                    fputs("; else _res = _s; _res; })" as *byte, codegen.output as *void);
+                } else {
+                    fputs(") : _s; })" as *byte, codegen.output as *void);
+                }
+            } else {
+                const ut: &byte = unsigned_type_for_wrapping(type_c);
+                fprintf(codegen.output as *void, "((%s)((%s)(" as *byte, type_c as *byte, ut as *byte);
+                gen_expr(codegen, left);
+                if op == TokenType.TOKEN_PLUS_PERCENT { fputs(") + (" as *byte, codegen.output as *void); }
+                else if op == TokenType.TOKEN_MINUS_PERCENT { fputs(") - (" as *byte, codegen.output as *void); }
+                else { fputs(") * (" as *byte, codegen.output as *void); }
+                fprintf(codegen.output as *void, "%s)(" as *byte, ut as *byte);
+                gen_expr(codegen, right);
+                fputs(")))" as *byte, codegen.output as *void);
             }
         } else {
             // 普通二元表达式

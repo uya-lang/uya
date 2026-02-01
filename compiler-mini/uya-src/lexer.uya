@@ -65,6 +65,12 @@ enum TokenType {
     TOKEN_TILDE,
     TOKEN_LSHIFT,
     TOKEN_RSHIFT,
+    TOKEN_PLUS_PIPE,      // +|（饱和加法）
+    TOKEN_MINUS_PIPE,     // -|（饱和减法）
+    TOKEN_ASTERISK_PIPE,  // *|（饱和乘法）
+    TOKEN_PLUS_PERCENT,   // +%（包装加法）
+    TOKEN_MINUS_PERCENT,  // -%（包装减法）
+    TOKEN_ASTERISK_PERCENT, // *%（包装乘法）
     TOKEN_LEFT_PAREN,
     TOKEN_RIGHT_PAREN,
     TOKEN_LEFT_BRACE,
@@ -606,14 +612,38 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
         }
         if c == 43 {
         advance_char(lexer);
+        if peek_char(lexer, 0) == 124 {
+            advance_char(lexer);
+            return make_token(arena, TokenType.TOKEN_PLUS_PIPE, "+|" as &byte, line, column);
+        }
+        if peek_char(lexer, 0) == 37 {
+            advance_char(lexer);
+            return make_token(arena, TokenType.TOKEN_PLUS_PERCENT, "+%" as &byte, line, column);
+        }
         return make_token(arena, TokenType.TOKEN_PLUS, "+" as &byte, line, column);
     }
     if c == 45 {
         advance_char(lexer);
+        if peek_char(lexer, 0) == 124 {
+            advance_char(lexer);
+            return make_token(arena, TokenType.TOKEN_MINUS_PIPE, "-|" as &byte, line, column);
+        }
+        if peek_char(lexer, 0) == 37 {
+            advance_char(lexer);
+            return make_token(arena, TokenType.TOKEN_MINUS_PERCENT, "-%" as &byte, line, column);
+        }
         return make_token(arena, TokenType.TOKEN_MINUS, "-" as &byte, line, column);
     }
     if c == 42 {
         advance_char(lexer);
+        if peek_char(lexer, 0) == 124 {
+            advance_char(lexer);
+            return make_token(arena, TokenType.TOKEN_ASTERISK_PIPE, "*|" as &byte, line, column);
+        }
+        if peek_char(lexer, 0) == 37 {
+            advance_char(lexer);
+            return make_token(arena, TokenType.TOKEN_ASTERISK_PERCENT, "*%" as &byte, line, column);
+        }
         return make_token(arena, TokenType.TOKEN_ASTERISK, "*" as &byte, line, column);
     }
     if c == 47 {

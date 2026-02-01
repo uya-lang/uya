@@ -78,6 +78,14 @@ typedef enum {
     TOKEN_TILDE,        // ~（按位取反）
     TOKEN_LSHIFT,       // <<（左移）
     TOKEN_RSHIFT,       // >>（右移）
+    // 饱和运算（规范 uya.md §10、§16）
+    TOKEN_PLUS_PIPE,    // +|（饱和加法）
+    TOKEN_MINUS_PIPE,   // -|（饱和减法）
+    TOKEN_ASTERISK_PIPE,// *|（饱和乘法）
+    // 包装运算（规范 uya.md §10、§16）
+    TOKEN_PLUS_PERCENT, // +%（包装加法）
+    TOKEN_MINUS_PERCENT,// -%（包装减法）
+    TOKEN_ASTERISK_PERCENT, // *%（包装乘法）
     
     // 标点符号
     TOKEN_LEFT_PAREN,   // (

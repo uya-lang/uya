@@ -441,12 +441,36 @@ top_of_token:
     switch (c) {
         case '+':
             advance_char(lexer);
+            if (peek_char(lexer, 0) == '|') {
+                advance_char(lexer);
+                return make_token(arena, TOKEN_PLUS_PIPE, "+|", line, column);
+            }
+            if (peek_char(lexer, 0) == '%') {
+                advance_char(lexer);
+                return make_token(arena, TOKEN_PLUS_PERCENT, "+%", line, column);
+            }
             return make_token(arena, TOKEN_PLUS, "+", line, column);
         case '-':
             advance_char(lexer);
+            if (peek_char(lexer, 0) == '|') {
+                advance_char(lexer);
+                return make_token(arena, TOKEN_MINUS_PIPE, "-|", line, column);
+            }
+            if (peek_char(lexer, 0) == '%') {
+                advance_char(lexer);
+                return make_token(arena, TOKEN_MINUS_PERCENT, "-%", line, column);
+            }
             return make_token(arena, TOKEN_MINUS, "-", line, column);
         case '*':
             advance_char(lexer);
+            if (peek_char(lexer, 0) == '|') {
+                advance_char(lexer);
+                return make_token(arena, TOKEN_ASTERISK_PIPE, "*|", line, column);
+            }
+            if (peek_char(lexer, 0) == '%') {
+                advance_char(lexer);
+                return make_token(arena, TOKEN_ASTERISK_PERCENT, "*%", line, column);
+            }
             return make_token(arena, TOKEN_ASTERISK, "*", line, column);
         case '/':
             advance_char(lexer);

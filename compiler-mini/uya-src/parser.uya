@@ -2040,11 +2040,13 @@ fn parser_parse_mul_expr(parser: &Parser) &ASTNode {
         return null;
     }
     
-    // 解析连续的乘除模运算符（左结合）
+    // 解析连续的乘除模运算符（左结合），含饱和 *|、包装 *%
     while parser.current_token != null && (
         parser_match(parser, TokenType.TOKEN_ASTERISK) != 0 ||
         parser_match(parser, TokenType.TOKEN_SLASH) != 0 ||
-        parser_match(parser, TokenType.TOKEN_PERCENT) != 0
+        parser_match(parser, TokenType.TOKEN_PERCENT) != 0 ||
+        parser_match(parser, TokenType.TOKEN_ASTERISK_PIPE) != 0 ||
+        parser_match(parser, TokenType.TOKEN_ASTERISK_PERCENT) != 0
     ) {
         const line: i32 = parser.current_token.line;
         const column: i32 = parser.current_token.column;
@@ -2086,10 +2088,14 @@ fn parser_parse_add_expr(parser: &Parser) &ASTNode {
         return null;
     }
     
-    // 解析连续的加减运算符（左结合）
+    // 解析连续的加减运算符（左结合），含饱和 +|/-|、包装 +%/-%
     while parser.current_token != null && (
         parser_match(parser, TokenType.TOKEN_PLUS) != 0 ||
-        parser_match(parser, TokenType.TOKEN_MINUS) != 0
+        parser_match(parser, TokenType.TOKEN_MINUS) != 0 ||
+        parser_match(parser, TokenType.TOKEN_PLUS_PIPE) != 0 ||
+        parser_match(parser, TokenType.TOKEN_MINUS_PIPE) != 0 ||
+        parser_match(parser, TokenType.TOKEN_PLUS_PERCENT) != 0 ||
+        parser_match(parser, TokenType.TOKEN_MINUS_PERCENT) != 0
     ) {
         const line: i32 = parser.current_token.line;
         const column: i32 = parser.current_token.column;
