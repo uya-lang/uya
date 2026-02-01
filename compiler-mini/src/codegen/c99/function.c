@@ -3,6 +3,48 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
+// 查找结构体对应的方法块
+ASTNode *find_method_block_for_struct_c99(C99CodeGenerator *codegen, const char *struct_name) {
+    if (!codegen || !struct_name || !codegen->program_node) return NULL;
+    ASTNode **decls = codegen->program_node->data.program.decls;
+    int decl_count = codegen->program_node->data.program.decl_count;
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_METHOD_BLOCK) continue;
+        if (decl->data.method_block.struct_name &&
+            strcmp(decl->data.method_block.struct_name, struct_name) == 0) {
+            return decl;
+        }
+    }
+    return NULL;
+}
+
+// 在方法块中按名称查找方法
+ASTNode *find_method_in_block(ASTNode *method_block, const char *method_name) {
+    if (!method_block || method_block->type != AST_METHOD_BLOCK || !method_name) return NULL;
+    for (int i = 0; i < method_block->data.method_block.method_count; i++) {
+        ASTNode *m = method_block->data.method_block.methods[i];
+        if (m && m->type == AST_FN_DECL && m->data.fn_decl.name &&
+            strcmp(m->data.fn_decl.name, method_name) == 0) {
+            return m;
+        }
+    }
+    return NULL;
+}
+
+// 获取方法的 C 函数名（uya_StructName_methodname）
+const char *get_method_c_name(C99CodeGenerator *codegen, const char *struct_name, const char *method_name) {
+    if (!struct_name || !method_name) return NULL;
+    const char *safe_s = get_safe_c_identifier(codegen, struct_name);
+    const char *safe_m = get_safe_c_identifier(codegen, method_name);
+    if (!safe_s || !safe_m) return NULL;
+    size_t len = 5 + strlen(safe_s) + 1 + strlen(safe_m) + 1;  // "uya_" + S + "_" + M + NUL
+    char *buf = arena_alloc(codegen->arena, len);
+    if (!buf) return NULL;
+    snprintf(buf, len, "uya_%s_%s", safe_s, safe_m);
+    return buf;
+}
+
 // 查找函数声明
 ASTNode *find_function_decl_c99(C99CodeGenerator *codegen, const char *func_name) {
     if (!codegen || !func_name || !codegen->program_node) {
@@ -343,6 +385,75 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     codegen->local_variable_count = saved_local_variable_count;
     codegen->current_depth = saved_current_depth;
     
+    codegen->indent_level--;
+    c99_emit(codegen, "}\n");
+}
+
+// 生成方法函数的前向声明（uya_StructName_methodname）
+void gen_method_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl, const char *struct_name) {
+    if (!fn_decl || fn_decl->type != AST_FN_DECL || !struct_name) return;
+    const char *method_name = fn_decl->data.fn_decl.name;
+    const char *c_name = get_method_c_name(codegen, struct_name, method_name);
+    if (!c_name) return;
+    const char *return_c = convert_array_return_type(codegen, fn_decl->data.fn_decl.return_type);
+    ASTNode **params = fn_decl->data.fn_decl.params;
+    int param_count = fn_decl->data.fn_decl.param_count;
+    fprintf(codegen->output, "%s %s(", return_c, c_name);
+    for (int i = 0; i < param_count; i++) {
+        ASTNode *param = params[i];
+        if (!param || param->type != AST_VAR_DECL) continue;
+        const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
+        const char *param_type_c = c99_type_to_c_with_self(codegen, param->data.var_decl.type, struct_name);
+        format_param_type(codegen, param_type_c, param_name, codegen->output);
+        if (i < param_count - 1) fputs(", ", codegen->output);
+    }
+    fputs(");\n", codegen->output);
+}
+
+// 生成方法函数定义（uya_StructName_methodname）
+void gen_method_function(C99CodeGenerator *codegen, ASTNode *fn_decl, const char *struct_name) {
+    if (!fn_decl || fn_decl->type != AST_FN_DECL || !struct_name || !fn_decl->data.fn_decl.body) return;
+    const char *method_name = fn_decl->data.fn_decl.name;
+    const char *c_name = get_method_c_name(codegen, struct_name, method_name);
+    if (!c_name) return;
+    const char *return_c = convert_array_return_type(codegen, fn_decl->data.fn_decl.return_type);
+    ASTNode **params = fn_decl->data.fn_decl.params;
+    int param_count = fn_decl->data.fn_decl.param_count;
+    emit_line_directive(codegen, fn_decl->line, fn_decl->filename);
+    fprintf(codegen->output, "%s %s(", return_c, c_name);
+    for (int i = 0; i < param_count; i++) {
+        ASTNode *param = params[i];
+        if (!param || param->type != AST_VAR_DECL) continue;
+        const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
+        const char *param_type_c = c99_type_to_c_with_self(codegen, param->data.var_decl.type, struct_name);
+        format_param_type(codegen, param_type_c, param_name, codegen->output);
+        if (i < param_count - 1) fputs(", ", codegen->output);
+    }
+    fputs(") {\n", codegen->output);
+    codegen->indent_level++;
+    codegen->current_function_return_type = fn_decl->data.fn_decl.return_type;
+    ASTNode *saved_current_function_decl = codegen->current_function_decl;
+    codegen->current_function_decl = fn_decl;
+    int saved_local_count = codegen->local_variable_count;
+    int saved_depth = codegen->current_depth;
+    codegen->local_variable_count = 0;
+    codegen->current_depth = 0;
+    for (int i = 0; i < param_count; i++) {
+        ASTNode *param = params[i];
+        if (!param || param->type != AST_VAR_DECL) continue;
+        const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
+        const char *param_type_c = c99_type_to_c_with_self(codegen, param->data.var_decl.type, struct_name);
+        if (param_name && param_type_c && codegen->local_variable_count < C99_MAX_LOCAL_VARS) {
+            codegen->local_variables[codegen->local_variable_count].name = param->data.var_decl.name;
+            codegen->local_variables[codegen->local_variable_count].type_c = param_type_c;
+            codegen->local_variable_count++;
+        }
+    }
+    gen_stmt(codegen, fn_decl->data.fn_decl.body);
+    codegen->current_function_return_type = NULL;
+    codegen->current_function_decl = saved_current_function_decl;
+    codegen->local_variable_count = saved_local_count;
+    codegen->current_depth = saved_depth;
     codegen->indent_level--;
     c99_emit(codegen, "}\n");
 }

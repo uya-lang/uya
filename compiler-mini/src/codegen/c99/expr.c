@@ -1017,15 +1017,7 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             int arg_count = expr->data.call_expr.arg_count;
             int has_ellipsis = expr->data.call_expr.has_ellipsis_forward;
             
-            // 查找函数声明（用于检查参数类型）
-            ASTNode *fn_decl = NULL;
-            const char *callee_name = NULL;
-            if (callee && callee->type == AST_IDENTIFIER) {
-                callee_name = callee->data.identifier.name;
-                fn_decl = find_function_decl_c99(codegen, callee_name);
-            }
-            
-            /* 实参中的字符串插值：先为每个 AST_STRING_INTERP 生成临时缓冲区并填充 */
+            /* 实参中的字符串插值：先为每个 AST_STRING_INTERP 生成临时缓冲区 */
             for (int i = 0; i < arg_count && i < C99_MAX_CALL_ARGS; i++) {
                 codegen->interp_arg_temp_names[i] = NULL;
             }
@@ -1041,6 +1033,45 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 c99_emit_indent(codegen);
                 fprintf(codegen->output, "char %s[%d];\n", temp_name, size);
                 c99_emit_string_interp_fill(codegen, args[i], temp_name);
+            }
+            
+            /* 接口方法调用：obj.method(args) -> ((struct uya_vtable_I *)obj.vtable)->method(obj.data, args...) */
+            if (callee && callee->type == AST_MEMBER_ACCESS) {
+                ASTNode *obj = callee->data.member_access.object;
+                const char *method_name = callee->data.member_access.field_name;
+                const char *obj_type_c = get_c_type_of_expr(codegen, obj);
+                if (obj_type_c && strstr(obj_type_c, "uya_interface_") != NULL) {
+                    const char *p = strstr(obj_type_c, "uya_interface_");
+                    if (p) {
+                        p += 14;  /* skip "uya_interface_" to get interface name */
+                        const char *safe_method = get_safe_c_identifier(codegen, method_name);
+                        fprintf(codegen->output, "((struct uya_vtable_%s *)(", p);
+                        gen_expr(codegen, obj);
+                        fprintf(codegen->output, ").vtable)->%s((", safe_method);
+                        gen_expr(codegen, obj);
+                        fputs(").data", codegen->output);
+                        for (int i = 0; i < arg_count; i++) {
+                            fputs(", ", codegen->output);
+                            if (codegen->interp_arg_temp_names[i]) {
+                                fputs("(uint8_t *)", codegen->output);
+                                fputs(codegen->interp_arg_temp_names[i], codegen->output);
+                            } else {
+                                if (args[i] && args[i]->type == AST_STRING) fputs("(uint8_t *)", codegen->output);
+                                gen_expr(codegen, args[i]);
+                            }
+                        }
+                        fputc(')', codegen->output);
+                        break;
+                    }
+                }
+            }
+            
+            // 查找函数声明（用于检查参数类型）
+            ASTNode *fn_decl = NULL;
+            const char *callee_name = NULL;
+            if (callee && callee->type == AST_IDENTIFIER) {
+                callee_name = callee->data.identifier.name;
+                fn_decl = find_function_decl_c99(codegen, callee_name);
             }
             
             /* 仅在此处生成：无 ... 转发的调用不生成 va_list（零开销转发） */
@@ -1124,6 +1155,54 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 
                 if (need_address) {
                     fputc('&', codegen->output);
+                }
+                /* 装箱：当形参是接口类型且实参是实现了该接口的结构体时，生成 vtable+data */
+                if (fn_decl && fn_decl->type == AST_FN_DECL && i < fn_decl->data.fn_decl.param_count) {
+                    ASTNode *param = fn_decl->data.fn_decl.params[i];
+                    if (param && param->type == AST_VAR_DECL && param->data.var_decl.type &&
+                        param->data.var_decl.type->type == AST_TYPE_NAMED) {
+                        const char *param_type_name = param->data.var_decl.type->data.type_named.name;
+                        ASTNode *iface = find_interface_decl_c99(codegen, param_type_name);
+                        if (iface && args[i]) {
+                            const char *struct_name_for_check = NULL;
+                            if (args[i]->type == AST_IDENTIFIER) {
+                                const char *arg_type_c = get_identifier_type_c(codegen, args[i]->data.identifier.name);
+                                if (arg_type_c) {
+                                    /* 去掉可选的 "const " 前缀 */
+                                    if (strncmp(arg_type_c, "const ", 6) == 0) arg_type_c += 6;
+                                }
+                                if (arg_type_c && strncmp(arg_type_c, "struct ", 7) == 0 &&
+                                    !strstr(arg_type_c, "uya_interface_")) {
+                                    const char *p = arg_type_c + 7;
+                                    const char *end = strchr(p, ' ');
+                                    if (!end) end = p + strlen(p);
+                                    size_t slen = (size_t)(end - p);
+                                    if (slen < 64) {
+                                        char snbuf[64];
+                                        memcpy(snbuf, p, slen);
+                                        snbuf[slen] = '\0';
+                                        if (struct_implements_interface_c99(codegen, snbuf, param_type_name)) {
+                                            struct_name_for_check = snbuf;
+                                        }
+                                    }
+                                }
+                            } else if (args[i]->type == AST_STRUCT_INIT) {
+                                const char *st_name = args[i]->data.struct_init.struct_name;
+                                if (st_name && struct_implements_interface_c99(codegen, st_name, param_type_name)) {
+                                    struct_name_for_check = st_name;
+                                }
+                            }
+                            if (struct_name_for_check) {
+                                    const char *safe_iface = get_safe_c_identifier(codegen, param_type_name);
+                                    const char *safe_struct = get_safe_c_identifier(codegen, struct_name_for_check);
+                                    fprintf(codegen->output, "(struct uya_interface_%s){ .vtable = (void*)&uya_vtable_%s_%s, .data = (void*)&(",
+                                            safe_iface, safe_iface, safe_struct);
+                                    gen_expr(codegen, args[i]);
+                                    fputs(") }", codegen->output);
+                                    continue;
+                            }
+                        }
+                    }
                 }
                 gen_expr(codegen, args[i]);
             }

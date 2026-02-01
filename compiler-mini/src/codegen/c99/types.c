@@ -3,6 +3,34 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+/* 方法参数类型映射：将 Self 替换为 struct_name，用于生成结构体方法签名 */
+const char *c99_type_to_c_with_self(C99CodeGenerator *codegen, ASTNode *type_node, const char *self_struct_name) {
+    if (!type_node || !self_struct_name) return c99_type_to_c(codegen, type_node);
+    if (type_node->type == AST_TYPE_POINTER) {
+        ASTNode *pt = type_node->data.type_pointer.pointed_type;
+        if (pt && pt->type == AST_TYPE_NAMED && pt->data.type_named.name &&
+            strcmp(pt->data.type_named.name, "Self") == 0) {
+            const char *safe = get_safe_c_identifier(codegen, self_struct_name);
+            size_t len = strlen(safe) + 12;
+            char *buf = arena_alloc(codegen->arena, len);
+            if (buf) {
+                snprintf(buf, len, "struct %s *", safe);
+                return buf;
+            }
+        }
+    } else if (type_node->type == AST_TYPE_NAMED && type_node->data.type_named.name &&
+               strcmp(type_node->data.type_named.name, "Self") == 0) {
+        const char *safe = get_safe_c_identifier(codegen, self_struct_name);
+        size_t len = strlen(safe) + 8;
+        char *buf = arena_alloc(codegen->arena, len);
+        if (buf) {
+            snprintf(buf, len, "struct %s", safe);
+            return buf;
+        }
+    }
+    return c99_type_to_c(codegen, type_node);
+}
+
 // 类型映射函数
 const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
     if (!type_node) {
@@ -126,6 +154,17 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
                             }
                         }
                     }
+                }
+                
+                // 检查是否是接口类型（struct uya_interface_InterfaceName）
+                if (find_interface_decl_c99(codegen, name) != NULL) {
+                    size_t len = strlen(safe_name) + 24;  // "struct uya_interface_" + name + '\0'
+                    char *buf = arena_alloc(codegen->arena, len);
+                    if (buf) {
+                        snprintf(buf, len, "struct uya_interface_%s", safe_name);
+                        return buf;
+                    }
+                    return "void";
                 }
                 
                 // 未知类型，直接返回名称
@@ -867,6 +906,25 @@ const char *get_c_type_of_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 base_type_c = get_c_type_of_expr(codegen, object);
             }
             if (!base_type_c) return "int32_t";
+            /* 接口类型：obj.method 为方法调用，返回类型从接口方法签名获取 */
+            if (strstr(base_type_c, "uya_interface_") != NULL) {
+                const char *p = strstr(base_type_c, "uya_interface_");
+                if (p) {
+                    p += 14;  /* skip "uya_interface_" */
+                    const char *iface_name = p;
+                    ASTNode *iface = find_interface_decl_c99(codegen, iface_name);
+                    if (iface) {
+                        for (int i = 0; i < iface->data.interface_decl.method_sig_count; i++) {
+                            ASTNode *msig = iface->data.interface_decl.method_sigs[i];
+                            if (msig && msig->type == AST_FN_DECL && msig->data.fn_decl.name &&
+                                strcmp(msig->data.fn_decl.name, field_name) == 0) {
+                                return c99_type_to_c(codegen, msig->data.fn_decl.return_type);
+                            }
+                        }
+                    }
+                }
+                return "int32_t";
+            }
             ASTNode *struct_decl = find_struct_decl_from_type_c(codegen, base_type_c);
             if (!struct_decl) return "int32_t";
             ASTNode *field_type = find_struct_field_type(codegen, struct_decl, field_name);

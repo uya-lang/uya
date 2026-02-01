@@ -17,7 +17,7 @@
 | 4 | 切片 | [x] |
 | 5 | match 表达式 | [x] |
 | 6 | for 扩展 | [x]（整数范围已实现；迭代器依赖阶段 7 接口） |
-| 7 | 接口 | [ ] |
+| 7 | 接口 | [x]（C 实现完成；uya-src 待同步） |
 | 8 | 结构体方法 + drop + 移动语义 | [ ] |
 | 9 | 模块系统 | [ ] |
 | 10 | 字符串插值 | [x] |
@@ -136,11 +136,11 @@
 
 - [x] **interface 定义**：`interface I { fn method(self: *Self,...) Ret; ... }`，规范 uya.md §6
 - [x] **实现**：`struct S : I { }`，方法块 `S { fn method(...) { ... } }`，Checker 校验实现
-- [ ] **装箱与调用**：接口值 8/16B（vtable+data）、装箱点、接口方法调用；Codegen 待实现（vtable 生成、装箱、call 通过 vtable）
+- [x] **装箱与调用**：接口值 8/16B（vtable+data）、装箱点、接口方法调用；Codegen 已实现（vtable 生成、装箱、call 通过 vtable）
 
 **涉及**：AST、Parser、Checker、Codegen（vtable、装箱点、逃逸检查），uya-src。
 
-**当前进度**：Lexer（TOKEN_INTERFACE）、AST（AST_INTERFACE_DECL、AST_METHOD_BLOCK、struct_decl.interface_names）、Parser（interface、struct : I、方法块、obj.method(args) 解析）、Checker（TYPE_INTERFACE、接口方法调用检查与推断、struct→interface 装箱检查）已完成。Codegen（vtable 静态常量、接口类型 C 结构体、装箱、接口方法 call）与 uya-src 同步待做。测试用例 test_interface.uya 已添加。
+**当前进度**：Lexer、AST、Parser、Checker 已完成。**C 实现 Codegen 已完成**：types.c 接口类型→struct uya_interface_I；structs.c 生成 interface/vtable 结构体与 vtable 常量；function.c 方法块生成 uya_S_m 函数；expr.c 接口方法调用（vtable 派发）、装箱（struct→interface 传参）；main.c 处理 AST_METHOD_BLOCK、emit_vtable_constants。test_interface.uya 通过 `--c99`。**uya-src 同步待做**。
 
 ---
 

@@ -53,6 +53,37 @@ void add_struct_definition(C99CodeGenerator *codegen, const char *struct_name) {
     }
 }
 
+// 检查结构体是否实现某接口
+int struct_implements_interface_c99(C99CodeGenerator *codegen, const char *struct_name, const char *interface_name) {
+    ASTNode *s = find_struct_decl_c99(codegen, struct_name);
+    if (!s || s->type != AST_STRUCT_DECL || !s->data.struct_decl.interface_names) return 0;
+    for (int i = 0; i < s->data.struct_decl.interface_count; i++) {
+        if (s->data.struct_decl.interface_names[i] &&
+            strcmp(s->data.struct_decl.interface_names[i], interface_name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// 查找接口声明
+ASTNode *find_interface_decl_c99(C99CodeGenerator *codegen, const char *interface_name) {
+    if (!codegen || !interface_name || !codegen->program_node) {
+        return NULL;
+    }
+    ASTNode **decls = codegen->program_node->data.program.decls;
+    int decl_count = codegen->program_node->data.program.decl_count;
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_INTERFACE_DECL) continue;
+        const char *decl_name = decl->data.interface_decl.name;
+        if (decl_name && strcmp(decl_name, interface_name) == 0) {
+            return decl;
+        }
+    }
+    return NULL;
+}
+
 // 查找结构体声明
 ASTNode *find_struct_decl_c99(C99CodeGenerator *codegen, const char *struct_name) {
     if (!codegen || !struct_name || !codegen->program_node) {
@@ -210,4 +241,90 @@ int gen_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl) {
     // 标记为已定义
     mark_struct_defined(codegen, struct_name);
     return 0;
+}
+
+// 生成接口值结构体与 vtable 结构体（不含 vtable 常量，常量需在方法前向声明之后生成）
+void emit_interface_structs_and_vtables(C99CodeGenerator *codegen) {
+    if (!codegen || !codegen->program_node) return;
+    ASTNode **decls = codegen->program_node->data.program.decls;
+    int decl_count = codegen->program_node->data.program.decl_count;
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_INTERFACE_DECL) continue;
+        const char *iface_name = decl->data.interface_decl.name;
+        if (!iface_name) continue;
+        const char *safe_iface = get_safe_c_identifier(codegen, iface_name);
+        c99_emit(codegen, "struct uya_interface_%s { void *vtable; void *data; };\n", safe_iface);
+        c99_emit(codegen, "struct uya_vtable_%s {\n", safe_iface);
+        codegen->indent_level++;
+        for (int j = 0; j < decl->data.interface_decl.method_sig_count; j++) {
+            ASTNode *msig = decl->data.interface_decl.method_sigs[j];
+            if (!msig || msig->type != AST_FN_DECL) continue;
+            const char *ret_c = convert_array_return_type(codegen, msig->data.fn_decl.return_type);
+            const char *mname = get_safe_c_identifier(codegen, msig->data.fn_decl.name);
+            int pc = msig->data.fn_decl.param_count;
+            fprintf(codegen->output, "%*s%s (*%s)(void *self", codegen->indent_level * 4, "", ret_c, mname);
+            for (int k = 1; k < pc && msig->data.fn_decl.params; k++) {
+                ASTNode *p = msig->data.fn_decl.params[k];
+                if (!p || p->type != AST_VAR_DECL) continue;
+                const char *pt_c = c99_type_to_c(codegen, p->data.var_decl.type);
+                fprintf(codegen->output, ", %s", pt_c);
+            }
+            fputs(");\n", codegen->output);
+        }
+        codegen->indent_level--;
+        c99_emit(codegen, "};\n");
+    }
+}
+
+// 生成各 struct:interface 的 vtable 常量（需在方法前向声明之后调用）
+void emit_vtable_constants(C99CodeGenerator *codegen) {
+    if (!codegen || !codegen->program_node) return;
+    ASTNode **decls = codegen->program_node->data.program.decls;
+    int decl_count = codegen->program_node->data.program.decl_count;
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_STRUCT_DECL) continue;
+        const char *struct_name = decl->data.struct_decl.name;
+        const char **iface_names = decl->data.struct_decl.interface_names;
+        int iface_count = decl->data.struct_decl.interface_count;
+        if (!iface_names || iface_count <= 0) continue;
+        ASTNode *method_block = find_method_block_for_struct_c99(codegen, struct_name);
+        if (!method_block) continue;
+        const char *safe_struct = get_safe_c_identifier(codegen, struct_name);
+        for (int j = 0; j < iface_count; j++) {
+            const char *iface_name = iface_names[j];
+            if (!iface_name) continue;
+            ASTNode *iface_decl = find_interface_decl_c99(codegen, iface_name);
+            if (!iface_decl) continue;
+            const char *safe_iface = get_safe_c_identifier(codegen, iface_name);
+            fprintf(codegen->output, "static const struct uya_vtable_%s uya_vtable_%s_%s = { ",
+                    safe_iface, safe_iface, safe_struct);
+            for (int k = 0; k < iface_decl->data.interface_decl.method_sig_count; k++) {
+                ASTNode *msig = iface_decl->data.interface_decl.method_sigs[k];
+                if (!msig || msig->type != AST_FN_DECL) continue;
+                const char *mname = msig->data.fn_decl.name;
+                ASTNode *impl = find_method_in_block(method_block, mname);
+                if (!impl) continue;
+                const char *cname = get_method_c_name(codegen, struct_name, mname);
+                if (k > 0) fputs(", ", codegen->output);
+                /* 函数指针转换 (S*)->(void*) 以匹配 vtable 签名 */
+                if (cname) {
+                    const char *ret_c = convert_array_return_type(codegen, msig->data.fn_decl.return_type);
+                    int pc = msig->data.fn_decl.param_count;
+                    fprintf(codegen->output, "(%s (*)(void *self", ret_c);
+                    for (int ki = 1; ki < pc && msig->data.fn_decl.params; ki++) {
+                        ASTNode *pk = msig->data.fn_decl.params[ki];
+                        if (pk && pk->type == AST_VAR_DECL) {
+                            fprintf(codegen->output, ", %s", c99_type_to_c(codegen, pk->data.var_decl.type));
+                        }
+                    }
+                    fprintf(codegen->output, "))&%s", cname);
+                } else {
+                    fputs("NULL", codegen->output);
+                }
+            }
+            fputs(" };\n", codegen->output);
+        }
+    }
 }

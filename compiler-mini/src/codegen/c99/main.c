@@ -235,6 +235,9 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     if (codegen->slice_struct_count > 0) {
         fputs("\n", codegen->output);
     }
+    // 第六步 b2：生成接口结构体与 vtable 结构体（vtable 常量在函数前向声明之后生成）
+    emit_interface_structs_and_vtables(codegen);
+    fputs("\n", codegen->output);
     // 第六步 c：生成所有结构体定义（在切片结构体之后，因为结构体可能含切片字段）
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
@@ -248,12 +251,24 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     // 第七步：生成所有函数的前向声明（解决相互递归调用）
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
-        if (!decl || decl->type != AST_FN_DECL) continue;
-        gen_function_prototype(codegen, decl);
+        if (!decl) continue;
+        if (decl->type == AST_FN_DECL) {
+            gen_function_prototype(codegen, decl);
+        } else if (decl->type == AST_METHOD_BLOCK) {
+            const char *struct_name = decl->data.method_block.struct_name;
+            for (int j = 0; j < decl->data.method_block.method_count; j++) {
+                ASTNode *m = decl->data.method_block.methods[j];
+                if (m && m->type == AST_FN_DECL) {
+                    gen_method_prototype(codegen, m, struct_name);
+                }
+            }
+        }
     }
+    // 第七步 b：生成 vtable 常量（依赖方法前向声明）
+    emit_vtable_constants(codegen);
     fputs("\n", codegen->output);
 
-    // 第七步：生成所有声明（全局变量、函数定义）
+    // 第八步：生成所有声明（全局变量、函数定义）
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) continue;
@@ -272,6 +287,17 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
                 gen_function(codegen, decl);
                 fputs("\n", codegen->output);
                 break;
+            case AST_METHOD_BLOCK: {
+                const char *struct_name = decl->data.method_block.struct_name;
+                for (int j = 0; j < decl->data.method_block.method_count; j++) {
+                    ASTNode *m = decl->data.method_block.methods[j];
+                    if (m && m->type == AST_FN_DECL && m->data.fn_decl.body) {
+                        gen_method_function(codegen, m, struct_name);
+                        fputs("\n", codegen->output);
+                    }
+                }
+                break;
+            }
             case AST_ERROR_DECL:
                 break;
             // 忽略其他声明类型（暂时）
