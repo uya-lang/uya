@@ -1220,10 +1220,17 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     const idx: i32 = find_union_variant_index(union_decl, method_name);
                     if idx >= 0 {
                         const uname: &byte = get_safe_c_identifier(codegen, union_decl.union_decl_name);
-                        if uname != null {
-                            fprintf(codegen.output as *void, "((struct uya_tagged_%s){ ._tag = %d, .u = (union %s){ .%s = (" as *byte, uname as *byte, idx, uname as *byte, get_safe_c_identifier(codegen, method_name) as *byte);
-                            gen_expr(codegen, expr.call_expr_args[0]);
-                            fputs(") } })" as *byte, codegen.output as *void);
+                        const vname_c: &byte = get_safe_c_identifier(codegen, method_name);
+                        if uname != null && vname_c != null {
+                            if union_decl.union_decl_is_extern != 0 {
+                                fprintf(codegen.output as *void, "((union %s){ .%s = (" as *byte, uname as *byte, vname_c as *byte);
+                                gen_expr(codegen, expr.call_expr_args[0]);
+                                fputs(") })" as *byte, codegen.output as *void);
+                            } else {
+                                fprintf(codegen.output as *void, "((struct uya_tagged_%s){ ._tag = %d, .u = (union %s){ .%s = (" as *byte, uname as *byte, idx, uname as *byte, vname_c as *byte);
+                                gen_expr(codegen, expr.call_expr_args[0]);
+                                fputs(") } })" as *byte, codegen.output as *void);
+                            }
                             return;
                         }
                     }

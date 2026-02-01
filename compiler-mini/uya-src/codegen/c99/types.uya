@@ -135,15 +135,27 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
                 }
             }
             
-            // 检查是否是联合体类型（struct uya_tagged_UnionName，带 tag 的布局）
-            if find_union_decl_c99(codegen, name) != null {
-                const len_u: i32 = strlen(safe_name as *byte) + 22;
-                const buf_u: &byte = arena_alloc(codegen.arena, len_u) as &byte;
-                if buf_u != null {
-                    snprintf(buf_u as *byte, len_u, "struct uya_tagged_%s" as *byte, safe_name as *byte);
-                    return buf_u;
+            // 检查是否是联合体类型：extern union 用 union Name，普通联合体用 struct uya_tagged_Name
+            {
+                const ud: &ASTNode = find_union_decl_c99(codegen, name);
+                if ud != null {
+                    if ud.union_decl_is_extern != 0 {
+                        const len_ext: i32 = strlen(safe_name as *byte) + 10;
+                        const buf_ext: &byte = arena_alloc(codegen.arena, len_ext) as &byte;
+                        if buf_ext != null {
+                            snprintf(buf_ext as *byte, len_ext, "union %s" as *byte, safe_name as *byte);
+                            return buf_ext;
+                        }
+                    } else {
+                        const len_u: i32 = strlen(safe_name as *byte) + 22;
+                        const buf_u: &byte = arena_alloc(codegen.arena, len_u) as &byte;
+                        if buf_u != null {
+                            snprintf(buf_u as *byte, len_u, "struct uya_tagged_%s" as *byte, safe_name as *byte);
+                            return buf_u;
+                        }
+                    }
+                    return ("void" as *byte) as &byte;
                 }
-                return ("void" as *byte) as &byte;
             }
             
             // 显式检查是否是结构体（检查是否在表中，不管是否已定义）

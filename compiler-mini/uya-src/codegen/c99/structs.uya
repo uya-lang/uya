@@ -250,8 +250,10 @@ fn gen_union_definition(codegen: &C99CodeGenerator, union_decl: &ASTNode) i32 {
     }
     codegen.indent_level = codegen.indent_level - 1;
     c99_emit(codegen, "};\n" as *byte);
-    c99_emit_indent(codegen);
-    fprintf(codegen.output as *void, "struct uya_tagged_%s { int _tag; union %s u; };\n" as *byte, union_name as *byte, union_name as *byte);
+    if union_decl.union_decl_is_extern == 0 {
+        c99_emit_indent(codegen);
+        fprintf(codegen.output as *void, "struct uya_tagged_%s { int _tag; union %s u; };\n" as *byte, union_name as *byte, union_name as *byte);
+    }
     return 0;
 }
 

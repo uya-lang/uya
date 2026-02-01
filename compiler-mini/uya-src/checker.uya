@@ -4062,8 +4062,13 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         }
         if node.method_block_union_name != null {
             const union_name: &byte = node.method_block_union_name;
-            if find_union_decl_from_program(checker.program_node, union_name) == null {
+            const union_decl_ptr: &ASTNode = find_union_decl_from_program(checker.program_node, union_name);
+            if union_decl_ptr == null {
                 checker_report_error(checker, node, "方法块对应的联合体未定义" as *byte);
+                return 0;
+            }
+            if union_decl_ptr.union_decl_is_extern != 0 {
+                checker_report_error(checker, node, "extern union 不能有方法块" as *byte);
                 return 0;
             }
             var drop_count: i32 = 0;
@@ -4167,6 +4172,10 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
     } else if node.type == ASTNodeType.AST_UNION_DECL {
         if checker.scope_level > 0 {
             checker_report_error(checker, node, "联合体声明只能在顶层定义" as *byte);
+            return 0;
+        }
+        if node.union_decl_is_extern != 0 && node.union_decl_method_count > 0 {
+            checker_report_error(checker, node, "extern union 不能包含方法" as *byte);
             return 0;
         }
         if node.union_decl_variant_count < 1 {
@@ -4415,6 +4424,13 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         return 1;
     } else if node.type == ASTNodeType.AST_MATCH_EXPR {
         const expr_type: Type = checker_infer_type(checker, node.match_expr_expr);
+        if expr_type.kind == TypeKind.TYPE_UNION && expr_type.union_name != null && checker.program_node != null {
+            const ud: &ASTNode = find_union_decl_from_program(checker.program_node, expr_type.union_name);
+            if ud != null && ud.union_decl_is_extern != 0 {
+                checker_report_error(checker, node, "extern union 不支持 match" as *byte);
+                return 0;
+            }
+        }
         checker_check_node(checker, node.match_expr_expr);
         var has_else: i32 = 0;
         var i: i32 = 0;

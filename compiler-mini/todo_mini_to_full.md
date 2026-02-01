@@ -237,12 +237,12 @@
 - [x] **创建**：`UnionName.variant(expr)`，如 `IntOrFloat.i(42)`
 - [x] **访问**：`match` 模式匹配（必须处理所有变体）、`.variant(bind)` 模式、穷尽性检查
 - [x] **实现**：带隐藏 tag 的 C 布局（`struct uya_tagged_U { int _tag; union U u; }`），零开销 match
-- [x] **extern union**：外部 C 联合体声明与互操作（C 实现完成；uya-src 待同步）
+- [x] **extern union**：外部 C 联合体声明与互操作（C 实现与 uya-src 已同步）
 - [x] **联合体方法**：`self: &Self`，内部/外部方法块（C 实现与 uya-src 已同步）
 
 **C 实现（已完成）**：Lexer（TOKEN_UNION）、AST（AST_UNION_DECL、MATCH_PAT_UNION）、Parser（parse_union、match 中 .variant(bind)）、Checker（TYPE_UNION、union init 校验、match 穷尽与变体类型推断）、Codegen（gen_union_definition、union init、match union 的 _tag 分支）。**联合体方法（C 实现已完成）**：AST（union_decl.methods/method_count、method_block.union_name）；Parser（union 内解析 fn 内部方法）；Checker（METHOD_BLOCK 解析目标为 struct/union、find_method_block_for_union、find_method_in_union、member_access/call 联合体方法、AST_UNION_DECL 内部方法及 drop 校验）；Codegen（find_method_in_union_c99、find_method_block_for_union_c99、find_union_decl_by_tagged_c99、expr 联合体方法调用、main 联合体方法块与内部方法、types c99_type_to_c_with_self_opt 联合体、get_c_type_of_expr AST_UNARY_EXPR/AST_CAST_EXPR）。测试 test_union.uya、test_union_method.uya（外部方法块）、test_union_inner_method.uya（内部方法）通过 `--c99`。**uya-src 已同步**：lexer.uya、ast.uya（union_decl_methods/method_count、method_block_union_name）、parser.uya（union 内 fn 解析）；checker.uya（find_method_block_for_union、find_method_in_union、call/member_access 联合体方法、AST_METHOD_BLOCK 联合体分支、AST_UNION_DECL 内部方法及 drop 校验）；codegen（structs.uya find_method_in_union_c99/find_method_block_for_union_c99、expr.uya 联合体方法调用、main.uya 联合体方法块与内部方法）。test_union_method.uya、test_union_inner_method.uya 通过 `--uya --c99`。
 
-**extern union（C 实现已完成）**：`extern union CName { v1: T1, v2: T2 }` 声明外部 C 联合体；Parser（parse_declaration 消费 extern 后分支 union/fn、parser_parse_union_body(parser, is_extern)、parser_parse_type 支持 `union TypeName`）；Checker（AST_UNION_DECL 禁止 is_extern 且含方法、AST_METHOD_BLOCK 禁止目标为 extern union、AST_MATCH_EXPR 禁止对 extern union 做 match）；Codegen（gen_union_definition 对 is_extern 仅生成 `union Name { ... };`、c99_type_to_c 对 extern union 生成 `union Name`、联合体变体构造对 extern 生成 `(union Name){ .v = expr }`）。测试 test_extern_union.uya 通过 `--c99`；error_extern_union_match.uya、error_extern_union_method_block.uya 预期编译失败。uya-src 待同步。
+**extern union（C 实现与 uya-src 已同步）**：`extern union CName { v1: T1, v2: T2 }` 声明外部 C 联合体；Parser（parse_declaration 消费 extern 后分支 union/fn、parser_parse_union_body(parser, is_extern)、parser_parse_type 支持 `union TypeName`）；Checker（AST_UNION_DECL 禁止 is_extern 且含方法、AST_METHOD_BLOCK 禁止目标为 extern union、AST_MATCH_EXPR 禁止对 extern union 做 match）；Codegen（gen_union_definition 对 is_extern 仅生成 `union Name { ... };`、c99_type_to_c 对 extern union 生成 `union Name`、联合体变体构造对 extern 生成 `(union Name){ .v = expr }`）。测试 test_extern_union.uya 通过 `--c99` 与 `--uya --c99`；error_extern_union_match.uya、error_extern_union_method_block.uya 预期编译失败。
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen，uya-src。依赖 match 表达式（阶段 5）。
 
