@@ -135,12 +135,13 @@ fn main() i32 {
         return 12;  // 应该执行 if 分支
     }
     
-    // 5.2 在 while 条件中使用
+    // 5.2 在 while 条件中使用（循环内不移动结构体，用字段赋值）
     var p7: Point = Point{ x: 1, y: 1 };
     var p8: Point = Point{ x: 2, y: 2 };
     var count: i32 = 0;
     while p7 != p8 && count < 1 {
-        p7 = p8;
+        p7.x = p8.x;
+        p7.y = p8.y;
         count = count + 1;
     }
     if p7 != p8 {
@@ -149,17 +150,17 @@ fn main() i32 {
     
     // ========== 测试6：结构体赋值后比较 ==========
     
-    // 6.1 赋值后比较
+    // 6.1 赋值后比较（p9 移入 p10，不再使用 p9）
     var p9: Point = Point{ x: 10, y: 20 };
     var p10: Point = p9;
-    if p9 != p10 {
-        return 14;  // 赋值后的结构体应该相等
+    if p10.x != 10 || p10.y != 20 {
+        return 14;  // 赋值后 p10 应与原 p9 值相等
     }
     
     // 6.2 修改字段后比较
     p10.x = 30;
-    if p9 == p10 {
-        return 15;  // 修改后应该不相等（按值复制）
+    if p10.x != 30 || p10.y != 20 {
+        return 15;  // 修改后 p10 应为 (30, 20)
     }
     
     // ========== 测试7：结构体指针比较 ==========

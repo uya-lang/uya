@@ -150,12 +150,13 @@ fn main() i32 {
     var outer3: Outer = Outer{ inner: Inner{ value: 600 }, count: 30 };
     var value2: i32 = get_inner_value(outer3);
     if value2 != 600 {
-        return 13;  // get_inner_value 应该返回 600
+        return 13;  // get_inner_value 应该返回 600（outer3 已移动）
     }
     
-    modify_inner_value(&outer3);
-    if outer3.inner.value != 700 {
-        return 14;  // 通过函数修改后，outer3.inner.value 应该是 700
+    var outer3b: Outer = Outer{ inner: Inner{ value: 600 }, count: 30 };
+    modify_inner_value(&outer3b);
+    if outer3b.inner.value != 700 {
+        return 14;  // 通过函数修改后，outer3b.inner.value 应该是 700
     }
     
     // ========== 测试7：嵌套结构体比较 ==========

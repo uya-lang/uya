@@ -18,7 +18,7 @@
 | 5 | match 表达式 | [x] |
 | 6 | for 扩展 | [x]（整数范围已实现；迭代器依赖阶段 7 接口） |
 | 7 | 接口 | [x]（C 实现完成；uya-src 待同步） |
-| 8 | 结构体方法 + drop + 移动语义 | [ ]（外部方法块+内部定义、drop/RAII 已实现；移动语义、uya-src 同步待实现） |
+| 8 | 结构体方法 + drop + 移动语义 | [x]（外部/内部方法、drop/RAII、移动语义 C 实现已完成；uya-src 移动语义待同步） |
 | 9 | 模块系统 | [ ] |
 | 10 | 字符串插值 | [x] |
 | 11 | 原子类型 | [ ] |
@@ -180,7 +180,8 @@
   **uya-src 已同步**：ast.uya、parser.uya、checker.uya、codegen/c99/structs.uya、codegen/c99/expr.uya、codegen/c99/main.uya 均已同步修改。
 - [x] **drop / RAII**：用户自定义 `fn drop(self: T) void`，作用域结束逆序调用，规范 uya.md §12  
   **C 实现（已完成）**：Checker 校验 drop 签名（仅一个参数 self: T 按值、返回 void）、每类型仅一个 drop（方法块与结构体内部不能重复）；Codegen 在块退出时先 defer 再按变量声明逆序插入 drop 调用，在 return/break/continue 前插入当前块变量的 drop；生成 drop 方法时先按字段逆序插入字段的 drop 再用户体。测试 test_drop_simple.uya、test_drop_order.uya 通过 `--c99`；error_drop_wrong_sig.uya、error_drop_duplicate.uya 预期编译失败。**uya-src**：checker.uya 已同步（check_drop_method_signature、METHOD_BLOCK 与 struct_decl 的 drop 校验）；codegen（stmt.uya 的 emit_drop_cleanup/emit_current_block_drops、current_drop_scope 与 drop_var_*、function.uya 的 drop 方法字段逆序）待同步后 test_drop_*.uya 方可通过 `--uya --c99`。
-- [ ] **移动语义**：结构体赋值/传参/返回为移动，活跃指针禁止移动，规范 uya.md §12.5
+- [x] **移动语义**：结构体赋值/传参/返回为移动，活跃指针禁止移动，规范 uya.md §12.5  
+  **C 实现（已完成）**：Checker 维护已移动集合（moved_names）、符号表 pointee_of 记录 `p = &x` 的活跃指针；赋值/const 初始化/return/函数实参/结构体字面量字段若源为结构体变量则标记移动；使用标识符时检查「已被移动」、移动前检查「存在活跃指针」「循环中不能移动」。测试 test_move_simple.uya 通过；error_move_use_after.uya、error_move_active_pointer.uya、error_move_in_loop.uya 预期编译失败。nested_struct_access、test_complex_expressions、test_empty_struct、test_nested_struct_access、test_struct_comparison 等用例已按移动语义改写。**uya-src**：checker 移动语义检查待同步。
 
 **涉及**：Parser、Checker、Codegen（drop 插入、移动与指针检查），uya-src。
 

@@ -96,7 +96,13 @@ fn main() i32 {
         return 8;  // add(100, 200) = 300
     }
     
-    // 4.2 函数返回结构体字段
+    // 9.3 嵌套字段赋值（必须在 get_value(data) 之前，否则 data 被移动后不能再用）
+    data.points[1].x = add(10, 20);
+    if data.points[1].x != 30 {
+        return 23;  // data.points[1].x 应该是 30
+    }
+    
+    // 4.2 函数返回结构体字段（传参移动 data）
     var result6: i32 = get_value(data);
     if result6 != 100 {
         return 9;  // get_value 应该返回 100
@@ -196,12 +202,6 @@ fn main() i32 {
     arr[0] = multiply(3, 4);
     if arr[0] != 12 {
         return 22;  // arr[0] 应该是 12
-    }
-    
-    // 9.3 嵌套字段赋值
-    data.points[1].x = add(10, 20);
-    if data.points[1].x != 30 {
-        return 23;  // data.points[1].x 应该是 30
     }
     
     // ========== 测试10：sizeof 和 alignof 在表达式中使用 ==========

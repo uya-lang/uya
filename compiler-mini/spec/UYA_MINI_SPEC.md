@@ -1399,7 +1399,8 @@ Uya Mini 支持结构体和数组类型，这些特性使得编译器实现更�
 | 指针 | 支持 `&T`（普通指针）和 `*T`（FFI指针） | 完整支持（包括 lifetime） |
 | 控制流 | if, while, for（数组遍历）, break, continue | if, while, for（数组遍历、整数范围）, match, break, continue |
 | 错误处理 | 不支持 | error, try, catch, !T |
-| 内存管理 | 不支持 | defer, errdefer, RAII |
+| 内存管理 | 不支持 | defer, errdefer, RAII, drop, 移动语义 |
+| 移动语义 | 不支持 | 结构体赋值/传参/返回为移动，活跃指针禁止移动，规范 uya.md §12.5 |
 | 模块系统 | 不支持 | 完整的模块系统 |
 | 字符串 | 字符串字面量（类型为 `*byte`，仅用于 FFI 函数参数） | 完整的字符串支持 |
 | 类型推断 | 不支持 | 不支持（显式类型） |

@@ -30,39 +30,35 @@ fn main() i32 {
     const rect: Rect = Rect{ top_left: p1, bottom_right: p2 };
     const box: Box = Box{ rect: rect, depth: 30 };
     
-    // 测试嵌套字段访问: rect.top_left.x
-    if rect.top_left.x != 10 {
+    // 测试嵌套字段访问（rect 已移入 box，只用 box.rect）
+    if box.rect.top_left.x != 10 {
         return 1;
     }
-    
-    // 测试更深层嵌套: box.rect.bottom_right.y
     if box.rect.bottom_right.y != 60 {
         return 2;
     }
-    
-    // 测试在表达式中使用嵌套访问
     const width: i32 = box.rect.bottom_right.x - box.rect.top_left.x;
     if width != 40 {
         return 3;
     }
     
-    // 测试函数调用中的嵌套访问
-    const x: i32 = get_point_x(rect.top_left);
-    if x != 10 {
-        return 4;
+    // 测试结构体整体赋值后嵌套字段访问（先移动 box 再使用 new_box.rect）
+    var new_box: Box = box;
+    if new_box.rect.top_left.x != 10 || new_box.rect.bottom_right.y != 60 {
+        return 6;
     }
     
-    // 测试函数调用嵌套结构体参数
-    const rect_width: i32 = get_rect_width(box.rect);
+    // 测试函数调用嵌套结构体参数（传参移动）
+    const rect_width: i32 = get_rect_width(new_box.rect);
     if rect_width != 40 {
         return 5;
     }
     
-    // 测试结构体整体赋值后嵌套字段访问
-    var new_box: Box = box;
-    // 验证赋值后嵌套字段仍然正确
-    if new_box.rect.top_left.x != 10 || new_box.rect.bottom_right.y != 60 {
-        return 6;
+    // 测试函数调用中的嵌套访问（用新 Point，避免移动后使用）
+    const px: Point = Point{ x: 10, y: 20 };
+    const x: i32 = get_point_x(px);
+    if x != 10 {
+        return 4;
     }
     
     return 0;

@@ -75,6 +75,7 @@ typedef struct Symbol {
     int scope_level;            // 作用域级别
     int line;                   // 行号
     int column;                 // 列号
+    const char *pointee_of;     // 若本变量值为 &x，则为 x 的名字（移动语义：禁止移动 x），否则 NULL
 } Symbol;
 
 // 函数签名信息
@@ -123,6 +124,9 @@ typedef struct TypeChecker {
     const char *error_names[128];   // 错误名称（Arena 存储）
     uint32_t error_hashes[128];     // 对应 error_id（hash 值，0 保留表示无错误）
     int error_name_count;           // 已注册错误数量
+    // 移动语义（规范 uya.md §12.5）：当前函数内已移动的变量名，移动后不能再次使用
+    const char *moved_names[128];
+    int moved_count;
 } TypeChecker;
 
 // 初始化 TypeChecker

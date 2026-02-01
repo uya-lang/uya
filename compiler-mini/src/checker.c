@@ -31,6 +31,11 @@ static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char 
 static ASTNode *find_interface_decl_from_program(ASTNode *program_node, const char *interface_name);
 static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *enum_name);
 static ASTNode *find_method_block_for_struct(ASTNode *program_node, const char *struct_name);
+static ASTNode *find_method_in_struct(ASTNode *program_node, const char *struct_name, const char *method_name);
+static int moved_set_contains(TypeChecker *checker, const char *name);
+static int has_active_pointer_to(TypeChecker *checker, const char *var_name);
+static void checker_mark_moved(TypeChecker *checker, ASTNode *node, const char *var_name);
+static void checker_mark_moved_call_args(TypeChecker *checker, ASTNode *node);
 
 // 是否为整数类型（用于算术、比较、位运算）
 static int is_integer_type(TypeKind k) {
@@ -85,6 +90,7 @@ int checker_init(TypeChecker *checker, Arena *arena, const char *default_filenam
     checker->current_return_type.kind = TYPE_VOID;
     checker->in_function = 0;
     checker->in_defer_or_errdefer = 0;
+    checker->moved_count = 0;
     checker->current_function_decl = NULL;
     checker->error_name_count = 0;
     for (int i = 0; i < 128; i++) {
@@ -297,6 +303,86 @@ static void checker_exit_scope(TypeChecker *checker) {
     }
     
     checker->scope_level--;
+}
+
+// 移动语义（规范 uya.md §12.5）：已移动集合与活跃指针检查
+static int moved_set_contains(TypeChecker *checker, const char *name) {
+    if (checker == NULL || name == NULL) return 0;
+    for (int i = 0; i < checker->moved_count; i++) {
+        if (checker->moved_names[i] != NULL && strcmp(checker->moved_names[i], name) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+static int has_active_pointer_to(TypeChecker *checker, const char *var_name) {
+    if (checker == NULL || var_name == NULL) return 0;
+    for (int i = 0; i < SYMBOL_TABLE_SIZE; i++) {
+        Symbol *s = checker->symbol_table.slots[i];
+        if (s != NULL && s->pointee_of != NULL && strcmp(s->pointee_of, var_name) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+static void checker_mark_moved(TypeChecker *checker, ASTNode *node, const char *var_name, const char *struct_name) {
+    if (checker == NULL || var_name == NULL) return;
+    if (struct_name == NULL) return;
+    if (has_active_pointer_to(checker, var_name)) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "变量 '%s' 存在活跃指针，不能移动", var_name);
+        checker_report_error(checker, node != NULL ? node : checker->current_function_decl, buf);
+        return;
+    }
+    if (checker->loop_depth > 0) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "循环中的变量 '%s' 不能移动", var_name);
+        checker_report_error(checker, node != NULL ? node : checker->current_function_decl, buf);
+        return;
+    }
+    if (checker->moved_count >= 128) return;
+    char *copy = (char *)arena_alloc(checker->arena, (size_t)(strlen(var_name) + 1));
+    if (copy != NULL) {
+        memcpy(copy, var_name, (size_t)(strlen(var_name) + 1));
+        checker->moved_names[checker->moved_count++] = copy;
+    }
+}
+
+static void checker_mark_moved_call_args(TypeChecker *checker, ASTNode *node) {
+    if (checker == NULL || node == NULL || node->type != AST_CALL_EXPR) return;
+    ASTNode *callee = node->data.call_expr.callee;
+    int n = node->data.call_expr.arg_count;
+    ASTNode **args = node->data.call_expr.args;
+    if (args == NULL) return;
+    if (callee->type == AST_MEMBER_ACCESS) {
+        Type object_type = checker_infer_type(checker, callee->data.member_access.object);
+        if (object_type.kind == TYPE_POINTER && object_type.data.pointer.pointer_to != NULL)
+            object_type = *object_type.data.pointer.pointer_to;
+        if (object_type.kind == TYPE_STRUCT && object_type.data.struct_name != NULL && checker->program_node != NULL) {
+            ASTNode *m = find_method_in_struct(checker->program_node, object_type.data.struct_name, callee->data.member_access.field_name);
+            if (m != NULL && m->type == AST_FN_DECL && m->data.fn_decl.params != NULL) {
+                for (int i = 0; i < n && i + 1 < m->data.fn_decl.param_count; i++) {
+                    ASTNode *arg = args[i];
+                    if (arg != NULL && arg->type == AST_IDENTIFIER) {
+                        ASTNode *param = m->data.fn_decl.params[i + 1];
+                        if (param != NULL && param->type == AST_VAR_DECL && param->data.var_decl.type != NULL) {
+                            Type pt = type_from_ast(checker, param->data.var_decl.type);
+                            if (pt.kind == TYPE_STRUCT && pt.data.struct_name != NULL)
+                                checker_mark_moved(checker, arg, arg->data.identifier.name, pt.data.struct_name);
+                        }
+                    }
+                }
+            }
+        }
+        return;
+    }
+    if (callee->type != AST_IDENTIFIER) return;
+    FunctionSignature *sig = function_table_lookup(checker, callee->data.identifier.name);
+    if (sig == NULL || sig->param_types == NULL) return;
+    for (int i = 0; i < n && i < sig->param_count; i++) {
+        if (args[i] != NULL && args[i]->type == AST_IDENTIFIER && sig->param_types[i].kind == TYPE_STRUCT && sig->param_types[i].data.struct_name != NULL)
+            checker_mark_moved(checker, args[i], args[i]->data.identifier.name, sig->param_types[i].data.struct_name);
+    }
 }
 
 // 检查类型是否可以隐式转换（用于返回值类型检查）
@@ -919,6 +1005,7 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
                     sym->scope_level = checker->scope_level;
                     sym->line = expr->line;
                     sym->column = expr->column;
+                    sym->pointee_of = NULL;
                     symbol_table_insert(checker, sym);
                 }
                 checker_check_node(checker, expr->data.catch_expr.catch_block);
@@ -940,6 +1027,13 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
         }
             
         case AST_IDENTIFIER: {
+            if (moved_set_contains(checker, expr->data.identifier.name)) {
+                char buf[256];
+                snprintf(buf, sizeof(buf), "变量 '%s' 已被移动，不能再次使用", expr->data.identifier.name);
+                checker_report_error(checker, expr, buf);
+                result.kind = TYPE_VOID;
+                return result;
+            }
             // 标识符类型需要从符号表中查找
             Symbol *symbol = symbol_table_lookup(checker, expr->data.identifier.name);
             if (symbol != NULL) {
@@ -1831,6 +1925,8 @@ static int checker_check_var_decl(TypeChecker *checker, ASTNode *node) {
                 // 这在编译器自举时很常见，因为类型推断可能失败或类型系统不够完善
                 // 不再报告错误，直接允许通过
             }
+            if (node->data.var_decl.init->type == AST_IDENTIFIER && var_type.kind == TYPE_STRUCT && var_type.data.struct_name != NULL)
+                checker_mark_moved(checker, node, node->data.var_decl.init->data.identifier.name, var_type.data.struct_name);
         }
     }
     
@@ -1856,7 +1952,6 @@ static int checker_check_var_decl(TypeChecker *checker, ASTNode *node) {
     Symbol *symbol = (Symbol *)arena_alloc(checker->arena, sizeof(Symbol));
     if (symbol == NULL) {
         // Arena 分配失败：放宽检查，允许通过（不报错）
-        // 这在编译器自举时可能发生，但不应该阻塞编译
         return 1;
     }
     symbol->name = node->data.var_decl.name;
@@ -1865,6 +1960,7 @@ static int checker_check_var_decl(TypeChecker *checker, ASTNode *node) {
     symbol->scope_level = checker->scope_level;
     symbol->line = node->line;
     symbol->column = node->column;
+    symbol->pointee_of = NULL;
     
     if (symbol_table_insert(checker, symbol) != 0) {
         // 符号插入失败（哈希表已满）：报告错误
@@ -1872,6 +1968,18 @@ static int checker_check_var_decl(TypeChecker *checker, ASTNode *node) {
         snprintf(error_msg, sizeof(error_msg), "符号表已满，无法添加变量 '%s'", node->data.var_decl.name);
         checker_report_error(checker, node, error_msg);
         return 0;
+    }
+    if (node->data.var_decl.init != NULL && node->data.var_decl.init->type == AST_UNARY_EXPR &&
+        node->data.var_decl.init->data.unary_expr.op == TOKEN_AMPERSAND &&
+        node->data.var_decl.init->data.unary_expr.operand != NULL &&
+        node->data.var_decl.init->data.unary_expr.operand->type == AST_IDENTIFIER) {
+        const char *x = node->data.var_decl.init->data.unary_expr.operand->data.identifier.name;
+        size_t len = (size_t)(strlen(x) + 1);
+        char *copy = (char *)arena_alloc(checker->arena, len);
+        if (copy != NULL) {
+            memcpy(copy, x, len);
+            symbol->pointee_of = copy;
+        }
     }
     
     return 1;
@@ -1925,6 +2033,7 @@ static int checker_check_destructure_decl(TypeChecker *checker, ASTNode *node) {
         symbol->scope_level = checker->scope_level;
         symbol->line = node->line;
         symbol->column = node->column;
+        symbol->pointee_of = NULL;
         Symbol *existing = symbol_table_lookup(checker, name);
         if (existing != NULL && existing->scope_level == checker->scope_level) {
             char error_msg[256];
@@ -2072,11 +2181,13 @@ static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
                     param_symbol->scope_level = checker->scope_level;
                     param_symbol->line = param->line;
                     param_symbol->column = param->column;
+                    param_symbol->pointee_of = NULL;
                     symbol_table_insert(checker, param_symbol);
                 }
             }
         }
         
+        checker->moved_count = 0;
         // 检查函数体
         checker_check_node(checker, node->data.fn_decl.body);
         
@@ -2597,6 +2708,8 @@ static Type checker_check_struct_init(TypeChecker *checker, ASTNode *node) {
             // 放宽检查：字段值类型不匹配时，允许通过（不报错）
             continue;
         }
+        if (field_value != NULL && field_value->type == AST_IDENTIFIER && field_type.kind == TYPE_STRUCT)
+            checker_mark_moved(checker, field_value, field_value->data.identifier.name, field_type.data.struct_name);
     }
     
     result.kind = TYPE_STRUCT;
@@ -3122,6 +3235,7 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                         loop_var->scope_level = checker->scope_level;
                         loop_var->line = node->line;
                         loop_var->column = node->column;
+                        loop_var->pointee_of = NULL;
                         symbol_table_insert(checker, loop_var);
                     }
                 }
@@ -3252,6 +3366,7 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                     loop_var->scope_level = checker->scope_level;
                     loop_var->line = node->line;
                     loop_var->column = node->column;
+                    loop_var->pointee_of = NULL;
                     if (!symbol_table_insert(checker, loop_var)) {
                         // 符号表插入失败：放宽检查，允许通过（不报错），继续检查循环体
                         // 这可能是因为符号已存在或其他原因，但不应该阻止循环体的检查
@@ -3287,6 +3402,7 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                         sym->scope_level = checker->scope_level;
                         sym->line = node->line;
                         sym->column = node->column;
+                        sym->pointee_of = NULL;
                         symbol_table_insert(checker, sym);
                     }
                 }
@@ -3526,6 +3642,11 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                     return 0;
                 }
             }
+            if (node->data.return_stmt.expr != NULL && node->data.return_stmt.expr->type == AST_IDENTIFIER) {
+                Type rt = checker_infer_type(checker, node->data.return_stmt.expr);
+                if (rt.kind == TYPE_STRUCT && rt.data.struct_name != NULL)
+                    checker_mark_moved(checker, node, node->data.return_stmt.expr->data.identifier.name, rt.data.struct_name);
+            }
             return 1;
         }
         
@@ -3616,7 +3737,26 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             if (!checker_check_expr_type(checker, node->data.assign.src, dest_type)) {
                 return 0;
             }
-            
+            ASTNode *src = node->data.assign.src;
+            if (dest->type == AST_IDENTIFIER && src != NULL && src->type == AST_UNARY_EXPR &&
+                src->data.unary_expr.op == TOKEN_AMPERSAND && src->data.unary_expr.operand != NULL &&
+                src->data.unary_expr.operand->type == AST_IDENTIFIER) {
+                Symbol *sym = symbol_table_lookup(checker, dest->data.identifier.name);
+                if (sym != NULL) {
+                    const char *x = src->data.unary_expr.operand->data.identifier.name;
+                    size_t len = (size_t)(strlen(x) + 1);
+                    char *copy = (char *)arena_alloc(checker->arena, len);
+                    if (copy != NULL) {
+                        memcpy(copy, x, len);
+                        sym->pointee_of = copy;
+                    }
+                }
+            }
+            if (src != NULL && src->type == AST_IDENTIFIER) {
+                Type st = checker_infer_type(checker, src);
+                if (st.kind == TYPE_STRUCT && st.data.struct_name != NULL)
+                    checker_mark_moved(checker, node, src->data.identifier.name, st.data.struct_name);
+            }
             return 1;
         }
         
@@ -3638,6 +3778,7 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             
         case AST_CALL_EXPR:
             checker_check_call_expr(checker, node);
+            checker_mark_moved_call_args(checker, node);
             return 1;
             
         case AST_MEMBER_ACCESS:

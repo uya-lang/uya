@@ -62,10 +62,10 @@ fn main() i32 {
         return 7;  // 两个空结构体应该相等（内存内容相同）
     }
     
-    // 测试8：空结构体赋值（按值复制）
+    // 测试8：空结构体赋值（移动语义：empty1 移入 empty3）
     var empty3: Empty = empty1;
-    if empty3 != empty1 {
-        return 8;  // 赋值后的空结构体应该相等
+    if empty3 != empty2 {
+        return 8;  // 赋值后 empty3 与 empty2 同值（空结构体相等）
     }
     
     // 测试9：空结构体数组
@@ -75,10 +75,11 @@ fn main() i32 {
         return 9;  // 3 个空结构体的数组大小应该是 3 字节（每个 1 字节）
     }
     
-    // 测试10：空结构体作为函数参数和返回值
-    var empty4: Empty = process_empty(empty1);
-    if empty4 != empty1 {
-        return 10;  // 函数返回的空结构体应该相等
+    // 测试10：空结构体作为函数参数和返回值（empty2 传参移动，用新字面量比较）
+    var empty4: Empty = process_empty(empty2);
+    const empty_cmp: Empty = Empty{};
+    if empty4 != empty_cmp {
+        return 10;  // 函数返回的空结构体应与 Empty{} 相等
     }
     
     // 测试11：空结构体在结构体中作为字段
