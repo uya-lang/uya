@@ -34,9 +34,9 @@
 - [x] **参数列表即元组**：函数体内通过 `@params` 访问整份参数列表作为元组，与现有元组类型、解构声明衔接；规范 uya.md 规范变更 0.34
 - [x] **可变参数**：`...` 形参（C 语法兼容）、`printf(fmt, ...)` 参数转发、`@params` 元组访问；编译器智能优化（未用 `@params` 时零开销）；规范 uya.md §5.4
 - [x] **字符串插值与 printf 结合**：`"a${x}"`、`"a${x:format}"`，结果类型与 printf 格式一致，规范 uya.md §17；可与阶段 10 合并实现  
-  **C 实现**：Lexer（INTERP_*、string_mode/interp_depth、返回 INTERP_SPEC 后重置 reading_spec 修复 type=8）、AST、Parser、Checker、Codegen 已完成。支持多段、带 `:spec`（如 `#06x`、`.2f`、`ld`、`zu`）、连续插值、变量初始化、printf 单参（`printf("%s", arg)` 消除 -Wformat-security）、i64/f32/usize/u8 等类型。测试 test_string_interp.uya（19 条用例，含表达式插值 `${a+b}`）、test_string_interp_minimal/simple/one 通过 `--c99`。
+  **C 实现**：Lexer（INTERP_*、string_mode/interp_depth、返回 INTERP_SPEC 后重置 reading_spec 修复 type=8）、AST、Parser、Checker、Codegen 已完成。支持多段、带 `:spec`（如 `#06x`、`.2f`、`ld`、`zu`）、连续插值、变量初始化、printf 单参（`printf("%s", arg)` 消除 -Wformat-security）、i64/f32/usize/u8 等类型。**插值仅作 printf/fprintf 格式参数时脱糖为单次 printf(fmt, ...)、无中间缓冲**（emit_printf_fmt_inline 内联输出格式串）。测试 test_string_interp.uya（19 条用例，含表达式插值 `${a+b}`）、test_string_interp_minimal/simple/one 通过 `--c99`。
 
-**uya-src 已同步**：Lexer（TOKEN_INTERP_*、string_mode/interp_depth/reading_spec/pending_interp_open、read_string_char_into_buffer、next_token 插值逻辑）、AST（AST_STRING_INTERP、ASTStringInterpSegment）、Parser（primary_expr 中 INTERP_TEXT/OPEN 解析、parser_peek 禁用 string_mode）、Checker（checker_interp_format_max_width、AST_STRING_INTERP 类型与 computed_size）、Codegen（c99_emit_string_interp_fill、collect 阶段预收集格式串、call 实参临时缓冲、stmt 变量初始化）。test_string_interp*.uya 通过 `--uya --c99`。**自举对比（--c99 -b）已通过**：根因为 Arena 在解析 main.uya 时内存不足（实参列表扩展需 648 字节），修复为 arena_alloc 失败时打印「Arena 分配失败（内存不足）」并 exit(1)、ARENA_BUFFER_SIZE 增至 48MB。
+**uya-src 已同步**：Lexer（TOKEN_INTERP_*、string_mode/interp_depth/reading_spec/pending_interp_open、read_string_char_into_buffer、next_token 插值逻辑）、AST（AST_STRING_INTERP、ASTStringInterpSegment）、Parser（primary_expr 中 INTERP_TEXT/OPEN 解析、parser_peek 禁用 string_mode）、Checker（checker_interp_format_max_width、AST_STRING_INTERP 类型与 computed_size）、Codegen（c99_emit_string_interp_fill、call 实参临时缓冲、stmt 变量初始化、**printf/fprintf 插值脱糖为单次 printf 无中间缓冲**）。test_string_interp*.uya 通过 `--uya --c99`。**自举对比（--c99 -b）已通过**：根因为 Arena 在解析 main.uya 时内存不足（实参列表扩展需 648 字节），修复为 arena_alloc 失败时打印「Arena 分配失败（内存不足）」并 exit(1)、ARENA_BUFFER_SIZE 增至 48MB。
 
 **可变参数与 @params（C 实现与 uya-src 同步已完成）**：Lexer 支持 `@params`；AST 新增 AST_PARAMS、call 的 has_ellipsis_forward；Parser 支持 fn 形参 `...`、primary 中 `@params`/`@params.0`、调用末尾 `...`；Checker 中 `@params` 仅函数体内、类型为参数元组，`...` 转发仅可变参数函数、实参个数=被调固定参数个数；Codegen 按需生成（未用 @params 不生成元组、无 `...` 转发不生成 va_list），转发时用 va_list+vprintf 等。测试 `test_varargs.uya`、`test_varargs_full.uya` 通过 `--c99` 与 `--uya --c99`。
 
@@ -202,7 +202,7 @@
 ## 10. 字符串插值
 
 - [x] **插值语法（C 实现 + uya-src 同步）**：`"a${x}"`、`"a${x:format}"`，结果类型 `[i8: N]`，与 printf 格式一致，规范 uya.md §17  
-  已实现：多段、`:spec`（#06x、.2f、ld、zu）、连续插值、变量/数组初始化、printf 单参、表达式插值（如 `${a+b}`）、i32/u32/i64/f32/f64/usize/u8 等。test_string_interp.uya（19 条用例）等通过 `--c99` 与 `--uya --c99`。uya-src 已同步（Lexer/AST/Parser/Checker/Codegen）。
+  已实现：多段、`:spec`（#06x、.2f、ld、zu）、连续插值、变量/数组初始化、printf 单参、表达式插值（如 `${a+b}`）、i32/u32/i64/f32/f64/usize/u8 等。**插值仅作 printf/fprintf 格式参数时脱糖为单次 printf(fmt, ...)、无中间缓冲**。test_string_interp.uya（19 条用例）等通过 `--c99` 与 `--uya --c99`。uya-src 已同步（Lexer/AST/Parser/Checker/Codegen）。
 - [ ] **原始字符串**：`` `...` ``，无转义，规范 uya.md §1
 
 **涉及**：Lexer、Parser、类型与宽度计算、Codegen。

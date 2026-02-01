@@ -1218,14 +1218,56 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         }
     } else if expr.type == ASTNodeType.AST_CALL_EXPR {
         const callee: &ASTNode = expr.call_expr_callee;
+        const args: & & ASTNode = expr.call_expr_args;
         const arg_count: i32 = expr.call_expr_arg_count;
         const has_ellipsis: i32 = expr.call_expr_has_ellipsis_forward;
-        
-        // 查找函数声明（用于检查参数类型）
-        var fn_decl: &ASTNode = null;
         var callee_name: &byte = null;
         if callee != null && callee.type == ASTNodeType.AST_IDENTIFIER {
             callee_name = callee.identifier_name;
+        }
+
+        // 插值仅作 printf/fprintf 格式参数时：脱糖为单次 printf(fmt, ...)，无中间缓冲
+        if callee_name != null && args != null && has_ellipsis == 0 {
+            if strcmp(callee_name as *byte, "printf" as *byte) == 0 && arg_count == 1 && args[0] != null && args[0].type == ASTNodeType.AST_STRING_INTERP {
+                const interp: &ASTNode = args[0];
+                const safe: &byte = get_safe_c_identifier(codegen, "printf" as &byte);
+                fprintf(codegen.output as *void, "%s(" as *byte, safe as *byte);
+                emit_printf_fmt_inline(codegen, interp);
+                var i: i32 = 0;
+                while i < interp.string_interp_segment_count {
+                    const seg: &ASTStringInterpSegment = &interp.string_interp_segments[i];
+                    if seg.is_text == 0 && seg.expr != null {
+                        fputs(", " as *byte, codegen.output as *void);
+                        gen_expr(codegen, seg.expr);
+                    }
+                    i = i + 1;
+                }
+                fputc(41, codegen.output as *void);
+                return;
+            } else if strcmp(callee_name as *byte, "fprintf" as *byte) == 0 && arg_count == 2 && args[1] != null && args[1].type == ASTNodeType.AST_STRING_INTERP {
+                const interp: &ASTNode = args[1];
+                const safe: &byte = get_safe_c_identifier(codegen, "fprintf" as &byte);
+                fprintf(codegen.output as *void, "%s(" as *byte, safe as *byte);
+                gen_expr(codegen, args[0]);
+                fputs(", " as *byte, codegen.output as *void);
+                emit_printf_fmt_inline(codegen, interp);
+                var i: i32 = 0;
+                while i < interp.string_interp_segment_count {
+                    const seg: &ASTStringInterpSegment = &interp.string_interp_segments[i];
+                    if seg.is_text == 0 && seg.expr != null {
+                        fputs(", " as *byte, codegen.output as *void);
+                        gen_expr(codegen, seg.expr);
+                    }
+                    i = i + 1;
+                }
+                fputc(41, codegen.output as *void);
+                return;
+            }
+        }
+
+        // 查找函数声明（用于检查参数类型）
+        var fn_decl: &ASTNode = null;
+        if callee != null && callee.type == ASTNodeType.AST_IDENTIFIER {
             fn_decl = find_function_decl_c99(codegen, callee_name);
         }
         

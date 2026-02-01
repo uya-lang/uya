@@ -359,6 +359,63 @@ int eval_const_expr(C99CodeGenerator *codegen, ASTNode *expr) {
     }
 }
 
+/* 从字符串插值构建 printf 格式串并添加为常量，用于 printf(interp) 脱糖。
+ * 返回常量名（如 "str42"），失败返回 NULL。 */
+const char *build_and_add_printf_fmt_from_interp(C99CodeGenerator *codegen, ASTNode *interp) {
+    if (!codegen || !interp || interp->type != AST_STRING_INTERP) return NULL;
+    int n = interp->data.string_interp.segment_count;
+    if (n <= 0) return NULL;
+    char buf[2048];
+    size_t off = 0;
+    for (int i = 0; i < n && off < sizeof(buf) - 32; i++) {
+        ASTStringInterpSegment *seg = &interp->data.string_interp.segments[i];
+        if (seg->is_text && seg->text) {
+            for (const char *p = seg->text; *p && off < sizeof(buf) - 4; p++) {
+                if (*p == '%') { buf[off++] = '%'; buf[off++] = '%'; }
+                else buf[off++] = (char)*p;
+            }
+        } else if (!seg->is_text) {
+            const char *spec = (seg->format_spec && seg->format_spec[0]) ? seg->format_spec : "d";
+            size_t slen = strlen(spec);
+            if (off + 2 + slen >= sizeof(buf)) break;
+            buf[off++] = '%';
+            memcpy(buf + off, spec, slen + 1);
+            off += slen;
+        }
+    }
+    buf[off] = '\0';
+    return add_string_constant(codegen, buf);
+}
+
+/* 将插值格式串直接输出到 output（内联），不依赖常量表 */
+void emit_printf_fmt_inline(C99CodeGenerator *codegen, ASTNode *interp) {
+    if (!codegen || !interp || interp->type != AST_STRING_INTERP) return;
+    int n = interp->data.string_interp.segment_count;
+    if (n <= 0) return;
+    char buf[2048];
+    size_t off = 0;
+    for (int i = 0; i < n && off < sizeof(buf) - 32; i++) {
+        ASTStringInterpSegment *seg = &interp->data.string_interp.segments[i];
+        if (seg->is_text && seg->text) {
+            for (const char *p = seg->text; *p && off < sizeof(buf) - 4; p++) {
+                if (*p == '%') { buf[off++] = '%'; buf[off++] = '%'; }
+                else buf[off++] = (char)*p;
+            }
+        } else if (!seg->is_text) {
+            const char *spec = (seg->format_spec && seg->format_spec[0]) ? seg->format_spec : "d";
+            size_t slen = strlen(spec);
+            if (off + 2 + slen >= sizeof(buf)) break;
+            buf[off++] = '%';
+            memcpy(buf + off, spec, slen + 1);
+            off += slen;
+        }
+    }
+    buf[off] = '\0';
+    fputc('"', codegen->output);
+    escape_string_for_c(codegen->output, buf);
+    fputc('"', codegen->output);
+}
+
 // 收集表达式中的字符串常量（不生成代码）
 void collect_string_constants_from_expr(C99CodeGenerator *codegen, ASTNode *expr) {
     if (!expr) return;
@@ -394,9 +451,12 @@ void collect_string_constants_from_expr(C99CodeGenerator *codegen, ASTNode *expr
             collect_string_constants_from_expr(codegen, expr->data.unary_expr.operand);
             break;
         case AST_CALL_EXPR: {
-            collect_string_constants_from_expr(codegen, expr->data.call_expr.callee);
-            for (int i = 0; i < expr->data.call_expr.arg_count; i++) {
-                collect_string_constants_from_expr(codegen, expr->data.call_expr.args[i]);
+            ASTNode *callee = expr->data.call_expr.callee;
+            ASTNode **args = expr->data.call_expr.args;
+            int arg_count = expr->data.call_expr.arg_count;
+            collect_string_constants_from_expr(codegen, callee);
+            for (int i = 0; i < arg_count; i++) {
+                collect_string_constants_from_expr(codegen, args[i]);
             }
             break;
         }

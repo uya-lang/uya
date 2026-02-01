@@ -18,6 +18,10 @@ void emit_line_directive(C99CodeGenerator *codegen, int line, const char *filena
 const char *add_string_constant(C99CodeGenerator *codegen, const char *value);
 void emit_string_constants(C99CodeGenerator *codegen);
 void collect_string_constants_from_expr(C99CodeGenerator *codegen, ASTNode *expr);
+/* 从插值构建 printf 格式串常量并添加，用于 printf(interp) 脱糖；返回常量名 */
+const char *build_and_add_printf_fmt_from_interp(C99CodeGenerator *codegen, ASTNode *interp);
+/* 将插值格式串直接输出到 output（内联，不依赖常量表），用于避免 collect/emit 顺序问题 */
+void emit_printf_fmt_inline(C99CodeGenerator *codegen, ASTNode *interp);
 void collect_string_constants_from_stmt(C99CodeGenerator *codegen, ASTNode *stmt);
 void collect_string_constants_from_decl(C99CodeGenerator *codegen, ASTNode *decl);
 

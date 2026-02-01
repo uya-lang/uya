@@ -1164,7 +1164,45 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             ASTNode **args = expr->data.call_expr.args;
             int arg_count = expr->data.call_expr.arg_count;
             int has_ellipsis = expr->data.call_expr.has_ellipsis_forward;
-            
+            const char *callee_name = (callee && callee->type == AST_IDENTIFIER) ? callee->data.identifier.name : NULL;
+
+            /* 插值仅作 printf/fprintf 格式参数时：脱糖为单次 printf(fmt, ...)，无中间缓冲 */
+            if (callee_name && args && !has_ellipsis) {
+                if (strcmp(callee_name, "printf") == 0 && arg_count == 1 && args[0] && args[0]->type == AST_STRING_INTERP) {
+                    ASTNode *interp = args[0];
+                    const char *safe = get_safe_c_identifier(codegen, "printf");
+                    fprintf(codegen->output, "%s(", safe);
+                    emit_printf_fmt_inline(codegen, interp);
+                    int n = interp->data.string_interp.segment_count;
+                    for (int i = 0; i < n; i++) {
+                        ASTStringInterpSegment *seg = &interp->data.string_interp.segments[i];
+                        if (!seg->is_text && seg->expr) {
+                            fputs(", ", codegen->output);
+                            gen_expr(codegen, seg->expr);
+                        }
+                    }
+                    fputc(')', codegen->output);
+                    break;
+                } else if (strcmp(callee_name, "fprintf") == 0 && arg_count == 2 && args[1] && args[1]->type == AST_STRING_INTERP) {
+                    ASTNode *interp = args[1];
+                    const char *safe = get_safe_c_identifier(codegen, "fprintf");
+                    fprintf(codegen->output, "%s(", safe);
+                    gen_expr(codegen, args[0]);
+                    fputs(", ", codegen->output);
+                    emit_printf_fmt_inline(codegen, interp);
+                    int n = interp->data.string_interp.segment_count;
+                    for (int i = 0; i < n; i++) {
+                        ASTStringInterpSegment *seg = &interp->data.string_interp.segments[i];
+                        if (!seg->is_text && seg->expr) {
+                            fputs(", ", codegen->output);
+                            gen_expr(codegen, seg->expr);
+                        }
+                    }
+                    fputc(')', codegen->output);
+                    break;
+                }
+            }
+
             /* 实参中的字符串插值：先为每个 AST_STRING_INTERP 生成临时缓冲区 */
             for (int i = 0; i < arg_count && i < C99_MAX_CALL_ARGS; i++) {
                 codegen->interp_arg_temp_names[i] = NULL;
@@ -1310,7 +1348,6 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             
             // 查找函数声明（用于检查参数类型）
             ASTNode *fn_decl = NULL;
-            const char *callee_name = NULL;
             if (callee && callee->type == AST_IDENTIFIER) {
                 callee_name = callee->data.identifier.name;
                 fn_decl = find_function_decl_c99(codegen, callee_name);
