@@ -39,7 +39,9 @@ enum ASTNodeType {
     AST_PROGRAM,
     AST_ENUM_DECL,
     AST_ERROR_DECL,    // 预定义错误声明（error Name;）
+    AST_INTERFACE_DECL, // 接口声明（interface I { fn method(self: *Self,...) Ret; ... }）
     AST_STRUCT_DECL,
+    AST_METHOD_BLOCK,  // 方法块（StructName { fn method(...) { ... } ... }）
     AST_FN_DECL,
     AST_VAR_DECL,
     AST_DESTRUCTURE_DECL,  // 解构声明（const (x, y) = expr）
@@ -111,10 +113,20 @@ struct ASTNode {
     enum_decl_variant_count: i32,
     // error_decl（预定义错误声明 error Name;）
     error_decl_name: &byte,
+    // interface_decl（interface I { fn method(self: *Self,...) Ret; ... }）
+    interface_decl_name: &byte,
+    interface_decl_method_sigs: & & ASTNode,
+    interface_decl_method_sig_count: i32,
     // struct_decl
     struct_decl_name: &byte,
+    struct_decl_interface_names: & & byte,  // 实现的接口名称数组（可为 null）
+    struct_decl_interface_count: i32,
     struct_decl_fields: & & ASTNode,
     struct_decl_field_count: i32,
+    // method_block（StructName { fn method(...) { ... } ... }）
+    method_block_struct_name: &byte,
+    method_block_methods: & & ASTNode,
+    method_block_method_count: i32,
     // fn_decl
     fn_decl_name: &byte,
     fn_decl_params: & & ASTNode,
@@ -270,9 +282,17 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.enum_decl_variants = null;
     node.enum_decl_variant_count = 0;
     node.error_decl_name = null;
+    node.interface_decl_name = null;
+    node.interface_decl_method_sigs = null;
+    node.interface_decl_method_sig_count = 0;
     node.struct_decl_name = null;
+    node.struct_decl_interface_names = null;
+    node.struct_decl_interface_count = 0;
     node.struct_decl_fields = null;
     node.struct_decl_field_count = 0;
+    node.method_block_struct_name = null;
+    node.method_block_methods = null;
+    node.method_block_method_count = 0;
     node.fn_decl_name = null;
     node.fn_decl_params = null;
     node.fn_decl_param_count = 0;

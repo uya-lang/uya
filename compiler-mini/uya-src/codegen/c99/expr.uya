@@ -1120,6 +1120,40 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             }
             arg_idx = arg_idx + 1;
         }
+        var did_interface_call: i32 = 0;
+        // 接口方法调用：obj.method(args) -> ((struct uya_vtable_I *)obj.vtable)->method(obj.data, args...)
+        if callee != null && callee.type == ASTNodeType.AST_MEMBER_ACCESS {
+            const obj: &ASTNode = callee.member_access_object;
+            const method_name: &byte = callee.member_access_field_name;
+            const obj_type_c: &byte = get_c_type_of_expr(codegen, obj);
+            if obj_type_c != null && strstr(obj_type_c as *byte, "uya_interface_" as *byte) != null {
+                const p: *byte = strstr(obj_type_c as *byte, "uya_interface_" as *byte);
+                const iface_start: &byte = &p[14] as &byte;
+                const safe_method: &byte = get_safe_c_identifier(codegen, method_name);
+                fprintf(codegen.output as *void, "((struct uya_vtable_%s *)(" as *byte, iface_start as *byte);
+                gen_expr(codegen, obj);
+                fprintf(codegen.output as *void, ").vtable)->%s((" as *byte, safe_method as *byte);
+                gen_expr(codegen, obj);
+                fputs(").data" as *byte, codegen.output as *void);
+                var i: i32 = 0;
+                while i < arg_count {
+                    fputs(", " as *byte, codegen.output as *void);
+                    if codegen.interp_arg_temp_names[i] != null {
+                        fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                        fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.output as *void);
+                    } else {
+                        if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
+                            fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                        }
+                        gen_expr(codegen, expr.call_expr_args[i]);
+                    }
+                    i = i + 1;
+                }
+                fputc(41, codegen.output as *void);
+                did_interface_call = 1;
+            }
+        }
+        if did_interface_call == 0 {
         if do_va_forward != 0 && vname != null && last_param != null {
             const last_safe: &byte = get_safe_c_identifier(codegen, last_param);
             c99_emit(codegen, "((void)0, ({\n" as *byte);
@@ -1207,7 +1241,60 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             if need_address != 0 {
                 fputc(38, codegen.output as *void);  // '&'
             }
+            // 装箱：当形参是接口类型且实参是实现了该接口的结构体时，生成 vtable+data
+            var did_box: i32 = 0;
+            if fn_decl != null && fn_decl.type == ASTNodeType.AST_FN_DECL && i < fn_decl.fn_decl_param_count {
+                const param: &ASTNode = fn_decl.fn_decl_params[i];
+                if param != null && param.type == ASTNodeType.AST_VAR_DECL && param.var_decl_type != null &&
+                    param.var_decl_type.type == ASTNodeType.AST_TYPE_NAMED {
+                    const param_type_name: &byte = param.var_decl_type.type_named_name;
+                    const iface: &ASTNode = find_interface_decl_c99(codegen, param_type_name);
+                    if iface != null && expr.call_expr_args[i] != null {
+                        var struct_name_for_check: &byte = null;
+                        const arg: &ASTNode = expr.call_expr_args[i];
+                        if arg.type == ASTNodeType.AST_IDENTIFIER {
+                            const arg_type_c: &byte = get_identifier_type_c(codegen, arg.identifier_name);
+                            if arg_type_c != null {
+                                var atc: &byte = arg_type_c;
+                                if strncmp(atc as *byte, "const " as *byte, 6) == 0 {
+                                    atc = &arg_type_c[6] as &byte;
+                                }
+                                if strncmp(atc as *byte, "struct " as *byte, 7) == 0 &&
+                                    strstr(atc as *byte, "uya_interface_" as *byte) == null {
+                                    var snbuf: [byte: 64] = [];
+                                    const start: &byte = &atc[7] as &byte;
+                                    var pos: i32 = 0;
+                                    while start[pos] != 0 && start[pos] != 32 && start[pos] != 42 && pos < 63 {
+                                        snbuf[pos] = start[pos];
+                                        pos = pos + 1;
+                                    }
+                                    snbuf[pos] = 0;
+                                    if pos > 0 && struct_implements_interface_c99(codegen, &snbuf[0] as &byte, param_type_name) != 0 {
+                                        struct_name_for_check = &snbuf[0] as &byte;
+                                    }
+                                }
+                            }
+                        } else if arg.type == ASTNodeType.AST_STRUCT_INIT {
+                            const st_name: &byte = arg.struct_init_struct_name;
+                            if st_name != null && struct_implements_interface_c99(codegen, st_name, param_type_name) != 0 {
+                                struct_name_for_check = st_name;
+                            }
+                        }
+                        if struct_name_for_check != null {
+                            const safe_iface: &byte = get_safe_c_identifier(codegen, param_type_name);
+                            const safe_struct: &byte = get_safe_c_identifier(codegen, struct_name_for_check);
+                            fprintf(codegen.output as *void, "(struct uya_interface_%s){ .vtable = (void*)&uya_vtable_%s_%s, .data = (void*)&(" as *byte,
+                                    safe_iface as *byte, safe_iface as *byte, safe_struct as *byte);
+                            gen_expr(codegen, expr.call_expr_args[i]);
+                            fputs(") }" as *byte, codegen.output as *void);
+                            did_box = 1;
+                        }
+                    }
+                }
+            }
+            if did_box == 0 {
             gen_expr(codegen, expr.call_expr_args[i]);
+            }
             }
             if i < arg_count - 1 {
                 fputs(", " as *byte, codegen.output as *void);
@@ -1215,6 +1302,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             i = i + 1;
         }
         fputc(41, codegen.output as *void);  // ')'
+        }
         }
     } else if expr.type == ASTNodeType.AST_ASSIGN {
         // 赋值表达式（右结合）：dest = src；dest 为 _ 时仅求值右侧

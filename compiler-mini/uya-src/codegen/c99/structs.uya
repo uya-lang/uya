@@ -116,6 +116,232 @@ fn find_struct_decl_from_type_c(codegen: &C99CodeGenerator, type_c: &byte) &ASTN
     return find_struct_decl_c99(codegen, &name_buf[0] as &byte);
 }
 
+// 检查结构体是否实现某接口
+fn struct_implements_interface_c99(codegen: &C99CodeGenerator, struct_name: &byte, interface_name: &byte) i32 {
+    const s: &ASTNode = find_struct_decl_c99(codegen, struct_name);
+    if s == null || s.type != ASTNodeType.AST_STRUCT_DECL || s.struct_decl_interface_names == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < s.struct_decl_interface_count {
+        if s.struct_decl_interface_names[i] != null &&
+            strcmp(s.struct_decl_interface_names[i] as *byte, interface_name as *byte) == 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 查找接口声明
+fn find_interface_decl_c99(codegen: &C99CodeGenerator, interface_name: &byte) &ASTNode {
+    if codegen == null || interface_name == null || codegen.program_node == null {
+        return null;
+    }
+    const decl_count: i32 = codegen.program_node.program_decl_count;
+    var i: i32 = 0;
+    while i < decl_count {
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_INTERFACE_DECL {
+            const decl_name: &byte = decl.interface_decl_name;
+            if decl_name != null && strcmp(decl_name as *byte, interface_name as *byte) == 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 查找结构体对应的方法块
+fn find_method_block_for_struct_c99(codegen: &C99CodeGenerator, struct_name: &byte) &ASTNode {
+    if codegen == null || struct_name == null || codegen.program_node == null {
+        return null;
+    }
+    const decl_count: i32 = codegen.program_node.program_decl_count;
+    var i: i32 = 0;
+    while i < decl_count {
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_METHOD_BLOCK {
+            if decl.method_block_struct_name != null &&
+                strcmp(decl.method_block_struct_name as *byte, struct_name as *byte) == 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 在方法块中按名称查找方法
+fn find_method_in_block(method_block: &ASTNode, method_name: &byte) &ASTNode {
+    if method_block == null || method_block.type != ASTNodeType.AST_METHOD_BLOCK || method_name == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < method_block.method_block_method_count {
+        const m: &ASTNode = method_block.method_block_methods[i];
+        if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+            strcmp(m.fn_decl_name as *byte, method_name as *byte) == 0 {
+            return m;
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 获取方法的 C 函数名（uya_StructName_methodname）
+fn get_method_c_name(codegen: &C99CodeGenerator, struct_name: &byte, method_name: &byte) &byte {
+    if struct_name == null || method_name == null {
+        return null;
+    }
+    const safe_s: &byte = get_safe_c_identifier(codegen, struct_name);
+    const safe_m: &byte = get_safe_c_identifier(codegen, method_name);
+    if safe_s == null || safe_m == null {
+        return null;
+    }
+    const len: i32 = 5 + strlen(safe_s as *byte) + 1 + strlen(safe_m as *byte) + 1;
+    const buf: &byte = arena_alloc(codegen.arena, len) as &byte;
+    if buf == null {
+        return null;
+    }
+    snprintf(buf as *byte, len, "uya_%s_%s" as *byte, safe_s as *byte, safe_m as *byte);
+    return buf;
+}
+
+// 生成接口值结构体与 vtable 结构体（不含 vtable 常量）
+fn emit_interface_structs_and_vtables(codegen: &C99CodeGenerator) void {
+    if codegen == null || codegen.program_node == null {
+        return;
+    }
+    const decl_count: i32 = codegen.program_node.program_decl_count;
+    var i: i32 = 0;
+    while i < decl_count {
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
+        if decl == null || decl.type != ASTNodeType.AST_INTERFACE_DECL {
+            i = i + 1;
+            continue;
+        }
+        const iface_name: &byte = decl.interface_decl_name;
+        if iface_name == null {
+            i = i + 1;
+            continue;
+        }
+        const safe_iface: &byte = get_safe_c_identifier(codegen, iface_name);
+        fprintf(codegen.output as *void, "struct uya_interface_%s { void *vtable; void *data; };\n" as *byte, safe_iface as *byte);
+        fprintf(codegen.output as *void, "struct uya_vtable_%s {\n" as *byte, safe_iface as *byte);
+        codegen.indent_level = codegen.indent_level + 1;
+        var j: i32 = 0;
+        while j < decl.interface_decl_method_sig_count {
+            const msig: &ASTNode = decl.interface_decl_method_sigs[j];
+            if msig == null || msig.type != ASTNodeType.AST_FN_DECL {
+                j = j + 1;
+                continue;
+            }
+            const ret_c: &byte = convert_array_return_type(codegen, msig.fn_decl_return_type);
+            const mname: &byte = get_safe_c_identifier(codegen, msig.fn_decl_name);
+            const pc: i32 = msig.fn_decl_param_count;
+            c99_emit_indent(codegen);
+            fprintf(codegen.output as *void, "%s (*%s)(void *self" as *byte, ret_c as *byte, mname as *byte);
+            var k: i32 = 1;
+            while k < pc && msig.fn_decl_params != null {
+                const p: &ASTNode = msig.fn_decl_params[k];
+                if p == null || p.type != ASTNodeType.AST_VAR_DECL {
+                    k = k + 1;
+                    continue;
+                }
+                const pt_c: &byte = c99_type_to_c(codegen, p.var_decl_type);
+                fprintf(codegen.output as *void, ", %s" as *byte, pt_c as *byte);
+                k = k + 1;
+            }
+            fputs(");\n" as *byte, codegen.output as *void);
+            j = j + 1;
+        }
+        codegen.indent_level = codegen.indent_level - 1;
+        fputs("};\n" as *byte, codegen.output as *void);
+        i = i + 1;
+    }
+}
+
+// 生成各 struct:interface 的 vtable 常量（需在方法前向声明之后调用）
+fn emit_vtable_constants(codegen: &C99CodeGenerator) void {
+    if codegen == null || codegen.program_node == null {
+        return;
+    }
+    const decl_count: i32 = codegen.program_node.program_decl_count;
+    var i: i32 = 0;
+    while i < decl_count {
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
+        if decl == null || decl.type != ASTNodeType.AST_STRUCT_DECL {
+            i = i + 1;
+            continue;
+        }
+        const struct_name: &byte = decl.struct_decl_name;
+        const iface_names: & & byte = decl.struct_decl_interface_names;
+        const iface_count: i32 = decl.struct_decl_interface_count;
+        if iface_names == null || iface_count <= 0 {
+            i = i + 1;
+            continue;
+        }
+        const method_block: &ASTNode = find_method_block_for_struct_c99(codegen, struct_name);
+        if method_block == null {
+            i = i + 1;
+            continue;
+        }
+        const safe_struct: &byte = get_safe_c_identifier(codegen, struct_name);
+        var j: i32 = 0;
+        while j < iface_count {
+            const iface_name: &byte = iface_names[j];
+            if iface_name == null {
+                j = j + 1;
+                continue;
+            }
+            const iface_decl: &ASTNode = find_interface_decl_c99(codegen, iface_name);
+            if iface_decl == null {
+                j = j + 1;
+                continue;
+            }
+            const safe_iface: &byte = get_safe_c_identifier(codegen, iface_name);
+            fprintf(codegen.output as *void, "static const struct uya_vtable_%s uya_vtable_%s_%s = { " as *byte,
+                    safe_iface as *byte, safe_iface as *byte, safe_struct as *byte);
+            var k: i32 = 0;
+            while k < iface_decl.interface_decl_method_sig_count {
+                const msig: &ASTNode = iface_decl.interface_decl_method_sigs[k];
+                if msig == null || msig.type != ASTNodeType.AST_FN_DECL {
+                    k = k + 1;
+                    continue;
+                }
+                const mname: &byte = msig.fn_decl_name;
+                const impl: &ASTNode = find_method_in_block(method_block, mname);
+                const cname: &byte = get_method_c_name(codegen, struct_name, mname);
+                if k > 0 {
+                    fputs(", " as *byte, codegen.output as *void);
+                }
+                if cname != null {
+                    const ret_c: &byte = convert_array_return_type(codegen, msig.fn_decl_return_type);
+                    const pc: i32 = msig.fn_decl_param_count;
+                    fprintf(codegen.output as *void, "(%s (*)(void *self" as *byte, ret_c as *byte);
+                    var ki: i32 = 1;
+                    while ki < pc && msig.fn_decl_params != null {
+                        const pk: &ASTNode = msig.fn_decl_params[ki];
+                        if pk != null && pk.type == ASTNodeType.AST_VAR_DECL {
+                            fprintf(codegen.output as *void, ", %s" as *byte, c99_type_to_c(codegen, pk.var_decl_type) as *byte);
+                        }
+                        ki = ki + 1;
+                    }
+                    fprintf(codegen.output as *void, "))&%s" as *byte, cname as *byte);
+                } else {
+                    fputs("NULL" as *byte, codegen.output as *void);
+                }
+                k = k + 1;
+            }
+            fputs(" };\n" as *byte, codegen.output as *void);
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+}
+
 // 查找结构体字段类型（C99 版本，返回 ASTNode）
 fn c99_find_struct_field_type(codegen: &C99CodeGenerator, struct_decl: &ASTNode, field_name: &byte) &ASTNode {
     if codegen == null || struct_decl == null || struct_decl.type != ASTNodeType.AST_STRUCT_DECL || field_name == null {

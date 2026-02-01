@@ -7,6 +7,36 @@
 // ===== 外部函数声明 =====
 // C 标准库函数（在 extern_decls.uya 中声明）
 
+// 方法参数类型映射：将 Self 替换为 struct_name，用于生成结构体方法签名
+fn c99_type_to_c_with_self(codegen: &C99CodeGenerator, type_node: &ASTNode, self_struct_name: &byte) &byte {
+    if type_node == null || self_struct_name == null {
+        return c99_type_to_c(codegen, type_node);
+    }
+    if type_node.type == ASTNodeType.AST_TYPE_POINTER && type_node.type_pointer_pointed_type != null {
+        const pt: &ASTNode = type_node.type_pointer_pointed_type;
+        if pt.type == ASTNodeType.AST_TYPE_NAMED && pt.type_named_name != null &&
+            strcmp(pt.type_named_name as *byte, "Self" as *byte) == 0 {
+            const safe: &byte = get_safe_c_identifier(codegen, self_struct_name);
+            const len: i32 = strlen(safe as *byte) + 12;
+            const buf: &byte = arena_alloc(codegen.arena, len) as &byte;
+            if buf != null {
+                snprintf(buf as *byte, len, "struct %s *" as *byte, safe as *byte);
+                return buf;
+            }
+        }
+    } else if type_node.type == ASTNodeType.AST_TYPE_NAMED && type_node.type_named_name != null &&
+               strcmp(type_node.type_named_name as *byte, "Self" as *byte) == 0 {
+        const safe: &byte = get_safe_c_identifier(codegen, self_struct_name);
+        const len: i32 = strlen(safe as *byte) + 8;
+        const buf: &byte = arena_alloc(codegen.arena, len) as &byte;
+        if buf != null {
+            snprintf(buf as *byte, len, "struct %s" as *byte, safe as *byte);
+            return buf;
+        }
+    }
+    return c99_type_to_c(codegen, type_node);
+}
+
 // 类型映射函数
 fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
     if type_node == null {
@@ -49,8 +79,33 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
         } else if strcmp(name as *byte, "void" as *byte) == 0 {
             return ("void" as *byte) as &byte;
         } else {
-            // 结构体或枚举类型
+            // 结构体、接口或枚举类型
             const safe_name: &byte = get_safe_c_identifier(codegen, name);
+            
+            // 检查是否是接口类型（struct uya_interface_InterfaceName）
+            if codegen.program_node != null {
+                const decl_count: i32 = codegen.program_node.program_decl_count;
+                var i: i32 = 0;
+                while i < decl_count {
+                    const decl: &ASTNode = codegen.program_node.program_decls[i];
+                    if decl != null && decl.type == ASTNodeType.AST_INTERFACE_DECL {
+                        const iface_name: &byte = decl.interface_decl_name;
+                        if iface_name != null {
+                            const safe_iface: &byte = get_safe_c_identifier(codegen, iface_name);
+                            if strcmp(safe_iface as *byte, safe_name as *byte) == 0 {
+                                const len: i32 = strlen(safe_name as *byte) + 24;
+                                const buf: &byte = arena_alloc(codegen.arena, len) as &byte;
+                                if buf != null {
+                                    snprintf(buf as *byte, len, "struct uya_interface_%s" as *byte, safe_name as *byte);
+                                    return buf;
+                                }
+                                return ("void" as *byte) as &byte;
+                            }
+                        }
+                    }
+                    i = i + 1;
+                }
+            }
             
             // 显式检查是否是结构体（检查是否在表中，不管是否已定义）
             // 优先使用表查找，更可靠

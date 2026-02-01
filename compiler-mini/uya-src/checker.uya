@@ -61,6 +61,7 @@ enum TypeKind {
     TYPE_F64,      // 64位浮点数（IEEE 754 双精度）
     TYPE_VOID,     // void 类型（仅用于函数返回类型）
     TYPE_ENUM,     // 枚举类型（通过名称引用）
+    TYPE_INTERFACE,// 接口类型（通过名称引用，8/16B = vtable + data）
     TYPE_STRUCT,   // 结构体类型（通过名称引用）
     TYPE_POINTER,  // 指针类型（&T 或 *T）
     TYPE_ARRAY,    // 数组类型（[T: N]）
@@ -77,6 +78,7 @@ struct Type {
     kind: TypeKind,              // 类型种类
     // union 字段转换为独立字段（所有字段同时存在）
     enum_name: &byte,            // 枚举名称（仅当 kind == TypeKind.TYPE_ENUM 时有效）
+    interface_name: &byte,       // 接口名称（仅当 kind == TypeKind.TYPE_INTERFACE 时有效）
     struct_name: &byte,          // 结构体名称（仅当 kind == TypeKind.TYPE_STRUCT 时有效）
     pointer_to: &Type,           // 指向的类型（仅当 kind == TypeKind.TYPE_POINTER 时有效，从 Arena 分配）
     is_ffi_pointer: i32,         // 是否为 FFI 指针（1 表示 *T，0 表示 &T，仅当 kind == TypeKind.TYPE_POINTER 时有效）
@@ -623,6 +625,17 @@ fn type_equals(t1: Type, t2: Type) i32 {
         return str_equals(t1.struct_name, t2.struct_name);
     }
     
+    // 对于接口类型，需要比较接口名称
+    if t1.kind == TypeKind.TYPE_INTERFACE {
+        if t1.interface_name == null && t2.interface_name == null {
+            return 1;
+        }
+        if t1.interface_name == null || t2.interface_name == null {
+            return 0;
+        }
+        return str_equals(t1.interface_name, t2.interface_name);
+    }
+    
     // 对于指针类型，需要比较指向的类型和是否FFI指针
     if t1.kind == TypeKind.TYPE_POINTER {
         if t1.is_ffi_pointer != t2.is_ffi_pointer {
@@ -820,6 +833,62 @@ fn find_struct_decl_from_program(program_node: &ASTNode, struct_name: &byte) &AS
     return null;
 }
 
+// 从程序节点中查找接口声明
+fn find_interface_decl_from_program(program_node: &ASTNode, interface_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || interface_name == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < program_node.program_decl_count {
+        const decl: &ASTNode = program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_INTERFACE_DECL {
+            if decl.interface_decl_name != null && str_equals(decl.interface_decl_name, interface_name) != 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 查找结构体对应的方法块
+fn find_method_block_for_struct(program_node: &ASTNode, struct_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || struct_name == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < program_node.program_decl_count {
+        const decl: &ASTNode = program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_METHOD_BLOCK {
+            if decl.method_block_struct_name != null && str_equals(decl.method_block_struct_name, struct_name) != 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 检查结构体是否实现某接口
+fn struct_implements_interface(checker: &TypeChecker, struct_name: &byte, interface_name: &byte) i32 {
+    if checker == null || checker.program_node == null || struct_name == null || interface_name == null {
+        return 0;
+    }
+    const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, struct_name);
+    if struct_decl == null || struct_decl.struct_decl_interface_names == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < struct_decl.struct_decl_interface_count {
+        if struct_decl.struct_decl_interface_names[i] != null &&
+            str_equals(struct_decl.struct_decl_interface_names[i], interface_name) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
 // 从AST类型节点创建Type结构
 // 参数：checker - TypeChecker 指针，type_node - AST类型节点
 // 返回：Type结构，如果类型节点无效返回TYPE_VOID类型
@@ -830,6 +899,7 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
     var result: Type = Type {
         kind: TypeKind.TYPE_VOID,
         enum_name: null,
+        interface_name: null,
         struct_name: null,
         pointer_to: null,
         is_ffi_pointer: 0,
@@ -1050,15 +1120,21 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
         } else if str_equals(type_name, "void" as *byte) != 0 {
             result.kind = TypeKind.TYPE_VOID;
         } else {
-            // 其他名称可能是枚举类型或结构体类型
+            // 其他名称可能是接口、枚举或结构体类型
             if checker != null && checker.program_node != null {
-                const enum_decl: &ASTNode = find_enum_decl_from_program(checker.program_node, type_name);
-                if enum_decl != null {
-                    result.kind = TypeKind.TYPE_ENUM;
-                    result.enum_name = type_name;
+                const iface_decl: &ASTNode = find_interface_decl_from_program(checker.program_node, type_name);
+                if iface_decl != null {
+                    result.kind = TypeKind.TYPE_INTERFACE;
+                    result.interface_name = type_name;
                 } else {
-                    result.kind = TypeKind.TYPE_STRUCT;
-                    result.struct_name = type_name;
+                    const enum_decl: &ASTNode = find_enum_decl_from_program(checker.program_node, type_name);
+                    if enum_decl != null {
+                        result.kind = TypeKind.TYPE_ENUM;
+                        result.enum_name = type_name;
+                    } else {
+                        result.kind = TypeKind.TYPE_STRUCT;
+                        result.struct_name = type_name;
+                    }
                 }
             } else {
                 result.kind = TypeKind.TYPE_STRUCT;
@@ -1601,6 +1677,26 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             return object_type.tuple_element_types[idx];
         }
         
+        // 接口类型：obj.method 为接口方法调用，返回该方法的返回类型
+        if object_type.kind == TypeKind.TYPE_INTERFACE && object_type.interface_name != null &&
+            checker != null && checker.program_node != null {
+            const iface: &ASTNode = find_interface_decl_from_program(checker.program_node, object_type.interface_name);
+            const method_name: &byte = expr.member_access_field_name;
+            if iface != null && method_name != null && iface.interface_decl_method_sigs != null {
+                var i: i32 = 0;
+                while i < iface.interface_decl_method_sig_count {
+                    const msig: &ASTNode = iface.interface_decl_method_sigs[i];
+                    if msig != null && msig.type == ASTNodeType.AST_FN_DECL && msig.fn_decl_name != null &&
+                        str_equals(msig.fn_decl_name, method_name) != 0 {
+                        return type_from_ast(checker, msig.fn_decl_return_type);
+                    }
+                    i = i + 1;
+                }
+            }
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        
         if object_type.kind != TypeKind.TYPE_STRUCT || object_type.struct_name == null {
             // 对象类型不是结构体，返回void类型
             result.kind = TypeKind.TYPE_VOID;
@@ -1841,6 +1937,13 @@ fn checker_check_expr_type(checker: &TypeChecker, expr: &ASTNode, expected_type:
     const actual_type: Type = checker_infer_type(checker, expr);
     if type_equals(actual_type, expected_type) != 0 {
         return 1;
+    }
+    // 结构体实现接口时，可装箱为接口类型（赋值/传参）
+    if actual_type.kind == TypeKind.TYPE_STRUCT && expected_type.kind == TypeKind.TYPE_INTERFACE &&
+        actual_type.struct_name != null && expected_type.interface_name != null {
+        if struct_implements_interface(checker, actual_type.struct_name, expected_type.interface_name) != 0 {
+            return 1;
+        }
     }
     
     // 特殊情况：max/min（TypeKind.TYPE_INT_LIMIT）从期望的整数类型解析
@@ -2484,6 +2587,26 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
     // 对象类型是枚举（变量）：只允许 T.member，不允许 变量.member
     if object_type.kind == TypeKind.TYPE_ENUM {
         checker_report_error(checker, node, "枚举只能通过 T.member 方式访问（T 为枚举类型名），不能通过变量.member 访问" as *byte);
+        return result;
+    }
+    
+    // 接口类型：obj.method 为接口方法调用
+    if object_type.kind == TypeKind.TYPE_INTERFACE && object_type.interface_name != null &&
+        checker != null && checker.program_node != null {
+        const iface: &ASTNode = find_interface_decl_from_program(checker.program_node, object_type.interface_name);
+        const field_name: &byte = node.member_access_field_name;
+        if iface != null && field_name != null && iface.interface_decl_method_sigs != null {
+            var i: i32 = 0;
+            while i < iface.interface_decl_method_sig_count {
+                const msig: &ASTNode = iface.interface_decl_method_sigs[i];
+                if msig != null && msig.type == ASTNodeType.AST_FN_DECL && msig.fn_decl_name != null &&
+                    str_equals(msig.fn_decl_name, field_name) != 0 {
+                    return type_from_ast(checker, msig.fn_decl_return_type);
+                }
+                i = i + 1;
+            }
+        }
+        result.kind = TypeKind.TYPE_VOID;
         return result;
     }
     
@@ -3261,6 +3384,20 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             i = i + 1;
         }
         return 1;
+    } else if node.type == ASTNodeType.AST_INTERFACE_DECL {
+        if checker.scope_level > 0 {
+            checker_report_error(checker, node, "接口声明只能在顶层" as *byte);
+            return 0;
+        }
+    } else if node.type == ASTNodeType.AST_METHOD_BLOCK {
+        if checker.scope_level > 0 {
+            checker_report_error(checker, node, "方法块只能在顶层" as *byte);
+            return 0;
+        }
+        if find_struct_decl_from_program(checker.program_node, node.method_block_struct_name) == null {
+            checker_report_error(checker, node, "方法块对应的结构体未定义" as *byte);
+            return 0;
+        }
     } else if node.type == ASTNodeType.AST_ERROR_DECL {
         if checker.scope_level > 0 {
             checker_report_error(checker, node, "错误声明只能在顶层定义" as *byte);

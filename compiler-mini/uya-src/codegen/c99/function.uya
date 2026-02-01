@@ -429,3 +429,98 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     fputs("}\n" as *byte, codegen.output);
 }
 
+// 生成方法函数的前向声明（uya_StructName_methodname）
+fn gen_method_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_name: &byte) void {
+    if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL || struct_name == null {
+        return;
+    }
+    const method_name: &byte = fn_decl.fn_decl_name;
+    const c_name: &byte = get_method_c_name(codegen, struct_name, method_name);
+    if c_name == null {
+        return;
+    }
+    const return_c: &byte = convert_array_return_type(codegen, fn_decl.fn_decl_return_type);
+    const params: & & ASTNode = fn_decl.fn_decl_params;
+    const param_count: i32 = fn_decl.fn_decl_param_count;
+    fprintf(codegen.output as *void, "%s %s(" as *byte, return_c as *byte, c_name as *byte);
+    var i: i32 = 0;
+    while i < param_count {
+        const param: &ASTNode = params[i];
+        if param == null || param.type != ASTNodeType.AST_VAR_DECL {
+            i = i + 1;
+            continue;
+        }
+        const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
+        const param_type_c: &byte = c99_type_to_c_with_self(codegen, param.var_decl_type, struct_name);
+        format_param_type(codegen, param_type_c, param_name, codegen.output as *void);
+        if i < param_count - 1 {
+            fputs(", " as *byte, codegen.output as *void);
+        }
+        i = i + 1;
+    }
+    fputs(");\n" as *byte, codegen.output as *void);
+}
+
+// 生成方法函数定义（uya_StructName_methodname）
+fn gen_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_name: &byte) void {
+    if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL || struct_name == null || fn_decl.fn_decl_body == null {
+        return;
+    }
+    const method_name: &byte = fn_decl.fn_decl_name;
+    const c_name: &byte = get_method_c_name(codegen, struct_name, method_name);
+    if c_name == null {
+        return;
+    }
+    const return_c: &byte = convert_array_return_type(codegen, fn_decl.fn_decl_return_type);
+    const params: & & ASTNode = fn_decl.fn_decl_params;
+    const param_count: i32 = fn_decl.fn_decl_param_count;
+    emit_line_directive(codegen, fn_decl.line, fn_decl.filename);
+    fprintf(codegen.output as *void, "%s %s(" as *byte, return_c as *byte, c_name as *byte);
+    var i: i32 = 0;
+    while i < param_count {
+        const param: &ASTNode = params[i];
+        if param == null || param.type != ASTNodeType.AST_VAR_DECL {
+            i = i + 1;
+            continue;
+        }
+        const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
+        const param_type_c: &byte = c99_type_to_c_with_self(codegen, param.var_decl_type, struct_name);
+        format_param_type(codegen, param_type_c, param_name, codegen.output as *void);
+        if i < param_count - 1 {
+            fputs(", " as *byte, codegen.output as *void);
+        }
+        i = i + 1;
+    }
+    fputs(") {\n" as *byte, codegen.output as *void);
+    codegen.indent_level = codegen.indent_level + 1;
+    codegen.current_function_return_type = fn_decl.fn_decl_return_type;
+    const saved_current_function_decl: &ASTNode = codegen.current_function_decl;
+    codegen.current_function_decl = fn_decl;
+    const saved_local_count: i32 = codegen.local_variable_count;
+    const saved_depth: i32 = codegen.current_depth;
+    codegen.local_variable_count = 0;
+    codegen.current_depth = 0;
+    i = 0;
+    while i < param_count {
+        const param: &ASTNode = params[i];
+        if param != null && param.type == ASTNodeType.AST_VAR_DECL {
+            const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
+            const param_type_c: &byte = c99_type_to_c_with_self(codegen, param.var_decl_type, struct_name);
+            if param_name != null && param_type_c != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+                codegen.local_variables[codegen.local_variable_count].name = param.var_decl_name;
+                codegen.local_variables[codegen.local_variable_count].type_c = param_type_c;
+                codegen.local_variable_count = codegen.local_variable_count + 1;
+            }
+        }
+        i = i + 1;
+    }
+    gen_stmt(codegen, fn_decl.fn_decl_body);
+    codegen.current_function_return_type = null;
+    codegen.current_function_decl = saved_current_function_decl;
+    codegen.local_variable_count = saved_local_count;
+    codegen.current_depth = saved_depth;
+    codegen.indent_level = codegen.indent_level - 1;
+    c99_emit_indent(codegen);
+    fputs("}\n" as *byte, codegen.output as *void);
+}
+
