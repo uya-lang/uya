@@ -24,6 +24,7 @@ typedef enum {
     TYPE_VOID,     // void 类型（仅用于函数返回类型）
     TYPE_ENUM,     // 枚举类型（通过名称引用）
     TYPE_STRUCT,   // 结构体类型（通过名称引用）
+    TYPE_UNION,     // 联合体类型（通过名称引用）
     TYPE_INTERFACE,// 接口类型（通过名称引用，8/16B = vtable + data）
     TYPE_POINTER,  // 指针类型（&T 或 *T）
     TYPE_ARRAY,    // 数组类型（[T: N]）
@@ -41,6 +42,7 @@ typedef struct Type {
     union {
         const char *enum_name;      // 枚举名称（仅当 kind == TYPE_ENUM 时有效）
         const char *struct_name;    // 结构体名称（仅当 kind == TYPE_STRUCT 时有效）
+        const char *union_name;     // 联合体名称（仅当 kind == TYPE_UNION 时有效）
         const char *interface_name;  // 接口名称（仅当 kind == TYPE_INTERFACE 时有效）
         struct {
             struct Type *pointer_to;  // 指向的类型（仅当 kind == TYPE_POINTER 时有效，从 Arena 分配）

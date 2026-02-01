@@ -43,8 +43,12 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 - 限制：无接口字段（`struct S { w: I }` 当前不支持）、无接口数组/切片
 - 详见下方「接口」小节
 
+**联合体（union）**（✅ 已实现）：
+- 语法：`union Name { variant1: Type1, variant2: Type2 }`，创建 `UnionName.variant(expr)`，访问通过 `match value { .v1(x) => ..., .v2(y) => ... }` 必须处理所有变体
+- 内存布局：与 C union 兼容，大小为最大变体大小、对齐为最大变体对齐；实现可采用带隐藏 tag 的布局以支持跨函数 match
+- 详见下方「联合体」小节
+
 **不支持的特性**：
-- 联合体（union）
 - 模块系统
 - 字符串插值（不支持字符串插值语法）
 
@@ -61,7 +65,7 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 ## 1. 关键字
 
 ```
-enum struct interface const var fn extern return true false if else while for break continue null as match
+enum struct union interface const var fn extern return true false if else while for break continue null as match
 ```
 - `interface`：接口声明
 
@@ -69,6 +73,7 @@ enum struct interface const var fn extern return true false if else while for br
 - `match`：match 表达式/语句（模式匹配）
 - `enum`：枚举声明
 - `struct`：结构体声明
+- `union`：联合体声明
 - `const`：不可变变量声明
 - `var`：可变变量声明
 - `fn`：函数声明
@@ -107,6 +112,7 @@ enum struct interface const var fn extern return true false if else while for br
 | `&T` | 4/8 B（平台相关） | 普通指针类型，用于普通变量和函数参数；32位平台=4B，64位平台=8B |
 | `*T` | 4/8 B（平台相关） | FFI 指针类型，仅用于 extern 函数声明/调用；32位平台=4B，64位平台=8B |
 | `InterfaceName` | 8/16 B（平台相关） | 接口类型，vtable 指针 + 数据指针；32位=8B，64位=16B，见 2.4 节 |
+| `union Name` | 最大变体大小（或带 tag 时 tag+union） | 用户定义的联合体类型，见 2.5 节 |
 
 **类型说明**：
 - **结构体类型**：
@@ -324,6 +330,15 @@ struct Empty { }  // 大小 = 1 字节，对齐 = 1 字节
 - **调用**：`interface_value.method(args)` 通过 vtable 查找方法地址，将 data 指针作为 `self` 第一个参数调用。
 - **C99 映射**：接口类型生成 `struct uya_interface_InterfaceName { void (*vtable[方法数])(...); }` 的 vtable 类型；每个 `struct S : I` 生成静态 vtable 常量；接口值生成 `struct { const void *vtable; void *data; }`；装箱即取结构体地址填 data、填对应 vtable；调用即 `((vtable->method))(data, args...)`。
 - **限制**：当前不支持接口字段（`struct S { w: I }`）、接口数组/切片。
+
+### 2.5 联合体（union）
+
+- **联合体定义**：`union UnionName { variant1: Type1, variant2: Type2, ... }`，变体为名称与类型对，至少一个变体。
+- **创建**：`UnionName.variant(expr)`，如 `IntOrFloat.i(42)`、`IntOrFloat.f(3.14)`。
+- **访问**：必须通过 `match` 处理所有变体，或（在编译期已知标签时）直接访问对应变体字段。
+- **match 模式**：`match value { .variant1(x) => expr1, .variant2(y) => expr2 }`，必须覆盖所有变体；变体模式语法为 `.variant_name(bind)` 或 `.variant_name(_)`。
+- **内存布局**：与 C union 兼容，大小为最大变体大小、对齐为最大变体对齐。实现可采用带隐藏 tag 的布局（如 `struct { int _tag; union { ... } u; }`）以支持跨函数 match。
+- **C99 映射**：生成 C `union UnionName { Type1 variant1; Type2 variant2; ... };`；创建为 `(union UnionName){ .variant = (expr) }`；带 tag 时生成 `struct uya_tagged_UnionName { int _tag; union { ... } u; };` 及 tag 常量，match 生成 `switch (u._tag) { case 0: ... case 1: ... }`。
 
 ---
 

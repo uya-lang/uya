@@ -946,6 +946,35 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                         gen_expr(codegen, arm->result_expr);
                         fputs(";\n", codegen->output);
                     }
+                } else if (arm->kind == MATCH_PAT_UNION && arm->data.union_pat.variant_name) {
+                    ASTNode *union_decl = find_union_decl_by_variant_c99(codegen, arm->data.union_pat.variant_name);
+                    if (union_decl) {
+                        int idx = find_union_variant_index(union_decl, arm->data.union_pat.variant_name);
+                        const char *uname = get_safe_c_identifier(codegen, union_decl->data.union_decl.name);
+                        const char *vname = get_safe_c_identifier(codegen, arm->data.union_pat.variant_name);
+                        if (idx >= 0 && uname && vname) {
+                            ASTNode *vnode = union_decl->data.union_decl.variants[idx];
+                            const char *vtype = (vnode && vnode->type == AST_VAR_DECL && vnode->data.var_decl.type) ? c99_type_to_c(codegen, vnode->data.var_decl.type) : "int";
+                            const char *bind = (arm->data.union_pat.var_name && strcmp(arm->data.union_pat.var_name, "_") != 0) ? get_safe_c_identifier(codegen, arm->data.union_pat.var_name) : NULL;
+                            if (bind) {
+                                c99_emit(codegen, "%sif (_uya_m._tag == %d) {\n", prefix, idx);
+                                codegen->indent_level++;
+                                c99_emit(codegen, "%s %s = _uya_m.u.%s;\n", vtype, bind, vname);
+                            } else {
+                                c99_emit(codegen, "%sif (_uya_m._tag == %d) ", prefix, idx);
+                            }
+                            if (arm->result_expr->type == AST_BLOCK) {
+                                if (!bind) { fputs("{\n", codegen->output); codegen->indent_level++; }
+                                gen_stmt(codegen, arm->result_expr);
+                                if (!bind) codegen->indent_level--;
+                                c99_emit(codegen, "}\n");
+                            } else {
+                                gen_expr(codegen, arm->result_expr);
+                                fputs(";\n", codegen->output);
+                                if (bind) { codegen->indent_level--; c99_emit(codegen, "}\n"); }
+                            }
+                        }
+                    }
                 }
             }
             codegen->indent_level--;

@@ -719,6 +719,87 @@ ASTNode *parser_parse_struct(Parser *parser) {
     return struct_decl;
 }
 
+// 解析联合体声明：union ID { variant_list }
+// variant_list = variant { ',' variant }
+// variant = ID ':' type
+ASTNode *parser_parse_union(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    if (!parser_match(parser, TOKEN_UNION)) {
+        return NULL;
+    }
+    int line = parser->current_token->line;
+    int column = parser->current_token->column;
+    parser_consume(parser);
+    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+        return NULL;
+    }
+    const char *union_name = arena_strdup(parser->arena, parser->current_token->value);
+    if (union_name == NULL) {
+        return NULL;
+    }
+    parser_consume(parser);
+    ASTNode *union_decl = ast_new_node(AST_UNION_DECL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+    if (union_decl == NULL) {
+        return NULL;
+    }
+    union_decl->data.union_decl.name = union_name;
+    if (!parser_expect(parser, TOKEN_LEFT_BRACE)) {
+        return NULL;
+    }
+    ASTNode **variants = NULL;
+    int variant_count = 0;
+    int variant_capacity = 0;
+    while (parser->current_token != NULL &&
+           !parser_match(parser, TOKEN_RIGHT_BRACE) &&
+           !parser_match(parser, TOKEN_EOF)) {
+        if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+            return NULL;
+        }
+        int v_line = parser->current_token->line;
+        int v_column = parser->current_token->column;
+        const char *variant_name = arena_strdup(parser->arena, parser->current_token->value);
+        if (variant_name == NULL) {
+            return NULL;
+        }
+        parser_consume(parser);
+        if (!parser_expect(parser, TOKEN_COLON)) {
+            return NULL;
+        }
+        ASTNode *variant_type = parser_parse_type(parser);
+        if (variant_type == NULL) {
+            return NULL;
+        }
+        ASTNode *variant = ast_new_node(AST_VAR_DECL, v_line, v_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (variant == NULL) {
+            return NULL;
+        }
+        variant->data.var_decl.name = variant_name;
+        variant->data.var_decl.type = variant_type;
+        variant->data.var_decl.init = NULL;
+        variant->data.var_decl.is_const = 0;
+        if (variant_count >= variant_capacity) {
+            int new_cap = variant_capacity == 0 ? 4 : variant_capacity * 2;
+            ASTNode **new_v = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
+            if (!new_v) return NULL;
+            for (int i = 0; i < variant_count; i++) new_v[i] = variants[i];
+            variants = new_v;
+            variant_capacity = new_cap;
+        }
+        variants[variant_count++] = variant;
+        if (parser_match(parser, TOKEN_COMMA)) {
+            parser_consume(parser);
+        }
+    }
+    if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
+        return NULL;
+    }
+    union_decl->data.union_decl.variants = variants;
+    union_decl->data.union_decl.variant_count = variant_count;
+    return union_decl;
+}
+
 // 解析枚举声明：enum ID '{' variant_list '}'
 // variant_list = variant { ',' variant }
 // variant = ID [ '=' NUM ]
@@ -1365,6 +1446,8 @@ ASTNode *parser_parse_declaration(Parser *parser) {
         return parser_parse_interface(parser);
     } else if (parser_match(parser, TOKEN_STRUCT)) {
         return parser_parse_struct(parser);
+    } else if (parser_match(parser, TOKEN_UNION)) {
+        return parser_parse_union(parser);
     } else if (parser_match(parser, TOKEN_IDENTIFIER)) {
         const char *name = arena_strdup(parser->arena, parser->current_token->value);
         if (!name) return NULL;
@@ -1699,6 +1782,25 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 if (parser->current_token->type != TOKEN_IDENTIFIER) return NULL;
                 err_name = arena_strdup(parser->arena, parser->current_token->value);
                 parser_consume(parser);
+            } else if (parser->current_token->type == TOKEN_DOT) {
+                kind = MATCH_PAT_UNION;
+                parser_consume(parser);
+                if (parser->current_token == NULL || parser->current_token->type != TOKEN_IDENTIFIER) return NULL;
+                variant_name = arena_strdup(parser->arena, parser->current_token->value);
+                if (variant_name == NULL) return NULL;
+                parser_consume(parser);
+                if (!parser_expect(parser, TOKEN_LEFT_PAREN)) return NULL;
+                if (parser->current_token != NULL && parser->current_token->type == TOKEN_IDENTIFIER && parser->current_token->value != NULL && strcmp(parser->current_token->value, "_") == 0) {
+                    bind_name = arena_strdup(parser->arena, "_");
+                    parser_consume(parser);
+                } else if (parser->current_token != NULL && parser->current_token->type == TOKEN_IDENTIFIER) {
+                    bind_name = arena_strdup(parser->arena, parser->current_token->value);
+                    if (bind_name == NULL) return NULL;
+                    parser_consume(parser);
+                } else {
+                    return NULL;
+                }
+                if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) return NULL;
             } else if (parser->current_token->type == TOKEN_IDENTIFIER) {
                 const char *first = parser->current_token->value;
                 parser_consume(parser);
@@ -1733,6 +1835,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             arms[arm_count].result_expr = result_expr;
             if (kind == MATCH_PAT_LITERAL) arms[arm_count].data.literal.expr = lit_expr;
             else if (kind == MATCH_PAT_ENUM) { arms[arm_count].data.enum_pat.enum_name = enum_name; arms[arm_count].data.enum_pat.variant_name = variant_name; }
+            else if (kind == MATCH_PAT_UNION) { arms[arm_count].data.union_pat.variant_name = variant_name; arms[arm_count].data.union_pat.var_name = bind_name; }
             else if (kind == MATCH_PAT_ERROR) arms[arm_count].data.error_pat.error_name = err_name;
             else if (kind == MATCH_PAT_BIND) arms[arm_count].data.bind.var_name = bind_name;
             arm_count++;

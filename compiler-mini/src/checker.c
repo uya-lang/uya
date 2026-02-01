@@ -28,6 +28,7 @@ static void checker_exit_scope(TypeChecker *checker);
 static void checker_check_cast_expr(TypeChecker *checker, ASTNode *node);
 static int checker_check_node(TypeChecker *checker, ASTNode *node);
 static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char *struct_name);
+static ASTNode *find_union_decl_from_program(ASTNode *program_node, const char *union_name);
 static ASTNode *find_interface_decl_from_program(ASTNode *program_node, const char *interface_name);
 static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *enum_name);
 static ASTNode *find_method_block_for_struct(ASTNode *program_node, const char *struct_name);
@@ -469,6 +470,11 @@ static int type_equals(Type t1, Type t2) {
         // 比较结构体名称
         return strcmp(t1.data.struct_name, t2.data.struct_name) == 0;
     }
+    if (t1.kind == TYPE_UNION) {
+        if (t1.data.union_name == NULL && t2.data.union_name == NULL) return 1;
+        if (t1.data.union_name == NULL || t2.data.union_name == NULL) return 0;
+        return strcmp(t1.data.union_name, t2.data.union_name) == 0;
+    }
     // 对于接口类型，比较接口名称
     if (t1.kind == TYPE_INTERFACE) {
         if (t1.data.interface_name == NULL && t2.data.interface_name == NULL) return 1;
@@ -771,8 +777,14 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
                         result.kind = TYPE_INTERFACE;
                         result.data.interface_name = type_name;
                     } else {
-                        result.kind = TYPE_STRUCT;
-                        result.data.struct_name = type_name;
+                        ASTNode *union_decl = find_union_decl_from_program(checker->program_node, type_name);
+                        if (union_decl != NULL) {
+                            result.kind = TYPE_UNION;
+                            result.data.union_name = type_name;
+                        } else {
+                            result.kind = TYPE_STRUCT;
+                            result.data.struct_name = type_name;
+                        }
                     }
                 }
             } else {
@@ -1126,7 +1138,25 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
                 return result;
             }
             if (callee->type == AST_MEMBER_ACCESS) {
-                Type object_type = checker_infer_type(checker, callee->data.member_access.object);
+                ASTNode *object = callee->data.member_access.object;
+                Type object_type = checker_infer_type(checker, object);
+                if (object->type == AST_IDENTIFIER && object->data.identifier.name != NULL && checker->program_node != NULL) {
+                    ASTNode *union_decl = find_union_decl_from_program(checker->program_node, object->data.identifier.name);
+                    if (union_decl != NULL) {
+                        const char *variant_name = callee->data.member_access.field_name;
+                        if (variant_name != NULL && expr->data.call_expr.arg_count == 1) {
+                            for (int i = 0; i < union_decl->data.union_decl.variant_count; i++) {
+                                ASTNode *v = union_decl->data.union_decl.variants[i];
+                                if (v != NULL && v->type == AST_VAR_DECL && v->data.var_decl.name != NULL &&
+                                    strcmp(v->data.var_decl.name, variant_name) == 0) {
+                                    result.kind = TYPE_UNION;
+                                    result.data.union_name = union_decl->data.union_decl.name;
+                                    return result;
+                                }
+                            }
+                        }
+                    }
+                }
                 if (object_type.kind == TYPE_INTERFACE && object_type.data.interface_name != NULL && checker->program_node != NULL) {
                     ASTNode *iface = find_interface_decl_from_program(checker->program_node, object_type.data.interface_name);
                     const char *method_name = callee->data.member_access.field_name;
@@ -1416,9 +1446,33 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             // match 表达式：所有臂的返回类型必须一致
             Type unified = { .kind = TYPE_VOID };
             int first = 1;
+            Type expr_type = checker_infer_type(checker, expr->data.match_expr.expr);
+            ASTNode *match_union_decl = NULL;
+            if (expr_type.kind == TYPE_UNION && expr_type.data.union_name != NULL && checker != NULL && checker->program_node != NULL)
+                match_union_decl = find_union_decl_from_program(checker->program_node, expr_type.data.union_name);
             for (int i = 0; i < expr->data.match_expr.arm_count; i++) {
                 ASTMatchArm *arm = &expr->data.match_expr.arms[i];
-                Type t = checker_infer_type(checker, arm->result_expr);
+                Type t;
+                if (arm->kind == MATCH_PAT_UNION && arm->data.union_pat.variant_name != NULL &&
+                    arm->result_expr->type == AST_IDENTIFIER && arm->result_expr->data.identifier.name != NULL &&
+                    arm->data.union_pat.var_name != NULL &&
+                    strcmp(arm->result_expr->data.identifier.name, arm->data.union_pat.var_name) == 0 &&
+                    match_union_decl != NULL) {
+                    t.kind = TYPE_VOID;
+                    for (int k = 0; k < match_union_decl->data.union_decl.variant_count; k++) {
+                        ASTNode *v = match_union_decl->data.union_decl.variants[k];
+                        if (v != NULL && v->type == AST_VAR_DECL && v->data.var_decl.name != NULL &&
+                            strcmp(v->data.var_decl.name, arm->data.union_pat.variant_name) == 0 &&
+                            v->data.var_decl.type != NULL) {
+                            t = type_from_ast(checker, v->data.var_decl.type);
+                            break;
+                        }
+                    }
+                    if (t.kind == TYPE_VOID)
+                        t = checker_infer_type(checker, arm->result_expr);
+                } else {
+                    t = checker_infer_type(checker, arm->result_expr);
+                }
                 if (first) {
                     unified = t;
                     first = 0;
@@ -1461,6 +1515,22 @@ static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char 
         }
     }
     
+    return NULL;
+}
+
+static ASTNode *find_union_decl_from_program(ASTNode *program_node, const char *union_name) {
+    if (program_node == NULL || program_node->type != AST_PROGRAM || union_name == NULL) {
+        return NULL;
+    }
+    for (int i = 0; i < program_node->data.program.decl_count; i++) {
+        ASTNode *decl = program_node->data.program.decls[i];
+        if (decl != NULL && decl->type == AST_UNION_DECL) {
+            if (decl->data.union_decl.name != NULL &&
+                strcmp(decl->data.union_decl.name, union_name) == 0) {
+                return decl;
+            }
+        }
+    }
     return NULL;
 }
 
@@ -2309,10 +2379,35 @@ static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
         return result;
     }
     
-    // 接口方法调用：callee 为 obj.method，obj 类型为接口
     if (callee->type == AST_MEMBER_ACCESS) {
-        Type object_type = checker_infer_type(checker, callee->data.member_access.object);
+        ASTNode *object = callee->data.member_access.object;
+        Type object_type = checker_infer_type(checker, object);
         const char *method_name = callee->data.member_access.field_name;
+        if (object->type == AST_IDENTIFIER && object->data.identifier.name != NULL && checker->program_node != NULL) {
+            ASTNode *union_decl = find_union_decl_from_program(checker->program_node, object->data.identifier.name);
+            if (union_decl != NULL && method_name != NULL) {
+                for (int i = 0; i < union_decl->data.union_decl.variant_count; i++) {
+                    ASTNode *v = union_decl->data.union_decl.variants[i];
+                    if (v != NULL && v->type == AST_VAR_DECL && v->data.var_decl.name != NULL &&
+                        strcmp(v->data.var_decl.name, method_name) == 0) {
+                        if (node->data.call_expr.arg_count != 1) {
+                            checker_report_error(checker, node, "联合体变体构造需要恰好一个实参");
+                            return result;
+                        }
+                        Type variant_type = type_from_ast(checker, v->data.var_decl.type);
+                        if (!checker_check_expr_type(checker, node->data.call_expr.args[0], variant_type)) {
+                            checker_report_error(checker, node, "联合体变体构造实参类型不匹配");
+                            return result;
+                        }
+                        result.kind = TYPE_UNION;
+                        result.data.union_name = union_decl->data.union_decl.name;
+                        return result;
+                    }
+                }
+                checker_report_error(checker, node, "联合体上不存在该变体");
+                return result;
+            }
+        }
         if (object_type.kind == TYPE_INTERFACE && object_type.data.interface_name != NULL && checker->program_node != NULL) {
             ASTNode *iface = find_interface_decl_from_program(checker->program_node, object_type.data.interface_name);
             if (iface != NULL && method_name != NULL) {
@@ -3104,6 +3199,28 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             }
             return checker_check_struct_decl(checker, node);
         
+        case AST_UNION_DECL: {
+            if (checker->scope_level > 0) {
+                checker_report_error(checker, node, "联合体声明只能在顶层定义");
+                return 0;
+            }
+            if (node->data.union_decl.variant_count < 1) {
+                checker_report_error(checker, node, "联合体至少需要一个变体");
+                return 0;
+            }
+            for (int i = 0; i < node->data.union_decl.variant_count; i++) {
+                ASTNode *v = node->data.union_decl.variants[i];
+                if (v != NULL && v->type == AST_VAR_DECL && v->data.var_decl.type != NULL) {
+                    Type vt = type_from_ast(checker, v->data.var_decl.type);
+                    if (vt.kind == TYPE_VOID) {
+                        checker_report_error(checker, node, "联合体变体类型无效");
+                        return 0;
+                    }
+                }
+            }
+            return 1;
+        }
+        
         case AST_INTERFACE_DECL: {
             if (checker->scope_level > 0) {
                 checker_report_error(checker, node, "接口声明只能在顶层定义");
@@ -3448,17 +3565,83 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                         checker_report_error(checker, node, "match 枚举模式与表达式类型不匹配");
                     }
                 }
+                if (arm->kind == MATCH_PAT_UNION && arm->data.union_pat.variant_name != NULL && expr_type.kind == TYPE_UNION && expr_type.data.union_name != NULL && checker->program_node != NULL) {
+                    ASTNode *union_decl = find_union_decl_from_program(checker->program_node, expr_type.data.union_name);
+                    if (union_decl != NULL) {
+                        int found = 0;
+                        Type variant_type;
+                        variant_type.kind = TYPE_VOID;
+                        for (int k = 0; k < union_decl->data.union_decl.variant_count; k++) {
+                            ASTNode *v = union_decl->data.union_decl.variants[k];
+                            if (v != NULL && v->type == AST_VAR_DECL && v->data.var_decl.name != NULL &&
+                                strcmp(v->data.var_decl.name, arm->data.union_pat.variant_name) == 0) {
+                                found = 1;
+                                variant_type = type_from_ast(checker, v->data.var_decl.type);
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            checker_report_error(checker, node, "match 联合体模式中的变体不存在于该联合体类型");
+                        } else if (arm->data.union_pat.var_name != NULL && strcmp(arm->data.union_pat.var_name, "_") != 0) {
+                            Symbol *sym = (Symbol *)arena_alloc(checker->arena, sizeof(Symbol));
+                            if (sym != NULL) {
+                                sym->name = arm->data.union_pat.var_name;
+                                sym->type = variant_type;
+                                sym->is_const = 1;
+                                sym->scope_level = checker->scope_level;
+                                sym->line = node->line;
+                                sym->column = node->column;
+                                sym->pointee_of = NULL;
+                                symbol_table_insert(checker, sym);
+                            }
+                        }
+                    }
+                }
                 checker_check_node(checker, arm->result_expr);
                 checker_exit_scope(checker);
             }
             {
                 int has_catch_all = has_else;
-                for (int j = 0; j < node->data.match_expr.arm_count && !has_catch_all; j++) {
-                    if (node->data.match_expr.arms[j].kind == MATCH_PAT_BIND || node->data.match_expr.arms[j].kind == MATCH_PAT_WILDCARD)
-                        has_catch_all = 1;
-                }
-                if (!has_catch_all && node->data.match_expr.arm_count > 0) {
-                    checker_report_error(checker, node, "match 必须包含 else 分支或变量绑定/通配符");
+                if (expr_type.kind == TYPE_UNION && expr_type.data.union_name != NULL && checker->program_node != NULL) {
+                    ASTNode *union_decl = find_union_decl_from_program(checker->program_node, expr_type.data.union_name);
+                    if (union_decl != NULL && union_decl->data.union_decl.variant_count > 0) {
+                        int covered[32];
+                        int nv = union_decl->data.union_decl.variant_count;
+                        if (nv > 32) nv = 32;
+                        for (int k = 0; k < nv; k++) covered[k] = 0;
+                        for (int j = 0; j < node->data.match_expr.arm_count; j++) {
+                            if (node->data.match_expr.arms[j].kind == MATCH_PAT_ELSE || node->data.match_expr.arms[j].kind == MATCH_PAT_BIND || node->data.match_expr.arms[j].kind == MATCH_PAT_WILDCARD) {
+                                has_catch_all = 1;
+                                break;
+                            }
+                            if (node->data.match_expr.arms[j].kind == MATCH_PAT_UNION && node->data.match_expr.arms[j].data.union_pat.variant_name != NULL) {
+                                const char *vn = node->data.match_expr.arms[j].data.union_pat.variant_name;
+                                for (int k = 0; k < nv; k++) {
+                                    ASTNode *v = union_decl->data.union_decl.variants[k];
+                                    if (v != NULL && v->type == AST_VAR_DECL && v->data.var_decl.name != NULL && strcmp(v->data.var_decl.name, vn) == 0) {
+                                        covered[k] = 1;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (!has_catch_all) {
+                            for (int k = 0; k < nv; k++) {
+                                if (!covered[k]) {
+                                    checker_report_error(checker, node, "match 联合体必须处理所有变体");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    for (int j = 0; j < node->data.match_expr.arm_count && !has_catch_all; j++) {
+                        if (node->data.match_expr.arms[j].kind == MATCH_PAT_BIND || node->data.match_expr.arms[j].kind == MATCH_PAT_WILDCARD)
+                            has_catch_all = 1;
+                    }
+                    if (!has_catch_all && node->data.match_expr.arm_count > 0) {
+                        checker_report_error(checker, node, "match 必须包含 else 分支或变量绑定/通配符");
+                    }
                 }
             }
             return 1;

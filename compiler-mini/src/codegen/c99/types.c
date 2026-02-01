@@ -171,6 +171,16 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
                     }
                     return "void";
                 }
+                // 检查是否是联合体类型（struct uya_tagged_UnionName，带 tag 的布局）
+                if (find_union_decl_c99(codegen, name) != NULL) {
+                    size_t len = strlen(safe_name) + 22;  // "struct uya_tagged_" + name + '\0'
+                    char *buf = arena_alloc(codegen->arena, len);
+                    if (buf) {
+                        snprintf(buf, len, "struct uya_tagged_%s", safe_name);
+                        return buf;
+                    }
+                    return "void";
+                }
                 
                 // 未知类型，直接返回名称
                 return safe_name;

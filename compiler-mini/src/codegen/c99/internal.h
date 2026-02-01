@@ -50,8 +50,12 @@ void add_struct_definition(C99CodeGenerator *codegen, const char *struct_name);
 int struct_implements_interface_c99(C99CodeGenerator *codegen, const char *struct_name, const char *interface_name);
 ASTNode *find_interface_decl_c99(C99CodeGenerator *codegen, const char *interface_name);
 ASTNode *find_struct_decl_c99(C99CodeGenerator *codegen, const char *struct_name);
+ASTNode *find_union_decl_c99(C99CodeGenerator *codegen, const char *union_name);
+ASTNode *find_union_decl_by_variant_c99(C99CodeGenerator *codegen, const char *variant_name);
+int find_union_variant_index(ASTNode *union_decl, const char *variant_name);
 /* 根据 C 类型字符串（如 "struct Data"）查找结构体声明，用于按字段比较 */
 ASTNode *find_struct_decl_from_type_c(C99CodeGenerator *codegen, const char *type_c);
+int gen_union_definition(C99CodeGenerator *codegen, ASTNode *union_decl);
 ASTNode *find_struct_field_type(C99CodeGenerator *codegen, ASTNode *struct_decl, const char *field_name);
 int gen_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl);
 void emit_interface_structs_and_vtables(C99CodeGenerator *codegen);

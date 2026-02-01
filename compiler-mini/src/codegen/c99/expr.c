@@ -1042,10 +1042,25 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 c99_emit_string_interp_fill(codegen, args[i], temp_name);
             }
             
-            /* 接口方法调用：obj.method(args) -> ((struct uya_vtable_I *)obj.vtable)->method(obj.data, args...) */
+            /* 联合体变体构造：UnionName.variant(expr) -> (struct uya_tagged_UnionName){ ._tag = index, .u = (union UnionName){ .variant = (expr) } } */
             if (callee && callee->type == AST_MEMBER_ACCESS) {
                 ASTNode *obj = callee->data.member_access.object;
                 const char *method_name = callee->data.member_access.field_name;
+                if (obj && obj->type == AST_IDENTIFIER && obj->data.identifier.name && arg_count == 1 && args && args[0]) {
+                    ASTNode *union_decl = find_union_decl_c99(codegen, obj->data.identifier.name);
+                    if (union_decl) {
+                        int idx = find_union_variant_index(union_decl, method_name);
+                        if (idx >= 0) {
+                            const char *uname = get_safe_c_identifier(codegen, union_decl->data.union_decl.name);
+                            if (uname) {
+                                fprintf(codegen->output, "((struct uya_tagged_%s){ ._tag = %d, .u = (union %s){ .%s = (", uname, idx, uname, get_safe_c_identifier(codegen, method_name));
+                                gen_expr(codegen, args[0]);
+                                fputs(") } })", codegen->output);
+                                break;
+                            }
+                        }
+                    }
+                }
                 const char *obj_type_c = get_c_type_of_expr(codegen, obj);
                 if (obj_type_c && strstr(obj_type_c, "uya_interface_") != NULL) {
                     const char *p = strstr(obj_type_c, "uya_interface_");
@@ -1331,6 +1346,25 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                     fprintf(codegen->output, "%sif (_uya_m.error_id == %uU) _uya_r = ", prefix, id);
                     gen_expr(codegen, arm->result_expr);
                     fputs("; ", codegen->output);
+                } else if (arm->kind == MATCH_PAT_UNION && arm->data.union_pat.variant_name) {
+                    ASTNode *union_decl = find_union_decl_by_variant_c99(codegen, arm->data.union_pat.variant_name);
+                    if (union_decl) {
+                        int idx = find_union_variant_index(union_decl, arm->data.union_pat.variant_name);
+                        const char *uname = get_safe_c_identifier(codegen, union_decl->data.union_decl.name);
+                        const char *vname = get_safe_c_identifier(codegen, arm->data.union_pat.variant_name);
+                        if (idx >= 0 && uname && vname) {
+                            ASTNode *vnode = union_decl->data.union_decl.variants[idx];
+                            const char *vtype = (vnode && vnode->type == AST_VAR_DECL && vnode->data.var_decl.type) ? c99_type_to_c(codegen, vnode->data.var_decl.type) : "int";
+                            const char *bind = (arm->data.union_pat.var_name && strcmp(arm->data.union_pat.var_name, "_") != 0) ? get_safe_c_identifier(codegen, arm->data.union_pat.var_name) : NULL;
+                            if (bind) {
+                                fprintf(codegen->output, "%sif (_uya_m._tag == %d) { %s %s = _uya_m.u.%s; _uya_r = ", prefix, idx, vtype, bind, vname);
+                            } else {
+                                fprintf(codegen->output, "%sif (_uya_m._tag == %d) _uya_r = ", prefix, idx);
+                            }
+                            gen_expr(codegen, arm->result_expr);
+                            fputs(bind ? "; } " : "; ", codegen->output);
+                        }
+                    }
                 }
             }
             fputs("_uya_r; })", codegen->output);

@@ -238,7 +238,16 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     // 第六步 b2：生成接口结构体与 vtable 结构体（vtable 常量在函数前向声明之后生成）
     emit_interface_structs_and_vtables(codegen);
     fputs("\n", codegen->output);
-    // 第六步 c：生成所有结构体定义（在切片结构体之后，因为结构体可能含切片字段）
+    // 第六步 c：生成联合体定义（在结构体之前，因结构体可能含联合体）
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl) continue;
+        if (decl->type == AST_UNION_DECL) {
+            gen_union_definition(codegen, decl);
+            fputs("\n", codegen->output);
+        }
+    }
+    // 第六步 d：生成所有结构体定义（在切片结构体之后，因为结构体可能含切片字段）
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) continue;
@@ -283,6 +292,8 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
         if (!decl) continue;
         
         switch (decl->type) {
+            case AST_UNION_DECL:
+                break;
             case AST_STRUCT_DECL: {
                 // 生成结构体内部定义的方法
                 const char *struct_name = decl->data.struct_decl.name;

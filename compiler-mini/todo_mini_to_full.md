@@ -23,7 +23,7 @@
 | 10 | 字符串插值 | [x] |
 | 11 | 原子类型 | [ ] |
 | 12 | 运算符与安全 | [ ] |
-| 13 | 联合体（union） | [ ] |
+| 13 | 联合体（union） | [x]（C 实现完成；uya-src 待同步） |
 
 ---
 
@@ -232,14 +232,16 @@
 
 ## 13. 联合体（union）
 
-- [ ] **union 定义**：`union Name { variant1: Type1, variant2: Type2 }`，规范 uya.md §4.5
-- [ ] **创建**：`UnionName.variant(expr)`，如 `IntOrFloat.i(42)`
-- [ ] **访问**：`match` 模式匹配（必须处理所有变体）、编译期已知标签直接访问
-- [ ] **编译期标签跟踪**：标签不占运行时内存，零开销
-- [ ] **extern union**：外部 C 联合体声明与互操作
-- [ ] **联合体方法**：`self: &Self`，内部/外部方法块
+- [x] **union 定义**：`union Name { variant1: Type1, variant2: Type2 }`，规范 uya.md §4.5
+- [x] **创建**：`UnionName.variant(expr)`，如 `IntOrFloat.i(42)`
+- [x] **访问**：`match` 模式匹配（必须处理所有变体）、`.variant(bind)` 模式、穷尽性检查
+- [x] **实现**：带隐藏 tag 的 C 布局（`struct uya_tagged_U { int _tag; union U u; }`），零开销 match
+- [ ] **extern union**：外部 C 联合体声明与互操作（待实现）
+- [ ] **联合体方法**：`self: &Self`，内部/外部方法块（待实现）
 
-**涉及**：Lexer（union 关键字）、AST、Parser、Checker（标签跟踪、模式穷尽检查）、Codegen（C union 布局），uya-src。依赖 match 表达式（阶段 5）。
+**C 实现（已完成）**：Lexer（TOKEN_UNION）、AST（AST_UNION_DECL、MATCH_PAT_UNION）、Parser（parse_union、match 中 .variant(bind)）、Checker（TYPE_UNION、union init 校验、match 穷尽与变体类型推断）、Codegen（gen_union_definition、union init、match union 的 _tag 分支）。测试 test_union.uya 通过 `--c99`。**uya-src 待同步**。
+
+**涉及**：Lexer、AST、Parser、Checker、Codegen，uya-src。依赖 match 表达式（阶段 5）。
 
 ---
 
