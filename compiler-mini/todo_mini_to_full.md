@@ -2,6 +2,8 @@
 
 基于 [spec/UYA_MINI_SPEC.md](spec/UYA_MINI_SPEC.md) 第 9 节「与完整 Uya 的区别」与项目根目录 [uya.md](../uya.md) 完整规范对照。实现时按「建议实现顺序」执行，每项需同步更新 C 实现与 `uya-src/`，测试需同时通过 `--c99` 与 `--uya --c99`。
 
+**实现约定**：在编写编译器代码前，先在 `tests/programs/` 添加测试用例（如 `test_xxx.uya` 或预期编译失败的 `error_xxx.uya`），覆盖目标场景；实现后再跑 `--c99` 与 `--uya --c99` 验证，二者都通过才算通过。
+
 ---
 
 ## 建议实现顺序（总览）
