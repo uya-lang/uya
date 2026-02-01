@@ -39,7 +39,9 @@ typedef enum {
     AST_PROGRAM,        // 程序节点（根节点）
     AST_ENUM_DECL,      // 枚举声明
     AST_ERROR_DECL,     // 预定义错误声明（error Name;）
+    AST_INTERFACE_DECL, // 接口声明（interface I { fn method(self: *Self,...) Ret; ... }）
     AST_STRUCT_DECL,    // 结构体声明
+    AST_METHOD_BLOCK,   // 方法块（StructName { fn method(...) { ... } ... }）
     AST_FN_DECL,        // 函数声明
     AST_VAR_DECL,       // 变量声明（const/var）
     AST_DESTRUCTURE_DECL, // 解构声明（const (x, y) = expr）
@@ -124,12 +126,28 @@ struct ASTNode {
             const char *name;              // 错误名称（字符串存储在 Arena 中）
         } error_decl;
         
+        // 接口声明（interface I { fn method(self: *Self,...) Ret; ... }）
+        struct {
+            const char *name;              // 接口名称（字符串存储在 Arena 中）
+            struct ASTNode **method_sigs;   // 方法签名数组（AST_FN_DECL 节点，body 为 NULL）
+            int method_sig_count;          // 方法签名数量
+        } interface_decl;
+        
         // 结构体声明
         struct {
             const char *name;         // 结构体名称（字符串存储在 Arena 中）
+            const char **interface_names; // 实现的接口名称数组（可为 NULL，从 Arena 分配）
+            int interface_count;      // 实现的接口数量
             struct ASTNode **fields;         // 字段数组（字段是 AST_VAR_DECL 节点）
             int field_count;          // 字段数量
         } struct_decl;
+        
+        // 方法块（StructName { fn method(...) { ... } ... }）
+        struct {
+            const char *struct_name;   // 结构体名称（字符串存储在 Arena 中）
+            struct ASTNode **methods; // 方法数组（AST_FN_DECL 节点）
+            int method_count;         // 方法数量
+        } method_block;
         
         // 函数声明
         struct {

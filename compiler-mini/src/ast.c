@@ -41,10 +41,22 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_ERROR_DECL:
             node->data.error_decl.name = NULL;
             break;
+        case AST_INTERFACE_DECL:
+            node->data.interface_decl.name = NULL;
+            node->data.interface_decl.method_sigs = NULL;
+            node->data.interface_decl.method_sig_count = 0;
+            break;
         case AST_STRUCT_DECL:
             node->data.struct_decl.name = NULL;
+            node->data.struct_decl.interface_names = NULL;
+            node->data.struct_decl.interface_count = 0;
             node->data.struct_decl.fields = NULL;
             node->data.struct_decl.field_count = 0;
+            break;
+        case AST_METHOD_BLOCK:
+            node->data.method_block.struct_name = NULL;
+            node->data.method_block.methods = NULL;
+            node->data.method_block.method_count = 0;
             break;
         case AST_FN_DECL:
             node->data.fn_decl.name = NULL;

@@ -36,9 +36,15 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 - 可作为表达式或语句；表达式时所有分支返回类型一致；语句时所有分支返回 void
 - 代码生成：展开为 if-else 链
 
+**接口**（✅ 已实现）：
+- 语法：`interface I { fn method(self: *Self, ...) Ret; ... }`，`struct S : I { ... }`，方法块 `S { fn method(self: *Self, ...) Ret { ... } }`
+- 接口值 8/16B（vtable 指针 + 数据指针），装箱点：赋给接口类型变量、传参、返回值
+- 调用：`interface_value.method(args)` 通过 vtable 单条 call 指令派发
+- 限制：无接口字段（`struct S { w: I }` 当前不支持）、无接口数组/切片
+- 详见下方「接口」小节
+
 **不支持的特性**：
 - 联合体（union）
-- 接口
 - 模块系统
 - 字符串插值（不支持字符串插值语法）
 
@@ -55,8 +61,9 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 ## 1. 关键字
 
 ```
-enum struct const var fn extern return true false if else while for break continue null as match
+enum struct interface const var fn extern return true false if else while for break continue null as match
 ```
+- `interface`：接口声明
 
 **说明**：
 - `match`：match 表达式/语句（模式匹配）
@@ -99,6 +106,7 @@ enum struct const var fn extern return true false if else while for break contin
 | `&[T: N]` | 8/16 B（平台相关） | 切片引用（已知长度 N），胖指针 ptr+len；32位=8B，64位=16B |
 | `&T` | 4/8 B（平台相关） | 普通指针类型，用于普通变量和函数参数；32位平台=4B，64位平台=8B |
 | `*T` | 4/8 B（平台相关） | FFI 指针类型，仅用于 extern 函数声明/调用；32位平台=4B，64位平台=8B |
+| `InterfaceName` | 8/16 B（平台相关） | 接口类型，vtable 指针 + 数据指针；32位=8B，64位=16B，见 2.4 节 |
 
 **类型说明**：
 - **结构体类型**：
@@ -305,6 +313,17 @@ struct PlatformStruct {
 ```uya
 struct Empty { }  // 大小 = 1 字节，对齐 = 1 字节
 ```
+
+### 2.4 接口
+
+- **接口定义**：`interface InterfaceName { fn method(self: *Self, ...) ReturnType; ... }`，仅方法签名，无实现。
+- **结构体实现接口**：`struct StructName : InterfaceName { field_list }`，可声明多个接口（逗号分隔）。
+- **方法块**：`StructName { fn method(self: *Self, ...) ReturnType { ... } }`，在结构体定义后单独写，实现接口方法；`Self` 在方法签名中表示当前结构体类型。
+- **接口值**：8/16 B（平台相关），布局为 `{ vtable 指针, data 指针 }`；32位=8B，64位=16B。
+- **装箱**：将具体类型赋给接口类型变量、传参、返回值时，自动生成 vtable 指针 + 数据指针（取地址）。
+- **调用**：`interface_value.method(args)` 通过 vtable 查找方法地址，将 data 指针作为 `self` 第一个参数调用。
+- **C99 映射**：接口类型生成 `struct uya_interface_InterfaceName { void (*vtable[方法数])(...); }` 的 vtable 类型；每个 `struct S : I` 生成静态 vtable 常量；接口值生成 `struct { const void *vtable; void *data; }`；装箱即取结构体地址填 data、填对应 vtable；调用即 `((vtable->method))(data, args...)`。
+- **限制**：当前不支持接口字段（`struct S { w: I }`）、接口数组/切片。
 
 ---
 
@@ -1374,8 +1393,8 @@ Uya Mini 支持结构体和数组类型，这些特性使得编译器实现更�
 
 | 特性 | Uya Mini | 完整 Uya |
 |------|----------|----------|
-| 类型系统 | i32, usize, bool, byte, f32, f64, void, enum, struct, [T: N], &T, *T | 完整的类型系统（结构体、数组、指针、枚举、接口等） |
-| 结构体 | 支持（无方法、无接口实现） | 完整支持（方法、接口实现、drop） |
+| 类型系统 | i32, usize, bool, byte, f32, f64, void, enum, struct, interface, [T: N], &T, *T | 完整的类型系统（结构体、数组、指针、枚举、接口等） |
+| 结构体 | 支持（接口实现、方法块实现接口方法） | 完整支持（方法、接口实现、drop） |
 | 数组 | 支持固定大小数组 `[T: N]` | 支持固定大小数组和切片 |
 | 指针 | 支持 `&T`（普通指针）和 `*T`（FFI指针） | 完整支持（包括 lifetime） |
 | 控制流 | if, while, for（数组遍历）, break, continue | if, while, for（数组遍历、整数范围）, match, break, continue |

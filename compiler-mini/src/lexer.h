@@ -31,6 +31,7 @@ typedef enum {
     // 关键字
     TOKEN_ENUM,         // enum
     TOKEN_STRUCT,       // struct
+    TOKEN_INTERFACE,    // interface
     TOKEN_CONST,        // const
     TOKEN_VAR,          // var
     TOKEN_FN,           // fn

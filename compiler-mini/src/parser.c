@@ -543,8 +543,36 @@ ASTNode *parser_parse_struct(Parser *parser) {
     }
     
     struct_decl->data.struct_decl.name = struct_name;
+    struct_decl->data.struct_decl.interface_names = NULL;
+    struct_decl->data.struct_decl.interface_count = 0;
     struct_decl->data.struct_decl.fields = NULL;
     struct_decl->data.struct_decl.field_count = 0;
+    
+    // 可选的 ': InterfaceName { , InterfaceName }'
+    if (parser_match(parser, TOKEN_COLON)) {
+        parser_consume(parser);
+        const char **ifaces = NULL;
+        int iface_capacity = 0;
+        int iface_count = 0;
+        while (parser_match(parser, TOKEN_IDENTIFIER)) {
+            if (iface_count >= iface_capacity) {
+                int new_cap = iface_capacity == 0 ? 4 : iface_capacity * 2;
+                const char **new_ifaces = (const char **)arena_alloc(parser->arena, sizeof(const char *) * new_cap);
+                if (!new_ifaces) return NULL;
+                for (int i = 0; i < iface_count; i++) new_ifaces[i] = ifaces[i];
+                ifaces = new_ifaces;
+                iface_capacity = new_cap;
+            }
+            ifaces[iface_count] = arena_strdup(parser->arena, parser->current_token->value);
+            if (!ifaces[iface_count]) return NULL;
+            iface_count++;
+            parser_consume(parser);
+            if (!parser_match(parser, TOKEN_COMMA)) break;
+            parser_consume(parser);
+        }
+        struct_decl->data.struct_decl.interface_names = ifaces;
+        struct_decl->data.struct_decl.interface_count = iface_count;
+    }
     
     // 期望 '{'
     if (!parser_expect(parser, TOKEN_LEFT_BRACE)) {
@@ -807,6 +835,124 @@ static ASTNode *parser_parse_error_decl(Parser *parser) {
         return NULL;
     }
     node->data.error_decl.name = name;
+    return node;
+}
+
+// 解析接口声明：interface ID { fn method(self: *Self,...) Ret; ... }
+static ASTNode *parser_parse_interface(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) return NULL;
+    if (!parser_match(parser, TOKEN_INTERFACE)) return NULL;
+    int line = parser->current_token->line;
+    int column = parser->current_token->column;
+    parser_consume(parser);
+    if (!parser_match(parser, TOKEN_IDENTIFIER)) return NULL;
+    const char *iface_name = arena_strdup(parser->arena, parser->current_token->value);
+    if (!iface_name) return NULL;
+    parser_consume(parser);
+    if (!parser_expect(parser, TOKEN_LEFT_BRACE)) return NULL;
+    ASTNode **sigs = NULL;
+    int sig_count = 0;
+    int sig_cap = 0;
+    while (parser->current_token != NULL &&
+           !parser_match(parser, TOKEN_RIGHT_BRACE) && !parser_match(parser, TOKEN_EOF)) {
+        if (!parser_match(parser, TOKEN_FN)) return NULL;
+        int ml = parser->current_token->line;
+        int mc = parser->current_token->column;
+        parser_consume(parser);
+        if (!parser_match(parser, TOKEN_IDENTIFIER)) return NULL;
+        const char *method_name = arena_strdup(parser->arena, parser->current_token->value);
+        if (!method_name) return NULL;
+        parser_consume(parser);
+        if (!parser_expect(parser, TOKEN_LEFT_PAREN)) return NULL;
+        ASTNode **params = NULL;
+        int param_count = 0;
+        int param_cap = 0;
+        while (parser->current_token != NULL && !parser_match(parser, TOKEN_RIGHT_PAREN) && !parser_match(parser, TOKEN_EOF)) {
+            if (!parser_match(parser, TOKEN_IDENTIFIER)) return NULL;
+            const char *pname = arena_strdup(parser->arena, parser->current_token->value);
+            if (!pname) return NULL;
+            parser_consume(parser);
+            if (!parser_expect(parser, TOKEN_COLON)) return NULL;
+            ASTNode *ptype = parser_parse_type(parser);
+            if (!ptype) return NULL;
+            if (param_count >= param_cap) {
+                int new_cap = param_cap == 0 ? 4 : param_cap * 2;
+                ASTNode **new_p = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
+                if (!new_p) return NULL;
+                for (int i = 0; i < param_count; i++) new_p[i] = params[i];
+                params = new_p;
+                param_cap = new_cap;
+            }
+            ASTNode *pnode = ast_new_node(AST_VAR_DECL, ml, mc, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (!pnode) return NULL;
+            pnode->data.var_decl.name = pname;
+            pnode->data.var_decl.type = ptype;
+            pnode->data.var_decl.init = NULL;
+            pnode->data.var_decl.is_const = 0;
+            params[param_count++] = pnode;
+            if (!parser_match(parser, TOKEN_COMMA)) break;
+            parser_consume(parser);
+        }
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) return NULL;
+        ASTNode *ret_type = parser_parse_type(parser);
+        if (!ret_type) return NULL;
+        if (!parser_expect(parser, TOKEN_SEMICOLON)) return NULL;
+        ASTNode *sig = ast_new_node(AST_FN_DECL, ml, mc, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (!sig) return NULL;
+        sig->data.fn_decl.name = method_name;
+        sig->data.fn_decl.params = params;
+        sig->data.fn_decl.param_count = param_count;
+        sig->data.fn_decl.return_type = ret_type;
+        sig->data.fn_decl.body = NULL;
+        sig->data.fn_decl.is_varargs = 0;
+        if (sig_count >= sig_cap) {
+            int new_cap = sig_cap == 0 ? 4 : sig_cap * 2;
+            ASTNode **new_sigs = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
+            if (!new_sigs) return NULL;
+            for (int i = 0; i < sig_count; i++) new_sigs[i] = sigs[i];
+            sigs = new_sigs;
+            sig_cap = new_cap;
+        }
+        sigs[sig_count++] = sig;
+    }
+    if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) return NULL;
+    ASTNode *node = ast_new_node(AST_INTERFACE_DECL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+    if (!node) return NULL;
+    node->data.interface_decl.name = iface_name;
+    node->data.interface_decl.method_sigs = sigs;
+    node->data.interface_decl.method_sig_count = sig_count;
+    return node;
+}
+
+// 解析方法块：StructName { fn method(...) { ... } ... }（调用时 struct_name 与 '{' 已消费，当前为块内首 token）
+static ASTNode *parser_parse_method_block(Parser *parser, const char *struct_name) {
+    if (parser == NULL || parser->current_token == NULL || !struct_name) return NULL;
+    int line = parser->current_token->line;
+    int column = parser->current_token->column;
+    ASTNode **methods = NULL;
+    int method_count = 0;
+    int method_cap = 0;
+    while (parser->current_token != NULL &&
+           parser_match(parser, TOKEN_FN) &&
+           !parser_match(parser, TOKEN_RIGHT_BRACE) && !parser_match(parser, TOKEN_EOF)) {
+        ASTNode *fn = parser_parse_function(parser);
+        if (!fn) return NULL;
+        if (method_count >= method_cap) {
+            int new_cap = method_cap == 0 ? 4 : method_cap * 2;
+            ASTNode **new_m = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
+            if (!new_m) return NULL;
+            for (int i = 0; i < method_count; i++) new_m[i] = methods[i];
+            methods = new_m;
+            method_cap = new_cap;
+        }
+        methods[method_count++] = fn;
+    }
+    if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) return NULL;
+    ASTNode *node = ast_new_node(AST_METHOD_BLOCK, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+    if (!node) return NULL;
+    node->data.method_block.struct_name = struct_name;
+    node->data.method_block.methods = methods;
+    node->data.method_block.method_count = method_count;
     return node;
 }
 
@@ -1166,8 +1312,23 @@ ASTNode *parser_parse_declaration(Parser *parser) {
         return parser_parse_enum(parser);
     } else if (parser_match(parser, TOKEN_ERROR)) {
         return parser_parse_error_decl(parser);
+    } else if (parser_match(parser, TOKEN_INTERFACE)) {
+        return parser_parse_interface(parser);
     } else if (parser_match(parser, TOKEN_STRUCT)) {
         return parser_parse_struct(parser);
+    } else if (parser_match(parser, TOKEN_IDENTIFIER)) {
+        const char *name = arena_strdup(parser->arena, parser->current_token->value);
+        if (!name) return NULL;
+        parser_consume(parser);
+        if (parser->current_token != NULL && parser_match(parser, TOKEN_LEFT_BRACE)) {
+            parser_consume(parser);
+            return parser_parse_method_block(parser, name);
+        }
+        const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+        fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 顶层标识符 '%s' 后期望 '{'（方法块）\n",
+                filename, parser->current_token ? parser->current_token->line : 0,
+                parser->current_token ? parser->current_token->column : 0, name);
+        return NULL;
     } else if (parser_match(parser, TOKEN_CONST) || parser_match(parser, TOKEN_VAR)) {
         // 变量声明
         return parser_parse_statement(parser);
@@ -1913,6 +2074,40 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     member_access->data.member_access.field_name = field_name;
                     
                     result = member_access;
+                } else if (parser_match(parser, TOKEN_LEFT_PAREN)) {
+                    // 方法调用：obj.method(args)
+                    parser_consume(parser);
+                    ASTNode *call = ast_new_node(AST_CALL_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                    if (call == NULL) return NULL;
+                    call->data.call_expr.callee = result;
+                    call->data.call_expr.has_ellipsis_forward = 0;
+                    ASTNode **args = NULL;
+                    int arg_count = 0;
+                    int arg_cap = 0;
+                    while (parser->current_token != NULL && !parser_match(parser, TOKEN_RIGHT_PAREN) && !parser_match(parser, TOKEN_EOF)) {
+                        if (parser_match(parser, TOKEN_ELLIPSIS)) {
+                            parser_consume(parser);
+                            call->data.call_expr.has_ellipsis_forward = 1;
+                            break;
+                        }
+                        ASTNode *arg = parser_parse_expression(parser);
+                        if (arg == NULL) return NULL;
+                        if (arg_count >= arg_cap) {
+                            int new_cap = arg_cap == 0 ? 4 : arg_cap * 2;
+                            ASTNode **new_a = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
+                            if (!new_a) return NULL;
+                            for (int i = 0; i < arg_count; i++) new_a[i] = args[i];
+                            args = new_a;
+                            arg_cap = new_cap;
+                        }
+                        args[arg_count++] = arg;
+                        if (!parser_match(parser, TOKEN_COMMA)) break;
+                        parser_consume(parser);
+                    }
+                    if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) return NULL;
+                    call->data.call_expr.args = args;
+                    call->data.call_expr.arg_count = arg_count;
+                    result = call;
                 } else if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
                     int bracket_line = parser->current_token->line;
                     int bracket_column = parser->current_token->column;
@@ -1939,7 +2134,6 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                         result = array_access;
                     }
                 } else {
-                    // 既不是字段访问也不是数组访问，退出循环
                     break;
                 }
             }
@@ -2018,6 +2212,42 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     member_access->data.member_access.field_name = field_name;
                     
                     result = member_access;
+                }
+                
+                // 方法调用：obj.method(args) 或 obj.field 后的 (args)
+                while (parser->current_token != NULL && parser_match(parser, TOKEN_LEFT_PAREN)) {
+                    parser_consume(parser);
+                    ASTNode *call = ast_new_node(AST_CALL_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                    if (call == NULL) return NULL;
+                    call->data.call_expr.callee = result;
+                    call->data.call_expr.has_ellipsis_forward = 0;
+                    ASTNode **args = NULL;
+                    int arg_count = 0;
+                    int arg_cap = 0;
+                    while (parser->current_token != NULL && !parser_match(parser, TOKEN_RIGHT_PAREN) && !parser_match(parser, TOKEN_EOF)) {
+                        if (parser_match(parser, TOKEN_ELLIPSIS)) {
+                            parser_consume(parser);
+                            call->data.call_expr.has_ellipsis_forward = 1;
+                            break;
+                        }
+                        ASTNode *arg = parser_parse_expression(parser);
+                        if (arg == NULL) return NULL;
+                        if (arg_count >= arg_cap) {
+                            int new_cap = arg_cap == 0 ? 4 : arg_cap * 2;
+                            ASTNode **new_a = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
+                            if (!new_a) return NULL;
+                            for (int i = 0; i < arg_count; i++) new_a[i] = args[i];
+                            args = new_a;
+                            arg_cap = new_cap;
+                        }
+                        args[arg_count++] = arg;
+                        if (!parser_match(parser, TOKEN_COMMA)) break;
+                        parser_consume(parser);
+                    }
+                    if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) return NULL;
+                    call->data.call_expr.args = args;
+                    call->data.call_expr.arg_count = arg_count;
+                    result = call;
                 }
                 
                 return result;
@@ -2244,6 +2474,39 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     member_access->data.member_access.field_name = field_name;
                     
                     result = member_access;
+                } else if (parser_match(parser, TOKEN_LEFT_PAREN)) {
+                    parser_consume(parser);
+                    ASTNode *call = ast_new_node(AST_CALL_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                    if (call == NULL) return NULL;
+                    call->data.call_expr.callee = result;
+                    call->data.call_expr.has_ellipsis_forward = 0;
+                    ASTNode **args = NULL;
+                    int arg_count = 0;
+                    int arg_cap = 0;
+                    while (parser->current_token != NULL && !parser_match(parser, TOKEN_RIGHT_PAREN) && !parser_match(parser, TOKEN_EOF)) {
+                        if (parser_match(parser, TOKEN_ELLIPSIS)) {
+                            parser_consume(parser);
+                            call->data.call_expr.has_ellipsis_forward = 1;
+                            break;
+                        }
+                        ASTNode *arg = parser_parse_expression(parser);
+                        if (arg == NULL) return NULL;
+                        if (arg_count >= arg_cap) {
+                            int new_cap = arg_cap == 0 ? 4 : arg_cap * 2;
+                            ASTNode **new_a = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
+                            if (!new_a) return NULL;
+                            for (int i = 0; i < arg_count; i++) new_a[i] = args[i];
+                            args = new_a;
+                            arg_cap = new_cap;
+                        }
+                        args[arg_count++] = arg;
+                        if (!parser_match(parser, TOKEN_COMMA)) break;
+                        parser_consume(parser);
+                    }
+                    if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) return NULL;
+                    call->data.call_expr.args = args;
+                    call->data.call_expr.arg_count = arg_count;
+                    result = call;
                 } else if (parser_match(parser, TOKEN_LEFT_BRACKET)) {
                     int bracket_line = parser->current_token->line;
                     int bracket_column = parser->current_token->column;
@@ -2270,7 +2533,6 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                         result = array_access;
                     }
                 } else {
-                    // 既不是字段访问也不是数组访问，退出循环
                     break;
                 }
             }

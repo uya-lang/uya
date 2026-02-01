@@ -28,7 +28,9 @@ static void checker_exit_scope(TypeChecker *checker);
 static void checker_check_cast_expr(TypeChecker *checker, ASTNode *node);
 static int checker_check_node(TypeChecker *checker, ASTNode *node);
 static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char *struct_name);
+static ASTNode *find_interface_decl_from_program(ASTNode *program_node, const char *interface_name);
 static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *enum_name);
+static ASTNode *find_method_block_for_struct(ASTNode *program_node, const char *struct_name);
 
 // 是否为整数类型（用于算术、比较、位运算）
 static int is_integer_type(TypeKind k) {
@@ -52,6 +54,8 @@ static Type find_struct_field_type(TypeChecker *checker, ASTNode *struct_decl, c
 static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node);
 /* 评估编译时常量表达式，返回整数值；-1 表示无法评估或非常量 */
 static int checker_eval_const_expr(TypeChecker *checker, ASTNode *expr);
+/* 结构体是否实现某接口（用于装箱） */
+static int struct_implements_interface(TypeChecker *checker, const char *struct_name, const char *interface_name);
 
 // 初始化 TypeChecker
 int checker_init(TypeChecker *checker, Arena *arena, const char *default_filename) {
@@ -329,7 +333,6 @@ static int type_can_implicitly_convert(Type from, Type to) {
     }
     
     // null 字面量（TYPE_VOID）可以赋值给任何指针类型
-    // 在 Uya 中，null 字面量可能被推断为 TYPE_VOID，但应该允许赋值给指针类型
     if (from.kind == TYPE_VOID && to.kind == TYPE_POINTER) {
         return 1;
     }
@@ -373,6 +376,12 @@ static int type_equals(Type t1, Type t2) {
         }
         // 比较结构体名称
         return strcmp(t1.data.struct_name, t2.data.struct_name) == 0;
+    }
+    // 对于接口类型，比较接口名称
+    if (t1.kind == TYPE_INTERFACE) {
+        if (t1.data.interface_name == NULL && t2.data.interface_name == NULL) return 1;
+        if (t1.data.interface_name == NULL || t2.data.interface_name == NULL) return 0;
+        return strcmp(t1.data.interface_name, t2.data.interface_name) == 0;
     }
     
     // 对于指针类型，需要比较指向的类型和是否FFI指针
@@ -660,15 +669,19 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
             // 其他名称可能是枚举类型或结构体类型
             // 需要从program_node中查找枚举或结构体声明（在类型检查阶段验证）
             if (checker != NULL && checker->program_node != NULL) {
-                // 先检查是否是枚举类型
                 ASTNode *enum_decl = find_enum_decl_from_program(checker->program_node, type_name);
                 if (enum_decl != NULL) {
                     result.kind = TYPE_ENUM;
                     result.data.enum_name = type_name;
                 } else {
-                    // 不是枚举类型，视为结构体类型
-                    result.kind = TYPE_STRUCT;
-                    result.data.struct_name = type_name;
+                    ASTNode *iface_decl = find_interface_decl_from_program(checker->program_node, type_name);
+                    if (iface_decl != NULL) {
+                        result.kind = TYPE_INTERFACE;
+                        result.data.interface_name = type_name;
+                    } else {
+                        result.kind = TYPE_STRUCT;
+                        result.data.struct_name = type_name;
+                    }
                 }
             } else {
                 // 无法检查，暂时视为结构体类型（向后兼容）
@@ -1007,19 +1020,36 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
         }
         
         case AST_CALL_EXPR: {
-            // 函数调用：返回函数的返回类型
             ASTNode *callee = expr->data.call_expr.callee;
-            if (callee == NULL || callee->type != AST_IDENTIFIER) {
+            if (callee == NULL) {
                 result.kind = TYPE_VOID;
                 return result;
             }
-            
+            if (callee->type == AST_MEMBER_ACCESS) {
+                Type object_type = checker_infer_type(checker, callee->data.member_access.object);
+                if (object_type.kind == TYPE_INTERFACE && object_type.data.interface_name != NULL && checker->program_node != NULL) {
+                    ASTNode *iface = find_interface_decl_from_program(checker->program_node, object_type.data.interface_name);
+                    const char *method_name = callee->data.member_access.field_name;
+                    if (iface != NULL && method_name != NULL) {
+                        for (int i = 0; i < iface->data.interface_decl.method_sig_count; i++) {
+                            ASTNode *msig = iface->data.interface_decl.method_sigs[i];
+                            if (msig != NULL && msig->data.fn_decl.name != NULL && strcmp(msig->data.fn_decl.name, method_name) == 0) {
+                                return type_from_ast(checker, msig->data.fn_decl.return_type);
+                            }
+                        }
+                    }
+                }
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            if (callee->type != AST_IDENTIFIER) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
             FunctionSignature *sig = function_table_lookup(checker, callee->data.identifier.name);
             if (sig != NULL) {
                 return sig->return_type;
             }
-            
-            // 如果找不到函数，返回void类型（错误将在类型检查时报告）
             result.kind = TYPE_VOID;
             return result;
         }
@@ -1070,13 +1100,29 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             // 不是枚举类型访问，按结构体字段访问处理
             Type object_type = checker_infer_type(checker, object);
             
-            // 如果对象是指针类型，自动解引用（Uya Mini 支持指针自动解引用访问字段）
+            // 如果对象是指针类型，自动解引用
             if (object_type.kind == TYPE_POINTER && object_type.data.pointer.pointer_to != NULL) {
                 object_type = *object_type.data.pointer.pointer_to;
             }
             
+            // 接口类型：.method 为方法调用，类型在 call 处推断
+            if (object_type.kind == TYPE_INTERFACE && object_type.data.interface_name != NULL && checker != NULL && checker->program_node != NULL) {
+                ASTNode *iface = find_interface_decl_from_program(checker->program_node, object_type.data.interface_name);
+                if (iface != NULL && expr->data.member_access.field_name != NULL) {
+                    for (int i = 0; i < iface->data.interface_decl.method_sig_count; i++) {
+                        ASTNode *sig = iface->data.interface_decl.method_sigs[i];
+                        if (sig != NULL && sig->data.fn_decl.name != NULL &&
+                            strcmp(sig->data.fn_decl.name, expr->data.member_access.field_name) == 0) {
+                            result.kind = TYPE_VOID;
+                            return result;
+                        }
+                    }
+                }
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            
             if (object_type.kind != TYPE_STRUCT || object_type.data.struct_name == NULL) {
-                // 对象类型不是结构体，返回void类型
                 result.kind = TYPE_VOID;
                 return result;
             }
@@ -1337,6 +1383,53 @@ static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *e
     return NULL;
 }
 
+static ASTNode *find_interface_decl_from_program(ASTNode *program_node, const char *interface_name) {
+    if (program_node == NULL || program_node->type != AST_PROGRAM || interface_name == NULL) {
+        return NULL;
+    }
+    for (int i = 0; i < program_node->data.program.decl_count; i++) {
+        ASTNode *decl = program_node->data.program.decls[i];
+        if (decl != NULL && decl->type == AST_INTERFACE_DECL) {
+            if (decl->data.interface_decl.name != NULL &&
+                strcmp(decl->data.interface_decl.name, interface_name) == 0) {
+                return decl;
+            }
+        }
+    }
+    return NULL;
+}
+
+static ASTNode *find_method_block_for_struct(ASTNode *program_node, const char *struct_name) {
+    if (program_node == NULL || program_node->type != AST_PROGRAM || struct_name == NULL) {
+        return NULL;
+    }
+    for (int i = 0; i < program_node->data.program.decl_count; i++) {
+        ASTNode *decl = program_node->data.program.decls[i];
+        if (decl != NULL && decl->type == AST_METHOD_BLOCK) {
+            if (decl->data.method_block.struct_name != NULL &&
+                strcmp(decl->data.method_block.struct_name, struct_name) == 0) {
+                return decl;
+            }
+        }
+    }
+    return NULL;
+}
+
+static int struct_implements_interface(TypeChecker *checker, const char *struct_name, const char *interface_name) {
+    if (checker == NULL || checker->program_node == NULL || struct_name == NULL || interface_name == NULL) {
+        return 0;
+    }
+    ASTNode *struct_decl = find_struct_decl_from_program(checker->program_node, struct_name);
+    if (struct_decl == NULL) return 0;
+    for (int i = 0; i < struct_decl->data.struct_decl.interface_count; i++) {
+        if (struct_decl->data.struct_decl.interface_names[i] != NULL &&
+            strcmp(struct_decl->data.struct_decl.interface_names[i], interface_name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 // 检查 name 是否是程序中任意枚举的变体名（裸枚举常量检测）
 // 返回 1 表示是枚举变体名，0 表示不是
 static int is_enum_variant_name_in_program(ASTNode *program_node, const char *name) {
@@ -1499,6 +1592,11 @@ static int checker_check_expr_type(TypeChecker *checker, ASTNode *expr, Type exp
     
     Type actual_type = checker_infer_type(checker, expr);
     if (type_equals(actual_type, expected_type)) {
+        return 1;
+    }
+    // 结构体实现接口时，可装箱为接口类型（赋值/传参）
+    if (actual_type.kind == TYPE_STRUCT && expected_type.kind == TYPE_INTERFACE &&
+        struct_implements_interface(checker, actual_type.data.struct_name, expected_type.data.interface_name)) {
         return 1;
     }
     
@@ -1957,11 +2055,44 @@ static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
         return result;
     }
     
-    // 查找被调用的函数
     ASTNode *callee = node->data.call_expr.callee;
-    if (callee == NULL || callee->type != AST_IDENTIFIER) {
-        // 放宽检查：callee 不是标识符时，允许通过（不报错）
-        // 这在编译器自举时可能发生，因为类型推断可能失败
+    if (callee == NULL) {
+        return result;
+    }
+    
+    // 接口方法调用：callee 为 obj.method，obj 类型为接口
+    if (callee->type == AST_MEMBER_ACCESS) {
+        Type object_type = checker_infer_type(checker, callee->data.member_access.object);
+        if (object_type.kind == TYPE_INTERFACE && object_type.data.interface_name != NULL && checker->program_node != NULL) {
+            ASTNode *iface = find_interface_decl_from_program(checker->program_node, object_type.data.interface_name);
+            const char *method_name = callee->data.member_access.field_name;
+            if (iface != NULL && method_name != NULL) {
+                for (int i = 0; i < iface->data.interface_decl.method_sig_count; i++) {
+                    ASTNode *msig = iface->data.interface_decl.method_sigs[i];
+                    if (msig != NULL && msig->data.fn_decl.name != NULL && strcmp(msig->data.fn_decl.name, method_name) == 0) {
+                        int expected_args = msig->data.fn_decl.param_count - 1;
+                        if (expected_args < 0) expected_args = 0;
+                        if (node->data.call_expr.arg_count != expected_args) {
+                            checker_report_error(checker, node, "接口方法调用实参个数不匹配");
+                            return result;
+                        }
+                        for (int j = 0; j < expected_args && j < node->data.call_expr.arg_count; j++) {
+                            Type param_type = type_from_ast(checker, msig->data.fn_decl.params[j + 1]->data.var_decl.type);
+                            if (!checker_check_expr_type(checker, node->data.call_expr.args[j], param_type)) {
+                                checker_report_error(checker, node, "接口方法调用参数类型不匹配");
+                                return result;
+                            }
+                        }
+                        return type_from_ast(checker, msig->data.fn_decl.return_type);
+                    }
+                }
+                checker_report_error(checker, node, "接口上不存在该方法");
+            }
+        }
+        return result;
+    }
+    
+    if (callee->type != AST_IDENTIFIER) {
         return result;
     }
     
@@ -2691,13 +2822,29 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             return 1;
             
         case AST_STRUCT_DECL:
-            // 检查结构体声明是否在顶层（只能通过AST_PROGRAM访问）
-            // 如果不在顶层，报告错误
             if (checker->scope_level > 0) {
-                checker_report_error(checker, node, "结构体声明只能在顶层定义，不能在函数内部或其他局部作用域内定义");
+                checker_report_error(checker, node, "结构体声明只能在顶层定义");
                 return 0;
             }
             return checker_check_struct_decl(checker, node);
+        
+        case AST_INTERFACE_DECL:
+            if (checker->scope_level > 0) {
+                checker_report_error(checker, node, "接口声明只能在顶层定义");
+                return 0;
+            }
+            return 1;
+        
+        case AST_METHOD_BLOCK:
+            if (checker->scope_level > 0) {
+                checker_report_error(checker, node, "方法块只能在顶层定义");
+                return 0;
+            }
+            if (find_struct_decl_from_program(checker->program_node, node->data.method_block.struct_name) == NULL) {
+                checker_report_error(checker, node, "方法块对应的结构体未定义");
+                return 0;
+            }
+            return 1;
             
         case AST_ENUM_DECL:
             // 检查枚举声明是否在顶层（只能通过AST_PROGRAM访问）
