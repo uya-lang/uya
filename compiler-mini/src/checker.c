@@ -3642,11 +3642,7 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                     return 0;
                 }
             }
-            if (node->data.return_stmt.expr != NULL && node->data.return_stmt.expr->type == AST_IDENTIFIER) {
-                Type rt = checker_infer_type(checker, node->data.return_stmt.expr);
-                if (rt.kind == TYPE_STRUCT && rt.data.struct_name != NULL)
-                    checker_mark_moved(checker, node, node->data.return_stmt.expr->data.identifier.name, rt.data.struct_name);
-            }
+            /* return 的源变量不标记为已移动：return 后控制流离开，不会发生 use-after-move */
             return 1;
         }
         
