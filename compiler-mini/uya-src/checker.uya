@@ -1065,7 +1065,7 @@ fn check_drop_method_signature(checker: &TypeChecker, fn_decl: &ASTNode, struct_
         return 0;
     }
     if param_type.type == ASTNodeType.AST_TYPE_POINTER {
-        checker_report_error(checker, fn_decl, "drop 方法 self 必须为按值类型 T（不能为 *Self 或 *T）" as *byte);
+        checker_report_error(checker, fn_decl, "drop 方法 self 必须为按值类型 T（不能为 &Self、*Self 或指针）" as *byte);
         return 0;
     }
     if param_type.type != ASTNodeType.AST_TYPE_NAMED || param_type.type_named_name == null ||
@@ -1077,6 +1077,30 @@ fn check_drop_method_signature(checker: &TypeChecker, fn_decl: &ASTNode, struct_
     if ret == null || ret.type != ASTNodeType.AST_TYPE_NAMED || ret.type_named_name == null ||
         str_equals(ret.type_named_name, "void" as *byte) == 0 {
         checker_report_error(checker, fn_decl, "drop 方法返回类型必须为 void" as *byte);
+        return 0;
+    }
+    return 1;
+}
+
+// 校验方法（非 drop）的 self 参数必须为 &T（规范 0.39：*T 仅用于 FFI）
+fn check_method_self_param(checker: &TypeChecker, fn_decl: &ASTNode) i32 {
+    if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
+        return 1;
+    }
+    if fn_decl.fn_decl_param_count < 1 || fn_decl.fn_decl_params == null {
+        return 1;
+    }
+    const param: &ASTNode = fn_decl.fn_decl_params[0];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL || param.var_decl_name == null ||
+        str_equals(param.var_decl_name, "self" as *byte) == 0 {
+        return 1;
+    }
+    const param_type: &ASTNode = param.var_decl_type;
+    if param_type == null || param_type.type != ASTNodeType.AST_TYPE_POINTER {
+        return 1;
+    }
+    if param_type.type_pointer_is_ffi_pointer != 0 {
+        checker_report_error(checker, fn_decl, "方法 self 必须为 &T，不能为 *T（*T 仅用于 FFI）" as *byte);
         return 0;
     }
     return 1;
@@ -2668,10 +2692,13 @@ fn checker_check_struct_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         var j: i32 = 0;
         while j < node.struct_decl_method_count {
             const m: &ASTNode = node.struct_decl_methods[j];
-            if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
-                str_equals(m.fn_decl_name, "drop" as *byte) != 0 {
-                drop_count = drop_count + 1;
-                if check_drop_method_signature(checker, m, struct_name) == 0 {
+            if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null {
+                if str_equals(m.fn_decl_name, "drop" as *byte) != 0 {
+                    drop_count = drop_count + 1;
+                    if check_drop_method_signature(checker, m, struct_name) == 0 {
+                        return 0;
+                    }
+                } else if check_method_self_param(checker, m) == 0 {
                     return 0;
                 }
             }
@@ -3744,6 +3771,16 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             checker_report_error(checker, node, "接口声明只能在顶层" as *byte);
             return 0;
         }
+        if node.interface_decl_method_sigs != null {
+            var i: i32 = 0;
+            while i < node.interface_decl_method_sig_count {
+                const msig: &ASTNode = node.interface_decl_method_sigs[i];
+                if msig != null && check_method_self_param(checker, msig) == 0 {
+                    return 0;
+                }
+                i = i + 1;
+            }
+        }
     } else if node.type == ASTNodeType.AST_METHOD_BLOCK {
         if checker.scope_level > 0 {
             checker_report_error(checker, node, "方法块只能在顶层" as *byte);
@@ -3759,10 +3796,13 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             var i: i32 = 0;
             while i < node.method_block_method_count {
                 const m: &ASTNode = node.method_block_methods[i];
-                if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
-                    str_equals(m.fn_decl_name, "drop" as *byte) != 0 {
-                    drop_count = drop_count + 1;
-                    if check_drop_method_signature(checker, m, struct_name) == 0 {
+                if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null {
+                    if str_equals(m.fn_decl_name, "drop" as *byte) != 0 {
+                        drop_count = drop_count + 1;
+                        if check_drop_method_signature(checker, m, struct_name) == 0 {
+                            return 0;
+                        }
+                    } else if check_method_self_param(checker, m) == 0 {
                         return 0;
                     }
                 }

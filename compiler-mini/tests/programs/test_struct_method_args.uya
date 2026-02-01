@@ -7,7 +7,7 @@ struct Vec2 {
 }
 
 Vec2 {
-  fn scale(self: *Self, factor: f32) f32 {
+  fn scale(self: &Self, factor: f32) f32 {
     return self.x * factor + self.y * factor;
   }
 }

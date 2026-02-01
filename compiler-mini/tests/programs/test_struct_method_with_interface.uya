@@ -3,7 +3,7 @@
 // 预期：main 返回 0
 
 interface IDouble {
-  fn double(self: *Self) i32;
+  fn double(self: &Self) i32;
 }
 
 struct Num : IDouble {
@@ -11,10 +11,10 @@ struct Num : IDouble {
 }
 
 Num {
-  fn double(self: *Self) i32 {
+  fn double(self: &Self) i32 {
     return self.val * 2;
   }
-  fn triple(self: *Self) i32 {
+  fn triple(self: &Self) i32 {
     return self.val * 3;
   }
 }

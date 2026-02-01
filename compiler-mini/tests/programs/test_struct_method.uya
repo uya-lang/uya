@@ -7,7 +7,7 @@ struct Point {
 }
 
 Point {
-  fn distance(self: *Self) f32 {
+  fn distance(self: &Self) f32 {
     return self.x + self.y;
   }
 }

@@ -1566,7 +1566,7 @@ static int check_drop_method_signature(TypeChecker *checker, ASTNode *fn_decl, c
         return 0;
     }
     if (param_type->type == AST_TYPE_POINTER) {
-        checker_report_error(checker, fn_decl, "drop 方法 self 必须为按值类型 T（不能为 *Self 或 *T）");
+        checker_report_error(checker, fn_decl, "drop 方法 self 必须为按值类型 T（不能为 &Self、*Self 或指针）");
         return 0;
     }
     if (param_type->type != AST_TYPE_NAMED || !param_type->data.type_named.name ||
@@ -1577,6 +1577,23 @@ static int check_drop_method_signature(TypeChecker *checker, ASTNode *fn_decl, c
     ASTNode *ret = fn_decl->data.fn_decl.return_type;
     if (!ret || ret->type != AST_TYPE_NAMED || !ret->data.type_named.name || strcmp(ret->data.type_named.name, "void") != 0) {
         checker_report_error(checker, fn_decl, "drop 方法返回类型必须为 void");
+        return 0;
+    }
+    return 1;
+}
+
+// 校验方法（非 drop）的 self 参数必须为 &T（规范 0.39：*T 仅用于 FFI）
+// 返回 1 表示合法，0 表示非法（已报错）
+static int check_method_self_param(TypeChecker *checker, ASTNode *fn_decl) {
+    if (checker == NULL || fn_decl == NULL || fn_decl->type != AST_FN_DECL) return 1;
+    if (fn_decl->data.fn_decl.param_count < 1 || !fn_decl->data.fn_decl.params) return 1;
+    ASTNode *param = fn_decl->data.fn_decl.params[0];
+    if (!param || param->type != AST_VAR_DECL || !param->data.var_decl.name ||
+        strcmp(param->data.var_decl.name, "self") != 0) return 1;
+    ASTNode *param_type = param->data.var_decl.type;
+    if (!param_type || param_type->type != AST_TYPE_POINTER) return 1;
+    if (param_type->data.type_pointer.is_ffi_pointer) {
+        checker_report_error(checker, fn_decl, "方法 self 必须为 &T，不能为 *T（*T 仅用于 FFI）");
         return 0;
     }
     return 1;
@@ -2248,9 +2265,11 @@ static int checker_check_struct_decl(TypeChecker *checker, ASTNode *node) {
     if (node->data.struct_decl.methods) {
         for (int i = 0; i < node->data.struct_decl.method_count; i++) {
             ASTNode *m = node->data.struct_decl.methods[i];
-            if (m && m->type == AST_FN_DECL && m->data.fn_decl.name && strcmp(m->data.fn_decl.name, "drop") == 0) {
-                drop_count++;
-                if (!check_drop_method_signature(checker, m, struct_name)) return 0;
+            if (m && m->type == AST_FN_DECL && m->data.fn_decl.name) {
+                if (strcmp(m->data.fn_decl.name, "drop") == 0) {
+                    drop_count++;
+                    if (!check_drop_method_signature(checker, m, struct_name)) return 0;
+                } else if (!check_method_self_param(checker, m)) return 0;
             }
         }
     }
@@ -3085,12 +3104,17 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             }
             return checker_check_struct_decl(checker, node);
         
-        case AST_INTERFACE_DECL:
+        case AST_INTERFACE_DECL: {
             if (checker->scope_level > 0) {
                 checker_report_error(checker, node, "接口声明只能在顶层定义");
                 return 0;
             }
+            for (int i = 0; i < node->data.interface_decl.method_sig_count; i++) {
+                ASTNode *msig = node->data.interface_decl.method_sigs[i];
+                if (msig && !check_method_self_param(checker, msig)) return 0;
+            }
             return 1;
+        }
         
         case AST_METHOD_BLOCK: {
             if (checker->scope_level > 0) {
@@ -3105,9 +3129,11 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             int drop_count = 0;
             for (int i = 0; i < node->data.method_block.method_count; i++) {
                 ASTNode *m = node->data.method_block.methods[i];
-                if (m && m->type == AST_FN_DECL && m->data.fn_decl.name && strcmp(m->data.fn_decl.name, "drop") == 0) {
-                    drop_count++;
-                    if (!check_drop_method_signature(checker, m, struct_name)) return 0;
+                if (m && m->type == AST_FN_DECL && m->data.fn_decl.name) {
+                    if (strcmp(m->data.fn_decl.name, "drop") == 0) {
+                        drop_count++;
+                        if (!check_drop_method_signature(checker, m, struct_name)) return 0;
+                    } else if (!check_method_self_param(checker, m)) return 0;
                 }
             }
             if (drop_count > 1) {

@@ -6,7 +6,7 @@ struct Box {
 }
 
 Box {
-  fn get(self: *Self) i32 {
+  fn get(self: &Self) i32 {
     return self.n;
   }
 }

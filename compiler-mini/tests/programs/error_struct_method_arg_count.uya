@@ -4,7 +4,7 @@ struct Calc {
 }
 
 Calc {
-  fn add(self: *Self, x: i32, y: i32) i32 {
+  fn add(self: &Self, x: i32, y: i32) i32 {
     return self.n + x + y;
   }
 }

@@ -27,7 +27,7 @@
 
 ---
 
-## 下次优先实现（规范 0.36 变更）
+## 下次优先实现（规范 0.39 变更）
 
 以下三项来自 uya.md 0.34 规范变更（0.35 已含联合体），建议在阶段 2（错误处理）之前或与之并行时优先实现。
 
@@ -134,7 +134,7 @@
 
 ## 7. 接口
 
-- [x] **interface 定义**：`interface I { fn method(self: *Self,...) Ret; ... }`，规范 uya.md §6
+- [x] **interface 定义**：`interface I { fn method(self: &Self,...) Ret; ... }`，规范 uya.md §6
 - [x] **实现**：`struct S : I { }`，方法块 `S { fn method(...) { ... } }`，Checker 校验实现
 - [x] **装箱与调用**：接口值 8/16B（vtable+data）、装箱点、接口方法调用；Codegen 已实现（vtable 生成、装箱、call 通过 vtable）
 
@@ -146,18 +146,18 @@
 
 ## 8. 结构体方法 + drop + 移动语义
 
-- [x] **结构体方法（外部方法块）**：`self: *Self`、外部方法块（`S { fn method(self: *Self) Ret { } }`），规范 uya.md §4、§29.3  
+- [x] **结构体方法（外部方法块）**：`self: &Self`、外部方法块（`S { fn method(self: &Self) Ret { } }`），规范 uya.md §4、§29.3  
   **C 实现**：Checker 增加 struct method call 分支（callee 为 obj.method、obj 类型为 struct 时，查找 method_block 校验实参）；checker_check_member_access 当字段不存在时检查 method_block 返回方法返回类型；expr.c 增加 struct method 调用代码生成（`uya_StructName_method(&obj, args...)`），支持 const 前缀类型、值/指针两种 receiver。  
   **uya-src 已同步**：checker.uya（checker_check_call_expr 接口+结构体方法、checker_check_member_access 方法返回类型）；expr.uya（struct method call 代码生成）。test_struct_method.uya 通过 `--c99` 与 `--uya --c99`。
 - [x] **结构体方法（内部定义）**：方法定义在结构体花括号内，与字段并列，规范 uya.md §29.3  
-  **语法**：`struct S { field: T, fn method(self: *Self) Ret { ... } }`  
+  **语法**：`struct S { field: T, fn method(self: &Self) Ret { ... } }`  
   **用例**：
   ```uya
   // 结构体内定义方法（方法与字段写在一起）
   struct Point {
     x: f32,
     y: f32,
-    fn distance(self: *Self) f32 {
+    fn distance(self: &Self) f32 {
       return self.x + self.y;
     }
   }
@@ -237,7 +237,7 @@
 - [ ] **访问**：`match` 模式匹配（必须处理所有变体）、编译期已知标签直接访问
 - [ ] **编译期标签跟踪**：标签不占运行时内存，零开销
 - [ ] **extern union**：外部 C 联合体声明与互操作
-- [ ] **联合体方法**：`self: *Self`，内部/外部方法块
+- [ ] **联合体方法**：`self: &Self`，内部/外部方法块
 
 **涉及**：Lexer（union 关键字）、AST、Parser、Checker（标签跟踪、模式穷尽检查）、Codegen（C union 布局），uya-src。依赖 match 表达式（阶段 5）。
 

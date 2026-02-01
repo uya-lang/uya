@@ -2,7 +2,7 @@
 // 预期：main 返回 15（5 + 10）
 
 interface IAdd {
-  fn add(self: *Self, x: i32) i32;
+  fn add(self: &Self, x: i32) i32;
 }
 
 struct Counter : IAdd {
@@ -10,7 +10,7 @@ struct Counter : IAdd {
 }
 
 Counter {
-  fn add(self: *Self, x: i32) i32 {
+  fn add(self: &Self, x: i32) i32 {
     return self.value + x;
   }
 }

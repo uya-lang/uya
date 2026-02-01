@@ -3,7 +3,7 @@
 
 struct Counter {
   value: i32,
-  fn inc(self: *Self) void {
+  fn inc(self: &Self) void {
     self.value = self.value + 1;
   }
 }

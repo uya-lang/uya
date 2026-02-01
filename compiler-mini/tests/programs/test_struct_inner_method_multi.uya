@@ -3,10 +3,10 @@
 
 struct Calc {
   acc: i32,
-  fn add(self: *Self, x: i32) void {
+  fn add(self: &Self, x: i32) void {
     self.acc = self.acc + x;
   },
-  fn get(self: *Self) i32 {
+  fn get(self: &Self) i32 {
     return self.acc;
   }
 }
