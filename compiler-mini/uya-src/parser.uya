@@ -2378,37 +2378,66 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
         }
         stmt.if_stmt_condition = condition;
         
-        // 解析 then 分支（代码块）
-        // 注意：如果当前 token 是 '{'，它应该是代码块的开始，而不是表达式的一部分
-        // 因此，我们直接解析代码块，而不需要担心结构体字面量的歧义
-        const then_branch: &ASTNode = parser_parse_block(parser);
+        // 解析 then 分支：允许 { block } 或单条语句（如 if (x) return 2;）
+        var then_branch: &ASTNode = null;
+        if parser_match(parser, TokenType.TOKEN_LEFT_BRACE) != 0 {
+            then_branch = parser_parse_block(parser);
+        } else {
+            const single: &ASTNode = parser_parse_statement(parser);
+            if single == null {
+                return null;
+            }
+            const block: &ASTNode = ast_new_node(ASTNodeType.AST_BLOCK, single.line, single.column, parser.arena, parser_get_filename(parser));
+            if block == null {
+                return null;
+            }
+            const stmts: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode)) as & & ASTNode;
+            if stmts == null {
+                return null;
+            }
+            stmts[0] = single;
+            block.block_stmts = stmts;
+            block.block_stmt_count = 1;
+            then_branch = block;
+        }
         if then_branch == null {
             return null;
         }
         stmt.if_stmt_then_branch = then_branch;
         
         // 解析 else 分支（可选）
-        // 支持 else if 语法：else 后面可以是代码块，也可以是 if 语句
+        // 支持 else if、else { block }、else 单条语句
         if parser_match(parser, TokenType.TOKEN_ELSE) != 0 {
             parser_consume(parser);  // 消费 'else'
-            
-            // 检查是否是 else if（下一个 token 是 if）
             if parser_match(parser, TokenType.TOKEN_IF) != 0 {
-                // else if：递归解析 if 语句作为 else 分支
                 const else_if_stmt: &ASTNode = parser_parse_statement(parser);
                 if else_if_stmt == null {
                     return null;
                 }
-                // else if 语句本身作为 else 分支
-                // 注意：这里将整个 if 语句作为 else 分支，而不是只取 then 分支
                 stmt.if_stmt_else_branch = else_if_stmt;
-            } else {
-                // else { block }：解析代码块
+            } else if parser_match(parser, TokenType.TOKEN_LEFT_BRACE) != 0 {
                 const else_branch: &ASTNode = parser_parse_block(parser);
                 if else_branch == null {
                     return null;
                 }
                 stmt.if_stmt_else_branch = else_branch;
+            } else {
+                const single: &ASTNode = parser_parse_statement(parser);
+                if single == null {
+                    return null;
+                }
+                const block: &ASTNode = ast_new_node(ASTNodeType.AST_BLOCK, single.line, single.column, parser.arena, parser_get_filename(parser));
+                if block == null {
+                    return null;
+                }
+                const stmts: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode)) as & & ASTNode;
+                if stmts == null {
+                    return null;
+                }
+                stmts[0] = single;
+                block.block_stmts = stmts;
+                block.block_stmt_count = 1;
+                stmt.if_stmt_else_branch = block;
             }
         } else {
             stmt.if_stmt_else_branch = null;

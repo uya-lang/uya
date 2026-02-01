@@ -19,6 +19,7 @@ fn emit_defer_cleanup(codegen: &C99CodeGenerator, emit_errdefer: i32) void {
         while i >= 0 {
             const n: &ASTNode = codegen.errdefer_stack[d * C99_MAX_DEFERS_PER_BLOCK + i];
             if n != null && n.type == ASTNodeType.AST_ERRDEFER_STMT && n.errdefer_stmt_body != null {
+                c99_emit(codegen, "/* errdefer */ " as *byte);
                 gen_stmt(codegen, n.errdefer_stmt_body);
             }
             i = i - 1;
@@ -28,6 +29,7 @@ fn emit_defer_cleanup(codegen: &C99CodeGenerator, emit_errdefer: i32) void {
     while i >= 0 {
         const n: &ASTNode = codegen.defer_stack[d * C99_MAX_DEFERS_PER_BLOCK + i];
         if n != null && n.type == ASTNodeType.AST_DEFER_STMT && n.defer_stmt_body != null {
+            c99_emit(codegen, "/* defer */ " as *byte);
             gen_stmt(codegen, n.defer_stmt_body);
         }
         i = i - 1;
@@ -285,7 +287,23 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             }
             i = i + 1;
         }
-        emit_defer_cleanup(codegen, 0);
+        // 若块以 return/break/continue 结尾，该语句已执行 defer，块尾不再重复（否则会生成 return 后的死代码）
+        var last_is_terminal: i32 = 0;
+        i = stmt_count - 1;
+        while i >= 0 {
+            const s: &ASTNode = stmts[i];
+            if s.type != ASTNodeType.AST_DEFER_STMT && s.type != ASTNodeType.AST_ERRDEFER_STMT {
+                if s.type == ASTNodeType.AST_RETURN_STMT || s.type == ASTNodeType.AST_BREAK_STMT || s.type == ASTNodeType.AST_CONTINUE_STMT {
+                    last_is_terminal = 1;
+                }
+                i = -1;
+            } else {
+                i = i - 1;
+            }
+        }
+        if last_is_terminal == 0 {
+            emit_defer_cleanup(codegen, 0);
+        }
         if d < C99_MAX_DEFER_STACK {
             codegen.defer_stack_depth = codegen.defer_stack_depth - 1;
         }

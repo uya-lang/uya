@@ -1,0 +1,12 @@
+// 显式验证：return 时 defer 在 return 前执行（非 return 后死代码）
+// 通过子函数 + 全局变量验证 defer 在函数返回前已执行
+var defer_ran: i32 = 0;
+fn f() i32 {
+    defer { defer_ran = 1; }
+    return 0;
+}
+fn main() i32 {
+    const r: i32 = f();
+    if (defer_ran != 1) { return 1; }  // defer 应在 return 前执行，否则为 0
+    return r;
+}

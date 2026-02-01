@@ -2771,6 +2771,10 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
             result.kind = TypeKind.TYPE_BOOL;
             return result;
         }
+        if left_type.kind == TypeKind.TYPE_ERROR && right_type.kind == TypeKind.TYPE_ERROR {
+            result.kind = TypeKind.TYPE_BOOL;
+            return result;
+        }
         if left_type.kind == TypeKind.TYPE_VOID || right_type.kind == TypeKind.TYPE_VOID {
             result.kind = TypeKind.TYPE_BOOL;
             return result;

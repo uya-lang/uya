@@ -11,14 +11,18 @@ static void emit_defer_cleanup(C99CodeGenerator *codegen, int emit_errdefer) {
     if (emit_errdefer) {
         for (int i = codegen->errdefer_count[d] - 1; i >= 0; i--) {
             ASTNode *n = codegen->errdefer_stack[d][i];
-            if (n && n->type == AST_ERRDEFER_STMT && n->data.errdefer_stmt.body)
+            if (n && n->type == AST_ERRDEFER_STMT && n->data.errdefer_stmt.body) {
+                c99_emit(codegen, "/* errdefer */ ");
                 gen_stmt(codegen, n->data.errdefer_stmt.body);
+            }
         }
     }
     for (int i = codegen->defer_count[d] - 1; i >= 0; i--) {
         ASTNode *n = codegen->defer_stack[d][i];
-        if (n && n->type == AST_DEFER_STMT && n->data.defer_stmt.body)
+        if (n && n->type == AST_DEFER_STMT && n->data.defer_stmt.body) {
+            c99_emit(codegen, "/* defer */ ");
             gen_stmt(codegen, n->data.defer_stmt.body);
+        }
     }
 }
 
@@ -226,7 +230,17 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 if (stmts[i]->type != AST_DEFER_STMT && stmts[i]->type != AST_ERRDEFER_STMT)
                     gen_stmt(codegen, stmts[i]);
             }
-            emit_defer_cleanup(codegen, 0);
+            /* 若块以 return/break/continue 结尾，该语句已执行 defer，块尾不再重复（否则会生成 return 后的死代码） */
+            int last_is_terminal = 0;
+            for (int i = stmt_count - 1; i >= 0; i--) {
+                if (stmts[i]->type != AST_DEFER_STMT && stmts[i]->type != AST_ERRDEFER_STMT) {
+                    last_is_terminal = (stmts[i]->type == AST_RETURN_STMT ||
+                        stmts[i]->type == AST_BREAK_STMT || stmts[i]->type == AST_CONTINUE_STMT);
+                    break;
+                }
+            }
+            if (!last_is_terminal)
+                emit_defer_cleanup(codegen, 0);
             codegen->defer_stack_depth--;
             break;
         }
