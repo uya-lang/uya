@@ -1089,29 +1089,27 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                         if (slen < sizeof(struct_name_buf)) {
                             memcpy(struct_name_buf, start, slen);
                             struct_name_buf[slen] = '\0';
-                            ASTNode *method_block = find_method_block_for_struct_c99(codegen, struct_name_buf);
-                            if (method_block) {
-                                ASTNode *method_fn = find_method_in_block(method_block, method_name);
-                                if (method_fn) {
-                                    const char *cname = get_method_c_name(codegen, struct_name_buf, method_name);
-                                    if (cname) {
-                                        int is_ptr = (strchr(obj_type_c, '*') != NULL);
-                                        fprintf(codegen->output, "%s(%s(", cname, is_ptr ? "" : "&");
-                                        gen_expr(codegen, obj);
-                                        fputs(")", codegen->output);
-                                        for (int i = 0; i < arg_count; i++) {
-                                            fputs(", ", codegen->output);
-                                            if (codegen->interp_arg_temp_names[i]) {
-                                                fputs("(uint8_t *)", codegen->output);
-                                                fputs(codegen->interp_arg_temp_names[i], codegen->output);
-                                            } else {
-                                                if (args[i] && args[i]->type == AST_STRING) fputs("(uint8_t *)", codegen->output);
-                                                gen_expr(codegen, args[i]);
-                                            }
+                            // 使用 find_method_in_struct_c99 同时查找外部方法块和内部方法
+                            ASTNode *method_fn = find_method_in_struct_c99(codegen, struct_name_buf, method_name);
+                            if (method_fn) {
+                                const char *cname = get_method_c_name(codegen, struct_name_buf, method_name);
+                                if (cname) {
+                                    int is_ptr = (strchr(obj_type_c, '*') != NULL);
+                                    fprintf(codegen->output, "%s(%s(", cname, is_ptr ? "" : "&");
+                                    gen_expr(codegen, obj);
+                                    fputs(")", codegen->output);
+                                    for (int i = 0; i < arg_count; i++) {
+                                        fputs(", ", codegen->output);
+                                        if (codegen->interp_arg_temp_names[i]) {
+                                            fputs("(uint8_t *)", codegen->output);
+                                            fputs(codegen->interp_arg_temp_names[i], codegen->output);
+                                        } else {
+                                            if (args[i] && args[i]->type == AST_STRING) fputs("(uint8_t *)", codegen->output);
+                                            gen_expr(codegen, args[i]);
                                         }
-                                        fputc(')', codegen->output);
-                                        break;
                                     }
+                                    fputc(')', codegen->output);
+                                    break;
                                 }
                             }
                         }

@@ -140,6 +140,8 @@ struct ASTNode {
             int interface_count;      // 实现的接口数量
             struct ASTNode **fields;         // 字段数组（字段是 AST_VAR_DECL 节点）
             int field_count;          // 字段数量
+            struct ASTNode **methods;        // 内部方法数组（AST_FN_DECL 节点，可为 NULL）
+            int method_count;         // 内部方法数量
         } struct_decl;
         
         // 方法块（StructName { fn method(...) { ... } ... }）

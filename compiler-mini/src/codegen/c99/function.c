@@ -32,6 +32,29 @@ ASTNode *find_method_in_block(ASTNode *method_block, const char *method_name) {
     return NULL;
 }
 
+// 查找结构体方法（同时检查外部方法块和内部定义的方法）
+ASTNode *find_method_in_struct_c99(C99CodeGenerator *codegen, const char *struct_name, const char *method_name) {
+    if (!codegen || !struct_name || !method_name) return NULL;
+    // 1. 先检查外部方法块
+    ASTNode *method_block = find_method_block_for_struct_c99(codegen, struct_name);
+    if (method_block) {
+        ASTNode *m = find_method_in_block(method_block, method_name);
+        if (m) return m;
+    }
+    // 2. 再检查结构体内部定义的方法
+    ASTNode *struct_decl = find_struct_decl_c99(codegen, struct_name);
+    if (struct_decl && struct_decl->data.struct_decl.methods) {
+        for (int i = 0; i < struct_decl->data.struct_decl.method_count; i++) {
+            ASTNode *m = struct_decl->data.struct_decl.methods[i];
+            if (m && m->type == AST_FN_DECL && m->data.fn_decl.name &&
+                strcmp(m->data.fn_decl.name, method_name) == 0) {
+                return m;
+            }
+        }
+    }
+    return NULL;
+}
+
 // 获取方法的 C 函数名（uya_StructName_methodname）
 const char *get_method_c_name(C99CodeGenerator *codegen, const char *struct_name, const char *method_name) {
     if (!struct_name || !method_name) return NULL;

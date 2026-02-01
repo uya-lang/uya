@@ -52,6 +52,8 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.struct_decl.interface_count = 0;
             node->data.struct_decl.fields = NULL;
             node->data.struct_decl.field_count = 0;
+            node->data.struct_decl.methods = NULL;
+            node->data.struct_decl.method_count = 0;
             break;
         case AST_METHOD_BLOCK:
             node->data.method_block.struct_name = NULL;

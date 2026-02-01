@@ -190,6 +190,35 @@ fn find_method_in_block(method_block: &ASTNode, method_name: &byte) &ASTNode {
     return null;
 }
 
+// 查找结构体方法（同时检查外部方法块和内部定义的方法）
+fn find_method_in_struct_c99(codegen: &C99CodeGenerator, struct_name: &byte, method_name: &byte) &ASTNode {
+    if codegen == null || struct_name == null || method_name == null {
+        return null;
+    }
+    // 1. 先检查外部方法块
+    const method_block: &ASTNode = find_method_block_for_struct_c99(codegen, struct_name);
+    if method_block != null {
+        const m: &ASTNode = find_method_in_block(method_block, method_name);
+        if m != null {
+            return m;
+        }
+    }
+    // 2. 再检查结构体内部定义的方法
+    const struct_decl: &ASTNode = find_struct_decl_c99(codegen, struct_name);
+    if struct_decl != null && struct_decl.struct_decl_methods != null {
+        var i: i32 = 0;
+        while i < struct_decl.struct_decl_method_count {
+            const m: &ASTNode = struct_decl.struct_decl_methods[i];
+            if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+                strcmp(m.fn_decl_name as *byte, method_name as *byte) == 0 {
+                return m;
+            }
+            i = i + 1;
+        }
+    }
+    return null;
+}
+
 // 获取方法的 C 函数名（uya_StructName_methodname）
 fn get_method_c_name(codegen: &C99CodeGenerator, struct_name: &byte, method_name: &byte) &byte {
     if struct_name == null || method_name == null {
@@ -283,11 +312,6 @@ fn emit_vtable_constants(codegen: &C99CodeGenerator) void {
             i = i + 1;
             continue;
         }
-        const method_block: &ASTNode = find_method_block_for_struct_c99(codegen, struct_name);
-        if method_block == null {
-            i = i + 1;
-            continue;
-        }
         const safe_struct: &byte = get_safe_c_identifier(codegen, struct_name);
         var j: i32 = 0;
         while j < iface_count {
@@ -312,7 +336,8 @@ fn emit_vtable_constants(codegen: &C99CodeGenerator) void {
                     continue;
                 }
                 const mname: &byte = msig.fn_decl_name;
-                const impl: &ASTNode = find_method_in_block(method_block, mname);
+                // 使用 find_method_in_struct_c99 同时查找外部方法块和内部方法
+                const impl: &ASTNode = find_method_in_struct_c99(codegen, struct_name, mname);
                 const cname: &byte = get_method_c_name(codegen, struct_name, mname);
                 if k > 0 {
                     fputs(", " as *byte, codegen.output as *void);

@@ -3379,16 +3379,64 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
         return null;
     }
     
-    // 解析字段列表
+    // 解析字段列表和内部方法
     // 字段列表：field { ',' field }
     // field = ID ':' type
+    // 内部方法：fn ID '(' params ')' type '{' body '}'
     var fields: & & ASTNode = null;
     var field_count: i32 = 0;
     var field_capacity: i32 = 0;
     
+    var methods: & & ASTNode = null;
+    var method_count: i32 = 0;
+    var method_capacity: i32 = 0;
+    
     while parser.current_token != null && 
           parser_match(parser, TokenType.TOKEN_RIGHT_BRACE) == 0 && 
           parser_match(parser, TokenType.TOKEN_EOF) == 0 {
+        
+        // 检查是否为内部方法定义（fn 关键字）
+        if parser_match(parser, TokenType.TOKEN_FN) != 0 {
+            // 解析内部方法
+            const method: &ASTNode = parser_parse_function(parser);
+            if method == null {
+                return null;
+            }
+            
+            // 扩展方法数组
+            if method_count >= method_capacity {
+                var new_cap: i32 = 0;
+                if method_capacity == 0 {
+                    new_cap = 4;
+                } else {
+                    new_cap = method_capacity * 2;
+                }
+                const new_methods: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_cap) as & & ASTNode;
+                if new_methods == null {
+                    return null;
+                }
+                
+                if methods != null {
+                    var i: i32 = 0;
+                    while i < method_count {
+                        new_methods[i] = methods[i];
+                        i = i + 1;
+                    }
+                }
+                
+                methods = new_methods;
+                method_capacity = new_cap;
+            }
+            
+            methods[method_count] = method;
+            method_count = method_count + 1;
+            
+            // 方法后可选逗号
+            if parser_match(parser, TokenType.TOKEN_COMMA) != 0 {
+                parser_consume(parser);
+            }
+            continue;
+        }
         
         // 解析字段名称
         if parser_match(parser, TokenType.TOKEN_IDENTIFIER) == 0 {
@@ -3469,6 +3517,8 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
     
     struct_decl.struct_decl_fields = fields;
     struct_decl.struct_decl_field_count = field_count;
+    struct_decl.struct_decl_methods = methods;
+    struct_decl.struct_decl_method_count = method_count;
     
     return struct_decl;
 }

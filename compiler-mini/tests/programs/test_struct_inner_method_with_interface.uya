@@ -1,0 +1,34 @@
+// 结构体内定义方法 + 实现接口
+// 预期：main 返回 0
+
+interface IDouble {
+  fn double(self: *Self) i32;
+}
+
+struct Num : IDouble {
+  val: i32,
+  fn double(self: *Self) i32 {
+    return self.val * 2;
+  },
+  fn triple(self: *Self) i32 {
+    return self.val * 3;
+  }
+}
+
+fn use_iface(x: IDouble) i32 {
+  return x.double();
+}
+
+fn main() i32 {
+  const n: Num = Num{ val: 5 };
+  const d: i32 = n.double();
+  const t: i32 = n.triple();
+  if d != 10 || t != 15 {
+    return 1;
+  }
+  const di: i32 = use_iface(n);
+  if di != 10 {
+    return 1;
+  }
+  return 0;
+}

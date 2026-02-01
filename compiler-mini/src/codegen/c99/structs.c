@@ -289,8 +289,6 @@ void emit_vtable_constants(C99CodeGenerator *codegen) {
         const char **iface_names = decl->data.struct_decl.interface_names;
         int iface_count = decl->data.struct_decl.interface_count;
         if (!iface_names || iface_count <= 0) continue;
-        ASTNode *method_block = find_method_block_for_struct_c99(codegen, struct_name);
-        if (!method_block) continue;
         const char *safe_struct = get_safe_c_identifier(codegen, struct_name);
         for (int j = 0; j < iface_count; j++) {
             const char *iface_name = iface_names[j];
@@ -304,7 +302,8 @@ void emit_vtable_constants(C99CodeGenerator *codegen) {
                 ASTNode *msig = iface_decl->data.interface_decl.method_sigs[k];
                 if (!msig || msig->type != AST_FN_DECL) continue;
                 const char *mname = msig->data.fn_decl.name;
-                ASTNode *impl = find_method_in_block(method_block, mname);
+                // 使用 find_method_in_struct_c99 同时查找外部方法块和内部方法
+                ASTNode *impl = find_method_in_struct_c99(codegen, struct_name, mname);
                 if (!impl) continue;
                 const char *cname = get_method_c_name(codegen, struct_name, mname);
                 if (k > 0) fputs(", ", codegen->output);

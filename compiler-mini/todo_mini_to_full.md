@@ -18,7 +18,7 @@
 | 5 | match 表达式 | [x] |
 | 6 | for 扩展 | [x]（整数范围已实现；迭代器依赖阶段 7 接口） |
 | 7 | 接口 | [x]（C 实现完成；uya-src 待同步） |
-| 8 | 结构体方法 + drop + 移动语义 | [ ]（结构体方法已实现；drop、移动语义待实现） |
+| 8 | 结构体方法 + drop + 移动语义 | [ ]（外部方法块+内部定义已实现；drop、移动语义待实现） |
 | 9 | 模块系统 | [ ] |
 | 10 | 字符串插值 | [x] |
 | 11 | 原子类型 | [ ] |
@@ -146,9 +146,38 @@
 
 ## 8. 结构体方法 + drop + 移动语义
 
-- [x] **结构体方法**：`self: *Self`、外部方法块（`S { fn method(self: *Self) Ret { } }`），规范 uya.md §4、§29.3  
+- [x] **结构体方法（外部方法块）**：`self: *Self`、外部方法块（`S { fn method(self: *Self) Ret { } }`），规范 uya.md §4、§29.3  
   **C 实现**：Checker 增加 struct method call 分支（callee 为 obj.method、obj 类型为 struct 时，查找 method_block 校验实参）；checker_check_member_access 当字段不存在时检查 method_block 返回方法返回类型；expr.c 增加 struct method 调用代码生成（`uya_StructName_method(&obj, args...)`），支持 const 前缀类型、值/指针两种 receiver。  
   **uya-src 已同步**：checker.uya（checker_check_call_expr 接口+结构体方法、checker_check_member_access 方法返回类型）；expr.uya（struct method call 代码生成）。test_struct_method.uya 通过 `--c99` 与 `--uya --c99`。
+- [x] **结构体方法（内部定义）**：方法定义在结构体花括号内，与字段并列，规范 uya.md §29.3  
+  **语法**：`struct S { field: T, fn method(self: *Self) Ret { ... } }`  
+  **用例**：
+  ```uya
+  // 结构体内定义方法（方法与字段写在一起）
+  struct Point {
+    x: f32,
+    y: f32,
+    fn distance(self: *Self) f32 {
+      return self.x + self.y;
+    }
+  }
+  
+  fn main() i32 {
+    const p: Point = Point{ x: 2.0, y: 3.0 };
+    const d: f32 = p.distance();  // 调用内部定义的方法
+    return 0;
+  }
+  ```
+  **测试用例**（全部通过 `--c99` 与 `--uya --c99`）：
+  - `test_struct_inner_method.uya` - 基本的内部方法定义
+  - `test_struct_inner_method_args.uya` - 带参数的内部方法
+  - `test_struct_inner_method_multi.uya` - 多个内部方法
+  - `test_struct_inner_method_void.uya` - void 返回的内部方法
+  - `test_struct_inner_method_mixed.uya` - 字段与方法混合定义
+  - `test_struct_inner_method_with_interface.uya` - 内部方法 + 接口实现
+  
+  **C 实现**：AST 在 struct_decl 中增加 methods/method_count 字段；Parser 在 parse_struct 中支持解析 fn 关键字（内部方法）；Checker 添加 find_method_in_struct 函数同时查找外部方法块和内部方法；Codegen 在 main.c 中生成内部方法原型和实现，function.c 添加 find_method_in_struct_c99 函数，expr.c/structs.c 使用新函数。  
+  **uya-src 已同步**：ast.uya、parser.uya、checker.uya、codegen/c99/structs.uya、codegen/c99/expr.uya、codegen/c99/main.uya 均已同步修改。
 - [ ] **drop / RAII**：用户自定义 `fn drop(self: T) void`，作用域结束逆序调用，规范 uya.md §12
 - [ ] **移动语义**：结构体赋值/传参/返回为移动，活跃指针禁止移动，规范 uya.md §12.5
 

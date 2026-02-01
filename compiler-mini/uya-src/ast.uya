@@ -123,6 +123,8 @@ struct ASTNode {
     struct_decl_interface_count: i32,
     struct_decl_fields: & & ASTNode,
     struct_decl_field_count: i32,
+    struct_decl_methods: & & ASTNode,  // 内部方法数组（AST_FN_DECL 节点，可为 null）
+    struct_decl_method_count: i32,     // 内部方法数量
     // method_block（StructName { fn method(...) { ... } ... }）
     method_block_struct_name: &byte,
     method_block_methods: & & ASTNode,
@@ -290,6 +292,8 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.struct_decl_interface_count = 0;
     node.struct_decl_fields = null;
     node.struct_decl_field_count = 0;
+    node.struct_decl_methods = null;
+    node.struct_decl_method_count = 0;
     node.method_block_struct_name = null;
     node.method_block_methods = null;
     node.method_block_method_count = 0;

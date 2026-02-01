@@ -1,0 +1,19 @@
+// 结构体内定义方法（带参数）
+// 预期：main 返回 0
+
+struct Vec2 {
+  x: f32,
+  y: f32,
+  fn scale(self: *Self, factor: f32) f32 {
+    return self.x * factor + self.y * factor;
+  }
+}
+
+fn main() i32 {
+  const v: Vec2 = Vec2{ x: 1.0, y: 2.0 };
+  const s: f32 = v.scale(10.0);
+  if s < 29.9 || s > 30.1 {
+    return 1;
+  }
+  return 0;
+}

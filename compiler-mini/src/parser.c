@@ -579,16 +579,63 @@ ASTNode *parser_parse_struct(Parser *parser) {
         return NULL;
     }
     
-    // 解析字段列表
+    // 解析字段列表和内部方法
     // 字段列表：field { ',' field }
     // field = ID ':' type
+    // 内部方法：fn ID '(' params ')' type '{' body '}'
     ASTNode **fields = NULL;
     int field_count = 0;
     int field_capacity = 0;
     
+    ASTNode **methods = NULL;
+    int method_count = 0;
+    int method_capacity = 0;
+    
     while (parser->current_token != NULL && 
            !parser_match(parser, TOKEN_RIGHT_BRACE) && 
            !parser_match(parser, TOKEN_EOF)) {
+        
+        // 检查是否为内部方法定义（fn 关键字）
+        if (parser_match(parser, TOKEN_FN)) {
+            // 解析内部方法
+            ASTNode *method = parser_parse_function(parser);
+            if (method == NULL) {
+                return NULL;
+            }
+            
+            // 扩展方法数组（使用 Arena 分配）
+            if (method_count >= method_capacity) {
+                int new_capacity = method_capacity == 0 ? 4 : method_capacity * 2;
+                ASTNode **new_methods = (ASTNode **)arena_alloc(
+                    parser->arena, 
+                    sizeof(ASTNode *) * new_capacity
+                );
+                if (new_methods == NULL) {
+                    const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+                    fprintf(stderr, "错误: Arena 内存不足 (%s:%d:%d): 无法分配结构体方法数组\n", filename, method->line, method->column);
+                    fprintf(stderr, "提示: 请增加 ARENA_BUFFER_SIZE（当前建议至少 16MB）\n");
+                    return NULL;
+                }
+                
+                // 复制旧方法
+                if (methods != NULL) {
+                    for (int i = 0; i < method_count; i++) {
+                        new_methods[i] = methods[i];
+                    }
+                }
+                
+                methods = new_methods;
+                method_capacity = new_capacity;
+            }
+            
+            methods[method_count++] = method;
+            
+            // 方法后可选逗号
+            if (parser_match(parser, TOKEN_COMMA)) {
+                parser_consume(parser);
+            }
+            continue;
+        }
         
         // 解析字段名称
         if (!parser_match(parser, TOKEN_IDENTIFIER)) {
@@ -666,6 +713,8 @@ ASTNode *parser_parse_struct(Parser *parser) {
     
     struct_decl->data.struct_decl.fields = fields;
     struct_decl->data.struct_decl.field_count = field_count;
+    struct_decl->data.struct_decl.methods = methods;
+    struct_decl->data.struct_decl.method_count = method_count;
     
     return struct_decl;
 }

@@ -1415,6 +1415,37 @@ static ASTNode *find_method_block_for_struct(ASTNode *program_node, const char *
     return NULL;
 }
 
+// 查找结构体方法（同时检查外部方法块和内部定义的方法）
+// 返回：方法的 AST_FN_DECL 节点，未找到返回 NULL
+static ASTNode *find_method_in_struct(ASTNode *program_node, const char *struct_name, const char *method_name) {
+    if (program_node == NULL || program_node->type != AST_PROGRAM || struct_name == NULL || method_name == NULL) {
+        return NULL;
+    }
+    // 1. 先检查外部方法块
+    ASTNode *method_block = find_method_block_for_struct(program_node, struct_name);
+    if (method_block != NULL) {
+        for (int i = 0; i < method_block->data.method_block.method_count; i++) {
+            ASTNode *m = method_block->data.method_block.methods[i];
+            if (m != NULL && m->type == AST_FN_DECL && m->data.fn_decl.name != NULL &&
+                strcmp(m->data.fn_decl.name, method_name) == 0) {
+                return m;
+            }
+        }
+    }
+    // 2. 再检查结构体内部定义的方法
+    ASTNode *struct_decl = find_struct_decl_from_program(program_node, struct_name);
+    if (struct_decl != NULL && struct_decl->data.struct_decl.methods != NULL) {
+        for (int i = 0; i < struct_decl->data.struct_decl.method_count; i++) {
+            ASTNode *m = struct_decl->data.struct_decl.methods[i];
+            if (m != NULL && m->type == AST_FN_DECL && m->data.fn_decl.name != NULL &&
+                strcmp(m->data.fn_decl.name, method_name) == 0) {
+                return m;
+            }
+        }
+    }
+    return NULL;
+}
+
 static int struct_implements_interface(TypeChecker *checker, const char *struct_name, const char *interface_name) {
     if (checker == NULL || checker->program_node == NULL || struct_name == NULL || interface_name == NULL) {
         return 0;
@@ -2092,27 +2123,23 @@ static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
         }
         // 结构体方法调用：callee 为 obj.method，obj 类型为结构体（非接口）
         if (object_type.kind == TYPE_STRUCT && object_type.data.struct_name != NULL && method_name != NULL && checker->program_node != NULL) {
-            ASTNode *method_block = find_method_block_for_struct(checker->program_node, object_type.data.struct_name);
-            if (method_block != NULL) {
-                for (int i = 0; i < method_block->data.method_block.method_count; i++) {
-                    ASTNode *m = method_block->data.method_block.methods[i];
-                    if (m != NULL && m->type == AST_FN_DECL && m->data.fn_decl.name != NULL && strcmp(m->data.fn_decl.name, method_name) == 0) {
-                        int expected_args = m->data.fn_decl.param_count - 1;  /* 首个参数为 self */
-                        if (expected_args < 0) expected_args = 0;
-                        if (node->data.call_expr.arg_count != expected_args) {
-                            checker_report_error(checker, node, "结构体方法调用实参个数不匹配");
-                            return result;
-                        }
-                        for (int j = 0; j < expected_args && j < node->data.call_expr.arg_count; j++) {
-                            Type param_type = type_from_ast(checker, m->data.fn_decl.params[j + 1]->data.var_decl.type);
-                            if (!checker_check_expr_type(checker, node->data.call_expr.args[j], param_type)) {
-                                checker_report_error(checker, node, "结构体方法调用参数类型不匹配");
-                                return result;
-                            }
-                        }
-                        return type_from_ast(checker, m->data.fn_decl.return_type);
+            ASTNode *m = find_method_in_struct(checker->program_node, object_type.data.struct_name, method_name);
+            if (m != NULL) {
+                int expected_args = m->data.fn_decl.param_count - 1;  /* 首个参数为 self */
+                if (expected_args < 0) expected_args = 0;
+                if (node->data.call_expr.arg_count != expected_args) {
+                    checker_report_error(checker, node, "结构体方法调用实参个数不匹配");
+                    return result;
+                }
+                for (int j = 0; j < expected_args && j < node->data.call_expr.arg_count; j++) {
+                    Type param_type = type_from_ast(checker, m->data.fn_decl.params[j + 1]->data.var_decl.type);
+                    if (!checker_check_expr_type(checker, node->data.call_expr.args[j], param_type)) {
+                        checker_report_error(checker, node, "结构体方法调用参数类型不匹配");
+                        return result;
                     }
                 }
+                return type_from_ast(checker, m->data.fn_decl.return_type);
+            } else {
                 checker_report_error(checker, node, "结构体上不存在该方法");
             }
         }
@@ -2283,15 +2310,9 @@ static Type checker_check_member_access(TypeChecker *checker, ASTNode *node) {
         return field_type;
     }
     // 字段不存在：检查是否为结构体方法（obj.method 调用）
-    ASTNode *method_block = find_method_block_for_struct(checker->program_node, object_type.data.struct_name);
-    if (method_block != NULL) {
-        for (int i = 0; i < method_block->data.method_block.method_count; i++) {
-            ASTNode *m = method_block->data.method_block.methods[i];
-            if (m != NULL && m->type == AST_FN_DECL && m->data.fn_decl.name != NULL &&
-                strcmp(m->data.fn_decl.name, node->data.member_access.field_name) == 0) {
-                return type_from_ast(checker, m->data.fn_decl.return_type);
-            }
-        }
+    ASTNode *m = find_method_in_struct(checker->program_node, object_type.data.struct_name, node->data.member_access.field_name);
+    if (m != NULL) {
+        return type_from_ast(checker, m->data.fn_decl.return_type);
     }
     // 既不是字段也不是方法：放宽检查，允许通过（不报错）
     result.kind = TYPE_VOID;

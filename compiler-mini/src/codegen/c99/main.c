@@ -262,6 +262,15 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
                     gen_method_prototype(codegen, m, struct_name);
                 }
             }
+        } else if (decl->type == AST_STRUCT_DECL) {
+            // 生成结构体内部定义的方法的前向声明
+            const char *struct_name = decl->data.struct_decl.name;
+            for (int j = 0; j < decl->data.struct_decl.method_count; j++) {
+                ASTNode *m = decl->data.struct_decl.methods[j];
+                if (m && m->type == AST_FN_DECL) {
+                    gen_method_prototype(codegen, m, struct_name);
+                }
+            }
         }
     }
     // 第七步 b：生成 vtable 常量（依赖方法前向声明）
@@ -274,7 +283,18 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
         if (!decl) continue;
         
         switch (decl->type) {
-            case AST_STRUCT_DECL:
+            case AST_STRUCT_DECL: {
+                // 生成结构体内部定义的方法
+                const char *struct_name = decl->data.struct_decl.name;
+                for (int j = 0; j < decl->data.struct_decl.method_count; j++) {
+                    ASTNode *m = decl->data.struct_decl.methods[j];
+                    if (m && m->type == AST_FN_DECL && m->data.fn_decl.body) {
+                        gen_method_function(codegen, m, struct_name);
+                        fputs("\n", codegen->output);
+                    }
+                }
+                break;
+            }
             case AST_ENUM_DECL:
                 // 已在前面生成
                 break;
