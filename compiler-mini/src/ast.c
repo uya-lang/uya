@@ -73,6 +73,7 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.var_decl.type = NULL;
             node->data.var_decl.init = NULL;
             node->data.var_decl.is_const = 0;
+            node->data.var_decl.was_moved = 0;
             break;
         case AST_DESTRUCTURE_DECL:
             node->data.destructure_decl.names = NULL;

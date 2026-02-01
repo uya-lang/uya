@@ -167,6 +167,7 @@ struct ASTNode {
             struct ASTNode *type;            // 类型节点
             struct ASTNode *init;            // 初始值表达式（可为 NULL）
             int is_const;             // 1 表示 const，0 表示 var
+            int was_moved;            // 移动语义：1 表示该绑定曾被移动，离开作用域时不调用 drop
         } var_decl;
         
         // 解构声明（const (x, y) = expr 或 var (x, y) = expr）

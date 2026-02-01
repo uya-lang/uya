@@ -1,0 +1,22 @@
+// 移动语义 + drop：被移动的变量离开作用域时不调用 drop，仅最终持有者 drop 一次（规范 §12.5）
+// 预期：main 返回 0（drop_count == 1，不是 2）
+
+var drop_count: i32 = 0;
+
+struct S {
+  id: i32,
+  fn drop(self: S) void {
+    drop_count = drop_count + 1;
+  }
+}
+
+fn main() i32 {
+  {
+    const a: S = S{ id: 42 };
+    const b: S = a;  // a 移入 b，a 不再持有值
+  }  // 仅 b 离开作用域，应只 drop 一次
+  if drop_count != 1 {
+    return 1;
+  }
+  return 0;
+}

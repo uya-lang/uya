@@ -18,12 +18,14 @@ static void emit_current_block_drops(C99CodeGenerator *codegen) {
 }
 
 /* 在块内变量声明逆序上调用 drop（规范 §12：离开作用域时先 defer 再 drop）。
- * 仅处理 AST_VAR_DECL；变量类型须为命名结构体且该结构体有 drop 方法。 */
+ * 仅处理 AST_VAR_DECL；变量类型须为命名结构体且该结构体有 drop 方法。
+ * 已移动的变量（was_moved）不调用 drop。 */
 static void emit_drop_cleanup(C99CodeGenerator *codegen, ASTNode **stmts, int stmt_count) {
     if (!codegen || !stmts || stmt_count <= 0) return;
     for (int i = stmt_count - 1; i >= 0; i--) {
         ASTNode *n = stmts[i];
         if (!n || n->type != AST_VAR_DECL) continue;
+        if (n->data.var_decl.was_moved) continue;
         ASTNode *type_node = n->data.var_decl.type;
         if (!type_node || type_node->type != AST_TYPE_NAMED || !type_node->data.type_named.name) continue;
         const char *struct_name = type_node->data.type_named.name;
@@ -705,7 +707,8 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 fputs(";\n", codegen->output);
             }
             if (codegen->current_drop_scope >= 0 && var_type && var_type->type == AST_TYPE_NAMED &&
-                var_type->data.type_named.name && type_has_drop_c99(codegen, var_type->data.type_named.name)) {
+                var_type->data.type_named.name && type_has_drop_c99(codegen, var_type->data.type_named.name) &&
+                !stmt->data.var_decl.was_moved) {
                 int dd = codegen->current_drop_scope;
                 if (codegen->drop_var_count[dd] < C99_MAX_DROP_VARS_PER_BLOCK) {
                     codegen->drop_var_safe[dd][codegen->drop_var_count[dd]] = var_name;

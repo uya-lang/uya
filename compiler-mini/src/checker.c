@@ -346,6 +346,12 @@ static void checker_mark_moved(TypeChecker *checker, ASTNode *node, const char *
         memcpy(copy, var_name, (size_t)(strlen(var_name) + 1));
         checker->moved_names[checker->moved_count++] = copy;
     }
+    /* 写回 VAR_DECL 的 was_moved，供 codegen 生成 drop 时跳过已移动变量 */
+    {
+        Symbol *sym = symbol_table_lookup(checker, var_name);
+        if (sym != NULL && sym->decl_node != NULL && sym->decl_node->type == AST_VAR_DECL)
+            sym->decl_node->data.var_decl.was_moved = 1;
+    }
 }
 
 static void checker_mark_moved_call_args(TypeChecker *checker, ASTNode *node) {
@@ -1961,6 +1967,7 @@ static int checker_check_var_decl(TypeChecker *checker, ASTNode *node) {
     symbol->line = node->line;
     symbol->column = node->column;
     symbol->pointee_of = NULL;
+    symbol->decl_node = node;
     
     if (symbol_table_insert(checker, symbol) != 0) {
         // 符号插入失败（哈希表已满）：报告错误
@@ -2034,6 +2041,7 @@ static int checker_check_destructure_decl(TypeChecker *checker, ASTNode *node) {
         symbol->line = node->line;
         symbol->column = node->column;
         symbol->pointee_of = NULL;
+        symbol->decl_node = NULL;  /* 解构无单个 VAR_DECL 节点 */
         Symbol *existing = symbol_table_lookup(checker, name);
         if (existing != NULL && existing->scope_level == checker->scope_level) {
             char error_msg[256];
@@ -2182,6 +2190,7 @@ static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
                     param_symbol->line = param->line;
                     param_symbol->column = param->column;
                     param_symbol->pointee_of = NULL;
+                    param_symbol->decl_node = param;
                     symbol_table_insert(checker, param_symbol);
                 }
             }

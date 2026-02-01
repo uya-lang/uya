@@ -76,6 +76,7 @@ typedef struct Symbol {
     int line;                   // 行号
     int column;                 // 列号
     const char *pointee_of;     // 若本变量值为 &x，则为 x 的名字（移动语义：禁止移动 x），否则 NULL
+    ASTNode *decl_node;         // 引入该绑定的 VAR_DECL 节点（用于写回 was_moved），可为 NULL
 } Symbol;
 
 // 函数签名信息

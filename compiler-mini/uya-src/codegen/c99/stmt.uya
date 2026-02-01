@@ -27,6 +27,7 @@ fn emit_current_block_drops(codegen: &C99CodeGenerator) void {
 }
 
 // 在块内变量声明逆序上调用 drop（规范 §12：离开作用域时先 defer 再 drop）。
+// 已移动的变量（var_decl_was_moved）不调用 drop。
 fn emit_drop_cleanup(codegen: &C99CodeGenerator, stmts: & & ASTNode, stmt_count: i32) void {
     if codegen == null || stmts == null || stmt_count <= 0 {
         return;
@@ -35,6 +36,10 @@ fn emit_drop_cleanup(codegen: &C99CodeGenerator, stmts: & & ASTNode, stmt_count:
     while i >= 0 {
         const n: &ASTNode = stmts[i];
         if n == null || n.type != ASTNodeType.AST_VAR_DECL {
+            i = i - 1;
+            continue;
+        }
+        if n.var_decl_was_moved != 0 {
             i = i - 1;
             continue;
         }
@@ -824,7 +829,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 gen_expr(codegen, init_expr);
                 fputs(";\n" as *byte, codegen.output as *void);
             }
-            if codegen.current_drop_scope >= 0 && var_type != null && var_type.type == ASTNodeType.AST_TYPE_NAMED && var_type.type_named_name != null && type_has_drop_c99(codegen, var_type.type_named_name) != 0 {
+            if codegen.current_drop_scope >= 0 && var_type != null && var_type.type == ASTNodeType.AST_TYPE_NAMED && var_type.type_named_name != null && type_has_drop_c99(codegen, var_type.type_named_name) != 0 && stmt.var_decl_was_moved == 0 {
                 const dd: i32 = codegen.current_drop_scope;
                 if codegen.drop_var_count[dd] < C99_MAX_DROP_VARS_PER_BLOCK {
                     codegen.drop_var_safe[dd * C99_MAX_DROP_VARS_PER_BLOCK + codegen.drop_var_count[dd]] = var_name;
@@ -836,7 +841,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             }
         } else {
             fputs(";\n" as *byte, codegen.output as *void);
-            if codegen.current_drop_scope >= 0 && var_type != null && var_type.type == ASTNodeType.AST_TYPE_NAMED && var_type.type_named_name != null && type_has_drop_c99(codegen, var_type.type_named_name) != 0 {
+            if codegen.current_drop_scope >= 0 && var_type != null && var_type.type == ASTNodeType.AST_TYPE_NAMED && var_type.type_named_name != null && type_has_drop_c99(codegen, var_type.type_named_name) != 0 && stmt.var_decl_was_moved == 0 {
                 const dd: i32 = codegen.current_drop_scope;
                 if codegen.drop_var_count[dd] < C99_MAX_DROP_VARS_PER_BLOCK {
                     codegen.drop_var_safe[dd * C99_MAX_DROP_VARS_PER_BLOCK + codegen.drop_var_count[dd]] = var_name;

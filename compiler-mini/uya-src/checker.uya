@@ -122,6 +122,7 @@ struct Symbol {
     line: i32,             // 行号
     column: i32,           // 列号
     pointee_of: &byte,     // 若本变量值为 &x，则为 x 的名字（移动语义：禁止移动 x），否则 null
+    decl_node: &ASTNode,   // 引入该绑定的 VAR_DECL 节点（用于写回 was_moved），可为 null
 }
 
 // 函数签名信息
@@ -597,6 +598,11 @@ fn checker_mark_moved(checker: &TypeChecker, node: &ASTNode, var_name: &byte, st
     if copy != null {
         checker.moved_names[checker.moved_count] = copy;
         checker.moved_count = checker.moved_count + 1;
+    }
+    // 写回 VAR_DECL 的 was_moved，供 codegen 生成 drop 时跳过已移动变量
+    const sym: &Symbol = symbol_table_lookup(checker, var_name);
+    if sym != null && sym.decl_node != null && sym.decl_node.type == ASTNodeType.AST_VAR_DECL {
+        sym.decl_node.var_decl_was_moved = 1;
     }
 }
 
@@ -2261,6 +2267,7 @@ fn checker_check_destructure_decl(checker: &TypeChecker, node: &ASTNode) i32 {
             symbol.line = node.line;
             symbol.column = node.column;
             symbol.pointee_of = null;
+            symbol.decl_node = null;  // 解构无单个 VAR_DECL 节点
             const existing: &Symbol = symbol_table_lookup(checker, name);
             if existing != null && existing.scope_level == checker.scope_level {
                 checker_report_error(checker, node, "变量重复定义" as *byte);
@@ -2386,6 +2393,7 @@ fn checker_check_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
             symbol.line = node.line;
             symbol.column = node.column;
             symbol.pointee_of = null;
+            symbol.decl_node = node;
             if symbol_table_insert(checker, symbol) != 0 {
                 checker_report_error(checker, node, "符号表已满，无法添加变量" as *byte);
                 return 0;
@@ -2444,6 +2452,7 @@ fn checker_register_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     symbol.line = node.line;
     symbol.column = node.column;
     symbol.pointee_of = null;
+    symbol.decl_node = node;
     if symbol_table_insert(checker, symbol) != 0 {
         return 0;
     }
@@ -2596,6 +2605,7 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
                     param_symbol.line = param.line;
                     param_symbol.column = param.column;
                     param_symbol.pointee_of = null;
+                    param_symbol.decl_node = param;
                     symbol_table_insert(checker, param_symbol);
                 }
             }

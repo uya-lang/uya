@@ -141,6 +141,7 @@ struct ASTNode {
     var_decl_type: &ASTNode,
     var_decl_init: &ASTNode,
     var_decl_is_const: i32,
+    var_decl_was_moved: i32,   // 移动语义：1 表示该绑定曾被移动，离开作用域时不调用 drop
     // destructure_decl（const (x, y) = expr）
     destructure_decl_names: & & byte,
     destructure_decl_name_count: i32,
@@ -307,6 +308,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.var_decl_type = null;
     node.var_decl_init = null;
     node.var_decl_is_const = 0;
+    node.var_decl_was_moved = 0;
     node.destructure_decl_names = null;
     node.destructure_decl_name_count = 0;
     node.destructure_decl_is_const = 0;
