@@ -46,6 +46,7 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 **联合体（union）**（✅ 已实现）：
 - 语法：`union Name { variant1: Type1, variant2: Type2 }`，创建 `UnionName.variant(expr)`，访问通过 `match value { .v1(x) => ..., .v2(y) => ... }` 必须处理所有变体
 - 内存布局：与 C union 兼容，大小为最大变体大小、对齐为最大变体对齐；实现可采用带隐藏 tag 的布局以支持跨函数 match
+- **extern union**（✅ 已实现）：`extern union CName { v1: T1, v2: T2 }` 声明外部 C 联合体，仅生成 C `union`（无 tagged 包装），无方法；可作为类型、参数、返回值使用，可用 `CName.variant(expr)` 创建；**不支持**对 extern union 的 `match`（C 端无 tag）
 - 详见下方「联合体」小节
 
 **不支持的特性**：
@@ -450,8 +451,11 @@ escape_sequence = '\\' ( 'n' | 't' | '\\' | '"' | '0' )
 
 ```
 program        = { declaration }
-declaration    = fn_decl | extern_decl | enum_decl | struct_decl | var_decl
+declaration    = fn_decl | extern_decl | enum_decl | struct_decl | union_decl | var_decl
 extern_decl    = 'extern' 'fn' ID '(' [ param_list ] ')' type ';'
+                | 'extern' 'union' ID '{' union_variant_list '}'
+union_variant_list = union_variant { ',' union_variant }
+union_variant  = ID ':' type
 enum_decl      = 'enum' ID '{' enum_variant_list '}'
 enum_variant_list = enum_variant { ',' enum_variant }
 enum_variant   = ID [ '=' NUM ]

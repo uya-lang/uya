@@ -181,7 +181,8 @@
 - [x] **drop / RAII**：用户自定义 `fn drop(self: T) void`，作用域结束逆序调用，规范 uya.md §12  
   **C 实现（已完成）**：Checker 校验 drop 签名（仅一个参数 self: T 按值、返回 void）、每类型仅一个 drop（方法块与结构体内部不能重复）；Codegen 在块退出时先 defer 再按变量声明逆序插入 drop 调用，在 return/break/continue 前插入当前块变量的 drop；生成 drop 方法时先按字段逆序插入字段的 drop 再用户体。测试 test_drop_simple.uya、test_drop_order.uya 通过 `--c99`；error_drop_wrong_sig.uya、error_drop_duplicate.uya 预期编译失败。**uya-src**：checker.uya 已同步（check_drop_method_signature、METHOD_BLOCK 与 struct_decl 的 drop 校验）；codegen（stmt.uya 的 emit_drop_cleanup/emit_current_block_drops、current_drop_scope 与 drop_var_*、function.uya 的 drop 方法字段逆序）待同步后 test_drop_*.uya 方可通过 `--uya --c99`。
 - [x] **移动语义**：结构体赋值/传参/返回为移动，活跃指针禁止移动，规范 uya.md §12.5  
-  **C 实现（已完成）**：Checker 维护已移动集合（moved_names）、符号表 pointee_of 记录 `p = &x` 的活跃指针；赋值/const 初始化/return/函数实参/结构体字面量字段若源为结构体变量则标记移动；使用标识符时检查「已被移动」、移动前检查「存在活跃指针」「循环中不能移动」。测试 test_move_simple.uya 通过；error_move_use_after.uya、error_move_active_pointer.uya、error_move_in_loop.uya 预期编译失败。**uya-src 已同步**：checker.uya 增加 Symbol.pointee_of、TypeChecker.moved_names/moved_count；moved_set_contains、has_active_pointer_to、checker_mark_moved、checker_mark_moved_call_args；AST_IDENTIFIER 使用前查已移动、var_decl/assign/return/call/struct_init 处标记移动及 pointee_of；为满足自举在返回/赋值处使用 copy_type 避免对同一 Type 变量多次移动。test_move_simple 与 error_move_* 在 --c99 与 --uya --c99 下均通过/预期失败。
+  **C 实现（已完成）**：Checker 维护已移动集合（moved_names）、符号表 pointee_of 记录 `p = &x` 的活跃指针；赋值/const 初始化/return/函数实参/结构体字面量字段若源为结构体变量则标记移动；使用标识符时检查「已被移动」、移动前检查「存在活跃指针」「循环中不能移动」。测试 test_move_simple.uya 通过；error_move_use_after.uya、error_move_active_pointer.uya、error_move_in_loop.uya 预期编译失败。**uya-src 已同步**：checker.uya 增加 Symbol.pointee_of、TypeChecker.moved_names/moved_count；moved_set_contains、has_active_pointer_to、checker_mark_moved、checker_mark_moved_call_args；AST_IDENTIFIER 使用前查已移动、var_decl/assign/return/call/struct_init 处标记移动及 pointee_of；为满足自举在返回/赋值处使用 copy_type 避免对同一 Type 变量多次移动。test_move_simple 与 error_move_* 在 --c99 与 --uya --c99 下均通过/预期失败。  
+  **数组元素部分移出（当前未实现）**：移动追踪仅针对「整个变量」（AST_VAR_DECL + 标识符名）。`x = arr[i]` 的源是 AST_ARRAY_ACCESS，不会调用 checker_mark_moved，故**没有对数组元素做细粒度移出追踪**。Codegen 的 emit_drop_cleanup 只处理类型为 AST_TYPE_NAMED 的变量，数组类型变量不会加入 drop 列表，因此**当前不会对数组整体或元素做 drop**。后果：（1）不会出现「对已移出槽位 double drop」的 UB，因为根本不 drop 数组元素；（2）若元素类型有 drop，则数组离开作用域时**未调用的 drop 为规范缺口**；（3）若将来实现对数组元素的 drop，则必须先实现「按槽位追踪已移出」或等价机制，否则会产生 double drop / use-after-move 的 UB。
 
 **涉及**：Parser、Checker、Codegen（drop 插入、移动与指针检查），uya-src。
 
@@ -236,10 +237,12 @@
 - [x] **创建**：`UnionName.variant(expr)`，如 `IntOrFloat.i(42)`
 - [x] **访问**：`match` 模式匹配（必须处理所有变体）、`.variant(bind)` 模式、穷尽性检查
 - [x] **实现**：带隐藏 tag 的 C 布局（`struct uya_tagged_U { int _tag; union U u; }`），零开销 match
-- [ ] **extern union**：外部 C 联合体声明与互操作（待实现）
+- [x] **extern union**：外部 C 联合体声明与互操作（C 实现完成；uya-src 待同步）
 - [x] **联合体方法**：`self: &Self`，内部/外部方法块（C 实现与 uya-src 已同步）
 
 **C 实现（已完成）**：Lexer（TOKEN_UNION）、AST（AST_UNION_DECL、MATCH_PAT_UNION）、Parser（parse_union、match 中 .variant(bind)）、Checker（TYPE_UNION、union init 校验、match 穷尽与变体类型推断）、Codegen（gen_union_definition、union init、match union 的 _tag 分支）。**联合体方法（C 实现已完成）**：AST（union_decl.methods/method_count、method_block.union_name）；Parser（union 内解析 fn 内部方法）；Checker（METHOD_BLOCK 解析目标为 struct/union、find_method_block_for_union、find_method_in_union、member_access/call 联合体方法、AST_UNION_DECL 内部方法及 drop 校验）；Codegen（find_method_in_union_c99、find_method_block_for_union_c99、find_union_decl_by_tagged_c99、expr 联合体方法调用、main 联合体方法块与内部方法、types c99_type_to_c_with_self_opt 联合体、get_c_type_of_expr AST_UNARY_EXPR/AST_CAST_EXPR）。测试 test_union.uya、test_union_method.uya（外部方法块）、test_union_inner_method.uya（内部方法）通过 `--c99`。**uya-src 已同步**：lexer.uya、ast.uya（union_decl_methods/method_count、method_block_union_name）、parser.uya（union 内 fn 解析）；checker.uya（find_method_block_for_union、find_method_in_union、call/member_access 联合体方法、AST_METHOD_BLOCK 联合体分支、AST_UNION_DECL 内部方法及 drop 校验）；codegen（structs.uya find_method_in_union_c99/find_method_block_for_union_c99、expr.uya 联合体方法调用、main.uya 联合体方法块与内部方法）。test_union_method.uya、test_union_inner_method.uya 通过 `--uya --c99`。
+
+**extern union（C 实现已完成）**：`extern union CName { v1: T1, v2: T2 }` 声明外部 C 联合体；Parser（parse_declaration 消费 extern 后分支 union/fn、parser_parse_union_body(parser, is_extern)、parser_parse_type 支持 `union TypeName`）；Checker（AST_UNION_DECL 禁止 is_extern 且含方法、AST_METHOD_BLOCK 禁止目标为 extern union、AST_MATCH_EXPR 禁止对 extern union 做 match）；Codegen（gen_union_definition 对 is_extern 仅生成 `union Name { ... };`、c99_type_to_c 对 extern union 生成 `union Name`、联合体变体构造对 extern 生成 `(union Name){ .v = expr }`）。测试 test_extern_union.uya 通过 `--c99`；error_extern_union_match.uya、error_extern_union_method_block.uya 预期编译失败。uya-src 待同步。
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen，uya-src。依赖 match 表达式（阶段 5）。
 

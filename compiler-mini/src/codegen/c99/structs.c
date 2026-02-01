@@ -167,7 +167,7 @@ int find_union_variant_index(ASTNode *union_decl, const char *variant_name) {
     return -1;
 }
 
-// 生成联合体定义：union U { ... }; struct uya_tagged_U { int _tag; union U u; };
+// 生成联合体定义：普通联合体生成 union U { ... }; struct uya_tagged_U { ... }；extern union 仅生成 union U { ... };
 int gen_union_definition(C99CodeGenerator *codegen, ASTNode *union_decl) {
     if (!codegen || !union_decl || union_decl->type != AST_UNION_DECL) return -1;
     const char *union_name = get_safe_c_identifier(codegen, union_decl->data.union_decl.name);
@@ -175,6 +175,7 @@ int gen_union_definition(C99CodeGenerator *codegen, ASTNode *union_decl) {
     int n = union_decl->data.union_decl.variant_count;
     ASTNode **variants = union_decl->data.union_decl.variants;
     if (n <= 0 || !variants) return -1;
+    int is_extern = union_decl->data.union_decl.is_extern;
     c99_emit(codegen, "union %s {\n", union_name);
     codegen->indent_level++;
     for (int i = 0; i < n; i++) {
@@ -186,7 +187,8 @@ int gen_union_definition(C99CodeGenerator *codegen, ASTNode *union_decl) {
     }
     codegen->indent_level--;
     c99_emit(codegen, "};\n");
-    c99_emit(codegen, "struct uya_tagged_%s { int _tag; union %s u; };\n", union_name, union_name);
+    if (!is_extern)
+        c99_emit(codegen, "struct uya_tagged_%s { int _tag; union %s u; };\n", union_name, union_name);
     return 0;
 }
 

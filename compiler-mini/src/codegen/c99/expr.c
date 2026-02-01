@@ -1123,7 +1123,7 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 c99_emit_string_interp_fill(codegen, args[i], temp_name);
             }
             
-            /* 联合体变体构造：UnionName.variant(expr) -> (struct uya_tagged_UnionName){ ._tag = index, .u = (union UnionName){ .variant = (expr) } } */
+            /* 联合体变体构造：UnionName.variant(expr) -> 普通 union: (struct uya_tagged_U){ ._tag, .u = (union U){ .v } }；extern union: (union U){ .v = expr } */
             if (callee && callee->type == AST_MEMBER_ACCESS) {
                 ASTNode *obj = callee->data.member_access.object;
                 const char *method_name = callee->data.member_access.field_name;
@@ -1133,10 +1133,17 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                         int idx = find_union_variant_index(union_decl, method_name);
                         if (idx >= 0) {
                             const char *uname = get_safe_c_identifier(codegen, union_decl->data.union_decl.name);
-                            if (uname) {
-                                fprintf(codegen->output, "((struct uya_tagged_%s){ ._tag = %d, .u = (union %s){ .%s = (", uname, idx, uname, get_safe_c_identifier(codegen, method_name));
-                                gen_expr(codegen, args[0]);
-                                fputs(") } })", codegen->output);
+                            const char *vname = get_safe_c_identifier(codegen, method_name);
+                            if (uname && vname) {
+                                if (union_decl->data.union_decl.is_extern) {
+                                    fprintf(codegen->output, "((union %s){ .%s = (", uname, vname);
+                                    gen_expr(codegen, args[0]);
+                                    fputs(") })", codegen->output);
+                                } else {
+                                    fprintf(codegen->output, "((struct uya_tagged_%s){ ._tag = %d, .u = (union %s){ .%s = (", uname, idx, uname, vname);
+                                    gen_expr(codegen, args[0]);
+                                    fputs(") } })", codegen->output);
+                                }
                                 break;
                             }
                         }

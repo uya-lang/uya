@@ -39,3 +39,25 @@ int print(const char* s) {
     printf("%s", s);
     return 1;
 }
+
+/* test_extern_union.uya: extern union CValue 与 C 互操作（布局须与生成代码一致） */
+union CValue {
+    int i;
+    double f;
+};
+
+void take_c_value(union CValue v) {
+    (void)v;  /* 仅接收，不访问变体 */
+}
+
+union CValue make_c_value_i(int x) {
+    union CValue u;
+    u.i = x;
+    return u;
+}
+
+union CValue make_c_value_f(double x) {
+    union CValue u;
+    u.f = x;
+    return u;
+}

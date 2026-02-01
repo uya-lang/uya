@@ -345,6 +345,19 @@ static ASTNode *parser_parse_type(Parser *parser) {
         array_type->data.type_array.size_expr = size_expr;
         
         return array_type;
+    } else if (parser->current_token->type == TOKEN_UNION) {
+        /* union TypeName（用于 extern union 类型，如参数/返回值）*/
+        parser_consume(parser);
+        if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+            return NULL;
+        }
+        const char *union_type_name = arena_strdup(parser->arena, parser->current_token->value);
+        if (union_type_name == NULL) return NULL;
+        parser_consume(parser);
+        ASTNode *type_node = ast_new_node(AST_TYPE_NAMED, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (type_node == NULL) return NULL;
+        type_node->data.type_named.name = union_type_name;
+        return type_node;
     } else if (parser->current_token->type == TOKEN_IDENTIFIER) {
         // 命名类型（i32, bool, void, 或结构体名称）
         ASTNode *type_node = ast_new_node(AST_TYPE_NAMED, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
@@ -719,45 +732,26 @@ ASTNode *parser_parse_struct(Parser *parser) {
     return struct_decl;
 }
 
-// 解析联合体声明：union ID { variant_list }
-// variant_list = variant { ',' variant }
-// variant = ID ':' type
-ASTNode *parser_parse_union(Parser *parser) {
-    if (parser == NULL || parser->current_token == NULL) {
-        return NULL;
-    }
-    if (!parser_match(parser, TOKEN_UNION)) {
-        return NULL;
-    }
-    int line = parser->current_token->line;
-    int column = parser->current_token->column;
-    parser_consume(parser);
-    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+// 解析联合体声明主体：当前 token 为联合体名称 ID，解析 ID { variant_list }；is_extern==1 时不解析 fn 方法
+static ASTNode *parser_parse_union_body(Parser *parser, int line, int column, int is_extern) {
+    if (parser == NULL || parser->current_token == NULL || !parser_match(parser, TOKEN_IDENTIFIER)) {
         return NULL;
     }
     const char *union_name = arena_strdup(parser->arena, parser->current_token->value);
-    if (union_name == NULL) {
-        return NULL;
-    }
+    if (union_name == NULL) return NULL;
     parser_consume(parser);
     ASTNode *union_decl = ast_new_node(AST_UNION_DECL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
-    if (union_decl == NULL) {
-        return NULL;
-    }
+    if (union_decl == NULL) return NULL;
     union_decl->data.union_decl.name = union_name;
-    if (!parser_expect(parser, TOKEN_LEFT_BRACE)) {
-        return NULL;
-    }
+    union_decl->data.union_decl.is_extern = is_extern;
+    if (!parser_expect(parser, TOKEN_LEFT_BRACE)) return NULL;
     ASTNode **variants = NULL;
-    int variant_count = 0;
-    int variant_capacity = 0;
+    int variant_count = 0, variant_capacity = 0;
     ASTNode **methods = NULL;
-    int method_count = 0;
-    int method_capacity = 0;
+    int method_count = 0, method_capacity = 0;
     while (parser->current_token != NULL &&
-           !parser_match(parser, TOKEN_RIGHT_BRACE) &&
-           !parser_match(parser, TOKEN_EOF)) {
-        if (parser_match(parser, TOKEN_FN)) {
+           !parser_match(parser, TOKEN_RIGHT_BRACE) && !parser_match(parser, TOKEN_EOF)) {
+        if (!is_extern && parser_match(parser, TOKEN_FN)) {
             ASTNode *method = parser_parse_function(parser);
             if (method == NULL) return NULL;
             if (method_count >= method_capacity) {
@@ -772,27 +766,16 @@ ASTNode *parser_parse_union(Parser *parser) {
             if (parser_match(parser, TOKEN_COMMA)) parser_consume(parser);
             continue;
         }
-        if (!parser_match(parser, TOKEN_IDENTIFIER)) {
-            return NULL;
-        }
-        int v_line = parser->current_token->line;
-        int v_column = parser->current_token->column;
+        if (!parser_match(parser, TOKEN_IDENTIFIER)) return NULL;
+        int v_line = parser->current_token->line, v_column = parser->current_token->column;
         const char *variant_name = arena_strdup(parser->arena, parser->current_token->value);
-        if (variant_name == NULL) {
-            return NULL;
-        }
+        if (variant_name == NULL) return NULL;
         parser_consume(parser);
-        if (!parser_expect(parser, TOKEN_COLON)) {
-            return NULL;
-        }
+        if (!parser_expect(parser, TOKEN_COLON)) return NULL;
         ASTNode *variant_type = parser_parse_type(parser);
-        if (variant_type == NULL) {
-            return NULL;
-        }
+        if (variant_type == NULL) return NULL;
         ASTNode *variant = ast_new_node(AST_VAR_DECL, v_line, v_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
-        if (variant == NULL) {
-            return NULL;
-        }
+        if (variant == NULL) return NULL;
         variant->data.var_decl.name = variant_name;
         variant->data.var_decl.type = variant_type;
         variant->data.var_decl.init = NULL;
@@ -806,18 +789,25 @@ ASTNode *parser_parse_union(Parser *parser) {
             variant_capacity = new_cap;
         }
         variants[variant_count++] = variant;
-        if (parser_match(parser, TOKEN_COMMA)) {
-            parser_consume(parser);
-        }
+        if (parser_match(parser, TOKEN_COMMA)) parser_consume(parser);
     }
-    if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
-        return NULL;
-    }
+    if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) return NULL;
     union_decl->data.union_decl.variants = variants;
     union_decl->data.union_decl.variant_count = variant_count;
     union_decl->data.union_decl.methods = methods;
     union_decl->data.union_decl.method_count = method_count;
     return union_decl;
+}
+
+// 解析联合体声明：union ID { variant_list }
+ASTNode *parser_parse_union(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL || !parser_match(parser, TOKEN_UNION)) {
+        return NULL;
+    }
+    int line = parser->current_token->line;
+    int column = parser->current_token->column;
+    parser_consume(parser);
+    return parser_parse_union_body(parser, line, column, 0);
 }
 
 // 解析枚举声明：enum ID '{' variant_list '}'
@@ -1277,40 +1267,32 @@ ASTNode *parser_parse_function(Parser *parser) {
     return fn_decl;
 }
 
-// 解析 extern 函数声明
-// extern_decl = 'extern' 'fn' ID '(' [ param_list ] ')' type ';'
-ASTNode *parser_parse_extern_function(Parser *parser) {
-    if (parser == NULL || parser->current_token == NULL) {
-        return NULL;
+// 前向声明：解析 extern fn（extern 已消费）
+static ASTNode *parser_parse_extern_function_after_extern(Parser *parser);
+
+// 解析 extern 声明：extern 已由调用方消费，当前为 'fn' 或 'union'
+// 若为 'union' 则解析 extern union；否则解析 extern fn
+static ASTNode *parser_parse_extern_decl(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) return NULL;
+    if (parser_match(parser, TOKEN_UNION)) {
+        int line = parser->current_token->line;
+        int column = parser->current_token->column;
+        parser_consume(parser);
+        return parser_parse_union_body(parser, line, column, 1);
     }
-    
-    // 期望 'extern'
-    if (!parser_match(parser, TOKEN_EXTERN)) {
-        return NULL;
-    }
-    
+    return parser_parse_extern_function_after_extern(parser);
+}
+
+// 解析 extern 函数声明（extern 已消费，当前为 'fn'）
+// 'extern' 'fn' ID '(' [ param_list ] ')' type ';'
+static ASTNode *parser_parse_extern_function_after_extern(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) return NULL;
     int line = parser->current_token->line;
     int column = parser->current_token->column;
-    
-    // 消费 'extern'
-    parser_consume(parser);
-    
-    // 期望 'fn'
-    if (!parser_expect(parser, TOKEN_FN)) {
-        return NULL;
-    }
-    
-    // 期望函数名称
-    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
-        return NULL;
-    }
-    
+    if (!parser_expect(parser, TOKEN_FN)) return NULL;
+    if (!parser_match(parser, TOKEN_IDENTIFIER)) return NULL;
     const char *fn_name = arena_strdup(parser->arena, parser->current_token->value);
-    if (fn_name == NULL) {
-        return NULL;
-    }
-    
-    // 消费函数名称
+    if (fn_name == NULL) return NULL;
     parser_consume(parser);
     
     // 创建函数声明节点
@@ -1442,8 +1424,16 @@ ASTNode *parser_parse_extern_function(Parser *parser) {
     fn_decl->data.fn_decl.return_type = return_type;
     fn_decl->data.fn_decl.body = NULL;  // extern 函数没有函数体
     fn_decl->data.fn_decl.is_varargs = is_varargs;
-    
     return fn_decl;
+}
+
+// 解析 extern 函数声明（从 'extern' 开始）
+ASTNode *parser_parse_extern_function(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL || !parser_match(parser, TOKEN_EXTERN)) {
+        return NULL;
+    }
+    parser_consume(parser);
+    return parser_parse_extern_function_after_extern(parser);
 }
 
 // 解析声明（函数、结构体或变量声明）
@@ -1454,8 +1444,8 @@ ASTNode *parser_parse_declaration(Parser *parser) {
     
     // 根据第一个 Token 判断声明类型
     if (parser_match(parser, TOKEN_EXTERN)) {
-        // extern 函数声明
-        return parser_parse_extern_function(parser);
+        parser_consume(parser);
+        return parser_parse_extern_decl(parser);
     } else if (parser_match(parser, TOKEN_FN)) {
         return parser_parse_function(parser);
     } else if (parser_match(parser, TOKEN_ENUM)) {

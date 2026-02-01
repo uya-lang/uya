@@ -3301,6 +3301,10 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                 checker_report_error(checker, node, "联合体声明只能在顶层定义");
                 return 0;
             }
+            if (node->data.union_decl.is_extern && node->data.union_decl.method_count > 0) {
+                checker_report_error(checker, node, "extern union 不能包含方法");
+                return 0;
+            }
             if (node->data.union_decl.variant_count < 1) {
                 checker_report_error(checker, node, "联合体至少需要一个变体");
                 return 0;
@@ -3377,8 +3381,13 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             }
             if (node->data.method_block.union_name != NULL) {
                 const char *union_name = node->data.method_block.union_name;
-                if (find_union_decl_from_program(checker->program_node, union_name) == NULL) {
+                ASTNode *union_decl_ptr = find_union_decl_from_program(checker->program_node, union_name);
+                if (union_decl_ptr == NULL) {
                     checker_report_error(checker, node, "方法块对应的联合体未定义");
+                    return 0;
+                }
+                if (union_decl_ptr->data.union_decl.is_extern) {
+                    checker_report_error(checker, node, "extern union 不能有方法块");
                     return 0;
                 }
                 int drop_count = 0;
@@ -3710,6 +3719,13 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
         
         case AST_MATCH_EXPR: {
             Type expr_type = checker_infer_type(checker, node->data.match_expr.expr);
+            if (expr_type.kind == TYPE_UNION && expr_type.data.union_name != NULL && checker->program_node != NULL) {
+                ASTNode *ud = find_union_decl_from_program(checker->program_node, expr_type.data.union_name);
+                if (ud != NULL && ud->data.union_decl.is_extern) {
+                    checker_report_error(checker, node, "extern union 不支持 match");
+                    return 0;
+                }
+            }
             checker_check_node(checker, node->data.match_expr.expr);
             int has_else = 0;
             for (int i = 0; i < node->data.match_expr.arm_count; i++) {

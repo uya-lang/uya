@@ -61,6 +61,7 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.union_decl.variant_count = 0;
             node->data.union_decl.methods = NULL;
             node->data.union_decl.method_count = 0;
+            node->data.union_decl.is_extern = 0;
             break;
         case AST_METHOD_BLOCK:
             node->data.method_block.struct_name = NULL;
