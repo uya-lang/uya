@@ -451,7 +451,9 @@ fn gen_method_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_na
             continue;
         }
         const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
-        const param_type_c: &byte = c99_type_to_c_with_self(codegen, param.var_decl_type, struct_name);
+        var const_self: i32 = 0;
+        if i == 0 { const_self = 1; }
+        const param_type_c: &byte = c99_type_to_c_with_self_opt(codegen, param.var_decl_type, struct_name, const_self);
         format_param_type(codegen, param_type_c, param_name, codegen.output as *void);
         if i < param_count - 1 {
             fputs(", " as *byte, codegen.output as *void);
@@ -484,7 +486,9 @@ fn gen_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_nam
             continue;
         }
         const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
-        const param_type_c: &byte = c99_type_to_c_with_self(codegen, param.var_decl_type, struct_name);
+        var const_self: i32 = 0;
+        if i == 0 { const_self = 1; }
+        const param_type_c: &byte = c99_type_to_c_with_self_opt(codegen, param.var_decl_type, struct_name, const_self);
         format_param_type(codegen, param_type_c, param_name, codegen.output as *void);
         if i < param_count - 1 {
             fputs(", " as *byte, codegen.output as *void);
@@ -496,6 +500,8 @@ fn gen_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_nam
     codegen.current_function_return_type = fn_decl.fn_decl_return_type;
     const saved_current_function_decl: &ASTNode = codegen.current_function_decl;
     codegen.current_function_decl = fn_decl;
+    const saved_method_struct: &byte = codegen.current_method_struct_name;
+    codegen.current_method_struct_name = struct_name;
     const saved_local_count: i32 = codegen.local_variable_count;
     const saved_depth: i32 = codegen.current_depth;
     codegen.local_variable_count = 0;
@@ -505,7 +511,9 @@ fn gen_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_nam
         const param: &ASTNode = params[i];
         if param != null && param.type == ASTNodeType.AST_VAR_DECL {
             const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
-            const param_type_c: &byte = c99_type_to_c_with_self(codegen, param.var_decl_type, struct_name);
+            var const_self: i32 = 0;
+        if i == 0 { const_self = 1; }
+        const param_type_c: &byte = c99_type_to_c_with_self_opt(codegen, param.var_decl_type, struct_name, const_self);
             if param_name != null && param_type_c != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
                 codegen.local_variables[codegen.local_variable_count].name = param.var_decl_name;
                 codegen.local_variables[codegen.local_variable_count].type_c = param_type_c;
@@ -517,6 +525,7 @@ fn gen_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_nam
     gen_stmt(codegen, fn_decl.fn_decl_body);
     codegen.current_function_return_type = null;
     codegen.current_function_decl = saved_current_function_decl;
+    codegen.current_method_struct_name = saved_method_struct;
     codegen.local_variable_count = saved_local_count;
     codegen.current_depth = saved_depth;
     codegen.indent_level = codegen.indent_level - 1;

@@ -103,9 +103,11 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             gen_expr(codegen, dest);
             fputs("));\n" as *byte, codegen.output as *void);
         } else {
-            // 普通赋值
+            // 普通赋值（self.field 作为左端时需 cast，以支持 const self 参数）
             c99_emit(codegen, "" as *byte);
+            codegen.emitting_assign_lhs = 1;
             gen_expr(codegen, dest);
+            codegen.emitting_assign_lhs = 0;
             fputs(" = " as *byte, codegen.output as *void);
             gen_expr(codegen, src);
             fputs(";\n" as *byte, codegen.output as *void);

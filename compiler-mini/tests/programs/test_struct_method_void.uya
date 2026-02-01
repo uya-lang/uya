@@ -1,0 +1,22 @@
+// 结构体方法返回 void：inc 自增
+// 预期：main 返回 0
+
+struct Counter {
+  value: i32
+}
+
+Counter {
+  fn inc(self: *Self) void {
+    self.value = self.value + 1;
+  }
+}
+
+fn main() i32 {
+  var c: Counter = Counter{ value: 5 };
+  c.inc();
+  c.inc();
+  if c.value != 7 {
+    return 1;
+  }
+  return 0;
+}

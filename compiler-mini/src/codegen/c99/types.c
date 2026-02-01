@@ -5,16 +5,21 @@
 
 /* 方法参数类型映射：将 Self 替换为 struct_name，用于生成结构体方法签名 */
 const char *c99_type_to_c_with_self(C99CodeGenerator *codegen, ASTNode *type_node, const char *self_struct_name) {
+    return c99_type_to_c_with_self_opt(codegen, type_node, self_struct_name, 0);
+}
+
+/* const_self: 1 表示 self 参数使用 const struct X *（消除 const 调用者时的 -Wdiscarded-qualifiers 警告）*/
+const char *c99_type_to_c_with_self_opt(C99CodeGenerator *codegen, ASTNode *type_node, const char *self_struct_name, int const_self) {
     if (!type_node || !self_struct_name) return c99_type_to_c(codegen, type_node);
     if (type_node->type == AST_TYPE_POINTER) {
         ASTNode *pt = type_node->data.type_pointer.pointed_type;
         if (pt && pt->type == AST_TYPE_NAMED && pt->data.type_named.name &&
             strcmp(pt->data.type_named.name, "Self") == 0) {
             const char *safe = get_safe_c_identifier(codegen, self_struct_name);
-            size_t len = strlen(safe) + 12;
+            size_t len = strlen(safe) + 20;
             char *buf = arena_alloc(codegen->arena, len);
             if (buf) {
-                snprintf(buf, len, "struct %s *", safe);
+                snprintf(buf, len, const_self ? "const struct %s *" : "struct %s *", safe);
                 return buf;
             }
         }

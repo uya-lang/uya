@@ -403,7 +403,7 @@ void gen_method_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl, const cha
         ASTNode *param = params[i];
         if (!param || param->type != AST_VAR_DECL) continue;
         const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
-        const char *param_type_c = c99_type_to_c_with_self(codegen, param->data.var_decl.type, struct_name);
+        const char *param_type_c = c99_type_to_c_with_self_opt(codegen, param->data.var_decl.type, struct_name, (i == 0));
         format_param_type(codegen, param_type_c, param_name, codegen->output);
         if (i < param_count - 1) fputs(", ", codegen->output);
     }
@@ -425,7 +425,7 @@ void gen_method_function(C99CodeGenerator *codegen, ASTNode *fn_decl, const char
         ASTNode *param = params[i];
         if (!param || param->type != AST_VAR_DECL) continue;
         const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
-        const char *param_type_c = c99_type_to_c_with_self(codegen, param->data.var_decl.type, struct_name);
+        const char *param_type_c = c99_type_to_c_with_self_opt(codegen, param->data.var_decl.type, struct_name, (i == 0));
         format_param_type(codegen, param_type_c, param_name, codegen->output);
         if (i < param_count - 1) fputs(", ", codegen->output);
     }
@@ -434,6 +434,8 @@ void gen_method_function(C99CodeGenerator *codegen, ASTNode *fn_decl, const char
     codegen->current_function_return_type = fn_decl->data.fn_decl.return_type;
     ASTNode *saved_current_function_decl = codegen->current_function_decl;
     codegen->current_function_decl = fn_decl;
+    const char *saved_method_struct = codegen->current_method_struct_name;
+    codegen->current_method_struct_name = struct_name;
     int saved_local_count = codegen->local_variable_count;
     int saved_depth = codegen->current_depth;
     codegen->local_variable_count = 0;
@@ -442,7 +444,7 @@ void gen_method_function(C99CodeGenerator *codegen, ASTNode *fn_decl, const char
         ASTNode *param = params[i];
         if (!param || param->type != AST_VAR_DECL) continue;
         const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
-        const char *param_type_c = c99_type_to_c_with_self(codegen, param->data.var_decl.type, struct_name);
+        const char *param_type_c = c99_type_to_c_with_self_opt(codegen, param->data.var_decl.type, struct_name, (i == 0));
         if (param_name && param_type_c && codegen->local_variable_count < C99_MAX_LOCAL_VARS) {
             codegen->local_variables[codegen->local_variable_count].name = param->data.var_decl.name;
             codegen->local_variables[codegen->local_variable_count].type_c = param_type_c;
@@ -452,6 +454,7 @@ void gen_method_function(C99CodeGenerator *codegen, ASTNode *fn_decl, const char
     gen_stmt(codegen, fn_decl->data.fn_decl.body);
     codegen->current_function_return_type = NULL;
     codegen->current_function_decl = saved_current_function_decl;
+    codegen->current_method_struct_name = saved_method_struct;
     codegen->local_variable_count = saved_local_count;
     codegen->current_depth = saved_depth;
     codegen->indent_level--;

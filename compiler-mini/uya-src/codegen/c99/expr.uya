@@ -524,7 +524,17 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             // 其他一元操作符（!, -, +）不影响类型判断
         }
         
-        gen_expr(codegen, object);
+        if codegen.emitting_assign_lhs != 0 && object.type == ASTNodeType.AST_IDENTIFIER && object.identifier_name != null &&
+            strcmp(object.identifier_name as *byte, "self" as *byte) == 0 && codegen.current_method_struct_name != null {
+            const safe_struct: &byte = get_safe_c_identifier(codegen, codegen.current_method_struct_name);
+            if safe_struct != null {
+                fprintf(codegen.output as *void, "((struct %s *)self)" as *byte, safe_struct as *byte);
+            } else {
+                gen_expr(codegen, object);
+            }
+        } else {
+            gen_expr(codegen, object);
+        }
         if is_pointer != 0 {
             // 指针类型使用 -> 操作符
             fprintf(codegen.output as *void, "->%s" as *byte, safe_field_name as *byte);
@@ -1151,6 +1161,59 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 }
                 fputc(41, codegen.output as *void);
                 did_interface_call = 1;
+            } else if obj_type_c != null && strstr(obj_type_c as *byte, "uya_interface_" as *byte) == null {
+                var base: *byte = obj_type_c as *byte;
+                if strncmp(base, "const " as *byte, 6) == 0 { base = base + 6; }
+                if strncmp(base, "struct " as *byte, 7) == 0 {
+                    const start: *byte = base + 7;
+                    var end: *byte = strchr(start, 32);
+                    if end == null { end = start + strlen(start); }
+                    const asterisk: *byte = strchr(start, 42);
+                    if asterisk != null && asterisk < end { end = asterisk; }
+                    while end > start && ((end - 1)[0] == 32 || (end - 1)[0] == 9) { end = end - 1; }
+                    if end > start {
+                        var struct_name_buf: [byte: 128] = [];
+                        const slen: i32 = (end - start) as i32;
+                        if slen > 0 && slen < 128 {
+                            var k: i32 = 0;
+                            while k < slen {
+                                struct_name_buf[k] = start[k];
+                                k = k + 1;
+                            }
+                            struct_name_buf[slen] = 0;
+                            const method_block: &ASTNode = find_method_block_for_struct_c99(codegen, &struct_name_buf[0]);
+                            if method_block != null {
+                                const method_fn: &ASTNode = find_method_in_block(method_block, method_name);
+                                if method_fn != null {
+                                    const cname: &byte = get_method_c_name(codegen, &struct_name_buf[0], method_name);
+                                    if cname != null {
+                                        var prefix: &byte = "&" as *byte;
+                                        if strchr(obj_type_c as *byte, 42) != null { prefix = "" as *byte; }
+                                        fprintf(codegen.output as *void, "%s(%s(" as *byte, cname as *byte, prefix);
+                                        gen_expr(codegen, obj);
+                                        fputs(")" as *byte, codegen.output as *void);
+                                        var i: i32 = 0;
+                                        while i < arg_count {
+                                            fputs(", " as *byte, codegen.output as *void);
+                                            if codegen.interp_arg_temp_names[i] != null {
+                                                fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                                                fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.output as *void);
+                                            } else {
+                                                if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
+                                                    fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                                                }
+                                                gen_expr(codegen, expr.call_expr_args[i]);
+                                            }
+                                            i = i + 1;
+                                        }
+                                        fputc(41, codegen.output as *void);
+                                        did_interface_call = 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         if did_interface_call == 0 {

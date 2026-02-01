@@ -81,6 +81,8 @@ typedef struct C99CodeGenerator {
     ASTNode *program_node;          // 程序节点引用
     ASTNode *current_function_return_type;  // 当前函数的返回类型（用于生成返回语句）
     ASTNode *current_function_decl;  // 当前正在生成的函数声明（用于 @params 与 ... 转发，可为 NULL）
+    const char *current_method_struct_name;  // 当前方法所属结构体名（用于 self 写回时的 cast，可为 NULL）
+    int emitting_assign_lhs;  // 1=正在生成赋值左端（self.field 需 cast 以支持 const self）
     
     // 用于优化 #line 指令生成
     int current_line;               // 当前行号（用于避免重复的 #line 指令）

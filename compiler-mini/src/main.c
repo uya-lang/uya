@@ -160,6 +160,7 @@ static int compile_files(const char *input_files[], int input_file_count, const 
         fprintf(stderr, "  %d: %s\n", i, input_files[i]);
     }
     fprintf(stderr, "输出文件: %s\n", output_file);
+    fprintf(stderr, "=== 词法/语法分析 ===\n");
 
     // 初始化 Arena 分配器（所有文件共享同一个 Arena）
     Arena arena;
@@ -202,7 +203,9 @@ static int compile_files(const char *input_files[], int input_file_count, const 
         }
 
         programs[i] = ast;
+        fprintf(stderr, "  解析完成: %s\n", input_file);
     }
+    fprintf(stderr, "=== 词法/语法分析完成，共 %d 个文件 ===\n", input_file_count);
 
     fprintf(stderr, "=== AST 合并阶段 ===\n");
     ASTNode *merged_ast = ast_merge_programs(programs, input_file_count, &arena);
@@ -210,6 +213,7 @@ static int compile_files(const char *input_files[], int input_file_count, const 
         fprintf(stderr, "错误: AST 合并失败\n");
         return 1;
     }
+    fprintf(stderr, "AST 合并完成，共 %d 个声明\n", merged_ast->data.program.decl_count);
 
     fprintf(stderr, "=== 类型检查阶段 ===\n");
     TypeChecker checker;
@@ -228,6 +232,7 @@ static int compile_files(const char *input_files[], int input_file_count, const 
         fprintf(stderr, "错误: 类型检查失败（错误数量: %d）\n", checker_get_error_count(&checker));
         return 1;
     }
+    fprintf(stderr, "类型检查通过\n");
 
     fprintf(stderr, "=== 代码生成阶段 ===\n");
     const char *module_name = input_files[0];
@@ -256,7 +261,7 @@ static int compile_files(const char *input_files[], int input_file_count, const 
 
     c99_codegen_free(&c99_codegen);
     fclose(out_file);
-    fprintf(stderr, "C99 源代码已生成: %s\n", output_file);
+    fprintf(stderr, "代码生成完成: %s\n", output_file);
 
     return 0;
 }

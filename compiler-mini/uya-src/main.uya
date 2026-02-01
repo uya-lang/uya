@@ -150,6 +150,7 @@ fn compile_files(
     }
     const output_file: *byte = get_argv(output_file_index);
     fprintf(stderr, "输出文件: %s\n" as *byte, output_file);
+    fprintf(stderr, "=== 词法/语法分析 ===\n" as *byte);
     var backend_str: *byte = "LLVM" as *byte;
     if backend == BackendType.BACKEND_C99 {
         backend_str = "C99" as *byte;
@@ -191,8 +192,10 @@ fn compile_files(
             return 1;
         }
         programs[i] = ast;
+        fprintf(stderr, "  解析完成: %s\n" as *byte, input_path);
         i = i + 1;
     }
+    fprintf(stderr, "=== 词法/语法分析完成，共 %d 个文件 ===\n" as *byte, input_file_count);
 
     fprintf(stderr, "=== AST 合并阶段 ===\n" as *byte);
     const merged_ast: &ASTNode = ast_merge_programs(programs, input_file_count, &arena);
@@ -200,6 +203,7 @@ fn compile_files(
         fprintf(stderr, "错误: AST 合并失败\n" as *byte);
         return 1;
     }
+    fprintf(stderr, "AST 合并完成，共 %d 个声明\n" as *byte, merged_ast.program_decl_count);
 
     fprintf(stderr, "=== 类型检查阶段 ===\n" as *byte);
     const void_type: Type = Type { kind: TypeKind.TYPE_VOID, enum_name: null, struct_name: null, pointer_to: null, is_ffi_pointer: 0, element_type: null, array_size: 0 };
@@ -228,6 +232,7 @@ fn compile_files(
         }
         return 1;
     }
+    fprintf(stderr, "类型检查通过\n" as *byte);
 
     fprintf(stderr, "=== 代码生成阶段 ===\n" as *byte);
     const first_file_idx: i32 = input_file_indices[0];
@@ -254,7 +259,7 @@ fn compile_files(
         }
         c99_codegen_free(&c99_codegen);
         fclose(out_file);
-        fprintf(stderr, "C99 源代码已生成: %s\n" as *byte, output_file);
+        fprintf(stderr, "代码生成完成: %s\n" as *byte, output_file);
     } else {
         fprintf(stderr, "错误: 当前自举版本仅支持 C99 后端（请使用 --c99）\n" as *byte);
         return 1;

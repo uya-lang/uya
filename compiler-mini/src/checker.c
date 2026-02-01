@@ -2063,9 +2063,9 @@ static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
     // 接口方法调用：callee 为 obj.method，obj 类型为接口
     if (callee->type == AST_MEMBER_ACCESS) {
         Type object_type = checker_infer_type(checker, callee->data.member_access.object);
+        const char *method_name = callee->data.member_access.field_name;
         if (object_type.kind == TYPE_INTERFACE && object_type.data.interface_name != NULL && checker->program_node != NULL) {
             ASTNode *iface = find_interface_decl_from_program(checker->program_node, object_type.data.interface_name);
-            const char *method_name = callee->data.member_access.field_name;
             if (iface != NULL && method_name != NULL) {
                 for (int i = 0; i < iface->data.interface_decl.method_sig_count; i++) {
                     ASTNode *msig = iface->data.interface_decl.method_sigs[i];
@@ -2087,6 +2087,33 @@ static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
                     }
                 }
                 checker_report_error(checker, node, "接口上不存在该方法");
+            }
+            return result;
+        }
+        // 结构体方法调用：callee 为 obj.method，obj 类型为结构体（非接口）
+        if (object_type.kind == TYPE_STRUCT && object_type.data.struct_name != NULL && method_name != NULL && checker->program_node != NULL) {
+            ASTNode *method_block = find_method_block_for_struct(checker->program_node, object_type.data.struct_name);
+            if (method_block != NULL) {
+                for (int i = 0; i < method_block->data.method_block.method_count; i++) {
+                    ASTNode *m = method_block->data.method_block.methods[i];
+                    if (m != NULL && m->type == AST_FN_DECL && m->data.fn_decl.name != NULL && strcmp(m->data.fn_decl.name, method_name) == 0) {
+                        int expected_args = m->data.fn_decl.param_count - 1;  /* 首个参数为 self */
+                        if (expected_args < 0) expected_args = 0;
+                        if (node->data.call_expr.arg_count != expected_args) {
+                            checker_report_error(checker, node, "结构体方法调用实参个数不匹配");
+                            return result;
+                        }
+                        for (int j = 0; j < expected_args && j < node->data.call_expr.arg_count; j++) {
+                            Type param_type = type_from_ast(checker, m->data.fn_decl.params[j + 1]->data.var_decl.type);
+                            if (!checker_check_expr_type(checker, node->data.call_expr.args[j], param_type)) {
+                                checker_report_error(checker, node, "结构体方法调用参数类型不匹配");
+                                return result;
+                            }
+                        }
+                        return type_from_ast(checker, m->data.fn_decl.return_type);
+                    }
+                }
+                checker_report_error(checker, node, "结构体上不存在该方法");
             }
         }
         return result;
@@ -2252,15 +2279,23 @@ static Type checker_check_member_access(TypeChecker *checker, ASTNode *node) {
     
     // 查找字段类型
     Type field_type = find_struct_field_type(checker, struct_decl, node->data.member_access.field_name);
-    if (field_type.kind == TYPE_VOID) {
-        // 字段不存在：放宽检查，允许通过（不报错）
-        // 这在编译器自举时很常见，因为字段可能在不同版本的结构体中
-        // 返回 void 类型，允许访问但不进行严格的类型检查
-        result.kind = TYPE_VOID;
-        return result;
+    if (field_type.kind != TYPE_VOID) {
+        return field_type;
     }
-    
-    return field_type;
+    // 字段不存在：检查是否为结构体方法（obj.method 调用）
+    ASTNode *method_block = find_method_block_for_struct(checker->program_node, object_type.data.struct_name);
+    if (method_block != NULL) {
+        for (int i = 0; i < method_block->data.method_block.method_count; i++) {
+            ASTNode *m = method_block->data.method_block.methods[i];
+            if (m != NULL && m->type == AST_FN_DECL && m->data.fn_decl.name != NULL &&
+                strcmp(m->data.fn_decl.name, node->data.member_access.field_name) == 0) {
+                return type_from_ast(checker, m->data.fn_decl.return_type);
+            }
+        }
+    }
+    // 既不是字段也不是方法：放宽检查，允许通过（不报错）
+    result.kind = TYPE_VOID;
+    return result;
 }
 
 // 检查数组访问

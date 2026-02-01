@@ -88,9 +88,11 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 gen_expr(codegen, dest);
                 fputs("));\n", codegen->output);
             } else {
-                // 普通赋值
+                // 普通赋值（self.field 作为左端时需 cast，以支持 const self 参数）
                 c99_emit(codegen, "");
+                codegen->emitting_assign_lhs = 1;
                 gen_expr(codegen, dest);
+                codegen->emitting_assign_lhs = 0;
                 fputs(" = ", codegen->output);
                 gen_expr(codegen, src);
                 fputs(";\n", codegen->output);

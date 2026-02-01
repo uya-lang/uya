@@ -2431,11 +2431,76 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
         return result;
     }
     
-    // 查找被调用的函数
     const callee: &ASTNode = node.call_expr_callee;
+    // 接口方法调用或结构体方法调用：callee 为 obj.method
+    if callee != null && callee.type == ASTNodeType.AST_MEMBER_ACCESS {
+        const object_type: Type = checker_infer_type(checker, callee.member_access_object);
+        const method_name: &byte = callee.member_access_field_name;
+        if object_type.kind == TypeKind.TYPE_INTERFACE && object_type.interface_name != null && checker.program_node != null {
+            const iface: &ASTNode = find_interface_decl_from_program(checker.program_node, object_type.interface_name);
+            if iface != null && method_name != null && iface.interface_decl_method_sigs != null {
+                var i: i32 = 0;
+                while i < iface.interface_decl_method_sig_count {
+                    const msig: &ASTNode = iface.interface_decl_method_sigs[i];
+                    if msig != null && msig.type == ASTNodeType.AST_FN_DECL && msig.fn_decl_name != null &&
+                        str_equals(msig.fn_decl_name, method_name) != 0 {
+                        var expected_args: i32 = msig.fn_decl_param_count - 1;
+                        if expected_args < 0 { expected_args = 0; }
+                        if node.call_expr_arg_count != expected_args {
+                            checker_report_error(checker, node, "接口方法调用实参个数不匹配" as *byte);
+                            return result;
+                        }
+                        var j: i32 = 0;
+                        while j < expected_args && j < node.call_expr_arg_count {
+                            const param_type: Type = type_from_ast(checker, msig.fn_decl_params[j + 1].var_decl_type);
+                            if checker_check_expr_type(checker, node.call_expr_args[j], param_type) == 0 {
+                                checker_report_error(checker, node, "接口方法调用参数类型不匹配" as *byte);
+                                return result;
+                            }
+                            j = j + 1;
+                        }
+                        return type_from_ast(checker, msig.fn_decl_return_type);
+                    }
+                    i = i + 1;
+                }
+                checker_report_error(checker, node, "接口上不存在该方法" as *byte);
+            }
+            return result;
+        }
+        if object_type.kind == TypeKind.TYPE_STRUCT && object_type.struct_name != null && method_name != null && checker.program_node != null {
+            const method_block: &ASTNode = find_method_block_for_struct(checker.program_node, object_type.struct_name);
+            if method_block != null && method_block.method_block_methods != null {
+                var i: i32 = 0;
+                while i < method_block.method_block_method_count {
+                    const m: &ASTNode = method_block.method_block_methods[i];
+                    if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+                        str_equals(m.fn_decl_name, method_name) != 0 {
+                        var expected_args: i32 = m.fn_decl_param_count - 1;
+                        if expected_args < 0 { expected_args = 0; }
+                        if node.call_expr_arg_count != expected_args {
+                            checker_report_error(checker, node, "结构体方法调用实参个数不匹配" as *byte);
+                            return result;
+                        }
+                        var j: i32 = 0;
+                        while j < expected_args && j < node.call_expr_arg_count {
+                            const param_type: Type = type_from_ast(checker, m.fn_decl_params[j + 1].var_decl_type);
+                            if checker_check_expr_type(checker, node.call_expr_args[j], param_type) == 0 {
+                                checker_report_error(checker, node, "结构体方法调用参数类型不匹配" as *byte);
+                                return result;
+                            }
+                            j = j + 1;
+                        }
+                        return type_from_ast(checker, m.fn_decl_return_type);
+                    }
+                    i = i + 1;
+                }
+                checker_report_error(checker, node, "结构体上不存在该方法" as *byte);
+            }
+        }
+        return result;
+    }
+    
     if callee == null || callee.type != ASTNodeType.AST_IDENTIFIER {
-        // 放宽检查：callee 不是标识符时，允许通过（不报错）
-        // 这在编译器自举时可能发生，因为类型推断可能失败
         return result;
     }
     
@@ -2666,16 +2731,25 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
     }
     
     // 查找字段类型
-    const field_type: Type = find_struct_field_type(checker, struct_decl, node.member_access_field_name);
-    if field_type.kind == TypeKind.TYPE_VOID {
-        // 字段不存在：放宽检查，允许通过（不报错）
-        // 这在编译器自举时很常见，因为字段可能在不同版本的结构体中
-        // 返回 void 类型，允许访问但不进行严格的类型检查
-        result.kind = TypeKind.TYPE_VOID;
-        return result;
+    var field_type: Type = find_struct_field_type(checker, struct_decl, node.member_access_field_name);
+    if field_type.kind != TypeKind.TYPE_VOID {
+        return field_type;
     }
-    
-    return field_type;
+    // 字段不存在：检查是否为结构体方法
+    const method_block: &ASTNode = find_method_block_for_struct(checker.program_node, object_type.struct_name);
+    if method_block != null && method_block.method_block_methods != null {
+        var i: i32 = 0;
+        while i < method_block.method_block_method_count {
+            const m: &ASTNode = method_block.method_block_methods[i];
+            if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+                str_equals(m.fn_decl_name, node.member_access_field_name) != 0 {
+                return type_from_ast(checker, m.fn_decl_return_type);
+            }
+            i = i + 1;
+        }
+    }
+    result.kind = TypeKind.TYPE_VOID;
+    return result;
 }
 
 // 检查数组访问

@@ -1,0 +1,22 @@
+// 结构体方法 + 指针 receiver：通过 &T 调用
+// 预期：main 返回 0
+
+struct Box {
+  n: i32
+}
+
+Box {
+  fn get(self: *Self) i32 {
+    return self.n;
+  }
+}
+
+fn main() i32 {
+  var b: Box = Box{ n: 42 };
+  const ptr: &Box = &b;
+  const n: i32 = ptr.get();
+  if n != 42 {
+    return 1;
+  }
+  return 0;
+}

@@ -9,6 +9,11 @@
 
 // 方法参数类型映射：将 Self 替换为 struct_name，用于生成结构体方法签名
 fn c99_type_to_c_with_self(codegen: &C99CodeGenerator, type_node: &ASTNode, self_struct_name: &byte) &byte {
+    return c99_type_to_c_with_self_opt(codegen, type_node, self_struct_name, 0);
+}
+
+// const_self: 1 表示 self 参数使用 const struct X *（消除 const 调用者时的 -Wdiscarded-qualifiers 警告）
+fn c99_type_to_c_with_self_opt(codegen: &C99CodeGenerator, type_node: &ASTNode, self_struct_name: &byte, const_self: i32) &byte {
     if type_node == null || self_struct_name == null {
         return c99_type_to_c(codegen, type_node);
     }
@@ -17,10 +22,14 @@ fn c99_type_to_c_with_self(codegen: &C99CodeGenerator, type_node: &ASTNode, self
         if pt.type == ASTNodeType.AST_TYPE_NAMED && pt.type_named_name != null &&
             strcmp(pt.type_named_name as *byte, "Self" as *byte) == 0 {
             const safe: &byte = get_safe_c_identifier(codegen, self_struct_name);
-            const len: i32 = strlen(safe as *byte) + 12;
-            const buf: &byte = arena_alloc(codegen.arena, len) as &byte;
+            const len: i32 = strlen(safe as *byte) + 20;
+            const buf: &byte = arena_alloc(codegen.arena, len as usize) as &byte;
             if buf != null {
-                snprintf(buf as *byte, len, "struct %s *" as *byte, safe as *byte);
+                if const_self != 0 {
+                    snprintf(buf as *byte, len, "const struct %s *" as *byte, safe as *byte);
+                } else {
+                    snprintf(buf as *byte, len, "struct %s *" as *byte, safe as *byte);
+                }
                 return buf;
             }
         }

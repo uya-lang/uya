@@ -434,7 +434,14 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 // 其他一元操作符（!, -, +）不影响类型判断
             }
             
-            gen_expr(codegen, object);
+            if (codegen->emitting_assign_lhs && object->type == AST_IDENTIFIER && object->data.identifier.name &&
+                strcmp(object->data.identifier.name, "self") == 0 && codegen->current_method_struct_name) {
+                const char *safe_struct = get_safe_c_identifier(codegen, codegen->current_method_struct_name);
+                if (safe_struct) fprintf(codegen->output, "((struct %s *)self)", safe_struct);
+                else gen_expr(codegen, object);
+            } else {
+                gen_expr(codegen, object);
+            }
             if (is_pointer) {
                 // 指针类型使用 -> 操作符
                 fprintf(codegen->output, "->%s", safe_field_name);
@@ -1062,6 +1069,53 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                         }
                         fputc(')', codegen->output);
                         break;
+                    }
+                }
+                /* 结构体方法调用：obj.method(args) -> uya_StructName_method(&obj, args...) */
+                if (obj_type_c && strstr(obj_type_c, "uya_interface_") == NULL) {
+                    const char *base = obj_type_c;
+                    if (strncmp(base, "const ", 6) == 0) base += 6;
+                    if (strncmp(base, "struct ", 7) != 0) base = NULL;
+                    if (base) {
+                    const char *start = base + 7;
+                    const char *end = strchr(start, ' ');
+                    if (!end) end = start + strlen(start);
+                    const char *asterisk = strchr(start, '*');
+                    if (asterisk && asterisk < end) end = asterisk;
+                    while (end > start && (end[-1] == ' ' || end[-1] == '\t')) end--;
+                    if (end > start) {
+                        char struct_name_buf[128];
+                        size_t slen = (size_t)(end - start);
+                        if (slen < sizeof(struct_name_buf)) {
+                            memcpy(struct_name_buf, start, slen);
+                            struct_name_buf[slen] = '\0';
+                            ASTNode *method_block = find_method_block_for_struct_c99(codegen, struct_name_buf);
+                            if (method_block) {
+                                ASTNode *method_fn = find_method_in_block(method_block, method_name);
+                                if (method_fn) {
+                                    const char *cname = get_method_c_name(codegen, struct_name_buf, method_name);
+                                    if (cname) {
+                                        int is_ptr = (strchr(obj_type_c, '*') != NULL);
+                                        fprintf(codegen->output, "%s(%s(", cname, is_ptr ? "" : "&");
+                                        gen_expr(codegen, obj);
+                                        fputs(")", codegen->output);
+                                        for (int i = 0; i < arg_count; i++) {
+                                            fputs(", ", codegen->output);
+                                            if (codegen->interp_arg_temp_names[i]) {
+                                                fputs("(uint8_t *)", codegen->output);
+                                                fputs(codegen->interp_arg_temp_names[i], codegen->output);
+                                            } else {
+                                                if (args[i] && args[i]->type == AST_STRING) fputs("(uint8_t *)", codegen->output);
+                                                gen_expr(codegen, args[i]);
+                                            }
+                                        }
+                                        fputc(')', codegen->output);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
                     }
                 }
             }

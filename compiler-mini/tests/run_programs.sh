@@ -190,7 +190,7 @@ process_multifile_test() {
     # 多文件编译：将所有文件一起编译（C99 后端生成 .c 文件）
     local output_file="$BUILD_DIR/$build_subdir/${test_name}.c"
     if [ "$USE_UYA" = true ]; then
-        local compiler_output=$("$COMPILER" "${file_list[@]}" -o "$output_file" 2>&1)
+        local compiler_output=$("$COMPILER" --c99 "${file_list[@]}" -o "$output_file" 2>&1)
     else
         local compiler_output=$("$COMPILER" --c99 "${file_list[@]}" -o "$output_file" 2>&1)
     fi
@@ -276,7 +276,7 @@ process_single_test() {
     # 编译（C99 后端生成 .c 文件）
     output_file="$BUILD_DIR/${base_name}.c"
     if [ "$USE_UYA" = true ]; then
-        compiler_output=$("$COMPILER" "$uya_file" -o "$output_file" 2>&1)
+        compiler_output=$("$COMPILER" --c99 "$uya_file" -o "$output_file" 2>&1)
     else
         compiler_output=$("$COMPILER" --c99 "$uya_file" -o "$output_file" 2>&1)
     fi

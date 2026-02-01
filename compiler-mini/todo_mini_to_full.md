@@ -18,7 +18,7 @@
 | 5 | match 表达式 | [x] |
 | 6 | for 扩展 | [x]（整数范围已实现；迭代器依赖阶段 7 接口） |
 | 7 | 接口 | [x]（C 实现完成；uya-src 待同步） |
-| 8 | 结构体方法 + drop + 移动语义 | [ ] |
+| 8 | 结构体方法 + drop + 移动语义 | [ ]（结构体方法已实现；drop、移动语义待实现） |
 | 9 | 模块系统 | [ ] |
 | 10 | 字符串插值 | [x] |
 | 11 | 原子类型 | [ ] |
@@ -146,7 +146,9 @@
 
 ## 8. 结构体方法 + drop + 移动语义
 
-- [ ] **结构体方法**：`self: *Self`、内部/外部方法块，规范 uya.md §4、§29.3
+- [x] **结构体方法**：`self: *Self`、外部方法块（`S { fn method(self: *Self) Ret { } }`），规范 uya.md §4、§29.3  
+  **C 实现**：Checker 增加 struct method call 分支（callee 为 obj.method、obj 类型为 struct 时，查找 method_block 校验实参）；checker_check_member_access 当字段不存在时检查 method_block 返回方法返回类型；expr.c 增加 struct method 调用代码生成（`uya_StructName_method(&obj, args...)`），支持 const 前缀类型、值/指针两种 receiver。  
+  **uya-src 已同步**：checker.uya（checker_check_call_expr 接口+结构体方法、checker_check_member_access 方法返回类型）；expr.uya（struct method call 代码生成）。test_struct_method.uya 通过 `--c99` 与 `--uya --c99`。
 - [ ] **drop / RAII**：用户自定义 `fn drop(self: T) void`，作用域结束逆序调用，规范 uya.md §12
 - [ ] **移动语义**：结构体赋值/传参/返回为移动，活跃指针禁止移动，规范 uya.md §12.5
 
@@ -224,6 +226,7 @@
 
 - 新特性先在 [spec/UYA_MINI_SPEC.md](spec/UYA_MINI_SPEC.md)（或完整版 spec）中定义类型、BNF、语义、C99 映射。
 - 测试放在 `tests/programs/`，需同时通过 `--c99` 与 `--uya --c99`。
+- **测试用例 100% 覆盖**：新特性需添加多场景用例（含成功路径与预期失败用例 `error_*.uya`），覆盖主要分支与边界情况。
 - 实现顺序：Lexer → AST → Parser → Checker → Codegen；C 实现与 `uya-src/` 同步。
 
 ### 完成任务后更新本文档

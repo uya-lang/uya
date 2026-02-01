@@ -387,9 +387,9 @@ else
     "${COMPILER_CMD[@]}" > "$TEMP_OUTPUT" 2>&1
     COMPILER_EXIT=$?
     
-    # 提取关键信息：阶段标题、错误、警告
-    # 显示编译阶段信息（=== 开头的行）
-    grep -E "^===" "$TEMP_OUTPUT" | head -20
+    # 提取关键信息：阶段标题、进度、错误、警告
+    # 显示编译阶段信息（=== 开头的行、解析/合并/类型检查/代码生成完成等进度）
+    grep -E "^===|  解析完成|AST 合并完成|类型检查通过|代码生成完成" "$TEMP_OUTPUT" | head -50
     # 显示错误和警告（但不显示调试信息）
     grep -E "错误:|警告:" "$TEMP_OUTPUT" | grep -v "调试:" | head -30
 fi

@@ -31,6 +31,8 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &Arena, output: &void, mod
     codegen.program_node = null;
     codegen.current_function_return_type = null;
     codegen.current_function_decl = null;
+    codegen.current_method_struct_name = null;
+    codegen.emitting_assign_lhs = 0;
     codegen.current_line = 0;  // 当前行号（用于优化 #line 指令）
     codegen.current_filename = null;  // 当前文件名（用于优化 #line 指令）
     codegen.emit_line_directives = emit_line_directives;  // 是否生成 #line 指令
