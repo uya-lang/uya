@@ -723,7 +723,7 @@
                     </div>
                     <h1>Uya 语言</h1>
                 </div>
-                <div class="version">语言规范 0.36 · 项目 v0.1.0（Uya Mini 编译器已自举）</div>
+                <div class="version">语言规范 0.39 · 项目 v0.1.0（Uya Mini 编译器已自举）</div>
                 <p class="tagline">AI友好 · 内存安全 · 并发安全 · 零 GC · 简单易学</p>
                 
                 <div class="core-features">
@@ -873,7 +873,7 @@ Vec(T)、HashMap(K, V)、Result(T, E)
                                 <button class="code-copy">复制</button>
                             </div>
                             <pre><code class="language-uya">interface IReadable {
-    fn read(self: *Self, buf: *byte, len: i32) !i32;
+    fn read(self: &Self, buf: *byte, len: i32) !i32;
 }
 
 struct File : IReadable {
@@ -882,13 +882,13 @@ struct File : IReadable {
 
 File {
     // ✅ 可以有方法
-    fn read(self: *Self, buf: *byte, len: i32) !i32 {
+    fn read(self: &Self, buf: *byte, len: i32) !i32 {
         defer { log_read(); }
         // ...
     }
     
     // ✅ 可以有 drop
-    fn drop(self: *Self) void {
+    fn drop(self: &Self) void {
         close(self.fd);
     }
 }</code></pre>
@@ -1451,7 +1451,7 @@ fn read_file(path: *byte) !i32 {
                             <button class="code-copy">复制</button>
                         </div>
                         <pre><code class="language-uya">interface IIncrement {
-  fn inc(self: *Self) i32;
+  fn inc(self: &Self) i32;
 }
 
 struct Counter : IIncrement {
@@ -1459,7 +1459,7 @@ struct Counter : IIncrement {
 }
 
 Counter {
-  fn inc(self: *Self) i32 {
+  fn inc(self: &Self) i32 {
     self.value += 1;      // 自动原子 fetch_add
     return self.value;    // 自动原子 load
   }
@@ -1693,9 +1693,9 @@ fn safe_ptr_arith(arr: [i32: 10], offset: i32) !&i32 {
                         </div>
                         <pre><code class="language-uya">// 泛型接口定义：使用括号明确参数
 interface Collection(T) {
-    fn add(self: *Self, item: T) !void;
-    fn get(self: *Self, index: i32) !T;
-    fn size(self: *Self) i32;
+    fn add(self: &Self, item: T) !void;
+    fn get(self: &Self, index: i32) !T;
+    fn size(self: &Self) i32;
 }
 
 // 泛型结构体定义：使用括号明确参数，与实例化对称
@@ -1707,7 +1707,7 @@ struct ArrayList(T) : Collection(T) {
 
 // 接口方法作为结构体方法定义
 ArrayList(T) {
-    fn add(self: *Self, item: T) !void {
+    fn add(self: &Self, item: T) !void {
         if self.size >= self.capacity {
             return error.Full;
         }
@@ -1715,14 +1715,14 @@ ArrayList(T) {
         self.size = self.size + 1;
     }
     
-    fn get(self: *Self, index: i32) !T {
+    fn get(self: &Self, index: i32) !T {
         if index < 0 || index >= self.size {
             return error.OutOfBounds;
         }
         return self.items[index];
     }
     
-    fn size(self: *Self) i32 {
+    fn size(self: &Self) i32 {
         return self.size;
     }
 }
@@ -1955,7 +1955,7 @@ fn main() i32 {
             </div>
             
                 <div class="copyright">
-                <p>Uya 语言规范 0.36（完整版） · 项目 v0.1.0（Uya Mini 编译器已自举）</p>
+                <p>Uya 语言规范 0.39（完整版） · 项目 v0.1.0（Uya Mini 编译器已自举）</p>
                 <p>© 2025 Uya 语言项目。MIT 许可证。</p>
             </div>
         </div>

@@ -117,12 +117,12 @@ struct Point {
 // 声明接口
 struct File : IWriter {
     fd: i32,
-    fn write(self: *Self, buf: *byte, len: i32) i32 { ... }
+    fn write(self: &Self, buf: *byte, len: i32) i32 { ... }
 }
 
 // 外部方法定义（方式2）
 File {
-    fn read(self: *Self, buf: *byte, len: i32) !i32 { ... }
+    fn read(self: &Self, buf: *byte, len: i32) !i32 { ... }
 }
 
 // 结构体字面量
@@ -141,20 +141,20 @@ ptr.y = 20.0;  // 指针自动解引用后赋值（等价于 (*ptr).y = 20.0）
 **重要规则**：
 - 所有结构体使用C内存布局，100% C兼容
 - 可以有方法、drop、实现接口，同时保持C兼容
-- `self` 参数必须为 `*Self` 或 `*StructName`（指针）
+- `self` 参数必须为 `&Self` 或 `&StructName`（指针）
 - **指针自动解引用**：`ptr.field` 等价于 `(*ptr).field`（当 `ptr` 是指向结构体的指针时）
 - **字段赋值**：支持 `obj.field = value` 和 `ptr.field = value`（指针自动解引用）
 
 ### 接口
 ```uya
 interface IWriter {
-    fn write(self: *Self, buf: *byte, len: i32) i32;
+    fn write(self: &Self, buf: *byte, len: i32) i32;
 }
 
 // 结构体实现接口
 struct Console : IWriter {
     fd: i32,
-    fn write(self: *Self, buf: *byte, len: i32) i32 {
+    fn write(self: &Self, buf: *byte, len: i32) i32 {
         extern write(fd: i32, buf: *void, count: i32) i32;
         return write(self.fd, buf, len);
     }
@@ -480,8 +480,7 @@ const result: i32 = write(1, &buffer[0] as *byte, 100);  // ✅ &T as *T
 ```
 
 **指针转换规则**：
-- ✅ `&T as *T`：Uya普通指针→FFI指针（安全转换，仅用于FFI调用）
-- ❌ `*T as &T`：不支持 `as`，需要使用 `as!` 强转（不推荐）
+- ✅ `&T` ↔ `*T`：同类型指针可通过 `as` 互相转换
 - ✅ `&void ↔ &T`：通用指针与具体指针类型之间的转换
   - `&void as &T`：通用指针转换为具体指针类型（类型擦除恢复）
   - `&T as &void`：具体指针转换为通用指针类型（类型擦除）
@@ -707,13 +706,13 @@ struct Vec3 {
 
 // 接口定义
 interface IWriter {
-    fn write(self: *Self, buf: *byte, len: i32) i32;
+    fn write(self: &Self, buf: *byte, len: i32) i32;
 }
 
 // 结构体实现接口
 struct Console : IWriter {
     fd: i32,
-    fn write(self: *Self, buf: *byte, len: i32) i32 {
+    fn write(self: &Self, buf: *byte, len: i32) i32 {
         extern write(fd: i32, buf: *void, count: i32) i32;
         return write(self.fd, buf, len);
     }
@@ -776,6 +775,6 @@ fn main() !i32 {
 
 ---
 
-**版本**：Uya 0.36  
+**版本**：Uya 0.39  
 **更新日期**：2026-02-01
 

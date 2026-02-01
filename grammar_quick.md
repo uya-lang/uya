@@ -195,7 +195,7 @@ struct Name {
 struct Name {
     field: Type,
     
-    fn method(self: *Self) ReturnType {
+    fn method(self: &Self) ReturnType {
         // 方法体
     }
 }
@@ -206,7 +206,7 @@ struct Name {
 }
 
 Name {
-    fn method(self: *Self) ReturnType {
+    fn method(self: &Self) ReturnType {
         // 方法体
     }
 }
@@ -236,14 +236,14 @@ match v {
 ```uya
 // 接口定义
 interface IWriter {
-    fn write(self: *Self, buf: *byte, len: i32) i32;
+    fn write(self: &Self, buf: *byte, len: i32) i32;
 }
 
 // 接口实现
 struct MyStruct : IWriter {
     field: Type,
     
-    fn write(self: *Self, buf: *byte, len: i32) i32 {
+    fn write(self: &Self, buf: *byte, len: i32) i32 {
         // 实现
         return len;
     }
@@ -482,7 +482,7 @@ A: `obj.field`（直接访问）或 `ptr.field`（指针自动解引用，等价
 A: `obj.field = value;`（直接赋值）或 `ptr.field = value;`（指针自动解引用后赋值）
 
 ### Q: 如何定义结构体方法？
-A: 在结构体内部定义，或使用外部方法块 `StructName { fn method(self: *Self) ... }`
+A: 在结构体内部定义，或使用外部方法块 `StructName { fn method(self: &Self) ... }`
 
 ### Q: 如何实现接口？
 A: 在结构体定义时声明：`struct MyStruct : InterfaceName { ... }`
@@ -506,19 +506,19 @@ A: `enum Color { Red, Green, Blue }` 或 `enum Status : u16 { Ok = 200 }`
 ```uya
 // 接口定义
 interface IWriter {
-    fn write(self: *Self, buf: *byte, len: i32) i32;
+    fn write(self: &Self, buf: *byte, len: i32) i32;
 }
 
 // 结构体实现接口
 struct File : IWriter {
     fd: i32,
     
-    fn write(self: *Self, buf: *byte, len: i32) i32 {
+    fn write(self: &Self, buf: *byte, len: i32) i32 {
         // 实现写入逻辑
         return len;
     }
     
-    fn drop(self: *Self) void {
+    fn drop(self: &Self) void {
         // 清理资源
     }
 }

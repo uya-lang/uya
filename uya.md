@@ -1,4 +1,4 @@
-# Uya 语言规范 0.36（完整版 · 2026-02-01）
+# Uya 语言规范 0.39（完整版 · 2026-02-01）
 
 > 零GC · 默认高级安全 · 单页纸可读完  
 > 无lifetime符号 · 无隐式控制 · 编译期证明（本函数内）
@@ -47,6 +47,13 @@
 ---
 
 ## 规范变更
+
+### 0.39（2026-02-01）
+
+- **方法 self 统一为 &T，*T 仅用于 FFI**（破坏性变更）：
+  - 方法首个参数统一为 `self: &Self` 或 `self: &StructName`，替换原有 `self: *Self`
+  - `*T` 仅用于 extern 函数声明/调用；调用 FFI 时可用 `&expr as *T` 转换
+  - 与 `&T` 的区别：`&T` 用于普通变量、函数参数及方法 self；`*T` 仅用于 FFI
 
 ### 0.36（2026-02-01）
 
@@ -452,14 +459,13 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
   - [见第 13 章原子操作](#13-原子操作012-终极简洁)
 - `*T`：用于方法签名和 FFI 函数声明，表示指针参数，不能用于普通变量声明
   - **语法规则**：
-    - `*T` 语法在以下场景中使用：
-      - 接口定义和结构体方法的方法签名
-      - FFI 函数声明（如 `extern printf(fmt: *byte, ...) i32;`）
-    - `*T` 表示指向类型 `T` 的指针参数（按引用传递，但语法使用 `*` 前缀）
-    - 与 `&T` 的区别：`&T` 用于普通变量和普通函数参数，`*T` 用于方法签名和 FFI 函数声明
+    - `*T` 仅用于 FFI 函数声明（如 `extern printf(fmt: *byte, ...) i32;`）
+    - 方法 self 统一使用 `&T`：`fn method(self: &Self, ...)`，与普通指针一致
+    - 调用 FFI 时可用 `&expr as *T` 将 Uya 普通指针转为 FFI 指针
+    - 与 `&T` 的区别：`&T` 用于普通变量、函数参数及方法 self；`*T` 仅用于 FFI
   - **示例**：
-    - 接口方法：`fn write(self: *Self, buf: *byte, len: i32)` 中，`*Self` 表示指向实现接口的结构体类型的指针
-    - 结构体方法：`fn distance(self: *Self) f32` 中，`*Self` 表示指向当前结构体类型的指针
+    - 接口方法：`fn write(self: &Self, buf: *byte, len: i32)` 中，`&Self` 表示指向实现接口的结构体类型的引用
+    - 结构体方法：`fn distance(self: &Self) f32` 中，`&Self` 表示指向当前结构体类型的引用
     - `*byte` 表示指向 `byte` 类型的指针参数
     - `Self` 是占位符，编译期替换为具体类型
   - **FFI 调用规则**：接口方法内部调用 FFI 函数时，参数类型应使用 `*byte`（FFI 语法），与接口语法一致
@@ -843,7 +849,7 @@ struct File {
 // ✅ 可以有方法（结构体内部定义）
 struct File {
     fd: i32,
-    fn read(self: *Self, buf: *byte, len: i32) !i32 {
+    fn read(self: &Self, buf: *byte, len: i32) !i32 {
         extern read(fd: i32, buf: *void, count: i32) i32;
         const result: i32 = read(self.fd, buf, len);
         if result < 0 {
@@ -855,7 +861,7 @@ struct File {
 
 // ✅ 可以有方法（结构体外部定义）
 File {
-    fn write(self: *Self, buf: *byte, len: i32) !i32 {
+    fn write(self: &Self, buf: *byte, len: i32) !i32 {
         extern write(fd: i32, buf: *void, count: i32) i32;
         const result: i32 = write(self.fd, buf, len);
         if result < 0 {
@@ -875,12 +881,12 @@ File {
 
 // ✅ 可以实现接口（在结构体定义时声明接口）
 interface IReadable {
-    fn read(self: *Self, buf: *byte, len: i32) !i32;
+    fn read(self: &Self, buf: *byte, len: i32) !i32;
 }
 
 struct File : IReadable {
     fd: i32,
-    fn read(self: *Self, buf: *byte, len: i32) !i32 {
+    fn read(self: &Self, buf: *byte, len: i32) !i32 {
         extern read(fd: i32, buf: *void, count: i32) i32;
         const result: i32 = read(self.fd, buf, len);
         if result < 0 {
@@ -1359,14 +1365,14 @@ union IntOrFloat {
     f: f64,
     
     // 联合体方法
-    fn as_f64(self: *Self) f64 {
+    fn as_f64(self: &Self) f64 {
         match *self {
             .i(x) => x as f64,
             .f(x) => x
         }
     }
     
-    fn is_int(self: *Self) bool {
+    fn is_int(self: &Self) bool {
         match *self {
             .i(_) => true,
             .f(_) => false
@@ -1386,14 +1392,14 @@ const is_int = v.is_int();    // true
 
 ```uya
 interface Printable {
-    fn print(self: *Self) void;
+    fn print(self: &Self) void;
 }
 
 union IntOrFloat : Printable {
     i: i32,
     f: f64,
     
-    fn print(self: *Self) void {
+    fn print(self: &Self) void {
         match *self {
             .i(x) => printf("整数: %d\n", x),
             .f(x) => printf("浮点: %.2f\n", x)
@@ -2373,9 +2379,9 @@ fn log_printf(fmt: *byte, ...) i32 {
 - 在接口定义和结构体方法的方法签名中使用
 - `Self` 不是一个实际类型，而是编译期的类型替换标记
 - 示例：
-  - 结构体方法：`Point { fn distance(self: *Self) f32 { ... } }` 中，`Self` 被替换为 `Point`
-  - 接口方法：`struct Console : IWriter { fn write(self: *Self, ...) { ... } }` 中，`Self` 被替换为 `Console`
-- `*Self` 表示指向当前结构体类型的指针
+  - 结构体方法：`Point { fn distance(self: &Self) f32 { ... } }` 中，`Self` 被替换为 `Point`
+  - 接口方法：`struct Console : IWriter { fn write(self: &Self, ...) { ... } }` 中，`Self` 被替换为 `Console`
+- `&Self` 表示指向当前结构体类型的指针
 - 结构体方法（包括接口方法）都可以使用 `Self`，语法一致，语义清晰
 
 ### 6.5 生命周期（零语法版）
@@ -2927,8 +2933,8 @@ Uya 提供两种类型转换语法：
 | `f32` | `i32` | ❌ | ✅ | 截断，可能损失 |
 | `f64` | `i64` | ❌ | ✅ | 截断，可能损失 |
 | `f32` | `i64` | ❌ | ✅ | 截断，可能损失 |
-| `&T` | `*T` | ✅ | ✅ | FFI 指针转换，无精度损失（仅用于 FFI 上下文） |
-| `*T` | `&T` | ❌ | ✅ | FFI 指针转 Uya 指针，需要显式强转 |
+| `&T` | `*T` | ✅ | ✅ | 同类型指针互相转换，无精度损失 |
+| `*T` | `&T` | ✅ | ✅ | 同类型指针互相转换，无精度损失 |
 | `&void` | `&T` | ✅ | ✅ | 通用指针转换为具体指针类型（类型擦除恢复） |
 | `&T` | `&void` | ✅ | ✅ | 具体指针转换为通用指针类型（类型擦除） |
 
@@ -2937,9 +2943,7 @@ Uya 提供两种类型转换语法：
   - ✅ 使用 `as` 进行安全转换（无精度损失，编译期检查）
   - 仅在 FFI 函数调用时使用
   - 示例：`extern write(fd: i32, buf: *byte, count: i32) i32;` 调用时使用 `&buffer[0] as *byte`
-- **`*T as &T`**：FFI 指针转换为 Uya 普通指针（不推荐，需要显式强转）
-  - ❌ 不能使用 `as`（类型系统不兼容）
-  - ✅ 可以使用 `as!` 进行强转（需要错误处理）
+- **`&T` ↔ `*T`**：同类型指针可通过 `as` 互相转换，无精度损失
 - **`&void ↔ &T`**：通用指针类型与具体指针类型之间的转换
   - ✅ `&void as &T`：通用指针转换为具体指针类型（类型擦除恢复）
   - ✅ `&T as &void`：具体指针转换为通用指针类型（类型擦除）
@@ -3043,7 +3047,7 @@ Uya 提供两种类型转换语法：
 1. **赋值操作**：`const x: Struct = y;`（`y` 的所有权转移给 `x`）
 2. **函数参数传递**：按值传递结构体参数时，所有权转移给函数参数
    - **例外**：方法调用 `obj.method()` 不会移动 `obj`，调用时自动传递指针（`&obj`），确保方法调用后原对象仍然可用
-   - **推荐**：方法签名使用 `self: *StructName`（指针），更显式、语义一致
+   - **推荐**：方法签名使用 `self: &StructName`（指针），更显式、语义一致
 3. **函数返回值**：返回结构体时，所有权转移给调用者
 4. **结构体字段初始化**：`Container{ field: struct_value }`（`struct_value` 的所有权转移给字段）
 5. **数组元素赋值**：`arr[i] = struct_value`（`struct_value` 的所有权转移给数组元素）
@@ -3771,25 +3775,25 @@ for hello |byte| {
   - 所有方法都是静态绑定，编译期确定，不涉及动态派发
   - **定义方式**：支持两种方式定义方法
     - **方式1：结构体内部定义**：方法定义在结构体花括号内，与字段定义并列
-      - 语法：`struct StructName { field: Type, fn method(self: *Self) ReturnType { ... } }`
+      - 语法：`struct StructName { field: Type, fn method(self: &Self) ReturnType { ... } }`
     - **方式2：结构体外部定义**：使用块语法在结构体定义后添加方法
-      - 语法：`StructName { fn method(self: *Self) ReturnType { ... } }`
+      - 语法：`StructName { fn method(self: &Self) ReturnType { ... } }`
       - 可以在结构体定义之后的任何位置添加方法
-    - `self` 参数必须显式声明，使用指针：`self: *Self` 或 `self: *StructName`
-    - **推荐使用 `Self` 占位符**：`self: *Self` 更简洁、与接口实现语法一致，符合 Uya 的"显式控制"设计原则
-      - `self: *Self`：使用 `Self` 占位符，编译期替换为具体类型（如 `self: *Point`），与接口实现语法一致（推荐）
-      - `self: *StructName`：使用具体类型，语义清晰一致（也可用）
+    - `self` 参数必须显式声明，使用指针：`self: &Self` 或 `self: &StructName`
+    - **推荐使用 `Self` 占位符**：`self: &Self` 更简洁、与接口实现语法一致，符合 Uya 的"显式控制"设计原则
+      - `self: &Self`：使用 `Self` 占位符，编译期替换为具体类型（如 `self: *Point`），与接口实现语法一致（推荐）
+      - `self: &StructName`：使用具体类型，语义清晰一致（也可用）
       - **不允许按值传递**：不支持 `self: StructName`，避免语义歧义（签名说按值但调用时用引用）
     - **方法调用与移动语义**：
-      - 方法签名必须是 `fn method(self: *Self)` 或 `fn method(self: *StructName)`，调用时传递指针（`&obj`），不触发移动
+      - 方法签名必须是 `fn method(self: &Self)` 或 `fn method(self: &StructName)`，调用时传递指针（`&obj`），不触发移动
       - 方法调用后，原对象仍然可以使用，符合常见的方法调用语义
-    - 编译期将方法展开为普通函数：`Self` 占位符会被替换为具体类型，如 `fn StructName_method(self: *StructName) ReturnType { ... }`
+    - 编译期将方法展开为普通函数：`Self` 占位符会被替换为具体类型，如 `fn StructName_method(self: &StructName) ReturnType { ... }`
     - 调用 `obj.method()` 展开为 `StructName_method(&obj)`（传递指针，不移动）
   - **接口方法作为结构体方法**：
     - 结构体在定义时声明接口：`struct StructName : InterfaceName { ... }`
     - 接口方法作为结构体方法定义，可以在结构体内部或外部方法块中定义
-    - 结构体方法（包括接口方法）都使用相同的语法：`StructName { fn method(self: *Self) ReturnType { ... } }`
-    - 方法签名使用 `Self` 占位符（如 `self: *Self`），编译期替换为具体类型
+    - 结构体方法（包括接口方法）都使用相同的语法：`StructName { fn method(self: &Self) ReturnType { ... } }`
+    - 方法签名使用 `Self` 占位符（如 `self: &Self`），编译期替换为具体类型
     - 接口方法会生成 vtable，支持动态派发
     - 普通结构体方法编译期展开为静态函数
   - **完整示例**：
@@ -3797,11 +3801,11 @@ for hello |byte| {
   - **与接口实现共存示例**（展示两者可以同时使用，无冲突）：
 [examples/point_2.uya](./examples/point_2.uya)
   - **编译期展开规则**：
-    - `struct A { fn method(self: *Self) void { ... } }` → `fn A_method(self: *A) void { ... }`（`Self` 替换为 `A`）
-    - `A { fn method(self: *Self) void { ... } }` → `fn A_method(self: *A) void { ... }`（`Self` 替换为 `A`）
+    - `struct A { fn method(self: &Self) void { ... } }` → `fn A_method(self: *A) void { ... }`（`Self` 替换为 `A`）
+    - `A { fn method(self: &Self) void { ... } }` → `fn A_method(self: *A) void { ... }`（`Self` 替换为 `A`）
     - `obj.method()` → `A_method(&obj)`（传递指针，不移动 `obj`）
     - `obj.method(arg)` → `A_method(&obj, arg)`（传递指针，不移动 `obj`）
-    - **推荐使用指针和 Self**：`self: *Self` 更简洁，符合 Uya 的"显式控制"原则
+    - **推荐使用指针和 Self**：`self: &Self` 更简洁，符合 Uya 的"显式控制"原则
     - `Self` 是编译期占位符，会被替换为具体的结构体类型（如 `Point`）
     - 方法仍然是普通函数，可以像普通函数一样调用：`A_method(&obj)` 或 `A_method(obj)`（如果明确需要移动）
     - 如果需要移动对象，必须显式调用：`A_method(obj)`（直接传递值，会移动）
@@ -3963,7 +3967,7 @@ union ConfigValue {
 }
 
 ConfigValue {
-    fn to_string(self: *Self) [i8: 128] {
+    fn to_string(self: &Self) [i8: 128] {
         match *self {
             .int_val(x) => "int=${x}",
             .float_val(x) => "float=${x:.2f}",
@@ -3972,7 +3976,7 @@ ConfigValue {
         }
     }
     
-    fn is_truthy(self: *Self) bool {
+    fn is_truthy(self: &Self) bool {
         match *self {
             .int_val(x) => x != 0,
             .float_val(x) => x != 0.0,

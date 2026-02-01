@@ -74,7 +74,7 @@ fn increment(counter: *Counter) void {
 
 // 接口
 interface IWriter {
-  fn write(self: *Self, buf: *byte, len: i32) i32;
+  fn write(self: &Self, buf: *byte, len: i32) i32;
 }
 
 // FFI 调用
@@ -83,8 +83,8 @@ extern printf(fmt: *byte, ...) i32;
 // extern struct 完全解放：C 兼容结构体获得 Uya 超能力
 extern struct File {
   fd: i32
-  fn read(self: *Self, buf: *byte, len: i32) !i32 { /* ... */ }
-  fn drop(self: *Self) void { close(self.fd); }
+  fn read(self: &Self, buf: *byte, len: i32) !i32 { /* ... */ }
+  fn drop(self: &Self) void { close(self.fd); }
 }
 
 // 泛型（使用括号，不是尖括号）
@@ -153,7 +153,7 @@ fn main() i32 {
 
 Uya 采用**程序员提供证明，编译器验证证明**的设计哲学。程序员必须提供显式边界检查，编译器在编译期验证这些证明，无法证明安全即编译错误。
 
-### 核心创新（0.36 版本）
+### 核心创新（0.38 版本）
 
 #### 1. 泛型用括号 `()`，不是尖括号 `<>`
 
@@ -168,8 +168,8 @@ Uya 采用**程序员提供证明，编译器验证证明**的设计哲学。程
 ```uya
 extern struct File {
     fd: i32
-    fn read(self: *Self, buf: *byte, len: i32) !i32 { /* ... */ }
-    fn drop(self: *Self) void { close(self.fd); }
+    fn read(self: &Self, buf: *byte, len: i32) !i32 { /* ... */ }
+    fn drop(self: &Self) void { close(self.fd); }
 }
 
 File : IReadable { /* ... */ }
@@ -279,7 +279,7 @@ fn increment(counter: *Counter) void {
 
 ---
 
-**注意**：语言规范为完整版（0.36）；**v0.1.0** 发布的是 Uya Mini 编译器（最小子集，已自举）。完整特性与未来计划见 [uya.md](./uya.md)。
+**注意**：语言规范为完整版（0.38）；**v0.1.0** 发布的是 Uya Mini 编译器（最小子集，已自举）。完整特性与未来计划见 [uya.md](./uya.md)。
 
 **许可证**：本项目采用 [MIT 许可证](./LICENSE)。Copyright (c) 2025 Uya 语言项目
 

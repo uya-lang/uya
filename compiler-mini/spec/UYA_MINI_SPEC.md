@@ -21,7 +21,7 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 - **基础类型**：`i32`（32位有符号整数）、`usize`（平台相关的无符号大小类型）、`bool`（布尔类型）、`byte`（无符号字节）、`f32`（32位浮点数）、`f64`（64位浮点数）、`void`（仅用于函数返回类型）
 - **枚举类型**：支持枚举定义、枚举值访问、显式赋值、自动递增
 - **数组类型**：固定大小数组（`[T: N]`），N 为编译期常量
-- **指针类型**：`&T`（普通指针）和 `*T`（FFI 指针）
+- **指针类型**：`&T`（普通指针，含方法 self 参数）和 `*T`（仅 FFI）
 - **结构体类型**：支持结构体定义和实例化
 - **变量声明**：`const` 和 `var`
 - **函数声明和调用**
@@ -37,7 +37,7 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 - 代码生成：展开为 if-else 链
 
 **接口**（✅ 已实现）：
-- 语法：`interface I { fn method(self: *Self, ...) Ret; ... }`，`struct S : I { ... }`，方法块 `S { fn method(self: *Self, ...) Ret { ... } }`
+- 语法：`interface I { fn method(self: &Self, ...) Ret; ... }`，`struct S : I { ... }`，方法块 `S { fn method(self: &Self, ...) Ret { ... } }`
 - 接口值 8/16B（vtable 指针 + 数据指针），装箱点：赋给接口类型变量、传参、返回值
 - 调用：`interface_value.method(args)` 通过 vtable 单条 call 指令派发
 - 限制：无接口字段（`struct S { w: I }` 当前不支持）、无接口数组/切片
@@ -54,7 +54,7 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 - 编译器在只读数据段中存储字符串字面量（创建全局常量变量）
 - 不提供内置字符串操作，需要通过 `extern` 调用 C 函数（如 `strcmp`）
 
-**注意**：Uya Mini 支持 `extern` 关键字用于声明外部 C 函数（如 LLVM C API），支持基础类型参数和返回值，以及 FFI 指针类型参数（`*T`）。`*T` 类型仅用于 extern 函数声明/调用，不能用于普通变量声明。
+**注意**：Uya Mini 支持 `extern` 关键字用于声明外部 C 函数（如 LLVM C API），支持基础类型参数和返回值，以及 FFI 指针类型参数（`*T`）。方法首个参数统一为 `self: &T`；`*T` 仅用于 extern 函数声明/调用，调用时可用 `&expr as *T` 转换。不能用于普通变量声明。
 
 ---
 
@@ -133,7 +133,7 @@ enum struct interface const var fn extern return true false if else while for br
 - **指针类型**：
   - `&T`：普通指针类型，用于普通变量和函数参数，可通过 `&expr` 获取地址
   - `&void`：通用指针类型，可以转换为任何指针类型（`&void` → `&T`），用于实现类型擦除和通用指针操作
-  - `*T`：FFI 指针类型，仅用于 `extern` 函数声明/调用，不能用于普通变量声明
+  - `*T`：仅用于 `extern` 函数声明/调用，不能用于普通变量声明；调用 FFI 时可用 `&expr as *T` 转换
   - 指针大小：64位平台为 8 字节，32位平台为 4 字节
   - 指针大小等于 `usize` 大小（`@sizeof(&T) == @sizeof(usize)`）
 
@@ -316,10 +316,10 @@ struct Empty { }  // 大小 = 1 字节，对齐 = 1 字节
 
 ### 2.4 接口
 
-- **接口定义**：`interface InterfaceName { fn method(self: *Self, ...) ReturnType; ... }`，仅方法签名，无实现。
+- **接口定义**：`interface InterfaceName { fn method(self: &Self, ...) ReturnType; ... }`，仅方法签名，无实现。
 - **结构体实现接口**：`struct StructName : InterfaceName { field_list }`，可声明多个接口（逗号分隔）。
-- **方法块**：`StructName { fn method(self: *Self, ...) ReturnType { ... } }`，在结构体定义后单独写，实现接口方法；`Self` 在方法签名中表示当前结构体类型。
-- **接口值**：8/16 B（平台相关），布局为 `{ vtable 指针, data 指针 }`；32位=8B，64位=16B。
+- **方法块**：`StructName { fn method(self: &Self, ...) ReturnType { ... } }`，在结构体定义后单独写，实现接口方法；`Self` 在方法签名中表示当前结构体类型。
+- **接口值**：8/16 B（平台相关），布局为 `{ vtable 指针, data 指针 }`；32位=8B，64位=16B。方法 self 参数统一为 `&T`（普通指针）。
 - **装箱**：将具体类型赋给接口类型变量、传参、返回值时，自动生成 vtable 指针 + 数据指针（取地址）。
 - **调用**：`interface_value.method(args)` 通过 vtable 查找方法地址，将 data 指针作为 `self` 第一个参数调用。
 - **C99 映射**：接口类型生成 `struct uya_interface_InterfaceName { void (*vtable[方法数])(...); }` 的 vtable 类型；每个 `struct S : I` 生成静态 vtable 常量；接口值生成 `struct { const void *vtable; void *data; }`；装箱即取结构体地址填 data、填对应 vtable；调用即 `((vtable->method))(data, args...)`。
@@ -801,19 +801,16 @@ Uya Mini 支持显式类型转换，使用 `as` 关键字：
     - `&void as &T`：将通用指针转换为具体指针类型（安全转换，用于类型擦除后的恢复）
     - `&T as &void`：将具体指针转换为通用指针类型（类型擦除，用于通用指针操作）
     - 示例：`var ptr: &void = &buffer as &void; var byte_ptr: &byte = ptr as &byte;`
-  - `&T` ↔ `*T`：Uya 普通指针与 FFI 指针类型之间的转换
-    - `&T as *T`：将 Uya 普通指针转换为 FFI 指针类型（安全转换，无精度损失）
-      - ✅ 使用 `as` 进行安全转换（编译期检查）
-      - 仅在 FFI 函数调用时使用
-      - 示例：`extern write(fd: i32, buf: *byte, count: i32) i32;` 调用时使用 `&buffer[0] as *byte`
-    - `*T as &T`：将 FFI 指针转换为 Uya 普通指针（不推荐，需要显式强转）
-      - ❌ 不支持（类型系统不兼容，Uya Mini 不支持 `as!` 强转）
+  - `&T` ↔ `*T`：同类型指针可通过 `as` 互相转换
+    - `&T as *T`：Uya 普通指针 → FFI 指针（用于 FFI 调用）
+    - `*T as &T`：FFI 指针 → Uya 普通指针（如 extern 返回值需当普通指针使用）
+    - 要求：指向的类型 T 必须相同，转换无精度损失
 
 **说明**：
 - 类型转换是显式的，必须使用 `as` 关键字
 - 转换可能改变值的表示（如 i32 截断为 byte）
 - 类型转换的优先级高于乘除运算，低于一元运算符
-- 指针类型转换：`&T as *T` 是允许的（仅用于 FFI 上下文），`*T as &T` 不支持
+- 指针类型转换：同类型指针（`&T` 与 `*T`）可通过 `as` 互相转换
 - 结构体类型转换：不支持（结构体类型不能转换）
 
 **示例**：
@@ -1130,8 +1127,7 @@ for arr |item| {
    - **指针类型转换**：
      - ✅ `&void as &T`：通用指针可以转换为任何具体指针类型
      - ✅ `&T as &void`：具体指针可以转换为通用指针类型（类型擦除）
-     - ✅ `&T as *T`：Uya 普通指针可以显式转换为 FFI 指针类型（仅在 FFI 函数调用时）
-     - ❌ `*T as &T`：FFI 指针不能转换为 Uya 普通指针（类型系统不兼容）
+     - ✅ `&T` ↔ `*T`：同类型指针可通过 `as` 互相转换
    - 指针比较：支持 `==` 和 `!=`，可以与 `null` 比较
    - 指针解引用和字段访问：
      - 使用 `*expr` 解引用指针（通用方式）
@@ -1416,7 +1412,7 @@ Uya Mini 支持结构体和数组类型，这些特性使得编译器实现更�
 - **版本**：0.1.0
 - **创建日期**：2026-01-09
 - **最后更新**：2026-01-16（类型检查器改进）
-- **基于 Uya 规范版本**：0.36（内置函数以 @ 开头；数组类型与重复字面量统一为 `[T: N]`、`[value: N]`；参数列表即元组、可变参数与字符串插值见 uya.md；联合体 union 见 uya.md §4.5；drop 只能在结构体/联合体内部或方法块中定义，见 uya.md §12）
+- **基于 Uya 规范版本**：0.39（内置函数以 @ 开头；数组类型与重复字面量统一为 `[T: N]`、`[value: N]`；参数列表即元组、可变参数与字符串插值见 uya.md；联合体 union 见 uya.md §4.5；drop 只能在结构体/联合体内部或方法块中定义，见 uya.md §12；方法 self 统一为 &T，*T 仅 FFI，见 uya.md §2、§6）
 - **目的**：Uya Mini 编译器自举实现
 - **状态说明**：规范文档定义了完整的语法和语义规则。编译器 v0.1.0 已自举，详见项目根目录 `RELEASE_v0.1.0.md`
 - **更新说明**：

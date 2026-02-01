@@ -228,7 +228,7 @@ HashMap<K, V>
 Result<T, E>
 ```
 
-**Uya（0.36 版本）**：
+**Uya（0.38 版本）**：
 ```uya
 // Uya：使用括号，更清晰，更一致
 Vec(T)
@@ -265,7 +265,7 @@ struct timeval {
 }
 ```
 
-**Uya（0.36 版本）**：
+**Uya（0.38 版本）**：
 ```uya
 // Uya：extern struct 完全解放
 extern struct timeval {
@@ -273,23 +273,23 @@ extern struct timeval {
     tv_usec: i64
     
     // ✅ 可以有方法
-    fn to_millis(self: *Self) i64 {
+    fn to_millis(self: &Self) i64 {
         return self.tv_sec * 1000 + self.tv_usec / 1000;
     }
     
     // ✅ 可以有 drop
-    fn drop(self: *Self) void {
+    fn drop(self: &Self) void {
         // 清理资源
     }
 }
 
 // ✅ 可以实现接口
 interface ITime {
-    fn to_millis(self: *Self) i64;
+    fn to_millis(self: &Self) i64;
 }
 
 timeval : ITime {
-    fn to_millis(self: *Self) i64 {
+    fn to_millis(self: &Self) i64 {
         return self.to_millis();
     }
 }
@@ -306,7 +306,7 @@ timeval : ITime {
 
 Uya 从多种语言中汲取灵感，但形成了自己独特的设计哲学：**程序员提供证明，编译器验证证明**。
 
-**核心创新（0.36 版本）**：
+**核心创新（0.38 版本）**：
 1. **泛型用 `()` 不是 `<>`**：更清晰，更一致，零新符号
 2. **extern struct 完全解放**：C 兼容结构体获得 Uya 超能力，可以有方法、drop、实现接口
 3. **切片类型系统**：`&[T]` 和 `&[T: N]` 切片视图，零分配，生命周期自动绑定
