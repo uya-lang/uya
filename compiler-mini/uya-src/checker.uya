@@ -64,6 +64,7 @@ enum TypeKind {
     TYPE_STRUCT,   // 结构体类型（通过名称引用）
     TYPE_POINTER,  // 指针类型（&T 或 *T）
     TYPE_ARRAY,    // 数组类型（[T: N]）
+    TYPE_SLICE,    // 切片类型（&[T] 或 &[T: N]，胖指针 ptr+len）
     TYPE_TUPLE,    // 元组类型（(T1, T2, ...)）
     TYPE_ERROR_UNION, // 错误联合类型 !T
     TYPE_ERROR,    // 错误值类型（仅用于 return error.X、catch |err| 等，error_id 非 0）
@@ -81,6 +82,8 @@ struct Type {
     is_ffi_pointer: i32,         // 是否为 FFI 指针（1 表示 *T，0 表示 &T，仅当 kind == TypeKind.TYPE_POINTER 时有效）
     element_type: &Type,         // 元素类型（仅当 kind == TypeKind.TYPE_ARRAY 时有效，从 Arena 分配）
     array_size: i32,              // 数组大小（编译期常量，仅当 kind == TypeKind.TYPE_ARRAY 时有效）
+    slice_element_type: &Type,   // 切片元素类型（仅当 kind == TypeKind.TYPE_SLICE 时有效）
+    slice_len: i32,               // 切片已知长度（-1 表示 &[T] 动态长度，>=0 表示 &[T: N]）
     tuple_element_types: &Type,   // 元素类型数组（仅当 kind == TypeKind.TYPE_TUPLE 时有效，连续存储 tuple_count 个 Type）
     tuple_count: i32,             // 元组元素个数（仅当 kind == TypeKind.TYPE_TUPLE 时有效）
     error_union_payload_type: &Type,  // 载荷类型 T（仅当 kind == TypeKind.TYPE_ERROR_UNION 时有效，从 Arena 分配）
@@ -650,6 +653,20 @@ fn type_equals(t1: Type, t2: Type) i32 {
         return type_equals(t1.element_type[0], t2.element_type[0]);
     }
     
+    // 对于切片类型，比较元素类型（已知长度可不同，&[T] 与 &[T: N] 可赋值兼容）
+    if t1.kind == TypeKind.TYPE_SLICE {
+        if t2.kind != TypeKind.TYPE_SLICE {
+            return 0;
+        }
+        if t1.slice_element_type == null && t2.slice_element_type == null {
+            return 1;
+        }
+        if t1.slice_element_type == null || t2.slice_element_type == null {
+            return 0;
+        }
+        return type_equals(t1.slice_element_type[0], t2.slice_element_type[0]);
+    }
+    
     // 对于元组类型，需要比较元素类型和个数
     if t1.kind == TypeKind.TYPE_TUPLE {
         if t1.tuple_count != t2.tuple_count {
@@ -818,6 +835,8 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
         tuple_element_types: null,
         tuple_count: 0,
     };
@@ -920,6 +939,31 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
         result.element_type = element_type_ptr;
         result.array_size = array_size;
         
+        return result;
+    } else if type_node.type == ASTNodeType.AST_TYPE_SLICE {
+        // 切片类型（&[T] 或 &[T: N]）
+        const elem_type: Type = type_from_ast(checker, type_node.type_slice_element_type);
+        if elem_type.kind == TypeKind.TYPE_VOID && type_node.type_slice_element_type != null {
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        const elem_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+        if elem_type_ptr == null {
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        elem_type_ptr[0] = elem_type;
+        var slice_len: i32 = -1;  // -1 表示动态长度 &[T]
+        if type_node.type_slice_size_expr != null &&
+            type_node.type_slice_size_expr.type == ASTNodeType.AST_NUMBER {
+            slice_len = type_node.type_slice_size_expr.number_value;
+            if slice_len < 0 {
+                slice_len = -1;
+            }
+        }
+        result.kind = TypeKind.TYPE_SLICE;
+        result.slice_element_type = elem_type_ptr;
+        result.slice_len = slice_len;
         return result;
     } else if type_node.type == ASTNodeType.AST_TYPE_TUPLE {
         // 元组类型（(T1, T2, ...)）
@@ -1152,6 +1196,8 @@ fn find_struct_field_type(checker: &TypeChecker, struct_decl: &ASTNode, field_na
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
         tuple_element_types: null,
         tuple_count: 0,
     };
@@ -1190,6 +1236,8 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
         tuple_element_types: null,
         tuple_count: 0,
         error_union_payload_type: null,
@@ -1231,6 +1279,8 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             is_ffi_pointer: 0,
             element_type: null,
             array_size: 0,
+            slice_element_type: null,
+            slice_len: 0,
         };
         
         // 分配指向的类型结构（从Arena分配）
@@ -1348,7 +1398,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         }
         const payload: Type = operand_type.error_union_payload_type[0];
         if expr.catch_expr_err_name != null {
-            var err_type: Type = Type { kind: TypeKind.TYPE_ERROR, enum_name: null, struct_name: null, pointer_to: null, is_ffi_pointer: 0, element_type: null, array_size: 0, tuple_element_types: null, tuple_count: 0, error_union_payload_type: null, error_error_id: 0 };
+            var err_type: Type = Type { kind: TypeKind.TYPE_ERROR, enum_name: null, struct_name: null, pointer_to: null, is_ffi_pointer: 0, element_type: null, array_size: 0, slice_element_type: null, slice_len: 0, tuple_element_types: null, tuple_count: 0, error_union_payload_type: null, error_error_id: 0 };
             checker_enter_scope(checker);
             const sym: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
             if sym != null {
@@ -1578,6 +1628,8 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             // 数组类型：返回数组的元素类型
             // 注意：Uya 不支持指针解引用，需要使用数组访问
             return array_type.element_type[0];
+        } else if array_type.kind == TypeKind.TYPE_SLICE && array_type.slice_element_type != null {
+            return array_type.slice_element_type[0];
         } else if array_type.kind == TypeKind.TYPE_POINTER && array_type.pointer_to != null {
             // 指针类型：检查指针指向的类型
             // 注意：Uya 不支持指针解引用，需要使用数组访问
@@ -1592,8 +1644,34 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             }
         }
         
-        // 数组表达式类型不是数组类型或指针类型，返回void类型
+        // 数组表达式类型不是数组类型、切片类型或指针类型，返回void类型
         result.kind = TypeKind.TYPE_VOID;
+        return result;
+    } else if expr.type == ASTNodeType.AST_SLICE_EXPR {
+        const base_type: Type = checker_infer_type(checker, expr.slice_expr_base);
+        if base_type.kind != TypeKind.TYPE_ARRAY && base_type.kind != TypeKind.TYPE_SLICE {
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        var elem: &Type = null;
+        if base_type.kind == TypeKind.TYPE_ARRAY {
+            elem = base_type.element_type;
+        } else {
+            elem = base_type.slice_element_type;
+        }
+        if elem == null {
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        const element_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+        if element_type_ptr == null {
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        element_type_ptr[0] = elem[0];
+        result.kind = TypeKind.TYPE_SLICE;
+        result.slice_element_type = element_type_ptr;
+        result.slice_len = -1;
         return result;
     } else if expr.type == ASTNodeType.AST_STRUCT_INIT {
         // 结构体字面量：返回结构体类型
@@ -2209,6 +2287,8 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
         tuple_element_types: null,
         tuple_count: 0,
     };
@@ -2307,6 +2387,8 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
         tuple_element_types: null,
         tuple_count: 0,
     };
@@ -2456,6 +2538,8 @@ fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
         tuple_element_types: null,
         tuple_count: 0,
     };
@@ -2467,8 +2551,14 @@ fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
     // 获取数组表达式类型
     const array_type: Type = checker_infer_type(checker, node.array_access_array);
     
-    // 支持数组类型和指针类型
-    if array_type.kind == TypeKind.TYPE_ARRAY && array_type.element_type != null {
+    // 支持数组类型、切片类型和指针类型
+    if array_type.kind == TypeKind.TYPE_SLICE && array_type.slice_element_type != null {
+        const index_type: Type = checker_infer_type(checker, node.array_access_index);
+        if index_type.kind != TypeKind.TYPE_I32 {
+            return array_type.slice_element_type[0];
+        }
+        return array_type.slice_element_type[0];
+    } else if array_type.kind == TypeKind.TYPE_ARRAY && array_type.element_type != null {
         // 数组类型：检查索引表达式类型是 i32
         const index_type: Type = checker_infer_type(checker, node.array_access_index);
         if index_type.kind != TypeKind.TYPE_I32 {
@@ -2529,6 +2619,8 @@ fn checker_check_alignof(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
         tuple_element_types: null,
         tuple_count: 0,
     };
@@ -2603,6 +2695,8 @@ fn checker_check_len(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
         tuple_element_types: null,
         tuple_count: 0,
     };
@@ -2613,8 +2707,12 @@ fn checker_check_len(checker: &TypeChecker, node: &ASTNode) Type {
     
     // 获取数组表达式类型
     const array_type: Type = checker_infer_type(checker, node.len_expr_array);
+    if array_type.kind == TypeKind.TYPE_SLICE && array_type.slice_element_type != null {
+        result.kind = TypeKind.TYPE_I32;
+        return result;
+    }
     if array_type.kind != TypeKind.TYPE_ARRAY || array_type.element_type == null {
-        // 数组表达式类型不是数组类型：放宽检查，允许通过（不报错）
+        // 数组表达式类型不是数组类型或切片类型：放宽检查，允许通过（不报错）
         // 这在编译器自举时很常见，因为类型推断可能失败（如结构体字段访问）
         // len 仍然返回 i32 类型
         result.kind = TypeKind.TYPE_I32;
@@ -2639,6 +2737,8 @@ fn checker_check_struct_init(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
         tuple_element_types: null,
         tuple_count: 0,
     };
@@ -2712,6 +2812,8 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
         tuple_element_types: null,
         tuple_count: 0,
     };
@@ -2962,6 +3064,8 @@ fn checker_check_unary_expr(checker: &TypeChecker, node: &ASTNode) Type {
         is_ffi_pointer: 0,
         element_type: null,
         array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
         tuple_element_types: null,
         tuple_count: 0,
     };
@@ -3549,6 +3653,8 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
                 is_ffi_pointer: 0,
                 element_type: null,
                 array_size: 0,
+                slice_element_type: null,
+                slice_len: 0,
             };
             if array_type.element_type == null {
                 // 元素类型无效，报告错误

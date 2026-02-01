@@ -22,7 +22,10 @@ extern fn strtod(nptr: *byte, endptr: * *byte) f64;
 extern fn strlen(s: *byte) usize;
 extern fn strcmp(s1: *byte, s2: *byte) i32;
 extern fn strrchr(s: *byte, c: i32) *byte;
+extern fn strchr(s: *byte, c: i32) *byte;
+extern fn strstr(haystack: *byte, needle: *byte) *byte;
 extern fn strncpy(dest: *byte, src: *byte, n: usize) *byte;
+extern fn strncmp(s1: *byte, s2: *byte, n: usize) i32;
 extern fn snprintf(buf: *byte, n: usize, format: *byte, ...) i32;
 extern fn sprintf(buf: *byte, format: *byte, ...) i32;
 

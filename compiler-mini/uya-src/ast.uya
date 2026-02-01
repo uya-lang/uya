@@ -34,6 +34,7 @@ enum ASTNodeType {
     AST_CALL_EXPR,
     AST_MEMBER_ACCESS,
     AST_ARRAY_ACCESS,
+    AST_SLICE_EXPR,     // 切片表达式（base[start:len]，结果类型 &[T] 或 &[T: N]）
     AST_STRUCT_INIT,
     AST_ARRAY_LITERAL,
     AST_TUPLE_LITERAL,  // 元组字面量（(expr1, expr2, ...)）
@@ -56,6 +57,7 @@ enum ASTNodeType {
     AST_TYPE_NAMED,
     AST_TYPE_POINTER,
     AST_TYPE_ARRAY,
+    AST_TYPE_SLICE,     // 切片类型（&[T] 或 &[T: N]）
     AST_TYPE_TUPLE,  // 元组类型（(T1, T2, ...)）
     AST_TYPE_ERROR_UNION,  // 错误联合类型 !T
 }
@@ -130,6 +132,10 @@ struct ASTNode {
     // array_access
     array_access_array: &ASTNode,
     array_access_index: &ASTNode,
+    // slice_expr（base[start:len]）
+    slice_expr_base: &ASTNode,
+    slice_expr_start_expr: &ASTNode,
+    slice_expr_len_expr: &ASTNode,
     // struct_init
     struct_init_struct_name: &byte,
     struct_init_field_names: & & byte,
@@ -202,6 +208,9 @@ struct ASTNode {
     // type_array
     type_array_element_type: &ASTNode,
     type_array_size_expr: &ASTNode,
+    // type_slice（&[T] 或 &[T: N]）
+    type_slice_element_type: &ASTNode,
+    type_slice_size_expr: &ASTNode,
     // type_tuple（(T1, T2, ...)）
     type_tuple_element_types: & & ASTNode,
     type_tuple_element_count: i32,
@@ -263,6 +272,9 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.member_access_field_name = null;
     node.array_access_array = null;
     node.array_access_index = null;
+    node.slice_expr_base = null;
+    node.slice_expr_start_expr = null;
+    node.slice_expr_len_expr = null;
     node.struct_init_struct_name = null;
     node.struct_init_field_names = null;
     node.struct_init_field_values = null;
@@ -310,6 +322,8 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.type_pointer_is_ffi_pointer = 0;
     node.type_array_element_type = null;
     node.type_array_size_expr = null;
+    node.type_slice_element_type = null;
+    node.type_slice_size_expr = null;
     node.type_tuple_element_types = null;
     node.type_tuple_element_count = 0;
     node.type_error_union_payload_type = null;

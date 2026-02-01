@@ -105,7 +105,7 @@
 **涉及**：类型系统、Parser（切片表达式）、Checker、Codegen（胖指针布局）、uya-src。
 
 **C 实现（已完成）**：AST_TYPE_SLICE、AST_SLICE_EXPR；Parser 解析 `&[T]`/`&[T: N]` 与 `base[start:len]`；Checker TYPE_SLICE、type_equals、@len(slice)；Codegen 切片结构体 `struct uya_slice_X { T* ptr; size_t len; }`、切片复合字面量、slice.ptr[i]、@len(slice).len。测试 test_slice.uya 通过 `--c99`。
-**uya-src 同步**：待做。
+**uya-src 已同步**：ast.uya（AST_SLICE_EXPR、AST_TYPE_SLICE 及字段）；parser.uya（&[T]/&[T: N] 类型解析，base[start:len] 表达式）；checker.uya（TYPE_SLICE、type_equals、type_from_ast、checker_infer_type、@len(slice)、array_access 切片）；codegen（types/expr/main/internal/utils：c99_type_to_c 切片、emit_pending_slice_structs、get_slice_struct_type_c、AST_SLICE_EXPR 生成、array_access/len 切片、collect_slice_types_from_node）。test_slice.uya 通过 `--uya --c99`，自举对比 `--c99 -b` 一致。
 
 ---
 

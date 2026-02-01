@@ -38,6 +38,7 @@ const C99_MAX_LOOP_STACK: i32 = 32;
 const C99_MAX_CALL_ARGS: i32 = 32;
 const C99_MAX_DEFER_STACK: i32 = 32;
 const C99_MAX_DEFERS_PER_BLOCK: i32 = 64;
+const C99_MAX_SLICE_STRUCTS: i32 = 32;
 
 // ===== 类型定义 =====
 
@@ -141,7 +142,11 @@ struct C99CodeGenerator {
     defer_count: [i32: C99_MAX_DEFER_STACK],  // 每层的 defer 数量
     errdefer_stack: [&ASTNode: C99_MAX_DEFER_STACK * C99_MAX_DEFERS_PER_BLOCK],
     errdefer_count: [i32: C99_MAX_DEFER_STACK],  // 每层的 errdefer 数量
-    defer_stack_depth: i32
+    defer_stack_depth: i32,
+    // 待输出的切片结构体（&[T] -> struct uya_slice_X { T* ptr; size_t len; }）
+    slice_struct_names: [&byte: C99_MAX_SLICE_STRUCTS],
+    slice_struct_element_types: [&ASTNode: C99_MAX_SLICE_STRUCTS],
+    slice_struct_count: i32
 }
 
 // ===== 函数声明 =====
