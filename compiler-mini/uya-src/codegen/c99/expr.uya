@@ -1211,6 +1211,85 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             gen_expr(codegen, src);
         }
         fputc(41, codegen.output as *void);  // ')'
+    } else if expr.type == ASTNodeType.AST_MATCH_EXPR {
+        // match expr { pat => result, ... } 作为表达式：GCC 语句表达式
+        const match_expr: &ASTNode = expr.match_expr_expr;
+        var m_type: &byte = get_c_type_of_expr(codegen, match_expr);
+        if m_type == null {
+            m_type = "int32_t" as &byte;
+        }
+        var res_type: &byte = "int32_t" as &byte;
+        if expr.match_expr_arm_count > 0 {
+            const t: &byte = get_c_type_of_expr(codegen, expr.match_expr_arms[0].result_expr);
+            if t != null {
+                res_type = t;
+            }
+        }
+        fputs("({ " as *byte, codegen.output as *void);
+        fprintf(codegen.output as *void, "%s _uya_m = " as *byte, m_type as *byte);
+        gen_expr(codegen, match_expr);
+        fputs("; " as *byte, codegen.output as *void);
+        fprintf(codegen.output as *void, "%s _uya_r; " as *byte, res_type as *byte);
+        var first: i32 = 1;
+        var i: i32 = 0;
+        while i < expr.match_expr_arm_count {
+            var prefix: &byte = "else " as &byte;
+            if first != 0 {
+                prefix = "" as &byte;
+                first = 0;
+            }
+            if expr.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_LITERAL {
+                if expr.match_expr_arms[i].literal_is_bool != 0 {
+                    if expr.match_expr_arms[i].literal_int_value != 0 {
+                        fprintf(codegen.output as *void, "%sif (_uya_m == 1) _uya_r = " as *byte, prefix as *byte);
+                    } else {
+                        fprintf(codegen.output as *void, "%sif (_uya_m == 0) _uya_r = " as *byte, prefix as *byte);
+                    }
+                } else {
+                    fprintf(codegen.output as *void, "%sif (_uya_m == %d) _uya_r = " as *byte, prefix as *byte, expr.match_expr_arms[i].literal_int_value);
+                }
+                gen_expr(codegen, expr.match_expr_arms[i].result_expr);
+                fputs("; " as *byte, codegen.output as *void);
+            } else if expr.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_ENUM {
+                const enum_decl: &ASTNode = find_enum_decl_c99(codegen, expr.match_expr_arms[i].enum_name);
+                var ev: i32 = -1;
+                if enum_decl != null {
+                    ev = find_enum_variant_value(codegen, enum_decl, expr.match_expr_arms[i].variant_name);
+                }
+                if ev >= 0 {
+                    fprintf(codegen.output as *void, "%sif (_uya_m == %d) _uya_r = " as *byte, prefix as *byte, ev);
+                } else {
+                    fprintf(codegen.output as *void, "%sif (0) _uya_r = " as *byte, prefix as *byte);
+                }
+                gen_expr(codegen, expr.match_expr_arms[i].result_expr);
+                fputs("; " as *byte, codegen.output as *void);
+            } else if expr.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_BIND {
+                const v: &byte = get_safe_c_identifier(codegen, expr.match_expr_arms[i].var_name);
+                if v != null {
+                    fprintf(codegen.output as *void, "%s{ %s %s = _uya_m; _uya_r = " as *byte, prefix as *byte, m_type as *byte, v as *byte);
+                }
+                gen_expr(codegen, expr.match_expr_arms[i].result_expr);
+                if v != null {
+                    fputs("; } " as *byte, codegen.output as *void);
+                } else {
+                    fputs("; " as *byte, codegen.output as *void);
+                }
+            } else if expr.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_WILDCARD || expr.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_ELSE {
+                fprintf(codegen.output as *void, "%s{ _uya_r = " as *byte, prefix as *byte);
+                gen_expr(codegen, expr.match_expr_arms[i].result_expr);
+                fputs("; } " as *byte, codegen.output as *void);
+            } else if expr.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_ERROR {
+                var id: i32 = c99_get_or_add_error_id(codegen, expr.match_expr_arms[i].error_name);
+                if id == 0 {
+                    id = 1;
+                }
+                fprintf(codegen.output as *void, "%sif (_uya_m.error_id == %uU) _uya_r = " as *byte, prefix as *byte, id as u32);
+                gen_expr(codegen, expr.match_expr_arms[i].result_expr);
+                fputs("; " as *byte, codegen.output as *void);
+            }
+            i = i + 1;
+        }
+        fputs("_uya_r; })" as *byte, codegen.output as *void);
     } else {
         fputs("0" as *byte, codegen.output as *void);
     }

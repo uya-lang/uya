@@ -58,10 +58,8 @@ fn find_enum_variant_value(codegen: &C99CodeGenerator, enum_decl: &ASTNode, vari
             return current_value;
         }
         
-        // 如果没有显式值，下一个变体的值会自动递增
-        if variant.value == null {
-            current_value = current_value + 1;
-        }
+        // 为下一变体准备值（无论是否有显式值都递增）
+        current_value = current_value + 1;
         
         i = i + 1;
     }

@@ -227,24 +227,24 @@ fn symbol_table_lookup(checker: &TypeChecker, name: &byte) &Symbol {
         if symbol != null {
             // 检查是否是目标符号
             // 注意：Uya 没有 strcmp，需要使用循环比较字符串
-            var match: i32 = 1;
+            var matched: i32 = 1;
             var j: i32 = 0;
-            while match != 0 {
+            while matched != 0 {
                 const c1: byte = symbol.name[j] as byte;
                 const c2: byte = name[j] as byte;
                 if c1 != c2 {
-                    match = 0;
+                    matched = 0;
                 } else if c1 == 0 {
                     // 两字符串同时结束才视为相等；若仅一方结束则不等
                     if c2 != 0 {
-                        match = 0;
+                        matched = 0;
                     }
                     break;
                 }
                 j = j + 1;
             }
             
-            if match != 0 {
+            if matched != 0 {
                 // 找到匹配的符号，选择作用域级别最高的（最内层的）
                 if found == null || symbol.scope_level > found_scope {
                     found = symbol;
@@ -330,23 +330,23 @@ fn function_table_lookup(checker: &TypeChecker, name: &byte) &FunctionSignature 
         
         // 检查是否是目标函数
         // 注意：Uya 没有 strcmp，需要使用循环比较字符串；两字符串同时结束才视为相等
-        var match: i32 = 1;
+        var matched: i32 = 1;
         var j: i32 = 0;
-        while match != 0 {
+        while matched != 0 {
             const c1: byte = sig.name[j] as byte;
             const c2: byte = name[j] as byte;
             if c1 != c2 {
-                match = 0;
+                matched = 0;
             } else if c1 == 0 {
                 if c2 != 0 {
-                    match = 0;
+                    matched = 0;
                 }
                 break;
             }
             j = j + 1;
         }
         
-        if match != 0 {
+        if matched != 0 {
             return sig;
         }
         
@@ -388,23 +388,23 @@ fn function_table_insert(checker: &TypeChecker, sig: &FunctionSignature) i32 {
         
         // 检查是否是相同名称的函数
         // 注意：Uya 没有 strcmp，需要使用循环比较字符串；两字符串同时结束才视为相等
-        var match: i32 = 1;
+        var matched: i32 = 1;
         var j: i32 = 0;
-        while match != 0 {
+        while matched != 0 {
             const c1: byte = existing.name[j] as byte;
             const c2: byte = sig.name[j] as byte;
             if c1 != c2 {
-                match = 0;
+                matched = 0;
             } else if c1 == 0 {
                 if c2 != 0 {
-                    match = 0;
+                    matched = 0;
                 }
                 break;
             }
             j = j + 1;
         }
         
-        if match != 0 {
+        if matched != 0 {
             // 函数已存在
             // 如果都是 extern 声明，允许重复（跳过插入，不报错）
             if existing.is_extern != 0 && sig.is_extern != 0 {
@@ -1787,6 +1787,37 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         // 放宽检查：允许代码块作为表达式使用（在编译器自举时可能发生）
         result.kind = TypeKind.TYPE_VOID;
         return result;
+    } else if expr.type == ASTNodeType.AST_MATCH_EXPR {
+        // match 表达式：所有臂的返回类型必须一致
+        var unified: Type = Type {
+            kind: TypeKind.TYPE_VOID,
+            enum_name: null,
+            struct_name: null,
+            pointer_to: null,
+            is_ffi_pointer: 0,
+            element_type: null,
+            array_size: 0,
+            slice_element_type: null,
+            slice_len: 0,
+            tuple_element_types: null,
+            tuple_count: 0,
+            error_union_payload_type: null,
+            error_error_id: 0,
+        };
+        var first: i32 = 1;
+        var i: i32 = 0;
+        while i < expr.match_expr_arm_count {
+            const arm: ASTMatchArm = expr.match_expr_arms[i];
+            const t: Type = checker_infer_type(checker, arm.result_expr);
+            if first != 0 {
+                unified = t;
+                first = 0;
+            } else if type_equals(unified, t) == 0 {
+                checker_report_error(checker, arm.result_expr, "match 所有分支的返回类型必须一致" as *byte);
+            }
+            i = i + 1;
+        }
+        return unified;
     } else if expr.type == ASTNodeType.AST_STRUCT_DECL {
         // 结构体声明：不应该作为表达式使用，但放宽检查
         // 返回void类型，允许通过（不报错）
@@ -3471,6 +3502,53 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         }
         return 1;
     } else if node.type == ASTNodeType.AST_ERROR_VALUE {
+        return 1;
+    } else if node.type == ASTNodeType.AST_MATCH_EXPR {
+        const expr_type: Type = checker_infer_type(checker, node.match_expr_expr);
+        checker_check_node(checker, node.match_expr_expr);
+        var has_else: i32 = 0;
+        var i: i32 = 0;
+        while i < node.match_expr_arm_count {
+            const arm: ASTMatchArm = node.match_expr_arms[i];
+            if arm.kind == MatchPatternKind.MATCH_PAT_ELSE {
+                has_else = 1;
+            }
+            checker_enter_scope(checker);
+            if arm.kind == MatchPatternKind.MATCH_PAT_BIND && arm.var_name != null {
+                const sym: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
+                if sym != null {
+                    sym.name = arm.var_name;
+                    sym.type = expr_type;
+                    sym.is_const = 1;
+                    sym.scope_level = checker.scope_level;
+                    sym.line = node.line;
+                    sym.column = node.column;
+                    symbol_table_insert(checker, sym);
+                }
+            }
+            if arm.kind == MatchPatternKind.MATCH_PAT_ENUM && arm.enum_name != null && arm.variant_name != null {
+                if expr_type.kind != TypeKind.TYPE_ENUM {
+                    checker_report_error(checker, node, "枚举模式只能匹配枚举类型" as *byte);
+                } else if expr_type.enum_name != null && str_equals(expr_type.enum_name, arm.enum_name) == 0 {
+                    checker_report_error(checker, node, "match 枚举模式与表达式类型不匹配" as *byte);
+                }
+            }
+            checker_check_node(checker, arm.result_expr);
+            checker_exit_scope(checker);
+            i = i + 1;
+        }
+        var has_catch_all: i32 = has_else;
+        var j: i32 = 0;
+        while j < node.match_expr_arm_count && has_catch_all == 0 {
+            const arm: ASTMatchArm = node.match_expr_arms[j];
+            if arm.kind == MatchPatternKind.MATCH_PAT_BIND || arm.kind == MatchPatternKind.MATCH_PAT_WILDCARD {
+                has_catch_all = 1;
+            }
+            j = j + 1;
+        }
+        if has_catch_all == 0 && node.match_expr_arm_count > 0 {
+            checker_report_error(checker, node, "match 必须包含 else 分支或变量绑定/通配符" as *byte);
+        }
         return 1;
     } else if node.type == ASTNodeType.AST_PARAMS {
         // @params 类型在 checker_infer_type 中已推断并校验（仅函数体内）

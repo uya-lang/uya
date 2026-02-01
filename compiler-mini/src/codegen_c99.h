@@ -7,7 +7,7 @@
 #include <stdio.h>
 
 // C99 代码生成器常量定义（数组大小）
-#define C99_MAX_STRING_CONSTANTS    512
+#define C99_MAX_STRING_CONSTANTS    1024
 #define C99_MAX_STRUCT_DEFINITIONS  128
 #define C99_MAX_ENUM_DEFINITIONS    128
 #define C99_MAX_FUNCTION_DECLS      256

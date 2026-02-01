@@ -583,6 +583,166 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         return node;
     }
     
+    // 解析 match 表达式：match expr { pat => expr, ... [else => expr] }
+    if parser.current_token.type == TokenType.TOKEN_MATCH {
+        parser_consume(parser);
+        const expr_val: &ASTNode = parser_parse_expression(parser);
+        if expr_val == null {
+            return null;
+        }
+        if parser_expect(parser, TokenType.TOKEN_LEFT_BRACE) == null {
+            return null;
+        }
+        const arms_buf: &ASTMatchArm = arena_alloc(parser.arena, 64 * @sizeof(ASTMatchArm)) as &ASTMatchArm;
+        if arms_buf == null {
+            return null;
+        }
+        var arm_count: i32 = 0;
+        while arm_count < 64 && parser.current_token != null && parser.current_token.type != TokenType.TOKEN_RIGHT_BRACE {
+            var kind: MatchPatternKind = MatchPatternKind.MATCH_PAT_ELSE;
+            var lit_expr: &ASTNode = null;
+            var literal_int_value: i32 = 0;
+            var literal_is_bool: i32 = 0;
+            var enum_name: &byte = null;
+            var variant_name: &byte = null;
+            var err_name: &byte = null;
+            var bind_name: &byte = null;
+            if parser.current_token.type == TokenType.TOKEN_ELSE {
+                kind = MatchPatternKind.MATCH_PAT_ELSE;
+                parser_consume(parser);
+            } else if parser.current_token.type == TokenType.TOKEN_NUMBER {
+                kind = MatchPatternKind.MATCH_PAT_LITERAL;
+                literal_int_value = atoi(parser.current_token.value as *byte);
+                literal_is_bool = 0;
+                const lit_line: i32 = parser.current_token.line;
+                const lit_col: i32 = parser.current_token.column;
+                lit_expr = ast_new_node(ASTNodeType.AST_NUMBER, lit_line, lit_col, parser.arena, parser_get_filename(parser));
+                if lit_expr != null {
+                    lit_expr.number_value = literal_int_value;
+                }
+                parser_consume(parser);
+            } else if parser.current_token.type == TokenType.TOKEN_TRUE {
+                kind = MatchPatternKind.MATCH_PAT_LITERAL;
+                literal_int_value = 1;
+                literal_is_bool = 1;
+                const lit_line: i32 = parser.current_token.line;
+                const lit_col: i32 = parser.current_token.column;
+                lit_expr = ast_new_node(ASTNodeType.AST_BOOL, lit_line, lit_col, parser.arena, parser_get_filename(parser));
+                if lit_expr != null {
+                    lit_expr.bool_literal_value = 1;
+                }
+                parser_consume(parser);
+            } else if parser.current_token.type == TokenType.TOKEN_FALSE {
+                kind = MatchPatternKind.MATCH_PAT_LITERAL;
+                literal_int_value = 0;
+                literal_is_bool = 1;
+                const lit_line: i32 = parser.current_token.line;
+                const lit_col: i32 = parser.current_token.column;
+                lit_expr = ast_new_node(ASTNodeType.AST_BOOL, lit_line, lit_col, parser.arena, parser_get_filename(parser));
+                if lit_expr != null {
+                    lit_expr.bool_literal_value = 0;
+                }
+                parser_consume(parser);
+            } else if parser.current_token.type == TokenType.TOKEN_ERROR {
+                kind = MatchPatternKind.MATCH_PAT_ERROR;
+                parser_consume(parser);
+                if parser_match(parser, TokenType.TOKEN_DOT) == 0 || parser.current_token == null {
+                    return null;
+                }
+                parser_consume(parser);
+                if parser.current_token == null || parser.current_token.type != TokenType.TOKEN_IDENTIFIER {
+                    return null;
+                }
+                err_name = arena_strdup(parser.arena, parser.current_token.value);
+                if err_name == null {
+                    return null;
+                }
+                parser_consume(parser);
+            } else if parser.current_token.type == TokenType.TOKEN_IDENTIFIER {
+                const first: &byte = parser.current_token.value;
+                parser_consume(parser);
+                if parser_match(parser, TokenType.TOKEN_DOT) != 0 {
+                    kind = MatchPatternKind.MATCH_PAT_ENUM;
+                    enum_name = first;
+                    parser_consume(parser);
+                    if parser.current_token == null || parser.current_token.type != TokenType.TOKEN_IDENTIFIER {
+                        return null;
+                    }
+                    variant_name = arena_strdup(parser.arena, parser.current_token.value);
+                    if variant_name == null {
+                        return null;
+                    }
+                    parser_consume(parser);
+                } else {
+                    kind = MatchPatternKind.MATCH_PAT_BIND;
+                    bind_name = arena_strdup(parser.arena, first);
+                }
+            } else {
+                return null;
+            }
+            if parser_expect(parser, TokenType.TOKEN_FAT_ARROW) == null {
+                return null;
+            }
+            var result_expr: &ASTNode = null;
+            var result_is_block: i32 = 0;
+            if parser_match(parser, TokenType.TOKEN_LEFT_BRACE) != 0 {
+                result_expr = parser_parse_block(parser);
+                result_is_block = 1;
+            } else {
+                result_expr = parser_parse_expression(parser);
+            }
+            if result_expr == null {
+                return null;
+            }
+            arms_buf[arm_count].kind = kind;
+            arms_buf[arm_count].result_is_block = result_is_block;
+            arms_buf[arm_count].result_expr = result_expr;
+            arms_buf[arm_count].literal_expr = null;
+            arms_buf[arm_count].literal_int_value = 0;
+            arms_buf[arm_count].literal_is_bool = 0;
+            arms_buf[arm_count].enum_name = null;
+            arms_buf[arm_count].variant_name = null;
+            arms_buf[arm_count].error_name = null;
+            arms_buf[arm_count].var_name = null;
+            if kind == MatchPatternKind.MATCH_PAT_LITERAL {
+                arms_buf[arm_count].literal_expr = lit_expr;
+                arms_buf[arm_count].literal_int_value = literal_int_value;
+                arms_buf[arm_count].literal_is_bool = literal_is_bool;
+            } else if kind == MatchPatternKind.MATCH_PAT_ENUM {
+                arms_buf[arm_count].enum_name = enum_name;
+                arms_buf[arm_count].variant_name = variant_name;
+            } else if kind == MatchPatternKind.MATCH_PAT_ERROR {
+                arms_buf[arm_count].error_name = err_name;
+            } else if kind == MatchPatternKind.MATCH_PAT_BIND {
+                arms_buf[arm_count].var_name = bind_name;
+            }
+            arm_count = arm_count + 1;
+            if parser.current_token != null && parser.current_token.type == TokenType.TOKEN_COMMA {
+                parser_consume(parser);
+            }
+        }
+        if parser_expect(parser, TokenType.TOKEN_RIGHT_BRACE) == null {
+            return null;
+        }
+        const match_expr_node: &ASTNode = ast_new_node(ASTNodeType.AST_MATCH_EXPR, line, column, parser.arena, parser_get_filename(parser));
+        if match_expr_node == null {
+            return null;
+        }
+        match_expr_node.match_expr_expr = expr_val;
+        const arms_final: &ASTMatchArm = arena_alloc(parser.arena, arm_count * @sizeof(ASTMatchArm)) as &ASTMatchArm;
+        if arms_final == null {
+            return null;
+        }
+        var i: i32 = 0;
+        while i < arm_count {
+            arms_final[i] = arms_buf[i];
+            i = i + 1;
+        }
+        match_expr_node.match_expr_arms = arms_final;
+        match_expr_node.match_expr_arm_count = arm_count;
+        return match_expr_node;
+    }
+    
     // 解析 null 字面量（null 被解析为标识符节点，在代码生成阶段通过字符串比较识别）
     if parser.current_token.type == TokenType.TOKEN_NULL {
         const node: &ASTNode = ast_new_node(ASTNodeType.AST_IDENTIFIER, line, column, parser.arena, parser_get_filename(parser));

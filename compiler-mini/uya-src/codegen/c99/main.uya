@@ -89,6 +89,13 @@ fn collect_slice_types_from_node(codegen: &C99CodeGenerator, node: &ASTNode) voi
         collect_slice_types_from_node(codegen, node.unary_expr_operand);
     } else if node.type == ASTNodeType.AST_TRY_EXPR {
         collect_slice_types_from_node(codegen, node.try_expr_operand);
+    } else if node.type == ASTNodeType.AST_MATCH_EXPR {
+        collect_slice_types_from_node(codegen, node.match_expr_expr);
+        var i: i32 = 0;
+        while i < node.match_expr_arm_count {
+            collect_slice_types_from_node(codegen, node.match_expr_arms[i].result_expr);
+            i = i + 1;
+        }
     } else if node.type == ASTNodeType.AST_MEMBER_ACCESS {
         collect_slice_types_from_node(codegen, node.member_access_object);
     } else if node.type == ASTNodeType.AST_ARRAY_ACCESS {

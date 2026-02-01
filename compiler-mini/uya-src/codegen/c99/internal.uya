@@ -16,7 +16,7 @@ extern fn atoi(s: *byte) i32;
 // ===== 常量定义 =====
 
 // 字符串常量表大小
-const C99_MAX_STRING_CONSTANTS: i32 = 512;
+const C99_MAX_STRING_CONSTANTS: i32 = 1024;
 
 // 结构体定义表大小
 const C99_MAX_STRUCT_DEFINITIONS: i32 = 128;

@@ -41,6 +41,8 @@ enum TokenType {
     TOKEN_ERRDEFER,     // errdefer（仅错误返回时执行）
     TOKEN_AT_IDENTIFIER,  // @ 后跟内置函数标识符（@sizeof、@alignof、@len、@max、@min）
     TOKEN_AS,
+    TOKEN_MATCH,       // match（模式匹配）
+    TOKEN_FAT_ARROW,   // =>（match 臂箭头）
     TOKEN_PLUS,
     TOKEN_MINUS,
     TOKEN_ASTERISK,
@@ -218,6 +220,8 @@ fn is_keyword(str: &byte) TokenType {
         result = TokenType.TOKEN_ERRDEFER;
     } else if str_equals_lexer(str, "as" as &byte) != 0 {
         result = TokenType.TOKEN_AS;
+    } else if str_equals_lexer(str, "match" as &byte) != 0 {
+        result = TokenType.TOKEN_MATCH;
     }
     return result;
 }
@@ -615,6 +619,10 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
     }
     if c == 61 {
         advance_char(lexer);
+        if peek_char(lexer, 0) == 62 {
+            advance_char(lexer);
+            return make_token(arena, TokenType.TOKEN_FAT_ARROW, "=>" as &byte, line, column);
+        }
         if peek_char(lexer, 0) == 61 {
             advance_char(lexer);
             return make_token(arena, TokenType.TOKEN_EQUAL, "==" as &byte, line, column);

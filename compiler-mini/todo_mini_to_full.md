@@ -117,7 +117,7 @@
 **涉及**：Lexer、AST、Parser、Checker、Codegen（if-else 链或跳转表），uya-src。
 
 **C 实现（已完成）**：Lexer（TOKEN_MATCH、TOKEN_FAT_ARROW、`match` 关键字、`=>` 双符）；AST（AST_MATCH_EXPR、ASTMatchArm、MatchPatternKind：LITERAL/ENUM/ERROR/BIND/WILDCARD/ELSE）；Parser（primary_expr 中 match 解析、pat => expr/block、逗号分隔、else 可选）；Checker（所有分支返回类型一致、BIND 作用域、枚举模式类型校验、穷尽性：else 或 BIND/WILDCARD）；Codegen（表达式用 GCC 语句表达式 `({ ... })`，语句用 if-else 链；修复 find_enum_variant_value 自动递增值）。测试 test_match.uya 通过 `--c99`。
-**uya-src 待同步**：Lexer、AST、Parser、Checker、Codegen 对应模块。
+**uya-src 已同步**：Lexer（TOKEN_MATCH、TOKEN_FAT_ARROW、match 关键字、=>）；AST（MatchPatternKind、ASTMatchArm、AST_MATCH_EXPR、literal_int_value/literal_is_bool/result_is_block 避免指针 . 访问）；Parser（match 解析、字面量臂填 literal_int_value/literal_is_bool、result_is_block）；Checker（infer_type 统一类型、check_node 穷尽性/枚举/BIND 作用域）；Codegen（expr.uya 表达式、stmt.uya 语句、main.uya collect_slice_types）。自举编译器可成功生成 C（`./compile.sh --c99` 后手动链接 `gcc compiler.c bridge.c -o compiler`）；test_match.uya 通过 `--c99`（C 版）。自举版 `--uya --c99` 需在构建可执行后验证。
 
 ---
 

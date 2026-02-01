@@ -801,6 +801,121 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         gen_stmt(codegen, body);
         codegen.indent_level = codegen.indent_level - 1;
         c99_emit(codegen, "}\n" as *byte);
+    } else if stmt.type == ASTNodeType.AST_MATCH_EXPR {
+        // match expr { pat => result, ... } 作为语句
+        const match_expr: &ASTNode = stmt.match_expr_expr;
+        var m_type: &byte = get_c_type_of_expr(codegen, match_expr);
+        if m_type == null {
+            m_type = "int32_t" as &byte;
+        }
+        c99_emit(codegen, "{\n" as *byte);
+        codegen.indent_level = codegen.indent_level + 1;
+        c99_emit_indent(codegen);
+        fprintf(codegen.output as *void, "%s _uya_m = " as *byte, m_type as *byte);
+        gen_expr(codegen, match_expr);
+        fputs(";\n" as *byte, codegen.output as *void);
+        var first: i32 = 1;
+        var i: i32 = 0;
+        while i < stmt.match_expr_arm_count {
+            var prefix: &byte = "else " as &byte;
+            if first != 0 {
+                prefix = "" as &byte;
+                first = 0;
+            }
+            if stmt.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_LITERAL {
+                c99_emit_indent(codegen);
+                if stmt.match_expr_arms[i].literal_is_bool != 0 {
+                    if stmt.match_expr_arms[i].literal_int_value != 0 {
+                        fprintf(codegen.output as *void, "%sif (_uya_m == 1) " as *byte, prefix as *byte);
+                    } else {
+                        fprintf(codegen.output as *void, "%sif (_uya_m == 0) " as *byte, prefix as *byte);
+                    }
+                } else {
+                    fprintf(codegen.output as *void, "%sif (_uya_m == %d) " as *byte, prefix as *byte, stmt.match_expr_arms[i].literal_int_value);
+                }
+                if stmt.match_expr_arms[i].result_is_block != 0 {
+                    fputs("{\n" as *byte, codegen.output as *void);
+                    codegen.indent_level = codegen.indent_level + 1;
+                    gen_stmt(codegen, stmt.match_expr_arms[i].result_expr);
+                    codegen.indent_level = codegen.indent_level - 1;
+                    c99_emit(codegen, "}\n" as *byte);
+                } else {
+                    gen_expr(codegen, stmt.match_expr_arms[i].result_expr);
+                    fputs(";\n" as *byte, codegen.output as *void);
+                }
+            } else if stmt.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_ENUM {
+                const enum_decl: &ASTNode = find_enum_decl_c99(codegen, stmt.match_expr_arms[i].enum_name);
+                var ev: i32 = -1;
+                if enum_decl != null {
+                    ev = find_enum_variant_value(codegen, enum_decl, stmt.match_expr_arms[i].variant_name);
+                }
+                c99_emit_indent(codegen);
+                if ev >= 0 {
+                    fprintf(codegen.output as *void, "%sif (_uya_m == %d) " as *byte, prefix as *byte, ev);
+                } else {
+                    fprintf(codegen.output as *void, "%sif (0) " as *byte, prefix as *byte);
+                }
+                if stmt.match_expr_arms[i].result_is_block != 0 {
+                    fputs("{\n" as *byte, codegen.output as *void);
+                    codegen.indent_level = codegen.indent_level + 1;
+                    gen_stmt(codegen, stmt.match_expr_arms[i].result_expr);
+                    codegen.indent_level = codegen.indent_level - 1;
+                    c99_emit(codegen, "}\n" as *byte);
+                } else {
+                    gen_expr(codegen, stmt.match_expr_arms[i].result_expr);
+                    fputs(";\n" as *byte, codegen.output as *void);
+                }
+            } else if stmt.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_BIND {
+                const v: &byte = get_safe_c_identifier(codegen, stmt.match_expr_arms[i].var_name);
+                c99_emit_indent(codegen);
+                if v != null {
+                    fprintf(codegen.output as *void, "%s{ %s %s = _uya_m;\n" as *byte, prefix as *byte, m_type as *byte, v as *byte);
+                } else {
+                    fprintf(codegen.output as *void, "%s{\n" as *byte, prefix as *byte);
+                }
+                codegen.indent_level = codegen.indent_level + 1;
+                if stmt.match_expr_arms[i].result_is_block != 0 {
+                    gen_stmt(codegen, stmt.match_expr_arms[i].result_expr);
+                } else {
+                    gen_expr(codegen, stmt.match_expr_arms[i].result_expr);
+                    fputs(";\n" as *byte, codegen.output as *void);
+                }
+                codegen.indent_level = codegen.indent_level - 1;
+                c99_emit(codegen, "}\n" as *byte);
+            } else if stmt.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_WILDCARD || stmt.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_ELSE {
+                c99_emit_indent(codegen);
+                fprintf(codegen.output as *void, "%s{\n" as *byte, prefix as *byte);
+                codegen.indent_level = codegen.indent_level + 1;
+                if stmt.match_expr_arms[i].result_is_block != 0 {
+                    gen_stmt(codegen, stmt.match_expr_arms[i].result_expr);
+                } else {
+                    gen_expr(codegen, stmt.match_expr_arms[i].result_expr);
+                    fputs(";\n" as *byte, codegen.output as *void);
+                }
+                codegen.indent_level = codegen.indent_level - 1;
+                c99_emit(codegen, "}\n" as *byte);
+            } else if stmt.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_ERROR {
+                var id: i32 = c99_get_or_add_error_id(codegen, stmt.match_expr_arms[i].error_name);
+                if id == 0 {
+                    id = 1;
+                }
+                c99_emit_indent(codegen);
+                fprintf(codegen.output as *void, "%sif (_uya_m.error_id == %uU) " as *byte, prefix as *byte, id as u32);
+                if stmt.match_expr_arms[i].result_is_block != 0 {
+                    fputs("{\n" as *byte, codegen.output as *void);
+                    codegen.indent_level = codegen.indent_level + 1;
+                    gen_stmt(codegen, stmt.match_expr_arms[i].result_expr);
+                    codegen.indent_level = codegen.indent_level - 1;
+                    c99_emit(codegen, "}\n" as *byte);
+                } else {
+                    gen_expr(codegen, stmt.match_expr_arms[i].result_expr);
+                    fputs(";\n" as *byte, codegen.output as *void);
+                }
+            }
+            i = i + 1;
+        }
+        codegen.indent_level = codegen.indent_level - 1;
+        c99_emit(codegen, "}\n" as *byte);
     } else if stmt.type == ASTNodeType.AST_FOR_STMT {
         // Uya Mini 的 for 循环是数组遍历：for item in array { ... }
         const array: &ASTNode = stmt.for_stmt_array;

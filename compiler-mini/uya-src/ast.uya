@@ -3,6 +3,31 @@
 //
 // 注意：Uya 没有 union，所有 union 字段都转换为结构体的独立字段（扁平化）
 
+// match 模式种类
+enum MatchPatternKind {
+    MATCH_PAT_LITERAL,   // 字面量（整数、true、false）
+    MATCH_PAT_ENUM,      // 枚举变体（EnumName.Variant）
+    MATCH_PAT_ERROR,     // 错误类型（error.Name）
+    MATCH_PAT_BIND,      // 变量绑定（identifier 捕获值）
+    MATCH_PAT_WILDCARD,  // 通配符 _
+    MATCH_PAT_ELSE,      // else 分支
+}
+
+// match 臂结构（Uya 无 union，扁平化为独立字段）
+// 字面量臂时用 literal_int_value / literal_is_bool 避免对 literal_expr 指针的 . 访问（C 需 ->）
+struct ASTMatchArm {
+    kind: MatchPatternKind,
+    literal_expr: &ASTNode,
+    literal_int_value: i32,   // LITERAL 且为数字时的值
+    literal_is_bool: i32,     // LITERAL 且为 bool 时为 1
+    enum_name: &byte,
+    variant_name: &byte,
+    error_name: &byte,
+    var_name: &byte,
+    result_expr: &ASTNode,
+    result_is_block: i32,  // 1 表示 result_expr 为 AST_BLOCK，避免对 result_expr 指针的 .type 访问
+}
+
 // 枚举变体结构
 struct EnumVariant {
     name: &byte,
@@ -54,6 +79,7 @@ enum ASTNodeType {
     AST_TRY_EXPR,       // try expr（错误传播）
     AST_CATCH_EXPR,     // expr catch [|err|] { stmts }（错误捕获）
     AST_ERROR_VALUE,    // error.Name（错误值，用于 return error.X）
+    AST_MATCH_EXPR,     // match expr { pat => expr, ... else => expr }
     AST_TYPE_NAMED,
     AST_TYPE_POINTER,
     AST_TYPE_ARRAY,
@@ -121,6 +147,10 @@ struct ASTNode {
     catch_expr_catch_block: &ASTNode,
     // error_value（error.Name）
     error_value_name: &byte,
+    // match_expr（match expr { pat => expr, ... }）
+    match_expr_expr: &ASTNode,
+    match_expr_arms: &ASTMatchArm,
+    match_expr_arm_count: i32,
     // call_expr
     call_expr_callee: &ASTNode,
     call_expr_args: & & ASTNode,
@@ -264,6 +294,9 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.catch_expr_err_name = null;
     node.catch_expr_catch_block = null;
     node.error_value_name = null;
+    node.match_expr_expr = null;
+    node.match_expr_arms = null;
+    node.match_expr_arm_count = 0;
     node.call_expr_callee = null;
     node.call_expr_args = null;
     node.call_expr_arg_count = 0;
