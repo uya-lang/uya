@@ -38,6 +38,7 @@ const C99_MAX_LOOP_STACK: i32 = 32;
 const C99_MAX_CALL_ARGS: i32 = 32;
 const C99_MAX_DEFER_STACK: i32 = 32;
 const C99_MAX_DEFERS_PER_BLOCK: i32 = 64;
+const C99_MAX_DROP_VARS_PER_BLOCK: i32 = 64;
 const C99_MAX_SLICE_STRUCTS: i32 = 32;
 
 // ===== 类型定义 =====
@@ -145,6 +146,11 @@ struct C99CodeGenerator {
     errdefer_stack: [&ASTNode: C99_MAX_DEFER_STACK * C99_MAX_DEFERS_PER_BLOCK],
     errdefer_count: [i32: C99_MAX_DEFER_STACK],  // 每层的 errdefer 数量
     defer_stack_depth: i32,
+    // drop/RAII：当前块内需在作用域退出时 drop 的变量（规范 §12）
+    current_drop_scope: i32,
+    drop_var_count: [i32: C99_MAX_DEFER_STACK],
+    drop_var_safe: [&byte: C99_MAX_DEFER_STACK * C99_MAX_DROP_VARS_PER_BLOCK],
+    drop_struct_name: [&byte: C99_MAX_DEFER_STACK * C99_MAX_DROP_VARS_PER_BLOCK],
     // 待输出的切片结构体（&[T] -> struct uya_slice_X { T* ptr; size_t len; }）
     slice_struct_names: [&byte: C99_MAX_SLICE_STRUCTS],
     slice_struct_element_types: [&ASTNode: C99_MAX_SLICE_STRUCTS],

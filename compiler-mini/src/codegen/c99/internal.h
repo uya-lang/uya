@@ -72,6 +72,7 @@ ASTNode *find_method_block_for_struct_c99(C99CodeGenerator *codegen, const char 
 ASTNode *find_method_in_block(ASTNode *method_block, const char *method_name);
 ASTNode *find_method_in_struct_c99(C99CodeGenerator *codegen, const char *struct_name, const char *method_name);
 const char *get_method_c_name(C99CodeGenerator *codegen, const char *struct_name, const char *method_name);
+int type_has_drop_c99(C99CodeGenerator *codegen, const char *struct_name);
 void gen_method_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl, const char *struct_name);
 void gen_method_function(C99CodeGenerator *codegen, ASTNode *fn_decl, const char *struct_name);
 int is_stdlib_function(const char *func_name);

@@ -429,6 +429,14 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     fputs("}\n" as *byte, codegen.output);
 }
 
+// 是否该结构体类型有 drop 方法（规范 §12）
+fn type_has_drop_c99(codegen: &C99CodeGenerator, struct_name: &byte) i32 {
+    if find_method_in_struct_c99(codegen, struct_name, "drop" as *byte) != null {
+        return 1;
+    }
+    return 0;
+}
+
 // 生成方法函数的前向声明（uya_StructName_methodname）
 fn gen_method_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_name: &byte) void {
     if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL || struct_name == null {
@@ -521,6 +529,38 @@ fn gen_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_nam
             }
         }
         i = i + 1;
+    }
+    if method_name != null && strcmp(method_name as *byte, "drop" as *byte) == 0 {
+        const struct_decl: &ASTNode = find_struct_decl_c99(codegen, struct_name);
+        const self_safe: &byte = get_safe_c_identifier(codegen, "self" as *byte);
+        if struct_decl != null && struct_decl.struct_decl_fields != null && self_safe != null {
+            const fc: i32 = struct_decl.struct_decl_field_count;
+            var fi: i32 = fc - 1;
+            while fi >= 0 {
+                const field: &ASTNode = struct_decl.struct_decl_fields[fi];
+                if field == null || field.type != ASTNodeType.AST_VAR_DECL || field.var_decl_name == null {
+                    fi = fi - 1;
+                    continue;
+                }
+                const ft: &ASTNode = field.var_decl_type;
+                if ft == null || ft.type != ASTNodeType.AST_TYPE_NAMED || ft.type_named_name == null {
+                    fi = fi - 1;
+                    continue;
+                }
+                const field_type_name: &byte = ft.type_named_name;
+                if type_has_drop_c99(codegen, field_type_name) == 0 {
+                    fi = fi - 1;
+                    continue;
+                }
+                const drop_c: &byte = get_method_c_name(codegen, field_type_name, "drop" as *byte);
+                const field_safe: &byte = get_safe_c_identifier(codegen, field.var_decl_name);
+                if drop_c != null && field_safe != null {
+                    c99_emit_indent(codegen);
+                    fprintf(codegen.output as *void, "/* drop field */ %s(%s.%s);\n" as *byte, drop_c as *byte, self_safe as *byte, field_safe as *byte);
+                }
+                fi = fi - 1;
+            }
+        }
     }
     gen_stmt(codegen, fn_decl.fn_decl_body);
     codegen.current_function_return_type = null;

@@ -55,6 +55,10 @@ ASTNode *find_method_in_struct_c99(C99CodeGenerator *codegen, const char *struct
     return NULL;
 }
 
+int type_has_drop_c99(C99CodeGenerator *codegen, const char *struct_name) {
+    return find_method_in_struct_c99(codegen, struct_name, "drop") != NULL;
+}
+
 // 获取方法的 C 函数名（uya_StructName_methodname）
 const char *get_method_c_name(C99CodeGenerator *codegen, const char *struct_name, const char *method_name) {
     if (!struct_name || !method_name) return NULL;
@@ -472,6 +476,26 @@ void gen_method_function(C99CodeGenerator *codegen, ASTNode *fn_decl, const char
             codegen->local_variables[codegen->local_variable_count].name = param->data.var_decl.name;
             codegen->local_variables[codegen->local_variable_count].type_c = param_type_c;
             codegen->local_variable_count++;
+        }
+    }
+    if (method_name && strcmp(method_name, "drop") == 0) {
+        ASTNode *struct_decl = find_struct_decl_c99(codegen, struct_name);
+        const char *self_safe = get_safe_c_identifier(codegen, "self");
+        if (struct_decl && struct_decl->data.struct_decl.fields && self_safe) {
+            int fc = struct_decl->data.struct_decl.field_count;
+            for (int i = fc - 1; i >= 0; i--) {
+                ASTNode *field = struct_decl->data.struct_decl.fields[i];
+                if (!field || field->type != AST_VAR_DECL || !field->data.var_decl.name) continue;
+                ASTNode *ft = field->data.var_decl.type;
+                if (!ft || ft->type != AST_TYPE_NAMED || !ft->data.type_named.name) continue;
+                const char *field_type_name = ft->data.type_named.name;
+                if (!type_has_drop_c99(codegen, field_type_name)) continue;
+                const char *drop_c = get_method_c_name(codegen, field_type_name, "drop");
+                const char *field_safe = get_safe_c_identifier(codegen, field->data.var_decl.name);
+                if (drop_c && field_safe) {
+                    fprintf(codegen->output, "    /* drop field */ %s(%s.%s);\n", drop_c, self_safe, field_safe);
+                }
+            }
         }
     }
     gen_stmt(codegen, fn_decl->data.fn_decl.body);

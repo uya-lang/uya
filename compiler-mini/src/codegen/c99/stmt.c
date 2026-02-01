@@ -3,6 +3,39 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
+/* 在 return/break/continue 前对当前块已声明的变量逆序调用 drop（规范 §12）。 */
+static void emit_current_block_drops(C99CodeGenerator *codegen) {
+    if (!codegen || codegen->current_drop_scope < 0) return;
+    int d = codegen->current_drop_scope;
+    int n = codegen->drop_var_count[d];
+    for (int i = n - 1; i >= 0; i--) {
+        const char *drop_c = get_method_c_name(codegen, codegen->drop_struct_name[d][i], "drop");
+        const char *var_safe = codegen->drop_var_safe[d][i];
+        if (!drop_c || !var_safe) continue;
+        c99_emit(codegen, "/* drop */ ");
+        fprintf(codegen->output, "%s(%s);\n", drop_c, var_safe);
+    }
+}
+
+/* 在块内变量声明逆序上调用 drop（规范 §12：离开作用域时先 defer 再 drop）。
+ * 仅处理 AST_VAR_DECL；变量类型须为命名结构体且该结构体有 drop 方法。 */
+static void emit_drop_cleanup(C99CodeGenerator *codegen, ASTNode **stmts, int stmt_count) {
+    if (!codegen || !stmts || stmt_count <= 0) return;
+    for (int i = stmt_count - 1; i >= 0; i--) {
+        ASTNode *n = stmts[i];
+        if (!n || n->type != AST_VAR_DECL) continue;
+        ASTNode *type_node = n->data.var_decl.type;
+        if (!type_node || type_node->type != AST_TYPE_NAMED || !type_node->data.type_named.name) continue;
+        const char *struct_name = type_node->data.type_named.name;
+        if (!type_has_drop_c99(codegen, struct_name)) continue;
+        const char *drop_c = get_method_c_name(codegen, struct_name, "drop");
+        const char *var_safe = get_safe_c_identifier(codegen, n->data.var_decl.name);
+        if (!drop_c || !var_safe) continue;
+        c99_emit(codegen, "/* drop */ ");
+        fprintf(codegen->output, "%s(%s);\n", drop_c, var_safe);
+    }
+}
+
 /* 在 return/break/continue/块结束前执行当前层的 defer（及可选的 errdefer）。LIFO 顺序。
  * 规范 §9：return 时先计算返回值，再执行 defer，最后返回；defer 不能修改返回值。 */
 static void emit_defer_cleanup(C99CodeGenerator *codegen, int emit_errdefer) {
@@ -107,6 +140,7 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             // return error.X 与 return;：先执行 defer，再返回（error 值不依赖变量）
             if ((expr && expr->type == AST_ERROR_VALUE) || (!expr && return_type && return_type->type == AST_TYPE_NAMED &&
                     return_type->data.type_named.name && strcmp(return_type->data.type_named.name, "void") == 0)) {
+                emit_current_block_drops(codegen);
                 emit_defer_cleanup(codegen, is_error_return);
             }
             
@@ -204,6 +238,7 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                     c99_emit(codegen, "%s _uya_ret = 0;\n", ret_c);
                 }
             }
+            emit_current_block_drops(codegen);
             // 2. 执行 defer（defer 不能修改已计算的返回值）
             emit_defer_cleanup(codegen, is_error_return);
             // 3. 返回临时变量
@@ -214,10 +249,13 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             ASTNode **stmts = stmt->data.block.stmts;
             int stmt_count = stmt->data.block.stmt_count;
             int d = codegen->defer_stack_depth;
+            int saved_drop_scope = codegen->current_drop_scope;
             if (d >= C99_MAX_DEFER_STACK) {
                 for (int i = 0; i < stmt_count; i++) gen_stmt(codegen, stmts[i]);
                 break;
             }
+            codegen->current_drop_scope = d;
+            codegen->drop_var_count[d] = 0;
             int nd = 0, ne = 0;
             for (int i = 0; i < stmt_count && nd < C99_MAX_DEFERS_PER_BLOCK && ne < C99_MAX_DEFERS_PER_BLOCK; i++) {
                 if (stmts[i]->type == AST_DEFER_STMT)
@@ -243,7 +281,9 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             }
             if (!last_is_terminal)
                 emit_defer_cleanup(codegen, 0);
+            emit_drop_cleanup(codegen, stmts, stmt_count);
             codegen->defer_stack_depth--;
+            codegen->current_drop_scope = saved_drop_scope;
             break;
         }
         case AST_DEFER_STMT:
@@ -564,8 +604,8 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                             }
                         }
                     } else {
-                        // 空结构体（AST 无字段）：C 端有 char _empty 占位，整体零初始化
-                        c99_emit(codegen, "memset(&%s, 0, sizeof(%s));\n", var_name, var_name);
+                        // 空结构体（AST 无字段）：C 端有 char _empty 占位，整体零初始化（cast 避免 const 警告）
+                        c99_emit(codegen, "memset((void *)&%s, 0, sizeof(%s));\n", var_name, var_name);
                     }
                 } else if (is_array_from_function) {
                     // 从函数调用接收数组：需要从包装结构体中提取
@@ -664,7 +704,15 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             } else {
                 fputs(";\n", codegen->output);
             }
-            
+            if (codegen->current_drop_scope >= 0 && var_type && var_type->type == AST_TYPE_NAMED &&
+                var_type->data.type_named.name && type_has_drop_c99(codegen, var_type->data.type_named.name)) {
+                int dd = codegen->current_drop_scope;
+                if (codegen->drop_var_count[dd] < C99_MAX_DROP_VARS_PER_BLOCK) {
+                    codegen->drop_var_safe[dd][codegen->drop_var_count[dd]] = var_name;
+                    codegen->drop_struct_name[dd][codegen->drop_var_count[dd]] = var_type->data.type_named.name;
+                    codegen->drop_var_count[dd]++;
+                }
+            }
             break;
         }
         case AST_IF_STMT: {
@@ -902,10 +950,12 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             break;
         }
         case AST_BREAK_STMT:
+            emit_current_block_drops(codegen);
             emit_defer_cleanup(codegen, 0);
             c99_emit(codegen, "break;\n");
             break;
         case AST_CONTINUE_STMT:
+            emit_current_block_drops(codegen);
             emit_defer_cleanup(codegen, 0);
             c99_emit(codegen, "continue;\n");
             break;

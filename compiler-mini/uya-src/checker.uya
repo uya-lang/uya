@@ -903,6 +903,44 @@ fn find_method_in_struct(program_node: &ASTNode, struct_name: &byte, method_name
     return null;
 }
 
+// 校验 drop 方法签名（规范 §12）：fn drop(self: T) void，T 为按值（非指针），每类型仅一个
+fn check_drop_method_signature(checker: &TypeChecker, fn_decl: &ASTNode, struct_name: &byte) i32 {
+    if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL || struct_name == null {
+        return 1;
+    }
+    if fn_decl.fn_decl_param_count != 1 || fn_decl.fn_decl_params == null {
+        checker_report_error(checker, fn_decl, "drop 方法必须恰好有一个参数 self: T（按值）" as *byte);
+        return 0;
+    }
+    const param: &ASTNode = fn_decl.fn_decl_params[0];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL || param.var_decl_name == null ||
+        str_equals(param.var_decl_name, "self" as *byte) == 0 {
+        checker_report_error(checker, fn_decl, "drop 方法第一个参数必须名为 self" as *byte);
+        return 0;
+    }
+    const param_type: &ASTNode = param.var_decl_type;
+    if param_type == null {
+        checker_report_error(checker, fn_decl, "drop 方法 self 必须为按值类型 T，不能为指针" as *byte);
+        return 0;
+    }
+    if param_type.type == ASTNodeType.AST_TYPE_POINTER {
+        checker_report_error(checker, fn_decl, "drop 方法 self 必须为按值类型 T（不能为 *Self 或 *T）" as *byte);
+        return 0;
+    }
+    if param_type.type != ASTNodeType.AST_TYPE_NAMED || param_type.type_named_name == null ||
+        str_equals(param_type.type_named_name, struct_name) == 0 {
+        checker_report_error(checker, fn_decl, "drop 方法 self 类型必须为该结构体类型（按值）" as *byte);
+        return 0;
+    }
+    const ret: &ASTNode = fn_decl.fn_decl_return_type;
+    if ret == null || ret.type != ASTNodeType.AST_TYPE_NAMED || ret.type_named_name == null ||
+        str_equals(ret.type_named_name, "void" as *byte) == 0 {
+        checker_report_error(checker, fn_decl, "drop 方法返回类型必须为 void" as *byte);
+        return 0;
+    }
+    return 1;
+}
+
 // 检查结构体是否实现某接口
 fn struct_implements_interface(checker: &TypeChecker, struct_name: &byte, interface_name: &byte) i32 {
     if checker == null || checker.program_node == null || struct_name == null || interface_name == null {
@@ -2438,6 +2476,42 @@ fn checker_check_struct_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         }
         i = i + 1;
     }
+
+    const struct_name: &byte = node.struct_decl_name;
+    var drop_count: i32 = 0;
+    if node.struct_decl_methods != null {
+        var j: i32 = 0;
+        while j < node.struct_decl_method_count {
+            const m: &ASTNode = node.struct_decl_methods[j];
+            if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+                str_equals(m.fn_decl_name, "drop" as *byte) != 0 {
+                drop_count = drop_count + 1;
+                if check_drop_method_signature(checker, m, struct_name) == 0 {
+                    return 0;
+                }
+            }
+            j = j + 1;
+        }
+    }
+    if drop_count > 1 {
+        checker_report_error(checker, node, "每个类型只能有一个 drop 方法" as *byte);
+        return 0;
+    }
+    if drop_count > 0 {
+        const method_block: &ASTNode = find_method_block_for_struct(checker.program_node, struct_name);
+        if method_block != null && method_block.method_block_methods != null {
+            var j: i32 = 0;
+            while j < method_block.method_block_method_count {
+                const bm: &ASTNode = method_block.method_block_methods[j];
+                if bm != null && bm.type == ASTNodeType.AST_FN_DECL && bm.fn_decl_name != null &&
+                    str_equals(bm.fn_decl_name, "drop" as *byte) != 0 {
+                    checker_report_error(checker, node, "每个类型只能有一个 drop 方法（结构体内部与方法块不能同时定义 drop）" as *byte);
+                    return 0;
+                }
+                j = j + 1;
+            }
+        }
+    }
     
     return 1;
 }
@@ -3490,6 +3564,41 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         if find_struct_decl_from_program(checker.program_node, node.method_block_struct_name) == null {
             checker_report_error(checker, node, "方法块对应的结构体未定义" as *byte);
             return 0;
+        }
+        const struct_name: &byte = node.method_block_struct_name;
+        var drop_count: i32 = 0;
+        if node.method_block_methods != null {
+            var i: i32 = 0;
+            while i < node.method_block_method_count {
+                const m: &ASTNode = node.method_block_methods[i];
+                if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+                    str_equals(m.fn_decl_name, "drop" as *byte) != 0 {
+                    drop_count = drop_count + 1;
+                    if check_drop_method_signature(checker, m, struct_name) == 0 {
+                        return 0;
+                    }
+                }
+                i = i + 1;
+            }
+        }
+        if drop_count > 1 {
+            checker_report_error(checker, node, "每个类型只能有一个 drop 方法" as *byte);
+            return 0;
+        }
+        if drop_count > 0 {
+            const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, struct_name);
+            if struct_decl != null && struct_decl.struct_decl_methods != null {
+                var i: i32 = 0;
+                while i < struct_decl.struct_decl_method_count {
+                    const im: &ASTNode = struct_decl.struct_decl_methods[i];
+                    if im != null && im.type == ASTNodeType.AST_FN_DECL && im.fn_decl_name != null &&
+                        str_equals(im.fn_decl_name, "drop" as *byte) != 0 {
+                        checker_report_error(checker, node, "每个类型只能有一个 drop 方法（结构体内部与方法块不能同时定义 drop）" as *byte);
+                        return 0;
+                    }
+                    i = i + 1;
+                }
+            }
         }
     } else if node.type == ASTNodeType.AST_ERROR_DECL {
         if checker.scope_level > 0 {

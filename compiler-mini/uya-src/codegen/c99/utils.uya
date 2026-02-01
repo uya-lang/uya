@@ -46,6 +46,7 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &Arena, output: &void, mod
     }
     codegen.error_count = 0;
     codegen.defer_stack_depth = 0;
+    codegen.current_drop_scope = -1;
     codegen.slice_struct_count = 0;
     ii = 0;
     while ii < C99_MAX_DEFER_STACK {

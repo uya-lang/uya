@@ -17,6 +17,7 @@
 #define C99_MAX_CALL_ARGS           32
 #define C99_MAX_DEFER_STACK         32
 #define C99_MAX_DEFERS_PER_BLOCK    64
+#define C99_MAX_DROP_VARS_PER_BLOCK 64
 #define C99_MAX_SLICE_STRUCTS       32
 
 // C99 代码生成器结构体
@@ -107,6 +108,11 @@ typedef struct C99CodeGenerator {
     ASTNode *errdefer_stack[C99_MAX_DEFER_STACK][C99_MAX_DEFERS_PER_BLOCK];
     int errdefer_count[C99_MAX_DEFER_STACK];
     int defer_stack_depth;
+    // drop/RAII：当前块内需在作用域退出时 drop 的变量（规范 §12）
+    int current_drop_scope;
+    int drop_var_count[C99_MAX_DEFER_STACK];
+    const char *drop_var_safe[C99_MAX_DEFER_STACK][C99_MAX_DROP_VARS_PER_BLOCK];
+    const char *drop_struct_name[C99_MAX_DEFER_STACK][C99_MAX_DROP_VARS_PER_BLOCK];
     
     // 待输出的切片结构体（&[T] -> struct uya_slice_X { T* ptr; size_t len; }）
     const char *slice_struct_names[C99_MAX_SLICE_STRUCTS];

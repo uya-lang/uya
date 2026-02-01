@@ -7,6 +7,57 @@
 // ===== 外部函数声明 =====
 // C 标准库函数（在 extern_decls.uya 中声明）
 
+// 在 return/break/continue 前对当前块已声明的变量逆序调用 drop（规范 §12）。
+fn emit_current_block_drops(codegen: &C99CodeGenerator) void {
+    if codegen == null || codegen.current_drop_scope < 0 {
+        return;
+    }
+    const d: i32 = codegen.current_drop_scope;
+    const n: i32 = codegen.drop_var_count[d];
+    var i: i32 = n - 1;
+    while i >= 0 {
+        const drop_c: &byte = get_method_c_name(codegen, codegen.drop_struct_name[d * C99_MAX_DROP_VARS_PER_BLOCK + i], "drop" as *byte);
+        const var_safe: &byte = codegen.drop_var_safe[d * C99_MAX_DROP_VARS_PER_BLOCK + i];
+        if drop_c != null && var_safe != null {
+            c99_emit(codegen, "/* drop */ " as *byte);
+            fprintf(codegen.output as *void, "%s(%s);\n" as *byte, drop_c as *byte, var_safe as *byte);
+        }
+        i = i - 1;
+    }
+}
+
+// 在块内变量声明逆序上调用 drop（规范 §12：离开作用域时先 defer 再 drop）。
+fn emit_drop_cleanup(codegen: &C99CodeGenerator, stmts: & & ASTNode, stmt_count: i32) void {
+    if codegen == null || stmts == null || stmt_count <= 0 {
+        return;
+    }
+    var i: i32 = stmt_count - 1;
+    while i >= 0 {
+        const n: &ASTNode = stmts[i];
+        if n == null || n.type != ASTNodeType.AST_VAR_DECL {
+            i = i - 1;
+            continue;
+        }
+        const type_node: &ASTNode = n.var_decl_type;
+        if type_node == null || type_node.type != ASTNodeType.AST_TYPE_NAMED || type_node.type_named_name == null {
+            i = i - 1;
+            continue;
+        }
+        const struct_name: &byte = type_node.type_named_name;
+        if type_has_drop_c99(codegen, struct_name) == 0 {
+            i = i - 1;
+            continue;
+        }
+        const drop_c: &byte = get_method_c_name(codegen, struct_name, "drop" as *byte);
+        const var_safe: &byte = get_safe_c_identifier(codegen, n.var_decl_name);
+        if drop_c != null && var_safe != null {
+            c99_emit(codegen, "/* drop */ " as *byte);
+            fprintf(codegen.output as *void, "%s(%s);\n" as *byte, drop_c as *byte, var_safe as *byte);
+        }
+        i = i - 1;
+    }
+}
+
 // 在 return/break/continue/块结束前执行当前层的 defer（及可选的 errdefer）。LIFO 顺序。
 // 规范 §9：return 时先计算返回值，再执行 defer，最后返回；defer 不能修改返回值。
 fn emit_defer_cleanup(codegen: &C99CodeGenerator, emit_errdefer: i32) void {
@@ -131,6 +182,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             }
         }
         if need_defer_first != 0 {
+            emit_current_block_drops(codegen);
             emit_defer_cleanup(codegen, is_error_return);
         }
         
@@ -166,6 +218,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 }
             }
             if is_void != 0 {
+                emit_current_block_drops(codegen);
                 c99_emit(codegen, "return;\n" as *byte);
                 return;
             }
@@ -253,6 +306,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 fprintf(codegen.output as *void, "%s _uya_ret = 0;\n" as *byte, ret_c as *byte);
             }
         }
+        emit_current_block_drops(codegen);
         // 2. 执行 defer（defer 不能修改已计算的返回值）
         emit_defer_cleanup(codegen, is_error_return);
         // 3. 返回临时变量
@@ -261,8 +315,11 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         const stmts: & & ASTNode = stmt.block_stmts;
         const stmt_count: i32 = stmt.block_stmt_count;
         const d: i32 = codegen.defer_stack_depth;
+        const saved_drop_scope: i32 = codegen.current_drop_scope;
         var i: i32 = 0;
         if d < C99_MAX_DEFER_STACK {
+            codegen.current_drop_scope = d;
+            codegen.drop_var_count[d] = 0;
             var nd: i32 = 0;
             var ne: i32 = 0;
             i = 0;
@@ -306,9 +363,11 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         if last_is_terminal == 0 {
             emit_defer_cleanup(codegen, 0);
         }
+        emit_drop_cleanup(codegen, stmts, stmt_count);
         if d < C99_MAX_DEFER_STACK {
             codegen.defer_stack_depth = codegen.defer_stack_depth - 1;
         }
+        codegen.current_drop_scope = saved_drop_scope;
     } else if stmt.type == ASTNodeType.AST_DEFER_STMT || stmt.type == ASTNodeType.AST_ERRDEFER_STMT {
         // defer/errdefer 在块内被收集，此处不应单独出现（若出现则忽略）
         return;
@@ -680,9 +739,9 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                     i2 = i2 + 1;
                 }
                 } else {
-                    // 空结构体（AST 无字段）：与 C 编译器一致，整体零初始化
+                    // 空结构体（AST 无字段）：与 C 编译器一致，整体零初始化（cast 避免 const 警告）
                     c99_emit_indent(codegen);
-                    fprintf(codegen.output as *void, "memset(&%s, 0, sizeof(%s));\n" as *byte, var_name as *byte, var_name as *byte);
+                    fprintf(codegen.output as *void, "memset((void *)&%s, 0, sizeof(%s));\n" as *byte, var_name as *byte, var_name as *byte);
                 }
             } else if is_array_from_function != 0 {
                 // 从函数调用接收数组：需要从包装结构体中提取
@@ -765,10 +824,26 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 gen_expr(codegen, init_expr);
                 fputs(";\n" as *byte, codegen.output as *void);
             }
+            if codegen.current_drop_scope >= 0 && var_type != null && var_type.type == ASTNodeType.AST_TYPE_NAMED && var_type.type_named_name != null && type_has_drop_c99(codegen, var_type.type_named_name) != 0 {
+                const dd: i32 = codegen.current_drop_scope;
+                if codegen.drop_var_count[dd] < C99_MAX_DROP_VARS_PER_BLOCK {
+                    codegen.drop_var_safe[dd * C99_MAX_DROP_VARS_PER_BLOCK + codegen.drop_var_count[dd]] = var_name;
+                    codegen.drop_struct_name[dd * C99_MAX_DROP_VARS_PER_BLOCK + codegen.drop_var_count[dd]] = var_type.type_named_name;
+                    codegen.drop_var_count[dd] = codegen.drop_var_count[dd] + 1;
+                }
+            }
             }
             }
         } else {
             fputs(";\n" as *byte, codegen.output as *void);
+            if codegen.current_drop_scope >= 0 && var_type != null && var_type.type == ASTNodeType.AST_TYPE_NAMED && var_type.type_named_name != null && type_has_drop_c99(codegen, var_type.type_named_name) != 0 {
+                const dd: i32 = codegen.current_drop_scope;
+                if codegen.drop_var_count[dd] < C99_MAX_DROP_VARS_PER_BLOCK {
+                    codegen.drop_var_safe[dd * C99_MAX_DROP_VARS_PER_BLOCK + codegen.drop_var_count[dd]] = var_name;
+                    codegen.drop_struct_name[dd * C99_MAX_DROP_VARS_PER_BLOCK + codegen.drop_var_count[dd]] = var_type.type_named_name;
+                    codegen.drop_var_count[dd] = codegen.drop_var_count[dd] + 1;
+                }
+            }
         }
     } else if stmt.type == ASTNodeType.AST_IF_STMT {
         const condition: &ASTNode = stmt.if_stmt_condition;
@@ -1060,9 +1135,11 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         c99_emit(codegen, "}\n" as *byte);
         }
     } else if stmt.type == ASTNodeType.AST_BREAK_STMT {
+        emit_current_block_drops(codegen);
         emit_defer_cleanup(codegen, 0);
         c99_emit(codegen, "break;\n" as *byte);
     } else if stmt.type == ASTNodeType.AST_CONTINUE_STMT {
+        emit_current_block_drops(codegen);
         emit_defer_cleanup(codegen, 0);
         c99_emit(codegen, "continue;\n" as *byte);
     } else {

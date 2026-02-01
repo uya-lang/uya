@@ -1,0 +1,27 @@
+// 测试 drop 顺序：离开作用域时按变量声明逆序调用 drop（规范 §12）
+// 声明顺序 a, b -> 退出时先 drop b，再 drop a -> drop_seq 应为 21
+
+var drop_seq: i32 = 0;
+
+struct A {
+  fn drop(self: A) void {
+    drop_seq = drop_seq * 10 + 1;
+  }
+}
+
+struct B {
+  fn drop(self: B) void {
+    drop_seq = drop_seq * 10 + 2;
+  }
+}
+
+fn main() i32 {
+  {
+    const a: A = A{};
+    const b: B = B{};
+  }
+  if drop_seq != 21 {
+    return 1;
+  }
+  return 0;
+}
