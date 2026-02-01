@@ -21,6 +21,7 @@ enum TokenType {
     TOKEN_ENUM,
     TOKEN_INTERFACE,  // interface（接口声明）
     TOKEN_STRUCT,
+    TOKEN_UNION,      // union（联合体声明）
     TOKEN_CONST,
     TOKEN_VAR,
     TOKEN_FN,
@@ -184,6 +185,8 @@ fn is_keyword(str: &byte) TokenType {
         result = TokenType.TOKEN_INTERFACE;
     } else if str_equals_lexer(str, "struct" as &byte) != 0 {
         result = TokenType.TOKEN_STRUCT;
+    } else if str_equals_lexer(str, "union" as &byte) != 0 {
+        result = TokenType.TOKEN_UNION;
     } else if str_equals_lexer(str, "const" as &byte) != 0 {
         result = TokenType.TOKEN_CONST;
     } else if str_equals_lexer(str, "var" as &byte) != 0 {

@@ -116,6 +116,17 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
                 }
             }
             
+            // 检查是否是联合体类型（struct uya_tagged_UnionName，带 tag 的布局）
+            if find_union_decl_c99(codegen, name) != null {
+                const len_u: i32 = strlen(safe_name as *byte) + 22;
+                const buf_u: &byte = arena_alloc(codegen.arena, len_u) as &byte;
+                if buf_u != null {
+                    snprintf(buf_u as *byte, len_u, "struct uya_tagged_%s" as *byte, safe_name as *byte);
+                    return buf_u;
+                }
+                return ("void" as *byte) as &byte;
+            }
+            
             // 显式检查是否是结构体（检查是否在表中，不管是否已定义）
             // 优先使用表查找，更可靠
             if is_struct_in_table(codegen, safe_name) != 0 {

@@ -1131,10 +1131,25 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             arg_idx = arg_idx + 1;
         }
         var did_interface_call: i32 = 0;
-        // 接口方法调用：obj.method(args) -> ((struct uya_vtable_I *)obj.vtable)->method(obj.data, args...)
+        // 联合体变体构造：UnionName.variant(expr) -> (struct uya_tagged_UnionName){ ._tag = index, .u = (union UnionName){ .variant = (expr) } }
         if callee != null && callee.type == ASTNodeType.AST_MEMBER_ACCESS {
             const obj: &ASTNode = callee.member_access_object;
             const method_name: &byte = callee.member_access_field_name;
+            if obj != null && obj.type == ASTNodeType.AST_IDENTIFIER && obj.identifier_name != null && arg_count == 1 && expr.call_expr_args != null && expr.call_expr_args[0] != null {
+                const union_decl: &ASTNode = find_union_decl_c99(codegen, obj.identifier_name);
+                if union_decl != null {
+                    const idx: i32 = find_union_variant_index(union_decl, method_name);
+                    if idx >= 0 {
+                        const uname: &byte = get_safe_c_identifier(codegen, union_decl.union_decl_name);
+                        if uname != null {
+                            fprintf(codegen.output as *void, "((struct uya_tagged_%s){ ._tag = %d, .u = (union %s){ .%s = (" as *byte, uname as *byte, idx, uname as *byte, get_safe_c_identifier(codegen, method_name) as *byte);
+                            gen_expr(codegen, expr.call_expr_args[0]);
+                            fputs(") } })" as *byte, codegen.output as *void);
+                            return;
+                        }
+                    }
+                }
+            }
             const obj_type_c: &byte = get_c_type_of_expr(codegen, obj);
             if obj_type_c != null && strstr(obj_type_c as *byte, "uya_interface_" as *byte) != null {
                 const p: *byte = strstr(obj_type_c as *byte, "uya_interface_" as *byte);
@@ -1418,6 +1433,35 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 }
                 gen_expr(codegen, expr.match_expr_arms[i].result_expr);
                 fputs("; " as *byte, codegen.output as *void);
+            } else if expr.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_UNION && expr.match_expr_arms[i].variant_name != null {
+                const union_decl: &ASTNode = find_union_decl_by_variant_c99(codegen, expr.match_expr_arms[i].variant_name);
+                if union_decl != null {
+                    const idx: i32 = find_union_variant_index(union_decl, expr.match_expr_arms[i].variant_name);
+                    const uname: &byte = get_safe_c_identifier(codegen, union_decl.union_decl_name);
+                    const vname: &byte = get_safe_c_identifier(codegen, expr.match_expr_arms[i].variant_name);
+                    if idx >= 0 && uname != null && vname != null {
+                        const vnode: &ASTNode = union_decl.union_decl_variants[idx];
+                        var vtype: &byte = "int" as &byte;
+                        if vnode != null && vnode.type == ASTNodeType.AST_VAR_DECL && vnode.var_decl_type != null {
+                            vtype = c99_type_to_c(codegen, vnode.var_decl_type);
+                        }
+                        var bind: &byte = null;
+                        if expr.match_expr_arms[i].var_name != null && strcmp(expr.match_expr_arms[i].var_name as *byte, "_" as *byte) != 0 {
+                            bind = get_safe_c_identifier(codegen, expr.match_expr_arms[i].var_name);
+                        }
+                        if bind != null {
+                            fprintf(codegen.output as *void, "%sif (_uya_m._tag == %d) { %s %s = _uya_m.u.%s; _uya_r = " as *byte, prefix as *byte, idx, vtype as *byte, bind as *byte, vname as *byte);
+                        } else {
+                            fprintf(codegen.output as *void, "%sif (_uya_m._tag == %d) _uya_r = " as *byte, prefix as *byte, idx);
+                        }
+                        gen_expr(codegen, expr.match_expr_arms[i].result_expr);
+                        if bind != null {
+                            fputs("; } " as *byte, codegen.output as *void);
+                        } else {
+                            fputs("; " as *byte, codegen.output as *void);
+                        }
+                    }
+                }
             } else if expr.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_ENUM {
                 const enum_decl: &ASTNode = find_enum_decl_c99(codegen, expr.match_expr_arms[i].enum_name);
                 var ev: i32 = -1;

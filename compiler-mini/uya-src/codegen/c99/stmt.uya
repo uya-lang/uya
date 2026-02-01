@@ -925,6 +925,52 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                     gen_expr(codegen, stmt.match_expr_arms[i].result_expr);
                     fputs(";\n" as *byte, codegen.output as *void);
                 }
+            } else if stmt.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_UNION && stmt.match_expr_arms[i].variant_name != null {
+                const union_decl: &ASTNode = find_union_decl_by_variant_c99(codegen, stmt.match_expr_arms[i].variant_name);
+                if union_decl != null {
+                    const idx: i32 = find_union_variant_index(union_decl, stmt.match_expr_arms[i].variant_name);
+                    const uname: &byte = get_safe_c_identifier(codegen, union_decl.union_decl_name);
+                    const vname: &byte = get_safe_c_identifier(codegen, stmt.match_expr_arms[i].variant_name);
+                    if idx >= 0 && uname != null && vname != null {
+                        const vnode: &ASTNode = union_decl.union_decl_variants[idx];
+                        var vtype: &byte = "int" as &byte;
+                        if vnode != null && vnode.type == ASTNodeType.AST_VAR_DECL && vnode.var_decl_type != null {
+                            vtype = c99_type_to_c(codegen, vnode.var_decl_type);
+                        }
+                        var bind: &byte = null;
+                        if stmt.match_expr_arms[i].var_name != null && strcmp(stmt.match_expr_arms[i].var_name as *byte, "_" as *byte) != 0 {
+                            bind = get_safe_c_identifier(codegen, stmt.match_expr_arms[i].var_name);
+                        }
+                        if bind != null {
+                            c99_emit_indent(codegen);
+                            fprintf(codegen.output as *void, "%sif (_uya_m._tag == %d) {\n" as *byte, prefix as *byte, idx);
+                            codegen.indent_level = codegen.indent_level + 1;
+                            c99_emit_indent(codegen);
+                            fprintf(codegen.output as *void, "%s %s = _uya_m.u.%s;\n" as *byte, vtype as *byte, bind as *byte, vname as *byte);
+                        } else {
+                            c99_emit_indent(codegen);
+                            fprintf(codegen.output as *void, "%sif (_uya_m._tag == %d) " as *byte, prefix as *byte, idx);
+                        }
+                        if stmt.match_expr_arms[i].result_is_block != 0 {
+                            if bind == null {
+                                fputs("{\n" as *byte, codegen.output as *void);
+                                codegen.indent_level = codegen.indent_level + 1;
+                            }
+                            gen_stmt(codegen, stmt.match_expr_arms[i].result_expr);
+                            if bind == null {
+                                codegen.indent_level = codegen.indent_level - 1;
+                            }
+                            c99_emit(codegen, "}\n" as *byte);
+                        } else {
+                            gen_expr(codegen, stmt.match_expr_arms[i].result_expr);
+                            fputs(";\n" as *byte, codegen.output as *void);
+                            if bind != null {
+                                codegen.indent_level = codegen.indent_level - 1;
+                                c99_emit(codegen, "}\n" as *byte);
+                            }
+                        }
+                    }
+                }
             } else if stmt.match_expr_arms[i].kind == MatchPatternKind.MATCH_PAT_ENUM {
                 const enum_decl: &ASTNode = find_enum_decl_c99(codegen, stmt.match_expr_arms[i].enum_name);
                 var ev: i32 = -1;

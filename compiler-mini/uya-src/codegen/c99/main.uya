@@ -259,7 +259,17 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 第六步 b2：生成接口结构体与 vtable 结构体（vtable 常量在方法前向声明之后生成）
     emit_interface_structs_and_vtables(codegen);
     fputs("\n" as *byte, codegen.output as *void);
-    // 第六步 c：生成所有结构体定义（在切片结构体之后，因为结构体可能含切片字段）
+    // 第六步 c：生成联合体定义（在结构体之前，因结构体可能含联合体）
+    i = 0;
+    while i < decl_count {
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_UNION_DECL {
+            gen_union_definition(codegen, decl);
+            fputs("\n" as *byte, codegen.output as *void);
+        }
+        i = i + 1;
+    }
+    // 第六步 d：生成所有结构体定义（在切片结构体之后，因为结构体可能含切片字段）
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
@@ -322,6 +332,8 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                     }
                     j = j + 1;
                 }
+            } else if decl.type == ASTNodeType.AST_UNION_DECL {
+                // 联合体已在前面生成定义，此处跳过
             } else if decl.type == ASTNodeType.AST_ENUM_DECL {
                 // 已在前面生成
             } else if decl.type == ASTNodeType.AST_VAR_DECL {

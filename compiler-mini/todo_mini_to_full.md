@@ -23,7 +23,7 @@
 | 10 | 字符串插值 | [x] |
 | 11 | 原子类型 | [ ] |
 | 12 | 运算符与安全 | [ ] |
-| 13 | 联合体（union） | [x]（C 实现完成；uya-src 待同步） |
+| 13 | 联合体（union） | [x]（C 实现与 uya-src 已同步） |
 
 ---
 
@@ -239,7 +239,7 @@
 - [ ] **extern union**：外部 C 联合体声明与互操作（待实现）
 - [ ] **联合体方法**：`self: &Self`，内部/外部方法块（待实现）
 
-**C 实现（已完成）**：Lexer（TOKEN_UNION）、AST（AST_UNION_DECL、MATCH_PAT_UNION）、Parser（parse_union、match 中 .variant(bind)）、Checker（TYPE_UNION、union init 校验、match 穷尽与变体类型推断）、Codegen（gen_union_definition、union init、match union 的 _tag 分支）。测试 test_union.uya 通过 `--c99`。**uya-src 待同步**。
+**C 实现（已完成）**：Lexer（TOKEN_UNION）、AST（AST_UNION_DECL、MATCH_PAT_UNION）、Parser（parse_union、match 中 .variant(bind)）、Checker（TYPE_UNION、union init 校验、match 穷尽与变体类型推断）、Codegen（gen_union_definition、union init、match union 的 _tag 分支）。**uya-src 已同步**：lexer.uya（TOKEN_UNION、union 关键字）、ast.uya（AST_UNION_DECL、MATCH_PAT_UNION、union_decl 字段）、parser.uya（parser_parse_union、顶层与 match 臂 .variant(bind) 解析）、checker.uya（TYPE_UNION、find_union_decl_from_program、union init/member access、match 穷尽性与变体类型推断）、codegen structs/types/expr/stmt/main（find_union_decl_c99、gen_union_definition、union init、match MATCH_PAT_UNION）。测试 test_union.uya 通过 `--c99` 与 `--uya --c99`。
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen，uya-src。依赖 match 表达式（阶段 5）。
 

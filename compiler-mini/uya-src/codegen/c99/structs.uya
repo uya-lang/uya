@@ -91,6 +91,99 @@ fn find_struct_decl_c99(codegen: &C99CodeGenerator, struct_name: &byte) &ASTNode
     return null;
 }
 
+// 查找联合体声明
+fn find_union_decl_c99(codegen: &C99CodeGenerator, union_name: &byte) &ASTNode {
+    if codegen == null || union_name == null || codegen.program_node == null {
+        return null;
+    }
+    const decl_count: i32 = codegen.program_node.program_decl_count;
+    var i: i32 = 0;
+    while i < decl_count {
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_UNION_DECL {
+            const decl_name: &byte = decl.union_decl_name;
+            if decl_name != null && strcmp(decl_name as *byte, union_name as *byte) == 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 根据变体名查找包含该变体的联合体声明（用于 match 代码生成）
+fn find_union_decl_by_variant_c99(codegen: &C99CodeGenerator, variant_name: &byte) &ASTNode {
+    if codegen == null || codegen.program_node == null || variant_name == null {
+        return null;
+    }
+    const decl_count: i32 = codegen.program_node.program_decl_count;
+    var i: i32 = 0;
+    while i < decl_count {
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_UNION_DECL {
+            if find_union_variant_index(decl, variant_name) >= 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 返回联合体变体索引（0-based），不存在返回 -1
+fn find_union_variant_index(union_decl: &ASTNode, variant_name: &byte) i32 {
+    if union_decl == null || union_decl.type != ASTNodeType.AST_UNION_DECL || variant_name == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < union_decl.union_decl_variant_count {
+        const v: &ASTNode = union_decl.union_decl_variants[i];
+        if v != null && v.type == ASTNodeType.AST_VAR_DECL && v.var_decl_name != null &&
+            strcmp(v.var_decl_name as *byte, variant_name as *byte) == 0 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+// 生成联合体定义：union U { ... }; struct uya_tagged_U { int _tag; union U u; };
+fn gen_union_definition(codegen: &C99CodeGenerator, union_decl: &ASTNode) i32 {
+    if codegen == null || union_decl == null || union_decl.type != ASTNodeType.AST_UNION_DECL {
+        return -1;
+    }
+    const union_name: &byte = get_safe_c_identifier(codegen, union_decl.union_decl_name);
+    if union_name == null {
+        return -1;
+    }
+    const n: i32 = union_decl.union_decl_variant_count;
+    const variants: & & ASTNode = union_decl.union_decl_variants;
+    if n <= 0 || variants == null {
+        return -1;
+    }
+    c99_emit_indent(codegen);
+    fprintf(codegen.output as *void, "union %s {\n" as *byte, union_name as *byte);
+    codegen.indent_level = codegen.indent_level + 1;
+    var i: i32 = 0;
+    while i < n {
+        const v: &ASTNode = variants[i];
+        if v != null && v.type == ASTNodeType.AST_VAR_DECL && v.var_decl_name != null && v.var_decl_type != null {
+            const vname: &byte = get_safe_c_identifier(codegen, v.var_decl_name);
+            const vtype: &byte = c99_type_to_c(codegen, v.var_decl_type);
+            if vname != null && vtype != null {
+                c99_emit_indent(codegen);
+                fprintf(codegen.output as *void, "%s %s;\n" as *byte, vtype as *byte, vname as *byte);
+            }
+        }
+        i = i + 1;
+    }
+    codegen.indent_level = codegen.indent_level - 1;
+    c99_emit(codegen, "};\n" as *byte);
+    c99_emit_indent(codegen);
+    fprintf(codegen.output as *void, "struct uya_tagged_%s { int _tag; union %s u; };\n" as *byte, union_name as *byte, union_name as *byte);
+    return 0;
+}
+
 // 从 C 类型字符串（如 "struct Data"）中提取结构体名并查找声明
 fn find_struct_decl_from_type_c(codegen: &C99CodeGenerator, type_c: &byte) &ASTNode {
     if codegen == null || type_c == null || codegen.program_node == null {
