@@ -576,6 +576,17 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             fputc(93, codegen.output as *void);
             return;
         }
+        if array.type == ASTNodeType.AST_MEMBER_ACCESS {
+            const type_c: &byte = get_c_type_of_expr(codegen, array);
+            if type_c != null && strstr(type_c as *byte, "uya_slice_" as *byte) != null {
+                fputc(40, codegen.output as *void);
+                gen_expr(codegen, array);
+                fputs(").ptr[" as *byte, codegen.output as *void);
+                gen_expr(codegen, index);
+                fputc(93, codegen.output as *void);
+                return;
+            }
+        }
         if array.type == ASTNodeType.AST_IDENTIFIER {
             const type_c: &byte = get_identifier_type_c(codegen, array.identifier_name);
             if type_c != null && strstr(type_c as *byte, "uya_slice_" as *byte) != null {
@@ -888,6 +899,14 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             gen_expr(codegen, array);
             fputs(").len" as *byte, codegen.output as *void);
             return;
+        }
+        if array.type == ASTNodeType.AST_MEMBER_ACCESS {
+            const type_c: &byte = get_c_type_of_expr(codegen, array);
+            if type_c != null && strstr(type_c as *byte, "uya_slice_" as *byte) != null {
+                gen_expr(codegen, array);
+                fputs(".len" as *byte, codegen.output as *void);
+                return;
+            }
         }
         if array.type == ASTNodeType.AST_IDENTIFIER {
             const type_c: &byte = get_identifier_type_c(codegen, array.identifier_name);

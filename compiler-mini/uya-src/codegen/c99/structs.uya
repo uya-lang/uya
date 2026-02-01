@@ -91,6 +91,31 @@ fn find_struct_decl_c99(codegen: &C99CodeGenerator, struct_name: &byte) &ASTNode
     return null;
 }
 
+// 从 C 类型字符串（如 "struct Data"）中提取结构体名并查找声明
+fn find_struct_decl_from_type_c(codegen: &C99CodeGenerator, type_c: &byte) &ASTNode {
+    if codegen == null || type_c == null || codegen.program_node == null {
+        return null;
+    }
+    if strstr(type_c as *byte, "struct " as *byte) == null {
+        return null;
+    }
+    const p: &byte = &type_c[7] as &byte;
+    var name_len: i32 = 0;
+    while p[name_len] != 0 && p[name_len] != 32 && p[name_len] != 42 {
+        name_len = name_len + 1;
+    }
+    if name_len <= 0 {
+        return null;
+    }
+    if name_len >= 128 {
+        name_len = 127;
+    }
+    var name_buf: [byte: 128] = [];
+    memcpy(&name_buf[0] as *void, p as *void, name_len);
+    name_buf[name_len] = 0;
+    return find_struct_decl_c99(codegen, &name_buf[0] as &byte);
+}
+
 // 查找结构体字段类型（C99 版本，返回 ASTNode）
 fn c99_find_struct_field_type(codegen: &C99CodeGenerator, struct_decl: &ASTNode, field_name: &byte) &ASTNode {
     if codegen == null || struct_decl == null || struct_decl.type != ASTNodeType.AST_STRUCT_DECL || field_name == null {

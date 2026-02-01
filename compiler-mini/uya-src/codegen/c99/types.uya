@@ -485,6 +485,30 @@ fn get_c_type_of_expr(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
         }
     } else if expr.type == ASTNodeType.AST_SLICE_EXPR {
         return get_slice_struct_type_c(codegen, expr);
+    } else if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        const object: &ASTNode = expr.member_access_object;
+        const field_name: &byte = expr.member_access_field_name;
+        if object == null || field_name == null {
+            return ("int32_t" as *byte) as &byte;
+        }
+        var base_type_c: &byte = null;
+        if object.type == ASTNodeType.AST_IDENTIFIER {
+            base_type_c = get_identifier_type_c(codegen, object.identifier_name);
+        } else if object.type == ASTNodeType.AST_MEMBER_ACCESS || object.type == ASTNodeType.AST_ARRAY_ACCESS {
+            base_type_c = get_c_type_of_expr(codegen, object);
+        }
+        if base_type_c == null {
+            return ("int32_t" as *byte) as &byte;
+        }
+        const struct_decl: &ASTNode = find_struct_decl_from_type_c(codegen, base_type_c);
+        if struct_decl == null {
+            return ("int32_t" as *byte) as &byte;
+        }
+        const field_type: &ASTNode = c99_find_struct_field_type(codegen, struct_decl, field_name);
+        if field_type == null {
+            return ("int32_t" as *byte) as &byte;
+        }
+        return c99_type_to_c(codegen, field_type);
     } else {
         return ("int32_t" as *byte) as &byte;
     }

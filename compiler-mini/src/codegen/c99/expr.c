@@ -455,6 +455,17 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 fputc(']', codegen->output);
                 break;
             }
+            if (array->type == AST_MEMBER_ACCESS) {
+                const char *type_c = get_c_type_of_expr(codegen, array);
+                if (type_c && strstr(type_c, "uya_slice_")) {
+                    fputc('(', codegen->output);
+                    gen_expr(codegen, array);
+                    fputs(").ptr[", codegen->output);
+                    gen_expr(codegen, index);
+                    fputc(']', codegen->output);
+                    break;
+                }
+            }
             if (array->type == AST_IDENTIFIER) {
                 const char *type_c = get_identifier_type_c(codegen, array->data.identifier.name);
                 if (type_c && strstr(type_c, "uya_slice_")) {
@@ -747,6 +758,14 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 gen_expr(codegen, array);
                 fputs(").len", codegen->output);
                 break;
+            }
+            if (array->type == AST_MEMBER_ACCESS) {
+                const char *type_c = get_c_type_of_expr(codegen, array);
+                if (type_c && strstr(type_c, "uya_slice_")) {
+                    gen_expr(codegen, array);
+                    fputs(".len", codegen->output);
+                    break;
+                }
             }
             if (array->type == AST_IDENTIFIER) {
                 const char *var_name = array->data.identifier.name;

@@ -100,12 +100,12 @@
 
 - [x] **切片类型**：`&[T]`、`&[T: N]`，胖指针（ptr+len），规范 uya.md §2、§4
 - [x] **切片语法**：`base[start:len]`（C 实现：arr[start:len]、slice[start:len]；负索引待扩展），规范 uya.md §4
-- [ ] **结构体切片字段**：结构体含 `&[T]` 字段（类型与 Codegen 已支持，测试待补）
+- [x] **结构体切片字段**：结构体含 `&[T]` 字段（类型与 Codegen 已支持，测试 test_struct_slice_field.uya 已补）
 
 **涉及**：类型系统、Parser（切片表达式）、Checker、Codegen（胖指针布局）、uya-src。
 
-**C 实现（已完成）**：AST_TYPE_SLICE、AST_SLICE_EXPR；Parser 解析 `&[T]`/`&[T: N]` 与 `base[start:len]`；Checker TYPE_SLICE、type_equals、@len(slice)；Codegen 切片结构体 `struct uya_slice_X { T* ptr; size_t len; }`、切片复合字面量、slice.ptr[i]、@len(slice).len。测试 test_slice.uya 通过 `--c99`。
-**uya-src 已同步**：ast.uya（AST_SLICE_EXPR、AST_TYPE_SLICE 及字段）；parser.uya（&[T]/&[T: N] 类型解析，base[start:len] 表达式）；checker.uya（TYPE_SLICE、type_equals、type_from_ast、checker_infer_type、@len(slice)、array_access 切片）；codegen（types/expr/main/internal/utils：c99_type_to_c 切片、emit_pending_slice_structs、get_slice_struct_type_c、AST_SLICE_EXPR 生成、array_access/len 切片、collect_slice_types_from_node）。test_slice.uya 通过 `--uya --c99`，自举对比 `--c99 -b` 一致。
+**C 实现（已完成）**：AST_TYPE_SLICE、AST_SLICE_EXPR；Parser 解析 `&[T]`/`&[T: N]` 与 `base[start:len]`；Checker TYPE_SLICE、type_equals、@len(slice)；Codegen 切片结构体 `struct uya_slice_X { T* ptr; size_t len; }`、切片复合字面量、slice.ptr[i]、@len(slice).len。结构体切片字段：main.c 中 collect_slice_types_from_node 增加 AST_STRUCT_DECL 分支、emit 顺序调整为 slice 先于用户结构体；types.c 中 get_c_type_of_expr 支持 AST_MEMBER_ACCESS；expr.c 中 @len/数组访问对成员访问切片字段生成 .len/.ptr[i]。测试 test_slice.uya、test_struct_slice_field.uya 通过 `--c99`。
+**uya-src 已同步**：ast.uya（AST_SLICE_EXPR、AST_TYPE_SLICE 及字段）；parser.uya（&[T]/&[T: N] 类型解析，base[start:len] 表达式）；checker.uya（TYPE_SLICE、type_equals、type_from_ast、checker_infer_type、@len(slice)、array_access 切片）；codegen（types/expr/main/structs/expr：collect AST_STRUCT_DECL 切片、emit 顺序、find_struct_decl_from_type_c、get_c_type_of_expr MEMBER_ACCESS、@len/array_access 成员访问切片）。test_slice.uya、test_struct_slice_field.uya 通过 `--uya --c99`，自举对比 `--c99 -b` 一致。
 
 ---
 

@@ -1,0 +1,56 @@
+// 测试结构体含 &[T] 切片字段：声明、初始化、字段访问、@len、@sizeof、@alignof
+// 返回 0 表示通过
+
+struct Data {
+    values: &[i32],
+    tag: i32,
+}
+
+fn main() i32 {
+    var arr: [i32: 5] = [1, 2, 3, 4, 5];
+    const s: &[i32] = arr[0:3];
+
+    // 结构体初始化：切片字段
+    var data: Data = Data{ values: s, tag: 42 };
+    if data.tag != 42 {
+        return 1;
+    }
+    if @len(data.values) != 3 {
+        return 2;
+    }
+    if data.values[0] != 1 || data.values[2] != 3 {
+        return 3;
+    }
+
+    // 修改原数组，通过结构体切片字段访问
+    arr[1] = 99;
+    if data.values[1] != 99 {
+        return 4;
+    }
+
+    // @sizeof：结构体类型、变量、切片字段
+    if @sizeof(Data) != @sizeof(data) {
+        return 5;
+    }
+    if @sizeof(data.values) != @sizeof(&[i32]) {
+        return 6;
+    }
+
+    // @alignof：结构体类型、变量、切片类型
+    if @alignof(Data) != @alignof(data) {
+        return 7;
+    }
+    if @alignof(s) != @alignof(&[i32]) {
+        return 8;
+    }
+
+    // @sizeof &[T]、@alignof &[T] 常数比较（胖指针 ptr+len = 2*usize，对齐=usize）
+    if @sizeof(&[i32]) != @sizeof(usize) * 2 {
+        return 9;
+    }
+    if @alignof(&[i32]) != @alignof(usize) {
+        return 10;
+    }
+
+    return 0;
+}

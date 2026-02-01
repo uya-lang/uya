@@ -78,6 +78,18 @@ static void collect_slice_types_from_node(C99CodeGenerator *codegen, ASTNode *no
         collect_slice_types_from_node(codegen, node->data.slice_expr.len_expr);
         return;
     }
+    if (node->type == AST_STRUCT_DECL && node->data.struct_decl.fields) {
+        for (int i = 0; i < node->data.struct_decl.field_count; i++) {
+            ASTNode *field = node->data.struct_decl.fields[i];
+            if (field && field->type == AST_VAR_DECL && field->data.var_decl.type) {
+                if (field->data.var_decl.type->type == AST_TYPE_SLICE) {
+                    (void)c99_type_to_c(codegen, field->data.var_decl.type);
+                }
+                collect_slice_types_from_node(codegen, field->data.var_decl.type);
+            }
+        }
+        return;
+    }
     /* 其他表达式节点：递归子节点 */
     switch (node->type) {
         case AST_BINARY_EXPR:
@@ -214,7 +226,16 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
         }
     }
     
-    // 第六步：生成所有结构体定义（在枚举之后）
+    // 第六步 a：收集所有使用的切片类型（含结构体字段中的 &[T]）
+    for (int i = 0; i < decl_count; i++) {
+        collect_slice_types_from_node(codegen, decls[i]);
+    }
+    // 第六步 b：生成切片结构体（&[T] -> struct uya_slice_X），必须在用户结构体之前
+    emit_pending_slice_structs(codegen);
+    if (codegen->slice_struct_count > 0) {
+        fputs("\n", codegen->output);
+    }
+    // 第六步 c：生成所有结构体定义（在切片结构体之后，因为结构体可能含切片字段）
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) continue;
@@ -222,15 +243,6 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
             gen_struct_definition(codegen, decl);
             fputs("\n", codegen->output);
         }
-    }
-    // 第六步 a：收集所有使用的切片类型（递归遍历 AST，含函数体内的 var_decl）
-    for (int i = 0; i < decl_count; i++) {
-        collect_slice_types_from_node(codegen, decls[i]);
-    }
-    // 第六步 b：生成切片结构体（&[T] -> struct uya_slice_X）
-    emit_pending_slice_structs(codegen);
-    if (codegen->slice_struct_count > 0) {
-        fputs("\n", codegen->output);
     }
 
     // 第七步：生成所有函数的前向声明（解决相互递归调用）

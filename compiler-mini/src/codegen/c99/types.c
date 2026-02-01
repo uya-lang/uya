@@ -854,7 +854,25 @@ const char *get_c_type_of_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         }
         case AST_SLICE_EXPR:
             return get_slice_struct_type_c(codegen, expr);
-        case AST_MEMBER_ACCESS:
+        case AST_MEMBER_ACCESS: {
+            ASTNode *object = expr->data.member_access.object;
+            const char *field_name = expr->data.member_access.field_name;
+            if (!object || !field_name) return "int32_t";
+            const char *base_type_c = NULL;
+            if (object->type == AST_IDENTIFIER) {
+                base_type_c = get_identifier_type_c(codegen, object->data.identifier.name);
+            } else if (object->type == AST_MEMBER_ACCESS) {
+                base_type_c = get_c_type_of_expr(codegen, object);
+            } else if (object->type == AST_ARRAY_ACCESS) {
+                base_type_c = get_c_type_of_expr(codegen, object);
+            }
+            if (!base_type_c) return "int32_t";
+            ASTNode *struct_decl = find_struct_decl_from_type_c(codegen, base_type_c);
+            if (!struct_decl) return "int32_t";
+            ASTNode *field_type = find_struct_field_type(codegen, struct_decl, field_name);
+            if (!field_type) return "int32_t";
+            return c99_type_to_c(codegen, field_type);
+        }
         case AST_ARRAY_ACCESS:
         case AST_CALL_EXPR:
         default:

@@ -89,6 +89,20 @@ fn collect_slice_types_from_node(codegen: &C99CodeGenerator, node: &ASTNode) voi
         collect_slice_types_from_node(codegen, node.slice_expr_len_expr);
         return;
     }
+    if node.type == ASTNodeType.AST_STRUCT_DECL && node.struct_decl_fields != null {
+        var i: i32 = 0;
+        while i < node.struct_decl_field_count {
+            const field: &ASTNode = node.struct_decl_fields[i];
+            if field != null && field.type == ASTNodeType.AST_VAR_DECL && field.var_decl_type != null {
+                if field.var_decl_type.type == ASTNodeType.AST_TYPE_SLICE {
+                    c99_type_to_c(codegen, field.var_decl_type);
+                }
+                collect_slice_types_from_node(codegen, field.var_decl_type);
+            }
+            i = i + 1;
+        }
+        return;
+    }
     if node.type == ASTNodeType.AST_BINARY_EXPR {
         collect_slice_types_from_node(codegen, node.binary_expr_left);
         collect_slice_types_from_node(codegen, node.binary_expr_right);
@@ -231,7 +245,18 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         i = i + 1;
     }
     
-    // 第七步：生成所有结构体定义（在枚举之后）
+    // 第六步 a：收集所有使用的切片类型（含结构体字段中的 &[T]）
+    i = 0;
+    while i < decl_count {
+        collect_slice_types_from_node(codegen, ast.program_decls[i]);
+        i = i + 1;
+    }
+    // 第六步 b：生成切片结构体（&[T] -> struct uya_slice_X），必须在用户结构体之前
+    emit_pending_slice_structs(codegen);
+    if codegen.slice_struct_count > 0 {
+        fputs("\n" as *byte, codegen.output as *void);
+    }
+    // 第六步 c：生成所有结构体定义（在切片结构体之后，因为结构体可能含切片字段）
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
@@ -240,18 +265,6 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
             fputs("\n" as *byte, codegen.output as *void);
         }
         i = i + 1;
-    }
-    
-    // 第七步 a：收集所有使用的切片类型（递归遍历 AST）
-    i = 0;
-    while i < decl_count {
-        collect_slice_types_from_node(codegen, ast.program_decls[i]);
-        i = i + 1;
-    }
-    // 第七步 b：生成切片结构体（&[T] -> struct uya_slice_X）
-    emit_pending_slice_structs(codegen);
-    if codegen.slice_struct_count > 0 {
-        fputs("\n" as *byte, codegen.output as *void);
     }
     
     // 第八步：生成所有函数的前向声明（解决相互递归调用）
