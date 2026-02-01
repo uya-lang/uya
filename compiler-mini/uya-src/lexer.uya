@@ -73,6 +73,7 @@ enum TokenType {
     TOKEN_COMMA,
     TOKEN_ASSIGN,
     TOKEN_DOT,
+    TOKEN_DOT_DOT,   // ..（范围，用于 for start..end）
     TOKEN_COLON,
     TOKEN_ELLIPSIS,
 }
@@ -309,7 +310,7 @@ fn read_number(lexer: &Lexer, arena: &Arena) &Token {
             break;
         }
     }
-    if peek_char(lexer, 0) == 46 {
+    if peek_char(lexer, 0) == 46 && peek_char(lexer, 1) != 46 {
         advance_char(lexer);
         is_float = 1;
         while lexer.position < lexer.buffer_size {
@@ -723,6 +724,10 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
             advance_char(lexer);
             advance_char(lexer);
             return make_token(arena, TokenType.TOKEN_ELLIPSIS, "..." as &byte, line, column);
+        }
+        if peek_char(lexer, 0) == 46 {
+            advance_char(lexer);
+            return make_token(arena, TokenType.TOKEN_DOT_DOT, ".." as &byte, line, column);
         }
         return make_token(arena, TokenType.TOKEN_DOT, "." as &byte, line, column);
     }

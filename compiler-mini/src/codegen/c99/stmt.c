@@ -701,20 +701,61 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             break;
         }
         case AST_FOR_STMT: {
-            // Uya Mini 的 for 循环是数组遍历：for item in array { ... }
+            ASTNode *body = stmt->data.for_stmt.body;
+            if (stmt->data.for_stmt.is_range) {
+                // 整数范围：for start..end |v| { } 或 for start..end { }
+                ASTNode *start_expr = stmt->data.for_stmt.range_start;
+                ASTNode *end_expr = stmt->data.for_stmt.range_end;
+                const char *range_type_c = get_c_type_of_expr(codegen, start_expr);
+                if (!range_type_c) range_type_c = "int32_t";
+                c99_emit(codegen, "{\n");
+                codegen->indent_level++;
+                c99_emit(codegen, "// for range\n");
+                if (end_expr != NULL) {
+                    if (stmt->data.for_stmt.var_name != NULL) {
+                        const char *var_name = get_safe_c_identifier(codegen, stmt->data.for_stmt.var_name);
+                        c99_emit(codegen, "%s %s = ", range_type_c, var_name);
+                        gen_expr(codegen, start_expr);
+                        c99_emit(codegen, ";\n");
+                        c99_emit(codegen, "%s _uya_end = ", range_type_c);
+                        gen_expr(codegen, end_expr);
+                        c99_emit(codegen, ";\n");
+                        c99_emit(codegen, "for (; %s < _uya_end; %s++) {\n", var_name, var_name);
+                    } else {
+                        c99_emit(codegen, "%s _uya_s = ", range_type_c);
+                        gen_expr(codegen, start_expr);
+                        c99_emit(codegen, ";\n");
+                        c99_emit(codegen, "%s _uya_e = ", range_type_c);
+                        gen_expr(codegen, end_expr);
+                        c99_emit(codegen, ";\n");
+                        c99_emit(codegen, "for (%s _uya_i = _uya_s; _uya_i < _uya_e; _uya_i++) {\n", range_type_c);
+                    }
+                } else {
+                    /* start.. 无限范围：v = start; while(1) { body }，由 break/return 终止 */
+                    const char *vname = get_safe_c_identifier(codegen, stmt->data.for_stmt.var_name);
+                    c99_emit(codegen, "%s %s = ", range_type_c, vname);
+                    gen_expr(codegen, start_expr);
+                    c99_emit(codegen, ";\n");
+                    c99_emit(codegen, "while (1) {\n");
+                }
+                codegen->indent_level++;
+                gen_stmt(codegen, body);
+                codegen->indent_level--;
+                c99_emit(codegen, "}\n");
+                codegen->indent_level--;
+                c99_emit(codegen, "}\n");
+                break;
+            }
+            // 数组遍历形式：for expr | ID | { ... }
             ASTNode *array = stmt->data.for_stmt.array;
             const char *var_name = get_safe_c_identifier(codegen, stmt->data.for_stmt.var_name);
             int is_ref = stmt->data.for_stmt.is_ref;
-            ASTNode *body = stmt->data.for_stmt.body;
             
-            // 获取数组元素类型
             const char *elem_type_c = get_array_element_type(codegen, array);
             if (!elem_type_c) {
-                // 如果无法推断类型，使用int作为默认类型
                 elem_type_c = "int32_t";
             }
             
-            // 生成临时变量保存数组和长度
             c99_emit(codegen, "{\n");
             codegen->indent_level++;
             c99_emit(codegen, "// for loop - array traversal\n");

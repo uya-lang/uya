@@ -88,6 +88,7 @@ typedef enum {
     TOKEN_COMMA,        // ,
     TOKEN_ASSIGN,       // =
     TOKEN_DOT,          // .
+    TOKEN_DOT_DOT,      // ..（范围，用于 for start..end）
     TOKEN_COLON,        // :
     TOKEN_ELLIPSIS,     // ...（可变参数，用于 extern 函数声明）
 } TokenType;

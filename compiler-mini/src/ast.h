@@ -309,11 +309,14 @@ struct ASTNode {
             struct ASTNode *body;            // 循环体（AST_BLOCK 节点）
         } while_stmt;
         
-        // for 语句（数组遍历）
+        // for 语句（数组遍历或整数范围）
         struct {
-            struct ASTNode *array;           // 数组表达式
-            const char *var_name;            // 循环变量名称（存储在 Arena 中）
+            struct ASTNode *array;           // 数组表达式（非范围形式时）
+            const char *var_name;            // 循环变量名称（可为 NULL，表示丢弃形式）
             int is_ref;                      // 是否为引用迭代（1 表示引用迭代，0 表示值迭代）
+            int is_range;                    // 1 表示整数范围形式（for start..end |v| 或 for start..end { }）
+            struct ASTNode *range_start;     // 范围起始表达式（is_range 时）
+            struct ASTNode *range_end;       // 范围结束表达式（is_range 时，NULL 表示 start.. 无限）
             struct ASTNode *body;            // 循环体（AST_BLOCK 节点）
         } for_stmt;
         

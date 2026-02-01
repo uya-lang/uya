@@ -217,6 +217,9 @@ struct ASTNode {
     for_stmt_array: &ASTNode,
     for_stmt_var_name: &byte,
     for_stmt_is_ref: i32,
+    for_stmt_is_range: i32,
+    for_stmt_range_start: &ASTNode,
+    for_stmt_range_end: &ASTNode,
     for_stmt_body: &ASTNode,
     // return_stmt
     return_stmt_expr: &ASTNode,
@@ -342,6 +345,9 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.for_stmt_array = null;
     node.for_stmt_var_name = null;
     node.for_stmt_is_ref = 0;
+    node.for_stmt_is_range = 0;
+    node.for_stmt_range_start = null;
+    node.for_stmt_range_end = null;
     node.for_stmt_body = null;
     node.return_stmt_expr = null;
     node.defer_stmt_body = null;

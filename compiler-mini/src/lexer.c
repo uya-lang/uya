@@ -210,8 +210,8 @@ static Token *read_number(Lexer *lexer, Arena *arena) {
         }
     }
     
-    // 检查小数点
-    if (peek_char(lexer, 0) == '.') {
+    // 检查小数点（若下一个是 '.' 则为范围 ..，不当作小数点）
+    if (peek_char(lexer, 0) == '.' && peek_char(lexer, 1) != '.') {
         advance_char(lexer);
         is_float = 1;
         while (lexer->position < lexer->buffer_size) {
@@ -545,6 +545,11 @@ top_of_token:
                 advance_char(lexer);  // 消费第二个 .
                 advance_char(lexer);  // 消费第三个 .
                 return make_token(arena, TOKEN_ELLIPSIS, "...", line, column);
+            }
+            // 检查是否为 ..（范围，用于 for start..end）
+            if (peek_char(lexer, 0) == '.') {
+                advance_char(lexer);
+                return make_token(arena, TOKEN_DOT_DOT, "..", line, column);
             }
             return make_token(arena, TOKEN_DOT, ".", line, column);
         case ':':

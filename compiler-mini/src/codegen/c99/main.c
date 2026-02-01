@@ -46,7 +46,13 @@ static void collect_slice_types_from_node(C99CodeGenerator *codegen, ASTNode *no
         return;
     }
     if (node->type == AST_FOR_STMT) {
-        collect_slice_types_from_node(codegen, node->data.for_stmt.array);
+        if (node->data.for_stmt.is_range) {
+            collect_slice_types_from_node(codegen, node->data.for_stmt.range_start);
+            if (node->data.for_stmt.range_end)
+                collect_slice_types_from_node(codegen, node->data.for_stmt.range_end);
+        } else {
+            collect_slice_types_from_node(codegen, node->data.for_stmt.array);
+        }
         collect_slice_types_from_node(codegen, node->data.for_stmt.body);
         return;
     }

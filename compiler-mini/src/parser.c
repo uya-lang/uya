@@ -3448,8 +3448,7 @@ ASTNode *parser_parse_statement(Parser *parser) {
     }
     
     if (parser_match(parser, TOKEN_FOR)) {
-        // 解析 for 语句（数组遍历）
-        // 语法：for expr | ID | { statements } 或 for expr | &ID | { statements }
+        // 解析 for 语句：数组遍历 或 整数范围（for start..end |v| / for start..end { }）
         parser_consume(parser);  // 消费 'for'
         
         ASTNode *stmt = ast_new_node(AST_FOR_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
@@ -3457,52 +3456,75 @@ ASTNode *parser_parse_statement(Parser *parser) {
             return NULL;
         }
         
-        // 解析数组表达式（仅解析到 xor_expr，不包含 |，以便 for expr | id | 中的 | 作为分隔符）
-        ASTNode *array_expr = parser_parse_xor_expr(parser);
-        if (array_expr == NULL) {
-            return NULL;
-        }
-        stmt->data.for_stmt.array = array_expr;
-        
-        // 期望 '|'
-        if (!parser_expect(parser, TOKEN_PIPE)) {
+        // 解析第一个表达式（数组或范围起始）
+        ASTNode *first_expr = parser_parse_xor_expr(parser);
+        if (first_expr == NULL) {
             return NULL;
         }
         
-        // 检查是否为引用迭代（&ID）还是值迭代（ID）
-        int is_ref = 0;
-        if (parser_match(parser, TOKEN_AMPERSAND)) {
-            // 引用迭代：for expr | &ID | { ... }
-            parser_consume(parser);  // 消费 '&'
-            is_ref = 1;
+        if (parser->current_token != NULL && parser->current_token->type == TOKEN_DOT_DOT) {
+            // 整数范围形式：for start..end [|v|] { }
+            stmt->data.for_stmt.is_range = 1;
+            stmt->data.for_stmt.array = NULL;
+            stmt->data.for_stmt.range_start = first_expr;
+            parser_consume(parser);  // 消费 '..'
+            if (parser->current_token != NULL && parser->current_token->type != TOKEN_PIPE && parser->current_token->type != TOKEN_LEFT_BRACE) {
+                ASTNode *end_expr = parser_parse_xor_expr(parser);
+                if (end_expr == NULL) {
+                    return NULL;
+                }
+                stmt->data.for_stmt.range_end = end_expr;
+            } else {
+                stmt->data.for_stmt.range_end = NULL;  /* start.. 无限范围 */
+            }
+            stmt->data.for_stmt.is_ref = 0;
+            if (parser->current_token != NULL && parser->current_token->type == TOKEN_PIPE) {
+                parser_consume(parser);  // 消费 '|'
+                if (parser_match(parser, TOKEN_AMPERSAND)) {
+                    parser_consume(parser);
+                    stmt->data.for_stmt.is_ref = 1;
+                }
+                if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                    return NULL;
+                }
+                stmt->data.for_stmt.var_name = arena_strdup(parser->arena, parser->current_token->value);
+                parser_consume(parser);
+                if (!parser_expect(parser, TOKEN_PIPE)) {
+                    return NULL;
+                }
+            } else {
+                stmt->data.for_stmt.var_name = NULL;  /* 丢弃形式 */
+            }
+        } else {
+            // 数组遍历形式：for expr | ID | { } 或 for expr | &ID | { }
+            stmt->data.for_stmt.is_range = 0;
+            stmt->data.for_stmt.range_start = NULL;
+            stmt->data.for_stmt.range_end = NULL;
+            stmt->data.for_stmt.array = first_expr;
+            if (!parser_expect(parser, TOKEN_PIPE)) {
+                return NULL;
+            }
+            int is_ref = 0;
+            if (parser_match(parser, TOKEN_AMPERSAND)) {
+                parser_consume(parser);
+                is_ref = 1;
+            }
+            if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                return NULL;
+            }
+            stmt->data.for_stmt.var_name = arena_strdup(parser->arena, parser->current_token->value);
+            parser_consume(parser);
+            if (!parser_expect(parser, TOKEN_PIPE)) {
+                return NULL;
+            }
+            stmt->data.for_stmt.is_ref = is_ref;
         }
         
-        // 期望循环变量名称
-        if (!parser_match(parser, TOKEN_IDENTIFIER)) {
-            return NULL;
-        }
-        
-        const char *var_name = arena_strdup(parser->arena, parser->current_token->value);
-        if (var_name == NULL) {
-            return NULL;
-        }
-        stmt->data.for_stmt.var_name = var_name;
-        parser_consume(parser);  // 消费变量名称
-        
-        // 期望 '|'
-        if (!parser_expect(parser, TOKEN_PIPE)) {
-            return NULL;
-        }
-        
-        stmt->data.for_stmt.is_ref = is_ref;
-        
-        // 解析循环体（代码块）
         ASTNode *body = parser_parse_block(parser);
         if (body == NULL) {
             return NULL;
         }
         stmt->data.for_stmt.body = body;
-        
         return stmt;
     }
     

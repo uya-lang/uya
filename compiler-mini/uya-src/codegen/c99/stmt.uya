@@ -917,20 +917,69 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         codegen.indent_level = codegen.indent_level - 1;
         c99_emit(codegen, "}\n" as *byte);
     } else if stmt.type == ASTNodeType.AST_FOR_STMT {
-        // Uya Mini 的 for 循环是数组遍历：for item in array { ... }
+        const body2: &ASTNode = stmt.for_stmt_body;
+        if stmt.for_stmt_is_range != 0 {
+            const start_expr: &ASTNode = stmt.for_stmt_range_start;
+            const end_expr: &ASTNode = stmt.for_stmt_range_end;
+            var range_type_c: &byte = get_c_type_of_expr(codegen, start_expr);
+            if range_type_c == null {
+                range_type_c = "int32_t" as *byte;
+            }
+            c99_emit_indent(codegen);
+            fputs("{\n" as *byte, codegen.output as *void);
+            codegen.indent_level = codegen.indent_level + 1;
+            c99_emit_indent(codegen);
+            fputs("// for range\n" as *byte, codegen.output as *void);
+            if end_expr != null {
+                if stmt.for_stmt_var_name != null {
+                    const var_name_range: &byte = get_safe_c_identifier(codegen, stmt.for_stmt_var_name);
+                    c99_emit_indent(codegen);
+                    fprintf(codegen.output as *void, "%s %s = " as *byte, range_type_c as *byte, var_name_range as *byte);
+                    gen_expr(codegen, start_expr);
+                    fputs(";\n" as *byte, codegen.output as *void);
+                    c99_emit_indent(codegen);
+                    fprintf(codegen.output as *void, "%s _uya_end = " as *byte, range_type_c as *byte);
+                    gen_expr(codegen, end_expr);
+                    fputs(";\n" as *byte, codegen.output as *void);
+                    c99_emit_indent(codegen);
+                    fprintf(codegen.output as *void, "for (; %s < _uya_end; %s++) {\n" as *byte, var_name_range as *byte, var_name_range as *byte);
+                } else {
+                    c99_emit_indent(codegen);
+                    fprintf(codegen.output as *void, "%s _uya_s = " as *byte, range_type_c as *byte);
+                    gen_expr(codegen, start_expr);
+                    fputs(";\n" as *byte, codegen.output as *void);
+                    c99_emit_indent(codegen);
+                    fprintf(codegen.output as *void, "%s _uya_e = " as *byte, range_type_c as *byte);
+                    gen_expr(codegen, end_expr);
+                    fputs(";\n" as *byte, codegen.output as *void);
+                    c99_emit_indent(codegen);
+                    fprintf(codegen.output as *void, "for (%s _uya_i = _uya_s; _uya_i < _uya_e; _uya_i++) {\n" as *byte, range_type_c as *byte);
+                }
+            } else {
+                const vname: &byte = get_safe_c_identifier(codegen, stmt.for_stmt_var_name);
+                c99_emit_indent(codegen);
+                fprintf(codegen.output as *void, "%s %s = " as *byte, range_type_c as *byte, vname as *byte);
+                gen_expr(codegen, start_expr);
+                fputs(";\n" as *byte, codegen.output as *void);
+                c99_emit_indent(codegen);
+                fputs("while (1) {\n" as *byte, codegen.output as *void);
+            }
+            codegen.indent_level = codegen.indent_level + 1;
+            gen_stmt(codegen, body2);
+            codegen.indent_level = codegen.indent_level - 1;
+            c99_emit(codegen, "}\n" as *byte);
+            codegen.indent_level = codegen.indent_level - 1;
+            c99_emit(codegen, "}\n" as *byte);
+        } else {
         const array: &ASTNode = stmt.for_stmt_array;
         const var_name2: &byte = get_safe_c_identifier(codegen, stmt.for_stmt_var_name);
         const is_ref: i32 = stmt.for_stmt_is_ref;
-        const body2: &ASTNode = stmt.for_stmt_body;
         
-        // 获取数组元素类型
         var elem_type_c: &byte = get_array_element_type(codegen, array);
         if elem_type_c == null {
-            // 如果无法推断类型，使用int作为默认类型
             elem_type_c = ("int32_t" as *byte) as &byte;
         }
         
-        // 生成临时变量保存数组和长度
         c99_emit_indent(codegen);
         fputs("{\n" as *byte, codegen.output as *void);
         codegen.indent_level = codegen.indent_level + 1;
@@ -1007,6 +1056,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         c99_emit(codegen, "}\n" as *byte);
         codegen.indent_level = codegen.indent_level - 1;
         c99_emit(codegen, "}\n" as *byte);
+        }
     } else if stmt.type == ASTNodeType.AST_BREAK_STMT {
         emit_defer_cleanup(codegen, 0);
         c99_emit(codegen, "break;\n" as *byte);

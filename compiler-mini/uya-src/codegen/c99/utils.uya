@@ -607,9 +607,15 @@ fn collect_string_constants_from_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode
         collect_string_constants_from_expr(codegen, condition);
         collect_string_constants_from_stmt(codegen, body);
     } else if stmt.type == ASTNodeType.AST_FOR_STMT {
-        const array: &ASTNode = stmt.for_stmt_array;
         const body: &ASTNode = stmt.for_stmt_body;
-        collect_string_constants_from_expr(codegen, array);
+        if stmt.for_stmt_is_range != 0 {
+            collect_string_constants_from_expr(codegen, stmt.for_stmt_range_start);
+            if stmt.for_stmt_range_end != null {
+                collect_string_constants_from_expr(codegen, stmt.for_stmt_range_end);
+            }
+        } else {
+            collect_string_constants_from_expr(codegen, stmt.for_stmt_array);
+        }
         collect_string_constants_from_stmt(codegen, body);
     } else if stmt.type == ASTNodeType.AST_BREAK_STMT || stmt.type == ASTNodeType.AST_CONTINUE_STMT {
         // 不包含表达式

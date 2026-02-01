@@ -16,7 +16,7 @@
 | 3 | defer / errdefer | [x] |
 | 4 | 切片 | [x] |
 | 5 | match 表达式 | [x] |
-| 6 | for 扩展 | [ ] |
+| 6 | for 扩展 | [x]（整数范围已实现；迭代器依赖阶段 7 接口） |
 | 7 | 接口 | [ ] |
 | 8 | 结构体方法 + drop + 移动语义 | [ ] |
 | 9 | 模块系统 | [ ] |
@@ -123,10 +123,12 @@
 
 ## 6. for 扩展
 
-- [ ] **整数范围**：`for start..end |v|`、`for start.. |v|`、可丢弃元素形式，规范 uya.md §8
-- [ ] **迭代器**：可迭代对象（接口）、`for obj |v|`、`for obj |&v|`、索引形式，规范 uya.md §6.12、§8
+- [x] **整数范围**：`for start..end |v|`、`for start.. |v|`、可丢弃元素形式 `for start..end { }`，规范 uya.md §8  
+  **C 实现**：Lexer（TOKEN_DOT_DOT、read_number 遇 `..` 不当作小数点）、AST（for_stmt.is_range/range_start/range_end）、Parser（识别 first_expr 后 TOKEN_DOT_DOT 为范围形式）、Checker（范围表达式须整数、循环变量类型）、Codegen（有界范围展开为 for(; v < _uya_end; v++)、丢弃形式用 _uya_i、无限范围 while(1)）。测试 test_for_range.uya 通过 `--c99`。
+- [ ] **迭代器**：可迭代对象（接口）、`for obj |v|`、`for obj |&v|`、索引形式，规范 uya.md §6.12、§8（依赖阶段 7 接口）
 
-**涉及**：Parser（range、迭代器）、Checker、Codegen、迭代器接口与 for 脱糖，uya-src。
+**涉及**：Parser（range、迭代器）、Checker、Codegen、迭代器接口与 for 脱糖，uya-src。  
+**uya-src 已同步**：lexer.uya（TOKEN_DOT_DOT、`.` 与 read_number）、ast.uya（for_stmt_is_range/range_start/range_end）、parser.uya（范围解析）、checker.uya（is_range 分支）、codegen/c99/stmt.uya（范围代码生成）、main.uya 与 utils.uya（collect）。test_for_range.uya、test_for_loop.uya 通过 `--uya --c99`。**自举对比（--c99 -b）已通过**：main.uya 中 ARENA_BUFFER_SIZE 增至 64MB 以容纳 for 范围等 AST 自举时 Arena 需求。
 
 ---
 

@@ -1,0 +1,34 @@
+// 测试 for 整数范围：for start..end |v|、for start..end { }（丢弃形式）
+
+fn main() i32 {
+    // for start..end |v|：迭代 [start, end)，v 从 start 到 end-1
+    var sum: i32 = 0;
+    for 0..5 |i| {
+        sum = sum + i;
+    }
+    // sum = 0+1+2+3+4 = 10
+    if sum != 10 {
+        return 1;
+    }
+
+    // 丢弃形式：for start..end { }，不绑定变量，只执行 (end - start) 次
+    var count: i32 = 0;
+    for 0..3 {
+        count = count + 1;
+    }
+    if count != 3 {
+        return 2;
+    }
+
+    // 带变量，使用循环变量参与计算
+    var prod: i32 = 1;
+    for 1..4 |k| {
+        prod = prod * k;
+    }
+    // prod = 1*1*2*3 = 6
+    if prod != 6 {
+        return 3;
+    }
+
+    return 0;
+}

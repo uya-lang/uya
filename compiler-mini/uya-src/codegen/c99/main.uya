@@ -63,7 +63,14 @@ fn collect_slice_types_from_node(codegen: &C99CodeGenerator, node: &ASTNode) voi
         return;
     }
     if node.type == ASTNodeType.AST_FOR_STMT {
-        collect_slice_types_from_node(codegen, node.for_stmt_array);
+        if node.for_stmt_is_range != 0 {
+            collect_slice_types_from_node(codegen, node.for_stmt_range_start);
+            if node.for_stmt_range_end != null {
+                collect_slice_types_from_node(codegen, node.for_stmt_range_end);
+            }
+        } else {
+            collect_slice_types_from_node(codegen, node.for_stmt_array);
+        }
         collect_slice_types_from_node(codegen, node.for_stmt_body);
         return;
     }

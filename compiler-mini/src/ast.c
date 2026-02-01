@@ -180,6 +180,9 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.for_stmt.array = NULL;
             node->data.for_stmt.var_name = NULL;
             node->data.for_stmt.is_ref = 0;
+            node->data.for_stmt.is_range = 0;
+            node->data.for_stmt.range_start = NULL;
+            node->data.for_stmt.range_end = NULL;
             node->data.for_stmt.body = NULL;
             break;
         case AST_RETURN_STMT:

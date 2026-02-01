@@ -2788,8 +2788,43 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
         }
         
         case AST_FOR_STMT: {
-            // for 循环类型检查
-            // 1. 检查数组表达式类型（必须是数组类型）
+            if (node->data.for_stmt.is_range) {
+                // 整数范围形式：for start..end [|v|] { }
+                Type start_type = checker_infer_type(checker, node->data.for_stmt.range_start);
+                checker_check_node(checker, node->data.for_stmt.range_start);
+                if (node->data.for_stmt.range_end != NULL) {
+                    Type end_type = checker_infer_type(checker, node->data.for_stmt.range_end);
+                    checker_check_node(checker, node->data.for_stmt.range_end);
+                    if (!is_integer_type(start_type.kind) || !is_integer_type(end_type.kind)) {
+                        checker_report_error(checker, node, "for 范围表达式须为整数类型");
+                    }
+                } else {
+                    if (!is_integer_type(start_type.kind)) {
+                        checker_report_error(checker, node, "for 范围起始表达式须为整数类型");
+                    }
+                }
+                checker_enter_scope(checker);
+                checker->loop_depth++;
+                if (node->data.for_stmt.var_name != NULL) {
+                    Symbol *loop_var = (Symbol *)arena_alloc(checker->arena, sizeof(Symbol));
+                    if (loop_var != NULL) {
+                        loop_var->name = node->data.for_stmt.var_name;
+                        loop_var->type = start_type;
+                        loop_var->is_const = 0;
+                        loop_var->scope_level = checker->scope_level;
+                        loop_var->line = node->line;
+                        loop_var->column = node->column;
+                        symbol_table_insert(checker, loop_var);
+                    }
+                }
+                if (node->data.for_stmt.body != NULL) {
+                    checker_check_node(checker, node->data.for_stmt.body);
+                }
+                checker->loop_depth--;
+                checker_exit_scope(checker);
+                return 1;
+            }
+            // 数组遍历形式：检查数组表达式类型（必须是数组类型）
             Type array_type = checker_infer_type(checker, node->data.for_stmt.array);
             if (array_type.kind != TYPE_ARRAY || array_type.data.array.element_type == NULL) {
                 // 类型推断失败或不是数组类型

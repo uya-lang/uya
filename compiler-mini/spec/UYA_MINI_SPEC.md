@@ -41,7 +41,6 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 - 接口
 - 模块系统
 - 字符串插值（不支持字符串插值语法）
-- 整数范围 for 循环（仅支持数组遍历）
 
 **字符串字面量支持**（✅ 已实现）：
 - 字符串字面量类型：`*byte`（FFI 指针类型）
@@ -558,6 +557,8 @@ else_clause    = 'else' 'if' expr '{' statements '}' [ else_clause ]
 while_stmt     = 'while' expr '{' statements '}'
 for_stmt       = 'for' expr '|' ID '|' '{' statements '}'           # 值迭代（只读）
                | 'for' expr '|' '&' ID '|' '{' statements '}'        # 引用迭代（可修改）
+               | 'for' range_expr [ '|' ID '|' ] '{' statements '}'  # 整数范围（可选循环变量）
+range_expr     = expr '..' [ expr ]                                  # start..end 或 start..（无限）
 break_stmt     = 'break' ';'
 continue_stmt  = 'continue' ';'
 block_stmt     = '{' statements '}'
@@ -588,6 +589,8 @@ statements     = { statement }
   - `for expr | ID | { statements }`：值迭代（只读），遍历 expr 的元素，将每个元素赋值给 ID
   - `for expr | &ID | { statements }`：引用迭代（可修改），遍历 expr 的元素，将每个元素的引用赋值给 ID
   - expr 必须是数组类型（`[T: N]`）
+  - **整数范围**：`for start..end |v| { statements }`（迭代 [start, end)）、`for start.. |v| { statements }`（从 start 无限递增，需 break 终止）、`for start..end { statements }`（丢弃形式，不绑定变量）
+  - 范围表达式 start/end 须为整数类型；循环变量 v 类型与 start 一致；无限范围仅在有 break/return 时合法
   - 在引用迭代形式中，循环体内通过 `*ID` 访问元素值，通过 `*ID = value` 修改元素
   - 只有可变数组（`var arr`）才能使用引用迭代形式
 - break 语句：跳出当前循环（while 或 for）
