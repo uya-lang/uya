@@ -1,4 +1,4 @@
-# Uya 语言规范 0.35（完整版 · 2026-02-01）
+# Uya 语言规范 0.36（完整版 · 2026-02-01）
 
 > 零GC · 默认高级安全 · 单页纸可读完  
 > 无lifetime符号 · 无隐式控制 · 编译期证明（本函数内）
@@ -47,6 +47,14 @@
 ---
 
 ## 规范变更
+
+### 0.36（2026-02-01）
+
+- **drop 定义位置**：
+  - drop 只能在**结构体内部**或**方法块**中定义，禁止顶层 `fn drop(self: T) void`。
+  - 与「不引入函数重载」的设计一致；每个类型的 drop 通过类型命名空间（结构体/方法块）区分。
+  - 结构体：`struct S { fn drop(self: S) void { ... } }` 或 `S { fn drop(self: S) void { ... } }`。
+  - 联合体同理：在联合体内部或方法块中定义 drop。
 
 ### 0.35（2026-02-01）
 
@@ -857,10 +865,12 @@ File {
     }
 }
 
-// ✅ 可以有 drop（RAII 自动资源管理）
-fn drop(self: File) void {
-    extern close(fd: i32) i32;
-    close(self.fd);
+// ✅ 可以有 drop（RAII 自动资源管理），只能在结构体内部或方法块中定义
+File {
+    fn drop(self: File) void {
+        extern close(fd: i32) i32;
+        close(self.fd);
+    }
 }
 
 // ✅ 可以实现接口（在结构体定义时声明接口）
@@ -1425,7 +1435,7 @@ fn move_example() void {
 
 ### 4.5.10 drop 机制
 
-联合体支持 `drop` 函数，仅对当前活跃变体调用清理：
+联合体支持 `drop` 函数，仅对当前活跃变体调用清理。drop 只能在联合体内部或方法块中定义：
 
 ```uya
 union FileOrBuffer {
@@ -1433,14 +1443,16 @@ union FileOrBuffer {
     buffer: [byte: 1024]  // 无 drop 函数
 }
 
-fn drop(self: FileOrBuffer) void {
-    match self {
-        .file(f) => {
-            // 调用 File 的 drop
-            drop(f);
-        },
-        .buffer(_) => {
-            // 缓冲区无需清理
+FileOrBuffer {
+    fn drop(self: FileOrBuffer) void {
+        match self {
+            .file(f) => {
+                // 调用 File 的 drop
+                drop(f);
+            },
+            .buffer(_) => {
+                // 缓冲区无需清理
+            }
         }
     }
 }
@@ -2974,11 +2986,11 @@ Uya 提供两种类型转换语法：
    - 然后 drop 数组本身（数组本身的 drop 是空函数，但会调用元素的 drop）
    - 如果数组元素类型有自定义 drop，会调用元素的 drop；如果元素类型是基本类型，drop 是空函数
 5. **用户自定义 drop**：`fn drop(self: T) void { ... }`
-   - 允许用户为自定义类型定义清理逻辑
-   - 实现真正的 RAII 模式（文件自动关闭、内存自动释放等）
-   - 每个类型只能有一个 drop 函数
-   - 参数必须是 `self: T`（按值传递），返回类型必须是 `void`
-   - 递归调用：结构体的 drop 会先调用字段的 drop，再调用自身的 drop
+   - **定义位置**：只能在**结构体内部**或**方法块**中定义，禁止顶层 `fn drop(self: T) void`（与不引入函数重载的设计一致）。
+   - 允许用户为自定义类型定义清理逻辑，实现真正的 RAII 模式（文件自动关闭、内存自动释放等）。
+   - 每个类型只能有一个 drop 函数。
+   - 参数必须是 `self: T`（按值传递），返回类型必须是 `void`。
+   - 递归调用：结构体的 drop 会先调用字段的 drop，再调用自身的 drop。
 
 **drop 使用示例**：
 

@@ -603,13 +603,15 @@ fn increment(counter: *Counter) void {
 ### RAII和drop
 
 ```uya
-// 用户自定义drop
-fn drop(self: File) void {
-    extern close(fd: i32) i32;
-    close(self.fd);
+// 用户自定义 drop，只能在结构体内部或方法块中定义
+File {
+    fn drop(self: File) void {
+        extern close(fd: i32) i32;
+        close(self.fd);
+    }
 }
 
-// 自动调用：离开作用域时按字段逆序调用drop
+// 自动调用：离开作用域时按字段逆序调用 drop
 ```
 
 **规则**：
@@ -774,6 +776,6 @@ fn main() !i32 {
 
 ---
 
-**版本**：Uya 0.35  
-**更新日期**：2026-01-16
+**版本**：Uya 0.36  
+**更新日期**：2026-02-01
 
