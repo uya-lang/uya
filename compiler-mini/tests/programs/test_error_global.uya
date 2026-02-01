@@ -1,0 +1,16 @@
+// 错误名全局唯一：多处函数引用同一 error，行为一致
+error GlobalErr;
+fn fail() !i32 { return error.GlobalErr; }
+fn check(flag: i32) !i32 {
+    if (flag != 0) { return error.GlobalErr; }
+    return 0;
+}
+fn main() !i32 {
+    const x: i32 = fail() catch { 1; };
+    const y: i32 = check(1) catch { 2; };
+    const z: i32 = check(0) catch { 0; };
+    if (x != 1) return 1;
+    if (y != 2) return 2;
+    if (z != 0) return 3;
+    return 0;
+}

@@ -1,5 +1,6 @@
 #include "internal.h"
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -126,20 +127,31 @@ const char *arena_strdup(Arena *arena, const char *src) {
     return dst;
 }
 
-// 获取或注册错误名称，返回 1-based error_id，0 表示失败
+static uint32_t hash_error_name(const char *name) {
+    uint32_t h = 5381;
+    unsigned char c;
+    while ((c = (unsigned char)*name++) != 0) {
+        h = ((h << 5) + h) + c;
+    }
+    return (h == 0) ? 1 : h;
+}
+
+// 获取或注册错误名称，返回 hash(error_name) 作为 error_id，0 表示失败
 unsigned get_or_add_error_id(C99CodeGenerator *codegen, const char *name) {
     if (!codegen || !name) return 0;
+    uint32_t h = hash_error_name(name);
     for (int i = 0; i < codegen->error_count; i++) {
         if (codegen->error_names[i] && strcmp(codegen->error_names[i], name) == 0) {
-            return (unsigned)(i + 1);
+            return codegen->error_hashes[i];
         }
     }
     if (codegen->error_count >= 128) return 0;
     const char *copy = arena_strdup(codegen->arena, name);
     if (!copy) return 0;
     codegen->error_names[codegen->error_count] = copy;
+    codegen->error_hashes[codegen->error_count] = h;
     codegen->error_count++;
-    return (unsigned)codegen->error_count;
+    return h;
 }
 
 // C99 关键字列表

@@ -112,9 +112,10 @@ typedef struct TypeChecker {
     int in_function;            // 是否在函数中（1 表示是，0 表示否）
     int in_defer_or_errdefer;   // 是否在 defer/errdefer 块中（1 表示是，禁止 return/break/continue）
     ASTNode *current_function_decl;  // 当前正在检查的函数声明（用于 @params 类型推断，可为 NULL）
-    // 错误集：收集所有使用的错误名称，分配 error_id（1-based）
-    const char *error_names[128];  // 错误名称（Arena 存储）
-    int error_name_count;           // 已注册错误数量（与 error_count 区分：error_count 为类型检查错误数）
+    // 错误集：收集所有使用的错误名称，error_id = hash(error_name)
+    const char *error_names[128];   // 错误名称（Arena 存储）
+    uint32_t error_hashes[128];     // 对应 error_id（hash 值，0 保留表示无错误）
+    int error_name_count;           // 已注册错误数量
 } TypeChecker;
 
 // 初始化 TypeChecker

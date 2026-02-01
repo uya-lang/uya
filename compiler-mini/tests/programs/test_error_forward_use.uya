@@ -1,0 +1,10 @@
+// 错误可提前使用：在声明之前使用 error.X
+fn f() !i32 {
+    return error.LateDeclared;  // 先使用
+}
+error LateDeclared;  // 后声明
+fn main() !i32 {
+    const r: i32 = f() catch { 42; };
+    if (r != 42) return 1;
+    return 0;
+}

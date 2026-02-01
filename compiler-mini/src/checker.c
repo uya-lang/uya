@@ -46,8 +46,8 @@ static void resolve_int_limit_node(ASTNode *node, Type type) {
 
 static int is_enum_variant_name_in_program(ASTNode *program_node, const char *name);
 static void checker_report_error(TypeChecker *checker, ASTNode *node, const char *message);
-/* 获取或注册错误名称，返回 1-based error_id，0 表示失败（表满） */
-static uint32_t get_or_add_error_id(TypeChecker *checker, const char *name);
+/* 获取或注册错误名称，返回 hash(error_name) 作为 error_id；0 表示失败；冲突时报错 */
+static uint32_t get_or_add_error_id(TypeChecker *checker, const char *name, ASTNode *node);
 static Type find_struct_field_type(TypeChecker *checker, ASTNode *struct_decl, const char *field_name);
 static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node);
 /* 评估编译时常量表达式，返回整数值；-1 表示无法评估或非常量 */
@@ -820,7 +820,7 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
                 result.kind = TYPE_VOID;
                 return result;
             }
-            uint32_t id = get_or_add_error_id(checker, name);
+            uint32_t id = get_or_add_error_id(checker, name, expr);
             if (id == 0) {
                 checker_report_error(checker, expr, "错误集已满");
                 result.kind = TYPE_VOID;
@@ -1391,19 +1391,38 @@ static const char *checker_arena_strdup(Arena *arena, const char *src) {
     return p;
 }
 
-static uint32_t get_or_add_error_id(TypeChecker *checker, const char *name) {
+static uint32_t hash_error_name(const char *name) {
+    uint32_t h = 5381;
+    unsigned char c;
+    while ((c = (unsigned char)*name++) != 0) {
+        h = ((h << 5) + h) + c;
+    }
+    return (h == 0) ? 1 : h;
+}
+
+static uint32_t get_or_add_error_id(TypeChecker *checker, const char *name, ASTNode *node) {
     if (checker == NULL || name == NULL) return 0;
+    uint32_t h = hash_error_name(name);
     for (int i = 0; i < checker->error_name_count; i++) {
         if (checker->error_names[i] != NULL && strcmp(checker->error_names[i], name) == 0) {
-            return (uint32_t)(i + 1);
+            return checker->error_hashes[i];
+        }
+        if (checker->error_hashes[i] == h && strcmp(checker->error_names[i], name) != 0) {
+            char buf[256];
+            snprintf(buf, sizeof(buf),
+                "error_id 冲突: error.%s 与 error.%s 的 hash 相同 (0x%X)，请重命名其一",
+                name, checker->error_names[i], (unsigned)h);
+            checker_report_error(checker, node, buf);
+            return 0;
         }
     }
     if (checker->error_name_count >= 128) return 0;
     const char *copy = checker_arena_strdup(checker->arena, name);
     if (copy == NULL) return 0;
     checker->error_names[checker->error_name_count] = copy;
+    checker->error_hashes[checker->error_name_count] = h;
     checker->error_name_count++;
-    return (uint32_t)checker->error_name_count;
+    return h;
 }
 
 // 检查表达式类型是否匹配预期类型
@@ -2634,7 +2653,7 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                 return 0;
             }
             if (node->data.error_decl.name != NULL) {
-                get_or_add_error_id(checker, node->data.error_decl.name);
+                get_or_add_error_id(checker, node->data.error_decl.name, node);
             }
             return 1;
             

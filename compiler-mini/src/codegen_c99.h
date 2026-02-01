@@ -3,6 +3,7 @@
 
 #include "ast.h"
 #include "arena.h"
+#include <stdint.h>
 #include <stdio.h>
 
 // C99 代码生成器常量定义（数组大小）
@@ -92,8 +93,9 @@ typedef struct C99CodeGenerator {
     int interp_temp_counter;
     int interp_fill_counter;  // 每次 c99_emit_string_interp_fill 递增，用于唯一 _off 变量名
     
-    // 错误集：与 checker 一致，1-based error_id，用于生成 return error.X
+    // 错误集：error_id = hash(error_name)，用于生成 return error.X
     const char *error_names[128];
+    uint32_t error_hashes[128];
     int error_count;
     
     // defer/errdefer 栈：每层块收集的 defer/errdefer 节点，退出时 LIFO 执行

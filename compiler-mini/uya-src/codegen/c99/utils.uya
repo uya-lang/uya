@@ -54,15 +54,29 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &Arena, output: &void, mod
     return 0;
 }
 
-// 获取或添加错误 ID（1-based），用于 return error.X 等（codegen 版本，与 checker 的 get_or_add_error_id 区分）
+// hash(error_name)，0 保留
+fn c99_hash_error_name(name: &byte) u32 {
+    var h: u32 = 5381;
+    var i: i32 = 0;
+    while name[i] != 0 {
+        const c: u32 = (name[i] as byte) as u32;
+        h = ((h * 32) + h) + c;
+        i = i + 1;
+    }
+    if h == 0 { return 1; }
+    return h;
+}
+
+// 获取或添加错误 ID（hash(error_name)），用于 return error.X 等
 fn c99_get_or_add_error_id(codegen: &C99CodeGenerator, name: &byte) i32 {
     if codegen == null || name == null {
         return 0;
     }
+    const h: u32 = c99_hash_error_name(name);
     var i: i32 = 0;
     while i < codegen.error_count {
         if codegen.error_names[i] != null && strcmp(codegen.error_names[i] as *byte, name as *byte) == 0 {
-            return i + 1;
+            return codegen.error_hashes[i] as i32;
         }
         i = i + 1;
     }
@@ -74,8 +88,9 @@ fn c99_get_or_add_error_id(codegen: &C99CodeGenerator, name: &byte) i32 {
         return 0;
     }
     codegen.error_names[codegen.error_count] = copy;
+    codegen.error_hashes[codegen.error_count] = h;
     codegen.error_count = codegen.error_count + 1;
-    return codegen.error_count;
+    return h as i32;
 }
 
 // 释放资源（不关闭输出文件）
