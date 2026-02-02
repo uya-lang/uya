@@ -19,7 +19,7 @@
 | 6 | for 扩展 | [x]（整数范围已实现；迭代器依赖阶段 7 接口） |
 | 7 | 接口 | [x]（C 实现完成；uya-src 待同步） |
 | 8 | 结构体方法 + drop + 移动语义 | [x]（外部/内部方法、drop/RAII、移动语义 C 实现与 uya-src 已同步） |
-| 9 | 模块系统 | [ ] |
+| 9 | 模块系统 | [x]（C 实现完成：export/use 可见性检查、模块路径解析；uya-src 待同步） |
 | 10 | 字符串插值 | [x] |
 | 11 | 原子类型 | [ ] |
 | 12 | 运算符与安全 | [ ] |
@@ -190,14 +190,16 @@
 
 ## 9. 模块系统
 
-- [ ] **目录即模块**：项目根=main，路径如 std.io，规范 uya.md §1.5（需要多文件支持）
+- [x] **目录即模块**：项目根=main，路径如 std.io，规范 uya.md §1.5（需要多文件支持）
+  **C 实现（已完成）**：`extract_module_path_allocated` 从文件路径提取模块路径，基于目录结构。目录下的所有 `.uya` 文件属于同一模块。当前支持单级目录模块（如 `module_a/` → `module_a`），多级路径（如 `std/io/` → `std.io`）待扩展。测试用例已调整为目录结构：`tests/programs/module_a/module_a.uya` 属于 `module_a` 模块。
 - [x] **export（语法解析与基本支持）**：`export fn/struct/interface/const/error`、`export extern`，规范 uya.md §1.5.3
   **C 实现（已完成）**：Lexer（TOKEN_EXPORT）、AST（所有声明节点添加 is_export 字段）、Parser（parser_parse_declaration 支持 export 前缀，所有解析函数设置 is_export）、Checker（基本检查，单文件场景下 export 标记记录但不影响可见性）、Codegen（跳过 use 语句，正常生成 export 标记的声明）。测试 test_module_export.uya 通过编译并运行（返回 42）。
 - [x] **use（语法解析与基本支持）**：`use path;`、`use path.item;`、别名 `as`，无通配符，规范 uya.md §1.5.4
   **C 实现（已完成）**：Lexer（TOKEN_USE）、AST（AST_USE_STMT 节点，path_segments/item_name/alias 字段）、Parser（parser_parse_use_stmt 解析 use 语句，支持路径段、特定项、别名）、Checker（基本语法检查，单文件场景下 use 语句暂时不进行实际模块解析）、Codegen（跳过 use 语句，不生成代码）。语法解析和代码生成通过。
-- [ ] **模块可见性与路径解析（多文件）**：Checker 中处理 export 可见性、use 路径解析、模块查找（需要多文件支持）
+- [x] **模块可见性与路径解析（多文件）**：Checker 中处理 export 可见性、use 路径解析、模块查找（需要多文件支持）
+  **C 实现（已完成）**：TypeChecker 中添加 ModuleTable 和 ImportTable；`build_module_exports` 遍历所有声明，根据文件路径提取模块路径，收集 export 标记的项；`process_use_stmt` 处理 use 语句，查找模块并验证导出项是否存在；`extract_module_path_allocated` 从文件路径提取模块路径（基于目录结构，如 `tests/programs/module_a/file.uya` → `module_a`）。**目录即模块**：支持目录即模块，目录下的所有 `.uya` 文件属于同一模块。测试 `tests/programs/module_a/` 和 `tests/programs/module_test/` 通过：module_a 目录下的文件属于 `module_a` 模块，module_b.uya 使用 `use module_a.public_func;` 导入并调用，error_use_private.uya 正确检测到使用未导出项的错误。
 - [ ] **循环依赖**：编译期检测并报错，规范 uya.md §1.5.7（需要多文件支持）
-- [ ] **多文件模块系统**：实现目录即模块、模块路径解析、多文件编译
+- [ ] **多文件模块系统**：实现目录即模块、模块路径解析、多文件编译（当前已支持多文件编译，但模块路径解析仅支持单级，如 "module_a"）
 
 **涉及**：多文件/多目录解析、符号表与可见性、uya-src。
 

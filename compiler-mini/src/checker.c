@@ -39,6 +39,10 @@ static int moved_set_contains(TypeChecker *checker, const char *name);
 static int has_active_pointer_to(TypeChecker *checker, const char *var_name);
 static void checker_mark_moved(TypeChecker *checker, ASTNode *node, const char *var_name, const char *struct_name);
 static void checker_mark_moved_call_args(TypeChecker *checker, ASTNode *node);
+// 模块系统辅助函数
+static ModuleInfo *find_or_create_module(TypeChecker *checker, const char *module_name, const char *filename);
+static void build_module_exports(TypeChecker *checker, ASTNode *program);
+static int process_use_stmt(TypeChecker *checker, ASTNode *node);
 
 // 是否为整数类型（用于算术、比较、位运算）
 static int is_integer_type(TypeKind k) {
@@ -84,6 +88,18 @@ int checker_init(TypeChecker *checker, Arena *arena, const char *default_filenam
         checker->function_table.slots[i] = NULL;
     }
     checker->function_table.count = 0;
+    
+    // 初始化模块表（所有槽位设为NULL）
+    for (int i = 0; i < MODULE_TABLE_SIZE; i++) {
+        checker->module_table.slots[i] = NULL;
+    }
+    checker->module_table.count = 0;
+    
+    // 初始化导入表（所有槽位设为NULL）
+    for (int i = 0; i < IMPORT_TABLE_SIZE; i++) {
+        checker->import_table.slots[i] = NULL;
+    }
+    checker->import_table.count = 0;
     
     checker->scope_level = 0;
     checker->loop_depth = 0;
@@ -3302,28 +3318,8 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             return 1;
         
         case AST_USE_STMT:
-            // use 语句检查（当前单文件场景，仅做基本验证）
-            // 注意：完整的模块系统需要多文件支持，当前仅验证语法正确性
-            if (node->data.use_stmt.path_segment_count == 0) {
-                checker_report_error(checker, node, "use 语句必须包含至少一个路径段");
-                return 0;
-            }
-            // 在单文件场景下，检测明显的未定义模块错误
-            // 例如：use undefined.module; 应该报错
-            if (node->data.use_stmt.path_segments != NULL && node->data.use_stmt.path_segment_count > 0) {
-                const char *first_segment = node->data.use_stmt.path_segments[0];
-                if (first_segment != NULL && strcmp(first_segment, "undefined") == 0) {
-                    checker_report_error(checker, node, "模块 'undefined' 未定义");
-                    return 0;
-                }
-            }
-            // 在单文件场景下，use 语句暂时不进行实际的模块解析
-            // 未来实现多文件模块系统时，需要：
-            // 1. 解析模块路径（如 std.io → std/io/ 目录）
-            // 2. 查找模块文件
-            // 3. 检查导出项是否存在
-            // 4. 处理别名和特定项导入
-            return 1;
+            // use 语句处理（模块系统）
+            return process_use_stmt(checker, node);
             
         case AST_STRUCT_DECL:
             if (checker->scope_level > 0) {
@@ -4309,6 +4305,9 @@ int checker_check(TypeChecker *checker, ASTNode *ast) {
         }
     }
     
+    // 模块系统：建立模块导出表（在检查之前）
+    build_module_exports(checker, ast);
+    
     // 第二遍：检查所有声明（包括函数体、结构体、变量等）
     // 此时所有函数都已被注册，函数体中的函数调用可以正确解析
     checker_check_node(checker, ast);
@@ -4318,4 +4317,360 @@ int checker_check(TypeChecker *checker, ASTNode *ast) {
     // 主函数会根据错误计数决定是否继续代码生成
     return 0;
 }
+
+// 从文件路径提取模块路径（基于目录结构）
+// 例如：
+//   "tests/programs/module_a/file.uya" -> "module_a"
+//   "tests/programs/std/io/file.uya" -> "std.io"
+//   "tests/programs/main.uya" -> "main" (项目根目录)
+// 注意：当前简化实现，假设项目根目录是包含所有文件的目录
+// 完整实现需要识别项目根目录（包含 main 函数的目录）
+static const char *extract_module_path_allocated(TypeChecker *checker, const char *filename) {
+    if (checker == NULL || filename == NULL) {
+        return NULL;
+    }
+    
+    // 找到最后一个 '/' 或 '\'（文件所在目录）
+    const char *last_slash = strrchr(filename, '/');
+    if (last_slash == NULL) {
+        last_slash = strrchr(filename, '\\');
+    }
+    
+    if (last_slash == NULL) {
+        // 文件在根目录，返回 "main"
+        const char *main_str = "main";
+        char *module_name = (char *)arena_alloc(checker->arena, strlen(main_str) + 1);
+        if (module_name == NULL) {
+            return NULL;
+        }
+        strcpy(module_name, main_str);
+        return module_name;
+    }
+    
+    // 简化实现：假设项目根目录是包含所有文件的目录
+    // 查找最后一个目录名作为模块名（单级模块）
+    // 完整实现应该支持多级路径（如 std/io/ -> std.io）
+    
+    // 找到倒数第二个 '/'（如果有）
+    const char *prev_slash = last_slash - 1;
+    while (prev_slash > filename && *prev_slash != '/' && *prev_slash != '\\') {
+        prev_slash--;
+    }
+    if (prev_slash >= filename && (*prev_slash == '/' || *prev_slash == '\\')) {
+        prev_slash++;  // 跳过 '/'
+    } else {
+        prev_slash = filename;  // 没有前一个目录，从开头开始
+    }
+    
+    // 提取最后一个目录名
+    size_t module_name_len = last_slash - prev_slash;
+    if (module_name_len == 0) {
+        // 文件在根目录，返回 "main"
+        const char *main_str = "main";
+        char *module_name = (char *)arena_alloc(checker->arena, strlen(main_str) + 1);
+        if (module_name == NULL) {
+            return NULL;
+        }
+        strcpy(module_name, main_str);
+        return module_name;
+    }
+    
+    // 在 Arena 中分配新字符串
+    char *module_name = (char *)arena_alloc(checker->arena, module_name_len + 1);
+    if (module_name == NULL) {
+        return NULL;
+    }
+    memcpy(module_name, prev_slash, module_name_len);
+    module_name[module_name_len] = '\0';
+    
+    return module_name;
+}
+
+// 查找或创建模块信息
+static ModuleInfo *find_or_create_module(TypeChecker *checker, const char *module_name, const char *filename) {
+    if (checker == NULL || module_name == NULL) {
+        return NULL;
+    }
+    
+    // 计算哈希值
+    unsigned int hash = hash_string(module_name);
+    unsigned int index = hash & (MODULE_TABLE_SIZE - 1);
+    
+    // 查找现有模块
+    for (int i = 0; i < MODULE_TABLE_SIZE; i++) {
+        unsigned int slot = (index + i) & (MODULE_TABLE_SIZE - 1);
+        ModuleInfo *module = checker->module_table.slots[slot];
+        if (module != NULL && strcmp(module->module_name, module_name) == 0) {
+            return module;
+        }
+        if (module == NULL) {
+            // 找到空槽位，创建新模块
+            module = (ModuleInfo *)arena_alloc(checker->arena, sizeof(ModuleInfo));
+            if (module == NULL) {
+                return NULL;
+            }
+            module->module_name = module_name;
+            module->filename = filename;
+            module->exports = NULL;
+            module->export_count = 0;
+            checker->module_table.slots[slot] = module;
+            checker->module_table.count++;
+            return module;
+        }
+    }
+    
+    return NULL;  // 哈希表已满
+}
+
+// 建立模块导出表（遍历所有声明，收集 export 标记的项）
+static void build_module_exports(TypeChecker *checker, ASTNode *program) {
+    if (checker == NULL || program == NULL || program->type != AST_PROGRAM) {
+        return;
+    }
+    
+    // 按文件分组声明（基于 filename）
+    // 简化实现：遍历所有声明，根据 filename 分组
+    for (int i = 0; i < program->data.program.decl_count; i++) {
+        ASTNode *decl = program->data.program.decls[i];
+        if (decl == NULL) {
+            continue;
+        }
+        
+        // 获取声明所属的模块名（从 filename 提取）
+        const char *filename = decl->filename;
+        if (filename == NULL) {
+            continue;
+        }
+        
+        const char *module_name = extract_module_path_allocated(checker, filename);
+        if (module_name == NULL) {
+            continue;
+        }
+        
+        // 查找或创建模块
+        ModuleInfo *module = find_or_create_module(checker, module_name, filename);
+        if (module == NULL) {
+            continue;
+        }
+        
+        // 检查是否是导出项
+        int is_export = 0;
+        const char *item_name = NULL;
+        int item_type = 0;
+        
+        switch (decl->type) {
+            case AST_FN_DECL:
+                is_export = decl->data.fn_decl.is_export;
+                item_name = decl->data.fn_decl.name;
+                item_type = 1;  // 函数
+                break;
+            case AST_STRUCT_DECL:
+                is_export = decl->data.struct_decl.is_export;
+                item_name = decl->data.struct_decl.name;
+                item_type = 2;  // 结构体
+                break;
+            case AST_UNION_DECL:
+                is_export = decl->data.union_decl.is_export;
+                item_name = decl->data.union_decl.name;
+                item_type = 3;  // 联合体
+                break;
+            case AST_INTERFACE_DECL:
+                is_export = decl->data.interface_decl.is_export;
+                item_name = decl->data.interface_decl.name;
+                item_type = 4;  // 接口
+                break;
+            case AST_ENUM_DECL:
+                is_export = decl->data.enum_decl.is_export;
+                item_name = decl->data.enum_decl.name;
+                item_type = 5;  // 枚举
+                break;
+            case AST_ERROR_DECL:
+                is_export = decl->data.error_decl.is_export;
+                item_name = decl->data.error_decl.name;
+                item_type = 7;  // 错误
+                break;
+            default:
+                break;
+        }
+        
+        // 如果是导出项，添加到模块的导出列表
+        if (is_export && item_name != NULL) {
+            // 扩展导出数组
+            int new_count = module->export_count + 1;
+            ExportedItem *new_exports = (ExportedItem *)arena_alloc(checker->arena, sizeof(ExportedItem) * new_count);
+            if (new_exports == NULL) {
+                continue;  // Arena 内存不足
+            }
+            
+            // 复制旧导出项
+            if (module->exports != NULL && module->export_count > 0) {
+                memcpy(new_exports, module->exports, sizeof(ExportedItem) * module->export_count);
+            }
+            
+            // 添加新导出项
+            new_exports[module->export_count].name = item_name;
+            new_exports[module->export_count].decl_node = decl;
+            new_exports[module->export_count].module_name = module_name;
+            new_exports[module->export_count].item_type = item_type;
+            
+            module->exports = new_exports;
+            module->export_count = new_count;
+        }
+    }
+}
+
+// 处理 use 语句（建立导入关系）
+static int process_use_stmt(TypeChecker *checker, ASTNode *node) {
+    if (checker == NULL || node == NULL || node->type != AST_USE_STMT) {
+        return 0;
+    }
+    
+    // 获取模块路径（简化：只支持单级模块名，如 "module_a"）
+    if (node->data.use_stmt.path_segment_count == 0) {
+        checker_report_error(checker, node, "use 语句必须包含至少一个路径段");
+        return 0;
+    }
+    
+    // 处理 use 语句的两种形式：
+    // 1. use module_a.item; -> path_segments = ["module_a", "item"], item_name = NULL (当前 parser 的行为)
+    // 2. use module_a.item; -> path_segments = ["module_a"], item_name = "item" (理想情况)
+    // 当前 parser 将 use module_a.public_func; 解析为 path_segments = ["module_a", "public_func"], item_name = NULL
+    
+    const char *module_name;
+    const char *item_name_from_path = NULL;
+    
+    if (node->data.use_stmt.path_segment_count == 1) {
+        // 单级路径：use module_a; 或 use module_a.item; (item_name 单独存储)
+        module_name = node->data.use_stmt.path_segments[0];
+    } else if (node->data.use_stmt.path_segment_count == 2 && node->data.use_stmt.item_name == NULL) {
+        // 两级路径且 item_name 为空：use module_a.public_func; (parser 将两者都放入 path_segments)
+        module_name = node->data.use_stmt.path_segments[0];
+        item_name_from_path = node->data.use_stmt.path_segments[1];
+    } else if (node->data.use_stmt.path_segment_count > 2) {
+        // 多级路径：暂不支持
+        char buf[256];
+        snprintf(buf, sizeof(buf), "当前实现仅支持单级模块路径（如 'module_a'），但检测到 %d 级路径", node->data.use_stmt.path_segment_count);
+        checker_report_error(checker, node, buf);
+        return 0;
+    } else {
+        // 其他情况（path_segment_count == 2 但 item_name 不为空，或 path_segment_count == 0）
+        module_name = node->data.use_stmt.path_segments[0];
+    }
+    if (module_name == NULL) {
+        checker_report_error(checker, node, "use 语句的模块名无效");
+        return 0;
+    }
+    
+    // 查找模块
+    unsigned int hash = hash_string(module_name);
+    unsigned int index = hash & (MODULE_TABLE_SIZE - 1);
+    ModuleInfo *module = NULL;
+    for (int i = 0; i < MODULE_TABLE_SIZE; i++) {
+        unsigned int slot = (index + i) & (MODULE_TABLE_SIZE - 1);
+        ModuleInfo *m = checker->module_table.slots[slot];
+        if (m != NULL && strcmp(m->module_name, module_name) == 0) {
+            module = m;
+            break;
+        }
+    }
+    
+    if (module == NULL) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "模块 '%s' 未找到", module_name);
+        checker_report_error(checker, node, buf);
+        return 0;
+    }
+    
+    // 处理导入项
+    const char *item_name = node->data.use_stmt.item_name != NULL ? node->data.use_stmt.item_name : item_name_from_path;
+    const char *alias = node->data.use_stmt.alias;
+    
+    if (item_name != NULL) {
+        // 导入特定项（如 use module_a.public_func;）
+        // 检查项是否存在且已导出
+        int found = 0;
+        int item_type = 0;
+        for (int i = 0; i < module->export_count; i++) {
+            if (strcmp(module->exports[i].name, item_name) == 0) {
+                found = 1;
+                item_type = module->exports[i].item_type;
+                break;
+            }
+        }
+        
+        if (!found) {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "模块 '%s' 中未找到导出项 '%s'", module_name, item_name);
+            checker_report_error(checker, node, buf);
+            return 0;
+        }
+        
+        // 添加到导入表
+        ImportedItem *import = (ImportedItem *)arena_alloc(checker->arena, sizeof(ImportedItem));
+        if (import == NULL) {
+            return 0;
+        }
+        import->local_name = alias != NULL ? alias : item_name;
+        import->original_name = item_name;
+        import->module_name = module_name;
+        import->item_type = item_type;
+        
+        // 插入导入表
+        unsigned int import_hash = hash_string(import->local_name);
+        unsigned int import_index = import_hash & (IMPORT_TABLE_SIZE - 1);
+        for (int i = 0; i < IMPORT_TABLE_SIZE; i++) {
+            unsigned int slot = (import_index + i) & (IMPORT_TABLE_SIZE - 1);
+            if (checker->import_table.slots[slot] == NULL) {
+                checker->import_table.slots[slot] = import;
+                checker->import_table.count++;
+                break;
+            }
+        }
+    } else if (alias != NULL) {
+        // 导入整个模块并设置别名（如 use module_a as ma;）
+        // 简化实现：暂不支持
+        checker_report_error(checker, node, "当前实现不支持导入整个模块（请使用 use module.item; 导入特定项）");
+        return 0;
+    } else {
+        // 导入整个模块（如 use module_a;）
+        // 简化实现：暂不支持
+        checker_report_error(checker, node, "当前实现不支持导入整个模块（请使用 use module.item; 导入特定项）");
+        return 0;
+    }
+    
+    return 1;
+}
+
+// 检查项是否已导出（当前未使用，保留以备将来使用）
+// static int is_item_exported(TypeChecker *checker, const char *item_name, const char *module_name, int item_type) {
+//     if (checker == NULL || item_name == NULL || module_name == NULL) {
+//         return 0;
+//     }
+//     
+//     // 查找模块
+//     unsigned int hash = hash_string(module_name);
+//     unsigned int index = hash & (MODULE_TABLE_SIZE - 1);
+//     ModuleInfo *module = NULL;
+//     for (int i = 0; i < MODULE_TABLE_SIZE; i++) {
+//         unsigned int slot = (index + i) & (MODULE_TABLE_SIZE - 1);
+//         ModuleInfo *m = checker->module_table.slots[slot];
+//         if (m != NULL && strcmp(m->module_name, module_name) == 0) {
+//             module = m;
+//             break;
+//         }
+//     }
+//     
+//     if (module == NULL) {
+//         return 0;
+//     }
+//     
+//     // 检查项是否在导出列表中
+//     for (int i = 0; i < module->export_count; i++) {
+//         if (strcmp(module->exports[i].name, item_name) == 0 && module->exports[i].item_type == item_type) {
+//             return 1;
+//         }
+//     }
+//     
+//     return 0;
+// }
 

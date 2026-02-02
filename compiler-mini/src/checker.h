@@ -109,11 +109,53 @@ typedef struct FunctionTable {
     int count;                                       // 当前函数数量
 } FunctionTable;
 
+// 模块导出项信息
+typedef struct ExportedItem {
+    const char *name;           // 项名称（函数名、结构体名等）
+    ASTNode *decl_node;         // 声明节点
+    const char *module_name;    // 所属模块名（文件名去掉 .uya 后缀）
+    int item_type;              // 项类型：1=函数，2=结构体，3=联合体，4=接口，5=枚举，6=常量，7=错误
+} ExportedItem;
+
+// 模块信息
+typedef struct ModuleInfo {
+    const char *module_name;    // 模块名（文件名去掉 .uya 后缀）
+    const char *filename;       // 文件名
+    ExportedItem *exports;      // 导出项数组（从 Arena 分配）
+    int export_count;           // 导出项数量
+} ModuleInfo;
+
+// 模块表（固定大小哈希表）
+#define MODULE_TABLE_SIZE 64    // 固定大小（必须是2的幂）
+
+typedef struct ModuleTable {
+    ModuleInfo *slots[MODULE_TABLE_SIZE];  // 模块槽位数组
+    int count;                              // 当前模块数量
+} ModuleTable;
+
+// 导入项信息（use 语句导入的项）
+typedef struct ImportedItem {
+    const char *local_name;     // 本地使用的名称（可能是别名）
+    const char *original_name;  // 原始名称
+    const char *module_name;   // 来源模块名
+    int item_type;              // 项类型：1=函数，2=结构体，3=联合体，4=接口，5=枚举，6=常量，7=错误
+} ImportedItem;
+
+// 导入表（用于当前文件/模块的导入）
+#define IMPORT_TABLE_SIZE 128   // 固定大小（必须是2的幂）
+
+typedef struct ImportTable {
+    ImportedItem *slots[IMPORT_TABLE_SIZE];  // 导入项槽位数组
+    int count;                                // 当前导入项数量
+} ImportTable;
+
 // 类型检查器结构
 typedef struct TypeChecker {
     Arena *arena;               // Arena 分配器（用于分配类型、符号等）
     SymbolTable symbol_table;   // 符号表
     FunctionTable function_table; // 函数表
+    ModuleTable module_table;   // 模块表（记录所有模块及其导出项）
+    ImportTable import_table;   // 导入表（记录当前模块的导入项）
     int scope_level;            // 当前作用域级别
     int loop_depth;             // 循环深度（用于检查 break/continue 是否在循环中）
     ASTNode *program_node;      // 程序节点（用于查找结构体声明等）
