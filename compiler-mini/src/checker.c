@@ -116,6 +116,7 @@ int checker_init(TypeChecker *checker, Arena *arena, const char *default_filenam
     for (int i = 0; i < 128; i++) {
         checker->error_names[i] = NULL;
     }
+    checker->project_root_dir = NULL;
     
     return 0;
 }
@@ -4297,11 +4298,43 @@ int checker_check(TypeChecker *checker, ASTNode *ast) {
     
     // 第一遍：收集所有函数声明（只注册函数签名，不检查函数体）
     // 这样在第二遍检查函数体时，所有函数都已被注册，可以相互调用
+    // 同时识别包含 main 函数的文件，设置项目根目录
     for (int i = 0; i < ast->data.program.decl_count; i++) {
         ASTNode *decl = ast->data.program.decls[i];
         if (decl != NULL && decl->type == AST_FN_DECL) {
             if (checker_register_fn_decl(checker, decl) == 0) {
                 return -1;  // 注册失败，返回错误
+            }
+            
+            // 识别包含 main 函数的文件，设置项目根目录
+            if (checker->project_root_dir == NULL && 
+                decl->data.fn_decl.name != NULL && 
+                strcmp(decl->data.fn_decl.name, "main") == 0 &&
+                decl->filename != NULL) {
+                // 提取文件所在目录作为项目根目录
+                const char *filename = decl->filename;
+                const char *last_slash = strrchr(filename, '/');
+                if (last_slash == NULL) {
+                    last_slash = strrchr(filename, '\\');
+                }
+                
+                if (last_slash != NULL) {
+                    // 分配内存存储目录路径（包括末尾的 '/'）
+                    size_t dir_len = last_slash - filename + 1;
+                    char *root_dir = (char *)arena_alloc(checker->arena, dir_len + 1);
+                    if (root_dir != NULL) {
+                        memcpy(root_dir, filename, dir_len);
+                        root_dir[dir_len] = '\0';
+                        checker->project_root_dir = root_dir;
+                    }
+                } else {
+                    // 文件在根目录，项目根目录为空字符串（表示当前目录）
+                    char *root_dir = (char *)arena_alloc(checker->arena, 1);
+                    if (root_dir != NULL) {
+                        root_dir[0] = '\0';
+                        checker->project_root_dir = root_dir;
+                    }
+                }
             }
         }
     }
@@ -4328,12 +4361,141 @@ int checker_check(TypeChecker *checker, ASTNode *ast) {
 //   "tests/programs/std/io/file.uya" -> "std.io"
 //   "tests/programs/main.uya" -> "main" (项目根目录)
 // 注意：当前实现支持多级路径，提取从第一个目录到最后一个目录的所有目录名，用 '.' 连接
-// 完整实现需要识别项目根目录（包含 main 函数的目录），当前假设项目根目录是包含所有文件的目录
+// 如果项目根目录已设置，文件在项目根目录下时返回 "main"
 static const char *extract_module_path_allocated(TypeChecker *checker, const char *filename) {
     if (checker == NULL || filename == NULL) {
         return NULL;
     }
     
+    // 如果项目根目录已设置，检查文件是否在项目根目录下
+    if (checker->project_root_dir != NULL) {
+        size_t root_len = strlen(checker->project_root_dir);
+        // 检查 filename 是否以 project_root_dir 开头
+        if (strncmp(filename, checker->project_root_dir, root_len) == 0) {
+            // 文件在项目根目录下，检查是否在根目录的直接子目录中
+            const char *relative_path = filename + root_len;
+            const char *first_slash = strchr(relative_path, '/');
+            if (first_slash == NULL) {
+                first_slash = strchr(relative_path, '\\');
+            }
+            
+            if (first_slash == NULL) {
+                // 文件直接在项目根目录下，返回 "main"
+                const char *main_str = "main";
+                char *module_name = (char *)arena_alloc(checker->arena, strlen(main_str) + 1);
+                if (module_name == NULL) {
+                    return NULL;
+                }
+                strcpy(module_name, main_str);
+                return module_name;
+            }
+            
+            // 文件在项目根目录的子目录中，提取相对路径作为模块路径
+            // 例如：project_root_dir = "tests/programs/multifile/test_use_main/"
+            //      filename = "tests/programs/multifile/test_use_main/submodule/file.uya"
+            //      relative_path = "submodule/file.uya"
+            //      模块路径 = "submodule"
+            
+            // 找到最后一个 '/' 或 '\'（文件所在目录）
+            const char *last_slash = strrchr(relative_path, '/');
+            if (last_slash == NULL) {
+                last_slash = strrchr(relative_path, '\\');
+            }
+            
+            if (last_slash == NULL) {
+                // 没有目录分隔符，文件在根目录，返回 "main"
+                const char *main_str = "main";
+                char *module_name = (char *)arena_alloc(checker->arena, strlen(main_str) + 1);
+                if (module_name == NULL) {
+                    return NULL;
+                }
+                strcpy(module_name, main_str);
+                return module_name;
+            }
+            
+            // 提取目录路径（从 relative_path 开始到 last_slash）
+            const char *dir_start = relative_path;
+            const char *dir_end = last_slash;
+            
+            // 计算所需的总长度（所有目录名 + '.' 分隔符）
+            size_t total_len = 0;
+            const char *p = dir_start;
+            int dir_count = 0;
+            while (p < dir_end) {
+                const char *next_slash = strchr(p, '/');
+                if (next_slash == NULL) {
+                    next_slash = strchr(p, '\\');
+                }
+                if (next_slash == NULL || next_slash >= dir_end) {
+                    next_slash = dir_end;
+                }
+                
+                size_t dir_len = next_slash - p;
+                if (dir_len > 0) {
+                    total_len += dir_len;
+                    if (dir_count > 0) {
+                        total_len += 1;  // '.' 分隔符
+                    }
+                    dir_count++;
+                }
+                
+                if (next_slash >= dir_end) {
+                    break;
+                }
+                p = next_slash + 1;
+            }
+            
+            if (dir_count == 0) {
+                // 没有目录，返回 "main"
+                const char *main_str = "main";
+                char *module_name = (char *)arena_alloc(checker->arena, strlen(main_str) + 1);
+                if (module_name == NULL) {
+                    return NULL;
+                }
+                strcpy(module_name, main_str);
+                return module_name;
+            }
+            
+            // 分配内存并构建模块路径
+            char *module_name = (char *)arena_alloc(checker->arena, total_len + 1);
+            if (module_name == NULL) {
+                return NULL;
+            }
+            
+            char *dst = module_name;
+            p = dir_start;
+            dir_count = 0;
+            while (p < dir_end) {
+                const char *next_slash = strchr(p, '/');
+                if (next_slash == NULL) {
+                    next_slash = strchr(p, '\\');
+                }
+                if (next_slash == NULL || next_slash >= dir_end) {
+                    next_slash = dir_end;
+                }
+                
+                size_t dir_len = next_slash - p;
+                if (dir_len > 0) {
+                    if (dir_count > 0) {
+                        *dst++ = '.';
+                    }
+                    memcpy(dst, p, dir_len);
+                    dst += dir_len;
+                    dir_count++;
+                }
+                
+                if (next_slash >= dir_end) {
+                    break;
+                }
+                p = next_slash + 1;
+            }
+            
+            *dst = '\0';
+            return module_name;
+        }
+    }
+    
+    // 如果项目根目录未设置，使用旧逻辑（向后兼容）
     // 找到最后一个 '/' 或 '\'（文件所在目录）
     const char *last_slash = strrchr(filename, '/');
     if (last_slash == NULL) {
@@ -4354,7 +4516,6 @@ static const char *extract_module_path_allocated(TypeChecker *checker, const cha
     // 支持多级路径：提取从第一个目录到最后一个目录的所有目录名
     // 例如 "tests/programs/std/io/file.uya" -> "std.io"
     // 临时修复：跳过 "tests/programs/" 前缀（如果存在），以匹配测试用例
-    // TODO: 完整实现需要识别项目根目录（包含 main 函数的目录）
     const char *dir_start = filename;
     const char *tests_programs = "tests/programs/";
     size_t prefix_len = strlen(tests_programs);
@@ -4712,22 +4873,12 @@ static int process_use_stmt(TypeChecker *checker, ASTNode *node) {
         return 0;
     }
     
-    // 查找模块
-    unsigned int hash = hash_string(module_name);
-    unsigned int index = hash & (MODULE_TABLE_SIZE - 1);
-    ModuleInfo *module = NULL;
-    for (int i = 0; i < MODULE_TABLE_SIZE; i++) {
-        unsigned int slot = (index + i) & (MODULE_TABLE_SIZE - 1);
-        ModuleInfo *m = checker->module_table.slots[slot];
-        if (m != NULL && strcmp(m->module_name, module_name) == 0) {
-            module = m;
-            break;
-        }
-    }
-    
+    // 查找或创建模块（如果模块不存在，先创建它）
+    // 这样可以处理 main 模块等可能还没有导出项的模块
+    ModuleInfo *module = find_or_create_module(checker, module_name, node->filename);
     if (module == NULL) {
         char buf[256];
-        snprintf(buf, sizeof(buf), "模块 '%s' 未找到", module_name);
+        snprintf(buf, sizeof(buf), "模块 '%s' 未找到或无法创建", module_name);
         checker_report_error(checker, node, buf);
         return 0;
     }
@@ -4736,44 +4887,48 @@ static int process_use_stmt(TypeChecker *checker, ASTNode *node) {
     // 获取当前模块名（从 node->filename 提取）
     const char *current_module_name = extract_module_path_allocated(checker, node->filename);
     if (current_module_name != NULL && strcmp(current_module_name, module_name) != 0) {
-        // 查找当前模块
-        unsigned int current_hash = hash_string(current_module_name);
-        unsigned int current_index = current_hash & (MODULE_TABLE_SIZE - 1);
-        ModuleInfo *current_module = NULL;
-        for (int i = 0; i < MODULE_TABLE_SIZE; i++) {
-            unsigned int slot = (current_index + i) & (MODULE_TABLE_SIZE - 1);
-            ModuleInfo *m = checker->module_table.slots[slot];
-            if (m != NULL && strcmp(m->module_name, current_module_name) == 0) {
-                current_module = m;
-                break;
-            }
-        }
-        
-        // 如果找到当前模块，添加依赖关系
-        if (current_module != NULL) {
-            // 检查依赖是否已存在
-            int dep_exists = 0;
-            for (int i = 0; i < current_module->dependency_count; i++) {
-                if (strcmp(current_module->dependencies[i].target_module, module_name) == 0) {
-                    dep_exists = 1;
+        // 特殊处理：main 模块不记录依赖，避免循环依赖检测误报
+        // main 模块是程序入口点，可以自由引用任何模块
+        if (strcmp(current_module_name, "main") != 0) {
+            // 查找当前模块
+            unsigned int current_hash = hash_string(current_module_name);
+            unsigned int current_index = current_hash & (MODULE_TABLE_SIZE - 1);
+            ModuleInfo *current_module = NULL;
+            for (int i = 0; i < MODULE_TABLE_SIZE; i++) {
+                unsigned int slot = (current_index + i) & (MODULE_TABLE_SIZE - 1);
+                ModuleInfo *m = checker->module_table.slots[slot];
+                if (m != NULL && strcmp(m->module_name, current_module_name) == 0) {
+                    current_module = m;
                     break;
                 }
             }
             
-            if (!dep_exists) {
-                // 添加新依赖
-                int new_count = current_module->dependency_count + 1;
-                ModuleDependency *new_deps = (ModuleDependency *)arena_alloc(
-                    checker->arena, sizeof(ModuleDependency) * new_count);
-                if (new_deps != NULL) {
-                    if (current_module->dependencies != NULL && current_module->dependency_count > 0) {
-                        memcpy(new_deps, current_module->dependencies,
-                               sizeof(ModuleDependency) * current_module->dependency_count);
+            // 如果找到当前模块，添加依赖关系
+            if (current_module != NULL) {
+                // 检查依赖是否已存在
+                int dep_exists = 0;
+                for (int i = 0; i < current_module->dependency_count; i++) {
+                    if (strcmp(current_module->dependencies[i].target_module, module_name) == 0) {
+                        dep_exists = 1;
+                        break;
                     }
-                    new_deps[current_module->dependency_count].target_module = module_name;
-                    new_deps[current_module->dependency_count].use_stmt_node = node;
-                    current_module->dependencies = new_deps;
-                    current_module->dependency_count = new_count;
+                }
+                
+                if (!dep_exists) {
+                    // 添加新依赖
+                    int new_count = current_module->dependency_count + 1;
+                    ModuleDependency *new_deps = (ModuleDependency *)arena_alloc(
+                        checker->arena, sizeof(ModuleDependency) * new_count);
+                    if (new_deps != NULL) {
+                        if (current_module->dependencies != NULL && current_module->dependency_count > 0) {
+                            memcpy(new_deps, current_module->dependencies,
+                                   sizeof(ModuleDependency) * current_module->dependency_count);
+                        }
+                        new_deps[current_module->dependency_count].target_module = module_name;
+                        new_deps[current_module->dependency_count].use_stmt_node = node;
+                        current_module->dependencies = new_deps;
+                        current_module->dependency_count = new_count;
+                    }
                 }
             }
         }

@@ -295,6 +295,9 @@ void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) {
             } else {
                 fprintf(codegen->output, "%s %s_param", param_type_c, param_name);
             }
+        } else if (param_type->type == AST_TYPE_SLICE) {
+            // Slice 类型参数：通过指针传递（slice 是引用类型）
+            fprintf(codegen->output, "%s *%s", param_type_c, param_name);
         } else {
             format_param_type(codegen, param_type_c, param_name, codegen->output);
         }
@@ -359,6 +362,9 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
                 } else {
                     fprintf(codegen->output, "%s %s_param", param_type_c, param_name);
                 }
+            } else if (param_type->type == AST_TYPE_SLICE) {
+                // Slice 类型参数：通过指针传递（slice 是引用类型）
+                fprintf(codegen->output, "%s *%s", param_type_c, param_name);
             } else {
                 format_param_type(codegen, param_type_c, param_name, codegen->output);
             }
@@ -429,6 +435,16 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
         } else {
             // 非数组参数：正常添加到局部变量表
             const char *param_type_c = c99_type_to_c(codegen, param_type);
+            // 对于 slice 类型参数，需要添加 * 后缀（因为 slice 参数通过指针传递）
+            if (param_type->type == AST_TYPE_SLICE) {
+                // 为 slice 类型添加指针后缀
+                size_t len = strlen(param_type_c) + 3;  // 类型 + " *" + null
+                char *ptr_type = arena_alloc(codegen->arena, len);
+                if (ptr_type) {
+                    snprintf(ptr_type, len, "%s *", param_type_c);
+                    param_type_c = ptr_type;
+                }
+            }
             if (param_name && param_type_c && codegen->local_variable_count < C99_MAX_LOCAL_VARS) {
                 codegen->local_variables[codegen->local_variable_count].name = param->data.var_decl.name;
                 codegen->local_variables[codegen->local_variable_count].type_c = param_type_c;

@@ -353,27 +353,8 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
             const char *elem_simple = elem_c;
             if (strncmp(elem_c, "struct ", 7) == 0) elem_simple = elem_c + 7;
             else if (strncmp(elem_c, "enum ", 5) == 0) elem_simple = elem_c + 5;
-            // 去除指针类型中的 "*" 和前面的空格（用于生成结构体名称）
-            // 例如 "uint8_t *" -> "uint8_t"
-            size_t elem_len = strlen(elem_simple);
-            const char *elem_clean = elem_simple;
-            if (elem_len > 0 && elem_simple[elem_len - 1] == '*') {
-                // 找到最后一个 '*'，向前查找并去除空格
-                size_t end = elem_len - 1;
-                while (end > 0 && elem_simple[end - 1] == ' ') {
-                    end--;
-                }
-                // 创建临时缓冲区存储去除 "*" 后的名称
-                char temp_buf[128];
-                if (end < sizeof(temp_buf)) {
-                    memcpy(temp_buf, elem_simple, end);
-                    temp_buf[end] = '\0';
-                    elem_clean = arena_strdup(codegen->arena, temp_buf);
-                    if (!elem_clean) return "void";
-                }
-            }
             char name_buf[128];
-            snprintf(name_buf, sizeof(name_buf), "uya_slice_%s", elem_clean);
+            snprintf(name_buf, sizeof(name_buf), "uya_slice_%s", elem_simple);
             const char *safe = arena_strdup(codegen->arena, name_buf);
             if (!safe) return "void";
             if (is_struct_defined(codegen, safe)) {

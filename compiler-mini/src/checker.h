@@ -180,6 +180,8 @@ typedef struct TypeChecker {
     // 移动语义（规范 uya.md §12.5）：当前函数内已移动的变量名，移动后不能再次使用
     const char *moved_names[128];
     int moved_count;
+    // 项目根目录路径（包含 main 函数的文件所在目录，用于识别 main 模块）
+    const char *project_root_dir;  // 存储在 Arena 中
 } TypeChecker;
 
 // 初始化 TypeChecker

@@ -264,17 +264,41 @@ process_multifile_test() {
     fi
 }
 
-# 收集 use 语句引用的模块文件
+# 收集 use 语句引用的模块文件（递归收集所有依赖）
 collect_module_files() {
     local uya_file="$1"
     local -a file_list=("$uya_file")
+    local -a processed_files=()  # 已处理的文件列表，避免循环（不预先添加主文件）
+    
+    # 递归收集依赖
+    _collect_module_files_recursive "$uya_file" file_list processed_files
+    
+    printf '%s\n' "${file_list[@]}"
+}
+
+# 递归收集模块文件的辅助函数
+_collect_module_files_recursive() {
+    local uya_file="$1"
+    local file_list_var="$2"  # 存储原始变量名，避免循环引用
+    local processed_var="$3"  # 存储原始变量名，避免循环引用
+    local -n file_list_ref="$file_list_var"
+    local -n processed_ref="$processed_var"
+    
+    # 检查是否已处理过
+    for existing in "${processed_ref[@]}"; do
+        if [ "$existing" = "$uya_file" ]; then
+            return  # 已处理，避免循环
+        fi
+    done
+    
+    # 标记为已处理（在处理依赖之前，避免循环依赖）
+    processed_ref+=("$uya_file")
     
     # 提取所有 use 语句中的模块路径（去除项名，只保留模块路径）
     # use std.io.read_file; -> std.io
     local use_modules=$(grep -E "^\s*use\s+" "$uya_file" 2>/dev/null | sed -E 's/^\s*use\s+([^;]+);.*/\1/' | sed -E 's/\.[^.]*$//' | sort -u || true)
     
     if [ -z "$use_modules" ]; then
-        printf '%s\n' "${file_list[@]}"
         return
     fi
     
@@ -282,6 +306,51 @@ collect_module_files() {
     local test_dir=$(dirname "$uya_file")
     while IFS= read -r module_path; do
         if [ -z "$module_path" ]; then
+            continue
+        fi
+        
+        # 特殊处理：main 模块（项目根目录）
+        if [ "$module_path" = "main" ]; then
+            # main 模块的文件应该在项目根目录下（包含 main 函数的文件）
+            # 对于测试用例，查找测试文件所在目录下的 .uya 文件（排除子目录）
+            local found_file=""
+            for f in "$test_dir"/*.uya; do
+                if [ -f "$f" ]; then
+                    # 检查文件是否包含 main 函数
+                    if grep -q "^\s*fn\s\+main\s*(" "$f" 2>/dev/null; then
+                        found_file="$f"
+                        break
+                    fi
+                fi
+            done
+            
+            # 如果没找到，尝试查找同目录下的所有 .uya 文件（可能是多文件项目）
+            if [ -z "$found_file" ]; then
+                for f in "$test_dir"/*.uya; do
+                    if [ -f "$f" ]; then
+                        found_file="$f"
+                        break
+                    fi
+                done
+            fi
+            
+            # 如果找到文件，添加到列表并递归处理
+            if [ -n "$found_file" ]; then
+                # 检查是否已经在列表中
+                local already_added=false
+                for existing in "${file_list_ref[@]}"; do
+                    if [ "$existing" = "$found_file" ]; then
+                        already_added=true
+                        break
+                    fi
+                done
+                if [ "$already_added" = false ]; then
+                    file_list_ref+=("$found_file")
+                    processed_ref+=("$found_file")
+                    # 递归处理找到的文件（传递原始变量名，避免循环引用）
+                    _collect_module_files_recursive "$found_file" "$file_list_var" "$processed_var"
+                fi
+            fi
             continue
         fi
         
@@ -311,23 +380,23 @@ collect_module_files() {
             done
         fi
         
-        # 如果找到文件，添加到列表
+        # 如果找到文件，添加到列表并递归处理
         if [ -n "$found_file" ]; then
             # 检查是否已经在列表中
             local already_added=false
-            for existing in "${file_list[@]}"; do
+            for existing in "${file_list_ref[@]}"; do
                 if [ "$existing" = "$found_file" ]; then
                     already_added=true
                     break
                 fi
             done
             if [ "$already_added" = false ]; then
-                file_list+=("$found_file")
+                file_list_ref+=("$found_file")
+                # 递归处理找到的文件（传递原始变量名，避免循环引用）
+                _collect_module_files_recursive "$found_file" "$file_list_var" "$processed_var"
             fi
         fi
     done <<< "$use_modules"
-    
-    printf '%s\n' "${file_list[@]}"
 }
 
 # 处理单个测试文件的函数

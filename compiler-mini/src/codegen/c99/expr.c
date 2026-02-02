@@ -557,9 +557,19 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             if (array->type == AST_IDENTIFIER) {
                 const char *type_c = get_identifier_type_c(codegen, array->data.identifier.name);
                 if (type_c && strstr(type_c, "uya_slice_")) {
-                    fputc('(', codegen->output);
-                    gen_expr(codegen, array);
-                    fputs(").ptr[", codegen->output);
+                    // 检查标识符是否是指针类型
+                    const char *safe_name = get_safe_c_identifier(codegen, array->data.identifier.name);
+                    int is_pointer = is_identifier_pointer_type(codegen, safe_name);
+                    if (is_pointer) {
+                        // 指针类型使用 -> 操作符
+                        gen_expr(codegen, array);
+                        fputs("->ptr[", codegen->output);
+                    } else {
+                        // 非指针类型使用 . 操作符
+                        fputc('(', codegen->output);
+                        gen_expr(codegen, array);
+                        fputs(").ptr[", codegen->output);
+                    }
                     gen_expr(codegen, index);
                     fputc(']', codegen->output);
                     break;
