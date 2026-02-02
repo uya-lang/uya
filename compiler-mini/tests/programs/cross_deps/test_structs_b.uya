@@ -29,7 +29,9 @@ fn test_cross_file_call_b() i32 {
         return 1;
     }
     
-    const area: i32 = calculate_rectangle_area(r);
+    // 重新创建 r，因为之前的 r 已被移动
+    const r2: Rectangle = create_rectangle(10, 20, 30, 40);
+    const area: i32 = calculate_rectangle_area(r2);
     if area != 1200 {
         return 2;
     }

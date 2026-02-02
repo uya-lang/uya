@@ -47,6 +47,7 @@ enum ASTNodeType {
     AST_FN_DECL,
     AST_VAR_DECL,
     AST_DESTRUCTURE_DECL,  // 解构声明（const (x, y) = expr）
+    AST_USE_STMT,         // use 语句（use path; 或 use path.item; 或 use path as alias;）
     AST_IF_STMT,
     AST_WHILE_STMT,
     AST_FOR_STMT,
@@ -113,12 +114,15 @@ struct ASTNode {
     enum_decl_name: &byte,
     enum_decl_variants: &EnumVariant,
     enum_decl_variant_count: i32,
+    enum_decl_is_export: i32,  // 1 表示 export enum，0 表示私有
     // error_decl（预定义错误声明 error Name;）
     error_decl_name: &byte,
+    error_decl_is_export: i32,  // 1 表示 export error，0 表示私有
     // interface_decl（interface I { fn method(self: *Self,...) Ret; ... }）
     interface_decl_name: &byte,
     interface_decl_method_sigs: & & ASTNode,
     interface_decl_method_sig_count: i32,
+    interface_decl_is_export: i32,  // 1 表示 export interface，0 表示私有
     // struct_decl
     struct_decl_name: &byte,
     struct_decl_interface_names: & & byte,  // 实现的接口名称数组（可为 null）
@@ -127,6 +131,7 @@ struct ASTNode {
     struct_decl_field_count: i32,
     struct_decl_methods: & & ASTNode,  // 内部方法数组（AST_FN_DECL 节点，可为 null）
     struct_decl_method_count: i32,     // 内部方法数量
+    struct_decl_is_export: i32,  // 1 表示 export struct，0 表示私有
     // union_decl（union Name { variant1: T1, variant2: T2 [ , fn ... ] }）
     union_decl_name: &byte,
     union_decl_variants: & & ASTNode,  // 变体数组（变体是 AST_VAR_DECL 节点）
@@ -134,6 +139,7 @@ struct ASTNode {
     union_decl_methods: & & ASTNode,   // 内部方法数组（AST_FN_DECL 节点，可为 null；extern union 无方法）
     union_decl_method_count: i32,
     union_decl_is_extern: i32,  // 1 表示 extern union（C 互操作，仅生成 union，无 tagged 包装）
+    union_decl_is_export: i32,  // 1 表示 export union，0 表示私有
     // method_block（StructName/UnionName { fn method(...) { ... } ... }）
     method_block_struct_name: &byte,
     method_block_union_name: &byte,    // 联合体名称（为 null 时表示结构体方法块）
@@ -146,17 +152,24 @@ struct ASTNode {
     fn_decl_return_type: &ASTNode,
     fn_decl_body: &ASTNode,
     fn_decl_is_varargs: i32,
+    fn_decl_is_export: i32,  // 1 表示 export fn，0 表示私有
     // var_decl
     var_decl_name: &byte,
     var_decl_type: &ASTNode,
     var_decl_init: &ASTNode,
     var_decl_is_const: i32,
     var_decl_was_moved: i32,   // 移动语义：1 表示该绑定曾被移动，离开作用域时不调用 drop
+    var_decl_is_export: i32,  // 1 表示 export const，0 表示私有（仅顶层 const 声明使用）
     // destructure_decl（const (x, y) = expr）
     destructure_decl_names: & & byte,
     destructure_decl_name_count: i32,
     destructure_decl_is_const: i32,
     destructure_decl_init: &ASTNode,
+    // use_stmt（use path; 或 use path.item; 或 use path as alias;）
+    use_stmt_path_segments: & & byte,  // 模块路径段数组（如 ["std", "io"] 表示 std.io，存储在 Arena）
+    use_stmt_path_segment_count: i32,   // 路径段数量
+    use_stmt_item_name: &byte,          // 可选：导入的特定项名称（如 use std.io.read_file 中的 "read_file"，为 null 表示导入整个模块）
+    use_stmt_alias: &byte,              // 可选：别名（如 use std.io as io 中的 "io"，为 null 表示无别名）
     // binary_expr
     binary_expr_left: &ASTNode,
     binary_expr_op: i32,
@@ -295,10 +308,13 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.enum_decl_name = null;
     node.enum_decl_variants = null;
     node.enum_decl_variant_count = 0;
+    node.enum_decl_is_export = 0;
     node.error_decl_name = null;
+    node.error_decl_is_export = 0;
     node.interface_decl_name = null;
     node.interface_decl_method_sigs = null;
     node.interface_decl_method_sig_count = 0;
+    node.interface_decl_is_export = 0;
     node.struct_decl_name = null;
     node.struct_decl_interface_names = null;
     node.struct_decl_interface_count = 0;
@@ -306,12 +322,14 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.struct_decl_field_count = 0;
     node.struct_decl_methods = null;
     node.struct_decl_method_count = 0;
+    node.struct_decl_is_export = 0;
     node.union_decl_name = null;
     node.union_decl_variants = null;
     node.union_decl_variant_count = 0;
     node.union_decl_methods = null;
     node.union_decl_method_count = 0;
     node.union_decl_is_extern = 0;
+    node.union_decl_is_export = 0;
     node.method_block_struct_name = null;
     node.method_block_union_name = null;
     node.method_block_methods = null;
@@ -322,15 +340,21 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.fn_decl_return_type = null;
     node.fn_decl_body = null;
     node.fn_decl_is_varargs = 0;
+    node.fn_decl_is_export = 0;
     node.var_decl_name = null;
     node.var_decl_type = null;
     node.var_decl_init = null;
     node.var_decl_is_const = 0;
     node.var_decl_was_moved = 0;
+    node.var_decl_is_export = 0;
     node.destructure_decl_names = null;
     node.destructure_decl_name_count = 0;
     node.destructure_decl_is_const = 0;
     node.destructure_decl_init = null;
+    node.use_stmt_path_segments = null;
+    node.use_stmt_path_segment_count = 0;
+    node.use_stmt_item_name = null;
+    node.use_stmt_alias = null;
     node.binary_expr_left = null;
     node.binary_expr_op = 0;
     node.binary_expr_right = null;

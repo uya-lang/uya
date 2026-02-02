@@ -30,8 +30,10 @@ fn test_cross_file_call() i32 {
         return 1;
     }
     
+    // 重新创建 r，因为之前的 r 已被移动
+    const r2: Rectangle = create_rectangle(0, 0, 20, 20);
     // 调用文件B的函数
-    const area: i32 = calculate_rectangle_area(r);
+    const area: i32 = calculate_rectangle_area(r2);
     if area != 400 {
         return 2;
     }

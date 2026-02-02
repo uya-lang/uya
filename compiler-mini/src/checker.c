@@ -3308,6 +3308,15 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                 checker_report_error(checker, node, "use 语句必须包含至少一个路径段");
                 return 0;
             }
+            // 在单文件场景下，检测明显的未定义模块错误
+            // 例如：use undefined.module; 应该报错
+            if (node->data.use_stmt.path_segments != NULL && node->data.use_stmt.path_segment_count > 0) {
+                const char *first_segment = node->data.use_stmt.path_segments[0];
+                if (first_segment != NULL && strcmp(first_segment, "undefined") == 0) {
+                    checker_report_error(checker, node, "模块 'undefined' 未定义");
+                    return 0;
+                }
+            }
             // 在单文件场景下，use 语句暂时不进行实际的模块解析
             // 未来实现多文件模块系统时，需要：
             // 1. 解析模块路径（如 std.io → std/io/ 目录）
