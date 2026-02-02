@@ -52,6 +52,8 @@ typedef enum {
     TOKEN_ERROR,        // error（错误声明/错误类型前缀）
     TOKEN_DEFER,        // defer（作用域结束执行）
     TOKEN_ERRDEFER,     // errdefer（仅错误返回时执行）
+    TOKEN_EXPORT,       // export（模块导出关键字）
+    TOKEN_USE,          // use（模块导入关键字）
     TOKEN_AT_IDENTIFIER,// @ 后跟内置函数标识符（@sizeof、@alignof、@len、@max、@min）
     TOKEN_AS,           // as（类型转换关键字）
     TOKEN_AS_BANG,      // as!（强转，返回 !T，规范 uya.md §11.3）

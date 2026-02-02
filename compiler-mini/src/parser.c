@@ -560,6 +560,7 @@ ASTNode *parser_parse_struct(Parser *parser) {
     struct_decl->data.struct_decl.interface_count = 0;
     struct_decl->data.struct_decl.fields = NULL;
     struct_decl->data.struct_decl.field_count = 0;
+    struct_decl->data.struct_decl.is_export = 0;
     
     // 可选的 ': InterfaceName { , InterfaceName }'
     if (parser_match(parser, TOKEN_COLON)) {
@@ -744,6 +745,7 @@ static ASTNode *parser_parse_union_body(Parser *parser, int line, int column, in
     if (union_decl == NULL) return NULL;
     union_decl->data.union_decl.name = union_name;
     union_decl->data.union_decl.is_extern = is_extern;
+    union_decl->data.union_decl.is_export = 0;
     if (!parser_expect(parser, TOKEN_LEFT_BRACE)) return NULL;
     ASTNode **variants = NULL;
     int variant_count = 0, variant_capacity = 0;
@@ -851,6 +853,7 @@ ASTNode *parser_parse_enum(Parser *parser) {
     enum_decl->data.enum_decl.name = enum_name;
     enum_decl->data.enum_decl.variants = NULL;
     enum_decl->data.enum_decl.variant_count = 0;
+    enum_decl->data.enum_decl.is_export = 0;
     
     // 期望 '{'
     if (!parser_expect(parser, TOKEN_LEFT_BRACE)) {
@@ -975,6 +978,7 @@ static ASTNode *parser_parse_error_decl(Parser *parser) {
         return NULL;
     }
     node->data.error_decl.name = name;
+    node->data.error_decl.is_export = 0;
     return node;
 }
 
@@ -1045,6 +1049,7 @@ static ASTNode *parser_parse_interface(Parser *parser) {
         sig->data.fn_decl.return_type = ret_type;
         sig->data.fn_decl.body = NULL;
         sig->data.fn_decl.is_varargs = 0;
+        sig->data.fn_decl.is_export = 0;  // 接口方法签名不导出
         if (sig_count >= sig_cap) {
             int new_cap = sig_cap == 0 ? 4 : sig_cap * 2;
             ASTNode **new_sigs = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
@@ -1061,6 +1066,7 @@ static ASTNode *parser_parse_interface(Parser *parser) {
     node->data.interface_decl.name = iface_name;
     node->data.interface_decl.method_sigs = sigs;
     node->data.interface_decl.method_sig_count = sig_count;
+    node->data.interface_decl.is_export = 0;
     return node;
 }
 
@@ -1140,6 +1146,7 @@ ASTNode *parser_parse_function(Parser *parser) {
     fn_decl->data.fn_decl.return_type = NULL;
     fn_decl->data.fn_decl.body = NULL;
     fn_decl->data.fn_decl.is_varargs = 0;
+    fn_decl->data.fn_decl.is_export = 0;
     
     // 期望 '('
     if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
@@ -1436,28 +1443,200 @@ ASTNode *parser_parse_extern_function(Parser *parser) {
     return parser_parse_extern_function_after_extern(parser);
 }
 
+// 解析 use 语句（use path; 或 use path.item; 或 use path as alias;）
+ASTNode *parser_parse_use_stmt(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    // 期望 'use'
+    if (!parser_match(parser, TOKEN_USE)) {
+        return NULL;
+    }
+    
+    int line = parser->current_token->line;
+    int column = parser->current_token->column;
+    
+    // 消费 'use'
+    parser_consume(parser);
+    
+    // 解析模块路径（identifier { '.' identifier }）
+    const char **path_segments = NULL;
+    int path_segment_count = 0;
+    int path_segment_capacity = 0;
+    
+    // 至少需要一个标识符
+    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+        const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+        fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 'use' 后期望模块路径（标识符）\n",
+                filename, line, column);
+        return NULL;
+    }
+    
+    // 读取路径段
+    while (parser_match(parser, TOKEN_IDENTIFIER)) {
+        // 扩展数组
+        if (path_segment_count >= path_segment_capacity) {
+            int new_capacity = path_segment_capacity == 0 ? 4 : path_segment_capacity * 2;
+            const char **new_segments = (const char **)arena_alloc(
+                parser->arena,
+                sizeof(const char *) * new_capacity
+            );
+            if (new_segments == NULL) {
+                return NULL;
+            }
+            
+            // 复制旧段
+            if (path_segments != NULL) {
+                for (int i = 0; i < path_segment_count; i++) {
+                    new_segments[i] = path_segments[i];
+                }
+            }
+            
+            path_segments = new_segments;
+            path_segment_capacity = new_capacity;
+        }
+        
+        const char *segment = arena_strdup(parser->arena, parser->current_token->value);
+        if (segment == NULL) {
+            return NULL;
+        }
+        path_segments[path_segment_count++] = segment;
+        parser_consume(parser);
+        
+        // 检查是否有 '.'
+        if (!parser_match(parser, TOKEN_DOT)) {
+            break;
+        }
+        parser_consume(parser);
+    }
+    
+    // 创建 use 语句节点
+    ASTNode *use_stmt = ast_new_node(AST_USE_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+    if (use_stmt == NULL) {
+        return NULL;
+    }
+    
+    use_stmt->data.use_stmt.path_segments = path_segments;
+    use_stmt->data.use_stmt.path_segment_count = path_segment_count;
+    use_stmt->data.use_stmt.item_name = NULL;
+    use_stmt->data.use_stmt.alias = NULL;
+    
+    // 检查是否有特定项名称（use path.item;）
+    if (parser_match(parser, TOKEN_DOT)) {
+        parser_consume(parser);
+        if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+            const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+            fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): '.' 后期望项名称（标识符）\n",
+                    filename, parser->current_token ? parser->current_token->line : 0,
+                    parser->current_token ? parser->current_token->column : 0);
+            return NULL;
+        }
+        use_stmt->data.use_stmt.item_name = arena_strdup(parser->arena, parser->current_token->value);
+        if (use_stmt->data.use_stmt.item_name == NULL) {
+            return NULL;
+        }
+        parser_consume(parser);
+    }
+    
+    // 检查是否有别名（use path as alias;）
+    if (parser_match(parser, TOKEN_AS)) {
+        parser_consume(parser);
+        if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+            const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+            fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 'as' 后期望别名（标识符）\n",
+                    filename, parser->current_token ? parser->current_token->line : 0,
+                    parser->current_token ? parser->current_token->column : 0);
+            return NULL;
+        }
+        use_stmt->data.use_stmt.alias = arena_strdup(parser->arena, parser->current_token->value);
+        if (use_stmt->data.use_stmt.alias == NULL) {
+            return NULL;
+        }
+        parser_consume(parser);
+    }
+    
+    // 期望 ';'
+    if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+        const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+        fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 'use' 语句后期望 ';'\n",
+                filename, parser->current_token ? parser->current_token->line : 0,
+                parser->current_token ? parser->current_token->column : 0);
+        return NULL;
+    }
+    
+    return use_stmt;
+}
+
 // 解析声明（函数、结构体或变量声明）
 ASTNode *parser_parse_declaration(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
         return NULL;
     }
     
+    // 检查 use 语句
+    if (parser_match(parser, TOKEN_USE)) {
+        return parser_parse_use_stmt(parser);
+    }
+    
+    // 检查 export 关键字
+    int is_export = 0;
+    if (parser_match(parser, TOKEN_EXPORT)) {
+        is_export = 1;
+        parser_consume(parser);
+    }
+    
     // 根据第一个 Token 判断声明类型
     if (parser_match(parser, TOKEN_EXTERN)) {
         parser_consume(parser);
-        return parser_parse_extern_decl(parser);
+        ASTNode *decl = parser_parse_extern_decl(parser);
+        if (decl != NULL && is_export) {
+            // 设置 export 标记（extern 函数/结构体）
+            if (decl->type == AST_FN_DECL) {
+                decl->data.fn_decl.is_export = 1;
+            } else if (decl->type == AST_STRUCT_DECL) {
+                decl->data.struct_decl.is_export = 1;
+            } else if (decl->type == AST_UNION_DECL) {
+                decl->data.union_decl.is_export = 1;
+            }
+        }
+        return decl;
     } else if (parser_match(parser, TOKEN_FN)) {
-        return parser_parse_function(parser);
+        ASTNode *decl = parser_parse_function(parser);
+        if (decl != NULL && is_export) {
+            decl->data.fn_decl.is_export = 1;
+        }
+        return decl;
     } else if (parser_match(parser, TOKEN_ENUM)) {
-        return parser_parse_enum(parser);
+        ASTNode *decl = parser_parse_enum(parser);
+        if (decl != NULL && is_export) {
+            decl->data.enum_decl.is_export = 1;
+        }
+        return decl;
     } else if (parser_match(parser, TOKEN_ERROR)) {
-        return parser_parse_error_decl(parser);
+        ASTNode *decl = parser_parse_error_decl(parser);
+        if (decl != NULL && is_export) {
+            decl->data.error_decl.is_export = 1;
+        }
+        return decl;
     } else if (parser_match(parser, TOKEN_INTERFACE)) {
-        return parser_parse_interface(parser);
+        ASTNode *decl = parser_parse_interface(parser);
+        if (decl != NULL && is_export) {
+            decl->data.interface_decl.is_export = 1;
+        }
+        return decl;
     } else if (parser_match(parser, TOKEN_STRUCT)) {
-        return parser_parse_struct(parser);
+        ASTNode *decl = parser_parse_struct(parser);
+        if (decl != NULL && is_export) {
+            decl->data.struct_decl.is_export = 1;
+        }
+        return decl;
     } else if (parser_match(parser, TOKEN_UNION)) {
-        return parser_parse_union(parser);
+        ASTNode *decl = parser_parse_union(parser);
+        if (decl != NULL && is_export) {
+            decl->data.union_decl.is_export = 1;
+        }
+        return decl;
     } else if (parser_match(parser, TOKEN_IDENTIFIER)) {
         const char *name = arena_strdup(parser->arena, parser->current_token->value);
         if (!name) return NULL;
@@ -1473,7 +1652,11 @@ ASTNode *parser_parse_declaration(Parser *parser) {
         return NULL;
     } else if (parser_match(parser, TOKEN_CONST) || parser_match(parser, TOKEN_VAR)) {
         // 变量声明
-        return parser_parse_statement(parser);
+        ASTNode *decl = parser_parse_statement(parser);
+        if (decl != NULL && is_export && decl->type == AST_VAR_DECL) {
+            decl->data.var_decl.is_export = 1;
+        }
+        return decl;
     } else {
         // 无法识别的声明类型
         return NULL;

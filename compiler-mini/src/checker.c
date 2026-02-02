@@ -3300,6 +3300,21 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                 }
             }
             return 1;
+        
+        case AST_USE_STMT:
+            // use 语句检查（当前单文件场景，仅做基本验证）
+            // 注意：完整的模块系统需要多文件支持，当前仅验证语法正确性
+            if (node->data.use_stmt.path_segment_count == 0) {
+                checker_report_error(checker, node, "use 语句必须包含至少一个路径段");
+                return 0;
+            }
+            // 在单文件场景下，use 语句暂时不进行实际的模块解析
+            // 未来实现多文件模块系统时，需要：
+            // 1. 解析模块路径（如 std.io → std/io/ 目录）
+            // 2. 查找模块文件
+            // 3. 检查导出项是否存在
+            // 4. 处理别名和特定项导入
+            return 1;
             
         case AST_STRUCT_DECL:
             if (checker->scope_level > 0) {

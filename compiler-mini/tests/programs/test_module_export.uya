@@ -1,0 +1,28 @@
+// 测试 export 关键字基本功能
+// 导出函数
+export fn public_func() i32 {
+    return 42;
+}
+
+// 未导出的函数（私有）
+fn private_func() i32 {
+    return 0;
+}
+
+// 导出结构体
+export struct PublicStruct {
+    x: i32,
+    y: i32,
+}
+
+// 未导出的结构体（私有）
+struct PrivateStruct {
+    x: i32,
+}
+
+fn main() i32 {
+    const result: i32 = public_func();
+    const priv: i32 = private_func();
+    return result + priv;
+}
+

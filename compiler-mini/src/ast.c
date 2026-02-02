@@ -90,6 +90,12 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.destructure_decl.is_const = 0;
             node->data.destructure_decl.init = NULL;
             break;
+        case AST_USE_STMT:
+            node->data.use_stmt.path_segments = NULL;
+            node->data.use_stmt.path_segment_count = 0;
+            node->data.use_stmt.item_name = NULL;
+            node->data.use_stmt.alias = NULL;
+            break;
         case AST_BINARY_EXPR:
             node->data.binary_expr.left = NULL;
             node->data.binary_expr.op = 0;

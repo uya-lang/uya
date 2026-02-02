@@ -119,6 +119,8 @@ static TokenType is_keyword(const char *str) {
     if (strcmp(str, "error") == 0) return TOKEN_ERROR;
     if (strcmp(str, "defer") == 0) return TOKEN_DEFER;
     if (strcmp(str, "errdefer") == 0) return TOKEN_ERRDEFER;
+    if (strcmp(str, "export") == 0) return TOKEN_EXPORT;
+    if (strcmp(str, "use") == 0) return TOKEN_USE;
     if (strcmp(str, "as") == 0) return TOKEN_AS;
     if (strcmp(str, "match") == 0) return TOKEN_MATCH;
     return TOKEN_IDENTIFIER;  // 不是关键字，是标识符

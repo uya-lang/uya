@@ -48,6 +48,7 @@ typedef enum {
     AST_FN_DECL,        // 函数声明
     AST_VAR_DECL,       // 变量声明（const/var）
     AST_DESTRUCTURE_DECL, // 解构声明（const (x, y) = expr）
+    AST_USE_STMT,         // use 语句（use path; 或 use path.item; 或 use path as alias;）
     
     // 语句节点
     AST_IF_STMT,        // if 语句
@@ -122,11 +123,13 @@ struct ASTNode {
             const char *name;              // 枚举名称（字符串存储在 Arena 中）
             EnumVariant *variants;         // 变体数组（从 Arena 分配）
             int variant_count;             // 变体数量
+            int is_export;                 // 1 表示 export enum，0 表示私有
         } enum_decl;
         
         // 预定义错误声明（error Name;）
         struct {
             const char *name;              // 错误名称（字符串存储在 Arena 中）
+            int is_export;                 // 1 表示 export error，0 表示私有
         } error_decl;
         
         // 接口声明（interface I { fn method(self: *Self,...) Ret; ... }）
@@ -134,6 +137,7 @@ struct ASTNode {
             const char *name;              // 接口名称（字符串存储在 Arena 中）
             struct ASTNode **method_sigs;   // 方法签名数组（AST_FN_DECL 节点，body 为 NULL）
             int method_sig_count;          // 方法签名数量
+            int is_export;                 // 1 表示 export interface，0 表示私有
         } interface_decl;
         
         // 结构体声明
@@ -145,6 +149,7 @@ struct ASTNode {
             int field_count;          // 字段数量
             struct ASTNode **methods;        // 内部方法数组（AST_FN_DECL 节点，可为 NULL）
             int method_count;         // 内部方法数量
+            int is_export;             // 1 表示 export struct，0 表示私有
         } struct_decl;
         
         // 联合体声明（union Name { variant1: T1, variant2: T2 [ , fn ... ] } 或 extern union Name { ... }）
@@ -155,6 +160,7 @@ struct ASTNode {
             struct ASTNode **methods;        // 内部方法数组（AST_FN_DECL 节点，可为 NULL；extern union 无方法）
             int method_count;         // 内部方法数量
             int is_extern;            // 1 表示 extern union（C 互操作，仅生成 union，无 tagged 包装）
+            int is_export;            // 1 表示 export union，0 表示私有
         } union_decl;
         
         // 方法块（StructName/UnionName { fn method(...) { ... } ... }）
@@ -173,6 +179,7 @@ struct ASTNode {
             struct ASTNode *return_type;     // 返回类型（类型节点）
             struct ASTNode *body;            // 函数体（AST_BLOCK 节点）
             int is_varargs;           // 是否为可变参数函数（1 表示是，0 表示否）
+            int is_export;            // 1 表示 export fn，0 表示私有
         } fn_decl;
         
         // 变量声明（用于变量声明、函数参数、结构体字段）
@@ -182,6 +189,7 @@ struct ASTNode {
             struct ASTNode *init;            // 初始值表达式（可为 NULL）
             int is_const;             // 1 表示 const，0 表示 var
             int was_moved;            // 移动语义：1 表示该绑定曾被移动，离开作用域时不调用 drop
+            int is_export;            // 1 表示 export const，0 表示私有（仅顶层 const 声明使用）
         } var_decl;
         
         // 解构声明（const (x, y) = expr 或 var (x, y) = expr）
@@ -191,6 +199,14 @@ struct ASTNode {
             int is_const;             // 1 表示 const，0 表示 var
             struct ASTNode *init;     // 初始值表达式（必须为元组类型）
         } destructure_decl;
+        
+        // use 语句（use path; 或 use path.item; 或 use path as alias;）
+        struct {
+            const char **path_segments; // 模块路径段数组（如 ["std", "io"] 表示 std.io，存储在 Arena）
+            int path_segment_count;     // 路径段数量
+            const char *item_name;      // 可选：导入的特定项名称（如 use std.io.read_file 中的 "read_file"，为 NULL 表示导入整个模块）
+            const char *alias;          // 可选：别名（如 use std.io as io 中的 "io"，为 NULL 表示无别名）
+        } use_stmt;
         
         // 二元表达式
         struct {
