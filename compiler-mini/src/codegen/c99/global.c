@@ -62,29 +62,51 @@ void gen_global_var(C99CodeGenerator *codegen, ASTNode *var_decl) {
     if (!var_name || !var_type) return;
     
     const char *type_c = NULL;
-    int array_size = -1;
     
     // 检查是否为数组类型
     if (var_type->type == AST_TYPE_ARRAY) {
-        ASTNode *element_type = var_type->data.type_array.element_type;
-        ASTNode *size_expr = var_type->data.type_array.size_expr;
-        type_c = c99_type_to_c(codegen, element_type);
+        // 对于数组类型（包括多维数组），使用 c99_type_to_c 处理整个类型
+        // 它会正确处理多维数组，例如 [[byte: PATH_MAX]: MAX_INPUT_FILES] -> uint8_t[64][4096]
+        const char *full_type_c = c99_type_to_c(codegen, var_type);
         
-        // 评估数组大小
-        if (size_expr) {
-            array_size = eval_const_expr(codegen, size_expr);
-            if (array_size <= 0) {
-                array_size = 1;  // 占位符
+        // 解析类型字符串，分离基类型和数组维度
+        // 例如："uint8_t[64][4096]" -> 基类型="uint8_t", 维度="[64][4096]"
+        const char *first_bracket = strchr(full_type_c, '[');
+        if (first_bracket) {
+            // 找到第一个 '['，分割基类型和维度
+            size_t base_len = first_bracket - full_type_c;
+            char *base_type = arena_alloc(codegen->arena, base_len + 1);
+            if (base_type) {
+                memcpy(base_type, full_type_c, base_len);
+                base_type[base_len] = '\0';
+                
+                // 维度部分是从 '[' 开始到结尾
+                const char *dimensions = full_type_c + base_len;
+                
+                // 生成数组声明：const base_type var_name dimensions
+                if (is_const) {
+                    fprintf(codegen->output, "const %s %s%s", base_type, var_name, dimensions);
+                } else {
+                    fprintf(codegen->output, "%s %s%s", base_type, var_name, dimensions);
+                }
+                type_c = base_type;  // 保存基类型用于后续使用
+            } else {
+                // 分配失败，回退到简单处理
+                type_c = full_type_c;
+                if (is_const) {
+                    fprintf(codegen->output, "const %s %s", type_c, var_name);
+                } else {
+                    fprintf(codegen->output, "%s %s", type_c, var_name);
+                }
             }
         } else {
-            array_size = 1;  // 占位符
-        }
-        
-        // 生成数组声明：const elem_type var_name[size]
-        if (is_const) {
-            fprintf(codegen->output, "const %s %s[%d]", type_c, var_name, array_size);
-        } else {
-            fprintf(codegen->output, "%s %s[%d]", type_c, var_name, array_size);
+            // 没有找到 '['，可能是错误情况，回退到简单处理
+            type_c = full_type_c;
+            if (is_const) {
+                fprintf(codegen->output, "const %s %s", type_c, var_name);
+            } else {
+                fprintf(codegen->output, "%s %s", type_c, var_name);
+            }
         }
     } else {
         type_c = c99_type_to_c(codegen, var_type);

@@ -724,25 +724,10 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             }
         }
         
-        // 检查数组表达式是否是指向数组的指针
-        var is_ptr_to_array: i32 = 0;
-        if array.type == ASTNodeType.AST_IDENTIFIER {
-            const array_name: &byte = array.identifier_name;
-            if array_name != null {
-                is_ptr_to_array = is_identifier_pointer_to_array_type(codegen, array_name);
-            }
-        }
-        
-        if is_ptr_to_array != 0 {
-            // 指向数组的指针需要先解引用：(*ptr)[index]
-            fputc(40, codegen.output as *void);  // '('
-            fputc(42, codegen.output as *void);  // '*'
-            gen_expr(codegen, array);
-            fputc(41, codegen.output as *void);  // ')'
-        } else {
-            gen_expr(codegen, array);
-        }
-        
+        // 注意：对于指向数组的指针（如 uint8_t (*)[4096]），
+        // 在 C 中可以直接使用 file_paths_buffer[i]，不需要 (*file_paths_buffer)[i]
+        // 因为 file_paths_buffer[i] 会自动解引用
+        gen_expr(codegen, array);
         fputc(91, codegen.output as *void);  // '['
         gen_expr(codegen, index);
         fputc(93, codegen.output as *void);  // ']'

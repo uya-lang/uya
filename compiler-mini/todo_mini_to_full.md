@@ -17,9 +17,9 @@
 | 4 | 切片 | [x] |
 | 5 | match 表达式 | [x] |
 | 6 | for 扩展 | [x]（整数范围已实现；迭代器依赖阶段 7 接口） |
-| 7 | 接口 | [x]（C 实现完成；uya-src 待同步） |
+| 7 | 接口 | [x]（C 实现与 uya-src 已同步） |
 | 8 | 结构体方法 + drop + 移动语义 | [x]（外部/内部方法、drop/RAII、移动语义 C 实现与 uya-src 已同步） |
-| 9 | 模块系统 | [x]（C 实现完成：目录即模块、export/use 可见性检查、模块路径解析、错误检测；uya-src 待同步） |
+| 9 | 模块系统 | [x]（C 实现与 uya-src 已同步：目录即模块、export/use 可见性检查、模块路径解析、错误检测、递归依赖收集） |
 | 10 | 字符串插值 | [x] |
 | 11 | 原子类型 | [ ] |
 | 12 | 运算符与安全 | [ ] |
@@ -180,7 +180,7 @@
   **C 实现**：AST 在 struct_decl 中增加 methods/method_count 字段；Parser 在 parse_struct 中支持解析 fn 关键字（内部方法）；Checker 添加 find_method_in_struct 函数同时查找外部方法块和内部方法；Codegen 在 main.c 中生成内部方法原型和实现，function.c 添加 find_method_in_struct_c99 函数，expr.c/structs.c 使用新函数。  
   **uya-src 已同步**：ast.uya、parser.uya、checker.uya、codegen/c99/structs.uya、codegen/c99/expr.uya、codegen/c99/main.uya 均已同步修改。
 - [x] **drop / RAII**：用户自定义 `fn drop(self: T) void`，作用域结束逆序调用，规范 uya.md §12  
-  **C 实现（已完成）**：Checker 校验 drop 签名（仅一个参数 self: T 按值、返回 void）、每类型仅一个 drop（方法块与结构体内部不能重复）；Codegen 在块退出时先 defer 再按变量声明逆序插入 drop 调用，在 return/break/continue 前插入当前块变量的 drop；生成 drop 方法时先按字段逆序插入字段的 drop 再用户体。测试 test_drop_simple.uya、test_drop_order.uya 通过 `--c99`；error_drop_wrong_sig.uya、error_drop_duplicate.uya 预期编译失败。**uya-src**：checker.uya 已同步（check_drop_method_signature、METHOD_BLOCK 与 struct_decl 的 drop 校验）；codegen（stmt.uya 的 emit_drop_cleanup/emit_current_block_drops、current_drop_scope 与 drop_var_*、function.uya 的 drop 方法字段逆序）待同步后 test_drop_*.uya 方可通过 `--uya --c99`。
+  **C 实现（已完成）**：Checker 校验 drop 签名（仅一个参数 self: T 按值、返回 void）、每类型仅一个 drop（方法块与结构体内部不能重复）；Codegen 在块退出时先 defer 再按变量声明逆序插入 drop 调用，在 return/break/continue 前插入当前块变量的 drop；生成 drop 方法时先按字段逆序插入字段的 drop 再用户体。测试 test_drop_simple.uya、test_drop_order.uya 通过 `--c99`；error_drop_wrong_sig.uya、error_drop_duplicate.uya 预期编译失败。**uya-src 已同步**：checker.uya（check_drop_method_signature、METHOD_BLOCK 与 struct_decl 的 drop 校验）；codegen（stmt.uya 的 emit_drop_cleanup/emit_current_block_drops、current_drop_scope 与 drop_var_*、function.uya 的 drop 方法字段逆序）。**待修复**：test_drop_*.uya 在 `--uya --c99` 下测试失败（退出码 139，可能是段错误），需排查并修复。
 - [x] **移动语义**：结构体赋值/传参/返回为移动，活跃指针禁止移动，规范 uya.md §12.5  
   **C 实现（已完成）**：Checker 维护已移动集合（moved_names）、符号表 pointee_of 记录 `p = &x` 的活跃指针；赋值/const 初始化/return/函数实参/结构体字面量字段若源为结构体变量则标记移动；使用标识符时检查「已被移动」、移动前检查「存在活跃指针」「循环中不能移动」。测试 test_move_simple.uya 通过；error_move_use_after.uya、error_move_active_pointer.uya、error_move_in_loop.uya 预期编译失败。**uya-src 已同步**：checker.uya 增加 Symbol.pointee_of、TypeChecker.moved_names/moved_count；moved_set_contains、has_active_pointer_to、checker_mark_moved、checker_mark_moved_call_args；AST_IDENTIFIER 使用前查已移动、var_decl/assign/return/call/struct_init 处标记移动及 pointee_of；为满足自举在返回/赋值处使用 copy_type 避免对同一 Type 变量多次移动。test_move_simple 与 error_move_* 在 --c99 与 --uya --c99 下均通过/预期失败。  
   **数组元素部分移出（当前未实现）**：移动追踪仅针对「整个变量」（AST_VAR_DECL + 标识符名）。`x = arr[i]` 的源是 AST_ARRAY_ACCESS，不会调用 checker_mark_moved，故**没有对数组元素做细粒度移出追踪**。Codegen 的 emit_drop_cleanup 只处理类型为 AST_TYPE_NAMED 的变量，数组类型变量不会加入 drop 列表，因此**当前不会对数组整体或元素做 drop**。后果：（1）不会出现「对已移出槽位 double drop」的 UB，因为根本不 drop 数组元素；（2）若元素类型有 drop，则数组离开作用域时**未调用的 drop 为规范缺口**；（3）若将来实现对数组元素的 drop，则必须先实现「按槽位追踪已移出」或等价机制，否则会产生 double drop / use-after-move 的 UB。
@@ -226,8 +226,8 @@
   **uya-src 已同步**：
   - 添加了外部函数声明（getenv, stat, opendir, readdir, closedir, readlink, strcpy）
   - 实现了基本框架（get_compiler_dir, get_uya_root, is_directory, is_file, detect_main_function, find_main_files_in_dir, find_module_file, extract_use_modules）
-  - 修改了 compile_files 以支持目录输入和基本的依赖收集框架
-  - `collect_module_dependencies()` 的完整实现待完善（当前为简化版本，仅返回当前文件列表大小）
+  - 修改了 compile_files 以支持目录输入和依赖收集框架
+  - `collect_module_dependencies()` 已完整实现递归逻辑（检查已处理、解析 AST、提取 use 语句、递归处理模块、特殊处理 main 模块、Arena 内存管理）
 - [x] **完善自举版本的依赖收集**：实现 `collect_module_dependencies()` 的完整递归逻辑
   **已实现功能**：
   - [x] 检查是否已处理过（避免循环依赖）

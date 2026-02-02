@@ -218,7 +218,8 @@ int is_stdlib_function(const char *func_name) {
         strcmp(func_name, "fgetc") == 0 ||
         strcmp(func_name, "fputc") == 0 ||
         strcmp(func_name, "fgets") == 0 ||
-        strcmp(func_name, "fputs") == 0) {
+        strcmp(func_name, "fputs") == 0 ||
+        strcmp(func_name, "fflush") == 0) {
         return 1;
     }
     return 0;

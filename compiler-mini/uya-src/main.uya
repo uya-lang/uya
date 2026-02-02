@@ -26,6 +26,10 @@ var file_buffer: [byte: FILE_BUFFER_SIZE] = [];
 // 临时 Arena 缓冲区（用于依赖收集，全局变量避免栈溢出）
 // 需要足够大以支持递归解析多个文件的 AST
 var temp_arena_buffer: [byte: 32 * 1024 * 1024] = [];
+// 大数组移到全局变量避免栈溢出（main_file_paths 是 64 * 4096 = 262KB）
+var main_file_paths_global: [[byte: PATH_MAX]: MAX_INPUT_FILES] = [];
+// 将 resolved_files 也移到全局变量，避免栈溢出
+var resolved_files_global: [&byte: MAX_INPUT_FILES] = [];
 
 // 读取文件内容到缓冲区
 // 成功返回读取字节数，失败返回 -1
@@ -93,9 +97,11 @@ fn paths_equal(path1: &byte, path2: &byte) i32 {
 
 // 检查路径是否为目录
 fn is_directory(path: &byte) i32 {
-    var st: Stat = Stat { st_mode: 0 };
+    var st: Stat = Stat { _data: [0: 144] };
     if stat(path as *byte, &st) == 0 {
-        const mode: u32 = st.st_mode;
+        // st_mode 在偏移 24 字节处，使用指针访问
+        const mode_ptr: &u32 = &st._data[24] as &u32;
+        const mode: u32 = mode_ptr[0];
         if (mode & S_IFMT) == S_IFDIR {
             return 1;
         }
@@ -105,9 +111,11 @@ fn is_directory(path: &byte) i32 {
 
 // 检查路径是否为文件
 fn is_file(path: &byte) i32 {
-    var st: Stat = Stat { st_mode: 0 };
+    var st: Stat = Stat { _data: [0: 144] };
     if stat(path as *byte, &st) == 0 {
-        const mode: u32 = st.st_mode;
+        // st_mode 在偏移 24 字节处，使用指针访问
+        const mode_ptr: &u32 = &st._data[24] as &u32;
+        const mode: u32 = mode_ptr[0];
         if (mode & S_IFMT) == S_IFREG {
             return 1;
         }
@@ -117,11 +125,17 @@ fn is_file(path: &byte) i32 {
 
 // 获取编译器程序所在目录
 fn get_compiler_dir(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
+    fprintf(get_stderr(), "[DEBUG] get_compiler_dir() entered\n" as *byte);
+    fflush(get_stderr());
     if argv0 == null || buffer == null || buffer_size == 0 {
+        fprintf(get_stderr(), "[DEBUG] get_compiler_dir() invalid params\n" as *byte);
+        fflush(get_stderr());
         return -1;
     }
     
     // 如果是绝对路径，直接提取目录
+    fprintf(get_stderr(), "[DEBUG] get_compiler_dir() checking absolute path\n" as *byte);
+    fflush(get_stderr());
     if argv0[0] == 47 {
         const last_slash: *byte = strrchr(argv0 as *byte, 47);
         if last_slash != null {
@@ -165,13 +179,23 @@ fn get_compiler_dir(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
 
 // 获取 UYA_ROOT 环境变量或默认目录
 fn get_uya_root(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
+    fprintf(get_stderr(), "[DEBUG] get_uya_root() entered, buffer=%p, buffer_size=%zu\n" as *byte, buffer, buffer_size);
+    fflush(get_stderr());
     if buffer == null || buffer_size == 0 {
+        fprintf(get_stderr(), "[DEBUG] get_uya_root() invalid params\n" as *byte);
+        fflush(get_stderr());
         return -1;
     }
     
     // 首先尝试从环境变量获取
+    fprintf(get_stderr(), "[DEBUG] get_uya_root() before getenv\n" as *byte);
+    fflush(get_stderr());
     const env_root: *byte = getenv("UYA_ROOT" as *byte);
+    fprintf(get_stderr(), "[DEBUG] get_uya_root() after getenv, env_root=%p\n" as *byte, env_root);
+    fflush(get_stderr());
     if env_root != null && env_root[0] != 0 {
+        fprintf(get_stderr(), "[DEBUG] get_uya_root() env_root not null, using it\n" as *byte);
+        fflush(get_stderr());
         const len: usize = strlen(env_root);
         if len < buffer_size {
             strcpy(buffer as *byte, env_root);
@@ -187,7 +211,12 @@ fn get_uya_root(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
     }
     
     // 如果环境变量未设置，使用编译器程序所在目录
-    return get_compiler_dir(argv0, buffer, buffer_size);
+    fprintf(get_stderr(), "[DEBUG] get_uya_root() calling get_compiler_dir\n" as *byte);
+    fflush(get_stderr());
+    const result: i32 = get_compiler_dir(argv0, buffer, buffer_size);
+    fprintf(get_stderr(), "[DEBUG] get_uya_root() get_compiler_dir returned %d\n" as *byte, result);
+    fflush(get_stderr());
+    return result;
 }
 
 // 打印使用说明（program_name 用 &byte，传给 fprintf 时转为 *byte）
@@ -208,11 +237,21 @@ fn print_usage(program_name: &byte) void {
 
 // 检测文件是否包含 main 函数
 fn detect_main_function(filename: &byte) i32 {
+    fprintf(get_stderr(), "[DEBUG] detect_main_function() entered, filename=%p\n" as *byte, filename);
+    fflush(get_stderr());
     if filename == null {
+        fprintf(get_stderr(), "[DEBUG] detect_main_function() filename is null\n" as *byte);
+        fflush(get_stderr());
         return 0;
     }
+    fprintf(get_stderr(), "[DEBUG] detect_main_function() before read_file_content\n" as *byte);
+    fflush(get_stderr());
     const file_size: i32 = read_file_content(filename, &file_buffer[0], FILE_BUFFER_SIZE as usize);
+    fprintf(get_stderr(), "[DEBUG] detect_main_function() after read_file_content, file_size=%d\n" as *byte, file_size);
+    fflush(get_stderr());
     if file_size < 0 {
+        fprintf(get_stderr(), "[DEBUG] detect_main_function() file_size < 0, returning 0\n" as *byte);
+        fflush(get_stderr());
         return 0;
     }
     // 简单的字符串搜索（查找 "fn main("）
@@ -663,36 +702,97 @@ fn compile_files(
     backend: BackendType,
     emit_line_directives: i32
 ) i32 {
+    fprintf(get_stderr(), "[DEBUG] compile_files() entered, input_file_count=%d\n" as *byte, input_file_count);
+    fflush(get_stderr());
+    
     // 初始化临时 Arena（用于依赖收集，使用全局缓冲区避免栈溢出）
+    fprintf(get_stderr(), "[DEBUG] compile_files() before temp_arena init\n" as *byte);
+    fflush(get_stderr());
     var temp_arena: Arena = Arena { buffer: null, size: 0 as usize, offset: 0 as usize };
+    fprintf(get_stderr(), "[DEBUG] compile_files() before arena_init\n" as *byte);
+    fflush(get_stderr());
     arena_init(&temp_arena, &temp_arena_buffer[0], 32 * 1024 * 1024);
+    fprintf(get_stderr(), "[DEBUG] compile_files() after arena_init\n" as *byte);
+    fflush(get_stderr());
     
     // 获取 UYA_ROOT 和编译器目录
+    fprintf(get_stderr(), "[DEBUG] compile_files() before uya_root_buffer declaration\n" as *byte);
+    fflush(get_stderr());
     var uya_root_buffer: [byte: PATH_MAX] = [];
+    fprintf(get_stderr(), "[DEBUG] compile_files() after uya_root_buffer declaration\n" as *byte);
+    fflush(get_stderr());
+    fprintf(get_stderr(), "[DEBUG] compile_files() before get_argv(0)\n" as *byte);
+    fflush(get_stderr());
     const argv0: *byte = get_argv(0);
-    if get_uya_root(argv0 as &byte, &uya_root_buffer[0] as &byte, PATH_MAX) != 0 {
+    fprintf(get_stderr(), "[DEBUG] compile_files() after get_argv(0), argv0=%p\n" as *byte, argv0);
+    fflush(get_stderr());
+    fprintf(get_stderr(), "[DEBUG] compile_files() before get_uya_root\n" as *byte);
+    fflush(get_stderr());
+    const uya_root_result: i32 = get_uya_root(argv0 as &byte, &uya_root_buffer[0] as &byte, PATH_MAX);
+    fprintf(get_stderr(), "[DEBUG] compile_files() after get_uya_root, result=%d\n" as *byte, uya_root_result);
+    fflush(get_stderr());
+    if uya_root_result != 0 {
         fprintf(get_stderr(), "错误: 无法获取 UYA_ROOT 目录\n" as *byte);
         return 1;
     }
+    fprintf(get_stderr(), "[DEBUG] compile_files() after get_uya_root check\n" as *byte);
+    fflush(get_stderr());
     
     // 处理输入：如果是目录，查找包含 main 的文件；如果是文件，检查是否包含 main
-    var resolved_files: [&byte: MAX_INPUT_FILES] = [];
+    fprintf(get_stderr(), "[DEBUG] compile_files() before resolved_files declaration\n" as *byte);
+    fflush(get_stderr());
+    // 使用全局变量避免栈溢出
+    var resolved_files: [&byte: MAX_INPUT_FILES] = resolved_files_global;
+    fprintf(get_stderr(), "[DEBUG] compile_files() after resolved_files assignment\n" as *byte);
+    fflush(get_stderr());
     var resolved_count: i32 = 0;
+    fprintf(get_stderr(), "[DEBUG] compile_files() after resolved_count declaration\n" as *byte);
+    fflush(get_stderr());
     var project_root_buffer: [byte: PATH_MAX] = [];
+    fprintf(get_stderr(), "[DEBUG] compile_files() after project_root_buffer declaration\n" as *byte);
+    fflush(get_stderr());
     var project_root: &byte = null;
-    var main_file_paths: [[byte: PATH_MAX]: MAX_INPUT_FILES] = [];
+    fprintf(get_stderr(), "[DEBUG] compile_files() after project_root declaration\n" as *byte);
+    fflush(get_stderr());
+    // 使用全局变量避免栈溢出（262KB 太大），直接使用全局数组
+    // var main_file_paths: [[byte: PATH_MAX]: MAX_INPUT_FILES] = [];
     
     var i: i32 = 0;
     while i < input_file_count {
+        fprintf(get_stderr(), "[DEBUG] compile_files() before input_file_indices[i], i=%d\n" as *byte, i);
+        fflush(get_stderr());
         const idx_i: i32 = input_file_indices[i];
+        fprintf(get_stderr(), "[DEBUG] compile_files() after input_file_indices[i], idx_i=%d\n" as *byte, idx_i);
+        fflush(get_stderr());
+        fprintf(get_stderr(), "[DEBUG] compile_files() before get_argv(idx_i)\n" as *byte);
+        fflush(get_stderr());
         const input_path: *byte = get_argv(idx_i);
+        fprintf(get_stderr(), "[DEBUG] compile_files() after get_argv(idx_i), input_path=%p\n" as *byte, input_path);
+        fflush(get_stderr());
         const input: &byte = input_path as &byte;
+        fprintf(get_stderr(), "[DEBUG] compile_files() after input assignment\n" as *byte);
+        fflush(get_stderr());
         
-        if is_directory(input) != 0 {
+        fprintf(get_stderr(), "[DEBUG] compile_files() before is_directory(input)\n" as *byte);
+        fflush(get_stderr());
+        const is_dir_result: i32 = is_directory(input);
+        fprintf(get_stderr(), "[DEBUG] compile_files() after is_directory(input), result=%d\n" as *byte, is_dir_result);
+        fflush(get_stderr());
+        fprintf(get_stderr(), "[DEBUG] compile_files() before if is_dir_result check\n" as *byte);
+        fflush(get_stderr());
+        if is_dir_result != 0 {
+            fprintf(get_stderr(), "[DEBUG] compile_files() is directory branch\n" as *byte);
+            fflush(get_stderr());
             // 是目录，查找包含 main 的文件
+            fprintf(get_stderr(), "[DEBUG] compile_files() is directory, before main_files declaration\n" as *byte);
+            fflush(get_stderr());
             var main_files: [&byte: MAX_INPUT_FILES] = [];
+            fprintf(get_stderr(), "[DEBUG] compile_files() after main_files declaration\n" as *byte);
+            fflush(get_stderr());
             var main_count: i32 = 0;
-            if find_main_files_in_dir(input, &main_files[0], &main_file_paths[0], MAX_INPUT_FILES, &main_count) != 0 {
+            fprintf(get_stderr(), "[DEBUG] compile_files() before find_main_files_in_dir\n" as *byte);
+            fflush(get_stderr());
+            if find_main_files_in_dir(input, &main_files[0], &main_file_paths_global[0], MAX_INPUT_FILES, &main_count) != 0 {
                 fprintf(get_stderr(), "错误: 无法读取目录 '%s'\n" as *byte, input_path);
                 return 1;
             }
@@ -969,18 +1069,31 @@ fn compile_files(
 
 // 程序入口（由 bridge.c 调用，重命名为 uya_main）
 fn uya_main() i32 {
+    fprintf(get_stderr(), "[DEBUG] uya_main() entered\n" as *byte);
+    fflush(get_stderr());
+    
     var input_file_indices: [i32: 64] = [];
     var input_file_count: i32 = 0;
     var output_file_index: i32 = -1;
     var backend: BackendType = BackendType.BACKEND_LLVM;
     var emit_line_directives: i32 = 0;
 
+    fprintf(get_stderr(), "[DEBUG] uya_main() before parse_args\n" as *byte);
+    fflush(get_stderr());
     if parse_args(&input_file_indices[0], &input_file_count, &output_file_index, &backend, &emit_line_directives) != 0 {
+        fprintf(get_stderr(), "[DEBUG] uya_main() parse_args failed\n" as *byte);
+        fflush(get_stderr());
         return 1;
     }
+    fprintf(get_stderr(), "[DEBUG] uya_main() after parse_args, calling compile_files\n" as *byte);
+    fflush(get_stderr());
     const result: i32 = compile_files(&input_file_indices[0], input_file_count, output_file_index, backend, emit_line_directives);
     if result != 0 {
+        fprintf(get_stderr(), "[DEBUG] uya_main() compile_files returned %d\n" as *byte, result);
+        fflush(get_stderr());
         return result;
     }
+    fprintf(get_stderr(), "[DEBUG] uya_main() success, returning 0\n" as *byte);
+    fflush(get_stderr());
     return 0;
 }

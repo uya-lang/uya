@@ -16,6 +16,9 @@ extern fn fclose(stream: *void) i32;
 extern fn fgetc(stream: *void) i32;
 extern fn fputs(s: *byte, stream: *void) i32;
 extern fn fprintf(stream: *void, format: *byte, ...) i32;
+// fflush 使用 FILE* 类型，但在 Uya 中我们用 *void 表示，需要类型转换
+// 注意：实际调用时 stream 应该是 FILE*，但 Uya 类型系统用 *void 表示
+extern fn fflush(stream: *void) i32;
 
 // ===== C 标准库 - 字符串与数值 =====
 extern fn strtod(nptr: *byte, endptr: * *byte) f64;
@@ -38,10 +41,11 @@ extern fn exit(code: i32) void;
 extern fn getenv(name: *byte) *byte;
 
 // ===== C 标准库 - 文件系统 =====
-// stat 结构体（简化版本，仅包含 st_mode）
+// stat 结构体（Linux x86_64 上为 144 字节）
+// 使用字节数组来匹配 C 的 struct stat 大小
+// st_mode 在偏移 24 字节处
 struct Stat {
-    st_mode: u32,
-    // 其他字段省略，仅使用 st_mode
+    _data: [byte: 144],  // 144 字节，匹配 C 的 struct stat
 }
 extern fn stat(path: *byte, buf: &Stat) i32;
 // S_ISDIR 和 S_ISREG 是宏，在 Uya 中需要手动实现
