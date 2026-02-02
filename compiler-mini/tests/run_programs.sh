@@ -264,6 +264,72 @@ process_multifile_test() {
     fi
 }
 
+# 收集 use 语句引用的模块文件
+collect_module_files() {
+    local uya_file="$1"
+    local -a file_list=("$uya_file")
+    
+    # 提取所有 use 语句中的模块路径（去除项名，只保留模块路径）
+    # use std.io.read_file; -> std.io
+    local use_modules=$(grep -E "^\s*use\s+" "$uya_file" 2>/dev/null | sed -E 's/^\s*use\s+([^;]+);.*/\1/' | sed -E 's/\.[^.]*$//' | sort -u || true)
+    
+    if [ -z "$use_modules" ]; then
+        printf '%s\n' "${file_list[@]}"
+        return
+    fi
+    
+    # 对于每个模块路径，查找对应的文件
+    local test_dir=$(dirname "$uya_file")
+    while IFS= read -r module_path; do
+        if [ -z "$module_path" ]; then
+            continue
+        fi
+        
+        # 将模块路径转换为文件路径（std.io -> std/io/）
+        local file_path=$(echo "$module_path" | sed 's/\./\//g')
+        
+        # 尝试多个可能的文件位置
+        local found_file=""
+        
+        # 1. 在测试文件同目录下查找
+        if [ -d "$test_dir/$file_path" ]; then
+            for f in "$test_dir/$file_path"/*.uya; do
+                if [ -f "$f" ]; then
+                    found_file="$f"
+                    break
+                fi
+            done
+        fi
+        
+        # 2. 在 TEST_DIR 下查找
+        if [ -z "$found_file" ] && [ -d "$TEST_DIR/$file_path" ]; then
+            for f in "$TEST_DIR/$file_path"/*.uya; do
+                if [ -f "$f" ]; then
+                    found_file="$f"
+                    break
+                fi
+            done
+        fi
+        
+        # 如果找到文件，添加到列表
+        if [ -n "$found_file" ]; then
+            # 检查是否已经在列表中
+            local already_added=false
+            for existing in "${file_list[@]}"; do
+                if [ "$existing" = "$found_file" ]; then
+                    already_added=true
+                    break
+                fi
+            done
+            if [ "$already_added" = false ]; then
+                file_list+=("$found_file")
+            fi
+        fi
+    done <<< "$use_modules"
+    
+    printf '%s\n' "${file_list[@]}"
+}
+
 # 处理单个测试文件的函数
 process_single_test() {
     local uya_file="$1"
@@ -273,12 +339,16 @@ process_single_test() {
         echo "测试: $base_name"
     fi
     
+    # 收集所有需要编译的文件（包括 use 语句引用的模块）
+    local -a file_list
+    mapfile -t file_list < <(collect_module_files "$uya_file")
+    
     # 编译（C99 后端生成 .c 文件）
     output_file="$BUILD_DIR/${base_name}.c"
     if [ "$USE_UYA" = true ]; then
-        compiler_output=$("$COMPILER" --c99 "$uya_file" -o "$output_file" 2>&1)
+        compiler_output=$("$COMPILER" --c99 "${file_list[@]}" -o "$output_file" 2>&1)
     else
-        compiler_output=$("$COMPILER" --c99 "$uya_file" -o "$output_file" 2>&1)
+        compiler_output=$("$COMPILER" --c99 "${file_list[@]}" -o "$output_file" 2>&1)
     fi
     compiler_exit=$?
     
