@@ -117,12 +117,20 @@ typedef struct ExportedItem {
     int item_type;              // 项类型：1=函数，2=结构体，3=联合体，4=接口，5=枚举，6=常量，7=错误
 } ExportedItem;
 
+// 模块依赖信息（用于循环依赖检测）
+typedef struct ModuleDependency {
+    const char *target_module;   // 依赖的目标模块名
+    ASTNode *use_stmt_node;      // 对应的 use 语句节点（用于错误报告）
+} ModuleDependency;
+
 // 模块信息
 typedef struct ModuleInfo {
     const char *module_name;    // 模块名（文件名去掉 .uya 后缀）
     const char *filename;       // 文件名
     ExportedItem *exports;      // 导出项数组（从 Arena 分配）
     int export_count;           // 导出项数量
+    ModuleDependency *dependencies;  // 依赖列表（从 Arena 分配）
+    int dependency_count;       // 依赖数量
 } ModuleInfo;
 
 // 模块表（固定大小哈希表）

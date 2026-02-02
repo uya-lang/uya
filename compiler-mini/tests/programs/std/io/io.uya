@@ -1,0 +1,12 @@
+// std/io/io.uya - 多级模块路径测试：std.io 模块
+
+// 导出函数
+export fn read_file() i32 {
+    return 100;
+}
+
+// 导出结构体
+export struct File {
+    handle: i32,
+}
+

@@ -1,0 +1,19 @@
+// test_multilevel_module.uya - 测试多级模块路径（std.io）
+
+use std.io.read_file;
+use std.io.File;
+
+fn main() i32 {
+    const result: i32 = read_file();
+    if (result != 100) {
+        return 1;
+    }
+    
+    const f: File = File{ handle: 42 };
+    if (f.handle != 42) {
+        return 1;
+    }
+    
+    return 0;
+}
+

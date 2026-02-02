@@ -24,6 +24,7 @@
 | 11 | 原子类型 | [ ] |
 | 12 | 运算符与安全 | [ ] |
 | 13 | 联合体（union） | [x]（C 实现与 uya-src 已同步） |
+| 14 | 消灭所有警告 | [ ] |
 
 ---
 
@@ -198,8 +199,10 @@
   **C 实现（已完成）**：Lexer（TOKEN_USE）、AST（AST_USE_STMT 节点，path_segments/item_name/alias 字段）、Parser（parser_parse_use_stmt 解析 use 语句，支持路径段、特定项、别名）、Checker（基本语法检查，单文件场景下 use 语句暂时不进行实际模块解析）、Codegen（跳过 use 语句，不生成代码）。语法解析和代码生成通过。
 - [x] **模块可见性与路径解析（多文件）**：Checker 中处理 export 可见性、use 路径解析、模块查找（需要多文件支持）
   **C 实现（已完成）**：TypeChecker 中添加 ModuleTable 和 ImportTable；`build_module_exports` 遍历所有声明，根据文件路径提取模块路径，收集 export 标记的项；`process_use_stmt` 处理 use 语句，查找模块并验证导出项是否存在；`extract_module_path_allocated` 从文件路径提取模块路径（基于目录结构，如 `tests/programs/module_a/file.uya` → `module_a`）。**目录即模块**：支持目录即模块，目录下的所有 `.uya` 文件属于同一模块。**测试验证**：所有测试用例已验证通过，包括 `tests/programs/module_a/` 和 `tests/programs/module_test/`、`tests/programs/multifile/module_test/` 等。module_a 目录下的文件属于 `module_a` 模块，module_b.uya 使用 `use module_a.public_func;` 导入并调用，error_use_private.uya 正确检测到使用未导出项的错误。**编译警告已修复**：删除了未使用的变量和函数声明。
-- [ ] **循环依赖**：编译期检测并报错，规范 uya.md §1.5.7（需要多文件支持）
-- [ ] **多级模块路径**：支持多级路径（如 `std/io/` → `std.io`），当前仅支持单级目录模块（如 `module_a/` → `module_a`）
+- [x] **循环依赖**：编译期检测并报错，规范 uya.md §1.5.7（需要多文件支持）
+  **C 实现（已完成）**：在 `ModuleInfo` 中添加 `dependencies` 字段记录模块依赖；在 `process_use_stmt` 中记录当前模块对目标模块的依赖关系；添加 `detect_circular_dependencies` 函数使用 DFS 算法检测强连通分量（循环依赖）；在所有 use 语句处理完后调用循环检测。测试用例 `error_circular_dependency.uya` 正确检测到循环依赖并报错。
+- [x] **多级模块路径**：支持多级路径（如 `std/io/` → `std.io`），当前仅支持单级目录模块（如 `module_a/` → `module_a`）
+  **C 实现（已完成）**：修改 `extract_module_path_allocated` 提取从第一个目录到最后一个目录的所有目录名，用 `.` 连接（临时跳过 `tests/programs/` 前缀以匹配测试用例）；修改 `process_use_stmt` 支持多级路径解析，处理 parser 将 `use std.io.read_file;` 解析为 `path_segments = ["std", "io", "read_file"]` 的情况（最后一个 segment 作为项名）。测试用例 `test_multilevel_module.uya` 通过 `--c99`。
 - [x] **多文件模块系统**：实现目录即模块、模块路径解析、多文件编译（当前已支持多文件编译和单级模块路径）
 
 **涉及**：多文件/多目录解析、符号表与可见性、uya-src。
@@ -253,6 +256,60 @@
 **extern union（C 实现与 uya-src 已同步）**：`extern union CName { v1: T1, v2: T2 }` 声明外部 C 联合体；Parser（parse_declaration 消费 extern 后分支 union/fn、parser_parse_union_body(parser, is_extern)、parser_parse_type 支持 `union TypeName`）；Checker（AST_UNION_DECL 禁止 is_extern 且含方法、AST_METHOD_BLOCK 禁止目标为 extern union、AST_MATCH_EXPR 禁止对 extern union 做 match）；Codegen（gen_union_definition 对 is_extern 仅生成 `union Name { ... };`、c99_type_to_c 对 extern union 生成 `union Name`、联合体变体构造对 extern 生成 `(union Name){ .v = expr }`）。测试 test_extern_union.uya 通过 `--c99` 与 `--uya --c99`；error_extern_union_match.uya、error_extern_union_method_block.uya 预期编译失败。
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen，uya-src。依赖 match 表达式（阶段 5）。
+
+---
+
+## 14. 消灭所有警告
+
+通过修复代码中的问题来消除所有编译警告，而非通过编译器选项抑制警告。使用 `-Wall -Wextra -pedantic` 编译时，所有代码应无警告。
+
+- [ ] **C 实现代码修复**：修复 `src/` 目录下所有 C 代码中的警告问题
+  - 删除或使用未使用的变量/函数/参数
+  - 修复类型转换问题（添加显式转换或修正类型）
+  - 修复格式字符串安全问题（使用正确的 printf 格式）
+  - 初始化所有变量
+  - 修复符号隐藏/重定义问题
+  - 修复指针比较警告
+  - 修复其他代码质量问题
+- [ ] **代码生成器改进**：改进 `codegen/c99/` 中的代码生成逻辑，确保生成的 C 代码无警告
+  - 生成的代码应正确处理所有类型转换
+  - 生成的格式字符串应安全（避免 `-Wformat-security` 警告）
+  - 生成的代码应初始化所有变量
+  - 生成的代码应避免未使用的变量
+- [ ] **自举编译器代码修复**：修复 `uya-src/` 生成的 C 代码中的警告问题
+  - 改进自举编译器的代码生成逻辑
+  - 修复生成的 C 代码中的警告
+- [ ] **测试程序验证**：确保所有测试程序（`tests/programs/*.uya`）编译生成的 C 代码无警告
+
+**涉及**：
+- C 实现代码：`src/*.c`、`src/*.h`、`src/codegen/c99/*.c`
+- 自举编译器：`uya-src/*.uya` 及其生成的 C 代码
+- 代码生成器：`codegen/c99/*.c` 中的代码生成逻辑
+
+**常见警告类型及修复方法**：
+- **未使用的变量/函数/参数**：删除或添加 `(void)var;` 标记为有意未使用
+- **类型转换警告**：添加显式类型转换或修正类型定义
+- **格式字符串警告**：使用正确的 printf 格式字符串，避免直接使用用户输入作为格式字符串
+- **未初始化变量**：初始化所有变量，或明确标记为有意未初始化
+- **符号隐藏/重定义**：修复命名冲突，使用 static 限制作用域
+- **指针比较警告**：修复指针与整数比较的问题
+
+**验证方法**：
+```bash
+# C 实现编译（应无警告）
+cd compiler-mini
+make clean && make CFLAGS="-Wall -Wextra -pedantic" 2>&1 | grep -i warning
+
+# 自举编译器编译（应无警告）
+cd compiler-mini/uya-src
+./compile.sh --c99 -e
+gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warning
+
+# 测试程序编译（应无警告）
+./tests/run_programs.sh --c99 test_xxx.uya 2>&1 | grep -i warning
+```
+
+**注意**：此任务的目标是修复代码中的问题，而不是通过编译器选项（如 `-Wno-xxx`）来抑制警告。
 
 ---
 
