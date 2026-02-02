@@ -102,7 +102,7 @@ typedef struct SymbolTable {
 } SymbolTable;
 
 // 函数表（固定大小哈希表，使用开放寻址）
-#define FUNCTION_TABLE_SIZE 256  // 固定大小（必须是2的幂）
+#define FUNCTION_TABLE_SIZE 512  // 固定大小（必须是2的幂）- 增加到 512 以支持更多函数
 
 typedef struct FunctionTable {
     FunctionSignature *slots[FUNCTION_TABLE_SIZE];  // 函数槽位数组（固定大小）

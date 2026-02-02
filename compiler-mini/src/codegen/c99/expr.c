@@ -575,21 +575,10 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                     break;
                 }
             }
-            int is_ptr_to_array = 0;
-            if (array->type == AST_IDENTIFIER) {
-                const char *array_name = array->data.identifier.name;
-                if (array_name) {
-                    is_ptr_to_array = is_identifier_pointer_to_array_type(codegen, array_name);
-                }
-            }
-            if (is_ptr_to_array) {
-                fputc('(', codegen->output);
-                fputc('*', codegen->output);
-                gen_expr(codegen, array);
-                fputc(')', codegen->output);
-            } else {
-                gen_expr(codegen, array);
-            }
+            // 注意：对于指向数组的指针（如 uint8_t (*)[4096]），
+            // 在 C 中可以直接使用 file_paths_buffer[i]，不需要 (*file_paths_buffer)[i]
+            // 因为 file_paths_buffer[i] 会自动解引用
+            gen_expr(codegen, array);
             fputc('[', codegen->output);
             gen_expr(codegen, index);
             fputc(']', codegen->output);

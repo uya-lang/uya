@@ -35,3 +35,38 @@ extern fn memset(s: *byte, c: i32, n: usize) *byte;
 
 // ===== C 标准库 - 进程 =====
 extern fn exit(code: i32) void;
+extern fn getenv(name: *byte) *byte;
+
+// ===== C 标准库 - 文件系统 =====
+// stat 结构体（简化版本，仅包含 st_mode）
+struct Stat {
+    st_mode: u32,
+    // 其他字段省略，仅使用 st_mode
+}
+extern fn stat(path: *byte, buf: &Stat) i32;
+// S_ISDIR 和 S_ISREG 是宏，在 Uya 中需要手动实现
+// S_ISDIR(mode) = ((mode) & S_IFMT) == S_IFDIR
+// S_ISREG(mode) = ((mode) & S_IFMT) == S_IFREG
+const S_IFMT: u32 = 61440;  // 0xF000
+const S_IFDIR: u32 = 16384;  // 0x4000
+const S_IFREG: u32 = 32768;  // 0x8000
+
+// ===== C 标准库 - 目录操作 =====
+struct Dirent {
+    d_name: *byte,
+    d_type: u8,  // DT_REG = 8, DT_DIR = 4
+}
+struct DIR {
+    // 不透明类型
+}
+extern fn opendir(name: *byte) *DIR;
+extern fn readdir(dirp: *DIR) *Dirent;
+extern fn closedir(dirp: *DIR) i32;
+const DT_REG: u8 = 8;  // 普通文件
+const DT_DIR: u8 = 4;  // 目录
+
+// ===== Linux 特定 - 符号链接 =====
+extern fn readlink(path: *byte, buf: *byte, bufsiz: usize) i32;
+
+// ===== C 标准库 - 字符串（补充）=====
+extern fn strcpy(dest: *byte, src: *byte) *byte;

@@ -204,6 +204,39 @@
 - [x] **多级模块路径**：支持多级路径（如 `std/io/` → `std.io`），当前仅支持单级目录模块（如 `module_a/` → `module_a`）
   **C 实现（已完成）**：修改 `extract_module_path_allocated` 提取从第一个目录到最后一个目录的所有目录名，用 `.` 连接（临时跳过 `tests/programs/` 前缀以匹配测试用例）；修改 `process_use_stmt` 支持多级路径解析，处理 parser 将 `use std.io.read_file;` 解析为 `path_segments = ["std", "io", "read_file"]` 的情况（最后一个 segment 作为项名）。测试用例 `test_multilevel_module.uya` 通过 `--c99`。
 - [x] **多文件模块系统**：实现目录即模块、模块路径解析、多文件编译（当前已支持多文件编译和单级模块路径）
+- [x] **自动模块依赖解析**：编译器自动解析模块依赖，用户只需指定包含 main 函数的文件或目录
+  **C 实现（已完成）**：
+  - 支持单文件输入（必须包含 main 函数）
+  - 支持目录输入（目录中必须只有一个文件包含 main 函数，多个则报错）
+  - 实现 `get_compiler_dir()` 和 `get_uya_root()` 获取编译器目录和 UYA_ROOT 环境变量
+  - 实现 `find_module_file()` 根据模块路径查找文件（项目根目录 → UYA_ROOT → 编译器目录）
+  - 实现 `detect_main_function()` 检测文件是否包含 main 函数
+  - 实现 `find_main_files_in_dir()` 在目录中查找包含 main 的文件
+  - 实现 `extract_use_modules()` 从 AST 中提取 use 语句的模块路径
+  - 实现 `collect_module_dependencies()` 递归收集所有模块依赖（避免循环依赖）
+  - 修改 `parse_args()` 和 `compile_files()` 集成自动依赖收集功能
+  - 使用 Arena 分配器管理内存，避免内存泄漏
+  **测试验证**：基本功能已实现，完整测试待补充
+- [x] **UYA_ROOT 环境变量支持**：支持通过环境变量指定标准库位置，默认在编译器程序所在目录查找
+  **C 实现（已完成）**：
+  - 实现 `get_uya_root()` 读取 UYA_ROOT 环境变量
+  - 如果未设置，使用编译器程序所在目录（通过 `readlink("/proc/self/exe")` 获取）
+  - 在 `find_module_file()` 中优先在 UYA_ROOT 目录查找模块文件
+  - 支持路径规范化处理（相对路径、绝对路径、路径分隔符）
+  **uya-src 已同步**：
+  - 添加了外部函数声明（getenv, stat, opendir, readdir, closedir, readlink, strcpy）
+  - 实现了基本框架（get_compiler_dir, get_uya_root, is_directory, is_file, detect_main_function, find_main_files_in_dir, find_module_file, extract_use_modules）
+  - 修改了 compile_files 以支持目录输入和基本的依赖收集框架
+  - `collect_module_dependencies()` 的完整实现待完善（当前为简化版本，仅返回当前文件列表大小）
+- [x] **完善自举版本的依赖收集**：实现 `collect_module_dependencies()` 的完整递归逻辑
+  **已实现功能**：
+  - [x] 检查是否已处理过（避免循环依赖）
+  - [x] 读取文件并解析 AST
+  - [x] 提取 use 语句中的模块路径
+  - [x] 对于每个模块，查找文件并递归处理
+  - [x] 特殊处理 main 模块（在项目根目录查找）
+  - [x] 使用 Arena 分配器管理文件路径内存
+  **当前状态**：C 版本与 uya-src 版本均已完整实现递归依赖收集逻辑，功能已同步
 
 **涉及**：多文件/多目录解析、符号表与可见性、uya-src。
 

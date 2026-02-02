@@ -225,7 +225,7 @@ static int function_table_insert(TypeChecker *checker, FunctionSignature *sig) {
         }
         
         // 检查是否是相同名称的函数
-        if (strcmp(existing->name, sig->name) == 0) {
+        if (existing->name != NULL && strcmp(existing->name, sig->name) == 0) {
             // 函数已存在
             // 如果都是 extern 声明，允许重复（跳过插入，不报错）
             if (existing->is_extern && sig->is_extern) {
@@ -2282,7 +2282,8 @@ static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node) {
     }
 
     // 将函数添加到函数表
-    if (function_table_insert(checker, sig) != 0) {
+    int insert_result = function_table_insert(checker, sig);
+    if (insert_result != 0) {
         // 函数重复定义
         char buf[256];
         snprintf(buf, sizeof(buf), "函数 '%s' 重复定义", sig->name ? sig->name : "(unknown)");

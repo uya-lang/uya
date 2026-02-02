@@ -136,6 +136,23 @@ ASTNode *find_function_decl_c99(C99CodeGenerator *codegen, const char *func_name
 void format_param_type(C99CodeGenerator *codegen __attribute__((unused)), const char *type_c, const char *param_name, FILE *output) {
     if (!type_c || !param_name) return;
     
+    // 检查是否是指向数组的指针类型（格式：T (*)[N]）
+    // 这种类型在 c99_type_to_c 中会生成 "T (*)[N]" 格式
+    const char *ptr_bracket = strstr(type_c, "(*)");
+    if (ptr_bracket) {
+        // 是指向数组的指针，格式应该是 "T (*param_name)[N]"
+        // 找到 [N] 部分
+        const char *array_bracket = strchr(ptr_bracket, '[');
+        if (array_bracket) {
+            // 提取 T (*) 之前的部分
+            size_t base_len = ptr_bracket - type_c;
+            // 提取 [N] 部分
+            const char *dims = array_bracket;
+            fprintf(output, "%.*s (*%s)%s", (int)base_len, type_c, param_name, dims);
+            return;
+        }
+    }
+    
     // 检查是否是数组类型（包含 [数字]）
     const char *bracket = strchr(type_c, '[');
     if (bracket) {

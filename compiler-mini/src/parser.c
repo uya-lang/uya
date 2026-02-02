@@ -47,12 +47,6 @@ static Token *parser_expect(Parser *parser, TokenType type) {
     
     if (parser->current_token->type != type) {
         // 错误：期望的类型不匹配
-        // 调试输出
-        if (type == TOKEN_RIGHT_BRACE && parser->current_token->type == TOKEN_ELSE) {
-            fprintf(stderr, "调试: parser_expect 失败 - 期望 '}', 得到 'else'\n");
-            fprintf(stderr, "调试: lexer position=%zu, line=%d, column=%d\n", 
-                    parser->lexer->position, parser->lexer->line, parser->lexer->column);
-        }
         return NULL;
     }
     
@@ -445,15 +439,6 @@ static ASTNode *parser_parse_block(Parser *parser) {
                 break;
             }
             // 否则是真正的解析错误
-            // 调试输出
-            if (parser->current_token != NULL) {
-                fprintf(stderr, "调试: parser_parse_block 解析语句失败，当前 token type=%d\n", parser->current_token->type);
-                if (parser->current_token->value) {
-                    fprintf(stderr, "调试: token value=%s\n", parser->current_token->value);
-                }
-            } else {
-                fprintf(stderr, "调试: parser_parse_block 解析语句失败，current_token 为 NULL\n");
-            }
             return NULL;
         }
         
@@ -491,11 +476,7 @@ static ASTNode *parser_parse_block(Parser *parser) {
     if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
         // 调试输出
         if (parser->current_token != NULL) {
-            if (parser->current_token->type == TOKEN_ELSE) {
-                fprintf(stderr, "调试: parser_parse_block 期望 '}' 失败，当前 token 是 'else'\n");
-                fprintf(stderr, "调试: lexer position=%zu, line=%d, column=%d\n", 
-                        parser->lexer->position, parser->lexer->line, parser->lexer->column);
-            } else if (parser->current_token->type == TOKEN_EOF) {
+            if (parser->current_token->type == TOKEN_EOF) {
                 fprintf(stderr, "错误: 代码块未正确关闭 (%s:%d:%d): 期望 '}' 但遇到文件末尾\n",
                         parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>",
                         parser->current_token->line, parser->current_token->column);
@@ -1702,12 +1683,6 @@ ASTNode *parser_parse(Parser *parser) {
                     fprintf(stderr, " '%s'", token_value);
                 }
                 fprintf(stderr, "\n");
-                // 调试输出
-                if (parser->current_token->type == TOKEN_ELSE) {
-                    fprintf(stderr, "调试: 在 parser_parse 中遇到意外的 'else'\n");
-                    fprintf(stderr, "调试: lexer position=%zu, line=%d, column=%d\n", 
-                            parser->lexer->position, parser->lexer->line, parser->lexer->column);
-                }
                 return NULL;
             }
             // 到达文件末尾，正常退出循环
@@ -3565,9 +3540,6 @@ static ASTNode *parser_parse_eq_expr(Parser *parser) {
         // 在这种情况下，我们需要回退：如果 right 是结构体初始化，我们需要将其替换为标识符
         if (parser->current_token != NULL && 
             parser->current_token->type == TOKEN_LEFT_BRACE) {
-            // 调试输出
-            fprintf(stderr, "调试: parser_parse_eq_expr 检测到 '{'，right type=%d\n", right->type);
-            
             // 保存 lexer 状态
             Lexer *lexer = parser->lexer;
             size_t saved_position = lexer->position;
@@ -3583,15 +3555,12 @@ static ASTNode *parser_parse_eq_expr(Parser *parser) {
                 lexer->line = saved_line;
                 lexer->column = saved_column;
                 
-                fprintf(stderr, "调试: parser_parse_eq_expr 检测到空块，right type=%d\n", right->type);
-                
                 // 如果 right 是结构体初始化，我们需要将其替换为标识符
                 // 因为 '{' 应该是代码块的开始，而不是结构体字面量的一部分
                 if (right->type == AST_STRUCT_INIT) {
                     // 获取结构体名称
                     const char *struct_name = right->data.struct_init.struct_name;
                     if (struct_name) {
-                        fprintf(stderr, "调试: 将结构体初始化替换为标识符 '%s'\n", struct_name);
                         // 创建标识符节点
                         ASTNode *identifier = ast_new_node(AST_IDENTIFIER, right->line, right->column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
                         if (identifier != NULL) {

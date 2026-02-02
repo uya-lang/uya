@@ -262,97 +262,133 @@ if [ "$USE_C99" = true ] && [[ "$OUTPUT_NAME" != *.c ]]; then
     OUTPUT_FILE="$BUILD_DIR/${OUTPUT_NAME}.c"
 fi
 
-# 收集所有 .uya 文件（按依赖顺序排列）
-# 注意：文件顺序可能影响编译结果，按逻辑顺序排列
-# 根据后端类型选择包含的文件
-UYA_FILES=(
-    "arena.uya"
-    "str_utils.uya"
-    "extern_decls.uya"
-    "ast.uya"
-    "lexer.uya"
-    "parser.uya"
-    "checker.uya"
-)
+# 检查是否使用自动依赖收集模式
+# 如果 main.uya 包含 use 语句，可以使用自动依赖收集
+# 否则，需要手动列出所有文件（向后兼容）
+USE_AUTO_DEPS=false
 
-# 根据后端类型添加相应的 codegen 模块
-if [ "$USE_C99" = true ]; then
-    # C99 后端模块（按依赖顺序）
-    UYA_FILES+=(
-        "codegen/c99/internal.uya"
-        "codegen/c99/utils.uya"
-        "codegen/c99/types.uya"
-        "codegen/c99/structs.uya"
-        "codegen/c99/enums.uya"
-        "codegen/c99/function.uya"
-        "codegen/c99/expr.uya"
-        "codegen/c99/stmt.uya"
-        "codegen/c99/global.uya"
-        "codegen/c99/main.uya"
-    )
-else
-    # LLVM C API 后端模块（按依赖顺序）
-    UYA_FILES+=(
-        "llvm_api.uya"
-        "codegen/llvm_capi/internal.uya"
-        "codegen/llvm_capi/init.uya"
-        "codegen/llvm_capi/utils.uya"
-        "codegen/llvm_capi/types.uya"
-        "codegen/llvm_capi/vars.uya"
-        "codegen/llvm_capi/funcs.uya"
-        "codegen/llvm_capi/structs.uya"
-        "codegen/llvm_capi/enums.uya"
-        "codegen/llvm_capi/expr.uya"
-        "codegen/llvm_capi/stmt.uya"
-        "codegen/llvm_capi/function.uya"
-        "codegen/llvm_capi/global.uya"
-        "codegen/llvm_capi/main.uya"
-    )
+# 检查 main.uya 是否存在
+MAIN_FILE="$UYA_SRC_DIR/main.uya"
+if [ ! -f "$MAIN_FILE" ]; then
+    echo -e "${RED}错误: 主文件 '$MAIN_FILE' 不存在${NC}"
+    exit 1
 fi
 
-# 添加主文件
-UYA_FILES+=("main.uya")
-
-# 验证文件存在并构建完整路径（使用绝对路径）
-FULL_PATHS=()
-for file in "${UYA_FILES[@]}"; do
-    full_path="$UYA_SRC_DIR/$file"
-    # 转换为绝对路径
-    full_path=$(cd "$(dirname "$full_path")" && pwd)/$(basename "$full_path")
-    if [ ! -f "$full_path" ]; then
-        echo -e "${RED}警告: 文件 $file 不存在，跳过${NC}"
-        continue
+# 检查 main.uya 是否包含 use 语句
+if grep -q "^use " "$MAIN_FILE" 2>/dev/null; then
+    USE_AUTO_DEPS=true
+    if [ "$VERBOSE" = true ]; then
+        echo -e "${GREEN}检测到 use 语句，使用自动依赖收集模式${NC}"
     fi
-    FULL_PATHS+=("$full_path")
-done
+fi
 
-if [ ${#FULL_PATHS[@]} -eq 0 ]; then
-    echo -e "${RED}错误: 没有找到任何 .uya 文件${NC}"
-    exit 1
+if [ "$USE_AUTO_DEPS" = true ]; then
+    # 使用自动依赖收集模式
+    # 编译器会自动：
+    # 1. 解析 main.uya 中的 use 语句
+    # 2. 查找并包含所有依赖的模块文件
+    # 3. 递归处理依赖的依赖
+    INPUT_PATH="$MAIN_FILE"
+    FULL_PATHS=("$MAIN_FILE")
+else
+    # 使用手动文件列表模式（向后兼容，适用于没有 use 语句的项目）
+    # 收集所有 .uya 文件（按依赖顺序排列）
+    UYA_FILES=(
+        "arena.uya"
+        "str_utils.uya"
+        "extern_decls.uya"
+        "ast.uya"
+        "lexer.uya"
+        "parser.uya"
+        "checker.uya"
+    )
+
+    # 根据后端类型添加相应的 codegen 模块
+    if [ "$USE_C99" = true ]; then
+        # C99 后端模块（按依赖顺序）
+        UYA_FILES+=(
+            "codegen/c99/internal.uya"
+            "codegen/c99/utils.uya"
+            "codegen/c99/types.uya"
+            "codegen/c99/structs.uya"
+            "codegen/c99/enums.uya"
+            "codegen/c99/function.uya"
+            "codegen/c99/expr.uya"
+            "codegen/c99/stmt.uya"
+            "codegen/c99/global.uya"
+            "codegen/c99/main.uya"
+        )
+    else
+        # LLVM C API 后端模块（按依赖顺序）
+        UYA_FILES+=(
+            "llvm_api.uya"
+            "codegen/llvm_capi/internal.uya"
+            "codegen/llvm_capi/init.uya"
+            "codegen/llvm_capi/utils.uya"
+            "codegen/llvm_capi/types.uya"
+            "codegen/llvm_capi/vars.uya"
+            "codegen/llvm_capi/funcs.uya"
+            "codegen/llvm_capi/structs.uya"
+            "codegen/llvm_capi/enums.uya"
+            "codegen/llvm_capi/expr.uya"
+            "codegen/llvm_capi/stmt.uya"
+            "codegen/llvm_capi/function.uya"
+            "codegen/llvm_capi/global.uya"
+            "codegen/llvm_capi/main.uya"
+        )
+    fi
+
+    # 添加主文件
+    UYA_FILES+=("main.uya")
+
+    # 验证文件存在并构建完整路径（使用绝对路径）
+    FULL_PATHS=()
+    for file in "${UYA_FILES[@]}"; do
+        full_path="$UYA_SRC_DIR/$file"
+        # 转换为绝对路径
+        full_path=$(cd "$(dirname "$full_path")" && pwd)/$(basename "$full_path")
+        if [ ! -f "$full_path" ]; then
+            echo -e "${RED}警告: 文件 $file 不存在，跳过${NC}"
+            continue
+        fi
+        FULL_PATHS+=("$full_path")
+    done
+
+    if [ ${#FULL_PATHS[@]} -eq 0 ]; then
+        echo -e "${RED}错误: 没有找到任何 .uya 文件${NC}"
+        exit 1
+    fi
+    
+    INPUT_PATH=""  # 手动模式不使用 INPUT_PATH
 fi
 
 # 显示编译信息
 echo "=========================================="
-echo "Uya Mini 多文件编译"
+echo "Uya Mini 自举编译（自动依赖收集）"
 echo "=========================================="
 echo "编译器: $COMPILER"
 echo "源代码目录: $UYA_SRC_DIR"
 echo "输出文件: $OUTPUT_FILE"
-echo "文件数量: ${#FULL_PATHS[@]}"
+echo "输入路径: $INPUT_PATH"
+echo ""
+echo "注意: 编译器将自动收集所有模块依赖"
 if [ "$VERBOSE" = true ]; then
     echo ""
-    echo "源文件列表:"
-    for i in "${!FULL_PATHS[@]}"; do
-        printf "  %2d. %s\n" $((i+1)) "$(basename "${FULL_PATHS[$i]}")"
-    done
+    echo "主文件: main.uya"
+    echo "编译器将自动发现并包含所有依赖文件"
     echo ""
 fi
 echo "=========================================="
 echo ""
 
-# 执行编译（多文件编译模式）
-# 构建编译命令
-COMPILER_CMD=("$COMPILER" "${FULL_PATHS[@]}" -o "$OUTPUT_FILE")
+# 执行编译
+if [ "$USE_AUTO_DEPS" = true ]; then
+    # 使用自动依赖收集模式：只传递主文件
+    COMPILER_CMD=("$COMPILER" "$INPUT_PATH" -o "$OUTPUT_FILE")
+else
+    # 使用手动文件列表模式：传递所有文件
+    COMPILER_CMD=("$COMPILER" "${FULL_PATHS[@]}" -o "$OUTPUT_FILE")
+fi
 if [ "$USE_C99" = true ]; then
     COMPILER_CMD+=(--c99)
 fi
@@ -539,13 +575,19 @@ if [ $COMPILER_EXIT -eq 0 ]; then
             BOOTSTRAP_C="$BUILD_DIR/compiler_bootstrap.c"
             if [ "$VERBOSE" = true ]; then
                 echo "自举编译器: $EXECUTABLE_FILE"
-                echo "源文件: ${#FULL_PATHS[@]} 个 .uya"
+                # 自举对比：使用自动依赖收集模式
+                echo "输入路径: $INPUT_PATH"
                 echo "C 编译器输出: $OUTPUT_FILE"
                 echo "自举输出: $BOOTSTRAP_C"
             fi
             BOOTSTRAP_LOG=$(mktemp)
             # 自举编译器栈上大数组多，增大栈限制（与 C 版行为一致，参考 src/main.c ARENA/LEXER 等）
-            (ulimit -s 32768 2>/dev/null || true; exec "$EXECUTABLE_FILE" "${FULL_PATHS[@]}" -o "$BOOTSTRAP_C" --c99) >"$BOOTSTRAP_LOG" 2>&1
+            # 使用相同的输入方式，让自举编译器也自动收集依赖（或使用相同的文件列表）
+            if [ "$USE_AUTO_DEPS" = true ]; then
+                (ulimit -s 32768 2>/dev/null || true; exec "$EXECUTABLE_FILE" "$INPUT_PATH" -o "$BOOTSTRAP_C" --c99) >"$BOOTSTRAP_LOG" 2>&1
+            else
+                (ulimit -s 32768 2>/dev/null || true; exec "$EXECUTABLE_FILE" "${FULL_PATHS[@]}" -o "$BOOTSTRAP_C" --c99) >"$BOOTSTRAP_LOG" 2>&1
+            fi
             BOOTSTRAP_EXIT=$?
             if [ "$BOOTSTRAP_EXIT" -ne 0 ]; then
                 echo -e "${RED}✗ 自举编译器编译失败${NC}"

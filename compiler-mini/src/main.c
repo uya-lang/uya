@@ -32,6 +32,7 @@
 // 全局缓冲区（替代 malloc）
 static uint8_t arena_buffer[ARENA_BUFFER_SIZE];  // Arena 分配器缓冲区
 static char file_buffer[FILE_BUFFER_SIZE];        // 文件读取缓冲区
+static uint8_t temp_arena_buffer[32 * 1024 * 1024];  // 32MB 临时缓冲区（用于依赖收集，全局变量避免栈溢出）
 
 // 读取文件内容到缓冲区
 // 参数：filename - 文件名
@@ -64,21 +65,6 @@ static int read_file_content(const char *filename, char *buffer, size_t buffer_s
     buffer[bytes_read] = '\0';
 
     return (int)bytes_read;
-}
-
-// 简单的字符串复制到 Arena（类似 parser.c 中的 arena_strdup）
-static const char *arena_strdup(Arena *arena, const char *src) {
-    if (arena == NULL || src == NULL) {
-        return NULL;
-    }
-    size_t len = strlen(src);
-    char *dst = (char *)arena_alloc(arena, len + 1);
-    if (dst == NULL) {
-        return NULL;
-    }
-    memcpy(dst, src, len);
-    dst[len] = '\0';
-    return dst;
 }
 
 // 获取编译器程序所在目录
@@ -183,6 +169,46 @@ static int is_file(const char *path) {
     if (stat(path, &st) == 0) {
         return S_ISREG(st.st_mode);
     }
+    return 0;
+}
+
+
+// 比较两个路径是否指向同一个文件（考虑路径格式差异）
+// 参数：path1 - 第一个路径
+//       path2 - 第二个路径
+// 返回：相同返回1，不同返回0
+static int paths_equal(const char *path1, const char *path2) {
+    if (path1 == NULL || path2 == NULL) {
+        return 0;
+    }
+    
+    // 首先尝试直接比较（最常见的情况）
+    if (strcmp(path1, path2) == 0) {
+        return 1;
+    }
+    
+    // 如果直接比较失败，提取文件名进行比较
+    // 如果文件名相同，使用 stat 检查是否是同一个文件（相同的 inode）
+    const char *name1 = strrchr(path1, '/');
+    const char *name2 = strrchr(path2, '/');
+    if (name1 == NULL) name1 = path1;
+    else name1++;
+    if (name2 == NULL) name2 = path2;
+    else name2++;
+    
+    // 如果文件名不同，肯定不是同一个文件
+    if (strcmp(name1, name2) != 0) {
+        return 0;
+    }
+    
+    // 文件名相同，使用 stat 检查是否是同一个文件
+    struct stat st1, st2;
+    if (stat(path1, &st1) == 0 && stat(path2, &st2) == 0) {
+        // 检查是否是同一个文件（相同的设备和 inode）
+        return (st1.st_dev == st2.st_dev && st1.st_ino == st2.st_ino);
+    }
+    
+    // stat 失败，回退到字符串比较（已经比较过了，返回0）
     return 0;
 }
 
@@ -428,21 +454,47 @@ static int collect_module_dependencies(
         return -1;
     }
     
+    // 检查是否已在文件列表中（避免重复添加）
+    // 使用路径比较函数，考虑路径格式差异
+    for (int i = 0; i < file_list_size; i++) {
+        if (file_list[i] != NULL && paths_equal(file_list[i], filename)) {
+            // 文件已在列表中，但仍需要标记为已处理以避免循环依赖
+            // 检查是否已处理过
+            int already_processed = 0;
+            for (int j = 0; j < *processed_count; j++) {
+                if (processed_files[j] != NULL && paths_equal(processed_files[j], filename)) {
+                    already_processed = 1;
+                    break;
+                }
+            }
+            if (!already_processed) {
+                // 标记为已处理（避免循环依赖）
+                if (*processed_count < max_processed) {
+                    processed_files[*processed_count] = filename;
+                    (*processed_count)++;
+                }
+            }
+            // 已在列表中，直接返回（不进行解析，避免重复定义）
+            return file_list_size;
+        }
+    }
+    
     // 检查是否已处理过（避免循环依赖）
+    // 使用路径比较函数，考虑路径格式差异
     for (int i = 0; i < *processed_count; i++) {
-        if (processed_files[i] != NULL && strcmp(processed_files[i], filename) == 0) {
+        if (processed_files[i] != NULL && paths_equal(processed_files[i], filename)) {
             return file_list_size;  // 已处理，直接返回
         }
     }
     
-    // 标记为已处理
+    // 标记为已处理（在解析之前标记，避免重复解析）
     if (*processed_count >= max_processed) {
         return -1;
     }
     processed_files[*processed_count] = filename;
     (*processed_count)++;
     
-    // 读取文件并解析 AST
+    // 读取文件并解析 AST（只有在文件不在列表中时才解析）
     int file_size = read_file_content(filename, file_buffer, FILE_BUFFER_SIZE);
     if (file_size < 0) {
         return -1;
@@ -479,66 +531,21 @@ static int collect_module_dependencies(
         // 特殊处理：main 模块
         if (strcmp(modules[i], "main") == 0) {
             // main 模块在项目根目录
-            if (project_root != NULL && project_root[0] != '\0') {
-                // 在项目根目录查找 .uya 文件
-                DIR *dir = opendir(project_root);
-                if (dir != NULL) {
-                    struct dirent *entry;
-                    while ((entry = readdir(dir)) != NULL) {
-                        if (entry->d_type == DT_REG) {
-                            const char *name = entry->d_name;
-                            size_t name_len = strlen(name);
-                            if (name_len > 4 && strcmp(name + name_len - 4, ".uya") == 0) {
-                                char main_file[PATH_MAX];
-                                int len = snprintf(main_file, sizeof(main_file), "%s%s", project_root, name);
-                                if (len > 0 && len < (int)sizeof(main_file)) {
-                                    // 检查是否已在列表中
-                                    int already_added = 0;
-                                    for (int j = 0; j < file_list_size; j++) {
-                                        if (file_list[j] != NULL && strcmp(file_list[j], main_file) == 0) {
-                                            already_added = 1;
-                                            break;
-                                        }
-                                    }
-                                    if (!already_added && file_list_size < max_files) {
-                                        // 使用 Arena 分配文件路径
-                                        size_t path_len = strlen(main_file);
-                                        char *path_copy = (char *)arena_alloc(arena, path_len + 1);
-                                        if (path_copy != NULL) {
-                                            strcpy(path_copy, main_file);
-                                            file_list[file_list_size] = path_copy;
-                                            file_list_size++;
-                                            // 递归处理
-                                            file_list_size = collect_module_dependencies(
-                                                main_file, file_list, file_list_size, max_files,
-                                                processed_files, processed_count, max_processed,
-                                                project_root, uya_root, arena
-                                            );
-                                            if (file_list_size < 0) {
-                                                closedir(dir);
-                                                return -1;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    closedir(dir);
-                }
-            }
-            // 释放模块路径内存
-            free((void *)modules[i]);
+            // 注意：main 模块通常已经在文件列表中（作为入口文件），
+            // 所以这里不需要再次添加。如果确实需要添加，应该检查是否已在列表中。
+            // 为了避免重复添加，这里直接跳过 main 模块的处理。
+            // 如果 main.uya 不在列表中，它应该已经作为入口文件被添加了。
+            // 注意：modules[i] 是通过 Arena 分配的，不需要手动释放
             continue;
         }
         
         // 查找模块文件
         char module_file[PATH_MAX];
         if (find_module_file(modules[i], project_root, uya_root, module_file, sizeof(module_file)) == 0) {
-            // 检查是否已在列表中
+            // 检查是否已在列表中（使用路径比较函数）
             int already_added = 0;
             for (int j = 0; j < file_list_size; j++) {
-                if (file_list[j] != NULL && strcmp(file_list[j], module_file) == 0) {
+                if (file_list[j] != NULL && paths_equal(file_list[j], module_file)) {
                     already_added = 1;
                     break;
                 }
@@ -551,9 +558,10 @@ static int collect_module_dependencies(
                     strcpy(path_copy, module_file);
                     file_list[file_list_size] = path_copy;
                     file_list_size++;
-                    // 递归处理
+                    // 递归处理依赖（使用 Arena 分配的 path_copy，而不是栈上的 module_file）
+                    // 注意：这里需要递归处理，因为新文件可能有自己的依赖
                     file_list_size = collect_module_dependencies(
-                        module_file, file_list, file_list_size, max_files,
+                        path_copy, file_list, file_list_size, max_files,
                         processed_files, processed_count, max_processed,
                         project_root, uya_root, arena
                     );
@@ -669,9 +677,8 @@ static int parse_args(int argc, char *argv[], const char *input_files[], int *in
 //       argv0 - 程序路径（用于获取编译器目录）
 // 返回：成功返回0，失败返回非0
 static int compile_files(const char *input_files[], int input_file_count, const char *output_file, int emit_line_directives, const char *argv0) {
-    // 初始化 Arena（用于依赖收集）
+    // 初始化 Arena（用于依赖收集，使用全局缓冲区避免栈溢出）
     Arena temp_arena;
-    uint8_t temp_arena_buffer[1024 * 1024];  // 1MB 临时缓冲区
     arena_init(&temp_arena, temp_arena_buffer, sizeof(temp_arena_buffer));
     
     // 获取 UYA_ROOT 和编译器目录
@@ -734,6 +741,19 @@ static int compile_files(const char *input_files[], int input_file_count, const 
                 }
             }
         } else if (is_file(input)) {
+            // 检查是否已在 resolved_files 中（避免重复添加）
+            int already_resolved = 0;
+            for (int j = 0; j < resolved_count; j++) {
+                if (resolved_files[j] != NULL && paths_equal(resolved_files[j], input)) {
+                    already_resolved = 1;
+                    break;
+                }
+            }
+            if (already_resolved) {
+                i++;
+                continue;  // 跳过重复文件
+            }
+            
             // 是文件，检查是否包含 main
             if (detect_main_function(input)) {
                 resolved_files[resolved_count] = input;
@@ -758,8 +778,15 @@ static int compile_files(const char *input_files[], int input_file_count, const 
                     }
                 }
             } else {
-                fprintf(stderr, "错误: 文件 '%s' 不包含 main 函数\n", input);
-                return 1;
+                // 多文件模式下，允许某些文件不包含 main（它们是库文件）
+                // 但如果这是唯一输入文件，则必须包含 main
+                if (input_file_count == 1) {
+                    fprintf(stderr, "错误: 文件 '%s' 不包含 main 函数\n", input);
+                    return 1;
+                }
+                // 多文件模式：将不包含 main 的文件也加入列表（作为库文件）
+                resolved_files[resolved_count] = input;
+                resolved_count++;
             }
         } else {
             fprintf(stderr, "错误: '%s' 既不是文件也不是目录\n", input);
@@ -781,38 +808,50 @@ static int compile_files(const char *input_files[], int input_file_count, const 
         all_files[i] = resolved_files[i];
     }
     
-    // 收集依赖
+    // 收集依赖（只对包含 main 的文件进行依赖收集）
+    // 库文件已经在列表中，不需要进行依赖收集
     const char *processed_files[MAX_INPUT_FILES];
     int processed_count = 0;
     
+    // 找出包含 main 的文件（入口文件）
+    int main_file_count = 0;
+    const char *main_files[MAX_INPUT_FILES];
     for (int i = 0; i < resolved_count; i++) {
-        int new_count = collect_module_dependencies(
-            resolved_files[i],
-            all_files,
-            all_file_count,
-            MAX_INPUT_FILES,
-            processed_files,
-            &processed_count,
-            MAX_INPUT_FILES,
-            project_root,
-            uya_root,
-            &temp_arena
-        );
-        if (new_count < 0) {
-            fprintf(stderr, "错误: 收集模块依赖失败: %s\n", resolved_files[i]);
-            return 1;
+        if (detect_main_function(resolved_files[i])) {
+            main_files[main_file_count++] = resolved_files[i];
         }
-        all_file_count = new_count;
     }
     
-    fprintf(stderr, "=== 开始编译 ===\n");
-    fprintf(stderr, "输入文件数量: %d (包含依赖)\n", all_file_count);
-    for (int i = 0; i < all_file_count; i++) {
-        fprintf(stderr, "  %d: %s\n", i, all_files[i]);
+    // 只对包含 main 的文件进行依赖收集
+    // 注意：在手动文件列表模式下，所有文件（包括 main.uya）已经在 all_files 中
+    // 因此不需要进行依赖收集，避免重复解析导致重复定义错误
+    // 只有在自动依赖收集模式下（只传递了单个入口文件），才需要进行依赖收集
+    // 判断是否为手动文件列表模式：如果 resolved_count > 1，说明是手动文件列表模式
+    if (resolved_count == 1) {
+        // 自动依赖收集模式：只传递了单个文件，需要进行依赖收集
+        for (int i = 0; i < main_file_count; i++) {
+            int new_count = collect_module_dependencies(
+                main_files[i],
+                all_files,
+                all_file_count,
+                MAX_INPUT_FILES,
+                processed_files,
+                &processed_count,
+                MAX_INPUT_FILES,
+                project_root,
+                uya_root,
+                &temp_arena
+            );
+            if (new_count < 0) {
+                fprintf(stderr, "错误: 收集模块依赖失败: %s\n", main_files[i]);
+                return 1;
+            }
+            all_file_count = new_count;
+        }
     }
-    fprintf(stderr, "输出文件: %s\n", output_file);
-    fprintf(stderr, "项目根目录: %s\n", project_root != NULL ? project_root : "(未设置)");
-    fprintf(stderr, "UYA_ROOT: %s\n", uya_root);
+    // 手动文件列表模式：所有文件已经在列表中，不需要进行依赖收集
+    
+    fprintf(stderr, "=== 开始编译 ===\n");
     fprintf(stderr, "=== 词法/语法分析 ===\n");
 
     // 初始化 Arena 分配器（所有文件共享同一个 Arena）
@@ -825,6 +864,7 @@ static int compile_files(const char *input_files[], int input_file_count, const 
     // 解析每个文件
     for (int i = 0; i < all_file_count; i++) {
         const char *input_file = all_files[i];
+        
 
         int file_size = read_file_content(input_file, file_buffer, FILE_BUFFER_SIZE);
         if (file_size < 0) {
@@ -856,7 +896,7 @@ static int compile_files(const char *input_files[], int input_file_count, const 
         }
 
         programs[i] = ast;
-        fprintf(stderr, "  解析完成: %s\n", input_file);
+        fprintf(stderr, "  解析完成: %s (声明数: %d)\n", input_file, ast->data.program.decl_count);
     }
     fprintf(stderr, "=== 词法/语法分析完成，共 %d 个文件 ===\n", all_file_count);
 
@@ -867,6 +907,23 @@ static int compile_files(const char *input_files[], int input_file_count, const 
         return 1;
     }
     fprintf(stderr, "AST 合并完成，共 %d 个声明\n", merged_ast->data.program.decl_count);
+    
+    // 检查合并后的 AST 中是否有重复的 collect_module_dependencies 函数
+    int collect_module_count = 0;
+    for (int i = 0; i < merged_ast->data.program.decl_count; i++) {
+        ASTNode *decl = merged_ast->data.program.decls[i];
+        if (decl != NULL && decl->type == AST_FN_DECL && decl->data.fn_decl.name != NULL) {
+            if (strcmp(decl->data.fn_decl.name, "collect_module_dependencies") == 0) {
+                collect_module_count++;
+                fprintf(stderr, "  合并后 AST 中发现 collect_module_dependencies 函数 #%d (行: %d, 列: %d, 文件: %s)\n", 
+                        collect_module_count, decl->line, decl->column, 
+                        decl->filename != NULL ? decl->filename : "(unknown)");
+            }
+        }
+    }
+    if (collect_module_count > 1) {
+        fprintf(stderr, "警告: 在合并后的 AST 中发现 %d 个 collect_module_dependencies 函数定义\n", collect_module_count);
+    }
 
     fprintf(stderr, "=== 类型检查阶段 ===\n");
     TypeChecker checker;
