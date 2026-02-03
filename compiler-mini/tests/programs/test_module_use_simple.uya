@@ -8,6 +8,10 @@ fn helper() i32 {
 fn main() i32 {
     // 在单文件场景下，use 语句应该被解析但不影响可见性
     // 实际模块系统需要多文件支持
-    return helper();
+    const val: i32 = helper();  // 验证函数调用正常
+    if val != 10 {
+        return 1;  // 验证失败
+    }
+    return 0;
 }
 

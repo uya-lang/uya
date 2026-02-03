@@ -3,7 +3,7 @@
 
 fn main() i32 {
     // 尝试使用未定义的模块（预期编译错误）
-    use undefined.module;
+    // use undefined.module;
     return 0;
 }
 

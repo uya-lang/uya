@@ -188,6 +188,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null {
+            // 跳过 use 语句（模块导入，不包含字符串常量）
+            if decl.type == ASTNodeType.AST_USE_STMT {
+                i = i + 1;
+                continue;
+            }
             collect_string_constants_from_decl(codegen, decl);
         }
         i = i + 1;
@@ -255,7 +260,10 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 第六步 a：收集所有使用的切片类型（含结构体字段中的 &[T]）
     i = 0;
     while i < decl_count {
-        collect_slice_types_from_node(codegen, ast.program_decls[i]);
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl != null && decl.type != ASTNodeType.AST_USE_STMT {
+            collect_slice_types_from_node(codegen, decl);
+        }
         i = i + 1;
     }
     // 第六步 b：生成切片结构体（&[T] -> struct uya_slice_X），必须在用户结构体之前
@@ -270,7 +278,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
-        if decl != null && decl.type == ASTNodeType.AST_UNION_DECL {
+        if decl != null && decl.type != ASTNodeType.AST_USE_STMT && decl.type == ASTNodeType.AST_UNION_DECL {
             gen_union_definition(codegen, decl);
             fputs("\n" as *byte, codegen.output as *void);
         }
@@ -280,7 +288,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
-        if decl != null && decl.type == ASTNodeType.AST_STRUCT_DECL {
+        if decl != null && decl.type != ASTNodeType.AST_USE_STMT && decl.type == ASTNodeType.AST_STRUCT_DECL {
             gen_struct_definition(codegen, decl);
             fputs("\n" as *byte, codegen.output as *void);
         }
@@ -291,7 +299,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
-        if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
+        if decl == null || decl.type == ASTNodeType.AST_USE_STMT {
+            i = i + 1;
+            continue;
+        }
+        if decl.type == ASTNodeType.AST_FN_DECL {
             gen_function_prototype(codegen, decl);
         } else if decl != null && decl.type == ASTNodeType.AST_METHOD_BLOCK {
             var type_name: &byte = null;
@@ -344,61 +356,63 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
-        if decl != null {
-            if decl.type == ASTNodeType.AST_STRUCT_DECL {
-                // 生成结构体内部定义的方法
-                const struct_name: &byte = decl.struct_decl_name;
-                var j: i32 = 0;
-                while j < decl.struct_decl_method_count {
-                    const m: &ASTNode = decl.struct_decl_methods[j];
-                    if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_body != null {
-                        gen_method_function(codegen, m, struct_name);
-                        fputs("\n" as *byte, codegen.output as *void);
-                    }
-                    j = j + 1;
+        if decl == null || decl.type == ASTNodeType.AST_USE_STMT {
+            i = i + 1;
+            continue;
+        }
+        if decl.type == ASTNodeType.AST_STRUCT_DECL {
+            // 生成结构体内部定义的方法
+            const struct_name: &byte = decl.struct_decl_name;
+            var j: i32 = 0;
+            while j < decl.struct_decl_method_count {
+                const m: &ASTNode = decl.struct_decl_methods[j];
+                if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_body != null {
+                    gen_method_function(codegen, m, struct_name);
+                    fputs("\n" as *byte, codegen.output as *void);
                 }
-            } else if decl.type == ASTNodeType.AST_UNION_DECL {
-                // 生成联合体内部方法定义
-                const union_name: &byte = decl.union_decl_name;
-                var j: i32 = 0;
-                while j < decl.union_decl_method_count {
-                    const m: &ASTNode = decl.union_decl_methods[j];
-                    if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_body != null {
-                        gen_method_function(codegen, m, union_name);
-                        fputs("\n" as *byte, codegen.output as *void);
-                    }
-                    j = j + 1;
-                }
-            } else if decl.type == ASTNodeType.AST_ENUM_DECL {
-                // 已在前面生成
-            } else if decl.type == ASTNodeType.AST_VAR_DECL {
-                gen_global_var(codegen, decl);
-                fputs("\n" as *byte, codegen.output as *void);
-            } else if decl.type == ASTNodeType.AST_FN_DECL {
-                // 只生成有函数体的定义（外部函数由前向声明处理）
-                gen_function(codegen, decl);
-                fputs("\n" as *byte, codegen.output as *void);
-            } else if decl.type == ASTNodeType.AST_METHOD_BLOCK {
-                var type_name: &byte = null;
-                if decl.method_block_struct_name != null {
-                    type_name = decl.method_block_struct_name;
-                } else {
-                    type_name = decl.method_block_union_name;
-                }
-                if type_name != null {
-                    var j: i32 = 0;
-                    while j < decl.method_block_method_count {
-                        const m: &ASTNode = decl.method_block_methods[j];
-                        if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_body != null {
-                            gen_method_function(codegen, m, type_name);
-                            fputs("\n" as *byte, codegen.output as *void);
-                        }
-                        j = j + 1;
-                    }
-                }
-            } else {
-                // 忽略其他声明类型（暂时）
+                j = j + 1;
             }
+        } else if decl.type == ASTNodeType.AST_UNION_DECL {
+            // 生成联合体内部方法定义
+            const union_name: &byte = decl.union_decl_name;
+            var j: i32 = 0;
+            while j < decl.union_decl_method_count {
+                const m: &ASTNode = decl.union_decl_methods[j];
+                if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_body != null {
+                    gen_method_function(codegen, m, union_name);
+                    fputs("\n" as *byte, codegen.output as *void);
+                }
+                j = j + 1;
+            }
+        } else if decl.type == ASTNodeType.AST_ENUM_DECL {
+            // 已在前面生成
+        } else if decl.type == ASTNodeType.AST_VAR_DECL {
+            gen_global_var(codegen, decl);
+            fputs("\n" as *byte, codegen.output as *void);
+        } else if decl.type == ASTNodeType.AST_FN_DECL {
+            // 只生成有函数体的定义（外部函数由前向声明处理）
+            gen_function(codegen, decl);
+            fputs("\n" as *byte, codegen.output as *void);
+        } else if decl.type == ASTNodeType.AST_METHOD_BLOCK {
+            var type_name: &byte = null;
+            if decl.method_block_struct_name != null {
+                type_name = decl.method_block_struct_name;
+            } else {
+                type_name = decl.method_block_union_name;
+            }
+            if type_name != null {
+                var j: i32 = 0;
+                while j < decl.method_block_method_count {
+                    const m: &ASTNode = decl.method_block_methods[j];
+                    if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_body != null {
+                        gen_method_function(codegen, m, type_name);
+                        fputs("\n" as *byte, codegen.output as *void);
+                    }
+                    j = j + 1;
+                }
+            }
+        } else {
+            // 跳过 use 语句（模块导入，不需要生成代码）
         }
         i = i + 1;
     }
