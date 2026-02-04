@@ -5521,8 +5521,8 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
     if current_module_name != null && str_equals(current_module_name, module_name) == 0 {
         // 特殊处理：main 模块不记录依赖，避免循环依赖检测误报
         // main 模块是程序入口点，可以自由引用任何模块
-        if str_equals(current_module_name, "main" as *byte) == 0 {
-            // 跳过依赖记录，继续处理导入项
+        if str_equals(current_module_name, "main" as *byte) != 0 {
+            // main 模块：跳过依赖记录，继续处理导入项
         } else {
             // 查找当前模块
             const current_hash: i32 = hash_string(current_module_name);
