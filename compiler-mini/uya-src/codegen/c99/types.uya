@@ -432,24 +432,33 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
         // 例如 "uint8_t *" -> "uint8_t"
         var elem_len: usize = strlen(elem_simple as *byte);
         var elem_clean: &byte = elem_simple;
-        if elem_len > 0 && (elem_simple as *byte)[elem_len - 1] == 42 {  // '*'
-            // 找到最后一个 '*'，向前查找并去除空格
-            var end: usize = elem_len - 1;
-            while end > 0 && (elem_simple as *byte)[end - 1] == 32 {  // ' '
-                end = end - 1;
-            }
-            // 创建临时缓冲区存储去除 "*" 后的名称
-            var temp_buf: [byte: 128] = [];
-            if end < 128 {
-                var j: usize = 0;
-                while j < end {
-                    temp_buf[j] = (elem_simple as *byte)[j];
-                    j = j + 1;
+        if elem_len > 0 {
+            const elem_ptr: *byte = elem_simple as *byte;
+            const last_char: *byte = elem_ptr + (elem_len - 1);
+            if last_char[0] == 42 {  // '*'
+                // 找到最后一个 '*'，向前查找并去除空格
+                var end: usize = elem_len - 1;
+                while end > 0 {
+                    const prev_char: *byte = elem_ptr + (end - 1);
+                    if prev_char[0] != 32 {  // ' '
+                        break;
+                    }
+                    end = end - 1;
                 }
-                temp_buf[j] = 0;  // '\0'
-                elem_clean = c99_arena_strdup(codegen.arena, &temp_buf[0]);
-                if elem_clean == null {
-                    return ("void" as *byte) as &byte;
+                // 创建临时缓冲区存储去除 "*" 后的名称
+                var temp_buf: [byte: 128] = [];
+                if end < 128 {
+                    var j: usize = 0;
+                    while j < end {
+                        const char_ptr: *byte = elem_ptr + j;
+                        temp_buf[j] = char_ptr[0];
+                        j = j + 1;
+                    }
+                    temp_buf[j] = 0;  // '\0'
+                    elem_clean = c99_arena_strdup(codegen.arena, &temp_buf[0]);
+                    if elem_clean == null {
+                        return ("void" as *byte) as &byte;
+                    }
                 }
             }
         }

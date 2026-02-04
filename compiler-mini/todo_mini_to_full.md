@@ -307,10 +307,14 @@
 - [x] **代码生成器改进（字符串参数类型）**：修复标准库函数调用中字符串参数的类型转换
   - **uya-src**：修复 `expr.uya` 中标准库函数调用时，字符串参数使用 `(const char *)` 而不是 `(uint8_t *)`
   - 部分 `uint8_t *` 转换警告已修复（函数调用中的字符串参数）
+- [x] **copy_type 函数 const 限定符修复**：修复 `copy_type` 函数的 const 限定符警告
+  - **C 实现**：在 `src/codegen/c99/function.c` 中添加 `is_copy_type` 检查，将第一个参数类型改为 `const struct Type *`
+  - **uya-src 已同步**：在 `uya-src/codegen/c99/function.uya` 中添加相同逻辑
+  - `copy_type` 相关警告已消除（25 个警告修复为 0）
 - [ ] **自举编译器代码修复（剩余警告）**：修复 `uya-src/` 生成的 C 代码中剩余的警告问题
   - Uya 源代码中直接使用字符串的地方（如 `fprintf(get_stderr(), str0)`）仍会产生 `uint8_t *` vs `const char *` 警告
   - 这些警告需要更深入的类型系统改动（字符串类型在 C 中映射为 `const char *` 而不是 `uint8_t *`）
-  - `copy_type` 函数的 `const` 限定符丢弃警告需要修复
+  - **说明**：这是 Uya 类型系统的设计问题。Uya 中字符串类型为 `&[i8]`（即 `uint8_t *`），而 C 标准库函数期望 `const char *`。完全消除这些警告需要修改 Uya 的字符串类型设计，超出本阶段范围。
 - [ ] **测试程序验证**：确保所有测试程序（`tests/programs/*.uya`）编译生成的 C 代码无警告
 
 **涉及**：

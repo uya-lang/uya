@@ -5741,7 +5741,12 @@ fn dfs_visit_module(checker: &TypeChecker, module_name: &byte, path: &[&byte: MA
         
         i = 0;
         while i < module.dependency_count {
-            if dfs_visit_module(checker, module.dependencies[i].target_module, &new_path, new_path_len,
+            // 创建 slice 结构体来传递数组
+            var path_slice: uya_slice_uint8_t = uya_slice_uint8_t {
+                ptr: &new_path[0],
+                len: new_path_len,
+            };
+            if dfs_visit_module(checker, module.dependencies[i].target_module, &path_slice, new_path_len,
                                  visit_state, visit_count) != 0 {
                 return 1;  // 发现循环
             }
@@ -5785,7 +5790,12 @@ fn detect_circular_dependencies(checker: &TypeChecker) void {
         if visit_state[i].state == 0 {
             var path: [&byte: MAX_MODULES] = [null: MAX_MODULES];
             path[0] = visit_state[i].module_name;
-            dfs_visit_module(checker, visit_state[i].module_name, &path, 1, &visit_state, visit_count);
+            // 创建 slice 结构体来传递数组
+            var path_slice: uya_slice_uint8_t = uya_slice_uint8_t {
+                ptr: &path[0],
+                len: 1,
+            };
+            dfs_visit_module(checker, visit_state[i].module_name, &path_slice, 1, &visit_state[0], visit_count);
         }
         i = i + 1;
     }

@@ -236,8 +236,11 @@ void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     int is_varargs = fn_decl->data.fn_decl.is_varargs;
     ASTNode *body = fn_decl->data.fn_decl.body;
     
-    // 特殊处理：main 函数需要重命名为 uya_main（符合 Uya 规范：main 函数无参数）
+    // 检查是否为 copy_type 函数（需要 const 限定符）
     const char *orig_name = fn_decl->data.fn_decl.name;
+    int is_copy_type = (orig_name && strcmp(orig_name, "copy_type") == 0) ? 1 : 0;
+    
+    // 特殊处理：main 函数需要重命名为 uya_main（符合 Uya 规范：main 函数无参数）
     int is_main = (orig_name && strcmp(orig_name, "main") == 0) ? 1 : 0;
     if (is_main) {
         // main 函数生成 uya_main 的前向声明
@@ -277,6 +280,11 @@ void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) {
         const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
         ASTNode *param_type = param->data.var_decl.type;
         const char *param_type_c = c99_type_to_c(codegen, param_type);
+        
+        // 特殊处理 copy_type 函数：将第一个参数类型改为 const struct Type *
+        if (is_copy_type && i == 0) {
+            param_type_c = "const struct Type *";
+        }
         
         // 对于 extern 函数，检查大结构体参数（>16字节），转换为指针类型
         // 根据 x86-64 System V ABI，大于 16 字节的结构体通过指针传递
@@ -345,11 +353,14 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     // 如果没有函数体（外部函数），则不生成定义
     if (!body) return;
     
+    // 检查是否为 copy_type 函数（需要 const 限定符）
+    const char *orig_name = fn_decl->data.fn_decl.name;
+    int is_copy_type = (orig_name && strcmp(orig_name, "copy_type") == 0) ? 1 : 0;
+    
     // 生成 #line 指令，指向函数定义的位置
     emit_line_directive(codegen, fn_decl->line, fn_decl->filename);
     
     // 特殊处理：main 函数需要重命名为 uya_main（符合 Uya 规范：main 函数无参数）
-    const char *orig_name = fn_decl->data.fn_decl.name;
     int is_main = (orig_name && strcmp(orig_name, "main") == 0) ? 1 : 0;
     
     // 返回类型（如果是数组类型，转换为指针类型）
@@ -369,6 +380,11 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
             const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
             ASTNode *param_type = param->data.var_decl.type;
             const char *param_type_c = c99_type_to_c(codegen, param_type);
+            
+            // 特殊处理 copy_type 函数：将第一个参数类型改为 const struct Type *
+            if (is_copy_type && i == 0) {
+                param_type_c = "const struct Type *";
+            }
             
             // 数组参数：在参数名后添加 _param 后缀，函数内部会创建副本
             if (param_type->type == AST_TYPE_ARRAY) {

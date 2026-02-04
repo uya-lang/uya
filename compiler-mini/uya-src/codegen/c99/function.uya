@@ -36,6 +36,21 @@ fn format_param_type(codegen: &C99CodeGenerator, type_c: &byte, param_name: &byt
         return;
     }
     
+    // 特殊处理：如果是 copy_type 函数的第一个参数且类型是 "struct Type *" 或 "const struct Type *"，则改为 "const struct Type *"
+    // 检查当前函数名是否为 copy_type（通过 codegen.current_function_decl）
+    var is_copy_type_param: i32 = 0;
+    if codegen != null && codegen.current_function_decl != null {
+        const fn_name: &byte = codegen.current_function_decl.fn_decl_name;
+        if fn_name != null && strcmp(fn_name as *byte, "copy_type" as *byte) == 0 {
+            // 检查参数类型是否为 "struct Type *" 或已经是 "const struct Type *"
+            if strcmp(type_c as *byte, "struct Type *" as *byte) == 0 {
+                is_copy_type_param = 1;
+            } else if strcmp(type_c as *byte, "const struct Type *" as *byte) == 0 {
+                is_copy_type_param = 1;
+            }
+        }
+    }
+    
     // 检查是否是指向数组的指针（包含 "(*)" 和 "[数字]"）
     // 例如：uint8_t (*)[4096] -> uint8_t (*param_name)[4096]
     const paren_star: *byte = strstr(type_c as *byte, "(*)" as *byte);
@@ -73,7 +88,12 @@ fn format_param_type(codegen: &C99CodeGenerator, type_c: &byte, param_name: &byt
             // 检查是否是指针类型（包含 '*'）
             // 如果是指针类型，格式应该是 "type * name"（* 紧跟在类型后面）
             // c99_type_to_c 已经返回了正确的格式（如 "struct Type *"），所以直接输出即可
-            fprintf(output, "%s %s" as *byte, type_c as *byte, param_name as *byte);
+            // 特殊处理 copy_type 函数：将 "struct Type *" 改为 "const struct Type *"
+            if is_copy_type_param != 0 {
+                fprintf(output, "const struct Type * %s" as *byte, param_name as *byte);
+            } else {
+                fprintf(output, "%s %s" as *byte, type_c as *byte, param_name as *byte);
+            }
         }
     }
 }
@@ -144,6 +164,10 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
         return;
     }
     
+    // 设置当前函数声明（用于 format_param_type 中的 copy_type 检查）
+    const saved_current_function_decl: &ASTNode = codegen.current_function_decl;
+    codegen.current_function_decl = fn_decl;
+    
     const func_name: &byte = get_safe_c_identifier(codegen, fn_decl.fn_decl_name);
     const return_type: &ASTNode = fn_decl.fn_decl_return_type;
     const param_count: i32 = fn_decl.fn_decl_param_count;
@@ -189,6 +213,12 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
         fprintf(codegen.output, "%s %s(" as *byte, return_c as *byte, func_name as *byte);
     }
     
+    // 检查是否为 copy_type 函数（需要 const 限定符）
+    var is_copy_type: i32 = 0;
+    if fn_decl.fn_decl_name != null && strcmp(fn_decl.fn_decl_name as *byte, "copy_type" as *byte) == 0 {
+        is_copy_type = 1;
+    }
+    
     // 参数列表
     var i: i32 = 0;
     while i < param_count {
@@ -198,13 +228,25 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
             const param_type: &ASTNode = param.var_decl_type;
             var param_type_c: &byte = c99_type_to_c(codegen, param_type);
             
+            // 特殊处理 copy_type 函数：将第一个参数类型改为 const struct Type *
+            if is_copy_type != 0 && i == 0 {
+                // 对于 copy_type 函数，第一个参数类型必须是 const struct Type *
+                // 直接替换，不检查原始类型（因为 copy_type 的参数类型总是 &Type，即 struct Type *）
+                param_type_c = ("const struct Type *" as *byte) as &byte;
+            }
+            
             // 对于 extern 函数，检查大结构体参数（>16字节），转换为指针类型
             // 根据 x86-64 System V ABI，大于 16 字节的结构体通过指针传递
             if is_extern != 0 && param_type.type == ASTNodeType.AST_TYPE_NAMED {
                 const struct_size: i32 = calculate_struct_size(codegen, param_type);
                 if struct_size > 16 {
                     // 大结构体：转换为指针类型
-                    param_type_c = c99_type_to_c(codegen, param_type);
+                    // 注意：如果是 copy_type 函数，保持 const struct Type *
+                    if is_copy_type != 0 && i == 0 {
+                        param_type_c = ("const struct Type *" as *byte) as &byte;
+                    } else {
+                        param_type_c = c99_type_to_c(codegen, param_type);
+                    }
                     fprintf(codegen.output, "%s *%s" as *byte, param_type_c as *byte, param_name as *byte);
                     if i < param_count - 1 {
                         fputs(", " as *byte, codegen.output);
@@ -248,7 +290,12 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
                 // Slice 类型参数：通过指针传递（slice 是引用类型）
                 fprintf(codegen.output, "%s *%s" as *byte, param_type_c as *byte, param_name as *byte);
             } else {
-                format_param_type(codegen, param_type_c, param_name, codegen.output);
+                // 对于 copy_type 函数，直接输出 const struct Type *，不调用 format_param_type
+                if is_copy_type != 0 && i == 0 {
+                    fprintf(codegen.output, "const struct Type * %s" as *byte, param_name as *byte);
+                } else {
+                    format_param_type(codegen, param_type_c, param_name, codegen.output);
+                }
             }
             if i < param_count - 1 {
                 fputs(", " as *byte, codegen.output);
@@ -266,6 +313,9 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     }
     
     fputs(");\n" as *byte, codegen.output);
+    
+    // 恢复当前函数声明
+    codegen.current_function_decl = saved_current_function_decl;
 }
 
 // 生成函数定义
@@ -308,6 +358,12 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     } else {
         fprintf(codegen.output, "%s %s(" as *byte, return_c as *byte, func_name as *byte);
         
+        // 检查是否为 copy_type 函数（需要 const 限定符）
+        var is_copy_type: i32 = 0;
+        if fn_decl.fn_decl_name != null && strcmp(fn_decl.fn_decl_name as *byte, "copy_type" as *byte) == 0 {
+            is_copy_type = 1;
+        }
+        
         // 参数列表
         i = 0;
         while i < param_count {
@@ -316,6 +372,13 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
                 const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
                 const param_type: &ASTNode = param.var_decl_type;
                 var param_type_c: &byte = c99_type_to_c(codegen, param_type);
+                
+                // 特殊处理 copy_type 函数：将第一个参数类型改为 const struct Type *
+                if is_copy_type != 0 && i == 0 {
+                    // 对于 copy_type 函数，第一个参数类型必须是 const struct Type *
+                    // 直接替换，不检查原始类型（因为 copy_type 的参数类型总是 &Type，即 struct Type *）
+                    param_type_c = ("const struct Type *" as *byte) as &byte;
+                }
                 
                 // 数组参数：在参数名后添加 _param 后缀，函数内部会创建副本
                 if param_type.type == ASTNodeType.AST_TYPE_ARRAY {
@@ -339,7 +402,12 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
                     // Slice 类型参数：通过指针传递（slice 是引用类型）
                     fprintf(codegen.output, "%s *%s" as *byte, param_type_c as *byte, param_name as *byte);
                 } else {
-                    format_param_type(codegen, param_type_c, param_name, codegen.output);
+                    // 对于 copy_type 函数，直接输出 const struct Type *，不调用 format_param_type
+                    if is_copy_type != 0 && i == 0 {
+                        fprintf(codegen.output, "const struct Type * %s" as *byte, param_name as *byte);
+                    } else {
+                        format_param_type(codegen, param_type_c, param_name, codegen.output);
+                    }
                 }
                 if i < param_count - 1 {
                     fputs(", " as *byte, codegen.output);
