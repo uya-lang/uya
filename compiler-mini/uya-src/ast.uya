@@ -56,6 +56,7 @@ enum ASTNodeType {
     AST_RETURN_STMT,
     AST_DEFER_STMT,     // defer 语句（作用域结束 LIFO 执行）
     AST_ERRDEFER_STMT,  // errdefer 语句（仅错误返回时 LIFO 执行）
+    AST_TEST_STMT,      // test 语句（test "description" { body }）
     AST_ASSIGN,
     AST_EXPR_STMT,
     AST_BLOCK,
@@ -266,6 +267,9 @@ struct ASTNode {
     defer_stmt_body: &ASTNode,
     // errdefer_stmt（errdefer stmt 或 errdefer { ... }）
     errdefer_stmt_body: &ASTNode,
+    // test_stmt（test "description" { body }）
+    test_stmt_description: &byte,  // 测试说明（字符串存储在 Arena 中）
+    test_stmt_body: &ASTNode,      // 测试体（AST_BLOCK）
     // assign
     assign_dest: &ASTNode,
     assign_src: &ASTNode,
@@ -421,6 +425,8 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.return_stmt_expr = null;
     node.defer_stmt_body = null;
     node.errdefer_stmt_body = null;
+    node.test_stmt_description = null;
+    node.test_stmt_body = null;
     node.assign_dest = null;
     node.assign_src = null;
     node.block_stmts = null;

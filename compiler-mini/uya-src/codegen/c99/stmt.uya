@@ -377,6 +377,9 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         }
         codegen.current_drop_scope = saved_drop_scope;
     } else if stmt.type == ASTNodeType.AST_DEFER_STMT || stmt.type == ASTNodeType.AST_ERRDEFER_STMT {
+        // defer/errdefer 语句在块退出时统一处理
+    } else if stmt.type == ASTNodeType.AST_TEST_STMT {
+        // 测试语句在 main.c 中统一生成为函数
         // defer/errdefer 在块内被收集，此处不应单独出现（若出现则忽略）
         return;
     } else if stmt.type == ASTNodeType.AST_DESTRUCTURE_DECL {

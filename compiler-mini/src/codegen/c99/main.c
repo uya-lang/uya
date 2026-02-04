@@ -3,6 +3,111 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
+/* 递归收集所有测试语句（使用固定大小数组，最多 1000 个测试） */
+#define MAX_TESTS 1000
+static void collect_tests_from_node(C99CodeGenerator *codegen, ASTNode *node, ASTNode **tests, int *test_count) {
+    if (!codegen || !node || !tests || !test_count) return;
+    if (*test_count >= MAX_TESTS) return;  // 防止溢出
+    
+    if (node->type == AST_TEST_STMT) {
+        // 添加到测试列表
+        tests[*test_count] = node;
+        (*test_count)++;
+    }
+    
+    // 递归处理子节点
+    if (node->type == AST_BLOCK && node->data.block.stmts) {
+        for (int i = 0; i < node->data.block.stmt_count; i++) {
+            collect_tests_from_node(codegen, node->data.block.stmts[i], tests, test_count);
+        }
+    } else if (node->type == AST_IF_STMT) {
+        collect_tests_from_node(codegen, node->data.if_stmt.then_branch, tests, test_count);
+        if (node->data.if_stmt.else_branch) {
+            collect_tests_from_node(codegen, node->data.if_stmt.else_branch, tests, test_count);
+        }
+    } else if (node->type == AST_WHILE_STMT) {
+        collect_tests_from_node(codegen, node->data.while_stmt.body, tests, test_count);
+    } else if (node->type == AST_FOR_STMT) {
+        collect_tests_from_node(codegen, node->data.for_stmt.body, tests, test_count);
+    } else if (node->type == AST_FN_DECL && node->data.fn_decl.body) {
+        collect_tests_from_node(codegen, node->data.fn_decl.body, tests, test_count);
+    }
+}
+
+/* 从测试描述字符串生成安全的函数名（使用哈希避免中文问题） */
+static const char *get_test_function_name(C99CodeGenerator *codegen, const char *description) {
+    if (!description) return NULL;
+    
+    // 使用简单的哈希函数生成唯一标识符
+    unsigned int hash = 0;
+    const char *p = description;
+    while (*p) {
+        hash = hash * 31 + (unsigned char)*p;
+        p++;
+    }
+    
+    // 生成函数名：uya_test_<hash>
+    char *buf = arena_alloc(codegen->arena, 64);
+    if (!buf) return NULL;
+    snprintf(buf, 64, "uya_test_%u", hash);
+    
+    return get_safe_c_identifier(codegen, buf);
+}
+
+/* 生成测试函数 */
+static void gen_test_function(C99CodeGenerator *codegen, ASTNode *test_stmt) {
+    if (!test_stmt || test_stmt->type != AST_TEST_STMT) return;
+    
+    const char *description = test_stmt->data.test_stmt.description;
+    const char *func_name = get_test_function_name(codegen, description);
+    ASTNode *body = test_stmt->data.test_stmt.body;
+    
+    if (!func_name || !body) return;
+    
+    // 创建 void 类型节点（用于设置 current_function_return_type）
+    ASTNode *void_type = ast_new_node(AST_TYPE_NAMED, test_stmt->line, test_stmt->column, codegen->arena, test_stmt->filename);
+    if (void_type) {
+        void_type->data.type_named.name = "void";
+    }
+    
+    // 保存之前的返回类型
+    ASTNode *saved_return_type = codegen->current_function_return_type;
+    
+    // 设置当前函数的返回类型为 void
+    codegen->current_function_return_type = void_type;
+    
+    // 生成函数定义
+    emit_line_directive(codegen, test_stmt->line, test_stmt->filename);
+    fprintf(codegen->output, "static void %s(void) {\n", func_name);
+    
+    // 生成函数体
+    gen_stmt(codegen, body);
+    
+    // 恢复之前的返回类型
+    codegen->current_function_return_type = saved_return_type;
+    
+    fprintf(codegen->output, "}\n");
+}
+
+/* 生成测试运行器函数 */
+static void gen_test_runner(C99CodeGenerator *codegen, ASTNode **tests, int test_count) {
+    if (!tests || test_count <= 0) return;
+    
+    fprintf(codegen->output, "static void uya_run_tests(void) {\n");
+    
+    for (int i = 0; i < test_count; i++) {
+        ASTNode *test = tests[i];
+        if (!test || test->type != AST_TEST_STMT) continue;
+        
+        const char *func_name = get_test_function_name(codegen, test->data.test_stmt.description);
+        if (func_name) {
+            fprintf(codegen->output, "    %s();\n", func_name);
+        }
+    }
+    
+    fprintf(codegen->output, "}\n");
+}
+
 /* 递归收集 AST 中使用的切片类型，以便 step 6b 输出对应 struct */
 static void collect_slice_types_from_node(C99CodeGenerator *codegen, ASTNode *node) {
     if (!codegen || !node) return;
@@ -314,6 +419,44 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     emit_vtable_constants(codegen);
     fputs("\n", codegen->output);
 
+    // 第七步 c：收集所有测试语句
+    ASTNode *tests[MAX_TESTS];
+    int test_count = 0;
+    
+    // 从程序顶层声明中收集测试语句
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl) continue;
+        if (decl->type == AST_USE_STMT) continue;
+        
+        // 顶层测试语句
+        if (decl->type == AST_TEST_STMT) {
+            if (test_count < MAX_TESTS) {
+                tests[test_count] = decl;
+                test_count++;
+            }
+        }
+        
+        // 从函数体内收集测试（包括嵌套块中的测试）
+        if (decl->type == AST_FN_DECL && decl->data.fn_decl.body) {
+            collect_tests_from_node(codegen, decl->data.fn_decl.body, tests, &test_count);
+        }
+    }
+    
+    // 生成测试函数前向声明
+    if (test_count > 0) {
+        for (int i = 0; i < test_count; i++) {
+            ASTNode *test = tests[i];
+            if (!test || test->type != AST_TEST_STMT) continue;
+            const char *func_name = get_test_function_name(codegen, test->data.test_stmt.description);
+            if (func_name) {
+                fprintf(codegen->output, "static void %s(void);\n", func_name);
+            }
+        }
+        fprintf(codegen->output, "static void uya_run_tests(void);\n");
+        fputs("\n", codegen->output);
+    }
+
     // 第八步：生成所有声明（全局变量、函数定义）
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
@@ -354,11 +497,17 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
                 gen_global_var(codegen, decl);
                 fputs("\n", codegen->output);
                 break;
-            case AST_FN_DECL:
-                // 只生成有函数体的定义（外部函数由前向声明处理）
-                gen_function(codegen, decl);
-                fputs("\n", codegen->output);
+            case AST_FN_DECL: {
+                // 特殊处理：main 函数在第九步生成（需要添加测试运行器调用）
+                const char *func_name = decl->data.fn_decl.name;
+                int is_main = (func_name && strcmp(func_name, "main") == 0) ? 1 : 0;
+                if (!is_main) {
+                    // 只生成有函数体的定义（外部函数由前向声明处理）
+                    gen_function(codegen, decl);
+                    fputs("\n", codegen->output);
+                }
                 break;
+            }
             case AST_METHOD_BLOCK: {
                 const char *type_name = decl->data.method_block.struct_name ? decl->data.method_block.struct_name : decl->data.method_block.union_name;
                 if (type_name) {
@@ -374,13 +523,65 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
             }
             case AST_ERROR_DECL:
                 break;
+            case AST_TEST_STMT:
+                // 测试语句在下面统一生成
+                break;
             // 忽略其他声明类型（暂时）
             default:
                 break;
         }
     }
     
-    // main() !i32：不在此处生成 main()，由测试时的 bridge.c 提供 main() 并调用 uya_main()
+    // 第八步 b：生成所有测试函数和测试运行器
+    if (test_count > 0) {
+        for (int i = 0; i < test_count; i++) {
+            gen_test_function(codegen, tests[i]);
+            fputs("\n", codegen->output);
+        }
+        gen_test_runner(codegen, tests, test_count);
+        fputs("\n", codegen->output);
+    }
+    
+    // 第九步：生成 main 函数（uya_main），在开始时调用测试运行器
+    // 查找 main 函数并生成
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_FN_DECL) continue;
+        const char *func_name = decl->data.fn_decl.name;
+        if (func_name && strcmp(func_name, "main") == 0 && decl->data.fn_decl.body) {
+            // 生成 main 函数（重命名为 uya_main）
+            emit_line_directive(codegen, decl->line, decl->filename);
+            const char *return_c = convert_array_return_type(codegen, decl->data.fn_decl.return_type);
+            fprintf(codegen->output, "%s uya_main(void) {\n", return_c);
+            
+            // 保存并设置当前函数的返回类型（用于生成返回语句）
+            ASTNode *saved_return_type = codegen->current_function_return_type;
+            codegen->current_function_return_type = decl->data.fn_decl.return_type;
+            
+            // 如果有测试，在函数体开始处调用测试运行器
+            if (test_count > 0) {
+                fprintf(codegen->output, "    uya_run_tests();\n");
+            }
+            
+            // 生成原始函数体
+            ASTNode *body = decl->data.fn_decl.body;
+            if (body && body->type == AST_BLOCK) {
+                ASTNode **stmts = body->data.block.stmts;
+                int stmt_count = body->data.block.stmt_count;
+                for (int j = 0; j < stmt_count; j++) {
+                    gen_stmt(codegen, stmts[j]);
+                }
+            }
+            
+            // 恢复之前的返回类型
+            codegen->current_function_return_type = saved_return_type;
+            
+            fprintf(codegen->output, "}\n");
+            break;
+        }
+    }
+    
+    // 如果没有 main 函数，则不生成 uya_main（由测试时的 bridge.c 提供 main() 并调用 uya_main()）
     
     return 0;
 }

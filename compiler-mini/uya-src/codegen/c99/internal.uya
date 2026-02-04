@@ -137,6 +137,7 @@ struct C99CodeGenerator {
     interp_arg_temp_names: [&byte: C99_MAX_CALL_ARGS],
     interp_temp_counter: i32,
     interp_fill_counter: i32,
+    test_count: i32,  // 测试语句数量（用于判断是否生成 uya_run_tests 调用）
     error_names: [&byte: 128],   // 错误集
     error_hashes: [u32: 128],    // 对应 error_id（hash 值）
     error_count: i32,

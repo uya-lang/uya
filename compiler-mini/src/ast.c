@@ -225,6 +225,10 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_ERRDEFER_STMT:
             node->data.errdefer_stmt.body = NULL;
             break;
+        case AST_TEST_STMT:
+            node->data.test_stmt.description = NULL;
+            node->data.test_stmt.body = NULL;
+            break;
         case AST_BREAK_STMT:
             // break 语句不需要数据字段
             break;

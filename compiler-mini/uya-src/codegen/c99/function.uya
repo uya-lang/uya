@@ -428,6 +428,10 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     // 添加函数体开始
     if is_main != 0 {
         fputs(" {\n" as *byte, codegen.output);
+        // 在 main 函数开始时调用测试运行器（只有在有测试时才调用）
+        if codegen.test_count > 0 {
+            fputs("    uya_run_tests();\n" as *byte, codegen.output);
+        }
     } else {
         fputs(") {\n" as *byte, codegen.output);
     }

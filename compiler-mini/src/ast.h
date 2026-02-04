@@ -59,6 +59,7 @@ typedef enum {
     AST_RETURN_STMT,    // return 语句
     AST_DEFER_STMT,     // defer 语句（作用域结束 LIFO 执行）
     AST_ERRDEFER_STMT,  // errdefer 语句（仅错误返回时 LIFO 执行）
+    AST_TEST_STMT,      // test 语句（test "description" { body }）
     AST_ASSIGN,         // 赋值语句
     AST_EXPR_STMT,      // 表达式语句
     AST_BLOCK,          // 代码块
@@ -386,6 +387,12 @@ struct ASTNode {
         struct {
             struct ASTNode *body;            // 单条语句或块（AST_BLOCK）
         } errdefer_stmt;
+        
+        // test 语句（test "description" { body }）
+        struct {
+            const char *description;          // 测试说明（字符串存储在 Arena 中）
+            struct ASTNode *body;            // 测试体（AST_BLOCK）
+        } test_stmt;
         
         // 赋值语句
         struct {

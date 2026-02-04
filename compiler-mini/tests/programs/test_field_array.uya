@@ -8,10 +8,10 @@ struct Test {
 
 fn test_field_array() i32 {
     // 测试：最简单的结构体初始化
-    var test: Test = Test{ buffer: null, size: 100 };
+    var test1: Test = Test{ buffer: null, size: 100 };
     
     // 测试：字段访问
-    const size: i32 = test.size;
+    const size: i32 = test1.size;
     
     return size;
 }

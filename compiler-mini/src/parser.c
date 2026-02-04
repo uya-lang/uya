@@ -1560,6 +1560,11 @@ ASTNode *parser_parse_declaration(Parser *parser) {
         return parser_parse_use_stmt(parser);
     }
     
+    // 检查 test 语句（顶层测试单元）
+    if (parser_match(parser, TOKEN_TEST)) {
+        return parser_parse_statement(parser);  // test 语句在 parser_parse_statement 中处理
+    }
+    
     // 检查 export 关键字
     int is_export = 0;
     if (parser_match(parser, TOKEN_EXPORT)) {
@@ -3902,6 +3907,31 @@ ASTNode *parser_parse_statement(Parser *parser) {
             stmt->data.errdefer_stmt.body = parser_parse_statement(parser);
         }
         if (stmt->data.errdefer_stmt.body == NULL) return NULL;
+        return stmt;
+    }
+    
+    if (parser_match(parser, TOKEN_TEST)) {
+        parser_consume(parser);  // 消费 'test'
+        
+        ASTNode *stmt = ast_new_node(AST_TEST_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (stmt == NULL) return NULL;
+        
+        // 解析测试说明字符串
+        if (!parser_match(parser, TOKEN_STRING)) {
+            fprintf(stderr, "错误: 期望测试说明字符串，在第 %d 行第 %d 列\n", parser->current_token->line, parser->current_token->column);
+            return NULL;
+        }
+        stmt->data.test_stmt.description = parser->current_token->value;
+        parser_consume(parser);  // 消费字符串
+        
+        // 解析测试体（必须是块）
+        if (!parser_match(parser, TOKEN_LEFT_BRACE)) {
+            fprintf(stderr, "错误: 期望 '{'，在第 %d 行第 %d 列\n", parser->current_token->line, parser->current_token->column);
+            return NULL;
+        }
+        stmt->data.test_stmt.body = parser_parse_block(parser);
+        if (stmt->data.test_stmt.body == NULL) return NULL;
+        
         return stmt;
     }
     

@@ -123,6 +123,7 @@ static TokenType is_keyword(const char *str) {
     if (strcmp(str, "use") == 0) return TOKEN_USE;
     if (strcmp(str, "as") == 0) return TOKEN_AS;
     if (strcmp(str, "match") == 0) return TOKEN_MATCH;
+    if (strcmp(str, "test") == 0) return TOKEN_TEST;
     return TOKEN_IDENTIFIER;  // 不是关键字，是标识符
 }
 

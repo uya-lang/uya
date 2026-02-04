@@ -4420,6 +4420,25 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             return ret;
         }
         return 1;
+    } else if node.type == ASTNodeType.AST_TEST_STMT {
+        if node.test_stmt_body != null {
+            // 测试语句体中的 return 应该被允许（测试函数是 void 类型）
+            // 临时设置 in_function = 1 和 current_return_type = void
+            const prev_return_type: Type = checker.current_return_type;
+            const prev_in_function: i32 = checker.in_function;
+            checker.current_return_type = Type{ kind: TypeKind.TYPE_VOID };
+            checker.in_function = 1;
+            
+            // 检查测试体中的语句
+            const ret: i32 = checker_check_node(checker, node.test_stmt_body);
+            
+            // 恢复之前的状态
+            checker.current_return_type = prev_return_type;
+            checker.in_function = prev_in_function;
+            
+            return ret;
+        }
+        return 1;
     } else if node.type == ASTNodeType.AST_RETURN_STMT {
         if checker.in_defer_or_errdefer != 0 {
             checker_report_error(checker, node, "defer/errdefer 块中不能使用 return 语句" as *byte);

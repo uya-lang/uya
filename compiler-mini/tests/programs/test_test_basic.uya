@@ -1,0 +1,25 @@
+// 基本测试单元语法
+test "基本算术运算" {
+    const x: i32 = 10;
+    const y: i32 = 20;
+    const sum: i32 = x + y;
+    if sum != 30 {
+        return;  // 测试失败
+    }
+}
+
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+test "函数调用测试" {
+    const result: i32 = add(5, 3);
+    if result != 8 {
+        return;  // 测试失败
+    }
+}
+
+fn main() i32 {
+    return 0;
+}
+

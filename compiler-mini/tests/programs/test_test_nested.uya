@@ -1,0 +1,21 @@
+// 嵌套块中的测试单元
+fn main() i32 {
+    test "函数内的测试单元" {
+        const x: i32 = 42;
+        if x != 42 {
+            return;  // 测试失败
+        }
+    }
+    
+    {
+        test "嵌套块中的测试单元" {
+            const y: i32 = 100;
+            if y != 100 {
+                return;  // 测试失败
+            }
+        }
+    }
+    
+    return 0;
+}
+

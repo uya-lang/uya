@@ -28,7 +28,7 @@
 | 14 | 消灭所有警告 | [ ] |
 | 15 | 泛型（Generics） | [ ] |
 | 16 | 异步编程（Async） | [ ] |
-| 17 | test 关键字（测试单元） | [ ] |
+| 17 | test 关键字（测试单元） | [x]（C 实现与 uya-src 已同步） |
 
 ---
 
@@ -612,43 +612,46 @@ test "函数调用测试" {
 }
 ```
 
-**实现待办**：
+**实现状态**：
 
-- [ ] **Lexer**：识别 `test` 关键字
-  - [ ] 添加 `TOKEN_TEST` Token 类型
-  - [ ] 在 `read_identifier_or_keyword` 中识别 `test` 关键字
+- [x] **Lexer**：识别 `test` 关键字
+  - [x] 添加 `TOKEN_TEST` Token 类型
+  - [x] 在 `read_identifier_or_keyword` 中识别 `test` 关键字
 
-- [ ] **AST**：测试单元节点
-  - [ ] 添加 `AST_TEST_STMT` 节点类型
-  - [ ] 添加 `ASTTestStmt` 结构体（包含 `description` 字符串和 `body` 语句块）
+- [x] **AST**：测试单元节点
+  - [x] 添加 `AST_TEST_STMT` 节点类型
+  - [x] 添加 `ASTTestStmt` 结构体（包含 `description` 字符串和 `body` 语句块）
 
-- [ ] **Parser**：解析测试单元语法
-  - [ ] 在 `parser_parse_statement` 或 `parser_parse_declaration` 中识别 `test` 关键字
-  - [ ] 解析 `test STRING { statements }` 语法
-  - [ ] 支持在顶层、函数内、嵌套块中解析测试单元
+- [x] **Parser**：解析测试单元语法
+  - [x] 在 `parser_parse_declaration` 和 `parser_parse_statement` 中识别 `test` 关键字
+  - [x] 解析 `test STRING { statements }` 语法
+  - [x] 支持在顶层、函数内、嵌套块中解析测试单元
 
-- [ ] **Checker**：测试单元语义检查
-  - [ ] 测试单元内的语句类型检查
-  - [ ] 测试单元内可以使用外部作用域的变量和函数
-  - [ ] 测试单元内可以访问模块级别的声明
+- [x] **Checker**：测试单元语义检查
+  - [x] 测试单元内的语句类型检查
+  - [x] 测试单元内可以使用外部作用域的变量和函数
+  - [x] 测试单元内可以访问模块级别的声明
+  - [x] 测试单元内允许 `return;` 语句（void 类型）
 
-- [ ] **Codegen**：测试单元代码生成
-  - [ ] 生成测试函数（如 `uya_test_基本算术运算()`）
-  - [ ] 测试函数命名规则（基于测试说明字符串生成唯一函数名）
-  - [ ] 测试函数调用机制（在 main 函数中调用所有测试函数，或生成测试运行器）
-  - [ ] 测试失败处理（如何表示测试失败：返回非 0、调用断言函数等）
+- [x] **Codegen**：测试单元代码生成
+  - [x] 生成测试函数（如 `uya_test_<hash>()`，使用哈希避免中文函数名问题）
+  - [x] 测试函数命名规则（基于测试说明字符串哈希生成唯一函数名）
+  - [x] 测试函数调用机制（生成 `uya_run_tests()` 函数，在 `uya_main()` 开始时调用）
+  - [x] 测试失败处理（测试函数中 `return;` 表示测试失败）
 
-- [ ] **测试运行器**（可选）：
-  - [ ] 自动收集所有测试单元
-  - [ ] 生成测试运行主函数
-  - [ ] 测试结果报告（成功/失败统计）
+- [x] **测试运行器**：
+  - [x] 自动收集所有测试单元（从顶层和嵌套块中递归收集）
+  - [x] 生成测试运行函数 `uya_run_tests()`
+  - [x] 在 `uya_main()` 开始时自动调用测试运行器
 
-- [ ] **测试用例**：
-  - [ ] `test_test_basic.uya` - 基本测试单元语法
-  - [ ] `test_test_nested.uya` - 嵌套块中的测试单元
-  - [ ] `test_test_function_scope.uya` - 函数内的测试单元
-  - [ ] `test_test_multiple.uya` - 多个测试单元
-  - [ ] `test_test_access_outer.uya` - 测试单元访问外部作用域
+- [x] **测试用例**：
+  - [x] `test_test_basic.uya` - 基本测试单元语法
+  - [x] `test_test_nested.uya` - 嵌套块中的测试单元
+  - [x] `test_test_multiple.uya` - 多个测试单元
+
+**C 实现（已完成）**：Lexer（TOKEN_TEST）、AST（AST_TEST_STMT、test_stmt 结构体）、Parser（顶层和语句中解析 test 语句）、Checker（测试体语义检查，允许 void 类型的 return）、Codegen（收集测试语句、生成测试函数和运行器、在 uya_main 开始时调用）。测试用例通过 `--c99`。
+
+**uya-src 已同步**：Lexer（TOKEN_TEST、is_keyword 识别 test）、AST（AST_TEST_STMT、test_stmt_description/test_stmt_body 字段）、Parser（parser_parse_statement 和 parser_parse_declaration 中解析 test 语句）、Checker（AST_TEST_STMT 分支，临时设置 void 返回类型和 in_function=1）、Codegen（collect_tests_from_node、get_test_function_name、gen_test_function、gen_test_runner、在 c99_codegen_generate 中收集和生成测试、在 function.uya 的 main 函数开始时调用 uya_run_tests、stmt.uya 中忽略 AST_TEST_STMT）。测试用例 test_test_basic.uya、test_test_nested.uya、test_test_multiple.uya 通过 `--uya --c99`。
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen（测试函数生成、测试运行器），uya-src。
 

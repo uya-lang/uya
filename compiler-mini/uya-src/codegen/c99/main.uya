@@ -151,6 +151,138 @@ fn collect_slice_types_from_node(codegen: &C99CodeGenerator, node: &ASTNode) voi
     }
 }
 
+// 递归收集所有测试语句（使用固定大小数组，最多 1000 个测试）
+const MAX_TESTS: i32 = 1000;
+fn collect_tests_from_node(codegen: &C99CodeGenerator, node: &ASTNode, tests: & & ASTNode, test_count: &i32) i32 {
+    if codegen == null || node == null || tests == null || test_count == null {
+        return 0;
+    }
+    var count: i32 = 0;
+    // 通过数组访问获取值（test_count 是指向 i32 的指针，可以视为单元素数组）
+    // 注意：Uya 中指针可以像数组一样访问
+    count = (&test_count[0])[0];
+    if count >= MAX_TESTS {
+        return 0;  // 防止溢出
+    }
+    
+    if node.type == ASTNodeType.AST_TEST_STMT {
+        // 添加到测试列表
+        tests[count] = node;
+        count = count + 1;
+        // 通过数组访问设置值
+        (&test_count[0])[0] = count;
+    }
+    
+    // 递归处理子节点
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            collect_tests_from_node(codegen, node.block_stmts[i], tests, test_count);
+            i = i + 1;
+        }
+    } else if node.type == ASTNodeType.AST_IF_STMT {
+        collect_tests_from_node(codegen, node.if_stmt_then_branch, tests, test_count);
+        if node.if_stmt_else_branch != null {
+            collect_tests_from_node(codegen, node.if_stmt_else_branch, tests, test_count);
+        }
+    } else if node.type == ASTNodeType.AST_WHILE_STMT {
+        collect_tests_from_node(codegen, node.while_stmt_body, tests, test_count);
+    } else if node.type == ASTNodeType.AST_FOR_STMT {
+        collect_tests_from_node(codegen, node.for_stmt_body, tests, test_count);
+    } else if node.type == ASTNodeType.AST_FN_DECL && node.fn_decl_body != null {
+        collect_tests_from_node(codegen, node.fn_decl_body, tests, test_count);
+    }
+    return 0;
+}
+
+// 从测试描述字符串生成安全的函数名（使用哈希避免中文问题）
+fn get_test_function_name(codegen: &C99CodeGenerator, description: &byte) &byte {
+    if description == null {
+        return null;
+    }
+    
+    // 使用简单的哈希函数生成唯一标识符
+    var hash: u32 = 0;
+    const len: i32 = strlen(description as *byte);
+    var i: i32 = 0;
+    while i < len {
+        hash = hash * 31 + (description[i] as u32);
+        i = i + 1;
+    }
+    
+    // 生成函数名：uya_test_<hash>
+    const buf: &byte = arena_alloc(codegen.arena, 64) as &byte;
+    if buf == null {
+        return null;
+    }
+    // 使用 snprintf 生成函数名
+    snprintf(buf as *byte, 64, "uya_test_%u" as *byte, hash);
+    
+    return get_safe_c_identifier(codegen, buf);
+}
+
+// 生成测试函数
+fn gen_test_function(codegen: &C99CodeGenerator, test_stmt: &ASTNode) void {
+    if test_stmt == null || test_stmt.type != ASTNodeType.AST_TEST_STMT {
+        return;
+    }
+    
+    const description: &byte = test_stmt.test_stmt_description;
+    const func_name: &byte = get_test_function_name(codegen, description);
+    const body: &ASTNode = test_stmt.test_stmt_body;
+    
+    if func_name == null || body == null {
+        return;
+    }
+    
+    // 创建 void 类型节点（用于设置 current_function_return_type）
+    const void_type: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, test_stmt.line, test_stmt.column, codegen.arena, test_stmt.filename);
+    if void_type != null {
+        void_type.type_named_name = "void" as *byte;
+    }
+    
+    // 保存之前的返回类型
+    const saved_return_type: &ASTNode = codegen.current_function_return_type;
+    
+    // 设置当前函数的返回类型为 void
+    codegen.current_function_return_type = void_type;
+    
+    // 生成函数定义
+    emit_line_directive(codegen, test_stmt.line, test_stmt.filename);
+    fprintf(codegen.output as *void, "static void %s(void) {\n" as *byte, func_name as *byte);
+    
+    // 生成函数体
+    gen_stmt(codegen, body);
+    
+    // 恢复之前的返回类型
+    codegen.current_function_return_type = saved_return_type;
+    
+    fputs("}\n" as *byte, codegen.output as *void);
+}
+
+// 生成测试运行器函数
+fn gen_test_runner(codegen: &C99CodeGenerator, tests: & & ASTNode, test_count: i32) void {
+    if tests == null || test_count <= 0 {
+        return;
+    }
+    
+    fputs("static void uya_run_tests(void) {\n" as *byte, codegen.output as *void);
+    
+    var i: i32 = 0;
+    while i < test_count {
+        const test_node: &ASTNode = tests[i];
+        if test_node != null && test_node.type == ASTNodeType.AST_TEST_STMT {
+            const func_name: &byte = get_test_function_name(codegen, test_node.test_stmt_description);
+            if func_name != null {
+                fprintf(codegen.output as *void, "    %s();\n" as *byte, func_name as *byte);
+            }
+        }
+        i = i + 1;
+    }
+    
+    fputs("}\n" as *byte, codegen.output as *void);
+}
+
 // 生成 C99 代码
 fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: &byte) i32 {
     if codegen == null || ast == null || output_file == null {
@@ -299,6 +431,45 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         i = i + 1;
     }
     
+    // 第七步 c：收集所有测试语句
+    // 使用 Arena 分配数组（固定大小数组不能作为可变参数传递）
+    const tests_array: & & ASTNode = arena_alloc(codegen.arena, @size_of(&ASTNode) * MAX_TESTS) as & & ASTNode;
+    if tests_array == null {
+        return -1;
+    }
+    var test_count: i32 = 0;
+    
+    // 从程序顶层声明中收集测试语句
+    i = 0;
+    while i < decl_count {
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl == null {
+            i = i + 1;
+            continue;
+        }
+        if decl.type == ASTNodeType.AST_USE_STMT {
+            i = i + 1;
+            continue;
+        }
+        
+        // 顶层测试语句
+        if decl.type == ASTNodeType.AST_TEST_STMT {
+            if test_count < MAX_TESTS {
+                tests_array[test_count] = decl;
+                test_count = test_count + 1;
+            }
+        }
+        
+        // 从函数体内收集测试（包括嵌套块中的测试）
+        if decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null {
+            collect_tests_from_node(codegen, decl.fn_decl_body, tests_array, &test_count);
+        }
+        i = i + 1;
+    }
+    
+    // 将测试计数保存到 codegen 中，以便 gen_function 可以判断是否需要调用 uya_run_tests()
+    codegen.test_count = test_count;
+    
     // 第八步：生成所有函数的前向声明（解决相互递归调用）
     i = 0;
     while i < decl_count {
@@ -351,6 +522,23 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 第八步 b：生成 vtable 常量（依赖方法前向声明）
     emit_vtable_constants(codegen);
     fputs("\n" as *byte, codegen.output as *void);
+    
+    // 第八步 c：生成测试函数前向声明
+    if test_count > 0 {
+        i = 0;
+        while i < test_count {
+            const test_node: &ASTNode = tests_array[i];
+            if test_node != null && test_node.type == ASTNodeType.AST_TEST_STMT {
+                const func_name: &byte = get_test_function_name(codegen, test_node.test_stmt_description);
+                if func_name != null {
+                    fprintf(codegen.output as *void, "static void %s(void);\n" as *byte, func_name as *byte);
+                }
+            }
+            i = i + 1;
+        }
+        fputs("static void uya_run_tests(void);\n" as *byte, codegen.output as *void);
+        fputs("\n" as *byte, codegen.output as *void);
+    }
     
     // 第九步：生成所有声明（全局变量、函数定义）
     i = 0;
@@ -418,6 +606,18 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
             }
         }
         i = i + 1;
+    }
+    
+    // 第十步：生成测试函数和运行器
+    if test_count > 0 {
+        i = 0;
+        while i < test_count {
+            gen_test_function(codegen, tests_array[i]);
+            fputs("\n" as *byte, codegen.output as *void);
+            i = i + 1;
+        }
+        gen_test_runner(codegen, tests_array, test_count);
+        fputs("\n" as *byte, codegen.output as *void);
     }
     
     return 0;

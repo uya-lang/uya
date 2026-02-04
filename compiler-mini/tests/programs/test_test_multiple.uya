@@ -1,0 +1,26 @@
+// 多个测试单元
+test "测试1" {
+    const x: i32 = 1;
+    if x != 1 {
+        return;
+    }
+}
+
+test "测试2" {
+    const y: i32 = 2;
+    if y != 2 {
+        return;
+    }
+}
+
+test "测试3" {
+    const z: i32 = 3;
+    if z != 3 {
+        return;
+    }
+}
+
+fn main() i32 {
+    return 0;
+}
+

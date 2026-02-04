@@ -3991,6 +3991,27 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             return 1;
         }
         
+        case AST_TEST_STMT: {
+            if (node->data.test_stmt.body != NULL) {
+                // 测试语句体中的 return 应该被允许（测试函数是 void 类型）
+                // 临时设置 in_function = 1 和 current_return_type = void
+                Type prev_return_type = checker->current_return_type;
+                int prev_in_function = checker->in_function;
+                checker->current_return_type = (Type){.kind = TYPE_VOID};
+                checker->in_function = 1;
+                
+                // 检查测试体中的语句
+                int ret = checker_check_node(checker, node->data.test_stmt.body);
+                
+                // 恢复之前的状态
+                checker->current_return_type = prev_return_type;
+                checker->in_function = prev_in_function;
+                
+                if (ret != 0) return ret;
+            }
+            return 1;
+        }
+        
         case AST_RETURN_STMT: {
             if (checker->in_defer_or_errdefer) {
                 checker_report_error(checker, node, "defer/errdefer 块中不能使用 return 语句");

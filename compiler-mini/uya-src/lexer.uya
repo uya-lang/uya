@@ -48,6 +48,7 @@ enum TokenType {
     TOKEN_AS_BANG,     // as!（强转，返回 !T，规范 uya.md §11.3）
     TOKEN_MATCH,       // match（模式匹配）
     TOKEN_FAT_ARROW,   // =>（match 臂箭头）
+    TOKEN_TEST,        // test（测试单元关键字）
     TOKEN_PLUS,
     TOKEN_MINUS,
     TOKEN_ASTERISK,
@@ -242,6 +243,8 @@ fn is_keyword(str: &byte) TokenType {
         result = TokenType.TOKEN_AS;
     } else if str_equals_lexer(str, "match" as &byte) != 0 {
         result = TokenType.TOKEN_MATCH;
+    } else if str_equals_lexer(str, "test" as &byte) != 0 {
+        result = TokenType.TOKEN_TEST;
     }
     return result;
 }
