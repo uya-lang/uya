@@ -644,11 +644,14 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                     gen_expr(codegen, elements[0]);
                     if (i < n - 1) fputs(", ", codegen->output);
                 }
-            } else {
+            } else if (element_count > 0) {
                 for (int i = 0; i < element_count; i++) {
                     gen_expr(codegen, elements[i]);
                     if (i < element_count - 1) fputs(", ", codegen->output);
                 }
+            } else {
+                /* 空数组字面量：生成 {0} 避免 ISO C 警告 */
+                fputs("0", codegen->output);
             }
             fputc('}', codegen->output);
             break;

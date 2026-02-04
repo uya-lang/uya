@@ -199,11 +199,14 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                                 if (i > 0) fputs(", ", codegen->output);
                                 gen_expr(codegen, elements[0]);
                             }
-                        } else {
+                        } else if (element_count > 0) {
                             for (int i = 0; i < element_count; i++) {
                                 if (i > 0) fputs(", ", codegen->output);
                                 gen_expr(codegen, elements[i]);
                             }
+                        } else {
+                            /* 空数组字面量：生成 0 避免 ISO C 警告 */
+                            fputs("0", codegen->output);
                         }
                         fputc('}', codegen->output);
                     } else {
@@ -653,7 +656,7 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                         // 如果是数组字段且初始化值是标识符，使用空初始化（后续用memcpy填充）
                         if (field_type && field_type->type == AST_TYPE_ARRAY && 
                             field_value && field_value->type == AST_IDENTIFIER) {
-                            fputs("{}", codegen->output);
+                            fputs("{0}", codegen->output);  /* 使用 {0} 避免 ISO C 警告 */
                         } else {
                             gen_expr(codegen, field_value);
                         }

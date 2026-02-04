@@ -259,13 +259,16 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                             gen_expr(codegen, expr.array_literal_elements[0]);
                             i = i + 1;
                         }
-                    } else {
+                    } else if element_count > 0 {
                         var i: i32 = 0;
                         while i < element_count {
                             if i > 0 { fputs(", " as *byte, codegen.output as *void); }
                             gen_expr(codegen, expr.array_literal_elements[i]);
                             i = i + 1;
                         }
+                    } else {
+                        // 空数组字面量：生成 0 避免 ISO C 警告
+                        fputs("0" as *byte, codegen.output as *void);
                     }
                     fputc(125, codegen.output as *void);
                 } else {
@@ -794,7 +797,7 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                     // 如果是数组字段且初始化值是标识符，使用空初始化（后续用memcpy填充）
                     if field_type3 != null && field_type3.type == ASTNodeType.AST_TYPE_ARRAY && 
                         field_value2 != null && field_value2.type == ASTNodeType.AST_IDENTIFIER {
-                        fputs("{}" as *byte, codegen.output as *void);
+                        fputs("{0}" as *byte, codegen.output as *void);  // 使用 {0} 避免 ISO C 警告
                     } else {
                         gen_expr(codegen, field_value2);
                     }

@@ -44,7 +44,7 @@ fn gen_global_init_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 }
                 i = i + 1;
             }
-        } else {
+        } else if element_count > 0 {
             var i: i32 = 0;
             while i < element_count {
                 gen_global_init_expr(codegen, expr.array_literal_elements[i]);
@@ -53,6 +53,9 @@ fn gen_global_init_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 }
                 i = i + 1;
             }
+        } else {
+            // 空数组字面量：生成 0 避免 ISO C 警告
+            fputs("0" as *byte, codegen.output as *void);
         }
         fputc(125, codegen.output as *void);  // '}'
     } else {
