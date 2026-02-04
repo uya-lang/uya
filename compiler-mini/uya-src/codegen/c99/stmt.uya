@@ -496,6 +496,80 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         } else {
             // 非数组类型
             type_c = c99_type_to_c(codegen, var_type);
+            // 检查是否是 void 类型
+            var is_void_type: i32 = 0;
+            if var_type.type == ASTNodeType.AST_TYPE_NAMED {
+                const type_name: &byte = var_type.type_named_name;
+                if type_name != null && strcmp(type_name as *byte, "void" as *byte) == 0 {
+                    is_void_type = 1;
+                }
+            }
+            if is_void_type != 0 {
+                // void 类型变量：生成 (void)(expr); 而不是 const void result = expr;
+                if init_expr != null {
+                    // 检查是否是 catch 表达式且包含 break/continue
+                    var is_catch_with_break: i32 = 0;
+                    if init_expr.type == ASTNodeType.AST_CATCH_EXPR {
+                        const catch_block: &ASTNode = init_expr.catch_expr_catch_block;
+                        if catch_block != null && catch_block.type == ASTNodeType.AST_BLOCK {
+                            var i: i32 = 0;
+                            while i < catch_block.block_stmt_count {
+                                const s: &ASTNode = catch_block.block_stmts[i];
+                                if s != null && (s.type == ASTNodeType.AST_BREAK_STMT || s.type == ASTNodeType.AST_CONTINUE_STMT) {
+                                    is_catch_with_break = 1;
+                                    break;
+                                }
+                                i = i + 1;
+                            }
+                        }
+                    }
+                    if is_catch_with_break != 0 {
+                        // catch 表达式包含 break/continue，需要生成语句而不是表达式
+                        // 直接生成 if-else 语句
+                        const operand: &ASTNode = init_expr.catch_expr_operand;
+                        const block: &ASTNode = init_expr.catch_expr_catch_block;
+                        const err_name: &byte = init_expr.catch_expr_err_name;
+                        if operand != null && block != null {
+                            const operand_union_c: &byte = get_c_type_of_expr(codegen, operand);
+                            var operand_is_err_union: i32 = 0;
+                            if operand_union_c != null && strstr(operand_union_c as *byte, "err_union_" as *byte) != null {
+                                operand_is_err_union = 1;
+                            }
+                            if operand_is_err_union != 0 {
+                                const union_c: &byte = operand_union_c;
+                                c99_emit_indent(codegen);
+                                fprintf(codegen.output as *void, "%s _uya_catch_tmp = " as *byte, union_c as *byte);
+                                gen_expr(codegen, operand);
+                                fputs("; if (_uya_catch_tmp.error_id != 0) {\n" as *byte, codegen.output as *void);
+                                codegen.indent_level = codegen.indent_level + 1;
+                                if err_name != null {
+                                    const safe: &byte = get_safe_c_identifier(codegen, err_name);
+                                    c99_emit_indent(codegen);
+                                    fprintf(codegen.output as *void, "%s %s = _uya_catch_tmp;\n" as *byte, union_c as *byte, safe as *byte);
+                                }
+                                var i: i32 = 0;
+                                while i < block.block_stmt_count {
+                                    const s: &ASTNode = block.block_stmts[i];
+                                    if s != null {
+                                        gen_stmt(codegen, s);
+                                    }
+                                    i = i + 1;
+                                }
+                                codegen.indent_level = codegen.indent_level - 1;
+                                c99_emit_indent(codegen);
+                                fputs("}\n" as *byte, codegen.output as *void);
+                                return;  // void 类型变量不需要存储到变量表
+                            }
+                        }
+                    }
+                    // 普通情况：生成 (void)(expr);
+                    c99_emit_indent(codegen);
+                    fputs("(void)(" as *byte, codegen.output as *void);
+                    gen_expr(codegen, init_expr);
+                    fputs(");\n" as *byte, codegen.output as *void);
+                }
+                return;  // void 类型变量不需要存储到变量表
+            }
             // 为存储到变量表准备完整的类型字符串（包括 const 修饰符）
             if is_const != 0 && var_type.type == ASTNodeType.AST_TYPE_POINTER {
                 // 检查是否是指向数组的指针类型（格式：T (*)[N]）
@@ -1106,8 +1180,103 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         const var_name2: &byte = get_safe_c_identifier(codegen, stmt.for_stmt_var_name);
         const is_ref: i32 = stmt.for_stmt_is_ref;
         
+        // 首先尝试作为数组类型处理
         var elem_type_c: &byte = get_array_element_type(codegen, array);
+        
+        // 如果不是数组类型，尝试作为接口迭代器处理
         if elem_type_c == null {
+            // 检查是否是结构体类型，且实现了迭代器接口（有 next 和 value 方法）
+            const expr_type_c: &byte = get_c_type_of_expr(codegen, array);
+            if expr_type_c != null {
+                // 检查是否以 "struct " 开头
+                var is_struct: i32 = 0;
+                var i: i32 = 0;
+                const prefix: &byte = "struct " as *byte;
+                while i < 7 && expr_type_c[i] != 0 && expr_type_c[i] == prefix[i] {
+                    i = i + 1;
+                }
+                if i == 7 {
+                    is_struct = 1;
+                }
+                
+                if is_struct != 0 {
+                    // 提取结构体名称（去除 "struct " 前缀）
+                    var struct_name_buf: [byte: 256] = [];
+                    var j: i32 = 7;  // 跳过 "struct "
+                    var k: i32 = 0;
+                    while expr_type_c[j] != 0 && expr_type_c[j] != 32 && k < 255 {  // 32 = ' '
+                        struct_name_buf[k] = expr_type_c[j];
+                        j = j + 1;
+                        k = k + 1;
+                    }
+                    struct_name_buf[k] = 0;
+                    
+                    const next_method: &ASTNode = find_method_in_struct_c99(codegen, &struct_name_buf[0], "next" as *byte);
+                    const value_method: &ASTNode = find_method_in_struct_c99(codegen, &struct_name_buf[0], "value" as *byte);
+                    
+                    if next_method != null && value_method != null {
+                        // 接口迭代形式：生成 while 循环，调用 next() 和 value()
+                        const iter_type_c: &byte = expr_type_c;
+                        const value_return_type_c: &byte = c99_type_to_c(codegen, value_method.fn_decl_return_type);
+                        var value_type_c: &byte = value_return_type_c;
+                        if value_type_c == null {
+                            value_type_c = "int32_t" as *byte;
+                        }
+                        
+                        c99_emit_indent(codegen);
+                        fputs("{\n" as *byte, codegen.output as *void);
+                        codegen.indent_level = codegen.indent_level + 1;
+                        c99_emit_indent(codegen);
+                        fputs("// for loop - iterator interface\n" as *byte, codegen.output as *void);
+                        
+                        // 创建迭代器变量
+                        c99_emit_indent(codegen);
+                        fprintf(codegen.output as *void, "%s _uya_iter = " as *byte, iter_type_c as *byte);
+                        gen_expr(codegen, array);
+                        fputs(";\n" as *byte, codegen.output as *void);
+                        
+                        // while 循环
+                        c99_emit_indent(codegen);
+                        fputs("while (1) {\n" as *byte, codegen.output as *void);
+                        codegen.indent_level = codegen.indent_level + 1;
+                        
+                        // 调用 next() 方法（返回 !void）
+                        const next_cname: &byte = get_method_c_name(codegen, &struct_name_buf[0], "next" as *byte);
+                        if next_cname != null {
+                            c99_emit_indent(codegen);
+                            fprintf(codegen.output as *void, "struct err_union_void _uya_next_result = %s(&_uya_iter);\n" as *byte, next_cname as *byte);
+                            c99_emit_indent(codegen);
+                            fputs("if (_uya_next_result.error_id != 0) {\n" as *byte, codegen.output as *void);
+                            codegen.indent_level = codegen.indent_level + 1;
+                            c99_emit_indent(codegen);
+                            fputs("break;  // error.IterEnd\n" as *byte, codegen.output as *void);
+                            codegen.indent_level = codegen.indent_level - 1;
+                            c99_emit_indent(codegen);
+                            fputs("}\n" as *byte, codegen.output as *void);
+                        }
+                        
+                        // 调用 value() 方法获取当前值
+                        const value_cname: &byte = get_method_c_name(codegen, &struct_name_buf[0], "value" as *byte);
+                        if value_cname != null && var_name2 != null {
+                            c99_emit_indent(codegen);
+                            fprintf(codegen.output as *void, "%s %s = %s(&_uya_iter);\n" as *byte, value_type_c as *byte, var_name2 as *byte, value_cname as *byte);
+                        }
+                        
+                        // 循环体
+                        gen_stmt(codegen, body2);
+                        
+                        codegen.indent_level = codegen.indent_level - 1;
+                        c99_emit_indent(codegen);
+                        fputs("}\n" as *byte, codegen.output as *void);
+                        codegen.indent_level = codegen.indent_level - 1;
+                        c99_emit_indent(codegen);
+                        fputs("}\n" as *byte, codegen.output as *void);
+                        return;
+                    }
+                }
+            }
+            
+            // 既不是数组类型，也不是实现了迭代器接口的结构体，使用默认类型
             elem_type_c = ("int32_t" as *byte) as &byte;
         }
         

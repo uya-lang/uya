@@ -994,9 +994,17 @@ const char *get_c_type_of_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             }
             ASTNode *struct_decl = find_struct_decl_from_type_c(codegen, base_type_c);
             if (!struct_decl) return "int32_t";
+            // 先尝试查找字段
             ASTNode *field_type = find_struct_field_type(codegen, struct_decl, field_name);
-            if (!field_type) return "int32_t";
-            return c99_type_to_c(codegen, field_type);
+            if (field_type) {
+                return c99_type_to_c(codegen, field_type);
+            }
+            // 字段不存在，尝试查找方法
+            ASTNode *method = find_method_in_struct_c99(codegen, struct_decl->data.struct_decl.name, field_name);
+            if (method && method->type == AST_FN_DECL) {
+                return c99_type_to_c(codegen, method->data.fn_decl.return_type);
+            }
+            return "int32_t";
         }
         case AST_CAST_EXPR: {
             ASTNode *target_type = expr->data.cast_expr.target_type;
@@ -1011,7 +1019,17 @@ const char *get_c_type_of_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             return c99_type_to_c(codegen, target_type);
         }
         case AST_ARRAY_ACCESS:
-        case AST_CALL_EXPR:
+            return "int32_t";
+        case AST_CALL_EXPR: {
+            // 方法调用：callee 为 obj.method，需要推断方法返回类型
+            ASTNode *callee = expr->data.call_expr.callee;
+            if (callee && callee->type == AST_MEMBER_ACCESS) {
+                // 递归调用 AST_MEMBER_ACCESS 的处理逻辑来获取方法返回类型
+                return get_c_type_of_expr(codegen, callee);
+            }
+            // 普通函数调用：无法推断返回类型，返回默认类型
+            return "int32_t";
+        }
         default:
             return "int32_t";
     }

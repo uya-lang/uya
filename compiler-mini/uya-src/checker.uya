@@ -1484,17 +1484,14 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
         result.tuple_count = n;
         return result;
     } else if type_node.type == ASTNodeType.AST_TYPE_ERROR_UNION {
-        // 错误联合类型 !T
+        // 错误联合类型 !T（包括 !void）
         const payload_node: &ASTNode = type_node.type_error_union_payload_type;
         if payload_node == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
         }
         const payload: Type = type_from_ast(checker, payload_node);
-        if payload.kind == TypeKind.TYPE_VOID && payload_node != null {
-            result.kind = TypeKind.TYPE_VOID;
-            return result;
-        }
+        // 注意：!void 是有效的错误联合类型，payload 可以是 TYPE_VOID
         const payload_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
         if payload_ptr == null {
             result.kind = TypeKind.TYPE_VOID;
@@ -2054,6 +2051,15 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
                             i = i + 1;
                         }
                     }
+                }
+            }
+            // 结构体方法调用：callee 为 obj.method，obj 类型为结构体（非接口）
+            const object_type: Type = checker_infer_type(checker, callee.member_access_object);
+            if object_type.kind == TypeKind.TYPE_STRUCT && object_type.struct_name != null && checker.program_node != null {
+                const method_name: &byte = callee.member_access_field_name;
+                const m: &ASTNode = find_method_in_struct(checker.program_node, object_type.struct_name, method_name);
+                if m != null {
+                    return type_from_ast(checker, m.fn_decl_return_type);
                 }
             }
         }
@@ -4838,10 +4844,77 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             checker_exit_scope(checker);
             return 1;
         }
-        // 数组遍历形式：检查数组表达式类型（必须是数组类型）
-        var array_type: Type = checker_infer_type(checker, node.for_stmt_array);
+        // 数组遍历或接口迭代形式：检查表达式类型
+        const expr_type: Type = checker_infer_type(checker, node.for_stmt_array);
+        
+        // 首先尝试作为数组类型处理
+        var array_type: Type = copy_type(&expr_type);
         if array_type.kind != TypeKind.TYPE_ARRAY || array_type.element_type == null {
             // 类型推断失败或不是数组类型
+            // 如果数组表达式是标识符，尝试从符号表获取类型
+            if node.for_stmt_array.type == ASTNodeType.AST_IDENTIFIER {
+                const symbol: &Symbol = symbol_table_lookup(checker, node.for_stmt_array.identifier_name);
+                if symbol != null && symbol.type.kind == TypeKind.TYPE_ARRAY && symbol.type.element_type != null {
+                    // 从符号表获取到了有效的数组类型，使用它
+                    array_type = copy_type(&symbol.type);
+                }
+            }
+        }
+        
+        // 如果不是数组类型，尝试作为接口迭代器处理
+        if array_type.kind != TypeKind.TYPE_ARRAY || array_type.element_type == null {
+            // 检查是否是结构体类型，且实现了迭代器接口（有 next 和 value 方法）
+            if expr_type.kind == TypeKind.TYPE_STRUCT && expr_type.struct_name != null && checker.program_node != null {
+                const struct_name: &byte = expr_type.struct_name;
+                const next_method: &ASTNode = find_method_in_struct(checker.program_node, struct_name, "next" as *byte);
+                const value_method: &ASTNode = find_method_in_struct(checker.program_node, struct_name, "value" as *byte);
+                
+                if next_method != null && value_method != null {
+                    // 检查 next 方法签名：next(self: &Self) !void
+                    const next_return_type: Type = type_from_ast(checker, next_method.fn_decl_return_type);
+                    if next_return_type.kind == TypeKind.TYPE_ERROR_UNION {
+                        // 检查 value 方法返回类型，作为循环变量类型
+                        const value_return_type: Type = type_from_ast(checker, value_method.fn_decl_return_type);
+                        
+                        // 进入循环作用域并添加循环变量
+                        checker_enter_scope(checker);
+                        checker.loop_depth = checker.loop_depth + 1;
+                        
+                        // 创建循环变量类型（从 value 方法返回类型）
+                        const var_type: Type = value_return_type;
+                        
+                        // 添加循环变量到符号表
+                        if node.for_stmt_var_name != null {
+                            const loop_var: &Symbol = arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
+                            if loop_var != null {
+                                loop_var.name = node.for_stmt_var_name;
+                                loop_var.type = var_type;
+                                loop_var.is_const = 0;
+                                loop_var.scope_level = checker.scope_level;
+                                loop_var.line = node.line;
+                                loop_var.column = node.column;
+                                loop_var.pointee_of = null;
+                                symbol_table_insert(checker, loop_var);
+                            }
+                        }
+                        
+                        // 检查循环体
+                        if node.for_stmt_body != null {
+                            checker_check_node(checker, node.for_stmt_body);
+                        }
+                        
+                        // 退出循环作用域
+                        checker.loop_depth = checker.loop_depth - 1;
+                        checker_exit_scope(checker);
+                        return 1;
+                    } else {
+                        // next 方法返回类型不是 !void，报告错误
+                        checker_report_error(checker, node, "迭代器的 next 方法必须返回 !void" as *byte);
+                    }
+                }
+            }
+            
+            // 既不是数组类型，也不是实现了迭代器接口的结构体
             // 如果数组表达式是标识符，尝试从符号表获取类型
             if node.for_stmt_array.type == ASTNodeType.AST_IDENTIFIER {
                 const symbol: &Symbol = symbol_table_lookup(checker, node.for_stmt_array.identifier_name);
@@ -4850,7 +4923,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
                     array_type = symbol.type;
                 } else {
                     // 符号表中也没有有效的数组类型，报告错误但继续检查
-                    checker_report_error(checker, node, "for 循环需要数组类型，但无法推断数组表达式类型" as *byte);
+                    checker_report_error(checker, node, "for 循环需要数组类型或实现了迭代器接口的结构体，但无法推断表达式类型" as *byte);
                     checker_enter_scope(checker);
                     checker.loop_depth = checker.loop_depth + 1;
                     if node.for_stmt_body != null {
@@ -4874,7 +4947,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
                 return 1;
             } else {
                 // 不是标识符或字段访问，无法从符号表获取，报告错误但继续检查
-                checker_report_error(checker, node, "for 循环需要数组类型，但无法推断数组表达式类型" as *byte);
+                checker_report_error(checker, node, "for 循环需要数组类型或实现了迭代器接口的结构体，但无法推断表达式类型" as *byte);
                 checker_enter_scope(checker);
                 checker.loop_depth = checker.loop_depth + 1;
                 if node.for_stmt_body != null {
@@ -4935,7 +5008,6 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             if node.for_stmt_is_ref != 0 {
                 // 引用迭代：变量类型为 &T（指向元素的指针）
                 // 注意：Uya 不支持指针解引用，需要使用数组访问
-                const element_type: Type = array_type.element_type[0];
                 // 注意：Uya 不支持指针运算，需要使用数组访问
                 const element_type_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
                 if element_type_ptr == null {
@@ -4949,15 +5021,27 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
                     checker_exit_scope(checker);
                     return 1;
                 } else {
-                    element_type_ptr[0] = copy_type(&element_type);
-                    var_type.kind = TypeKind.TYPE_POINTER;
-                    var_type.pointer_to = element_type_ptr;
-                    var_type.is_ffi_pointer = 0;
+                    element_type_ptr[0] = copy_type(&array_type.element_type[0]);
+                    var_type = Type {
+                        kind: TypeKind.TYPE_POINTER,
+                        enum_name: null,
+                        struct_name: null,
+                        pointer_to: element_type_ptr,
+                        is_ffi_pointer: 0,
+                        element_type: null,
+                        array_size: 0,
+                        slice_element_type: null,
+                        slice_len: 0,
+                        tuple_element_types: null,
+                        tuple_count: 0,
+                        error_union_payload_type: null,
+                        error_error_id: 0,
+                    };
                 }
             } else {
                 // 值迭代：变量类型为数组元素类型 T
                 // 注意：Uya 不支持指针解引用，需要使用数组访问
-                var_type = array_type.element_type[0];
+                var_type = copy_type(&array_type.element_type[0]);
             }
             
             // 添加循环变量到符号表（var，可修改）

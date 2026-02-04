@@ -17,7 +17,7 @@
 | 3 | defer / errdefer | [x] |
 | 4 | 切片 | [x] |
 | 5 | match 表达式 | [x] |
-| 6 | for 扩展 | [x]（整数范围已实现；迭代器依赖阶段 7 接口） |
+| 6 | for 扩展 | [x]（整数范围已实现；迭代器已实现，C 实现与 uya-src 已同步） |
 | 7 | 接口 | [x]（C 实现与 uya-src 已同步） |
 | 8 | 结构体方法 + drop + 移动语义 | [x]（外部/内部方法、drop/RAII、移动语义 C 实现与 uya-src 已同步） |
 | 9 | 模块系统 | [x]（C 实现与 uya-src 已同步：目录即模块、export/use 可见性检查、模块路径解析、错误检测、递归依赖收集） |
@@ -124,7 +124,7 @@
 
 **C 实现与用例（作用域 100% 覆盖）**：Lexer（TOKEN_DEFER/TOKEN_ERRDEFER）、AST（AST_DEFER_STMT/AST_ERRDEFER_STMT）、Parser（defer/errdefer 后单句或块）、Checker（errdefer 仅允许在 !T 函数内；**defer/errdefer 块内禁止 return/break/continue**）、Codegen（块内收集 defer/errdefer 栈，return/break/continue/块尾 LIFO 插入）。**规范 §9 语义**：return 时**先计算返回值**，再执行 defer，最后返回；defer 不能修改返回值（与 Zig/Swift 一致）；defer/errdefer 块内禁止控制流语句（return、break、continue），只做清理不改变控制流。用例：test_defer、test_defer_lifo（同作用域 LIFO）、test_defer_scope（嵌套块内层先于外层）、test_defer_break、test_defer_continue（break/continue 前执行）、test_defer_single_stmt（单句语法）、test_errdefer、test_errdefer_lifo、test_errdefer_scope（嵌套 errdefer）、test_errdefer_only_on_error；error_defer_return、error_errdefer_return 等（块内 return/break/continue 编译失败）；均通过 `--c99`。
 
-**uya-src 已同步**：Lexer（TOKEN_TRY/CATCH/ERROR/DEFER/ERRDEFER）、AST（AST_ERROR_DECL/AST_DEFER_STMT/AST_ERRDEFER_STMT/AST_TRY_EXPR/AST_CATCH_EXPR/AST_ERROR_VALUE/AST_TYPE_ERROR_UNION）、Parser（!T 类型、error.Name、try expr、catch 后缀、defer/errdefer 语句、error 声明）、Checker（TYPE_ERROR_UNION/TYPE_ERROR、type_from_ast、checker_infer_type、checker_check_node、return error.X 与 !T 成功值检查）、Codegen（emit_defer_cleanup、AST_BLOCK defer/errdefer 收集、return/break/continue 前插入、return error.X、!T 成功值、AST_TRY_EXPR/AST_CATCH_EXPR/AST_ERROR_VALUE、AST_TYPE_ERROR_UNION、c99_get_or_add_error_id、collect_string_constants）。**待修复**：自举编译尚有问题（C99 链接/编译阶段失败），需排查并修复后验证 `--uya --c99` 与 `--c99 -b`。
+**uya-src 已同步**：Lexer（TOKEN_TRY/CATCH/ERROR/DEFER/ERRDEFER）、AST（AST_ERROR_DECL/AST_DEFER_STMT/AST_ERRDEFER_STMT/AST_TRY_EXPR/AST_CATCH_EXPR/AST_ERROR_VALUE/AST_TYPE_ERROR_UNION）、Parser（!T 类型、error.Name、try expr、catch 后缀、defer/errdefer 语句、error 声明）、Checker（TYPE_ERROR_UNION/TYPE_ERROR、type_from_ast 修复 !void 处理：移除对 TYPE_VOID payload 的特殊检查，允许 !void 作为有效错误联合类型、checker_infer_type、checker_check_node、return error.X 与 !T 成功值检查）、Codegen（emit_defer_cleanup、AST_BLOCK defer/errdefer 收集、return/break/continue 前插入、return error.X、!T 成功值、AST_TRY_EXPR/AST_CATCH_EXPR/AST_ERROR_VALUE、AST_TYPE_ERROR_UNION、c99_get_or_add_error_id、collect_string_constants；expr.uya 修复 catch 表达式中 !void 处理：支持 void payload，不声明结果变量；function.uya 为 !void 返回类型的函数添加默认返回语句；stmt.uya 添加 void 类型变量处理：生成 (void)(expr) 而不是变量声明；structs.uya 修复 err_union_void 结构体定义在 vtable 内部的问题：预先生成错误联合类型结构体定义）。**自举对比（--c99 -b）已通过**。
 
 ---
 
@@ -157,10 +157,12 @@
 
 - [x] **整数范围**：`for start..end |v|`、`for start.. |v|`、可丢弃元素形式 `for start..end { }`，规范 uya.md §8  
   **C 实现**：Lexer（TOKEN_DOT_DOT、read_number 遇 `..` 不当作小数点）、AST（for_stmt.is_range/range_start/range_end）、Parser（识别 first_expr 后 TOKEN_DOT_DOT 为范围形式）、Checker（范围表达式须整数、循环变量类型）、Codegen（有界范围展开为 for(; v < _uya_end; v++)、丢弃形式用 _uya_i、无限范围 while(1)）。测试 test_for_range.uya 通过 `--c99`。
-- [ ] **迭代器**：可迭代对象（接口）、`for obj |v|`、`for obj |&v|`、索引形式，规范 uya.md §6.12、§8（依赖阶段 7 接口）
+- [x] **迭代器**：可迭代对象（接口）、`for obj |v|`、`for obj |&v|`，规范 uya.md §6.12、§8（依赖阶段 7 接口）  
+  **C 实现**：Checker（for 循环检查迭代器接口：查找 next 和 value 方法，next 返回 !void，value 返回元素类型；支持数组类型回退）、Codegen（for 循环迭代器代码生成：while(1) 循环，调用 next() 检查 error_id，调用 value() 获取当前值；支持数组类型回退）。测试 test_for_iterator.uya、test_iter_simple.uya 通过 `--c99`。  
+  **uya-src 已同步**：checker.uya（for 循环迭代器检查：expr_type 使用 copy_type 避免移动，检查 next/value 方法签名）、codegen/c99/stmt.uya（for 循环迭代器代码生成：提取结构体名称、查找方法、生成 while 循环）。test_for_iterator.uya、test_iter_simple.uya 通过 `--uya --c99`。**自举对比（--c99 -b）已通过**。
 
 **涉及**：Parser（range、迭代器）、Checker、Codegen、迭代器接口与 for 脱糖，uya-src。  
-**uya-src 已同步**：lexer.uya（TOKEN_DOT_DOT、`.` 与 read_number）、ast.uya（for_stmt_is_range/range_start/range_end）、parser.uya（范围解析）、checker.uya（is_range 分支）、codegen/c99/stmt.uya（范围代码生成）、main.uya 与 utils.uya（collect）。test_for_range.uya、test_for_loop.uya 通过 `--uya --c99`。**自举对比（--c99 -b）已通过**：main.uya 中 ARENA_BUFFER_SIZE 增至 64MB 以容纳 for 范围等 AST 自举时 Arena 需求。
+**uya-src 已同步**：lexer.uya（TOKEN_DOT_DOT、`.` 与 read_number）、ast.uya（for_stmt_is_range/range_start/range_end）、parser.uya（范围解析）、checker.uya（is_range 分支、迭代器检查）、codegen/c99/stmt.uya（范围代码生成、迭代器代码生成）、main.uya 与 utils.uya（collect）。test_for_range.uya、test_for_loop.uya、test_for_iterator.uya、test_iter_simple.uya 通过 `--uya --c99`。**自举对比（--c99 -b）已通过**：main.uya 中 ARENA_BUFFER_SIZE 增至 64MB 以容纳 for 范围等 AST 自举时 Arena 需求。
 
 ---
 
@@ -172,15 +174,15 @@
 
 **涉及**：AST、Parser、Checker、Codegen（vtable、装箱点、逃逸检查），uya-src。
 
-**当前进度**：Lexer、AST、Parser、Checker 已完成。**C 实现 Codegen 已完成**：types.c 接口类型→struct uya_interface_I；structs.c 生成 interface/vtable 结构体与 vtable 常量；function.c 方法块生成 uya_S_m 函数；expr.c 接口方法调用（vtable 派发）、装箱（struct→interface 传参）；main.c 处理 AST_METHOD_BLOCK、emit_vtable_constants。test_interface.uya 通过 `--c99`。**uya-src 已同步**：lexer.uya（TOKEN_INTERFACE、interface 关键字）；ast.uya（AST_INTERFACE_DECL、AST_METHOD_BLOCK、struct_decl_interface_*、method_block_*）；parser.uya（parse_interface、parse_method_block、struct : I、顶层 IDENTIFIER+{）；checker.uya（TYPE_INTERFACE、find_interface_decl_from_program、find_method_block_for_struct、struct_implements_interface、type_equals/type_from_ast/check_expr_type、member_access 接口方法）；codegen types/structs/function/expr/main（接口类型、emit_interface_structs_and_vtables、emit_vtable_constants、方法前向声明与定义、接口方法调用与装箱、c99_type_to_c_with_self）。自举编译 `./compile.sh --c99 -e` 成功；test_interface.uya 通过 `--uya --c99`。**修复**：parser.uya 在「字段访问和数组访问链」循环中补全了 `TOKEN_LEFT_PAREN` 分支，以解析 `obj.method(args)` 形式的方法调用（如 `a.add(10)`）。自举对比 `--c99 -b` 仅有单行空行差异。
+**当前进度**：Lexer、AST、Parser、Checker 已完成。**C 实现 Codegen 已完成**：types.c 接口类型→struct uya_interface_I；structs.c 生成 interface/vtable 结构体与 vtable 常量（修复：预先生成接口方法签名中使用的错误联合类型结构体定义，避免 err_union_void 等结构体定义出现在 vtable 内部）；function.c 方法块生成 uya_S_m 函数；expr.c 接口方法调用（vtable 派发）、装箱（struct→interface 传参）；main.c 处理 AST_METHOD_BLOCK、emit_vtable_constants。test_interface.uya 通过 `--c99`。**uya-src 已同步**：lexer.uya（TOKEN_INTERFACE、interface 关键字）；ast.uya（AST_INTERFACE_DECL、AST_METHOD_BLOCK、struct_decl_interface_*、method_block_*）；parser.uya（parse_interface、parse_method_block、struct : I、顶层 IDENTIFIER+{）；checker.uya（TYPE_INTERFACE、find_interface_decl_from_program、find_method_block_for_struct、struct_implements_interface、type_equals/type_from_ast/check_expr_type、member_access 接口方法）；codegen types/structs/function/expr/main（接口类型、emit_interface_structs_and_vtables 修复：预先生成错误联合类型结构体定义、emit_vtable_constants、方法前向声明与定义、接口方法调用与装箱、c99_type_to_c_with_self）。自举编译 `./compile.sh --c99 -e` 成功；test_interface.uya 通过 `--uya --c99`。**修复**：parser.uya 在「字段访问和数组访问链」循环中补全了 `TOKEN_LEFT_PAREN` 分支，以解析 `obj.method(args)` 形式的方法调用（如 `a.add(10)`）；structs.c/structs.uya 修复 err_union_void 结构体定义在 vtable 内部的问题：添加 pregenerate_error_union_structs_for_interface 函数，在生成 vtable 之前预先生成所有接口方法签名中使用的错误联合类型结构体定义。自举对比 `--c99 -b` 仅有单行空行差异。
 
 ---
 
 ## 8. 结构体方法 + drop + 移动语义
 
 - [x] **结构体方法（外部方法块）**：`self: &Self`、外部方法块（`S { fn method(self: &Self) Ret { } }`），规范 uya.md §4、§29.3  
-  **C 实现**：Checker 增加 struct method call 分支（callee 为 obj.method、obj 类型为 struct 时，查找 method_block 校验实参）；checker_check_member_access 当字段不存在时检查 method_block 返回方法返回类型；expr.c 增加 struct method 调用代码生成（`uya_StructName_method(&obj, args...)`），支持 const 前缀类型、值/指针两种 receiver。  
-  **uya-src 已同步**：checker.uya（checker_check_call_expr 接口+结构体方法、checker_check_member_access 方法返回类型）；expr.uya（struct method call 代码生成）。test_struct_method.uya 通过 `--c99` 与 `--uya --c99`。
+  **C 实现**：Checker 增加 struct method call 分支（callee 为 obj.method、obj 类型为 struct 时，查找 method_block 校验实参）；checker_check_member_access 当字段不存在时检查 method_block 返回方法返回类型；checker_infer_type 中 AST_CALL_EXPR 分支添加结构体方法调用的类型推断（obj.method() 时推断方法返回类型）；expr.c 增加 struct method 调用代码生成（`uya_StructName_method(&obj, args...)`），支持 const 前缀类型、值/指针两种 receiver；types.c 中 get_c_type_of_expr 支持方法调用的类型推断（AST_MEMBER_ACCESS 先查找字段，字段不存在时查找方法；AST_CALL_EXPR 递归处理 obj.method 形式）。  
+  **uya-src 已同步**：checker.uya（checker_check_call_expr 接口+结构体方法、checker_check_member_access 方法返回类型、checker_infer_type 中 AST_CALL_EXPR 结构体方法类型推断）；expr.uya（struct method call 代码生成）；types.uya（get_c_type_of_expr 支持方法类型推断）。test_struct_method.uya、test_struct_method_err.uya 通过 `--c99` 与 `--uya --c99`。
 - [x] **结构体方法（内部定义）**：方法定义在结构体花括号内，与字段并列，规范 uya.md §29.3  
   **语法**：`struct S { field: T, fn method(self: &Self) Ret { ... } }`  
   **用例**：

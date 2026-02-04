@@ -644,11 +644,17 @@ fn get_c_type_of_expr(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
         if struct_decl == null {
             return ("int32_t" as *byte) as &byte;
         }
+        // 先尝试查找字段
         const field_type: &ASTNode = c99_find_struct_field_type(codegen, struct_decl, field_name);
-        if field_type == null {
-            return ("int32_t" as *byte) as &byte;
+        if field_type != null {
+            return c99_type_to_c(codegen, field_type);
         }
-        return c99_type_to_c(codegen, field_type);
+        // 字段不存在，尝试查找方法
+        const method: &ASTNode = find_method_in_struct_c99(codegen, struct_decl.struct_decl_name, field_name);
+        if method != null && method.type == ASTNodeType.AST_FN_DECL {
+            return c99_type_to_c(codegen, method.fn_decl_return_type);
+        }
+        return ("int32_t" as *byte) as &byte;
     } else if expr.type == ASTNodeType.AST_UNARY_EXPR {
         const op: i32 = expr.unary_expr_op;
         const operand: &ASTNode = expr.unary_expr_operand;
@@ -692,6 +698,17 @@ fn get_c_type_of_expr(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
             return ("int32_t" as *byte) as &byte;
         }
         return c99_type_to_c(codegen, target_type);
+    } else if expr.type == ASTNodeType.AST_ARRAY_ACCESS {
+        return ("int32_t" as *byte) as &byte;
+    } else if expr.type == ASTNodeType.AST_CALL_EXPR {
+        // 方法调用：callee 为 obj.method，需要推断方法返回类型
+        const callee: &ASTNode = expr.call_expr_callee;
+        if callee != null && callee.type == ASTNodeType.AST_MEMBER_ACCESS {
+            // 递归调用 AST_MEMBER_ACCESS 的处理逻辑来获取方法返回类型
+            return get_c_type_of_expr(codegen, callee);
+        }
+        // 普通函数调用：无法推断返回类型，返回默认类型
+        return ("int32_t" as *byte) as &byte;
     } else {
         return ("int32_t" as *byte) as &byte;
     }

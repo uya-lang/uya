@@ -1123,7 +1123,12 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                     ret_type->data.type_error_union.payload_type) {
                     payload_c = c99_type_to_c(codegen, ret_type->data.type_error_union.payload_type);
                 } else {
-                    payload_c = "int32_t";
+                    /* 从错误联合类型名称推断 payload 类型 */
+                    if (operand_union_c && strcmp(operand_union_c, "struct err_union_void") == 0) {
+                        payload_c = "void";
+                    } else {
+                        payload_c = "int32_t";
+                    }
                 }
             } else if (ret_type && ret_type->type == AST_TYPE_ERROR_UNION) {
                 union_c = c99_type_to_c(codegen, ret_type);
@@ -1135,7 +1140,13 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             }
             int n = block->data.block.stmt_count;
             ASTNode *last_stmt = (n > 0) ? block->data.block.stmts[n - 1] : NULL;
-            fprintf(codegen->output, "({ %s _uya_catch_result; %s _uya_catch_tmp = ", payload_c, union_c);
+            int is_void_payload = (payload_c && strcmp(payload_c, "void") == 0);
+            if (is_void_payload) {
+                // !void 类型：不需要声明结果变量
+                fprintf(codegen->output, "({ %s _uya_catch_tmp = ", union_c);
+            } else {
+                fprintf(codegen->output, "({ %s _uya_catch_result; %s _uya_catch_tmp = ", payload_c, union_c);
+            }
             gen_expr(codegen, operand);
             fputs("; if (_uya_catch_tmp.error_id != 0) {\n", codegen->output);
             codegen->indent_level++;
@@ -1147,7 +1158,7 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             for (int i = 0; i < n; i++) {
                 ASTNode *s = block->data.block.stmts[i];
                 if (!s) continue;
-                if (i == n - 1 && last_stmt && last_stmt->type != AST_RETURN_STMT) {
+                if (i == n - 1 && last_stmt && last_stmt->type != AST_RETURN_STMT && !is_void_payload) {
                     c99_emit_indent(codegen);
                     fputs("_uya_catch_result = (", codegen->output);
                     gen_expr(codegen, last_stmt);
@@ -1158,7 +1169,11 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             }
             codegen->indent_level--;
             c99_emit_indent(codegen);
-            fputs("} else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; })", codegen->output);
+            if (is_void_payload) {
+                fputs("} else { /* void payload */ } 0; })", codegen->output);
+            } else {
+                fputs("} else _uya_catch_result = _uya_catch_tmp.value; _uya_catch_result; })", codegen->output);
+            }
             break;
         }
         case AST_CALL_EXPR: {

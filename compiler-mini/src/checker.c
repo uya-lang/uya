@@ -726,17 +726,14 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
         result.data.tuple.count = n;
         return result;
     } else if (type_node->type == AST_TYPE_ERROR_UNION) {
-        // 错误联合类型 !T
+        // 错误联合类型 !T（包括 !void）
         ASTNode *payload_node = type_node->data.type_error_union.payload_type;
         if (payload_node == NULL) {
             result.kind = TYPE_VOID;
             return result;
         }
         Type payload = type_from_ast(checker, payload_node);
-        if (payload.kind == TYPE_VOID && payload_node != NULL) {
-            result.kind = TYPE_VOID;
-            return result;
-        }
+        // 注意：!void 是有效的错误联合类型，payload 可以是 TYPE_VOID
         Type *payload_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
         if (payload_ptr == NULL) {
             result.kind = TYPE_VOID;
@@ -1187,6 +1184,14 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
                                 return type_from_ast(checker, msig->data.fn_decl.return_type);
                             }
                         }
+                    }
+                }
+                // 结构体方法调用：callee 为 obj.method，obj 类型为结构体（非接口）
+                if (object_type.kind == TYPE_STRUCT && object_type.data.struct_name != NULL && checker->program_node != NULL) {
+                    const char *method_name = callee->data.member_access.field_name;
+                    ASTNode *m = find_method_in_struct(checker->program_node, object_type.data.struct_name, method_name);
+                    if (m != NULL) {
+                        return type_from_ast(checker, m->data.fn_decl.return_type);
                     }
                 }
                 result.kind = TYPE_VOID;
@@ -3613,8 +3618,11 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                 checker_exit_scope(checker);
                 return 1;
             }
-            // 数组遍历形式：检查数组表达式类型（必须是数组类型）
-            Type array_type = checker_infer_type(checker, node->data.for_stmt.array);
+            // 数组遍历或接口迭代形式：检查表达式类型
+            Type expr_type = checker_infer_type(checker, node->data.for_stmt.array);
+            
+            // 首先尝试作为数组类型处理
+            Type array_type = expr_type;
             if (array_type.kind != TYPE_ARRAY || array_type.data.array.element_type == NULL) {
                 // 类型推断失败或不是数组类型
                 // 如果数组表达式是标识符，尝试从符号表获取类型
@@ -3623,9 +3631,73 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                     if (symbol != NULL && symbol->type.kind == TYPE_ARRAY && symbol->type.data.array.element_type != NULL) {
                         // 从符号表获取到了有效的数组类型，使用它
                         array_type = symbol->type;
+                    }
+                }
+            }
+            
+            // 如果不是数组类型，尝试作为接口迭代器处理
+            if (array_type.kind != TYPE_ARRAY || array_type.data.array.element_type == NULL) {
+                // 检查是否是结构体类型，且实现了迭代器接口（有 next 和 value 方法）
+                if (expr_type.kind == TYPE_STRUCT && expr_type.data.struct_name != NULL && checker->program_node != NULL) {
+                    const char *struct_name = expr_type.data.struct_name;
+                    ASTNode *next_method = find_method_in_struct(checker->program_node, struct_name, "next");
+                    ASTNode *value_method = find_method_in_struct(checker->program_node, struct_name, "value");
+                    
+                    if (next_method != NULL && value_method != NULL) {
+                        // 检查 next 方法签名：next(self: &Self) !void
+                        Type next_return_type = type_from_ast(checker, next_method->data.fn_decl.return_type);
+                        if (next_return_type.kind == TYPE_ERROR_UNION) {
+                            // 检查 value 方法返回类型，作为循环变量类型
+                            Type value_return_type = type_from_ast(checker, value_method->data.fn_decl.return_type);
+                            
+                            // 进入循环作用域并添加循环变量
+                            checker_enter_scope(checker);
+                            checker->loop_depth++;
+                            
+                            // 创建循环变量类型（从 value 方法返回类型）
+                            Type var_type = value_return_type;
+                            
+                            // 添加循环变量到符号表
+                            if (node->data.for_stmt.var_name != NULL) {
+                                Symbol *loop_var = (Symbol *)arena_alloc(checker->arena, sizeof(Symbol));
+                                if (loop_var != NULL) {
+                                    loop_var->name = node->data.for_stmt.var_name;
+                                    loop_var->type = var_type;
+                                    loop_var->is_const = 0;
+                                    loop_var->scope_level = checker->scope_level;
+                                    loop_var->line = node->line;
+                                    loop_var->column = node->column;
+                                    loop_var->pointee_of = NULL;
+                                    symbol_table_insert(checker, loop_var);
+                                }
+                            }
+                            
+                            // 检查循环体
+                            if (node->data.for_stmt.body != NULL) {
+                                checker_check_node(checker, node->data.for_stmt.body);
+                            }
+                            
+                            // 退出循环作用域
+                            checker->loop_depth--;
+                            checker_exit_scope(checker);
+                            return 1;
+                        } else {
+                            // next 方法返回类型不是 !void，报告错误
+                            checker_report_error(checker, node, "迭代器的 next 方法必须返回 !void");
+                        }
+                    }
+                }
+                
+                // 既不是数组类型，也不是实现了迭代器接口的结构体
+                // 如果数组表达式是标识符，尝试从符号表获取类型
+                if (node->data.for_stmt.array->type == AST_IDENTIFIER) {
+                    Symbol *symbol = symbol_table_lookup(checker, node->data.for_stmt.array->data.identifier.name);
+                    if (symbol != NULL && symbol->type.kind == TYPE_ARRAY && symbol->type.data.array.element_type != NULL) {
+                        // 从符号表获取到了有效的数组类型，使用它
+                        array_type = symbol->type;
                     } else {
                         // 符号表中也没有有效的数组类型，报告错误但继续检查
-                        checker_report_error(checker, node, "for 循环需要数组类型，但无法推断数组表达式类型");
+                        checker_report_error(checker, node, "for 循环需要数组类型或实现了迭代器接口的结构体，但无法推断表达式类型");
                         checker_enter_scope(checker);
                         checker->loop_depth++;
                         if (node->data.for_stmt.body != NULL) {
@@ -3649,7 +3721,7 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                     return 1;
                 } else {
                     // 不是标识符或字段访问，无法从符号表获取，报告错误但继续检查
-                    checker_report_error(checker, node, "for 循环需要数组类型，但无法推断数组表达式类型");
+                    checker_report_error(checker, node, "for 循环需要数组类型或实现了迭代器接口的结构体，但无法推断表达式类型");
                     checker_enter_scope(checker);
                     checker->loop_depth++;
                     if (node->data.for_stmt.body != NULL) {

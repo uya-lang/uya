@@ -525,6 +525,43 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     // 生成函数体
     gen_stmt(codegen, body);
     
+    // 检查函数体是否以 return 结尾
+    var has_return: i32 = 0;
+    if body != null && body.type == ASTNodeType.AST_BLOCK {
+        const stmts: & & ASTNode = body.block_stmts;
+        const stmt_count: i32 = body.block_stmt_count;
+        var j: i32 = stmt_count - 1;
+        while j >= 0 {
+            const s: &ASTNode = stmts[j];
+            if s != null && s.type != ASTNodeType.AST_DEFER_STMT && s.type != ASTNodeType.AST_ERRDEFER_STMT {
+                if s.type == ASTNodeType.AST_RETURN_STMT {
+                    has_return = 1;
+                } else {
+                    has_return = 0;
+                }
+                break;
+            }
+            j = j - 1;
+        }
+    }
+    
+    // 如果返回类型是 !void 且函数体没有显式返回，添加默认返回语句
+    if has_return == 0 && return_type != null && return_type.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+        const payload_node: &ASTNode = return_type.type_error_union_payload_type;
+        var is_void_payload: i32 = 0;
+        if payload_node == null {
+            is_void_payload = 1;
+        } else if payload_node.type == ASTNodeType.AST_TYPE_NAMED && payload_node.type_named_name != null &&
+            strcmp(payload_node.type_named_name as *byte, "void" as *byte) == 0 {
+            is_void_payload = 1;
+        }
+        if is_void_payload != 0 {
+            // !void 类型：返回成功的错误联合
+            c99_emit_indent(codegen);
+            fprintf(codegen.output as *void, "return (%s){ .error_id = 0 };\n" as *byte, return_c as *byte);
+        }
+    }
+    
     // 清除当前函数的返回类型
     codegen.current_function_return_type = null;
     
@@ -675,6 +712,44 @@ fn gen_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_nam
         }
     }
     gen_stmt(codegen, fn_decl.fn_decl_body);
+    
+    // 检查函数体是否以 return 结尾
+    var has_return: i32 = 0;
+    if fn_decl.fn_decl_body != null && fn_decl.fn_decl_body.type == ASTNodeType.AST_BLOCK {
+        const stmts: & & ASTNode = fn_decl.fn_decl_body.block_stmts;
+        const stmt_count: i32 = fn_decl.fn_decl_body.block_stmt_count;
+        var j: i32 = stmt_count - 1;
+        while j >= 0 {
+            const s: &ASTNode = stmts[j];
+            if s != null && s.type != ASTNodeType.AST_DEFER_STMT && s.type != ASTNodeType.AST_ERRDEFER_STMT {
+                if s.type == ASTNodeType.AST_RETURN_STMT {
+                    has_return = 1;
+                } else {
+                    has_return = 0;
+                }
+                break;
+            }
+            j = j - 1;
+        }
+    }
+    
+    // 如果返回类型是 !void 且函数体没有显式返回，添加默认返回语句
+    if has_return == 0 && fn_decl.fn_decl_return_type != null && fn_decl.fn_decl_return_type.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+        const payload_node: &ASTNode = fn_decl.fn_decl_return_type.type_error_union_payload_type;
+        var is_void_payload: i32 = 0;
+        if payload_node == null {
+            is_void_payload = 1;
+        } else if payload_node.type == ASTNodeType.AST_TYPE_NAMED && payload_node.type_named_name != null &&
+            strcmp(payload_node.type_named_name as *byte, "void" as *byte) == 0 {
+            is_void_payload = 1;
+        }
+        if is_void_payload != 0 {
+            // !void 类型：返回成功的错误联合
+            c99_emit_indent(codegen);
+            fprintf(codegen.output as *void, "return (%s){ .error_id = 0 };\n" as *byte, return_c as *byte);
+        }
+    }
+    
     codegen.current_function_return_type = null;
     codegen.current_function_decl = saved_current_function_decl;
     codegen.current_method_struct_name = saved_method_struct;

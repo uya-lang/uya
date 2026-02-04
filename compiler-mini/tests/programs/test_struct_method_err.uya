@@ -1,0 +1,36 @@
+// 测试结构体方法返回错误联合类型
+// 预期：main 返回 0
+
+extern fn printf(fmt: *byte, ...) i32;
+
+error TestError;
+
+struct Counter {
+    value: i32
+}
+
+Counter {
+    fn try_inc(self: &Self) !i32 {
+        if self.value >= 10 {
+            return error.TestError;
+        }
+        self.value = self.value + 1;
+        return self.value;
+    }
+}
+
+fn main() i32 {
+    var c: Counter = Counter{ value: 5 };
+    
+    // 测试成功路径
+    const v1: i32 = c.try_inc() catch {
+        return 1;
+    };
+    printf("v1 = %d, c.value = %d\n", v1, c.value);
+    if v1 != 6 {
+        printf("Test failed: v1 = %d, expected 6\n", v1);
+        return 2;
+    }
+    
+    return 0;
+}

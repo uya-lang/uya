@@ -327,11 +327,53 @@ int gen_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl) {
     return 0;
 }
 
+// 预先生成接口方法签名中使用的错误联合类型结构体定义
+static void pregenerate_error_union_structs_for_interface(C99CodeGenerator *codegen, ASTNode *iface_decl) {
+    if (!codegen || !iface_decl || iface_decl->type != AST_INTERFACE_DECL) return;
+    
+    // 遍历所有方法签名，收集错误联合类型
+    for (int j = 0; j < iface_decl->data.interface_decl.method_sig_count; j++) {
+        ASTNode *msig = iface_decl->data.interface_decl.method_sigs[j];
+        if (!msig || msig->type != AST_FN_DECL) continue;
+        
+        // 检查返回类型
+        ASTNode *ret_type = msig->data.fn_decl.return_type;
+        if (ret_type && ret_type->type == AST_TYPE_ERROR_UNION) {
+            // 预先生成错误联合类型结构体定义（通过调用 c99_type_to_c）
+            const char *ret_c = c99_type_to_c(codegen, ret_type);
+            (void)ret_c;  // 避免未使用变量警告
+        }
+        
+        // 检查参数类型
+        if (msig->data.fn_decl.params) {
+            for (int k = 1; k < msig->data.fn_decl.param_count; k++) {
+                ASTNode *p = msig->data.fn_decl.params[k];
+                if (!p || p->type != AST_VAR_DECL) continue;
+                ASTNode *pt = p->data.var_decl.type;
+                if (pt && pt->type == AST_TYPE_ERROR_UNION) {
+                    // 预先生成错误联合类型结构体定义
+                    const char *pt_c = c99_type_to_c(codegen, pt);
+                    (void)pt_c;  // 避免未使用变量警告
+                }
+            }
+        }
+    }
+}
+
 // 生成接口值结构体与 vtable 结构体（不含 vtable 常量，常量需在方法前向声明之后生成）
 void emit_interface_structs_and_vtables(C99CodeGenerator *codegen) {
     if (!codegen || !codegen->program_node) return;
     ASTNode **decls = codegen->program_node->data.program.decls;
     int decl_count = codegen->program_node->data.program.decl_count;
+    
+    // 第一步：预先生成所有接口方法签名中使用的错误联合类型结构体定义
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_INTERFACE_DECL) continue;
+        pregenerate_error_union_structs_for_interface(codegen, decl);
+    }
+    
+    // 第二步：生成接口值结构体与 vtable 结构体
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl || decl->type != AST_INTERFACE_DECL) continue;

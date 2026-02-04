@@ -1,0 +1,49 @@
+// 简单的迭代器测试
+// 预期：main 返回 0
+
+extern fn printf(fmt: *byte, ...) i32;
+
+error IterEnd;
+
+struct SimpleIter {
+    current: i32,
+    end_val: i32
+}
+
+SimpleIter {
+    fn next(self: &Self) !void {
+        self.current = self.current + 1;
+        if self.current >= self.end_val {
+            return error.IterEnd;
+        }
+    }
+    
+    fn value(self: &Self) i32 {
+        return self.current;
+    }
+}
+
+fn main() i32 {
+    var iter: SimpleIter = SimpleIter{ current: 0, end_val: 3 };
+    
+    // 测试方法调用
+    const v1: i32 = iter.value();
+    printf("v1 = %d\n", v1);
+    if v1 != 0 {
+        return 1;
+    }
+    
+    // 测试 next() 返回 !void
+    const r1: void = iter.next() catch {
+        return 2;
+    };
+    
+    const v2: i32 = iter.value();
+    printf("v2 = %d\n", v2);
+    if v2 != 1 {
+        return 3;
+    }
+    
+    return 0;
+}
+

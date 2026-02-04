@@ -404,6 +404,72 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             } else {
                 // 非数组类型
                 type_c = c99_type_to_c(codegen, var_type);
+                // 检查是否是 void 类型
+                int is_void_type = 0;
+                if (var_type->type == AST_TYPE_NAMED) {
+                    const char *type_name = var_type->data.type_named.name;
+                    if (type_name && strcmp(type_name, "void") == 0) {
+                        is_void_type = 1;
+                    }
+                }
+                if (is_void_type) {
+                    // void 类型变量：生成 (void)(expr); 而不是 const void result = expr;
+                    if (init_expr) {
+                        // 检查是否是 catch 表达式且包含 break/continue
+                        int is_catch_with_break = 0;
+                        if (init_expr->type == AST_CATCH_EXPR) {
+                            ASTNode *catch_block = init_expr->data.catch_expr.catch_block;
+                            if (catch_block && catch_block->type == AST_BLOCK) {
+                                for (int i = 0; i < catch_block->data.block.stmt_count; i++) {
+                                    ASTNode *s = catch_block->data.block.stmts[i];
+                                    if (s && (s->type == AST_BREAK_STMT || s->type == AST_CONTINUE_STMT)) {
+                                        is_catch_with_break = 1;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (is_catch_with_break) {
+                            // catch 表达式包含 break/continue，需要生成语句而不是表达式
+                            // 直接生成 if-else 语句
+                            ASTNode *operand = init_expr->data.catch_expr.operand;
+                            ASTNode *block = init_expr->data.catch_expr.catch_block;
+                            const char *err_name = init_expr->data.catch_expr.err_name;
+                            if (operand && block) {
+                                const char *operand_union_c = get_c_type_of_expr(codegen, operand);
+                                int operand_is_err_union = (operand_union_c && strstr(operand_union_c, "err_union_") != NULL);
+                                if (operand_is_err_union) {
+                                    const char *union_c = operand_union_c;
+                                    c99_emit_indent(codegen);
+                                    fprintf(codegen->output, "%s _uya_catch_tmp = ", union_c);
+                                    gen_expr(codegen, operand);
+                                    fputs("; if (_uya_catch_tmp.error_id != 0) {\n", codegen->output);
+                                    codegen->indent_level++;
+                                    if (err_name) {
+                                        const char *safe = get_safe_c_identifier(codegen, err_name);
+                                        c99_emit_indent(codegen);
+                                        fprintf(codegen->output, "%s %s = _uya_catch_tmp;\n", union_c, safe);
+                                    }
+                                    for (int i = 0; i < block->data.block.stmt_count; i++) {
+                                        ASTNode *s = block->data.block.stmts[i];
+                                        if (!s) continue;
+                                        gen_stmt(codegen, s);
+                                    }
+                                    codegen->indent_level--;
+                                    c99_emit_indent(codegen);
+                                    fputs("}\n", codegen->output);
+                                    return;  // void 类型变量不需要存储到变量表
+                                }
+                            }
+                        }
+                        // 普通情况：生成 (void)(expr);
+                        c99_emit_indent(codegen);
+                        fputs("(void)(", codegen->output);
+                        gen_expr(codegen, init_expr);
+                        fputs(");\n", codegen->output);
+                    }
+                    return;  // void 类型变量不需要存储到变量表
+                }
                 // 为存储到变量表准备完整的类型字符串（包括 const 修饰符）
                 if (is_const && var_type->type == AST_TYPE_POINTER) {
                     // 检查是否是指向数组的指针类型（格式：T (*)[N]）
@@ -799,13 +865,79 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 c99_emit(codegen, "}\n");
                 break;
             }
-            // 数组遍历形式：for expr | ID | { ... }
+            // 数组遍历或接口迭代形式：for expr | ID | { ... }
             ASTNode *array = stmt->data.for_stmt.array;
             const char *var_name = get_safe_c_identifier(codegen, stmt->data.for_stmt.var_name);
             int is_ref = stmt->data.for_stmt.is_ref;
             
+            // 首先尝试作为数组类型处理
             const char *elem_type_c = get_array_element_type(codegen, array);
+            
+            // 如果不是数组类型，尝试作为接口迭代器处理
             if (!elem_type_c) {
+                // 检查是否是结构体类型，且实现了迭代器接口（有 next 和 value 方法）
+                const char *expr_type_c = get_c_type_of_expr(codegen, array);
+                if (expr_type_c && strstr(expr_type_c, "struct ") == expr_type_c) {
+                    // 提取结构体名称（去除 "struct " 前缀）
+                    const char *struct_name = expr_type_c + 7;  // 跳过 "struct "
+                    // 去除可能的指针后缀
+                    char struct_name_buf[256];
+                    strncpy(struct_name_buf, struct_name, sizeof(struct_name_buf) - 1);
+                    struct_name_buf[sizeof(struct_name_buf) - 1] = '\0';
+                    char *ptr = strchr(struct_name_buf, ' ');
+                    if (ptr) *ptr = '\0';
+                    
+                    ASTNode *next_method = find_method_in_struct_c99(codegen, struct_name_buf, "next");
+                    ASTNode *value_method = find_method_in_struct_c99(codegen, struct_name_buf, "value");
+                    
+                    if (next_method != NULL && value_method != NULL) {
+                        // 接口迭代形式：生成 while 循环，调用 next() 和 value()
+                        const char *iter_type_c = expr_type_c;
+                        const char *value_return_type_c = c99_type_to_c(codegen, value_method->data.fn_decl.return_type);
+                        if (!value_return_type_c) value_return_type_c = "int32_t";
+                        
+                        c99_emit(codegen, "{\n");
+                        codegen->indent_level++;
+                        c99_emit(codegen, "// for loop - iterator interface\n");
+                        
+                        // 创建迭代器变量
+                        c99_emit(codegen, "%s _uya_iter = ", iter_type_c);
+                        gen_expr(codegen, array);
+                        c99_emit(codegen, ";\n");
+                        
+                        // while 循环
+                        c99_emit(codegen, "while (1) {\n");
+                        codegen->indent_level++;
+                        
+                        // 调用 next() 方法（返回 !void）
+                        const char *next_cname = get_method_c_name(codegen, struct_name_buf, "next");
+                        if (next_cname) {
+                            c99_emit(codegen, "struct err_union_void _uya_next_result = %s(&_uya_iter);\n", next_cname);
+                            c99_emit(codegen, "if (_uya_next_result.error_id != 0) {\n");
+                            codegen->indent_level++;
+                            c99_emit(codegen, "break;  // error.IterEnd\n");
+                            codegen->indent_level--;
+                            c99_emit(codegen, "}\n");
+                        }
+                        
+                        // 调用 value() 方法获取当前值
+                        const char *value_cname = get_method_c_name(codegen, struct_name_buf, "value");
+                        if (value_cname && var_name) {
+                            c99_emit(codegen, "%s %s = %s(&_uya_iter);\n", value_return_type_c, var_name, value_cname);
+                        }
+                        
+                        // 循环体
+                        gen_stmt(codegen, body);
+                        
+                        codegen->indent_level--;
+                        c99_emit(codegen, "}\n");
+                        codegen->indent_level--;
+                        c99_emit(codegen, "}\n");
+                        break;
+                    }
+                }
+                
+                // 既不是数组类型，也不是实现了迭代器接口的结构体，使用默认类型
                 elem_type_c = "int32_t";
             }
             

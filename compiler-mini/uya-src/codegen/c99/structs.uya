@@ -405,12 +405,64 @@ fn get_method_c_name(codegen: &C99CodeGenerator, struct_name: &byte, method_name
 }
 
 // 生成接口值结构体与 vtable 结构体（不含 vtable 常量）
+// 预先生成接口方法签名中使用的错误联合类型结构体定义
+fn pregenerate_error_union_structs_for_interface(codegen: &C99CodeGenerator, iface_decl: &ASTNode) void {
+    if codegen == null || iface_decl == null || iface_decl.type != ASTNodeType.AST_INTERFACE_DECL {
+        return;
+    }
+    
+    // 遍历所有方法签名，收集错误联合类型
+    var j: i32 = 0;
+    while j < iface_decl.interface_decl_method_sig_count {
+        const msig: &ASTNode = iface_decl.interface_decl_method_sigs[j];
+        if msig != null && msig.type == ASTNodeType.AST_FN_DECL {
+            // 检查返回类型
+            const ret_type: &ASTNode = msig.fn_decl_return_type;
+            if ret_type != null && ret_type.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+                // 预先生成错误联合类型结构体定义（通过调用 c99_type_to_c）
+                const ret_c: &byte = c99_type_to_c(codegen, ret_type);
+                // 避免未使用变量警告（Uya 不支持 (void) 转换，直接忽略）
+            }
+            
+            // 检查参数类型
+            if msig.fn_decl_params != null {
+                var k: i32 = 1;
+                while k < msig.fn_decl_param_count {
+                    const p: &ASTNode = msig.fn_decl_params[k];
+                    if p != null && p.type == ASTNodeType.AST_VAR_DECL {
+                        const pt: &ASTNode = p.var_decl_type;
+                        if pt != null && pt.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+                            // 预先生成错误联合类型结构体定义
+                            const pt_c: &byte = c99_type_to_c(codegen, pt);
+                            // 避免未使用变量警告
+                        }
+                    }
+                    k = k + 1;
+                }
+            }
+        }
+        j = j + 1;
+    }
+}
+
 fn emit_interface_structs_and_vtables(codegen: &C99CodeGenerator) void {
     if codegen == null || codegen.program_node == null {
         return;
     }
     const decl_count: i32 = codegen.program_node.program_decl_count;
+    
+    // 第一步：预先生成所有接口方法签名中使用的错误联合类型结构体定义
     var i: i32 = 0;
+    while i < decl_count {
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_INTERFACE_DECL {
+            pregenerate_error_union_structs_for_interface(codegen, decl);
+        }
+        i = i + 1;
+    }
+    
+    // 第二步：生成接口值结构体与 vtable 结构体
+    i = 0;
     while i < decl_count {
         const decl: &ASTNode = codegen.program_node.program_decls[i];
         if decl == null || decl.type != ASTNodeType.AST_INTERFACE_DECL {
