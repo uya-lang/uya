@@ -4796,7 +4796,8 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             if checker_check_node(checker, node.assign_src) == 0 {
                 return 0;
             }
-            const _dummy: Type = checker_infer_type(checker, node.assign_src);
+            // 检查右侧表达式类型（用于类型检查，结果不使用）
+            checker_infer_type(checker, node.assign_src);
             return 1;
         }
         if dest.type == ASTNodeType.AST_IDENTIFIER {

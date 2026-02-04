@@ -27,6 +27,31 @@ fn get_vprintf_style_name(c_name: &byte) &byte {
     return null;
 }
 
+// 检查是否是标准库函数（需要 const char * 而不是 uint8_t *）
+fn is_stdlib_function_for_string_arg(func_name: &byte) i32 {
+    if func_name == null {
+        return 0;
+    }
+    // I/O 函数
+    if strcmp(func_name as *byte, "printf" as *byte) == 0 ||
+        strcmp(func_name as *byte, "sprintf" as *byte) == 0 ||
+        strcmp(func_name as *byte, "fprintf" as *byte) == 0 ||
+        strcmp(func_name as *byte, "snprintf" as *byte) == 0 ||
+        strcmp(func_name as *byte, "fputs" as *byte) == 0 {
+        return 1;
+    }
+    // 字符串处理函数
+    if strcmp(func_name as *byte, "strcmp" as *byte) == 0 ||
+        strcmp(func_name as *byte, "strncmp" as *byte) == 0 ||
+        strcmp(func_name as *byte, "strlen" as *byte) == 0 ||
+        strcmp(func_name as *byte, "strchr" as *byte) == 0 ||
+        strcmp(func_name as *byte, "strrchr" as *byte) == 0 ||
+        strcmp(func_name as *byte, "strstr" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
 // 根据 C 类型字符串返回无符号类型（用于包装运算）
 fn unsigned_type_for_wrapping(type_c: &byte) &byte {
     if type_c == null { return "unsigned" as &byte; }
@@ -1490,11 +1515,23 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     fputs(", " as *byte, codegen.output as *void);
                 }
                 if codegen.interp_arg_temp_names[i] != null {
-                    fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                    // 检查是否是标准库函数，如果是则使用 (const char *) 而不是 (uint8_t *)
+                    const is_stdlib: i32 = is_stdlib_function_for_string_arg(callee_name);
+                    if is_stdlib != 0 {
+                        fputs("(const char *)" as *byte, codegen.output as *void);
+                    } else {
+                        fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                    }
                     fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.output as *void);
                 } else {
                     if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
-                        fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                        // 检查是否是标准库函数，如果是则使用 (const char *) 而不是 (uint8_t *)
+                        const is_stdlib: i32 = is_stdlib_function_for_string_arg(callee_name);
+                        if is_stdlib != 0 {
+                            fputs("(const char *)" as *byte, codegen.output as *void);
+                        } else {
+                            fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                        }
                     }
                     gen_expr(codegen, expr.call_expr_args[i]);
                 }
@@ -1523,16 +1560,50 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             var i: i32 = 0;
             while i < arg_count {
             if codegen.interp_arg_temp_names[i] != null {
-                fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                // 检查是否是标准库函数，如果是则使用 (const char *) 而不是 (uint8_t *)
+                const is_stdlib: i32 = is_stdlib_function_for_string_arg(callee_name);
+                if is_stdlib != 0 {
+                    fputs("(const char *)" as *byte, codegen.output as *void);
+                } else {
+                    fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                }
                 fputs(codegen.interp_arg_temp_names[i] as *byte, codegen.output as *void);
             } else {
-            // 检查参数是否是字符串常量，如果是则添加类型转换以消除 const 警告
+            // 检查参数是否是字符串常量或 *byte 类型，如果是则添加类型转换以消除 const 警告
             var is_string_arg: i32 = 0;
             if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_STRING {
                 is_string_arg = 1;
             }
-            if is_string_arg != 0 {
-                fputs("(uint8_t *)" as *byte, codegen.output as *void);
+            // 检查参数是否是 *byte 类型的标识符或字符串常量
+            var is_byte_ptr_arg: i32 = 0;
+            if expr.call_expr_args[i] != null && expr.call_expr_args[i].type == ASTNodeType.AST_IDENTIFIER {
+                const arg_name: &byte = expr.call_expr_args[i].identifier_name;
+                const arg_type_c: &byte = get_identifier_type_c(codegen, arg_name);
+                if arg_type_c != null && strcmp(arg_type_c as *byte, "uint8_t *" as *byte) == 0 {
+                    is_byte_ptr_arg = 1;
+                } else if arg_type_c == null {
+                    // 检查是否是字符串常量（字符串常量名称通常以 "str" 开头）
+                    if arg_name != null && strncmp(arg_name as *byte, "str" as *byte, 3) == 0 {
+                        // 检查是否是字符串常量表中的名称
+                        var j: i32 = 0;
+                        while j < codegen.string_constant_count {
+                            if strcmp(codegen.string_constants[j].name as *byte, arg_name as *byte) == 0 {
+                                is_byte_ptr_arg = 1;
+                                break;
+                            }
+                            j = j + 1;
+                        }
+                    }
+                }
+            }
+            if is_string_arg != 0 || is_byte_ptr_arg != 0 {
+                // 检查是否是标准库函数，如果是则使用 (const char *) 而不是 (uint8_t *)
+                const is_stdlib: i32 = is_stdlib_function_for_string_arg(callee_name);
+                if is_stdlib != 0 {
+                    fputs("(const char *)" as *byte, codegen.output as *void);
+                } else {
+                    fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                }
             }
             
             // 检查是否是大结构体参数且函数期望指针

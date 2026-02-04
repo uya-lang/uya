@@ -14,6 +14,29 @@ static const char *get_vprintf_style_name(const char *c_name) {
     return NULL;
 }
 
+/* 检查是否是标准库函数（需要 const char * 而不是 uint8_t *） */
+static int is_stdlib_function_for_string_arg(const char *func_name) {
+    if (!func_name) return 0;
+    /* I/O 函数 */
+    if (strcmp(func_name, "printf") == 0 ||
+        strcmp(func_name, "sprintf") == 0 ||
+        strcmp(func_name, "fprintf") == 0 ||
+        strcmp(func_name, "snprintf") == 0 ||
+        strcmp(func_name, "fputs") == 0) {
+        return 1;
+    }
+    /* 字符串处理函数 */
+    if (strcmp(func_name, "strcmp") == 0 ||
+        strcmp(func_name, "strncmp") == 0 ||
+        strcmp(func_name, "strlen") == 0 ||
+        strcmp(func_name, "strchr") == 0 ||
+        strcmp(func_name, "strrchr") == 0 ||
+        strcmp(func_name, "strstr") == 0) {
+        return 1;
+    }
+    return 0;
+}
+
 /* 根据 C 类型字符串返回无符号类型（用于包装运算），无匹配则返回 "unsigned" */
 static const char *unsigned_type_for_wrapping(const char *type_c) {
     if (!type_c) return "unsigned";
@@ -1287,7 +1310,11 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                                 fputs("(uint8_t *)", codegen->output);
                                 fputs(codegen->interp_arg_temp_names[i], codegen->output);
                             } else {
-                                if (args[i] && args[i]->type == AST_STRING) fputs("(uint8_t *)", codegen->output);
+                                if (args[i] && args[i]->type == AST_STRING) {
+                                    // 检查是否是标准库函数，如果是则使用 (const char *) 而不是 (uint8_t *)
+                                    int is_stdlib = is_stdlib_function_for_string_arg(callee_name);
+                                    fputs(is_stdlib ? "(const char *)" : "(uint8_t *)", codegen->output);
+                                }
                                 gen_expr(codegen, args[i]);
                             }
                         }
@@ -1395,7 +1422,11 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                     fprintf(codegen->output, "%*sint32_t _uya_ret = %s(", codegen->indent_level * 4, "", vname);
                     for (int i = 0; i < arg_count; i++) {
                         if (i > 0) fputs(", ", codegen->output);
-                        if (args[i] && args[i]->type == AST_STRING) fputs("(uint8_t *)", codegen->output);
+                        if (args[i] && args[i]->type == AST_STRING) {
+                            // 检查是否是标准库函数，如果是则使用 (const char *) 而不是 (uint8_t *)
+                            int is_stdlib = is_stdlib_function_for_string_arg(callee_name);
+                            fputs(is_stdlib ? "(const char *)" : "(uint8_t *)", codegen->output);
+                        }
                         gen_expr(codegen, args[i]);
                     }
                     fputs(", uya_va);\n", codegen->output);
@@ -1423,14 +1454,39 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             for (int i = 0; i < arg_count; i++) {
                 if (i > 0) fputs(", ", codegen->output);
                 if (codegen->interp_arg_temp_names[i]) {
-                    fputs("(uint8_t *)", codegen->output);
+                    // 检查是否是标准库函数，如果是则使用 (const char *) 而不是 (uint8_t *)
+                    int is_stdlib = is_stdlib_function_for_string_arg(callee_name);
+                    fputs(is_stdlib ? "(const char *)" : "(uint8_t *)", codegen->output);
                     fputs(codegen->interp_arg_temp_names[i], codegen->output);
                     continue;
                 }
-                // 检查参数是否是字符串常量，如果是则添加类型转换以消除 const 警告
+                // 检查参数是否是字符串常量或 *byte 类型，如果是则添加类型转换以消除 const 警告
                 int is_string_arg = (args[i] && args[i]->type == AST_STRING);
-                if (is_string_arg) {
-                    fputs("(uint8_t *)", codegen->output);
+                // 检查参数是否是 *byte 类型的标识符或字符串常量
+                int is_byte_ptr_arg = 0;
+                if (args[i] && args[i]->type == AST_IDENTIFIER) {
+                    const char *arg_name = args[i]->data.identifier.name;
+                    const char *arg_type_c = get_identifier_type_c(codegen, arg_name);
+                    if (arg_type_c && strcmp(arg_type_c, "uint8_t *") == 0) {
+                        is_byte_ptr_arg = 1;
+                    } else if (!arg_type_c) {
+                        // 检查是否是字符串常量（字符串常量名称通常以 "str" 开头）
+                        if (arg_name && strncmp(arg_name, "str", 3) == 0) {
+                            // 检查是否是字符串常量表中的名称
+                            for (int j = 0; j < codegen->string_constant_count; j++) {
+                                if (codegen->string_constants[j].name &&
+                                    strcmp(codegen->string_constants[j].name, arg_name) == 0) {
+                                    is_byte_ptr_arg = 1;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (is_string_arg || is_byte_ptr_arg) {
+                    // 检查是否是标准库函数，如果是则使用 (const char *) 而不是 (uint8_t *)
+                    int is_stdlib = is_stdlib_function_for_string_arg(callee_name);
+                    fputs(is_stdlib ? "(const char *)" : "(uint8_t *)", codegen->output);
                 }
                 
                 // 检查是否是大结构体参数且函数期望指针
