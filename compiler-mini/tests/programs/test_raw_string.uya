@@ -1,0 +1,14 @@
+// 测试原始字符串字面量（反引号语法）
+
+extern fn printf(fmt: *byte, ...) i32;
+
+fn main() i32 {
+    // 测试原始字符串：无转义序列，所有字符按字面量处理
+    printf(`C:\Users\name\n`);        // 反斜杠不会被转义
+    printf(`path\to\file\n`);        // 制表符不会被转义
+    printf(`say "hello"\n`);         // 双引号不会被转义
+    printf(`backslash\\test\n`);    // 反斜杠按字面量处理
+    
+    return 0;
+}
+

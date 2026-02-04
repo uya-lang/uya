@@ -1887,7 +1887,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
     }
     
     // 解析字符串字面量（无插值）
-    if (parser->current_token->type == TOKEN_STRING) {
+    if (parser->current_token->type == TOKEN_STRING || parser->current_token->type == TOKEN_RAW_STRING) {
         ASTNode *node = ast_new_node(AST_STRING, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
             return NULL;
@@ -1900,6 +1900,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         }
         
         // 字符串内容已经在 token 中，直接使用（token 的 value 存储在 Arena 中）
+        // 原始字符串和普通字符串在 AST 中都是 AST_STRING，区别在于原始字符串不处理转义
         node->data.string_literal.value = str_value;
         
         parser_consume(parser);

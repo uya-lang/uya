@@ -20,6 +20,7 @@ typedef enum {
     TOKEN_NUMBER,       // 整数字面量
     TOKEN_FLOAT,        // 浮点字面量
     TOKEN_STRING,       // 字符串字面量（无插值）
+    TOKEN_RAW_STRING,   // 原始字符串字面量（反引号，无转义）
     
     // 字符串插值相关（"text${expr}text" 或 "text${expr:spec}text"）
     TOKEN_INTERP_TEXT,   // 插值中的纯文本段，value 为文本内容
@@ -139,6 +140,7 @@ typedef struct Lexer {
     const char *filename;            // 文件名（存储在 Arena 中，可为 NULL）
     // 字符串插值状态（仅当 string_mode 或 interp_depth 非 0 时有效）
     int string_mode;                 // 1 表示在 "..." 内
+    int raw_string_mode;             // 1 表示在 `...` 内（原始字符串）
     int interp_depth;                // 在 ${ } 内时为 1，用于区分 } 是插值结束还是代码
     int pending_interp_open;         // 1 表示已返回 INTERP_TEXT，下一 token 应为 INTERP_OPEN
     int reading_spec;                 // 1 表示正在读取 :spec 直到 }

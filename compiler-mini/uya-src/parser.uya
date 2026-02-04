@@ -576,7 +576,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
     }
     
     // 解析字符串字面量
-    if parser.current_token.type == TokenType.TOKEN_STRING {
+    if parser.current_token.type == TokenType.TOKEN_STRING || parser.current_token.type == TokenType.TOKEN_RAW_STRING {
         const node: &ASTNode = ast_new_node(ASTNodeType.AST_STRING, line, column, parser.arena, parser_get_filename(parser));
         if node == null {
             return null;

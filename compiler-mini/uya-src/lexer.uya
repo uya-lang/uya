@@ -12,6 +12,7 @@ enum TokenType {
     TOKEN_NUMBER,
     TOKEN_FLOAT,
     TOKEN_STRING,
+    TOKEN_RAW_STRING,   // 原始字符串字面量（反引号，无转义）
     // 字符串插值相关（"text${expr}text" 或 "text${expr:spec}text"）
     TOKEN_INTERP_TEXT,
     TOKEN_INTERP_OPEN,
@@ -120,6 +121,7 @@ struct Lexer {
     filename: &byte,  // 可为 null，存储在 Arena 中
     // 字符串插值状态（仅当 string_mode 或 interp_depth 非 0 时有效）
     string_mode: i32,                 // 1 表示在 "..." 内
+    raw_string_mode: i32,             // 1 表示在 `...` 内（原始字符串）
     interp_depth: i32,                // 在 ${ } 内时为 1
     pending_interp_open: i32,         // 1 表示已返回 INTERP_TEXT，下一 token 应为 INTERP_OPEN
     reading_spec: i32,                // 1 表示正在读取 :spec 直到 }
@@ -573,6 +575,35 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
                 return make_token(arena, TokenType.TOKEN_INTERP_SPEC, spec_value2, lexer.line, lexer.column);
             }
         }
+        // 原始字符串模式处理（反引号，无转义）
+        if lexer.raw_string_mode != 0 {
+            lexer.string_text_len = 0;
+            while lexer.position < lexer.buffer_size {
+                const p: byte = peek_char(lexer, 0);
+                if p == 96 {
+                    // 遇到结束反引号
+                    lexer.string_text_buffer[lexer.string_text_len] = 0;
+                    const value: &byte = arena_copy_str(arena, &lexer.string_text_buffer[0] as &byte, lexer.string_text_len);
+                    if value == null {
+                        return null;
+                    }
+                    advance_char(lexer);
+                    lexer.raw_string_mode = 0;
+                    return make_token(arena, TokenType.TOKEN_RAW_STRING, value, lexer.line, lexer.column);
+                }
+                // 原始字符串：所有字符按字面量处理，不转义
+                if lexer.string_text_len >= LEXER_STRING_INTERP_BUFFER_SIZE - 1 {
+                    return null;
+                }
+                const c2: byte = advance_char(lexer);
+                if c2 == 0 {
+                    return null;
+                }
+                lexer.string_text_buffer[lexer.string_text_len] = c2;
+                lexer.string_text_len = lexer.string_text_len + 1;
+            }
+            return null;
+        }
         if lexer.string_mode != 0 && lexer.interp_depth == 0 {
             lexer.string_text_len = 0;
             while lexer.position < lexer.buffer_size {
@@ -586,6 +617,7 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
                         }
                         advance_char(lexer);
                         lexer.string_mode = 0;
+    lexer.raw_string_mode = 0;
                         return make_token(arena, TokenType.TOKEN_STRING, value, lexer.line, lexer.column);
                     }
                     if lexer.string_text_len > 0 {
@@ -599,6 +631,7 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
                     }
                     advance_char(lexer);
                     lexer.string_mode = 0;
+    lexer.raw_string_mode = 0;
                     lexer.has_seen_interp_in_string = 0;
                     return make_token(arena, TokenType.TOKEN_INTERP_END, null, lexer.line, lexer.column);
                 }
@@ -630,6 +663,12 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
             advance_char(lexer);
             lexer.string_mode = 1;
             lexer.has_seen_interp_in_string = 0;
+            lexer.string_text_len = 0;
+            continue;
+        }
+        if c == 96 {
+            advance_char(lexer);
+            lexer.raw_string_mode = 1;
             lexer.string_text_len = 0;
             continue;
         }
@@ -900,6 +939,7 @@ fn lexer_init(lexer: &Lexer, source: &byte, source_len: usize, filename: &byte, 
     lexer.line = 1;
     lexer.column = 1;
     lexer.string_mode = 0;
+    lexer.raw_string_mode = 0;
     lexer.interp_depth = 0;
     lexer.pending_interp_open = 0;
     lexer.reading_spec = 0;

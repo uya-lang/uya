@@ -27,6 +27,7 @@ int lexer_init(Lexer *lexer, const char *source, size_t source_len, const char *
     
     // 字符串插值状态初始化
     lexer->string_mode = 0;
+    lexer->raw_string_mode = 0;
     lexer->interp_depth = 0;
     lexer->pending_interp_open = 0;
     lexer->reading_spec = 0;
@@ -385,6 +386,36 @@ top_of_token:
         }
     }
     
+    // 原始字符串模式处理（反引号，无转义）
+    if (lexer->raw_string_mode) {
+        lexer->string_text_len = 0;
+        while (lexer->position < lexer->buffer_size) {
+            char p = peek_char(lexer, 0);
+            if (p == '`') {
+                // 遇到结束反引号
+                lexer->string_text_buffer[lexer->string_text_len] = '\0';
+                const char *value = arena_strdup(arena, lexer->string_text_buffer, lexer->string_text_len);
+                if (value == NULL) {
+                    return NULL;
+                }
+                advance_char(lexer);
+                lexer->raw_string_mode = 0;
+                return make_token(arena, TOKEN_RAW_STRING, value, line, column);
+            }
+            // 原始字符串：所有字符按字面量处理，不转义
+            if (lexer->string_text_len >= LEXER_STRING_INTERP_BUFFER_SIZE - 1) {
+                fprintf(stderr, "错误: 原始字符串太长（超过 %d 字节）\n", LEXER_STRING_INTERP_BUFFER_SIZE - 1);
+                return NULL;
+            }
+            char c = advance_char(lexer);
+            if (c == '\0') {
+                return NULL;  // 文件结束
+            }
+            lexer->string_text_buffer[lexer->string_text_len++] = c;
+        }
+        return NULL;  /* 原始字符串未闭合 */
+    }
+    
     if (lexer->string_mode && lexer->interp_depth == 0) {
         /* 每段新文本开始时清空缓冲，避免 INTERP_SPEC/INTERP_CLOSE 后的残留 */
         lexer->string_text_len = 0;
@@ -649,6 +680,12 @@ top_of_token:
             advance_char(lexer);
             lexer->string_mode = 1;
             lexer->has_seen_interp_in_string = 0;
+            lexer->string_text_len = 0;
+            goto top_of_token;
+        }
+        case '`': {
+            advance_char(lexer);
+            lexer->raw_string_mode = 1;
             lexer->string_text_len = 0;
             goto top_of_token;
         }

@@ -22,7 +22,7 @@
 | 8 | 结构体方法 + drop + 移动语义 | [x]（外部/内部方法、drop/RAII、移动语义 C 实现与 uya-src 已同步） |
 | 9 | 模块系统 | [x]（C 实现与 uya-src 已同步：目录即模块、export/use 可见性检查、模块路径解析、错误检测、递归依赖收集） |
 | 10 | 字符串插值 | [x] |
-| 11 | 原子类型 | [x]（C 实现已完成，uya-src 待同步） |
+| 11 | 原子类型 | [x]（C 实现与 uya-src 已同步，测试通过） |
 | 12 | 运算符与安全 | [x]（饱和/包装运算、as! 已实现；内存安全证明未实现） |
 | 13 | 联合体（union） | [x]（C 实现与 uya-src 已同步） |
 | 14 | 消灭所有警告 | [x]（主要工作已完成，剩余问题见下方说明） |
@@ -213,7 +213,7 @@
   **C 实现**：AST 在 struct_decl 中增加 methods/method_count 字段；Parser 在 parse_struct 中支持解析 fn 关键字（内部方法）；Checker 添加 find_method_in_struct 函数同时查找外部方法块和内部方法；Codegen 在 main.c 中生成内部方法原型和实现，function.c 添加 find_method_in_struct_c99 函数，expr.c/structs.c 使用新函数。  
   **uya-src 已同步**：ast.uya、parser.uya、checker.uya、codegen/c99/structs.uya、codegen/c99/expr.uya、codegen/c99/main.uya 均已同步修改。
 - [x] **drop / RAII**：用户自定义 `fn drop(self: T) void`，作用域结束逆序调用，规范 uya.md §12  
-  **C 实现（已完成）**：Checker 校验 drop 签名（仅一个参数 self: T 按值、返回 void）、每类型仅一个 drop（方法块与结构体内部不能重复）；Codegen 在块退出时先 defer 再按变量声明逆序插入 drop 调用，在 return/break/continue 前插入当前块变量的 drop；生成 drop 方法时先按字段逆序插入字段的 drop 再用户体。测试 test_drop_simple.uya、test_drop_order.uya 通过 `--c99`；error_drop_wrong_sig.uya、error_drop_duplicate.uya 预期编译失败。**uya-src 已同步**：checker.uya（check_drop_method_signature、METHOD_BLOCK 与 struct_decl 的 drop 校验）；codegen（stmt.uya 的 emit_drop_cleanup/emit_current_block_drops、current_drop_scope 与 drop_var_*、function.uya 的 drop 方法字段逆序）。**待修复**：test_drop_*.uya 在 `--uya --c99` 下测试失败（退出码 139，可能是段错误），需排查并修复。
+  **C 实现（已完成）**：Checker 校验 drop 签名（仅一个参数 self: T 按值、返回 void）、每类型仅一个 drop（方法块与结构体内部不能重复）；Codegen 在块退出时先 defer 再按变量声明逆序插入 drop 调用，在 return/break/continue 前插入当前块变量的 drop；生成 drop 方法时先按字段逆序插入字段的 drop 再用户体。测试 test_drop_simple.uya、test_drop_order.uya 通过 `--c99` 与 `--uya --c99`；error_drop_wrong_sig.uya、error_drop_duplicate.uya 预期编译失败。**uya-src 已同步**：checker.uya（check_drop_method_signature、METHOD_BLOCK 与 struct_decl 的 drop 校验）；codegen（stmt.uya 的 emit_drop_cleanup/emit_current_block_drops、current_drop_scope 与 drop_var_*、function.uya 的 drop 方法字段逆序）。
 - [x] **移动语义**：结构体赋值/传参/返回为移动，活跃指针禁止移动，规范 uya.md §12.5  
   **C 实现（已完成）**：Checker 维护已移动集合（moved_names）、符号表 pointee_of 记录 `p = &x` 的活跃指针；赋值/const 初始化/return/函数实参/结构体字面量字段若源为结构体变量则标记移动；使用标识符时检查「已被移动」、移动前检查「存在活跃指针」「循环中不能移动」。测试 test_move_simple.uya 通过；error_move_use_after.uya、error_move_active_pointer.uya、error_move_in_loop.uya 预期编译失败。**uya-src 已同步**：checker.uya 增加 Symbol.pointee_of、TypeChecker.moved_names/moved_count；moved_set_contains、has_active_pointer_to、checker_mark_moved、checker_mark_moved_call_args；AST_IDENTIFIER 使用前查已移动、var_decl/assign/return/call/struct_init 处标记移动及 pointee_of；为满足自举在返回/赋值处使用 copy_type 避免对同一 Type 变量多次移动。test_move_simple 与 error_move_* 在 --c99 与 --uya --c99 下均通过/预期失败。  
   **数组元素部分移出（当前未实现）**：移动追踪仅针对「整个变量」（AST_VAR_DECL + 标识符名）。`x = arr[i]` 的源是 AST_ARRAY_ACCESS，不会调用 checker_mark_moved，故**没有对数组元素做细粒度移出追踪**。Codegen 的 emit_drop_cleanup 只处理类型为 AST_TYPE_NAMED 的变量，数组类型变量不会加入 drop 列表，因此**当前不会对数组整体或元素做 drop**。后果：（1）不会出现「对已移出槽位 double drop」的 UB，因为根本不 drop 数组元素；（2）若元素类型有 drop，则数组离开作用域时**未调用的 drop 为规范缺口**；（3）若将来实现对数组元素的 drop，则必须先实现「按槽位追踪已移出」或等价机制，否则会产生 double drop / use-after-move 的 UB。
@@ -279,7 +279,9 @@
 
 - [x] **插值语法（C 实现 + uya-src 同步）**：`"a${x}"`、`"a${x:format}"`，结果类型 `[i8: N]`，与 printf 格式一致，规范 uya.md §17  
   已实现：多段、`:spec`（#06x、.2f、ld、zu）、连续插值、变量/数组初始化、printf 单参、表达式插值（如 `${a+b}`）、i32/u32/i64/f32/f64/usize/u8 等。**插值仅作 printf/fprintf 格式参数时脱糖为单次 printf(fmt, ...)、无中间缓冲**。test_string_interp.uya（19 条用例）等通过 `--c99` 与 `--uya --c99`。uya-src 已同步（Lexer/AST/Parser/Checker/Codegen）。
-- [ ] **原始字符串**：`` `...` ``，无转义，规范 uya.md §1
+- [x] **原始字符串**：`` `...` ``，无转义，规范 uya.md §1  
+  **C 实现（已完成）**：Lexer（TOKEN_RAW_STRING、raw_string_mode 字段、反引号处理逻辑）、Parser（支持 TOKEN_RAW_STRING，生成 AST_STRING 节点）。原始字符串所有字符按字面量处理，不处理转义序列。测试 test_raw_string.uya 通过 `--c99`。  
+  **uya-src 已同步**：lexer.uya（TOKEN_RAW_STRING、raw_string_mode 字段、反引号处理逻辑）、parser.uya（支持 TOKEN_RAW_STRING）。测试 test_raw_string.uya 通过 `--uya --c99`。
 
 **涉及**：Lexer、Parser、类型与宽度计算、Codegen。
 
@@ -289,7 +291,7 @@
 
 - [x] **atomic T**：语言层原子类型，规范 uya.md §13  
   **C 实现（已完成）**：Lexer（TOKEN_ATOMIC、复合赋值运算符 TOKEN_PLUS_ASSIGN/MINUS_ASSIGN/ASTERISK_ASSIGN/SLASH_ASSIGN/PERCENT_ASSIGN）、AST（AST_TYPE_ATOMIC）、Parser（parser_parse_type 支持 atomic T、复合赋值转换为 x = x op y）、Checker（type_from_ast 验证仅支持整数类型、支持原子类型与内部类型比较、错误报告）、Codegen（类型生成 _Atomic(T)、标识符访问生成 __atomic_load_n、赋值生成 __atomic_store_n、复合赋值 +=/-= 生成 __atomic_fetch_add/__atomic_fetch_sub）。测试 test_atomic_basic.uya、test_atomic_ops.uya、test_atomic_types.uya、test_atomic_struct.uya、error_atomic_non_integer.uya 通过 `--c99`。编译警告已修复（括号优先级、switch 语句完整性）。
-  **uya-src 已同步**：Lexer（TOKEN_ATOMIC、is_keyword 识别 atomic）、AST（AST_TYPE_ATOMIC、type_atomic_inner_type 字段）、Parser（parser_parse_type 解析 atomic T）、Checker（TYPE_ATOMIC、type_from_ast 验证仅支持整数类型、type_equals 原子类型比较、比较运算符支持原子类型与内部类型比较、copy_type 包含 atomic_inner_type）、Codegen（types.uya 生成 _Atomic(T)、expr.uya 标识符访问生成 __atomic_load_n、stmt.uya 赋值生成 __atomic_store_n 和复合赋值 __atomic_fetch_add/__atomic_fetch_sub）。测试待验证 `--uya --c99`。
+  **uya-src 已同步**：Lexer（TOKEN_ATOMIC、is_keyword 识别 atomic）、AST（AST_TYPE_ATOMIC、type_atomic_inner_type 字段）、Parser（parser_parse_type 解析 atomic T）、Checker（TYPE_ATOMIC、type_from_ast 验证仅支持整数类型、type_equals 原子类型比较、比较运算符支持原子类型与内部类型比较、copy_type 包含 atomic_inner_type）、Codegen（types.uya 生成 _Atomic(T)、expr.uya 标识符访问生成 __atomic_load_n、stmt.uya 赋值生成 __atomic_store_n 和复合赋值 __atomic_fetch_add/__atomic_fetch_sub）。测试 test_atomic_basic.uya、test_atomic_ops.uya、test_atomic_types.uya、test_atomic_struct.uya 通过 `--uya --c99`。
 - [ ] **&atomic T**：原子指针（待实现）
 - [x] **读/写/复合赋值**：自动原子指令，零运行时锁（已实现）
 
