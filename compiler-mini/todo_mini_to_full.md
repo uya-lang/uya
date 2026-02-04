@@ -22,7 +22,7 @@
 | 9 | 模块系统 | [x]（C 实现与 uya-src 已同步：目录即模块、export/use 可见性检查、模块路径解析、错误检测、递归依赖收集） |
 | 10 | 字符串插值 | [x] |
 | 11 | 原子类型 | [ ] |
-| 12 | 运算符与安全 | [ ] |
+| 12 | 运算符与安全 | [x]（饱和/包装运算、as! 已实现；内存安全证明未实现） |
 | 13 | 联合体（union） | [x]（C 实现与 uya-src 已同步） |
 | 14 | 消灭所有警告 | [ ] |
 
@@ -264,8 +264,10 @@
 
 ## 12. 运算符与安全
 
-- [x] **饱和运算**：`+|`、`-|`、`*|`，规范 uya.md §10、§16
-- [x] **包装运算**：`+%`、`-%`、`*%`，规范 uya.md §10、§16
+- [x] **饱和运算**：`+|`、`-|`、`*|`，规范 uya.md §10、§16  
+  **C 实现（已完成）**：Lexer（TOKEN_PLUS_PIPE/MINUS_PIPE/ASTERISK_PIPE）、Parser、Checker（仅支持整数类型，两操作数类型必须一致）、Codegen（使用 GCC __builtin_*_overflow 检测溢出，溢出时返回 MAX/MIN）。测试 test_saturating_wrapping.uya 通过 `--c99`。**uya-src 已同步**：lexer.uya、parser.uya、checker.uya、codegen/c99/expr.uya。通过 `--uya --c99`。
+- [x] **包装运算**：`+%`、`-%`、`*%`，规范 uya.md §10、§16  
+  **C 实现（已完成）**：Lexer（TOKEN_PLUS_PERCENT/MINUS_PERCENT/ASTERISK_PERCENT）、Parser、Checker（仅支持整数类型，两操作数类型必须一致）、Codegen（转换为无符号类型进行运算后转回有符号类型，实现包装语义）。测试 test_saturating_wrapping.uya 通过 `--c99`。**uya-src 已同步**：lexer.uya、parser.uya、checker.uya、codegen/c99/expr.uya。通过 `--uya --c99`。
 - [x] **切片运算符**：`[start:len]` 用于切片语法，规范 uya.md §10（已实现：base[start:len] 得 &[T]，test_slice.uya 通过）
 - [x] **类型转换 as!**：强转返回 `!T`，需 try/catch，规范 uya.md §11  
   **C 实现**：Lexer（TOKEN_AS_BANG，read_identifier_or_keyword 识别 as!）、AST（cast_expr.is_force_cast）、Parser（TOKEN_AS/AS_BANG 分支）、Checker（infer_type 对 as! 返回 TYPE_ERROR_UNION）、Codegen（as! 包装 !T、collect 预定义 !T 结构体、try/catch 使用操作数类型）、types（get_c_type_of_expr 对 as! 返回 err_union_X）。测试 test_as_force_cast.uya 通过 `--c99`。**uya-src 已同步**：lexer.uya、ast.uya、parser.uya、checker.uya、codegen expr/types/main.uya。通过 `--uya --c99`。
@@ -348,8 +350,9 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 
 ## 内置与标准库（补充）
 
-- [ ] **@sizeof/@alignof**：保持（以 @ 开头），并支持上述完整类型集合
-- [ ] **@len**：扩展至切片等，规范 uya.md §16
+- [x] **@sizeof/@alignof**：保持（以 @ 开头），支持基础类型、数组、结构体、切片等类型集合（规范 uya.md §16）
+- [x] **@len**：扩展至切片等，规范 uya.md §16  
+  **C 实现（已完成）**：Checker 支持数组（TYPE_ARRAY）和切片（TYPE_SLICE）类型；Codegen 对切片表达式生成 `.len` 访问，对切片字段也支持 `.len` 访问。测试 test_slice.uya 通过 `--c99`。**uya-src 已同步**：checker.uya、codegen/c99/expr.uya。通过 `--uya --c99`。
 - [x] **忽略标识符 _**：用于忽略返回值、解构、match，规范 uya.md §3
 
 **忽略标识符 _（已实现）**：Parser 在 primary_expr 中当标识符为 `_` 时生成 AST_UNDERSCORE；解构中 `_` 已支持（names 含 `"_"` 时 checker/codegen 跳过）。Checker：`_ = expr` 仅检查右侧；禁止 `var _`、参数 `_`；infer_type 对 AST_UNDERSCORE 报错「不能引用 _」。Codegen：`_ = expr` 语句生成 `(void)(expr);`，表达式生成 `(expr)`。测试 `test_underscore.uya` 通过 `--c99`；uya-src 已同步，自举编译通过。
@@ -402,9 +405,9 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 | 类型极值 | 无 | @max, @min 内置函数（以 @ 开头） | uya.md §2、§16 | [x] |
 | 切片类型 | 无 | &[T], &[T: N] | uya.md §2、§4 | [x] |
 | 元组类型 | 无 | (T1, T2,...), .0/.1, 解构 | uya.md §2 | [x] |
-| 错误联合 !T | 无 | !T, error 定义 | uya.md §2、§5 |
-| 联合体类型 | 无 | union U { v1: T1, v2: T2 } | uya.md §4.5 |
-| 接口类型 | 无 | interface I, struct S : I | uya.md §6 |
+| 错误联合 !T | 无 | !T, error 定义 | uya.md §2、§5 | [x] |
+| 联合体类型 | 无 | union U { v1: T1, v2: T2 } | uya.md §4.5 | [x] |
+| 接口类型 | 无 | interface I, struct S : I | uya.md §6 | [x] |
 | 函数指针 | 无 | fn(...) type | uya.md §5.2 |
 | 原子类型 | 无 | atomic T, &atomic T | uya.md §13 |
 
