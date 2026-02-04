@@ -613,12 +613,12 @@ top_of_token:
                     return NULL;
                 }
                 // 仅接受已知内置函数与内置变量
-                if (strcmp(value, "sizeof") == 0 || strcmp(value, "alignof") == 0 ||
+                if (strcmp(value, "size_of") == 0 || strcmp(value, "align_of") == 0 ||
                     strcmp(value, "len") == 0 || strcmp(value, "max") == 0 || strcmp(value, "min") == 0 ||
                     strcmp(value, "params") == 0) {
                     return make_token(arena, TOKEN_AT_IDENTIFIER, value, line, column);
                 }
-                fprintf(stderr, "错误: 未知内置 @%s，支持：@sizeof、@alignof、@len、@max、@min、@params\n", value);
+                fprintf(stderr, "错误: 未知内置 @%s，支持：@size_of、@align_of、@len、@max、@min、@params\n", value);
                 return NULL;
             }
             fprintf(stderr, "错误: @ 后必须是标识符\n");

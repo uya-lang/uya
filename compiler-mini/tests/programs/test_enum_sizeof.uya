@@ -17,55 +17,55 @@ enum HttpStatus {
 fn main() i32 {
     // 测试1：枚举类型 sizeof（类型）
     // 枚举默认底层类型为 i32，所以大小应该是 4 字节
-    const color_type_size: i32 = @sizeof(Color);
+    const color_type_size: i32 = @size_of(Color);
     if color_type_size != 4 {
         return 1;  // Color 枚举类型应该是 4 字节（i32 大小）
     }
     
-    const http_status_type_size: i32 = @sizeof(HttpStatus);
+    const http_status_type_size: i32 = @size_of(HttpStatus);
     if http_status_type_size != 4 {
         return 1;  // HttpStatus 枚举类型应该是 4 字节（i32 大小）
     }
     
     // 测试2：枚举变量 sizeof（表达式）
     var color: Color = Color.RED;
-    const color_var_size: i32 = @sizeof(color);
+    const color_var_size: i32 = @size_of(color);
     if color_var_size != 4 {
         return 1;  // Color 枚举变量应该是 4 字节
     }
     
     var status: HttpStatus = HttpStatus.OK;
-    const status_var_size: i32 = @sizeof(status);
+    const status_var_size: i32 = @size_of(status);
     if status_var_size != 4 {
         return 1;  // HttpStatus 枚举变量应该是 4 字节
     }
     
     // 测试3：枚举指针类型 sizeof
-    const color_ptr_size: i32 = @sizeof(&Color);
+    const color_ptr_size: i32 = @size_of(&Color);
     if color_ptr_size != 8 {
         return 1;  // Color 枚举指针类型应该是 8 字节（64位平台）
     }
     
-    const http_status_ptr_size: i32 = @sizeof(&HttpStatus);
+    const http_status_ptr_size: i32 = @size_of(&HttpStatus);
     if http_status_ptr_size != 8 {
         return 1;  // HttpStatus 枚举指针类型应该是 8 字节（64位平台）
     }
     
     // 测试4：枚举指针变量 sizeof
     var color_ptr: &Color = null;
-    const color_ptr_var_size: i32 = @sizeof(color_ptr);
+    const color_ptr_var_size: i32 = @size_of(color_ptr);
     if color_ptr_var_size != 8 {
         return 1;  // Color 枚举指针变量应该是 8 字节
     }
     
     var status_ptr: &HttpStatus = null;
-    const status_ptr_var_size: i32 = @sizeof(status_ptr);
+    const status_ptr_var_size: i32 = @size_of(status_ptr);
     if status_ptr_var_size != 8 {
         return 1;  // HttpStatus 枚举指针变量应该是 8 字节
     }
     
     // 测试5：枚举类型大小应该与 i32 相同
-    const i32_size: i32 = @sizeof(i32);
+    const i32_size: i32 = @size_of(i32);
     if color_type_size != i32_size {
         return 1;  // 枚举类型大小应该等于 i32 大小（默认底层类型）
     }

@@ -51,20 +51,20 @@ fn main() i32 {
     // ========== 测试3：二维数组 sizeof ==========
     
     // 3.1 二维数组类型 sizeof
-    const arr2d_type_size: i32 = @sizeof([[i32: 2]: 3]);
-    // [[i32: 2]: 3] 大小 = 3 * @sizeof([i32: 2]) = 3 * 8 = 24
+    const arr2d_type_size: i32 = @size_of([[i32: 2]: 3]);
+    // [[i32: 2]: 3] 大小 = 3 * @size_of([i32: 2]) = 3 * 8 = 24
     if arr2d_type_size != 24 {
         return 6;  // 二维数组大小应该是 24 字节
     }
     
     // 3.2 二维数组变量 sizeof
-    const arr2d_var_size: i32 = @sizeof(arr2d);
+    const arr2d_var_size: i32 = @size_of(arr2d);
     if arr2d_var_size != 24 {
         return 7;  // 二维数组变量大小应该是 24 字节
     }
     
     // 3.3 一维数组元素 sizeof
-    const arr1d_size: i32 = @sizeof(arr2d[0]);
+    const arr1d_size: i32 = @size_of(arr2d[0]);
     // arr2d[0] 类型是 [i32: 2]，大小 = 8
     if arr1d_size != 8 {
         return 8;  // 一维数组元素大小应该是 8 字节
@@ -106,8 +106,8 @@ fn main() i32 {
     }
     
     // 5.2 三维数组 sizeof
-    const arr3d_size: i32 = @sizeof(arr3d);
-    // [[[i32: 2]: 2]: 2] 大小 = 2 * @sizeof([[i32: 2]: 2]) = 2 * 16 = 32
+    const arr3d_size: i32 = @size_of(arr3d);
+    // [[[i32: 2]: 2]: 2] 大小 = 2 * @size_of([[i32: 2]: 2]) = 2 * 16 = 32
     if arr3d_size != 32 {
         return 13;  // 三维数组大小应该是 32 字节
     }
@@ -169,7 +169,7 @@ fn main() i32 {
     // ========== 测试8：多维数组对齐 ==========
     
     // 8.1 二维数组 alignof
-    const arr2d_align: i32 = @alignof(arr2d);
+    const arr2d_align: i32 = @align_of(arr2d);
     // 二维数组对齐 = 元素类型对齐 = i32 对齐 = 4
     if arr2d_align != 4 {
         return 19;  // 二维数组对齐应该是 4

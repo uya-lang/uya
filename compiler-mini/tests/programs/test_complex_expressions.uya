@@ -207,15 +207,15 @@ fn main() i32 {
     // ========== 测试10：sizeof 和 alignof 在表达式中使用 ==========
     
     // 10.1 sizeof 在算术表达式中
-    var size1: i32 = @sizeof(Point) * 2;
+    var size1: i32 = @size_of(Point) * 2;
     if size1 != 16 {
-        return 24;  // @sizeof(Point) = 8, 8 * 2 = 16
+        return 24;  // @size_of(Point) = 8, 8 * 2 = 16
     }
     
     // 10.2 alignof 在比较表达式中
-    var align1: i32 = @alignof(Point);
+    var align1: i32 = @align_of(Point);
     if align1 != 4 {
-        return 25;  // @alignof(Point) 应该是 4
+        return 25;  // @align_of(Point) 应该是 4
     }
     
     // 10.3 len 在循环条件中

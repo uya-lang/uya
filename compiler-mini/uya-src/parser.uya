@@ -222,7 +222,7 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
         
         if parser.current_token != null && parser.current_token.type == TokenType.TOKEN_COMMA {
             // 元组类型：(T1, T2, ...)
-            var elements: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * 16) as & & ASTNode;
+            var elements: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * 16) as & & ASTNode;
             if elements == null {
                 return null;
             }
@@ -239,7 +239,7 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
                 }
                 if count >= cap {
                     const new_cap: i32 = cap * 2;
-                    const new_elements: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_cap) as & & ASTNode;
+                    const new_elements: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_cap) as & & ASTNode;
                     if new_elements == null {
                         return null;
                     }
@@ -543,7 +543,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         if node == null {
             return null;
         }
-        const segs: &ASTStringInterpSegment = arena_alloc(parser.arena, (seg_count as usize) * @sizeof(ASTStringInterpSegment)) as &ASTStringInterpSegment;
+        const segs: &ASTStringInterpSegment = arena_alloc(parser.arena, (seg_count as usize) * @size_of(ASTStringInterpSegment)) as &ASTStringInterpSegment;
         if segs == null {
             return null;
         }
@@ -613,7 +613,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         if parser_expect(parser, TokenType.TOKEN_LEFT_BRACE) == null {
             return null;
         }
-        const arms_buf: &ASTMatchArm = arena_alloc(parser.arena, 64 * @sizeof(ASTMatchArm)) as &ASTMatchArm;
+        const arms_buf: &ASTMatchArm = arena_alloc(parser.arena, 64 * @size_of(ASTMatchArm)) as &ASTMatchArm;
         if arms_buf == null {
             return null;
         }
@@ -779,7 +779,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             return null;
         }
         match_expr_node.match_expr_expr = expr_val;
-        const arms_final: &ASTMatchArm = arena_alloc(parser.arena, arm_count * @sizeof(ASTMatchArm)) as &ASTMatchArm;
+        const arms_final: &ASTMatchArm = arena_alloc(parser.arena, arm_count * @size_of(ASTMatchArm)) as &ASTMatchArm;
         if arms_final == null {
             return null;
         }
@@ -867,10 +867,10 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         return node;
     }
     
-    // 解析 @sizeof 表达式：@sizeof(Type) 或 @sizeof(expr)
+    // 解析 @size_of 表达式：@size_of(Type) 或 @size_of(expr)
     if parser.current_token.type == TokenType.TOKEN_AT_IDENTIFIER && parser.current_token.value != null &&
-        str_equals_lexer(parser.current_token.value, "sizeof" as &byte) != 0 {
-        parser_consume(parser);  // 消费 'sizeof'
+        str_equals_lexer(parser.current_token.value, "size_of" as &byte) != 0 {
+        parser_consume(parser);  // 消费 'size_of'
         
         // 期望 '('
         if parser_expect(parser, TokenType.TOKEN_LEFT_PAREN) == null {
@@ -931,10 +931,10 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         return sizeof_node;
     }
     
-    // 解析 @alignof 表达式：@alignof(Type) 或 @alignof(expr)
+    // 解析 @align_of 表达式：@align_of(Type) 或 @align_of(expr)
     if parser.current_token.type == TokenType.TOKEN_AT_IDENTIFIER && parser.current_token.value != null &&
-        str_equals_lexer(parser.current_token.value, "alignof" as &byte) != 0 {
-        parser_consume(parser);  // 消费 'alignof'
+        str_equals_lexer(parser.current_token.value, "align_of" as &byte) != 0 {
+        parser_consume(parser);  // 消费 'align_of'
         
         // 期望 '('
         if parser_expect(parser, TokenType.TOKEN_LEFT_PAREN) == null {
@@ -1096,7 +1096,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = arg_capacity * 2;
                         }
-                        const new_args: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_capacity) as & & ASTNode;
+                        const new_args: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_capacity) as & & ASTNode;
                         if new_args == null {
                             return null;
                         }
@@ -1228,7 +1228,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                             } else {
                                 new_cap = arg_cap2 * 2;
                             }
-                            const new_a: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_cap) as & & ASTNode;
+                            const new_a: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_cap) as & & ASTNode;
                             if new_a == null {
                                 return null;
                             }
@@ -1393,8 +1393,8 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = field_capacity * 2;
                         }
-                        const new_field_names: & & byte = arena_alloc(parser.arena, @sizeof(&byte) * new_capacity) as & & byte;
-                        const new_field_values: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_capacity) as & & ASTNode;
+                        const new_field_names: & & byte = arena_alloc(parser.arena, @size_of(&byte) * new_capacity) as & & byte;
+                        const new_field_values: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_capacity) as & & ASTNode;
                         if new_field_names == null || new_field_values == null {
                             return null;
                         }
@@ -1560,7 +1560,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                             } else {
                                 new_cap = arg_cap * 2;
                             }
-                            const new_a: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_cap) as & & ASTNode;
+                            const new_a: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_cap) as & & ASTNode;
                             if new_a == null {
                                 return null;
                             }
@@ -1624,7 +1624,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                 if parser_expect(parser, TokenType.TOKEN_RIGHT_BRACKET) == null {
                     return null;
                 }
-                const elements: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode)) as & & ASTNode;
+                const elements: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode)) as & & ASTNode;
                 if elements == null {
                     return null;
                 }
@@ -1643,7 +1643,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                     } else {
                         new_capacity = element_capacity * 2;
                     }
-                    const new_elements: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_capacity) as & & ASTNode;
+                    const new_elements: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_capacity) as & & ASTNode;
                     if new_elements == null {
                         return null;
                     }
@@ -1679,7 +1679,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = element_capacity * 2;
                         }
-                        const new_elements: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_capacity) as & & ASTNode;
+                        const new_elements: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_capacity) as & & ASTNode;
                         if new_elements == null {
                             return null;
                         }
@@ -1786,7 +1786,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         var result: &ASTNode = null;
         if parser.current_token != null && parser.current_token.type == TokenType.TOKEN_COMMA {
             // 元组字面量：(expr1, expr2, ...)
-            var elements: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * 16) as & & ASTNode;
+            var elements: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * 16) as & & ASTNode;
             if elements == null {
                 return null;
             }
@@ -1803,7 +1803,7 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                 }
                 if count >= cap {
                     const new_cap: i32 = cap * 2;
-                    const new_elements: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_cap) as & & ASTNode;
+                    const new_elements: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_cap) as & & ASTNode;
                     if new_elements == null {
                         return null;
                     }
@@ -2623,7 +2623,7 @@ fn parser_parse_block(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = stmt_capacity * 2;
                         }
-            const new_stmts: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_capacity) as & & ASTNode;
+            const new_stmts: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_capacity) as & & ASTNode;
             if new_stmts == null {
                 // 注意：Uya 版本简化错误报告
                 return null;
@@ -2802,7 +2802,7 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
             if block == null {
                 return null;
             }
-            const stmts: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode)) as & & ASTNode;
+            const stmts: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode)) as & & ASTNode;
             if stmts == null {
                 return null;
             }
@@ -2841,7 +2841,7 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
                 if block == null {
                     return null;
                 }
-                const stmts: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode)) as & & ASTNode;
+                const stmts: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode)) as & & ASTNode;
                 if stmts == null {
                     return null;
                 }
@@ -2980,7 +2980,7 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
         if parser.current_token != null && parser.current_token.type == TokenType.TOKEN_LEFT_PAREN {
             parser_consume(parser);  // 消费 '('
             
-            var names: & & byte = arena_alloc(parser.arena, @sizeof(&byte) * 16) as & & byte;
+            var names: & & byte = arena_alloc(parser.arena, @size_of(&byte) * 16) as & & byte;
             if names == null {
                 return null;
             }
@@ -3004,7 +3004,7 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
                 parser_consume(parser);  // 消费标识符
                 if count >= cap {
                     const new_cap: i32 = cap * 2;
-                    const new_names: & & byte = arena_alloc(parser.arena, @sizeof(&byte) * new_cap) as & & byte;
+                    const new_names: & & byte = arena_alloc(parser.arena, @size_of(&byte) * new_cap) as & & byte;
                     if new_names == null {
                         return null;
                     }
@@ -3214,7 +3214,7 @@ fn parser_parse_interface(parser: &Parser) &ASTNode {
                 } else {
                     new_cap = param_cap * 2;
                 }
-                const new_p: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_cap) as & & ASTNode;
+                const new_p: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_cap) as & & ASTNode;
                 if new_p == null {
                     return null;
                 }
@@ -3268,7 +3268,7 @@ fn parser_parse_interface(parser: &Parser) &ASTNode {
             } else {
                 new_cap = sig_cap * 2;
             }
-            const new_sigs: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_cap) as & & ASTNode;
+            const new_sigs: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_cap) as & & ASTNode;
             if new_sigs == null {
                 return null;
             }
@@ -3320,7 +3320,7 @@ fn parser_parse_method_block(parser: &Parser, struct_name: &byte) &ASTNode {
             } else {
                 new_cap = method_cap * 2;
             }
-            const new_m: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_cap) as & & ASTNode;
+            const new_m: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_cap) as & & ASTNode;
             if new_m == null {
                 return null;
             }
@@ -3406,7 +3406,7 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
                 } else {
                     new_cap = iface_capacity * 2;
                 }
-                const new_ifaces: & & byte = arena_alloc(parser.arena, @sizeof(&byte) * new_cap) as & & byte;
+                const new_ifaces: & & byte = arena_alloc(parser.arena, @size_of(&byte) * new_cap) as & & byte;
                 if new_ifaces == null {
                     return null;
                 }
@@ -3470,7 +3470,7 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
                 } else {
                     new_cap = method_capacity * 2;
                 }
-                const new_methods: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_cap) as & & ASTNode;
+                const new_methods: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_cap) as & & ASTNode;
                 if new_methods == null {
                     return null;
                 }
@@ -3541,7 +3541,7 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = field_capacity * 2;
                         }
-            const new_fields: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_capacity) as & & ASTNode;
+            const new_fields: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_capacity) as & & ASTNode;
             if new_fields == null {
                 // 注意：Uya 版本简化错误报告
                 return null;
@@ -3622,7 +3622,7 @@ fn parser_parse_union_body(parser: &Parser, line: i32, column: i32, is_extern: i
                 } else {
                     new_cap = method_capacity * 2;
                 }
-                const new_m: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_cap) as & & ASTNode;
+                const new_m: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_cap) as & & ASTNode;
                 if new_m == null {
                     return null;
                 }
@@ -3673,7 +3673,7 @@ fn parser_parse_union_body(parser: &Parser, line: i32, column: i32, is_extern: i
             } else {
                 new_cap = variant_capacity * 2;
             }
-            const new_v: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_cap) as & & ASTNode;
+            const new_v: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_cap) as & & ASTNode;
             if new_v == null {
                 return null;
             }
@@ -3792,7 +3792,7 @@ fn parser_parse_enum(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = variant_capacity * 2;
                         }
-            const new_variants: &EnumVariant = arena_alloc(parser.arena, @sizeof(EnumVariant) * new_capacity) as &EnumVariant;
+            const new_variants: &EnumVariant = arena_alloc(parser.arena, @size_of(EnumVariant) * new_capacity) as &EnumVariant;
             if new_variants == null {
                 return null;
             }
@@ -4000,7 +4000,7 @@ fn parser_parse_function(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = param_capacity * 2;
                         }
-                const new_params: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_capacity) as & & ASTNode;
+                const new_params: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_capacity) as & & ASTNode;
                 if new_params == null {
                     // 注意：Uya 版本简化错误报告
                     return null;
@@ -4176,7 +4176,7 @@ fn parser_parse_extern_function_after_extern(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = param_capacity * 2;
                         }
-                const new_params: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_capacity) as & & ASTNode;
+                const new_params: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_capacity) as & & ASTNode;
                 if new_params == null {
                     return null;
                 }
@@ -4285,7 +4285,7 @@ fn parser_parse_use_stmt(parser: &Parser) &ASTNode {
             } else {
                 new_capacity = new_capacity * 2;
             }
-            const new_segments: & & byte = arena_alloc(parser.arena, (@sizeof(&byte) as usize) * (new_capacity as usize)) as & & byte;
+            const new_segments: & & byte = arena_alloc(parser.arena, (@size_of(&byte) as usize) * (new_capacity as usize)) as & & byte;
             if new_segments == null {
                 return null;
             }
@@ -4548,7 +4548,7 @@ fn parser_parse(parser: &Parser) &ASTNode {
                         } else {
                             new_capacity = decl_capacity * 2;
                         }
-            const new_decls: & & ASTNode = arena_alloc(parser.arena, @sizeof(&ASTNode) * new_capacity) as & & ASTNode;
+            const new_decls: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_capacity) as & & ASTNode;
             if new_decls == null {
                 return null;
             }

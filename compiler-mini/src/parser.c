@@ -2089,10 +2089,10 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return node;
     }
     
-    // 解析 @sizeof 表达式：@sizeof(Type) 或 @sizeof(expr)
+    // 解析 @size_of 表达式：@size_of(Type) 或 @size_of(expr)
     if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
-        strcmp(parser->current_token->value, "sizeof") == 0) {
-        parser_consume(parser);  // 消费 'sizeof'
+        strcmp(parser->current_token->value, "size_of") == 0) {
+        parser_consume(parser);  // 消费 'size_of'
         
         // 期望 '('
         if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
@@ -2159,10 +2159,10 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return sizeof_node;
     }
     
-    // 解析 @alignof 表达式：@alignof(Type) 或 @alignof(expr)
+    // 解析 @align_of 表达式：@align_of(Type) 或 @align_of(expr)
     if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
-        strcmp(parser->current_token->value, "alignof") == 0) {
-        parser_consume(parser);  // 消费 'alignof'
+        strcmp(parser->current_token->value, "align_of") == 0) {
+        parser_consume(parser);  // 消费 'align_of'
         
         // 期望 '('
         if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {

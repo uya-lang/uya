@@ -132,8 +132,8 @@ fn main() i32 {
     
     // ========== 测试16：sizeof 和混合运算 ==========
     
-    var ptr_size: i32 = @sizeof(&i32);
-    var usize_size: i32 = @sizeof(usize);
+    var ptr_size: i32 = @size_of(&i32);
+    var usize_size: i32 = @size_of(usize);
     // 验证 usize 大小等于指针大小（规范要求）
     if usize_size != ptr_size {
         return 16;  // usize 大小应该等于指针大小

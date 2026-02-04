@@ -41,7 +41,7 @@ fn set_point(p: &Point, x: i32, y: i32) void {
 
 fn main() i32 {
     // 测试1：sizeof 指针类型
-    const ptr_size: i32 = @sizeof(&i32);
+    const ptr_size: i32 = @size_of(&i32);
     if ptr_size != 8 {
         return 1;  // 指针应该是 8 字节（64位平台）
     }

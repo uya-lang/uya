@@ -24,22 +24,22 @@ fn main() i32 {
         return 4;  // 变量值应该被修改为 200
     }
     
-    // 测试3：@sizeof(usize) 类型大小（平台相关）
-    const usize_size: i32 = @sizeof(usize);
+    // 测试3：@size_of(usize) 类型大小（平台相关）
+    const usize_size: i32 = @size_of(usize);
     // usize 大小应该是 4（32位平台）或 8（64位平台）
     if usize_size != 4 && usize_size != 8 {
         return 5;  // usize 应该是 4 或 8 字节（平台字长）
     }
     
-    // 测试4：@sizeof(usize 变量) 变量大小
-    const usize_var_size: i32 = @sizeof(usize_var);
+    // 测试4：@size_of(usize 变量) 变量大小
+    const usize_var_size: i32 = @size_of(usize_var);
     if usize_var_size != usize_size {
         return 6;  // usize 变量大小应该与类型大小相同
     }
     
     // 测试5：usize 指针类型大小（应该等于指针大小）
-    const ptr_usize_size: i32 = @sizeof(&usize);
-    const ptr_i32_size: i32 = @sizeof(&i32);
+    const ptr_usize_size: i32 = @size_of(&usize);
+    const ptr_i32_size: i32 = @size_of(&i32);
     if ptr_usize_size != ptr_i32_size {
         return 7;  // usize 指针大小应该与 i32 指针大小相同（平台字长）
     }
@@ -106,15 +106,15 @@ fn main() i32 {
         return 17;  // usize as i32 转换应该保持值（如果值在 i32 范围内）
     }
     
-    // 测试14：@alignof(usize) 对齐值
-    const usize_align: i32 = @alignof(usize);
+    // 测试14：@align_of(usize) 对齐值
+    const usize_align: i32 = @align_of(usize);
     // usize 对齐值应该等于其大小（自然对齐）
     if usize_align != usize_size {
         return 18;  // usize 对齐值应该等于其大小
     }
     
-    // 测试15：@alignof(usize 变量) 变量对齐值
-    const usize_var_align: i32 = @alignof(usize_var);
+    // 测试15：@align_of(usize 变量) 变量对齐值
+    const usize_var_align: i32 = @align_of(usize_var);
     if usize_var_align != usize_align {
         return 19;  // usize 变量对齐值应该与类型对齐值相同
     }
@@ -138,7 +138,7 @@ fn main() i32 {
     }
     
     // 测试19：usize 指针变量大小
-    const usize_ptr_var_size: i32 = @sizeof(usize_ptr);
+    const usize_ptr_var_size: i32 = @size_of(usize_ptr);
     if usize_ptr_var_size != ptr_usize_size {
         return 23;  // usize 指针变量大小应该与指针类型大小相同
     }

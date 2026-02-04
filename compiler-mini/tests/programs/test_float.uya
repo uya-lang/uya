@@ -66,10 +66,10 @@ fn main() i32 {
     
     // ========== 测试7：sizeof f32/f64 ==========
     
-    if @sizeof(f32) != 4 {
+    if @size_of(f32) != 4 {
         return 9;
     }
-    if @sizeof(f64) != 8 {
+    if @size_of(f64) != 8 {
         return 10;
     }
     

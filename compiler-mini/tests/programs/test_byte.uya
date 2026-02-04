@@ -24,20 +24,20 @@ fn main() i32 {
         return 4;  // 变量值应该被修改为 100
     }
     
-    // 测试3：@sizeof(byte) 类型大小
-    const byte_size: i32 = @sizeof(byte);
+    // 测试3：@size_of(byte) 类型大小
+    const byte_size: i32 = @size_of(byte);
     if byte_size != 1 {
         return 5;  // byte 应该是 1 字节
     }
     
-    // 测试4：@sizeof(byte 变量) 变量大小
-    const byte_var_size: i32 = @sizeof(byte_var);
+    // 测试4：@size_of(byte 变量) 变量大小
+    const byte_var_size: i32 = @size_of(byte_var);
     if byte_var_size != 1 {
         return 6;  // byte 变量应该是 1 字节
     }
     
     // 测试5：byte 指针类型大小
-    const ptr_byte_size: i32 = @sizeof(&byte);
+    const ptr_byte_size: i32 = @size_of(&byte);
     if ptr_byte_size != 8 {
         return 7;  // byte 指针应该是 8 字节（64位平台）
     }
@@ -61,7 +61,7 @@ fn main() i32 {
     }
     
     // 测试9：byte 指针变量大小
-    const byte_ptr_var_size: i32 = @sizeof(byte_ptr);
+    const byte_ptr_var_size: i32 = @size_of(byte_ptr);
     if byte_ptr_var_size != 8 {
         return 11;  // byte 指针变量应该是 8 字节
     }

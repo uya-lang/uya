@@ -76,15 +76,15 @@ fn main() i32 {
     // 注意：这里只是测试 &void 类型本身，不涉及函数调用
     
     // 测试9：&void 指针的 sizeof
-    const void_ptr_size: i32 = @sizeof(&void);
-    const i32_ptr_size: i32 = @sizeof(&i32);
+    const void_ptr_size: i32 = @size_of(&void);
+    const i32_ptr_size: i32 = @size_of(&i32);
     if void_ptr_size != i32_ptr_size {
         return 11;  // &void 指针大小应该与其他指针大小相同
     }
     
     // 测试10：&void 指针的 alignof
-    const void_ptr_align: i32 = @alignof(&void);
-    const i32_ptr_align: i32 = @alignof(&i32);
+    const void_ptr_align: i32 = @align_of(&void);
+    const i32_ptr_align: i32 = @align_of(&i32);
     if void_ptr_align != i32_ptr_align {
         return 12;  // &void 指针对齐应该与其他指针对齐相同
     }

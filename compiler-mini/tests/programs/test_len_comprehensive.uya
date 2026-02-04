@@ -41,7 +41,7 @@ fn main() i32 {
     
     // 测试 6: len 与 sizeof 的区别
     var arr6: [i32: 4] = [1, 2, 3, 4];
-    const size6: i32 = @sizeof(arr6);  // 应该是 16 (4 * 4 字节)
+    const size6: i32 = @size_of(arr6);  // 应该是 16 (4 * 4 字节)
     const len6: i32 = @len(arr6);      // 应该是 4 (元素个数)
     if size6 != 16 || len6 != 4 {
         return 6;

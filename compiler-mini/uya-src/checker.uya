@@ -1375,7 +1375,7 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
         
         // 分配指向的类型结构（从Arena分配）
         // 注意：Uya 不支持指针运算，需要使用数组访问
-        const pointed_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+        const pointed_type_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
         if pointed_type_ptr == null {
             // Arena 分配失败
             result.kind = TypeKind.TYPE_VOID;
@@ -1401,7 +1401,7 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
         
         // 分配元素类型结构（从Arena分配）
         // 注意：Uya 不支持指针运算，需要使用数组访问
-        const element_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+        const element_type_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
         if element_type_ptr == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
@@ -1439,7 +1439,7 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
             result.kind = TypeKind.TYPE_VOID;
             return result;
         }
-        const elem_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+        const elem_type_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
         if elem_type_ptr == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
@@ -1464,7 +1464,7 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
             result.kind = TypeKind.TYPE_VOID;
             return result;
         }
-        const element_types: &Type = arena_alloc(checker.arena, @sizeof(Type) * n as usize) as &Type;
+        const element_types: &Type = arena_alloc(checker.arena, @size_of(Type) * n as usize) as &Type;
         if element_types == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
@@ -1495,7 +1495,7 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
             result.kind = TypeKind.TYPE_VOID;
             return result;
         }
-        const payload_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+        const payload_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
         if payload_ptr == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
@@ -1789,7 +1789,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         
         // 分配指向的类型结构（从Arena分配）
         // 注意：Uya 不支持指针运算，需要使用数组访问
-        const pointed_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+        const pointed_type_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
         if pointed_type_ptr == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
@@ -1821,7 +1821,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             i = i + 1;
         }
         expr.string_interp_computed_size = total;
-        const i8_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+        const i8_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
         if i8_ptr == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
@@ -1853,7 +1853,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             result.tuple_count = 0;
             return result;
         }
-        const elem_types: &Type = arena_alloc(checker.arena, @sizeof(Type) * cur_fn.fn_decl_param_count) as &Type;
+        const elem_types: &Type = arena_alloc(checker.arena, @size_of(Type) * cur_fn.fn_decl_param_count) as &Type;
         if elem_types == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
@@ -1904,7 +1904,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         if expr.catch_expr_err_name != null {
             var err_type: Type = Type { kind: TypeKind.TYPE_ERROR, enum_name: null, struct_name: null, pointer_to: null, is_ffi_pointer: 0, element_type: null, array_size: 0, slice_element_type: null, slice_len: 0, tuple_element_types: null, tuple_count: 0, error_union_payload_type: null, error_error_id: 0 };
             checker_enter_scope(checker);
-            const sym: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
+            const sym: &Symbol = arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
             if sym != null {
                 sym.name = expr.catch_expr_err_name;
                 sym.type = err_type;
@@ -1991,7 +1991,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             
             // 分配操作数类型结构（从Arena分配）
             // 注意：Uya 不支持指针运算，需要使用数组访问
-            const pointed_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+            const pointed_type_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
             if pointed_type_ptr == null {
                 result.kind = TypeKind.TYPE_VOID;
                 return result;
@@ -2221,7 +2221,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             result.kind = TypeKind.TYPE_VOID;
             return result;
         }
-        const element_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+        const element_type_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
         if element_type_ptr == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
@@ -2245,7 +2245,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             result.kind = TypeKind.TYPE_VOID;
             return result;
         }
-        const element_types: &Type = arena_alloc(checker.arena, @sizeof(Type) * n as usize) as &Type;
+        const element_types: &Type = arena_alloc(checker.arena, @size_of(Type) * n as usize) as &Type;
         if element_types == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
@@ -2281,7 +2281,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
                 result.kind = TypeKind.TYPE_VOID;
                 return result;
             }
-            const element_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+            const element_type_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
             if element_type_ptr == null {
                 result.kind = TypeKind.TYPE_VOID;
                 return result;
@@ -2304,7 +2304,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             return result;
         }
         
-        const element_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+        const element_type_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
         if element_type_ptr == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
@@ -2343,7 +2343,7 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             return target_type;
         }
         // as! 强转：返回 !T（错误联合类型）
-        const payload_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+        const payload_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
         if payload_ptr == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
@@ -2541,7 +2541,7 @@ fn checker_check_destructure_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         if name != null && str_equals(name, "_" as *byte) != 0 {
             // 忽略 "_"，不加入符号表
         } else if name != null {
-            const symbol: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
+            const symbol: &Symbol = arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
             if symbol == null {
                 return 1;
             }
@@ -2667,7 +2667,7 @@ fn checker_check_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     } else {
         // 将变量添加到符号表（顶层且已第一遍注册时跳过插入）
         if checker.scope_level != 0 || existing == null || existing.scope_level != 0 || existing.line != node.line || existing.column != node.column {
-            const symbol: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
+            const symbol: &Symbol = arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
             if symbol == null {
                 return 1;
             }
@@ -2726,7 +2726,7 @@ fn checker_register_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     if existing != null && existing.scope_level == 0 {
         return 1;
     }
-    const symbol: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
+    const symbol: &Symbol = arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
     if symbol == null {
         return 0;
     }
@@ -2765,7 +2765,7 @@ fn checker_register_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     const return_type: Type = type_from_ast(checker, node.fn_decl_return_type);
     
     // 创建函数签名
-    const sig: &FunctionSignature = arena_alloc(checker.arena, @sizeof(FunctionSignature)) as &FunctionSignature;
+    const sig: &FunctionSignature = arena_alloc(checker.arena, @size_of(FunctionSignature)) as &FunctionSignature;
     if sig == null {
         checker_report_error(checker, node, "Arena 内存不足，无法注册函数声明" as *byte);
         return 0;
@@ -2785,7 +2785,7 @@ fn checker_register_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     
     // 分配参数类型数组
     if sig.param_count > 0 {
-        sig.param_types = arena_alloc(checker.arena, @sizeof(Type) * (sig.param_count as usize)) as &Type;
+        sig.param_types = arena_alloc(checker.arena, @size_of(Type) * (sig.param_count as usize)) as &Type;
         if sig.param_types == null {
             checker_report_error(checker, node, "Arena 内存不足，无法分配参数类型" as *byte);
             return 0;
@@ -2881,7 +2881,7 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
                 const param_type: Type = type_from_ast(checker, param.var_decl_type);
                 
                 // 将参数添加到符号表
-                const param_symbol: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
+                const param_symbol: &Symbol = arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
                 if param_symbol != null {
                     param_symbol.name = param.var_decl_name;
                     param_symbol.type = copy_type(&param_type);
@@ -3342,7 +3342,7 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
                 // 返回 &ASTNode 类型（数组元素类型）
                 result.kind = TypeKind.TYPE_POINTER;
                 // 注意：Uya 不支持指针运算，需要使用数组访问
-                const pointed_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+                const pointed_type_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
                 if pointed_type_ptr != null {
                     pointed_type_ptr[0].kind = TypeKind.TYPE_STRUCT;
                     pointed_type_ptr[0].struct_name = "ASTNode" as *byte;
@@ -4001,7 +4001,7 @@ fn checker_check_unary_expr(checker: &TypeChecker, node: &ASTNode) Type {
         }
         
         // 分配操作数类型结构（从Arena分配）
-        const pointed_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+        const pointed_type_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
         if pointed_type_ptr == null {
             checker_report_error(checker, node, "类型检查错误" as *byte);
             return result;
@@ -4565,7 +4565,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             }
             checker_enter_scope(checker);
             if arm.kind == MatchPatternKind.MATCH_PAT_BIND && arm.var_name != null {
-                const sym: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
+                const sym: &Symbol = arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
                 if sym != null {
                     sym.name = arm.var_name;
                     sym.type = copy_type(&expr_type);
@@ -4604,7 +4604,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
                     if found == 0 {
                         checker_report_error(checker, node, "match 联合体模式中的变体不存在于该联合体类型" as *byte);
                     } else if arm.var_name != null && str_equals(arm.var_name, "_" as *byte) == 0 {
-                        const sym: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
+                        const sym: &Symbol = arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
                         if sym != null {
                             sym.name = arm.var_name;
                             sym.type = copy_type(&variant_type);
@@ -4819,7 +4819,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             checker_enter_scope(checker);
             checker.loop_depth = checker.loop_depth + 1;
             if node.for_stmt_var_name != null {
-                const loop_var: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
+                const loop_var: &Symbol = arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
                 if loop_var != null {
                     loop_var.name = node.for_stmt_var_name;
                     loop_var.type = start_type;
@@ -4937,7 +4937,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
                 // 注意：Uya 不支持指针解引用，需要使用数组访问
                 const element_type: Type = array_type.element_type[0];
                 // 注意：Uya 不支持指针运算，需要使用数组访问
-                const element_type_ptr: &Type = arena_alloc(checker.arena, @sizeof(Type)) as &Type;
+                const element_type_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
                 if element_type_ptr == null {
                     checker_report_error(checker, node, "类型检查错误：内存分配失败" as *byte);
                     checker_enter_scope(checker);
@@ -4961,7 +4961,7 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             }
             
             // 添加循环变量到符号表（var，可修改）
-            const loop_var: &Symbol = arena_alloc(checker.arena, @sizeof(Symbol)) as &Symbol;
+            const loop_var: &Symbol = arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
             if loop_var == null {
                 // 内存分配失败：放宽检查，允许通过（不报错），继续检查循环体
             } else {
@@ -5262,7 +5262,7 @@ fn find_or_create_module(checker: &TypeChecker, module_name: &byte, filename: &b
         }
         if module == null {
             // 找到空槽位，创建新模块
-            module = arena_alloc(checker.arena, @sizeof(ModuleInfo)) as &ModuleInfo;
+            module = arena_alloc(checker.arena, @size_of(ModuleInfo)) as &ModuleInfo;
             if module == null {
                 return null;
             }
@@ -5353,7 +5353,7 @@ fn build_module_exports(checker: &TypeChecker, program: &ASTNode) void {
         if is_export != 0 && item_name != null {
             // 扩展导出数组
             const new_count: i32 = module.export_count + 1;
-            const new_exports: &ExportedItem = arena_alloc(checker.arena, @sizeof(ExportedItem) * new_count) as &ExportedItem;
+            const new_exports: &ExportedItem = arena_alloc(checker.arena, @size_of(ExportedItem) * new_count) as &ExportedItem;
             if new_exports == null {
                 i = i + 1;
                 continue;  // Arena 内存不足
@@ -5361,7 +5361,7 @@ fn build_module_exports(checker: &TypeChecker, program: &ASTNode) void {
             
             // 复制旧导出项
             if module.exports != null && module.export_count > 0 {
-                memcpy(new_exports as *byte, module.exports as *byte, @sizeof(ExportedItem) * module.export_count);
+                memcpy(new_exports as *byte, module.exports as *byte, @size_of(ExportedItem) * module.export_count);
             }
             
             // 添加新导出项
@@ -5555,10 +5555,10 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
                 if dep_exists == 0 {
                     // 添加新依赖
                     const new_count: i32 = current_module.dependency_count + 1;
-                    const new_deps: &ModuleDependency = arena_alloc(checker.arena, @sizeof(ModuleDependency) * new_count) as &ModuleDependency;
+                    const new_deps: &ModuleDependency = arena_alloc(checker.arena, @size_of(ModuleDependency) * new_count) as &ModuleDependency;
                     if new_deps != null {
                         if current_module.dependencies != null && current_module.dependency_count > 0 {
-                            memcpy(new_deps as *byte, current_module.dependencies as *byte, @sizeof(ModuleDependency) * current_module.dependency_count);
+                            memcpy(new_deps as *byte, current_module.dependencies as *byte, @size_of(ModuleDependency) * current_module.dependency_count);
                         }
                         const last_idx: i32 = current_module.dependency_count;
                         new_deps[last_idx].target_module = module_name;
@@ -5595,7 +5595,7 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
         }
         
         // 添加到导入表
-        const import: &ImportedItem = arena_alloc(checker.arena, @sizeof(ImportedItem)) as &ImportedItem;
+        const import: &ImportedItem = arena_alloc(checker.arena, @size_of(ImportedItem)) as &ImportedItem;
         if import == null {
             return 0;
         }

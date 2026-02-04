@@ -1,4 +1,4 @@
-// 测试结构体含 &[T] 切片字段：声明、初始化、字段访问、@len、@sizeof、@alignof
+// 测试结构体含 &[T] 切片字段：声明、初始化、字段访问、@len、@size_of、@align_of
 // 返回 0 表示通过
 
 struct Data {
@@ -28,27 +28,27 @@ fn main() i32 {
         return 4;
     }
 
-    // @sizeof：结构体类型、变量、切片字段
-    if @sizeof(Data) != @sizeof(data) {
+    // @size_of：结构体类型、变量、切片字段
+    if @size_of(Data) != @size_of(data) {
         return 5;
     }
-    if @sizeof(data.values) != @sizeof(&[i32]) {
+    if @size_of(data.values) != @size_of(&[i32]) {
         return 6;
     }
 
-    // @alignof：结构体类型、变量、切片类型
-    if @alignof(Data) != @alignof(data) {
+    // @align_of：结构体类型、变量、切片类型
+    if @align_of(Data) != @align_of(data) {
         return 7;
     }
-    if @alignof(s) != @alignof(&[i32]) {
+    if @align_of(s) != @align_of(&[i32]) {
         return 8;
     }
 
-    // @sizeof &[T]、@alignof &[T] 常数比较（胖指针 ptr+len = 2*usize，对齐=usize）
-    if @sizeof(&[i32]) != @sizeof(usize) * 2 {
+    // @size_of &[T]、@align_of &[T] 常数比较（胖指针 ptr+len = 2*usize，对齐=usize）
+    if @size_of(&[i32]) != @size_of(usize) * 2 {
         return 9;
     }
-    if @alignof(&[i32]) != @alignof(usize) {
+    if @align_of(&[i32]) != @align_of(usize) {
         return 10;
     }
 

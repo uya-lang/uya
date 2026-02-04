@@ -11,7 +11,7 @@
 | 序号 | 阶段 | 状态 |
 |------|------|------|
 | 0 | 规范同步：内置函数以 @ 开头 | [x] |
-| 0.1 | **规范同步：内置函数命名统一（@sizeof→@size_of）** | [ ] **优先** |
+| 0.1 | **规范同步：内置函数命名统一（@sizeof→@size_of）** | [x] **优先** |
 | 1 | 基础类型与字面量 | [x] |
 | 2 | 错误处理 | [x] |
 | 3 | defer / errdefer | [x] |
@@ -35,20 +35,20 @@
 
 ### 0.40.1 内置函数命名统一（优先完成）
 
-- [ ] **`@sizeof(T)` → `@size_of(T)`**：复合概念使用 snake_case
-- [ ] **`@alignof(T)` → `@align_of(T)`**：复合概念使用 snake_case
-- [ ] **命名惯例确立**：
+- [x] **`@sizeof(T)` → `@size_of(T)`**：复合概念使用 snake_case
+- [x] **`@alignof(T)` → `@align_of(T)`**：复合概念使用 snake_case
+- [x] **命名惯例确立**：
   - 单一概念：`@len`, `@max`, `@min`（短形式）
   - 复合概念：`@size_of`, `@align_of`, `@async_fn`（下划线分隔）
 
 **实现待办**：
-- [ ] **Lexer**：识别 `@size_of`、`@align_of`（替换 `@sizeof`、`@alignof`）
-- [ ] **AST**：更新节点名称（如 `AST_SIZEOF` → `AST_SIZE_OF`，或保持现有节点但更新识别逻辑）
-- [ ] **Parser**：解析 `@size_of(...)`、`@align_of(...)` 调用形式
-- [ ] **Checker**：识别并校验 `@size_of`、`@align_of` 的语义
-- [ ] **Codegen**：生成与现有一致的 C 代码（输出不变，仅函数名变更）
-- [ ] **测试用例迁移**：将 `tests/programs/` 中所有用例从 `@sizeof`、`@alignof` 改为 `@size_of`、`@align_of`
-- [ ] **C 实现与 uya-src 同步**：`src/` 与 `uya-src/` 两套实现同步修改；`--c99` 与 `--uya --c99` 均通过，`--c99 -b` 自举对比一致
+- [x] **Lexer**：识别 `@size_of`、`@align_of`（替换 `@sizeof`、`@alignof`）
+- [x] **AST**：更新节点名称（如 `AST_SIZEOF` → `AST_SIZE_OF`，或保持现有节点但更新识别逻辑）
+- [x] **Parser**：解析 `@size_of(...)`、`@align_of(...)` 调用形式
+- [x] **Checker**：识别并校验 `@size_of`、`@align_of` 的语义
+- [x] **Codegen**：生成与现有一致的 C 代码（输出不变，仅函数名变更）
+- [x] **测试用例迁移**：将 `tests/programs/` 中所有用例从 `@sizeof`、`@alignof` 改为 `@size_of`、`@align_of`
+- [x] **C 实现与 uya-src 同步**：`src/` 与 `uya-src/` 两套实现同步修改；`--c99` 与 `--uya --c99` 均通过，`--c99 -b` 自举对比一致
 
 **涉及**：`lexer.c`/`lexer.uya`、`ast.c`/`ast.uya`、`parser.c`/`parser.uya`、`checker.c`/`checker.uya`、`codegen/c99/expr.c`/`expr.uya` 等；`tests/programs/*.uya` 中引用内置的用例。
 

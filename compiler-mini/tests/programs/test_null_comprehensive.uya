@@ -131,7 +131,7 @@ fn main() i32 {
     
     // ========== 测试10：null 指针的 sizeof ==========
     // 注意：sizeof 可以用于类型或表达式
-    const ptr_type_size: i32 = @sizeof(&i32);
+    const ptr_type_size: i32 = @size_of(&i32);
     // 验证指针类型大小（null 指针的大小与指针类型大小相同）
     if ptr_type_size <= 0 {
         return 16;  // 指针类型大小应该大于 0

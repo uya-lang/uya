@@ -29,7 +29,7 @@ fn main() i32 {
     }
     
     // 测试 len 与 sizeof 的区别
-    const arr_size: i32 = @sizeof(arr);
+    const arr_size: i32 = @size_of(arr);
     const arr_len: i32 = @len(arr);
     
     // arr_size 应该是 20 (5 * 4 字节)，arr_len 应该是 5

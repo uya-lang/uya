@@ -70,20 +70,20 @@ fn main() i32 {
     // ========== 测试3：结构体数组字段 sizeof ==========
     
     // 3.1 结构体类型 sizeof
-    const data_type_size: i32 = @sizeof(Data);
+    const data_type_size: i32 = @size_of(Data);
     // Data 大小 = values(12) + count(4) = 16（对齐到 4）
     if data_type_size != 16 {
         return 6;  // Data 大小应该是 16 字节
     }
     
     // 3.2 结构体变量 sizeof
-    const data_var_size: i32 = @sizeof(data);
+    const data_var_size: i32 = @size_of(data);
     if data_var_size != 16 {
         return 7;  // data 大小应该是 16 字节
     }
     
     // 3.3 数组字段 sizeof
-    const values_size: i32 = @sizeof(data.values);
+    const values_size: i32 = @size_of(data.values);
     if values_size != 12 {
         return 8;  // values 大小应该是 12 字节（3 * 4）
     }
@@ -129,8 +129,8 @@ fn main() i32 {
     // ========== 测试6：结构体数组字段对齐 ==========
     
     // 6.1 结构体类型 alignof
-    const data_align: i32 = @alignof(Data);
-    // Data 对齐 = max(@alignof([i32: 3]), @alignof(i32)) = max(4, 4) = 4
+    const data_align: i32 = @align_of(Data);
+    // Data 对齐 = max(@align_of([i32: 3]), @align_of(i32)) = max(4, 4) = 4
     if data_align != 4 {
         return 13;  // Data 对齐应该是 4
     }

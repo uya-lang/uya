@@ -17,32 +17,32 @@ fn process_empty(e: Empty) Empty {
 
 fn main() i32 {
     // 测试1：空结构体 sizeof（类型）
-    const empty_size: i32 = @sizeof(Empty);
+    const empty_size: i32 = @size_of(Empty);
     if empty_size != 1 {
         return 1;  // 空结构体大小应该是 1 字节（C 标准要求）
     }
     
     // 测试2：空结构体变量 sizeof（表达式）
     var empty: Empty = Empty{};
-    const empty_var_size: i32 = @sizeof(empty);
+    const empty_var_size: i32 = @size_of(empty);
     if empty_var_size != 1 {
         return 2;  // 空结构体变量大小应该是 1 字节
     }
     
     // 测试3：空结构体 alignof（类型）
-    const empty_align: i32 = @alignof(Empty);
+    const empty_align: i32 = @align_of(Empty);
     if empty_align != 1 {
         return 3;  // 空结构体对齐应该是 1 字节
     }
     
     // 测试4：空结构体变量 alignof（表达式）
-    const empty_var_align: i32 = @alignof(empty);
+    const empty_var_align: i32 = @align_of(empty);
     if empty_var_align != 1 {
         return 4;  // 空结构体变量对齐应该是 1 字节
     }
     
     // 测试5：空结构体指针 sizeof
-    const empty_ptr_size: i32 = @sizeof(&Empty);
+    const empty_ptr_size: i32 = @size_of(&Empty);
     // 指针大小应该是平台字长（4 或 8 字节）
     if empty_ptr_size != 4 && empty_ptr_size != 8 {
         return 5;  // 空结构体指针大小应该是 4 或 8 字节
@@ -70,7 +70,7 @@ fn main() i32 {
     
     // 测试9：空结构体数组
     var empty_array: [Empty: 3] = [Empty{}, Empty{}, Empty{}];
-    const empty_array_size: i32 = @sizeof(empty_array);
+    const empty_array_size: i32 = @size_of(empty_array);
     if empty_array_size != 3 {
         return 9;  // 3 个空结构体的数组大小应该是 3 字节（每个 1 字节）
     }
@@ -84,7 +84,7 @@ fn main() i32 {
     
     // 测试11：空结构体在结构体中作为字段
     var container: Container = Container{ data: 42, empty: Empty{} };
-    const container_size: i32 = @sizeof(Container);
+    const container_size: i32 = @size_of(Container);
     // Container 大小 = data(4) + empty(1) = 5 字节，但需要对齐到 4 的倍数
     // 实际大小应该是 8 字节（对齐到 4）
     if container_size != 8 {

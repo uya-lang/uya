@@ -9,7 +9,7 @@ fn main() i32 {
     }
     
     // 测试 sizeof 也能正常工作
-    const size_val: i32 = @sizeof(arr);
+    const size_val: i32 = @size_of(arr);
     if size_val != 400 {  // 100 * 4 字节
         return 2;
     }
