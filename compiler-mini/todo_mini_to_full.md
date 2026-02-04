@@ -28,6 +28,7 @@
 | 14 | 消灭所有警告 | [ ] |
 | 15 | 泛型（Generics） | [ ] |
 | 16 | 异步编程（Async） | [ ] |
+| 17 | test 关键字（测试单元） | [ ] |
 
 ---
 
@@ -573,6 +574,87 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 - [x] **忽略标识符 _**：用于忽略返回值、解构、match，规范 uya.md §3
 
 **忽略标识符 _（已实现）**：Parser 在 primary_expr 中当标识符为 `_` 时生成 AST_UNDERSCORE；解构中 `_` 已支持（names 含 `"_"` 时 checker/codegen 跳过）。Checker：`_ = expr` 仅检查右侧；禁止 `var _`、参数 `_`；infer_type 对 AST_UNDERSCORE 报错「不能引用 _」。Codegen：`_ = expr` 语句生成 `(void)(expr);`，表达式生成 `(expr)`。测试 `test_underscore.uya` 通过 `--c99`；uya-src 已同步，自举编译通过。
+
+---
+
+## 17. test 关键字（测试单元）
+
+**语法规范**：`test "测试说明" { statements }`，规范 [grammar_formal.md](../grammar_formal.md) §4.1、[uya.md](../uya.md) 第 28 章。
+
+**语法说明**：
+- `test`：测试关键字
+- `STRING`：测试说明文字（字符串字面量）
+- `statements`：测试函数体语句
+- 可写在任意文件、任意作用域（顶层/函数内/嵌套块）
+
+**示例**：
+```uya
+test "基本算术运算" {
+    const x: i32 = 10;
+    const y: i32 = 20;
+    const sum: i32 = x + y;
+    if sum != 30 {
+        return;  // 测试失败
+    }
+}
+
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+test "函数调用测试" {
+    const result: i32 = add(5, 3);
+    if result != 8 {
+        return;  // 测试失败
+    }
+}
+```
+
+**实现待办**：
+
+- [ ] **Lexer**：识别 `test` 关键字
+  - [ ] 添加 `TOKEN_TEST` Token 类型
+  - [ ] 在 `read_identifier_or_keyword` 中识别 `test` 关键字
+
+- [ ] **AST**：测试单元节点
+  - [ ] 添加 `AST_TEST_STMT` 节点类型
+  - [ ] 添加 `ASTTestStmt` 结构体（包含 `description` 字符串和 `body` 语句块）
+
+- [ ] **Parser**：解析测试单元语法
+  - [ ] 在 `parser_parse_statement` 或 `parser_parse_declaration` 中识别 `test` 关键字
+  - [ ] 解析 `test STRING { statements }` 语法
+  - [ ] 支持在顶层、函数内、嵌套块中解析测试单元
+
+- [ ] **Checker**：测试单元语义检查
+  - [ ] 测试单元内的语句类型检查
+  - [ ] 测试单元内可以使用外部作用域的变量和函数
+  - [ ] 测试单元内可以访问模块级别的声明
+
+- [ ] **Codegen**：测试单元代码生成
+  - [ ] 生成测试函数（如 `uya_test_基本算术运算()`）
+  - [ ] 测试函数命名规则（基于测试说明字符串生成唯一函数名）
+  - [ ] 测试函数调用机制（在 main 函数中调用所有测试函数，或生成测试运行器）
+  - [ ] 测试失败处理（如何表示测试失败：返回非 0、调用断言函数等）
+
+- [ ] **测试运行器**（可选）：
+  - [ ] 自动收集所有测试单元
+  - [ ] 生成测试运行主函数
+  - [ ] 测试结果报告（成功/失败统计）
+
+- [ ] **测试用例**：
+  - [ ] `test_test_basic.uya` - 基本测试单元语法
+  - [ ] `test_test_nested.uya` - 嵌套块中的测试单元
+  - [ ] `test_test_function_scope.uya` - 函数内的测试单元
+  - [ ] `test_test_multiple.uya` - 多个测试单元
+  - [ ] `test_test_access_outer.uya` - 测试单元访问外部作用域
+
+**涉及**：Lexer、AST、Parser、Checker、Codegen（测试函数生成、测试运行器），uya-src。
+
+**参考文档**：
+- [grammar_formal.md](../grammar_formal.md) §4.1 - 测试单元语法
+- [uya.md](../uya.md) 第 28 章 - Uya 测试单元（Test Block）
+
+**实现优先级**：中（建议在核心功能稳定后实现，便于编写内联测试）
 
 ---
 
