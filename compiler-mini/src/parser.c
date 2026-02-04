@@ -176,6 +176,21 @@ static ASTNode *parser_parse_type(Parser *parser) {
         return node;
     }
     
+    // 原子类型 atomic T
+    if (parser->current_token->type == TOKEN_ATOMIC) {
+        parser_consume(parser);  // 消费 'atomic'
+        ASTNode *inner_type = parser_parse_type(parser);
+        if (inner_type == NULL) {
+            return NULL;
+        }
+        ASTNode *node = ast_new_node(AST_TYPE_ATOMIC, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (node == NULL) {
+            return NULL;
+        }
+        node->data.type_atomic.inner_type = inner_type;
+        return node;
+    }
+    
     // 检查是否是元组类型（(T1, T2, ...)）
     if (parser->current_token->type == TOKEN_LEFT_PAREN) {
         parser_consume(parser);  // 消费 '('
@@ -3758,7 +3773,7 @@ static ASTNode *parser_parse_or_expr(Parser *parser) {
 }
 
 // 解析赋值表达式（右结合）
-// assign_expr = or_expr [ '=' assign_expr ]
+// assign_expr = or_expr [ ('=' | '+=' | '-=' | '*=' | '/=' | '%=') assign_expr ]
 static ASTNode *parser_parse_assign_expr(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
         return NULL;
@@ -3770,16 +3785,52 @@ static ASTNode *parser_parse_assign_expr(Parser *parser) {
         return NULL;
     }
     
-    // 检查是否有赋值运算符
-    if (parser->current_token != NULL && parser_match(parser, TOKEN_ASSIGN)) {
+    // 检查是否有赋值运算符（包括复合赋值）
+    if (parser->current_token != NULL && (
+        parser_match(parser, TOKEN_ASSIGN) ||
+        parser_match(parser, TOKEN_PLUS_ASSIGN) ||
+        parser_match(parser, TOKEN_MINUS_ASSIGN) ||
+        parser_match(parser, TOKEN_ASTERISK_ASSIGN) ||
+        parser_match(parser, TOKEN_SLASH_ASSIGN) ||
+        parser_match(parser, TOKEN_PERCENT_ASSIGN)
+    )) {
         int line = parser->current_token->line;
         int column = parser->current_token->column;
-        parser_consume(parser);  // 消费 '='
+        TokenType op = parser->current_token->type;
+        parser_consume(parser);  // 消费赋值运算符
         
         // 递归解析赋值表达式（右结合）
         ASTNode *right = parser_parse_assign_expr(parser);
         if (right == NULL) {
             return NULL;
+        }
+        
+        // 如果是复合赋值，转换为 x = x op y 的形式
+        if (op != TOKEN_ASSIGN) {
+            // 创建二元表达式节点（x op y）
+            TokenType bin_op;
+            if (op == TOKEN_PLUS_ASSIGN) {
+                bin_op = TOKEN_PLUS;
+            } else if (op == TOKEN_MINUS_ASSIGN) {
+                bin_op = TOKEN_MINUS;
+            } else if (op == TOKEN_ASTERISK_ASSIGN) {
+                bin_op = TOKEN_ASTERISK;
+            } else if (op == TOKEN_SLASH_ASSIGN) {
+                bin_op = TOKEN_SLASH;
+            } else if (op == TOKEN_PERCENT_ASSIGN) {
+                bin_op = TOKEN_PERCENT;
+            } else {
+                bin_op = TOKEN_PLUS;  // 默认
+            }
+            
+            ASTNode *bin_expr = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (bin_expr == NULL) {
+                return NULL;
+            }
+            bin_expr->data.binary_expr.left = left;
+            bin_expr->data.binary_expr.op = bin_op;
+            bin_expr->data.binary_expr.right = right;
+            right = bin_expr;  // 使用二元表达式作为右操作数
         }
         
         // 创建赋值节点

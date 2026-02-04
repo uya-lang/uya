@@ -211,6 +211,21 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
         return node;
     }
     
+    // 原子类型 atomic T
+    if parser.current_token.type == TokenType.TOKEN_ATOMIC {
+        parser_consume(parser);  // 消费 'atomic'
+        const inner_type: &ASTNode = parser_parse_type(parser);
+        if inner_type == null {
+            return null;
+        }
+        const node: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_ATOMIC, line, column, parser.arena, parser_get_filename(parser));
+        if node == null {
+            return null;
+        }
+        node.type_atomic_inner_type = inner_type;
+        return node;
+    }
+    
     // 检查是否是元组类型（(T1, T2, ...)）
     if parser.current_token.type == TokenType.TOKEN_LEFT_PAREN {
         parser_consume(parser);  // 消费 '('
@@ -2508,7 +2523,7 @@ fn parser_parse_or_expr(parser: &Parser) &ASTNode {
 }
 
 // 解析赋值表达式（右结合）
-// assign_expr = or_expr [ '=' assign_expr ]
+// assign_expr = or_expr [ ('=' | '+=' | '-=' | '*=' | '/=' | '%=') assign_expr ]
 fn parser_parse_assign_expr(parser: &Parser) &ASTNode {
     if parser == null || parser.current_token == null {
         return null;
@@ -2520,16 +2535,50 @@ fn parser_parse_assign_expr(parser: &Parser) &ASTNode {
         return null;
     }
     
-    // 检查是否有赋值运算符
-    if parser.current_token != null && parser_match(parser, TokenType.TOKEN_ASSIGN) != 0 {
+    // 检查是否有赋值运算符（包括复合赋值）
+    if parser.current_token != null && (
+        parser_match(parser, TokenType.TOKEN_ASSIGN) != 0 ||
+        parser_match(parser, TokenType.TOKEN_PLUS_ASSIGN) != 0 ||
+        parser_match(parser, TokenType.TOKEN_MINUS_ASSIGN) != 0 ||
+        parser_match(parser, TokenType.TOKEN_ASTERISK_ASSIGN) != 0 ||
+        parser_match(parser, TokenType.TOKEN_SLASH_ASSIGN) != 0 ||
+        parser_match(parser, TokenType.TOKEN_PERCENT_ASSIGN) != 0
+    ) {
         const line: i32 = parser.current_token.line;
         const column: i32 = parser.current_token.column;
-        parser_consume(parser);  // 消费 '='
+        const op: TokenType = parser.current_token.type;
+        parser_consume(parser);  // 消费赋值运算符
         
         // 递归解析赋值表达式（右结合）
-        const right: &ASTNode = parser_parse_assign_expr(parser);
+        var right: &ASTNode = parser_parse_assign_expr(parser);
         if right == null {
             return null;
+        }
+        
+        // 如果是复合赋值，转换为 x = x op y 的形式
+        if op != TokenType.TOKEN_ASSIGN {
+            // 创建二元表达式节点（x op y）
+            var bin_op: TokenType = TokenType.TOKEN_PLUS;
+            if op == TokenType.TOKEN_PLUS_ASSIGN {
+                bin_op = TokenType.TOKEN_PLUS;
+            } else if op == TokenType.TOKEN_MINUS_ASSIGN {
+                bin_op = TokenType.TOKEN_MINUS;
+            } else if op == TokenType.TOKEN_ASTERISK_ASSIGN {
+                bin_op = TokenType.TOKEN_ASTERISK;
+            } else if op == TokenType.TOKEN_SLASH_ASSIGN {
+                bin_op = TokenType.TOKEN_SLASH;
+            } else if op == TokenType.TOKEN_PERCENT_ASSIGN {
+                bin_op = TokenType.TOKEN_PERCENT;
+            }
+            
+            const bin_expr: &ASTNode = ast_new_node(ASTNodeType.AST_BINARY_EXPR, line, column, parser.arena, parser_get_filename(parser));
+            if bin_expr == null {
+                return null;
+            }
+            bin_expr.binary_expr_left = left;
+            bin_expr.binary_expr_op = bin_op;
+            bin_expr.binary_expr_right = right;
+            right = bin_expr;  // 使用二元表达式作为右操作数
         }
         
         // 创建赋值节点

@@ -281,6 +281,21 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
         
         snprintf(result as *byte, str_len, "%s *" as *byte, pointee_type as *byte);
         return result;
+    } else if type_node.type == ASTNodeType.AST_TYPE_ATOMIC {
+        // 原子类型 atomic T -> _Atomic(T)
+        const inner_type: &ASTNode = type_node.type_atomic_inner_type;
+        if inner_type == null {
+            return ("void" as *byte) as &byte;
+        }
+        const inner_c: &byte = c99_type_to_c(codegen, inner_type);
+        const inner_len: i32 = strlen(inner_c as *byte);
+        const len: i32 = inner_len + 12;  // "_Atomic()" + inner type + null
+        const result: &byte = arena_alloc(codegen.arena, len) as &byte;
+        if result == null {
+            return ("void" as *byte) as &byte;
+        }
+        snprintf(result as *byte, len, "_Atomic(%s)" as *byte, inner_c as *byte);
+        return result;
     } else if type_node.type == ASTNodeType.AST_TYPE_ERROR_UNION {
         // 错误联合类型 !T -> struct { uint32_t error_id; T value; }
         const payload_node: &ASTNode = type_node.type_error_union_payload_type;

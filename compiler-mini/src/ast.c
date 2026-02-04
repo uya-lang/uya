@@ -271,6 +271,9 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_TYPE_ERROR_UNION:
             node->data.type_error_union.payload_type = NULL;
             break;
+        case AST_TYPE_ATOMIC:
+            node->data.type_atomic.inner_type = NULL;
+            break;
     }
     
     return node;

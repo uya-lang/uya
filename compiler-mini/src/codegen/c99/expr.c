@@ -1059,7 +1059,13 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 fputs("NULL", codegen->output);
             } else {
                 const char *safe_name = get_safe_c_identifier(codegen, name);
-                fprintf(codegen->output, "%s", safe_name);
+                const char *type_c = get_identifier_type_c(codegen, name);
+                // 如果是原子类型，生成原子 load
+                if (type_c && strstr(type_c, "_Atomic") != NULL) {
+                    fprintf(codegen->output, "__atomic_load_n(&%s, __ATOMIC_SEQ_CST)", safe_name);
+                } else {
+                    fprintf(codegen->output, "%s", safe_name);
+                }
             }
             break;
         }

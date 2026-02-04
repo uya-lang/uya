@@ -33,6 +33,7 @@ typedef enum {
     TOKEN_STRUCT,       // struct
     TOKEN_UNION,        // union
     TOKEN_INTERFACE,    // interface
+    TOKEN_ATOMIC,       // atomic（原子类型关键字）
     TOKEN_CONST,        // const
     TOKEN_VAR,          // var
     TOKEN_FN,           // fn
@@ -105,6 +106,12 @@ typedef enum {
     TOKEN_DOT_DOT,      // ..（范围，用于 for start..end）
     TOKEN_COLON,        // :
     TOKEN_ELLIPSIS,     // ...（可变参数，用于 extern 函数声明）
+    // 复合赋值运算符
+    TOKEN_PLUS_ASSIGN,  // +=
+    TOKEN_MINUS_ASSIGN, // -=
+    TOKEN_ASTERISK_ASSIGN, // *=
+    TOKEN_SLASH_ASSIGN, // /=
+    TOKEN_PERCENT_ASSIGN, // %=
 } TokenType;
 
 // Token 结构体

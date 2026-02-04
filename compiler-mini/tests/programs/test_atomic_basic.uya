@@ -1,0 +1,38 @@
+// 原子类型基本测试，规范 uya.md §13
+// 测试 atomic T 类型的基本读/写操作
+// 返回 0 表示通过
+
+fn main() i32 {
+    // 原子类型变量声明
+    var counter: atomic i32 = 0;
+    
+    // 原子读操作（自动生成原子 load）
+    const v1: i32 = counter;
+    if v1 != 0 {
+        return 1;
+    }
+    
+    // 原子写操作（自动生成原子 store）
+    counter = 10;
+    const v2: i32 = counter;
+    if v2 != 10 {
+        return 2;
+    }
+    
+    // 原子复合赋值 +=（自动生成原子 fetch_add）
+    counter += 5;
+    const v3: i32 = counter;
+    if v3 != 15 {
+        return 3;
+    }
+    
+    // 原子复合赋值 -=（自动生成原子 fetch_sub）
+    counter -= 3;
+    const v4: i32 = counter;
+    if v4 != 12 {
+        return 4;
+    }
+    
+    return 0;
+}
+

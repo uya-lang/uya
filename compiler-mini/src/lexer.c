@@ -100,6 +100,7 @@ static TokenType is_keyword(const char *str) {
     if (strcmp(str, "struct") == 0) return TOKEN_STRUCT;
     if (strcmp(str, "union") == 0) return TOKEN_UNION;
     if (strcmp(str, "interface") == 0) return TOKEN_INTERFACE;
+    if (strcmp(str, "atomic") == 0) return TOKEN_ATOMIC;
     if (strcmp(str, "const") == 0) return TOKEN_CONST;
     if (strcmp(str, "var") == 0) return TOKEN_VAR;
     if (strcmp(str, "fn") == 0) return TOKEN_FN;
@@ -450,6 +451,10 @@ top_of_token:
     switch (c) {
         case '+':
             advance_char(lexer);
+            if (peek_char(lexer, 0) == '=') {
+                advance_char(lexer);
+                return make_token(arena, TOKEN_PLUS_ASSIGN, "+=", line, column);
+            }
             if (peek_char(lexer, 0) == '|') {
                 advance_char(lexer);
                 return make_token(arena, TOKEN_PLUS_PIPE, "+|", line, column);
@@ -461,6 +466,10 @@ top_of_token:
             return make_token(arena, TOKEN_PLUS, "+", line, column);
         case '-':
             advance_char(lexer);
+            if (peek_char(lexer, 0) == '=') {
+                advance_char(lexer);
+                return make_token(arena, TOKEN_MINUS_ASSIGN, "-=", line, column);
+            }
             if (peek_char(lexer, 0) == '|') {
                 advance_char(lexer);
                 return make_token(arena, TOKEN_MINUS_PIPE, "-|", line, column);
@@ -472,6 +481,10 @@ top_of_token:
             return make_token(arena, TOKEN_MINUS, "-", line, column);
         case '*':
             advance_char(lexer);
+            if (peek_char(lexer, 0) == '=') {
+                advance_char(lexer);
+                return make_token(arena, TOKEN_ASTERISK_ASSIGN, "*=", line, column);
+            }
             if (peek_char(lexer, 0) == '|') {
                 advance_char(lexer);
                 return make_token(arena, TOKEN_ASTERISK_PIPE, "*|", line, column);
@@ -483,9 +496,17 @@ top_of_token:
             return make_token(arena, TOKEN_ASTERISK, "*", line, column);
         case '/':
             advance_char(lexer);
+            if (peek_char(lexer, 0) == '=') {
+                advance_char(lexer);
+                return make_token(arena, TOKEN_SLASH_ASSIGN, "/=", line, column);
+            }
             return make_token(arena, TOKEN_SLASH, "/", line, column);
         case '%':
             advance_char(lexer);
+            if (peek_char(lexer, 0) == '=') {
+                advance_char(lexer);
+                return make_token(arena, TOKEN_PERCENT_ASSIGN, "%=", line, column);
+            }
             return make_token(arena, TOKEN_PERCENT, "%", line, column);
         case '=':
             advance_char(lexer);

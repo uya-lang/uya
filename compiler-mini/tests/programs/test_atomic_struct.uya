@@ -1,0 +1,40 @@
+// 原子类型作为结构体字段测试，规范 uya.md §13
+// 测试结构体中原子类型字段的读/写操作
+// 返回 0 表示通过
+
+struct Counter {
+    value: atomic i32
+}
+
+fn main() i32 {
+    var counter: Counter = Counter{ value: 0 };
+    
+    // 通过结构体字段访问原子类型
+    const v1: i32 = counter.value;
+    if v1 != 0 {
+        return 1;
+    }
+    
+    // 原子写操作
+    counter.value = 42;
+    const v2: i32 = counter.value;
+    if v2 != 42 {
+        return 2;
+    }
+    
+    // 原子复合赋值
+    counter.value += 8;
+    const v3: i32 = counter.value;
+    if v3 != 50 {
+        return 3;
+    }
+    
+    counter.value -= 10;
+    const v4: i32 = counter.value;
+    if v4 != 40 {
+        return 4;
+    }
+    
+    return 0;
+}
+

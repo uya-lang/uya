@@ -743,6 +743,35 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
         result.kind = TYPE_ERROR_UNION;
         result.data.error_union.payload_type = payload_ptr;
         return result;
+    } else if (type_node->type == AST_TYPE_ATOMIC) {
+        // 原子类型 atomic T（仅支持整数类型）
+        ASTNode *inner_type_node = type_node->data.type_atomic.inner_type;
+        if (inner_type_node == NULL) {
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        Type inner_type = type_from_ast(checker, inner_type_node);
+        // 验证内部类型必须是整数类型
+        if (inner_type.kind != TYPE_I8 && inner_type.kind != TYPE_I16 &&
+            inner_type.kind != TYPE_I32 && inner_type.kind != TYPE_I64 &&
+            inner_type.kind != TYPE_U8 && inner_type.kind != TYPE_U16 &&
+            inner_type.kind != TYPE_U32 && inner_type.kind != TYPE_U64 &&
+            inner_type.kind != TYPE_USIZE && inner_type.kind != TYPE_BYTE) {
+            // 原子类型仅支持整数类型，不支持浮点、bool、结构体等
+            checker_report_error(checker, type_node, "Atomic type can only be applied to integer types.");
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        // 分配内部类型结构（从Arena分配）
+        Type *inner_type_ptr = (Type *)arena_alloc(checker->arena, sizeof(Type));
+        if (inner_type_ptr == NULL) {
+            result.kind = TYPE_VOID;
+            return result;
+        }
+        *inner_type_ptr = inner_type;
+        result.kind = TYPE_ATOMIC;
+        result.data.atomic.inner_type = inner_type_ptr;
+        return result;
     } else if (type_node->type == AST_TYPE_NAMED) {
         // 命名类型（i32, bool, byte, void, 或结构体名称）
         const char *type_name = type_node->data.type_named.name;
@@ -3041,8 +3070,24 @@ static Type checker_check_binary_expr(TypeChecker *checker, ASTNode *node) {
     }
     
     // 比较运算符：支持任意整数类型之间、f32/f64 之间
+    // 比较运算符：支持原子类型与内部类型的比较
     if (op == TOKEN_EQUAL || op == TOKEN_NOT_EQUAL || op == TOKEN_LESS || 
         op == TOKEN_GREATER || op == TOKEN_LESS_EQUAL || op == TOKEN_GREATER_EQUAL) {
+        // 如果一侧是原子类型，另一侧是内部类型，则允许比较
+        if (left_type.kind == TYPE_ATOMIC && left_type.data.atomic.inner_type != NULL) {
+            Type inner_type = *left_type.data.atomic.inner_type;
+            if (type_equals(inner_type, right_type) || (is_integer_type(inner_type.kind) && is_integer_type(right_type.kind))) {
+                result.kind = TYPE_BOOL;
+                return result;
+            }
+        }
+        if (right_type.kind == TYPE_ATOMIC && right_type.data.atomic.inner_type != NULL) {
+            Type inner_type = *right_type.data.atomic.inner_type;
+            if (type_equals(inner_type, left_type) || (is_integer_type(inner_type.kind) && is_integer_type(left_type.kind))) {
+                result.kind = TYPE_BOOL;
+                return result;
+            }
+        }
         if (type_equals(left_type, right_type)) {
             result.kind = TYPE_BOOL;
             return result;

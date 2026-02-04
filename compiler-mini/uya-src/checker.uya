@@ -71,6 +71,7 @@ enum TypeKind {
     TYPE_ERROR_UNION, // 错误联合类型 !T
     TYPE_ERROR,    // 错误值类型（仅用于 return error.X、catch |err| 等，error_id 非 0）
     TYPE_INT_LIMIT,// 未解析的 max/min 极值（需从上下文推断整数类型）
+    TYPE_ATOMIC,   // 原子类型（atomic T）
 }
 
 // 类型结构
@@ -92,6 +93,7 @@ struct Type {
     tuple_count: i32,             // 元组元素个数（仅当 kind == TypeKind.TYPE_TUPLE 时有效）
     error_union_payload_type: &Type,  // 载荷类型 T（仅当 kind == TypeKind.TYPE_ERROR_UNION 时有效，从 Arena 分配）
     error_error_id: u32,          // 错误码（仅当 kind == TypeKind.TYPE_ERROR 时有效，0 表示无效）
+    atomic_inner_type: &Type,     // 内部类型 T（仅当 kind == TypeKind.TYPE_ATOMIC 时有效，从 Arena 分配）
 }
 
 // 复制 Type 值（用于赋值/传参时复制一份不移动源变量；return 已特殊处理不标记移动，可直接 return result）
@@ -112,6 +114,7 @@ fn copy_type(t: &Type) Type {
         tuple_count: t.tuple_count,
         error_union_payload_type: t.error_union_payload_type,
         error_error_id: t.error_error_id,
+        atomic_inner_type: t.atomic_inner_type,
     };
     return r;
 }
@@ -947,6 +950,20 @@ fn type_equals(t1: Type, t2: Type) i32 {
         return 0;
     }
     
+    // 原子类型：比较内部类型
+    if t1.kind == TypeKind.TYPE_ATOMIC {
+        if t2.kind != TypeKind.TYPE_ATOMIC {
+            return 0;
+        }
+        if t1.atomic_inner_type == null && t2.atomic_inner_type == null {
+            return 1;
+        }
+        if t1.atomic_inner_type == null || t2.atomic_inner_type == null {
+            return 0;
+        }
+        return type_equals(t1.atomic_inner_type[0], t2.atomic_inner_type[0]);
+    }
+    
     // 对于其他类型（i32, bool, void），种类相同即相等
     return 1;
 }
@@ -1500,6 +1517,35 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
         payload_ptr[0] = payload;
         result.kind = TypeKind.TYPE_ERROR_UNION;
         result.error_union_payload_type = payload_ptr;
+        return result;
+    } else if type_node.type == ASTNodeType.AST_TYPE_ATOMIC {
+        // 原子类型 atomic T（仅支持整数类型）
+        const inner_type_node: &ASTNode = type_node.type_atomic_inner_type;
+        if inner_type_node == null {
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        const inner_type: Type = type_from_ast(checker, inner_type_node);
+        // 验证内部类型必须是整数类型
+        if inner_type.kind != TypeKind.TYPE_I8 && inner_type.kind != TypeKind.TYPE_I16 &&
+            inner_type.kind != TypeKind.TYPE_I32 && inner_type.kind != TypeKind.TYPE_I64 &&
+            inner_type.kind != TypeKind.TYPE_U8 && inner_type.kind != TypeKind.TYPE_U16 &&
+            inner_type.kind != TypeKind.TYPE_U32 && inner_type.kind != TypeKind.TYPE_U64 &&
+            inner_type.kind != TypeKind.TYPE_USIZE && inner_type.kind != TypeKind.TYPE_BYTE {
+            // 原子类型仅支持整数类型，不支持浮点、bool、结构体等
+            checker_report_error(checker, type_node, "Atomic type can only be applied to integer types." as &byte);
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        // 分配内部类型结构（从Arena分配）
+        const inner_type_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if inner_type_ptr == null {
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        inner_type_ptr[0] = inner_type;
+        result.kind = TypeKind.TYPE_ATOMIC;
+        result.atomic_inner_type = inner_type_ptr;
         return result;
     } else if type_node.type == ASTNodeType.AST_TYPE_NAMED {
         // 命名类型（i32, bool, byte, void, 或结构体名称）
@@ -3764,8 +3810,24 @@ fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
     }
     
     // 比较运算符：支持任意整数类型之间、f32/f64 之间
-    if op == TokenType.TOKEN_EQUAL || op == TokenType.TOKEN_NOT_EQUAL || op == TokenType.TOKEN_LESS || 
+    // 比较运算符：支持原子类型与内部类型的比较
+    if op == TokenType.TOKEN_EQUAL || op == TokenType.TOKEN_NOT_EQUAL || op == TokenType.TOKEN_LESS ||
         op == TokenType.TOKEN_GREATER || op == TokenType.TOKEN_LESS_EQUAL || op == TokenType.TOKEN_GREATER_EQUAL {
+        // 如果一侧是原子类型，另一侧是内部类型，则允许比较
+        if left_type.kind == TypeKind.TYPE_ATOMIC && left_type.atomic_inner_type != null {
+            const inner_type: Type = left_type.atomic_inner_type[0];
+            if type_equals(inner_type, right_type) != 0 || (is_integer_type(inner_type.kind) != 0 && is_integer_type(right_type.kind) != 0) {
+                result.kind = TypeKind.TYPE_BOOL;
+                return result;
+            }
+        }
+        if right_type.kind == TypeKind.TYPE_ATOMIC && right_type.atomic_inner_type != null {
+            const inner_type: Type = right_type.atomic_inner_type[0];
+            if type_equals(inner_type, left_type) != 0 || (is_integer_type(inner_type.kind) != 0 && is_integer_type(left_type.kind) != 0) {
+                result.kind = TypeKind.TYPE_BOOL;
+                return result;
+            }
+        }
         if type_equals(left_type, right_type) != 0 {
             result.kind = TypeKind.TYPE_BOOL;
             return result;

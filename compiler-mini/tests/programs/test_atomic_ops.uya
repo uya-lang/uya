@@ -1,0 +1,40 @@
+// 原子类型复合赋值操作测试，规范 uya.md §13
+// 测试所有支持的原子复合赋值操作（+=、-=、*=、/=、%=）
+// 返回 0 表示通过
+
+fn main() i32 {
+    var counter: atomic i32 = 10;
+    
+    // += 操作（硬件支持）
+    counter += 5;
+    if counter != 15 {
+        return 1;
+    }
+    
+    // -= 操作（硬件支持）
+    counter -= 3;
+    if counter != 12 {
+        return 2;
+    }
+    
+    // *= 操作（软件实现，使用 compare-and-swap）
+    counter *= 2;
+    if counter != 24 {
+        return 3;
+    }
+    
+    // /= 操作（软件实现，使用 compare-and-swap）
+    counter /= 4;
+    if counter != 6 {
+        return 4;
+    }
+    
+    // %= 操作（软件实现，使用 compare-and-swap）
+    counter %= 4;
+    if counter != 2 {
+        return 5;
+    }
+    
+    return 0;
+}
+

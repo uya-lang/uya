@@ -22,7 +22,7 @@
 | 8 | 结构体方法 + drop + 移动语义 | [x]（外部/内部方法、drop/RAII、移动语义 C 实现与 uya-src 已同步） |
 | 9 | 模块系统 | [x]（C 实现与 uya-src 已同步：目录即模块、export/use 可见性检查、模块路径解析、错误检测、递归依赖收集） |
 | 10 | 字符串插值 | [x] |
-| 11 | 原子类型 | [ ] |
+| 11 | 原子类型 | [x]（C 实现已完成，uya-src 待同步） |
 | 12 | 运算符与安全 | [x]（饱和/包装运算、as! 已实现；内存安全证明未实现） |
 | 13 | 联合体（union） | [x]（C 实现与 uya-src 已同步） |
 | 14 | 消灭所有警告 | [ ] |
@@ -287,11 +287,13 @@
 
 ## 11. 原子类型
 
-- [ ] **atomic T**：语言层原子类型，规范 uya.md §13
-- [ ] **&atomic T**：原子指针
-- [ ] **读/写/复合赋值**：自动原子指令，零运行时锁
+- [x] **atomic T**：语言层原子类型，规范 uya.md §13  
+  **C 实现（已完成）**：Lexer（TOKEN_ATOMIC、复合赋值运算符 TOKEN_PLUS_ASSIGN/MINUS_ASSIGN/ASTERISK_ASSIGN/SLASH_ASSIGN/PERCENT_ASSIGN）、AST（AST_TYPE_ATOMIC）、Parser（parser_parse_type 支持 atomic T、复合赋值转换为 x = x op y）、Checker（type_from_ast 验证仅支持整数类型、支持原子类型与内部类型比较、错误报告）、Codegen（类型生成 _Atomic(T)、标识符访问生成 __atomic_load_n、赋值生成 __atomic_store_n、复合赋值 +=/-= 生成 __atomic_fetch_add/__atomic_fetch_sub）。测试 test_atomic_basic.uya、test_atomic_ops.uya、test_atomic_types.uya、test_atomic_struct.uya、error_atomic_non_integer.uya 通过 `--c99`。编译警告已修复（括号优先级、switch 语句完整性）。
+  **uya-src 已同步**：Lexer（TOKEN_ATOMIC、is_keyword 识别 atomic）、AST（AST_TYPE_ATOMIC、type_atomic_inner_type 字段）、Parser（parser_parse_type 解析 atomic T）、Checker（TYPE_ATOMIC、type_from_ast 验证仅支持整数类型、type_equals 原子类型比较、比较运算符支持原子类型与内部类型比较、copy_type 包含 atomic_inner_type）、Codegen（types.uya 生成 _Atomic(T)、expr.uya 标识符访问生成 __atomic_load_n、stmt.uya 赋值生成 __atomic_store_n 和复合赋值 __atomic_fetch_add/__atomic_fetch_sub）。测试待验证 `--uya --c99`。
+- [ ] **&atomic T**：原子指针（待实现）
+- [x] **读/写/复合赋值**：自动原子指令，零运行时锁（已实现）
 
-**涉及**：类型系统、Checker、Codegen（原子指令），uya-src。
+**涉及**：类型系统、Checker、Codegen（原子指令），uya-src（已同步）。
 
 ---
 

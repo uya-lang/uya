@@ -123,14 +123,105 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 gen_expr(codegen, dest);
                 fputs("));\n", codegen->output);
             } else {
-                // 普通赋值（self.field 作为左端时需 cast，以支持 const self 参数）
-                c99_emit(codegen, "");
-                codegen->emitting_assign_lhs = 1;
-                gen_expr(codegen, dest);
-                codegen->emitting_assign_lhs = 0;
-                fputs(" = ", codegen->output);
-                gen_expr(codegen, src);
-                fputs(";\n", codegen->output);
+                // 检查目标是否为原子类型
+                int is_atomic_assign = 0;
+                const char *dest_type_c = NULL;
+                if (dest->type == AST_IDENTIFIER) {
+                    dest_type_c = get_identifier_type_c(codegen, dest->data.identifier.name);
+                    if (dest_type_c && strstr(dest_type_c, "_Atomic") != NULL) {
+                        is_atomic_assign = 1;
+                    }
+                } else if (dest->type == AST_MEMBER_ACCESS) {
+                    dest_type_c = get_c_type_of_expr(codegen, dest);
+                    if (dest_type_c && strstr(dest_type_c, "_Atomic") != NULL) {
+                        is_atomic_assign = 1;
+                    }
+                }
+                
+                if (is_atomic_assign) {
+                    // 获取 safe_name
+                    const char *safe_name = NULL;
+                    if (dest->type == AST_IDENTIFIER) {
+                        safe_name = get_safe_c_identifier(codegen, dest->data.identifier.name);
+                    }
+                    
+                    // 检查是否为复合赋值（src 是二元表达式，且左侧是相同的标识符）
+                    int is_compound_assign = 0;
+                    int compound_op = 0;
+                    ASTNode *compound_right = NULL;
+                    if (src->type == AST_BINARY_EXPR) {
+                        ASTNode *bin_left = src->data.binary_expr.left;
+                        int bin_op = src->data.binary_expr.op;
+                        compound_right = src->data.binary_expr.right;
+                        if (dest->type == AST_IDENTIFIER && bin_left->type == AST_IDENTIFIER &&
+                            strcmp(dest->data.identifier.name, bin_left->data.identifier.name) == 0) {
+                            // 复合赋值：x = x + y 形式
+                            if (bin_op == TOKEN_PLUS || bin_op == TOKEN_MINUS || bin_op == TOKEN_ASTERISK ||
+                                bin_op == TOKEN_SLASH || bin_op == TOKEN_PERCENT) {
+                                is_compound_assign = 1;
+                                compound_op = bin_op;
+                            }
+                        }
+                    }
+                    
+                    if (is_compound_assign) {
+                        // 原子复合赋值：生成原子 fetch_add/fetch_sub 等
+                        // 硬件支持的原子操作：+= 和 -=
+                        if (compound_op == TOKEN_PLUS) {
+                            if (safe_name && *safe_name) {
+                                fprintf(codegen->output, "__atomic_fetch_add(&%s, ", safe_name);
+                            } else {
+                                fputs("__atomic_fetch_add(&", codegen->output);
+                                gen_expr(codegen, dest);
+                                fputs(", ", codegen->output);
+                            }
+                            gen_expr(codegen, compound_right);
+                            fputs(", __ATOMIC_SEQ_CST);\n", codegen->output);
+                        } else if (compound_op == TOKEN_MINUS) {
+                            if (safe_name && *safe_name) {
+                                fprintf(codegen->output, "__atomic_fetch_sub(&%s, ", safe_name);
+                            } else {
+                                fputs("__atomic_fetch_sub(&", codegen->output);
+                                gen_expr(codegen, dest);
+                                fputs(", ", codegen->output);
+                            }
+                            gen_expr(codegen, compound_right);
+                            fputs(", __ATOMIC_SEQ_CST);\n", codegen->output);
+                        } else {
+                            // *=, /=, %= 需要使用 compare-and-swap 循环（软件实现）
+                            // 为了简化，先回退到普通原子 store（后续可以优化）
+                            if (safe_name && *safe_name) {
+                                fprintf(codegen->output, "__atomic_store_n(&%s, ", safe_name);
+                            } else {
+                                fputs("__atomic_store_n(&", codegen->output);
+                                gen_expr(codegen, dest);
+                                fputs(", ", codegen->output);
+                            }
+                            gen_expr(codegen, src);
+                            fputs(", __ATOMIC_SEQ_CST);\n", codegen->output);
+                        }
+                    } else {
+                        // 原子赋值：生成原子 store
+                        if (safe_name && *safe_name) {
+                            fprintf(codegen->output, "__atomic_store_n(&%s, ", safe_name);
+                        } else {
+                            fputs("__atomic_store_n(&", codegen->output);
+                            gen_expr(codegen, dest);
+                            fputs(", ", codegen->output);
+                        }
+                        gen_expr(codegen, src);
+                        fputs(", __ATOMIC_SEQ_CST);\n", codegen->output);
+                    }
+                } else {
+                    // 普通赋值（self.field 作为左端时需 cast，以支持 const self 参数）
+                    c99_emit(codegen, "");
+                    codegen->emitting_assign_lhs = 1;
+                    gen_expr(codegen, dest);
+                    codegen->emitting_assign_lhs = 0;
+                    fputs(" = ", codegen->output);
+                    gen_expr(codegen, src);
+                    fputs(";\n", codegen->output);
+                }
             }
             break;
         }

@@ -345,6 +345,18 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
             return result;
         }
         
+        case AST_TYPE_ATOMIC: {
+            /* 原子类型 atomic T -> _Atomic(T) */
+            ASTNode *inner_type = type_node->data.type_atomic.inner_type;
+            if (!inner_type) return "void";
+            const char *inner_c = c99_type_to_c(codegen, inner_type);
+            size_t len = strlen(inner_c) + 12;  // "_Atomic()" + inner type + null
+            char *result = arena_alloc(codegen->arena, len);
+            if (!result) return "void";
+            snprintf(result, len, "_Atomic(%s)", inner_c);
+            return result;
+        }
+        
         case AST_TYPE_SLICE: {
             ASTNode *element_type = type_node->data.type_slice.element_type;
             if (!element_type) return "void";

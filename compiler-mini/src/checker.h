@@ -33,6 +33,7 @@ typedef enum {
     TYPE_ERROR_UNION, // 错误联合类型 !T
     TYPE_ERROR,    // 错误值类型（仅用于 return error.X、catch |err| 等，error_id 非 0）
     TYPE_INT_LIMIT,// 未解析的 max/min 极值（需从上下文推断整数类型）
+    TYPE_ATOMIC,   // 原子类型（atomic T）
 } TypeKind;
 
 // 类型结构
@@ -66,6 +67,9 @@ typedef struct Type {
         struct {
             uint32_t error_id;          // 错误码（仅当 kind == TYPE_ERROR 时有效，0 表示无效）
         } error;
+        struct {
+            struct Type *inner_type;    // 内部类型 T（仅当 kind == TYPE_ATOMIC 时有效，从 Arena 分配）
+        } atomic;
     } data;
 } Type;
 

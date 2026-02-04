@@ -99,6 +99,7 @@ typedef enum {
     AST_TYPE_ARRAY,     // 数组类型（[T: N]）
     AST_TYPE_SLICE,     // 切片类型（&[T] 或 &[T: N]）
     AST_TYPE_TUPLE,     // 元组类型（(T1, T2, ...)）
+    AST_TYPE_ATOMIC,    // 原子类型（atomic T）
 } ASTNodeType;
 
 struct ASTNode;  /* 前向声明 */
@@ -439,6 +440,11 @@ struct ASTNode {
         struct {
             struct ASTNode *payload_type;    // 载荷类型 T（从 Arena 分配）
         } type_error_union;
+
+        // 原子类型节点（atomic T）
+        struct {
+            struct ASTNode *inner_type;       // 内部类型 T（从 Arena 分配）
+        } type_atomic;
 
         // match 表达式
         struct {

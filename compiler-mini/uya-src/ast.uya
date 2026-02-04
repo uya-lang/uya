@@ -92,6 +92,7 @@ enum ASTNodeType {
     AST_TYPE_SLICE,     // 切片类型（&[T] 或 &[T: N]）
     AST_TYPE_TUPLE,  // 元组类型（(T1, T2, ...)）
     AST_TYPE_ERROR_UNION,  // 错误联合类型 !T
+    AST_TYPE_ATOMIC,   // 原子类型（atomic T）
 }
 
 // 字符串插值段（用于 AST_STRING_INTERP）
@@ -292,6 +293,8 @@ struct ASTNode {
     type_tuple_element_count: i32,
     // type_error_union（!T）
     type_error_union_payload_type: &ASTNode,
+    // type_atomic（atomic T）
+    type_atomic_inner_type: &ASTNode,
 }
 
 // 创建新的 AST 节点

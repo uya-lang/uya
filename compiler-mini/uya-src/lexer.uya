@@ -22,6 +22,7 @@ enum TokenType {
     TOKEN_INTERFACE,  // interface（接口声明）
     TOKEN_STRUCT,
     TOKEN_UNION,      // union（联合体声明）
+    TOKEN_ATOMIC,     // atomic（原子类型关键字）
     TOKEN_CONST,
     TOKEN_VAR,
     TOKEN_FN,
@@ -75,6 +76,11 @@ enum TokenType {
     TOKEN_PLUS_PERCENT,   // +%（包装加法）
     TOKEN_MINUS_PERCENT,  // -%（包装减法）
     TOKEN_ASTERISK_PERCENT, // *%（包装乘法）
+    TOKEN_PLUS_ASSIGN,    // +=（复合赋值）
+    TOKEN_MINUS_ASSIGN,   // -=（复合赋值）
+    TOKEN_ASTERISK_ASSIGN, // *=（复合赋值）
+    TOKEN_SLASH_ASSIGN,   // /=（复合赋值）
+    TOKEN_PERCENT_ASSIGN, // %=（复合赋值）
     TOKEN_LEFT_PAREN,
     TOKEN_RIGHT_PAREN,
     TOKEN_LEFT_BRACE,
@@ -197,6 +203,8 @@ fn is_keyword(str: &byte) TokenType {
         result = TokenType.TOKEN_STRUCT;
     } else if str_equals_lexer(str, "union" as &byte) != 0 {
         result = TokenType.TOKEN_UNION;
+    } else if str_equals_lexer(str, "atomic" as &byte) != 0 {
+        result = TokenType.TOKEN_ATOMIC;
     } else if str_equals_lexer(str, "const" as &byte) != 0 {
         result = TokenType.TOKEN_CONST;
     } else if str_equals_lexer(str, "var" as &byte) != 0 {
@@ -627,6 +635,10 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
         }
         if c == 43 {
         advance_char(lexer);
+        if peek_char(lexer, 0) == 61 {
+            advance_char(lexer);
+            return make_token(arena, TokenType.TOKEN_PLUS_ASSIGN, "+=" as &byte, line, column);
+        }
         if peek_char(lexer, 0) == 124 {
             advance_char(lexer);
             return make_token(arena, TokenType.TOKEN_PLUS_PIPE, "+|" as &byte, line, column);
@@ -639,6 +651,10 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
     }
     if c == 45 {
         advance_char(lexer);
+        if peek_char(lexer, 0) == 61 {
+            advance_char(lexer);
+            return make_token(arena, TokenType.TOKEN_MINUS_ASSIGN, "-=" as &byte, line, column);
+        }
         if peek_char(lexer, 0) == 124 {
             advance_char(lexer);
             return make_token(arena, TokenType.TOKEN_MINUS_PIPE, "-|" as &byte, line, column);
@@ -651,6 +667,10 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
     }
     if c == 42 {
         advance_char(lexer);
+        if peek_char(lexer, 0) == 61 {
+            advance_char(lexer);
+            return make_token(arena, TokenType.TOKEN_ASTERISK_ASSIGN, "*=" as &byte, line, column);
+        }
         if peek_char(lexer, 0) == 124 {
             advance_char(lexer);
             return make_token(arena, TokenType.TOKEN_ASTERISK_PIPE, "*|" as &byte, line, column);
@@ -663,10 +683,18 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
     }
     if c == 47 {
         advance_char(lexer);
+        if peek_char(lexer, 0) == 61 {
+            advance_char(lexer);
+            return make_token(arena, TokenType.TOKEN_SLASH_ASSIGN, "/=" as &byte, line, column);
+        }
         return make_token(arena, TokenType.TOKEN_SLASH, "/" as &byte, line, column);
     }
     if c == 37 {
         advance_char(lexer);
+        if peek_char(lexer, 0) == 61 {
+            advance_char(lexer);
+            return make_token(arena, TokenType.TOKEN_PERCENT_ASSIGN, "%=" as &byte, line, column);
+        }
         return make_token(arena, TokenType.TOKEN_PERCENT, "%" as &byte, line, column);
     }
     if c == 61 {
