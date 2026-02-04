@@ -1,0 +1,135 @@
+// 异步编程综合示例
+
+// ============================================
+// 1. 核心类型定义
+// ============================================
+
+union Poll<T> {
+    Pending: void,
+    Ready: T,
+    Error: error
+}
+
+interface Future<T> {
+    fn poll(self: &Self, waker: &Waker) union Poll<T>;
+}
+
+struct Waker {
+    // 唤醒器实现
+}
+
+// ============================================
+// 2. 异步任务实现
+// ============================================
+
+struct AsyncTask {
+    state: i32,
+    result: i32
+}
+
+AsyncTask {
+    fn poll(self: &Self, waker: &Waker) union Poll<i32> {
+        if self.state == 0 {
+            return union Poll<i32> { Pending: void };
+        } else if self.state == 1 {
+            return union Poll<i32> { Ready: self.result };
+        } else {
+            return union Poll<i32> { Error: error.TaskFailed };
+        }
+    }
+}
+
+// ============================================
+// 3. 异步函数组合
+// ============================================
+
+@async_fn
+fn fetch_and_process() !Future<i32> {
+    // 第一个异步操作
+    // const data = try @await fetch_data();
+    
+    // 第二个异步操作
+    // const processed = try @await process_data(data);
+    
+    // 第三个异步操作
+    // const result = try @await save_data(processed);
+    
+    // return result;
+    return 0;
+}
+
+// ============================================
+// 4. 异步函数调用链
+// ============================================
+
+// 异步函数：每个步骤都是异步的
+@async_fn
+fn step1() !Future<i32> {
+    // 实际使用时这里会有异步操作
+    // const result = try @await some_async_op();
+    // return result;
+    return 1;
+}
+
+@async_fn
+fn step2(input: i32) !Future<i32> {
+    // 处理输入并执行异步操作
+    // const processed = try @await process_async(input);
+    // return processed;
+    return input * 2;
+}
+
+@async_fn
+fn step3(input: i32) !Future<i32> {
+    // 最后一步异步操作
+    // const final = try @await finalize_async(input);
+    // return final;
+    return input + 10;
+}
+
+@async_fn
+fn pipeline() !Future<i32> {
+    // 异步函数调用链：每个步骤都使用 try @await
+    const v1 = try @await step1();
+    const v2 = try @await step2(v1);
+    const v3 = try @await step3(v2);
+    return v3;
+}
+
+// ============================================
+// 5. 错误传播
+// ============================================
+
+@async_fn
+fn may_fail_step1() !Future<i32> {
+    // if condition {
+    //     return error.Step1Failed;
+    // }
+    // return 42;
+    return 42;
+}
+
+@async_fn
+fn may_fail_step2() !Future<i32> {
+    const value = try @await may_fail_step1();  // 错误自动传播
+    return value * 2;
+}
+
+@async_fn
+fn error_handling() !Future<i32> {
+    // const result = try @await may_fail_step2() catch |err| {
+    //     // 处理错误
+    //     return 0;
+    // };
+    // return result;
+    return 0;
+}
+
+// ============================================
+// 6. 使用示例
+// ============================================
+
+fn main() i32 {
+    return 0;
+}
+

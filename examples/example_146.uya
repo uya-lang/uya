@@ -1,0 +1,81 @@
+// 泛型语法入门示例
+
+// ============================================
+// 1. 泛型函数基础
+// ============================================
+
+// 无约束的泛型函数
+fn identity<T>(value: T) T {
+    return value;
+}
+
+// 带约束的泛型函数
+// Ord 表示"可比较"（Ordered），支持 <, >, <=, >= 运算符
+// 详见 example_149.txt 中的约束说明
+fn min<T: Ord>(a: T, b: T) T {
+    if a < b {
+        return a;
+    }
+    return b;
+}
+
+// 多约束的泛型函数
+fn clone_and_default<T: Clone + Default>() T {
+    const value: T = T.default();
+    return value.clone();
+}
+
+// ============================================
+// 2. 泛型结构体基础
+// ============================================
+
+// 基本泛型结构体
+struct Box<T> {
+    value: T
+}
+
+// 带约束的泛型结构体
+struct SortedList<T: Ord> {
+    items: [T: 100],
+    len: i32
+}
+
+// 多类型参数的泛型结构体
+struct Result<T, E> {
+    ok: T,
+    err: E
+}
+
+// ============================================
+// 3. 泛型接口基础
+// ============================================
+
+// 基本泛型接口
+interface Display<T> {
+    fn to_string(self: &Self) *byte;
+}
+
+// 带约束的泛型接口
+interface Comparable<T: Ord> {
+    fn compare(self: &Self, other: &T) i32;
+}
+
+// ============================================
+// 4. 使用示例
+// ============================================
+
+fn main() i32 {
+    // 泛型函数调用
+    // const x: i32 = identity<i32>(42);
+    // const y: f64 = min<f64>(3.14, 2.71);
+    
+    // 泛型结构体使用
+    // const box: Box<i32> = Box<i32>{ value: 100 };
+    // const list: SortedList<i32> = SortedList<i32>{ items: [0: 100], len: 0 };
+    
+    // 泛型类型参数使用
+    // const result: Result<i32, *byte> = Result<i32, *byte>{ ok: 42, err: "error" };
+    
+    return 0;
+}
+

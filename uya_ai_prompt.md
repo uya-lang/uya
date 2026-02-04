@@ -14,7 +14,7 @@ defer errdefer try catch error null interface atomic union
 export use
 ```
 
-**内置函数**（以 `@` 开头）：`@sizeof`、`@alignof`、`@len`、`@max`、`@min`
+**内置函数**（以 `@` 开头）：`@size_of`、`@align_of`、`@len`、`@max`、`@min`
 
 ## 类型系统
 
@@ -80,6 +80,18 @@ fn may_fail() !i32 {
     }
     return 42;  // 返回正常值
 }
+
+// 泛型函数
+fn max<T: Ord>(a: T, b: T) T {
+    if a > b { return a; }
+    return b;
+}
+
+// 多约束泛型
+fn clone_and_compare<T: Clone + Ord>(a: T, b: T) bool {
+    const cloned = a.clone();
+    return cloned > b;
+}
 ```
 
 **程序入口**：
@@ -125,6 +137,16 @@ File {
     fn read(self: &Self, buf: *byte, len: i32) !i32 { ... }
 }
 
+// 泛型结构体
+struct Vec<T: Default> {
+    data: &T,
+    len: i32,
+    cap: i32
+}
+
+// 使用泛型结构体
+const vec: Vec<i32> = Vec<i32>{ data: ..., len: 0, cap: 0 };
+
 // 结构体字面量
 const p: Point = Point{ x: 1.0, y: 2.0 };
 
@@ -151,6 +173,16 @@ interface IWriter {
     fn write(self: &Self, buf: *byte, len: i32) i32;
 }
 
+// 泛型接口
+interface Iterator<T> {
+    fn next(self: &Self) union Option<T>;
+}
+
+// 多约束泛型接口
+interface Cloneable<T: Clone + Default> {
+    fn clone(self: &Self) T;
+}
+
 // 结构体实现接口
 struct Console : IWriter {
     fd: i32,
@@ -163,6 +195,11 @@ struct Console : IWriter {
 // 使用接口
 fn use_writer(w: IWriter) void {
     w.write(&buffer[0], 10);  // 动态派发
+}
+
+// 使用泛型接口
+fn use_iterator<T>(iter: Iterator<T>) void {
+    // 使用迭代器
 }
 ```
 
@@ -673,8 +710,8 @@ const msg3: [i8: 64] = "pi=${pi:.2e}\n";  // 科学计数法
 var buffer: [i32: 100] = [];
 const len_val: i32 = @len(buffer);  // 100（从声明中获取）
 
-@sizeof(T)          // 返回类型大小（编译期常量）
-@alignof(T)         // 返回类型对齐（编译期常量）
+@size_of(T)          // 返回类型大小（编译期常量）
+@align_of(T)         // 返回类型对齐（编译期常量）
 @max               // 整数类型最大值（类型从上下文推断）
 @min               // 整数类型最小值（类型从上下文推断）
 ```
@@ -767,7 +804,11 @@ fn main() !i32 {
 
 ## 重要设计原则
 
-1. **零新符号**：泛型用`()`不是`<>`，复用已有语法
+1. **泛型语法**：使用尖括号 `<T>`，约束紧邻参数 `<T: Ord>`，多约束连接 `<T: Ord + Clone + Default>`
+   - 函数泛型：`fn max<T: Ord>(a: T, b: T) T { ... }`
+   - 结构体泛型：`struct Vec<T: Default> { ... }`
+   - 接口泛型：`interface Iterator<T> { ... }`
+   - 类型参数使用：`Vec<i32>`, `Iterator<String>`
 2. **编译期证明**：在当前函数内验证安全性，证明超时自动插入运行时检查
 3. **显式控制**：所有类型注解显式，无隐式转换
 4. **C兼容性**：所有结构体使用C内存布局，100% C互操作

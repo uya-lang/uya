@@ -11,6 +11,7 @@
 | 序号 | 阶段 | 状态 |
 |------|------|------|
 | 0 | 规范同步：内置函数以 @ 开头 | [x] |
+| 0.1 | **规范同步：内置函数命名统一（@sizeof→@size_of）** | [ ] **优先** |
 | 1 | 基础类型与字面量 | [x] |
 | 2 | 错误处理 | [x] |
 | 3 | defer / errdefer | [x] |
@@ -25,6 +26,35 @@
 | 12 | 运算符与安全 | [x]（饱和/包装运算、as! 已实现；内存安全证明未实现） |
 | 13 | 联合体（union） | [x]（C 实现与 uya-src 已同步） |
 | 14 | 消灭所有警告 | [ ] |
+| 15 | 泛型（Generics） | [ ] |
+| 16 | 异步编程（Async） | [ ] |
+
+---
+
+## 下次优先实现（规范 0.40.1 变更）
+
+### 0.40.1 内置函数命名统一（优先完成）
+
+- [ ] **`@sizeof(T)` → `@size_of(T)`**：复合概念使用 snake_case
+- [ ] **`@alignof(T)` → `@align_of(T)`**：复合概念使用 snake_case
+- [ ] **命名惯例确立**：
+  - 单一概念：`@len`, `@max`, `@min`（短形式）
+  - 复合概念：`@size_of`, `@align_of`, `@async_fn`（下划线分隔）
+
+**实现待办**：
+- [ ] **Lexer**：识别 `@size_of`、`@align_of`（替换 `@sizeof`、`@alignof`）
+- [ ] **AST**：更新节点名称（如 `AST_SIZEOF` → `AST_SIZE_OF`，或保持现有节点但更新识别逻辑）
+- [ ] **Parser**：解析 `@size_of(...)`、`@align_of(...)` 调用形式
+- [ ] **Checker**：识别并校验 `@size_of`、`@align_of` 的语义
+- [ ] **Codegen**：生成与现有一致的 C 代码（输出不变，仅函数名变更）
+- [ ] **测试用例迁移**：将 `tests/programs/` 中所有用例从 `@sizeof`、`@alignof` 改为 `@size_of`、`@align_of`
+- [ ] **C 实现与 uya-src 同步**：`src/` 与 `uya-src/` 两套实现同步修改；`--c99` 与 `--uya --c99` 均通过，`--c99 -b` 自举对比一致
+
+**涉及**：`lexer.c`/`lexer.uya`、`ast.c`/`ast.uya`、`parser.c`/`parser.uya`、`checker.c`/`checker.uya`、`codegen/c99/expr.c`/`expr.uya` 等；`tests/programs/*.uya` 中引用内置的用例。
+
+**参考文档**：
+- [changelog.md](../changelog.md) §0.40.1 - 内置函数命名统一
+- [uya.md](../uya.md) §16 - 内置函数规范
 
 ---
 
@@ -47,12 +77,12 @@
 
 规范已升级为所有内置函数以 `@` 开头（uya.md 0.34、UYA_MINI_SPEC.md）。已实现新语法并迁移测试。
 
-- [x] **Lexer**：识别 `@` 及 `@` 后标识符（如 `@sizeof`、`@alignof`、`@len`、`@max`、`@min`）；新增 `TOKEN_AT_IDENTIFIER` 类型
+- [x] **Lexer**：识别 `@` 及 `@` 后标识符（如 `@size_of`、`@align_of`、`@len`、`@max`、`@min`）；新增 `TOKEN_AT_IDENTIFIER` 类型
 - [x] **AST**：沿用现有节点（AST_SIZEOF、AST_ALIGNOF、AST_LEN、AST_INT_LIMIT）
-- [x] **Parser**：`primary_expr` 支持 `@max`、`@min`（无参）；支持 `@sizeof(...)`、`@alignof(...)`、`@len(...)` 调用形式
-- [x] **Checker**：识别并校验 `@sizeof`、`@alignof`、`@len`、`@max`、`@min` 的语义
+- [x] **Parser**：`primary_expr` 支持 `@max`、`@min`（无参）；支持 `@size_of(...)`、`@align_of(...)`、`@len(...)` 调用形式
+- [x] **Checker**：识别并校验 `@size_of`、`@align_of`、`@len`、`@max`、`@min` 的语义
 - [x] **Codegen**：生成与现有一致的 C 代码（输出不变）
-- [x] **测试用例迁移**：将 `tests/programs/` 中所有用例改为 `@sizeof`、`@alignof`、`@len`、`@max`、`@min`
+- [x] **测试用例迁移**：将 `tests/programs/` 中所有用例改为 `@size_of`、`@align_of`、`@len`、`@max`、`@min`
 - [x] **C 实现与 uya-src 同步**：`src/` 与 `uya-src/` 两套实现同步修改；`--c99` 与 `--uya --c99` 均通过，`--c99 -b` 自举对比一致
 
 **涉及**：`lexer.c`/`lexer.uya`、`ast.c`/`ast.uya`、`parser.c`/`parser.uya`、`checker.c`/`checker.uya`、`codegen/c99/expr.c`/`expr.uya` 等；`tests/programs/*.uya` 中引用内置的用例。
@@ -349,9 +379,195 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 
 ---
 
+## 15. 泛型（Generics）
+
+**语法规范**（规范 0.40）：使用尖括号 `<T>`，约束紧邻参数 `<T: Ord>`，多约束连接 `<T: Ord + Clone + Default>`。详见 [uya.md](../uya.md) §B.1 和 [grammar_formal.md](../grammar_formal.md)。
+
+**语法规范**：
+- 函数泛型：`fn max<T: Ord>(a: T, b: T) T { ... }`
+- 结构体泛型：`struct Vec<T: Default> { ... }`
+- 接口泛型：`interface Iterator<T> { ... }`
+- 类型参数使用：`Vec<i32>`, `Iterator<String>`
+
+**实现待办**：
+
+- [ ] **Lexer**：识别泛型语法
+  - [ ] 识别尖括号 `<` 和 `>`（注意与比较运算符区分）
+  - [ ] 识别类型参数列表 `<T>`、`<T: Ord>`、`<T: Ord + Clone>`
+  - [ ] 识别约束语法（`:` 后的接口名，`+` 连接的多约束）
+
+- [ ] **AST**：泛型节点扩展
+  - [ ] 函数声明添加 `type_params` 字段（类型参数列表）
+  - [ ] 结构体声明添加 `type_params` 字段
+  - [ ] 接口声明添加 `type_params` 字段
+  - [ ] 类型节点支持泛型类型参数（如 `Vec<i32>`）
+  - [ ] 类型参数节点（`TypeParam`）：名称、约束列表
+
+- [ ] **Parser**：泛型语法解析
+  - [ ] 解析函数泛型参数列表：`fn name<T: Ord>(...)`
+  - [ ] 解析结构体泛型参数列表：`struct Name<T: Default>`
+  - [ ] 解析接口泛型参数列表：`interface Name<T>`
+  - [ ] 解析类型参数约束：`<T: Ord>`、`<T: Ord + Clone + Default>`
+  - [ ] 解析泛型类型使用：`Vec<i32>`、`Iterator<String>`
+  - [ ] 处理泛型与普通语法的歧义（如 `<` 是泛型开始还是比较运算符）
+
+- [ ] **Checker**：泛型类型检查
+  - [ ] 类型参数作用域管理（泛型函数/结构体/接口内部）
+  - [ ] 约束检查：验证类型参数是否满足约束（如 `Ord`、`Clone`、`Default`）
+  - [ ] 泛型实例化：将泛型类型替换为具体类型（如 `Vec<i32>`）
+  - [ ] 单态化（Monomorphization）：为每个具体类型实例生成独立代码
+  - [ ] 类型推断：在可能的情况下推断类型参数（如 `max(10, 20)` 推断为 `max<i32>`）
+
+- [ ] **Codegen**：泛型代码生成
+  - [ ] 单态化代码生成：为每个具体类型实例生成独立的 C 函数/结构体
+  - [ ] 泛型函数代码生成：`fn max<T: Ord>(a: T, b: T) T` → `uya_max_i32`、`uya_max_f64` 等
+  - [ ] 泛型结构体代码生成：`struct Vec<T>` → `uya_Vec_i32`、`uya_Vec_f64` 等
+  - [ ] 约束检查代码生成：确保类型满足约束（编译期检查）
+  - [ ] 泛型类型参数替换：在生成代码时替换类型参数为具体类型
+
+- [ ] **标准约束接口**：定义常用约束
+  - [ ] `Ord` 接口：定义比较运算符（`<`, `>`, `<=`, `>=`）
+  - [ ] `Clone` 接口：定义 `clone()` 方法
+  - [ ] `Default` 接口：定义默认值创建
+  - [ ] 为内置类型实现这些约束（整数、浮点、枚举等）
+
+- [ ] **测试用例**：
+  - [ ] `test_generic_fn.uya` - 基本泛型函数
+  - [ ] `test_generic_struct.uya` - 基本泛型结构体
+  - [ ] `test_generic_interface.uya` - 基本泛型接口
+  - [ ] `test_generic_constraints.uya` - 约束语法
+  - [ ] `test_generic_multiple_params.uya` - 多类型参数
+  - [ ] `test_generic_monomorphization.uya` - 单态化验证
+  - [ ] `error_generic_constraint_fail.uya` - 约束不满足错误
+  - [ ] `error_generic_ambiguous.uya` - 类型推断歧义错误
+
+**涉及**：Lexer、AST、Parser、Checker、Codegen（单态化），uya-src。
+
+**参考文档**：
+- [uya.md](../uya.md) §B.1 - 泛型语法说明
+- [grammar_formal.md](../grammar_formal.md) - 正式BNF语法规范（已包含泛型BNF）
+- [examples/example_143.uya](../examples/example_143.uya) - 泛型函数示例
+- [examples/example_144.uya](../examples/example_144.uya) - 泛型结构体示例
+- [examples/example_145.uya](../examples/example_145.uya) - 泛型接口示例
+- [examples/example_147.uya](../examples/example_147.uya) - 泛型综合示例
+- [examples/example_149.txt](../examples/example_149.txt) - 泛型约束说明（Ord、Clone、Default）
+
+**实现优先级**：低（建议在原子类型、内存安全证明等核心特性实现后再考虑）
+
+---
+
+## 16. 异步编程（Async）
+
+**语法规范**（规范 0.40）：`@async_fn` 函数属性、`try @await` 挂起点、`union Poll<T>`、`interface Future<T>`。详见 [uya.md](../uya.md) §18。
+
+**设计目标**：
+- 显式控制：所有挂起必须 `try @await`，取消必须显式检查 `is_cancelled()`
+- 零成本：状态机栈分配，无运行时堆分配，无隐式锁
+- 编译期证明：状态机安全性、Send/Sync 推导、跨线程验证编译期完成
+- 类型安全：`Poll<T>` 使用 `union`（编译期标签跟踪），非 `enum`
+
+**依赖**：
+- 联合体（union）- 已实现（阶段 13）
+- 接口（interface）- 已实现（阶段 7）
+- 错误处理（!T）- 已实现（阶段 2）
+- 原子类型（atomic T）- 建议先实现（阶段 11）
+
+**实现待办**：
+
+- [ ] **Lexer**：识别异步编程语法
+  - [ ] 识别 `@async_fn` 函数属性（`@` 后跟 `async_fn`）
+  - [ ] 识别 `@await` 关键字（`@` 后跟 `await`），注意必须与 `try` 配合使用
+  - [ ] 注意与现有 `@` 内置函数（`@size_of`、`@len` 等）的区分
+
+- [ ] **AST**：异步编程节点扩展
+  - [ ] 函数声明添加 `is_async` 字段（标记 `@async_fn`）
+  - [ ] `AST_AWAIT_EXPR` 节点：`try @await expression`
+  - [ ] 类型节点支持 `!Future<T>` 类型
+  - [ ] 支持 `union Poll<T>` 类型定义和使用
+
+- [ ] **Parser**：异步编程语法解析
+  - [ ] 解析 `@async_fn` 函数属性（函数声明前的属性）
+  - [ ] 解析 `try @await expression` 表达式（`@await` 必须与 `try` 配合使用）
+  - [ ] 解析 `!Future<T>` 返回类型
+  - [ ] 解析 `union Poll<T>` 类型定义
+  - [ ] 验证 `try @await` 只能在 `@async_fn` 函数内使用
+
+- [ ] **Checker**：异步编程类型检查
+  - [ ] `@async_fn` 函数必须返回 `!Future<T>` 类型
+  - [ ] `try @await` 表达式必须返回 `!Future<T>` 类型
+  - [ ] `try @await` 只能在 `@async_fn` 函数内使用
+  - [ ] `@await` 必须与 `try` 配合使用，返回 `!T` 类型
+  - [ ] `union Poll<T>` 类型检查（Pending/Ready/Error 变体）
+  - [ ] `interface Future<T>` 接口定义和实现检查
+  - [ ] 状态机大小编译期计算（递归调用检查）
+
+- [ ] **CPS 变换（Continuation-Passing Style）**：状态机生成
+  - [ ] 分析 `@async_fn` 函数体，识别所有 `@await` 点
+  - [ ] 将函数体转换为状态机结构
+  - [ ] 为每个 `@await` 点创建状态
+  - [ ] 生成状态转换代码
+  - [ ] 处理局部变量在状态间的保存和恢复
+  - [ ] 计算状态机大小（编译期确定）
+
+- [ ] **Codegen**：异步编程代码生成
+  - [ ] 生成状态机结构体（包含状态、局部变量、continuation）
+  - [ ] 生成状态机初始化代码
+  - [ ] 生成状态转换代码（`@await` 点）
+  - [ ] 生成 `poll()` 方法实现（状态机驱动）
+  - [ ] 生成 `union Poll<T>` 结构体定义
+  - [ ] 生成 `interface Future<T>` vtable
+  - [ ] 处理错误传播（`!Future<T>` 中的错误联合）
+
+- [ ] **标准类型定义**：核心异步类型
+  - [ ] `union Poll<T>` 定义（Pending/Ready/Error 变体）
+  - [ ] `interface Future<T>` 接口定义
+  - [ ] `struct Waker` 定义（唤醒器）
+  - [ ] 为内置类型提供异步支持
+
+- [ ] **标准库实现**（基于核心类型）
+  - [ ] `std.async` 模块：`Task<T>`, `Waker` 实现
+  - [ ] `std.channel` 模块：`Channel<T>`, `MpscChannel<T>`（依赖原子类型）
+  - [ ] `std.runtime` 模块：`Scheduler` 事件循环
+  - [ ] `std.thread` 模块：`ThreadPool`, `async_compute<T>`
+
+- [ ] **编译期验证**：
+  - [ ] 状态机大小编译期计算（递归调用报错）
+  - [ ] Send/Sync 约束推导（跨线程安全性）
+  - [ ] 状态机转换正确性验证
+  - [ ] 唤醒安全性验证（Waker 使用）
+
+- [ ] **测试用例**：
+  - [ ] `test_async_fn_basic.uya` - 基本异步函数
+  - [ ] `test_async_await.uya` - `try @await` 基本使用
+  - [ ] `test_async_poll.uya` - `Poll<T>` 使用
+  - [ ] `test_async_future.uya` - `Future<T>` 接口实现
+  - [ ] `test_async_state_machine.uya` - 状态机生成验证
+  - [ ] `test_async_error_propagation.uya` - 错误传播
+  - [ ] `test_async_nested.uya` - 嵌套异步调用
+  - [ ] `error_async_wrong_return.uya` - 返回类型错误
+  - [ ] `error_await_outside_async.uya` - `try @await` 在非异步函数中使用
+  - [ ] `error_async_recursive.uya` - 递归异步函数（应报错）
+
+**涉及**：Lexer、AST、Parser、Checker、Codegen（CPS 变换、状态机生成），uya-src。
+
+**参考文档**：
+- [uya.md](../uya.md) §18 - 异步编程完整规范
+- [grammar_formal.md](../grammar_formal.md) - 正式BNF语法规范（需添加异步编程BNF）
+- [changelog.md](../changelog.md) §0.40.4 - 异步编程基础设施变更
+
+**实现优先级**：中（建议在原子类型实现后考虑，因为标准库中的 `Channel` 和 `MpscChannel` 依赖原子类型）
+
+**技术难点**：
+1. **CPS 变换**：将异步函数转换为状态机需要复杂的代码变换
+2. **状态机生成**：需要正确保存和恢复局部变量状态
+3. **状态机大小计算**：编译期计算状态机大小，检测递归调用
+4. **Send/Sync 推导**：编译期验证跨线程安全性
+
+---
+
 ## 内置与标准库（补充）
 
-- [x] **@sizeof/@alignof**：保持（以 @ 开头），支持基础类型、数组、结构体、切片等类型集合（规范 uya.md §16）
+- [x] **@size_of/@align_of**：保持（以 @ 开头），支持基础类型、数组、结构体、切片等类型集合（规范 uya.md §16）
 - [x] **@len**：扩展至切片等，规范 uya.md §16  
   **C 实现（已完成）**：Checker 支持数组（TYPE_ARRAY）和切片（TYPE_SLICE）类型；Codegen 对切片表达式生成 `.len` 访问，对切片字段也支持 `.len` 访问。测试 test_slice.uya 通过 `--c99`。**uya-src 已同步**：checker.uya、codegen/c99/expr.uya。通过 `--uya --c99`。
 - [x] **忽略标识符 _**：用于忽略返回值、解构、match，规范 uya.md §3

@@ -1,0 +1,111 @@
+异步编程示例说明
+
+本文档说明 Uya 语言的异步编程语法和使用方法。
+
+## 异步编程语法特点
+
+1. **@async_fn**：函数属性，标记异步函数
+2. **@await**：唯一显式挂起点
+3. **union Poll<T>**：异步计算结果类型（Pending/Ready/Error）
+4. **interface Future<T>**：异步计算抽象接口
+5. **返回类型约束**：`@async_fn` 函数必须返回 `!Future<T>`
+
+## 示例文件
+
+- `example_150.uya` - 异步编程基础示例
+  - 基本异步函数定义
+  - `@await` 使用
+  - 错误处理
+  - 嵌套异步调用
+
+- `example_151.uya` - Poll 和 Future 使用示例
+  - `union Poll<T>` 类型定义
+  - `interface Future<T>` 接口定义
+  - 实现 Future 接口
+  - Poll 模式匹配
+  - 错误处理
+
+- `example_152.uya` - 异步编程综合示例
+  - 核心类型定义
+  - 异步任务实现
+  - 异步函数组合
+  - 异步函数调用链
+  - 错误传播
+
+## 核心概念
+
+### @async_fn 函数属性
+
+- 触发 CPS 变换生成显式状态机
+- 必须返回 `!Future<T>` 类型
+- 状态机大小编译期确定
+- **返回值语义**：
+  - `!Future<T>` 是错误联合类型（成功：`Future<T>`，失败：`error`）
+  - `return value;` → 自动包装为 `Future<T>`，作为成功分支
+  - `return error.ErrorName;` → 直接返回错误，作为错误分支
+- **自动包装机制**：
+  - 编译器通过 CPS 变换将 `return value;` 转换为实现 `Future<T>` 接口的状态机
+  - 状态机的 `poll()` 方法直接返回 `union Poll<T> { Ready: value }`
+  - 如果函数体中没有 `@await` 点，状态机只包含一个最终状态，首次 `poll()` 调用即返回结果
+  - **支持所有类型**：基本类型（`i32`, `f64` 等）、结构体、切片、数组等都可以自动包装
+  - **结构体示例**：`return MyStruct{ ... };` → 自动包装为 `Future<MyStruct>`
+
+### @await 挂起点
+
+- 唯一显式挂起点
+- 语法：`try @await expression`
+- 只能在 `@async_fn` 函数内使用
+- 表达式必须返回 `!Future<T>` 类型
+- 返回 `!T` 类型，需要使用 `try` 解包错误
+
+### union Poll<T>
+
+- 表示异步计算的结果状态
+- 三个变体：`Pending`、`Ready(T)`、`Error(error)`
+- 使用 `union`（编译期标签跟踪），非 `enum`
+
+### interface Future<T>
+
+- 异步计算的抽象接口
+- 所有异步操作必须实现此接口
+- `poll()` 方法返回 `union Poll<T>`
+- `poll()` 方法接收 `waker: &Waker` 参数，用于在异步操作就绪时通知运行时
+
+### Waker（唤醒器）
+
+- **作用**：在异步操作就绪时通知异步运行时重新调度任务
+- **工作原理**：
+  - 当 `poll()` 返回 `Pending` 时，通常需要保存 `waker` 的引用
+  - 当异步操作（如 I/O、定时器）就绪时，调用 `waker.wake()` 通知运行时
+  - 运行时收到通知后，会重新调用 `poll()` 方法检查任务状态
+- **优势**：实现高效的异步任务调度，避免忙等待（busy-waiting）
+- **编译期验证**：编译期验证唤醒安全性，确保 Waker 不会被错误使用
+
+## 设计哲学
+
+- **显式控制**：所有挂起必须 `try @await`，取消必须显式检查
+- **零成本**：状态机栈分配，无运行时堆分配，无隐式锁
+- **编译期证明**：状态机安全性、Send/Sync 推导、跨线程验证编译期完成
+- **类型安全**：`Poll<T>` 使用 `union`（编译期标签跟踪）
+
+## 语法规范
+
+详见：
+- [grammar_formal.md](../grammar_formal.md) - 正式BNF语法规范
+- [uya.md](../uya.md) - 完整语言规范（第 18 章 - 异步编程）
+
+## 标准库
+
+基于核心类型实现的标准库模块：
+
+- `std.async`：`Task<T>`, `Waker`
+- `std.channel`：`Channel<T>`, `MpscChannel<T>`
+- `std.runtime`：`Scheduler`
+- `std.thread`：`ThreadPool`, `async_compute<T>`
+
+## 限制
+
+- 递归调用：状态机大小编译期确定，递归调用编译错误
+- 动态状态机：不支持动态大小的状态机
+- 隐式挂起：所有挂起必须显式使用 `try @await`
+

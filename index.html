@@ -723,7 +723,7 @@
                     </div>
                     <h1>Uya 语言</h1>
                 </div>
-                <div class="version">语言规范 0.39 · 项目 v0.1.0（Uya Mini 编译器已自举）</div>
+                <div class="version">语言规范 0.40 · 项目 v0.1.0（Uya Mini 编译器已自举）</div>
                 <p class="tagline">AI友好 · 内存安全 · 并发安全 · 零 GC · 简单易学</p>
                 
                 <div class="core-features">
@@ -837,8 +837,8 @@
                             <div class="feature-icon">
                                 <i class="fas fa-code"></i>
                             </div>
-                            <h3>泛型用括号</h3>
-                            <p>使用 <code class="inline-code">Vec(T)</code> 而不是 <code class="inline-code">Vec&lt;T&gt;</code>，更清晰，更一致，零新符号。</p>
+                            <h3>泛型语法</h3>
+                            <p>使用尖括号 <code class="inline-code">Vec&lt;T&gt;</code>，约束紧邻参数 <code class="inline-code">&lt;T: Ord&gt;</code>，多约束连接 <code class="inline-code">&lt;T: Ord + Clone + Default&gt;</code>。</p>
                         </div>
                         
                         <div class="feature-card">
@@ -852,18 +852,22 @@
                     
                     <div class="note" style="margin-top: 2rem;">
                         <h3>核心创新</h3>
-                        <h4>1. 彻底去掉尖括号 &lt;&gt;</h4>
+                        <h4>1. 泛型语法确定</h4>
                         <div class="code-block">
                             <div class="code-header">
-                                <span>泛型语法对比</span>
+                                <span>泛型语法</span>
                                 <button class="code-copy">复制</button>
                             </div>
-                            <pre><code class="language-uya">// 其他语言：
-Vec&lt;T&gt;、HashMap&lt;K, V&gt;、Result&lt;T, E&gt;
+                            <pre><code class="language-uya">// 泛型函数
+fn max&lt;T: Ord&gt;(a: T, b: T) T { ... }
 
-// Uya：
-Vec(T)、HashMap(K, V)、Result(T, E)
-// 用 ()，更清晰，更一致</code></pre>
+// 泛型结构体
+struct Vec&lt;T: Default&gt; { ... }
+
+// 泛型接口
+interface Iterator&lt;T&gt; { ... }
+
+// 使用尖括号 &lt;T&gt;，约束紧邻参数 &lt;T: Ord&gt;</code></pre>
                         </div>
                         
                         <h4>2. extern struct 完全解放</h4>
@@ -1691,22 +1695,22 @@ fn safe_ptr_arith(arr: [i32: 10], offset: i32) !&i32 {
                             <span>示例：泛型容器库</span>
                             <button class="code-copy">复制</button>
                         </div>
-                        <pre><code class="language-uya">// 泛型接口定义：使用括号明确参数
-interface Collection(T) {
+                        <pre><code class="language-uya">// 泛型接口定义：使用尖括号
+interface Collection&lt;T&gt; {
     fn add(self: &Self, item: T) !void;
     fn get(self: &Self, index: i32) !T;
     fn size(self: &Self) i32;
 }
 
-// 泛型结构体定义：使用括号明确参数，与实例化对称
-struct ArrayList(T) : Collection(T) {
+// 泛型结构体定义：使用尖括号，约束紧邻参数
+struct ArrayList&lt;T: Default&gt; : Collection&lt;T&gt; {
     items: &[T],
     capacity: i32,
     size: i32
 }
 
 // 接口方法作为结构体方法定义
-ArrayList(T) {
+ArrayList&lt;T: Default&gt; {
     fn add(self: &Self, item: T) !void {
         if self.size >= self.capacity {
             return error.Full;
@@ -1727,8 +1731,8 @@ ArrayList(T) {
     }
 }
 
-// 泛型算法函数：函数保持自动推断，更简洁
-fn find_index(items: &[T], target: T) i32 {
+// 泛型算法函数
+fn find_index&lt;T&gt;(items: &[T], target: T) i32 {
     for 0..len(items) |i| {
         if items[i] == target {
             return i;
@@ -1738,17 +1742,17 @@ fn find_index(items: &[T], target: T) i32 {
 }
 
 fn main() i32 {
-    // 创建具体类型的 ArrayList（与定义对称）
+    // 创建具体类型的 ArrayList
     var buffer: [i32: 100] = [0: 100];
-    const list: ArrayList(i32) = ArrayList(i32){
+    const list: ArrayList&lt;i32&gt; = ArrayList&lt;i32&gt;{
         items: &buffer[0:100],
         capacity: 100,
         size: 0
     };
     
-    // 使用泛型函数（自动推断类型）
+    // 使用泛型函数
     list.add(42);
-    const index = find_index(&list.items[0:list.size], 42);
+    const index = find_index&lt;i32&gt;(&list.items[0:list.size], 42);
     
     return 0;
 }</code></pre>
@@ -1822,13 +1826,13 @@ fn main() i32 {
                                     <td>返回数组元素个数 <code>N</code>（编译期常量）。对于空数组字面量 <code>[]</code>，返回数组声明时的大小，而不是 0</td>
                                 </tr>
                                 <tr>
-                                    <td><code>@sizeof</code></td>
-                                    <td><code>fn @sizeof(T) i32</code></td>
+                                    <td><code>@size_of</code></td>
+                                    <td><code>fn @size_of(T) i32</code></td>
                                     <td>返回类型 <code>T</code> 的字节大小（编译期常量，以 @ 开头）</td>
                                 </tr>
                                 <tr>
-                                    <td><code>@alignof</code></td>
-                                    <td><code>fn @alignof(T) i32</code></td>
+                                    <td><code>@align_of</code></td>
+                                    <td><code>fn @align_of(T) i32</code></td>
                                     <td>返回类型 <code>T</code> 的对齐字节数（编译期常量，以 @ 开头）</td>
                                 </tr>
                                 <tr>
@@ -1851,10 +1855,10 @@ fn main() i32 {
                     </div>
                     
                     <div class="note">
-                        <p><strong>说明：</strong><code>@len</code>、<code>@sizeof</code>、<code>@alignof</code>、<code>@max</code>、<code>@min</code> 为内置函数（以 @ 开头），<code>try</code> 关键字和运算符是编译器内置的，编译期展开，自动可用，无需导入或声明。</p>
+                        <p><strong>说明：</strong><code>@len</code>、<code>@size_of</code>、<code>@align_of</code>、<code>@max</code>、<code>@min</code> 为内置函数（以 @ 开头），<code>try</code> 关键字和运算符是编译器内置的，编译期展开，自动可用，无需导入或声明。</p>
                     </div>
                     
-                    <h3>@sizeof 和 @alignof 示例</h3>
+                    <h3>@size_of 和 @align_of 示例</h3>
                     <div class="code-block">
                         <div class="code-header">
                             <span>示例：类型大小和对齐</span>
@@ -1874,25 +1878,25 @@ struct Packet {
 
 fn main() i32 {
     // 获取类型大小
-    const vec3_size: i32 = @sizeof(struct Vec3{});      // 12
-    const packet_size: i32 = @sizeof(struct Packet{}); // 68
+    const vec3_size: i32 = @size_of(struct Vec3{});      // 12
+    const packet_size: i32 = @size_of(struct Packet{}); // 68
     
     // 获取类型对齐
-    const vec3_align: i32 = @alignof(struct Vec3{});    // 4
-    const packet_align: i32 = @alignof(struct Packet{}); // 4
+    const vec3_align: i32 = @align_of(struct Vec3{});    // 4
+    const packet_align: i32 = @align_of(struct Packet{}); // 4
     
     // FFI 分配
     extern malloc(size: i32) *void;
     // 注意：*byte 不能用于普通变量声明，这里仅作示例说明类型
-    // const ptr: *byte = malloc(@sizeof(struct Packet));  // ❌ 编译错误：*byte 不能用于普通变量声明
+    // const ptr: *byte = malloc(@size_of(struct Packet));  // ❌ 编译错误：*byte 不能用于普通变量声明
     
     // 对齐检查
-    if @alignof(struct Packet) != 4 {
+    if @align_of(struct Packet) != 4 {
         return error.BadAlign;
     }
     
     // 零拷贝序列化缓冲区
-    const MSG: [byte; @sizeof(struct Packet)] = [];
+    const MSG: [byte; @size_of(struct Packet)] = [];
     
     return 0;
 }</code></pre>
@@ -1903,7 +1907,7 @@ fn main() i32 {
                 <section id="summary" class="content-section">
                     <div class="philosophy-card" style="background: linear-gradient(135deg, #e0f2fe, #f0f9ff);">
                         <h3 style="color: var(--primary);">一句话总结</h3>
-                        <p><strong>Uya = AI友好 · 默认即高级内存安全 + 并发安全 + 显式错误处理 + 泛型系统（用()不是&lt;&gt;） + 统一结构体标准（C内存布局+完整Uya能力） + 切片类型系统 + 函数指针类型 + 枚举类型系统 + 元组类型系统 + 指针类型转换（&T as *T）</strong>；<br>
+                        <p><strong>Uya = AI友好 · 默认即高级内存安全 + 并发安全 + 显式错误处理 + 泛型系统（&lt;T: Bound&gt;） + 统一结构体标准（C内存布局+完整Uya能力） + 切片类型系统 + 函数指针类型 + 枚举类型系统 + 元组类型系统 + 指针类型转换（&T as *T） + 结构体默认值语法 + 异步编程基础设施</strong>；<br>
                         <strong>只加 1 个关键字 <code>atomic T</code>，零 lifetime 符号，零 GC</strong>；<br>
                         <strong>所有 UB 必须被编译期证明为安全 → 失败即编译错误</strong>；<br>
                         <strong>编译期证明（本函数内），证明超时则自动插入运行时检查，不降级、不插运行时锁。</strong></p>
@@ -1955,7 +1959,7 @@ fn main() i32 {
             </div>
             
                 <div class="copyright">
-                <p>Uya 语言规范 0.39（完整版） · 项目 v0.1.0（Uya Mini 编译器已自举）</p>
+                <p>Uya 语言规范 0.40（完整版） · 项目 v0.1.0（Uya Mini 编译器已自举）</p>
                 <p>© 2025 Uya 语言项目。MIT 许可证。</p>
             </div>
         </div>
@@ -1968,7 +1972,7 @@ fn main() i32 {
         // 添加自定义Uya语言高亮
         Prism.languages.uya = Prism.languages.extend('c', {
             'keyword': /\b(struct|const|var|fn|return|extern|true|false|if|while|break|continue|defer|errdefer|try|catch|error|null|interface|atomic|union|as|as!|type|mc)\b/,
-            'builtin-fn': /@(?:sizeof|alignof|len|max|min)\b/,
+            'builtin-fn': /@(?:size_of|align_of|len|max|min)\b/,
             'operator': /=>|\.\.|\+=|\-=|\*=|\/=|%=|&=|\|=|\^=|<<=|>>=|&&|\|\||<<|>>|<=|>=|==|!=|\.\.\.?|\+\||\-\||\*\||\+%|\-%|\*%/,
             'builtin': /\b(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|byte|void|Self)\b/,
             'error': /\berror\.[A-Z][A-Za-z0-9]*\b/,  // 高亮错误类型，如 error.FileNotFound

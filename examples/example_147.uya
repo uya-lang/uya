@@ -1,0 +1,100 @@
+// 泛型综合示例：完整的泛型使用场景
+
+// 1. 泛型函数：查找最大值
+fn find_max<T: Ord>(items: &[T]) !T {
+    if @len(items) == 0 {
+        return error.EmptyArray;
+    }
+    var max_val: T = items[0];
+    for items |&item| {
+        if *item > max_val {
+            max_val = *item;
+        }
+    }
+    return max_val;
+}
+
+// 2. 泛型结构体：栈
+struct Stack<T> {
+    items: [T: 100],
+    top: i32,
+    
+    fn push(self: &Self, item: T) !void {
+        if self.top >= 100 {
+            return error.StackOverflow;
+        }
+        self.items[self.top] = item;
+        self.top = self.top + 1;
+    }
+    
+    fn pop(self: &Self) !T {
+        if self.top <= 0 {
+            return error.StackUnderflow;
+        }
+        self.top = self.top - 1;
+        return self.items[self.top];
+    }
+    
+    fn is_empty(self: &Self) bool {
+        return self.top == 0;
+    }
+}
+
+// 3. 泛型接口：可比较
+interface Comparable<T: Ord> {
+    fn compare(self: &Self, other: &T) i32;  // 返回 -1, 0, 1
+}
+
+// 4. 泛型结构体实现接口
+struct Point : Comparable<Point> {
+    x: i32,
+    y: i32,
+    
+    fn compare(self: &Self, other: &Point) i32 {
+        const dist_self: i32 = self.x * self.x + self.y * self.y;
+        const dist_other: i32 = other.x * other.x + other.y * other.y;
+        if dist_self < dist_other {
+            return -1;
+        } else if dist_self > dist_other {
+            return 1;
+        }
+        return 0;
+    }
+}
+
+// 5. 泛型函数使用接口约束
+fn sort<T: Comparable<T> + Clone>(items: &[T]) void {
+    // 排序逻辑
+}
+
+// 6. 多类型参数的泛型：键值对映射
+struct HashMap<K: Ord, V> {
+    pairs: [Pair<K, V>: 100],
+    size: i32
+}
+
+struct Pair<K, V> {
+    key: K,
+    value: V
+}
+
+// 使用示例
+fn main() i32 {
+    // 泛型栈使用
+    // var stack: Stack<i32> = Stack<i32>{ items: [0: 100], top: 0 };
+    // stack.push(10);
+    // stack.push(20);
+    // const value = try stack.pop();  // 返回 20
+    
+    // 泛型函数使用
+    // const arr: [i32: 5] = [1, 5, 3, 9, 2];
+    // const max_val = try find_max<i32>(&arr);  // 返回 9
+    
+    // 泛型接口使用
+    // const p1: Point = Point{ x: 1, y: 2 };
+    // const p2: Point = Point{ x: 3, y: 4 };
+    // const cmp: i32 = p1.compare(&p2);
+    
+    return 0;
+}
+

@@ -1,0 +1,68 @@
+泛型语法示例说明
+
+本文档说明 Uya 语言的泛型语法。
+
+## 泛型语法特点
+
+1. **使用尖括号**：`<T>`
+2. **约束紧邻参数**：`<T: Ord>`
+3. **多约束连接**：`<T: Ord + Clone + Default>`
+
+## 示例文件
+
+- `example_143.uya` - 泛型函数示例
+  - 基本泛型函数：`fn max<T: Ord>(a: T, b: T) T`
+  - 多约束泛型函数：`fn clone_and_compare<T: Clone + Ord>(a: T, b: T) bool`
+  - 无约束泛型函数：`fn swap<T>(a: &T, b: &T) void`
+
+- `example_144.uya` - 泛型结构体示例
+  - 基本泛型结构体：`struct Vec<T: Default>`
+  - 多类型参数：`struct Pair<K, V>`
+  - 带约束的泛型结构体：`struct Node<T: Ord + Clone>`
+  - 泛型结构体方法
+
+- `example_145.uya` - 泛型接口示例
+  - 基本泛型接口：`interface Iterator<T>`
+  - 多约束泛型接口：`interface Cloneable<T: Clone + Ord>`
+  - 结构体实现泛型接口
+  - 使用泛型接口作为函数参数
+
+- `example_147.uya` - 泛型综合示例
+  - 完整的泛型使用场景
+  - 泛型函数、结构体、接口的组合使用
+  - 多类型参数的泛型结构体
+
+## 异步编程示例
+
+- `example_150.uya` - 异步编程基础示例
+  - 基本异步函数定义（`@async_fn`）
+  - `@await` 挂起点使用
+  - 错误处理
+  - 嵌套异步调用
+
+- `example_151.uya` - Poll 和 Future 使用示例
+  - `union Poll<T>` 类型定义
+  - `interface Future<T>` 接口定义
+  - 实现 Future 接口
+  - Poll 模式匹配
+  - 错误处理
+
+- `example_152.uya` - 异步编程综合示例
+  - 核心类型定义
+  - 异步任务实现
+  - 异步函数组合
+  - 异步函数调用链
+  - 错误传播
+
+- `example_153.txt` - 异步编程说明文档
+  - 异步编程语法特点
+  - 核心概念说明
+  - 设计哲学
+  - 标准库说明
+
+## 语法规范
+
+详见：
+- [grammar_formal.md](../grammar_formal.md) - 正式BNF语法规范
+- [uya.md](../uya.md) - 完整语言规范
+

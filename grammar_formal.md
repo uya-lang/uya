@@ -24,15 +24,23 @@ declaration    = fn_decl | struct_decl | struct_method_block | union_decl | unio
 ### 函数声明
 
 ```
-fn_decl        = 'fn' ID '(' [ param_list ] ')' type '{' statements '}'
+fn_decl        = 'fn' ID [ '<' type_param_list '>' ] '(' [ param_list ] ')' type '{' statements '}'
 param_list     = param { ',' param }
 param          = ID ':' type
+type_param_list = type_param { ',' type_param }
+type_param     = ID [ ':' constraint_list ]
+constraint_list = ID { '+' ID }
 ```
+
+**说明**：
+- 泛型函数语法：`fn max<T: Ord>(a: T, b: T) T { ... }`
+- 类型参数列表可选，使用尖括号 `<T>` 或 `<T: Constraint>`
+- 多约束使用 `+` 连接：`<T: Ord + Clone + Default>`
 
 ### 结构体声明
 
 ```
-struct_decl    = 'struct' ID [ ':' interface_list ] '{' struct_body '}'
+struct_decl    = 'struct' ID [ '<' type_param_list '>' ] [ ':' interface_list ] '{' struct_body '}'
 interface_list = ID { ',' ID }
 struct_body    = ( field_list | method_list | field_list method_list )
 field_list     = field { ',' field }
@@ -42,6 +50,9 @@ method_decl    = fn_decl  # self 参数必须为 &Self 或 &StructName
 
 # 结构体外部方法定义（方式2）
 struct_method_block = ID '{' method_list '}'
+type_param_list = type_param { ',' type_param }
+type_param     = ID [ ':' constraint_list ]
+constraint_list = ID { '+' ID }
 ```
 
 **说明**：
@@ -54,14 +65,17 @@ struct_method_block = ID '{' method_list '}'
   - 语法：`StructName { fn method(self: &Self) ReturnType { ... } }`
 - `self` 参数必须显式声明，使用指针：`self: &Self` 或 `self: *StructName`
 - 推荐使用 `Self` 占位符：`self: &Self` 更简洁
-- 详细语法说明见 [uya.md](./uya.md#29-未实现将来) 结构体方法部分
+- 详细语法说明见 [uya.md](./uya.md#29-扩展特性) 结构体方法部分
 
 ### 接口声明
 
 ```
-interface_decl = 'interface' ID '{' (method_sig | interface_name)+ '}'  # 方法签名或组合接口名
+interface_decl = 'interface' ID [ '<' type_param_list '>' ] '{' (method_sig | interface_name)+ '}'  # 方法签名或组合接口名
 method_sig     = 'fn' ID '(' [ param_list ] ')' type ';'
 interface_name = ID ';'  # 组合接口名，用分号分隔
+type_param_list = type_param { ',' type_param }
+type_param     = ID [ ':' constraint_list ]
+constraint_list = ID { '+' ID }
 ```
 
 **说明**：
@@ -113,9 +127,10 @@ base_type      = 'i8' | 'i16' | 'i32' | 'i64' | 'u8' | 'u16' | 'u32' | 'u64'
 pointer_type   = '&' type | '*' type
 array_type     = '[' type ':' NUM ']'
 slice_type     = '&[' type ']' | '&[' type ';' NUM ']'
-struct_type    = ID
-union_type     = ID | 'union' ID  # 联合体类型；'union' ID 用于外部 C 联合体
-interface_type = ID
+struct_type    = ID [ '<' type_arg_list '>' ]
+union_type     = ID [ '<' type_arg_list '>' ] | 'union' ID  # 联合体类型；'union' ID 用于外部 C 联合体
+interface_type = ID [ '<' type_arg_list '>' ]
+type_arg_list  = type { ',' type }
 enum_type      = ID  # 枚举类型，通过枚举声明定义
 tuple_type     = '(' type { ',' type } ')'  # 元组类型，如 (i32, f64)
 atomic_type    = 'atomic' type
@@ -193,7 +208,7 @@ primary_expr   = ID | NUM | STRING | 'true' | 'false' | 'null'
                | struct_literal | array_literal | tuple_literal | enum_literal | union_literal
                | match_expr | '(' expr ')'
 builtin_expr   = '@' ('sizeof' | 'alignof' | 'len' | 'max' | 'min' | 'params')
-               # @sizeof(T)、@alignof(T)、@len(expr) 为调用形式；@max、@min 为值形式；@params 为函数体内参数元组（uya.md §5.4）
+               # @size_of(T)、@align_of(T)、@len(expr) 为调用形式；@max、@min 为值形式；@params 为函数体内参数元组（uya.md §5.4）
 union_literal  = ID '.' ID '(' expr ')'  # 联合体创建，如 IntOrFloat.i(42)、NetworkPacket.ipv4([...])
 ```
 
@@ -310,13 +325,16 @@ TEXT           = [^${}]+
 
 ### 可选特性（泛型和宏）
 
-```
-// 泛型语法（可选特性）
-generic_struct = 'struct' ID '(' type_param_list ')' '{' field_list '}'
-generic_fn     = 'fn' ID '(' type_param_list ')' '(' [ param_list ] ')' [ '->' type ] '{' statements '}'
-type_param_list = ID { ',' ID }
+**泛型语法说明**：
+- 泛型语法已整合到主要声明中（见[函数声明](#函数声明)、[结构体声明](#结构体声明)、[接口声明](#接口声明)）
+- 使用尖括号 `<T>`，约束紧邻参数 `<T: Ord>`，多约束连接 `<T: Ord + Clone + Default>`
+- **函数泛型示例**：`fn max<T: Ord>(a: T, b: T) T { ... }`
+- **结构体泛型示例**：`struct Vec<T: Default> { ... }`
+- **接口泛型示例**：`interface Iterator<T> { ... }`
+- **类型参数使用示例**：`Vec<i32>`, `Iterator<String>`
 
-// 显式宏语法（可选特性）
+**显式宏语法（可选特性）**：
+```
 macro_decl     = 'mc' ID '(' [ param_list ] ')' return_tag '{' statements '}'
 return_tag     = 'expr' | 'stmt' | 'struct' | 'type'
 ```
@@ -367,7 +385,7 @@ defer errdefer try catch error null interface atomic union
 export use as as! test
 ```
 
-**说明**：内置函数以 `@` 开头（`@sizeof`、`@alignof`、`@len`、`@max`、`@min`），非关键字，见 `builtin_expr`。
+**说明**：内置函数以 `@` 开头（`@size_of`、`@align_of`、`@len`、`@max`、`@min`），非关键字，见 `builtin_expr`。
 
 ### 1.3 字符串插值
 
@@ -392,14 +410,17 @@ type    = 'd' | 'u' | 'x' | 'X' | 'f' | 'F' | 'e' | 'E' | 'g' | 'G' | 'c' | 'p'
 
 ### 2.1 结构体方法
 
-> **详细语法说明**：详见 [uya.md](./uya.md#29-未实现将来) 结构体方法部分
+> **详细语法说明**：详见 [uya.md](./uya.md#29-扩展特性) 结构体方法部分
 
 ```
-struct_decl    = 'struct' ID '{' struct_body '}'
+struct_decl    = 'struct' ID [ '<' type_param_list '>' ] [ ':' interface_list ] '{' struct_body '}'
 struct_body    = ( field_list | method_list | field_list method_list )
 struct_method_block = ID '{' method_list '}'  # 结构体外部方法定义
 method_list    = method_decl { method_decl }
 method_decl    = fn_decl  # self 参数必须为 &Self 或 &StructName
+type_param_list = type_param { ',' type_param }
+type_param     = ID [ ':' constraint_list ]
+constraint_list = ID { '+' ID }
 ```
 
 **说明**：
@@ -414,10 +435,14 @@ method_decl    = fn_decl  # self 参数必须为 &Self 或 &StructName
 ### 2.2 接口类型
 
 ```
-interface_decl = 'interface' ID '{' (method_sig | interface_name) { method_sig | interface_name } '}'
+interface_decl = 'interface' ID [ '<' type_param_list '>' ] '{' (method_sig | interface_name) { method_sig | interface_name } '}'
 method_sig     = 'fn' ID '(' [ param_list ] ')' type ';'
 interface_name = ID ';'  // 组合接口名，用分号分隔
-interface_type = ID  // 在类型标注中使用接口名称
+interface_type = ID [ '<' type_arg_list '>' ]  // 在类型标注中使用接口名称，支持泛型参数
+type_param_list = type_param { ',' type_param }
+type_param     = ID [ ':' constraint_list ]
+constraint_list = ID { '+' ID }
+type_arg_list  = type { ',' type }
 ```
 
 **说明**：
@@ -632,7 +657,7 @@ block_comment  = '/*' .* '*/'
 - `STRING`：字符串字面量（`"..."`）
 - `TEXT`：普通文本（字符串插值中的非插值部分）
 - 关键字：`struct`, `const`, `var`, `fn`, `return`, `extern`, `true`, `false`, `if`, `while`, `break`, `continue`, `defer`, `errdefer`, `try`, `catch`, `error`, `null`, `interface`, `atomic`, `export`, `use`, `as`, `as!`, `test`
-- 内置函数（以 `@` 开头）：`@sizeof`, `@alignof`, `@len`, `@max`, `@min`
+- 内置函数（以 `@` 开头）：`@size_of`, `@align_of`, `@len`, `@max`, `@min`
 
 ### 非终结符
 

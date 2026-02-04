@@ -1,0 +1,107 @@
+// 异步编程基础示例
+
+// ============================================
+// 1. 基本异步函数
+// ============================================
+
+// 异步函数：必须返回 !Future<T>
+@async_fn
+fn fetch_data() !Future<&[i8]> {
+    // @await 挂起点：等待异步操作完成
+    // const result = try @await http_get("https://example.com");
+    // return result;
+    
+    // 示例：返回错误（实际使用时需要真实的异步操作）
+    return error.NotImplemented;
+}
+
+// 异步函数：带参数
+@async_fn
+fn process_url(url: &[i8]) !Future<i32> {
+    // 调用其他异步函数
+    const data = try @await fetch_data();
+    // 处理数据
+    return 0;
+}
+
+// ============================================
+// 2. @await 使用
+// ============================================
+
+@async_fn
+fn async_operation() !Future<i32> {
+    // @await 是唯一显式挂起点
+    // 可以连续使用多个 @await
+    // const value = try @await some_async_task();
+    // const another = try @await another_async_task();
+    // return value + another;
+    
+    // 示例：返回固定值
+    return 42;
+}
+
+// ============================================
+// 3. 错误处理
+// ============================================
+
+@async_fn
+fn may_fail() !Future<i32> {
+    // 异步操作可能失败
+    // const result = try @await risky_operation();
+    // if result < 0 {
+    //     return error.OperationFailed;
+    // }
+    // return result;
+    
+    // 示例：返回错误
+    // 注意：!Future<T> 是错误联合类型，成功时返回 Future<T>，失败时直接返回 error
+    // 所以这里直接返回 error.OperationFailed，而不是 Future<error.OperationFailed>
+    return error.OperationFailed;
+}
+
+// ============================================
+// 4. 嵌套异步调用
+// ============================================
+
+@async_fn
+fn nested_async() !Future<&[i8]> {
+    // 嵌套异步调用：一个异步函数调用另一个异步函数
+    // const data1 = try @await fetch_data();
+    // const data2 = try @await fetch_data();
+    // 处理多个异步结果
+    // return data1;
+    
+    // 示例：返回错误
+    return error.NotImplemented;
+}
+
+// ============================================
+// 5. 结构体返回（自动包装）
+// ============================================
+
+struct User {
+    id: i32,
+    name: &[i8]
+}
+
+@async_fn
+fn get_user() !Future<User> {
+    // 结构体可以自动包装为 Future<User>
+    // 注意：return User{ ... }; 会自动包装为 Future<User>，作为 !Future<User> 的成功分支
+    return User{ id: 1, name: "Alice" };
+}
+
+@async_fn
+fn get_user_with_await() !Future<User> {
+    // 即使有 @await 点，结构体返回也会自动包装
+    // const user_id = try @await fetch_user_id();
+    // return User{ id: user_id, name: "Bob" };
+    
+    // 示例：直接返回
+    return User{ id: 2, name: "Bob" };
+}
+
+fn main() i32 {
+    return 0;
+}
+

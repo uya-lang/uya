@@ -1,0 +1,85 @@
+// Poll 和 Future 使用示例
+
+// ============================================
+// 1. union Poll<T> 类型定义
+// ============================================
+
+// Poll 表示异步计算的结果状态
+union Poll<T> {
+    Pending: void,
+    Ready: T,
+    Error: error
+}
+
+// ============================================
+// 2. interface Future<T> 接口定义
+// ============================================
+
+interface Future<T> {
+    fn poll(self: &Self, waker: &Waker) union Poll<T>;
+}
+
+// ============================================
+// 3. 实现 Future 接口
+// ============================================
+
+struct MyFuture {
+    value: i32,
+    ready: bool
+}
+
+MyFuture {
+    fn poll(self: &Self, waker: &Waker) union Poll<i32> {
+        if self.ready {
+            return union Poll<i32> { Ready: self.value };
+        } else {
+            return union Poll<i32> { Pending: void };
+        }
+    }
+}
+
+// ============================================
+// 4. 使用 Poll 进行模式匹配
+// ============================================
+
+fn check_future(future: Future<i32>, waker: &Waker) i32 {
+    const result: union Poll<i32> = future.poll(waker);
+    match result {
+        .Pending => {
+            // 继续等待
+            return -1;
+        },
+        .Ready(value) => {
+            // 使用结果值
+            return value;
+        },
+        .Error(err) => {
+            // 处理错误
+            return -2;
+        }
+    }
+}
+
+// ============================================
+// 5. 错误处理的 Poll
+// ============================================
+
+fn check_future_with_error(future: Future<i32>, waker: &Waker) !i32 {
+    const result: union Poll<i32> = future.poll(waker);
+    match result {
+        .Pending => {
+            return error.NotReady;
+        },
+        .Ready(value) => {
+            return value;
+        },
+        .Error(err) => {
+            return err;
+        }
+    }
+}
+
+fn main() i32 {
+    return 0;
+}
+

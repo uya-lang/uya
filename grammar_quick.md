@@ -46,9 +46,9 @@ var y: i32 = 10;
 | **数组** | `[T: N]` | `const arr: [i32: 5] = [1,2,3,4,5];`<br>`var buf: [i32: 100] = [];` | 固定长度数组，`[]` 表示未初始化 |
 | **切片** | `&[T]` `&[T: N]` | `const slice: &[i32] = &arr[2:5];` | 动态/已知长度切片 |
 | **指针** | `&T` `*T` | `const ptr: &i32 = &x;` | Uya指针/FFI指针 |
-| **结构体** | `StructName` | `const p: Point = Point{x: 1.0, y: 2.0};` | 结构体类型 |
+| **结构体** | `StructName`<br>`StructName<T>` | `const p: Point = Point{x: 1.0, y: 2.0};`<br>`const vec: Vec<i32> = ...;` | 结构体类型，支持泛型参数 |
 | **联合体** | `UnionName` | `const v: IntOrFloat = IntOrFloat.i(42);` | 标签联合体，编译期证明安全 |
-| **接口** | `InterfaceName` | `const writer: IWriter = ...;` | 接口类型 |
+| **接口** | `InterfaceName`<br>`InterfaceName<T>` | `const writer: IWriter = ...;`<br>`const iter: Iterator<String> = ...;` | 接口类型，支持泛型参数 |
 | **元组** | `(T1, T2, ...)` | `const t: (i32, f64) = (10, 3.14);` | 元组类型 |
 | **错误联合** | `!T` | `fn may_fail() !i32 { ... }` | 可能返回错误 |
 | **原子类型** | `atomic T` | `value: atomic i32` | 原子类型 |
@@ -180,6 +180,12 @@ fn name(param: Type) !ReturnType {
     }
     return value;
 }
+
+// 泛型函数
+fn max<T: Ord>(a: T, b: T) T {
+    if a > b { return a; }
+    return b;
+}
 ```
 
 ### 结构体定义模板
@@ -210,6 +216,14 @@ Name {
         // 方法体
     }
 }
+
+// 泛型结构体
+struct Vec<T: Default> {
+    data: &T,
+    len: i32,
+    cap: i32
+}
+```
 
 ### 联合体定义模板
 
@@ -247,6 +261,11 @@ struct MyStruct : IWriter {
         // 实现
         return len;
     }
+}
+
+// 泛型接口
+interface Iterator<T> {
+    fn next(self: &Self) union Option<T>;
 }
 ```
 
@@ -498,6 +517,13 @@ A: `try` 用于错误传播和整数溢出检查，是一元运算符
 
 ### Q: 如何定义枚举？
 A: `enum Color { Red, Green, Blue }` 或 `enum Status : u16 { Ok = 200 }`
+
+### Q: 泛型语法是什么？
+A: 使用尖括号 `<T>`，约束紧邻参数 `<T: Ord>`，多约束连接 `<T: Ord + Clone + Default>`
+   - 函数：`fn max<T: Ord>(a: T, b: T) T { ... }`
+   - 结构体：`struct Vec<T: Default> { ... }`
+   - 接口：`interface Iterator<T> { ... }`
+   - 使用：`Vec<i32>`, `Iterator<String>`
 
 ---
 

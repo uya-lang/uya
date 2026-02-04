@@ -28,7 +28,7 @@ Uya Mini 是 Uya 语言的最小子集，包含：
 - **外部函数调用**：支持 `extern` 关键字，允许 `*T` 作为 FFI 指针参数和返回值
 - **基本控制流**：`if`、`while`、`for`（数组遍历）、`break`、`continue`
 - **基本表达式**：算术运算、逻辑运算、比较运算、函数调用、结构体字段访问、数组访问、类型转换
-- **内置函数**：所有内置函数以 `@` 开头：`@sizeof`（类型大小查询）、`@len`（数组长度查询）、`@alignof`（类型对齐查询）、`@max`/`@min`（整数类型极值）
+- **内置函数**：所有内置函数以 `@` 开头：`@size_of`（类型大小查询）、`@len`（数组长度查询）、`@align_of`（类型对齐查询）、`@max`/`@min`（整数类型极值）
 
 **match 表达式**（✅ 已实现）：
 - 语法：`match expr { pat => expr, else => expr }`
@@ -82,7 +82,7 @@ enum struct union interface const var fn extern return true false if else while 
 - `return`：函数返回
 - `true`、`false`：布尔字面量
 - `null`：空指针字面量
-- **内置函数**（以 `@` 开头，非关键字）：`@sizeof`、`@alignof`、`@len`、`@max`、`@min`（整数类型极值为编译期常量，类型从上下文推断）
+- **内置函数**（以 `@` 开头，非关键字）：`@size_of`、`@align_of`、`@len`、`@max`、`@min`（整数类型极值为编译期常量，类型从上下文推断）
 - `if`、`else`：条件语句
 - `while`：循环语句
 - `for`：循环语句（数组遍历）
@@ -131,7 +131,7 @@ enum struct union interface const var fn extern return true false if else while 
   - 64位平台：`usize` = `u64`（8 字节）
   - 对齐值 = 类型大小（自然对齐）
   - 用途：表示指针大小、数组索引、内存大小等平台相关的值
-  - 示例：`const ptr_size: usize = @sizeof(&i32);`（用于检测平台字长）
+  - 示例：`const ptr_size: usize = @size_of(&i32);`（用于检测平台字长）
 - **切片类型**（`&[T]`、`&[T: N]`）：
   - 胖指针：指针(4/8B) + 长度(4/8B)，无堆分配
   - `&[T]`：动态长度切片；`&[T: N]`：编译期已知长度 N 的切片
@@ -142,7 +142,7 @@ enum struct union interface const var fn extern return true false if else while 
   - `&void`：通用指针类型，可以转换为任何指针类型（`&void` → `&T`），用于实现类型擦除和通用指针操作
   - `*T`：仅用于 `extern` 函数声明/调用，不能用于普通变量声明；调用 FFI 时可用 `&expr as *T` 转换
   - 指针大小：64位平台为 8 字节，32位平台为 4 字节
-  - 指针大小等于 `usize` 大小（`@sizeof(&T) == @sizeof(usize)`）
+  - 指针大小等于 `usize` 大小（`@size_of(&T) == @size_of(usize)`）
 
 ### 2.2 类型规则
 
@@ -663,8 +663,8 @@ match_expr     = 'match' expr '{' pattern_list '}'
 pattern_list   = pattern '=>' expr { ',' pattern '=>' expr } [ ',' 'else' '=>' expr ]
 pattern        = NUM | 'true' | 'false' | ID '.' ID | 'error' '.' ID | ID | '_'
 params_expr    = '@params'   // 仅函数体内有效，类型为参数元组（可变参数时仅含固定参数）
-sizeof_expr    = '@sizeof' '(' (type | expr) ')' 
-alignof_expr   = '@alignof' '(' (type | expr) ')'
+sizeof_expr    = '@size_of' '(' (type | expr) ')' 
+alignof_expr   = '@align_of' '(' (type | expr) ')'
 len_expr       = '@len' '(' expr ')'
 int_limit_expr = '@max' | '@min'
 struct_literal = ID '{' field_init_list '}'
@@ -876,22 +876,22 @@ fn main() i32 {
 
 Uya Mini 提供以下内置函数（均以 `@` 开头），无需导入即可使用：
 
-#### `@sizeof(T)` - 类型大小查询
+#### `@size_of(T)` - 类型大小查询
 
-**语法**：`@sizeof(Type)` 或 `@sizeof(expr)`
+**语法**：`@size_of(Type)` 或 `@size_of(expr)`
 
 **功能**：返回类型或表达式的字节大小（编译期常量）
 
 **返回值**：`i32`（字节数）
 
 **说明**：
-- `@sizeof(Type)` - 获取类型的大小（编译时计算）
-- `@sizeof(expr)` - 获取表达式结果类型的大小（编译时计算）
-- `@sizeof([T: N])` - 获取数组类型的总大小（`@sizeof(T) * N`，字节数）
-- `@sizeof(array)` - 获取数组表达式的总大小（字节数）
-- `@sizeof(&T)` - 获取指针类型的大小（64位平台为 8 字节，32位平台为 4 字节）
-- `@sizeof(usize)` - 获取 `usize` 类型的大小（64位平台为 8 字节，32位平台为 4 字节，等于指针大小）
-- `@sizeof(usize) == @sizeof(&T)` - `usize` 大小始终等于指针大小（平台字长）
+- `@size_of(Type)` - 获取类型的大小（编译时计算）
+- `@size_of(expr)` - 获取表达式结果类型的大小（编译时计算）
+- `@size_of([T: N])` - 获取数组类型的总大小（`@size_of(T) * N`，字节数）
+- `@size_of(array)` - 获取数组表达式的总大小（字节数）
+- `@size_of(&T)` - 获取指针类型的大小（64位平台为 8 字节，32位平台为 4 字节）
+- `@size_of(usize)` - 获取 `usize` 类型的大小（64位平台为 8 字节，32位平台为 4 字节，等于指针大小）
+- `@size_of(usize) == @size_of(&T)` - `usize` 大小始终等于指针大小（平台字长）
 - 必须是编译时常量，可在任何需要编译期常量的位置使用
 - 编译器在编译期直接折叠为常数，不生成函数调用
 
@@ -901,49 +901,49 @@ struct Node {
     value: i32;
 }
 
-const node_size: i32 = @sizeof(Node);        // 类型大小
-const ptr_size: i32 = @sizeof(&Node);        // 指针类型大小
+const node_size: i32 = @size_of(Node);        // 类型大小
+const ptr_size: i32 = @size_of(&Node);        // 指针类型大小
 
 var node: Node = Node{ value: 10 };
-const node_size2: i32 = @sizeof(node);       // 表达式大小（与 @sizeof(Node) 相同）
+const node_size2: i32 = @size_of(node);       // 表达式大小（与 @size_of(Node) 相同）
 
 // 数组类型大小
-const array_type_size: i32 = @sizeof([i32: 10]);  // 10个i32的数组大小（40字节）
+const array_type_size: i32 = @size_of([i32: 10]);  // 10个i32的数组大小（40字节）
 
 // 数组表达式大小
 var nums: [i32: 5] = [1, 2, 3, 4, 5];
-const nums_size: i32 = @sizeof(nums);        // 20字节（5个i32）
+const nums_size: i32 = @size_of(nums);        // 20字节（5个i32）
 
 // 用于数组大小计算
-const ptr_array_size: i32 = @sizeof(&Node) * 10; // 10 个指针的大小
+const ptr_array_size: i32 = @size_of(&Node) * 10; // 10 个指针的大小
 
 // usize 类型大小（平台相关）
-const usize_size: i32 = @sizeof(usize);  // 32位平台=4，64位平台=8
-const ptr_size_check: i32 = @sizeof(&i32);
+const usize_size: i32 = @size_of(usize);  // 32位平台=4，64位平台=8
+const ptr_size_check: i32 = @size_of(&i32);
 // 验证：指针大小应该等于 usize 大小
 // if ptr_size_check != usize_size { return 1; }
 ```
 
 **设计说明**：
 - Uya Mini 作为最小子集，不依赖模块系统
-- 因此 `@sizeof` 和 `@alignof` 作为内置函数（以 `@` 开头），无需导入即可使用
+- 因此 `@size_of` 和 `@align_of` 作为内置函数（以 `@` 开头），无需导入即可使用
 - 这简化了使用，与 `@len` 函数保持一致
 
-#### `@alignof(T)` - 类型对齐查询
+#### `@align_of(T)` - 类型对齐查询
 
-**语法**：`@alignof(Type)` 或 `@alignof(expr)`
+**语法**：`@align_of(Type)` 或 `@align_of(expr)`
 
 **功能**：返回类型或表达式的对齐字节数（编译期常量）
 
 **返回值**：`i32`（对齐字节数）
 
 **说明**：
-- `@alignof(Type)` - 获取类型的对齐值（编译时计算）
-- `@alignof(expr)` - 获取表达式结果类型的对齐值（编译时计算）
-- `@alignof([T: N])` - 获取数组类型的对齐值（等于 `@alignof(T)`）
-- `@alignof(&T)` - 获取指针类型的对齐值（等于指针大小，平台相关）
-- `@alignof(usize)` - 获取 `usize` 类型的对齐值（等于类型大小，平台相关）
-- `@alignof(struct S)` - 获取结构体类型的对齐值（等于最大字段对齐值）
+- `@align_of(Type)` - 获取类型的对齐值（编译时计算）
+- `@align_of(expr)` - 获取表达式结果类型的对齐值（编译时计算）
+- `@align_of([T: N])` - 获取数组类型的对齐值（等于 `@align_of(T)`）
+- `@align_of(&T)` - 获取指针类型的对齐值（等于指针大小，平台相关）
+- `@align_of(usize)` - 获取 `usize` 类型的对齐值（等于类型大小，平台相关）
+- `@align_of(struct S)` - 获取结构体类型的对齐值（等于最大字段对齐值）
 - 必须是编译时常量，可在任何需要编译期常量的位置使用
 - 编译器在编译期直接折叠为常数，不生成函数调用
 
@@ -953,23 +953,23 @@ struct Node {
     value: i32;
 }
 
-const node_align: i32 = @alignof(Node);        // 类型对齐（4字节）
-const ptr_align: i32 = @alignof(&Node);        // 指针类型对齐（平台相关）
+const node_align: i32 = @align_of(Node);        // 类型对齐（4字节）
+const ptr_align: i32 = @align_of(&Node);        // 指针类型对齐（平台相关）
 
 var node: Node = Node{ value: 10 };
-const node_align2: i32 = @alignof(node);       // 表达式对齐（与 @alignof(Node) 相同）
+const node_align2: i32 = @align_of(node);       // 表达式对齐（与 @align_of(Node) 相同）
 
 // 数组类型对齐
-const array_align: i32 = @alignof([i32: 10]);  // 等于 @alignof(i32) = 4
+const array_align: i32 = @align_of([i32: 10]);  // 等于 @align_of(i32) = 4
 
 // usize 类型对齐（平台相关）
-const usize_align: i32 = @alignof(usize);  // 32位平台=4，64位平台=8
+const usize_align: i32 = @align_of(usize);  // 32位平台=4，64位平台=8
 ```
 
 **设计说明**：
 - Uya Mini 作为最小子集，不依赖模块系统
-- 因此 `@alignof` 作为内置函数（以 `@` 开头），无需导入即可使用
-- 这简化了使用，与 `@sizeof` 和 `@len` 保持一致
+- 因此 `@align_of` 作为内置函数（以 `@` 开头），无需导入即可使用
+- 这简化了使用，与 `@size_of` 和 `@len` 保持一致
 
 #### `@len(array)` - 数组长度查询
 
@@ -984,7 +984,7 @@ const usize_align: i32 = @alignof(usize);  // 32位平台=4，64位平台=8
 - 参数必须是数组类型表达式（`[T: N]`）
 - 必须是编译时常量，可在任何需要编译期常量的位置使用
 - 编译器在编译期直接折叠为常数，不生成函数调用
-- `@len` 返回元素个数，而 `@sizeof` 返回字节大小
+- `@len` 返回元素个数，而 `@size_of` 返回字节大小
 
 **示例**：
 ```uya
@@ -996,10 +996,10 @@ const nums_len: i32 = @len(nums);        // 5（元素个数）
 var arr: [i32: 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 const count: i32 = @len(arr);  // 8
 
-// @len 与 @sizeof 的区别
+// @len 与 @size_of 的区别
 var arr2: [i32: 5] = [1, 2, 3, 4, 5];
 const len_val: i32 = @len(arr2);      // 5（元素个数）
-const size_val: i32 = @sizeof(arr2);  // 20（字节大小：5 * 4）
+const size_val: i32 = @size_of(arr2);  // 20（字节大小：5 * 4）
 
 // 在循环中使用
 var values: [i32: 10] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -1012,14 +1012,14 @@ while i < @len(values) {
 // 空数组字面量（未初始化）
 var arr: [i32: 100] = [];
 const arr_len: i32 = @len(arr);  // 100（从声明中获取大小）
-const arr_size: i32 = @sizeof(arr);  // 400（100 * 4 字节）
+const arr_size: i32 = @size_of(arr);  // 400（100 * 4 字节）
 ```
 
 **设计说明**：
-- `@len` 作为内置函数（以 `@` 开头），与 `@sizeof` 类似，无需导入即可使用
-- `@len` 返回数组的元素个数，`@sizeof` 返回数组的字节大小
-- 对于数组 `[T: N]`：`@len(array)` 返回 `N`（元素个数），`@sizeof(array)` 返回 `@sizeof(T) * N`（字节大小）
-- `@len` 接受数组表达式或切片表达式；对数组返回元素个数（编译期常量），对切片返回长度（i32）；不接受类型参数（与 `@sizeof` 不同）
+- `@len` 作为内置函数（以 `@` 开头），与 `@size_of` 类似，无需导入即可使用
+- `@len` 返回数组的元素个数，`@size_of` 返回数组的字节大小
+- 对于数组 `[T: N]`：`@len(array)` 返回 `N`（元素个数），`@size_of(array)` 返回 `@size_of(T) * N`（字节大小）
+- `@len` 接受数组表达式或切片表达式；对数组返回元素个数（编译期常量），对切片返回长度（i32）；不接受类型参数（与 `@size_of` 不同）
 
 **实现状态**：✅ 已完整实现
 - 词法分析器：识别 `@len`（`@` + 标识符）
@@ -1132,7 +1132,7 @@ for arr |item| {
    - 枚举赋值：按值复制（复制枚举值）
    - 枚举值访问：`EnumName.VariantName`，返回枚举类型
    - 枚举底层类型：`i32`（大小为 4 字节）
-   - 枚举 sizeof：`@sizeof(EnumName)` 和 `@sizeof(enum_var)` 都返回 `i32` 类型，值为 4
+   - 枚举 sizeof：`@size_of(EnumName)` 和 `@size_of(enum_var)` 都返回 `i32` 类型，值为 4
 
 8. **结构体类型规则**：
    - 结构体比较：仅支持 `==` 和 `!=`，逐字段比较
@@ -1425,8 +1425,8 @@ Uya Mini 支持结构体和数组类型，这些特性使得编译器实现更�
 | 字符串 | 字符串字面量（类型为 `*byte`，仅用于 FFI 函数参数） | 完整的字符串支持 |
 | 类型推断 | 不支持 | 不支持（显式类型） |
 | 类型转换 | 支持 `as`（基础类型之间） | 支持 `as` 和 `as!`（完整类型系统） |
-| `@sizeof` | 内置函数（以 @ 开头，无需导入） | 内置函数（以 @ 开头，无需导入） |
-| `@alignof` | 内置函数（以 @ 开头，无需导入） | 内置函数（以 @ 开头，无需导入） |
+| `@size_of` | 内置函数（以 @ 开头，无需导入） | 内置函数（以 @ 开头，无需导入） |
+| `@align_of` | 内置函数（以 @ 开头，无需导入） | 内置函数（以 @ 开头，无需导入） |
 | 代码生成 | LLVM C API → 二进制 | C99 代码 → C 编译器 |
 
 ---

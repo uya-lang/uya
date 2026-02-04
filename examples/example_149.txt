@@ -1,0 +1,125 @@
+泛型约束说明：Ord、Clone、Default
+
+本文档说明 Uya 语言泛型中常用的约束（trait bounds）的含义和用法。
+
+## Ord 约束
+
+**含义**：`Ord` 表示"可比较"（Ordered），类型支持全序比较运算符。
+
+**支持的运算符**：
+- `<`（小于）
+- `>`（大于）
+- `<=`（小于等于）
+- `>=`（大于等于）
+
+**使用场景**：
+- 需要比较两个值的大小时
+- 需要排序时
+- 需要查找最大值/最小值时
+
+**示例**：
+```uya
+// Ord 约束允许使用比较运算符
+fn max<T: Ord>(a: T, b: T) T {
+    if a > b {  // 可以使用 > 运算符
+        return a;
+    }
+    return b;
+}
+
+fn min<T: Ord>(a: T, b: T) T {
+    if a < b {  // 可以使用 < 运算符
+        return a;
+    }
+    return b;
+}
+
+// 需要排序的容器
+struct SortedList<T: Ord> {
+    items: [T: 100],
+    len: i32
+}
+```
+
+**哪些类型满足 Ord 约束**：
+- 整数类型：`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`
+- 浮点类型：`f32`, `f64`
+- 枚举类型：默认支持比较（基于底层数值）
+- 实现了 `Ord` 接口的自定义类型
+
+## Clone 约束
+
+**含义**：`Clone` 表示类型可以被克隆（复制）。
+
+**支持的操作**：
+- `clone()` 方法：创建值的副本
+
+**使用场景**：
+- 需要复制值时
+- 需要避免移动语义时
+
+**示例**：
+```uya
+fn clone_and_compare<T: Clone + Ord>(a: T, b: T) bool {
+    const cloned = a.clone();  // 克隆 a
+    return cloned > b;
+}
+```
+
+## Default 约束
+
+**含义**：`Default` 表示类型有默认值。
+
+**支持的操作**：
+- `T.default()` 或 `T{}`：创建类型的默认值
+
+**使用场景**：
+- 需要初始化容器时
+- 需要零值初始化时
+
+**示例**：
+```uya
+struct Vec<T: Default> {
+    data: &T,
+    len: i32,
+    cap: i32
+}
+
+fn create_default<T: Default>() T {
+    return T.default();  // 或 T{}
+}
+```
+
+## 多约束组合
+
+可以使用 `+` 连接多个约束：
+
+```uya
+// 同时满足 Clone 和 Ord 约束
+fn clone_and_compare<T: Clone + Ord>(a: T, b: T) bool {
+    const cloned = a.clone();
+    return cloned > b;
+}
+
+// 同时满足 Clone、Ord 和 Default 约束
+struct SortedContainer<T: Clone + Ord + Default> {
+    items: [T: 100],
+    len: i32
+}
+```
+
+## 约束的语义
+
+在 Uya 语言中，约束（如 `Ord`、`Clone`、`Default`）是**接口（interface）**：
+
+- `Ord` 是一个接口，定义了比较运算符的行为
+- `Clone` 是一个接口，定义了 `clone()` 方法
+- `Default` 是一个接口，定义了默认值创建的行为
+
+类型要实现这些约束，需要实现对应的接口。
+
+## 参考
+
+- [grammar_formal.md](../grammar_formal.md) - 正式BNF语法规范
+- [uya.md](../uya.md) - 完整语言规范（第 24 章 - Uya 泛型增量文档）
+

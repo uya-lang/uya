@@ -1,4 +1,4 @@
-# Uya 语言规范 0.39（完整版 · 2026-02-01）
+# Uya 语言规范 0.40（完整版 · 2026-02-04）
 
 > 零GC · 默认高级安全 · 单页纸可读完  
 > 无lifetime符号 · 无隐式控制 · 编译期证明（本函数内）
@@ -18,7 +18,8 @@
 - [4. 结构体](#4-结构体)
   - [4.1. C 内存布局说明](#41-c-内存布局说明)
   - [4.2. 结构体内存布局详细规则](#42-结构体内存布局详细规则)
-- [4.5. 联合体（union）](#45-联合体union)
+  - [4.3. 结构体默认值语法](#43-结构体默认值语法)
+  - [4.5. 联合体（union）](#45-联合体union)
 - [5. 函数](#5-函数)
   - [5.1. 普通函数](#51-普通函数)
     - [5.1.1. main函数签名](#511-main函数签名)
@@ -39,14 +40,54 @@
 - [15. 并发安全](#15-并发安全)
 - [16. 标准库](#16-标准库)
 - [17. 字符串与格式化](#17-字符串与格式化)
+- [18. 异步编程](#18-异步编程)
 - [附录 A. 完整示例](#附录-a-完整示例)
-- [附录 B. 未实现/将来](#附录-b-未实现将来)
+- [附录 B. 扩展特性](#附录-b-扩展特性)
 - [术语表](#术语表)
 - [规范变更](#规范变更)
 
 ---
 
 ## 规范变更
+
+### 0.40（2026-02-04）
+
+- **内置函数命名统一**：
+  - `@sizeof(T)` → `@size_of(T)`（复合概念用 snake_case）
+  - `@alignof(T)` → `@align_of(T)`（复合概念用 snake_case）
+  - **命名惯例确立**：
+    - 单一概念：`@len`, `@max`, `@min`（短形式）
+    - 复合概念：`@size_of`, `@align_of`, `@async_fn`（下划线分隔）
+
+- **泛型语法确定**：
+  - 使用尖括号：`<T>`
+  - 约束紧邻参数：`<T: Ord>`
+  - 多约束连接：`<T: Ord + Clone + Default>`
+  - 示例：`fn max<T: Ord>(a: T, b: T) T { ... }`，`struct Vec<T: Default> { ... }`
+
+- **结构体默认值语法**（第 4 章）：
+  - 支持在结构体定义中为字段指定默认值：`field: Type = default_value`
+  - 初始化时可以使用 `Struct{}` 使用所有默认值，或 `Struct{ field: value }` 部分使用默认值（有默认值的字段可以忽略）
+  - 默认值必须是编译期常量，零运行时开销
+  - 与移动语义、RAII、接口实现完全兼容
+
+- **异步编程基础设施**（新增第 18 章）：
+  - **语言核心**（编译器实现）：
+    - `@async_fn`：函数属性，触发 CPS 变换生成显式状态机
+    - `@await`：唯一显式挂起点
+    - `union Poll<T>`：异步计算结果类型
+    - `interface Future<T>`：异步计算抽象
+  - **函数签名约束**：必须返回 `!Future<T>`（显式异步，无隐式包装）
+  - **标准库实现**（基于核心类型）：
+    - `std.async`：`Task<T>`, `Waker`
+    - `std.channel`：`Channel<T>`, `MpscChannel<T>`
+    - `std.runtime`：`Scheduler`
+    - `std.thread`：`ThreadPool`, `async_compute<T>`
+  - **设计哲学**：
+    - 显式控制：所有挂起必须 `@await`，取消必须显式检查 `is_cancelled()`
+    - 零成本：状态机栈分配，无运行时堆分配，无隐式锁
+    - 编译期证明：状态机安全性、Send/Sync 推导、跨线程验证编译期完成
+    - 类型安全：`Poll<T>` 使用 `union`（编译期标签跟踪），非 `enum`
 
 ### 0.39（2026-02-01）
 
@@ -105,7 +146,7 @@
 - **并发安全强制**（第 15 章）：零数据竞争
 - **移动语义**（第 12.5 章）：结构体赋值时转移所有权，避免不必要的拷贝
 - **字符串插值**（第 17 章）：支持 `"a${x}"` 和 `"pi=${pi:.2f}"` 两种形式
-- **安全指针算术**（第 18 章）：支持 `ptr +/- offset`，必须通过编译期证明安全
+- **异步编程**（第 18 章）：`@async_fn`/`@await` + `union Poll<T>` + `interface Future<T>`，状态机零分配，挂起显式，并发安全编译期证明
 - **模块系统**（第 1.5 章）：目录级模块、显式导出、路径导入，编译期解析
 - **简化 for 循环语法**（第 8 章）：支持 `for obj |v| {}`、`for 0..10 |v| {}`、`for obj |&v| {}` 等简化语法
 - **运算符简化**（第 10 章）：`try` 关键字用于溢出检查，`+|`/`-|`/`*|` 用于饱和运算，`+%`/`-%`/`*%` 用于包装运算
@@ -154,10 +195,27 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
 - 证明超时：编译器在有限时间内无法完成证明时，自动生成运行时边界检查代码
 
 
+### 设计哲学强化（0.40）
+
+**显式控制**：
+- 所有挂起必须 `@await`（异步编程），取消必须显式检查 `is_cancelled()`
+- 无隐式转换，所有异步操作显式类型，无隐式包装
+- 内置函数命名统一：单一概念用短形式（`@len`, `@max`, `@min`），复合概念用 snake_case（`@size_of`, `@align_of`, `@async_fn`）
+
+**零成本**：
+- 状态机栈分配（异步编程），无运行时堆分配，无隐式锁
+- 编译期优化：状态机大小和布局编译期确定，零运行时开销
+- 所有内置函数编译期折叠，零运行时调用开销
+
+**编译期证明**：
+- 状态机安全性、Send/Sync 推导、跨线程验证编译期完成
+- 泛型语法确定：使用尖括号 `<T>`，约束紧邻参数 `<T: Ord>`，多约束连接 `<T: Ord + Clone + Default>`
+
 ### 一句话总结
 
 > **Uya 的设计哲学 = 坚如磐石 = 程序员提供证明，编译器在当前函数内验证证明，运行时绝对安全**；  
-> **将运行时的不确定性转化为编译期的确定性，证明超时则自动插入运行时检查。**
+> **将运行时的不确定性转化为编译期的确定性，证明超时则自动插入运行时检查。**  
+> **显式控制、零成本、编译期证明：所有挂起显式、状态机零分配、并发安全编译期验证。**
 
 ---
 
@@ -174,7 +232,7 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
   defer errdefer try catch error null interface atomic union
   export use
   ```
-- **内置函数**：所有内置函数均以 `@` 开头，无需导入。包括：`@sizeof(T)`、`@alignof(T)`、`@len(a)`（数组长度）、`@max`、`@min`（整数类型极值，类型由上下文推断）。
+- **内置函数**：所有内置函数均以 `@` 开头，无需导入。包括：`@size_of(T)`、`@align_of(T)`、`@len(a)`（数组长度）、`@max`、`@min`（整数类型极值，类型由上下文推断）。
 - 标识符 `[A-Za-z_][A-Za-z0-9_]*`，区分大小写。
 - 数值字面量：
   - 整数字面量：`123`（默认类型 `i32`，除非上下文需要其他整数类型）
@@ -402,7 +460,7 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
 | `(T1, T2, ...)` | 字段顺序布局 | 元组类型，见下方说明 |
 | `!T`            | 错误联合类型  | max(sizeof(T), sizeof(错误标记)) + 对齐填充 | `T | Error`，见下方说明 |
 
-- 无隐式转换；支持安全指针算术（见第 18 章）；无 lifetime 符号。
+- 无隐式转换；支持异步编程（见第 18 章）；无 lifetime 符号。
 
 **多维数组类型说明**：
 - **声明语法**：`[[T: N]: M]` 表示 M 行 N 列的二维数组，类型为 `T`
@@ -451,7 +509,7 @@ Uya的"坚如磐石"设计哲学带来以下不可动摇的收益：
   - 用于指向类型 `T` 的值
   - 32位平台=4字节，64位平台=8字节
   - 空指针检查：`if ptr == null { ... }`（需要显式检查，编译期证明超时则自动插入运行时检查）
-  - 支持安全指针算术（见第 18 章）
+  - 支持异步编程（见第 18 章）
   - **`&void` 类型**：通用指针类型，可以转换为任何指针类型（`&void` → `&T`），用于实现类型擦除和通用指针操作
     - 示例：`var ptr: &void = &buffer as &void; var byte_ptr: &byte = ptr as &byte;`
 - `&atomic T`：原子指针类型，4/8 字节（平台相关），关键字驱动
@@ -712,7 +770,9 @@ match result {
   - 字段可变性由外层变量决定，不支持字段级可变性标记
   - **嵌套结构体示例**：
 [examples/inner.uya](./examples/inner.uya)
-- **结构体初始化**：必须提供所有字段的值，不支持部分初始化或默认值
+- **结构体初始化**：
+  - **完整初始化**（现有语法）：`StructName{ field1: value1, field2: value2, ... }`，所有字段显式赋值
+  - **默认值初始化**（新增语法，0.40）：支持字段默认值，详见 [4.3 结构体默认值语法](#43-结构体默认值语法)
 
 ### 4.1 C 内存布局说明
 
@@ -1108,6 +1168,298 @@ struct PlatformStruct {
 
 ```uya
 struct Empty { }  // 大小 = 1 字节，对齐 = 1 字节
+```
+
+---
+
+### 4.3 结构体默认值语法
+
+#### 4.3.1 设计目标
+
+- **减少样板代码**：常用默认值无需在每次初始化时重复书写
+- **显式控制**：默认值在结构体定义处显式声明，一目了然
+- **编译期常量**：默认值必须是编译期可求值的常量，零运行时开销
+- **兼容现有语义**：与移动语义、RAII、接口实现完全兼容
+
+#### 4.3.2 字段默认值声明
+
+在结构体定义中，使用 `= expr` 为字段指定默认值：
+
+```uya
+// 基础类型默认值
+struct Point {
+    x: f32 = 0.0,
+    y: f32 = 0.0
+}
+
+struct Config {
+    name: [i8: 64] = [],           // 空数组（零初始化）
+    port: i32 = 8080,
+    debug: bool = false,
+    timeout: f64 = 30.0
+}
+
+// 嵌套结构体默认值
+struct Size {
+    width: i32 = 0,
+    height: i32 = 0
+}
+
+struct Window {
+    title: [i8: 128] = "Untitled",
+    size: Size = Size{},            // 嵌套结构体使用其默认值
+    position: Point = Point{ x: 100.0, y: 100.0 }
+}
+```
+
+#### 4.3.3 初始化语法
+
+**完整初始化**（现有语法，保持不变）：
+```uya
+const p1: Point = Point{ x: 1.0, y: 2.0 };  // 所有字段显式赋值
+```
+
+**使用默认值**（新增语法）：
+```uya
+// 方式1：完全使用默认值
+const origin: Point = Point{};  // x=0.0, y=0.0
+
+// 方式2：部分字段使用默认值（有默认值的字段可以忽略）
+const p2: Point = Point{ x: 5.0 };           // x=5.0, y=0.0（y 使用默认值）
+const p3: Point = Point{ y: 3.0 };           // x=0.0（x 使用默认值）, y=3.0
+const p4: Point = Point{ y: 2.0 };           // x=0.0（x 使用默认值）, y=2.0
+```
+
+#### 4.3.4 约束与规则
+
+##### 4.3.4.1 默认值必须是编译期常量
+
+```uya
+const DEFAULT_PORT: i32 = 8080;
+
+struct Server {
+    port: i32 = DEFAULT_PORT,      // ✅ 常量变量
+    host: [i8: 64] = "localhost",   // ✅ 字符串字面量（编译期常量）
+    
+    // ❌ 错误：默认值必须是编译期常量
+    // socket: i32 = get_socket(),  // 函数调用不允许
+    // timestamp: i64 = current_time()  // 运行时值不允许
+}
+```
+
+##### 4.3.4.2 无默认值的字段必须显式初始化
+
+**规则**：有默认值的字段在初始化时可以忽略，只需提供无默认值的字段。
+
+```uya
+struct User {
+    id: i32,           // 无默认值，必须显式提供
+    name: [i8: 64] = "Anonymous",  // 有默认值，可以忽略
+    age: i32 = 0                    // 有默认值，可以忽略
+}
+
+// ✅ 正确：所有无默认值字段都提供了值，有默认值的字段自动使用默认值
+const u1: User = User{ id: 1 };  // name="Anonymous", age=0（使用默认值）
+
+// ✅ 正确：可以显式覆盖有默认值的字段
+const u2: User = User{ id: 2, name: "Tom" };  // name="Tom", age=0（使用默认值）
+
+// ❌ 错误：缺少无默认值字段 id
+// const u3: User = User{ name: "Tom" };
+// 编译错误：字段 'id' 没有默认值，必须显式初始化
+```
+
+##### 4.3.4.3 与移动语义的交互
+
+```uya
+struct Buffer {
+    data: [byte: 1024] = [],
+    len: i32 = 0,
+    capacity: i32 = 1024
+}
+
+// 使用默认值初始化时，数组字段是零初始化的，无移动语义问题
+const buf1: Buffer = Buffer{};  // 安全，无移动
+
+// 部分初始化时，显式提供的值遵循移动语义
+var temp_data: [byte: 1024] = [1, 2, 3];
+// const buf2: Buffer = Buffer{ data: temp_data };  // ❌ temp_data 被移动
+```
+
+##### 4.3.4.4 与 drop 的兼容性
+
+```uya
+struct File {
+    fd: i32 = -1,      // 默认值为 -1（表示无效文件描述符）
+    path: [i8: 256] = []
+}
+
+File {
+    fn drop(self: File) void {
+        if self.fd >= 0 {
+            extern close(fd: i32) i32;
+            close(self.fd);
+        }
+    }
+}
+
+// 使用默认值创建 File，fd=-1，drop 时不会调用 close
+const f1: File = File{};  // 安全，fd=-1，drop 中检查并跳过
+```
+
+##### 4.3.4.5 接口实现与默认值
+
+```uya
+interface Drawable {
+    fn draw(self: &Self) void;
+}
+
+struct Circle : Drawable {
+    center: Point = Point{},
+    radius: f32 = 1.0,
+    
+    fn draw(self: &Self) void {
+        // 实现...
+    }
+}
+
+// 使用默认值创建并装箱为接口
+const shape: Drawable = Circle{};  // 使用所有默认值
+```
+
+#### 4.3.5 编译器实现要点
+
+##### 4.3.5.1 语法分析
+
+扩展结构体字段定义语法：
+
+```ebnf
+field_decl ::= field_name ":" type ( "=" const_expr )?
+```
+
+##### 4.3.5.2 类型检查
+
+1. **默认值类型检查**：确保 `const_expr` 的类型与字段类型兼容
+2. **编译期求值**：验证 `const_expr` 可在编译期求值
+3. **完整性检查**：确保初始化时所有无默认值字段都被提供
+
+##### 4.3.5.3 代码生成
+
+```uya
+// 源代码
+const p: Point = Point{ x: 5.0 };
+
+// 编译器展开后（概念上）
+const p: Point = Point{
+    x: 5.0,
+    y: 0.0  // 插入默认值
+};
+```
+
+**内存布局保持不变**：默认值在编译期嵌入代码，结构体内存布局与无默认值版本完全一致。
+
+#### 4.3.6 复杂示例
+
+```uya
+// 网络配置结构体
+struct NetworkConfig {
+    // 基础配置
+    host: [i8: 64] = "0.0.0.0",
+    port: i32 = 8080,
+    
+    // 高级配置
+    backlog: i32 = 128,
+    keep_alive: bool = true,
+    timeout_sec: f64 = 30.0,
+    
+    // 嵌套结构体
+    ssl: SslConfig = SslConfig{
+        enabled: false,
+        cert_path: [],
+        key_path: []
+    }
+}
+
+// 使用示例
+fn create_server(config: NetworkConfig) !void {
+    // ...
+}
+
+fn main() !i32 {
+    // 1. 使用全部默认值
+    const default_server = create_server(NetworkConfig{});
+    
+    // 2. 修改端口，其余默认
+    const custom_port = create_server(NetworkConfig{ port: 3000 });
+    
+    // 3. 修改嵌套字段（部分使用默认值）
+    const with_ssl = create_server(NetworkConfig{
+        port: 443,
+        ssl: SslConfig{ enabled: true, cert_path: "cert.pem", key_path: "key.pem" }
+    });
+    
+    return 0;
+}
+```
+
+#### 4.3.7 与现有规范的兼容性
+
+| 特性 | 兼容性 | 说明 |
+|------|--------|------|
+| 移动语义 | ✅ 兼容 | 显式提供的值遵循移动规则，默认值无移动（零初始化或常量） |
+| RAII/drop | ✅ 兼容 | 默认值可设计为"安全空状态"（如 fd=-1） |
+| 接口实现 | ✅ 兼容 | 带默认值的结构体可正常实现接口 |
+| C 互操作 | ✅ 兼容 | 内存布局不变，C 侧无感知 |
+| 原子类型 | ✅ 兼容 | 支持 `atomic T` 字段的默认值（必须是编译期常量） |
+| 联合体字段 | ⚠️ 需讨论 | 联合体变体选择不能默认，建议禁止联合体字段默认值 |
+
+#### 4.3.8 限制
+
+1. **编译期常量限制**：默认值必须是编译期可求值的常量，不支持运行时计算
+2. **无动态默认值**：不支持 `rand()`、`now()` 等运行时默认值
+3. **联合体内禁止**：联合体（union）字段不能有默认值（因需要显式选择变体）
+4. **切片字段限制**：切片字段 `&[T]` 不能有默认值（因需运行时数据）
+
+#### 4.3.9 设计哲学一致性
+
+> **显式控制**：默认值在结构体定义处显式声明，使用者通过 `Struct{}` 或 `Struct{ field: value }` 显式选择使用默认（有默认值的字段可以忽略）。
+>
+> **编译期证明**：所有默认值在编译期验证和展开，零运行时开销，类型安全保证。
+>
+> **零成本**：默认值不占用额外内存，不改变结构体布局，代码生成与手写显式初始化相同。
+
+#### 4.3.10 示例：对比有无默认值
+
+**无默认值（当前）**：
+```uya
+struct HttpRequest {
+    method: [i8: 16],
+    path: [i8: 256],
+    version: [i8: 16],
+    headers_count: i32
+}
+
+// 每次初始化都要写很多样板代码
+const req = HttpRequest{
+    method: "GET",
+    path: "/",
+    version: "HTTP/1.1",
+    headers_count: 0
+};
+```
+
+**有默认值（新增）**：
+```uya
+struct HttpRequest {
+    method: [i8: 16] = "GET",
+    path: [i8: 256] = "/",
+    version: [i8: 16] = "HTTP/1.1",
+    headers_count: i32 = 0
+}
+
+// 简洁的初始化
+const req1 = HttpRequest{};           // 全部默认
+const req2 = HttpRequest{ path: "/api/users" };  // 仅修改 path
 ```
 
 ---
@@ -3438,10 +3790,14 @@ Uya 语言的编译期证明机制采用**分层验证策略**，**证明范围�
 | 内置函数 | 签名 | 说明 |
 |----------|------|------|
 | `@len` | `fn @len(a: [T: N]) i32` | 返回数组元素个数 `N`（编译期常量） |
-| `@sizeof` | `fn @sizeof(T) i32` | 返回类型 `T` 的字节大小（编译期常量） |
-| `@alignof` | `fn @alignof(T) i32` | 返回类型 `T` 的对齐字节数（编译期常量） |
+| `@size_of` | `fn @size_of(T) i32` | 返回类型 `T` 的字节大小（编译期常量） |
+| `@align_of` | `fn @align_of(T) i32` | 返回类型 `T` 的对齐字节数（编译期常量） |
 | `@max` | 上下文推断 | 整数类型最大值（编译期常量） |
 | `@min` | 上下文推断 | 整数类型最小值（编译期常量） |
+
+**命名惯例**：
+- 单一概念：`@len`, `@max`, `@min`（短形式）
+- 复合概念：`@size_of`, `@align_of`, `@async_fn`（下划线分隔）
 
 **函数详细说明**：
 
@@ -3519,8 +3875,8 @@ Uya 语言的编译期证明机制采用**分层验证策略**，**证明范围�
      - 统一接口：所有整数类型使用相同的函数名
      - 语义清晰：函数名直接表达溢出处理方式
 
-3. **`@sizeof(T) i32`**
-   - **功能**：`@sizeof(T)` 返回类型 `T` 的字节大小
+3. **`@size_of(T) i32`**
+   - **功能**：`@size_of(T)` 返回类型 `T` 的字节大小
    - **位置**：编译器内置函数（以 `@` 开头），无需导入
    - **签名**：
 [examples/sizeof.uya](./examples/sizeof.uya)
@@ -3533,31 +3889,31 @@ Uya 语言的编译期证明机制采用**分层验证策略**，**证明范围�
      | 浮点 | `f32`, `f64` | 4 B / 8 B |
      | 布尔 | `bool` | 1 B |
      | 指针 | `&T`, `*T`（FFI指针，如 `*byte`） | 平台字长（4 B 或 8 B） |
-     | 数组 | `[T: N]` | 大小 = `N * @sizeof(T)`，对齐 = `@alignof(T)` |
+     | 数组 | `[T: N]` | 大小 = `N * @size_of(T)`，对齐 = `@align_of(T)` |
      | 结构体 | `struct S{...}` | 大小 = 各字段按 C 规则布局，对齐 = 最大字段对齐 |
      | 原子 | `atomic T` | 与 `T` 完全相同 |
    - **常量表达式**：结果可在**任何需要编译期常量**的位置使用
 [examples/file_5.uya](./examples/file_5.uya)
    - **零运行时保证**：
-     - 前端遇到 `@sizeof(T)` **直接折叠**成常数，**不生成函数调用**
+     - 前端遇到 `@size_of(T)` **直接折叠**成常数，**不生成函数调用**
      - 失败路径（类型未定义、含泛型参数）→ **编译错误**，不生成代码
    - **常见示例**：
 [examples/packet.uya](./examples/packet.uya)
    - **限制**：
      - `T` 必须是**完全已知类型**（无待填泛型参数）
-     - 不支持表达式级 `@sizeof(expr)`——仅对 **类型** 求值
+     - 不支持表达式级 `@size_of(expr)`——仅对 **类型** 求值
      - 返回类型固定为 `i32`；超大结构体大小若超过 `i32` 上限 → 编译错误
    - **一句话总结**：
-     > `@sizeof` 是**编译器内置函数**（以 `@` 开头），编译期折叠成常数；  
+     > `@size_of` 是**编译器内置函数**（以 `@` 开头），编译期折叠成常数；  
      > 零关键字、编译期证明，单页纸用完。
 
-4. **`@alignof(T) i32`**
-   - **功能**：`@alignof(T)` 返回类型 `T` 的对齐字节数
+4. **`@align_of(T) i32`**
+   - **功能**：`@align_of(T)` 返回类型 `T` 的对齐字节数
    - **位置**：编译器内置函数（以 `@` 开头），无需导入
    - **签名**：
 [examples/sizeof.uya](./examples/sizeof.uya)
    - **使用**：
-     - 无需导入，直接使用：`@alignof(T)`
+     - 无需导入，直接使用：`@align_of(T)`
 [examples/vec3_1.uya](./examples/vec3_1.uya)
    - **支持类型**：
      | 类别 | 示例 | 说明 |
@@ -3566,12 +3922,12 @@ Uya 语言的编译期证明机制采用**分层验证策略**，**证明范围�
      | 浮点 | `f32`, `f64` | 4 B / 8 B |
      | 布尔 | `bool` | 1 B |
      | 指针 | `&T`, `*T`（FFI指针，如 `*byte`） | 平台字长（4 B 或 8 B） |
-     | 数组 | `[T: N]` | 对齐 = `@alignof(T)` |
+     | 数组 | `[T: N]` | 对齐 = `@align_of(T)` |
      | 结构体 | `struct S{...}` | 对齐 = 最大字段对齐 |
      | 原子 | `atomic T` | 与 `T` 完全相同 |
    - **常量表达式**：结果可在**任何需要编译期常量**的位置使用
    - **零运行时保证**：
-     - 前端遇到 `@alignof(T)` **直接折叠**成常数，**不生成函数调用**
+     - 前端遇到 `@align_of(T)` **直接折叠**成常数，**不生成函数调用**
      - 失败路径（类型未定义、含泛型参数）→ **编译错误**，不生成代码
    - **限制**：
      - `T` 必须是**完全已知类型**（无待填泛型参数）
@@ -3746,7 +4102,412 @@ for hello |byte| {
 
 ---
 
-## 29 未实现/将来
+## 18 异步编程
+
+### 18.1 实现层次
+
+异步编程的实现分为两个层次：
+
+1. **语言核心（编译器实现）** - **必须实现**：
+   - `@async_fn` 函数属性
+   - `try @await` 挂起点
+   - `union Poll<T>` 类型定义
+   - `interface Future<T>` 接口定义
+   - `struct Waker` 类型定义（至少需要类型定义，用于 `poll()` 方法签名）
+   - CPS 变换和状态机生成
+
+2. **标准库实现（基于核心类型）** - **可选，可后续实现**：
+   - `std.async`：`Task<T>`, `Waker` 完整实现
+   - `std.channel`：`Channel<T>`, `MpscChannel<T>`
+   - `std.runtime`：`Scheduler` 事件循环
+   - `std.thread`：`ThreadPool`, `async_compute<T>`
+
+**实现顺序**：
+- **第一步**：实现语言核心，包括类型定义和编译器支持
+  - 可以先定义 `struct Waker` 为占位类型（空结构体），满足 `poll()` 方法签名要求
+  - 实现 CPS 变换和状态机生成，使基本的异步函数可以编译和运行
+- **第二步**：实现标准库，提供完整的异步运行时支持
+  - 实现 `Waker` 的完整功能（`wake()` 方法等）
+  - 实现 `Task<T>`、`Scheduler` 等运行时组件
+  - 实现 `Channel<T>` 等异步通信原语
+
+**最小实现**：
+- 要实现基本的异步编程功能，**不需要**先实现完整的标准库
+- 只需要实现语言核心和基本类型定义
+- 可以编写简单的异步函数和状态机，即使没有完整的运行时支持
+- 标准库可以在后续逐步实现和完善
+
+### 18.2 设计目标
+
+- **显式控制**：所有挂起必须 `@await`，取消必须显式检查 `is_cancelled()`
+- **零成本**：状态机栈分配，无运行时堆分配，无隐式锁
+- **编译期证明**：状态机安全性、Send/Sync 推导、跨线程验证编译期完成
+- **类型安全**：`Poll<T>` 使用 `union`（编译期标签跟踪），非 `enum`
+
+### 18.3 语言核心（编译器实现）
+
+#### 18.3.1 `@async_fn` 函数属性
+
+**语法**：`@async_fn fn function_name(...) !Future<T> { ... }`
+
+**功能**：
+- 函数属性，触发 CPS（Continuation-Passing Style）变换生成显式状态机
+- 状态机大小在编译期确定，递归调用编译错误
+
+**约束**：
+- **必须**返回 `!Future<T>`（显式异步，无隐式包装）
+- 状态机大小编译期确定，递归调用编译错误
+
+**示例**：
+```uya
+@async_fn
+fn fetch() !Future<&[i8]> { 
+    // 异步操作
+    try @await some_async_operation();
+    return result;
+}
+
+@async_fn
+fn bad() !void { ... }  // 错误：必须返回 Future
+```
+
+#### 18.3.2 `@await` 挂起点
+
+**语法**：`try @await expression`
+
+**功能**：
+- 唯一显式挂起点
+- 挂起当前异步函数，等待异步操作完成
+- 编译期展开为状态机状态转换
+- 返回 `!T` 类型，需要使用 `try` 解包错误
+
+**约束**：
+- 只能在 `@async_fn` 函数内使用
+- 表达式必须返回 `!Future<T>` 类型
+- 必须使用 `try` 关键字处理错误传播
+
+**示例**：
+```uya
+@async_fn
+fn fetch_data() !Future<&[i8]> {
+    const result = try @await http_get("https://example.com");
+    return result;
+}
+```
+
+#### 18.3.3 `union Poll<T>` 异步计算结果类型
+
+**定义**：
+```uya
+union Poll<T> {
+    Pending: void,
+    Ready: T,
+    Error: error
+}
+```
+
+**功能**：
+- 表示异步计算的结果状态
+- 使用 `union`（编译期标签跟踪），非 `enum`
+- 编译期保证类型安全
+
+**使用**：
+```uya
+const result: union Poll<i32> = some_future.poll(&waker);
+match result {
+    Pending => { /* 继续等待 */ },
+    Ready(value) => { /* 使用 value */ },
+    Error(err) => { /* 处理错误 */ }
+}
+```
+
+#### 18.3.4 `interface Future<T>` 异步计算抽象
+
+**定义**：
+```uya
+interface Future<T> {
+    fn poll(self: &Self, waker: &Waker) union Poll<T>;
+}
+```
+
+**功能**：
+- 异步计算的抽象接口
+- 所有异步操作必须实现此接口
+- 编译期验证实现
+
+**实现示例**：
+```uya
+struct MyFuture {
+    // 状态机状态
+}
+
+MyFuture {
+    fn poll(self: &Self, waker: &Waker) union Poll<i32> {
+        // 实现异步逻辑
+        if ready {
+            return union Poll<i32> { Ready: value };
+        } else {
+            return union Poll<i32> { Pending: void };
+        }
+    }
+}
+```
+
+### 18.4 函数签名约束
+
+**必须返回 `!Future<T>`**：
+- `@async_fn` 函数必须显式返回 `!Future<T>` 类型
+- 无隐式包装，所有异步操作显式声明
+- 状态机大小编译期确定，递归调用编译错误
+
+**返回值语义**：
+- `!Future<T>` 是错误联合类型，表示：
+  - **成功分支**：返回 `Future<T>`（异步计算结果）
+  - **错误分支**：返回 `error`（同步错误）
+- **返回值自动包装**：
+  - `return value;` → 自动包装为 `Future<T>`，作为 `!Future<T>` 的成功分支
+  - `return error.ErrorName;` → 直接返回错误，作为 `!Future<T>` 的错误分支
+
+**自动包装机制**：
+- 当 `@async_fn` 函数返回任何类型的值（基本类型、结构体、切片等）时，编译器通过 CPS 变换生成一个立即就绪的 Future
+- 编译器生成的状态机结构体实现 `Future<T>` 接口，其 `poll()` 方法直接返回 `union Poll<T> { Ready: value }`
+- 如果函数体中没有 `@await` 点，状态机只包含一个最终状态，`poll()` 首次调用即返回 `Ready(value)`
+- 如果函数体中有 `@await` 点，状态机包含多个状态，最终状态返回 `Ready(value)`
+- **支持的类型**：所有类型都可以自动包装，包括：
+  - 基本类型：`i32`, `f64`, `bool` 等
+  - 结构体：`MyStruct`, `Point`, `User` 等
+  - 切片：`&[i8]`, `&[T]` 等
+  - 数组：`[i32: 10]` 等
+  - 指针和引用：`*T`, `&T` 等
+- **实现细节**（编译器生成）：
+  ```uya
+  // 源代码：return 42; 或 return User{ id: 1, name: "Alice" };
+  // 编译器生成的状态机（伪代码）：
+  
+  // 基本类型示例
+  struct AsyncStateMachine_i32 {
+      state: i32,
+      result: i32
+  }
+  
+  AsyncStateMachine_i32 {
+      fn poll(self: &Self, waker: &Waker) union Poll<i32> {
+          if self.state == COMPLETED {
+              return union Poll<i32> { Ready: self.result };
+          }
+          self.result = 42;
+          self.state = COMPLETED;
+          return union Poll<i32> { Ready: self.result };
+      }
+  }
+  
+  // 结构体示例
+  struct AsyncStateMachine_User {
+      state: i32,
+      result: User  // 状态机中保存完整的结构体值
+  }
+  
+  AsyncStateMachine_User {
+      fn poll(self: &Self, waker: &Waker) union Poll<User> {
+          if self.state == COMPLETED {
+              return union Poll<User> { Ready: self.result };
+          }
+          self.result = User{ id: 1, name: "Alice" };
+          self.state = COMPLETED;
+          return union Poll<User> { Ready: self.result };
+      }
+  }
+  ```
+
+- **示例**：
+  ```uya
+  // 基本类型
+  @async_fn
+  fn may_fail() !Future<i32> {
+      if condition {
+          return error.OperationFailed;  // 错误分支：直接返回 error
+      }
+      return 42;  // 成功分支：自动包装为 Future<i32>
+  }
+  
+  // 结构体
+  struct User {
+      id: i32,
+      name: &[i8]
+  }
+  
+  @async_fn
+  fn get_user() !Future<User> {
+      // 异步操作后返回结构体
+      // const data = try @await fetch_user_data();
+      return User{ id: 1, name: "Alice" };  // 自动包装为 Future<User>
+  }
+  
+  // 切片
+  @async_fn
+  fn get_data() !Future<&[i8]> {
+      // const result = try @await fetch_bytes();
+      return "hello";  // 自动包装为 Future<&[i8]>
+  }
+  ```
+
+**错误示例**：
+```uya
+@async_fn
+fn bad() !void { ... }  // 错误：必须返回 Future
+```
+
+**正确示例**：
+```uya
+@async_fn
+fn fetch() !Future<&[i8]> { ... }  // 正确
+```
+
+### 18.5 标准库实现（基于核心类型）
+
+标准库基于语言核心类型实现，提供高级异步抽象：
+
+| 模块 | 类型 | 实现基础 |
+|------|------|---------|
+| `std.async` | `Task<T>`, `Waker` | 内置接口 |
+| `std.channel` | `Channel<T>`, `MpscChannel<T>` | `atomic T` + `union` |
+| `std.runtime` | `Scheduler` | 事件循环 |
+| `std.thread` | `ThreadPool`, `async_compute<T>` | 系统线程 |
+
+#### 18.5.1 `std.async` 模块
+
+**`Task<T>`**：
+- 异步任务的包装类型
+- 实现 `Future<T>` 接口
+- 提供任务生命周期管理
+
+**`Waker`**：
+- **定义**：唤醒器（Waker），用于在异步操作就绪时通知异步运行时重新调度任务
+- **作用**：
+  - 当异步操作（如 I/O、定时器等）就绪时，通过 `waker.wake()` 通知运行时
+  - 运行时收到通知后，会重新调用 `poll()` 方法检查任务状态
+  - 实现高效的异步任务调度，避免忙等待（busy-waiting）
+- **使用场景**：
+  - 在 `poll()` 方法中，如果返回 `Pending`，通常需要保存 `waker` 的引用
+  - 当异步操作（如网络 I/O、文件 I/O）就绪时，调用 `waker.wake()` 通知运行时
+  - 运行时收到通知后，会重新调度该任务，再次调用 `poll()` 方法
+- **编译期验证**：
+  - 编译期验证唤醒安全性（Waker 使用）
+  - 确保 Waker 不会被错误使用或泄漏
+- **示例**：
+  ```uya
+  struct MyAsyncIO {
+      data: i32,
+      waker: Option<&Waker>  // 保存 waker 以便后续唤醒
+  }
+  
+  MyAsyncIO {
+      fn poll(self: &Self, waker: &Waker) union Poll<i32> {
+          if self.data_ready() {
+              return union Poll<i32> { Ready: self.data };
+          } else {
+              // 保存 waker，等待 I/O 就绪时唤醒
+              self.waker = Some(waker);
+              // 注册到 I/O 事件循环
+              register_io_callback(self, |io| {
+                  io.waker.unwrap().wake();  // I/O 就绪时唤醒
+              });
+              return union Poll<i32> { Pending: void };
+          }
+      }
+  }
+  ```
+
+#### 18.5.2 `std.channel` 模块
+
+**`Channel<T>`**：
+- 异步通道，用于异步任务间通信
+- 基于 `atomic T` 和 `union` 实现
+- 零运行时锁，编译期验证并发安全
+
+**`MpscChannel<T>`**：
+- 多生产者单消费者通道
+- 基于原子操作实现
+- 编译期验证 Send/Sync 约束
+
+#### 18.5.3 `std.runtime` 模块
+
+**`Scheduler`**：
+- 异步运行时调度器
+- 事件循环实现
+- 零堆分配，栈分配状态机
+
+#### 18.5.4 `std.thread` 模块
+
+**`ThreadPool`**：
+- 线程池，用于 CPU 密集型异步任务
+- 与异步运行时集成
+
+**`async_compute<T>`**：
+- 异步计算函数
+- 将 CPU 密集型任务提交到线程池
+
+### 18.6 设计哲学
+
+#### 18.6.1 显式控制
+
+- **所有挂起必须 `@await`**：无隐式挂起点，所有异步操作显式声明
+- **取消必须显式检查**：通过 `is_cancelled()` 显式检查取消状态
+- **无隐式转换**：所有异步操作显式类型，无隐式包装
+
+#### 18.6.2 零成本
+
+- **状态机栈分配**：所有状态机在栈上分配，无堆分配
+- **无运行时锁**：基于原子操作和编译期验证，无隐式锁
+- **编译期优化**：状态机大小和布局编译期确定，零运行时开销
+
+#### 18.6.3 编译期证明
+
+- **状态机安全性**：编译期验证状态机转换的正确性
+- **Send/Sync 推导**：编译期推导类型是否满足 Send/Sync 约束
+- **跨线程验证**：编译期验证跨线程使用的安全性
+
+#### 18.6.4 类型安全
+
+- **`Poll<T>` 使用 `union`**：编译期标签跟踪，非 `enum`
+- **编译期验证**：所有异步操作类型在编译期验证
+- **无运行时类型信息**：所有类型信息编译期确定
+
+### 18.7 完整示例
+
+```uya
+// 定义异步函数
+@async_fn
+fn fetch_url(url: &[i8]) !Future<&[i8]> {
+    // 异步操作
+    const result = try @await http_get(url);
+    return result;
+}
+
+// 使用异步函数
+@async_fn
+fn main() !Future<i32> {
+    const data = try @await fetch_url("https://example.com");
+    // 处理数据
+    return 0;
+}
+```
+
+### 18.8 限制
+
+| 限制 | 说明 |
+|------|------|
+| 递归调用 | 状态机大小编译期确定，递归调用编译错误 |
+| 动态状态机 | 不支持动态大小的状态机 |
+| 隐式挂起 | 所有挂起必须显式使用 `@await` |
+
+### 18.9 一句话总结
+
+> **异步编程基础设施**：`@async_fn`/`@await` + `union Poll<T>` + `interface Future<T>`；返回必须 `!Future<T>`；状态机零分配，挂起显式，并发安全编译期证明。
+
+---
+
+## 29 扩展特性
 
 ### 29.1 核心特性（计划中）
 - **官方包管理器**：`uyapm`
@@ -3837,8 +4598,8 @@ for hello |byte| {
 - ✅ **模块系统**：第 1.5 章 - 模块系统
 - ✅ **泛型**：第 24 章 - Uya 泛型增量文档
 - ✅ **显式宏**：第 25 章 - Uya 显式宏（可选增量）
-- ✅ **@sizeof**：第 16 章 - 标准库（内置函数，以 @ 开头）
-- ✅ **@alignof**：第 16 章 - 标准库（内置函数，以 @ 开头）
+- ✅ **@size_of**：第 16 章 - 标准库（内置函数，以 @ 开头）
+- ✅ **@align_of**：第 16 章 - 标准库（内置函数，以 @ 开头）
 - ✅ **类型别名**：第 24 章 6.2 节 - 类型别名实现
 - ✅ **for 循环**：第 8 章 - for 循环迭代（简化语法：`for obj |v| {}`、`for 0..10 |v| {}`、`for obj |&v| {}`）
 - ✅ **运算符简化**：第 10 章 - `try` 关键字用于溢出检查，饱和运算符（`+|`, `-|`, `*|`），包装运算符（`+%`, `-%`, `*%`）
@@ -4018,7 +4779,44 @@ for循环、切片语法、多维数组的完整示例请参考对应章节。
 
 ---
 
-## 附录 B. 未实现/将来
+## 附录 B. 扩展特性
+
+### B.1 泛型语法
+
+**语法确定**（当前未实现）：
+
+- **使用尖括号**：`<T>`
+- **约束紧邻参数**：`<T: Ord>`
+- **多约束连接**：`<T: Ord + Clone + Default>`
+
+**函数泛型示例**：
+```uya
+fn max<T: Ord>(a: T, b: T) T {
+    if a > b { return a; }
+    return b;
+}
+```
+
+**结构体泛型示例**：
+```uya
+struct Vec<T: Default> {
+    data: &T,
+    len: i32,
+    cap: i32
+}
+```
+
+**接口泛型示例**：
+```uya
+interface Iterator<T> {
+    fn next(self: &Self) union Option<T>;
+}
+```
+
+**设计说明**：
+- 泛型实现将遵循 Uya 的"显式控制"和"编译期证明"设计哲学
+
+---
 
 ## 术语表
 

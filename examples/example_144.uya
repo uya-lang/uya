@@ -1,0 +1,48 @@
+// 泛型结构体示例
+
+// 基本泛型结构体：向量容器
+struct Vec<T: Default> {
+    data: &T,
+    len: i32,
+    cap: i32
+}
+
+// 使用示例
+// const vec_i32: Vec<i32> = Vec<i32>{ data: ..., len: 0, cap: 0 };
+// const vec_f64: Vec<f64> = Vec<f64>{ data: ..., len: 0, cap: 0 };
+
+// 泛型结构体：键值对
+struct Pair<K, V> {
+    key: K,
+    value: V
+}
+
+// 使用示例
+// const pair: Pair<i32, *byte> = Pair<i32, *byte>{ key: 1, value: "hello" };
+
+// 带约束的泛型结构体：可比较的节点
+struct Node<T: Ord + Clone> {
+    data: T,
+    left: &Node<T>,
+    right: &Node<T>
+}
+
+// 泛型结构体方法（在结构体内部定义）
+struct Stack<T> {
+    items: [T: 100],
+    top: i32,
+    
+    fn push(self: &Self, item: T) void {
+        // 实现压栈逻辑
+    }
+    
+    fn pop(self: &Self) !T {
+        // 实现出栈逻辑，可能失败
+        return error.EmptyStack;
+    }
+}
+
+fn main() i32 {
+    return 0;
+}
+

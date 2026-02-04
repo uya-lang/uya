@@ -4,6 +4,51 @@
 
 ---
 
+## 0.40 版本变更（相对于 0.39）
+
+### 0.40.1 内置函数命名统一
+
+- **`@sizeof(T)` → `@size_of(T)`**：复合概念使用 snake_case
+- **`@alignof(T)` → `@align_of(T)`**：复合概念使用 snake_case
+- **命名惯例确立**：
+  - 单一概念：`@len`, `@max`, `@min`（短形式）
+  - 复合概念：`@size_of`, `@align_of`, `@async_fn`（下划线分隔）
+
+### 0.40.2 泛型语法确定
+
+- 使用尖括号：`<T>`
+- 约束紧邻参数：`<T: Ord>`
+- 多约束连接：`<T: Ord + Clone + Default>`
+- 示例：`fn max<T: Ord>(a: T, b: T) T { ... }`，`struct Vec<T: Default> { ... }`
+
+### 0.40.3 结构体默认值语法
+
+- 支持在结构体定义中为字段指定默认值：`field: Type = default_value`
+- 初始化时可以使用 `Struct{}` 使用所有默认值，或 `Struct{ field: value }` 部分使用默认值（有默认值的字段可以忽略）
+- 默认值必须是编译期常量，零运行时开销
+- 与移动语义、RAII、接口实现完全兼容
+
+### 0.40.4 异步编程基础设施（新增第 18 章）
+
+- **语言核心**（编译器实现）：
+  - `@async_fn`：函数属性，触发 CPS 变换生成显式状态机
+  - `@await`：唯一显式挂起点
+  - `union Poll<T>`：异步计算结果类型
+  - `interface Future<T>`：异步计算抽象
+- **函数签名约束**：必须返回 `!Future<T>`（显式异步，无隐式包装）
+- **标准库实现**（基于核心类型）：
+  - `std.async`：`Task<T>`, `Waker`
+  - `std.channel`：`Channel<T>`, `MpscChannel<T>`
+  - `std.runtime`：`Scheduler`
+  - `std.thread`：`ThreadPool`, `async_compute<T>`
+- **设计哲学**：
+  - 显式控制：所有挂起必须 `try @await`，取消必须显式检查 `is_cancelled()`
+  - 零成本：状态机栈分配，无运行时堆分配，无隐式锁
+  - 编译期证明：状态机安全性、Send/Sync 推导、跨线程验证编译期完成
+  - 类型安全：`Poll<T>` 使用 `union`（编译期标签跟踪），非 `enum`
+
+---
+
 ## 0.39 版本变更（相对于 0.38）
 
 ### 0.39 方法 self 统一为 &T，*T 仅用于 FFI（破坏性变更）
