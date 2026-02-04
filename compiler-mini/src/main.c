@@ -154,6 +154,9 @@ static int get_uya_root(const char *argv0, char *buffer, size_t buffer_size) {
 // 参数：path - 路径
 // 返回：是目录返回1，否则返回0
 static int is_directory(const char *path) {
+    if (path == NULL) {
+        return 0;
+    }
     struct stat st;
     if (stat(path, &st) == 0) {
         return S_ISDIR(st.st_mode);
@@ -165,6 +168,9 @@ static int is_directory(const char *path) {
 // 参数：path - 路径
 // 返回：是文件返回1，否则返回0
 static int is_file(const char *path) {
+    if (path == NULL) {
+        return 0;
+    }
     struct stat st;
     if (stat(path, &st) == 0) {
         return S_ISREG(st.st_mode);

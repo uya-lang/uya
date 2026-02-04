@@ -715,9 +715,19 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         if array.type == ASTNodeType.AST_IDENTIFIER {
             const type_c: &byte = get_identifier_type_c(codegen, array.identifier_name);
             if type_c != null && strstr(type_c as *byte, "uya_slice_" as *byte) != null {
-                fputc(40, codegen.output as *void);
-                gen_expr(codegen, array);
-                fputs(").ptr[" as *byte, codegen.output as *void);
+                // 检查标识符是否是指针类型
+                const safe_name: &byte = get_safe_c_identifier(codegen, array.identifier_name);
+                const is_pointer: i32 = is_identifier_pointer_type(codegen, safe_name);
+                if is_pointer != 0 {
+                    // 指针类型使用 -> 操作符
+                    gen_expr(codegen, array);
+                    fputs("->ptr[" as *byte, codegen.output as *void);
+                } else {
+                    // 非指针类型使用 . 操作符
+                    fputc(40, codegen.output as *void);
+                    gen_expr(codegen, array);
+                    fputs(").ptr[" as *byte, codegen.output as *void);
+                }
                 gen_expr(codegen, index);
                 fputc(93, codegen.output as *void);
                 return;

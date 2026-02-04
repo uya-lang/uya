@@ -627,13 +627,10 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 } else if (needs_memcpy) {
                     // 数组初始化：使用memcpy
                     fputs(";\n", codegen->output);
-                    c99_emit(codegen, "memcpy(");
-                    c99_emit(codegen, "%s", var_name);
-                    fputs(", ", codegen->output);
+                    c99_emit_indent(codegen);
+                    fprintf(codegen->output, "memcpy(%s, ", var_name);
                     gen_expr(codegen, init_expr);
-                    fputs(", sizeof(", codegen->output);
-                    c99_emit(codegen, "%s", var_name);
-                    fputs("));\n", codegen->output);
+                    fprintf(codegen->output, ", sizeof(%s));\n", var_name);
                 } else if (struct_init_needs_memcpy) {
                     // 结构体初始化包含数组字段：先声明变量，然后使用复合字面量初始化非数组字段，最后用memcpy复制数组字段
                     fputs(" = ", codegen->output);

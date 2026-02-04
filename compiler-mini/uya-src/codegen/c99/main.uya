@@ -188,6 +188,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null {
+            // 跳过 use 语句（模块导入，不需要生成代码）
+            if decl.type == ASTNodeType.AST_USE_STMT {
+                i = i + 1;
+                continue;
+            }
             collect_string_constants_from_decl(codegen, decl);
         }
         i = i + 1;
@@ -245,9 +250,16 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
-        if decl != null && decl.type == ASTNodeType.AST_ENUM_DECL {
-            gen_enum_definition(codegen, decl);
-            fputs("\n" as *byte, codegen.output as *void);
+        if decl != null {
+            // 跳过 use 语句（模块导入，不需要生成代码）
+            if decl.type == ASTNodeType.AST_USE_STMT {
+                i = i + 1;
+                continue;
+            }
+            if decl.type == ASTNodeType.AST_ENUM_DECL {
+                gen_enum_definition(codegen, decl);
+                fputs("\n" as *byte, codegen.output as *void);
+            }
         }
         i = i + 1;
     }
@@ -345,6 +357,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null {
+            // 跳过 use 语句（模块导入，不需要生成代码）
+            if decl.type == ASTNodeType.AST_USE_STMT {
+                i = i + 1;
+                continue;
+            }
             if decl.type == ASTNodeType.AST_STRUCT_DECL {
                 // 生成结构体内部定义的方法
                 const struct_name: &byte = decl.struct_decl_name;

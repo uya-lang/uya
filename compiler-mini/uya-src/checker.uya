@@ -226,6 +226,8 @@ struct TypeChecker {
     // 移动语义（规范 uya.md §12.5）：当前函数内已移动的变量名，移动后不能再次使用
     moved_names: [&byte: 128],
     moved_count: i32,
+    // 项目根目录路径（包含 main 函数的文件所在目录，用于识别 main 模块）
+    project_root_dir: &byte,  // 存储在 Arena 中
 }
 
 // 哈希函数（djb2算法，用于字符串哈希）
@@ -292,6 +294,7 @@ fn checker_init(checker: &TypeChecker, arena: &Arena, default_filename: &byte) i
     checker.current_function_decl = null;
     checker.error_name_count = 0;
     checker.moved_count = 0;
+    checker.project_root_dir = null;
     
     return 0;
 }
@@ -4047,12 +4050,46 @@ fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32 {
     checker.error_count = 0;
     
     // 第一遍（1）：收集所有函数声明（只注册函数签名，不检查函数体）
+    // 同时识别包含 main 函数的文件并提取项目根目录
     var i: i32 = 0;
     while i < ast.program_decl_count {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
             if checker_register_fn_decl(checker, decl) == 0 {
                 return -1;  // 注册失败，返回错误
+            }
+            
+            // 识别包含 main 函数的文件，设置项目根目录
+            if checker.project_root_dir == null && 
+               decl.fn_decl_name != null && 
+               str_equals(decl.fn_decl_name, "main" as *byte) != 0 &&
+               decl.filename != null {
+                // 提取文件所在目录作为项目根目录
+                const filename: &byte = decl.filename;
+                var last_slash: *byte = strrchr(filename as *byte, 47);  // '/'
+                if last_slash == null {
+                    last_slash = strrchr(filename as *byte, 92);  // '\'
+                }
+                
+                if last_slash != null {
+                    // 分配内存存储目录路径（包括末尾的 '/'）
+                    const dir_len: usize = ptr_diff(last_slash, filename as *byte) as usize + 1;
+                    const root_dir: &byte = arena_alloc(checker.arena, dir_len + 1) as &byte;
+                    if root_dir != null {
+                        var root_dir_ptr: *byte = root_dir as *byte;
+                        memcpy(root_dir_ptr, filename as *byte, dir_len);
+                        root_dir_ptr[dir_len] = 0;  // '\0'
+                        checker.project_root_dir = root_dir;
+                    }
+                } else {
+                    // 文件在根目录，项目根目录为空字符串（表示当前目录）
+                    const root_dir: &byte = arena_alloc(checker.arena, 1) as &byte;
+                    if root_dir != null {
+                        var root_dir_ptr: *byte = root_dir as *byte;
+                        root_dir_ptr[0] = 0;  // '\0'
+                        checker.project_root_dir = root_dir;
+                    }
+                }
             }
         }
         i = i + 1;
@@ -4964,11 +5001,131 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
 //   "tests/programs/module_a/file.uya" -> "module_a"
 //   "tests/programs/std/io/file.uya" -> "std.io"
 //   "tests/programs/main.uya" -> "main" (项目根目录)
+// 注意：当前实现支持多级路径，提取从第一个目录到最后一个目录的所有目录名，用 '.' 连接
+// 如果项目根目录已设置，文件在项目根目录下时返回 "main"
 fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
     if checker == null || filename == null {
         return null;
     }
     
+    // 如果项目根目录已设置，检查文件是否在项目根目录下
+    if checker.project_root_dir != null {
+        const root_len: usize = strlen(checker.project_root_dir as *byte);
+        // 检查 filename 是否以 project_root_dir 开头
+        if strncmp(filename as *byte, checker.project_root_dir as *byte, root_len) == 0 {
+            // 文件在项目根目录下，检查是否在根目录的直接子目录中
+            const relative_path: &byte = (filename as *byte + root_len) as &byte;
+            var first_slash: *byte = strchr(relative_path as *byte, 47);  // '/'
+            if first_slash == null {
+                first_slash = strchr(relative_path as *byte, 92);  // '\'
+            }
+            
+            if first_slash == null {
+                // 文件直接在项目根目录下，返回 "main"
+                const main_str: &byte = "main" as *byte;
+                const module_name: &byte = checker_arena_strdup(checker.arena, main_str);
+                return module_name;
+            }
+            
+            // 文件在项目根目录的子目录中，提取相对路径作为模块路径
+            // 例如：project_root_dir = "tests/programs/multifile/test_use_main/"
+            //      filename = "tests/programs/multifile/test_use_main/submodule/file.uya"
+            //      relative_path = "submodule/file.uya"
+            //      模块路径 = "submodule"
+            
+            // 找到最后一个 '/' 或 '\'（文件所在目录）
+            var last_slash: *byte = strrchr(relative_path as *byte, 47);  // '/'
+            if last_slash == null {
+                last_slash = strrchr(relative_path as *byte, 92);  // '\'
+            }
+            
+            if last_slash == null {
+                // 没有目录分隔符，文件在根目录，返回 "main"
+                const main_str: &byte = "main" as *byte;
+                const module_name: &byte = checker_arena_strdup(checker.arena, main_str);
+                return module_name;
+            }
+            
+            // 提取目录路径（从 relative_path 开始到 last_slash）
+            const dir_start: &byte = relative_path;
+            const dir_end: *byte = last_slash;
+            
+            // 计算所需的总长度（所有目录名 + '.' 分隔符）
+            var total_len: usize = 0;
+            var p: &byte = dir_start;
+            var dir_count: i32 = 0;
+            while (p as *byte) < dir_end {
+                var next_slash: *byte = strchr(p as *byte, 47);  // '/'
+                if next_slash == null {
+                    next_slash = strchr(p as *byte, 92);  // '\'
+                }
+                if next_slash == null || next_slash >= dir_end {
+                    next_slash = dir_end;
+                }
+                
+                const dir_len: usize = ptr_diff(next_slash, p as *byte) as usize;
+                if dir_len > 0 {
+                    total_len = total_len + dir_len;
+                    if dir_count > 0 {
+                        total_len = total_len + 1;  // '.' 分隔符
+                    }
+                    dir_count = dir_count + 1;
+                }
+                
+                if next_slash >= dir_end {
+                    break;
+                }
+                p = (next_slash + 1) as &byte;
+            }
+            
+            if dir_count == 0 {
+                // 没有目录，返回 "main"
+                const main_str: &byte = "main" as *byte;
+                const module_name: &byte = checker_arena_strdup(checker.arena, main_str);
+                return module_name;
+            }
+            
+            // 分配内存并构建模块路径
+            const module_name: &byte = arena_alloc(checker.arena, total_len + 1) as &byte;
+            if module_name == null {
+                return null;
+            }
+            
+            var dst: *byte = module_name as *byte;
+            p = dir_start;
+            dir_count = 0;
+            while (p as *byte) < dir_end {
+                var next_slash: *byte = strchr(p as *byte, 47);  // '/'
+                if next_slash == null {
+                    next_slash = strchr(p as *byte, 92);  // '\'
+                }
+                if next_slash == null || next_slash >= dir_end {
+                    next_slash = dir_end;
+                }
+                
+                const dir_len: usize = ptr_diff(next_slash, p as *byte) as usize;
+                if dir_len > 0 {
+                    if dir_count > 0 {
+                        dst[0] = 46;  // '.'
+                        dst = dst + 1;
+                    }
+                    memcpy(dst, p as *byte, dir_len);
+                    dst = dst + dir_len;
+                    dir_count = dir_count + 1;
+                }
+                
+                if next_slash >= dir_end {
+                    break;
+                }
+                p = (next_slash + 1) as &byte;
+            }
+            
+            dst[0] = 0;  // '\0'
+            return module_name;
+        }
+    }
+    
+    // 如果项目根目录未设置，使用旧逻辑（向后兼容）
     // 找到最后一个 '/' 或 '\'（文件所在目录）
     var last_slash: *byte = strrchr(filename as *byte, 47);  // '/'
     if last_slash == null {
@@ -5364,7 +5521,7 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
     if current_module_name != null && str_equals(current_module_name, module_name) == 0 {
         // 特殊处理：main 模块不记录依赖，避免循环依赖检测误报
         // main 模块是程序入口点，可以自由引用任何模块
-        if str_equals(current_module_name, "main" as *byte) != 0 {
+        if str_equals(current_module_name, "main" as *byte) == 0 {
             // 跳过依赖记录，继续处理导入项
         } else {
             // 查找当前模块

@@ -77,29 +77,51 @@ fn gen_global_var(codegen: &C99CodeGenerator, var_decl: &ASTNode) void {
     }
     
     var type_c: &byte = null;
-    var array_size: i32 = -1;
     
     // 检查是否为数组类型
     if var_type.type == ASTNodeType.AST_TYPE_ARRAY {
-        const element_type: &ASTNode = var_type.type_array_element_type;
-        const size_expr: &ASTNode = var_type.type_array_size_expr;
-        type_c = c99_type_to_c(codegen, element_type);
+        // 对于数组类型（包括多维数组），使用 c99_type_to_c 处理整个类型
+        // 它会正确处理多维数组，例如 [[byte: PATH_MAX]: MAX_INPUT_FILES] -> uint8_t[64][4096]
+        const full_type_c: &byte = c99_type_to_c(codegen, var_type);
         
-        // 评估数组大小
-        if size_expr != null {
-            array_size = eval_const_expr(codegen, size_expr);
-            if array_size <= 0 {
-                array_size = 1;  // 占位符
+        // 解析类型字符串，分离基类型和数组维度
+        // 例如："uint8_t[64][4096]" -> 基类型="uint8_t", 维度="[64][4096]"
+        const first_bracket: *byte = strchr(full_type_c as *byte, 91);  // '['
+        if first_bracket != null {
+            // 找到第一个 '['，分割基类型和维度
+            const base_len: i32 = ptr_diff(first_bracket, full_type_c as *byte);
+            const base_type: &byte = arena_alloc(codegen.arena, base_len + 1) as &byte;
+            if base_type != null {
+                memcpy(base_type as *void, full_type_c as *void, base_len);
+                base_type[base_len] = 0;
+                
+                // 维度部分是从 '[' 开始到结尾
+                const dimensions: *byte = full_type_c as *byte + base_len;
+                
+                // 生成数组声明：const base_type var_name dimensions
+                if is_const != 0 {
+                    fprintf(codegen.output as *void, "const %s %s%s" as *byte, base_type as *byte, var_name as *byte, dimensions);
+                } else {
+                    fprintf(codegen.output as *void, "%s %s%s" as *byte, base_type as *byte, var_name as *byte, dimensions);
+                }
+                type_c = base_type;  // 保存基类型用于后续使用
+            } else {
+                // 分配失败，回退到简单处理
+                type_c = full_type_c;
+                if is_const != 0 {
+                    fprintf(codegen.output as *void, "const %s %s" as *byte, type_c as *byte, var_name as *byte);
+                } else {
+                    fprintf(codegen.output as *void, "%s %s" as *byte, type_c as *byte, var_name as *byte);
+                }
             }
         } else {
-            array_size = 1;  // 占位符
-        }
-        
-        // 生成数组声明：const elem_type var_name[size]
-        if is_const != 0 {
-            fprintf(codegen.output as *void, "const %s %s[%d]", type_c as *byte, var_name as *byte, array_size);
-        } else {
-            fprintf(codegen.output as *void, "%s %s[%d]", type_c as *byte, var_name as *byte, array_size);
+            // 没有找到 '['，可能是错误情况，回退到简单处理
+            type_c = full_type_c;
+            if is_const != 0 {
+                fprintf(codegen.output as *void, "const %s %s" as *byte, type_c as *byte, var_name as *byte);
+            } else {
+                fprintf(codegen.output as *void, "%s %s" as *byte, type_c as *byte, var_name as *byte);
+            }
         }
     } else {
         type_c = c99_type_to_c(codegen, var_type);
