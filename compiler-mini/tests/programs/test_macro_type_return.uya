@@ -1,0 +1,28 @@
+// 测试 type 返回标签的宏调用
+// 宏作为类型注解使用
+
+// 定义返回 i32 类型的宏
+mc int_type() type {
+    @mc_code(@mc_ast(i32));
+}
+
+// 定义返回 bool 类型的宏
+mc bool_type() type {
+    @mc_code(@mc_ast(bool));
+}
+
+fn main() i32 {
+    // 使用宏作为类型注解
+    const x: int_type() = 42;
+    if x != 42 {
+        return 1;
+    }
+    
+    // 使用 bool 类型宏
+    const flag: bool_type() = true;
+    if !flag {
+        return 2;
+    }
+    
+    return 0;
+}

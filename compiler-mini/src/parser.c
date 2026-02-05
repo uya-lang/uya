@@ -369,10 +369,7 @@ static ASTNode *parser_parse_type(Parser *parser) {
         return type_node;
     } else if (parser->current_token->type == TOKEN_IDENTIFIER) {
         // 命名类型（i32, bool, void, 或结构体名称，或泛型类型 Vec<i32>）
-        ASTNode *type_node = ast_new_node(AST_TYPE_NAMED, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
-        if (type_node == NULL) {
-            return NULL;
-        }
+        // 或者类型宏调用（macro_name()）
         
         // 复制类型名称到 Arena
         const char *type_name = arena_strdup(parser->arena, parser->current_token->value);
@@ -380,12 +377,61 @@ static ASTNode *parser_parse_type(Parser *parser) {
             return NULL;
         }
         
+        // 消费类型标识符
+        parser_consume(parser);
+        
+        // 检查是否是类型宏调用 macro_name()
+        if (parser->current_token != NULL && parser->current_token->type == TOKEN_LEFT_PAREN) {
+            parser_consume(parser);  // 消费 '('
+            
+            // 创建宏调用节点
+            ASTNode *callee = ast_new_node(AST_IDENTIFIER, line, column, parser->arena, 
+                parser->lexer ? parser->lexer->filename : NULL);
+            if (callee == NULL) return NULL;
+            callee->data.identifier.name = type_name;
+            
+            ASTNode *call = ast_new_node(AST_CALL_EXPR, line, column, parser->arena,
+                parser->lexer ? parser->lexer->filename : NULL);
+            if (call == NULL) return NULL;
+            call->data.call_expr.callee = callee;
+            call->data.call_expr.has_ellipsis_forward = 0;
+            
+            // 解析参数列表（可能为空）
+            ASTNode **args = NULL;
+            int arg_count = 0;
+            int arg_cap = 0;
+            while (parser->current_token != NULL && !parser_match(parser, TOKEN_RIGHT_PAREN)) {
+                ASTNode *arg = parser_parse_expression(parser);
+                if (arg == NULL) return NULL;
+                if (arg_count >= arg_cap) {
+                    int new_cap = arg_cap == 0 ? 4 : arg_cap * 2;
+                    ASTNode **new_args = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
+                    if (!new_args) return NULL;
+                    for (int i = 0; i < arg_count; i++) new_args[i] = args[i];
+                    args = new_args;
+                    arg_cap = new_cap;
+                }
+                args[arg_count++] = arg;
+                if (parser_match(parser, TOKEN_COMMA)) {
+                    parser_consume(parser);
+                }
+            }
+            if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) return NULL;
+            
+            call->data.call_expr.args = args;
+            call->data.call_expr.arg_count = arg_count;
+            return call;  // 返回宏调用节点，checker 会展开它
+        }
+        
+        // 普通命名类型
+        ASTNode *type_node = ast_new_node(AST_TYPE_NAMED, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (type_node == NULL) {
+            return NULL;
+        }
+        
         type_node->data.type_named.name = type_name;
         type_node->data.type_named.type_args = NULL;
         type_node->data.type_named.type_arg_count = 0;
-        
-        // 消费类型标识符
-        parser_consume(parser);
         
         // 检查是否有泛型类型参数列表（如 Vec<i32> 中的 <i32>）
         if (parser->current_token != NULL && parser->current_token->type == TOKEN_LESS) {

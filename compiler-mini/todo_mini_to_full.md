@@ -523,9 +523,16 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [x] Checker: 在 `AST_METHOD_BLOCK` 中展开宏调用为方法定义
   - [x] 测试用例：`test_macro_struct_return.uya`
 
+- [x] **`type` 返回标签调用**：
+  - [x] Parser: 类型位置支持宏调用语法（`macro_name()`）
+  - [x] Checker: 支持 `type` 返回类型的宏展开
+  - [x] Checker: 在 `@mc_code(@mc_ast(...))` 处理中，将 AST_IDENTIFIER 转换为 AST_TYPE_NAMED
+  - [x] 测试用例：`test_macro_type_return.uya`
+
+**暂不实现**：
+- [ ] `@mc_type` 编译时类型反射（需要完整的 `TypeInfo` 结构体和类型反射系统，复杂度较高）
+
 **待实现**：
-- [ ] `type` 返回标签调用（作为类型注解使用，如 `const x: get_type() = 42`）
-- [ ] `@mc_type` 编译时类型反射（返回 `TypeInfo` 结构体）
 - [ ] uya-src 同步
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen。

@@ -4992,7 +4992,22 @@ static ASTNode *extract_macro_output(ASTNode *body, MacroExpandContext *ctx, con
             
             // 深度复制内部 AST（执行参数替换）
             // 对于 expr 返回类型且内部是块语句，返回整个块（codegen 会处理块表达式）
-            last_output = deep_copy_ast(inner, &merged_ctx);
+            ASTNode *result = deep_copy_ast(inner, &merged_ctx);
+            
+            // 对于 type 返回类型，如果结果是标识符，转换为类型节点
+            if (return_tag != NULL && strcmp(return_tag, "type") == 0 &&
+                result != NULL && result->type == AST_IDENTIFIER && result->data.identifier.name != NULL) {
+                ASTNode *type_node = ast_new_node(AST_TYPE_NAMED, result->line, result->column, 
+                    merged_ctx.arena, result->filename);
+                if (type_node != NULL) {
+                    type_node->data.type_named.name = result->data.identifier.name;
+                    type_node->data.type_named.type_args = NULL;
+                    type_node->data.type_named.type_arg_count = 0;
+                    result = type_node;
+                }
+            }
+            
+            last_output = result;
             break;
         }
         
@@ -5040,6 +5055,28 @@ static ASTNode *extract_macro_output(ASTNode *body, MacroExpandContext *ctx, con
             last_output = deep_copy_ast(s, &merged_ctx);
             break;
         }
+        
+        // type 返回类型的语法糖（用于生成类型标识符）
+        if (return_tag != NULL && strcmp(return_tag, "type") == 0) {
+            // 跳过变量声明语句（这些是宏内部的临时变量）
+            if (s->type == AST_VAR_DECL) continue;
+            
+            // 返回类型 AST 节点
+            ASTNode *result = deep_copy_ast(s, &merged_ctx);
+            // 如果结果是标识符，转换为类型节点
+            if (result != NULL && result->type == AST_IDENTIFIER && result->data.identifier.name != NULL) {
+                ASTNode *type_node = ast_new_node(AST_TYPE_NAMED, result->line, result->column, 
+                    merged_ctx.arena, result->filename);
+                if (type_node != NULL) {
+                    type_node->data.type_named.name = result->data.identifier.name;
+                    type_node->data.type_named.type_args = NULL;
+                    type_node->data.type_named.type_arg_count = 0;
+                    result = type_node;
+                }
+            }
+            last_output = result;
+            break;
+        }
     }
     
     return last_output;
@@ -5063,14 +5100,7 @@ static void expand_macros_in_node(TypeChecker *checker, ASTNode **node_ptr) {
                 // 检查返回标签是否支持
                 if (return_tag == NULL || 
                     (strcmp(return_tag, "expr") != 0 && strcmp(return_tag, "stmt") != 0 &&
-                     strcmp(return_tag, "struct") != 0)) {
-                    // type 返回类型暂不支持
-                    if (return_tag != NULL && strcmp(return_tag, "type") == 0) {
-                        char buf[128];
-                        snprintf(buf, sizeof(buf), "宏 %s 的 %s 返回类型暂不支持", name, return_tag);
-                        checker_report_error(checker, node, buf);
-                        return;
-                    }
+                     strcmp(return_tag, "struct") != 0 && strcmp(return_tag, "type") != 0)) {
                     char buf[128];
                     snprintf(buf, sizeof(buf), "宏 %s 返回类型无效 (return_tag: %s)", 
                             name, return_tag ? return_tag : "NULL");
