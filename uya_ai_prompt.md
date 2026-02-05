@@ -846,6 +846,19 @@ const result = macro_name(arg1, arg2);  // 与函数调用语法一致
 
 宏在编译时展开，调用被替换为宏生成的代码。
 
+### 跨模块宏导出与导入
+
+```uya
+// macro_lib/macro_lib.uya - 导出宏
+export mc add(a: expr, b: expr) expr {
+    ${a} + ${b};
+}
+
+// main.uya - 导入并使用宏
+use macro_lib.add;
+const sum: i32 = add(10, 20);  // 30
+```
+
 ### 示例
 
 ```uya
@@ -877,6 +890,7 @@ mc define_getter(field: expr) struct {
 2. **宏系统**：编译时元编程，支持类型反射、代码生成、环境变量访问
    - 宏定义：`mc name(params) return_tag { ... }`
    - 编译时内置函数：`@mc_eval`、`@mc_type`、`@mc_ast`、`@mc_code`、`@mc_error`、`@mc_get_env`
+   - 跨模块宏：`export mc` 导出，`use module.macro_name;` 导入
    - 零运行时开销，编译期确定性
 3. **编译期证明**：在当前函数内验证安全性，证明超时自动插入运行时检查
 4. **显式控制**：所有类型注解显式，无隐式转换
@@ -886,5 +900,5 @@ mc define_getter(field: expr) struct {
 ---
 
 **版本**：Uya 0.41  
-**更新日期**：2026-02-01
+**更新日期**：2026-02-05
 

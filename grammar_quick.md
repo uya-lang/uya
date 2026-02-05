@@ -319,6 +319,7 @@ export struct PublicStruct { ... }
 export interface PublicInterface { ... }
 export const PUBLIC_CONST: i32 = 42;
 export error PublicError;
+export mc public_macro() expr { ... }  // 导出宏
 ```
 
 ### 导入
@@ -332,6 +333,9 @@ use std.io.read_file;
 
 // 导入并重命名
 use std.io as io_module;
+
+// 导入宏
+use math_macros.square;
 ```
 
 ---
@@ -480,7 +484,64 @@ fn example() !void {
 
 ---
 
-## 十三、常见问题与解答
+## 十三、宏系统速查
+
+### 宏定义
+
+```uya
+// 基本宏定义
+mc macro_name(param1: expr, param2: type) return_tag {
+    // 宏体
+}
+
+// 导出宏（供其他模块使用）
+export mc add(a: expr, b: expr) expr {
+    ${a} + ${b};
+}
+```
+
+**参数类型**：`expr`（表达式）、`stmt`（语句）、`type`（类型）、`pattern`（模式）
+
+**返回标签**：`expr`（表达式）、`stmt`（语句）、`struct`（结构体成员）、`type`（类型标识符）
+
+### 编译时内置函数
+
+| 函数 | 说明 | 示例 |
+|------|------|------|
+| `@mc_eval(expr)` | 编译时求值 | `@mc_eval(2 + 3)` → `5` |
+| `@mc_type(T)` | 类型反射 | `@mc_type(i32)` → `TypeInfo` |
+| `@mc_ast(code)` | 代码转 AST | `@mc_ast(x + y)` |
+| `@mc_code(ast)` | AST 转代码 | `@mc_code(ast_node)` |
+| `@mc_error(msg)` | 编译时错误 | `@mc_error("类型不匹配")` |
+| `@mc_get_env(name)` | 读取环境变量 | `@mc_get_env("DEBUG")` |
+
+### 宏调用与跨模块使用
+
+```uya
+// 宏调用（与函数调用语法一致）
+const result: i32 = add(10, 20);
+
+// 导入其他模块的宏
+use math_macros.square;
+const sq: i32 = square(5);  // 25
+```
+
+### 语法糖
+
+```uya
+// 简化写法（自动包装为 @mc_code(@mc_ast(...))）
+mc double(x: expr) expr {
+    ${x} * 2;
+}
+
+// 等价于显式写法
+mc double_explicit(x: expr) expr {
+    @mc_code(@mc_ast(${x} * 2));
+}
+```
+---
+
+## 十四、常见问题与解答
 
 ### Q: 如何声明数组？
 A: `const arr: [i32: 5] = [1,2,3,4,5];`
@@ -527,7 +588,7 @@ A: 使用尖括号 `<T>`，约束紧邻参数 `<T: Ord>`，多约束连接 `<T: 
 
 ---
 
-## 十四、完整示例
+## 十五、完整示例
 
 ```uya
 // 接口定义
@@ -575,7 +636,7 @@ fn main() i32 {
 
 ---
 
-## 十五、下一步学习
+## 十六、下一步学习
 
 - **完整语法**：查看 [grammar_formal.md](./grammar_formal.md)（完整BNF定义）
 - **语言规范**：查看 [uya.md](./uya.md)（完整语义说明）

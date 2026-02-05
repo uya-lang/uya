@@ -335,7 +335,7 @@ TEXT           = [^${}]+
 
 **显式宏语法（可选特性）**：
 ```
-macro_decl     = 'mc' ID '(' [ param_list ] ')' return_tag '{' statements '}'
+macro_decl     = [ 'export' ] 'mc' ID '(' [ param_list ] ')' return_tag '{' statements '}'
 param_list     = param { ',' param }
 param          = ID ':' param_type
 param_type     = 'expr' | 'stmt' | 'type' | 'pattern'
@@ -345,9 +345,11 @@ macro_call     = ID '(' arg_list ')'
 
 **说明**：
 - `mc` 关键字用于声明宏
+- `export mc` 可导出宏供其他模块使用
 - 参数类型：`expr`（表达式）、`stmt`（语句）、`type`（类型）、`pattern`（模式）
 - 返回标签：`expr`（表达式）、`stmt`（语句）、`struct`（结构体成员）、`type`（类型标识符）
 - 宏调用语法与普通函数调用完全一致
+- 跨模块宏导入：`use module.macro_name;`
 - 详细说明见 [uya.md](./uya.md#25-宏系统)
 
 ---
