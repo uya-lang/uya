@@ -544,8 +544,72 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [x] 测试用例：`multifile/test_macro_export/` 目录（test_macro_export_main.uya、error_use_private_macro.uya）
   - [x] 文档更新：uya.md §25.2.1 跨模块宏导出与导入
 
-**待实现**：
-- [ ] uya-src 同步
+**待实现（uya-src 同步）**：
+
+### 18.1 词法分析器 (lexer.uya)
+- [ ] 添加 `TOKEN_MC` 枚举值
+- [ ] 在 `is_keyword` 函数中识别 `"mc"` 关键字
+
+### 18.2 AST 定义 (ast.uya)
+- [ ] 添加 `AST_MACRO_DECL` 节点类型（宏声明）
+- [ ] 添加 `AST_MC_CODE` 节点类型（`@mc_code(expr)` 宏内生成代码）
+- [ ] 添加 `AST_MC_AST` 节点类型（`@mc_ast(expr)` 代码转 AST）
+- [ ] 添加 `AST_MC_EVAL` 节点类型（`@mc_eval(expr)` 编译时求值）
+- [ ] 添加 `AST_MC_ERROR` 节点类型（`@mc_error(msg)` 编译时错误）
+- [ ] 添加 `AST_MC_INTERP` 节点类型（`${expr}` 宏内插值）
+- [ ] 添加 `AST_MC_TYPE` 节点类型（`@mc_type(T)` 类型反射）
+- [ ] ASTNode 添加 `macro_decl_name: &byte` 字段
+- [ ] ASTNode 添加 `macro_decl_params: & & ASTNode` 字段
+- [ ] ASTNode 添加 `macro_decl_param_count: i32` 字段
+- [ ] ASTNode 添加 `macro_decl_return_tag: &byte` 字段
+- [ ] ASTNode 添加 `macro_decl_body: &ASTNode` 字段
+- [ ] ASTNode 添加 `macro_decl_is_export: i32` 字段
+- [ ] ASTNode 添加 `mc_code_operand: &ASTNode` 字段
+- [ ] ASTNode 添加 `mc_ast_operand: &ASTNode` 字段
+- [ ] ASTNode 添加 `mc_eval_operand: &ASTNode` 字段
+- [ ] ASTNode 添加 `mc_error_operand: &ASTNode` 字段
+- [ ] ASTNode 添加 `mc_interp_expr: &ASTNode` 字段
+- [ ] ASTNode 添加 `mc_type_target: &ASTNode` 字段
+- [ ] `ast_new_node` 函数初始化所有新字段
+
+### 18.3 语法分析器 (parser.uya)
+- [ ] **修复 mc 变量名冲突**：第 3255 行 `const mc: i32` → `const method_col: i32`（`mc` 是宏关键字）
+- [ ] 同步修改第 3307、3332 行中 `mc` 的使用为 `method_col`
+- [ ] 添加 `parser_parse_macro_decl` 函数：解析 `mc name(params) return_tag { body }`
+- [ ] 在 `parser_parse_declaration` 中添加 `TOKEN_MC` 分支，调用 `parser_parse_macro_decl`
+- [ ] 在 `parser_parse_primary_expr` 中添加 `@mc_code` 解析（`TOKEN_AT_IDENTIFIER` 分支）
+- [ ] 在 `parser_parse_primary_expr` 中添加 `@mc_ast` 解析
+- [ ] 在 `parser_parse_primary_expr` 中添加 `@mc_eval` 解析
+- [ ] 在 `parser_parse_primary_expr` 中添加 `@mc_error` 解析
+- [ ] 在 `parser_parse_primary_expr` 中添加 `@mc_type` 解析
+- [ ] 在 `parser_parse_primary_expr` 中添加 `${expr}` 插值解析（`TOKEN_INTERP_OPEN`）
+- [ ] **同步泛型参数 vs 比较运算符判断逻辑**：在 `ID<` 后使用 lookahead 区分 `ID<Type>` 和 `ID < expr`
+  - 若 `<` 后跟数字、浮点、字符串、`@` 内置函数 → 比较运算符
+  - 若 `<` 后跟标识符且紧接 `.`（成员访问）→ 比较运算符
+  - 否则 → 泛型类型参数
+
+### 18.4 类型检查器 (checker.uya)
+- [ ] 添加 `find_macro_decl_from_program` 函数：在程序中按名称查找宏声明
+- [ ] 添加 `extract_macro_expr_output` 函数：从宏体提取 `@mc_code(@mc_ast(...))` 的表达式输出
+- [ ] 添加 `expand_macros_in_node` 递归函数：遍历 AST 展开所有宏调用
+  - 识别 `AST_CALL_EXPR` 且 callee 为宏名
+  - 无参宏：直接替换为宏体的展开结果
+  - 带参宏（后续）：绑定参数并替换
+- [ ] 在 `checker_check` 入口处调用 `expand_macros_in_node`（类型检查前先展开宏）
+- [ ] 在 `expand_macros_in_node` 中递归处理所有 AST 节点类型：
+  - `AST_PROGRAM`、`AST_BLOCK`、`AST_BINARY_EXPR`、`AST_UNARY_EXPR`
+  - `AST_CALL_EXPR`、`AST_MEMBER_ACCESS`、`AST_ARRAY_ACCESS`
+  - `AST_IF_STMT`、`AST_WHILE_STMT`、`AST_FOR_STMT`、`AST_RETURN_STMT`
+  - `AST_VAR_DECL`、`AST_ASSIGN`、`AST_FN_DECL`、`AST_STRUCT_DECL` 等
+
+### 18.5 代码生成器 (codegen/)
+- [ ] 确认 `AST_MACRO_DECL` 在代码生成时被跳过（宏在 checker 阶段已展开）
+- [ ] 确认 `AST_MC_*` 节点在宏展开后不会出现在最终 AST 中
+
+### 18.6 验证
+- [ ] 运行 `cd uya-src && ./compile.sh --c99 -e` 编译自举编译器（修复编译错误）
+- [ ] 运行 `./tests/run_programs.sh --uya --c99` 测试所有用例
+- [ ] 运行 `./compile.sh --c99 -b` 自举对比（C 版与 Uya 版输出一致）
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen。
 
