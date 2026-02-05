@@ -1,26 +1,164 @@
 // 测试宏返回值语法糖
 // 宏体最后一条语句/表达式会被自动包装为 @mc_code(@mc_ast(...))
 
-// expr 语法糖：最后一个表达式自动作为返回值
-// 注意：表达式语句需要以分号结尾
+// TypeInfo 结构体（用于 @mc_type 测试）
+struct TypeInfo {
+    name: *i8,
+    size: i32,
+    align: i32,
+    kind: i32,
+    is_integer: bool,
+    is_float: bool,
+    is_bool: bool,
+    is_pointer: bool,
+    is_array: bool,
+    is_void: bool,
+}
+
+// ====================
+// 1. expr 语法糖基础
+// ====================
+
+// 简单表达式作为返回值
 mc double_it() expr {
     2 * 21;
 }
 
-// stmt 语法糖：最后一条语句自动作为返回语句
+// 带参数的 expr 语法糖
+mc add(a: expr, b: expr) expr {
+    ${a} + ${b};
+}
+
+// 带多个参数的复杂表达式
+mc calc(x: expr, y: expr, z: expr) expr {
+    ${x} * ${y} + ${z};
+}
+
+// ====================
+// 2. 带局部变量的语法糖
+// ====================
+
+// 使用 const 局部变量（编译时常量）
+mc compute_with_local() expr {
+    const doubled: i32 = @mc_eval(16 * 2);
+    @mc_code(@mc_ast(doubled + 10));
+}
+
+// 多个 const 局部变量
+mc multi_local() expr {
+    const sum: i32 = @mc_eval(5 + 7);
+    const product: i32 = @mc_eval(5 * 7);
+    @mc_code(@mc_ast(sum + product));
+}
+
+// ====================
+// 3. stmt 语法糖
+// ====================
+
+// 简单 stmt 语法糖
 mc log_result() stmt {
     printf("Result computed\n");
 }
 
+// 带参数的 stmt 语法糖
+mc print_value(val: expr) stmt {
+    printf("Value: %d\n", ${val});
+}
+
+// ====================
+// 4. type 语法糖
+// ====================
+
+// type 返回标签的语法糖
+mc int_type() type {
+    i32;
+}
+
+// 返回 bool 类型
+mc bool_type() type {
+    bool;
+}
+
+// ====================
+// 5. struct 语法糖
+// ====================
+
+// struct 返回标签的语法糖（需要显式使用 @mc_code/@mc_ast）
+mc add_getter_sugar() struct {
+    @mc_code(@mc_ast(
+        fn get_val(self: &Self) i32 {
+            return self.val;
+        }
+    ));
+}
+
+struct TestStruct {
+    val: i32,
+}
+
+TestStruct {
+    add_getter_sugar();
+}
+
+// ====================
+// 6. @mc_type 作为最后表达式
+// ====================
+
+mc get_type_info(T: type) expr {
+    @mc_type(T);
+}
+
+mc get_type_size(T: type) expr {
+    const info: TypeInfo = @mc_type(T);
+    info.size;
+}
+
+// ====================
+// 测试入口
+// ====================
+
 extern fn printf(fmt: *u8, ...) i32;
 
 fn main() i32 {
-    // 测试 expr 语法糖
+    // 1. 测试 expr 语法糖基础
     const result: i32 = double_it();
     if result != 42 { return 1; }
     
-    // 测试 stmt 语法糖
+    const sum: i32 = add(10, 32);
+    if sum != 42 { return 2; }
+    
+    const calc_result: i32 = calc(5, 8, 2);  // 5*8+2 = 42
+    if calc_result != 42 { return 3; }
+    
+    // 2. 测试带局部变量的语法糖
+    const local_result: i32 = compute_with_local();  // 16*2+10 = 42
+    if local_result != 42 { return 4; }
+    
+    const multi_result: i32 = multi_local();  // (5+7) + (5*7) = 12 + 35 = 47
+    if multi_result != 47 { return 5; }
+    
+    // 3. 测试 stmt 语法糖
     log_result();
+    print_value(42);
+    
+    // 4. 测试 type 语法糖
+    const x: int_type() = 100;
+    if x != 100 { return 6; }
+    
+    const flag: bool_type() = true;
+    if !flag { return 7; }
+    
+    // 5. 测试 struct 语法糖
+    const ts: TestStruct = TestStruct { val: 42 };
+    const ts_val: i32 = ts.get_val();
+    if ts_val != 42 { return 8; }
+    
+    // 6. 测试 @mc_type 语法糖
+    const info: TypeInfo = get_type_info(i32);
+    if info.size != 4 { return 9; }
+    
+    const size: i32 = get_type_size(i64);
+    if size != 8 { return 10; }
     
     return 0;
 }

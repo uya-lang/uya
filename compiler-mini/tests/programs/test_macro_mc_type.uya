@@ -2,7 +2,7 @@
 
 // 定义简化版 TypeInfo 结构体
 struct TypeInfo {
-    name: &[i8],
+    name: *i8,      // 使用指针而非 slice
     size: i32,
     align: i32,
     kind: i32,

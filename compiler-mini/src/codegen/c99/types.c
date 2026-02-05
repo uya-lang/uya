@@ -8,17 +8,25 @@ const char *c99_type_to_c_with_self(C99CodeGenerator *codegen, ASTNode *type_nod
     return c99_type_to_c_with_self_opt(codegen, type_node, self_struct_name, 0);
 }
 
-/* const_self: 1 表示 self 参数使用 const struct X *（消除 const 调用者时的 -Wdiscarded-qualifiers 警告）*/
+/* const_self: 仅作为后备标志，实际上根据 is_ffi_pointer 决定是否添加 const
+   &Self (is_ffi_pointer=0) -> const struct X *
+   *Self (is_ffi_pointer=1) -> struct X *
+*/
 const char *c99_type_to_c_with_self_opt(C99CodeGenerator *codegen, ASTNode *type_node, const char *self_struct_name, int const_self) {
     if (!type_node || !self_struct_name) return c99_type_to_c(codegen, type_node);
     const char *safe = get_safe_c_identifier(codegen, self_struct_name);
     int is_union = find_union_decl_c99(codegen, self_struct_name) != NULL;
-    const char *struct_fmt = is_union ? (const_self ? "const struct uya_tagged_%s *" : "struct uya_tagged_%s *") : (const_self ? "const struct %s *" : "struct %s *");
-    const char *named_fmt = is_union ? "struct uya_tagged_%s" : "struct %s";
     if (type_node->type == AST_TYPE_POINTER) {
         ASTNode *pt = type_node->data.type_pointer.pointed_type;
         if (pt && pt->type == AST_TYPE_NAMED && pt->data.type_named.name &&
             strcmp(pt->data.type_named.name, "Self") == 0) {
+            // 根据 is_ffi_pointer 决定是否添加 const
+            // &Self (is_ffi_pointer=0) -> const struct X *
+            // *Self (is_ffi_pointer=1) -> struct X *
+            int use_const = !type_node->data.type_pointer.is_ffi_pointer;
+            const char *struct_fmt = is_union ? 
+                (use_const ? "const struct uya_tagged_%s *" : "struct uya_tagged_%s *") : 
+                (use_const ? "const struct %s *" : "struct %s *");
             size_t len = strlen(safe) + 32;
             char *buf = arena_alloc(codegen->arena, len);
             if (buf) {
@@ -28,6 +36,7 @@ const char *c99_type_to_c_with_self_opt(C99CodeGenerator *codegen, ASTNode *type
         }
     } else if (type_node->type == AST_TYPE_NAMED && type_node->data.type_named.name &&
                strcmp(type_node->data.type_named.name, "Self") == 0) {
+        const char *named_fmt = is_union ? "struct uya_tagged_%s" : "struct %s";
         size_t len = strlen(safe) + 24;
         char *buf = arena_alloc(codegen->arena, len);
         if (buf) {

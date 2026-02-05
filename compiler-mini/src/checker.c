@@ -4829,6 +4829,32 @@ static ASTNode *create_string_literal(const char *value, Arena *arena, int line,
     return node;
 }
 
+// 创建带类型转换的字符串字面量 AST 节点（string as *i8）
+// 用于将字符串字面量转换为 *i8 指针类型，避免 const 限定符警告
+static ASTNode *create_string_as_ptr(const char *value, Arena *arena, int line, int column) {
+    ASTNode *str_node = create_string_literal(value, arena, line, column);
+    if (str_node == NULL) return NULL;
+    
+    // 创建目标类型 *i8
+    ASTNode *target_type = ast_new_node(AST_TYPE_POINTER, line, column, arena, NULL);
+    if (target_type == NULL) return str_node;  // 回退到原始字符串
+    target_type->data.type_pointer.is_ffi_pointer = 1;  // *i8 是 FFI 指针
+    
+    ASTNode *i8_type = ast_new_node(AST_TYPE_NAMED, line, column, arena, NULL);
+    if (i8_type == NULL) return str_node;
+    i8_type->data.type_named.name = "i8";
+    target_type->data.type_pointer.pointed_type = i8_type;
+    
+    // 创建类型转换表达式
+    ASTNode *cast_node = ast_new_node(AST_CAST_EXPR, line, column, arena, NULL);
+    if (cast_node == NULL) return str_node;
+    cast_node->data.cast_expr.expr = str_node;
+    cast_node->data.cast_expr.target_type = target_type;
+    cast_node->data.cast_expr.is_force_cast = 0;
+    
+    return cast_node;
+}
+
 // 创建布尔字面量 AST 节点
 static ASTNode *create_bool_literal(int value, Arena *arena, int line, int column) {
     ASTNode *node = ast_new_node(AST_BOOL, line, column, arena, NULL);
@@ -4954,7 +4980,7 @@ static ASTNode *create_type_info_struct(ASTNode *type_node, Arena *arena, int li
     
     // 设置字段
     field_names[0] = "name";
-    field_values[0] = create_string_literal(type_name, arena, line, column);
+    field_values[0] = create_string_as_ptr(type_name, arena, line, column);
     
     field_names[1] = "size";
     field_values[1] = create_number_literal(type_size, arena, line, column);
