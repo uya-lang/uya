@@ -12,7 +12,9 @@ fn c99_type_to_c_with_self(codegen: &C99CodeGenerator, type_node: &ASTNode, self
     return c99_type_to_c_with_self_opt(codegen, type_node, self_struct_name, 0);
 }
 
-// const_self: 1 表示 self 参数使用 const struct X *（消除 const 调用者时的 -Wdiscarded-qualifiers 警告）
+// const_self: 仅作为后备标志，实际上根据 is_ffi_pointer 决定是否添加 const
+//   &Self (is_ffi_pointer=0) -> const struct X *
+//   *Self (is_ffi_pointer=1) -> struct X *
 // 联合体方法使用 struct uya_tagged_UnionName *，结构体方法使用 struct StructName *
 fn c99_type_to_c_with_self_opt(codegen: &C99CodeGenerator, type_node: &ASTNode, self_struct_name: &byte, const_self: i32) &byte {
     if type_node == null || self_struct_name == null {
@@ -26,19 +28,25 @@ fn c99_type_to_c_with_self_opt(codegen: &C99CodeGenerator, type_node: &ASTNode, 
         const pt: &ASTNode = type_node.type_pointer_pointed_type;
         if pt.type == ASTNodeType.AST_TYPE_NAMED && pt.type_named_name != null &&
             strcmp(pt.type_named_name as *byte, "Self" as *byte) == 0 {
+            // 根据 is_ffi_pointer 决定是否添加 const
+            // &Self (is_ffi_pointer=0) -> const struct X *
+            // *Self (is_ffi_pointer=1) -> struct X *
+            var use_const: i32 = 0;
+            if type_node.type_pointer_is_ffi_pointer == 0 {
+                use_const = 1;
+            }
             const safe: &byte = get_safe_c_identifier(codegen, self_struct_name);
-            var len: i32 = strlen(safe as *byte) + 20;
-            if is_union != 0 { len = strlen(safe as *byte) + 32; }
+            var len: i32 = strlen(safe as *byte) + 32;
             const buf: &byte = arena_alloc(codegen.arena, len as usize) as &byte;
             if buf != null {
                 if is_union != 0 {
-                    if const_self != 0 {
+                    if use_const != 0 {
                         snprintf(buf as *byte, len, "const struct uya_tagged_%s *" as *byte, safe as *byte);
                     } else {
                         snprintf(buf as *byte, len, "struct uya_tagged_%s *" as *byte, safe as *byte);
                     }
                 } else {
-                    if const_self != 0 {
+                    if use_const != 0 {
                         snprintf(buf as *byte, len, "const struct %s *" as *byte, safe as *byte);
                     } else {
                         snprintf(buf as *byte, len, "struct %s *" as *byte, safe as *byte);
