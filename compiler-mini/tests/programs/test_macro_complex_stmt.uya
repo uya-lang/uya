@@ -1,0 +1,122 @@
+// 测试 @mc_ast 复杂语句支持
+// 验证 @mc_ast 是否能解析块语句、if 语句、while 循环等
+
+// ==================== 块语句测试 ====================
+
+// 测试 1: @mc_ast 内解析块语句
+mc block_stmt() stmt {
+    @mc_code(@mc_ast({
+        const x: i32 = 10;
+        const y: i32 = 20;
+    }));
+}
+
+// 测试 2: 带参数的块语句
+mc block_with_params(a: expr, b: expr) stmt {
+    @mc_code(@mc_ast({
+        const sum: i32 = ${a} + ${b};
+        const diff: i32 = ${a} - ${b};
+    }));
+}
+
+// ==================== if 语句测试 ====================
+
+// 测试 3: @mc_ast 内解析 if 语句
+mc if_stmt(cond: expr) stmt {
+    @mc_code(@mc_ast(
+        if ${cond} {
+            return 1;
+        }
+    ));
+}
+
+// 测试 4: if-else 语句
+mc if_else_stmt(cond: expr, ret_true: expr, ret_false: expr) stmt {
+    @mc_code(@mc_ast(
+        if ${cond} {
+            return ${ret_true};
+        } else {
+            return ${ret_false};
+        }
+    ));
+}
+
+// ==================== 变量声明测试 ====================
+
+// 测试 5: const 声明（使用块作用域避免冲突）
+mc declare_const_block(name_val: expr) stmt {
+    @mc_code(@mc_ast({
+        const temp_c: i32 = ${name_val};
+    }));
+}
+
+// 测试 6: var 声明（使用块作用域避免冲突）
+mc declare_var_block(init_val: expr) stmt {
+    @mc_code(@mc_ast({
+        var temp_v: i32 = ${init_val};
+    }));
+}
+
+// ==================== while 循环测试 ====================
+
+// 测试 7: while 循环
+mc while_count(limit: expr) expr {
+    @mc_code(@mc_ast({
+        var count: i32 = 0;
+        while count < ${limit} {
+            count = count + 1;
+        }
+        count;
+    }));
+}
+
+// ==================== 嵌套复杂语句测试 ====================
+
+// 测试 8: 嵌套 if 在块中
+mc nested_if_in_block(a: expr, b: expr) stmt {
+    @mc_code(@mc_ast({
+        if ${a} > ${b} {
+            return 1;
+        }
+        if ${a} < ${b} {
+            return 2;
+        }
+    }));
+}
+
+// 测试 9: return 语句
+mc return_value(val: expr) stmt {
+    @mc_code(@mc_ast(
+        return ${val};
+    ));
+}
+
+// ==================== 测试函数 ====================
+
+fn main() i32 {
+    // 测试块语句
+    block_stmt();
+    
+    // 测试带参数的块语句
+    block_with_params(10, 5);
+    
+    // 测试 if 语句（条件为 false，不会返回）
+    if_stmt(0 == 1);
+    
+    // 测试 const 声明
+    declare_const_block(42);
+    
+    // 测试 var 声明
+    declare_var_block(100);
+    
+    // 测试 while 循环
+    const while_result: i32 = while_count(5);
+    if while_result != 5 {
+        return 11;
+    }
+    
+    // 测试嵌套 if 在块中（a == b，两个条件都不满足，不返回）
+    nested_if_in_block(5, 5);
+    
+    return 0;
+}

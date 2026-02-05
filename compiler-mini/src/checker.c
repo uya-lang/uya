@@ -4943,10 +4943,10 @@ static ASTNode *extract_macro_output(ASTNode *body, MacroExpandContext *ctx, con
         
         // 处理 @mc_error
         if (s->type == AST_EXPR_STMT || s->type == AST_MC_ERROR) {
-            ASTNode *expr = s;
-            if (s->type == AST_EXPR_STMT && s->data.binary_expr.left != NULL) {
-                expr = s->data.binary_expr.left;
-            }
+        ASTNode *expr = s;
+        if (s->type == AST_EXPR_STMT && s->data.binary_expr.left != NULL) {
+            expr = s->data.binary_expr.left;
+        }
             if (expr->type == AST_MC_ERROR) {
                 int has_error = 0;
                 process_macro_builtins(expr, ctx, &has_error);
@@ -4983,11 +4983,16 @@ static ASTNode *extract_macro_output(ASTNode *body, MacroExpandContext *ctx, con
         // @mc_code(@mc_ast(...)) 模式
         if (s->type == AST_MC_CODE && s->data.mc_code.operand != NULL) {
             ASTNode *arg = s->data.mc_code.operand;
+            ASTNode *inner = NULL;
             if (arg->type == AST_MC_AST && arg->data.mc_ast.operand != NULL) {
-                last_output = deep_copy_ast(arg->data.mc_ast.operand, &merged_ctx);
+                inner = arg->data.mc_ast.operand;
             } else {
-                last_output = deep_copy_ast(arg, &merged_ctx);
+                inner = arg;
             }
+            
+            // 深度复制内部 AST（执行参数替换）
+            // 对于 expr 返回类型且内部是块语句，返回整个块（codegen 会处理块表达式）
+            last_output = deep_copy_ast(inner, &merged_ctx);
             break;
         }
         
@@ -5051,11 +5056,11 @@ static void expand_macros_in_node(TypeChecker *checker, ASTNode **node_ptr) {
                     // struct 和 type 返回类型暂不支持
                     if (return_tag != NULL && 
                         (strcmp(return_tag, "struct") == 0 || strcmp(return_tag, "type") == 0)) {
-                        char buf[128];
+                    char buf[128];
                         snprintf(buf, sizeof(buf), "宏 %s 的 %s 返回类型暂不支持", name, return_tag);
-                        checker_report_error(checker, node, buf);
-                        return;
-                    }
+                    checker_report_error(checker, node, buf);
+                    return;
+                }
                     char buf[128];
                     snprintf(buf, sizeof(buf), "宏 %s 返回类型无效 (return_tag: %s)", 
                             name, return_tag ? return_tag : "NULL");
@@ -5106,15 +5111,6 @@ static void expand_macros_in_node(TypeChecker *checker, ASTNode **node_ptr) {
                 
                 // 展开宏体
                 ASTNode *body = macro_decl->data.macro_decl.body;
-                #ifdef DEBUG_MACRO
-                fprintf(stderr, "[DEBUG] 展开宏 %s, body type=%d, body stmt_count=%d\n", 
-                        name, body ? body->type : -1, 
-                        (body && body->type == AST_BLOCK) ? body->data.block.stmt_count : -1);
-                if (body && body->type == AST_BLOCK && body->data.block.stmt_count > 0) {
-                    ASTNode *last = body->data.block.stmts[body->data.block.stmt_count - 1];
-                    fprintf(stderr, "[DEBUG] 最后一条语句类型: %d\n", last ? last->type : -1);
-                }
-                #endif
                 ASTNode *expanded = extract_macro_output(body, &ctx, return_tag);
                 if (expanded == NULL) {
                     char buf[128];

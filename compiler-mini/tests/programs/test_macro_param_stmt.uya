@@ -1,0 +1,104 @@
+// 测试宏 stmt 参数类型
+// stmt 参数使用块语法传递
+
+// ==================== 基础测试 ====================
+
+// 测试 1: 简单 stmt 参数 - 执行传入的语句
+mc execute_stmt(s: stmt) stmt {
+    @mc_code(@mc_ast({
+        ${s};
+    }));
+}
+
+// 测试 2: stmt 参数后跟其他代码（使用分号）
+mc stmt_then_assign(s: stmt, dest: expr, val: expr) stmt {
+    @mc_code(@mc_ast({
+        ${s};
+        ${dest} = ${val};
+    }));
+}
+
+// 测试 3: 多个 stmt 参数
+mc execute_two_stmts(s1: stmt, s2: stmt) stmt {
+    @mc_code(@mc_ast({
+        ${s1};
+        ${s2};
+    }));
+}
+
+// 测试 4: stmt 参数与条件组合
+mc conditional_stmt(cond: expr, s: stmt) stmt {
+    @mc_code(@mc_ast(
+        if ${cond} {
+            ${s};
+        }
+    ));
+}
+
+// ==================== 测试函数 ====================
+
+fn test_basic_stmt() i32 {
+    var x: i32 = 0;
+    // 传入简单赋值语句块
+    execute_stmt({ x = 42; });
+    if x != 42 {
+        return 1;
+    }
+    return 0;
+}
+
+fn test_stmt_then_assign() i32 {
+    var y: i32 = 0;
+    var result: i32 = 0;
+    // stmt 参数先执行，然后赋值
+    stmt_then_assign({ y = 10; }, result, y + 5);
+    if result != 15 {
+        return 2;
+    }
+    return 0;
+}
+
+fn test_two_stmts() i32 {
+    var a: i32 = 0;
+    var b: i32 = 0;
+    // 执行两个 stmt 参数
+    execute_two_stmts({ a = 100; }, { b = 200; });
+    if a != 100 || b != 200 {
+        return 3;
+    }
+    return 0;
+}
+
+fn test_conditional_stmt() i32 {
+    var z: i32 = 0;
+    // 条件为真时执行 stmt
+    conditional_stmt(1 == 1, { z = 999; });
+    if z != 999 {
+        return 4;
+    }
+    
+    // 条件为假时不执行
+    conditional_stmt(1 == 0, { z = 0; });
+    if z != 999 {
+        return 5;
+    }
+    return 0;
+}
+
+fn main() i32 {
+    var err: i32 = 0;
+    
+    err = test_basic_stmt();
+    if err != 0 { return err; }
+    
+    err = test_stmt_then_assign();
+    if err != 0 { return err; }
+    
+    err = test_two_stmts();
+    if err != 0 { return err; }
+    
+    err = test_conditional_stmt();
+    if err != 0 { return err; }
+    
+    return 0;
+}

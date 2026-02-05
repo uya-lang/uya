@@ -498,14 +498,27 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - `test_macro_interp.uya` - `${}` 插值语法（简单、复杂、多参数、嵌套）
   - `test_macro_integration.uya` - 宏综合测试
   - `test_macro_multiple_calls.uya` - 多次调用测试
+  - `test_macro_complex_stmt.uya` - `@mc_ast` 复杂语句支持（块、if、for、while、变量声明等）
+  - `test_macro_param_stmt.uya` - `stmt` 参数类型支持
   - `error_macro_mc_error.uya` - `@mc_error` 预期编译失败
+- [x] **`@mc_ast` 复杂语句支持**：
+  - [x] 块语句 `{ ... }` 解析与代码生成（使用 GCC 语句表达式 `({ ... })`）
+  - [x] if 语句 / if-else 语句
+  - [x] for 范围循环（`for start..end |i| { }`）
+  - [x] while 循环
+  - [x] const/var 变量声明
+  - [x] return 语句
+  - [x] 复杂语句内 `${}` 插值支持
+
+- [x] **`stmt` 参数类型**：
+  - [x] stmt 参数使用块语法传递（`my_macro({ stmt; })`）
+  - [x] 在 `@mc_ast` 中使用 `${s};` 展开 stmt 参数
+  - [x] 测试用例：`test_macro_param_stmt.uya`
 
 **待实现**：
-- [ ] `stmt` 参数类型（语句作为宏参数传递）
 - [ ] `struct` 返回标签（宏定义结构体成员，在结构体内调用）
 - [ ] `type` 返回标签调用（作为类型注解使用，如 `const x: get_type() = 42`）
 - [ ] `@mc_type` 编译时类型反射（返回 `TypeInfo` 结构体）
-- [ ] `@mc_ast` 复杂语句支持（if/for/while/match 等控制流语句、块语句、函数定义等）
 - [ ] uya-src 同步
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen。

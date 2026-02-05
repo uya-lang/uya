@@ -2333,7 +2333,7 @@ ASTNode *parser_parse(Parser *parser) {
 }
 
 // 解析基础表达式
-// 支持：数字、标识符、布尔字面量、括号表达式、函数调用、结构体字面量、字段访问
+// 支持：数字、标识符、布尔字面量、括号表达式、函数调用、结构体字面量、字段访问、块表达式
 static ASTNode *parser_parse_primary_expr(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
         return NULL;
@@ -2341,6 +2341,11 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
     
     int line = parser->current_token->line;
     int column = parser->current_token->column;
+    
+    // 解析块表达式 { stmts }（用于宏 stmt 参数传递，也可作为普通块表达式）
+    if (parser->current_token->type == TOKEN_LEFT_BRACE) {
+        return parser_parse_block(parser);
+    }
     
     // 解析整数字面量
     if (parser->current_token->type == TOKEN_NUMBER) {
@@ -2935,7 +2940,8 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return mc_code_node;
     }
     
-    // 解析 @mc_ast 表达式：@mc_ast(expr) - 宏内获取 AST
+    // 解析 @mc_ast 表达式：@mc_ast(expr|stmt|block) - 宏内获取 AST
+    // 支持表达式、语句（if/for/while 等）、块语句
     if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
         strcmp(parser->current_token->value, "mc_ast") == 0) {
         parser_consume(parser);  // 消费 'mc_ast'
@@ -2950,13 +2956,29 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             return NULL;
         }
         
-        // 解析参数表达式
-        ASTNode *expr = parser_parse_expression(parser);
-        if (expr == NULL) {
+        // 根据下一个 token 决定解析方式
+        ASTNode *operand = NULL;
+        TokenType next_type = parser->current_token->type;
+        
+        if (next_type == TOKEN_LEFT_BRACE) {
+            // 块语句 { ... }
+            operand = parser_parse_block(parser);
+        } else if (next_type == TOKEN_IF || next_type == TOKEN_FOR || 
+                   next_type == TOKEN_WHILE || next_type == TOKEN_RETURN ||
+                   next_type == TOKEN_CONST || next_type == TOKEN_VAR ||
+                   next_type == TOKEN_DEFER || next_type == TOKEN_ERRDEFER) {
+            // 语句：if/for/while/return/const/var/defer/errdefer
+            operand = parser_parse_statement(parser);
+        } else {
+            // 默认解析为表达式
+            operand = parser_parse_expression(parser);
+        }
+        
+        if (operand == NULL) {
             return NULL;
         }
         
-        mc_ast_node->data.mc_ast.operand = expr;
+        mc_ast_node->data.mc_ast.operand = operand;
         
         // 期望 ')'
         if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
@@ -3112,7 +3134,8 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 if (t == TOKEN_NUMBER || t == TOKEN_FLOAT || t == TOKEN_STRING ||
                     t == TOKEN_MINUS || t == TOKEN_EXCLAMATION || t == TOKEN_TILDE ||
                     t == TOKEN_TRUE || t == TOKEN_FALSE || t == TOKEN_NULL ||
-                    t == TOKEN_LEFT_PAREN || t == TOKEN_AT_IDENTIFIER) {
+                    t == TOKEN_LEFT_PAREN || t == TOKEN_AT_IDENTIFIER ||
+                    t == TOKEN_INTERP_OPEN) {  // 宏插值 ${...} 也是表达式
                     is_comparison = 1;
                 } else if (t == TOKEN_IDENTIFIER) {
                     // 如果是标识符，需要进一步判断：
@@ -4338,6 +4361,9 @@ static ASTNode *parser_parse_shift_expr(Parser *parser) {
     }
     
     ASTNode *left = parser_parse_add_expr(parser);
+    if (left == NULL) {
+        return NULL;
+    }
     if (left == NULL) {
         return NULL;
     }

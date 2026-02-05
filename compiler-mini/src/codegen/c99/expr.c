@@ -1661,6 +1661,46 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             fputs("_uya_r; })", codegen->output);
             break;
         }
+        case AST_BLOCK: {
+            // 块表达式：使用 GCC 语句表达式扩展 ({ stmts; last_expr; })
+            // 最后一条语句如果是表达式，作为整个块的值
+            ASTNode **block_stmts = expr->data.block.stmts;
+            int block_count = expr->data.block.stmt_count;
+            
+            fputs("({ ", codegen->output);
+            
+            // 找到最后一个非声明的表达式作为返回值
+            int last_expr_idx = -1;
+            for (int i = block_count - 1; i >= 0; i--) {
+                ASTNode *bs = block_stmts[i];
+                if (bs == NULL) continue;
+                if (bs->type == AST_VAR_DECL) continue;
+                if (bs->type == AST_IF_STMT || bs->type == AST_WHILE_STMT ||
+                    bs->type == AST_FOR_STMT || bs->type == AST_RETURN_STMT ||
+                    bs->type == AST_BREAK_STMT || bs->type == AST_CONTINUE_STMT ||
+                    bs->type == AST_BLOCK || bs->type == AST_ASSIGN ||
+                    bs->type == AST_DEFER_STMT || bs->type == AST_ERRDEFER_STMT) continue;
+                last_expr_idx = i;
+                break;
+            }
+            
+            // 输出所有语句（除了最后一个表达式，它会作为返回值）
+            for (int i = 0; i < block_count; i++) {
+                ASTNode *bs = block_stmts[i];
+                if (bs == NULL) continue;
+                if (i == last_expr_idx) {
+                    // 最后一个表达式：直接输出，不加分号
+                    gen_expr(codegen, bs);
+                    fputs("; ", codegen->output);
+                } else {
+                    // 其他语句：正常输出
+                    gen_stmt(codegen, bs);
+                }
+            }
+            
+            fputs("})", codegen->output);
+            break;
+        }
         default:
             fputs("0", codegen->output);
             break;
