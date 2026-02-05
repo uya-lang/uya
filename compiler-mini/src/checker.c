@@ -45,6 +45,7 @@ static void build_module_exports(TypeChecker *checker, ASTNode *program);
 static int process_use_stmt(TypeChecker *checker, ASTNode *node);
 static void detect_circular_dependencies(TypeChecker *checker);
 static ASTNode *find_macro_decl_from_program(ASTNode *program_node, const char *macro_name);
+static ASTNode *find_macro_decl_with_imports(TypeChecker *checker, const char *macro_name);
 static void expand_macros_in_node(TypeChecker *checker, ASTNode **node_ptr);
 
 // 是否为整数类型（用于算术、比较、位运算）
@@ -4514,7 +4515,7 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
     }
 }
 
-// 从程序中查找宏声明
+// 从程序中查找宏声明（仅搜索当前程序）
 static ASTNode *find_macro_decl_from_program(ASTNode *program_node, const char *macro_name) {
     if (program_node == NULL || program_node->type != AST_PROGRAM || macro_name == NULL) return NULL;
     for (int i = 0; i < program_node->data.program.decl_count; i++) {
@@ -4524,6 +4525,40 @@ static ASTNode *find_macro_decl_from_program(ASTNode *program_node, const char *
             return decl;
         }
     }
+    return NULL;
+}
+
+// 从程序和导入的模块中查找宏声明（支持跨模块宏）
+static ASTNode *find_macro_decl_with_imports(TypeChecker *checker, const char *macro_name) {
+    if (checker == NULL || macro_name == NULL) return NULL;
+    
+    // 首先在当前程序中查找
+    ASTNode *decl = find_macro_decl_from_program(checker->program_node, macro_name);
+    if (decl != NULL) return decl;
+    
+    // 然后在导入表中查找
+    for (int i = 0; i < IMPORT_TABLE_SIZE; i++) {
+        ImportedItem *import = checker->import_table.slots[i];
+        if (import == NULL) continue;
+        if (import->item_type == 8 && import->local_name != NULL &&
+            strcmp(import->local_name, macro_name) == 0) {
+            // 找到匹配的导入宏，从源模块获取声明
+            for (int j = 0; j < MODULE_TABLE_SIZE; j++) {
+                ModuleInfo *module = checker->module_table.slots[j];
+                if (module == NULL) continue;
+                if (module->module_name != NULL && strcmp(module->module_name, import->module_name) == 0) {
+                    for (int k = 0; k < module->export_count; k++) {
+                        ExportedItem *exp = &module->exports[k];
+                        if (exp->item_type == 8 && exp->name != NULL &&
+                            strcmp(exp->name, import->original_name) == 0) {
+                            return exp->decl_node;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
     return NULL;
 }
 
@@ -5417,7 +5452,7 @@ static void expand_macros_in_node(TypeChecker *checker, ASTNode **node_ptr) {
         ASTNode *callee = node->data.call_expr.callee;
         if (callee != NULL && callee->type == AST_IDENTIFIER && callee->data.identifier.name != NULL) {
             const char *name = callee->data.identifier.name;
-            ASTNode *macro_decl = find_macro_decl_from_program(checker->program_node, name);
+            ASTNode *macro_decl = find_macro_decl_with_imports(checker, name);
             if (macro_decl != NULL) {
                 // 获取返回标签
                 const char *return_tag = macro_decl->data.macro_decl.return_tag;
@@ -5641,7 +5676,7 @@ static void expand_macros_in_node(TypeChecker *checker, ASTNode **node_ptr) {
                         ASTNode *callee = method->data.call_expr.callee;
                         if (callee != NULL && callee->type == AST_IDENTIFIER && callee->data.identifier.name != NULL) {
                             const char *name = callee->data.identifier.name;
-                            ASTNode *macro_decl = find_macro_decl_from_program(checker->program_node, name);
+                            ASTNode *macro_decl = find_macro_decl_with_imports(checker, name);
                             if (macro_decl != NULL) {
                                 const char *return_tag = macro_decl->data.macro_decl.return_tag;
                                 if (return_tag != NULL && strcmp(return_tag, "struct") == 0) {
@@ -6159,6 +6194,11 @@ static void build_module_exports(TypeChecker *checker, ASTNode *program) {
                 is_export = decl->data.error_decl.is_export;
                 item_name = decl->data.error_decl.name;
                 item_type = 7;  // 错误
+                break;
+            case AST_MACRO_DECL:
+                is_export = decl->data.macro_decl.is_export;
+                item_name = decl->data.macro_decl.name;
+                item_type = 8;  // 宏
                 break;
             default:
                 break;

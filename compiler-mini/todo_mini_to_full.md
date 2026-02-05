@@ -537,6 +537,13 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [x] Checker: AST_TYPE_NAMED 参数替换支持
   - [x] 测试用例：`test_macro_mc_type.uya`
 
+- [x] **跨模块宏导出与导入**：
+  - [x] Parser: 支持 `export mc` 语法（is_export 标志）
+  - [x] Checker: 宏添加到模块导出表（item_type=8）
+  - [x] Checker: `find_macro_decl_with_imports` 支持查找导入的宏
+  - [x] 测试用例：`multifile/test_macro_export/` 目录（test_macro_export_main.uya、error_use_private_macro.uya）
+  - [x] 文档更新：uya.md §25.2.1 跨模块宏导出与导入
+
 **待实现**：
 - [ ] uya-src 同步
 

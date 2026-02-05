@@ -118,7 +118,7 @@ typedef struct ExportedItem {
     const char *name;           // 项名称（函数名、结构体名等）
     ASTNode *decl_node;         // 声明节点
     const char *module_name;    // 所属模块名（文件名去掉 .uya 后缀）
-    int item_type;              // 项类型：1=函数，2=结构体，3=联合体，4=接口，5=枚举，6=常量，7=错误
+    int item_type;              // 项类型：1=函数，2=结构体，3=联合体，4=接口，5=枚举，6=常量，7=错误，8=宏
 } ExportedItem;
 
 // 模块依赖信息（用于循环依赖检测）
@@ -150,7 +150,7 @@ typedef struct ImportedItem {
     const char *local_name;     // 本地使用的名称（可能是别名）
     const char *original_name;  // 原始名称
     const char *module_name;   // 来源模块名
-    int item_type;              // 项类型：1=函数，2=结构体，3=联合体，4=接口，5=枚举，6=常量，7=错误
+    int item_type;              // 项类型：1=函数，2=结构体，3=联合体，4=接口，5=枚举，6=常量，7=错误，8=宏
 } ImportedItem;
 
 // 导入表（用于当前文件/模块的导入）

@@ -4544,6 +4544,47 @@ return_tag = 'expr' | 'stmt' | 'struct' | 'type'
 - 参数类型：`expr`（表达式）、`stmt`（语句）、`type`（类型）、`pattern`（模式）
 - 返回标签：`expr`（表达式）、`stmt`（语句）、`struct`（结构体成员）、`type`（类型标识符）
 
+### 25.2.1 跨模块宏导出与导入
+
+宏可以使用 `export` 关键字导出，供其他模块使用。
+
+**导出宏**：
+
+```uya
+// macro_lib/macro_lib.uya
+export mc add(a: expr, b: expr) expr {
+    ${a} + ${b};
+}
+
+export mc square(x: expr) expr {
+    ${x} * ${x};
+}
+
+// 未导出的宏（私有）
+mc private_helper() expr {
+    100;
+}
+```
+
+**导入宏**：
+
+```uya
+// main.uya
+use macro_lib.add;
+use macro_lib.square;
+
+fn main() i32 {
+    const sum: i32 = add(10, 20);      // 30
+    const sq: i32 = square(5);          // 25
+    return 0;
+}
+```
+
+**注意事项**：
+- 未使用 `export` 标记的宏为模块私有，无法被其他模块导入
+- 宏在编译时展开，因此跨模块宏导入不会引入运行时开销
+- 宏的展开发生在类型检查之前，因此被导入的宏可以访问定义模块中的类型
+
 ### 25.3 宏调用语法
 
 ```
