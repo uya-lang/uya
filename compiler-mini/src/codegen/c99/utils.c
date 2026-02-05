@@ -41,7 +41,7 @@ int c99_codegen_new(C99CodeGenerator *codegen, Arena *arena, FILE *output, const
     codegen->defer_stack_depth = 0;
     codegen->current_drop_scope = -1;
     codegen->slice_struct_count = 0;
-    codegen->generic_instance_count = 0;
+    codegen->mono_instance_count = 0;
     for (int i = 0; i < C99_MAX_CALL_ARGS; i++) {
         codegen->interp_arg_temp_names[i] = NULL;
     }
