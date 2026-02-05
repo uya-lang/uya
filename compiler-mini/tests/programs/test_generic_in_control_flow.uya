@@ -1,0 +1,71 @@
+// 测试泛型 - 在控制流语句中使用
+
+fn identity<T>(x: T) T {
+    return x;
+}
+
+fn max<T: Ord>(a: T, b: T) T {
+    if a > b { return a; }
+    return b;
+}
+
+fn main() i32 {
+    // 在 if 条件中使用泛型（先赋值给变量）
+    var result: i32 = 0;
+    
+    const cond1: bool = identity<bool>(true);
+    if cond1 {
+        result = 1;
+    }
+    if result != 1 {
+        return 1;
+    }
+    
+    // 在 if-else 中使用泛型（先赋值给变量）
+    const val1: i32 = identity<i32>(10);
+    if val1 > 5 {
+        result = 2;
+    } else {
+        result = 0;
+    }
+    if result != 2 {
+        return 2;
+    }
+    
+    // 在 while 循环中使用泛型
+    var i: i32 = 0;
+    var sum: i32 = 0;
+    const limit: i32 = identity<i32>(5);
+    while i < limit {
+        const inc: i32 = identity<i32>(1);
+        sum = sum + inc;
+        i = i + 1;
+    }
+    if sum != 5 {
+        return 3;
+    }
+    
+    // 在循环体内使用泛型（不使用循环变量作为参数）
+    var j: i32 = 0;
+    var total: i32 = 0;
+    while j < 3 {
+        // 使用常量参数避免移动问题
+        const m1: i32 = max<i32>(0, 1);  // j=0: 1
+        const m2: i32 = max<i32>(1, 1);  // j=1: 1
+        const m3: i32 = max<i32>(2, 1);  // j=2: 2
+        if j == 0 {
+            total = total + m1;
+        } else if j == 1 {
+            total = total + m2;
+        } else {
+            total = total + m3;
+        }
+        j = j + 1;
+    }
+    // total = 1 + 1 + 2 = 4
+    if total != 4 {
+        return 4;
+    }
+    
+    return 0;
+}

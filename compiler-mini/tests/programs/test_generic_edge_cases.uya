@@ -1,0 +1,67 @@
+// 测试泛型 - 边界情况
+
+// 1. 单字母类型参数名
+fn f1<T>(x: T) T { return x; }
+fn f2<A>(x: A) A { return x; }
+fn f3<X>(x: X) X { return x; }
+
+// 2. 较长的类型参数名
+fn with_element<Element>(e: Element) Element { return e; }
+fn with_item<Item>(item: Item) Item { return item; }
+
+// 3. 泛型结构体 - 单字段
+struct Single<T> {
+    only: T,
+}
+
+// 4. 泛型结构体 - 多字段相同类型
+struct Triple<T> {
+    first: T,
+    second: T,
+    third: T,
+}
+
+// 5. 泛型结构体 - 混合泛型和非泛型字段
+struct Mixed<T> {
+    data: T,
+    count: i32,
+    flag: bool,
+}
+
+fn main() i32 {
+    // 测试单字母类型参数
+    const r1: i32 = f1<i32>(1);
+    const r2: i32 = f2<i32>(2);
+    const r3: i32 = f3<i32>(3);
+    if r1 != 1 || r2 != 2 || r3 != 3 {
+        return 1;
+    }
+    
+    // 测试长类型参数名
+    const e: i32 = with_element<i32>(42);
+    const i: i32 = with_item<i32>(100);
+    if e != 42 || i != 100 {
+        return 2;
+    }
+    
+    // 测试单字段泛型结构体
+    const s: Single<i32> = Single<i32>{ only: 999 };
+    if s.only != 999 {
+        return 3;
+    }
+    
+    // 测试多字段相同类型泛型结构体
+    const t: Triple<i32> = Triple<i32>{ first: 1, second: 2, third: 3 };
+    if t.first != 1 || t.second != 2 || t.third != 3 {
+        return 4;
+    }
+    
+    // 测试混合字段泛型结构体
+    const m: Mixed<i64> = Mixed<i64>{ data: 12345, count: 10, flag: true };
+    if m.data != 12345 || m.count != 10 || m.flag != true {
+        return 5;
+    }
+    
+    return 0;
+}
+

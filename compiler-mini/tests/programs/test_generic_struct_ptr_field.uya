@@ -1,0 +1,27 @@
+// 测试泛型结构体 - 包含指针字段
+
+// 泛型结构体：包含指向 T 的指针
+struct PtrBox<T> {
+    ptr: &T,
+}
+
+fn main() i32 {
+    // 测试 PtrBox<i32>
+    var value: i32 = 42;
+    const pb: PtrBox<i32> = PtrBox<i32>{ ptr: &value };
+    
+    // 通过指针字段访问值（先存储到变量）
+    const deref_val: i32 = *pb.ptr;
+    if deref_val != 42 {
+        return 1;
+    }
+    
+    // 修改原值，验证指针有效
+    value = 100;
+    const new_val: i32 = *pb.ptr;
+    if new_val != 100 {
+        return 2;
+    }
+    
+    return 0;
+}

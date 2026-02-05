@@ -1,0 +1,50 @@
+// 测试泛型 - 多实例化（同一泛型类型多次实例化为不同具体类型）
+
+// 泛型函数
+fn identity<T>(x: T) T {
+    return x;
+}
+
+// 泛型结构体
+struct Wrapper<T> {
+    value: T,
+}
+
+fn main() i32 {
+    // 同一泛型函数多次实例化
+    const i1: i32 = identity<i32>(10);
+    const i2: i64 = identity<i64>(20);
+    const i3: i8 = identity<i8>(30);
+    const i4: u32 = identity<u32>(40);
+    
+    if i1 != 10 {
+        return 1;
+    }
+    if i2 != 20 {
+        return 2;
+    }
+    if i3 != 30 {
+        return 3;
+    }
+    if i4 != 40 {
+        return 4;
+    }
+    
+    // 同一泛型结构体多次实例化
+    const w1: Wrapper<i32> = Wrapper<i32>{ value: 100 };
+    const w2: Wrapper<i64> = Wrapper<i64>{ value: 200 };
+    const w3: Wrapper<bool> = Wrapper<bool>{ value: true };
+    
+    if w1.value != 100 {
+        return 5;
+    }
+    if w2.value != 200 {
+        return 6;
+    }
+    if w3.value != true {
+        return 7;
+    }
+    
+    return 0;
+}
+

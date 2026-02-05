@@ -1,0 +1,35 @@
+// 测试泛型函数 - 多类型参数
+
+// 泛型函数：两个不同类型参数
+fn make_pair<A, B>(a: A, b: B) i32 {
+    // 简单测试：返回 0 表示成功创建
+    return 0;
+}
+
+// 泛型函数：三个类型参数
+fn triple<X, Y, Z>(x: X, y: Y, z: Z) i32 {
+    return 0;
+}
+
+fn main() i32 {
+    // 测试两个类型参数
+    const r1: i32 = make_pair<i32, f64>(42, 3.14);
+    if r1 != 0 {
+        return 1;
+    }
+    
+    // 测试三个类型参数
+    const r2: i32 = triple<i32, f64, bool>(1, 2.0, true);
+    if r2 != 0 {
+        return 2;
+    }
+    
+    // 测试相同类型参数
+    const r3: i32 = make_pair<i32, i32>(10, 20);
+    if r3 != 0 {
+        return 3;
+    }
+    
+    return 0;
+}
+

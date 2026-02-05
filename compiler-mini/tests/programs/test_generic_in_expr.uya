@@ -1,0 +1,45 @@
+// 测试泛型 - 在表达式中使用
+
+fn identity<T>(x: T) T {
+    return x;
+}
+
+fn main() i32 {
+    // 在变量初始化表达式中使用泛型
+    const a: i32 = identity<i32>(10) + identity<i32>(20);
+    if a != 30 {
+        return 1;
+    }
+    
+    // 在条件表达式中使用泛型（先赋值给变量）
+    const cond: bool = identity<bool>(true);
+    if cond {
+        // ok
+    } else {
+        return 2;
+    }
+    
+    // 在比较表达式中使用泛型（先赋值给变量）
+    const x1: i32 = identity<i32>(10);
+    const x2: i32 = identity<i32>(20);
+    if x1 < x2 {
+        // ok
+    } else {
+        return 3;
+    }
+    
+    // 在赋值表达式中使用泛型
+    var x: i32 = 0;
+    x = identity<i32>(42);
+    if x != 42 {
+        return 4;
+    }
+    
+    // 复合表达式
+    const b: i32 = (identity<i32>(5) * 2) + identity<i32>(3);
+    if b != 13 {
+        return 5;
+    }
+    
+    return 0;
+}
