@@ -1819,6 +1819,59 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             i = i + 1;
         }
         fputs("_uya_r; })" as *byte, codegen.output as *void);
+    } else if expr.type == ASTNodeType.AST_BLOCK {
+        // 块表达式：使用 GCC 语句表达式扩展 ({ stmts; last_expr; })
+        // 最后一条语句如果是表达式，作为整个块的值
+        const block_stmts: & & ASTNode = expr.block_stmts;
+        const block_count: i32 = expr.block_stmt_count;
+        
+        fputs("({ " as *byte, codegen.output as *void);
+        
+        // 找到最后一个非声明的表达式作为返回值
+        var last_expr_idx: i32 = -1;
+        var j: i32 = block_count - 1;
+        while j >= 0 {
+            const bs: &ASTNode = block_stmts[j];
+            if bs == null {
+                j = j - 1;
+                continue;
+            }
+            if bs.type == ASTNodeType.AST_VAR_DECL {
+                j = j - 1;
+                continue;
+            }
+            if bs.type == ASTNodeType.AST_IF_STMT || bs.type == ASTNodeType.AST_WHILE_STMT ||
+                bs.type == ASTNodeType.AST_FOR_STMT || bs.type == ASTNodeType.AST_RETURN_STMT ||
+                bs.type == ASTNodeType.AST_BREAK_STMT || bs.type == ASTNodeType.AST_CONTINUE_STMT ||
+                bs.type == ASTNodeType.AST_BLOCK || bs.type == ASTNodeType.AST_ASSIGN ||
+                bs.type == ASTNodeType.AST_DEFER_STMT || bs.type == ASTNodeType.AST_ERRDEFER_STMT {
+                j = j - 1;
+                continue;
+            }
+            last_expr_idx = j;
+            break;
+        }
+        
+        // 输出所有语句（除了最后一个表达式，它会作为返回值）
+        var k: i32 = 0;
+        while k < block_count {
+            const bs: &ASTNode = block_stmts[k];
+            if bs == null {
+                k = k + 1;
+                continue;
+            }
+            if k == last_expr_idx {
+                // 最后一个表达式，直接输出作为返回值
+                gen_expr(codegen, bs);
+                fputs("; " as *byte, codegen.output as *void);
+            } else {
+                // 普通语句
+                gen_stmt(codegen, bs);
+            }
+            k = k + 1;
+        }
+        
+        fputs("})" as *byte, codegen.output as *void);
     } else {
         fputs("0" as *byte, codegen.output as *void);
     }

@@ -414,11 +414,7 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
         type_node.type_named_name = union_type_name;
         return type_node;
     } else if parser.current_token.type == TokenType.TOKEN_IDENTIFIER {
-        // 命名类型（i32, bool, void, 或结构体名称）
-        const type_node: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, line, column, parser.arena, parser_get_filename(parser));
-        if type_node == null {
-            return null;
-        }
+        // 命名类型（i32, bool, void, 或结构体名称）或类型宏调用 macro_name()
         
         // 复制类型名称到 Arena
         const type_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
@@ -426,10 +422,75 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
             return null;
         }
         
-        type_node.type_named_name = type_name;
-        
         // 消费类型标识符
         parser_consume(parser);
+        
+        // 检查是否是类型宏调用 macro_name()
+        if parser.current_token != null && parser.current_token.type == TokenType.TOKEN_LEFT_PAREN {
+            parser_consume(parser);  // 消费 '('
+            
+            // 创建宏调用节点
+            const callee: &ASTNode = ast_new_node(ASTNodeType.AST_IDENTIFIER, line, column, parser.arena, parser_get_filename(parser));
+            if callee == null {
+                return null;
+            }
+            callee.identifier_name = type_name;
+            
+            const call: &ASTNode = ast_new_node(ASTNodeType.AST_CALL_EXPR, line, column, parser.arena, parser_get_filename(parser));
+            if call == null {
+                return null;
+            }
+            call.call_expr_callee = callee;
+            call.call_expr_has_ellipsis_forward = 0;
+            
+            // 解析参数列表（可能为空）
+            var args: & & ASTNode = null;
+            var arg_count: i32 = 0;
+            var arg_cap: i32 = 0;
+            while parser.current_token != null && parser_match(parser, TokenType.TOKEN_RIGHT_PAREN) == 0 {
+                const arg: &ASTNode = parser_parse_expression(parser);
+                if arg == null {
+                    return null;
+                }
+                if arg_count >= arg_cap {
+                    var new_cap: i32 = 4;
+                    if arg_cap != 0 {
+                        new_cap = arg_cap * 2;
+                    }
+                    const new_args: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_cap) as & & ASTNode;
+                    if new_args == null {
+                        return null;
+                    }
+                    var i: i32 = 0;
+                    while i < arg_count {
+                        new_args[i] = args[i];
+                        i = i + 1;
+                    }
+                    args = new_args;
+                    arg_cap = new_cap;
+                }
+                args[arg_count] = arg;
+                arg_count = arg_count + 1;
+                if parser_match(parser, TokenType.TOKEN_COMMA) != 0 {
+                    parser_consume(parser);
+                }
+            }
+            if parser_expect(parser, TokenType.TOKEN_RIGHT_PAREN) == null {
+                return null;
+            }
+            
+            call.call_expr_args = args;
+            call.call_expr_arg_count = arg_count;
+            return call;  // 返回宏调用节点，checker 会展开它
+        }
+        
+        // 普通命名类型
+        const type_node: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, line, column, parser.arena, parser_get_filename(parser));
+        if type_node == null {
+            return null;
+        }
+        
+        type_node.type_named_name = type_name;
         
         return type_node;
     }
@@ -443,7 +504,7 @@ extern fn atoi(s: *byte) i32;
 extern fn strtod(nptr: *byte, endptr: * *byte) f64;
 
 // 解析基础表达式
-// 支持：数字、标识符、布尔字面量、括号表达式、函数调用、结构体字面量、字段访问
+// 支持：数字、标识符、布尔字面量、括号表达式、函数调用、结构体字面量、字段访问、块表达式
 fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
     if parser == null || parser.current_token == null {
         return null;
@@ -451,6 +512,15 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
     
     const line: i32 = parser.current_token.line;
     const column: i32 = parser.current_token.column;
+    
+    // 解析块表达式 { stmts }（用于宏 stmt 参数传递，也可作为普通块表达式）
+    // 需要与结构体初始化区分：如果 '{' 后面是 'identifier:' 模式或 '}'，则是结构体初始化
+    if parser.current_token.type == TokenType.TOKEN_LEFT_BRACE {
+        if parser_peek_is_struct_init(parser) == 0 {
+            return parser_parse_block(parser);
+        }
+        // 否则，由标识符处理（结构体初始化：StructName{ field: value }）
+    }
     
     // 解析整数字面量
     if parser.current_token.type == TokenType.TOKEN_NUMBER {
@@ -1092,7 +1162,8 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         return mc_code_node;
     }
     
-    // 解析 @mc_ast 表达式
+    // 解析 @mc_ast 表达式：@mc_ast(expr|stmt|block) - 宏内获取 AST
+    // 支持表达式、语句（if/for/while 等）、块语句、函数定义
     if parser.current_token.type == TokenType.TOKEN_AT_IDENTIFIER && parser.current_token.value != null &&
         str_equals_lexer(parser.current_token.value, "mc_ast" as &byte) != 0 {
         parser_consume(parser);
@@ -1103,7 +1174,28 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         if mc_ast_node == null {
             return null;
         }
-        const operand: &ASTNode = parser_parse_expression(parser);
+        
+        // 根据下一个 token 决定解析方式
+        var operand: &ASTNode = null;
+        const next_type: TokenType = parser.current_token.type;
+        
+        if next_type == TokenType.TOKEN_LEFT_BRACE {
+            // 块语句 { ... }
+            operand = parser_parse_block(parser);
+        } else if next_type == TokenType.TOKEN_FN {
+            // 函数定义（用于 struct 返回类型的宏生成方法）
+            operand = parser_parse_function(parser);
+        } else if next_type == TokenType.TOKEN_IF || next_type == TokenType.TOKEN_FOR || 
+                  next_type == TokenType.TOKEN_WHILE || next_type == TokenType.TOKEN_RETURN ||
+                  next_type == TokenType.TOKEN_CONST || next_type == TokenType.TOKEN_VAR ||
+                  next_type == TokenType.TOKEN_DEFER || next_type == TokenType.TOKEN_ERRDEFER {
+            // 语句：if/for/while/return/const/var/defer/errdefer
+            operand = parser_parse_statement(parser);
+        } else {
+            // 默认解析为表达式
+            operand = parser_parse_expression(parser);
+        }
+        
         if operand == null {
             return null;
         }
@@ -3556,6 +3648,7 @@ fn parser_parse_interface(parser: &Parser) &ASTNode {
 }
 
 // 解析方法块：StructName { fn method(...) { ... } ... }（调用时 struct_name 与 '{' 已消费，当前为块内首 token）
+// 也支持在方法块中调用 struct 返回类型的宏：macro_name(args);
 fn parser_parse_method_block(parser: &Parser, struct_name: &byte) &ASTNode {
     if parser == null || parser.current_token == null || struct_name == null {
         return null;
@@ -3566,10 +3659,92 @@ fn parser_parse_method_block(parser: &Parser, struct_name: &byte) &ASTNode {
     var method_count: i32 = 0;
     var method_cap: i32 = 0;
     while parser.current_token != null &&
-          parser_match(parser, TokenType.TOKEN_FN) != 0 &&
           parser_match(parser, TokenType.TOKEN_RIGHT_BRACE) == 0 && parser_match(parser, TokenType.TOKEN_EOF) == 0 {
-        const fn_node: &ASTNode = parser_parse_function(parser);
-        if fn_node == null {
+        var item: &ASTNode = null;
+        
+        if parser_match(parser, TokenType.TOKEN_FN) != 0 {
+            // 解析方法定义
+            item = parser_parse_function(parser);
+        } else if parser_match(parser, TokenType.TOKEN_IDENTIFIER) != 0 {
+            // 可能是宏调用：macro_name(args);
+            const item_line: i32 = parser.current_token.line;
+            const item_col: i32 = parser.current_token.column;
+            const name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+            if name == null {
+                return null;
+            }
+            parser_consume(parser);
+            
+            if parser_match(parser, TokenType.TOKEN_LEFT_PAREN) != 0 {
+                // 宏调用：name(args);
+                parser_consume(parser);  // 消费 '('
+                
+                const callee: &ASTNode = ast_new_node(ASTNodeType.AST_IDENTIFIER, item_line, item_col, parser.arena, parser_get_filename(parser));
+                if callee == null {
+                    return null;
+                }
+                callee.identifier_name = name;
+                
+                const call: &ASTNode = ast_new_node(ASTNodeType.AST_CALL_EXPR, item_line, item_col, parser.arena, parser_get_filename(parser));
+                if call == null {
+                    return null;
+                }
+                call.call_expr_callee = callee;
+                call.call_expr_has_ellipsis_forward = 0;
+                
+                // 解析参数列表
+                var args: & & ASTNode = null;
+                var arg_count: i32 = 0;
+                var arg_cap: i32 = 0;
+                while parser.current_token != null && parser_match(parser, TokenType.TOKEN_RIGHT_PAREN) == 0 {
+                    const arg: &ASTNode = parser_parse_expression(parser);
+                    if arg == null {
+                        return null;
+                    }
+                    if arg_count >= arg_cap {
+                        var new_cap: i32 = 4;
+                        if arg_cap != 0 {
+                            new_cap = arg_cap * 2;
+                        }
+                        const new_args: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_cap) as & & ASTNode;
+                        if new_args == null {
+                            return null;
+                        }
+                        var j: i32 = 0;
+                        while j < arg_count {
+                            new_args[j] = args[j];
+                            j = j + 1;
+                        }
+                        args = new_args;
+                        arg_cap = new_cap;
+                    }
+                    args[arg_count] = arg;
+                    arg_count = arg_count + 1;
+                    if parser_match(parser, TokenType.TOKEN_COMMA) != 0 {
+                        parser_consume(parser);
+                    }
+                }
+                if parser_expect(parser, TokenType.TOKEN_RIGHT_PAREN) == null {
+                    return null;
+                }
+                if parser_expect(parser, TokenType.TOKEN_SEMICOLON) == null {
+                    return null;
+                }
+                
+                call.call_expr_args = args;
+                call.call_expr_arg_count = arg_count;
+                item = call;
+            } else {
+                const stderr: *void = get_stderr();
+                fprintf(stderr, "错误: 方法块内期望 'fn' 或宏调用\n" as *byte);
+                return null;
+            }
+        } else {
+            // 不是 fn 也不是标识符，跳出循环
+            break;
+        }
+        
+        if item == null {
             return null;
         }
         if method_count >= method_cap {
@@ -3591,7 +3766,7 @@ fn parser_parse_method_block(parser: &Parser, struct_name: &byte) &ASTNode {
             methods = new_m;
             method_cap = new_cap;
         }
-        methods[method_count] = fn_node;
+        methods[method_count] = item;
         method_count = method_count + 1;
     }
     if parser_expect(parser, TokenType.TOKEN_RIGHT_BRACE) == null {

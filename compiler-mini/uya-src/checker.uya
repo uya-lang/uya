@@ -6094,6 +6094,84 @@ fn deep_copy_ast_with_params(node: &ASTNode, ctx: &MacroExpandContext, filename:
         }
         // 不是参数引用，递归处理 operand
         copy.mc_interp_operand = deep_copy_ast_with_params(operand, ctx, filename);
+    } else if node.type == ASTNodeType.AST_BLOCK {
+        // 块语句
+        copy.block_stmt_count = node.block_stmt_count;
+        if node.block_stmts != null && node.block_stmt_count > 0 {
+            copy.block_stmts = arena_alloc(ctx.arena, @size_of(&ASTNode) * node.block_stmt_count) as & & ASTNode;
+            if copy.block_stmts != null {
+                var i: i32 = 0;
+                while i < node.block_stmt_count {
+                    copy.block_stmts[i] = deep_copy_ast_with_params(node.block_stmts[i], ctx, filename);
+                    i = i + 1;
+                }
+            }
+        }
+    } else if node.type == ASTNodeType.AST_IF_STMT {
+        // if 语句
+        copy.if_stmt_condition = deep_copy_ast_with_params(node.if_stmt_condition, ctx, filename);
+        copy.if_stmt_then_branch = deep_copy_ast_with_params(node.if_stmt_then_branch, ctx, filename);
+        copy.if_stmt_else_branch = deep_copy_ast_with_params(node.if_stmt_else_branch, ctx, filename);
+    } else if node.type == ASTNodeType.AST_WHILE_STMT {
+        // while 语句
+        copy.while_stmt_condition = deep_copy_ast_with_params(node.while_stmt_condition, ctx, filename);
+        copy.while_stmt_body = deep_copy_ast_with_params(node.while_stmt_body, ctx, filename);
+    } else if node.type == ASTNodeType.AST_FOR_STMT {
+        // for 语句
+        copy.for_stmt_var_name = node.for_stmt_var_name;
+        copy.for_stmt_array = deep_copy_ast_with_params(node.for_stmt_array, ctx, filename);
+        copy.for_stmt_body = deep_copy_ast_with_params(node.for_stmt_body, ctx, filename);
+        copy.for_stmt_is_range = node.for_stmt_is_range;
+        copy.for_stmt_range_start = deep_copy_ast_with_params(node.for_stmt_range_start, ctx, filename);
+        copy.for_stmt_range_end = deep_copy_ast_with_params(node.for_stmt_range_end, ctx, filename);
+        copy.for_stmt_is_ref = node.for_stmt_is_ref;
+    } else if node.type == ASTNodeType.AST_RETURN_STMT {
+        // return 语句
+        copy.return_stmt_expr = deep_copy_ast_with_params(node.return_stmt_expr, ctx, filename);
+    } else if node.type == ASTNodeType.AST_VAR_DECL {
+        // 变量声明
+        copy.var_decl_name = node.var_decl_name;
+        copy.var_decl_type = deep_copy_ast_with_params(node.var_decl_type, ctx, filename);
+        copy.var_decl_init = deep_copy_ast_with_params(node.var_decl_init, ctx, filename);
+        copy.var_decl_is_const = node.var_decl_is_const;
+    } else if node.type == ASTNodeType.AST_ASSIGN {
+        // 赋值语句
+        copy.assign_dest = deep_copy_ast_with_params(node.assign_dest, ctx, filename);
+        copy.assign_src = deep_copy_ast_with_params(node.assign_src, ctx, filename);
+    } else if node.type == ASTNodeType.AST_TYPE_NAMED {
+        // 命名类型
+        copy.type_named_name = node.type_named_name;
+    } else if node.type == ASTNodeType.AST_TYPE_POINTER {
+        // 指针类型
+        copy.type_pointer_pointed_type = deep_copy_ast_with_params(node.type_pointer_pointed_type, ctx, filename);
+        copy.type_pointer_is_ffi_pointer = node.type_pointer_is_ffi_pointer;
+    } else if node.type == ASTNodeType.AST_TYPE_ARRAY {
+        // 数组类型
+        copy.type_array_element_type = deep_copy_ast_with_params(node.type_array_element_type, ctx, filename);
+        copy.type_array_size_expr = deep_copy_ast_with_params(node.type_array_size_expr, ctx, filename);
+    } else if node.type == ASTNodeType.AST_CAST_EXPR {
+        // 类型转换
+        copy.cast_expr_expr = deep_copy_ast_with_params(node.cast_expr_expr, ctx, filename);
+        copy.cast_expr_target_type = deep_copy_ast_with_params(node.cast_expr_target_type, ctx, filename);
+        copy.cast_expr_is_force_cast = node.cast_expr_is_force_cast;
+    } else if node.type == ASTNodeType.AST_FN_DECL {
+        // 函数定义
+        copy.fn_decl_name = node.fn_decl_name;
+        copy.fn_decl_return_type = deep_copy_ast_with_params(node.fn_decl_return_type, ctx, filename);
+        copy.fn_decl_body = deep_copy_ast_with_params(node.fn_decl_body, ctx, filename);
+        copy.fn_decl_param_count = node.fn_decl_param_count;
+        copy.fn_decl_is_varargs = node.fn_decl_is_varargs;
+        copy.fn_decl_is_export = node.fn_decl_is_export;
+        if node.fn_decl_params != null && node.fn_decl_param_count > 0 {
+            copy.fn_decl_params = arena_alloc(ctx.arena, @size_of(&ASTNode) * node.fn_decl_param_count) as & & ASTNode;
+            if copy.fn_decl_params != null {
+                var i: i32 = 0;
+                while i < node.fn_decl_param_count {
+                    copy.fn_decl_params[i] = deep_copy_ast_with_params(node.fn_decl_params[i], ctx, filename);
+                    i = i + 1;
+                }
+            }
+        }
     }
     // 其他类型暂时只复制基本信息
     
@@ -6149,12 +6227,12 @@ fn deep_copy_ast_simple(node: &ASTNode, arena: &Arena, filename: &byte) &ASTNode
 }
 
 // 从宏体提取输出表达式（支持参数替换）
-fn extract_macro_output_with_params(body: &ASTNode, ctx: &MacroExpandContext, filename: &byte) &ASTNode {
+fn extract_macro_output_with_params(body: &ASTNode, ctx: &MacroExpandContext, filename: &byte, return_tag: &byte) &ASTNode {
     if body == null || body.type != ASTNodeType.AST_BLOCK || ctx == null {
         return null;
     }
     
-    // 遍历宏体语句，查找 @mc_code 节点
+    // 遍历宏体语句，查找输出节点
     var i: i32 = body.block_stmt_count - 1;
     while i >= 0 {
         const stmt: &ASTNode = body.block_stmts[i];
@@ -6168,8 +6246,85 @@ fn extract_macro_output_with_params(body: &ASTNode, ctx: &MacroExpandContext, fi
             const mc_code_arg: &ASTNode = stmt.mc_code_operand;
             if mc_code_arg.type == ASTNodeType.AST_MC_AST && mc_code_arg.mc_ast_operand != null {
                 // 返回 @mc_ast 的参数的深拷贝（带参数替换）
-                return deep_copy_ast_with_params(mc_code_arg.mc_ast_operand, ctx, filename);
+                var result: &ASTNode = deep_copy_ast_with_params(mc_code_arg.mc_ast_operand, ctx, filename);
+                
+                // 对于 type 返回类型，如果结果是标识符，转换为类型节点
+                if return_tag != null && strcmp(return_tag as *byte, "type" as *byte) == 0 &&
+                    result != null && result.type == ASTNodeType.AST_IDENTIFIER && result.identifier_name != null {
+                    const type_node: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, result.line, result.column, ctx.arena, filename);
+                    if type_node != null {
+                        type_node.type_named_name = result.identifier_name;
+                        result = type_node;
+                    }
+                }
+                
+                return result;
             }
+        }
+        
+        // 语法糖：expr 返回类型 - 最后一个表达式自动作为输出
+        if return_tag != null && strcmp(return_tag as *byte, "expr" as *byte) == 0 {
+            // 跳过变量声明语句
+            if stmt.type == ASTNodeType.AST_VAR_DECL {
+                i = i - 1;
+                continue;
+            }
+            // 跳过控制流语句
+            if stmt.type == ASTNodeType.AST_IF_STMT || stmt.type == ASTNodeType.AST_WHILE_STMT ||
+                stmt.type == ASTNodeType.AST_FOR_STMT || stmt.type == ASTNodeType.AST_RETURN_STMT ||
+                stmt.type == ASTNodeType.AST_BREAK_STMT || stmt.type == ASTNodeType.AST_CONTINUE_STMT ||
+                stmt.type == ASTNodeType.AST_BLOCK {
+                i = i - 1;
+                continue;
+            }
+            // 对于表达式节点，直接作为输出
+            if stmt.type == ASTNodeType.AST_NUMBER || stmt.type == ASTNodeType.AST_BOOL ||
+                stmt.type == ASTNodeType.AST_STRING || stmt.type == ASTNodeType.AST_IDENTIFIER ||
+                stmt.type == ASTNodeType.AST_BINARY_EXPR || stmt.type == ASTNodeType.AST_UNARY_EXPR ||
+                stmt.type == ASTNodeType.AST_CALL_EXPR || stmt.type == ASTNodeType.AST_MEMBER_ACCESS ||
+                stmt.type == ASTNodeType.AST_ARRAY_ACCESS || stmt.type == ASTNodeType.AST_STRUCT_INIT ||
+                stmt.type == ASTNodeType.AST_ARRAY_LITERAL {
+                return deep_copy_ast_with_params(stmt, ctx, filename);
+            }
+        }
+        
+        // 语法糖：stmt 返回类型 - 最后一个语句自动作为输出
+        if return_tag != null && strcmp(return_tag as *byte, "stmt" as *byte) == 0 {
+            // 跳过变量声明语句
+            if stmt.type == ASTNodeType.AST_VAR_DECL {
+                i = i - 1;
+                continue;
+            }
+            return deep_copy_ast_with_params(stmt, ctx, filename);
+        }
+        
+        // 语法糖：struct 返回类型 - 方法定义作为输出
+        if return_tag != null && strcmp(return_tag as *byte, "struct" as *byte) == 0 {
+            // 跳过变量声明语句
+            if stmt.type == ASTNodeType.AST_VAR_DECL {
+                i = i - 1;
+                continue;
+            }
+            return deep_copy_ast_with_params(stmt, ctx, filename);
+        }
+        
+        // 语法糖：type 返回类型 - 标识符自动转换为类型节点
+        if return_tag != null && strcmp(return_tag as *byte, "type" as *byte) == 0 {
+            // 跳过变量声明语句
+            if stmt.type == ASTNodeType.AST_VAR_DECL {
+                i = i - 1;
+                continue;
+            }
+            var result: &ASTNode = deep_copy_ast_with_params(stmt, ctx, filename);
+            // 如果结果是标识符，转换为类型节点
+            if result != null && result.type == ASTNodeType.AST_IDENTIFIER && result.identifier_name != null {
+                const type_node: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, result.line, result.column, ctx.arena, filename);
+                if type_node != null {
+                    type_node.type_named_name = result.identifier_name;
+                    result = type_node;
+                }
+            }
+            return result;
         }
         
         i = i - 1;
@@ -6260,7 +6415,10 @@ fn expand_macros_in_node_simple(checker: &TypeChecker, node_ptr: & & ASTNode) vo
                         }
                     }
                     
-                    const expanded: &ASTNode = extract_macro_output_with_params(body, &ctx, filename);
+                    // 获取返回标签
+                    const return_tag: &byte = macro_decl.macro_decl_return_tag;
+                    
+                    const expanded: &ASTNode = extract_macro_output_with_params(body, &ctx, filename, return_tag);
                     if expanded != null {
                         // 递归展开结果中可能存在的宏调用
                         var expanded_ptr: &ASTNode = expanded;
@@ -6335,6 +6493,71 @@ fn expand_macros_in_node_simple(checker: &TypeChecker, node_ptr: & & ASTNode) vo
             var i: i32 = 0;
             while i < node.struct_decl_field_count {
                 expand_macros_in_node_simple(checker, &node.struct_decl_fields[i]);
+                i = i + 1;
+            }
+        }
+    } else if node.type == ASTNodeType.AST_METHOD_BLOCK {
+        // 在方法块中展开 struct 返回类型的宏调用
+        if node.method_block_methods != null {
+            var i: i32 = 0;
+            while i < node.method_block_method_count {
+                const method_ptr: & & ASTNode = &node.method_block_methods[i];
+                const method: &ASTNode = *method_ptr;
+                // 如果是宏调用（AST_CALL_EXPR），展开为方法定义
+                if method != null && method.type == ASTNodeType.AST_CALL_EXPR {
+                    const callee: &ASTNode = method.call_expr_callee;
+                    if callee != null && callee.type == ASTNodeType.AST_IDENTIFIER && callee.identifier_name != null {
+                        const name: &byte = callee.identifier_name;
+                        const macro_decl: &ASTNode = find_macro_decl_from_program(checker.program_node, name);
+                        if macro_decl != null {
+                            const return_tag: &byte = macro_decl.macro_decl_return_tag;
+                            if return_tag != null && strcmp(return_tag as *byte, "struct" as *byte) == 0 {
+                                // struct 返回类型的宏，展开为方法定义
+                                const param_count: i32 = macro_decl.macro_decl_param_count;
+                                const arg_count: i32 = method.call_expr_arg_count;
+                                
+                                // 建立参数绑定
+                                var ctx: MacroExpandContext = MacroExpandContext{ bindings: null, binding_count: 0, arena: checker.arena };
+                                
+                                if param_count > 0 && arg_count > 0 {
+                                    const bindings: &MacroParamBinding = arena_alloc(checker.arena, @size_of(MacroParamBinding) * param_count) as &MacroParamBinding;
+                                    if bindings != null {
+                                        var binding_count: i32 = 0;
+                                        var j: i32 = 0;
+                                        while j < param_count && j < arg_count {
+                                            const param: &ASTNode = macro_decl.macro_decl_params[j];
+                                            if param != null && param.var_decl_name != null {
+                                                bindings[binding_count].param_name = param.var_decl_name;
+                                                bindings[binding_count].arg_ast = method.call_expr_args[j];
+                                                binding_count = binding_count + 1;
+                                            }
+                                            j = j + 1;
+                                        }
+                                        ctx.bindings = bindings;
+                                        ctx.binding_count = binding_count;
+                                    }
+                                }
+                                
+                                // 展开宏体
+                                const body: &ASTNode = macro_decl.macro_decl_body;
+                                var filename: &byte = null;
+                                if method.filename != null {
+                                    filename = method.filename;
+                                }
+                                
+                                const expanded: &ASTNode = extract_macro_output_with_params(body, &ctx, filename, return_tag);
+                                if expanded != null {
+                                    // 递归展开结果中可能存在的宏调用
+                                    var expanded_ptr: &ASTNode = expanded;
+                                    expand_macros_in_node_simple(checker, &expanded_ptr);
+                                    *method_ptr = expanded_ptr;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    expand_macros_in_node_simple(checker, method_ptr);
+                }
                 i = i + 1;
             }
         }
