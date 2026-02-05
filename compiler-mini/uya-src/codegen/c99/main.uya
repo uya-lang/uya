@@ -367,6 +367,8 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     }
     
     // 第五步：生成所有结构体的前向声明（解决相互依赖）
+    // 首先添加内置 TypeInfo 的前向声明（用于 @mc_type）
+    fputs("struct TypeInfo;\n" as *byte, codegen.output as *void);
     i = 0;
     while i < codegen.struct_definition_count {
         if is_struct_defined(codegen, codegen.struct_definitions[i].name) == 0 {
@@ -420,7 +422,37 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         }
         i = i + 1;
     }
-    // 第六步 d：生成所有结构体定义（在切片结构体之后，因为结构体可能含切片字段）
+    // 第六步 d1：自动生成内置 TypeInfo 结构体（如果用户没有定义且代码中使用了 @mc_type）
+    {
+        var user_defined_typeinfo: i32 = 0;
+        i = 0;
+        while i < decl_count {
+            const d: &ASTNode = ast.program_decls[i];
+            if d != null && d.type == ASTNodeType.AST_STRUCT_DECL && d.struct_decl_name != null &&
+                strcmp(d.struct_decl_name as *byte, "TypeInfo" as *byte) == 0 {
+                user_defined_typeinfo = 1;
+            }
+            i = i + 1;
+        }
+        if user_defined_typeinfo == 0 && is_struct_defined(codegen, ("TypeInfo" as *byte) as &byte) == 0 {
+            // 生成内置 TypeInfo 结构体
+            fputs("// 内置 TypeInfo 结构体（由 @mc_type 使用）\n" as *byte, codegen.output as *void);
+            fputs("struct TypeInfo {\n" as *byte, codegen.output as *void);
+            fputs("    int8_t * name;\n" as *byte, codegen.output as *void);
+            fputs("    int32_t size;\n" as *byte, codegen.output as *void);
+            fputs("    int32_t align;\n" as *byte, codegen.output as *void);
+            fputs("    int32_t kind;\n" as *byte, codegen.output as *void);
+            fputs("    bool is_integer;\n" as *byte, codegen.output as *void);
+            fputs("    bool is_float;\n" as *byte, codegen.output as *void);
+            fputs("    bool is_bool;\n" as *byte, codegen.output as *void);
+            fputs("    bool is_pointer;\n" as *byte, codegen.output as *void);
+            fputs("    bool is_array;\n" as *byte, codegen.output as *void);
+            fputs("    bool is_void;\n" as *byte, codegen.output as *void);
+            fputs("};\n\n" as *byte, codegen.output as *void);
+            mark_struct_defined(codegen, ("TypeInfo" as *byte) as &byte);
+        }
+    }
+    // 第六步 d2：生成所有结构体定义（在切片结构体之后，因为结构体可能含切片字段）
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
