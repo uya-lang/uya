@@ -640,7 +640,20 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             break;
         }
         case AST_STRUCT_INIT: {
-            const char *struct_name = get_safe_c_identifier(codegen, expr->data.struct_init.struct_name);
+            const char *orig_name = expr->data.struct_init.struct_name;
+            const char *struct_name;
+            
+            // 检查是否是泛型结构体初始化
+            if (expr->data.struct_init.type_arg_count > 0 && 
+                expr->data.struct_init.type_args != NULL) {
+                // 使用单态化结构体名称
+                struct_name = get_mono_struct_name(codegen, orig_name,
+                    expr->data.struct_init.type_args,
+                    expr->data.struct_init.type_arg_count);
+            } else {
+                struct_name = get_safe_c_identifier(codegen, orig_name);
+            }
+            
             int field_count = expr->data.struct_init.field_count;
             const char **field_names = expr->data.struct_init.field_names;
             ASTNode **field_values = expr->data.struct_init.field_values;
@@ -1441,7 +1454,18 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             // 生成被调用函数名
             int printf_one_fmt = (callee_name && strcmp(callee_name, "printf") == 0 && arg_count == 1);
             if (callee && callee->type == AST_IDENTIFIER) {
-                const char *safe_name = get_safe_c_identifier(codegen, callee->data.identifier.name);
+                const char *func_name = callee->data.identifier.name;
+                const char *output_name = func_name;
+                
+                // 检查是否是泛型函数调用（有类型实参）
+                ASTNode **call_type_args = expr->data.call_expr.type_args;
+                int call_type_arg_count = expr->data.call_expr.type_arg_count;
+                if (call_type_args && call_type_arg_count > 0) {
+                    // 泛型函数调用：生成单态化函数名
+                    output_name = get_mono_function_name(codegen, func_name, call_type_args, call_type_arg_count);
+                }
+                
+                const char *safe_name = get_safe_c_identifier(codegen, output_name);
                 fprintf(codegen->output, "%s(", safe_name);
                 if (printf_one_fmt) {
                     fputs("\"%s\", ", codegen->output);  /* 单参数 printf 用字面量格式避免 -Wformat-security */

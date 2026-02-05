@@ -621,3 +621,296 @@ void gen_method_function(C99CodeGenerator *codegen, ASTNode *fn_decl, const char
     codegen->indent_level--;
     c99_emit(codegen, "}\n");
 }
+
+// 检查函数是否是泛型函数（有类型参数）
+int is_generic_function_c99(ASTNode *fn_decl) {
+    if (!fn_decl || fn_decl->type != AST_FN_DECL) return 0;
+    return fn_decl->data.fn_decl.type_param_count > 0;
+}
+
+// 获取单态化函数名称
+// 例如：identity<i32> -> identity_i32
+const char *get_mono_function_name(C99CodeGenerator *codegen, const char *generic_name, ASTNode **type_args, int type_arg_count) {
+    if (!codegen || !generic_name || !type_args || type_arg_count <= 0) {
+        return generic_name;
+    }
+    
+    // 构建后缀
+    char suffix[256] = "";
+    int suffix_len = 0;
+    
+    for (int i = 0; i < type_arg_count; i++) {
+        if (i > 0 && suffix_len < 255) {
+            suffix[suffix_len++] = '_';
+        }
+        
+        ASTNode *type_arg = type_args[i];
+        if (type_arg && type_arg->type == AST_TYPE_NAMED && type_arg->data.type_named.name) {
+            const char *type_name = type_arg->data.type_named.name;
+            while (*type_name && suffix_len < 255) {
+                suffix[suffix_len++] = *type_name++;
+            }
+        } else if (type_arg && type_arg->type == AST_TYPE_POINTER) {
+            // 指针类型：ptr_T
+            const char *ptr_prefix = "ptr_";
+            while (*ptr_prefix && suffix_len < 255) {
+                suffix[suffix_len++] = *ptr_prefix++;
+            }
+            ASTNode *pointed = type_arg->data.type_pointer.pointed_type;
+            if (pointed && pointed->type == AST_TYPE_NAMED && pointed->data.type_named.name) {
+                const char *type_name = pointed->data.type_named.name;
+                while (*type_name && suffix_len < 255) {
+                    suffix[suffix_len++] = *type_name++;
+                }
+            }
+        }
+    }
+    suffix[suffix_len] = '\0';
+    
+    // 分配并构建完整名称
+    const char *safe_name = get_safe_c_identifier(codegen, generic_name);
+    size_t name_len = strlen(safe_name) + 1 + strlen(suffix) + 1;
+    char *mono_name = arena_alloc(codegen->arena, name_len);
+    if (!mono_name) return generic_name;
+    snprintf(mono_name, name_len, "%s_%s", safe_name, suffix);
+    
+    return mono_name;
+}
+
+// 在单态化上下文中将类型参数替换为具体类型（递归处理复合类型）
+static ASTNode *substitute_type_arg(C99CodeGenerator *codegen, ASTNode *type_node) {
+    if (!codegen || !type_node) return type_node;
+    
+    // 如果不在单态化上下文中，直接返回
+    if (!codegen->current_type_params || codegen->current_type_param_count == 0) {
+        return type_node;
+    }
+    
+    // 对于命名类型，检查是否是类型参数
+    if (type_node->type == AST_TYPE_NAMED && type_node->data.type_named.name) {
+        const char *name = type_node->data.type_named.name;
+        for (int i = 0; i < codegen->current_type_param_count; i++) {
+            if (codegen->current_type_params[i].name &&
+                strcmp(codegen->current_type_params[i].name, name) == 0) {
+                // 找到匹配的类型参数，返回对应的类型实参
+                if (codegen->current_type_args && i < codegen->current_type_arg_count) {
+                    return codegen->current_type_args[i];
+                }
+            }
+        }
+    }
+    
+    // 递归处理指针类型 (&T 或 *T)
+    if (type_node->type == AST_TYPE_POINTER && type_node->data.type_pointer.pointed_type) {
+        ASTNode *inner_substituted = substitute_type_arg(codegen, type_node->data.type_pointer.pointed_type);
+        // 如果内部类型被替换了，创建新的指针类型节点
+        if (inner_substituted != type_node->data.type_pointer.pointed_type) {
+            ASTNode *new_node = arena_alloc(codegen->arena, sizeof(ASTNode));
+            if (new_node) {
+                new_node->type = AST_TYPE_POINTER;
+                new_node->line = type_node->line;
+                new_node->column = type_node->column;
+                new_node->data.type_pointer.pointed_type = inner_substituted;
+                new_node->data.type_pointer.is_ffi_pointer = type_node->data.type_pointer.is_ffi_pointer;
+                return new_node;
+            }
+        }
+    }
+    
+    // 递归处理数组类型 [T: N]
+    if (type_node->type == AST_TYPE_ARRAY && type_node->data.type_array.element_type) {
+        ASTNode *elem_substituted = substitute_type_arg(codegen, type_node->data.type_array.element_type);
+        if (elem_substituted != type_node->data.type_array.element_type) {
+            ASTNode *new_node = arena_alloc(codegen->arena, sizeof(ASTNode));
+            if (new_node) {
+                new_node->type = AST_TYPE_ARRAY;
+                new_node->line = type_node->line;
+                new_node->column = type_node->column;
+                new_node->data.type_array.element_type = elem_substituted;
+                new_node->data.type_array.size_expr = type_node->data.type_array.size_expr;
+                return new_node;
+            }
+        }
+    }
+    
+    // 递归处理切片类型 &[T]
+    if (type_node->type == AST_TYPE_SLICE && type_node->data.type_slice.element_type) {
+        ASTNode *elem_substituted = substitute_type_arg(codegen, type_node->data.type_slice.element_type);
+        if (elem_substituted != type_node->data.type_slice.element_type) {
+            ASTNode *new_node = arena_alloc(codegen->arena, sizeof(ASTNode));
+            if (new_node) {
+                new_node->type = AST_TYPE_SLICE;
+                new_node->line = type_node->line;
+                new_node->column = type_node->column;
+                new_node->data.type_slice.element_type = elem_substituted;
+                new_node->data.type_slice.size_expr = type_node->data.type_slice.size_expr;
+                return new_node;
+            }
+        }
+    }
+    
+    return type_node;
+}
+
+// 获取类型的 C 表示（支持类型参数替换）
+static const char *c99_mono_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
+    ASTNode *substituted = substitute_type_arg(codegen, type_node);
+    return c99_type_to_c(codegen, substituted);
+}
+
+// 生成单态化函数原型
+void gen_mono_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl, ASTNode **type_args, int type_arg_count) {
+    if (!fn_decl || fn_decl->type != AST_FN_DECL || !type_args) return;
+    
+    const char *orig_name = fn_decl->data.fn_decl.name;
+    const char *mono_name = get_mono_function_name(codegen, orig_name, type_args, type_arg_count);
+    ASTNode *return_type = fn_decl->data.fn_decl.return_type;
+    ASTNode **params = fn_decl->data.fn_decl.params;
+    int param_count = fn_decl->data.fn_decl.param_count;
+    int is_varargs = fn_decl->data.fn_decl.is_varargs;
+    
+    // 设置单态化上下文
+    TypeParam *saved_type_params = codegen->current_type_params;
+    int saved_type_param_count = codegen->current_type_param_count;
+    ASTNode **saved_type_args = codegen->current_type_args;
+    int saved_type_arg_count = codegen->current_type_arg_count;
+    
+    codegen->current_type_params = fn_decl->data.fn_decl.type_params;
+    codegen->current_type_param_count = fn_decl->data.fn_decl.type_param_count;
+    codegen->current_type_args = type_args;
+    codegen->current_type_arg_count = type_arg_count;
+    
+    // 返回类型（替换类型参数）
+    const char *return_c = c99_mono_type_to_c(codegen, return_type);
+    
+    fprintf(codegen->output, "%s %s(", return_c, mono_name);
+    
+    // 参数列表
+    for (int i = 0; i < param_count; i++) {
+        ASTNode *param = params[i];
+        if (!param || param->type != AST_VAR_DECL) continue;
+        
+        const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
+        ASTNode *param_type = param->data.var_decl.type;
+        const char *param_type_c = c99_mono_type_to_c(codegen, param_type);
+        
+        format_param_type(codegen, param_type_c, param_name, codegen->output);
+        if (i < param_count - 1) fputs(", ", codegen->output);
+    }
+    
+    // 处理可变参数
+    if (is_varargs) {
+        if (param_count > 0) fputs(", ", codegen->output);
+        fputs("...", codegen->output);
+    }
+    
+    fputs(");\n", codegen->output);
+    
+    // 恢复上下文
+    codegen->current_type_params = saved_type_params;
+    codegen->current_type_param_count = saved_type_param_count;
+    codegen->current_type_args = saved_type_args;
+    codegen->current_type_arg_count = saved_type_arg_count;
+}
+
+// 生成单态化函数定义
+void gen_mono_function(C99CodeGenerator *codegen, ASTNode *fn_decl, ASTNode **type_args, int type_arg_count) {
+    if (!fn_decl || fn_decl->type != AST_FN_DECL || !type_args) return;
+    
+    const char *orig_name = fn_decl->data.fn_decl.name;
+    const char *mono_name = get_mono_function_name(codegen, orig_name, type_args, type_arg_count);
+    ASTNode *return_type = fn_decl->data.fn_decl.return_type;
+    ASTNode **params = fn_decl->data.fn_decl.params;
+    int param_count = fn_decl->data.fn_decl.param_count;
+    int is_varargs = fn_decl->data.fn_decl.is_varargs;
+    ASTNode *body = fn_decl->data.fn_decl.body;
+    
+    // 如果没有函数体，跳过
+    if (!body) return;
+    
+    // 设置单态化上下文
+    TypeParam *saved_type_params = codegen->current_type_params;
+    int saved_type_param_count = codegen->current_type_param_count;
+    ASTNode **saved_type_args = codegen->current_type_args;
+    int saved_type_arg_count = codegen->current_type_arg_count;
+    
+    codegen->current_type_params = fn_decl->data.fn_decl.type_params;
+    codegen->current_type_param_count = fn_decl->data.fn_decl.type_param_count;
+    codegen->current_type_args = type_args;
+    codegen->current_type_arg_count = type_arg_count;
+    
+    // 生成 #line 指令
+    emit_line_directive(codegen, fn_decl->line, fn_decl->filename);
+    
+    // 返回类型（替换类型参数）
+    const char *return_c = c99_mono_type_to_c(codegen, return_type);
+    
+    fprintf(codegen->output, "%s %s(", return_c, mono_name);
+    
+    // 参数列表
+    for (int i = 0; i < param_count; i++) {
+        ASTNode *param = params[i];
+        if (!param || param->type != AST_VAR_DECL) continue;
+        
+        const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
+        ASTNode *param_type = param->data.var_decl.type;
+        const char *param_type_c = c99_mono_type_to_c(codegen, param_type);
+        
+        format_param_type(codegen, param_type_c, param_name, codegen->output);
+        if (i < param_count - 1) fputs(", ", codegen->output);
+    }
+    
+    // 处理可变参数
+    if (is_varargs) {
+        if (param_count > 0) fputs(", ", codegen->output);
+        fputs("...", codegen->output);
+    }
+    
+    fputs(") {\n", codegen->output);
+    
+    // 设置当前函数返回类型（替换后）
+    ASTNode *saved_return_type = codegen->current_function_return_type;
+    codegen->current_function_return_type = substitute_type_arg(codegen, return_type);
+    
+    // 进入函数作用域
+    codegen->indent_level++;
+    int saved_depth = codegen->current_depth;
+    codegen->current_depth++;
+    
+    // 清空局部变量表
+    codegen->local_variable_count = 0;
+    
+    // 将参数添加到局部变量表
+    for (int i = 0; i < param_count; i++) {
+        ASTNode *param = params[i];
+        if (!param || param->type != AST_VAR_DECL) continue;
+        
+        if (codegen->local_variable_count < C99_MAX_LOCAL_VARS) {
+            codegen->local_variables[codegen->local_variable_count].name = param->data.var_decl.name;
+            codegen->local_variables[codegen->local_variable_count].type_c = c99_mono_type_to_c(codegen, param->data.var_decl.type);
+            codegen->local_variables[codegen->local_variable_count].depth = codegen->current_depth;
+            codegen->local_variable_count++;
+        }
+    }
+    
+    // 生成函数体
+    if (body->type == AST_BLOCK) {
+        for (int i = 0; i < body->data.block.stmt_count; i++) {
+            gen_stmt(codegen, body->data.block.stmts[i]);
+        }
+    } else {
+        gen_stmt(codegen, body);
+    }
+    
+    // 恢复上下文
+    codegen->current_function_return_type = saved_return_type;
+    codegen->current_depth = saved_depth;
+    codegen->indent_level--;
+    c99_emit(codegen, "}\n");
+    
+    // 恢复单态化上下文
+    codegen->current_type_params = saved_type_params;
+    codegen->current_type_param_count = saved_type_param_count;
+    codegen->current_type_args = saved_type_args;
+    codegen->current_type_arg_count = saved_type_arg_count;
+}

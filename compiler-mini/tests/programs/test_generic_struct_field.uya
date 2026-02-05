@@ -1,0 +1,22 @@
+// 测试泛型结构体字段访问
+
+struct Pair<K, V> {
+    key: K,
+    value: V
+}
+
+fn main() i32 {
+    const p: Pair<i32, i64> = Pair<i32, i64>{ key: 42, value: 100 };
+    
+    // 测试字段访问和比较
+    if p.key != 42 {
+        return 1;
+    }
+    
+    // 测试另一个字段
+    if p.value != 100 {
+        return 2;
+    }
+    
+    return 0;
+}

@@ -328,12 +328,14 @@ struct ASTNode {
             struct ASTNode *len_expr;         // 长度
         } slice_expr;
         
-        // 结构体字面量（StructName{ field1: value1, field2: value2 }）
+        // 结构体字面量（StructName{ field1: value1, field2: value2 } 或 StructName<T, U>{ ... }）
         struct {
             const char *struct_name;  // 结构体名称
             const char **field_names; // 字段名称数组
             struct ASTNode **field_values;   // 字段值表达式数组
             int field_count;          // 字段数量
+            struct ASTNode **type_args;      // 类型实参数组（泛型结构体）
+            int type_arg_count;              // 类型实参数量
         } struct_init;
         
         // 数组字面量（[expr1, expr2, ..., exprN] 或 [value: N]）

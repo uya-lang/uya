@@ -34,6 +34,7 @@ typedef enum {
     TYPE_ERROR,    // 错误值类型（仅用于 return error.X、catch |err| 等，error_id 非 0）
     TYPE_INT_LIMIT,// 未解析的 max/min 极值（需从上下文推断整数类型）
     TYPE_ATOMIC,   // 原子类型（atomic T）
+    TYPE_GENERIC_PARAM, // 泛型类型参数（如 T, K, V）
 } TypeKind;
 
 // 类型结构
@@ -42,7 +43,11 @@ typedef struct Type {
     TypeKind kind;              // 类型种类
     union {
         const char *enum_name;      // 枚举名称（仅当 kind == TYPE_ENUM 时有效）
-        const char *struct_name;    // 结构体名称（仅当 kind == TYPE_STRUCT 时有效）
+        struct {
+            const char *name;       // 结构体名称（仅当 kind == TYPE_STRUCT 时有效）
+            struct Type *type_args; // 泛型类型参数数组（从 Arena 分配，可为 NULL）
+            int type_arg_count;     // 类型参数数量（0 表示非泛型结构体）
+        } struct_type;
         const char *union_name;     // 联合体名称（仅当 kind == TYPE_UNION 时有效）
         const char *interface_name;  // 接口名称（仅当 kind == TYPE_INTERFACE 时有效）
         struct {
@@ -70,6 +75,9 @@ typedef struct Type {
         struct {
             struct Type *inner_type;    // 内部类型 T（仅当 kind == TYPE_ATOMIC 时有效，从 Arena 分配）
         } atomic;
+        struct {
+            const char *param_name;     // 泛型参数名称（如 "T", "K", "V"，仅当 kind == TYPE_GENERIC_PARAM 时有效）
+        } generic_param;
     } data;
 } Type;
 
@@ -186,6 +194,21 @@ typedef struct TypeChecker {
     int moved_count;
     // 项目根目录路径（包含 main 函数的文件所在目录，用于识别 main 模块）
     const char *project_root_dir;  // 存储在 Arena 中
+    
+    // 泛型参数作用域（当前函数/结构体/接口的类型参数）
+    TypeParam *current_type_params;     // 当前作用域的类型参数数组（指向 AST 节点中的 type_params）
+    int current_type_param_count;       // 当前类型参数数量
+    
+    // 单态化实例收集
+    // 泛型函数实例：key = "fn_name<type1,type2,...>", value = 具体类型数组
+    struct {
+        const char *generic_name;       // 泛型函数/结构体名称
+        Type *type_args;                // 类型实参数组（从 Arena 分配）
+        ASTNode **type_arg_nodes;       // 类型实参 AST 节点数组（从 Arena 分配）
+        int type_arg_count;             // 类型实参数量
+        int is_function;                // 1 表示函数，0 表示结构体
+    } mono_instances[512];
+    int mono_instance_count;
 } TypeChecker;
 
 // 初始化 TypeChecker

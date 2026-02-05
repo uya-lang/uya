@@ -3,6 +3,7 @@
 
 #include "ast.h"
 #include "arena.h"
+#include "checker.h"
 #include <stdint.h>
 #include <stdio.h>
 
@@ -19,6 +20,7 @@
 #define C99_MAX_DEFERS_PER_BLOCK    64
 #define C99_MAX_DROP_VARS_PER_BLOCK 64
 #define C99_MAX_SLICE_STRUCTS       32
+#define C99_MAX_MONO_INSTANCES      512
 
 // C99 代码生成器结构体
 typedef struct C99CodeGenerator {
@@ -118,6 +120,21 @@ typedef struct C99CodeGenerator {
     const char *slice_struct_names[C99_MAX_SLICE_STRUCTS];
     ASTNode *slice_struct_element_types[C99_MAX_SLICE_STRUCTS];
     int slice_struct_count;
+    
+    // 泛型单态化实例（从 TypeChecker 传入）
+    struct MonoInstance {
+        const char *generic_name;   // 泛型函数/结构体名称
+        ASTNode **type_args;        // 类型实参 AST 节点数组
+        int type_arg_count;         // 类型实参数量
+        int is_function;            // 1 表示函数，0 表示结构体
+    } mono_instances[C99_MAX_MONO_INSTANCES];
+    int mono_instance_count;
+    
+    // 当前单态化上下文（生成泛型函数实例时使用）
+    TypeParam *current_type_params;    // 当前泛型的类型参数列表
+    int current_type_param_count;       // 当前泛型的类型参数数量
+    ASTNode **current_type_args;        // 当前实例化的类型实参
+    int current_type_arg_count;         // 当前实例化的类型实参数量
 } C99CodeGenerator;
 
 // 创建 C99 代码生成器
@@ -139,6 +156,12 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
 // 释放 C99 代码生成器资源（注意：不关闭输出文件）
 // 参数：codegen - C99CodeGenerator 结构体指针
 void c99_codegen_free(C99CodeGenerator *codegen);
+
+// 设置单态化实例（从 TypeChecker 传入）
+// 参数：codegen - C99CodeGenerator 结构体指针
+//       checker - TypeChecker 指针
+// 返回：成功返回0，失败返回非0
+int c99_codegen_set_mono_instances(C99CodeGenerator *codegen, TypeChecker *checker);
 
 // 工具函数：缩进输出
 void c99_emit_indent(C99CodeGenerator *codegen);

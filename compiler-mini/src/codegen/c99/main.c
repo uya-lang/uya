@@ -407,8 +407,23 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
         if (!decl) continue;
         if (decl->type == AST_USE_STMT || decl->type == AST_MACRO_DECL) continue;
         if (decl->type == AST_STRUCT_DECL) {
-            gen_struct_definition(codegen, decl);
-            fputs("\n", codegen->output);
+            // 跳过泛型结构体模板，为单态化实例生成定义
+            if (is_generic_struct_c99(decl)) {
+                const char *struct_name = decl->data.struct_decl.name;
+                for (int j = 0; j < codegen->mono_instance_count; j++) {
+                    if (codegen->mono_instances[j].generic_name &&
+                        strcmp(codegen->mono_instances[j].generic_name, struct_name) == 0 &&
+                        !codegen->mono_instances[j].is_function) {
+                        gen_mono_struct_definition(codegen, decl,
+                            codegen->mono_instances[j].type_args,
+                            codegen->mono_instances[j].type_arg_count);
+                        fputs("\n", codegen->output);
+                    }
+                }
+            } else {
+                gen_struct_definition(codegen, decl);
+                fputs("\n", codegen->output);
+            }
         }
     }
 
@@ -418,7 +433,22 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
         if (!decl) continue;
         if (decl->type == AST_USE_STMT || decl->type == AST_MACRO_DECL) continue;
         if (decl->type == AST_FN_DECL) {
-            gen_function_prototype(codegen, decl);
+            // 跳过泛型函数模板，为单态化实例生成原型
+            if (is_generic_function_c99(decl)) {
+                // 查找该泛型函数的所有单态化实例
+                const char *fn_name = decl->data.fn_decl.name;
+                for (int j = 0; j < codegen->mono_instance_count; j++) {
+                    if (codegen->mono_instances[j].generic_name &&
+                        strcmp(codegen->mono_instances[j].generic_name, fn_name) == 0 &&
+                        codegen->mono_instances[j].is_function) {
+                        gen_mono_function_prototype(codegen, decl,
+                            codegen->mono_instances[j].type_args,
+                            codegen->mono_instances[j].type_arg_count);
+                    }
+                }
+            } else {
+                gen_function_prototype(codegen, decl);
+            }
         } else if (decl->type == AST_METHOD_BLOCK) {
             const char *type_name = decl->data.method_block.struct_name ? decl->data.method_block.struct_name : decl->data.method_block.union_name;
             if (type_name) {
@@ -533,9 +563,23 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
                 const char *func_name = decl->data.fn_decl.name;
                 int is_main = (func_name && strcmp(func_name, "main") == 0) ? 1 : 0;
                 if (!is_main) {
-                    // 只生成有函数体的定义（外部函数由前向声明处理）
-                    gen_function(codegen, decl);
-                    fputs("\n", codegen->output);
+                    // 跳过泛型函数模板，为单态化实例生成定义
+                    if (is_generic_function_c99(decl)) {
+                        for (int j = 0; j < codegen->mono_instance_count; j++) {
+                            if (codegen->mono_instances[j].generic_name &&
+                                strcmp(codegen->mono_instances[j].generic_name, func_name) == 0 &&
+                                codegen->mono_instances[j].is_function) {
+                                gen_mono_function(codegen, decl,
+                                    codegen->mono_instances[j].type_args,
+                                    codegen->mono_instances[j].type_arg_count);
+                                fputs("\n", codegen->output);
+                            }
+                        }
+                    } else {
+                        // 只生成有函数体的定义（外部函数由前向声明处理）
+                        gen_function(codegen, decl);
+                        fputs("\n", codegen->output);
+                    }
                 }
                 break;
             }

@@ -1,0 +1,21 @@
+// 测试泛型函数调用语法
+// 注意：当前仅测试 Parser 能否正确解析语法
+
+// 泛型函数声明
+fn max<T: Ord>(a: T, b: T) T {
+    if a > b {
+        return a;
+    }
+    return b;
+}
+
+fn main() i32 {
+    // 测试泛型函数调用语法：max<i32>(10, 20)
+    const x: i32 = max<i32>(10, 20);
+    if x != 20 {
+        return 1;
+    }
+    
+    return 0;
+}
+

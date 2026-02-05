@@ -1,0 +1,10 @@
+// 最小泛型测试
+
+fn identity<T>(x: T) T {
+    return x;
+}
+
+fn main() i32 {
+    const x: i32 = identity<i32>(42);
+    return 0;
+}

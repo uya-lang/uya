@@ -26,7 +26,7 @@
 | 12 | 运算符与安全 | [x]（饱和/包装运算、as! 已实现；内存安全证明未实现） |
 | 13 | 联合体（union） | [x]（C 实现与 uya-src 已同步） |
 | 14 | 消灭所有警告 | [x]（主要工作已完成，剩余问题见下方说明） |
-| 15 | 泛型（Generics） | [ ] |
+| 15 | 泛型（Generics） | [~]（基础实现完成，约束/推断待实现） |
 | 16 | 异步编程（Async） | [ ] |
 | 17 | test 关键字（测试单元） | [x]（C 实现与 uya-src 已同步） |
 | 18 | **宏系统（Macro）** | [x] C 实现已完成（uya-src 待同步） |
@@ -402,57 +402,61 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 - 接口泛型：`interface Iterator<T> { ... }`
 - 类型参数使用：`Vec<i32>`, `Iterator<String>`
 
-**实现待办**：
+**实现状态**：
 
-- [ ] **Lexer**：识别泛型语法
-  - [ ] 识别尖括号 `<` 和 `>`（注意与比较运算符区分）
-  - [ ] 识别类型参数列表 `<T>`、`<T: Ord>`、`<T: Ord + Clone>`
-  - [ ] 识别约束语法（`:` 后的接口名，`+` 连接的多约束）
+- [x] **Lexer**：识别泛型语法
+  - [x] 识别尖括号 `<` 和 `>`（复用比较运算符 token）
+  - [ ] 识别类型参数约束语法 `<T: Ord>`、`<T: Ord + Clone>`（待实现）
 
-- [ ] **AST**：泛型节点扩展
-  - [ ] 函数声明添加 `type_params` 字段（类型参数列表）
-  - [ ] 结构体声明添加 `type_params` 字段
-  - [ ] 接口声明添加 `type_params` 字段
-  - [ ] 类型节点支持泛型类型参数（如 `Vec<i32>`）
-  - [ ] 类型参数节点（`TypeParam`）：名称、约束列表
+- [x] **AST**：泛型节点扩展
+  - [x] 函数声明添加 `type_params`/`type_param_count` 字段
+  - [x] 结构体声明添加 `type_params`/`type_param_count` 字段
+  - [x] 接口声明添加 `type_params`/`type_param_count` 字段
+  - [x] 类型节点支持泛型类型参数（`type_args`/`type_arg_count`）
+  - [x] 调用表达式支持泛型类型参数
+  - [x] 结构体初始化支持泛型类型参数
 
-- [ ] **Parser**：泛型语法解析
-  - [ ] 解析函数泛型参数列表：`fn name<T: Ord>(...)`
-  - [ ] 解析结构体泛型参数列表：`struct Name<T: Default>`
-  - [ ] 解析接口泛型参数列表：`interface Name<T>`
-  - [ ] 解析类型参数约束：`<T: Ord>`、`<T: Ord + Clone + Default>`
-  - [ ] 解析泛型类型使用：`Vec<i32>`、`Iterator<String>`
-  - [ ] 处理泛型与普通语法的歧义（如 `<` 是泛型开始还是比较运算符）
+- [x] **Parser**：泛型语法解析
+  - [x] 解析函数泛型参数列表：`fn name<T>(...)`
+  - [x] 解析结构体泛型参数列表：`struct Name<T>`
+  - [x] 解析接口泛型参数列表：`interface Name<T>`
+  - [ ] 解析类型参数约束：`<T: Ord>`（待实现）
+  - [x] 解析泛型类型使用：`Vec<i32>`、`Pair<i32, i64>`
+  - [x] 处理泛型与比较运算符的歧义（修复 `<` 误判为比较运算符的问题）
 
-- [ ] **Checker**：泛型类型检查
-  - [ ] 类型参数作用域管理（泛型函数/结构体/接口内部）
-  - [ ] 约束检查：验证类型参数是否满足约束（如 `Ord`、`Clone`、`Default`）
-  - [ ] 泛型实例化：将泛型类型替换为具体类型（如 `Vec<i32>`）
-  - [ ] 单态化（Monomorphization）：为每个具体类型实例生成独立代码
-  - [ ] 类型推断：在可能的情况下推断类型参数（如 `max(10, 20)` 推断为 `max<i32>`）
+- [x] **Checker**：泛型类型检查（基础）
+  - [x] 类型参数作用域管理（泛型函数/结构体内部）
+  - [x] 单态化实例收集（`MonoInstance` 结构体）
+  - [x] 泛型函数调用类型检查
+  - [x] 泛型结构体初始化类型检查
+  - [ ] 约束检查：验证类型参数是否满足约束（待实现）
+  - [ ] 类型推断：自动推断类型参数（待实现）
 
-- [ ] **Codegen**：泛型代码生成
-  - [ ] 单态化代码生成：为每个具体类型实例生成独立的 C 函数/结构体
-  - [ ] 泛型函数代码生成：`fn max<T: Ord>(a: T, b: T) T` → `uya_max_i32`、`uya_max_f64` 等
-  - [ ] 泛型结构体代码生成：`struct Vec<T>` → `uya_Vec_i32`、`uya_Vec_f64` 等
-  - [ ] 约束检查代码生成：确保类型满足约束（编译期检查）
-  - [ ] 泛型类型参数替换：在生成代码时替换类型参数为具体类型
+- [x] **Codegen**：泛型代码生成（单态化）
+  - [x] 泛型函数单态化：`identity<i32>` → `identity_i32`
+  - [x] 泛型结构体单态化：`Pair<i32, i64>` → `struct Pair_i32_i64`
+  - [x] 泛型函数调用代码生成（使用单态化名称）
+  - [x] 泛型结构体初始化代码生成（使用单态化名称）
+  - [x] 类型参数替换（在生成代码时替换为具体类型）
 
-- [ ] **标准约束接口**：定义常用约束
-  - [ ] `Ord` 接口：定义比较运算符（`<`, `>`, `<=`, `>=`）
+- [ ] **标准约束接口**：定义常用约束（待实现）
+  - [ ] `Ord` 接口：定义比较运算符
   - [ ] `Clone` 接口：定义 `clone()` 方法
   - [ ] `Default` 接口：定义默认值创建
-  - [ ] 为内置类型实现这些约束（整数、浮点、枚举等）
 
-- [ ] **测试用例**：
-  - [ ] `test_generic_fn.uya` - 基本泛型函数
-  - [ ] `test_generic_struct.uya` - 基本泛型结构体
-  - [ ] `test_generic_interface.uya` - 基本泛型接口
-  - [ ] `test_generic_constraints.uya` - 约束语法
-  - [ ] `test_generic_multiple_params.uya` - 多类型参数
-  - [ ] `test_generic_monomorphization.uya` - 单态化验证
-  - [ ] `error_generic_constraint_fail.uya` - 约束不满足错误
-  - [ ] `error_generic_ambiguous.uya` - 类型推断歧义错误
+- [x] **测试用例**（基础）：
+  - [x] `test_generic_fn.uya` - 基本泛型函数
+  - [x] `test_generic_struct.uya` - 基本泛型结构体
+  - [x] `test_generic_minimal.uya` - 最小泛型测试
+  - [x] `test_generic_simple.uya` - 简单泛型测试
+  - [ ] `test_generic_interface.uya` - 泛型接口（待实现）
+  - [ ] `test_generic_constraints.uya` - 约束语法（待实现）
+
+**已知限制**：
+- 嵌套泛型（如 `Box<Pair<i32, i32>>`）：`>>` 被解析为右移运算符
+- 泛型结构体字段访问的类型推断：字段类型中的类型参数不会被替换
+- 泛型接口方法的支持不完善
+- 类型推断（自动推断类型参数）尚未实现
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen（单态化），uya-src。
 

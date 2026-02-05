@@ -3306,9 +3306,10 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     if (after_id != NULL) {
                         TokenType t2 = after_id->type;
                         // 如果标识符后面是这些 token，则 '<' 是比较运算符
+                        // 注意：TOKEN_GREATER 和 TOKEN_COMMA 表示泛型参数的结束或分隔，不应该被视为比较运算符
                         if (t2 == TOKEN_PLUS || t2 == TOKEN_MINUS || t2 == TOKEN_ASTERISK ||
                             t2 == TOKEN_SLASH || t2 == TOKEN_PERCENT ||
-                            t2 == TOKEN_LESS || t2 == TOKEN_GREATER ||
+                            t2 == TOKEN_LESS ||
                             t2 == TOKEN_LESS_EQUAL || t2 == TOKEN_GREATER_EQUAL ||
                             t2 == TOKEN_EQUAL || t2 == TOKEN_NOT_EQUAL ||
                             t2 == TOKEN_LOGICAL_AND || t2 == TOKEN_LOGICAL_OR ||
@@ -3753,6 +3754,8 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             }
             
             struct_init->data.struct_init.struct_name = name;
+            struct_init->data.struct_init.type_args = type_args;
+            struct_init->data.struct_init.type_arg_count = type_arg_count;
             
             // 消费 '{'
             parser_consume(parser);

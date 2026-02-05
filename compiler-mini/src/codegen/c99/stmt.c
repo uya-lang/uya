@@ -337,8 +337,41 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                         fputs(" };\n", codegen->output);
                     }
                 } else if (!is_void && expr) {
+                    // 对于泛型结构体实例化的返回类型，如果表达式是结构体初始化，使用返回类型的 C 类型名称
+                    const char *struct_name_for_init = NULL;
+                    if (expr->type == AST_STRUCT_INIT && 
+                        return_type && return_type->type == AST_TYPE_NAMED && 
+                        return_type->data.type_named.type_arg_count > 0) {
+                        // 泛型结构体实例化：使用返回类型的 C 类型名称
+                        const char *type_c_for_init = c99_type_to_c(codegen, return_type);
+                        if (type_c_for_init) {
+                            // 移除 "struct " 前缀（如果有）
+                            if (strncmp(type_c_for_init, "struct ", 7) == 0) {
+                                struct_name_for_init = type_c_for_init + 7;
+                            } else {
+                                struct_name_for_init = type_c_for_init;
+                            }
+                        }
+                    }
+                    
                     c99_emit(codegen, "%s _uya_ret = ", ret_c);
-                    gen_expr(codegen, expr);
+                    if (struct_name_for_init && expr->type == AST_STRUCT_INIT) {
+                        // 直接生成结构体初始化代码，使用返回类型的 C 类型名称
+                        int field_count = expr->data.struct_init.field_count;
+                        const char **field_names = expr->data.struct_init.field_names;
+                        ASTNode **field_values = expr->data.struct_init.field_values;
+                        
+                        fprintf(codegen->output, "(struct %s){", struct_name_for_init);
+                        for (int i = 0; i < field_count; i++) {
+                            const char *safe_field_name = get_safe_c_identifier(codegen, field_names[i]);
+                            fprintf(codegen->output, ".%s = ", safe_field_name);
+                            gen_expr(codegen, field_values[i]);
+                            if (i < field_count - 1) fputs(", ", codegen->output);
+                        }
+                        fputc('}', codegen->output);
+                    } else {
+                        gen_expr(codegen, expr);
+                    }
                     fputs(";\n", codegen->output);
                 } else if (!is_void) {
                     c99_emit(codegen, "%s _uya_ret = 0;\n", ret_c);
@@ -812,13 +845,31 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                     fputs(" = ", codegen->output);
                     
                     // 生成复合字面量，但数组字段使用空初始化
-                    const char *struct_name = get_safe_c_identifier(codegen, init_expr->data.struct_init.struct_name);
-                    ASTNode *struct_decl = find_struct_decl_c99(codegen, struct_name);
+                    // 对于泛型结构体实例化，使用变量类型的 C 类型名称
+                    const char *struct_name_for_init = NULL;
+                    if (var_type && var_type->type == AST_TYPE_NAMED && 
+                        var_type->data.type_named.type_arg_count > 0) {
+                        // 泛型结构体实例化：使用变量类型的 C 类型名称
+                        const char *type_c_for_init = c99_type_to_c(codegen, var_type);
+                        if (type_c_for_init) {
+                            // 移除 "struct " 前缀（如果有）
+                            if (strncmp(type_c_for_init, "struct ", 7) == 0) {
+                                struct_name_for_init = type_c_for_init + 7;
+                            } else {
+                                struct_name_for_init = type_c_for_init;
+                            }
+                        }
+                    }
+                    if (!struct_name_for_init) {
+                        struct_name_for_init = get_safe_c_identifier(codegen, init_expr->data.struct_init.struct_name);
+                    }
+                    
+                    ASTNode *struct_decl = find_struct_decl_c99(codegen, init_expr->data.struct_init.struct_name);
                     int field_count = init_expr->data.struct_init.field_count;
                     const char **field_names = init_expr->data.struct_init.field_names;
                     ASTNode **field_values = init_expr->data.struct_init.field_values;
                     
-                    fprintf(codegen->output, "(struct %s){", struct_name);
+                    fprintf(codegen->output, "(struct %s){", struct_name_for_init);
                     for (int i = 0; i < field_count; i++) {
                         const char *safe_field_name = get_safe_c_identifier(codegen, field_names[i]);
                         ASTNode *field_type = find_struct_field_type(codegen, struct_decl, field_names[i]);
@@ -873,7 +924,42 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                 } else if (!is_params_init) {
                     // 普通初始化（@params 已在上方单独处理）
                     fputs(" = ", codegen->output);
-                    gen_expr(codegen, init_expr);
+                    
+                    // 对于泛型结构体实例化的结构体初始化，使用变量类型的 C 类型名称
+                    if (init_expr->type == AST_STRUCT_INIT && 
+                        var_type && var_type->type == AST_TYPE_NAMED && 
+                        var_type->data.type_named.type_arg_count > 0) {
+                        // 泛型结构体实例化：直接生成结构体初始化代码，使用变量类型的 C 类型名称
+                        const char *type_c_for_init = c99_type_to_c(codegen, var_type);
+                        const char *struct_name_for_init = NULL;
+                        if (type_c_for_init) {
+                            // 移除 "struct " 前缀（如果有）
+                            if (strncmp(type_c_for_init, "struct ", 7) == 0) {
+                                struct_name_for_init = type_c_for_init + 7;
+                            } else {
+                                struct_name_for_init = type_c_for_init;
+                            }
+                        }
+                        if (struct_name_for_init) {
+                            int field_count = init_expr->data.struct_init.field_count;
+                            const char **field_names = init_expr->data.struct_init.field_names;
+                            ASTNode **field_values = init_expr->data.struct_init.field_values;
+                            
+                            fprintf(codegen->output, "(struct %s){", struct_name_for_init);
+                            for (int i = 0; i < field_count; i++) {
+                                const char *safe_field_name = get_safe_c_identifier(codegen, field_names[i]);
+                                fprintf(codegen->output, ".%s = ", safe_field_name);
+                                gen_expr(codegen, field_values[i]);
+                                if (i < field_count - 1) fputs(", ", codegen->output);
+                            }
+                            fputc('}', codegen->output);
+                        } else {
+                            // 回退到普通处理
+                            gen_expr(codegen, init_expr);
+                        }
+                    } else {
+                        gen_expr(codegen, init_expr);
+                    }
                     fputs(";\n", codegen->output);
                 }
             } else {

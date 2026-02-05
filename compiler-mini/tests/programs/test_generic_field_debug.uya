@@ -1,0 +1,18 @@
+// 简化的泛型结构体字段测试
+
+struct Box<T> {
+    data: T
+}
+
+fn main() i32 {
+    const b: Box<i32> = Box<i32>{ data: 42 };
+    
+    // 只测试字段访问
+    const x: i32 = b.data;
+    
+    if x != 42 {
+        return 1;
+    }
+    
+    return 0;
+}

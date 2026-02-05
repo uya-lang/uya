@@ -54,10 +54,68 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
         return "void";
     }
     
+    // 在单态化上下文中，先进行类型参数替换
+    if (codegen->current_type_params && codegen->current_type_param_count > 0 &&
+        type_node->type == AST_TYPE_NAMED && type_node->data.type_named.name) {
+        const char *name = type_node->data.type_named.name;
+        // 检查是否是类型参数
+        for (int i = 0; i < codegen->current_type_param_count; i++) {
+            if (codegen->current_type_params[i].name &&
+                strcmp(codegen->current_type_params[i].name, name) == 0) {
+                // 找到匹配的类型参数，使用对应的类型实参
+                if (codegen->current_type_args && i < codegen->current_type_arg_count) {
+                    return c99_type_to_c(codegen, codegen->current_type_args[i]);
+                }
+            }
+        }
+    }
+    
+    // 处理复合类型中的类型参数替换（指针、数组、切片等）
+    if (codegen->current_type_params && codegen->current_type_param_count > 0) {
+        // 指针类型：递归处理内部类型
+        if (type_node->type == AST_TYPE_POINTER && type_node->data.type_pointer.pointed_type) {
+            ASTNode *inner = type_node->data.type_pointer.pointed_type;
+            // 检查内部类型是否是类型参数
+            if (inner->type == AST_TYPE_NAMED && inner->data.type_named.name) {
+                for (int i = 0; i < codegen->current_type_param_count; i++) {
+                    if (codegen->current_type_params[i].name &&
+                        strcmp(codegen->current_type_params[i].name, inner->data.type_named.name) == 0) {
+                        if (codegen->current_type_args && i < codegen->current_type_arg_count) {
+                            // 获取替换后的内部类型
+                            const char *inner_c = c99_type_to_c(codegen, codegen->current_type_args[i]);
+                            size_t len = strlen(inner_c) + 4;  // " * " + '\0'
+                            char *buf = arena_alloc(codegen->arena, len);
+                            if (buf) {
+                                snprintf(buf, len, "%s *", inner_c);
+                                return buf;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
     switch (type_node->type) {
         case AST_TYPE_NAMED: {
             const char *name = type_node->data.type_named.name;
             if (!name) {
+                return "void";
+            }
+            
+            // 检查是否有类型实参（泛型结构体实例化）
+            if (type_node->data.type_named.type_arg_count > 0 && 
+                type_node->data.type_named.type_args != NULL) {
+                // 使用单态化结构体名称
+                const char *mono_name = get_mono_struct_name(codegen, name,
+                    type_node->data.type_named.type_args,
+                    type_node->data.type_named.type_arg_count);
+                size_t len = strlen(mono_name) + 8;  // "struct " + name + '\0'
+                char *buf = arena_alloc(codegen->arena, len);
+                if (buf) {
+                    snprintf(buf, len, "struct %s", mono_name);
+                    return buf;
+                }
                 return "void";
             }
             
@@ -91,7 +149,54 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
             } else if (strcmp(name, "void") == 0) {
                 return "void";
             } else {
-                // 结构体或枚举类型
+                // 检查是否有泛型类型参数（如 Vec<i32>）
+                if (type_node->data.type_named.type_arg_count > 0) {
+                    // 生成泛型实例化的名称（如 uya_Vec_i32）
+                    const char *safe_name = get_safe_c_identifier(codegen, name);
+                    size_t total_len = strlen(safe_name) + 1;  // 基础名称 + "_"
+                    
+                    // 计算所有类型参数名称的总长度
+                    for (int i = 0; i < type_node->data.type_named.type_arg_count; i++) {
+                        ASTNode *type_arg = type_node->data.type_named.type_args[i];
+                        if (type_arg != NULL) {
+                            const char *type_arg_c = c99_type_to_c(codegen, type_arg);
+                            total_len += strlen(type_arg_c) + 1;  // 类型名 + "_"
+                        }
+                    }
+                    
+                    // 分配缓冲区并构建名称
+                    char *buf = arena_alloc(codegen->arena, total_len + 1);
+                    if (buf) {
+                        strcpy(buf, "uya_");
+                        strcat(buf, safe_name);
+                        for (int i = 0; i < type_node->data.type_named.type_arg_count; i++) {
+                            ASTNode *type_arg = type_node->data.type_named.type_args[i];
+                            if (type_arg != NULL) {
+                                const char *type_arg_c = c99_type_to_c(codegen, type_arg);
+                                strcat(buf, "_");
+                                // 移除 "struct " 前缀（如果有）以简化名称
+                                if (strncmp(type_arg_c, "struct ", 7) == 0) {
+                                    strcat(buf, type_arg_c + 7);
+                                } else {
+                                    strcat(buf, type_arg_c);
+                                }
+                            }
+                        }
+                        
+                        // 检查是否是结构体
+                        if (is_struct_in_table(codegen, safe_name)) {
+                            size_t struct_len = strlen(buf) + 8;
+                            char *struct_buf = arena_alloc(codegen->arena, struct_len);
+                            if (struct_buf) {
+                                snprintf(struct_buf, struct_len, "struct %s", buf);
+                                return struct_buf;
+                            }
+                        }
+                        return buf;
+                    }
+                }
+                
+                // 结构体或枚举类型（非泛型）
                 const char *safe_name = get_safe_c_identifier(codegen, name);
                 
                 // 显式检查是否是结构体（检查是否在表中，不管是否已定义）

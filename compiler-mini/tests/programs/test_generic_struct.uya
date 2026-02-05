@@ -1,0 +1,25 @@
+// 测试泛型结构体 - 基本语法和单态化
+
+// 1. 基本泛型结构体：键值对
+struct Pair<K, V> {
+    key: K,
+    value: V
+}
+
+// 2. 泛型结构体
+struct Box<T> {
+    data: T,
+}
+
+fn main() i32 {
+    // 测试 Pair<i32, i32> 初始化
+    const p1: Pair<i32, i32> = Pair<i32, i32>{ key: 1, value: 100 };
+    
+    // 测试 Pair<i32, f64> 初始化
+    const p2: Pair<i32, f64> = Pair<i32, f64>{ key: 2, value: 3.14 };
+    
+    // 测试 Box<i32> 初始化
+    const box_i32: Box<i32> = Box<i32>{ data: 42 };
+    
+    return 0;
+}
