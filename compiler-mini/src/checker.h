@@ -186,6 +186,11 @@ typedef struct TypeChecker {
     int moved_count;
     // 项目根目录路径（包含 main 函数的文件所在目录，用于识别 main 模块）
     const char *project_root_dir;  // 存储在 Arena 中
+    // 泛型类型参数作用域栈（用于管理类型参数的作用域）
+    // 每个元素是一个类型参数名称数组，从 Arena 分配
+    const char **type_param_scopes[16];  // 最多支持 16 层嵌套作用域
+    int type_param_scope_counts[16];     // 每层作用域的类型参数数量
+    int type_param_scope_depth;          // 当前作用域深度（0 表示无类型参数作用域）
 } TypeChecker;
 
 // 初始化 TypeChecker

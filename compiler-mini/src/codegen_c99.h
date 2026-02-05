@@ -19,6 +19,7 @@
 #define C99_MAX_DEFERS_PER_BLOCK    64
 #define C99_MAX_DROP_VARS_PER_BLOCK 64
 #define C99_MAX_SLICE_STRUCTS       32
+#define C99_MAX_GENERIC_INSTANCES   128
 
 // C99 代码生成器结构体
 typedef struct C99CodeGenerator {
@@ -118,6 +119,24 @@ typedef struct C99CodeGenerator {
     const char *slice_struct_names[C99_MAX_SLICE_STRUCTS];
     ASTNode *slice_struct_element_types[C99_MAX_SLICE_STRUCTS];
     int slice_struct_count;
+    
+    // 泛型函数实例化（用于单态化）
+    struct GenericInstance {
+        ASTNode *generic_fn_decl;      // 泛型函数声明（原始声明）
+        ASTNode **type_args;           // 类型参数数组（从 Arena 分配）
+        int type_arg_count;             // 类型参数数量
+        const char *instance_name;     // 实例化的函数名（如 "uya_max_i32"）
+    } generic_instances[C99_MAX_GENERIC_INSTANCES];
+    int generic_instance_count;
+    
+    // 泛型结构体实例化（用于单态化）
+    struct GenericStructInstance {
+        ASTNode *generic_struct_decl;   // 泛型结构体声明（原始声明）
+        ASTNode **type_args;            // 类型参数数组（从 Arena 分配）
+        int type_arg_count;              // 类型参数数量
+        const char *instance_name;      // 实例化的结构体名（如 "uya_Vec_i32"）
+    } generic_struct_instances[C99_MAX_GENERIC_INSTANCES];
+    int generic_struct_instance_count;
 } C99CodeGenerator;
 
 // 创建 C99 代码生成器

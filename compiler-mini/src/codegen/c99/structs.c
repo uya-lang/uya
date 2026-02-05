@@ -453,3 +453,373 @@ void emit_vtable_constants(C99CodeGenerator *codegen) {
         }
     }
 }
+
+/* 收集泛型结构体实例化（用于单态化） */
+void collect_generic_struct_instance(C99CodeGenerator *codegen, ASTNode *type_node) {
+    if (!codegen || !type_node || type_node->type != AST_TYPE_NAMED) {
+        return;
+    }
+    
+    // 检查是否有类型参数（如 Vec<i32>）
+    if (type_node->data.type_named.type_arg_count == 0) {
+        return;  // 不是泛型类型
+    }
+    
+    const char *struct_name = type_node->data.type_named.name;
+    if (!struct_name) {
+        return;
+    }
+    
+    // 检查类型参数是否都是具体类型（不是类型参数本身）
+    // 如果类型参数是类型参数（如 T），则不应该收集
+    for (int i = 0; i < type_node->data.type_named.type_arg_count; i++) {
+        ASTNode *type_arg = type_node->data.type_named.type_args[i];
+        if (!type_arg) {
+            return;  // 类型参数为空，跳过
+        }
+        // 如果类型参数是命名类型且没有类型参数，检查是否是基础类型或结构体
+        if (type_arg->type == AST_TYPE_NAMED && type_arg->data.type_named.type_arg_count == 0) {
+            const char *type_arg_name = type_arg->data.type_named.name;
+            if (!type_arg_name) {
+                return;  // 类型参数名称为空，跳过
+            }
+            // 检查是否是基础类型
+            int is_basic_type = (strcmp(type_arg_name, "i8") == 0 || strcmp(type_arg_name, "i16") == 0 ||
+                                 strcmp(type_arg_name, "i32") == 0 || strcmp(type_arg_name, "i64") == 0 ||
+                                 strcmp(type_arg_name, "u8") == 0 || strcmp(type_arg_name, "u16") == 0 ||
+                                 strcmp(type_arg_name, "u32") == 0 || strcmp(type_arg_name, "u64") == 0 ||
+                                 strcmp(type_arg_name, "usize") == 0 || strcmp(type_arg_name, "bool") == 0 ||
+                                 strcmp(type_arg_name, "byte") == 0 || strcmp(type_arg_name, "f32") == 0 ||
+                                 strcmp(type_arg_name, "f64") == 0 || strcmp(type_arg_name, "void") == 0);
+            if (!is_basic_type) {
+                // 检查是否是结构体声明（不是类型参数）
+                ASTNode *arg_struct_decl = find_struct_decl_c99(codegen, type_arg_name);
+                if (!arg_struct_decl) {
+                    // 不是结构体声明，可能是类型参数，跳过这个实例化
+                    return;
+                }
+            }
+        }
+    }
+    
+    // 查找泛型结构体声明
+    ASTNode *generic_struct_decl = find_struct_decl_c99(codegen, struct_name);
+    if (!generic_struct_decl || generic_struct_decl->type != AST_STRUCT_DECL) {
+        return;  // 找不到结构体声明或不是结构体声明
+    }
+    
+    if (generic_struct_decl->data.struct_decl.type_param_count == 0) {
+        return;  // 不是泛型结构体
+    }
+    
+    // 生成实例化名称（如 uya_Vec_i32）
+    const char *instance_name = c99_type_to_c(codegen, type_node);
+    if (!instance_name) {
+        return;
+    }
+    
+    // 移除 "struct " 前缀（如果有）
+    const char *name_without_struct = instance_name;
+    if (strncmp(instance_name, "struct ", 7) == 0) {
+        name_without_struct = instance_name + 7;
+    }
+    
+    // 检查是否已经收集过这个实例化（避免重复）
+    for (int i = 0; i < codegen->generic_struct_instance_count; i++) {
+        if (codegen->generic_struct_instances[i].instance_name && 
+            strcmp(codegen->generic_struct_instances[i].instance_name, name_without_struct) == 0) {
+            return;  // 已经收集过
+        }
+    }
+    
+    if (codegen->generic_struct_instance_count >= C99_MAX_GENERIC_INSTANCES) {
+        return;  // 实例化数量已达上限
+    }
+    
+    // 复制类型参数数组
+    ASTNode **type_args = type_node->data.type_named.type_args;
+    int type_arg_count = type_node->data.type_named.type_arg_count;
+    
+    ASTNode **type_args_copy = arena_alloc(codegen->arena, sizeof(ASTNode *) * type_arg_count);
+    if (!type_args_copy) return;
+    for (int i = 0; i < type_arg_count; i++) {
+        type_args_copy[i] = type_args[i];
+    }
+    
+    // 复制实例化名称
+    const char *instance_name_copy = arena_strdup(codegen->arena, name_without_struct);
+    if (!instance_name_copy) return;
+    
+    // 添加到实例化列表
+    struct GenericStructInstance *inst = &codegen->generic_struct_instances[codegen->generic_struct_instance_count];
+    inst->generic_struct_decl = generic_struct_decl;
+    inst->type_args = type_args_copy;
+    inst->type_arg_count = type_arg_count;
+    inst->instance_name = instance_name_copy;
+    codegen->generic_struct_instance_count++;
+}
+
+/* 从 AST 节点递归收集所有泛型结构体实例化 */
+void collect_generic_struct_instances_from_node(C99CodeGenerator *codegen, ASTNode *node) {
+    if (!codegen || !node) return;
+    
+    // 处理类型节点（变量声明、函数参数、函数返回类型等）
+    switch (node->type) {
+        case AST_TYPE_NAMED:
+            // 检查是否是泛型结构体类型（如 Vec<i32>）
+            collect_generic_struct_instance(codegen, node);
+            // 递归处理类型参数
+            if (node->data.type_named.type_args) {
+                for (int i = 0; i < node->data.type_named.type_arg_count; i++) {
+                    if (node->data.type_named.type_args[i]) {
+                        collect_generic_struct_instances_from_node(codegen, node->data.type_named.type_args[i]);
+                    }
+                }
+            }
+            break;
+        case AST_TYPE_POINTER:
+            if (node->data.type_pointer.pointed_type) {
+                collect_generic_struct_instances_from_node(codegen, node->data.type_pointer.pointed_type);
+            }
+            break;
+        case AST_TYPE_ARRAY:
+            if (node->data.type_array.element_type) {
+                collect_generic_struct_instances_from_node(codegen, node->data.type_array.element_type);
+            }
+            break;
+        case AST_TYPE_SLICE:
+            if (node->data.type_slice.element_type) {
+                collect_generic_struct_instances_from_node(codegen, node->data.type_slice.element_type);
+            }
+            break;
+        case AST_VAR_DECL:
+            if (node->data.var_decl.type) {
+                collect_generic_struct_instances_from_node(codegen, node->data.var_decl.type);
+            }
+            if (node->data.var_decl.init) {
+                collect_generic_struct_instances_from_node(codegen, node->data.var_decl.init);
+            }
+            break;
+        case AST_FN_DECL:
+            if (node->data.fn_decl.return_type) {
+                collect_generic_struct_instances_from_node(codegen, node->data.fn_decl.return_type);
+            }
+            if (node->data.fn_decl.params) {
+                for (int i = 0; i < node->data.fn_decl.param_count; i++) {
+                    if (node->data.fn_decl.params[i]) {
+                        collect_generic_struct_instances_from_node(codegen, node->data.fn_decl.params[i]);
+                    }
+                }
+            }
+            if (node->data.fn_decl.body) {
+                collect_generic_struct_instances_from_node(codegen, node->data.fn_decl.body);
+            }
+            break;
+        case AST_STRUCT_DECL:
+            // 处理结构体字段类型
+            if (node->data.struct_decl.fields) {
+                for (int i = 0; i < node->data.struct_decl.field_count; i++) {
+                    if (node->data.struct_decl.fields[i]) {
+                        collect_generic_struct_instances_from_node(codegen, node->data.struct_decl.fields[i]);
+                    }
+                }
+            }
+            // 处理结构体方法
+            if (node->data.struct_decl.methods) {
+                for (int i = 0; i < node->data.struct_decl.method_count; i++) {
+                    if (node->data.struct_decl.methods[i]) {
+                        collect_generic_struct_instances_from_node(codegen, node->data.struct_decl.methods[i]);
+                    }
+                }
+            }
+            break;
+        case AST_BLOCK:
+            if (node->data.block.stmts) {
+                for (int i = 0; i < node->data.block.stmt_count; i++) {
+                    if (node->data.block.stmts[i]) {
+                        collect_generic_struct_instances_from_node(codegen, node->data.block.stmts[i]);
+                    }
+                }
+            }
+            break;
+        case AST_IF_STMT:
+            if (node->data.if_stmt.condition) {
+                collect_generic_struct_instances_from_node(codegen, node->data.if_stmt.condition);
+            }
+            if (node->data.if_stmt.then_branch) {
+                collect_generic_struct_instances_from_node(codegen, node->data.if_stmt.then_branch);
+            }
+            if (node->data.if_stmt.else_branch) {
+                collect_generic_struct_instances_from_node(codegen, node->data.if_stmt.else_branch);
+            }
+            break;
+        case AST_WHILE_STMT:
+            if (node->data.while_stmt.condition) {
+                collect_generic_struct_instances_from_node(codegen, node->data.while_stmt.condition);
+            }
+            if (node->data.while_stmt.body) {
+                collect_generic_struct_instances_from_node(codegen, node->data.while_stmt.body);
+            }
+            break;
+        case AST_FOR_STMT:
+            if (node->data.for_stmt.array) {
+                collect_generic_struct_instances_from_node(codegen, node->data.for_stmt.array);
+            }
+            if (node->data.for_stmt.body) {
+                collect_generic_struct_instances_from_node(codegen, node->data.for_stmt.body);
+            }
+            break;
+        case AST_RETURN_STMT:
+            if (node->data.return_stmt.expr) {
+                collect_generic_struct_instances_from_node(codegen, node->data.return_stmt.expr);
+            }
+            break;
+        case AST_ASSIGN:
+            if (node->data.assign.dest) {
+                collect_generic_struct_instances_from_node(codegen, node->data.assign.dest);
+            }
+            if (node->data.assign.src) {
+                collect_generic_struct_instances_from_node(codegen, node->data.assign.src);
+            }
+            break;
+        case AST_BINARY_EXPR:
+            if (node->data.binary_expr.left) {
+                collect_generic_struct_instances_from_node(codegen, node->data.binary_expr.left);
+            }
+            if (node->data.binary_expr.right) {
+                collect_generic_struct_instances_from_node(codegen, node->data.binary_expr.right);
+            }
+            break;
+        case AST_UNARY_EXPR:
+            if (node->data.unary_expr.operand) {
+                collect_generic_struct_instances_from_node(codegen, node->data.unary_expr.operand);
+            }
+            break;
+        case AST_MEMBER_ACCESS:
+            if (node->data.member_access.object) {
+                collect_generic_struct_instances_from_node(codegen, node->data.member_access.object);
+            }
+            break;
+        case AST_ARRAY_ACCESS:
+            if (node->data.array_access.array) {
+                collect_generic_struct_instances_from_node(codegen, node->data.array_access.array);
+            }
+            if (node->data.array_access.index) {
+                collect_generic_struct_instances_from_node(codegen, node->data.array_access.index);
+            }
+            break;
+        case AST_CALL_EXPR:
+            if (node->data.call_expr.callee) {
+                collect_generic_struct_instances_from_node(codegen, node->data.call_expr.callee);
+            }
+            if (node->data.call_expr.args) {
+                for (int i = 0; i < node->data.call_expr.arg_count; i++) {
+                    if (node->data.call_expr.args[i]) {
+                        collect_generic_struct_instances_from_node(codegen, node->data.call_expr.args[i]);
+                    }
+                }
+            }
+            break;
+        case AST_STRUCT_INIT:
+            if (node->data.struct_init.field_values) {
+                for (int i = 0; i < node->data.struct_init.field_count; i++) {
+                    if (node->data.struct_init.field_values[i]) {
+                        collect_generic_struct_instances_from_node(codegen, node->data.struct_init.field_values[i]);
+                    }
+                }
+            }
+            break;
+        case AST_ARRAY_LITERAL:
+            if (node->data.array_literal.elements) {
+                for (int i = 0; i < node->data.array_literal.element_count; i++) {
+                    if (node->data.array_literal.elements[i]) {
+                        collect_generic_struct_instances_from_node(codegen, node->data.array_literal.elements[i]);
+                    }
+                }
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+/* 生成泛型结构体实例化的结构体定义（单态化） */
+void gen_generic_struct_instance(C99CodeGenerator *codegen, ASTNode *generic_struct_decl, ASTNode **type_args, int type_arg_count, const char *instance_name) {
+    if (!codegen || !generic_struct_decl || generic_struct_decl->type != AST_STRUCT_DECL || !type_args || !instance_name) {
+        return;
+    }
+    
+    TypeParam *type_params = generic_struct_decl->data.struct_decl.type_params;
+    int type_param_count = generic_struct_decl->data.struct_decl.type_param_count;
+    
+    if (type_param_count != type_arg_count) {
+        return;  // 类型参数数量不匹配
+    }
+    
+    // 如果已定义，跳过
+    if (is_struct_defined(codegen, instance_name)) {
+        return;
+    }
+    
+    // 添加结构体定义标记
+    add_struct_definition(codegen, instance_name);
+    
+    // 输出结构体定义
+    c99_emit(codegen, "struct %s {\n", instance_name);
+    codegen->indent_level++;
+    
+    // 生成字段（替换类型参数）
+    int field_count = generic_struct_decl->data.struct_decl.field_count;
+    ASTNode **fields = generic_struct_decl->data.struct_decl.fields;
+    
+    // 如果是空结构体，添加一个占位符字段以确保大小为 1（符合 Uya 规范）
+    if (field_count == 0) {
+        c99_emit(codegen, "char _empty;\n");
+    } else {
+        for (int i = 0; i < field_count; i++) {
+            ASTNode *field = fields[i];
+            if (!field || field->type != AST_VAR_DECL) {
+                continue;
+            }
+            
+            const char *field_name = get_safe_c_identifier(codegen, field->data.var_decl.name);
+            ASTNode *field_type = field->data.var_decl.type;
+            
+            if (!field_name || !field_type) {
+                continue;
+            }
+            
+            // 替换字段类型中的类型参数
+            ASTNode *instance_field_type = replace_type_params_in_type(codegen, field_type, type_params, type_param_count, type_args);
+            
+            // 检查是否为数组类型
+            if (instance_field_type->type == AST_TYPE_ARRAY) {
+                ASTNode *element_type = instance_field_type->data.type_array.element_type;
+                ASTNode *size_expr = instance_field_type->data.type_array.size_expr;
+                const char *elem_type_c = c99_type_to_c(codegen, element_type);
+                
+                // 评估数组大小
+                int array_size = -1;
+                if (size_expr) {
+                    array_size = eval_const_expr(codegen, size_expr);
+                    if (array_size <= 0) {
+                        array_size = 1;  // 占位符
+                    }
+                } else {
+                    array_size = 1;  // 占位符
+                }
+                
+                c99_emit(codegen, "%s %s[%d];\n", elem_type_c, field_name, array_size);
+            } else {
+                const char *field_type_c = c99_type_to_c(codegen, instance_field_type);
+                c99_emit(codegen, "%s %s;\n", field_type_c, field_name);
+            }
+        }
+    }
+    
+    codegen->indent_level--;
+    c99_emit(codegen, "};\n");
+    
+    // 标记为已定义
+    mark_struct_defined(codegen, instance_name);
+}

@@ -1,0 +1,31 @@
+// 测试泛型语法解析（Parser 阶段）
+// 包含实际的泛型语法，验证 Parser 能否正确解析
+
+fn main() i32 {
+    return 0;
+}
+
+// 测试泛型函数声明
+fn max<T: Ord>(a: T, b: T) T {
+    if a > b {
+        return a;
+    }
+    return b;
+}
+
+// 测试泛型结构体声明
+struct Vec<T: Default> {
+    data: *T,
+    len: usize,
+    cap: usize,
+}
+
+// 测试泛型接口声明
+interface Iterator<T> {
+    fn next(self: &Self) !T;
+    fn has_next(self: &Self) bool;
+}
+
+// 测试泛型类型使用（在变量声明中）
+// const v: Vec<i32> = ...;  // 这需要 Checker 和 Codegen 支持
+

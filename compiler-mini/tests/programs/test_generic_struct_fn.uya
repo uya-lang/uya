@@ -1,0 +1,48 @@
+// 测试泛型结构体在函数中的使用
+// 包括作为函数参数、返回值等
+
+// 泛型结构体
+struct Vec<T> {
+    data: *T,
+    len: usize,
+}
+
+// 函数接受泛型结构体参数
+fn get_len<T>(v: Vec<T>) usize {
+    return v.len;
+}
+
+// 函数返回泛型结构体（不使用指针参数，直接创建）
+fn create_vec<T>(len: usize) Vec<T> {
+    return Vec<T>{
+        data: null,
+        len: len,
+    };
+}
+
+fn main() i32 {
+    // 测试：使用 i32 类型参数
+    const v1: Vec<i32> = Vec<i32>{
+        data: null,
+        len: 10,
+    };
+    
+    const len1: usize = get_len<i32>(v1);
+    if len1 != 10 {
+        return 1;
+    }
+    
+    // 测试：使用 f32 类型参数
+    const v2: Vec<f32> = create_vec<f32>(20);
+    if v2.len != 20 {
+        return 2;
+    }
+    
+    const len2: usize = get_len<f32>(v2);
+    if len2 != 20 {
+        return 3;
+    }
+    
+    return 0;
+}
+

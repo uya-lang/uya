@@ -1,0 +1,25 @@
+// 测试泛型约束检查
+// 注意：当前仅测试约束检查的基础框架，完整功能待实现
+
+// 泛型结构体，带 Default 约束
+struct Vec<T: Default> {
+    data: *T,
+    len: usize,
+}
+
+fn main() i32 {
+    // 测试：i32 满足 Default 约束（内置类型）
+    // 使用泛型结构体类型 Vec<i32>
+    const v: Vec<i32> = Vec<i32>{
+        data: null,
+        len: 0,
+    };
+    
+    // 验证结构体已正确实例化
+    if v.len != 0 {
+        return 1;
+    }
+    
+    return 0;
+}
+

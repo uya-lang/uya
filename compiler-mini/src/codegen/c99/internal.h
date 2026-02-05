@@ -66,6 +66,12 @@ ASTNode *find_struct_field_type(C99CodeGenerator *codegen, ASTNode *struct_decl,
 int gen_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl);
 void emit_interface_structs_and_vtables(C99CodeGenerator *codegen);
 void emit_vtable_constants(C99CodeGenerator *codegen);
+/* 收集泛型结构体实例化（用于单态化） */
+void collect_generic_struct_instance(C99CodeGenerator *codegen, ASTNode *type_node);
+/* 从 AST 节点递归收集所有泛型结构体实例化 */
+void collect_generic_struct_instances_from_node(C99CodeGenerator *codegen, ASTNode *node);
+/* 生成泛型结构体实例化的结构体定义（单态化） */
+void gen_generic_struct_instance(C99CodeGenerator *codegen, ASTNode *generic_struct_decl, ASTNode **type_args, int type_arg_count, const char *instance_name);
 
 // 枚举相关（enums.c）
 int is_enum_in_table(C99CodeGenerator *codegen, const char *enum_name);
@@ -91,11 +97,19 @@ int is_stdlib_function(const char *func_name);
 void format_param_type(C99CodeGenerator *codegen, const char *type_c, const char *param_name, FILE *output);
 void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl);
 void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl);
+/* 替换类型节点中的类型参数为具体类型（递归） */
+ASTNode *replace_type_params_in_type(C99CodeGenerator *codegen, ASTNode *type_node, TypeParam *type_params, int type_param_count, ASTNode **type_args);
+/* 生成泛型函数实例化的函数定义（单态化） */
+void gen_generic_function_instance(C99CodeGenerator *codegen, ASTNode *generic_fn_decl, ASTNode **type_args, int type_arg_count, const char *instance_name);
 
 // 表达式生成（expr.c）
 void gen_expr(C99CodeGenerator *codegen, ASTNode *expr);
 /* 将字符串插值填充到指定缓冲区，生成 memcpy/sprintf 等语句；buf_name 为缓冲区变量名 */
 void c99_emit_string_interp_fill(C99CodeGenerator *codegen, ASTNode *expr, const char *buf_name);
+/* 收集泛型函数实例化（用于单态化） */
+void collect_generic_instance(C99CodeGenerator *codegen, ASTNode *call_expr, const char *instance_name);
+/* 从 AST 节点递归收集所有泛型函数实例化 */
+void collect_generic_instances_from_node(C99CodeGenerator *codegen, ASTNode *node);
 
 // 语句生成（stmt.c）
 void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt);

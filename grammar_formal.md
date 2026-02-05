@@ -337,16 +337,17 @@ TEXT           = [^${}]+
 ```
 macro_decl     = 'mc' ID '(' [ param_list ] ')' return_tag '{' statements '}'
 param_list     = param { ',' param }
-param          = ID ':' param_type
-param_type     = 'expr' | 'stmt' | 'type' | 'pattern'
+param          = ID ':' param_type [ '=' default_value ]
+param_type     = 'expr' | 'stmt' | 'type' | 'pattern' | 'ident'
 return_tag     = 'expr' | 'stmt' | 'struct' | 'type'
 macro_call     = ID '(' arg_list ')'
 ```
 
 **说明**：
 - `mc` 关键字用于声明宏
-- 参数类型：`expr`（表达式）、`stmt`（语句）、`type`（类型）、`pattern`（模式）
+- 参数类型：`expr`（表达式）、`stmt`（语句）、`type`（类型）、`pattern`（模式）、`ident`（标识符）
 - 返回标签：`expr`（表达式）、`stmt`（语句）、`struct`（结构体成员）、`type`（类型标识符）
+- 参数默认值：支持为参数指定默认值，语法与函数参数默认值相同
 - 宏调用语法与普通函数调用完全一致
 - 详细说明见 [uya.md](./uya.md#25-宏系统)
 

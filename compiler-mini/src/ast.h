@@ -105,6 +105,14 @@ typedef enum {
 struct ASTNode;  /* 前向声明 */
 struct ASTStringInterpSegment;  /* 前向声明，用于字符串插值段 */
 
+// 类型参数结构（用于泛型）
+// 例如：<T: Ord + Clone> 中的 T 是一个类型参数，Ord 和 Clone 是约束
+typedef struct TypeParam {
+    const char *name;              // 类型参数名称（如 "T"）
+    const char **constraints;      // 约束接口名称数组（如 ["Ord", "Clone"]，从 Arena 分配）
+    int constraint_count;          // 约束数量
+} TypeParam;
+
 // 基础 AST 节点结构
 // 使用 union 存储不同类型节点的数据，使用 Arena 分配器管理内存
 struct ASTNode {
@@ -137,6 +145,8 @@ struct ASTNode {
         // 接口声明（interface I { fn method(self: *Self,...) Ret; ... }）
         struct {
             const char *name;              // 接口名称（字符串存储在 Arena 中）
+            TypeParam *type_params;        // 类型参数数组（泛型参数，如 <T>，从 Arena 分配）
+            int type_param_count;          // 类型参数数量
             struct ASTNode **method_sigs;   // 方法签名数组（AST_FN_DECL 节点，body 为 NULL）
             int method_sig_count;          // 方法签名数量
             int is_export;                 // 1 表示 export interface，0 表示私有
@@ -145,6 +155,8 @@ struct ASTNode {
         // 结构体声明
         struct {
             const char *name;         // 结构体名称（字符串存储在 Arena 中）
+            TypeParam *type_params;    // 类型参数数组（泛型参数，如 <T: Default>，从 Arena 分配）
+            int type_param_count;      // 类型参数数量
             const char **interface_names; // 实现的接口名称数组（可为 NULL，从 Arena 分配）
             int interface_count;      // 实现的接口数量
             struct ASTNode **fields;         // 字段数组（字段是 AST_VAR_DECL 节点）
@@ -176,6 +188,8 @@ struct ASTNode {
         // 函数声明
         struct {
             const char *name;         // 函数名称
+            TypeParam *type_params;    // 类型参数数组（泛型参数，如 <T: Ord>，从 Arena 分配）
+            int type_param_count;      // 类型参数数量
             struct ASTNode **params;         // 参数数组（参数是 AST_VAR_DECL 节点）
             int param_count;          // 参数数量
             struct ASTNode *return_type;     // 返回类型（类型节点）
@@ -246,6 +260,8 @@ struct ASTNode {
             struct ASTNode **args;           // 参数表达式数组
             int arg_count;            // 参数数量
             int has_ellipsis_forward;  // 1 表示末尾为 ... 转发可变参数
+            struct ASTNode **type_args;      // 类型参数数组（泛型函数调用，如 max<i32>，从 Arena 分配）
+            int type_arg_count;       // 类型参数数量
         } call_expr;
         
         // 字段访问（obj.field）
@@ -407,9 +423,11 @@ struct ASTNode {
             int stmt_count;           // 语句数量
         } block;
         
-        // 类型节点（命名类型：i32, bool, void, struct Name）
+        // 类型节点（命名类型：i32, bool, void, struct Name, 或泛型类型 Vec<i32>）
         struct {
             const char *name;         // 类型名称（"i32", "bool", "void", 或结构体名称）
+            struct ASTNode **type_args; // 类型参数数组（泛型类型参数，如 Vec<i32> 中的 [i32]，从 Arena 分配）
+            int type_arg_count;        // 类型参数数量（0 表示非泛型类型）
         } type_named;
         
         // 指针类型节点（&T 或 *T）

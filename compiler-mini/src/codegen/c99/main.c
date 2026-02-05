@@ -369,13 +369,47 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
             fputs("\n", codegen->output);
         }
     }
-    // 第六步 d：生成所有结构体定义（在切片结构体之后，因为结构体可能含切片字段）
+    // 第六步 d1：收集所有泛型结构体实例化（在生成结构体定义之前）
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl) continue;
+        if (decl->type == AST_USE_STMT) continue;
+        
+        // 从变量声明中收集泛型结构体实例化（全局变量可能使用泛型结构体类型）
+        if (decl->type == AST_VAR_DECL) {
+            collect_generic_struct_instances_from_node(codegen, decl);
+        }
+        
+        // 从结构体声明中收集泛型结构体实例化（字段类型可能使用泛型结构体）
+        if (decl->type == AST_STRUCT_DECL) {
+            collect_generic_struct_instances_from_node(codegen, decl);
+        }
+        
+        // 从函数声明中收集泛型结构体实例化（参数类型、返回类型、函数体）
+        if (decl->type == AST_FN_DECL) {
+            collect_generic_struct_instances_from_node(codegen, decl);
+        }
+    }
+    
+    // 第六步 d2：生成所有结构体定义（在切片结构体之后，因为结构体可能含切片字段）
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) continue;
         if (decl->type == AST_USE_STMT) continue;
         if (decl->type == AST_STRUCT_DECL) {
-            gen_struct_definition(codegen, decl);
+            // 跳过泛型结构体声明（非泛型实例化），泛型结构体实例化将在后面生成
+            if (decl->data.struct_decl.type_param_count == 0) {
+                gen_struct_definition(codegen, decl);
+                fputs("\n", codegen->output);
+            }
+        }
+    }
+    
+    // 第六步 e：生成所有泛型结构体实例化的结构体定义（单态化）
+    for (int i = 0; i < codegen->generic_struct_instance_count; i++) {
+        struct GenericStructInstance *inst = &codegen->generic_struct_instances[i];
+        if (inst->generic_struct_decl && inst->type_args && inst->instance_name) {
+            gen_generic_struct_instance(codegen, inst->generic_struct_decl, inst->type_args, inst->type_arg_count, inst->instance_name);
             fputs("\n", codegen->output);
         }
     }
@@ -419,11 +453,11 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     emit_vtable_constants(codegen);
     fputs("\n", codegen->output);
 
-    // 第七步 c：收集所有测试语句
+    // 第七步 c：收集所有测试语句和泛型函数实例化
     ASTNode *tests[MAX_TESTS];
     int test_count = 0;
     
-    // 从程序顶层声明中收集测试语句
+    // 从程序顶层声明中收集测试语句和泛型函数实例化
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) continue;
@@ -438,8 +472,11 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
         }
         
         // 从函数体内收集测试（包括嵌套块中的测试）
+        // 同时收集泛型函数实例化（通过遍历函数体中的表达式）
         if (decl->type == AST_FN_DECL && decl->data.fn_decl.body) {
             collect_tests_from_node(codegen, decl->data.fn_decl.body, tests, &test_count);
+            // 收集泛型函数实例化：遍历函数体中的所有表达式
+            collect_generic_instances_from_node(codegen, decl->data.fn_decl.body);
         }
     }
     
@@ -532,7 +569,57 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
         }
     }
     
-    // 第八步 b：生成所有测试函数和测试运行器
+    // 第八步 b：生成所有泛型函数实例化的前向声明
+    // 调试：检查收集到的实例化数量
+    // fprintf(stderr, "DEBUG: generic_instance_count = %d\n", codegen->generic_instance_count);
+    for (int i = 0; i < codegen->generic_instance_count; i++) {
+        struct GenericInstance *inst = &codegen->generic_instances[i];
+        if (inst->generic_fn_decl && inst->type_args && inst->instance_name) {
+            // 生成前向声明
+            ASTNode *return_type = inst->generic_fn_decl->data.fn_decl.return_type;
+            TypeParam *type_params = inst->generic_fn_decl->data.fn_decl.type_params;
+            int type_param_count = inst->generic_fn_decl->data.fn_decl.type_param_count;
+            
+            // 替换返回类型中的类型参数
+            ASTNode *instance_return_type = replace_type_params_in_type(codegen, return_type, type_params, type_param_count, inst->type_args);
+            const char *return_c = convert_array_return_type(codegen, instance_return_type);
+            
+            fprintf(codegen->output, "%s %s(", return_c, inst->instance_name);
+            
+            // 生成参数列表
+            ASTNode **params = inst->generic_fn_decl->data.fn_decl.params;
+            int param_count = inst->generic_fn_decl->data.fn_decl.param_count;
+            for (int j = 0; j < param_count; j++) {
+                ASTNode *param = params[j];
+                if (!param || param->type != AST_VAR_DECL) continue;
+                
+                ASTNode *param_type = replace_type_params_in_type(codegen, param->data.var_decl.type, type_params, type_param_count, inst->type_args);
+                const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
+                const char *param_type_c = c99_type_to_c(codegen, param_type);
+                
+                format_param_type(codegen, param_type_c, param_name, codegen->output);
+                if (j < param_count - 1) fputs(", ", codegen->output);
+            }
+            
+            if (inst->generic_fn_decl->data.fn_decl.is_varargs) {
+                if (param_count > 0) fputs(", ", codegen->output);
+                fputs("...", codegen->output);
+            }
+            
+            fputs(");\n", codegen->output);
+        }
+    }
+    
+    // 第八步 c：生成所有泛型函数实例化的函数定义（单态化）
+    for (int i = 0; i < codegen->generic_instance_count; i++) {
+        struct GenericInstance *inst = &codegen->generic_instances[i];
+        if (inst->generic_fn_decl && inst->type_args && inst->instance_name) {
+            gen_generic_function_instance(codegen, inst->generic_fn_decl, inst->type_args, inst->type_arg_count, inst->instance_name);
+            fputs("\n", codegen->output);
+        }
+    }
+    
+    // 第八步 c：生成所有测试函数和测试运行器
     if (test_count > 0) {
         for (int i = 0; i < test_count; i++) {
             gen_test_function(codegen, tests[i]);

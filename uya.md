@@ -4534,15 +4534,16 @@ Uya 宏系统是一个**编译时元编程工具**，允许开发者在编译阶
 ```
 macro_decl = 'mc' ID '(' param_list ')' return_tag '{' statements '}'
 param_list = param { ',' param }
-param = ID ':' param_type
-param_type = 'expr' | 'stmt' | 'type' | 'pattern'
+param = ID ':' param_type [ '=' default_value ]
+param_type = 'expr' | 'stmt' | 'type' | 'pattern' | 'ident'
 return_tag = 'expr' | 'stmt' | 'struct' | 'type'
 ```
 
 **说明**：
 - `mc` 关键字用于声明宏
-- 参数类型：`expr`（表达式）、`stmt`（语句）、`type`（类型）、`pattern`（模式）
+- 参数类型：`expr`（表达式）、`stmt`（语句）、`type`（类型）、`pattern`（模式）、`ident`（标识符）
 - 返回标签：`expr`（表达式）、`stmt`（语句）、`struct`（结构体成员）、`type`（类型标识符）
+- 参数默认值：支持为参数指定默认值，语法与函数参数默认值相同
 
 ### 25.3 宏调用语法
 
@@ -4579,7 +4580,7 @@ mc buffer_size(n) expr {
 ```uya
 struct TypeInfo {
     // 基础信息
-    name: string
+    name: *byte
     kind: TypeKind
     size: usize
     align: usize
@@ -4611,15 +4612,15 @@ struct TypeInfo {
     is_opaque: bool
     
     // 扩展元数据
-    fields: [FieldInfo]
-    variants: [VariantInfo]
+    fields: &[FieldInfo]
+    variants: &[VariantInfo]
     underlying_type: TypeInfo
     element_type: TypeInfo
     array_length: usize
-    param_types: [TypeInfo]
+    param_types: &[TypeInfo]
     return_type: TypeInfo
-    constraint: string
-    method_sigs: [MethodSignature]
+    constraint: *byte
+    method_sigs: &[MethodSignature]
 }
 ```
 
@@ -4652,22 +4653,22 @@ enum TypeKind {
 **关联数据结构**：
 ```uya
 struct FieldInfo {
-    name: string
+    name: *byte
     type: TypeInfo
     offset: usize
     index: usize
 }
 
 struct VariantInfo {
-    name: string
+    name: *byte
     discriminant: i64
     has_payload: bool
     payload_type: TypeInfo
 }
 
 struct MethodSignature {
-    name: string
-    param_types: [TypeInfo]
+    name: *byte
+    param_types: &[TypeInfo]
     return_type: TypeInfo
     is_mut: bool
 }
@@ -4725,7 +4726,7 @@ mc debug_mode() expr {
     }
 }
 
-// 配置宏
+// 配置宏（简化版本，仅支持布尔和字符串）
 mc config_value(key: expr, default: expr) expr {
     const key_str = @mc_eval(key)
     const env_value = @mc_get_env(key_str)
@@ -4734,15 +4735,12 @@ mc config_value(key: expr, default: expr) expr {
         // 根据默认值类型解析环境变量
         const default_type = @mc_type(default)
         match default_type.kind {
-            .Integer => {
-                const int_val = @mc_parse_int(env_value)
-                @mc_code(@mc_ast( ${@mc_ast(int_val)} ))
-            }
             .Bool => {
                 const bool_val = env_value == "true" or env_value == "1"
                 @mc_code(@mc_ast( ${@mc_ast(bool_val)} ))
             }
             else => {
+                // 字符串类型直接使用环境变量值
                 @mc_code(@mc_ast( "${env_value}" ))
             }
         }
@@ -4754,7 +4752,6 @@ mc config_value(key: expr, default: expr) expr {
 // 使用
 const IS_DEBUG: bool = debug_mode()
 const API_URL: *byte = config_value("API_URL", "https://api.example.com")
-const TIMEOUT_MS: i32 = config_value("TIMEOUT_MS", 5000)
 ```
 
 ### 25.5 返回值类型语义
@@ -4820,10 +4817,10 @@ Uya 编译器自动对宏调用结果进行缓存，遵循以下规则：
 ```uya
 // 使用 @mc_no_cache 标记不缓存的宏
 @[no_cache]
-mc dynamic_date() expr {
-    // 每次展开都重新计算
-    const current_date = @mc_eval_system("date +%Y%m%d")
-    @mc_code(@mc_ast( ${@mc_ast(current_date)} ))
+mc always_fresh() expr {
+    // 每次展开都重新计算（示例：基于时间戳的版本号）
+    const timestamp = @mc_get_env("BUILD_TIMESTAMP")
+    @mc_code(@mc_ast( "${timestamp}" ))
 }
 
 // 使用 @mc_cache_key 自定义缓存键
@@ -4965,27 +4962,29 @@ mc vector_type(T: type, name: ident) type {
             }
             
             fn push(self: &mut Self, value: ${T}) void {
-                // 自动生成增长逻辑
+                // 自动生成增长逻辑（示例伪代码，实际需要标准库支持）
+                // 注意：此示例假设存在标准库的内存分配函数
                 if self.len >= self.cap {
                     const new_cap = if self.cap == 0 { 4 } else { self.cap * 2 }
-                    const new_data = @alloc(${T}, new_cap)
-                    if self.data != null {
-                        @memcpy(new_data, self.data, self.len * @size_of(${T}))
-                        @free(self.data)
-                    }
-                    self.data = new_data
+                    // 实际实现需要使用标准库的内存分配函数
+                    // const new_data = std.alloc.alloc(${T}, new_cap)
+                    // if self.data != null {
+                    //     std.mem.copy(new_data, self.data, self.len * @size_of(${T}))
+                    //     std.alloc.free(self.data)
+                    // }
+                    // self.data = new_data
                     self.cap = new_cap
                 }
                 self.data[self.len] = value
                 self.len += 1
             }
             
-            fn pop(self: &mut Self) union Option<${T}> {
+            fn pop(self: &mut Self) !${T} {
                 if self.len == 0 {
-                    return .None
+                    return error.EmptyVector
                 }
                 self.len -= 1
-                return .Some(self.data[self.len])
+                return self.data[self.len]
             }
             
             fn drop(self: Self) void {
@@ -4996,7 +4995,8 @@ mc vector_type(T: type, name: ident) type {
                             self.data[i].drop()
                         }
                     }
-                    @free(self.data)
+                    // 实际实现需要使用标准库的内存释放函数
+                    // std.alloc.free(self.data)
                 }
             }
         }
@@ -5018,41 +5018,26 @@ const vec2: IntVec = IntVec.new()  // 复用缓存的 IntVec 类型定义
 mc lookup_table(name: ident, size: expr, generator: expr) struct {
     const table_size = @mc_eval(size)
     
-    // 生成静态查找表
+    // 生成静态查找表（示例：平方表）
+    // 注意：generator 参数必须是编译时可求值的表达式
     const table_ast = @mc_ast(
         const ${name}: [i32: ${table_size}] = [
             ${@mc_ast(generator(0))},
             ${@mc_ast(generator(1))},
             ${@mc_ast(generator(2))},
-            // ... 更多元素
+            // ... 更多元素（需要手动展开或使用循环生成）
         ]
     )
     
     @mc_code(table_ast)
 }
 
-// 辅助宏：生成特定函数的查找表
-mc sin_table(name: ident, size: expr) struct {
-    const n = @mc_eval(size)
-    
-    // 生成sin函数查找表
-    @mc_code(@mc_ast(
-        const ${name}: [f32: ${n}] = [
-            ${@mc_ast(@mc_sin(0.0))},
-            ${@mc_ast(@mc_sin(0.1))},
-            // ... 更多值
-        ]
-    ))
-}
-
 // 使用示例
 lookup_table(SQUARES, 10, |i| i * i)  // 生成平方表
-sin_table(SIN_VALUES, 100)            // 生成sin值表
 
 // 在代码中多次使用相同表 - 会复用缓存的展开结果
 fn use_table() void {
     const x = SQUARES[5]  // 25
-    const y = SIN_VALUES[42]
 }
 ```
 
@@ -5100,7 +5085,7 @@ fn parse_config() !Config {
 #### 25.10.6 编译时配置系统（使用 @mc_get_env）
 
 ```uya
-// 编译时配置读取宏
+// 编译时配置读取宏（简化版本）
 mc config_value(key: expr, default: expr) expr {
     const key_str = @mc_eval(key)
     
@@ -5112,15 +5097,12 @@ mc config_value(key: expr, default: expr) expr {
         const default_type = @mc_type(default)
         
         match default_type.kind {
-            .Integer => {
-                const int_val = @mc_parse_int(env_value)
-                @mc_code(@mc_ast( ${@mc_ast(int_val)} ))
-            }
             .Bool => {
                 const bool_val = env_value == "true" or env_value == "1"
                 @mc_code(@mc_ast( ${@mc_ast(bool_val)} ))
             }
             else => {
+                // 字符串类型直接使用环境变量值
                 @mc_code(@mc_ast( "${env_value}" ))
             }
         }
@@ -5144,12 +5126,11 @@ mc target_platform() expr {
 
 // 使用示例
 const DEBUG: bool = config_value("DEBUG", false)
-const PORT: i32 = config_value("PORT", 8080)
 const HOST: *byte = config_value("HOST", "localhost")
 const PLATFORM: Platform = target_platform()
 
 // 相同配置键会使用缓存值
-const ALSO_PORT: i32 = config_value("PORT", 8080)  // 复用缓存的展开结果
+const ALSO_DEBUG: bool = config_value("DEBUG", false)  // 复用缓存的展开结果
 
 // 条件编译示例
 if PLATFORM == .LINUX {

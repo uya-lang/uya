@@ -644,7 +644,18 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             int field_count = expr->data.struct_init.field_count;
             const char **field_names = expr->data.struct_init.field_names;
             ASTNode **field_values = expr->data.struct_init.field_values;
-            fprintf(codegen->output, "(struct %s){", struct_name);
+            
+            // 检查是否是泛型结构体实例化（通过检查结构体声明是否有类型参数）
+            ASTNode *struct_decl = find_struct_decl_c99(codegen, struct_name);
+            const char *actual_struct_name = struct_name;
+            if (struct_decl && struct_decl->type == AST_STRUCT_DECL && 
+                struct_decl->data.struct_decl.type_param_count > 0) {
+                // 这是泛型结构体，需要查找对应的实例化
+                // 注意：这里我们无法直接知道类型参数，所以需要从上下文推断
+                // 暂时使用原始名称，但会在变量声明代码生成中处理
+            }
+            
+            fprintf(codegen->output, "(struct %s){", actual_struct_name);
             for (int i = 0; i < field_count; i++) {
                 const char *safe_field_name = get_safe_c_identifier(codegen, field_names[i]);
                 fprintf(codegen->output, ".%s = ", safe_field_name);
@@ -1210,7 +1221,51 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             ASTNode **args = expr->data.call_expr.args;
             int arg_count = expr->data.call_expr.arg_count;
             int has_ellipsis = expr->data.call_expr.has_ellipsis_forward;
+            ASTNode **type_args = expr->data.call_expr.type_args;
+            int type_arg_count = expr->data.call_expr.type_arg_count;
             const char *callee_name = (callee && callee->type == AST_IDENTIFIER) ? callee->data.identifier.name : NULL;
+            
+            // 处理泛型函数调用：生成实例化的函数名（如 max<i32> -> uya_max_i32）
+            const char *func_name = callee_name;
+            if (type_arg_count > 0 && callee_name != NULL) {
+                // 构建实例化的函数名
+                const char *safe_name = get_safe_c_identifier(codegen, callee_name);
+                size_t total_len = strlen(safe_name) + 5;  // "uya_" + name + "_"
+                
+                // 计算所有类型参数名称的总长度
+                for (int i = 0; i < type_arg_count; i++) {
+                    if (type_args[i] != NULL) {
+                        const char *type_arg_c = c99_type_to_c(codegen, type_args[i]);
+                        total_len += strlen(type_arg_c) + 1;  // 类型名 + "_"
+                    }
+                }
+                
+                // 分配缓冲区并构建名称
+                char *buf = arena_alloc(codegen->arena, total_len + 1);
+                if (buf) {
+                    strcpy(buf, "uya_");
+                    strcat(buf, safe_name);
+                    for (int i = 0; i < type_arg_count; i++) {
+                        if (type_args[i] != NULL) {
+                            const char *type_arg_c = c99_type_to_c(codegen, type_args[i]);
+                            strcat(buf, "_");
+                            // 移除 "struct " 前缀（如果有）以简化名称
+                            if (strncmp(type_arg_c, "struct ", 7) == 0) {
+                                strcat(buf, type_arg_c + 7);
+                            } else {
+                                strcat(buf, type_arg_c);
+                            }
+                        }
+                    }
+                    func_name = buf;
+                    // 收集泛型函数实例化（用于后续生成单态化函数定义）
+                    // 注意：必须在 gen_expr 调用之前收集，因为此时 codegen->program_node 已设置
+                    // 调试：检查收集条件
+                    if (codegen->program_node) {
+                        collect_generic_instance(codegen, expr, buf);
+                    }
+                }
+            }
 
             /* 插值仅作 printf/fprintf 格式参数时：脱糖为单次 printf(fmt, ...)，无中间缓冲 */
             if (callee_name && args && !has_ellipsis) {
@@ -1399,8 +1454,9 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             // 查找函数声明（用于检查参数类型）
             ASTNode *fn_decl = NULL;
             if (callee && callee->type == AST_IDENTIFIER) {
-                callee_name = callee->data.identifier.name;
-                fn_decl = find_function_decl_c99(codegen, callee_name);
+                // 使用原始函数名查找声明（不是实例化后的名称）
+                const char *orig_callee_name = callee->data.identifier.name;
+                fn_decl = find_function_decl_c99(codegen, orig_callee_name);
             }
             
             /* 仅在此处生成：无 ... 转发的调用不生成 va_list（零开销转发） */
@@ -1438,10 +1494,12 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 }
             }
             
-            // 生成被调用函数名
+            // 生成被调用函数名（使用实例化的函数名，如果有类型参数）
             int printf_one_fmt = (callee_name && strcmp(callee_name, "printf") == 0 && arg_count == 1);
             if (callee && callee->type == AST_IDENTIFIER) {
-                const char *safe_name = get_safe_c_identifier(codegen, callee->data.identifier.name);
+                // 使用实例化的函数名（如果有类型参数）或原始函数名
+                const char *name_to_use = func_name ? func_name : callee->data.identifier.name;
+                const char *safe_name = get_safe_c_identifier(codegen, name_to_use);
                 fprintf(codegen->output, "%s(", safe_name);
                 if (printf_one_fmt) {
                     fputs("\"%s\", ", codegen->output);  /* 单参数 printf 用字面量格式避免 -Wformat-security */
@@ -1663,6 +1721,233 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         }
         default:
             fputs("0", codegen->output);
+            break;
+    }
+}
+
+/* 收集泛型函数实例化（用于单态化） */
+void collect_generic_instance(C99CodeGenerator *codegen, ASTNode *call_expr, const char *instance_name) {
+    if (!codegen || !call_expr || call_expr->type != AST_CALL_EXPR || !instance_name) {
+        return;  // 参数检查失败
+    }
+    if (codegen->generic_instance_count >= C99_MAX_GENERIC_INSTANCES) {
+        return;  // 实例化数量已达上限
+    }
+    
+    ASTNode *callee = call_expr->data.call_expr.callee;
+    ASTNode **type_args = call_expr->data.call_expr.type_args;
+    int type_arg_count = call_expr->data.call_expr.type_arg_count;
+    
+    if (type_arg_count == 0) {
+        return;  // 不是泛型调用
+    }
+    
+    const char *callee_name = (callee && callee->type == AST_IDENTIFIER) ? callee->data.identifier.name : NULL;
+    if (!callee_name) {
+        return;  // 无法获取被调用函数名
+    }
+    
+    // 查找泛型函数声明（必须在 codegen->program_node 已设置后调用）
+    if (!codegen->program_node) {
+        return;  // 程序节点未设置，无法查找函数声明
+    }
+    ASTNode *generic_fn_decl = find_function_decl_c99(codegen, callee_name);
+    if (!generic_fn_decl || generic_fn_decl->type != AST_FN_DECL) {
+        return;  // 找不到函数声明或不是函数声明
+    }
+    if (generic_fn_decl->data.fn_decl.type_param_count == 0) {
+        return;  // 不是泛型函数
+    }
+    
+    // 检查是否已经收集过这个实例化（避免重复）
+    for (int i = 0; i < codegen->generic_instance_count; i++) {
+        if (codegen->generic_instances[i].instance_name && 
+            strcmp(codegen->generic_instances[i].instance_name, instance_name) == 0) {
+            return;  // 已经收集过
+        }
+    }
+    
+    // 复制类型参数数组
+    ASTNode **type_args_copy = arena_alloc(codegen->arena, sizeof(ASTNode *) * type_arg_count);
+    if (!type_args_copy) return;
+    for (int i = 0; i < type_arg_count; i++) {
+        type_args_copy[i] = type_args[i];
+    }
+    
+    // 复制实例化名称
+    const char *instance_name_copy = arena_strdup(codegen->arena, instance_name);
+    if (!instance_name_copy) return;
+    
+    // 添加到实例化列表
+    struct GenericInstance *inst = &codegen->generic_instances[codegen->generic_instance_count];
+    inst->generic_fn_decl = generic_fn_decl;
+    inst->type_args = type_args_copy;
+    inst->type_arg_count = type_arg_count;
+    inst->instance_name = instance_name_copy;
+    codegen->generic_instance_count++;
+}
+
+/* 从 AST 节点递归收集所有泛型函数实例化 */
+void collect_generic_instances_from_node(C99CodeGenerator *codegen, ASTNode *node) {
+    if (!codegen || !node || !codegen->program_node) return;
+    
+    // 处理函数调用表达式
+    if (node->type == AST_CALL_EXPR) {
+        ASTNode *callee = node->data.call_expr.callee;
+        ASTNode **type_args = node->data.call_expr.type_args;
+        int type_arg_count = node->data.call_expr.type_arg_count;
+        
+        if (type_arg_count > 0) {
+            const char *callee_name = (callee && callee->type == AST_IDENTIFIER) ? callee->data.identifier.name : NULL;
+            if (callee_name) {
+                // 构建实例化的函数名（与 gen_expr 中的逻辑相同）
+                const char *safe_name = get_safe_c_identifier(codegen, callee_name);
+                size_t total_len = strlen(safe_name) + 5;  // "uya_" + name + "_"
+                
+                // 计算所有类型参数名称的总长度
+                for (int i = 0; i < type_arg_count; i++) {
+                    if (type_args[i] != NULL) {
+                        const char *type_arg_c = c99_type_to_c(codegen, type_args[i]);
+                        total_len += strlen(type_arg_c) + 1;  // 类型名 + "_"
+                    }
+                }
+                
+                // 分配缓冲区并构建名称
+                char *buf = arena_alloc(codegen->arena, total_len + 1);
+                if (buf) {
+                    strcpy(buf, "uya_");
+                    strcat(buf, safe_name);
+                    for (int i = 0; i < type_arg_count; i++) {
+                        if (type_args[i] != NULL) {
+                            const char *type_arg_c = c99_type_to_c(codegen, type_args[i]);
+                            strcat(buf, "_");
+                            // 移除 "struct " 前缀（如果有）以简化名称
+                            if (strncmp(type_arg_c, "struct ", 7) == 0) {
+                                strcat(buf, type_arg_c + 7);
+                            } else {
+                                strcat(buf, type_arg_c);
+                            }
+                        }
+                    }
+                    // 收集泛型函数实例化
+                    collect_generic_instance(codegen, node, buf);
+                }
+            }
+        }
+    }
+    
+    // 递归处理子节点
+    switch (node->type) {
+        case AST_BLOCK: {
+            ASTNode **stmts = node->data.block.stmts;
+            int stmt_count = node->data.block.stmt_count;
+            for (int i = 0; i < stmt_count; i++) {
+                collect_generic_instances_from_node(codegen, stmts[i]);
+            }
+            break;
+        }
+        case AST_IF_STMT: {
+            collect_generic_instances_from_node(codegen, node->data.if_stmt.condition);
+            collect_generic_instances_from_node(codegen, node->data.if_stmt.then_branch);
+            if (node->data.if_stmt.else_branch) {
+                collect_generic_instances_from_node(codegen, node->data.if_stmt.else_branch);
+            }
+            break;
+        }
+        case AST_WHILE_STMT: {
+            collect_generic_instances_from_node(codegen, node->data.while_stmt.condition);
+            collect_generic_instances_from_node(codegen, node->data.while_stmt.body);
+            break;
+        }
+        case AST_FOR_STMT: {
+            // for 循环可能遍历数组或使用迭代器
+            if (node->data.for_stmt.array) {
+                collect_generic_instances_from_node(codegen, node->data.for_stmt.array);
+            }
+            if (node->data.for_stmt.body) {
+                collect_generic_instances_from_node(codegen, node->data.for_stmt.body);
+            }
+            break;
+        }
+        case AST_RETURN_STMT: {
+            if (node->data.return_stmt.expr) {
+                collect_generic_instances_from_node(codegen, node->data.return_stmt.expr);
+            }
+            break;
+        }
+        case AST_EXPR_STMT: {
+            // AST_EXPR_STMT 的数据直接存储在节点中，需要检查节点类型
+            // 实际上，AST_EXPR_STMT 的表达式就是节点本身
+            // 但为了安全，我们跳过这个节点，因为表达式会在其他地方被处理
+            break;
+        }
+        case AST_ASSIGN: {
+            collect_generic_instances_from_node(codegen, node->data.assign.dest);
+            collect_generic_instances_from_node(codegen, node->data.assign.src);
+            break;
+        }
+        case AST_VAR_DECL: {
+            if (node->data.var_decl.init) {
+                collect_generic_instances_from_node(codegen, node->data.var_decl.init);
+            }
+            break;
+        }
+        case AST_BINARY_EXPR: {
+            collect_generic_instances_from_node(codegen, node->data.binary_expr.left);
+            collect_generic_instances_from_node(codegen, node->data.binary_expr.right);
+            break;
+        }
+        case AST_UNARY_EXPR: {
+            collect_generic_instances_from_node(codegen, node->data.unary_expr.operand);
+            break;
+        }
+        case AST_MEMBER_ACCESS: {
+            collect_generic_instances_from_node(codegen, node->data.member_access.object);
+            break;
+        }
+        case AST_ARRAY_ACCESS: {
+            collect_generic_instances_from_node(codegen, node->data.array_access.array);
+            collect_generic_instances_from_node(codegen, node->data.array_access.index);
+            break;
+        }
+        case AST_STRUCT_INIT: {
+            for (int i = 0; i < node->data.struct_init.field_count; i++) {
+                collect_generic_instances_from_node(codegen, node->data.struct_init.field_values[i]);
+            }
+            break;
+        }
+        case AST_ARRAY_LITERAL: {
+            for (int i = 0; i < node->data.array_literal.element_count; i++) {
+                collect_generic_instances_from_node(codegen, node->data.array_literal.elements[i]);
+            }
+            break;
+        }
+        case AST_CAST_EXPR: {
+            collect_generic_instances_from_node(codegen, node->data.cast_expr.expr);
+            break;
+        }
+        case AST_TRY_EXPR: {
+            collect_generic_instances_from_node(codegen, node->data.try_expr.operand);
+            break;
+        }
+        case AST_CATCH_EXPR: {
+            collect_generic_instances_from_node(codegen, node->data.catch_expr.operand);
+            if (node->data.catch_expr.catch_block) {
+                collect_generic_instances_from_node(codegen, node->data.catch_expr.catch_block);
+            }
+            break;
+        }
+        case AST_MATCH_EXPR: {
+            collect_generic_instances_from_node(codegen, node->data.match_expr.expr);
+            for (int i = 0; i < node->data.match_expr.arm_count; i++) {
+                ASTMatchArm *arm = &node->data.match_expr.arms[i];
+                if (arm->result_expr) {
+                    collect_generic_instances_from_node(codegen, arm->result_expr);
+                }
+            }
+            break;
+        }
+        default:
             break;
     }
 }

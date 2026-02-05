@@ -229,6 +229,9 @@ int is_stdlib_function(const char *func_name) {
 void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     if (!fn_decl || fn_decl->type != AST_FN_DECL) return;
     
+    // 跳过泛型函数的前向声明（泛型函数不能直接调用，只能通过实例化调用）
+    if (fn_decl->data.fn_decl.type_param_count > 0) return;
+    
     const char *func_name = get_safe_c_identifier(codegen, fn_decl->data.fn_decl.name);
     ASTNode *return_type = fn_decl->data.fn_decl.return_type;
     ASTNode **params = fn_decl->data.fn_decl.params;
@@ -342,6 +345,9 @@ void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) {
 // 生成函数定义
 void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     if (!fn_decl || fn_decl->type != AST_FN_DECL) return;
+    
+    // 跳过泛型函数的定义（泛型函数不能直接调用，只能通过实例化调用）
+    if (fn_decl->data.fn_decl.type_param_count > 0) return;
     
     const char *func_name = get_safe_c_identifier(codegen, fn_decl->data.fn_decl.name);
     ASTNode *return_type = fn_decl->data.fn_decl.return_type;
@@ -618,6 +624,232 @@ void gen_method_function(C99CodeGenerator *codegen, ASTNode *fn_decl, const char
     codegen->current_method_struct_name = saved_method_struct;
     codegen->local_variable_count = saved_local_count;
     codegen->current_depth = saved_depth;
+    codegen->indent_level--;
+    c99_emit(codegen, "}\n");
+}
+
+/* 替换类型节点中的类型参数为具体类型（递归） */
+ASTNode *replace_type_params_in_type(C99CodeGenerator *codegen, ASTNode *type_node, TypeParam *type_params, int type_param_count, ASTNode **type_args) {
+    if (!type_node) return NULL;
+    
+    // 如果是命名类型，检查是否是类型参数
+    if (type_node->type == AST_TYPE_NAMED) {
+        const char *name = type_node->data.type_named.name;
+        if (name) {
+            // 检查是否是类型参数
+            for (int i = 0; i < type_param_count; i++) {
+                if (type_params[i].name && strcmp(type_params[i].name, name) == 0) {
+                    // 找到匹配的类型参数，返回对应的具体类型
+                    if (i < type_param_count && type_args[i]) {
+                        return type_args[i];
+                    }
+                }
+            }
+        }
+        // 如果是泛型类型（如 Vec<i32>），需要递归处理类型参数
+        if (type_node->data.type_named.type_arg_count > 0) {
+            ASTNode *new_type = ast_new_node(AST_TYPE_NAMED, type_node->line, type_node->column, codegen->arena, type_node->filename);
+            if (new_type) {
+                new_type->data.type_named.name = type_node->data.type_named.name;
+                new_type->data.type_named.type_arg_count = type_node->data.type_named.type_arg_count;
+                new_type->data.type_named.type_args = arena_alloc(codegen->arena, sizeof(ASTNode *) * new_type->data.type_named.type_arg_count);
+                if (new_type->data.type_named.type_args) {
+                    for (int i = 0; i < new_type->data.type_named.type_arg_count; i++) {
+                        new_type->data.type_named.type_args[i] = replace_type_params_in_type(codegen, type_node->data.type_named.type_args[i], type_params, type_param_count, type_args);
+                    }
+                }
+                return new_type;
+            }
+        }
+    }
+    
+    // 对于指针类型，递归处理指向的类型
+    if (type_node->type == AST_TYPE_POINTER) {
+        ASTNode *pointed_type = type_node->data.type_pointer.pointed_type;
+        if (pointed_type) {
+            ASTNode *new_pointed_type = replace_type_params_in_type(codegen, pointed_type, type_params, type_param_count, type_args);
+            if (new_pointed_type != pointed_type) {
+                // 创建新的指针类型节点
+                ASTNode *new_type = ast_new_node(AST_TYPE_POINTER, type_node->line, type_node->column, codegen->arena, type_node->filename);
+                if (new_type) {
+                    new_type->data.type_pointer.pointed_type = new_pointed_type;
+                    new_type->data.type_pointer.is_ffi_pointer = type_node->data.type_pointer.is_ffi_pointer;
+                    return new_type;
+                }
+            }
+        }
+        return type_node;
+    }
+    
+    // 对于数组类型，递归处理元素类型
+    if (type_node->type == AST_TYPE_ARRAY) {
+        ASTNode *element_type = type_node->data.type_array.element_type;
+        if (element_type) {
+            ASTNode *new_element_type = replace_type_params_in_type(codegen, element_type, type_params, type_param_count, type_args);
+            if (new_element_type != element_type) {
+                // 创建新的数组类型节点
+                ASTNode *new_type = ast_new_node(AST_TYPE_ARRAY, type_node->line, type_node->column, codegen->arena, type_node->filename);
+                if (new_type) {
+                    new_type->data.type_array.element_type = new_element_type;
+                    new_type->data.type_array.size_expr = type_node->data.type_array.size_expr;  // 大小表达式不变
+                    return new_type;
+                }
+            }
+        }
+        return type_node;
+    }
+    
+    // 对于其他类型节点，保持原样
+    return type_node;
+}
+
+/* 生成泛型函数实例化的函数定义（单态化） */
+void gen_generic_function_instance(C99CodeGenerator *codegen, ASTNode *generic_fn_decl, ASTNode **type_args, int type_arg_count, const char *instance_name) {
+    if (!codegen || !generic_fn_decl || generic_fn_decl->type != AST_FN_DECL || !type_args || !instance_name) return;
+    if (!generic_fn_decl->data.fn_decl.body) return;  // 没有函数体，不生成定义
+    
+    TypeParam *type_params = generic_fn_decl->data.fn_decl.type_params;
+    int type_param_count = generic_fn_decl->data.fn_decl.type_param_count;
+    
+    if (type_param_count != type_arg_count) return;  // 类型参数数量不匹配
+    
+    // 创建实例化的函数声明（复制原始声明，但替换类型参数）
+    ASTNode *instance_decl = ast_new_node(AST_FN_DECL, generic_fn_decl->line, generic_fn_decl->column, codegen->arena, generic_fn_decl->filename);
+    if (!instance_decl) return;
+    
+    // 复制基本信息
+    instance_decl->data.fn_decl.name = instance_name;  // 使用实例化名称
+    instance_decl->data.fn_decl.type_params = NULL;  // 实例化后不再有类型参数
+    instance_decl->data.fn_decl.type_param_count = 0;
+    instance_decl->data.fn_decl.is_varargs = generic_fn_decl->data.fn_decl.is_varargs;
+    instance_decl->data.fn_decl.is_export = generic_fn_decl->data.fn_decl.is_export;
+    
+    // 替换返回类型中的类型参数
+    instance_decl->data.fn_decl.return_type = replace_type_params_in_type(codegen, generic_fn_decl->data.fn_decl.return_type, type_params, type_param_count, type_args);
+    
+    // 替换参数类型中的类型参数
+    instance_decl->data.fn_decl.param_count = generic_fn_decl->data.fn_decl.param_count;
+    instance_decl->data.fn_decl.params = arena_alloc(codegen->arena, sizeof(ASTNode *) * instance_decl->data.fn_decl.param_count);
+    if (instance_decl->data.fn_decl.params) {
+        for (int i = 0; i < instance_decl->data.fn_decl.param_count; i++) {
+            ASTNode *param = generic_fn_decl->data.fn_decl.params[i];
+            if (param && param->type == AST_VAR_DECL) {
+                ASTNode *new_param = ast_new_node(AST_VAR_DECL, param->line, param->column, codegen->arena, param->filename);
+                if (new_param) {
+                    new_param->data.var_decl.name = param->data.var_decl.name;
+                    new_param->data.var_decl.type = replace_type_params_in_type(codegen, param->data.var_decl.type, type_params, type_param_count, type_args);
+                    new_param->data.var_decl.init = NULL;  // 参数没有初始化
+                    instance_decl->data.fn_decl.params[i] = new_param;
+                } else {
+                    instance_decl->data.fn_decl.params[i] = param;  // 失败时使用原始参数
+                }
+            } else {
+                instance_decl->data.fn_decl.params[i] = param;
+            }
+        }
+    }
+    
+    // 复制函数体（函数体中的类型参数会在生成代码时通过类型替换处理）
+    // 注意：这里我们直接使用原始函数体，但在生成代码时需要替换类型参数
+    // 为了简化，我们创建一个新的函数体节点，但内容相同
+    // 实际上，类型参数的替换应该在生成代码时进行，而不是在 AST 层面
+    // 所以这里我们直接使用原始函数体
+    instance_decl->data.fn_decl.body = generic_fn_decl->data.fn_decl.body;
+    
+    // 生成函数定义（使用修改后的声明）
+    // 但是，我们需要在生成代码时替换类型参数
+    // 为了简化实现，我们直接调用 gen_function，但在生成代码时通过类型替换来处理
+    // 这里我们需要一个机制来在生成代码时替换类型参数
+    
+    // 临时方案：直接生成函数定义，但使用实例化名称
+    // 类型参数的替换需要在生成代码时进行，这需要修改 gen_function 和相关的类型生成函数
+    // 为了快速实现，我们先生成一个简化版本
+    
+    // 生成函数签名
+    const char *return_c = convert_array_return_type(codegen, instance_decl->data.fn_decl.return_type);
+    fprintf(codegen->output, "%s %s(", return_c, instance_name);
+    
+    // 生成参数列表
+    for (int i = 0; i < instance_decl->data.fn_decl.param_count; i++) {
+        ASTNode *param = instance_decl->data.fn_decl.params[i];
+        if (!param || param->type != AST_VAR_DECL) continue;
+        
+        const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
+        ASTNode *param_type = param->data.var_decl.type;
+        const char *param_type_c = c99_type_to_c(codegen, param_type);
+        
+        format_param_type(codegen, param_type_c, param_name, codegen->output);
+        if (i < instance_decl->data.fn_decl.param_count - 1) fputs(", ", codegen->output);
+    }
+    
+    if (instance_decl->data.fn_decl.is_varargs) {
+        if (instance_decl->data.fn_decl.param_count > 0) fputs(", ", codegen->output);
+        fputs("...", codegen->output);
+    }
+    
+    fputs(") {\n", codegen->output);
+    codegen->indent_level++;
+    
+    // 保存状态
+    codegen->current_function_return_type = instance_decl->data.fn_decl.return_type;
+    ASTNode *saved_current_function_decl = codegen->current_function_decl;
+    codegen->current_function_decl = instance_decl;
+    int saved_local_variable_count = codegen->local_variable_count;
+    int saved_current_depth = codegen->current_depth;
+    codegen->local_variable_count = 0;
+    codegen->current_depth = 0;
+    
+    // 处理参数（与 gen_function 中的逻辑相同）
+    for (int i = 0; i < instance_decl->data.fn_decl.param_count; i++) {
+        ASTNode *param = instance_decl->data.fn_decl.params[i];
+        if (!param || param->type != AST_VAR_DECL) continue;
+        
+        const char *param_name = get_safe_c_identifier(codegen, param->data.var_decl.name);
+        ASTNode *param_type = param->data.var_decl.type;
+        
+        if (param_type->type == AST_TYPE_ARRAY) {
+            const char *array_type_c = c99_type_to_c(codegen, param_type);
+            const char *bracket = strchr(array_type_c, '[');
+            c99_emit(codegen, "// 数组参数按值传递：创建局部副本\n");
+            if (bracket) {
+                size_t len = bracket - array_type_c;
+                fprintf(codegen->output, "    %.*s %s%s;\n", (int)len, array_type_c, param_name, bracket);
+            } else {
+                c99_emit(codegen, "%s %s;\n", array_type_c, param_name);
+            }
+            c99_emit(codegen, "    memcpy(%s, %s_param, sizeof(%s));\n", param_name, param_name, param_name);
+            
+            if (param_name && codegen->local_variable_count < C99_MAX_LOCAL_VARS) {
+                codegen->local_variables[codegen->local_variable_count].name = param->data.var_decl.name;
+                codegen->local_variables[codegen->local_variable_count].type_c = array_type_c;
+                codegen->local_variable_count++;
+            }
+        } else {
+            const char *param_type_c = c99_type_to_c(codegen, param_type);
+            if (param_type->type == AST_TYPE_SLICE) {
+                size_t len = strlen(param_type_c) + 3;
+                char *ptr_type = arena_alloc(codegen->arena, len);
+                if (ptr_type) {
+                    snprintf(ptr_type, len, "%s *", param_type_c);
+                    param_type_c = ptr_type;
+                }
+            }
+            if (param_name && param_type_c && codegen->local_variable_count < C99_MAX_LOCAL_VARS) {
+                codegen->local_variables[codegen->local_variable_count].name = param->data.var_decl.name;
+                codegen->local_variables[codegen->local_variable_count].type_c = param_type_c;
+                codegen->local_variable_count++;
+            }
+        }
+    }
+    
+    // 生成函数体
+    gen_stmt(codegen, instance_decl->data.fn_decl.body);
+    
+    // 恢复状态
+    codegen->current_function_return_type = NULL;
+    codegen->current_function_decl = saved_current_function_decl;
+    codegen->local_variable_count = saved_local_variable_count;
+    codegen->current_depth = saved_current_depth;
     codegen->indent_level--;
     c99_emit(codegen, "}\n");
 }

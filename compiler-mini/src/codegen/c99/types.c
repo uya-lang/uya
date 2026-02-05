@@ -81,7 +81,54 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
             } else if (strcmp(name, "void") == 0) {
                 return "void";
             } else {
-                // 结构体或枚举类型
+                // 检查是否有泛型类型参数（如 Vec<i32>）
+                if (type_node->data.type_named.type_arg_count > 0) {
+                    // 生成泛型实例化的名称（如 uya_Vec_i32）
+                    const char *safe_name = get_safe_c_identifier(codegen, name);
+                    size_t total_len = strlen(safe_name) + 1;  // 基础名称 + "_"
+                    
+                    // 计算所有类型参数名称的总长度
+                    for (int i = 0; i < type_node->data.type_named.type_arg_count; i++) {
+                        ASTNode *type_arg = type_node->data.type_named.type_args[i];
+                        if (type_arg != NULL) {
+                            const char *type_arg_c = c99_type_to_c(codegen, type_arg);
+                            total_len += strlen(type_arg_c) + 1;  // 类型名 + "_"
+                        }
+                    }
+                    
+                    // 分配缓冲区并构建名称
+                    char *buf = arena_alloc(codegen->arena, total_len + 1);
+                    if (buf) {
+                        strcpy(buf, "uya_");
+                        strcat(buf, safe_name);
+                        for (int i = 0; i < type_node->data.type_named.type_arg_count; i++) {
+                            ASTNode *type_arg = type_node->data.type_named.type_args[i];
+                            if (type_arg != NULL) {
+                                const char *type_arg_c = c99_type_to_c(codegen, type_arg);
+                                strcat(buf, "_");
+                                // 移除 "struct " 前缀（如果有）以简化名称
+                                if (strncmp(type_arg_c, "struct ", 7) == 0) {
+                                    strcat(buf, type_arg_c + 7);
+                                } else {
+                                    strcat(buf, type_arg_c);
+                                }
+                            }
+                        }
+                        
+                        // 检查是否是结构体
+                        if (is_struct_in_table(codegen, safe_name)) {
+                            size_t struct_len = strlen(buf) + 8;
+                            char *struct_buf = arena_alloc(codegen->arena, struct_len);
+                            if (struct_buf) {
+                                snprintf(struct_buf, struct_len, "struct %s", buf);
+                                return struct_buf;
+                            }
+                        }
+                        return buf;
+                    }
+                }
+                
+                // 结构体或枚举类型（非泛型）
                 const char *safe_name = get_safe_c_identifier(codegen, name);
                 
                 // 显式检查是否是结构体（检查是否在表中，不管是否已定义）

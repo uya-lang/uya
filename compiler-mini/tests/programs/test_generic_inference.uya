@@ -1,0 +1,35 @@
+// 测试泛型函数类型推断
+// 当调用泛型函数时，如果没有提供类型参数，应该从参数类型推断
+
+// 泛型函数：返回两个值中的较大者
+fn max<T: Ord>(a: T, b: T) T {
+    if a > b {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+fn main() i32 {
+    // 测试：类型推断 max(10, 20) 应该推断为 max<i32>(10, 20)
+    const result1: i32 = max(10, 20);
+    if result1 != 20 {
+        return 1;
+    }
+    
+    // 测试：类型推断 max(3.14, 2.71) 应该推断为 max<f64>(3.14, 2.71)
+    // 注意：浮点数字面量默认类型为 f64
+    const result2: f64 = max(3.14, 2.71);
+    if result2 != 3.14 {
+        return 2;
+    }
+    
+    // 测试：显式指定类型参数仍然有效
+    const result3: i32 = max<i32>(100, 200);
+    if result3 != 200 {
+        return 3;
+    }
+    
+    return 0;
+}
+

@@ -1,0 +1,47 @@
+// 测试泛型结构体的基本功能
+// 包括泛型结构体定义、实例化、字段访问等
+
+// 泛型结构体
+struct Vec<T> {
+    data: *T,
+    len: usize,
+    cap: usize,
+}
+
+fn main() i32 {
+    // 测试：使用 i32 类型参数
+    const v1: Vec<i32> = Vec<i32>{
+        data: null,
+        len: 0,
+        cap: 0,
+    };
+    
+    if v1.len != 0 || v1.cap != 0 {
+        return 1;
+    }
+    
+    // 测试：使用 f32 类型参数
+    const v2: Vec<f32> = Vec<f32>{
+        data: null,
+        len: 10,
+        cap: 20,
+    };
+    
+    if v2.len != 10 || v2.cap != 20 {
+        return 2;
+    }
+    
+    // 测试：使用 bool 类型参数
+    const v3: Vec<bool> = Vec<bool>{
+        data: null,
+        len: 5,
+        cap: 10,
+    };
+    
+    if v3.len != 5 || v3.cap != 10 {
+        return 3;
+    }
+    
+    return 0;
+}
+

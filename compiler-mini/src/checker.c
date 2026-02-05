@@ -31,6 +31,13 @@ static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char 
 static ASTNode *find_union_decl_from_program(ASTNode *program_node, const char *union_name);
 static ASTNode *find_interface_decl_from_program(ASTNode *program_node, const char *interface_name);
 static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *enum_name);
+static ASTNode *find_function_decl_from_program(ASTNode *program_node, const char *function_name);
+// 将 Type 转换为 AST 类型节点（用于类型推断）
+static ASTNode *type_to_ast_node(TypeChecker *checker, Type type);
+// 前向声明
+static const char *checker_arena_strdup(Arena *arena, const char *src);
+// 将 Type 转换为 AST 类型节点（用于类型推断）
+static ASTNode *type_to_ast_node(TypeChecker *checker, Type type);
 static ASTNode *find_method_block_for_struct(ASTNode *program_node, const char *struct_name);
 static ASTNode *find_method_in_struct(ASTNode *program_node, const char *struct_name, const char *method_name);
 static ASTNode *find_method_block_for_union(ASTNode *program_node, const char *union_name);
@@ -69,6 +76,10 @@ static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node);
 static int checker_eval_const_expr(TypeChecker *checker, ASTNode *expr);
 /* 结构体是否实现某接口（用于装箱） */
 static int struct_implements_interface(TypeChecker *checker, const char *struct_name, const char *interface_name);
+/* 检查类型是否满足约束接口（用于泛型约束检查） */
+static int type_satisfies_constraint(TypeChecker *checker, Type type, const char *constraint_name);
+/* 检查类型是否满足所有约束（用于泛型类型参数约束检查） */
+static int type_satisfies_all_constraints(TypeChecker *checker, Type type, const char **constraints, int constraint_count, ASTNode *error_node);
 
 // 初始化 TypeChecker
 int checker_init(TypeChecker *checker, Arena *arena, const char *default_filename) {
@@ -117,6 +128,13 @@ int checker_init(TypeChecker *checker, Arena *arena, const char *default_filenam
         checker->error_names[i] = NULL;
     }
     checker->project_root_dir = NULL;
+    
+    // 初始化类型参数作用域栈
+    checker->type_param_scope_depth = 0;
+    for (int i = 0; i < 16; i++) {
+        checker->type_param_scopes[i] = NULL;
+        checker->type_param_scope_counts[i] = 0;
+    }
     
     return 0;
 }
@@ -324,6 +342,70 @@ static void checker_exit_scope(TypeChecker *checker) {
     }
     
     checker->scope_level--;
+}
+
+// 进入类型参数作用域（将类型参数添加到当前作用域）
+// 参数：checker - TypeChecker 指针，type_params - 类型参数数组，type_param_count - 类型参数数量
+static void checker_enter_type_param_scope(TypeChecker *checker, TypeParam *type_params, int type_param_count) {
+    if (checker == NULL || type_param_count <= 0) {
+        return;
+    }
+    
+    // 检查作用域深度是否超出限制
+    if (checker->type_param_scope_depth >= 16) {
+        // 作用域嵌套过深，报错
+        return;
+    }
+    
+    // 分配类型参数名称数组（从 Arena 分配）
+    const char **names = (const char **)arena_alloc(checker->arena, sizeof(const char *) * type_param_count);
+    if (names == NULL) {
+        return;
+    }
+    
+    // 复制类型参数名称
+    for (int i = 0; i < type_param_count; i++) {
+        names[i] = type_params[i].name;
+    }
+    
+    // 添加到作用域栈
+    int depth = checker->type_param_scope_depth;
+    checker->type_param_scopes[depth] = names;
+    checker->type_param_scope_counts[depth] = type_param_count;
+    checker->type_param_scope_depth++;
+}
+
+// 退出类型参数作用域
+// 参数：checker - TypeChecker 指针
+static void checker_exit_type_param_scope(TypeChecker *checker) {
+    if (checker == NULL || checker->type_param_scope_depth <= 0) {
+        return;
+    }
+    
+    checker->type_param_scope_depth--;
+    // 注意：不需要释放 Arena 分配的内存，Arena 会在整个编译过程结束时统一释放
+}
+
+// 检查名称是否是当前作用域中的类型参数
+// 参数：checker - TypeChecker 指针，name - 类型名称
+// 返回：1 表示是类型参数，0 表示不是
+static int is_type_param_in_scope(TypeChecker *checker, const char *name) {
+    if (checker == NULL || name == NULL) {
+        return 0;
+    }
+    
+    // 从最内层作用域开始查找
+    for (int i = checker->type_param_scope_depth - 1; i >= 0; i--) {
+        const char **scope = checker->type_param_scopes[i];
+        int count = checker->type_param_scope_counts[i];
+        for (int j = 0; j < count; j++) {
+            if (scope[j] != NULL && strcmp(scope[j], name) == 0) {
+                return 1;
+            }
+        }
+    }
+    
+    return 0;
 }
 
 // 移动语义（规范 uya.md §12.5）：已移动集合与活跃指针检查
@@ -810,7 +892,18 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
         } else if (strcmp(type_name, "void") == 0) {
             result.kind = TYPE_VOID;
         } else {
-            // 其他名称可能是枚举类型或结构体类型
+            // 首先检查是否是类型参数（泛型类型参数）
+            if (checker != NULL && is_type_param_in_scope(checker, type_name)) {
+                // 这是一个类型参数，返回一个特殊的类型（暂时标记为 TYPE_STRUCT，但需要特殊处理）
+                // TODO: 添加 TYPE_TYPE_PARAM 类型，用于表示类型参数
+                // 当前暂时标记为 TYPE_STRUCT，但使用特殊的名称标记（如 "T"）
+                result.kind = TYPE_STRUCT;
+                result.data.struct_name = type_name;  // 使用类型参数名称作为标记
+                // 注意：这里返回的类型需要后续在泛型实例化时替换为具体类型
+                return result;
+            }
+            
+            // 其他名称可能是枚举类型或结构体类型或泛型类型
             // 需要从program_node中查找枚举或结构体声明（在类型检查阶段验证）
             if (checker != NULL && checker->program_node != NULL) {
                 ASTNode *enum_decl = find_enum_decl_from_program(checker->program_node, type_name);
@@ -822,14 +915,94 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
                     if (iface_decl != NULL) {
                         result.kind = TYPE_INTERFACE;
                         result.data.interface_name = type_name;
+                        
+                                // 检查是否有泛型类型参数（如 Iterator<i32>）
+                                if (type_node->data.type_named.type_arg_count > 0) {
+                                    // 验证类型参数数量是否匹配
+                                    if (iface_decl->type == AST_INTERFACE_DECL) {
+                                        int expected_count = iface_decl->data.interface_decl.type_param_count;
+                                        if (type_node->data.type_named.type_arg_count != expected_count) {
+                                            checker_report_error(checker, type_node, 
+                                                "泛型接口类型参数数量不匹配");
+                                            result.kind = TYPE_VOID;
+                                            return result;
+                                        }
+                                        // 验证类型参数是否满足约束
+                                        if (iface_decl->data.interface_decl.type_params != NULL) {
+                                            for (int i = 0; i < type_node->data.type_named.type_arg_count && 
+                                                 i < iface_decl->data.interface_decl.type_param_count; i++) {
+                                                // 解析类型参数的实际类型
+                                                ASTNode *type_arg_node = type_node->data.type_named.type_args[i];
+                                                if (type_arg_node != NULL) {
+                                                    Type type_arg = type_from_ast(checker, type_arg_node);
+                                                    if (type_arg.kind != TYPE_VOID) {
+                                                        // 检查类型参数是否满足约束
+                                                        TypeParam *type_param = &iface_decl->data.interface_decl.type_params[i];
+                                                        if (type_param->constraint_count > 0) {
+                                                            if (!type_satisfies_all_constraints(checker, type_arg, 
+                                                                type_param->constraints, type_param->constraint_count, type_node)) {
+                                                                result.kind = TYPE_VOID;
+                                                                return result;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        // TODO: 进行泛型实例化（单态化）
+                                    }
+                                }
                     } else {
                         ASTNode *union_decl = find_union_decl_from_program(checker->program_node, type_name);
                         if (union_decl != NULL) {
                             result.kind = TYPE_UNION;
                             result.data.union_name = type_name;
                         } else {
-                            result.kind = TYPE_STRUCT;
-                            result.data.struct_name = type_name;
+                            ASTNode *struct_decl = find_struct_decl_from_program(checker->program_node, type_name);
+                            if (struct_decl != NULL) {
+                                result.kind = TYPE_STRUCT;
+                                result.data.struct_name = type_name;
+                                
+                                // 检查是否有泛型类型参数（如 Vec<i32>）
+                                if (type_node->data.type_named.type_arg_count > 0) {
+                                    // 验证类型参数数量是否匹配
+                                    if (struct_decl->type == AST_STRUCT_DECL) {
+                                        int expected_count = struct_decl->data.struct_decl.type_param_count;
+                                        if (type_node->data.type_named.type_arg_count != expected_count) {
+                                            checker_report_error(checker, type_node, 
+                                                "泛型结构体类型参数数量不匹配");
+                                            result.kind = TYPE_VOID;
+                                            return result;
+                                        }
+                                        // 验证类型参数是否满足约束
+                                        if (struct_decl->data.struct_decl.type_params != NULL) {
+                                            for (int i = 0; i < type_node->data.type_named.type_arg_count && 
+                                                 i < struct_decl->data.struct_decl.type_param_count; i++) {
+                                                // 解析类型参数的实际类型
+                                                ASTNode *type_arg_node = type_node->data.type_named.type_args[i];
+                                                if (type_arg_node != NULL) {
+                                                    Type type_arg = type_from_ast(checker, type_arg_node);
+                                                    if (type_arg.kind != TYPE_VOID) {
+                                                        // 检查类型参数是否满足约束
+                                                        TypeParam *type_param = &struct_decl->data.struct_decl.type_params[i];
+                                                        if (type_param->constraint_count > 0) {
+                                                            if (!type_satisfies_all_constraints(checker, type_arg, 
+                                                                type_param->constraints, type_param->constraint_count, type_node)) {
+                                                                result.kind = TYPE_VOID;
+                                                                return result;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        // TODO: 进行泛型实例化（单态化）
+                                    }
+                                }
+                            } else {
+                                result.kind = TYPE_STRUCT;
+                                result.data.struct_name = type_name;
+                            }
                         }
                     }
                 }
@@ -1635,6 +1808,110 @@ static ASTNode *find_interface_decl_from_program(ASTNode *program_node, const ch
     return NULL;
 }
 
+// 从程序节点中查找函数声明
+static ASTNode *find_function_decl_from_program(ASTNode *program_node, const char *function_name) {
+    if (program_node == NULL || program_node->type != AST_PROGRAM || function_name == NULL) {
+        return NULL;
+    }
+    
+    for (int i = 0; i < program_node->data.program.decl_count; i++) {
+        ASTNode *decl = program_node->data.program.decls[i];
+        if (decl != NULL && decl->type == AST_FN_DECL) {
+            if (decl->data.fn_decl.name != NULL && 
+                strcmp(decl->data.fn_decl.name, function_name) == 0) {
+                return decl;
+            }
+        }
+    }
+    
+    return NULL;
+}
+
+// 将 Type 转换为 AST 类型节点（用于类型推断）
+static ASTNode *type_to_ast_node(TypeChecker *checker, Type type) {
+    if (checker == NULL || checker->arena == NULL) {
+        return NULL;
+    }
+    
+    ASTNode *type_node = ast_new_node(AST_TYPE_NAMED, 0, 0, checker->arena, NULL);
+    if (type_node == NULL) {
+        return NULL;
+    }
+    
+    // 根据类型种类设置类型名称
+    const char *type_name = NULL;
+    switch (type.kind) {
+        case TYPE_I8:
+            type_name = "i8";
+            break;
+        case TYPE_I16:
+            type_name = "i16";
+            break;
+        case TYPE_I32:
+            type_name = "i32";
+            break;
+        case TYPE_I64:
+            type_name = "i64";
+            break;
+        case TYPE_U8:
+            type_name = "u8";
+            break;
+        case TYPE_U16:
+            type_name = "u16";
+            break;
+        case TYPE_U32:
+            type_name = "u32";
+            break;
+        case TYPE_U64:
+            type_name = "u64";
+            break;
+        case TYPE_USIZE:
+            type_name = "usize";
+            break;
+        case TYPE_BOOL:
+            type_name = "bool";
+            break;
+        case TYPE_BYTE:
+            type_name = "byte";
+            break;
+        case TYPE_F32:
+            type_name = "f32";
+            break;
+        case TYPE_F64:
+            type_name = "f64";
+            break;
+        case TYPE_VOID:
+            type_name = "void";
+            break;
+        case TYPE_ENUM:
+            type_name = type.data.enum_name;
+            break;
+        case TYPE_STRUCT:
+            type_name = type.data.struct_name;
+            break;
+        case TYPE_UNION:
+            type_name = type.data.union_name;
+            break;
+        case TYPE_INTERFACE:
+            type_name = type.data.interface_name;
+            break;
+        default:
+            // 不支持的类型，返回 NULL
+            return NULL;
+    }
+    
+    if (type_name == NULL) {
+        return NULL;
+    }
+    
+    // 复制类型名称到 Arena
+    type_node->data.type_named.name = checker_arena_strdup(checker->arena, type_name);
+    type_node->data.type_named.type_args = NULL;
+    type_node->data.type_named.type_arg_count = 0;
+    
+    return type_node;
+}
+
 static ASTNode *find_method_block_for_struct(ASTNode *program_node, const char *struct_name) {
     if (program_node == NULL || program_node->type != AST_PROGRAM || struct_name == NULL) {
         return NULL;
@@ -1792,6 +2069,81 @@ static int struct_implements_interface(TypeChecker *checker, const char *struct_
         }
     }
     return 0;
+}
+
+// 检查类型是否满足约束接口（用于泛型约束检查）
+// 参数：checker - TypeChecker 指针，type - 要检查的类型，constraint_name - 约束接口名称
+// 返回：1 表示满足约束，0 表示不满足约束
+static int type_satisfies_constraint(TypeChecker *checker, Type type, const char *constraint_name) {
+    if (checker == NULL || constraint_name == NULL) {
+        return 0;
+    }
+    
+    // 检查内置类型是否满足标准约束接口
+    // 注意：当前实现中，内置类型默认满足 Ord、Clone、Default 约束
+    // 这是简化的实现，完整实现需要为标准约束接口定义方法签名并验证
+    if (is_integer_type(type.kind) || type.kind == TYPE_F32 || type.kind == TYPE_F64 || 
+        type.kind == TYPE_BOOL || type.kind == TYPE_BYTE) {
+        // 内置类型（整数、浮点、布尔、字节）默认满足 Ord、Clone、Default 约束
+        if (strcmp(constraint_name, "Ord") == 0 || 
+            strcmp(constraint_name, "Clone") == 0 || 
+            strcmp(constraint_name, "Default") == 0) {
+            return 1;
+        }
+    }
+    
+    // 枚举类型默认满足 Ord、Clone、Default 约束（基于整数比较）
+    if (type.kind == TYPE_ENUM) {
+        if (strcmp(constraint_name, "Ord") == 0 || 
+            strcmp(constraint_name, "Clone") == 0 || 
+            strcmp(constraint_name, "Default") == 0) {
+            return 1;
+        }
+    }
+    
+    // 结构体类型：检查是否实现了约束接口
+    if (type.kind == TYPE_STRUCT && type.data.struct_name != NULL) {
+        return struct_implements_interface(checker, type.data.struct_name, constraint_name);
+    }
+    
+    // 其他类型（接口、联合体等）暂不支持约束检查
+    return 0;
+}
+
+// 检查类型是否满足所有约束（用于泛型类型参数约束检查）
+// 参数：checker - TypeChecker 指针，type - 要检查的类型，constraints - 约束接口名称数组，constraint_count - 约束数量
+// 返回：1 表示满足所有约束，0 表示不满足（已报错）
+static int type_satisfies_all_constraints(TypeChecker *checker, Type type, const char **constraints, int constraint_count, ASTNode *error_node) {
+    if (checker == NULL || constraints == NULL || constraint_count <= 0) {
+        return 1;  // 无约束，视为满足
+    }
+    
+    for (int i = 0; i < constraint_count; i++) {
+        if (constraints[i] == NULL) continue;
+        
+        if (!type_satisfies_constraint(checker, type, constraints[i])) {
+            // 类型不满足约束，报错
+            char error_msg[256];
+            const char *type_name = "unknown";
+            if (type.kind == TYPE_STRUCT && type.data.struct_name != NULL) {
+                type_name = type.data.struct_name;
+            } else if (type.kind == TYPE_I32) {
+                type_name = "i32";
+            } else if (type.kind == TYPE_I64) {
+                type_name = "i64";
+            } else if (type.kind == TYPE_F32) {
+                type_name = "f32";
+            } else if (type.kind == TYPE_F64) {
+                type_name = "f64";
+            }
+            snprintf(error_msg, sizeof(error_msg), 
+                "类型 '%s' 不满足约束 '%s'", type_name, constraints[i]);
+            checker_report_error(checker, error_node, error_msg);
+            return 0;
+        }
+    }
+    
+    return 1;
 }
 
 // 检查 name 是否是程序中任意枚举的变体名（裸枚举常量检测）
@@ -2368,6 +2720,11 @@ static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
     if (node->data.fn_decl.body != NULL) {
         checker_enter_scope(checker);
         
+        // 如果有类型参数，进入类型参数作用域
+        if (node->data.fn_decl.type_param_count > 0) {
+            checker_enter_type_param_scope(checker, node->data.fn_decl.type_params, node->data.fn_decl.type_param_count);
+        }
+        
         // 将参数添加到符号表（仅用于函数体内的类型检查）
         for (int i = 0; i < node->data.fn_decl.param_count; i++) {
             ASTNode *param = node->data.fn_decl.params[i];
@@ -2398,6 +2755,11 @@ static int checker_check_fn_decl(TypeChecker *checker, ASTNode *node) {
         // 检查函数体
         checker_check_node(checker, node->data.fn_decl.body);
         
+        // 退出类型参数作用域
+        if (node->data.fn_decl.type_param_count > 0) {
+            checker_exit_type_param_scope(checker);
+        }
+        
         checker_exit_scope(checker);
     }
     
@@ -2416,6 +2778,11 @@ static int checker_check_struct_decl(TypeChecker *checker, ASTNode *node) {
     if (checker == NULL || node == NULL || node->type != AST_STRUCT_DECL) {
         // 放宽检查：参数无效时，允许通过（不报错）
         return 1;
+    }
+    
+    // 如果有类型参数，进入类型参数作用域
+    if (node->data.struct_decl.type_param_count > 0) {
+        checker_enter_type_param_scope(checker, node->data.struct_decl.type_params, node->data.struct_decl.type_param_count);
     }
     
     // 检查字段
@@ -2469,6 +2836,11 @@ static int checker_check_struct_decl(TypeChecker *checker, ASTNode *node) {
                 }
             }
         }
+    }
+    
+    // 退出类型参数作用域
+    if (node->data.struct_decl.type_param_count > 0) {
+        checker_exit_type_param_scope(checker);
     }
     
     return 1;
@@ -2596,7 +2968,86 @@ static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
         return result;
     }
     
-    FunctionSignature *sig = function_table_lookup(checker, callee->data.identifier.name);
+    const char *function_name = callee->data.identifier.name;
+    if (function_name == NULL) {
+        return result;
+    }
+    
+    // 类型推断：如果调用时没有提供类型参数，且函数是泛型函数，尝试从参数类型推断
+    if (node->data.call_expr.type_arg_count == 0 && checker->program_node != NULL) {
+        ASTNode *fn_decl = find_function_decl_from_program(checker->program_node, function_name);
+        if (fn_decl != NULL && fn_decl->type == AST_FN_DECL && 
+            fn_decl->data.fn_decl.type_param_count > 0) {
+            // 这是泛型函数调用，需要类型推断
+            // 从参数类型推断类型参数
+            TypeParam *type_params = fn_decl->data.fn_decl.type_params;
+            int type_param_count = fn_decl->data.fn_decl.type_param_count;
+            ASTNode **inferred_type_args = (ASTNode **)arena_alloc(
+                checker->arena, 
+                sizeof(ASTNode *) * (size_t)type_param_count
+            );
+            
+            if (inferred_type_args != NULL) {
+                // 初始化推断的类型参数数组
+                for (int i = 0; i < type_param_count; i++) {
+                    inferred_type_args[i] = NULL;
+                }
+                
+                // 从函数参数类型推断类型参数
+                if (fn_decl->data.fn_decl.params != NULL && node->data.call_expr.args != NULL) {
+                    int param_count = fn_decl->data.fn_decl.param_count;
+                    int arg_count = node->data.call_expr.arg_count;
+                    int check_count = (arg_count < param_count) ? arg_count : param_count;
+                    
+                    for (int i = 0; i < check_count; i++) {
+                        ASTNode *param = fn_decl->data.fn_decl.params[i];
+                        ASTNode *arg = node->data.call_expr.args[i];
+                        
+                        if (param != NULL && param->type == AST_VAR_DECL && 
+                            param->data.var_decl.type != NULL && arg != NULL) {
+                            ASTNode *param_type = param->data.var_decl.type;
+                            Type arg_type = checker_infer_type(checker, arg);
+                            
+                            // 如果参数类型是类型参数，从实参类型推断
+                            if (param_type->type == AST_TYPE_NAMED) {
+                                const char *param_type_name = param_type->data.type_named.name;
+                                if (param_type_name != NULL) {
+                                    // 查找匹配的类型参数
+                                    for (int j = 0; j < type_param_count; j++) {
+                                        if (type_params[j].name != NULL && 
+                                            strcmp(type_params[j].name, param_type_name) == 0) {
+                                            // 找到匹配的类型参数，从实参类型创建类型节点
+                                            if (inferred_type_args[j] == NULL) {
+                                                inferred_type_args[j] = type_to_ast_node(checker, arg_type);
+                                            }
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // 检查是否所有类型参数都已推断
+                int all_inferred = 1;
+                for (int i = 0; i < type_param_count; i++) {
+                    if (inferred_type_args[i] == NULL) {
+                        all_inferred = 0;
+                        break;
+                    }
+                }
+                
+                // 如果所有类型参数都已推断，将推断的类型参数添加到 AST 节点
+                if (all_inferred) {
+                    node->data.call_expr.type_args = inferred_type_args;
+                    node->data.call_expr.type_arg_count = type_param_count;
+                }
+            }
+        }
+    }
+    
+    FunctionSignature *sig = function_table_lookup(checker, function_name);
     if (sig == NULL) {
         // 函数未定义：放宽检查，允许通过（不报错）
         // 这在编译器自举时很常见，因为函数可能尚未定义或存在前向引用
