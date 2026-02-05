@@ -1,0 +1,34 @@
+// 测试泛型结构体 - 带方法
+
+// 泛型结构体带方法
+struct Container<T> {
+    value: T,
+    
+    fn get(self: &Self) T {
+        return self.value;
+    }
+    
+    fn set(self: &Self, new_value: T) void {
+        // 注意：self 是 &Self，不能直接修改
+        // 这里只是测试方法声明和调用语法
+    }
+}
+
+fn main() i32 {
+    // 创建 Container<i32> 实例
+    const c: Container<i32> = Container<i32>{ value: 42 };
+    
+    // 测试 get 方法
+    const v: i32 = c.get();
+    if v != 42 {
+        return 1;
+    }
+    
+    // 创建 Container<f64> 实例
+    const cf: Container<f64> = Container<f64>{ value: 3.14 };
+    const vf: f64 = cf.get();
+    // 浮点比较暂时跳过
+    
+    return 0;
+}
+
