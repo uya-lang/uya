@@ -1,0 +1,149 @@
+// 测试宏：与其他语言特性的集成
+
+// 基础常量宏
+mc ARRAY_SIZE() expr {
+    @mc_code(@mc_ast(10));
+}
+
+mc INIT_VALUE() expr {
+    @mc_code(@mc_ast(42));
+}
+
+mc LOOP_COUNT() expr {
+    @mc_code(@mc_ast(5));
+}
+
+mc THRESHOLD() expr {
+    @mc_code(@mc_ast(100));
+}
+
+// 结构体定义
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+// 测试宏用于数组大小（编译期常量）
+fn test_array_size() i32 {
+    var arr: [i32: 10] = [0: 10];
+    arr[0] = INIT_VALUE();
+    if arr[0] != 42 { return 1; }
+    return 0;
+}
+
+// 测试宏用于初始化
+fn test_init_value() i32 {
+    const val: i32 = INIT_VALUE();
+    if val != 42 { return 1; }
+    
+    var mutable: i32 = INIT_VALUE();
+    mutable = mutable + 1;
+    if mutable != 43 { return 2; }
+    
+    return 0;
+}
+
+// 测试宏用于循环
+fn test_loop() i32 {
+    var sum: i32 = 0;
+    var i: i32 = 0;
+    while i < LOOP_COUNT() {
+        sum = sum + 1;
+        i = i + 1;
+    }
+    if sum != 5 { return 1; }
+    return 0;
+}
+
+// 测试宏用于条件判断
+fn test_condition() i32 {
+    const val: i32 = 50;
+    if val < THRESHOLD() {
+        return 0;  // 50 < 100，应该进入这里
+    }
+    return 1;
+}
+
+// 测试宏用于 for 循环范围
+fn test_for_range() i32 {
+    var sum: i32 = 0;
+    for 0..LOOP_COUNT() |i| {
+        sum = sum + i;
+    }
+    // 0+1+2+3+4 = 10
+    if sum != 10 { return 1; }
+    return 0;
+}
+
+// 测试宏用于结构体初始化
+fn test_struct_init() i32 {
+    var p: Point = Point { x: INIT_VALUE(), y: INIT_VALUE() };
+    if p.x != 42 { return 1; }
+    if p.y != 42 { return 2; }
+    return 0;
+}
+
+// 测试宏用于函数参数
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+fn test_function_call() i32 {
+    const result: i32 = add(INIT_VALUE(), LOOP_COUNT());
+    if result != 47 { return 1; }  // 42 + 5 = 47
+    return 0;
+}
+
+// 测试宏用于赋值
+fn test_assignment() i32 {
+    var x: i32 = 0;
+    x = INIT_VALUE();
+    if x != 42 { return 1; }
+    
+    x = x + LOOP_COUNT();
+    if x != 47 { return 2; }
+    
+    return 0;
+}
+
+// 测试宏用于数组索引
+fn test_array_index() i32 {
+    var arr: [i32: 50] = [0: 50];
+    arr[INIT_VALUE()] = 100;
+    if arr[42] != 100 { return 1; }
+    return 0;
+}
+
+fn main() i32 {
+    var result: i32 = 0;
+    
+    result = test_array_size();
+    if result != 0 { return result + 10; }
+    
+    result = test_init_value();
+    if result != 0 { return result + 20; }
+    
+    result = test_loop();
+    if result != 0 { return result + 30; }
+    
+    result = test_condition();
+    if result != 0 { return result + 40; }
+    
+    result = test_for_range();
+    if result != 0 { return result + 50; }
+    
+    result = test_struct_init();
+    if result != 0 { return result + 60; }
+    
+    result = test_function_call();
+    if result != 0 { return result + 70; }
+    
+    result = test_assignment();
+    if result != 0 { return result + 80; }
+    
+    result = test_array_index();
+    if result != 0 { return result + 90; }
+    
+    return 0;
+}
+

@@ -1,0 +1,13 @@
+// 测试 type 返回标签的宏
+// type 宏返回一个类型标识符
+
+// 简单测试：type 返回类型
+mc int_type() type {
+    i32
+}
+
+fn main() i32 {
+    // 暂时不调用 type 宏，因为 type 返回类型的宏调用需要特殊处理
+    // const x: int_type() = 42;  // 这种用法需要特殊支持
+    return 0;
+}

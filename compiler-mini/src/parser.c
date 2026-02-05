@@ -2396,8 +2396,39 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return node;
     }
     
-    // 解析字符串插值（"text${expr}text" 或 "text${expr:spec}text"），以 TOKEN_INTERP_TEXT 或 TOKEN_INTERP_OPEN 开始
-    if (parser->current_token->type == TOKEN_INTERP_TEXT || parser->current_token->type == TOKEN_INTERP_OPEN) {
+    // 解析宏插值 ${expr}（用于 @mc_ast 内部引用参数/变量）
+    // 与字符串插值区分：字符串插值以 TOKEN_INTERP_TEXT 开始，而宏插值直接以 TOKEN_INTERP_OPEN 开始
+    if (parser->current_token->type == TOKEN_INTERP_OPEN) {
+        parser_consume(parser);  // 消费 ${
+        
+        // 解析插值内的表达式（通常是标识符，但也可以是复杂表达式）
+        ASTNode *operand = parser_parse_expression(parser);
+        if (operand == NULL) {
+            const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+            fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 宏插值 ${} 内缺少表达式\n",
+                    filename, line, column);
+            return NULL;
+        }
+        
+        // 期望 } 结束插值
+        if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
+            const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+            fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 宏插值 ${} 缺少闭合 '}'\n",
+                    filename, line, column);
+            return NULL;
+        }
+        
+        // 创建宏插值节点
+        ASTNode *interp_node = ast_new_node(AST_MC_INTERP, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (interp_node == NULL) {
+            return NULL;
+        }
+        interp_node->data.mc_interp.operand = operand;
+        return interp_node;
+    }
+    
+    // 解析字符串插值（"text${expr}text" 或 "text${expr:spec}text"），以 TOKEN_INTERP_TEXT 开始
+    if (parser->current_token->type == TOKEN_INTERP_TEXT) {
         #define MAX_INTERP_SEGMENTS 64
         struct { int is_text; const char *text; ASTNode *expr; const char *format_spec; } segs[MAX_INTERP_SEGMENTS];
         int seg_count = 0;
@@ -2933,6 +2964,113 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         }
         
         return mc_ast_node;
+    }
+    
+    // 解析 @mc_eval 表达式：@mc_eval(expr) - 宏内编译时求值
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "mc_eval") == 0) {
+        parser_consume(parser);  // 消费 'mc_eval'
+        
+        // 期望 '('
+        if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+            return NULL;
+        }
+        
+        ASTNode *mc_eval_node = ast_new_node(AST_MC_EVAL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (mc_eval_node == NULL) {
+            return NULL;
+        }
+        
+        // 解析操作数表达式
+        ASTNode *expr = parser_parse_expression(parser);
+        if (expr == NULL) {
+            return NULL;
+        }
+        
+        mc_eval_node->data.mc_eval.operand = expr;
+        
+        // 期望 ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            return NULL;
+        }
+        
+        return mc_eval_node;
+    }
+    
+    // 解析 @mc_error 表达式：@mc_error(msg) - 宏内编译时错误
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "mc_error") == 0) {
+        parser_consume(parser);  // 消费 'mc_error'
+        
+        // 期望 '('
+        if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+            return NULL;
+        }
+        
+        ASTNode *mc_error_node = ast_new_node(AST_MC_ERROR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (mc_error_node == NULL) {
+            return NULL;
+        }
+        
+        // 解析操作数表达式（应该是字符串）
+        ASTNode *expr = parser_parse_expression(parser);
+        if (expr == NULL) {
+            return NULL;
+        }
+        
+        mc_error_node->data.mc_error.operand = expr;
+        
+        // 期望 ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            return NULL;
+        }
+        
+        return mc_error_node;
+    }
+    
+    // 解析 @mc_get_env 表达式：@mc_get_env(name) - 宏内环境变量读取
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "mc_get_env") == 0) {
+        parser_consume(parser);  // 消费 'mc_get_env'
+        
+        // 期望 '('
+        if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+            return NULL;
+        }
+        
+        // 创建一个调用节点来表示 @mc_get_env 调用
+        ASTNode *callee = ast_new_node(AST_IDENTIFIER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (callee == NULL) {
+            return NULL;
+        }
+        callee->data.identifier.name = "mc_get_env";
+        
+        ASTNode *call_node = ast_new_node(AST_CALL_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (call_node == NULL) {
+            return NULL;
+        }
+        call_node->data.call_expr.callee = callee;
+        call_node->data.call_expr.has_ellipsis_forward = 0;
+        
+        // 解析参数（应该是字符串）
+        ASTNode *arg = parser_parse_expression(parser);
+        if (arg == NULL) {
+            return NULL;
+        }
+        
+        call_node->data.call_expr.args = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *));
+        if (call_node->data.call_expr.args == NULL) {
+            return NULL;
+        }
+        call_node->data.call_expr.args[0] = arg;
+        call_node->data.call_expr.arg_count = 1;
+        
+        // 期望 ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            return NULL;
+        }
+        
+        return call_node;
     }
     
     // 忽略占位 _：仅允许在赋值左侧、解构中使用，生成 AST_UNDERSCORE

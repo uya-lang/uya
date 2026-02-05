@@ -1,0 +1,16 @@
+// 测试预期失败：struct 返回类型的宏（当前不支持）
+// 规范 25.5：struct 返回类型用于生成结构体成员
+
+mc add_field() struct {
+    @mc_code(@mc_ast(0));
+}
+
+struct Point {
+    x: i32,
+    // add_field();  // 无法测试调用，因为 struct 内不能调用函数
+}
+
+fn main() i32 {
+    return 0;
+}
+

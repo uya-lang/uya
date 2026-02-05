@@ -1,0 +1,133 @@
+// 测试宏：边界情况
+
+// 单个数字（最简单情况）
+mc single_digit() expr {
+    @mc_code(@mc_ast(1));
+}
+
+// 单个标识符形式的值
+mc single_true() expr {
+    @mc_code(@mc_ast(true));
+}
+
+// 深层嵌套括号
+mc deep_parens() expr {
+    @mc_code(@mc_ast(((((42))))));
+}
+
+// 单目运算符
+mc unary_minus() expr {
+    @mc_code(@mc_ast(-42));
+}
+
+mc unary_not() expr {
+    @mc_code(@mc_ast(!false));
+}
+
+mc unary_bitnot() expr {
+    @mc_code(@mc_ast(~0));
+}
+
+// 双目运算的各种组合
+mc add_expr() expr {
+    @mc_code(@mc_ast(1 + 2));
+}
+
+mc sub_expr() expr {
+    @mc_code(@mc_ast(10 - 3));
+}
+
+mc mul_expr() expr {
+    @mc_code(@mc_ast(6 * 7));
+}
+
+mc div_expr() expr {
+    @mc_code(@mc_ast(100 / 10));
+}
+
+mc mod_expr() expr {
+    @mc_code(@mc_ast(17 % 5));
+}
+
+// 位运算
+mc bit_and() expr {
+    @mc_code(@mc_ast(255 & 240));
+}
+
+mc bit_or() expr {
+    @mc_code(@mc_ast(15 | 240));
+}
+
+mc bit_xor() expr {
+    @mc_code(@mc_ast(255 ^ 15));
+}
+
+mc bit_lshift() expr {
+    @mc_code(@mc_ast(1 << 4));
+}
+
+mc bit_rshift() expr {
+    @mc_code(@mc_ast(256 >> 4));
+}
+
+// 比较运算
+mc lt_expr() expr {
+    @mc_code(@mc_ast(1 < 2));
+}
+
+mc gt_expr() expr {
+    @mc_code(@mc_ast(2 > 1));
+}
+
+mc le_expr() expr {
+    @mc_code(@mc_ast(2 <= 2));
+}
+
+mc ge_expr() expr {
+    @mc_code(@mc_ast(2 >= 2));
+}
+
+mc eq_expr() expr {
+    @mc_code(@mc_ast(42 == 42));
+}
+
+mc ne_expr() expr {
+    @mc_code(@mc_ast(42 != 0));
+}
+
+fn main() i32 {
+    // 基本测试
+    if single_digit() != 1 { return 1; }
+    if !single_true() { return 2; }
+    if deep_parens() != 42 { return 3; }
+    
+    // 单目运算
+    if unary_minus() != -42 { return 4; }
+    if !unary_not() { return 5; }
+    if unary_bitnot() != -1 { return 6; }  // ~0 = -1 (补码)
+    
+    // 双目运算
+    if add_expr() != 3 { return 10; }
+    if sub_expr() != 7 { return 11; }
+    if mul_expr() != 42 { return 12; }
+    if div_expr() != 10 { return 13; }
+    if mod_expr() != 2 { return 14; }
+    
+    // 位运算
+    if bit_and() != 240 { return 20; }  // 255 & 240 = 240
+    if bit_or() != 255 { return 21; }   // 15 | 240 = 255
+    if bit_xor() != 240 { return 22; }  // 255 ^ 15 = 240
+    if bit_lshift() != 16 { return 23; }
+    if bit_rshift() != 16 { return 24; }
+    
+    // 比较运算
+    if !lt_expr() { return 30; }
+    if !gt_expr() { return 31; }
+    if !le_expr() { return 32; }
+    if !ge_expr() { return 33; }
+    if !eq_expr() { return 34; }
+    if !ne_expr() { return 35; }
+    
+    return 0;
+}
+

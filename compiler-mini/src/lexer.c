@@ -701,6 +701,22 @@ top_of_token:
             lexer->string_text_len = 0;
             goto top_of_token;
         }
+        case '$':
+            // 宏插值语法 ${expr}，用于 @mc_ast 内部引用变量
+            if (peek_char(lexer, 1) == '{') {
+                advance_char(lexer);  // 消费 $
+                advance_char(lexer);  // 消费 {
+                return make_token(arena, TOKEN_INTERP_OPEN, "${", line, column);
+            }
+            // 单独的 $ 是非法的
+            {
+                const char *filename = lexer->filename ? lexer->filename : "<unknown>";
+                fprintf(stderr, "错误: 词法分析失败 (%s:%d:%d): '$' 必须后跟 '{' 形成宏插值 '${...}'\n", 
+                        filename, line, column);
+                fprintf(stderr, "提示: 在宏内使用 ${var} 来引用参数或变量\n");
+                advance_char(lexer);
+                return make_token(arena, TOKEN_EOF, NULL, line, column);
+            }
         default:
             if (isalpha((unsigned char)c) || c == '_') {
                 return read_identifier_or_keyword(lexer, arena);

@@ -1,0 +1,13 @@
+// 测试 stmt 返回类型的宏
+
+mc stmt_macro() stmt {
+    printf("Hello from macro\n");
+}
+
+extern fn printf(fmt: *u8, ...) i32;
+
+fn main() i32 {
+    stmt_macro();
+    return 0;
+}
+

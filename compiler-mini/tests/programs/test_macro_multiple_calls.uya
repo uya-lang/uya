@@ -1,0 +1,117 @@
+// 测试宏：多次调用同一个宏
+
+// 定义一个返回固定值的宏
+mc get_value() expr {
+    @mc_code(@mc_ast(42));
+}
+
+// 在同一个表达式中多次调用
+fn test_same_expr() i32 {
+    const result: i32 = get_value() + get_value() + get_value();
+    if result != 126 { return 1; }  // 42 + 42 + 42 = 126
+    return 0;
+}
+
+// 在同一个函数中多次调用
+fn test_same_function() i32 {
+    const a: i32 = get_value();
+    const b: i32 = get_value();
+    const c: i32 = get_value();
+    const d: i32 = get_value();
+    const e: i32 = get_value();
+    
+    if a != 42 { return 1; }
+    if b != 42 { return 2; }
+    if c != 42 { return 3; }
+    if d != 42 { return 4; }
+    if e != 42 { return 5; }
+    
+    return 0;
+}
+
+// 在不同函数中调用
+fn helper1() i32 {
+    return get_value();
+}
+
+fn helper2() i32 {
+    return get_value() * 2;
+}
+
+fn helper3() i32 {
+    return get_value() + get_value();
+}
+
+fn test_different_functions() i32 {
+    if helper1() != 42 { return 1; }
+    if helper2() != 84 { return 2; }
+    if helper3() != 84 { return 3; }
+    return 0;
+}
+
+// 在循环中多次调用
+fn test_loop_calls() i32 {
+    var sum: i32 = 0;
+    var i: i32 = 0;
+    while i < 5 {
+        sum = sum + get_value();
+        i = i + 1;
+    }
+    if sum != 210 { return 1; }  // 42 * 5 = 210
+    return 0;
+}
+
+// 在条件分支中调用
+fn test_branch_calls() i32 {
+    const x: i32 = get_value();
+    var result: i32 = 0;
+    
+    if x > 40 {
+        result = get_value();
+    } else {
+        result = 0;
+    }
+    
+    if result != 42 { return 1; }
+    return 0;
+}
+
+// 在嵌套结构中调用
+fn test_nested_calls() i32 {
+    var i: i32 = 0;
+    while i < 3 {
+        var j: i32 = 0;
+        while j < 2 {
+            const val: i32 = get_value();
+            if val != 42 { return 1; }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn main() i32 {
+    var result: i32 = 0;
+    
+    result = test_same_expr();
+    if result != 0 { return result + 10; }
+    
+    result = test_same_function();
+    if result != 0 { return result + 20; }
+    
+    result = test_different_functions();
+    if result != 0 { return result + 30; }
+    
+    result = test_loop_calls();
+    if result != 0 { return result + 40; }
+    
+    result = test_branch_calls();
+    if result != 0 { return result + 50; }
+    
+    result = test_nested_calls();
+    if result != 0 { return result + 60; }
+    
+    return 0;
+}
+

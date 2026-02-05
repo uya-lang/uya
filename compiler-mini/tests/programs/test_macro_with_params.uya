@@ -1,0 +1,11 @@
+// 测试带参数的宏
+
+mc with_param(x: expr) expr {
+    @mc_code(@mc_ast(x));
+}
+
+fn main() i32 {
+    const val: i32 = with_param(42);
+    if val != 42 { return 1; }
+    return 0;
+}

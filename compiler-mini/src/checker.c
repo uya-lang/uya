@@ -4427,8 +4427,9 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
         case AST_MC_CODE:
         case AST_MC_AST:
         case AST_MC_ERROR:
+        case AST_MC_INTERP:
             /* 仅宏体内有效，不应出现在已展开的 AST 中；若出现则报错 */
-            checker_report_error(checker, node, "@mc_* 内置函数只能在宏体内使用");
+            checker_report_error(checker, node, "@mc_* 内置函数和 ${} 插值只能在宏体内使用");
             return 0;
         default:
             return 1;
@@ -4448,35 +4449,587 @@ static ASTNode *find_macro_decl_from_program(ASTNode *program_node, const char *
     return NULL;
 }
 
-// 从宏体提取 expr 输出的 AST（支持 @mc_code(@mc_ast(expr)) 和语法糖）
+// ============ 宏参数绑定与 AST 深拷贝 ============
+
+// 宏参数绑定（参数名 -> 实参 AST 映射）
+typedef struct MacroParamBinding {
+    const char *param_name;    // 参数名
+    ASTNode *arg_ast;          // 实参 AST 节点
+} MacroParamBinding;
+
+// 宏展开上下文
+typedef struct MacroExpandContext {
+    MacroParamBinding *bindings;  // 参数绑定数组
+    int binding_count;            // 绑定数量
+    Arena *arena;                 // Arena 分配器
+    TypeChecker *checker;         // 类型检查器
+} MacroExpandContext;
+
+// 在绑定中查找参数
+static ASTNode *find_param_binding(MacroExpandContext *ctx, const char *name) {
+    if (ctx == NULL || ctx->bindings == NULL || name == NULL) return NULL;
+    for (int i = 0; i < ctx->binding_count; i++) {
+        if (ctx->bindings[i].param_name != NULL && strcmp(ctx->bindings[i].param_name, name) == 0) {
+            return ctx->bindings[i].arg_ast;
+        }
+    }
+    return NULL;
+}
+
+// 辅助函数：复制字符串到 Arena
+static const char *macro_strdup(Arena *arena, const char *str) {
+    if (arena == NULL || str == NULL) return NULL;
+    size_t len = strlen(str) + 1;
+    char *copy = (char *)arena_alloc(arena, len);
+    if (copy != NULL) {
+        memcpy(copy, str, len);
+    }
+    return copy;
+}
+
+// 前向声明
+static ASTNode *deep_copy_ast(ASTNode *node, MacroExpandContext *ctx);
+static int64_t macro_eval_expr(ASTNode *expr, MacroExpandContext *ctx, int *success);
+static ASTNode *create_number_literal(int64_t value, Arena *arena, int line, int column);
+
+// 编译时求值表达式（用于 @mc_eval）
+static int64_t macro_eval_expr(ASTNode *expr, MacroExpandContext *ctx, int *success) {
+    *success = 0;
+    if (expr == NULL) return 0;
+    
+    // 如果是标识符，检查是否是宏参数
+    if (expr->type == AST_IDENTIFIER && expr->data.identifier.name != NULL) {
+        ASTNode *arg = find_param_binding(ctx, expr->data.identifier.name);
+        if (arg != NULL) {
+            return macro_eval_expr(arg, ctx, success);
+        }
+        // 不是宏参数，无法求值
+        return 0;
+    }
+    
+    switch (expr->type) {
+        case AST_NUMBER:
+            *success = 1;
+            return (int64_t)expr->data.number.value;
+        case AST_BOOL:
+            *success = 1;
+            return expr->data.bool_literal.value ? 1 : 0;
+        case AST_BINARY_EXPR: {
+            int left_ok = 0, right_ok = 0;
+            int64_t left = macro_eval_expr(expr->data.binary_expr.left, ctx, &left_ok);
+            int64_t right = macro_eval_expr(expr->data.binary_expr.right, ctx, &right_ok);
+            if (!left_ok || !right_ok) return 0;
+            *success = 1;
+            switch (expr->data.binary_expr.op) {
+                case TOKEN_PLUS: return left + right;
+                case TOKEN_MINUS: return left - right;
+                case TOKEN_ASTERISK: return left * right;
+                case TOKEN_SLASH: return right != 0 ? left / right : 0;
+                case TOKEN_PERCENT: return right != 0 ? left % right : 0;
+                case TOKEN_LESS: return left < right ? 1 : 0;
+                case TOKEN_GREATER: return left > right ? 1 : 0;
+                case TOKEN_LESS_EQUAL: return left <= right ? 1 : 0;
+                case TOKEN_GREATER_EQUAL: return left >= right ? 1 : 0;
+                case TOKEN_EQUAL: return left == right ? 1 : 0;
+                case TOKEN_NOT_EQUAL: return left != right ? 1 : 0;
+                case TOKEN_LOGICAL_AND: return (left && right) ? 1 : 0;
+                case TOKEN_LOGICAL_OR: return (left || right) ? 1 : 0;
+                default: *success = 0; return 0;
+            }
+        }
+        case AST_UNARY_EXPR: {
+            int operand_ok = 0;
+            int64_t operand = macro_eval_expr(expr->data.unary_expr.operand, ctx, &operand_ok);
+            if (!operand_ok) return 0;
+            *success = 1;
+            switch (expr->data.unary_expr.op) {
+                case TOKEN_MINUS: return -operand;
+                case TOKEN_EXCLAMATION: return operand ? 0 : 1;
+                default: *success = 0; return 0;
+            }
+        }
+        default:
+            return 0;
+    }
+}
+
+// 创建数字字面量 AST 节点
+static ASTNode *create_number_literal(int64_t value, Arena *arena, int line, int column) {
+    ASTNode *node = ast_new_node(AST_NUMBER, line, column, arena, NULL);
+    if (node == NULL) return NULL;
+    node->data.number.value = (int)value;
+    return node;
+}
+
+// 深拷贝 AST 节点（支持参数替换）
+static ASTNode *deep_copy_ast(ASTNode *node, MacroExpandContext *ctx) {
+    if (node == NULL || ctx == NULL || ctx->arena == NULL) return NULL;
+    
+    // 如果是标识符，检查是否是宏参数
+    if (node->type == AST_IDENTIFIER && node->data.identifier.name != NULL) {
+        ASTNode *arg = find_param_binding(ctx, node->data.identifier.name);
+        if (arg != NULL) {
+            // 参数引用，递归拷贝实参 AST（不再应用参数替换，避免无限递归）
+            MacroExpandContext no_param_ctx = { NULL, 0, ctx->arena, ctx->checker };
+            return deep_copy_ast(arg, &no_param_ctx);
+        }
+    }
+    
+    // 创建新节点
+    ASTNode *copy = ast_new_node(node->type, node->line, node->column, ctx->arena, node->filename);
+    if (copy == NULL) return NULL;
+    
+    // 根据节点类型拷贝数据
+    switch (node->type) {
+        case AST_NUMBER:
+            copy->data.number.value = node->data.number.value;
+            break;
+        case AST_FLOAT:
+            copy->data.float_literal.value = node->data.float_literal.value;
+            break;
+        case AST_BOOL:
+            copy->data.bool_literal.value = node->data.bool_literal.value;
+            break;
+        case AST_STRING:
+            copy->data.string_literal.value = node->data.string_literal.value ? 
+                macro_strdup(ctx->arena, node->data.string_literal.value) : NULL;
+            break;
+        case AST_IDENTIFIER:
+            copy->data.identifier.name = node->data.identifier.name ?
+                macro_strdup(ctx->arena, node->data.identifier.name) : NULL;
+            break;
+        case AST_BINARY_EXPR:
+            copy->data.binary_expr.op = node->data.binary_expr.op;
+            copy->data.binary_expr.left = deep_copy_ast(node->data.binary_expr.left, ctx);
+            copy->data.binary_expr.right = deep_copy_ast(node->data.binary_expr.right, ctx);
+            break;
+        case AST_UNARY_EXPR:
+            copy->data.unary_expr.op = node->data.unary_expr.op;
+            copy->data.unary_expr.operand = deep_copy_ast(node->data.unary_expr.operand, ctx);
+            break;
+        case AST_CALL_EXPR:
+            copy->data.call_expr.callee = deep_copy_ast(node->data.call_expr.callee, ctx);
+            copy->data.call_expr.arg_count = node->data.call_expr.arg_count;
+            copy->data.call_expr.has_ellipsis_forward = node->data.call_expr.has_ellipsis_forward;
+            if (node->data.call_expr.arg_count > 0 && node->data.call_expr.args != NULL) {
+                copy->data.call_expr.args = (ASTNode **)arena_alloc(ctx->arena, 
+                    sizeof(ASTNode *) * (size_t)node->data.call_expr.arg_count);
+                if (copy->data.call_expr.args != NULL) {
+                    for (int i = 0; i < node->data.call_expr.arg_count; i++) {
+                        copy->data.call_expr.args[i] = deep_copy_ast(node->data.call_expr.args[i], ctx);
+                    }
+                }
+            }
+            break;
+        case AST_MEMBER_ACCESS:
+            copy->data.member_access.object = deep_copy_ast(node->data.member_access.object, ctx);
+            copy->data.member_access.field_name = node->data.member_access.field_name ?
+                macro_strdup(ctx->arena, node->data.member_access.field_name) : NULL;
+            break;
+        case AST_ARRAY_ACCESS:
+            copy->data.array_access.array = deep_copy_ast(node->data.array_access.array, ctx);
+            copy->data.array_access.index = deep_copy_ast(node->data.array_access.index, ctx);
+            break;
+        case AST_STRUCT_INIT:
+            copy->data.struct_init.struct_name = node->data.struct_init.struct_name ?
+                macro_strdup(ctx->arena, node->data.struct_init.struct_name) : NULL;
+            copy->data.struct_init.field_count = node->data.struct_init.field_count;
+            if (node->data.struct_init.field_count > 0) {
+                copy->data.struct_init.field_names = (const char **)arena_alloc(ctx->arena,
+                    sizeof(const char *) * (size_t)node->data.struct_init.field_count);
+                copy->data.struct_init.field_values = (ASTNode **)arena_alloc(ctx->arena,
+                    sizeof(ASTNode *) * (size_t)node->data.struct_init.field_count);
+                if (copy->data.struct_init.field_names && copy->data.struct_init.field_values) {
+                    for (int i = 0; i < node->data.struct_init.field_count; i++) {
+                        copy->data.struct_init.field_names[i] = node->data.struct_init.field_names[i] ?
+                            macro_strdup(ctx->arena, node->data.struct_init.field_names[i]) : NULL;
+                        copy->data.struct_init.field_values[i] = deep_copy_ast(node->data.struct_init.field_values[i], ctx);
+                    }
+                }
+            }
+            break;
+        case AST_ARRAY_LITERAL:
+            copy->data.array_literal.element_count = node->data.array_literal.element_count;
+            copy->data.array_literal.repeat_count_expr = deep_copy_ast(node->data.array_literal.repeat_count_expr, ctx);
+            if (node->data.array_literal.element_count > 0 && node->data.array_literal.elements != NULL) {
+                copy->data.array_literal.elements = (ASTNode **)arena_alloc(ctx->arena,
+                    sizeof(ASTNode *) * (size_t)node->data.array_literal.element_count);
+                if (copy->data.array_literal.elements != NULL) {
+                    for (int i = 0; i < node->data.array_literal.element_count; i++) {
+                        copy->data.array_literal.elements[i] = deep_copy_ast(node->data.array_literal.elements[i], ctx);
+                    }
+                }
+            }
+            break;
+        case AST_TUPLE_LITERAL:
+            copy->data.tuple_literal.element_count = node->data.tuple_literal.element_count;
+            if (node->data.tuple_literal.element_count > 0 && node->data.tuple_literal.elements != NULL) {
+                copy->data.tuple_literal.elements = (ASTNode **)arena_alloc(ctx->arena,
+                    sizeof(ASTNode *) * (size_t)node->data.tuple_literal.element_count);
+                if (copy->data.tuple_literal.elements != NULL) {
+                    for (int i = 0; i < node->data.tuple_literal.element_count; i++) {
+                        copy->data.tuple_literal.elements[i] = deep_copy_ast(node->data.tuple_literal.elements[i], ctx);
+                    }
+                }
+            }
+            break;
+        case AST_CAST_EXPR:
+            copy->data.cast_expr.expr = deep_copy_ast(node->data.cast_expr.expr, ctx);
+            copy->data.cast_expr.target_type = deep_copy_ast(node->data.cast_expr.target_type, ctx);
+            copy->data.cast_expr.is_force_cast = node->data.cast_expr.is_force_cast;
+            break;
+        case AST_SIZEOF:
+        case AST_ALIGNOF:
+            copy->data.sizeof_expr.target = deep_copy_ast(node->data.sizeof_expr.target, ctx);
+            break;
+        case AST_LEN:
+            copy->data.len_expr.array = deep_copy_ast(node->data.len_expr.array, ctx);
+            break;
+        case AST_INT_LIMIT:
+            copy->data.int_limit.is_max = node->data.int_limit.is_max;
+            break;
+        case AST_TRY_EXPR:
+            copy->data.try_expr.operand = deep_copy_ast(node->data.try_expr.operand, ctx);
+            break;
+        case AST_CATCH_EXPR:
+            copy->data.catch_expr.operand = deep_copy_ast(node->data.catch_expr.operand, ctx);
+            copy->data.catch_expr.err_name = node->data.catch_expr.err_name ?
+                macro_strdup(ctx->arena, node->data.catch_expr.err_name) : NULL;
+            copy->data.catch_expr.catch_block = deep_copy_ast(node->data.catch_expr.catch_block, ctx);
+            break;
+        case AST_ERROR_VALUE:
+            copy->data.error_value.name = node->data.error_value.name ?
+                macro_strdup(ctx->arena, node->data.error_value.name) : NULL;
+            break;
+        case AST_TYPE_NAMED:
+            copy->data.type_named.name = node->data.type_named.name ?
+                macro_strdup(ctx->arena, node->data.type_named.name) : NULL;
+            break;
+        case AST_TYPE_POINTER:
+            copy->data.type_pointer.pointed_type = deep_copy_ast(node->data.type_pointer.pointed_type, ctx);
+            copy->data.type_pointer.is_ffi_pointer = node->data.type_pointer.is_ffi_pointer;
+            break;
+        case AST_TYPE_ARRAY:
+            copy->data.type_array.element_type = deep_copy_ast(node->data.type_array.element_type, ctx);
+            copy->data.type_array.size_expr = deep_copy_ast(node->data.type_array.size_expr, ctx);
+            break;
+        case AST_MC_CODE:
+            copy->data.mc_code.operand = deep_copy_ast(node->data.mc_code.operand, ctx);
+            break;
+        case AST_MC_AST:
+            copy->data.mc_ast.operand = deep_copy_ast(node->data.mc_ast.operand, ctx);
+            break;
+        case AST_MC_EVAL: {
+            // 对 @mc_eval 进行编译时求值
+            int success = 0;
+            int64_t value = macro_eval_expr(node->data.mc_eval.operand, ctx, &success);
+            if (success) {
+                // 求值成功，替换为数字字面量
+                ASTNode *num = create_number_literal(value, ctx->arena, node->line, node->column);
+                if (num != NULL) {
+                    return num;
+                }
+            }
+            // 求值失败，保留原节点
+            copy->data.mc_eval.operand = deep_copy_ast(node->data.mc_eval.operand, ctx);
+            break;
+        }
+        case AST_MC_ERROR:
+            copy->data.mc_error.operand = deep_copy_ast(node->data.mc_error.operand, ctx);
+            break;
+        case AST_MC_INTERP: {
+            // 宏插值 ${expr}：检查内部表达式是否是标识符，如果是则替换为参数 AST
+            ASTNode *operand = node->data.mc_interp.operand;
+            if (operand != NULL && operand->type == AST_IDENTIFIER && operand->data.identifier.name != NULL) {
+                const char *name = operand->data.identifier.name;
+                // 查找是否匹配宏参数
+                for (int i = 0; i < ctx->binding_count; i++) {
+                    if (ctx->bindings[i].param_name != NULL && 
+                        strcmp(ctx->bindings[i].param_name, name) == 0 &&
+                        ctx->bindings[i].arg_ast != NULL) {
+                        // 匹配参数，返回参数 AST 的深拷贝
+                        return deep_copy_ast(ctx->bindings[i].arg_ast, ctx);
+                    }
+                }
+            }
+            // 不是标识符或不匹配参数，递归处理内部表达式
+            copy->data.mc_interp.operand = deep_copy_ast(operand, ctx);
+            break;
+        }
+        case AST_BLOCK:
+            copy->data.block.stmt_count = node->data.block.stmt_count;
+            if (node->data.block.stmt_count > 0 && node->data.block.stmts != NULL) {
+                copy->data.block.stmts = (ASTNode **)arena_alloc(ctx->arena,
+                    sizeof(ASTNode *) * (size_t)node->data.block.stmt_count);
+                if (copy->data.block.stmts != NULL) {
+                    for (int i = 0; i < node->data.block.stmt_count; i++) {
+                        copy->data.block.stmts[i] = deep_copy_ast(node->data.block.stmts[i], ctx);
+                    }
+                }
+            }
+            break;
+        case AST_VAR_DECL:
+            copy->data.var_decl.name = node->data.var_decl.name ?
+                macro_strdup(ctx->arena, node->data.var_decl.name) : NULL;
+            copy->data.var_decl.type = deep_copy_ast(node->data.var_decl.type, ctx);
+            copy->data.var_decl.init = deep_copy_ast(node->data.var_decl.init, ctx);
+            copy->data.var_decl.is_const = node->data.var_decl.is_const;
+            break;
+        case AST_IF_STMT:
+            copy->data.if_stmt.condition = deep_copy_ast(node->data.if_stmt.condition, ctx);
+            copy->data.if_stmt.then_branch = deep_copy_ast(node->data.if_stmt.then_branch, ctx);
+            copy->data.if_stmt.else_branch = deep_copy_ast(node->data.if_stmt.else_branch, ctx);
+            break;
+        case AST_WHILE_STMT:
+            copy->data.while_stmt.condition = deep_copy_ast(node->data.while_stmt.condition, ctx);
+            copy->data.while_stmt.body = deep_copy_ast(node->data.while_stmt.body, ctx);
+            break;
+        case AST_RETURN_STMT:
+            copy->data.return_stmt.expr = deep_copy_ast(node->data.return_stmt.expr, ctx);
+            break;
+        case AST_EXPR_STMT:
+            copy->data.binary_expr.left = deep_copy_ast(node->data.binary_expr.left, ctx);
+            break;
+        case AST_ASSIGN:
+            copy->data.assign.dest = deep_copy_ast(node->data.assign.dest, ctx);
+            copy->data.assign.src = deep_copy_ast(node->data.assign.src, ctx);
+            break;
+        default:
+            // 对于其他节点类型，直接复制节点数据
+            copy->data = node->data;
+            break;
+    }
+    
+    return copy;
+}
+
+// 创建字符串字面量 AST 节点
+static ASTNode *create_string_literal(const char *value, Arena *arena, int line, int column) {
+    ASTNode *node = ast_new_node(AST_STRING, line, column, arena, NULL);
+    if (node == NULL) return NULL;
+    node->data.string_literal.value = value ? macro_strdup(arena, value) : NULL;
+    return node;
+}
+
+// 处理宏内置函数（@mc_eval, @mc_error, @mc_get_env），返回展开后的 AST
+// 返回：展开后的 AST 节点，失败返回 NULL 且 *has_error = 1
+static ASTNode *process_macro_builtins(ASTNode *expr, MacroExpandContext *ctx, int *has_error) {
+    *has_error = 0;
+    if (expr == NULL) return NULL;
+    
+    // 处理 @mc_eval：编译时求值
+    if (expr->type == AST_MC_EVAL) {
+        int success = 0;
+        int64_t value = macro_eval_expr(expr->data.mc_eval.operand, ctx, &success);
+        if (!success) {
+            if (ctx->checker) {
+                checker_report_error(ctx->checker, expr, "@mc_eval: 表达式不是编译期常量");
+            }
+            *has_error = 1;
+            return NULL;
+        }
+        return create_number_literal(value, ctx->arena, expr->line, expr->column);
+    }
+    
+    // 处理 @mc_error：编译时错误
+    if (expr->type == AST_MC_ERROR) {
+        if (ctx->checker && expr->data.mc_error.operand != NULL) {
+            const char *msg = "宏编译时错误";
+            if (expr->data.mc_error.operand->type == AST_STRING && 
+                expr->data.mc_error.operand->data.string_literal.value != NULL) {
+                msg = expr->data.mc_error.operand->data.string_literal.value;
+            }
+            checker_report_error(ctx->checker, expr, msg);
+        }
+        *has_error = 1;
+        return NULL;
+    }
+    
+    // 处理 @mc_get_env：读取环境变量（仅宏体内）
+    if (expr->type == AST_IDENTIFIER && expr->data.identifier.name != NULL &&
+        strncmp(expr->data.identifier.name, "mc_get_env", 10) == 0) {
+        // 这种情况不会发生，@mc_get_env 应该是 AST_CALL_EXPR
+    }
+    
+    return expr;
+}
+
+// 处理 @mc_get_env 调用
+static ASTNode *handle_mc_get_env(ASTNode *call_node, MacroExpandContext *ctx) {
+    if (call_node == NULL || call_node->type != AST_CALL_EXPR) return NULL;
+    ASTNode *callee = call_node->data.call_expr.callee;
+    if (callee == NULL || callee->type != AST_IDENTIFIER) return NULL;
+    if (callee->data.identifier.name == NULL || strcmp(callee->data.identifier.name, "mc_get_env") != 0) return NULL;
+    
+    // 获取环境变量名参数
+    if (call_node->data.call_expr.arg_count != 1) {
+        if (ctx->checker) {
+            checker_report_error(ctx->checker, call_node, "@mc_get_env 需要一个字符串参数");
+        }
+        return NULL;
+    }
+    
+    ASTNode *arg = call_node->data.call_expr.args[0];
+    if (arg == NULL || arg->type != AST_STRING || arg->data.string_literal.value == NULL) {
+        if (ctx->checker) {
+            checker_report_error(ctx->checker, call_node, "@mc_get_env 参数必须是字符串常量");
+        }
+        return NULL;
+    }
+    
+    // 读取环境变量
+    const char *env_name = arg->data.string_literal.value;
+    const char *env_value = getenv(env_name);
+    if (env_value == NULL) env_value = "";
+    
+    // 返回字符串字面量
+    return create_string_literal(env_value, ctx->arena, call_node->line, call_node->column);
+}
+
+// 从宏体提取输出的 AST（支持 @mc_code(@mc_ast(expr))、语法糖和宏内置函数）
 // 返回输出的 AST 节点，失败返回 NULL
-static ASTNode *extract_macro_expr_output(ASTNode *body, TypeChecker *checker) {
-    (void)checker;
+static ASTNode *extract_macro_output(ASTNode *body, MacroExpandContext *ctx, const char *return_tag) {
     if (body == NULL || body->type != AST_BLOCK) return NULL;
     ASTNode **stmts = body->data.block.stmts;
     int count = body->data.block.stmt_count;
     if (stmts == NULL || count <= 0) return NULL;
-    /* 查找最后一个产生输出的语句（表达式语句直接为表达式节点，或 AST_EXPR_STMT 包装） */
+    
+    // 处理宏体中的变量声明和 @mc_eval/@mc_error/@mc_get_env
+    // 建立局部变量绑定（用于 const x = @mc_eval(...) 等）
+    MacroParamBinding local_bindings[64];
+    int local_binding_count = 0;
+    
+    for (int i = 0; i < count; i++) {
+        ASTNode *s = stmts[i];
+        if (s == NULL) continue;
+        
+        // 处理 const 声明
+        if (s->type == AST_VAR_DECL && s->data.var_decl.is_const && 
+            s->data.var_decl.name != NULL && s->data.var_decl.init != NULL) {
+            ASTNode *init = s->data.var_decl.init;
+            
+            // 处理 @mc_eval
+            if (init->type == AST_MC_EVAL) {
+                int has_error = 0;
+                ASTNode *result = process_macro_builtins(init, ctx, &has_error);
+                if (has_error || result == NULL) return NULL;
+                // 添加到局部绑定
+                if (local_binding_count < 64) {
+                    local_bindings[local_binding_count].param_name = s->data.var_decl.name;
+                    local_bindings[local_binding_count].arg_ast = result;
+                    local_binding_count++;
+                }
+                continue;
+            }
+            
+            // 处理 @mc_get_env 调用
+            if (init->type == AST_CALL_EXPR) {
+                ASTNode *callee = init->data.call_expr.callee;
+                if (callee != NULL && callee->type == AST_IDENTIFIER && 
+                    callee->data.identifier.name != NULL) {
+                    // 检查是否为内置 @ 函数调用
+                    ASTNode *env_result = handle_mc_get_env(init, ctx);
+                    if (env_result != NULL) {
+                        if (local_binding_count < 64) {
+                            local_bindings[local_binding_count].param_name = s->data.var_decl.name;
+                            local_bindings[local_binding_count].arg_ast = env_result;
+                            local_binding_count++;
+                        }
+                        continue;
+                    }
+                }
+            }
+        }
+        
+        // 处理 @mc_error
+        if (s->type == AST_EXPR_STMT || s->type == AST_MC_ERROR) {
+            ASTNode *expr = s;
+            if (s->type == AST_EXPR_STMT && s->data.binary_expr.left != NULL) {
+                expr = s->data.binary_expr.left;
+            }
+            if (expr->type == AST_MC_ERROR) {
+                int has_error = 0;
+                process_macro_builtins(expr, ctx, &has_error);
+                if (has_error) return NULL;
+            }
+        }
+    }
+    
+    // 创建合并的上下文（包含宏参数和局部变量）
+    int total_bindings = ctx->binding_count + local_binding_count;
+    MacroParamBinding *all_bindings = NULL;
+    if (total_bindings > 0) {
+        all_bindings = (MacroParamBinding *)arena_alloc(ctx->arena, sizeof(MacroParamBinding) * total_bindings);
+        if (all_bindings != NULL) {
+            for (int i = 0; i < ctx->binding_count; i++) {
+                all_bindings[i] = ctx->bindings[i];
+            }
+            for (int i = 0; i < local_binding_count; i++) {
+                all_bindings[ctx->binding_count + i] = local_bindings[i];
+            }
+        }
+    }
+    MacroExpandContext merged_ctx = { all_bindings, total_bindings, ctx->arena, ctx->checker };
+    
+    /* 查找最后一个产生输出的语句 */
     ASTNode *last_output = NULL;
     for (int i = count - 1; i >= 0; i--) {
         ASTNode *s = stmts[i];
         if (s == NULL) continue;
-        ASTNode *expr = s;
-        if (s->type == AST_EXPR_STMT && s->data.binary_expr.left != NULL) {
-            expr = s->data.binary_expr.left;
-        }
-        if (expr->type == AST_MC_CODE && expr->data.mc_code.operand != NULL) {
-            ASTNode *arg = expr->data.mc_code.operand;
+        
+        // 注意：解析器不创建 AST_EXPR_STMT 节点，表达式语句直接是表达式节点
+        // 所以 s 可能直接是 AST_BINARY_EXPR 等表达式类型
+        
+        // @mc_code(@mc_ast(...)) 模式
+        if (s->type == AST_MC_CODE && s->data.mc_code.operand != NULL) {
+            ASTNode *arg = s->data.mc_code.operand;
             if (arg->type == AST_MC_AST && arg->data.mc_ast.operand != NULL) {
-                last_output = arg->data.mc_ast.operand;
+                last_output = deep_copy_ast(arg->data.mc_ast.operand, &merged_ctx);
             } else {
-                last_output = arg;
+                last_output = deep_copy_ast(arg, &merged_ctx);
             }
             break;
         }
+        
+        // 语法糖：最后一个表达式自动包装为 @mc_code(@mc_ast(...))
+        if (return_tag != NULL && strcmp(return_tag, "expr") == 0) {
+            // 跳过变量声明语句
+            if (s->type == AST_VAR_DECL) continue;
+            
+            // 跳过控制流语句（不是表达式）
+            if (s->type == AST_IF_STMT || s->type == AST_WHILE_STMT || 
+                s->type == AST_FOR_STMT || s->type == AST_RETURN_STMT ||
+                s->type == AST_BREAK_STMT || s->type == AST_CONTINUE_STMT ||
+                s->type == AST_BLOCK) continue;
+            
+            // 对于表达式节点，直接作为输出
+            // 由于解析器不创建 AST_EXPR_STMT，表达式语句直接是表达式类型
+            if (s->type == AST_NUMBER || s->type == AST_BOOL || s->type == AST_STRING ||
+                s->type == AST_IDENTIFIER || s->type == AST_BINARY_EXPR || 
+                s->type == AST_UNARY_EXPR || s->type == AST_CALL_EXPR ||
+                s->type == AST_MEMBER_ACCESS || s->type == AST_ARRAY_ACCESS ||
+                s->type == AST_STRUCT_INIT || s->type == AST_ARRAY_LITERAL) {
+                if (s->type != AST_MC_CODE) {
+                    last_output = deep_copy_ast(s, &merged_ctx);
+                    break;
+                }
+            }
+        }
+        
+        // stmt 返回类型的语法糖
+        if (return_tag != NULL && strcmp(return_tag, "stmt") == 0) {
+            // 跳过变量声明语句（这些是宏内部的临时变量）
+            if (s->type == AST_VAR_DECL) continue;
+            
+            // 返回整个语句或块
+            last_output = deep_copy_ast(s, &merged_ctx);
+            break;
+        }
     }
+    
     return last_output;
 }
+
 
 // 递归展开宏调用，node_ptr 为指向当前节点的指针（便于替换）
 static void expand_macros_in_node(TypeChecker *checker, ASTNode **node_ptr) {
@@ -4489,28 +5042,91 @@ static void expand_macros_in_node(TypeChecker *checker, ASTNode **node_ptr) {
             const char *name = callee->data.identifier.name;
             ASTNode *macro_decl = find_macro_decl_from_program(checker->program_node, name);
             if (macro_decl != NULL) {
-                if (macro_decl->data.macro_decl.param_count != 0) {
+                // 获取返回标签
+                const char *return_tag = macro_decl->data.macro_decl.return_tag;
+                
+                // 检查返回标签是否支持
+                if (return_tag == NULL || 
+                    (strcmp(return_tag, "expr") != 0 && strcmp(return_tag, "stmt") != 0)) {
+                    // struct 和 type 返回类型暂不支持
+                    if (return_tag != NULL && 
+                        (strcmp(return_tag, "struct") == 0 || strcmp(return_tag, "type") == 0)) {
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "宏 %s 的 %s 返回类型暂不支持", name, return_tag);
+                        checker_report_error(checker, node, buf);
+                        return;
+                    }
                     char buf[128];
-                    snprintf(buf, sizeof(buf), "宏 %s 带参数暂不支持", name);
+                    snprintf(buf, sizeof(buf), "宏 %s 返回类型无效 (return_tag: %s)", 
+                            name, return_tag ? return_tag : "NULL");
                     checker_report_error(checker, node, buf);
                     return;
                 }
-                if (macro_decl->data.macro_decl.return_tag == NULL || 
-                    strcmp(macro_decl->data.macro_decl.return_tag, "expr") != 0) {
+                
+                // 检查参数数量是否匹配
+                int param_count = macro_decl->data.macro_decl.param_count;
+                int arg_count = node->data.call_expr.arg_count;
+                if (param_count != arg_count) {
                     char buf[128];
-                    snprintf(buf, sizeof(buf), "宏 %s 仅支持 expr 返回 (return_tag: %s)", 
-                            name, macro_decl->data.macro_decl.return_tag ? macro_decl->data.macro_decl.return_tag : "NULL");
+                    snprintf(buf, sizeof(buf), "宏 %s 期望 %d 个参数，但得到 %d 个", 
+                            name, param_count, arg_count);
                     checker_report_error(checker, node, buf);
                     return;
                 }
+                
+                // 建立参数绑定
+                MacroParamBinding *bindings = NULL;
+                if (param_count > 0) {
+                    bindings = (MacroParamBinding *)arena_alloc(checker->arena, 
+                        sizeof(MacroParamBinding) * param_count);
+                    if (bindings == NULL) {
+                        checker_report_error(checker, node, "宏展开失败：内存分配失败");
+                        return;
+                    }
+                    for (int i = 0; i < param_count; i++) {
+                        ASTNode *param = macro_decl->data.macro_decl.params[i];
+                        if (param != NULL && param->type == AST_VAR_DECL && 
+                            param->data.var_decl.name != NULL) {
+                            bindings[i].param_name = param->data.var_decl.name;
+                            bindings[i].arg_ast = node->data.call_expr.args[i];
+                        } else {
+                            bindings[i].param_name = NULL;
+                            bindings[i].arg_ast = NULL;
+                        }
+                    }
+                }
+                
+                // 创建展开上下文
+                MacroExpandContext ctx = {
+                    bindings,
+                    param_count,
+                    checker->arena,
+                    checker
+                };
+                
+                // 展开宏体
                 ASTNode *body = macro_decl->data.macro_decl.body;
-                ASTNode *expanded = extract_macro_expr_output(body, checker);
+                #ifdef DEBUG_MACRO
+                fprintf(stderr, "[DEBUG] 展开宏 %s, body type=%d, body stmt_count=%d\n", 
+                        name, body ? body->type : -1, 
+                        (body && body->type == AST_BLOCK) ? body->data.block.stmt_count : -1);
+                if (body && body->type == AST_BLOCK && body->data.block.stmt_count > 0) {
+                    ASTNode *last = body->data.block.stmts[body->data.block.stmt_count - 1];
+                    fprintf(stderr, "[DEBUG] 最后一条语句类型: %d\n", last ? last->type : -1);
+                }
+                #endif
+                ASTNode *expanded = extract_macro_output(body, &ctx, return_tag);
                 if (expanded == NULL) {
                     char buf[128];
-                    snprintf(buf, sizeof(buf), "宏 %s 未产生有效的 expr 输出", name);
+                    snprintf(buf, sizeof(buf), "宏 %s 未产生有效的 %s 输出 (节点类型: %d)", 
+                            name, return_tag, node->type);
                     checker_report_error(checker, node, buf);
                     return;
                 }
+                
+                // 递归展开结果中可能存在的宏调用
+                expand_macros_in_node(checker, &expanded);
+                
                 *node_ptr = expanded;
                 node = expanded;
             }

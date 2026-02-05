@@ -1,0 +1,317 @@
+// 测试宏插值 ${} 语法
+// 在 @mc_ast 内部使用 ${var} 引用宏参数
+
+// ==================== 基础测试 ====================
+
+// 简单插值：直接引用参数
+mc identity(x: expr) expr {
+    @mc_code(@mc_ast(${x}));
+}
+
+// 插值用于表达式内部
+mc add_one(x: expr) expr {
+    @mc_code(@mc_ast(${x} + 1));
+}
+
+// 多次使用同一个插值
+mc double_val(x: expr) expr {
+    @mc_code(@mc_ast(${x} + ${x}));
+}
+
+// ==================== 复杂测试 ====================
+
+// 多参数宏：两个参数相加
+mc add(a: expr, b: expr) expr {
+    @mc_code(@mc_ast(${a} + ${b}));
+}
+
+// 多参数宏：三个参数
+mc sum3(a: expr, b: expr, c: expr) expr {
+    @mc_code(@mc_ast(${a} + ${b} + ${c}));
+}
+
+// 复杂表达式：乘法和加法组合
+mc mul_add(a: expr, b: expr, c: expr) expr {
+    @mc_code(@mc_ast(${a} * ${b} + ${c}));
+}
+
+// 带括号的复杂表达式
+mc weighted_sum(x: expr, y: expr, w: expr) expr {
+    @mc_code(@mc_ast((${x} + ${y}) * ${w}));
+}
+
+// 比较表达式
+mc is_greater(a: expr, b: expr) expr {
+    @mc_code(@mc_ast(${a} > ${b}));
+}
+
+// 逻辑表达式
+mc both_positive(a: expr, b: expr) expr {
+    @mc_code(@mc_ast(${a} > 0 && ${b} > 0));
+}
+
+// 条件表达式内使用插值（返回语句）
+mc check_range(val: expr, min: expr, max: expr) stmt {
+    if ${val} < ${min} || ${val} > ${max} {
+        return 1;
+    }
+}
+
+// 嵌套宏调用：使用插值传递给另一个宏
+mc double_then_add(x: expr, y: expr) expr {
+    @mc_code(@mc_ast(add(${x} + ${x}, ${y})));
+}
+
+// ==================== 复杂代码结构 ====================
+
+// 复杂表达式：四参数运算
+mc complex_calc(a: expr, b: expr, c: expr, d: expr) expr {
+    @mc_code(@mc_ast((${a} + ${b}) * (${c} - ${d})));
+}
+
+// 位运算插值
+mc bitwise_or(a: expr, b: expr) expr {
+    @mc_code(@mc_ast(${a} | ${b}));
+}
+
+mc bitwise_and(a: expr, b: expr) expr {
+    @mc_code(@mc_ast(${a} & ${b}));
+}
+
+mc bitwise_xor(a: expr, b: expr) expr {
+    @mc_code(@mc_ast(${a} ^ ${b}));
+}
+
+mc shift_left(val: expr, n: expr) expr {
+    @mc_code(@mc_ast(${val} << ${n}));
+}
+
+mc shift_right(val: expr, n: expr) expr {
+    @mc_code(@mc_ast(${val} >> ${n}));
+}
+
+// 条件选择（使用乘法模拟）
+mc select_by_flag(flag: expr, a: expr, b: expr) expr {
+    @mc_code(@mc_ast(${flag} * ${a} + (1 - ${flag}) * ${b}));
+}
+
+// 生成带条件检查的 stmt（使用语法糖）
+mc assert_positive(val: expr) stmt {
+    if ${val} <= 0 {
+        return 100;
+    }
+}
+
+// 生成赋值语句
+mc assign_sum(target: expr, a: expr, b: expr) stmt {
+    ${target} = ${a} + ${b};
+}
+
+// 多层嵌套运算
+mc nested_calc(a: expr, b: expr, c: expr) expr {
+    @mc_code(@mc_ast(${a} * ${b} * ${c} + ${a} + ${b} + ${c}));
+}
+
+// 取反
+mc negate_val(x: expr) expr {
+    @mc_code(@mc_ast(0 - ${x}));
+}
+
+// 绝对值风格（使用位运算技巧：需要假设 32 位整数）
+// abs(x) = (x + (x >> 31)) ^ (x >> 31)
+mc abs_approx(x: expr) expr {
+    @mc_code(@mc_ast((${x} + (${x} >> 31)) ^ (${x} >> 31)));
+}
+
+// 最大值（两数）
+mc max_of_two(a: expr, b: expr) expr {
+    @mc_code(@mc_ast(${a} - ((${a} - ${b}) & ((${a} - ${b}) >> 31))));
+}
+
+// 最小值（两数）
+mc min_of_two(a: expr, b: expr) expr {
+    @mc_code(@mc_ast(${b} + ((${a} - ${b}) & ((${a} - ${b}) >> 31))));
+}
+
+// 平方
+mc square_val(x: expr) expr {
+    @mc_code(@mc_ast(${x} * ${x}));
+}
+
+// 立方
+mc cube_val(x: expr) expr {
+    @mc_code(@mc_ast(${x} * ${x} * ${x}));
+}
+
+// 检查是否为偶数
+mc is_even(x: expr) expr {
+    @mc_code(@mc_ast((${x} & 1) == 0));
+}
+
+// 检查是否为奇数
+mc is_odd(x: expr) expr {
+    @mc_code(@mc_ast((${x} & 1) == 1));
+}
+
+// ==================== 测试函数 ====================
+
+fn main() i32 {
+    // === 基础测试 ===
+    
+    // 测试 identity
+    const a: i32 = identity(42);
+    if a != 42 { return 1; }
+    
+    // 测试 add_one
+    const b: i32 = add_one(10);
+    if b != 11 { return 2; }
+    
+    // 测试 double_val
+    const c: i32 = double_val(5);
+    if c != 10 { return 3; }
+    
+    // === 多参数测试 ===
+    
+    // 测试 add (两参数)
+    const d: i32 = add(3, 7);
+    if d != 10 { return 4; }
+    
+    // 测试 sum3 (三参数)
+    const e: i32 = sum3(1, 2, 3);
+    if e != 6 { return 5; }
+    
+    // === 复杂表达式测试 ===
+    
+    // 测试 mul_add: 2 * 3 + 4 = 10
+    const f: i32 = mul_add(2, 3, 4);
+    if f != 10 { return 6; }
+    
+    // 测试 weighted_sum: (3 + 7) * 2 = 20
+    const g: i32 = weighted_sum(3, 7, 2);
+    if g != 20 { return 7; }
+    
+    // === 比较和逻辑表达式测试 ===
+    
+    // 测试 is_greater
+    const h1: bool = is_greater(10, 5);
+    if !h1 { return 8; }
+    
+    const h2: bool = is_greater(3, 8);
+    if h2 { return 9; }
+    
+    // 测试 both_positive
+    const i1: bool = both_positive(5, 3);
+    if !i1 { return 10; }
+    
+    const i2: bool = both_positive(-1, 3);
+    if i2 { return 11; }
+    
+    // === stmt 返回类型与插值 ===
+    
+    // 测试 check_range (值在范围内，不应返回)
+    const val: i32 = 50;
+    check_range(val, 0, 100);
+    
+    // === 嵌套宏调用测试 ===
+    
+    // 测试 double_then_add: add(5+5, 3) = add(10, 3) = 13
+    const j: i32 = double_then_add(5, 3);
+    if j != 13 { return 12; }
+    
+    // === 复杂代码结构测试 ===
+    
+    // 测试复杂运算: (10+5) * (8-3) = 15 * 5 = 75
+    const k: i32 = complex_calc(10, 5, 8, 3);
+    if k != 75 { return 13; }
+    
+    // 测试位运算 OR: 15 | 240 = 255
+    const l1: i32 = bitwise_or(15, 240);
+    if l1 != 255 { return 14; }
+    
+    // 测试位运算 AND: 255 & 15 = 15
+    const l2: i32 = bitwise_and(255, 15);
+    if l2 != 15 { return 15; }
+    
+    // 测试位运算 XOR: 255 ^ 15 = 240
+    const l3: i32 = bitwise_xor(255, 15);
+    if l3 != 240 { return 16; }
+    
+    // 测试左移
+    const m1: i32 = shift_left(1, 4);         // 1 << 4 = 16
+    if m1 != 16 { return 17; }
+    
+    // 测试右移
+    const m2: i32 = shift_right(256, 4);      // 256 >> 4 = 16
+    if m2 != 16 { return 18; }
+    
+    // 测试 select_by_flag (条件选择)
+    const n1: i32 = select_by_flag(1, 100, 200);  // flag=1: 1*100 + 0*200 = 100
+    if n1 != 100 { return 19; }
+    
+    const n2: i32 = select_by_flag(0, 100, 200);  // flag=0: 0*100 + 1*200 = 200
+    if n2 != 200 { return 20; }
+    
+    // 测试 assert_positive (条件检查 stmt)
+    assert_positive(10);  // 10 > 0, 不应返回
+    
+    // 测试 assign_sum (赋值语句生成)
+    var o: i32 = 0;
+    assign_sum(o, 15, 25);
+    if o != 40 { return 21; }
+    
+    // 测试多层嵌套运算: 2*3*4 + 2 + 3 + 4 = 24 + 9 = 33
+    const p: i32 = nested_calc(2, 3, 4);
+    if p != 33 { return 22; }
+    
+    // 测试取反
+    const q1: i32 = negate_val(10);
+    if q1 != -10 { return 23; }
+    
+    const q2: i32 = negate_val(-5);
+    if q2 != 5 { return 24; }
+    
+    // 测试绝对值近似
+    const r1: i32 = abs_approx(10);
+    if r1 != 10 { return 25; }
+    
+    const r2: i32 = abs_approx(-10);
+    if r2 != 10 { return 26; }
+    
+    // 测试 max
+    const s1: i32 = max_of_two(10, 20);
+    if s1 != 20 { return 27; }
+    
+    const s2: i32 = max_of_two(30, 15);
+    if s2 != 30 { return 28; }
+    
+    // 测试 min
+    const t1: i32 = min_of_two(10, 20);
+    if t1 != 10 { return 29; }
+    
+    const t2: i32 = min_of_two(30, 15);
+    if t2 != 15 { return 30; }
+    
+    // 测试平方
+    const u: i32 = square_val(7);  // 7*7 = 49
+    if u != 49 { return 31; }
+    
+    // 测试立方
+    const v: i32 = cube_val(3);    // 3*3*3 = 27
+    if v != 27 { return 32; }
+    
+    // 测试奇偶判断
+    const w1: bool = is_even(10);
+    if !w1 { return 33; }
+    
+    const w2: bool = is_even(7);
+    if w2 { return 34; }
+    
+    const w3: bool = is_odd(7);
+    if !w3 { return 35; }
+    
+    const w4: bool = is_odd(10);
+    if w4 { return 36; }
+    
+    return 0;
+}
+

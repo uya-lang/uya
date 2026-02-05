@@ -1,0 +1,14 @@
+// 测试 pattern 参数类型
+// 规范 25.2：pattern 参数类型用于接收模式
+
+mc with_pattern_param(p: pattern) expr {
+    @mc_code(@mc_ast(0));
+}
+
+fn main() i32 {
+    // 调用带 pattern 参数的宏
+    const x: i32 = with_pattern_param(_);
+    if x != 0 { return 1; }
+    return 0;
+}
+

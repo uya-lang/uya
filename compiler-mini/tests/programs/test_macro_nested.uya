@@ -1,0 +1,87 @@
+// 测试宏：嵌套调用和组合使用
+
+// 基础宏
+mc get_10() expr {
+    @mc_code(@mc_ast(10));
+}
+
+mc get_20() expr {
+    @mc_code(@mc_ast(20));
+}
+
+mc get_30() expr {
+    @mc_code(@mc_ast(30));
+}
+
+// 宏结果用于表达式
+fn add_macros() i32 {
+    return get_10() + get_20();
+}
+
+fn mul_macros() i32 {
+    return get_10() * get_30();
+}
+
+// 宏结果用于条件判断
+fn compare_macros() bool {
+    return get_10() < get_20();
+}
+
+// 宏结果用于数组索引
+fn use_macro_as_index() i32 {
+    var arr: [i32: 50] = [0: 50];
+    arr[10] = 100;
+    arr[20] = 200;
+    arr[30] = 300;
+    return arr[get_10()] + arr[get_20()] + arr[get_30()];
+}
+
+// 宏结果用于循环边界
+fn use_macro_in_loop() i32 {
+    var sum: i32 = 0;
+    var i: i32 = 0;
+    while i < get_10() {
+        sum = sum + i;
+        i = i + 1;
+    }
+    return sum;  // 0+1+2+...+9 = 45
+}
+
+// 宏结果用于 if 条件
+fn use_macro_in_if() i32 {
+    if get_10() < get_20() {
+        return get_30();
+    }
+    return 0;
+}
+
+// 多个宏组合在复杂表达式中
+fn complex_macro_expr() i32 {
+    return (get_10() + get_20()) * get_30() - get_10();  // (10+20)*30 - 10 = 900 - 10 = 890
+}
+
+fn main() i32 {
+    // 测试宏加法
+    if add_macros() != 30 { return 1; }
+    
+    // 测试宏乘法
+    if mul_macros() != 300 { return 2; }
+    
+    // 测试宏比较
+    if !compare_macros() { return 3; }
+    
+    // 测试宏作为数组索引
+    if use_macro_as_index() != 600 { return 4; }
+    
+    // 测试宏在循环中
+    if use_macro_in_loop() != 45 { return 5; }
+    
+    // 测试宏在 if 条件中
+    if use_macro_in_if() != 30 { return 6; }
+    
+    // 测试复杂宏表达式
+    if complex_macro_expr() != 890 { return 7; }
+    
+    return 0;
+}
+

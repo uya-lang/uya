@@ -1,0 +1,26 @@
+// 测试宏返回值语法糖
+// 宏体最后一条语句/表达式会被自动包装为 @mc_code(@mc_ast(...))
+
+// expr 语法糖：最后一个表达式自动作为返回值
+// 注意：表达式语句需要以分号结尾
+mc double_it() expr {
+    2 * 21;
+}
+
+// stmt 语法糖：最后一条语句自动作为返回语句
+mc log_result() stmt {
+    printf("Result computed\n");
+}
+
+extern fn printf(fmt: *u8, ...) i32;
+
+fn main() i32 {
+    // 测试 expr 语法糖
+    const result: i32 = double_it();
+    if result != 42 { return 1; }
+    
+    // 测试 stmt 语法糖
+    log_result();
+    
+    return 0;
+}
