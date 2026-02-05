@@ -144,6 +144,9 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_MC_INTERP:
             node->data.mc_interp.operand = NULL;
             break;
+        case AST_MC_TYPE:
+            node->data.mc_type.operand = NULL;
+            break;
         case AST_CALL_EXPR:
             node->data.call_expr.callee = NULL;
             node->data.call_expr.args = NULL;

@@ -4428,6 +4428,7 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
         case AST_MC_AST:
         case AST_MC_ERROR:
         case AST_MC_INTERP:
+        case AST_MC_TYPE:
             /* 仅宏体内有效，不应出现在已展开的 AST 中；若出现则报错 */
             checker_report_error(checker, node, "@mc_* 内置函数和 ${} 插值只能在宏体内使用");
             return 0;
@@ -4701,10 +4702,20 @@ static ASTNode *deep_copy_ast(ASTNode *node, MacroExpandContext *ctx) {
             copy->data.error_value.name = node->data.error_value.name ?
                 macro_strdup(ctx->arena, node->data.error_value.name) : NULL;
             break;
-        case AST_TYPE_NAMED:
-            copy->data.type_named.name = node->data.type_named.name ?
-                macro_strdup(ctx->arena, node->data.type_named.name) : NULL;
+        case AST_TYPE_NAMED: {
+            const char *name = node->data.type_named.name;
+            // 检查类型名称是否是宏参数
+            if (name != NULL) {
+                ASTNode *arg = find_param_binding(ctx, name);
+                if (arg != NULL) {
+                    // 参数引用，返回参数 AST 的深拷贝
+                    MacroExpandContext no_param_ctx = { NULL, 0, ctx->arena, ctx->checker };
+                    return deep_copy_ast(arg, &no_param_ctx);
+                }
+            }
+            copy->data.type_named.name = name ? macro_strdup(ctx->arena, name) : NULL;
             break;
+        }
         case AST_TYPE_POINTER:
             copy->data.type_pointer.pointed_type = deep_copy_ast(node->data.type_pointer.pointed_type, ctx);
             copy->data.type_pointer.is_ffi_pointer = node->data.type_pointer.is_ffi_pointer;
@@ -4754,6 +4765,13 @@ static ASTNode *deep_copy_ast(ASTNode *node, MacroExpandContext *ctx) {
             }
             // 不是标识符或不匹配参数，递归处理内部表达式
             copy->data.mc_interp.operand = deep_copy_ast(operand, ctx);
+            break;
+        }
+        case AST_MC_TYPE: {
+            // 宏类型反射 @mc_type(expr)：获取表达式或类型的编译时类型信息
+            // 返回一个包含类型信息的结构体初始化 AST
+            ASTNode *operand = deep_copy_ast(node->data.mc_type.operand, ctx);
+            copy->data.mc_type.operand = operand;
             break;
         }
         case AST_BLOCK:
@@ -4811,6 +4829,168 @@ static ASTNode *create_string_literal(const char *value, Arena *arena, int line,
     return node;
 }
 
+// 创建布尔字面量 AST 节点
+static ASTNode *create_bool_literal(int value, Arena *arena, int line, int column) {
+    ASTNode *node = ast_new_node(AST_BOOL, line, column, arena, NULL);
+    if (node == NULL) return NULL;
+    node->data.bool_literal.value = value ? 1 : 0;
+    return node;
+}
+
+// 获取类型名称字符串
+static const char *get_type_name_from_ast(ASTNode *type_node, Arena *arena) {
+    if (type_node == NULL) return "unknown";
+    
+    switch (type_node->type) {
+        case AST_TYPE_NAMED:
+            return type_node->data.type_named.name ? type_node->data.type_named.name : "unknown";
+        case AST_IDENTIFIER:
+            return type_node->data.identifier.name ? type_node->data.identifier.name : "unknown";
+        case AST_TYPE_POINTER: {
+            const char *inner = get_type_name_from_ast(type_node->data.type_pointer.pointed_type, arena);
+            char *buf = (char *)arena_alloc(arena, strlen(inner) + 3);
+            if (buf) {
+                sprintf(buf, "&%s", inner);
+                return buf;
+            }
+            return "&?";
+        }
+        case AST_TYPE_ARRAY: {
+            const char *inner = get_type_name_from_ast(type_node->data.type_array.element_type, arena);
+            char *buf = (char *)arena_alloc(arena, strlen(inner) + 16);
+            if (buf) {
+                sprintf(buf, "[%s: ?]", inner);
+                return buf;
+            }
+            return "[?]";
+        }
+        case AST_TYPE_SLICE: {
+            const char *inner = get_type_name_from_ast(type_node->data.type_slice.element_type, arena);
+            char *buf = (char *)arena_alloc(arena, strlen(inner) + 8);
+            if (buf) {
+                sprintf(buf, "&[%s]", inner);
+                return buf;
+            }
+            return "&[?]";
+        }
+        case AST_TYPE_ERROR_UNION: {
+            const char *inner = get_type_name_from_ast(type_node->data.type_error_union.payload_type, arena);
+            char *buf = (char *)arena_alloc(arena, strlen(inner) + 2);
+            if (buf) {
+                sprintf(buf, "!%s", inner);
+                return buf;
+            }
+            return "!?";
+        }
+        default:
+            return "unknown";
+    }
+}
+
+// 获取类型大小（编译时）
+static int get_type_size_from_name(const char *name) {
+    if (name == NULL) return 0;
+    if (strcmp(name, "i8") == 0 || strcmp(name, "u8") == 0 || strcmp(name, "byte") == 0 || strcmp(name, "bool") == 0) return 1;
+    if (strcmp(name, "i16") == 0 || strcmp(name, "u16") == 0) return 2;
+    if (strcmp(name, "i32") == 0 || strcmp(name, "u32") == 0 || strcmp(name, "f32") == 0) return 4;
+    if (strcmp(name, "i64") == 0 || strcmp(name, "u64") == 0 || strcmp(name, "f64") == 0 || strcmp(name, "usize") == 0) return 8;
+    if (strcmp(name, "void") == 0) return 0;
+    // 指针大小（假设 64 位）
+    if (name[0] == '&' || name[0] == '*') return 8;
+    return 0; // 未知类型
+}
+
+// 创建 TypeInfo 结构体字面量 AST 节点（简化版）
+static ASTNode *create_type_info_struct(ASTNode *type_node, Arena *arena, int line, int column) {
+    if (type_node == NULL || arena == NULL) return NULL;
+    
+    const char *type_name = get_type_name_from_ast(type_node, arena);
+    int type_size = get_type_size_from_name(type_name);
+    int type_align = type_size > 0 ? type_size : 1;
+    if (type_align > 8) type_align = 8;
+    
+    // 确定类型种类和布尔标志
+    int is_integer = 0, is_float = 0, is_bool = 0, is_pointer = 0, is_array = 0, is_void = 0;
+    int kind = 0; // 0=unknown, 1=integer, 2=float, 3=bool, 4=pointer, 5=array, 6=struct, 7=void
+    
+    if (type_name != NULL) {
+        if (strcmp(type_name, "i8") == 0 || strcmp(type_name, "i16") == 0 || 
+            strcmp(type_name, "i32") == 0 || strcmp(type_name, "i64") == 0 ||
+            strcmp(type_name, "u8") == 0 || strcmp(type_name, "u16") == 0 ||
+            strcmp(type_name, "u32") == 0 || strcmp(type_name, "u64") == 0 ||
+            strcmp(type_name, "usize") == 0 || strcmp(type_name, "byte") == 0) {
+            is_integer = 1;
+            kind = 1;
+        } else if (strcmp(type_name, "f32") == 0 || strcmp(type_name, "f64") == 0) {
+            is_float = 1;
+            kind = 2;
+        } else if (strcmp(type_name, "bool") == 0) {
+            is_bool = 1;
+            kind = 3;
+        } else if (type_name[0] == '&' || type_name[0] == '*') {
+            is_pointer = 1;
+            kind = 4;
+        } else if (type_name[0] == '[') {
+            is_array = 1;
+            kind = 5;
+        } else if (strcmp(type_name, "void") == 0) {
+            is_void = 1;
+            kind = 7;
+        } else {
+            // 可能是结构体，kind = 6
+            kind = 6;
+        }
+    }
+    
+    // 创建结构体初始化 AST 节点
+    ASTNode *struct_init = ast_new_node(AST_STRUCT_INIT, line, column, arena, NULL);
+    if (struct_init == NULL) return NULL;
+    
+    // 分配字段数组
+    int field_count = 10;  // name, size, align, kind, is_integer, is_float, is_bool, is_pointer, is_array, is_void
+    const char **field_names = (const char **)arena_alloc(arena, sizeof(const char *) * field_count);
+    ASTNode **field_values = (ASTNode **)arena_alloc(arena, sizeof(ASTNode *) * field_count);
+    if (field_names == NULL || field_values == NULL) return NULL;
+    
+    // 设置字段
+    field_names[0] = "name";
+    field_values[0] = create_string_literal(type_name, arena, line, column);
+    
+    field_names[1] = "size";
+    field_values[1] = create_number_literal(type_size, arena, line, column);
+    
+    field_names[2] = "align";
+    field_values[2] = create_number_literal(type_align, arena, line, column);
+    
+    field_names[3] = "kind";
+    field_values[3] = create_number_literal(kind, arena, line, column);
+    
+    field_names[4] = "is_integer";
+    field_values[4] = create_bool_literal(is_integer, arena, line, column);
+    
+    field_names[5] = "is_float";
+    field_values[5] = create_bool_literal(is_float, arena, line, column);
+    
+    field_names[6] = "is_bool";
+    field_values[6] = create_bool_literal(is_bool, arena, line, column);
+    
+    field_names[7] = "is_pointer";
+    field_values[7] = create_bool_literal(is_pointer, arena, line, column);
+    
+    field_names[8] = "is_array";
+    field_values[8] = create_bool_literal(is_array, arena, line, column);
+    
+    field_names[9] = "is_void";
+    field_values[9] = create_bool_literal(is_void, arena, line, column);
+    
+    struct_init->data.struct_init.struct_name = "TypeInfo";
+    struct_init->data.struct_init.field_names = field_names;
+    struct_init->data.struct_init.field_values = field_values;
+    struct_init->data.struct_init.field_count = field_count;
+    
+    return struct_init;
+}
+
 // 处理宏内置函数（@mc_eval, @mc_error, @mc_get_env），返回展开后的 AST
 // 返回：展开后的 AST 节点，失败返回 NULL 且 *has_error = 1
 static ASTNode *process_macro_builtins(ASTNode *expr, MacroExpandContext *ctx, int *has_error) {
@@ -4843,6 +5023,25 @@ static ASTNode *process_macro_builtins(ASTNode *expr, MacroExpandContext *ctx, i
         }
         *has_error = 1;
         return NULL;
+    }
+    
+    // 处理 @mc_type：编译时类型反射
+    if (expr->type == AST_MC_TYPE) {
+        ASTNode *operand = expr->data.mc_type.operand;
+        if (operand == NULL) {
+            if (ctx->checker) {
+                checker_report_error(ctx->checker, expr, "@mc_type: 需要一个类型或表达式参数");
+            }
+            *has_error = 1;
+            return NULL;
+        }
+        // 先进行参数替换
+        ASTNode *resolved_operand = deep_copy_ast(operand, ctx);
+        if (resolved_operand == NULL) {
+            resolved_operand = operand;
+        }
+        // 创建 TypeInfo 结构体
+        return create_type_info_struct(resolved_operand, ctx->arena, expr->line, expr->column);
     }
     
     // 处理 @mc_get_env：读取环境变量（仅宏体内）
@@ -4910,6 +5109,20 @@ static ASTNode *extract_macro_output(ASTNode *body, MacroExpandContext *ctx, con
             
             // 处理 @mc_eval
             if (init->type == AST_MC_EVAL) {
+                int has_error = 0;
+                ASTNode *result = process_macro_builtins(init, ctx, &has_error);
+                if (has_error || result == NULL) return NULL;
+                // 添加到局部绑定
+                if (local_binding_count < 64) {
+                    local_bindings[local_binding_count].param_name = s->data.var_decl.name;
+                    local_bindings[local_binding_count].arg_ast = result;
+                    local_binding_count++;
+                }
+                continue;
+            }
+            
+            // 处理 @mc_type
+            if (init->type == AST_MC_TYPE) {
                 int has_error = 0;
                 ASTNode *result = process_macro_builtins(init, ctx, &has_error);
                 if (has_error || result == NULL) return NULL;
@@ -5021,6 +5234,15 @@ static ASTNode *extract_macro_output(ASTNode *body, MacroExpandContext *ctx, con
                 s->type == AST_FOR_STMT || s->type == AST_RETURN_STMT ||
                 s->type == AST_BREAK_STMT || s->type == AST_CONTINUE_STMT ||
                 s->type == AST_BLOCK) continue;
+            
+            // 处理 @mc_type：展开为 TypeInfo 结构体
+            if (s->type == AST_MC_TYPE) {
+                int has_error = 0;
+                ASTNode *result = process_macro_builtins(s, &merged_ctx, &has_error);
+                if (has_error || result == NULL) return NULL;
+                last_output = result;
+                break;
+            }
             
             // 对于表达式节点，直接作为输出
             // 由于解析器不创建 AST_EXPR_STMT，表达式语句直接是表达式类型

@@ -1,0 +1,88 @@
+// 测试 @mc_type 编译时类型反射
+
+// 定义简化版 TypeInfo 结构体
+struct TypeInfo {
+    name: &[i8],
+    size: i32,
+    align: i32,
+    kind: i32,
+    is_integer: bool,
+    is_float: bool,
+    is_bool: bool,
+    is_pointer: bool,
+    is_array: bool,
+    is_void: bool,
+}
+
+// 宏：获取类型信息
+mc get_type_info(T: type) expr {
+    @mc_type(T);
+}
+
+// 宏：获取类型大小
+mc get_size(T: type) expr {
+    const info: TypeInfo = @mc_type(T);
+    info.size;
+}
+
+// 宏：检查是否为整数类型
+mc is_int(T: type) expr {
+    const info: TypeInfo = @mc_type(T);
+    info.is_integer;
+}
+
+fn main() i32 {
+    // 测试直接获取类型信息
+    const i32_info: TypeInfo = get_type_info(i32);
+    if i32_info.size != 4 {
+        return 1;
+    }
+    if !i32_info.is_integer {
+        return 2;
+    }
+    
+    // 测试 get_size 宏
+    const i32_size: i32 = get_size(i32);
+    if i32_size != 4 {
+        return 3;
+    }
+    
+    const i64_size: i32 = get_size(i64);
+    if i64_size != 8 {
+        return 4;
+    }
+    
+    const i8_size: i32 = get_size(i8);
+    if i8_size != 1 {
+        return 5;
+    }
+    
+    // 测试 is_int 宏
+    const i32_is_int: bool = is_int(i32);
+    if !i32_is_int {
+        return 6;
+    }
+    
+    // 测试浮点类型信息
+    const f64_info: TypeInfo = get_type_info(f64);
+    if f64_info.size != 8 {
+        return 7;
+    }
+    if !f64_info.is_float {
+        return 8;
+    }
+    if f64_info.is_integer {
+        return 9;
+    }
+    
+    // 测试布尔类型信息
+    const bool_info: TypeInfo = get_type_info(bool);
+    if bool_info.size != 1 {
+        return 10;
+    }
+    if !bool_info.is_bool {
+        return 11;
+    }
+    
+    return 0;
+}

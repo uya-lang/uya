@@ -3168,6 +3168,49 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return mc_error_node;
     }
     
+    // 解析 @mc_type 表达式：@mc_type(expr) - 宏内编译时类型反射
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "mc_type") == 0) {
+        parser_consume(parser);  // 消费 'mc_type'
+        
+        // 期望 '('
+        if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+            return NULL;
+        }
+        
+        ASTNode *mc_type_node = ast_new_node(AST_MC_TYPE, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (mc_type_node == NULL) {
+            return NULL;
+        }
+        
+        // 解析操作数（可以是类型或表达式）
+        // 先尝试解析为类型，如果失败则解析为表达式
+        ASTNode *operand = NULL;
+        // 检查是否是类型标识符（简单的基本类型）
+        if (parser->current_token->type == TOKEN_IDENTIFIER ||
+            parser->current_token->type == TOKEN_AMPERSAND ||
+            parser->current_token->type == TOKEN_ASTERISK ||
+            parser->current_token->type == TOKEN_LEFT_BRACKET ||
+            parser->current_token->type == TOKEN_EXCLAMATION) {
+            operand = parser_parse_type(parser);
+        }
+        if (operand == NULL) {
+            operand = parser_parse_expression(parser);
+        }
+        if (operand == NULL) {
+            return NULL;
+        }
+        
+        mc_type_node->data.mc_type.operand = operand;
+        
+        // 期望 ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            return NULL;
+        }
+        
+        return mc_type_node;
+    }
+    
     // 解析 @mc_get_env 表达式：@mc_get_env(name) - 宏内环境变量读取
     if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
         strcmp(parser->current_token->value, "mc_get_env") == 0) {

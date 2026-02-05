@@ -4565,12 +4565,12 @@ macro_call = ID '(' arg_list ')'
 ```uya
 // 简化写法（使用语法糖）
 mc simple() expr {
-    42  // 自动转换为 @mc_code(@mc_ast( 42 ))
+    42;  // 自动转换为 @mc_code(@mc_ast( 42 ))
 }
 
 // 等价于显式写法
 mc simple_explicit() expr {
-    @mc_code(@mc_ast( 42 ))
+    @mc_code(@mc_ast( 42 ));
 }
 
 // 语句宏的语法糖
@@ -4580,13 +4580,13 @@ mc log_message(msg: expr) stmt {
 
 // 复杂宏仍需要显式使用 @mc_code
 mc complex(param) expr {
-    const param_ast = @mc_ast(param)
+    const param_ast = @mc_ast(param);
     const code_ast = @mc_ast({
         fn process_${param_ast}(self: &Self) void {
             // 复杂逻辑...
         }
-    })
-    @mc_code(code_ast)  // 必须显式使用
+    });
+    @mc_code(code_ast);  // 必须显式使用
 }
 ```
 
@@ -4606,9 +4606,9 @@ mc complex(param) expr {
 
 ```uya
 mc buffer_size(n) expr {
-    const size = @mc_eval(n)
-    if size > 8192 { @mc_error("缓冲区太大") }
-    @mc_code(@mc_ast( ${@mc_ast(size)} ))
+    const size = @mc_eval(n);
+    if size > 8192 { @mc_error("缓冲区太大"); }
+    @mc_code(@mc_ast( ${@mc_ast(size)} ));
 }
 ```
 
@@ -4724,13 +4724,13 @@ struct MethodSignature {
 
 ```uya
 mc define_getter(field) struct {
-    const field_ast = @mc_ast(field)
+    const field_ast = @mc_ast(field);
     const getter_ast = @mc_ast({
         fn get_${field_ast}(self: &Self) i32 {
-            return self.${field_ast}
+            return self.${field_ast};
         }
-    })
-    @mc_code(getter_ast)
+    });
+    @mc_code(getter_ast);
 }
 ```
 
@@ -4756,43 +4756,43 @@ mc define_getter(field) struct {
    ```uya
    const code_ast = @mc_ast({
        fn get_${field_ast}(self: &Self) i32 {
-           return self.${field_ast}
+           return self.${field_ast};
        }
-   })
+   });
    ```
 2. **组合多个代码片段**：需要将多个代码片段组合成一个整体时
    ```uya
-   const parts = [@mc_ast(...), @mc_ast(...)]
+   const parts = [@mc_ast(...), @mc_ast(...)];
    const combined = @mc_ast({
-       ${parts[0]}
-       ${parts[1]}
-   })
+       ${parts[0]};
+       ${parts[1]};
+   });
    ```
 3. **存储 AST 供后续处理**：需要先构建 AST，然后进行修改或组合时
    ```uya
-   const field_ast = @mc_ast(field)
+   const field_ast = @mc_ast(field);
    // 后续可以修改、组合这个 AST
    ```
 
 **何时使用 `@mc_code`**：
 1. **宏的最终输出**：宏必须使用 `@mc_code` 输出生成的代码（必须使用，或使用语法糖）
    ```uya
-   @mc_code(ast)  // 显式输出
+   @mc_code(ast);  // 显式输出
    // 或使用语法糖（简单情况）
-   42  // 自动转换为 @mc_code(@mc_ast( 42 ))
+   42;  // 自动转换为 @mc_code(@mc_ast( 42 ))
    ```
 2. **简单代码直接输出**：生成简单代码时可以使用语法糖或显式写法
    ```uya
-   true  // 语法糖：自动转换为 @mc_code(@mc_ast( true ))
+   true;  // 语法糖：自动转换为 @mc_code(@mc_ast( true ))
    // 或显式写法
-   @mc_code(@mc_ast( true ))  // 一步到位
+   @mc_code(@mc_ast( true ));  // 一步到位
    ```
 3. **条件分支的输出**：在不同条件下输出不同的代码时
    ```uya
    if condition {
-       @mc_code(@mc_ast( branch1 ))
+       @mc_code(@mc_ast( branch1 ));
    } else {
-       @mc_code(@mc_ast( branch2 ))
+       @mc_code(@mc_ast( branch2 ));
    }
    ```
 
@@ -4801,17 +4801,17 @@ mc define_getter(field) struct {
 ```uya
 mc complex_macro(param) struct {
     // 步骤1：处理参数，转换为 AST
-    const param_ast = @mc_ast(param)
+    const param_ast = @mc_ast(param);
     
     // 步骤2：构建代码模板（使用 @mc_ast）
     const template_ast = @mc_ast({
         fn process_${param_ast}(self: &Self) void {
             // 复杂逻辑...
         }
-    })
+    });
     
     // 步骤3：输出最终代码（使用 @mc_code）
-    @mc_code(template_ast)
+    @mc_code(template_ast);
 }
 ```
 
@@ -4820,36 +4820,36 @@ mc complex_macro(param) struct {
 - **模式1：简单输出（使用语法糖）**
   ```uya
   mc simple() expr {
-      42  // 语法糖：自动转换为 @mc_code(@mc_ast( 42 ))
+      42;  // 语法糖：自动转换为 @mc_code(@mc_ast( 42 ))
   }
   
   // 或显式写法（等价）
   mc simple_explicit() expr {
-      @mc_code(@mc_ast( 42 ))  // 显式写法
+      @mc_code(@mc_ast( 42 ));  // 显式写法
   }
   ```
 
 - **模式2：模板构建（分步）**
   ```uya
   mc template(param) struct {
-      const param_ast = @mc_ast(param)      // 步骤1：转换参数
-      const code_ast = @mc_ast({ ... })      // 步骤2：构建模板
-      @mc_code(code_ast)                     // 步骤3：输出
+      const param_ast = @mc_ast(param);      // 步骤1：转换参数
+      const code_ast = @mc_ast({ ... });      // 步骤2：构建模板
+      @mc_code(code_ast);                     // 步骤3：输出
   }
   ```
 
 - **模式3：复杂组合（多步处理）**
   ```uya
   mc complex() struct {
-      const parts = []
+      const parts = [];
       for items |item| {
-          parts.push(@mc_ast({ ... }))       // 收集多个 AST
+          parts.push(@mc_ast({ ... }));       // 收集多个 AST
       }
       const combined = @mc_ast({             // 组合 AST
-          ${parts[0]}
-          ${parts[1]}
-      })
-      @mc_code(combined)                     // 最终输出
+          ${parts[0]};
+          ${parts[1]};
+      });
+      @mc_code(combined);                     // 最终输出
   }
   ```
 
@@ -4880,54 +4880,54 @@ mc complex_macro(param) struct {
 ```uya
 // 使用示例（显式写法）
 mc debug_mode() expr {
-    const debug = @mc_get_env("DEBUG")
+    const debug = @mc_get_env("DEBUG");
     if debug == "1" or debug == "true" {
-        @mc_code(@mc_ast( true ))
+        @mc_code(@mc_ast( true ));
     } else {
-        @mc_code(@mc_ast( false ))
+        @mc_code(@mc_ast( false ));
     }
 }
 
 // 使用语法糖的简化写法（等价）
 mc debug_mode_simple() expr {
-    const debug = @mc_get_env("DEBUG")
+    const debug = @mc_get_env("DEBUG");
     if debug == "1" or debug == "true" {
-        true  // 语法糖：自动转换为 @mc_code(@mc_ast( true ))
+        true;  // 语法糖：自动转换为 @mc_code(@mc_ast( true ))
     } else {
-        false  // 语法糖：自动转换为 @mc_code(@mc_ast( false ))
+        false;  // 语法糖：自动转换为 @mc_code(@mc_ast( false ))
     }
 }
 
 // 配置宏
 mc config_value(key: expr, default: expr) expr {
-    const key_str = @mc_eval(key)
-    const env_value = @mc_get_env(key_str)
+    const key_str = @mc_eval(key);
+    const env_value = @mc_get_env(key_str);
     
     if env_value != "" {
         // 根据默认值类型解析环境变量
-        const default_type = @mc_type(default)
+        const default_type = @mc_type(default);
         match default_type.kind {
             .Integer => {
-                const int_val = @mc_parse_int(env_value)
-                @mc_code(@mc_ast( ${@mc_ast(int_val)} ))
+                const int_val = @mc_parse_int(env_value);
+                @mc_code(@mc_ast( ${@mc_ast(int_val)} ));
             }
             .Bool => {
-                const bool_val = env_value == "true" or env_value == "1"
-                @mc_code(@mc_ast( ${@mc_ast(bool_val)} ))
+                const bool_val = env_value == "true" or env_value == "1";
+                @mc_code(@mc_ast( ${@mc_ast(bool_val)} ));
             }
             else => {
-                @mc_code(@mc_ast( "${env_value}" ))
+                @mc_code(@mc_ast( "${env_value}" ));
             }
         }
     } else {
-        @mc_code(@mc_ast( ${default} ))
+        @mc_code(@mc_ast( ${default} ));
     }
 }
 
 // 使用
-const IS_DEBUG: bool = debug_mode()
-const API_URL: *byte = config_value("API_URL", "https://api.example.com")
-const TIMEOUT_MS: i32 = config_value("TIMEOUT_MS", 5000)
+const IS_DEBUG: bool = debug_mode();
+const API_URL: *byte = config_value("API_URL", "https://api.example.com");
+const TIMEOUT_MS: i32 = config_value("TIMEOUT_MS", 5000);
 ```
 
 ### 25.5 返回值类型语义
@@ -4945,11 +4945,11 @@ const TIMEOUT_MS: i32 = config_value("TIMEOUT_MS", 5000)
 
 ```uya
 mc specialize(val) expr {
-    const v = @mc_eval(val)
+    const v = @mc_eval(val);
     if v > 10 {
-        @mc_code(@mc_ast( complex_op(${@mc_ast(v)}) ))
+        @mc_code(@mc_ast( complex_op(${@mc_ast(v)}) ));
     } else {
-        @mc_code(@mc_ast( simple_op(${@mc_ast(v)}) ))
+        @mc_code(@mc_ast( simple_op(${@mc_ast(v)}) ));
     }
 }
 ```
@@ -4995,8 +4995,8 @@ Uya 编译器自动对宏调用结果进行缓存，遵循以下规则：
 @[no_cache]
 mc dynamic_date() expr {
     // 每次展开都重新计算
-    const current_date = @mc_eval_system("date +%Y%m%d")
-    @mc_code(@mc_ast( ${@mc_ast(current_date)} ))
+    const current_date = @mc_eval_system("date +%Y%m%d");
+    @mc_code(@mc_ast( ${@mc_ast(current_date)} ));
 }
 
 // 使用 @mc_cache_key 自定义缓存键
@@ -5007,8 +5007,8 @@ mc versioned_feature() stmt {
 
 // 环境变量敏感的宏会自动跟踪依赖
 mc env_dependent() expr {
-    const mode = @mc_get_env("MODE")  // 编译器自动跟踪此依赖
-    @mc_code(@mc_ast( "${mode}" ))
+    const mode = @mc_get_env("MODE");  // 编译器自动跟踪此依赖
+    @mc_code(@mc_ast( "${mode}" ));
 }
 ```
 
@@ -5041,19 +5041,19 @@ mc env_dependent() expr {
 ```uya
 // 基本编译时断言
 mc const_assert(cond: expr, msg: expr = "assertion failed") stmt {
-    if !@mc_eval(cond) { @mc_error(@mc_eval(msg)) }
+    if !@mc_eval(cond) { @mc_error(@mc_eval(msg)); }
 }
 
 // 带缓存的编译时断言
 mc cached_assert(cond: expr) stmt {
     // 相同cond值会被缓存
-    if !@mc_eval(cond) { @mc_error("assertion failed") }
+    if !@mc_eval(cond) { @mc_error("assertion failed"); }
 }
 
 // 使用示例
-const_assert(@size_of(i32) == 4, "i32必须是4字节")
-const_assert(1 + 1 == 2)
-cached_assert(@align_of(f64) == 8)  // 相同检查会被缓存
+const_assert(@size_of(i32) == 4, "i32必须是4字节");
+const_assert(1 + 1 == 2);
+cached_assert(@align_of(f64) == 8);  // 相同检查会被缓存
 ```
 
 #### 25.10.2 类型驱动代码生成
@@ -5061,40 +5061,40 @@ cached_assert(@align_of(f64) == 8)  // 相同检查会被缓存
 ```uya
 // 自动生成结构体序列化代码
 mc generate_serializer(T: type) struct {
-    const info = @mc_type(T)
+    const info = @mc_type(T);
     
     // 缓存键包含类型信息，相同类型T会复用生成的代码
     match info.kind {
         .Struct => {
             // 为每个字段生成序列化代码
-            const fields_code = []
+            const fields_code = [];
             for info.fields |field| {
                 const field_serializer = @mc_ast(
                     buffer.write_${field.type.name}(self.${field.name})
-                )
-                fields_code.push(field_serializer)
+                );
+                fields_code.push(field_serializer);
             }
             
             const method_ast = @mc_ast({
                 fn serialize(self: &Self, buffer: &mut Serializer) void {
-                    ${fields_code[0]}
-                    ${fields_code[1]}
+                    ${fields_code[0]};
+                    ${fields_code[1]};
                     // ... 更多字段
                 }
-            })
-            @mc_code(method_ast)
+            });
+            @mc_code(method_ast);
         }
         
         .Integer => {
             const method_ast = @mc_ast({
                 fn serialize(self: &Self, buffer: &mut Serializer) void {
-                    buffer.write_int(self)
+                    buffer.write_int(self);
                 }
-            })
-            @mc_code(method_ast)
+            });
+            @mc_code(method_ast);
         }
         
-        else => @mc_error("类型 ${info.name} 不支持序列化")
+        else => @mc_error("类型 ${info.name} 不支持序列化");
     }
 }
 
@@ -5104,7 +5104,7 @@ struct Point {
     y: i32,
     
     // 在结构体内部调用宏
-    generate_serializer(Point)  // 生成serialize方法
+    generate_serializer(Point);  // 生成serialize方法
 }
 
 // 编译器会为每个不同的类型T缓存生成的代码
@@ -5115,11 +5115,11 @@ struct Point {
 ```uya
 // 编译时生成类型安全的向量容器
 mc vector_type(T: type, name: ident) type {
-    const info = @mc_type(T)
+    const info = @mc_type(T);
     
     // 验证类型约束
     if !info.is_copy && !info.has_drop {
-        @mc_error("类型 ${T} 必须实现 Copy 或 Drop")
+        @mc_error("类型 ${T} 必须实现 Copy 或 Drop");
     }
     
     // 生成向量结构体定义
@@ -5133,32 +5133,32 @@ mc vector_type(T: type, name: ident) type {
                 return ${name} {
                     data: null,
                     len: 0,
-                    cap: 0
-                }
+                    cap: 0,
+                };
             }
             
             fn push(self: &mut Self, value: ${T}) void {
                 // 自动生成增长逻辑
                 if self.len >= self.cap {
-                    const new_cap = if self.cap == 0 { 4 } else { self.cap * 2 }
-                    const new_data = @alloc(${T}, new_cap)
+                    const new_cap = if self.cap == 0 { 4 } else { self.cap * 2 };
+                    const new_data = @alloc(${T}, new_cap);
                     if self.data != null {
-                        @memcpy(new_data, self.data, self.len * @size_of(${T}))
-                        @free(self.data)
+                        @memcpy(new_data, self.data, self.len * @size_of(${T}));
+                        @free(self.data);
                     }
-                    self.data = new_data
-                    self.cap = new_cap
+                    self.data = new_data;
+                    self.cap = new_cap;
                 }
-                self.data[self.len] = value
-                self.len += 1
+                self.data[self.len] = value;
+                self.len += 1;
             }
             
             fn pop(self: &mut Self) union Option<${T}> {
                 if self.len == 0 {
-                    return .None
+                    return .None;
                 }
-                self.len -= 1
-                return .Some(self.data[self.len])
+                self.len -= 1;
+                return .Some(self.data[self.len]);
             }
             
             fn drop(self: Self) void {
@@ -5166,22 +5166,22 @@ mc vector_type(T: type, name: ident) type {
                     // 如果T有drop，需要调用每个元素的drop
                     if ${info.has_drop} {
                         for 0..self.len |i| {
-                            self.data[i].drop()
+                            self.data[i].drop();
                         }
                     }
-                    @free(self.data)
+                    @free(self.data);
                 }
             }
         }
-    ))
+    ));
 }
 
 // 使用示例 - 相同类型参数会被缓存
-vector_type(i32, IntVec)      // 生成 IntVec 类型
-vector_type(f64, FloatVec)    // 生成 FloatVec 类型
+vector_type(i32, IntVec);      // 生成 IntVec 类型
+vector_type(f64, FloatVec);    // 生成 FloatVec 类型
 
-const vec1: IntVec = IntVec.new()
-const vec2: IntVec = IntVec.new()  // 复用缓存的 IntVec 类型定义
+const vec1: IntVec = IntVec.new();
+const vec2: IntVec = IntVec.new();  // 复用缓存的 IntVec 类型定义
 ```
 
 #### 25.10.4 编译时查询表生成
@@ -5189,7 +5189,7 @@ const vec2: IntVec = IntVec.new()  // 复用缓存的 IntVec 类型定义
 ```uya
 // 生成编译时查询表，利用缓存避免重复计算
 mc lookup_table(name: ident, size: expr, generator: expr) struct {
-    const table_size = @mc_eval(size)
+    const table_size = @mc_eval(size);
     
     // 生成静态查找表
     const table_ast = @mc_ast(
@@ -5199,14 +5199,14 @@ mc lookup_table(name: ident, size: expr, generator: expr) struct {
             ${@mc_ast(generator(2))},
             // ... 更多元素
         ]
-    )
+    );
     
-    @mc_code(table_ast)
+    @mc_code(table_ast);
 }
 
 // 辅助宏：生成特定函数的查找表
 mc sin_table(name: ident, size: expr) struct {
-    const n = @mc_eval(size)
+    const n = @mc_eval(size);
     
     // 生成sin函数查找表
     @mc_code(@mc_ast(
@@ -5215,17 +5215,17 @@ mc sin_table(name: ident, size: expr) struct {
             ${@mc_ast(@mc_sin(0.1))},
             // ... 更多值
         ]
-    ))
+    ));
 }
 
 // 使用示例
-lookup_table(SQUARES, 10, |i| i * i)  // 生成平方表
-sin_table(SIN_VALUES, 100)            // 生成sin值表
+lookup_table(SQUARES, 10, |i| i * i);  // 生成平方表
+sin_table(SIN_VALUES, 100);            // 生成sin值表
 
 // 在代码中多次使用相同表 - 会复用缓存的展开结果
 fn use_table() void {
-    const x = SQUARES[5]  // 25
-    const y = SIN_VALUES[42]
+    const x = SQUARES[5];  // 25
+    const y = SIN_VALUES[42];
 }
 ```
 
@@ -5234,39 +5234,39 @@ fn use_table() void {
 ```uya
 // 自动错误传播宏，带缓存
 mc try_or_default(expr: expr, default: expr) expr {
-    const result_type = @mc_type(expr)
+    const result_type = @mc_type(expr);
     
     if !result_type.is_error_union {
-        @mc_error("try_or_default 仅适用于返回错误联合类型的表达式")
+        @mc_error("try_or_default 仅适用于返回错误联合类型的表达式");
     }
     
-    const default_ast = @mc_ast(default)
+    const default_ast = @mc_ast(default);
     
     // 生成带错误处理的表达式
     @mc_code(@mc_ast(
         ${expr} catch {
-            return ${default_ast}
+            return ${default_ast};
         }
-    ))
+    ));
 }
 
 // 带错误上下文的宏
 mc try_with_context(expr: expr, context: expr) expr {
-    const context_str = @mc_eval(context)
+    const context_str = @mc_eval(context);
     
     @mc_code(@mc_ast(
         ${expr} catch |err| {
-            log_error("${context_str}: ", err)
-            return err
+            log_error("${context_str}: ", err);
+            return err;
         }
-    ))
+    ));
 }
 
 // 使用示例
 fn parse_config() !Config {
-    const content = try_with_context(read_file("config.json"), "读取配置文件")
-    const parsed = try_or_default(parse_json(content), Config.default())
-    return parsed
+    const content = try_with_context(read_file("config.json"), "读取配置文件");
+    const parsed = try_or_default(parse_json(content), Config.default());
+    return parsed;
 }
 ```
 
@@ -5275,54 +5275,54 @@ fn parse_config() !Config {
 ```uya
 // 编译时配置读取宏
 mc config_value(key: expr, default: expr) expr {
-    const key_str = @mc_eval(key)
+    const key_str = @mc_eval(key);
     
     // 尝试从编译时环境读取
-    const env_value = @mc_get_env(key_str)
+    const env_value = @mc_get_env(key_str);
     
     if env_value != "" {
         // 根据default的类型解析环境变量值
-        const default_type = @mc_type(default)
+        const default_type = @mc_type(default);
         
         match default_type.kind {
             .Integer => {
-                const int_val = @mc_parse_int(env_value)
-                @mc_code(@mc_ast( ${@mc_ast(int_val)} ))
+                const int_val = @mc_parse_int(env_value);
+                @mc_code(@mc_ast( ${@mc_ast(int_val)} ));
             }
             .Bool => {
-                const bool_val = env_value == "true" or env_value == "1"
-                @mc_code(@mc_ast( ${@mc_ast(bool_val)} ))
+                const bool_val = env_value == "true" or env_value == "1";
+                @mc_code(@mc_ast( ${@mc_ast(bool_val)} ));
             }
             else => {
-                @mc_code(@mc_ast( "${env_value}" ))
+                @mc_code(@mc_ast( "${env_value}" ));
             }
         }
     } else {
         // 使用默认值
-        @mc_code(@mc_ast( ${default} ))
+        @mc_code(@mc_ast( ${default} ));
     }
 }
 
 // 平台检测宏
 mc target_platform() expr {
-    const platform = @mc_get_env("TARGET_PLATFORM")
+    const platform = @mc_get_env("TARGET_PLATFORM");
     
     match platform {
-        "windows" => @mc_code(@mc_ast( .WINDOWS )),
-        "linux" => @mc_code(@mc_ast( .LINUX )),
-        "macos" => @mc_code(@mc_ast( .MACOS )),
-        else => @mc_code(@mc_ast( .UNKNOWN ))
+        "windows" => @mc_code(@mc_ast( .WINDOWS ));
+        "linux" => @mc_code(@mc_ast( .LINUX ));
+        "macos" => @mc_code(@mc_ast( .MACOS ));
+        else => @mc_code(@mc_ast( .UNKNOWN ));
     }
 }
 
 // 使用示例
-const DEBUG: bool = config_value("DEBUG", false)
-const PORT: i32 = config_value("PORT", 8080)
-const HOST: *byte = config_value("HOST", "localhost")
-const PLATFORM: Platform = target_platform()
+const DEBUG: bool = config_value("DEBUG", false);
+const PORT: i32 = config_value("PORT", 8080);
+const HOST: *byte = config_value("HOST", "localhost");
+const PLATFORM: Platform = target_platform();
 
 // 相同配置键会使用缓存值
-const ALSO_PORT: i32 = config_value("PORT", 8080)  // 复用缓存的展开结果
+const ALSO_PORT: i32 = config_value("PORT", 8080);  // 复用缓存的展开结果
 
 // 条件编译示例
 if PLATFORM == .LINUX {
@@ -5337,34 +5337,34 @@ if PLATFORM == .LINUX {
 ```uya
 // 基于环境变量的功能标志
 mc feature_enabled(feature: expr) expr {
-    const feature_name = @mc_eval(feature)
-    const env_var = @mc_get_env("FEATURE_" + feature_name)
+    const feature_name = @mc_eval(feature);
+    const env_var = @mc_get_env("FEATURE_" + feature_name);
     
     if env_var == "1" or env_var == "true" or env_var == "on" {
-        @mc_code(@mc_ast( true ))
+        @mc_code(@mc_ast( true ));
     } else {
-        @mc_code(@mc_ast( false ))
+        @mc_code(@mc_ast( false ));
     }
 }
 
 // 版本检查宏
 mc version_check(min_version: expr) expr {
-    const min_ver = @mc_eval(min_version)
-    const current_ver = @mc_get_env("COMPILER_VERSION")
+    const min_ver = @mc_eval(min_version);
+    const current_ver = @mc_get_env("COMPILER_VERSION");
     
     if current_ver >= min_ver {
-        @mc_code(@mc_ast( true ))
+        @mc_code(@mc_ast( true ));
     } else {
-        @mc_error("需要编译器版本 ${min_ver} 或更高，当前为 ${current_ver}")
+        @mc_error("需要编译器版本 ${min_ver} 或更高，当前为 ${current_ver}");
     }
 }
 
 // 使用示例
-const USE_AVX2: bool = feature_enabled("AVX2")
-const USE_SIMD: bool = feature_enabled("SIMD")
+const USE_AVX2: bool = feature_enabled("AVX2");
+const USE_SIMD: bool = feature_enabled("SIMD");
 
 // 编译器版本检查
-version_check("0.39.0")  // 如果编译器版本低于0.39.0，编译失败
+version_check("0.39.0");  // 如果编译器版本低于0.39.0，编译失败
 
 // 条件代码生成
 if USE_AVX2 {
@@ -5382,7 +5382,7 @@ if USE_AVX2 {
 
 ```uya
 mc const_assert(cond: expr, msg: expr) stmt {
-    if !@mc_eval(cond) { @mc_error(@mc_eval(msg)) }
+    if !@mc_eval(cond) { @mc_error(@mc_eval(msg)); }
 }
 ```
 
@@ -5390,7 +5390,7 @@ mc const_assert(cond: expr, msg: expr) stmt {
 
 ```uya
 mc generate_serializer(T) struct {
-    const info = @mc_type(T)
+    const info = @mc_type(T);
     match info.kind {
         .Struct => {
             // 为结构体生成序列化代码
@@ -5398,7 +5398,7 @@ mc generate_serializer(T) struct {
         .Integer => {
             // 为整数生成序列化代码
         }
-        else => @mc_error("不支持的类型")
+        else => @mc_error("不支持的类型");
     }
 }
 ```
@@ -5411,7 +5411,7 @@ fn fast_hash(data: &[u8]) u64 { ... }
 
 // 编译时宏：生成特化调用
 mc hash_string(s) expr {
-    @mc_code(@mc_ast( fast_hash(${@mc_ast(s)}.as_bytes()) ))
+    @mc_code(@mc_ast( fast_hash(${@mc_ast(s)}.as_bytes()) ));
 }
 ```
 

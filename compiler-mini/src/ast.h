@@ -98,6 +98,7 @@ typedef enum {
     AST_MC_AST,         // @mc_ast(expr) - 宏内获取 AST
     AST_MC_ERROR,       // @mc_error(msg) - 宏内报错
     AST_MC_INTERP,      // ${expr} - 宏内插值（在 @mc_ast 内部引用变量/参数）
+    AST_MC_TYPE,        // @mc_type(expr) - 宏内类型反射
     
     // 类型节点
     AST_TYPE_NAMED,     // 命名类型（i32, bool, void, 或 struct Name）
@@ -257,6 +258,9 @@ struct ASTNode {
         struct {
             struct ASTNode *operand;    // 被插值的表达式（标识符或表达式）
         } mc_interp;
+        struct {
+            struct ASTNode *operand;    // 目标表达式或类型
+        } mc_type;
         
         // 二元表达式
         struct {

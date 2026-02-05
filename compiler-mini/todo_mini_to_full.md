@@ -529,8 +529,13 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [x] Checker: 在 `@mc_code(@mc_ast(...))` 处理中，将 AST_IDENTIFIER 转换为 AST_TYPE_NAMED
   - [x] 测试用例：`test_macro_type_return.uya`
 
-**暂不实现**：
-- [ ] `@mc_type` 编译时类型反射（需要完整的 `TypeInfo` 结构体和类型反射系统，复杂度较高）
+**已实现**：
+- [x] `@mc_type` 编译时类型反射（简化版本，返回 TypeInfo 结构体）
+  - [x] AST: 新增 AST_MC_TYPE 节点和 mc_type 数据结构
+  - [x] Parser: 解析 `@mc_type(Type)` 语法
+  - [x] Checker: 类型反射实现（返回包含 name/size/align/kind/is_* 标志的 TypeInfo 结构体）
+  - [x] Checker: AST_TYPE_NAMED 参数替换支持
+  - [x] 测试用例：`test_macro_mc_type.uya`
 
 **待实现**：
 - [ ] uya-src 同步
