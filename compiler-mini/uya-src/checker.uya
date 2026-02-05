@@ -6105,7 +6105,7 @@ fn create_string_as_ptr(value: &byte, arena: &Arena, line: i32, column: i32) &AS
     if i8_type == null {
         return str_node;
     }
-    i8_type.type_named_name = "i8";
+    i8_type.type_named_name = ("i8" as *byte) as &byte;
     target_type.type_pointer_pointed_type = i8_type;
     
     // 创建类型转换表达式
