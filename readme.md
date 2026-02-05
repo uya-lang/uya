@@ -272,6 +272,7 @@ fn increment(counter: *Counter) void {
 
 > **Uya = 默认即高级内存安全 + 并发安全 + 显式错误处理 + 切片语法 + 安全指针算术 + @size_of/@align_of**；  
 > **泛型语法：使用尖括号 `<T>`，约束紧邻参数 `<T: Ord>`，多约束连接 `<T: Ord + Clone + Default>`**；  
+> **宏系统：编译时元编程 + 类型反射 + 智能缓存 + 环境集成，零运行时开销**；  
 > **extern struct 完全解放，C 结构体获得 Uya 超能力**；  
 > **只加 1 个关键字 `atomic T`，其余零新符号**；  
 > **所有 UB 必须被编译期证明为安全 → 失败即编译错误**；  
@@ -283,7 +284,7 @@ fn increment(counter: *Counter) void {
 
 ---
 
-**注意**：语言规范为完整版（0.38）；**v0.1.0** 发布的是 Uya Mini 编译器（最小子集，已自举）。完整特性与未来计划见 [uya.md](./uya.md)。
+**注意**：语言规范为完整版（0.41）；**v0.1.0** 发布的是 Uya Mini 编译器（最小子集，已自举）。完整特性与未来计划见 [uya.md](./uya.md)。
 
 **许可证**：本项目采用 [MIT 许可证](./LICENSE)。Copyright (c) 2025 Uya 语言项目
 

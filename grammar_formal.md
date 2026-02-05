@@ -18,7 +18,7 @@
 program        = { declaration }
 declaration    = fn_decl | struct_decl | struct_method_block | union_decl | union_method_block
                | interface_decl | enum_decl | const_decl | error_decl | extern_decl | export_decl
-               | import_stmt | test_stmt
+               | import_stmt | test_stmt | macro_decl
 ```
 
 ### 函数声明
@@ -336,8 +336,19 @@ TEXT           = [^${}]+
 **显式宏语法（可选特性）**：
 ```
 macro_decl     = 'mc' ID '(' [ param_list ] ')' return_tag '{' statements '}'
+param_list     = param { ',' param }
+param          = ID ':' param_type
+param_type     = 'expr' | 'stmt' | 'type' | 'pattern'
 return_tag     = 'expr' | 'stmt' | 'struct' | 'type'
+macro_call     = ID '(' arg_list ')'
 ```
+
+**说明**：
+- `mc` 关键字用于声明宏
+- 参数类型：`expr`（表达式）、`stmt`（语句）、`type`（类型）、`pattern`（模式）
+- 返回标签：`expr`（表达式）、`stmt`（语句）、`struct`（结构体成员）、`type`（类型标识符）
+- 宏调用语法与普通函数调用完全一致
+- 详细说明见 [uya.md](./uya.md#25-宏系统)
 
 ---
 

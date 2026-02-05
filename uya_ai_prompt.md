@@ -11,10 +11,12 @@ Uya 是系统编程语言，零GC、默认高级安全、编译期证明（本�
 ```
 struct const var fn return extern true false if while break continue
 defer errdefer try catch error null interface atomic union
-export use
+export use mc
 ```
 
-**内置函数**（以 `@` 开头）：`@size_of`、`@align_of`、`@len`、`@max`、`@min`
+**内置函数**（以 `@` 开头）：
+- 运行时：`@size_of`、`@align_of`、`@len`、`@max`、`@min`
+- 编译时（宏内）：`@mc_eval`、`@mc_type`、`@mc_ast`、`@mc_code`、`@mc_error`、`@mc_get_env`
 
 ## 类型系统
 
@@ -802,6 +804,69 @@ fn main() !i32 {
 }
 ```
 
+## 宏系统
+
+### 宏定义语法
+
+```uya
+mc macro_name(param1: expr, param2: type) return_tag {
+    // 宏体：编译时执行的代码
+    const value = @mc_eval(param1)  // 编译时求值
+    const type_info = @mc_type(param2)  // 类型反射
+    @mc_code(@mc_ast( /* 生成的代码 */ ))
+}
+```
+
+**参数类型**：
+- `expr`：表达式参数
+- `stmt`：语句参数
+- `type`：类型参数
+- `pattern`：模式参数
+
+**返回标签**：
+- `expr`：返回表达式
+- `stmt`：返回语句
+- `struct`：返回结构体成员
+- `type`：返回类型标识符
+
+### 编译时内置函数（宏内使用）
+
+- `@mc_eval(expr)`：编译时求值常量表达式
+- `@mc_type(expr)`：获取类型信息，返回 `TypeInfo` 结构体
+- `@mc_ast(expr)`：将代码转换为抽象语法树
+- `@mc_code(ast)`：将 AST 转换回代码
+- `@mc_error(msg)`：报告编译时错误并终止编译
+- `@mc_get_env(name)`：读取编译时环境变量
+
+### 宏调用
+
+```uya
+const result = macro_name(arg1, arg2);  // 与函数调用语法一致
+```
+
+宏在编译时展开，调用被替换为宏生成的代码。
+
+### 示例
+
+```uya
+// 编译时断言宏
+mc assert(cond) stmt {
+    const val = @mc_eval(cond)
+    if !val { @mc_error("断言失败") }
+    @mc_code(@mc_ast({}))
+}
+
+// 类型驱动代码生成
+mc define_getter(field: expr) struct {
+    const field_ast = @mc_ast(field)
+    @mc_code(@mc_ast({
+        fn get_${field_ast}(self: &Self) i32 {
+            return self.${field_ast}
+        }
+    }))
+}
+```
+
 ## 重要设计原则
 
 1. **泛型语法**：使用尖括号 `<T>`，约束紧邻参数 `<T: Ord>`，多约束连接 `<T: Ord + Clone + Default>`
@@ -809,13 +874,17 @@ fn main() !i32 {
    - 结构体泛型：`struct Vec<T: Default> { ... }`
    - 接口泛型：`interface Iterator<T> { ... }`
    - 类型参数使用：`Vec<i32>`, `Iterator<String>`
-2. **编译期证明**：在当前函数内验证安全性，证明超时自动插入运行时检查
-3. **显式控制**：所有类型注解显式，无隐式转换
-4. **C兼容性**：所有结构体使用C内存布局，100% C互操作
-5. **零运行时开销**：编译期完成所有可以静态确定的工作
+2. **宏系统**：编译时元编程，支持类型反射、代码生成、环境变量访问
+   - 宏定义：`mc name(params) return_tag { ... }`
+   - 编译时内置函数：`@mc_eval`、`@mc_type`、`@mc_ast`、`@mc_code`、`@mc_error`、`@mc_get_env`
+   - 零运行时开销，编译期确定性
+3. **编译期证明**：在当前函数内验证安全性，证明超时自动插入运行时检查
+4. **显式控制**：所有类型注解显式，无隐式转换
+5. **C兼容性**：所有结构体使用C内存布局，100% C互操作
+6. **零运行时开销**：编译期完成所有可以静态确定的工作
 
 ---
 
-**版本**：Uya 0.39  
+**版本**：Uya 0.41  
 **更新日期**：2026-02-01
 
