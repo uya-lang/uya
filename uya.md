@@ -41,6 +41,7 @@
 - [16. 标准库](#16-标准库)
 - [17. 字符串与格式化](#17-字符串与格式化)
 - [18. 异步编程](#18-异步编程)
+- [25. 宏系统](#25-宏系统)
 - [附录 A. 完整示例](#附录-a-完整示例)
 - [附录 B. 扩展特性](#附录-b-扩展特性)
 - [术语表](#术语表)
@@ -88,6 +89,19 @@
     - 零成本：状态机栈分配，无运行时堆分配，无隐式锁
     - 编译期证明：状态机安全性、Send/Sync 推导、跨线程验证编译期完成
     - 类型安全：`Poll<T>` 使用 `union`（编译期标签跟踪），非 `enum`
+
+- **宏系统规范细化**（新增第 25 章）：
+  - **宏定义语法**：`mc ID(param_list) return_tag { statements }`
+  - **编译时内置函数**：
+    - `@mc_eval(expr)`：编译时求值
+    - `@mc_type(expr)`：编译时类型反射，返回 `TypeInfo` 结构体
+    - `@mc_ast(expr)`：代码转抽象语法树
+    - `@mc_code(ast)`：抽象语法树转代码
+    - `@mc_error(msg)`：编译时错误报告
+    - `@mc_get_env(name)`：编译时环境变量读取
+  - **缓存机制**：相同宏调用自动缓存，提升编译性能
+  - **安全限制**：递归深度、展开次数、嵌套层数限制
+  - **完整示例**：编译时断言、类型驱动代码生成、配置系统等
 
 ### 0.39（2026-02-01）
 
@@ -4504,6 +4518,752 @@ fn main() !Future<i32> {
 ### 18.9 一句话总结
 
 > **异步编程基础设施**：`@async_fn`/`@await` + `union Poll<T>` + `interface Future<T>`；返回必须 `!Future<T>`；状态机零分配，挂起显式，并发安全编译期证明。
+
+---
+
+## 25 宏系统
+
+### 25.1 概述
+
+Uya 宏系统是一个**编译时元编程工具**，允许开发者在编译阶段生成、转换和验证代码。该系统严格遵循 Uya 语言"坚如磐石"的设计哲学，通过编译时的确定性与安全性，确保运行时的可靠性与零开销抽象。
+
+### 25.2 宏定义语法
+
+> **BNF 语法规范**：详见 [grammar_formal.md](./grammar_formal.md#宏系统)
+
+```
+macro_decl = 'mc' ID '(' param_list ')' return_tag '{' statements '}'
+param_list = param { ',' param }
+param = ID ':' param_type
+param_type = 'expr' | 'stmt' | 'type' | 'pattern'
+return_tag = 'expr' | 'stmt' | 'struct' | 'type'
+```
+
+**说明**：
+- `mc` 关键字用于声明宏
+- 参数类型：`expr`（表达式）、`stmt`（语句）、`type`（类型）、`pattern`（模式）
+- 返回标签：`expr`（表达式）、`stmt`（语句）、`struct`（结构体成员）、`type`（类型标识符）
+
+### 25.3 宏调用语法
+
+```
+macro_call = ID '(' arg_list ')'
+```
+
+宏调用语法与普通函数调用完全一致。宏在编译时展开，调用表达式被替换为宏生成的代码片段。
+
+### 25.4 编译时内置函数
+
+#### 25.4.1 `@mc_eval(expr)`
+
+**编译时求值函数**
+- **功能**：对常量表达式进行编译时求值
+- **规则**：表达式必须是编译时常量，否则引发编译错误
+- **用途**：条件编译、常量计算、编译时验证
+
+```uya
+mc buffer_size(n) expr {
+    const size = @mc_eval(n)
+    if size > 8192 { @mc_error("缓冲区太大") }
+    @mc_code(@mc_ast( ${@mc_ast(size)} ))
+}
+```
+
+#### 25.4.2 `@mc_type(expr)`
+
+**编译时类型反射函数**
+- **功能**：获取表达式或类型的完整编译时类型信息
+- **返回**：`TypeInfo` 结构体
+
+**`TypeInfo` 结构体**：
+```uya
+struct TypeInfo {
+    // 基础信息
+    name: string
+    kind: TypeKind
+    size: usize
+    align: usize
+    
+    // 类型特征标志
+    is_integer: bool
+    is_signed: bool
+    is_float: bool
+    is_numeric: bool
+    is_bool: bool
+    is_byte: bool
+    is_void: bool
+    is_struct: bool
+    is_union: bool
+    is_enum: bool
+    is_interface: bool
+    is_tuple: bool
+    is_array: bool
+    is_slice: bool
+    is_pointer: bool
+    is_ref: bool
+    is_ptr: bool
+    is_atomic_ptr: bool
+    is_void_ptr: bool
+    is_atomic: bool
+    is_error_union: bool
+    is_func_ptr: bool
+    is_generic_param: bool
+    is_opaque: bool
+    
+    // 扩展元数据
+    fields: [FieldInfo]
+    variants: [VariantInfo]
+    underlying_type: TypeInfo
+    element_type: TypeInfo
+    array_length: usize
+    param_types: [TypeInfo]
+    return_type: TypeInfo
+    constraint: string
+    method_sigs: [MethodSignature]
+}
+```
+
+**`TypeKind` 枚举**：
+```uya
+enum TypeKind {
+    // 基础标量类型
+    Integer, Float, Bool, Byte, Void
+    
+    // 指针与引用类型
+    Ref, Ptr, AtomicPtr, VoidPtr
+    
+    // 复合数据类型
+    Struct, Union, Enum, Interface, Tuple
+    
+    // 集合类型
+    Array, Slice, FixedSlice
+    
+    // 特殊类型
+    Atomic, ErrorUnion, FuncPtr
+    
+    // 泛型与元类型
+    GenericParam, TypeInfo
+    
+    // 外部类型
+    Extern, Opaque
+}
+```
+
+**关联数据结构**：
+```uya
+struct FieldInfo {
+    name: string
+    type: TypeInfo
+    offset: usize
+    index: usize
+}
+
+struct VariantInfo {
+    name: string
+    discriminant: i64
+    has_payload: bool
+    payload_type: TypeInfo
+}
+
+struct MethodSignature {
+    name: string
+    param_types: [TypeInfo]
+    return_type: TypeInfo
+    is_mut: bool
+}
+```
+
+#### 25.4.3 `@mc_ast(expr)`
+
+**代码转抽象语法树函数**
+- **功能**：将代码片段转换为抽象语法树节点
+- **语法**：内部可使用 `${}` 嵌入其他 AST 节点
+
+```uya
+mc define_getter(field) struct {
+    const field_ast = @mc_ast(field)
+    const getter_ast = @mc_ast({
+        fn get_${field_ast}(self: &Self) i32 {
+            return self.${field_ast}
+        }
+    })
+    @mc_code(getter_ast)
+}
+```
+
+#### 25.4.4 `@mc_code(ast)`
+
+**抽象语法树转代码函数**
+- **功能**：将 AST 节点转换回可执行代码
+- **规则**：必须与宏声明的 `return_tag` 匹配
+
+#### 25.4.5 `@mc_error(msg)`
+
+**编译时错误报告函数**
+- **功能**：立即终止编译并显示错误信息
+- **用途**：宏内断言、参数验证、约束检查
+
+#### 25.4.6 `@mc_get_env(name)`
+
+**编译时环境变量读取函数**
+- **功能**：读取编译时环境变量值
+- **参数**：`name` - 环境变量名（必须是字符串常量）
+- **返回**：环境变量值的字符串表示，如果未设置则返回空字符串
+- **特性**：
+  - 仅在编译时可用，运行时不可用
+  - 读取的值在编译期确定，可用于条件编译
+  - 支持缓存：相同环境变量名在同一编译会话中返回相同值
+
+```uya
+// 使用示例
+mc debug_mode() expr {
+    const debug = @mc_get_env("DEBUG")
+    if debug == "1" or debug == "true" {
+        @mc_code(@mc_ast( true ))
+    } else {
+        @mc_code(@mc_ast( false ))
+    }
+}
+
+// 配置宏
+mc config_value(key: expr, default: expr) expr {
+    const key_str = @mc_eval(key)
+    const env_value = @mc_get_env(key_str)
+    
+    if env_value != "" {
+        // 根据默认值类型解析环境变量
+        const default_type = @mc_type(default)
+        match default_type.kind {
+            .Integer => {
+                const int_val = @mc_parse_int(env_value)
+                @mc_code(@mc_ast( ${@mc_ast(int_val)} ))
+            }
+            .Bool => {
+                const bool_val = env_value == "true" or env_value == "1"
+                @mc_code(@mc_ast( ${@mc_ast(bool_val)} ))
+            }
+            else => {
+                @mc_code(@mc_ast( "${env_value}" ))
+            }
+        }
+    } else {
+        @mc_code(@mc_ast( ${default} ))
+    }
+}
+
+// 使用
+const IS_DEBUG: bool = debug_mode()
+const API_URL: *byte = config_value("API_URL", "https://api.example.com")
+const TIMEOUT_MS: i32 = config_value("TIMEOUT_MS", 5000)
+```
+
+### 25.5 返回值类型语义
+
+| 返回标签 | 生成代码类型 | 调用位置 |
+|---------|-------------|----------|
+| `expr` | 表达式 | 需要表达式的地方 |
+| `stmt` | 语句 | 语句位置 |
+| `struct` | 结构体成员 | 结构体定义块内 |
+| `type` | 类型标识符 | 类型注解位置 |
+
+### 25.6 编译时控制流
+
+宏体内可使用常规控制流，判断条件通常需在编译时可求值。
+
+```uya
+mc specialize(val) expr {
+    const v = @mc_eval(val)
+    if v > 10 {
+        @mc_code(@mc_ast( complex_op(${@mc_ast(v)}) ))
+    } else {
+        @mc_code(@mc_ast( simple_op(${@mc_ast(v)}) ))
+    }
+}
+```
+
+### 25.7 宏与函数的区别
+
+| 维度 | 宏 (`mc`) | 普通函数 (`fn`) |
+|------|-----------|----------------|
+| 执行时机 | 编译时 | 运行时 |
+| 操作对象 | 代码（语法树） | 数据（值） |
+| 可用函数 | 仅 `@mc_` 前缀函数 | 所有运行时函数 |
+| 错误处理 | `@mc_error` 终止编译 | `catch` 运行时处理 |
+| 输出 | 生成代码片段 | 返回值 |
+
+### 25.8 缓存机制
+
+#### 25.8.1 自动缓存
+
+Uya 编译器自动对宏调用结果进行缓存，遵循以下规则：
+
+1. **相同调用缓存**：相同宏名 + 完全相同参数值 → 复用上次展开结果
+2. **参数值相等性**：参数必须是编译时常量，通过 `@mc_eval` 求值后比较相等性
+3. **类型安全缓存**：宏的返回标签也作为缓存键的一部分
+
+#### 25.8.2 缓存键组成
+
+```
+缓存键 = 宏名 + 参数值元组 + 返回标签 + 编译器上下文哈希
+```
+
+#### 25.8.3 缓存失效条件
+
+1. 源代码变更（宏定义或调用位置）
+2. 编译器版本变更
+3. 编译器选项变更
+4. 宏依赖的外部文件变更（如果宏读取了外部文件）
+5. 环境变量变更（对于使用 `@mc_get_env` 的宏）
+
+#### 25.8.4 手动缓存控制
+
+```uya
+// 使用 @mc_no_cache 标记不缓存的宏
+@[no_cache]
+mc dynamic_date() expr {
+    // 每次展开都重新计算
+    const current_date = @mc_eval_system("date +%Y%m%d")
+    @mc_code(@mc_ast( ${@mc_ast(current_date)} ))
+}
+
+// 使用 @mc_cache_key 自定义缓存键
+@[cache_key = "version_${VERSION}"]
+mc versioned_feature() stmt {
+    // 根据版本号缓存
+}
+
+// 环境变量敏感的宏会自动跟踪依赖
+mc env_dependent() expr {
+    const mode = @mc_get_env("MODE")  // 编译器自动跟踪此依赖
+    @mc_code(@mc_ast( "${mode}" ))
+}
+```
+
+#### 25.8.5 缓存性能收益
+
+- **编译速度**：重复宏调用直接使用缓存，避免重复展开
+- **内存使用**：相同展开结果共享内存表示
+- **增量编译**：缓存结果可用于增量编译，加速重新编译
+
+#### 25.8.6 缓存验证
+
+编译器在复用缓存前进行验证：
+1. 验证宏定义未更改
+2. 验证宏依赖未更改（包括环境变量）
+3. 验证类型上下文兼容
+
+### 25.9 安全限制
+
+1. **递归深度限制**：默认 32 层
+2. **总展开次数限制**：默认 10,000 次
+3. **嵌套层数限制**：默认 8 层
+4. **环境变量访问限制**：只能访问白名单中的环境变量（可通过编译器选项配置）
+
+超出限制立即终止编译。可通过编译器参数调整。
+
+### 25.10 完整示例
+
+#### 25.10.1 编译时断言宏
+
+```uya
+// 基本编译时断言
+mc const_assert(cond: expr, msg: expr = "assertion failed") stmt {
+    if !@mc_eval(cond) { @mc_error(@mc_eval(msg)) }
+}
+
+// 带缓存的编译时断言
+mc cached_assert(cond: expr) stmt {
+    // 相同cond值会被缓存
+    if !@mc_eval(cond) { @mc_error("assertion failed") }
+}
+
+// 使用示例
+const_assert(@size_of(i32) == 4, "i32必须是4字节")
+const_assert(1 + 1 == 2)
+cached_assert(@align_of(f64) == 8)  // 相同检查会被缓存
+```
+
+#### 25.10.2 类型驱动代码生成
+
+```uya
+// 自动生成结构体序列化代码
+mc generate_serializer(T: type) struct {
+    const info = @mc_type(T)
+    
+    // 缓存键包含类型信息，相同类型T会复用生成的代码
+    match info.kind {
+        .Struct => {
+            // 为每个字段生成序列化代码
+            const fields_code = []
+            for info.fields |field| {
+                const field_serializer = @mc_ast(
+                    buffer.write_${field.type.name}(self.${field.name})
+                )
+                fields_code.push(field_serializer)
+            }
+            
+            const method_ast = @mc_ast({
+                fn serialize(self: &Self, buffer: &mut Serializer) void {
+                    ${fields_code[0]}
+                    ${fields_code[1]}
+                    // ... 更多字段
+                }
+            })
+            @mc_code(method_ast)
+        }
+        
+        .Integer => {
+            const method_ast = @mc_ast({
+                fn serialize(self: &Self, buffer: &mut Serializer) void {
+                    buffer.write_int(self)
+                }
+            })
+            @mc_code(method_ast)
+        }
+        
+        else => @mc_error("类型 ${info.name} 不支持序列化")
+    }
+}
+
+// 使用示例
+struct Point {
+    x: i32,
+    y: i32,
+    
+    // 在结构体内部调用宏
+    generate_serializer(Point)  // 生成serialize方法
+}
+
+// 编译器会为每个不同的类型T缓存生成的代码
+```
+
+#### 25.10.3 编译时向量类型生成器
+
+```uya
+// 编译时生成类型安全的向量容器
+mc vector_type(T: type, name: ident) type {
+    const info = @mc_type(T)
+    
+    // 验证类型约束
+    if !info.is_copy && !info.has_drop {
+        @mc_error("类型 ${T} 必须实现 Copy 或 Drop")
+    }
+    
+    // 生成向量结构体定义
+    @mc_code(@mc_ast(
+        struct ${name} {
+            data: &${T},
+            len: usize,
+            cap: usize,
+            
+            fn new() Self {
+                return ${name} {
+                    data: null,
+                    len: 0,
+                    cap: 0
+                }
+            }
+            
+            fn push(self: &mut Self, value: ${T}) void {
+                // 自动生成增长逻辑
+                if self.len >= self.cap {
+                    const new_cap = if self.cap == 0 { 4 } else { self.cap * 2 }
+                    const new_data = @alloc(${T}, new_cap)
+                    if self.data != null {
+                        @memcpy(new_data, self.data, self.len * @size_of(${T}))
+                        @free(self.data)
+                    }
+                    self.data = new_data
+                    self.cap = new_cap
+                }
+                self.data[self.len] = value
+                self.len += 1
+            }
+            
+            fn pop(self: &mut Self) union Option<${T}> {
+                if self.len == 0 {
+                    return .None
+                }
+                self.len -= 1
+                return .Some(self.data[self.len])
+            }
+            
+            fn drop(self: Self) void {
+                if self.data != null {
+                    // 如果T有drop，需要调用每个元素的drop
+                    if ${info.has_drop} {
+                        for 0..self.len |i| {
+                            self.data[i].drop()
+                        }
+                    }
+                    @free(self.data)
+                }
+            }
+        }
+    ))
+}
+
+// 使用示例 - 相同类型参数会被缓存
+vector_type(i32, IntVec)      // 生成 IntVec 类型
+vector_type(f64, FloatVec)    // 生成 FloatVec 类型
+
+const vec1: IntVec = IntVec.new()
+const vec2: IntVec = IntVec.new()  // 复用缓存的 IntVec 类型定义
+```
+
+#### 25.10.4 编译时查询表生成
+
+```uya
+// 生成编译时查询表，利用缓存避免重复计算
+mc lookup_table(name: ident, size: expr, generator: expr) struct {
+    const table_size = @mc_eval(size)
+    
+    // 生成静态查找表
+    const table_ast = @mc_ast(
+        const ${name}: [i32: ${table_size}] = [
+            ${@mc_ast(generator(0))},
+            ${@mc_ast(generator(1))},
+            ${@mc_ast(generator(2))},
+            // ... 更多元素
+        ]
+    )
+    
+    @mc_code(table_ast)
+}
+
+// 辅助宏：生成特定函数的查找表
+mc sin_table(name: ident, size: expr) struct {
+    const n = @mc_eval(size)
+    
+    // 生成sin函数查找表
+    @mc_code(@mc_ast(
+        const ${name}: [f32: ${n}] = [
+            ${@mc_ast(@mc_sin(0.0))},
+            ${@mc_ast(@mc_sin(0.1))},
+            // ... 更多值
+        ]
+    ))
+}
+
+// 使用示例
+lookup_table(SQUARES, 10, |i| i * i)  // 生成平方表
+sin_table(SIN_VALUES, 100)            // 生成sin值表
+
+// 在代码中多次使用相同表 - 会复用缓存的展开结果
+fn use_table() void {
+    const x = SQUARES[5]  // 25
+    const y = SIN_VALUES[42]
+}
+```
+
+#### 25.10.5 错误处理宏
+
+```uya
+// 自动错误传播宏，带缓存
+mc try_or_default(expr: expr, default: expr) expr {
+    const result_type = @mc_type(expr)
+    
+    if !result_type.is_error_union {
+        @mc_error("try_or_default 仅适用于返回错误联合类型的表达式")
+    }
+    
+    const default_ast = @mc_ast(default)
+    
+    // 生成带错误处理的表达式
+    @mc_code(@mc_ast(
+        ${expr} catch {
+            return ${default_ast}
+        }
+    ))
+}
+
+// 带错误上下文的宏
+mc try_with_context(expr: expr, context: expr) expr {
+    const context_str = @mc_eval(context)
+    
+    @mc_code(@mc_ast(
+        ${expr} catch |err| {
+            log_error("${context_str}: ", err)
+            return err
+        }
+    ))
+}
+
+// 使用示例
+fn parse_config() !Config {
+    const content = try_with_context(read_file("config.json"), "读取配置文件")
+    const parsed = try_or_default(parse_json(content), Config.default())
+    return parsed
+}
+```
+
+#### 25.10.6 编译时配置系统（使用 @mc_get_env）
+
+```uya
+// 编译时配置读取宏
+mc config_value(key: expr, default: expr) expr {
+    const key_str = @mc_eval(key)
+    
+    // 尝试从编译时环境读取
+    const env_value = @mc_get_env(key_str)
+    
+    if env_value != "" {
+        // 根据default的类型解析环境变量值
+        const default_type = @mc_type(default)
+        
+        match default_type.kind {
+            .Integer => {
+                const int_val = @mc_parse_int(env_value)
+                @mc_code(@mc_ast( ${@mc_ast(int_val)} ))
+            }
+            .Bool => {
+                const bool_val = env_value == "true" or env_value == "1"
+                @mc_code(@mc_ast( ${@mc_ast(bool_val)} ))
+            }
+            else => {
+                @mc_code(@mc_ast( "${env_value}" ))
+            }
+        }
+    } else {
+        // 使用默认值
+        @mc_code(@mc_ast( ${default} ))
+    }
+}
+
+// 平台检测宏
+mc target_platform() expr {
+    const platform = @mc_get_env("TARGET_PLATFORM")
+    
+    match platform {
+        "windows" => @mc_code(@mc_ast( .WINDOWS )),
+        "linux" => @mc_code(@mc_ast( .LINUX )),
+        "macos" => @mc_code(@mc_ast( .MACOS )),
+        else => @mc_code(@mc_ast( .UNKNOWN ))
+    }
+}
+
+// 使用示例
+const DEBUG: bool = config_value("DEBUG", false)
+const PORT: i32 = config_value("PORT", 8080)
+const HOST: *byte = config_value("HOST", "localhost")
+const PLATFORM: Platform = target_platform()
+
+// 相同配置键会使用缓存值
+const ALSO_PORT: i32 = config_value("PORT", 8080)  // 复用缓存的展开结果
+
+// 条件编译示例
+if PLATFORM == .LINUX {
+    // Linux特定代码
+} else if PLATFORM == .WINDOWS {
+    // Windows特定代码
+}
+```
+
+#### 25.10.7 功能标志宏
+
+```uya
+// 基于环境变量的功能标志
+mc feature_enabled(feature: expr) expr {
+    const feature_name = @mc_eval(feature)
+    const env_var = @mc_get_env("FEATURE_" + feature_name)
+    
+    if env_var == "1" or env_var == "true" or env_var == "on" {
+        @mc_code(@mc_ast( true ))
+    } else {
+        @mc_code(@mc_ast( false ))
+    }
+}
+
+// 版本检查宏
+mc version_check(min_version: expr) expr {
+    const min_ver = @mc_eval(min_version)
+    const current_ver = @mc_get_env("COMPILER_VERSION")
+    
+    if current_ver >= min_ver {
+        @mc_code(@mc_ast( true ))
+    } else {
+        @mc_error("需要编译器版本 ${min_ver} 或更高，当前为 ${current_ver}")
+    }
+}
+
+// 使用示例
+const USE_AVX2: bool = feature_enabled("AVX2")
+const USE_SIMD: bool = feature_enabled("SIMD")
+
+// 编译器版本检查
+version_check("0.39.0")  // 如果编译器版本低于0.39.0，编译失败
+
+// 条件代码生成
+if USE_AVX2 {
+    // 生成AVX2优化的代码路径
+} else if USE_SIMD {
+    // 生成通用SIMD代码路径
+} else {
+    // 生成纯标量代码路径
+}
+```
+
+### 25.11 最佳实践
+
+#### 25.11.1 编译时断言
+
+```uya
+mc const_assert(cond: expr, msg: expr) stmt {
+    if !@mc_eval(cond) { @mc_error(@mc_eval(msg)) }
+}
+```
+
+#### 25.11.2 类型驱动代码生成
+
+```uya
+mc generate_serializer(T) struct {
+    const info = @mc_type(T)
+    match info.kind {
+        .Struct => {
+            // 为结构体生成序列化代码
+        }
+        .Integer => {
+            // 为整数生成序列化代码
+        }
+        else => @mc_error("不支持的类型")
+    }
+}
+```
+
+#### 25.11.3 宏与函数协作
+
+```uya
+// 运行时函数：核心算法
+fn fast_hash(data: &[u8]) u64 { ... }
+
+// 编译时宏：生成特化调用
+mc hash_string(s) expr {
+    @mc_code(@mc_ast( fast_hash(${@mc_ast(s)}.as_bytes()) ))
+}
+```
+
+#### 25.11.4 环境变量使用指南
+
+1. **明确命名**：使用清晰的环境变量名，如 `DEBUG_MODE` 而不是 `DEBUG`
+2. **默认值**：总是提供合理的默认值
+3. **类型安全**：根据使用场景正确解析环境变量值
+4. **文档化**：在项目文档中说明可用的环境变量
+5. **安全限制**：生产构建中限制可访问的环境变量
+
+### 25.12 设计原则总结
+
+1. **编译时执行**：零运行时开销，所有宏在编译时展开
+2. **缓存优化**：相同宏调用自动缓存，提升编译性能
+3. **类型安全**：所有生成代码通过严格类型检查
+4. **环境集成**：通过 `@mc_get_env` 支持编译时配置
+5. **显式控制**：明确区分编译时与运行时操作
+6. **失败快速终止**：错误在编译时立即暴露，避免运行时问题
+7. **可控的元编程**：通过安全限制和缓存机制防止滥用
+
+### 25.13 一句话总结
+
+> **Uya 宏系统 = 编译时元编程 + 类型反射 + 智能缓存 + 环境集成**；  
+> **零运行时开销，编译期确定性，坚如磐石。**
 
 ---
 
