@@ -73,6 +73,11 @@ void collect_generic_struct_instances_from_node(C99CodeGenerator *codegen, ASTNo
 /* 生成泛型结构体实例化的结构体定义（单态化） */
 void gen_generic_struct_instance(C99CodeGenerator *codegen, ASTNode *generic_struct_decl, ASTNode **type_args, int type_arg_count, const char *instance_name);
 
+// 泛型结构体单态化（structs.c）
+int is_generic_struct_c99(ASTNode *struct_decl);
+const char *get_mono_struct_name(C99CodeGenerator *codegen, const char *generic_name, ASTNode **type_args, int type_arg_count);
+int gen_mono_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl, ASTNode **type_args, int type_arg_count);
+
 // 枚举相关（enums.c）
 int is_enum_in_table(C99CodeGenerator *codegen, const char *enum_name);
 int is_enum_defined(C99CodeGenerator *codegen, const char *enum_name);
@@ -101,6 +106,12 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl);
 ASTNode *replace_type_params_in_type(C99CodeGenerator *codegen, ASTNode *type_node, TypeParam *type_params, int type_param_count, ASTNode **type_args);
 /* 生成泛型函数实例化的函数定义（单态化） */
 void gen_generic_function_instance(C99CodeGenerator *codegen, ASTNode *generic_fn_decl, ASTNode **type_args, int type_arg_count, const char *instance_name);
+
+// 泛型单态化函数生成（function.c）
+int is_generic_function_c99(ASTNode *fn_decl);
+const char *get_mono_function_name(C99CodeGenerator *codegen, const char *generic_name, ASTNode **type_args, int type_arg_count);
+void gen_mono_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl, ASTNode **type_args, int type_arg_count);
+void gen_mono_function(C99CodeGenerator *codegen, ASTNode *fn_decl, ASTNode **type_args, int type_arg_count);
 
 // 表达式生成（expr.c）
 void gen_expr(C99CodeGenerator *codegen, ASTNode *expr);

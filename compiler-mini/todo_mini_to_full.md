@@ -26,9 +26,10 @@
 | 12 | 运算符与安全 | [x]（饱和/包装运算、as! 已实现；内存安全证明未实现） |
 | 13 | 联合体（union） | [x]（C 实现与 uya-src 已同步） |
 | 14 | 消灭所有警告 | [x]（主要工作已完成，剩余问题见下方说明） |
-| 15 | 泛型（Generics） | [ ] **进行中**（Parser 已完成，Checker 基础部分已完成，Codegen 单态化函数定义已完成） |
+| 15 | 泛型（Generics） | [~]（基础实现完成，约束/推断待实现） |
 | 16 | 异步编程（Async） | [ ] |
 | 17 | test 关键字（测试单元） | [x]（C 实现与 uya-src 已同步） |
+| 18 | **宏系统（Macro）** | [x] C 实现已完成（uya-src 待同步） |
 
 ---
 
@@ -401,153 +402,61 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 - 接口泛型：`interface Iterator<T> { ... }`
 - 类型参数使用：`Vec<i32>`, `Iterator<String>`
 
-**实现待办**：
+**实现状态**：
 
 - [x] **Lexer**：识别泛型语法
-  - [x] 识别尖括号 `<` 和 `>`（已存在 TOKEN_LESS 和 TOKEN_GREATER，注意与比较运算符区分）
-  - [x] 识别类型参数列表 `<T>`、`<T: Ord>`、`<T: Ord + Clone>`（Parser 中实现）
-  - [x] 识别约束语法（`:` 后的接口名，`+` 连接的多约束）（Parser 中实现）
+  - [x] 识别尖括号 `<` 和 `>`（复用比较运算符 token）
+  - [ ] 识别类型参数约束语法 `<T: Ord>`、`<T: Ord + Clone>`（待实现）
 
 - [x] **AST**：泛型节点扩展
-  - [x] 函数声明添加 `type_params` 字段（类型参数列表）
-  - [x] 结构体声明添加 `type_params` 字段
-  - [x] 接口声明添加 `type_params` 字段
-  - [x] 类型节点支持泛型类型参数（如 `Vec<i32>`）：添加 `type_args` 和 `type_arg_count` 字段
-  - [x] 类型参数节点（`TypeParam`）：名称、约束列表（已定义 TypeParam 结构体）
+  - [x] 函数声明添加 `type_params`/`type_param_count` 字段
+  - [x] 结构体声明添加 `type_params`/`type_param_count` 字段
+  - [x] 接口声明添加 `type_params`/`type_param_count` 字段
+  - [x] 类型节点支持泛型类型参数（`type_args`/`type_arg_count`）
+  - [x] 调用表达式支持泛型类型参数
+  - [x] 结构体初始化支持泛型类型参数
 
-- [x] **Parser**：泛型语法解析（已完成）
-  - [x] 解析函数泛型参数列表：`fn name<T: Ord>(...)`（已实现）
-  - [x] 解析结构体泛型参数列表：`struct Name<T: Default>`（已实现）
-  - [x] 解析接口泛型参数列表：`interface Name<T>`（已实现）
-  - [x] 解析类型参数约束：`<T: Ord>`、`<T: Ord + Clone + Default>`（已实现）
-  - [x] 解析泛型类型使用：`Vec<i32>`、`Iterator<String>`（已实现）
-  - [x] 处理泛型与普通语法的歧义（在类型解析上下文中，`<` 作为泛型开始，在表达式上下文中仍为比较运算符）
+- [x] **Parser**：泛型语法解析
+  - [x] 解析函数泛型参数列表：`fn name<T>(...)`
+  - [x] 解析结构体泛型参数列表：`struct Name<T>`
+  - [x] 解析接口泛型参数列表：`interface Name<T>`
+  - [ ] 解析类型参数约束：`<T: Ord>`（待实现）
+  - [x] 解析泛型类型使用：`Vec<i32>`、`Pair<i32, i64>`
+  - [x] 处理泛型与比较运算符的歧义（修复 `<` 误判为比较运算符的问题）
 
-- [ ] **Checker**：泛型类型检查（部分完成）
-  - [x] 泛型类型参数识别：在 `type_from_ast` 中识别泛型类型参数（如 `Vec<i32>`）
-  - [x] 类型参数数量验证：验证泛型类型参数数量是否匹配（如 `Vec<i32>` 需要 1 个类型参数）
-  - [x] 类型参数作用域管理（泛型函数/结构体/接口内部）：已实现类型参数作用域栈，在检查泛型函数/结构体时进入类型参数作用域，在 `type_from_ast` 中识别类型参数
-  - [x] 约束检查基础框架：已实现 `type_satisfies_constraint` 和 `type_satisfies_all_constraints` 函数，在 `type_from_ast` 中使用泛型类型参数时检查约束；内置类型（整数、浮点、布尔、字节）默认满足 Ord、Clone、Default 约束；枚举类型默认满足 Ord、Clone、Default 约束；结构体类型检查是否实现了约束接口
-  - [ ] 泛型实例化：将泛型类型替换为具体类型（如 `Vec<i32>`）
-  - [ ] 单态化（Monomorphization）：为每个具体类型实例生成独立代码
-  - [x] **类型推断（已完成）**：在可能的情况下推断类型参数（如 `max(10, 20)` 推断为 `max<i32>`），已实现 `type_to_ast_node` 函数和类型推断逻辑，在 `checker_check_call_expr` 中当 `type_arg_count == 0` 时从函数参数类型推断类型参数，测试 `test_generic_inference.uya` 已通过
+- [x] **Checker**：泛型类型检查（基础）
+  - [x] 类型参数作用域管理（泛型函数/结构体内部）
+  - [x] 单态化实例收集（`MonoInstance` 结构体）
+  - [x] 泛型函数调用类型检查
+  - [x] 泛型结构体初始化类型检查
+  - [ ] 约束检查：验证类型参数是否满足约束（待实现）
+  - [ ] 类型推断：自动推断类型参数（待实现）
 
-- [ ] **Codegen**：泛型代码生成（部分完成）
-  - [x] 泛型类型名称生成：在 `c99_type_to_c` 中处理泛型类型（如 `Vec<i32>` → `uya_Vec_i32`），已实现基础框架
-  - [x] Parser 支持泛型函数调用语法：已实现 `max<i32>(10, 20)` 语法解析，类型参数存储在 `call_expr.type_args` 中
-  - [x] 泛型函数调用代码生成：在 `gen_expr` 中处理泛型函数调用，生成实例化的函数名（如 `max<i32>` → `uya_max_int32_t`）
-  - [x] 泛型函数实例化收集框架：已实现 `collect_generic_instance` 函数和 `GenericInstance` 结构体，在生成泛型函数调用时收集实例化信息
-  - [x] 类型参数替换函数：已实现 `replace_type_params_in_type` 函数，用于在生成代码时替换类型参数为具体类型
-  - [x] 单态化函数定义生成框架：已实现 `gen_generic_function_instance` 函数，用于生成泛型函数实例化的函数定义
-  - [x] **单态化函数定义生成（已完成）**：为每个泛型函数实例化生成独立的函数定义（如 `uya_max_int32_t` 的函数体），已实现 `collect_generic_instances_from_node` 函数在生成代码前遍历所有函数体收集泛型函数实例化，测试 `test_generic_call.uya` 已通过
-  - [x] **泛型结构体定义生成（已完成）**：为每个泛型结构体实例化生成独立的结构体定义（如 `uya_Vec_i32` 的结构体定义），已实现 `collect_generic_struct_instances_from_node` 和 `gen_generic_struct_instance` 函数，测试 `test_generic_constraint.uya` 已通过
-  - [x] **泛型结构体代码生成（已完成）**：`struct Vec<T>` → `uya_Vec_i32`、`uya_Vec_f64` 等（类型名称生成和结构体定义生成均已完成）
-  - [x] 约束检查代码生成：确保类型满足约束（编译期检查，已在 Checker 中实现）
-  - [x] 泛型类型参数替换：在生成代码时替换类型参数为具体类型（在 `c99_type_to_c` 中已实现）
+- [x] **Codegen**：泛型代码生成（单态化）
+  - [x] 泛型函数单态化：`identity<i32>` → `identity_i32`
+  - [x] 泛型结构体单态化：`Pair<i32, i64>` → `struct Pair_i32_i64`
+  - [x] 泛型函数调用代码生成（使用单态化名称）
+  - [x] 泛型结构体初始化代码生成（使用单态化名称）
+  - [x] 类型参数替换（在生成代码时替换为具体类型）
 
-- [ ] **标准约束接口**：定义常用约束
-  - [ ] `Ord` 接口：定义比较运算符（`<`, `>`, `<=`, `>=`）
+- [ ] **标准约束接口**：定义常用约束（待实现）
+  - [ ] `Ord` 接口：定义比较运算符
   - [ ] `Clone` 接口：定义 `clone()` 方法
   - [ ] `Default` 接口：定义默认值创建
-  - [ ] 为内置类型实现这些约束（整数、浮点、枚举等）
 
-- [x] **测试用例**（部分完成）：
-  - [x] `test_generic_fn.uya` - 基本泛型函数（已创建并启用，Parser 和基础 Checker 测试通过）
-  - [x] `test_generic_parser.uya` - 基本泛型语法解析测试（Parser 阶段验证）
-  - [x] `test_generic_parser_full.uya` - 完整泛型语法解析测试（包含函数、结构体、接口）
-  - [x] `test_generic_call.uya` - 泛型函数调用语法测试（已创建，Parser、Codegen 和单态化测试通过，函数调用代码生成正确，单态化函数定义生成正确）
-  - [x] `test_generic_constraint.uya` - 泛型结构体约束测试（已创建，泛型结构体定义生成和约束检查测试通过）
-  - [x] `test_generic_struct.uya` - 基本泛型结构体（已创建，测试通过，包含多个类型参数的实例化）
-  - [x] `test_generic_struct_fn.uya` - 泛型结构体在函数中的使用（已创建，测试通过，包括作为函数参数、返回值等）
-  - [x] `test_generic_inference.uya` - 泛型函数类型推断测试（已创建，测试通过，验证从参数类型推断类型参数）
-  - [ ] `test_generic_interface.uya` - 基本泛型接口（待实现完整功能后创建）
-  - [ ] `test_generic_multiple_params.uya` - 多类型参数（待实现完整功能后创建）
-  - [ ] `test_generic_monomorphization.uya` - 单态化验证（单态化函数定义已完成，可创建更全面的测试用例）
-  - [ ] `error_generic_constraint_fail.uya` - 约束不满足错误（待实现约束检查后创建）
-  - [ ] `error_generic_ambiguous.uya` - 类型推断歧义错误（类型推断已实现，可创建测试用例验证歧义检测）
+- [x] **测试用例**（基础）：
+  - [x] `test_generic_fn.uya` - 基本泛型函数
+  - [x] `test_generic_struct.uya` - 基本泛型结构体
+  - [x] `test_generic_minimal.uya` - 最小泛型测试
+  - [x] `test_generic_simple.uya` - 简单泛型测试
+  - [ ] `test_generic_interface.uya` - 泛型接口（待实现）
+  - [ ] `test_generic_constraints.uya` - 约束语法（待实现）
 
-**当前进度**：
-- **C 实现**：
-  - ✅ AST 扩展已完成：
-    - 添加 `TypeParam` 结构体
-    - 在函数、结构体、接口声明中添加 `type_params` 字段
-    - 在类型节点中添加 `type_args` 字段
-    - 在函数调用节点中添加 `type_args` 字段（用于泛型函数调用，如 `max<i32>(10, 20)`）
-  - ✅ Parser 泛型语法解析已完成：
-    - 函数泛型参数：`fn max<T: Ord>(a: T, b: T) T`
-    - 结构体泛型参数：`struct Vec<T: Default> { ... }`
-    - 接口泛型参数：`interface Iterator<T> { ... }`
-    - 泛型类型使用：`Vec<i32>`、`Iterator<String>`
-    - 类型参数约束：`<T: Ord>`、`<T: Ord + Clone + Default>`
-    - 泛型函数调用：`max<i32>(10, 20)`（已实现语法解析，类型参数存储在 `call_expr.type_args` 中）
-  - ✅ 所有新字段初始化已完成
-  - ✅ Checker 基础泛型类型检查已完成：
-    - 泛型类型参数识别：在 `type_from_ast` 中识别泛型类型参数
-    - 类型参数数量验证：验证泛型类型参数数量是否匹配（结构体和接口）
-    - 类型参数作用域管理：已实现类型参数作用域栈（`type_param_scopes`），在检查泛型函数/结构体时进入类型参数作用域，在 `type_from_ast` 中识别类型参数（当标识符匹配类型参数名称时返回特殊标记）
-    - 约束检查基础框架：已实现 `type_satisfies_constraint` 和 `type_satisfies_all_constraints` 函数，在 `type_from_ast` 中使用泛型类型参数时检查约束；内置类型（整数、浮点、布尔、字节）默认满足 Ord、Clone、Default 约束；枚举类型默认满足 Ord、Clone、Default 约束；结构体类型检查是否实现了约束接口
-  - ⏳ Checker 高级功能待实现：
-    - 泛型实例化（将泛型类型替换为具体类型）
-    - ✅ 类型推断（已完成：在可能的情况下推断类型参数，如 `max(10, 20)` 推断为 `max<i32>`）
-  - ⏳ Codegen 泛型代码生成部分完成：
-    - ✅ 泛型类型名称生成已完成（`c99_type_to_c` 中处理泛型类型，如 `Vec<i32>` → `uya_Vec_i32`）
-    - ✅ Parser 支持泛型函数调用语法已完成（`max<i32>(10, 20)` 语法解析，类型参数存储在 `call_expr.type_args` 中）
-    - ✅ 泛型函数调用代码生成已完成（在 `gen_expr` 中生成实例化的函数名，如 `max<i32>` → `uya_max_int32_t`）
-    - ✅ 泛型函数实例化收集框架已完成：
-      - 在 `C99CodeGenerator` 中添加了 `generic_instances` 数组和 `generic_instance_count` 字段
-      - 实现了 `collect_generic_instance` 函数，在生成泛型函数调用时收集实例化信息
-      - 实现了 `replace_type_params_in_type` 函数，用于替换类型参数为具体类型
-      - 实现了 `gen_generic_function_instance` 函数，用于生成单态化的函数定义
-      - 在 `main.c` 中添加了生成泛型函数实例化前向声明和函数定义的代码
-      - 修复了 `gen_function_prototype` 和 `gen_function` 来跳过泛型函数的前向声明和定义
-    - ✅ **单态化函数定义生成（已完成）**：
-      - 实现了 `collect_generic_instances_from_node` 函数，在生成代码前遍历所有函数体收集泛型函数实例化
-      - 在"第七步 c"收集泛型函数实例化（与收集测试语句一起，遍历所有函数体）
-      - 在"第八步 b"生成泛型函数实例化的前向声明
-      - 在"第八步 c"生成泛型函数实例化的函数定义
-      - 测试 `test_generic_call.uya` 已通过，成功生成 `uya_max_int32_t` 的前向声明和函数定义
-    - ✅ **泛型结构体定义生成（已完成）**：
-      - 实现了 `collect_generic_struct_instances_from_node` 函数，在生成代码前遍历所有 AST 节点收集泛型结构体实例化
-      - 实现了 `gen_generic_struct_instance` 函数，为每个泛型结构体实例化生成独立的结构体定义
-      - 修复了 `replace_type_params_in_type` 函数，使其能够递归处理指针类型和数组类型中的类型参数
-      - 修复了结构体初始化的代码生成，当变量类型是泛型结构体实例化时使用正确的类型名称
-      - 修复了返回语句中结构体初始化的类型名称问题，当返回类型是泛型结构体实例化时使用正确的类型名称
-      - 修复了收集泛型结构体实例化时错误收集类型参数的问题，只收集具体类型的实例化
-      - 测试 `test_generic_constraint.uya`、`test_generic_struct.uya`、`test_generic_struct_fn.uya` 均已通过
-    - ✅ **类型推断（已完成）**：
-      - 实现了 `type_to_ast_node` 函数，将 Type 转换为 AST 类型节点
-      - 实现了 `find_function_decl_from_program` 函数，从程序节点中查找函数声明
-      - 在 `checker_check_call_expr` 中集成类型推断：当 `type_arg_count == 0` 且函数是泛型函数时，从函数参数类型推断类型参数
-      - 类型推断逻辑：遍历函数参数，如果参数类型是类型参数，从实参类型推断类型参数，并将推断的类型参数添加到 AST 节点中
-      - 测试 `test_generic_inference.uya` 已通过，成功验证 `max(10, 20)` 推断为 `max<i32>`、`max(3.14, 2.71)` 推断为 `max<f64>`
-- **uya-src 同步**：待 C 实现完成后同步
-- **测试用例**：
-  - ✅ `test_generic_parser.uya` - 基本泛型语法解析测试（Parser 阶段验证，包含注释示例）
-  - ✅ `test_generic_parser_full.uya` - 完整泛型语法解析测试（包含函数、结构体、接口的实际声明）
-  - ✅ `test_generic_fn.uya` - 泛型函数声明测试（已启用，Parser 和基础 Checker 测试通过）
-  - ✅ `test_generic_call.uya` - 泛型函数调用语法测试（Parser、Codegen 和单态化测试通过，函数调用代码生成正确，单态化函数定义生成正确）
-  - ✅ `test_generic_constraint.uya` - 泛型结构体约束测试（泛型结构体定义生成和约束检查测试通过）
-  - ✅ `test_generic_inference.uya` - 泛型函数类型推断测试（类型推断功能测试通过）
-
-**实现说明**：
-- ✅ 当前实现已完成：
-  - 泛型语法解析（函数、结构体、接口、类型使用、函数调用）
-  - 类型参数作用域管理（在泛型函数/结构体内部识别类型参数）
-  - 约束检查基础框架（验证类型是否满足约束接口）
-  - 泛型类型名称生成（`Vec<i32>` → `uya_Vec_i32`）
-  - 泛型函数调用代码生成（`max<i32>(10, 20)` → `uya_max_int32_t(10, 20)`）
-  - 泛型函数实例化收集框架（`collect_generic_instance`、`GenericInstance` 结构体）
-  - 类型参数替换函数（`replace_type_params_in_type`）
-  - 单态化函数定义生成（`gen_generic_function_instance`、`collect_generic_instances_from_node`）
-  - **类型推断**（`type_to_ast_node`、在 `checker_check_call_expr` 中从参数类型推断类型参数）
-  - 单态化结构体定义生成（`gen_generic_struct_instance`、`collect_generic_struct_instances_from_node`）
-  - 测试 `test_generic_call.uya`、`test_generic_constraint.uya`、`test_generic_struct.uya`、`test_generic_struct_fn.uya`、`test_generic_inference.uya` 均已通过
-- ⏳ 待实现功能：
-  1. ✅ 单态化结构体定义生成（已完成：为每个泛型结构体实例化生成独立的结构体定义）
-  2. ✅ 类型推断（已完成：在可能的情况下推断类型参数，如 `max(10, 20)` 推断为 `max<i32>`）
-  3. 泛型接口支持（泛型接口的定义、实现和使用）
-  4. 多类型参数支持（如 `fn foo<T, U>(a: T, b: U) T`）
-  5. 更复杂的类型推断场景（从返回类型推断、从上下文推断等）
+**已知限制**：
+- 嵌套泛型（如 `Box<Pair<i32, i32>>`）：`>>` 被解析为右移运算符
+- 泛型结构体字段访问的类型推断：字段类型中的类型参数不会被替换
+- 泛型接口方法的支持不完善
+- 类型推断（自动推断类型参数）尚未实现
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen（单态化），uya-src。
 
@@ -561,6 +470,152 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 - [examples/example_149.txt](../examples/example_149.txt) - 泛型约束说明（Ord、Clone、Default）
 
 **实现优先级**：低（建议在原子类型、内存安全证明等核心特性实现后再考虑）
+
+---
+
+## 18. 宏系统（Macro，规范 uya.md §25）
+
+**语法规范**：`mc ID(param_list) return_tag { statements }`，规范 [uya.md](../uya.md) §25。
+
+**已实现（C 实现）**：
+- [x] **Lexer**：`mc` 关键字，`@mc_eval`、`@mc_code`、`@mc_ast`、`@mc_error`、`@mc_get_env` 为合法 @ 内置；`${` 插值语法（`TOKEN_INTERP_OPEN`）
+- [x] **AST**：`AST_MACRO_DECL`、`AST_MC_EVAL`、`AST_MC_CODE`、`AST_MC_AST`、`AST_MC_ERROR`、`AST_MC_INTERP`（`${expr}` 插值节点）
+- [x] **Parser**：解析 `mc name(params) return_tag { body }`，解析 `@mc_*` 调用，解析 `${expr}` 插值语法
+- [x] **Checker**：宏展开（带参数、`expr`/`stmt` 返回、`@mc_code(@mc_ast(...))`）
+  - [x] 带参数宏（`MacroParamBinding` 参数绑定与 `deep_copy_ast` AST 替换）
+  - [x] `@mc_eval` 编译时常量表达式求值（`macro_eval_expr`）
+  - [x] `@mc_error` 编译时错误报告
+  - [x] `@mc_get_env` 环境变量读取
+  - [x] `${expr}` 插值语法（在 `deep_copy_ast` 中替换为参数 AST）
+  - [x] `stmt` 返回标签支持
+  - [x] `type` 返回标签支持（语法解析，调用暂不支持）
+  - [x] 语法糖（最后一条语句自动包装为 `@mc_code(@mc_ast(...))`）
+- [x] **Codegen**：跳过 `AST_MACRO_DECL`
+- [x] **测试**：
+  - `test_macro_simple.uya` - 基本宏定义与调用
+  - `test_macro_with_params.uya` - 带参数宏
+  - `test_macro_mc_eval.uya` - `@mc_eval` 编译时求值
+  - `test_macro_mc_get_env.uya` - `@mc_get_env` 环境变量
+  - `test_macro_stmt.uya` - `stmt` 返回标签
+  - `test_macro_type.uya` - `type` 返回标签
+  - `test_macro_sugar.uya` - 语法糖自动包装
+  - `test_macro_interp.uya` - `${}` 插值语法（简单、复杂、多参数、嵌套）
+  - `test_macro_integration.uya` - 宏综合测试
+  - `test_macro_multiple_calls.uya` - 多次调用测试
+  - `test_macro_complex_stmt.uya` - `@mc_ast` 复杂语句支持（块、if、for、while、变量声明等）
+  - `test_macro_param_stmt.uya` - `stmt` 参数类型支持
+  - `error_macro_mc_error.uya` - `@mc_error` 预期编译失败
+- [x] **`@mc_ast` 复杂语句支持**：
+  - [x] 块语句 `{ ... }` 解析与代码生成（使用 GCC 语句表达式 `({ ... })`）
+  - [x] if 语句 / if-else 语句
+  - [x] for 范围循环（`for start..end |i| { }`）
+  - [x] while 循环
+  - [x] const/var 变量声明
+  - [x] return 语句
+  - [x] 复杂语句内 `${}` 插值支持
+
+- [x] **`stmt` 参数类型**：
+  - [x] stmt 参数使用块语法传递（`my_macro({ stmt; })`）
+  - [x] 在 `@mc_ast` 中使用 `${s};` 展开 stmt 参数
+  - [x] 测试用例：`test_macro_param_stmt.uya`
+
+- [x] **`struct` 返回标签**：
+  - [x] Parser: 支持 `struct` 作为宏返回标签（TOKEN_STRUCT）
+  - [x] Parser: 方法块内支持宏调用（`macro_name();`）
+  - [x] Parser: `@mc_ast` 支持解析函数定义（TOKEN_FN）
+  - [x] Checker: `struct` 返回类型的宏展开
+  - [x] Checker: 在 `AST_METHOD_BLOCK` 中展开宏调用为方法定义
+  - [x] 测试用例：`test_macro_struct_return.uya`
+
+- [x] **`type` 返回标签调用**：
+  - [x] Parser: 类型位置支持宏调用语法（`macro_name()`）
+  - [x] Checker: 支持 `type` 返回类型的宏展开
+  - [x] Checker: 在 `@mc_code(@mc_ast(...))` 处理中，将 AST_IDENTIFIER 转换为 AST_TYPE_NAMED
+  - [x] 测试用例：`test_macro_type_return.uya`
+
+**已实现**：
+- [x] `@mc_type` 编译时类型反射（简化版本，返回 TypeInfo 结构体）
+  - [x] AST: 新增 AST_MC_TYPE 节点和 mc_type 数据结构
+  - [x] Parser: 解析 `@mc_type(Type)` 语法
+  - [x] Checker: 类型反射实现（返回包含 name/size/align/kind/is_* 标志的 TypeInfo 结构体）
+  - [x] Checker: AST_TYPE_NAMED 参数替换支持
+  - [x] 测试用例：`test_macro_mc_type.uya`
+
+- [x] **跨模块宏导出与导入**：
+  - [x] Parser: 支持 `export mc` 语法（is_export 标志）
+  - [x] Checker: 宏添加到模块导出表（item_type=8）
+  - [x] Checker: `find_macro_decl_with_imports` 支持查找导入的宏
+  - [x] 测试用例：`multifile/test_macro_export/` 目录（test_macro_export_main.uya、error_use_private_macro.uya）
+  - [x] 文档更新：uya.md §25.2.1 跨模块宏导出与导入
+
+**待实现（uya-src 同步）**：
+
+### 18.1 词法分析器 (lexer.uya)
+- [ ] 添加 `TOKEN_MC` 枚举值
+- [ ] 在 `is_keyword` 函数中识别 `"mc"` 关键字
+
+### 18.2 AST 定义 (ast.uya)
+- [ ] 添加 `AST_MACRO_DECL` 节点类型（宏声明）
+- [ ] 添加 `AST_MC_CODE` 节点类型（`@mc_code(expr)` 宏内生成代码）
+- [ ] 添加 `AST_MC_AST` 节点类型（`@mc_ast(expr)` 代码转 AST）
+- [ ] 添加 `AST_MC_EVAL` 节点类型（`@mc_eval(expr)` 编译时求值）
+- [ ] 添加 `AST_MC_ERROR` 节点类型（`@mc_error(msg)` 编译时错误）
+- [ ] 添加 `AST_MC_INTERP` 节点类型（`${expr}` 宏内插值）
+- [ ] 添加 `AST_MC_TYPE` 节点类型（`@mc_type(T)` 类型反射）
+- [ ] ASTNode 添加 `macro_decl_name: &byte` 字段
+- [ ] ASTNode 添加 `macro_decl_params: & & ASTNode` 字段
+- [ ] ASTNode 添加 `macro_decl_param_count: i32` 字段
+- [ ] ASTNode 添加 `macro_decl_return_tag: &byte` 字段
+- [ ] ASTNode 添加 `macro_decl_body: &ASTNode` 字段
+- [ ] ASTNode 添加 `macro_decl_is_export: i32` 字段
+- [ ] ASTNode 添加 `mc_code_operand: &ASTNode` 字段
+- [ ] ASTNode 添加 `mc_ast_operand: &ASTNode` 字段
+- [ ] ASTNode 添加 `mc_eval_operand: &ASTNode` 字段
+- [ ] ASTNode 添加 `mc_error_operand: &ASTNode` 字段
+- [ ] ASTNode 添加 `mc_interp_expr: &ASTNode` 字段
+- [ ] ASTNode 添加 `mc_type_target: &ASTNode` 字段
+- [ ] `ast_new_node` 函数初始化所有新字段
+
+### 18.3 语法分析器 (parser.uya)
+- [ ] **修复 mc 变量名冲突**：第 3255 行 `const mc: i32` → `const method_col: i32`（`mc` 是宏关键字）
+- [ ] 同步修改第 3307、3332 行中 `mc` 的使用为 `method_col`
+- [ ] 添加 `parser_parse_macro_decl` 函数：解析 `mc name(params) return_tag { body }`
+- [ ] 在 `parser_parse_declaration` 中添加 `TOKEN_MC` 分支，调用 `parser_parse_macro_decl`
+- [ ] 在 `parser_parse_primary_expr` 中添加 `@mc_code` 解析（`TOKEN_AT_IDENTIFIER` 分支）
+- [ ] 在 `parser_parse_primary_expr` 中添加 `@mc_ast` 解析
+- [ ] 在 `parser_parse_primary_expr` 中添加 `@mc_eval` 解析
+- [ ] 在 `parser_parse_primary_expr` 中添加 `@mc_error` 解析
+- [ ] 在 `parser_parse_primary_expr` 中添加 `@mc_type` 解析
+- [ ] 在 `parser_parse_primary_expr` 中添加 `${expr}` 插值解析（`TOKEN_INTERP_OPEN`）
+- [ ] **同步泛型参数 vs 比较运算符判断逻辑**：在 `ID<` 后使用 lookahead 区分 `ID<Type>` 和 `ID < expr`
+  - 若 `<` 后跟数字、浮点、字符串、`@` 内置函数 → 比较运算符
+  - 若 `<` 后跟标识符且紧接 `.`（成员访问）→ 比较运算符
+  - 否则 → 泛型类型参数
+
+### 18.4 类型检查器 (checker.uya)
+- [ ] 添加 `find_macro_decl_from_program` 函数：在程序中按名称查找宏声明
+- [ ] 添加 `extract_macro_expr_output` 函数：从宏体提取 `@mc_code(@mc_ast(...))` 的表达式输出
+- [ ] 添加 `expand_macros_in_node` 递归函数：遍历 AST 展开所有宏调用
+  - 识别 `AST_CALL_EXPR` 且 callee 为宏名
+  - 无参宏：直接替换为宏体的展开结果
+  - 带参宏（后续）：绑定参数并替换
+- [ ] 在 `checker_check` 入口处调用 `expand_macros_in_node`（类型检查前先展开宏）
+- [ ] 在 `expand_macros_in_node` 中递归处理所有 AST 节点类型：
+  - `AST_PROGRAM`、`AST_BLOCK`、`AST_BINARY_EXPR`、`AST_UNARY_EXPR`
+  - `AST_CALL_EXPR`、`AST_MEMBER_ACCESS`、`AST_ARRAY_ACCESS`
+  - `AST_IF_STMT`、`AST_WHILE_STMT`、`AST_FOR_STMT`、`AST_RETURN_STMT`
+  - `AST_VAR_DECL`、`AST_ASSIGN`、`AST_FN_DECL`、`AST_STRUCT_DECL` 等
+
+### 18.5 代码生成器 (codegen/)
+- [ ] 确认 `AST_MACRO_DECL` 在代码生成时被跳过（宏在 checker 阶段已展开）
+- [ ] 确认 `AST_MC_*` 节点在宏展开后不会出现在最终 AST 中
+
+### 18.6 验证
+- [ ] 运行 `cd uya-src && ./compile.sh --c99 -e` 编译自举编译器（修复编译错误）
+- [ ] 运行 `./tests/run_programs.sh --uya --c99` 测试所有用例
+- [ ] 运行 `./compile.sh --c99 -b` 自举对比（C 版与 Uya 版输出一致）
+
+**涉及**：Lexer、AST、Parser、Checker、Codegen。
 
 ---
 

@@ -49,6 +49,33 @@ int c99_codegen_new(C99CodeGenerator *codegen, Arena *arena, FILE *output, const
         codegen->error_names[i] = NULL;
     }
     
+    // 初始化泛型单态化相关字段
+    codegen->mono_instance_count = 0;
+    codegen->current_type_params = NULL;
+    codegen->current_type_param_count = 0;
+    codegen->current_type_args = NULL;
+    codegen->current_type_arg_count = 0;
+    
+    return 0;
+}
+
+// 设置单态化实例（从 TypeChecker 传入）
+int c99_codegen_set_mono_instances(C99CodeGenerator *codegen, TypeChecker *checker) {
+    if (!codegen || !checker) {
+        return -1;
+    }
+    
+    codegen->mono_instance_count = 0;
+    
+    for (int i = 0; i < checker->mono_instance_count && i < C99_MAX_MONO_INSTANCES; i++) {
+        codegen->mono_instances[i].generic_name = checker->mono_instances[i].generic_name;
+        codegen->mono_instances[i].is_function = checker->mono_instances[i].is_function;
+        codegen->mono_instances[i].type_arg_count = checker->mono_instances[i].type_arg_count;
+        codegen->mono_instances[i].type_args = checker->mono_instances[i].type_arg_nodes;
+        
+        codegen->mono_instance_count++;
+    }
+    
     return 0;
 }
 

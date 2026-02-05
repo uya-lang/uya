@@ -1,7 +1,18 @@
-// 基本泛型函数测试
-// 注意：当前泛型功能尚未实现，此测试用例用于验证实现
+// 测试泛型函数 - 基本语法和单态化
 
-// 基本泛型函数：比较两个值并返回较大者
+// 1. 基本泛型函数：无约束
+fn identity<T>(x: T) T {
+    return x;
+}
+
+// 2. 泛型函数：交换两个值（使用指针）
+fn swap<T>(a: &T, b: &T) void {
+    const temp: T = *a;
+    *a = *b;
+    *b = temp;
+}
+
+// 3. 泛型函数：比较两个值（带 Ord 约束）
 fn max<T: Ord>(a: T, b: T) T {
     if a > b {
         return a;
@@ -9,11 +20,47 @@ fn max<T: Ord>(a: T, b: T) T {
     return b;
 }
 
+// 4. 泛型函数：多约束（暂时简化，仅使用 Ord）
+fn min<T: Ord>(a: T, b: T) T {
+    if a < b {
+        return a;
+    }
+    return b;
+}
+
 fn main() i32 {
-    // 使用示例（Parser 应能解析，但 Checker 和 Codegen 尚未实现）
-    // const x: i32 = max<i32>(10, 20);  // 返回 20
-    // if x != 20 { return 1; }
+    // 测试 identity 函数（显式类型参数）
+    const x: i32 = identity<i32>(42);
+    if x != 42 {
+        return 1;
+    }
+    
+    // 测试不同类型的 identity
+    const y: f64 = identity<f64>(3.14);
+    // 浮点比较暂时跳过
+    
+    // 测试 swap 函数
+    var a: i32 = 10;
+    var b: i32 = 20;
+    swap<i32>(&a, &b);
+    if a != 20 {
+        return 2;
+    }
+    if b != 10 {
+        return 3;
+    }
+    
+    // 测试 max 函数
+    const m: i32 = max<i32>(15, 25);
+    if m != 25 {
+        return 4;
+    }
+    
+    // 测试 min 函数
+    const n: i32 = min<i32>(15, 25);
+    if n != 15 {
+        return 5;
+    }
     
     return 0;
 }
-

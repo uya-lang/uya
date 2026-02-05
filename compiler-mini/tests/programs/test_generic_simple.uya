@@ -1,0 +1,12 @@
+// 最简单的泛型函数测试
+
+// 泛型恒等函数（无约束）
+fn identity<T>(x: T) T {
+    return x;
+}
+
+fn main() i32 {
+    // 显式指定类型参数
+    const x: i32 = identity<i32>(42);
+    return x - 42;  // 应返回 0
+}

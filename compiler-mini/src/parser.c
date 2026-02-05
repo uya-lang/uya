@@ -369,10 +369,7 @@ static ASTNode *parser_parse_type(Parser *parser) {
         return type_node;
     } else if (parser->current_token->type == TOKEN_IDENTIFIER) {
         // 命名类型（i32, bool, void, 或结构体名称，或泛型类型 Vec<i32>）
-        ASTNode *type_node = ast_new_node(AST_TYPE_NAMED, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
-        if (type_node == NULL) {
-            return NULL;
-        }
+        // 或者类型宏调用（macro_name()）
         
         // 复制类型名称到 Arena
         const char *type_name = arena_strdup(parser->arena, parser->current_token->value);
@@ -380,12 +377,61 @@ static ASTNode *parser_parse_type(Parser *parser) {
             return NULL;
         }
         
+        // 消费类型标识符
+        parser_consume(parser);
+        
+        // 检查是否是类型宏调用 macro_name()
+        if (parser->current_token != NULL && parser->current_token->type == TOKEN_LEFT_PAREN) {
+            parser_consume(parser);  // 消费 '('
+            
+            // 创建宏调用节点
+            ASTNode *callee = ast_new_node(AST_IDENTIFIER, line, column, parser->arena, 
+                parser->lexer ? parser->lexer->filename : NULL);
+            if (callee == NULL) return NULL;
+            callee->data.identifier.name = type_name;
+            
+            ASTNode *call = ast_new_node(AST_CALL_EXPR, line, column, parser->arena,
+                parser->lexer ? parser->lexer->filename : NULL);
+            if (call == NULL) return NULL;
+            call->data.call_expr.callee = callee;
+            call->data.call_expr.has_ellipsis_forward = 0;
+            
+            // 解析参数列表（可能为空）
+            ASTNode **args = NULL;
+            int arg_count = 0;
+            int arg_cap = 0;
+            while (parser->current_token != NULL && !parser_match(parser, TOKEN_RIGHT_PAREN)) {
+                ASTNode *arg = parser_parse_expression(parser);
+                if (arg == NULL) return NULL;
+                if (arg_count >= arg_cap) {
+                    int new_cap = arg_cap == 0 ? 4 : arg_cap * 2;
+                    ASTNode **new_args = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
+                    if (!new_args) return NULL;
+                    for (int i = 0; i < arg_count; i++) new_args[i] = args[i];
+                    args = new_args;
+                    arg_cap = new_cap;
+                }
+                args[arg_count++] = arg;
+                if (parser_match(parser, TOKEN_COMMA)) {
+                    parser_consume(parser);
+                }
+            }
+            if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) return NULL;
+            
+            call->data.call_expr.args = args;
+            call->data.call_expr.arg_count = arg_count;
+            return call;  // 返回宏调用节点，checker 会展开它
+        }
+        
+        // 普通命名类型
+        ASTNode *type_node = ast_new_node(AST_TYPE_NAMED, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (type_node == NULL) {
+            return NULL;
+        }
+        
         type_node->data.type_named.name = type_name;
         type_node->data.type_named.type_args = NULL;
         type_node->data.type_named.type_arg_count = 0;
-        
-        // 消费类型标识符
-        parser_consume(parser);
         
         // 检查是否有泛型类型参数列表（如 Vec<i32> 中的 <i32>）
         if (parser->current_token != NULL && parser->current_token->type == TOKEN_LESS) {
@@ -1325,6 +1371,7 @@ static ASTNode *parser_parse_interface(Parser *parser) {
 }
 
 // 解析方法块：StructName { fn method(...) { ... } ... }（调用时 struct_name 与 '{' 已消费，当前为块内首 token）
+// 也支持在方法块中调用 struct 返回类型的宏：macro_name(args);
 static ASTNode *parser_parse_method_block(Parser *parser, const char *struct_name) {
     if (parser == NULL || parser->current_token == NULL || !struct_name) return NULL;
     int line = parser->current_token->line;
@@ -1333,10 +1380,71 @@ static ASTNode *parser_parse_method_block(Parser *parser, const char *struct_nam
     int method_count = 0;
     int method_cap = 0;
     while (parser->current_token != NULL &&
-           parser_match(parser, TOKEN_FN) &&
            !parser_match(parser, TOKEN_RIGHT_BRACE) && !parser_match(parser, TOKEN_EOF)) {
-        ASTNode *fn = parser_parse_function(parser);
-        if (!fn) return NULL;
+        ASTNode *item = NULL;
+        if (parser_match(parser, TOKEN_FN)) {
+            // 解析方法定义
+            item = parser_parse_function(parser);
+        } else if (parser_match(parser, TOKEN_IDENTIFIER)) {
+            // 可能是宏调用：macro_name(args);
+            int item_line = parser->current_token->line;
+            int item_col = parser->current_token->column;
+            const char *name = arena_strdup(parser->arena, parser->current_token->value);
+            if (!name) return NULL;
+            parser_consume(parser);
+            
+            if (parser_match(parser, TOKEN_LEFT_PAREN)) {
+                // 宏调用：name(args);
+                parser_consume(parser);  // 消费 '('
+                
+                ASTNode *callee = ast_new_node(AST_IDENTIFIER, item_line, item_col, parser->arena, 
+                    parser->lexer ? parser->lexer->filename : NULL);
+                if (!callee) return NULL;
+                callee->data.identifier.name = name;
+                
+                ASTNode *call = ast_new_node(AST_CALL_EXPR, item_line, item_col, parser->arena,
+                    parser->lexer ? parser->lexer->filename : NULL);
+                if (!call) return NULL;
+                call->data.call_expr.callee = callee;
+                call->data.call_expr.has_ellipsis_forward = 0;
+                
+                // 解析参数列表
+                ASTNode **args = NULL;
+                int arg_count = 0;
+                int arg_cap = 0;
+                while (parser->current_token != NULL && !parser_match(parser, TOKEN_RIGHT_PAREN)) {
+                    ASTNode *arg = parser_parse_expression(parser);
+                    if (!arg) return NULL;
+                    if (arg_count >= arg_cap) {
+                        int new_cap = arg_cap == 0 ? 4 : arg_cap * 2;
+                        ASTNode **new_args = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
+                        if (!new_args) return NULL;
+                        for (int i = 0; i < arg_count; i++) new_args[i] = args[i];
+                        args = new_args;
+                        arg_cap = new_cap;
+                    }
+                    args[arg_count++] = arg;
+                    if (parser_match(parser, TOKEN_COMMA)) {
+                        parser_consume(parser);
+                    }
+                }
+                if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) return NULL;
+                if (!parser_expect(parser, TOKEN_SEMICOLON)) return NULL;
+                
+                call->data.call_expr.args = args;
+                call->data.call_expr.arg_count = arg_count;
+                item = call;
+            } else {
+                const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+                fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 方法块内期望 'fn' 或宏调用\n",
+                        filename, item_line, item_col);
+                return NULL;
+            }
+        } else {
+            break;  // 遇到不认识的 token，退出循环
+        }
+        
+        if (!item) return NULL;
         if (method_count >= method_cap) {
             int new_cap = method_cap == 0 ? 4 : method_cap * 2;
             ASTNode **new_m = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
@@ -1345,7 +1453,7 @@ static ASTNode *parser_parse_method_block(Parser *parser, const char *struct_nam
             methods = new_m;
             method_cap = new_cap;
         }
-        methods[method_count++] = fn;
+        methods[method_count++] = item;
     }
     if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) return NULL;
     ASTNode *node = ast_new_node(AST_METHOD_BLOCK, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
@@ -1625,6 +1733,240 @@ ASTNode *parser_parse_function(Parser *parser) {
     fn_decl->data.fn_decl.is_varargs = is_varargs;
     
     return fn_decl;
+}
+
+// 解析宏声明：mc ID(param_list) return_tag { statements }
+// param_list = param { ',' param }
+// param = ID ':' param_type [ '=' default_value ]
+// param_type = 'expr' | 'stmt' | 'type' | 'pattern' | 'ident'
+// return_tag = 'expr' | 'stmt' | 'struct' | 'type'
+ASTNode *parser_parse_macro(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    // 期望 'mc'
+    if (!parser_match(parser, TOKEN_MC)) {
+        return NULL;
+    }
+    
+    int line = parser->current_token->line;
+    int column = parser->current_token->column;
+    
+    // 消费 'mc'
+    parser_consume(parser);
+    
+    // 期望宏名称
+    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+        const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+        fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 'mc' 后期望宏名称\n",
+                filename, line, column);
+        return NULL;
+    }
+    
+    const char *macro_name = arena_strdup(parser->arena, parser->current_token->value);
+    if (macro_name == NULL) {
+        return NULL;
+    }
+    
+    // 消费宏名称
+    parser_consume(parser);
+    
+    // 创建宏声明节点
+    ASTNode *macro_decl = ast_new_node(AST_MACRO_DECL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+    if (macro_decl == NULL) {
+        return NULL;
+    }
+    
+    macro_decl->data.macro_decl.name = macro_name;
+    macro_decl->data.macro_decl.params = NULL;
+    macro_decl->data.macro_decl.param_count = 0;
+    macro_decl->data.macro_decl.return_tag = NULL;
+    macro_decl->data.macro_decl.body = NULL;
+    macro_decl->data.macro_decl.is_export = 0;
+    
+    // 期望 '('
+    if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+        return NULL;
+    }
+    
+    // 解析参数列表（可选）
+    ASTNode **params = NULL;
+    int param_count = 0;
+    int param_capacity = 0;
+    
+    if (!parser_match(parser, TOKEN_RIGHT_PAREN)) {
+        // 有参数
+        while (parser->current_token != NULL && 
+               !parser_match(parser, TOKEN_RIGHT_PAREN) && 
+               !parser_match(parser, TOKEN_EOF)) {
+            
+            // 解析参数名称
+            if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+                fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 宏参数列表中期望参数名称\n",
+                        filename, parser->current_token ? parser->current_token->line : 0,
+                        parser->current_token ? parser->current_token->column : 0);
+                return NULL;
+            }
+            
+            int param_line = parser->current_token->line;
+            int param_column = parser->current_token->column;
+            const char *param_name = arena_strdup(parser->arena, parser->current_token->value);
+            if (param_name == NULL) {
+                return NULL;
+            }
+            
+            parser_consume(parser);
+            
+            // 期望 ':'
+            if (!parser_expect(parser, TOKEN_COLON)) {
+                return NULL;
+            }
+            
+            // 解析参数类型（expr, stmt, type, pattern, ident）
+            if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+                fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 宏参数类型必须是 'expr', 'stmt', 'type', 'pattern' 或 'ident'\n",
+                        filename, parser->current_token ? parser->current_token->line : 0,
+                        parser->current_token ? parser->current_token->column : 0);
+                return NULL;
+            }
+            
+            const char *param_type_str = arena_strdup(parser->arena, parser->current_token->value);
+            if (param_type_str == NULL) {
+                return NULL;
+            }
+            
+            // 验证参数类型
+            if (strcmp(param_type_str, "expr") != 0 && strcmp(param_type_str, "stmt") != 0 &&
+                strcmp(param_type_str, "type") != 0 && strcmp(param_type_str, "pattern") != 0 &&
+                strcmp(param_type_str, "ident") != 0) {
+                const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+                fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 宏参数类型必须是 'expr', 'stmt', 'type', 'pattern' 或 'ident'，得到 '%s'\n",
+                        filename, parser->current_token->line, parser->current_token->column, param_type_str);
+                return NULL;
+            }
+            
+            parser_consume(parser);
+            
+            // 解析默认值（可选）
+            ASTNode *default_value = NULL;
+            if (parser_match(parser, TOKEN_ASSIGN)) {
+                parser_consume(parser);
+                // 解析默认值表达式（这里简化处理，实际应该根据 param_type 解析）
+                default_value = parser_parse_expression(parser);
+                if (default_value == NULL) {
+                    const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+                    fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 宏参数默认值解析失败\n",
+                            filename, parser->current_token ? parser->current_token->line : 0,
+                            parser->current_token ? parser->current_token->column : 0);
+                    return NULL;
+                }
+            }
+            
+            // 创建参数节点（使用 AST_VAR_DECL，type 字段存储参数类型字符串作为标识符）
+            // 注意：这里我们使用 AST_TYPE_NAMED 来存储参数类型字符串
+            ASTNode *param_type_node = ast_new_node(AST_TYPE_NAMED, param_line, param_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (param_type_node == NULL) {
+                return NULL;
+            }
+            param_type_node->data.type_named.name = param_type_str;
+            
+            ASTNode *param = ast_new_node(AST_VAR_DECL, param_line, param_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (param == NULL) {
+                return NULL;
+            }
+            
+            param->data.var_decl.name = param_name;
+            param->data.var_decl.type = param_type_node;  // 存储参数类型标识符
+            param->data.var_decl.init = default_value;
+            param->data.var_decl.is_const = 0;
+            
+            // 扩展参数数组
+            if (param_count >= param_capacity) {
+                int new_capacity = param_capacity == 0 ? 4 : param_capacity * 2;
+                ASTNode **new_params = (ASTNode **)arena_alloc(
+                    parser->arena, 
+                    sizeof(ASTNode *) * new_capacity
+                );
+                if (new_params == NULL) {
+                    const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+                    fprintf(stderr, "错误: Arena 内存不足 (%s:%d:%d): 无法分配宏参数数组\n", filename, line, column);
+                    return NULL;
+                }
+                
+                if (params != NULL) {
+                    for (int i = 0; i < param_count; i++) {
+                        new_params[i] = params[i];
+                    }
+                }
+                
+                params = new_params;
+                param_capacity = new_capacity;
+            }
+            
+            params[param_count++] = param;
+            
+            // 检查是否有逗号
+            if (parser_match(parser, TOKEN_COMMA)) {
+                parser_consume(parser);
+            }
+        }
+    }
+    
+    // 期望 ')'
+    if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+        return NULL;
+    }
+    
+    // 解析返回标签（expr, stmt, struct, type）
+    // 注意：struct 是关键字（TOKEN_STRUCT），其他是标识符
+    const char *return_tag = NULL;
+    if (parser_match(parser, TOKEN_STRUCT)) {
+        return_tag = arena_strdup(parser->arena, "struct");
+        parser_consume(parser);
+    } else if (parser_match(parser, TOKEN_IDENTIFIER)) {
+        return_tag = arena_strdup(parser->arena, parser->current_token->value);
+        if (return_tag == NULL) {
+            return NULL;
+        }
+        // 验证返回标签
+        if (strcmp(return_tag, "expr") != 0 && strcmp(return_tag, "stmt") != 0 &&
+            strcmp(return_tag, "type") != 0) {
+            const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+            fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 宏返回标签必须是 'expr', 'stmt', 'struct' 或 'type'，得到 '%s'\n",
+                    filename, parser->current_token->line, parser->current_token->column, return_tag);
+            return NULL;
+        }
+        parser_consume(parser);
+    } else {
+        const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+        fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 宏返回标签必须是 'expr', 'stmt', 'struct' 或 'type'\n",
+                filename, parser->current_token ? parser->current_token->line : 0,
+                parser->current_token ? parser->current_token->column : 0);
+        return NULL;
+    }
+    
+    if (return_tag == NULL) {
+        return NULL;
+    }
+    
+    // 解析宏体（代码块）
+    ASTNode *body = parser_parse_block(parser);
+    if (body == NULL) {
+        const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+        fprintf(stderr, "错误: 无法解析宏体 (%s:%d:%d): 宏 '%s' 的宏体解析失败\n", 
+                filename, line, column, macro_name);
+        return NULL;
+    }
+    
+    macro_decl->data.macro_decl.params = params;
+    macro_decl->data.macro_decl.param_count = param_count;
+    macro_decl->data.macro_decl.return_tag = return_tag;
+    macro_decl->data.macro_decl.body = body;
+    
+    return macro_decl;
 }
 
 // 前向声明：解析 extern fn（extern 已消费）
@@ -1997,6 +2339,12 @@ ASTNode *parser_parse_declaration(Parser *parser) {
             decl->data.union_decl.is_export = 1;
         }
         return decl;
+    } else if (parser_match(parser, TOKEN_MC)) {
+        ASTNode *decl = parser_parse_macro(parser);
+        if (decl != NULL && is_export) {
+            decl->data.macro_decl.is_export = 1;
+        }
+        return decl;
     } else if (parser_match(parser, TOKEN_IDENTIFIER)) {
         const char *name = arena_strdup(parser->arena, parser->current_token->value);
         if (!name) return NULL;
@@ -2100,7 +2448,7 @@ ASTNode *parser_parse(Parser *parser) {
 }
 
 // 解析基础表达式
-// 支持：数字、标识符、布尔字面量、括号表达式、函数调用、结构体字面量、字段访问
+// 支持：数字、标识符、布尔字面量、括号表达式、函数调用、结构体字面量、字段访问、块表达式
 static ASTNode *parser_parse_primary_expr(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
         return NULL;
@@ -2108,6 +2456,11 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
     
     int line = parser->current_token->line;
     int column = parser->current_token->column;
+    
+    // 解析块表达式 { stmts }（用于宏 stmt 参数传递，也可作为普通块表达式）
+    if (parser->current_token->type == TOKEN_LEFT_BRACE) {
+        return parser_parse_block(parser);
+    }
     
     // 解析整数字面量
     if (parser->current_token->type == TOKEN_NUMBER) {
@@ -2163,8 +2516,39 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return node;
     }
     
-    // 解析字符串插值（"text${expr}text" 或 "text${expr:spec}text"），以 TOKEN_INTERP_TEXT 或 TOKEN_INTERP_OPEN 开始
-    if (parser->current_token->type == TOKEN_INTERP_TEXT || parser->current_token->type == TOKEN_INTERP_OPEN) {
+    // 解析宏插值 ${expr}（用于 @mc_ast 内部引用参数/变量）
+    // 与字符串插值区分：字符串插值以 TOKEN_INTERP_TEXT 开始，而宏插值直接以 TOKEN_INTERP_OPEN 开始
+    if (parser->current_token->type == TOKEN_INTERP_OPEN) {
+        parser_consume(parser);  // 消费 ${
+        
+        // 解析插值内的表达式（通常是标识符，但也可以是复杂表达式）
+        ASTNode *operand = parser_parse_expression(parser);
+        if (operand == NULL) {
+            const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+            fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 宏插值 ${} 内缺少表达式\n",
+                    filename, line, column);
+            return NULL;
+        }
+        
+        // 期望 } 结束插值
+        if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) {
+            const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+            fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 宏插值 ${} 缺少闭合 '}'\n",
+                    filename, line, column);
+            return NULL;
+        }
+        
+        // 创建宏插值节点
+        ASTNode *interp_node = ast_new_node(AST_MC_INTERP, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (interp_node == NULL) {
+            return NULL;
+        }
+        interp_node->data.mc_interp.operand = operand;
+        return interp_node;
+    }
+    
+    // 解析字符串插值（"text${expr}text" 或 "text${expr:spec}text"），以 TOKEN_INTERP_TEXT 开始
+    if (parser->current_token->type == TOKEN_INTERP_TEXT) {
         #define MAX_INTERP_SEGMENTS 64
         struct { int is_text; const char *text; ASTNode *expr; const char *format_spec; } segs[MAX_INTERP_SEGMENTS];
         int seg_count = 0;
@@ -2640,7 +3024,238 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return len_node;
     }
     
-    // 解析标识符（可能是普通标识符、函数调用、或结构体字面量的开始）
+    // 解析 @mc_code 表达式：@mc_code(expr) - 宏内生成代码
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "mc_code") == 0) {
+        parser_consume(parser);  // 消费 'mc_code'
+        
+        // 期望 '('
+        if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+            return NULL;
+        }
+        
+        ASTNode *mc_code_node = ast_new_node(AST_MC_CODE, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (mc_code_node == NULL) {
+            return NULL;
+        }
+        
+        // 解析参数表达式
+        ASTNode *expr = parser_parse_expression(parser);
+        if (expr == NULL) {
+            return NULL;
+        }
+        
+        mc_code_node->data.mc_code.operand = expr;
+        
+        // 期望 ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            return NULL;
+        }
+        
+        return mc_code_node;
+    }
+    
+    // 解析 @mc_ast 表达式：@mc_ast(expr|stmt|block) - 宏内获取 AST
+    // 支持表达式、语句（if/for/while 等）、块语句
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "mc_ast") == 0) {
+        parser_consume(parser);  // 消费 'mc_ast'
+        
+        // 期望 '('
+        if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+            return NULL;
+        }
+        
+        ASTNode *mc_ast_node = ast_new_node(AST_MC_AST, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (mc_ast_node == NULL) {
+            return NULL;
+        }
+        
+        // 根据下一个 token 决定解析方式
+        ASTNode *operand = NULL;
+        TokenType next_type = parser->current_token->type;
+        
+        if (next_type == TOKEN_LEFT_BRACE) {
+            // 块语句 { ... }
+            operand = parser_parse_block(parser);
+        } else if (next_type == TOKEN_FN) {
+            // 函数定义（用于 struct 返回类型的宏生成方法）
+            operand = parser_parse_function(parser);
+        } else if (next_type == TOKEN_IF || next_type == TOKEN_FOR || 
+                   next_type == TOKEN_WHILE || next_type == TOKEN_RETURN ||
+                   next_type == TOKEN_CONST || next_type == TOKEN_VAR ||
+                   next_type == TOKEN_DEFER || next_type == TOKEN_ERRDEFER) {
+            // 语句：if/for/while/return/const/var/defer/errdefer
+            operand = parser_parse_statement(parser);
+        } else {
+            // 默认解析为表达式
+            operand = parser_parse_expression(parser);
+        }
+        
+        if (operand == NULL) {
+            return NULL;
+        }
+        
+        mc_ast_node->data.mc_ast.operand = operand;
+        
+        // 期望 ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            return NULL;
+        }
+        
+        return mc_ast_node;
+    }
+    
+    // 解析 @mc_eval 表达式：@mc_eval(expr) - 宏内编译时求值
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "mc_eval") == 0) {
+        parser_consume(parser);  // 消费 'mc_eval'
+        
+        // 期望 '('
+        if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+            return NULL;
+        }
+        
+        ASTNode *mc_eval_node = ast_new_node(AST_MC_EVAL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (mc_eval_node == NULL) {
+            return NULL;
+        }
+        
+        // 解析操作数表达式
+        ASTNode *expr = parser_parse_expression(parser);
+        if (expr == NULL) {
+            return NULL;
+        }
+        
+        mc_eval_node->data.mc_eval.operand = expr;
+        
+        // 期望 ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            return NULL;
+        }
+        
+        return mc_eval_node;
+    }
+    
+    // 解析 @mc_error 表达式：@mc_error(msg) - 宏内编译时错误
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "mc_error") == 0) {
+        parser_consume(parser);  // 消费 'mc_error'
+        
+        // 期望 '('
+        if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+            return NULL;
+        }
+        
+        ASTNode *mc_error_node = ast_new_node(AST_MC_ERROR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (mc_error_node == NULL) {
+            return NULL;
+        }
+        
+        // 解析操作数表达式（应该是字符串）
+        ASTNode *expr = parser_parse_expression(parser);
+        if (expr == NULL) {
+            return NULL;
+        }
+        
+        mc_error_node->data.mc_error.operand = expr;
+        
+        // 期望 ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            return NULL;
+        }
+        
+        return mc_error_node;
+    }
+    
+    // 解析 @mc_type 表达式：@mc_type(expr) - 宏内编译时类型反射
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "mc_type") == 0) {
+        parser_consume(parser);  // 消费 'mc_type'
+        
+        // 期望 '('
+        if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+            return NULL;
+        }
+        
+        ASTNode *mc_type_node = ast_new_node(AST_MC_TYPE, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (mc_type_node == NULL) {
+            return NULL;
+        }
+        
+        // 解析操作数（可以是类型或表达式）
+        // 先尝试解析为类型，如果失败则解析为表达式
+        ASTNode *operand = NULL;
+        // 检查是否是类型标识符（简单的基本类型）
+        if (parser->current_token->type == TOKEN_IDENTIFIER ||
+            parser->current_token->type == TOKEN_AMPERSAND ||
+            parser->current_token->type == TOKEN_ASTERISK ||
+            parser->current_token->type == TOKEN_LEFT_BRACKET ||
+            parser->current_token->type == TOKEN_EXCLAMATION) {
+            operand = parser_parse_type(parser);
+        }
+        if (operand == NULL) {
+            operand = parser_parse_expression(parser);
+        }
+        if (operand == NULL) {
+            return NULL;
+        }
+        
+        mc_type_node->data.mc_type.operand = operand;
+        
+        // 期望 ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            return NULL;
+        }
+        
+        return mc_type_node;
+    }
+    
+    // 解析 @mc_get_env 表达式：@mc_get_env(name) - 宏内环境变量读取
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "mc_get_env") == 0) {
+        parser_consume(parser);  // 消费 'mc_get_env'
+        
+        // 期望 '('
+        if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+            return NULL;
+        }
+        
+        // 创建一个调用节点来表示 @mc_get_env 调用
+        ASTNode *callee = ast_new_node(AST_IDENTIFIER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (callee == NULL) {
+            return NULL;
+        }
+        callee->data.identifier.name = "mc_get_env";
+        
+        ASTNode *call_node = ast_new_node(AST_CALL_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (call_node == NULL) {
+            return NULL;
+        }
+        call_node->data.call_expr.callee = callee;
+        call_node->data.call_expr.has_ellipsis_forward = 0;
+        
+        // 解析参数（应该是字符串）
+        ASTNode *arg = parser_parse_expression(parser);
+        if (arg == NULL) {
+            return NULL;
+        }
+        
+        call_node->data.call_expr.args = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *));
+        if (call_node->data.call_expr.args == NULL) {
+            return NULL;
+        }
+        call_node->data.call_expr.args[0] = arg;
+        call_node->data.call_expr.arg_count = 1;
+        
+        // 期望 ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            return NULL;
+        }
+        
+        return call_node;
+    }
+    
     // 忽略占位 _：仅允许在赋值左侧、解构中使用，生成 AST_UNDERSCORE
     if (parser->current_token->type == TOKEN_IDENTIFIER) {
         if (parser->current_token->value != NULL && strcmp(parser->current_token->value, "_") == 0) {
@@ -2663,6 +3278,66 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         int type_arg_count = 0;
         
         if (parser->current_token != NULL && parser->current_token->type == TOKEN_LESS) {
+            // 需要区分泛型参数 ID<Type> 和比较运算符 ID < expr
+            // 策略：peek '<' 后面的 token，判断是类型还是表达式
+            Lexer *lexer = parser->lexer;
+            size_t saved_position = lexer->position;
+            int saved_line = lexer->line;
+            int saved_column = lexer->column;
+            
+            // Peek '<' 后面的 token
+            Token *after_less = lexer_next_token(lexer, parser->arena);
+            
+            // 如果 '<' 后面是表达式的开始（数字、浮点、字符串、负号等），则 '<' 是比较运算符
+            int is_comparison = 0;
+            if (after_less != NULL) {
+                TokenType t = after_less->type;
+                if (t == TOKEN_NUMBER || t == TOKEN_FLOAT || t == TOKEN_STRING ||
+                    t == TOKEN_MINUS || t == TOKEN_EXCLAMATION || t == TOKEN_TILDE ||
+                    t == TOKEN_TRUE || t == TOKEN_FALSE || t == TOKEN_NULL ||
+                    t == TOKEN_LEFT_PAREN || t == TOKEN_AT_IDENTIFIER ||
+                    t == TOKEN_INTERP_OPEN) {  // 宏插值 ${...} 也是表达式
+                    is_comparison = 1;
+                } else if (t == TOKEN_IDENTIFIER) {
+                    // 如果是标识符，需要进一步判断：
+                    // - 如果标识符后面是 '>'、','、'*'、'['，则可能是泛型参数（类型）
+                    // - 如果标识符后面是运算符、'{'、'.'、'['（成员访问/索引），则是比较运算符（变量）
+                    Token *after_id = lexer_next_token(lexer, parser->arena);
+                    if (after_id != NULL) {
+                        TokenType t2 = after_id->type;
+                        // 如果标识符后面是这些 token，则 '<' 是比较运算符
+                        // 注意：TOKEN_GREATER 和 TOKEN_COMMA 表示泛型参数的结束或分隔，不应该被视为比较运算符
+                        if (t2 == TOKEN_PLUS || t2 == TOKEN_MINUS || t2 == TOKEN_ASTERISK ||
+                            t2 == TOKEN_SLASH || t2 == TOKEN_PERCENT ||
+                            t2 == TOKEN_LESS ||
+                            t2 == TOKEN_LESS_EQUAL || t2 == TOKEN_GREATER_EQUAL ||
+                            t2 == TOKEN_EQUAL || t2 == TOKEN_NOT_EQUAL ||
+                            t2 == TOKEN_LOGICAL_AND || t2 == TOKEN_LOGICAL_OR ||
+                            t2 == TOKEN_LEFT_BRACE || t2 == TOKEN_SEMICOLON ||
+                            t2 == TOKEN_AMPERSAND || t2 == TOKEN_PIPE || t2 == TOKEN_CARET ||
+                            t2 == TOKEN_RIGHT_PAREN ||
+                            t2 == TOKEN_DOT || t2 == TOKEN_LEFT_BRACKET || t2 == TOKEN_LEFT_PAREN || t2 == TOKEN_AS || t2 == TOKEN_AS_BANG) {  // 类型转换 as/as!
+                            is_comparison = 1;
+                        }
+                    }
+                }
+            }
+            
+            // 恢复 lexer 状态
+            lexer->position = saved_position;
+            lexer->line = saved_line;
+            lexer->column = saved_column;
+            
+            if (is_comparison) {
+                // '<' 是比较运算符，不解析泛型参数，直接返回标识符
+                ASTNode *node = ast_new_node(AST_IDENTIFIER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+                if (node == NULL) {
+                    return NULL;
+                }
+                node->data.identifier.name = name;
+                return node;
+            }
+            
             // 泛型函数调用：解析类型参数列表
             parser_consume(parser);  // 消费 '<'
             
@@ -3079,6 +3754,8 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             }
             
             struct_init->data.struct_init.struct_name = name;
+            struct_init->data.struct_init.type_args = type_args;
+            struct_init->data.struct_init.type_arg_count = type_arg_count;
             
             // 消费 '{'
             parser_consume(parser);
@@ -3851,6 +4528,9 @@ static ASTNode *parser_parse_shift_expr(Parser *parser) {
     if (left == NULL) {
         return NULL;
     }
+    if (left == NULL) {
+        return NULL;
+    }
     
     while (parser->current_token != NULL && (
         parser_match(parser, TOKEN_LSHIFT) ||
@@ -3907,6 +4587,20 @@ static ASTNode *parser_parse_rel_expr(Parser *parser) {
             return NULL;
         }
         
+        // 检查下一个 token 是否是 '{'（代码块开始），如果是则停止表达式解析
+        // 这用于处理 if/while 条件表达式后的代码块
+        if (parser->current_token != NULL && parser->current_token->type == TOKEN_LEFT_BRACE) {
+            // 创建二元表达式节点并返回，'{' 由调用者处理
+            ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (node == NULL) {
+                return NULL;
+            }
+            node->data.binary_expr.left = left;
+            node->data.binary_expr.op = op;
+            node->data.binary_expr.right = right;
+            return node;
+        }
+        
         // 创建二元表达式节点
         ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (node == NULL) {
@@ -3918,6 +4612,12 @@ static ASTNode *parser_parse_rel_expr(Parser *parser) {
         node->data.binary_expr.right = right;
         
         left = node;  // 左结合：继续以当前节点作为左操作数
+        
+        // 检查下一个 token 是否是 '{'（代码块开始），如果是则停止表达式解析
+        // 这用于处理 if/while 条件表达式后的代码块
+        if (parser->current_token != NULL && parser->current_token->type == TOKEN_LEFT_BRACE) {
+            return left;
+        }
     }
     
     return left;
@@ -4057,12 +4757,12 @@ static ASTNode *parser_parse_eq_expr(Parser *parser) {
 }
 
 // 解析按位异或表达式（左结合）
-// xor_expr = and_expr { '^' and_expr }
+// xor_expr = bitand_expr { '^' bitand_expr }
 static ASTNode *parser_parse_xor_expr(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
         return NULL;
     }
-    ASTNode *left = parser_parse_and_expr(parser);
+    ASTNode *left = parser_parse_bitand_expr(parser);
     if (left == NULL) {
         return NULL;
     }
@@ -4071,7 +4771,7 @@ static ASTNode *parser_parse_xor_expr(Parser *parser) {
         int column = parser->current_token->column;
         TokenType op = parser->current_token->type;
         parser_consume(parser);
-        ASTNode *right = parser_parse_and_expr(parser);
+        ASTNode *right = parser_parse_bitand_expr(parser);
         if (right == NULL) {
             return NULL;
         }
@@ -4119,14 +4819,14 @@ static ASTNode *parser_parse_bitor_expr(Parser *parser) {
 }
 
 // 解析逻辑与表达式（左结合）
-// and_expr = bitand_expr { '&&' bitand_expr }
+// and_expr = bitor_expr { '&&' bitor_expr }
 static ASTNode *parser_parse_and_expr(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
         return NULL;
     }
     
     // 解析左操作数
-    ASTNode *left = parser_parse_bitand_expr(parser);
+    ASTNode *left = parser_parse_bitor_expr(parser);
     if (left == NULL) {
         return NULL;
     }
@@ -4139,9 +4839,23 @@ static ASTNode *parser_parse_and_expr(Parser *parser) {
         parser_consume(parser);  // 消费运算符
         
         // 解析右操作数
-        ASTNode *right = parser_parse_bitand_expr(parser);
+        ASTNode *right = parser_parse_bitor_expr(parser);
         if (right == NULL) {
             return NULL;
+        }
+        
+        // 检查下一个 token 是否是 '{'（代码块开始），如果是则停止表达式解析
+        // 这用于处理 if/while 条件表达式后的代码块
+        if (parser->current_token != NULL && parser->current_token->type == TOKEN_LEFT_BRACE) {
+            // 创建二元表达式节点并返回，'{' 由调用者处理
+            ASTNode *node = ast_new_node(AST_BINARY_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (node == NULL) {
+                return NULL;
+            }
+            node->data.binary_expr.left = left;
+            node->data.binary_expr.op = op;
+            node->data.binary_expr.right = right;
+            return node;
         }
         
         // 创建二元表达式节点
@@ -4161,14 +4875,14 @@ static ASTNode *parser_parse_and_expr(Parser *parser) {
 }
 
 // 解析逻辑或表达式（左结合）
-// or_expr = bitor_expr { '||' bitor_expr }
+// or_expr = and_expr { '||' and_expr }
 static ASTNode *parser_parse_or_expr(Parser *parser) {
     if (parser == NULL || parser->current_token == NULL) {
         return NULL;
     }
     
     // 解析左操作数
-    ASTNode *left = parser_parse_bitor_expr(parser);
+    ASTNode *left = parser_parse_and_expr(parser);
     if (left == NULL) {
         return NULL;
     }
@@ -4181,7 +4895,7 @@ static ASTNode *parser_parse_or_expr(Parser *parser) {
         parser_consume(parser);  // 消费运算符
         
         // 解析右操作数
-        ASTNode *right = parser_parse_bitor_expr(parser);
+        ASTNode *right = parser_parse_and_expr(parser);
         if (right == NULL) {
             return NULL;
         }
@@ -4197,6 +4911,12 @@ static ASTNode *parser_parse_or_expr(Parser *parser) {
         node->data.binary_expr.right = right;
         
         left = node;  // 左结合：继续以当前节点作为左操作数
+
+        // 检查下一个 token 是否是 '{'（代码块开始），如果是则停止表达式解析
+        // 这用于处理 if/while 条件表达式后的代码块
+        if (parser->current_token != NULL && parser->current_token->type == TOKEN_LEFT_BRACE) {
+            return left;
+        }
     }
     
     return left;
@@ -4299,72 +5019,6 @@ ASTNode *parser_parse_statement(Parser *parser) {
     int line = parser->current_token->line;
     int column = parser->current_token->column;
     
-    // 根据第一个 Token 判断语句类型
-    if (parser->current_token->type == TOKEN_RETURN) {
-        // 解析 return 语句
-        parser_consume(parser);  // 消费 'return'
-        
-        ASTNode *stmt = ast_new_node(AST_RETURN_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
-        if (stmt == NULL) {
-            return NULL;
-        }
-        
-        // 解析返回值表达式（可选，void 函数可以没有返回值）
-        if (parser_match(parser, TOKEN_SEMICOLON)) {
-            // 没有返回值（void 函数）
-            stmt->data.return_stmt.expr = NULL;
-            parser_consume(parser);  // 消费 ';'
-        } else {
-            // 有返回值表达式
-            ASTNode *expr = parser_parse_expression(parser);
-            if (expr == NULL) {
-                return NULL;
-            }
-            stmt->data.return_stmt.expr = expr;
-            
-            // 期望 ';'
-            if (!parser_expect(parser, TOKEN_SEMICOLON)) {
-                return NULL;
-            }
-        }
-        
-        return stmt;
-    }
-    
-    if (parser_match(parser, TOKEN_BREAK)) {
-        // 解析 break 语句
-        parser_consume(parser);  // 消费 'break'
-        
-        ASTNode *stmt = ast_new_node(AST_BREAK_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
-        if (stmt == NULL) {
-            return NULL;
-        }
-        
-        // 期望 ';'
-        if (!parser_expect(parser, TOKEN_SEMICOLON)) {
-            return NULL;
-        }
-        
-        return stmt;
-    }
-    
-    if (parser_match(parser, TOKEN_CONTINUE)) {
-        // 解析 continue 语句
-        parser_consume(parser);  // 消费 'continue'
-        
-        ASTNode *stmt = ast_new_node(AST_CONTINUE_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
-        if (stmt == NULL) {
-            return NULL;
-        }
-        
-        // 期望 ';'
-        if (!parser_expect(parser, TOKEN_SEMICOLON)) {
-            return NULL;
-        }
-        
-        return stmt;
-    }
-    
     if (parser_match(parser, TOKEN_DEFER)) {
         parser_consume(parser);
         ASTNode *stmt = ast_new_node(AST_DEFER_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
@@ -4412,6 +5066,68 @@ ASTNode *parser_parse_statement(Parser *parser) {
         }
         stmt->data.test_stmt.body = parser_parse_block(parser);
         if (stmt->data.test_stmt.body == NULL) return NULL;
+        
+        return stmt;
+    }
+    
+    if (parser_match(parser, TOKEN_RETURN)) {
+        // 解析 return 语句
+        parser_consume(parser);  // 消费 'return'
+        
+        ASTNode *stmt = ast_new_node(AST_RETURN_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (stmt == NULL) {
+            return NULL;
+        }
+        
+        // 检查是否有返回值表达式
+        if (parser->current_token != NULL && parser->current_token->type != TOKEN_SEMICOLON) {
+            ASTNode *expr = parser_parse_expression(parser);
+            if (expr == NULL) {
+                return NULL;
+            }
+            stmt->data.return_stmt.expr = expr;
+        } else {
+            stmt->data.return_stmt.expr = NULL;
+        }
+        
+        // 期望 ';'
+        if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+            return NULL;
+        }
+        
+        return stmt;
+    }
+    
+    if (parser_match(parser, TOKEN_BREAK)) {
+        // 解析 break 语句
+        parser_consume(parser);  // 消费 'break'
+        
+        ASTNode *stmt = ast_new_node(AST_BREAK_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (stmt == NULL) {
+            return NULL;
+        }
+        
+        // 期望 ';'
+        if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+            return NULL;
+        }
+        
+        return stmt;
+    }
+    
+    if (parser_match(parser, TOKEN_CONTINUE)) {
+        // 解析 continue 语句
+        parser_consume(parser);  // 消费 'continue'
+        
+        ASTNode *stmt = ast_new_node(AST_CONTINUE_STMT, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (stmt == NULL) {
+            return NULL;
+        }
+        
+        // 期望 ';'
+        if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+            return NULL;
+        }
         
         return stmt;
     }

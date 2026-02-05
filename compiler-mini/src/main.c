@@ -973,6 +973,9 @@ static int compile_files(const char *input_files[], int input_file_count, const 
         fclose(out_file);
         return 1;
     }
+    
+    // 传递泛型单态化实例到代码生成器
+    c99_codegen_set_mono_instances(&c99_codegen, &checker);
 
     if (c99_codegen_generate(&c99_codegen, merged_ast, output_file) != 0) {
         fprintf(stderr, "错误: C99 代码生成失败\n");

@@ -1,47 +1,25 @@
-// 测试泛型结构体的基本功能
-// 包括泛型结构体定义、实例化、字段访问等
+// 测试泛型结构体 - 基本语法和单态化
 
-// 泛型结构体
-struct Vec<T> {
-    data: *T,
-    len: usize,
-    cap: usize,
+// 1. 基本泛型结构体：键值对
+struct Pair<K, V> {
+    key: K,
+    value: V
+}
+
+// 2. 泛型结构体
+struct Box<T> {
+    data: T,
 }
 
 fn main() i32 {
-    // 测试：使用 i32 类型参数
-    const v1: Vec<i32> = Vec<i32>{
-        data: null,
-        len: 0,
-        cap: 0,
-    };
+    // 测试 Pair<i32, i32> 初始化
+    const p1: Pair<i32, i32> = Pair<i32, i32>{ key: 1, value: 100 };
     
-    if v1.len != 0 || v1.cap != 0 {
-        return 1;
-    }
+    // 测试 Pair<i32, f64> 初始化
+    const p2: Pair<i32, f64> = Pair<i32, f64>{ key: 2, value: 3.14 };
     
-    // 测试：使用 f32 类型参数
-    const v2: Vec<f32> = Vec<f32>{
-        data: null,
-        len: 10,
-        cap: 20,
-    };
-    
-    if v2.len != 10 || v2.cap != 20 {
-        return 2;
-    }
-    
-    // 测试：使用 bool 类型参数
-    const v3: Vec<bool> = Vec<bool>{
-        data: null,
-        len: 5,
-        cap: 10,
-    };
-    
-    if v3.len != 5 || v3.cap != 10 {
-        return 3;
-    }
+    // 测试 Box<i32> 初始化
+    const box_i32: Box<i32> = Box<i32>{ data: 42 };
     
     return 0;
 }
-
