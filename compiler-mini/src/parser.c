@@ -1325,6 +1325,7 @@ static ASTNode *parser_parse_interface(Parser *parser) {
 }
 
 // 解析方法块：StructName { fn method(...) { ... } ... }（调用时 struct_name 与 '{' 已消费，当前为块内首 token）
+// 也支持在方法块中调用 struct 返回类型的宏：macro_name(args);
 static ASTNode *parser_parse_method_block(Parser *parser, const char *struct_name) {
     if (parser == NULL || parser->current_token == NULL || !struct_name) return NULL;
     int line = parser->current_token->line;
@@ -1333,10 +1334,71 @@ static ASTNode *parser_parse_method_block(Parser *parser, const char *struct_nam
     int method_count = 0;
     int method_cap = 0;
     while (parser->current_token != NULL &&
-           parser_match(parser, TOKEN_FN) &&
            !parser_match(parser, TOKEN_RIGHT_BRACE) && !parser_match(parser, TOKEN_EOF)) {
-        ASTNode *fn = parser_parse_function(parser);
-        if (!fn) return NULL;
+        ASTNode *item = NULL;
+        if (parser_match(parser, TOKEN_FN)) {
+            // 解析方法定义
+            item = parser_parse_function(parser);
+        } else if (parser_match(parser, TOKEN_IDENTIFIER)) {
+            // 可能是宏调用：macro_name(args);
+            int item_line = parser->current_token->line;
+            int item_col = parser->current_token->column;
+            const char *name = arena_strdup(parser->arena, parser->current_token->value);
+            if (!name) return NULL;
+            parser_consume(parser);
+            
+            if (parser_match(parser, TOKEN_LEFT_PAREN)) {
+                // 宏调用：name(args);
+                parser_consume(parser);  // 消费 '('
+                
+                ASTNode *callee = ast_new_node(AST_IDENTIFIER, item_line, item_col, parser->arena, 
+                    parser->lexer ? parser->lexer->filename : NULL);
+                if (!callee) return NULL;
+                callee->data.identifier.name = name;
+                
+                ASTNode *call = ast_new_node(AST_CALL_EXPR, item_line, item_col, parser->arena,
+                    parser->lexer ? parser->lexer->filename : NULL);
+                if (!call) return NULL;
+                call->data.call_expr.callee = callee;
+                call->data.call_expr.has_ellipsis_forward = 0;
+                
+                // 解析参数列表
+                ASTNode **args = NULL;
+                int arg_count = 0;
+                int arg_cap = 0;
+                while (parser->current_token != NULL && !parser_match(parser, TOKEN_RIGHT_PAREN)) {
+                    ASTNode *arg = parser_parse_expression(parser);
+                    if (!arg) return NULL;
+                    if (arg_count >= arg_cap) {
+                        int new_cap = arg_cap == 0 ? 4 : arg_cap * 2;
+                        ASTNode **new_args = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
+                        if (!new_args) return NULL;
+                        for (int i = 0; i < arg_count; i++) new_args[i] = args[i];
+                        args = new_args;
+                        arg_cap = new_cap;
+                    }
+                    args[arg_count++] = arg;
+                    if (parser_match(parser, TOKEN_COMMA)) {
+                        parser_consume(parser);
+                    }
+                }
+                if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) return NULL;
+                if (!parser_expect(parser, TOKEN_SEMICOLON)) return NULL;
+                
+                call->data.call_expr.args = args;
+                call->data.call_expr.arg_count = arg_count;
+                item = call;
+            } else {
+                const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+                fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 方法块内期望 'fn' 或宏调用\n",
+                        filename, item_line, item_col);
+                return NULL;
+            }
+        } else {
+            break;  // 遇到不认识的 token，退出循环
+        }
+        
+        if (!item) return NULL;
         if (method_count >= method_cap) {
             int new_cap = method_cap == 0 ? 4 : method_cap * 2;
             ASTNode **new_m = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
@@ -1345,7 +1407,7 @@ static ASTNode *parser_parse_method_block(Parser *parser, const char *struct_nam
             methods = new_m;
             method_cap = new_cap;
         }
-        methods[method_count++] = fn;
+        methods[method_count++] = item;
     }
     if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) return NULL;
     ASTNode *node = ast_new_node(AST_METHOD_BLOCK, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
@@ -1813,7 +1875,26 @@ ASTNode *parser_parse_macro(Parser *parser) {
     }
     
     // 解析返回标签（expr, stmt, struct, type）
-    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+    // 注意：struct 是关键字（TOKEN_STRUCT），其他是标识符
+    const char *return_tag = NULL;
+    if (parser_match(parser, TOKEN_STRUCT)) {
+        return_tag = arena_strdup(parser->arena, "struct");
+        parser_consume(parser);
+    } else if (parser_match(parser, TOKEN_IDENTIFIER)) {
+        return_tag = arena_strdup(parser->arena, parser->current_token->value);
+        if (return_tag == NULL) {
+            return NULL;
+        }
+        // 验证返回标签
+        if (strcmp(return_tag, "expr") != 0 && strcmp(return_tag, "stmt") != 0 &&
+            strcmp(return_tag, "type") != 0) {
+            const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+            fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 宏返回标签必须是 'expr', 'stmt', 'struct' 或 'type'，得到 '%s'\n",
+                    filename, parser->current_token->line, parser->current_token->column, return_tag);
+            return NULL;
+        }
+        parser_consume(parser);
+    } else {
         const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
         fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 宏返回标签必须是 'expr', 'stmt', 'struct' 或 'type'\n",
                 filename, parser->current_token ? parser->current_token->line : 0,
@@ -1821,21 +1902,9 @@ ASTNode *parser_parse_macro(Parser *parser) {
         return NULL;
     }
     
-    const char *return_tag = arena_strdup(parser->arena, parser->current_token->value);
     if (return_tag == NULL) {
         return NULL;
     }
-    
-    // 验证返回标签
-    if (strcmp(return_tag, "expr") != 0 && strcmp(return_tag, "stmt") != 0 &&
-        strcmp(return_tag, "struct") != 0 && strcmp(return_tag, "type") != 0) {
-        const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
-        fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 宏返回标签必须是 'expr', 'stmt', 'struct' 或 'type'，得到 '%s'\n",
-                filename, parser->current_token->line, parser->current_token->column, return_tag);
-        return NULL;
-    }
-    
-    parser_consume(parser);
     
     // 解析宏体（代码块）
     ASTNode *body = parser_parse_block(parser);
@@ -2963,6 +3032,9 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         if (next_type == TOKEN_LEFT_BRACE) {
             // 块语句 { ... }
             operand = parser_parse_block(parser);
+        } else if (next_type == TOKEN_FN) {
+            // 函数定义（用于 struct 返回类型的宏生成方法）
+            operand = parser_parse_function(parser);
         } else if (next_type == TOKEN_IF || next_type == TOKEN_FOR || 
                    next_type == TOKEN_WHILE || next_type == TOKEN_RETURN ||
                    next_type == TOKEN_CONST || next_type == TOKEN_VAR ||

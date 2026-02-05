@@ -1,0 +1,71 @@
+// 测试 struct 返回标签的宏
+// 在方法块中调用宏生成方法
+
+// 定义一个生成 getter 方法的宏（无参数）
+mc add_get_x() struct {
+    @mc_code(@mc_ast(
+        fn get_x(self: &Self) i32 {
+            return self.x;
+        }
+    ));
+}
+
+// 定义一个生成加法方法的宏
+mc add_adder() struct {
+    @mc_code(@mc_ast(
+        fn add(self: &Self, other: &Self) i32 {
+            return self.x + self.y + other.x + other.y;
+        }
+    ));
+}
+
+// 定义一个简单的结构体
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+// 在方法块中调用宏生成方法
+Point {
+    add_get_x();
+    add_adder();
+    
+    fn get_y(self: &Self) i32 {
+        return self.y;
+    }
+    
+    fn sum(self: &Self) i32 {
+        return self.x + self.y;
+    }
+}
+
+fn main() i32 {
+    const p: Point = Point { x: 10, y: 20 };
+    const q: Point = Point { x: 5, y: 15 };
+    
+    // 测试宏生成的 get_x 方法
+    const x_val: i32 = p.get_x();
+    if x_val != 10 {
+        return 1;
+    }
+    
+    // 测试普通方法
+    const y_val: i32 = p.get_y();
+    if y_val != 20 {
+        return 2;
+    }
+    
+    // 测试宏生成的 add 方法
+    const add_result: i32 = p.add(&q);
+    if add_result != 50 {  // 10 + 20 + 5 + 15 = 50
+        return 3;
+    }
+    
+    // 测试 sum 方法
+    const sum_result: i32 = p.sum();
+    if sum_result != 30 {
+        return 4;
+    }
+    
+    return 0;
+}

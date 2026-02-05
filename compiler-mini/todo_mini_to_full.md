@@ -515,8 +515,15 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [x] 在 `@mc_ast` 中使用 `${s};` 展开 stmt 参数
   - [x] 测试用例：`test_macro_param_stmt.uya`
 
+- [x] **`struct` 返回标签**：
+  - [x] Parser: 支持 `struct` 作为宏返回标签（TOKEN_STRUCT）
+  - [x] Parser: 方法块内支持宏调用（`macro_name();`）
+  - [x] Parser: `@mc_ast` 支持解析函数定义（TOKEN_FN）
+  - [x] Checker: `struct` 返回类型的宏展开
+  - [x] Checker: 在 `AST_METHOD_BLOCK` 中展开宏调用为方法定义
+  - [x] 测试用例：`test_macro_struct_return.uya`
+
 **待实现**：
-- [ ] `struct` 返回标签（宏定义结构体成员，在结构体内调用）
 - [ ] `type` 返回标签调用（作为类型注解使用，如 `const x: get_type() = 42`）
 - [ ] `@mc_type` 编译时类型反射（返回 `TypeInfo` 结构体）
 - [ ] uya-src 同步

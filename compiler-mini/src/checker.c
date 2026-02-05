@@ -5030,6 +5030,16 @@ static ASTNode *extract_macro_output(ASTNode *body, MacroExpandContext *ctx, con
             last_output = deep_copy_ast(s, &merged_ctx);
             break;
         }
+        
+        // struct 返回类型的语法糖（用于在方法块中生成方法定义）
+        if (return_tag != NULL && strcmp(return_tag, "struct") == 0) {
+            // 跳过变量声明语句（这些是宏内部的临时变量）
+            if (s->type == AST_VAR_DECL) continue;
+            
+            // 返回方法定义或其他 AST 节点
+            last_output = deep_copy_ast(s, &merged_ctx);
+            break;
+        }
     }
     
     return last_output;
@@ -5052,15 +5062,15 @@ static void expand_macros_in_node(TypeChecker *checker, ASTNode **node_ptr) {
                 
                 // 检查返回标签是否支持
                 if (return_tag == NULL || 
-                    (strcmp(return_tag, "expr") != 0 && strcmp(return_tag, "stmt") != 0)) {
-                    // struct 和 type 返回类型暂不支持
-                    if (return_tag != NULL && 
-                        (strcmp(return_tag, "struct") == 0 || strcmp(return_tag, "type") == 0)) {
-                    char buf[128];
+                    (strcmp(return_tag, "expr") != 0 && strcmp(return_tag, "stmt") != 0 &&
+                     strcmp(return_tag, "struct") != 0)) {
+                    // type 返回类型暂不支持
+                    if (return_tag != NULL && strcmp(return_tag, "type") == 0) {
+                        char buf[128];
                         snprintf(buf, sizeof(buf), "宏 %s 的 %s 返回类型暂不支持", name, return_tag);
-                    checker_report_error(checker, node, buf);
-                    return;
-                }
+                        checker_report_error(checker, node, buf);
+                        return;
+                    }
                     char buf[128];
                     snprintf(buf, sizeof(buf), "宏 %s 返回类型无效 (return_tag: %s)", 
                             name, return_tag ? return_tag : "NULL");
@@ -5263,6 +5273,85 @@ static void expand_macros_in_node(TypeChecker *checker, ASTNode **node_ptr) {
         case AST_STRUCT_DECL:
             for (int i = 0; i < node->data.struct_decl.field_count; i++) {
                 expand_macros_in_node(checker, &node->data.struct_decl.fields[i]);
+            }
+            break;
+        case AST_METHOD_BLOCK:
+            // 在方法块中展开 struct 返回类型的宏调用
+            if (node->data.method_block.methods) {
+                for (int i = 0; i < node->data.method_block.method_count; i++) {
+                    ASTNode **method_ptr = &node->data.method_block.methods[i];
+                    ASTNode *method = *method_ptr;
+                    // 如果是宏调用（AST_CALL_EXPR），展开为方法定义
+                    if (method != NULL && method->type == AST_CALL_EXPR) {
+                        ASTNode *callee = method->data.call_expr.callee;
+                        if (callee != NULL && callee->type == AST_IDENTIFIER && callee->data.identifier.name != NULL) {
+                            const char *name = callee->data.identifier.name;
+                            ASTNode *macro_decl = find_macro_decl_from_program(checker->program_node, name);
+                            if (macro_decl != NULL) {
+                                const char *return_tag = macro_decl->data.macro_decl.return_tag;
+                                if (return_tag != NULL && strcmp(return_tag, "struct") == 0) {
+                                    // struct 返回类型的宏，展开为方法定义
+                                    int param_count = macro_decl->data.macro_decl.param_count;
+                                    int arg_count = method->data.call_expr.arg_count;
+                                    if (param_count != arg_count) {
+                                        char buf[128];
+                                        snprintf(buf, sizeof(buf), "宏 %s 期望 %d 个参数，但得到 %d 个", 
+                                                name, param_count, arg_count);
+                                        checker_report_error(checker, method, buf);
+                                        continue;
+                                    }
+                                    
+                                    // 建立参数绑定
+                                    MacroParamBinding *bindings = NULL;
+                                    if (param_count > 0) {
+                                        bindings = (MacroParamBinding *)arena_alloc(checker->arena, 
+                                            sizeof(MacroParamBinding) * param_count);
+                                        if (bindings == NULL) {
+                                            checker_report_error(checker, method, "宏展开失败：内存分配失败");
+                                            continue;
+                                        }
+                                        for (int j = 0; j < param_count; j++) {
+                                            ASTNode *param = macro_decl->data.macro_decl.params[j];
+                                            if (param != NULL && param->type == AST_VAR_DECL && 
+                                                param->data.var_decl.name != NULL) {
+                                                bindings[j].param_name = param->data.var_decl.name;
+                                                bindings[j].arg_ast = method->data.call_expr.args[j];
+                                            } else {
+                                                bindings[j].param_name = NULL;
+                                                bindings[j].arg_ast = NULL;
+                                            }
+                                        }
+                                    }
+                                    
+                                    // 创建展开上下文
+                                    MacroExpandContext ctx = {
+                                        bindings,
+                                        param_count,
+                                        checker->arena,
+                                        checker
+                                    };
+                                    
+                                    // 展开宏体
+                                    ASTNode *body = macro_decl->data.macro_decl.body;
+                                    ASTNode *expanded = extract_macro_output(body, &ctx, return_tag);
+                                    if (expanded == NULL) {
+                                        char buf[128];
+                                        snprintf(buf, sizeof(buf), "宏 %s 未产生有效的方法定义", name);
+                                        checker_report_error(checker, method, buf);
+                                        continue;
+                                    }
+                                    
+                                    // 递归展开结果中可能存在的宏调用
+                                    expand_macros_in_node(checker, &expanded);
+                                    
+                                    *method_ptr = expanded;
+                                }
+                            }
+                        }
+                    } else {
+                        expand_macros_in_node(checker, method_ptr);
+                    }
+                }
             }
             break;
         default:
