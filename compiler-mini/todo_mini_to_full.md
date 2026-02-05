@@ -29,7 +29,7 @@
 | 15 | 泛型（Generics） | [ ] |
 | 16 | 异步编程（Async） | [ ] |
 | 17 | test 关键字（测试单元） | [x]（C 实现与 uya-src 已同步） |
-| 18 | **宏系统（Macro）** | [ ] 部分实现 |
+| 18 | **宏系统（Macro）** | [x] C 实现已完成（uya-src 待同步） |
 
 ---
 
@@ -474,18 +474,38 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 **语法规范**：`mc ID(param_list) return_tag { statements }`，规范 [uya.md](../uya.md) §25。
 
 **已实现（C 实现）**：
-- [x] **Lexer**：`mc` 关键字，`@mc_eval`、`@mc_code`、`@mc_ast`、`@mc_error`、`@mc_get_env` 为合法 @ 内置
-- [x] **AST**：`AST_MACRO_DECL`、`AST_MC_EVAL`、`AST_MC_CODE`、`AST_MC_AST`、`AST_MC_ERROR`
-- [x] **Parser**：解析 `mc name(params) return_tag { body }`，解析 `@mc_*` 调用
-- [x] **Checker**：宏展开（0 参数、`expr` 返回、`@mc_code(@mc_ast(expr))`）
+- [x] **Lexer**：`mc` 关键字，`@mc_eval`、`@mc_code`、`@mc_ast`、`@mc_error`、`@mc_get_env` 为合法 @ 内置；`${` 插值语法（`TOKEN_INTERP_OPEN`）
+- [x] **AST**：`AST_MACRO_DECL`、`AST_MC_EVAL`、`AST_MC_CODE`、`AST_MC_AST`、`AST_MC_ERROR`、`AST_MC_INTERP`（`${expr}` 插值节点）
+- [x] **Parser**：解析 `mc name(params) return_tag { body }`，解析 `@mc_*` 调用，解析 `${expr}` 插值语法
+- [x] **Checker**：宏展开（带参数、`expr`/`stmt` 返回、`@mc_code(@mc_ast(...))`）
+  - [x] 带参数宏（`MacroParamBinding` 参数绑定与 `deep_copy_ast` AST 替换）
+  - [x] `@mc_eval` 编译时常量表达式求值（`macro_eval_expr`）
+  - [x] `@mc_error` 编译时错误报告
+  - [x] `@mc_get_env` 环境变量读取
+  - [x] `${expr}` 插值语法（在 `deep_copy_ast` 中替换为参数 AST）
+  - [x] `stmt` 返回标签支持
+  - [x] `type` 返回标签支持（语法解析，调用暂不支持）
+  - [x] 语法糖（最后一条语句自动包装为 `@mc_code(@mc_ast(...))`）
 - [x] **Codegen**：跳过 `AST_MACRO_DECL`
-- [x] **测试**：`test_macro_simple.uya` 通过 `--c99`
+- [x] **测试**：
+  - `test_macro_simple.uya` - 基本宏定义与调用
+  - `test_macro_with_params.uya` - 带参数宏
+  - `test_macro_mc_eval.uya` - `@mc_eval` 编译时求值
+  - `test_macro_mc_get_env.uya` - `@mc_get_env` 环境变量
+  - `test_macro_stmt.uya` - `stmt` 返回标签
+  - `test_macro_type.uya` - `type` 返回标签
+  - `test_macro_sugar.uya` - 语法糖自动包装
+  - `test_macro_interp.uya` - `${}` 插值语法（简单、复杂、多参数、嵌套）
+  - `test_macro_integration.uya` - 宏综合测试
+  - `test_macro_multiple_calls.uya` - 多次调用测试
+  - `error_macro_mc_error.uya` - `@mc_error` 预期编译失败
 
 **待实现**：
-- [ ] 带参数宏（参数绑定与 AST 替换）
-- [ ] `@mc_eval`、`@mc_error`、`@mc_get_env` 语义
-- [ ] `stmt`、`struct`、`type` 返回标签
-- [ ] 语法糖（最后一条语句自动包装为 `@mc_code(@mc_ast(...))`）
+- [ ] `stmt` 参数类型（语句作为宏参数传递）
+- [ ] `struct` 返回标签（宏定义结构体成员，在结构体内调用）
+- [ ] `type` 返回标签调用（作为类型注解使用，如 `const x: get_type() = 42`）
+- [ ] `@mc_type` 编译时类型反射（返回 `TypeInfo` 结构体）
+- [ ] `@mc_ast` 复杂语句支持（if/for/while/match 等控制流语句、块语句、函数定义等）
 - [ ] uya-src 同步
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen。
