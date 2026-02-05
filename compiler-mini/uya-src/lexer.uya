@@ -51,6 +51,7 @@ enum TokenType {
     TOKEN_MATCH,       // match（模式匹配）
     TOKEN_FAT_ARROW,   // =>（match 臂箭头）
     TOKEN_TEST,        // test（测试单元关键字）
+    TOKEN_MC,          // mc（宏声明关键字）
     TOKEN_PLUS,
     TOKEN_MINUS,
     TOKEN_ASTERISK,
@@ -255,6 +256,8 @@ fn is_keyword(str: &byte) TokenType {
         result = TokenType.TOKEN_MATCH;
     } else if str_equals_lexer(str, "test" as &byte) != 0 {
         result = TokenType.TOKEN_TEST;
+    } else if str_equals_lexer(str, "mc" as &byte) != 0 {
+        result = TokenType.TOKEN_MC;
     }
     return result;
 }
@@ -889,14 +892,48 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
             if value == null {
                 return null;
             }
-            if str_equals_lexer(value, "size_of" as &byte) != 0 || str_equals_lexer(value, "align_of" as &byte) != 0 ||
-                str_equals_lexer(value, "len" as &byte) != 0 || str_equals_lexer(value, "max" as &byte) != 0 ||
-                str_equals_lexer(value, "min" as &byte) != 0 || str_equals_lexer(value, "params" as &byte) != 0 {
+            // 检查是否为已知的内置函数
+            var is_builtin: i32 = 0;
+            if str_equals_lexer(value, "size_of" as &byte) != 0 { is_builtin = 1; }
+            if str_equals_lexer(value, "align_of" as &byte) != 0 { is_builtin = 1; }
+            if str_equals_lexer(value, "len" as &byte) != 0 { is_builtin = 1; }
+            if str_equals_lexer(value, "max" as &byte) != 0 { is_builtin = 1; }
+            if str_equals_lexer(value, "min" as &byte) != 0 { is_builtin = 1; }
+            if str_equals_lexer(value, "params" as &byte) != 0 { is_builtin = 1; }
+            // 宏编译时内置函数
+            if str_equals_lexer(value, "mc_eval" as &byte) != 0 { is_builtin = 1; }
+            if str_equals_lexer(value, "mc_code" as &byte) != 0 { is_builtin = 1; }
+            if str_equals_lexer(value, "mc_ast" as &byte) != 0 { is_builtin = 1; }
+            if str_equals_lexer(value, "mc_error" as &byte) != 0 { is_builtin = 1; }
+            if str_equals_lexer(value, "mc_get_env" as &byte) != 0 { is_builtin = 1; }
+            if str_equals_lexer(value, "mc_type" as &byte) != 0 { is_builtin = 1; }
+            
+            if is_builtin != 0 {
                 return make_token(arena, TokenType.TOKEN_AT_IDENTIFIER, value, line, column);
             }
+            
+            // 未知的内置函数
+            const stderr: *void = get_stderr();
+            fprintf(stderr, "错误: 未知内置 @%s，支持：@size_of、@align_of、@len、@max、@min、@params、@mc_eval、@mc_type、@mc_ast、@mc_code、@mc_error、@mc_get_env\n" as *byte, value);
             return null;
         }
         return null;
+    }
+    // 宏插值语法 ${expr}，用于 @mc_ast 内部引用变量
+    // $ 的 ASCII 码是 36
+    if c == 36 {
+        const next_c: byte = peek_char(lexer, 1);
+        if next_c == 123 {
+            // ${
+            advance_char(lexer);  // 消费 $
+            advance_char(lexer);  // 消费 {
+            return make_token(arena, TokenType.TOKEN_INTERP_OPEN, null, line, column);
+        }
+        // 单独的 $ 是非法的
+        const stderr: *void = get_stderr();
+        fprintf(stderr, "错误: '$' 必须后跟 '{' 形成宏插值\n" as *byte);
+        advance_char(lexer);
+        return make_token(arena, TokenType.TOKEN_EOF, null, line, column);
     }
     const cu: i32 = c as i32;
     var is_alpha: i32 = 0;

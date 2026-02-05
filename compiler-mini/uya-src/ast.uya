@@ -45,6 +45,7 @@ enum ASTNodeType {
     AST_UNION_DECL,    // 联合体声明（union Name { variant1: T1, variant2: T2 }）
     AST_METHOD_BLOCK,  // 方法块（StructName { fn method(...) { ... } ... }）
     AST_FN_DECL,
+    AST_MACRO_DECL,    // 宏声明（mc ID(param_list) return_tag { statements }）
     AST_VAR_DECL,
     AST_DESTRUCTURE_DECL,  // 解构声明（const (x, y) = expr）
     AST_USE_STMT,         // use 语句（use path; 或 use path.item; 或 use path as alias;）
@@ -86,6 +87,12 @@ enum ASTNodeType {
     AST_CATCH_EXPR,     // expr catch [|err|] { stmts }（错误捕获）
     AST_ERROR_VALUE,    // error.Name（错误值，用于 return error.X）
     AST_MATCH_EXPR,     // match expr { pat => expr, ... else => expr }
+    AST_MC_EVAL,        // @mc_eval(expr) - 宏内求值表达式
+    AST_MC_CODE,        // @mc_code(expr) - 宏内生成代码
+    AST_MC_AST,         // @mc_ast(expr) - 宏内获取 AST
+    AST_MC_ERROR,       // @mc_error(msg) - 宏内报错
+    AST_MC_INTERP,      // ${expr} - 宏内插值
+    AST_MC_TYPE,        // @mc_type(expr) - 宏内类型反射
     AST_TYPE_NAMED,
     AST_TYPE_POINTER,
     AST_TYPE_ARRAY,
@@ -155,6 +162,20 @@ struct ASTNode {
     fn_decl_body: &ASTNode,
     fn_decl_is_varargs: i32,
     fn_decl_is_export: i32,  // 1 表示 export fn，0 表示私有
+    // macro_decl（宏声明）
+    macro_decl_name: &byte,
+    macro_decl_params: & & ASTNode,
+    macro_decl_param_count: i32,
+    macro_decl_return_tag: &byte,      // "expr", "stmt", "struct", "type"
+    macro_decl_body: &ASTNode,
+    macro_decl_is_export: i32,
+    // mc_* 宏内建函数
+    mc_eval_operand: &ASTNode,
+    mc_code_operand: &ASTNode,
+    mc_ast_operand: &ASTNode,
+    mc_error_operand: &ASTNode,
+    mc_interp_operand: &ASTNode,
+    mc_type_operand: &ASTNode,
     // var_decl
     var_decl_name: &byte,
     var_decl_type: &ASTNode,
@@ -348,6 +369,18 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.fn_decl_body = null;
     node.fn_decl_is_varargs = 0;
     node.fn_decl_is_export = 0;
+    node.macro_decl_name = null;
+    node.macro_decl_params = null;
+    node.macro_decl_param_count = 0;
+    node.macro_decl_return_tag = null;
+    node.macro_decl_body = null;
+    node.macro_decl_is_export = 0;
+    node.mc_eval_operand = null;
+    node.mc_code_operand = null;
+    node.mc_ast_operand = null;
+    node.mc_error_operand = null;
+    node.mc_interp_operand = null;
+    node.mc_type_operand = null;
     node.var_decl_name = null;
     node.var_decl_type = null;
     node.var_decl_init = null;
