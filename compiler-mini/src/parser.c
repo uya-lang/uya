@@ -3315,7 +3315,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                             t2 == TOKEN_LEFT_BRACE || t2 == TOKEN_SEMICOLON ||
                             t2 == TOKEN_AMPERSAND || t2 == TOKEN_PIPE || t2 == TOKEN_CARET ||
                             t2 == TOKEN_RIGHT_PAREN ||
-                            t2 == TOKEN_DOT || t2 == TOKEN_LEFT_BRACKET || t2 == TOKEN_LEFT_PAREN) {
+                            t2 == TOKEN_DOT || t2 == TOKEN_LEFT_BRACKET || t2 == TOKEN_LEFT_PAREN || t2 == TOKEN_AS || t2 == TOKEN_AS_BANG) {  // 类型转换 as/as!
                             is_comparison = 1;
                         }
                     }
