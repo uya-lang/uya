@@ -1,0 +1,52 @@
+// 测试 @mc_type 自动生成 TypeInfo 结构体
+// 不需要手动定义 TypeInfo，编译器会自动生成
+
+// 宏：获取类型信息
+mc get_type_info(T: type) expr {
+    @mc_type(T);
+}
+
+// 宏：获取类型大小
+mc get_size(T: type) expr {
+    const info: TypeInfo = @mc_type(T);
+    info.size;
+}
+
+// 宏：检查是否为整数类型
+mc is_int(T: type) expr {
+    const info: TypeInfo = @mc_type(T);
+    info.is_integer;
+}
+
+fn main() i32 {
+    // 测试基本类型 i32
+    const i32_info: TypeInfo = get_type_info(i32);
+    if i32_info.size != 4 { return 1; }
+    if !i32_info.is_integer { return 2; }
+    
+    // 测试 i64 大小
+    const i64_size: i32 = get_size(i64);
+    if i64_size != 8 { return 3; }
+    
+    // 测试 i8 大小
+    const i8_size: i32 = get_size(i8);
+    if i8_size != 1 { return 4; }
+    
+    // 测试 is_integer
+    const i32_is_int: bool = is_int(i32);
+    if !i32_is_int { return 5; }
+    
+    // 测试 f64
+    const f64_info: TypeInfo = get_type_info(f64);
+    if f64_info.size != 8 { return 6; }
+    if !f64_info.is_float { return 7; }
+    if f64_info.is_integer { return 8; }
+    
+    // 测试 bool
+    const bool_info: TypeInfo = get_type_info(bool);
+    if bool_info.size != 1 { return 9; }
+    if !bool_info.is_bool { return 10; }
+    
+    return 0;
+}
+

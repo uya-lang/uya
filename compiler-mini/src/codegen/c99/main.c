@@ -325,6 +325,8 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     }
     
     // 第四步：生成所有结构体的前向声明（解决相互依赖）
+    // 首先添加内置 TypeInfo 的前向声明（用于 @mc_type）
+    fputs("struct TypeInfo;\n", codegen->output);
     for (int i = 0; i < codegen->struct_definition_count; i++) {
         if (!is_struct_defined(codegen, codegen->struct_definitions[i].name)) {
             fprintf(codegen->output, "struct %s;\n", codegen->struct_definitions[i].name);
@@ -368,7 +370,38 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
             fputs("\n", codegen->output);
         }
     }
-    // 第六步 d：生成所有结构体定义（在切片结构体之后，因为结构体可能含切片字段）
+    // 第六步 d1：自动生成内置 TypeInfo 结构体（如果用户没有定义且代码中使用了 @mc_type）
+    // TypeInfo 用于 @mc_type 编译时类型反射，包含类型的元信息
+    {
+        int user_defined_typeinfo = 0;
+        for (int i = 0; i < decl_count; i++) {
+            ASTNode *decl = decls[i];
+            if (decl && decl->type == AST_STRUCT_DECL && decl->data.struct_decl.name &&
+                strcmp(decl->data.struct_decl.name, "TypeInfo") == 0) {
+                user_defined_typeinfo = 1;
+                break;
+            }
+        }
+        if (!user_defined_typeinfo && !is_struct_defined(codegen, "TypeInfo")) {
+            // 生成内置 TypeInfo 结构体
+            fputs("// 内置 TypeInfo 结构体（由 @mc_type 使用）\n", codegen->output);
+            fputs("struct TypeInfo {\n", codegen->output);
+            fputs("    int8_t * name;\n", codegen->output);
+            fputs("    int32_t size;\n", codegen->output);
+            fputs("    int32_t align;\n", codegen->output);
+            fputs("    int32_t kind;\n", codegen->output);
+            fputs("    bool is_integer;\n", codegen->output);
+            fputs("    bool is_float;\n", codegen->output);
+            fputs("    bool is_bool;\n", codegen->output);
+            fputs("    bool is_pointer;\n", codegen->output);
+            fputs("    bool is_array;\n", codegen->output);
+            fputs("    bool is_void;\n", codegen->output);
+            fputs("};\n\n", codegen->output);
+            mark_struct_defined(codegen, "TypeInfo");
+        }
+    }
+    
+    // 第六步 d2：生成所有结构体定义（在切片结构体之后，因为结构体可能含切片字段）
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) continue;

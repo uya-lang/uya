@@ -1565,6 +1565,78 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
     }
 }
 
+// 内置 TypeInfo 结构体声明（用于 @mc_type 编译时类型反射）
+// 静态变量，懒初始化
+static ASTNode *builtin_type_info_decl = NULL;
+static uint8_t builtin_arena_buffer[8192];
+static Arena builtin_arena;
+static int builtin_arena_initialized = 0;
+
+// 创建内置 TypeInfo 结构体的字段
+static ASTNode *create_builtin_field(Arena *arena, const char *name, const char *type_name, int is_pointer) {
+    ASTNode *field = ast_new_node(AST_VAR_DECL, 0, 0, arena, NULL);
+    if (!field) return NULL;
+    field->data.var_decl.name = name;
+    field->data.var_decl.is_const = 0;
+    
+    if (is_pointer) {
+        ASTNode *ptr_type = ast_new_node(AST_TYPE_POINTER, 0, 0, arena, NULL);
+        if (!ptr_type) return NULL;
+        ASTNode *base_type = ast_new_node(AST_TYPE_NAMED, 0, 0, arena, NULL);
+        if (!base_type) return NULL;
+        base_type->data.type_named.name = type_name;
+        ptr_type->data.type_pointer.pointed_type = base_type;
+        ptr_type->data.type_pointer.is_ffi_pointer = 1;  // *T
+        field->data.var_decl.type = ptr_type;
+    } else {
+        ASTNode *type = ast_new_node(AST_TYPE_NAMED, 0, 0, arena, NULL);
+        if (!type) return NULL;
+        type->data.type_named.name = type_name;
+        field->data.var_decl.type = type;
+    }
+    
+    return field;
+}
+
+// 获取内置 TypeInfo 结构体声明
+static ASTNode *get_builtin_type_info_decl(void) {
+    if (builtin_type_info_decl != NULL) {
+        return builtin_type_info_decl;
+    }
+    
+    // 初始化内置 arena
+    if (!builtin_arena_initialized) {
+        arena_init(&builtin_arena, builtin_arena_buffer, sizeof(builtin_arena_buffer));
+        builtin_arena_initialized = 1;
+    }
+    
+    // 创建 TypeInfo 结构体声明
+    builtin_type_info_decl = ast_new_node(AST_STRUCT_DECL, 0, 0, &builtin_arena, NULL);
+    if (builtin_type_info_decl == NULL) return NULL;
+    
+    builtin_type_info_decl->data.struct_decl.name = "TypeInfo";
+    builtin_type_info_decl->data.struct_decl.field_count = 10;
+    builtin_type_info_decl->data.struct_decl.fields = (ASTNode **)arena_alloc(&builtin_arena, sizeof(ASTNode *) * 10);
+    if (builtin_type_info_decl->data.struct_decl.fields == NULL) {
+        builtin_type_info_decl = NULL;
+        return NULL;
+    }
+    
+    // 创建字段
+    builtin_type_info_decl->data.struct_decl.fields[0] = create_builtin_field(&builtin_arena, "name", "i8", 1);      // *i8
+    builtin_type_info_decl->data.struct_decl.fields[1] = create_builtin_field(&builtin_arena, "size", "i32", 0);     // i32
+    builtin_type_info_decl->data.struct_decl.fields[2] = create_builtin_field(&builtin_arena, "align", "i32", 0);    // i32
+    builtin_type_info_decl->data.struct_decl.fields[3] = create_builtin_field(&builtin_arena, "kind", "i32", 0);     // i32
+    builtin_type_info_decl->data.struct_decl.fields[4] = create_builtin_field(&builtin_arena, "is_integer", "bool", 0);
+    builtin_type_info_decl->data.struct_decl.fields[5] = create_builtin_field(&builtin_arena, "is_float", "bool", 0);
+    builtin_type_info_decl->data.struct_decl.fields[6] = create_builtin_field(&builtin_arena, "is_bool", "bool", 0);
+    builtin_type_info_decl->data.struct_decl.fields[7] = create_builtin_field(&builtin_arena, "is_pointer", "bool", 0);
+    builtin_type_info_decl->data.struct_decl.fields[8] = create_builtin_field(&builtin_arena, "is_array", "bool", 0);
+    builtin_type_info_decl->data.struct_decl.fields[9] = create_builtin_field(&builtin_arena, "is_void", "bool", 0);
+    
+    return builtin_type_info_decl;
+}
+
 // 从程序节点中查找结构体声明
 // 参数：program_node - 程序节点，struct_name - 结构体名称
 // 返回：找到的结构体声明节点指针，未找到返回 NULL
@@ -1581,6 +1653,11 @@ static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char 
                 return decl;
             }
         }
+    }
+    
+    // 如果未找到用户定义的结构体，检查是否是内置 TypeInfo
+    if (strcmp(struct_name, "TypeInfo") == 0) {
+        return get_builtin_type_info_decl();
     }
     
     return NULL;
