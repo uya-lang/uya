@@ -3252,7 +3252,7 @@ fn parser_parse_interface(parser: &Parser) &ASTNode {
             return null;
         }
         const ml: i32 = parser.current_token.line;
-        const mc: i32 = parser.current_token.column;
+        const mcol: i32 = parser.current_token.column;
         parser_consume(parser);
         if parser_match(parser, TokenType.TOKEN_IDENTIFIER) == 0 {
             return null;
@@ -3304,7 +3304,7 @@ fn parser_parse_interface(parser: &Parser) &ASTNode {
                 params = new_p;
                 param_cap = new_cap;
             }
-            const pnode: &ASTNode = ast_new_node(ASTNodeType.AST_VAR_DECL, ml, mc, parser.arena, parser_get_filename(parser));
+            const pnode: &ASTNode = ast_new_node(ASTNodeType.AST_VAR_DECL, ml, mcol, parser.arena, parser_get_filename(parser));
             if pnode == null {
                 return null;
             }
@@ -3329,7 +3329,7 @@ fn parser_parse_interface(parser: &Parser) &ASTNode {
         if parser_expect(parser, TokenType.TOKEN_SEMICOLON) == null {
             return null;
         }
-        const sig: &ASTNode = ast_new_node(ASTNodeType.AST_FN_DECL, ml, mc, parser.arena, parser_get_filename(parser));
+        const sig: &ASTNode = ast_new_node(ASTNodeType.AST_FN_DECL, ml, mcol, parser.arena, parser_get_filename(parser));
         if sig == null {
             return null;
         }
