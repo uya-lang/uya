@@ -13,6 +13,7 @@ const char *c99_type_to_c_with_self(C99CodeGenerator *codegen, ASTNode *type_nod
    *Self (is_ffi_pointer=1) -> struct X *
 */
 const char *c99_type_to_c_with_self_opt(C99CodeGenerator *codegen, ASTNode *type_node, const char *self_struct_name, int const_self) {
+    (void)const_self; // 保留参数以兼容调用方，实际使用 is_ffi_pointer 决定 const
     if (!type_node || !self_struct_name) return c99_type_to_c(codegen, type_node);
     const char *safe = get_safe_c_identifier(codegen, self_struct_name);
     int is_union = find_union_decl_c99(codegen, self_struct_name) != NULL;
