@@ -44,6 +44,8 @@ static ModuleInfo *find_or_create_module(TypeChecker *checker, const char *modul
 static void build_module_exports(TypeChecker *checker, ASTNode *program);
 static int process_use_stmt(TypeChecker *checker, ASTNode *node);
 static void detect_circular_dependencies(TypeChecker *checker);
+static ASTNode *find_macro_decl_from_program(ASTNode *program_node, const char *macro_name);
+static void expand_macros_in_node(TypeChecker *checker, ASTNode **node_ptr);
 
 // 是否为整数类型（用于算术、比较、位运算）
 static int is_integer_type(TypeKind k) {
@@ -4418,8 +4420,241 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             // 这些节点类型不需要单独检查（在表达式中检查）
             return 1;
             
+        case AST_MACRO_DECL:
+            /* 宏声明不进行类型检查，宏体在展开时解释 */
+            return 1;
+        case AST_MC_EVAL:
+        case AST_MC_CODE:
+        case AST_MC_AST:
+        case AST_MC_ERROR:
+            /* 仅宏体内有效，不应出现在已展开的 AST 中；若出现则报错 */
+            checker_report_error(checker, node, "@mc_* 内置函数只能在宏体内使用");
+            return 0;
         default:
             return 1;
+    }
+}
+
+// 从程序中查找宏声明
+static ASTNode *find_macro_decl_from_program(ASTNode *program_node, const char *macro_name) {
+    if (program_node == NULL || program_node->type != AST_PROGRAM || macro_name == NULL) return NULL;
+    for (int i = 0; i < program_node->data.program.decl_count; i++) {
+        ASTNode *decl = program_node->data.program.decls[i];
+        if (decl != NULL && decl->type == AST_MACRO_DECL && decl->data.macro_decl.name != NULL &&
+            strcmp(decl->data.macro_decl.name, macro_name) == 0) {
+            return decl;
+        }
+    }
+    return NULL;
+}
+
+// 从宏体提取 expr 输出的 AST（支持 @mc_code(@mc_ast(expr)) 和语法糖）
+// 返回输出的 AST 节点，失败返回 NULL
+static ASTNode *extract_macro_expr_output(ASTNode *body, TypeChecker *checker) {
+    (void)checker;
+    if (body == NULL || body->type != AST_BLOCK) return NULL;
+    ASTNode **stmts = body->data.block.stmts;
+    int count = body->data.block.stmt_count;
+    if (stmts == NULL || count <= 0) return NULL;
+    /* 查找最后一个产生输出的语句（表达式语句直接为表达式节点，或 AST_EXPR_STMT 包装） */
+    ASTNode *last_output = NULL;
+    for (int i = count - 1; i >= 0; i--) {
+        ASTNode *s = stmts[i];
+        if (s == NULL) continue;
+        ASTNode *expr = s;
+        if (s->type == AST_EXPR_STMT && s->data.binary_expr.left != NULL) {
+            expr = s->data.binary_expr.left;
+        }
+        if (expr->type == AST_MC_CODE && expr->data.mc_code.operand != NULL) {
+            ASTNode *arg = expr->data.mc_code.operand;
+            if (arg->type == AST_MC_AST && arg->data.mc_ast.operand != NULL) {
+                last_output = arg->data.mc_ast.operand;
+            } else {
+                last_output = arg;
+            }
+            break;
+        }
+    }
+    return last_output;
+}
+
+// 递归展开宏调用，node_ptr 为指向当前节点的指针（便于替换）
+static void expand_macros_in_node(TypeChecker *checker, ASTNode **node_ptr) {
+    if (checker == NULL || node_ptr == NULL || *node_ptr == NULL) return;
+    ASTNode *node = *node_ptr;
+    /* 若为宏调用，尝试展开 */
+    if (node->type == AST_CALL_EXPR) {
+        ASTNode *callee = node->data.call_expr.callee;
+        if (callee != NULL && callee->type == AST_IDENTIFIER && callee->data.identifier.name != NULL) {
+            const char *name = callee->data.identifier.name;
+            ASTNode *macro_decl = find_macro_decl_from_program(checker->program_node, name);
+            if (macro_decl != NULL) {
+                if (macro_decl->data.macro_decl.param_count != 0) {
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "宏 %s 带参数暂不支持", name);
+                    checker_report_error(checker, node, buf);
+                    return;
+                }
+                if (macro_decl->data.macro_decl.return_tag == NULL || 
+                    strcmp(macro_decl->data.macro_decl.return_tag, "expr") != 0) {
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "宏 %s 仅支持 expr 返回 (return_tag: %s)", 
+                            name, macro_decl->data.macro_decl.return_tag ? macro_decl->data.macro_decl.return_tag : "NULL");
+                    checker_report_error(checker, node, buf);
+                    return;
+                }
+                ASTNode *body = macro_decl->data.macro_decl.body;
+                ASTNode *expanded = extract_macro_expr_output(body, checker);
+                if (expanded == NULL) {
+                    char buf[128];
+                    snprintf(buf, sizeof(buf), "宏 %s 未产生有效的 expr 输出", name);
+                    checker_report_error(checker, node, buf);
+                    return;
+                }
+                *node_ptr = expanded;
+                node = expanded;
+            }
+        }
+    }
+    /* 递归处理子节点 */
+    switch (node->type) {
+        case AST_PROGRAM:
+            for (int i = 0; i < node->data.program.decl_count; i++) {
+                expand_macros_in_node(checker, &node->data.program.decls[i]);
+            }
+            break;
+        case AST_BLOCK:
+            if (node->data.block.stmts) {
+                for (int i = 0; i < node->data.block.stmt_count; i++) {
+                    expand_macros_in_node(checker, &node->data.block.stmts[i]);
+                }
+            }
+            break;
+        case AST_BINARY_EXPR:
+            expand_macros_in_node(checker, &node->data.binary_expr.left);
+            expand_macros_in_node(checker, &node->data.binary_expr.right);
+            break;
+        case AST_UNARY_EXPR:
+        case AST_TRY_EXPR:
+            expand_macros_in_node(checker, &node->data.unary_expr.operand);
+            break;
+        case AST_CALL_EXPR:
+            expand_macros_in_node(checker, &node->data.call_expr.callee);
+            if (node->data.call_expr.args) {
+                for (int i = 0; i < node->data.call_expr.arg_count; i++) {
+                    expand_macros_in_node(checker, &node->data.call_expr.args[i]);
+                }
+            }
+            break;
+        case AST_MEMBER_ACCESS:
+            expand_macros_in_node(checker, &node->data.member_access.object);
+            break;
+        case AST_ARRAY_ACCESS:
+            expand_macros_in_node(checker, &node->data.array_access.array);
+            expand_macros_in_node(checker, &node->data.array_access.index);
+            break;
+        case AST_SLICE_EXPR:
+            expand_macros_in_node(checker, &node->data.slice_expr.base);
+            expand_macros_in_node(checker, &node->data.slice_expr.start_expr);
+            expand_macros_in_node(checker, &node->data.slice_expr.len_expr);
+            break;
+        case AST_STRUCT_INIT:
+            if (node->data.struct_init.field_values) {
+                for (int i = 0; i < node->data.struct_init.field_count; i++) {
+                    expand_macros_in_node(checker, &node->data.struct_init.field_values[i]);
+                }
+            }
+            break;
+        case AST_ARRAY_LITERAL:
+            if (node->data.array_literal.elements) {
+                for (int i = 0; i < node->data.array_literal.element_count; i++) {
+                    expand_macros_in_node(checker, &node->data.array_literal.elements[i]);
+                }
+                if (node->data.array_literal.repeat_count_expr) {
+                    expand_macros_in_node(checker, &node->data.array_literal.repeat_count_expr);
+                }
+            }
+            break;
+        case AST_TUPLE_LITERAL:
+            if (node->data.tuple_literal.elements) {
+                for (int i = 0; i < node->data.tuple_literal.element_count; i++) {
+                    expand_macros_in_node(checker, &node->data.tuple_literal.elements[i]);
+                }
+            }
+            break;
+        case AST_SIZEOF:
+        case AST_ALIGNOF:
+            expand_macros_in_node(checker, &node->data.sizeof_expr.target);
+            break;
+        case AST_LEN:
+            expand_macros_in_node(checker, &node->data.len_expr.array);
+            break;
+        case AST_CAST_EXPR:
+            expand_macros_in_node(checker, &node->data.cast_expr.expr);
+            expand_macros_in_node(checker, &node->data.cast_expr.target_type);
+            break;
+        case AST_CATCH_EXPR:
+            expand_macros_in_node(checker, &node->data.catch_expr.operand);
+            expand_macros_in_node(checker, &node->data.catch_expr.catch_block);
+            break;
+        case AST_MATCH_EXPR:
+            expand_macros_in_node(checker, &node->data.match_expr.expr);
+            if (node->data.match_expr.arms) {
+                for (int i = 0; i < node->data.match_expr.arm_count; i++) {
+                    expand_macros_in_node(checker, &node->data.match_expr.arms[i].result_expr);
+                }
+            }
+            break;
+        case AST_VAR_DECL:
+            expand_macros_in_node(checker, &node->data.var_decl.type);
+            expand_macros_in_node(checker, &node->data.var_decl.init);
+            break;
+        case AST_DESTRUCTURE_DECL:
+            expand_macros_in_node(checker, &node->data.destructure_decl.init);
+            break;
+        case AST_IF_STMT:
+            expand_macros_in_node(checker, &node->data.if_stmt.condition);
+            expand_macros_in_node(checker, &node->data.if_stmt.then_branch);
+            expand_macros_in_node(checker, &node->data.if_stmt.else_branch);
+            break;
+        case AST_WHILE_STMT:
+            expand_macros_in_node(checker, &node->data.while_stmt.condition);
+            expand_macros_in_node(checker, &node->data.while_stmt.body);
+            break;
+        case AST_FOR_STMT:
+            expand_macros_in_node(checker, &node->data.for_stmt.array);
+            expand_macros_in_node(checker, &node->data.for_stmt.range_start);
+            expand_macros_in_node(checker, &node->data.for_stmt.range_end);
+            expand_macros_in_node(checker, &node->data.for_stmt.body);
+            break;
+        case AST_RETURN_STMT:
+            expand_macros_in_node(checker, &node->data.return_stmt.expr);
+            break;
+        case AST_DEFER_STMT:
+        case AST_ERRDEFER_STMT:
+            expand_macros_in_node(checker, &node->data.defer_stmt.body);
+            break;
+        case AST_ASSIGN:
+            expand_macros_in_node(checker, &node->data.assign.dest);
+            expand_macros_in_node(checker, &node->data.assign.src);
+            break;
+        case AST_EXPR_STMT:
+            expand_macros_in_node(checker, &node->data.binary_expr.left);
+            break;
+        case AST_FN_DECL:
+            expand_macros_in_node(checker, &node->data.fn_decl.return_type);
+            for (int i = 0; i < node->data.fn_decl.param_count; i++) {
+                expand_macros_in_node(checker, &node->data.fn_decl.params[i]);
+            }
+            expand_macros_in_node(checker, &node->data.fn_decl.body);
+            break;
+        case AST_STRUCT_DECL:
+            for (int i = 0; i < node->data.struct_decl.field_count; i++) {
+                expand_macros_in_node(checker, &node->data.struct_decl.fields[i]);
+            }
+            break;
+        default:
+            break;
     }
 }
 
@@ -4480,6 +4715,9 @@ int checker_check(TypeChecker *checker, ASTNode *ast) {
     
     // 模块系统：建立模块导出表（在检查之前）
     build_module_exports(checker, ast);
+    
+    // 宏展开：在类型检查前展开所有宏调用
+    expand_macros_in_node(checker, (ASTNode **)&ast);
     
     // 第二遍：检查所有声明（包括函数体、结构体、变量等）
     // 此时所有函数都已被注册，函数体中的函数调用可以正确解析

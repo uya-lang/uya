@@ -46,6 +46,7 @@ typedef enum {
     AST_UNION_DECL,     // 联合体声明（union Name { variant1: T1, variant2: T2 }）
     AST_METHOD_BLOCK,   // 方法块（StructName { fn method(...) { ... } ... }）
     AST_FN_DECL,        // 函数声明
+    AST_MACRO_DECL,     // 宏声明（mc ID(param_list) return_tag { statements }）
     AST_VAR_DECL,       // 变量声明（const/var）
     AST_DESTRUCTURE_DECL, // 解构声明（const (x, y) = expr）
     AST_USE_STMT,         // use 语句（use path; 或 use path.item; 或 use path as alias;）
@@ -68,6 +69,7 @@ typedef enum {
     AST_BINARY_EXPR,    // 二元表达式
     AST_UNARY_EXPR,     // 一元表达式
     AST_CALL_EXPR,      // 函数调用
+    AST_MACRO_CALL,     // 宏调用（与函数调用语法一致，但需要在编译时展开）
     AST_MEMBER_ACCESS,  // 字段访问（obj.field）
     AST_ARRAY_ACCESS,   // 数组访问（arr[index]）
     AST_SLICE_EXPR,     // 切片表达式（base[start:len]，结果类型 &[T] 或 &[T: N]）
@@ -91,6 +93,10 @@ typedef enum {
     AST_CATCH_EXPR,     // expr catch [|err|] { stmts }（错误捕获）
     AST_ERROR_VALUE,    // error.Name（错误值，用于 return error.X）
     AST_MATCH_EXPR,     // match expr { pat => expr, ... else => expr }
+    AST_MC_EVAL,        // @mc_eval(expr) - 宏内求值表达式
+    AST_MC_CODE,        // @mc_code(expr) - 宏内生成代码
+    AST_MC_AST,         // @mc_ast(expr) - 宏内获取 AST
+    AST_MC_ERROR,       // @mc_error(msg) - 宏内报错
     
     // 类型节点
     AST_TYPE_NAMED,     // 命名类型（i32, bool, void, 或 struct Name）
@@ -104,6 +110,14 @@ typedef enum {
 
 struct ASTNode;  /* 前向声明 */
 struct ASTStringInterpSegment;  /* 前向声明，用于字符串插值段 */
+
+// 类型参数结构（用于泛型）
+// 例如：<T: Ord + Clone> 中的 T 是一个类型参数，Ord 和 Clone 是约束
+typedef struct TypeParam {
+    const char *name;              // 类型参数名称（如 "T"）
+    const char **constraints;      // 约束接口名称数组（如 ["Ord", "Clone"]，从 Arena 分配）
+    int constraint_count;          // 约束数量
+} TypeParam;
 
 // 基础 AST 节点结构
 // 使用 union 存储不同类型节点的数据，使用 Arena 分配器管理内存
@@ -137,6 +151,8 @@ struct ASTNode {
         // 接口声明（interface I { fn method(self: *Self,...) Ret; ... }）
         struct {
             const char *name;              // 接口名称（字符串存储在 Arena 中）
+            TypeParam *type_params;        // 类型参数数组（泛型参数，如 <T>，从 Arena 分配）
+            int type_param_count;          // 类型参数数量
             struct ASTNode **method_sigs;   // 方法签名数组（AST_FN_DECL 节点，body 为 NULL）
             int method_sig_count;          // 方法签名数量
             int is_export;                 // 1 表示 export interface，0 表示私有
@@ -145,6 +161,8 @@ struct ASTNode {
         // 结构体声明
         struct {
             const char *name;         // 结构体名称（字符串存储在 Arena 中）
+            TypeParam *type_params;    // 类型参数数组（泛型参数，如 <T: Default>，从 Arena 分配）
+            int type_param_count;      // 类型参数数量
             const char **interface_names; // 实现的接口名称数组（可为 NULL，从 Arena 分配）
             int interface_count;      // 实现的接口数量
             struct ASTNode **fields;         // 字段数组（字段是 AST_VAR_DECL 节点）
@@ -176,6 +194,8 @@ struct ASTNode {
         // 函数声明
         struct {
             const char *name;         // 函数名称
+            TypeParam *type_params;    // 类型参数数组（泛型参数，如 <T: Ord>，从 Arena 分配）
+            int type_param_count;      // 类型参数数量
             struct ASTNode **params;         // 参数数组（参数是 AST_VAR_DECL 节点）
             int param_count;          // 参数数量
             struct ASTNode *return_type;     // 返回类型（类型节点）
@@ -183,6 +203,16 @@ struct ASTNode {
             int is_varargs;           // 是否为可变参数函数（1 表示是，0 表示否）
             int is_export;            // 1 表示 export fn，0 表示私有
         } fn_decl;
+        
+        // 宏声明（mc ID(param_list) return_tag { statements }）
+        struct {
+            const char *name;         // 宏名称
+            struct ASTNode **params;  // 参数数组（参数是 AST_VAR_DECL 节点，type 字段存储参数类型标识符）
+            int param_count;          // 参数数量
+            const char *return_tag;   // 返回标签（"expr", "stmt", "struct", "type"）
+            struct ASTNode *body;     // 宏体（AST_BLOCK 节点）
+            int is_export;            // 1 表示 export mc，0 表示私有
+        } macro_decl;
         
         // 变量声明（用于变量声明、函数参数、结构体字段）
         struct {
@@ -209,6 +239,20 @@ struct ASTNode {
             const char *item_name;      // 可选：导入的特定项名称（如 use std.io.read_file 中的 "read_file"，为 NULL 表示导入整个模块）
             const char *alias;          // 可选：别名（如 use std.io as io 中的 "io"，为 NULL 表示无别名）
         } use_stmt;
+        
+        // 宏内建函数（@mc_eval, @mc_code, @mc_ast, @mc_error）
+        struct {
+            struct ASTNode *operand;    // 操作数表达式
+        } mc_eval;
+        struct {
+            struct ASTNode *operand;    // 操作数表达式
+        } mc_code;
+        struct {
+            struct ASTNode *operand;    // 操作数表达式
+        } mc_ast;
+        struct {
+            struct ASTNode *operand;    // 错误消息表达式（字符串）
+        } mc_error;
         
         // 二元表达式
         struct {
@@ -246,7 +290,16 @@ struct ASTNode {
             struct ASTNode **args;           // 参数表达式数组
             int arg_count;            // 参数数量
             int has_ellipsis_forward;  // 1 表示末尾为 ... 转发可变参数
+            struct ASTNode **type_args;      // 类型参数数组（泛型函数调用，如 max<i32>，从 Arena 分配）
+            int type_arg_count;       // 类型参数数量
         } call_expr;
+        
+        // 宏调用（与函数调用语法一致，但需要在编译时展开）
+        struct {
+            struct ASTNode *callee;          // 被调用的宏（标识符节点）
+            struct ASTNode **args;           // 参数表达式数组（参数类型取决于宏定义）
+            int arg_count;                   // 参数数量
+        } macro_call;
         
         // 字段访问（obj.field）
         struct {
@@ -407,9 +460,11 @@ struct ASTNode {
             int stmt_count;           // 语句数量
         } block;
         
-        // 类型节点（命名类型：i32, bool, void, struct Name）
+        // 类型节点（命名类型：i32, bool, void, struct Name, 或泛型类型 Vec<i32>）
         struct {
             const char *name;         // 类型名称（"i32", "bool", "void", 或结构体名称）
+            struct ASTNode **type_args; // 类型参数数组（泛型类型参数，如 Vec<i32> 中的 [i32]，从 Arena 分配）
+            int type_arg_count;        // 类型参数数量（0 表示非泛型类型）
         } type_named;
         
         // 指针类型节点（&T 或 *T）

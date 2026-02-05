@@ -47,10 +47,20 @@ ASTNode *parser_parse_function(Parser *parser);
 // 返回：AST_FN_DECL 节点（body 为 NULL），失败返回 NULL
 ASTNode *parser_parse_extern_function(Parser *parser);
 
+// 解析宏声明
+// 参数：parser - Parser 指针
+// 返回：AST_MACRO_DECL 节点，失败返回 NULL
+ASTNode *parser_parse_macro(Parser *parser);
+
 // 解析结构体声明
 // 参数：parser - Parser 指针
 // 返回：AST_STRUCT_DECL 节点，失败返回 NULL
 ASTNode *parser_parse_struct(Parser *parser);
+
+// 解析宏声明
+// 参数：parser - Parser 指针
+// 返回：AST_MACRO_DECL 节点，失败返回 NULL
+ASTNode *parser_parse_macro(Parser *parser);
 
 // 解析枚举声明
 // 参数：parser - Parser 指针

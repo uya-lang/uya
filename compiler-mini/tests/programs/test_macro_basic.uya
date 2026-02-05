@@ -1,0 +1,12 @@
+// 基本宏定义测试
+// 测试宏定义的语法解析（仅测试语法，不测试展开）
+
+mc simple_macro() expr {
+    const x: i32 = 42;
+    return x;
+}
+
+fn main() i32 {
+    return 0;
+}
+

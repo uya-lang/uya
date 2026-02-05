@@ -77,6 +77,14 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.fn_decl.body = NULL;
             node->data.fn_decl.is_varargs = 0;
             break;
+        case AST_MACRO_DECL:
+            node->data.macro_decl.name = NULL;
+            node->data.macro_decl.params = NULL;
+            node->data.macro_decl.param_count = 0;
+            node->data.macro_decl.return_tag = NULL;
+            node->data.macro_decl.body = NULL;
+            node->data.macro_decl.is_export = 0;
+            break;
         case AST_VAR_DECL:
             node->data.var_decl.name = NULL;
             node->data.var_decl.type = NULL;
@@ -121,11 +129,28 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.match_expr.arms = NULL;
             node->data.match_expr.arm_count = 0;
             break;
+        case AST_MC_EVAL:
+            node->data.mc_eval.operand = NULL;
+            break;
+        case AST_MC_CODE:
+            node->data.mc_code.operand = NULL;
+            break;
+        case AST_MC_AST:
+            node->data.mc_ast.operand = NULL;
+            break;
+        case AST_MC_ERROR:
+            node->data.mc_error.operand = NULL;
+            break;
         case AST_CALL_EXPR:
             node->data.call_expr.callee = NULL;
             node->data.call_expr.args = NULL;
             node->data.call_expr.arg_count = 0;
             node->data.call_expr.has_ellipsis_forward = 0;
+            break;
+        case AST_MACRO_CALL:
+            node->data.macro_call.callee = NULL;
+            node->data.macro_call.args = NULL;
+            node->data.macro_call.arg_count = 0;
             break;
         case AST_PARAMS:
             /* 无额外数据 */

@@ -288,9 +288,8 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
         ASTNode *decl = decls[i];
         if (!decl) continue;
         // 跳过 use 语句（模块导入，不包含字符串常量）
-        if (decl->type == AST_USE_STMT) {
-            continue;
-        }
+        if (decl->type == AST_USE_STMT) continue;
+        if (decl->type == AST_MACRO_DECL) continue;  /* 宏不生成代码，编译时已展开 */
         collect_string_constants_from_decl(codegen, decl);
     }
     
@@ -347,7 +346,7 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     
     // 第六步 a：收集所有使用的切片类型（含结构体字段中的 &[T]）
     for (int i = 0; i < decl_count; i++) {
-        if (decls[i] && decls[i]->type != AST_USE_STMT) {
+        if (decls[i] && decls[i]->type != AST_USE_STMT && decls[i]->type != AST_MACRO_DECL) {
             collect_slice_types_from_node(codegen, decls[i]);
         }
     }
@@ -363,7 +362,7 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) continue;
-        if (decl->type == AST_USE_STMT) continue;
+        if (decl->type == AST_USE_STMT || decl->type == AST_MACRO_DECL) continue;
         if (decl->type == AST_UNION_DECL) {
             gen_union_definition(codegen, decl);
             fputs("\n", codegen->output);
@@ -373,7 +372,7 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) continue;
-        if (decl->type == AST_USE_STMT) continue;
+        if (decl->type == AST_USE_STMT || decl->type == AST_MACRO_DECL) continue;
         if (decl->type == AST_STRUCT_DECL) {
             gen_struct_definition(codegen, decl);
             fputs("\n", codegen->output);
@@ -384,7 +383,7 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) continue;
-        if (decl->type == AST_USE_STMT) continue;
+        if (decl->type == AST_USE_STMT || decl->type == AST_MACRO_DECL) continue;
         if (decl->type == AST_FN_DECL) {
             gen_function_prototype(codegen, decl);
         } else if (decl->type == AST_METHOD_BLOCK) {
@@ -427,7 +426,7 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) continue;
-        if (decl->type == AST_USE_STMT) continue;
+        if (decl->type == AST_USE_STMT || decl->type == AST_MACRO_DECL) continue;
         
         // 顶层测试语句
         if (decl->type == AST_TEST_STMT) {
@@ -463,9 +462,8 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
         if (!decl) continue;
         
         // 跳过 use 语句（模块导入，不需要生成代码）
-        if (decl->type == AST_USE_STMT) {
-            continue;
-        }
+        if (decl->type == AST_USE_STMT) continue;
+        if (decl->type == AST_MACRO_DECL) continue;  /* 宏不生成代码，编译时已展开 */
         
         switch (decl->type) {
             case AST_UNION_DECL: {

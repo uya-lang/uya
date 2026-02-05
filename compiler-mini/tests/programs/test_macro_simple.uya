@@ -1,0 +1,10 @@
+// 测试基本宏：0 参数、expr 返回、@mc_code(@mc_ast( 42 ))
+mc const_42() expr {
+    @mc_code(@mc_ast(42));
+}
+
+fn main() i32 {
+    const x: i32 = const_42();
+    if x != 42 { return 1; }
+    return 0;
+}

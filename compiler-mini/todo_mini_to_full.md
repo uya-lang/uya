@@ -29,6 +29,7 @@
 | 15 | 泛型（Generics） | [ ] |
 | 16 | 异步编程（Async） | [ ] |
 | 17 | test 关键字（测试单元） | [x]（C 实现与 uya-src 已同步） |
+| 18 | **宏系统（Macro）** | [ ] 部分实现 |
 
 ---
 
@@ -465,6 +466,29 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 - [examples/example_149.txt](../examples/example_149.txt) - 泛型约束说明（Ord、Clone、Default）
 
 **实现优先级**：低（建议在原子类型、内存安全证明等核心特性实现后再考虑）
+
+---
+
+## 18. 宏系统（Macro，规范 uya.md §25）
+
+**语法规范**：`mc ID(param_list) return_tag { statements }`，规范 [uya.md](../uya.md) §25。
+
+**已实现（C 实现）**：
+- [x] **Lexer**：`mc` 关键字，`@mc_eval`、`@mc_code`、`@mc_ast`、`@mc_error`、`@mc_get_env` 为合法 @ 内置
+- [x] **AST**：`AST_MACRO_DECL`、`AST_MC_EVAL`、`AST_MC_CODE`、`AST_MC_AST`、`AST_MC_ERROR`
+- [x] **Parser**：解析 `mc name(params) return_tag { body }`，解析 `@mc_*` 调用
+- [x] **Checker**：宏展开（0 参数、`expr` 返回、`@mc_code(@mc_ast(expr))`）
+- [x] **Codegen**：跳过 `AST_MACRO_DECL`
+- [x] **测试**：`test_macro_simple.uya` 通过 `--c99`
+
+**待实现**：
+- [ ] 带参数宏（参数绑定与 AST 替换）
+- [ ] `@mc_eval`、`@mc_error`、`@mc_get_env` 语义
+- [ ] `stmt`、`struct`、`type` 返回标签
+- [ ] 语法糖（最后一条语句自动包装为 `@mc_code(@mc_ast(...))`）
+- [ ] uya-src 同步
+
+**涉及**：Lexer、AST、Parser、Checker、Codegen。
 
 ---
 
