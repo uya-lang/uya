@@ -93,6 +93,7 @@ gcc --std=c99 -o program program.c tests/bridge.c
 ## 文档
 
 - [语言规范](spec/UYA_MINI_SPEC.md) - Uya Mini 完整语言规范
+- [内置函数参考](docs/builtin_functions.md) - 所有内置函数详细使用文档
 - [v0.1.0 版本说明](../RELEASE_v0.1.0.md) - 自举达成与发布说明
 - [开发规则](.cursorrules) - 开发规则和规范
 
