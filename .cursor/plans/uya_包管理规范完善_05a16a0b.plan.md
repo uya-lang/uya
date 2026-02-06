@@ -189,15 +189,15 @@ target = "x86_64-unknown-linux-gnu"  # 目标平台（可选）
 - 格式：TOML，包含完整依赖树和每个包的 commit hash
 - 示例：
   ```toml
-        [[dependencies]]
-        name = "http"
-        git = "https://github.com/user/http.git"
-        commit = "abc123def456..."
-        
-        [[dependencies.http.dependencies]]
-        name = "utils"
-        git = "https://github.com/user/utils.git"
-        commit = "789ghi012jkl..."
+          [[dependencies]]
+          name = "http"
+          git = "https://github.com/user/http.git"
+          commit = "abc123def456..."
+          
+          [[dependencies.http.dependencies]]
+          name = "utils"
+          git = "https://github.com/user/utils.git"
+          commit = "789ghi012jkl..."
   ```
 
 
@@ -290,4 +290,3 @@ project_root/
 
 1. **阶段 1（规范文档）**：完成所有规范文档编写
 2. **阶段 2（基础支持）**：实现 `uya.toml` 解析和本地路径依赖
-3. **阶段 3（完整实现）**：实现包管理器工具和 Git 依赖支持

@@ -485,7 +485,7 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [x] `test_generic_interface_impl.uya` - 结构体实现泛型接口（`struct Foo : Interface<T>`）
 
 **已知限制**：
-- 嵌套泛型（如 `Box<Pair<i32, i32>>`）：`>>` 解析已修复（C 版和 uya-src），但代码生成顺序问题待解决
+- 嵌套泛型（如 `Box<Pair<i32, i32>>`）：已完全支持（`>>` 解析和代码生成顺序都已修复）
 - 泛型接口方法的支持不完善
 - 类型推断目前仅支持直接类型参数（如 `a: T`），不支持复杂类型中的类型参数（如 `a: &T`）
 - 结构体需要显式实现接口才能满足约束，基本类型隐式满足内置约束

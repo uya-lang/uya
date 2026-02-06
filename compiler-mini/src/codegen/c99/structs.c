@@ -504,55 +504,79 @@ int has_unresolved_mono_type_args(ASTNode *generic_decl, ASTNode **type_args, in
     return 0;
 }
 
+// 辅助函数：将类型参数追加到后缀字符串中（递归处理嵌套泛型）
+static int append_type_arg_suffix(C99CodeGenerator *codegen, ASTNode *type_arg, char *suffix, int suffix_len, int max_len) {
+    if (!type_arg || suffix_len >= max_len - 1) return suffix_len;
+    
+    if (type_arg->type == AST_TYPE_NAMED && type_arg->data.type_named.name) {
+        const char *type_name = type_arg->data.type_named.name;
+        
+        // 在单态化上下文中替换类型参数（如 T → i32）
+        ASTNode *resolved_type = NULL;
+        if (codegen->current_type_params && codegen->current_type_param_count > 0) {
+            for (int j = 0; j < codegen->current_type_param_count && j < codegen->current_type_arg_count; j++) {
+                if (codegen->current_type_params[j].name &&
+                    strcmp(codegen->current_type_params[j].name, type_name) == 0) {
+                    if (codegen->current_type_args && codegen->current_type_args[j]) {
+                        resolved_type = codegen->current_type_args[j];
+                        if (resolved_type->type == AST_TYPE_NAMED && resolved_type->data.type_named.name) {
+                            type_name = resolved_type->data.type_named.name;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        
+        // 添加基础类型名
+        while (*type_name && suffix_len < max_len - 1) {
+            suffix[suffix_len++] = *type_name++;
+        }
+        
+        // 检查是否有嵌套类型参数（如 Pair<i32, i32>）
+        ASTNode *actual_type = resolved_type ? resolved_type : type_arg;
+        if (actual_type->type == AST_TYPE_NAMED && 
+            actual_type->data.type_named.type_arg_count > 0 &&
+            actual_type->data.type_named.type_args) {
+            // 递归处理嵌套类型参数
+            for (int k = 0; k < actual_type->data.type_named.type_arg_count; k++) {
+                if (suffix_len < max_len - 1) {
+                    suffix[suffix_len++] = '_';
+                }
+                suffix_len = append_type_arg_suffix(codegen, 
+                    actual_type->data.type_named.type_args[k], 
+                    suffix, suffix_len, max_len);
+            }
+        }
+    } else if (type_arg->type == AST_TYPE_POINTER) {
+        const char *ptr_prefix = "ptr_";
+        while (*ptr_prefix && suffix_len < max_len - 1) {
+            suffix[suffix_len++] = *ptr_prefix++;
+        }
+        ASTNode *pointed = type_arg->data.type_pointer.pointed_type;
+        suffix_len = append_type_arg_suffix(codegen, pointed, suffix, suffix_len, max_len);
+    }
+    
+    return suffix_len;
+}
+
 // 获取单态化结构体名称
 // 例如：Pair<i32, i64> -> Pair_i32_i64
+// 嵌套泛型：Box<Pair<i32, i32>> -> Box_Pair_i32_i32
 const char *get_mono_struct_name(C99CodeGenerator *codegen, const char *generic_name, ASTNode **type_args, int type_arg_count) {
     if (!codegen || !generic_name || !type_args || type_arg_count <= 0) {
         return generic_name;
     }
     
     // 构建后缀
-    char suffix[256] = "";
+    char suffix[512] = "";
     int suffix_len = 0;
     
     for (int i = 0; i < type_arg_count; i++) {
-        if (i > 0 && suffix_len < 255) {
+        if (i > 0 && suffix_len < 511) {
             suffix[suffix_len++] = '_';
         }
-        
-        ASTNode *type_arg = type_args[i];
-        if (type_arg && type_arg->type == AST_TYPE_NAMED && type_arg->data.type_named.name) {
-            const char *type_name = type_arg->data.type_named.name;
-            // 在单态化上下文中替换类型参数（如 T → i32）
-            if (codegen->current_type_params && codegen->current_type_param_count > 0) {
-                for (int j = 0; j < codegen->current_type_param_count && j < codegen->current_type_arg_count; j++) {
-                    if (codegen->current_type_params[j].name &&
-                        strcmp(codegen->current_type_params[j].name, type_name) == 0) {
-                        if (codegen->current_type_args && codegen->current_type_args[j] &&
-                            codegen->current_type_args[j]->type == AST_TYPE_NAMED &&
-                            codegen->current_type_args[j]->data.type_named.name) {
-                            type_name = codegen->current_type_args[j]->data.type_named.name;
-                        }
-                        break;
-                    }
-                }
-            }
-            while (*type_name && suffix_len < 255) {
-                suffix[suffix_len++] = *type_name++;
-            }
-        } else if (type_arg && type_arg->type == AST_TYPE_POINTER) {
-            const char *ptr_prefix = "ptr_";
-            while (*ptr_prefix && suffix_len < 255) {
-                suffix[suffix_len++] = *ptr_prefix++;
-            }
-            ASTNode *pointed = type_arg->data.type_pointer.pointed_type;
-            if (pointed && pointed->type == AST_TYPE_NAMED && pointed->data.type_named.name) {
-                const char *type_name = pointed->data.type_named.name;
-                while (*type_name && suffix_len < 255) {
-                    suffix[suffix_len++] = *type_name++;
-                }
-            }
-        }
+        suffix_len = append_type_arg_suffix(codegen, type_args[i], suffix, suffix_len, 512);
     }
     suffix[suffix_len] = '\0';
     
@@ -592,6 +616,66 @@ static const char *c99_mono_struct_type_to_c(C99CodeGenerator *codegen, ASTNode 
     return c99_type_to_c(codegen, type_node);
 }
 
+// 辅助函数：在程序 AST 中查找结构体声明
+static ASTNode *find_struct_decl_in_program(C99CodeGenerator *codegen, const char *struct_name) {
+    if (!codegen->program_node || codegen->program_node->type != AST_PROGRAM) {
+        return NULL;
+    }
+    ASTNode **decls = codegen->program_node->data.program.decls;
+    int decl_count = codegen->program_node->data.program.decl_count;
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (decl && decl->type == AST_STRUCT_DECL && decl->data.struct_decl.name &&
+            strcmp(decl->data.struct_decl.name, struct_name) == 0) {
+            return decl;
+        }
+    }
+    return NULL;
+}
+
+// 辅助函数：先生成嵌套泛型依赖的结构体（递归处理）
+static void ensure_nested_generic_struct_defined(C99CodeGenerator *codegen, ASTNode *type_node) {
+    if (!type_node || type_node->type != AST_TYPE_NAMED) return;
+    
+    const char *type_name = type_node->data.type_named.name;
+    if (!type_name) return;
+    
+    // 检查是否是类型参数（如 T），如果是，替换为实际类型
+    ASTNode *resolved_type = type_node;
+    if (codegen->current_type_params && codegen->current_type_param_count > 0) {
+        for (int i = 0; i < codegen->current_type_param_count && i < codegen->current_type_arg_count; i++) {
+            if (codegen->current_type_params[i].name &&
+                strcmp(codegen->current_type_params[i].name, type_name) == 0) {
+                if (codegen->current_type_args && codegen->current_type_args[i]) {
+                    resolved_type = codegen->current_type_args[i];
+                    type_name = resolved_type->data.type_named.name;
+                }
+                break;
+            }
+        }
+    }
+    
+    // 如果这个类型有类型参数（是泛型实例化），需要先生成它
+    if (resolved_type->type == AST_TYPE_NAMED &&
+        resolved_type->data.type_named.type_arg_count > 0 &&
+        resolved_type->data.type_named.type_args) {
+        // 递归处理嵌套的类型参数
+        for (int i = 0; i < resolved_type->data.type_named.type_arg_count; i++) {
+            ensure_nested_generic_struct_defined(codegen, resolved_type->data.type_named.type_args[i]);
+        }
+        
+        // 找到泛型结构体的声明
+        ASTNode *nested_struct_decl = find_struct_decl_in_program(codegen, resolved_type->data.type_named.name);
+        if (nested_struct_decl && is_generic_struct_c99(nested_struct_decl)) {
+            // 递归生成嵌套的泛型结构体
+            gen_mono_struct_definition(codegen, nested_struct_decl,
+                resolved_type->data.type_named.type_args,
+                resolved_type->data.type_named.type_arg_count);
+            fputs("\n", codegen->output);
+        }
+    }
+}
+
 // 生成单态化结构体定义
 int gen_mono_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl, ASTNode **type_args, int type_arg_count) {
     if (!struct_decl || struct_decl->type != AST_STRUCT_DECL || !type_args) {
@@ -617,6 +701,25 @@ int gen_mono_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl, 
     codegen->current_type_args = type_args;
     codegen->current_type_arg_count = type_arg_count;
     
+    // 先生成依赖的嵌套泛型结构体
+    int field_count = struct_decl->data.struct_decl.field_count;
+    ASTNode **fields = struct_decl->data.struct_decl.fields;
+    for (int i = 0; i < field_count; i++) {
+        ASTNode *field = fields[i];
+        if (field && field->type == AST_VAR_DECL && field->data.var_decl.type) {
+            ensure_nested_generic_struct_defined(codegen, field->data.var_decl.type);
+        }
+    }
+    
+    // 再次检查是否已定义（可能在处理依赖时被定义）
+    if (is_struct_defined(codegen, mono_name)) {
+        codegen->current_type_params = saved_type_params;
+        codegen->current_type_param_count = saved_type_param_count;
+        codegen->current_type_args = saved_type_args;
+        codegen->current_type_arg_count = saved_type_arg_count;
+        return 0;
+    }
+    
     // 添加结构体定义标记
     add_struct_definition(codegen, mono_name);
     
@@ -624,10 +727,7 @@ int gen_mono_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl, 
     c99_emit(codegen, "struct %s {\n", mono_name);
     codegen->indent_level++;
     
-    // 生成字段
-    int field_count = struct_decl->data.struct_decl.field_count;
-    ASTNode **fields = struct_decl->data.struct_decl.fields;
-    
+    // 生成字段（field_count 和 fields 已在前面定义）
     if (field_count == 0) {
         c99_emit(codegen, "char _empty;\n");
     } else {
