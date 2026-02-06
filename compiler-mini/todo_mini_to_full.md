@@ -972,19 +972,298 @@ std/
 
 **详细设计内容**（包括系统调用层、跨平台方案、条件编译、核心库实现、--outlibc 功能等）请参见：[`docs/std_c_design.md`](./docs/std_c_design.md)
 
-### 19.1 标准库实现清单
+### 19.1 v0.3.0 实施计划（标准库基础设施）
 
-- [ ] `std.io` - 同步 I/O 抽象层（Writer/Reader 接口）
-- [ ] `std.c.syscall` - 系统调用封装（`@syscall` 内置函数）
-- [ ] `std.c.string` - 字符串和内存操作（纯 Uya）
-- [ ] `std.c.stdio` - 标准 I/O（基于 syscall）
-- [ ] `std.c.stdlib` - 内存分配、进程控制
-- [ ] `std.c.math` - 数学函数（纯 Uya）
-- [ ] `std.fmt` - 格式化库（纯 Uya）
-- [ ] `std.bare_metal` - 裸机平台支持
-- [ ] `std.builtin` - 编译器内置运行时
-- [ ] `std.target` - 条件编译宏系统
-- [ ] `std.async.*` - 异步标准库（Task/Waker/AsyncIO/EventLoop/Channel/Scheduler）
+**目标时间**：2026 Q1（约 5-7 周）
+
+**核心目标**：
+1. ✅ 实现 `@syscall` 内置函数（Linux 系统调用）
+2. ✅ 实现 `std.c` 核心模块（零外部依赖）
+3. ✅ 编译器自身使用 `-nostdlib` 构建成功
+4. ✅ 生成 `--outlibc` 独立 C 库
+
+---
+
+#### Sprint 1: @syscall 内置函数（1-2 周）⭐⭐⭐⭐⭐
+
+**设计**：
+- 语法：`@syscall(nr, arg1, arg2, ..., arg6)` → 返回 `!i64`
+- 参数：syscall_number（整数常量），最多 6 个参数
+- 错误：负数返回值自动转换为错误（如 -EBADF → error.BadFileDescriptor）
+
+**任务清单**：
+- [ ] **设计文档**：完善 `docs/std_c_design.md` §2（@syscall 规范）
+- [ ] **Lexer**：识别 `@syscall` 关键字（添加到 `is_builtin_function`）
+- [ ] **AST**：新增 `AST_SYSCALL` 节点
+  - 字段：`syscall_number`（编译期常量表达式）
+  - 字段：`args[]`（最多 6 个参数）
+- [ ] **Parser**：解析 `@syscall(nr, ...args)` 调用
+  - 验证参数个数（1-7 个，第一个为 syscall_number）
+- [ ] **Checker**：类型检查与语义验证
+  - syscall_number 必须为整数常量
+  - 所有参数类型必须可转换为 i64
+  - 返回类型：`!i64`
+- [ ] **Codegen**：生成内联汇编（x86-64 Linux）
+  - 实现 `uya_syscall0` - `uya_syscall6` 辅助函数
+  - 使用寄存器约定：rax=nr, rdi/rsi/rdx/r10/r8/r9=args
+  - 保留 rcx/r11（syscall 会破坏）
+- [ ] **测试用例**：
+  - `test_syscall_write.uya`（SYS_write=1，写标准输出）
+  - `test_syscall_exit.uya`（SYS_exit=60，程序退出）
+  - `test_syscall_read.uya`（SYS_read=0，读标准输入）
+  - `test_syscall_error.uya`（错误处理，如 EBADF）
+  - `error_syscall_not_const.uya`（syscall_number 非常量，预期失败）
+- [ ] **uya-src 同步**
+
+**参考**：
+- Linux 系统调用表：`/usr/include/asm/unistd_64.h`
+- 系统调用约定：`man 2 syscall`
+
+**Codegen 示例**：
+```c
+// @syscall(1, 1, buf, len) -> SYS_write(1, buf, len)
+static inline long uya_syscall3(long nr, long a1, long a2, long a3) {
+    register long rax __asm__("rax") = nr;
+    register long rdi __asm__("rdi") = a1;
+    register long rsi __asm__("rsi") = a2;
+    register long rdx __asm__("rdx") = a3;
+    __asm__ volatile("syscall" 
+        : "=r"(rax) 
+        : "r"(rdi), "r"(rsi), "r"(rdx)
+        : "rcx", "r11", "memory");
+    return rax;
+}
+```
+
+---
+
+#### Sprint 2: std.c.syscall 模块（1 周）⭐⭐⭐⭐⭐
+
+**任务清单**：
+- [ ] **创建目录结构**：`std/c/syscall.uya`
+- [ ] **系统调用号常量**：定义 Linux 系统调用号
+  ```uya
+  // std/c/syscall.uya
+  export const SYS_read: i64 = 0;
+  export const SYS_write: i64 = 1;
+  export const SYS_open: i64 = 2;
+  export const SYS_close: i64 = 3;
+  export const SYS_exit: i64 = 60;
+  // ... 其他常用系统调用
+  ```
+- [ ] **错误码常量**：定义 errno 常量
+  ```uya
+  export const EBADF: i64 = 9;   // Bad file descriptor
+  export const EINVAL: i64 = 22; // Invalid argument
+  // ...
+  ```
+- [ ] **封装函数**：实现系统调用封装
+  ```uya
+  export fn sys_write(fd: i32, buf: &byte, count: usize) !i64 {
+      const result = @syscall(SYS_write, fd, buf, count);
+      return result;  // 返回 !i64，负数自动转为错误
+  }
+  
+  export fn sys_read(fd: i32, buf: &byte, count: usize) !i64 {
+      return @syscall(SYS_read, fd, buf, count);
+  }
+  
+  export fn sys_exit(status: i32) void {
+      @syscall(SYS_exit, status);
+      // noreturn（编译器需特殊处理）
+  }
+  
+  export fn sys_open(path: &byte, flags: i32, mode: i32) !i32 {
+      const result = @syscall(SYS_open, path, flags, mode);
+      return result as! i32;  // fd 为 i32
+  }
+  
+  export fn sys_close(fd: i32) !void {
+      const result = @syscall(SYS_close, fd);
+      if result < 0 { return error.CloseError; }
+      return;
+  }
+  ```
+- [ ] **测试用例**：
+  - `test_std_syscall_write.uya`
+  - `test_std_syscall_read.uya`
+  - `test_std_syscall_file.uya`（open/close/read/write）
+  - `test_std_syscall_error.uya`（错误处理）
+- [ ] **文档**：`std/c/README.md`（syscall 模块使用说明）
+
+---
+
+#### Sprint 3: std.c.string + std.c.stdio（1-2 周）⭐⭐⭐⭐
+
+**任务清单 - std.c.string**：
+- [ ] **创建文件**：`std/c/string.uya`
+- [ ] **核心函数**（纯 Uya 实现）：
+  ```uya
+  export fn memcpy(dest: &void, src: &void, n: usize) &void {
+      var d = dest as &byte;
+      var s = src as &byte;
+      var i: usize = 0;
+      while i < n {
+          d[i] = s[i];
+          i = i + 1;
+      }
+      return dest;
+  }
+  
+  export fn memset(s: &void, c: i32, n: usize) &void {
+      var p = s as &byte;
+      const ch = c as u8;
+      var i: usize = 0;
+      while i < n {
+          p[i] = ch;
+          i = i + 1;
+      }
+      return s;
+  }
+  
+  export fn strlen(s: &byte) usize {
+      var len: usize = 0;
+      while s[len] != 0 {
+          len = len + 1;
+      }
+      return len;
+  }
+  
+  export fn strcmp(s1: &byte, s2: &byte) i32 {
+      var i: usize = 0;
+      while s1[i] != 0 && s2[i] != 0 {
+          if s1[i] != s2[i] {
+              return s1[i] as i32 - s2[i] as i32;
+          }
+          i = i + 1;
+      }
+      return s1[i] as i32 - s2[i] as i32;
+  }
+  
+  export fn strcpy(dest: &byte, src: &byte) &byte {
+      var i: usize = 0;
+      while src[i] != 0 {
+          dest[i] = src[i];
+          i = i + 1;
+      }
+      dest[i] = 0;  // null terminator
+      return dest;
+  }
+  ```
+- [ ] **测试**：`test_std_string.uya`（所有函数单元测试）
+
+**任务清单 - std.c.stdio**：
+- [ ] **创建文件**：`std/c/stdio.uya`
+- [ ] **基础 I/O**（基于 syscall）：
+  ```uya
+  use c.syscall.{sys_write, sys_read, SYS_write, SYS_read};
+  use c.string.strlen;
+  
+  export fn putchar(c: i32) i32 {
+      const ch: u8 = c as u8;
+      const result = sys_write(1, &ch, 1) catch { return -1; };
+      return if result == 1 { c } else { -1 };
+  }
+  
+  export fn puts(s: &byte) i32 {
+      const len = strlen(s);
+      sys_write(1, s, len) catch { return -1; };
+      sys_write(1, "\n" as &byte, 1) catch { return -1; };
+      return 0;
+  }
+  
+  export fn getchar() i32 {
+      var ch: u8 = 0;
+      const result = sys_read(0, &ch, 1) catch { return -1; };
+      return if result == 1 { ch as i32 } else { -1 };
+  }
+  ```
+- [ ] **测试**：`test_std_stdio.uya`
+
+---
+
+#### Sprint 4: 编译器自举（1 周）⭐⭐⭐⭐
+
+**任务清单**：
+- [ ] **审计编译器代码**：查找所有 C 标准库调用
+  ```bash
+  grep -r "printf\|malloc\|free\|memcpy\|strlen" src/
+  ```
+- [ ] **替换 C 库调用**：
+  - `printf` → `std.c.stdio.puts` 或 `@println`
+  - `malloc/free` → `std.c.stdlib.malloc/free`（或暂时保留）
+  - `memcpy/memset` → `std.c.string.*`
+  - `strlen/strcmp` → `std.c.string.*`
+- [ ] **修改 Makefile**：
+  - 添加 `-nostdlib` 选项
+  - 链接 `std/c/*.uya` 模块
+- [ ] **测试构建**：
+  ```bash
+  make clean
+  make CFLAGS="-nostdlib" build
+  ./build/compiler-mini --version
+  ```
+- [ ] **验证零依赖**：
+  ```bash
+  ldd build/compiler-mini  # 应只显示 linux-vdso.so.1
+  ```
+- [ ] **uya-src 同步**：将 std.c 集成到自举编译器
+
+---
+
+#### Sprint 5: --outlibc 功能（1 周）⭐⭐⭐
+
+**任务清单**：
+- [ ] **编译器选项**：
+  - 新增 `--outlibc <path>` 命令行参数
+  - 解析参数，设置输出路径
+- [ ] **代码生成逻辑**：
+  - 收集所有 `std/c/*.uya` 模块
+  - 生成 `libuya.h`（头文件）：
+    - 零依赖类型定义（`typedef signed char int8_t;`）
+    - 所有导出函数声明
+  - 生成 `libuya.c`（实现文件）：
+    - `#include "libuya.h"`
+    - 所有模块的函数实现
+    - 按模块分段注释
+- [ ] **测试脚本**：
+  - `test_outlibc_basic.sh`（生成 libuya.c/h）
+  - `test_outlibc_compile.sh`（编译库）
+    ```bash
+    ./compiler-mini --outlibc /tmp/libuya std/c
+    gcc -c /tmp/libuya.c -o /tmp/libuya.o
+    ```
+  - `test_outlibc_usage.c`（C 项目使用示例）
+    ```c
+    #include "libuya.h"
+    int main() {
+        puts("Hello from libuya!");
+        return 0;
+    }
+    ```
+  - `test_outlibc_freestanding.sh`（freestanding 模式）
+    ```bash
+    gcc -nostdlib -ffreestanding test_usage.c libuya.c -lgcc -o test
+    ./test
+    ```
+
+---
+
+### 19.2 标准库模块清单（长期）
+
+以下为 v0.3.0 之后的标准库扩展计划：
+
+- [x] `std.c.syscall` - 系统调用封装（v0.3.0）
+- [x] `std.c.string` - 字符串和内存操作（v0.3.0）
+- [x] `std.c.stdio` - 标准 I/O（v0.3.0）
+- [ ] `std.c.stdlib` - 内存分配、进程控制（v0.3.x）
+- [ ] `std.c.math` - 数学函数（纯 Uya，v0.3.x）
+- [ ] `std.io` - 同步 I/O 抽象层（Writer/Reader 接口，v0.4.0）
+- [ ] `std.fmt` - 格式化库（纯 Uya，v0.4.0）
+- [ ] `std.bare_metal` - 裸机平台支持（v0.5.0）
+- [ ] `std.builtin` - 编译器内置运行时（v0.4.0）
+- [ ] `std.target` - 条件编译宏系统（v0.5.0）
+- [ ] `std.async.*` - 异步标准库（v0.4.0+）
 
 **详细实现方案**：
 - 同步部分：参见 [`docs/std_c_design.md`](./docs/std_c_design.md)
@@ -992,9 +1271,13 @@ std/
 
 ---
 
-## 20. @print/@println 内置函数
+## 20. @print/@println 内置函数（v0.3.0）
 
 **设计目标**：提供类型安全、易用的输出功能，支持字符串插值，在不同运行环境下自动适配。
+
+**目标时间**：Sprint 4（v0.3.0，1 周）
+
+---
 
 ### 20.1 语法定义
 
@@ -1003,50 +1286,317 @@ std/
 @println(expr)  // 打印表达式并换行
 ```
 
+**示例**：
+```uya
+@println("Hello, World!");           // 字符串
+@println(42);                        // i32
+@println(3.14);                      // f64
+@println(true);                      // bool
+@println("x=${x}, y=${y}");          // 字符串插值
+```
+
+---
+
 ### 20.2 支持的类型
 
-i32, i64, u32, u64, usize, f32, f64, bool, 字符串（&[i8], [i8: N], *byte）
+| 类型 | 格式说明符 | 示例 |
+|------|-----------|------|
+| i32 | `%d` | `@println(42)` → `"42\n"` |
+| i64 | `%lld` | `@println(42 as i64)` → `"42\n"` |
+| u32 | `%u` | `@println(42 as u32)` → `"42\n"` |
+| u64 | `%llu` | `@println(42 as u64)` → `"42\n"` |
+| usize | `%zu` | `@println(42 as usize)` → `"42\n"` |
+| f32 | `%f` | `@println(3.14 as f32)` → `"3.140000\n"` |
+| f64 | `%lf` | `@println(3.14)` → `"3.140000\n"` |
+| bool | `"true"`/`"false"` | `@println(true)` → `"true\n"` |
+| &[i8] | `%s` | `@println("hello")` → `"hello\n"` |
+| [i8: N] | `%s` | `@println(buf)` → `"...\n"` |
+| *byte | `%s` | `@println(ptr)` → `"...\n"` |
 
-### 20.3 实现方案
+---
 
-#### 编译器实现
+### 20.3 实施任务清单
 
-- [ ] **Lexer**：添加 print/println 到合法内置函数列表
-- [ ] **AST**：AST_PRINT 和 AST_PRINTLN 节点
-- [ ] **Parser**：解析 `@print(expr)` 和 `@println(expr)`
-- [ ] **Checker**：类型检查，验证参数可打印
-- [ ] **Codegen - Hosted 模式**：生成 printf 调用
-- [ ] **Codegen - Freestanding 模式**：生成 uya_putchar 调用链
+#### Sprint 4: @print/@println 实现（1 周）⭐⭐⭐⭐
 
-#### 字符串插值集成
+**阶段 1：编译器实现（3-4 天）**
 
-- [ ] **Hosted 模式**：`@println("x=${x}")` → `printf("x=%d\n", x)`
-- [ ] **Freestanding 模式**：逐段展开插值
+- [ ] **Lexer**：
+  - 识别 `@print` 和 `@println`（添加到 `is_builtin_function`）
+  - 添加到合法内置函数列表
 
-### 20.4 编译器选项
+- [ ] **AST**：
+  - 新增 `AST_PRINT` 节点
+  - 新增 `AST_PRINTLN` 节点
+  - 字段：`expr`（要打印的表达式）
 
-- [ ] `--hosted`（默认）：生成 printf
-- [ ] `--freestanding`：生成弱符号 uya_putchar
-- [ ] `--no-io`：禁用 @print/@println
+- [ ] **Parser**：
+  - 解析 `@print(expr)` 语法
+  - 解析 `@println(expr)` 语法
+  - 验证参数个数（恰好 1 个）
 
-### 20.5 测试用例
+- [ ] **Checker**：
+  - 类型检查：验证表达式类型可打印
+  - 支持的类型：i32/i64/u32/u64/usize/f32/f64/bool/字符串
+  - 不支持的类型报错（如结构体、数组）
 
-- [ ] `test_print_basic.uya` - 基础打印
-- [ ] `test_print_types.uya` - 各种类型
-- [ ] `test_print_interp.uya` - 字符串插值
-- [ ] `test_print_format.uya` - 格式说明符
-- [ ] `test_print_freestanding.uya` - 裸机测试
+- [ ] **Codegen - Hosted 模式**（默认）：
+  - 生成 `printf` 调用
+  - 根据表达式类型选择格式说明符：
+    ```c
+    // @println(42) → i32
+    printf("%d\n", 42);
+    
+    // @println(3.14) → f64
+    printf("%lf\n", 3.14);
+    
+    // @println("hello") → 字符串
+    printf("%s\n", "hello");
+    
+    // @println(true) → bool
+    printf("%s\n", true ? "true" : "false");
+    ```
 
-### 20.6 文档
+- [ ] **Codegen - Freestanding 模式**（`--freestanding`）：
+  - 生成 `std.c.stdio.putchar` 循环
+  - 对于字符串：逐字符调用 putchar
+  - 对于整数：转换为字符串再逐字符输出
+  - 对于浮点数：格式化为字符串再输出
+  - 示例：
+    ```c
+    // @println(42) → Freestanding
+    {
+        // 整数转字符串（手动实现）
+        char buf[32];
+        int len = uya_i32_to_str(42, buf);
+        for (int i = 0; i < len; i++) {
+            uya_putchar(buf[i]);
+        }
+        uya_putchar('\n');
+    }
+    ```
+
+- [ ] **编译器选项**：
+  - 实现 `--hosted`（默认，使用 printf）
+  - 实现 `--freestanding`（使用 std.c.stdio.putchar）
+  - 实现 `--no-io`（禁用 @print/@println，编译时报错）
+
+**阶段 2：字符串插值集成（1-2 天）**
+
+- [ ] **Hosted 模式集成**：
+  ```uya
+  // Uya 代码
+  @println("x=${x}, y=${y}")
+  
+  // 生成的 C 代码（Hosted）
+  printf("x=%d, y=%d\n", x, y);
+  ```
+
+- [ ] **Freestanding 模式集成**：
+  ```uya
+  // Uya 代码
+  @println("x=${x}, y=${y}")
+  
+  // 生成的 C 代码（Freestanding）
+  {
+      uya_puts("x=");         // std.c.stdio.puts
+      uya_print_i32(x);       // 整数转字符串
+      uya_puts(", y=");
+      uya_print_i32(y);
+      uya_putchar('\n');
+  }
+  ```
+
+**阶段 3：测试用例（2-3 天）**
+
+- [ ] **基础测试**：
+  - `test_print_basic.uya`（基本打印，不换行）
+  - `test_println_basic.uya`（基本打印，换行）
+
+- [ ] **类型测试**：
+  - `test_print_i32.uya`（i32 类型）
+  - `test_print_i64.uya`（i64 类型）
+  - `test_print_u32.uya`（u32 类型）
+  - `test_print_f32.uya`（f32 类型）
+  - `test_print_f64.uya`（f64 类型）
+  - `test_print_bool.uya`（bool 类型）
+  - `test_print_string.uya`（字符串类型）
+  - `test_print_types.uya`（所有类型综合）
+
+- [ ] **字符串插值测试**：
+  - `test_print_interp.uya`（字符串插值）
+  - `test_print_interp_multi.uya`（多个插值）
+  - `test_print_interp_format.uya`（带格式说明符）
+
+- [ ] **模式测试**：
+  - `test_print_hosted.uya`（Hosted 模式，使用 printf）
+  - `test_print_freestanding.uya`（Freestanding 模式，使用 putchar）
+
+- [ ] **错误测试**：
+  - `error_print_no_arg.uya`（无参数，预期失败）
+  - `error_print_multiple_args.uya`（多参数，预期失败）
+  - `error_print_unsupported_type.uya`（不支持的类型，预期失败）
+
+**阶段 4：文档与集成（1 天）**
 
 - [ ] **用户文档**：`docs/builtins/print.md`
-- [ ] **示例**：`examples/print/`
+  - 语法说明
+  - 类型支持表
+  - Hosted vs Freestanding 对比
+  - 使用示例
 
-**实现优先级**：高（与标准库配合，提供基础 I/O 能力）
+- [ ] **内置函数文档更新**：`docs/builtin_functions.md`
+  - 添加 @print/@println 详细说明
+  - 更新内置函数总览表
 
-**参考文档**：
-- [uya.md](../uya.md) §16 - 内置函数
-- [uya.md](../uya.md) §17 - 字符串插值
+- [ ] **示例代码**：`examples/print/`
+  - `hello.uya`（Hello World）
+  - `types.uya`（所有类型演示）
+  - `interp.uya`（字符串插值演示）
+
+- [ ] **uya-src 同步**：
+  - 同步所有编译器修改到 uya-src
+  - 测试 `--uya --c99` 模式
+
+---
+
+### 20.4 技术要点
+
+#### 1. 类型推断与格式选择
+
+```c
+// Checker 阶段：推断表达式类型
+Type *expr_type = checker_infer_type(checker, expr);
+
+// Codegen 阶段：根据类型选择格式
+const char *fmt = NULL;
+switch (expr_type->kind) {
+    case TYPE_I32:   fmt = "%d"; break;
+    case TYPE_I64:   fmt = "%lld"; break;
+    case TYPE_U32:   fmt = "%u"; break;
+    case TYPE_F32:   fmt = "%f"; break;
+    case TYPE_F64:   fmt = "%lf"; break;
+    case TYPE_BOOL:  fmt = "%s"; break;  // 特殊处理
+    // ...
+}
+```
+
+#### 2. Bool 类型特殊处理
+
+```c
+// Codegen for bool
+if (expr_type->kind == TYPE_BOOL) {
+    fprintf(out, "printf(\"%%s\\n\", ");
+    c99_codegen_expr(codegen, expr);
+    fprintf(out, " ? \"true\" : \"false\")");
+} else {
+    fprintf(out, "printf(\"%s\\n\", ", fmt);
+    c99_codegen_expr(codegen, expr);
+    fprintf(out, ")");
+}
+```
+
+#### 3. Freestanding 模式整数转字符串
+
+需要实现辅助函数（在 std.c.stdio 或生成代码中）：
+
+```c
+// 生成的辅助函数
+static int uya_i32_to_str(int32_t value, char *buf) {
+    int len = 0;
+    int is_neg = 0;
+    
+    if (value < 0) {
+        is_neg = 1;
+        value = -value;
+    }
+    
+    // 转换为字符串（逆序）
+    do {
+        buf[len++] = '0' + (value % 10);
+        value /= 10;
+    } while (value > 0);
+    
+    if (is_neg) buf[len++] = '-';
+    
+    // 反转字符串
+    for (int i = 0; i < len/2; i++) {
+        char tmp = buf[i];
+        buf[i] = buf[len-1-i];
+        buf[len-1-i] = tmp;
+    }
+    
+    return len;
+}
+```
+
+#### 4. 编译器选项实现
+
+```c
+// src/main.c
+typedef enum {
+    OUTPUT_MODE_HOSTED,       // 使用 printf（默认）
+    OUTPUT_MODE_FREESTANDING, // 使用 std.c.stdio
+    OUTPUT_MODE_NO_IO         // 禁用 I/O
+} OutputMode;
+
+CompilerOptions opts = {
+    .output_mode = OUTPUT_MODE_HOSTED,  // 默认
+    // ...
+};
+
+// 解析命令行
+if (strcmp(argv[i], "--hosted") == 0) {
+    opts.output_mode = OUTPUT_MODE_HOSTED;
+} else if (strcmp(argv[i], "--freestanding") == 0) {
+    opts.output_mode = OUTPUT_MODE_FREESTANDING;
+} else if (strcmp(argv[i], "--no-io") == 0) {
+    opts.output_mode = OUTPUT_MODE_NO_IO;
+}
+```
+
+---
+
+### 20.5 依赖关系
+
+| 功能 | 依赖 | 优先级 |
+|------|------|--------|
+| @print/@println 基础 | 无 | ⭐⭐⭐⭐⭐ |
+| Hosted 模式 | printf（glibc） | ⭐⭐⭐⭐⭐ |
+| Freestanding 模式 | std.c.stdio | ⭐⭐⭐⭐ |
+| 字符串插值集成 | 现有字符串插值（已实现） | ⭐⭐⭐⭐ |
+
+**建议实施顺序**：
+1. 先实现 Hosted 模式（依赖 printf，简单快速）
+2. 再实现 Freestanding 模式（依赖 std.c.stdio，需要 Sprint 3 完成）
+3. 最后集成字符串插值
+
+---
+
+### 20.6 测试验证
+
+```bash
+# 测试 Hosted 模式（默认）
+./compiler-mini --c99 test_println_basic.uya
+gcc test_println_basic.c -o test && ./test
+# 输出：Hello, World!
+
+# 测试 Freestanding 模式
+./compiler-mini --c99 --freestanding test_println_basic.uya
+gcc -nostdlib test_println_basic.c std/c/syscall.c std/c/stdio.c -o test && ./test
+# 输出：Hello, World!
+
+# 测试字符串插值
+./compiler-mini --c99 test_print_interp.uya
+gcc test_print_interp.c -o test && ./test
+# 输出：x=42, y=3.14
+```
+
+---
+
+**实现优先级**：⭐⭐⭐⭐（高优先级，配合标准库，提升易用性）
+
+**实现状态**：[ ] 待实现（v0.3.0 Sprint 4）
 
 ---
 
