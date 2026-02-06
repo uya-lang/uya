@@ -394,7 +394,29 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 if payload_node == null || (payload_node.type == ASTNodeType.AST_TYPE_NAMED && payload_node.type_named_name != null && strcmp(payload_node.type_named_name as *byte, "void" as *byte) == 0) {
                     payload_void = 1;
                 }
-                if payload_void != 0 {
+                
+                // 检查 expr 是否已经是错误联合类型（避免双重包装）
+                var expr_is_error_union: i32 = 0;
+                if expr.type == ASTNodeType.AST_IDENTIFIER && expr.identifier_name != null {
+                    if strstr(expr.identifier_name as *byte, "result" as *byte) != null {
+                        expr_is_error_union = 1;
+                    }
+                }
+                // 也检查表达式的 C 类型是否已是 err_union_
+                if expr_is_error_union == 0 {
+                    const expr_c_type: &byte = get_c_type_of_expr(codegen, expr);
+                    if expr_c_type != null && strstr(expr_c_type as *byte, "err_union_" as *byte) != null {
+                        expr_is_error_union = 1;
+                    }
+                }
+                
+                if expr_is_error_union != 0 {
+                    // 表达式本身已是错误联合类型，直接返回
+                    c99_emit_indent(codegen);
+                    fprintf(codegen.output as *void, "%s _uya_ret = " as *byte, ret_c as *byte);
+                    gen_expr(codegen, expr);
+                    fputs(";\n" as *byte, codegen.output as *void);
+                } else if payload_void != 0 {
                     c99_emit_indent(codegen);
                     fprintf(codegen.output as *void, "%s _uya_ret = (%s){ .error_id = 0 };\n" as *byte, ret_c as *byte, ret_c as *byte);
                 } else {
@@ -1477,8 +1499,8 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         emit_defer_cleanup(codegen, 0);
         c99_emit(codegen, "continue;\n" as *byte);
     } else {
-        // 检查是否为表达式节点
-        if stmt.type >= ASTNodeType.AST_BINARY_EXPR && stmt.type <= ASTNodeType.AST_STRING {
+        // 检查是否为表达式节点（包括 @syscall 等内置函数）
+        if (stmt.type >= ASTNodeType.AST_BINARY_EXPR && stmt.type <= ASTNodeType.AST_STRING) || stmt.type == ASTNodeType.AST_SYSCALL {
             c99_emit(codegen, "" as *byte);
             gen_expr(codegen, stmt);
             fputs(";\n" as *byte, codegen.output as *void);

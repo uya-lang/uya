@@ -108,6 +108,7 @@ enum ASTNodeType {
     AST_SRC_LINE,       // @src_line - 源文件行号
     AST_SRC_COL,        // @src_col - 源文件列号
     AST_FUNC_NAME,      // @func_name - 当前函数名
+    AST_SYSCALL,        // @syscall(nr, arg1, ..., arg6) - 系统调用
     AST_TYPE_NAMED,
     AST_TYPE_POINTER,
     AST_TYPE_ARRAY,
@@ -350,6 +351,10 @@ struct ASTNode {
     type_tuple_element_count: i32,
     // type_error_union（!T）
     type_error_union_payload_type: &ASTNode,
+    // syscall（@syscall(nr, arg1, ..., arg6)）
+    syscall_number: &ASTNode,    // 系统调用号（必须）
+    syscall_args: & & ASTNode,   // 参数数组（0-6 个）
+    syscall_arg_count: i32,      // 参数个数
     // type_atomic（atomic T）
     type_atomic_inner_type: &ASTNode,
 }
@@ -532,6 +537,9 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.type_tuple_element_types = null;
     node.type_tuple_element_count = 0;
     node.type_error_union_payload_type = null;
+    node.syscall_number = null;
+    node.syscall_args = null;
+    node.syscall_arg_count = 0;
     return node;
 }
 

@@ -313,6 +313,12 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     fputs("#define uya_alignof(type) offsetof(struct { char c; type t; }, t)\n" as *byte, codegen.output as *void);
     fputs("\n" as *byte, codegen.output as *void);
     
+    // 生成错误联合类型结构体（用于 @syscall 和其他错误联合类型）
+    fputs("// 错误联合类型（用于 !i64 等）\n" as *byte, codegen.output as *void);
+    fputs("struct err_union_int64_t { uint32_t error_id; int64_t value; };\n" as *byte, codegen.output as *void);
+    mark_struct_defined(codegen, ("err_union_int64_t" as *byte) as &byte);
+    fputs("\n" as *byte, codegen.output as *void);
+    
     // 第一步：收集所有字符串常量（从全局变量初始化和函数体）
     const decl_count: i32 = ast.program_decl_count;
     
@@ -607,6 +613,84 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     
     // 将测试计数保存到 codegen 中，以便 gen_function 可以判断是否需要调用 uya_run_tests()
     codegen.test_count = test_count;
+    
+    // 第七步 d：生成系统调用辅助函数（@syscall 内置函数支持）
+    fputs("// 系统调用辅助函数（Linux x86-64）\n" as *byte, codegen.output as *void);
+    fputs("#ifdef __x86_64__\n" as *byte, codegen.output as *void);
+    
+    // uya_syscall0 - 无参数
+    fputs("static inline long uya_syscall0(long nr) {\n" as *byte, codegen.output as *void);
+    fputs("    register long rax __asm__(\"rax\") = nr;\n" as *byte, codegen.output as *void);
+    fputs("    __asm__ volatile(\"syscall\" : \"=r\"(rax) : \"r\"(rax) : \"rcx\", \"r11\", \"memory\");\n" as *byte, codegen.output as *void);
+    fputs("    return rax;\n" as *byte, codegen.output as *void);
+    fputs("}\n\n" as *byte, codegen.output as *void);
+    
+    // uya_syscall1 - 1 个参数
+    fputs("static inline long uya_syscall1(long nr, long a1) {\n" as *byte, codegen.output as *void);
+    fputs("    register long rax __asm__(\"rax\") = nr;\n" as *byte, codegen.output as *void);
+    fputs("    register long rdi __asm__(\"rdi\") = a1;\n" as *byte, codegen.output as *void);
+    fputs("    __asm__ volatile(\"syscall\" : \"=r\"(rax) : \"r\"(rax), \"r\"(rdi) : \"rcx\", \"r11\", \"memory\");\n" as *byte, codegen.output as *void);
+    fputs("    return rax;\n" as *byte, codegen.output as *void);
+    fputs("}\n\n" as *byte, codegen.output as *void);
+    
+    // uya_syscall2 - 2 个参数
+    fputs("static inline long uya_syscall2(long nr, long a1, long a2) {\n" as *byte, codegen.output as *void);
+    fputs("    register long rax __asm__(\"rax\") = nr;\n" as *byte, codegen.output as *void);
+    fputs("    register long rdi __asm__(\"rdi\") = a1;\n" as *byte, codegen.output as *void);
+    fputs("    register long rsi __asm__(\"rsi\") = a2;\n" as *byte, codegen.output as *void);
+    fputs("    __asm__ volatile(\"syscall\" : \"=r\"(rax) : \"r\"(rax), \"r\"(rdi), \"r\"(rsi) : \"rcx\", \"r11\", \"memory\");\n" as *byte, codegen.output as *void);
+    fputs("    return rax;\n" as *byte, codegen.output as *void);
+    fputs("}\n\n" as *byte, codegen.output as *void);
+    
+    // uya_syscall3 - 3 个参数
+    fputs("static inline long uya_syscall3(long nr, long a1, long a2, long a3) {\n" as *byte, codegen.output as *void);
+    fputs("    register long rax __asm__(\"rax\") = nr;\n" as *byte, codegen.output as *void);
+    fputs("    register long rdi __asm__(\"rdi\") = a1;\n" as *byte, codegen.output as *void);
+    fputs("    register long rsi __asm__(\"rsi\") = a2;\n" as *byte, codegen.output as *void);
+    fputs("    register long rdx __asm__(\"rdx\") = a3;\n" as *byte, codegen.output as *void);
+    fputs("    __asm__ volatile(\"syscall\" : \"=r\"(rax) : \"r\"(rax), \"r\"(rdi), \"r\"(rsi), \"r\"(rdx) : \"rcx\", \"r11\", \"memory\");\n" as *byte, codegen.output as *void);
+    fputs("    return rax;\n" as *byte, codegen.output as *void);
+    fputs("}\n\n" as *byte, codegen.output as *void);
+    
+    // uya_syscall4 - 4 个参数
+    fputs("static inline long uya_syscall4(long nr, long a1, long a2, long a3, long a4) {\n" as *byte, codegen.output as *void);
+    fputs("    register long rax __asm__(\"rax\") = nr;\n" as *byte, codegen.output as *void);
+    fputs("    register long rdi __asm__(\"rdi\") = a1;\n" as *byte, codegen.output as *void);
+    fputs("    register long rsi __asm__(\"rsi\") = a2;\n" as *byte, codegen.output as *void);
+    fputs("    register long rdx __asm__(\"rdx\") = a3;\n" as *byte, codegen.output as *void);
+    fputs("    register long r10 __asm__(\"r10\") = a4;\n" as *byte, codegen.output as *void);
+    fputs("    __asm__ volatile(\"syscall\" : \"=r\"(rax) : \"r\"(rax), \"r\"(rdi), \"r\"(rsi), \"r\"(rdx), \"r\"(r10) : \"rcx\", \"r11\", \"memory\");\n" as *byte, codegen.output as *void);
+    fputs("    return rax;\n" as *byte, codegen.output as *void);
+    fputs("}\n\n" as *byte, codegen.output as *void);
+    
+    // uya_syscall5 - 5 个参数
+    fputs("static inline long uya_syscall5(long nr, long a1, long a2, long a3, long a4, long a5) {\n" as *byte, codegen.output as *void);
+    fputs("    register long rax __asm__(\"rax\") = nr;\n" as *byte, codegen.output as *void);
+    fputs("    register long rdi __asm__(\"rdi\") = a1;\n" as *byte, codegen.output as *void);
+    fputs("    register long rsi __asm__(\"rsi\") = a2;\n" as *byte, codegen.output as *void);
+    fputs("    register long rdx __asm__(\"rdx\") = a3;\n" as *byte, codegen.output as *void);
+    fputs("    register long r10 __asm__(\"r10\") = a4;\n" as *byte, codegen.output as *void);
+    fputs("    register long r8 __asm__(\"r8\") = a5;\n" as *byte, codegen.output as *void);
+    fputs("    __asm__ volatile(\"syscall\" : \"=r\"(rax) : \"r\"(rax), \"r\"(rdi), \"r\"(rsi), \"r\"(rdx), \"r\"(r10), \"r\"(r8) : \"rcx\", \"r11\", \"memory\");\n" as *byte, codegen.output as *void);
+    fputs("    return rax;\n" as *byte, codegen.output as *void);
+    fputs("}\n\n" as *byte, codegen.output as *void);
+    
+    // uya_syscall6 - 6 个参数
+    fputs("static inline long uya_syscall6(long nr, long a1, long a2, long a3, long a4, long a5, long a6) {\n" as *byte, codegen.output as *void);
+    fputs("    register long rax __asm__(\"rax\") = nr;\n" as *byte, codegen.output as *void);
+    fputs("    register long rdi __asm__(\"rdi\") = a1;\n" as *byte, codegen.output as *void);
+    fputs("    register long rsi __asm__(\"rsi\") = a2;\n" as *byte, codegen.output as *void);
+    fputs("    register long rdx __asm__(\"rdx\") = a3;\n" as *byte, codegen.output as *void);
+    fputs("    register long r10 __asm__(\"r10\") = a4;\n" as *byte, codegen.output as *void);
+    fputs("    register long r8 __asm__(\"r8\") = a5;\n" as *byte, codegen.output as *void);
+    fputs("    register long r9 __asm__(\"r9\") = a6;\n" as *byte, codegen.output as *void);
+    fputs("    __asm__ volatile(\"syscall\" : \"=r\"(rax) : \"r\"(rax), \"r\"(rdi), \"r\"(rsi), \"r\"(rdx), \"r\"(r10), \"r\"(r8), \"r\"(r9) : \"rcx\", \"r11\", \"memory\");\n" as *byte, codegen.output as *void);
+    fputs("    return rax;\n" as *byte, codegen.output as *void);
+    fputs("}\n" as *byte, codegen.output as *void);
+    
+    fputs("#else\n" as *byte, codegen.output as *void);
+    fputs("#error \"@syscall currently only supports Linux x86-64\"\n" as *byte, codegen.output as *void);
+    fputs("#endif\n\n" as *byte, codegen.output as *void);
     
     // 第八步：生成所有函数的前向声明（解决相互递归调用）
     i = 0;

@@ -2579,6 +2579,78 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         result.kind = TypeKind.TYPE_SLICE;
         result.slice_element_type = element_type;
         return result;
+    } else if expr.type == ASTNodeType.AST_SYSCALL {
+        // @syscall(nr, arg1, ..., arg6) 返回 !i64 类型
+        
+        // 1. 检查系统调用号（第一个参数）
+        if expr.syscall_number == null {
+            checker_report_error(checker, expr, "@syscall 需要系统调用号作为第一个参数" as &byte);
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        
+        // 检查系统调用号的类型
+        const syscall_nr_type: Type = checker_infer_type(checker, expr.syscall_number);
+        if syscall_nr_type.kind == TypeKind.TYPE_VOID {
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        
+        // 系统调用号必须是整数类型
+        if is_integer_type(syscall_nr_type.kind) == 0 {
+            checker_report_error(checker, expr.syscall_number, "@syscall 的系统调用号必须是整数类型" as &byte);
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        
+        // 2. 检查参数（最多 6 个）
+        if expr.syscall_arg_count > 6 {
+            checker_report_error(checker, expr, "@syscall 最多支持 6 个参数" as &byte);
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        
+        // 检查每个参数的类型（必须可转换为 i64）
+        var sc_i: i32 = 0;
+        while sc_i < expr.syscall_arg_count {
+            if expr.syscall_args[sc_i] == null {
+                checker_report_error(checker, expr, "@syscall 参数不能为空" as &byte);
+                result.kind = TypeKind.TYPE_VOID;
+                return result;
+            }
+            
+            const arg_type: Type = checker_infer_type(checker, expr.syscall_args[sc_i]);
+            if arg_type.kind == TypeKind.TYPE_VOID {
+                result.kind = TypeKind.TYPE_VOID;
+                return result;
+            }
+            
+            // 参数类型必须可转换为 i64（整数或指针）
+            var is_valid_arg: i32 = 0;
+            if is_integer_type(arg_type.kind) != 0 || arg_type.kind == TypeKind.TYPE_POINTER {
+                is_valid_arg = 1;
+            }
+            
+            if is_valid_arg == 0 {
+                checker_report_error(checker, expr.syscall_args[sc_i], "@syscall 的参数必须是整数或指针类型" as &byte);
+                result.kind = TypeKind.TYPE_VOID;
+                return result;
+            }
+            
+            sc_i = sc_i + 1;
+        }
+        
+        // 3. 返回类型：!i64（错误联合类型）
+        result.kind = TypeKind.TYPE_ERROR_UNION;
+        
+        const payload_type: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if payload_type == null {
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        payload_type.kind = TypeKind.TYPE_I64;
+        result.error_union_payload_type = payload_type;
+        return result;
     } else if expr.type == ASTNodeType.AST_STRING {
         // 字符串字面量类型为 *byte（FFI 指针类型）
         // 创建指向 byte 类型的指针类型
