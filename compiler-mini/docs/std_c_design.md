@@ -26,7 +26,8 @@ std/
 │   ├── stdio.uya   # 标准 I/O
 │   ├── stdlib.uya  # 内存分配、进程控制
 │   └── math.uya    # 数学函数
-├── io/             # 平台无关 I/O 抽象
+├── io/             # 平台无关同步 I/O 抽象（Writer, Reader）
+├── async/          # 异步编程标准库（详见 std_async_design.md）
 ├── fmt/            # 格式化库（纯 Uya 实现）
 ├── bare_metal/     # 裸机平台支持
 └── builtin/        # 编译器内置运行时
@@ -43,11 +44,13 @@ std/
 - ✅ **可替代 musl/glibc**：兼容 C ABI，可作为 libc 使用
 - ✅ **零标准库头文件**：生成的代码自己定义所有类型
 
-## 1. std.io - I/O 抽象层
+## 1. std.io - 同步 I/O 抽象层
+
+**注意**：`std.io` 是**同步（阻塞）**I/O 接口。异步 I/O 请参见 [std.async 设计文档](std_async_design.md)。
 
 ### 核心接口
 
-- [ ] **Writer 接口**：统一的输出抽象
+- [ ] **Writer 接口**：统一的同步输出抽象
   ```uya
   export interface Writer {
       fn write(self: &Self, data: &[u8]) !usize;
@@ -56,7 +59,7 @@ std/
   }
   ```
 
-- [ ] **Reader 接口**：统一的输入抽象
+- [ ] **Reader 接口**：统一的同步输入抽象
   ```uya
   export interface Reader {
       fn read(self: &Self, buf: &[u8]) !usize;
@@ -69,6 +72,11 @@ std/
   - `println_to(writer: &Writer, s: &[i8]) !void`
 
 **涉及**：新建 `std/io/writer.uya`、`std/io/reader.uya`
+
+**与异步的关系**：
+- `std.io` 的同步接口返回 `!T`，**不能**被 `@await` 调用
+- 在 `@async_fn` 中调用同步 `std.io` 方法虽然语法合法，但会**阻塞当前任务**
+- 异步场景应使用 `std.async.io` 中的 `AsyncWriter` / `AsyncReader`（详见 [std.async 设计文档](std_async_design.md)）
 
 ## 2. std.c - 纯 Uya 实现的 C 标准库
 
@@ -996,8 +1004,9 @@ int putchar(int c) {
 | 8 | **std.c.stdlib 内存管理** | ⭐⭐⭐ | 目标 1+2 | malloc, free |
 | 9 | **std.c.stdio 完整实现** | ⭐⭐⭐ | 目标 1+2 | printf, 文件 I/O |
 | 10 | **std.c.math 数学库** | ⭐⭐ | 目标 2 | sqrt, sin, cos 等 |
-| 11 | **std.io 抽象层** | ⭐⭐ | 扩展 | Writer/Reader 接口 |
-| 12 | **std.bare_metal 裸机支持** | ⭐ | 扩展 | ARM/RISC-V UART |
+| 11 | **std.io 同步抽象层** | ⭐⭐ | 扩展 | Writer/Reader 同步接口 |
+| 12 | **std.async 异步标准库** | ⭐⭐ | 扩展 | 详见 [std_async_design.md](std_async_design.md) |
+| 13 | **std.bare_metal 裸机支持** | ⭐ | 扩展 | ARM/RISC-V UART |
 
 **第一个里程碑**（最小可用）：
 完成阶段 1-3，可以生成一个包含基础字符串操作的库，能够用 `-nostdlib` 编译。

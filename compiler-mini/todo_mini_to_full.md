@@ -32,6 +32,13 @@
 | 18 | **宏系统（Macro）** | [x] C 实现已完成（uya-src 待同步） |
 | 19 | **标准库基础设施（std）** | [ ] **重要** |
 | 20 | **@print/@println 内置函数** | [ ] **配合标准库** |
+| 21 | **结构体默认值语法** | [ ] 规范 §4.3（0.40 新增） |
+| 22 | **类型别名（type）** | [ ] 规范 §5.2、§24.6.2 |
+| 23 | **多维数组** | [ ] 规范 §2、§4（`[[T: N]: M]`） |
+| 24 | **块注释** | [ ] 规范 §1（`/* ... */` 可嵌套） |
+| 25 | **内存安全证明** | [ ] 规范 §14（编译期证明 + 运行时检查） |
+| 26 | **并发安全** | [ ] 规范 §15（依赖原子类型） |
+| 27 | **接口组合** | [ ] 规范 §29.3（未来特性） |
 
 ---
 
@@ -408,7 +415,8 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 
 - [x] **Lexer**：识别泛型语法
   - [x] 识别尖括号 `<` 和 `>`（复用比较运算符 token）
-  - [ ] 识别类型参数约束语法 `<T: Ord>`、`<T: Ord + Clone>`（待实现）
+  - [x] 识别类型参数约束语法 `<T: Ord>`、`<T: Default>`（已实现基本约束语法解析）
+  - [ ] 多约束语法 `<T: Ord + Clone + Default>`（待实现）
 
 - [x] **AST**：泛型节点扩展
   - [x] 函数声明添加 `type_params`/`type_param_count` 字段
@@ -422,7 +430,8 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [x] 解析函数泛型参数列表：`fn name<T>(...)`
   - [x] 解析结构体泛型参数列表：`struct Name<T>`
   - [x] 解析接口泛型参数列表：`interface Name<T>`
-  - [ ] 解析类型参数约束：`<T: Ord>`（待实现）
+  - [x] 解析类型参数约束：`<T: Ord>`、`<T: Default>`（已实现基本约束语法解析）
+  - [ ] 解析多约束语法：`<T: Ord + Clone>`（待实现）
   - [x] 解析泛型类型使用：`Vec<i32>`、`Pair<i32, i64>`
   - [x] 处理泛型与比较运算符的歧义（修复 `<` 误判为比较运算符的问题）
 
@@ -431,7 +440,9 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [x] 单态化实例收集（`MonoInstance` 结构体）
   - [x] 泛型函数调用类型检查
   - [x] 泛型结构体初始化类型检查
-  - [ ] 约束检查：验证类型参数是否满足约束（待实现）
+  - [x] 泛型结构体字段访问类型推断（字段类型中的类型参数正确替换为具体类型）
+  - [x] 泛型结构体指针字段支持（`&T` 字段正确单态化）
+  - [ ] 约束检查：验证类型参数是否满足约束（当前仅解析约束语法，不做实际校验）
   - [ ] 类型推断：自动推断类型参数（待实现）
 
 - [x] **Codegen**：泛型代码生成（单态化）
@@ -446,21 +457,37 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [ ] `Clone` 接口：定义 `clone()` 方法
   - [ ] `Default` 接口：定义默认值创建
 
-- [x] **测试用例**（基础）：
+- [x] **测试用例**（基础 + 扩展）：
   - [x] `test_generic_fn.uya` - 基本泛型函数
   - [x] `test_generic_struct.uya` - 基本泛型结构体
   - [x] `test_generic_minimal.uya` - 最小泛型测试
   - [x] `test_generic_simple.uya` - 简单泛型测试
+  - [x] `test_generic_call.uya` - 泛型函数调用语法
+  - [x] `test_generic_constraint.uya` - 带约束的泛型（`<T: Default>`、`<T: Ord>`）
+  - [x] `test_generic_comprehensive.uya` - 综合测试（函数+结构体+约束+指针+嵌套调用+表达式）
+  - [x] `test_generic_multi_type_param.uya` - 多类型参数（`<A, B>`、`<X, Y, Z>`）
+  - [x] `test_generic_nested_call.uya` - 嵌套泛型调用（`identity<i32>(identity<i32>(42))`）
+  - [x] `test_generic_multi_instance.uya` - 多实例化（同一泛型多次实例化为不同类型）
+  - [x] `test_generic_pointer.uya` - 指针操作（`deref<T>`、`set_value<T>`、`swap<T>`）
+  - [x] `test_generic_struct_field.uya` - 泛型结构体字段访问
+  - [x] `test_generic_struct_ptr_field.uya` - 泛型结构体指针字段（`&T` 字段）
+  - [x] `test_generic_field_compare.uya` - 泛型结构体字段比较
+  - [x] `test_generic_field_debug.uya` - 泛型结构体字段访问调试
+  - [x] `test_generic_edge_cases.uya` - 边界情况（命名、单/多字段、混合字段）
+  - [x] `test_generic_in_expr.uya` - 表达式中使用泛型
+  - [x] `test_generic_in_control_flow.uya` - 控制流中使用泛型（if/while）
   - [ ] `test_generic_interface.uya` - 泛型接口（待实现）
-  - [ ] `test_generic_constraints.uya` - 约束语法（待实现）
 
 **已知限制**：
 - 嵌套泛型（如 `Box<Pair<i32, i32>>`）：`>>` 被解析为右移运算符
-- 泛型结构体字段访问的类型推断：字段类型中的类型参数不会被替换
 - 泛型接口方法的支持不完善
 - 类型推断（自动推断类型参数）尚未实现
+- 约束语法已解析但不做实际校验（`<T: Ord>` 中 Ord 未验证类型是否实现该接口）
+- 多约束语法（`<T: Ord + Clone>`）尚未实现
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen（单态化），uya-src。
+
+**uya-src 已同步**：ast.uya（type_params/type_param_count/type_args/type_arg_count）；parser.uya（泛型参数列表解析、泛型类型使用解析）；checker.uya（MonoInstance、类型参数作用域、泛型函数/结构体类型检查、单态化实例收集、泛型字段类型推断）；codegen（function/structs/main/types/expr/utils/internal：单态化名称生成、泛型函数/结构体代码生成）。测试通过 `--uya --c99`。
 
 **参考文档**：
 - [uya.md](../uya.md) §B.1 - 泛型语法说明
@@ -625,6 +652,8 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 
 **语法规范**（规范 0.40）：`@async_fn` 函数属性、`try @await` 挂起点、`union Poll<T>`、`interface Future<T>`。详见 [uya.md](../uya.md) §18。
 
+**异步标准库设计**：详见 [`docs/std_async_design.md`](./docs/std_async_design.md)（`std.async.io`、`std.async.task`、`std.async.event`、`std.async.channel`、`std.async.scheduler`）。
+
 **设计目标**：
 - 显式控制：所有挂起必须 `try @await`，取消必须显式检查 `is_cancelled()`
 - 零成本：状态机栈分配，无运行时堆分配，无隐式锁
@@ -689,10 +718,12 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [ ] `struct Waker` 定义（唤醒器）
   - [ ] 为内置类型提供异步支持
 
-- [ ] **标准库实现**（基于核心类型）
-  - [ ] `std.async` 模块：`Task<T>`, `Waker` 实现
-  - [ ] `std.channel` 模块：`Channel<T>`, `MpscChannel<T>`（依赖原子类型）
-  - [ ] `std.runtime` 模块：`Scheduler` 事件循环
+- [ ] **标准库实现**（基于核心类型，详见 [`docs/std_async_design.md`](./docs/std_async_design.md)）
+  - [ ] `std.async.task` 模块：`Task<T>`, `Waker` 实现
+  - [ ] `std.async.io` 模块：`AsyncWriter`, `AsyncReader`（非阻塞 I/O）
+  - [ ] `std.async.event` 模块：`EventLoop`（epoll/kqueue/IOCP）
+  - [ ] `std.async.channel` 模块：`Channel<T>`, `MpscChannel<T>`（依赖原子类型）
+  - [ ] `std.async.scheduler` 模块：`Scheduler` 事件循环调度器
   - [ ] `std.thread` 模块：`ThreadPool`, `async_compute<T>`
 
 - [ ] **编译期验证**：
@@ -874,14 +905,21 @@ test "函数调用测试" {
 | 错误联合 !T | 无 | !T, error 定义 | uya.md §2、§5 | [x] |
 | 联合体类型 | 无 | union U { v1: T1, v2: T2 } | uya.md §4.5 | [x] |
 | 接口类型 | 无 | interface I, struct S : I | uya.md §6 | [x] |
-| 函数指针 | 无 | fn(...) type | uya.md §5.2 |
-| 原子类型 | 无 | atomic T, &atomic T | uya.md §13 |
+| 函数指针 | 无 | fn(...) type, type Alias = fn(...) type | uya.md §5.2 | [ ] |
+| 原子类型 | 无 | atomic T, &atomic T | uya.md §13 | [x] |
+| 类型别名 | 无 | type A = B | uya.md §5.2、§24.6.2 | [ ] |
+| 多维数组 | 无 | [[T: N]: M]，多维访问 arr[i][j] | uya.md §2、§4 | [ ] |
+| 结构体默认值 | 无 | field: Type = default_value, Struct{} | uya.md §4.3 | [ ] |
+| &void 通用指针 | 部分 | &void → &T 类型擦除 | uya.md §2 | [~] |
+| 块注释 | 无 | /* ... */（可嵌套） | uya.md §1 | [ ] |
 
 ---
 
 ## 19. 标准库基础设施（std）
 
-**详细设计文档**：详见 [`docs/std_c_design.md`](./docs/std_c_design.md)
+**详细设计文档**：
+- 同步标准库（`std.c`、`std.io`、`std.fmt` 等）：[`docs/std_c_design.md`](./docs/std_c_design.md)
+- 异步标准库（`std.async.*`）：[`docs/std_async_design.md`](./docs/std_async_design.md)
 
 **核心目标**：
 
@@ -902,7 +940,13 @@ std/
 │   ├── stdio.uya   # 标准 I/O
 │   ├── stdlib.uya  # 内存分配、进程控制
 │   └── math.uya    # 数学函数
-├── io/             # 平台无关 I/O 抽象
+├── io/             # 平台无关同步 I/O 抽象
+├── async/          # 异步编程标准库（详见 docs/std_async_design.md）
+│   ├── io/         # AsyncWriter / AsyncReader
+│   ├── task.uya    # Task<T>, Waker
+│   ├── event/      # 平台事件后端（epoll/kqueue/IOCP）
+│   ├── channel.uya # Channel<T>, MpscChannel<T>
+│   └── scheduler.uya # Scheduler 事件循环调度器
 ├── fmt/            # 格式化库（纯 Uya 实现）
 ├── bare_metal/     # 裸机平台支持
 └── builtin/        # 编译器内置运行时
@@ -926,7 +970,7 @@ std/
 
 ### 19.1 标准库实现清单
 
-- [ ] `std.io` - I/O 抽象层（Writer/Reader 接口）
+- [ ] `std.io` - 同步 I/O 抽象层（Writer/Reader 接口）
 - [ ] `std.c.syscall` - 系统调用封装（`@syscall` 内置函数）
 - [ ] `std.c.string` - 字符串和内存操作（纯 Uya）
 - [ ] `std.c.stdio` - 标准 I/O（基于 syscall）
@@ -936,8 +980,11 @@ std/
 - [ ] `std.bare_metal` - 裸机平台支持
 - [ ] `std.builtin` - 编译器内置运行时
 - [ ] `std.target` - 条件编译宏系统
+- [ ] `std.async.*` - 异步标准库（Task/Waker/AsyncIO/EventLoop/Channel/Scheduler）
 
-**详细实现方案**：参见 [`docs/std_c_design.md`](./docs/std_c_design.md)
+**详细实现方案**：
+- 同步部分：参见 [`docs/std_c_design.md`](./docs/std_c_design.md)
+- 异步部分：参见 [`docs/std_async_design.md`](./docs/std_async_design.md)
 
 ---
 
@@ -996,6 +1043,303 @@ i32, i64, u32, u64, usize, f32, f64, bool, 字符串（&[i8], [i8: N], *byte）
 **参考文档**：
 - [uya.md](../uya.md) §16 - 内置函数
 - [uya.md](../uya.md) §17 - 字符串插值
+
+---
+
+## 21. 结构体默认值语法（规范 uya.md §4.3，0.40 新增）
+
+**设计目标**：减少样板代码，允许在结构体定义中为字段指定编译期常量默认值；初始化时可省略有默认值的字段。
+
+**语法**：
+```uya
+struct Config {
+    port: i32 = 8080,         // 编译期常量默认值
+    debug: bool = false,
+    name: [i8: 64] = []       // 零初始化
+}
+const cfg = Config{};              // 全部使用默认值
+const cfg2 = Config{ port: 3000 }; // 仅覆盖 port
+```
+
+**约束**：
+- 默认值必须是编译期常量（字面量、const 变量、常量算术）
+- 无默认值的字段在初始化时必须显式提供
+- 联合体字段不能有默认值
+- 切片字段 `&[T]` 不能有默认值
+
+**编译器实现**：
+
+- [ ] **Lexer**：无需修改（使用现有 `=` token）
+- [ ] **AST**：结构体字段节点增加 `default_value` 可选表达式
+- [ ] **Parser**：解析 `field_name: Type = const_expr`
+  - 扩展 BNF：`field_decl ::= field_name ":" type ( "=" const_expr )?`
+- [ ] **Checker**：
+  - [ ] 默认值类型检查（默认值类型 vs 字段类型）
+  - [ ] 编译期常量求值验证
+  - [ ] 初始化完整性检查（无默认值字段必须提供）
+  - [ ] 联合体/切片字段默认值禁止
+- [ ] **Codegen**：
+  - [ ] 初始化时缺失字段插入默认值
+  - [ ] `Struct{}` 全默认值展开
+- [ ] **uya-src 同步**
+
+**测试用例**：
+- [ ] `test_struct_default.uya` - 基础默认值
+- [ ] `test_struct_default_partial.uya` - 部分默认值
+- [ ] `test_struct_default_nested.uya` - 嵌套结构体默认值
+- [ ] `error_struct_default_missing.uya` - 缺少必填字段（预期编译失败）
+- [ ] `error_struct_default_runtime.uya` - 运行时表达式作默认值（预期编译失败）
+
+**参考文档**：
+- [uya.md](../uya.md) §4.3 - 结构体默认值语法
+
+---
+
+## 22. 类型别名（type，规范 uya.md §5.2、§24.6.2、§29.5）
+
+**设计目标**：使用 `type` 关键字为类型定义别名，简化复杂类型的使用。
+
+**语法**：
+```uya
+type ComparFunc = fn(*void, *void) i32;     // 函数指针别名
+type str = &[i8];                            // 切片别名
+type Point = (i32, i32);                     // 元组别名
+type Result = !i32;                          // 错误联合别名
+```
+
+**编译器实现**：
+
+- [ ] **Lexer**：`type` 关键字 token（如果尚未添加）
+- [ ] **AST**：`AST_TYPE_ALIAS` 节点（名称 + 目标类型）
+- [ ] **Parser**：解析 `type Identifier = type_expr ;`
+- [ ] **Checker**：
+  - [ ] 类型别名解析（别名 → 实际类型）
+  - [ ] 循环别名检测
+  - [ ] 别名在类型位置的透明替换
+- [ ] **Codegen**：
+  - [ ] C99 映射为 `typedef`
+- [ ] **uya-src 同步**
+
+**测试用例**：
+- [ ] `test_type_alias.uya` - 基础类型别名
+- [ ] `test_type_alias_fn_ptr.uya` - 函数指针别名
+- [ ] `test_type_alias_generic.uya` - 泛型类型别名（如 `type IntVec = Vec<i32>`）
+- [ ] `error_type_alias_cycle.uya` - 循环别名（预期编译失败）
+
+**参考文档**：
+- [uya.md](../uya.md) §5.2 - 函数指针与类型别名
+- [uya.md](../uya.md) §24.6.2 - 类型别名实现
+- [uya.md](../uya.md) §29.5 - 已实现特性列表
+
+---
+
+## 23. 多维数组（规范 uya.md §2、§4）
+
+**设计目标**：支持多维数组类型 `[[T: N]: M]`，按行优先顺序存储，编译期边界检查。
+
+**语法**：
+```uya
+// 二维数组声明
+const matrix: [[i32: 4]: 3] = [[1,2,3,4], [5,6,7,8], [9,10,11,12]];
+// 访问
+const val: i32 = matrix[1][2];  // 第1行第2列 → 7
+// 零初始化
+var buf: [[f32: 4]: 4] = [[], [], [], []];
+// 结构体字段
+struct Matrix { data: [[f32: 4]: 4] }
+```
+
+**内存布局**：
+- 行优先顺序（row-major order）
+- 大小 = `M * N * sizeof(T)`
+- 对齐 = `alignof(T)`
+- 三维及更高维以此类推：`[[[T: N]: M]: K]`
+
+**编译器实现**：
+
+- [ ] **Lexer**：无需修改（使用现有 `[` `]` `:` token）
+- [ ] **AST**：类型节点支持嵌套数组维度
+- [ ] **Parser**：解析嵌套 `[[ ... ]: M]` 类型语法
+- [ ] **Checker**：
+  - [ ] 多维数组类型构建
+  - [ ] 多维索引 `arr[i][j]` 类型推断（每级下标返回内层类型）
+  - [ ] 所有维度边界检查
+  - [ ] 多维数组字面量类型检查
+- [ ] **Codegen**：
+  - [ ] C99 映射为嵌套 C 数组 `T arr[M][N]`
+  - [ ] 多维索引生成 `arr[i][j]`
+  - [ ] 零初始化生成
+- [ ] **uya-src 同步**
+
+**测试用例**：
+- [ ] `test_multi_dim_array.uya` - 基础二维数组
+- [ ] `test_multi_dim_init.uya` - 多维数组初始化与零初始化
+- [ ] `test_multi_dim_struct.uya` - 结构体多维数组字段
+- [ ] `test_multi_dim_3d.uya` - 三维数组
+
+**参考文档**：
+- [uya.md](../uya.md) §2 - 类型系统（`[[T: N]: M]`）
+- [uya.md](../uya.md) §4.2.3 - 数组字段布局
+- [examples/mat3x4.uya](../examples/mat3x4.uya) - 多维数组示例
+
+---
+
+## 24. 块注释（规范 uya.md §1）
+
+**设计目标**：支持 `/* ... */` 块注释，允许嵌套。
+
+**语法**：
+```uya
+/* 单行块注释 */
+/*
+    多行块注释
+    /* 嵌套块注释 */
+    继续外层注释
+*/
+```
+
+**编译器实现**：
+
+- [ ] **Lexer**：
+  - [ ] 识别 `/*` 开始块注释
+  - [ ] 维护嵌套深度计数器
+  - [ ] 匹配 `*/` 时递减计数器，计数器归零时结束
+  - [ ] 未闭合块注释报错
+- [ ] **uya-src 同步**
+
+**测试用例**：
+- [ ] `test_block_comment.uya` - 基础块注释
+- [ ] `test_block_comment_nested.uya` - 嵌套块注释
+- [ ] `error_block_comment_unclosed.uya` - 未闭合块注释（预期编译失败）
+
+**参考文档**：
+- [uya.md](../uya.md) §1 - 词法约定（`/* 块 */`（可嵌套））
+
+---
+
+## 25. 内存安全证明（规范 uya.md §14）
+
+**设计目标**：通过编译期证明消除所有未定义行为（UB）。证明范围仅限当前函数内，证明超时则自动插入运行时检查。
+
+**内存安全强制表**：
+
+| UB 场景 | 编译期要求 | 失败处理 |
+|---------|-----------|---------|
+| 数组越界 | 常量越界 → 编译错误；变量 → 证明 `i >= 0 && i < len` | 证明超时 → 自动插入运行时检查 |
+| 空指针解引用 | 证明 `ptr != null` 或前序有空检查 | 证明超时 → 自动插入运行时检查 |
+| 未初始化使用 | 证明首次使用前已赋值 | 证明超时 → 自动插入运行时检查 |
+| 整数溢出 | 常量溢出 → 编译错误；变量 → 编译器证明或显式检查 | 证明超时 → 自动插入运行时检查 |
+| 除零 | 常量除零 → 编译错误；变量 → 证明 `y != 0` | 证明超时 → 自动插入运行时检查 |
+
+**证明机制分层**：
+1. **常量折叠**：编译期常量直接检查
+2. **路径敏感分析**：跟踪代码路径，建立约束条件
+3. **符号执行**：复杂场景建立约束系统验证
+4. **函数返回值**：调用者必须显式处理（编译器不跨函数证明）
+5. **证明超时**：有限时间内无法完成则自动插入运行时检查
+
+**编译器实现**：
+
+- [ ] **Checker**：
+  - [ ] 常量折叠（溢出/越界/除零检测）
+  - [ ] 路径敏感分析框架
+  - [ ] 符号执行引擎（约束求解）
+  - [ ] 证明超时机制
+  - [ ] 未初始化使用检测
+  - [ ] 空指针解引用检测
+- [ ] **Codegen**：
+  - [ ] 自动插入运行时边界检查代码
+  - [ ] 自动插入运行时溢出检查代码
+  - [ ] 自动插入运行时空指针检查代码
+- [ ] **uya-src 同步**
+
+**测试用例**：
+- [ ] `test_safety_bounds.uya` - 数组越界证明
+- [ ] `test_safety_overflow.uya` - 整数溢出证明
+- [ ] `test_safety_null.uya` - 空指针证明
+- [ ] `test_safety_uninit.uya` - 未初始化检测
+- [ ] `test_safety_runtime.uya` - 运行时检查自动插入
+
+**参考文档**：
+- [uya.md](../uya.md) §14 - 内存安全
+
+**实现优先级**：高（核心语言安全特性）
+
+---
+
+## 26. 并发安全（规范 uya.md §15）
+
+**设计目标**：通过 `atomic T` + 自动原子指令实现零数据竞争、零运行时锁。
+
+**机制**：
+- `atomic T` 语言层原子类型
+- 读/写/复合赋值自动生成原子指令
+- 所有原子操作自动序列化（零数据竞争）
+- 无运行时锁，直接硬件原子指令
+
+**依赖**：原子类型（已实现，Section 11）
+
+**编译器实现**：
+
+- [x] **原子类型基础**：`atomic T`、`&atomic T` 类型、原子操作（已完成）
+- [ ] **Send/Sync 推导**：编译期推导类型是否满足 Send/Sync 约束
+- [ ] **跨线程验证**：编译期验证跨线程使用的安全性
+- [ ] **uya-src 同步**（Send/Sync 部分）
+
+**说明**：原子类型基础已在 Section 11 中实现（C 实现与 uya-src 已同步）。此 Section 关注更高层次的并发安全保证（Send/Sync 编译期推导），需要在异步编程和线程支持实现后进行。
+
+**参考文档**：
+- [uya.md](../uya.md) §15 - 并发安全
+
+**实现优先级**：中（依赖异步编程和线程支持）
+
+---
+
+## 27. 接口组合（规范 uya.md §29.3）
+
+**设计目标**：接口可以组合其他接口的方法，实现接口继承。
+
+**语法**：
+```uya
+interface IReader {
+    fn read(self: &Self, buf: &[byte]) !usize;
+}
+
+interface IWriter {
+    fn write(self: &Self, data: &[byte]) !usize;
+}
+
+// 接口组合：IReadWriter 包含 IReader + IWriter 的所有方法
+interface IReadWriter {
+    IReader;     // 组合 IReader 的方法
+    IWriter;     // 组合 IWriter 的方法
+    fn flush(self: &Self) !void;  // 额外方法
+}
+```
+
+**编译器实现**：
+
+- [ ] **AST**：接口声明支持组合接口列表
+- [ ] **Parser**：解析接口体中的接口名引用
+- [ ] **Checker**：
+  - [ ] 展开组合接口的方法签名
+  - [ ] 验证实现结构体提供所有组合接口的方法
+  - [ ] 循环组合检测
+- [ ] **Codegen**：
+  - [ ] 组合接口 vtable 包含所有被组合接口的方法
+  - [ ] vtable 编译期生成
+- [ ] **uya-src 同步**
+
+**测试用例**：
+- [ ] `test_interface_compose.uya` - 基础接口组合
+- [ ] `test_interface_compose_nested.uya` - 多层嵌套组合
+- [ ] `error_interface_compose_missing.uya` - 未实现组合接口的方法（预期编译失败）
+
+**参考文档**：
+- [uya.md](../uya.md) §29.3 - 接口组合
+- [examples/file_6.uya](../examples/file_6.uya) - 接口组合示例
+
+**实现优先级**：中（未来特性，当前接口基础已实现）
 
 ---
 
