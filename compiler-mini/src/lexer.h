@@ -138,6 +138,7 @@ typedef struct Lexer {
     int line;                        // 当前行号（从1开始）
     int column;                      // 当前列号（从1开始）
     const char *filename;            // 文件名（存储在 Arena 中，可为 NULL）
+    int has_error;                   // 1 表示词法分析遇到错误（如未闭合块注释）
     // 字符串插值状态（仅当 string_mode 或 interp_depth 非 0 时有效）
     int string_mode;                 // 1 表示在 "..." 内
     int raw_string_mode;             // 1 表示在 `...` 内（原始字符串）

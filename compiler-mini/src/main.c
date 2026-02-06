@@ -901,6 +901,12 @@ static int compile_files(const char *input_files[], int input_file_count, const 
             fprintf(stderr, "错误: 解析结果不是程序节点: %s\n", input_file);
             return 1;
         }
+        
+        // 检查词法分析错误（如未闭合块注释）
+        if (lexer.has_error) {
+            fprintf(stderr, "错误: 语法分析失败: %s\n", input_file);
+            return 1;
+        }
 
         programs[i] = ast;
         fprintf(stderr, "  解析完成: %s (声明数: %d)\n", input_file, ast->data.program.decl_count);

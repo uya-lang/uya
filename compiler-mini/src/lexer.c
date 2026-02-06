@@ -25,6 +25,9 @@ int lexer_init(Lexer *lexer, const char *source, size_t source_len, const char *
     lexer->line = 1;
     lexer->column = 1;
     
+    // 错误标志初始化
+    lexer->has_error = 0;
+    
     // 字符串插值状态初始化
     lexer->string_mode = 0;
     lexer->raw_string_mode = 0;
@@ -88,6 +91,34 @@ static void skip_whitespace_and_comments(Lexer *lexer) {
             // 单行注释：跳过到行尾
             while (lexer->position < lexer->buffer_size && peek_char(lexer, 0) != '\n') {
                 advance_char(lexer);
+            }
+        } else if (c == '/' && peek_char(lexer, 1) == '*') {
+            // 块注释：支持嵌套（规范 uya.md §1）
+            int start_line = lexer->line;
+            int start_column = lexer->column;
+            advance_char(lexer);  // 跳过 '/'
+            advance_char(lexer);  // 跳过 '*'
+            int depth = 1;
+            while (depth > 0 && lexer->position < lexer->buffer_size) {
+                char ch = peek_char(lexer, 0);
+                char next = peek_char(lexer, 1);
+                if (ch == '/' && next == '*') {
+                    // 嵌套块注释开始
+                    depth++;
+                    advance_char(lexer);
+                    advance_char(lexer);
+                } else if (ch == '*' && next == '/') {
+                    // 块注释结束
+                    depth--;
+                    advance_char(lexer);
+                    advance_char(lexer);
+                } else {
+                    advance_char(lexer);
+                }
+            }
+            if (depth > 0) {
+                fprintf(stderr, "错误: 块注释未闭合，开始于第 %d 行第 %d 列\n", start_line, start_column);
+                lexer->has_error = 1;
             }
         } else {
             break;
@@ -467,6 +498,11 @@ top_of_token:
     
     // 跳过空白字符和注释
     skip_whitespace_and_comments(lexer);
+    
+    // 检查词法分析错误（如未闭合块注释）
+    if (lexer->has_error) {
+        return NULL;
+    }
     
     // 检查是否到达文件末尾
     if (lexer->position >= lexer->buffer_size) {

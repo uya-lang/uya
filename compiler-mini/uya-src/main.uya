@@ -935,7 +935,7 @@ fn compile_files(
             fprintf(stderr, "错误: 无法读取文件 '%s' (可能文件太大或不存在)\n" as *byte, input_path);
             return 1;
         }
-        var lexer: Lexer = Lexer { buffer: [], buffer_size: 0 as usize, position: 0 as usize, line: 0, column: 0, filename: null };
+        var lexer: Lexer = Lexer { buffer: [], buffer_size: 0 as usize, position: 0 as usize, line: 0, column: 0, filename: null, has_error: 0 };
         const input_path_ref: &byte = input_path as &byte;
         if lexer_init(&lexer, &file_buffer[0], file_size as usize, input_path_ref, &arena) != 0 {
             fprintf(stderr, "错误: Lexer 初始化失败: %s\n" as *byte, input_path);
@@ -953,6 +953,11 @@ fn compile_files(
         }
         if ast.type != ASTNodeType.AST_PROGRAM {
             fprintf(stderr, "错误: 解析结果不是程序节点: %s\n" as *byte, input_path);
+            return 1;
+        }
+        // 检查词法分析错误（如未闭合块注释）
+        if lexer.has_error != 0 {
+            fprintf(stderr, "错误: 语法分析失败: %s\n" as *byte, input_path);
             return 1;
         }
         programs[i] = ast;
