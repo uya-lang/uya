@@ -752,13 +752,19 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                     }
                 }
             } else if is_const != 0 {
+                // 结构体值类型不加 const：避免 &var 取地址传参时产生 const-discard 警告
+                // Uya checker 已确保 const 语义，C 层面不需要重复约束
                 c99_emit_indent(codegen);
-                fprintf(codegen.output as *void, "const %s %s" as *byte, type_c as *byte, var_name as *byte);
-                // 存储类型字符串：const T（用于变量表）
-                const str_len3: i32 = strlen(type_c as *byte) + 7; // "const " + null
-                stored_type_c_for_pointer = arena_alloc(codegen.arena, str_len3) as &byte;
-                if stored_type_c_for_pointer != null {
-                    snprintf(stored_type_c_for_pointer as *byte, str_len3, "const %s" as *byte, type_c as *byte);
+                if strstr(type_c as *byte, "struct " as *byte) != null {
+                    fprintf(codegen.output as *void, "%s %s" as *byte, type_c as *byte, var_name as *byte);
+                } else {
+                    fprintf(codegen.output as *void, "const %s %s" as *byte, type_c as *byte, var_name as *byte);
+                    // 存储类型字符串：const T（用于变量表）
+                    const str_len4: i32 = strlen(type_c as *byte) + 7; // "const " + null
+                    stored_type_c_for_pointer = arena_alloc(codegen.arena, str_len4) as &byte;
+                    if stored_type_c_for_pointer != null {
+                        snprintf(stored_type_c_for_pointer as *byte, str_len4, "const %s" as *byte, type_c as *byte);
+                    }
                 }
             } else {
                 c99_emit_indent(codegen);

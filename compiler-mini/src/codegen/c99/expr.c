@@ -283,9 +283,11 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         case AST_STRING: {
             const char *str_const = add_string_constant(codegen, expr->data.string_literal.value);
             if (str_const) {
-                fprintf(codegen->output, "%s", str_const);
+                // 字符串常量声明为 static const uint8_t[]，用 (uint8_t *) 转换
+                // 避免赋给非 const 指针字段时的 -Wdiscarded-qualifiers 警告
+                fprintf(codegen->output, "(uint8_t *)%s", str_const);
             } else {
-                fputs("\"\"", codegen->output);
+                fputs("(uint8_t *)\"\"", codegen->output);
             }
             break;
         }

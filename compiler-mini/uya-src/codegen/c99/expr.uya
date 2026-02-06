@@ -292,9 +292,11 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     } else if expr.type == ASTNodeType.AST_STRING {
         const str_const: &byte = add_string_constant(codegen, expr.string_literal_value);
         if str_const != null {
-            fprintf(codegen.output as *void, "%s" as *byte, str_const as *byte);
+            // 字符串常量声明为 static const uint8_t[]，用 (uint8_t *) 转换
+            // 避免赋给非 const 指针字段时的 -Wdiscarded-qualifiers 警告
+            fprintf(codegen.output as *void, "(uint8_t *)%s" as *byte, str_const as *byte);
         } else {
-            fputs("\"\"" as *byte, codegen.output as *void);
+            fputs("(uint8_t *)\"\"" as *byte, codegen.output as *void);
         }
     } else if expr.type == ASTNodeType.AST_STRING_INTERP {
         if codegen.string_interp_buf != null {

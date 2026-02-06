@@ -670,12 +670,19 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                         }
                     }
                 } else if (is_const) {
-                    c99_emit(codegen, "const %s %s", type_c, var_name);
-                    // 存储类型字符串：const T（用于变量表）
-                    size_t len = strlen(type_c) + 7; // "const " + null
-                    stored_type_c_for_pointer = arena_alloc(codegen->arena, len);
-                    if (stored_type_c_for_pointer) {
-                        snprintf((char *)stored_type_c_for_pointer, len, "const %s", type_c);
+                    // 结构体值类型不加 const：避免 &var 取地址传参时产生 const-discard 警告
+                    // Uya checker 已确保 const 语义，C 层面不需要重复约束
+                    int is_struct_val = (type_c && strstr(type_c, "struct ") != NULL);
+                    if (is_struct_val) {
+                        c99_emit(codegen, "%s %s", type_c, var_name);
+                    } else {
+                        c99_emit(codegen, "const %s %s", type_c, var_name);
+                        // 存储类型字符串：const T（用于变量表）
+                        size_t len = strlen(type_c) + 7; // "const " + null
+                        stored_type_c_for_pointer = arena_alloc(codegen->arena, len);
+                        if (stored_type_c_for_pointer) {
+                            snprintf((char *)stored_type_c_for_pointer, len, "const %s", type_c);
+                        }
                     }
                 } else {
                     c99_emit(codegen, "%s %s", type_c, var_name);
