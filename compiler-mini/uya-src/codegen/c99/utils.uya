@@ -389,7 +389,7 @@ fn emit_string_constants(codegen: &C99CodeGenerator) void {
     fputs("\n// 字符串常量\n" as *byte, codegen.output as *void);
     var i: i32 = 0;
     while i < codegen.string_constant_count {
-        fprintf(codegen.output as *void, "static const char %s[] = \"" as *byte, codegen.string_constants[i].name as *byte);
+        fprintf(codegen.output as *void, "static const uint8_t %s[] = \"" as *byte, codegen.string_constants[i].name as *byte);
         escape_string_for_c(codegen.output, codegen.string_constants[i].value);
         fputs("\";\n" as *byte, codegen.output as *void);
         i = i + 1;
