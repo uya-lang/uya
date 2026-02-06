@@ -1,0 +1,54 @@
+// 测试多约束泛型语法 <T: Ord + Clone>
+// 当前约束仅作语法解析，不做实际校验
+
+// 泛型函数：带多个约束
+fn max_clone<T: Ord + Clone>(a: T, b: T) T {
+    if a > b {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+// 泛型函数：带单约束
+fn min_ord<T: Ord>(a: T, b: T) T {
+    if a < b {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+// 泛型结构体：带多约束
+struct Container<T: Default + Clone> {
+    value: T,
+}
+
+fn main() i32 {
+    // 测试多约束泛型函数
+    const result1: i32 = max_clone<i32>(10, 20);
+    if result1 != 20 {
+        return 1;
+    }
+    
+    // 测试单约束泛型函数
+    const result2: i32 = min_ord<i32>(10, 20);
+    if result2 != 10 {
+        return 2;
+    }
+    
+    // 测试类型推断（多约束函数）
+    const result3: i32 = max_clone(100, 50);
+    if result3 != 100 {
+        return 3;
+    }
+    
+    // 测试多约束泛型结构体
+    const c: Container<i32> = Container<i32>{ value: 42 };
+    if c.value != 42 {
+        return 4;
+    }
+    
+    return 0;
+}
+

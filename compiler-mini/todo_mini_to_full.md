@@ -416,7 +416,7 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 - [x] **Lexer**：识别泛型语法
   - [x] 识别尖括号 `<` 和 `>`（复用比较运算符 token）
   - [x] 识别类型参数约束语法 `<T: Ord>`、`<T: Default>`（已实现基本约束语法解析）
-  - [ ] 多约束语法 `<T: Ord + Clone + Default>`（待实现）
+  - [x] 多约束语法 `<T: Ord + Clone + Default>`（已实现，用 `+` 连接多个约束）
 
 - [x] **AST**：泛型节点扩展
   - [x] 函数声明添加 `type_params`/`type_param_count` 字段
@@ -431,7 +431,7 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [x] 解析结构体泛型参数列表：`struct Name<T>`
   - [x] 解析接口泛型参数列表：`interface Name<T>`
   - [x] 解析类型参数约束：`<T: Ord>`、`<T: Default>`（已实现基本约束语法解析）
-  - [ ] 解析多约束语法：`<T: Ord + Clone>`（待实现）
+  - [x] 解析多约束语法：`<T: Ord + Clone>`（已实现，用 `+` 连接多个约束）
   - [x] 解析泛型类型使用：`Vec<i32>`、`Pair<i32, i64>`
   - [x] 处理泛型与比较运算符的歧义（修复 `<` 误判为比较运算符的问题）
 
@@ -442,7 +442,7 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [x] 泛型结构体初始化类型检查
   - [x] 泛型结构体字段访问类型推断（字段类型中的类型参数正确替换为具体类型）
   - [x] 泛型结构体指针字段支持（`&T` 字段正确单态化）
-  - [ ] 约束检查：验证类型参数是否满足约束（当前仅解析约束语法，不做实际校验）
+  - [x] 约束检查：验证类型参数是否满足约束（内置约束 Ord/Clone/Default/Copy/Eq 对基本类型隐式实现；结构体需显式实现接口）
   - [x] 类型推断：自动推断类型参数（从函数实参类型推断泛型类型参数）
 
 - [x] **Codegen**：泛型代码生成（单态化）
@@ -452,10 +452,12 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [x] 泛型结构体初始化代码生成（使用单态化名称）
   - [x] 类型参数替换（在生成代码时替换为具体类型）
 
-- [ ] **标准约束接口**：定义常用约束（待实现）
-  - [ ] `Ord` 接口：定义比较运算符
-  - [ ] `Clone` 接口：定义 `clone()` 方法
-  - [ ] `Default` 接口：定义默认值创建
+- [x] **标准约束接口**：定义常用约束（内置实现）
+  - [x] `Ord` 接口：数值类型和 bool 隐式实现（支持比较运算符）
+  - [x] `Clone` 接口：数值类型和 bool 隐式实现（值语义复制）
+  - [x] `Default` 接口：数值类型和 bool 隐式实现（默认值为 0/false）
+  - [x] `Copy` 接口：数值类型、bool、指针隐式实现（位复制）
+  - [x] `Eq` 接口：数值类型、bool、指针隐式实现（判等运算符）
 
 - [x] **测试用例**（基础 + 扩展）：
   - [x] `test_generic_fn.uya` - 基本泛型函数
@@ -477,18 +479,19 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [x] `test_generic_in_expr.uya` - 表达式中使用泛型
   - [x] `test_generic_in_control_flow.uya` - 控制流中使用泛型（if/while）
   - [x] `test_generic_inference.uya` - 泛型类型推断（从实参类型自动推断类型参数）
+  - [x] `test_generic_multi_constraint.uya` - 多约束泛型（`<T: Ord + Clone>`）
+  - [x] `error_generic_constraint_fail.uya` - 约束检查失败测试（预期编译失败）
   - [ ] `test_generic_interface.uya` - 泛型接口（待实现）
 
 **已知限制**：
 - 嵌套泛型（如 `Box<Pair<i32, i32>>`）：`>>` 被解析为右移运算符
 - 泛型接口方法的支持不完善
-- 约束语法已解析但不做实际校验（`<T: Ord>` 中 Ord 未验证类型是否实现该接口）
-- 多约束语法（`<T: Ord + Clone>`）尚未实现
 - 类型推断目前仅支持直接类型参数（如 `a: T`），不支持复杂类型中的类型参数（如 `a: &T`）
+- 结构体需要显式实现接口才能满足约束，基本类型隐式满足内置约束
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen（单态化），uya-src。
 
-**uya-src 已同步**：ast.uya（type_params/type_param_count/type_args/type_arg_count）；parser.uya（泛型参数列表解析、泛型类型使用解析）；checker.uya（MonoInstance、类型参数作用域、泛型函数/结构体类型检查、单态化实例收集、泛型字段类型推断）；codegen（function/structs/main/types/expr/utils/internal：单态化名称生成、泛型函数/结构体代码生成）。测试通过 `--uya --c99`。
+**uya-src 已同步**：ast.uya（type_params/type_param_count/type_args/type_arg_count）；parser.uya（泛型参数列表解析、多约束语法 `+`、泛型类型使用解析）；checker.uya（MonoInstance、类型参数作用域、泛型函数/结构体类型检查、单态化实例收集、泛型字段类型推断、类型推断、**约束检查**）；codegen（function/structs/main/types/expr/utils/internal：单态化名称生成、泛型函数/结构体代码生成）。测试通过 `--uya --c99`。
 
 **参考文档**：
 - [uya.md](../uya.md) §B.1 - 泛型语法说明

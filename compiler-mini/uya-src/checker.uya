@@ -807,6 +807,132 @@ fn get_or_add_error_id(checker: &TypeChecker, name: &byte, node: &ASTNode) u32 {
     return h;
 }
 
+// 将 Type 转换为字符串表示
+fn type_to_string(arena: &Arena, type: Type) &byte {
+    if arena == null {
+        return "unknown" as &byte;
+    }
+    
+    if type.kind == TypeKind.TYPE_I8 { return "i8" as &byte; }
+    if type.kind == TypeKind.TYPE_I16 { return "i16" as &byte; }
+    if type.kind == TypeKind.TYPE_I32 { return "i32" as &byte; }
+    if type.kind == TypeKind.TYPE_I64 { return "i64" as &byte; }
+    if type.kind == TypeKind.TYPE_U8 { return "u8" as &byte; }
+    if type.kind == TypeKind.TYPE_U16 { return "u16" as &byte; }
+    if type.kind == TypeKind.TYPE_U32 { return "u32" as &byte; }
+    if type.kind == TypeKind.TYPE_U64 { return "u64" as &byte; }
+    if type.kind == TypeKind.TYPE_USIZE { return "usize" as &byte; }
+    if type.kind == TypeKind.TYPE_BYTE { return "byte" as &byte; }
+    if type.kind == TypeKind.TYPE_F32 { return "f32" as &byte; }
+    if type.kind == TypeKind.TYPE_F64 { return "f64" as &byte; }
+    if type.kind == TypeKind.TYPE_BOOL { return "bool" as &byte; }
+    if type.kind == TypeKind.TYPE_VOID { return "void" as &byte; }
+    if type.kind == TypeKind.TYPE_STRUCT {
+        if type.struct_name != null {
+            return type.struct_name;
+        }
+        return "struct" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_ENUM {
+        if type.enum_name != null {
+            return type.enum_name;
+        }
+        return "enum" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_UNION {
+        if type.union_name != null {
+            return type.union_name;
+        }
+        return "union" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_INTERFACE {
+        if type.interface_name != null {
+            return type.interface_name;
+        }
+        return "interface" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_POINTER {
+        if type.pointer_to == null {
+            return "&?" as &byte;
+        }
+        const inner: &byte = type_to_string(arena, type.pointer_to[0]);
+        const buf: &byte = arena_alloc(arena, strlen(inner as *byte) + 3) as &byte;
+        if buf != null {
+            if type.is_ffi_pointer != 0 {
+                sprintf(buf as *byte, "*%s" as *byte, inner as *byte);
+            } else {
+                sprintf(buf as *byte, "&%s" as *byte, inner as *byte);
+            }
+            return buf;
+        }
+        return "&?" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_ARRAY {
+        if type.element_type == null {
+            return "[?]" as &byte;
+        }
+        const inner: &byte = type_to_string(arena, type.element_type[0]);
+        const buf: &byte = arena_alloc(arena, strlen(inner as *byte) + 24) as &byte;
+        if buf != null {
+            sprintf(buf as *byte, "[%s: %d]" as *byte, inner as *byte, type.array_size);
+            return buf;
+        }
+        return "[?]" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_SLICE {
+        if type.slice_element_type == null {
+            return "&[?]" as &byte;
+        }
+        const inner: &byte = type_to_string(arena, type.slice_element_type[0]);
+        const buf: &byte = arena_alloc(arena, strlen(inner as *byte) + 8) as &byte;
+        if buf != null {
+            sprintf(buf as *byte, "&[%s]" as *byte, inner as *byte);
+            return buf;
+        }
+        return "&[?]" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_ERROR_UNION {
+        if type.error_union_payload_type == null {
+            return "!?" as &byte;
+        }
+        const inner: &byte = type_to_string(arena, type.error_union_payload_type[0]);
+        const buf: &byte = arena_alloc(arena, strlen(inner as *byte) + 2) as &byte;
+        if buf != null {
+            sprintf(buf as *byte, "!%s" as *byte, inner as *byte);
+            return buf;
+        }
+        return "!?" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_TUPLE {
+        return "(...)" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_ERROR {
+        return "error" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_INT_LIMIT {
+        return "int_limit" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_ATOMIC {
+        if type.atomic_inner_type == null {
+            return "atomic ?" as &byte;
+        }
+        const inner: &byte = type_to_string(arena, type.atomic_inner_type[0]);
+        const buf: &byte = arena_alloc(arena, strlen(inner as *byte) + 8) as &byte;
+        if buf != null {
+            sprintf(buf as *byte, "atomic %s" as *byte, inner as *byte);
+            return buf;
+        }
+        return "atomic ?" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_GENERIC_PARAM {
+        if type.generic_param_name != null {
+            return type.generic_param_name;
+        }
+        return "T" as &byte;
+    }
+    return "unknown" as &byte;
+}
+
 // 是否为整数类型（用于算术、比较、位运算）
 fn is_integer_type(k: TypeKind) i32 {
     if k == TypeKind.TYPE_I8 || k == TypeKind.TYPE_I16 || k == TypeKind.TYPE_I32 || k == TypeKind.TYPE_I64 {
@@ -819,6 +945,145 @@ fn is_integer_type(k: TypeKind) i32 {
         return 1;
     }
     return 0;
+}
+
+// 是否为浮点类型
+fn is_float_type(k: TypeKind) i32 {
+    if k == TypeKind.TYPE_F32 || k == TypeKind.TYPE_F64 {
+        return 1;
+    }
+    return 0;
+}
+
+// 是否为数值类型（整数或浮点）
+fn is_numeric_type(k: TypeKind) i32 {
+    if is_integer_type(k) != 0 || is_float_type(k) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查类型是否满足内置约束（内置约束接口的隐式实现检查）
+// constraint_name: 约束接口名称（如 "Ord", "Clone", "Default"）
+// type: 要检查的类型
+// 返回值：1=满足约束，0=不满足
+fn type_satisfies_builtin_constraint(type: Type, constraint_name: &byte) i32 {
+    if constraint_name == null {
+        return 0;
+    }
+    
+    // Ord 约束：可比较的类型（支持 <, >, <=, >=, ==, != 运算符）
+    // 数值类型（整数、浮点）、bool 隐式实现 Ord
+    if strcmp(constraint_name as *byte, "Ord" as *byte) == 0 {
+        if is_numeric_type(type.kind) != 0 || type.kind == TypeKind.TYPE_BOOL {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // Clone 约束：可复制的类型（支持 clone() 方法或值语义复制）
+    // 基本类型（数值、bool）隐式实现 Clone
+    if strcmp(constraint_name as *byte, "Clone" as *byte) == 0 {
+        if is_numeric_type(type.kind) != 0 || type.kind == TypeKind.TYPE_BOOL {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // Default 约束：有默认值的类型（支持 default() 方法）
+    // 数值类型默认值为 0，bool 默认值为 false
+    if strcmp(constraint_name as *byte, "Default" as *byte) == 0 {
+        if is_numeric_type(type.kind) != 0 || type.kind == TypeKind.TYPE_BOOL {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // Copy 约束：可位复制的类型（和 Clone 类似，但更底层）
+    if strcmp(constraint_name as *byte, "Copy" as *byte) == 0 {
+        if is_numeric_type(type.kind) != 0 || type.kind == TypeKind.TYPE_BOOL || type.kind == TypeKind.TYPE_POINTER {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // Eq 约束：可判等的类型（支持 == 和 != 运算符）
+    if strcmp(constraint_name as *byte, "Eq" as *byte) == 0 {
+        if is_numeric_type(type.kind) != 0 || type.kind == TypeKind.TYPE_BOOL || type.kind == TypeKind.TYPE_POINTER {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // 未知约束，需要显式实现
+    return 0;
+}
+
+// 检查类型是否满足约束（支持内置约束和用户定义接口）
+// checker: 类型检查器
+// type: 要检查的类型
+// constraint_name: 约束接口名称
+// 返回值：1=满足约束，0=不满足
+fn type_satisfies_constraint(checker: &TypeChecker, type: Type, constraint_name: &byte) i32 {
+    if constraint_name == null {
+        return 0;
+    }
+    
+    // 首先检查内置约束
+    if type_satisfies_builtin_constraint(type, constraint_name) != 0 {
+        return 1;
+    }
+    
+    // 对于结构体类型，检查是否实现了约束接口
+    if type.kind == TypeKind.TYPE_STRUCT && type.struct_name != null && 
+        checker != null && checker.program_node != null {
+        const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, type.struct_name as *byte);
+        if struct_decl != null {
+            var i: i32 = 0;
+            while i < struct_decl.struct_decl_interface_count {
+                if struct_decl.struct_decl_interface_names[i] != null &&
+                    strcmp(struct_decl.struct_decl_interface_names[i] as *byte, constraint_name as *byte) == 0 {
+                    return 1;
+                }
+                i = i + 1;
+            }
+        }
+    }
+    
+    return 0;
+}
+
+// 检查类型参数的所有约束是否满足
+// checker: 类型检查器
+// type: 具体类型（替换后的类型参数）
+// type_param: 类型参数定义（包含约束列表）
+// node: 错误报告用的 AST 节点
+// param_name: 类型参数名称（用于错误消息）
+// 返回值：1=所有约束满足，0=有约束不满足（已报错）
+fn check_type_param_constraints(checker: &TypeChecker, type: Type, 
+                                 type_param: &TypeParam, node: &ASTNode,
+                                 param_name: &byte) i32 {
+    if type_param == null || type_param.constraint_count == 0 {
+        return 1;  // 无约束，直接通过
+    }
+    
+    var i: i32 = 0;
+    while i < type_param.constraint_count {
+        const constraint: *byte = type_param.constraints[i];
+        if constraint != null && type_satisfies_constraint(checker, type, constraint) == 0 {
+            var buf: [byte: 512] = [];
+            const type_name: &byte = type_to_string(checker.arena, copy_type(&type));
+            snprintf(buf as *byte, 512, 
+                     "类型 '%s' 不满足泛型参数 '%s' 的约束 '%s'" as *byte,
+                     type_name as *byte,
+                     param_name,
+                     constraint);
+            checker_report_error(checker, node, buf as *byte);
+            return 0;
+        }
+        i = i + 1;
+    }
+    return 1;
 }
 
 // 将 max/min 节点解析为指定整数类型（用于从上下文推断）
@@ -2686,6 +2951,28 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         result.kind = TypeKind.TYPE_STRUCT;
         // 结构体名称需要存储在Arena中（从AST节点获取的名称已经在Arena中）
         result.struct_name = expr.struct_init_struct_name;
+        
+        // 检查泛型结构体的类型参数约束
+        if expr.struct_init_type_arg_count > 0 && expr.struct_init_type_args != null {
+            const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, expr.struct_init_struct_name);
+            if struct_decl != null && struct_decl.struct_decl_type_param_count > 0 {
+                const struct_type_params: &TypeParam = struct_decl.struct_decl_type_params;
+                const struct_type_param_count: i32 = struct_decl.struct_decl_type_param_count;
+                if expr.struct_init_type_arg_count == struct_type_param_count {
+                    var ci: i32 = 0;
+                    while ci < struct_type_param_count {
+                        const arg_type: Type = type_from_ast(checker, expr.struct_init_type_args[ci]);
+                        if check_type_param_constraints(checker, arg_type, 
+                                                        &struct_type_params[ci], expr,
+                                                        struct_type_params[ci].name) == 0 {
+                            // 约束检查失败，已报错，但继续返回结构体类型
+                            break;
+                        }
+                        ci = ci + 1;
+                    }
+                }
+            }
+        }
         return result;
     } else if expr.type == ASTNodeType.AST_TUPLE_LITERAL {
         // 元组字面量：(expr1, expr2, ...) 推断为 (T1, T2, ...)
@@ -3732,6 +4019,16 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
         if type_arg_count != type_param_count {
             checker_report_error(checker, node, "泛型函数类型参数数量不匹配" as *byte);
             return result;
+        }
+        
+        // 检查类型参数约束
+        var ci: i32 = 0;
+        while ci < type_param_count {
+            const arg_type: Type = type_from_ast(checker, type_args[ci]);
+            if check_type_param_constraints(checker, arg_type, &type_params[ci], node, type_params[ci].name) == 0 {
+                return result;  // 约束检查失败，已报错
+            }
+            ci = ci + 1;
         }
         
         // 注册单态化实例
