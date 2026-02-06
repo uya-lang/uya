@@ -5293,8 +5293,8 @@ fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32 {
                     const dir_len: usize = ptr_diff(last_slash, filename as *byte) as usize + 1;
                     const root_dir: &byte = arena_alloc(checker.arena, dir_len + 1) as &byte;
                     if root_dir != null {
-                        var root_dir_ptr: *byte = root_dir as *byte;
-                        memcpy(root_dir_ptr, filename as *byte, dir_len);
+                        var root_dir_ptr: &byte = root_dir;
+                        memcpy(root_dir_ptr as *byte, filename as *byte, dir_len);
                         root_dir_ptr[dir_len] = 0;  // '\0'
                         checker.project_root_dir = root_dir;
                     }
@@ -5302,7 +5302,7 @@ fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32 {
                     // 文件在根目录，项目根目录为空字符串（表示当前目录）
                     const root_dir: &byte = arena_alloc(checker.arena, 1) as &byte;
                     if root_dir != null {
-                        var root_dir_ptr: *byte = root_dir as *byte;
+                        var root_dir_ptr: &byte = root_dir;
                         root_dir_ptr[0] = 0;  // '\0'
                         checker.project_root_dir = root_dir;
                     }
@@ -6431,7 +6431,7 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
                 return null;
             }
             
-            var dst: *byte = module_name as *byte;
+            var dst: &byte = module_name;
             p = dir_start;
             dir_count = 0;
             while (p as *byte) < dir_end {
@@ -6447,10 +6447,10 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
                 if dir_len > 0 {
                     if dir_count > 0 {
                         dst[0] = 46;  // '.'
-                        dst = dst + 1;
+                        dst = &dst[1];
                     }
-                    memcpy(dst, p as *byte, dir_len);
-                    dst = dst + dir_len;
+                    memcpy(dst as *byte, p as *byte, dir_len);
+                    dst = &dst[dir_len];
                     dir_count = dir_count + 1;
                 }
                 
@@ -6549,7 +6549,7 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
         return null;
     }
     
-    var dst: *byte = module_name as *byte;
+    var dst: &byte = module_name;
     p = dir_start;
     dir_count = 0;
     while (p as *byte) < dir_end {
@@ -6565,10 +6565,10 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
         if dir_len > 0 {
             if dir_count > 0 {
                 dst[0] = 46;  // '.'
-                dst = dst + 1;
+                dst = &dst[1];
             }
-            memcpy(dst, p as *byte, dir_len);
-            dst = dst + dir_len;
+            memcpy(dst as *byte, p as *byte, dir_len);
+            dst = &dst[dir_len];
             dir_count = dir_count + 1;
         }
         
@@ -6774,18 +6774,18 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
                 return 0;
             }
             
-            var dst: *byte = module_name_buf as *byte;
+            var dst: &byte = module_name_buf;
             i = 0;
             while i < module_segment_count {
                 const seg: &byte = node.use_stmt_path_segments[i];
                 if seg != null {
                     if i > 0 {
                         dst[0] = 46;  // '.'
-                        dst = dst + 1;
+                        dst = &dst[1];
                     }
                     const seg_len: usize = strlen(seg as *byte);
-                    memcpy(dst, seg as *byte, seg_len);
-                    dst = dst + seg_len;
+                    memcpy(dst as *byte, seg as *byte, seg_len);
+                    dst = &dst[seg_len];
                 }
                 i = i + 1;
             }
@@ -6822,18 +6822,18 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
             return 0;
         }
         
-        var dst: *byte = module_name_buf as *byte;
+        var dst: &byte = module_name_buf;
         i = 0;
         while i < node.use_stmt_path_segment_count {
             const seg: &byte = node.use_stmt_path_segments[i];
             if seg != null {
                 if i > 0 {
                     dst[0] = 46;  // '.'
-                    dst = dst + 1;
+                    dst = &dst[1];
                 }
                 const seg_len: usize = strlen(seg as *byte);
-                memcpy(dst, seg as *byte, seg_len);
-                dst = dst + seg_len;
+                memcpy(dst as *byte, seg as *byte, seg_len);
+                dst = &dst[seg_len];
             }
             i = i + 1;
         }

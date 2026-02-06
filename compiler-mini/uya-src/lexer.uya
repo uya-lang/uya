@@ -371,51 +371,147 @@ fn read_identifier_or_keyword(lexer: &Lexer, arena: &Arena) &Token {
     return make_token(arena, tok_type, value, line, column);
 }
 
+// 辅助函数：检查字符是否为指定进制的有效数字
+fn is_valid_digit_for_base(c: byte, base: i32) i32 {
+    if base == 2 {
+        if c == 48 || c == 49 {
+            return 1;
+        }
+        return 0;
+    }
+    if base == 8 {
+        if c >= 48 && c <= 55 {
+            return 1;
+        }
+        return 0;
+    }
+    if base == 10 {
+        if c >= 48 && c <= 57 {
+            return 1;
+        }
+        return 0;
+    }
+    if base == 16 {
+        if (c >= 48 && c <= 57) || (c >= 65 && c <= 70) || (c >= 97 && c <= 102) {
+            return 1;
+        }
+        return 0;
+    }
+    return 0;
+}
+
 // 读取数字字面量（整数或浮点数）
+// 支持十六进制（0x/0X）、八进制（0o/0O）、二进制（0b/0B）和下划线分隔符
 fn read_number(lexer: &Lexer, arena: &Arena) &Token {
     const start_index: usize = lexer.position;
     const line: i32 = lexer.line;
     const column: i32 = lexer.column;
     var is_float: i32 = 0;
-    while lexer.position < lexer.buffer_size {
-        const c: byte = peek_char(lexer, 0);
-        if c >= 48 && c <= 57 {
+    var base: i32 = 10;
+    var num_start_index: usize = start_index;
+    
+    // 检查进制前缀
+    if peek_char(lexer, 0) == 48 {
+        const next_char: byte = peek_char(lexer, 1);
+        if next_char == 120 || next_char == 88 {
+            base = 16;
             advance_char(lexer);
+            advance_char(lexer);
+            num_start_index = lexer.position;
         } else {
-            break;
+            if next_char == 111 || next_char == 79 {
+                base = 8;
+                advance_char(lexer);
+                advance_char(lexer);
+                num_start_index = lexer.position;
+            } else {
+                if next_char == 98 || next_char == 66 {
+                    base = 2;
+                    advance_char(lexer);
+                    advance_char(lexer);
+                    num_start_index = lexer.position;
+                }
+            }
         }
     }
-    if peek_char(lexer, 0) == 46 && peek_char(lexer, 1) != 46 {
-        advance_char(lexer);
-        is_float = 1;
-        while lexer.position < lexer.buffer_size {
-            const c: byte = peek_char(lexer, 0);
-            if c >= 48 && c <= 57 {
+    
+    // 读取数字和下划线
+    while lexer.position < lexer.buffer_size {
+        const c: byte = peek_char(lexer, 0);
+        if c == 95 {
+            advance_char(lexer);
+            const next_c: byte = peek_char(lexer, 0);
+            if is_valid_digit_for_base(next_c, base) == 0 || next_c == 95 {
+                const stderr: *void = get_stderr();
+                fprintf(stderr, "错误: 非法的数字下划线分隔符位置\n" as *byte);
+                return null;
+            }
+        } else {
+            if is_valid_digit_for_base(c, base) != 0 {
                 advance_char(lexer);
             } else {
                 break;
             }
         }
     }
+    
+    // 检查浮点数部分（仅对十进制）
+    if base == 10 && peek_char(lexer, 0) == 46 && peek_char(lexer, 1) != 46 {
+        advance_char(lexer);
+        is_float = 1;
+        while lexer.position < lexer.buffer_size {
+            const c: byte = peek_char(lexer, 0);
+            if c == 95 {
+                advance_char(lexer);
+                const next_c: byte = peek_char(lexer, 0);
+                if next_c < 48 || next_c > 57 || next_c == 95 {
+                    const stderr: *void = get_stderr();
+                    fprintf(stderr, "错误: 非法的浮点数下划线分隔符位置\n" as *byte);
+                    return null;
+                }
+            } else {
+                if c >= 48 && c <= 57 {
+                    advance_char(lexer);
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+    
+    // 检查指数部分（仅对十进制浮点数）
     const ec: byte = peek_char(lexer, 0);
-    if ec == 101 || ec == 69 {
+    if base == 10 && (ec == 101 || ec == 69) {
         advance_char(lexer);
         is_float = 1;
         if peek_char(lexer, 0) == 43 || peek_char(lexer, 0) == 45 {
             advance_char(lexer);
         }
         if peek_char(lexer, 0) < 48 || peek_char(lexer, 0) > 57 {
+            const stderr: *void = get_stderr();
+            fprintf(stderr, "错误: 浮点数字面量指数部分缺少数字\n" as *byte);
             return null;
         }
         while lexer.position < lexer.buffer_size {
             const c: byte = peek_char(lexer, 0);
-            if c >= 48 && c <= 57 {
+            if c == 95 {
                 advance_char(lexer);
+                const next_c: byte = peek_char(lexer, 0);
+                if next_c < 48 || next_c > 57 || next_c == 95 {
+                    const stderr: *void = get_stderr();
+                    fprintf(stderr, "错误: 非法的浮点数下划线分隔符位置\n" as *byte);
+                    return null;
+                }
             } else {
-                break;
+                if c >= 48 && c <= 57 {
+                    advance_char(lexer);
+                } else {
+                    break;
+                }
             }
         }
     }
+    
     const n: usize = lexer.position - start_index;
     const start_ptr: &byte = &lexer.buffer[start_index] as &byte;
     const value: &byte = arena_copy_str(arena, start_ptr, n);

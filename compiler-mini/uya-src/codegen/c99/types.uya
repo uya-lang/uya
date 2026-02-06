@@ -316,8 +316,20 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
         const pointed_type: &ASTNode = type_node.type_pointer_pointed_type;
         const pointee_type: &byte = c99_type_to_c(codegen, pointed_type);
         
+        // 检查是否是 FFI 指针指向 byte（即 *byte）
+        var is_ffi_byte_ptr: i32 = 0;
+        if type_node.type_pointer_is_ffi_pointer != 0 && pointed_type != null &&
+            pointed_type.type == ASTNodeType.AST_TYPE_NAMED && pointed_type.type_named_name != null &&
+            strcmp(pointed_type.type_named_name as *byte, "byte" as *byte) == 0 {
+            is_ffi_byte_ptr = 1;
+        }
+        
         // 分配缓冲区（在 Arena 中）
-        const str_len: i32 = strlen(pointee_type as *byte) + 3;  // 类型 + " *" + null
+        var extra_len: i32 = 3;  // " *" + null
+        if is_ffi_byte_ptr != 0 {
+            extra_len = 10;  // " const *" + null
+        }
+        const str_len: i32 = strlen(pointee_type as *byte) + extra_len;
         const result: &byte = arena_alloc(codegen.arena, str_len) as &byte;
         if result == null {
             return ("void*" as *byte) as &byte;
@@ -349,7 +361,12 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
             return arr_ptr;
         }
         
-        snprintf(result as *byte, str_len, "%s *" as *byte, pointee_type as *byte);
+        // *byte 类型生成为 const uint8_t * （兼容字符串字面量）
+        if is_ffi_byte_ptr != 0 {
+            snprintf(result as *byte, str_len, "const %s *" as *byte, pointee_type as *byte);
+        } else {
+            snprintf(result as *byte, str_len, "%s *" as *byte, pointee_type as *byte);
+        }
         return result;
     } else if type_node.type == ASTNodeType.AST_TYPE_ATOMIC {
         // 原子类型 atomic T -> _Atomic(T)
