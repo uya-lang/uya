@@ -72,6 +72,7 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
     switch (stmt->type) {
         case AST_EXPR_STMT:
             // 表达式语句的数据存储在表达式的节点中，直接忽略此节点
+            // 实际上，Parser 返回的是表达式节点本身，不会有 AST_EXPR_STMT
             break;
         case AST_ASSIGN: {
             ASTNode *dest = stmt->data.assign.dest;
@@ -1326,8 +1327,8 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             c99_emit(codegen, "continue;\n");
             break;
         default:
-            // 检查是否为表达式节点
-            if (stmt->type >= AST_BINARY_EXPR && stmt->type <= AST_STRING) {
+            // 检查是否为表达式节点（包括 @syscall 等内置函数）
+            if (stmt->type >= AST_BINARY_EXPR && stmt->type <= AST_SYSCALL) {
                 c99_emit(codegen, "");
                 gen_expr(codegen, stmt);
                 fputs(";\n", codegen->output);

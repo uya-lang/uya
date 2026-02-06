@@ -584,6 +584,28 @@ void collect_string_constants_from_expr(C99CodeGenerator *codegen, ASTNode *expr
         case AST_SRC_COL:
             // 这些生成整数字面量，不需要收集字符串常量
             break;
+        case AST_CATCH_EXPR: {
+            // catch 表达式：收集操作数和 catch 块中的字符串
+            if (expr->data.catch_expr.operand) {
+                collect_string_constants_from_expr(codegen, expr->data.catch_expr.operand);
+            }
+            if (expr->data.catch_expr.catch_block) {
+                collect_string_constants_from_stmt(codegen, expr->data.catch_expr.catch_block);
+            }
+            break;
+        }
+        case AST_SYSCALL: {
+            // @syscall 表达式：收集系统调用号和参数中的字符串
+            if (expr->data.syscall.syscall_number) {
+                collect_string_constants_from_expr(codegen, expr->data.syscall.syscall_number);
+            }
+            for (int i = 0; i < expr->data.syscall.arg_count; i++) {
+                if (expr->data.syscall.args[i]) {
+                    collect_string_constants_from_expr(codegen, expr->data.syscall.args[i]);
+                }
+            }
+            break;
+        }
         default:
             // 其他表达式类型（标识符、数字、布尔值）不包含字符串
             break;

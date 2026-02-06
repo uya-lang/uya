@@ -3149,6 +3149,72 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return node;
     }
     
+    // 解析 @syscall 表达式：@syscall(nr, arg1, arg2, ...)
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "syscall") == 0) {
+        parser_consume(parser);  // 消费 'syscall'
+        
+        // 期望 '('
+        if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
+            return NULL;
+        }
+        
+        ASTNode *syscall_node = ast_new_node(AST_SYSCALL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (syscall_node == NULL) {
+            return NULL;
+        }
+        
+        // 解析系统调用号（第一个参数，必须）
+        ASTNode *syscall_number = parser_parse_or_expr(parser);
+        if (syscall_number == NULL) {
+            fprintf(stderr, "%s:%d:%d 错误: @syscall 需要系统调用号作为第一个参数\n",
+                    parser->lexer ? parser->lexer->filename : "unknown",
+                    parser->current_token ? parser->current_token->line : 0,
+                    parser->current_token ? parser->current_token->column : 0);
+            return NULL;
+        }
+        syscall_node->data.syscall.syscall_number = syscall_number;
+        
+        // 解析可选的参数（最多 6 个）
+        int arg_capacity = 6;
+        ASTNode **args = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * arg_capacity);
+        int arg_count = 0;
+        
+        // 如果有逗号，继续解析参数
+        while (parser->current_token != NULL && parser->current_token->type == TOKEN_COMMA) {
+            parser_consume(parser);  // 消费逗号
+            
+            // 检查参数数量限制
+            if (arg_count >= 6) {
+                fprintf(stderr, "%s:%d:%d 错误: @syscall 最多支持 6 个参数\n",
+                        parser->lexer ? parser->lexer->filename : "unknown",
+                        parser->current_token ? parser->current_token->line : 0,
+                        parser->current_token ? parser->current_token->column : 0);
+                return NULL;
+            }
+            
+            ASTNode *arg = parser_parse_or_expr(parser);
+            if (arg == NULL) {
+                fprintf(stderr, "%s:%d:%d 错误: @syscall 参数解析失败\n",
+                        parser->lexer ? parser->lexer->filename : "unknown",
+                        parser->current_token ? parser->current_token->line : 0,
+                        parser->current_token ? parser->current_token->column : 0);
+                return NULL;
+            }
+            args[arg_count++] = arg;
+        }
+        
+        syscall_node->data.syscall.args = args;
+        syscall_node->data.syscall.arg_count = arg_count;
+        
+        // 期望 ')'
+        if (!parser_expect(parser, TOKEN_RIGHT_PAREN)) {
+            return NULL;
+        }
+        
+        return syscall_node;
+    }
+    
     // 解析 @size_of 表达式：@size_of(Type) 或 @size_of(expr)
     if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
         strcmp(parser->current_token->value, "size_of") == 0) {

@@ -236,6 +236,50 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             }
             break;
         }
+        case AST_SYSCALL: {
+            // @syscall(nr, arg1, ..., arg6) 返回 !i64
+            // 生成：
+            // ({
+            //     long _uya_syscall_ret = uya_syscall{N}(nr, arg1, ...);
+            //     struct err_union_int64_t _uya_result;
+            //     if (_uya_syscall_ret < 0) {
+            //         _uya_result.error_id = (int)(-_uya_syscall_ret);
+            //     } else {
+            //         _uya_result.error_id = 0;
+            //         _uya_result.value = _uya_syscall_ret;
+            //     }
+            //     _uya_result;
+            // })
+            
+            fputs("({ ", codegen->output);
+            
+            // 生成系统调用
+            fputs("long _uya_syscall_ret = uya_syscall", codegen->output);
+            fprintf(codegen->output, "%d(", expr->data.syscall.arg_count);
+            
+            // 生成系统调用号
+            gen_expr(codegen, expr->data.syscall.syscall_number);
+            
+            // 生成参数
+            for (int i = 0; i < expr->data.syscall.arg_count; i++) {
+                fputs(", ", codegen->output);
+                gen_expr(codegen, expr->data.syscall.args[i]);
+            }
+            
+            fputs("); ", codegen->output);
+            
+            // 生成错误联合类型包装
+            fputs("struct err_union_int64_t _uya_result; ", codegen->output);
+            fputs("if (_uya_syscall_ret < 0) { ", codegen->output);
+            fputs("_uya_result.error_id = (int)(-_uya_syscall_ret); ", codegen->output);
+            fputs("} else { ", codegen->output);
+            fputs("_uya_result.error_id = 0; ", codegen->output);
+            fputs("_uya_result.value = _uya_syscall_ret; ", codegen->output);
+            fputs("} ", codegen->output);
+            fputs("_uya_result; ", codegen->output);
+            fputs("})", codegen->output);
+            break;
+        }
         case AST_STRING: {
             const char *str_const = add_string_constant(codegen, expr->data.string_literal.value);
             if (str_const) {

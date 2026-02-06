@@ -106,6 +106,8 @@ typedef enum {
     AST_SRC_LINE,       // @src_line - 源文件行号
     AST_SRC_COL,        // @src_col - 源文件列号
     AST_FUNC_NAME,      // @func_name - 当前函数名
+    AST_SYSCALL,        // @syscall(nr, arg1, ..., arg6) - 系统调用
+
     
     // 类型节点
     AST_TYPE_NAMED,     // 命名类型（i32, bool, void, 或 struct Name）
@@ -532,6 +534,13 @@ struct ASTNode {
         struct {
             struct ASTNode *inner_type;       // 内部类型 T（从 Arena 分配）
         } type_atomic;
+
+        // 系统调用内置函数（@syscall(nr, arg1, ..., arg6)）
+        struct {
+            struct ASTNode *syscall_number;  // 系统调用号（必须是编译期常量）
+            struct ASTNode **args;            // 参数数组（0-6 个）
+            int arg_count;                    // 参数个数
+        } syscall;
 
         // match 表达式
         struct {

@@ -710,6 +710,7 @@ top_of_token:
                     strcmp(value, "src_name") == 0 || strcmp(value, "src_path") == 0 ||
                     strcmp(value, "src_line") == 0 || strcmp(value, "src_col") == 0 ||
                     strcmp(value, "func_name") == 0 ||
+                    strcmp(value, "syscall") == 0 ||  // 系统调用内置函数
                     strcmp(value, "async_fn") == 0 || strcmp(value, "await") == 0 ||  // 异步编程
                     strcmp(value, "mc_eval") == 0 || strcmp(value, "mc_code") == 0 ||
                     strcmp(value, "mc_ast") == 0 || strcmp(value, "mc_error") == 0 || strcmp(value, "mc_get_env") == 0) {
@@ -724,7 +725,7 @@ top_of_token:
                         return make_token(arena, TOKEN_AT_IDENTIFIER, value, line, column);
                     }
                 }
-                fprintf(stderr, "错误: 未知内置 @%s，支持：@size_of、@align_of、@len、@max、@min、@params、@src_name、@src_path、@src_line、@src_col、@func_name、@async_fn、@await、@mc_eval、@mc_type、@mc_ast、@mc_code、@mc_error、@mc_get_env\n", value);
+                fprintf(stderr, "错误: 未知内置 @%s，支持：@size_of、@align_of、@len、@max、@min、@params、@src_name、@src_path、@src_line、@src_col、@func_name、@syscall、@async_fn、@await、@mc_eval、@mc_type、@mc_ast、@mc_code、@mc_error、@mc_get_env\n", value);
                 return NULL;
             }
             fprintf(stderr, "错误: @ 后必须是标识符\n");

@@ -243,6 +243,12 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
         case AST_FUNC_NAME:
             // 这些节点不需要额外的数据字段，信息已经在 line/column/filename 中
             break;
+        case AST_SYSCALL:
+            // 系统调用节点，字段由 Parser 填充
+            node->data.syscall.syscall_number = NULL;
+            node->data.syscall.args = NULL;
+            node->data.syscall.arg_count = 0;
+            break;
         case AST_STRING:
             node->data.string_literal.value = NULL;
             break;

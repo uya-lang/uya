@@ -1257,6 +1257,93 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             result.data.slice.element_type = element_type;
             return result;
         }
+        
+        case AST_SYSCALL: {
+            // @syscall(nr, arg1, ..., arg6) 返回 !i64 类型
+            
+            // 1. 检查系统调用号（第一个参数）
+            if (expr->data.syscall.syscall_number == NULL) {
+                checker_report_error(checker, expr, "@syscall 需要系统调用号作为第一个参数");
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            
+            // 检查系统调用号的类型
+            Type syscall_nr_type = checker_infer_type(checker, expr->data.syscall.syscall_number);
+            if (syscall_nr_type.kind == TYPE_VOID) {
+                // 错误已经在递归检查中报告
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            
+            // 系统调用号必须是整数类型
+            if (syscall_nr_type.kind != TYPE_I8 && syscall_nr_type.kind != TYPE_I16 &&
+                syscall_nr_type.kind != TYPE_I32 && syscall_nr_type.kind != TYPE_I64 &&
+                syscall_nr_type.kind != TYPE_BYTE && syscall_nr_type.kind != TYPE_U16 &&
+                syscall_nr_type.kind != TYPE_U32 && syscall_nr_type.kind != TYPE_U64 &&
+                syscall_nr_type.kind != TYPE_USIZE) {
+                checker_report_error(checker, expr->data.syscall.syscall_number, 
+                                   "@syscall 的系统调用号必须是整数类型");
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            
+            // TODO: 编译期常量验证（v0.3.0 可以暂时跳过，先支持基础功能）
+            // 理想情况下应该在编译期求值 syscall_number，确保它是常量
+            
+            // 2. 检查参数（最多 6 个）
+            if (expr->data.syscall.arg_count > 6) {
+                checker_report_error(checker, expr, "@syscall 最多支持 6 个参数");
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            
+            // 检查每个参数的类型（必须可转换为 i64）
+            for (int i = 0; i < expr->data.syscall.arg_count; i++) {
+                if (expr->data.syscall.args[i] == NULL) {
+                    checker_report_error(checker, expr, "@syscall 参数不能为空");
+                    result.kind = TYPE_VOID;
+                    return result;
+                }
+                
+                Type arg_type = checker_infer_type(checker, expr->data.syscall.args[i]);
+                if (arg_type.kind == TYPE_VOID) {
+                    // 错误已经在递归检查中报告
+                    result.kind = TYPE_VOID;
+                    return result;
+                }
+                
+                // 参数类型必须可转换为 i64（整数或指针）
+                int is_valid_arg = 0;
+                if (arg_type.kind == TYPE_I8 || arg_type.kind == TYPE_I16 ||
+                    arg_type.kind == TYPE_I32 || arg_type.kind == TYPE_I64 ||
+                    arg_type.kind == TYPE_BYTE || arg_type.kind == TYPE_U16 ||
+                    arg_type.kind == TYPE_U32 || arg_type.kind == TYPE_U64 ||
+                    arg_type.kind == TYPE_USIZE || arg_type.kind == TYPE_POINTER) {
+                    is_valid_arg = 1;
+                }
+                
+                if (!is_valid_arg) {
+                    checker_report_error(checker, expr->data.syscall.args[i], 
+                                       "@syscall 的参数必须是整数或指针类型");
+                    result.kind = TYPE_VOID;
+                    return result;
+                }
+            }
+            
+            // 3. 返回类型：!i64（错误联合类型）
+            result.kind = TYPE_ERROR_UNION;
+            
+            Type *payload_type = (Type *)arena_alloc(checker->arena, sizeof(Type));
+            if (payload_type == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            payload_type->kind = TYPE_I64;
+            result.data.error_union.payload_type = payload_type;
+            
+            return result;
+        }
             
         case AST_STRING: {
             // 字符串字面量类型为 *byte（FFI 指针类型）
