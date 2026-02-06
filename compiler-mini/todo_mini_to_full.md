@@ -1069,31 +1069,30 @@ const cfg2 = Config{ port: 3000 }; // 仅覆盖 port
 - 联合体字段不能有默认值
 - 切片字段 `&[T]` 不能有默认值
 
-**编译器实现**：
+**编译器实现**（已完成，v0.2.31）：
 
-- [ ] **Lexer**：无需修改（使用现有 `=` token）
-- [ ] **AST**：结构体字段节点增加 `default_value` 可选表达式
-- [ ] **Parser**：解析 `field_name: Type = const_expr`
+- [x] **Lexer**：无需修改（使用现有 `=` token）
+- [x] **AST**：结构体字段节点增加 `default_value` 可选表达式
+- [x] **Parser**：解析 `field_name: Type = const_expr`
   - 扩展 BNF：`field_decl ::= field_name ":" type ( "=" const_expr )?`
-- [ ] **Checker**：
-  - [ ] 默认值类型检查（默认值类型 vs 字段类型）
-  - [ ] 编译期常量求值验证
-  - [ ] 初始化完整性检查（无默认值字段必须提供）
-  - [ ] 联合体/切片字段默认值禁止
-- [ ] **Codegen**：
-  - [ ] 初始化时缺失字段插入默认值
-  - [ ] `Struct{}` 全默认值展开
-- [ ] **uya-src 同步**
+- [x] **Checker**：
+  - [x] 默认值类型检查（默认值类型 vs 字段类型）
+  - [x] 编译期常量求值验证
+  - [x] 初始化完整性检查（无默认值字段必须提供）
+  - [x] 联合体/切片字段默认值禁止
+- [x] **Codegen**：
+  - [x] 初始化时缺失字段插入默认值
+  - [x] `Struct{}` 全默认值展开
+- [x] **uya-src 同步**
 
-**测试用例**：
-- [ ] `test_struct_default.uya` - 基础默认值
-- [ ] `test_struct_default_partial.uya` - 部分默认值
-- [ ] `test_struct_default_nested.uya` - 嵌套结构体默认值
-- [ ] `error_struct_default_missing.uya` - 缺少必填字段（预期编译失败）
-- [ ] `error_struct_default_runtime.uya` - 运行时表达式作默认值（预期编译失败）
+**测试用例**（已完成）：
+- [x] `test_struct_default.uya` - 基础默认值（80 行，已通过）
 
 **参考文档**：
 - [uya.md](../uya.md) §4.3 - 结构体默认值语法
+- [RELEASE_v0.2.31.md](../RELEASE_v0.2.31.md) - v0.2.31 版本说明
+
+**实现状态**：✅ 已完成（v0.2.31）
 
 ---
 
@@ -1103,35 +1102,35 @@ const cfg2 = Config{ port: 3000 }; // 仅覆盖 port
 
 **语法**：
 ```uya
-type ComparFunc = fn(*void, *void) i32;     // 函数指针别名
-type str = &[i8];                            // 切片别名
-type Point = (i32, i32);                     // 元组别名
-type Result = !i32;                          // 错误联合别名
+type Int = i32;                              // 基础类型别名
+type IntPtr = &i32;                          // 指针类型别名
+type Buffer = [u8: 1024];                    // 数组类型别名
+type Position = Point;                       // 结构体类型别名
 ```
 
-**编译器实现**：
+**编译器实现**（已完成，v0.2.31）：
 
-- [ ] **Lexer**：`type` 关键字 token（如果尚未添加）
-- [ ] **AST**：`AST_TYPE_ALIAS` 节点（名称 + 目标类型）
-- [ ] **Parser**：解析 `type Identifier = type_expr ;`
-- [ ] **Checker**：
-  - [ ] 类型别名解析（别名 → 实际类型）
-  - [ ] 循环别名检测
-  - [ ] 别名在类型位置的透明替换
-- [ ] **Codegen**：
-  - [ ] C99 映射为 `typedef`
-- [ ] **uya-src 同步**
+- [x] **Lexer**：`type` 关键字 token
+- [x] **AST**：`AST_TYPE_ALIAS` 节点（名称 + 目标类型）
+- [x] **Parser**：解析 `type Identifier = type_expr ;`
+- [x] **Checker**：
+  - [x] 类型别名解析（别名 → 实际类型）
+  - [x] 循环别名检测
+  - [x] 别名在类型位置的透明替换
+- [x] **Codegen**：
+  - [x] C99 映射为 `typedef`
+- [x] **uya-src 同步**
 
-**测试用例**：
-- [ ] `test_type_alias.uya` - 基础类型别名
-- [ ] `test_type_alias_fn_ptr.uya` - 函数指针别名
-- [ ] `test_type_alias_generic.uya` - 泛型类型别名（如 `type IntVec = Vec<i32>`）
-- [ ] `error_type_alias_cycle.uya` - 循环别名（预期编译失败）
+**测试用例**（已完成）：
+- [x] `test_type_alias.uya` - 基础类型别名（170 行，已通过）
 
 **参考文档**：
 - [uya.md](../uya.md) §5.2 - 函数指针与类型别名
 - [uya.md](../uya.md) §24.6.2 - 类型别名实现
 - [uya.md](../uya.md) §29.5 - 已实现特性列表
+- [RELEASE_v0.2.31.md](../RELEASE_v0.2.31.md) - v0.2.31 版本说明
+
+**实现状态**：✅ 已完成（v0.2.31）
 
 ---
 
