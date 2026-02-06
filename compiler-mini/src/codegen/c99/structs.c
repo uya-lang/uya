@@ -460,6 +460,38 @@ int is_generic_struct_c99(ASTNode *struct_decl) {
     return struct_decl->data.struct_decl.type_param_count > 0;
 }
 
+// 检查单态化实例的类型实参是否包含未解析的类型参数名
+// 如果类型实参名称匹配所属泛型声明的某个类型参数，则视为未解析
+int has_unresolved_mono_type_args(ASTNode *generic_decl, ASTNode **type_args, int type_arg_count) {
+    if (!generic_decl || !type_args || type_arg_count <= 0) return 0;
+    
+    TypeParam *type_params = NULL;
+    int type_param_count = 0;
+    
+    if (generic_decl->type == AST_STRUCT_DECL) {
+        type_params = generic_decl->data.struct_decl.type_params;
+        type_param_count = generic_decl->data.struct_decl.type_param_count;
+    } else if (generic_decl->type == AST_FN_DECL) {
+        type_params = generic_decl->data.fn_decl.type_params;
+        type_param_count = generic_decl->data.fn_decl.type_param_count;
+    }
+    
+    if (!type_params || type_param_count == 0) return 0;
+    
+    for (int i = 0; i < type_arg_count; i++) {
+        ASTNode *arg = type_args[i];
+        if (arg && arg->type == AST_TYPE_NAMED && arg->data.type_named.name) {
+            const char *name = arg->data.type_named.name;
+            for (int j = 0; j < type_param_count; j++) {
+                if (type_params[j].name && strcmp(type_params[j].name, name) == 0) {
+                    return 1;  // 类型实参是未解析的类型参数
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 // 获取单态化结构体名称
 // 例如：Pair<i32, i64> -> Pair_i32_i64
 const char *get_mono_struct_name(C99CodeGenerator *codegen, const char *generic_name, ASTNode **type_args, int type_arg_count) {
@@ -479,6 +511,20 @@ const char *get_mono_struct_name(C99CodeGenerator *codegen, const char *generic_
         ASTNode *type_arg = type_args[i];
         if (type_arg && type_arg->type == AST_TYPE_NAMED && type_arg->data.type_named.name) {
             const char *type_name = type_arg->data.type_named.name;
+            // 在单态化上下文中替换类型参数（如 T → i32）
+            if (codegen->current_type_params && codegen->current_type_param_count > 0) {
+                for (int j = 0; j < codegen->current_type_param_count && j < codegen->current_type_arg_count; j++) {
+                    if (codegen->current_type_params[j].name &&
+                        strcmp(codegen->current_type_params[j].name, type_name) == 0) {
+                        if (codegen->current_type_args && codegen->current_type_args[j] &&
+                            codegen->current_type_args[j]->type == AST_TYPE_NAMED &&
+                            codegen->current_type_args[j]->data.type_named.name) {
+                            type_name = codegen->current_type_args[j]->data.type_named.name;
+                        }
+                        break;
+                    }
+                }
+            }
             while (*type_name && suffix_len < 255) {
                 suffix[suffix_len++] = *type_name++;
             }

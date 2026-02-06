@@ -414,6 +414,12 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
                     if (codegen->mono_instances[j].generic_name &&
                         strcmp(codegen->mono_instances[j].generic_name, struct_name) == 0 &&
                         !codegen->mono_instances[j].is_function) {
+                        // 跳过包含未解析类型参数的实例（如 Box<T> 而非 Box<i32>）
+                        if (has_unresolved_mono_type_args(decl,
+                            codegen->mono_instances[j].type_args,
+                            codegen->mono_instances[j].type_arg_count)) {
+                            continue;
+                        }
                         gen_mono_struct_definition(codegen, decl,
                             codegen->mono_instances[j].type_args,
                             codegen->mono_instances[j].type_arg_count);

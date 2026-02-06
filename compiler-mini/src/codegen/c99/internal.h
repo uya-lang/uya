@@ -75,6 +75,7 @@ void gen_generic_struct_instance(C99CodeGenerator *codegen, ASTNode *generic_str
 
 // 泛型结构体单态化（structs.c）
 int is_generic_struct_c99(ASTNode *struct_decl);
+int has_unresolved_mono_type_args(ASTNode *generic_decl, ASTNode **type_args, int type_arg_count);
 const char *get_mono_struct_name(C99CodeGenerator *codegen, const char *generic_name, ASTNode **type_args, int type_arg_count);
 int gen_mono_struct_definition(C99CodeGenerator *codegen, ASTNode *struct_decl, ASTNode **type_args, int type_arg_count);
 

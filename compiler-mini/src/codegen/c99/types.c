@@ -64,6 +64,10 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
                 strcmp(codegen->current_type_params[i].name, name) == 0) {
                 // 找到匹配的类型参数，使用对应的类型实参
                 if (codegen->current_type_args && i < codegen->current_type_arg_count) {
+                    // 防止无限递归：如果替换后的类型实参和当前节点相同，跳过
+                    if (codegen->current_type_args[i] == type_node) {
+                        return name;  // 返回原始名称，避免无限递归
+                    }
                     return c99_type_to_c(codegen, codegen->current_type_args[i]);
                 }
             }

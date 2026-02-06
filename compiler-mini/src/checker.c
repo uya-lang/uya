@@ -1312,7 +1312,14 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
                 int type_arg_count = expr->data.call_expr.type_arg_count;
                 
                 if (type_arg_count == type_param_count) {
+                    // 临时设置泛型参数作用域，避免 type_from_ast 错误注册 Result<T> 等实例
+                    TypeParam *saved_tp = checker->current_type_params;
+                    int saved_tpc = checker->current_type_param_count;
+                    checker->current_type_params = type_params;
+                    checker->current_type_param_count = type_param_count;
                     Type return_type = type_from_ast(checker, fn_decl->data.fn_decl.return_type);
+                    checker->current_type_params = saved_tp;
+                    checker->current_type_param_count = saved_tpc;
                     return substitute_generic_type(checker, return_type,
                                                     type_params, type_param_count,
                                                     type_args, type_arg_count);
@@ -1846,12 +1853,58 @@ static Type substitute_generic_type(TypeChecker *checker, Type type,
 //       type_args - 类型实参数组
 //       type_arg_count - 类型实参数量
 //       is_function - 1 表示函数，0 表示结构体
+// 检查 AST 类型节点是否包含未解析的泛型类型参数
+// 当在泛型函数/结构体模板中引用其他泛型类型时（如 fn ok<T>() Result<T>），
+// Result<T> 的类型参数 T 是未解析的，不应注册此单态化实例
+static int has_unresolved_type_param(TypeChecker *checker, ASTNode *type_node) {
+    if (!checker || !type_node || !checker->current_type_params || checker->current_type_param_count == 0) {
+        return 0;
+    }
+    
+    if (type_node->type == AST_TYPE_NAMED && type_node->data.type_named.name) {
+        const char *name = type_node->data.type_named.name;
+        // 检查是否是当前作用域中的泛型类型参数
+        for (int i = 0; i < checker->current_type_param_count; i++) {
+            if (checker->current_type_params[i].name &&
+                strcmp(checker->current_type_params[i].name, name) == 0) {
+                return 1;
+            }
+        }
+        // 递归检查类型实参
+        for (int i = 0; i < type_node->data.type_named.type_arg_count; i++) {
+            if (has_unresolved_type_param(checker, type_node->data.type_named.type_args[i])) {
+                return 1;
+            }
+        }
+    } else if (type_node->type == AST_TYPE_POINTER && type_node->data.type_pointer.pointed_type) {
+        return has_unresolved_type_param(checker, type_node->data.type_pointer.pointed_type);
+    } else if (type_node->type == AST_TYPE_ARRAY && type_node->data.type_array.element_type) {
+        return has_unresolved_type_param(checker, type_node->data.type_array.element_type);
+    }
+    
+    return 0;
+}
+
+// 在泛型上下文中注册传递性依赖的单态化实例
+// 例如：注册 ok<i32> 时，其返回类型 Result<T> 应注册为 Result<i32>
+static void register_transitive_mono_instances(TypeChecker *checker, ASTNode *type_node,
+                                                TypeParam *type_params, int type_param_count,
+                                                ASTNode **type_args, int type_arg_count);
+
 // 返回：成功返回 0，失败返回 -1
 static int register_mono_instance(TypeChecker *checker, const char *generic_name,
                                    ASTNode **type_arg_nodes, int type_arg_count,
                                    int is_function) {
     if (checker == NULL || generic_name == NULL || checker->mono_instance_count >= 512) {
         return -1;
+    }
+    
+    // 跳过包含未解析泛型参数的实例
+    for (int i = 0; i < type_arg_count; i++) {
+        if (has_unresolved_type_param(checker, type_arg_nodes[i])) {
+            fprintf(stderr, "[DEBUG] Skipping mono instance: %s (unresolved type param in arg %d)\n", generic_name, i);
+            return 0;  // 跳过，不注册（不是错误）
+        }
     }
     
     // 检查是否已存在相同实例
@@ -1894,8 +1947,94 @@ static int register_mono_instance(TypeChecker *checker, const char *generic_name
         checker->mono_instances[idx].type_args[i] = type_from_ast(checker, type_arg_nodes[i]);
         checker->mono_instances[idx].type_arg_nodes[i] = type_arg_nodes[i];
     }
+    fprintf(stderr, "[DEBUG] Registered mono instance #%d: %s<%s> (is_fn=%d) type_arg_nodes[0]=%p\n",
+        idx, generic_name,
+        type_arg_count > 0 && type_arg_nodes[0] && type_arg_nodes[0]->type == AST_TYPE_NAMED && type_arg_nodes[0]->data.type_named.name ? type_arg_nodes[0]->data.type_named.name : "?",
+        is_function, (void*)(type_arg_count > 0 ? type_arg_nodes[0] : NULL));
+    
+    // 注册传递性依赖：泛型函数的返回类型和参数类型中引用的泛型结构体
+    if (is_function && checker->program_node != NULL) {
+        ASTNode *fn_decl = find_fn_decl_from_program(checker->program_node, generic_name);
+        if (fn_decl != NULL && fn_decl->type == AST_FN_DECL) {
+            TypeParam *fn_tp = fn_decl->data.fn_decl.type_params;
+            int fn_tp_count = fn_decl->data.fn_decl.type_param_count;
+            // 返回类型
+            register_transitive_mono_instances(checker, fn_decl->data.fn_decl.return_type,
+                fn_tp, fn_tp_count, type_arg_nodes, type_arg_count);
+            // 参数类型
+            for (int i = 0; i < fn_decl->data.fn_decl.param_count; i++) {
+                ASTNode *param = fn_decl->data.fn_decl.params[i];
+                if (param != NULL && param->type == AST_VAR_DECL && param->data.var_decl.type != NULL) {
+                    register_transitive_mono_instances(checker, param->data.var_decl.type,
+                        fn_tp, fn_tp_count, type_arg_nodes, type_arg_count);
+                }
+            }
+        }
+    }
+    // 注册传递性依赖：泛型结构体的字段类型中引用的其他泛型结构体
+    if (!is_function && checker->program_node != NULL) {
+        ASTNode *struct_decl = find_struct_decl_from_program(checker->program_node, generic_name);
+        if (struct_decl != NULL && struct_decl->type == AST_STRUCT_DECL) {
+            TypeParam *st_tp = struct_decl->data.struct_decl.type_params;
+            int st_tp_count = struct_decl->data.struct_decl.type_param_count;
+            for (int i = 0; i < struct_decl->data.struct_decl.field_count; i++) {
+                ASTNode *field = struct_decl->data.struct_decl.fields[i];
+                if (field != NULL && field->type == AST_VAR_DECL && field->data.var_decl.type != NULL) {
+                    register_transitive_mono_instances(checker, field->data.var_decl.type,
+                        st_tp, st_tp_count, type_arg_nodes, type_arg_count);
+                }
+            }
+        }
+    }
     
     return 0;
+}
+
+// 注册传递性依赖的单态化实例
+static void register_transitive_mono_instances(TypeChecker *checker, ASTNode *type_node,
+                                                TypeParam *type_params, int type_param_count,
+                                                ASTNode **type_args, int type_arg_count) {
+    if (!checker || !type_node) return;
+    
+    if (type_node->type == AST_TYPE_NAMED && type_node->data.type_named.type_arg_count > 0) {
+        // 这是一个泛型类型使用（如 Result<T>），需要替换类型参数并注册
+        int arg_count = type_node->data.type_named.type_arg_count;
+        ASTNode **subst_args = (ASTNode **)arena_alloc(checker->arena, sizeof(ASTNode *) * arg_count);
+        if (subst_args) {
+            for (int i = 0; i < arg_count; i++) {
+                ASTNode *arg = type_node->data.type_named.type_args[i];
+                subst_args[i] = arg;  // 默认保持原样
+                
+                if (arg && arg->type == AST_TYPE_NAMED && arg->data.type_named.name) {
+                    // 检查是否是需要替换的类型参数
+                    for (int j = 0; j < type_param_count && j < type_arg_count; j++) {
+                        if (type_params[j].name &&
+                            strcmp(type_params[j].name, arg->data.type_named.name) == 0) {
+                            subst_args[i] = type_args[j];
+                            break;
+                        }
+                    }
+                }
+            }
+            // 只有当所有类型参数都已解析时才注册
+            fprintf(stderr, "[DEBUG-TRANS] Registering transitive: %s<%s>\n",
+                type_node->data.type_named.name,
+                arg_count > 0 && subst_args[0] && subst_args[0]->type == AST_TYPE_NAMED && subst_args[0]->data.type_named.name ? subst_args[0]->data.type_named.name : "?");
+            register_mono_instance(checker, type_node->data.type_named.name,
+                subst_args, arg_count, 0);
+        }
+    }
+    
+    // 递归处理指针类型
+    if (type_node->type == AST_TYPE_POINTER && type_node->data.type_pointer.pointed_type) {
+        register_transitive_mono_instances(checker, type_node->data.type_pointer.pointed_type,
+            type_params, type_param_count, type_args, type_arg_count);
+    }
+    // 递归处理数组类型
+    if (type_node->type == AST_TYPE_ARRAY && type_node->data.type_array.element_type) {
+        register_transitive_mono_instances(checker, type_node->data.type_array.element_type,
+            type_params, type_param_count, type_args, type_arg_count);
+    }
 }
 
 // 从程序节点中查找结构体声明
@@ -2664,6 +2803,15 @@ static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node) {
         return 0;
     }
     
+    // 临时设置泛型参数作用域（如果函数有泛型参数）
+    // 这样 type_from_ast 才能正确识别 T 为泛型参数，避免错误注册单态化实例
+    TypeParam *saved_type_params = checker->current_type_params;
+    int saved_type_param_count = checker->current_type_param_count;
+    if (node->data.fn_decl.type_param_count > 0) {
+        checker->current_type_params = node->data.fn_decl.type_params;
+        checker->current_type_param_count = node->data.fn_decl.type_param_count;
+    }
+    
     // 获取返回类型
     Type return_type = type_from_ast(checker, node->data.fn_decl.return_type);
     
@@ -2697,6 +2845,8 @@ static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node) {
                 if (!sig->is_extern && param_type.kind == TYPE_POINTER && param_type.data.pointer.is_ffi_pointer
                     && !node->data.fn_decl.is_varargs) {
                     checker_report_error(checker, node, "普通函数不能使用 FFI 指针类型作为参数");
+                    checker->current_type_params = saved_type_params;
+                    checker->current_type_param_count = saved_type_param_count;
                     return 0;
                 }
 
@@ -2713,8 +2863,14 @@ static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node) {
         char buf[256];
         snprintf(buf, sizeof(buf), "普通函数 '%s' 不能使用 FFI 指针类型作为返回类型", sig->name ? sig->name : "(unknown)");
         checker_report_error(checker, node, buf);
+        checker->current_type_params = saved_type_params;
+        checker->current_type_param_count = saved_type_param_count;
         return 0;
     }
+
+    // 恢复泛型参数作用域
+    checker->current_type_params = saved_type_params;
+    checker->current_type_param_count = saved_type_param_count;
 
     // 将函数添加到函数表
     int insert_result = function_table_insert(checker, sig);
@@ -3062,6 +3218,12 @@ static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
             return result;
         }
         
+        // 临时设置泛型参数作用域，避免 type_from_ast 错误注册未解析的泛型实例
+        TypeParam *saved_tp2 = checker->current_type_params;
+        int saved_tpc2 = checker->current_type_param_count;
+        checker->current_type_params = type_params;
+        checker->current_type_param_count = type_param_count;
+        
         // 检查参数类型（使用类型替换）
         for (int i = 0; i < fn_decl->data.fn_decl.param_count; i++) {
             ASTNode *param = fn_decl->data.fn_decl.params[i];
@@ -3073,6 +3235,8 @@ static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
                                                       type_args, type_arg_count);
                 ASTNode *arg = node->data.call_expr.args[i];
                 if (arg != NULL && !checker_check_expr_type(checker, arg, param_type)) {
+                    checker->current_type_params = saved_tp2;
+                    checker->current_type_param_count = saved_tpc2;
                     checker_report_error(checker, node, "泛型函数调用参数类型不匹配");
                     return result;
                 }
@@ -3081,6 +3245,8 @@ static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
         
         // 返回替换后的返回类型
         Type return_type = type_from_ast(checker, fn_decl->data.fn_decl.return_type);
+        checker->current_type_params = saved_tp2;
+        checker->current_type_param_count = saved_tpc2;
         return substitute_generic_type(checker, return_type,
                                         type_params, type_param_count,
                                         type_args, type_arg_count);
