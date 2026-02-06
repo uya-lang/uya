@@ -339,6 +339,22 @@ fn add_string_constant(codegen: &C99CodeGenerator, value: &byte) &byte {
     return codegen.string_constants[codegen.string_constant_count - 1].name;
 }
 
+// 查找字符串常量（不添加新的）
+fn find_string_constant(codegen: &C99CodeGenerator, value: &byte) &byte {
+    if value == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < codegen.string_constant_count {
+        if codegen.string_constants[i].value != null && 
+           strcmp(codegen.string_constants[i].value as *byte, value as *byte) == 0 {
+            return codegen.string_constants[i].name;
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
 // 转义字符串中的特殊字符
 fn escape_string_for_c(output: &void, str: &byte) void {
     if str == null {
@@ -586,6 +602,43 @@ fn collect_string_constants_from_expr(codegen: &C99CodeGenerator, expr: &ASTNode
     
     if expr.type == ASTNodeType.AST_STRING {
         add_string_constant(codegen, expr.string_literal_value);
+    } else if expr.type == ASTNodeType.AST_SRC_NAME {
+        // 收集文件名字符串常量
+        const filename: &byte = expr.filename;
+        var basename: &byte = null;
+        if filename == null {
+            basename = "(unknown)" as &byte;
+        } else {
+            basename = strrchr(filename as *byte, 47) as &byte;  // '/' = ASCII 47
+            if basename == null {
+                basename = strrchr(filename as *byte, 92) as &byte;  // '\\' = ASCII 92
+            }
+            if basename != null {
+                basename = (basename as i64 + 1) as &byte;
+            } else {
+                basename = filename;
+            }
+        }
+        add_string_constant(codegen, basename);
+    } else if expr.type == ASTNodeType.AST_SRC_PATH {
+        // 收集文件路径字符串常量
+        const filepath: &byte = expr.filename;
+        var path: &byte = null;
+        if filepath == null {
+            path = "(unknown)" as &byte;
+        } else {
+            path = filepath;
+        }
+        add_string_constant(codegen, path);
+    } else if expr.type == ASTNodeType.AST_FUNC_NAME {
+        // 收集函数名字符串常量
+        var func_name: &byte = "(unknown)" as &byte;
+        if codegen.current_function_decl != null &&
+           codegen.current_function_decl.type == ASTNodeType.AST_FN_DECL &&
+           codegen.current_function_decl.fn_decl_name != null {
+            func_name = codegen.current_function_decl.fn_decl_name;
+        }
+        add_string_constant(codegen, func_name);
     } else if expr.type == ASTNodeType.AST_STRING_INTERP {
         var i: i32 = 0;
         while i < expr.string_interp_segment_count {
@@ -777,10 +830,17 @@ fn collect_string_constants_from_decl(codegen: &C99CodeGenerator, decl: &ASTNode
             collect_string_constants_from_expr(codegen, decl.var_decl_init);
         }
     } else if decl.type == ASTNodeType.AST_FN_DECL {
+        // 保存并设置当前函数上下文
+        const saved_current_function_decl: &ASTNode = codegen.current_function_decl;
+        codegen.current_function_decl = decl;
+        
         const body: &ASTNode = decl.fn_decl_body;
         if body != null {
             collect_string_constants_from_stmt(codegen, body);
         }
+        
+        // 恢复之前的函数上下文
+        codegen.current_function_decl = saved_current_function_decl;
     } else {
         // 其他声明类型
     }

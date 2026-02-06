@@ -761,14 +761,13 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 - [x] **@len**：扩展至切片等，规范 uya.md §16  
   **C 实现（已完成）**：Checker 支持数组（TYPE_ARRAY）和切片（TYPE_SLICE）类型；Codegen 对切片表达式生成 `.len` 访问，对切片字段也支持 `.len` 访问。测试 test_slice.uya 通过 `--c99`。**uya-src 已同步**：checker.uya、codegen/c99/expr.uya。通过 `--uya --c99`。
 - [x] **@src_name/@src_path/@src_line/@src_col/@func_name 内置函数**：源代码位置信息和函数名（v0.1.0 新增）
-  - [x] Lexer：识别新内置函数（C 实现与 uya-src 待同步）
-  - [x] AST：添加 AST_SRC_NAME/AST_SRC_PATH/AST_SRC_LINE/AST_SRC_COL/AST_FUNC_NAME 节点（C 实现完成）
-  - [x] Parser：解析无参数调用（C 实现完成）
-  - [x] Checker：类型推断（&[i8] 或 i32），@func_name 仅在函数体内可用（C 实现完成）
-  - [x] Codegen：生成字符串常量或整数常量，@func_name 从 current_function_decl 获取函数名（C 实现完成）
-  - [x] 字符串常量收集：在收集阶段设置 current_function_decl，使用 find_string_constant 避免重复添加（C 实现完成）
-  - [x] 测试用例：test_src_location.uya、test_func_name_simple.uya 通过 `--c99`（C 实现完成）
-  - [ ] C 实现与 uya-src 同步（待实现）
+  - [x] Lexer：识别新内置函数（C 实现与 uya-src 已同步）
+  - [x] AST：添加 AST_SRC_NAME/AST_SRC_PATH/AST_SRC_LINE/AST_SRC_COL/AST_FUNC_NAME 节点（C 实现与 uya-src 已同步）
+  - [x] Parser：解析无参数调用（C 实现与 uya-src 已同步）
+  - [x] Checker：类型推断（&[i8] 或 i32），@func_name 仅在函数体内可用（C 实现与 uya-src 已同步）
+  - [x] Codegen：生成字符串常量或整数常量，@func_name 从 current_function_decl 获取函数名（C 实现与 uya-src 已同步）
+  - [x] 测试用例：test_src_location.uya（C 版 `--c99` 和自举版 `--uya --c99` 均通过）
+  - [x] 自举对比：C 编译器与自举编译器生成的 C 文件完全一致
 - [x] **忽略标识符 _**：用于忽略返回值、解构、match，规范 uya.md §3
 
 **忽略标识符 _（已实现）**：Parser 在 primary_expr 中当标识符为 `_` 时生成 AST_UNDERSCORE；解构中 `_` 已支持（names 含 `"_"` 时 checker/codegen 跳过）。Checker：`_ = expr` 仅检查右侧；禁止 `var _`、参数 `_`；infer_type 对 AST_UNDERSCORE 报错「不能引用 _」。Codegen：`_ = expr` 语句生成 `(void)(expr);`，表达式生成 `(expr)`。测试 `test_underscore.uya` 通过 `--c99`；uya-src 已同步，自举编译通过。

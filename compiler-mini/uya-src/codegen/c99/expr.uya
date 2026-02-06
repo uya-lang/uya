@@ -193,6 +193,66 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         }
     } else if expr.type == ASTNodeType.AST_INT_LIMIT {
         gen_int_limit_literal(codegen, expr.int_limit_is_max, expr.int_limit_resolved_kind);
+    } else if expr.type == ASTNodeType.AST_SRC_NAME {
+        // @src_name - 提取文件名
+        const filename: &byte = expr.filename;
+        var basename: &byte = null;
+        if filename == null {
+            basename = "(unknown)" as &byte;
+        } else {
+            // 提取文件名（去掉路径）
+            basename = strrchr(filename as *byte, 47) as &byte;  // '/' = ASCII 47
+            if basename == null {
+                basename = strrchr(filename as *byte, 92) as &byte;  // '\\' = ASCII 92
+            }
+            if basename != null {
+                // 跳过 '/' 或 '\\'
+                basename = (basename as i64 + 1) as &byte;
+            } else {
+                basename = filename;
+            }
+        }
+        const str_const: &byte = find_string_constant(codegen, basename);
+        if str_const != null {
+            fprintf(codegen.output as *void, "%s" as *byte, str_const as *byte);
+        } else {
+            fputs("\"\"" as *byte, codegen.output as *void);
+        }
+    } else if expr.type == ASTNodeType.AST_SRC_PATH {
+        // @src_path - 输出完整路径
+        const filepath: &byte = expr.filename;
+        var path: &byte = null;
+        if filepath == null {
+            path = "(unknown)" as &byte;
+        } else {
+            path = filepath;
+        }
+        const str_const: &byte = find_string_constant(codegen, path);
+        if str_const != null {
+            fprintf(codegen.output as *void, "%s" as *byte, str_const as *byte);
+        } else {
+            fputs("\"\"" as *byte, codegen.output as *void);
+        }
+    } else if expr.type == ASTNodeType.AST_SRC_LINE {
+        // @src_line - 输出行号
+        fprintf(codegen.output as *void, "%d" as *byte, expr.line);
+    } else if expr.type == ASTNodeType.AST_SRC_COL {
+        // @src_col - 输出列号
+        fprintf(codegen.output as *void, "%d" as *byte, expr.column);
+    } else if expr.type == ASTNodeType.AST_FUNC_NAME {
+        // @func_name - 输出函数名
+        var func_name: &byte = "(unknown)" as &byte;
+        if codegen.current_function_decl != null &&
+           codegen.current_function_decl.type == ASTNodeType.AST_FN_DECL &&
+           codegen.current_function_decl.fn_decl_name != null {
+            func_name = codegen.current_function_decl.fn_decl_name;
+        }
+        const str_const: &byte = find_string_constant(codegen, func_name);
+        if str_const != null {
+            fprintf(codegen.output as *void, "%s" as *byte, str_const as *byte);
+        } else {
+            fputs("\"\"" as *byte, codegen.output as *void);
+        }
     } else if expr.type == ASTNodeType.AST_STRING {
         const str_const: &byte = add_string_constant(codegen, expr.string_literal_value);
         if str_const != null {
