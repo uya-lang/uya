@@ -316,7 +316,7 @@ void emit_string_constants(C99CodeGenerator *codegen) {
     
     fputs("\n// 字符串常量\n", codegen->output);
     for (int i = 0; i < codegen->string_constant_count; i++) {
-        fprintf(codegen->output, "static const char %s[] = \"", codegen->string_constants[i].name);
+        fprintf(codegen->output, "static const uint8_t %s[] = \"", codegen->string_constants[i].name);
         escape_string_for_c(codegen->output, codegen->string_constants[i].value);
         fputs("\";\n", codegen->output);
     }

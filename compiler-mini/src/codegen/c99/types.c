@@ -324,8 +324,15 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
             ASTNode *pointed_type = type_node->data.type_pointer.pointed_type;
             const char *pointee_type = c99_type_to_c(codegen, pointed_type);
             
+            // 检查是否是 FFI 指针指向 byte（即 *byte）
+            int is_ffi_byte_ptr = type_node->data.type_pointer.is_ffi_pointer &&
+                                   pointed_type &&
+                                   pointed_type->type == AST_TYPE_NAMED &&
+                                   pointed_type->data.type_named.name &&
+                                   strcmp(pointed_type->data.type_named.name, "byte") == 0;
+            
             // 分配缓冲区（在 Arena 中）
-            size_t len = strlen(pointee_type) + 3;  // 类型 + " *" + null
+            size_t len = strlen(pointee_type) + (is_ffi_byte_ptr ? 10 : 3);  // 类型 + " const *" / " *" + null
             char *result = arena_alloc(codegen->arena, len);
             if (!result) {
                 return "void*";
@@ -348,7 +355,12 @@ const char *c99_type_to_c(C99CodeGenerator *codegen, ASTNode *type_node) {
                 return arr_ptr;
             }
             
-            snprintf(result, len, "%s *", pointee_type);
+            // *byte 类型生成为 const uint8_t * （兼容字符串字面量）
+            if (is_ffi_byte_ptr) {
+                snprintf(result, len, "const %s *", pointee_type);
+            } else {
+                snprintf(result, len, "%s *", pointee_type);
+            }
             return result;
         }
         
