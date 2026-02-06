@@ -30,6 +30,8 @@
 | 16 | 异步编程（Async） | [ ] |
 | 17 | test 关键字（测试单元） | [x]（C 实现与 uya-src 已同步） |
 | 18 | **宏系统（Macro）** | [x] C 实现已完成（uya-src 待同步） |
+| 19 | **标准库基础设施（std）** | [ ] **重要** |
+| 20 | **@print/@println 内置函数** | [ ] **配合标准库** |
 
 ---
 
@@ -874,6 +876,126 @@ test "函数调用测试" {
 | 接口类型 | 无 | interface I, struct S : I | uya.md §6 | [x] |
 | 函数指针 | 无 | fn(...) type | uya.md §5.2 |
 | 原子类型 | 无 | atomic T, &atomic T | uya.md §13 |
+
+---
+
+## 19. 标准库基础设施（std）
+
+**详细设计文档**：详见 [`docs/std_c_design.md`](./docs/std_c_design.md)
+
+**核心目标**：
+
+1. **编译器完全不依赖外部 C 标准库**
+   - Uya 编译器自身使用 std.c（自己实现的标准库）
+   - 实现真正的自举：用 Uya 实现的编译器 + 用 Uya 实现的标准库
+
+2. **生成无依赖的 libc 给第三方使用**
+   - 通过 `--outlibc` 生成单文件 C 库（libuya.c + libuya.h）
+   - 生成的库零外部依赖，可替代 musl/glibc
+
+**架构概览**：
+```
+std/
+├── c/              # 纯 Uya 实现的 C 标准库（musl 替代）
+│   ├── syscall/    # 系统调用封装（Linux/Windows/macOS）
+│   ├── string.uya  # 字符串和内存操作
+│   ├── stdio.uya   # 标准 I/O
+│   ├── stdlib.uya  # 内存分配、进程控制
+│   └── math.uya    # 数学函数
+├── io/             # 平台无关 I/O 抽象
+├── fmt/            # 格式化库（纯 Uya 实现）
+├── bare_metal/     # 裸机平台支持
+└── builtin/        # 编译器内置运行时
+```
+
+**关键特性**：
+- ✅ **完全用 Uya 实现**：std.c 是纯 Uya 代码，不是 FFI 绑定
+- ✅ **零外部依赖**：直接使用系统调用，不依赖任何 C 库
+- ✅ **单文件输出**：`--outlibc` 生成单个 .c 和 .h 文件
+- ✅ **可替代 musl/glibc**：兼容 C ABI，可作为 libc 使用
+
+**实施路线**：
+
+1. **阶段 0**：基础设施（`@syscall` 内置函数、错误类型）
+2. **阶段 1**：单平台验证（Linux x86-64 MVP）
+3. **阶段 2**：条件编译宏（`std.target` 模块）
+4. **阶段 3**：多平台扩展（macOS、ARM64）
+5. **阶段 4**：Windows 支持（可选）
+
+**详细设计内容**（包括系统调用层、跨平台方案、条件编译、核心库实现、--outlibc 功能等）请参见：[`docs/std_c_design.md`](./docs/std_c_design.md)
+
+### 19.1 标准库实现清单
+
+- [ ] `std.io` - I/O 抽象层（Writer/Reader 接口）
+- [ ] `std.c.syscall` - 系统调用封装（`@syscall` 内置函数）
+- [ ] `std.c.string` - 字符串和内存操作（纯 Uya）
+- [ ] `std.c.stdio` - 标准 I/O（基于 syscall）
+- [ ] `std.c.stdlib` - 内存分配、进程控制
+- [ ] `std.c.math` - 数学函数（纯 Uya）
+- [ ] `std.fmt` - 格式化库（纯 Uya）
+- [ ] `std.bare_metal` - 裸机平台支持
+- [ ] `std.builtin` - 编译器内置运行时
+- [ ] `std.target` - 条件编译宏系统
+
+**详细实现方案**：参见 [`docs/std_c_design.md`](./docs/std_c_design.md)
+
+---
+
+## 20. @print/@println 内置函数
+
+**设计目标**：提供类型安全、易用的输出功能，支持字符串插值，在不同运行环境下自动适配。
+
+### 20.1 语法定义
+
+```uya
+@print(expr)    // 打印表达式（不换行）
+@println(expr)  // 打印表达式并换行
+```
+
+### 20.2 支持的类型
+
+i32, i64, u32, u64, usize, f32, f64, bool, 字符串（&[i8], [i8: N], *byte）
+
+### 20.3 实现方案
+
+#### 编译器实现
+
+- [ ] **Lexer**：添加 print/println 到合法内置函数列表
+- [ ] **AST**：AST_PRINT 和 AST_PRINTLN 节点
+- [ ] **Parser**：解析 `@print(expr)` 和 `@println(expr)`
+- [ ] **Checker**：类型检查，验证参数可打印
+- [ ] **Codegen - Hosted 模式**：生成 printf 调用
+- [ ] **Codegen - Freestanding 模式**：生成 uya_putchar 调用链
+
+#### 字符串插值集成
+
+- [ ] **Hosted 模式**：`@println("x=${x}")` → `printf("x=%d\n", x)`
+- [ ] **Freestanding 模式**：逐段展开插值
+
+### 20.4 编译器选项
+
+- [ ] `--hosted`（默认）：生成 printf
+- [ ] `--freestanding`：生成弱符号 uya_putchar
+- [ ] `--no-io`：禁用 @print/@println
+
+### 20.5 测试用例
+
+- [ ] `test_print_basic.uya` - 基础打印
+- [ ] `test_print_types.uya` - 各种类型
+- [ ] `test_print_interp.uya` - 字符串插值
+- [ ] `test_print_format.uya` - 格式说明符
+- [ ] `test_print_freestanding.uya` - 裸机测试
+
+### 20.6 文档
+
+- [ ] **用户文档**：`docs/builtins/print.md`
+- [ ] **示例**：`examples/print/`
+
+**实现优先级**：高（与标准库配合，提供基础 I/O 能力）
+
+**参考文档**：
+- [uya.md](../uya.md) §16 - 内置函数
+- [uya.md](../uya.md) §17 - 字符串插值
 
 ---
 
