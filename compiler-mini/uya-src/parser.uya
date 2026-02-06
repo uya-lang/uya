@@ -3906,8 +3906,47 @@ fn parser_parse_interface(parser: &Parser) &ASTNode {
     var sigs: & & ASTNode = null;
     var sig_count: i32 = 0;
     var sig_cap: i32 = 0;
+    // 组合接口数组
+    var composed: & & byte = null;
+    var composed_count: i32 = 0;
+    var composed_cap: i32 = 0;
     while parser.current_token != null &&
           parser_match(parser, TokenType.TOKEN_RIGHT_BRACE) == 0 && parser_match(parser, TokenType.TOKEN_EOF) == 0 {
+        // 检查是否为组合接口引用（标识符后跟分号）
+        if parser_match(parser, TokenType.TOKEN_IDENTIFIER) != 0 {
+            // 这是组合接口引用：IReader;
+            const composed_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+            if composed_name == null {
+                return null;
+            }
+            parser_consume(parser);  // 消费标识符
+            if parser_expect(parser, TokenType.TOKEN_SEMICOLON) == null {
+                return null;
+            }
+            
+            if composed_count >= composed_cap {
+                var new_cap2: i32 = 0;
+                if composed_cap == 0 {
+                    new_cap2 = 4;
+                } else {
+                    new_cap2 = composed_cap * 2;
+                }
+                const new_composed: & & byte = arena_alloc(parser.arena, @size_of(&byte) * new_cap2) as & & byte;
+                if new_composed == null {
+                    return null;
+                }
+                var k: i32 = 0;
+                while k < composed_count {
+                    new_composed[k] = composed[k];
+                    k = k + 1;
+                }
+                composed = new_composed;
+                composed_cap = new_cap2;
+            }
+            composed[composed_count] = composed_name;
+            composed_count = composed_count + 1;
+            continue;
+        }
         if parser_match(parser, TokenType.TOKEN_FN) == 0 {
             return null;
         }
@@ -4033,6 +4072,8 @@ fn parser_parse_interface(parser: &Parser) &ASTNode {
     node.interface_decl_type_param_count = iface_type_param_count;
     node.interface_decl_method_sigs = sigs;
     node.interface_decl_method_sig_count = sig_count;
+    node.interface_decl_composed_interfaces = composed;
+    node.interface_decl_composed_count = composed_count;
     return node;
 }
 

@@ -30,6 +30,8 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node);
 static ASTNode *find_struct_decl_from_program(ASTNode *program_node, const char *struct_name);
 static ASTNode *find_union_decl_from_program(ASTNode *program_node, const char *union_name);
 static ASTNode *find_interface_decl_from_program(ASTNode *program_node, const char *interface_name);
+static int detect_interface_compose_cycle(ASTNode *program_node, const char *interface_name, const char **visited, int visited_count);
+static ASTNode *find_interface_method_sig(ASTNode *program_node, const char *interface_name, const char *method_name);
 static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *enum_name);
 static int register_mono_instance(TypeChecker *checker, const char *generic_name,
                                    ASTNode **type_arg_nodes, int type_arg_count,
@@ -1486,14 +1488,12 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
                     }
                 }
                 if (object_type.kind == TYPE_INTERFACE && object_type.data.interface_name != NULL && checker->program_node != NULL) {
-                    ASTNode *iface = find_interface_decl_from_program(checker->program_node, object_type.data.interface_name);
                     const char *method_name = callee->data.member_access.field_name;
-                    if (iface != NULL && method_name != NULL) {
-                        for (int i = 0; i < iface->data.interface_decl.method_sig_count; i++) {
-                            ASTNode *msig = iface->data.interface_decl.method_sigs[i];
-                            if (msig != NULL && msig->data.fn_decl.name != NULL && strcmp(msig->data.fn_decl.name, method_name) == 0) {
-                                return type_from_ast(checker, msig->data.fn_decl.return_type);
-                            }
+                    if (method_name != NULL) {
+                        // 使用 find_interface_method_sig 支持组合接口
+                        ASTNode *msig = find_interface_method_sig(checker->program_node, object_type.data.interface_name, method_name);
+                        if (msig != NULL) {
+                            return type_from_ast(checker, msig->data.fn_decl.return_type);
                         }
                     }
                 }
@@ -1598,15 +1598,12 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             
             // 接口类型：.method 为方法调用，类型在 call 处推断
             if (object_type.kind == TYPE_INTERFACE && object_type.data.interface_name != NULL && checker != NULL && checker->program_node != NULL) {
-                ASTNode *iface = find_interface_decl_from_program(checker->program_node, object_type.data.interface_name);
-                if (iface != NULL && expr->data.member_access.field_name != NULL) {
-                    for (int i = 0; i < iface->data.interface_decl.method_sig_count; i++) {
-                        ASTNode *sig = iface->data.interface_decl.method_sigs[i];
-                        if (sig != NULL && sig->data.fn_decl.name != NULL &&
-                            strcmp(sig->data.fn_decl.name, expr->data.member_access.field_name) == 0) {
-                            result.kind = TYPE_VOID;
-                            return result;
-                        }
+                if (expr->data.member_access.field_name != NULL) {
+                    // 使用 find_interface_method_sig 支持组合接口
+                    ASTNode *sig = find_interface_method_sig(checker->program_node, object_type.data.interface_name, expr->data.member_access.field_name);
+                    if (sig != NULL) {
+                        result.kind = TYPE_VOID;
+                        return result;
                     }
                 }
                 result.kind = TYPE_VOID;
@@ -2339,6 +2336,75 @@ static ASTNode *find_interface_decl_from_program(ASTNode *program_node, const ch
             }
         }
     }
+    return NULL;
+}
+
+// 检测接口组合的循环依赖（DFS）
+// 返回 1 表示存在循环，0 表示无循环
+static int detect_interface_compose_cycle(ASTNode *program_node, const char *interface_name,
+                                           const char **visited, int visited_count) {
+    if (program_node == NULL || interface_name == NULL) return 0;
+    
+    // 检查是否已访问过（存在循环）
+    for (int i = 0; i < visited_count; i++) {
+        if (visited[i] != NULL && strcmp(visited[i], interface_name) == 0) {
+            return 1;  // 循环检测到
+        }
+    }
+    
+    ASTNode *iface = find_interface_decl_from_program(program_node, interface_name);
+    if (iface == NULL) return 0;
+    
+    // 如果没有组合接口，直接返回
+    if (iface->data.interface_decl.composed_count == 0) return 0;
+    
+    // 添加当前接口到访问列表（栈上分配新数组）
+    const char *new_visited[64];  // 最大深度 64
+    if (visited_count >= 63) return 0;  // 防止栈溢出
+    for (int i = 0; i < visited_count; i++) {
+        new_visited[i] = visited[i];
+    }
+    new_visited[visited_count] = interface_name;
+    
+    // 递归检查组合的接口
+    for (int i = 0; i < iface->data.interface_decl.composed_count; i++) {
+        const char *composed_name = iface->data.interface_decl.composed_interfaces[i];
+        if (composed_name != NULL) {
+            if (detect_interface_compose_cycle(program_node, composed_name, new_visited, visited_count + 1)) {
+                return 1;
+            }
+        }
+    }
+    
+    return 0;
+}
+
+// 在接口（包括组合接口）中查找方法签名
+// 递归搜索组合的接口
+static ASTNode *find_interface_method_sig(ASTNode *program_node, const char *interface_name, const char *method_name) {
+    if (program_node == NULL || interface_name == NULL || method_name == NULL) return NULL;
+    
+    ASTNode *iface = find_interface_decl_from_program(program_node, interface_name);
+    if (iface == NULL) return NULL;
+    
+    // 先在本接口的方法签名中查找
+    for (int i = 0; i < iface->data.interface_decl.method_sig_count; i++) {
+        ASTNode *sig = iface->data.interface_decl.method_sigs[i];
+        if (sig != NULL && sig->data.fn_decl.name != NULL &&
+            strcmp(sig->data.fn_decl.name, method_name) == 0) {
+            return sig;
+        }
+    }
+    
+    // 在组合的接口中递归查找
+    for (int i = 0; i < iface->data.interface_decl.composed_count; i++) {
+        const char *composed_name = iface->data.interface_decl.composed_interfaces[i];
+        if (composed_name != NULL) {
+            ASTNode *sig = find_interface_method_sig(program_node, composed_name, method_name);
+            if (sig != NULL) return sig;
+        }
+    }
+    
     return NULL;
 }
 
@@ -3283,6 +3349,99 @@ static int checker_check_struct_decl(TypeChecker *checker, ASTNode *node) {
         }
     }
     
+    // 检查接口实现完整性：结构体必须实现所有声明的接口的所有方法（包括组合接口的方法）
+    for (int i = 0; i < node->data.struct_decl.interface_count; i++) {
+        const char *iface_name = node->data.struct_decl.interface_names[i];
+        if (iface_name == NULL) continue;
+        
+        // 对于泛型接口（如 Getter<i32>），提取基本名称
+        const char *base_iface_name = iface_name;
+        char base_name_buf[256];
+        const char *angle = strchr(iface_name, '<');
+        if (angle != NULL) {
+            size_t base_len = angle - iface_name;
+            if (base_len < sizeof(base_name_buf)) {
+                memcpy(base_name_buf, iface_name, base_len);
+                base_name_buf[base_len] = '\0';
+                base_iface_name = base_name_buf;
+            }
+        }
+        
+        ASTNode *iface_decl = find_interface_decl_from_program(checker->program_node, base_iface_name);
+        if (iface_decl == NULL) {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "接口 '%s' 未定义", iface_name);
+            checker_report_error(checker, node, buf);
+            checker->current_type_params = prev_type_params;
+            checker->current_type_param_count = prev_type_param_count;
+            return 0;
+        }
+        
+        // 收集接口的所有方法签名（包括组合接口的方法）
+        // 使用递归函数来收集
+        ASTNode *method_sigs[128];
+        int sig_count = 0;
+        
+        // 递归收集接口及其组合接口的方法
+        ASTNode *iface_stack[64];
+        int stack_top = 0;
+        iface_stack[stack_top++] = iface_decl;
+        
+        while (stack_top > 0) {
+            ASTNode *cur_iface = iface_stack[--stack_top];
+            if (cur_iface == NULL) continue;
+            
+            // 添加组合接口到栈
+            for (int ci = 0; ci < cur_iface->data.interface_decl.composed_count && stack_top < 64; ci++) {
+                const char *composed_name = cur_iface->data.interface_decl.composed_interfaces[ci];
+                if (composed_name) {
+                    ASTNode *composed_iface = find_interface_decl_from_program(checker->program_node, composed_name);
+                    if (composed_iface) {
+                        iface_stack[stack_top++] = composed_iface;
+                    }
+                }
+            }
+            
+            // 收集当前接口的方法签名
+            for (int mi = 0; mi < cur_iface->data.interface_decl.method_sig_count && sig_count < 128; mi++) {
+                ASTNode *msig = cur_iface->data.interface_decl.method_sigs[mi];
+                if (msig == NULL || msig->type != AST_FN_DECL) continue;
+                
+                // 检查是否已存在（避免重复）
+                int exists = 0;
+                for (int j = 0; j < sig_count; j++) {
+                    if (method_sigs[j] && method_sigs[j]->data.fn_decl.name && msig->data.fn_decl.name &&
+                        strcmp(method_sigs[j]->data.fn_decl.name, msig->data.fn_decl.name) == 0) {
+                        exists = 1;
+                        break;
+                    }
+                }
+                if (!exists) {
+                    method_sigs[sig_count++] = msig;
+                }
+            }
+        }
+        
+        // 检查结构体是否实现了所有方法
+        for (int mi = 0; mi < sig_count; mi++) {
+            ASTNode *msig = method_sigs[mi];
+            if (msig == NULL || msig->data.fn_decl.name == NULL) continue;
+            
+            const char *method_name = msig->data.fn_decl.name;
+            ASTNode *impl = find_method_in_struct(checker->program_node, struct_name, method_name);
+            
+            if (impl == NULL) {
+                char buf[512];
+                snprintf(buf, sizeof(buf), "结构体 '%s' 缺少接口 '%s' 要求的方法 '%s'", 
+                        struct_name, iface_name, method_name);
+                checker_report_error(checker, node, buf);
+                checker->current_type_params = prev_type_params;
+                checker->current_type_param_count = prev_type_param_count;
+                return 0;
+            }
+        }
+    }
+    
     // 恢复泛型参数作用域
     checker->current_type_params = prev_type_params;
     checker->current_type_param_count = prev_type_param_count;
@@ -3336,26 +3495,24 @@ static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
             }
         }
         if (object_type.kind == TYPE_INTERFACE && object_type.data.interface_name != NULL && checker->program_node != NULL) {
-            ASTNode *iface = find_interface_decl_from_program(checker->program_node, object_type.data.interface_name);
-            if (iface != NULL && method_name != NULL) {
-                for (int i = 0; i < iface->data.interface_decl.method_sig_count; i++) {
-                    ASTNode *msig = iface->data.interface_decl.method_sigs[i];
-                    if (msig != NULL && msig->data.fn_decl.name != NULL && strcmp(msig->data.fn_decl.name, method_name) == 0) {
-                        int expected_args = msig->data.fn_decl.param_count - 1;
-                        if (expected_args < 0) expected_args = 0;
-                        if (node->data.call_expr.arg_count != expected_args) {
-                            checker_report_error(checker, node, "接口方法调用实参个数不匹配");
+            if (method_name != NULL) {
+                // 使用 find_interface_method_sig 支持组合接口
+                ASTNode *msig = find_interface_method_sig(checker->program_node, object_type.data.interface_name, method_name);
+                if (msig != NULL) {
+                    int expected_args = msig->data.fn_decl.param_count - 1;
+                    if (expected_args < 0) expected_args = 0;
+                    if (node->data.call_expr.arg_count != expected_args) {
+                        checker_report_error(checker, node, "接口方法调用实参个数不匹配");
+                        return result;
+                    }
+                    for (int j = 0; j < expected_args && j < node->data.call_expr.arg_count; j++) {
+                        Type param_type = type_from_ast(checker, msig->data.fn_decl.params[j + 1]->data.var_decl.type);
+                        if (!checker_check_expr_type(checker, node->data.call_expr.args[j], param_type)) {
+                            checker_report_error(checker, node, "接口方法调用参数类型不匹配");
                             return result;
                         }
-                        for (int j = 0; j < expected_args && j < node->data.call_expr.arg_count; j++) {
-                            Type param_type = type_from_ast(checker, msig->data.fn_decl.params[j + 1]->data.var_decl.type);
-                            if (!checker_check_expr_type(checker, node->data.call_expr.args[j], param_type)) {
-                                checker_report_error(checker, node, "接口方法调用参数类型不匹配");
-                                return result;
-                            }
-                        }
-                        return type_from_ast(checker, msig->data.fn_decl.return_type);
                     }
+                    return type_from_ast(checker, msig->data.fn_decl.return_type);
                 }
                 checker_report_error(checker, node, "接口上不存在该方法");
             }
@@ -4471,6 +4628,37 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             if (checker->scope_level > 0) {
                 checker_report_error(checker, node, "接口声明只能在顶层定义");
                 return 0;
+            }
+            // 检查组合的接口是否存在
+            for (int i = 0; i < node->data.interface_decl.composed_count; i++) {
+                const char *composed_name = node->data.interface_decl.composed_interfaces[i];
+                if (composed_name != NULL) {
+                    ASTNode *composed_iface = find_interface_decl_from_program(checker->program_node, composed_name);
+                    if (composed_iface == NULL) {
+                        char buf[256];
+                        snprintf(buf, sizeof(buf), "组合的接口 '%s' 未定义", composed_name);
+                        checker_report_error(checker, node, buf);
+                        return 0;
+                    }
+                }
+            }
+            // 检测接口组合的循环依赖
+            if (node->data.interface_decl.composed_count > 0) {
+                const char *iface_name = node->data.interface_decl.name;
+                if (iface_name != NULL) {
+                    const char *visited[1] = { iface_name };
+                    for (int i = 0; i < node->data.interface_decl.composed_count; i++) {
+                        const char *composed_name = node->data.interface_decl.composed_interfaces[i];
+                        if (composed_name != NULL) {
+                            if (detect_interface_compose_cycle(checker->program_node, composed_name, visited, 1)) {
+                                char buf[256];
+                                snprintf(buf, sizeof(buf), "接口组合存在循环依赖: %s -> %s", iface_name, composed_name);
+                                checker_report_error(checker, node, buf);
+                                return 0;
+                            }
+                        }
+                    }
+                }
             }
             for (int i = 0; i < node->data.interface_decl.method_sig_count; i++) {
                 ASTNode *msig = node->data.interface_decl.method_sigs[i];

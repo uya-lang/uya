@@ -1398,8 +1398,31 @@ static ASTNode *parser_parse_interface(Parser *parser) {
     ASTNode **sigs = NULL;
     int sig_count = 0;
     int sig_cap = 0;
+    const char **composed = NULL;
+    int composed_count = 0;
+    int composed_cap = 0;
     while (parser->current_token != NULL &&
            !parser_match(parser, TOKEN_RIGHT_BRACE) && !parser_match(parser, TOKEN_EOF)) {
+        // 检查是否为组合接口引用（标识符后跟分号）
+        // 接口体中只允许两种形式：fn method(...) 或 IName;
+        if (parser_match(parser, TOKEN_IDENTIFIER)) {
+            // 这是组合接口引用：IReader;
+            const char *composed_name = arena_strdup(parser->arena, parser->current_token->value);
+            if (!composed_name) return NULL;
+            parser_consume(parser);  // 消费标识符
+            if (!parser_expect(parser, TOKEN_SEMICOLON)) return NULL;  // 期望分号
+            
+            if (composed_count >= composed_cap) {
+                int new_cap = composed_cap == 0 ? 4 : composed_cap * 2;
+                const char **new_composed = (const char **)arena_alloc(parser->arena, sizeof(const char *) * new_cap);
+                if (!new_composed) return NULL;
+                for (int i = 0; i < composed_count; i++) new_composed[i] = composed[i];
+                composed = new_composed;
+                composed_cap = new_cap;
+            }
+            composed[composed_count++] = composed_name;
+            continue;
+        }
         if (!parser_match(parser, TOKEN_FN)) return NULL;
         int ml = parser->current_token->line;
         int mc = parser->current_token->column;
@@ -1469,6 +1492,8 @@ static ASTNode *parser_parse_interface(Parser *parser) {
     // 这样可以保留已解析的泛型参数 (type_params, type_param_count)
     interface_decl->data.interface_decl.method_sigs = sigs;
     interface_decl->data.interface_decl.method_sig_count = sig_count;
+    interface_decl->data.interface_decl.composed_interfaces = composed;
+    interface_decl->data.interface_decl.composed_count = composed_count;
     return interface_decl;
 }
 

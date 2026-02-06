@@ -47,6 +47,8 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.interface_decl.type_param_count = 0;
             node->data.interface_decl.method_sigs = NULL;
             node->data.interface_decl.method_sig_count = 0;
+            node->data.interface_decl.composed_interfaces = NULL;
+            node->data.interface_decl.composed_count = 0;
             node->data.interface_decl.is_export = 0;
             break;
         case AST_STRUCT_DECL:

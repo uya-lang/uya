@@ -158,6 +158,8 @@ struct ASTNode {
             int type_param_count;          // 类型参数数量
             struct ASTNode **method_sigs;   // 方法签名数组（AST_FN_DECL 节点，body 为 NULL）
             int method_sig_count;          // 方法签名数量
+            const char **composed_interfaces; // 组合的接口名称数组（如 IReader; IWriter;）
+            int composed_count;            // 组合的接口数量
             int is_export;                 // 1 表示 export interface，0 表示私有
         } interface_decl;
         

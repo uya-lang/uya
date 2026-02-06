@@ -1,0 +1,64 @@
+// 接口组合测试程序
+// 测试接口可以组合其他接口的方法
+
+// 基础接口 1: 可读取
+interface IReader {
+    fn read(self: &Self) i32;
+}
+
+// 基础接口 2: 可写入
+interface IWriter {
+    fn write(self: &Self, value: i32) void;
+}
+
+// 组合接口: 包含 IReader + IWriter 的所有方法，加上额外方法
+interface IReadWriter {
+    IReader;     // 组合 IReader 的方法
+    IWriter;     // 组合 IWriter 的方法
+    fn flush(self: &Self) i32;  // 额外方法
+}
+
+// 实现组合接口的结构体
+struct Buffer : IReadWriter {
+    data: i32,
+    flushed: i32,
+}
+
+// 实现所有方法（IReader.read + IWriter.write + IReadWriter.flush）
+Buffer {
+    fn read(self: &Self) i32 {
+        return self.data;
+    }
+    
+    fn write(self: &Self, value: i32) void {
+        // 注意：self 是 &Self（不可变引用），这里只是测试接口组合
+        // 实际应用中可能需要 &mut Self
+    }
+    
+    fn flush(self: &Self) i32 {
+        return self.flushed;
+    }
+}
+
+// 测试函数：接受组合接口
+fn test_read_writer(rw: IReadWriter) i32 {
+    const val: i32 = rw.read();      // 调用 IReader 的方法
+    rw.write(100);                    // 调用 IWriter 的方法
+    const f: i32 = rw.flush();        // 调用 IReadWriter 自己的方法
+    return val + f;
+}
+
+fn main() i32 {
+    // 创建 Buffer 实例
+    var buf: Buffer = Buffer{ data: 42, flushed: 10 };
+    
+    // 测试: 通过组合接口调用（IReadWriter 包含 IReader + IWriter + flush 方法）
+    const result1: i32 = test_read_writer(buf);
+    if result1 != 52 {  // 42 + 10
+        return 1;
+    }
+    
+    // 所有测试通过
+    return 0;
+}
+

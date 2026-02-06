@@ -84,6 +84,48 @@ ASTNode *find_interface_decl_c99(C99CodeGenerator *codegen, const char *interfac
     return NULL;
 }
 
+// 递归收集接口（包括组合接口）的所有方法签名
+// 用于生成 vtable 时包含组合接口的方法
+// sigs: 输出方法签名数组，count: 输出方法数量
+// 返回收集到的方法数量
+static int collect_interface_method_sigs(C99CodeGenerator *codegen, const char *interface_name,
+                                          ASTNode **sigs, int max_sigs, int *count) {
+    if (!codegen || !interface_name || !sigs || !count) return 0;
+    
+    ASTNode *iface = find_interface_decl_c99(codegen, interface_name);
+    if (!iface) return 0;
+    
+    // 先收集组合接口的方法（保证继承的方法在前面）
+    for (int i = 0; i < iface->data.interface_decl.composed_count; i++) {
+        const char *composed_name = iface->data.interface_decl.composed_interfaces[i];
+        if (composed_name) {
+            collect_interface_method_sigs(codegen, composed_name, sigs, max_sigs, count);
+        }
+    }
+    
+    // 再收集本接口的方法
+    for (int i = 0; i < iface->data.interface_decl.method_sig_count; i++) {
+        ASTNode *msig = iface->data.interface_decl.method_sigs[i];
+        if (!msig || msig->type != AST_FN_DECL) continue;
+        
+        // 检查是否已存在（避免重复，组合的接口可能有同名方法）
+        int exists = 0;
+        for (int j = 0; j < *count; j++) {
+            if (sigs[j] && sigs[j]->data.fn_decl.name && msig->data.fn_decl.name &&
+                strcmp(sigs[j]->data.fn_decl.name, msig->data.fn_decl.name) == 0) {
+                exists = 1;
+                break;
+            }
+        }
+        
+        if (!exists && *count < max_sigs) {
+            sigs[(*count)++] = msig;
+        }
+    }
+    
+    return *count;
+}
+
 // 查找结构体声明
 ASTNode *find_struct_decl_c99(C99CodeGenerator *codegen, const char *struct_name) {
     if (!codegen || !struct_name || !codegen->program_node) {
@@ -395,8 +437,14 @@ void emit_interface_structs_and_vtables(C99CodeGenerator *codegen) {
         c99_emit(codegen, "struct uya_interface_%s { void *vtable; void *data; };\n", safe_iface);
         c99_emit(codegen, "struct uya_vtable_%s {\n", safe_iface);
         codegen->indent_level++;
-        for (int j = 0; j < decl->data.interface_decl.method_sig_count; j++) {
-            ASTNode *msig = decl->data.interface_decl.method_sigs[j];
+        
+        // 使用 collect_interface_method_sigs 收集所有方法（包括组合接口的方法）
+        ASTNode *all_sigs[128];
+        int sig_count = 0;
+        collect_interface_method_sigs(codegen, iface_name, all_sigs, 128, &sig_count);
+        
+        for (int j = 0; j < sig_count; j++) {
+            ASTNode *msig = all_sigs[j];
             if (!msig || msig->type != AST_FN_DECL) continue;
             const char *ret_c = convert_array_return_type(codegen, msig->data.fn_decl.return_type);
             const char *mname = get_safe_c_identifier(codegen, msig->data.fn_decl.name);
@@ -434,10 +482,16 @@ void emit_vtable_constants(C99CodeGenerator *codegen) {
             ASTNode *iface_decl = find_interface_decl_c99(codegen, iface_name);
             if (!iface_decl) continue;
             const char *safe_iface = get_safe_c_identifier(codegen, iface_name);
+            
+            // 使用 collect_interface_method_sigs 收集所有方法（包括组合接口的方法）
+            ASTNode *all_sigs[128];
+            int sig_count = 0;
+            collect_interface_method_sigs(codegen, iface_name, all_sigs, 128, &sig_count);
+            
             fprintf(codegen->output, "static const struct uya_vtable_%s uya_vtable_%s_%s = { ",
                     safe_iface, safe_iface, safe_struct);
-            for (int k = 0; k < iface_decl->data.interface_decl.method_sig_count; k++) {
-                ASTNode *msig = iface_decl->data.interface_decl.method_sigs[k];
+            for (int k = 0; k < sig_count; k++) {
+                ASTNode *msig = all_sigs[k];
                 if (!msig || msig->type != AST_FN_DECL) continue;
                 const char *mname = msig->data.fn_decl.name;
                 // 使用 find_method_in_struct_c99 同时查找外部方法块和内部方法

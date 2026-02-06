@@ -142,6 +142,8 @@ struct ASTNode {
     interface_decl_type_param_count: i32,     // 类型参数数量
     interface_decl_method_sigs: & & ASTNode,
     interface_decl_method_sig_count: i32,
+    interface_decl_composed_interfaces: & & byte,  // 组合的接口名称数组
+    interface_decl_composed_count: i32,            // 组合的接口数量
     interface_decl_is_export: i32,  // 1 表示 export interface，0 表示私有
     // struct_decl
     struct_decl_name: &byte,
@@ -368,6 +370,8 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.interface_decl_type_param_count = 0;
     node.interface_decl_method_sigs = null;
     node.interface_decl_method_sig_count = 0;
+    node.interface_decl_composed_interfaces = null;
+    node.interface_decl_composed_count = 0;
     node.interface_decl_is_export = 0;
     node.struct_decl_name = null;
     node.struct_decl_type_params = null;
