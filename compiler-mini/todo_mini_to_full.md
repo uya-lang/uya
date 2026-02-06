@@ -900,8 +900,8 @@ test "函数调用测试" {
 
 ## 类型系统扩展（详表，供实现时勾选）
 
-| 待办 | Mini 现状 | 完整版目标 | 规范 |
-|------|-----------|------------|------|
+| 待办 | Mini 现状 | 完整版目标 | 规范 | 状态 |
+|------|-----------|------------|------|------|
 | 整数类型 | i32, usize, byte | + i8, i16, i64, u8, u16, u32, u64 | uya.md §2 | [x] |
 | 类型极值 | 无 | @max, @min 内置函数（以 @ 开头） | uya.md §2、§16 | [x] |
 | 切片类型 | 无 | &[T], &[T: N] | uya.md §2、§4 | [x] |
@@ -911,9 +911,9 @@ test "函数调用测试" {
 | 接口类型 | 无 | interface I, struct S : I | uya.md §6 | [x] |
 | 函数指针 | 无 | fn(...) type, type Alias = fn(...) type | uya.md §5.2 | [ ] |
 | 原子类型 | 无 | atomic T, &atomic T | uya.md §13 | [x] |
-| 类型别名 | 无 | type A = B | uya.md §5.2、§24.6.2 | [ ] |
-| 多维数组 | 无 | [[T: N]: M]，多维访问 arr[i][j] | uya.md §2、§4 | [ ] |
-| 结构体默认值 | 无 | field: Type = default_value, Struct{} | uya.md §4.3 | [ ] |
+| 类型别名 | 无 | type A = B | uya.md §5.2、§24.6.2 | [x] v0.2.31 |
+| 多维数组 | 无 | [[T: N]: M]，多维访问 arr[i][j] | uya.md §2、§4 | [x] |
+| 结构体默认值 | 无 | field: Type = default_value, Struct{} | uya.md §4.3 | [x] v0.2.31 |
 | &void 通用指针 | 部分 | &void → &T 类型擦除 | uya.md §2 | [~] |
 | 块注释 | 完整 | /* ... */（可嵌套） | uya.md §1 | [x] |
 
@@ -1339,6 +1339,206 @@ interface IReadWriter {
 - [examples/file_6.uya](../examples/file_6.uya) - 接口组合示例
 
 **实现状态**：✅ 已完成（v0.2.30）
+
+---
+
+## 当前进度总结（截至 v0.2.31）
+
+### 已完成的主要特性（28 项中已完成 25 项）
+
+**核心语言特性（15/15 完成）**：
+- ✅ 基础类型与字面量（i8-i64, u8-u64, 元组, @max/@min）
+- ✅ 错误处理（!T, try/catch, error 定义）
+- ✅ defer / errdefer（作用域 LIFO 清理）
+- ✅ 切片（&[T], &[T: N]）
+- ✅ match 表达式（模式匹配）
+- ✅ for 扩展（整数范围、迭代器）
+- ✅ 接口（interface, struct : I, 接口组合）
+- ✅ 结构体方法 + drop + 移动语义
+- ✅ 模块系统（目录即模块、export/use、循环依赖检测）
+- ✅ 字符串插值（多段、格式说明符）
+- ✅ 原子类型（atomic T）
+- ✅ 运算符与安全（饱和运算、包装运算、as!）
+- ✅ 联合体（union、extern union、方法）
+- ✅ 泛型（Generics，类型推断、约束检查）
+- ✅ 宏系统（Macro，@mc_eval、@mc_code、@mc_ast、${}插值）
+
+**辅助特性（7/7 完成）**：
+- ✅ test 关键字（测试单元）
+- ✅ 类型别名（type 关键字）
+- ✅ 结构体默认值语法
+- ✅ 多维数组（[[T: N]: M]）
+- ✅ 块注释（/* */ 可嵌套）
+- ✅ 接口组合（IReadWriter : IReader + IWriter）
+- ✅ 源代码位置内置函数（@src_name/@src_path/@src_line/@src_col/@func_name）
+
+**开发质量（2/2 完成）**：
+- ✅ 消灭所有警告（编译器代码与生成代码）
+- ✅ 完整自举（C 实现与 uya-src 完全同步，310+ 测试全部通过）
+
+### 部分完成的特性（1 项）
+
+- 🔄 **异步编程**（语法解析完成，状态机生成待实现）
+
+### 待实现的核心特性（3 项）
+
+**高优先级（关键基础设施）**：
+1. **标准库基础设施（std）**
+   - 纯 Uya 实现的 C 标准库（零外部依赖）
+   - `@syscall` 内置函数
+   - std.c.{string, stdio, stdlib, syscall}
+   - std.io / std.fmt 抽象层
+   - `--outlibc` 生成单文件 libc
+
+2. **@print/@println 内置函数**
+   - 配合标准库实现
+   - Hosted / Freestanding 模式支持
+   - 类型安全格式化输出
+
+**中优先级（安全保证）**：
+3. **内存安全证明（规范 §14）**
+   - 编译期证明（数组越界、空指针、未初始化、溢出、除零）
+   - 证明超时自动插入运行时检查
+   - 路径敏感分析与符号执行
+
+**低优先级（依赖其他特性）**：
+4. **并发安全（规范 §15）**
+   - Send/Sync 推导（依赖异步编程）
+   - 跨线程验证
+
+---
+
+## 下一步优先计划（v0.2.32 及以后）
+
+### 短期计划（v0.2.32 - v0.3.0）
+
+#### 1. 标准库基础设施（最高优先级）⭐⭐⭐⭐⭐
+
+**目标**：实现完全独立的标准库，编译器零外部依赖
+
+**实施路线**：
+- **阶段 0**：`@syscall` 内置函数（Linux x86-64 系统调用）
+- **阶段 1**：`std.c.syscall` 模块（read/write/open/close/exit 等）
+- **阶段 2**：`std.c.string` 模块（memcpy/memset/strlen/strcmp）
+- **阶段 3**：`std.c.stdio` 模块（putchar/puts，基于 syscall）
+- **阶段 4**：`std.io` 抽象层（Writer/Reader 接口）
+- **阶段 5**：`std.fmt` 格式化库（纯 Uya 实现）
+
+**验证标准**：
+- 编译器使用 `-nostdlib` 构建成功
+- 生成的代码零 glibc 依赖
+
+**详细设计**：见 [`docs/std_c_design.md`](./docs/std_c_design.md)
+
+#### 2. @print/@println 内置函数（高优先级）⭐⭐⭐⭐
+
+**目标**：提供易用的格式化输出，配合标准库
+
+**功能**：
+- `@print(expr)` / `@println(expr)`
+- 支持所有基础类型（i32/i64/f32/f64/bool/字符串）
+- 集成字符串插值（`@println("x=${x}")`）
+- Hosted 模式（printf）/ Freestanding 模式（uya_putchar）
+
+**依赖**：标准库基础设施
+
+#### 3. 优化与完善（持续进行）⭐⭐⭐
+
+- 修复泛型接口中的 const 限定符警告
+- 完善错误信息提示
+- 性能优化（编译速度、生成代码质量）
+- 文档完善（教程、示例、API 文档）
+
+### 中期计划（v0.3.x）
+
+#### 1. 内存安全证明（核心安全特性）⭐⭐⭐⭐⭐
+
+**目标**：编译期消除所有 UB
+
+**实施路线**：
+- 常量折叠（溢出/越界/除零检测）
+- 路径敏感分析框架
+- 符号执行引擎（约束求解）
+- 证明超时机制
+- 运行时检查自动插入
+
+**详细方案**：见待办文档 §25
+
+#### 2. 异步编程完善（运行时支持）⭐⭐⭐⭐
+
+**目标**：完成状态机生成与运行时
+
+**实施路线**：
+- CPS 变换（continuation-passing style）
+- 状态机生成（@await 点分析）
+- Poll<T> / Future<T> 运行时
+- std.async.{task, io, event, scheduler}
+
+**依赖**：标准库基础设施（syscall）
+
+**详细设计**：见 [`docs/std_async_design.md`](./docs/std_async_design.md)
+
+### 长期计划（v0.4.x+）
+
+#### 1. 并发安全（v0.4.0）⭐⭐⭐
+
+- Send/Sync 自动推导
+- 跨线程安全验证
+- std.thread 模块
+
+#### 2. 标准库完善（v0.4.x）⭐⭐⭐
+
+- std.collections（Vec、HashMap、BTreeMap）
+- std.net（TCP/UDP 网络）
+- std.fs（文件系统）
+- std.time（时间处理）
+
+#### 3. 跨平台支持（v0.5.x）⭐⭐
+
+- macOS 支持（kqueue、Mach 系统调用）
+- Windows 支持（IOCP、Win32 API）
+- ARM64 支持
+- RISC-V 支持（裸机）
+
+#### 4. 编译器后端扩展（v0.6.x+）⭐
+
+- LLVM IR 后端（优化与多架构）
+- WebAssembly 后端
+- GPU 计算支持
+
+---
+
+## 里程碑规划
+
+### v0.2.31（✅ 已完成，2026-02-06）
+- ✅ 源代码位置内置函数
+- ✅ 类型别名（type 关键字）
+- ✅ 结构体默认值语法
+- ✅ 内置函数完整文档（972 行）
+
+### v0.3.0（目标：2026 Q1）- 标准库里程碑
+- 🎯 标准库基础设施（std.c 完整实现）
+- 🎯 @print/@println 内置函数
+- 🎯 编译器零外部依赖（-nostdlib 构建）
+- 🎯 --outlibc 生成独立 libc
+
+### v0.4.0（目标：2026 Q2）- 安全与异步里程碑
+- 🎯 内存安全证明（编译期+运行时）
+- 🎯 异步编程完整运行时
+- 🎯 并发安全保证
+- 🎯 标准库：collections + async
+
+### v0.5.0（目标：2026 Q3-Q4）- 跨平台里程碑
+- 🎯 macOS / Windows 支持
+- 🎯 ARM64 / RISC-V 支持
+- 🎯 标准库：net + fs + time
+
+### v1.0.0（目标：2027）- 生产就绪
+- 🎯 语言规范完全实现
+- 🎯 完整标准库
+- 🎯 多平台支持
+- 🎯 LLVM 后端
+- 🎯 完整文档与教程
 
 ---
 
