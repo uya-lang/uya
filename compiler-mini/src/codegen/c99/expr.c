@@ -171,6 +171,71 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
         case AST_INT_LIMIT:
             gen_int_limit_literal(codegen, expr->data.int_limit.is_max, expr->data.int_limit.resolved_kind);
             break;
+        case AST_SRC_NAME: {
+            // 从节点获取文件名（不含路径）
+            const char *filename = expr->filename;
+            if (filename == NULL) {
+                filename = "(unknown)";
+            }
+            // 提取文件名（不含路径）
+            const char *basename = strrchr(filename, '/');
+            if (basename == NULL) {
+                basename = strrchr(filename, '\\');
+            }
+            if (basename != NULL) {
+                basename++;  // 跳过路径分隔符
+            } else {
+                basename = filename;
+            }
+            // 查找已存在的字符串常量（收集阶段已添加）
+            const char *str_const = find_string_constant(codegen, basename);
+            if (str_const) {
+                fprintf(codegen->output, "%s", str_const);
+            } else {
+                fputs("\"\"", codegen->output);
+            }
+            break;
+        }
+        case AST_SRC_PATH: {
+            // 从节点获取完整路径
+            const char *filepath = expr->filename;
+            if (filepath == NULL) {
+                filepath = "(unknown)";
+            }
+            // 查找已存在的字符串常量（收集阶段已添加）
+            const char *str_const = find_string_constant(codegen, filepath);
+            if (str_const) {
+                fprintf(codegen->output, "%s", str_const);
+            } else {
+                fputs("\"\"", codegen->output);
+            }
+            break;
+        }
+        case AST_SRC_LINE:
+            // 从节点获取行号
+            fprintf(codegen->output, "%d", expr->line);
+            break;
+        case AST_SRC_COL:
+            // 从节点获取列号
+            fprintf(codegen->output, "%d", expr->column);
+            break;
+        case AST_FUNC_NAME: {
+            // 从 codegen->current_function_decl 获取函数名
+            const char *func_name = "(unknown)";
+            if (codegen->current_function_decl != NULL && 
+                codegen->current_function_decl->type == AST_FN_DECL &&
+                codegen->current_function_decl->data.fn_decl.name != NULL) {
+                func_name = codegen->current_function_decl->data.fn_decl.name;
+            }
+            // 查找已存在的字符串常量（收集阶段已添加）
+            const char *str_const = find_string_constant(codegen, func_name);
+            if (str_const) {
+                fprintf(codegen->output, "%s", str_const);
+            } else {
+                fputs("\"\"", codegen->output);
+            }
+            break;
+        }
         case AST_STRING: {
             const char *str_const = add_string_constant(codegen, expr->data.string_literal.value);
             if (str_const) {

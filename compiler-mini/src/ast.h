@@ -101,6 +101,11 @@ typedef enum {
     AST_MC_INTERP,      // ${expr} - 宏内插值（在 @mc_ast 内部引用变量/参数）
     AST_MC_TYPE,        // @mc_type(expr) - 宏内类型反射
     AST_AWAIT_EXPR,     // try @await expr - 异步等待表达式（挂起点）
+    AST_SRC_NAME,       // @src_name - 源文件名
+    AST_SRC_PATH,       // @src_path - 源文件路径
+    AST_SRC_LINE,       // @src_line - 源文件行号
+    AST_SRC_COL,        // @src_col - 源文件列号
+    AST_FUNC_NAME,      // @func_name - 当前函数名
     
     // 类型节点
     AST_TYPE_NAMED,     // 命名类型（i32, bool, void, 或 struct Name）

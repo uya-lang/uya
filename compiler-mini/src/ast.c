@@ -236,6 +236,13 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.int_limit.is_max = 0;
             node->data.int_limit.resolved_kind = 0;
             break;
+        case AST_SRC_NAME:
+        case AST_SRC_PATH:
+        case AST_SRC_LINE:
+        case AST_SRC_COL:
+        case AST_FUNC_NAME:
+            // 这些节点不需要额外的数据字段，信息已经在 line/column/filename 中
+            break;
         case AST_STRING:
             node->data.string_literal.value = NULL;
             break;

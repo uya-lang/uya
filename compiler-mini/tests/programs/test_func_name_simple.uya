@@ -1,0 +1,9 @@
+// 简单测试 @func_name
+fn main() i32 {
+    const func: *byte = @func_name;
+    if func == null {
+        return 1;
+    }
+    return 0;
+}
+

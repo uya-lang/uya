@@ -1,0 +1,65 @@
+// 测试源代码位置内置函数
+// @src_name: 返回源文件名（不含路径）
+// @src_path: 返回源文件完整路径
+// @src_line: 返回当前行号
+// @src_col: 返回当前列号
+// @func_name: 返回当前函数名
+
+fn main() i32 {
+    // 测试 @src_line 和 @src_col
+    const line: i32 = @src_line;
+    const col: i32 = @src_col;
+    
+    // 验证行号和列号合理（当前行应该 > 0）
+    if line <= 0 {
+        return 1;
+    }
+    if col <= 0 {
+        return 2;
+    }
+    
+    // 测试 @src_name（返回文件名）
+    const name: *byte = @src_name;
+    if name == null {
+        return 3;
+    }
+    
+    // 测试 @src_path（返回完整路径）
+    const path: *byte = @src_path;
+    if path == null {
+        return 4;
+    }
+    
+    // 测试 @func_name（应该返回 "main"）
+    const func: *byte = @func_name;
+    if func == null {
+        return 5;
+    }
+    
+    // 测试在另一个函数中使用 @func_name
+    const result: i32 = test_func();
+    if result != 0 {
+        return result;
+    }
+    
+    return 0;
+}
+
+fn test_func() i32 {
+    // 测试 @func_name（应该返回 "test_func"）
+    const func: *byte = @func_name;
+    if func == null {
+        return 10;
+    }
+    
+    // 测试行号在不同位置会不同
+    const line1: i32 = @src_line;
+    const line2: i32 = @src_line;
+    // line2 应该比 line1 大 1
+    if line2 != line1 + 1 {
+        return 11;
+    }
+    
+    return 0;
+}
+

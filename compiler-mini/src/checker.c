@@ -1199,6 +1199,64 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             result.kind = TYPE_INT_LIMIT;
             return result;
         }
+        
+        case AST_SRC_NAME:
+        case AST_SRC_PATH: {
+            // @src_name/@src_path 返回 &[i8] 类型（切片类型）
+            Type *slice_type = (Type *)arena_alloc(checker->arena, sizeof(Type));
+            if (slice_type == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            slice_type->kind = TYPE_SLICE;
+            
+            Type *element_type = (Type *)arena_alloc(checker->arena, sizeof(Type));
+            if (element_type == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            element_type->kind = TYPE_I8;
+            slice_type->data.slice.element_type = element_type;
+            
+            result.kind = TYPE_SLICE;
+            result.data.slice.element_type = element_type;
+            return result;
+        }
+        
+        case AST_SRC_LINE:
+        case AST_SRC_COL:
+            // @src_line/@src_col 返回 i32 类型
+            result.kind = TYPE_I32;
+            return result;
+        
+        case AST_FUNC_NAME: {
+            // @func_name 返回 &[i8] 类型（切片类型）
+            // 检查是否在函数体内
+            if (!checker->in_function || checker->current_function_decl == NULL) {
+                checker_report_error(checker, expr, "@func_name 只能在函数体内使用");
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            
+            Type *slice_type = (Type *)arena_alloc(checker->arena, sizeof(Type));
+            if (slice_type == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            slice_type->kind = TYPE_SLICE;
+            
+            Type *element_type = (Type *)arena_alloc(checker->arena, sizeof(Type));
+            if (element_type == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            element_type->kind = TYPE_I8;
+            slice_type->data.slice.element_type = element_type;
+            
+            result.kind = TYPE_SLICE;
+            result.data.slice.element_type = element_type;
+            return result;
+        }
             
         case AST_STRING: {
             // 字符串字面量类型为 *byte（FFI 指针类型）

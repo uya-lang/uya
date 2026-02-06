@@ -3109,6 +3109,46 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return node;
     }
     
+    // 解析 @src_name 表达式
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "src_name") == 0) {
+        ASTNode *node = ast_new_node(AST_SRC_NAME, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析 @src_path 表达式
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "src_path") == 0) {
+        ASTNode *node = ast_new_node(AST_SRC_PATH, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析 @src_line 表达式
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "src_line") == 0) {
+        ASTNode *node = ast_new_node(AST_SRC_LINE, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析 @src_col 表达式
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "src_col") == 0) {
+        ASTNode *node = ast_new_node(AST_SRC_COL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        parser_consume(parser);
+        return node;
+    }
+    
+    // 解析 @func_name 表达式
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "func_name") == 0) {
+        ASTNode *node = ast_new_node(AST_FUNC_NAME, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        parser_consume(parser);
+        return node;
+    }
+    
     // 解析 @size_of 表达式：@size_of(Type) 或 @size_of(expr)
     if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
         strcmp(parser->current_token->value, "size_of") == 0) {

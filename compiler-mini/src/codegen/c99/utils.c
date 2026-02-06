@@ -241,7 +241,7 @@ const char *get_safe_c_identifier(C99CodeGenerator *codegen, const char *name) {
 const char *add_string_constant(C99CodeGenerator *codegen, const char *value) {
     // 检查是否已存在相同的字符串常量
     for (int i = 0; i < codegen->string_constant_count; i++) {
-        if (strcmp(codegen->string_constants[i].value, value) == 0) {
+        if (codegen->string_constants[i].value && strcmp(codegen->string_constants[i].value, value) == 0) {
             return codegen->string_constants[i].name;
         }
     }
@@ -263,6 +263,21 @@ const char *add_string_constant(C99CodeGenerator *codegen, const char *value) {
     codegen->string_constant_count++;
     
     return codegen->string_constants[codegen->string_constant_count - 1].name;
+}
+
+// 查找已存在的字符串常量（不创建新的）
+const char *find_string_constant(C99CodeGenerator *codegen, const char *value) {
+    for (int i = 0; i < codegen->string_constant_count; i++) {
+        if (codegen->string_constants[i].value && strcmp(codegen->string_constants[i].value, value) == 0) {
+            return codegen->string_constants[i].name;
+        }
+    }
+    // 如果找不到，返回第一个常量（后备方案）
+    // 正常情况下不应该发生，因为收集阶段应该已经添加了所有字符串
+    if (codegen->string_constant_count > 0) {
+        return codegen->string_constants[0].name;
+    }
+    return NULL;
 }
 
 // 转义字符串中的特殊字符
@@ -526,6 +541,49 @@ void collect_string_constants_from_expr(C99CodeGenerator *codegen, ASTNode *expr
         case AST_CAST_EXPR:
             collect_string_constants_from_expr(codegen, expr->data.cast_expr.expr);
             break;
+        case AST_SRC_NAME: {
+            // 收集源文件名常量
+            const char *filename = expr->filename;
+            if (filename == NULL) {
+                filename = "(unknown)";
+            }
+            // 提取文件名（不含路径）
+            const char *basename = strrchr(filename, '/');
+            if (basename == NULL) {
+                basename = strrchr(filename, '\\');
+            }
+            if (basename != NULL) {
+                basename++;  // 跳过路径分隔符
+            } else {
+                basename = filename;
+            }
+            add_string_constant(codegen, basename);
+            break;
+        }
+        case AST_SRC_PATH: {
+            // 收集源文件完整路径常量
+            const char *filepath = expr->filename;
+            if (filepath == NULL) {
+                filepath = "(unknown)";
+            }
+            add_string_constant(codegen, filepath);
+            break;
+        }
+        case AST_FUNC_NAME: {
+            // 收集函数名常量
+            const char *func_name = "(unknown)";
+            if (codegen->current_function_decl != NULL && 
+                codegen->current_function_decl->type == AST_FN_DECL &&
+                codegen->current_function_decl->data.fn_decl.name != NULL) {
+                func_name = codegen->current_function_decl->data.fn_decl.name;
+            }
+            add_string_constant(codegen, func_name);
+            break;
+        }
+        case AST_SRC_LINE:
+        case AST_SRC_COL:
+            // 这些生成整数字面量，不需要收集字符串常量
+            break;
         default:
             // 其他表达式类型（标识符、数字、布尔值）不包含字符串
             break;
@@ -623,10 +681,17 @@ void collect_string_constants_from_decl(C99CodeGenerator *codegen, ASTNode *decl
             }
             break;
         case AST_FN_DECL: {
+            // 设置当前函数声明，以便 @func_name 能够获取函数名
+            ASTNode *old_fn = codegen->current_function_decl;
+            codegen->current_function_decl = decl;
+            
             ASTNode *body = decl->data.fn_decl.body;
             if (body) {
                 collect_string_constants_from_stmt(codegen, body);
             }
+            
+            // 恢复之前的函数声明
+            codegen->current_function_decl = old_fn;
             break;
         }
         default:

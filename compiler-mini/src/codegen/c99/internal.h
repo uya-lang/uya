@@ -16,6 +16,7 @@ void emit_line_directive(C99CodeGenerator *codegen, int line, const char *filena
 
 // 字符串常量（utils.c）
 const char *add_string_constant(C99CodeGenerator *codegen, const char *value);
+const char *find_string_constant(C99CodeGenerator *codegen, const char *value);
 void emit_string_constants(C99CodeGenerator *codegen);
 void collect_string_constants_from_expr(C99CodeGenerator *codegen, ASTNode *expr);
 /* 从插值构建 printf 格式串常量并添加，用于 printf(interp) 脱糖；返回常量名 */
