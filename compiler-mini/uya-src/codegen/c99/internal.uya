@@ -40,6 +40,7 @@ const C99_MAX_DEFER_STACK: i32 = 32;
 const C99_MAX_DEFERS_PER_BLOCK: i32 = 64;
 const C99_MAX_DROP_VARS_PER_BLOCK: i32 = 64;
 const C99_MAX_SLICE_STRUCTS: i32 = 32;
+const C99_MAX_MONO_INSTANCES: i32 = 512;
 
 // ===== 类型定义 =====
 
@@ -85,6 +86,14 @@ struct LocalVariable {
 struct LoopStack {
     break_label: &byte,  // break 标签
     continue_label: &byte  // continue 标签
+}
+
+// 泛型单态化实例（用于代码生成）
+struct MonoInstanceCodegen {
+    generic_name: &byte,       // 泛型函数/结构体名称
+    type_args: & & ASTNode,    // 类型实参 AST 节点数组
+    type_arg_count: i32,       // 类型实参数量
+    is_function: i32,          // 1 表示函数，0 表示结构体
 }
 
 // C99 代码生成器结构
@@ -155,7 +164,17 @@ struct C99CodeGenerator {
     // 待输出的切片结构体（&[T] -> struct uya_slice_X { T* ptr; size_t len; }）
     slice_struct_names: [&byte: C99_MAX_SLICE_STRUCTS],
     slice_struct_element_types: [&ASTNode: C99_MAX_SLICE_STRUCTS],
-    slice_struct_count: i32
+    slice_struct_count: i32,
+    
+    // 泛型单态化实例（从 TypeChecker 传入）
+    mono_instances: [MonoInstanceCodegen: C99_MAX_MONO_INSTANCES],
+    mono_instance_count: i32,
+    
+    // 当前单态化上下文（生成泛型函数实例时使用）
+    current_type_params: &TypeParam,    // 当前泛型的类型参数列表
+    current_type_param_count: i32,       // 当前泛型的类型参数数量
+    current_type_args: & & ASTNode,      // 当前实例化的类型实参
+    current_type_arg_count: i32,         // 当前实例化的类型实参数量
 }
 
 // ===== 函数声明 =====

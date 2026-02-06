@@ -35,6 +35,14 @@ struct EnumVariant {
     value: &byte,  // 显式值字符串（若指定 = NUM），否则 null
 }
 
+// 类型参数结构（用于泛型）
+// 例如：<T: Ord + Clone> 中的 T 是一个类型参数，Ord 和 Clone 是约束
+struct TypeParam {
+    name: &byte,              // 类型参数名称（如 "T"）
+    constraints: & & byte,    // 约束接口名称数组（如 ["Ord", "Clone"]，从 Arena 分配）
+    constraint_count: i32,    // 约束数量
+}
+
 // AST 节点类型枚举（与 C 版本 ast.h 一致）
 enum ASTNodeType {
     AST_PROGRAM,
@@ -129,11 +137,15 @@ struct ASTNode {
     error_decl_is_export: i32,  // 1 表示 export error，0 表示私有
     // interface_decl（interface I { fn method(self: *Self,...) Ret; ... }）
     interface_decl_name: &byte,
+    interface_decl_type_params: &TypeParam,   // 类型参数数组（泛型参数，如 <T>，从 Arena 分配）
+    interface_decl_type_param_count: i32,     // 类型参数数量
     interface_decl_method_sigs: & & ASTNode,
     interface_decl_method_sig_count: i32,
     interface_decl_is_export: i32,  // 1 表示 export interface，0 表示私有
     // struct_decl
     struct_decl_name: &byte,
+    struct_decl_type_params: &TypeParam,      // 类型参数数组（泛型参数，如 <T: Default>，从 Arena 分配）
+    struct_decl_type_param_count: i32,        // 类型参数数量
     struct_decl_interface_names: & & byte,  // 实现的接口名称数组（可为 null）
     struct_decl_interface_count: i32,
     struct_decl_fields: & & ASTNode,
@@ -156,6 +168,8 @@ struct ASTNode {
     method_block_method_count: i32,
     // fn_decl
     fn_decl_name: &byte,
+    fn_decl_type_params: &TypeParam,          // 类型参数数组（泛型参数，如 <T: Ord>，从 Arena 分配）
+    fn_decl_type_param_count: i32,            // 类型参数数量
     fn_decl_params: & & ASTNode,
     fn_decl_param_count: i32,
     fn_decl_return_type: &ASTNode,
@@ -217,6 +231,8 @@ struct ASTNode {
     call_expr_args: & & ASTNode,
     call_expr_arg_count: i32,
     call_expr_has_ellipsis_forward: i32,  // 1 表示末尾为 ... 转发可变参数
+    call_expr_type_args: & & ASTNode,     // 类型参数数组（泛型函数调用，如 max<i32>，从 Arena 分配）
+    call_expr_type_arg_count: i32,        // 类型参数数量
     // member_access
     member_access_object: &ASTNode,
     member_access_field_name: &byte,
@@ -232,6 +248,8 @@ struct ASTNode {
     struct_init_field_names: & & byte,
     struct_init_field_values: & & ASTNode,
     struct_init_field_count: i32,
+    struct_init_type_args: & & ASTNode,   // 类型实参数组（泛型结构体，如 Pair<i32, i64>）
+    struct_init_type_arg_count: i32,      // 类型实参数量
     // array_literal（[expr1, ...] 或 [value: N]）
     array_literal_elements: & & ASTNode,
     array_literal_element_count: i32,
@@ -298,8 +316,10 @@ struct ASTNode {
     // block
     block_stmts: & & ASTNode,
     block_stmt_count: i32,
-    // type_named
+    // type_named（命名类型：i32, bool, void, struct Name, 或泛型类型 Vec<i32>）
     type_named_name: &byte,
+    type_named_type_args: & & ASTNode,    // 类型参数数组（泛型类型参数，如 Vec<i32> 中的 [i32]，从 Arena 分配）
+    type_named_type_arg_count: i32,       // 类型参数数量（0 表示非泛型类型）
     // type_pointer
     type_pointer_pointed_type: &ASTNode,
     type_pointer_is_ffi_pointer: i32,
@@ -340,10 +360,14 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.error_decl_name = null;
     node.error_decl_is_export = 0;
     node.interface_decl_name = null;
+    node.interface_decl_type_params = null;
+    node.interface_decl_type_param_count = 0;
     node.interface_decl_method_sigs = null;
     node.interface_decl_method_sig_count = 0;
     node.interface_decl_is_export = 0;
     node.struct_decl_name = null;
+    node.struct_decl_type_params = null;
+    node.struct_decl_type_param_count = 0;
     node.struct_decl_interface_names = null;
     node.struct_decl_interface_count = 0;
     node.struct_decl_fields = null;
@@ -363,6 +387,8 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.method_block_methods = null;
     node.method_block_method_count = 0;
     node.fn_decl_name = null;
+    node.fn_decl_type_params = null;
+    node.fn_decl_type_param_count = 0;
     node.fn_decl_params = null;
     node.fn_decl_param_count = 0;
     node.fn_decl_return_type = null;
@@ -412,6 +438,8 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.call_expr_args = null;
     node.call_expr_arg_count = 0;
     node.call_expr_has_ellipsis_forward = 0;
+    node.call_expr_type_args = null;
+    node.call_expr_type_arg_count = 0;
     node.member_access_object = null;
     node.member_access_field_name = null;
     node.array_access_array = null;
@@ -423,6 +451,8 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.struct_init_field_names = null;
     node.struct_init_field_values = null;
     node.struct_init_field_count = 0;
+    node.struct_init_type_args = null;
+    node.struct_init_type_arg_count = 0;
     node.array_literal_elements = null;
     node.array_literal_element_count = 0;
     node.array_literal_repeat_count_expr = null;
@@ -468,6 +498,8 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.block_stmts = null;
     node.block_stmt_count = 0;
     node.type_named_name = null;
+    node.type_named_type_args = null;
+    node.type_named_type_arg_count = 0;
     node.type_pointer_pointed_type = null;
     node.type_pointer_is_ffi_pointer = 0;
     node.type_array_element_type = null;

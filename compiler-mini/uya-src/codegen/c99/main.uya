@@ -352,9 +352,28 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null {
             if decl.type == ASTNodeType.AST_STRUCT_DECL {
-                const struct_name: &byte = get_safe_c_identifier(codegen, decl.struct_decl_name);
-                if is_struct_in_table(codegen, struct_name) == 0 {
-                    add_struct_definition(codegen, struct_name);
+                // 泛型结构体：注册原始名（但也为单态化实例预注册）
+                if is_generic_struct_c99(decl) != 0 {
+                    // 为单态化实例注册名称
+                    var j: i32 = 0;
+                    while j < codegen.mono_instance_count {
+                        if codegen.mono_instances[j].generic_name != null &&
+                            strcmp(codegen.mono_instances[j].generic_name as *byte, decl.struct_decl_name as *byte) == 0 &&
+                            codegen.mono_instances[j].is_function == 0 {
+                            const mono_name: &byte = get_mono_struct_name(codegen, decl.struct_decl_name,
+                                codegen.mono_instances[j].type_args,
+                                codegen.mono_instances[j].type_arg_count);
+                            if is_struct_in_table(codegen, mono_name) == 0 {
+                                add_struct_definition(codegen, mono_name);
+                            }
+                        }
+                        j = j + 1;
+                    }
+                } else {
+                    const struct_name: &byte = get_safe_c_identifier(codegen, decl.struct_decl_name);
+                    if is_struct_in_table(codegen, struct_name) == 0 {
+                        add_struct_definition(codegen, struct_name);
+                    }
                 }
             } else if decl.type == ASTNodeType.AST_ENUM_DECL {
                 const enum_name: &byte = get_safe_c_identifier(codegen, decl.enum_decl_name);
@@ -457,8 +476,25 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null && decl.type == ASTNodeType.AST_STRUCT_DECL {
-            gen_struct_definition(codegen, decl);
-            fputs("\n" as *byte, codegen.output as *void);
+            // 跳过泛型结构体模板，为单态化实例生成定义
+            if is_generic_struct_c99(decl) != 0 {
+                const sname: &byte = decl.struct_decl_name;
+                var j: i32 = 0;
+                while j < codegen.mono_instance_count {
+                    if codegen.mono_instances[j].generic_name != null &&
+                        strcmp(codegen.mono_instances[j].generic_name as *byte, sname as *byte) == 0 &&
+                        codegen.mono_instances[j].is_function == 0 {
+                        gen_mono_struct_definition(codegen, decl,
+                            codegen.mono_instances[j].type_args,
+                            codegen.mono_instances[j].type_arg_count);
+                        fputs("\n" as *byte, codegen.output as *void);
+                    }
+                    j = j + 1;
+                }
+            } else {
+                gen_struct_definition(codegen, decl);
+                fputs("\n" as *byte, codegen.output as *void);
+            }
         }
         i = i + 1;
     }
@@ -507,7 +543,23 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
-            gen_function_prototype(codegen, decl);
+            // 跳过泛型函数模板，为单态化实例生成原型
+            if is_generic_function_c99(decl) != 0 {
+                const fn_name: &byte = decl.fn_decl_name;
+                var j: i32 = 0;
+                while j < codegen.mono_instance_count {
+                    if codegen.mono_instances[j].generic_name != null &&
+                        strcmp(codegen.mono_instances[j].generic_name as *byte, fn_name as *byte) == 0 &&
+                        codegen.mono_instances[j].is_function != 0 {
+                        gen_mono_function_prototype(codegen, decl,
+                            codegen.mono_instances[j].type_args,
+                            codegen.mono_instances[j].type_arg_count);
+                    }
+                    j = j + 1;
+                }
+            } else {
+                gen_function_prototype(codegen, decl);
+            }
         } else if decl != null && decl.type == ASTNodeType.AST_METHOD_BLOCK {
             var type_name: &byte = null;
             if decl.method_block_struct_name != null {
@@ -612,9 +664,33 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                 gen_global_var(codegen, decl);
                 fputs("\n" as *byte, codegen.output as *void);
             } else if decl.type == ASTNodeType.AST_FN_DECL {
-                // 只生成有函数体的定义（外部函数由前向声明处理）
-                gen_function(codegen, decl);
-                fputs("\n" as *byte, codegen.output as *void);
+                // 特殊处理：main 函数在后面生成（需要添加测试运行器调用）
+                const func_name: &byte = decl.fn_decl_name;
+                var is_main: i32 = 0;
+                if func_name != null && strcmp(func_name as *byte, "main" as *byte) == 0 {
+                    is_main = 1;
+                }
+                if is_main == 0 {
+                    // 跳过泛型函数模板，为单态化实例生成定义
+                    if is_generic_function_c99(decl) != 0 {
+                        var j: i32 = 0;
+                        while j < codegen.mono_instance_count {
+                            if codegen.mono_instances[j].generic_name != null &&
+                                strcmp(codegen.mono_instances[j].generic_name as *byte, func_name as *byte) == 0 &&
+                                codegen.mono_instances[j].is_function != 0 {
+                                gen_mono_function(codegen, decl,
+                                    codegen.mono_instances[j].type_args,
+                                    codegen.mono_instances[j].type_arg_count);
+                                fputs("\n" as *byte, codegen.output as *void);
+                            }
+                            j = j + 1;
+                        }
+                    } else {
+                        // 只生成有函数体的定义（外部函数由前向声明处理）
+                        gen_function(codegen, decl);
+                        fputs("\n" as *byte, codegen.output as *void);
+                    }
+                }
             } else if decl.type == ASTNodeType.AST_METHOD_BLOCK {
                 var type_name: &byte = null;
                 if decl.method_block_struct_name != null {
@@ -650,6 +726,49 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         }
         gen_test_runner(codegen, tests_array, test_count);
         fputs("\n" as *byte, codegen.output as *void);
+    }
+    
+    // 第十一步：生成 main 函数（uya_main）
+    i = 0;
+    while i < decl_count {
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
+            const func_name: &byte = decl.fn_decl_name;
+            if func_name != null && strcmp(func_name as *byte, "main" as *byte) == 0 && decl.fn_decl_body != null {
+                // 生成 main 函数（重命名为 uya_main）
+                emit_line_directive(codegen, decl.line, decl.filename);
+                const return_c: &byte = convert_array_return_type(codegen, decl.fn_decl_return_type);
+                fprintf(codegen.output as *void, "%s uya_main(void) {\n" as *byte, return_c as *byte);
+                
+                // 保存并设置当前函数的返回类型
+                const saved_return_type: &ASTNode = codegen.current_function_return_type;
+                codegen.current_function_return_type = decl.fn_decl_return_type;
+                
+                // 如果有测试，在函数体开始处调用测试运行器
+                if test_count > 0 {
+                    fputs("    uya_run_tests();\n" as *byte, codegen.output as *void);
+                }
+                
+                // 生成原始函数体
+                const body: &ASTNode = decl.fn_decl_body;
+                if body != null && body.type == ASTNodeType.AST_BLOCK {
+                    const stmts: & & ASTNode = body.block_stmts;
+                    const stmt_count: i32 = body.block_stmt_count;
+                    var j: i32 = 0;
+                    while j < stmt_count {
+                        gen_stmt(codegen, stmts[j]);
+                        j = j + 1;
+                    }
+                }
+                
+                // 恢复之前的返回类型
+                codegen.current_function_return_type = saved_return_type;
+                
+                fputs("}\n" as *byte, codegen.output as *void);
+                break;
+            }
+        }
+        i = i + 1;
     }
     
     return 0;

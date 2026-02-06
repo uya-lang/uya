@@ -79,9 +79,67 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
         return ("void" as *byte) as &byte;
     }
     
+    // 在单态化上下文中，先进行类型参数替换
+    if codegen.current_type_params != null && codegen.current_type_param_count > 0 &&
+        type_node.type == ASTNodeType.AST_TYPE_NAMED && type_node.type_named_name != null {
+        const tp_name: &byte = type_node.type_named_name;
+        var tpi: i32 = 0;
+        while tpi < codegen.current_type_param_count {
+            if codegen.current_type_params[tpi].name != null &&
+                strcmp(codegen.current_type_params[tpi].name as *byte, tp_name as *byte) == 0 {
+                // 找到匹配的类型参数，使用对应的类型实参
+                if codegen.current_type_args != null && tpi < codegen.current_type_arg_count {
+                    return c99_type_to_c(codegen, codegen.current_type_args[tpi]);
+                }
+            }
+            tpi = tpi + 1;
+        }
+    }
+    
+    // 处理复合类型中的类型参数替换（指针类型）
+    if codegen.current_type_params != null && codegen.current_type_param_count > 0 {
+        if type_node.type == ASTNodeType.AST_TYPE_POINTER && type_node.type_pointer_pointed_type != null {
+            const inner: &ASTNode = type_node.type_pointer_pointed_type;
+            if inner.type == ASTNodeType.AST_TYPE_NAMED && inner.type_named_name != null {
+                var tpj: i32 = 0;
+                while tpj < codegen.current_type_param_count {
+                    if codegen.current_type_params[tpj].name != null &&
+                        strcmp(codegen.current_type_params[tpj].name as *byte, inner.type_named_name as *byte) == 0 {
+                        if codegen.current_type_args != null && tpj < codegen.current_type_arg_count {
+                            // 获取替换后的内部类型
+                            const inner_c: &byte = c99_type_to_c(codegen, codegen.current_type_args[tpj]);
+                            const len: i32 = strlen(inner_c as *byte) + 4;
+                            const buf: &byte = arena_alloc(codegen.arena, len) as &byte;
+                            if buf != null {
+                                snprintf(buf as *byte, len, "%s *" as *byte, inner_c as *byte);
+                                return buf;
+                            }
+                        }
+                    }
+                    tpj = tpj + 1;
+                }
+            }
+        }
+    }
+    
     if type_node.type == ASTNodeType.AST_TYPE_NAMED {
         const name: &byte = type_node.type_named_name;
         if name == null {
+            return ("void" as *byte) as &byte;
+        }
+        
+        // 检查是否有类型实参（泛型结构体实例化）
+        if type_node.type_named_type_arg_count > 0 && type_node.type_named_type_args != null {
+            // 使用单态化结构体名称
+            const mono_name: &byte = get_mono_struct_name(codegen, name,
+                type_node.type_named_type_args,
+                type_node.type_named_type_arg_count);
+            const mn_len: i32 = (strlen(mono_name as *byte) as i32) + 8;  // "struct " + name + '\0'
+            const buf: &byte = arena_alloc(codegen.arena, mn_len as usize) as &byte;
+            if buf != null {
+                snprintf(buf as *byte, mn_len, "struct %s" as *byte, mono_name as *byte);
+                return buf;
+            }
             return ("void" as *byte) as &byte;
         }
         

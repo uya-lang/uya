@@ -1017,6 +1017,8 @@ fn compile_files(
         fclose(out_file);
         return 1;
     }
+    // 设置单态化实例（从 TypeChecker 传入）
+    c99_codegen_set_mono_instances(&c99_codegen, &checker);
     if c99_codegen_generate(&c99_codegen, merged_ast, output_file as &byte) != 0 {
         fprintf(stderr, "错误: C99 代码生成失败\n" as *byte);
         c99_codegen_free(&c99_codegen);

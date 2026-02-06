@@ -689,3 +689,164 @@ fn gen_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode) i32 
     return 0;
 }
 
+// 检查结构体是否是泛型结构体（有类型参数）
+fn is_generic_struct_c99(struct_decl: &ASTNode) i32 {
+    if struct_decl == null || struct_decl.type != ASTNodeType.AST_STRUCT_DECL {
+        return 0;
+    }
+    if struct_decl.struct_decl_type_param_count > 0 {
+        return 1;
+    }
+    return 0;
+}
+
+// 获取单态化结构体名称
+// 例如：Pair<i32, i64> -> Pair_i32_i64
+fn get_mono_struct_name(codegen: &C99CodeGenerator, generic_name: &byte, type_args: & &ASTNode, type_arg_count: i32) &byte {
+    if codegen == null || generic_name == null || type_args == null || type_arg_count <= 0 {
+        return generic_name;
+    }
+    
+    // 构建后缀
+    var suffix: [byte: 256] = [0: 256];
+    var suffix_len: i32 = 0;
+    
+    var i: i32 = 0;
+    while i < type_arg_count {
+        if i > 0 && suffix_len < 255 {
+            suffix[suffix_len] = 95 as byte;  // '_'
+            suffix_len = suffix_len + 1;
+        }
+        
+        const type_arg: &ASTNode = type_args[i];
+        if type_arg != null && type_arg.type == ASTNodeType.AST_TYPE_NAMED && type_arg.type_named_name != null {
+            const type_name: &byte = type_arg.type_named_name;
+            var j: i32 = 0;
+            while type_name[j] != 0 && suffix_len < 255 {
+                suffix[suffix_len] = type_name[j];
+                suffix_len = suffix_len + 1;
+                j = j + 1;
+            }
+        } else if type_arg != null && type_arg.type == ASTNodeType.AST_TYPE_POINTER {
+            // 指针类型：ptr_T
+            const ptr_prefix: &byte = "ptr_";
+            var k: i32 = 0;
+            while ptr_prefix[k] != 0 && suffix_len < 255 {
+                suffix[suffix_len] = ptr_prefix[k];
+                suffix_len = suffix_len + 1;
+                k = k + 1;
+            }
+            const pointed: &ASTNode = type_arg.type_pointer_pointed_type;
+            if pointed != null && pointed.type == ASTNodeType.AST_TYPE_NAMED && pointed.type_named_name != null {
+                const pname: &byte = pointed.type_named_name;
+                var m: i32 = 0;
+                while pname[m] != 0 && suffix_len < 255 {
+                    suffix[suffix_len] = pname[m];
+                    suffix_len = suffix_len + 1;
+                    m = m + 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    suffix[suffix_len] = 0;
+    
+    // 分配并构建完整名称
+    const safe_name: &byte = get_safe_c_identifier(codegen, generic_name);
+    const name_len: i32 = (strlen(safe_name as *byte) as i32) + 1 + suffix_len + 1;
+    const mono_name: &byte = arena_alloc(codegen.arena, name_len as usize) as &byte;
+    if mono_name == null {
+        return generic_name;
+    }
+    snprintf(mono_name as *byte, name_len, "%s_%s" as *byte, safe_name as *byte, suffix as *byte);
+    
+    return mono_name;
+}
+
+// 生成单态化结构体定义
+fn gen_mono_struct_definition(codegen: &C99CodeGenerator, struct_decl: &ASTNode,
+                               type_args: & &ASTNode, type_arg_count: i32) i32 {
+    if codegen == null || struct_decl == null || struct_decl.type != ASTNodeType.AST_STRUCT_DECL {
+        return -1;
+    }
+    
+    const orig_name: &byte = struct_decl.struct_decl_name;
+    const mono_name: &byte = get_mono_struct_name(codegen, orig_name, type_args, type_arg_count);
+    
+    // 如果已定义，跳过
+    if is_struct_defined(codegen, mono_name) != 0 {
+        return 0;
+    }
+    
+    // 设置单态化上下文
+    const saved_type_params: &TypeParam = codegen.current_type_params;
+    const saved_type_param_count: i32 = codegen.current_type_param_count;
+    const saved_type_args: & &ASTNode = codegen.current_type_args;
+    const saved_type_arg_count: i32 = codegen.current_type_arg_count;
+    
+    codegen.current_type_params = struct_decl.struct_decl_type_params;
+    codegen.current_type_param_count = struct_decl.struct_decl_type_param_count;
+    codegen.current_type_args = type_args;
+    codegen.current_type_arg_count = type_arg_count;
+    
+    // 添加结构体定义标记
+    add_struct_definition(codegen, mono_name);
+    
+    // 输出结构体定义
+    fprintf(codegen.output as *void, "struct %s {\n" as *byte, mono_name as *byte);
+    codegen.indent_level = codegen.indent_level + 1;
+    
+    // 生成字段
+    const field_count: i32 = struct_decl.struct_decl_field_count;
+    
+    if field_count == 0 {
+        c99_emit_indent(codegen);
+        fputs("char _empty;\n" as *byte, codegen.output as *void);
+    } else {
+        var fi: i32 = 0;
+        while fi < field_count {
+            const field: &ASTNode = struct_decl.struct_decl_fields[fi];
+            if field == null || field.type != ASTNodeType.AST_VAR_DECL {
+                codegen.indent_level = codegen.indent_level - 1;
+                codegen.current_type_params = saved_type_params;
+                codegen.current_type_param_count = saved_type_param_count;
+                codegen.current_type_args = saved_type_args;
+                codegen.current_type_arg_count = saved_type_arg_count;
+                return -1;
+            }
+            
+            const field_name: &byte = get_safe_c_identifier(codegen, field.var_decl_name);
+            const field_type: &ASTNode = field.var_decl_type;
+            
+            if field_name == null || field_type == null {
+                codegen.indent_level = codegen.indent_level - 1;
+                codegen.current_type_params = saved_type_params;
+                codegen.current_type_param_count = saved_type_param_count;
+                codegen.current_type_args = saved_type_args;
+                codegen.current_type_arg_count = saved_type_arg_count;
+                return -1;
+            }
+            
+            // 使用单态化类型转换（c99_type_to_c 已支持单态化上下文中的类型替换）
+            const field_type_c: &byte = c99_type_to_c(codegen, field_type);
+            c99_emit_indent(codegen);
+            fprintf(codegen.output as *void, "%s %s;\n" as *byte, field_type_c as *byte, field_name as *byte);
+            fi = fi + 1;
+        }
+    }
+    
+    codegen.indent_level = codegen.indent_level - 1;
+    fputs("};\n" as *byte, codegen.output as *void);
+    
+    // 标记为已定义
+    mark_struct_defined(codegen, mono_name);
+    
+    // 恢复上下文
+    codegen.current_type_params = saved_type_params;
+    codegen.current_type_param_count = saved_type_param_count;
+    codegen.current_type_args = saved_type_args;
+    codegen.current_type_arg_count = saved_type_arg_count;
+    
+    return 0;
+}
+

@@ -425,6 +425,65 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
         // 消费类型标识符
         parser_consume(parser);
         
+        // 检查是否是泛型类型 Vec<i32> 或类型宏调用 macro_name()
+        if parser.current_token != null && parser.current_token.type == TokenType.TOKEN_LESS {
+            // 泛型类型：解析类型参数列表
+            parser_consume(parser);  // 消费 '<'
+            
+            var type_args: & & ASTNode = null;
+            var type_arg_count: i32 = 0;
+            var type_arg_cap: i32 = 0;
+            
+            while parser.current_token != null &&
+                  parser_match(parser, TokenType.TOKEN_GREATER) == 0 &&
+                  parser_match(parser, TokenType.TOKEN_EOF) == 0 {
+                
+                const type_arg: &ASTNode = parser_parse_type(parser);
+                if type_arg == null {
+                    return null;
+                }
+                
+                if type_arg_count >= type_arg_cap {
+                    var new_cap: i32 = 4;
+                    if type_arg_cap != 0 {
+                        new_cap = type_arg_cap * 2;
+                    }
+                    const new_type_args: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_cap) as & & ASTNode;
+                    if new_type_args == null {
+                        return null;
+                    }
+                    var i: i32 = 0;
+                    while i < type_arg_count {
+                        new_type_args[i] = type_args[i];
+                        i = i + 1;
+                    }
+                    type_args = new_type_args;
+                    type_arg_cap = new_cap;
+                }
+                type_args[type_arg_count] = type_arg;
+                type_arg_count = type_arg_count + 1;
+                
+                if parser_match(parser, TokenType.TOKEN_COMMA) != 0 {
+                    parser_consume(parser);
+                } else {
+                    break;
+                }
+            }
+            
+            if parser_expect(parser, TokenType.TOKEN_GREATER) == null {
+                return null;
+            }
+            
+            const type_node: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, line, column, parser.arena, parser_get_filename(parser));
+            if type_node == null {
+                return null;
+            }
+            type_node.type_named_name = type_name;
+            type_node.type_named_type_args = type_args;
+            type_node.type_named_type_arg_count = type_arg_count;
+            return type_node;
+        }
+        
         // 检查是否是类型宏调用 macro_name()
         if parser.current_token != null && parser.current_token.type == TokenType.TOKEN_LEFT_PAREN {
             parser_consume(parser);  // 消费 '('
@@ -491,6 +550,8 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
         }
         
         type_node.type_named_name = type_name;
+        type_node.type_named_type_args = null;
+        type_node.type_named_type_arg_count = 0;
         
         return type_node;
     }
@@ -1332,9 +1393,122 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         
         parser_consume(parser);  // 消费标识符
         
+        // 检查是否是泛型函数调用：ID '<' type_list '>' '(' ... 或 ID '(' ...
+        var call_type_args: & & ASTNode = null;
+        var call_type_arg_count: i32 = 0;
+        
+        if parser.current_token != null && parser.current_token.type == TokenType.TOKEN_LESS {
+            // 需要区分泛型参数 ID<Type> 和比较运算符 ID < expr
+            // 策略：peek '<' 后面的 token，判断是类型还是表达式
+            const lexer: &Lexer = parser.lexer;
+            const saved_position: usize = lexer.position;
+            const saved_line: i32 = lexer.line;
+            const saved_column: i32 = lexer.column;
+            
+            // Peek '<' 后面的 token
+            const after_less: &Token = lexer_next_token(lexer, parser.arena);
+            
+            // 如果 '<' 后面是表达式的开始（数字、浮点、字符串、负号等），则 '<' 是比较运算符
+            var is_comparison: i32 = 0;
+            if after_less != null {
+                const t: TokenType = after_less.type;
+                if t == TokenType.TOKEN_NUMBER || t == TokenType.TOKEN_FLOAT || t == TokenType.TOKEN_STRING ||
+                   t == TokenType.TOKEN_MINUS || t == TokenType.TOKEN_EXCLAMATION || t == TokenType.TOKEN_TILDE ||
+                   t == TokenType.TOKEN_TRUE || t == TokenType.TOKEN_FALSE || t == TokenType.TOKEN_NULL ||
+                   t == TokenType.TOKEN_LEFT_PAREN || t == TokenType.TOKEN_AT_IDENTIFIER ||
+                   t == TokenType.TOKEN_INTERP_OPEN {
+                    is_comparison = 1;
+                } else if t == TokenType.TOKEN_IDENTIFIER {
+                    // 如果是标识符，需要进一步判断
+                    const after_id: &Token = lexer_next_token(lexer, parser.arena);
+                    if after_id != null {
+                        const t2: TokenType = after_id.type;
+                        // 如果标识符后面是这些 token，则 '<' 是比较运算符
+                        if t2 == TokenType.TOKEN_PLUS || t2 == TokenType.TOKEN_MINUS || t2 == TokenType.TOKEN_ASTERISK ||
+                           t2 == TokenType.TOKEN_SLASH || t2 == TokenType.TOKEN_PERCENT ||
+                           t2 == TokenType.TOKEN_LESS ||
+                           t2 == TokenType.TOKEN_LESS_EQUAL || t2 == TokenType.TOKEN_GREATER_EQUAL ||
+                           t2 == TokenType.TOKEN_EQUAL || t2 == TokenType.TOKEN_NOT_EQUAL ||
+                           t2 == TokenType.TOKEN_LOGICAL_AND || t2 == TokenType.TOKEN_LOGICAL_OR ||
+                           t2 == TokenType.TOKEN_LEFT_BRACE || t2 == TokenType.TOKEN_SEMICOLON ||
+                           t2 == TokenType.TOKEN_AMPERSAND || t2 == TokenType.TOKEN_PIPE || t2 == TokenType.TOKEN_CARET ||
+                           t2 == TokenType.TOKEN_RIGHT_PAREN ||
+                           t2 == TokenType.TOKEN_DOT || t2 == TokenType.TOKEN_LEFT_BRACKET || t2 == TokenType.TOKEN_LEFT_PAREN ||
+                           t2 == TokenType.TOKEN_AS || t2 == TokenType.TOKEN_AS_BANG {
+                            is_comparison = 1;
+                        }
+                    }
+                }
+            }
+            
+            // 恢复 lexer 状态
+            lexer.position = saved_position;
+            lexer.line = saved_line;
+            lexer.column = saved_column;
+            
+            if is_comparison == 0 {
+                // 泛型函数调用：解析类型参数列表
+                parser_consume(parser);  // 消费 '<'
+                
+                var call_type_arg_capacity: i32 = 0;
+                
+                if parser_match(parser, TokenType.TOKEN_GREATER) == 0 {
+                    // 有类型参数
+                    while parser.current_token != null &&
+                          parser_match(parser, TokenType.TOKEN_GREATER) == 0 &&
+                          parser_match(parser, TokenType.TOKEN_EOF) == 0 {
+                        
+                        // 解析类型参数
+                        const type_arg: &ASTNode = parser_parse_type(parser);
+                        if type_arg == null {
+                            return null;
+                        }
+                        
+                        // 扩展类型参数数组
+                        if call_type_arg_count >= call_type_arg_capacity {
+                            var new_capacity: i32 = 4;
+                            if call_type_arg_capacity != 0 {
+                                new_capacity = call_type_arg_capacity * 2;
+                            }
+                            const new_type_args: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_capacity) as & & ASTNode;
+                            if new_type_args == null {
+                                return null;
+                            }
+                            
+                            // 复制旧类型参数
+                            if call_type_args != null {
+                                var i: i32 = 0;
+                                while i < call_type_arg_count {
+                                    new_type_args[i] = call_type_args[i];
+                                    i = i + 1;
+                                }
+                            }
+                            
+                            call_type_args = new_type_args;
+                            call_type_arg_capacity = new_capacity;
+                        }
+                        
+                        call_type_args[call_type_arg_count] = type_arg;
+                        call_type_arg_count = call_type_arg_count + 1;
+                        
+                        // 检查是否有逗号
+                        if parser_match(parser, TokenType.TOKEN_COMMA) == 0 {
+                            break;
+                        }
+                        parser_consume(parser);  // 消费 ','
+                    }
+                }
+                
+                // 期望 '>'
+                if parser_expect(parser, TokenType.TOKEN_GREATER) == null {
+                    return null;
+                }
+            }
+        }
+        
         // 检查下一个 token 类型
         if parser.current_token != null && parser.current_token.type == TokenType.TOKEN_LEFT_PAREN {
-            // 函数调用：ID '(' [ arg_list ] ')'
+            // 函数调用：ID ['<' type_list '>'] '(' [ arg_list ] ')'
             const call: &ASTNode = ast_new_node(ASTNodeType.AST_CALL_EXPR, line, column, parser.arena, parser_get_filename(parser));
             if call == null {
                 return null;
@@ -1348,6 +1522,8 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             callee.identifier_name = name;
             call.call_expr_callee = callee;
             call.call_expr_has_ellipsis_forward = 0;
+            call.call_expr_type_args = call_type_args;
+            call.call_expr_type_arg_count = call_type_arg_count;
             
             // 消费 '('（与 C 版 parser.c 第 1636-1637 行一致）
             parser_consume(parser);
@@ -1627,13 +1803,15 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                 return result;
             }
             
-            // 结构体字面量：ID '{' field_init_list '}'
+            // 结构体字面量：ID ['<' type_list '>'] '{' field_init_list '}'
             const struct_init: &ASTNode = ast_new_node(ASTNodeType.AST_STRUCT_INIT, line, column, parser.arena, parser_get_filename(parser));
             if struct_init == null {
                 return null;
             }
             
             struct_init.struct_init_struct_name = name;
+            struct_init.struct_init_type_args = call_type_args;
+            struct_init.struct_init_type_arg_count = call_type_arg_count;
             
             // 消费 '{'
             parser_consume(parser);
@@ -3513,6 +3691,116 @@ fn parser_parse_interface(parser: &Parser) &ASTNode {
         return null;
     }
     parser_consume(parser);
+    
+    // 解析泛型参数列表（可选）：<T> 或 <T: Ord>
+    var iface_type_params: &TypeParam = null;
+    var iface_type_param_count: i32 = 0;
+    if parser.current_token != null && parser_match(parser, TokenType.TOKEN_LESS) != 0 {
+        var type_param_capacity: i32 = 0;
+        
+        parser_consume(parser);  // 消费 '<'
+        
+        while parser.current_token != null &&
+              parser_match(parser, TokenType.TOKEN_GREATER) == 0 &&
+              parser_match(parser, TokenType.TOKEN_EOF) == 0 {
+            
+            if parser_match(parser, TokenType.TOKEN_IDENTIFIER) == 0 {
+                return null;
+            }
+            
+            const param_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+            if param_name == null {
+                return null;
+            }
+            parser_consume(parser);
+            
+            if iface_type_param_count >= type_param_capacity {
+                var new_cap: i32 = 0;
+                if type_param_capacity == 0 {
+                    new_cap = 4;
+                } else {
+                    new_cap = type_param_capacity * 2;
+                }
+                const new_params: &TypeParam = arena_alloc(parser.arena, @size_of(TypeParam) * new_cap) as &TypeParam;
+                if new_params == null {
+                    return null;
+                }
+                var k: i32 = 0;
+                while k < iface_type_param_count {
+                    new_params[k] = iface_type_params[k];
+                    k = k + 1;
+                }
+                iface_type_params = new_params;
+                type_param_capacity = new_cap;
+            }
+            
+            iface_type_params[iface_type_param_count].name = param_name;
+            iface_type_params[iface_type_param_count].constraints = null;
+            iface_type_params[iface_type_param_count].constraint_count = 0;
+            
+            // 解析约束（可选）
+            if parser_match(parser, TokenType.TOKEN_COLON) != 0 {
+                parser_consume(parser);
+                var constraints: & & byte = null;
+                var constraint_count: i32 = 0;
+                var constraint_capacity: i32 = 0;
+                
+                while parser.current_token != null &&
+                      parser_match(parser, TokenType.TOKEN_IDENTIFIER) != 0 {
+                    const constraint_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+                    if constraint_name == null {
+                        return null;
+                    }
+                    parser_consume(parser);
+                    
+                    if constraint_count >= constraint_capacity {
+                        var new_cap2: i32 = 0;
+                        if constraint_capacity == 0 {
+                            new_cap2 = 4;
+                        } else {
+                            new_cap2 = constraint_capacity * 2;
+                        }
+                        const new_constraints: & & byte = arena_alloc(parser.arena, @size_of(&byte) * new_cap2) as & & byte;
+                        if new_constraints == null {
+                            return null;
+                        }
+                        var m: i32 = 0;
+                        while m < constraint_count {
+                            new_constraints[m] = constraints[m];
+                            m = m + 1;
+                        }
+                        constraints = new_constraints;
+                        constraint_capacity = new_cap2;
+                    }
+                    
+                    constraints[constraint_count] = constraint_name;
+                    constraint_count = constraint_count + 1;
+                    
+                    if parser_match(parser, TokenType.TOKEN_PLUS) != 0 {
+                        parser_consume(parser);
+                    } else {
+                        break;
+                    }
+                }
+                
+                iface_type_params[iface_type_param_count].constraints = constraints;
+                iface_type_params[iface_type_param_count].constraint_count = constraint_count;
+            }
+            
+            iface_type_param_count = iface_type_param_count + 1;
+            
+            if parser_match(parser, TokenType.TOKEN_COMMA) != 0 {
+                parser_consume(parser);
+            } else {
+                break;
+            }
+        }
+        
+        if parser_expect(parser, TokenType.TOKEN_GREATER) == null {
+            return null;
+        }
+    }
+    
     if parser_expect(parser, TokenType.TOKEN_LEFT_BRACE) == null {
         return null;
     }
@@ -3642,6 +3930,8 @@ fn parser_parse_interface(parser: &Parser) &ASTNode {
         return null;
     }
     node.interface_decl_name = iface_name;
+    node.interface_decl_type_params = iface_type_params;
+    node.interface_decl_type_param_count = iface_type_param_count;
     node.interface_decl_method_sigs = sigs;
     node.interface_decl_method_sig_count = sig_count;
     return node;
@@ -3821,10 +4111,131 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
     }
     
     struct_decl.struct_decl_name = struct_name;
+    struct_decl.struct_decl_type_params = null;
+    struct_decl.struct_decl_type_param_count = 0;
     struct_decl.struct_decl_interface_names = null;
     struct_decl.struct_decl_interface_count = 0;
     struct_decl.struct_decl_fields = null;
     struct_decl.struct_decl_field_count = 0;
+    
+    // 解析泛型参数列表（可选）：<T> 或 <T: Ord> 或 <T: Ord + Clone>
+    if parser.current_token != null && parser_match(parser, TokenType.TOKEN_LESS) != 0 {
+        var type_params: &TypeParam = null;
+        var type_param_count: i32 = 0;
+        var type_param_capacity: i32 = 0;
+        
+        parser_consume(parser);  // 消费 '<'
+        
+        while parser.current_token != null &&
+              parser_match(parser, TokenType.TOKEN_GREATER) == 0 &&
+              parser_match(parser, TokenType.TOKEN_EOF) == 0 {
+            
+            // 解析类型参数名称
+            if parser_match(parser, TokenType.TOKEN_IDENTIFIER) == 0 {
+                return null;  // 错误：期望类型参数名称
+            }
+            
+            const param_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+            if param_name == null {
+                return null;
+            }
+            parser_consume(parser);
+            
+            // 分配类型参数结构
+            if type_param_count >= type_param_capacity {
+                var new_cap: i32 = 0;
+                if type_param_capacity == 0 {
+                    new_cap = 4;
+                } else {
+                    new_cap = type_param_capacity * 2;
+                }
+                const new_params: &TypeParam = arena_alloc(parser.arena, @size_of(TypeParam) * new_cap) as &TypeParam;
+                if new_params == null {
+                    return null;
+                }
+                var i: i32 = 0;
+                while i < type_param_count {
+                    new_params[i] = type_params[i];
+                    i = i + 1;
+                }
+                type_params = new_params;
+                type_param_capacity = new_cap;
+            }
+            
+            type_params[type_param_count].name = param_name;
+            type_params[type_param_count].constraints = null;
+            type_params[type_param_count].constraint_count = 0;
+            
+            // 解析约束（可选）：: Ord 或 : Ord + Clone
+            if parser_match(parser, TokenType.TOKEN_COLON) != 0 {
+                parser_consume(parser);  // 消费 ':'
+                
+                var constraints: & & byte = null;
+                var constraint_count: i32 = 0;
+                var constraint_capacity: i32 = 0;
+                
+                // 解析约束列表（用 + 连接）
+                while parser.current_token != null &&
+                      parser_match(parser, TokenType.TOKEN_IDENTIFIER) != 0 {
+                    
+                    const constraint_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+                    if constraint_name == null {
+                        return null;
+                    }
+                    parser_consume(parser);
+                    
+                    if constraint_count >= constraint_capacity {
+                        var new_cap2: i32 = 0;
+                        if constraint_capacity == 0 {
+                            new_cap2 = 4;
+                        } else {
+                            new_cap2 = constraint_capacity * 2;
+                        }
+                        const new_constraints: & & byte = arena_alloc(parser.arena, @size_of(&byte) * new_cap2) as & & byte;
+                        if new_constraints == null {
+                            return null;
+                        }
+                        var j: i32 = 0;
+                        while j < constraint_count {
+                            new_constraints[j] = constraints[j];
+                            j = j + 1;
+                        }
+                        constraints = new_constraints;
+                        constraint_capacity = new_cap2;
+                    }
+                    
+                    constraints[constraint_count] = constraint_name;
+                    constraint_count = constraint_count + 1;
+                    
+                    // 检查是否有 '+' 连接更多约束
+                    if parser_match(parser, TokenType.TOKEN_PLUS) != 0 {
+                        parser_consume(parser);
+                    } else {
+                        break;
+                    }
+                }
+                
+                type_params[type_param_count].constraints = constraints;
+                type_params[type_param_count].constraint_count = constraint_count;
+            }
+            
+            type_param_count = type_param_count + 1;
+            
+            // 检查是否有逗号（多个类型参数）
+            if parser_match(parser, TokenType.TOKEN_COMMA) != 0 {
+                parser_consume(parser);
+            } else {
+                break;
+            }
+        }
+        
+        if parser_expect(parser, TokenType.TOKEN_GREATER) == null {
+            return null;  // 错误：期望 '>'
+        }
+        
+        struct_decl.struct_decl_type_params = type_params;
+        struct_decl.struct_decl_type_param_count = type_param_count;
+    }
     
     // 可选的 ': InterfaceName { , InterfaceName }'
     if parser_match(parser, TokenType.TOKEN_COLON) != 0 {
@@ -4560,10 +4971,124 @@ fn parser_parse_function(parser: &Parser) &ASTNode {
     }
     
     fn_decl.fn_decl_name = fn_name;
+    fn_decl.fn_decl_type_params = null;
+    fn_decl.fn_decl_type_param_count = 0;
     fn_decl.fn_decl_params = null;
     fn_decl.fn_decl_param_count = 0;
     fn_decl.fn_decl_return_type = null;
     fn_decl.fn_decl_body = null;
+    
+    // 解析泛型参数列表（可选）：<T> 或 <T: Ord> 或 <T: Ord + Clone>
+    if parser.current_token != null && parser_match(parser, TokenType.TOKEN_LESS) != 0 {
+        var fn_type_params: &TypeParam = null;
+        var fn_type_param_count: i32 = 0;
+        var fn_type_param_capacity: i32 = 0;
+        
+        parser_consume(parser);  // 消费 '<'
+        
+        while parser.current_token != null &&
+              parser_match(parser, TokenType.TOKEN_GREATER) == 0 &&
+              parser_match(parser, TokenType.TOKEN_EOF) == 0 {
+            
+            if parser_match(parser, TokenType.TOKEN_IDENTIFIER) == 0 {
+                return null;
+            }
+            
+            const fn_param_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+            if fn_param_name == null {
+                return null;
+            }
+            parser_consume(parser);
+            
+            if fn_type_param_count >= fn_type_param_capacity {
+                var new_cap: i32 = 0;
+                if fn_type_param_capacity == 0 {
+                    new_cap = 4;
+                } else {
+                    new_cap = fn_type_param_capacity * 2;
+                }
+                const new_params: &TypeParam = arena_alloc(parser.arena, @size_of(TypeParam) * new_cap) as &TypeParam;
+                if new_params == null {
+                    return null;
+                }
+                var k: i32 = 0;
+                while k < fn_type_param_count {
+                    new_params[k] = fn_type_params[k];
+                    k = k + 1;
+                }
+                fn_type_params = new_params;
+                fn_type_param_capacity = new_cap;
+            }
+            
+            fn_type_params[fn_type_param_count].name = fn_param_name;
+            fn_type_params[fn_type_param_count].constraints = null;
+            fn_type_params[fn_type_param_count].constraint_count = 0;
+            
+            // 解析约束（可选）
+            if parser_match(parser, TokenType.TOKEN_COLON) != 0 {
+                parser_consume(parser);
+                var fn_constraints: & & byte = null;
+                var fn_constraint_count: i32 = 0;
+                var fn_constraint_capacity: i32 = 0;
+                
+                while parser.current_token != null &&
+                      parser_match(parser, TokenType.TOKEN_IDENTIFIER) != 0 {
+                    const fn_constraint_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+                    if fn_constraint_name == null {
+                        return null;
+                    }
+                    parser_consume(parser);
+                    
+                    if fn_constraint_count >= fn_constraint_capacity {
+                        var new_cap2: i32 = 0;
+                        if fn_constraint_capacity == 0 {
+                            new_cap2 = 4;
+                        } else {
+                            new_cap2 = fn_constraint_capacity * 2;
+                        }
+                        const new_constraints: & & byte = arena_alloc(parser.arena, @size_of(&byte) * new_cap2) as & & byte;
+                        if new_constraints == null {
+                            return null;
+                        }
+                        var m: i32 = 0;
+                        while m < fn_constraint_count {
+                            new_constraints[m] = fn_constraints[m];
+                            m = m + 1;
+                        }
+                        fn_constraints = new_constraints;
+                        fn_constraint_capacity = new_cap2;
+                    }
+                    
+                    fn_constraints[fn_constraint_count] = fn_constraint_name;
+                    fn_constraint_count = fn_constraint_count + 1;
+                    
+                    if parser_match(parser, TokenType.TOKEN_PLUS) != 0 {
+                        parser_consume(parser);
+                    } else {
+                        break;
+                    }
+                }
+                
+                fn_type_params[fn_type_param_count].constraints = fn_constraints;
+                fn_type_params[fn_type_param_count].constraint_count = fn_constraint_count;
+            }
+            
+            fn_type_param_count = fn_type_param_count + 1;
+            
+            if parser_match(parser, TokenType.TOKEN_COMMA) != 0 {
+                parser_consume(parser);
+            } else {
+                break;
+            }
+        }
+        
+        if parser_expect(parser, TokenType.TOKEN_GREATER) == null {
+            return null;
+        }
+        
+        fn_decl.fn_decl_type_params = fn_type_params;
+        fn_decl.fn_decl_type_param_count = fn_type_param_count;
+    }
     
     // 期望 '('
     if parser_expect(parser, TokenType.TOKEN_LEFT_PAREN) == null {

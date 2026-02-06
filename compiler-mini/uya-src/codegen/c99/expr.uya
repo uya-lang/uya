@@ -789,7 +789,15 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         gen_expr(codegen, index);
         fputc(93, codegen.output as *void);  // ']'
     } else if expr.type == ASTNodeType.AST_STRUCT_INIT {
-        const struct_name: &byte = get_safe_c_identifier(codegen, expr.struct_init_struct_name);
+        var struct_name: &byte = null;
+        if expr.struct_init_type_arg_count > 0 && expr.struct_init_type_args != null {
+            // 使用单态化结构体名称
+            struct_name = get_mono_struct_name(codegen, expr.struct_init_struct_name,
+                expr.struct_init_type_args,
+                expr.struct_init_type_arg_count);
+        } else {
+            struct_name = get_safe_c_identifier(codegen, expr.struct_init_struct_name);
+        }
         const field_count: i32 = expr.struct_init_field_count;
         fprintf(codegen.output as *void, "(struct %s){" as *byte, struct_name as *byte);
         var i: i32 = 0;
@@ -1546,7 +1554,14 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             // 生成被调用函数名
             if callee != null && callee.type == ASTNodeType.AST_IDENTIFIER {
                 const func_name: &byte = callee.identifier_name;
-                const safe_name: &byte = get_safe_c_identifier(codegen, func_name);
+                var safe_name: &byte = get_safe_c_identifier(codegen, func_name);
+                
+                // 检查是否是泛型函数调用
+                if expr.call_expr_type_arg_count > 0 && expr.call_expr_type_args != null {
+                    // 使用单态化函数名
+                    safe_name = get_mono_function_name(codegen, func_name, expr.call_expr_type_args, expr.call_expr_type_arg_count);
+                }
+                
                 fprintf(codegen.output as *void, "%s(" as *byte, safe_name as *byte);
                 // 单参数 printf 用字面量格式避免 -Wformat-security
                 if callee_name != null && strcmp(callee_name as *byte, "printf" as *byte) == 0 && arg_count == 1 {

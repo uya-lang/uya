@@ -72,6 +72,7 @@ enum TypeKind {
     TYPE_ERROR,    // 错误值类型（仅用于 return error.X、catch |err| 等，error_id 非 0）
     TYPE_INT_LIMIT,// 未解析的 max/min 极值（需从上下文推断整数类型）
     TYPE_ATOMIC,   // 原子类型（atomic T）
+    TYPE_GENERIC_PARAM, // 泛型类型参数（如 T）
 }
 
 // 类型结构
@@ -94,6 +95,9 @@ struct Type {
     error_union_payload_type: &Type,  // 载荷类型 T（仅当 kind == TypeKind.TYPE_ERROR_UNION 时有效，从 Arena 分配）
     error_error_id: u32,          // 错误码（仅当 kind == TypeKind.TYPE_ERROR 时有效，0 表示无效）
     atomic_inner_type: &Type,     // 内部类型 T（仅当 kind == TypeKind.TYPE_ATOMIC 时有效，从 Arena 分配）
+    generic_param_name: &byte,    // 泛型参数名称（仅当 kind == TypeKind.TYPE_GENERIC_PARAM 时有效）
+    struct_type_args: &Type,      // 泛型结构体的类型实参数组（仅当 kind == TYPE_STRUCT 且为泛型实例时有效）
+    struct_type_arg_count: i32,   // 泛型结构体的类型实参数量
 }
 
 // 复制 Type 值（用于赋值/传参时复制一份不移动源变量；return 已特殊处理不标记移动，可直接 return result）
@@ -115,6 +119,9 @@ fn copy_type(t: &Type) Type {
         error_union_payload_type: t.error_union_payload_type,
         error_error_id: t.error_error_id,
         atomic_inner_type: t.atomic_inner_type,
+        generic_param_name: t.generic_param_name,
+        struct_type_args: t.struct_type_args,
+        struct_type_arg_count: t.struct_type_arg_count,
     };
     return r;
 }
@@ -207,6 +214,15 @@ struct ImportTable {
     count: i32,                                   // 当前导入项数量
 }
 
+// 单态化实例（用于泛型函数/结构体的具体化）
+struct MonoInstance {
+    generic_name: &byte,       // 泛型函数/结构体名称
+    type_args: &Type,          // 类型实参数组（从 Arena 分配）
+    type_arg_nodes: & & ASTNode, // 类型实参 AST 节点数组（从 Arena 分配）
+    type_arg_count: i32,       // 类型实参数量
+    is_function: i32,          // 1 表示函数，0 表示结构体
+}
+
 // 类型检查器结构
 struct TypeChecker {
     arena: &Arena,               // Arena 分配器（用于分配类型、符号等）
@@ -231,6 +247,14 @@ struct TypeChecker {
     moved_count: i32,
     // 项目根目录路径（包含 main 函数的文件所在目录，用于识别 main 模块）
     project_root_dir: &byte,  // 存储在 Arena 中
+    
+    // 泛型参数作用域（当前函数/结构体/接口的类型参数）
+    current_type_params: &TypeParam,     // 当前作用域的类型参数数组（指向 AST 节点中的 type_params）
+    current_type_param_count: i32,       // 当前类型参数数量
+    
+    // 单态化实例收集
+    mono_instances: [MonoInstance: 512],
+    mono_instance_count: i32,
 }
 
 // 哈希函数（djb2算法，用于字符串哈希）
@@ -298,6 +322,11 @@ fn checker_init(checker: &TypeChecker, arena: &Arena, default_filename: &byte) i
     checker.error_name_count = 0;
     checker.moved_count = 0;
     checker.project_root_dir = null;
+    
+    // 初始化泛型相关字段
+    checker.current_type_params = null;
+    checker.current_type_param_count = 0;
+    checker.mono_instance_count = 0;
     
     return 0;
 }
@@ -964,6 +993,20 @@ fn type_equals(t1: Type, t2: Type) i32 {
         return type_equals(t1.atomic_inner_type[0], t2.atomic_inner_type[0]);
     }
     
+    // 泛型参数类型：比较参数名称
+    if t1.kind == TypeKind.TYPE_GENERIC_PARAM {
+        if t2.kind != TypeKind.TYPE_GENERIC_PARAM {
+            return 0;
+        }
+        if t1.generic_param_name == null && t2.generic_param_name == null {
+            return 1;
+        }
+        if t1.generic_param_name == null || t2.generic_param_name == null {
+            return 0;
+        }
+        return str_equals(t1.generic_param_name, t2.generic_param_name);
+    }
+    
     // 对于其他类型（i32, bool, void），种类相同即相等
     return 1;
 }
@@ -1102,6 +1145,25 @@ fn find_interface_decl_from_program(program_node: &ASTNode, interface_name: &byt
         const decl: &ASTNode = program_node.program_decls[i];
         if decl != null && decl.type == ASTNodeType.AST_INTERFACE_DECL {
             if decl.interface_decl_name != null && str_equals(decl.interface_decl_name, interface_name) != 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 从程序节点查找函数声明
+// 返回：找到的函数声明节点指针，未找到返回 null
+fn find_fn_decl_from_program(program_node: &ASTNode, fn_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || fn_name == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < program_node.program_decl_count {
+        const decl: &ASTNode = program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
+            if decl.fn_decl_name != null && str_equals(decl.fn_decl_name, fn_name) != 0 {
                 return decl;
             }
         }
@@ -1328,6 +1390,158 @@ fn struct_implements_interface(checker: &TypeChecker, struct_name: &byte, interf
     return 0;
 }
 
+// 注册泛型单态化实例
+// 参数：checker - TypeChecker 指针
+//       generic_name - 泛型函数/结构体名称
+//       type_arg_nodes - 类型实参 AST 节点数组
+//       type_arg_count - 类型实参数量
+//       is_function - 1 表示函数，0 表示结构体
+// 返回：成功返回 0，失败返回 -1
+fn register_mono_instance(checker: &TypeChecker, generic_name: &byte,
+                          type_arg_nodes: & & ASTNode, type_arg_count: i32,
+                          is_function: i32) i32 {
+    if checker == null || generic_name == null || checker.mono_instance_count >= 512 {
+        return -1;
+    }
+    
+    // 检查是否已存在相同实例
+    var i: i32 = 0;
+    while i < checker.mono_instance_count {
+        if checker.mono_instances[i].generic_name != null &&
+            str_equals(checker.mono_instances[i].generic_name, generic_name) != 0 &&
+            checker.mono_instances[i].is_function == is_function &&
+            checker.mono_instances[i].type_arg_count == type_arg_count {
+            // 比较类型实参
+            var is_match: i32 = 1;
+            var j: i32 = 0;
+            while j < type_arg_count && is_match != 0 {
+                const arg_type: Type = type_from_ast(checker, type_arg_nodes[j]);
+                if type_equals(copy_type(&checker.mono_instances[i].type_args[j]), copy_type(&arg_type)) == 0 {
+                    is_match = 0;
+                }
+                j = j + 1;
+            }
+            if is_match != 0 {
+                return 0;  // 已存在相同实例
+            }
+        }
+        i = i + 1;
+    }
+    
+    // 注册新实例
+    const idx: i32 = checker.mono_instance_count;
+    checker.mono_instance_count = checker.mono_instance_count + 1;
+    checker.mono_instances[idx].generic_name = generic_name;
+    checker.mono_instances[idx].is_function = is_function;
+    checker.mono_instances[idx].type_arg_count = type_arg_count;
+    
+    // 分配类型实参数组
+    checker.mono_instances[idx].type_args = arena_alloc(checker.arena, (@size_of(Type)) * (type_arg_count as usize)) as &Type;
+    if checker.mono_instances[idx].type_args == null {
+        checker.mono_instance_count = checker.mono_instance_count - 1;
+        return -1;
+    }
+    
+    // 保存 AST 节点数组
+    checker.mono_instances[idx].type_arg_nodes = arena_alloc(checker.arena, (@size_of(&ASTNode)) * (type_arg_count as usize)) as & & ASTNode;
+    if checker.mono_instances[idx].type_arg_nodes == null {
+        checker.mono_instance_count = checker.mono_instance_count - 1;
+        return -1;
+    }
+    
+    // 复制类型实参
+    var k: i32 = 0;
+    while k < type_arg_count {
+        const arg_type: Type = type_from_ast(checker, type_arg_nodes[k]);
+        checker.mono_instances[idx].type_args[k] = copy_type(&arg_type);
+        checker.mono_instances[idx].type_arg_nodes[k] = type_arg_nodes[k];
+        k = k + 1;
+    }
+    
+    return 0;
+}
+
+// 替换泛型类型参数为具体类型
+// 参数：checker - TypeChecker 指针
+//       type - 要替换的类型
+//       type_params - 类型参数数组
+//       type_param_count - 类型参数数量
+//       type_args - 类型实参 AST 节点数组
+//       type_arg_count - 类型实参数量
+// 返回：替换后的类型
+fn substitute_generic_type(checker: &TypeChecker, type: Type,
+                           type_params: &TypeParam, type_param_count: i32,
+                           type_args: & & ASTNode, type_arg_count: i32) Type {
+    // 如果是泛型参数，查找并替换
+    if type.kind == TypeKind.TYPE_GENERIC_PARAM && type.generic_param_name != null {
+        var i: i32 = 0;
+        while i < type_param_count && i < type_arg_count {
+            if type_params[i].name != null && 
+                str_equals(type_params[i].name, type.generic_param_name) != 0 {
+                // 找到对应的类型参数，使用类型实参替换
+                return type_from_ast(checker, type_args[i]);
+            }
+            i = i + 1;
+        }
+    }
+    
+    // 递归处理复合类型
+    if type.kind == TypeKind.TYPE_POINTER && type.pointer_to != null {
+        const inner: Type = substitute_generic_type(checker, type.pointer_to[0],
+                                                     type_params, type_param_count,
+                                                     type_args, type_arg_count);
+        const inner_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if inner_ptr != null {
+            inner_ptr[0] = copy_type(&inner);
+            var result: Type = copy_type(&type);
+            result.pointer_to = inner_ptr;
+            return result;
+        }
+    }
+    
+    if type.kind == TypeKind.TYPE_ARRAY && type.element_type != null {
+        const inner: Type = substitute_generic_type(checker, type.element_type[0],
+                                                     type_params, type_param_count,
+                                                     type_args, type_arg_count);
+        const inner_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if inner_ptr != null {
+            inner_ptr[0] = copy_type(&inner);
+            var result: Type = copy_type(&type);
+            result.element_type = inner_ptr;
+            return result;
+        }
+    }
+    
+    if type.kind == TypeKind.TYPE_SLICE && type.slice_element_type != null {
+        const inner: Type = substitute_generic_type(checker, type.slice_element_type[0],
+                                                     type_params, type_param_count,
+                                                     type_args, type_arg_count);
+        const inner_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if inner_ptr != null {
+            inner_ptr[0] = copy_type(&inner);
+            var result: Type = copy_type(&type);
+            result.slice_element_type = inner_ptr;
+            return result;
+        }
+    }
+    
+    if type.kind == TypeKind.TYPE_ERROR_UNION && type.error_union_payload_type != null {
+        const inner: Type = substitute_generic_type(checker, type.error_union_payload_type[0],
+                                                     type_params, type_param_count,
+                                                     type_args, type_arg_count);
+        const inner_ptr: &Type = arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if inner_ptr != null {
+            inner_ptr[0] = copy_type(&inner);
+            var result: Type = copy_type(&type);
+            result.error_union_payload_type = inner_ptr;
+            return result;
+        }
+    }
+    
+    // 返回原类型（无需替换）
+    return type;
+}
+
 // 从AST类型节点创建Type结构
 // 参数：checker - TypeChecker 指针，type_node - AST类型节点
 // 返回：Type结构，如果类型节点无效返回TYPE_VOID类型
@@ -1340,6 +1554,7 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
         enum_name: null,
         interface_name: null,
         struct_name: null,
+        union_name: null,
         pointer_to: null,
         is_ffi_pointer: 0,
         element_type: null,
@@ -1348,6 +1563,12 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
         slice_len: 0,
         tuple_element_types: null,
         tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
     };
     
     // 如果类型节点为null，返回void类型
@@ -1548,11 +1769,36 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
         result.atomic_inner_type = inner_type_ptr;
         return result;
     } else if type_node.type == ASTNodeType.AST_TYPE_NAMED {
-        // 命名类型（i32, bool, byte, void, 或结构体名称）
+        // 命名类型（i32, bool, byte, void, 泛型参数 T，或结构体名称）
         const type_name: &byte = type_node.type_named_name;
         if type_name == null {
             result.kind = TypeKind.TYPE_VOID;
             return result;
+        }
+        
+        // 首先检查是否是当前作用域中的泛型参数
+        if checker != null && checker.current_type_params != null {
+            var i: i32 = 0;
+            while i < checker.current_type_param_count {
+                if checker.current_type_params[i].name != null &&
+                    str_equals(checker.current_type_params[i].name, type_name) != 0 {
+                    // 这是一个泛型类型参数
+                    result.kind = TypeKind.TYPE_GENERIC_PARAM;
+                    result.generic_param_name = type_name;
+                    return result;
+                }
+                i = i + 1;
+            }
+        }
+        
+        // 检查是否有类型实参（泛型结构体实例化）
+        if type_node.type_named_type_arg_count > 0 && 
+            type_node.type_named_type_args != null && checker != null {
+            // 注册泛型结构体的单态化实例
+            register_mono_instance(checker, type_name,
+                type_node.type_named_type_args,
+                type_node.type_named_type_arg_count,
+                0);  // is_function = 0 表示结构体
         }
         
         // 根据类型名称确定类型种类
@@ -1604,12 +1850,40 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
                         } else {
                             result.kind = TypeKind.TYPE_STRUCT;
                             result.struct_name = type_name;
+                            // 存储泛型类型参数
+                            if type_node.type_named_type_arg_count > 0 && type_node.type_named_type_args != null {
+                                const count: i32 = type_node.type_named_type_arg_count;
+                                const ta: &Type = arena_alloc(checker.arena, (@size_of(Type)) * (count as usize)) as &Type;
+                                if ta != null {
+                                    var tai: i32 = 0;
+                                    while tai < count {
+                                        ta[tai] = type_from_ast(checker, type_node.type_named_type_args[tai]);
+                                        tai = tai + 1;
+                                    }
+                                    result.struct_type_args = ta;
+                                    result.struct_type_arg_count = count;
+                                }
+                            }
                         }
                     }
                 }
             } else {
                 result.kind = TypeKind.TYPE_STRUCT;
                 result.struct_name = type_name;
+                // 存储泛型类型参数
+                if type_node.type_named_type_arg_count > 0 && type_node.type_named_type_args != null {
+                    const count2: i32 = type_node.type_named_type_arg_count;
+                    const ta2: &Type = arena_alloc(checker.arena, (@size_of(Type)) * (count2 as usize)) as &Type;
+                    if ta2 != null {
+                        var tai2: i32 = 0;
+                        while tai2 < count2 {
+                            ta2[tai2] = type_from_ast(checker, type_node.type_named_type_args[tai2]);
+                            tai2 = tai2 + 1;
+                        }
+                        result.struct_type_args = ta2;
+                        result.struct_type_arg_count = count2;
+                    }
+                }
             }
         }
         
@@ -1761,6 +2035,74 @@ fn find_struct_field_type(checker: &TypeChecker, struct_decl: &ASTNode, field_na
                 str_equals(field.var_decl_name, field_name) != 0 {
                 // 找到字段，返回字段类型
                 return type_from_ast(checker, field.var_decl_type);
+            }
+        }
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+// 在泛型结构体声明中查找字段，支持类型参数替换
+// 例如：对于 Pair<i32, i64>，查找 key 字段时返回 i32 而非 K
+fn find_struct_field_type_with_substitution(checker: &TypeChecker, struct_decl: &ASTNode, 
+                                             field_name: &byte, type_args: &Type, type_arg_count: i32) Type {
+    var result: Type = Type {
+        kind: TypeKind.TYPE_VOID,
+        enum_name: null,
+        struct_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+    };
+    
+    if checker == null || struct_decl == null || struct_decl.type != ASTNodeType.AST_STRUCT_DECL || field_name == null {
+        return result;
+    }
+    
+    const type_params: &TypeParam = struct_decl.struct_decl_type_params;
+    const type_param_count: i32 = struct_decl.struct_decl_type_param_count;
+    
+    var i: i32 = 0;
+    while i < struct_decl.struct_decl_field_count {
+        const field: &ASTNode = struct_decl.struct_decl_fields[i];
+        if field != null && field.type == ASTNodeType.AST_VAR_DECL {
+            if field.var_decl_name != null && 
+                str_equals(field.var_decl_name, field_name) != 0 {
+                // 找到字段，获取原始类型
+                // 临时设置结构体的类型参数作为当前作用域的泛型参数
+                const saved_params: &TypeParam = checker.current_type_params;
+                const saved_count: i32 = checker.current_type_param_count;
+                checker.current_type_params = type_params;
+                checker.current_type_param_count = type_param_count;
+                
+                var field_type: Type = type_from_ast(checker, field.var_decl_type);
+                
+                // 恢复
+                checker.current_type_params = saved_params;
+                checker.current_type_param_count = saved_count;
+                
+                // 如果字段类型是泛型参数，则进行替换
+                if field_type.kind == TypeKind.TYPE_GENERIC_PARAM && field_type.generic_param_name != null &&
+                    type_params != null && type_args != null && type_arg_count > 0 {
+                    const param_name: &byte = field_type.generic_param_name;
+                    // 查找匹配的类型参数
+                    var j: i32 = 0;
+                    while j < type_param_count && j < type_arg_count {
+                        if type_params[j].name != null && str_equals(type_params[j].name, param_name) != 0 {
+                            // 返回替换后的类型
+                            return type_args[j];
+                        }
+                        j = j + 1;
+                    }
+                }
+                
+                return field_type;
             }
         }
         i = i + 1;
@@ -2114,6 +2456,22 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             return result;
         }
         
+        // 检查是否是泛型函数调用
+        if expr.call_expr_type_arg_count > 0 && expr.call_expr_type_args != null {
+            const fn_decl: &ASTNode = find_fn_decl_from_program(checker.program_node, callee.identifier_name);
+            if fn_decl != null && fn_decl.fn_decl_type_param_count > 0 {
+                // 注册单态化实例
+                register_mono_instance(checker, callee.identifier_name, 
+                    expr.call_expr_type_args, expr.call_expr_type_arg_count, 1);
+                
+                // 返回替换后的返回类型
+                const return_type: Type = type_from_ast(checker, fn_decl.fn_decl_return_type);
+                return substitute_generic_type(checker, return_type,
+                    fn_decl.fn_decl_type_params, fn_decl.fn_decl_type_param_count,
+                    expr.call_expr_type_args, expr.call_expr_type_arg_count);
+            }
+        }
+        
         const sig: &FunctionSignature = function_table_lookup(checker, callee.identifier_name);
         if sig != null {
             return sig.return_type;
@@ -2255,8 +2613,18 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
             return result;
         }
         
-        // 查找字段类型
-        const field_type: Type = find_struct_field_type(checker, struct_decl, expr.member_access_field_name);
+        // 查找字段类型（支持泛型类型参数替换）
+        var field_type: Type = Type { kind: TypeKind.TYPE_VOID };
+        if object_type.struct_type_args != null && object_type.struct_type_arg_count > 0 {
+            // 泛型结构体实例：使用类型参数替换
+            field_type = find_struct_field_type_with_substitution(checker, struct_decl,
+                expr.member_access_field_name,
+                object_type.struct_type_args,
+                object_type.struct_type_arg_count);
+        } else {
+            // 非泛型结构体：直接查找
+            field_type = find_struct_field_type(checker, struct_decl, expr.member_access_field_name);
+        }
         return field_type;  // 如果字段不存在，field_type.kind 为 TypeKind.TYPE_VOID
     } else if expr.type == ASTNodeType.AST_ARRAY_ACCESS {
         // 数组访问：推断数组表达式类型，然后返回元素类型
@@ -3219,6 +3587,56 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
         return result;
     }
     
+    // 检查是否是泛型函数调用
+    const fn_decl_for_generic: &ASTNode = find_fn_decl_from_program(checker.program_node, callee.identifier_name);
+    if fn_decl_for_generic != null && fn_decl_for_generic.fn_decl_type_param_count > 0 {
+        // 泛型函数调用
+        const type_param_count: i32 = fn_decl_for_generic.fn_decl_type_param_count;
+        const type_params: &TypeParam = fn_decl_for_generic.fn_decl_type_params;
+        const type_args: & &ASTNode = node.call_expr_type_args;
+        const type_arg_count: i32 = node.call_expr_type_arg_count;
+        
+        // 检查类型实参数量
+        if type_arg_count != type_param_count {
+            checker_report_error(checker, node, "泛型函数类型参数数量不匹配" as *byte);
+            return result;
+        }
+        
+        // 注册单态化实例
+        register_mono_instance(checker, callee.identifier_name, type_args, type_arg_count, 1);
+        
+        // 检查参数个数
+        if node.call_expr_arg_count != fn_decl_for_generic.fn_decl_param_count {
+            checker_report_error(checker, node, "泛型函数调用参数个数不匹配" as *byte);
+            return result;
+        }
+        
+        // 检查参数类型（使用类型替换）
+        var gi: i32 = 0;
+        while gi < fn_decl_for_generic.fn_decl_param_count {
+            const param: &ASTNode = fn_decl_for_generic.fn_decl_params[gi];
+            if param != null && param.type == ASTNodeType.AST_VAR_DECL {
+                var param_type: Type = type_from_ast(checker, param.var_decl_type);
+                // 替换泛型参数为具体类型
+                param_type = substitute_generic_type(checker, param_type,
+                    type_params, type_param_count,
+                    type_args, type_arg_count);
+                const arg: &ASTNode = node.call_expr_args[gi];
+                if arg != null && checker_check_expr_type(checker, arg, copy_type(&param_type)) == 0 {
+                    checker_report_error(checker, node, "泛型函数调用参数类型不匹配" as *byte);
+                    return result;
+                }
+            }
+            gi = gi + 1;
+        }
+        
+        // 返回替换后的返回类型
+        const return_type: Type = type_from_ast(checker, fn_decl_for_generic.fn_decl_return_type);
+        return substitute_generic_type(checker, return_type,
+            type_params, type_param_count,
+            type_args, type_arg_count);
+    }
+    
     // 末尾 ... 转发可变参数：仅允许在可变参数函数体内，且被调函数也必须是可变参数
     if node.call_expr_has_ellipsis_forward != 0 {
         if checker.in_function == 0 || checker.current_function_decl == null {
@@ -3449,8 +3867,18 @@ fn checker_check_member_access(checker: &TypeChecker, node: &ASTNode) Type {
         return result;
     }
     
-    // 查找字段类型
-    var field_type: Type = find_struct_field_type(checker, struct_decl, node.member_access_field_name);
+    // 查找字段类型（支持泛型类型参数替换）
+    var field_type: Type = Type { kind: TypeKind.TYPE_VOID };
+    if object_type.struct_type_args != null && object_type.struct_type_arg_count > 0 {
+        // 泛型结构体实例：使用类型参数替换
+        field_type = find_struct_field_type_with_substitution(checker, struct_decl,
+            node.member_access_field_name,
+            object_type.struct_type_args,
+            object_type.struct_type_arg_count);
+    } else {
+        // 非泛型结构体：直接查找
+        field_type = find_struct_field_type(checker, struct_decl, node.member_access_field_name);
+    }
     if field_type.kind != TypeKind.TYPE_VOID {
         return field_type;
     }
