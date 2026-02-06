@@ -318,10 +318,24 @@ block_comment  = '/*' .* '*/'
 
 ```
 identifier     = [A-Za-z_][A-Za-z0-9_]*
-NUM            = [0-9]+ | [0-9]+ '.' [0-9]+
-STRING         = '"' .* '"'
+NUM            = integer | float
+integer        = decimal_integer | hex_integer | octal_integer | binary_integer
+decimal_integer = [0-9] ( [0-9] | '_' )*
+hex_integer    = '0' [xX] [0-9a-fA-F] ( [0-9a-fA-F] | '_' )*
+octal_integer  = '0' [oO] [0-7] ( [0-7] | '_' )*
+binary_integer = '0' [bB] [01] ( [01] | '_' )*
+float          = [0-9] ( [0-9] | '_' )* '.' [0-9] ( [0-9] | '_' )* [ exponent ]?
+               | [0-9] ( [0-9] | '_' )* exponent
+exponent       = [eE] [+-]? [0-9] ( [0-9] | '_' )*
+STRING         = '"' { character | escape_sequence } '"' | '`' { character } '`'
 TEXT           = [^${}]+
 ```
+
+**说明**：
+- 整数字面量默认类型为 `i32`，浮点字面量默认类型为 `f64`
+- 下划线 `_` 可出现在任意两个数字之间，不能出现在开头、结尾或连续出现
+- 下划线不能紧跟在进制前缀之后（如 `0x_FF` 非法）
+- 字符串字面量包括普通字符串 `"..."` 和原始字符串 `` `...` ``（无转义）
 
 ### 可选特性（泛型和宏）
 
@@ -675,7 +689,7 @@ block_comment  = '/*' .* '*/'
   - 浮点数：`[0-9] ([0-9] | '_')* '.' [0-9] ([0-9] | '_')* [exponent]?`
   - 指数：`[eE] [+-]? [0-9] ([0-9] | '_')*`
   - 下划线 `_` 用于分隔数字提高可读性，不能出现在开头、结尾或连续出现
-- `STRING`：字符串字面量（`"..."`）
+- `STRING`：字符串字面量（`"..."` 普通字符串，`` `...` `` 原始字符串）
 - `TEXT`：普通文本（字符串插值中的非插值部分）
 - 关键字：`struct`, `const`, `var`, `fn`, `return`, `extern`, `true`, `false`, `if`, `while`, `break`, `continue`, `defer`, `errdefer`, `try`, `catch`, `error`, `null`, `interface`, `atomic`, `export`, `use`, `as`, `as!`, `test`
 - 内置函数（以 `@` 开头）：`@size_of`, `@align_of`, `@len`, `@max`, `@min`, `@syscall`, `@src_name`, `@src_path`, `@src_line`, `@src_col`, `@func_name`
