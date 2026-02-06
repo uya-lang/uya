@@ -89,6 +89,10 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
                 strcmp(codegen.current_type_params[tpi].name as *byte, tp_name as *byte) == 0 {
                 // 找到匹配的类型参数，使用对应的类型实参
                 if codegen.current_type_args != null && tpi < codegen.current_type_arg_count {
+                    // 防止无限递归：如果替换后的类型实参和当前节点相同，跳过
+                    if codegen.current_type_args[tpi] == type_node {
+                        return tp_name;  // 返回原始名称，避免无限递归
+                    }
                     return c99_type_to_c(codegen, codegen.current_type_args[tpi]);
                 }
             }

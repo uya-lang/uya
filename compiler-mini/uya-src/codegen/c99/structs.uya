@@ -357,12 +357,62 @@ fn find_method_in_block(method_block: &ASTNode, method_name: &byte) &ASTNode {
 }
 
 // 查找结构体方法（同时检查外部方法块和内部定义的方法）
+// 全局静态缓冲区用于从单态化名称提取泛型名称（避免 arena 分配）
+var g_generic_name_buf: [byte: 128] = [];
+
+// 内部辅助函数：从单态化名称提取泛型名称并存储到全局缓冲区
+// 返回 1 表示成功提取（结果在 g_generic_name_buf 中），0 表示非单态化名称
+fn extract_generic_name_inline(mono_name: &byte) i32 {
+    if mono_name == null {
+        return 0;
+    }
+    const underscore: *byte = strchr(mono_name as *byte, 95);  // '_'
+    if underscore == null {
+        return 0;
+    }
+    const after: &byte = (underscore + 1) as &byte;
+    // 检查是否是基础类型名或首字母大写的用户类型
+    var is_type: i32 = 0;
+    if strcmp(after as *byte, "i8" as *byte) == 0 || strcmp(after as *byte, "i16" as *byte) == 0 ||
+       strcmp(after as *byte, "i32" as *byte) == 0 || strcmp(after as *byte, "i64" as *byte) == 0 ||
+       strcmp(after as *byte, "u8" as *byte) == 0 || strcmp(after as *byte, "u16" as *byte) == 0 ||
+       strcmp(after as *byte, "u32" as *byte) == 0 || strcmp(after as *byte, "u64" as *byte) == 0 ||
+       strcmp(after as *byte, "f32" as *byte) == 0 || strcmp(after as *byte, "f64" as *byte) == 0 ||
+       strcmp(after as *byte, "bool" as *byte) == 0 || strcmp(after as *byte, "byte" as *byte) == 0 ||
+       strcmp(after as *byte, "usize" as *byte) == 0 {
+        is_type = 1;
+    } else if after[0] >= 65 && after[0] <= 90 {  // 'A' to 'Z'
+        is_type = 1;
+    } else {
+        const next_underscore: *byte = strchr(after as *byte, 95);
+        if next_underscore != null {
+            is_type = 1;
+        }
+    }
+    if is_type == 0 {
+        return 0;
+    }
+    const len: i32 = ptr_diff(underscore, mono_name as *byte);
+    if len >= 128 || len <= 0 {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < len {
+        g_generic_name_buf[i] = mono_name[i];
+        i = i + 1;
+    }
+    g_generic_name_buf[len] = 0;
+    return 1;
+}
+
+// 查找结构体方法（同时检查外部方法块和内部定义的方法）
+// 支持单态化名称：如果 struct_name 是 Container_i32，会尝试查找 Container 的方法
 fn find_method_in_struct_c99(codegen: &C99CodeGenerator, struct_name: &byte, method_name: &byte) &ASTNode {
     if codegen == null || struct_name == null || method_name == null {
         return null;
     }
     // 1. 先检查外部方法块
-    const method_block: &ASTNode = find_method_block_for_struct_c99(codegen, struct_name);
+    var method_block: &ASTNode = find_method_block_for_struct_c99(codegen, struct_name);
     if method_block != null {
         const m: &ASTNode = find_method_in_block(method_block, method_name);
         if m != null {
@@ -370,7 +420,7 @@ fn find_method_in_struct_c99(codegen: &C99CodeGenerator, struct_name: &byte, met
         }
     }
     // 2. 再检查结构体内部定义的方法
-    const struct_decl: &ASTNode = find_struct_decl_c99(codegen, struct_name);
+    var struct_decl: &ASTNode = find_struct_decl_c99(codegen, struct_name);
     if struct_decl != null && struct_decl.struct_decl_methods != null {
         var i: i32 = 0;
         while i < struct_decl.struct_decl_method_count {
@@ -380,6 +430,30 @@ fn find_method_in_struct_c99(codegen: &C99CodeGenerator, struct_name: &byte, met
                 return m;
             }
             i = i + 1;
+        }
+    }
+    // 3. 如果是单态化名称（如 Container_i32），尝试提取原始名称并查找
+    if extract_generic_name_inline(struct_name) != 0 {
+        // 检查外部方法块
+        method_block = find_method_block_for_struct_c99(codegen, &g_generic_name_buf[0]);
+        if method_block != null {
+            const m: &ASTNode = find_method_in_block(method_block, method_name);
+            if m != null {
+                return m;
+            }
+        }
+        // 检查结构体内部定义的方法
+        struct_decl = find_struct_decl_c99(codegen, &g_generic_name_buf[0]);
+        if struct_decl != null && struct_decl.struct_decl_methods != null {
+            var i: i32 = 0;
+            while i < struct_decl.struct_decl_method_count {
+                const m: &ASTNode = struct_decl.struct_decl_methods[i];
+                if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+                    strcmp(m.fn_decl_name as *byte, method_name as *byte) == 0 {
+                    return m;
+                }
+                i = i + 1;
+            }
         }
     }
     return null;
@@ -402,6 +476,17 @@ fn get_method_c_name(codegen: &C99CodeGenerator, struct_name: &byte, method_name
     }
     snprintf(buf as *byte, len, "uya_%s_%s" as *byte, safe_s as *byte, safe_m as *byte);
     return buf;
+}
+
+// 检查接口是否是泛型接口（有类型参数）
+fn is_generic_interface_c99(iface_decl: &ASTNode) i32 {
+    if iface_decl == null || iface_decl.type != ASTNodeType.AST_INTERFACE_DECL {
+        return 0;
+    }
+    if iface_decl.interface_decl_type_param_count > 0 {
+        return 1;
+    }
+    return 0;
 }
 
 // 生成接口值结构体与 vtable 结构体（不含 vtable 常量）
@@ -452,20 +537,30 @@ fn emit_interface_structs_and_vtables(codegen: &C99CodeGenerator) void {
     const decl_count: i32 = codegen.program_node.program_decl_count;
     
     // 第一步：预先生成所有接口方法签名中使用的错误联合类型结构体定义
+    // 跳过泛型接口（类型参数会导致错误联合类型如 err_union_T 无法编译）
     var i: i32 = 0;
     while i < decl_count {
         const decl: &ASTNode = codegen.program_node.program_decls[i];
         if decl != null && decl.type == ASTNodeType.AST_INTERFACE_DECL {
-            pregenerate_error_union_structs_for_interface(codegen, decl);
+            // 跳过泛型接口，它们只是模板，不应生成代码
+            if is_generic_interface_c99(decl) == 0 {
+                pregenerate_error_union_structs_for_interface(codegen, decl);
+            }
         }
         i = i + 1;
     }
     
     // 第二步：生成接口值结构体与 vtable 结构体
+    // 跳过泛型接口
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = codegen.program_node.program_decls[i];
         if decl == null || decl.type != ASTNodeType.AST_INTERFACE_DECL {
+            i = i + 1;
+            continue;
+        }
+        // 跳过泛型接口，它们只是模板，不应生成代码
+        if is_generic_interface_c99(decl) != 0 {
             i = i + 1;
             continue;
         }
@@ -700,6 +795,46 @@ fn is_generic_struct_c99(struct_decl: &ASTNode) i32 {
     return 0;
 }
 
+// 检查单态化类型参数是否包含未解析的类型参数
+// 例如：Container<T> 中 T 还是类型参数，而不是具体类型（如 i32）
+fn has_unresolved_mono_type_args(generic_decl: &ASTNode, type_args: & & ASTNode, type_arg_count: i32) i32 {
+    if generic_decl == null || type_args == null || type_arg_count <= 0 {
+        return 0;
+    }
+    
+    var type_params: &TypeParam = null;
+    var type_param_count: i32 = 0;
+    
+    if generic_decl.type == ASTNodeType.AST_STRUCT_DECL {
+        type_params = generic_decl.struct_decl_type_params;
+        type_param_count = generic_decl.struct_decl_type_param_count;
+    } else if generic_decl.type == ASTNodeType.AST_FN_DECL {
+        type_params = generic_decl.fn_decl_type_params;
+        type_param_count = generic_decl.fn_decl_type_param_count;
+    }
+    
+    if type_params == null || type_param_count == 0 {
+        return 0;
+    }
+    
+    var i: i32 = 0;
+    while i < type_arg_count {
+        const arg: &ASTNode = type_args[i];
+        if arg != null && arg.type == ASTNodeType.AST_TYPE_NAMED && arg.type_named_name != null {
+            const name: &byte = arg.type_named_name;
+            var j: i32 = 0;
+            while j < type_param_count {
+                if type_params[j].name != null && strcmp(type_params[j].name as *byte, name as *byte) == 0 {
+                    return 1;  // 类型实参是未解析的类型参数
+                }
+                j = j + 1;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
 // 获取单态化结构体名称
 // 例如：Pair<i32, i64> -> Pair_i32_i64
 fn get_mono_struct_name(codegen: &C99CodeGenerator, generic_name: &byte, type_args: & &ASTNode, type_arg_count: i32) &byte {
@@ -720,7 +855,23 @@ fn get_mono_struct_name(codegen: &C99CodeGenerator, generic_name: &byte, type_ar
         
         const type_arg: &ASTNode = type_args[i];
         if type_arg != null && type_arg.type == ASTNodeType.AST_TYPE_NAMED && type_arg.type_named_name != null {
-            const type_name: &byte = type_arg.type_named_name;
+            var type_name: &byte = type_arg.type_named_name;
+            // 在单态化上下文中替换类型参数（如 T → i32）
+            if codegen.current_type_params != null && codegen.current_type_param_count > 0 {
+                var tp_idx: i32 = 0;
+                while tp_idx < codegen.current_type_param_count && tp_idx < codegen.current_type_arg_count {
+                    if codegen.current_type_params[tp_idx].name != null &&
+                        strcmp(codegen.current_type_params[tp_idx].name as *byte, type_name as *byte) == 0 {
+                        if codegen.current_type_args != null && codegen.current_type_args[tp_idx] != null &&
+                            codegen.current_type_args[tp_idx].type == ASTNodeType.AST_TYPE_NAMED &&
+                            codegen.current_type_args[tp_idx].type_named_name != null {
+                            type_name = codegen.current_type_args[tp_idx].type_named_name;
+                        }
+                        break;
+                    }
+                    tp_idx = tp_idx + 1;
+                }
+            }
             var j: i32 = 0;
             while type_name[j] != 0 && suffix_len < 255 {
                 suffix[suffix_len] = type_name[j];

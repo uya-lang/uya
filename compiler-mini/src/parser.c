@@ -1361,13 +1361,11 @@ static ASTNode *parser_parse_interface(Parser *parser) {
         sigs[sig_count++] = sig;
     }
     if (!parser_expect(parser, TOKEN_RIGHT_BRACE)) return NULL;
-    ASTNode *node = ast_new_node(AST_INTERFACE_DECL, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
-    if (!node) return NULL;
-    node->data.interface_decl.name = iface_name;
-    node->data.interface_decl.method_sigs = sigs;
-    node->data.interface_decl.method_sig_count = sig_count;
-    node->data.interface_decl.is_export = 0;
-    return node;
+    // 使用之前创建的 interface_decl 节点，而不是创建新节点
+    // 这样可以保留已解析的泛型参数 (type_params, type_param_count)
+    interface_decl->data.interface_decl.method_sigs = sigs;
+    interface_decl->data.interface_decl.method_sig_count = sig_count;
+    return interface_decl;
 }
 
 // 解析方法块：StructName { fn method(...) { ... } ... }（调用时 struct_name 与 '{' 已消费，当前为块内首 token）

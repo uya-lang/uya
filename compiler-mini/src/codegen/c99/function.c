@@ -48,7 +48,50 @@ ASTNode *find_method_in_block(ASTNode *method_block, const char *method_name) {
     return NULL;
 }
 
+// 从单态化名称中提取原始泛型名称（如 Container_i32 -> Container）
+static const char *extract_generic_name_from_mono(const char *mono_name) {
+    if (!mono_name) return NULL;
+    // 查找最后一个 '_'，之后跟随的是类型参数
+    // 例如：Container_i32 -> Container, Pair_i32_i64 -> Pair_i32（需要更复杂的逻辑）
+    // 简化方案：查找第一个 '_' 后跟随类型名的位置
+    const char *underscore = strchr(mono_name, '_');
+    if (!underscore) return NULL;
+    // 检查下划线后是否是已知类型名
+    const char *after = underscore + 1;
+    // 检查是否是基础类型名（i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, bool, byte, usize）
+    // 或者是用户定义类型名（首字母大写）
+    int is_type = 0;
+    if (strcmp(after, "i8") == 0 || strcmp(after, "i16") == 0 ||
+        strcmp(after, "i32") == 0 || strcmp(after, "i64") == 0 ||
+        strcmp(after, "u8") == 0 || strcmp(after, "u16") == 0 ||
+        strcmp(after, "u32") == 0 || strcmp(after, "u64") == 0 ||
+        strcmp(after, "f32") == 0 || strcmp(after, "f64") == 0 ||
+        strcmp(after, "bool") == 0 || strcmp(after, "byte") == 0 ||
+        strcmp(after, "usize") == 0) {
+        is_type = 1;
+    } else if (after[0] >= 'A' && after[0] <= 'Z') {
+        // 首字母大写可能是用户定义类型
+        is_type = 1;
+    } else {
+        // 可能是 Pair_i32_i64 这样的多参数类型
+        // 检查是否有后续 _type 模式
+        const char *next_underscore = strchr(after, '_');
+        if (next_underscore) {
+            is_type = 1;  // 假设是多参数泛型类型
+        }
+    }
+    if (!is_type) return NULL;
+    // 返回下划线前的部分
+    size_t len = underscore - mono_name;
+    static char buf[128];
+    if (len >= sizeof(buf)) return NULL;
+    memcpy(buf, mono_name, len);
+    buf[len] = '\0';
+    return buf;
+}
+
 // 查找结构体方法（同时检查外部方法块和内部定义的方法）
+// 支持单态化名称：如果 struct_name 是 Container_i32，会尝试查找 Container 的方法
 ASTNode *find_method_in_struct_c99(C99CodeGenerator *codegen, const char *struct_name, const char *method_name) {
     if (!codegen || !struct_name || !method_name) return NULL;
     // 1. 先检查外部方法块
@@ -65,6 +108,27 @@ ASTNode *find_method_in_struct_c99(C99CodeGenerator *codegen, const char *struct
             if (m && m->type == AST_FN_DECL && m->data.fn_decl.name &&
                 strcmp(m->data.fn_decl.name, method_name) == 0) {
                 return m;
+            }
+        }
+    }
+    // 3. 如果是单态化名称（如 Container_i32），尝试提取原始名称并查找
+    const char *generic_name = extract_generic_name_from_mono(struct_name);
+    if (generic_name) {
+        // 检查外部方法块
+        method_block = find_method_block_for_struct_c99(codegen, generic_name);
+        if (method_block) {
+            ASTNode *m = find_method_in_block(method_block, method_name);
+            if (m) return m;
+        }
+        // 检查结构体内部定义的方法
+        struct_decl = find_struct_decl_c99(codegen, generic_name);
+        if (struct_decl && struct_decl->data.struct_decl.methods) {
+            for (int i = 0; i < struct_decl->data.struct_decl.method_count; i++) {
+                ASTNode *m = struct_decl->data.struct_decl.methods[i];
+                if (m && m->type == AST_FN_DECL && m->data.fn_decl.name &&
+                    strcmp(m->data.fn_decl.name, method_name) == 0) {
+                    return m;
+                }
             }
         }
     }

@@ -360,6 +360,12 @@ static void pregenerate_error_union_structs_for_interface(C99CodeGenerator *code
     }
 }
 
+// 检查接口是否是泛型接口（有类型参数）
+static int is_generic_interface_c99(ASTNode *iface_decl) {
+    if (!iface_decl || iface_decl->type != AST_INTERFACE_DECL) return 0;
+    return iface_decl->data.interface_decl.type_param_count > 0;
+}
+
 // 生成接口值结构体与 vtable 结构体（不含 vtable 常量，常量需在方法前向声明之后生成）
 void emit_interface_structs_and_vtables(C99CodeGenerator *codegen) {
     if (!codegen || !codegen->program_node) return;
@@ -367,16 +373,22 @@ void emit_interface_structs_and_vtables(C99CodeGenerator *codegen) {
     int decl_count = codegen->program_node->data.program.decl_count;
     
     // 第一步：预先生成所有接口方法签名中使用的错误联合类型结构体定义
+    // 跳过泛型接口（类型参数会导致错误联合类型如 err_union_T 无法编译）
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl || decl->type != AST_INTERFACE_DECL) continue;
+        // 跳过泛型接口，它们只是模板，不应生成代码
+        if (is_generic_interface_c99(decl)) continue;
         pregenerate_error_union_structs_for_interface(codegen, decl);
     }
     
     // 第二步：生成接口值结构体与 vtable 结构体
+    // 跳过泛型接口
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl || decl->type != AST_INTERFACE_DECL) continue;
+        // 跳过泛型接口，它们只是模板，不应生成代码
+        if (is_generic_interface_c99(decl)) continue;
         const char *iface_name = decl->data.interface_decl.name;
         if (!iface_name) continue;
         const char *safe_iface = get_safe_c_identifier(codegen, iface_name);

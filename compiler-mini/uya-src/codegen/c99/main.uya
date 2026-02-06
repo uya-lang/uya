@@ -360,11 +360,16 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                         if codegen.mono_instances[j].generic_name != null &&
                             strcmp(codegen.mono_instances[j].generic_name as *byte, decl.struct_decl_name as *byte) == 0 &&
                             codegen.mono_instances[j].is_function == 0 {
-                            const mono_name: &byte = get_mono_struct_name(codegen, decl.struct_decl_name,
+                            // 跳过包含未解析类型参数的实例
+                            if has_unresolved_mono_type_args(decl,
                                 codegen.mono_instances[j].type_args,
-                                codegen.mono_instances[j].type_arg_count);
-                            if is_struct_in_table(codegen, mono_name) == 0 {
-                                add_struct_definition(codegen, mono_name);
+                                codegen.mono_instances[j].type_arg_count) == 0 {
+                                const mono_name: &byte = get_mono_struct_name(codegen, decl.struct_decl_name,
+                                    codegen.mono_instances[j].type_args,
+                                    codegen.mono_instances[j].type_arg_count);
+                                if is_struct_in_table(codegen, mono_name) == 0 {
+                                    add_struct_definition(codegen, mono_name);
+                                }
                             }
                         }
                         j = j + 1;
@@ -484,10 +489,15 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                     if codegen.mono_instances[j].generic_name != null &&
                         strcmp(codegen.mono_instances[j].generic_name as *byte, sname as *byte) == 0 &&
                         codegen.mono_instances[j].is_function == 0 {
-                        gen_mono_struct_definition(codegen, decl,
+                        // 跳过包含未解析类型参数的实例（如 Box<T>）
+                        if has_unresolved_mono_type_args(decl,
                             codegen.mono_instances[j].type_args,
-                            codegen.mono_instances[j].type_arg_count);
-                        fputs("\n" as *byte, codegen.output as *void);
+                            codegen.mono_instances[j].type_arg_count) == 0 {
+                            gen_mono_struct_definition(codegen, decl,
+                                codegen.mono_instances[j].type_args,
+                                codegen.mono_instances[j].type_arg_count);
+                            fputs("\n" as *byte, codegen.output as *void);
+                        }
                     }
                     j = j + 1;
                 }
@@ -580,13 +590,58 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         } else if decl != null && decl.type == ASTNodeType.AST_STRUCT_DECL {
             // 生成结构体内部定义的方法的前向声明
             const struct_name: &byte = decl.struct_decl_name;
-            var j: i32 = 0;
-            while j < decl.struct_decl_method_count {
-                const m: &ASTNode = decl.struct_decl_methods[j];
-                if m != null && m.type == ASTNodeType.AST_FN_DECL {
-                    gen_method_prototype(codegen, m, struct_name);
+            // 跳过泛型结构体模板的内部方法，为单态化实例生成方法原型
+            if is_generic_struct_c99(decl) != 0 {
+                var k: i32 = 0;
+                while k < codegen.mono_instance_count {
+                    if codegen.mono_instances[k].generic_name != null &&
+                        strcmp(codegen.mono_instances[k].generic_name as *byte, struct_name as *byte) == 0 &&
+                        codegen.mono_instances[k].is_function == 0 {
+                        // 跳过包含未解析类型参数的实例
+                        if has_unresolved_mono_type_args(decl,
+                            codegen.mono_instances[k].type_args,
+                            codegen.mono_instances[k].type_arg_count) == 0 {
+                            // 为该单态化实例生成方法原型
+                            const mono_name: &byte = get_mono_struct_name(codegen, struct_name,
+                                codegen.mono_instances[k].type_args,
+                                codegen.mono_instances[k].type_arg_count);
+                            // 设置单态化上下文
+                            const saved_tp: &TypeParam = codegen.current_type_params;
+                            const saved_tpc: i32 = codegen.current_type_param_count;
+                            const saved_ta: & & ASTNode = codegen.current_type_args;
+                            const saved_tac: i32 = codegen.current_type_arg_count;
+                            codegen.current_type_params = decl.struct_decl_type_params;
+                            codegen.current_type_param_count = decl.struct_decl_type_param_count;
+                            codegen.current_type_args = codegen.mono_instances[k].type_args;
+                            codegen.current_type_arg_count = codegen.mono_instances[k].type_arg_count;
+                            
+                            var j: i32 = 0;
+                            while j < decl.struct_decl_method_count {
+                                const m: &ASTNode = decl.struct_decl_methods[j];
+                                if m != null && m.type == ASTNodeType.AST_FN_DECL {
+                                    gen_method_prototype(codegen, m, mono_name);
+                                }
+                                j = j + 1;
+                            }
+                            
+                            // 恢复上下文
+                            codegen.current_type_params = saved_tp;
+                            codegen.current_type_param_count = saved_tpc;
+                            codegen.current_type_args = saved_ta;
+                            codegen.current_type_arg_count = saved_tac;
+                        }
+                    }
+                    k = k + 1;
                 }
-                j = j + 1;
+            } else {
+                var j: i32 = 0;
+                while j < decl.struct_decl_method_count {
+                    const m: &ASTNode = decl.struct_decl_methods[j];
+                    if m != null && m.type == ASTNodeType.AST_FN_DECL {
+                        gen_method_prototype(codegen, m, struct_name);
+                    }
+                    j = j + 1;
+                }
             }
         } else if decl != null && decl.type == ASTNodeType.AST_UNION_DECL {
             // 生成联合体内部方法的前向声明
@@ -637,14 +692,60 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
             if decl.type == ASTNodeType.AST_STRUCT_DECL {
                 // 生成结构体内部定义的方法
                 const struct_name: &byte = decl.struct_decl_name;
-                var j: i32 = 0;
-                while j < decl.struct_decl_method_count {
-                    const m: &ASTNode = decl.struct_decl_methods[j];
-                    if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_body != null {
-                        gen_method_function(codegen, m, struct_name);
-                        fputs("\n" as *byte, codegen.output as *void);
+                // 跳过泛型结构体模板的内部方法，为单态化实例生成方法定义
+                if is_generic_struct_c99(decl) != 0 {
+                    var k: i32 = 0;
+                    while k < codegen.mono_instance_count {
+                        if codegen.mono_instances[k].generic_name != null &&
+                            strcmp(codegen.mono_instances[k].generic_name as *byte, struct_name as *byte) == 0 &&
+                            codegen.mono_instances[k].is_function == 0 {
+                            // 跳过包含未解析类型参数的实例
+                            if has_unresolved_mono_type_args(decl,
+                                codegen.mono_instances[k].type_args,
+                                codegen.mono_instances[k].type_arg_count) == 0 {
+                                // 为该单态化实例生成方法定义
+                                const mono_name: &byte = get_mono_struct_name(codegen, struct_name,
+                                    codegen.mono_instances[k].type_args,
+                                    codegen.mono_instances[k].type_arg_count);
+                                // 设置单态化上下文
+                                const saved_tp: &TypeParam = codegen.current_type_params;
+                                const saved_tpc: i32 = codegen.current_type_param_count;
+                                const saved_ta: & & ASTNode = codegen.current_type_args;
+                                const saved_tac: i32 = codegen.current_type_arg_count;
+                                codegen.current_type_params = decl.struct_decl_type_params;
+                                codegen.current_type_param_count = decl.struct_decl_type_param_count;
+                                codegen.current_type_args = codegen.mono_instances[k].type_args;
+                                codegen.current_type_arg_count = codegen.mono_instances[k].type_arg_count;
+                                
+                                var j: i32 = 0;
+                                while j < decl.struct_decl_method_count {
+                                    const m: &ASTNode = decl.struct_decl_methods[j];
+                                    if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_body != null {
+                                        gen_method_function(codegen, m, mono_name);
+                                        fputs("\n" as *byte, codegen.output as *void);
+                                    }
+                                    j = j + 1;
+                                }
+                                
+                                // 恢复上下文
+                                codegen.current_type_params = saved_tp;
+                                codegen.current_type_param_count = saved_tpc;
+                                codegen.current_type_args = saved_ta;
+                                codegen.current_type_arg_count = saved_tac;
+                            }
+                        }
+                        k = k + 1;
                     }
-                    j = j + 1;
+                } else {
+                    var j: i32 = 0;
+                    while j < decl.struct_decl_method_count {
+                        const m: &ASTNode = decl.struct_decl_methods[j];
+                        if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_body != null {
+                            gen_method_function(codegen, m, struct_name);
+                            fputs("\n" as *byte, codegen.output as *void);
+                        }
+                        j = j + 1;
+                    }
                 }
             } else if decl.type == ASTNodeType.AST_UNION_DECL {
                 // 生成联合体内部方法定义
