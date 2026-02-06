@@ -1130,3 +1130,256 @@ void* memcpy(void* dest, const void* src, size_t n) {
 
 这样可以在 **不依赖条件编译** 的情况下，先完成 MVP 验证核心设计！🎯
 
+## 11. 测试策略
+
+### 11.1 测试目录结构
+
+```
+tests/std_c/
+├── string/                    # 字符串/内存操作测试
+│   ├── test_memcpy.uya
+│   ├── test_memcpy_overlap.uya
+│   ├── test_memset.uya
+│   ├── test_strlen.uya
+│   └── test_strcmp.uya
+├── stdio/                     # 标准 I/O 测试
+│   ├── test_putchar.uya
+│   ├── test_puts.uya
+│   └── test_printf.uya
+├── stdlib/                    # 标准库测试
+│   ├── test_malloc_basic.uya
+│   ├── test_malloc_realloc.uya
+│   └── test_malloc_stress.uya
+├── syscall/                   # 系统调用测试
+│   ├── test_write.uya
+│   └── test_read.uya
+└── conformance/               # C 标准符合性测试
+    └── test_c99_string.uya
+
+benchmarks/std_c/              # 性能基准测试
+├── bench_memcpy.uya
+├── bench_string_ops.uya
+├── bench_malloc.uya
+└── compare_musl.sh            # 与 musl 对比脚本
+```
+
+### 11.2 正确性测试
+
+#### 借鉴 musl 的 libc-test
+
+可以直接使用或移植 musl 的 [libc-test](http://nsz.repo.hu/git/?p=libc-test) 作为测试基准：
+
+```bash
+# 克隆 libc-test
+git clone git://nsz.repo.hu/repo/libc-test
+cd libc-test
+
+# 配置使用生成的 libuya
+cat > config.mak <<EOF
+CC = gcc
+CFLAGS = -nostdinc -I/path/to/libuya.h
+LDFLAGS = -nostdlib /path/to/libuya.c -lgcc
+EOF
+
+# 运行测试
+make
+cat REPORT
+```
+
+#### 单元测试示例
+
+```uya
+// tests/std_c/string/test_memcpy.uya
+fn main() i32 {
+    var dest: [16]u8;
+    var src: [16]u8 = "Hello, World!";
+    
+    // 基本测试
+    _ = memcpy(&dest[0], &src[0], 14);
+    if strcmp(&dest[0], &src[0]) != 0 {
+        return 1;
+    }
+    
+    // 零长度拷贝
+    _ = memcpy(&dest[0], &src[0], 0);
+    
+    // 单字节拷贝
+    dest[0] = 'X' as u8;
+    _ = memcpy(&dest[0], &src[0], 1);
+    if dest[0] != 'H' as u8 {
+        return 2;
+    }
+    
+    return 0;  // 全部通过
+}
+```
+
+### 11.3 性能基准测试
+
+#### 基准测试框架
+
+```uya
+// benchmarks/std_c/bench_memcpy.uya
+use std.c.syscall.linux;
+
+struct Timespec {
+    sec: i64,
+    nsec: i64,
+}
+
+fn get_time_ns() i64 {
+    var ts: Timespec;
+    _ = @syscall(228, 1, &ts);  // clock_gettime(CLOCK_MONOTONIC, &ts)
+    return ts.sec * 1000000000 + ts.nsec;
+}
+
+fn bench_memcpy(size: usize, iterations: i32) i64 {
+    var src: [65536]u8;
+    var dest: [65536]u8;
+    
+    let start = get_time_ns();
+    var i: i32 = 0;
+    while i < iterations {
+        _ = memcpy(&dest[0], &src[0], size);
+        i = i + 1;
+    }
+    let end = get_time_ns();
+    
+    return (end - start) / iterations as i64;  // 平均每次纳秒数
+}
+
+fn main() i32 {
+    // 测试不同大小
+    print_bench("memcpy 16B", bench_memcpy(16, 1000000));
+    print_bench("memcpy 256B", bench_memcpy(256, 100000));
+    print_bench("memcpy 4KB", bench_memcpy(4096, 10000));
+    print_bench("memcpy 64KB", bench_memcpy(65536, 1000));
+    return 0;
+}
+```
+
+#### 与 musl/glibc 对比脚本
+
+```bash
+#!/bin/bash
+# benchmarks/std_c/compare_musl.sh
+
+echo "=== std.c (Uya) ==="
+./bench_memcpy_uya
+
+echo "=== musl ==="
+musl-gcc bench_memcpy.c -o bench_musl && ./bench_musl
+
+echo "=== glibc ==="
+gcc bench_memcpy.c -o bench_glibc && ./bench_glibc
+```
+
+### 11.4 C 标准符合性测试
+
+```uya
+// tests/std_c/conformance/test_c99_string.uya
+// 测试 C99 标准要求的行为
+
+fn test_memcpy_return_value() bool {
+    var dest: [8]u8;
+    var src: [8]u8 = "test";
+    
+    // C 标准: memcpy 返回 dest 指针
+    let ret = memcpy(&dest[0], &src[0], 5);
+    return ret == &dest[0];
+}
+
+fn test_strcmp_sign() bool {
+    // C 标准: 返回 <0, 0, >0
+    if strcmp("a", "b") >= 0 { return false; }
+    if strcmp("b", "a") <= 0 { return false; }
+    if strcmp("a", "a") != 0 { return false; }
+    return true;
+}
+
+fn main() i32 {
+    if !test_memcpy_return_value() { return 1; }
+    if !test_strcmp_sign() { return 2; }
+    return 0;
+}
+```
+
+### 11.5 集成测试脚本
+
+```bash
+#!/bin/bash
+# tests/run_std_c_tests.sh
+
+set -e
+
+echo "=== Building libuya ==="
+./uya-compiler --c99 --outlibc -o build/libuya.c
+
+echo "=== Compiling tests ==="
+for test in tests/std_c/**/*.uya; do
+    ./uya-compiler --c99 "$test" -o "build/$(basename $test .uya).c"
+    gcc -nostdinc -nostdlib -ffreestanding \
+        -I build \
+        "build/$(basename $test .uya).c" build/libuya.c \
+        -lgcc -o "build/$(basename $test .uya)"
+done
+
+echo "=== Running tests ==="
+PASSED=0
+FAILED=0
+for test in build/test_*; do
+    if "$test"; then
+        echo "✓ $(basename $test)"
+        ((PASSED++))
+    else
+        echo "✗ $(basename $test) (exit code: $?)"
+        ((FAILED++))
+    fi
+done
+
+echo "=== Results ==="
+echo "Passed: $PASSED, Failed: $FAILED"
+exit $FAILED
+```
+
+### 11.6 测试类型总结
+
+| 测试类型 | 工具/方法 | 目的 | 优先级 |
+|----------|----------|------|--------|
+| **单元测试** | 自写 .uya 测试 | 函数级正确性 | ⭐⭐⭐⭐⭐ |
+| **边界测试** | 空、最大、溢出边界 | 边界条件处理 | ⭐⭐⭐⭐⭐ |
+| **符合性测试** | 移植 libc-test | C 标准符合性 | ⭐⭐⭐⭐ |
+| **回归测试** | 每次修改后运行 | 防止引入 bug | ⭐⭐⭐⭐ |
+| **性能基准** | 自写 bench 框架 | 与 musl 对比 | ⭐⭐⭐ |
+| **内存测试** | Valgrind/ASan | 内存泄漏/越界 | ⭐⭐⭐ |
+| **模糊测试** | AFL/libFuzzer | 发现崩溃和漏洞 | ⭐⭐ |
+| **静态分析** | cppcheck/clang-tidy | 代码质量 | ⭐⭐ |
+
+### 11.7 测试待办清单
+
+#### 正确性测试
+- [ ] `tests/std_c/string/test_memcpy.uya` - 基本 memcpy 测试
+- [ ] `tests/std_c/string/test_memcpy_overlap.uya` - 重叠区域测试（memmove 行为）
+- [ ] `tests/std_c/string/test_memset.uya` - 各种填充值测试
+- [ ] `tests/std_c/string/test_memset_zero.uya` - 零填充特化测试
+- [ ] `tests/std_c/string/test_strlen.uya` - 空串、长串、嵌入 null
+- [ ] `tests/std_c/string/test_strcmp.uya` - 相等、大于、小于
+- [ ] `tests/std_c/stdlib/test_malloc_basic.uya` - 基本分配/释放
+- [ ] `tests/std_c/stdlib/test_malloc_realloc.uya` - realloc 扩展/缩小
+- [ ] `tests/std_c/stdlib/test_malloc_fragmentation.uya` - 内存碎片测试
+
+#### 性能基准
+- [ ] `benchmarks/std_c/bench_memcpy.uya` - memcpy 不同大小性能
+- [ ] `benchmarks/std_c/bench_string_ops.uya` - 字符串操作综合基准
+- [ ] `benchmarks/std_c/bench_malloc.uya` - 内存分配性能
+- [ ] `benchmarks/std_c/compare_musl.sh` - 与 musl 自动对比
+
+#### 符合性测试
+- [ ] 移植 libc-test 核心测试用例
+- [ ] `tests/std_c/conformance/test_c99_string.uya` - C99 字符串函数符合性
+- [ ] `tests/std_c/conformance/test_c99_stdlib.uya` - C99 stdlib 符合性
+
+#### 集成测试
+- [ ] `tests/run_std_c_tests.sh` - 自动化测试脚本
+- [ ] CI 集成（GitHub Actions / GitLab CI）
+
