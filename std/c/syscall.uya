@@ -82,28 +82,30 @@ export const STDERR_FILENO: i64 = 2;
 // 错误类型定义
 // ============================================================
 
-export error EPERM;        // 1  - 操作不允许
-export error ENOENT;       // 2  - 文件或目录不存在
-export error ESRCH;        // 3  - 进程不存在
-export error EINTR;        // 4  - 系统调用被中断
-export error EIO;          // 5  - I/O 错误
-export error ENXIO;        // 6  - 设备不存在
-export error E2BIG;        // 7  - 参数列表太长
-export error ENOEXEC;      // 8  - 可执行文件格式错误
-export error EBADF;        // 9  - 文件描述符无效
-export error ECHILD;       // 10 - 没有子进程
-export error EAGAIN;       // 11 - 资源暂时不可用
-export error ENOMEM;       // 12 - 内存不足
-export error EACCES;       // 13 - 权限不足
-export error EFAULT;       // 14 - 地址错误
-export error ENOTBLK;      // 15 - 需要块设备
-export error EBUSY;        // 16 - 设备或资源忙
-export error EEXIST;       // 17 - 文件已存在
-export error EXDEV;        // 18 - 跨设备链接
-export error ENODEV;       // 19 - 设备不存在
-export error ENOTDIR;      // 20 - 不是目录
-export error EISDIR;       // 21 - 是目录
-export error EINVAL;       // 22 - 参数无效
+export enum Errno : i32 {
+    EPERM = 1,        // 操作不允许
+    ENOENT = 2,       // 文件或目录不存在
+    ESRCH = 3,        // 进程不存在
+    EINTR = 4,        // 系统调用被中断
+    EIO = 5,          // I/O 错误
+    ENXIO = 6,        // 设备不存在
+    E2BIG = 7,        // 参数列表太长
+    ENOEXEC = 8,      // 可执行文件格式错误
+    EBADF = 9,        // 文件描述符无效
+    ECHILD = 10,      // 没有子进程
+    EAGAIN = 11,      // 资源暂时不可用
+    ENOMEM = 12,      // 内存不足
+    EACCES = 13,      // 权限不足
+    EFAULT = 14,      // 地址错误
+    ENOTBLK = 15,     // 需要块设备
+    EBUSY = 16,       // 设备或资源忙
+    EEXIST = 17,      // 文件已存在
+    EXDEV = 18,       // 跨设备链接
+    ENODEV = 19,      // 设备不存在
+    ENOTDIR = 20,     // 不是目录
+    EISDIR = 21,      // 是目录
+    EINVAL = 22       // 参数无效
+}
 
 // ============================================================
 // 高级系统调用封装函数
