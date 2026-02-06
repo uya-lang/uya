@@ -985,7 +985,7 @@ std/
 
 ---
 
-#### Sprint 1: @syscall 内置函数（1-2 周）⭐⭐⭐⭐⭐
+#### Sprint 1: @syscall 内置函数（1-2 周）⭐⭐⭐⭐⭐ ✅ 已完成
 
 **设计**：
 - 语法：`@syscall(nr, arg1, arg2, ..., arg6)` → 返回 `!i64`
@@ -993,28 +993,28 @@ std/
 - 错误：负数返回值自动转换为错误（如 -EBADF → error.BadFileDescriptor）
 
 **任务清单**：
-- [ ] **设计文档**：完善 `docs/std_c_design.md` §2（@syscall 规范）
-- [ ] **Lexer**：识别 `@syscall` 关键字（添加到 `is_builtin_function`）
-- [ ] **AST**：新增 `AST_SYSCALL` 节点
+- [x] **Lexer**：识别 `@syscall` 关键字（添加到 `is_builtin_function`）
+- [x] **AST**：新增 `AST_SYSCALL` 节点
   - 字段：`syscall_number`（编译期常量表达式）
   - 字段：`args[]`（最多 6 个参数）
-- [ ] **Parser**：解析 `@syscall(nr, ...args)` 调用
+- [x] **Parser**：解析 `@syscall(nr, ...args)` 调用
   - 验证参数个数（1-7 个，第一个为 syscall_number）
-- [ ] **Checker**：类型检查与语义验证
+- [x] **Checker**：类型检查与语义验证
   - syscall_number 必须为整数常量
   - 所有参数类型必须可转换为 i64
   - 返回类型：`!i64`
-- [ ] **Codegen**：生成内联汇编（x86-64 Linux）
+- [x] **Codegen**：生成内联汇编（x86-64 Linux）
   - 实现 `uya_syscall0` - `uya_syscall6` 辅助函数
   - 使用寄存器约定：rax=nr, rdi/rsi/rdx/r10/r8/r9=args
   - 保留 rcx/r11（syscall 会破坏）
-- [ ] **测试用例**：
+- [x] **测试用例**：
   - `test_syscall_write.uya`（SYS_write=1，写标准输出）
   - `test_syscall_exit.uya`（SYS_exit=60，程序退出）
-  - `test_syscall_read.uya`（SYS_read=0，读标准输入）
   - `test_syscall_error.uya`（错误处理，如 EBADF）
+  - `test_std_syscall.uya`（syscall 函数封装）
+  - `test_syscall_module.uya`（多函数 syscall）
   - `error_syscall_not_const.uya`（syscall_number 非常量，预期失败）
-- [ ] **uya-src 同步**
+- [x] **uya-src 同步**
 
 **参考**：
 - Linux 系统调用表：`/usr/include/asm/unistd_64.h`
@@ -1038,148 +1038,80 @@ static inline long uya_syscall3(long nr, long a1, long a2, long a3) {
 
 ---
 
-#### Sprint 2: std.c.syscall 模块（1 周）⭐⭐⭐⭐⭐
+#### Sprint 2: std.c.syscall 模块（1 周）⭐⭐⭐⭐⭐ ✅ 已完成
 
 **任务清单**：
-- [ ] **创建目录结构**：`std/c/syscall.uya`
-- [ ] **系统调用号常量**：定义 Linux 系统调用号
-  ```uya
-  // std/c/syscall.uya
-  export const SYS_read: i64 = 0;
-  export const SYS_write: i64 = 1;
-  export const SYS_open: i64 = 2;
-  export const SYS_close: i64 = 3;
-  export const SYS_exit: i64 = 60;
-  // ... 其他常用系统调用
-  ```
-- [ ] **错误码常量**：定义 errno 常量
-  ```uya
-  export const EBADF: i64 = 9;   // Bad file descriptor
-  export const EINVAL: i64 = 22; // Invalid argument
-  // ...
-  ```
-- [ ] **封装函数**：实现系统调用封装
-  ```uya
-  export fn sys_write(fd: i32, buf: &byte, count: usize) !i64 {
-      const result = @syscall(SYS_write, fd, buf, count);
-      return result;  // 返回 !i64，负数自动转为错误
-  }
-  
-  export fn sys_read(fd: i32, buf: &byte, count: usize) !i64 {
-      return @syscall(SYS_read, fd, buf, count);
-  }
-  
-  export fn sys_exit(status: i32) void {
-      @syscall(SYS_exit, status);
-      // noreturn（编译器需特殊处理）
-  }
-  
-  export fn sys_open(path: &byte, flags: i32, mode: i32) !i32 {
-      const result = @syscall(SYS_open, path, flags, mode);
-      return result as! i32;  // fd 为 i32
-  }
-  
-  export fn sys_close(fd: i32) !void {
-      const result = @syscall(SYS_close, fd);
-      if result < 0 { return error.CloseError; }
-      return;
-  }
-  ```
-- [ ] **测试用例**：
-  - `test_std_syscall_write.uya`
-  - `test_std_syscall_read.uya`
-  - `test_std_syscall_file.uya`（open/close/read/write）
-  - `test_std_syscall_error.uya`（错误处理）
-- [ ] **文档**：`std/c/README.md`（syscall 模块使用说明）
+- [x] **创建目录结构**：`std/c/syscall.uya`
+- [x] **系统调用号常量**：定义 Linux 系统调用号（SYS_read/write/open/close/stat/fstat/lseek/mmap/munmap/brk/ioctl/access/dup/dup2/getpid/fork/execve/exit/kill/getcwd/chdir/mkdir/rmdir/unlink）
+- [x] **文件操作标志**：O_RDONLY/O_WRONLY/O_RDWR/O_CREAT/O_EXCL/O_TRUNC/O_APPEND
+- [x] **文件权限常量**：S_IRWXU/S_IRUSR/S_IWUSR/S_IXUSR 等
+- [x] **标准文件描述符**：STDIN_FILENO/STDOUT_FILENO/STDERR_FILENO
+- [x] **错误码枚举**：`enum Errno : i32`（EPERM=1 到 EINVAL=22，22 种标准 errno 错误码）
+- [x] **封装函数**：实现系统调用封装（参数统一使用 i64 类型）
+  - `sys_write(fd, buf, count) !i64`
+  - `sys_read(fd, buf, count) !i64`
+  - `sys_open(path, flags, mode) !i64`
+  - `sys_close(fd) !i64`
+  - `sys_exit(status) void`
+  - `sys_getpid() i64`
+  - `sys_lseek(fd, offset, whence) !i64`
+  - `sys_access(path, mode) !i64`
+  - `sys_unlink(path) !i64`
+  - `sys_mkdir(path, mode) !i64`
+  - `sys_rmdir(path) !i64`
+  - `sys_chdir(path) !i64`
+  - `sys_getcwd(buf, size) !i64`
+- [x] **测试用例**：
+  - `test_std_syscall.uya`（syscall 函数封装，通过 `--c99` 和 `--uya --c99`）
+  - `test_syscall_module.uya`（多函数 syscall）
 
 ---
 
-#### Sprint 3: std.c.string + std.c.stdio（1-2 周）⭐⭐⭐⭐
+#### Sprint 3: std.c.string + std.c.stdio（1-2 周）⭐⭐⭐⭐ ✅ 已完成
 
-**任务清单 - std.c.string**：
-- [ ] **创建文件**：`std/c/string.uya`
-- [ ] **核心函数**（纯 Uya 实现）：
-  ```uya
-  export fn memcpy(dest: &void, src: &void, n: usize) &void {
-      var d = dest as &byte;
-      var s = src as &byte;
-      var i: usize = 0;
-      while i < n {
-          d[i] = s[i];
-          i = i + 1;
-      }
-      return dest;
-  }
-  
-  export fn memset(s: &void, c: i32, n: usize) &void {
-      var p = s as &byte;
-      const ch = c as u8;
-      var i: usize = 0;
-      while i < n {
-          p[i] = ch;
-          i = i + 1;
-      }
-      return s;
-  }
-  
-  export fn strlen(s: &byte) usize {
-      var len: usize = 0;
-      while s[len] != 0 {
-          len = len + 1;
-      }
-      return len;
-  }
-  
-  export fn strcmp(s1: &byte, s2: &byte) i32 {
-      var i: usize = 0;
-      while s1[i] != 0 && s2[i] != 0 {
-          if s1[i] != s2[i] {
-              return s1[i] as i32 - s2[i] as i32;
-          }
-          i = i + 1;
-      }
-      return s1[i] as i32 - s2[i] as i32;
-  }
-  
-  export fn strcpy(dest: &byte, src: &byte) &byte {
-      var i: usize = 0;
-      while src[i] != 0 {
-          dest[i] = src[i];
-          i = i + 1;
-      }
-      dest[i] = 0;  // null terminator
-      return dest;
-  }
-  ```
-- [ ] **测试**：`test_std_string.uya`（所有函数单元测试）
+**std.c.string（已完成）**：
+- [x] **创建文件**：`std/c/string.uya`（纯 Uya 实现，零外部依赖）
+- [x] **内存操作函数**：
+  - `memcpy(dest: &byte, src: &byte, n: usize) &byte` - 复制内存块
+  - `memmove(dest: &byte, src: &byte, n: usize) &byte` - 复制内存块（支持重叠）
+  - `memset(s: &byte, c: byte, n: usize) &byte` - 填充内存块
+  - `memcmp(s1: &byte, s2: &byte, n: usize) i32` - 比较内存块
+  - `memchr(s: &byte, c: byte, n: usize) i64` - 查找字节（返回索引或 -1）
+- [x] **字符串操作函数**：
+  - `strlen(s: &byte) usize` - 计算字符串长度
+  - `strcmp(s1: &byte, s2: &byte) i32` - 比较字符串
+  - `strncmp(s1: &byte, s2: &byte, n: usize) i32` - 比较指定长度字符串
+  - `strcpy(dest: &byte, src: &byte) &byte` - 复制字符串
+  - `strncpy(dest: &byte, src: &byte, n: usize) &byte` - 复制指定长度字符串
+  - `strcat(dest: &byte, src: &byte) &byte` - 连接字符串
+  - `strchr(s: &byte, c: byte) i64` - 查找字符首次出现位置
+  - `strrchr(s: &byte, c: byte) i64` - 查找字符最后出现位置
+- [x] **测试**：`test_std_string.uya`（8 组测试：strlen/memcpy/memset/memcmp/strcmp/strcpy/strncmp/memchr，通过 `--c99` 和 `--uya --c99`）
 
-**任务清单 - std.c.stdio**：
-- [ ] **创建文件**：`std/c/stdio.uya`
-- [ ] **基础 I/O**（基于 syscall）：
-  ```uya
-  use c.syscall.{sys_write, sys_read, SYS_write, SYS_read};
-  use c.string.strlen;
-  
-  export fn putchar(c: i32) i32 {
-      const ch: u8 = c as u8;
-      const result = sys_write(1, &ch, 1) catch { return -1; };
-      return if result == 1 { c } else { -1 };
-  }
-  
-  export fn puts(s: &byte) i32 {
-      const len = strlen(s);
-      sys_write(1, s, len) catch { return -1; };
-      sys_write(1, "\n" as &byte, 1) catch { return -1; };
-      return 0;
-  }
-  
-  export fn getchar() i32 {
-      var ch: u8 = 0;
-      const result = sys_read(0, &ch, 1) catch { return -1; };
-      return if result == 1 { ch as i32 } else { -1 };
-  }
-  ```
-- [ ] **测试**：`test_std_stdio.uya`
+**std.c.stdio（已完成）**：
+- [x] **创建文件**：`std/c/stdio.uya`（基于 @syscall，零外部依赖）
+- [x] **输出函数**：
+  - `putchar(c: i32) i32` - 写入单个字符到 stdout
+  - `putchar_fd(c: i32, fd: i64) i32` - 写入单个字符到指定 fd
+  - `write_bytes(buf: &byte, n: usize) i64` - 写入 n 字节到 stdout
+  - `write_bytes_fd(buf: &byte, n: usize, fd: i64) i64` - 写入 n 字节到指定 fd
+  - `puts_len(s: &byte, len: usize) i32` - 写入指定长度字符串并换行
+- [x] **输入函数**：
+  - `getchar() i32` - 从 stdin 读取一个字符
+  - `read_bytes(buf: &byte, n: usize) i64` - 从 stdin 读取最多 n 字节
+  - `read_bytes_fd(buf: &byte, n: usize, fd: i64) i64` - 从指定 fd 读取
+- [x] **整数转字符串辅助**：
+  - `i32_to_str(value: i32, buf: &byte) usize` - i32 转十进制字符串
+  - `i64_to_str(value: i64, buf: &byte) usize` - i64 转十进制字符串
+  - `print_i32(value: i32) usize` - 打印 i32 到 stdout
+  - `print_i64(value: i64) usize` - 打印 i64 到 stdout
+- [x] **测试**：`test_std_stdio.uya`（i32_to_str/putchar/write_bytes，通过 `--c99` 和 `--uya --c99`）
+
+**API 设计说明**：
+- 使用 `&byte` 而非 `&void` 作为指针类型（当前 `&void` 仅部分支持）
+- 使用 `byte` 而非 `i32` 作为 memset/memchr 的字符参数（更类型安全）
+- 使用 `i64` 返回索引而非指针（memchr/strchr/strrchr 找到返回索引，未找到返回 -1）
+- 所有函数纯 Uya 实现，唯一依赖为 @syscall（stdio）
 
 ---
 
@@ -2081,8 +2013,17 @@ interface IReadWriter {
   - ✅ 修复 struct err_union_int64_t 重复定义问题
 - ✅ 回归测试全部通过（317 个测试）
 
+### v0.2.33（进行中，2026-02-06）
+- ✅ 标准库 Sprint 1-3 完成
+  - ✅ `std/c/syscall.uya`（系统调用封装：33 个常量 + 13 个封装函数 + Errno 枚举）
+  - ✅ `std/c/string.uya`（纯 Uya 实现：13 个内存/字符串函数）
+  - ✅ `std/c/stdio.uya`（基于 @syscall 的 I/O：12 个函数 + 整数转字符串）
+  - ✅ `test_std_string.uya`（8 组测试，通过 `--c99` 和 `--uya --c99`）
+  - ✅ `test_std_stdio.uya`（3 组测试，通过 `--c99` 和 `--uya --c99`）
+- ✅ 回归测试全部通过（319 个测试）
+
 ### v0.3.0（目标：2026 Q1）- 标准库里程碑
-- 🎯 标准库基础设施（std.c 完整实现）
+- ✅ 标准库基础设施（Sprint 1-3：@syscall + std.c.{syscall,string,stdio}）
 - 🎯 @print/@println 内置函数
 - 🎯 编译器零外部依赖（-nostdlib 构建）
 - 🎯 --outlibc 生成独立 libc

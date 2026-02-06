@@ -1,0 +1,237 @@
+// std.c.stdio - 标准 I/O 操作
+// 版本：v0.3.0
+// 说明：基于系统调用的标准 I/O 函数（零外部依赖）
+
+// ============================================================
+// 系统调用号（Linux x86-64）
+// ============================================================
+
+const SYS_write: i64 = 1;
+const SYS_read: i64 = 0;
+
+// ============================================================
+// 标准文件描述符
+// ============================================================
+
+export const STDIN: i64 = 0;
+export const STDOUT: i64 = 1;
+export const STDERR: i64 = 2;
+
+// ============================================================
+// 基础输出函数
+// ============================================================
+
+// putchar - 向标准输出写入一个字符
+// 返回：写入的字符（成功）或 -1（失败）
+export fn putchar(c: i32) i32 {
+    var ch: byte = c as byte;
+    const result: !i64 = @syscall(SYS_write, STDOUT, &ch as i64, 1);
+    const written: i64 = result catch {
+        return 0 - 1;
+    };
+    if written == 1 {
+        return c;
+    }
+    return 0 - 1;
+}
+
+// putchar_fd - 向指定文件描述符写入一个字符
+// 返回：写入的字符（成功）或 -1（失败）
+export fn putchar_fd(c: i32, fd: i64) i32 {
+    var ch: byte = c as byte;
+    const result: !i64 = @syscall(SYS_write, fd, &ch as i64, 1);
+    const written: i64 = result catch {
+        return 0 - 1;
+    };
+    if written == 1 {
+        return c;
+    }
+    return 0 - 1;
+}
+
+// write_bytes - 向标准输出写入 n 个字节
+// 返回：写入的字节数，失败返回 -1
+export fn write_bytes(buf: &byte, n: usize) i64 {
+    const result: !i64 = @syscall(SYS_write, STDOUT, buf as i64, n as i64);
+    const written: i64 = result catch {
+        return 0 - 1;
+    };
+    return written;
+}
+
+// write_bytes_fd - 向指定文件描述符写入 n 个字节
+// 返回：写入的字节数，失败返回 -1
+export fn write_bytes_fd(buf: &byte, n: usize, fd: i64) i64 {
+    const result: !i64 = @syscall(SYS_write, fd, buf as i64, n as i64);
+    const written: i64 = result catch {
+        return 0 - 1;
+    };
+    return written;
+}
+
+// puts_len - 向标准输出写入指定长度的字符串并换行
+// 返回：0 成功，-1 失败
+export fn puts_len(s: &byte, len: usize) i32 {
+    // 写入字符串内容
+    const result: !i64 = @syscall(SYS_write, STDOUT, s as i64, len as i64);
+    _ = result catch {
+        return 0 - 1;
+    };
+    // 写入换行符
+    var newline: byte = 10 as byte;
+    const nl_result: !i64 = @syscall(SYS_write, STDOUT, &newline as i64, 1);
+    _ = nl_result catch {
+        return 0 - 1;
+    };
+    return 0;
+}
+
+// ============================================================
+// 基础输入函数
+// ============================================================
+
+// getchar - 从标准输入读取一个字符
+// 返回：读取的字符，EOF 或错误返回 -1
+export fn getchar() i32 {
+    var ch: byte = 0 as byte;
+    const result: !i64 = @syscall(SYS_read, STDIN, &ch as i64, 1);
+    const bytes_read: i64 = result catch {
+        return 0 - 1;
+    };
+    if bytes_read == 1 {
+        return ch as i32;
+    }
+    return 0 - 1;
+}
+
+// read_bytes - 从标准输入读取最多 n 个字节
+// 返回：读取的字节数，EOF 或错误返回 -1
+export fn read_bytes(buf: &byte, n: usize) i64 {
+    const result: !i64 = @syscall(SYS_read, STDIN, buf as i64, n as i64);
+    const bytes_read: i64 = result catch {
+        return 0 - 1;
+    };
+    return bytes_read;
+}
+
+// read_bytes_fd - 从指定文件描述符读取最多 n 个字节
+// 返回：读取的字节数，EOF 或错误返回 -1
+export fn read_bytes_fd(buf: &byte, n: usize, fd: i64) i64 {
+    const result: !i64 = @syscall(SYS_read, fd, buf as i64, n as i64);
+    const bytes_read: i64 = result catch {
+        return 0 - 1;
+    };
+    return bytes_read;
+}
+
+// ============================================================
+// 整数转字符串辅助函数
+// ============================================================
+
+// i32_to_str - 将 i32 转换为十进制字符串
+// 返回：写入的字符数
+export fn i32_to_str(value: i32, buf: &byte) usize {
+    var v: i32 = value;
+    var len: usize = 0;
+    var is_neg: bool = false;
+
+    if v < 0 {
+        is_neg = true;
+        v = 0 - v;
+    }
+
+    // 特殊情况：值为 0
+    if v == 0 {
+        buf[0] = 48 as byte;  // '0'
+        return 1;
+    }
+
+    // 逆序写入数字
+    while v > 0 {
+        buf[len] = (v % 10 + 48) as byte;  // '0' = 48
+        v = v / 10;
+        len = len + 1;
+    }
+
+    if is_neg {
+        buf[len] = 45 as byte;  // '-'
+        len = len + 1;
+    }
+
+    // 反转字符串
+    var left: usize = 0;
+    var right: usize = len - 1;
+    while left < right {
+        const tmp: byte = buf[left];
+        buf[left] = buf[right];
+        buf[right] = tmp;
+        left = left + 1;
+        right = right - 1;
+    }
+
+    return len;
+}
+
+// i64_to_str - 将 i64 转换为十进制字符串
+// 返回：写入的字符数
+export fn i64_to_str(value: i64, buf: &byte) usize {
+    var v: i64 = value;
+    var len: usize = 0;
+    var is_neg: bool = false;
+
+    if v < 0 {
+        is_neg = true;
+        v = 0 - v;
+    }
+
+    // 特殊情况：值为 0
+    if v == 0 {
+        buf[0] = 48 as byte;  // '0'
+        return 1;
+    }
+
+    // 逆序写入数字
+    while v > 0 {
+        buf[len] = (v % 10 + 48) as byte;  // '0' = 48
+        v = v / 10;
+        len = len + 1;
+    }
+
+    if is_neg {
+        buf[len] = 45 as byte;  // '-'
+        len = len + 1;
+    }
+
+    // 反转字符串
+    var left: usize = 0;
+    var right: usize = len - 1;
+    while left < right {
+        const tmp: byte = buf[left];
+        buf[left] = buf[right];
+        buf[right] = tmp;
+        left = left + 1;
+        right = right - 1;
+    }
+
+    return len;
+}
+
+// print_i32 - 将 i32 值打印到标准输出
+// 返回：写入的字符数
+export fn print_i32(value: i32) usize {
+    var buf: [byte: 12] = [];
+    const len: usize = i32_to_str(value, &buf[0] as &byte);
+    _ = write_bytes(&buf[0] as &byte, len);
+    return len;
+}
+
+// print_i64 - 将 i64 值打印到标准输出
+// 返回：写入的字符数
+export fn print_i64(value: i64) usize {
+    var buf: [byte: 21] = [];
+    const len: usize = i64_to_str(value, &buf[0] as &byte);
+    _ = write_bytes(&buf[0] as &byte, len);
+    return len;
+}
+
+
