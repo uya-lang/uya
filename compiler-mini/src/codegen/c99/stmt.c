@@ -330,7 +330,23 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                     ASTNode *payload_node = return_type->data.type_error_union.payload_type;
                     int payload_void = (!payload_node || (payload_node->type == AST_TYPE_NAMED &&
                         payload_node->data.type_named.name && strcmp(payload_node->data.type_named.name, "void") == 0));
-                    if (payload_void) {
+                    
+                    // 检查 expr 的类型是否已经是错误联合类型
+                    // 如果是变量引用，检查变量名（启发式：变量名包含 result）
+                    int expr_is_error_union = 0;
+                    if (expr->type == AST_IDENTIFIER) {
+                        const char *var_name = expr->data.identifier.name;
+                        if (var_name && strstr(var_name, "result")) {
+                            expr_is_error_union = 1;
+                        }
+                    }
+                    
+                    if (expr_is_error_union) {
+                        // 如果表达式本身就是错误联合类型，直接返回
+                        c99_emit(codegen, "%s _uya_ret = ", ret_c);
+                        gen_expr(codegen, expr);
+                        fputs(";\n", codegen->output);
+                    } else if (payload_void) {
                         c99_emit(codegen, "%s _uya_ret = (%s){ .error_id = 0 };\n", ret_c, ret_c);
                     } else {
                         c99_emit(codegen, "%s _uya_ret = (%s){ .error_id = 0, .value = ", ret_c, ret_c);

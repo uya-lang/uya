@@ -2697,6 +2697,63 @@ ASTNode *parser_parse(Parser *parser) {
     return program;
 }
 
+// 辅助函数：移除字符串中的下划线（用于数字字面量）
+static char *remove_underscores(const char *str, Arena *arena) {
+    size_t len = strlen(str);
+    char *result = (char *)arena_alloc(arena, len + 1);
+    if (result == NULL) {
+        return NULL;
+    }
+    
+    size_t j = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (str[i] != '_') {
+            result[j++] = str[i];
+        }
+    }
+    result[j] = '\0';
+    return result;
+}
+
+// 辅助函数：解析整数字面量（支持不同进制和下划线）
+static int parse_integer_literal(const char *str, Arena *arena) {
+    // 移除下划线
+    char *clean_str = remove_underscores(str, arena);
+    if (clean_str == NULL) {
+        return 0;
+    }
+    
+    // 检查进制前缀
+    if (clean_str[0] == '0' && clean_str[1] != '\0') {
+        // 十六进制：0x 或 0X
+        if (clean_str[1] == 'x' || clean_str[1] == 'X') {
+            return (int)strtol(clean_str, NULL, 16);
+        }
+        // 八进制：0o 或 0O
+        if (clean_str[1] == 'o' || clean_str[1] == 'O') {
+            return (int)strtol(clean_str + 2, NULL, 8);
+        }
+        // 二进制：0b 或 0B
+        if (clean_str[1] == 'b' || clean_str[1] == 'B') {
+            return (int)strtol(clean_str + 2, NULL, 2);
+        }
+    }
+    
+    // 十进制
+    return atoi(clean_str);
+}
+
+// 辅助函数：解析浮点字面量（支持下划线）
+static double parse_float_literal(const char *str, Arena *arena) {
+    // 移除下划线
+    char *clean_str = remove_underscores(str, arena);
+    if (clean_str == NULL) {
+        return 0.0;
+    }
+    
+    return strtod(clean_str, NULL);
+}
+
 // 解析基础表达式
 // 支持：数字、标识符、布尔字面量、括号表达式、函数调用、结构体字面量、字段访问、块表达式
 static ASTNode *parser_parse_primary_expr(Parser *parser) {
@@ -2719,8 +2776,8 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             return NULL;
         }
         
-        // 将字符串转换为整数
-        int value = atoi(parser->current_token->value);
+        // 解析整数（支持不同进制和下划线）
+        int value = parse_integer_literal(parser->current_token->value, parser->arena);
         node->data.number.value = value;
         
         parser_consume(parser);
@@ -2734,7 +2791,8 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             return NULL;
         }
         
-        double value = strtod(parser->current_token->value, NULL);
+        // 解析浮点数（支持下划线）
+        double value = parse_float_literal(parser->current_token->value, parser->arena);
         node->data.float_literal.value = value;
         
         parser_consume(parser);
@@ -2944,7 +3002,7 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             } else if (parser->current_token->type == TOKEN_NUMBER) {
                 kind = MATCH_PAT_LITERAL;
                 lit_expr = ast_new_node(AST_NUMBER, parser->current_token->line, parser->current_token->column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
-                if (lit_expr) lit_expr->data.number.value = atoi(parser->current_token->value);
+                if (lit_expr) lit_expr->data.number.value = parse_integer_literal(parser->current_token->value, parser->arena);
                 parser_consume(parser);
             } else if (parser->current_token->type == TOKEN_TRUE) {
                 kind = MATCH_PAT_LITERAL;

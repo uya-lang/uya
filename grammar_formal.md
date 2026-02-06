@@ -668,10 +668,17 @@ block_comment  = '/*' .* '*/'
 
 - `ID`：标识符（`[A-Za-z_][A-Za-z0-9_]*`）
 - `NUM`：数字字面量（整数或浮点数）
+  - 十进制整数：`[0-9] ([0-9] | '_')*`
+  - 十六进制整数：`'0' [xX] [0-9a-fA-F] ([0-9a-fA-F] | '_')*`
+  - 八进制整数：`'0' [oO] [0-7] ([0-7] | '_')*`
+  - 二进制整数：`'0' [bB] [01] ([01] | '_')*`
+  - 浮点数：`[0-9] ([0-9] | '_')* '.' [0-9] ([0-9] | '_')* [exponent]?`
+  - 指数：`[eE] [+-]? [0-9] ([0-9] | '_')*`
+  - 下划线 `_` 用于分隔数字提高可读性，不能出现在开头、结尾或连续出现
 - `STRING`：字符串字面量（`"..."`）
 - `TEXT`：普通文本（字符串插值中的非插值部分）
 - 关键字：`struct`, `const`, `var`, `fn`, `return`, `extern`, `true`, `false`, `if`, `while`, `break`, `continue`, `defer`, `errdefer`, `try`, `catch`, `error`, `null`, `interface`, `atomic`, `export`, `use`, `as`, `as!`, `test`
-- 内置函数（以 `@` 开头）：`@size_of`, `@align_of`, `@len`, `@max`, `@min`
+- 内置函数（以 `@` 开头）：`@size_of`, `@align_of`, `@len`, `@max`, `@min`, `@syscall`, `@src_name`, `@src_path`, `@src_line`, `@src_col`, `@func_name`
 
 ### 非终结符
 

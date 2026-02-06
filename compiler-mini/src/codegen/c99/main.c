@@ -283,6 +283,8 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     // 生成错误联合类型结构体（用于 @syscall 和其他错误联合类型）
     fputs("// 错误联合类型（用于 !i64 等）\n", codegen->output);
     fputs("struct err_union_int64_t { uint32_t error_id; int64_t value; };\n", codegen->output);
+    // 标记为已定义，避免在函数前置声明时重复定义
+    mark_struct_defined(codegen, "err_union_int64_t");
     fputs("\n", codegen->output);
     
     // 第一步：收集所有字符串常量（从全局变量初始化和函数体）

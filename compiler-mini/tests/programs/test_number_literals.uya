@@ -1,0 +1,70 @@
+// test_number_literals.uya
+// 测试不同进制的整数字面量和下划线分隔符
+
+fn main() i32 {
+    // 十进制字面量
+    const dec1: i32 = 42;
+    const dec2: i32 = 1_000_000;
+    const dec3: i32 = 123_456_789;
+    
+    // 十六进制字面量
+    const hex1: i32 = 0xFF;
+    const hex2: i32 = 0x1A2B;
+    const hex3: i32 = 0xDEAD_BEEF;
+    const hex4: i32 = 0Xabcd;
+    
+    // 八进制字面量
+    const oct1: i32 = 0o755;
+    const oct2: i32 = 0O644;
+    const oct3: i32 = 0o7_777;
+    
+    // 二进制字面量
+    const bin1: i32 = 0b1010;
+    const bin2: i32 = 0B11110000;
+    const bin3: i32 = 0b1111_0000_1010_0101;
+    
+    // 浮点字面量（带下划线）
+    const float1: f64 = 1_000.5;
+    const float2: f64 = 3.141_592_653;
+    const float3: f64 = 1.0e1_0;
+    
+    // 验证值
+    if dec1 != 42 {
+        return 1;
+    }
+    
+    if dec2 != 1000000 {
+        return 2;
+    }
+    
+    if hex1 != 255 {
+        return 3;
+    }
+    
+    if hex3 != -559038737 {  // 0xDEADBEEF 作为有符号 i32
+        return 4;
+    }
+    
+    if oct1 != 493 {  // 0o755 = 493
+        return 5;
+    }
+    
+    if oct3 != 4095 {  // 0o7777 = 4095
+        return 6;
+    }
+    
+    if bin1 != 10 {  // 0b1010 = 10
+        return 7;
+    }
+    
+    if bin2 != 240 {  // 0b11110000 = 240
+        return 8;
+    }
+    
+    if bin3 != 61605 {  // 0b1111000010100101 = 61605
+        return 9;
+    }
+    
+    return 0;
+}
+

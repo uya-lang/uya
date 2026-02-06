@@ -239,20 +239,201 @@ static Token *read_identifier_or_keyword(Lexer *lexer, Arena *arena) {
     return make_token(arena, type, value, line, column);
 }
 
-// 读取数字字面量（整数或浮点数）
+// 读取数字字面量（整数或浮点数，支持下划线分隔符）
 static Token *read_number(Lexer *lexer, Arena *arena) {
     const char *start = lexer->buffer + lexer->position;
     int line = lexer->line;
     int column = lexer->column;
     int is_float = 0;
     
-    // 读取整数部分
+    // 检查是否为特殊进制前缀（0x、0o、0b）
+    if (peek_char(lexer, 0) == '0' && lexer->position + 1 < lexer->buffer_size) {
+        char next_char = peek_char(lexer, 1);
+        
+        // 十六进制：0x 或 0X
+        if (next_char == 'x' || next_char == 'X') {
+            advance_char(lexer); // 跳过 '0'
+            advance_char(lexer); // 跳过 'x' 或 'X'
+            
+            // 至少要有一个十六进制数字
+            if (!isxdigit((unsigned char)peek_char(lexer, 0))) {
+                fprintf(stderr, "错误: 十六进制字面量至少需要一个数字\n");
+                return NULL;
+            }
+            
+            int has_digit = 0;
+            char prev_char = 'x';  // 前一个字符，用于检测连续下划线
+            while (lexer->position < lexer->buffer_size) {
+                char c = peek_char(lexer, 0);
+                if (isxdigit((unsigned char)c)) {
+                    advance_char(lexer);
+                    has_digit = 1;
+                    prev_char = c;
+                } else if (c == '_') {
+                    if (prev_char == '_' || prev_char == 'x' || prev_char == 'X') {
+                        fprintf(stderr, "错误: 下划线不能连续出现或位于前缀之后\n");
+                        return NULL;
+                    }
+                    advance_char(lexer);
+                    prev_char = '_';
+                } else {
+                    break;
+                }
+            }
+            
+            // 检查末尾是否为下划线
+            if (prev_char == '_') {
+                fprintf(stderr, "错误: 数字字面量不能以下划线结尾\n");
+                return NULL;
+            }
+            
+            if (!has_digit) {
+                fprintf(stderr, "错误: 十六进制字面量至少需要一个数字\n");
+                return NULL;
+            }
+            
+            size_t len = (lexer->buffer + lexer->position) - start;
+            const char *value = arena_strdup(arena, start, len);
+            if (value == NULL) {
+                return NULL;
+            }
+            return make_token(arena, TOKEN_NUMBER, value, line, column);
+        }
+        
+        // 八进制：0o 或 0O
+        if (next_char == 'o' || next_char == 'O') {
+            advance_char(lexer); // 跳过 '0'
+            advance_char(lexer); // 跳过 'o' 或 'O'
+            
+            // 至少要有一个八进制数字
+            char first_digit = peek_char(lexer, 0);
+            if (first_digit < '0' || first_digit > '7') {
+                fprintf(stderr, "错误: 八进制字面量至少需要一个数字 (0-7)\n");
+                return NULL;
+            }
+            
+            int has_digit = 0;
+            char prev_char = 'o';
+            while (lexer->position < lexer->buffer_size) {
+                char c = peek_char(lexer, 0);
+                if (c >= '0' && c <= '7') {
+                    advance_char(lexer);
+                    has_digit = 1;
+                    prev_char = c;
+                } else if (c == '_') {
+                    if (prev_char == '_' || prev_char == 'o' || prev_char == 'O') {
+                        fprintf(stderr, "错误: 下划线不能连续出现或位于前缀之后\n");
+                        return NULL;
+                    }
+                    advance_char(lexer);
+                    prev_char = '_';
+                } else if (isdigit((unsigned char)c)) {
+                    fprintf(stderr, "错误: 八进制字面量包含非法数字 '%c'\n", c);
+                    return NULL;
+                } else {
+                    break;
+                }
+            }
+            
+            if (prev_char == '_') {
+                fprintf(stderr, "错误: 数字字面量不能以下划线结尾\n");
+                return NULL;
+            }
+            
+            if (!has_digit) {
+                fprintf(stderr, "错误: 八进制字面量至少需要一个数字\n");
+                return NULL;
+            }
+            
+            size_t len = (lexer->buffer + lexer->position) - start;
+            const char *value = arena_strdup(arena, start, len);
+            if (value == NULL) {
+                return NULL;
+            }
+            return make_token(arena, TOKEN_NUMBER, value, line, column);
+        }
+        
+        // 二进制：0b 或 0B
+        if (next_char == 'b' || next_char == 'B') {
+            advance_char(lexer); // 跳过 '0'
+            advance_char(lexer); // 跳过 'b' 或 'B'
+            
+            // 至少要有一个二进制数字
+            char first_digit = peek_char(lexer, 0);
+            if (first_digit != '0' && first_digit != '1') {
+                fprintf(stderr, "错误: 二进制字面量至少需要一个数字 (0 或 1)\n");
+                return NULL;
+            }
+            
+            int has_digit = 0;
+            char prev_char = 'b';
+            while (lexer->position < lexer->buffer_size) {
+                char c = peek_char(lexer, 0);
+                if (c == '0' || c == '1') {
+                    advance_char(lexer);
+                    has_digit = 1;
+                    prev_char = c;
+                } else if (c == '_') {
+                    if (prev_char == '_' || prev_char == 'b' || prev_char == 'B') {
+                        fprintf(stderr, "错误: 下划线不能连续出现或位于前缀之后\n");
+                        return NULL;
+                    }
+                    advance_char(lexer);
+                    prev_char = '_';
+                } else if (isdigit((unsigned char)c)) {
+                    fprintf(stderr, "错误: 二进制字面量包含非法数字 '%c'\n", c);
+                    return NULL;
+                } else {
+                    break;
+                }
+            }
+            
+            if (prev_char == '_') {
+                fprintf(stderr, "错误: 数字字面量不能以下划线结尾\n");
+                return NULL;
+            }
+            
+            if (!has_digit) {
+                fprintf(stderr, "错误: 二进制字面量至少需要一个数字\n");
+                return NULL;
+            }
+            
+            size_t len = (lexer->buffer + lexer->position) - start;
+            const char *value = arena_strdup(arena, start, len);
+            if (value == NULL) {
+                return NULL;
+            }
+            return make_token(arena, TOKEN_NUMBER, value, line, column);
+        }
+    }
+    
+    // 十进制数字（可能是整数或浮点数）
+    // 读取整数部分（支持下划线）
+    char prev_char = '\0';
     while (lexer->position < lexer->buffer_size) {
         char c = peek_char(lexer, 0);
         if (isdigit((unsigned char)c)) {
             advance_char(lexer);
+            prev_char = c;
+        } else if (c == '_') {
+            if (prev_char == '\0' || prev_char == '_') {
+                fprintf(stderr, "错误: 下划线不能连续出现或位于数字开头\n");
+                return NULL;
+            }
+            advance_char(lexer);
+            prev_char = '_';
         } else {
             break;
+        }
+    }
+    
+    // 检查整数部分末尾是否为下划线
+    if (prev_char == '_') {
+        // 如果后面不是小数点或指数，则报错
+        char next = peek_char(lexer, 0);
+        if (next != '.' && next != 'e' && next != 'E') {
+            fprintf(stderr, "错误: 数字字面量不能以下划线结尾\n");
+            return NULL;
         }
     }
     
@@ -260,12 +441,31 @@ static Token *read_number(Lexer *lexer, Arena *arena) {
     if (peek_char(lexer, 0) == '.' && peek_char(lexer, 1) != '.') {
         advance_char(lexer);
         is_float = 1;
+        prev_char = '.';
+        
         while (lexer->position < lexer->buffer_size) {
             char c = peek_char(lexer, 0);
             if (isdigit((unsigned char)c)) {
                 advance_char(lexer);
+                prev_char = c;
+            } else if (c == '_') {
+                if (prev_char == '.' || prev_char == '_') {
+                    fprintf(stderr, "错误: 下划线不能连续出现或位于小数点之后\n");
+                    return NULL;
+                }
+                advance_char(lexer);
+                prev_char = '_';
             } else {
                 break;
+            }
+        }
+        
+        // 检查小数部分末尾是否为下划线
+        if (prev_char == '_') {
+            char next = peek_char(lexer, 0);
+            if (next != 'e' && next != 'E') {
+                fprintf(stderr, "错误: 数字字面量不能以下划线结尾\n");
+                return NULL;
             }
         }
     }
@@ -277,19 +477,38 @@ static Token *read_number(Lexer *lexer, Arena *arena) {
     if (peek_char(lexer, 0) == 'e' || peek_char(lexer, 0) == 'E') {
         advance_char(lexer);
         is_float = 1;
+        prev_char = 'e';
+        
         if (peek_char(lexer, 0) == '+' || peek_char(lexer, 0) == '-') {
             advance_char(lexer);
+            prev_char = '+';  // 或 '-'，标记为符号位
         }
+        
         if (!isdigit((unsigned char)peek_char(lexer, 0))) {
             return NULL;  /* 指数后必须有数字 */
         }
+        
         while (lexer->position < lexer->buffer_size) {
             char c = peek_char(lexer, 0);
             if (isdigit((unsigned char)c)) {
                 advance_char(lexer);
+                prev_char = c;
+            } else if (c == '_') {
+                if (prev_char == 'e' || prev_char == 'E' || prev_char == '+' || prev_char == '-' || prev_char == '_') {
+                    fprintf(stderr, "错误: 下划线不能连续出现或位于指数符号之后\n");
+                    return NULL;
+                }
+                advance_char(lexer);
+                prev_char = '_';
             } else {
                 break;
             }
+        }
+        
+        // 检查指数部分末尾是否为下划线
+        if (prev_char == '_') {
+            fprintf(stderr, "错误: 数字字面量不能以下划线结尾\n");
+            return NULL;
         }
     }
     
