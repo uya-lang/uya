@@ -38,7 +38,7 @@
 | 24 | **块注释** | [x]（C 实现与 uya-src 已同步，支持嵌套） |
 | 25 | **内存安全证明** | [ ] 规范 §14（编译期证明 + 运行时检查） |
 | 26 | **并发安全** | [ ] 规范 §15（依赖原子类型） |
-| 27 | **接口组合** | [ ] 规范 §29.3（未来特性） |
+| 27 | **接口组合** | [x]（C 实现与 uya-src 已同步） |
 
 ---
 
@@ -1309,27 +1309,27 @@ interface IReadWriter {
 
 **编译器实现**：
 
-- [ ] **AST**：接口声明支持组合接口列表
-- [ ] **Parser**：解析接口体中的接口名引用
-- [ ] **Checker**：
-  - [ ] 展开组合接口的方法签名
-  - [ ] 验证实现结构体提供所有组合接口的方法
-  - [ ] 循环组合检测
-- [ ] **Codegen**：
-  - [ ] 组合接口 vtable 包含所有被组合接口的方法
-  - [ ] vtable 编译期生成
-- [ ] **uya-src 同步**
+- [x] **AST**：接口声明新增 `composed_interfaces` 和 `composed_count` 字段
+- [x] **Parser**：解析接口体中的接口名引用（`IReader;`）
+- [x] **Checker**：
+  - [x] `find_interface_method_sig` 递归查找组合接口的方法签名
+  - [x] 验证实现结构体提供所有组合接口的方法
+  - [x] `check_interface_compose_cycle` 循环依赖检测
+- [x] **Codegen**：
+  - [x] `collect_interface_method_sigs` 收集组合接口的所有方法
+  - [x] 组合接口 vtable 包含所有被组合接口的方法
+- [x] **uya-src 同步**
 
 **测试用例**：
-- [ ] `test_interface_compose.uya` - 基础接口组合
-- [ ] `test_interface_compose_nested.uya` - 多层嵌套组合
-- [ ] `error_interface_compose_missing.uya` - 未实现组合接口的方法（预期编译失败）
+- [x] `test_interface_compose.uya` - 基础接口组合
+- [x] `error_interface_compose_missing.uya` - 未实现组合接口的方法（预期编译失败）
+- [x] `error_interface_compose_cycle.uya` - 循环依赖检测（预期编译失败）
 
 **参考文档**：
 - [uya.md](../uya.md) §29.3 - 接口组合
 - [examples/file_6.uya](../examples/file_6.uya) - 接口组合示例
 
-**实现优先级**：中（未来特性，当前接口基础已实现）
+**实现状态**：✅ 已完成（v0.2.30）
 
 ---
 
