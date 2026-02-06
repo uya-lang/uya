@@ -90,6 +90,9 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.macro_decl.body = NULL;
             node->data.macro_decl.is_export = 0;
             break;
+        case AST_TYPE_ALIAS:
+            // type 别名暂不完整支持，仅占位
+            break;
         case AST_VAR_DECL:
             node->data.var_decl.name = NULL;
             node->data.var_decl.type = NULL;
@@ -209,6 +212,15 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             break;
         case AST_LEN:
             node->data.len_expr.array = NULL;
+            break;
+        case AST_FILE:
+            // @file 无额外数据
+            break;
+        case AST_LINE:
+            // @line 无额外数据
+            break;
+        case AST_FUNC:
+            // @func 无额外数据
             break;
         case AST_CAST_EXPR:
             node->data.cast_expr.expr = NULL;

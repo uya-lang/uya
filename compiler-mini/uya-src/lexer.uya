@@ -936,6 +936,9 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
             if str_equals_lexer(value, "max" as &byte) != 0 { is_builtin = 1; }
             if str_equals_lexer(value, "min" as &byte) != 0 { is_builtin = 1; }
             if str_equals_lexer(value, "params" as &byte) != 0 { is_builtin = 1; }
+            // 源代码位置内置函数
+            if str_equals_lexer(value, "file" as &byte) != 0 { is_builtin = 1; }
+            if str_equals_lexer(value, "line" as &byte) != 0 { is_builtin = 1; }
             // 宏编译时内置函数
             if str_equals_lexer(value, "mc_eval" as &byte) != 0 { is_builtin = 1; }
             if str_equals_lexer(value, "mc_code" as &byte) != 0 { is_builtin = 1; }
@@ -953,7 +956,7 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
             
             // 未知的内置函数
             const stderr: *void = get_stderr();
-            fprintf(stderr, "错误: 未知内置 @%s，支持：@size_of、@align_of、@len、@max、@min、@params、@async_fn、@await、@mc_eval、@mc_type、@mc_ast、@mc_code、@mc_error、@mc_get_env\n" as *byte, value);
+            fprintf(stderr, "错误: 未知内置 @%s，支持：@size_of、@align_of、@len、@max、@min、@params、@file、@line、@async_fn、@await、@mc_eval、@mc_type、@mc_ast、@mc_code、@mc_error、@mc_get_env\n" as *byte, value);
             return null;
         }
         return null;

@@ -207,7 +207,7 @@ primary_expr   = ID | NUM | STRING | 'true' | 'false' | 'null'
                | builtin_expr
                | struct_literal | array_literal | tuple_literal | enum_literal | union_literal
                | match_expr | '(' expr ')'
-builtin_expr   = '@' ('sizeof' | 'alignof' | 'len' | 'max' | 'min' | 'params')
+builtin_expr   = '@' ('sizeof' | 'alignof' | 'len' | 'max' | 'min' | 'params' | 'file' | 'line')
                # @size_of(T)、@align_of(T)、@len(expr) 为调用形式；@max、@min 为值形式；@params 为函数体内参数元组（uya.md §5.4）
 union_literal  = ID '.' ID '(' expr ')'  # 联合体创建，如 IntOrFloat.i(42)、NetworkPacket.ipv4([...])
 ```
@@ -399,7 +399,7 @@ defer errdefer try catch error null interface atomic union
 export use as as! test
 ```
 
-**说明**：内置函数以 `@` 开头（`@size_of`、`@align_of`、`@len`、`@max`、`@min`），非关键字，见 `builtin_expr`。
+**说明**：内置函数以 `@` 开头（`@size_of`、`@align_of`、`@len`、`@max`、`@min`、`@file`、`@line`），非关键字，见 `builtin_expr`。
 
 ### 1.3 字符串插值
 

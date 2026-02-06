@@ -47,6 +47,7 @@ typedef enum {
     AST_METHOD_BLOCK,   // 方法块（StructName { fn method(...) { ... } ... }）
     AST_FN_DECL,        // 函数声明
     AST_MACRO_DECL,     // 宏声明（mc ID(param_list) return_tag { statements }）
+    AST_TYPE_ALIAS,     // 类型别名（type Name = Type）
     AST_VAR_DECL,       // 变量声明（const/var）
     AST_DESTRUCTURE_DECL, // 解构声明（const (x, y) = expr）
     AST_USE_STMT,         // use 语句（use path; 或 use path.item; 或 use path as alias;）
@@ -79,6 +80,9 @@ typedef enum {
     AST_SIZEOF,         // sizeof 表达式（sizeof(Type) 或 sizeof(expr)）
     AST_LEN,            // len 表达式（len(array)）
     AST_ALIGNOF,        // alignof 表达式（alignof(Type) 或 alignof(expr)）
+    AST_FILE,           // @file 表达式（源文件名）
+    AST_LINE,           // @line 表达式（源代码行号）
+    AST_FUNC,           // @func 表达式（当前函数名）
     AST_CAST_EXPR,      // 类型转换表达式（expr as type）
     AST_IDENTIFIER,     // 标识符
     AST_UNDERSCORE,     // 忽略占位 _（仅用于赋值左侧、解构，不能引用）
@@ -219,6 +223,13 @@ struct ASTNode {
             struct ASTNode *body;     // 宏体（AST_BLOCK 节点）
             int is_export;            // 1 表示 export mc，0 表示私有
         } macro_decl;
+        
+        // 类型别名（type Name = Type）
+        struct {
+            const char *name;         // 别名名称
+            struct ASTNode *target_type; // 目标类型节点
+            int is_export;            // 1 表示 export type，0 表示私有
+        } type_alias;
         
         // 变量声明（用于变量声明、函数参数、结构体字段）
         struct {

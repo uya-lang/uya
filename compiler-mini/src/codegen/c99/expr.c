@@ -1059,6 +1059,28 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             }
             break;
         }
+        case AST_FILE: {
+            // @file：输出当前源文件名的字符串字面量
+            const char *filename = expr->filename ? expr->filename : "<unknown>";
+            // 转义文件名中的反斜杠和引号
+            fputc('"', codegen->output);
+            for (const char *p = filename; *p; p++) {
+                if (*p == '\\') {
+                    fputs("\\\\", codegen->output);
+                } else if (*p == '"') {
+                    fputs("\\\"", codegen->output);
+                } else {
+                    fputc(*p, codegen->output);
+                }
+            }
+            fputc('"', codegen->output);
+            break;
+        }
+        case AST_LINE: {
+            // @line：输出当前行号
+            fprintf(codegen->output, "%d", expr->line);
+            break;
+        }
         case AST_CAST_EXPR: {
             ASTNode *src_expr = expr->data.cast_expr.expr;
             ASTNode *target_type = expr->data.cast_expr.target_type;

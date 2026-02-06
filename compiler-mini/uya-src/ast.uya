@@ -81,6 +81,8 @@ enum ASTNodeType {
     AST_SIZEOF,
     AST_LEN,
     AST_ALIGNOF,
+    AST_FILE,           // @file 表达式（源文件名）
+    AST_LINE,           // @line 表达式（源代码行号）
     AST_CAST_EXPR,
     AST_IDENTIFIER,
     AST_UNDERSCORE,  // 忽略占位 _（仅用于赋值左侧、解构，不能引用）

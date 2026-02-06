@@ -1827,6 +1827,26 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             return result;
         }
         
+        case AST_FILE: {
+            // @file 表达式：返回 *i8 类型（字符串指针）
+            result.kind = TYPE_POINTER;
+            Type *pointee = (Type *)arena_alloc(checker->arena, sizeof(Type));
+            if (pointee == NULL) {
+                result.kind = TYPE_VOID;
+                return result;
+            }
+            pointee->kind = TYPE_I8;
+            result.data.pointer.pointer_to = pointee;
+            result.data.pointer.is_ffi_pointer = 1;  // 使用 *i8（FFI指针）
+            return result;
+        }
+        
+        case AST_LINE: {
+            // @line 表达式：返回 i32 类型（行号）
+            result.kind = TYPE_I32;
+            return result;
+        }
+        
         case AST_CAST_EXPR: {
             // 类型转换表达式：as 返回目标类型 T，as! 返回 !T
             ASTNode *target_type_node = expr->data.cast_expr.target_type;
@@ -5611,6 +5631,14 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
             checker_check_len(checker, node);
             return 1;
             
+        case AST_FILE:
+            // @file 无需额外检查，直接返回源文件名
+            return 1;
+            
+        case AST_LINE:
+            // @line 无需额外检查，直接返回行号
+            return 1;
+            
         case AST_PARAMS:
             // @params 类型在 checker_infer_type 中已推断并校验（仅函数体内）
             return 1;
@@ -5941,6 +5969,10 @@ static ASTNode *deep_copy_ast(ASTNode *node, MacroExpandContext *ctx) {
             break;
         case AST_LEN:
             copy->data.len_expr.array = deep_copy_ast(node->data.len_expr.array, ctx);
+            break;
+        case AST_FILE:
+        case AST_LINE:
+            // @file 和 @line 无需复制子节点
             break;
         case AST_INT_LIMIT:
             copy->data.int_limit.is_max = node->data.int_limit.is_max;
@@ -6750,6 +6782,10 @@ static void expand_macros_in_node(TypeChecker *checker, ASTNode **node_ptr) {
             break;
         case AST_LEN:
             expand_macros_in_node(checker, &node->data.len_expr.array);
+            break;
+        case AST_FILE:
+        case AST_LINE:
+            // @file 和 @line 无子节点需要展开
             break;
         case AST_CAST_EXPR:
             expand_macros_in_node(checker, &node->data.cast_expr.expr);

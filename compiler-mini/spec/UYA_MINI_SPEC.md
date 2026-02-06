@@ -82,7 +82,7 @@ enum struct union interface const var fn extern return true false if else while 
 - `return`：函数返回
 - `true`、`false`：布尔字面量
 - `null`：空指针字面量
-- **内置函数**（以 `@` 开头，非关键字）：`@size_of`、`@align_of`、`@len`、`@max`、`@min`（整数类型极值为编译期常量，类型从上下文推断）
+- **内置函数**（以 `@` 开头，非关键字）：`@size_of`、`@align_of`、`@len`、`@max`、`@min`（整数类型极值为编译期常量，类型从上下文推断）、`@file`（当前源文件名）、`@line`（当前源代码行号）
 - `if`、`else`：条件语句
 - `while`：循环语句
 - `for`：循环语句（数组遍历）

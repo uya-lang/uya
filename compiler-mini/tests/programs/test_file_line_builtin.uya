@@ -1,0 +1,55 @@
+// 测试 @file 和 @line 内置函数
+
+extern fn printf(fmt: *byte, ...) i32;
+extern fn strcmp(s1: *byte, s2: *byte) i32;
+extern fn strstr(haystack: *byte, needle: *byte) *byte;
+
+fn main() i32 {
+    // 测试 @file 返回文件名
+    const file: *byte = @file;
+    printf("File: %s\n" as *byte, file);
+    
+    // 验证文件名包含 "test_file_line_builtin.uya"
+    const found: *byte = strstr(file, "test_file_line_builtin.uya" as *byte);
+    if found == null {
+        printf("错误: @file 未返回正确的文件名\n" as *byte);
+        return 1;
+    }
+    
+    // 测试 @line 返回行号
+    const line1: i32 = @line;
+    printf("Line 1: %d\n" as *byte, line1);
+    
+    const line2: i32 = @line;
+    printf("Line 2: %d\n" as *byte, line2);
+    
+    // 验证行号递增
+    if line2 <= line1 {
+        printf("错误: @line 未递增（line1=%d, line2=%d）\n" as *byte, line1, line2);
+        return 1;
+    }
+    
+    // 测试在表达式中使用
+    const sum: i32 = @line + 10;
+    printf("Sum (@line + 10): %d\n" as *byte, sum);
+    
+    // 测试在不同位置使用
+    const line3: i32 = @line; const line4: i32 = @line;
+    if line3 != line4 {
+        printf("错误: 同一行的 @line 应该返回相同值（line3=%d, line4=%d）\n" as *byte, line3, line4);
+        return 1;
+    }
+    
+    // 测试在函数调用中使用
+    printf("Direct @line in printf: %d\n" as *byte, @line);
+    
+    // 测试 @file 在表达式中
+    const file2: *byte = @file;
+    if strcmp(file, file2) != 0 {
+        printf("错误: @file 在不同位置应该返回相同文件名\n" as *byte);
+        return 1;
+    }
+    
+    printf("所有测试通过\n" as *byte);
+    return 0;
+}

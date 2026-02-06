@@ -15,7 +15,7 @@ export use mc
 ```
 
 **内置函数**（以 `@` 开头）：
-- 运行时：`@size_of`、`@align_of`、`@len`、`@max`、`@min`
+- 运行时：`@size_of`、`@align_of`、`@len`、`@max`、`@min`、`@file`、`@line`
 - 编译时（宏内）：`@mc_eval`、`@mc_type`、`@mc_ast`、`@mc_code`、`@mc_error`、`@mc_get_env`
 
 ## 类型系统
@@ -47,7 +47,9 @@ export use mc
 | `!T` | max(sizeof(T), sizeof(错误标记)) | 错误联合类型，T\|Error |
 
 **内置函数**（以 `@` 开头）：
+- `@size_of(T)`、`@align_of(T)`、`@len(array)`：类型大小、对齐、数组长度（编译期常量）
 - `@max`/`@min`：访问整数类型极值常量（编译期推断类型）
+- `@file`、`@line`：源文件名和行号（编译期常量，用于调试）
 - 无隐式转换，类型必须完全一致
 
 ## 基本语法
@@ -716,6 +718,8 @@ const len_val: i32 = @len(buffer);  // 100（从声明中获取）
 @align_of(T)         // 返回类型对齐（编译期常量）
 @max               // 整数类型最大值（类型从上下文推断）
 @min               // 整数类型最小值（类型从上下文推断）
+@file              // 当前源文件路径（编译期常量，*byte）
+@line              // 当前源代码行号（编译期常量，i32）
 ```
 
 ## 完整示例

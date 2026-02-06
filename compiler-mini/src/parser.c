@@ -3176,6 +3176,28 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         return len_node;
     }
     
+    // 解析 @file 表达式：@file（无参数，返回当前源文件名）
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "file") == 0) {
+        ASTNode *file_node = ast_new_node(AST_FILE, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (file_node == NULL) {
+            return NULL;
+        }
+        parser_consume(parser);  // 消费 'file'
+        return file_node;
+    }
+    
+    // 解析 @line 表达式：@line（无参数，返回当前源代码行号）
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "line") == 0) {
+        ASTNode *line_node = ast_new_node(AST_LINE, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (line_node == NULL) {
+            return NULL;
+        }
+        parser_consume(parser);  // 消费 'line'
+        return line_node;
+    }
+    
     // 解析 @mc_code 表达式：@mc_code(expr) - 宏内生成代码
     if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
         strcmp(parser->current_token->value, "mc_code") == 0) {

@@ -1238,6 +1238,27 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             fprintf(codegen.output as *void, "%s" as *byte, type_c as *byte);
             fputc(41, codegen.output as *void);  // ')'
         }
+    } else if expr.type == ASTNodeType.AST_FILE {
+        // @file：输出当前源文件名的字符串字面量
+        const filename: &byte = if expr.filename != null { expr.filename } else { "<unknown>" as &byte };
+        // 转义文件名中的反斜杠和引号
+        fputc(34, codegen.output as *void);  // '"'
+        var p: &byte = filename;
+        while p[0] != 0 {
+            const c: byte = p[0];
+            if c == 92 {  // '\\'
+                fputs("\\\\" as *byte, codegen.output as *void);
+            } else if c == 34 {  // '"'
+                fputs("\\\"" as *byte, codegen.output as *void);
+            } else {
+                fputc(c as i32, codegen.output as *void);
+            }
+            p = &p[1];
+        }
+        fputc(34, codegen.output as *void);  // '"'
+    } else if expr.type == ASTNodeType.AST_LINE {
+        // @line：输出当前行号
+        fprintf(codegen.output as *void, "%d" as *byte, expr.line);
     } else if expr.type == ASTNodeType.AST_CAST_EXPR {
         const src_expr: &ASTNode = expr.cast_expr_expr;
         const target_type: &ASTNode = expr.cast_expr_target_type;
