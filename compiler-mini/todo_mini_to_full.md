@@ -32,13 +32,14 @@
 | 18 | **宏系统（Macro）** | [x] C 实现与 uya-src 已同步 |
 | 19 | **标准库基础设施（std）** | [ ] **重要** |
 | 20 | **@print/@println 内置函数** | [ ] **配合标准库** |
-| 21 | **结构体默认值语法** | [ ] 规范 §4.3（0.40 新增） |
-| 22 | **类型别名（type）** | [ ] 规范 §5.2、§24.6.2 |
+| 21 | **结构体默认值语法** | [x] 规范 §4.3（v0.2.31 已完成，C 实现与 uya-src 已同步） |
+| 22 | **类型别名（type）** | [x] 规范 §5.2、§24.6.2（v0.2.31 已完成，C 实现与 uya-src 已同步） |
 | 23 | **多维数组** | [x]（C 实现与 uya-src 已同步） |
 | 24 | **块注释** | [x]（C 实现与 uya-src 已同步，支持嵌套） |
 | 25 | **内存安全证明** | [ ] 规范 §14（编译期证明 + 运行时检查） |
 | 26 | **并发安全** | [ ] 规范 §15（依赖原子类型） |
-| 27 | **接口组合** | [x]（C 实现与 uya-src 已同步） |
+| 27 | **接口组合** | [x]（C 实现与 uya-src 已同步，v0.2.30 已完成） |
+| 28 | **源代码位置内置函数** | [x]（@src_name/@src_path/@src_line/@src_col/@func_name，v0.2.31 已完成） |
 
 ---
 
@@ -760,14 +761,15 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 - [x] **@size_of/@align_of**：保持（以 @ 开头），支持基础类型、数组、结构体、切片等类型集合（规范 uya.md §16）
 - [x] **@len**：扩展至切片等，规范 uya.md §16  
   **C 实现（已完成）**：Checker 支持数组（TYPE_ARRAY）和切片（TYPE_SLICE）类型；Codegen 对切片表达式生成 `.len` 访问，对切片字段也支持 `.len` 访问。测试 test_slice.uya 通过 `--c99`。**uya-src 已同步**：checker.uya、codegen/c99/expr.uya。通过 `--uya --c99`。
-- [x] **@src_name/@src_path/@src_line/@src_col/@func_name 内置函数**：源代码位置信息和函数名（v0.1.0 新增）
+- [x] **@src_name/@src_path/@src_line/@src_col/@func_name 内置函数**：源代码位置信息和函数名（v0.2.31 已完成）
   - [x] Lexer：识别新内置函数（C 实现与 uya-src 已同步）
   - [x] AST：添加 AST_SRC_NAME/AST_SRC_PATH/AST_SRC_LINE/AST_SRC_COL/AST_FUNC_NAME 节点（C 实现与 uya-src 已同步）
   - [x] Parser：解析无参数调用（C 实现与 uya-src 已同步）
   - [x] Checker：类型推断（&[i8] 或 i32），@func_name 仅在函数体内可用（C 实现与 uya-src 已同步）
-  - [x] Codegen：生成字符串常量或整数常量，@func_name 从 current_function_decl 获取函数名（C 实现与 uya-src 已同步）
-  - [x] 测试用例：test_src_location.uya（C 版 `--c99` 和自举版 `--uya --c99` 均通过）
+  - [x] Codegen：生成字符串常量或整数常量，@func_name 从 current_function_decl 获取函数名；字符串常量自动去重优化（C 实现与 uya-src 已同步）
+  - [x] 测试用例：test_src_location.uya、test_func_name_simple.uya（C 版 `--c99` 和自举版 `--uya --c99` 均通过）
   - [x] 自举对比：C 编译器与自举编译器生成的 C 文件完全一致
+  - [x] 完整文档：`docs/builtin_functions.md`（972 行，包含 18 个内置函数详细说明）
 - [x] **忽略标识符 _**：用于忽略返回值、解构、match，规范 uya.md §3
 
 **忽略标识符 _（已实现）**：Parser 在 primary_expr 中当标识符为 `_` 时生成 AST_UNDERSCORE；解构中 `_` 已支持（names 含 `"_"` 时 checker/codegen 跳过）。Checker：`_ = expr` 仅检查右侧；禁止 `var _`、参数 `_`；infer_type 对 AST_UNDERSCORE 报错「不能引用 _」。Codegen：`_ = expr` 语句生成 `(void)(expr);`，表达式生成 `(expr)`。测试 `test_underscore.uya` 通过 `--c99`；uya-src 已同步，自举编译通过。
@@ -1069,7 +1071,7 @@ const cfg2 = Config{ port: 3000 }; // 仅覆盖 port
 - 联合体字段不能有默认值
 - 切片字段 `&[T]` 不能有默认值
 
-**编译器实现**（已完成，v0.2.31）：
+**编译器实现**（✅ 已完成，v0.2.31）：
 
 - [x] **Lexer**：无需修改（使用现有 `=` token）
 - [x] **AST**：结构体字段节点增加 `default_value` 可选表达式
@@ -1083,16 +1085,16 @@ const cfg2 = Config{ port: 3000 }; // 仅覆盖 port
 - [x] **Codegen**：
   - [x] 初始化时缺失字段插入默认值
   - [x] `Struct{}` 全默认值展开
-- [x] **uya-src 同步**
+- [x] **uya-src 同步**（已完成）
 
 **测试用例**（已完成）：
-- [x] `test_struct_default.uya` - 基础默认值（80 行，已通过）
+- [x] `test_struct_default.uya` - 基础默认值（80 行，通过 `--c99` 和 `--uya --c99`）
 
 **参考文档**：
 - [uya.md](../uya.md) §4.3 - 结构体默认值语法
 - [RELEASE_v0.2.31.md](../RELEASE_v0.2.31.md) - v0.2.31 版本说明
 
-**实现状态**：✅ 已完成（v0.2.31）
+**实现状态**：✅ 已完成（v0.2.31，C 实现与 uya-src 已同步，所有测试通过）
 
 ---
 
@@ -1108,7 +1110,7 @@ type Buffer = [u8: 1024];                    // 数组类型别名
 type Position = Point;                       // 结构体类型别名
 ```
 
-**编译器实现**（已完成，v0.2.31）：
+**编译器实现**（✅ 已完成，v0.2.31）：
 
 - [x] **Lexer**：`type` 关键字 token
 - [x] **AST**：`AST_TYPE_ALIAS` 节点（名称 + 目标类型）
@@ -1119,10 +1121,10 @@ type Position = Point;                       // 结构体类型别名
   - [x] 别名在类型位置的透明替换
 - [x] **Codegen**：
   - [x] C99 映射为 `typedef`
-- [x] **uya-src 同步**
+- [x] **uya-src 同步**（已完成）
 
 **测试用例**（已完成）：
-- [x] `test_type_alias.uya` - 基础类型别名（170 行，已通过）
+- [x] `test_type_alias.uya` - 基础类型别名（170 行，通过 `--c99` 和 `--uya --c99`）
 
 **参考文档**：
 - [uya.md](../uya.md) §5.2 - 函数指针与类型别名
@@ -1130,7 +1132,7 @@ type Position = Point;                       // 结构体类型别名
 - [uya.md](../uya.md) §29.5 - 已实现特性列表
 - [RELEASE_v0.2.31.md](../RELEASE_v0.2.31.md) - v0.2.31 版本说明
 
-**实现状态**：✅ 已完成（v0.2.31）
+**实现状态**：✅ 已完成（v0.2.31，C 实现与 uya-src 已同步，所有测试通过）
 
 ---
 
