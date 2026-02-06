@@ -101,6 +101,7 @@ enum ASTNodeType {
     AST_MC_ERROR,       // @mc_error(msg) - 宏内报错
     AST_MC_INTERP,      // ${expr} - 宏内插值
     AST_MC_TYPE,        // @mc_type(expr) - 宏内类型反射
+    AST_AWAIT_EXPR,     // try @await expr - 异步等待表达式
     AST_TYPE_NAMED,
     AST_TYPE_POINTER,
     AST_TYPE_ARRAY,
@@ -176,6 +177,7 @@ struct ASTNode {
     fn_decl_body: &ASTNode,
     fn_decl_is_varargs: i32,
     fn_decl_is_export: i32,  // 1 表示 export fn，0 表示私有
+    fn_decl_is_async: i32,   // 1 表示 @async_fn，0 表示普通函数
     // macro_decl（宏声明）
     macro_decl_name: &byte,
     macro_decl_params: & & ASTNode,
@@ -220,6 +222,8 @@ struct ASTNode {
     catch_expr_operand: &ASTNode,
     catch_expr_err_name: &byte,
     catch_expr_catch_block: &ASTNode,
+    // await_expr（try @await expr）- 异步等待
+    await_expr_operand: &ASTNode,
     // error_value（error.Name）
     error_value_name: &byte,
     // match_expr（match expr { pat => expr, ... }）
@@ -395,6 +399,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.fn_decl_body = null;
     node.fn_decl_is_varargs = 0;
     node.fn_decl_is_export = 0;
+    node.fn_decl_is_async = 0;
     node.macro_decl_name = null;
     node.macro_decl_params = null;
     node.macro_decl_param_count = 0;
@@ -430,6 +435,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.catch_expr_operand = null;
     node.catch_expr_err_name = null;
     node.catch_expr_catch_block = null;
+    node.await_expr_operand = null;
     node.error_value_name = null;
     node.match_expr_expr = null;
     node.match_expr_arms = null;

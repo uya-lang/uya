@@ -239,6 +239,15 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         fprintf(codegen.output as *void, "({ %s _uya_try_tmp = " as *byte, operand_union_c as *byte);
         gen_expr(codegen, operand);
         fprintf(codegen.output as *void, "; if (_uya_try_tmp.error_id != 0) return (%s){ .error_id = _uya_try_tmp.error_id, .value = 0 }; _uya_try_tmp.value; })" as *byte, ret_union_c as *byte);
+    } else if expr.type == ASTNodeType.AST_AWAIT_EXPR {
+        // @await 表达式 - 暂时直接生成操作数代码
+        // 完整实现需要 CPS 变换和状态机生成
+        const operand: &ASTNode = expr.await_expr_operand;
+        if operand != null {
+            gen_expr(codegen, operand);
+        } else {
+            fputs("0" as *byte, codegen.output as *void);
+        }
     } else if expr.type == ASTNodeType.AST_CATCH_EXPR {
         const operand: &ASTNode = expr.catch_expr_operand;
         const block: &ASTNode = expr.catch_expr_catch_block;

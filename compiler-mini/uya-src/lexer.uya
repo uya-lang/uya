@@ -907,6 +907,9 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
             if str_equals_lexer(value, "mc_error" as &byte) != 0 { is_builtin = 1; }
             if str_equals_lexer(value, "mc_get_env" as &byte) != 0 { is_builtin = 1; }
             if str_equals_lexer(value, "mc_type" as &byte) != 0 { is_builtin = 1; }
+            // 异步编程（规范 §18）
+            if str_equals_lexer(value, "async_fn" as &byte) != 0 { is_builtin = 1; }
+            if str_equals_lexer(value, "await" as &byte) != 0 { is_builtin = 1; }
             
             if is_builtin != 0 {
                 return make_token(arena, TokenType.TOKEN_AT_IDENTIFIER, value, line, column);
@@ -914,7 +917,7 @@ fn lexer_next_token(lexer: &Lexer, arena: &Arena) &Token {
             
             // 未知的内置函数
             const stderr: *void = get_stderr();
-            fprintf(stderr, "错误: 未知内置 @%s，支持：@size_of、@align_of、@len、@max、@min、@params、@mc_eval、@mc_type、@mc_ast、@mc_code、@mc_error、@mc_get_env\n" as *byte, value);
+            fprintf(stderr, "错误: 未知内置 @%s，支持：@size_of、@align_of、@len、@max、@min、@params、@async_fn、@await、@mc_eval、@mc_type、@mc_ast、@mc_code、@mc_error、@mc_get_env\n" as *byte, value);
             return null;
         }
         return null;

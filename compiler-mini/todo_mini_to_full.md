@@ -27,7 +27,7 @@
 | 13 | 联合体（union） | [x]（C 实现与 uya-src 已同步） |
 | 14 | 消灭所有警告 | [x]（主要工作已完成，剩余问题见下方说明） |
 | 15 | 泛型（Generics） | [~]（基础实现完成，类型推断已实现，约束检查待实现） |
-| 16 | 异步编程（Async） | [ ] |
+| 16 | 异步编程（Async） | [~]（语法解析完成：@async_fn/@await；CPS 变换/状态机生成待实现） |
 | 17 | test 关键字（测试单元） | [x]（C 实现与 uya-src 已同步） |
 | 18 | **宏系统（Macro）** | [x] C 实现与 uya-src 已同步 |
 | 19 | **标准库基础设施（std）** | [ ] **重要** |
@@ -661,29 +661,29 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 
 **实现待办**：
 
-- [ ] **Lexer**：识别异步编程语法
-  - [ ] 识别 `@async_fn` 函数属性（`@` 后跟 `async_fn`）
-  - [ ] 识别 `@await` 关键字（`@` 后跟 `await`），注意必须与 `try` 配合使用
-  - [ ] 注意与现有 `@` 内置函数（`@size_of`、`@len` 等）的区分
+- [x] **Lexer**：识别异步编程语法（C 实现与 uya-src 已同步）
+  - [x] 识别 `@async_fn` 函数属性（`@` 后跟 `async_fn`）
+  - [x] 识别 `@await` 关键字（`@` 后跟 `await`）
+  - [x] 注意与现有 `@` 内置函数（`@size_of`、`@len` 等）的区分
 
-- [ ] **AST**：异步编程节点扩展
-  - [ ] 函数声明添加 `is_async` 字段（标记 `@async_fn`）
-  - [ ] `AST_AWAIT_EXPR` 节点：`try @await expression`
-  - [ ] 类型节点支持 `!Future<T>` 类型
-  - [ ] 支持 `union Poll<T>` 类型定义和使用
+- [x] **AST**：异步编程节点扩展（C 实现与 uya-src 已同步）
+  - [x] 函数声明添加 `is_async` 字段（标记 `@async_fn`）
+  - [x] `AST_AWAIT_EXPR` 节点：`@await expression`
+  - [ ] 类型节点支持 `!Future<T>` 类型（需泛型接口支持）
+  - [ ] 支持 `union Poll<T>` 类型定义和使用（需联合体泛型支持）
 
-- [ ] **Parser**：异步编程语法解析
-  - [ ] 解析 `@async_fn` 函数属性（函数声明前的属性）
-  - [ ] 解析 `try @await expression` 表达式（`@await` 必须与 `try` 配合使用）
-  - [ ] 解析 `!Future<T>` 返回类型
-  - [ ] 解析 `union Poll<T>` 类型定义
-  - [ ] 验证 `try @await` 只能在 `@async_fn` 函数内使用
+- [x] **Parser**：异步编程语法解析（C 实现与 uya-src 已同步）
+  - [x] 解析 `@async_fn` 函数属性（函数声明前的属性）
+  - [x] 解析 `@await expression` 表达式
+  - [ ] 解析 `!Future<T>` 返回类型（需泛型接口支持）
+  - [ ] 解析 `union Poll<T>` 类型定义（需联合体泛型支持）
+  - [ ] 验证 `@await` 只能在 `@async_fn` 函数内使用
 
-- [ ] **Checker**：异步编程类型检查
+- [~] **Checker**：异步编程类型检查（基础实现，C 实现与 uya-src 已同步）
   - [ ] `@async_fn` 函数必须返回 `!Future<T>` 类型
-  - [ ] `try @await` 表达式必须返回 `!Future<T>` 类型
-  - [ ] `try @await` 只能在 `@async_fn` 函数内使用
-  - [ ] `@await` 必须与 `try` 配合使用，返回 `!T` 类型
+  - [ ] `@await` 表达式操作数必须返回 `!Future<T>` 类型
+  - [ ] `@await` 只能在 `@async_fn` 函数内使用
+  - [x] `@await` 表达式基础类型推断（当前返回操作数类型）
   - [ ] `union Poll<T>` 类型检查（Pending/Ready/Error 变体）
   - [ ] `interface Future<T>` 接口定义和实现检查
   - [ ] 状态机大小编译期计算（递归调用检查）
@@ -696,7 +696,8 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [ ] 处理局部变量在状态间的保存和恢复
   - [ ] 计算状态机大小（编译期确定）
 
-- [ ] **Codegen**：异步编程代码生成
+- [~] **Codegen**：异步编程代码生成（基础实现，C 实现与 uya-src 已同步）
+  - [x] `@await` 表达式基础代码生成（当前生成同步调用）
   - [ ] 生成状态机结构体（包含状态、局部变量、continuation）
   - [ ] 生成状态机初始化代码
   - [ ] 生成状态转换代码（`@await` 点）

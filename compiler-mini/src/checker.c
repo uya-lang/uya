@@ -1316,6 +1316,16 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             return *operand_type.data.error_union.payload_type;
         }
         
+        case AST_AWAIT_EXPR: {
+            // @await 表达式 - 暂时返回操作数的类型
+            // 完整实现需要检查操作数是否为 !Future<T> 类型
+            // 当前阶段：仅语法支持，类型检查直接返回操作数类型
+            Type operand_type = checker_infer_type(checker, expr->data.await_expr.operand);
+            // TODO: 验证 @await 只能在 @async_fn 函数中使用
+            // TODO: 验证操作数是 !Future<T> 类型，返回 T
+            return operand_type;
+        }
+        
         case AST_CATCH_EXPR: {
             Type operand_type = checker_infer_type(checker, expr->data.catch_expr.operand);
             if (operand_type.kind != TYPE_ERROR_UNION) {
@@ -5421,6 +5431,11 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
                 checker_check_node(checker, node->data.try_expr.operand);
             }
             return 1;
+        case AST_AWAIT_EXPR:
+            if (node->data.await_expr.operand != NULL) {
+                checker_check_node(checker, node->data.await_expr.operand);
+            }
+            return 1;
         case AST_CATCH_EXPR:
             if (node->data.catch_expr.operand != NULL) {
                 checker_check_node(checker, node->data.catch_expr.operand);
@@ -5744,6 +5759,9 @@ static ASTNode *deep_copy_ast(ASTNode *node, MacroExpandContext *ctx) {
             break;
         case AST_TRY_EXPR:
             copy->data.try_expr.operand = deep_copy_ast(node->data.try_expr.operand, ctx);
+            break;
+        case AST_AWAIT_EXPR:
+            copy->data.await_expr.operand = deep_copy_ast(node->data.await_expr.operand, ctx);
             break;
         case AST_CATCH_EXPR:
             copy->data.catch_expr.operand = deep_copy_ast(node->data.catch_expr.operand, ctx);
@@ -6490,6 +6508,9 @@ static void expand_macros_in_node(TypeChecker *checker, ASTNode **node_ptr) {
         case AST_UNARY_EXPR:
         case AST_TRY_EXPR:
             expand_macros_in_node(checker, &node->data.unary_expr.operand);
+            break;
+        case AST_AWAIT_EXPR:
+            expand_macros_in_node(checker, &node->data.await_expr.operand);
             break;
         case AST_CALL_EXPR:
             expand_macros_in_node(checker, &node->data.call_expr.callee);

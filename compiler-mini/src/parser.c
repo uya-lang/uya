@@ -1453,6 +1453,7 @@ static ASTNode *parser_parse_interface(Parser *parser) {
         sig->data.fn_decl.body = NULL;
         sig->data.fn_decl.is_varargs = 0;
         sig->data.fn_decl.is_export = 0;  // 接口方法签名不导出
+        sig->data.fn_decl.is_async = 0;
         if (sig_count >= sig_cap) {
             int new_cap = sig_cap == 0 ? 4 : sig_cap * 2;
             ASTNode **new_sigs = (ASTNode **)arena_alloc(parser->arena, sizeof(ASTNode *) * new_cap);
@@ -1612,6 +1613,7 @@ ASTNode *parser_parse_function(Parser *parser) {
     fn_decl->data.fn_decl.body = NULL;
     fn_decl->data.fn_decl.is_varargs = 0;
     fn_decl->data.fn_decl.is_export = 0;
+    fn_decl->data.fn_decl.is_async = 0;
     
     // 解析泛型参数列表（可选）：<T> 或 <T: Ord> 或 <T: Ord + Clone>
     if (parser_match(parser, TOKEN_LESS)) {
@@ -2112,6 +2114,8 @@ static ASTNode *parser_parse_extern_function_after_extern(Parser *parser) {
     fn_decl->data.fn_decl.return_type = NULL;
     fn_decl->data.fn_decl.body = NULL;  // extern 函数没有函数体
     fn_decl->data.fn_decl.is_varargs = 0;  // 默认不是可变参数函数
+    fn_decl->data.fn_decl.is_export = 0;
+    fn_decl->data.fn_decl.is_async = 0;
     
     // 期望 '('
     if (!parser_expect(parser, TOKEN_LEFT_PAREN)) {
@@ -2389,8 +2393,25 @@ ASTNode *parser_parse_declaration(Parser *parser) {
         parser_consume(parser);
     }
     
+    // 检查 @async_fn 函数属性
+    int is_async = 0;
+    if (parser->current_token && parser->current_token->type == TOKEN_AT_IDENTIFIER &&
+        parser->current_token->value != NULL && strcmp(parser->current_token->value, "async_fn") == 0) {
+        is_async = 1;
+        parser_consume(parser);  // 消费 @async_fn
+        // @async_fn 后必须跟着 fn
+        if (!parser_match(parser, TOKEN_FN)) {
+            fprintf(stderr, "错误: @async_fn 后必须跟着 fn 关键字\n");
+            return NULL;
+        }
+    }
+    
     // 根据第一个 Token 判断声明类型
     if (parser_match(parser, TOKEN_EXTERN)) {
+        if (is_async) {
+            fprintf(stderr, "错误: extern 函数不能使用 @async_fn 属性\n");
+            return NULL;
+        }
         parser_consume(parser);
         ASTNode *decl = parser_parse_extern_decl(parser);
         if (decl != NULL && is_export) {
@@ -2406,8 +2427,13 @@ ASTNode *parser_parse_declaration(Parser *parser) {
         return decl;
     } else if (parser_match(parser, TOKEN_FN)) {
         ASTNode *decl = parser_parse_function(parser);
-        if (decl != NULL && is_export) {
-            decl->data.fn_decl.is_export = 1;
+        if (decl != NULL) {
+            if (is_export) {
+                decl->data.fn_decl.is_export = 1;
+            }
+            if (is_async) {
+                decl->data.fn_decl.is_async = 1;
+            }
         }
         return decl;
     } else if (parser_match(parser, TOKEN_ENUM)) {
@@ -3355,6 +3381,29 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         }
         
         return call_node;
+    }
+    
+    // 解析 @await 表达式：try @await expr - 异步挂起点
+    // 注意：@await 必须与 try 配合使用，但这里只解析 @await 部分
+    // try 会在 parser_parse_unary_expression 中处理
+    if (parser->current_token->type == TOKEN_AT_IDENTIFIER && parser->current_token->value != NULL &&
+        strcmp(parser->current_token->value, "await") == 0) {
+        parser_consume(parser);  // 消费 'await'
+        
+        ASTNode *await_node = ast_new_node(AST_AWAIT_EXPR, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (await_node == NULL) {
+            return NULL;
+        }
+        
+        // 解析被 await 的表达式
+        ASTNode *operand = parser_parse_unary_expr(parser);
+        if (operand == NULL) {
+            fprintf(stderr, "错误: @await 后缺少表达式\n");
+            return NULL;
+        }
+        
+        await_node->data.await_expr.operand = operand;
+        return await_node;
     }
     
     // 忽略占位 _：仅允许在赋值左侧、解构中使用，生成 AST_UNDERSCORE

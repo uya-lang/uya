@@ -1140,6 +1140,18 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             fprintf(codegen->output, "; if (_uya_try_tmp.error_id != 0) return (%s){ .error_id = _uya_try_tmp.error_id, .value = 0 }; _uya_try_tmp.value; })", ret_union_c);
             break;
         }
+        case AST_AWAIT_EXPR: {
+            // @await 表达式 - 暂时直接生成操作数的代码
+            // 完整实现需要 CPS 变换和状态机生成
+            // 当前阶段：仅生成操作数表达式（同步调用）
+            ASTNode *operand = expr->data.await_expr.operand;
+            if (operand) {
+                gen_expr(codegen, operand);
+            } else {
+                fputs("0", codegen->output);
+            }
+            break;
+        }
         case AST_CATCH_EXPR: {
             ASTNode *operand = expr->data.catch_expr.operand;
             ASTNode *block = expr->data.catch_expr.catch_block;

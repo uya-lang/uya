@@ -99,6 +99,7 @@ typedef enum {
     AST_MC_ERROR,       // @mc_error(msg) - 宏内报错
     AST_MC_INTERP,      // ${expr} - 宏内插值（在 @mc_ast 内部引用变量/参数）
     AST_MC_TYPE,        // @mc_type(expr) - 宏内类型反射
+    AST_AWAIT_EXPR,     // try @await expr - 异步等待表达式（挂起点）
     
     // 类型节点
     AST_TYPE_NAMED,     // 命名类型（i32, bool, void, 或 struct Name）
@@ -204,6 +205,7 @@ struct ASTNode {
             struct ASTNode *body;            // 函数体（AST_BLOCK 节点）
             int is_varargs;           // 是否为可变参数函数（1 表示是，0 表示否）
             int is_export;            // 1 表示 export fn，0 表示私有
+            int is_async;             // 1 表示 @async_fn 异步函数，0 表示普通函数
         } fn_decl;
         
         // 宏声明（mc ID(param_list) return_tag { statements }）
@@ -286,6 +288,11 @@ struct ASTNode {
             const char *err_name;      // 错误变量名（可为 NULL 表示不绑定）
             struct ASTNode *catch_block;    // catch 块（AST_BLOCK）
         } catch_expr;
+        
+        // await 表达式（try @await expr）- 异步挂起点
+        struct {
+            struct ASTNode *operand;         // 被 await 的表达式（必须为 !Future<T> 类型）
+        } await_expr;
         
         // 错误值（error.Name）
         struct {

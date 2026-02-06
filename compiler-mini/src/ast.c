@@ -124,6 +124,9 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.catch_expr.err_name = NULL;
             node->data.catch_expr.catch_block = NULL;
             break;
+        case AST_AWAIT_EXPR:
+            node->data.await_expr.operand = NULL;
+            break;
         case AST_ERROR_VALUE:
             node->data.error_value.name = NULL;
             break;
