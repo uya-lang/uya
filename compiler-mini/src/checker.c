@@ -3200,6 +3200,142 @@ static Type checker_check_call_expr(TypeChecker *checker, ASTNode *node) {
         ASTNode **type_args = node->data.call_expr.type_args;
         int type_arg_count = node->data.call_expr.type_arg_count;
         
+        // 类型推断：如果调用时没有提供类型参数，尝试从实参类型推断
+        if (type_arg_count == 0 && type_param_count > 0) {
+            // 首先检查参数个数
+            if (node->data.call_expr.arg_count != fn_decl->data.fn_decl.param_count) {
+                checker_report_error(checker, node, "泛型函数调用参数个数不匹配");
+                return result;
+            }
+            
+            // 分配推断类型数组（每个类型参数一个槽）
+            Type *inferred_types = (Type *)arena_alloc(checker->arena, type_param_count * sizeof(Type));
+            if (inferred_types == NULL) {
+                return result;
+            }
+            // 初始化为 TYPE_VOID（表示未推断）
+            for (int i = 0; i < type_param_count; i++) {
+                inferred_types[i].kind = TYPE_VOID;
+            }
+            
+            // 遍历函数参数，推断类型参数
+            for (int i = 0; i < fn_decl->data.fn_decl.param_count; i++) {
+                ASTNode *param = fn_decl->data.fn_decl.params[i];
+                if (param == NULL || param->type != AST_VAR_DECL || param->data.var_decl.type == NULL) {
+                    continue;
+                }
+                
+                ASTNode *param_type_node = param->data.var_decl.type;
+                // 检查参数类型是否直接是类型参数（如 a: T）
+                if (param_type_node->type == AST_TYPE_NAMED && param_type_node->data.type_named.name != NULL) {
+                    const char *param_type_name = param_type_node->data.type_named.name;
+                    
+                    // 检查这个类型名是否是类型参数之一
+                    for (int j = 0; j < type_param_count; j++) {
+                        if (type_params[j].name != NULL && 
+                            strcmp(type_params[j].name, param_type_name) == 0) {
+                            // 找到了类型参数，从对应实参推断类型
+                            ASTNode *arg = node->data.call_expr.args[i];
+                            if (arg != NULL) {
+                                Type arg_type = checker_infer_type(checker, arg);
+                                if (arg_type.kind != TYPE_VOID) {
+                                    // 如果这个类型参数已经被推断过，检查是否一致
+                                    if (inferred_types[j].kind != TYPE_VOID) {
+                                        if (!type_equals(inferred_types[j], arg_type)) {
+                                            char buf[256];
+                                            snprintf(buf, sizeof(buf), 
+                                                "泛型函数类型推断冲突：类型参数 %s 推断出不同类型",
+                                                type_params[j].name);
+                                            checker_report_error(checker, node, buf);
+                                            return result;
+                                        }
+                                    } else {
+                                        inferred_types[j] = arg_type;
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // 检查是否所有类型参数都被推断出来
+            for (int i = 0; i < type_param_count; i++) {
+                if (inferred_types[i].kind == TYPE_VOID) {
+                    char buf[256];
+                    snprintf(buf, sizeof(buf), 
+                        "无法推断泛型函数 %s 的类型参数 %s",
+                        callee->data.identifier.name, type_params[i].name);
+                    checker_report_error(checker, node, buf);
+                    return result;
+                }
+            }
+            
+            // 创建类型实参 AST 节点数组
+            ASTNode **inferred_type_args = (ASTNode **)arena_alloc(
+                checker->arena, type_param_count * sizeof(ASTNode *));
+            if (inferred_type_args == NULL) {
+                return result;
+            }
+            
+            for (int i = 0; i < type_param_count; i++) {
+                // 创建 AST_TYPE_NAMED 节点表示推断出的类型
+                ASTNode *type_node = ast_new_node(AST_TYPE_NAMED, node->line, node->column, 
+                    checker->arena, node->filename);
+                if (type_node == NULL) {
+                    return result;
+                }
+                
+                // 根据推断出的类型设置节点名称
+                const char *type_name = NULL;
+                switch (inferred_types[i].kind) {
+                    case TYPE_I8: type_name = "i8"; break;
+                    case TYPE_I16: type_name = "i16"; break;
+                    case TYPE_I32: type_name = "i32"; break;
+                    case TYPE_I64: type_name = "i64"; break;
+                    case TYPE_U8: type_name = "u8"; break;
+                    case TYPE_U16: type_name = "u16"; break;
+                    case TYPE_U32: type_name = "u32"; break;
+                    case TYPE_U64: type_name = "u64"; break;
+                    case TYPE_F32: type_name = "f32"; break;
+                    case TYPE_F64: type_name = "f64"; break;
+                    case TYPE_BOOL: type_name = "bool"; break;
+                    case TYPE_BYTE: type_name = "byte"; break;
+                    case TYPE_USIZE: type_name = "usize"; break;
+                    case TYPE_STRUCT:
+                        type_name = inferred_types[i].data.struct_type.name;
+                        break;
+                    default:
+                        // 其他复杂类型暂不支持推断
+                        checker_report_error(checker, node, "泛型类型推断不支持此类型");
+                        return result;
+                }
+                
+                // 复制类型名到 arena
+                if (type_name != NULL) {
+                    char *name_copy = (char *)arena_alloc(checker->arena, strlen(type_name) + 1);
+                    if (name_copy == NULL) {
+                        return result;
+                    }
+                    strcpy(name_copy, type_name);
+                    type_node->data.type_named.name = name_copy;
+                } else {
+                    type_node->data.type_named.name = "void";
+                }
+                type_node->data.type_named.type_args = NULL;
+                type_node->data.type_named.type_arg_count = 0;
+                
+                inferred_type_args[i] = type_node;
+            }
+            
+            // 更新调用节点的类型参数
+            type_args = inferred_type_args;
+            type_arg_count = type_param_count;
+            node->data.call_expr.type_args = inferred_type_args;
+            node->data.call_expr.type_arg_count = type_param_count;
+        }
+        
         // 检查类型实参数量
         if (type_arg_count != type_param_count) {
             char buf[256];

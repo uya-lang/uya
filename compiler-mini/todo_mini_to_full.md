@@ -26,7 +26,7 @@
 | 12 | 运算符与安全 | [x]（饱和/包装运算、as! 已实现；内存安全证明未实现） |
 | 13 | 联合体（union） | [x]（C 实现与 uya-src 已同步） |
 | 14 | 消灭所有警告 | [x]（主要工作已完成，剩余问题见下方说明） |
-| 15 | 泛型（Generics） | [~]（基础实现完成，约束/推断待实现） |
+| 15 | 泛型（Generics） | [~]（基础实现完成，类型推断已实现，约束检查待实现） |
 | 16 | 异步编程（Async） | [ ] |
 | 17 | test 关键字（测试单元） | [x]（C 实现与 uya-src 已同步） |
 | 18 | **宏系统（Macro）** | [x] C 实现已完成（uya-src 待同步） |
@@ -443,7 +443,7 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [x] 泛型结构体字段访问类型推断（字段类型中的类型参数正确替换为具体类型）
   - [x] 泛型结构体指针字段支持（`&T` 字段正确单态化）
   - [ ] 约束检查：验证类型参数是否满足约束（当前仅解析约束语法，不做实际校验）
-  - [ ] 类型推断：自动推断类型参数（待实现）
+  - [x] 类型推断：自动推断类型参数（从函数实参类型推断泛型类型参数）
 
 - [x] **Codegen**：泛型代码生成（单态化）
   - [x] 泛型函数单态化：`identity<i32>` → `identity_i32`
@@ -476,14 +476,15 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
   - [x] `test_generic_edge_cases.uya` - 边界情况（命名、单/多字段、混合字段）
   - [x] `test_generic_in_expr.uya` - 表达式中使用泛型
   - [x] `test_generic_in_control_flow.uya` - 控制流中使用泛型（if/while）
+  - [x] `test_generic_inference.uya` - 泛型类型推断（从实参类型自动推断类型参数）
   - [ ] `test_generic_interface.uya` - 泛型接口（待实现）
 
 **已知限制**：
 - 嵌套泛型（如 `Box<Pair<i32, i32>>`）：`>>` 被解析为右移运算符
 - 泛型接口方法的支持不完善
-- 类型推断（自动推断类型参数）尚未实现
 - 约束语法已解析但不做实际校验（`<T: Ord>` 中 Ord 未验证类型是否实现该接口）
 - 多约束语法（`<T: Ord + Clone>`）尚未实现
+- 类型推断目前仅支持直接类型参数（如 `a: T`），不支持复杂类型中的类型参数（如 `a: &T`）
 
 **涉及**：Lexer、AST、Parser、Checker、Codegen（单态化），uya-src。
 
