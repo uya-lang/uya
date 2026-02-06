@@ -1,0 +1,80 @@
+// 测试结构体字段默认值
+
+// 带默认值的结构体
+struct Config {
+    port: i32 = 8080,
+    max_connections: i32 = 100,
+    debug: bool = false,
+}
+
+// 混合默认值和无默认值的字段
+struct Point {
+    x: i32,           // 无默认值
+    y: i32 = 0,       // 有默认值
+    z: i32 = 0,       // 有默认值
+}
+
+// 嵌套结构体的默认值
+struct Server {
+    name: &byte = "default",
+    config: Config,   // 无默认值（需要显式初始化）
+}
+
+fn main() i32 {
+    // 使用默认值创建实例（部分字段）
+    var cfg: Config = Config { };
+    if cfg.port != 8080 {
+        return 1;
+    }
+    if cfg.max_connections != 100 {
+        return 2;
+    }
+    if cfg.debug != false {
+        return 3;
+    }
+    
+    // 覆盖部分默认值
+    var cfg2: Config = Config { port: 3000 };
+    if cfg2.port != 3000 {
+        return 4;
+    }
+    if cfg2.max_connections != 100 {
+        return 5;
+    }
+    
+    // 全部覆盖默认值
+    var cfg3: Config = Config { port: 9000, max_connections: 50, debug: true };
+    if cfg3.port != 9000 {
+        return 6;
+    }
+    if cfg3.debug != true {
+        return 7;
+    }
+    
+    // 混合字段测试
+    var pt: Point = Point { x: 10 };
+    if pt.x != 10 {
+        return 8;
+    }
+    if pt.y != 0 {
+        return 9;
+    }
+    if pt.z != 0 {
+        return 10;
+    }
+    
+    // 覆盖有默认值的字段
+    var pt2: Point = Point { x: 5, y: 15 };
+    if pt2.x != 5 {
+        return 11;
+    }
+    if pt2.y != 15 {
+        return 12;
+    }
+    if pt2.z != 0 {
+        return 13;
+    }
+    
+    return 0;
+}
+

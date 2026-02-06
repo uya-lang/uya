@@ -902,21 +902,30 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                     if field != null && field.type == ASTNodeType.AST_VAR_DECL {
                         const field_name2: &byte = get_safe_c_identifier(codegen, field.var_decl_name);
                         const field_type2: &ASTNode = field.var_decl_type;
+                        const default_value: &ASTNode = field.var_decl_init;  // 字段默认值
                         
                         if field_name2 != null && field_type2 != null {
-                            // 根据字段类型生成初始化代码
-                            if field_type2.type == ASTNodeType.AST_TYPE_POINTER {
-                                // 指针类型：初始化为 NULL
+                            // 如果有默认值，使用默认值
+                            if default_value != null {
                                 c99_emit_indent(codegen);
-                                fprintf(codegen.output as *void, "%s.%s = NULL;\n" as *byte, var_name as *byte, field_name2 as *byte);
-                            } else if field_type2.type == ASTNodeType.AST_TYPE_ARRAY {
-                                // 数组类型：使用 memset 清零
-                                c99_emit_indent(codegen);
-                                fprintf(codegen.output as *void, "memset(%s.%s, 0, sizeof(%s.%s));\n" as *byte, var_name as *byte, field_name2 as *byte, var_name as *byte, field_name2 as *byte);
+                                fprintf(codegen.output as *void, "%s.%s = " as *byte, var_name as *byte, field_name2 as *byte);
+                                gen_expr(codegen, default_value);
+                                fputs(";\n" as *byte, codegen.output as *void);
                             } else {
-                                // 其他类型（整数、浮点数等）：初始化为 0
-                                c99_emit_indent(codegen);
-                                fprintf(codegen.output as *void, "%s.%s = 0;\n" as *byte, var_name as *byte, field_name2 as *byte);
+                                // 根据字段类型生成初始化代码
+                                if field_type2.type == ASTNodeType.AST_TYPE_POINTER {
+                                    // 指针类型：初始化为 NULL
+                                    c99_emit_indent(codegen);
+                                    fprintf(codegen.output as *void, "%s.%s = NULL;\n" as *byte, var_name as *byte, field_name2 as *byte);
+                                } else if field_type2.type == ASTNodeType.AST_TYPE_ARRAY {
+                                    // 数组类型：使用 memset 清零
+                                    c99_emit_indent(codegen);
+                                    fprintf(codegen.output as *void, "memset(%s.%s, 0, sizeof(%s.%s));\n" as *byte, var_name as *byte, field_name2 as *byte, var_name as *byte, field_name2 as *byte);
+                                } else {
+                                    // 其他类型（整数、浮点数等）：初始化为 0
+                                    c99_emit_indent(codegen);
+                                    fprintf(codegen.output as *void, "%s.%s = 0;\n" as *byte, var_name as *byte, field_name2 as *byte);
+                                }
                             }
                         }
                     }

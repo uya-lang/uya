@@ -180,8 +180,9 @@ fn parser_peek_is_struct_init(parser: &Parser) i32 {
         // 空的 {}：在表达式上下文中，可能是结构体字面量，也可能是代码块
         // 采用保守策略：空的 `{}` 在表达式上下文中，优先认为是结构体字面量
         is_struct_init = 1;
-    } else if token_type == TokenType.TOKEN_IDENTIFIER {
+    } else if token_type == TokenType.TOKEN_IDENTIFIER || token_type == TokenType.TOKEN_TYPE {
         // 检查标识符后面是否有 ':'
+        // 允许 'type' 关键字作为字段名（常见字段名）
         var saved_position2: usize = lexer.position;
         var saved_line2: i32 = lexer.line;
         var saved_column2: i32 = lexer.column;
@@ -1052,10 +1053,19 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         var result: &ASTNode = node;
         while parser.current_token != null && parser_match(parser, TokenType.TOKEN_DOT) != 0 {
             parser_consume(parser);
-            if parser.current_token == null || (parser.current_token.type != TokenType.TOKEN_IDENTIFIER && parser.current_token.type != TokenType.TOKEN_NUMBER) {
+            // 允许 'type' 关键字作为字段名
+            if parser.current_token == null || 
+               (parser.current_token.type != TokenType.TOKEN_IDENTIFIER && 
+                parser.current_token.type != TokenType.TOKEN_NUMBER &&
+                parser.current_token.type != TokenType.TOKEN_TYPE) {
                 return null;
             }
-            const field_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+            var field_name: &byte = null;
+            if parser.current_token.type == TokenType.TOKEN_TYPE {
+                field_name = arena_strdup(parser.arena, "type" as &byte);
+            } else {
+                field_name = arena_strdup(parser.arena, parser.current_token.value);
+            }
             if field_name == null {
                 return null;
             }
@@ -1452,7 +1462,6 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         return await_node;
     }
 
-    // 解析标识符（可能是普通标识符、函数调用、或结构体字面量的开始）
     // 忽略占位 _：仅允许在赋值左侧、解构中使用，生成 AST_UNDERSCORE
     if parser.current_token.type == TokenType.TOKEN_IDENTIFIER {
         if parser.current_token.value != null && str_equals_lexer(parser.current_token.value, "_" as &byte) != 0 {
@@ -1463,12 +1472,22 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             parser_consume(parser);
             return node;
         }
-        const name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+    }
+    
+    // 解析标识符（可能是普通标识符、函数调用、或结构体字面量的开始）
+    // 允许 'type' 关键字作为标识符（常见变量名）
+    if parser.current_token.type == TokenType.TOKEN_IDENTIFIER || parser.current_token.type == TokenType.TOKEN_TYPE {
+        var name: &byte = null;
+        if parser.current_token.type == TokenType.TOKEN_TYPE {
+            name = arena_strdup(parser.arena, "type" as &byte);
+        } else {
+            name = arena_strdup(parser.arena, parser.current_token.value);
+        }
         if name == null {
             return null;
         }
         
-        parser_consume(parser);  // 消费标识符
+        parser_consume(parser);  // 消费标识符或 'type' 关键字
         
         // 检查是否是泛型函数调用：ID '<' type_list '>' '(' ... 或 ID '(' ...
         var call_type_args: & & ASTNode = null;
@@ -1702,10 +1721,19 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             while parser.current_token != null {
                 if parser_match(parser, TokenType.TOKEN_DOT) != 0 {
                     parser_consume(parser);  // 消费 '.'
-                    if parser.current_token == null || (parser.current_token.type != TokenType.TOKEN_IDENTIFIER && parser.current_token.type != TokenType.TOKEN_NUMBER) {
+                    // 允许 'type' 关键字作为字段名
+                    if parser.current_token == null || 
+                       (parser.current_token.type != TokenType.TOKEN_IDENTIFIER && 
+                        parser.current_token.type != TokenType.TOKEN_NUMBER &&
+                        parser.current_token.type != TokenType.TOKEN_TYPE) {
                         return null;
                     }
-                    const field_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+                    var field_name: &byte = null;
+                    if parser.current_token.type == TokenType.TOKEN_TYPE {
+                        field_name = arena_strdup(parser.arena, "type" as &byte);
+                    } else {
+                        field_name = arena_strdup(parser.arena, parser.current_token.value);
+                    }
                     if field_name == null {
                         return null;
                     }
@@ -1880,10 +1908,15 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                 // 处理字段访问链（左结合：a.b.c 或元组 .0/.1）
                 while parser.current_token != null && parser_match(parser, TokenType.TOKEN_DOT) != 0 {
                     parser_consume(parser);  // 消费 '.'
-                    if parser.current_token == null || (parser.current_token.type != TokenType.TOKEN_IDENTIFIER && parser.current_token.type != TokenType.TOKEN_NUMBER) {
+                    if parser.current_token == null || (parser.current_token.type != TokenType.TOKEN_IDENTIFIER && parser.current_token.type != TokenType.TOKEN_NUMBER && parser.current_token.type != TokenType.TOKEN_TYPE) {
                         return null;
                     }
-                    const field_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+                    var field_name: &byte = null;
+                    if parser.current_token.type == TokenType.TOKEN_TYPE {
+                        field_name = arena_strdup(parser.arena, "type" as &byte);
+                    } else {
+                        field_name = arena_strdup(parser.arena, parser.current_token.value);
+                    }
                     if field_name == null {
                         return null;
                     }
@@ -1927,12 +1960,15 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                       parser_match(parser, TokenType.TOKEN_RIGHT_BRACE) == 0 && 
                       parser_match(parser, TokenType.TOKEN_EOF) == 0 {
                     
-                    // 解析字段名称
-                    if parser_match(parser, TokenType.TOKEN_IDENTIFIER) == 0 {
+                    // 解析字段名称，允许 'type' 关键字作为字段名
+                    var field_name: &byte = null;
+                    if parser_match(parser, TokenType.TOKEN_IDENTIFIER) != 0 {
+                        field_name = arena_strdup(parser.arena, parser.current_token.value);
+                    } else if parser_match(parser, TokenType.TOKEN_TYPE) != 0 {
+                        field_name = arena_strdup(parser.arena, "type" as &byte);
+                    } else {
                         return null;
                     }
-                    
-                    const field_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
                     if field_name == null {
                         return null;
                     }
@@ -2005,10 +2041,15 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             // 处理字段访问链（.field 或元组 .0/.1）
             while parser.current_token != null && parser_match(parser, TokenType.TOKEN_DOT) != 0 {
                 parser_consume(parser);  // 消费 '.'
-                if parser.current_token == null || (parser.current_token.type != TokenType.TOKEN_IDENTIFIER && parser.current_token.type != TokenType.TOKEN_NUMBER) {
+                if parser.current_token == null || (parser.current_token.type != TokenType.TOKEN_IDENTIFIER && parser.current_token.type != TokenType.TOKEN_NUMBER && parser.current_token.type != TokenType.TOKEN_TYPE) {
                     return null;
                 }
-                const field_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+                var field_name: &byte = null;
+                if parser.current_token.type == TokenType.TOKEN_TYPE {
+                    field_name = arena_strdup(parser.arena, "type" as &byte);
+                } else {
+                    field_name = arena_strdup(parser.arena, parser.current_token.value);
+                }
                 if field_name == null {
                     return null;
                 }
@@ -2041,10 +2082,15 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
             while parser.current_token != null {
                 if parser_match(parser, TokenType.TOKEN_DOT) != 0 {
                     parser_consume(parser);  // 消费 '.'
-                    if parser.current_token == null || (parser.current_token.type != TokenType.TOKEN_IDENTIFIER && parser.current_token.type != TokenType.TOKEN_NUMBER) {
+                    if parser.current_token == null || (parser.current_token.type != TokenType.TOKEN_IDENTIFIER && parser.current_token.type != TokenType.TOKEN_NUMBER && parser.current_token.type != TokenType.TOKEN_TYPE) {
                         return null;
                     }
-                    const field_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+                    var field_name: &byte = null;
+                    if parser.current_token.type == TokenType.TOKEN_TYPE {
+                        field_name = arena_strdup(parser.arena, "type" as &byte);
+                    } else {
+                        field_name = arena_strdup(parser.arena, parser.current_token.value);
+                    }
                     if field_name == null {
                         return null;
                     }
@@ -2275,10 +2321,15 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
         while parser.current_token != null {
             if parser_match(parser, TokenType.TOKEN_DOT) != 0 {
                 parser_consume(parser);  // 消费 '.'
-                if parser.current_token == null || (parser.current_token.type != TokenType.TOKEN_IDENTIFIER && parser.current_token.type != TokenType.TOKEN_NUMBER) {
+                if parser.current_token == null || (parser.current_token.type != TokenType.TOKEN_IDENTIFIER && parser.current_token.type != TokenType.TOKEN_NUMBER && parser.current_token.type != TokenType.TOKEN_TYPE) {
                     return null;
                 }
-                const field_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+                var field_name: &byte = null;
+                if parser.current_token.type == TokenType.TOKEN_TYPE {
+                    field_name = arena_strdup(parser.arena, "type" as &byte);
+                } else {
+                    field_name = arena_strdup(parser.arena, parser.current_token.value);
+                }
                 if field_name == null {
                     return null;
                 }
@@ -2410,11 +2461,16 @@ fn parser_parse_primary_expr(parser: &Parser) &ASTNode {
                 parser_consume(parser);  // 消费 '.'
                 
                 // 期望字段名称或元组下标（.0, .1, ... 为 NUMBER）
-                if parser.current_token == null || (parser.current_token.type != TokenType.TOKEN_IDENTIFIER && parser.current_token.type != TokenType.TOKEN_NUMBER) {
+                if parser.current_token == null || (parser.current_token.type != TokenType.TOKEN_IDENTIFIER && parser.current_token.type != TokenType.TOKEN_NUMBER && parser.current_token.type != TokenType.TOKEN_TYPE) {
                     return null;
                 }
                 
-                const field_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+                var field_name: &byte = null;
+                if parser.current_token.type == TokenType.TOKEN_TYPE {
+                    field_name = arena_strdup(parser.arena, "type" as &byte);
+                } else {
+                    field_name = arena_strdup(parser.arena, parser.current_token.value);
+                }
                 if field_name == null {
                     return null;
                 }
@@ -3677,13 +3733,16 @@ fn parser_parse_statement(parser: &Parser) &ASTNode {
             return stmt;
         }
         
-        // 期望变量名称（立即复制到 arena，避免 token 缓冲区被后续 lexer 调用覆盖）
-        const name_val: &byte = parser.current_token.value;
-        const var_name: &byte = arena_strdup(parser.arena, name_val);
-        if var_name == null {
+        // 期望变量名称，允许 'type' 关键字作为变量名
+        var var_name: &byte = null;
+        if parser_match(parser, TokenType.TOKEN_TYPE) != 0 {
+            var_name = arena_strdup(parser.arena, "type" as &byte);
+        } else if parser_match(parser, TokenType.TOKEN_IDENTIFIER) != 0 {
+            var_name = arena_strdup(parser.arena, parser.current_token.value);
+        } else {
             return null;
         }
-        if parser_match(parser, TokenType.TOKEN_IDENTIFIER) == 0 {
+        if var_name == null {
             return null;
         }
         
@@ -4536,17 +4595,21 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
             continue;
         }
         
-        // 解析字段名称
-        if parser_match(parser, TokenType.TOKEN_IDENTIFIER) == 0 {
+        // 解析字段名称（允许 'type' 关键字作为字段名）
+        var field_name: &byte = null;
+        if parser_match(parser, TokenType.TOKEN_IDENTIFIER) != 0 {
+            field_name = arena_strdup(parser.arena, parser.current_token.value);
+        } else if parser_match(parser, TokenType.TOKEN_TYPE) != 0 {
+            field_name = arena_strdup(parser.arena, "type" as &byte);
+        } else {
+            return null;
+        }
+        if field_name == null {
             return null;
         }
         
         const field_line: i32 = parser.current_token.line;
         const field_column: i32 = parser.current_token.column;
-        const field_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
-        if field_name == null {
-            return null;
-        }
         
         parser_consume(parser);
         
@@ -4561,6 +4624,16 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
             return null;
         }
         
+        // 检查是否有默认值（= expr）
+        var default_value: &ASTNode = null;
+        if parser_match(parser, TokenType.TOKEN_ASSIGN) != 0 {
+            parser_consume(parser);  // 消费 '='
+            default_value = parser_parse_expression(parser);
+            if default_value == null {
+                return null;
+            }
+        }
+        
         // 创建字段节点（使用 ASTNodeType.AST_VAR_DECL，is_const = 0）
         const field: &ASTNode = ast_new_node(ASTNodeType.AST_VAR_DECL, field_line, field_column, parser.arena, parser_get_filename(parser));
         if field == null {
@@ -4569,7 +4642,7 @@ fn parser_parse_struct(parser: &Parser) &ASTNode {
         
         field.var_decl_name = field_name;
         field.var_decl_type = field_type;
-        field.var_decl_init = null;
+        field.var_decl_init = default_value;  // 存储默认值
         field.var_decl_is_const = 0;
         
         // 扩展字段数组（使用 Arena 分配）
@@ -4741,6 +4814,61 @@ fn parser_parse_union_body(parser: &Parser, line: i32, column: i32, is_extern: i
 }
 
 // 解析联合体声明：union ID { variant_list }
+
+// 解析类型别名：type Name = Type ;
+fn parser_parse_type_alias(parser: &Parser) &ASTNode {
+    if parser == null || parser.current_token == null {
+        return null;
+    }
+    
+    if parser_match(parser, TokenType.TOKEN_TYPE) == 0 {
+        return null;
+    }
+    
+    const line: i32 = parser.current_token.line;
+    const column: i32 = parser.current_token.column;
+    
+    parser_consume(parser);
+    
+    if parser_match(parser, TokenType.TOKEN_IDENTIFIER) == 0 {
+        const stderr: *void = get_stderr();
+        fprintf(stderr, "错误: type 后期望标识符\n" as *byte);
+        return null;
+    }
+    
+    const alias_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
+    if alias_name == null {
+        return null;
+    }
+    parser_consume(parser);
+    
+    if parser_expect(parser, TokenType.TOKEN_ASSIGN) == null {
+        return null;
+    }
+    
+    const target_type: &ASTNode = parser_parse_type(parser);
+    if target_type == null {
+        const stderr: *void = get_stderr();
+        fprintf(stderr, "错误: type 别名需要目标类型\n" as *byte);
+        return null;
+    }
+    
+    if parser_expect(parser, TokenType.TOKEN_SEMICOLON) == null {
+        return null;
+    }
+    
+    const type_alias: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_ALIAS, line, column, parser.arena, parser_get_filename(parser));
+    if type_alias == null {
+        return null;
+    }
+    
+    type_alias.type_alias_name = alias_name;
+    type_alias.type_alias_target_type = target_type;
+    type_alias.type_alias_is_export = 0;
+    
+    return type_alias;
+}
+
 // 解析宏声明：mc ID(param_list) return_tag { statements }
 fn parser_parse_macro(parser: &Parser) &ASTNode {
     if parser == null || parser.current_token == null {
@@ -4794,16 +4922,19 @@ fn parser_parse_macro(parser: &Parser) &ASTNode {
               parser_match(parser, TokenType.TOKEN_RIGHT_PAREN) == 0 && 
               parser_match(parser, TokenType.TOKEN_EOF) == 0 {
             
-            // 解析参数名称
-            if parser_match(parser, TokenType.TOKEN_IDENTIFIER) == 0 {
+            // 解析参数名称，允许 'type' 关键字作为参数名
+            const param_line: i32 = parser.current_token.line;
+            const param_column: i32 = parser.current_token.column;
+            var param_name: &byte = null;
+            if parser_match(parser, TokenType.TOKEN_TYPE) != 0 {
+                param_name = arena_strdup(parser.arena, "type" as &byte);
+            } else if parser_match(parser, TokenType.TOKEN_IDENTIFIER) != 0 {
+                param_name = arena_strdup(parser.arena, parser.current_token.value);
+            } else {
                 const stderr: *void = get_stderr();
                 fprintf(stderr, "错误: 宏参数列表中期望参数名称\n" as *byte);
                 return null;
             }
-            
-            const param_line: i32 = parser.current_token.line;
-            const param_column: i32 = parser.current_token.column;
-            const param_name: &byte = arena_strdup(parser.arena, parser.current_token.value);
             if param_name == null {
                 return null;
             }
@@ -4816,13 +4947,17 @@ fn parser_parse_macro(parser: &Parser) &ASTNode {
             }
             
             // 解析参数类型（expr, stmt, type, pattern, ident）
-            if parser_match(parser, TokenType.TOKEN_IDENTIFIER) == 0 {
+            // 注意：'type' 既是关键字又是宏参数类型，需要同时接受 TOKEN_IDENTIFIER 和 TOKEN_TYPE
+            var param_type_str: &byte = null;
+            if parser_match(parser, TokenType.TOKEN_IDENTIFIER) != 0 {
+                param_type_str = arena_strdup(parser.arena, parser.current_token.value);
+            } else if parser_match(parser, TokenType.TOKEN_TYPE) != 0 {
+                param_type_str = arena_strdup(parser.arena, "type" as &byte);
+            } else {
                 const stderr: *void = get_stderr();
                 fprintf(stderr, "错误: 宏参数类型必须是 'expr', 'stmt', 'type', 'pattern' 或 'ident'\n" as *byte);
                 return null;
             }
-            
-            const param_type_str: &byte = arena_strdup(parser.arena, parser.current_token.value);
             if param_type_str == null {
                 return null;
             }
@@ -4913,9 +5048,14 @@ fn parser_parse_macro(parser: &Parser) &ASTNode {
     macro_decl.macro_decl_params = params;
     macro_decl.macro_decl_param_count = param_count;
     
+    // 解析返回标签（expr, stmt, struct, type）
+    // 注意：struct 和 type 是关键字，其他是标识符
     var return_tag: &byte = null;
     if parser_match(parser, TokenType.TOKEN_STRUCT) != 0 {
         return_tag = arena_strdup(parser.arena, "struct" as &byte);
+        parser_consume(parser);
+    } else if parser_match(parser, TokenType.TOKEN_TYPE) != 0 {
+        return_tag = arena_strdup(parser.arena, "type" as &byte);
         parser_consume(parser);
     } else if parser_match(parser, TokenType.TOKEN_IDENTIFIER) != 0 {
         return_tag = arena_strdup(parser.arena, parser.current_token.value);
@@ -5308,15 +5448,17 @@ fn parser_parse_function(parser: &Parser) &ASTNode {
                 break;
             }
             
-            // 解析参数名称
-            const param_name_val: &byte = parser.current_token.value;
+            // 解析参数名称，允许 'type' 关键字作为参数名
             const param_line: i32 = parser.current_token.line;
             const param_column: i32 = parser.current_token.column;
-            if parser_match(parser, TokenType.TOKEN_IDENTIFIER) == 0 {
+            var param_name: &byte = null;
+            if parser_match(parser, TokenType.TOKEN_TYPE) != 0 {
+                param_name = arena_strdup(parser.arena, "type" as &byte);
+            } else if parser_match(parser, TokenType.TOKEN_IDENTIFIER) != 0 {
+                param_name = arena_strdup(parser.arena, parser.current_token.value);
+            } else {
                 return null;
             }
-            
-            const param_name: &byte = arena_strdup(parser.arena, param_name_val);
             if param_name == null {
                 return null;
             }
@@ -5484,15 +5626,17 @@ fn parser_parse_extern_function_after_extern(parser: &Parser) &ASTNode {
                 break;  // 遇到 ... 后退出循环
             }
             
-            // 解析参数名称
-            const param_name_val: &byte = parser.current_token.value;
+            // 解析参数名称，允许 'type' 关键字作为参数名
             const param_line: i32 = parser.current_token.line;
             const param_column: i32 = parser.current_token.column;
-            if parser_match(parser, TokenType.TOKEN_IDENTIFIER) == 0 {
+            var param_name: &byte = null;
+            if parser_match(parser, TokenType.TOKEN_TYPE) != 0 {
+                param_name = arena_strdup(parser.arena, "type" as &byte);
+            } else if parser_match(parser, TokenType.TOKEN_IDENTIFIER) != 0 {
+                param_name = arena_strdup(parser.arena, parser.current_token.value);
+            } else {
                 return null;
             }
-            
-            const param_name: &byte = arena_strdup(parser.arena, param_name_val);
             if param_name == null {
                 return null;
             }
@@ -5839,6 +5983,12 @@ fn parser_parse_declaration(parser: &Parser) &ASTNode {
         const decl: &ASTNode = parser_parse_macro(parser);
         if decl != null && is_export != 0 {
             decl.macro_decl_is_export = 1;
+        }
+        return decl;
+    } else if parser_match(parser, TokenType.TOKEN_TYPE) != 0 {
+        const decl: &ASTNode = parser_parse_type_alias(parser);
+        if decl != null && is_export != 0 {
+            decl.type_alias_is_export = 1;
         }
         return decl;
     } else if parser_match(parser, TokenType.TOKEN_IDENTIFIER) != 0 {

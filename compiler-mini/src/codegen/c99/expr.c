@@ -654,15 +654,71 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 struct_name = get_safe_c_identifier(codegen, orig_name);
             }
             
-            int field_count = expr->data.struct_init.field_count;
-            const char **field_names = expr->data.struct_init.field_names;
-            ASTNode **field_values = expr->data.struct_init.field_values;
+            int init_field_count = expr->data.struct_init.field_count;
+            const char **init_field_names = expr->data.struct_init.field_names;
+            ASTNode **init_field_values = expr->data.struct_init.field_values;
+            
+            // 查找结构体声明以获取字段默认值
+            ASTNode *struct_decl = NULL;
+            if (codegen->program_node && codegen->program_node->type == AST_PROGRAM) {
+                for (int i = 0; i < codegen->program_node->data.program.decl_count; i++) {
+                    ASTNode *decl = codegen->program_node->data.program.decls[i];
+                    if (decl && decl->type == AST_STRUCT_DECL && 
+                        decl->data.struct_decl.name &&
+                        strcmp(decl->data.struct_decl.name, orig_name) == 0) {
+                        struct_decl = decl;
+                        break;
+                    }
+                }
+            }
+            
             fprintf(codegen->output, "(struct %s){", struct_name);
-            for (int i = 0; i < field_count; i++) {
-                const char *safe_field_name = get_safe_c_identifier(codegen, field_names[i]);
-                fprintf(codegen->output, ".%s = ", safe_field_name);
-                gen_expr(codegen, field_values[i]);
-                if (i < field_count - 1) fputs(", ", codegen->output);
+            
+            // 如果找到结构体声明，按结构体字段顺序生成初始化值（包含默认值）
+            if (struct_decl && struct_decl->data.struct_decl.fields) {
+                int struct_field_count = struct_decl->data.struct_decl.field_count;
+                ASTNode **struct_fields = struct_decl->data.struct_decl.fields;
+                int output_count = 0;
+                
+                for (int fi = 0; fi < struct_field_count; fi++) {
+                    ASTNode *field = struct_fields[fi];
+                    if (!field || field->type != AST_VAR_DECL || !field->data.var_decl.name) continue;
+                    
+                    const char *field_name = field->data.var_decl.name;
+                    const char *safe_field_name = get_safe_c_identifier(codegen, field_name);
+                    
+                    // 查找用户是否提供了这个字段的值
+                    ASTNode *user_value = NULL;
+                    for (int ui = 0; ui < init_field_count; ui++) {
+                        if (init_field_names[ui] && strcmp(init_field_names[ui], field_name) == 0) {
+                            user_value = init_field_values[ui];
+                            break;
+                        }
+                    }
+                    
+                    if (output_count > 0) fputs(", ", codegen->output);
+                    fprintf(codegen->output, ".%s = ", safe_field_name);
+                    
+                    if (user_value) {
+                        // 使用用户提供的值
+                        gen_expr(codegen, user_value);
+                    } else if (field->data.var_decl.init) {
+                        // 使用字段默认值
+                        gen_expr(codegen, field->data.var_decl.init);
+                    } else {
+                        // 没有默认值，使用零值
+                        fputs("0", codegen->output);
+                    }
+                    output_count++;
+                }
+            } else {
+                // 回退：只生成用户提供的字段（原来的行为）
+                for (int i = 0; i < init_field_count; i++) {
+                    const char *safe_field_name = get_safe_c_identifier(codegen, init_field_names[i]);
+                    fprintf(codegen->output, ".%s = ", safe_field_name);
+                    gen_expr(codegen, init_field_values[i]);
+                    if (i < init_field_count - 1) fputs(", ", codegen->output);
+                }
             }
             fputc('}', codegen->output);
             break;

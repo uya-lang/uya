@@ -1383,6 +1383,24 @@ fn find_struct_decl_from_program(program_node: &ASTNode, struct_name: &byte) &AS
 }
 
 // 从程序节点中查找联合体声明
+// 从程序节点中查找类型别名声明
+fn find_type_alias_from_program(program_node: &ASTNode, alias_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || alias_name == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < program_node.program_decl_count {
+        const decl: &ASTNode = program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_TYPE_ALIAS {
+            if decl.type_alias_name != null && str_equals(decl.type_alias_name, alias_name) != 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
 fn find_union_decl_from_program(program_node: &ASTNode, union_name: &byte) &ASTNode {
     if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || union_name == null {
         return null;
@@ -2178,8 +2196,15 @@ fn type_from_ast(checker: &TypeChecker, type_node: &ASTNode) Type {
         } else if str_equals(type_name, "void" as *byte) != 0 {
             result.kind = TypeKind.TYPE_VOID;
         } else {
-            // 其他名称可能是接口、枚举、联合体或结构体类型
+            // 其他名称可能是类型别名、接口、枚举、联合体或结构体类型
             if checker != null && checker.program_node != null {
+                // 首先检查是否是类型别名
+                const type_alias: &ASTNode = find_type_alias_from_program(checker.program_node, type_name);
+                if type_alias != null && type_alias.type_alias_target_type != null {
+                    // 递归解析目标类型（类型别名展开）
+                    return type_from_ast(checker, type_alias.type_alias_target_type);
+                }
+                
                 const iface_decl: &ASTNode = find_interface_decl_from_program(checker.program_node, type_name);
                 if iface_decl != null {
                     result.kind = TypeKind.TYPE_INTERFACE;

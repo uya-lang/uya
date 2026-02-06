@@ -62,7 +62,8 @@ typedef enum {
     TOKEN_MATCH,        // match（模式匹配）
     TOKEN_FAT_ARROW,    // =>（match 臂箭头）
     TOKEN_TEST,         // test（测试单元关键字）
-    TOKEN_MC,           // mc（宏定义关键字）    
+    TOKEN_MC,           // mc（宏定义关键字）
+    TOKEN_TYPE,         // type（类型别名关键字）
     // 运算符
     TOKEN_PLUS,         // +
     TOKEN_MINUS,        // -

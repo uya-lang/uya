@@ -90,6 +90,11 @@ ASTNode *ast_new_node(ASTNodeType type, int line, int column, Arena *arena, cons
             node->data.macro_decl.body = NULL;
             node->data.macro_decl.is_export = 0;
             break;
+        case AST_TYPE_ALIAS:
+            node->data.type_alias.name = NULL;
+            node->data.type_alias.target_type = NULL;
+            node->data.type_alias.is_export = 0;
+            break;
         case AST_VAR_DECL:
             node->data.var_decl.name = NULL;
             node->data.var_decl.type = NULL;

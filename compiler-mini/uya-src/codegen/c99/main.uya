@@ -432,6 +432,51 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         i = i + 1;
     }
     
+    // 第五步 b：生成类型别名（typedef）
+    i = 0;
+    while i < decl_count {
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_TYPE_ALIAS && 
+            decl.type_alias_name != null && decl.type_alias_target_type != null {
+            const alias_name: &byte = get_safe_c_identifier(codegen, decl.type_alias_name);
+            const target_type: &ASTNode = decl.type_alias_target_type;
+            
+            // 数组类型需要特殊处理：typedef int32_t IntArray[4]; 而不是 typedef int32_t[4] IntArray;
+            if target_type.type == ASTNodeType.AST_TYPE_ARRAY {
+                // 收集所有数组维度
+                var dims: [i32: 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+                var dim_count: i32 = 0;
+                var current: &ASTNode = target_type;
+                while current != null && current.type == ASTNodeType.AST_TYPE_ARRAY && dim_count < 16 {
+                    var size: i32 = 1;
+                    if current.type_array_size_expr != null {
+                        size = eval_const_expr(codegen, current.type_array_size_expr);
+                        if size <= 0 {
+                            size = 1;
+                        }
+                    }
+                    dims[dim_count] = size;
+                    dim_count = dim_count + 1;
+                    current = current.type_array_element_type;
+                }
+                // current 现在是基础元素类型
+                const base_type_c: &byte = c99_type_to_c(codegen, current);
+                fprintf(codegen.output as *void, "typedef %s %s" as *byte, base_type_c as *byte, alias_name as *byte);
+                var d: i32 = 0;
+                while d < dim_count {
+                    fprintf(codegen.output as *void, "[%d]" as *byte, dims[d]);
+                    d = d + 1;
+                }
+                fputs(";\n" as *byte, codegen.output as *void);
+            } else {
+                const target_type_c: &byte = c99_type_to_c(codegen, target_type);
+                fprintf(codegen.output as *void, "typedef %s %s;\n" as *byte, target_type_c as *byte, alias_name as *byte);
+            }
+        }
+        i = i + 1;
+    }
+    fputs("\n" as *byte, codegen.output as *void);
+    
     // 第六步 a：收集所有使用的切片类型（含结构体字段中的 &[T]）
     i = 0;
     while i < decl_count {

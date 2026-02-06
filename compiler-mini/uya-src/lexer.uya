@@ -52,6 +52,7 @@ enum TokenType {
     TOKEN_FAT_ARROW,   // =>（match 臂箭头）
     TOKEN_TEST,        // test（测试单元关键字）
     TOKEN_MC,          // mc（宏声明关键字）
+    TOKEN_TYPE,        // type（类型别名关键字）
     TOKEN_PLUS,
     TOKEN_MINUS,
     TOKEN_ASTERISK,
@@ -290,6 +291,8 @@ fn is_keyword(str: &byte) TokenType {
         result = TokenType.TOKEN_TEST;
     } else if str_equals_lexer(str, "mc" as &byte) != 0 {
         result = TokenType.TOKEN_MC;
+    } else if str_equals_lexer(str, "type" as &byte) != 0 {
+        result = TokenType.TOKEN_TYPE;
     }
     return result;
 }

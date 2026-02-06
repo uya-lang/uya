@@ -346,6 +346,44 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
         }
     }
     
+    // 第五步 b：生成类型别名（typedef）
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl) continue;
+        if (decl->type == AST_TYPE_ALIAS && decl->data.type_alias.name && decl->data.type_alias.target_type) {
+            const char *alias_name = get_safe_c_identifier(codegen, decl->data.type_alias.name);
+            ASTNode *target_type = decl->data.type_alias.target_type;
+            
+            // 数组类型需要特殊处理：typedef int32_t IntArray[4]; 而不是 typedef int32_t[4] IntArray;
+            if (target_type->type == AST_TYPE_ARRAY) {
+                // 收集所有数组维度
+                int dims[16];
+                int dim_count = 0;
+                ASTNode *current = target_type;
+                while (current && current->type == AST_TYPE_ARRAY && dim_count < 16) {
+                    int size = 1;
+                    if (current->data.type_array.size_expr) {
+                        size = eval_const_expr(codegen, current->data.type_array.size_expr);
+                        if (size <= 0) size = 1;
+                    }
+                    dims[dim_count++] = size;
+                    current = current->data.type_array.element_type;
+                }
+                // current 现在是基础元素类型
+                const char *base_type_c = c99_type_to_c(codegen, current);
+                fprintf(codegen->output, "typedef %s %s", base_type_c, alias_name);
+                for (int d = 0; d < dim_count; d++) {
+                    fprintf(codegen->output, "[%d]", dims[d]);
+                }
+                fputs(";\n", codegen->output);
+            } else {
+                const char *target_type_c = c99_type_to_c(codegen, target_type);
+                fprintf(codegen->output, "typedef %s %s;\n", target_type_c, alias_name);
+            }
+        }
+    }
+    fputs("\n", codegen->output);
+    
     // 第六步 a：收集所有使用的切片类型（含结构体字段中的 &[T]）
     for (int i = 0; i < decl_count; i++) {
         if (decls[i] && decls[i]->type != AST_USE_STMT && decls[i]->type != AST_MACRO_DECL) {

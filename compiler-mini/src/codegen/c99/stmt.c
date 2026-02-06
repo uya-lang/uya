@@ -796,22 +796,31 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                             
                             const char *field_name = get_safe_c_identifier(codegen, field->data.var_decl.name);
                             ASTNode *field_type = field->data.var_decl.type;
+                            ASTNode *default_value = field->data.var_decl.init;  // 字段默认值
                             
                             if (!field_name || !field_type) {
                                 continue;
                             }
                             
-                            // 根据字段类型生成初始化代码
-                            if (field_type->type == AST_TYPE_POINTER) {
-                                // 指针类型：初始化为 NULL
-                                c99_emit(codegen, "%s.%s = NULL;\n", var_name, field_name);
-                            } else if (field_type->type == AST_TYPE_ARRAY) {
-                                // 数组类型：使用 memset 清零
-                                c99_emit(codegen, "memset(%s.%s, 0, sizeof(%s.%s));\n", 
-                                        var_name, field_name, var_name, field_name);
+                            // 如果有默认值，使用默认值
+                            if (default_value) {
+                                c99_emit_indent(codegen);
+                                fprintf(codegen->output, "%s.%s = ", var_name, field_name);
+                                gen_expr(codegen, default_value);
+                                fputs(";\n", codegen->output);
                             } else {
-                                // 其他类型（整数、浮点数等）：初始化为 0
-                                c99_emit(codegen, "%s.%s = 0;\n", var_name, field_name);
+                                // 根据字段类型生成初始化代码
+                                if (field_type->type == AST_TYPE_POINTER) {
+                                    // 指针类型：初始化为 NULL
+                                    c99_emit(codegen, "%s.%s = NULL;\n", var_name, field_name);
+                                } else if (field_type->type == AST_TYPE_ARRAY) {
+                                    // 数组类型：使用 memset 清零
+                                    c99_emit(codegen, "memset(%s.%s, 0, sizeof(%s.%s));\n", 
+                                            var_name, field_name, var_name, field_name);
+                                } else {
+                                    // 其他类型（整数、浮点数等）：初始化为 0
+                                    c99_emit(codegen, "%s.%s = 0;\n", var_name, field_name);
+                                }
                             }
                         }
                     } else {

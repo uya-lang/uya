@@ -135,8 +135,9 @@ static int parser_peek_is_struct_init(Parser *parser) {
         // 这样可以保持变量初始化的兼容性，但需要调用者根据上下文判断
         // 如果是在 if 条件表达式之后，调用者应该直接处理 `{` 作为代码块，而不调用此函数
         is_struct_init = 1;
-    } else if (token_type == TOKEN_IDENTIFIER) {
+    } else if (token_type == TOKEN_IDENTIFIER || token_type == TOKEN_TYPE) {
         // 检查标识符后面是否有 ':'
+        // 允许 'type' 关键字作为字段名（常见字段名）
         size_t saved_position2 = lexer->position;
         int saved_line2 = lexer->line;
         int saved_column2 = lexer->column;
@@ -944,17 +945,21 @@ ASTNode *parser_parse_struct(Parser *parser) {
             continue;
         }
         
-        // 解析字段名称
-        if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+        // 解析字段名称（允许 'type' 关键字作为字段名，因为它是常见的字段名）
+        const char *field_name = NULL;
+        if (parser_match(parser, TOKEN_IDENTIFIER)) {
+            field_name = arena_strdup(parser->arena, parser->current_token->value);
+        } else if (parser_match(parser, TOKEN_TYPE)) {
+            field_name = arena_strdup(parser->arena, "type");
+        } else {
+            return NULL;
+        }
+        if (field_name == NULL) {
             return NULL;
         }
         
         int field_line = parser->current_token->line;
         int field_column = parser->current_token->column;
-        const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
-        if (field_name == NULL) {
-            return NULL;
-        }
         
         parser_consume(parser);
         
@@ -969,6 +974,16 @@ ASTNode *parser_parse_struct(Parser *parser) {
             return NULL;
         }
         
+        // 检查是否有默认值（= expr）
+        ASTNode *default_value = NULL;
+        if (parser_match(parser, TOKEN_ASSIGN)) {
+            parser_consume(parser);  // 消费 '='
+            default_value = parser_parse_expression(parser);
+            if (default_value == NULL) {
+                return NULL;
+            }
+        }
+        
         // 创建字段节点（使用 AST_VAR_DECL，is_const = 0）
         ASTNode *field = ast_new_node(AST_VAR_DECL, field_line, field_column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
         if (field == NULL) {
@@ -977,7 +992,7 @@ ASTNode *parser_parse_struct(Parser *parser) {
         
         field->data.var_decl.name = field_name;
         field->data.var_decl.type = field_type;
-        field->data.var_decl.init = NULL;
+        field->data.var_decl.init = default_value;  // 存储默认值
         field->data.var_decl.is_const = 0;
         
         // 扩展字段数组（使用 Arena 分配）
@@ -1761,17 +1776,21 @@ ASTNode *parser_parse_function(Parser *parser) {
                 break;
             }
             
-            // 解析参数名称
-            if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+            // 解析参数名称，允许 'type' 关键字作为参数名（常见参数名）
+            const char *param_name = NULL;
+            if (parser_match(parser, TOKEN_IDENTIFIER)) {
+                param_name = arena_strdup(parser->arena, parser->current_token->value);
+            } else if (parser_match(parser, TOKEN_TYPE)) {
+                param_name = arena_strdup(parser->arena, "type");
+            } else {
+                return NULL;
+            }
+            if (param_name == NULL) {
                 return NULL;
             }
             
             int param_line = parser->current_token->line;
             int param_column = parser->current_token->column;
-            const char *param_name = arena_strdup(parser->arena, parser->current_token->value);
-            if (param_name == NULL) {
-                return NULL;
-            }
             
             parser_consume(parser);
             
@@ -1861,6 +1880,67 @@ ASTNode *parser_parse_function(Parser *parser) {
     fn_decl->data.fn_decl.is_varargs = is_varargs;
     
     return fn_decl;
+}
+
+// 解析类型别名：type Name = Type ;
+ASTNode *parser_parse_type_alias(Parser *parser) {
+    if (parser == NULL || parser->current_token == NULL) {
+        return NULL;
+    }
+    
+    // 期望 'type'
+    if (!parser_match(parser, TOKEN_TYPE)) {
+        return NULL;
+    }
+    
+    int line = parser->current_token->line;
+    int column = parser->current_token->column;
+    
+    // 消费 'type'
+    parser_consume(parser);
+    
+    // 期望别名名称
+    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+        const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+        fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): type 后期望标识符\n", filename, line, column);
+        return NULL;
+    }
+    
+    const char *alias_name = arena_strdup(parser->arena, parser->current_token->value);
+    if (alias_name == NULL) {
+        return NULL;
+    }
+    parser_consume(parser);
+    
+    // 期望 '='
+    if (!parser_expect(parser, TOKEN_ASSIGN)) {
+        return NULL;
+    }
+    
+    // 解析目标类型
+    ASTNode *target_type = parser_parse_type(parser);
+    if (target_type == NULL) {
+        const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
+        fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): type 别名需要目标类型\n", filename, line, column);
+        return NULL;
+    }
+    
+    // 期望 ';'
+    if (!parser_expect(parser, TOKEN_SEMICOLON)) {
+        return NULL;
+    }
+    
+    // 创建类型别名节点
+    ASTNode *type_alias = ast_new_node(AST_TYPE_ALIAS, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+    if (type_alias == NULL) {
+        return NULL;
+    }
+    
+    type_alias->data.type_alias.name = alias_name;
+    type_alias->data.type_alias.target_type = target_type;
+    type_alias->data.type_alias.is_export = 0;
+    
+    return type_alias;
 }
 
 // 解析宏声明：mc ID(param_list) return_tag { statements }
@@ -1953,15 +2033,20 @@ ASTNode *parser_parse_macro(Parser *parser) {
             }
             
             // 解析参数类型（expr, stmt, type, pattern, ident）
-            if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+            // 注意：'type' 既是关键字又是宏参数类型，需要同时接受 TOKEN_IDENTIFIER 和 TOKEN_TYPE
+            const char *param_type_str = NULL;
+            if (parser_match(parser, TOKEN_IDENTIFIER)) {
+                param_type_str = arena_strdup(parser->arena, parser->current_token->value);
+            } else if (parser_match(parser, TOKEN_TYPE)) {
+                // 'type' 关键字在宏参数类型位置作为参数类型标识符
+                param_type_str = arena_strdup(parser->arena, "type");
+            } else {
                 const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
                 fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 宏参数类型必须是 'expr', 'stmt', 'type', 'pattern' 或 'ident'\n",
                         filename, parser->current_token ? parser->current_token->line : 0,
                         parser->current_token ? parser->current_token->column : 0);
                 return NULL;
             }
-            
-            const char *param_type_str = arena_strdup(parser->arena, parser->current_token->value);
             if (param_type_str == NULL) {
                 return NULL;
             }
@@ -2049,10 +2134,14 @@ ASTNode *parser_parse_macro(Parser *parser) {
     }
     
     // 解析返回标签（expr, stmt, struct, type）
-    // 注意：struct 是关键字（TOKEN_STRUCT），其他是标识符
+    // 注意：struct 和 type 是关键字，其他是标识符
     const char *return_tag = NULL;
     if (parser_match(parser, TOKEN_STRUCT)) {
         return_tag = arena_strdup(parser->arena, "struct");
+        parser_consume(parser);
+    } else if (parser_match(parser, TOKEN_TYPE)) {
+        // 'type' 关键字在宏返回标签位置作为标签
+        return_tag = arena_strdup(parser->arena, "type");
         parser_consume(parser);
     } else if (parser_match(parser, TOKEN_IDENTIFIER)) {
         return_tag = arena_strdup(parser->arena, parser->current_token->value);
@@ -2060,8 +2149,7 @@ ASTNode *parser_parse_macro(Parser *parser) {
             return NULL;
         }
         // 验证返回标签
-        if (strcmp(return_tag, "expr") != 0 && strcmp(return_tag, "stmt") != 0 &&
-            strcmp(return_tag, "type") != 0) {
+        if (strcmp(return_tag, "expr") != 0 && strcmp(return_tag, "stmt") != 0) {
             const char *filename = parser->lexer && parser->lexer->filename ? parser->lexer->filename : "<unknown>";
             fprintf(stderr, "错误: 语法分析失败 (%s:%d:%d): 宏返回标签必须是 'expr', 'stmt', 'struct' 或 'type'，得到 '%s'\n",
                     filename, parser->current_token->line, parser->current_token->column, return_tag);
@@ -2167,17 +2255,21 @@ static ASTNode *parser_parse_extern_function_after_extern(Parser *parser) {
                 break;  // 遇到 ... 后退出循环
             }
             
-            // 解析参数名称
-            if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+            // 解析参数名称，允许 'type' 关键字作为参数名
+            const char *param_name = NULL;
+            if (parser_match(parser, TOKEN_IDENTIFIER)) {
+                param_name = arena_strdup(parser->arena, parser->current_token->value);
+            } else if (parser_match(parser, TOKEN_TYPE)) {
+                param_name = arena_strdup(parser->arena, "type");
+            } else {
+                return NULL;
+            }
+            if (param_name == NULL) {
                 return NULL;
             }
             
             int param_line = parser->current_token->line;
             int param_column = parser->current_token->column;
-            const char *param_name = arena_strdup(parser->arena, parser->current_token->value);
-            if (param_name == NULL) {
-                return NULL;
-            }
             
             parser_consume(parser);
             
@@ -2495,6 +2587,12 @@ ASTNode *parser_parse_declaration(Parser *parser) {
         ASTNode *decl = parser_parse_macro(parser);
         if (decl != NULL && is_export) {
             decl->data.macro_decl.is_export = 1;
+        }
+        return decl;
+    } else if (parser_match(parser, TOKEN_TYPE)) {
+        ASTNode *decl = parser_parse_type_alias(parser);
+        if (decl != NULL && is_export) {
+            decl->data.type_alias.is_export = 1;
         }
         return decl;
     } else if (parser_match(parser, TOKEN_IDENTIFIER)) {
@@ -2964,10 +3062,16 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
         ASTNode *result = node;
         while (parser->current_token != NULL && parser_match(parser, TOKEN_DOT)) {
             parser_consume(parser);
-            if (parser->current_token == NULL || (parser->current_token->type != TOKEN_IDENTIFIER && parser->current_token->type != TOKEN_NUMBER)) {
+            // 允许 'type' 关键字作为字段名（常见字段名）
+            if (parser->current_token == NULL || 
+                (parser->current_token->type != TOKEN_IDENTIFIER && 
+                 parser->current_token->type != TOKEN_NUMBER &&
+                 parser->current_token->type != TOKEN_TYPE)) {
                 return NULL;
             }
-            const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
+            const char *field_name = parser->current_token->type == TOKEN_TYPE ?
+                arena_strdup(parser->arena, "type") :
+                arena_strdup(parser->arena, parser->current_token->value);
             if (field_name == NULL) return NULL;
             int field_line = parser->current_token->line;
             int field_column = parser->current_token->column;
@@ -3441,12 +3545,22 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             parser_consume(parser);
             return node;
         }
-        const char *name = arena_strdup(parser->arena, parser->current_token->value);
+    }
+    
+    // 允许 'type' 关键字作为标识符表达式（用于变量名为 type 的情况）
+    // 与普通标识符走相同的代码路径，以正确处理成员访问、函数调用等后续操作
+    if (parser->current_token->type == TOKEN_IDENTIFIER || parser->current_token->type == TOKEN_TYPE) {
+        const char *name = NULL;
+        if (parser->current_token->type == TOKEN_TYPE) {
+            name = arena_strdup(parser->arena, "type");
+        } else {
+            name = arena_strdup(parser->arena, parser->current_token->value);
+        }
         if (name == NULL) {
             return NULL;
         }
         
-        parser_consume(parser);  // 消费标识符
+        parser_consume(parser);  // 消费标识符或 'type' 关键字
         
         // 检查是否是泛型函数调用：ID '<' type_list '>' '(' ... 或 ID '(' ...
         ASTNode **type_args = NULL;
@@ -3679,12 +3793,17 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     // 字段访问：.field
                     parser_consume(parser);  // 消费 '.'
                     
-                    // 期望字段名称或元组下标（.0, .1, ...）
-                    if (parser->current_token == NULL || (parser->current_token->type != TOKEN_IDENTIFIER && parser->current_token->type != TOKEN_NUMBER)) {
+                    // 期望字段名称或元组下标（.0, .1, ...），允许 'type' 关键字作为字段名
+                    if (parser->current_token == NULL || 
+                        (parser->current_token->type != TOKEN_IDENTIFIER && 
+                         parser->current_token->type != TOKEN_NUMBER &&
+                         parser->current_token->type != TOKEN_TYPE)) {
                         return NULL;
                     }
                     
-                    const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
+                    const char *field_name = parser->current_token->type == TOKEN_TYPE ?
+                        arena_strdup(parser->arena, "type") :
+                        arena_strdup(parser->arena, parser->current_token->value);
                     if (field_name == NULL) {
                         return NULL;
                     }
@@ -3819,12 +3938,17 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 while (parser->current_token != NULL && parser_match(parser, TOKEN_DOT)) {
                     parser_consume(parser);  // 消费 '.'
                     
-                    // 期望字段名称或元组下标（.0, .1, ...）
-                    if (parser->current_token == NULL || (parser->current_token->type != TOKEN_IDENTIFIER && parser->current_token->type != TOKEN_NUMBER)) {
+                    // 期望字段名称或元组下标（.0, .1, ...），允许 'type' 关键字作为字段名
+                    if (parser->current_token == NULL || 
+                        (parser->current_token->type != TOKEN_IDENTIFIER && 
+                         parser->current_token->type != TOKEN_NUMBER &&
+                         parser->current_token->type != TOKEN_TYPE)) {
                         return NULL;
                     }
                     
-                    const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
+                    const char *field_name = parser->current_token->type == TOKEN_TYPE ?
+                        arena_strdup(parser->arena, "type") :
+                        arena_strdup(parser->arena, parser->current_token->value);
                     if (field_name == NULL) {
                         return NULL;
                     }
@@ -3962,12 +4086,15 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                        !parser_match(parser, TOKEN_RIGHT_BRACE) && 
                        !parser_match(parser, TOKEN_EOF)) {
                     
-                    // 解析字段名称
-                    if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                    // 解析字段名称，允许 'type' 关键字作为字段名
+                    const char *field_name = NULL;
+                    if (parser_match(parser, TOKEN_IDENTIFIER)) {
+                        field_name = arena_strdup(parser->arena, parser->current_token->value);
+                    } else if (parser_match(parser, TOKEN_TYPE)) {
+                        field_name = arena_strdup(parser->arena, "type");
+                    } else {
                         return NULL;
                     }
-                    
-                    const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
                     if (field_name == NULL) {
                         return NULL;
                     }
@@ -4040,12 +4167,14 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             while (parser->current_token != NULL && parser_match(parser, TOKEN_DOT)) {
                 parser_consume(parser);  // 消费 '.'
                 
-                // 期望字段名称
-                if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+                // 期望字段名称，允许 'type' 关键字作为字段名
+                if (!parser_match(parser, TOKEN_IDENTIFIER) && !parser_match(parser, TOKEN_TYPE)) {
                     return NULL;
                 }
                 
-                const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
+                const char *field_name = parser->current_token->type == TOKEN_TYPE ?
+                    arena_strdup(parser->arena, "type") :
+                    arena_strdup(parser->arena, parser->current_token->value);
                 if (field_name == NULL) {
                     return NULL;
                 }
@@ -4085,12 +4214,17 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     // 字段访问：.field
                     parser_consume(parser);  // 消费 '.'
                     
-                    // 期望字段名称或元组下标（.0, .1, ...）
-                    if (parser->current_token == NULL || (parser->current_token->type != TOKEN_IDENTIFIER && parser->current_token->type != TOKEN_NUMBER)) {
+                    // 期望字段名称或元组下标（.0, .1, ...），允许 'type' 关键字作为字段名
+                    if (parser->current_token == NULL || 
+                        (parser->current_token->type != TOKEN_IDENTIFIER && 
+                         parser->current_token->type != TOKEN_NUMBER &&
+                         parser->current_token->type != TOKEN_TYPE)) {
                         return NULL;
                     }
                     
-                    const char *field_name = arena_strdup(parser->arena, parser->current_token->value);
+                    const char *field_name = parser->current_token->type == TOKEN_TYPE ?
+                        arena_strdup(parser->arena, "type") :
+                        arena_strdup(parser->arena, parser->current_token->value);
                     if (field_name == NULL) {
                         return NULL;
                     }
@@ -5610,12 +5744,15 @@ ASTNode *parser_parse_statement(Parser *parser) {
             return stmt;
         }
         
-        // 普通变量声明
-        if (!parser_match(parser, TOKEN_IDENTIFIER)) {
+        // 普通变量声明，允许 'type' 关键字作为变量名
+        const char *var_name = NULL;
+        if (parser_match(parser, TOKEN_IDENTIFIER)) {
+            var_name = arena_strdup(parser->arena, parser->current_token->value);
+        } else if (parser_match(parser, TOKEN_TYPE)) {
+            var_name = arena_strdup(parser->arena, "type");
+        } else {
             return NULL;
         }
-        
-        const char *var_name = arena_strdup(parser->arena, parser->current_token->value);
         if (var_name == NULL) {
             return NULL;
         }

@@ -47,6 +47,7 @@ typedef enum {
     AST_METHOD_BLOCK,   // 方法块（StructName { fn method(...) { ... } ... }）
     AST_FN_DECL,        // 函数声明
     AST_MACRO_DECL,     // 宏声明（mc ID(param_list) return_tag { statements }）
+    AST_TYPE_ALIAS,     // 类型别名（type Name = Type）
     AST_VAR_DECL,       // 变量声明（const/var）
     AST_DESTRUCTURE_DECL, // 解构声明（const (x, y) = expr）
     AST_USE_STMT,         // use 语句（use path; 或 use path.item; 或 use path as alias;）
@@ -219,6 +220,13 @@ struct ASTNode {
             struct ASTNode *body;     // 宏体（AST_BLOCK 节点）
             int is_export;            // 1 表示 export mc，0 表示私有
         } macro_decl;
+        
+        // 类型别名（type Name = Type）
+        struct {
+            const char *name;         // 别名名称
+            struct ASTNode *target_type; // 目标类型节点
+            int is_export;            // 1 表示 export type，0 表示私有
+        } type_alias;
         
         // 变量声明（用于变量声明、函数参数、结构体字段）
         struct {

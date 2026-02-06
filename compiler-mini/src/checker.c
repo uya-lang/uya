@@ -33,6 +33,7 @@ static ASTNode *find_interface_decl_from_program(ASTNode *program_node, const ch
 static int detect_interface_compose_cycle(ASTNode *program_node, const char *interface_name, const char **visited, int visited_count);
 static ASTNode *find_interface_method_sig(ASTNode *program_node, const char *interface_name, const char *method_name);
 static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *enum_name);
+static ASTNode *find_type_alias_from_program(ASTNode *program_node, const char *alias_name);
 static int register_mono_instance(TypeChecker *checker, const char *generic_name,
                                    ASTNode **type_arg_nodes, int type_arg_count,
                                    int is_function);
@@ -1062,9 +1063,16 @@ static Type type_from_ast(TypeChecker *checker, ASTNode *type_node) {
         } else if (strcmp(type_name, "void") == 0) {
             result.kind = TYPE_VOID;
         } else {
-            // 其他名称可能是枚举类型或结构体类型
+            // 其他名称可能是类型别名、枚举类型或结构体类型
             // 需要从program_node中查找枚举或结构体声明（在类型检查阶段验证）
             if (checker != NULL && checker->program_node != NULL) {
+                // 首先检查是否是类型别名
+                ASTNode *type_alias = find_type_alias_from_program(checker->program_node, type_name);
+                if (type_alias != NULL && type_alias->data.type_alias.target_type != NULL) {
+                    // 递归解析目标类型（类型别名展开）
+                    return type_from_ast(checker, type_alias->data.type_alias.target_type);
+                }
+                
                 ASTNode *enum_decl = find_enum_decl_from_program(checker->program_node, type_name);
                 if (enum_decl != NULL) {
                     result.kind = TYPE_ENUM;
@@ -2315,6 +2323,25 @@ static ASTNode *find_enum_decl_from_program(ASTNode *program_node, const char *e
         if (decl != NULL && decl->type == AST_ENUM_DECL) {
             if (decl->data.enum_decl.name != NULL && 
                 strcmp(decl->data.enum_decl.name, enum_name) == 0) {
+                return decl;
+            }
+        }
+    }
+    
+    return NULL;
+}
+
+// 查找类型别名声明
+static ASTNode *find_type_alias_from_program(ASTNode *program_node, const char *alias_name) {
+    if (program_node == NULL || program_node->type != AST_PROGRAM || alias_name == NULL) {
+        return NULL;
+    }
+    
+    for (int i = 0; i < program_node->data.program.decl_count; i++) {
+        ASTNode *decl = program_node->data.program.decls[i];
+        if (decl != NULL && decl->type == AST_TYPE_ALIAS) {
+            if (decl->data.type_alias.name != NULL && 
+                strcmp(decl->data.type_alias.name, alias_name) == 0) {
                 return decl;
             }
         }
@@ -5645,6 +5672,14 @@ static int checker_check_node(TypeChecker *checker, ASTNode *node) {
         case AST_MACRO_DECL:
             /* 宏声明不进行类型检查，宏体在展开时解释 */
             return 1;
+        case AST_TYPE_ALIAS:
+            /* 类型别名：验证目标类型有效 */
+            if (checker->scope_level > 0) {
+                checker_report_error(checker, node, "类型别名只能在顶层定义");
+                return 0;
+            }
+            /* 类型别名的目标类型在使用时会被展开和验证，这里只做基本检查 */
+            return 1;
         case AST_MC_EVAL:
         case AST_MC_CODE:
         case AST_MC_AST:
@@ -7349,6 +7384,11 @@ static void build_module_exports(TypeChecker *checker, ASTNode *program) {
                 is_export = decl->data.macro_decl.is_export;
                 item_name = decl->data.macro_decl.name;
                 item_type = 8;  // 宏
+                break;
+            case AST_TYPE_ALIAS:
+                is_export = decl->data.type_alias.is_export;
+                item_name = decl->data.type_alias.name;
+                item_type = 9;  // 类型别名
                 break;
             default:
                 break;

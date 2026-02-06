@@ -1,0 +1,170 @@
+// 测试类型别名功能
+
+// 基本类型别名
+type Int = i32;
+type Byte = u8;
+type Float = f64;
+
+// 指针类型别名
+type IntPtr = *i32;
+
+// 数组类型别名
+type IntArray = [i32: 4];
+
+// 结构体类型别名
+struct Point {
+    x: i32,
+    y: i32,
+}
+type Pt = Point;
+
+// 多层别名（别名的别名）
+type MyInt = Int;  // Int -> i32
+type MyByte = Byte; // Byte -> u8
+
+// ============================================
+// 泛型类型别名
+// ============================================
+
+// 泛型结构体
+struct Box<T> {
+    value: T,
+}
+
+struct Pair<K, V> {
+    key: K,
+    val: V,
+}
+
+// 泛型类型的别名
+type IntBox = Box<i32>;
+type StringBox = Box<&byte>;
+type IntPair = Pair<i32, i32>;
+type StrIntPair = Pair<&byte, i32>;
+
+// 嵌套泛型类型别名
+type BoxOfBox = Box<Box<i32>>;
+
+// ============================================
+// 宏创建的类型别名
+// ============================================
+
+// TypeInfo 结构体（用于 @mc_type）
+struct TypeInfo {
+    name: *i8,
+    size: i32,
+    align: i32,
+    kind: i32,
+    is_integer: bool,
+    is_float: bool,
+    is_bool: bool,
+    is_pointer: bool,
+    is_array: bool,
+    is_void: bool,
+}
+
+// 类型信息别名
+type TI = TypeInfo;
+
+// 宏：创建类型信息
+mc make_type_info(T: type) expr {
+    @mc_type(T);
+}
+
+fn main() i32 {
+    // 使用类型别名声明变量
+    var a: Int = 42;
+    var b: Byte = 255;
+    var c: Float = 3.14;
+    
+    // 使用指针类型别名
+    var x: i32 = 100;
+    var ptr: IntPtr = &x;
+    
+    // 使用数组类型别名
+    var arr: IntArray = [1, 2, 3, 4];
+    
+    // 使用结构体类型别名
+    var p: Pt = Point { x: 10, y: 20 };
+    
+    // 使用多层别名
+    var m: MyInt = 50;
+    var n: MyByte = 128;
+    
+    // 验证值
+    if a != 42 {
+        return 1;
+    }
+    if b != 255 {
+        return 2;
+    }
+    if *ptr != 100 {
+        return 3;
+    }
+    if arr[0] != 1 {
+        return 4;
+    }
+    if p.x != 10 {
+        return 5;
+    }
+    if m != 50 {
+        return 6;
+    }
+    
+    // ============================================
+    // 测试泛型类型别名
+    // ============================================
+    
+    // IntBox = Box<i32>
+    var ibox: IntBox = Box<i32> { value: 123 };
+    if ibox.value != 123 {
+        return 10;
+    }
+    
+    // IntPair = Pair<i32, i32>
+    var ipair: IntPair = Pair<i32, i32> { key: 1, val: 2 };
+    if ipair.key != 1 {
+        return 11;
+    }
+    if ipair.val != 2 {
+        return 12;
+    }
+    
+    // StrIntPair = Pair<&byte, i32>
+    var spair: StrIntPair = Pair<&byte, i32> { key: "hello", val: 42 };
+    if spair.val != 42 {
+        return 13;
+    }
+    
+    // BoxOfBox = Box<Box<i32>>
+    const inner: Box<i32> = Box<i32> { value: 999 };
+    var bbox: BoxOfBox = Box<Box<i32>> { value: inner };
+    if bbox.value.value != 999 {
+        return 14;
+    }
+    
+    // ============================================
+    // 测试宏创建的类型别名
+    // ============================================
+    
+    // 使用 TypeInfo 的别名
+    const ti: TI = make_type_info(i32);
+    if ti.size != 4 {
+        return 20;
+    }
+    if !ti.is_integer {
+        return 21;
+    }
+    
+    // 验证 f64 类型信息
+    const f64_info: TI = make_type_info(f64);
+    if f64_info.size != 8 {
+        return 22;
+    }
+    if !f64_info.is_float {
+        return 23;
+    }
+    
+    return 0;
+}
+

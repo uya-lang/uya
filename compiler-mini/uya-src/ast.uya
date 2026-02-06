@@ -54,6 +54,7 @@ enum ASTNodeType {
     AST_METHOD_BLOCK,  // 方法块（StructName { fn method(...) { ... } ... }）
     AST_FN_DECL,
     AST_MACRO_DECL,    // 宏声明（mc ID(param_list) return_tag { statements }）
+    AST_TYPE_ALIAS,    // 类型别名（type Name = Type）
     AST_VAR_DECL,
     AST_DESTRUCTURE_DECL,  // 解构声明（const (x, y) = expr）
     AST_USE_STMT,         // use 语句（use path; 或 use path.item; 或 use path as alias;）
@@ -187,6 +188,10 @@ struct ASTNode {
     macro_decl_return_tag: &byte,      // "expr", "stmt", "struct", "type"
     macro_decl_body: &ASTNode,
     macro_decl_is_export: i32,
+    // type_alias（类型别名）
+    type_alias_name: &byte,
+    type_alias_target_type: &ASTNode,
+    type_alias_is_export: i32,
     // mc_* 宏内建函数
     mc_eval_operand: &ASTNode,
     mc_code_operand: &ASTNode,
@@ -410,6 +415,9 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.macro_decl_return_tag = null;
     node.macro_decl_body = null;
     node.macro_decl_is_export = 0;
+    node.type_alias_name = null;
+    node.type_alias_target_type = null;
+    node.type_alias_is_export = 0;
     node.mc_eval_operand = null;
     node.mc_code_operand = null;
     node.mc_ast_operand = null;

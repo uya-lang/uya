@@ -798,26 +798,94 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         gen_expr(codegen, index);
         fputc(93, codegen.output as *void);  // ']'
     } else if expr.type == ASTNodeType.AST_STRUCT_INIT {
+        const orig_name: &byte = expr.struct_init_struct_name;
         var struct_name: &byte = null;
         if expr.struct_init_type_arg_count > 0 && expr.struct_init_type_args != null {
             // 使用单态化结构体名称
-            struct_name = get_mono_struct_name(codegen, expr.struct_init_struct_name,
+            struct_name = get_mono_struct_name(codegen, orig_name,
                 expr.struct_init_type_args,
                 expr.struct_init_type_arg_count);
         } else {
-            struct_name = get_safe_c_identifier(codegen, expr.struct_init_struct_name);
+            struct_name = get_safe_c_identifier(codegen, orig_name);
         }
-        const field_count: i32 = expr.struct_init_field_count;
-        fprintf(codegen.output as *void, "(struct %s){" as *byte, struct_name as *byte);
-        var i: i32 = 0;
-        while i < field_count {
-            const safe_field_name: &byte = get_safe_c_identifier(codegen, expr.struct_init_field_names[i]);
-            fprintf(codegen.output as *void, ".%s = " as *byte, safe_field_name as *byte);
-            gen_expr(codegen, expr.struct_init_field_values[i]);
-            if i < field_count - 1 {
-                fputs(", " as *byte, codegen.output as *void);
+        
+        const init_field_count: i32 = expr.struct_init_field_count;
+        
+        // 查找结构体声明以获取字段默认值
+        var struct_decl: &ASTNode = null;
+        if codegen.program_node != null && codegen.program_node.type == ASTNodeType.AST_PROGRAM {
+            var di: i32 = 0;
+            while di < codegen.program_node.program_decl_count {
+                const decl: &ASTNode = codegen.program_node.program_decls[di];
+                if decl != null && decl.type == ASTNodeType.AST_STRUCT_DECL && 
+                    decl.struct_decl_name != null && str_equals(decl.struct_decl_name, orig_name) != 0 {
+                    struct_decl = decl;
+                    break;
+                }
+                di = di + 1;
             }
-            i = i + 1;
+        }
+        
+        fprintf(codegen.output as *void, "(struct %s){" as *byte, struct_name as *byte);
+        
+        // 如果找到结构体声明，按结构体字段顺序生成初始化值（包含默认值）
+        if struct_decl != null && struct_decl.struct_decl_fields != null {
+            const struct_field_count: i32 = struct_decl.struct_decl_field_count;
+            var output_count: i32 = 0;
+            
+            var fi: i32 = 0;
+            while fi < struct_field_count {
+                const field: &ASTNode = struct_decl.struct_decl_fields[fi];
+                if field == null || field.type != ASTNodeType.AST_VAR_DECL || field.var_decl_name == null {
+                    fi = fi + 1;
+                    continue;
+                }
+                
+                const field_name: &byte = field.var_decl_name;
+                const safe_field_name: &byte = get_safe_c_identifier(codegen, field_name);
+                
+                // 查找用户是否提供了这个字段的值
+                var user_value: &ASTNode = null;
+                var ui: i32 = 0;
+                while ui < init_field_count {
+                    if expr.struct_init_field_names[ui] != null && 
+                        str_equals(expr.struct_init_field_names[ui], field_name) != 0 {
+                        user_value = expr.struct_init_field_values[ui];
+                        break;
+                    }
+                    ui = ui + 1;
+                }
+                
+                if output_count > 0 {
+                    fputs(", " as *byte, codegen.output as *void);
+                }
+                fprintf(codegen.output as *void, ".%s = " as *byte, safe_field_name as *byte);
+                
+                if user_value != null {
+                    // 使用用户提供的值
+                    gen_expr(codegen, user_value);
+                } else if field.var_decl_init != null {
+                    // 使用字段默认值
+                    gen_expr(codegen, field.var_decl_init);
+                } else {
+                    // 没有默认值，使用零值
+                    fputs("0" as *byte, codegen.output as *void);
+                }
+                output_count = output_count + 1;
+                fi = fi + 1;
+            }
+        } else {
+            // 回退：只生成用户提供的字段
+            var i: i32 = 0;
+            while i < init_field_count {
+                const safe_field_name: &byte = get_safe_c_identifier(codegen, expr.struct_init_field_names[i]);
+                fprintf(codegen.output as *void, ".%s = " as *byte, safe_field_name as *byte);
+                gen_expr(codegen, expr.struct_init_field_values[i]);
+                if i < init_field_count - 1 {
+                    fputs(", " as *byte, codegen.output as *void);
+                }
+                i = i + 1;
+            }
         }
         fputc(125, codegen.output as *void);  // '}'
     } else if expr.type == ASTNodeType.AST_ARRAY_LITERAL {
