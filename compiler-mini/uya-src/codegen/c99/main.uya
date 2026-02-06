@@ -325,6 +325,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                 i = i + 1;
                 continue;
             }
+            // 跳过宏声明（宏在 checker 阶段已展开，不需要生成代码）
+            if decl.type == ASTNodeType.AST_MACRO_DECL {
+                i = i + 1;
+                continue;
+            }
             collect_string_constants_from_decl(codegen, decl);
         }
         i = i + 1;
@@ -411,6 +416,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         if decl != null {
             // 跳过 use 语句（模块导入，不需要生成代码）
             if decl.type == ASTNodeType.AST_USE_STMT {
+                i = i + 1;
+                continue;
+            }
+            // 跳过宏声明（宏在 checker 阶段已展开，不需要生成代码）
+            if decl.type == ASTNodeType.AST_MACRO_DECL {
                 i = i + 1;
                 continue;
             }
@@ -526,6 +536,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
             continue;
         }
         if decl.type == ASTNodeType.AST_USE_STMT {
+            i = i + 1;
+            continue;
+        }
+        // 跳过宏声明（宏在 checker 阶段已展开，不需要生成代码）
+        if decl.type == ASTNodeType.AST_MACRO_DECL {
             i = i + 1;
             continue;
         }
@@ -686,6 +701,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         if decl != null {
             // 跳过 use 语句（模块导入，不需要生成代码）
             if decl.type == ASTNodeType.AST_USE_STMT {
+                i = i + 1;
+                continue;
+            }
+            // 跳过宏声明（宏在 checker 阶段已展开，不需要生成代码）
+            if decl.type == ASTNodeType.AST_MACRO_DECL {
                 i = i + 1;
                 continue;
             }
