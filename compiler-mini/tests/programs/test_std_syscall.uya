@@ -1,0 +1,43 @@
+// 测试 std.c.syscall 模块
+// 功能：测试高级系统调用封装
+
+use std.c.syscall;
+
+fn main() i32 {
+    // 测试 1: sys_write 到标准输出
+    const msg1: *byte = "Test 1: sys_write\n";
+    const result1: !i64 = sys_write(STDOUT_FILENO, msg1 as i64, 18);
+    const bytes1: i64 = result1 catch {
+        return 1;
+    };
+    if bytes1 != 18 {
+        return 1;
+    }
+    
+    // 测试 2: sys_getpid（总是成功）
+    const msg2: *byte = "Test 2: sys_getpid\n";
+    _ = sys_write(STDOUT_FILENO, msg2 as i64, 19);
+    const pid: i64 = sys_getpid();
+    if pid <= 0 {
+        return 1;
+    }
+    
+    // 测试 3: sys_open 打开不存在的文件（预期失败）
+    const msg3: *byte = "Test 3: sys_open error handling\n";
+    _ = sys_write(STDOUT_FILENO, msg3 as i64, 33);
+    const bad_path: *byte = "/nonexistent/test/file";
+    const fd_result: !i64 = sys_open(bad_path as i64, O_RDONLY, 0);
+    _ = fd_result catch {
+        // 预期失败，测试通过
+        const msg_ok: *byte = "Test 3: OK (expected error)\n";
+        _ = sys_write(STDOUT_FILENO, msg_ok as i64, 29);
+        
+        const msg_all: *byte = "\nAll tests passed!\n";
+        _ = sys_write(STDOUT_FILENO, msg_all as i64, 19);
+        return 0;
+    };
+    
+    // 如果打开成功（不应该发生），报错
+    return 1;
+}
+

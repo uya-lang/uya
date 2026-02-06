@@ -1,0 +1,67 @@
+// 简化的 std.c.syscall 测试
+// 将所有代码放在一个文件中
+
+// 系统调用号
+const SYS_write: i64 = 1;
+const SYS_open: i64 = 2;
+const SYS_getpid: i64 = 39;
+
+// 标准文件描述符
+const STDOUT_FILENO: i64 = 1;
+
+// 文件操作标志
+const O_RDONLY: i64 = 0;
+
+// 高级系统调用封装
+fn sys_write(fd: i64, buf: i64, count: i64) !i64 {
+    return @syscall(SYS_write, fd, buf, count);
+}
+
+fn sys_getpid() i64 {
+    const result: !i64 = @syscall(SYS_getpid);
+    const pid: i64 = result catch {
+        return 0;
+    };
+    return pid;
+}
+
+fn sys_open(path: i64, flags: i64, mode: i64) !i64 {
+    return @syscall(SYS_open, path, flags, mode);
+}
+
+fn main() i32 {
+    // 测试 1: sys_write
+    const msg1: *byte = "Test 1: sys_write\n";
+    const result1: !i64 = sys_write(STDOUT_FILENO, msg1 as i64, 18);
+    const bytes1: i64 = result1 catch {
+        return 1;
+    };
+    if bytes1 != 18 {
+        return 1;
+    }
+    
+    // 测试 2: sys_getpid
+    const msg2: *byte = "Test 2: sys_getpid\n";
+    _ = sys_write(STDOUT_FILENO, msg2 as i64, 19);
+    const pid: i64 = sys_getpid();
+    if pid <= 0 {
+        return 1;
+    }
+    
+    // 测试 3: sys_open 错误处理
+    const msg3: *byte = "Test 3: error handling\n";
+    _ = sys_write(STDOUT_FILENO, msg3 as i64, 23);
+    const bad_path: *byte = "/nonexistent/file";
+    const fd_result: !i64 = sys_open(bad_path as i64, O_RDONLY, 0);
+    _ = fd_result catch {
+        const msg_ok: *byte = "Test 3: OK\n\n";
+        _ = sys_write(STDOUT_FILENO, msg_ok as i64, 12);
+        
+        const msg_all: *byte = "All tests passed!\n";
+        _ = sys_write(STDOUT_FILENO, msg_all as i64, 18);
+        return 0;
+    };
+    
+    return 1;
+}
+
