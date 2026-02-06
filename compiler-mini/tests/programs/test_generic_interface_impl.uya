@@ -1,0 +1,47 @@
+// 测试结构体实现泛型接口
+
+// 泛型接口：获取器
+interface Getter<T> {
+    fn get(self: &Self) T;
+}
+
+// 结构体实现泛型接口（i32 版本）
+struct IntHolder : Getter<i32> {
+    value: i32,
+}
+
+IntHolder {
+    fn get(self: &IntHolder) i32 {
+        return self.value;
+    }
+}
+
+// 结构体实现泛型接口（f64 版本）
+struct FloatHolder : Getter<f64> {
+    value: f64,
+}
+
+FloatHolder {
+    fn get(self: &FloatHolder) f64 {
+        return self.value;
+    }
+}
+
+fn main() i32 {
+    // 测试 IntHolder
+    const ih: IntHolder = IntHolder{ value: 42 };
+    const r1: i32 = ih.get();
+    if r1 != 42 {
+        return 1;
+    }
+    
+    // 测试 FloatHolder
+    const fh: FloatHolder = FloatHolder{ value: 3.14 };
+    const r2: f64 = fh.get();
+    if r2 != 3.14 {
+        return 2;
+    }
+    
+    return 0;
+}
+

@@ -1,0 +1,34 @@
+// 测试嵌套泛型
+// 已知问题：>> 被解析为右移运算符
+
+struct Box<T> {
+    value: T,
+}
+
+struct Pair<A, B> {
+    first: A,
+    second: B,
+}
+
+fn main() i32 {
+    // 简单泛型
+    const b1: Box<i32> = Box<i32>{ value: 42 };
+    if b1.value != 42 {
+        return 1;
+    }
+    
+    // 嵌套泛型：Box<Pair<i32, i32>>
+    // 现在支持 >> 自动拆分为两个 >
+    const b2: Box<Pair<i32, i32>> = Box<Pair<i32, i32>>{ 
+        value: Pair<i32, i32>{ first: 10, second: 20 } 
+    };
+    if b2.value.first != 10 {
+        return 2;
+    }
+    if b2.value.second != 20 {
+        return 3;
+    }
+    
+    return 0;
+}
+

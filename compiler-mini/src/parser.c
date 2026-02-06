@@ -13,6 +13,7 @@ int parser_init(Parser *parser, Lexer *lexer, Arena *arena) {
     parser->lexer = lexer;
     parser->arena = arena;
     parser->context = PARSER_CONTEXT_NORMAL;  // 默认上下文
+    parser->pending_greater_token = NULL;     // 初始化待处理的 > token
     
     // 获取第一个 Token
     parser->current_token = lexer_next_token(lexer, arena);
@@ -22,7 +23,14 @@ int parser_init(Parser *parser, Lexer *lexer, Arena *arena) {
 
 // 辅助函数：检查当前 Token 类型是否匹配
 static int parser_match(Parser *parser, TokenType type) {
-    if (parser == NULL || parser->current_token == NULL) {
+    if (parser == NULL) {
+        return 0;
+    }
+    // 如果有待处理的 > token，优先检查它
+    if (parser->pending_greater_token != NULL) {
+        return parser->pending_greater_token->type == type;
+    }
+    if (parser->current_token == NULL) {
         return 0;
     }
     return parser->current_token->type == type;
@@ -30,7 +38,18 @@ static int parser_match(Parser *parser, TokenType type) {
 
 // 辅助函数：消费当前 Token 并获取下一个
 static Token *parser_consume(Parser *parser) {
-    if (parser == NULL || parser->current_token == NULL) {
+    if (parser == NULL) {
+        return NULL;
+    }
+    
+    // 检查是否有待处理的 > token（用于嵌套泛型 >> 拆分）
+    if (parser->pending_greater_token != NULL) {
+        Token *pending = parser->pending_greater_token;
+        parser->pending_greater_token = NULL;
+        return pending;
+    }
+    
+    if (parser->current_token == NULL) {
         return NULL;
     }
     
@@ -41,7 +60,19 @@ static Token *parser_consume(Parser *parser) {
 
 // 辅助函数：期望特定类型的 Token
 static Token *parser_expect(Parser *parser, TokenType type) {
-    if (parser == NULL || parser->current_token == NULL) {
+    if (parser == NULL) {
+        return NULL;
+    }
+    
+    // 如果有待处理的 > token，优先检查它
+    if (parser->pending_greater_token != NULL) {
+        if (parser->pending_greater_token->type != type) {
+            return NULL;
+        }
+        return parser_consume(parser);
+    }
+    
+    if (parser->current_token == NULL) {
         return NULL;
     }
     
@@ -443,6 +474,7 @@ static ASTNode *parser_parse_type(Parser *parser) {
             
             while (parser->current_token != NULL && 
                    !parser_match(parser, TOKEN_GREATER) && 
+                   !parser_match(parser, TOKEN_RSHIFT) &&  // >> 也可能是结束符（嵌套泛型）
                    !parser_match(parser, TOKEN_EOF)) {
                 
                 // 解析类型参数（递归调用 parser_parse_type）
@@ -473,7 +505,27 @@ static ASTNode *parser_parse_type(Parser *parser) {
                 }
             }
             
-            if (!parser_expect(parser, TOKEN_GREATER)) {
+            // 处理 >> 的情况（嵌套泛型如 Box<Pair<i32, i32>>）
+            if (parser_match(parser, TOKEN_RSHIFT)) {
+                // 将 >> 拆分为两个 >：消费一个 >，保留另一个 > 供外层使用
+                // 通过创建一个新的 > token 来实现
+                Token *rshift_token = parser->current_token;
+                parser_consume(parser);  // 消费 >>
+                
+                // 创建一个新的 > token 并放回 token 流
+                // 注意：这里我们使用一个技巧 - 修改当前 token 为 >
+                // 由于 >> 已经被消费，我们需要创建一个假的 > token
+                Token *fake_greater = (Token *)arena_alloc(parser->arena, sizeof(Token));
+                if (fake_greater != NULL) {
+                    fake_greater->type = TOKEN_GREATER;
+                    fake_greater->value = ">";
+                    fake_greater->line = rshift_token->line;
+                    fake_greater->column = rshift_token->column + 1;
+                    // 将假的 > token 插入到 token 流中
+                    // 由于我们的解析器没有 unget 功能，我们使用一个临时变量
+                    parser->pending_greater_token = fake_greater;
+                }
+            } else if (!parser_expect(parser, TOKEN_GREATER)) {
                 return NULL;  // 错误：期望 '>'
             }
             
@@ -753,6 +805,7 @@ ASTNode *parser_parse_struct(Parser *parser) {
     }
     
     // 可选的 ': InterfaceName { , InterfaceName }'
+    // 支持泛型接口：Interface<T1, T2>
     if (parser_match(parser, TOKEN_COLON)) {
         parser_consume(parser);
         const char **ifaces = NULL;
@@ -767,10 +820,60 @@ ASTNode *parser_parse_struct(Parser *parser) {
                 ifaces = new_ifaces;
                 iface_capacity = new_cap;
             }
-            ifaces[iface_count] = arena_strdup(parser->arena, parser->current_token->value);
+            
+            // 获取接口名称
+            const char *iface_base_name = arena_strdup(parser->arena, parser->current_token->value);
+            if (!iface_base_name) return NULL;
+            parser_consume(parser);
+            
+            // 检查是否有泛型类型参数 <T1, T2, ...>
+            if (parser_match(parser, TOKEN_LESS)) {
+                // 构建完整的泛型接口名称（如 Container<i32>）
+                char full_name[512];
+                int pos = 0;
+                pos += snprintf(full_name + pos, sizeof(full_name) - pos, "%s<", iface_base_name);
+                
+                parser_consume(parser);  // 消费 '<'
+                
+                int first_type_arg = 1;
+                while (parser->current_token != NULL && 
+                       !parser_match(parser, TOKEN_GREATER) && 
+                       !parser_match(parser, TOKEN_EOF)) {
+                    if (!first_type_arg) {
+                        pos += snprintf(full_name + pos, sizeof(full_name) - pos, ", ");
+                    }
+                    first_type_arg = 0;
+                    
+                    // 解析类型名称（简单实现：只支持标识符）
+                    if (parser_match(parser, TOKEN_IDENTIFIER)) {
+                        pos += snprintf(full_name + pos, sizeof(full_name) - pos, "%s", parser->current_token->value);
+                        parser_consume(parser);
+                    } else {
+                        // 不支持的类型，跳过
+                        parser_consume(parser);
+                    }
+                    
+                    // 检查逗号
+                    if (parser_match(parser, TOKEN_COMMA)) {
+                        parser_consume(parser);
+                    } else {
+                        break;
+                    }
+                }
+                
+                if (!parser_expect(parser, TOKEN_GREATER)) {
+                    return NULL;  // 错误：期望 '>'
+                }
+                
+                pos += snprintf(full_name + pos, sizeof(full_name) - pos, ">");
+                ifaces[iface_count] = arena_strdup(parser->arena, full_name);
+            } else {
+                ifaces[iface_count] = iface_base_name;
+            }
+            
             if (!ifaces[iface_count]) return NULL;
             iface_count++;
-            parser_consume(parser);
+            
             if (!parser_match(parser, TOKEN_COMMA)) break;
             parser_consume(parser);
         }
@@ -3298,16 +3401,16 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                     is_comparison = 1;
                 } else if (t == TOKEN_IDENTIFIER) {
                     // 如果是标识符，需要进一步判断：
-                    // - 如果标识符后面是 '>'、','、'*'、'['，则可能是泛型参数（类型）
+                    // - 如果标识符后面是 '>'、','、'*'、'['、'<'（嵌套泛型），则可能是泛型参数（类型）
                     // - 如果标识符后面是运算符、'{'、'.'、'['（成员访问/索引），则是比较运算符（变量）
                     Token *after_id = lexer_next_token(lexer, parser->arena);
                     if (after_id != NULL) {
                         TokenType t2 = after_id->type;
                         // 如果标识符后面是这些 token，则 '<' 是比较运算符
-                        // 注意：TOKEN_GREATER 和 TOKEN_COMMA 表示泛型参数的结束或分隔，不应该被视为比较运算符
+                        // 注意：TOKEN_GREATER、TOKEN_COMMA、TOKEN_LESS（嵌套泛型）表示泛型参数，不应该被视为比较运算符
                         if (t2 == TOKEN_PLUS || t2 == TOKEN_MINUS || t2 == TOKEN_ASTERISK ||
                             t2 == TOKEN_SLASH || t2 == TOKEN_PERCENT ||
-                            t2 == TOKEN_LESS ||
+                            // t2 == TOKEN_LESS ||  // 移除：TOKEN_LESS 可能是嵌套泛型（如 Box<Pair<i32, i32>>）
                             t2 == TOKEN_LESS_EQUAL || t2 == TOKEN_GREATER_EQUAL ||
                             t2 == TOKEN_EQUAL || t2 == TOKEN_NOT_EQUAL ||
                             t2 == TOKEN_LOGICAL_AND || t2 == TOKEN_LOGICAL_OR ||
@@ -3343,10 +3446,11 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
             type_arg_count = 0;
             int type_arg_capacity = 0;
             
-            if (!parser_match(parser, TOKEN_GREATER)) {
+            if (!parser_match(parser, TOKEN_GREATER) && !parser_match(parser, TOKEN_RSHIFT)) {
                 // 有类型参数
                 while (parser->current_token != NULL && 
                        !parser_match(parser, TOKEN_GREATER) && 
+                       !parser_match(parser, TOKEN_RSHIFT) &&  // >> 也可能是结束符（嵌套泛型）
                        !parser_match(parser, TOKEN_EOF)) {
                     
                     // 解析类型参数
@@ -3387,8 +3491,22 @@ static ASTNode *parser_parse_primary_expr(Parser *parser) {
                 }
             }
             
-            // 期望 '>'
-            if (!parser_expect(parser, TOKEN_GREATER)) {
+            // 处理 >> 的情况（嵌套泛型如 Box<Pair<i32, i32>>）
+            if (parser_match(parser, TOKEN_RSHIFT)) {
+                // 将 >> 拆分为两个 >：消费一个 >，保留另一个 > 供外层使用
+                Token *rshift_token = parser->current_token;
+                parser_consume(parser);  // 消费 >>
+                
+                // 创建一个新的 > token 并放回 token 流
+                Token *fake_greater = (Token *)arena_alloc(parser->arena, sizeof(Token));
+                if (fake_greater != NULL) {
+                    fake_greater->type = TOKEN_GREATER;
+                    fake_greater->value = ">";
+                    fake_greater->line = rshift_token->line;
+                    fake_greater->column = rshift_token->column + 1;
+                    parser->pending_greater_token = fake_greater;
+                }
+            } else if (!parser_expect(parser, TOKEN_GREATER)) {
                 return NULL;
             }
         }

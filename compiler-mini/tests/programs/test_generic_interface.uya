@@ -1,0 +1,54 @@
+// 测试泛型接口声明和泛型函数使用接口约束
+
+// 泛型接口：可比较
+interface Comparable<T> {
+    fn compare(self: &Self, other: &T) i32;
+}
+
+// 泛型函数：使用泛型接口作为约束
+fn max_comparable<T: Ord>(a: T, b: T) T {
+    if a > b {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+// 泛型结构体
+struct Pair<T> {
+    first: T,
+    second: T,
+}
+
+// 泛型函数操作泛型结构体
+fn get_max_from_pair<T: Ord>(p: &Pair<T>) T {
+    if p.first > p.second {
+        return p.first;
+    } else {
+        return p.second;
+    }
+}
+
+fn main() i32 {
+    // 测试泛型函数
+    const result1: i32 = max_comparable<i32>(10, 20);
+    if result1 != 20 {
+        return 1;
+    }
+    
+    // 测试泛型结构体 + 泛型函数
+    const p: Pair<i32> = Pair<i32>{ first: 100, second: 50 };
+    const result2: i32 = get_max_from_pair<i32>(&p);
+    if result2 != 100 {
+        return 2;
+    }
+    
+    // 测试类型推断
+    const result3: i32 = max_comparable(5, 3);
+    if result3 != 5 {
+        return 3;
+    }
+    
+    return 0;
+}
+

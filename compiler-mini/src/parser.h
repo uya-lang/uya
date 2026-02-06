@@ -19,6 +19,7 @@ typedef struct Parser {
     Token *current_token;   // 当前 Token（从 Arena 分配）
     Arena *arena;           // Arena 分配器（用于分配 Token 和 AST 节点）
     ParserContext context;  // 当前解析上下文
+    Token *pending_greater_token;  // 待处理的 > token（用于嵌套泛型 >> 拆分）
 } Parser;
 
 // 初始化 Parser
