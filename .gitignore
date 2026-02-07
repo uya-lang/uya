@@ -24,3 +24,4 @@ compiler-mini/src/main.o
 compiler-mini/build/
 compiler-mini/tests/programs/build/
 .comate/
+compiler-c/build/

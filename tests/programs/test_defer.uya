@@ -1,7 +1,7 @@
-// 测试 defer：作用域结束 LIFO 执行
+// 测试 defer 语义（规范 §9）：先计算返回值，再执行 defer，defer 不能修改返回值。
+// return 1-x 时 x=0，得 1；defer 执行后 x=1，但返回值已确定为 1。故 (1-x)-1=0 表示通过。
 fn main() i32 {
     var x: i32 = 0;
     defer { x = 1; }
-    // return 前执行 defer，x 变为 1；若 defer 未执行则 x 仍为 0
-    return x;
+    return (1 - x) - 1;  // 1-0-1=0 表示通过
 }

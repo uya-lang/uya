@@ -266,7 +266,8 @@ fn increment(counter: *Counter) void {
 - **[index.html](./index.html)** - 语言介绍与规范（HTML）
 - **[RELEASE_v0.1.0.md](./RELEASE_v0.1.0.md)** - v0.1.0 版本说明
 - **[comparison.md](./comparison.md)** - 与其他语言的对比
-- **[compiler-mini/](./compiler-mini/)** - Uya Mini 编译器（最小子集，已自举）
+- **[compiler-c/](./compiler-c/)** - Uya Mini 编译器 C 实现
+- **[src/](./src/)** - Uya 自举编译器（Uya 实现）
 - **[changelog.md](./changelog.md)** - 语言规范变更历史
 
 ## 一句话总结

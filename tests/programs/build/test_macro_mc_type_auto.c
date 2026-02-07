@@ -1,0 +1,170 @@
+// C99 代码由 Uya Mini 编译器生成
+// 使用 -std=c99 编译
+//
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdarg.h>
+#include <stdio.h>
+
+// C99 兼容的 alignof 实现
+#define uya_alignof(type) offsetof(struct { char c; type t; }, t)
+
+static inline void *__uya_memcpy(void *dest, const void *src, size_t n) {
+    char *d = (char *)dest; const char *s = (const char *)src;
+    for (size_t i = 0; i < n; i++) d[i] = s[i]; return dest;
+}
+static inline int __uya_memcmp(const void *s1, const void *s2, size_t n) {
+    const unsigned char *a = (const unsigned char *)s1, *b = (const unsigned char *)s2;
+    for (size_t i = 0; i < n; i++) { if (a[i] != b[i]) return a[i] - b[i]; } return 0;
+}
+
+// 错误联合类型（用于 !i64 等）
+struct err_union_int64_t { uint32_t error_id; int64_t value; };
+
+
+// 字符串常量
+static const uint8_t str0[] = "i32";
+static const uint8_t str1[] = "i64";
+static const uint8_t str2[] = "i8";
+static const uint8_t str3[] = "f64";
+static const uint8_t str4[] = "bool";
+
+struct TypeInfo;
+
+
+
+// 内置 TypeInfo 结构体（由 @mc_type 使用）
+struct TypeInfo {
+    int8_t * name;
+    int32_t size;
+    int32_t align;
+    int32_t kind;
+    bool is_integer;
+    bool is_float;
+    bool is_bool;
+    bool is_pointer;
+    bool is_array;
+    bool is_void;
+};
+
+// 系统调用辅助函数（Linux x86-64）
+#ifdef __x86_64__
+static inline long uya_syscall0(long nr) {
+    register long rax __asm__("rax") = nr;
+    __asm__ volatile("syscall" : "=r"(rax) : "r"(rax) : "rcx", "r11", "memory");
+    return rax;
+}
+
+static inline long uya_syscall1(long nr, long a1) {
+    register long rax __asm__("rax") = nr;
+    register long rdi __asm__("rdi") = a1;
+    __asm__ volatile("syscall" : "=r"(rax) : "r"(rax), "r"(rdi) : "rcx", "r11", "memory");
+    return rax;
+}
+
+static inline long uya_syscall2(long nr, long a1, long a2) {
+    register long rax __asm__("rax") = nr;
+    register long rdi __asm__("rdi") = a1;
+    register long rsi __asm__("rsi") = a2;
+    __asm__ volatile("syscall" : "=r"(rax) : "r"(rax), "r"(rdi), "r"(rsi) : "rcx", "r11", "memory");
+    return rax;
+}
+
+static inline long uya_syscall3(long nr, long a1, long a2, long a3) {
+    register long rax __asm__("rax") = nr;
+    register long rdi __asm__("rdi") = a1;
+    register long rsi __asm__("rsi") = a2;
+    register long rdx __asm__("rdx") = a3;
+    __asm__ volatile("syscall" : "=r"(rax) : "r"(rax), "r"(rdi), "r"(rsi), "r"(rdx) : "rcx", "r11", "memory");
+    return rax;
+}
+
+static inline long uya_syscall4(long nr, long a1, long a2, long a3, long a4) {
+    register long rax __asm__("rax") = nr;
+    register long rdi __asm__("rdi") = a1;
+    register long rsi __asm__("rsi") = a2;
+    register long rdx __asm__("rdx") = a3;
+    register long r10 __asm__("r10") = a4;
+    __asm__ volatile("syscall" : "=r"(rax) : "r"(rax), "r"(rdi), "r"(rsi), "r"(rdx), "r"(r10) : "rcx", "r11", "memory");
+    return rax;
+}
+
+static inline long uya_syscall5(long nr, long a1, long a2, long a3, long a4, long a5) {
+    register long rax __asm__("rax") = nr;
+    register long rdi __asm__("rdi") = a1;
+    register long rsi __asm__("rsi") = a2;
+    register long rdx __asm__("rdx") = a3;
+    register long r10 __asm__("r10") = a4;
+    register long r8 __asm__("r8") = a5;
+    __asm__ volatile("syscall" : "=r"(rax) : "r"(rax), "r"(rdi), "r"(rsi), "r"(rdx), "r"(r10), "r"(r8) : "rcx", "r11", "memory");
+    return rax;
+}
+
+static inline long uya_syscall6(long nr, long a1, long a2, long a3, long a4, long a5, long a6) {
+    register long rax __asm__("rax") = nr;
+    register long rdi __asm__("rdi") = a1;
+    register long rsi __asm__("rsi") = a2;
+    register long rdx __asm__("rdx") = a3;
+    register long r10 __asm__("r10") = a4;
+    register long r8 __asm__("r8") = a5;
+    register long r9 __asm__("r9") = a6;
+    __asm__ volatile("syscall" : "=r"(rax) : "r"(rax), "r"(rdi), "r"(rsi), "r"(rdx), "r"(r10), "r"(r8), "r"(r9) : "rcx", "r11", "memory");
+    return rax;
+}
+#else
+#error "@syscall currently only supports Linux x86-64"
+#endif
+
+int32_t uya_main(void);
+
+int32_t uya_main(void) {
+struct TypeInfo i32_info = (struct TypeInfo){.name = (int8_t *)(uint8_t *)str0, .size = 4, .align = 4, .kind = 1, .is_integer = true, .is_float = false, .is_bool = false, .is_pointer = false, .is_array = false, .is_void = false};
+if ((i32_info.size != 4)) {
+    int32_t _uya_ret = 1;
+    return _uya_ret;
+}
+if ((!i32_info.is_integer)) {
+    int32_t _uya_ret = 2;
+    return _uya_ret;
+}
+const int32_t i64_size = (struct TypeInfo){.name = (int8_t *)(uint8_t *)str1, .size = 8, .align = 8, .kind = 1, .is_integer = true, .is_float = false, .is_bool = false, .is_pointer = false, .is_array = false, .is_void = false}.size;
+if ((i64_size != 8)) {
+    int32_t _uya_ret = 3;
+    return _uya_ret;
+}
+const int32_t i8_size = (struct TypeInfo){.name = (int8_t *)(uint8_t *)str2, .size = 1, .align = 1, .kind = 1, .is_integer = true, .is_float = false, .is_bool = false, .is_pointer = false, .is_array = false, .is_void = false}.size;
+if ((i8_size != 1)) {
+    int32_t _uya_ret = 4;
+    return _uya_ret;
+}
+const bool i32_is_int = (struct TypeInfo){.name = (int8_t *)(uint8_t *)str0, .size = 4, .align = 4, .kind = 1, .is_integer = true, .is_float = false, .is_bool = false, .is_pointer = false, .is_array = false, .is_void = false}.is_integer;
+if ((!i32_is_int)) {
+    int32_t _uya_ret = 5;
+    return _uya_ret;
+}
+struct TypeInfo f64_info = (struct TypeInfo){.name = (int8_t *)(uint8_t *)str3, .size = 8, .align = 8, .kind = 2, .is_integer = false, .is_float = true, .is_bool = false, .is_pointer = false, .is_array = false, .is_void = false};
+if ((f64_info.size != 8)) {
+    int32_t _uya_ret = 6;
+    return _uya_ret;
+}
+if ((!f64_info.is_float)) {
+    int32_t _uya_ret = 7;
+    return _uya_ret;
+}
+if (f64_info.is_integer) {
+    int32_t _uya_ret = 8;
+    return _uya_ret;
+}
+struct TypeInfo bool_info = (struct TypeInfo){.name = (int8_t *)(uint8_t *)str4, .size = 1, .align = 1, .kind = 3, .is_integer = false, .is_float = false, .is_bool = true, .is_pointer = false, .is_array = false, .is_void = false};
+if ((bool_info.size != 1)) {
+    int32_t _uya_ret = 9;
+    return _uya_ret;
+}
+if ((!bool_info.is_bool)) {
+    int32_t _uya_ret = 10;
+    return _uya_ret;
+}
+int32_t _uya_ret = 0;
+return _uya_ret;
+}

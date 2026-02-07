@@ -20,7 +20,8 @@
 - `grammar_formal.md` - 正式BNF语法规范
 - `grammar_quick.md` - 语法速查手册
 - `uya_ai_prompt.md` - AI代码生成提示词
-- `compiler-mini/` - Uya Mini 编译器源代码（C 实现 + uya-src 自举）
+- `compiler-c/` - Uya Mini 编译器源代码（C 实现）
+- `src/` - Uya 自举编译器源代码（Uya 实现）
 - `RELEASE_v0.1.0.md` - v0.1.0 版本说明
 
 ---
@@ -45,7 +46,7 @@
 新增或修改语言特性时，按以下顺序进行：
 
 ### 1. 规范优先
-- 更新 `compiler-mini/spec/UYA_MINI_SPEC.md`
+- 更新 `compiler-c/spec/UYA_MINI_SPEC.md`
 - 定义类型、字面量、BNF、语义规则、C99 映射等
 
 ### 2. 测试先行
@@ -74,15 +75,15 @@
 按编译流水线依次修改：Lexer → AST → Parser → Checker → C99 Codegen
 
 ### 4. 自举编译器同步
-同步修改 `compiler-mini/uya-src/` 中对应模块，保持 C 版与 Uya 版行为一致。
+同步修改 `src/` 中对应模块，保持 C 版与 Uya 版行为一致。
 
 ### 5. 验证流程
 ```
-make build                                    # 构建 C 版编译器
-./tests/run_programs.sh --c99 test_xxx.uya    # C 版测试（必须通过）
-cd compiler-mini/uya-src && ./compile.sh --c99 -e   # 构建自举编译器
-./tests/run_programs.sh --uya --c99 test_xxx.uya    # 自举版测试（必须通过）
-./compile.sh --c99 -b                         # 自举对比（C 输出必须完全一致）
+cd compiler-c && make build                       # 构建 C 版编译器
+./tests/run_programs.sh --c99 test_xxx.uya        # C 版测试（必须通过）
+cd src && ./compile.sh --c99 -e                   # 构建自举编译器
+./tests/run_programs.sh --uya --c99 test_xxx.uya  # 自举版测试（必须通过）
+cd src && ./compile.sh --c99 -b                   # 自举对比（C 输出必须完全一致）
 ```
 **要求**：新增或修改的测试用例必须保证 `--c99` 与 `--uya --c99` 两种方式均通过。
 
