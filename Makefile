@@ -1,7 +1,7 @@
 # Uya 项目根目录 Makefile
 # 提供统一的构建和测试入口
 
-.PHONY: all uya-c uya b tests tests-c tests-uya outlibc c e clean help
+.PHONY: all uya-c uya uya-nostdlib b tests tests-c tests-uya outlibc c e clean help
 
 # 默认目标
 all: help
@@ -28,6 +28,16 @@ uya: uya-c
 	@cd src && ./compile.sh --c99 -e
 	@echo ""
 	@echo "✓ 自举编译器构建完成: bin/uya"
+
+# 构建自举编译器（--nostdlib 版本）
+uya-nostdlib: uya-c
+	@echo "=========================================="
+	@echo "构建自举编译器 (uya-nostdlib)"
+	@echo "使用 --nostdlib 选项（不链接标准库）"
+	@echo "=========================================="
+	@cd src && ./compile.sh --c99 -e --nostdlib
+	@echo ""
+	@echo "✓ 自举编译器（--nostdlib）构建完成: bin/uya"
 
 # 自举比对：用自举编译器编译自身，与 C 编译器输出对比
 b: uya
@@ -175,9 +185,10 @@ help:
 	@echo "Uya 项目 Makefile"
 	@echo ""
 	@echo "可用目标:"
-	@echo "  make uya-c    - 构建 C 编译器 (bin/uya-c)"
-	@echo "  make uya      - 构建自举编译器 (bin/uya)，需要先构建 uya-c"
-	@echo "  make b        - 自举比对：验证 C 编译器与自举编译器输出一致性"
+	@echo "  make uya-c         - 构建 C 编译器 (bin/uya-c)"
+	@echo "  make uya           - 构建自举编译器 (bin/uya)，需要先构建 uya-c"
+	@echo "  make uya-nostdlib  - 构建自举编译器（--nostdlib 版本，不链接标准库）"
+	@echo "  make b             - 自举比对：验证 C 编译器与自举编译器输出一致性"
 	@echo "  make tests          - 运行测试套件（同时测试 C 编译器和自举编译器）"
 	@echo "  make tests e        - 运行所有测试，只显示失败的测试"
 	@echo "  make tests c        - 只测试 C 编译器"

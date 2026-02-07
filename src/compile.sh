@@ -41,6 +41,7 @@ usage() {
   -b, --bootstrap-compare  自举对比：用自举编译器再编译自身，与 C 编译器输出的 C 文件对比（需 --c99，建议与 -e 同用）
   --c99               使用 C99 后端生成 C 代码（输出文件后缀为 .c 时自动启用）
   --line-directives    启用 #line 指令生成（C99 后端，默认禁用）
+  --nostdlib          链接时不使用标准库（仅在使用 -e 时有效）
   --compiler PATH     指定编译器路径（默认: $COMPILER）
 
 示例:
@@ -53,6 +54,7 @@ usage() {
   $0 -n compiler.c              # 输出文件为 .c 时自动使用 C99 后端
   $0 --c99 --line-directives    # 使用 C99 后端，生成 #line 指令
   $0 --c99 -e -b                # C99 编译并生成可执行文件，然后自举对比（两次 C 输出应完全一致）
+  $0 --c99 -e --nostdlib        # C99 编译并生成可执行文件，不使用标准库链接
 
 EOF
     exit 1
@@ -66,6 +68,7 @@ GENERATE_EXEC=false
 BOOTSTRAP_COMPARE=false
 USE_C99=false
 USE_LINE_DIRECTIVES=false
+USE_NOSTDLIB=false
 
 # 解析命令行选项
 while [[ $# -gt 0 ]]; do
@@ -101,6 +104,10 @@ while [[ $# -gt 0 ]]; do
             USE_LINE_DIRECTIVES=true
             shift
             ;;
+        --nostdlib)
+            USE_NOSTDLIB=true
+            shift
+            ;;
         -o|--output)
             BUILD_DIR="$2"
             shift 2
@@ -133,6 +140,12 @@ if [ "$BOOTSTRAP_COMPARE" = true ]; then
         exit 1
     fi
     GENERATE_EXEC=true
+fi
+
+# --nostdlib 选项需要生成可执行文件
+if [ "$USE_NOSTDLIB" = true ] && [ "$GENERATE_EXEC" != true ]; then
+    echo -e "${RED}错误: --nostdlib 需要同时使用 -e 或 --exec 选项${NC}"
+    exit 1
 fi
 
 # 检查编译器是否存在
@@ -485,10 +498,20 @@ if [ $COMPILER_EXIT -eq 0 ]; then
                     fi
                     
                     # 构建链接命令（直接链接 .c 文件，不需要 objcopy 重命名）
-                    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-                        LINK_CMD="gcc --std=c99 -no-pie $LLVM_INCLUDE $LLVM_LIBDIR \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${EXECUTABLE_FILE}.exe\" $LLVM_LIBS -lstdc++ -lm -ldl -lpthread"
+                    if [ "$USE_NOSTDLIB" = true ]; then
+                        # 使用 -nostdlib 时，不链接标准库，但需要链接 gcc 运行时库
+                        if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+                            LINK_CMD="gcc --std=c99 -no-pie -nostdlib $LLVM_INCLUDE $LLVM_LIBDIR \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${EXECUTABLE_FILE}.exe\" $LLVM_LIBS -lstdc++ -lgcc"
+                        else
+                            LINK_CMD="gcc --std=c99 -no-pie -nostdlib $LLVM_INCLUDE $LLVM_LIBDIR \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"$EXECUTABLE_FILE\" $LLVM_LIBS -lstdc++ -lgcc"
+                        fi
                     else
-                        LINK_CMD="gcc --std=c99 -no-pie $LLVM_INCLUDE $LLVM_LIBDIR \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"$EXECUTABLE_FILE\" $LLVM_LIBS -lstdc++ -lm -ldl -lpthread"
+                        # 正常链接，使用标准库
+                        if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+                            LINK_CMD="gcc --std=c99 -no-pie $LLVM_INCLUDE $LLVM_LIBDIR \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${EXECUTABLE_FILE}.exe\" $LLVM_LIBS -lstdc++ -lm -ldl -lpthread"
+                        else
+                            LINK_CMD="gcc --std=c99 -no-pie $LLVM_INCLUDE $LLVM_LIBDIR \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"$EXECUTABLE_FILE\" $LLVM_LIBS -lstdc++ -lm -ldl -lpthread"
+                        fi
                     fi
                     
                     if [ "$VERBOSE" = true ]; then
@@ -635,10 +658,18 @@ if [ $COMPILER_EXIT -eq 0 ]; then
             if [ -f "$BRIDGE_C" ]; then
                     # 对于 C99 后端，需要链接 bridge.c
                     if [ "$USE_C99" = true ]; then
-                        if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-                            echo "  gcc --std=c99 -no-pie \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}.exe\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lm -ldl -lpthread"
+                        if [ "$USE_NOSTDLIB" = true ]; then
+                            if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+                                echo "  gcc --std=c99 -no-pie -nostdlib \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}.exe\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lgcc"
+                            else
+                                echo "  gcc --std=c99 -no-pie -nostdlib \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lgcc"
+                            fi
                         else
-                            echo "  gcc --std=c99 -no-pie \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lm -ldl -lpthread"
+                            if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+                                echo "  gcc --std=c99 -no-pie \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}.exe\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lm -ldl -lpthread"
+                            else
+                                echo "  gcc --std=c99 -no-pie \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lm -ldl -lpthread"
+                            fi
                         fi
                 else
                     # LLVM 后端
