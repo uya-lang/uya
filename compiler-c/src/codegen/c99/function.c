@@ -327,13 +327,14 @@ void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) {
         return;
     }
     
-    // 对于与系统头文件冲突的函数，不生成函数声明（只生成函数定义）
+    // 对于与系统头文件冲突的函数，仍然生成前向声明（避免隐式声明）
+    // 但使用非 extern 形式，因为它们是实际定义的函数
+    // 注意：这些函数在标准库中有实现，需要前向声明以避免隐式声明冲突
     if (is_conflicting_stdio_func) {
-        return;
-    }
-    
-    // 对于extern函数，添加extern关键字
-    if (is_extern) {
+        // 生成前向声明（非 extern），因为函数有实际定义
+        fprintf(codegen->output, "%s %s(", return_c, func_name);
+    } else if (is_extern) {
+        // 对于extern函数，添加extern关键字
         fprintf(codegen->output, "extern %s %s(", return_c, func_name);
     } else {
         fprintf(codegen->output, "%s %s(", return_c, func_name);
@@ -366,20 +367,18 @@ void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) {
             }
         }
         
-        // 对于标准库函数，将 uint8_t * 转换为 const char *
-        // 对于 strlen 函数，将 uint8_t * 转换为 const uint8_t *
+        // 对于标准库函数，只对 strlen 添加 const（与 gen_function 保持一致）
+        // 其他函数保持原样（不添加 const），以匹配 Uya 标准库的定义
         if (is_stdlib && param_type->type == AST_TYPE_POINTER) {
             ASTNode *pointed_type = param_type->data.type_pointer.pointed_type;
             if (pointed_type && pointed_type->type == AST_TYPE_NAMED) {
                 const char *pointed_name = pointed_type->data.type_named.name;
                 if (pointed_name && strcmp(pointed_name, "byte") == 0) {
-                    // 对于 strlen，使用 const uint8_t * 而不是 const char *
+                    // 只对 strlen 使用 const uint8_t *
                     if (orig_name && strcmp(orig_name, "strlen") == 0) {
                         param_type_c = "const uint8_t *";
-                    } else {
-                        // 将 uint8_t * 替换为 const char *
-                        param_type_c = "const char *";
                     }
+                    // 其他函数保持原样（uint8_t *），不添加 const
                 }
             }
         }

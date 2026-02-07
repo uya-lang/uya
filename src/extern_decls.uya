@@ -11,8 +11,7 @@ extern fn get_stderr() *void;
 extern fn ptr_diff(ptr1: *byte, ptr2: *byte) i32;
 
 // ===== C 标准库 - 文件 I/O =====
-extern fn fopen(filename: *byte, mode: *byte) *void;
-extern fn fread(ptr: *byte, size: usize, nmemb: usize, stream: *void) usize;
+// 注意：fopen, fread, fclose 在 lib/std/c/stdio.uya 中有实际实现，不需要 extern 声明
 extern fn fclose(stream: *void) i32;
 extern fn fgetc(stream: *void) i32;
 extern fn fputs(s: *byte, stream: *void) i32;
@@ -24,13 +23,11 @@ extern fn fflush(stream: *void) i32;
 // ===== C 标准库 - 字符串与数值 =====
 extern fn strtod(nptr: *byte, endptr: * *byte) f64;
 extern fn strlen(s: *byte) usize;
-extern fn strcmp(s1: *byte, s2: *byte) i32;
+// 注意：strcmp 在 lib/std/c/string.uya 中有实际实现，不需要 extern 声明
 // 注意：strchr 和 strrchr 的签名与 musl 一致：char *strchr(const char *s, int c)
 extern fn strrchr(s: *byte, c: i32) *byte;
 extern fn strchr(s: *byte, c: i32) *byte;
 extern fn strstr(haystack: *byte, needle: *byte) *byte;
-extern fn strncpy(dest: *byte, src: *byte, n: usize) *byte;
-extern fn strncmp(s1: *byte, s2: *byte, n: usize) i32;
 extern fn snprintf(buf: *byte, n: usize, format: *byte, ...) i32;
 extern fn sprintf(buf: *byte, format: *byte, ...) i32;
 
@@ -74,6 +71,3 @@ const DT_DIR: u8 = 4;  // 目录
 
 // ===== Linux 特定 - 符号链接 =====
 extern fn readlink(path: *byte, buf: *byte, bufsiz: usize) i32;
-
-// ===== C 标准库 - 字符串（补充）=====
-extern fn strcpy(dest: *byte, src: *byte) *byte;

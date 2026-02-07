@@ -5,7 +5,7 @@
 // 注意：Uya 不支持指针运算，ptr + i 必须转换为 &ptr[i]
 // 注意：Uya 不支持函数前向声明，函数必须在使用前定义
 
-extern fn atoi(s: *byte) i32;
+extern fn atoi(s: &byte) i32;
 extern fn strlen(s: *byte) usize;
 
 // 插值格式说明符对应类型的最大输出宽度（用于计算 [i8: N] 的 N）

@@ -231,8 +231,13 @@ uint8_t *get_argv(int32_t index) {
 }
 
 // 获取标准错误流指针
+// 在 --nostdlib 模式下，stderr 不可用，使用标准错误文件描述符（2）
 void *get_stderr(void) {
-    return (void *)stderr;
+    // 在 --nostdlib 模式下，stderr 符号不可用
+    // 返回标准错误文件描述符的指针（STDERR_FILENO = 2）
+    // 注意：在 Uya 的 stdio 实现中，FILE* 实际上是文件描述符的指针
+    static int64_t stderr_fd = 2;  // STDERR_FILENO = 2
+    return (void *)&stderr_fd;
 }
 
 // 计算两个指针之间的字节偏移量（ptr1 - ptr2）
@@ -410,7 +415,8 @@ fi
 if [ "$USE_LINE_DIRECTIVES" = true ]; then
     COMPILER_CMD+=(--line-directives)
 fi
-if [ "$GENERATE_EXEC" = true ]; then
+# 在 --nostdlib 模式下，不传递 -exec 给编译器，改为手动链接
+if [ "$GENERATE_EXEC" = true ] && [ "$USE_NOSTDLIB" != true ]; then
     COMPILER_CMD+=(-exec)
 fi
 
@@ -450,6 +456,79 @@ grep -E "错误:" "$TEMP_OUTPUT" > "$TEMP_ERRORS" || true
 
 # 检查编译结果
 if [ $COMPILER_EXIT -eq 0 ]; then
+    # 在 --nostdlib 模式下，需要重新编译主程序以包含标准库
+    if [ "$USE_NOSTDLIB" = true ] && [ "$USE_C99" = true ] && [ -f "$OUTPUT_FILE" ]; then
+        STD_LIB_DIR="$REPO_ROOT/lib/std/c"
+        
+        if [ "$VERBOSE" = true ]; then
+            echo -e "${YELLOW}重新编译主程序（包含标准库，--nostdlib 模式）...${NC}"
+        fi
+        
+        # 收集所有标准库文件（按依赖顺序）
+        STD_LIB_FILES=(
+            "$STD_LIB_DIR/syscall/syscall.uya"
+            "$STD_LIB_DIR/string.uya"
+            "$STD_LIB_DIR/stdio.uya"
+            "$STD_LIB_DIR/stdlib.uya"
+        )
+        
+        # 检查文件是否存在并添加到列表
+        VALID_STD_LIB_FILES=()
+        for std_file in "${STD_LIB_FILES[@]}"; do
+            if [ -f "$std_file" ]; then
+                VALID_STD_LIB_FILES+=("$std_file")
+                if [ "$VERBOSE" = true ]; then
+                    echo "  包含标准库: $std_file"
+                fi
+            fi
+        done
+        
+        # 重新编译主程序，包含标准库文件
+        if [ ${#VALID_STD_LIB_FILES[@]} -gt 0 ]; then
+            # 设置 UYA_ROOT 环境变量，指向 lib 目录
+            # 这样 lib/std/c/string.uya 在 UYA_ROOT 下的相对路径是 std/c/string.uya
+            # 转换为模块路径就是 std.c.string
+            export UYA_ROOT="$REPO_ROOT/lib/"
+            
+            # 构建包含标准库的编译命令
+            if [ "$USE_AUTO_DEPS" = true ]; then
+                # 使用自动依赖收集模式：传递主文件和标准库文件
+                REBUILD_CMD=("$COMPILER" "$INPUT_PATH" "${VALID_STD_LIB_FILES[@]}" -o "$OUTPUT_FILE")
+            else
+                # 使用手动文件列表模式：传递所有文件包括标准库
+                REBUILD_CMD=("$COMPILER" "${FULL_PATHS[@]}" "${VALID_STD_LIB_FILES[@]}" -o "$OUTPUT_FILE")
+            fi
+            if [ "$USE_C99" = true ]; then
+                REBUILD_CMD+=(--c99)
+            fi
+            if [ "$USE_LINE_DIRECTIVES" = true ]; then
+                REBUILD_CMD+=(--line-directives)
+            fi
+            
+            if [ "$VERBOSE" = true ]; then
+                echo "  设置 UYA_ROOT=$UYA_ROOT"
+                echo "  重新编译命令: ${REBUILD_CMD[*]}"
+            fi
+            
+            # 重新编译
+            REBUILD_LOG=$(mktemp)
+            if "${REBUILD_CMD[@]}" >"$REBUILD_LOG" 2>&1; then
+                if [ "$VERBOSE" = true ]; then
+                    echo -e "${GREEN}✓ 主程序（含标准库）编译完成${NC}"
+                fi
+                rm -f "$REBUILD_LOG"
+            else
+                echo -e "${RED}警告: 重新编译主程序（含标准库）失败${NC}"
+                if [ "$VERBOSE" = true ]; then
+                    echo "编译输出:"
+                    cat "$REBUILD_LOG" | tail -20
+                fi
+                rm -f "$REBUILD_LOG"
+                # 继续使用原来的输出文件
+            fi
+        fi
+    fi
+    
     echo ""
     echo -e "${GREEN}✓ 编译成功！${NC}"
     echo ""
@@ -462,8 +541,11 @@ if [ $COMPILER_EXIT -eq 0 ]; then
         EXECUTABLE_FILE="$BIN_DIR/$OUTPUT_NAME"
         
         # 检查可执行文件是否需要生成或重新链接（C99 时若 .c 比可执行文件新则需重新链接）
+        # 在 --nostdlib 模式下，总是需要手动链接
         NEED_LINK=false
-        if [ ! -f "$EXECUTABLE_FILE" ]; then
+        if [ "$USE_NOSTDLIB" = true ]; then
+            NEED_LINK=true
+        elif [ ! -f "$EXECUTABLE_FILE" ]; then
             NEED_LINK=true
         elif [ "$USE_C99" = true ] && [ -f "$OUTPUT_FILE" ] && [ -f "$EXECUTABLE_FILE" ] && [ "$OUTPUT_FILE" -nt "$EXECUTABLE_FILE" ]; then
             NEED_LINK=true
@@ -498,8 +580,10 @@ if [ $COMPILER_EXIT -eq 0 ]; then
                     fi
                     
                     # 构建链接命令（直接链接 .c 文件，不需要 objcopy 重命名）
+                    # 注意：标准库已经编译到 OUTPUT_FILE 中了，不需要单独链接
                     if [ "$USE_NOSTDLIB" = true ]; then
                         # 使用 -nostdlib 时，不链接标准库，但需要链接 gcc 运行时库
+                        # 标准库已经编译到 OUTPUT_FILE 中了
                         if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
                             LINK_CMD="gcc --std=c99 -no-pie -nostdlib $LLVM_INCLUDE $LLVM_LIBDIR \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${EXECUTABLE_FILE}.exe\" $LLVM_LIBS -lstdc++ -lgcc"
                         else
@@ -659,10 +743,11 @@ if [ $COMPILER_EXIT -eq 0 ]; then
                     # 对于 C99 后端，需要链接 bridge.c
                     if [ "$USE_C99" = true ]; then
                         if [ "$USE_NOSTDLIB" = true ]; then
+                            # 标准库已经编译到 OUTPUT_FILE 中了
                             if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-                                echo "  gcc --std=c99 -no-pie -nostdlib \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}.exe\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lgcc"
+                                echo "  gcc --std=c99 -no-pie -nostdlib \"$OUTPUT_FILE\" \"$BRIDGE_C\"$STD_LIB_ARG -o \"${OUTPUT_FILE%.o}.exe\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lgcc"
                             else
-                                echo "  gcc --std=c99 -no-pie -nostdlib \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lgcc"
+                                echo "  gcc --std=c99 -no-pie -nostdlib \"$OUTPUT_FILE\" \"$BRIDGE_C\"$STD_LIB_ARG -o \"${OUTPUT_FILE%.o}\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lgcc"
                             fi
                         else
                             if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then

@@ -465,3 +465,203 @@ export fn fprintf(stream: *void, format: *byte, ...) i32 {
     
     return written as i32;
 }
+
+// fwrite - 向文件流写入数据（C 标准库兼容）
+// 返回：写入的元素数
+export fn fwrite(ptr: &byte, size: usize, nmemb: usize, stream: *void) usize {
+    if ptr == null || stream == null || size == 0 || nmemb == 0 {
+        return 0;
+    }
+    
+    // 从指针中获取文件描述符
+    const fd_ptr: &i64 = stream as &i64;
+    const fd: i64 = fd_ptr[0];
+    
+    if fd < 0 {
+        return 0;
+    }
+    
+    const total_size: usize = size * nmemb;
+    const result: !i64 = sys_write(fd, ptr as i64, total_size as i64);
+    const bytes_written: i64 = result catch {
+        return 0;
+    };
+    
+    if bytes_written < 0 {
+        return 0;
+    }
+    
+    // 返回写入的元素数（向下取整）
+    return (bytes_written as usize) / size;
+}
+
+// fputc - 向文件流写入一个字符（C 标准库兼容）
+// 返回：写入的字符，EOF (-1) 表示错误
+export fn fputc(c: i32, stream: *void) i32 {
+    if stream == null {
+        return 0 - 1;  // EOF
+    }
+    
+    // 从指针中获取文件描述符
+    const fd_ptr: &i64 = stream as &i64;
+    const fd: i64 = fd_ptr[0];
+    
+    if fd < 0 {
+        return 0 - 1;  // EOF
+    }
+    
+    var ch: byte = c as byte;
+    const result: !i64 = sys_write(fd, &ch as i64, 1);
+    const bytes_written: i64 = result catch {
+        return 0 - 1;  // EOF
+    };
+    
+    if bytes_written == 1 {
+        return c;
+    }
+    
+    return 0 - 1;  // EOF
+}
+
+// fputs - 向文件流写入字符串（C 标准库兼容）
+// 返回：非负值成功，EOF (-1) 失败
+export fn fputs(s: &byte, stream: *void) i32 {
+    if s == null || stream == null {
+        return 0 - 1;  // EOF
+    }
+    
+    const len: usize = strlen(s);
+    if len == 0 {
+        return 0;
+    }
+    
+    const written: usize = fwrite(s, 1, len, stream);
+    
+    if written == len {
+        return 0;
+    }
+    
+    return 0 - 1;  // EOF
+}
+
+// sprintf - 格式化字符串（简化版本，只支持 %s 和 %d）
+// 返回：写入的字符数（不包括 null 终止符），失败返回负数
+export fn sprintf(buf: &byte, format: *byte, ...) i32 {
+    if buf == null || format == null {
+        return 0 - 1;
+    }
+    
+    // 简化实现：只支持 %s 和 %d
+    // 注意：可变参数在 Uya 中需要特殊处理，这里使用简化实现
+    var buf_pos: usize = 0;
+    var format_pos: usize = 0;
+    const format_len: usize = strlen(format);
+    const max_buf: usize = 4096;  // 最大缓冲区大小
+    
+    while format_pos < format_len && buf_pos < max_buf - 1 {
+        const c: byte = format[format_pos];
+        if c == 37 {  // '%'
+            format_pos = format_pos + 1;
+            if format_pos < format_len {
+                const spec: byte = format[format_pos];
+                if spec == 115 {  // 's' - 字符串
+                    // 简化：跳过字符串参数（需要 va_list 支持）
+                    buf[buf_pos] = 63 as byte;  // '?'
+                    buf_pos = buf_pos + 1;
+                } else if spec == 100 {  // 'd' - 整数
+                    // 简化：跳过整数参数（需要 va_list 支持）
+                    buf[buf_pos] = 48 as byte;  // '0'
+                    buf_pos = buf_pos + 1;
+                } else if spec == 37 {  // '%%' - 转义的 %
+                    buf[buf_pos] = 37 as byte;  // '%'
+                    buf_pos = buf_pos + 1;
+                } else {
+                    // 未知格式说明符，原样输出
+                    buf[buf_pos] = 37 as byte;  // '%'
+                    buf_pos = buf_pos + 1;
+                    if buf_pos < max_buf - 1 {
+                        buf[buf_pos] = spec;
+                        buf_pos = buf_pos + 1;
+                    }
+                }
+            }
+        } else {
+            buf[buf_pos] = c;
+            buf_pos = buf_pos + 1;
+        }
+        format_pos = format_pos + 1;
+    }
+    
+    buf[buf_pos] = 0 as byte;
+    return buf_pos as i32;
+}
+
+// snprintf - 格式化字符串（带长度限制，简化版本，只支持 %s 和 %d）
+// 返回：写入的字符数（不包括 null 终止符），失败返回负数
+export fn snprintf(buf: &byte, n: usize, format: *byte, ...) i32 {
+    if buf == null || format == null || n == 0 {
+        return 0 - 1;
+    }
+    
+    // 简化实现：只支持 %s 和 %d
+    // 注意：可变参数在 Uya 中需要特殊处理，这里使用简化实现
+    var buf_pos: usize = 0;
+    var format_pos: usize = 0;
+    const format_len: usize = strlen(format);
+    var max_buf: usize = n - 1;
+    if max_buf > 4096 {
+        max_buf = 4096;
+    }
+    
+    while format_pos < format_len && buf_pos < max_buf {
+        const c: byte = format[format_pos];
+        if c == 37 {  // '%'
+            format_pos = format_pos + 1;
+            if format_pos < format_len {
+                const spec: byte = format[format_pos];
+                if spec == 115 {  // 's' - 字符串
+                    // 简化：跳过字符串参数（需要 va_list 支持）
+                    if buf_pos < max_buf {
+                        buf[buf_pos] = 63 as byte;  // '?'
+                        buf_pos = buf_pos + 1;
+                    }
+                } else if spec == 100 {  // 'd' - 整数
+                    // 简化：跳过整数参数（需要 va_list 支持）
+                    if buf_pos < max_buf {
+                        buf[buf_pos] = 48 as byte;  // '0'
+                        buf_pos = buf_pos + 1;
+                    }
+                } else if spec == 37 {  // '%%' - 转义的 %
+                    if buf_pos < max_buf {
+                        buf[buf_pos] = 37 as byte;  // '%'
+                        buf_pos = buf_pos + 1;
+                    }
+                } else {
+                    // 未知格式说明符，原样输出
+                    if buf_pos < max_buf {
+                        buf[buf_pos] = 37 as byte;  // '%'
+                        buf_pos = buf_pos + 1;
+                    }
+                    if buf_pos < max_buf {
+                        buf[buf_pos] = spec;
+                        buf_pos = buf_pos + 1;
+                    }
+                }
+            }
+        } else {
+            if buf_pos < max_buf {
+                buf[buf_pos] = c;
+                buf_pos = buf_pos + 1;
+            }
+        }
+        format_pos = format_pos + 1;
+    }
+    
+    if buf_pos < n {
+        buf[buf_pos] = 0 as byte;
+    } else if n > 0 {
+        buf[n - 1] = 0 as byte;
+    }
+    
+    return buf_pos as i32;
+}

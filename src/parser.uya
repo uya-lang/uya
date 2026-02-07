@@ -616,7 +616,7 @@ fn parser_parse_type(parser: &Parser) &ASTNode {
 }
 
 // 字符串转整数/浮点辅助函数
-extern fn atoi(s: *byte) i32;
+extern fn atoi(s: &byte) i32;
 extern fn strtod(nptr: *byte, endptr: * *byte) f64;
 extern fn strtol(nptr: *byte, endptr: * *byte, base: i32) i64;
 extern fn malloc(size: usize) *void;

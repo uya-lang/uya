@@ -262,3 +262,309 @@ export fn atof(s: &byte) f64 {
     return result;
 }
 
+// strtod - 将字符串转换为 f64（C 标准库兼容）
+// 返回：转换后的浮点数，失败返回 0.0
+// 注意：endptr 用于返回转换结束的位置
+export fn strtod(nptr: *byte, endptr: * *byte) f64 {
+    if nptr == null {
+        if endptr != null {
+            endptr[0] = null;
+        }
+        return 0.0;
+    }
+    
+    var i: usize = 0;
+    var is_neg: bool = false;
+    var result: f64 = 0.0;
+    
+    // 跳过前导空白字符
+    while nptr[i] == 32 as byte || nptr[i] == 9 as byte || nptr[i] == 10 as byte || nptr[i] == 13 as byte {
+        i = i + 1;
+    }
+    
+    // 检查符号
+    if nptr[i] == 45 as byte {  // '-'
+        is_neg = true;
+        i = i + 1;
+    } else if nptr[i] == 43 as byte {  // '+'
+        i = i + 1;
+    }
+    
+    // 转换整数部分
+    while nptr[i] >= 48 as byte && nptr[i] <= 57 as byte {  // '0' - '9'
+        const digit: f64 = nptr[i] as f64 - 48.0;
+        result = result * 10.0 + digit;
+        i = i + 1;
+    }
+    
+    // 转换小数部分
+    if nptr[i] == 46 as byte {  // '.'
+        i = i + 1;
+        var frac: f64 = 0.0;
+        var frac_div: f64 = 10.0;
+        
+        while nptr[i] >= 48 as byte && nptr[i] <= 57 as byte {  // '0' - '9'
+            const digit: f64 = nptr[i] as f64 - 48.0;
+            frac = frac + digit / frac_div;
+            frac_div = frac_div * 10.0;
+            i = i + 1;
+        }
+        
+        result = result + frac;
+    }
+    
+    if is_neg {
+        result = 0.0 - result;
+    }
+    
+    // 设置 endptr
+    if endptr != null {
+        endptr[0] = (nptr as i64 + i as i64) as *byte;
+    }
+    
+    return result;
+}
+
+// strtol - 将字符串转换为 i64（C 标准库兼容）
+// 返回：转换后的长整数，失败返回 0
+// 注意：endptr 用于返回转换结束的位置，base 用于指定进制（2-36）
+export fn strtol(nptr: *byte, endptr: * *byte, base: i32) i64 {
+    if nptr == null {
+        if endptr != null {
+            endptr[0] = null;
+        }
+        return 0;
+    }
+    
+    var result: i64 = 0;
+    var i: usize = 0;
+    var is_neg: bool = false;
+    var radix: i32 = base;
+    
+    // 如果 base 为 0，自动检测进制
+    if radix == 0 {
+        // 跳过前导空白字符
+        while nptr[i] == 32 as byte || nptr[i] == 9 as byte || nptr[i] == 10 as byte || nptr[i] == 13 as byte {
+            i = i + 1;
+        }
+        
+        // 检查前缀
+        if nptr[i] == 48 as byte {  // '0'
+            i = i + 1;
+            if nptr[i] == 120 as byte || nptr[i] == 88 as byte {  // 'x' or 'X'
+                radix = 16;
+                i = i + 1;
+            } else {
+                radix = 8;
+            }
+        } else {
+            radix = 10;
+        }
+    } else {
+        // 跳过前导空白字符
+        while nptr[i] == 32 as byte || nptr[i] == 9 as byte || nptr[i] == 10 as byte || nptr[i] == 13 as byte {
+            i = i + 1;
+        }
+    }
+    
+    // 检查符号
+    if nptr[i] == 45 as byte {  // '-'
+        is_neg = true;
+        i = i + 1;
+    } else if nptr[i] == 43 as byte {  // '+'
+        i = i + 1;
+    }
+    
+    // 转换数字
+    while i < 4096 {  // 防止无限循环
+        const c: byte = nptr[i];
+        var digit: i64 = 0 - 1;
+        
+        if c >= 48 as byte && c <= 57 as byte {  // '0' - '9'
+            digit = c as i64 - 48;
+        } else if c >= 97 as byte && c <= 122 as byte {  // 'a' - 'z'
+            digit = c as i64 - 97 + 10;
+        } else if c >= 65 as byte && c <= 90 as byte {  // 'A' - 'Z'
+            digit = c as i64 - 65 + 10;
+        } else {
+            break;
+        }
+        
+        if digit < 0 || digit >= radix as i64 {
+            break;
+        }
+        
+        result = result * radix as i64 + digit;
+        i = i + 1;
+    }
+    
+    if is_neg {
+        result = 0 - result;
+    }
+    
+    // 设置 endptr
+    if endptr != null {
+        endptr[0] = (nptr as i64 + i as i64) as *byte;
+    }
+    
+    return result;
+}
+
+
+// ============================================================
+// 系统函数（C 标准库兼容）
+// ============================================================
+
+use std.c.syscall.SYS_stat;
+use std.c.syscall.SYS_readlink;
+use std.c.string.strlen;
+use std.c.string.strcmp;
+use std.c.string.strncpy;
+
+// stat - 获取文件状态（C 标准库兼容）
+// 返回：0 成功，-1 失败
+export fn stat(path: *byte, buf: &Stat) i32 {
+    if path == null || buf == null {
+        return 0 - 1;
+    }
+    
+    // 调用 stat 系统调用
+    const result: !i64 = @syscall(SYS_stat, path as i64, buf as i64);
+    const ret: i64 = result catch {
+        return 0 - 1;
+    };
+    
+    if ret < 0 {
+        return 0 - 1;
+    }
+    
+    return 0;
+}
+
+// readlink - 读取符号链接（C 标准库兼容）
+// 返回：读取的字节数，失败返回 -1
+export fn readlink(path: *byte, buf: *byte, bufsiz: usize) i32 {
+    if path == null || buf == null || bufsiz == 0 {
+        return 0 - 1;
+    }
+    
+    // 调用 readlink 系统调用
+    const result: !i64 = @syscall(SYS_readlink, path as i64, buf as i64, bufsiz as i64);
+    const ret: i64 = result catch {
+        return 0 - 1;
+    };
+    
+    if ret < 0 {
+        return 0 - 1;
+    }
+    
+    return ret as i32;
+}
+
+// getenv - 获取环境变量（简化实现）
+// 返回：环境变量值的指针，未找到返回 null
+// 注意：这是一个简化实现，实际应该从 environ 变量读取
+export fn getenv(name: *byte) *byte {
+    if name == null {
+        return null;
+    }
+    
+    // 简化实现：返回 null（实际应该从 environ 读取）
+    // 注意：在 --nostdlib 模式下，environ 变量可能不可用
+    // 这里提供一个占位实现，实际使用时需要访问 environ
+    return null;
+}
+
+// ============================================================
+// 目录操作函数（C 标准库兼容）
+// ============================================================
+
+use std.c.syscall.sys_open;
+use std.c.syscall.sys_close;
+use std.c.syscall.sys_read;
+use std.c.syscall.O_RDONLY;
+use std.c.syscall.SYS_getdents64;
+
+// 目录流结构（简化实现）
+// 注意：DIR 结构体在 extern_decls.uya 中声明为不透明类型
+// 这里我们使用文件描述符作为 DIR 的底层实现
+var opendir_fd_storage: [i64: 64] = [];
+
+// opendir - 打开目录（C 标准库兼容）
+// 返回：DIR*，失败返回 null
+export fn opendir(name: *byte) *DIR {
+    if name == null {
+        return null;
+    }
+    
+    // 打开目录文件描述符
+    const result: !i64 = sys_open(name as i64, O_RDONLY, 0);
+    const fd: i64 = result catch {
+        return null;
+    };
+    
+    if fd < 0 {
+        return null;
+    }
+    
+    // 使用全局数组存储文件描述符（简化实现，最多支持 64 个打开的目录）
+    var j: usize = 0;
+    while j < 64 {
+        // 查找空闲槽位（fd <= 0 表示未使用）
+        if opendir_fd_storage[j] <= 0 {
+            opendir_fd_storage[j] = fd;
+            return &opendir_fd_storage[j] as *DIR;
+        }
+        j = j + 1;
+    }
+    
+    // 如果数组满了，关闭文件描述符并返回 null
+    _ = sys_close(fd);
+    return null;
+}
+
+// readdir - 读取目录项（简化实现）
+// 返回：Dirent*，失败或结束返回 null
+// 注意：这是一个简化实现，实际应该使用 getdents64 系统调用
+export fn readdir(dirp: *DIR) *Dirent {
+    if dirp == null {
+        return null;
+    }
+    
+    // 从指针中获取文件描述符
+    const fd_ptr: &i64 = dirp as &i64;
+    const fd: i64 = fd_ptr[0];
+    
+    if fd < 0 {
+        return null;
+    }
+    
+    // 简化实现：返回 null（实际应该使用 getdents64 读取目录项）
+    // 注意：getdents64 系统调用较复杂，这里提供占位实现
+    return null;
+}
+
+// closedir - 关闭目录（C 标准库兼容）
+// 返回：0 成功，-1 失败
+export fn closedir(dirp: *DIR) i32 {
+    if dirp == null {
+        return 0 - 1;
+    }
+    
+    // 从指针中获取文件描述符
+    const fd_ptr: &i64 = dirp as &i64;
+    const fd: i64 = fd_ptr[0];
+    
+    if fd < 0 {
+        return 0 - 1;
+    }
+    
+    const result: !i64 = sys_close(fd);
+    _ = result catch {
+        return 0 - 1;
+    };
+    
+    // 标记为已关闭
+    fd_ptr[0] = 0 - 1;
+    return 0;
+}

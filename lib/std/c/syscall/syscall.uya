@@ -30,6 +30,8 @@ export const SYS_chdir: i64 = 80;
 export const SYS_mkdir: i64 = 83;
 export const SYS_rmdir: i64 = 84;
 export const SYS_unlink: i64 = 87;
+export const SYS_readlink: i64 = 89;
+export const SYS_getdents64: i64 = 217;  // Linux x86-64: getdents64
 
 // ============================================================
 // 文件操作标志（open）

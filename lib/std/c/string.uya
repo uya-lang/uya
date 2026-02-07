@@ -208,3 +208,35 @@ export fn strrchr(s: *byte, c: i32) *byte {
     }
     return last;
 }
+
+// strstr - 在字符串中查找子字符串
+// 返回：找到的指针，未找到返回 null
+export fn strstr(haystack: &byte, needle: &byte) &byte {
+    if haystack == null || needle == null {
+        return null;
+    }
+    
+    const needle_len: usize = strlen(needle);
+    if needle_len == 0 {
+        return haystack;
+    }
+    
+    var i: usize = 0;
+    while haystack[i] != 0 as byte {
+        var j: usize = 0;
+        var is_match: bool = true;
+        while j < needle_len {
+            if haystack[i + j] == 0 as byte || haystack[i + j] != needle[j] {
+                is_match = false;
+                break;
+            }
+            j = j + 1;
+        }
+        if is_match {
+            return (haystack as i64 + i as i64) as &byte;
+        }
+        i = i + 1;
+    }
+    
+    return null;
+}
