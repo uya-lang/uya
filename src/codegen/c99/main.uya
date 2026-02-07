@@ -297,29 +297,125 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 保存程序节点引用
     codegen.program_node = ast;
     
+    // 检测是否在生成标准库（用于 --outlibc）
+    // 通过检查输出文件名是否包含 "libuya" 来判断
+    var is_std_lib: i32 = 0;
+    if output_file != null {
+        // 简单检查：查找文件名中是否包含 "libuya"（检查前 100 个字符）
+        var i: i32 = 0;
+        while i < 100 && output_file[i] != 0 as byte {
+            // 检查 "libuya"（6个字符：l-i-b-u-y-a）
+            if i + 5 < 100 &&
+               output_file[i] == 108 as byte &&      // 'l'
+               output_file[i + 1] == 105 as byte &&  // 'i'
+               output_file[i + 2] == 98 as byte &&    // 'b'
+               output_file[i + 3] == 117 as byte &&   // 'u'
+               output_file[i + 4] == 121 as byte &&   // 'y'
+               output_file[i + 5] == 97 as byte {     // 'a'
+                is_std_lib = 1;
+                break;
+            }
+            i = i + 1;
+        }
+    }
+    
     // 输出文件头
     fputs("// C99 代码由 Uya Mini 编译器生成\n" as *byte, codegen.output as *void);
     fputs("// 使用 -std=c99 编译\n" as *byte, codegen.output as *void);
     fputs("//\n" as *byte, codegen.output as *void);
-    fputs("#include <stdint.h>\n" as *byte, codegen.output as *void);
-    fputs("#include <stdbool.h>\n" as *byte, codegen.output as *void);
-    fputs("#include <stddef.h>\n" as *byte, codegen.output as *void);
-    fputs("#include <stdarg.h>\n" as *byte, codegen.output as *void);  // for va_list (variadic forward)
-    fputs("#include <stdio.h>\n" as *byte, codegen.output as *void);  // for standard I/O functions (printf, puts, etc.)
-    fputs("\n" as *byte, codegen.output as *void);
-    // C99 兼容的 alignof 宏（使用 offsetof 技巧）
-    fputs("// C99 兼容的 alignof 实现\n" as *byte, codegen.output as *void);
-    fputs("#define uya_alignof(type) offsetof(struct { char c; type t; }, t)\n" as *byte, codegen.output as *void);
-    fputs("\n" as *byte, codegen.output as *void);
-    // 内置 memcpy/memcmp 实现（避免与用户定义的 memcpy/memcmp 冲突）
-    fputs("static inline void *__uya_memcpy(void *dest, const void *src, size_t n) {\n" as *byte, codegen.output as *void);
-    fputs("    char *d = (char *)dest; const char *s = (const char *)src;\n" as *byte, codegen.output as *void);
-    fputs("    for (size_t i = 0; i < n; i++) d[i] = s[i]; return dest;\n" as *byte, codegen.output as *void);
-    fputs("}\n" as *byte, codegen.output as *void);
-    fputs("static inline int __uya_memcmp(const void *s1, const void *s2, size_t n) {\n" as *byte, codegen.output as *void);
-    fputs("    const unsigned char *a = (const unsigned char *)s1, *b = (const unsigned char *)s2;\n" as *byte, codegen.output as *void);
-    fputs("    for (size_t i = 0; i < n; i++) { if (a[i] != b[i]) return a[i] - b[i]; } return 0;\n" as *byte, codegen.output as *void);
-    fputs("}\n\n" as *byte, codegen.output as *void);
+    
+    if is_std_lib != 0 {
+        // 标准库模式：零依赖，自己定义所有类型
+        fputs("// 零依赖标准库：自己定义所有类型（用于 --nostdlib 编译）\n" as *byte, codegen.output as *void);
+        fputs("\n" as *byte, codegen.output as *void);
+        // 定义基本类型
+        fputs("// 基本整数类型\n" as *byte, codegen.output as *void);
+        fputs("typedef signed char int8_t;\n" as *byte, codegen.output as *void);
+        fputs("typedef unsigned char uint8_t;\n" as *byte, codegen.output as *void);
+        fputs("typedef short int16_t;\n" as *byte, codegen.output as *void);
+        fputs("typedef unsigned short uint16_t;\n" as *byte, codegen.output as *void);
+        fputs("typedef int int32_t;\n" as *byte, codegen.output as *void);
+        fputs("typedef unsigned int uint32_t;\n" as *byte, codegen.output as *void);
+        fputs("typedef long long int64_t;\n" as *byte, codegen.output as *void);
+        fputs("typedef unsigned long long uint64_t;\n" as *byte, codegen.output as *void);
+        fputs("\n" as *byte, codegen.output as *void);
+        // size_t 和 ptrdiff_t
+        fputs("// size_t 和 ptrdiff_t\n" as *byte, codegen.output as *void);
+        fputs("typedef unsigned long size_t;\n" as *byte, codegen.output as *void);
+        fputs("typedef long ptrdiff_t;\n" as *byte, codegen.output as *void);
+        fputs("\n" as *byte, codegen.output as *void);
+        // bool 类型
+        fputs("// bool 类型\n" as *byte, codegen.output as *void);
+        fputs("typedef uint8_t bool;\n" as *byte, codegen.output as *void);
+        fputs("#define true ((bool)1)\n" as *byte, codegen.output as *void);
+        fputs("#define false ((bool)0)\n" as *byte, codegen.output as *void);
+        fputs("\n" as *byte, codegen.output as *void);
+        // NULL 定义
+        fputs("// NULL 定义\n" as *byte, codegen.output as *void);
+        fputs("#define NULL ((void*)0)\n" as *byte, codegen.output as *void);
+        fputs("\n" as *byte, codegen.output as *void);
+        // offsetof 宏（用于 alignof）
+        fputs("// offsetof 宏（C99 兼容）\n" as *byte, codegen.output as *void);
+        fputs("#define offsetof(type, member) ((size_t) &((type *)0)->member)\n" as *byte, codegen.output as *void);
+        fputs("\n" as *byte, codegen.output as *void);
+        // C99 兼容的 alignof 宏（使用 offsetof 技巧）
+        fputs("// C99 兼容的 alignof 实现\n" as *byte, codegen.output as *void);
+        fputs("#define uya_alignof(type) offsetof(struct { char c; type t; }, t)\n" as *byte, codegen.output as *void);
+        fputs("\n" as *byte, codegen.output as *void);
+        // va_list 相关（简化定义，仅用于函数签名）
+        fputs("// va_list 简化定义（仅用于函数签名）\n" as *byte, codegen.output as *void);
+        fputs("typedef char* va_list;\n" as *byte, codegen.output as *void);
+        fputs("\n" as *byte, codegen.output as *void);
+        // 注意：标准库模式不使用 __uya_memcpy/__uya_memcmp，因为标准库自己实现了 memcpy/memcmp
+    } else {
+        // 普通模式：使用标准库头文件
+        // 先检查是否定义了与标准库冲突的函数
+        var check_i: i32 = 0;
+        const check_decl_count: i32 = ast.program_decl_count;
+        while check_i < check_decl_count {
+            const check_decl: &ASTNode = ast.program_decls[check_i];
+            if check_decl != null && check_decl.type == ASTNodeType.AST_FN_DECL {
+                const fn_name: &byte = check_decl.fn_decl_name;
+                if fn_name != null && (
+                    strcmp(fn_name as *byte, ("fopen" as *byte) as &byte) == 0 ||
+                    strcmp(fn_name as *byte, ("fclose" as *byte) as &byte) == 0 ||
+                    strcmp(fn_name as *byte, ("fread" as *byte) as &byte) == 0 ||
+                    strcmp(fn_name as *byte, ("fgetc" as *byte) as &byte) == 0 ||
+                    strcmp(fn_name as *byte, ("fprintf" as *byte) as &byte) == 0) {
+                    codegen.has_stdio_conflicts = 1;
+                    break;
+                }
+            }
+            check_i = check_i + 1;
+        }
+        
+        fputs("#include <stdint.h>\n" as *byte, codegen.output as *void);
+        fputs("#include <stdbool.h>\n" as *byte, codegen.output as *void);
+        fputs("#include <stddef.h>\n" as *byte, codegen.output as *void);
+        fputs("#include <stdarg.h>\n" as *byte, codegen.output as *void);  // for va_list (variadic forward)
+        // 只有在没有定义冲突函数时才包含 <stdio.h>
+        if codegen.has_stdio_conflicts == 0 {
+            fputs("#include <stdio.h>\n" as *byte, codegen.output as *void);  // for standard I/O functions (printf, puts, etc.)
+        }
+        // 如果使用了 memcpy 或 memset，添加 <string.h>
+        if codegen.needs_string_h != 0 {
+            fputs("#include <string.h>\n" as *byte, codegen.output as *void);
+        }
+        fputs("\n" as *byte, codegen.output as *void);
+        // C99 兼容的 alignof 宏（使用 offsetof 技巧）
+        fputs("// C99 兼容的 alignof 实现\n" as *byte, codegen.output as *void);
+        fputs("#define uya_alignof(type) offsetof(struct { char c; type t; }, t)\n" as *byte, codegen.output as *void);
+        fputs("\n" as *byte, codegen.output as *void);
+        // 内置 memcpy/memcmp 实现（避免与用户定义的 memcpy/memcmp 冲突）
+        fputs("static inline void *__uya_memcpy(void *dest, const void *src, size_t n) {\n" as *byte, codegen.output as *void);
+        fputs("    char *d = (char *)dest; const char *s = (const char *)src;\n" as *byte, codegen.output as *void);
+        fputs("    for (size_t i = 0; i < n; i++) d[i] = s[i]; return dest;\n" as *byte, codegen.output as *void);
+        fputs("}\n" as *byte, codegen.output as *void);
+        fputs("static inline int __uya_memcmp(const void *s1, const void *s2, size_t n) {\n" as *byte, codegen.output as *void);
+        fputs("    const unsigned char *a = (const unsigned char *)s1, *b = (const unsigned char *)s2;\n" as *byte, codegen.output as *void);
+        fputs("    for (size_t i = 0; i < n; i++) { if (a[i] != b[i]) return a[i] - b[i]; } return 0;\n" as *byte, codegen.output as *void);
+        fputs("}\n\n" as *byte, codegen.output as *void);
+    }
     
     // 生成错误联合类型结构体（用于 @syscall 和其他错误联合类型）
     fputs("// 错误联合类型（用于 !i64 等）\n" as *byte, codegen.output as *void);
@@ -831,7 +927,31 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         fputs("\n" as *byte, codegen.output as *void);
     }
     
-    // 第九步：生成所有声明（全局变量、函数定义）
+    // 第九步 a：先生成所有常量（确保在函数之前定义）
+    i = 0;
+    while i < decl_count {
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl != null {
+            // 跳过 use 语句（模块导入，不需要生成代码）
+            if decl.type == ASTNodeType.AST_USE_STMT {
+                i = i + 1;
+                continue;
+            }
+            // 跳过宏声明（宏在 checker 阶段已展开，不需要生成代码）
+            if decl.type == ASTNodeType.AST_MACRO_DECL {
+                i = i + 1;
+                continue;
+            }
+            // 只生成常量（const 变量）
+            if decl.type == ASTNodeType.AST_VAR_DECL && decl.var_decl_is_const != 0 {
+                gen_global_var(codegen, decl);
+                fputs("\n" as *byte, codegen.output as *void);
+            }
+        }
+        i = i + 1;
+    }
+    
+    // 第九步 b：生成所有声明（非常量全局变量、函数定义）
     i = 0;
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
@@ -919,8 +1039,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
             } else if decl.type == ASTNodeType.AST_ENUM_DECL {
                 // 已在前面生成
             } else if decl.type == ASTNodeType.AST_VAR_DECL {
-                gen_global_var(codegen, decl);
-                fputs("\n" as *byte, codegen.output as *void);
+                // 常量已在第九步 a 生成，这里只生成非常量变量
+                if decl.var_decl_is_const == 0 {
+                    gen_global_var(codegen, decl);
+                    fputs("\n" as *byte, codegen.output as *void);
+                }
             } else if decl.type == ASTNodeType.AST_FN_DECL {
                 // 特殊处理：main 函数在后面生成（需要添加测试运行器调用）
                 const func_name: &byte = decl.fn_decl_name;

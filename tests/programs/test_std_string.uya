@@ -226,19 +226,27 @@ fn test_strncmp() i32 {
 fn test_memchr() i32 {
     var buf: [byte: 10] = [];
     set_hello(&buf[0] as &byte);
-    const pos1: i64 = memchr(&buf[0] as &byte, 108 as byte, 5);  // 'l'
-    if pos1 != 2 {
-        return 1;  // 第一个 'l' 在位置 2
+    const ptr1: *void = memchr(&buf[0] as *void, 108, 5);  // 'l'
+    if ptr1 == null {
+        return 1;  // 应该找到 'l'
     }
-
-    const pos2: i64 = memchr(&buf[0] as &byte, 120 as byte, 5);  // 'x'
-    if pos2 != 0 - 1 {
+    // 检查是否指向 buf[2]（第一个 'l' 在位置 2）
+    if ptr1 != &buf[2] as *void {
         return 2;
     }
 
-    const pos3: i64 = memchr(&buf[0] as &byte, 72 as byte, 5);  // 'H'
-    if pos3 != 0 {
-        return 3;
+    const ptr2: *void = memchr(&buf[0] as *void, 120, 5);  // 'x'
+    if ptr2 != null {
+        return 3;  // 不应该找到 'x'
+    }
+
+    const ptr3: *void = memchr(&buf[0] as *void, 72, 5);  // 'H'
+    if ptr3 == null {
+        return 4;  // 应该找到 'H'
+    }
+    // 检查是否指向 buf[0]（'H' 在位置 0）
+    if ptr3 != &buf[0] as *void {
+        return 5;
     }
 
     return 0;

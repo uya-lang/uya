@@ -56,6 +56,11 @@ int c99_codegen_new(C99CodeGenerator *codegen, Arena *arena, FILE *output, const
     codegen->current_type_args = NULL;
     codegen->current_type_arg_count = 0;
     
+    // 初始化 needs_string_h 标志
+    codegen->needs_string_h = 0;
+    // 初始化 has_stdio_conflicts 标志
+    codegen->has_stdio_conflicts = 0;
+    
     return 0;
 }
 

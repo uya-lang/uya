@@ -176,7 +176,15 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
     }
     
     if expr.type == ASTNodeType.AST_NUMBER {
-        fprintf(codegen.output as *void, "%d" as *byte, expr.number_value);
+        // 检查是否有类型信息，如果是 i64 类型，使用 LL 后缀
+        const type_c: &byte = get_c_type_of_expr(codegen, expr);
+        if type_c != null && (strstr(type_c as *byte, "int64" as *byte) != null || strstr(type_c as *byte, "i64" as *byte) != null) {
+            // i64 类型：使用 LL 后缀
+            fprintf(codegen.output as *void, "%dLL" as *byte, expr.number_value);
+        } else {
+            // 其他类型：使用普通整数
+            fprintf(codegen.output as *void, "%d" as *byte, expr.number_value);
+        }
     } else if expr.type == ASTNodeType.AST_FLOAT {
         const val: f64 = expr.float_literal_value;
         fprintf(codegen.output as *void, "%.17g" as *byte, val);
@@ -367,6 +375,8 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 // 从错误联合类型名称推断 payload 类型
                 if operand_union_c != null && strcmp(operand_union_c as *byte, "struct err_union_void" as *byte) == 0 {
                     payload_c = "void" as &byte;
+                } else if operand_union_c != null && strcmp(operand_union_c as *byte, "struct err_union_int64_t" as *byte) == 0 {
+                    payload_c = "int64_t" as &byte;
                 } else {
                     payload_c = "int32_t" as &byte;
                 }

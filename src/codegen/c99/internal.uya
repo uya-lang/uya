@@ -175,6 +175,11 @@ struct C99CodeGenerator {
     current_type_param_count: i32,       // 当前泛型的类型参数数量
     current_type_args: & & ASTNode,      // 当前实例化的类型实参
     current_type_arg_count: i32,         // 当前实例化的类型实参数量
+    
+    // 跟踪是否需要包含 <string.h>
+    needs_string_h: i32,                 // 1 表示需要 #include <string.h>
+    // 跟踪是否定义了与标准库冲突的函数（fopen, fclose, fread, fgetc, fprintf）
+    has_stdio_conflicts: i32,             // 1 表示定义了与 stdio.h 冲突的函数
 }
 
 // ===== 函数声明 =====

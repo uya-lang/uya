@@ -253,7 +253,8 @@ int is_stdlib_function(const char *func_name) {
         return 1;
     }
     // 字符串处理函数（仅保留未被 Uya 标准库替换的函数）
-    if (strcmp(func_name, "strncat") == 0 ||
+    if (strcmp(func_name, "strlen") == 0 ||
+        strcmp(func_name, "strncat") == 0 ||
         strcmp(func_name, "strstr") == 0 ||
         strcmp(func_name, "strdup") == 0 ||
         strcmp(func_name, "strndup") == 0) {
@@ -304,6 +305,18 @@ void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     // 检查是否是标准库函数
     int is_stdlib = is_stdlib_function(func_name);
     
+    // 检查是否是与系统头文件冲突的函数（这些函数在 stdio.uya 中定义，但名称与系统头文件冲突）
+    // 对于这些函数，不生成函数声明，只生成函数定义（避免与 <stdio.h> 冲突）
+    int is_conflicting_stdio_func = 0;
+    if (orig_name && (
+        strcmp(orig_name, "fopen") == 0 ||
+        strcmp(orig_name, "fclose") == 0 ||
+        strcmp(orig_name, "fread") == 0 ||
+        strcmp(orig_name, "fgetc") == 0 ||
+        strcmp(orig_name, "fprintf") == 0)) {
+        is_conflicting_stdio_func = 1;
+    }
+    
     // 返回类型（如果是数组类型，转换为指针类型）
     const char *return_c = convert_array_return_type(codegen, return_type);
     
@@ -311,6 +324,11 @@ void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) {
     if (is_extern && is_stdlib) {
         // 标准库函数应该包含相应的头文件（如 <stdio.h>），不生成 extern 声明
         // 这样可以避免与标准库的声明冲突
+        return;
+    }
+    
+    // 对于与系统头文件冲突的函数，不生成函数声明（只生成函数定义）
+    if (is_conflicting_stdio_func) {
         return;
     }
     
@@ -349,13 +367,19 @@ void gen_function_prototype(C99CodeGenerator *codegen, ASTNode *fn_decl) {
         }
         
         // 对于标准库函数，将 uint8_t * 转换为 const char *
+        // 对于 strlen 函数，将 uint8_t * 转换为 const uint8_t *
         if (is_stdlib && param_type->type == AST_TYPE_POINTER) {
             ASTNode *pointed_type = param_type->data.type_pointer.pointed_type;
             if (pointed_type && pointed_type->type == AST_TYPE_NAMED) {
                 const char *pointed_name = pointed_type->data.type_named.name;
                 if (pointed_name && strcmp(pointed_name, "byte") == 0) {
-                    // 将 uint8_t * 替换为 const char *
-                    param_type_c = "const char *";
+                    // 对于 strlen，使用 const uint8_t * 而不是 const char *
+                    if (orig_name && strcmp(orig_name, "strlen") == 0) {
+                        param_type_c = "const uint8_t *";
+                    } else {
+                        // 将 uint8_t * 替换为 const char *
+                        param_type_c = "const char *";
+                    }
                 }
             }
         }
@@ -435,6 +459,19 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
                 param_type_c = "const struct Type *";
             }
             
+            // 对于 strlen 函数，将 uint8_t * 转换为 const uint8_t *
+            int is_stdlib = is_stdlib_function(orig_name);
+            if (is_stdlib && orig_name && strcmp(orig_name, "strlen") == 0 && 
+                param_type->type == AST_TYPE_POINTER) {
+                ASTNode *pointed_type = param_type->data.type_pointer.pointed_type;
+                if (pointed_type && pointed_type->type == AST_TYPE_NAMED) {
+                    const char *pointed_name = pointed_type->data.type_named.name;
+                    if (pointed_name && strcmp(pointed_name, "byte") == 0) {
+                        param_type_c = "const uint8_t *";
+                    }
+                }
+            }
+            
             // 数组参数：在参数名后添加 _param 后缀，函数内部会创建副本
             if (param_type->type == AST_TYPE_ARRAY) {
                 // 数组参数格式：T name_param[N]
@@ -507,7 +544,8 @@ void gen_function(C99CodeGenerator *codegen, ASTNode *fn_decl) {
             } else {
                 c99_emit(codegen, "%s %s;\n", array_type_c, param_name);
             }
-            c99_emit(codegen, "    memcpy(%s, %s_param, sizeof(%s));\n", param_name, param_name, param_name);
+            codegen->needs_string_h = 1;
+            c99_emit(codegen, "    __uya_memcpy(%s, %s_param, sizeof(%s));\n", param_name, param_name, param_name);
             
             // 将参数名注册为局部数组（而不是参数）
             if (param_name && codegen->local_variable_count < C99_MAX_LOCAL_VARS) {

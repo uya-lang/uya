@@ -152,9 +152,18 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
     if (!expr) return;
     
     switch (expr->type) {
-        case AST_NUMBER:
-            fprintf(codegen->output, "%d", expr->data.number.value);
+        case AST_NUMBER: {
+            // 检查是否有类型信息，如果是 i64 类型，使用 LL 后缀
+            const char *type_c = get_c_type_of_expr(codegen, expr);
+            if (type_c && (strstr(type_c, "int64") != NULL || strstr(type_c, "i64") != NULL)) {
+                // i64 类型：使用 LL 后缀
+                fprintf(codegen->output, "%dLL", expr->data.number.value);
+            } else {
+                // 其他类型：使用普通整数
+                fprintf(codegen->output, "%d", expr->data.number.value);
+            }
             break;
+        }
         case AST_FLOAT: {
             double val = expr->data.float_literal.value;
             fprintf(codegen->output, "%.17g", val);
@@ -1349,6 +1358,8 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                     /* 从错误联合类型名称推断 payload 类型 */
                     if (operand_union_c && strcmp(operand_union_c, "struct err_union_void") == 0) {
                         payload_c = "void";
+                    } else if (operand_union_c && strcmp(operand_union_c, "struct err_union_int64_t") == 0) {
+                        payload_c = "int64_t";
                     } else {
                         payload_c = "int32_t";
                     }

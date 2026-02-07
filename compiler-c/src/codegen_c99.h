@@ -135,6 +135,11 @@ typedef struct C99CodeGenerator {
     int current_type_param_count;       // 当前泛型的类型参数数量
     ASTNode **current_type_args;        // 当前实例化的类型实参
     int current_type_arg_count;         // 当前实例化的类型实参数量
+    
+    // 跟踪是否需要包含 <string.h>
+    int needs_string_h;                 // 1 表示需要 #include <string.h>
+    // 跟踪是否定义了与标准库冲突的函数（fopen, fclose, fread, fgetc, fprintf）
+    int has_stdio_conflicts;             // 1 表示定义了与 stdio.h 冲突的函数
 } C99CodeGenerator;
 
 // 创建 C99 代码生成器

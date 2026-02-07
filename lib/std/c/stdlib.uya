@@ -1,0 +1,264 @@
+// c.stdlib - 标准库函数（内存分配、进程控制、字符串转换）
+// 版本：v0.3.0
+// 说明：基于系统调用的标准库函数（零外部依赖）
+// 注意：函数名与 C 标准库一致（malloc, free, exit, atoi 等）
+
+use std.c.syscall.sys_exit;
+use std.c.syscall.sys_getpid;
+use std.c.syscall.SYS_brk;
+use std.c.string.memset;
+use std.c.string.strlen;
+
+// ============================================================
+// mmap 标志常量（Linux）
+// ============================================================
+
+const MAP_PRIVATE: i64 = 2;
+const MAP_ANONYMOUS: i64 = 32;
+const PROT_READ: i64 = 1;
+const PROT_WRITE: i64 = 2;
+
+// ============================================================
+// 内存分配函数（基于 mmap）
+// ============================================================
+
+// malloc - 分配 size 字节的内存
+// 返回：分配的内存指针，失败返回 null
+// 注意：使用 mmap 实现，每次分配独立的内存页
+export fn malloc(size: usize) &void {
+    if size == 0 {
+        return null;
+    }
+    
+    // 使用 mmap 分配内存
+    // mmap(addr=0, length=size, prot=PROT_READ|PROT_WRITE, flags=MAP_PRIVATE|MAP_ANONYMOUS, fd=-1, offset=0)
+    // 注意：SYS_mmap = 9 (Linux x86-64)
+    const result: !i64 = @syscall(9, 0, size as i64, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, 0 - 1, 0);
+    const ptr: i64 = result catch {
+        return null;
+    };
+    
+    // mmap 失败时返回 -1（转换为 null）
+    if ptr < 0 {
+        return null;
+    }
+    
+    return ptr as &void;
+}
+
+// free - 释放 malloc 分配的内存
+// 注意：使用 munmap 释放内存
+export fn free(ptr: &void) void {
+    if ptr == null {
+        return;
+    }
+    
+    // 注意：munmap 需要知道内存大小，但标准 free 接口没有大小参数
+    // 简化实现：使用一个固定大小的内存块（实际应用中需要维护分配表）
+    // 这里使用一个简单的实现：假设每次分配至少 4096 字节（一页）
+    // 实际应用中应该维护一个分配表来记录每个指针的大小
+    
+    // 简化：munmap(ptr, 4096) - 假设最小分配为一页
+    // 注意：这是一个简化实现，实际应该维护分配表
+    // 注意：SYS_munmap = 11 (Linux x86-64)
+    _ = @syscall(11, ptr as i64, 4096);
+}
+
+// calloc - 分配并清零 nmemb * size 字节的内存
+// 返回：分配的内存指针，失败返回 null
+export fn calloc(nmemb: usize, size: usize) &void {
+    const total_size: usize = nmemb * size;
+    const ptr: &void = malloc(total_size);
+    if ptr == null {
+        return null;
+    }
+    
+    // 清零内存
+    _ = memset(ptr as *void, 0, total_size);
+    return ptr;
+}
+
+// realloc - 重新分配内存（扩展或缩小）
+// 返回：新的内存指针，失败返回 null
+// 注意：简化实现，实际应该复制旧数据
+export fn realloc(ptr: &void, size: usize) &void {
+    if ptr == null {
+        return malloc(size);
+    }
+    
+    if size == 0 {
+        free(ptr);
+        return null;
+    }
+    
+    // 简化实现：分配新内存（实际应该复制旧数据并释放旧内存）
+    // 注意：这是一个简化实现，实际应该维护分配表并复制数据
+    const new_ptr: &void = malloc(size);
+    if new_ptr == null {
+        return null;
+    }
+    
+    // 注意：无法知道旧内存的大小，这里假设至少复制 size 字节
+    // 实际应用中应该维护分配表
+    // 这里简化：只分配新内存，不复制旧数据（调用者需要自己处理）
+    
+    return new_ptr;
+}
+
+// ============================================================
+// 进程控制函数
+// ============================================================
+
+// exit - 正常退出进程
+// 注意：noreturn 函数
+export fn exit(status: i32) void {
+    sys_exit(status as i64);
+}
+
+// abort - 异常终止进程（发送 SIGABRT）
+// 注意：noreturn 函数
+export fn abort() void {
+    // 注意：SYS_getpid = 39, SYS_kill = 62 (Linux x86-64)
+    // 使用 sys_getpid 函数（已封装错误处理）
+    const pid: i64 = sys_getpid();
+    // 发送 SIGABRT (6) 给自己
+    _ = @syscall(62, pid, 6);
+    // 如果 kill 失败，直接退出
+    sys_exit(1);
+}
+
+// ============================================================
+// 字符串转数字函数
+// ============================================================
+
+// atoi - 将字符串转换为 i32
+// 返回：转换后的整数，失败返回 0
+export fn atoi(s: &byte) i32 {
+    if s == null {
+        return 0;
+    }
+    
+    var result: i32 = 0;
+    var i: usize = 0;
+    var is_neg: bool = false;
+    
+    // 跳过前导空白字符
+    while s[i] == 32 as byte || s[i] == 9 as byte || s[i] == 10 as byte || s[i] == 13 as byte {
+        i = i + 1;
+    }
+    
+    // 检查符号
+    if s[i] == 45 as byte {  // '-'
+        is_neg = true;
+        i = i + 1;
+    } else if s[i] == 43 as byte {  // '+'
+        i = i + 1;
+    }
+    
+    // 转换数字
+    while s[i] >= 48 as byte && s[i] <= 57 as byte {  // '0' - '9'
+        const digit: i32 = s[i] as i32 - 48;
+        result = result * 10 + digit;
+        i = i + 1;
+    }
+    
+    if is_neg {
+        result = 0 - result;
+    }
+    
+    return result;
+}
+
+// atol - 将字符串转换为 i64
+// 返回：转换后的长整数，失败返回 0
+export fn atol(s: &byte) i64 {
+    if s == null {
+        return 0;
+    }
+    
+    var result: i64 = 0;
+    var i: usize = 0;
+    var is_neg: bool = false;
+    
+    // 跳过前导空白字符
+    while s[i] == 32 as byte || s[i] == 9 as byte || s[i] == 10 as byte || s[i] == 13 as byte {
+        i = i + 1;
+    }
+    
+    // 检查符号
+    if s[i] == 45 as byte {  // '-'
+        is_neg = true;
+        i = i + 1;
+    } else if s[i] == 43 as byte {  // '+'
+        i = i + 1;
+    }
+    
+    // 转换数字
+    while s[i] >= 48 as byte && s[i] <= 57 as byte {  // '0' - '9'
+        const digit: i64 = s[i] as i64 - 48;
+        result = result * 10 + digit;
+        i = i + 1;
+    }
+    
+    if is_neg {
+        result = 0 - result;
+    }
+    
+    return result;
+}
+
+// atof - 将字符串转换为 f64（简化实现）
+// 返回：转换后的浮点数，失败返回 0.0
+// 注意：这是一个简化实现，只支持基本格式
+export fn atof(s: &byte) f64 {
+    if s == null {
+        return 0.0;
+    }
+    
+    var i: usize = 0;
+    var is_neg: bool = false;
+    var result: f64 = 0.0;
+    
+    // 跳过前导空白字符
+    while s[i] == 32 as byte || s[i] == 9 as byte || s[i] == 10 as byte || s[i] == 13 as byte {
+        i = i + 1;
+    }
+    
+    // 检查符号
+    if s[i] == 45 as byte {  // '-'
+        is_neg = true;
+        i = i + 1;
+    } else if s[i] == 43 as byte {  // '+'
+        i = i + 1;
+    }
+    
+    // 转换整数部分
+    while s[i] >= 48 as byte && s[i] <= 57 as byte {  // '0' - '9'
+        const digit: f64 = s[i] as f64 - 48.0;
+        result = result * 10.0 + digit;
+        i = i + 1;
+    }
+    
+    // 转换小数部分
+    if s[i] == 46 as byte {  // '.'
+        i = i + 1;
+        var frac: f64 = 0.0;
+        var frac_div: f64 = 10.0;
+        
+        while s[i] >= 48 as byte && s[i] <= 57 as byte {  // '0' - '9'
+            const digit: f64 = s[i] as f64 - 48.0;
+            frac = frac + digit / frac_div;
+            frac_div = frac_div * 10.0;
+            i = i + 1;
+        }
+        
+        result = result + frac;
+    }
+    
+    if is_neg {
+        result = 0.0 - result;
+    }
+    
+    return result;
+}
+

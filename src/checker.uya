@@ -44,6 +44,66 @@ fn checker_interp_format_max_width(t: Type, spec: &byte) i32 {
     return -1;
 }
 
+// 检查函数名是否在标准库函数白名单中（允许使用 FFI 指针类型）
+// 注意：此函数用于类型检查器，与 codegen/c99/function.uya 中的 is_stdlib_function 不同
+fn is_stdlib_function_for_ffi(fn_name: &byte) i32 {
+    if fn_name == null {
+        return 0;
+    }
+    
+    // 标准库函数白名单（std.c.string, std.c.stdlib, std.c.stdio 等）
+    // std.c.string
+    if strcmp(fn_name as *byte, "memcpy" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "memmove" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "memset" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "memcmp" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "memchr" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "strlen" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "strcmp" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "strncmp" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "strcpy" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "strncpy" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "strcat" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "strchr" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "strrchr" as *byte) == 0 {
+        return 1;
+    }
+    // std.c.stdlib
+    if strcmp(fn_name as *byte, "malloc" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "free" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "calloc" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "realloc" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "exit" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "abort" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "atoi" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "atol" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "atof" as *byte) == 0 {
+        return 1;
+    }
+    // std.c.stdio
+    if strcmp(fn_name as *byte, "fopen" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "fclose" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "fread" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "fgetc" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "fprintf" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "put_char" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "put_char_fd" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "write_bytes" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "write_bytes_fd" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "put_str_len" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "get_char" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "read_bytes" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "read_bytes_fd" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "i32_to_str" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "i64_to_str" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "print_i32" as *byte) == 0 ||
+        strcmp(fn_name as *byte, "print_i64" as *byte) == 0 {
+        return 1;
+    }
+    
+    return 0;
+}
+
 // 类型枚举（Uya Mini 支持的类型）
 enum TypeKind {
     TYPE_I8,       // 8位有符号整数
@@ -3828,8 +3888,9 @@ fn checker_register_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
                 const param_type: Type = type_from_ast(checker, param.var_decl_type);
 
                 // 检查是否为 FFI 指针类型（*T）：普通函数仅在可变参数包装等场景下允许 *byte 等 FFI 指针形参（如 printf(fmt, ...)）
+                // 标准库函数（如 malloc, memcpy 等）允许使用 FFI 指针类型
                 if sig.is_extern == 0 && param_type.kind == TypeKind.TYPE_POINTER && param_type.is_ffi_pointer != 0 &&
-                    node.fn_decl_is_varargs == 0 {
+                    node.fn_decl_is_varargs == 0 && is_stdlib_function_for_ffi(sig.name) == 0 {
                     checker_report_error(checker, node, "普通函数不能使用 FFI 指针类型作为参数" as *byte);
                     return 0;
                 }
@@ -3843,8 +3904,9 @@ fn checker_register_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         sig.param_types = null;
     }
 
-    // 检查返回类型是否为 FFI 指针类型（如果是普通函数则不允许）
-    if sig.is_extern == 0 && return_type.kind == TypeKind.TYPE_POINTER && return_type.is_ffi_pointer != 0 {
+    // 检查返回类型是否为 FFI 指针类型（如果是普通函数则不允许，但标准库函数允许）
+    if sig.is_extern == 0 && return_type.kind == TypeKind.TYPE_POINTER && return_type.is_ffi_pointer != 0 &&
+        is_stdlib_function_for_ffi(sig.name) == 0 {
         checker_report_error(checker, node, "普通函数不能使用 FFI 指针类型作为返回类型" as *byte);
         return 0;
     }

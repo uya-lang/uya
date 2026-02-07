@@ -947,7 +947,7 @@ lib/
     │   │   └── string.uya
     │   ├── stdio/      # 标准 I/O
     │   │   └── stdio.uya
-    │   ├── stdlib/     # 内存分配、进程控制（待实现）
+    │   ├── stdlib/     # 内存分配、进程控制（部分完成，存在运行时问题）
     │   └── math/       # 数学函数（待实现）
     ├── io/             # 平台无关同步 I/O 抽象
     ├── async/          # 异步编程标准库（详见 docs/std_async_design.md）
@@ -1092,6 +1092,36 @@ static inline long uya_syscall3(long nr, long a1, long a2, long a3) {
   - `str_rfind(s: &byte, c: byte) i64` - 查找字符最后出现位置
 - [x] **测试**：`test_std_string.uya`（8 组测试：str_len/mem_copy/mem_set/mem_cmp/str_cmp/str_copy/str_ncmp/mem_find，通过 `--c99` 和 `--uya --c99`）
 
+**std.c.stdlib（部分完成，存在运行时问题）**：
+- [x] **创建文件**：`lib/std/c/stdlib.uya`（基于 @syscall，零外部依赖）
+- [x] **内存分配函数**：
+  - `malloc(size: usize) &void` - 基于 mmap 的内存分配（使用 &void 类型）
+  - `free(ptr: &void) void` - 释放内存（使用 &void 类型，简化实现：固定大小 4096 字节）
+  - `calloc(nmemb: usize, size: usize) &void` - 分配并清零（使用 &void 类型）
+  - `realloc(ptr: &void, size: usize) &void` - 重新分配内存（简化实现：不复制旧数据）
+- [x] **进程控制函数**：
+  - `exit(status: i32) void` - 正常退出进程
+  - `abort() void` - 异常终止进程（发送 SIGABRT）
+- [x] **字符串转数字函数**：
+  - `atoi(s: &byte) i32` - 字符串转整数（支持前导空白、符号、数字）
+  - `atol(s: &byte) i64` - 字符串转长整数（支持前导空白、符号、数字）
+  - `atof(s: &byte) f64` - 字符串转浮点数（简化实现：支持基本格式）
+- [x] **测试用例**：
+  - `test_std_stdlib_simple.uya` - 字符串转换函数测试（✅ 通过）
+  - `test_std_stdlib_malloc_only.uya` - 仅测试 malloc（❌ 段错误）
+  - `test_std_stdlib_malloc.uya` - 测试 malloc 和 calloc（❌ 段错误）
+- [ ] **已知问题**：
+  1. **内存分配函数运行时段错误**：
+     - `malloc` 和 `calloc` 在运行时出现段错误（退出码 139）
+     - `mmap` 系统调用成功（strace 显示返回有效地址），但后续内存访问失败
+     - 可能原因：`&void` 到 `&byte` 的转换问题，或代码生成器对 `&void` 类型的处理问题
+     - 需要进一步调试代码生成器对 `&void` 类型的处理
+  2. **`free` 函数简化实现**：
+     - 当前使用固定大小 4096 字节进行 `munmap`，实际应维护分配表记录每个指针的大小
+     - `realloc` 不复制旧数据，实际应维护分配表并复制数据
+  3. **`atof` 函数简化实现**：
+     - 当前只支持基本格式（整数部分 + 可选小数部分），不支持科学计数法、无穷大、NaN 等
+
 **std.c.stdio（已完成）**：
 - [x] **创建文件**：`lib/std/c/stdio/stdio.uya`（基于 @syscall，零外部依赖；从 `std/c/stdio.uya` 迁移至 `lib/std/` 下，函数名使用 snake_case）
 - [x] **输出函数**：
@@ -1196,7 +1226,7 @@ static inline long uya_syscall3(long nr, long a1, long a2, long a3) {
 - [x] `std.c.syscall` - 系统调用封装（v0.3.0，位于 `lib/std/c/syscall/syscall.uya`）
 - [x] `std.c.string` - 字符串和内存操作（v0.3.0，位于 `lib/std/c/string/string.uya`）
 - [x] `std.c.stdio` - 标准 I/O（v0.3.0，位于 `lib/std/c/stdio/stdio.uya`）
-- [ ] `std.c.stdlib` - 内存分配、进程控制（v0.3.x）
+- [~] `std.c.stdlib` - 内存分配、进程控制（v0.3.x，已实现但需修复编译器 FFI 指针限制）
 - [ ] `std.c.math` - 数学函数（纯 Uya，v0.3.x）
 - [ ] `std.io` - 同步 I/O 抽象层（Writer/Reader 接口，v0.4.0）
 - [ ] `std.fmt` - 格式化库（纯 Uya，v0.4.0）

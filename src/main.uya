@@ -396,7 +396,7 @@ fn find_module_file(
         var uya_path: [byte: PATH_MAX] = [];
         const ulen: i32 = snprintf(&uya_path[0], PATH_MAX, "%s%s.uya" as *byte, root as *byte, &file_path[0]);
         if ulen > 0 && ulen < PATH_MAX as i32 {
-            const f: *FILE = fopen(&uya_path[0], "r" as *byte);
+            const f: *void = fopen(&uya_path[0], "r" as *byte);
             if f != null {
                 fclose(f);
                 const ulen_sz: usize = ulen as usize;

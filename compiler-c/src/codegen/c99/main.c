@@ -268,11 +268,37 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     fputs("// C99 代码由 Uya Mini 编译器生成\n", codegen->output);
     fputs("// 使用 -std=c99 编译\n", codegen->output);
     fputs("//\n", codegen->output);
+    
+    // 先检查是否定义了与标准库冲突的函数
+    ASTNode **decls = ast->data.program.decls;
+    int decl_count = ast->data.program.decl_count;
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl || decl->type != AST_FN_DECL) continue;
+        const char *fn_name = decl->data.fn_decl.name;
+        if (fn_name && (
+            strcmp(fn_name, "fopen") == 0 ||
+            strcmp(fn_name, "fclose") == 0 ||
+            strcmp(fn_name, "fread") == 0 ||
+            strcmp(fn_name, "fgetc") == 0 ||
+            strcmp(fn_name, "fprintf") == 0)) {
+            codegen->has_stdio_conflicts = 1;
+            break;
+        }
+    }
+    
     fputs("#include <stdint.h>\n", codegen->output);
     fputs("#include <stdbool.h>\n", codegen->output);
     fputs("#include <stddef.h>\n", codegen->output);
     fputs("#include <stdarg.h>\n", codegen->output);  // for va_list (variadic forward)
-    fputs("#include <stdio.h>\n", codegen->output);  // for standard I/O functions (printf, puts, etc.)
+    // 只有在没有定义冲突函数时才包含 <stdio.h>
+    if (!codegen->has_stdio_conflicts) {
+        fputs("#include <stdio.h>\n", codegen->output);  // for standard I/O functions (printf, puts, etc.)
+    }
+    // 如果使用了 memcpy 或 memset，添加 <string.h>
+    if (codegen->needs_string_h) {
+        fputs("#include <string.h>\n", codegen->output);
+    }
     fputs("\n", codegen->output);
     // C99 兼容的 alignof 宏（使用 offsetof 技巧）
     fputs("// C99 兼容的 alignof 实现\n", codegen->output);
@@ -296,8 +322,7 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     fputs("\n", codegen->output);
     
     // 第一步：收集所有字符串常量（从全局变量初始化和函数体）
-    ASTNode **decls = ast->data.program.decls;
-    int decl_count = ast->data.program.decl_count;
+    // 注意：decls 和 decl_count 已在上面定义
     
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
@@ -698,7 +723,23 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
         fputs("\n", codegen->output);
     }
 
-    // 第八步：生成所有声明（全局变量、函数定义）
+    // 第八步 a：先生成所有常量（确保在函数之前定义）
+    for (int i = 0; i < decl_count; i++) {
+        ASTNode *decl = decls[i];
+        if (!decl) continue;
+        
+        // 跳过 use 语句（模块导入，不需要生成代码）
+        if (decl->type == AST_USE_STMT) continue;
+        if (decl->type == AST_MACRO_DECL) continue;  /* 宏不生成代码，编译时已展开 */
+        
+        // 只生成常量（const 变量）
+        if (decl->type == AST_VAR_DECL && decl->data.var_decl.is_const) {
+            gen_global_var(codegen, decl);
+            fputs("\n", codegen->output);
+        }
+    }
+    
+    // 第八步 b：生成所有声明（非常量全局变量、函数定义）
     for (int i = 0; i < decl_count; i++) {
         ASTNode *decl = decls[i];
         if (!decl) continue;
@@ -777,8 +818,11 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
                 // 已在前面生成
                 break;
             case AST_VAR_DECL:
-                gen_global_var(codegen, decl);
-                fputs("\n", codegen->output);
+                // 常量已在第八步 a 生成，这里只生成非常量变量
+                if (!decl->data.var_decl.is_const) {
+                    gen_global_var(codegen, decl);
+                    fputs("\n", codegen->output);
+                }
                 break;
             case AST_FN_DECL: {
                 // 特殊处理：main 函数在第九步生成（需要添加测试运行器调用）

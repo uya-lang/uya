@@ -80,7 +80,7 @@ export fn memchr(s: *void, c: i32, n: usize) *void {
     var i: usize = 0;
     while i < n {
         if s_bytes[i] == c_byte {
-            return s_bytes as *void + i;
+            return (s_bytes + i) as *void;
         }
         i = i + 1;
     }
@@ -179,13 +179,13 @@ export fn strchr(s: *byte, c: i32) *byte {
     var i: usize = 0;
     while s_bytes[i] != 0 as byte {
         if s_bytes[i] == c_byte {
-            return s_bytes as *byte + i;
+            return (s_bytes + i) as *byte;
         }
         i = i + 1;
     }
     // 也检查 null 终止符
     if c_byte == 0 as byte {
-        return s_bytes as *byte + i;
+        return (s_bytes + i) as *byte;
     }
     return null;
 }
@@ -199,12 +199,12 @@ export fn strrchr(s: *byte, c: i32) *byte {
     var i: usize = 0;
     while s_bytes[i] != 0 as byte {
         if s_bytes[i] == c_byte {
-            last = s_bytes as *byte + i;
+            last = (s_bytes + i) as *byte;
         }
         i = i + 1;
     }
     if c_byte == 0 as byte {
-        return s_bytes as *byte + i;
+        return (s_bytes + i) as *byte;
     }
     return last;
 }

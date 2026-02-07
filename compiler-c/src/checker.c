@@ -59,6 +59,36 @@ static ASTNode *find_macro_decl_from_program(ASTNode *program_node, const char *
 static ASTNode *find_macro_decl_with_imports(TypeChecker *checker, const char *macro_name);
 static void expand_macros_in_node(TypeChecker *checker, ASTNode **node_ptr);
 static void checker_report_error(TypeChecker *checker, ASTNode *node, const char *message);
+// 检查函数名是否在标准库函数白名单中（允许使用 FFI 指针类型）
+static int is_stdlib_function(const char *fn_name) {
+    if (fn_name == NULL) return 0;
+    
+    // 标准库函数白名单（std.c.string, std.c.stdlib, std.c.stdio 等）
+    const char *stdlib_fns[] = {
+        // std.c.string
+        "memcpy", "memmove", "memset", "memcmp", "memchr",
+        "strlen", "strcmp", "strncmp", "strcpy", "strncpy", "strcat",
+        "strchr", "strrchr",
+        // std.c.stdlib
+        "malloc", "free", "calloc", "realloc",
+        "exit", "abort",
+        "atoi", "atol", "atof",
+        // std.c.stdio
+        "fopen", "fclose", "fread", "fgetc", "fprintf",
+        "put_char", "put_char_fd", "write_bytes", "write_bytes_fd", "put_str_len",
+        "get_char", "read_bytes", "read_bytes_fd",
+        "i32_to_str", "i64_to_str", "print_i32", "print_i64",
+        NULL
+    };
+    
+    for (int i = 0; stdlib_fns[i] != NULL; i++) {
+        if (strcmp(fn_name, stdlib_fns[i]) == 0) {
+            return 1;
+        }
+    }
+    
+    return 0;
+}
 // 将 Type 转换为字符串表示
 static const char *type_to_string(Arena *arena, Type type) {
     if (arena == NULL) return "unknown";
@@ -3399,8 +3429,9 @@ static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node) {
                 Type param_type = type_from_ast(checker, param->data.var_decl.type);
 
                 // 检查是否为 FFI 指针类型（*T）：普通函数仅在可变参数包装等场景下允许 *byte 等 FFI 指针形参（如 printf(fmt, ...)）
+                // 标准库函数（如 malloc, memcpy 等）允许使用 FFI 指针类型
                 if (!sig->is_extern && param_type.kind == TYPE_POINTER && param_type.data.pointer.is_ffi_pointer
-                    && !node->data.fn_decl.is_varargs) {
+                    && !node->data.fn_decl.is_varargs && !is_stdlib_function(sig->name)) {
                     checker_report_error(checker, node, "普通函数不能使用 FFI 指针类型作为参数");
                     checker->current_type_params = saved_type_params;
                     checker->current_type_param_count = saved_type_param_count;
@@ -3414,8 +3445,9 @@ static int checker_register_fn_decl(TypeChecker *checker, ASTNode *node) {
         sig->param_types = NULL;
     }
 
-    // 检查返回类型是否为 FFI 指针类型（如果是普通函数则不允许）
-    if (!sig->is_extern && return_type.kind == TYPE_POINTER && return_type.data.pointer.is_ffi_pointer) {
+    // 检查返回类型是否为 FFI 指针类型（如果是普通函数则不允许，但标准库函数允许）
+    if (!sig->is_extern && return_type.kind == TYPE_POINTER && return_type.data.pointer.is_ffi_pointer
+        && !is_stdlib_function(sig->name)) {
         // 普通函数不能使用 FFI 指针类型作为返回类型
         char buf[256];
         snprintf(buf, sizeof(buf), "普通函数 '%s' 不能使用 FFI 指针类型作为返回类型", sig->name ? sig->name : "(unknown)");

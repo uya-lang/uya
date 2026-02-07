@@ -3,12 +3,8 @@
 // 说明：基于系统调用的标准 I/O 函数（零外部依赖）
 // 注意：函数名使用下划线分隔风格，避免与 C 标准库冲突
 
-// ============================================================
-// 系统调用号（Linux x86-64）
-// ============================================================
-
-const SYS_write: i64 = 1;
-const SYS_read: i64 = 0;
+use std.c.syscall.SYS_read;
+use std.c.syscall.SYS_write;
 
 // ============================================================
 // 标准文件描述符
@@ -299,17 +295,17 @@ export fn fopen(filename: *byte, mode: *byte) *void {
     const result: !i64 = sys_open(filename as i64, flags, create_mode);
     const fd: i64 = result catch {
         return null;
-    }
+    };
     
     // 使用全局数组存储文件描述符（简化实现，最多支持 64 个打开的文件）
-    var i: usize = 0;
-    while i < 64 {
+    var j: usize = 0;
+    while j < 64 {
         // 查找空闲槽位（fd <= 0 表示未使用）
-        if fopen_fd_storage[i] <= 0 {
-            fopen_fd_storage[i] = fd;
-            return &fopen_fd_storage[i] as *void;
+        if fopen_fd_storage[j] <= 0 {
+            fopen_fd_storage[j] = fd;
+            return &fopen_fd_storage[j] as *void;
         }
-        i = i + 1;
+        j = j + 1;
     }
     
     // 如果数组满了，关闭文件描述符并返回 null
@@ -335,7 +331,7 @@ export fn fclose(stream: *void) i32 {
     const result: !i64 = sys_close(fd);
     _ = result catch {
         return 0 - 1;  // EOF
-    }
+    };
     
     // 标记为已关闭
     fd_ptr[0] = 0 - 1;
@@ -361,7 +357,7 @@ export fn fread(ptr: *byte, size: usize, nmemb: usize, stream: *void) usize {
     const result: !i64 = sys_read(fd, ptr as i64, total_size as i64);
     const bytes_read: i64 = result catch {
         return 0;
-    }
+    };
     
     if bytes_read < 0 {
         return 0;
@@ -390,7 +386,7 @@ export fn fgetc(stream: *void) i32 {
     const result: !i64 = sys_read(fd, &ch as i64, 1);
     const bytes_read: i64 = result catch {
         return 0 - 1;  // EOF
-    }
+    };
     
     if bytes_read == 1 {
         return ch as i32;
@@ -465,7 +461,7 @@ export fn fprintf(stream: *void, format: *byte, ...) i32 {
     const result: !i64 = sys_write(fd, &buf[0] as i64, buf_pos as i64);
     const written: i64 = result catch {
         return 0 - 1;
-    }
+    };
     
     return written as i32;
 }

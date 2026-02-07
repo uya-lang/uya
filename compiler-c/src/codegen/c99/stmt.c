@@ -844,6 +844,7 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                                     c99_emit(codegen, "%s.%s = NULL;\n", var_name, field_name);
                                 } else if (field_type->type == AST_TYPE_ARRAY) {
                                     // 数组类型：使用 memset 清零
+                                    codegen->needs_string_h = 1;
                                     c99_emit(codegen, "memset(%s.%s, 0, sizeof(%s.%s));\n", 
                                             var_name, field_name, var_name, field_name);
                                 } else {
@@ -854,6 +855,7 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                         }
                     } else {
                         // 空结构体（AST 无字段）：C 端有 char _empty 占位，整体零初始化（cast 避免 const 警告）
+                        codegen->needs_string_h = 1;
                         c99_emit(codegen, "memset((void *)&%s, 0, sizeof(%s));\n", var_name, var_name);
                     }
                 } else if (is_array_from_function) {

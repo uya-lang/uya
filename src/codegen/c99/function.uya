@@ -137,7 +137,14 @@ fn is_stdlib_function(func_name: &byte) i32 {
     }
     // 内存函数（需要返回 void * 而不是 const uint8_t *）
     if strcmp(func_name as *byte, "memset" as *byte) == 0 ||
-        strcmp(func_name as *byte, "memcpy" as *byte) == 0 {
+        strcmp(func_name as *byte, "memcpy" as *byte) == 0 ||
+        strcmp(func_name as *byte, "memmove" as *byte) == 0 ||
+        strcmp(func_name as *byte, "memcmp" as *byte) == 0 ||
+        strcmp(func_name as *byte, "memchr" as *byte) == 0 {
+        return 1;
+    }
+    // 字符串处理函数（std.c.string）
+    if strcmp(func_name as *byte, "strcat" as *byte) == 0 {
         return 1;
     }
     // 文件 I/O 函数
@@ -149,7 +156,35 @@ fn is_stdlib_function(func_name: &byte) i32 {
         strcmp(func_name as *byte, "fputc" as *byte) == 0 ||
         strcmp(func_name as *byte, "fgets" as *byte) == 0 ||
         strcmp(func_name as *byte, "fputs" as *byte) == 0 ||
-        strcmp(func_name as *byte, "fflush" as *byte) == 0 {
+        strcmp(func_name as *byte, "fflush" as *byte) == 0 ||
+        strcmp(func_name as *byte, "fprintf" as *byte) == 0 {
+        return 1;
+    }
+    // std.c.stdlib 函数（允许使用 FFI 指针类型）
+    if strcmp(func_name as *byte, "malloc" as *byte) == 0 ||
+        strcmp(func_name as *byte, "free" as *byte) == 0 ||
+        strcmp(func_name as *byte, "calloc" as *byte) == 0 ||
+        strcmp(func_name as *byte, "realloc" as *byte) == 0 ||
+        strcmp(func_name as *byte, "exit" as *byte) == 0 ||
+        strcmp(func_name as *byte, "abort" as *byte) == 0 ||
+        strcmp(func_name as *byte, "atoi" as *byte) == 0 ||
+        strcmp(func_name as *byte, "atol" as *byte) == 0 ||
+        strcmp(func_name as *byte, "atof" as *byte) == 0 {
+        return 1;
+    }
+    // std.c.stdio 函数（Uya 标准库）
+    if strcmp(func_name as *byte, "put_char" as *byte) == 0 ||
+        strcmp(func_name as *byte, "put_char_fd" as *byte) == 0 ||
+        strcmp(func_name as *byte, "write_bytes" as *byte) == 0 ||
+        strcmp(func_name as *byte, "write_bytes_fd" as *byte) == 0 ||
+        strcmp(func_name as *byte, "put_str_len" as *byte) == 0 ||
+        strcmp(func_name as *byte, "get_char" as *byte) == 0 ||
+        strcmp(func_name as *byte, "read_bytes" as *byte) == 0 ||
+        strcmp(func_name as *byte, "read_bytes_fd" as *byte) == 0 ||
+        strcmp(func_name as *byte, "i32_to_str" as *byte) == 0 ||
+        strcmp(func_name as *byte, "i64_to_str" as *byte) == 0 ||
+        strcmp(func_name as *byte, "print_i32" as *byte) == 0 ||
+        strcmp(func_name as *byte, "print_i64" as *byte) == 0 {
         return 1;
     }
     return 0;
@@ -301,6 +336,13 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
                         } else if strcmp(func_name as *byte, "strncpy" as *byte) == 0 && i == 0 {
                             // strncpy 的第一个参数（dest）应该是 char * 而不是 const char *
                             param_type_c = ("char *" as *byte) as &byte;
+                        } else if strcmp(func_name as *byte, "strcat" as *byte) == 0 && i == 0 {
+                            // strcat 的第一个参数（dest）应该是 char * 而不是 const char *
+                            param_type_c = ("char *" as *byte) as &byte;
+                        } else if (strcmp(func_name as *byte, "i32_to_str" as *byte) == 0 ||
+                                   strcmp(func_name as *byte, "i64_to_str" as *byte) == 0) && i == 1 {
+                            // i32_to_str 和 i64_to_str 的第二个参数（buf）应该是 char * 而不是 const char *（需要写入）
+                            param_type_c = ("char *" as *byte) as &byte;
                         } else {
                             // 其他标准库函数的字符串参数：将 uint8_t * 替换为 const char *
                             param_type_c = ("const char *" as *byte) as &byte;
@@ -407,6 +449,9 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
             is_copy_type = 1;
         }
         
+        // 检查是否是标准库函数
+        const is_stdlib: i32 = is_stdlib_function(func_name);
+        
         // 参数列表
         i = 0;
         while i < param_count {
@@ -421,6 +466,50 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
                     // 对于 copy_type 函数，第一个参数类型必须是 const struct Type *
                     // 直接替换，不检查原始类型（因为 copy_type 的参数类型总是 &Type，即 struct Type *）
                     param_type_c = ("const struct Type *" as *byte) as &byte;
+                }
+                
+                // 对于标准库函数，将 uint8_t * 转换为 const char * 或 char *
+                // 对于 memset/memcpy，第一个参数应该是 void * 而不是 const char *
+                if is_stdlib != 0 && param_type.type == ASTNodeType.AST_TYPE_POINTER {
+                    const pointed_type: &ASTNode = param_type.type_pointer_pointed_type;
+                    if pointed_type != null && pointed_type.type == ASTNodeType.AST_TYPE_NAMED {
+                        const pointed_name: &byte = pointed_type.type_named_name;
+                        if pointed_name != null && strcmp(pointed_name as *byte, "byte" as *byte) == 0 {
+                            // 检查是否是 memset 或 memcpy（第一个参数应该是 void *）
+                            if (strcmp(func_name as *byte, "memset" as *byte) == 0 ||
+                                strcmp(func_name as *byte, "memcpy" as *byte) == 0) && i == 0 {
+                                // memset/memcpy 的第一个参数（dest）应该是 void * 而不是 const char *
+                                param_type_c = ("void *" as *byte) as &byte;
+                            } else if strcmp(func_name as *byte, "memcpy" as *byte) == 0 && i == 1 {
+                                // memcpy 的第二个参数（src）应该是 const void *
+                                param_type_c = ("const void *" as *byte) as &byte;
+                            } else if strcmp(func_name as *byte, "fread" as *byte) == 0 && i == 0 {
+                                // fread 的第一个参数（ptr）应该是 void * 而不是 const char *
+                                param_type_c = ("void *" as *byte) as &byte;
+                            } else if strcmp(func_name as *byte, "snprintf" as *byte) == 0 && i == 0 {
+                                // snprintf 的第一个参数（buf）应该是 char * 而不是 const char *
+                                param_type_c = ("char *" as *byte) as &byte;
+                            } else if strcmp(func_name as *byte, "strcpy" as *byte) == 0 && i == 0 {
+                                // strcpy 的第一个参数（dest）应该是 char * 而不是 const char *
+                                param_type_c = ("char *" as *byte) as &byte;
+                            } else if strcmp(func_name as *byte, "strncpy" as *byte) == 0 && i == 0 {
+                                // strncpy 的第一个参数（dest）应该是 char * 而不是 const char *
+                                param_type_c = ("char *" as *byte) as &byte;
+                            } else if strcmp(func_name as *byte, "strcat" as *byte) == 0 && i == 0 {
+                                // strcat 的第一个参数（dest）应该是 char * 而不是 const char *
+                                param_type_c = ("char *" as *byte) as &byte;
+                            } else if (strcmp(func_name as *byte, "i32_to_str" as *byte) == 0 ||
+                                       strcmp(func_name as *byte, "i64_to_str" as *byte) == 0) && i == 1 {
+                                // i32_to_str 和 i64_to_str 的第二个参数（buf）应该是 char * 而不是 const char *（需要写入）
+                                param_type_c = ("char *" as *byte) as &byte;
+                            } else {
+                                // 其他标准库函数的字符串参数：将 uint8_t * 替换为 const char *
+                                param_type_c = ("const char *" as *byte) as &byte;
+                            }
+                        } else if pointed_name != null && strcmp(pointed_name as *byte, "void" as *byte) == 0 {
+                            // *void 类型已经是 void *，不需要修改
+                        }
+                    }
                 }
                 
                 // 数组参数：在参数名后添加 _param 后缀，函数内部会创建副本
@@ -529,7 +618,8 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
                     fprintf(codegen.output, "%s %s;\n" as *byte, array_type_c as *byte, param_name as *byte);
                 }
                 c99_emit_indent(codegen);
-                fprintf(codegen.output, "    memcpy(%s, %s_param, sizeof(%s));\n" as *byte, param_name as *byte, param_name as *byte, param_name as *byte);
+                codegen.needs_string_h = 1;
+                fprintf(codegen.output, "    __uya_memcpy(%s, %s_param, sizeof(%s));\n" as *byte, param_name as *byte, param_name as *byte, param_name as *byte);
                 
                 // 将参数名注册为局部数组（而不是参数）
                 if param_name != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
