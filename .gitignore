@@ -27,3 +27,4 @@ compiler-mini/tests/programs/build/
 compiler-c/build/
 bin/
 tests/programs/build/
+lib/build/

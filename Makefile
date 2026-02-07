@@ -1,7 +1,7 @@
 # Uya 项目根目录 Makefile
 # 提供统一的构建和测试入口
 
-.PHONY: all uya-c uya b tests tests-c tests-uya c e clean help
+.PHONY: all uya-c uya b tests tests-c tests-uya outlibc c e clean help
 
 # 默认目标
 all: help
@@ -121,6 +121,44 @@ tests-uya:
 		./tests/run_programs.sh --uya --c99; \
 	fi
 
+# 输出标准库为 C 代码
+outlibc: uya-c
+	@echo "=========================================="
+	@echo "输出标准库为 C 代码 (outlibc)"
+	@echo "=========================================="
+	@mkdir -p lib/build
+	@echo "编译标准库文件..."
+	@if [ -f bin/uya-c ]; then \
+		COMPILER=bin/uya-c; \
+	elif [ -f compiler-c/build/compiler-c ]; then \
+		COMPILER=compiler-c/build/compiler-c; \
+	else \
+		echo "错误: 找不到编译器，请先运行 'make uya-c'"; \
+		exit 1; \
+	fi; \
+	echo "使用编译器: $$COMPILER"; \
+	echo ""; \
+	LIB_FILES=$$(find lib/std/c -name "*.uya" -type f | sort); \
+	if [ -z "$$LIB_FILES" ]; then \
+		echo "错误: 未找到标准库文件 (lib/std/c/*.uya)"; \
+		exit 1; \
+	fi; \
+	echo "找到的标准库文件:"; \
+	echo "$$LIB_FILES" | sed 's/^/  /'; \
+	echo ""; \
+	echo "生成 C 代码到 lib/build/libuya.c..."; \
+	$$COMPILER --c99 $$LIB_FILES -o lib/build/libuya.c; \
+	if [ $$? -eq 0 ]; then \
+		echo ""; \
+		echo "✓ 标准库 C 代码已生成: lib/build/libuya.c"; \
+		FILE_SIZE=$$(du -h lib/build/libuya.c 2>/dev/null | cut -f1 || echo "未知"); \
+		echo "  文件大小: $$FILE_SIZE"; \
+	else \
+		echo ""; \
+		echo "✗ 生成失败"; \
+		exit 1; \
+	fi
+
 # 清理构建产物
 clean:
 	@echo "清理构建产物..."
@@ -129,6 +167,7 @@ clean:
 	@rm -rf compiler-c/build
 	@rm -rf src/build
 	@rm -rf tests/programs/build
+	@rm -rf lib/build
 	@echo "✓ 清理完成"
 
 # 显示帮助信息
@@ -149,6 +188,7 @@ help:
 	@echo "  make tests-c e       - 快捷方式：测试 C 编译器，只显示失败的测试"
 	@echo "  make tests-uya       - 快捷方式：测试自举编译器"
 	@echo "  make tests-uya e     - 快捷方式：测试自举编译器，只显示失败的测试"
+	@echo "  make outlibc         - 输出标准库为 C 代码 (lib/build/libuya.c)"
 	@echo "  make clean           - 清理所有构建产物"
 	@echo "  make help            - 显示此帮助信息"
 	@echo ""
