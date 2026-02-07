@@ -121,19 +121,18 @@ tests-uya:
 		./tests/run_programs.sh --uya --c99; \
 	fi
 
-# 输出标准库为 C 代码
-outlibc: uya-c
+# 输出标准库为 C 代码（使用自举编译器）
+outlibc: uya
 	@echo "=========================================="
 	@echo "输出标准库为 C 代码 (outlibc)"
+	@echo "使用自举编译器 (uya)"
 	@echo "=========================================="
 	@mkdir -p lib/build
 	@echo "编译标准库文件..."
-	@if [ -f bin/uya-c ]; then \
-		COMPILER=bin/uya-c; \
-	elif [ -f compiler-c/build/compiler-c ]; then \
-		COMPILER=compiler-c/build/compiler-c; \
+	@if [ -f bin/uya ]; then \
+		COMPILER=bin/uya; \
 	else \
-		echo "错误: 找不到编译器，请先运行 'make uya-c'"; \
+		echo "错误: 找不到自举编译器，请先运行 'make uya'"; \
 		exit 1; \
 	fi; \
 	echo "使用编译器: $$COMPILER"; \
@@ -153,6 +152,7 @@ outlibc: uya-c
 		echo "✓ 标准库 C 代码已生成: lib/build/libuya.c"; \
 		FILE_SIZE=$$(du -h lib/build/libuya.c 2>/dev/null | cut -f1 || echo "未知"); \
 		echo "  文件大小: $$FILE_SIZE"; \
+		echo "  使用编译器: 自举编译器 (uya)"; \
 	else \
 		echo ""; \
 		echo "✗ 生成失败"; \
@@ -188,7 +188,7 @@ help:
 	@echo "  make tests-c e       - 快捷方式：测试 C 编译器，只显示失败的测试"
 	@echo "  make tests-uya       - 快捷方式：测试自举编译器"
 	@echo "  make tests-uya e     - 快捷方式：测试自举编译器，只显示失败的测试"
-	@echo "  make outlibc         - 输出标准库为 C 代码 (lib/build/libuya.c)"
+	@echo "  make outlibc         - 输出标准库为 C 代码（使用自举编译器）"
 	@echo "  make clean           - 清理所有构建产物"
 	@echo "  make help            - 显示此帮助信息"
 	@echo ""
