@@ -42,7 +42,7 @@
 - **uya.md**：版本 0.35 → 0.36，规范变更中明确 drop 只能在结构体/联合体内部或方法块中定义
 - **§4.1 / §12 / §4.5.10**：示例与条文更新，顶层 `fn drop(self: T) void` 改为方法块形式 `T { fn drop(self: T) void { ... } }`
 - **changelog.md**：新增 0.36 版本变更说明
-- **compiler-mini/spec/UYA_MINI_SPEC.md**：基于规范版本 0.36，结构体行补充 drop 定义位置说明
+- **compiler-c-spec/UYA_MINI_SPEC.md**：基于规范版本 0.36，结构体行补充 drop 定义位置说明
 - **readme / comparison / uya_ai_prompt / index.html**：版本与示例同步至 0.36
 
 ---
@@ -72,7 +72,7 @@
 **规范与文档**：
 - `uya.md` - 0.36、§4.1/§12/§4.5.10 drop 定义位置与示例
 - `changelog.md` - 0.36 变更
-- `compiler-mini/spec/UYA_MINI_SPEC.md` - 0.36、结构体 drop 说明
+- `compiler-c-spec/UYA_MINI_SPEC.md` - 0.36、结构体 drop 说明
 - `readme.md`、`comparison.md`、`uya_ai_prompt.md`、`index.html`、`compiler-mini/todo_mini_to_full.md` - 版本与示例同步
 
 **测试用例**：
@@ -156,7 +156,7 @@ S {
 
 - **语言规范**：`uya.md`（0.36）
 - **语法规范**：`grammar_formal.md`
-- **实现文档**：`compiler-mini/spec/UYA_MINI_SPEC.md`
+- **实现文档**：`compiler-c-spec/UYA_MINI_SPEC.md`
 - **待办事项**：`compiler-mini/todo_mini_to_full.md`
 - **测试用例**：`compiler-mini/tests/programs/`
 

@@ -2,7 +2,7 @@
 
 **相关文档**：
 - [std.c 标准库设计](std_c_design.md) — 同步 I/O（`std.io`）、C 标准库替代（`std.c`）
-- [语言规范 第 18 章](../../uya.md) — 异步编程语言核心（`@async_fn`、`@await`、`Future<T>`、`Poll<T>`）
+- [语言规范 第 18 章](uya.md) — 异步编程语言核心（`@async_fn`、`@await`、`Future<T>`、`Poll<T>`）
 
 ## 概述
 

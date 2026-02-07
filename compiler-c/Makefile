@@ -9,8 +9,10 @@ INCLUDES = -Isrc
 SRC_DIR = src
 TEST_DIR = ../tests
 
-# 构建输出目录
+# 构建输出目录（中间文件）
 BUILD_DIR = build
+# 最终二进制输出目录
+BIN_DIR = ../bin
 
 # 测试目标
 ARENA_TEST = $(BUILD_DIR)/tests/test_arena
@@ -25,7 +27,7 @@ CHECKER_TEST = $(BUILD_DIR)/tests/test_checker
 CHECKER_TEST_SRC = $(TEST_DIR)/test_checker.c src/checker.c src/parser.c src/lexer.c src/ast.c src/arena.c
 
 # 主程序目标
-TARGET = $(BUILD_DIR)/compiler-c
+TARGET = $(BIN_DIR)/uya-c
 MAIN_SRC = src/main.c \
 	src/codegen/c99/utils.c \
 	src/codegen/c99/types.c \
@@ -53,7 +55,7 @@ build: $(TARGET)
 	@echo "构建完成: $(TARGET)"
 
 # 编译主程序
-$(TARGET): $(MAIN_SRC) | $(BUILD_DIR)/.dir
+$(TARGET): $(MAIN_SRC) | $(BIN_DIR)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 # 运行所有测试
@@ -110,7 +112,7 @@ compile-programs: $(TARGET) $(PROGRAM_BINARIES)
 
 $(PROGRAM_BINARIES): $(BUILD_DIR)/programs/%.c: $(PROGRAMS_DIR)/%.uya | $(BUILD_DIR)/programs/.dir
 	@echo "编译测试程序: $<"
-	./$(TARGET) $< -o $@
+	$(TARGET) $< -o $@
 
 # 运行所有测试程序
 test-programs: compile-programs
@@ -122,14 +124,14 @@ c99-backend: $(TARGET)
 	@echo "使用 C99 后端编译示例程序..."
 	@mkdir -p $(BUILD_DIR)/c99_examples
 	@if [ -f $(PROGRAMS_DIR)/test_simple.uya ]; then \
-		./$(TARGET) $(PROGRAMS_DIR)/test_simple.uya -o $(BUILD_DIR)/c99_examples/test_simple.c --c99; \
+		$(TARGET) $(PROGRAMS_DIR)/test_simple.uya -o $(BUILD_DIR)/c99_examples/test_simple.c --c99; \
 		echo "生成的 C99 代码已保存到: $(BUILD_DIR)/c99_examples/test_simple.c"; \
 		echo "使用以下命令编译: gcc --std=c99 -o $(BUILD_DIR)/c99_examples/test_simple $(BUILD_DIR)/c99_examples/test_simple.c"; \
 	else \
 		echo "示例文件不存在，使用第一个测试程序..."; \
 		FIRST_UYA=$$(ls $(PROGRAMS_DIR)/*.uya 2>/dev/null | head -1); \
 		if [ -n "$$FIRST_UYA" ]; then \
-			./$(TARGET) $$FIRST_UYA -o $(BUILD_DIR)/c99_examples/example.c --c99; \
+			$(TARGET) $$FIRST_UYA -o $(BUILD_DIR)/c99_examples/example.c --c99; \
 			echo "生成的 C99 代码已保存到: $(BUILD_DIR)/c99_examples/example.c"; \
 		else \
 			echo "错误: 未找到测试程序文件"; \
@@ -141,10 +143,13 @@ test-c99: $(TARGET)
 	@echo "运行 C99 后端测试..."
 	@bash $(TEST_DIR)/run_programs.sh --c99
 
-# 创建构建目录（使用中间目标避免与 build 目标冲突）
+# 创建构建目录
 $(BUILD_DIR)/.dir:
 	@mkdir -p $(BUILD_DIR)
 	@touch $@
+
+$(BIN_DIR):
+	@mkdir -p $(BIN_DIR)
 
 $(BUILD_DIR)/tests/.dir: | $(BUILD_DIR)/.dir
 	@mkdir -p $(BUILD_DIR)/tests
@@ -157,4 +162,5 @@ $(BUILD_DIR)/programs/.dir: | $(BUILD_DIR)/.dir
 # 清理编译产物
 clean:
 	rm -rf $(BUILD_DIR)
+	rm -f $(TARGET)
 	@echo "清理完成"

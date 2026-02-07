@@ -13,12 +13,13 @@ NC='\033[0m' # No Color
 # 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPILER_DIR="$(dirname "$SCRIPT_DIR")"
-COMPILER="$COMPILER_DIR/build/compiler-c"
+REPO_ROOT="$(cd "$COMPILER_DIR/.." && pwd)"
+COMPILER="$REPO_ROOT/bin/uya-c"
 
 # 检查编译器是否存在
 if [ ! -f "$COMPILER" ]; then
     echo "错误: 编译器 '$COMPILER' 不存在"
-    echo "请先运行 'cd $COMPILER_DIR && make build' 构建编译器"
+    echo "请先运行 'cd compiler-c && make build' 构建编译器"
     exit 1
 fi
 

@@ -6,7 +6,7 @@
 
 ### 编译器实现待办事项（v0.1.0）
 
-项目 v0.1.0 已达成自举，详见 `RELEASE_v0.1.0.md`。
+项目 v0.1.0 已达成自举，详见 `docs/RELEASE_v0.1.0.md`。
 
 **使用场景**：
 - 开始新的实现任务前，先查看上述文档了解当前状态
@@ -16,13 +16,18 @@
 
 ## 项目结构
 
-- `uya.md` - 完整语言规范
-- `grammar_formal.md` - 正式BNF语法规范
-- `grammar_quick.md` - 语法速查手册
-- `uya_ai_prompt.md` - AI代码生成提示词
+- `docs/uya.md` - 完整语言规范
+- `docs/grammar_formal.md` - 正式BNF语法规范
+- `docs/grammar_quick.md` - 语法速查手册
+- `docs/uya_ai_prompt.md` - AI代码生成提示词
+- `docs/RELEASE_*.md` - 版本发布说明
+- `docs/todo_mini_to_full.md` - 编译器实现待办事项
+- `docs/compiler-c-spec/` - 编译器规范文档
 - `compiler-c/` - Uya Mini 编译器源代码（C 实现）
 - `src/` - Uya 自举编译器源代码（Uya 实现）
-- `RELEASE_v0.1.0.md` - v0.1.0 版本说明
+- `tests/` - 测试用例和测试脚本
+- `bin/` - 编译器二进制输出目录（`uya-c` C编译器，`uya` 自举编译器）
+- `lib/` - 标准库
 
 ---
 
@@ -46,7 +51,7 @@
 新增或修改语言特性时，按以下顺序进行：
 
 ### 1. 规范优先
-- 更新 `compiler-c/spec/UYA_MINI_SPEC.md`
+- 更新 `docs/compiler-c-spec/UYA_MINI_SPEC.md`
 - 定义类型、字面量、BNF、语义规则、C99 映射等
 
 ### 2. 测试先行
@@ -92,7 +97,7 @@ cd src && ./compile.sh --c99 -b                   # 自举对比（C 输出必�
 ## AI 辅助开发提示
 
 当进行编译器开发时：
-1. 参考 `RELEASE_v0.1.0.md` 了解当前状态
-2. 参考 `uya.md` 和 `grammar_formal.md` 确认语法规范
+1. 参考 `docs/RELEASE_v0.1.0.md` 了解当前状态
+2. 参考 `docs/uya.md` 和 `docs/grammar_formal.md` 确认语法规范
 3. 遵循上述「编译器开发工作流」
 

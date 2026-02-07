@@ -6,7 +6,7 @@ Uya Mini 是 Uya 语言的最小子集编译器，设计目标是能够编译自
 
 ✅ **核心功能已完成** - Uya Mini 规范已全部实现，编译器功能完整
 
-✅ **自举已达成** - 用 Uya 编写的编译器可编译自身，且与 C 编译器生成的 C 文件完全一致（`../src/compile.sh --c99 -b` 验证）。详见项目根目录 [RELEASE_v0.1.0.md](../RELEASE_v0.1.0.md)
+✅ **自举已达成** - 用 Uya 编写的编译器可编译自身，且与 C 编译器生成的 C 文件完全一致（`../src/compile.sh --c99 -b` 验证）。详见项目根目录 [docs/RELEASE_v0.1.0.md](../docs/RELEASE_v0.1.0.md)
 
 **已完成模块**：
 - ✅ Arena 分配器
@@ -92,18 +92,15 @@ gcc --std=c99 -o program program.c tests/bridge.c
 
 ## 文档
 
-- [语言规范](spec/UYA_MINI_SPEC.md) - Uya Mini 完整语言规范
-- [内置函数参考](docs/builtin_functions.md) - 所有内置函数详细使用文档
-- [v0.1.0 版本说明](../RELEASE_v0.1.0.md) - 自举达成与发布说明
+- [语言规范](../docs/compiler-c-spec/UYA_MINI_SPEC.md) - Uya Mini 完整语言规范
+- [内置函数参考](../docs/builtin_functions.md) - 所有内置函数详细使用文档
+- [v0.1.0 版本说明](../docs/RELEASE_v0.1.0.md) - 自举达成与发布说明
 - [开发规则](.cursorrules) - 开发规则和规范
 
 ## 项目结构
 
 ```
 compiler-c/
-├── spec/                          # 语言规范
-│   ├── UYA_MINI_SPEC.md          # 语言规范文档
-│   └── examples/                  # 示例代码
 ├── src/                           # 源代码
 │   ├── arena.h / arena.c          # Arena 分配器
 │   ├── lexer.h / lexer.c          # 词法分析器
@@ -123,7 +120,7 @@ compiler-c/
 
 ## 相关项目
 
-- [Uya 语言规范](../uya.md) - Uya 语言完整规范
+- [Uya 语言规范](../docs/uya.md) - Uya 语言完整规范
 - [Uya 编译器](../compiler/) - Uya 完整编译器（C 实现）
 - [Uya 编译器 Go 版本](../compiler-go/) - Uya 编译器 Go 迁移版本
 

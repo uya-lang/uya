@@ -104,7 +104,7 @@ gcc -no-pie build/uya-compiler/compiler.o \
 
 ## 注意事项
 
-1. **编译器要求**：需要使用已构建的 C 版本编译器（`../build/compiler-mini`）。C 版将维护至本目录（uya-src）完整实现，详见 [RELEASE_v0.1.0.md](../../RELEASE_v0.1.0.md) 与上级 [README](../README.md)。
+1. **编译器要求**：需要使用已构建的 C 版本编译器（`../build/compiler-mini`）。C 版将维护至本目录（uya-src）完整实现，详见 [docs/RELEASE_v0.1.0.md](../../docs/RELEASE_v0.1.0.md) 与上级 [README](../readme.md)。
 2. **文件顺序**：虽然编译器支持任意顺序的多文件编译，但建议按照依赖关系顺序排列文件
 3. **类型检查**：编译器会检查跨文件的符号引用和类型匹配
 4. **输出格式**：默认输出为目标文件（`.o`），需要使用链接器生成可执行文件
@@ -147,8 +147,8 @@ make build
 
 ## 参考
 
-- [Uya Mini 规范](../spec/UYA_MINI_SPEC.md) - 完整语言规范
-- [v0.1.0 版本说明](../../RELEASE_v0.1.0.md) - 自举达成与发布说明
+- [Uya Mini 规范](../../docs/compiler-c-spec/UYA_MINI_SPEC.md) - 完整语言规范
+- [v0.1.0 版本说明](../../docs/RELEASE_v0.1.0.md) - 自举达成与发布说明
 
 
 

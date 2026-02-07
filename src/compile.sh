@@ -6,16 +6,18 @@
 
 # 脚本目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# 项目根目录（compiler-c）
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../compiler-c" && pwd)"
+# 项目根目录
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # src 目录
 UYA_SRC_DIR="$SCRIPT_DIR"
 # 编译器路径
-COMPILER="$PROJECT_ROOT/build/compiler-c"
-# 默认输出目录
-BUILD_DIR="$PROJECT_ROOT/build/uya-compiler"
+COMPILER="$REPO_ROOT/bin/uya-c"
+# 默认输出目录（中间文件）
+BUILD_DIR="$REPO_ROOT/compiler-c/build/uya-src"
+# 最终二进制输出目录
+BIN_DIR="$REPO_ROOT/bin"
 # 默认输出文件名
-OUTPUT_NAME="compiler"
+OUTPUT_NAME="uya"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -440,19 +442,11 @@ if [ $COMPILER_EXIT -eq 0 ]; then
     echo ""
     
     # 确定实际生成的文件路径
-    # 如果使用 -exec，编译器会生成可执行文件（去掉 .o 或添加 _exec）
+    # 最终可执行文件输出到 bin/ 目录
     EXECUTABLE_FILE=""
     if [ "$GENERATE_EXEC" = true ]; then
-        # 如果输出文件以 .o 结尾，可执行文件去掉 .o
-        if [[ "$OUTPUT_FILE" == *.o ]]; then
-            EXECUTABLE_FILE="${OUTPUT_FILE%.o}"
-        elif [[ "$OUTPUT_FILE" == *.c ]]; then
-            # 如果输出文件以 .c 结尾（C99 后端），可执行文件去掉 .c
-            EXECUTABLE_FILE="${OUTPUT_FILE%.c}"
-        else
-            # 否则添加 _exec 后缀
-            EXECUTABLE_FILE="${OUTPUT_FILE}_exec"
-        fi
+        mkdir -p "$BIN_DIR"
+        EXECUTABLE_FILE="$BIN_DIR/$OUTPUT_NAME"
         
         # 检查可执行文件是否需要生成或重新链接（C99 时若 .c 比可执行文件新则需重新链接）
         NEED_LINK=false

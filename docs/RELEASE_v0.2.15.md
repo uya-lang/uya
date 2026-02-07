@@ -53,7 +53,7 @@
 **规范与文档**：
 - `changelog.md` — 0.39、0.38 版本变更
 - `uya.md` — 规范 0.39、指针转换规则（&T ↔ *T）
-- `compiler-mini/spec/UYA_MINI_SPEC.md` — 方法语法、*T 用途、指针转换
+- `compiler-c-spec/UYA_MINI_SPEC.md` — 方法语法、*T 用途、指针转换
 - `grammar_formal.md`、`grammar_quick.md`、`uya_ai_prompt.md`、`comparison.md`、`readme.md`、`index.html`、`compiler-mini/todo_mini_to_full.md` — 示例与版本同步
 
 **C 实现**：
@@ -123,7 +123,7 @@ fn main() i32 {
 
 - **语言规范**：`uya.md`（0.39）
 - **语法规范**：`grammar_formal.md`
-- **实现文档**：`compiler-mini/spec/UYA_MINI_SPEC.md`
+- **实现文档**：`compiler-c-spec/UYA_MINI_SPEC.md`
 - **待办事项**：`compiler-mini/todo_mini_to_full.md`
 - **测试用例**：`compiler-mini/tests/programs/`
 

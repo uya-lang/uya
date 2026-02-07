@@ -25,7 +25,7 @@ struct err_union_int64_t { uint32_t error_id; int64_t value; };
 
 // 字符串常量
 static const uint8_t str0[] = "test_src_location.uya";
-static const uint8_t str1[] = "/media/winger/_dde_home/winger/uya/tests/programs/test_src_location.uya";
+static const uint8_t str1[] = "/home/winger/.cursor/worktrees/uya/zux/tests/programs/test_src_location.uya";
 static const uint8_t str2[] = "main";
 static const uint8_t str3[] = "test_func";
 

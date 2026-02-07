@@ -203,7 +203,7 @@ Counter {
 
 - **语言规范**：`uya.md` §15 - 宏系统
 - **语法规范**：`grammar_formal.md` - 宏声明 BNF
-- **实现文档**：`compiler-mini/spec/UYA_MINI_SPEC.md`
+- **实现文档**：`compiler-c-spec/UYA_MINI_SPEC.md`
 - **待办事项**：`compiler-mini/todo_mini_to_full.md` §15 - 宏系统
 - **测试用例**：`compiler-mini/tests/programs/test_macro_*.uya`
 

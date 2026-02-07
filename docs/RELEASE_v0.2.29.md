@@ -215,7 +215,7 @@ fn main() i32 {
 
 - **语言规范**：`uya.md` §7 - 泛型编程、§16 - 异步编程
 - **语法规范**：`grammar_formal.md` - 泛型语法 BNF
-- **实现文档**：`compiler-mini/spec/UYA_MINI_SPEC.md`
+- **实现文档**：`compiler-c-spec/UYA_MINI_SPEC.md`
 - **待办事项**：`compiler-mini/todo_mini_to_full.md` §7 - 泛型编程
 - **测试用例**：`compiler-mini/tests/programs/test_generic_*.uya`、`test_block_comment.uya`
 

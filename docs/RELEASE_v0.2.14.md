@@ -58,7 +58,7 @@
 **规范与文档**：
 - `uya.md`、`changelog.md` — 0.37、drop 使用限制
 - `comparison.md`、`readme.md`、`uya_ai_prompt.md`、`todo_mini_to_full.md` — 版本与待办同步
-- `compiler-mini/spec/UYA_MINI_SPEC.md` — 移动语义与内存管理
+- `compiler-c-spec/UYA_MINI_SPEC.md` — 移动语义与内存管理
 
 **C 实现**：
 - `compiler-mini/src/checker.c` — 移动语义（moved_names、pointee_of、mark_moved、mark_moved_call_args）、前向声明修正
@@ -148,7 +148,7 @@ fn main() i32 {
 
 - **语言规范**：`uya.md`（0.37）
 - **语法规范**：`grammar_formal.md`
-- **实现文档**：`compiler-mini/spec/UYA_MINI_SPEC.md`
+- **实现文档**：`compiler-c-spec/UYA_MINI_SPEC.md`
 - **待办事项**：`compiler-mini/todo_mini_to_full.md`
 - **测试用例**：`compiler-mini/tests/programs/`
 

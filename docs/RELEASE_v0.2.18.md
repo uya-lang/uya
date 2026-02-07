@@ -80,7 +80,7 @@
 - `compiler-mini/uya-src/codegen/c99/expr.uya` — unsigned_type_for_wrapping、gen_saturate_limit_from_type_c、饱和/包装分支
 
 **规范与文档**：
-- `compiler-mini/spec/UYA_MINI_SPEC.md` — 3.5 运算符与饱和/包装语义
+- `compiler-c-spec/UYA_MINI_SPEC.md` — 3.5 运算符与饱和/包装语义
 - `compiler-mini/todo_mini_to_full.md` — 三项勾选完成
 
 **测试**：
@@ -151,7 +151,7 @@ fn main() i32 {
 ## 相关资源
 
 - **语言规范**：`uya.md`（§10 运算符与优先级、§16 溢出与安全）
-- **实现规范**：`compiler-mini/spec/UYA_MINI_SPEC.md`（3.5 运算符）
+- **实现规范**：`compiler-c-spec/UYA_MINI_SPEC.md`（3.5 运算符）
 - **待办事项**：`compiler-mini/todo_mini_to_full.md`
 - **测试用例**：`compiler-mini/tests/programs/test_saturating_wrapping.uya`、`test_slice.uya`
 

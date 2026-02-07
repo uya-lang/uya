@@ -154,7 +154,7 @@ fn main() !i32 {
 ## 相关资源
 
 - **语言规范**：`uya.md`（§11 类型转换、§11.3 强转 as!）
-- **实现文档**：`compiler-mini/spec/UYA_MINI_SPEC.md`
+- **实现文档**：`compiler-c-spec/UYA_MINI_SPEC.md`
 - **待办事项**：`compiler-mini/todo_mini_to_full.md`
 - **测试用例**：`compiler-mini/tests/programs/test_as_force_cast.uya`
 

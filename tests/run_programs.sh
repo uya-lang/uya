@@ -18,7 +18,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-COMPILER="$REPO_ROOT/compiler-c/build/compiler-c"
+COMPILER="$REPO_ROOT/bin/uya-c"
 TEST_DIR="$SCRIPT_DIR/programs"
 BUILD_DIR="$TEST_DIR/build"
 PASSED=0
@@ -104,52 +104,19 @@ done
 
 # 根据 --uya 选项设置编译器路径
 if [ "$USE_UYA" = true ]; then
-    # 自举编译器总是使用 C99 后端（因为它本身就是用 C99 后端编译的）
-    # 所以自动启用 C99 后端
+    # 自举编译器总是使用 C99 后端
     USE_C99=true
-    
-    # 检查多个可能的编译器文件名（按优先级）
-    # 注意：使用 --c99 后端时，compile.sh 会生成 "compiler"（去掉 .c 后缀）
-    # 保留 compiler.c_exec 作为向后兼容（旧版本可能使用此名称）
-    UYA_COMPILER_PATHS=(
-        "$REPO_ROOT/compiler-c/build/uya-compiler/compiler"  # C99 后端
-    )
-    
-    COMPILER=""
-    for path in "${UYA_COMPILER_PATHS[@]}"; do
-        if [ -f "$path" ] && [ -x "$path" ]; then
-            COMPILER="$path"
-            break
-        fi
-    done
-    
-    # 如果没找到，使用默认路径（用于错误提示）
-    if [ -z "$COMPILER" ]; then
-        COMPILER="$REPO_ROOT/compiler-c/build/uya-compiler/compiler"
-    fi
+    COMPILER="$REPO_ROOT/bin/uya"
 fi
 
 # 检查编译器是否存在
 if [ -z "$COMPILER" ] || [ ! -f "$COMPILER" ] || [ ! -x "$COMPILER" ]; then
     if [ "$USE_UYA" = true ]; then
-        echo "错误: Uya 编译器不存在"
-        echo "已检查以下路径："
-        for path in "${UYA_COMPILER_PATHS[@]}"; do
-            if [ -f "$path" ]; then
-                if [ -x "$path" ]; then
-                    echo "  $path (存在且可执行)"
-                else
-                    echo "  $path (存在但不可执行)"
-                fi
-            else
-                echo "  $path (不存在)"
-            fi
-        done
-        echo ""
+        echo "错误: Uya 自举编译器不存在: $COMPILER"
         echo "请先运行 'cd src && ./compile.sh -e --c99' 构建 Uya 编译器"
     else
-        echo "错误: 编译器 '$COMPILER' 不存在"
-        echo "请先运行 'make build' 构建编译器"
+        echo "错误: C 编译器不存在: $COMPILER"
+        echo "请先运行 'cd compiler-c && make build' 构建编译器"
     fi
     exit 1
 fi

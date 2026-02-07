@@ -497,7 +497,7 @@ fn heavy_computation() i32 {
 
 - **语言规范**：`uya.md` §16 - 标准库（内置函数）
 - **内置函数文档**：`compiler-mini/docs/builtin_functions.md` - 完整使用文档
-- **实现规范**：`compiler-mini/spec/UYA_MINI_SPEC.md`
+- **实现规范**：`compiler-c-spec/UYA_MINI_SPEC.md`
 - **待办事项**：`compiler-mini/todo_mini_to_full.md` - 内置与标准库补充
 - **测试用例**：
   - `compiler-mini/tests/programs/test_src_location.uya` - 源代码位置测试

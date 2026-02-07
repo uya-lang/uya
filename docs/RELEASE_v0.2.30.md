@@ -197,7 +197,7 @@ struct uya_vtable_IReadWriter {
 
 - **语言规范**：`uya.md` - 接口组合语法
 - **示例代码**：`examples/file_6.uya` - 接口组合示例
-- **实现文档**：`compiler-mini/spec/UYA_MINI_SPEC.md`
+- **实现文档**：`compiler-c-spec/UYA_MINI_SPEC.md`
 - **待办事项**：`compiler-mini/todo_mini_to_full.md` §27 - 接口组合
 - **测试用例**：`compiler-mini/tests/programs/test_interface_compose.uya`
 

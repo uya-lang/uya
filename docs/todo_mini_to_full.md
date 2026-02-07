@@ -1,6 +1,6 @@
 # Uya Mini 到完整版待办文档
 
-基于 [spec/UYA_MINI_SPEC.md](spec/UYA_MINI_SPEC.md) 第 9 节「与完整 Uya 的区别」与项目根目录 [uya.md](../uya.md) 完整规范对照。实现时按「建议实现顺序」执行，每项需同步更新 C 实现与 `uya-src/`，测试需同时通过 `--c99` 与 `--uya --c99`。
+基于 [compiler-c-spec/UYA_MINI_SPEC.md](compiler-c-spec/UYA_MINI_SPEC.md) 第 9 节「与完整 Uya 的区别」与项目根目录 [uya.md](uya.md) 完整规范对照。实现时按「建议实现顺序」执行，每项需同步更新 C 实现与 `uya-src/`，测试需同时通过 `--c99` 与 `--uya --c99`。
 
 **实现约定**：在编写编译器代码前，先在 `tests/programs/` 添加测试用例（如 `test_xxx.uya` 或预期编译失败的 `error_xxx.uya`），覆盖目标场景；实现后再跑 `--c99` 与 `--uya --c99` 验证，二者都通过才算通过。
 
@@ -66,8 +66,8 @@
 **涉及**：`lexer.c`/`lexer.uya`、`ast.c`/`ast.uya`、`parser.c`/`parser.uya`、`checker.c`/`checker.uya`、`codegen/c99/expr.c`/`expr.uya` 等；`tests/programs/*.uya` 中引用内置的用例。
 
 **参考文档**：
-- [changelog.md](../changelog.md) §0.40.1 - 内置函数命名统一
-- [uya.md](../uya.md) §16 - 内置函数规范
+- [changelog.md](changelog.md) §0.40.1 - 内置函数命名统一
+- [uya.md](uya.md) §16 - 内置函数规范
 
 ---
 
@@ -405,7 +405,7 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 
 ## 15. 泛型（Generics）
 
-**语法规范**（规范 0.40）：使用尖括号 `<T>`，约束紧邻参数 `<T: Ord>`，多约束连接 `<T: Ord + Clone + Default>`。详见 [uya.md](../uya.md) §B.1 和 [grammar_formal.md](../grammar_formal.md)。
+**语法规范**（规范 0.40）：使用尖括号 `<T>`，约束紧邻参数 `<T: Ord>`，多约束连接 `<T: Ord + Clone + Default>`。详见 [uya.md](uya.md) §B.1 和 [grammar_formal.md](grammar_formal.md)。
 
 **语法规范**：
 - 函数泛型：`fn max<T: Ord>(a: T, b: T) T { ... }`
@@ -497,8 +497,8 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 **uya-src 已同步**：ast.uya（type_params/type_param_count/type_args/type_arg_count）；parser.uya（泛型参数列表解析、多约束语法 `+`、泛型类型使用解析）；checker.uya（MonoInstance、类型参数作用域、泛型函数/结构体类型检查、单态化实例收集、泛型字段类型推断、类型推断、**约束检查**）；codegen（function/structs/main/types/expr/utils/internal：单态化名称生成、泛型函数/结构体代码生成）。测试通过 `--uya --c99`。
 
 **参考文档**：
-- [uya.md](../uya.md) §B.1 - 泛型语法说明
-- [grammar_formal.md](../grammar_formal.md) - 正式BNF语法规范（已包含泛型BNF）
+- [uya.md](uya.md) §B.1 - 泛型语法说明
+- [grammar_formal.md](grammar_formal.md) - 正式BNF语法规范（已包含泛型BNF）
 - [examples/example_143.uya](../examples/example_143.uya) - 泛型函数示例
 - [examples/example_144.uya](../examples/example_144.uya) - 泛型结构体示例
 - [examples/example_145.uya](../examples/example_145.uya) - 泛型接口示例
@@ -511,7 +511,7 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 
 ## 18. 宏系统（Macro，规范 uya.md §25）
 
-**语法规范**：`mc ID(param_list) return_tag { statements }`，规范 [uya.md](../uya.md) §25。
+**语法规范**：`mc ID(param_list) return_tag { statements }`，规范 [uya.md](uya.md) §25。
 
 **已实现（C 实现）**：
 - [x] **Lexer**：`mc` 关键字，`@mc_eval`、`@mc_code`、`@mc_ast`、`@mc_error`、`@mc_get_env` 为合法 @ 内置；`${` 插值语法（`TOKEN_INTERP_OPEN`）
@@ -645,7 +645,7 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 
 ## 16. 异步编程（Async）
 
-**语法规范**（规范 0.40）：`@async_fn` 函数属性、`try @await` 挂起点、`union Poll<T>`、`interface Future<T>`。详见 [uya.md](../uya.md) §18。
+**语法规范**（规范 0.40）：`@async_fn` 函数属性、`try @await` 挂起点、`union Poll<T>`、`interface Future<T>`。详见 [uya.md](uya.md) §18。
 
 **异步标准库设计**：详见 [`docs/std_async_design.md`](./docs/std_async_design.md)（`std.async.io`、`std.async.task`、`std.async.event`、`std.async.channel`、`std.async.scheduler`）。
 
@@ -743,9 +743,9 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 **涉及**：Lexer、AST、Parser、Checker、Codegen（CPS 变换、状态机生成），uya-src。
 
 **参考文档**：
-- [uya.md](../uya.md) §18 - 异步编程完整规范
-- [grammar_formal.md](../grammar_formal.md) - 正式BNF语法规范（需添加异步编程BNF）
-- [changelog.md](../changelog.md) §0.40.4 - 异步编程基础设施变更
+- [uya.md](uya.md) §18 - 异步编程完整规范
+- [grammar_formal.md](grammar_formal.md) - 正式BNF语法规范（需添加异步编程BNF）
+- [changelog.md](changelog.md) §0.40.4 - 异步编程基础设施变更
 
 **实现优先级**：中（建议在原子类型实现后考虑，因为标准库中的 `Channel` 和 `MpscChannel` 依赖原子类型）
 
@@ -779,7 +779,7 @@ gcc -Wall -Wextra -pedantic compiler.c bridge.c -o compiler 2>&1 | grep -i warni
 
 ## 17. test 关键字（测试单元）
 
-**语法规范**：`test "测试说明" { statements }`，规范 [grammar_formal.md](../grammar_formal.md) §4.1、[uya.md](../uya.md) 第 28 章。
+**语法规范**：`test "测试说明" { statements }`，规范 [grammar_formal.md](grammar_formal.md) §4.1、[uya.md](uya.md) 第 28 章。
 
 **语法说明**：
 - `test`：测试关键字
@@ -854,8 +854,8 @@ test "函数调用测试" {
 **涉及**：Lexer、AST、Parser、Checker、Codegen（测试函数生成、测试运行器），uya-src。
 
 **参考文档**：
-- [grammar_formal.md](../grammar_formal.md) §4.1 - 测试单元语法
-- [uya.md](../uya.md) 第 28 章 - Uya 测试单元（Test Block）
+- [grammar_formal.md](grammar_formal.md) §4.1 - 测试单元语法
+- [uya.md](uya.md) 第 28 章 - Uya 测试单元（Test Block）
 
 **实现优先级**：中（建议在核心功能稳定后实现，便于编写内联测试）
 
@@ -864,7 +864,7 @@ test "函数调用测试" {
 ## 文档与测试约定
 
 - **先添加测试用例**：在编写编译器代码前，先在 `tests/programs/` 添加测试用例（如 `test_xxx.uya` 或预期编译失败的 `error_xxx.uya`），覆盖目标场景。
-- 新特性先在 [spec/UYA_MINI_SPEC.md](spec/UYA_MINI_SPEC.md)（或完整版 spec）中定义类型、BNF、语义、C99 映射。
+- 新特性先在 [compiler-c-spec/UYA_MINI_SPEC.md](compiler-c-spec/UYA_MINI_SPEC.md)（或完整版 spec）中定义类型、BNF、语义、C99 映射。
 - 测试放在 `tests/programs/`，需同时通过 `--c99` 与 `--uya --c99`。
 - **测试用例 100% 覆盖**：新特性需添加多场景用例（含成功路径与预期失败用例 `error_*.uya`），覆盖主要分支与边界情况。
 - 实现顺序：Lexer → AST → Parser → Checker → Codegen；C 实现与 `uya-src/` 同步。
@@ -1581,8 +1581,8 @@ const cfg2 = Config{ port: 3000 }; // 仅覆盖 port
 - [x] `test_struct_default.uya` - 基础默认值（80 行，通过 `--c99` 和 `--uya --c99`）
 
 **参考文档**：
-- [uya.md](../uya.md) §4.3 - 结构体默认值语法
-- [RELEASE_v0.2.31.md](../RELEASE_v0.2.31.md) - v0.2.31 版本说明
+- [uya.md](uya.md) §4.3 - 结构体默认值语法
+- [RELEASE_v0.2.31.md](RELEASE_v0.2.31.md) - v0.2.31 版本说明
 
 **实现状态**：✅ 已完成（v0.2.31，C 实现与 uya-src 已同步，所有测试通过）
 
@@ -1617,10 +1617,10 @@ type Position = Point;                       // 结构体类型别名
 - [x] `test_type_alias.uya` - 基础类型别名（170 行，通过 `--c99` 和 `--uya --c99`）
 
 **参考文档**：
-- [uya.md](../uya.md) §5.2 - 函数指针与类型别名
-- [uya.md](../uya.md) §24.6.2 - 类型别名实现
-- [uya.md](../uya.md) §29.5 - 已实现特性列表
-- [RELEASE_v0.2.31.md](../RELEASE_v0.2.31.md) - v0.2.31 版本说明
+- [uya.md](uya.md) §5.2 - 函数指针与类型别名
+- [uya.md](uya.md) §24.6.2 - 类型别名实现
+- [uya.md](uya.md) §29.5 - 已实现特性列表
+- [RELEASE_v0.2.31.md](RELEASE_v0.2.31.md) - v0.2.31 版本说明
 
 **实现状态**：✅ 已完成（v0.2.31，C 实现与 uya-src 已同步，所有测试通过）
 
@@ -1668,8 +1668,8 @@ struct Matrix { data: [[f32: 4]: 4] }
 - [x] `test_multidimensional_array.uya` - 综合测试（二维/三维数组、@size_of/@len/@align_of、循环遍历、函数参数）
 
 **参考文档**：
-- [uya.md](../uya.md) §2 - 类型系统（`[[T: N]: M]`）
-- [uya.md](../uya.md) §4.2.3 - 数组字段布局
+- [uya.md](uya.md) §2 - 类型系统（`[[T: N]: M]`）
+- [uya.md](uya.md) §4.2.3 - 数组字段布局
 - [examples/mat3x4.uya](../examples/mat3x4.uya) - 多维数组示例
 
 ---
@@ -1702,7 +1702,7 @@ struct Matrix { data: [[f32: 4]: 4] }
 - [x] `error_block_comment_unclosed.uya` - 未闭合块注释（预期编译失败）
 
 **参考文档**：
-- [uya.md](../uya.md) §1 - 词法约定（`/* 块 */`（可嵌套））
+- [uya.md](uya.md) §1 - 词法约定（`/* 块 */`（可嵌套））
 
 ---
 
@@ -1750,7 +1750,7 @@ struct Matrix { data: [[f32: 4]: 4] }
 - [ ] `test_safety_runtime.uya` - 运行时检查自动插入
 
 **参考文档**：
-- [uya.md](../uya.md) §14 - 内存安全
+- [uya.md](uya.md) §14 - 内存安全
 
 **实现优先级**：高（核心语言安全特性）
 
@@ -1778,7 +1778,7 @@ struct Matrix { data: [[f32: 4]: 4] }
 **说明**：原子类型基础已在 Section 11 中实现（C 实现与 uya-src 已同步）。此 Section 关注更高层次的并发安全保证（Send/Sync 编译期推导），需要在异步编程和线程支持实现后进行。
 
 **参考文档**：
-- [uya.md](../uya.md) §15 - 并发安全
+- [uya.md](uya.md) §15 - 并发安全
 
 **实现优先级**：中（依赖异步编程和线程支持）
 
@@ -1825,7 +1825,7 @@ interface IReadWriter {
 - [x] `error_interface_compose_cycle.uya` - 循环依赖检测（预期编译失败）
 
 **参考文档**：
-- [uya.md](../uya.md) §29.3 - 接口组合
+- [uya.md](uya.md) §29.3 - 接口组合
 - [examples/file_6.uya](../examples/file_6.uya) - 接口组合示例
 
 **实现状态**：✅ 已完成（v0.2.30）

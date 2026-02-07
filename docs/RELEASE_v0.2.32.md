@@ -70,7 +70,7 @@ const scientific: f64 = 1.0e1_0;  // 10000000000.0
 
 ### 规范文档更新
 
-- `compiler-mini/spec/UYA_MINI_SPEC.md` § 3.2 - 完整 BNF 语法
+- `compiler-c-spec/UYA_MINI_SPEC.md` § 3.2 - 完整 BNF 语法
 - `uya.md` - 数字字面量语法说明
 - `grammar_formal.md` - 终结符定义更新
 - `grammar_quick.md` - 类型系统速查表更新
@@ -120,7 +120,7 @@ const scientific: f64 = 1.0e1_0;  // 10000000000.0
 
 ### 更新文档
 
-- `compiler-mini/spec/UYA_MINI_SPEC.md` - BNF 语法更新
+- `compiler-c-spec/UYA_MINI_SPEC.md` - BNF 语法更新
 - `uya.md` - 数字字面量章节更新
 - `grammar_formal.md` - 终结符定义更新
 - `grammar_quick.md` - 类型系统速查表更新

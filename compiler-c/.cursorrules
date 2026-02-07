@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-项目 v0.1.0 已达成自举。详见项目根目录 `RELEASE_v0.1.0.md`。
+项目 v0.1.0 已达成自举。详见项目根目录 `../docs/RELEASE_v0.1.0.md`。
 
 ## 代码质量约束（严格执行）
 
@@ -51,7 +51,7 @@
 
 ```
 compiler-mini/
-├── spec/
+├── spec/                          # 已移至 ../docs/compiler-c-spec/
 │   └── UYA_MINI_SPEC.md          # 语言规范（重要参考）
 ├── src/
 │   ├── arena.h / arena.c          # Arena 分配器
@@ -109,7 +109,7 @@ Uya Mini 包含结构体支持，编译器内部数据结构可以直接使用�
 
 ### 语法规范修复后的测试用例要求（强制）
 
-**重要规则**：根据 `spec/UYA_MINI_SPEC.md` 语法规范修复或实现功能后，**必须添加相应的测试用例**。
+**重要规则**：根据 `../docs/compiler-c-spec/UYA_MINI_SPEC.md` 语法规范修复或实现功能后，**必须添加相应的测试用例**。
 
 1. **测试用例位置**：
    - 测试用例必须添加到 `tests/` 目录
@@ -162,15 +162,15 @@ Uya Mini 包含结构体支持，编译器内部数据结构可以直接使用�
 - [ ] **根据语法规范修复后已添加测试用例**（强制要求）
 ## 重要参考文档
 
-- `spec/UYA_MINI_SPEC.md` - Uya Mini 语言规范（**必须参考**）
-- `../uya.md` - Uya 语言完整规范
-- `../RELEASE_v0.1.0.md` - v0.1.0 版本说明与自举说明
+- `../docs/compiler-c-spec/UYA_MINI_SPEC.md` - Uya Mini 语言规范（**必须参考**）
+- `../docs/uya.md` - Uya 语言完整规范
+- `../docs/RELEASE_v0.1.0.md` - v0.1.0 版本说明与自举说明
 
 ## AI 辅助开发提示
 
 当进行编译器开发时：
-1. 首先查看 `spec/UYA_MINI_SPEC.md` 了解语言规范
-2. 参考 `../RELEASE_v0.1.0.md` 了解当前状态（v0.1.0 已自举）
+1. 首先查看 `../docs/compiler-c-spec/UYA_MINI_SPEC.md` 了解语言规范
+2. 参考 `../docs/RELEASE_v0.1.0.md` 了解当前状态（v0.1.0 已自举）
 3. **必须遵循 TDD 流程**：先写测试，再实现功能
 4. **不能简化功能**：必须完整实现，不能偷懒
 5. **严格代码质量**：函数 < 200 行，文件 < 1500 行
