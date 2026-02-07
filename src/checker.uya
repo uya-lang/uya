@@ -648,7 +648,7 @@ fn checker_arena_strdup(arena: &Arena, src: &byte) &byte {
     if result == null {
         return null;
     }
-    memcpy(result as *byte, src as *byte, n);
+    memcpy(result as *void, src as *void, n);
     return result;
 }
 
@@ -5421,7 +5421,7 @@ fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32 {
                     const root_dir: &byte = arena_alloc(checker.arena, dir_len + 1) as &byte;
                     if root_dir != null {
                         var root_dir_ptr: &byte = root_dir;
-                        memcpy(root_dir_ptr as *byte, filename as *byte, dir_len);
+                        memcpy(root_dir_ptr as *void, filename as *void, dir_len);
                         root_dir_ptr[dir_len] = 0;  // '\0'
                         checker.project_root_dir = root_dir;
                     }
@@ -6576,7 +6576,7 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
                         dst[0] = 46;  // '.'
                         dst = &dst[1];
                     }
-                    memcpy(dst as *byte, p as *byte, dir_len);
+                    memcpy(dst as *void, p as *void, dir_len);
                     dst = &dst[dir_len];
                     dir_count = dir_count + 1;
                 }
@@ -6649,7 +6649,7 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
             if module_len > 0 {
                 const module_name_uya: &byte = arena_alloc(checker.arena, module_len + 1) as &byte;
                 if module_name_uya != null {
-                    memcpy(module_name_uya as *byte, relative_path_uya as *byte, module_len);
+                    memcpy(module_name_uya as *void, relative_path_uya as *void, module_len);
                     module_name_uya[module_len] = 0;
                     // 将 '/' 替换为 '.'
                     var idx: usize = 0;
@@ -6763,7 +6763,7 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
                 dst[0] = 46;  // '.'
                 dst = &dst[1];
             }
-            memcpy(dst as *byte, p as *byte, dir_len);
+            memcpy(dst as *void, p as *void, dir_len);
             dst = &dst[dir_len];
             dir_count = dir_count + 1;
         }
@@ -6901,7 +6901,7 @@ fn build_module_exports(checker: &TypeChecker, program: &ASTNode) void {
             
             // 复制旧导出项
             if module.exports != null && module.export_count > 0 {
-                memcpy(new_exports as *byte, module.exports as *byte, @size_of(ExportedItem) * module.export_count);
+                memcpy(new_exports as *void, module.exports as *void, @size_of(ExportedItem) * module.export_count);
             }
             
             // 添加新导出项
@@ -6962,7 +6962,7 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
                     if segs[i] != null {
                         if i > 0 { dst[0] = 46; dst = &dst[1]; }
                         const sl: usize = strlen(segs[i] as *byte);
-                        memcpy(dst as *byte, segs[i] as *byte, sl);
+                        memcpy(dst as *void, segs[i] as *void, sl);
                         dst = &dst[sl];
                     }
                     i = i + 1;
@@ -6992,7 +6992,7 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
                     if segs[i] != null {
                         if i > 0 { dst[0] = 46; dst = &dst[1]; }
                         const sl: usize = strlen(segs[i] as *byte);
-                        memcpy(dst as *byte, segs[i] as *byte, sl);
+                        memcpy(dst as *void, segs[i] as *void, sl);
                         dst = &dst[sl];
                     }
                     i = i + 1;
@@ -7044,7 +7044,7 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
                             if segs[i] != null {
                                 if i > 0 { sdst[0] = 46; sdst = &sdst[1]; }
                                 const sl: usize = strlen(segs[i] as *byte);
-                                memcpy(sdst as *byte, segs[i] as *byte, sl);
+                                memcpy(sdst as *void, segs[i] as *void, sl);
                                 sdst = &sdst[sl];
                             }
                             i = i + 1;
@@ -7118,7 +7118,7 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
                     const new_deps: &ModuleDependency = arena_alloc(checker.arena, @size_of(ModuleDependency) * new_count) as &ModuleDependency;
                     if new_deps != null {
                         if current_module.dependencies != null && current_module.dependency_count > 0 {
-                            memcpy(new_deps as *byte, current_module.dependencies as *byte, @size_of(ModuleDependency) * current_module.dependency_count);
+                            memcpy(new_deps as *void, current_module.dependencies as *void, @size_of(ModuleDependency) * current_module.dependency_count);
                         }
                         const last_idx: i32 = current_module.dependency_count;
                         new_deps[last_idx].target_module = module_name;

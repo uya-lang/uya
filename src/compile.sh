@@ -633,13 +633,13 @@ if [ $COMPILER_EXIT -eq 0 ]; then
             # 检查是否存在 bridge.c
             BRIDGE_C="$BUILD_DIR/bridge.c"
             if [ -f "$BRIDGE_C" ]; then
-                # 对于 C99 后端，需要链接 bridge.c
-                if [ "$USE_C99" = true ]; then
-                    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-                        echo "  gcc --std=c99 -no-pie \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}.exe\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lm -ldl -lpthread"
-                    else
-                        echo "  gcc --std=c99 -no-pie \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lm -ldl -lpthread"
-                    fi
+                    # 对于 C99 后端，需要链接 bridge.c
+                    if [ "$USE_C99" = true ]; then
+                        if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+                            echo "  gcc --std=c99 -no-pie \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}.exe\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lm -ldl -lpthread"
+                        else
+                            echo "  gcc --std=c99 -no-pie \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${OUTPUT_FILE%.o}\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lm -ldl -lpthread"
+                        fi
                 else
                     # LLVM 后端
                     if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then

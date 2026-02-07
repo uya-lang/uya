@@ -7,7 +7,8 @@ extern fn get_argc() i32;
 extern fn get_argv(index: i32) *byte;
 extern fn get_stderr() *void;
 // 指针差（bridge.c 提供，用于 Uya 中不支持的 ptr1 - ptr2）
-extern fn ptr_diff(ptr1: &byte, ptr2: &byte) i32;
+// 注意：使用 *byte 而不是 &byte，因为 bridge.c 中的函数签名是 uint8_t *
+extern fn ptr_diff(ptr1: *byte, ptr2: *byte) i32;
 
 // ===== C 标准库 - 文件 I/O =====
 extern fn fopen(filename: *byte, mode: *byte) *void;
@@ -24,6 +25,7 @@ extern fn fflush(stream: *void) i32;
 extern fn strtod(nptr: *byte, endptr: * *byte) f64;
 extern fn strlen(s: *byte) usize;
 extern fn strcmp(s1: *byte, s2: *byte) i32;
+// 注意：strchr 和 strrchr 的签名与 musl 一致：char *strchr(const char *s, int c)
 extern fn strrchr(s: *byte, c: i32) *byte;
 extern fn strchr(s: *byte, c: i32) *byte;
 extern fn strstr(haystack: *byte, needle: *byte) *byte;
@@ -33,8 +35,9 @@ extern fn snprintf(buf: *byte, n: usize, format: *byte, ...) i32;
 extern fn sprintf(buf: *byte, format: *byte, ...) i32;
 
 // ===== C 标准库 - 内存 =====
-extern fn memcpy(dest: *byte, src: *byte, n: usize) *byte;
-extern fn memset(s: *byte, c: i32, n: usize) *byte;
+// 注意：memcpy 和 memset 的返回类型应该是 *void，而不是 *byte
+extern fn memcpy(dest: *void, src: *void, n: usize) *void;
+extern fn memset(s: *void, c: i32, n: usize) *void;
 
 // ===== C 标准库 - 进程 =====
 extern fn exit(code: i32) void;

@@ -660,11 +660,82 @@ TARGET=linux-x64 ./uya-compiler --c99 --outlibc
 
 ### 2.4 核心库实现（纯 Uya）
 
-- [ ] **std.c.string**（`std/c/string.uya`）：
+- [x] **std.c.string**（`std/c/string.uya`）：
   - `memcpy`, `memset`, `memcmp`, `memmove` - 内存操作
   - `strlen`, `strcmp`, `strncmp` - 字符串比较
   - `strcpy`, `strncpy`, `strcat`, `strncat` - 字符串拷贝
+  - `strchr`, `strrchr`, `memchr` - 字符串/内存查找
   - 完全用 Uya while 循环实现，无汇编
+  - **函数签名与 musl libc 完全一致**（详见下文）
+
+#### 2.4.1 函数签名兼容性
+
+**重要**：`lib/std/c/string.uya` 中的所有函数签名与 musl libc 保持一致，确保生成的 C 代码可以直接替代 musl。
+
+**已实现的函数签名**（与 musl libc 一致）：
+
+| 函数 | musl libc 签名 | Uya 实现签名 | 状态 |
+|------|----------------|--------------|------|
+| `memcpy` | `void *memcpy(void *dest, const void *src, size_t n)` | `fn memcpy(dest: *void, src: *void, n: usize) *void` | ✅ |
+| `memmove` | `void *memmove(void *dest, const void *src, size_t n)` | `fn memmove(dest: *void, src: *void, n: usize) *void` | ✅ |
+| `memset` | `void *memset(void *s, int c, size_t n)` | `fn memset(s: *void, c: i32, n: usize) *void` | ✅ |
+| `memcmp` | `int memcmp(const void *s1, const void *s2, size_t n)` | `fn memcmp(s1: *void, s2: *void, n: usize) i32` | ✅ |
+| `memchr` | `void *memchr(const void *s, int c, size_t n)` | `fn memchr(s: *void, c: i32, n: usize) *void` | ✅ |
+| `strlen` | `size_t strlen(const char *s)` | `fn strlen(s: &byte) usize` | ✅ |
+| `strcmp` | `int strcmp(const char *s1, const char *s2)` | `fn strcmp(s1: &byte, s2: &byte) i32` | ✅ |
+| `strncmp` | `int strncmp(const char *s1, const char *s2, size_t n)` | `fn strncmp(s1: &byte, s2: &byte, n: usize) i32` | ✅ |
+| `strcpy` | `char *strcpy(char *dest, const char *src)` | `fn strcpy(dest: &byte, src: &byte) &byte` | ✅ |
+| `strncpy` | `char *strncpy(char *dest, const char *src, size_t n)` | `fn strncpy(dest: &byte, src: &byte, n: usize) &byte` | ✅ |
+| `strcat` | `char *strcat(char *dest, const char *src)` | `fn strcat(dest: &byte, src: &byte) &byte` | ✅ |
+| `strchr` | `char *strchr(const char *s, int c)` | `fn strchr(s: *byte, c: i32) *byte` | ✅ |
+| `strrchr` | `char *strrchr(const char *s, int c)` | `fn strrchr(s: *byte, c: i32) *byte` | ✅ |
+
+**关键设计决策**：
+
+1. **内存函数使用 `*void` 类型**：
+   - `memcpy`, `memmove`, `memset`, `memcmp`, `memchr` 的参数和返回值使用 `*void` 类型
+   - 与 C 标准库的 `void *` 完全对应
+   - 函数内部通过类型转换（`as &byte`）访问字节
+
+2. **字符串函数使用 `&byte` 类型**：
+   - `strlen`, `strcmp`, `strncmp`, `strcpy`, `strncpy`, `strcat` 使用 `&byte` 类型
+   - 代码生成器会自动将 `&byte` 转换为 `const char *` 或 `char *`（根据参数位置）
+
+3. **查找函数返回指针而非索引**：
+   - `strchr`, `strrchr`, `memchr` 返回 `*byte` 或 `*void` 指针，而不是索引
+   - 与 musl libc 的行为完全一致
+   - 未找到时返回 `null`
+
+4. **字符参数使用 `i32` 类型**：
+   - `strchr`, `strrchr`, `memset`, `memchr` 的字符参数使用 `i32` 类型
+   - 与 C 标准库的 `int` 类型对应
+
+**代码生成器处理**：
+
+代码生成器（`src/codegen/c99/function.uya`）会自动识别这些标准库函数，并生成正确的 C 类型：
+
+- 标准库函数的字符串参数：`*byte` → `const char *` 或 `char *`
+- 标准库函数的内存参数：`*void` → `void *` 或 `const void *`
+- 标准库函数不生成 `extern` 声明（避免与系统头文件冲突）
+
+**验证方法**：
+
+```bash
+# 使用自举编译器生成标准库
+make outlibc
+
+# 检查生成的 C 代码中的函数签名
+grep -A 1 "^void \*memcpy\|^void \*memset\|^char \*strchr" lib/build/libuya.c
+
+# 应该看到与 musl 一致的签名
+```
+
+**兼容性保证**：
+
+- ✅ 所有函数签名与 musl libc 完全一致
+- ✅ 生成的 C 代码可以直接替代 musl
+- ✅ 支持 `-nostdlib` 编译模式
+- ✅ 零外部依赖，可独立分发
 
 - [ ] **std.c.stdio**（`std/c/stdio.uya`）：
   - File 结构体（基于文件描述符）
@@ -687,13 +758,16 @@ TARGET=linux-x64 ./uya-compiler --c99 --outlibc
   - `floor`, `ceil`, `round` - 取整函数
   - 纯 Uya 算法，不依赖 CPU 指令
 
-**实现示例**（memcpy）：
+**实现示例**（memcpy，与 musl libc 签名一致）：
 ```uya
 // std/c/string.uya
-export fn memcpy(dest: &u8, src: &u8, n: usize) &u8 {
+// 函数签名与 musl libc 完全一致：void *memcpy(void *dest, const void *src, size_t n)
+export fn memcpy(dest: *void, src: *void, n: usize) *void {
+    var dest_bytes: &byte = dest as &byte;
+    var src_bytes: &byte = src as &byte;
     var i: usize = 0;
     while i < n {
-        dest[i] = src[i];
+        dest_bytes[i] = src_bytes[i];
         i = i + 1;
     }
     return dest;

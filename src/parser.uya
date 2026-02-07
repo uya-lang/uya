@@ -123,8 +123,7 @@ fn parser_expect(parser: &Parser, type: TokenType) &Token {
 
 // 从 Arena 复制字符串
 // 注意：需要 extern 函数 strlen 和 memcpy
-extern fn strlen(s: *byte) usize;
-extern fn memcpy(dest: *byte, src: *byte, n: usize) *byte;
+// 这些函数在 extern_decls.uya 中已声明，这里不需要重复声明
 
 fn arena_strdup(arena: &Arena, src: &byte) &byte {
     if arena == null || src == null {
@@ -137,7 +136,7 @@ fn arena_strdup(arena: &Arena, src: &byte) &byte {
         return null;
     }
     
-    memcpy(result as *byte, src as *byte, str_len);
+    memcpy(result as *void, src as *void, str_len);
     return result;
 }
 

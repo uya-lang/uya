@@ -161,9 +161,9 @@ fn get_compiler_dir(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
     if argv0[0] == 47 {
         const last_slash: *byte = strrchr(argv0 as *byte, 47);
         if last_slash != null {
-            const dir_len: usize = ptr_diff(last_slash as &byte, argv0);
+            const dir_len: usize = ptr_diff(last_slash, argv0);
             if dir_len + 1 < buffer_size {
-                memcpy(buffer as *byte, argv0 as *byte, dir_len);
+                memcpy(buffer as *void, argv0 as *void, dir_len);
                 buffer[dir_len] = 47 as byte;
                 buffer[dir_len + 1] = 0 as byte;
                 return 0;
@@ -178,9 +178,9 @@ fn get_compiler_dir(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
         resolved_path[len as usize] = 0 as byte;
         const last_slash: *byte = strrchr(&resolved_path[0], 47);
         if last_slash != null {
-            const dir_len: usize = ptr_diff(last_slash as &byte, &resolved_path[0]);
+            const dir_len: usize = ptr_diff(last_slash, &resolved_path[0] as *byte);
             if dir_len + 1 < buffer_size {
-                memcpy(buffer as *byte, &resolved_path[0], dir_len);
+                memcpy(buffer as *void, &resolved_path[0] as *void, dir_len);
                 buffer[dir_len] = 47 as byte;
                 buffer[dir_len + 1] = 0 as byte;
                 return 0;
@@ -432,7 +432,7 @@ fn join_segments_alloc(segs: &(&byte), count: i32, arena: &Arena) &byte {
         if segs[j] != null {
             if j > 0 { dst[0] = 46 as byte; dst = dst + 1; }
             const sl: usize = strlen(segs[j] as *byte);
-            memcpy(dst as *byte, segs[j] as *byte, sl);
+            memcpy(dst as *void, segs[j] as *void, sl);
             dst = dst + sl;
         }
         j = j + 1;
@@ -831,7 +831,7 @@ fn compile_files(
                 if project_root == null {
                     const last_slash: *byte = strrchr(input_path, 47);
                     if last_slash != null {
-                        const dir_len: usize = ptr_diff(last_slash as &byte, input) + 1;
+                        const dir_len: usize = ptr_diff(last_slash, input) + 1;
                         if dir_len < PATH_MAX {
                             memcpy(&project_root_buffer[0], input_path, dir_len);
                             project_root_buffer[dir_len] = 0 as byte;

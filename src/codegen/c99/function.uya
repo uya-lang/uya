@@ -104,6 +104,7 @@ fn is_stdlib_function(func_name: &byte) i32 {
         return 0;
     }
     // 标准库函数列表：这些函数的字符串参数应该是 const char * 而不是 uint8_t *
+    // 或者需要特殊处理（如 memset/memcpy 返回 void *）
     // I/O 函数
     if strcmp(func_name as *byte, "printf" as *byte) == 0 ||
         strcmp(func_name as *byte, "sprintf" as *byte) == 0 ||
@@ -124,7 +125,19 @@ fn is_stdlib_function(func_name: &byte) i32 {
     if strcmp(func_name as *byte, "strncat" as *byte) == 0 ||
         strcmp(func_name as *byte, "strstr" as *byte) == 0 ||
         strcmp(func_name as *byte, "strdup" as *byte) == 0 ||
-        strcmp(func_name as *byte, "strndup" as *byte) == 0 {
+        strcmp(func_name as *byte, "strndup" as *byte) == 0 ||
+        strcmp(func_name as *byte, "strlen" as *byte) == 0 ||
+        strcmp(func_name as *byte, "strcmp" as *byte) == 0 ||
+        strcmp(func_name as *byte, "strncmp" as *byte) == 0 ||
+        strcmp(func_name as *byte, "strchr" as *byte) == 0 ||
+        strcmp(func_name as *byte, "strrchr" as *byte) == 0 ||
+        strcmp(func_name as *byte, "strncpy" as *byte) == 0 ||
+        strcmp(func_name as *byte, "strcpy" as *byte) == 0 {
+        return 1;
+    }
+    // 内存函数（需要返回 void * 而不是 const uint8_t *）
+    if strcmp(func_name as *byte, "memset" as *byte) == 0 ||
+        strcmp(func_name as *byte, "memcpy" as *byte) == 0 {
         return 1;
     }
     // 文件 I/O 函数
@@ -169,7 +182,27 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     const is_stdlib: i32 = is_stdlib_function(func_name);
     
     // 返回类型（如果是数组类型，转换为指针类型）
-    const return_c: &byte = convert_array_return_type(codegen, return_type);
+    var return_c: &byte = convert_array_return_type(codegen, return_type);
+    
+    // 特殊处理：memset 和 memcpy 应该返回 void * 而不是 *byte
+    if is_extern != 0 && return_type != null && return_type.type == ASTNodeType.AST_TYPE_POINTER {
+        const pointed_type: &ASTNode = return_type.type_pointer_pointed_type;
+        if pointed_type != null && pointed_type.type == ASTNodeType.AST_TYPE_NAMED {
+            const pointed_name: &byte = pointed_type.type_named_name;
+            if pointed_name != null {
+                if strcmp(pointed_name as *byte, "byte" as *byte) == 0 {
+                    // 检查是否是 memset 或 memcpy
+                    if strcmp(func_name as *byte, "memset" as *byte) == 0 ||
+                        strcmp(func_name as *byte, "memcpy" as *byte) == 0 {
+                        // 这些函数应该返回 void * 而不是 const uint8_t *
+                        return_c = ("void *" as *byte) as &byte;
+                    }
+                } else if strcmp(pointed_name as *byte, "void" as *byte) == 0 {
+                    // *void 类型已经是 void *，不需要修改
+                }
+            }
+        }
+    }
     
     // 对于标准库函数，不生成 extern 声明（应该包含相应的头文件）
     if is_extern != 0 && is_stdlib != 0 {
@@ -241,14 +274,39 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
                 }
             }
             
-            // 对于标准库函数，将 uint8_t * 转换为 const char *
+            // 对于标准库函数，将 uint8_t * 转换为 const char * 或 char *
+            // 对于 memset/memcpy，第一个参数应该是 void * 而不是 const char *
             if is_stdlib != 0 && param_type.type == ASTNodeType.AST_TYPE_POINTER {
                 const pointed_type: &ASTNode = param_type.type_pointer_pointed_type;
                 if pointed_type != null && pointed_type.type == ASTNodeType.AST_TYPE_NAMED {
                     const pointed_name: &byte = pointed_type.type_named_name;
                     if pointed_name != null && strcmp(pointed_name as *byte, "byte" as *byte) == 0 {
-                        // 将 uint8_t * 替换为 const char *
-                        param_type_c = ("const char *" as *byte) as &byte;
+                        // 检查是否是 memset 或 memcpy（第一个参数应该是 void *）
+                        if (strcmp(func_name as *byte, "memset" as *byte) == 0 ||
+                            strcmp(func_name as *byte, "memcpy" as *byte) == 0) && i == 0 {
+                            // memset/memcpy 的第一个参数（dest）应该是 void * 而不是 const char *
+                            param_type_c = ("void *" as *byte) as &byte;
+                        } else if strcmp(func_name as *byte, "memcpy" as *byte) == 0 && i == 1 {
+                            // memcpy 的第二个参数（src）应该是 const void *
+                            param_type_c = ("const void *" as *byte) as &byte;
+                        } else if strcmp(func_name as *byte, "fread" as *byte) == 0 && i == 0 {
+                            // fread 的第一个参数（ptr）应该是 void * 而不是 const char *
+                            param_type_c = ("void *" as *byte) as &byte;
+                        } else if strcmp(func_name as *byte, "snprintf" as *byte) == 0 && i == 0 {
+                            // snprintf 的第一个参数（buf）应该是 char * 而不是 const char *
+                            param_type_c = ("char *" as *byte) as &byte;
+                        } else if strcmp(func_name as *byte, "strcpy" as *byte) == 0 && i == 0 {
+                            // strcpy 的第一个参数（dest）应该是 char * 而不是 const char *
+                            param_type_c = ("char *" as *byte) as &byte;
+                        } else if strcmp(func_name as *byte, "strncpy" as *byte) == 0 && i == 0 {
+                            // strncpy 的第一个参数（dest）应该是 char * 而不是 const char *
+                            param_type_c = ("char *" as *byte) as &byte;
+                        } else {
+                            // 其他标准库函数的字符串参数：将 uint8_t * 替换为 const char *
+                            param_type_c = ("const char *" as *byte) as &byte;
+                        }
+                    } else if pointed_name != null && strcmp(pointed_name as *byte, "void" as *byte) == 0 {
+                        // *void 类型已经是 void *，不需要修改
                     }
                 }
             }

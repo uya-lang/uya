@@ -9,24 +9,28 @@
 
 // memcpy - 复制 n 字节从 src 到 dest
 // 注意：src 和 dest 不能重叠（重叠请用 memmove）
-// 返回：dest 指针
-export fn memcpy(dest: &byte, src: &byte, n: usize) &byte {
+// 返回：dest 指针（与 musl 一致：void *memcpy(void *dest, const void *src, size_t n)）
+export fn memcpy(dest: *void, src: *void, n: usize) *void {
+    var dest_bytes: &byte = dest as &byte;
+    var src_bytes: &byte = src as &byte;
     var i: usize = 0;
     while i < n {
-        dest[i] = src[i];
+        dest_bytes[i] = src_bytes[i];
         i = i + 1;
     }
     return dest;
 }
 
 // memmove - 复制 n 字节从 src 到 dest（支持重叠）
-// 返回：dest 指针
-export fn memmove(dest: &byte, src: &byte, n: usize) &byte {
-    if dest as i64 <= src as i64 {
+// 返回：dest 指针（与 musl 一致：void *memmove(void *dest, const void *src, size_t n)）
+export fn memmove(dest: *void, src: *void, n: usize) *void {
+    var dest_bytes: &byte = dest as &byte;
+    var src_bytes: &byte = src as &byte;
+    if dest_bytes as i64 <= src_bytes as i64 {
         // 正向复制
         var i: usize = 0;
         while i < n {
-            dest[i] = src[i];
+            dest_bytes[i] = src_bytes[i];
             i = i + 1;
         }
     } else {
@@ -34,30 +38,34 @@ export fn memmove(dest: &byte, src: &byte, n: usize) &byte {
         var i: usize = n;
         while i > 0 {
             i = i - 1;
-            dest[i] = src[i];
+            dest_bytes[i] = src_bytes[i];
         }
     }
     return dest;
 }
 
 // memset - 将 s 的前 n 字节设置为 c
-// 返回：s 指针
-export fn memset(s: &byte, c: byte, n: usize) &byte {
+// 返回：s 指针（与 musl 一致：void *memset(void *s, int c, size_t n)）
+export fn memset(s: *void, c: i32, n: usize) *void {
+    var s_bytes: &byte = s as &byte;
+    var c_byte: byte = c as byte;
     var i: usize = 0;
     while i < n {
-        s[i] = c;
+        s_bytes[i] = c_byte;
         i = i + 1;
     }
     return s;
 }
 
 // memcmp - 比较两块内存的前 n 字节
-// 返回：0 相等，<0 s1<s2，>0 s1>s2
-export fn memcmp(s1: &byte, s2: &byte, n: usize) i32 {
+// 返回：0 相等，<0 s1<s2，>0 s1>s2（与 musl 一致：int memcmp(const void *s1, const void *s2, size_t n)）
+export fn memcmp(s1: *void, s2: *void, n: usize) i32 {
+    var s1_bytes: &byte = s1 as &byte;
+    var s2_bytes: &byte = s2 as &byte;
     var i: usize = 0;
     while i < n {
-        if s1[i] != s2[i] {
-            return s1[i] as i32 - s2[i] as i32;
+        if s1_bytes[i] != s2_bytes[i] {
+            return s1_bytes[i] as i32 - s2_bytes[i] as i32;
         }
         i = i + 1;
     }
@@ -65,16 +73,18 @@ export fn memcmp(s1: &byte, s2: &byte, n: usize) i32 {
 }
 
 // memchr - 在 s 的前 n 字节中查找字节 c
-// 返回：找到的位置索引，未找到返回 -1
-export fn memchr(s: &byte, c: byte, n: usize) i64 {
+// 返回：找到的指针，未找到返回 null（与 musl 一致：void *memchr(const void *s, int c, size_t n)）
+export fn memchr(s: *void, c: i32, n: usize) *void {
+    var s_bytes: &byte = s as &byte;
+    var c_byte: byte = c as byte;
     var i: usize = 0;
     while i < n {
-        if s[i] == c {
-            return i as i64;
+        if s_bytes[i] == c_byte {
+            return s_bytes as *void + i;
         }
         i = i + 1;
     }
-    return 0 - 1;
+    return null;
 }
 
 // ============================================================
@@ -162,35 +172,39 @@ export fn strcat(dest: &byte, src: &byte) &byte {
 }
 
 // strchr - 在字符串中查找字符 c 首次出现的位置
-// 返回：位置索引，未找到返回 -1
-export fn strchr(s: &byte, c: byte) i64 {
+// 返回：找到的指针，未找到返回 null（与 musl 一致：char *strchr(const char *s, int c)）
+export fn strchr(s: *byte, c: i32) *byte {
+    var s_bytes: &byte = s as &byte;
+    var c_byte: byte = c as byte;
     var i: usize = 0;
-    while s[i] != 0 as byte {
-        if s[i] == c {
-            return i as i64;
+    while s_bytes[i] != 0 as byte {
+        if s_bytes[i] == c_byte {
+            return s_bytes as *byte + i;
         }
         i = i + 1;
     }
     // 也检查 null 终止符
-    if c == 0 as byte {
-        return i as i64;
+    if c_byte == 0 as byte {
+        return s_bytes as *byte + i;
     }
-    return 0 - 1;
+    return null;
 }
 
 // strrchr - 在字符串中查找字符 c 最后一次出现的位置
-// 返回：位置索引，未找到返回 -1
-export fn strrchr(s: &byte, c: byte) i64 {
-    var last: i64 = 0 - 1;
+// 返回：找到的指针，未找到返回 null（与 musl 一致：char *strrchr(const char *s, int c)）
+export fn strrchr(s: *byte, c: i32) *byte {
+    var s_bytes: &byte = s as &byte;
+    var c_byte: byte = c as byte;
+    var last: *byte = null;
     var i: usize = 0;
-    while s[i] != 0 as byte {
-        if s[i] == c {
-            last = i as i64;
+    while s_bytes[i] != 0 as byte {
+        if s_bytes[i] == c_byte {
+            last = s_bytes as *byte + i;
         }
         i = i + 1;
     }
-    if c == 0 as byte {
-        return i as i64;
+    if c_byte == 0 as byte {
+        return s_bytes as *byte + i;
     }
     return last;
 }

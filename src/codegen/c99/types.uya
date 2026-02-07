@@ -781,7 +781,7 @@ fn get_c_type_of_expr(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
             if buf == null {
                 return ("int32_t" as *byte) as &byte;
             }
-            memcpy(buf as *byte, ptr_type as *byte, len as usize);
+            memcpy(buf as *void, ptr_type as *void, len as usize);
             buf[len] = 0 as byte;
             return buf;
         }
