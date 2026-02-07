@@ -265,6 +265,24 @@ fn detect_main_function(filename: &byte) i32 {
     return 0;
 }
 
+// Linux x86_64 struct dirent 布局:
+// d_ino: i64 (offset 0, 8 bytes)
+// d_off: i64 (offset 8, 8 bytes)
+// d_reclen: u16 (offset 16, 2 bytes)
+// d_type: u8 (offset 18, 1 byte)
+// d_name: char[256] (offset 19)
+// Uya 的 Dirent struct 布局不匹配，使用手动偏移量访问
+
+fn dirent_get_type(entry_ptr: &byte) byte {
+    return entry_ptr[18];
+}
+
+fn dirent_get_name(entry_ptr: &byte) &byte {
+    var p: &byte = entry_ptr;
+    p = p + 19;
+    return p;
+}
+
 // 在目录中查找包含 main 函数的文件
 fn find_main_files_in_dir(
     dir_path: &byte,
@@ -283,8 +301,8 @@ fn find_main_files_in_dir(
     }
     var entry: *Dirent = readdir(dir);
     while entry != null && file_count[0] < max_files {
-        if entry.d_type == DT_REG {
-            const name: *byte = entry.d_name;
+        if dirent_get_type(entry as &byte) == 8 as byte {
+            const name: *byte = dirent_get_name(entry as &byte) as *byte;
             const name_len: usize = strlen(name);
             if name_len > 4 {
                 const ext: *byte = name + (name_len - 4);
@@ -333,65 +351,58 @@ fn find_module_file(
         i = i + 1;
     }
     
-    // 尝试在项目根目录查找
-    if project_root != null && project_root[0] != 0 {
+    // 在给定根目录下查找模块文件
+    // 策略1：path/ 目录中的 .uya 文件（如 std/c/syscall/ → syscall.uya）
+    // 策略2：path.uya 直接文件（如 std/c/string.uya）
+    var ri: i32 = 0;
+    while ri < 2 {
+        var root: &byte = null;
+        if ri == 0 { root = project_root; }
+        if ri == 1 { root = uya_root; }
+        ri = ri + 1;
+        if root == null || root[0] == 0 { continue; }
+        
         var full_path: [byte: PATH_MAX] = [];
-        const len: i32 = snprintf(&full_path[0], PATH_MAX, "%s%s" as *byte, project_root as *byte, &file_path[0]);
-        if len > 0 && len < PATH_MAX as i32 {
-            if is_directory(&full_path[0] as &byte) != 0 {
-                const dir: *DIR = opendir(&full_path[0]);
-                if dir != null {
-                    var entry: *Dirent = readdir(dir);
-                    while entry != null {
-                        if entry.d_type == DT_REG {
-                            const name: *byte = entry.d_name;
-                            const name_len: usize = strlen(name);
-                            if name_len > 4 {
-                                const ext: *byte = name + (name_len - 4);
-                                if strcmp(ext, ".uya" as *byte) == 0 {
-                                    closedir(dir);
-                                    const result_len: i32 = snprintf(buffer as *byte, buffer_size, "%s%s/%s" as *byte, project_root as *byte, &file_path[0], name);
-                                    if result_len > 0 && result_len < buffer_size as i32 {
-                                        return 0;
-                                    }
+        const len: i32 = snprintf(&full_path[0], PATH_MAX, "%s%s" as *byte, root as *byte, &file_path[0]);
+        if len <= 0 || len >= PATH_MAX as i32 { continue; }
+        
+        // 策略1：目录中查找 .uya 文件
+        if is_directory(&full_path[0] as &byte) != 0 {
+            const dir: *DIR = opendir(&full_path[0]);
+            if dir != null {
+                var entry: *Dirent = readdir(dir);
+                while entry != null {
+                    if dirent_get_type(entry as &byte) == 8 as byte {
+                        const name: *byte = dirent_get_name(entry as &byte) as *byte;
+                        const name_len: usize = strlen(name);
+                        if name_len > 4 {
+                            const ext: *byte = name + (name_len - 4);
+                            if strcmp(ext, ".uya" as *byte) == 0 {
+                                closedir(dir);
+                                const result_len: i32 = snprintf(buffer as *byte, buffer_size, "%s%s/%s" as *byte, root as *byte, &file_path[0], name);
+                                if result_len > 0 && result_len < buffer_size as i32 {
+                                    return 0;
                                 }
                             }
                         }
-                        entry = readdir(dir);
                     }
-                    closedir(dir);
+                    entry = readdir(dir);
                 }
+                closedir(dir);
             }
         }
-    }
-    
-    // 尝试在 UYA_ROOT 目录查找
-    if uya_root != null && uya_root[0] != 0 {
-        var full_path: [byte: PATH_MAX] = [];
-        const len: i32 = snprintf(&full_path[0], PATH_MAX, "%s%s" as *byte, uya_root as *byte, &file_path[0]);
-        if len > 0 && len < PATH_MAX as i32 {
-            if is_directory(&full_path[0] as &byte) != 0 {
-                const dir: *DIR = opendir(&full_path[0]);
-                if dir != null {
-                    var entry: *Dirent = readdir(dir);
-                    while entry != null {
-                        if entry.d_type == DT_REG {
-                            const name: *byte = entry.d_name;
-                            const name_len: usize = strlen(name);
-                            if name_len > 4 {
-                                const ext: *byte = name + (name_len - 4);
-                                if strcmp(ext, ".uya" as *byte) == 0 {
-                                    closedir(dir);
-                                    const result_len: i32 = snprintf(buffer as *byte, buffer_size, "%s%s/%s" as *byte, uya_root as *byte, &file_path[0], name);
-                                    if result_len > 0 && result_len < buffer_size as i32 {
-                                        return 0;
-                                    }
-                                }
-                            }
-                        }
-                        entry = readdir(dir);
-                    }
-                    closedir(dir);
+        
+        // 策略2：直接文件 path.uya
+        var uya_path: [byte: PATH_MAX] = [];
+        const ulen: i32 = snprintf(&uya_path[0], PATH_MAX, "%s%s.uya" as *byte, root as *byte, &file_path[0]);
+        if ulen > 0 && ulen < PATH_MAX as i32 {
+            const f: *FILE = fopen(&uya_path[0], "r" as *byte);
+            if f != null {
+                fclose(f);
+                const ulen_sz: usize = ulen as usize;
+                if ulen_sz < buffer_size {
+                    strcpy(buffer as *byte, &uya_path[0]);
+                    return 0;
                 }
             }
         }
@@ -401,11 +412,42 @@ fn find_module_file(
 }
 
 // 从 AST 中提取 use 语句的模块路径
+// 辅助函数：将 segments[0..count) 连接为 "a.b.c" 形式
+fn join_segments_alloc(segs: &(&byte), count: i32, arena: &Arena) &byte {
+    var total_len: usize = 0;
+    var j: i32 = 0;
+    while j < count {
+        if segs[j] != null {
+            total_len = total_len + strlen(segs[j] as *byte);
+            if j > 0 { total_len = total_len + 1; }
+        }
+        j = j + 1;
+    }
+    if total_len == 0 { return null; }
+    const buf: &byte = arena_alloc(arena, total_len + 1) as &byte;
+    if buf == null { return null; }
+    var dst: &byte = buf;
+    j = 0;
+    while j < count {
+        if segs[j] != null {
+            if j > 0 { dst[0] = 46 as byte; dst = dst + 1; }
+            const sl: usize = strlen(segs[j] as *byte);
+            memcpy(dst as *byte, segs[j] as *byte, sl);
+            dst = dst + sl;
+        }
+        j = j + 1;
+    }
+    dst[0] = 0 as byte;
+    return buf;
+}
+
 fn extract_use_modules(
     ast: &ASTNode,
     modules: &(&byte),
     max_modules: i32,
     module_count: &i32,
+    project_root: &byte,
+    uya_root: &byte,
     arena: &Arena
 ) i32 {
     if ast == null || ast.type != ASTNodeType.AST_PROGRAM || modules == null || module_count == null || arena == null {
@@ -416,41 +458,43 @@ fn extract_use_modules(
     while i < ast.program_decl_count && module_count[0] < max_modules {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null && decl.type == ASTNodeType.AST_USE_STMT {
-            if decl.use_stmt_path_segment_count > 0 {
-                // 计算所需的总长度
-                var total_len: usize = 0;
-                var j: i32 = 0;
-                while j < decl.use_stmt_path_segment_count {
-                    const seg: &byte = decl.use_stmt_path_segments[j];
-                    if seg != null {
-                        total_len = total_len + strlen(seg as *byte);
-                        if j > 0 {
-                            total_len = total_len + 1;
+            const seg_count: i32 = decl.use_stmt_path_segment_count;
+            if seg_count > 0 {
+                var module_name: &byte = null;
+                
+                if decl.use_stmt_item_name != null {
+                    // item_name 已设置，所有 segments 都是模块路径
+                    module_name = join_segments_alloc(decl.use_stmt_path_segments, seg_count, arena);
+                } else if seg_count > 1 {
+                    // 先尝试全路径作为模块名
+                    const full_path: &byte = join_segments_alloc(decl.use_stmt_path_segments, seg_count, arena);
+                    if full_path != null {
+                        var module_file: [byte: PATH_MAX] = [];
+                        if find_module_file(full_path, project_root, uya_root, &module_file[0] as &byte, PATH_MAX) == 0 {
+                            module_name = full_path;
+                        } else {
+                            module_name = join_segments_alloc(decl.use_stmt_path_segments, seg_count - 1, arena);
                         }
                     }
-                    j = j + 1;
+                } else {
+                    module_name = join_segments_alloc(decl.use_stmt_path_segments, seg_count, arena);
                 }
-                // 使用 Arena 分配内存并构建模块路径
-                const module_name: &byte = arena_alloc(arena, total_len + 1) as &byte;
+                
                 if module_name != null {
-                    var dst: &byte = module_name;
-                    j = 0;
-                    while j < decl.use_stmt_path_segment_count {
-                        const seg: &byte = decl.use_stmt_path_segments[j];
-                        if seg != null {
-                            if j > 0 {
-                                dst[0] = 46 as byte;
-                                dst = dst + 1;
-                            }
-                            const seg_len: usize = strlen(seg as *byte);
-                            memcpy(dst as *byte, seg as *byte, seg_len);
-                            dst = dst + seg_len;
+                    // 去重
+                    var duplicate: i32 = 0;
+                    var k: i32 = 0;
+                    while k < module_count[0] {
+                        if modules[k] != null && strcmp(modules[k] as *byte, module_name as *byte) == 0 {
+                            duplicate = 1;
+                            break;
                         }
-                        j = j + 1;
+                        k = k + 1;
                     }
-                    dst[0] = 0 as byte;
-                    modules[module_count[0]] = module_name;
-                    module_count[0] = module_count[0] + 1;
+                    if duplicate == 0 {
+                        modules[module_count[0]] = module_name;
+                        module_count[0] = module_count[0] + 1;
+                    }
                 }
             }
         }
@@ -480,37 +524,9 @@ fn collect_module_dependencies(
     // 使用局部变量存储可修改的 file_list_size（函数参数在 Uya 中不可修改）
     var current_size: i32 = file_list_size;
     
-    // 检查是否已在文件列表中（避免重复添加）
-    // 使用路径比较函数，考虑路径格式差异
-    var i: i32 = 0;
-    while i < current_size {
-        if file_list[i] != null && paths_equal(file_list[i], filename) != 0 {
-            // 文件已在列表中，但仍需要标记为已处理以避免循环依赖
-            // 检查是否已处理过
-            var already_processed: i32 = 0;
-            var j: i32 = 0;
-            while j < processed_count[0] {
-                if processed_files[j] != null && paths_equal(processed_files[j], filename) != 0 {
-                    already_processed = 1;
-                    break;
-                }
-                j = j + 1;
-            }
-            if already_processed == 0 {
-                // 标记为已处理（避免循环依赖）
-                if processed_count[0] < max_processed {
-                    processed_files[processed_count[0]] = filename;
-                    processed_count[0] = processed_count[0] + 1;
-                }
-            }
-            return current_size;  // 已在列表中，直接返回
-        }
-        i = i + 1;
-    }
-    
     // 检查是否已处理过（避免循环依赖）
     // 使用路径比较函数，考虑路径格式差异
-    i = 0;
+    var i: i32 = 0;
     while i < processed_count[0] {
         if processed_files[i] != null && paths_equal(processed_files[i], filename) != 0 {
             return current_size;  // 已处理，直接返回
@@ -549,7 +565,7 @@ fn collect_module_dependencies(
     // 提取 use 语句中的模块路径
     var modules: [&byte: MAX_INPUT_FILES] = [];
     var module_count: i32 = 0;
-    if extract_use_modules(ast, &modules[0], MAX_INPUT_FILES, &module_count, arena) != 0 {
+    if extract_use_modules(ast, &modules[0], MAX_INPUT_FILES, &module_count, project_root, uya_root, arena) != 0 {
         return -1;
     }
     
@@ -815,7 +831,7 @@ fn compile_files(
                 if project_root == null {
                     const last_slash: *byte = strrchr(input_path, 47);
                     if last_slash != null {
-                        const dir_len: usize = ptr_diff(last_slash as &byte, input);
+                        const dir_len: usize = ptr_diff(last_slash as &byte, input) + 1;
                         if dir_len < PATH_MAX {
                             memcpy(&project_root_buffer[0], input_path, dir_len);
                             project_root_buffer[dir_len] = 0 as byte;
@@ -985,6 +1001,9 @@ fn compile_files(
         fprintf(stderr, "错误: TypeChecker 初始化失败\n" as *byte);
         return 1;
     }
+    // 设置 UYA_ROOT 目录，供 checker 识别标准库模块
+    checker.uya_root_dir = &uya_root_buffer[0] as &byte;
+    
     if checker_check(&checker, merged_ast) != 0 {
         fprintf(stderr, "错误: 类型检查失败（错误数量: %d）\n" as *byte, checker_get_error_count(&checker));
         const err_msg: &byte = get_last_checker_error();
@@ -1055,3 +1074,4 @@ fn uya_main() i32 {
     }
     return 0;
 }
+

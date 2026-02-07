@@ -40,13 +40,8 @@ fn is_stdlib_function_for_string_arg(func_name: &byte) i32 {
         strcmp(func_name as *byte, "fputs" as *byte) == 0 {
         return 1;
     }
-    // 字符串处理函数
-    if strcmp(func_name as *byte, "strcmp" as *byte) == 0 ||
-        strcmp(func_name as *byte, "strncmp" as *byte) == 0 ||
-        strcmp(func_name as *byte, "strlen" as *byte) == 0 ||
-        strcmp(func_name as *byte, "strchr" as *byte) == 0 ||
-        strcmp(func_name as *byte, "strrchr" as *byte) == 0 ||
-        strcmp(func_name as *byte, "strstr" as *byte) == 0 {
+    // 字符串处理函数（仅保留未被 Uya 标准库替换的函数）
+    if strcmp(func_name as *byte, "strstr" as *byte) == 0 {
         return 1;
     }
     return 0;
@@ -140,7 +135,7 @@ fn c99_emit_string_interp_fill(codegen: &C99CodeGenerator, expr: &ASTNode, buf_n
             const cn: &byte = add_string_constant(codegen, seg.text);
             if cn != null {
                 c99_emit_indent(codegen);
-                fprintf(codegen.output as *void, "memcpy(%s + _off_%d, %s, %zu);\n" as *byte, buf_name as *byte, fill_id, cn as *byte, len);
+                fprintf(codegen.output as *void, "__uya_memcpy(%s + _off_%d, %s, %zu);\n" as *byte, buf_name as *byte, fill_id, cn as *byte, len);
                 c99_emit_indent(codegen);
                 fprintf(codegen.output as *void, "_off_%d += %zu;\n" as *byte, fill_id, len);
             }
@@ -532,7 +527,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                                 }
                             }
                             if field_needs_memcmp != 0 {
-                                fputs("(memcmp(&(" as *byte, codegen.output as *void);
+                                fputs("(__uya_memcmp(&(" as *byte, codegen.output as *void);
                                 gen_expr(codegen, left);
                                 fputs(")." as *byte, codegen.output as *void);
                                 fputs(safe_field as *byte, codegen.output as *void);
@@ -571,7 +566,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 // 回退：无法按字段比较时用 memcmp，与 C 编译器一致
                 fputc(40, codegen.output as *void);  // '('
                 if left.type == ASTNodeType.AST_IDENTIFIER {
-                    fputs("memcmp(&" as *byte, codegen.output as *void);
+                    fputs("__uya_memcmp(&" as *byte, codegen.output as *void);
                     gen_expr(codegen, left);
                     fputs(", &" as *byte, codegen.output as *void);
                     gen_expr(codegen, right);
@@ -580,14 +575,14 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                     fputs("))" as *byte, codegen.output as *void);
                 } else if left.type == ASTNodeType.AST_STRUCT_INIT {
                     const struct_name: &byte = left.struct_init_struct_name;
-                    fputs("memcmp(&" as *byte, codegen.output as *void);
+                    fputs("__uya_memcmp(&" as *byte, codegen.output as *void);
                     gen_expr(codegen, left);
                     fputs(", &" as *byte, codegen.output as *void);
                     gen_expr(codegen, right);
                     const safe_struct_name: &byte = get_safe_c_identifier(codegen, struct_name);
                     fprintf(codegen.output as *void, ", sizeof(struct %s))" as *byte, safe_struct_name as *byte);
                 } else {
-                    fputs("memcmp(&" as *byte, codegen.output as *void);
+                    fputs("__uya_memcmp(&" as *byte, codegen.output as *void);
                     gen_expr(codegen, left);
                     fputs(", &" as *byte, codegen.output as *void);
                     gen_expr(codegen, right);
@@ -720,6 +715,13 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         const field_name: &byte = expr.member_access_field_name;
         
         if object == null || field_name == null {
+            return;
+        }
+        
+        // 模块限定访问（module.item）：直接输出项名
+        if expr.member_access_is_module_access != 0 {
+            const safe_name: &byte = get_safe_c_identifier(codegen, field_name);
+            fprintf(codegen.output as *void, "%s" as *byte, safe_name as *byte);
             return;
         }
         
@@ -1547,6 +1549,24 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             arg_idx = arg_idx + 1;
         }
         var did_interface_call: i32 = 0;
+        // 模块限定调用（module.func(args)）：直接生成 func(args)
+        if callee != null && callee.type == ASTNodeType.AST_MEMBER_ACCESS && callee.member_access_is_module_access != 0 {
+            const func_name: &byte = get_safe_c_identifier(codegen, callee.member_access_field_name);
+            fprintf(codegen.output as *void, "%s(" as *byte, func_name as *byte);
+            var ai: i32 = 0;
+            while ai < arg_count {
+                if ai > 0 {
+                    fputs(", " as *byte, codegen.output as *void);
+                }
+                if expr.call_expr_args[ai] != null && expr.call_expr_args[ai].type == ASTNodeType.AST_STRING {
+                    fputs("(uint8_t *)" as *byte, codegen.output as *void);
+                }
+                gen_expr(codegen, expr.call_expr_args[ai]);
+                ai = ai + 1;
+            }
+            fputc(41, codegen.output as *void);
+            return;
+        }
         // 联合体变体构造：UnionName.variant(expr) -> (struct uya_tagged_UnionName){ ._tag = index, .u = (union UnionName){ .variant = (expr) } }
         if callee != null && callee.type == ASTNodeType.AST_MEMBER_ACCESS {
             const obj: &ASTNode = callee.member_access_object;

@@ -246,63 +246,50 @@ static int find_module_file(const char *module_path, const char *project_root, c
         }
     }
     
-    // 尝试在项目根目录查找
-    if (project_root != NULL && project_root[0] != '\0') {
+    // 在给定根目录下查找模块文件
+    // 策略1：path/ 目录中的 .uya 文件（如 std/c/syscall/ → syscall.uya）
+    // 策略2：path.uya 直接文件（如 std/c/string.uya）
+    const char *roots[] = { project_root, uya_root };
+    for (int ri = 0; ri < 2; ri++) {
+        const char *root = roots[ri];
+        if (root == NULL || root[0] == '\0') continue;
+        
         char full_path[PATH_MAX];
-        int len = snprintf(full_path, sizeof(full_path), "%s%s", project_root, file_path);
-        if (len > 0 && len < (int)sizeof(full_path)) {
-            // 检查是否为目录
-            if (is_directory(full_path)) {
-                // 在目录中查找 .uya 文件
-                DIR *dir = opendir(full_path);
-                if (dir != NULL) {
-                    struct dirent *entry;
-                    while ((entry = readdir(dir)) != NULL) {
-                        if (entry->d_type == DT_REG) {
-                            const char *name = entry->d_name;
-                            size_t name_len = strlen(name);
-                            if (name_len > 4 && strcmp(name + name_len - 4, ".uya") == 0) {
-                                // 找到 .uya 文件
-                                closedir(dir);
-                                len = snprintf(buffer, buffer_size, "%s%s/%s", project_root, file_path, name);
-                                if (len > 0 && len < (int)buffer_size) {
-                                    return 0;
-                                }
+        int len = snprintf(full_path, sizeof(full_path), "%s%s", root, file_path);
+        if (len <= 0 || len >= (int)sizeof(full_path)) continue;
+        
+        // 策略1：目录中查找 .uya 文件
+        if (is_directory(full_path)) {
+            DIR *dir = opendir(full_path);
+            if (dir != NULL) {
+                struct dirent *entry;
+                while ((entry = readdir(dir)) != NULL) {
+                    if (entry->d_type == DT_REG) {
+                        const char *name = entry->d_name;
+                        size_t name_len = strlen(name);
+                        if (name_len > 4 && strcmp(name + name_len - 4, ".uya") == 0) {
+                            closedir(dir);
+                            len = snprintf(buffer, buffer_size, "%s%s/%s", root, file_path, name);
+                            if (len > 0 && len < (int)buffer_size) {
+                                return 0;
                             }
                         }
                     }
-                    closedir(dir);
                 }
+                closedir(dir);
             }
         }
-    }
-    
-    // 尝试在 UYA_ROOT 目录查找
-    if (uya_root != NULL && uya_root[0] != '\0') {
-        char full_path[PATH_MAX];
-        int len = snprintf(full_path, sizeof(full_path), "%s%s", uya_root, file_path);
-        if (len > 0 && len < (int)sizeof(full_path)) {
-            // 检查是否为目录
-            if (is_directory(full_path)) {
-                // 在目录中查找 .uya 文件
-                DIR *dir = opendir(full_path);
-                if (dir != NULL) {
-                    struct dirent *entry;
-                    while ((entry = readdir(dir)) != NULL) {
-                        if (entry->d_type == DT_REG) {
-                            const char *name = entry->d_name;
-                            size_t name_len = strlen(name);
-                            if (name_len > 4 && strcmp(name + name_len - 4, ".uya") == 0) {
-                                // 找到 .uya 文件
-                                closedir(dir);
-                                len = snprintf(buffer, buffer_size, "%s%s/%s", uya_root, file_path, name);
-                                if (len > 0 && len < (int)buffer_size) {
-                                    return 0;
-                                }
-                            }
-                        }
-                    }
-                    closedir(dir);
+        
+        // 策略2：直接文件 path.uya
+        char uya_path[PATH_MAX];
+        int ulen = snprintf(uya_path, sizeof(uya_path), "%s%s.uya", root, file_path);
+        if (ulen > 0 && ulen < (int)sizeof(uya_path)) {
+            FILE *f = fopen(uya_path, "r");
+            if (f != NULL) {
+                fclose(f);
+                if ((size_t)ulen < buffer_size) {
+                    strcpy(buffer, uya_path);
+                    return 0;
                 }
             }
         }
@@ -311,14 +298,42 @@ static int find_module_file(const char *module_path, const char *project_root, c
     return -1;
 }
 
+// 辅助函数：将 path_segments 连接为模块路径（用 '.' 连接）
+static char *join_segments(const char **segments, int count, Arena *arena) {
+    size_t total_len = 0;
+    for (int j = 0; j < count; j++) {
+        if (segments[j] != NULL) {
+            total_len += strlen(segments[j]);
+            if (j > 0) total_len += 1;
+        }
+    }
+    if (total_len == 0) return NULL;
+    char *buf = (char *)arena_alloc(arena, total_len + 1);
+    if (buf == NULL) return NULL;
+    char *dst = buf;
+    for (int j = 0; j < count; j++) {
+        if (segments[j] != NULL) {
+            if (j > 0) *dst++ = '.';
+            size_t seg_len = strlen(segments[j]);
+            memcpy(dst, segments[j], seg_len);
+            dst += seg_len;
+        }
+    }
+    *dst = '\0';
+    return buf;
+}
+
 // 从 AST 中提取 use 语句的模块路径
 // 参数：ast - AST 程序节点
 //       modules - 输出数组（存储模块路径，使用 Arena 分配）
 //       max_modules - 最大模块数量
 //       module_count - 输出参数：实际找到的模块数量
+//       project_root - 项目根目录
+//       uya_root - UYA_ROOT 目录
 //       arena - Arena 分配器
 // 返回：成功返回0，失败返回-1
-static int extract_use_modules(ASTNode *ast, const char *modules[], int max_modules, int *module_count, Arena *arena) {
+static int extract_use_modules(ASTNode *ast, const char *modules[], int max_modules, int *module_count,
+                                const char *project_root, const char *uya_root, Arena *arena) {
     if (ast == NULL || ast->type != AST_PROGRAM || modules == NULL || module_count == NULL || arena == NULL) {
         return -1;
     }
@@ -328,37 +343,51 @@ static int extract_use_modules(ASTNode *ast, const char *modules[], int max_modu
     for (int i = 0; i < ast->data.program.decl_count && *module_count < max_modules; i++) {
         ASTNode *decl = ast->data.program.decls[i];
         if (decl != NULL && decl->type == AST_USE_STMT) {
-            // 构建模块路径（将 path_segments 用 '.' 连接）
-            if (decl->data.use_stmt.path_segment_count > 0) {
-                // 计算所需的总长度
-                size_t total_len = 0;
-                for (int j = 0; j < decl->data.use_stmt.path_segment_count; j++) {
-                    if (decl->data.use_stmt.path_segments[j] != NULL) {
-                        total_len += strlen(decl->data.use_stmt.path_segments[j]);
-                        if (j > 0) {
-                            total_len += 1;  // '.' 分隔符
-                        }
+            int seg_count = decl->data.use_stmt.path_segment_count;
+            if (seg_count <= 0) {
+                continue;
+            }
+            
+            // 决定模块路径：先尝试全路径，再尝试去掉最后一个 segment
+            char *module_name = NULL;
+            
+            if (decl->data.use_stmt.item_name != NULL) {
+                // item_name 已设置（不太常见的解析路径），所有 segments 都是模块路径
+                module_name = join_segments(decl->data.use_stmt.path_segments, seg_count, arena);
+            } else if (seg_count > 1) {
+                // 先尝试全路径作为模块名（use std.c.stdio; -> 模块 std.c.stdio）
+                char *full_path = join_segments(decl->data.use_stmt.path_segments, seg_count, arena);
+                if (full_path != NULL) {
+                    char module_file[PATH_MAX];
+                    if (find_module_file(full_path, project_root, uya_root, module_file, sizeof(module_file)) == 0) {
+                        // 全路径是有效的模块（整体导入）
+                        module_name = full_path;
+                    } else {
+                        // 全路径不是模块，最后一个 segment 是项名
+                        module_name = join_segments(decl->data.use_stmt.path_segments, seg_count - 1, arena);
                     }
                 }
-                
-                // 使用 Arena 分配内存并构建模块路径
-                char *module_name = (char *)arena_alloc(arena, total_len + 1);
-                if (module_name != NULL) {
-                    char *dst = module_name;
-                    for (int j = 0; j < decl->data.use_stmt.path_segment_count; j++) {
-                        if (decl->data.use_stmt.path_segments[j] != NULL) {
-                            if (j > 0) {
-                                *dst++ = '.';
-                            }
-                            size_t seg_len = strlen(decl->data.use_stmt.path_segments[j]);
-                            memcpy(dst, decl->data.use_stmt.path_segments[j], seg_len);
-                            dst += seg_len;
-                        }
-                    }
-                    *dst = '\0';
-                    modules[*module_count] = module_name;
-                    (*module_count)++;
+            } else {
+                // 单级路径
+                module_name = join_segments(decl->data.use_stmt.path_segments, seg_count, arena);
+            }
+            
+            if (module_name == NULL) {
+                continue;
+            }
+            
+            // 去重：检查是否已存在
+            int duplicate = 0;
+            for (int k = 0; k < *module_count; k++) {
+                if (modules[k] != NULL && strcmp(modules[k], module_name) == 0) {
+                    duplicate = 1;
+                    break;
                 }
+            }
+            
+            if (!duplicate) {
+                modules[*module_count] = module_name;
+                (*module_count)++;
             }
         }
     }
@@ -461,31 +490,6 @@ static int collect_module_dependencies(
         return -1;
     }
     
-    // 检查是否已在文件列表中（避免重复添加）
-    // 使用路径比较函数，考虑路径格式差异
-    for (int i = 0; i < file_list_size; i++) {
-        if (file_list[i] != NULL && paths_equal(file_list[i], filename)) {
-            // 文件已在列表中，但仍需要标记为已处理以避免循环依赖
-            // 检查是否已处理过
-            int already_processed = 0;
-            for (int j = 0; j < *processed_count; j++) {
-                if (processed_files[j] != NULL && paths_equal(processed_files[j], filename)) {
-                    already_processed = 1;
-                    break;
-                }
-            }
-            if (!already_processed) {
-                // 标记为已处理（避免循环依赖）
-                if (*processed_count < max_processed) {
-                    processed_files[*processed_count] = filename;
-                    (*processed_count)++;
-                }
-            }
-            // 已在列表中，直接返回（不进行解析，避免重复定义）
-            return file_list_size;
-        }
-    }
-    
     // 检查是否已处理过（避免循环依赖）
     // 使用路径比较函数，考虑路径格式差异
     for (int i = 0; i < *processed_count; i++) {
@@ -493,6 +497,8 @@ static int collect_module_dependencies(
             return file_list_size;  // 已处理，直接返回
         }
     }
+    
+    // 注意：文件可能已在列表中（由调用方预先添加），但仍需要处理其依赖
     
     // 标记为已处理（在解析之前标记，避免重复解析）
     if (*processed_count >= max_processed) {
@@ -525,7 +531,7 @@ static int collect_module_dependencies(
     // 提取 use 语句中的模块路径
     const char *modules[MAX_INPUT_FILES];
     int module_count = 0;
-    if (extract_use_modules(ast, modules, MAX_INPUT_FILES, &module_count, arena) != 0) {
+    if (extract_use_modules(ast, modules, MAX_INPUT_FILES, &module_count, project_root, uya_root, arena) != 0) {
         return -1;
     }
     
@@ -951,6 +957,9 @@ static int compile_files(const char *input_files[], int input_file_count, const 
         // 这里需要修改 checker 以支持设置项目根目录
         // 暂时通过 checker_init 的 filename 参数传递（已处理）
     }
+
+    // 设置 UYA_ROOT 目录，供 checker 识别标准库模块
+    checker.uya_root_dir = uya_root;
 
     if (checker_check(&checker, merged_ast) != 0) {
         fprintf(stderr, "错误: 类型检查失败（错误数量: %d）\n", checker_get_error_count(&checker));

@@ -25,13 +25,8 @@ static int is_stdlib_function_for_string_arg(const char *func_name) {
         strcmp(func_name, "fputs") == 0) {
         return 1;
     }
-    /* 字符串处理函数 */
-    if (strcmp(func_name, "strcmp") == 0 ||
-        strcmp(func_name, "strncmp") == 0 ||
-        strcmp(func_name, "strlen") == 0 ||
-        strcmp(func_name, "strchr") == 0 ||
-        strcmp(func_name, "strrchr") == 0 ||
-        strcmp(func_name, "strstr") == 0) {
+    /* 字符串处理函数（仅保留未被 Uya 标准库替换的函数） */
+    if (strcmp(func_name, "strstr") == 0) {
         return 1;
     }
     return 0;
@@ -128,7 +123,7 @@ void c99_emit_string_interp_fill(C99CodeGenerator *codegen, ASTNode *expr, const
             const char *cn = add_string_constant(codegen, seg->text ? seg->text : "");
             if (cn) {
                 c99_emit_indent(codegen);
-                fprintf(codegen->output, "memcpy(%s + _off_%d, %s, %zu);\n", buf_name, fill_id, cn, len);
+                fprintf(codegen->output, "__uya_memcpy(%s + _off_%d, %s, %zu);\n", buf_name, fill_id, cn, len);
                 c99_emit_indent(codegen);
                 fprintf(codegen->output, "_off_%d += %zu;\n", fill_id, len);
             }
@@ -387,7 +382,7 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                                 }
                             }
                             if (field_needs_memcmp) {
-                                fputs("(memcmp(&(", codegen->output);
+                                fputs("(__uya_memcmp(&(", codegen->output);
                                 gen_expr(codegen, left);
                                 fputs(").", codegen->output);
                                 fputs(safe_field, codegen->output);
@@ -423,7 +418,7 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                     const char *struct_name = NULL;
                     fputc('(', codegen->output);
                     if (left->type == AST_IDENTIFIER) {
-                        fputs("memcmp(&", codegen->output);
+                        fputs("__uya_memcmp(&", codegen->output);
                         gen_expr(codegen, left);
                         fputs(", &", codegen->output);
                         gen_expr(codegen, right);
@@ -432,13 +427,13 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                         fputs("))", codegen->output);
                     } else if (left->type == AST_STRUCT_INIT) {
                         struct_name = get_safe_c_identifier(codegen, left->data.struct_init.struct_name);
-                        fputs("memcmp(&", codegen->output);
+                        fputs("__uya_memcmp(&", codegen->output);
                         gen_expr(codegen, left);
                         fputs(", &", codegen->output);
                         gen_expr(codegen, right);
                         fprintf(codegen->output, ", sizeof(struct %s))", struct_name ? struct_name : "void");
                     } else {
-                        fputs("memcmp(&", codegen->output);
+                        fputs("__uya_memcmp(&", codegen->output);
                         gen_expr(codegen, left);
                         fputs(", &", codegen->output);
                         gen_expr(codegen, right);
@@ -577,6 +572,13 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
             const char *field_name = expr->data.member_access.field_name;
             
             if (!object || !field_name) {
+                break;
+            }
+            
+            // 模块限定访问（module.item）：直接输出项名
+            if (expr->data.member_access.is_module_access) {
+                const char *safe_name = get_safe_c_identifier(codegen, field_name);
+                fprintf(codegen->output, "%s", safe_name);
                 break;
             }
             
@@ -1457,6 +1459,25 @@ void gen_expr(C99CodeGenerator *codegen, ASTNode *expr) {
                 c99_emit_indent(codegen);
                 fprintf(codegen->output, "char %s[%d];\n", temp_name, size);
                 c99_emit_string_interp_fill(codegen, args[i], temp_name);
+            }
+            
+            /* 模块限定调用（module.func(args)）：直接生成 func(args) */
+            if (callee && callee->type == AST_MEMBER_ACCESS && callee->data.member_access.is_module_access) {
+                const char *func_name = get_safe_c_identifier(codegen, callee->data.member_access.field_name);
+                callee_name = callee->data.member_access.field_name;
+                fprintf(codegen->output, "%s(", func_name);
+                for (int i = 0; i < arg_count; i++) {
+                    if (i > 0) fputs(", ", codegen->output);
+                    if (codegen->interp_arg_temp_names[i]) {
+                        fputs("(uint8_t *)", codegen->output);
+                        fputs(codegen->interp_arg_temp_names[i], codegen->output);
+                    } else {
+                        if (args[i] && args[i]->type == AST_STRING) fputs("(uint8_t *)", codegen->output);
+                        gen_expr(codegen, args[i]);
+                    }
+                }
+                fputc(')', codegen->output);
+                break;
             }
             
             /* 联合体变体构造：UnionName.variant(expr) -> 普通 union: (struct uya_tagged_U){ ._tag, .u = (union U){ .v } }；extern union: (union U){ .v = expr } */

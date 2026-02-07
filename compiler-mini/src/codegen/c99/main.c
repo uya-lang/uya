@@ -272,13 +272,21 @@ int c99_codegen_generate(C99CodeGenerator *codegen, ASTNode *ast, const char *ou
     fputs("#include <stdbool.h>\n", codegen->output);
     fputs("#include <stddef.h>\n", codegen->output);
     fputs("#include <stdarg.h>\n", codegen->output);  // for va_list (variadic forward)
-    fputs("#include <string.h>\n", codegen->output);  // for memcmp
     fputs("#include <stdio.h>\n", codegen->output);  // for standard I/O functions (printf, puts, etc.)
     fputs("\n", codegen->output);
     // C99 兼容的 alignof 宏（使用 offsetof 技巧）
     fputs("// C99 兼容的 alignof 实现\n", codegen->output);
     fputs("#define uya_alignof(type) offsetof(struct { char c; type t; }, t)\n", codegen->output);
     fputs("\n", codegen->output);
+    // 内置 memcpy/memcmp 实现（避免与用户定义的 memcpy/memcmp 冲突）
+    fputs("static inline void *__uya_memcpy(void *dest, const void *src, size_t n) {\n", codegen->output);
+    fputs("    char *d = (char *)dest; const char *s = (const char *)src;\n", codegen->output);
+    fputs("    for (size_t i = 0; i < n; i++) d[i] = s[i]; return dest;\n", codegen->output);
+    fputs("}\n", codegen->output);
+    fputs("static inline int __uya_memcmp(const void *s1, const void *s2, size_t n) {\n", codegen->output);
+    fputs("    const unsigned char *a = (const unsigned char *)s1, *b = (const unsigned char *)s2;\n", codegen->output);
+    fputs("    for (size_t i = 0; i < n; i++) { if (a[i] != b[i]) return a[i] - b[i]; } return 0;\n", codegen->output);
+    fputs("}\n\n", codegen->output);
     
     // 生成错误联合类型结构体（用于 @syscall 和其他错误联合类型）
     fputs("// 错误联合类型（用于 !i64 等）\n", codegen->output);

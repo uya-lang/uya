@@ -1,6 +1,7 @@
-// std.c.stdio - 标准 I/O 操作
+// c.stdio - 标准 I/O 操作
 // 版本：v0.3.0
 // 说明：基于系统调用的标准 I/O 函数（零外部依赖）
+// 注意：函数名使用下划线分隔风格，避免与 C 标准库冲突
 
 // ============================================================
 // 系统调用号（Linux x86-64）
@@ -21,9 +22,9 @@ export const STDERR: i64 = 2;
 // 基础输出函数
 // ============================================================
 
-// putchar - 向标准输出写入一个字符
+// put_char - 向标准输出写入一个字符
 // 返回：写入的字符（成功）或 -1（失败）
-export fn putchar(c: i32) i32 {
+export fn put_char(c: i32) i32 {
     var ch: byte = c as byte;
     const result: !i64 = @syscall(SYS_write, STDOUT, &ch as i64, 1);
     const written: i64 = result catch {
@@ -35,9 +36,9 @@ export fn putchar(c: i32) i32 {
     return 0 - 1;
 }
 
-// putchar_fd - 向指定文件描述符写入一个字符
+// put_char_fd - 向指定文件描述符写入一个字符
 // 返回：写入的字符（成功）或 -1（失败）
-export fn putchar_fd(c: i32, fd: i64) i32 {
+export fn put_char_fd(c: i32, fd: i64) i32 {
     var ch: byte = c as byte;
     const result: !i64 = @syscall(SYS_write, fd, &ch as i64, 1);
     const written: i64 = result catch {
@@ -69,9 +70,9 @@ export fn write_bytes_fd(buf: &byte, n: usize, fd: i64) i64 {
     return written;
 }
 
-// puts_len - 向标准输出写入指定长度的字符串并换行
+// put_str_len - 向标准输出写入指定长度的字符串并换行
 // 返回：0 成功，-1 失败
-export fn puts_len(s: &byte, len: usize) i32 {
+export fn put_str_len(s: &byte, len: usize) i32 {
     // 写入字符串内容
     const result: !i64 = @syscall(SYS_write, STDOUT, s as i64, len as i64);
     _ = result catch {
@@ -90,9 +91,9 @@ export fn puts_len(s: &byte, len: usize) i32 {
 // 基础输入函数
 // ============================================================
 
-// getchar - 从标准输入读取一个字符
+// get_char - 从标准输入读取一个字符
 // 返回：读取的字符，EOF 或错误返回 -1
-export fn getchar() i32 {
+export fn get_char() i32 {
     var ch: byte = 0 as byte;
     const result: !i64 = @syscall(SYS_read, STDIN, &ch as i64, 1);
     const bytes_read: i64 = result catch {
@@ -233,5 +234,3 @@ export fn print_i64(value: i64) usize {
     _ = write_bytes(&buf[0] as &byte, len);
     return len;
 }
-
-

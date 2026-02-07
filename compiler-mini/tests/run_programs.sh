@@ -23,6 +23,12 @@ ERRORS_ONLY=false
 USE_C99=true
 USE_UYA=false
 
+# 设置 UYA_ROOT 指向标准库目录（lib/）
+# 获取脚本所在目录的绝对路径，然后推导 lib/ 路径
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+export UYA_ROOT="${REPO_ROOT}/lib/"
+
 # 显示使用说明
 show_usage() {
     echo "用法: $0 [选项] [文件或目录]"
@@ -218,11 +224,11 @@ process_multifile_test() {
     link_succeeded=false
     BRIDGE_C="tests/bridge.c"
     if [ -f "$BRIDGE_C" ]; then
-        if gcc -std=c99 -o "$BUILD_DIR/$build_subdir/$test_name" "$output_file" "$BRIDGE_C"; then
+        if gcc -std=c99 -fno-builtin -o "$BUILD_DIR/$build_subdir/$test_name" "$output_file" "$BRIDGE_C"; then
             link_succeeded=true
         fi
     else
-        if gcc -std=c99 -o "$BUILD_DIR/$build_subdir/$test_name" "$output_file"; then
+        if gcc -std=c99 -fno-builtin -o "$BUILD_DIR/$build_subdir/$test_name" "$output_file"; then
             link_succeeded=true
         fi
     fi
@@ -483,44 +489,44 @@ process_single_test() {
     if [ "$base_name" = "extern_function" ]; then
             # 编译主程序和外部函数实现（需要链接 bridge.c）
             if [ -f "$BRIDGE_C" ]; then
-                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/extern_function_impl.c "$BRIDGE_C"; then
+                if gcc -std=c99 -fno-builtin -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/extern_function_impl.c "$BRIDGE_C"; then
                     link_succeeded=true
                 fi
             else
-                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/extern_function_impl.c; then
+                if gcc -std=c99 -fno-builtin -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/extern_function_impl.c; then
                     link_succeeded=true
                 fi
             fi
     elif [ "$base_name" = "test_comprehensive_cast" ] || [ "$base_name" = "test_ffi_cast" ] || [ "$base_name" = "test_pointer_cast" ] || [ "$base_name" = "test_simple_cast" ] || [ "$base_name" = "test_extern_union" ]; then
             # 编译主程序和通用外部函数实现（需要链接 bridge.c）
             if [ -f "$BRIDGE_C" ]; then
-                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/external_functions.c "$BRIDGE_C"; then
+                if gcc -std=c99 -fno-builtin -o "$BUILD_DIR/$base_name" "$output_file" tests/external_functions.c "$BRIDGE_C"; then
                     link_succeeded=true
                 fi
             else
-                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/external_functions.c; then
+                if gcc -std=c99 -fno-builtin -o "$BUILD_DIR/$base_name" "$output_file" tests/external_functions.c; then
                     link_succeeded=true
                 fi
             fi
     elif [ "$base_name" = "test_abi_calling_convention" ]; then
             # 编译主程序和 ABI 辅助函数（需要链接 bridge.c）
             if [ -f "$BRIDGE_C" ]; then
-                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/test_abi_helpers.c "$BRIDGE_C"; then
+                if gcc -std=c99 -fno-builtin -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/test_abi_helpers.c "$BRIDGE_C"; then
                     link_succeeded=true
                 fi
             else
-                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/test_abi_helpers.c; then
+                if gcc -std=c99 -fno-builtin -o "$BUILD_DIR/$base_name" "$output_file" tests/programs/test_abi_helpers.c; then
                     link_succeeded=true
                 fi
             fi
     else
             # 普通 C99 编译（需要链接 bridge.c 提供运行时支持）
             if [ -f "$BRIDGE_C" ]; then
-                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file" "$BRIDGE_C"; then
+                if gcc -std=c99 -fno-builtin -o "$BUILD_DIR/$base_name" "$output_file" "$BRIDGE_C"; then
                     link_succeeded=true
                 fi
             else
-                if gcc -std=c99 -o "$BUILD_DIR/$base_name" "$output_file"; then
+                if gcc -std=c99 -fno-builtin -o "$BUILD_DIR/$base_name" "$output_file"; then
                     link_succeeded=true
                 fi
             fi

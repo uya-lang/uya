@@ -1,116 +1,19 @@
 // test_std_stdio.uya
-// 测试纯 Uya 实现的标准 I/O 函数
-// 注：自包含测试，不使用模块系统，直接使用 @syscall
+// 测试 lib/std/c/stdio 标准库模块（通过 use 导入）
 
-const SYS_write: i64 = 1;
-const SYS_read: i64 = 0;
-const STDOUT: i64 = 1;
-
-// ============================================================
-// 函数实现（与 std/c/stdio.uya 保持一致）
-// ============================================================
-
-fn my_putchar(c: i32) i32 {
-    var ch: byte = c as byte;
-    const result: !i64 = @syscall(SYS_write, STDOUT, &ch as i64, 1);
-    const written: i64 = result catch {
-        return 0 - 1;
-    };
-    if written == 1 {
-        return c;
-    }
-    return 0 - 1;
-}
-
-fn my_write_bytes(buf: &byte, n: usize) i64 {
-    const result: !i64 = @syscall(SYS_write, STDOUT, buf as i64, n as i64);
-    const written: i64 = result catch {
-        return 0 - 1;
-    };
-    return written;
-}
-
-fn my_i32_to_str(value: i32, buf: &byte) usize {
-    var v: i32 = value;
-    var len: usize = 0;
-    var is_neg: bool = false;
-
-    if v < 0 {
-        is_neg = true;
-        v = 0 - v;
-    }
-
-    // 特殊情况：值为 0
-    if v == 0 {
-        buf[0] = 48 as byte;  // '0'
-        return 1;
-    }
-
-    // 逆序写入数字
-    while v > 0 {
-        buf[len] = (v % 10 + 48) as byte;  // '0' = 48
-        v = v / 10;
-        len = len + 1;
-    }
-
-    if is_neg {
-        buf[len] = 45 as byte;  // '-'
-        len = len + 1;
-    }
-
-    // 反转字符串
-    var left: usize = 0;
-    var right: usize = len - 1;
-    while left < right {
-        const tmp: byte = buf[left];
-        buf[left] = buf[right];
-        buf[right] = tmp;
-        left = left + 1;
-        right = right - 1;
-    }
-
-    return len;
-}
+use std.c.stdio;
+use std.c.stdio.write_bytes;
+use std.c.stdio.i32_to_str;
 
 // ============================================================
 // 测试函数
 // ============================================================
 
-fn test_putchar() i32 {
-    // 测试 1：写入单个字符 'A' (65)
-    const result: i32 = my_putchar(65);
-    if result != 65 {
-        return 1;
-    }
-
-    // 测试 2：写入换行符
-    const result2: i32 = my_putchar(10);
-    if result2 != 10 {
-        return 2;
-    }
-
-    return 0;
-}
-
-fn test_write_bytes() i32 {
-    // 测试 1：写入 "OK\n"
-    var msg: [byte: 4] = [];
-    msg[0] = 79 as byte;   // 'O'
-    msg[1] = 75 as byte;   // 'K'
-    msg[2] = 10 as byte;   // '\n'
-    const written: i64 = my_write_bytes(&msg[0] as &byte, 3);
-    if written != 3 {
-        return 1;
-    }
-
-    return 0;
-}
-
 fn test_i32_to_str() i32 {
     var buf: [byte: 16] = [];
 
     // 测试 1：正整数
-    const len1: usize = my_i32_to_str(42, &buf[0] as &byte);
+    const len1: usize = i32_to_str(42, &buf[0] as &byte);
     if len1 != 2 {
         return 1;
     }
@@ -122,7 +25,7 @@ fn test_i32_to_str() i32 {
     }
 
     // 测试 2：零
-    const len2: usize = my_i32_to_str(0, &buf[0] as &byte);
+    const len2: usize = i32_to_str(0, &buf[0] as &byte);
     if len2 != 1 {
         return 4;
     }
@@ -131,7 +34,7 @@ fn test_i32_to_str() i32 {
     }
 
     // 测试 3：负数
-    const len3: usize = my_i32_to_str(0 - 123, &buf[0] as &byte);
+    const len3: usize = i32_to_str(0 - 123, &buf[0] as &byte);
     if len3 != 4 {
         return 6;
     }
@@ -149,7 +52,7 @@ fn test_i32_to_str() i32 {
     }
 
     // 测试 4：多位正整数
-    const len4: usize = my_i32_to_str(12345, &buf[0] as &byte);
+    const len4: usize = i32_to_str(12345, &buf[0] as &byte);
     if len4 != 5 {
         return 11;
     }
@@ -158,6 +61,36 @@ fn test_i32_to_str() i32 {
     }
     if buf[4] != 53 as byte {
         return 13; // '5'
+    }
+
+    return 0;
+}
+
+fn test_put_char() i32 {
+    // 测试 1：写入单个字符 'A' (65)
+    const result: i32 = stdio.put_char(65);
+    if result != 65 {
+        return 1;
+    }
+
+    // 测试 2：写入换行符
+    const result2: i32 = stdio.put_char(10);
+    if result2 != 10 {
+        return 2;
+    }
+
+    return 0;
+}
+
+fn test_write_bytes() i32 {
+    // 测试 1：写入 "OK\n"
+    var msg: [byte: 4] = [];
+    msg[0] = 79 as byte;   // 'O'
+    msg[1] = 75 as byte;   // 'K'
+    msg[2] = 10 as byte;   // '\n'
+    const written: i64 = write_bytes(&msg[0] as &byte, 3);
+    if written != 3 {
+        return 1;
     }
 
     return 0;
@@ -175,9 +108,9 @@ fn main() i32 {
         return result;  // i32_to_str 测试失败
     }
 
-    result = test_putchar();
+    result = test_put_char();
     if result != 0 {
-        return result + 20;  // putchar 测试失败
+        return result + 20;  // put_char 测试失败
     }
 
     result = test_write_bytes();
@@ -187,4 +120,3 @@ fn main() i32 {
 
     return 0;
 }
-

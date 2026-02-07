@@ -1,93 +1,14 @@
 // test_std_string.uya
-// 测试纯 Uya 实现的字符串和内存操作函数
-// 注：自包含测试，不使用模块系统，直接定义函数
+// 测试 lib/std/c/string 标准库模块（通过 use 导入）
 
-// ============================================================
-// 函数实现（与 std/c/string.uya 保持一致）
-// ============================================================
-
-fn my_strlen(s: &byte) usize {
-    var len: usize = 0;
-    while s[len] != 0 as byte {
-        len = len + 1;
-    }
-    return len;
-}
-
-fn my_memcpy(dest: &byte, src: &byte, n: usize) &byte {
-    var i: usize = 0;
-    while i < n {
-        dest[i] = src[i];
-        i = i + 1;
-    }
-    return dest;
-}
-
-fn my_memset(s: &byte, c: byte, n: usize) &byte {
-    var i: usize = 0;
-    while i < n {
-        s[i] = c;
-        i = i + 1;
-    }
-    return s;
-}
-
-fn my_memcmp(s1: &byte, s2: &byte, n: usize) i32 {
-    var i: usize = 0;
-    while i < n {
-        if s1[i] != s2[i] {
-            return s1[i] as i32 - s2[i] as i32;
-        }
-        i = i + 1;
-    }
-    return 0;
-}
-
-fn my_strcmp(s1: &byte, s2: &byte) i32 {
-    var i: usize = 0;
-    while s1[i] != 0 as byte && s2[i] != 0 as byte {
-        if s1[i] != s2[i] {
-            return s1[i] as i32 - s2[i] as i32;
-        }
-        i = i + 1;
-    }
-    return s1[i] as i32 - s2[i] as i32;
-}
-
-fn my_strcpy(dest: &byte, src: &byte) &byte {
-    var i: usize = 0;
-    while src[i] != 0 as byte {
-        dest[i] = src[i];
-        i = i + 1;
-    }
-    dest[i] = 0 as byte;
-    return dest;
-}
-
-fn my_strncmp(s1: &byte, s2: &byte, n: usize) i32 {
-    var i: usize = 0;
-    while i < n && s1[i] != 0 as byte && s2[i] != 0 as byte {
-        if s1[i] != s2[i] {
-            return s1[i] as i32 - s2[i] as i32;
-        }
-        i = i + 1;
-    }
-    if i >= n {
-        return 0;
-    }
-    return s1[i] as i32 - s2[i] as i32;
-}
-
-fn my_memchr(s: &byte, c: byte, n: usize) i64 {
-    var i: usize = 0;
-    while i < n {
-        if s[i] == c {
-            return i as i64;
-        }
-        i = i + 1;
-    }
-    return 0 - 1;
-}
+use std.c.string.strlen;
+use std.c.string.memcpy;
+use std.c.string.memset;
+use std.c.string.memcmp;
+use std.c.string.memchr;
+use std.c.string.strcmp;
+use std.c.string.strncmp;
+use std.c.string.strcpy;
 
 // ============================================================
 // 辅助函数：用 ASCII 码设置字节数组
@@ -127,27 +48,24 @@ fn set_hell(buf: &byte) void {
 // ============================================================
 
 fn test_strlen() i32 {
-    // 测试 1：正常字符串
     var hello: [byte: 10] = [];
     set_hello(&hello[0] as &byte);
-    const len1: usize = my_strlen(&hello[0] as &byte);
+    const len1: usize = strlen(&hello[0] as &byte);
     if len1 != 5 {
         return 1;
     }
 
-    // 测试 2：空字符串
     var empty: [byte: 4] = [];
     empty[0] = 0 as byte;
-    const len2: usize = my_strlen(&empty[0] as &byte);
+    const len2: usize = strlen(&empty[0] as &byte);
     if len2 != 0 {
         return 2;
     }
 
-    // 测试 3：单字符字符串
     var single: [byte: 4] = [];
     single[0] = 65 as byte;  // 'A'
     single[1] = 0 as byte;
-    const len3: usize = my_strlen(&single[0] as &byte);
+    const len3: usize = strlen(&single[0] as &byte);
     if len3 != 1 {
         return 3;
     }
@@ -156,12 +74,11 @@ fn test_strlen() i32 {
 }
 
 fn test_memcpy() i32 {
-    // 测试 1：基本复制
     var src: [byte: 10] = [];
     set_hello(&src[0] as &byte);
     var dest: [byte: 10] = [];
 
-    _ = my_memcpy(&dest[0] as &byte, &src[0] as &byte, 6);
+    _ = memcpy(&dest[0] as &byte, &src[0] as &byte, 6);
     if dest[0] != 72 as byte {
         return 1;  // 'H'
     }
@@ -172,9 +89,8 @@ fn test_memcpy() i32 {
         return 3;  // '\0'
     }
 
-    // 测试 2：部分复制
     var partial: [byte: 10] = [];
-    _ = my_memcpy(&partial[0] as &byte, &src[0] as &byte, 3);
+    _ = memcpy(&partial[0] as &byte, &src[0] as &byte, 3);
     if partial[0] != 72 as byte {
         return 4;  // 'H'
     }
@@ -186,25 +102,22 @@ fn test_memcpy() i32 {
 }
 
 fn test_memset() i32 {
-    // 测试 1：填充固定值
     var buf: [byte: 10] = [];
-    _ = my_memset(&buf[0] as &byte, 65 as byte, 5);
+    _ = memset(&buf[0] as &byte, 65 as byte, 5);
     if buf[0] != 65 as byte {
         return 1;  // 'A'
     }
     if buf[4] != 65 as byte {
         return 2;
     }
-    // 未填充部分应保持 0
     if buf[5] != 0 as byte {
         return 3;
     }
 
-    // 测试 2：填充 0
     var buf2: [byte: 10] = [];
     buf2[0] = 100 as byte;
     buf2[1] = 100 as byte;
-    _ = my_memset(&buf2[0] as &byte, 0 as byte, 5);
+    _ = memset(&buf2[0] as &byte, 0 as byte, 5);
     if buf2[0] != 0 as byte {
         return 4;
     }
@@ -216,26 +129,23 @@ fn test_memset() i32 {
 }
 
 fn test_memcmp() i32 {
-    // 测试 1：相等
     var a: [byte: 10] = [];
     var b: [byte: 10] = [];
     set_hello(&a[0] as &byte);
     set_hello(&b[0] as &byte);
-    const cmp1: i32 = my_memcmp(&a[0] as &byte, &b[0] as &byte, 5);
+    const cmp1: i32 = memcmp(&a[0] as &byte, &b[0] as &byte, 5);
     if cmp1 != 0 {
         return 1;
     }
 
-    // 测试 2：不相等（a < b）
     set_hello(&a[0] as &byte);
     set_world(&b[0] as &byte);
-    const cmp2: i32 = my_memcmp(&a[0] as &byte, &b[0] as &byte, 1);
+    const cmp2: i32 = memcmp(&a[0] as &byte, &b[0] as &byte, 1);
     if cmp2 >= 0 {
         return 2;  // 'H' (72) < 'W' (87)
     }
 
-    // 测试 3：不相等（a > b）
-    const cmp3: i32 = my_memcmp(&b[0] as &byte, &a[0] as &byte, 1);
+    const cmp3: i32 = memcmp(&b[0] as &byte, &a[0] as &byte, 1);
     if cmp3 <= 0 {
         return 3;  // 'W' (87) > 'H' (72)
     }
@@ -244,43 +154,39 @@ fn test_memcmp() i32 {
 }
 
 fn test_strcmp() i32 {
-    // 测试 1：相等字符串
     var a: [byte: 10] = [];
     var b: [byte: 10] = [];
     set_hello(&a[0] as &byte);
     set_hello(&b[0] as &byte);
-    const cmp1: i32 = my_strcmp(&a[0] as &byte, &b[0] as &byte);
+    const cmp1: i32 = strcmp(&a[0] as &byte, &b[0] as &byte);
     if cmp1 != 0 {
         return 1;
     }
 
-    // 测试 2：不相等字符串
     set_hello(&a[0] as &byte);
     set_world(&b[0] as &byte);
-    const cmp2: i32 = my_strcmp(&a[0] as &byte, &b[0] as &byte);
+    const cmp2: i32 = strcmp(&a[0] as &byte, &b[0] as &byte);
     if cmp2 >= 0 {
         return 2;  // "Hello" < "World"
     }
 
-    // 测试 3：前缀匹配但长度不同
     set_hello(&a[0] as &byte);
     set_hell(&b[0] as &byte);
-    const cmp3: i32 = my_strcmp(&a[0] as &byte, &b[0] as &byte);
+    const cmp3: i32 = strcmp(&a[0] as &byte, &b[0] as &byte);
     if cmp3 <= 0 {
-        return 3;  // "Hello" > "Hell"（'o' > '\0'）
+        return 3;  // "Hello" > "Hell"
     }
 
     return 0;
 }
 
 fn test_strcpy() i32 {
-    // 测试 1：基本复制
     var src: [byte: 10] = [];
     set_hello(&src[0] as &byte);
     var dest: [byte: 10] = [];
-    _ = my_strcpy(&dest[0] as &byte, &src[0] as &byte);
+    _ = strcpy(&dest[0] as &byte, &src[0] as &byte);
 
-    const len: usize = my_strlen(&dest[0] as &byte);
+    const len: usize = strlen(&dest[0] as &byte);
     if len != 5 {
         return 1;
     }
@@ -298,20 +204,18 @@ fn test_strcpy() i32 {
 }
 
 fn test_strncmp() i32 {
-    // 测试 1：前 n 字节相等
     var a: [byte: 10] = [];
     var b: [byte: 10] = [];
     set_hello(&a[0] as &byte);
     set_hell(&b[0] as &byte);
-    const cmp1: i32 = my_strncmp(&a[0] as &byte, &b[0] as &byte, 4);
+    const cmp1: i32 = strncmp(&a[0] as &byte, &b[0] as &byte, 4);
     if cmp1 != 0 {
         return 1;  // "Hell" == "Hell" (前 4 字节)
     }
 
-    // 测试 2：前 n 字节不相等
     set_hello(&a[0] as &byte);
     set_world(&b[0] as &byte);
-    const cmp2: i32 = my_strncmp(&a[0] as &byte, &b[0] as &byte, 3);
+    const cmp2: i32 = strncmp(&a[0] as &byte, &b[0] as &byte, 3);
     if cmp2 >= 0 {
         return 2;  // "Hel" < "Wor"
     }
@@ -320,22 +224,19 @@ fn test_strncmp() i32 {
 }
 
 fn test_memchr() i32 {
-    // 测试 1：查找存在的字节
     var buf: [byte: 10] = [];
     set_hello(&buf[0] as &byte);
-    const pos1: i64 = my_memchr(&buf[0] as &byte, 108 as byte, 5);  // 'l'
+    const pos1: i64 = memchr(&buf[0] as &byte, 108 as byte, 5);  // 'l'
     if pos1 != 2 {
         return 1;  // 第一个 'l' 在位置 2
     }
 
-    // 测试 2：查找不存在的字节
-    const pos2: i64 = my_memchr(&buf[0] as &byte, 120 as byte, 5);  // 'x'
+    const pos2: i64 = memchr(&buf[0] as &byte, 120 as byte, 5);  // 'x'
     if pos2 != 0 - 1 {
         return 2;
     }
 
-    // 测试 3：查找第一个字节
-    const pos3: i64 = my_memchr(&buf[0] as &byte, 72 as byte, 5);  // 'H'
+    const pos3: i64 = memchr(&buf[0] as &byte, 72 as byte, 5);  // 'H'
     if pos3 != 0 {
         return 3;
     }
@@ -392,4 +293,3 @@ fn main() i32 {
 
     return 0;
 }
-

@@ -936,25 +936,29 @@ test "函数调用测试" {
    - 通过 `--outlibc` 生成单文件 C 库（libuya.c + libuya.h）
    - 生成的库零外部依赖，可替代 musl/glibc
 
-**架构概览**：
+**架构概览**（标准库位于 `lib/std/` 目录，通过 `UYA_ROOT` 环境变量指向 `lib/`）：
 ```
-std/
-├── c/              # 纯 Uya 实现的 C 标准库（musl 替代）
-│   ├── syscall/    # 系统调用封装（Linux/Windows/macOS）
-│   ├── string.uya  # 字符串和内存操作
-│   ├── stdio.uya   # 标准 I/O
-│   ├── stdlib.uya  # 内存分配、进程控制
-│   └── math.uya    # 数学函数
-├── io/             # 平台无关同步 I/O 抽象
-├── async/          # 异步编程标准库（详见 docs/std_async_design.md）
-│   ├── io/         # AsyncWriter / AsyncReader
-│   ├── task.uya    # Task<T>, Waker
-│   ├── event/      # 平台事件后端（epoll/kqueue/IOCP）
-│   ├── channel.uya # Channel<T>, MpscChannel<T>
-│   └── scheduler.uya # Scheduler 事件循环调度器
-├── fmt/            # 格式化库（纯 Uya 实现）
-├── bare_metal/     # 裸机平台支持
-└── builtin/        # 编译器内置运行时
+lib/
+└── std/
+    ├── c/              # 纯 Uya 实现的 C 标准库（musl 替代）
+    │   ├── syscall/    # 系统调用封装（Linux/Windows/macOS）
+    │   │   └── syscall.uya
+    │   ├── string/     # 字符串和内存操作
+    │   │   └── string.uya
+    │   ├── stdio/      # 标准 I/O
+    │   │   └── stdio.uya
+    │   ├── stdlib/     # 内存分配、进程控制（待实现）
+    │   └── math/       # 数学函数（待实现）
+    ├── io/             # 平台无关同步 I/O 抽象
+    ├── async/          # 异步编程标准库（详见 docs/std_async_design.md）
+    │   ├── io/         # AsyncWriter / AsyncReader
+    │   ├── task.uya    # Task<T>, Waker
+    │   ├── event/      # 平台事件后端（epoll/kqueue/IOCP）
+    │   ├── channel.uya # Channel<T>, MpscChannel<T>
+    │   └── scheduler.uya # Scheduler 事件循环调度器
+    ├── fmt/            # 格式化库（纯 Uya 实现）
+    ├── bare_metal/     # 裸机平台支持
+    └── builtin/        # 编译器内置运行时
 ```
 
 **关键特性**：
@@ -1041,12 +1045,12 @@ static inline long uya_syscall3(long nr, long a1, long a2, long a3) {
 #### Sprint 2: std.c.syscall 模块（1 周）⭐⭐⭐⭐⭐ ✅ 已完成
 
 **任务清单**：
-- [x] **创建目录结构**：`std/c/syscall.uya`
+- [x] **创建目录结构**：`lib/std/c/syscall/syscall.uya`（从 `std/c/syscall.uya` 迁移至 `lib/std/` 下）
 - [x] **系统调用号常量**：定义 Linux 系统调用号（SYS_read/write/open/close/stat/fstat/lseek/mmap/munmap/brk/ioctl/access/dup/dup2/getpid/fork/execve/exit/kill/getcwd/chdir/mkdir/rmdir/unlink）
 - [x] **文件操作标志**：O_RDONLY/O_WRONLY/O_RDWR/O_CREAT/O_EXCL/O_TRUNC/O_APPEND
 - [x] **文件权限常量**：S_IRWXU/S_IRUSR/S_IWUSR/S_IXUSR 等
 - [x] **标准文件描述符**：STDIN_FILENO/STDOUT_FILENO/STDERR_FILENO
-- [x] **错误码枚举**：`enum Errno : i32`（EPERM=1 到 EINVAL=22，22 种标准 errno 错误码）
+- [x] **错误码常量**：`export const` 声明（EPERM=1 到 EINVAL=22，22 种标准 errno 错误码；原 `enum Errno : i32` 因 parser 不支持 typed enum 改为独立常量）
 - [x] **封装函数**：实现系统调用封装（参数统一使用 i64 类型）
   - `sys_write(fd, buf, count) !i64`
   - `sys_read(fd, buf, count) !i64`
@@ -1070,34 +1074,34 @@ static inline long uya_syscall3(long nr, long a1, long a2, long a3) {
 #### Sprint 3: std.c.string + std.c.stdio（1-2 周）⭐⭐⭐⭐ ✅ 已完成
 
 **std.c.string（已完成）**：
-- [x] **创建文件**：`std/c/string.uya`（纯 Uya 实现，零外部依赖）
+- [x] **创建文件**：`lib/std/c/string/string.uya`（纯 Uya 实现，零外部依赖；从 `std/c/string.uya` 迁移至 `lib/std/` 下，函数名使用 snake_case 避免 C 名冲突）
 - [x] **内存操作函数**：
-  - `memcpy(dest: &byte, src: &byte, n: usize) &byte` - 复制内存块
-  - `memmove(dest: &byte, src: &byte, n: usize) &byte` - 复制内存块（支持重叠）
-  - `memset(s: &byte, c: byte, n: usize) &byte` - 填充内存块
-  - `memcmp(s1: &byte, s2: &byte, n: usize) i32` - 比较内存块
-  - `memchr(s: &byte, c: byte, n: usize) i64` - 查找字节（返回索引或 -1）
+  - `mem_copy(dest: &byte, src: &byte, n: usize) &byte` - 复制内存块
+  - `mem_move(dest: &byte, src: &byte, n: usize) &byte` - 复制内存块（支持重叠）
+  - `mem_set(s: &byte, c: byte, n: usize) &byte` - 填充内存块
+  - `mem_cmp(s1: &byte, s2: &byte, n: usize) i32` - 比较内存块
+  - `mem_find(s: &byte, c: byte, n: usize) i64` - 查找字节（返回索引或 -1）
 - [x] **字符串操作函数**：
-  - `strlen(s: &byte) usize` - 计算字符串长度
-  - `strcmp(s1: &byte, s2: &byte) i32` - 比较字符串
-  - `strncmp(s1: &byte, s2: &byte, n: usize) i32` - 比较指定长度字符串
-  - `strcpy(dest: &byte, src: &byte) &byte` - 复制字符串
-  - `strncpy(dest: &byte, src: &byte, n: usize) &byte` - 复制指定长度字符串
-  - `strcat(dest: &byte, src: &byte) &byte` - 连接字符串
-  - `strchr(s: &byte, c: byte) i64` - 查找字符首次出现位置
-  - `strrchr(s: &byte, c: byte) i64` - 查找字符最后出现位置
-- [x] **测试**：`test_std_string.uya`（8 组测试：strlen/memcpy/memset/memcmp/strcmp/strcpy/strncmp/memchr，通过 `--c99` 和 `--uya --c99`）
+  - `str_len(s: &byte) usize` - 计算字符串长度
+  - `str_cmp(s1: &byte, s2: &byte) i32` - 比较字符串
+  - `str_ncmp(s1: &byte, s2: &byte, n: usize) i32` - 比较指定长度字符串
+  - `str_copy(dest: &byte, src: &byte) &byte` - 复制字符串
+  - `str_ncopy(dest: &byte, src: &byte, n: usize) &byte` - 复制指定长度字符串
+  - `str_cat(dest: &byte, src: &byte) &byte` - 连接字符串
+  - `str_find(s: &byte, c: byte) i64` - 查找字符首次出现位置
+  - `str_rfind(s: &byte, c: byte) i64` - 查找字符最后出现位置
+- [x] **测试**：`test_std_string.uya`（8 组测试：str_len/mem_copy/mem_set/mem_cmp/str_cmp/str_copy/str_ncmp/mem_find，通过 `--c99` 和 `--uya --c99`）
 
 **std.c.stdio（已完成）**：
-- [x] **创建文件**：`std/c/stdio.uya`（基于 @syscall，零外部依赖）
+- [x] **创建文件**：`lib/std/c/stdio/stdio.uya`（基于 @syscall，零外部依赖；从 `std/c/stdio.uya` 迁移至 `lib/std/` 下，函数名使用 snake_case）
 - [x] **输出函数**：
-  - `putchar(c: i32) i32` - 写入单个字符到 stdout
-  - `putchar_fd(c: i32, fd: i64) i32` - 写入单个字符到指定 fd
+  - `put_char(c: i32) i32` - 写入单个字符到 stdout
+  - `put_char_fd(c: i32, fd: i64) i32` - 写入单个字符到指定 fd
   - `write_bytes(buf: &byte, n: usize) i64` - 写入 n 字节到 stdout
   - `write_bytes_fd(buf: &byte, n: usize, fd: i64) i64` - 写入 n 字节到指定 fd
-  - `puts_len(s: &byte, len: usize) i32` - 写入指定长度字符串并换行
+  - `put_str_len(s: &byte, len: usize) i32` - 写入指定长度字符串并换行
 - [x] **输入函数**：
-  - `getchar() i32` - 从 stdin 读取一个字符
+  - `get_char() i32` - 从 stdin 读取一个字符
   - `read_bytes(buf: &byte, n: usize) i64` - 从 stdin 读取最多 n 字节
   - `read_bytes_fd(buf: &byte, n: usize, fd: i64) i64` - 从指定 fd 读取
 - [x] **整数转字符串辅助**：
@@ -1105,13 +1109,16 @@ static inline long uya_syscall3(long nr, long a1, long a2, long a3) {
   - `i64_to_str(value: i64, buf: &byte) usize` - i64 转十进制字符串
   - `print_i32(value: i32) usize` - 打印 i32 到 stdout
   - `print_i64(value: i64) usize` - 打印 i64 到 stdout
-- [x] **测试**：`test_std_stdio.uya`（i32_to_str/putchar/write_bytes，通过 `--c99` 和 `--uya --c99`）
+- [x] **测试**：`test_std_stdio.uya`（i32_to_str/put_char/write_bytes，通过 `--c99` 和 `--uya --c99`）
 
 **API 设计说明**：
 - 使用 `&byte` 而非 `&void` 作为指针类型（当前 `&void` 仅部分支持）
 - 使用 `byte` 而非 `i32` 作为 memset/memchr 的字符参数（更类型安全）
 - 使用 `i64` 返回索引而非指针（memchr/strchr/strrchr 找到返回索引，未找到返回 -1）
 - 所有函数纯 Uya 实现，唯一依赖为 @syscall（stdio）
+- 函数名使用 snake_case（如 `str_len`、`mem_copy`、`put_char`、`sys_write`），避免与 C 标准库函数名冲突
+- 标准库位于 `lib/std/` 目录，通过 `UYA_ROOT` 环境变量指向 `lib/`（测试脚本设置 `UYA_ROOT=../lib/`）
+- 模块路径使用 `std.c.string`、`std.c.stdio`、`std.c.syscall`
 
 ---
 
@@ -1186,9 +1193,9 @@ static inline long uya_syscall3(long nr, long a1, long a2, long a3) {
 
 以下为 v0.3.0 之后的标准库扩展计划：
 
-- [x] `std.c.syscall` - 系统调用封装（v0.3.0）
-- [x] `std.c.string` - 字符串和内存操作（v0.3.0）
-- [x] `std.c.stdio` - 标准 I/O（v0.3.0）
+- [x] `std.c.syscall` - 系统调用封装（v0.3.0，位于 `lib/std/c/syscall/syscall.uya`）
+- [x] `std.c.string` - 字符串和内存操作（v0.3.0，位于 `lib/std/c/string/string.uya`）
+- [x] `std.c.stdio` - 标准 I/O（v0.3.0，位于 `lib/std/c/stdio/stdio.uya`）
 - [ ] `std.c.stdlib` - 内存分配、进程控制（v0.3.x）
 - [ ] `std.c.math` - 数学函数（纯 Uya，v0.3.x）
 - [ ] `std.io` - 同步 I/O 抽象层（Writer/Reader 接口，v0.4.0）
@@ -2013,14 +2020,22 @@ interface IReadWriter {
   - ✅ 修复 struct err_union_int64_t 重复定义问题
 - ✅ 回归测试全部通过（317 个测试）
 
-### v0.2.33（进行中，2026-02-06）
+### v0.2.33（✅ 已完成，2026-02-06）
 - ✅ 标准库 Sprint 1-3 完成
-  - ✅ `std/c/syscall.uya`（系统调用封装：33 个常量 + 13 个封装函数 + Errno 枚举）
-  - ✅ `std/c/string.uya`（纯 Uya 实现：13 个内存/字符串函数）
-  - ✅ `std/c/stdio.uya`（基于 @syscall 的 I/O：12 个函数 + 整数转字符串）
+  - ✅ `lib/std/c/syscall/syscall.uya`（系统调用封装：33 个常量 + 13 个封装函数）
+  - ✅ `lib/std/c/string/string.uya`（纯 Uya 实现：13 个内存/字符串函数）
+  - ✅ `lib/std/c/stdio/stdio.uya`（基于 @syscall 的 I/O：12 个函数 + 整数转字符串）
   - ✅ `test_std_string.uya`（8 组测试，通过 `--c99` 和 `--uya --c99`）
   - ✅ `test_std_stdio.uya`（3 组测试，通过 `--c99` 和 `--uya --c99`）
+  - ✅ `test_std_syscall.uya`（通过 `--c99` 和 `--uya --c99`）
+- ✅ 标准库目录重构：`std/` → `lib/std/`（目录即模块：`lib/std/c/string/string.uya` → 模块路径 `std.c.string`）
+  - ✅ 测试脚本 `run_programs.sh` 设置 `UYA_ROOT=../lib/`
+  - ✅ Checker 添加 `uya_root_dir` 字段，优先在 UYA_ROOT 下查找模块文件
+  - ✅ `build_module_exports` 修复：支持 `AST_VAR_DECL`（常量声明）导出
+  - ✅ Codegen 修复：`return @syscall(...)` 在 `!i64` 函数中不再双重包装 err_union
+  - ✅ 自举编译器修复：`project_root` 路径包含尾部斜杠、Dirent 结构体通过指针偏移访问 d_type/d_name
 - ✅ 回归测试全部通过（319 个测试）
+- ✅ 自举对比（`--c99 -b`）一致
 
 ### v0.3.0（目标：2026 Q1）- 标准库里程碑
 - ✅ 标准库基础设施（Sprint 1-3：@syscall + std.c.{syscall,string,stdio}）

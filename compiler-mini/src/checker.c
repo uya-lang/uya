@@ -334,6 +334,7 @@ int checker_init(TypeChecker *checker, Arena *arena, const char *default_filenam
         checker->error_names[i] = NULL;
     }
     checker->project_root_dir = NULL;
+    checker->uya_root_dir = NULL;
     
     // 初始化泛型相关字段
     checker->current_type_params = NULL;
@@ -1622,6 +1623,38 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
             }
             if (callee->type == AST_MEMBER_ACCESS) {
                 ASTNode *object = callee->data.member_access.object;
+                
+                // 先检查是否是模块限定调用（module.func(args)）
+                if (object->type == AST_IDENTIFIER && object->data.identifier.name != NULL) {
+                    const char *obj_name = object->data.identifier.name;
+                    unsigned int ih = hash_string(obj_name);
+                    unsigned int ii = ih & (IMPORT_TABLE_SIZE - 1);
+                    for (int i2 = 0; i2 < IMPORT_TABLE_SIZE; i2++) {
+                        unsigned int sl = (ii + i2) & (IMPORT_TABLE_SIZE - 1);
+                        ImportedItem *imp = checker->import_table.slots[sl];
+                        if (imp == NULL) break;
+                        if (imp->item_type == -1 && strcmp(imp->local_name, obj_name) == 0) {
+                            // 模块限定调用：标记并查找函数返回类型
+                            callee->data.member_access.is_module_access = 1;
+                            const char *func_name = callee->data.member_access.field_name;
+                            if (func_name != NULL) {
+                                // 查找函数声明获取返回类型
+                                ASTNode *fn = find_fn_decl_from_program(checker->program_node, func_name);
+                                if (fn != NULL) {
+                                    return type_from_ast(checker, fn->data.fn_decl.return_type);
+                                }
+                                // 函数表中查找
+                                FunctionSignature *sig = function_table_lookup(checker, func_name);
+                                if (sig != NULL) {
+                                    return sig->return_type;
+                                }
+                            }
+                            result.kind = TYPE_VOID;
+                            return result;
+                        }
+                    }
+                }
+                
                 Type object_type = checker_infer_type(checker, object);
                 if (object->type == AST_IDENTIFIER && object->data.identifier.name != NULL && checker->program_node != NULL) {
                     ASTNode *union_decl = find_union_decl_from_program(checker->program_node, object->data.identifier.name);
@@ -1737,11 +1770,69 @@ static Type checker_infer_type(TypeChecker *checker, ASTNode *expr) {
                             result.kind = TYPE_VOID;
                             return result;
                         }
+                        
+                        // 不是枚举，检查是否是模块导入（use std.c.stdio; -> stdio.xxx）
+                        {
+                            unsigned int ih = hash_string(enum_name);
+                            unsigned int ii = ih & (IMPORT_TABLE_SIZE - 1);
+                            for (int i2 = 0; i2 < IMPORT_TABLE_SIZE; i2++) {
+                                unsigned int sl = (ii + i2) & (IMPORT_TABLE_SIZE - 1);
+                                ImportedItem *imp = checker->import_table.slots[sl];
+                                if (imp == NULL) break;
+                                if (imp->item_type == -1 && strcmp(imp->local_name, enum_name) == 0) {
+                                    // 找到模块导入！标记为模块限定访问
+                                    expr->data.member_access.is_module_access = 1;
+                                    // 从模块导出表查找成员的类型
+                                    const char *field = expr->data.member_access.field_name;
+                                    if (field != NULL) {
+                                        unsigned int mh = hash_string(imp->module_name);
+                                        unsigned int mi = mh & (MODULE_TABLE_SIZE - 1);
+                                        for (int m = 0; m < MODULE_TABLE_SIZE; m++) {
+                                            unsigned int ms = (mi + m) & (MODULE_TABLE_SIZE - 1);
+                                            ModuleInfo *mod = checker->module_table.slots[ms];
+                                            if (mod == NULL) break;
+                                            if (strcmp(mod->module_name, imp->module_name) == 0) {
+                                                for (int e = 0; e < mod->export_count; e++) {
+                                                    if (strcmp(mod->exports[e].name, field) == 0) {
+                                                        // 根据导出项类型返回适当的类型
+                                                        int et = mod->exports[e].item_type;
+                                                        if (et == 1) {
+                                                            // 函数：查找函数声明获取返回类型
+                                                            result.kind = TYPE_VOID;
+                                                            return result;
+                                                        } else if (et == 2) {
+                                                            result.kind = TYPE_STRUCT;
+                                                            result.data.struct_type.name = field;
+                                                            result.data.struct_type.type_args = NULL;
+                                                            result.data.struct_type.type_arg_count = 0;
+                                                            return result;
+                                                        } else if (et == 5) {
+                                                            result.kind = TYPE_ENUM;
+                                                            result.data.enum_name = field;
+                                                            return result;
+                                                        } else if (et == 10) {
+                                                            // 常量：推断类型（简化处理，返回 void 让放宽检查通过）
+                                                            result.kind = TYPE_VOID;
+                                                            return result;
+                                                        }
+                                                        result.kind = TYPE_VOID;
+                                                        return result;
+                                                    }
+                                                }
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    result.kind = TYPE_VOID;
+                                    return result;
+                                }
+                            }
+                        }
                     }
                 }
             }
             
-            // 不是枚举类型访问，按结构体字段访问处理
+            // 不是枚举类型访问也不是模块限定访问，按结构体字段访问处理
             Type object_type = checker_infer_type(checker, object);
             
             // 如果对象是指针类型，自动解引用
@@ -6062,6 +6153,7 @@ static ASTNode *deep_copy_ast(ASTNode *node, MacroExpandContext *ctx) {
             copy->data.member_access.object = deep_copy_ast(node->data.member_access.object, ctx);
             copy->data.member_access.field_name = node->data.member_access.field_name ?
                 macro_strdup(ctx->arena, node->data.member_access.field_name) : NULL;
+            copy->data.member_access.is_module_access = node->data.member_access.is_module_access;
             break;
         case AST_ARRAY_ACCESS:
             copy->data.array_access.array = deep_copy_ast(node->data.array_access.array, ctx);
@@ -7293,6 +7385,72 @@ static const char *extract_module_path_allocated(TypeChecker *checker, const cha
         }
     }
     
+    // 如果 UYA_ROOT 目录已设置，检查文件是否在 UYA_ROOT 下
+    if (checker->uya_root_dir != NULL) {
+        size_t uya_root_len = strlen(checker->uya_root_dir);
+        if (uya_root_len > 0 && strncmp(filename, checker->uya_root_dir, uya_root_len) == 0) {
+            // 文件在 UYA_ROOT 下，提取相对路径作为模块路径
+            // 去掉 .uya 后缀，得到基础路径，然后将 '/' 替换为 '.'
+            // 例如：std/c/string.uya → std.c.string
+            //       std/c/syscall/syscall.uya → std.c.syscall（去重）
+            const char *relative_path = filename + uya_root_len;
+            size_t rel_len = strlen(relative_path);
+            
+            // 去掉 .uya 后缀
+            size_t base_len = rel_len;
+            if (rel_len > 4 && strcmp(relative_path + rel_len - 4, ".uya") == 0) {
+                base_len = rel_len - 4;
+            }
+            
+            // 检查是否需要去重：如果文件名与父目录同名（如 syscall/syscall），
+            // 则去掉最后一级
+            const char *last_slash_uya = NULL;
+            for (size_t i = base_len; i > 0; i--) {
+                if (relative_path[i - 1] == '/' || relative_path[i - 1] == '\\') {
+                    last_slash_uya = relative_path + i - 1;
+                    break;
+                }
+            }
+            
+            size_t module_len = base_len;
+            if (last_slash_uya != NULL) {
+                // 父目录名
+                const char *prev_slash = NULL;
+                for (const char *p = relative_path; p < last_slash_uya; p++) {
+                    if (*p == '/' || *p == '\\') {
+                        prev_slash = p;
+                    }
+                }
+                const char *dir_name_start = (prev_slash != NULL) ? prev_slash + 1 : relative_path;
+                size_t dir_name_len = last_slash_uya - dir_name_start;
+                // 文件名（去掉 .uya）
+                const char *file_name_start = last_slash_uya + 1;
+                size_t file_name_len = (relative_path + base_len) - file_name_start;
+                // 如果文件名与父目录同名，去掉文件名部分
+                if (dir_name_len == file_name_len &&
+                    strncmp(dir_name_start, file_name_start, dir_name_len) == 0) {
+                    module_len = last_slash_uya - relative_path;
+                }
+            }
+            
+            if (module_len > 0) {
+                char *module_name = (char *)arena_alloc(checker->arena, module_len + 1);
+                if (module_name == NULL) {
+                    return NULL;
+                }
+                memcpy(module_name, relative_path, module_len);
+                module_name[module_len] = '\0';
+                // 将 '/' 替换为 '.'
+                for (size_t i = 0; i < module_len; i++) {
+                    if (module_name[i] == '/' || module_name[i] == '\\') {
+                        module_name[i] = '.';
+                    }
+                }
+                return module_name;
+            }
+        }
+    }
+    
     // 如果项目根目录未设置，使用旧逻辑（向后兼容）
     // 找到最后一个 '/' 或 '\'（文件所在目录）
     const char *last_slash = strrchr(filename, '/');
@@ -7535,6 +7693,11 @@ static void build_module_exports(TypeChecker *checker, ASTNode *program) {
                 item_name = decl->data.type_alias.name;
                 item_type = 9;  // 类型别名
                 break;
+            case AST_VAR_DECL:
+                is_export = decl->data.var_decl.is_export;
+                item_name = decl->data.var_decl.name;
+                item_type = 10;  // 变量/常量
+                break;
             default:
                 break;
         }
@@ -7577,104 +7740,67 @@ static int process_use_stmt(TypeChecker *checker, ASTNode *node) {
         return 0;
     }
     
-    // 将 path_segments 连接成模块路径（用 '.' 连接）
-    // 例如：path_segments = ["std", "io"] -> module_name = "std.io"
-    // parser 的行为：
-    //   - use std.io.read_file; -> path_segments = ["std", "io", "read_file"], item_name = NULL
-    //   - use std.io.read_file; (理想) -> path_segments = ["std", "io"], item_name = "read_file"
-    // 需要处理两种情况：如果 item_name 为 NULL 且 path_segment_count > 1，最后一个 segment 可能是项名
+    // 辅助宏：将 segments[0..count) 连接为 "a.b.c" 形式的模块路径
+    #define JOIN_SEGS(segs, cnt, out) do { \
+        size_t _tl = 0; \
+        for (int _i = 0; _i < (cnt); _i++) { \
+            if ((segs)[_i]) { _tl += strlen((segs)[_i]); if (_i > 0) _tl++; } \
+        } \
+        if (_tl == 0) { (out) = NULL; } else { \
+            char *_b = (char *)arena_alloc(checker->arena, _tl + 1); \
+            if (_b) { char *_d = _b; \
+                for (int _i = 0; _i < (cnt); _i++) { \
+                    if ((segs)[_i]) { if (_i > 0) *_d++ = '.'; \
+                        size_t _sl = strlen((segs)[_i]); memcpy(_d, (segs)[_i], _sl); _d += _sl; } \
+                } *_d = '\0'; } \
+            (out) = _b; } \
+    } while(0)
     
-    const char *module_name;
+    const char *module_name = NULL;
     const char *item_name = node->data.use_stmt.item_name;
+    int is_whole_module_import = 0;  // 1 = 整体导入模块
     
-    // 如果 item_name 为 NULL 且 path_segment_count > 1，最后一个 segment 可能是项名
-    if (item_name == NULL && node->data.use_stmt.path_segment_count > 1) {
-        // 假设最后一个 segment 是项名，前面的 segments 是模块路径
-        item_name = node->data.use_stmt.path_segments[node->data.use_stmt.path_segment_count - 1];
-        // 模块路径是除了最后一个 segment 的所有 segments
-        int module_segment_count = node->data.use_stmt.path_segment_count - 1;
+    int seg_count = node->data.use_stmt.path_segment_count;
+    const char **segs = node->data.use_stmt.path_segments;
+    
+    if (item_name != NULL) {
+        // item_name 已设置（parser 明确分离了项名），所有 segments 都是模块路径
+        JOIN_SEGS(segs, seg_count, module_name);
+    } else if (seg_count > 1) {
+        // 先尝试全路径作为模块名（use std.c.stdio; -> 模块 std.c.stdio）
+        char *full_path = NULL;
+        JOIN_SEGS(segs, seg_count, full_path);
         
-        if (module_segment_count == 1) {
-            module_name = node->data.use_stmt.path_segments[0];
-        } else {
-            // 多级路径：将前 N-1 个 segments 连接成模块路径
-            size_t total_len = 0;
-            for (int i = 0; i < module_segment_count; i++) {
-                if (node->data.use_stmt.path_segments[i] != NULL) {
-                    total_len += strlen(node->data.use_stmt.path_segments[i]);
-                    if (i > 0) {
-                        total_len += 1;  // '.' 分隔符
-                    }
+        if (full_path != NULL) {
+            // 检查全路径是否是已知模块（在 module_table 中有导出项）
+            unsigned int h = hash_string(full_path);
+            unsigned int idx = h & (MODULE_TABLE_SIZE - 1);
+            ModuleInfo *full_mod = NULL;
+            for (int i = 0; i < MODULE_TABLE_SIZE; i++) {
+                unsigned int slot = (idx + i) & (MODULE_TABLE_SIZE - 1);
+                ModuleInfo *m = checker->module_table.slots[slot];
+                if (m != NULL && strcmp(m->module_name, full_path) == 0) {
+                    full_mod = m;
+                    break;
                 }
+                if (m == NULL) break;
             }
             
-            if (total_len == 0) {
-                checker_report_error(checker, node, "use 语句的模块路径无效");
-                return 0;
-            }
-            
-            char *module_name_buf = (char *)arena_alloc(checker->arena, total_len + 1);
-            if (module_name_buf == NULL) {
-                checker_report_error(checker, node, "内存分配失败");
-                return 0;
-            }
-            
-            char *dst = module_name_buf;
-            for (int i = 0; i < module_segment_count; i++) {
-                if (node->data.use_stmt.path_segments[i] != NULL) {
-                    if (i > 0) {
-                        *dst++ = '.';
-                    }
-                    size_t seg_len = strlen(node->data.use_stmt.path_segments[i]);
-                    memcpy(dst, node->data.use_stmt.path_segments[i], seg_len);
-                    dst += seg_len;
-                }
-            }
-            *dst = '\0';
-            module_name = module_name_buf;
-        }
-    } else if (node->data.use_stmt.path_segment_count == 1) {
-        // 单级路径：use module_a; 或 use module_a.item;
-        module_name = node->data.use_stmt.path_segments[0];
-    } else {
-        // 多级路径：将 path_segments 连接成模块路径
-        // 计算所需的总长度
-        size_t total_len = 0;
-        for (int i = 0; i < node->data.use_stmt.path_segment_count; i++) {
-            if (node->data.use_stmt.path_segments[i] != NULL) {
-                total_len += strlen(node->data.use_stmt.path_segments[i]);
-                if (i > 0) {
-                    total_len += 1;  // '.' 分隔符
-                }
+            if (full_mod != NULL && full_mod->export_count > 0) {
+                // 全路径是有效模块 → 整体导入
+                module_name = full_path;
+                is_whole_module_import = 1;
+            } else {
+                // 全路径不是模块 → 最后一个 segment 是项名
+                item_name = segs[seg_count - 1];
+                JOIN_SEGS(segs, seg_count - 1, module_name);
             }
         }
-        
-        if (total_len == 0) {
-            checker_report_error(checker, node, "use 语句的模块路径无效");
-            return 0;
-        }
-        
-        // 分配内存并构建模块路径
-        char *module_name_buf = (char *)arena_alloc(checker->arena, total_len + 1);
-        if (module_name_buf == NULL) {
-            checker_report_error(checker, node, "内存分配失败");
-            return 0;
-        }
-        
-        char *dst = module_name_buf;
-        for (int i = 0; i < node->data.use_stmt.path_segment_count; i++) {
-            if (node->data.use_stmt.path_segments[i] != NULL) {
-                if (i > 0) {
-                    *dst++ = '.';
-                }
-                size_t seg_len = strlen(node->data.use_stmt.path_segments[i]);
-                memcpy(dst, node->data.use_stmt.path_segments[i], seg_len);
-                dst += seg_len;
-            }
-        }
-        *dst = '\0';
-        module_name = module_name_buf;
+    } else if (seg_count == 1) {
+        module_name = segs[0];
     }
+    
+    #undef JOIN_SEGS
     
     if (module_name == NULL) {
         checker_report_error(checker, node, "use 语句的模块名无效");
@@ -7745,7 +7871,40 @@ static int process_use_stmt(TypeChecker *checker, ASTNode *node) {
     // 处理导入项
     const char *alias = node->data.use_stmt.alias;
     
-    if (item_name != NULL) {
+    if (is_whole_module_import || (item_name == NULL && alias != NULL)) {
+        // 整体导入模块（use std.c.stdio; 或 use std.c.stdio as io;）
+        // local_name = 最后一个路径段 或 alias
+        const char *local_name = alias;
+        if (local_name == NULL && seg_count > 0) {
+            local_name = segs[seg_count - 1];
+        }
+        if (local_name == NULL) {
+            checker_report_error(checker, node, "use 语句的本地名称无效");
+            return 0;
+        }
+        
+        // 注册为模块导入（item_type = -1 表示模块导入）
+        ImportedItem *import = (ImportedItem *)arena_alloc(checker->arena, sizeof(ImportedItem));
+        if (import == NULL) {
+            return 0;
+        }
+        import->local_name = local_name;
+        import->original_name = NULL;  // NULL 表示模块导入
+        import->module_name = module_name;
+        import->item_type = -1;  // -1 = 模块导入
+        
+        // 插入导入表
+        unsigned int import_hash = hash_string(import->local_name);
+        unsigned int import_index = import_hash & (IMPORT_TABLE_SIZE - 1);
+        for (int i = 0; i < IMPORT_TABLE_SIZE; i++) {
+            unsigned int slot = (import_index + i) & (IMPORT_TABLE_SIZE - 1);
+            if (checker->import_table.slots[slot] == NULL) {
+                checker->import_table.slots[slot] = import;
+                checker->import_table.count++;
+                break;
+            }
+        }
+    } else if (item_name != NULL) {
         // 导入特定项（如 use module_a.public_func;）
         // 检查项是否存在且已导出
         int found = 0;
@@ -7786,15 +7945,9 @@ static int process_use_stmt(TypeChecker *checker, ASTNode *node) {
                 break;
             }
         }
-    } else if (alias != NULL) {
-        // 导入整个模块并设置别名（如 use module_a as ma;）
-        // 简化实现：暂不支持
-        checker_report_error(checker, node, "当前实现不支持导入整个模块（请使用 use module.item; 导入特定项）");
-        return 0;
     } else {
-        // 导入整个模块（如 use module_a;）
-        // 简化实现：暂不支持
-        checker_report_error(checker, node, "当前实现不支持导入整个模块（请使用 use module.item; 导入特定项）");
+        // 无法确定是模块导入还是项导入
+        checker_report_error(checker, node, "use 语句无法解析（请使用 use module; 或 use module.item; 格式）");
         return 0;
     }
     

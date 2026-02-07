@@ -252,26 +252,11 @@ int is_stdlib_function(const char *func_name) {
         strcmp(func_name, "fgets") == 0) {
         return 1;
     }
-    // 字符串处理函数
-    if (strcmp(func_name, "strcmp") == 0 ||
-        strcmp(func_name, "strncmp") == 0 ||
-        strcmp(func_name, "strlen") == 0 ||
-        strcmp(func_name, "strcpy") == 0 ||
-        strcmp(func_name, "strncpy") == 0 ||
-        strcmp(func_name, "strcat") == 0 ||
-        strcmp(func_name, "strncat") == 0 ||
+    // 字符串处理函数（仅保留未被 Uya 标准库替换的函数）
+    if (strcmp(func_name, "strncat") == 0 ||
         strcmp(func_name, "strstr") == 0 ||
-        strcmp(func_name, "strchr") == 0 ||
-        strcmp(func_name, "strrchr") == 0 ||
         strcmp(func_name, "strdup") == 0 ||
         strcmp(func_name, "strndup") == 0) {
-        return 1;
-    }
-    // 内存操作函数
-    if (strcmp(func_name, "memcpy") == 0 ||
-        strcmp(func_name, "memset") == 0 ||
-        strcmp(func_name, "memcmp") == 0 ||
-        strcmp(func_name, "memmove") == 0) {
         return 1;
     }
     // 文件 I/O 函数

@@ -333,10 +333,11 @@ struct ASTNode {
             int arg_count;                   // 参数数量
         } macro_call;
         
-        // 字段访问（obj.field）
+        // 字段访问（obj.field）或模块限定访问（module.item）
         struct {
             struct ASTNode *object;          // 对象表达式
             const char *field_name;   // 字段名称
+            int is_module_access;     // 1 = 模块限定访问（module.item），由 checker 设置
         } member_access;
         
         // 数组访问（arr[index]）

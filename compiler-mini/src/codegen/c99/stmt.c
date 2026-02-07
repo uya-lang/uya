@@ -115,8 +115,8 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
             }
             
             if (is_array_assign) {
-                // 数组赋值：使用 memcpy
-                c99_emit(codegen, "memcpy(");
+                // 数组赋值：使用 __uya_memcpy
+                c99_emit(codegen, "__uya_memcpy(");
                 gen_expr(codegen, dest);
                 fputs(", ", codegen->output);
                 gen_expr(codegen, src);
@@ -332,13 +332,18 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                         payload_node->data.type_named.name && strcmp(payload_node->data.type_named.name, "void") == 0));
                     
                     // 检查 expr 的类型是否已经是错误联合类型
-                    // 如果是变量引用，检查变量名（启发式：变量名包含 result）
+                    // 情况1：变量引用且变量名包含 result（启发式）
+                    // 情况2：@syscall 表达式（已经返回错误联合）
+                    // 情况3：函数调用且函数返回错误联合类型
                     int expr_is_error_union = 0;
                     if (expr->type == AST_IDENTIFIER) {
                         const char *var_name = expr->data.identifier.name;
                         if (var_name && strstr(var_name, "result")) {
                             expr_is_error_union = 1;
                         }
+                    } else if (expr->type == AST_SYSCALL) {
+                        // @syscall 已经返回错误联合类型
+                        expr_is_error_union = 1;
                     }
                     
                     if (expr_is_error_union) {
@@ -855,8 +860,8 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                     // 从函数调用接收数组：需要从包装结构体中提取
                     // 先完成变量声明（不包含初始化）
                     fputs(";\n", codegen->output);
-                    // 然后使用 memcpy 从结构体中提取数组
-                    c99_emit(codegen, "memcpy(");
+                    // 然后使用 __uya_memcpy 从结构体中提取数组
+                    c99_emit(codegen, "__uya_memcpy(");
                     c99_emit(codegen, "%s", var_name);
                     fputs(", ", codegen->output);
                     gen_expr(codegen, init_expr);
@@ -867,10 +872,10 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                     fputs(";\n", codegen->output);
                     c99_emit_string_interp_fill(codegen, init_expr, var_name);
                 } else if (needs_memcpy) {
-                    // 数组初始化：使用memcpy
+                    // 数组初始化：使用__uya_memcpy
                     fputs(";\n", codegen->output);
                     c99_emit_indent(codegen);
-                    fprintf(codegen->output, "memcpy(%s, ", var_name);
+                    fprintf(codegen->output, "__uya_memcpy(%s, ", var_name);
                     gen_expr(codegen, init_expr);
                     fprintf(codegen->output, ", sizeof(%s));\n", var_name);
                 } else if (struct_init_needs_memcpy) {
@@ -931,7 +936,7 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                         if (field_type && field_type->type == AST_TYPE_ARRAY && 
                             field_value && field_value->type == AST_IDENTIFIER) {
                             const char *safe_field_name = get_safe_c_identifier(codegen, field_name);
-                            c99_emit(codegen, "memcpy(");
+                            c99_emit(codegen, "__uya_memcpy(");
                             c99_emit(codegen, "%s.%s, ", var_name, safe_field_name);
                             gen_expr(codegen, field_value);
                             c99_emit(codegen, ", sizeof(%s.%s));\n", var_name, safe_field_name);
@@ -1203,7 +1208,7 @@ void gen_stmt(C99CodeGenerator *codegen, ASTNode *stmt) {
                     // 转换为 C 数组声明格式 "base_type var_name[dims]"
                     size_t base_len = bracket - elem_type_c;
                     c99_emit(codegen, "%.*s %s%s;\n", (int)base_len, elem_type_c, var_name, bracket);
-                    c99_emit(codegen, "memcpy(%s, ", var_name);
+                    c99_emit(codegen, "__uya_memcpy(%s, ", var_name);
                     gen_expr(codegen, array);
                     c99_emit(codegen, "[_i], sizeof(%s));\n", var_name);
                 } else {

@@ -253,6 +253,7 @@ struct ASTNode {
     // member_access
     member_access_object: &ASTNode,
     member_access_field_name: &byte,
+    member_access_is_module_access: i32,
     // array_access
     array_access_array: &ASTNode,
     array_access_index: &ASTNode,
@@ -470,6 +471,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &Arena, filena
     node.call_expr_type_arg_count = 0;
     node.member_access_object = null;
     node.member_access_field_name = null;
+    node.member_access_is_module_access = 0;
     node.array_access_array = null;
     node.array_access_index = null;
     node.slice_expr_base = null;

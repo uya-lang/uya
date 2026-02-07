@@ -120,26 +120,11 @@ fn is_stdlib_function(func_name: &byte) i32 {
         strcmp(func_name as *byte, "fgets" as *byte) == 0 {
         return 1;
     }
-    // 字符串处理函数
-    if strcmp(func_name as *byte, "strcmp" as *byte) == 0 ||
-        strcmp(func_name as *byte, "strncmp" as *byte) == 0 ||
-        strcmp(func_name as *byte, "strlen" as *byte) == 0 ||
-        strcmp(func_name as *byte, "strcpy" as *byte) == 0 ||
-        strcmp(func_name as *byte, "strncpy" as *byte) == 0 ||
-        strcmp(func_name as *byte, "strcat" as *byte) == 0 ||
-        strcmp(func_name as *byte, "strncat" as *byte) == 0 ||
+    // 字符串处理函数（仅保留未被 Uya 标准库替换的函数）
+    if strcmp(func_name as *byte, "strncat" as *byte) == 0 ||
         strcmp(func_name as *byte, "strstr" as *byte) == 0 ||
-        strcmp(func_name as *byte, "strchr" as *byte) == 0 ||
-        strcmp(func_name as *byte, "strrchr" as *byte) == 0 ||
         strcmp(func_name as *byte, "strdup" as *byte) == 0 ||
         strcmp(func_name as *byte, "strndup" as *byte) == 0 {
-        return 1;
-    }
-    // 内存操作函数
-    if strcmp(func_name as *byte, "memcpy" as *byte) == 0 ||
-        strcmp(func_name as *byte, "memset" as *byte) == 0 ||
-        strcmp(func_name as *byte, "memcmp" as *byte) == 0 ||
-        strcmp(func_name as *byte, "memmove" as *byte) == 0 {
         return 1;
     }
     // 文件 I/O 函数

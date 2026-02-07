@@ -1,48 +1,15 @@
 // test_std_syscall.uya
-// 测试 syscall 包装函数（不使用模块系统，直接定义）
+// 测试 lib/std/c/syscall 标准库模块（通过 use 导入）
 
-// 系统调用号
-const SYS_write: i64 = 1;
-const SYS_open: i64 = 2;
-const SYS_close: i64 = 3;
-const SYS_getpid: i64 = 39;
-
-// 文件访问模式
-const O_RDONLY: i64 = 0;
-const O_WRONLY: i64 = 1;
-const O_RDWR: i64 = 2;
-const O_CREAT: i64 = 64;
-const O_TRUNC: i64 = 512;
-
-// 文件权限
-const S_IRWXU: i64 = 448; // 0o700
-
-// 标准文件描述符
-const STDOUT_FILENO: i64 = 1;
-
-// sys_write: 向文件描述符写入数据
-fn sys_write(fd: i64, buf: i64, count: i64) !i64 {
-    const result: !i64 = @syscall(SYS_write, fd, buf, count);
-    return result;
-}
-
-// sys_open: 打开文件
-fn sys_open(path: i64, flags: i64, mode: i64) !i64 {
-    const result: !i64 = @syscall(SYS_open, path, flags, mode);
-    return result;
-}
-
-// sys_close: 关闭文件描述符
-fn sys_close(fd: i64) !i64 {
-    const result: !i64 = @syscall(SYS_close, fd);
-    return result;
-}
-
-// sys_getpid: 获取当前进程ID
-fn sys_getpid() !i64 {
-    const result: !i64 = @syscall(SYS_getpid);
-    return result;
-}
+use std.c.syscall.sys_write;
+use std.c.syscall.sys_open;
+use std.c.syscall.sys_close;
+use std.c.syscall.sys_getpid;
+use std.c.syscall.STDOUT_FILENO;
+use std.c.syscall.O_CREAT;
+use std.c.syscall.O_WRONLY;
+use std.c.syscall.O_TRUNC;
+use std.c.syscall.S_IRWXU;
 
 fn main() i32 {
     const msg1: *byte = "Hello from syscall wrappers!\n";
@@ -68,11 +35,10 @@ fn main() i32 {
         return 4;
     };
 
-    const pid_result: !i64 = sys_getpid();
-    _ = pid_result catch {
+    const pid: i64 = sys_getpid();
+    if pid <= 0 {
         return 5;
-    };
+    }
 
     return 0;
 }
-

@@ -194,6 +194,8 @@ typedef struct TypeChecker {
     int moved_count;
     // 项目根目录路径（包含 main 函数的文件所在目录，用于识别 main 模块）
     const char *project_root_dir;  // 存储在 Arena 中
+    // UYA_ROOT 目录路径（标准库位置，用于识别标准库模块）
+    const char *uya_root_dir;      // 由 main.c 设置
     
     // 泛型参数作用域（当前函数/结构体/接口的类型参数）
     TypeParam *current_type_params;     // 当前作用域的类型参数数组（指向 AST 节点中的 type_params）

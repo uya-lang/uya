@@ -66,9 +66,9 @@ export const S_IXOTH: i64 = 1;    // 0001 其他执行
 // SEEK 标志（lseek）
 // ============================================================
 
-export const SEEK_SET: i64 = 0;
-export const SEEK_CUR: i64 = 1;
-export const SEEK_END: i64 = 2;
+export const UYA_SEEK_SET: i64 = 0;
+export const UYA_SEEK_CUR: i64 = 1;
+export const UYA_SEEK_END: i64 = 2;
 
 // ============================================================
 // 标准文件描述符
@@ -79,33 +79,31 @@ export const STDOUT_FILENO: i64 = 1;
 export const STDERR_FILENO: i64 = 2;
 
 // ============================================================
-// 错误类型定义
+// 错误码常量（Linux errno）
 // ============================================================
 
-export enum Errno : i32 {
-    EPERM = 1,        // 操作不允许
-    ENOENT = 2,       // 文件或目录不存在
-    ESRCH = 3,        // 进程不存在
-    EINTR = 4,        // 系统调用被中断
-    EIO = 5,          // I/O 错误
-    ENXIO = 6,        // 设备不存在
-    E2BIG = 7,        // 参数列表太长
-    ENOEXEC = 8,      // 可执行文件格式错误
-    EBADF = 9,        // 文件描述符无效
-    ECHILD = 10,      // 没有子进程
-    EAGAIN = 11,      // 资源暂时不可用
-    ENOMEM = 12,      // 内存不足
-    EACCES = 13,      // 权限不足
-    EFAULT = 14,      // 地址错误
-    ENOTBLK = 15,     // 需要块设备
-    EBUSY = 16,       // 设备或资源忙
-    EEXIST = 17,      // 文件已存在
-    EXDEV = 18,       // 跨设备链接
-    ENODEV = 19,      // 设备不存在
-    ENOTDIR = 20,     // 不是目录
-    EISDIR = 21,      // 是目录
-    EINVAL = 22       // 参数无效
-}
+export const EPERM: i32 = 1;        // 操作不允许
+export const ENOENT: i32 = 2;       // 文件或目录不存在
+export const ESRCH: i32 = 3;        // 进程不存在
+export const EINTR: i32 = 4;        // 系统调用被中断
+export const EIO: i32 = 5;          // I/O 错误
+export const ENXIO: i32 = 6;        // 设备不存在
+export const E2BIG: i32 = 7;        // 参数列表太长
+export const ENOEXEC: i32 = 8;      // 可执行文件格式错误
+export const EBADF: i32 = 9;        // 文件描述符无效
+export const ECHILD: i32 = 10;      // 没有子进程
+export const EAGAIN: i32 = 11;      // 资源暂时不可用
+export const ENOMEM: i32 = 12;      // 内存不足
+export const EACCES: i32 = 13;      // 权限不足
+export const EFAULT: i32 = 14;      // 地址错误
+export const ENOTBLK: i32 = 15;     // 需要块设备
+export const EBUSY: i32 = 16;       // 设备或资源忙
+export const EEXIST: i32 = 17;      // 文件已存在
+export const EXDEV: i32 = 18;       // 跨设备链接
+export const ENODEV: i32 = 19;      // 设备不存在
+export const ENOTDIR: i32 = 20;     // 不是目录
+export const EISDIR: i32 = 21;      // 是目录
+export const EINVAL: i32 = 22;      // 参数无效
 
 // ============================================================
 // 高级系统调用封装函数
