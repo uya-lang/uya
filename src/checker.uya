@@ -6537,6 +6537,127 @@ fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
         return null;
     }
     
+    // 特殊处理：检查是否是标准库文件（lib/std/c/...）
+    // 例如：lib/std/c/string.uya -> std.c.string
+    //      lib/std/c/syscall/syscall.uya -> std.c.syscall
+    //      支持绝对路径和相对路径
+    var lib_std_c: *byte = strstr(filename as *byte, "/lib/std/c/" as *byte);
+    if lib_std_c == null {
+        lib_std_c = strstr(filename as *byte, "\\lib\\std\\c\\" as *byte);
+    }
+    // 也检查相对路径（没有前导斜杠）
+    var is_relative_path: i32 = 0;
+    if lib_std_c == null {
+        if strncmp(filename as *byte, "lib/std/c/" as *byte, 10) == 0 {
+            lib_std_c = filename as *byte;
+            is_relative_path = 1;
+        } else if strncmp(filename as *byte, "lib\\std\\c\\" as *byte, 10) == 0 {
+            lib_std_c = filename as *byte;
+            is_relative_path = 1;
+        }
+    }
+    if lib_std_c != null {
+        // 找到 lib/std/c/ 位置，提取后面的路径
+        var relative_path: &byte = null;
+        if is_relative_path != 0 {
+            // 相对路径 lib/std/c/xxx，跳过 10 个字符（"lib/std/c/"）
+            relative_path = (lib_std_c + 10) as &byte;
+        } else {
+            if lib_std_c[0] == 47 || lib_std_c[0] == 92 {  // '/' or '\'
+                // 绝对路径或包含前导斜杠的相对路径，lib_std_c 指向 "/lib/std/c/"
+                relative_path = (lib_std_c + 11) as &byte;  // 跳过 "/lib/std/c/" 或 "\\lib\\std\\c\\"
+            } else {
+                // 不应该到达这里
+                return null;
+            }
+        }
+        if relative_path == null {
+            return null;
+        }
+        const rel_len: usize = strlen(relative_path as *byte);
+        
+        // 去掉 .uya 后缀
+        var base_len: usize = rel_len;
+        if rel_len > 4 && strcmp((relative_path as *byte + rel_len - 4) as *byte, ".uya" as *byte) == 0 {
+            base_len = rel_len - 4;
+        }
+        
+        // 检查是否需要去重：如果文件名与父目录同名（如 syscall/syscall），
+        // 则去掉最后一级
+        var last_slash_uya: *byte = null;
+        var i: usize = base_len;
+        while i > 0 {
+            i = i - 1;
+            if relative_path[i] == 47 || relative_path[i] == 92 {  // '/' or '\'
+                last_slash_uya = relative_path as *byte + i;
+                break;
+            }
+        }
+        
+        var module_len: usize = base_len;
+        if last_slash_uya != null {
+            // 父目录名
+            var prev_slash: *byte = null;
+            var p: *byte = relative_path as *byte;
+            while p < last_slash_uya {
+                if p[0] == 47 || p[0] == 92 {  // '/' or '\'
+                    prev_slash = p;
+                }
+                p = p + 1;
+            }
+            var dir_name_start: &byte = null;
+            if prev_slash != null {
+                dir_name_start = (prev_slash + 1) as &byte;
+            } else {
+                dir_name_start = relative_path;
+            }
+            var dir_name_len: usize = 0;
+            if dir_name_start != null {
+                dir_name_len = ptr_diff(last_slash_uya, dir_name_start as *byte) as usize;
+            }
+            // 文件名（去掉 .uya）
+            const file_name_start: &byte = (last_slash_uya + 1) as &byte;
+            const file_name_len: usize = ptr_diff((relative_path as *byte + base_len), file_name_start as *byte) as usize;
+            // 如果文件名与父目录同名，去掉文件名部分
+            if dir_name_len == file_name_len {
+                var is_match: i32 = 1;
+                var j: usize = 0;
+                while j < dir_name_len {
+                    if dir_name_start[j] != file_name_start[j] {
+                        is_match = 0;
+                        break;
+                    }
+                    j = j + 1;
+                }
+                if is_match != 0 {
+                    module_len = ptr_diff(last_slash_uya, relative_path as *byte) as usize;
+                }
+            }
+        }
+        
+        if module_len > 0 {
+            // 构建模块路径：std.c.xxx
+            const total_len: usize = 6 + module_len;  // "std.c." + 路径长度
+            const module_name: &byte = arena_alloc(checker.arena, total_len + 1) as &byte;
+            if module_name == null {
+                return null;
+            }
+            memcpy(module_name as *void, "std.c." as *byte, 6);
+            memcpy((module_name as *byte + 6) as *void, relative_path as *void, module_len);
+            var module_name_ptr: *byte = module_name as *byte;
+            module_name_ptr[6 + module_len] = 0;
+            // 将 '/' 替换为 '.'
+            var k: usize = 6;
+            while k < 6 + module_len {
+                if module_name_ptr[k] == 47 || module_name_ptr[k] == 92 {  // '/' or '\'
+                    module_name_ptr[k] = 46;  // '.'
+                }
+                k = k + 1;
+            }
+            return module_name;
+        }
+    }
+    
     // 如果项目根目录已设置，检查文件是否在项目根目录下
     if checker.project_root_dir != null {
         const root_len: usize = strlen(checker.project_root_dir as *byte);

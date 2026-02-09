@@ -511,10 +511,40 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     const orig_name: &byte = fn_decl.fn_decl_name;
     const is_stdlib: i32 = is_stdlib_function(func_name);
     
+    // 检查函数声明是否来自标准库文件（检查函数声明所在的文件路径）
+    // 这样可以正确识别标准库函数，即使编译器源代码不在 lib/std/c/ 目录下
+    var is_stdlib_module: i32 = 0;
+    const fn_filename: &byte = fn_decl.filename;
+    if fn_filename != null {
+        // 检查文件名是否包含 "lib/std/c/"
+        if strstr(fn_filename as *byte, "/lib/std/c/" as *byte) != null ||
+            strstr(fn_filename as *byte, "\\lib\\std\\c\\" as *byte) != null ||
+            strncmp(fn_filename as *byte, "lib/std/c/" as *byte, 10) == 0 ||
+            strncmp(fn_filename as *byte, "lib\\std\\c\\" as *byte, 10) == 0 {
+            is_stdlib_module = 1;
+        }
+    }
+    // 如果函数声明没有文件名信息，回退到检查模块名
+    if is_stdlib_module == 0 && codegen.module_name != null {
+        // 检查模块名是否以 "std.c." 开头
+        if strncmp(codegen.module_name as *byte, "std.c." as *byte, 6) == 0 {
+            is_stdlib_module = 1;
+        } else {
+            // 检查模块名（可能是文件路径）是否包含 "lib/std/c/"
+            if strstr(codegen.module_name as *byte, "/lib/std/c/" as *byte) != null ||
+                strstr(codegen.module_name as *byte, "\\lib\\std\\c\\" as *byte) != null ||
+                strncmp(codegen.module_name as *byte, "lib/std/c/" as *byte, 10) == 0 ||
+                strncmp(codegen.module_name as *byte, "lib\\std\\c\\" as *byte, 10) == 0 {
+                is_stdlib_module = 1;
+            }
+        }
+    }
+    
     // 对于标准库 stdlib 函数（strtod, strtol, getenv, abort, exit, atoi, atol, atof 等），不生成函数定义
     // 这些函数应该链接到 C 标准库的实现，而不是生成 Uya 标准库的实现
     // 注意：我们总是包含 <stdlib.h>，所以需要检查这些函数
-    if is_stdlib != 0 {
+    // 但是，如果正在生成标准库 C 代码，则需要生成这些函数的实现
+    if is_stdlib != 0 && is_stdlib_module == 0 {
         if orig_name != null && (strcmp(orig_name as *byte, "strtod" as *byte) == 0 ||
             strcmp(orig_name as *byte, "strtol" as *byte) == 0 ||
             strcmp(orig_name as *byte, "getenv" as *byte) == 0 ||
@@ -525,13 +555,15 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
             strcmp(orig_name as *byte, "atof" as *byte) == 0) {
             // 这些函数已经在 <stdlib.h> 中声明，应该链接到 C 标准库的实现
             // 不生成 Uya 标准库的实现，避免类型冲突
+            // 但如果正在生成标准库 C 代码，则需要生成这些函数的实现
             return;
         }
     }
     // 对于标准库 stdio 函数（fputs, fputc, fwrite, fprintf, fgetc, fread, fopen, fclose, sprintf, snprintf 等），不生成函数定义
     // 这些函数应该链接到 C 标准库的实现，而不是生成 Uya 标准库的实现
     // 注意：我们总是包含 <stdio.h>，所以需要检查这些函数
-    if is_stdlib != 0 {
+    // 但是，如果正在生成标准库 C 代码，则需要生成这些函数的实现
+    if is_stdlib != 0 && is_stdlib_module == 0 {
         if orig_name != null && (strcmp(orig_name as *byte, "fputs" as *byte) == 0 ||
             strcmp(orig_name as *byte, "fputc" as *byte) == 0 ||
             strcmp(orig_name as *byte, "fwrite" as *byte) == 0 ||
@@ -544,13 +576,15 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
             strcmp(orig_name as *byte, "snprintf" as *byte) == 0) {
             // 这些函数已经在 <stdio.h> 中声明，应该链接到 C 标准库的实现
             // 不生成 Uya 标准库的实现，避免类型冲突
+            // 但如果正在生成标准库 C 代码，则需要生成这些函数的实现
             return;
         }
     }
     
     // 对于标准库字符串函数（strlen, strcmp 等），如果已经包含了 <string.h>，不生成函数定义
     // 这些函数应该链接到 C 标准库的实现，而不是生成 Uya 标准库的实现
-    if is_stdlib != 0 && codegen.needs_string_h != 0 {
+    // 但是，如果正在生成标准库 C 代码，则需要生成这些函数的实现
+    if is_stdlib != 0 && codegen.needs_string_h != 0 && is_stdlib_module == 0 {
         // 检查是否是字符串函数（这些函数在 <string.h> 中已声明，应该链接到标准库实现）
         if orig_name != null && (strcmp(orig_name as *byte, "strlen" as *byte) == 0 ||
             strcmp(orig_name as *byte, "strcmp" as *byte) == 0 ||

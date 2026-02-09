@@ -30,11 +30,18 @@ uya: uya-c
 	@echo "✓ 自举编译器构建完成: bin/uya"
 
 # 构建自举编译器（--nostdlib 版本）
-uya-nostdlib: uya-c
+uya-nostdlib: uya-c uya outlibc
 	@echo "=========================================="
 	@echo "构建自举编译器 (uya-nostdlib)"
-	@echo "使用 --nostdlib 选项（不链接标准库）"
+	@echo "使用 --nostdlib 选项（使用生成的标准库 C 代码）"
 	@echo "=========================================="
+	@if [ ! -f lib/build/libuya.c ]; then \
+		echo "错误: 标准库 C 代码不存在"; \
+		echo "尝试生成标准库 C 代码..."; \
+		$(MAKE) outlibc || (echo "错误: 无法生成标准库 C 代码，请检查 outlibc 错误"; exit 1); \
+	fi
+	@echo "使用标准库 C 代码: lib/build/libuya.c"
+	@echo "注意: 使用 -Wl,--allow-multiple-definition 处理重复定义"
 	@cd src && ./compile.sh --c99 -e --nostdlib
 	@echo ""
 	@echo "✓ 自举编译器（--nostdlib）构建完成: bin/uya"
@@ -147,16 +154,28 @@ outlibc: uya
 	fi; \
 	echo "使用编译器: $$COMPILER"; \
 	echo ""; \
-	LIB_FILES=$$(find lib/std/c -name "*.uya" -type f | sort); \
-	if [ -z "$$LIB_FILES" ]; then \
+	# 按依赖顺序排列标准库文件（syscall -> string -> stdio/stdlib） \
+	LIB_FILES="lib/std/c/syscall/syscall.uya lib/std/c/string.uya lib/std/c/stdio.uya lib/std/c/stdlib.uya"; \
+	# 检查文件是否存在 \
+	VALID_LIB_FILES=""; \
+	for file in $$LIB_FILES; do \
+		if [ -f "$$file" ]; then \
+			VALID_LIB_FILES="$$VALID_LIB_FILES $$file"; \
+		fi; \
+	done; \
+	if [ -z "$$VALID_LIB_FILES" ]; then \
 		echo "错误: 未找到标准库文件 (lib/std/c/*.uya)"; \
 		exit 1; \
 	fi; \
-	echo "找到的标准库文件:"; \
-	echo "$$LIB_FILES" | sed 's/^/  /'; \
+	echo "找到的标准库文件（按依赖顺序）:"; \
+	echo "$$VALID_LIB_FILES" | tr ' ' '\n' | sed 's/^/  /'; \
 	echo ""; \
 	echo "生成 C 代码到 lib/build/libuya.c..."; \
-	$$COMPILER --c99 $$LIB_FILES -o lib/build/libuya.c; \
+	# 设置 UYA_ROOT 环境变量，指向 lib 目录，以便编译器解析模块路径 \
+	# 使用绝对路径确保模块路径解析正确 \
+	UYA_ROOT_ABS="$$(cd lib && pwd)/"; \
+	echo "设置 UYA_ROOT=$$UYA_ROOT_ABS"; \
+	env UYA_ROOT="$$UYA_ROOT_ABS" $$COMPILER --c99 $$VALID_LIB_FILES -o lib/build/libuya.c; \
 	if [ $$? -eq 0 ]; then \
 		echo ""; \
 		echo "✓ 标准库 C 代码已生成: lib/build/libuya.c"; \

@@ -7329,13 +7329,38 @@ static const char *extract_module_path_allocated(TypeChecker *checker, const cha
     // 特殊处理：检查是否是标准库文件（lib/std/c/...）
     // 例如：lib/std/c/string.uya -> std.c.string
     //      lib/std/c/syscall/syscall.uya -> std.c.syscall
+    //      支持绝对路径和相对路径
     const char *lib_std_c = strstr(filename, "/lib/std/c/");
     if (lib_std_c == NULL) {
         lib_std_c = strstr(filename, "\\lib\\std\\c\\");
     }
+    // 也检查相对路径（没有前导斜杠）
+    int is_relative_path = 0;
+    if (lib_std_c == NULL) {
+        if (strncmp(filename, "lib/std/c/", 10) == 0) {
+            lib_std_c = filename; // 指向 "lib/std/c/" 开头
+            is_relative_path = 1;
+        } else if (strncmp(filename, "lib\\std\\c\\", 10) == 0) {
+            lib_std_c = filename; // 指向 "lib\\std\\c\\" 开头
+            is_relative_path = 1;
+        }
+    }
     if (lib_std_c != NULL) {
         // 找到 lib/std/c/ 位置，提取后面的路径
-        const char *relative_path = lib_std_c + 11; // 跳过 "/lib/std/c/"
+        const char *relative_path;
+        if (is_relative_path) {
+            // 相对路径 lib/std/c/xxx，跳过 10 个字符（"lib/std/c/"）
+            relative_path = lib_std_c + 10;
+        } else if (lib_std_c[0] == '/' || lib_std_c[0] == '\\') {
+            // 绝对路径或包含前导斜杠的相对路径，lib_std_c 指向 "/lib/std/c/"
+            relative_path = lib_std_c + 11; // 跳过 "/lib/std/c/" 或 "\\lib\\std\\c\\"
+        } else {
+            // 不应该到达这里，返回 NULL
+            return NULL;
+        }
+        if (relative_path == NULL) {
+            return NULL;
+        }
         size_t rel_len = strlen(relative_path);
         
         // 去掉 .uya 后缀

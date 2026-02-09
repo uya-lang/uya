@@ -172,13 +172,157 @@ fi
 # 创建输出目录
 mkdir -p "$BUILD_DIR"
 
-# 检查并创建 bridge.c 文件（如果不存在）
+# 检查并创建 bridge.c 文件（如果不存在或需要更新）
 BRIDGE_C="$BUILD_DIR/bridge.c"
+NEED_UPDATE_BRIDGE=false
 if [ ! -f "$BRIDGE_C" ]; then
-    if [ "$VERBOSE" = true ]; then
-        echo -e "${YELLOW}创建 bridge.c 文件...${NC}"
+    NEED_UPDATE_BRIDGE=true
+elif [ "$USE_NOSTDLIB" = true ]; then
+    # 检查 bridge.c 是否包含 nostdlib 版本的内容
+    if ! grep -q "// nostdlib version\|// bridge.c - 提供运行时桥接函数（nostdlib 版本）" "$BRIDGE_C" 2>/dev/null; then
+        NEED_UPDATE_BRIDGE=true
     fi
-    cat > "$BRIDGE_C" << 'BRIDGE_EOF'
+elif [ "$USE_NOSTDLIB" != true ]; then
+    # 检查 bridge.c 是否包含正常版本的内容（非 nostdlib）
+    if grep -q "// nostdlib version\|// bridge.c - 提供运行时桥接函数（nostdlib 版本）" "$BRIDGE_C" 2>/dev/null; then
+        NEED_UPDATE_BRIDGE=true
+    fi
+fi
+
+if [ "$NEED_UPDATE_BRIDGE" = true ]; then
+    if [ "$VERBOSE" = true ]; then
+        echo -e "${YELLOW}创建/更新 bridge.c 文件...${NC}"
+    fi
+    if [ "$USE_NOSTDLIB" = true ]; then
+        # nostdlib 版本：不依赖系统标准库
+        cat > "$BRIDGE_C" << 'BRIDGE_EOF'
+// bridge.c - 提供运行时桥接函数（nostdlib 版本）
+// 这个文件提供了 Uya 程序需要的运行时函数，不依赖系统标准库
+// 1. 程序入口点（_start）
+// 2. 命令行参数访问函数（get_argc, get_argv）
+// 3. 标准错误流访问函数（get_stderr）- 返回 STDERR_FILENO
+// 4. 指针运算辅助函数（ptr_diff）
+// 5. LLVM 初始化函数（弱符号实现）
+// 注意：Uya 的 main 函数被重命名为 uya_main
+
+#include <stdint.h>
+#include <stddef.h>
+
+// 系统调用号（Linux x86-64）
+#define SYS_write 1
+#define SYS_exit 60
+#define STDOUT_FILENO 1
+#define STDERR_FILENO 2
+
+// 系统调用包装（内联汇编）
+static inline long sys_write(int fd, const void *buf, size_t count) {
+    long ret;
+    __asm__ volatile (
+        "syscall"
+        : "=a" (ret)
+        : "a" (SYS_write), "D" (fd), "S" (buf), "d" (count)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+static inline void sys_exit(int status) {
+    __asm__ volatile (
+        "syscall"
+        :
+        : "a" (SYS_exit), "D" (status)
+        : "rcx", "r11"
+    );
+    __builtin_unreachable();
+}
+
+// 全局变量：保存命令行参数
+static int saved_argc = 0;
+static char **saved_argv = NULL;
+
+// 初始化函数：保存命令行参数
+void bridge_init(int argc, char **argv) {
+    saved_argc = argc;
+    saved_argv = argv;
+}
+
+// Uya 程序的 main 函数（被重命名为 uya_main）
+extern int32_t uya_main(void);
+
+// 程序入口点（_start）- 替代标准库的启动代码
+void _start(void) {
+    // 从栈中获取 argc 和 argv
+    // 在 x86-64 Linux 上，栈布局为：
+    //   [rsp] = argc
+    //   [rsp+8] = argv[0]
+    //   [rsp+16] = argv[1]
+    //   ...
+    //   [rsp+8*argc] = NULL
+    //   [rsp+8*(argc+1)] = envp[0]
+    //   ...
+    long argc;
+    char **argv;
+    __asm__ volatile (
+        "movq (%%rsp), %0\n\t"
+        "leaq 8(%%rsp), %1"
+        : "=r" (argc), "=r" (argv)
+        :
+        : "memory"
+    );
+    
+    // 初始化命令行参数
+    bridge_init((int)argc, argv);
+    
+    // 调用 Uya 的 main 函数
+    int exit_code = (int)uya_main();
+    
+    // 退出程序
+    sys_exit(exit_code);
+}
+
+// 获取命令行参数数量
+int32_t get_argc(void) {
+    return (int32_t)saved_argc;
+}
+
+// 获取第 index 个命令行参数
+uint8_t *get_argv(int32_t index) {
+    if (index < 0 || index >= saved_argc || saved_argv == NULL) {
+        return NULL;
+    }
+    return (uint8_t *)saved_argv[index];
+}
+
+// 获取标准错误流指针（nostdlib 版本：返回文件描述符编号）
+void *get_stderr(void) {
+    // 返回 STDERR_FILENO 作为指针（调用者需要知道这是文件描述符）
+    return (void *)(intptr_t)STDERR_FILENO;
+}
+
+// 计算两个指针之间的字节偏移量（ptr1 - ptr2）
+int32_t ptr_diff(uint8_t *ptr1, uint8_t *ptr2) {
+    if (ptr1 == NULL || ptr2 == NULL) {
+        return 0;
+    }
+    return (int32_t)(ptr1 - ptr2);
+}
+
+// LLVM 初始化函数的弱符号实现
+__attribute__((weak)) void LLVMInitializeNativeTarget(void) {
+    // 空实现
+}
+
+__attribute__((weak)) void LLVMInitializeNativeAsmPrinter(void) {
+    // 空实现
+}
+
+__attribute__((weak)) void LLVMInitializeNativeAsmParser(void) {
+    // 空实现
+}
+BRIDGE_EOF
+    else
+        # 正常版本：依赖系统标准库
+        cat > "$BRIDGE_C" << 'BRIDGE_EOF'
 // bridge.c - 提供运行时桥接函数
 // 这个文件提供了 Uya 程序需要的运行时函数，包括：
 // 1. 真正的 C main 函数（程序入口点）
@@ -261,6 +405,7 @@ __attribute__((weak)) void LLVMInitializeNativeAsmParser(void) {
     // 空实现
 }
 BRIDGE_EOF
+    fi
     if [ "$VERBOSE" = true ]; then
         echo -e "${GREEN}✓ bridge.c 已创建${NC}"
     fi
@@ -598,12 +743,28 @@ if [ $COMPILER_EXIT -eq 0 ]; then
                     # 构建链接命令（直接链接 .c 文件，不需要 objcopy 重命名）
                     # 注意：标准库已经编译到 OUTPUT_FILE 中了，不需要单独链接
                     if [ "$USE_NOSTDLIB" = true ]; then
-                        # 使用 -nostdlib 时，不链接标准库，但需要链接 gcc 运行时库
-                        # 标准库已经编译到 OUTPUT_FILE 中了
-                        if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-                            LINK_CMD="gcc --std=c99 -no-pie -nostdlib $LLVM_INCLUDE $LLVM_LIBDIR \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"${EXECUTABLE_FILE}.exe\" $LLVM_LIBS -lstdc++ -lgcc"
+                        # 使用 -nostdlib 时，检查是否存在生成的标准库 C 代码
+                        STD_LIB_C="$REPO_ROOT/lib/build/libuya.c"
+                        STD_LIB_ARG=""
+                        if [ -f "$STD_LIB_C" ]; then
+                            STD_LIB_ARG="\"$STD_LIB_C\""
+                            if [ "$VERBOSE" = true ]; then
+                                echo -e "${GREEN}使用生成的标准库 C 代码: $STD_LIB_C${NC}"
+                            fi
                         else
-                            LINK_CMD="gcc --std=c99 -no-pie -nostdlib $LLVM_INCLUDE $LLVM_LIBDIR \"$OUTPUT_FILE\" \"$BRIDGE_C\" -o \"$EXECUTABLE_FILE\" $LLVM_LIBS -lstdc++ -lgcc"
+                            echo -e "${YELLOW}警告: 标准库 C 代码不存在 ($STD_LIB_C)${NC}"
+                            echo -e "${YELLOW}请先运行 'make outlibc' 生成标准库 C 代码${NC}"
+                            echo -e "${YELLOW}或者链接将失败（缺少标准库函数实现）${NC}"
+                        fi
+                        # 使用 -nostdlib 时，不链接系统标准库
+                        # 如果存在生成的标准库 C 代码，将其一起编译链接
+                        # 需要链接 gcc 运行时库（-lgcc）和 LLVM 库，但不链接系统 libc
+                        # 注意：编译器生成的代码和标准库代码中可能有重复定义（如 SYS_* 常量、sys_* 函数等），
+                        #       使用 -Wl,--allow-multiple-definition 允许重复定义，链接器会使用第一个定义
+                        if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+                            LINK_CMD="gcc --std=c99 -no-pie -nostdlib -Wl,--allow-multiple-definition $LLVM_INCLUDE $LLVM_LIBDIR \"$OUTPUT_FILE\" \"$BRIDGE_C\" $STD_LIB_ARG -o \"${EXECUTABLE_FILE}.exe\" $LLVM_LIBS -lstdc++ -lgcc"
+                        else
+                            LINK_CMD="gcc --std=c99 -no-pie -nostdlib -Wl,--allow-multiple-definition $LLVM_INCLUDE $LLVM_LIBDIR \"$OUTPUT_FILE\" \"$BRIDGE_C\" $STD_LIB_ARG -o \"$EXECUTABLE_FILE\" $LLVM_LIBS -lstdc++ -lgcc"
                         fi
                     else
                         # 正常链接，使用标准库
@@ -761,9 +922,9 @@ if [ $COMPILER_EXIT -eq 0 ]; then
                         if [ "$USE_NOSTDLIB" = true ]; then
                             # 标准库已经编译到 OUTPUT_FILE 中了
                             if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-                                echo "  gcc --std=c99 -no-pie -nostdlib \"$OUTPUT_FILE\" \"$BRIDGE_C\"$STD_LIB_ARG -o \"${OUTPUT_FILE%.o}.exe\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lgcc"
+                                echo "  gcc --std=c99 -no-pie -nostdlib -Wl,--allow-multiple-definition \"$OUTPUT_FILE\" \"$BRIDGE_C\"$STD_LIB_ARG -o \"${OUTPUT_FILE%.o}.exe\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lgcc"
                             else
-                                echo "  gcc --std=c99 -no-pie -nostdlib \"$OUTPUT_FILE\" \"$BRIDGE_C\"$STD_LIB_ARG -o \"${OUTPUT_FILE%.o}\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lgcc"
+                                echo "  gcc --std=c99 -no-pie -nostdlib -Wl,--allow-multiple-definition \"$OUTPUT_FILE\" \"$BRIDGE_C\"$STD_LIB_ARG -o \"${OUTPUT_FILE%.o}\" -I/usr/include/llvm-c -L/usr/lib/llvm-17/lib -lLLVM-17 -lstdc++ -lgcc"
                             fi
                         else
                             if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
