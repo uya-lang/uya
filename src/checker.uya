@@ -3509,31 +3509,42 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         var i: i32 = 0;
         while i < expr.match_expr_arm_count {
             const arm: ASTMatchArm = expr.match_expr_arms[i];
-            var t: Type = Type { kind: TypeKind.TYPE_VOID, enum_name: null, struct_name: null, union_name: null, pointer_to: null, is_ffi_pointer: 0, element_type: null, array_size: 0, slice_element_type: null, slice_len: 0, tuple_element_types: null, tuple_count: 0, error_union_payload_type: null, error_error_id: 0 };
-            if arm.kind == MatchPatternKind.MATCH_PAT_UNION && arm.variant_name != null && arm.result_expr != null {
-                const re: &ASTNode = arm.result_expr;
-                if re[0].type == ASTNodeType.AST_IDENTIFIER && re[0].identifier_name != null &&
-                    arm.var_name != null && match_union_decl != null &&
-                    str_equals(re[0].identifier_name, arm.var_name) != 0 {
-                var k: i32 = 0;
-                while k < match_union_decl.union_decl_variant_count {
-                    const v: &ASTNode = match_union_decl.union_decl_variants[k];
-                    if v != null && v.type == ASTNodeType.AST_VAR_DECL && v.var_decl_name != null &&
-                        str_equals(v.var_decl_name, arm.variant_name) != 0 && v.var_decl_type != null {
-                        t = type_from_ast(checker, v.var_decl_type);
-                        break;
+            
+            // 为 match 分支变量创建符号表条目（与 checker_check_node 中的逻辑一致）
+            checker_enter_scope(checker);
+            if arm.kind == MatchPatternKind.MATCH_PAT_UNION && arm.variant_name != null &&
+                expr_type.kind == TypeKind.TYPE_UNION && expr_type.union_name != null && checker.program_node != null {
+                const union_decl: &ASTNode = find_union_decl_from_program(checker.program_node, expr_type.union_name);
+                if union_decl != null && arm.var_name != null && str_equals(arm.var_name, "_" as *byte) == 0 {
+                    var k: i32 = 0;
+                    while k < union_decl.union_decl_variant_count {
+                        const v: &ASTNode = union_decl.union_decl_variants[k];
+                        if v != null && v.type == ASTNodeType.AST_VAR_DECL && v.var_decl_name != null &&
+                            str_equals(v.var_decl_name, arm.variant_name) != 0 && v.var_decl_type != null {
+                            const variant_type: Type = type_from_ast(checker, v.var_decl_type);
+                            const sym: &Symbol = arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
+                            if sym != null {
+                                sym.name = arm.var_name;
+                                sym.type = copy_type(&variant_type);
+                                sym.is_const = 1;
+                                sym.scope_level = checker.scope_level;
+                                sym.line = expr.line;
+                                sym.column = expr.column;
+                                sym.pointee_of = null;
+                                symbol_table_insert(checker, sym);
+                            }
+                            break;
+                        }
+                        k = k + 1;
                     }
-                    k = k + 1;
                 }
-                if t.kind == TypeKind.TYPE_VOID {
-                    t = checker_infer_type(checker, arm.result_expr);
-                }
-                } else {
-                    t = checker_infer_type(checker, arm.result_expr);
-                }
-            } else {
-                t = checker_infer_type(checker, arm.result_expr);
             }
+            
+            var t: Type = Type { kind: TypeKind.TYPE_VOID, enum_name: null, struct_name: null, union_name: null, pointer_to: null, is_ffi_pointer: 0, element_type: null, array_size: 0, slice_element_type: null, slice_len: 0, tuple_element_types: null, tuple_count: 0, error_union_payload_type: null, error_error_id: 0 };
+            t = checker_infer_type(checker, arm.result_expr);
+            
+            checker_exit_scope(checker);
+            
             if first != 0 {
                 unified = copy_type(&t);
                 first = 0;
@@ -7800,7 +7811,7 @@ struct VisitState {
     state: i32,  // 0=未访问，1=正在访问（在递归栈中），2=已访问
 }
 
-fn dfs_visit_module(checker: &TypeChecker, module_name: &byte, path: &[&byte: MAX_MODULES], path_len: i32,
+fn dfs_visit_module(checker: &TypeChecker, module_name: &byte, path: & & byte, path_len: i32,
                      visit_state: &VisitState, visit_count: i32) i32 {
     if path_len >= MAX_MODULES {
         return 0;  // 路径太长，跳过
@@ -7899,12 +7910,8 @@ fn dfs_visit_module(checker: &TypeChecker, module_name: &byte, path: &[&byte: MA
         
         i = 0;
         while i < module.dependency_count {
-            // 创建 slice 结构体来传递数组
-            var path_slice: uya_slice_uint8_t = uya_slice_uint8_t {
-                ptr: &new_path[0],
-                len: new_path_len,
-            };
-            if dfs_visit_module(checker, module.dependencies[i].target_module, &path_slice, new_path_len,
+            // 传递数组指针
+            if dfs_visit_module(checker, module.dependencies[i].target_module, &new_path[0], new_path_len,
                                  visit_state, visit_count) != 0 {
                 return 1;  // 发现循环
             }
@@ -7948,12 +7955,8 @@ fn detect_circular_dependencies(checker: &TypeChecker) void {
         if visit_state[i].state == 0 {
             var path: [&byte: MAX_MODULES] = [null: MAX_MODULES];
             path[0] = visit_state[i].module_name;
-            // 创建 slice 结构体来传递数组
-            var path_slice: uya_slice_uint8_t = uya_slice_uint8_t {
-                ptr: &path[0],
-                len: 1,
-            };
-            dfs_visit_module(checker, visit_state[i].module_name, &path_slice, 1, &visit_state[0], visit_count);
+            // 传递数组指针
+            dfs_visit_module(checker, visit_state[i].module_name, &path[0], 1, &visit_state[0], visit_count);
         }
         i = i + 1;
     }

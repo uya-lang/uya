@@ -105,19 +105,42 @@ match shape {
 
 1. **match 作为表达式**：所有分支返回类型必须完全一致
    ```uya
-   // ✅ 正确：所有分支都返回 i32 字段
+   // ✅ 正确：所有分支都用 as 转换（推荐，避免编译器 bug）
+   const result: i32 = match node.data {
+       .number(n) => n.value as i32,
+       .binary(b) => b.op as i32,
+       .program(p) => 0 as i32,  // 字面量也需要 as
+   };
+
+   // ✅ 正确：所有分支都返回结构体的 i32 字段
    const result: i32 = match node.data {
        .number(n) => n.value,    // i32
        .binary(b) => b.op,       // i32
        .program(p) => p.count,   // i32
    };
-   
-   // ❌ 错误：不能混用字面量和字段
+
+   // ❌ 错误：混用字段和字面量（编译器 bug，类型推断不一致）
    const result: i32 = match node.data {
-       .number(n) => n.value,    // i32
-       .binary(_) => 0,          // 编译错误！类型不一致
+       .number(n) => n.value,    // 编译器推断类型不一致
+       .binary(b) => 0 as i32,   // 即使加了 as 也会失败
    };
    ```
+
+   **解决方案**：所有分支都使用 `as 目标类型` 转换确保类型一致
+   
+   **编译器 Bug 细节**（已在 main 分支修复）：
+   
+   字面量可以自动推断类型，但字段访问**不能**：
+   
+   | 第一个分支 | 第二个分支 | 结果 |
+   |-----------|-----------|------|
+   | `n.value as i32` | `0`（字面量） | ✅ 成功 |
+   | `n.value as i32` | `b.op`（字段） | ✅ 成功（已修复） |
+   | `n.value as i32` | `b.op as i32` | ✅ 成功 |
+   
+   **Bug 原因**：`checker_infer_type` 处理 match 表达式时，没有为分支变量创建符号表条目，导致字段访问时变量类型推断失败。
+   
+   **修复方案**：在推断每个 arm 的类型前，进入作用域并创建符号表条目（与 `checker_check_node` 逻辑一致）。
 
 2. **match 作为语句**：所有分支必须返回 void
    ```uya
