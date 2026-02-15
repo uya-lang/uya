@@ -1,0 +1,188 @@
+// test_ast_helpers.uya - 测试 AST 辅助函数
+// 第二阶段：验证访问/设置/构造函数
+//
+// 重要规则：
+// - Union 变体不能包含引用类型 &T，必须用 *T (FFI 指针)
+// - FFI 指针 *byte/*void 只能在结构体字段中使用
+// - FFI 指针不能作为函数参数或返回类型
+// - match 所有分支必须返回相同类型（不能混用字面量和字段）
+// - match 作为语句时，所有分支返回 void
+
+use std.testing.check_true;
+
+// ========== 简化数据结构 ==========
+// 注意：每个结构体都有一个 i32 字段用于 match 返回值
+
+struct ASTIdentifierData {
+    name: *byte,  // FFI 指针
+    dummy: i32,   // 用于 match 返回值
+}
+
+struct ASTNumberData {
+    value: i32,
+}
+
+struct ASTBinaryExprData {
+    left: *void,   // FFI 指针
+    op: i32,
+    right: *void,  // FFI 指针
+}
+
+union ASTNodeData {
+    identifier: ASTIdentifierData,
+    number: ASTNumberData,
+    binary_expr: ASTBinaryExprData,
+}
+
+enum ASTNodeType {
+    AST_IDENTIFIER,
+    AST_NUMBER,
+    AST_BINARY_EXPR,
+}
+
+struct OptimizedASTNode {
+    type: ASTNodeType,
+    line: i32,
+    column: i32,
+    filename: *byte,  // FFI 指针
+    data: ASTNodeData,
+}
+
+// ========== 辅助函数 ==========
+
+// 创建数字节点
+fn ast_new_number(line: i32, column: i32, value: i32) OptimizedASTNode {
+    return OptimizedASTNode{
+        type: ASTNodeType.AST_NUMBER,
+        line: line,
+        column: column,
+        filename: null,
+        data: ASTNodeData.number(ASTNumberData{ value: value }),
+    };
+}
+
+// 创建二元表达式节点
+fn ast_new_binary_expr(line: i32, column: i32, op: i32) OptimizedASTNode {
+    return OptimizedASTNode{
+        type: ASTNodeType.AST_BINARY_EXPR,
+        line: line,
+        column: column,
+        filename: null,
+        data: ASTNodeData.binary_expr(ASTBinaryExprData{ left: null, op: op, right: null }),
+    };
+}
+
+// 创建标识符节点
+fn ast_new_identifier(line: i32, column: i32) OptimizedASTNode {
+    return OptimizedASTNode{
+        type: ASTNodeType.AST_IDENTIFIER,
+        line: line,
+        column: column,
+        filename: null,
+        data: ASTNodeData.identifier(ASTIdentifierData{ name: "id", dummy: 0 }),
+    };
+}
+
+// 获取数字值（match 表达式，所有分支返回 i32 字段）
+fn ast_get_number_value(node: &OptimizedASTNode) i32 {
+    const result: i32 = match node.data {
+        .identifier(p) => p.dummy,
+        .number(n) => n.value,
+        .binary_expr(b) => b.op,
+    };
+    return result;
+}
+
+// 获取二元表达式操作符
+fn ast_get_binary_op(node: &OptimizedASTNode) i32 {
+    const result: i32 = match node.data {
+        .identifier(p) => p.dummy,
+        .number(n) => n.value,
+        .binary_expr(b) => b.op,
+    };
+    return result;
+}
+
+// 设置数字值（match 语句，所有分支返回 void）
+fn ast_set_number_value(node: &OptimizedASTNode, value: i32) void {
+    match node.data {
+        .identifier(p) => {},
+        .number(n) => { n.value = value; },
+        .binary_expr(b) => {},
+    };
+}
+
+// 设置二元表达式操作符
+fn ast_set_binary_op(node: &OptimizedASTNode, op: i32) void {
+    match node.data {
+        .identifier(p) => {},
+        .number(n) => {},
+        .binary_expr(b) => { b.op = op; },
+    };
+}
+
+// ========== 测试函数 ==========
+
+fn test_create_number() void {
+    const node: OptimizedASTNode = ast_new_number(20, 3, 42);
+    check_true(node.type == ASTNodeType.AST_NUMBER);
+    check_true(node.line == 20);
+    check_true(node.column == 3);
+    printf("test_create_number: OK\n");
+}
+
+fn test_create_binary_expr() void {
+    const node: OptimizedASTNode = ast_new_binary_expr(5, 10, 100);
+    check_true(node.type == ASTNodeType.AST_BINARY_EXPR);
+    check_true(node.line == 5);
+    printf("test_create_binary_expr: OK\n");
+}
+
+fn test_create_identifier() void {
+    const node: OptimizedASTNode = ast_new_identifier(1, 1);
+    check_true(node.type == ASTNodeType.AST_IDENTIFIER);
+    printf("test_create_identifier: OK\n");
+}
+
+fn test_get_number_value() void {
+    var node: OptimizedASTNode = ast_new_number(1, 1, 42);
+    const value: i32 = ast_get_number_value(&node);
+    check_true(value == 42);
+    printf("test_get_number_value: OK\n");
+}
+
+fn test_get_binary_op() void {
+    var node: OptimizedASTNode = ast_new_binary_expr(1, 1, 50);
+    const op: i32 = ast_get_binary_op(&node);
+    check_true(op == 50);
+    printf("test_get_binary_op: OK\n");
+}
+
+fn test_set_number_value() void {
+    var node: OptimizedASTNode = ast_new_number(1, 1, 0);
+    ast_set_number_value(&node, 99);
+    const value: i32 = ast_get_number_value(&node);
+    check_true(value == 99);
+    printf("test_set_number_value: OK\n");
+}
+
+fn test_set_binary_op() void {
+    var node: OptimizedASTNode = ast_new_binary_expr(1, 1, 0);
+    ast_set_binary_op(&node, 200);
+    const op: i32 = ast_get_binary_op(&node);
+    check_true(op == 200);
+    printf("test_set_binary_op: OK\n");
+}
+
+fn main() i32 {
+    printf("=== AST Helper Functions Tests ===\n");
+    test_create_number();
+    test_create_binary_expr();
+    test_create_identifier();
+    test_get_number_value();
+    test_get_binary_op();
+    test_set_number_value();
+    test_set_binary_op();
+    printf("=== All tests passed ===\n");
+    return 0;
+}

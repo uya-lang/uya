@@ -1,0 +1,495 @@
+// ast_data.uya - ASTNode 专用数据结构定义
+// 用于替换 ASTNode 的扁平字段设计，实现内存优化
+//
+// 注意：union 变体不能包含引用类型 &T，必须使用 FFI 指针 *T
+
+// ========================================
+// 简单节点
+// ========================================
+
+struct ASTProgramData {
+    decls: **ASTNode,
+    decl_count: i32,
+}
+
+struct ASTEnumDeclData {
+    name: *byte,
+    variants: *EnumVariant,
+    variant_count: i32,
+    is_export: i32,
+}
+
+struct ASTErrorDeclData {
+    name: *byte,
+    is_export: i32,
+}
+
+struct ASTIdentifierData {
+    name: *byte,
+}
+
+struct ASTNumberData {
+    value: i32,
+}
+
+struct ASTFloatData {
+    value: f64,
+}
+
+struct ASTBoolData {
+    value: i32,
+}
+
+struct ASTStringData {
+    value: *byte,
+}
+
+struct ASTIntLimitData {
+    is_max: i32,
+    resolved_kind: i32,
+}
+
+struct ASTErrorValueData {
+    name: *byte,
+}
+
+// ========================================
+// 声明节点
+// ========================================
+
+struct ASTInterfaceDeclData {
+    name: *byte,
+    type_params: *TypeParam,
+    type_param_count: i32,
+    method_sigs: **ASTNode,
+    method_sig_count: i32,
+    composed_interfaces: **byte,
+    composed_count: i32,
+    is_export: i32,
+}
+
+struct ASTStructDeclData {
+    name: *byte,
+    type_params: *TypeParam,
+    type_param_count: i32,
+    interface_names: **byte,
+    interface_count: i32,
+    fields: **ASTNode,
+    field_count: i32,
+    methods: **ASTNode,
+    method_count: i32,
+    is_export: i32,
+}
+
+struct ASTUnionDeclData {
+    name: *byte,
+    variants: **ASTNode,
+    variant_count: i32,
+    methods: **ASTNode,
+    method_count: i32,
+    is_extern: i32,
+    is_export: i32,
+}
+
+struct ASTMethodBlockData {
+    struct_name: *byte,
+    union_name: *byte,
+    methods: **ASTNode,
+    method_count: i32,
+}
+
+struct ASTFnDeclData {
+    name: *byte,
+    type_params: *TypeParam,
+    type_param_count: i32,
+    params: **ASTNode,
+    param_count: i32,
+    return_type: *ASTNode,
+    body: *ASTNode,
+    is_varargs: i32,
+    is_export: i32,
+    is_extern: i32,
+    is_async: i32,
+    extern_lib_name: *byte,
+}
+
+struct ASTMacroDeclData {
+    name: *byte,
+    params: **ASTNode,
+    param_count: i32,
+    return_tag: *byte,
+    body: *ASTNode,
+    is_export: i32,
+}
+
+struct ASTTypeAliasData {
+    name: *byte,
+    target_type: *ASTNode,
+    is_export: i32,
+}
+
+struct ASTVarDeclData {
+    name: *byte,
+    var_type: *ASTNode,
+    init: *ASTNode,
+    is_const: i32,
+    was_moved: i32,
+    is_export: i32,
+}
+
+struct ASTExternVarDeclData {
+    name: *byte,
+    var_type: *ASTNode,
+    init_expr: *ASTNode,
+    is_const: i32,
+    is_extern: i32,
+    is_export: i32,
+    extern_lib_name: *byte,
+}
+
+struct ASTDestructureDeclData {
+    names: **byte,
+    name_count: i32,
+    is_const: i32,
+    init: *ASTNode,
+}
+
+struct ASTUseStmtData {
+    path_segments: **byte,
+    path_segment_count: i32,
+    item_name: *byte,
+    alias: *byte,
+}
+
+// ========================================
+// 语句节点
+// ========================================
+
+struct ASTIfStmtData {
+    condition: *ASTNode,
+    then_branch: *ASTNode,
+    else_branch: *ASTNode,
+}
+
+struct ASTWhileStmtData {
+    condition: *ASTNode,
+    body: *ASTNode,
+}
+
+struct ASTForStmtData {
+    array: *ASTNode,
+    var_name: *byte,
+    is_ref: i32,
+    is_range: i32,
+    range_start: *ASTNode,
+    range_end: *ASTNode,
+    body: *ASTNode,
+}
+
+struct ASTReturnStmtData {
+    expr: *ASTNode,
+}
+
+struct ASTDeferStmtData {
+    body: *ASTNode,
+}
+
+struct ASTErrdeferStmtData {
+    body: *ASTNode,
+}
+
+struct ASTTestStmtData {
+    description: *byte,
+    body: *ASTNode,
+}
+
+// ========================================
+// 表达式节点
+// ========================================
+
+struct ASTAssignData {
+    dest: *ASTNode,
+    src: *ASTNode,
+}
+
+struct ASTBlockData {
+    stmts: **ASTNode,
+    stmt_count: i32,
+}
+
+struct ASTBinaryExprData {
+    left: *ASTNode,
+    op: i32,
+    right: *ASTNode,
+}
+
+struct ASTUnaryExprData {
+    op: i32,
+    operand: *ASTNode,
+}
+
+struct ASTCallExprData {
+    callee: *ASTNode,
+    args: **ASTNode,
+    arg_count: i32,
+    has_ellipsis_forward: i32,
+    type_args: **ASTNode,
+    type_arg_count: i32,
+}
+
+struct ASTMemberAccessData {
+    object: *ASTNode,
+    field_name: *byte,
+    is_module_access: i32,
+    module_name: *byte,
+}
+
+struct ASTArrayAccessData {
+    array: *ASTNode,
+    index: *ASTNode,
+}
+
+struct ASTSliceExprData {
+    base: *ASTNode,
+    start_expr: *ASTNode,
+    len_expr: *ASTNode,
+}
+
+struct ASTStructInitData {
+    struct_name: *byte,
+    field_names: **byte,
+    field_values: **ASTNode,
+    field_count: i32,
+    type_args: **ASTNode,
+    type_arg_count: i32,
+}
+
+struct ASTArrayLiteralData {
+    elements: **ASTNode,
+    element_count: i32,
+    repeat_count_expr: *ASTNode,
+}
+
+struct ASTTupleLiteralData {
+    elements: **ASTNode,
+    element_count: i32,
+}
+
+struct ASTSizeofData {
+    target: *ASTNode,
+    is_type: i32,
+}
+
+struct ASTLenData {
+    array: *ASTNode,
+}
+
+struct ASTAlignofData {
+    target: *ASTNode,
+    is_type: i32,
+}
+
+struct ASTCastExprData {
+    expr: *ASTNode,
+    target_type: *ASTNode,
+    is_force_cast: i32,
+}
+
+struct ASTStringInterpData {
+    segments: *ASTStringInterpSegment,
+    segment_count: i32,
+    computed_size: i32,
+}
+
+struct ASTTryExprData {
+    operand: *ASTNode,
+}
+
+struct ASTCatchExprData {
+    operand: *ASTNode,
+    err_name: *byte,
+    catch_block: *ASTNode,
+}
+
+struct ASTMatchExprData {
+    expr: *ASTNode,
+    arms: *ASTMatchArm,
+    arm_count: i32,
+}
+
+// ========================================
+// 宏相关节点
+// ========================================
+
+struct ASTMCEvalData {
+    operand: *ASTNode,
+}
+
+struct ASTMCCodeData {
+    operand: *ASTNode,
+}
+
+struct ASTMCAstData {
+    operand: *ASTNode,
+}
+
+struct ASTMCErrorData {
+    operand: *ASTNode,
+}
+
+struct ASTMCInterpData {
+    operand: *ASTNode,
+}
+
+struct ASTMCTypeData {
+    operand: *ASTNode,
+}
+
+// ========================================
+// 内置函数节点
+// ========================================
+
+struct ASTAwaitExprData {
+    operand: *ASTNode,
+}
+
+struct ASTSyscallData {
+    number: *ASTNode,
+    args: **ASTNode,
+    arg_count: i32,
+}
+
+struct ASTPtrFromUsizeData {
+    value: *ASTNode,
+}
+
+struct ASTUsizeFromPtrData {
+    ptr: *ASTNode,
+}
+
+struct ASTVaStartData {
+    ap: *ASTNode,
+    last_param: *ASTNode,
+}
+
+struct ASTVaEndData {
+    ap: *ASTNode,
+}
+
+struct ASTVaArgData {
+    ap: *ASTNode,
+    arg_type: *ASTNode,
+}
+
+// ========================================
+// 类型节点
+// ========================================
+
+struct ASTTypeNamedData {
+    name: *byte,
+    type_args: **ASTNode,
+    type_arg_count: i32,
+}
+
+struct ASTTypePointerData {
+    pointed_type: *ASTNode,
+    is_ffi_pointer: i32,
+    is_const: i32,
+}
+
+struct ASTTypeArrayData {
+    element_type: *ASTNode,
+    size_expr: *ASTNode,
+}
+
+struct ASTTypeSliceData {
+    element_type: *ASTNode,
+    size_expr: *ASTNode,
+}
+
+struct ASTTypeTupleData {
+    element_types: **ASTNode,
+    element_count: i32,
+}
+
+struct ASTTypeErrorUnionData {
+    payload_type: *ASTNode,
+}
+
+struct ASTTypeAtomicData {
+    inner_type: *ASTNode,
+}
+
+// ========================================
+// Union 组合所有数据结构
+// ========================================
+
+union ASTNodeData {
+    program: ASTProgramData,
+    enum_decl: ASTEnumDeclData,
+    error_decl: ASTErrorDeclData,
+    interface_decl: ASTInterfaceDeclData,
+    struct_decl: ASTStructDeclData,
+    union_decl: ASTUnionDeclData,
+    method_block: ASTMethodBlockData,
+    fn_decl: ASTFnDeclData,
+    macro_decl: ASTMacroDeclData,
+    type_alias: ASTTypeAliasData,
+    var_decl: ASTVarDeclData,
+    extern_var_decl: ASTExternVarDeclData,
+    destructure_decl: ASTDestructureDeclData,
+    use_stmt: ASTUseStmtData,
+    if_stmt: ASTIfStmtData,
+    while_stmt: ASTWhileStmtData,
+    for_stmt: ASTForStmtData,
+    return_stmt: ASTReturnStmtData,
+    defer_stmt: ASTDeferStmtData,
+    errdefer_stmt: ASTErrdeferStmtData,
+    test_stmt: ASTTestStmtData,
+    assign: ASTAssignData,
+    block: ASTBlockData,
+    binary_expr: ASTBinaryExprData,
+    unary_expr: ASTUnaryExprData,
+    call_expr: ASTCallExprData,
+    member_access: ASTMemberAccessData,
+    array_access: ASTArrayAccessData,
+    slice_expr: ASTSliceExprData,
+    struct_init: ASTStructInitData,
+    array_literal: ASTArrayLiteralData,
+    tuple_literal: ASTTupleLiteralData,
+    sizeof_expr: ASTSizeofData,
+    len_expr: ASTLenData,
+    alignof_expr: ASTAlignofData,
+    cast_expr: ASTCastExprData,
+    identifier: ASTIdentifierData,
+    number: ASTNumberData,
+    float_literal: ASTFloatData,
+    bool_literal: ASTBoolData,
+    int_limit: ASTIntLimitData,
+    string_literal: ASTStringData,
+    string_interp: ASTStringInterpData,
+    try_expr: ASTTryExprData,
+    catch_expr: ASTCatchExprData,
+    error_value: ASTErrorValueData,
+    match_expr: ASTMatchExprData,
+    mc_eval: ASTMCEvalData,
+    mc_code: ASTMCCodeData,
+    mc_ast: ASTMCAstData,
+    mc_error: ASTMCErrorData,
+    mc_interp: ASTMCInterpData,
+    mc_type: ASTMCTypeData,
+    await_expr: ASTAwaitExprData,
+    syscall: ASTSyscallData,
+    ptr_from_usize: ASTPtrFromUsizeData,
+    usize_from_ptr: ASTUsizeFromPtrData,
+    va_start: ASTVaStartData,
+    va_end: ASTVaEndData,
+    va_arg: ASTVaArgData,
+    type_named: ASTTypeNamedData,
+    type_pointer: ASTTypePointerData,
+    type_array: ASTTypeArrayData,
+    type_slice: ASTTypeSliceData,
+    type_tuple: ASTTypeTupleData,
+    type_error_union: ASTTypeErrorUnionData,
+    type_atomic: ASTTypeAtomicData,
+}

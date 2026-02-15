@@ -1,0 +1,28 @@
+// 测试：少量结构体 + union
+
+use std.testing.assert_true;
+
+struct ASTProgramData {
+    decls: *void,
+    decl_count: i32,
+}
+
+struct ASTIdentifierData {
+    name: *byte,
+}
+
+union MiniUnion {
+    program: ASTProgramData,
+    identifier: ASTIdentifierData,
+}
+
+struct Wrapper {
+    data: MiniUnion,
+}
+
+fn main() i32 {
+    printf("ASTProgramData: %zu\n", @size_of(ASTProgramData));
+    printf("ASTIdentifierData: %zu\n", @size_of(ASTIdentifierData));
+    printf("Wrapper: %zu\n", @size_of(Wrapper));
+    return 0;
+}

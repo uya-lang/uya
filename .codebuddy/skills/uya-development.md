@@ -37,21 +37,39 @@ if str_equals(name, "expected") == 0 {
 根据语言规范 §4.5.12：
 - Union 变体**不能**包含引用类型 `&T`
 - Union 变体**不能**包含切片类型 `&[T]`
-- Union 变体**可以**包含指针类型（因为指针没有生命周期约束）
+- Union 变体**可以**包含 FFI 指针类型 `*T`（因为指针没有生命周期约束）
 
 ```uya
-// ✅ 正确：指针类型
+// ✅ 正确：FFI 指针类型
 union ValuePtr {
     int_val: i32,
-    point: &Point,      // 指针可以
+    point: *Point,      // FFI 指针可以
 }
 
 // ❌ 错误：引用类型（编译错误）
 union ValueRef {
     int_val: i32,
-    point: &Point,      // 这里 Point 本身是结构体类型，不是引用
     ref_val: &i32,      // ❌ 不能包含引用
 }
+```
+
+**FFI 指针限制**：
+- `*byte` 和 `*void` 只能在结构体字段中使用
+- FFI 指针**不能**作为函数参数
+- FFI 指针**不能**作为函数返回类型
+
+```uya
+// ✅ 正确：结构体字段中使用 FFI 指针
+struct NodeData {
+    name: *byte,
+    next: *void,
+}
+
+// ❌ 错误：FFI 指针作为函数参数
+fn process(ptr: *byte) void { ... }  // 编译错误
+
+// ❌ 错误：FFI 指针作为返回类型
+fn get_name() *byte { ... }  // 编译错误
 ```
 
 ### 1.3 Union match 表达式
@@ -82,6 +100,67 @@ match shape {
     _ => printf("unknown\n")  // 通配符
 }
 ```
+
+**重要规则**：
+
+1. **match 作为表达式**：所有分支返回类型必须完全一致
+   ```uya
+   // ✅ 正确：所有分支都返回 i32 字段
+   const result: i32 = match node.data {
+       .number(n) => n.value,    // i32
+       .binary(b) => b.op,       // i32
+       .program(p) => p.count,   // i32
+   };
+   
+   // ❌ 错误：不能混用字面量和字段
+   const result: i32 = match node.data {
+       .number(n) => n.value,    // i32
+       .binary(_) => 0,          // 编译错误！类型不一致
+   };
+   ```
+
+2. **match 作为语句**：所有分支必须返回 void
+   ```uya
+   // ✅ 正确：所有分支都是语句块
+   match node.data {
+       .number(n) => { n.value = 10; },
+       .binary(b) => { b.op = 20; },
+       .program(p) => {},  // 空块也返回 void
+   };
+   ```
+
+3. **必须处理所有变体**：union match 必须处理所有变体
+   ```uya
+   // ✅ 正确：处理所有变体
+   match u {
+       .a(x) => ...,
+       .b(x) => ...,
+   }
+   
+   // ✅ 正确：使用 else 处理剩余变体
+   match u {
+       .a(x) => ...,
+       else => ...,
+   }
+   
+   // ❌ Uya 不支持 _ 作为忽略变量
+   match u {
+       .a(_) => ...,  // ❌ 编译错误
+   }
+   ```
+
+4. **变量命名**：不能使用 `_` 忽略变量，必须使用实际变量名
+   ```uya
+   // ❌ 错误：Uya 不支持 _ 忽略变量
+   match u {
+       .number(_) => 0,  // 编译错误
+   }
+   
+   // ✅ 正确：使用变量名
+   match u {
+       .number(n) => 0,  // 即使不使用 n，也要声明变量名
+   }
+   ```
 
 ### 1.4 类型转换语法
 
@@ -309,10 +388,13 @@ fn main() i32 {
 ## 6. 记忆要点
 
 1. **str_equals(a, b) != 0** → 字符串相等
-2. **Union 变体不能是引用** → 使用指针替代
-3. **自举验证必须通过** → `make b` 是最终检验
-4. **测试先行** → TDD 是最佳实践
-5. **不要瞎编语法** → 参考现有代码和测试
-6. **Union 支持指针和混合类型** → 可以包含 `&T` 指针、`i32`、`f64` 等
-7. **测试运行方式** → 使用 `./tests/run_programs_parallel.sh file.uya --uya`
-8. **测试链接** → 需要 `tests/bridge.c` 提供 `main` 函数
+2. **Union 变体不能是引用** → 使用 FFI 指针 `*T` 替代
+3. **FFI 指针限制** → 只能在结构体字段中使用，不能作为函数参数/返回类型
+4. **match 表达式规则** → 所有分支返回类型必须一致，不能混用字面量和字段
+5. **match 必须处理所有变体** → 使用 `else` 处理剩余变体
+6. **Uya 不支持 `_` 忽略变量** → 必须使用实际变量名
+7. **自举验证必须通过** → `make b` 是最终检验
+8. **测试先行** → TDD 是最佳实践
+9. **不要瞎编语法** → 参考现有代码和测试
+10. **测试运行方式** → 使用 `./tests/run_programs_parallel.sh file.uya --uya`
+11. **测试链接** → 需要 `tests/bridge.c` 提供 `main` 函数

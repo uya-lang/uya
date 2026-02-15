@@ -419,11 +419,12 @@ fn emit_struct_deps_for_union(codegen: &C99CodeGenerator, union_decl: &ASTNode) 
     }
     
     // 收集依赖的结构体名称
-    var struct_names: [&byte: 64] = [];
+    // 注意：数组大小需要足够大以容纳所有变体（可能有 100+ 个）
+    var struct_names: [&byte: 128] = [];
     var struct_count: i32 = 0;
     
     // struct_names 是 &byte 数组，直接传递数组首元素地址
-    collect_struct_types_in_union(codegen, union_decl, &struct_names[0], 64, &struct_count);
+    collect_struct_types_in_union(codegen, union_decl, &struct_names[0], 128, &struct_count);
     
     if struct_count <= 0 {
         return 0;

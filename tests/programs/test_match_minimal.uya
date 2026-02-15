@@ -1,0 +1,33 @@
+// 最小测试：完全复制 test_astnode_union.uya 的模式
+
+struct NumberData {
+    value: i32,
+}
+
+struct BinaryData {
+    op: i32,
+}
+
+struct ProgramData {
+    count: i32,
+}
+
+union MyUnion {
+    number: NumberData,
+    binary: BinaryData,
+    program: ProgramData,
+}
+
+fn get_number_value(u: &MyUnion) i32 {
+    const result: i32 = match *u {
+        .number(n) => n.value,
+        .binary(b) => b.op,
+        .program(p) => p.count,
+    };
+    return result;
+}
+
+fn main() i32 {
+    printf("test passed\n");
+    return 0;
+}
