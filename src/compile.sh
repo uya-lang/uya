@@ -11,9 +11,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # src 目录
 UYA_SRC_DIR="$SCRIPT_DIR"
 # 编译器路径
-COMPILER="$REPO_ROOT/bin/uya-c"
+COMPILER="$REPO_ROOT/bin/uya"
 # 默认输出目录（中间文件）
-BUILD_DIR="$REPO_ROOT/compiler-c/build/uya-src"
+BUILD_DIR="$REPO_ROOT/src/build"
 # 最终二进制输出目录
 BIN_DIR="$REPO_ROOT/bin"
 # 默认输出文件名
@@ -148,11 +148,30 @@ if [ "$USE_NOSTDLIB" = true ] && [ "$GENERATE_EXEC" != true ]; then
     exit 1
 fi
 
-# 检查编译器是否存在
+# 检查编译器是否存在，如果不存在则从备份恢复
 if [ ! -f "$COMPILER" ]; then
-    echo -e "${RED}错误: 编译器 '$COMPILER' 不存在${NC}"
-    echo "请先运行 'make build' 构建编译器"
-    exit 1
+    echo -e "${YELLOW}编译器 '$COMPILER' 不存在，尝试从备份恢复...${NC}"
+    if [ -f "$REPO_ROOT/backup/uya.c.zip" ]; then
+        mkdir -p "$REPO_ROOT/bin"
+        unzip -o "$REPO_ROOT/backup/uya.c.zip" -d "$REPO_ROOT/bin/"
+        if [ -f "$REPO_ROOT/bin/uya.c" ]; then
+            echo "编译 bin/uya.c ..."
+            gcc -std=c99 -O2 "$REPO_ROOT/bin/uya.c" -o "$COMPILER" -lm
+            if [ $? -eq 0 ]; then
+                echo -e "${GREEN}✓ 编译器已从备份恢复: $COMPILER${NC}"
+            else
+                echo -e "${RED}错误: 编译 bin/uya.c 失败${NC}"
+                exit 1
+            fi
+        else
+            echo -e "${RED}错误: 解压后未找到 bin/uya.c${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${RED}错误: 编译器 '$COMPILER' 和备份 'backup/uya.c.zip' 都不存在${NC}"
+        echo "请先运行 'make from-c' 构建编译器"
+        exit 1
+    fi
 fi
 
 # 检查 src 目录是否存在
@@ -343,6 +362,8 @@ trap "rm -f '$TEMP_OUTPUT' '$TEMP_ERRORS'" EXIT
 
 # 执行编译，捕获所有输出
 # 注意：确保 UYA_ROOT 环境变量被传递给编译器
+# 注意：增大栈限制，避免编译器栈溢出（编译器内部有大型局部数组）
+ulimit -s 65536 2>/dev/null || true
 if [ "$VERBOSE" = true ] || [ "$DEBUG" = true ]; then
     # 详细模式：显示所有输出
     env UYA_ROOT="$UYA_ROOT" "${COMPILER_CMD[@]}" 2>&1 | tee "$TEMP_OUTPUT"
