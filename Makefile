@@ -42,15 +42,22 @@ from-c:
 	@ls -la bin/uya
 
 # 构建自举编译器（src），并更新 bin/uya.c
-uya: uya-c
+uya:
 	@echo "=========================================="
 	@echo "构建自举编译器 (uya)"
 	@echo "=========================================="
+	@if [ ! -f bin/uya ]; then \
+		echo "bin/uya 不存在，从备份构建..."; \
+		$(MAKE) from-c; \
+	fi
+	@echo "使用 bin/uya 编译 src/ ..."
 	@cd src && ./compile.sh --c99 -e
 	@echo ""
 	@echo "更新 bin/uya.c ..."
-	@cp compiler-c/build/uya-src/uya.c bin/uya.c
+	@cp src/build/uya.c bin/uya.c
 	@echo "✓ bin/uya.c 已更新"
+	@echo "重新编译 bin/uya ..."
+	@gcc -std=c99 -O2 bin/uya.c -o bin/uya -lm
 	@echo ""
 	@echo "✓ 自举编译器构建完成: bin/uya"
 	@echo ""
