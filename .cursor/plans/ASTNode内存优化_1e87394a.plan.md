@@ -812,3 +812,76 @@ struct MockASTNode {
 2. **编译顺序**：需要在 ast.uya 中定义数据结构体，然后定义 union，最后更新 ASTNode
 3. **渐进迁移**：可以先保留旧的 flat struct，逐步迁移到 union
 4. **代码生成顺序**：需要修改代码生成器确保结构体在 union 之前定义
+
+---
+
+## 实施方案细化（2026-02-15）
+
+### 已完成准备工作
+
+- [x] 定义所有 AST*Data 结构体（src/ast_data.uya，共 60 个）
+- [x] 定义 ASTNodeData union
+- [x] 验证方案可行性（test_astnode_union.uya 通过）
+
+### 循环依赖问题
+
+**问题**：AST*Data 结构体包含 `&ASTNode` 字段，而 ASTNode 将包含 `ASTNodeData` union。
+
+**解决方案**：
+1. 将所有 AST*Data 结构体定义直接放在 ast.uya 中
+2. 定义顺序：结构体 → union → ASTNode
+3. 保留旧的 flat struct 字段，逐步迁移
+
+### 实施步骤
+
+#### 阶段 1：添加 union 字段（保持兼容）
+
+1. 在 ast.uya 中添加 AST*Data 结构体定义
+2. 添加 ASTNodeData union 定义
+3. 在 ASTNode 中添加 `data: ASTNodeData` 字段
+4. **保留所有旧字段**，确保现有代码继续工作
+5. 验证 `make tests-uya` 通过
+
+#### 阶段 2：创建辅助函数
+
+为每种节点类型创建访问辅助函数：
+```uya
+// 获取 program 节点的 decls
+fn ast_program_get_decls(node: &ASTNode) & & ASTNode {
+    return node.data.program.decls;
+}
+
+// 设置 program 节点的 decls
+fn ast_program_set_decls(node: &ASTNode, decls: & & ASTNode) void {
+    node.data.program.decls = decls;
+}
+```
+
+#### 阶段 3：渐进迁移
+
+按模块迁移访问代码：
+1. parser.uya - 节点创建
+2. checker.uya - 节点访问
+3. codegen/*.uya - 节点访问
+
+每次迁移一个函数，验证测试通过。
+
+#### 阶段 4：移除旧字段
+
+所有访问代码迁移完成后，移除 ASTNode 中的旧字段。
+
+### 预计工作量
+
+| 阶段 | 时间 | 改动量 |
+|------|------|--------|
+| 阶段 1 | 0.5 天 | ast.uya |
+| 阶段 2 | 0.5 天 | ast.uya |
+| 阶段 3 | 5-7 天 | parser/checker/codegen |
+| 阶段 4 | 0.5 天 | ast.uya |
+| **总计** | **6-8 天** | |
+
+### 风险
+
+1. **循环依赖**：需要确保定义顺序正确
+2. **自举对比失败**：节点字段顺序变化可能影响 C 输出
+3. **遗漏访问点**：可能有隐藏的访问代码遗漏

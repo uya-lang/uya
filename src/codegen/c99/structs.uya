@@ -345,14 +345,12 @@ fn collect_value_struct_deps_from_type(codegen: &C99CodeGenerator, type_node: &A
         
         // 查找结构体声明
         const struct_decl: &ASTNode = find_struct_decl_c99(codegen, type_name);
-        if struct_decl == null {
-            return;
+        if struct_decl != null {
+            // 先递归收集该结构体的字段依赖（拓扑排序：被依赖的在前）
+            collect_struct_field_deps_recursive(codegen, struct_decl, out_names, max_count, out_count);
         }
         
-        // 先递归收集该结构体的字段依赖（拓扑排序：依赖的在前）
-        collect_struct_field_deps_recursive(codegen, struct_decl, out_names, max_count, out_count);
-        
-        // 再添加该结构体本身
+        // 再添加该结构体本身（在依赖之后）
         if out_count[0] < max_count {
             out_names[out_count[0]] = type_name;
             out_count[0] = out_count[0] + 1;

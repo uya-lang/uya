@@ -20,7 +20,11 @@
 - ✅ 测试文件 `test_ast_helpers.uya` 完成
 - ✅ 覆盖 13 种节点类型：identifier, number, string, bool, binary_expr, unary_expr, call_expr, member_access, var_decl, fn_decl, if_stmt, while_stmt, block
 - ✅ 验证构造函数、访问函数、设置函数模式
-- ⏳ 待办：创建 `src/ast_helpers.uya` 模块
+- ✅ 在 `src/ast.uya` 中添加简化版数据结构和辅助函数（渐进式迁移）
+  - 添加 `ASTNodeDataNew` union（13个变体）
+  - 添加 `OptimizedASTNode` 结构体
+  - 添加辅助函数：`ast_get_number_value_new`, `ast_get_bool_value_new`, `ast_get_binary_op_new` 等
+- ⏳ 待办：扩展完整 67 种节点类型的数据结构定义
 
 ## 技术限制
 - Union 变体不能包含引用类型 `&T`，必须使用 FFI 指针 `*T`
@@ -180,6 +184,17 @@ union ASTNodeData {
 4. 保持向后兼容，逐步迁移
 
 ## 进度记录
+
+### 2026-02-16 (下午)
+- ✅ 在 `src/ast.uya` 中添加优化数据结构定义和辅助函数
+  - 添加 13 种节点类型的 `*DataNew` 结构体
+  - 添加 `ASTNodeDataNew` union
+  - 添加 `OptimizedASTNode` 结构体
+  - 添加 6 个辅助函数示例
+- ✅ 使用 main 分支编译器构建成功（360/360 测试通过）
+- ✅ 更新 `bin/uya-c` 为 main 分支最新稳定版
+- ⚠️ 注意：astnode_size 分支需要用 main 分支的编译器构建
+  - 命令：`/home/winger/uya-main/bin/uya src/main.uya ... -o bin/uya.c --c99`
 
 ### 2026-02-16
 - ✅ 修复编译器 bug：match 表达式类型推断中的符号表问题
