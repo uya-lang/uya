@@ -1,0 +1,28 @@
+// 预期编译失败：match 表达式缺少 else 分支
+// 错误信息应包含 "必须包含 else 分支" 或 "必须处理所有变体"
+
+union DataUnion {
+    num: i32,
+    other: i32,
+}
+
+// 错误1：match 联合体时没有处理所有变体，且没有 else 分支
+fn test_match_union_no_else(u: DataUnion) i32 {
+    return match u {
+        .num(n) => n,
+        // 缺少 .other 和 else
+    };
+}
+
+// 错误2：match 非联合体时缺少 else 分支
+fn test_match_int_no_else(x: i32) i32 {
+    return match x {
+        0 => 100,
+        1 => 200,
+        // 缺少 else 分支
+    };
+}
+
+fn main() i32 {
+    return 0;
+}
