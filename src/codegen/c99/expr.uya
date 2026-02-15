@@ -2314,6 +2314,20 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 res_type = t;
             }
         }
+        // 检测是否是指针类型（以 " *" 结尾）
+        var is_ptr: i32 = 0;
+        const m_type_len: i32 = strlen(m_type as *byte);
+        if m_type_len > 2 {
+            const last2: &byte = m_type as &byte + m_type_len - 2;
+            if strcmp(last2 as *byte, " *" as *byte) == 0 || strcmp(last2 as *byte, "* " as *byte) == 0 {
+                is_ptr = 1;
+            }
+        }
+        // 访问运算符：指针用 ->，值用 .
+        var acc: &byte = "." as &byte;
+        if is_ptr != 0 {
+            acc = "->" as &byte;
+        }
         fputs("({ " as *byte, codegen.output as *void);
         fprintf(codegen.output as *void, "%s _uya_m = " as *byte, m_type as *byte);
         gen_expr(codegen, match_expr);
@@ -2356,9 +2370,9 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                             bind = get_safe_c_identifier(codegen, expr.match_expr_arms[i].var_name);
                         }
                         if bind != null {
-                            fprintf(codegen.output as *void, "%sif (_uya_m._tag == %d) { %s %s = _uya_m.u.%s; _uya_r = " as *byte, prefix as *byte, idx, vtype as *byte, bind as *byte, vname as *byte);
+                            fprintf(codegen.output as *void, "%sif (_uya_m%s_tag == %d) { %s %s = _uya_m%su.%s; _uya_r = " as *byte, prefix as &byte, acc as &byte, idx, vtype as &byte, bind as &byte, acc as &byte, vname as &byte);
                         } else {
-                            fprintf(codegen.output as *void, "%sif (_uya_m._tag == %d) _uya_r = " as *byte, prefix as *byte, idx);
+                            fprintf(codegen.output as *void, "%sif (_uya_m%s_tag == %d) _uya_r = " as *byte, prefix as &byte, acc as &byte, idx);
                         }
                         gen_expr(codegen, expr.match_expr_arms[i].result_expr);
                         if bind != null {
