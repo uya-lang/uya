@@ -1,0 +1,141 @@
+// ast_data.uya - ASTNode 优化数据结构定义
+// 渐进式迁移：与 ast.uya 中的旧结构共存
+//
+// 注意：union 变体不能包含引用类型 &T，必须使用 FFI 指针 *T
+// 注意：使用 *void 代替 *ASTNode 避免循环依赖
+
+// ========================================
+// 简单节点数据结构
+// ========================================
+
+struct ASTIdentifierDataNew {
+    name: *byte,
+}
+
+struct ASTNumberDataNew {
+    value: i32,
+}
+
+struct ASTFloatDataNew {
+    value: f64,
+}
+
+struct ASTBoolDataNew {
+    value: i32,
+}
+
+struct ASTStringDataNew {
+    value: *byte,
+}
+
+// ========================================
+// 表达式节点数据结构（使用 *void 代替 *ASTNode）
+// ========================================
+
+struct ASTBinaryExprDataNew {
+    left: *void,
+    op: i32,
+    right: *void,
+}
+
+struct ASTUnaryExprDataNew {
+    op: i32,
+    operand: *void,
+}
+
+struct ASTCallExprDataNew {
+    callee: *void,
+    args: *void,
+    arg_count: i32,
+    has_ellipsis_forward: i32,
+    type_args: *void,
+    type_arg_count: i32,
+}
+
+struct ASTMemberAccessDataNew {
+    object: *void,
+    field_name: *byte,
+    is_module_access: i32,
+    module_name: *byte,
+}
+
+// ========================================
+// 声明节点数据结构（使用 *void 代替 *ASTNode）
+// ========================================
+
+struct ASTVarDeclDataNew {
+    name: *byte,
+    var_type: *void,
+    init: *void,
+    is_const: i32,
+    was_moved: i32,
+    is_export: i32,
+}
+
+struct ASTFnDeclDataNew {
+    name: *byte,
+    type_params: *void,
+    type_param_count: i32,
+    params: *void,
+    param_count: i32,
+    return_type: *void,
+    body: *void,
+    is_varargs: i32,
+    is_export: i32,
+    is_extern: i32,
+    is_async: i32,
+    extern_lib_name: *byte,
+}
+
+// ========================================
+// 语句节点数据结构（使用 *void 代替 *ASTNode）
+// ========================================
+
+struct ASTIfStmtDataNew {
+    condition: *void,
+    then_branch: *void,
+    else_branch: *void,
+}
+
+struct ASTWhileStmtDataNew {
+    condition: *void,
+    body: *void,
+}
+
+struct ASTBlockDataNew {
+    stmts: *void,
+    stmt_count: i32,
+}
+
+// ========================================
+// Union 组合所有数据结构
+// ========================================
+
+union ASTNodeDataNew {
+    identifier: ASTIdentifierDataNew,
+    number: ASTNumberDataNew,
+    float_literal: ASTFloatDataNew,
+    bool_literal: ASTBoolDataNew,
+    string_literal: ASTStringDataNew,
+    binary_expr: ASTBinaryExprDataNew,
+    unary_expr: ASTUnaryExprDataNew,
+    call_expr: ASTCallExprDataNew,
+    member_access: ASTMemberAccessDataNew,
+    var_decl: ASTVarDeclDataNew,
+    fn_decl: ASTFnDeclDataNew,
+    if_stmt: ASTIfStmtDataNew,
+    while_stmt: ASTWhileStmtDataNew,
+    block: ASTBlockDataNew,
+}
+
+// ========================================
+// 优化后的 ASTNode 结构
+// ========================================
+
+struct OptimizedASTNode {
+    type: ASTNodeType,
+    line: i32,
+    column: i32,
+    filename: *byte,
+    data: ASTNodeDataNew,
+}

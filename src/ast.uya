@@ -637,3 +637,64 @@ fn ast_merge_programs(programs: [&ASTNode: MAX_MERGE_PROGRAMS], count: i32, aren
     merged.program_decl_count = total_decl_count;
     return merged;
 }
+
+// ========================================
+// 优化后的 ASTNode 辅助函数（第二阶段）
+// 数据结构定义见 ast_data.uya
+// ========================================
+
+// 获取数字值
+fn ast_get_number_value_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .number(n) => n.value,
+        else => 0,
+    };
+}
+
+// 获取布尔值
+fn ast_get_bool_value_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .bool_literal(b) => b.value,
+        else => 0,
+    };
+}
+
+// 获取二元表达式操作符
+fn ast_get_binary_op_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .binary_expr(b) => b.op,
+        else => 0,
+    };
+}
+
+// 设置二元表达式操作符
+fn ast_set_binary_op_new(node: &OptimizedASTNode, op: i32) void {
+    match node.data {
+        .binary_expr(b) => { b.op = op; },
+        else => {},
+    };
+}
+
+// 获取变量声明是否常量
+fn ast_get_var_is_const_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .var_decl(v) => v.is_const,
+        else => 0,
+    };
+}
+
+// 获取函数声明参数数量
+fn ast_get_fn_param_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .fn_decl(f) => f.param_count,
+        else => 0,
+    };
+}
+
+// 获取块语句数量
+fn ast_get_block_stmt_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .block(b) => b.stmt_count,
+        else => 0,
+    };
+}
