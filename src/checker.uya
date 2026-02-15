@@ -163,7 +163,7 @@ struct FunctionSignature {
 }
 
 // 符号表（固定大小哈希表，使用开放寻址）
-const SYMBOL_TABLE_SIZE: i32 = 16384;   // 固定大小（必须是2的幂）- 增加到 16384 以支持大型项目
+const SYMBOL_TABLE_SIZE: i32 = 32768;   // 固定大小（必须是2的幂）- 增加到 32768 以支持大型项目
 
 struct SymbolTable {
     slots: [&Symbol: SYMBOL_TABLE_SIZE],  // 符号槽位数组（固定大小）
@@ -171,7 +171,7 @@ struct SymbolTable {
 }
 
 // 函数表（固定大小哈希表，使用开放寻址）
-const FUNCTION_TABLE_SIZE: i32 = 512;  // 固定大小（必须是2的幂）- 增加到 512 以支持更多函数
+const FUNCTION_TABLE_SIZE: i32 = 2048;  // 固定大小（必须是2的幂）- 增加到 2048 以支持更多函数
 
 struct FunctionTable {
     slots: [&FunctionSignature: FUNCTION_TABLE_SIZE],  // 函数槽位数组（固定大小）
@@ -203,7 +203,7 @@ struct ModuleInfo {
 }
 
 // 模块表（固定大小哈希表）
-const MODULE_TABLE_SIZE: i32 = 64;   // 固定大小（必须是2的幂）
+const MODULE_TABLE_SIZE: i32 = 256;   // 固定大小（必须是2的幂）
 
 struct ModuleTable {
     slots: [&ModuleInfo: MODULE_TABLE_SIZE],  // 模块槽位数组
@@ -219,7 +219,7 @@ struct ImportedItem {
 }
 
 // 导入表（用于当前文件/模块的导入）
-const IMPORT_TABLE_SIZE: i32 = 128;  // 固定大小（必须是2的幂）
+const IMPORT_TABLE_SIZE: i32 = 512;  // 固定大小（必须是2的幂）
 
 struct ImportTable {
     slots: [&ImportedItem: IMPORT_TABLE_SIZE],  // 导入项槽位数组
