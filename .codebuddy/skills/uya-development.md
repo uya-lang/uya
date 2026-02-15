@@ -116,7 +116,44 @@ fn handle_error() void {
 
 ## 2. 编译器架构理解
 
-### 2.1 自举编译流程
+### 2.1 分支开发流程（重要）
+
+| 分支 | 角色 | 用途 |
+|------|------|------|
+| `main` | 编译工具 | 当前稳定版编译器，用于编译其他分支 |
+| `astnode_size` | 开发目标 | 下一版本编译器，正在进行 ASTNode 内存优化 |
+
+**使用 git worktree 创建两个工作区**：
+
+```bash
+# 在当前 uya 目录（astnode_size 分支）
+git worktree add ../uya-main main
+
+# 目录结构：
+# ~/uya/          → astnode_size 分支（开发目标）
+# ~/uya-main/     → main 分支（编译工具，提供稳定编译器）
+```
+
+**开发流程**：
+
+```bash
+# 1. 确保 main 工作区有可用编译器
+cd ~/uya-main && make from-c
+
+# 2. 在 astnode_size 工作区开发
+cd ~/uya
+# 用 main 的编译器编译 astnode_size
+../uya-main/bin/uya src/main.uya -o bin/uya
+
+# 3. 或者修改 Makefile 使用外部编译器
+# UYA_COMPILER = ../uya-main/bin/uya
+make uya
+
+# 4. 验证
+make b && make tests-uya
+```
+
+### 2.2 自举编译流程
 
 ```
 bin/uya.c (已提交的 C99 代码)
@@ -128,7 +165,7 @@ bin/uya.c (新生成的 C99 代码)
 提交新版本
 ```
 
-### 2.2 关键文件
+### 2.3 关键文件
 
 | 文件 | 说明 |
 |------|------|
