@@ -142,6 +142,29 @@ match shape {
    
    **修复方案**：在推断每个 arm 的类型前，进入作用域并创建符号表条目（与 `checker_check_node` 逻辑一致）。
 
+### 1.7 FFI 指针限制
+
+FFI 指针（`*byte`、`*void`、`*T`）有严格的使用限制：
+- ✅ 可以在结构体字段中使用
+- ❌ 不能作为函数参数
+- ❌ 不能作为函数返回类型
+
+```uya
+// ✅ 正确：结构体字段
+struct NodeData {
+    name: *byte,
+    next: *void,
+}
+
+// ❌ 错误：FFI 指针作为函数参数
+fn process(ptr: *byte) void { ... }
+
+// ❌ 错误：FFI 指针作为返回类型
+fn get_name() *byte { ... }
+```
+
+**解决方案**：使用 `*void` 作为结构体字段存储指针，但函数不直接接受/返回 FFI 指针。
+
 2. **match 作为语句**：所有分支必须返回 void
    ```uya
    // ✅ 正确：所有分支都是语句块

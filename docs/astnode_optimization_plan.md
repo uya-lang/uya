@@ -4,15 +4,23 @@
 - ASTNode 大小: 1416 字节
 - 目标: 100-150 字节
 - 优化方式: 使用 union 按节点类型分组
-- 验证结果: OptimizedASTNode 测试通过，112 字节
-- **当前阶段**: 第一阶段完成，开始第二阶段
+- 验证结果: OptimizedASTNode 测试通过，80 字节
+- **当前阶段**: 第二阶段进行中
 
 ## 已完成的准备工作
 1. ✅ 编译器 bug 修复：union 值类型结构体变体代码生成顺序（拓扑排序）
 2. ✅ 编译器 bug 修复：union 变体依赖结构体数组大小限制（64→128）
-3. ✅ 测试文件 test_optimized_astnode.uya 验证通过
-4. ✅ 测试文件 test_union_nested_deps.uya 验证嵌套依赖
-5. ✅ **第一阶段完成**：`src/ast_data.uya` 定义了 67 个 `AST*Data` 结构体和 `ASTNodeData` union
+3. ✅ 编译器 bug 修复：match 表达式类型推断中的符号表问题
+4. ✅ 测试文件 test_optimized_astnode.uya 验证通过
+5. ✅ 测试文件 test_union_nested_deps.uya 验证嵌套依赖
+6. ✅ **第一阶段完成**：数据结构定义验证通过
+7. ✅ **第二阶段进行中**：辅助函数测试通过（13种节点类型）
+
+## 第二阶段进展
+- ✅ 测试文件 `test_ast_helpers.uya` 完成
+- ✅ 覆盖 13 种节点类型：identifier, number, string, bool, binary_expr, unary_expr, call_expr, member_access, var_decl, fn_decl, if_stmt, while_stmt, block
+- ✅ 验证构造函数、访问函数、设置函数模式
+- ⏳ 待办：创建 `src/ast_helpers.uya` 模块
 
 ## 技术限制
 - Union 变体不能包含引用类型 `&T`，必须使用 FFI 指针 `*T`
@@ -173,6 +181,16 @@ union ASTNodeData {
 
 ## 进度记录
 
+### 2026-02-16
+- ✅ 修复编译器 bug：match 表达式类型推断中的符号表问题
+  - 问题：`checker_infer_type` 处理 match 时未为分支变量创建符号表条目
+  - 解决：推断类型前进入作用域并创建符号表条目
+- ✅ 第二阶段进展：扩展 `test_ast_helpers.uya` 测试覆盖
+  - 添加 13 种节点类型的构造/访问/设置函数测试
+  - 验证 OptimizedASTNode 大小为 80 字节
+- ✅ 测试通过：360/360
+- ✅ 自举验证通过
+
 ### 2026-02-15
 - ✅ 修复编译器 bug：`emit_struct_deps_for_union` 数组大小限制（64→128）
 - ✅ 完成 `src/ast_data.uya` 数据结构定义（67 个结构体 + 1 个 union）
@@ -186,3 +204,9 @@ union ASTNodeData {
 
 2. **问题**: union 变体中的结构体定义顺序错误
    **解决**: 之前已修复 `collect_value_struct_deps_from_type` 的拓扑排序问题
+
+3. **问题**: match 表达式中字段访问类型推断失败
+   **解决**: 在 `checker_infer_type` 中为 match 分支变量创建符号表条目
+
+4. **问题**: FFI 指针不能作为函数参数或返回类型
+   **解决**: 辅助函数避免使用 `*byte` 等类型，改用 i32 或 void
