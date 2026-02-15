@@ -1,0 +1,68 @@
+// 测试 union ASTNode 方案
+
+use std.testing.assert_eq_i32;
+use std.testing.test_suite_begin;
+use std.testing.test_suite_end;
+use std.testing.run_test;
+
+// 节点类型枚举
+enum NewASTNodeType {
+    NODE_NUMBER,
+    NODE_BINARY,
+    NODE_IDENTIFIER,
+}
+
+// 数值节点数据
+struct NumberData {
+    value: i32,
+}
+
+// 二元表达式数据
+struct BinaryData {
+    left: *NewASTNode,
+    op: i32,
+    right: *NewASTNode,
+}
+
+// 标识符数据
+struct IdentifierData {
+    name: *byte,
+}
+
+// 新 ASTNode 使用 union
+union NewASTNodeData {
+    number: NumberData,
+    binary: BinaryData,
+    identifier: IdentifierData,
+}
+
+// 新 ASTNode 结构
+struct NewASTNode {
+    type: NewASTNodeType,
+    line: i32,
+    column: i32,
+    data: NewASTNodeData,
+}
+
+fn test_union_astnode() !void {
+    // 创建数值节点
+    var num_node: NewASTNode = NewASTNode {
+        type: NewASTNodeType.NODE_NUMBER,
+        line: 1,
+        column: 1,
+        data: NewASTNodeData.number(NumberData { value: 42 })
+    };
+
+    // 访问 union 变体
+    match num_node.data {
+        .number(n) => try assert_eq_i32(n.value, 42),
+        .binary(b) => try assert_eq_i32(0, 1),  // 不应该到达
+        .identifier(i) => try assert_eq_i32(0, 1),  // 不应该到达
+    }
+}
+
+fn main() i32 {
+    test_suite_begin("Union ASTNode Tests");
+    run_test("union astnode", test_union_astnode);
+    return test_suite_end();
+}
