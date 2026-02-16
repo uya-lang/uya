@@ -2981,6 +2981,41 @@ static struct OptimizedASTNode * ast_new_await_expr_optimized(struct ASTNode * o
 static struct OptimizedASTNode * ast_new_sizeof_expr_optimized(struct ASTNode * target, int32_t is_type, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
 static struct OptimizedASTNode * ast_new_len_expr_optimized(struct ASTNode * array, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
 static struct OptimizedASTNode * ast_new_alignof_expr_optimized(struct ASTNode * target, int32_t is_type, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_match_expr_optimized(struct ASTNode * expr, struct ASTMatchArm * arms, int32_t arm_count, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_catch_expr_optimized(struct ASTNode * operand, uint8_t * error_var, struct ASTNode * catch_block, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_string_interp_optimized(struct ASTNode * segments, int32_t segment_count, int32_t computed_size, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_syscall_optimized(struct ASTNode * number, struct ASTNode * * args, int32_t arg_count, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_ptr_from_usize_optimized(struct ASTNode * value, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_usize_from_ptr_optimized(struct ASTNode * ptr, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_program_optimized(struct ASTNode * * decls, int32_t decl_count, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_enum_decl_optimized(uint8_t * name, struct EnumVariant * variants, int32_t variant_count, int32_t is_export, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_error_decl_optimized(uint8_t * name, int32_t is_export, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_struct_decl_optimized(uint8_t * name, struct TypeParam * type_params, int32_t type_param_count, uint8_t * * interface_names, int32_t interface_count, struct ASTNode * * fields, int32_t field_count, struct ASTNode * * methods, int32_t method_count, int32_t is_export, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_union_decl_optimized(uint8_t * name, struct ASTNode * * variants, int32_t variant_count, struct ASTNode * * methods, int32_t method_count, int32_t is_extern, int32_t is_export, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_interface_decl_optimized(uint8_t * name, struct TypeParam * type_params, int32_t type_param_count, uint8_t * * composed_interfaces, int32_t composed_count, struct ASTNode * * method_sigs, int32_t method_sig_count, int32_t is_export, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_method_block_optimized(uint8_t * struct_name, uint8_t * union_name, struct ASTNode * * methods, int32_t method_count, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_type_alias_optimized(uint8_t * name, struct ASTNode * target_type, int32_t is_export, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_extern_var_decl_optimized(uint8_t * name, struct ASTNode * var_type, struct ASTNode * init_expr, int32_t is_const, int32_t is_extern, int32_t is_export, uint8_t * extern_lib_name, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_destructure_decl_optimized(uint8_t * * names, int32_t name_count, int32_t is_const, struct ASTNode * init, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_use_stmt_optimized(uint8_t * * path_segments, int32_t path_segment_count, uint8_t * item_name, uint8_t * alias, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_macro_decl_optimized(uint8_t * name, struct ASTNode * * params, int32_t param_count, uint8_t * return_tag, struct ASTNode * body, int32_t is_export, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_errdefer_stmt_optimized(struct ASTNode * body, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_va_start_optimized(struct ASTNode * ap, struct ASTNode * last_param, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_va_end_optimized(struct ASTNode * ap, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_va_arg_optimized(struct ASTNode * ap, struct ASTNode * arg_type, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_mc_eval_optimized(struct ASTNode * operand, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_mc_code_optimized(struct ASTNode * operand, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_mc_ast_optimized(struct ASTNode * operand, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_mc_error_optimized(struct ASTNode * operand, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_mc_interp_optimized(struct ASTNode * operand, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_mc_type_optimized(struct ASTNode * operand, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_type_named_optimized(uint8_t * name, struct ASTNode * * type_args, int32_t type_arg_count, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_type_pointer_optimized(struct ASTNode * pointed_type, int32_t is_ffi_pointer, int32_t is_const, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_type_array_optimized(struct ASTNode * element_type, struct ASTNode * size_expr, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_type_slice_optimized(struct ASTNode * element_type, struct ASTNode * size_expr, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_type_tuple_optimized(struct ASTNode * * element_types, int32_t element_count, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_type_error_union_optimized(struct ASTNode * payload_type, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
+static struct OptimizedASTNode * ast_new_type_atomic_optimized(struct ASTNode * inner_type, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena);
 static int32_t ast_get_number_value_new(struct OptimizedASTNode * node);
 static int32_t ast_get_bool_value_new(struct OptimizedASTNode * node);
 static int32_t ast_get_binary_op_new(struct OptimizedASTNode * node);
@@ -9613,6 +9648,632 @@ static __attribute__((unused)) struct OptimizedASTNode * ast_new_alignof_expr_op
         return _uya_ret;
     }
     node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 24, .u = (union ASTNodeDataNew){ .alignof_expr = ((struct ASTAlignofExprDataNew){.target = target, .is_type = is_type}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_match_expr_optimized(struct ASTNode * expr, struct ASTMatchArm * arms, int32_t arm_count, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)expr;
+    (void)arms;
+    (void)arm_count;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_MATCH_EXPR, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 17, .u = (union ASTNodeDataNew){ .match_expr = ((struct ASTMatchExprDataNew){.expr = expr, .arms = arms, .arm_count = arm_count}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_catch_expr_optimized(struct ASTNode * operand, uint8_t * error_var, struct ASTNode * catch_block, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)operand;
+    (void)error_var;
+    (void)catch_block;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_CATCH_EXPR, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 19, .u = (union ASTNodeDataNew){ .catch_expr = ((struct ASTCatchExprDataNew){.operand = operand, .error_var = error_var, .catch_block = catch_block}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_string_interp_optimized(struct ASTNode * segments, int32_t segment_count, int32_t computed_size, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)segments;
+    (void)segment_count;
+    (void)computed_size;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_STRING_INTERP, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 25, .u = (union ASTNodeDataNew){ .string_interp = ((struct ASTStringInterpDataNew){.segments = segments, .segment_count = segment_count, .computed_size = computed_size}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_syscall_optimized(struct ASTNode * number, struct ASTNode * * args, int32_t arg_count, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)number;
+    (void)args;
+    (void)arg_count;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_SYSCALL, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 27, .u = (union ASTNodeDataNew){ .syscall = ((struct ASTSyscallDataNew){.number = number, .args = args, .arg_count = arg_count}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_ptr_from_usize_optimized(struct ASTNode * value, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)value;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_PTR_FROM_USIZE, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 28, .u = (union ASTNodeDataNew){ .ptr_from_usize = ((struct ASTPtrFromUsizeDataNew){.value = value}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_usize_from_ptr_optimized(struct ASTNode * ptr, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)ptr;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_USIZE_FROM_PTR, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 29, .u = (union ASTNodeDataNew){ .usize_from_ptr = ((struct ASTUsizeFromPtrDataNew){.ptr = ptr}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_program_optimized(struct ASTNode * * decls, int32_t decl_count, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)decls;
+    (void)decl_count;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_PROGRAM, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 44, .u = (union ASTNodeDataNew){ .program = ((struct ASTProgramDataNew){.decls = decls, .decl_count = decl_count}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_enum_decl_optimized(uint8_t * name, struct EnumVariant * variants, int32_t variant_count, int32_t is_export, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)name;
+    (void)variants;
+    (void)variant_count;
+    (void)is_export;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_ENUM_DECL, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 45, .u = (union ASTNodeDataNew){ .enum_decl = ((struct ASTEnumDeclDataNew){.name = name, .variants = variants, .variant_count = variant_count, .is_export = is_export}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_error_decl_optimized(uint8_t * name, int32_t is_export, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)name;
+    (void)is_export;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_ERROR_DECL, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 46, .u = (union ASTNodeDataNew){ .error_decl = ((struct ASTErrorDeclDataNew){.name = name, .is_export = is_export}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_struct_decl_optimized(uint8_t * name, struct TypeParam * type_params, int32_t type_param_count, uint8_t * * interface_names, int32_t interface_count, struct ASTNode * * fields, int32_t field_count, struct ASTNode * * methods, int32_t method_count, int32_t is_export, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)name;
+    (void)type_params;
+    (void)type_param_count;
+    (void)interface_names;
+    (void)interface_count;
+    (void)fields;
+    (void)field_count;
+    (void)methods;
+    (void)method_count;
+    (void)is_export;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_STRUCT_DECL, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 47, .u = (union ASTNodeDataNew){ .struct_decl = ((struct ASTStructDeclDataNew){.name = name, .type_params = type_params, .type_param_count = type_param_count, .interface_names = interface_names, .interface_count = interface_count, .fields = fields, .field_count = field_count, .methods = methods, .method_count = method_count, .is_export = is_export}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_union_decl_optimized(uint8_t * name, struct ASTNode * * variants, int32_t variant_count, struct ASTNode * * methods, int32_t method_count, int32_t is_extern, int32_t is_export, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)name;
+    (void)variants;
+    (void)variant_count;
+    (void)methods;
+    (void)method_count;
+    (void)is_extern;
+    (void)is_export;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_UNION_DECL, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 48, .u = (union ASTNodeDataNew){ .union_decl = ((struct ASTUnionDeclDataNew){.name = name, .variants = variants, .variant_count = variant_count, .methods = methods, .method_count = method_count, .is_extern = is_extern, .is_export = is_export}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_interface_decl_optimized(uint8_t * name, struct TypeParam * type_params, int32_t type_param_count, uint8_t * * composed_interfaces, int32_t composed_count, struct ASTNode * * method_sigs, int32_t method_sig_count, int32_t is_export, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)name;
+    (void)type_params;
+    (void)type_param_count;
+    (void)composed_interfaces;
+    (void)composed_count;
+    (void)method_sigs;
+    (void)method_sig_count;
+    (void)is_export;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_INTERFACE_DECL, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 49, .u = (union ASTNodeDataNew){ .interface_decl = ((struct ASTInterfaceDeclDataNew){.name = name, .type_params = type_params, .type_param_count = type_param_count, .composed_interfaces = composed_interfaces, .composed_count = composed_count, .method_sigs = method_sigs, .method_sig_count = method_sig_count, .is_export = is_export}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_method_block_optimized(uint8_t * struct_name, uint8_t * union_name, struct ASTNode * * methods, int32_t method_count, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)struct_name;
+    (void)union_name;
+    (void)methods;
+    (void)method_count;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_METHOD_BLOCK, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 50, .u = (union ASTNodeDataNew){ .method_block = ((struct ASTMethodBlockDataNew){.struct_name = struct_name, .union_name = union_name, .methods = methods, .method_count = method_count}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_type_alias_optimized(uint8_t * name, struct ASTNode * target_type, int32_t is_export, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)name;
+    (void)target_type;
+    (void)is_export;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_TYPE_ALIAS, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 53, .u = (union ASTNodeDataNew){ .type_alias = ((struct ASTTypeAliasDataNew){.name = name, .target_type = target_type, .is_export = is_export}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_extern_var_decl_optimized(uint8_t * name, struct ASTNode * var_type, struct ASTNode * init_expr, int32_t is_const, int32_t is_extern, int32_t is_export, uint8_t * extern_lib_name, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)name;
+    (void)var_type;
+    (void)init_expr;
+    (void)is_const;
+    (void)is_extern;
+    (void)is_export;
+    (void)extern_lib_name;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_EXTERN_VAR_DECL, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 55, .u = (union ASTNodeDataNew){ .extern_var_decl = ((struct ASTExternVarDeclDataNew){.name = name, .var_type = var_type, .init_expr = init_expr, .is_const = is_const, .is_extern = is_extern, .is_export = is_export, .extern_lib_name = extern_lib_name}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_destructure_decl_optimized(uint8_t * * names, int32_t name_count, int32_t is_const, struct ASTNode * init, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)names;
+    (void)name_count;
+    (void)is_const;
+    (void)init;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_DESTRUCTURE_DECL, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 56, .u = (union ASTNodeDataNew){ .destructure_decl = ((struct ASTDestructureDeclDataNew){.names = names, .name_count = name_count, .is_const = is_const, .init = init}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_use_stmt_optimized(uint8_t * * path_segments, int32_t path_segment_count, uint8_t * item_name, uint8_t * alias, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)path_segments;
+    (void)path_segment_count;
+    (void)item_name;
+    (void)alias;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_USE_STMT, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 57, .u = (union ASTNodeDataNew){ .use_stmt = ((struct ASTUseStmtDataNew){.path_segments = path_segments, .path_segment_count = path_segment_count, .item_name = item_name, .alias = alias}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_macro_decl_optimized(uint8_t * name, struct ASTNode * * params, int32_t param_count, uint8_t * return_tag, struct ASTNode * body, int32_t is_export, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)name;
+    (void)params;
+    (void)param_count;
+    (void)return_tag;
+    (void)body;
+    (void)is_export;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_MACRO_DECL, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 52, .u = (union ASTNodeDataNew){ .macro_decl = ((struct ASTMacroDeclDataNew){.name = name, .params = params, .param_count = param_count, .return_tag = return_tag, .body = body, .is_export = is_export}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_errdefer_stmt_optimized(struct ASTNode * body, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)body;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_ERRDEFER_STMT, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 65, .u = (union ASTNodeDataNew){ .errdefer_stmt = ((struct ASTErrdeferStmtDataNew){.body = body}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_va_start_optimized(struct ASTNode * ap, struct ASTNode * last_param, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)ap;
+    (void)last_param;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_VA_START, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 30, .u = (union ASTNodeDataNew){ .va_start = ((struct ASTVaStartDataNew){.ap = ap, .last_param = last_param}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_va_end_optimized(struct ASTNode * ap, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)ap;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_VA_END, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 31, .u = (union ASTNodeDataNew){ .va_end = ((struct ASTVaEndDataNew){.ap = ap}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_va_arg_optimized(struct ASTNode * ap, struct ASTNode * arg_type, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)ap;
+    (void)arg_type;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_VA_ARG, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 32, .u = (union ASTNodeDataNew){ .va_arg = ((struct ASTVaArgDataNew){.ap = ap, .arg_type = arg_type}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_mc_eval_optimized(struct ASTNode * operand, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)operand;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_MC_EVAL, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 33, .u = (union ASTNodeDataNew){ .mc_eval = ((struct ASTMcEvalDataNew){.operand = operand}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_mc_code_optimized(struct ASTNode * operand, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)operand;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_MC_CODE, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 34, .u = (union ASTNodeDataNew){ .mc_code = ((struct ASTMcCodeDataNew){.operand = operand}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_mc_ast_optimized(struct ASTNode * operand, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)operand;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_MC_AST, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 35, .u = (union ASTNodeDataNew){ .mc_ast = ((struct ASTMcAstDataNew){.operand = operand}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_mc_error_optimized(struct ASTNode * operand, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)operand;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_MC_ERROR, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 36, .u = (union ASTNodeDataNew){ .mc_error = ((struct ASTMcErrorDataNew){.operand = operand}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_mc_interp_optimized(struct ASTNode * operand, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)operand;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_MC_INTERP, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 37, .u = (union ASTNodeDataNew){ .mc_interp = ((struct ASTMcInterpDataNew){.operand = operand}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_mc_type_optimized(struct ASTNode * operand, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)operand;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_MC_TYPE, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 38, .u = (union ASTNodeDataNew){ .mc_type = ((struct ASTMcTypeDataNew){.operand = operand}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_type_named_optimized(uint8_t * name, struct ASTNode * * type_args, int32_t type_arg_count, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)name;
+    (void)type_args;
+    (void)type_arg_count;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_TYPE_NAMED, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 70, .u = (union ASTNodeDataNew){ .type_named = ((struct ASTTypeNamedDataNew){.name = name, .type_args = type_args, .type_arg_count = type_arg_count}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_type_pointer_optimized(struct ASTNode * pointed_type, int32_t is_ffi_pointer, int32_t is_const, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)pointed_type;
+    (void)is_ffi_pointer;
+    (void)is_const;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_TYPE_POINTER, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 71, .u = (union ASTNodeDataNew){ .type_pointer = ((struct ASTTypePointerDataNew){.pointed_type = pointed_type, .is_ffi_pointer = is_ffi_pointer, .is_const = is_const}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_type_array_optimized(struct ASTNode * element_type, struct ASTNode * size_expr, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)element_type;
+    (void)size_expr;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_TYPE_ARRAY, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 72, .u = (union ASTNodeDataNew){ .type_array = ((struct ASTTypeArrayDataNew){.element_type = element_type, .size_expr = size_expr}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_type_slice_optimized(struct ASTNode * element_type, struct ASTNode * size_expr, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)element_type;
+    (void)size_expr;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_TYPE_SLICE, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 73, .u = (union ASTNodeDataNew){ .type_slice = ((struct ASTTypeSliceDataNew){.element_type = element_type, .size_expr = size_expr}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_type_tuple_optimized(struct ASTNode * * element_types, int32_t element_count, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)element_types;
+    (void)element_count;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_TYPE_TUPLE, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 74, .u = (union ASTNodeDataNew){ .type_tuple = ((struct ASTTypeTupleDataNew){.element_types = element_types, .element_count = element_count}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_type_error_union_optimized(struct ASTNode * payload_type, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)payload_type;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_TYPE_ERROR_UNION, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 75, .u = (union ASTNodeDataNew){ .type_error_union = ((struct ASTTypeErrorUnionDataNew){.payload_type = payload_type}) } });
+    struct OptimizedASTNode * _uya_ret = node;
+    return _uya_ret;
+}
+
+static __attribute__((unused)) struct OptimizedASTNode * ast_new_type_atomic_optimized(struct ASTNode * inner_type, int32_t line, int32_t column, uint8_t * filename, struct Arena * arena) {
+    (void)inner_type;
+    (void)line;
+    (void)column;
+    (void)filename;
+    (void)arena;
+    struct OptimizedASTNode * const node = ast_new_optimized_base(AST_TYPE_ATOMIC, line, column, (uint8_t *)filename, arena);
+    if ((node == NULL)) {
+        struct OptimizedASTNode * _uya_ret = NULL;
+        return _uya_ret;
+    }
+    node->data = ((struct uya_tagged_ASTNodeDataNew){ ._tag = 76, .u = (union ASTNodeDataNew){ .type_atomic = ((struct ASTTypeAtomicDataNew){.inner_type = inner_type}) } });
     struct OptimizedASTNode * _uya_ret = node;
     return _uya_ret;
 }
