@@ -26,7 +26,6 @@ compiler-mini/tests/programs/build/
 .comate/
 compiler-c/build/
 bin/*
-!bin/uya.c
 tests/programs/build/
 lib/build/
 test_std_io.txt
