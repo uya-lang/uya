@@ -675,14 +675,6 @@ fn ast_set_binary_op_new(node: &OptimizedASTNode, op: i32) void {
     };
 }
 
-// 获取变量声明是否常量
-fn ast_get_var_is_const_new(node: &OptimizedASTNode) i32 {
-    return match node.data {
-        .var_decl(v) => v.is_const,
-        else => 0,
-    };
-}
-
 // 获取函数声明参数数量
 fn ast_get_fn_param_count_new(node: &OptimizedASTNode) i32 {
     return match node.data {
@@ -695,6 +687,538 @@ fn ast_get_fn_param_count_new(node: &OptimizedASTNode) i32 {
 fn ast_get_block_stmt_count_new(node: &OptimizedASTNode) i32 {
     return match node.data {
         .block(b) => b.stmt_count,
+        else => 0,
+    };
+}
+
+// ========================================
+// 字面量类型辅助函数
+// ========================================
+
+// 获取浮点数值
+fn ast_get_float_value_new(node: &OptimizedASTNode) f64 {
+    return match node.data {
+        .float_literal(f) => f.value,
+        else => 0.0,
+    };
+}
+
+// 设置浮点数值
+fn ast_set_float_value_new(node: &OptimizedASTNode, value: f64) void {
+    match node.data {
+        .float_literal(f) => { f.value = value; },
+        else => {},
+    };
+}
+
+// ========================================
+// 表达式类型辅助函数
+// ========================================
+
+// 获取一元表达式操作符
+fn ast_get_unary_op_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .unary_expr(u) => u.op,
+        else => 0,
+    };
+}
+
+// 设置一元表达式操作符
+fn ast_set_unary_op_new(node: &OptimizedASTNode, op: i32) void {
+    match node.data {
+        .unary_expr(u) => { u.op = op; },
+        else => {},
+    };
+}
+
+// 获取调用表达式参数数量
+fn ast_get_call_arg_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .call_expr(c) => c.arg_count,
+        else => 0,
+    };
+}
+
+// 设置调用表达式参数数量
+fn ast_set_call_arg_count_new(node: &OptimizedASTNode, count: i32) void {
+    match node.data {
+        .call_expr(c) => { c.arg_count = count; },
+        else => {},
+    };
+}
+
+// 获取调用表达式类型参数数量
+fn ast_get_call_type_arg_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .call_expr(c) => c.type_arg_count,
+        else => 0,
+    };
+}
+
+// 获取数组字面量元素数量
+fn ast_get_array_literal_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .array_literal(a) => a.element_count,
+        else => 0,
+    };
+}
+
+// 设置数组字面量元素数量
+fn ast_set_array_literal_count_new(node: &OptimizedASTNode, count: i32) void {
+    match node.data {
+        .array_literal(a) => { a.element_count = count; },
+        else => {},
+    };
+}
+
+// 获取元组字面量元素数量
+fn ast_get_tuple_literal_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .tuple_literal(t) => t.element_count,
+        else => 0,
+    };
+}
+
+// 获取 match 表达式臂数量
+fn ast_get_match_arm_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .match_expr(m) => m.arm_count,
+        else => 0,
+    };
+}
+
+// 获取 cast 是否强制转换
+fn ast_get_cast_is_force_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .cast_expr(c) => c.is_force_cast,
+        else => 0,
+    };
+}
+
+// 获取结构体初始化字段数量
+fn ast_get_struct_init_field_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .struct_init(s) => s.field_count,
+        else => 0,
+    };
+}
+
+// 获取结构体初始化类型参数数量
+fn ast_get_struct_init_type_arg_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .struct_init(s) => s.type_arg_count,
+        else => 0,
+    };
+}
+
+// 获取字符串插值段数量
+fn ast_get_string_interp_segment_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .string_interp(s) => s.segment_count,
+        else => 0,
+    };
+}
+
+// 获取字符串插值计算大小
+fn ast_get_string_interp_size_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .string_interp(s) => s.computed_size,
+        else => 0,
+    };
+}
+
+// 设置字符串插值计算大小
+fn ast_set_string_interp_size_new(node: &OptimizedASTNode, size: i32) void {
+    match node.data {
+        .string_interp(s) => { s.computed_size = size; },
+        else => {},
+    };
+}
+
+// 获取系统调用参数数量
+fn ast_get_syscall_arg_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .syscall(s) => s.arg_count,
+        else => 0,
+    };
+}
+
+// 获取 int_limit 是否为最大值
+fn ast_get_int_limit_is_max_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .int_limit(i) => i.is_max,
+        else => 0,
+    };
+}
+
+// 获取 int_limit 解析的类型
+fn ast_get_int_limit_resolved_kind_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .int_limit(i) => i.resolved_kind,
+        else => 0,
+    };
+}
+
+// ========================================
+// 语句类型辅助函数
+// ========================================
+
+// 获取 for 循环是否为范围循环
+fn ast_get_for_is_range_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .for_stmt(f) => f.is_range,
+        else => 0,
+    };
+}
+
+// 获取 for 循环是否为引用
+fn ast_get_for_is_ref_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .for_stmt(f) => f.range_is_ref,
+        else => 0,
+    };
+}
+
+// 获取 defer 是否为 errdefer
+fn ast_get_defer_is_errdefer_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .defer_stmt(d) => d.is_errdefer,
+        else => 0,
+    };
+}
+
+// ========================================
+// 声明类型辅助函数
+// ========================================
+
+// 获取枚举声明变体数量
+fn ast_get_enum_variant_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .enum_decl(e) => e.variant_count,
+        else => 0,
+    };
+}
+
+// 获取枚举声明是否导出
+fn ast_get_enum_is_export_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .enum_decl(e) => e.is_export,
+        else => 0,
+    };
+}
+
+// 获取结构体声明字段数量
+fn ast_get_struct_field_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .struct_decl(s) => s.field_count,
+        else => 0,
+    };
+}
+
+// 获取结构体声明方法数量
+fn ast_get_struct_method_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .struct_decl(s) => s.method_count,
+        else => 0,
+    };
+}
+
+// 获取结构体声明类型参数数量
+fn ast_get_struct_type_param_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .struct_decl(s) => s.type_param_count,
+        else => 0,
+    };
+}
+
+// 获取结构体声明接口数量
+fn ast_get_struct_interface_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .struct_decl(s) => s.interface_count,
+        else => 0,
+    };
+}
+
+// 获取结构体声明是否导出
+fn ast_get_struct_is_export_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .struct_decl(s) => s.is_export,
+        else => 0,
+    };
+}
+
+// 获取联合体声明变体数量
+fn ast_get_union_variant_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .union_decl(u) => u.variant_count,
+        else => 0,
+    };
+}
+
+// 获取联合体声明方法数量
+fn ast_get_union_method_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .union_decl(u) => u.method_count,
+        else => 0,
+    };
+}
+
+// 获取联合体声明是否 extern
+fn ast_get_union_is_extern_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .union_decl(u) => u.is_extern,
+        else => 0,
+    };
+}
+
+// 获取联合体声明是否导出
+fn ast_get_union_is_export_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .union_decl(u) => u.is_export,
+        else => 0,
+    };
+}
+
+// 获取接口声明方法签名数量
+fn ast_get_interface_method_sig_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .interface_decl(i) => i.method_sig_count,
+        else => 0,
+    };
+}
+
+// 获取接口声明组合接口数量
+fn ast_get_interface_composed_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .interface_decl(i) => i.composed_count,
+        else => 0,
+    };
+}
+
+// 获取接口声明类型参数数量
+fn ast_get_interface_type_param_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .interface_decl(i) => i.type_param_count,
+        else => 0,
+    };
+}
+
+// 获取接口声明是否导出
+fn ast_get_interface_is_export_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .interface_decl(i) => i.is_export,
+        else => 0,
+    };
+}
+
+// 获取方法块方法数量
+fn ast_get_method_block_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .method_block(m) => m.method_count,
+        else => 0,
+    };
+}
+
+// 获取函数声明类型参数数量
+fn ast_get_fn_type_param_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .fn_decl(f) => f.type_param_count,
+        else => 0,
+    };
+}
+
+// 获取函数声明是否导出
+fn ast_get_fn_is_export_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .fn_decl(f) => f.is_export,
+        else => 0,
+    };
+}
+
+// 获取函数声明是否 extern
+fn ast_get_fn_is_extern_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .fn_decl(f) => f.is_extern,
+        else => 0,
+    };
+}
+
+// 获取函数声明是否 varargs
+fn ast_get_fn_is_varargs_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .fn_decl(f) => f.is_varargs,
+        else => 0,
+    };
+}
+
+// 获取函数声明是否 async
+fn ast_get_fn_is_async_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .fn_decl(f) => f.is_async,
+        else => 0,
+    };
+}
+
+// 获取宏声明参数数量
+fn ast_get_macro_param_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .macro_decl(m) => m.param_count,
+        else => 0,
+    };
+}
+
+// 获取宏声明是否导出
+fn ast_get_macro_is_export_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .macro_decl(m) => m.is_export,
+        else => 0,
+    };
+}
+
+// 获取变量声明是否常量
+fn ast_get_var_is_const_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .var_decl(v) => v.is_const,
+        else => 0,
+    };
+}
+
+// 设置变量声明是否常量
+fn ast_set_var_is_const_new(node: &OptimizedASTNode, is_const: i32) void {
+    match node.data {
+        .var_decl(v) => { v.is_const = is_const; },
+        else => {},
+    };
+}
+
+// 获取变量声明是否导出
+fn ast_get_var_is_export_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .var_decl(v) => v.is_export,
+        else => 0,
+    };
+}
+
+// 获取变量声明是否已移动
+fn ast_get_var_was_moved_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .var_decl(v) => v.was_moved,
+        else => 0,
+    };
+}
+
+// 设置变量声明是否已移动
+fn ast_set_var_was_moved_new(node: &OptimizedASTNode, was_moved: i32) void {
+    match node.data {
+        .var_decl(v) => { v.was_moved = was_moved; },
+        else => {},
+    };
+}
+
+// 获取 extern 变量声明是否常量
+fn ast_get_extern_var_is_const_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .extern_var_decl(e) => e.is_const,
+        else => 0,
+    };
+}
+
+// 获取 extern 变量声明是否 extern
+fn ast_get_extern_var_is_extern_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .extern_var_decl(e) => e.is_extern,
+        else => 0,
+    };
+}
+
+// 获取 extern 变量声明是否导出
+fn ast_get_extern_var_is_export_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .extern_var_decl(e) => e.is_export,
+        else => 0,
+    };
+}
+
+// 获取解构声明名称数量
+fn ast_get_destructure_name_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .destructure_decl(d) => d.name_count,
+        else => 0,
+    };
+}
+
+// 获取解构声明是否常量
+fn ast_get_destructure_is_const_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .destructure_decl(d) => d.is_const,
+        else => 0,
+    };
+}
+
+// 获取 use 语句路径段数量
+fn ast_get_use_path_segment_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .use_stmt(u) => u.path_segment_count,
+        else => 0,
+    };
+}
+
+// 获取类型别名是否导出
+fn ast_get_type_alias_is_export_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .type_alias(t) => t.is_export,
+        else => 0,
+    };
+}
+
+// 获取错误声明是否导出
+fn ast_get_error_decl_is_export_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .error_decl(e) => e.is_export,
+        else => 0,
+    };
+}
+
+// 获取程序声明数量
+fn ast_get_program_decl_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .program(p) => p.decl_count,
+        else => 0,
+    };
+}
+
+// ========================================
+// 类型节点辅助函数
+// ========================================
+
+// 获取命名类型类型参数数量
+fn ast_get_type_named_type_arg_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .type_named(t) => t.type_arg_count,
+        else => 0,
+    };
+}
+
+// 获取指针类型是否 FFI 指针
+fn ast_get_type_pointer_is_ffi_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .type_pointer(t) => t.is_ffi_pointer,
+        else => 0,
+    };
+}
+
+// 获取指针类型是否 const
+fn ast_get_type_pointer_is_const_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .type_pointer(t) => t.is_const,
+        else => 0,
+    };
+}
+
+// 获取元组类型元素数量
+fn ast_get_type_tuple_count_new(node: &OptimizedASTNode) i32 {
+    return match node.data {
+        .type_tuple(t) => t.element_count,
         else => 0,
     };
 }
