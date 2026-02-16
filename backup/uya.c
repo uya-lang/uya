@@ -3086,6 +3086,112 @@ static int32_t ast_get_type_named_type_arg_count_new(struct OptimizedASTNode * n
 static int32_t ast_get_type_pointer_is_ffi_new(struct OptimizedASTNode * node);
 static int32_t ast_get_type_pointer_is_const_new(struct OptimizedASTNode * node);
 static int32_t ast_get_type_tuple_count_new(struct OptimizedASTNode * node);
+static uint8_t * ast_get_identifier_name_compat(struct ASTNode * node);
+static void ast_set_identifier_name_compat(struct ASTNode * node, uint8_t * name);
+static int32_t ast_get_number_value_compat(struct ASTNode * node);
+static void ast_set_number_value_compat(struct ASTNode * node, int32_t value);
+static uint8_t * ast_get_string_value_compat(struct ASTNode * node);
+static void ast_set_string_value_compat(struct ASTNode * node, uint8_t * value);
+static int32_t ast_get_bool_value_compat(struct ASTNode * node);
+static void ast_set_bool_value_compat(struct ASTNode * node, int32_t value);
+static struct ASTNode * ast_get_binary_left_compat(struct ASTNode * node);
+static void ast_set_binary_left_compat(struct ASTNode * node, struct ASTNode * left);
+static struct ASTNode * ast_get_binary_right_compat(struct ASTNode * node);
+static void ast_set_binary_right_compat(struct ASTNode * node, struct ASTNode * right);
+static int32_t ast_get_binary_op_compat(struct ASTNode * node);
+static void ast_set_binary_op_compat(struct ASTNode * node, int32_t op);
+static uint8_t * ast_get_var_decl_name_compat(struct ASTNode * node);
+static void ast_set_var_decl_name_compat(struct ASTNode * node, uint8_t * name);
+static struct ASTNode * ast_get_var_decl_type_compat(struct ASTNode * node);
+static void ast_set_var_decl_type_compat(struct ASTNode * node, struct ASTNode * var_type);
+static struct ASTNode * ast_get_var_decl_init_compat(struct ASTNode * node);
+static void ast_set_var_decl_init_compat(struct ASTNode * node, struct ASTNode * init);
+static uint8_t * ast_get_fn_decl_name_compat(struct ASTNode * node);
+static void ast_set_fn_decl_name_compat(struct ASTNode * node, uint8_t * name);
+static struct ASTNode * * ast_get_fn_decl_params_compat(struct ASTNode * node);
+static void ast_set_fn_decl_params_compat(struct ASTNode * node, struct ASTNode * * params);
+static int32_t ast_get_fn_decl_param_count_compat(struct ASTNode * node);
+static void ast_set_fn_decl_param_count_compat(struct ASTNode * node, int32_t count);
+static struct ASTNode * ast_get_fn_decl_return_type_compat(struct ASTNode * node);
+static void ast_set_fn_decl_return_type_compat(struct ASTNode * node, struct ASTNode * return_type);
+static struct ASTNode * ast_get_fn_decl_body_compat(struct ASTNode * node);
+static void ast_set_fn_decl_body_compat(struct ASTNode * node, struct ASTNode * body);
+static struct ASTNode * * ast_get_program_decls_compat(struct ASTNode * node);
+static void ast_set_program_decls_compat(struct ASTNode * node, struct ASTNode * * decls);
+static int32_t ast_get_program_decl_count_compat(struct ASTNode * node);
+static void ast_set_program_decl_count_compat(struct ASTNode * node, int32_t count);
+static struct ASTNode * ast_get_call_expr_callee_compat(struct ASTNode * node);
+static void ast_set_call_expr_callee_compat(struct ASTNode * node, struct ASTNode * callee);
+static struct ASTNode * * ast_get_call_expr_args_compat(struct ASTNode * node);
+static void ast_set_call_expr_args_compat(struct ASTNode * node, struct ASTNode * * args);
+static int32_t ast_get_call_expr_arg_count_compat(struct ASTNode * node);
+static void ast_set_call_expr_arg_count_compat(struct ASTNode * node, int32_t count);
+static uint8_t * ast_get_type_named_name_compat(struct ASTNode * node);
+static void ast_set_type_named_name_compat(struct ASTNode * node, uint8_t * name);
+static struct ASTNode * ast_get_pointer_to_compat(struct ASTNode * node);
+static void ast_set_pointer_to_compat(struct ASTNode * node, struct ASTNode * target);
+static struct ASTNode * ast_get_array_element_type_compat(struct ASTNode * node);
+static void ast_set_array_element_type_compat(struct ASTNode * node, struct ASTNode * elem_type);
+static struct ASTNode * ast_get_array_size_expr_compat(struct ASTNode * node);
+static void ast_set_array_size_expr_compat(struct ASTNode * node, struct ASTNode * size_expr);
+static struct ASTNode * ast_get_slice_element_type_compat(struct ASTNode * node);
+static void ast_set_slice_element_type_compat(struct ASTNode * node, struct ASTNode * elem_type);
+static struct ASTNode * ast_get_member_access_object_compat(struct ASTNode * node);
+static void ast_set_member_access_object_compat(struct ASTNode * node, struct ASTNode * object);
+static uint8_t * ast_get_member_access_field_name_compat(struct ASTNode * node);
+static void ast_set_member_access_field_name_compat(struct ASTNode * node, uint8_t * name);
+static int32_t ast_get_unary_expr_op_compat(struct ASTNode * node);
+static void ast_set_unary_expr_op_compat(struct ASTNode * node, int32_t op);
+static struct ASTNode * ast_get_unary_expr_operand_compat(struct ASTNode * node);
+static void ast_set_unary_expr_operand_compat(struct ASTNode * node, struct ASTNode * operand);
+static uint8_t * ast_get_struct_decl_name_compat(struct ASTNode * node);
+static void ast_set_struct_decl_name_compat(struct ASTNode * node, uint8_t * name);
+static struct ASTNode * * ast_get_struct_decl_fields_compat(struct ASTNode * node);
+static void ast_set_struct_decl_fields_compat(struct ASTNode * node, struct ASTNode * * fields);
+static int32_t ast_get_struct_decl_field_count_compat(struct ASTNode * node);
+static void ast_set_struct_decl_field_count_compat(struct ASTNode * node, int32_t count);
+static uint8_t * ast_get_union_decl_name_compat(struct ASTNode * node);
+static void ast_set_union_decl_name_compat(struct ASTNode * node, uint8_t * name);
+static struct ASTNode * * ast_get_union_decl_variants_compat(struct ASTNode * node);
+static void ast_set_union_decl_variants_compat(struct ASTNode * node, struct ASTNode * * variants);
+static int32_t ast_get_union_decl_variant_count_compat(struct ASTNode * node);
+static void ast_set_union_decl_variant_count_compat(struct ASTNode * node, int32_t count);
+static uint8_t * ast_get_enum_decl_name_compat(struct ASTNode * node);
+static void ast_set_enum_decl_name_compat(struct ASTNode * node, uint8_t * name);
+static struct ASTNode * ast_get_error_union_payload_type_compat(struct ASTNode * node);
+static void ast_set_error_union_payload_type_compat(struct ASTNode * node, struct ASTNode * payload_type);
+static struct ASTNode * ast_get_if_stmt_condition_compat(struct ASTNode * node);
+static void ast_set_if_stmt_condition_compat(struct ASTNode * node, struct ASTNode * condition);
+static struct ASTNode * ast_get_if_stmt_then_branch_compat(struct ASTNode * node);
+static void ast_set_if_stmt_then_branch_compat(struct ASTNode * node, struct ASTNode * branch);
+static struct ASTNode * ast_get_if_stmt_else_branch_compat(struct ASTNode * node);
+static void ast_set_if_stmt_else_branch_compat(struct ASTNode * node, struct ASTNode * branch);
+static struct ASTNode * ast_get_while_stmt_condition_compat(struct ASTNode * node);
+static void ast_set_while_stmt_condition_compat(struct ASTNode * node, struct ASTNode * condition);
+static struct ASTNode * ast_get_while_stmt_body_compat(struct ASTNode * node);
+static void ast_set_while_stmt_body_compat(struct ASTNode * node, struct ASTNode * body);
+static struct ASTNode * ast_get_for_stmt_array_compat(struct ASTNode * node);
+static void ast_set_for_stmt_array_compat(struct ASTNode * node, struct ASTNode * array);
+static uint8_t * ast_get_for_stmt_var_name_compat(struct ASTNode * node);
+static void ast_set_for_stmt_var_name_compat(struct ASTNode * node, uint8_t * name);
+static struct ASTNode * ast_get_for_stmt_body_compat(struct ASTNode * node);
+static void ast_set_for_stmt_body_compat(struct ASTNode * node, struct ASTNode * body);
+static struct ASTNode * * ast_get_block_statements_compat(struct ASTNode * node);
+static void ast_set_block_statements_compat(struct ASTNode * node, struct ASTNode * * stmts);
+static int32_t ast_get_block_statement_count_compat(struct ASTNode * node);
+static void ast_set_block_statement_count_compat(struct ASTNode * node, int32_t count);
+static struct ASTNode * ast_get_return_stmt_value_compat(struct ASTNode * node);
+static void ast_set_return_stmt_value_compat(struct ASTNode * node, struct ASTNode * value);
+static struct ASTNode * ast_get_assign_target_compat(struct ASTNode * node);
+static void ast_set_assign_target_compat(struct ASTNode * node, struct ASTNode * target);
+static struct ASTNode * ast_get_assign_value_compat(struct ASTNode * node);
+static void ast_set_assign_value_compat(struct ASTNode * node, struct ASTNode * value);
+static struct ASTNode * ast_get_match_expr_scrutinee_compat(struct ASTNode * node);
+static void ast_set_match_expr_scrutinee_compat(struct ASTNode * node, struct ASTNode * scrutinee);
+static struct ASTMatchArm * ast_get_match_expr_arms_compat(struct ASTNode * node);
+static void ast_set_match_expr_arms_compat(struct ASTNode * node, struct ASTMatchArm * arms);
+static int32_t ast_get_match_expr_arm_count_compat(struct ASTNode * node);
+static void ast_set_match_expr_arm_count_compat(struct ASTNode * node, int32_t count);
 static int32_t checker_interp_format_max_width(struct Type t, uint8_t * spec);
 static struct Type copy_type(const struct Type * t);
 static int32_t hash_string(uint8_t * str);
@@ -10760,6 +10866,642 @@ static __attribute__((unused)) int32_t ast_get_type_tuple_count_new(struct Optim
                                     (void)node;
                                     int32_t _uya_ret = ({ struct uya_tagged_ASTNodeDataNew _uya_m = node->data; int32_t _uya_r; if (_uya_m._tag == 74) { struct ASTTypeTupleDataNew t = _uya_m.u.type_tuple; _uya_r = t.element_count; } else { _uya_r = 0; } _uya_r; });
                                     return _uya_ret;
+                                }
+
+static __attribute__((unused)) uint8_t * ast_get_identifier_name_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    uint8_t * _uya_ret = node->identifier_name;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_identifier_name_compat(struct ASTNode * node, uint8_t * name) {
+                                    (void)node;
+                                    (void)name;
+                                    node->identifier_name = name;
+                                }
+
+static __attribute__((unused)) int32_t ast_get_number_value_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    int32_t _uya_ret = node->number_value;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_number_value_compat(struct ASTNode * node, int32_t value) {
+                                    (void)node;
+                                    (void)value;
+                                    node->number_value = value;
+                                }
+
+static __attribute__((unused)) uint8_t * ast_get_string_value_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    uint8_t * _uya_ret = node->string_literal_value;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_string_value_compat(struct ASTNode * node, uint8_t * value) {
+                                    (void)node;
+                                    (void)value;
+                                    node->string_literal_value = value;
+                                }
+
+static __attribute__((unused)) int32_t ast_get_bool_value_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    int32_t _uya_ret = node->bool_literal_value;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_bool_value_compat(struct ASTNode * node, int32_t value) {
+                                    (void)node;
+                                    (void)value;
+                                    node->bool_literal_value = value;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_binary_left_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->binary_expr_left;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_binary_left_compat(struct ASTNode * node, struct ASTNode * left) {
+                                    (void)node;
+                                    (void)left;
+                                    node->binary_expr_left = left;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_binary_right_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->binary_expr_right;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_binary_right_compat(struct ASTNode * node, struct ASTNode * right) {
+                                    (void)node;
+                                    (void)right;
+                                    node->binary_expr_right = right;
+                                }
+
+static __attribute__((unused)) int32_t ast_get_binary_op_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    int32_t _uya_ret = node->binary_expr_op;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_binary_op_compat(struct ASTNode * node, int32_t op) {
+                                    (void)node;
+                                    (void)op;
+                                    node->binary_expr_op = op;
+                                }
+
+static __attribute__((unused)) uint8_t * ast_get_var_decl_name_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    uint8_t * _uya_ret = node->var_decl_name;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_var_decl_name_compat(struct ASTNode * node, uint8_t * name) {
+                                    (void)node;
+                                    (void)name;
+                                    node->var_decl_name = name;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_var_decl_type_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->var_decl_type;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_var_decl_type_compat(struct ASTNode * node, struct ASTNode * var_type) {
+                                    (void)node;
+                                    (void)var_type;
+                                    node->var_decl_type = var_type;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_var_decl_init_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->var_decl_init;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_var_decl_init_compat(struct ASTNode * node, struct ASTNode * init) {
+                                    (void)node;
+                                    (void)init;
+                                    node->var_decl_init = init;
+                                }
+
+static __attribute__((unused)) uint8_t * ast_get_fn_decl_name_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    uint8_t * _uya_ret = node->fn_decl_name;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_fn_decl_name_compat(struct ASTNode * node, uint8_t * name) {
+                                    (void)node;
+                                    (void)name;
+                                    node->fn_decl_name = name;
+                                }
+
+static __attribute__((unused)) struct ASTNode * * ast_get_fn_decl_params_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * * _uya_ret = node->fn_decl_params;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_fn_decl_params_compat(struct ASTNode * node, struct ASTNode * * params) {
+                                    (void)node;
+                                    (void)params;
+                                    node->fn_decl_params = params;
+                                }
+
+static __attribute__((unused)) int32_t ast_get_fn_decl_param_count_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    int32_t _uya_ret = node->fn_decl_param_count;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_fn_decl_param_count_compat(struct ASTNode * node, int32_t count) {
+                                    (void)node;
+                                    (void)count;
+                                    node->fn_decl_param_count = count;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_fn_decl_return_type_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->fn_decl_return_type;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_fn_decl_return_type_compat(struct ASTNode * node, struct ASTNode * return_type) {
+                                    (void)node;
+                                    (void)return_type;
+                                    node->fn_decl_return_type = return_type;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_fn_decl_body_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->fn_decl_body;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_fn_decl_body_compat(struct ASTNode * node, struct ASTNode * body) {
+                                    (void)node;
+                                    (void)body;
+                                    node->fn_decl_body = body;
+                                }
+
+static __attribute__((unused)) struct ASTNode * * ast_get_program_decls_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * * _uya_ret = node->program_decls;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_program_decls_compat(struct ASTNode * node, struct ASTNode * * decls) {
+                                    (void)node;
+                                    (void)decls;
+                                    node->program_decls = decls;
+                                }
+
+static __attribute__((unused)) int32_t ast_get_program_decl_count_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    int32_t _uya_ret = node->program_decl_count;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_program_decl_count_compat(struct ASTNode * node, int32_t count) {
+                                    (void)node;
+                                    (void)count;
+                                    node->program_decl_count = count;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_call_expr_callee_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->call_expr_callee;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_call_expr_callee_compat(struct ASTNode * node, struct ASTNode * callee) {
+                                    (void)node;
+                                    (void)callee;
+                                    node->call_expr_callee = callee;
+                                }
+
+static __attribute__((unused)) struct ASTNode * * ast_get_call_expr_args_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * * _uya_ret = node->call_expr_args;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_call_expr_args_compat(struct ASTNode * node, struct ASTNode * * args) {
+                                    (void)node;
+                                    (void)args;
+                                    node->call_expr_args = args;
+                                }
+
+static __attribute__((unused)) int32_t ast_get_call_expr_arg_count_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    int32_t _uya_ret = node->call_expr_arg_count;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_call_expr_arg_count_compat(struct ASTNode * node, int32_t count) {
+                                    (void)node;
+                                    (void)count;
+                                    node->call_expr_arg_count = count;
+                                }
+
+static __attribute__((unused)) uint8_t * ast_get_type_named_name_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    uint8_t * _uya_ret = node->type_named_name;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_type_named_name_compat(struct ASTNode * node, uint8_t * name) {
+                                    (void)node;
+                                    (void)name;
+                                    node->type_named_name = name;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_pointer_to_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->type_pointer_pointed_type;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_pointer_to_compat(struct ASTNode * node, struct ASTNode * target) {
+                                    (void)node;
+                                    (void)target;
+                                    node->type_pointer_pointed_type = target;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_array_element_type_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->type_array_element_type;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_array_element_type_compat(struct ASTNode * node, struct ASTNode * elem_type) {
+                                    (void)node;
+                                    (void)elem_type;
+                                    node->type_array_element_type = elem_type;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_array_size_expr_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->type_array_size_expr;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_array_size_expr_compat(struct ASTNode * node, struct ASTNode * size_expr) {
+                                    (void)node;
+                                    (void)size_expr;
+                                    node->type_array_size_expr = size_expr;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_slice_element_type_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->type_slice_element_type;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_slice_element_type_compat(struct ASTNode * node, struct ASTNode * elem_type) {
+                                    (void)node;
+                                    (void)elem_type;
+                                    node->type_slice_element_type = elem_type;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_member_access_object_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->member_access_object;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_member_access_object_compat(struct ASTNode * node, struct ASTNode * object) {
+                                    (void)node;
+                                    (void)object;
+                                    node->member_access_object = object;
+                                }
+
+static __attribute__((unused)) uint8_t * ast_get_member_access_field_name_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    uint8_t * _uya_ret = node->member_access_field_name;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_member_access_field_name_compat(struct ASTNode * node, uint8_t * name) {
+                                    (void)node;
+                                    (void)name;
+                                    node->member_access_field_name = name;
+                                }
+
+static __attribute__((unused)) int32_t ast_get_unary_expr_op_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    int32_t _uya_ret = node->unary_expr_op;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_unary_expr_op_compat(struct ASTNode * node, int32_t op) {
+                                    (void)node;
+                                    (void)op;
+                                    node->unary_expr_op = op;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_unary_expr_operand_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->unary_expr_operand;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_unary_expr_operand_compat(struct ASTNode * node, struct ASTNode * operand) {
+                                    (void)node;
+                                    (void)operand;
+                                    node->unary_expr_operand = operand;
+                                }
+
+static __attribute__((unused)) uint8_t * ast_get_struct_decl_name_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    uint8_t * _uya_ret = node->struct_decl_name;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_struct_decl_name_compat(struct ASTNode * node, uint8_t * name) {
+                                    (void)node;
+                                    (void)name;
+                                    node->struct_decl_name = name;
+                                }
+
+static __attribute__((unused)) struct ASTNode * * ast_get_struct_decl_fields_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * * _uya_ret = node->struct_decl_fields;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_struct_decl_fields_compat(struct ASTNode * node, struct ASTNode * * fields) {
+                                    (void)node;
+                                    (void)fields;
+                                    node->struct_decl_fields = fields;
+                                }
+
+static __attribute__((unused)) int32_t ast_get_struct_decl_field_count_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    int32_t _uya_ret = node->struct_decl_field_count;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_struct_decl_field_count_compat(struct ASTNode * node, int32_t count) {
+                                    (void)node;
+                                    (void)count;
+                                    node->struct_decl_field_count = count;
+                                }
+
+static __attribute__((unused)) uint8_t * ast_get_union_decl_name_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    uint8_t * _uya_ret = node->union_decl_name;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_union_decl_name_compat(struct ASTNode * node, uint8_t * name) {
+                                    (void)node;
+                                    (void)name;
+                                    node->union_decl_name = name;
+                                }
+
+static __attribute__((unused)) struct ASTNode * * ast_get_union_decl_variants_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * * _uya_ret = node->union_decl_variants;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_union_decl_variants_compat(struct ASTNode * node, struct ASTNode * * variants) {
+                                    (void)node;
+                                    (void)variants;
+                                    node->union_decl_variants = variants;
+                                }
+
+static __attribute__((unused)) int32_t ast_get_union_decl_variant_count_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    int32_t _uya_ret = node->union_decl_variant_count;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_union_decl_variant_count_compat(struct ASTNode * node, int32_t count) {
+                                    (void)node;
+                                    (void)count;
+                                    node->union_decl_variant_count = count;
+                                }
+
+static __attribute__((unused)) uint8_t * ast_get_enum_decl_name_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    uint8_t * _uya_ret = node->enum_decl_name;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_enum_decl_name_compat(struct ASTNode * node, uint8_t * name) {
+                                    (void)node;
+                                    (void)name;
+                                    node->enum_decl_name = name;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_error_union_payload_type_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->type_error_union_payload_type;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_error_union_payload_type_compat(struct ASTNode * node, struct ASTNode * payload_type) {
+                                    (void)node;
+                                    (void)payload_type;
+                                    node->type_error_union_payload_type = payload_type;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_if_stmt_condition_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->if_stmt_condition;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_if_stmt_condition_compat(struct ASTNode * node, struct ASTNode * condition) {
+                                    (void)node;
+                                    (void)condition;
+                                    node->if_stmt_condition = condition;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_if_stmt_then_branch_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->if_stmt_then_branch;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_if_stmt_then_branch_compat(struct ASTNode * node, struct ASTNode * branch) {
+                                    (void)node;
+                                    (void)branch;
+                                    node->if_stmt_then_branch = branch;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_if_stmt_else_branch_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->if_stmt_else_branch;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_if_stmt_else_branch_compat(struct ASTNode * node, struct ASTNode * branch) {
+                                    (void)node;
+                                    (void)branch;
+                                    node->if_stmt_else_branch = branch;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_while_stmt_condition_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->while_stmt_condition;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_while_stmt_condition_compat(struct ASTNode * node, struct ASTNode * condition) {
+                                    (void)node;
+                                    (void)condition;
+                                    node->while_stmt_condition = condition;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_while_stmt_body_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->while_stmt_body;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_while_stmt_body_compat(struct ASTNode * node, struct ASTNode * body) {
+                                    (void)node;
+                                    (void)body;
+                                    node->while_stmt_body = body;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_for_stmt_array_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->for_stmt_array;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_for_stmt_array_compat(struct ASTNode * node, struct ASTNode * array) {
+                                    (void)node;
+                                    (void)array;
+                                    node->for_stmt_array = array;
+                                }
+
+static __attribute__((unused)) uint8_t * ast_get_for_stmt_var_name_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    uint8_t * _uya_ret = node->for_stmt_var_name;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_for_stmt_var_name_compat(struct ASTNode * node, uint8_t * name) {
+                                    (void)node;
+                                    (void)name;
+                                    node->for_stmt_var_name = name;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_for_stmt_body_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->for_stmt_body;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_for_stmt_body_compat(struct ASTNode * node, struct ASTNode * body) {
+                                    (void)node;
+                                    (void)body;
+                                    node->for_stmt_body = body;
+                                }
+
+static __attribute__((unused)) struct ASTNode * * ast_get_block_statements_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * * _uya_ret = node->block_stmts;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_block_statements_compat(struct ASTNode * node, struct ASTNode * * stmts) {
+                                    (void)node;
+                                    (void)stmts;
+                                    node->block_stmts = stmts;
+                                }
+
+static __attribute__((unused)) int32_t ast_get_block_statement_count_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    int32_t _uya_ret = node->block_stmt_count;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_block_statement_count_compat(struct ASTNode * node, int32_t count) {
+                                    (void)node;
+                                    (void)count;
+                                    node->block_stmt_count = count;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_return_stmt_value_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->return_stmt_expr;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_return_stmt_value_compat(struct ASTNode * node, struct ASTNode * value) {
+                                    (void)node;
+                                    (void)value;
+                                    node->return_stmt_expr = value;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_assign_target_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->assign_dest;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_assign_target_compat(struct ASTNode * node, struct ASTNode * target) {
+                                    (void)node;
+                                    (void)target;
+                                    node->assign_dest = target;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_assign_value_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->assign_src;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_assign_value_compat(struct ASTNode * node, struct ASTNode * value) {
+                                    (void)node;
+                                    (void)value;
+                                    node->assign_src = value;
+                                }
+
+static __attribute__((unused)) struct ASTNode * ast_get_match_expr_scrutinee_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTNode * _uya_ret = node->match_expr_expr;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_match_expr_scrutinee_compat(struct ASTNode * node, struct ASTNode * scrutinee) {
+                                    (void)node;
+                                    (void)scrutinee;
+                                    node->match_expr_expr = scrutinee;
+                                }
+
+static __attribute__((unused)) struct ASTMatchArm * ast_get_match_expr_arms_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    struct ASTMatchArm * _uya_ret = node->match_expr_arms;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_match_expr_arms_compat(struct ASTNode * node, struct ASTMatchArm * arms) {
+                                    (void)node;
+                                    (void)arms;
+                                    node->match_expr_arms = arms;
+                                }
+
+static __attribute__((unused)) int32_t ast_get_match_expr_arm_count_compat(struct ASTNode * node) {
+                                    (void)node;
+                                    int32_t _uya_ret = node->match_expr_arm_count;
+                                    return _uya_ret;
+                                }
+
+static __attribute__((unused)) void ast_set_match_expr_arm_count_compat(struct ASTNode * node, int32_t count) {
+                                    (void)node;
+                                    (void)count;
+                                    node->match_expr_arm_count = count;
                                 }
 
 static __attribute__((unused)) int32_t checker_interp_format_max_width(struct Type t, uint8_t * spec) {

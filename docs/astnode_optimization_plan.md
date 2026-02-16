@@ -5,17 +5,33 @@
 - 目标: 80-100 字节
 - 优化方式: 使用 union 按节点类型分组
 - 验证结果: OptimizedASTNode 测试通过，80 字节
-- **当前阶段**: 第三阶段开始
+- **当前阶段**: 第三阶段进行中
 
 ## 已完成
 1. ✅ **第一阶段**：数据结构定义（77 个结构体 + 1 个 union）
 2. ✅ **第二阶段**：辅助函数（77 个 `ast_new_*_optimized` 创建函数）
+3. ✅ **第三阶段 Step 3.1**：访问函数层（110 个 `ast_get/set_*_compat` 函数）
 
 ## 待完成
-- ⏳ **第三阶段**：Parser 迁移
+- ⏳ **第三阶段 Step 3.2**：使用访问函数替换直接字段访问
 - ⏳ **第四阶段**：Checker 迁移
 - ⏳ **第五阶段**：Codegen 迁移
 - ⏳ **第六阶段**：清理与验证
+
+## 访问函数覆盖情况
+
+已添加访问函数的节点类型：
+- ✅ identifier, number, string, bool
+- ✅ binary_expr, unary_expr
+- ✅ var_decl, fn_decl
+- ✅ program, call_expr
+- ✅ type_named, pointer, array/slice
+- ✅ member_access
+- ✅ struct_decl, union_decl, enum_decl
+- ✅ error_union
+- ✅ if_stmt, while_stmt, for_stmt, block
+- ✅ return_stmt, assign
+- ✅ match_expr
 
 ---
 
@@ -243,7 +259,20 @@ make backup
 ### 2026-02-16 (晚上)
 - ✅ 完成 77 个 `ast_new_*_optimized` 创建函数
 - ✅ 细化迁移计划文档
-- ⏳ 开始 Phase 3: Parser 迁移
+- ✅ 添加访问函数层（106 个 `ast_get/set_*_compat` 函数）
+  - identifier, number, string, bool 节点
+  - binary_expr, unary_expr 节点
+  - var_decl, fn_decl 节点
+  - program, call_expr 节点
+  - type_named, pointer, array/slice 节点
+  - member_access 节点
+  - struct_decl, union_decl, enum_decl 节点
+  - if_stmt, while_stmt, for_stmt, block 节点
+  - return_stmt, assign, match_expr 节点
+- ✅ 修复字段名错误（enum_decl, union_decl, struct_decl, type_* 等）
+- ✅ 编译验证通过（364/364 测试）
+- ✅ 自举验证通过，备份完成
+- ⏳ 下一步：在关键模块中使用访问函数
 
 ### 2026-02-16 (下午)
 - ✅ 在 `src/ast.uya` 中添加优化数据结构定义和辅助函数

@@ -1899,3 +1899,588 @@ fn ast_get_type_tuple_count_new(node: &OptimizedASTNode) i32 {
         else => 0,
     };
 }
+
+// ========================================
+// 兼容访问函数层（用于渐进式迁移）
+// 这些函数封装字段访问，便于后续迁移到 union 结构
+// ========================================
+
+// ---------- identifier 节点 ----------
+
+// 获取 identifier 名称
+fn ast_get_identifier_name_compat(node: &ASTNode) &byte {
+    return node.identifier_name;
+}
+
+// 设置 identifier 名称
+fn ast_set_identifier_name_compat(node: &ASTNode, name: &byte) void {
+    node.identifier_name = name;
+}
+
+// ---------- number 节点 ----------
+
+// 获取 number 值
+fn ast_get_number_value_compat(node: &ASTNode) i32 {
+    return node.number_value;
+}
+
+// 设置 number 值
+fn ast_set_number_value_compat(node: &ASTNode, value: i32) void {
+    node.number_value = value;
+}
+
+// ---------- string 节点 ----------
+
+// 获取 string 值
+fn ast_get_string_value_compat(node: &ASTNode) &byte {
+    return node.string_literal_value;
+}
+
+// 设置 string 值
+fn ast_set_string_value_compat(node: &ASTNode, value: &byte) void {
+    node.string_literal_value = value;
+}
+
+// ---------- bool 节点 ----------
+
+// 获取 bool 值
+fn ast_get_bool_value_compat(node: &ASTNode) i32 {
+    return node.bool_literal_value;
+}
+
+// 设置 bool 值
+fn ast_set_bool_value_compat(node: &ASTNode, value: i32) void {
+    node.bool_literal_value = value;
+}
+
+// ---------- binary_expr 节点 ----------
+
+// 获取二元表达式左操作数
+fn ast_get_binary_left_compat(node: &ASTNode) &ASTNode {
+    return node.binary_expr_left;
+}
+
+// 设置二元表达式左操作数
+fn ast_set_binary_left_compat(node: &ASTNode, left: &ASTNode) void {
+    node.binary_expr_left = left;
+}
+
+// 获取二元表达式右操作数
+fn ast_get_binary_right_compat(node: &ASTNode) &ASTNode {
+    return node.binary_expr_right;
+}
+
+// 设置二元表达式右操作数
+fn ast_set_binary_right_compat(node: &ASTNode, right: &ASTNode) void {
+    node.binary_expr_right = right;
+}
+
+// 获取二元表达式操作符
+fn ast_get_binary_op_compat(node: &ASTNode) i32 {
+    return node.binary_expr_op;
+}
+
+// 设置二元表达式操作符
+fn ast_set_binary_op_compat(node: &ASTNode, op: i32) void {
+    node.binary_expr_op = op;
+}
+
+// ---------- var_decl 节点 ----------
+
+// 获取变量声明名称
+fn ast_get_var_decl_name_compat(node: &ASTNode) &byte {
+    return node.var_decl_name;
+}
+
+// 设置变量声明名称
+fn ast_set_var_decl_name_compat(node: &ASTNode, name: &byte) void {
+    node.var_decl_name = name;
+}
+
+// 获取变量声明类型
+fn ast_get_var_decl_type_compat(node: &ASTNode) &ASTNode {
+    return node.var_decl_type;
+}
+
+// 设置变量声明类型
+fn ast_set_var_decl_type_compat(node: &ASTNode, var_type: &ASTNode) void {
+    node.var_decl_type = var_type;
+}
+
+// 获取变量声明初始化表达式
+fn ast_get_var_decl_init_compat(node: &ASTNode) &ASTNode {
+    return node.var_decl_init;
+}
+
+// 设置变量声明初始化表达式
+fn ast_set_var_decl_init_compat(node: &ASTNode, init: &ASTNode) void {
+    node.var_decl_init = init;
+}
+
+// ---------- fn_decl 节点 ----------
+
+// 获取函数声明名称
+fn ast_get_fn_decl_name_compat(node: &ASTNode) &byte {
+    return node.fn_decl_name;
+}
+
+// 设置函数声明名称
+fn ast_set_fn_decl_name_compat(node: &ASTNode, name: &byte) void {
+    node.fn_decl_name = name;
+}
+
+// 获取函数声明参数
+fn ast_get_fn_decl_params_compat(node: &ASTNode) &&ASTNode {
+    return node.fn_decl_params;
+}
+
+// 设置函数声明参数
+fn ast_set_fn_decl_params_compat(node: &ASTNode, params: &&ASTNode) void {
+    node.fn_decl_params = params;
+}
+
+// 获取函数声明参数数量
+fn ast_get_fn_decl_param_count_compat(node: &ASTNode) i32 {
+    return node.fn_decl_param_count;
+}
+
+// 设置函数声明参数数量
+fn ast_set_fn_decl_param_count_compat(node: &ASTNode, count: i32) void {
+    node.fn_decl_param_count = count;
+}
+
+// 获取函数声明返回类型
+fn ast_get_fn_decl_return_type_compat(node: &ASTNode) &ASTNode {
+    return node.fn_decl_return_type;
+}
+
+// 设置函数声明返回类型
+fn ast_set_fn_decl_return_type_compat(node: &ASTNode, return_type: &ASTNode) void {
+    node.fn_decl_return_type = return_type;
+}
+
+// 获取函数声明函数体
+fn ast_get_fn_decl_body_compat(node: &ASTNode) &ASTNode {
+    return node.fn_decl_body;
+}
+
+// 设置函数声明函数体
+fn ast_set_fn_decl_body_compat(node: &ASTNode, body: &ASTNode) void {
+    node.fn_decl_body = body;
+}
+
+// ---------- program 节点 ----------
+
+// 获取程序声明列表
+fn ast_get_program_decls_compat(node: &ASTNode) &&ASTNode {
+    return node.program_decls;
+}
+
+// 设置程序声明列表
+fn ast_set_program_decls_compat(node: &ASTNode, decls: &&ASTNode) void {
+    node.program_decls = decls;
+}
+
+// 获取程序声明数量
+fn ast_get_program_decl_count_compat(node: &ASTNode) i32 {
+    return node.program_decl_count;
+}
+
+// 设置程序声明数量
+fn ast_set_program_decl_count_compat(node: &ASTNode, count: i32) void {
+    node.program_decl_count = count;
+}
+
+// ---------- call_expr 节点 ----------
+
+// 获取调用表达式被调用者
+fn ast_get_call_expr_callee_compat(node: &ASTNode) &ASTNode {
+    return node.call_expr_callee;
+}
+
+// 设置调用表达式被调用者
+fn ast_set_call_expr_callee_compat(node: &ASTNode, callee: &ASTNode) void {
+    node.call_expr_callee = callee;
+}
+
+// 获取调用表达式参数
+fn ast_get_call_expr_args_compat(node: &ASTNode) &&ASTNode {
+    return node.call_expr_args;
+}
+
+// 设置调用表达式参数
+fn ast_set_call_expr_args_compat(node: &ASTNode, args: &&ASTNode) void {
+    node.call_expr_args = args;
+}
+
+// 获取调用表达式参数数量
+fn ast_get_call_expr_arg_count_compat(node: &ASTNode) i32 {
+    return node.call_expr_arg_count;
+}
+
+// 设置调用表达式参数数量
+fn ast_set_call_expr_arg_count_compat(node: &ASTNode, count: i32) void {
+    node.call_expr_arg_count = count;
+}
+
+// ---------- type_named 节点 ----------
+
+// 获取类型名称
+fn ast_get_type_named_name_compat(node: &ASTNode) &byte {
+    return node.type_named_name;
+}
+
+// 设置类型名称
+fn ast_set_type_named_name_compat(node: &ASTNode, name: &byte) void {
+    node.type_named_name = name;
+}
+
+// ---------- pointer 类型节点 ----------
+
+// 获取指针指向类型
+fn ast_get_pointer_to_compat(node: &ASTNode) &ASTNode {
+    return node.type_pointer_pointed_type;
+}
+
+// 设置指针指向类型
+fn ast_set_pointer_to_compat(node: &ASTNode, target: &ASTNode) void {
+    node.type_pointer_pointed_type = target;
+}
+
+// ---------- array/slice 类型节点 ----------
+
+// 获取数组元素类型
+fn ast_get_array_element_type_compat(node: &ASTNode) &ASTNode {
+    return node.type_array_element_type;
+}
+
+// 设置数组元素类型
+fn ast_set_array_element_type_compat(node: &ASTNode, elem_type: &ASTNode) void {
+    node.type_array_element_type = elem_type;
+}
+
+// 获取数组大小表达式
+fn ast_get_array_size_expr_compat(node: &ASTNode) &ASTNode {
+    return node.type_array_size_expr;
+}
+
+// 设置数组大小表达式
+fn ast_set_array_size_expr_compat(node: &ASTNode, size_expr: &ASTNode) void {
+    node.type_array_size_expr = size_expr;
+}
+
+// 获取切片元素类型
+fn ast_get_slice_element_type_compat(node: &ASTNode) &ASTNode {
+    return node.type_slice_element_type;
+}
+
+// 设置切片元素类型
+fn ast_set_slice_element_type_compat(node: &ASTNode, elem_type: &ASTNode) void {
+    node.type_slice_element_type = elem_type;
+}
+
+// ---------- member_access 节点 ----------
+
+// 获取成员访问对象
+fn ast_get_member_access_object_compat(node: &ASTNode) &ASTNode {
+    return node.member_access_object;
+}
+
+// 设置成员访问对象
+fn ast_set_member_access_object_compat(node: &ASTNode, object: &ASTNode) void {
+    node.member_access_object = object;
+}
+
+// 获取成员访问字段名
+fn ast_get_member_access_field_name_compat(node: &ASTNode) &byte {
+    return node.member_access_field_name;
+}
+
+// 设置成员访问字段名
+fn ast_set_member_access_field_name_compat(node: &ASTNode, name: &byte) void {
+    node.member_access_field_name = name;
+}
+
+// ---------- unary_expr 节点 ----------
+
+// 获取一元表达式操作符
+fn ast_get_unary_expr_op_compat(node: &ASTNode) i32 {
+    return node.unary_expr_op;
+}
+
+// 设置一元表达式操作符
+fn ast_set_unary_expr_op_compat(node: &ASTNode, op: i32) void {
+    node.unary_expr_op = op;
+}
+
+// 获取一元表达式操作数
+fn ast_get_unary_expr_operand_compat(node: &ASTNode) &ASTNode {
+    return node.unary_expr_operand;
+}
+
+// 设置一元表达式操作数
+fn ast_set_unary_expr_operand_compat(node: &ASTNode, operand: &ASTNode) void {
+    node.unary_expr_operand = operand;
+}
+
+// ---------- struct_decl 节点 ----------
+
+// 获取结构体声明名称
+fn ast_get_struct_decl_name_compat(node: &ASTNode) &byte {
+    return node.struct_decl_name;
+}
+
+// 设置结构体声明名称
+fn ast_set_struct_decl_name_compat(node: &ASTNode, name: &byte) void {
+    node.struct_decl_name = name;
+}
+
+// 获取结构体声明字段
+fn ast_get_struct_decl_fields_compat(node: &ASTNode) &&ASTNode {
+    return node.struct_decl_fields;
+}
+
+// 设置结构体声明字段
+fn ast_set_struct_decl_fields_compat(node: &ASTNode, fields: &&ASTNode) void {
+    node.struct_decl_fields = fields;
+}
+
+// 获取结构体声明字段数量
+fn ast_get_struct_decl_field_count_compat(node: &ASTNode) i32 {
+    return node.struct_decl_field_count;
+}
+
+// 设置结构体声明字段数量
+fn ast_set_struct_decl_field_count_compat(node: &ASTNode, count: i32) void {
+    node.struct_decl_field_count = count;
+}
+
+// ---------- union_decl 节点 ----------
+
+// 获取联合体声明名称
+fn ast_get_union_decl_name_compat(node: &ASTNode) &byte {
+    return node.union_decl_name;
+}
+
+// 设置联合体声明名称
+fn ast_set_union_decl_name_compat(node: &ASTNode, name: &byte) void {
+    node.union_decl_name = name;
+}
+
+// 获取联合体声明变体
+fn ast_get_union_decl_variants_compat(node: &ASTNode) &&ASTNode {
+    return node.union_decl_variants;
+}
+
+// 设置联合体声明变体
+fn ast_set_union_decl_variants_compat(node: &ASTNode, variants: &&ASTNode) void {
+    node.union_decl_variants = variants;
+}
+
+// 获取联合体声明变体数量
+fn ast_get_union_decl_variant_count_compat(node: &ASTNode) i32 {
+    return node.union_decl_variant_count;
+}
+
+// 设置联合体声明变体数量
+fn ast_set_union_decl_variant_count_compat(node: &ASTNode, count: i32) void {
+    node.union_decl_variant_count = count;
+}
+
+// ---------- enum_decl 节点 ----------
+
+// 获取枚举声明名称
+fn ast_get_enum_decl_name_compat(node: &ASTNode) &byte {
+    return node.enum_decl_name;
+}
+
+// 设置枚举声明名称
+fn ast_set_enum_decl_name_compat(node: &ASTNode, name: &byte) void {
+    node.enum_decl_name = name;
+}
+
+// ---------- error_union 类型节点 ----------
+
+// 获取错误联合 payload 类型
+fn ast_get_error_union_payload_type_compat(node: &ASTNode) &ASTNode {
+    return node.type_error_union_payload_type;
+}
+
+// 设置错误联合 payload 类型
+fn ast_set_error_union_payload_type_compat(node: &ASTNode, payload_type: &ASTNode) void {
+    node.type_error_union_payload_type = payload_type;
+}
+
+// ---------- if_stmt 节点 ----------
+
+// 获取 if 语句条件
+fn ast_get_if_stmt_condition_compat(node: &ASTNode) &ASTNode {
+    return node.if_stmt_condition;
+}
+
+// 设置 if 语句条件
+fn ast_set_if_stmt_condition_compat(node: &ASTNode, condition: &ASTNode) void {
+    node.if_stmt_condition = condition;
+}
+
+// 获取 if 语句 then 分支
+fn ast_get_if_stmt_then_branch_compat(node: &ASTNode) &ASTNode {
+    return node.if_stmt_then_branch;
+}
+
+// 设置 if 语句 then 分支
+fn ast_set_if_stmt_then_branch_compat(node: &ASTNode, branch: &ASTNode) void {
+    node.if_stmt_then_branch = branch;
+}
+
+// 获取 if 语句 else 分支
+fn ast_get_if_stmt_else_branch_compat(node: &ASTNode) &ASTNode {
+    return node.if_stmt_else_branch;
+}
+
+// 设置 if 语句 else 分支
+fn ast_set_if_stmt_else_branch_compat(node: &ASTNode, branch: &ASTNode) void {
+    node.if_stmt_else_branch = branch;
+}
+
+// ---------- while_stmt 节点 ----------
+
+// 获取 while 语句条件
+fn ast_get_while_stmt_condition_compat(node: &ASTNode) &ASTNode {
+    return node.while_stmt_condition;
+}
+
+// 设置 while 语句条件
+fn ast_set_while_stmt_condition_compat(node: &ASTNode, condition: &ASTNode) void {
+    node.while_stmt_condition = condition;
+}
+
+// 获取 while 语句体
+fn ast_get_while_stmt_body_compat(node: &ASTNode) &ASTNode {
+    return node.while_stmt_body;
+}
+
+// 设置 while 语句体
+fn ast_set_while_stmt_body_compat(node: &ASTNode, body: &ASTNode) void {
+    node.while_stmt_body = body;
+}
+
+// ---------- for_stmt 节点 ----------
+
+// 获取 for 语句数组
+fn ast_get_for_stmt_array_compat(node: &ASTNode) &ASTNode {
+    return node.for_stmt_array;
+}
+
+// 设置 for 语句数组
+fn ast_set_for_stmt_array_compat(node: &ASTNode, array: &ASTNode) void {
+    node.for_stmt_array = array;
+}
+
+// 获取 for 语句变量名
+fn ast_get_for_stmt_var_name_compat(node: &ASTNode) &byte {
+    return node.for_stmt_var_name;
+}
+
+// 设置 for 语句变量名
+fn ast_set_for_stmt_var_name_compat(node: &ASTNode, name: &byte) void {
+    node.for_stmt_var_name = name;
+}
+
+// 获取 for 语句体
+fn ast_get_for_stmt_body_compat(node: &ASTNode) &ASTNode {
+    return node.for_stmt_body;
+}
+
+// 设置 for 语句体
+fn ast_set_for_stmt_body_compat(node: &ASTNode, body: &ASTNode) void {
+    node.for_stmt_body = body;
+}
+
+// ---------- block 节点 ----------
+
+// 获取 block 语句列表
+fn ast_get_block_statements_compat(node: &ASTNode) &&ASTNode {
+    return node.block_stmts;
+}
+
+// 设置 block 语句列表
+fn ast_set_block_statements_compat(node: &ASTNode, stmts: &&ASTNode) void {
+    node.block_stmts = stmts;
+}
+
+// 获取 block 语句数量
+fn ast_get_block_statement_count_compat(node: &ASTNode) i32 {
+    return node.block_stmt_count;
+}
+
+// 设置 block 语句数量
+fn ast_set_block_statement_count_compat(node: &ASTNode, count: i32) void {
+    node.block_stmt_count = count;
+}
+
+// ---------- return_stmt 节点 ----------
+
+// 获取 return 语句值
+fn ast_get_return_stmt_value_compat(node: &ASTNode) &ASTNode {
+    return node.return_stmt_expr;
+}
+
+// 设置 return 语句值
+fn ast_set_return_stmt_value_compat(node: &ASTNode, value: &ASTNode) void {
+    node.return_stmt_expr = value;
+}
+
+// ---------- assign 节点 ----------
+
+// 获取赋值目标
+fn ast_get_assign_target_compat(node: &ASTNode) &ASTNode {
+    return node.assign_dest;
+}
+
+// 设置赋值目标
+fn ast_set_assign_target_compat(node: &ASTNode, target: &ASTNode) void {
+    node.assign_dest = target;
+}
+
+// 获取赋值值
+fn ast_get_assign_value_compat(node: &ASTNode) &ASTNode {
+    return node.assign_src;
+}
+
+// 设置赋值值
+fn ast_set_assign_value_compat(node: &ASTNode, value: &ASTNode) void {
+    node.assign_src = value;
+}
+
+// ---------- match_expr 节点 ----------
+
+// 获取 match 表达式被匹配值
+fn ast_get_match_expr_scrutinee_compat(node: &ASTNode) &ASTNode {
+    return node.match_expr_expr;
+}
+
+// 设置 match 表达式被匹配值
+fn ast_set_match_expr_scrutinee_compat(node: &ASTNode, scrutinee: &ASTNode) void {
+    node.match_expr_expr = scrutinee;
+}
+
+// 获取 match 表达式分支
+fn ast_get_match_expr_arms_compat(node: &ASTNode) &ASTMatchArm {
+    return node.match_expr_arms;
+}
+
+// 设置 match 表达式分支
+fn ast_set_match_expr_arms_compat(node: &ASTNode, arms: &ASTMatchArm) void {
+    node.match_expr_arms = arms;
+}
+
+// 获取 match 表达式分支数量
+fn ast_get_match_expr_arm_count_compat(node: &ASTNode) i32 {
+    return node.match_expr_arm_count;
+}
+
+// 设置 match 表达式分支数量
+fn ast_set_match_expr_arm_count_compat(node: &ASTNode, count: i32) void {
+    node.match_expr_arm_count = count;
+}
