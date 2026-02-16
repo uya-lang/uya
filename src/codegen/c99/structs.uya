@@ -1114,7 +1114,11 @@ fn append_type_arg_suffix(codegen: &C99CodeGenerator, type_arg: &ASTNode,
         var type_name: &byte = type_arg.type_named_name;
         
         // 在单态化上下文中替换类型参数（如 T → i32）
+        // 二级查找：先查找方法的类型参数，再查找结构体的类型参数
         var resolved_type: &ASTNode = type_arg;
+        var found: i32 = 0;
+        
+        // 第一级：查找方法的类型参数
         if codegen.current_type_params != null && codegen.current_type_param_count > 0 {
             var tp_idx: i32 = 0;
             while tp_idx < codegen.current_type_param_count && tp_idx < codegen.current_type_arg_count {
@@ -1126,10 +1130,30 @@ fn append_type_arg_suffix(codegen: &C99CodeGenerator, type_arg: &ASTNode,
                            resolved_type.type_named_name != null {
                             type_name = resolved_type.type_named_name;
                         }
+                        found = 1;
                     }
                     break;
                 }
                 tp_idx = tp_idx + 1;
+            }
+        }
+        
+        // 第二级：查找结构体的类型参数
+        if found == 0 && codegen.struct_type_params != null && codegen.struct_type_param_count > 0 {
+            var sp_idx: i32 = 0;
+            while sp_idx < codegen.struct_type_param_count && sp_idx < codegen.struct_type_arg_count {
+                if codegen.struct_type_params[sp_idx].name != null &&
+                    strcmp(codegen.struct_type_params[sp_idx].name as *byte, type_name as *byte) == 0 {
+                    if codegen.struct_type_args != null && codegen.struct_type_args[sp_idx] != null {
+                        resolved_type = codegen.struct_type_args[sp_idx];
+                        if resolved_type.type == ASTNodeType.AST_TYPE_NAMED && 
+                           resolved_type.type_named_name != null {
+                            type_name = resolved_type.type_named_name;
+                        }
+                    }
+                    break;
+                }
+                sp_idx = sp_idx + 1;
             }
         }
         

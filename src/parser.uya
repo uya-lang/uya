@@ -3186,8 +3186,91 @@ fn parser_parse_shift_expr(parser: &Parser) &ASTNode {
     return left;
 }
 
+// 辅助函数：判断 '<' 后面是否是泛型方法调用（类型参数列表 + '('）
+// 返回：1 表示是泛型方法调用，0 表示是比较运算符
+// 注意：此函数会 peek lexer，调用后 lexer 状态会被恢复
+fn parser_peek_is_generic_method_call(parser: &Parser) i32 {
+    if parser == null || parser.lexer == null {
+        return 0;
+    }
+    
+    const lexer: &Lexer = parser.lexer;
+    
+    // 保存 lexer 状态
+    const saved_position: usize = lexer.position;
+    const saved_line: i32 = lexer.line;
+    const saved_column: i32 = lexer.column;
+    
+    // Peek '<' 后面的 token
+    const after_less: &Token = lexer_next_token(lexer, parser.arena);
+    
+    var is_generic: i32 = 0;
+    
+    if after_less != null {
+        const t: TokenType = after_less.type;
+        
+        // 如果 '<' 后面是类型标识符或泛型类型，可能是泛型方法
+        // 如果 '<' 后面是数字、字符串、运算符等，则是比较运算符
+        if t == TokenType.TOKEN_IDENTIFIER || t == TokenType.TOKEN_TYPE {
+            // 需要进一步判断：继续 peek 直到找到 '>' 或其他 token
+            // 如果找到 type_list '>' '(' 模式，则是泛型方法
+            var depth: i32 = 1;  // 泛型嵌套深度
+            var found_closing: i32 = 0;
+            
+            while depth > 0 {
+                const next: &Token = lexer_next_token(lexer, parser.arena);
+                if next == null {
+                    break;
+                }
+                
+                const nt: TokenType = next.type;
+                
+                if nt == TokenType.TOKEN_LESS {
+                    depth = depth + 1;
+                } else if nt == TokenType.TOKEN_GREATER || nt == TokenType.TOKEN_RSHIFT {
+                    depth = depth - 1;
+                    if depth == 0 {
+                        found_closing = 1;
+                    }
+                } else if nt == TokenType.TOKEN_EOF {
+                    break;
+                }
+                // 其他 token（标识符、逗号等）继续
+            }
+            
+            // 如果找到了闭合的 '>'，检查后面是否是 '('
+            if found_closing != 0 {
+                const after_gt: &Token = lexer_next_token(lexer, parser.arena);
+                if after_gt != null && after_gt.type == TokenType.TOKEN_LEFT_PAREN {
+                    is_generic = 1;
+                }
+            }
+        }
+        // 如果 '<' 后面是这些 token，则肯定是比较运算符
+        else if t == TokenType.TOKEN_NUMBER || t == TokenType.TOKEN_FLOAT || 
+                t == TokenType.TOKEN_STRING || t == TokenType.TOKEN_RAW_STRING ||
+                t == TokenType.TOKEN_MINUS || t == TokenType.TOKEN_EXCLAMATION ||
+                t == TokenType.TOKEN_TILDE || t == TokenType.TOKEN_TRUE ||
+                t == TokenType.TOKEN_FALSE || t == TokenType.TOKEN_NULL ||
+                t == TokenType.TOKEN_LEFT_PAREN || t == TokenType.TOKEN_LEFT_BRACE ||
+                t == TokenType.TOKEN_AT_IDENTIFIER || t == TokenType.TOKEN_INTERP_OPEN {
+            // 这些是表达式的开始，所以 '<' 是比较运算符
+            is_generic = 0;
+        }
+        // 其他情况（如关键字），暂时认为是比较运算符
+    }
+    
+    // 恢复 lexer 状态
+    lexer.position = saved_position;
+    lexer.line = saved_line;
+    lexer.column = saved_column;
+    
+    return is_generic;
+}
+
 // 解析比较表达式（左结合）
 // rel_expr = shift_expr { ('<' | '>' | '<=' | '>=') shift_expr }
+// 特殊处理：obj.method<T>() 泛型方法调用
 fn parser_parse_rel_expr(parser: &Parser) &ASTNode {
     if parser == null || parser.current_token == null {
         return null;
@@ -3209,6 +3292,163 @@ fn parser_parse_rel_expr(parser: &Parser) &ASTNode {
         const line: i32 = parser.current_token.line;
         const column: i32 = parser.current_token.column;
         const op: TokenType = parser.current_token.type;
+        
+        // 特殊处理：泛型方法调用 obj.method<T>()
+        // 当遇到 '<' 且左侧是成员访问时，判断是否是泛型方法调用
+        if op == TokenType.TOKEN_LESS && left != null && left.type == ASTNodeType.AST_MEMBER_ACCESS {
+            if parser_peek_is_generic_method_call(parser) != 0 {
+                // 是泛型方法调用，解析类型参数列表
+                parser_consume(parser);  // 消费 '<'
+                
+                var type_args: & & ASTNode = null;
+                var type_arg_count: i32 = 0;
+                var type_arg_capacity: i32 = 0;
+                
+                // 解析类型参数列表
+                if parser_match(parser, TokenType.TOKEN_GREATER) == 0 && parser_match(parser, TokenType.TOKEN_RSHIFT) == 0 {
+                    while parser.current_token != null &&
+                          parser_match(parser, TokenType.TOKEN_GREATER) == 0 &&
+                          parser_match(parser, TokenType.TOKEN_RSHIFT) == 0 &&
+                          parser_match(parser, TokenType.TOKEN_EOF) == 0 {
+                        
+                        const type_arg: &ASTNode = parser_parse_type(parser);
+                        if type_arg == null {
+                            return null;
+                        }
+                        
+                        // 扩展类型参数数组
+                        if type_arg_count >= type_arg_capacity {
+                            var new_capacity: i32 = 4;
+                            if type_arg_capacity != 0 {
+                                new_capacity = type_arg_capacity * 2;
+                            }
+                            const new_type_args: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_capacity) as & & ASTNode;
+                            if new_type_args == null {
+                                return null;
+                            }
+                            
+                            if type_args != null {
+                                var i: i32 = 0;
+                                while i < type_arg_count {
+                                    new_type_args[i] = type_args[i];
+                                    i = i + 1;
+                                }
+                            }
+                            
+                            type_args = new_type_args;
+                            type_arg_capacity = new_capacity;
+                        }
+                        
+                        type_args[type_arg_count] = type_arg;
+                        type_arg_count = type_arg_count + 1;
+                        
+                        if parser_match(parser, TokenType.TOKEN_COMMA) == 0 {
+                            break;
+                        }
+                        parser_consume(parser);  // 消费 ','
+                    }
+                }
+                
+                // 处理 >> 的情况（嵌套泛型）
+                if parser_match(parser, TokenType.TOKEN_RSHIFT) != 0 {
+                    const rshift_token: &Token = parser.current_token;
+                    parser_consume(parser);
+                    
+                    const fake_greater: &Token = arena_alloc(parser.arena, @size_of(Token)) as &Token;
+                    if fake_greater != null {
+                        fake_greater.type = TokenType.TOKEN_GREATER;
+                        fake_greater.value = ">" as *byte;
+                        fake_greater.line = rshift_token.line;
+                        fake_greater.column = rshift_token.column + 1;
+                        parser.pending_greater_token = fake_greater;
+                    }
+                } else {
+                    if parser_expect(parser, TokenType.TOKEN_GREATER) == null {
+                        return null;
+                    }
+                }
+                
+                // 期望 '(' 开始函数调用参数
+                if parser_expect(parser, TokenType.TOKEN_LEFT_PAREN) == null {
+                    return null;
+                }
+                
+                // 解析参数列表
+                var args: & & ASTNode = null;
+                var arg_count: i32 = 0;
+                var arg_capacity: i32 = 0;
+                
+                if parser_match(parser, TokenType.TOKEN_RIGHT_PAREN) == 0 {
+                    while parser.current_token != null &&
+                          parser_match(parser, TokenType.TOKEN_RIGHT_PAREN) == 0 &&
+                          parser_match(parser, TokenType.TOKEN_EOF) == 0 {
+                        
+                        if parser_match(parser, TokenType.TOKEN_ELLIPSIS) != 0 {
+                            parser_consume(parser);
+                            break;
+                        }
+                        
+                        const arg: &ASTNode = parser_parse_expression(parser);
+                        if arg == null {
+                            return null;
+                        }
+                        
+                        if arg_count >= arg_capacity {
+                            var new_capacity: i32 = 4;
+                            if arg_capacity != 0 {
+                                new_capacity = arg_capacity * 2;
+                            }
+                            const new_args: & & ASTNode = arena_alloc(parser.arena, @size_of(&ASTNode) * new_capacity) as & & ASTNode;
+                            if new_args == null {
+                                return null;
+                            }
+                            
+                            if args != null {
+                                var i: i32 = 0;
+                                while i < arg_count {
+                                    new_args[i] = args[i];
+                                    i = i + 1;
+                                }
+                            }
+                            
+                            args = new_args;
+                            arg_capacity = new_capacity;
+                        }
+                        
+                        args[arg_count] = arg;
+                        arg_count = arg_count + 1;
+                        
+                        if parser_match(parser, TokenType.TOKEN_COMMA) == 0 {
+                            break;
+                        }
+                        parser_consume(parser);
+                    }
+                }
+                
+                if parser_expect(parser, TokenType.TOKEN_RIGHT_PAREN) == null {
+                    return null;
+                }
+                
+                // 创建泛型方法调用节点
+                const call: &ASTNode = ast_new_node(ASTNodeType.AST_CALL_EXPR, line, column, parser.arena, parser_get_filename(parser));
+                if call == null {
+                    return null;
+                }
+                
+                call.call_expr_callee = left;  // 成员访问作为 callee
+                call.call_expr_args = args;
+                call.call_expr_arg_count = arg_count;
+                call.call_expr_type_args = type_args;
+                call.call_expr_type_arg_count = type_arg_count;
+                call.call_expr_has_ellipsis_forward = 0;
+                
+                // 继续处理可能的链式调用（如 obj.method<T>().another()）
+                left = call;
+                continue;  // 跳过后面的比较表达式处理
+            }
+        }
+        
+        // 普通比较运算符处理
         parser_consume(parser);  // 消费运算符
         
         // 解析右操作数

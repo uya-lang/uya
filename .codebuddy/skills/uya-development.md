@@ -442,3 +442,70 @@ fn main() i32 {
 9. **不要瞎编语法** → 参考现有代码和测试
 10. **测试运行方式** → 使用 `./tests/run_programs_parallel.sh file.uya --uya`
 11. **测试链接** → 需要 `tests/bridge.c` 提供 `main` 函数
+12. **Arena 字符串复制** → 存储指针到 Arena 数据时，必须复制字符串内容，不能只存指针
+13. **泛型方法单态化** → 需要二级类型参数查找（结构体类型参数 + 方法类型参数）
+
+---
+
+## 7. 泛型方法单态化实现
+
+### 7.1 核心问题
+
+泛型方法 `obj.method<T>()` 的单态化需要处理两层类型参数：
+1. **结构体类型参数**：如 `Container<T>` 的 `T`
+2. **方法类型参数**：如 `as_type<U>(self: &Self) U` 的 `U`
+
+### 7.2 实现要点
+
+#### 7.2.1 二级类型参数查找
+
+在 `C99CodeGenerator` 中需要两组类型参数上下文：
+
+```uya
+// 结构体类型参数上下文（用于二级查找）
+struct_type_params: &TypeParam,
+struct_type_param_count: i32,
+struct_type_args: & & ASTNode,
+struct_type_arg_count: i32,
+
+// 方法类型参数上下文
+current_type_params: &TypeParam,
+current_type_param_count: i32,
+current_type_args: & & ASTNode,
+current_type_arg_count: i32,
+```
+
+类型替换时先查找方法参数，再查找结构体参数。
+
+#### 7.2.2 单态化实例名称
+
+泛型方法的单态化实例名称格式：`StructName_TypeArg_MethodName_TypeArg`
+
+例如 `Container<i32>.as_type<i64>()` → `Container_i32_as_type_i64`
+
+#### 7.2.3 Self 类型处理
+
+在 `c99_type_to_c_with_self` 函数中处理 `Self` 类型，将其替换为结构体的单态化名称。
+
+#### 7.2.4 字符串复制陷阱
+
+在 `register_mono_instance` 中，`generic_name` 必须复制到 Arena：
+
+```uya
+// ❌ 错误：直接存储指针（可能是局部数组）
+checker.mono_instances[idx].generic_name = generic_name;
+
+// ✅ 正确：复制字符串到 Arena
+const name_copy: &byte = arena_alloc(checker.arena, (name_len + 1) as usize) as &byte;
+// ... 复制内容 ...
+checker.mono_instances[idx].generic_name = name_copy;
+```
+
+### 7.3 相关文件
+
+- `src/checker.uya`：类型检查、单态化实例注册
+- `src/codegen/c99/main.uya`：单态化函数生成入口
+- `src/codegen/c99/function.uya`：`gen_mono_method_prototype`、`gen_mono_method_function`
+- `src/codegen/c99/types.uya`：`c99_type_to_c`（二级类型参数查找）
+- `src/codegen/c99/structs.uya`：`get_mono_struct_name`、`append_type_arg_suffix`
+- `tests/programs/test_generic_method_call.uya`：测试用例

@@ -1419,3 +1419,242 @@ fn gen_mono_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, type_args: &
     codegen.current_type_arg_count = saved_type_arg_count;
 }
 
+// 生成单态化方法原型
+fn gen_mono_method_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_name: &byte, type_args: & & ASTNode, type_arg_count: i32) void {
+    if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL || type_args == null || struct_name == null {
+        return;
+    }
+    
+    const method_name: &byte = fn_decl.fn_decl_name;
+    
+    // 构建单态化方法名
+    var mono_name_buf: [byte: 256] = [];
+    var pos: i32 = snprintf(&mono_name_buf[0] as *byte, 256, "%s_%s" as *byte, struct_name as *byte, method_name as *byte);
+    var ti: i32 = 0;
+    while ti < type_arg_count && pos < 250 {
+        pos = pos + snprintf(&mono_name_buf[pos] as *byte, 256 - pos, "_" as *byte);
+        const type_arg: &ASTNode = type_args[ti];
+        if type_arg != null && type_arg.type == ASTNodeType.AST_TYPE_NAMED && type_arg.type_named_name != null {
+            pos = pos + snprintf(&mono_name_buf[pos] as *byte, 256 - pos, "%s" as *byte, type_arg.type_named_name as *byte);
+        }
+        ti = ti + 1;
+    }
+    const mono_method_name: &byte = get_safe_c_identifier(codegen, &mono_name_buf[0]);
+    
+    // 保存方法的类型参数上下文
+    const saved_type_params: &TypeParam = codegen.current_type_params;
+    const saved_type_param_count: i32 = codegen.current_type_param_count;
+    const saved_type_args: & & ASTNode = codegen.current_type_args;
+    const saved_type_arg_count: i32 = codegen.current_type_arg_count;
+    
+    // 设置方法的类型参数上下文（结构体的类型参数上下文已经在外层设置）
+    codegen.current_type_params = fn_decl.fn_decl_type_params;
+    codegen.current_type_param_count = fn_decl.fn_decl_type_param_count;
+    codegen.current_type_args = type_args;
+    codegen.current_type_arg_count = type_arg_count;
+    
+    // 使用 c99_type_to_c_with_self 来正确处理 Self 类型
+    const return_c: &byte = c99_type_to_c_with_self(codegen, fn_decl.fn_decl_return_type, struct_name);
+    const params: & & ASTNode = fn_decl.fn_decl_params;
+    const param_count: i32 = fn_decl.fn_decl_param_count;
+    
+    fprintf(codegen.output as *void, "%s %s(" as *byte, return_c as *byte, mono_method_name as *byte);
+    
+    var i: i32 = 0;
+    while i < param_count {
+        const param: &ASTNode = params[i];
+        if param == null || param.type != ASTNodeType.AST_VAR_DECL {
+            i = i + 1;
+            continue;
+        }
+        
+        const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
+        const param_type_c: &byte = c99_type_to_c_with_self(codegen, param.var_decl_type, struct_name);
+        
+        format_param_type(codegen, param_type_c, param_name, codegen.output);
+        if i < param_count - 1 {
+            fputs(", " as *byte, codegen.output as *void);
+        }
+        i = i + 1;
+    }
+    
+    fputs(");\n" as *byte, codegen.output as *void);
+    
+    // 恢复方法的类型参数上下文
+    codegen.current_type_params = saved_type_params;
+    codegen.current_type_param_count = saved_type_param_count;
+    codegen.current_type_args = saved_type_args;
+    codegen.current_type_arg_count = saved_type_arg_count;
+}
+
+// 生成单态化方法函数定义
+fn gen_mono_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_name: &byte, type_args: & & ASTNode, type_arg_count: i32) void {
+    if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL || type_args == null || struct_name == null || fn_decl.fn_decl_body == null {
+        return;
+    }
+    
+    const method_name: &byte = fn_decl.fn_decl_name;
+    
+    // 构建单态化方法名
+    var mono_name_buf: [byte: 256] = [];
+    var pos: i32 = snprintf(&mono_name_buf[0] as *byte, 256, "%s_%s" as *byte, struct_name as *byte, method_name as *byte);
+    var ti: i32 = 0;
+    while ti < type_arg_count && pos < 250 {
+        pos = pos + snprintf(&mono_name_buf[pos] as *byte, 256 - pos, "_" as *byte);
+        const type_arg: &ASTNode = type_args[ti];
+        if type_arg != null && type_arg.type == ASTNodeType.AST_TYPE_NAMED && type_arg.type_named_name != null {
+            pos = pos + snprintf(&mono_name_buf[pos] as *byte, 256 - pos, "%s" as *byte, type_arg.type_named_name as *byte);
+        }
+        ti = ti + 1;
+    }
+    const mono_method_name: &byte = get_safe_c_identifier(codegen, &mono_name_buf[0]);
+    
+    const return_type: &ASTNode = fn_decl.fn_decl_return_type;
+    const params: & & ASTNode = fn_decl.fn_decl_params;
+    const param_count: i32 = fn_decl.fn_decl_param_count;
+    const body: &ASTNode = fn_decl.fn_decl_body;
+    
+    // 保存方法的类型参数上下文
+    const saved_type_params: &TypeParam = codegen.current_type_params;
+    const saved_type_param_count: i32 = codegen.current_type_param_count;
+    const saved_type_args: & & ASTNode = codegen.current_type_args;
+    const saved_type_arg_count: i32 = codegen.current_type_arg_count;
+    
+    // 设置方法的类型参数上下文（结构体的类型参数上下文已经在外层设置）
+    codegen.current_type_params = fn_decl.fn_decl_type_params;
+    codegen.current_type_param_count = fn_decl.fn_decl_type_param_count;
+    codegen.current_type_args = type_args;
+    codegen.current_type_arg_count = type_arg_count;
+    
+    emit_line_directive(codegen, fn_decl.line, fn_decl.filename);
+    
+    // 使用 c99_type_to_c_with_self 来正确处理 Self 类型
+    const return_c: &byte = c99_type_to_c_with_self(codegen, return_type, struct_name);
+    
+    fprintf(codegen.output as *void, "%s %s(" as *byte, return_c as *byte, mono_method_name as *byte);
+    
+    var i: i32 = 0;
+    while i < param_count {
+        const param: &ASTNode = params[i];
+        if param == null || param.type != ASTNodeType.AST_VAR_DECL {
+            i = i + 1;
+            continue;
+        }
+        
+        const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
+        const param_type_c: &byte = c99_type_to_c_with_self(codegen, param.var_decl_type, struct_name);
+        
+        format_param_type(codegen, param_type_c, param_name, codegen.output);
+        if i < param_count - 1 {
+            fputs(", " as *byte, codegen.output as *void);
+        }
+        i = i + 1;
+    }
+    
+    fputs(") {\n" as *byte, codegen.output as *void);
+    
+    // 保存当前状态
+    const saved_return_type: &ASTNode = codegen.current_function_return_type;
+    const saved_current_function_decl: &ASTNode = codegen.current_function_decl;
+    const saved_local_count: i32 = codegen.local_variable_count;
+    const saved_depth: i32 = codegen.current_depth;
+    
+    codegen.current_function_return_type = return_type;
+    codegen.current_function_decl = fn_decl;
+    codegen.indent_level = codegen.indent_level + 1;
+    codegen.current_depth = codegen.current_depth + 1;
+    
+    // 将参数添加到局部变量表
+    i = 0;
+    while i < param_count {
+        const param: &ASTNode = params[i];
+        if param != null && param.type == ASTNodeType.AST_VAR_DECL {
+            if codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+                codegen.local_variables[codegen.local_variable_count].name = param.var_decl_name;
+                codegen.local_variables[codegen.local_variable_count].type_c = c99_type_to_c_with_self(codegen, param.var_decl_type, struct_name);
+                codegen.local_variables[codegen.local_variable_count].depth = codegen.current_depth;
+                codegen.local_variable_count = codegen.local_variable_count + 1;
+            }
+        }
+        i = i + 1;
+    }
+    
+    i = 0;
+    while i < param_count {
+        const param: &ASTNode = params[i];
+        if param != null && param.type == ASTNodeType.AST_VAR_DECL {
+            const pname: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
+            if pname != null {
+                c99_emit_indent(codegen);
+                fputs("(void)" as *byte, codegen.output as *void);
+                fputs(pname as *byte, codegen.output as *void);
+                fputs(";\n" as *byte, codegen.output as *void);
+            }
+        }
+        i = i + 1;
+    }
+    
+    // 生成函数体
+    gen_stmt(codegen, body);
+    
+    // 若返回类型非 void 且函数体末尾无 return，补兜底 return
+    var has_return_mono: i32 = 0;
+    if body.type == ASTNodeType.AST_BLOCK && body.block_stmts != null {
+        const stmts_mono: & & ASTNode = body.block_stmts;
+        const stmt_count_mono: i32 = body.block_stmt_count;
+        var j: i32 = stmt_count_mono - 1;
+        while j >= 0 {
+            const s: &ASTNode = stmts_mono[j];
+            if s != null && s.type != ASTNodeType.AST_DEFER_STMT && s.type != ASTNodeType.AST_ERRDEFER_STMT {
+                if s.type == ASTNodeType.AST_RETURN_STMT {
+                    has_return_mono = 1;
+                }
+                j = -1;
+                break;
+            }
+            j = j - 1;
+        }
+    }
+    const rt: &ASTNode = codegen.current_function_return_type;
+    if has_return_mono == 0 && rt != null {
+        var is_void_mono: i32 = 0;
+        if rt.type == ASTNodeType.AST_TYPE_NAMED && rt.type_named_name != null &&
+            strcmp(rt.type_named_name as *byte, "void" as *byte) == 0 {
+            is_void_mono = 1;
+        } else if rt.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+            const pl: &ASTNode = rt.type_error_union_payload_type;
+            if pl == null {
+                is_void_mono = 1;
+            } else if pl.type == ASTNodeType.AST_TYPE_NAMED && pl.type_named_name != null &&
+                strcmp(pl.type_named_name as *byte, "void" as *byte) == 0 {
+                is_void_mono = 1;
+            }
+        }
+        if is_void_mono == 0 {
+            codegen.indent_level = codegen.indent_level + 1;
+            c99_emit_indent(codegen);
+            if return_c != null && strncmp(return_c as *byte, "struct " as *byte, 7) == 0 {
+                fprintf(codegen.output as *void, "return (%s){0};\n" as *byte, return_c as *byte);
+            } else {
+                fputs("return 0;\n" as *byte, codegen.output as *void);
+            }
+            codegen.indent_level = codegen.indent_level - 1;
+        }
+    }
+    
+    // 恢复状态
+    codegen.current_function_return_type = saved_return_type;
+    codegen.current_function_decl = saved_current_function_decl;
+    codegen.local_variable_count = saved_local_count;
+    codegen.current_depth = saved_depth;
+    codegen.indent_level = codegen.indent_level - 1;
+    
+    fputs("}\n" as *byte, codegen.output as *void);
+    
+    // 恢复方法的类型参数上下文
+    codegen.current_type_params = saved_type_params;
+    codegen.current_type_param_count = saved_type_param_count;
+    codegen.current_type_args = saved_type_args;
+    codegen.current_type_arg_count = saved_type_arg_count;
+}
+

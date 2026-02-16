@@ -183,6 +183,12 @@ struct C99CodeGenerator {
     current_type_args: & & ASTNode,      // 当前实例化的类型实参
     current_type_arg_count: i32,         // 当前实例化的类型实参数量
     
+    // 结构体类型参数上下文（用于泛型方法）
+    struct_type_params: &TypeParam,      // 结构体的类型参数列表
+    struct_type_param_count: i32,         // 结构体的类型参数数量
+    struct_type_args: & & ASTNode,        // 结构体的类型实参
+    struct_type_arg_count: i32,           // 结构体的类型实参数量
+    
     // 跟踪是否需要包含标准库头文件
     needs_string_h: i32,                 // 1 表示需要 #include <string.h>
     needs_stdio_h: i32,                   // 1 表示需要 #include <stdio.h>

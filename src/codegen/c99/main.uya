@@ -1163,7 +1163,29 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                 while j < decl.method_block_method_count {
                     const m: &ASTNode = decl.method_block_methods[j];
                     if m != null && m.type == ASTNodeType.AST_FN_DECL {
-                        gen_method_prototype(codegen, m, type_name);
+                        // 检查是否是泛型方法
+                        if m.fn_decl_type_param_count > 0 {
+                            // 泛型方法：为每个单态化实例生成原型
+                            var k: i32 = 0;
+                            while k < codegen.mono_instance_count {
+                                if codegen.mono_instances[k].generic_name != null && codegen.mono_instances[k].is_function != 0 {
+                                    // 检查单态化实例名称是否匹配 "TypeName_method_name" 格式
+                                    var expected_prefix: [byte: 256] = [];
+                                    var prefix_len: i32 = snprintf(&expected_prefix[0] as *byte, 256, "%s_%s_" as *byte, type_name as *byte, m.fn_decl_name as *byte);
+                                    
+                                    const gn: &byte = codegen.mono_instances[k].generic_name;
+                                    if gn != null && strncmp(gn as *byte, &expected_prefix[0] as *byte, prefix_len) == 0 {
+                                        gen_mono_method_prototype(codegen, m, type_name,
+                                            codegen.mono_instances[k].type_args,
+                                            codegen.mono_instances[k].type_arg_count);
+                                    }
+                                }
+                                k = k + 1;
+                            }
+                        } else {
+                            // 非泛型方法
+                            gen_method_prototype(codegen, m, type_name);
+                        }
                     }
                     j = j + 1;
                 }
@@ -1186,30 +1208,51 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                             const mono_name: &byte = get_mono_struct_name(codegen, struct_name,
                                 codegen.mono_instances[k].type_args,
                                 codegen.mono_instances[k].type_arg_count);
-                            // 设置单态化上下文
-                            const saved_tp: &TypeParam = codegen.current_type_params;
-                            const saved_tpc: i32 = codegen.current_type_param_count;
-                            const saved_ta: & & ASTNode = codegen.current_type_args;
-                            const saved_tac: i32 = codegen.current_type_arg_count;
-                            codegen.current_type_params = decl.struct_decl_type_params;
-                            codegen.current_type_param_count = decl.struct_decl_type_param_count;
-                            codegen.current_type_args = codegen.mono_instances[k].type_args;
-                            codegen.current_type_arg_count = codegen.mono_instances[k].type_arg_count;
+                            // 设置结构体的类型参数上下文（用于二级查找）
+                            const saved_stp: &TypeParam = codegen.struct_type_params;
+                            const saved_stpc: i32 = codegen.struct_type_param_count;
+                            const saved_sta: & & ASTNode = codegen.struct_type_args;
+                            const saved_stac: i32 = codegen.struct_type_arg_count;
+                            codegen.struct_type_params = decl.struct_decl_type_params;
+                            codegen.struct_type_param_count = decl.struct_decl_type_param_count;
+                            codegen.struct_type_args = codegen.mono_instances[k].type_args;
+                            codegen.struct_type_arg_count = codegen.mono_instances[k].type_arg_count;
                             
                             var j: i32 = 0;
                             while j < decl.struct_decl_method_count {
                                 const m: &ASTNode = decl.struct_decl_methods[j];
                                 if m != null && m.type == ASTNodeType.AST_FN_DECL {
-                                    gen_method_prototype(codegen, m, mono_name);
+                                    // 跳过泛型方法（它们通过方法单态化机制处理）
+                                    if m.fn_decl_type_param_count > 0 {
+                                        // 为泛型方法生成单态化原型
+                                        var mi: i32 = 0;
+                                        while mi < codegen.mono_instance_count {
+                                            if codegen.mono_instances[mi].generic_name != null && codegen.mono_instances[mi].is_function != 0 {
+                                                // 检查单态化实例名称是否匹配 "StructName_method_name" 格式
+                                                var expected_prefix: [byte: 256] = [];
+                                                var prefix_len: i32 = snprintf(&expected_prefix[0] as *byte, 256, "%s_%s_" as *byte, mono_name as *byte, m.fn_decl_name as *byte);
+                                                
+                                                const gn: &byte = codegen.mono_instances[mi].generic_name;
+                                                if gn != null && strncmp(gn as *byte, &expected_prefix[0] as *byte, prefix_len) == 0 {
+                                                    gen_mono_method_prototype(codegen, m, mono_name,
+                                                        codegen.mono_instances[mi].type_args,
+                                                        codegen.mono_instances[mi].type_arg_count);
+                                                }
+                                            }
+                                            mi = mi + 1;
+                                        }
+                                    } else {
+                                        gen_method_prototype(codegen, m, mono_name);
+                                    }
                                 }
                                 j = j + 1;
                             }
                             
-                            // 恢复上下文
-                            codegen.current_type_params = saved_tp;
-                            codegen.current_type_param_count = saved_tpc;
-                            codegen.current_type_args = saved_ta;
-                            codegen.current_type_arg_count = saved_tac;
+                            // 恢复结构体类型参数上下文
+                            codegen.struct_type_params = saved_stp;
+                            codegen.struct_type_param_count = saved_stpc;
+                            codegen.struct_type_args = saved_sta;
+                            codegen.struct_type_arg_count = saved_stac;
                         }
                     }
                     k = k + 1;
@@ -1335,31 +1378,53 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                                 const mono_name: &byte = get_mono_struct_name(codegen, struct_name,
                                     codegen.mono_instances[k].type_args,
                                     codegen.mono_instances[k].type_arg_count);
-                                // 设置单态化上下文
-                                const saved_tp: &TypeParam = codegen.current_type_params;
-                                const saved_tpc: i32 = codegen.current_type_param_count;
-                                const saved_ta: & & ASTNode = codegen.current_type_args;
-                                const saved_tac: i32 = codegen.current_type_arg_count;
-                                codegen.current_type_params = decl.struct_decl_type_params;
-                                codegen.current_type_param_count = decl.struct_decl_type_param_count;
-                                codegen.current_type_args = codegen.mono_instances[k].type_args;
-                                codegen.current_type_arg_count = codegen.mono_instances[k].type_arg_count;
+                                // 设置结构体的类型参数上下文（用于二级查找）
+                                const saved_stp: &TypeParam = codegen.struct_type_params;
+                                const saved_stpc: i32 = codegen.struct_type_param_count;
+                                const saved_sta: & & ASTNode = codegen.struct_type_args;
+                                const saved_stac: i32 = codegen.struct_type_arg_count;
+                                codegen.struct_type_params = decl.struct_decl_type_params;
+                                codegen.struct_type_param_count = decl.struct_decl_type_param_count;
+                                codegen.struct_type_args = codegen.mono_instances[k].type_args;
+                                codegen.struct_type_arg_count = codegen.mono_instances[k].type_arg_count;
                                 
                                 var j: i32 = 0;
                                 while j < decl.struct_decl_method_count {
                                     const m: &ASTNode = decl.struct_decl_methods[j];
                                     if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_body != null {
-                                        gen_method_function(codegen, m, mono_name);
-                                        fputs("\n" as *byte, codegen.output as *void);
+                                        // 跳过泛型方法（它们通过方法单态化机制处理）
+                                        if m.fn_decl_type_param_count > 0 {
+                                            // 为泛型方法生成单态化定义
+                                            var mi: i32 = 0;
+                                            while mi < codegen.mono_instance_count {
+                                                if codegen.mono_instances[mi].generic_name != null && codegen.mono_instances[mi].is_function != 0 {
+                                                    // 检查单态化实例名称是否匹配 "StructName_method_name" 格式
+                                                    var expected_prefix: [byte: 256] = [];
+                                                    var prefix_len: i32 = snprintf(&expected_prefix[0] as *byte, 256, "%s_%s_" as *byte, mono_name as *byte, m.fn_decl_name as *byte);
+                                                    
+                                                    const gn: &byte = codegen.mono_instances[mi].generic_name;
+                                                    if gn != null && strncmp(gn as *byte, &expected_prefix[0] as *byte, prefix_len) == 0 {
+                                                        gen_mono_method_function(codegen, m, mono_name,
+                                                            codegen.mono_instances[mi].type_args,
+                                                            codegen.mono_instances[mi].type_arg_count);
+                                                        fputs("\n" as *byte, codegen.output as *void);
+                                                    }
+                                                }
+                                                mi = mi + 1;
+                                            }
+                                        } else {
+                                            gen_method_function(codegen, m, mono_name);
+                                            fputs("\n" as *byte, codegen.output as *void);
+                                        }
                                     }
                                     j = j + 1;
                                 }
                                 
-                                // 恢复上下文
-                                codegen.current_type_params = saved_tp;
-                                codegen.current_type_param_count = saved_tpc;
-                                codegen.current_type_args = saved_ta;
-                                codegen.current_type_arg_count = saved_tac;
+                                // 恢复结构体类型参数上下文
+                                codegen.struct_type_params = saved_stp;
+                                codegen.struct_type_param_count = saved_stpc;
+                                codegen.struct_type_args = saved_sta;
+                                codegen.struct_type_arg_count = saved_stac;
                             }
                         }
                         k = k + 1;
@@ -1437,8 +1502,33 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                     while j < decl.method_block_method_count {
                         const m: &ASTNode = decl.method_block_methods[j];
                         if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_body != null {
-                            gen_method_function(codegen, m, type_name);
-                            fputs("\n" as *byte, codegen.output as *void);
+                            // 检查是否是泛型方法
+                            if m.fn_decl_type_param_count > 0 {
+                                // 泛型方法：为每个单态化实例生成代码
+                                var k: i32 = 0;
+                                while k < codegen.mono_instance_count {
+                                    if codegen.mono_instances[k].generic_name != null && codegen.mono_instances[k].is_function != 0 {
+                                        // 检查单态化实例名称是否匹配 "TypeName_method_name" 格式
+                                        var expected_prefix: [byte: 256] = [];
+                                        var prefix_len: i32 = snprintf(&expected_prefix[0] as *byte, 256, "%s_%s_" as *byte, type_name as *byte, m.fn_decl_name as *byte);
+                                        
+                                        // 检查 generic_name 是否以 expected_prefix 开头
+                                        const gn: &byte = codegen.mono_instances[k].generic_name;
+                                        if gn != null && strncmp(gn as *byte, &expected_prefix[0] as *byte, prefix_len) == 0 {
+                                            // 找到匹配的单态化实例，生成方法代码
+                                            gen_mono_method_function(codegen, m, type_name,
+                                                codegen.mono_instances[k].type_args,
+                                                codegen.mono_instances[k].type_arg_count);
+                                            fputs("\n" as *byte, codegen.output as *void);
+                                        }
+                                    }
+                                    k = k + 1;
+                                }
+                            } else {
+                                // 非泛型方法
+                                gen_method_function(codegen, m, type_name);
+                                fputs("\n" as *byte, codegen.output as *void);
+                            }
                         }
                         j = j + 1;
                     }

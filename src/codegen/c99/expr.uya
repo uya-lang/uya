@@ -1962,7 +1962,31 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                             if did_interface_call == 0 {
                                 const method_fn: &ASTNode = find_method_in_struct_c99(codegen, &struct_name_buf[0], method_name);
                                 if method_fn != null {
-                                    const cname: &byte = get_method_c_name(codegen, &struct_name_buf[0], method_name);
+                                    // 检查是否是泛型方法调用
+                                    var cname: &byte = null;
+                                    if expr.call_expr_type_arg_count > 0 && expr.call_expr_type_args != null && method_fn.fn_decl_type_param_count > 0 {
+                                        // 泛型方法：构建单态化方法名
+                                        // 格式：StructName_method_name_TypeArg1_TypeArg2...
+                                        var mono_method_name: [byte: 256] = [];
+                                        var pos: i32 = 0;
+                                        pos = pos + snprintf(&mono_method_name[0] as *byte, 256, "%s_%s" as *byte, &struct_name_buf[0] as *byte, method_name as *byte);
+                                        
+                                        // 添加类型参数后缀
+                                        var ti: i32 = 0;
+                                        while ti < expr.call_expr_type_arg_count && pos < 250 {
+                                            pos = pos + snprintf(&mono_method_name[pos] as *byte, 256 - pos, "_" as *byte);
+                                            const type_arg: &ASTNode = expr.call_expr_type_args[ti];
+                                            if type_arg != null && type_arg.type == ASTNodeType.AST_TYPE_NAMED && type_arg.type_named_name != null {
+                                                pos = pos + snprintf(&mono_method_name[pos] as *byte, 256 - pos, "%s" as *byte, type_arg.type_named_name as *byte);
+                                            }
+                                            ti = ti + 1;
+                                        }
+                                        
+                                        cname = get_safe_c_identifier(codegen, &mono_method_name[0]);
+                                    } else {
+                                        // 非泛型方法
+                                        cname = get_method_c_name(codegen, &struct_name_buf[0], method_name);
+                                    }
                                     if cname != null {
                                         var prefix: &byte = "&" as *byte;
                                         if strchr(obj_type_c as *byte, 42) != null { prefix = "" as *byte; }

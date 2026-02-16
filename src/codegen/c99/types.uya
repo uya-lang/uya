@@ -80,47 +80,94 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
     }
     
     // 在单态化上下文中，先进行类型参数替换
-    if codegen.current_type_params != null && codegen.current_type_param_count > 0 &&
-        type_node.type == ASTNodeType.AST_TYPE_NAMED && type_node.type_named_name != null {
+    // 二级查找：先查找方法的类型参数，再查找结构体的类型参数
+    if type_node.type == ASTNodeType.AST_TYPE_NAMED && type_node.type_named_name != null {
         const tp_name: &byte = type_node.type_named_name;
-        var tpi: i32 = 0;
-        while tpi < codegen.current_type_param_count {
-            if codegen.current_type_params[tpi].name != null &&
-                strcmp(codegen.current_type_params[tpi].name as *byte, tp_name as *byte) == 0 {
-                // 找到匹配的类型参数，使用对应的类型实参
-                if codegen.current_type_args != null && tpi < codegen.current_type_arg_count {
-                    // 防止无限递归：如果替换后的类型实参和当前节点相同，跳过
-                    if codegen.current_type_args[tpi] == type_node {
-                        return tp_name;  // 返回原始名称，避免无限递归
+        
+        // 第一级：查找方法的类型参数
+        if codegen.current_type_params != null && codegen.current_type_param_count > 0 {
+            var tpi: i32 = 0;
+            while tpi < codegen.current_type_param_count {
+                if codegen.current_type_params[tpi].name != null &&
+                    strcmp(codegen.current_type_params[tpi].name as *byte, tp_name as *byte) == 0 {
+                    // 找到匹配的类型参数，使用对应的类型实参
+                    if codegen.current_type_args != null && tpi < codegen.current_type_arg_count {
+                        // 防止无限递归：如果替换后的类型实参和当前节点相同，跳过
+                        if codegen.current_type_args[tpi] == type_node {
+                            return tp_name;  // 返回原始名称，避免无限递归
+                        }
+                        return c99_type_to_c(codegen, codegen.current_type_args[tpi]);
                     }
-                    return c99_type_to_c(codegen, codegen.current_type_args[tpi]);
                 }
+                tpi = tpi + 1;
             }
-            tpi = tpi + 1;
+        }
+        
+        // 第二级：查找结构体的类型参数
+        if codegen.struct_type_params != null && codegen.struct_type_param_count > 0 {
+            var spi: i32 = 0;
+            while spi < codegen.struct_type_param_count {
+                if codegen.struct_type_params[spi].name != null &&
+                    strcmp(codegen.struct_type_params[spi].name as *byte, tp_name as *byte) == 0 {
+                    if codegen.struct_type_args != null && spi < codegen.struct_type_arg_count {
+                        if codegen.struct_type_args[spi] == type_node {
+                            return tp_name;
+                        }
+                        return c99_type_to_c(codegen, codegen.struct_type_args[spi]);
+                    }
+                }
+                spi = spi + 1;
+            }
         }
     }
     
     // 处理复合类型中的类型参数替换（指针类型）
-    if codegen.current_type_params != null && codegen.current_type_param_count > 0 {
-        if type_node.type == ASTNodeType.AST_TYPE_POINTER && type_node.type_pointer_pointed_type != null {
-            const inner: &ASTNode = type_node.type_pointer_pointed_type;
-            if inner.type == ASTNodeType.AST_TYPE_NAMED && inner.type_named_name != null {
+    if type_node.type == ASTNodeType.AST_TYPE_POINTER && type_node.type_pointer_pointed_type != null {
+        const inner: &ASTNode = type_node.type_pointer_pointed_type;
+        if inner.type == ASTNodeType.AST_TYPE_NAMED && inner.type_named_name != null {
+            const inner_name: &byte = inner.type_named_name;
+            var found_in_method: i32 = 0;
+            var found_in_struct: i32 = 0;
+            var inner_c: &byte = null;
+            
+            // 第一级：查找方法的类型参数
+            if codegen.current_type_params != null && codegen.current_type_param_count > 0 {
                 var tpj: i32 = 0;
                 while tpj < codegen.current_type_param_count {
                     if codegen.current_type_params[tpj].name != null &&
-                        strcmp(codegen.current_type_params[tpj].name as *byte, inner.type_named_name as *byte) == 0 {
+                        strcmp(codegen.current_type_params[tpj].name as *byte, inner_name as *byte) == 0 {
                         if codegen.current_type_args != null && tpj < codegen.current_type_arg_count {
-                            // 获取替换后的内部类型
-                            const inner_c: &byte = c99_type_to_c(codegen, codegen.current_type_args[tpj]);
-                            const len: i32 = strlen(inner_c as *byte) + 4;
-                            const buf: &byte = arena_alloc(codegen.arena, len) as &byte;
-                            if buf != null {
-                                snprintf(buf as *byte, len, "%s *" as *byte, inner_c as *byte);
-                                return buf;
-                            }
+                            inner_c = c99_type_to_c(codegen, codegen.current_type_args[tpj]);
+                            found_in_method = 1;
+                            break;
                         }
                     }
                     tpj = tpj + 1;
+                }
+            }
+            
+            // 第二级：查找结构体的类型参数
+            if found_in_method == 0 && codegen.struct_type_params != null && codegen.struct_type_param_count > 0 {
+                var spj: i32 = 0;
+                while spj < codegen.struct_type_param_count {
+                    if codegen.struct_type_params[spj].name != null &&
+                        strcmp(codegen.struct_type_params[spj].name as *byte, inner_name as *byte) == 0 {
+                        if codegen.struct_type_args != null && spj < codegen.struct_type_arg_count {
+                            inner_c = c99_type_to_c(codegen, codegen.struct_type_args[spj]);
+                            found_in_struct = 1;
+                            break;
+                        }
+                    }
+                    spj = spj + 1;
+                }
+            }
+            
+            if (found_in_method != 0 || found_in_struct != 0) && inner_c != null {
+                const len: i32 = strlen(inner_c as *byte) + 4;
+                const buf: &byte = arena_alloc(codegen.arena, len) as &byte;
+                if buf != null {
+                    snprintf(buf as *byte, len, "%s *" as *byte, inner_c as *byte);
+                    return buf;
                 }
             }
         }

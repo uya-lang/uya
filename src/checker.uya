@@ -1819,7 +1819,23 @@ fn register_mono_instance(checker: &TypeChecker, generic_name: &byte,
     // 注册新实例
     const idx: i32 = checker.mono_instance_count;
     checker.mono_instance_count = checker.mono_instance_count + 1;
-    checker.mono_instances[idx].generic_name = generic_name;
+    
+    // 复制 generic_name 到 Arena（因为传入的可能是局部数组）
+    var name_len: i32 = 0;
+    while generic_name[name_len] != 0 {
+        name_len = name_len + 1;
+    }
+    const name_copy: &byte = arena_alloc(checker.arena, (name_len + 1) as usize) as &byte;
+    if name_copy == null {
+        checker.mono_instance_count = checker.mono_instance_count - 1;
+        return -1;
+    }
+    var ni: i32 = 0;
+    while ni <= name_len {
+        name_copy[ni] = generic_name[ni];
+        ni = ni + 1;
+    }
+    checker.mono_instances[idx].generic_name = name_copy;
     checker.mono_instances[idx].is_function = is_function;
     checker.mono_instances[idx].type_arg_count = type_arg_count;
     
@@ -4533,6 +4549,109 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
         if object_type.kind == TypeKind.TYPE_STRUCT && object_type.struct_name != null && method_name != null && checker.program_node != null {
             const m: &ASTNode = find_method_in_struct(checker.program_node, object_type.struct_name, method_name);
             if m != null {
+                // 检查是否是泛型方法调用
+                if m.fn_decl_type_param_count > 0 && node.call_expr_type_arg_count > 0 && node.call_expr_type_args != null {
+                    // 泛型方法调用
+                    const type_param_count: i32 = m.fn_decl_type_param_count;
+                    const type_params: &TypeParam = m.fn_decl_type_params;
+                    const type_args: & &ASTNode = node.call_expr_type_args;
+                    const type_arg_count: i32 = node.call_expr_type_arg_count;
+                    
+                    // 检查类型实参数量
+                    if type_arg_count != type_param_count {
+                        checker_report_error(checker, node, "泛型方法类型参数数量不匹配" as *byte);
+                        return result;
+                    }
+                    
+                    // 检查类型参数约束
+                    var ci: i32 = 0;
+                    while ci < type_param_count {
+                        const arg_type: Type = type_from_ast(checker, type_args[ci]);
+                        if check_type_param_constraints(checker, arg_type, &type_params[ci], node, type_params[ci].name) == 0 {
+                            return result;  // 约束检查失败，已报错
+                        }
+                        ci = ci + 1;
+                    }
+                    
+                    // 构建完整的单态化名称
+                    // 格式：StructName_TypeArg1_..._MethodName_TypeArg1_...
+                    var mono_name: [byte: 256] = [];
+                    var pos: i32 = 0;
+                    
+                    // 如果结构体是泛型的，添加结构体类型参数后缀
+                    if object_type.struct_type_args != null && object_type.struct_type_arg_count > 0 {
+                        pos = pos + snprintf(mono_name as *byte, 256, "%s" as *byte, object_type.struct_name as *byte);
+                        var sti: i32 = 0;
+                        while sti < object_type.struct_type_arg_count && pos < 250 {
+                            const st_type: Type = object_type.struct_type_args[sti];
+                            // 从 Type 获取名称
+                            if st_type.kind == TypeKind.TYPE_STRUCT && st_type.struct_name != null {
+                                pos = pos + snprintf(&mono_name[pos] as *byte, 256 - pos, "_%s" as *byte, st_type.struct_name as *byte);
+                            } else if st_type.kind == TypeKind.TYPE_I32 {
+                                pos = pos + snprintf(&mono_name[pos] as *byte, 256 - pos, "_i32" as *byte);
+                            } else if st_type.kind == TypeKind.TYPE_I64 {
+                                pos = pos + snprintf(&mono_name[pos] as *byte, 256 - pos, "_i64" as *byte);
+                            } else if st_type.kind == TypeKind.TYPE_F64 {
+                                pos = pos + snprintf(&mono_name[pos] as *byte, 256 - pos, "_f64" as *byte);
+                            } else if st_type.kind == TypeKind.TYPE_BOOL {
+                                pos = pos + snprintf(&mono_name[pos] as *byte, 256 - pos, "_bool" as *byte);
+                            }
+                            sti = sti + 1;
+                        }
+                    } else {
+                        pos = pos + snprintf(mono_name as *byte, 256, "%s" as *byte, object_type.struct_name as *byte);
+                    }
+                    
+                    // 添加方法名
+                    pos = pos + snprintf(&mono_name[pos] as *byte, 256 - pos, "_%s" as *byte, method_name as *byte);
+                    
+                    // 添加方法的类型参数后缀
+                    var mi: i32 = 0;
+                    while mi < type_arg_count && pos < 250 {
+                        const m_type_arg: &ASTNode = type_args[mi];
+                        if m_type_arg != null && m_type_arg.type == ASTNodeType.AST_TYPE_NAMED && m_type_arg.type_named_name != null {
+                            pos = pos + snprintf(&mono_name[pos] as *byte, 256 - pos, "_%s" as *byte, m_type_arg.type_named_name as *byte);
+                        }
+                        mi = mi + 1;
+                    }
+                    
+                    // 注册单态化实例（完整的单态化名称）
+                    register_mono_instance(checker, mono_name as &byte, type_args, type_arg_count, 1);
+                    
+                    // 检查参数个数（不包括 self 参数）
+                    var expected_args: i32 = m.fn_decl_param_count - 1;
+                    if expected_args < 0 { expected_args = 0; }
+                    if node.call_expr_arg_count != expected_args {
+                        checker_report_error(checker, node, "泛型方法调用参数个数不匹配" as *byte);
+                        return result;
+                    }
+                    
+                    // 检查参数类型（使用类型替换）
+                    var j: i32 = 0;
+                    while j < expected_args && j < node.call_expr_arg_count {
+                        const param: &ASTNode = m.fn_decl_params[j + 1];
+                        if param != null && param.type == ASTNodeType.AST_VAR_DECL && param.var_decl_type != null {
+                            var param_type: Type = type_from_ast(checker, param.var_decl_type);
+                            // 替换泛型参数为具体类型
+                            param_type = substitute_generic_type(checker, param_type,
+                                type_params, type_param_count,
+                                type_args, type_arg_count);
+                            if checker_check_expr_type(checker, node.call_expr_args[j], param_type) == 0 {
+                                checker_report_error(checker, node, "泛型方法调用参数类型不匹配" as *byte);
+                                return result;
+                            }
+                        }
+                        j = j + 1;
+                    }
+                    
+                    // 返回替换后的返回类型
+                    const return_type: Type = type_from_ast(checker, m.fn_decl_return_type);
+                    return substitute_generic_type(checker, return_type,
+                        type_params, type_param_count,
+                        type_args, type_arg_count);
+                }
+                
+                // 非泛型方法调用
                 var expected_args: i32 = m.fn_decl_param_count - 1;
                 if expected_args < 0 { expected_args = 0; }
                 if node.call_expr_arg_count != expected_args {
