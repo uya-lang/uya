@@ -108,23 +108,180 @@ struct ASTBlockDataNew {
 }
 
 // ========================================
+// 更多语句节点数据结构
+// ========================================
+
+struct ASTReturnStmtDataNew {
+    expr: *void,
+}
+
+struct ASTAssignDataNew {
+    dest: *void,
+    src: *void,
+}
+
+struct ASTForStmtDataNew {
+    init: *void,
+    condition: *void,
+    update: *void,
+    body: *void,
+    is_range: i32,
+    range_var: *byte,
+    range_start: *void,
+    range_end: *void,
+    range_is_ref: i32,
+}
+
+struct ASTDeferStmtDataNew {
+    body: *void,
+    is_errdefer: i32,
+}
+
+// ========================================
+// 更多表达式节点数据结构
+// ========================================
+
+struct ASTArrayAccessDataNew {
+    array: *void,
+    index: *void,
+}
+
+struct ASTSliceExprDataNew {
+    base: *void,
+    start: *void,
+    len: *void,
+}
+
+struct ASTCastExprDataNew {
+    expr: *void,
+    target_type: *void,
+}
+
+struct ASTStructInitDataNew {
+    type_name: *byte,
+    fields: *void,
+    field_count: i32,
+}
+
+struct ASTArrayLiteralDataNew {
+    elements: *void,
+    element_count: i32,
+}
+
+struct ASTTupleLiteralDataNew {
+    elements: *void,
+    element_count: i32,
+}
+
+struct ASTMatchExprDataNew {
+    expr: *void,
+    arms: *void,
+    arm_count: i32,
+}
+
+struct ASTTryExprDataNew {
+    operand: *void,
+}
+
+struct ASTCatchExprDataNew {
+    operand: *void,
+    error_var: *byte,
+    catch_block: *void,
+}
+
+struct ASTErrorValueDataNew {
+    name: *byte,
+    error_id: u32,
+}
+
+// ========================================
+// 声明节点数据结构
+// ========================================
+
+struct ASTProgramDataNew {
+    decls: *void,
+    decl_count: i32,
+}
+
+struct ASTEnumDeclDataNew {
+    name: *byte,
+    variants: *void,
+    variant_count: i32,
+    is_export: i32,
+}
+
+struct ASTStructDeclDataNew {
+    name: *byte,
+    type_params: *void,
+    type_param_count: i32,
+    interface_names: *void,
+    interface_count: i32,
+    fields: *void,
+    field_count: i32,
+    methods: *void,
+    method_count: i32,
+    is_export: i32,
+}
+
+struct ASTUnionDeclDataNew {
+    name: *byte,
+    variants: *void,
+    variant_count: i32,
+    methods: *void,
+    method_count: i32,
+    is_extern: i32,
+    is_export: i32,
+}
+
+struct ASTInterfaceDeclDataNew {
+    name: *byte,
+    composed_interfaces: *void,
+    composed_count: i32,
+    method_sigs: *void,
+    method_sig_count: i32,
+}
+
+// ========================================
 // Union 组合所有数据结构
 // ========================================
 
 union ASTNodeDataNew {
+    // 字面量和标识符
     identifier: ASTIdentifierDataNew,
     number: ASTNumberDataNew,
     float_literal: ASTFloatDataNew,
     bool_literal: ASTBoolDataNew,
     string_literal: ASTStringDataNew,
+    // 表达式
     binary_expr: ASTBinaryExprDataNew,
     unary_expr: ASTUnaryExprDataNew,
     call_expr: ASTCallExprDataNew,
     member_access: ASTMemberAccessDataNew,
+    array_access: ASTArrayAccessDataNew,
+    slice_expr: ASTSliceExprDataNew,
+    cast_expr: ASTCastExprDataNew,
+    struct_init: ASTStructInitDataNew,
+    array_literal: ASTArrayLiteralDataNew,
+    tuple_literal: ASTTupleLiteralDataNew,
+    match_expr: ASTMatchExprDataNew,
+    try_expr: ASTTryExprDataNew,
+    catch_expr: ASTCatchExprDataNew,
+    error_value: ASTErrorValueDataNew,
+    // 声明
+    program: ASTProgramDataNew,
+    enum_decl: ASTEnumDeclDataNew,
+    struct_decl: ASTStructDeclDataNew,
+    union_decl: ASTUnionDeclDataNew,
+    interface_decl: ASTInterfaceDeclDataNew,
     var_decl: ASTVarDeclDataNew,
     fn_decl: ASTFnDeclDataNew,
+    // 语句
     if_stmt: ASTIfStmtDataNew,
     while_stmt: ASTWhileStmtDataNew,
+    for_stmt: ASTForStmtDataNew,
+    return_stmt: ASTReturnStmtDataNew,
+    defer_stmt: ASTDeferStmtDataNew,
+    assign: ASTAssignDataNew,
     block: ASTBlockDataNew,
 }
 

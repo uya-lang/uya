@@ -21,10 +21,12 @@
 - ✅ 覆盖 13 种节点类型：identifier, number, string, bool, binary_expr, unary_expr, call_expr, member_access, var_decl, fn_decl, if_stmt, while_stmt, block
 - ✅ 验证构造函数、访问函数、设置函数模式
 - ✅ 在 `src/ast.uya` 中添加简化版数据结构和辅助函数（渐进式迁移）
-  - 添加 `ASTNodeDataNew` union（13个变体）
-  - 添加 `OptimizedASTNode` 结构体
-  - 添加辅助函数：`ast_get_number_value_new`, `ast_get_bool_value_new`, `ast_get_binary_op_new` 等
-- ⏳ 待办：扩展完整 67 种节点类型的数据结构定义
+- ✅ **扩展数据结构定义**：已定义 34 种节点类型（原 14 种 → 34 种）
+  - 新增语句：return_stmt, assign, for_stmt, defer_stmt
+  - 新增表达式：array_access, slice_expr, cast_expr, struct_init, array_literal, tuple_literal, match_expr, try_expr, catch_expr, error_value
+  - 新增声明：program, enum_decl, struct_decl, union_decl, interface_decl
+- ⏳ 待办：继续扩展剩余节点类型
+- ⏳ 待办：为每种新类型添加辅助函数
 
 ## 技术限制
 - Union 变体不能包含引用类型 `&T`，必须使用 FFI 指针 `*T`
