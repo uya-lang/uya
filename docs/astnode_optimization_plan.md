@@ -310,23 +310,19 @@ make backup
 
 ## 进度记录
 
-### 2026-02-16 (晚上)
+### 2026-02-16 (晚上 - 第二阶段)
+- ✅ 验证类型别名机制正常工作
+- ✅ 发现前向引用问题（ASTStringInterpSegment 引用 ASTNode）
+- ✅ 分析迁移障碍并记录
+- ⏸️ 暂停迁移，等待进一步研究
+
+### 2026-02-16 (晚上 - 第一阶段)
 - ✅ 完成 77 个 `ast_new_*_optimized` 创建函数
 - ✅ 细化迁移计划文档
 - ✅ 添加访问函数层（106 个 `ast_get/set_*_compat` 函数）
-  - identifier, number, string, bool 节点
-  - binary_expr, unary_expr 节点
-  - var_decl, fn_decl 节点
-  - program, call_expr 节点
-  - type_named, pointer, array/slice 节点
-  - member_access 节点
-  - struct_decl, union_decl, enum_decl 节点
-  - if_stmt, while_stmt, for_stmt, block 节点
-  - return_stmt, assign, match_expr 节点
 - ✅ 修复字段名错误（enum_decl, union_decl, struct_decl, type_* 等）
-- ✅ 编译验证通过（364/364 测试）
+- ✅ 编译验证通过（363/363 测试）
 - ✅ 自举验证通过，备份完成
-- ⏳ 下一步：在关键模块中使用访问函数
 
 ### 2026-02-16 (下午)
 - ✅ 在 `src/ast.uya` 中添加优化数据结构定义和辅助函数
