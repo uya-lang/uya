@@ -639,6 +639,151 @@ fn ast_merge_programs(programs: [&ASTNode: MAX_MERGE_PROGRAMS], count: i32, aren
 }
 
 // ========================================
+// OptimizedASTNode 节点创建函数
+// ========================================
+
+// 基础创建函数
+fn ast_new_optimized_base(node_type: ASTNodeType, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = arena_alloc(arena, @size_of(OptimizedASTNode)) as &OptimizedASTNode;
+    if node == null {
+        return null;
+    }
+    node.type = node_type;
+    node.line = line;
+    node.column = column;
+    node.filename = filename;
+    return node;
+}
+
+// 创建标识符节点
+fn ast_new_identifier_optimized(name: &byte, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_IDENTIFIER, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.identifier(ASTIdentifierDataNew { name: name });
+    return node;
+}
+
+// 创建数字节点
+fn ast_new_number_optimized(value: i32, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_NUMBER, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.number(ASTNumberDataNew { value: value });
+    return node;
+}
+
+// 创建浮点数节点
+fn ast_new_float_optimized(value: f64, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_FLOAT, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.float_literal(ASTFloatDataNew { value: value });
+    return node;
+}
+
+// 创建布尔节点
+fn ast_new_bool_optimized(value: i32, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_BOOL, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.bool_literal(ASTBoolDataNew { value: value });
+    return node;
+}
+
+// 创建字符串节点
+fn ast_new_string_optimized(value: &byte, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_STRING, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.string_literal(ASTStringDataNew { value: value });
+    return node;
+}
+
+// 创建二元表达式节点
+fn ast_new_binary_optimized(left: &ASTNode, op: i32, right: &ASTNode, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_BINARY_EXPR, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.binary_expr(ASTBinaryExprDataNew { left: left, op: op, right: right });
+    return node;
+}
+
+// 创建一元表达式节点
+fn ast_new_unary_optimized(op: i32, operand: &ASTNode, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_UNARY_EXPR, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.unary_expr(ASTUnaryExprDataNew { op: op, operand: operand });
+    return node;
+}
+
+// 创建调用表达式节点
+fn ast_new_call_optimized(callee: &ASTNode, args: &&ASTNode, arg_count: i32, type_args: &&ASTNode, type_arg_count: i32, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_CALL_EXPR, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.call_expr(ASTCallExprDataNew { callee: callee, args: args, arg_count: arg_count, has_ellipsis_forward: 0, type_args: type_args, type_arg_count: type_arg_count });
+    return node;
+}
+
+// 创建成员访问节点
+fn ast_new_member_access_optimized(object: &ASTNode, field_name: &byte, is_module_access: i32, module_name: &byte, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_MEMBER_ACCESS, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.member_access(ASTMemberAccessDataNew { object: object, field_name: field_name, is_module_access: is_module_access, module_name: module_name });
+    return node;
+}
+
+// 创建块节点
+fn ast_new_block_optimized(stmts: &&ASTNode, stmt_count: i32, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_BLOCK, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.block(ASTBlockDataNew { stmts: stmts, stmt_count: stmt_count });
+    return node;
+}
+
+// 创建变量声明节点
+fn ast_new_var_decl_optimized(name: &byte, var_type: &ASTNode, init: &ASTNode, is_const: i32, is_export: i32, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_VAR_DECL, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.var_decl(ASTVarDeclDataNew { name: name, var_type: var_type, init: init, is_const: is_const, was_moved: 0, is_export: is_export });
+    return node;
+}
+
+// 创建函数声明节点
+fn ast_new_fn_decl_optimized(name: &byte, type_params: &TypeParam, type_param_count: i32, params: &&ASTNode, param_count: i32, return_type: &ASTNode, body: &ASTNode, is_varargs: i32, is_export: i32, is_extern: i32, is_async: i32, extern_lib_name: &byte, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_FN_DECL, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.fn_decl(ASTFnDeclDataNew { name: name, type_params: type_params, type_param_count: type_param_count, params: params, param_count: param_count, return_type: return_type, body: body, is_varargs: is_varargs, is_export: is_export, is_extern: is_extern, is_async: is_async, extern_lib_name: extern_lib_name });
+    return node;
+}
+
+// 创建 if 语句节点
+fn ast_new_if_optimized(condition: &ASTNode, then_branch: &ASTNode, else_branch: &ASTNode, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_IF_STMT, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.if_stmt(ASTIfStmtDataNew { condition: condition, then_branch: then_branch, else_branch: else_branch });
+    return node;
+}
+
+// 创建 while 语句节点
+fn ast_new_while_optimized(condition: &ASTNode, body: &ASTNode, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_WHILE_STMT, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.while_stmt(ASTWhileStmtDataNew { condition: condition, body: body });
+    return node;
+}
+
+// 创建 return 语句节点
+fn ast_new_return_optimized(expr: &ASTNode, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_RETURN_STMT, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.return_stmt(ASTReturnStmtDataNew { expr: expr });
+    return node;
+}
+
+// 创建表达式语句节点
+fn ast_new_expr_stmt_optimized(expr: &ASTNode, line: i32, column: i32, filename: &byte, arena: &Arena) &OptimizedASTNode {
+    const node: &OptimizedASTNode = ast_new_optimized_base(ASTNodeType.AST_EXPR_STMT, line, column, filename, arena);
+    if node == null { return null; }
+    node.data = ASTNodeDataNew.expr_stmt(ASTExprStmtDataNew { expr: expr });
+    return node;
+}
+
+// ========================================
 // 优化后的 ASTNode 辅助函数（第二阶段）
 // 数据结构定义见 ast_data.uya
 // ========================================

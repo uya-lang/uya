@@ -1,15 +1,15 @@
 // ast_data.uya - ASTNode 优化数据结构定义
 // 渐进式迁移：与 ast.uya 中的旧结构共存
 //
-// 注意：union 变体不能包含引用类型 &T，必须使用 FFI 指针 *T
-// 注意：使用 *void 代替 *ASTNode 避免循环依赖
+// 注意：编译器已支持 union 变体包含引用类型 &T
+// 注意：使用 ASTNode 而非 void 避免类型不安全
 
 // ========================================
 // 简单节点数据结构
 // ========================================
 
 struct ASTIdentifierDataNew {
-    name: *byte,
+    name: &byte,
 }
 
 struct ASTNumberDataNew {
@@ -25,85 +25,85 @@ struct ASTBoolDataNew {
 }
 
 struct ASTStringDataNew {
-    value: *byte,
+    value: &byte,
 }
 
 // ========================================
-// 表达式节点数据结构（使用 *void 代替 *ASTNode）
+// 表达式节点数据结构
 // ========================================
 
 struct ASTBinaryExprDataNew {
-    left: *void,
+    left: &ASTNode,
     op: i32,
-    right: *void,
+    right: &ASTNode,
 }
 
 struct ASTUnaryExprDataNew {
     op: i32,
-    operand: *void,
+    operand: &ASTNode,
 }
 
 struct ASTCallExprDataNew {
-    callee: *void,
-    args: *void,
+    callee: &ASTNode,
+    args: &&ASTNode,
     arg_count: i32,
     has_ellipsis_forward: i32,
-    type_args: *void,
+    type_args: &&ASTNode,
     type_arg_count: i32,
 }
 
 struct ASTMemberAccessDataNew {
-    object: *void,
-    field_name: *byte,
+    object: &ASTNode,
+    field_name: &byte,
     is_module_access: i32,
-    module_name: *byte,
+    module_name: &byte,
 }
 
 // ========================================
-// 声明节点数据结构（使用 *void 代替 *ASTNode）
+// 声明节点数据结构
 // ========================================
 
 struct ASTVarDeclDataNew {
-    name: *byte,
-    var_type: *void,
-    init: *void,
+    name: &byte,
+    var_type: &ASTNode,
+    init: &ASTNode,
     is_const: i32,
     was_moved: i32,
     is_export: i32,
 }
 
 struct ASTFnDeclDataNew {
-    name: *byte,
-    type_params: *void,
+    name: &byte,
+    type_params: &TypeParam,
     type_param_count: i32,
-    params: *void,
+    params: &&ASTNode,
     param_count: i32,
-    return_type: *void,
-    body: *void,
+    return_type: &ASTNode,
+    body: &ASTNode,
     is_varargs: i32,
     is_export: i32,
     is_extern: i32,
     is_async: i32,
-    extern_lib_name: *byte,
+    extern_lib_name: &byte,
 }
 
 // ========================================
-// 语句节点数据结构（使用 *void 代替 *ASTNode）
+// 语句节点数据结构
 // ========================================
 
 struct ASTIfStmtDataNew {
-    condition: *void,
-    then_branch: *void,
-    else_branch: *void,
+    condition: &ASTNode,
+    then_branch: &ASTNode,
+    else_branch: &ASTNode,
 }
 
 struct ASTWhileStmtDataNew {
-    condition: *void,
-    body: *void,
+    condition: &ASTNode,
+    body: &ASTNode,
 }
 
 struct ASTBlockDataNew {
-    stmts: *void,
+    stmts: &&ASTNode,
     stmt_count: i32,
 }
 
@@ -112,33 +112,33 @@ struct ASTBlockDataNew {
 // ========================================
 
 struct ASTReturnStmtDataNew {
-    expr: *void,
+    expr: &ASTNode,
 }
 
 struct ASTAssignDataNew {
-    dest: *void,
-    src: *void,
+    dest: &ASTNode,
+    src: &ASTNode,
 }
 
 struct ASTForStmtDataNew {
-    init: *void,
-    condition: *void,
-    update: *void,
-    body: *void,
+    init: &ASTNode,
+    condition: &ASTNode,
+    update: &ASTNode,
+    body: &ASTNode,
     is_range: i32,
-    range_var: *byte,
-    range_start: *void,
-    range_end: *void,
+    range_var: &byte,
+    range_start: &ASTNode,
+    range_end: &ASTNode,
     range_is_ref: i32,
 }
 
 struct ASTDeferStmtDataNew {
-    body: *void,
+    body: &ASTNode,
     is_errdefer: i32,
 }
 
 struct ASTErrdeferStmtDataNew {
-    body: *void,
+    body: &ASTNode,
 }
 
 // ========================================
@@ -146,59 +146,59 @@ struct ASTErrdeferStmtDataNew {
 // ========================================
 
 struct ASTArrayAccessDataNew {
-    array: *void,
-    index: *void,
+    array: &ASTNode,
+    index: &ASTNode,
 }
 
 struct ASTSliceExprDataNew {
-    base: *void,
-    start: *void,
-    len: *void,
+    base: &ASTNode,
+    start: &ASTNode,
+    len: &ASTNode,
 }
 
 struct ASTCastExprDataNew {
-    expr: *void,
-    target_type: *void,
+    expr: &ASTNode,
+    target_type: &ASTNode,
     is_force_cast: i32,
 }
 
 struct ASTStructInitDataNew {
-    type_name: *byte,
-    fields: *void,
+    type_name: &byte,
+    fields: &&ASTNode,
     field_count: i32,
-    type_args: *void,
+    type_args: &&ASTNode,
     type_arg_count: i32,
 }
 
 struct ASTArrayLiteralDataNew {
-    elements: *void,
+    elements: &&ASTNode,
     element_count: i32,
-    repeat_count_expr: *void,
+    repeat_count_expr: &ASTNode,
 }
 
 struct ASTTupleLiteralDataNew {
-    elements: *void,
+    elements: &&ASTNode,
     element_count: i32,
 }
 
 struct ASTMatchExprDataNew {
-    expr: *void,
-    arms: *void,
+    expr: &ASTNode,
+    arms: &ASTMatchArm,
     arm_count: i32,
 }
 
 struct ASTTryExprDataNew {
-    operand: *void,
+    operand: &ASTNode,
 }
 
 struct ASTCatchExprDataNew {
-    operand: *void,
-    error_var: *byte,
-    catch_block: *void,
+    operand: &ASTNode,
+    error_var: &byte,
+    catch_block: &ASTNode,
 }
 
 struct ASTErrorValueDataNew {
-    name: *byte,
+    name: &byte,
     error_id: u32,
 }
 
@@ -207,47 +207,47 @@ struct ASTErrorValueDataNew {
 // ========================================
 
 struct ASTProgramDataNew {
-    decls: *void,
+    decls: &&ASTNode,
     decl_count: i32,
 }
 
 struct ASTEnumDeclDataNew {
-    name: *byte,
-    variants: *void,
+    name: &byte,
+    variants: &EnumVariant,
     variant_count: i32,
     is_export: i32,
 }
 
 struct ASTStructDeclDataNew {
-    name: *byte,
-    type_params: *void,
+    name: &byte,
+    type_params: &TypeParam,
     type_param_count: i32,
-    interface_names: *void,
+    interface_names: &&byte,
     interface_count: i32,
-    fields: *void,
+    fields: &&ASTNode,
     field_count: i32,
-    methods: *void,
+    methods: &&ASTNode,
     method_count: i32,
     is_export: i32,
 }
 
 struct ASTUnionDeclDataNew {
-    name: *byte,
-    variants: *void,
+    name: &byte,
+    variants: &&ASTNode,
     variant_count: i32,
-    methods: *void,
+    methods: &&ASTNode,
     method_count: i32,
     is_extern: i32,
     is_export: i32,
 }
 
 struct ASTInterfaceDeclDataNew {
-    name: *byte,
-    type_params: *void,
+    name: &byte,
+    type_params: &TypeParam,
     type_param_count: i32,
-    composed_interfaces: *void,
+    composed_interfaces: &&byte,
     composed_count: i32,
-    method_sigs: *void,
+    method_sigs: &&ASTNode,
     method_sig_count: i32,
     is_export: i32,
 }
@@ -257,54 +257,54 @@ struct ASTInterfaceDeclDataNew {
 // ========================================
 
 struct ASTErrorDeclDataNew {
-    name: *byte,
+    name: &byte,
     is_export: i32,
 }
 
 struct ASTMethodBlockDataNew {
-    struct_name: *byte,
-    union_name: *byte,
-    methods: *void,
+    struct_name: &byte,
+    union_name: &byte,
+    methods: &&ASTNode,
     method_count: i32,
 }
 
 struct ASTMacroDeclDataNew {
-    name: *byte,
-    params: *void,
+    name: &byte,
+    params: &&ASTNode,
     param_count: i32,
-    return_tag: *byte,
-    body: *void,
+    return_tag: &byte,
+    body: &ASTNode,
     is_export: i32,
 }
 
 struct ASTTypeAliasDataNew {
-    name: *byte,
-    target_type: *void,
+    name: &byte,
+    target_type: &ASTNode,
     is_export: i32,
 }
 
 struct ASTExternVarDeclDataNew {
-    name: *byte,
-    var_type: *void,
-    init_expr: *void,
+    name: &byte,
+    var_type: &ASTNode,
+    init_expr: &ASTNode,
     is_const: i32,
     is_extern: i32,
     is_export: i32,
-    extern_lib_name: *byte,
+    extern_lib_name: &byte,
 }
 
 struct ASTDestructureDeclDataNew {
-    names: *void,
+    names: &&byte,
     name_count: i32,
     is_const: i32,
-    init: *void,
+    init: &ASTNode,
 }
 
 struct ASTUseStmtDataNew {
-    path_segments: *void,
+    path_segments: &&byte,
     path_segment_count: i32,
-    item_name: *byte,
-    alias: *byte,
+    item_name: &byte,
+    alias: &byte,
 }
 
 // ========================================
@@ -320,12 +320,12 @@ struct ASTContinueStmtDataNew {
 }
 
 struct ASTTestStmtDataNew {
-    description: *byte,
-    body: *void,
+    description: &byte,
+    body: &ASTNode,
 }
 
 struct ASTExprStmtDataNew {
-    expr: *void,
+    expr: &ASTNode,
 }
 
 // ========================================
@@ -341,55 +341,55 @@ struct ASTEmptyDataNew {
 // ========================================
 
 struct ASTSizeofExprDataNew {
-    target: *void,
+    target: &ASTNode,
     is_type: i32,
 }
 
 struct ASTLenExprDataNew {
-    array: *void,
+    array: &ASTNode,
 }
 
 struct ASTAlignofExprDataNew {
-    target: *void,
+    target: &ASTNode,
     is_type: i32,
 }
 
 struct ASTStringInterpDataNew {
-    segments: *void,
+    segments: &ASTNode,
     segment_count: i32,
     computed_size: i32,
 }
 
 struct ASTAwaitExprDataNew {
-    operand: *void,
+    operand: &ASTNode,
 }
 
 struct ASTSyscallDataNew {
-    number: *void,
-    args: *void,
+    number: &ASTNode,
+    args: &&ASTNode,
     arg_count: i32,
 }
 
 struct ASTPtrFromUsizeDataNew {
-    value: *void,
+    value: &ASTNode,
 }
 
 struct ASTUsizeFromPtrDataNew {
-    ptr: *void,
+    ptr: &ASTNode,
 }
 
 struct ASTVaStartDataNew {
-    ap: *void,
-    last_param: *void,
+    ap: &ASTNode,
+    last_param: &ASTNode,
 }
 
 struct ASTVaEndDataNew {
-    ap: *void,
+    ap: &ASTNode,
 }
 
 struct ASTVaArgDataNew {
-    ap: *void,
-    arg_type: *void,
+    ap: &ASTNode,
+    arg_type: &ASTNode,
 }
 
 struct ASTIntLimitDataNew {
@@ -399,27 +399,27 @@ struct ASTIntLimitDataNew {
 
 // 宏内建表达式（mc_*）
 struct ASTMcEvalDataNew {
-    operand: *void,
+    operand: &ASTNode,
 }
 
 struct ASTMcCodeDataNew {
-    operand: *void,
+    operand: &ASTNode,
 }
 
 struct ASTMcAstDataNew {
-    operand: *void,
+    operand: &ASTNode,
 }
 
 struct ASTMcErrorDataNew {
-    operand: *void,
+    operand: &ASTNode,
 }
 
 struct ASTMcInterpDataNew {
-    operand: *void,
+    operand: &ASTNode,
 }
 
 struct ASTMcTypeDataNew {
-    operand: *void,
+    operand: &ASTNode,
 }
 
 // 源信息表达式（@src_*）
@@ -430,38 +430,38 @@ struct ASTMcTypeDataNew {
 // ========================================
 
 struct ASTTypeNamedDataNew {
-    name: *byte,
-    type_args: *void,
+    name: &byte,
+    type_args: &&ASTNode,
     type_arg_count: i32,
 }
 
 struct ASTTypePointerDataNew {
-    pointed_type: *void,
+    pointed_type: &ASTNode,
     is_ffi_pointer: i32,
     is_const: i32,
 }
 
 struct ASTTypeArrayDataNew {
-    element_type: *void,
-    size_expr: *void,
+    element_type: &ASTNode,
+    size_expr: &ASTNode,
 }
 
 struct ASTTypeSliceDataNew {
-    element_type: *void,
-    size_expr: *void,
+    element_type: &ASTNode,
+    size_expr: &ASTNode,
 }
 
 struct ASTTypeTupleDataNew {
-    element_types: *void,
+    element_types: &&ASTNode,
     element_count: i32,
 }
 
 struct ASTTypeErrorUnionDataNew {
-    payload_type: *void,
+    payload_type: &ASTNode,
 }
 
 struct ASTTypeAtomicDataNew {
-    inner_type: *void,
+    inner_type: &ASTNode,
 }
 
 // ========================================
@@ -564,6 +564,6 @@ struct OptimizedASTNode {
     type: ASTNodeType,
     line: i32,
     column: i32,
-    filename: *byte,
+    filename: &byte,
     data: ASTNodeDataNew,
 }

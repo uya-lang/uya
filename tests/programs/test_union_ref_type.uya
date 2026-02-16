@@ -1,0 +1,19 @@
+// test_union_ref_type.uya - 测试 union 变体是否可以包含引用类型 &T
+// 当前状态：预期失败（union 变体不能包含 &T）
+
+use std.testing.check_true;
+
+struct Inner {
+    value: i32,
+}
+
+// 尝试定义包含引用类型的 union 变体
+union TestUnion {
+    ref_val: &Inner,    // 引用类型
+    ptr_val: *Inner,    // FFI 指针类型
+}
+
+fn main() i32 {
+    printf("Test union with reference type\n");
+    return 0;
+}
