@@ -26,12 +26,12 @@ from-c:
 	@echo "从 C99 代码构建编译器 (from-c)"
 	@echo "=========================================="
 	@if [ ! -f bin/uya.c ]; then \
-		if [ -f backup/uya.c.zip ]; then \
+		if [ -f backup/uya.c ]; then \
 			echo "bin/uya.c 不存在，从备份恢复..."; \
 			mkdir -p bin; \
-			unzip -o backup/uya.c.zip -d bin/; \
+			cp backup/uya.c bin/uya.c; \
 		else \
-			echo "错误: bin/uya.c 和 backup/uya.c.zip 都不存在"; \
+			echo "错误: bin/uya.c 和 backup/uya.c 都不存在"; \
 			exit 1; \
 		fi \
 	fi
@@ -221,25 +221,25 @@ backup: b
 	@echo "=========================================="
 	@./tests/run_programs_parallel.sh --uya --c99 2>&1 | tail -5
 	@echo ""
-	@echo "备份 bin/uya.c 到 backup/uya.c.zip ..."
+	@echo "备份 bin/uya.c 到 backup/uya.c ..."
 	@if [ ! -f bin/uya.c ]; then \
 		echo "错误: bin/uya.c 不存在"; \
 		exit 1; \
 	fi
 	@mkdir -p backup
-	@cd bin && zip -u ../backup/uya.c.zip uya.c
-	@echo "✓ 备份完成: backup/uya.c.zip"
-	@ls -la backup/uya.c.zip
+	@cp bin/uya.c backup/uya.c
+	@echo "✓ 备份完成: backup/uya.c"
+	@ls -la backup/uya.c
 
 # 从备份恢复 bin/uya.c
 restore:
 	@echo "从备份恢复 bin/uya.c ..."
-	@if [ ! -f backup/uya.c.zip ]; then \
-		echo "错误: backup/uya.c.zip 不存在"; \
+	@if [ ! -f backup/uya.c ]; then \
+		echo "错误: backup/uya.c 不存在"; \
 		exit 1; \
 	fi
 	@mkdir -p bin
-	@unzip -o backup/uya.c.zip -d bin/
+	@cp backup/uya.c bin/uya.c
 	@echo "✓ 恢复完成: bin/uya.c"
 	@ls -la bin/uya.c
 
@@ -264,8 +264,8 @@ help:
 	@echo "  make tests-uya       - 快捷方式：测试自举编译器"
 	@echo "  make tests-uya e     - 快捷方式：测试自举编译器，只显示失败的测试"
 	@echo "  make outlibc         - 输出标准库为 C 代码（使用自举编译器）"
-	@echo "  make backup          - 备份 bin/uya.c 到 backup/uya.c.zip"
-	@echo "  make restore         - 从 backup/uya.c.zip 恢复 bin/uya.c"
+	@echo "  make backup          - 备份 bin/uya.c 到 backup/uya.c"
+	@echo "  make restore         - 从 backup/uya.c 恢复 bin/uya.c"
 	@echo "  make clean           - 清理所有构建产物"
 	@echo "  make help            - 显示此帮助信息"
 	@echo ""

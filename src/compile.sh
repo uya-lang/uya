@@ -151,9 +151,9 @@ fi
 # 检查编译器是否存在，如果不存在则从备份恢复
 if [ ! -f "$COMPILER" ]; then
     echo -e "${YELLOW}编译器 '$COMPILER' 不存在，尝试从备份恢复...${NC}"
-    if [ -f "$REPO_ROOT/backup/uya.c.zip" ]; then
+    if [ -f "$REPO_ROOT/backup/uya.c" ]; then
         mkdir -p "$REPO_ROOT/bin"
-        unzip -o "$REPO_ROOT/backup/uya.c.zip" -d "$REPO_ROOT/bin/"
+        cp "$REPO_ROOT/backup/uya.c" "$REPO_ROOT/bin/uya.c"
         if [ -f "$REPO_ROOT/bin/uya.c" ]; then
             echo "编译 bin/uya.c ..."
             gcc -std=c99 -O2 "$REPO_ROOT/bin/uya.c" -o "$COMPILER" -lm
@@ -164,11 +164,11 @@ if [ ! -f "$COMPILER" ]; then
                 exit 1
             fi
         else
-            echo -e "${RED}错误: 解压后未找到 bin/uya.c${NC}"
+            echo -e "${RED}错误: 复制后未找到 bin/uya.c${NC}"
             exit 1
         fi
     else
-        echo -e "${RED}错误: 编译器 '$COMPILER' 和备份 'backup/uya.c.zip' 都不存在${NC}"
+        echo -e "${RED}错误: 编译器 '$COMPILER' 和备份 'backup/uya.c' 都不存在${NC}"
         echo "请先运行 'make from-c' 构建编译器"
         exit 1
     fi
