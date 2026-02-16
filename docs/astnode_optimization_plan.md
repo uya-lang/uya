@@ -44,15 +44,19 @@ ASTNode 中对应字段：
 
 ### Uya 类型别名机制
 
-**问题**：`type ASTNode = OptimizedASTNode` 类型别名在 C 代码生成阶段可能不生效。
+**验证结果**：类型别名机制正常工作。
 
-**实验结果**：
-1. 将 `struct ASTNode` 重命名为 `struct ASTNodeLegacy` ✅
-2. 添加 `type ASTNode = OptimizedASTNode` ✅
-3. 编译通过 ✅
-4. 但 C 代码中仍生成 `struct ASTNode`（扁平结构）❌
+**测试**：
+```uya
+struct Point { x: i32, y: i32 }
+type Pt = Point;
+// 生成: typedef struct Point Pt;
+```
 
-**结论**：Uya 的类型别名可能只在类型检查阶段使用，代码生成阶段使用实际结构体定义。
+**ASTNode 类型别名问题**：
+- `ASTStringInterpSegment` 在 `ASTNode` 定义前引用 `&ASTNode`
+- 前向引用可能导致类型别名无法正确解析
+- 编译器内部大量使用 `ASTNode`，类型别名可能影响代码生成
 
 ### 迁移障碍
 
