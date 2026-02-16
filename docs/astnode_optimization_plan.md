@@ -180,8 +180,21 @@ union ASTNodeData {
    **缓解**：完成后进行性能对比测试
 
 ## 注意事项
-1. 所有 `&ASTNode` 需改为 `*ASTNode`（FFI 指针）
+1. ~~所有 `&ASTNode` 需改为 `*ASTNode`（FFI 指针）~~ **已验证：编译器支持 union 变体包含 `&T`，无需使用 FFI 指针**
 2. 字段访问从 `node.field` 改为 `node.data.variant.field`
+
+## 当前进度（2026-02-16）
+
+### 已完成
+- ✅ 第一阶段：数据结构定义（使用 `&T` 而非 `*T`）
+- ✅ 第二阶段：辅助函数（60+ getter/setter，16 个创建函数）
+- ✅ 关键发现：编译器已支持 union 变体包含引用类型 `&T`
+
+### 待完成
+- ⏳ 第三阶段：Parser 迁移
+- ⏳ 第四阶段：Checker 迁移
+- ⏳ 第五阶段：Codegen 迁移
+- ⏳ 第六阶段：清理与验证
 3. match 表达式用于访问 union 变体
 4. 保持向后兼容，逐步迁移
 
