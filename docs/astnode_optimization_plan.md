@@ -10,13 +10,63 @@
 ## 已完成
 1. ✅ **第一阶段**：数据结构定义（77 个结构体 + 1 个 union）
 2. ✅ **第二阶段**：辅助函数（77 个 `ast_new_*_optimized` 创建函数）
-3. ✅ **第三阶段 Step 3.1**：访问函数层（110 个 `ast_get/set_*_compat` 函数）
+3. ✅ **第三阶段 Step 3.1**：访问函数层（106 个 `ast_get/set_*_compat` 函数）
+4. ✅ **第三阶段 Step 3.2**：确认字段访问分类
+
+## 字段访问分类
+
+经过分析，发现字段访问分为两类：
+
+| 类型 | 结构体 | 是否需要 compat | 说明 |
+|------|--------|----------------|------|
+| ASTNode 字段 | `ASTNode` | ✅ 需要 | 优化目标 |
+| Type 字段 | `Type` | ❌ 不需要 | 不在优化范围内 |
+
+常见混淆字段：
+- `.struct_name` → `Type` 结构体字段
+- `.pointer_to` → `Type` 结构体字段
+- `.element_type` → `Type` 结构体字段
+- `.error_union_payload_type` → `Type` 结构体字段
+
+ASTNode 中对应字段：
+- `.struct_decl_name` → ASTNode 字段
+- `.type_pointer_pointed_type` → ASTNode 字段
+- `.type_array_element_type` → ASTNode 字段
+- `.type_error_union_payload_type` → ASTNode 字段
 
 ## 待完成
-- ⏳ **第三阶段 Step 3.2**：使用访问函数替换直接字段访问
-- ⏳ **第四阶段**：Checker 迁移
-- ⏳ **第五阶段**：Codegen 迁移
+- ⏳ **第三阶段 Step 3.3**：修改 ASTNode 结构体定义（需要进一步研究）
+- ⏳ **第四阶段**：修复编译错误
+- ⏳ **第五阶段**：测试验证
 - ⏳ **第六阶段**：清理与验证
+
+## 发现的问题
+
+### Uya 类型别名机制
+
+**问题**：`type ASTNode = OptimizedASTNode` 类型别名在 C 代码生成阶段可能不生效。
+
+**实验结果**：
+1. 将 `struct ASTNode` 重命名为 `struct ASTNodeLegacy` ✅
+2. 添加 `type ASTNode = OptimizedASTNode` ✅
+3. 编译通过 ✅
+4. 但 C 代码中仍生成 `struct ASTNode`（扁平结构）❌
+
+**结论**：Uya 的类型别名可能只在类型检查阶段使用，代码生成阶段使用实际结构体定义。
+
+### 迁移障碍
+
+| 问题 | 影响 | 解决方案 |
+|------|------|----------|
+| 类型别名不生效 | 无法通过别名切换实现 | 直接修改结构体 |
+| 6000+ 字段访问 | 修改工作量大 | 渐进式迁移 |
+| 编译器内部依赖 | 风险高 | 充分测试 |
+
+### 可选方案
+
+1. **方案 A**：修改编译器支持类型别名代码生成
+2. **方案 B**：直接修改所有字段访问
+3. **方案 C**：分阶段迁移（当前选择）
 
 ## 访问函数覆盖情况
 
