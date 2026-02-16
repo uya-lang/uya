@@ -2,7 +2,7 @@
 description: 
 alwaysApply: true
 enabled: true
-updatedAt: 2026-02-15T07:20:14.956Z
+updatedAt: 2026-02-16T08:00:00.000Z
 provider: 
 ---
 
@@ -22,11 +22,8 @@ make tests-uya  # 新测试应该失败
 # 3. 编写最小代码使测试通过（绿）
 vim src/related_module.uya
 
-# 4. 重构代码，确保测试仍通过
-make uya && make tests-uya
-
-# 5. 验证自举
-make b
+# 4. 验证和备份（一步完成）
+make backup
 ```
 
 #### TDD 核心原则
@@ -77,19 +74,42 @@ if [ ! -f bin/uya ]; then
     make from-c  # 从 C99 代码构建
 fi
 
-# 验证测试通过
-make tests-uya  # 应该 348/348 通过
+# 验证当前状态（自举 + 测试 + 备份）
+make backup
 ```
 
-## 开发后验证
+## 开发后验证（推荐流程）
 
-任何代码修改后，必须执行：
+**使用 `make backup` 作为主要验证命令**，它会自动执行：
+
+```bash
+make backup     # 一键验证和备份
+```
+
+这会依次执行：
+1. 自举验证（`make b`）- 编译器编译自身，验证输出一致性
+2. 测试验证（`make tests-uya`）- 运行所有测试
+3. 备份（更新 `backup/uya.c.zip`）
+
+### 分步验证（可选）
+
+如果需要单独验证某个步骤：
 
 ```bash
 make uya        # 构建自举编译器 + 更新 bin/uya.c
 make b          # 自举验证
 make tests-uya  # 测试验证
 ```
+
+## 关键命令速查
+
+| 命令 | 说明 |
+|------|------|
+| `make backup` | 完整验证 + 备份（**推荐**） |
+| `make uya` | 构建自举编译器 |
+| `make b` | 自举验证 |
+| `make tests-uya` | 测试验证 |
+| `make from-c` | 从备份恢复并构建 |
 
 ## uya.c 备份机制
 
@@ -153,3 +173,17 @@ vim .codebuddy/skills/uya-development.md
 1. 检查修改是否影响代码生成顺序
 2. 排序相关的输出必须稳定
 3. 确保 err_union 等类型按名称排序
+
+## 栈限制问题
+
+编译器需要较大栈空间，如果出现段错误：
+
+```bash
+# 手动增大栈限制
+ulimit -s 65536
+
+# 然后重新执行
+make backup
+```
+
+`compile.sh` 已内置 `ulimit -s 65536` 设置。
