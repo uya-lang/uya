@@ -206,6 +206,9 @@ struct C99CodeGenerator {
     // 跟踪是否定义了与标准库冲突的函数（fopen, fclose, fread, fgetc, fprintf）
     has_stdio_conflicts: i32,             // 1 表示定义了与 stdio.h 冲突的函数
     
+    // 标识当前函数是否是 export fn main() i32（需要包装返回值为 !i32）
+    is_export_main_i32: i32,
+    
     // --nostdlib 模式：生成 _start 入口
     is_nostdlib: i32                     // 1 表示生成 _start 内联汇编
 }

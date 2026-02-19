@@ -75,6 +75,8 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &Arena, output: &void, mod
     codegen.has_stdio_conflicts = 0;
     // 初始化 is_nostdlib
     codegen.is_nostdlib = is_nostdlib;
+    // 初始化 is_export_main_i32
+    codegen.is_export_main_i32 = 0;
     
     return 0;
 }

@@ -982,8 +982,9 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         } else {
             type_to_store = type_c;
         }
-        if var_name != null && type_to_store != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
-            codegen.local_variables[codegen.local_variable_count].name = var_name;
+        if stmt.var_decl_name != null && type_to_store != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+            // 存储原始变量名（而不是 safe name），以便查找时能正确匹配
+            codegen.local_variables[codegen.local_variable_count].name = stmt.var_decl_name;
             codegen.local_variables[codegen.local_variable_count].type_c = type_to_store;
             codegen.local_variable_count = codegen.local_variable_count + 1;
         }

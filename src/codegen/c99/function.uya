@@ -333,6 +333,22 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
         return;
     }
     
+    // export fn main() i32 → 转换为 !i32 返回类型（与 entry.uya 兼容）
+    // 检测返回类型是否是普通 i32（非 error union）
+    var main_return_is_i32: i32 = 0;
+    if is_main != 0 && fn_decl.fn_decl_is_export != 0 && return_type != null {
+        if return_type.type == ASTNodeType.AST_TYPE_NAMED && return_type.type_named_name != null {
+            if strcmp(return_type.type_named_name as *byte, "i32" as *byte) == 0 {
+                main_return_is_i32 = 1;
+            }
+        }
+    }
+    if main_return_is_i32 != 0 {
+        // export fn main() i32 → int32_t main_main(void);
+        fprintf(codegen.output, "int32_t main_main(void);\n" as *byte);
+        return;
+    }
+    
     // 读取 is_export 标志；若有同名 extern 声明则不能加 static
     const is_export: i32 = fn_decl.fn_decl_is_export;
     var has_extern_same: i32 = 0;
@@ -572,7 +588,23 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
         if fn_decl.fn_decl_is_export != 0 {
             main_def_name = "main_main" as *byte;
         }
-        fprintf(codegen.output, "%s %s(void)" as *byte, return_c as *byte, main_def_name as *byte);
+        // export fn main() i32 → struct err_union_int32_t main_main(void)
+        // 检测返回类型是否是普通 i32（非 error union）
+        var main_return_is_i32_def: i32 = 0;
+        if fn_decl.fn_decl_is_export != 0 && return_type != null {
+            if return_type.type == ASTNodeType.AST_TYPE_NAMED && return_type.type_named_name != null {
+                if strcmp(return_type.type_named_name as *byte, "i32" as *byte) == 0 {
+                    main_return_is_i32_def = 1;
+                }
+            }
+        }
+        if main_return_is_i32_def != 0 {
+            fprintf(codegen.output, "struct err_union_int32_t %s(void)" as *byte, main_def_name as *byte);
+            codegen.is_export_main_i32 = 1;  // 标记需要在返回时包装
+        } else {
+            fprintf(codegen.output, "%s %s(void)" as *byte, return_c as *byte, main_def_name as *byte);
+            codegen.is_export_main_i32 = 0;
+        }
     } else {
         // 非 extern 函数：根据 is_export 决定是否添加 static
         // fn foo() void → static void foo(void)（内部函数，不导出）
@@ -847,7 +879,10 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
         if is_void == 0 {
             codegen.indent_level = codegen.indent_level + 1;
             c99_emit_indent(codegen);
-            if return_c != null && strncmp(return_c as *byte, "struct " as *byte, 7) == 0 {
+            // export fn main() i32 需要包装为 !i32
+            if codegen.is_export_main_i32 != 0 {
+                fprintf(codegen.output as *void, "return (struct err_union_int32_t){ .error_id = 0, .value = 0 };\n" as *byte);
+            } else if return_c != null && strncmp(return_c as *byte, "struct " as *byte, 7) == 0 {
                 fprintf(codegen.output as *void, "return (%s){0};\n" as *byte, return_c as *byte);
             } else {
                 fputs("return 0;\n" as *byte, codegen.output as *void);
@@ -856,8 +891,9 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
         }
     }
     
-    // 清除当前函数的返回类型
+    // 清除当前函数的返回类型和 main 标志
     codegen.current_function_return_type = null;
+    codegen.is_export_main_i32 = 0;
     
     // 恢复当前函数声明
     codegen.current_function_decl = saved_current_function_decl;
