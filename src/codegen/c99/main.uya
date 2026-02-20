@@ -708,6 +708,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         if codegen.has_stdio_conflicts == 0 && is_bootstrap == 0 {
             fputs("#include <stdio.h>\n" as *byte, codegen.output as *void);  // for standard I/O functions (printf, puts, etc.)
         }
+        // 添加常用 libc 函数声明（避免隐式声明警告）
+        // exit 用于 _uya_exit 函数，malloc/free 用于内存分配
+        fputs("extern void exit(int);\n" as *byte, codegen.output as *void);
+        fputs("extern void *malloc(size_t);\n" as *byte, codegen.output as *void);
+        fputs("extern void free(void *);\n" as *byte, codegen.output as *void);
         // 不包含 stdlib.h，避免间接引入 stdio.h 导致 fprintf 与 built-in 冲突；exit/malloc 等由 libc 通过 syscall 实现
         // 与 compiler-c 一致：仅当 needs_string_h 且未定义 string/mem 函数时才包含 <string.h>
         var has_mem_functions: i32 = 0;
