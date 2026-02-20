@@ -26,6 +26,7 @@ export const SYS_fork: i64 = 57;
 export const SYS_execve: i64 = 59;
 export const SYS_exit: i64 = 60;
 export const SYS_kill: i64 = 62;
+export const SYS_wait4: i64 = 61;
 export const SYS_getcwd: i64 = 79;
 export const SYS_chdir: i64 = 80;
 export const SYS_mkdir: i64 = 83;
@@ -231,4 +232,9 @@ export extern "libc" fn sys_readlink(pathname: *const byte, buf: *byte, bufsiz: 
 // sys_getdents64 - 读取目录项
 export extern "libc" fn sys_getdents64(fd: i32, dirp: *void, count: usize) !isize {
     return @syscall(SYS_getdents64, fd as i64, dirp as i64, count as i64) as! isize;
+}
+
+// sys_wait4 - 等待进程状态改变
+export extern "libc" fn sys_wait4(pid: i32, wstatus: &i32, options: i32, rusage: *void) !i64 {
+    return @syscall(SYS_wait4, pid as i64, wstatus as i64, options as i64, rusage as i64) as! i64;
 }

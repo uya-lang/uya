@@ -785,10 +785,20 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     if codegen.is_nostdlib != 0 {
         fputs("// _start - 自定义程序入口（无 C 标准库，内联汇编实现）\n" as *byte, codegen.output as *void);
         fputs("extern int main(int argc, uint8_t **argv);\n" as *byte, codegen.output as *void);
+        fputs("// environ 全局变量，由 _start 初始化\n" as *byte, codegen.output as *void);
+        fputs("uint8_t **environ = (uint8_t **)0;\n" as *byte, codegen.output as *void);
         fputs("__attribute__((naked)) void _start(void) {\n" as *byte, codegen.output as *void);
         fputs("    __asm__ volatile (\n" as *byte, codegen.output as *void);
         fputs("        \"movq (%%rsp), %%rdi\\n\\t\"    /* argc */\n" as *byte, codegen.output as *void);
         fputs("        \"leaq 8(%%rsp), %%rsi\\n\\t\"   /* argv */\n" as *byte, codegen.output as *void);
+        fputs("        // 计算 envp: argv + argc + 1 (跳过 NULL 终止符)\\n\\t\"\n" as *byte, codegen.output as *void);
+        fputs("        \"movq %%rsi, %%rax\\n\\t\"      /* argv */\n" as *byte, codegen.output as *void);
+        fputs("        \"movq (%%rsp), %%rcx\\n\\t\"    /* argc */\n" as *byte, codegen.output as *void);
+        fputs("        \"addq $1, %%rcx\\n\\t\"        /* argc + 1 for NULL */\n" as *byte, codegen.output as *void);
+        fputs("        \"shlq $3, %%rcx\\n\\t\"        /* (argc + 1) * 8 */\n" as *byte, codegen.output as *void);
+        fputs("        \"addq %%rax, %%rcx\\n\\t\"     /* envp = argv + (argc + 1) * 8 */\n" as *byte, codegen.output as *void);
+        fputs("        \"leaq environ(%%rip), %%rdx\\n\\t\" /* &environ */\n" as *byte, codegen.output as *void);
+        fputs("        \"movq %%rcx, (%%rdx)\\n\\t\"   /* environ = envp */\n" as *byte, codegen.output as *void);
         fputs("        \"call main\\n\\t\"\n" as *byte, codegen.output as *void);
         fputs("        \"movq %%rax, %%rdi\\n\\t\"\n" as *byte, codegen.output as *void);
         fputs("        \"movq $60, %%rax\\n\\t\"        /* syscall exit */\n" as *byte, codegen.output as *void);

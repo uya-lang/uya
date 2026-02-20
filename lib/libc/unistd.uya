@@ -19,6 +19,7 @@ use libc.SYS_chdir;
 use libc.SYS_getcwd;
 use libc.SYS_dup;
 use libc.SYS_dup2;
+use libc.SYS_wait4;
 use libc.errno;
 
 // ============================================================
@@ -123,6 +124,23 @@ export extern "libc" fn execve(pathname: &const byte, argv: & &byte, envp: & &by
 export extern "libc" fn _exit(status: i32) void {
     @syscall(SYS_exit, status as i64) catch {};
     // 不会执行到这里
+}
+
+// waitpid - 等待子进程状态改变
+// WNOHANG = 1: 非阻塞
+// WUNTRACED = 2: 报告停止的进程
+// WCONTINUED = 8: 报告继续的进程
+export const WNOHANG: i32 = 1;
+export const WUNTRACED: i32 = 2;
+export const WCONTINUED: i32 = 8;
+
+export extern "libc" fn waitpid(pid: i32, wstatus: &i32, options: i32) i32 {
+    const result: !i64 = @syscall(SYS_wait4, pid as i64, wstatus as i64, options as i64, 0);
+    const ret: i64 = result catch {
+        errno = 10; // ECHILD
+        return 0 - 1;
+    };
+    return ret as i32;
 }
 
 // ============================================================

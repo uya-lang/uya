@@ -356,6 +356,9 @@ fi
 if [ "$USE_SAFETY_PROOF" = true ]; then
     COMPILER_CMD+=(--safety-proof)
 fi
+if [ "$USE_NOSTDLIB" = true ]; then
+    COMPILER_CMD+=(--nostdlib)
+fi
 # 不传递 -exec 给编译器：自举编译器使用 std.runtime 提供 main()，若用 -exec 会链接 bridge.c 导致重复 main 和 uya_main 未定义。
 # 可执行文件由本脚本在编译成功后统一链接生成（见下方 LINK_CMD）。
 
@@ -439,31 +442,9 @@ if [ $COMPILER_EXIT -eq 0 ]; then
             # 用户 export fn main() 被编译为 main_main()
             if [ "$USE_C99" = true ] && [ -f "$OUTPUT_FILE" ]; then
                 if [ "$USE_NOSTDLIB" = true ]; then
-                    # --nostdlib 模式：将 _start 内联汇编嵌入生成的 C 代码
+                    # --nostdlib 模式：直接使用 codegen 生成的 C 代码（已包含 _start 和 environ）
                     UYA_O="$BUILD_DIR/uya.o"
-                    
-                    # 在 C 代码开头插入 _start 内联汇编
-                    UYA_C_NOSTDLIB="$BUILD_DIR/uya_nostdlib.c"
-                    cat > "$UYA_C_NOSTDLIB" << 'STARTCODE'
-/* _start - 自定义程序入口（无 C 标准库，内联汇编实现） */
-typedef signed char int8_t;
-typedef unsigned char uint8_t;
-extern int main(int argc, uint8_t **argv);
-__attribute__((naked)) void _start(void) {
-    __asm__ volatile (
-        "movq (%%rsp), %%rdi\n\t"    /* argc */
-        "leaq 8(%%rsp), %%rsi\n\t"   /* argv */
-        "call main\n\t"
-        "movq %%rax, %%rdi\n\t"
-        "movq $60, %%rax\n\t"        /* syscall exit */
-        "syscall\n\t"
-        "hlt\n\t"
-        : : : "memory"
-    );
-}
-
-STARTCODE
-                    cat "$OUTPUT_FILE" >> "$UYA_C_NOSTDLIB"
+                    UYA_C_NOSTDLIB="$OUTPUT_FILE"
                     
                     if [ "$VERBOSE" = true ]; then
                         echo "编译 $UYA_C_NOSTDLIB -> $UYA_O"
@@ -571,9 +552,9 @@ STARTCODE
             if [ "$USE_AUTO_DEPS" = true ]; then
                 # 与主编译一致：传递 main.uya 和 entry.uya，确保依赖收集顺序相同
                 ENTRY_FILE="$REPO_ROOT/lib/std/runtime/entry/entry.uya"
-                (ulimit -s 65536 2>/dev/null || true; UYA_ROOT="$UYA_ROOT" "$EXECUTABLE_FILE" "$INPUT_PATH" "$ENTRY_FILE" -o "$BOOTSTRAP_C" --c99) >"$BOOTSTRAP_LOG" 2>&1
+                (ulimit -s 65536 2>/dev/null || true; UYA_ROOT="$UYA_ROOT" "$EXECUTABLE_FILE" "$INPUT_PATH" "$ENTRY_FILE" -o "$BOOTSTRAP_C" --c99 --nostdlib) >"$BOOTSTRAP_LOG" 2>&1
             else
-                (ulimit -s 65536 2>/dev/null || true; UYA_ROOT="$UYA_ROOT" "$EXECUTABLE_FILE" "${FULL_PATHS[@]}" -o "$BOOTSTRAP_C" --c99) >"$BOOTSTRAP_LOG" 2>&1
+                (ulimit -s 65536 2>/dev/null || true; UYA_ROOT="$UYA_ROOT" "$EXECUTABLE_FILE" "${FULL_PATHS[@]}" -o "$BOOTSTRAP_C" --c99 --nostdlib) >"$BOOTSTRAP_LOG" 2>&1
             fi
             BOOTSTRAP_EXIT=$?
             if [ "$BOOTSTRAP_EXIT" -ne 0 ]; then
