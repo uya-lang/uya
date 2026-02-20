@@ -1,0 +1,43 @@
+// 测试 union void 变体支持
+// 用于异步编程的 Poll<T> 类型
+
+use libc.printf;
+
+// 带有 void 变体的 union
+union PollI32 {
+    Pending: void,
+    Ready: i32
+}
+
+export fn main() i32 {
+    printf("Test 1: Create void variant\n" as *byte);
+    var p1: union PollI32 = PollI32.Pending(void);
+    printf("  Created Pending variant\n" as *byte);
+    
+    printf("Test 2: Create ready variant\n" as *byte);
+    var p2: union PollI32 = PollI32.Ready(42);
+    printf("  Created Ready variant with value 42\n" as *byte);
+    
+    printf("Test 3: Match void variant\n" as *byte);
+    var is_pending: i32 = 0;
+    is_pending = match p1 {
+        .Pending(_) => 1,
+        .Ready(_) => 0,
+    };
+    printf("  is_pending = %d (expected 1)\n" as *byte, is_pending);
+    
+    printf("Test 4: Match ready variant\n" as *byte);
+    var value: i32 = match p2 {
+        .Pending(_) => -1,
+        .Ready(v) => v,
+    };
+    printf("  value = %d (expected 42)\n" as *byte, value);
+    
+    if is_pending == 1 && value == 42 {
+        printf("\nAll tests passed!\n" as *byte);
+        return 0;
+    } else {
+        printf("\nTests failed!\n" as *byte);
+        return 1;
+    }
+}

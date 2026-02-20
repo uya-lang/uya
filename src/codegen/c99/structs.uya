@@ -243,7 +243,13 @@ fn gen_union_definition(codegen: &C99CodeGenerator, union_decl: &ASTNode) i32 {
             const vtype: &byte = c99_type_to_c(codegen, v.var_decl_type);
             if vname != null && vtype != null {
                 c99_emit_indent(codegen);
-                fprintf(codegen.output as *void, "%s %s;\n" as *byte, vtype as *byte, vname as *byte);
+                // 检查是否是 void 类型变体
+                // C 中不能有 void 字段，用 char _uya_void_placeholder 替代
+                if strcmp(vtype as *byte, "void" as *byte) == 0 {
+                    fprintf(codegen.output as *void, "char _uya_void_%s;\n" as *byte, vname as *byte);
+                } else {
+                    fprintf(codegen.output as *void, "%s %s;\n" as *byte, vtype as *byte, vname as *byte);
+                }
             }
         }
         i = i + 1;

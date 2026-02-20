@@ -1359,19 +1359,27 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                     if idx >= 0 && uname != null && vname != null {
                         const vnode: &ASTNode = union_decl.union_decl_variants[idx];
                         var vtype: &byte = "int" as &byte;
+                        var is_void_variant: i32 = 0;
                         if vnode != null && vnode.type == ASTNodeType.AST_VAR_DECL && vnode.var_decl_type != null {
                             vtype = c99_type_to_c(codegen, vnode.var_decl_type);
+                            if vtype != null && strcmp(vtype as *byte, "void" as *byte) == 0 {
+                                is_void_variant = 1;
+                            }
                         }
                         var bind: &byte = null;
                         if stmt.match_expr_arms[i].var_name != null && strcmp(stmt.match_expr_arms[i].var_name as *byte, "_" as *byte) != 0 {
                             bind = get_safe_c_identifier(codegen, stmt.match_expr_arms[i].var_name);
+                        }
+                        // void 变体不能有变量绑定
+                        if is_void_variant != 0 {
+                            bind = null;
                         }
                         if bind != null {
                             c99_emit_indent(codegen);
                             fprintf(codegen.output as *void, "%sif (_uya_m._tag == %d) {\n" as *byte, prefix as *byte, idx);
                             codegen.indent_level = codegen.indent_level + 1;
                             c99_emit_indent(codegen);
-                            fprintf(codegen.output as *void, "%s %s = _uya_m.u.%s;\n" as *byte, vtype as *byte, bind as *byte, vname as *byte);
+                            fprintf(codegen.output as *void, "%s %s = _uya_m.u.%s;\n" as *byte, vtype as &byte, bind as &byte, vname as &byte);
                         } else {
                             c99_emit_indent(codegen);
                             fprintf(codegen.output as *void, "%sif (_uya_m._tag == %d) " as *byte, prefix as *byte, idx);
