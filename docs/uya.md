@@ -5078,6 +5078,11 @@ fn fetch_data() !Future<&[i8]> {
 
 ```uya
 // 编译器生成的状态机（伪代码）
+union AwaitingFuture {
+    http_get: HttpFuture,
+    process: ProcessFuture
+}
+
 struct FetchDataState {
     // 状态字段
     _state: i32,                    // 当前状态编号
@@ -5089,9 +5094,9 @@ struct FetchDataState {
     parsed: JsonValue,              // const parsed = parse_json(response)
     result: &[i8],                  // try @await process(parsed)
     
-    // 子 Future（正在 await 的）
-    _awaiting_http_get: ?HttpFuture,
-    _awaiting_process: ?ProcessFuture,
+    // 子 Future（union 存储正在 await 的）
+    _awaiting: AwaitingFuture,
+    _awaiting_tag: i32,             // 标记当前是哪个子 Future
 }
 
 // 状态常量
@@ -5108,18 +5113,19 @@ FetchDataState {
     fn poll(self: &Self, waker: &Waker) union Poll<&[i8]> {
         // 状态机主循环
         loop {
-            switch (self._state) {
-                case STATE_INIT: {
+            match self._state {
+                STATE_INIT => {
                     self.url = "https://api.example.com";
-                    self._awaiting_http_get = http_get(self.url);
+                    self._awaiting = AwaitingFuture.http_get(http_get(self.url));
+                    self._awaiting_tag = 0;
                     self._state = STATE_AWAIT_HTTP;
                     // 继续执行，不返回
-                }
+                },
                 
-                case STATE_AWAIT_HTTP: {
-                    const poll_result = self._awaiting_http_get.poll(waker);
+                STATE_AWAIT_HTTP => {
+                    const poll_result = self._awaiting.http_get.poll(waker);
                     match poll_result {
-                        .Pending => {
+                        .Pending(_) => {
                             return union Poll<&[i8]> { Pending: void };
                         },
                         .Error(err) => {
@@ -5127,20 +5133,20 @@ FetchDataState {
                         },
                         .Ready(resp) => {
                             self.response = resp;
-                            self._awaiting_http_get = null;  // 释放子 Future
                             
                             // 继续执行
                             self.parsed = parse_json(self.response);
-                            self._awaiting_process = process(self.parsed);
+                            self._awaiting = AwaitingFuture.process(process(self.parsed));
+                            self._awaiting_tag = 1;
                             self._state = STATE_AWAIT_PROCESS;
                         }
                     }
-                }
+                },
                 
-                case STATE_AWAIT_PROCESS: {
-                    const poll_result = self._awaiting_process.poll(waker);
+                STATE_AWAIT_PROCESS => {
+                    const poll_result = self._awaiting.process.poll(waker);
                     match poll_result {
-                        .Pending => {
+                        .Pending(_) => {
                             return union Poll<&[i8]> { Pending: void };
                         },
                         .Error(err) => {
@@ -5148,14 +5154,13 @@ FetchDataState {
                         },
                         .Ready(res) => {
                             self.result = res;
-                            self._awaiting_process = null;
                             self._state = STATE_COMPLETED;
                             return union Poll<&[i8]> { Ready: self.result };
                         }
                     }
-                }
+                },
                 
-                case STATE_COMPLETED: {
+                STATE_COMPLETED => {
                     // 已经完成，返回缓存的结果
                     return union Poll<&[i8]> { Ready: self.result };
                 }
@@ -5176,13 +5181,14 @@ const result = try @await some_future;
 // 展开后（伪代码）
 {
     // 1. 获取子 Future
-    self._awaiting_future = some_future;
+    self._awaiting = some_future;
+    self._awaiting_tag = FUTURE_TAG;
     
     // 2. 轮询子 Future
     loop {
-        const poll_result = self._awaiting_future.poll(waker);
+        const poll_result = self._awaiting.poll(waker);
         match poll_result {
-            .Pending => {
+            .Pending(_) => {
                 // 保存当前状态，返回 Pending
                 self._state = CURRENT_STATE;
                 return union Poll<T> { Pending: void };
@@ -5193,7 +5199,6 @@ const result = try @await some_future;
             },
             .Ready(value) => {
                 // 成功获取值
-                self._awaiting_future = null;
                 result = value;
                 break;  // 继续执行后续代码
             }
@@ -5211,7 +5216,7 @@ const result = try @await some_future;
 @async_fn
 fn fetch_and_parse() !Future<User> {
     const data = try @await fetch_data();     // 错误会传播
-    const user = parse_user(data) catch |err| {
+    const user = parse_user(data) catch {
         return error.InvalidFormat;            // 显式错误处理
     };
     return user;
@@ -5222,28 +5227,22 @@ fn fetch_and_parse() !Future<User> {
 
 ```uya
 // 状态机中的错误处理
-case STATE_AWAIT_FETCH: {
-    const poll_result = self._awaiting_fetch.poll(waker);
+STATE_AWAIT_FETCH => {
+    const poll_result = self._awaiting.fetch_data.poll(waker);
     match poll_result {
-        .Pending => return union Poll<User> { Pending: void },
+        .Pending(_) => return union Poll<User> { Pending: void },
         .Error(err) => {
             // try 关键字自动传播错误
             return union Poll<User> { Error: err };
         },
         .Ready(data) => {
-            // catch 处理
-            const parse_result = parse_user(data);
-            match parse_result {
-                .Error(err) => {
-                    // 显式返回错误
-                    return union Poll<User> { Error: error.InvalidFormat };
-                },
-                .Ok(user) => {
-                    self.user = user;
-                    self._state = STATE_COMPLETED;
-                    return union Poll<User> { Ready: self.user };
-                }
-            }
+            // catch 处理错误联合类型
+            const user = parse_user(data) catch {
+                return union Poll<User> { Error: error.InvalidFormat };
+            };
+            self.user = user;
+            self._state = STATE_COMPLETED;
+            return union Poll<User> { Ready: self.user };
         }
     }
 }
@@ -5259,7 +5258,13 @@ case STATE_AWAIT_FETCH: {
 // 2. 子 Future 占用空间按最大值计算（union 语义）
 // 3. 状态字段固定占用 4 字节
 
-// 示例
+// 子 Future 的 union 定义
+union AwaitingFuture {
+    http_get: HttpFuture,
+    process: ProcessFuture
+}
+
+// 状态机结构体
 struct AsyncStateMachine {
     _state: i32,              // 4 字节
     _error: error,            // 4 字节（错误标记）
@@ -5270,17 +5275,15 @@ struct AsyncStateMachine {
     parsed: JsonValue,        // 用户定义类型大小
     
     // 子 Future（union，取最大）
-    _awaiting: union {
-        http_get: HttpFuture,    // 大小 A
-        process: ProcessFuture,  // 大小 B
-    },                        // max(A, B) 字节
+    _awaiting: AwaitingFuture,  // max(sizeof(HttpFuture), sizeof(ProcessFuture))
+    _awaiting_tag: i32,         // 当前活跃的子 Future 标记
 }
 ```
 
 **内存优化**：
 - 子 Future 使用 union，避免为每个挂点分配独立空间
 - 局部变量复用：相同生命周期的变量共享存储
-- 未使用变量及时释放（设为 null 或 drop）
+- 未使用变量及时释放（通过 _awaiting_tag 标记无效状态）
 
 #### 18.7.5 执行流程图
 
