@@ -734,8 +734,9 @@ fn deref(ptr: &i32) i32 {
   - 语法：`union UnionName { variant1: Type1, variant2: Type2, ... }`
   - 创建：`UnionName.variant(expr)`，如 `IntOrFloat.i(42)`
   - 访问：必须通过 `match` 模式匹配（处理所有变体）或编译器可证明的已知标签直接访问
-- **编译期标签跟踪**：标签仅在编译期使用，不占用运行时内存，零运行时开销
-- **C 互操作**：与 C union 100% 内存布局兼容，支持 `extern union`
+- **内存布局**：`union` 有运行时 `_tag` 字段；`extern union` 无 tag，与 C union 兼容
+- **编译期标签跟踪**：函数内可通过编译期追踪直接访问，跳过 match
+- **C 互操作**：`extern union` 与 C union 内存布局相同，用于 FFI
 - **完整能力**：支持联合体方法、接口实现、移动语义、drop 机制
 - **向后兼容性**：非破坏性变更，纯新增特性
 
