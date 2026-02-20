@@ -1,5 +1,10 @@
 // std.async 核心类型定义
-// 版本: 0.1.0 (WIP)
+// 版本: 0.2.0
+// 
+// 异步编程基础设施：
+// - Poll<T>: 异步计算结果状态
+// - Waker: 唤醒器
+// - Future<T>: 异步计算抽象接口
 
 // ============================================
 // 1. Poll<T> - 异步计算结果
@@ -75,10 +80,10 @@ export interface Future<T> {
 // 创建一个立即就绪的 Future
 // 用于将同步值包装为异步结果
 export fn ready<T>(value: T) union Poll<T> {
-    return Poll.Ready(value);
+    return Poll<T>.Ready(value);
 }
 
 // 创建一个 Pending 状态的 Poll
 export fn pending<T>() union Poll<T> {
-    return Poll.Pending(void);
+    return Poll<T>.Pending(void);
 }

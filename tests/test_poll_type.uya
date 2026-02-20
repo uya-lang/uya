@@ -1,0 +1,87 @@
+// 测试 std.async Poll<T> 类型（简化版）
+// 验证 void 变体功能
+
+use libc.printf;
+
+// 定义非泛型的 Poll 类型用于测试（只有 Pending 和 Ready）
+union PollI32 {
+    Pending: void,
+    Ready: i32
+}
+
+// 定义简化的 Waker 用于测试
+struct Waker {
+    task_id: i32
+}
+
+// 测试 Pending 状态
+fn test_pending() i32 {
+    var p: union PollI32 = PollI32.Pending(void);
+    
+    const is_pending: i32 = match p {
+        .Pending(_) => 1,
+        .Ready(_) => 0,
+    };
+    
+    if is_pending == 1 {
+        printf("  Pending(void) creates Pending state: OK\n" as *byte);
+        return 0;
+    } else {
+        printf("  Pending(void) failed: expected Pending\n" as *byte);
+        return 1;
+    }
+}
+
+// 测试 Ready 状态
+fn test_ready() i32 {
+    var p: union PollI32 = PollI32.Ready(42);
+    
+    const value: i32 = match p {
+        .Pending(_) => -1,
+        .Ready(v) => v,
+    };
+    
+    if value == 42 {
+        printf("  Ready(42) creates Ready(42): OK\n" as *byte);
+        return 0;
+    } else {
+        printf("  Ready(42) failed: got %d\n" as *byte, value);
+        return 1;
+    }
+}
+
+// 测试 Waker 结构
+fn test_waker() i32 {
+    var w: Waker = Waker{ task_id: 100 };
+    
+    if w.task_id == 100 {
+        printf("  Waker struct: OK\n" as *byte);
+        return 0;
+    } else {
+        printf("  Waker struct failed\n" as *byte);
+        return 1;
+    }
+}
+
+export fn main() i32 {
+    printf("\n=== Testing std.async Poll ===\n" as *byte);
+    
+    var failed: i32 = 0;
+    
+    printf("\nTest 1: Pending\n" as *byte);
+    failed = failed + test_pending();
+    
+    printf("\nTest 2: Ready\n" as *byte);
+    failed = failed + test_ready();
+    
+    printf("\nTest 3: Waker\n" as *byte);
+    failed = failed + test_waker();
+    
+    if failed == 0 {
+        printf("\n=== All tests passed! ===\n" as *byte);
+    } else {
+        printf("\n=== %d test(s) failed ===\n" as *byte, failed);
+    }
+    
+    return failed;
+}
