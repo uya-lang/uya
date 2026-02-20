@@ -78,6 +78,11 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &Arena, output: &void, mod
     // 初始化 is_export_main_i32
     codegen.is_export_main_i32 = 0;
     
+    // 初始化异步函数相关字段
+    codegen.is_async_function = 0;
+    codegen.async_function_has_await = 0;
+    codegen.async_return_type = null;
+    
     return 0;
 }
 

@@ -7,6 +7,692 @@
 // ===== 外部函数声明 =====
 // C 标准库函数（在 extern_decls.uya 中声明）
 
+// 检测 AST 节点中是否包含 @await 表达式（递归检测）
+fn has_await_expr(node: &ASTNode) i32 {
+    if node == null {
+        return 0;
+    }
+    
+    // 检查当前节点是否是 @await 表达式
+    if node.type == ASTNodeType.AST_AWAIT_EXPR {
+        return 1;
+    }
+    
+    // 递归检查子节点
+    // 函数调用
+    if node.type == ASTNodeType.AST_CALL_EXPR {
+        if node.call_expr_callee != null && has_await_expr(node.call_expr_callee) != 0 {
+            return 1;
+        }
+        var i: i32 = 0;
+        while i < node.call_expr_arg_count {
+            if node.call_expr_args[i] != null && has_await_expr(node.call_expr_args[i]) != 0 {
+                return 1;
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+    
+    // 二元表达式
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        if has_await_expr(node.binary_expr_left) != 0 || has_await_expr(node.binary_expr_right) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // 一元表达式
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        return has_await_expr(node.unary_expr_operand);
+    }
+    
+    // try 表达式
+    if node.type == ASTNodeType.AST_TRY_EXPR {
+        return has_await_expr(node.try_expr_operand);
+    }
+    
+    // catch 表达式
+    if node.type == ASTNodeType.AST_CATCH_EXPR {
+        if has_await_expr(node.catch_expr_operand) != 0 || has_await_expr(node.catch_expr_catch_block) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // 变量声明
+    if node.type == ASTNodeType.AST_VAR_DECL {
+        return has_await_expr(node.var_decl_init);
+    }
+    
+    // 块语句
+    if node.type == ASTNodeType.AST_BLOCK {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            if node.block_stmts[i] != null && has_await_expr(node.block_stmts[i]) != 0 {
+                return 1;
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+    
+    // if 语句
+    if node.type == ASTNodeType.AST_IF_STMT {
+        if has_await_expr(node.if_stmt_condition) != 0 || 
+           has_await_expr(node.if_stmt_then_branch) != 0 ||
+           has_await_expr(node.if_stmt_else_branch) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // while 语句
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        if has_await_expr(node.while_stmt_condition) != 0 || 
+           has_await_expr(node.while_stmt_body) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // for 语句
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        // for 语句结构：for_stmt_array, for_stmt_body, for_stmt_range_start, for_stmt_range_end
+        if has_await_expr(node.for_stmt_array) != 0 ||
+           has_await_expr(node.for_stmt_body) != 0 ||
+           has_await_expr(node.for_stmt_range_start) != 0 ||
+           has_await_expr(node.for_stmt_range_end) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // return 语句
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        return has_await_expr(node.return_stmt_expr);
+    }
+    
+    // 成员访问
+    if node.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return has_await_expr(node.member_access_object);
+    }
+    
+    // 数组访问
+    if node.type == ASTNodeType.AST_ARRAY_ACCESS {
+        if has_await_expr(node.array_access_array) != 0 || 
+           has_await_expr(node.array_access_index) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // 赋值表达式
+    if node.type == ASTNodeType.AST_ASSIGN {
+        if has_await_expr(node.assign_dest) != 0 ||
+           has_await_expr(node.assign_src) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // match 表达式
+    if node.type == ASTNodeType.AST_MATCH_EXPR {
+        if has_await_expr(node.match_expr_expr) != 0 {
+            return 1;
+        }
+        if node.match_expr_arms != null {
+            var i: i32 = 0;
+            while i < node.match_expr_arm_count {
+                if has_await_expr(node.match_expr_arms[i].result_expr) != 0 {
+                    return 1;
+                }
+                i = i + 1;
+            }
+        }
+        return 0;
+    }
+    
+    // 其他节点类型：默认不包含 @await
+    return 0;
+}
+
+// 收集函数体中的 @await 点（返回 await 点数量）
+fn collect_await_points(body: &ASTNode, await_points: &AwaitPoint, max_points: i32, state_counter: &i32) i32 {
+    if body == null || await_points == null {
+        return 0;
+    }
+    
+    var count: i32 = 0;
+    
+    // 如果 body 本身就是 @await 表达式
+    if body.type == ASTNodeType.AST_AWAIT_EXPR {
+        if count < max_points {
+            await_points[count].node = body;
+            await_points[count].state_id = state_counter[0];
+            state_counter[0] = state_counter[0] + 1;
+            count = count + 1;
+        }
+        return count;
+    }
+    
+    // 块语句：递归处理每个语句
+    if body.type == ASTNodeType.AST_BLOCK {
+        var i: i32 = 0;
+        while i < body.block_stmt_count {
+            const stmt: &ASTNode = body.block_stmts[i];
+            if stmt != null {
+                count = count + collect_await_points(stmt, &await_points[count], max_points - count, state_counter);
+            }
+            i = i + 1;
+        }
+        return count;
+    }
+    
+    // 变量声明：检查初始化表达式
+    if body.type == ASTNodeType.AST_VAR_DECL {
+        const init: &ASTNode = body.var_decl_init;
+        if init != null {
+            if init.type == ASTNodeType.AST_AWAIT_EXPR {
+                if count < max_points {
+                    await_points[count].node = init;
+                    await_points[count].state_id = state_counter[0];
+                    await_points[count].result_var_name = body.var_decl_name;
+                    state_counter[0] = state_counter[0] + 1;
+                    count = count + 1;
+                }
+            } else {
+                count = count + collect_await_points(init, &await_points[count], max_points - count, state_counter);
+            }
+        }
+        return count;
+    }
+    
+    // return 语句
+    if body.type == ASTNodeType.AST_RETURN_STMT {
+        const expr: &ASTNode = body.return_stmt_expr;
+        if expr != null {
+            if expr.type == ASTNodeType.AST_AWAIT_EXPR {
+                if count < max_points {
+                    await_points[count].node = expr;
+                    await_points[count].state_id = state_counter[0];
+                    state_counter[0] = state_counter[0] + 1;
+                    count = count + 1;
+                }
+            } else {
+                count = count + collect_await_points(expr, &await_points[count], max_points - count, state_counter);
+            }
+        }
+        return count;
+    }
+    
+    // if 语句
+    if body.type == ASTNodeType.AST_IF_STMT {
+        count = count + collect_await_points(body.if_stmt_condition, &await_points[count], max_points - count, state_counter);
+        count = count + collect_await_points(body.if_stmt_then_branch, &await_points[count], max_points - count, state_counter);
+        count = count + collect_await_points(body.if_stmt_else_branch, &await_points[count], max_points - count, state_counter);
+        return count;
+    }
+    
+    // while 语句
+    if body.type == ASTNodeType.AST_WHILE_STMT {
+        count = count + collect_await_points(body.while_stmt_condition, &await_points[count], max_points - count, state_counter);
+        count = count + collect_await_points(body.while_stmt_body, &await_points[count], max_points - count, state_counter);
+        return count;
+    }
+    
+    // for 语句
+    if body.type == ASTNodeType.AST_FOR_STMT {
+        count = count + collect_await_points(body.for_stmt_array, &await_points[count], max_points - count, state_counter);
+        count = count + collect_await_points(body.for_stmt_body, &await_points[count], max_points - count, state_counter);
+        count = count + collect_await_points(body.for_stmt_range_start, &await_points[count], max_points - count, state_counter);
+        count = count + collect_await_points(body.for_stmt_range_end, &await_points[count], max_points - count, state_counter);
+        return count;
+    }
+    
+    // 函数调用
+    if body.type == ASTNodeType.AST_CALL_EXPR {
+        count = count + collect_await_points(body.call_expr_callee, &await_points[count], max_points - count, state_counter);
+        var i: i32 = 0;
+        while i < body.call_expr_arg_count {
+            count = count + collect_await_points(body.call_expr_args[i], &await_points[count], max_points - count, state_counter);
+            i = i + 1;
+        }
+        return count;
+    }
+    
+    // 二元表达式
+    if body.type == ASTNodeType.AST_BINARY_EXPR {
+        count = count + collect_await_points(body.binary_expr_left, &await_points[count], max_points - count, state_counter);
+        count = count + collect_await_points(body.binary_expr_right, &await_points[count], max_points - count, state_counter);
+        return count;
+    }
+    
+    // 一元表达式
+    if body.type == ASTNodeType.AST_UNARY_EXPR {
+        return count + collect_await_points(body.unary_expr_operand, &await_points[count], max_points - count, state_counter);
+    }
+    
+    // 赋值
+    if body.type == ASTNodeType.AST_ASSIGN {
+        count = count + collect_await_points(body.assign_dest, &await_points[count], max_points - count, state_counter);
+        count = count + collect_await_points(body.assign_src, &await_points[count], max_points - count, state_counter);
+        return count;
+    }
+    
+    return count;
+}
+
+// 收集函数体中的局部变量（返回变量数量）
+fn collect_async_local_vars(codegen: &C99CodeGenerator, body: &ASTNode, vars: &AsyncLocalVar, max_vars: i32) i32 {
+    if body == null || vars == null {
+        return 0;
+    }
+    
+    var count: i32 = 0;
+    
+    // 块语句：处理每个语句
+    if body.type == ASTNodeType.AST_BLOCK {
+        var i: i32 = 0;
+        while i < body.block_stmt_count {
+            const stmt: &ASTNode = body.block_stmts[i];
+            if stmt != null {
+                count = count + collect_async_local_vars(codegen, stmt, &vars[count], max_vars - count);
+            }
+            i = i + 1;
+        }
+        return count;
+    }
+    
+    // 变量声明：收集变量信息
+    if body.type == ASTNodeType.AST_VAR_DECL {
+        const var_name: &byte = body.var_decl_name;
+        const var_type: &ASTNode = body.var_decl_type;
+        
+        if var_name != null && count < max_vars {
+            const var_type_c: &byte = c99_type_to_c(codegen, var_type);
+            vars[count].name = var_name;
+            vars[count].type_c = var_type_c;
+            vars[count].needs_save = 1;  // 所有局部变量都需要保存
+            count = count + 1;
+        }
+        return count;
+    }
+    
+    // if 语句
+    if body.type == ASTNodeType.AST_IF_STMT {
+        count = count + collect_async_local_vars(codegen, body.if_stmt_then_branch, &vars[count], max_vars - count);
+        count = count + collect_async_local_vars(codegen, body.if_stmt_else_branch, &vars[count], max_vars - count);
+        return count;
+    }
+    
+    // while 语句
+    if body.type == ASTNodeType.AST_WHILE_STMT {
+        count = count + collect_async_local_vars(codegen, body.while_stmt_body, &vars[count], max_vars - count);
+        return count;
+    }
+    
+    // for 语句
+    if body.type == ASTNodeType.AST_FOR_STMT {
+        count = count + collect_async_local_vars(codegen, body.for_stmt_body, &vars[count], max_vars - count);
+        return count;
+    }
+    
+    return count;
+}
+
+// 生成异步函数的状态机结构体和包装函数
+// 参数：
+//   - has_await: 1 表示函数体包含 @await 表达式，0 表示无
+fn gen_async_state_machine(codegen: &C99CodeGenerator, fn_decl: &ASTNode, has_await: i32) void {
+    if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
+        return;
+    }
+    
+    const func_name: &byte = fn_decl.fn_decl_name;
+    const return_type: &ASTNode = fn_decl.fn_decl_return_type;
+    const body: &ASTNode = fn_decl.fn_decl_body;
+    const param_count: i32 = fn_decl.fn_decl_param_count;
+    
+    // 获取返回类型的 C 表示
+    const return_c: &byte = convert_array_return_type(codegen, return_type);
+    
+    // 生成状态机结构体名称
+    const sm_name: &byte = get_async_state_machine_name(codegen, func_name);
+    
+    // 收集局部变量（用于状态机保存）
+    var local_vars: [AsyncLocalVar: C99_MAX_ASYNC_LOCALS] = [];
+    var local_var_count: i32 = collect_async_local_vars(codegen, body, &local_vars[0], C99_MAX_ASYNC_LOCALS);
+    
+    // 1. 生成状态机结构体定义
+    fprintf(codegen.output as *void, "// 异步函数状态机: %s\n" as *byte, func_name as *byte);
+    fprintf(codegen.output as *void, "struct %s {\n" as *byte, sm_name as *byte);
+    fprintf(codegen.output as *void, "    int _state;  // 0=初始, N=第N个await后, -1=完成\n" as *byte);
+    
+    // 存储返回值（如果返回类型不是 void）
+    var is_void_return: i32 = 0;
+    if return_type != null {
+        if return_type.type == ASTNodeType.AST_TYPE_NAMED && return_type.type_named_name != null {
+            if strcmp(return_type.type_named_name as *byte, "void" as *byte) == 0 {
+                is_void_return = 1;
+            }
+        }
+        if is_void_return == 0 {
+            fprintf(codegen.output as *void, "    %s _result;  // 返回值\n" as *byte, return_c as *byte);
+        }
+    }
+    
+    // 存储局部变量（跨状态保存）
+    if local_var_count > 0 {
+        fprintf(codegen.output as *void, "    // 局部变量（跨状态保存）\n" as *byte);
+        var vi: i32 = 0;
+        while vi < local_var_count {
+            const var_info: &AsyncLocalVar = &local_vars[vi];
+            const safe_name: &byte = get_safe_c_identifier(codegen, var_info.name);
+            fprintf(codegen.output as *void, "    %s %s;\n" as *byte, var_info.type_c as *byte, safe_name as *byte);
+            vi = vi + 1;
+        }
+    }
+    
+    fprintf(codegen.output as *void, "};\n\n" as *byte);
+    
+    // 2. 生成创建函数
+    fprintf(codegen.output as *void, "struct %s %s_create(" as *byte, sm_name as *byte, sm_name as *byte);
+    
+    // 参数列表
+    var i: i32 = 0;
+    while i < param_count {
+        const param: &ASTNode = fn_decl.fn_decl_params[i];
+        if param != null && param.type == ASTNodeType.AST_VAR_DECL {
+            const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
+            const param_type: &ASTNode = param.var_decl_type;
+            const param_type_c: &byte = c99_type_to_c(codegen, param_type);
+            fprintf(codegen.output as *void, "%s %s" as *byte, param_type_c as *byte, param_name as *byte);
+            if i < param_count - 1 {
+                fputs(", " as *byte, codegen.output as *void);
+            }
+        }
+        i = i + 1;
+    }
+    fprintf(codegen.output as *void, ") {\n" as *byte);
+    fprintf(codegen.output as *void, "    struct %s sm = { ._state = 0 };\n" as *byte, sm_name as *byte);
+    fprintf(codegen.output as *void, "    return sm;\n" as *byte);
+    fprintf(codegen.output as *void, "}\n\n" as *byte);
+    
+    // 3. 生成 poll 函数（如果包含 @await）
+    if has_await != 0 {
+        // 收集 @await 点信息
+        var await_points: [AwaitPoint: C99_MAX_AWAIT_POINTS] = [];
+        var state_counter: i32 = 1;  // 从 1 开始（0 是初始状态）
+        const await_count: i32 = collect_await_points(body, &await_points[0], C99_MAX_AWAIT_POINTS, &state_counter);
+        
+        // 生成 Poll<T> 类型定义
+        fprintf(codegen.output as *void, "// Poll 类型\n" as *byte);
+        if is_void_return == 0 {
+            fprintf(codegen.output as *void, "struct Poll_%s { int pending; %s value; };\n" as *byte, func_name as *byte, return_c as *byte);
+        } else {
+            fprintf(codegen.output as *void, "struct Poll_%s { int pending; };\n" as *byte, func_name as *byte);
+        }
+        
+        // 生成 poll 函数签名
+        fprintf(codegen.output as *void, "struct Poll_%s %s_poll(struct %s *sm" as *byte, func_name as *byte, sm_name as *byte, sm_name as *byte);
+        // 参数列表
+        i = 0;
+        while i < param_count {
+            const param: &ASTNode = fn_decl.fn_decl_params[i];
+            if param != null && param.type == ASTNodeType.AST_VAR_DECL {
+                const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
+                const param_type: &ASTNode = param.var_decl_type;
+                const param_type_c: &byte = c99_type_to_c(codegen, param_type);
+                fprintf(codegen.output as *void, ", %s %s" as *byte, param_type_c as *byte, param_name as *byte);
+            }
+            i = i + 1;
+        }
+        fprintf(codegen.output as *void, ") {\n" as *byte);
+        fprintf(codegen.output as *void, "    struct Poll_%s result;\n" as *byte, func_name as *byte);
+        
+        // 生成状态转换 switch
+        fprintf(codegen.output as *void, "    switch (sm->_state) {\n" as *byte);
+        
+        // 状态 0：初始状态 - 执行到第一个 @await 或完成
+        fprintf(codegen.output as *void, "        case 0:\n" as *byte);
+        fprintf(codegen.output as *void, "            goto state_0;\n" as *byte);
+        
+        // 为每个 @await 点生成状态入口
+        var ai: i32 = 0;
+        while ai < await_count {
+            const ap: &AwaitPoint = &await_points[ai];
+            fprintf(codegen.output as *void, "        case %d:\n" as *byte, ap.state_id);
+            fprintf(codegen.output as *void, "            goto state_%d;\n" as *byte, ap.state_id);
+            ai = ai + 1;
+        }
+        
+        // 完成状态
+        fprintf(codegen.output as *void, "        case -1:\n" as *byte);
+        fprintf(codegen.output as *void, "            goto state_done;\n" as *byte);
+        fprintf(codegen.output as *void, "        default:\n" as *byte);
+        fprintf(codegen.output as *void, "            result.pending = 1;\n" as *byte);
+        fprintf(codegen.output as *void, "            return result;\n" as *byte);
+        fprintf(codegen.output as *void, "    }\n\n" as *byte);
+        
+        // 生成状态 0 代码
+        // 简化实现：直接调用同步包装函数
+        // 完整实现需要 CPS 变换和状态分割
+        fprintf(codegen.output as *void, "state_0:\n" as *byte);
+        if is_void_return == 0 {
+            fprintf(codegen.output as *void, "    result.value = %s(" as *byte, func_name as *byte);
+            i = 0;
+            while i < param_count {
+                const param: &ASTNode = fn_decl.fn_decl_params[i];
+                if param != null && param.type == ASTNodeType.AST_VAR_DECL {
+                    const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
+                    if i > 0 {
+                        fputs(", " as *byte, codegen.output as *void);
+                    }
+                    fputs(param_name as *byte, codegen.output as *void);
+                }
+                i = i + 1;
+            }
+            fprintf(codegen.output as *void, ");\n" as *byte);
+        } else {
+            fprintf(codegen.output as *void, "    %s(" as *byte, func_name as *byte);
+            i = 0;
+            while i < param_count {
+                const param: &ASTNode = fn_decl.fn_decl_params[i];
+                if param != null && param.type == ASTNodeType.AST_VAR_DECL {
+                    const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
+                    if i > 0 {
+                        fputs(", " as *byte, codegen.output as *void);
+                    }
+                    fputs(param_name as *byte, codegen.output as *void);
+                }
+                i = i + 1;
+            }
+            fprintf(codegen.output as *void, ");\n" as *byte);
+        }
+        fprintf(codegen.output as *void, "    goto state_done;\n" as *byte);
+        
+        // 为每个 @await 点生成状态标签（占位符）
+        ai = 0;
+        while ai < await_count {
+            const ap2: &AwaitPoint = &await_points[ai];
+            fprintf(codegen.output as *void, "\nstate_%d:\n" as *byte, ap2.state_id);
+            fprintf(codegen.output as *void, "    // TODO: 状态 %d 恢复逻辑\n" as *byte, ap2.state_id);
+            ai = ai + 1;
+        }
+        
+        // 完成状态
+        fprintf(codegen.output as *void, "\nstate_done:\n" as *byte);
+        fprintf(codegen.output as *void, "    sm->_state = -1;\n" as *byte);
+        fprintf(codegen.output as *void, "    result.pending = 0;\n" as *byte);
+        fprintf(codegen.output as *void, "    return result;\n" as *byte);
+        fprintf(codegen.output as *void, "}\n\n" as *byte);
+    }
+    
+    // 4. 生成同步包装函数（简化版本：直接执行函数体）
+    const wrap_name: &byte = get_async_wrapper_name(codegen, func_name);
+    
+    fprintf(codegen.output as *void, "// 异步函数包装器（同步执行）\n" as *byte);
+    fprintf(codegen.output as *void, "static %s %s(" as *byte, return_c as *byte, wrap_name as *byte);
+    
+    // 参数列表
+    i = 0;
+    while i < param_count {
+        const param: &ASTNode = fn_decl.fn_decl_params[i];
+        if param != null && param.type == ASTNodeType.AST_VAR_DECL {
+            const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
+            const param_type: &ASTNode = param.var_decl_type;
+            const param_type_c: &byte = c99_type_to_c(codegen, param_type);
+            fprintf(codegen.output as *void, "%s %s" as *byte, param_type_c as *byte, param_name as *byte);
+            if i < param_count - 1 {
+                fputs(", " as *byte, codegen.output as *void);
+            }
+        }
+        i = i + 1;
+    }
+    fprintf(codegen.output as *void, ") {\n" as *byte);
+    
+    // 生成函数体代码
+    gen_function_body_simple(codegen, fn_decl);
+    
+    fprintf(codegen.output as *void, "}\n\n" as *byte);
+}
+
+// 获取异步包装函数名称
+fn get_async_wrapper_name(codegen: &C99CodeGenerator, func_name: &byte) &byte {
+    if func_name == null {
+        return ("__async_wrap_unknown" as *byte) as &byte;
+    }
+    
+    // 包装函数名与原函数名相同
+    // 因为测试代码直接调用原函数名
+    return func_name;
+}
+
+// 生成简化的函数体（直接执行语句）
+fn gen_function_body_simple(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
+    const body: &ASTNode = fn_decl.fn_decl_body;
+    const return_type: &ASTNode = fn_decl.fn_decl_return_type;
+    
+    if body == null || body.type != ASTNodeType.AST_BLOCK {
+        return;
+    }
+    
+    // 设置当前函数上下文
+    codegen.current_function_return_type = return_type;
+    codegen.current_function_decl = fn_decl;
+    
+    // 生成函数体中的语句
+    const stmt_count: i32 = body.block_stmt_count;
+    var i: i32 = 0;
+    while i < stmt_count {
+        const stmt: &ASTNode = body.block_stmts[i];
+        if stmt != null {
+            gen_stmt(codegen, stmt);
+        }
+        i = i + 1;
+    }
+    
+    // 重置上下文
+    codegen.current_function_return_type = null;
+    codegen.current_function_decl = null;
+}
+
+// 生成带状态分割的异步函数体（用于 poll 函数）
+// 参数：
+//   - body: 函数体 AST 节点
+//   - await_points: @await 点数组
+//   - await_count: @await 点数量
+//   - sm_name: 状态机结构体名称（用于访问局部变量）
+//   - is_void_return: 返回类型是否为 void
+fn gen_async_body_with_state_split(codegen: &C99CodeGenerator, body: &ASTNode, await_points: &AwaitPoint, await_count: i32, sm_name: &byte, is_void_return: i32) void {
+    if body == null || body.type != ASTNodeType.AST_BLOCK {
+        return;
+    }
+    
+    const stmt_count: i32 = body.block_stmt_count;
+    var current_await_idx: i32 = 0;  // 当前处理到的 @await 点索引
+    var si: i32 = 0;
+    
+    // 生成状态 0 的代码（从开始到第一个 @await）
+    while si < stmt_count {
+        const stmt: &ASTNode = body.block_stmts[si];
+        if stmt == null {
+            si = si + 1;
+            continue;
+        }
+        
+        // 检查语句是否包含 @await
+        if has_await_expr(stmt) != 0 {
+            // 找到了 @await 点，需要生成状态转换代码
+            if stmt.type == ASTNodeType.AST_VAR_DECL && current_await_idx < await_count {
+                // 变量声明中的 @await
+                const ap: &AwaitPoint = &await_points[current_await_idx];
+                const var_name: &byte = stmt.var_decl_name;
+                const var_type: &ASTNode = stmt.var_decl_type;
+                const init: &ASTNode = stmt.var_decl_init;
+                
+                // 获取 @await 操作数
+                if init != null && init.type == ASTNodeType.AST_AWAIT_EXPR {
+                    const operand: &ASTNode = init.await_expr_operand;
+                    
+                    // 生成调用异步函数的代码
+                    fprintf(codegen.output as *void, "    // @await 点 %d: 调用异步函数\n" as *byte, ap.state_id);
+                    fprintf(codegen.output as *void, "    sm->_state = %d; // 保存状态\n" as *byte, ap.state_id);
+                    
+                    // 生成调用操作数（异步函数调用）
+                    fputs("    " as *byte, codegen.output as *void);
+                    gen_expr(codegen, operand);
+                    fputs(";\n" as *byte, codegen.output as *void);
+                    
+                    // 保存结果到状态机变量
+                    const safe_var_name: &byte = get_safe_c_identifier(codegen, var_name);
+                    fprintf(codegen.output as *void, "    sm->%s = " as *byte, safe_var_name as *byte);
+                    gen_expr(codegen, operand);
+                    fprintf(codegen.output as *void, "; // 保存结果\n" as *byte);
+                    
+                    // 返回 Pending
+                    fprintf(codegen.output as *void, "    result.pending = 1;\n" as *byte);
+                    fprintf(codegen.output as *void, "    return result;\n" as *byte);
+                    
+                    // 生成恢复状态标签
+                    fprintf(codegen.output as *void, "\nstate_%d:\n" as *byte, ap.state_id);
+                    fprintf(codegen.output as *void, "    // 恢复状态 %d: 使用保存的结果\n" as *byte, ap.state_id);
+                }
+                
+                current_await_idx = current_await_idx + 1;
+            } else {
+                // 其他类型的 @await（暂不处理）
+                gen_stmt(codegen, stmt);
+            }
+        } else {
+            // 不包含 @await 的语句，直接生成
+            gen_stmt(codegen, stmt);
+        }
+        
+        si = si + 1;
+    }
+}
+
+// 获取异步状态机名称
+fn get_async_state_machine_name(codegen: &C99CodeGenerator, func_name: &byte) &byte {
+    if func_name == null {
+        return ("__AsyncSM_unknown" as *byte) as &byte;
+    }
+    
+    const prefix: &byte = "__AsyncSM_" as &byte;
+    const prefix_len: usize = strlen(prefix as *byte);
+    const name_len: usize = strlen(func_name as *byte);
+    const result: &byte = arena_alloc(codegen.arena, prefix_len + name_len + 1) as &byte;
+    
+    if result != null {
+        strcpy(result as *byte, prefix as *byte);
+        strcat(result as *byte, func_name as *byte);
+    }
+    
+    return result;
+}
+
 // 查找函数声明
 fn find_function_decl_c99(codegen: &C99CodeGenerator, func_name: &byte) &ASTNode {
     if codegen == null || func_name == null || codegen.program_node == null {
@@ -522,6 +1208,36 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     // 如果没有函数体（外部函数），则不生成定义
     if body == null {
         return;
+    }
+    
+    // 检查是否为 @async_fn 异步函数
+    const is_async: i32 = fn_decl.fn_decl_is_async;
+    
+    // 异步函数处理：生成状态机结构体和 poll 方法
+    if is_async != 0 {
+        // 检测函数体中是否有 @await 表达式
+        const has_await: i32 = has_await_expr(body);
+        
+        // 设置代码生成器状态
+        codegen.is_async_function = 1;
+        codegen.async_function_has_await = has_await;
+        codegen.async_return_type = return_type;
+        
+        if has_await != 0 {
+            // 有 @await 的异步函数需要完整状态机
+            // 当前简化实现：生成警告，继续编译
+            fprintf(libc.stderr, "警告: 异步函数 '%s' 包含 @await 表达式，CPS 变换尚未完全实现，将生成简化代码\n" as *byte, orig_name as *byte);
+        }
+        
+        // 生成状态机结构体和 poll 方法
+        gen_async_state_machine(codegen, fn_decl, has_await);
+        
+        // 重置代码生成器状态
+        codegen.is_async_function = 0;
+        codegen.async_function_has_await = 0;
+        codegen.async_return_type = null;
+        
+        return;  // 异步函数生成完成，返回
     }
     
     // 生成 #line 指令，指向函数定义的位置

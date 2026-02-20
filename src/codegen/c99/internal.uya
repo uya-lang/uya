@@ -53,7 +53,25 @@ const C99_STRING_INTERP_BUF_SIZE: i32 = 2048;
 const C99_STRING_INTERP_LIMIT: i32 = 2046;
 const C99_SUFFIX_BUF_SIZE: i32 = 512;
 
+// CPS 变换相关常量
+const C99_MAX_AWAIT_POINTS: i32 = 32;      // 每个 async 函数最多支持的 await 点数量
+const C99_MAX_ASYNC_LOCALS: i32 = 64;      // 每个状态机最多保存的局部变量数量
+
 // ===== 类型定义 =====
+
+// @await 点信息（用于 CPS 变换）
+struct AwaitPoint {
+    node: &ASTNode,          // @await 表达式节点
+    state_id: i32,           // 分配的状态 ID
+    result_var_name: &byte   // 保存结果的变量名（可为 null）
+}
+
+// 状态机局部变量信息
+struct AsyncLocalVar {
+    name: &byte,             // 变量名
+    type_c: &byte,           // C 类型字符串
+    needs_save: i32          // 是否需要跨状态保存（1=是）
+}
 
 // 字符串常量表项
 struct StringConstant {
@@ -210,7 +228,12 @@ struct C99CodeGenerator {
     is_export_main_i32: i32,
     
     // --nostdlib 模式：生成 _start 入口
-    is_nostdlib: i32                     // 1 表示生成 _start 内联汇编
+    is_nostdlib: i32,                    // 1 表示生成 _start 内联汇编
+    
+    // 异步函数状态机生成
+    is_async_function: i32,              // 1 表示当前正在生成 @async_fn 函数
+    async_function_has_await: i32,       // 1 表示当前异步函数包含 @await 表达式
+    async_return_type: &ASTNode          // 异步函数的原始返回类型（用于 Poll<T> 包装）
 }
 
 // ===== 函数声明 =====
