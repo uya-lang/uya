@@ -393,6 +393,7 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
     }
 
     // 检查是否为标准库函数（extern "libc" fn）
+    // extern "libc" fn 的参数需要转换为 char * 以匹配 C 标准库签名
     var is_stdlib: i32 = 0;
     if extern_lib_name != null {
         is_stdlib = 1;
@@ -435,40 +436,13 @@ fn gen_function_prototype(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
                 }
             }
             
-            // 对于已知的 C 标准库函数（printf/fprintf/sprintf/snprintf/strlen 等），
-            // 即使不是 extern "libc" fn，也需要使用正确的 C 类型以避免与系统 libc 冲突
-            // - printf/fprintf/sprintf/snprintf 的 format 参数：const char *（与 C 标准库兼容）
-            // - strlen 的参数：const char *（与 C 标准库兼容）
-            // - sprintf/snprintf 的第一个参数（输出缓冲区）：char *（可修改）
-            if fn_decl.fn_decl_name != null && param_type.type == ASTNodeType.AST_TYPE_POINTER {
+            // 对于 extern "libc" 函数，*byte 类型映射为 char *
+            if is_stdlib != 0 && param_type.type == ASTNodeType.AST_TYPE_POINTER {
                 const pointed_type: &ASTNode = param_type.type_pointer_pointed_type;
                 if pointed_type != null && pointed_type.type == ASTNodeType.AST_TYPE_NAMED {
                     const pointed_name: &byte = pointed_type.type_named_name;
                     if pointed_name != null && strcmp(pointed_name as *byte, "byte" as *byte) == 0 {
-                        const fname2: &byte = fn_decl.fn_decl_name;
-                        // printf 的第一个参数：const char *（与 C 标准库兼容）
-                        if strcmp(fname2 as *byte, "printf" as *byte) == 0 && i == 0 {
-                            param_type_c = ("const char *" as *byte) as &byte;
-                        } else if strcmp(fname2 as *byte, "fprintf" as *byte) == 0 && i == 1 {
-                            // fprintf 的第二个参数是 format
-                            param_type_c = ("const char *" as *byte) as &byte;
-                        } else if strcmp(fname2 as *byte, "sprintf" as *byte) == 0 {
-                            // sprintf: 第一参是输出缓冲区（可变），第二参是 format（const）
-                            if i == 0 {
-                                param_type_c = ("char *" as *byte) as &byte;
-                            } else if i == 1 {
-                                param_type_c = ("const char *" as *byte) as &byte;
-                            }
-                        } else if strcmp(fname2 as *byte, "snprintf" as *byte) == 0 {
-                            // snprintf: 第一参是输出缓冲区（可变），第三参是 format（const）
-                            if i == 0 {
-                                param_type_c = ("char *" as *byte) as &byte;
-                            } else if i == 2 {
-                                param_type_c = ("const char *" as *byte) as &byte;
-                            }
-                        } else if strcmp(fname2 as *byte, "strlen" as *byte) == 0 && i == 0 {
-                            param_type_c = ("const char *" as *byte) as &byte;
-                        }
+                        param_type_c = ("char *" as *byte) as &byte;
                     }
                 }
             }
@@ -640,6 +614,13 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
             is_copy_type = 1;
         }
 
+        // 检查是否为标准库函数（extern "libc" fn）
+        // extern "libc" fn 的参数需要转换为 char * 以匹配 C 标准库签名
+        var is_stdlib: i32 = 0;
+        if extern_lib_name != null {
+            is_stdlib = 1;
+        }
+
         // 参数列表
         i = 0;
         while i < param_count {
@@ -656,33 +637,13 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
                     param_type_c = ("const struct Type *" as *byte) as &byte;
                 }
                 
-                // 对于已知的 C 标准库函数，使用正确的 C 类型以避免与系统 libc 冲突
-                // 与 gen_function_prototype 保持一致
-                if orig_name != null && param_type.type == ASTNodeType.AST_TYPE_POINTER {
+                // 对于 extern "libc" 函数，*byte 类型映射为 char *
+                if is_stdlib != 0 && param_type.type == ASTNodeType.AST_TYPE_POINTER {
                     const pointed_type: &ASTNode = param_type.type_pointer_pointed_type;
                     if pointed_type != null && pointed_type.type == ASTNodeType.AST_TYPE_NAMED {
                         const pointed_name: &byte = pointed_type.type_named_name;
                         if pointed_name != null && strcmp(pointed_name as *byte, "byte" as *byte) == 0 {
-                            // printf/fprintf 的第一个参数：const char *（与 C 标准库兼容）
-                            if strcmp(orig_name as *byte, "printf" as *byte) == 0 && i == 0 {
-                                param_type_c = ("const char *" as *byte) as &byte;
-                            } else if strcmp(orig_name as *byte, "fprintf" as *byte) == 0 && i == 1 {
-                                param_type_c = ("const char *" as *byte) as &byte;
-                            } else if strcmp(orig_name as *byte, "sprintf" as *byte) == 0 {
-                                if i == 0 {
-                                    param_type_c = ("char *" as *byte) as &byte;
-                                } else if i == 1 {
-                                    param_type_c = ("const char *" as *byte) as &byte;
-                                }
-                            } else if strcmp(orig_name as *byte, "snprintf" as *byte) == 0 {
-                                if i == 0 {
-                                    param_type_c = ("char *" as *byte) as &byte;
-                                } else if i == 2 {
-                                    param_type_c = ("const char *" as *byte) as &byte;
-                                }
-                            } else if strcmp(orig_name as *byte, "strlen" as *byte) == 0 && i == 0 {
-                                param_type_c = ("const char *" as *byte) as &byte;
-                            }
+                            param_type_c = ("char *" as *byte) as &byte;
                         }
                     }
                 }

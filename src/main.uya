@@ -1716,7 +1716,7 @@ export fn main() i32 {
             // 子进程：执行 gcc
             // 构造 shell 命令字符串
             var cmd: [byte: 4096] = [];
-            const cmd_len: i32 = snprintf(&cmd[0], 4096, "gcc -x c -o '%s' '%s' -std=c99 -lm" as *byte, output_binary, &temp_c_path[0]);
+            const cmd_len: i32 = snprintf(&cmd[0], 4096, "gcc -x c -o '%s' '%s' -std=c99 -fno-builtin -lm" as *byte, output_binary, &temp_c_path[0]);
             if cmd_len < 0 || cmd_len >= 4096 {
                 fprintf(libc.stderr, "错误: 命令行过长\n" as *byte);
                 _exit(1);

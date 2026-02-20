@@ -39,7 +39,7 @@ export extern "libc" fn memmove(dest: *byte, src: *const byte, n: usize) *byte {
         return dest;
     }
     // 检查是否重叠
-    if dest < src as *byte {
+    if dest < src {
         // 从前往后复制
         var i: usize = 0;
         while i < n {

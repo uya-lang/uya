@@ -674,8 +674,6 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
             check_i = check_i + 1;
         }
         
-        // 必须在首个 #include 之前定义，以便 unistd.h 声明 readlink 等 POSIX 函数
-        fputs("#ifndef _POSIX_C_SOURCE\n#define _POSIX_C_SOURCE 200809L\n#endif\n" as *byte, codegen.output as *void);
         fputs("\n" as *byte, codegen.output as *void);
         // 手动定义标准类型，避免包含标准库头文件
         fputs("// 标准类型定义（不依赖标准库头文件）\n" as *byte, codegen.output as *void);
@@ -703,41 +701,13 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         fputs("#define va_end(v) __builtin_va_end(v)\n" as *byte, codegen.output as *void);
         fputs("#define va_arg(v, l) __builtin_va_arg(v, l)\n" as *byte, codegen.output as *void);
         fputs("\n" as *byte, codegen.output as *void);
-        // 如果定义了文件 I/O 函数（fopen, fclose, fread, fwrite, fgetc, fputc, fputs, fprintf, fflush），不包含 <stdio.h>
-        // 避免与标准库声明冲突。自举编译时强制与 C 编译器一致。
-        if codegen.has_stdio_conflicts == 0 && is_bootstrap == 0 {
-            fputs("#include <stdio.h>\n" as *byte, codegen.output as *void);  // for standard I/O functions (printf, puts, etc.)
-        }
         // 添加常用 libc 函数声明（避免隐式声明警告）
         // exit 用于 _uya_exit 函数，malloc/free 用于内存分配
         fputs("extern void exit(int);\n" as *byte, codegen.output as *void);
         fputs("extern void *malloc(size_t);\n" as *byte, codegen.output as *void);
         fputs("extern void free(void *);\n" as *byte, codegen.output as *void);
-        // 不包含 stdlib.h，避免间接引入 stdio.h 导致 fprintf 与 built-in 冲突；exit/malloc 等由 libc 通过 syscall 实现
-        // 与 compiler-c 一致：仅当 needs_string_h 且未定义 string/mem 函数时才包含 <string.h>
-        var has_mem_functions: i32 = 0;
-        var has_string_functions: i32 = 0;
-        var mi: i32 = 0;
-        while mi < check_decl_count {
-            const md: &ASTNode = ast.program_decls[mi];
-            if md != null && md.type == ASTNodeType.AST_FN_DECL && md.fn_decl_body != null {
-                const mn: &byte = md.fn_decl_name;
-                if mn != null {
-                    if strcmp(mn as *byte, "memcpy" as *byte) == 0 || strcmp(mn as *byte, "memset" as *byte) == 0 ||
-                       strcmp(mn as *byte, "memmove" as *byte) == 0 || strcmp(mn as *byte, "memcmp" as *byte) == 0 ||
-                       strcmp(mn as *byte, "memchr" as *byte) == 0 { has_mem_functions = 1; }
-                    else if strcmp(mn as *byte, "strlen" as *byte) == 0 || strcmp(mn as *byte, "strcmp" as *byte) == 0 ||
-                       strcmp(mn as *byte, "strncmp" as *byte) == 0 || strcmp(mn as *byte, "strcpy" as *byte) == 0 ||
-                       strcmp(mn as *byte, "strncpy" as *byte) == 0 || strcmp(mn as *byte, "strcat" as *byte) == 0 ||
-                       strcmp(mn as *byte, "strchr" as *byte) == 0 || strcmp(mn as *byte, "strrchr" as *byte) == 0 ||
-                       strcmp(mn as *byte, "strstr" as *byte) == 0 { has_string_functions = 1; }
-                }
-            }
-            mi = mi + 1;
-        }
-        if codegen.needs_string_h != 0 && has_string_functions == 0 && has_mem_functions == 0 && is_bootstrap == 0 {
-            fputs("#include <string.h>\n" as *byte, codegen.output as *void);
-        }
+        // 不包含 stdlib.h、string.h，避免与 GCC built-in 函数冲突
+        // exit/malloc/memcpy/strlen 等由 lib/libc 通过 uya 实现
         // 不包含 sys/stat.h、unistd.h，避免间接引入 stdio.h 导致 fprintf 等与 built-in 冲突；stat/readlink 由 libc 通过 syscall 实现
         // 若本程序定义了 opendir/readdir/closedir（如 stdlib），不声明系统符号，避免与生成的 uya_opendir 等冲突
         var has_own_opendir: i32 = 0;

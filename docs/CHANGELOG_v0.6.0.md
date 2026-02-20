@@ -49,15 +49,24 @@ uya run main.uya
 uya test main.uya
 ```
 
-### 3. --nostdlib 编译选项
+### 3. --nostdlib 和 --static 编译选项
 
 编译器现在原生支持生成独立可执行文件：
 
 ```bash
-# 生成带 _start 入口的 C 代码
+# --nostdlib: 生成带 _start 入口的代码，不依赖标准库
 uya --nostdlib main.uya -o program.c
-gcc -nostdlib program.c -o program
+
+# --static: 静态链接，生成完全独立的可执行文件
+uya build main.uya --static -o program
+
+# 组合使用：最小化可执行文件
+uya build main.uya --nostdlib --static -o program
 ```
+
+特性：
+- **--nostdlib**：生成 `_start` 入口，不使用 libc
+- **--static**：静态链接所有依赖，无需动态库
 
 ---
 

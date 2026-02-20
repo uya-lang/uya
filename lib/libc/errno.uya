@@ -336,8 +336,8 @@ fn _errno_write_str(fd: i64, s: &byte) void {
 // perror 输出错误信息到标准错误流
 export extern "libc" fn perror(s: &byte) void {
     const STDERR_FD: i64 = 2;
-    
-    if s != null as &byte {
+
+    if s != null {
         // 输出 "s: error message\n"
         _errno_write_str(STDERR_FD, s);
         _errno_write_str(STDERR_FD, ": \0" as &byte);

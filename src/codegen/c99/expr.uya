@@ -2314,6 +2314,21 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 (strcmp(callee_name as *byte, "strcat" as *byte) == 0 && i == 0) ||
                 (strcmp(callee_name as *byte, "readlink" as *byte) == 0 && i == 1)) {
                 fputs("(char *)" as *byte, codegen.output as *void);
+            } else if fn_decl != null && fn_decl.type == ASTNodeType.AST_FN_DECL && fn_decl.fn_decl_extern_lib_name != null && i < fn_decl.fn_decl_param_count {
+                // 对于 extern "libc" fn，*byte 参数需要转换为 char *
+                const libc_param: &ASTNode = fn_decl.fn_decl_params[i];
+                if libc_param != null && libc_param.type == ASTNodeType.AST_VAR_DECL {
+                    const libc_param_type: &ASTNode = libc_param.var_decl_type;
+                    if libc_param_type != null && libc_param_type.type == ASTNodeType.AST_TYPE_POINTER {
+                        const libc_pointed_type: &ASTNode = libc_param_type.type_pointer_pointed_type;
+                        if libc_pointed_type != null && libc_pointed_type.type == ASTNodeType.AST_TYPE_NAMED {
+                            const libc_pointed_name: &byte = libc_pointed_type.type_named_name;
+                            if libc_pointed_name != null && strcmp(libc_pointed_name as *byte, "byte" as *byte) == 0 {
+                                fputs("(char *)" as *byte, codegen.output as *void);
+                            }
+                        }
+                    }
+                }
             }
             
             // 检查是否是大结构体参数且函数期望指针
