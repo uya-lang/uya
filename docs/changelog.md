@@ -16,7 +16,7 @@
 
 1. **std 使用现代特性**
    - `!T` 错误处理替代裸指针返回
-   - `union Option<T>` / `union Result<T, E>` 类型安全
+   - `union Option<T>` 类型安全
    - `interface` 定义抽象（Writer, Reader, Clone, Eq）
    - 泛型容器（Vec<T>, StringBuf）
 
@@ -35,7 +35,7 @@
 
 | Sprint | 内容 | 说明 |
 |--------|------|------|
-| 6 | std.core | Error, Option<T>, Result<T, E>, traits |
+| 6 | std.core | Error, Option<T>, traits |
 | 7 | std.io | Writer/Reader 接口，File 实现 |
 | 8 | std.string | 安全字符串操作（!T） |
 | 9 | std.collections | Vec<T>, StringBuf 泛型容器 |

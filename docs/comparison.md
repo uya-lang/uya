@@ -225,7 +225,7 @@ fn example() void {
 // C++/Rust：使用尖括号
 Vec<T>
 HashMap<K, V>
-Result<T, E>
+Option<T>
 ```
 
 **Uya（0.38 版本）**：
@@ -233,7 +233,7 @@ Result<T, E>
 // Uya：使用括号，更清晰，更一致
 Vec(T)
 HashMap(K, V)
-Result(T, E)
+Option(T)
 ```
 
 **设计理念**：

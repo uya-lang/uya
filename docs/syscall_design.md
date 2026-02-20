@@ -262,7 +262,7 @@ fn main() i32 {
     const msg = "Hello, syscall!\n";
     const result = @syscall(SYS_write, 1, msg as i64, 16);
     
-    const bytes = try result catch {
+    const bytes = result catch {
         return 1;  // 失败
     };
     

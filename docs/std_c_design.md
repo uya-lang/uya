@@ -21,8 +21,8 @@ lib/
 ├── std/                          # Uya 风格标准库（使用现代特性）
 │   ├── core/                     # 核心类型和 trait（v0.6.0 Sprint 6）
 │   │   ├── error.uya             # 错误类型定义（使用 union）
-│   │   ├── option.uya            # Option<T> = union { Some: T, None }
-│   │   ├── result.uya            # Result<T, E> = union { Ok: T, Err: E }
+│   │   ├── option.uya            # Option<T> = union { some: T, none }
+│   │   # （不引入 Result<T, E>，使用 !T 代替）
 │   │   └── traits.uya            # 核心接口（Clone, Eq, Ord, Hash）
 │   ├── io/                       # I/O 抽象（v0.6.0 Sprint 7）
 │   │   ├── writer.uya            # interface Writer
@@ -144,7 +144,7 @@ libc/  →  std/  →  syscall/
 
 ### Sprint 6: std.core 核心类型
 
-**目标**：实现 Option<T>, Result<T, E>, Error 等核心类型
+**目标**：实现 Option<T>, Error 等核心类型（使用 !T 处理错误）
 
 ```uya
 // 错误类型定义
@@ -155,17 +155,14 @@ union Error {
     System: i32                 // 系统错误码（errno）
 }
 
-// Option<T> - 可选值
+// Option<T> - 可选值（非错误语义）
 union Option<T> {
     Some: T,
     None
 }
 
-// Result<T, E> - 结果类型
-union Result<T, E: Error> {
-    Ok: T,
-    Err: E
-}
+// 错误处理使用 !T（error union type）
+// fn open(path: &const byte) !File;  // 返回 File 或 error
 
 // 核心接口
 interface Clone {
@@ -297,7 +294,7 @@ gcc -nostdlib -ffreestanding your_program.c libuya.o -o your_program -lgcc
 
 ## v0.6.0 新特性
 
-- 🎯 **类型安全**：std 使用 !T, Option<T>, Result<T, E>
+- 🎯 **类型安全**：std 使用 !T, Option<T>
 - 🎯 **接口抽象**：Writer, Reader, Clone, Eq, Ord
 - 🎯 **泛型容器**：Vec<T>, StringBuf
 - 🎯 **libc 薄封装**：调用 std 实现，零重复代码

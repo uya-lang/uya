@@ -15,20 +15,18 @@
 使用 Uya 的类型安全特性：
 
 ```uya
-// 错误处理：使用 !T 替代裸指针/null 返回
+// 错误处理：使用 !T（错误联合类型）
+// !T = { error_id: u32, value: T }
+// error_id == 0 表示成功，非0表示错误
 fn parse_int(s: &const byte) !i32 {
-    // 成功返回值，失败返回 error
+    // 成功返回值，失败返回 error.ParseError
 }
 
-// 类型安全：使用 union Option<T> 和 Result<T, E>
+// 可选值：Option<T> 表示"有值或无值"（非错误语义）
+// 用于查找、可选参数、可能缺失的数据
 union Option<T> {
-    Some: T,
-    None
-}
-
-union Result<T, E> {
-    Ok: T,
-    Err: E
+    some: T,
+    none
 }
 
 // 接口抽象：使用 interface 定义行为
@@ -44,6 +42,66 @@ struct Vec<T> {
     cap: usize,
 }
 ```
+
+**错误处理设计原则**：
+
+| 类型 | 语义 | 用途 | 示例 |
+|------|------|------|------|
+| `!T` | 成功/失败 | 可能失败的操作 | `fn open(path) !File` |
+| `Option<T>` | 有值/无值 | 查找、可选数据 | `fn find(arr, val) Option<usize>` |
+| `Error` | 错误上下文 | 携带额外错误信息 | 用于需要详细错误信息的场景 |
+
+> **设计决策**：不引入 `Result<T, E>`。`!T` 已提供灵活的错误处理（支持任意 `error.ErrorName`），`Result<T, E>` 会造成概念重叠。
+
+### 错误处理模式
+
+Uya 提供两种错误处理方式：`try` 传播、`catch` 捕获。
+
+#### 1. `try` 错误传播
+
+```uya
+// 错误自动向上传播，当前函数立即返回错误
+fn read_config(path: &const byte) !Config {
+    const file: File = try File.open(path);  // 失败时返回 error
+    const content: &[u8] = try file.read_all();  // 失败时返回 error
+    return try parse_config(content);
+}
+
+// 溢出检查（自动检测算术溢出）
+fn safe_add(a: i32, b: i32) !i32 {
+    return try a + b;  // 溢出时返回 error.Overflow
+}
+```
+
+#### 2. `catch` 错误捕获
+
+```uya
+// 方式 1：提供默认值
+const value: i32 = parse_int(input) catch 0;
+
+// 方式 2：错误变量绑定
+const result: File = File.open(path) catch |err| {
+    if err == error.FileNotFound {
+        @print("文件不存在\n");
+    }
+    return error.ConfigError;  // 转换错误类型
+};
+
+// 方式 3：复杂错误处理
+const data: &[u8] = fetch_data() catch |err| {
+    log_error("获取数据失败", err);
+    return error.NetworkError;
+};
+```
+
+#### 推荐使用场景
+
+| 场景 | 推荐方式 | 原因 |
+|------|----------|------|
+| 错误直接向上传播 | `try` | 简洁，无额外处理 |
+| 需要默认值 | `catch default` | 一行代码处理 |
+| 需要转换错误类型 | `catch \|err\| { ... }` | 灵活处理 |
+| 需要日志/复杂处理 | `catch \|err\| { ... }` | 完全控制 |
 
 ### 2. libc 层：C99 兼容
 
@@ -66,9 +124,8 @@ export extern fn fopen(path: *const byte, mode: *const byte) *FILE {
 lib/
 ├── std/                          # Uya 风格标准库
 │   ├── core/                     # 核心类型（Sprint 6）
-│   │   ├── error.uya             # 错误类型
-│   │   ├── option.uya            # Option<T>
-│   │   ├── result.uya            # Result<T, E>
+│   │   ├── error.uya             # 错误类型（携带上下文）
+│   │   ├── option.uya            # Option<T> 可选值
 │   │   └── traits.uya            # Clone, Eq, Ord, Hash, Display
 │   │
 │   ├── io/                       # I/O 抽象（Sprint 7）
@@ -112,31 +169,66 @@ lib/
 
 ### 6.1 std.core.error
 
+**设计目的**：`!T` 只携带 `error_id`（32位），`Error` 类型用于需要额外错误上下文的场景。
+
 ```uya
-// 错误类型定义
+// 错误类型定义 - 携带丰富错误信息
 union Error {
-    None,                        // 无错误
-    Message: &[i8],             // 错误消息
-    Code: i32,                  // 错误码
-    System: i32                 // 系统错误码（errno）
+    none,                        // 无错误
+    message: *byte,             // 错误消息（FFI 指针）
+    code: i32,                  // 应用错误码
+    system: i32                 // 系统错误码（errno）
 }
 
 // 错误函数
 export fn error_none() Error;
-export fn error_message(msg: &const byte) Error;
+export fn error_message(msg: *byte) Error;
 export fn error_code(code: i32) Error;
 export fn error_from_errno(errno: i32) Error;
 export fn error_to_string(e: &Error) &[i8];
 export fn error_is_none(e: &Error) bool;
 ```
 
+**使用场景**：
+```uya
+// 简单错误：直接使用 !T 和 error.ErrorName
+fn divide(a: i32, b: i32) !i32 {
+    if b == 0 { return error.DivisionByZero; }
+    return a / b;
+}
+
+// 使用 try 传播错误
+fn calculate(x: i32, y: i32) !i32 {
+    const a: i32 = try divide(x, y);  // 错误自动传播
+    const b: i32 = try divide(a, 2);  // 错误自动传播
+    return b;
+}
+
+// 使用 catch 处理错误
+fn safe_divide(a: i32, b: i32) i32 {
+    return divide(a, b) catch 0;  // 失败返回默认值
+}
+
+// 使用 catch 处理错误并继续执行
+fn check_divide(a: i32, b: i32) void {
+    const result: i32 = divide(a, b) catch {
+        @print("除法失败\n");
+        return;
+    };
+    @print("结果: ");
+    @println(result);
+}
+```
+
 ### 6.2 std.core.option
+
+**设计目的**：表示"有值或无值"，**非错误语义**。用于查找、可选参数等场景。
 
 ```uya
 // Option<T> - 可选值
 union Option<T> {
-    Some: T,
-    None
+    some: T,
+    none
 }
 
 // 方法
@@ -144,34 +236,49 @@ fn option_some<T>(value: T) Option<T>;
 fn option_none<T>() Option<T>;
 fn option_is_some<T>(self: &Option<T>) bool;
 fn option_is_none<T>(self: &Option<T>) bool;
-fn option_unwrap<T>(self: &Option<T>) !T;      // None 时返回错误
+fn option_unwrap<T>(self: &Option<T>) !T;      // none 时返回错误
 fn option_unwrap_or<T>(self: &Option<T>, default: T) T;
 fn option_map<T, U>(self: &Option<T>, f: fn(T) U) Option<U>;
 fn option_and_then<T, U>(self: &Option<T>, f: fn(T) Option<U>) Option<U>;
 ```
 
-### 6.3 std.core.result
-
+**使用示例**：
 ```uya
-// Result<T, E> - 结果类型
-union Result<T, E: Error> {
-    Ok: T,
-    Err: E
+// 查找元素：找不到不是错误，只是"无值"
+fn find(arr: &[i32], val: i32) Option<usize> {
+    var i: usize = 0;
+    while i < arr.len {
+        if arr[i] == val { return option_some(i); }
+        i += 1;
+    }
+    return option_none();
 }
 
-// 方法
-fn result_ok<T, E>(value: T) Result<T, E>;
-fn result_err<T, E>(err: E) Result<T, E>;
-fn result_is_ok<T, E>(self: &Result<T, E>) bool;
-fn result_is_err<T, E>(self: &Result<T, E>) bool;
-fn result_unwrap<T, E>(self: &Result<T, E>) !T;
-fn result_unwrap_err<T, E>(self: &Result<T, E>) !E;
-fn result_map<T, U, E>(self: &Result<T, E>, f: fn(T) U) Result<U, E>;
-fn result_map_err<T, E, F>(self: &Result<T, E>, f: fn(E) F) Result<T, F>;
-fn result_and_then<T, U, E>(self: &Result<T, E>, f: fn(T) Result<U, E>) Result<U, E>;
+// 模式匹配处理 Option
+fn process_option(arr: &[i32]) void {
+    const idx: Option<usize> = find(arr, 42);
+    match idx {
+        some: i => {
+            @print("找到，索引: ");
+            @println(i);
+        },
+        none => {
+            @print("未找到\n");
+        }
+    }
+}
+
+// unwrap_or 提供默认值
+const idx: usize = option_unwrap_or(&find(arr, 42), 0);
+
+// unwrap 配合 try 使用（失败返回 error）
+fn must_find(arr: &[i32], val: i32) !usize {
+    const idx: Option<usize> = find(arr, val);
+    return try option_unwrap(&idx);  // none 时返回 error
+}
 ```
 
-### 6.4 std.core.traits
+### 6.3 std.core.traits
 
 ```uya
 // Clone - 克隆接口
@@ -182,7 +289,7 @@ interface Clone {
 // Eq - 相等比较
 interface Eq {
     fn eq(self: &Self, other: &Self) bool;
-    fn ne(self: &Self, other: &Self) bool;  // 默认实现
+    // ne 可通过 !eq 实现，无需单独定义
 }
 
 // Ord - 有序比较
@@ -205,6 +312,8 @@ interface Display {
 }
 ```
 
+> **注意**：Uya 接口当前不支持默认实现，所有方法必须由实现类型显式定义。
+
 ### 6.5 std.mem.allocator - Zig 风格 IAllocator ⭐⭐⭐⭐⭐
 
 **设计理念**：借鉴 Zig 的分配器设计，提供可插拔、类型安全的内存分配接口。
@@ -220,10 +329,10 @@ interface Display {
 
 /// 分配错误类型
 union AllocError {
-    None,
-    OutOfMemory,           // 内存不足
-    InvalidAlignment,      // 无效对齐要求
-    InvalidPointer,        // 无效指针（释放/调整大小时）
+    none,
+    out_of_memory,           // 内存不足
+    invalid_alignment,       // 无效对齐要求
+    invalid_pointer,         // 无效指针（释放/调整大小时）
 }
 
 /// Zig 风格分配器接口
@@ -265,8 +374,10 @@ struct HeapAllocator : IAllocator {
             -1,                             // fd
             0                               // offset
         );
-        if ptr is error { return AllocError.OutOfMemory; }
-        
+
+        // 使用 catch 转换错误类型
+        const p: &void = syscall.mmap(...) catch { return error.OutOfMemory; };
+
         // 在块头存储大小（用于 free）
         const header: &usize = ptr as &usize;
         *header = size + @size_of(usize);
@@ -281,8 +392,7 @@ struct HeapAllocator : IAllocator {
     }
     
     fn create<T>(self: &Self) !&T {
-        const ptr: !&void = self.alloc(@size_of(T));
-        if ptr is error { return error; }
+        const ptr: &void = try self.alloc(@size_of(T));
         return ptr as &T;
     }
     
@@ -322,7 +432,7 @@ struct ArenaAllocator : IAllocator {
         const aligned_size: usize = (size + 7) & ~7;
         
         if self.offset + aligned_size > self.buffer.len {
-            return AllocError.OutOfMemory;
+            return AllocError.out_of_memory;
         }
         
         const ptr: &void = &self.buffer[self.offset] as &void;
@@ -331,8 +441,7 @@ struct ArenaAllocator : IAllocator {
     }
     
     fn alloc_zeroed(self: &Self, size: usize) !&void {
-        const ptr: !&void = self.alloc(size);
-        if ptr is error { return error; }
+        const ptr: &void = try self.alloc(size);
         std.mem.set(ptr as &byte, 0, size);
         return ptr;
     }
@@ -377,7 +486,7 @@ struct FixedBufferAllocator : IAllocator {
         const aligned_size: usize = (size + 7) & ~7;
         
         if self.offset + aligned_size > self.buffer.len {
-            return AllocError.OutOfMemory;
+            return AllocError.out_of_memory;
         }
         
         const ptr: &void = &self.buffer[self.offset] as &void;
@@ -437,12 +546,12 @@ struct LoggingAllocator : IAllocator {
         @print(self.name);
         @print("] alloc ");
         @println(size);
-        
-        const ptr: !&void = self.child.alloc(size);
-        if ptr is not error {
-            self.alloc_count += 1;
-            self.total_bytes += size;
-        }
+
+        const ptr: &void = self.child.alloc(size) catch |err| {
+            return err;  // 传播错误
+        };
+        self.alloc_count += 1;
+        self.total_bytes += size;
         return ptr;
     }
     
@@ -472,47 +581,61 @@ struct LoggingAllocator : IAllocator {
 ### 6.10 分配器使用模式
 
 ```uya
-// 1. 显式传递分配器（推荐）
+// 1. 显式传递分配器（推荐）- 使用 try 传播错误
 fn Vec<T>.with_capacity(alloc: &IAllocator, cap: usize) !Vec<T> {
+    const data: &T = try alloc.alloc(cap * @size_of(T)) as &T;
     return Vec<T>{
-        data: alloc.alloc(cap * @size_of(T)) as &T,
+        data: data,
         len: 0,
         cap: cap,
         allocator: alloc
     };
 }
 
-// 2. 使用 arena 进行临时分配
+// 2. 使用 arena 进行临时分配 - 使用 try 传播
 fn parse_expression(arena: &ArenaAllocator, tokens: &[Token]) !Expr {
     // 所有临时数据都在 arena 上分配
-    const temp: &byte = arena.alloc(1024)!;
+    const temp: &byte = try arena.alloc(1024);
     // ...
     // 不需要手动释放，调用者会 reset arena
 }
 
-// 3. 混合使用多个分配器
+// 3. 混合使用多个分配器 - try/catch 组合
 fn process_file(path: &const byte) !void {
     // 临时数据用 arena
     var arena_buf: [65536]u8;
     var arena: ArenaAllocator = ArenaAllocator.init(arena_buf[0..]);
-    
-    // 长期数据用堆
-    const result: !&Result = heap_allocator.create<Result>();
-    
+
+    // 长期数据用堆 - try 传播错误
+    const output: &OutputData = try heap_allocator.create<OutputData>();
+
     // 处理...
     parse_with_arena(&arena, path);
-    
-    // arena 自动释放，result 需要手动释放
-    heap_allocator.destroy(result);
+
+    // arena 自动释放，output 需要手动释放
+    heap_allocator.destroy(output);
 }
 
-// 4. 嵌入式系统（无堆）
+// 4. 嵌入式系统（无堆）- catch 提供回退
 fn embedded_main() void {
     // 只使用固定缓冲区，无动态分配
     var buf: [8192]u8;
     var alloc: FixedBufferAllocator = FixedBufferAllocator.init(buf[0..]);
-    
-    const data: !&Config = alloc.create<Config>();
+
+    const data: &Config = alloc.create<Config>() catch {
+        @print("内存不足，使用默认配置\n");
+        return;
+    };
+    // ...
+}
+
+// 5. 带错误转换的模式
+fn load_config(alloc: &IAllocator, path: &const byte) !Config {
+    const data: &u8 = alloc.alloc(CONFIG_SIZE) catch |err| {
+        // 转换错误类型
+        @print("分配内存失败\n");
+        return error.ConfigLoadFailed;
+    };
     // ...
 }
 ```
@@ -562,20 +685,20 @@ export fn read_u32_le(r: &Reader) !u32;
 struct File : Writer, Reader {
     fd: i32,
     owns_fd: bool,              // 是否拥有 fd（close 时需要）
-    
+
     // 构造函数
     fn open(path: &const byte, flags: i32, mode: i32) !File;
     fn create(path: &const byte, mode: i32) !File;
-    
+
     // Writer 接口
     fn write(self: &Self, data: &[u8]) !usize;
     fn write_str(self: &Self, s: &const byte) !usize;
     fn flush(self: &Self) !void;
-    
+
     // Reader 接口
     fn read(self: &Self, buf: &[u8]) !usize;
     fn read_exact(self: &Self, buf: &[u8]) !void;
-    
+
     // 其他操作
     fn seek(self: &Self, offset: i64, whence: i32) !i64;
     fn close(self: &Self) !void;
@@ -586,6 +709,45 @@ struct File : Writer, Reader {
 export const stdin: File = File{ fd: 0, owns_fd: false };
 export const stdout: File = File{ fd: 1, owns_fd: false };
 export const stderr: File = File{ fd: 2, owns_fd: false };
+```
+
+**I/O 错误处理示例**：
+```uya
+// 使用 try 传播错误
+fn read_file_content(path: &const byte) !StringBuf {
+    var file: File = try File.open(path, O_RDONLY, 0);
+    defer file.close();
+
+    var buf: StringBuf = try StringBuf.with_capacity(4096);
+    var temp: [1024]u8;
+
+    loop {
+        const n: usize = try file.read(temp[0..]);
+        if n == 0 { break; }  // EOF
+        try buf.push_slice(temp[0..n]);
+    }
+
+    return buf;
+}
+
+// 使用 catch 处理错误
+fn safe_write(file: &File, data: &[u8]) bool {
+    const n: usize = file.write(data) catch {
+        @print("写入失败\n");
+        return false;
+    };
+    return n == data.len;
+}
+
+// 错误类型匹配
+fn handle_file_error(path: &const byte) void {
+    const file: File = File.open(path, O_RDONLY, 0) catch {
+        @print("无法打开文件: ");
+        @println(path);
+        return;
+    };
+    file.close();
+}
 ```
 
 ## Sprint 8: std.string 安全字符串操作
@@ -616,6 +778,31 @@ export fn parse_f64(s: &const byte) !f64;
 export fn find(s: &const byte, c: byte) Option<usize>;
 export fn rfind(s: &const byte, c: byte) Option<usize>;
 export fn split_first(s: &const byte, delim: byte) Option<(&const byte, &const byte)>;
+```
+
+**字符串错误处理示例**：
+```uya
+// 使用 try 传播解析错误
+fn parse_port(s: &const byte) !u16 {
+    const port: u16 = try parse_u16(s);
+    if port == 0 { return error.InvalidPort; }
+    return port;
+}
+
+// 使用 catch 提供默认值
+fn parse_timeout(s: &const byte) u32 {
+    return parse_u32(s) catch 30;  // 默认 30 秒
+}
+
+// 使用 Option 处理查找结果
+fn get_extension(filename: &const byte) Option<&const byte> {
+    const dot_pos: Option<usize> = rfind(filename, '.');
+    if option_is_none(&dot_pos) { return option_none(); }
+
+    const idx: usize = option_unwrap(&dot_pos);
+    return option_some(&filename[idx + 1]);
+}
+```
 
 // 大小写转换
 export fn to_lower_inplace(s: &byte) void;
@@ -766,34 +953,35 @@ struct FILE {
 // fopen - 调用 std.io.File.open
 export extern fn fopen(path: *const byte, mode: *const byte) *FILE {
     if path == null || mode == null { return null; }
-    
+
     const flags: i32 = parse_mode(mode as &const byte);
-    const result: !std.io.File = std.io.File.open(path as &const byte, flags, 0o644);
-    
-    if result is error { return null; }
-    
+    const file: std.io.File = std.io.File.open(path as &const byte, flags, 0o644) catch {
+        return null;
+    };
+
     // 分配 FILE 结构
     const f: *FILE = std.mem.alloc(@size_of(FILE)) as *FILE;
     if f == null { return null; }
-    
-    f.fd = result.fd;
+
+    f.fd = file.fd;
     f.flags = flags;
     f.buffer = null;
     f.buf_len = 0;
-    
+
     return f;
 }
 
 // fclose - 调用 std.io.File.close
 export extern fn fclose(fp: *FILE) i32 {
     if fp == null { return -1; }
-    
+
     var f: std.io.File = std.io.File{ fd: fp.fd, owns_fd: true };
-    const result: !void = f.close();
-    
+    f.close() catch {
+        std.mem.free(fp as &void);
+        return -1;
+    };
+
     std.mem.free(fp as &void);
-    
-    if result is error { return -1; }
     return 0;
 }
 
@@ -802,9 +990,8 @@ export extern fn fwrite(ptr: *const void, size: usize, nmemb: usize, fp: *FILE) 
     if ptr == null || fp == null { return 0; }
     const total: usize = size * nmemb;
     var f: std.io.File = std.io.File{ fd: fp.fd, owns_fd: false };
-    const result: !usize = f.write(ptr as &[u8], total);
-    if result is error { return 0; }
-    return result / size;
+    const n: usize = f.write(ptr as &[u8], total) catch { return 0; };
+    return n / size;
 }
 ```
 
@@ -814,8 +1001,7 @@ export extern fn fwrite(ptr: *const void, size: usize, nmemb: usize, fp: *FILE) 
 
 1. 实现 `std.core.error`
 2. 实现 `std.core.option`
-3. 实现 `std.core.result`
-4. 实现 `std.core.traits`
+3. 实现 `std.core.traits`
 
 ### 阶段 2：I/O 抽象（Sprint 7）
 

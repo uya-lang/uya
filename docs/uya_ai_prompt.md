@@ -16,8 +16,9 @@ export use mc
 
 **内置函数**（以 `@` 开头）：
 - 类型反射：`@size_of`、`@align_of`、`@len`、`@max`、`@min`
+- 调试打印：`@print(expr)`、`@println(expr)`（打印到标准输出，返回 i32）
 - 源代码位置：`@src_name`、`@src_path`、`@src_line`、`@src_col`、`@func_name`
-- 可变参数：`@params`
+- 可变参数：`@params`、`@va_start`、`@va_end`、`@va_arg`
 - 异步编程：`@async_fn`（函数属性）、`@await`（挂起点）
 - 编译时（宏内）：`@mc_eval`、`@mc_type`、`@mc_ast`、`@mc_code`、`@mc_error`、`@mc_get_env`
 
@@ -219,6 +220,14 @@ match v {
 }
 ```
 
+**联合体规则**：
+- 无默认初始化：必须显式指定变体创建联合体
+- 禁止无标签访问：必须通过模式匹配或已知标签的直接访问
+- 禁止类型双关：不能通过一种类型写入，另一种类型读取（除非显式模式匹配）
+- 变体类型限制：变体类型不建议包含引用（`&T`）或切片（`&[T]`），可能导致生命周期问题
+- 标签状态传播：函数间标签信息不传播，返回联合体的函数调用者必须使用模式匹配
+- 与 C union 完全兼容（内存布局相同）
+
 ### 结构体
 ```uya
 // 基本结构体
@@ -226,6 +235,18 @@ struct Point {
     x: f32,
     y: f32
 }
+
+// 带默认值的结构体（0.40 新增）
+struct Config {
+    timeout: i32 = 30,        // 默认值
+    retries: i32 = 3,
+    debug: bool = false
+}
+
+// 初始化：使用默认值
+const cfg1: Config = Config{};                    // 全部使用默认值
+const cfg2: Config = Config{ timeout: 60 };       // 部分覆盖
+const cfg3: Config = Config{ timeout: 60, debug: true };  // 多字段覆盖
 
 // 声明接口
 struct File : IWriter {
@@ -251,12 +272,12 @@ const vec: Vec<i32> = Vec<i32>{ data: ..., len: 0, cap: 0 };
 // 泛型方法（0.47 新增）
 struct Container<T> {
     value: T,
-    
+
     // 泛型方法：将 T 转换为 U（独立类型参数）
     fn as_type<U>(self: &Self) U {
         return self.value as U;
     }
-    
+
     // 非泛型方法
     fn get(self: &Self) T {
         return self.value;
@@ -573,6 +594,35 @@ const result: i32 = divide(10, 0) catch {
 };
 ```
 
+**catch 语法详细规则**：
+- `expr catch |err| { statements }` 用于捕获并处理错误
+- `expr catch { statements }` 用于捕获所有错误（不绑定错误变量）
+- 如果 `expr` 返回错误，执行 catch 块
+- 如果 `expr` 返回值，跳过 catch 块
+- **类型规则**：`catch` 表达式的类型是 `expr` 成功时的值类型（不是错误联合类型）
+  - `expr catch { default_value }` 的类型 = `expr` 的值类型
+  - `catch` 块必须返回与 `expr` 成功值类型相同的值
+  - **重要限制**：`catch` 块**不能返回错误联合类型**，只能返回值类型或使用 `return` 提前返回函数
+- **catch 块的返回方式**（两种方式，语义不同）：
+  - **方式 1：表达式返回值**（catch 块返回一个值给 catch 表达式）
+    - catch 块的最后一条表达式作为返回值（不需要 `return` 关键字）
+    - 这个值会成为整个 `catch` 表达式的值
+    - 示例：`const result: i32 = divide(10, 0) catch { 0 };`  // 返回 0 作为默认值
+  - **方式 2：使用 `return` 提前返回函数**（catch 块直接退出函数）
+    - catch 块中使用 `return` 会**立即返回函数**（不是返回 catch 块的值）
+    - 跳过后续所有 defer 和 drop
+    - 示例：`const result: i32 = divide(10, 0) catch { return error; };`
+  - **重要区别**：
+    - 表达式返回值：catch 块返回一个值，程序继续执行
+    - `return` 语句：catch 块直接退出函数，程序不继续执行
+
+**错误类型的操作**：
+- 错误类型支持相等性比较：`if err == error.FileNotFound { ... }` 或 `if err == error.SomeRuntimeError { ... }`
+- 错误类型不支持不等性比较（仅支持 `==`）
+- catch 块中可以判断错误类型并做不同处理
+- 错误类型不能直接打印，需要通过模式匹配处理
+- 支持预定义错误和运行时错误的混合比较：`if err == error.PredefinedError || err == error.RuntimeError { ... }`
+
 ### defer和errdefer
 
 ```uya
@@ -685,6 +735,25 @@ io.read_file(...);             // 别名前缀
 
 - **声明**：沿用 C 的 `...` 语法：`fn printf(fmt: *byte, ...) i32;`
 - **@params**：内置变量，函数体内包含所有参数（固定+可变）的元组视图，可用 `.0`/`.1`、遍历、解构
+- **@va_start/@va_end/@va_arg**：可变参数函数内访问 va_list
+  - `@va_start(ap, last)`：初始化 va_list，`last` 是最后一个命名参数
+  - `@va_end(ap)`：结束 va_list 访问
+  - `@va_arg(ap, Type)`：从 va_list 提取下一个类型为 `Type` 的参数
+  - **约束**：仅可在形参含 `...` 的可变参数函数内使用；`@va_start` 与 `@va_end` 必须成对调用
+  - **用途**：将可变参数传递给 vprintf/vfprintf 等 C 函数
+
+```uya
+// 包装 vfprintf（传递给 C 函数）
+extern "libc" fn vfprintf(stream: *void, format: *const byte, ap: *void) i32;
+
+export extern fn my_fprintf(stream: *void, format: *const byte, ...) i32 {
+    var ap: *void = null;
+    @va_start(ap, format);
+    const ret: i32 = vfprintf(stream, format, ap);
+    @va_end(ap);
+    return ret;
+}
+```
 
 ### 异步编程
 
@@ -893,6 +962,23 @@ const msg3: [i8: 64] = "pi=${pi:.2e}\n";  // 科学计数法
 
 见上文"关键字"章节的内置函数列表。所有内置函数以 `@` 开头，无需导入，自动可用，编译期展开。
 
+**调试打印 @print/@println**：
+```uya
+@print(expr)    // 打印表达式值（不换行）
+@println(expr)  // 打印表达式值并换行
+
+// 示例
+@println(42);                        // 输出: 42
+@println("Hello");                   // 输出: Hello
+@println(3.14);                      // 输出: 3.14
+@println(true);                      // 输出: 1
+@println("x=${x}, y=${y}");          // 字符串插值
+@println("hex=${num:#x}");           // 十六进制格式
+```
+
+**支持的类型**：i8/i16/i32/i64/u8/u16/u32/u64/usize/f32/f64/bool/&[i8]/[i8: N]/*byte
+**返回值**：i32（printf 返回值，负值表示错误）
+
 ## 完整示例
 
 ```uya
@@ -1031,6 +1117,6 @@ mc assert(cond) stmt {
 
 ---
 
-**版本**：Uya 0.46
-**更新日期**：2026-02-15
+**版本**：Uya 0.55
+**更新日期**：2026-02-20
 

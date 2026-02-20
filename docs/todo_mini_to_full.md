@@ -1141,7 +1141,7 @@ make check          # 自举 + 测试
 1. **std 使用 Uya 现代特性**
    - `!T` 错误处理替代裸指针返回
    - `interface` 定义抽象（Writer, Reader, Iterator）
-   - `union Option<T>` / `union Result<T, E>` 类型安全
+   - `union Option<T>` 类型安全（不引入 Result<T, E>，使用 !T 代替）
    - 泛型容器（Vec<T>, HashMap<K, V>）
    - `mc` 宏实现编译期优化
 
@@ -1164,7 +1164,7 @@ lib/
 │   ├── core/                     # 核心类型和 trait
 │   │   ├── error.uya             # 错误类型定义（使用 union）
 │   │   ├── option.uya            # Option<T> = union { Some: T, None }
-│   │   ├── result.uya            # Result<T, E> = union { Ok: T, Err: E }
+│   │   ├── result.uya            # （不引入 Result<T, E>，使用 !T）
 │   │   └── traits.uya            # 核心接口（Clone, Eq, Ord, Hash）
 │   ├── io/                       # I/O 抽象（使用 interface）
 │   │   ├── writer.uya            # interface Writer { write(&Self, &[u8]) !usize }
@@ -1195,18 +1195,18 @@ lib/
 
 ### 19.0.2 Sprint 6: std.core 核心类型（1 周）⭐⭐⭐⭐⭐
 
-**目标**：实现 Option<T>, Result<T, E>, Error 等核心类型
+**目标**：实现 Option<T>, Error 等核心类型（不引入 Result<T, E>，使用 !T 代替）
 
 - [ ] **std.core.error** - 错误类型
   ```uya
   // 错误类型定义
   union Error {
-      None,                        // 无错误
-      Message: &[i8],             // 错误消息
-      Code: i32,                  // 错误码
-      System: i32                 // 系统错误码（errno）
+      none,                        // 无错误
+      message: *byte,             // 错误消息（FFI 指针）
+      code: i32,                  // 错误码
+      system: i32                 // 系统错误码（errno）
   }
-  
+
   export fn error_message(e: &Error) &const byte;
   export fn error_from_errno(errno: i32) Error;
   ```
@@ -1214,29 +1214,18 @@ lib/
 - [ ] **std.core.option** - Option<T> 类型
   ```uya
   union Option<T> {
-      Some: T,
-      None
+      some: T,
+      none
   }
-  
+
   // 泛型方法（需要编译器支持）
   fn is_some<T>(self: &Option<T>) bool;
   fn is_none<T>(self: &Option<T>) bool;
-  fn unwrap<T>(self: &Option<T>) !T;  // None 时返回错误
+  fn unwrap<T>(self: &Option<T>) !T;  // none 时返回错误
   fn unwrap_or<T>(self: &Option<T>, default: T) T;
   ```
 
-- [ ] **std.core.result** - Result<T, E> 类型
-  ```uya
-  union Result<T, E: Error> {
-      Ok: T,
-      Err: E
-  }
-  
-  fn is_ok<T, E>(self: &Result<T, E>) bool;
-  fn is_err<T, E>(self: &Result<T, E>) bool;
-  fn unwrap<T, E>(self: &Result<T, E>) !T;
-  fn unwrap_err<T, E>(self: &Result<T, E>) !E;
-  ```
+> **设计决策**：不引入 `Result<T, E>`。`!T` 已提供灵活的错误处理（支持任意 `error.ErrorName`），`Result<T, E>` 会造成概念重叠。
 
 - [ ] **std.core.traits** - 核心接口
   ```uya
@@ -1542,15 +1531,15 @@ lib/
   // 薄封装：调用 std.io，保持 C 签名
   export extern fn fopen(path: *const byte, mode: *const byte) *FILE {
       const m: i32 = parse_mode(mode);
-      const f: !std.io.File = std.io.File.open(path as &const byte, m);
-      if f is error { return null; }
+      const f: std.io.File = std.io.File.open(path as &const byte, m) catch {
+          return null;
+      };
       return to_file_ptr(f);
   }
-  
+
   export extern fn fclose(fp: *FILE) i32 {
       const f: &std.io.File = from_file_ptr(fp);
-      const r: !void = f.close();
-      if r is error { return -1; }
+      f.close() catch { return -1; };
       return 0;
   }
   ```
@@ -1560,7 +1549,7 @@ lib/
 - ✅ **零外部依赖**：直接使用系统调用，不依赖任何 C 库
 - ✅ **单文件输出**：`--outlibc` 生成单个 .c 和 .h 文件
 - ✅ **可替代 musl/glibc**：兼容 C ABI，可作为 libc 使用
-- ✅ **类型安全**：std 使用 !T, Option<T>, Result<T, E>
+- ✅ **类型安全**：std 使用 !T, Option<T>（不引入 Result<T, E>）
 - ✅ **泛型容器**：Vec<T>, HashMap<K, V>
 
 **实施路线**：
@@ -1825,7 +1814,6 @@ static inline long uya_syscall3(long nr, long a1, long a2, long a3) {
 |--------|------|------|------|
 | 6 | `std.core.error` | 错误类型定义 | [ ] |
 | 6 | `std.core.option` | Option<T> 类型 | [ ] |
-| 6 | `std.core.result` | Result<T, E> 类型 | [ ] |
 | 6 | `std.core.traits` | Clone/Eq/Ord/Hash/Display | [ ] |
 | 6 | `std.mem.allocator` | Zig 风格 IAllocator 接口 ⭐ | [ ] |
 | 6 | `std.mem.arena` | ArenaAllocator | [ ] |
