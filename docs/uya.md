@@ -4799,7 +4799,7 @@ match result {
 **定义**：
 ```uya
 interface Future<T> {
-    fn poll(self: &Self, waker: &Waker) union Poll<T>;
+    fn poll(self: &Self, waker: &Waker) Poll<T>;
 }
 ```
 
@@ -4815,12 +4815,12 @@ struct MyFuture {
 }
 
 MyFuture {
-    fn poll(self: &Self, waker: &Waker) union Poll<i32> {
+    fn poll(self: &Self, waker: &Waker) Poll<i32> {
         // 实现异步逻辑
         if ready {
-            return union Poll<i32> { Ready: value };
+            return Poll<i32>.Ready(value);
         } else {
-            return union Poll<i32> { Pending: void };
+            return Poll<i32>.Pending();
         }
     }
 }
@@ -4843,7 +4843,7 @@ MyFuture {
 
 **自动包装机制**：
 - 当 `@async_fn` 函数返回任何类型的值（基本类型、结构体、切片等）时，编译器通过 CPS 变换生成一个立即就绪的 Future
-- 编译器生成的状态机结构体实现 `Future<T>` 接口，其 `poll()` 方法直接返回 `union Poll<T> { Ready: value }`
+- 编译器生成的状态机结构体实现 `Future<T>` 接口，其 `poll()` 方法直接返回 `Poll<T>.Ready(value)`
 - 如果函数体中没有 `@await` 点，状态机只包含一个最终状态，`poll()` 首次调用即返回 `Ready(value)`
 - 如果函数体中有 `@await` 点，状态机包含多个状态，最终状态返回 `Ready(value)`
 - **支持的类型**：所有类型都可以自动包装，包括：
@@ -4864,13 +4864,13 @@ MyFuture {
   }
   
   AsyncStateMachine_i32 {
-      fn poll(self: &Self, waker: &Waker) union Poll<i32> {
+      fn poll(self: &Self, waker: &Waker) Poll<i32> {
           if self.state == COMPLETED {
-              return union Poll<i32> { Ready: self.result };
+              return Poll<i32>.Ready(self.result);
           }
           self.result = 42;
           self.state = COMPLETED;
-          return union Poll<i32> { Ready: self.result };
+          return Poll<i32>.Ready(self.result);
       }
   }
   
@@ -4881,13 +4881,13 @@ MyFuture {
   }
   
   AsyncStateMachine_User {
-      fn poll(self: &Self, waker: &Waker) union Poll<User> {
+      fn poll(self: &Self, waker: &Waker) Poll<User> {
           if self.state == COMPLETED {
-              return union Poll<User> { Ready: self.result };
+              return Poll<User>.Ready(self.result);
           }
           self.result = User{ id: 1, name: "Alice" };
           self.state = COMPLETED;
-          return union Poll<User> { Ready: self.result };
+          return Poll<User>.Ready(self.result);
       }
   }
   ```
@@ -4969,23 +4969,39 @@ fn fetch() !Future<&[i8]> { ... }  // 正确
   - 确保 Waker 不会被错误使用或泄漏
 - **示例**：
   ```uya
+  // Waker 结构体定义
+  struct Waker {
+      // 内部实现由运行时提供
+      _vtable: &WakerVTable,
+      _data: *void
+  }
+  
+  Waker {
+      // 唤醒当前任务
+      fn wake(self: &Self) void;
+  }
+  
+  // 自定义 Future 实现
   struct MyAsyncIO {
       data: i32,
-      waker: Option<&Waker>  // 保存 waker 以便后续唤醒
+      waker: union Option<&Waker>  // 保存 waker 以便后续唤醒
   }
   
   MyAsyncIO {
-      fn poll(self: &Self, waker: &Waker) union Poll<i32> {
+      fn poll(self: &Self, waker: &Waker) Poll<i32> {
           if self.data_ready() {
-              return union Poll<i32> { Ready: self.data };
+              return Poll<i32>.Ready(self.data);
           } else {
               // 保存 waker，等待 I/O 就绪时唤醒
-              self.waker = Some(waker);
-              // 注册到 I/O 事件循环
+              self.waker = Option<&Waker>.some(waker);
+              // 注册到 I/O 事件循环（伪代码）
               register_io_callback(self, |io| {
-                  io.waker.unwrap().wake();  // I/O 就绪时唤醒
+                  match io.waker {
+                      .some(w) => w.wake(),
+                      .none => { }
+                  }
               });
-              return union Poll<i32> { Pending: void };
+              return Poll<i32>.Pending();
           }
       }
   }
@@ -5027,6 +5043,29 @@ fn fetch() !Future<&[i8]> { ... }  // 正确
 - **所有挂起必须 `@await`**：无隐式挂起点，所有异步操作显式声明
 - **取消必须显式检查**：通过 `is_cancelled()` 显式检查取消状态
 - **无隐式转换**：所有异步操作显式类型，无隐式包装
+
+**取消机制**：
+
+```uya
+// is_cancelled() 由运行时提供，检查当前任务是否被取消
+// 定义在 std.async.task 模块中
+fn is_cancelled() bool;  // 检查当前任务取消状态
+
+// 使用示例
+@async_fn
+fn long_running_task() !Future<void> {
+    var i: i32 = 0;
+    while i < 1000000 {
+        if is_cancelled() {
+            // 清理资源后提前退出
+            return error.Cancelled;
+        }
+        // 执行工作
+        try @await do_some_work();
+        i = i + 1;
+    }
+}
+```
 
 #### 18.6.2 零成本
 
@@ -5110,7 +5149,7 @@ const STATE_COMPLETED: i32 = 3;
 
 ```uya
 FetchDataState {
-    fn poll(self: &Self, waker: &Waker) union Poll<&[i8]> {
+    fn poll(self: &Self, waker: &Waker) Poll<&[i8]> {
         // 状态机主循环
         loop {
             match self._state {
@@ -5126,10 +5165,10 @@ FetchDataState {
                     const poll_result = self._awaiting.http_get.poll(waker);
                     match poll_result {
                         .Pending(_) => {
-                            return union Poll<&[i8]> { Pending: void };
+                            return Poll<&[i8]>.Pending();
                         },
                         .Error(err) => {
-                            return union Poll<&[i8]> { Error: err };
+                            return Poll<&[i8]>.Error(err);
                         },
                         .Ready(resp) => {
                             self.response = resp;
@@ -5147,22 +5186,22 @@ FetchDataState {
                     const poll_result = self._awaiting.process.poll(waker);
                     match poll_result {
                         .Pending(_) => {
-                            return union Poll<&[i8]> { Pending: void };
+                            return Poll<&[i8]>.Pending();
                         },
                         .Error(err) => {
-                            return union Poll<&[i8]> { Error: err };
+                            return Poll<&[i8]>.Error(err);
                         },
                         .Ready(res) => {
                             self.result = res;
                             self._state = STATE_COMPLETED;
-                            return union Poll<&[i8]> { Ready: self.result };
+                            return Poll<&[i8]>.Ready(self.result);
                         }
                     }
                 },
                 
                 STATE_COMPLETED => {
                     // 已经完成，返回缓存的结果
-                    return union Poll<&[i8]> { Ready: self.result };
+                    return Poll<&[i8]>.Ready(self.result);
                 }
             }
         }
@@ -5191,11 +5230,11 @@ const result = try @await some_future;
             .Pending(_) => {
                 // 保存当前状态，返回 Pending
                 self._state = CURRENT_STATE;
-                return union Poll<T> { Pending: void };
+                return Poll<T>.Pending();
             },
             .Error(err) => {
                 // try 关键字：错误传播
-                return union Poll<T> { Error: err };
+                return Poll<T>.Error(err);
             },
             .Ready(value) => {
                 // 成功获取值
@@ -5230,19 +5269,19 @@ fn fetch_and_parse() !Future<User> {
 STATE_AWAIT_FETCH => {
     const poll_result = self._awaiting.fetch_data.poll(waker);
     match poll_result {
-        .Pending(_) => return union Poll<User> { Pending: void },
+        .Pending(_) => return Poll<User>.Pending(),
         .Error(err) => {
             // try 关键字自动传播错误
-            return union Poll<User> { Error: err };
+            return Poll<User>.Error(err);
         },
         .Ready(data) => {
             // catch 处理错误联合类型
             const user = parse_user(data) catch {
-                return union Poll<User> { Error: error.InvalidFormat };
+                return Poll<User>.Error(error.InvalidFormat);
             };
             self.user = user;
             self._state = STATE_COMPLETED;
-            return union Poll<User> { Ready: self.user };
+            return Poll<User>.Ready(self.user);
         }
     }
 }
@@ -6042,12 +6081,12 @@ mc vector_type(T: type, name: ident) type {
                 self.len += 1;
             }
             
-            fn pop(self: &mut Self) union Option<${T}> {
+            fn pop(self: &mut Self) Option<${T}> {
                 if self.len == 0 {
-                    return .None;
+                    return Option<${T}>.none();
                 }
                 self.len -= 1;
-                return .Some(self.data[self.len]);
+                return Option<${T}>.some(self.data[self.len]);
             }
             
             fn drop(self: Self) void {
