@@ -1,0 +1,26 @@
+// 测试 @async_fn 和 @await 的语法验证
+
+use std.testing.assert_eq_i32;
+
+// 测试 1：@async_fn 函数可以正常定义
+@async_fn
+fn async_return_value() i32 {
+    return 42;
+}
+
+// 测试 2：@async_fn 函数中可以调用其他 async 函数
+@async_fn
+fn async_call_async() i32 {
+    const val: i32 = @await async_return_value();
+    return val;
+}
+
+test "async fn definition" {
+    const result: i32 = async_return_value();
+    try assert_eq_i32(result, 42);
+}
+
+test "async call async with await" {
+    const result: i32 = async_call_async();
+    try assert_eq_i32(result, 42);
+}

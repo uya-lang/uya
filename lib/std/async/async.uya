@@ -1,0 +1,84 @@
+// std.async 核心类型定义
+// 版本: 0.1.0 (WIP)
+
+// ============================================
+// 1. Poll<T> - 异步计算结果
+// ============================================
+
+// Poll 表示异步计算的结果状态
+// - Pending: 计算未完成，需要稍后再次 poll
+// - Ready: 计算完成，包含结果值
+// - Error: 计算失败，包含错误
+export union Poll<T> {
+    Pending: void,
+    Ready: T,
+    Error: error
+}
+
+// ============================================
+// 2. Waker - 唤醒器
+// ============================================
+
+// Waker 用于在异步操作就绪时通知运行时重新调度任务
+// 当 I/O 操作返回 Pending 时，任务被挂起
+// 当 I/O 就绪时，底层事件循环调用 waker.wake() 唤醒任务
+export struct Waker {
+    // 任务 ID（由运行时分配）
+    task_id: i32,
+    // 唤醒回调（由运行时设置）
+    wake_fn: fn(task_id: i32) void
+}
+
+Waker {
+    // 唤醒关联的任务
+    // 将任务重新加入调度队列
+    fn wake(self: &Self) void {
+        if self.wake_fn != null {
+            self.wake_fn(self.task_id);
+        }
+    }
+    
+    // 检查任务是否已取消
+    // 返回 1 表示已取消，0 表示未取消
+    fn is_cancelled(self: &Self) i32 {
+        // TODO: 实现取消检测
+        // 需要运行时支持
+        return 0;
+    }
+}
+
+// ============================================
+// 3. Future<T> - 异步计算抽象
+// ============================================
+
+// Future 表示一个可能尚未完成的异步计算
+// 实现 Future 接口的结构体必须提供 poll 方法
+export interface Future<T> {
+    // 轮询异步计算的状态
+    // - 返回 Poll.Ready(value): 计算完成，value 是结果
+    // - 返回 Poll.Pending: 计算未完成，稍后再次 poll
+    // - 返回 Poll.Error(err): 计算失败
+    // 
+    // 参数:
+    // - waker: 当计算就绪时用于唤醒任务的唤醒器
+    // 
+    // 规则:
+    // - 如果返回 Pending，必须在稍后某个时刻调用 waker.wake()
+    // - 如果返回 Ready 或 Error，不应再调用 waker.wake()
+    fn poll(self: &Self, waker: &Waker) union Poll<T>;
+}
+
+// ============================================
+// 4. 辅助函数
+// ============================================
+
+// 创建一个立即就绪的 Future
+// 用于将同步值包装为异步结果
+export fn ready<T>(value: T) union Poll<T> {
+    return Poll.Ready(value);
+}
+
+// 创建一个 Pending 状态的 Poll
+export fn pending<T>() union Poll<T> {
+    return Poll.Pending(void);
+}

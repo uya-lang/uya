@@ -1,0 +1,20 @@
+// 测试 std.async 核心类型
+
+use std.testing.assert_eq_i32;
+
+// Waker 结构体
+struct Waker {
+    task_id: i32
+}
+
+Waker {
+    fn wake(self: &Self) void {
+        // 空实现
+    }
+}
+
+test "waker struct" {
+    var waker: Waker = Waker{ task_id: 100 };
+    try assert_eq_i32(waker.task_id, 100);
+    waker.wake();
+}

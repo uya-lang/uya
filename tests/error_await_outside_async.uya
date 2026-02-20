@@ -1,8 +1,6 @@
 // 错误测试：@await 只能在 @async_fn 函数中使用
 // 这个测试应该编译失败
 
-use libc.printf;
-
 // 普通 async 函数
 @async_fn
 fn async_get_value() i32 {
@@ -16,6 +14,5 @@ fn non_async_function() i32 {
 }
 
 fn main() i32 {
-    printf("这个测试应该编译失败\n" as *byte);
     return 0;
 }
