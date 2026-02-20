@@ -5046,7 +5046,293 @@ fn fetch() !Future<&[i8]> { ... }  // 正确
 - **编译期验证**：所有异步操作类型在编译期验证
 - **无运行时类型信息**：所有类型信息编译期确定
 
-### 18.7 完整示例
+### 18.7 编译器实现细节
+
+#### 18.7.1 CPS 变换过程
+
+编译器将异步函数转换为显式状态机的过程：
+
+**步骤 1：识别挂起点**
+
+```uya
+// 源代码
+@async_fn
+fn fetch_data() !Future<&[i8]> {
+    const url = "https://api.example.com";
+    const response = try @await http_get(url);  // 挂起点 1
+    const parsed = parse_json(response);
+    const result = try @await process(parsed);  // 挂起点 2
+    return result;
+}
+```
+
+**步骤 2：分割为状态**
+
+| 状态 | 挂起点前代码 | 挂起点后继续 |
+|------|-------------|-------------|
+| 0 (初始) | `url = "..."` | 等待 `http_get` |
+| 1 | `parsed = parse_json(response)` | 等待 `process` |
+| 2 (完成) | `return result` | - |
+
+**步骤 3：生成状态机结构体**
+
+```uya
+// 编译器生成的状态机（伪代码）
+struct FetchDataState {
+    // 状态字段
+    _state: i32,                    // 当前状态编号
+    _error: error,                  // 错误存储
+    
+    // 挂起点间的局部变量
+    url: &[i8],                     // const url = "..."
+    response: &[i8],                // try @await http_get(url)
+    parsed: JsonValue,              // const parsed = parse_json(response)
+    result: &[i8],                  // try @await process(parsed)
+    
+    // 子 Future（正在 await 的）
+    _awaiting_http_get: ?HttpFuture,
+    _awaiting_process: ?ProcessFuture,
+}
+
+// 状态常量
+const STATE_INIT: i32 = 0;
+const STATE_AWAIT_HTTP: i32 = 1;
+const STATE_AWAIT_PROCESS: i32 = 2;
+const STATE_COMPLETED: i32 = 3;
+```
+
+**步骤 4：生成 poll 方法**
+
+```uya
+FetchDataState {
+    fn poll(self: &Self, waker: &Waker) union Poll<&[i8]> {
+        // 状态机主循环
+        loop {
+            switch (self._state) {
+                case STATE_INIT: {
+                    self.url = "https://api.example.com";
+                    self._awaiting_http_get = http_get(self.url);
+                    self._state = STATE_AWAIT_HTTP;
+                    // 继续执行，不返回
+                }
+                
+                case STATE_AWAIT_HTTP: {
+                    const poll_result = self._awaiting_http_get.poll(waker);
+                    match poll_result {
+                        .Pending => {
+                            return union Poll<&[i8]> { Pending: void };
+                        },
+                        .Error(err) => {
+                            return union Poll<&[i8]> { Error: err };
+                        },
+                        .Ready(resp) => {
+                            self.response = resp;
+                            self._awaiting_http_get = null;  // 释放子 Future
+                            
+                            // 继续执行
+                            self.parsed = parse_json(self.response);
+                            self._awaiting_process = process(self.parsed);
+                            self._state = STATE_AWAIT_PROCESS;
+                        }
+                    }
+                }
+                
+                case STATE_AWAIT_PROCESS: {
+                    const poll_result = self._awaiting_process.poll(waker);
+                    match poll_result {
+                        .Pending => {
+                            return union Poll<&[i8]> { Pending: void };
+                        },
+                        .Error(err) => {
+                            return union Poll<&[i8]> { Error: err };
+                        },
+                        .Ready(res) => {
+                            self.result = res;
+                            self._awaiting_process = null;
+                            self._state = STATE_COMPLETED;
+                            return union Poll<&[i8]> { Ready: self.result };
+                        }
+                    }
+                }
+                
+                case STATE_COMPLETED: {
+                    // 已经完成，返回缓存的结果
+                    return union Poll<&[i8]> { Ready: self.result };
+                }
+            }
+        }
+    }
+}
+```
+
+#### 18.7.2 @await 展开规则
+
+**`try @await expr` 展开为**：
+
+```uya
+// 源代码
+const result = try @await some_future;
+
+// 展开后（伪代码）
+{
+    // 1. 获取子 Future
+    self._awaiting_future = some_future;
+    
+    // 2. 轮询子 Future
+    loop {
+        const poll_result = self._awaiting_future.poll(waker);
+        match poll_result {
+            .Pending => {
+                // 保存当前状态，返回 Pending
+                self._state = CURRENT_STATE;
+                return union Poll<T> { Pending: void };
+            },
+            .Error(err) => {
+                // try 关键字：错误传播
+                return union Poll<T> { Error: err };
+            },
+            .Ready(value) => {
+                // 成功获取值
+                self._awaiting_future = null;
+                result = value;
+                break;  // 继续执行后续代码
+            }
+        }
+    }
+}
+```
+
+#### 18.7.3 错误处理
+
+**`try @await` 的错误传播**：
+
+```uya
+// 源代码
+@async_fn
+fn fetch_and_parse() !Future<User> {
+    const data = try @await fetch_data();     // 错误会传播
+    const user = parse_user(data) catch |err| {
+        return error.InvalidFormat;            // 显式错误处理
+    };
+    return user;
+}
+```
+
+**展开后的错误处理**：
+
+```uya
+// 状态机中的错误处理
+case STATE_AWAIT_FETCH: {
+    const poll_result = self._awaiting_fetch.poll(waker);
+    match poll_result {
+        .Pending => return union Poll<User> { Pending: void },
+        .Error(err) => {
+            // try 关键字自动传播错误
+            return union Poll<User> { Error: err };
+        },
+        .Ready(data) => {
+            // catch 处理
+            const parse_result = parse_user(data);
+            match parse_result {
+                .Error(err) => {
+                    // 显式返回错误
+                    return union Poll<User> { Error: error.InvalidFormat };
+                },
+                .Ok(user) => {
+                    self.user = user;
+                    self._state = STATE_COMPLETED;
+                    return union Poll<User> { Ready: self.user };
+                }
+            }
+        }
+    }
+}
+```
+
+#### 18.7.4 状态机内存布局
+
+**状态机大小计算**：
+
+```uya
+// 编译器计算状态机大小的规则：
+// 1. 所有跨挂点的局部变量都必须保存
+// 2. 子 Future 占用空间按最大值计算（union 语义）
+// 3. 状态字段固定占用 4 字节
+
+// 示例
+struct AsyncStateMachine {
+    _state: i32,              // 4 字节
+    _error: error,            // 4 字节（错误标记）
+    
+    // 局部变量（跨挂点）
+    url: &[i8],               // 16 字节（指针 + 长度）
+    response: &[i8],          // 16 字节
+    parsed: JsonValue,        // 用户定义类型大小
+    
+    // 子 Future（union，取最大）
+    _awaiting: union {
+        http_get: HttpFuture,    // 大小 A
+        process: ProcessFuture,  // 大小 B
+    },                        // max(A, B) 字节
+}
+```
+
+**内存优化**：
+- 子 Future 使用 union，避免为每个挂点分配独立空间
+- 局部变量复用：相同生命周期的变量共享存储
+- 未使用变量及时释放（设为 null 或 drop）
+
+#### 18.7.5 执行流程图
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      首次 poll() 调用                        │
+├─────────────────────────────────────────────────────────────┤
+│  _state = 0 (INIT)                                          │
+│  ├─ 执行初始化代码                                            │
+│  ├─ 创建子 Future                                            │
+│  └─ _state = 1, 返回 Pending                                │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    waker.wake() 触发                         │
+│                      再次 poll() 调用                        │
+├─────────────────────────────────────────────────────────────┤
+│  _state = 1 (AWAITING)                                      │
+│  ├─ poll 子 Future                                          │
+│  │   ├─ Pending → 返回 Pending                              │
+│  │   ├─ Error → 返回 Error                                  │
+│  │   └─ Ready → 继续执行                                     │
+│  ├─ 处理结果，创建下一个子 Future                              │
+│  └─ _state = 2, 返回 Pending 或 Ready                       │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+                    ... 重复直到完成 ...
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      最终 poll() 调用                        │
+├─────────────────────────────────────────────────────────────┤
+│  _state = N (COMPLETED)                                     │
+│  └─ 返回 Ready(result)                                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 18.7.6 与 Rust async 的对比
+
+| 特性 | Uya | Rust |
+|------|-----|------|
+| 语法 | `@async_fn` 属性 | `async fn` 关键字 |
+| 挂起 | `try @await` 显式 | `.await` 显式 |
+| 返回类型 | `!Future<T>` 显式 | `impl Future<T>` 隐式 |
+| 错误处理 | `!T` 错误联合类型 | `Result<T, E>` |
+| 状态机 | 显式 struct，零堆分配 | Pinning，可能堆分配 |
+| Poll 类型 | `union Poll<T>` | `enum Poll<T>` |
+| 递归 | 编译错误 | 需要 Box 包装 |
+
+### 18.8 完整示例
 
 ```uya
 // 定义异步函数
@@ -5066,7 +5352,7 @@ fn main() !Future<i32> {
 }
 ```
 
-### 18.8 限制
+### 18.9 限制
 
 | 限制 | 说明 |
 |------|------|
@@ -5074,7 +5360,7 @@ fn main() !Future<i32> {
 | 动态状态机 | 不支持动态大小的状态机 |
 | 隐式挂起 | 所有挂起必须显式使用 `@await` |
 
-### 18.9 一句话总结
+### 18.10 一句话总结
 
 > **异步编程基础设施**：`@async_fn`/`@await` + `union Poll<T>` + `interface Future<T>`；返回必须 `!Future<T>`；状态机零分配，挂起显式，并发安全编译期证明。
 

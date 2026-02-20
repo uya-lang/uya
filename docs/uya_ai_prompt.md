@@ -779,8 +779,41 @@ export extern fn my_fprintf(stream: *void, format: *const byte, ...) i32 {
 
 ### 异步编程
 
-- 函数属性 `@async_fn` 标记异步函数，必须返回 `!Future<T>`
-- `@await` 在 `@async_fn` 函数内等待异步操作，配合 `try` 处理错误
+**语法**：
+```uya
+// 异步函数定义
+@async_fn
+fn fetch_data() !Future<&[i8]> {
+    const result = try @await http_get("https://example.com");
+    return result;
+}
+```
+
+**核心类型**：
+```uya
+// 异步计算结果
+union Poll<T> {
+    Pending: void,
+    Ready: T,
+    Error: error
+}
+
+// 异步计算抽象
+interface Future<T> {
+    fn poll(self: &Self, waker: &Waker) union Poll<T>;
+}
+```
+
+**实现原理**：
+- `@async_fn` 触发 CPS 变换，生成显式状态机
+- 状态机实现 `Future<T>` 接口，包含 `_state` 字段和跨挂点的局部变量
+- `try @await expr` 展开为：poll 子 Future → Pending 返回 / Ready 继续 / Error 传播
+- 状态机栈分配，零堆分配
+
+**约束**：
+- 必须返回 `!Future<T>`
+- 只能在 `@async_fn` 内使用 `@await`
+- 递归调用编译错误（状态机大小需编译期确定）
 
 ### FFI（外部C函数）
 
