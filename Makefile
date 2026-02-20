@@ -39,9 +39,9 @@ from-c:
 			exit 1; \
 		fi \
 	fi
-	@echo "编译 bin/uya.c ..."
+	@echo "编译 bin/uya.c (nostdlib 模式)..."
 	@echo "CFLAGS: $(CFLAGS)"
-	@gcc $(CFLAGS) bin/uya.c -o bin/uya $(LDFLAGS)
+	@gcc $(CFLAGS) -nostdlib bin/uya.c -o bin/uya $(LDFLAGS) -lgcc
 	@echo ""
 	@echo "✓ 编译器构建完成: bin/uya"
 	@ls -la bin/uya

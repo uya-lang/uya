@@ -1834,12 +1834,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                 }
                 emit_line_directive(codegen, decl.line, decl.filename);
                 const return_c: &byte = convert_array_return_type(codegen, decl.fn_decl_return_type);
-                var main_c_name: &byte = "uya_main" as *byte;
-                if is_app_main != 0 {
-                    main_c_name = "main_main" as *byte;
-                } else if is_c_main == 0 {
-                    main_c_name = "uya_main" as *byte;
-                }
+                var main_c_name: &byte = "main_main" as *byte;  // 所有用户 main 都生成 main_main，供 entry.uya 调用
                 if is_c_main != 0 {
                     fprintf(codegen.output as *void, "%s main(" as *byte, return_c as *byte);
                     var pj: i32 = 0;
@@ -1896,7 +1891,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // std.runtime.entry 的 main 会调用 main_main()
     if has_user_main == 0 && test_count > 0 {
         fputs("int32_t main_main(void) {\n" as *byte, codegen.output as *void);
-        fprintf(codegen.output as *void, "    printf(\"\\n=== Running %d tests ===\\n\");\n" as *byte, test_count as *byte);
+        fprintf(codegen.output as *void, "    printf(\"\\n=== Running %d tests ===\\n\", %d);\n" as *byte, test_count);
         fputs("    uya_run_tests();\n" as *byte, codegen.output as *void);
         fputs("    printf(\"\\n=== Results ===\\n\");\n" as *byte, codegen.output as *void);
         fputs("    printf(\"  Passed: %d\\n\", _test_passed);\n" as *byte, codegen.output as *void);
