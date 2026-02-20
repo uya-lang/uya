@@ -67,6 +67,12 @@ uya build main.uya --nostdlib --static -o program
 特性：
 - **--nostdlib**：生成 `_start` 入口，不使用 libc
 - **--static**：静态链接所有依赖，无需动态库
+- **$CFLAGS**：通过环境变量传递 GCC 编译选项（如 `-O3 -s`）
+
+```bash
+# 使用 CFLAGS 优化和 stripped
+CFLAGS="-O3 -s" uya build --nostdlib --static main.uya -o program
+```
 
 ---
 
@@ -104,7 +110,7 @@ fn maybe_fail() !void {
 ## 文件变更
 
 ### 编译器核心
-- `src/main.uya` - 新增 `--nostdlib` 参数，统一 CLI
+- `src/main.uya` - 新增 `--nostdlib`、`--static` 参数，统一 CLI
 - `src/codegen/c99/main.uya` - 自动生成 `main` 和测试运行器
 - `src/codegen/c99/stmt.uya` - 修复 `!void` 返回语句
 - `src/codegen/c99/internal.uya` - 新增 `is_nostdlib` 字段
