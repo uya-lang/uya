@@ -287,10 +287,54 @@ fn main() i32 {
 14. **整数溢出检测** → 在 C 语言中，有符号整数溢出是未定义行为，不能依赖溢出后的结果判断；必须使用安全方法（如 `left > I32_MAX - right`）
 15. **I32_MIN 定义** → 使用 `-2147483647 - 1` 而非 `-2147483648`，后者会被解析为一元负运算导致溢出
 16. **枚举值引用问题** → 某些情况下 Uya 编译器会错误地生成 `TokenType.TOKEN_XXX` 而不是 `TOKEN_XXX`，导致 C 编译错误。临时解决方案：使用数字常量代替枚举值
+17. **@await 验证** → `@await` 只能在 `@async_fn` 函数中使用，通过 `checker.current_function_decl.fn_decl_is_async` 判断
+18. **错误测试命名** → 测试文件以 `error_` 前缀命名，测试系统自动识别为"预期编译失败"
 
 ---
 
-## 7. 泛型方法单态化实现
+## 7. 异步编程实现
+
+### 7.1 当前状态
+
+| 模块 | 状态 | 说明 |
+|------|------|------|
+| Lexer | ✅ | `@async_fn`、`@await` 已识别 |
+| Parser | ✅ | AST 节点已生成 |
+| Checker | ✅ | `@await` 上下文验证已实现 |
+| Codegen | ⚠️ | 暂时直接生成操作数代码，CPS 变换待实现 |
+
+### 7.2 @await 验证逻辑
+
+在 `checker_infer_type` 中检查：
+
+```uya
+// 1. 检查是否在函数体内
+if checker.in_function == 0 || checker.current_function_decl == null {
+    checker_report_error(checker, expr, "@await 只能在函数体内使用");
+    return TYPE_VOID;
+}
+
+// 2. 检查当前函数是否是 @async_fn
+if checker.current_function_decl.fn_decl_is_async == 0 {
+    checker_report_error(checker, expr, "@await 只能在 @async_fn 函数中使用");
+    return TYPE_VOID;
+}
+```
+
+### 7.3 测试用例
+
+- 正常测试：`test_async_await_validation.uya` - 验证语法正确
+- 错误测试：`error_await_outside_async.uya` - 验证错误检测
+
+### 7.4 待实现
+
+1. **类型验证**：验证 `@await` 操作数是 `!Future<T>` 类型
+2. **CPS 变换**：代码生成阶段实现状态机
+3. **标准库**：`std.async` 模块（`Future<T>`, `Poll<T>`, `Waker`）
+
+---
+
+## 8. 泛型方法单态化实现
 
 ### 7.1 核心问题
 

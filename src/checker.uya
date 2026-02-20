@@ -3294,11 +3294,25 @@ fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
         }
         return operand_type.error_union_payload_type[0];
     } else if expr.type == ASTNodeType.AST_AWAIT_EXPR {
-        // @await 表达式 - 暂时返回操作数的类型
-        // 完整实现需要检查操作数是否为 !Future<T> 类型
+        // @await 表达式验证
+        // 1. 验证 @await 只能在 @async_fn 函数中使用
+        if checker.in_function == 0 || checker.current_function_decl == null {
+            checker_report_error(checker, expr, "@await 只能在函数体内使用" as *byte);
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        if checker.current_function_decl.fn_decl_is_async == 0 {
+            checker_report_error(checker, expr, "@await 只能在 @async_fn 函数中使用" as *byte);
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        
+        // 2. 推断操作数类型
         const operand_type: Type = checker_infer_type(checker, expr.await_expr_operand);
-        // TODO: 验证 @await 只能在 @async_fn 函数中使用
-        // TODO: 验证操作数是 !Future<T> 类型，返回 T
+        
+        // 3. 验证操作数类型（暂时简化：直接返回操作数类型）
+        // 完整实现需要验证操作数是 !Future<T> 类型，返回 T
+        // 当前阶段：@async_fn 返回 !Future<T> 还未实现，暂时跳过类型验证
         return operand_type;
     } else if expr.type == ASTNodeType.AST_CATCH_EXPR {
         var operand_type: Type = checker_infer_type(checker, expr.catch_expr_operand);
