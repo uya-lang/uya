@@ -3429,6 +3429,24 @@ const uint8_t * DEPS_CACHE_FILE = (uint8_t *)(uint8_t *)str703;
 
 const uint8_t * MTIME_CACHE_FILE = (uint8_t *)(uint8_t *)str704;
 
+const uint8_t CHAR_SLASH = 47;
+
+const uint8_t CHAR_BACKSLASH = 92;
+
+const uint8_t CHAR_PIPE = 124;
+
+const uint8_t CHAR_COMMA = 44;
+
+const uint8_t CHAR_SPACE = 32;
+
+const uint8_t CHAR_TAB = 9;
+
+const uint8_t CHAR_NEWLINE = 10;
+
+const uint8_t CHAR_CARRIAGE = 13;
+
+const int32_t DIR_MODE_755 = 493;
+
 const int32_t LEXER_BUFFER_SIZE = (1024 * 1024);
 
 const int32_t LEXER_STRING_INTERP_BUFFER_SIZE = 4096;
@@ -20432,12 +20450,12 @@ static __attribute__((unused)) uint8_t * extract_module_name_from_path(struct Ar
         uint8_t * _uya_ret = (uint8_t *)(uint8_t *)str707;
         return _uya_ret;
     }
-    uint8_t * last_slash = (uint8_t *)std_string_strrchr((uint8_t *)filepath, 47);
+    uint8_t * last_slash = (uint8_t *)std_string_strrchr((uint8_t *)filepath, CHAR_SLASH);
     uint8_t * filename_start = filepath;
     if ((last_slash != NULL)) {
         filename_start = (uint8_t *)(last_slash + 1);
     }
-    uint8_t * last_backslash = (uint8_t *)std_string_strrchr((uint8_t *)filepath, 92);
+    uint8_t * last_backslash = (uint8_t *)std_string_strrchr((uint8_t *)filepath, CHAR_BACKSLASH);
     if (((last_backslash != NULL) && (last_backslash > last_slash))) {
         filename_start = (uint8_t *)(last_backslash + 1);
     }

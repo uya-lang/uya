@@ -33,6 +33,19 @@ const INCR_PATH_MAX: usize = 4096;
 const DEPS_CACHE_FILE: &byte = ".uya/deps.cache" as &byte;
 const MTIME_CACHE_FILE: &byte = ".uya/mtimes.cache" as &byte;
 
+// ASCII 字符常量
+const CHAR_SLASH: byte = 47;          // '/'
+const CHAR_BACKSLASH: byte = 92;      // '\'
+const CHAR_PIPE: byte = 124;          // '|'
+const CHAR_COMMA: byte = 44;          // ','
+const CHAR_SPACE: byte = 32;          // 空格
+const CHAR_TAB: byte = 9;             // 制表符
+const CHAR_NEWLINE: byte = 10;        // 换行符
+const CHAR_CARRIAGE: byte = 13;       // 回车符
+
+// 目录权限常量
+const DIR_MODE_755: i32 = 493;        // 0755 八进制
+
 // ============================================================
 // 文件修改时间缓存
 // ============================================================
@@ -133,14 +146,14 @@ fn extract_module_name_from_path(arena: &Arena, filepath: &byte) &byte {
     }
     
     // 找到最后一个 '/'
-    var last_slash: *byte = strrchr(filepath as *byte, 47);  // '/'
+    var last_slash: *byte = strrchr(filepath as *byte, CHAR_SLASH);
     var filename_start: &byte = filepath;
     if last_slash != null {
         filename_start = (last_slash + 1) as &byte;
     }
     
     // 找到最后一个 '\' (Windows)
-    var last_backslash: *byte = strrchr(filepath as *byte, 92);  // '\'
+    var last_backslash: *byte = strrchr(filepath as *byte, CHAR_BACKSLASH);
     if last_backslash != null && last_backslash > last_slash {
         filename_start = (last_backslash + 1) as &byte;
     }
@@ -561,7 +574,7 @@ export fn save_dependency_cache(cache: &DependencyCache, cache_dir: &byte) i32 {
     
     // 创建缓存目录（如果不存在）
     // 使用 mkdir 系统调用
-    const mkdir_result: i32 = mkdir(cache_dir as *byte, 493);  // 0755
+    const mkdir_result: i32 = mkdir(cache_dir as *byte, DIR_MODE_755);
     
     // 保存依赖图
     const deps_file: *void = fopen(&deps_path[0], "w" as *byte);
@@ -649,7 +662,7 @@ export fn load_dependency_cache(cache: &DependencyCache, cache_dir: &byte) i32 {
         while fgets(&line[0], 4096, mtimes_file) != null {
             // 解析格式：filepath|mtime
             var filepath: &byte = &line[0];
-            var sep: *byte = strchr(&line[0], 124);  // '|'
+            var sep: *byte = strchr(&line[0], CHAR_PIPE);
             if sep != null {
                 sep[0] = 0 as byte;
                 const mtime_str: &byte = (sep + 1) as &byte;
@@ -672,28 +685,28 @@ export fn load_dependency_cache(cache: &DependencyCache, cache_dir: &byte) i32 {
             // 解析格式：filepath|module_name|is_user_file|dep1,dep2,dep3
             // 移除换行符
             var line_len: usize = strlen(&line[0]);
-            while line_len > 0 && (line[line_len - 1] == 10 || line[line_len - 1] == 13) {
+            while line_len > 0 && (line[line_len - 1] == CHAR_NEWLINE || line[line_len - 1] == CHAR_CARRIAGE) {
                 line[line_len - 1] = 0 as byte;
                 line_len = line_len - 1;
             }
             
             // 解析字段
             var filepath: &byte = &line[0];
-            var sep1: *byte = strchr(&line[0], 124);  // '|'
+            var sep1: *byte = strchr(&line[0], CHAR_PIPE);
             if sep1 == null {
                 continue;
             }
             sep1[0] = 0 as byte;
             
             var module_name: &byte = (sep1 + 1) as &byte;
-            var sep2: *byte = strchr(module_name as *byte, 124);
+            var sep2: *byte = strchr(module_name as *byte, CHAR_PIPE);
             if sep2 == null {
                 continue;
             }
             sep2[0] = 0 as byte;
             
             var is_user_str: &byte = (sep2 + 1) as &byte;
-            var sep3: *byte = strchr(is_user_str as *byte, 124);
+            var sep3: *byte = strchr(is_user_str as *byte, CHAR_PIPE);
             var is_user: i32 = atoi(is_user_str as *byte);
             
             // 添加文件记录
@@ -713,7 +726,7 @@ export fn load_dependency_cache(cache: &DependencyCache, cache_dir: &byte) i32 {
                     var dep_count: i32 = 0;
                     var p: &byte = deps_str;
                     while p[0] != 0 {
-                        if p[0] == 44 {  // ','
+                        if p[0] == CHAR_COMMA {
                             dep_count = dep_count + 1;
                         }
                         p = p + 1;
@@ -729,14 +742,14 @@ export fn load_dependency_cache(cache: &DependencyCache, cache_dir: &byte) i32 {
                             var dep_start: &byte = deps_str;
                             var idx: i32 = 0;
                             while idx < dep_count && dep_start[0] != 0 {
-                                var comma: *byte = strchr(dep_start as *byte, 44);  // ','
+                                var comma: *byte = strchr(dep_start as *byte, CHAR_COMMA);
                                 if comma != null {
                                     comma[0] = 0 as byte;
                                 }
                                 
                                 // 去除空白
                                 var dep_name: &byte = dep_start;
-                                while dep_name[0] == 32 || dep_name[0] == 9 {  // 空格或制表符
+                                while dep_name[0] == CHAR_SPACE || dep_name[0] == CHAR_TAB {
                                     dep_name = dep_name + 1;
                                 }
                                 
