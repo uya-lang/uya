@@ -282,6 +282,82 @@ static ASTNode *parser_parse_type(Parser *parser) {
         return first;
     }
     
+    // 检查是否是双重指针类型（&&Type）：lexer 将 && 合并为 TOKEN_LOGICAL_AND
+    // 在类型位置，&& 应该被视为双重指针 &(&...)
+    if (parser->current_token->type == TOKEN_LOGICAL_AND) {
+        parser_consume(parser);  // 消费 '&&'
+        
+        // 切片类型 &&[T] 不太常见，但支持
+        if (parser->current_token != NULL && parser->current_token->type == TOKEN_LEFT_BRACKET) {
+            // &&[T] - 指向切片的指针
+            parser_consume(parser);  // 消费 '['
+            ASTNode *element_type = parser_parse_type(parser);
+            if (element_type == NULL) {
+                return NULL;
+            }
+            if (!parser_expect(parser, TOKEN_RIGHT_BRACKET)) {
+                return NULL;
+            }
+            // 先创建切片类型
+            ASTNode *slice_type = ast_new_node(AST_TYPE_SLICE, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (slice_type == NULL) {
+                return NULL;
+            }
+            slice_type->data.type_slice.element_type = element_type;
+            slice_type->data.type_slice.size_expr = NULL;
+            // 再创建外层指针
+            ASTNode *outer_ptr = ast_new_node(AST_TYPE_POINTER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (outer_ptr == NULL) {
+                return NULL;
+            }
+            outer_ptr->data.type_pointer.pointed_type = slice_type;
+            outer_ptr->data.type_pointer.is_ffi_pointer = 0;
+            outer_ptr->data.type_pointer.is_const = 0;
+            // 再创建最外层指针
+            ASTNode *ptr = ast_new_node(AST_TYPE_POINTER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+            if (ptr == NULL) {
+                return NULL;
+            }
+            ptr->data.type_pointer.pointed_type = outer_ptr;
+            ptr->data.type_pointer.is_ffi_pointer = 0;
+            ptr->data.type_pointer.is_const = 0;
+            return ptr;
+        }
+        
+        // 检查是否是 &&const T
+        int is_const = 0;
+        if (parser->current_token != NULL && parser->current_token->type == TOKEN_CONST) {
+            parser_consume(parser);  // 消费 'const'
+            is_const = 1;
+        }
+        
+        // 普通双重指针类型 &&Type
+        ASTNode *pointed_type = parser_parse_type(parser);
+        if (pointed_type == NULL) {
+            return NULL;
+        }
+        
+        // 创建内层指针类型
+        ASTNode *inner_ptr = ast_new_node(AST_TYPE_POINTER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (inner_ptr == NULL) {
+            return NULL;
+        }
+        inner_ptr->data.type_pointer.pointed_type = pointed_type;
+        inner_ptr->data.type_pointer.is_ffi_pointer = 0;
+        inner_ptr->data.type_pointer.is_const = is_const;
+        
+        // 创建外层指针类型
+        ASTNode *outer_ptr = ast_new_node(AST_TYPE_POINTER, line, column, parser->arena, parser->lexer ? parser->lexer->filename : NULL);
+        if (outer_ptr == NULL) {
+            return NULL;
+        }
+        outer_ptr->data.type_pointer.pointed_type = inner_ptr;
+        outer_ptr->data.type_pointer.is_ffi_pointer = 0;
+        outer_ptr->data.type_pointer.is_const = 0;
+        
+        return outer_ptr;
+    }
+    
     // 检查是否是指针类型（&Type 或 *Type）或切片类型（&[T] / &[T: N]）
     if (parser->current_token->type == TOKEN_AMPERSAND) {
         parser_consume(parser);  // 消费 '&'

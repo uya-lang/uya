@@ -39,8 +39,8 @@ enum CommandType {
 const FILE_BUFFER_SIZE: i32 = 1024 * 1024;
 
 // Arena 缓冲区大小（优化后：temp_arena 回滚，主 arena 需求降低）
-// 从 384MB 优化到 256MB（再低会导致自举失败）
-const ARENA_BUFFER_SIZE: i32 = 256 * 1024 * 1024;  // 256MB
+// 从 384MB 优化到 256MB，增量编译支持后恢复到 320MB
+const ARENA_BUFFER_SIZE: i32 = 320 * 1024 * 1024;  // 320MB
 
 // 最大输入文件数
 const MAX_INPUT_FILES: i32 = 64;

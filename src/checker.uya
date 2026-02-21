@@ -9627,7 +9627,9 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
             }
         }
     } else if seg_count == 1 {
+        // 单个 segment：整体导入模块（如 use incremental）
         module_name = segs[0];
+        is_whole_module_import = 1;
     }
     }
     

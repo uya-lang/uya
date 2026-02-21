@@ -10,8 +10,6 @@ use libc.fprintf;
 use libc.fread;
 use libc.fwrite;
 use libc.fgets;
-use libc.fseek;
-use libc.ftell;
 use libc.FILE;
 use libc.mkdir;
 use libc.atol;
@@ -319,7 +317,12 @@ export fn dep_cache_add_file(cache: &DependencyCache, filepath: &byte) i32 {
     entry.source_module = extract_module_name_from_path(cache.arena, filepath);
     entry.dependencies = null;
     entry.dependency_count = 0;
-    entry.is_user_file = is_stdlib_file(filepath) == 0 ? 1 : 0;
+    // 判断是否为用户文件（非标准库）
+    if is_stdlib_file(filepath) == 0 {
+        entry.is_user_file = 1;
+    } else {
+        entry.is_user_file = 0;
+    }
     
     if entry.source_file == null {
         return -1;
@@ -600,9 +603,14 @@ export fn save_dependency_cache(cache: &DependencyCache, cache_dir: &byte) i32 {
     while i < cache.count {
         const entry: &FileDependency = cache.files + i;
         if entry.source_file != null {
+            // 获取模块名（处理 null 情况）
+            var module_name_for_print: &byte = "" as &byte;
+            if entry.source_module != null {
+                module_name_for_print = entry.source_module;
+            }
             fprintf(deps_file as &FILE, "%s|%s|%d" as *byte, 
                     entry.source_file as *byte, 
-                    entry.source_module != null ? entry.source_module as *byte : "" as *byte,
+                    module_name_for_print as *byte,
                     entry.is_user_file);
             
             // 写入依赖列表
@@ -846,9 +854,14 @@ fn print_dependency_info(cache: &DependencyCache) void {
     while i < cache.count {
         const entry: &FileDependency = cache.files + i;
         if entry.source_file != null {
+            // 获取模块名（处理 null 情况）
+            var module_name_for_print: &byte = "(null)" as &byte;
+            if entry.source_module != null {
+                module_name_for_print = entry.source_module;
+            }
             fprintf(libc.stderr, "  %s (模块: %s, 用户文件: %d)\n" as *byte, 
                     entry.source_file as *byte,
-                    entry.source_module != null ? entry.source_module as *byte : "(null)" as *byte,
+                    module_name_for_print as *byte,
                     entry.is_user_file);
             
             if entry.dependencies != null && entry.dependency_count > 0 {
