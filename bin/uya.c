@@ -1951,6 +1951,13 @@ enum ParserContext {
     PARSER_CONTEXT_CONDITION
 };
 
+typedef size_t pthread_t;
+typedef void * pthread_attr_t;
+typedef void * ThreadFn;
+typedef void * pthread_mutex_t;
+typedef void * pthread_mutexattr_t;
+typedef void * pthread_cond_t;
+typedef void * pthread_condattr_t;
 
 struct err_union_int32_t { uint32_t error_id; int32_t value; };
 struct err_union_intptr_t { uint32_t error_id; intptr_t value; };
@@ -2739,6 +2746,26 @@ uint8_t * memset(char * s, int32_t c, size_t n);
 uint8_t * memmove(char * dest, char * src, size_t n);
 int32_t memcmp(char * s1, char * s2, size_t n);
 uint8_t * memchr(char * s, int32_t c, size_t n);
+extern int32_t pthread_create(pthread_t * thread, pthread_attr_t attr, void * start_routine, void * arg);
+extern int32_t pthread_join(pthread_t thread, void * * retval);
+extern int32_t pthread_detach(pthread_t thread);
+extern pthread_t pthread_self();
+extern int32_t pthread_equal(pthread_t t1, pthread_t t2);
+extern void pthread_exit(void * retval);
+extern int32_t pthread_attr_init(pthread_attr_t * attr);
+extern int32_t pthread_attr_destroy(pthread_attr_t * attr);
+extern int32_t pthread_attr_setstacksize(pthread_attr_t * attr, int64_t stacksize);
+extern int32_t pthread_attr_getstacksize(pthread_attr_t attr, int64_t * stacksize);
+extern int32_t pthread_mutex_init(pthread_mutex_t * mutex, pthread_mutexattr_t attr);
+extern int32_t pthread_mutex_destroy(pthread_mutex_t * mutex);
+extern int32_t pthread_mutex_lock(pthread_mutex_t mutex);
+extern int32_t pthread_mutex_trylock(pthread_mutex_t mutex);
+extern int32_t pthread_mutex_unlock(pthread_mutex_t mutex);
+extern int32_t pthread_cond_init(pthread_cond_t * cond, pthread_condattr_t attr);
+extern int32_t pthread_cond_destroy(pthread_cond_t * cond);
+extern int32_t pthread_cond_wait(pthread_cond_t cond, pthread_mutex_t mutex);
+extern int32_t pthread_cond_signal(pthread_cond_t cond);
+extern int32_t pthread_cond_broadcast(pthread_cond_t cond);
 int32_t libc_put_char(int32_t c);
 int32_t libc_put_char_fd(int32_t c, int64_t fd);
 int64_t libc_write_bytes(const uint8_t * buf, size_t n);
@@ -3323,6 +3350,7 @@ const int32_t EHOSTUNREACH = 113;
 const int32_t EALREADY = 114;
 const int32_t EINPROGRESS = 115;
 int32_t errno = 0;
+const int64_t PTHREAD_STACK_MIN = 16384;
 struct FILE * stdin = (&_stdin);
 struct FILE * stdout = (&_stdout);
 struct FILE * stderr = (&_stderr);
@@ -7022,6 +7050,26 @@ uint8_t * memchr(char * s, int32_t c, size_t n) {
     uint8_t * _uya_ret = NULL;
     return _uya_ret;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 int32_t libc_put_char(int32_t c) {
     (void)c;

@@ -1,0 +1,78 @@
+// pthread.uya - POSIX 线程库绑定
+// 提供 pthread 相关函数和类型
+
+export const PTHREAD_STACK_MIN: i64 = 16384;  // 最小栈大小
+
+// 线程 ID 类型
+export type pthread_t = usize;
+
+// 线程属性类型（不透明指针）
+export type pthread_attr_t = *void;
+
+// 线程函数指针类型（使用 *void 作为通用函数指针）
+export type ThreadFn = *void;
+
+// 外部 C 函数绑定
+// 注意：start_routine 使用 *void 作为函数指针
+extern fn pthread_create(
+    thread: *pthread_t,
+    attr: pthread_attr_t,
+    start_routine: *void,
+    arg: *void
+) i32;
+
+extern fn pthread_join(thread: pthread_t, retval: **void) i32;
+
+extern fn pthread_detach(thread: pthread_t) i32;
+
+extern fn pthread_self() pthread_t;
+
+extern fn pthread_equal(t1: pthread_t, t2: pthread_t) i32;
+
+extern fn pthread_exit(retval: *void) void;
+
+extern fn pthread_attr_init(attr: *pthread_attr_t) i32;
+
+extern fn pthread_attr_destroy(attr: *pthread_attr_t) i32;
+
+extern fn pthread_attr_setstacksize(attr: *pthread_attr_t, stacksize: i64) i32;
+
+extern fn pthread_attr_getstacksize(attr: pthread_attr_t, stacksize: *i64) i32;
+
+// 互斥锁类型（不透明指针）
+export type pthread_mutex_t = *void;
+
+// 互斥锁属性类型（不透明指针）
+export type pthread_mutexattr_t = *void;
+
+extern fn pthread_mutex_init(
+    mutex: *pthread_mutex_t,
+    attr: pthread_mutexattr_t
+) i32;
+
+extern fn pthread_mutex_destroy(mutex: *pthread_mutex_t) i32;
+
+extern fn pthread_mutex_lock(mutex: pthread_mutex_t) i32;
+
+extern fn pthread_mutex_trylock(mutex: pthread_mutex_t) i32;
+
+extern fn pthread_mutex_unlock(mutex: pthread_mutex_t) i32;
+
+// 条件变量类型（不透明指针）
+export type pthread_cond_t = *void;
+
+// 条件变量属性类型（不透明指针）
+export type pthread_condattr_t = *void;
+
+extern fn pthread_cond_init(
+    cond: *pthread_cond_t,
+    attr: pthread_condattr_t
+) i32;
+
+extern fn pthread_cond_destroy(cond: *pthread_cond_t) i32;
+
+extern fn pthread_cond_wait(cond: pthread_cond_t, mutex: pthread_mutex_t) i32;
+
+extern fn pthread_cond_signal(cond: pthread_cond_t) i32;
+
+extern fn pthread_cond_broadcast(cond: pthread_cond_t) i32;
