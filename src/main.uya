@@ -1724,8 +1724,24 @@ fn compile_files(
                     const field: &ASTNode = decl.struct_decl_fields[fi];
                     if field != null && field.type == ASTNodeType.AST_VAR_DECL && field.var_decl_type != null {
                         const field_name: &byte = get_safe_c_identifier(&temp_codegen, field.var_decl_name);
-                        const field_type_c: &byte = c99_type_to_c(&temp_codegen, field.var_decl_type);
-                        fprintf(header_file as &FILE, "    %s %s;\n" as *byte, field_type_c as *byte, field_name as *byte);
+                        const field_type: &ASTNode = field.var_decl_type;
+                        
+                        // 特殊处理数组类型：C 语法是 element_type name[size]
+                        if field_type.type == ASTNodeType.AST_TYPE_ARRAY {
+                            const elem_type_c: &byte = c99_type_to_c(&temp_codegen, field_type.type_array_element_type);
+                            const size_expr: &ASTNode = field_type.type_array_size_expr;
+                            var array_size: i32 = 1;
+                            if size_expr != null {
+                                array_size = eval_const_expr(&temp_codegen, size_expr);
+                                if array_size <= 0 {
+                                    array_size = 1;
+                                }
+                            }
+                            fprintf(header_file as &FILE, "    %s %s[%d];\n" as *byte, elem_type_c as *byte, field_name as *byte, array_size);
+                        } else {
+                            const field_type_c: &byte = c99_type_to_c(&temp_codegen, field_type);
+                            fprintf(header_file as &FILE, "    %s %s;\n" as *byte, field_type_c as *byte, field_name as *byte);
+                        }
                     }
                     fi = fi + 1;
                 }
