@@ -1487,6 +1487,70 @@ fn compile_files(
         i = i + 1;
     }
     
+    // 初始化主 Arena（用于 AST 和代码生成）
+    var arena: Arena = Arena { buffer: null, size: 0 as usize, offset: 0 as usize };
+    arena_init(&arena, &arena_buffer[0], ARENA_BUFFER_SIZE as usize);
+    
+    // 确定缓存目录（项目根目录下的 .uya 目录）
+    if project_root != null {
+        snprintf(&cache_dir_buffer[0], PATH_MAX, "%s.uya" as *byte, project_root as *byte);
+    } else {
+        strcpy(&cache_dir_buffer[0], ".uya" as *byte);
+    }
+    
+    // 增量编译模式：初始化缓存并检测变更（在词法分析之前）
+    if is_incremental != 0 && is_multi_file != 0 {
+        fprintf(libc.stderr, "增量编译模式\n" as *byte);
+        
+        // 初始化依赖缓存
+        if dep_cache_init(&incr_cache, &arena, &cache_dir_buffer[0], MAX_CACHED_FILES) != 0 {
+            fprintf(libc.stderr, "警告: 无法初始化增量缓存，执行完整编译\n" as *byte);
+        } else {
+            // 尝试加载已有缓存
+            const load_result: i32 = load_dependency_cache(&incr_cache, &cache_dir_buffer[0]);
+            if load_result == 0 {
+                fprintf(libc.stderr, "已加载缓存: %d 个文件记录\n" as *byte, incr_cache.count);
+                
+                // 记录所有文件到缓存（用于后续检测变更）
+                i = 0;
+                while i < all_file_count {
+                    if all_files[i] != null {
+                        dep_cache_add_file(&incr_cache, all_files[i]);
+                    }
+                    i = i + 1;
+                }
+                
+                // 检测修改的文件
+                var changed_files: [&byte: MAX_CACHED_FILES] = [];
+                var changed_count: i32 = 0;
+                if detect_changed_files(&incr_cache, &changed_files[0], &changed_count, MAX_CACHED_FILES) == 0 {
+                    if changed_count == 0 {
+                        fprintf(libc.stderr, "没有检测到文件变更，跳过编译\n" as *byte);
+                        return 0;  // 无变更，跳过编译
+                    } else {
+                        fprintf(libc.stderr, "检测到 %d 个文件变更:\n" as *byte, changed_count);
+                        var ci: i32 = 0;
+                        while ci < changed_count {
+                            fprintf(libc.stderr, "  %s\n" as *byte, changed_files[ci] as *byte);
+                            ci = ci + 1;
+                        }
+                    }
+                }
+            } else {
+                fprintf(libc.stderr, "首次增量编译，将创建缓存\n" as *byte);
+                // 记录所有文件到缓存
+                i = 0;
+                while i < all_file_count {
+                    if all_files[i] != null {
+                        dep_cache_add_file(&incr_cache, all_files[i]);
+                    }
+                    i = i + 1;
+                }
+            }
+            need_incremental = 1;
+        }
+    }
+    
     fprintf(libc.stderr, "=== 开始编译 ===\n" as *byte);
     fprintf(libc.stderr, "输入文件数量: %d (包含依赖)\n" as *byte, all_file_count);
     i = 0;
@@ -1511,9 +1575,6 @@ fn compile_files(
         backend_str = "C99" as *byte;
     }
     fprintf(libc.stderr, "后端类型: %s\n" as *byte, backend_str);
-
-    var arena: Arena = Arena { buffer: null, size: 0 as usize, offset: 0 as usize };
-    arena_init(&arena, &arena_buffer[0], ARENA_BUFFER_SIZE as usize);
 
     var programs: [&ASTNode: MAX_INPUT_FILES] = [];
 
@@ -1608,20 +1669,6 @@ fn compile_files(
     // 多文件模式：生成公共头文件和独立 C 文件
     if is_multi_file != 0 {
         fprintf(libc.stderr, "多文件输出模式\n" as *byte);
-        
-        // 确定缓存目录（项目根目录下的 .uya 目录）
-        if project_root != null {
-            snprintf(&cache_dir_buffer[0], PATH_MAX, "%s.uya" as *byte, project_root as *byte);
-        } else {
-            strcpy(&cache_dir_buffer[0], ".uya" as *byte);
-        }
-        
-        // 增量编译模式
-        if is_incremental != 0 {
-            fprintf(libc.stderr, "增量编译模式\n" as *byte);
-            fprintf(libc.stderr, "注意: 增量编译功能正在完善中，当前执行完整编译\n" as *byte);
-            // TODO: 完善增量编译集成
-        }
         
         // 确定输出目录
         var output_dir: [byte: PATH_MAX] = [];
@@ -1964,9 +2011,14 @@ fn compile_files(
         
         fprintf(libc.stderr, "多文件生成完成\n" as *byte);
         
-        // 增量编译模式：保存缓存（简化版本）
-        if is_incremental != 0 && incr_cache.count > 0 {
-            fprintf(libc.stderr, "增量编译完成\n" as *byte);
+        // 增量编译模式：更新修改时间并保存缓存
+        if is_incremental != 0 && incr_cache.arena != null {
+            // 更新所有文件的修改时间
+            update_cache_mtimes(&incr_cache);
+            // 保存缓存
+            if save_dependency_cache(&incr_cache, &cache_dir_buffer[0]) == 0 {
+                fprintf(libc.stderr, "增量编译缓存已保存\n" as *byte);
+            }
         }
         
         return 0;

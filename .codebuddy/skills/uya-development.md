@@ -289,6 +289,9 @@ fn main() i32 {
 16. **枚举值引用问题** → 某些情况下 Uya 编译器会错误地生成 `TokenType.TOKEN_XXX` 而不是 `TOKEN_XXX`，导致 C 编译错误。临时解决方案：使用数字常量代替枚举值
 17. **@await 验证** → `@await` 只能在 `@async_fn` 函数中使用，通过 `checker.current_function_decl.fn_decl_is_async` 判断
 18. **错误测试命名** → 测试文件以 `error_` 前缀命名，测试系统自动识别为"预期编译失败"
+19. **extern 声明** → `extern fn name(...);` 无函数体才是声明外部 C 函数，`extern "libc" fn name(...) { }` 有函数体是 Uya 自定义实现
+20. **i64 取模** → `i64 % 10` 类型不匹配，需要 `const ten: i64 = 10; num % ten`
+21. **增量编译** → 使用 `--incremental` 启用，缓存存储在 `.uya/` 目录
 
 ---
 
@@ -549,37 +552,38 @@ while i < 512 {
 
 ---
 
-## 9. 多文件编译实现（Phase 1 进行中）
+## 9. 多文件编译实现（Phase 1 完成）
 
 ### 9.1 当前状态
 
 | 功能 | 状态 | 说明 |
 |------|------|------|
-| `--multi-file` 选项 | ✅ 已添加 | 自动启用 C99 后端 |
-| 多文件输出逻辑 | ⏳ 进行中 | 需要实现头文件生成和独立 C 文件生成 |
-| 公共头文件 | ❌ 未实现 | `uya_types.h` |
+| `--multi-file` 选项 | ✅ 完成 | 自动启用 C99 后端 |
+| 多文件输出逻辑 | ✅ 完成 | 独立 C 文件生成 |
+| 公共头文件 | ✅ 完成 | `uya_types.h` |
+| 增量编译 | ✅ 完成 | `--incremental` 选项 |
 | 模块级头文件 | ❌ 未实现 | `xxx.h` |
 
 ### 9.2 关键文件
 
 | 文件 | 说明 |
 |------|------|
-| `src/main.uya` | `compile_files` 函数，添加 `is_multi_file` 参数 |
-| `src/codegen/c99/main.uya` | `c99_codegen_generate` 函数，需要支持单文件输出 |
-| `.cursor/plans/实现文件级并行编译_5b0090ff.plan.md` | 详细设计文档 |
+| `src/main.uya` | `compile_files` 函数，多文件模式和增量编译逻辑 |
+| `src/incremental.uya` | 增量编译缓存模块 |
+| `src/codegen/c99/main.uya` | `c99_codegen_generate` 函数，支持多文件输出 |
 
 ### 9.3 实现路线
 
 ```
-Phase 1（当前）：
+Phase 1（已完成）：
   1. ✅ 添加 --multi-file 选项
-  2. ⏳ 生成公共头文件（uya_types.h）
-  3. ⏳ 为每个源文件生成独立 C 文件
-  4. ⏳ 支持 GCC 并行编译多个 C 文件
+  2. ✅ 生成公共头文件（uya_types.h）
+  3. ✅ 为每个源文件生成独立 C 文件
+  4. ✅ 增量编译支持（--incremental）
 
 Phase 2（后续）：
   - 模块级头文件（xxx.h）
-  - 增量编译支持
+  - 依赖传播优化（只重编变更文件及其依赖）
 
 Phase 3（长期）：
   - pthread 线程并行编译
@@ -609,3 +613,123 @@ Phase 3（长期）：
 - 每个 C 文件只包含该文件的函数定义
 - 公共头文件包含所有 export 函数的 extern 声明
 
+---
+
+## 10. 增量编译实现（2026-02-21 完成）
+
+### 10.1 功能概述
+
+增量编译模式通过缓存文件修改时间和依赖关系，在源文件未变更时跳过编译。
+
+**使用方式**：
+```bash
+./bin/uya <源目录> --incremental -o <输出目录>
+```
+
+### 10.2 核心模块
+
+| 文件 | 说明 |
+|------|------|
+| `src/incremental.uya` | 增量编译缓存模块 |
+| `src/main.uya` | 集成增量编译逻辑 |
+
+### 10.3 关键结构
+
+```uya
+// 文件依赖记录
+struct FileDependency {
+    source_file: &byte,        // 源文件路径
+    source_module: &byte,      // 模块名
+    dependencies: &&byte,      // 依赖列表
+    dependency_count: i32,
+    is_user_file: i32,         // 是否为用户文件（非标准库）
+}
+
+// 依赖图缓存
+struct DependencyCache {
+    files: &FileDependency,
+    count: i32,
+    capacity: i32,
+    mtime_cache: MTimeCache,   // 文件修改时间缓存
+    cache_dir: &byte,          // 缓存目录（.uya/）
+    arena: &Arena,
+}
+```
+
+### 10.4 编译流程
+
+```
+1. 初始化缓存 → dep_cache_init()
+2. 加载已有缓存 → load_dependency_cache()
+3. 记录所有文件 → dep_cache_add_file()
+4. 检测变更 → detect_changed_files()
+   ├─ 无变更 → 跳过编译（return 0）
+   └─ 有变更 → 继续编译
+5. 编译完成后保存 → save_dependency_cache()
+```
+
+### 10.5 缓存文件
+
+缓存存储在项目根目录的 `.uya/` 下：
+- `deps.cache`：依赖图（格式：`filepath|module|is_user|dep1,dep2`）
+- `mtimes.cache`：修改时间（格式：`filepath|mtime`）
+
+### 10.6 libc.fprintf %lld 支持
+
+增量编译需要在缓存中保存 `i64` 类型的修改时间，需要 `fprintf` 支持 `%lld` 格式。
+
+**修改位置**：`lib/libc/stdio.uya`
+
+**实现要点**：
+```uya
+// 检测 %ll 前缀
+} else if spec == 108 && format_pos + 1 < format_len && format[format_pos + 1] == 108 {
+    format_pos = format_pos + 1;
+    if format_pos + 1 < format_len && format[format_pos + 1] == 100 {
+        // %lld - i64
+        format_pos = format_pos + 1;
+        const lld_val: i64 = @va_arg(ap, i64);
+        // ... 转换为字符串输出 ...
+    } else if format_pos + 1 < format_len && format[format_pos + 1] == 117 {
+        // %llu - u64
+        format_pos = format_pos + 1;
+        const llu_val: u64 = @va_arg(ap, u64);
+        // ... 转换为字符串输出 ...
+    }
+}
+```
+
+**注意**：`i64 % 10` 需要类型匹配，使用 `const ten_i64: i64 = 10;`
+
+### 10.7 extern 声明陷阱
+
+**问题**：`extern "libc" fn fprintf(...) i32 { ... }` 有函数体，是 Uya 自定义实现
+
+**解决**：`extern fn fprintf(...);` 无函数体，才是声明外部 C 函数
+
+```uya
+// ❌ 错误：这是 Uya 自定义实现
+extern "libc" fn fprintf(stream: *void, format: &const byte, ...) i32 {
+    // Uya 实现...
+}
+
+// ✅ 正确：声明外部 C 函数
+extern fn fprintf(stream: *void, format: &const byte, ...) i32;
+```
+
+### 10.8 测试验证
+
+```bash
+# 首次编译 → 创建缓存
+./bin/uya /tmp/test --incremental -o /tmp/test/build/
+# 输出：首次增量编译，将创建缓存
+
+# 无变更 → 跳过编译
+./bin/uya /tmp/test --incremental -o /tmp/test/build/
+# 输出：没有检测到文件变更，跳过编译
+
+# 修改文件 → 重新编译
+echo "// modified" >> /tmp/test/main.uya
+./bin/uya /tmp/test --incremental -o /tmp/test/build/
+# 输出：检测到 1 个文件变更: /tmp/test/main.uya
+```

@@ -647,7 +647,7 @@ export fn save_dependency_cache(cache: &DependencyCache, cache_dir: &byte) i32 {
     while i < cache.mtime_cache.count {
         const entry: &FileMTime = cache.mtime_cache.entries + i;
         if entry.filepath != null {
-            fprintf(mtimes_file as &FILE, "%s|%ld\n" as *byte, 
+            fprintf(mtimes_file as &FILE, "%s|%lld\n" as *byte, 
                     entry.filepath as *byte, entry.mtime);
         }
         i = i + 1;
