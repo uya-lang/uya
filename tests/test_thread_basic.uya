@@ -1,0 +1,55 @@
+// test_thread_basic.uya - 线程模块基本测试
+// 测试 pthread 绑定的互斥锁功能
+
+use libc.pthread;
+use libc.pthread_mutex_t;
+use libc.pthread_cond_t;
+use std.testing.assert_eq_i32;
+
+// 互斥锁存储（pthread_mutex_t 在 Linux x86_64 上是 40 字节）
+const MUTEX_SIZE: i32 = 64;
+
+test "pthread_mutex_basic" {
+    // 使用固定大小缓冲区存储互斥锁
+    var mutex_storage: [byte: MUTEX_SIZE] = [];
+    const mutex_ptr: *pthread_mutex_t = &mutex_storage[0] as *pthread_mutex_t;
+    
+    // 初始化互斥锁
+    const init_result: i32 = pthread_mutex_init(mutex_ptr, null);
+    try assert_eq_i32(init_result, 0);
+    
+    // 加锁
+    const mutex_val: pthread_mutex_t = &mutex_storage[0] as pthread_mutex_t;
+    const lock_result: i32 = pthread_mutex_lock(mutex_val);
+    try assert_eq_i32(lock_result, 0);
+    
+    // 解锁
+    const unlock_result: i32 = pthread_mutex_unlock(mutex_val);
+    try assert_eq_i32(unlock_result, 0);
+    
+    // 销毁
+    const destroy_result: i32 = pthread_mutex_destroy(mutex_ptr);
+    try assert_eq_i32(destroy_result, 0);
+}
+
+test "pthread_cond_basic" {
+    var cond_storage: [byte: MUTEX_SIZE] = [];
+    var mutex_storage: [byte: MUTEX_SIZE] = [];
+    
+    const cond_ptr: *pthread_cond_t = &cond_storage[0] as *pthread_cond_t;
+    const mutex_ptr: *pthread_mutex_t = &mutex_storage[0] as *pthread_mutex_t;
+    
+    // 初始化
+    const cond_init_result: i32 = pthread_cond_init(cond_ptr, null);
+    try assert_eq_i32(cond_init_result, 0);
+    
+    const mutex_init_result: i32 = pthread_mutex_init(mutex_ptr, null);
+    try assert_eq_i32(mutex_init_result, 0);
+    
+    // 销毁
+    const cond_destroy_result: i32 = pthread_cond_destroy(cond_ptr);
+    try assert_eq_i32(cond_destroy_result, 0);
+    
+    const mutex_destroy_result: i32 = pthread_mutex_destroy(mutex_ptr);
+    try assert_eq_i32(mutex_destroy_result, 0);
+}

@@ -1,0 +1,163 @@
+// thread.uya - 线程模块核心
+// 基于 libc.pthread 的线程封装
+// 版本：v0.1.0
+
+use libc.pthread;
+use libc.pthread_t;
+use libc.pthread_mutex_t;
+use libc.pthread_cond_t;
+
+// ============================================================
+// 线程 ID 类型
+// ============================================================
+
+export type ThreadId = usize;
+
+// 获取当前线程 ID
+export fn current_thread_id() ThreadId {
+    return pthread.pthread_self();
+}
+
+// ============================================================
+// Mutex - 互斥锁
+// ============================================================
+
+// 互斥锁存储缓冲区大小
+// Linux x86_64 上 pthread_mutex_t 通常是 40 字节
+// 使用 64 字节确保足够
+export const MUTEX_STORAGE_SIZE: i32 = 64;
+
+// 初始化互斥锁
+export fn mutex_init(storage: *byte) i32 {
+    if storage == null {
+        return -1;
+    }
+    const mutex_ptr: *pthread_mutex_t = storage as *pthread_mutex_t;
+    return pthread.pthread_mutex_init(mutex_ptr, null);
+}
+
+// 销毁互斥锁
+export fn mutex_destroy(storage: *byte) i32 {
+    if storage == null {
+        return -1;
+    }
+    const mutex_ptr: *pthread_mutex_t = storage as *pthread_mutex_t;
+    return pthread.pthread_mutex_destroy(mutex_ptr);
+}
+
+// 加锁
+export fn mutex_lock(storage: *byte) i32 {
+    if storage == null {
+        return -1;
+    }
+    const mutex_ptr: pthread_mutex_t = storage as pthread_mutex_t;
+    return pthread.pthread_mutex_lock(mutex_ptr);
+}
+
+// 解锁
+export fn mutex_unlock(storage: *byte) i32 {
+    if storage == null {
+        return -1;
+    }
+    const mutex_ptr: pthread_mutex_t = storage as pthread_mutex_t;
+    return pthread.pthread_mutex_unlock(mutex_ptr);
+}
+
+// 尝试加锁
+export fn mutex_trylock(storage: *byte) i32 {
+    if storage == null {
+        return -1;
+    }
+    const mutex_ptr: pthread_mutex_t = storage as pthread_mutex_t;
+    return pthread.pthread_mutex_trylock(mutex_ptr);
+}
+
+// ============================================================
+// Condvar - 条件变量
+// ============================================================
+
+// 条件变量存储缓冲区大小
+export const CONDVAR_STORAGE_SIZE: i32 = 64;
+
+// 初始化条件变量
+export fn condvar_init(storage: *byte) i32 {
+    if storage == null {
+        return -1;
+    }
+    const cond_ptr: *pthread_cond_t = storage as *pthread_cond_t;
+    return pthread.pthread_cond_init(cond_ptr, null);
+}
+
+// 销毁条件变量
+export fn condvar_destroy(storage: *byte) i32 {
+    if storage == null {
+        return -1;
+    }
+    const cond_ptr: *pthread_cond_t = storage as *pthread_cond_t;
+    return pthread.pthread_cond_destroy(cond_ptr);
+}
+
+// 等待条件变量
+export fn condvar_wait(cond_storage: *byte, mutex_storage: *byte) i32 {
+    if cond_storage == null || mutex_storage == null {
+        return -1;
+    }
+    const cond_ptr: pthread_cond_t = cond_storage as pthread_cond_t;
+    const mutex_ptr: pthread_mutex_t = mutex_storage as pthread_mutex_t;
+    return pthread.pthread_cond_wait(cond_ptr, mutex_ptr);
+}
+
+// 通知一个等待线程
+export fn condvar_signal(storage: *byte) i32 {
+    if storage == null {
+        return -1;
+    }
+    const cond_ptr: pthread_cond_t = storage as pthread_cond_t;
+    return pthread.pthread_cond_signal(cond_ptr);
+}
+
+// 通知所有等待线程
+export fn condvar_broadcast(storage: *byte) i32 {
+    if storage == null {
+        return -1;
+    }
+    const cond_ptr: pthread_cond_t = storage as pthread_cond_t;
+    return pthread.pthread_cond_broadcast(cond_ptr);
+}
+
+// ============================================================
+// Thread - 线程
+// ============================================================
+
+// 线程存储缓冲区大小（pthread_t 通常是 8 字节）
+export const THREAD_STORAGE_SIZE: i32 = 16;
+
+// 线程函数类型
+export type ThreadFn = fn(*void) *void;
+
+// 创建线程
+export fn thread_spawn(thread_storage: *byte, fn_ptr: ThreadFn, arg: *void) i32 {
+    if thread_storage == null || fn_ptr == null {
+        return -1;
+    }
+    const thread_ptr: *pthread_t = thread_storage as *pthread_t;
+    return pthread.pthread_create(thread_ptr, null, fn_ptr as *void, arg);
+}
+
+// 等待线程结束
+export fn thread_join(thread_storage: *byte) i32 {
+    if thread_storage == null {
+        return -1;
+    }
+    const thread_ptr: pthread_t = thread_storage as pthread_t;
+    return pthread.pthread_join(thread_ptr, null);
+}
+
+// 分离线程
+export fn thread_detach(thread_storage: *byte) i32 {
+    if thread_storage == null {
+        return -1;
+    }
+    const thread_ptr: pthread_t = thread_storage as pthread_t;
+    return pthread.pthread_detach(thread_ptr);
+}
