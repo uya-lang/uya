@@ -964,6 +964,36 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                     d = d + 1;
                 }
                 fputs(";\n" as *byte, codegen.output as *void);
+            } else if target_type.type == ASTNodeType.AST_TYPE_FN_PTR {
+                // 函数指针类型需要特殊处理：typedef ret (*Name)(params);
+                // 获取返回类型
+                var ret_type_str: &byte = ("void" as *byte) as &byte;
+                if target_type.type_error_union_payload_type != null {
+                    const ret: &byte = c99_type_to_c(codegen, target_type.type_error_union_payload_type);
+                    if ret != null {
+                        ret_type_str = ret;
+                    }
+                }
+                
+                fprintf(codegen.output as *void, "typedef %s (*%s)(" as *byte, ret_type_str as *byte, alias_name as *byte);
+                
+                const param_count: i32 = target_type.type_tuple_element_count;
+                if param_count > 0 && target_type.type_tuple_element_types != null {
+                    var pi: i32 = 0;
+                    while pi < param_count {
+                        if pi > 0 {
+                            fputs(", " as *byte, codegen.output as *void);
+                        }
+                        const pt: &byte = c99_type_to_c(codegen, target_type.type_tuple_element_types[pi]);
+                        if pt != null {
+                            fputs(pt as *byte, codegen.output as *void);
+                        } else {
+                            fputs("void" as *byte, codegen.output as *void);
+                        }
+                        pi = pi + 1;
+                    }
+                }
+                fputs(");\n" as *byte, codegen.output as *void);
             } else {
                 const target_type_c: &byte = c99_type_to_c(codegen, target_type);
                 fprintf(codegen.output as *void, "typedef %s %s;\n" as *byte, target_type_c as *byte, alias_name as *byte);

@@ -763,6 +763,52 @@ fn gen_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             }
         } else {
             // 非数组类型
+            // 函数指针类型需要特殊处理：ret (*var_name)(params)
+            if var_type.type == ASTNodeType.AST_TYPE_FN_PTR {
+                // 获取返回类型
+                var ret_type_str: &byte = ("void" as *byte) as &byte;
+                if var_type.type_error_union_payload_type != null {
+                    const ret: &byte = c99_type_to_c(codegen, var_type.type_error_union_payload_type);
+                    if ret != null {
+                        ret_type_str = ret;
+                    }
+                }
+                
+                c99_emit_indent(codegen);
+                fprintf(codegen.output as *void, "%s (*%s)(" as *byte, ret_type_str as *byte, var_name as *byte);
+                
+                const param_count: i32 = var_type.type_tuple_element_count;
+                if param_count > 0 && var_type.type_tuple_element_types != null {
+                    var pi: i32 = 0;
+                    while pi < param_count {
+                        if pi > 0 {
+                            fputs(", " as *byte, codegen.output as *void);
+                        }
+                        const pt: &byte = c99_type_to_c(codegen, var_type.type_tuple_element_types[pi]);
+                        if pt != null {
+                            fputs(pt as *byte, codegen.output as *void);
+                        } else {
+                            fputs("void" as *byte, codegen.output as *void);
+                        }
+                        pi = pi + 1;
+                    }
+                }
+                fputs(")" as *byte, codegen.output as *void);
+                
+                // 处理初始化表达式
+                if init_expr != null {
+                    fputs(" = " as *byte, codegen.output as *void);
+                    gen_expr(codegen, init_expr);
+                }
+                fputs(";\n" as *byte, codegen.output as *void);
+                
+                // 函数指针变量声明已完成，提前返回
+                if need_pragma_missing_braces != 0 {
+                    fputs("#pragma GCC diagnostic pop\n" as *byte, codegen.output as *void);
+                }
+                return;
+            }
+            
             type_c = c99_type_to_c(codegen, var_type);
             // 可变参数函数内：作为 @va_start 第一个参数的 &void 变量需生成 va_list，不初始化（va_start 会初始化）
             var use_va_list: i32 = 0;

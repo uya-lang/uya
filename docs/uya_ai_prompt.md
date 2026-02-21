@@ -887,11 +887,27 @@ export extern const ENOENT: i32;        // 不生成定义，链接到 C 库
 
 **函数指针类型**：
 ```uya
-// 函数指针类型
-type ComparFunc = fn(*void, *void) i32;
+// 函数指针类型语法：fn(参数类型列表) 返回类型
+type CompareFunc = fn(*void, *void) i32;      // 比较函数
+type SimpleFunc = fn(i32, i32) i32;           // 简单函数指针
+type VoidFunc = fn() void;                    // 无参数函数指针
+
+// 直接声明函数指针变量
+var callback: fn(i32) void = null;
+var handler: fn(*byte, usize) i32 = null;
+
+// 函数指针赋值和调用
+fn add(a: i32, b: i32) i32 { return a + b; }
+fn mul(a: i32, b: i32) i32 { return a * b; }
+
+var func: fn(i32, i32) i32 = null;
+func = add;                    // 赋值为 add 函数
+const sum: i32 = func(3, 4);   // 调用：sum = 7
+func = mul;                    // 赋值为 mul 函数
+const product: i32 = func(3, 4); // 调用：product = 12
 
 // 声明需要函数指针的C函数
-extern qsort(base: *void, nmemb: usize, size: usize, compar: ComparFunc) void;
+extern qsort(base: *void, nmemb: usize, size: usize, compar: CompareFunc) void;
 
 // 导出函数给C（可以作为函数指针传递）
 extern fn compare(a: *void, b: *void) i32 {
@@ -900,7 +916,7 @@ extern fn compare(a: *void, b: *void) i32 {
 }
 
 // 使用
-qsort(&arr[0], 10, 4, &compare);  // 传递函数指针
+qsort(&arr[0], 10, 4, compare);  // 传递函数名（自动转换为函数指针）
 ```
 
 ### 原子操作

@@ -124,6 +124,7 @@ enum ASTNodeType {
     AST_TYPE_TUPLE,  // 元组类型（(T1, T2, ...)）
     AST_TYPE_ERROR_UNION,  // 错误联合类型 !T
     AST_TYPE_ATOMIC,   // 原子类型（atomic T）
+    AST_TYPE_FN_PTR,   // 函数指针类型（fn(params) return_type）
 }
 
 // 字符串插值段（用于 AST_STRING_INTERP）

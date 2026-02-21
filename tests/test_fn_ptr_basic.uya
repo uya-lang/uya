@@ -1,0 +1,69 @@
+// 函数指针类型测试
+// 测试函数指针类型的解析和声明
+
+use std.testing.assert_eq_i32;
+
+// 函数指针类型别名
+type CompareFunc = fn(*void, *void) i32;
+
+// 简单的函数指针类型
+type SimpleFunc = fn(i32, i32) i32;
+
+// 无参数函数指针
+type VoidFunc = fn() void;
+
+// 实际函数用于测试
+fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+fn mul(a: i32, b: i32) i32 {
+    return a * b;
+}
+
+test "fn_ptr_type_alias" {
+    // 测试类型别名声明
+    var cmp: CompareFunc = null;
+    var simple: SimpleFunc = null;
+    var vfunc: VoidFunc = null;
+    
+    // 验证初始值为 null
+    if cmp == null {
+        // ok
+    }
+    if simple == null {
+        // ok
+    }
+    if vfunc == null {
+        // ok
+    }
+}
+
+test "fn_ptr_var_decl" {
+    // 测试变量声明
+    var f: fn(i32) i32 = null;
+    var g: fn(i32, i32) i32 = null;
+    
+    // 验证初始值为 null
+    if f == null {
+        // ok
+    }
+    if g == null {
+        // ok
+    }
+}
+
+test "fn_ptr_assign_and_call" {
+    // 测试函数指针赋值和调用
+    var func: fn(i32, i32) i32 = null;
+    
+    // 赋值为 add 函数
+    func = add;
+    const sum: i32 = func(3, 4);
+    try assert_eq_i32(sum, 7);
+    
+    // 赋值为 mul 函数
+    func = mul;
+    const product: i32 = func(3, 4);
+    try assert_eq_i32(product, 12);
+}

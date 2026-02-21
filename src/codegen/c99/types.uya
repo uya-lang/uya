@@ -727,6 +727,69 @@ fn c99_type_to_c(codegen: &C99CodeGenerator, type_node: &ASTNode) &byte {
         }
         snprintf(result as *byte + off, total_len - off, "}" as *byte);
         return result;
+    } else if type_node.type == ASTNodeType.AST_TYPE_FN_PTR {
+        // 函数指针类型：生成 return_type (*)(param_types)
+        // 参数类型存储在 type_tuple_element_types，数量在 type_tuple_element_count
+        // 返回类型存储在 type_error_union_payload_type
+        
+        // 获取返回类型
+        var ret_type_str: &byte = ("void" as *byte) as &byte;
+        if type_node.type_error_union_payload_type != null {
+            const ret: &byte = c99_type_to_c(codegen, type_node.type_error_union_payload_type);
+            if ret != null {
+                ret_type_str = ret;
+            }
+        }
+        
+        // 计算参数列表长度
+        const param_count: i32 = type_node.type_tuple_element_count;
+        var params_len: i32 = 2;  // 括号 "()"
+        if param_count > 0 && type_node.type_tuple_element_types != null {
+            var i: i32 = 0;
+            while i < param_count {
+                const pt: &byte = c99_type_to_c(codegen, type_node.type_tuple_element_types[i]);
+                if pt != null {
+                    params_len = params_len + strlen(pt as *byte);
+                } else {
+                    params_len = params_len + 4;  // "void"
+                }
+                if i > 0 {
+                    params_len = params_len + 2;  // ", "
+                }
+                i = i + 1;
+            }
+        }
+        
+        // 计算总长度：return_type + " (*)(" + params + ")"
+        const ret_len: i32 = strlen(ret_type_str as *byte);
+        const total_len: i32 = ret_len + 5 + params_len;
+        
+        const result: &byte = arena_alloc(codegen.arena, total_len) as &byte;
+        if result == null {
+            return ("void (*)()" as *byte) as &byte;
+        }
+        
+        var off: i32 = 0;
+        off = off + snprintf(result as *byte + off, total_len - off, "%s (*)(" as *byte, ret_type_str as *byte);
+        
+        if param_count > 0 && type_node.type_tuple_element_types != null {
+            var i: i32 = 0;
+            while i < param_count {
+                if i > 0 {
+                    off = off + snprintf(result as *byte + off, total_len - off, ", " as *byte);
+                }
+                const pt: &byte = c99_type_to_c(codegen, type_node.type_tuple_element_types[i]);
+                if pt != null {
+                    off = off + snprintf(result as *byte + off, total_len - off, "%s" as *byte, pt as *byte);
+                } else {
+                    off = off + snprintf(result as *byte + off, total_len - off, "void" as *byte);
+                }
+                i = i + 1;
+            }
+        }
+        
+        snprintf(result as *byte + off, total_len - off, ")" as *byte);
+        return result;
     } else {
         return ("void" as *byte) as &byte;
     }
