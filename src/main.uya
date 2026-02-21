@@ -1047,6 +1047,11 @@ fn collect_module_dependencies(
             }
             // 如果目录不存在，尝试去掉最后一段（可能是 item_name 被错误地当作模块路径）
             if dlen <= 0 || dlen >= PATH_MAX || is_directory(&std_dir[0] as &byte) == 0 {
+                // 先去掉尾部斜杠（如果有）
+                if dlen > 0 && std_dir[dlen - 1] == 47 {
+                    std_dir[dlen - 1] = 0;
+                    dlen = dlen - 1;
+                }
                 // 查找最后一个斜杠，截断路径
                 var last_slash: i32 = dlen - 1;
                 while last_slash > 0 {

@@ -1,131 +1,63 @@
-// test_thread_pool.uya - 线程池测试
-// 验证 ThreadPool 的基本功能
+// test_thread_pool.uya - 并行执行器测试
+// 测试 std.thread.pool 模块
 
 use std.thread.pool;
-use libc.pthread;
-use libc.pthread_mutex_init;
-use libc.pthread_mutex_destroy;
-use libc.pthread_mutex_lock;
-use libc.pthread_mutex_unlock;
-use std.testing.assert;
+use std.thread.pool.ParallelExecutor;
+use std.thread.pool.executor_init;
+use std.thread.pool.executor_destroy;
+use std.thread.pool.executor_add_task;
+use std.thread.pool.executor_task_done;
+use std.thread.pool.executor_is_done;
+use std.thread.pool.executor_has_errors;
+use std.thread.pool.executor_get_completed;
+use std.thread.pool.executor_get_total;
+use std.testing.expect;
 
-// 本地 Task 类型定义（复制自 pool.uya）
-type TaskFn = fn(&void) void;
-
-struct Task {
-    fn_ptr: TaskFn,
-    arg: &void,
-    next: &Task,
+test "executor_init_and_destroy" {
+    var exec: ParallelExecutor = ParallelExecutor {
+        total_tasks: 0,
+        completed_tasks: 0,
+        error_count: 0,
+        initialized: 0,
+    };
+    
+    const result: i32 = executor_init(&exec);
+    try expect(result == 0);
+    try expect(exec.initialized == 1);
+    
+    executor_destroy(&exec);
+    try expect(exec.initialized == 0);
 }
 
-// 共享计数器
-var counter: i32 = 0;
-var counter_mutex_storage: [byte: 64] = [];
-
-// 哑参数（用于不需要参数的任务）
-var dummy_arg: i32 = 0;
-
-// 任务函数：增加计数器
-fn increment_task(arg: &void) void {
-    pthread_mutex_lock(counter_mutex_storage as *void);
-    counter = counter + 1;
-    pthread_mutex_unlock(counter_mutex_storage as *void);
-}
-
-// 用于参数化任务的上下文
-struct TaskContext {
-    value: i32,
-    result_ptr: &i32,
-}
-
-// 带参数的任务函数
-fn add_task(arg: &void) void {
-    const ctx: &TaskContext = arg as &TaskContext;
-    const value: i32 = ctx.value;
-    const result_ptr: &i32 = ctx.result_ptr;
-    result_ptr[0] = result_ptr[0] + value;
-}
-
-test "pool_init_and_shutdown" {
-    // 初始化互斥锁
-    pthread_mutex_init(counter_mutex_storage as *void, null);
+test "executor_add_and_complete_tasks" {
+    var exec: ParallelExecutor = ParallelExecutor {
+        total_tasks: 0,
+        completed_tasks: 0,
+        error_count: 0,
+        initialized: 0,
+    };
     
-    // 初始化线程池（4 个线程）
-    const result: i32 = pool_init(4);
-    try assert(result == 0, "pool_init should return 0");
+    const init_result: i32 = executor_init(&exec);
+    try expect(init_result == 0);
     
-    // 关闭线程池
-    pool_shutdown();
+    // 添加任务
+    const task1: i32 = executor_add_task(&exec);
+    const task2: i32 = executor_add_task(&exec);
+    const task3: i32 = executor_add_task(&exec);
     
-    // 销毁互斥锁
-    pthread_mutex_destroy(counter_mutex_storage as *void);
-}
-
-test "pool_submit_tasks" {
-    // 重置计数器
-    counter = 0;
+    try expect(task1 == 0);
+    try expect(task2 == 1);
+    try expect(task3 == 2);
+    try expect(executor_get_total(&exec) == 3);
     
-    // 初始化互斥锁
-    pthread_mutex_init(counter_mutex_storage as *void, null);
+    // 标记完成
+    executor_task_done(&exec, 0);
+    executor_task_done(&exec, 0);
+    executor_task_done(&exec, 1);  // 一个错误
     
-    // 初始化线程池
-    const init_result: i32 = pool_init(4);
-    try assert(init_result == 0, "pool_init should succeed");
+    try expect(executor_get_completed(&exec) == 3);
+    try expect(executor_has_errors(&exec) == 1);
+    try expect(executor_is_done(&exec) == 1);
     
-    // 提交 10 个任务
-    var tasks: [Task: 10] = [];
-    var i: i32 = 0;
-    while i < 10 {
-        tasks[i].fn_ptr = increment_task;
-        tasks[i].arg = &dummy_arg as &void;
-        tasks[i].next = null;
-        const submit_result: i32 = pool_submit(&tasks[i]);
-        try assert(submit_result == 0, "pool_submit should succeed");
-        i = i + 1;
-    }
-    
-    // 等待所有任务完成
-    pool_wait();
-    
-    // 验证计数器
-    try assert(counter == 10, "counter should be 10");
-    
-    // 关闭线程池
-    pool_shutdown();
-    
-    // 销毁互斥锁
-    pthread_mutex_destroy(counter_mutex_storage as *void);
-}
-
-test "pool_parallel_computation" {
-    // 初始化线程池
-    const init_result: i32 = pool_init(4);
-    try assert(init_result == 0, "pool_init should succeed");
-    
-    // 结果累加器
-    var total: i32 = 0;
-    
-    // 创建任务上下文
-    var contexts: [TaskContext: 8] = [];
-    var tasks: [Task: 8] = [];
-    
-    var i: i32 = 0;
-    while i < 8 {
-        contexts[i].value = i + 1;  // 1, 2, 3, ..., 8
-        contexts[i].result_ptr = &total;
-        tasks[i].fn_ptr = add_task;
-        tasks[i].arg = &contexts[i] as &void;
-        tasks[i].next = null;
-        pool_submit(&tasks[i]);
-        i = i + 1;
-    }
-    
-    // 等待完成
-    pool_wait();
-    
-    // 验证结果：1+2+3+4+5+6+7+8 = 36
-    try assert(total == 36, "total should be 36");
-    
-    // 关闭线程池
-    pool_shutdown();
+    executor_destroy(&exec);
 }

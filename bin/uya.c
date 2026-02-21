@@ -4588,6 +4588,10 @@ static __attribute__((unused)) int32_t collect_module_dependencies(uint8_t * fil
                 dlen = libc_snprintf((char *)(&std_dir[0]), PATH_MAX, (const char *)str42, (uint8_t *)uya_root, (&path_suffix[0]));
             }
             if ((((dlen <= 0) || (dlen >= PATH_MAX)) || (is_directory((uint8_t *)(&std_dir[0])) == 0))) {
+                if (((dlen > 0) && (std_dir[(dlen - 1)] == 47))) {
+                    std_dir[(dlen - 1)] = 0;
+                    dlen = (dlen - 1);
+                }
                 int32_t last_slash = (dlen - 1);
                 while ((last_slash > 0)) {
                     if ((std_dir[last_slash] == 47)) {
