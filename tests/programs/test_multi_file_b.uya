@@ -1,0 +1,11 @@
+// test_multi_file_b.uya - 多文件编译测试 B
+
+use libc;
+
+export fn multiply(a: i32, b: i32) i32 {
+    return a * b;
+}
+
+export fn subtract(a: i32, b: i32) i32 {
+    return a - b;
+}

@@ -78,6 +78,10 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &Arena, output: &void, mod
     // 初始化 is_export_main_i32
     codegen.is_export_main_i32 = 0;
     
+    // 初始化多文件输出模式
+    codegen.is_multi_file_mode = 0;
+    codegen.current_source_file = null;
+    
     // 初始化异步函数相关字段
     codegen.is_async_function = 0;
     codegen.async_function_has_await = 0;
@@ -161,6 +165,54 @@ fn c99_get_or_add_error_id(codegen: &C99CodeGenerator, name: &byte) i32 {
 fn c99_codegen_free(codegen: &C99CodeGenerator) void {
     // 当前没有动态分配的资源需要释放
     // codegen 参数未使用，但保留以保持接口一致性
+}
+
+// 检查声明是否应该输出（多文件模式下的文件过滤）
+// 返回：1 = 应该输出，0 = 应该跳过
+fn should_output_decl(codegen: &C99CodeGenerator, decl: &ASTNode) i32 {
+    // 非多文件模式：输出所有声明
+    if codegen.is_multi_file_mode == 0 {
+        return 1;
+    }
+    // 无效声明：跳过
+    if decl == null {
+        return 0;
+    }
+    // 声明无文件名信息：输出（保守策略）
+    if decl.filename == null {
+        return 1;
+    }
+    
+    // 判断声明是否来自标准库
+    var is_stdlib_decl: i32 = 0;
+    if strstr(decl.filename as *byte, "lib/std" as *byte) != null || strstr(decl.filename as *byte, "lib/libc" as *byte) != null {
+        is_stdlib_decl = 1;
+    }
+    
+    // 多文件模式但未设置源文件过滤：
+    // 只输出标准库声明（用于 _stdlib.c 生成）
+    if codegen.current_source_file == null {
+        if is_stdlib_decl != 0 {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+    
+    // 精确匹配
+    if strcmp(decl.filename as *byte, codegen.current_source_file as *byte) == 0 {
+        return 1;
+    }
+    // basename 匹配（处理相对路径差异）
+    const decl_basename: *byte = strrchr(decl.filename as *byte, 47);  // '/'
+    const filter_basename: *byte = strrchr(codegen.current_source_file as *byte, 47);
+    if decl_basename != null && filter_basename != null {
+        if strcmp(decl_basename, filter_basename) == 0 {
+            return 1;
+        }
+    }
+    // 默认：跳过
+    return 0;
 }
 
 // 生成 #line 指令（用于调试，让C编译器错误信息指向原始Uya源文件）

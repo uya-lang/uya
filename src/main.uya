@@ -255,6 +255,8 @@ fn print_usage(program_name: &byte) void {
     fprintf(libc.stderr, "  --no-line-directives 禁用 #line 指令生成\n" as *byte);
     fprintf(libc.stderr, "  --nostdlib           不链接 C 标准库（需实现 _start）\n" as *byte);
     fprintf(libc.stderr, "  --static             静态链接所有依赖\n" as *byte);
+    fprintf(libc.stderr, "  --multi-file         多文件输出模式（每个 .uya 生成独立 .c 文件）\n" as *byte);
+    fprintf(libc.stderr, "  --incremental        增量编译模式（只重编修改的文件）\n" as *byte);
     fprintf(libc.stderr, "\n说明:\n" as *byte);
     fprintf(libc.stderr, "  - 可以指定单个文件或目录，编译器会自动解析模块依赖\n" as *byte);
     fprintf(libc.stderr, "  - 如果指定目录，目录中必须只有一个文件包含 main 函数\n" as *byte);
@@ -1053,7 +1055,9 @@ fn parse_args(
     outlibc_index: &i32,
     run_arg_start: &i32,
     is_nostdlib: &i32,
-    is_static: &i32
+    is_static: &i32,
+    is_multi_file: &i32,
+    is_incremental: &i32
 ) i32 {
     const argc: i32 = get_argc();
     if argc < 2 {
@@ -1075,6 +1079,8 @@ fn parse_args(
     run_arg_start[0] = -1;
     is_nostdlib[0] = 0;
     is_static[0] = 0;
+    is_multi_file[0] = 0;
+    is_incremental[0] = 0;
 
     // 检测子命令
     const first_arg: *byte = get_argv(1);
@@ -1130,6 +1136,13 @@ fn parse_args(
             is_nostdlib[0] = 1;
         } else if strcmp(arg, "--static" as *byte) == 0 {
             is_static[0] = 1;
+        } else if strcmp(arg, "--multi-file" as *byte) == 0 {
+            is_multi_file[0] = 1;
+            backend_type[0] = BackendType.BACKEND_C99;  // 多文件模式仅支持 C99 后端
+        } else if strcmp(arg, "--incremental" as *byte) == 0 {
+            is_incremental[0] = 1;
+            is_multi_file[0] = 1;  // 增量编译需要多文件模式
+            backend_type[0] = BackendType.BACKEND_C99;
         } else if strcmp(arg, "--outlibc" as *byte) == 0 {
             if i + 1 < argc {
                 outlibc_index[0] = i + 1;
@@ -1193,6 +1206,8 @@ fn parse_args(
 // 支持目录输入和自动依赖收集
 // output_path_override: 如果非 null，使用此路径替代 get_argv(output_file_index)
 // is_nostdlib: 生成 _start 入口（无 C 标准库链接）
+// is_multi_file: 多文件输出模式（每个 .uya 生成独立 .c 文件）
+// is_incremental: 增量编译模式（只重编修改的文件）
 fn compile_files(
     input_file_indices: &i32,
     input_file_count: i32,
@@ -1201,12 +1216,23 @@ fn compile_files(
     emit_line_directives: i32,
     enable_safety_proof: i32,
     output_path_override: &byte,
-    is_nostdlib: i32
+    is_nostdlib: i32,
+    is_multi_file: i32,
+    is_incremental: i32
 ) i32 {
     
     // 初始化临时 Arena（用于依赖收集，使用全局缓冲区避免栈溢出）
     var temp_arena: Arena = Arena { buffer: null, size: 0 as usize, offset: 0 as usize };
     arena_init(&temp_arena, &temp_arena_buffer[0], 64 * 1024 * 1024);
+    
+    // 增量编译缓存
+    var incr_cache: DependencyCache = DependencyCache { 
+        files: null, count: 0, capacity: 0, 
+        mtime_cache: MTimeCache { entries: null, count: 0, capacity: 0 },
+        cache_dir: null, arena: null
+    };
+    var cache_dir_buffer: [byte: PATH_MAX] = [];
+    var need_incremental: i32 = 0;
     
     // 获取 UYA_ROOT 和编译器目录
     var uya_root_base: [byte: PATH_MAX] = [];
@@ -1577,7 +1603,338 @@ fn compile_files(
     }
     fprintf(libc.stderr, "模块名: %s\n" as *byte, module_name);
 
-    // C99 后端：生成 C 源代码（与 C 版本保持一致，直接使用 C99 后端）
+    // 多文件模式：生成公共头文件和独立 C 文件
+    if is_multi_file != 0 {
+        fprintf(libc.stderr, "多文件输出模式\n" as *byte);
+        
+        // 确定输出目录
+        var output_dir: [byte: PATH_MAX] = [];
+        const out_last_slash: *byte = strrchr(actual_output, 47);
+        if out_last_slash != null {
+            const dir_len: usize = (out_last_slash as i64 - actual_output as i64) as usize;
+            if dir_len < PATH_MAX as usize {
+                memcpy(&output_dir[0] as *void, actual_output as *void, dir_len);
+                output_dir[dir_len] = 0 as byte;
+            } else {
+                strcpy(&output_dir[0], "." as *byte);
+            }
+        } else {
+            strcpy(&output_dir[0], "." as *byte);
+        }
+        
+        fprintf(libc.stderr, "输出目录: %s\n" as *byte, &output_dir[0]);
+        
+        // 生成公共头文件路径
+        var header_path: [byte: PATH_MAX] = [];
+        const header_len: i32 = snprintf(&header_path[0], PATH_MAX, "%s/uya_types.h" as *byte, &output_dir[0] as *byte);
+        if header_len <= 0 || header_len >= PATH_MAX {
+            fprintf(libc.stderr, "错误: 无法生成头文件路径\n" as *byte);
+            return 1;
+        }
+        
+        // 生成公共头文件
+        const header_file: *void = fopen(&header_path[0], "w" as *byte);
+        if header_file == null {
+            fprintf(libc.stderr, "错误: 无法创建头文件 '%s'\n" as *byte, &header_path[0]);
+            return 1;
+        }
+        
+        // 头文件内容
+        fprintf(header_file as &FILE, "// Uya 公共类型定义\n" as *byte);
+        fprintf(header_file as &FILE, "// 由 Uya 编译器自动生成\n\n" as *byte);
+        fprintf(header_file as &FILE, "#ifndef UYA_TYPES_H\n" as *byte);
+        fprintf(header_file as &FILE, "#define UYA_TYPES_H\n\n" as *byte);
+        
+        // 输出标准类型定义
+        fprintf(header_file as &FILE, "// 标准类型定义\n" as *byte);
+        fprintf(header_file as &FILE, "#include <stdint.h>\n" as *byte);
+        fprintf(header_file as &FILE, "#include <stddef.h>\n\n" as *byte);
+        fprintf(header_file as &FILE, "typedef size_t usize;\n" as *byte);
+        fprintf(header_file as &FILE, "typedef intptr_t isize;\n" as *byte);
+        // bool 类型
+        fprintf(header_file as &FILE, "#ifndef true\n" as *byte);
+        fprintf(header_file as &FILE, "#define true 1\n" as *byte);
+        fprintf(header_file as &FILE, "#endif\n" as *byte);
+        fprintf(header_file as &FILE, "#ifndef false\n" as *byte);
+        fprintf(header_file as &FILE, "#define false 0\n" as *byte);
+        fprintf(header_file as &FILE, "#endif\n" as *byte);
+        fprintf(header_file as &FILE, "typedef _Bool bool;\n\n" as *byte);
+        
+        // 创建临时 codegen 用于类型转换
+        var temp_codegen: C99CodeGenerator = C99CodeGenerator { };
+        if c99_codegen_new(&temp_codegen, &arena, header_file, module_name as &byte, 0, is_nostdlib) != 0 {
+            fprintf(libc.stderr, "错误: 临时 CodeGenerator 初始化失败\n" as *byte);
+            fclose(header_file);
+            return 1;
+        }
+        temp_codegen.program_node = merged_ast;
+        c99_codegen_set_mono_instances(&temp_codegen, &checker);
+        
+        // 输出所有枚举定义
+        fprintf(header_file as &FILE, "// 枚举定义\n" as *byte);
+        var enum_i: i32 = 0;
+        while enum_i < merged_ast.program_decl_count {
+            const decl: &ASTNode = merged_ast.program_decls[enum_i];
+            if decl != null && decl.type == ASTNodeType.AST_ENUM_DECL {
+                const enum_name: &byte = get_safe_c_identifier(&temp_codegen, decl.enum_decl_name);
+                fprintf(header_file as &FILE, "enum %s {\n" as *byte, enum_name as *byte);
+                
+                const variants: &EnumVariant = decl.enum_decl_variants;
+                const variant_count: i32 = decl.enum_decl_variant_count;
+                var current_value: i32 = 0;
+                var vi: i32 = 0;
+                while vi < variant_count {
+                    const variant: &EnumVariant = variants + vi;
+                    if variant.name != null {
+                        const safe_vname: &byte = get_safe_c_identifier(&temp_codegen, variant.name);
+                        if variant.value != null {
+                            current_value = atoi(variant.value as *byte);
+                            fprintf(header_file as &FILE, "    %s = %d" as *byte, safe_vname as *byte, current_value);
+                        } else {
+                            fprintf(header_file as &FILE, "    %s" as *byte, safe_vname as *byte);
+                        }
+                        if vi < variant_count - 1 {
+                            fprintf(header_file as &FILE, ",\n" as *byte);
+                        } else {
+                            fprintf(header_file as &FILE, "\n" as *byte);
+                        }
+                        if variant.value == null {
+                            current_value = current_value + 1;
+                        }
+                    }
+                    vi = vi + 1;
+                }
+                fprintf(header_file as &FILE, "};\n\n" as *byte);
+            }
+            enum_i = enum_i + 1;
+        }
+        
+        // 输出所有结构体定义
+        fprintf(header_file as &FILE, "// 结构体定义\n" as *byte);
+        var struct_i: i32 = 0;
+        while struct_i < merged_ast.program_decl_count {
+            const decl: &ASTNode = merged_ast.program_decls[struct_i];
+            if decl != null && decl.type == ASTNodeType.AST_STRUCT_DECL {
+                const struct_name: &byte = get_safe_c_identifier(&temp_codegen, decl.struct_decl_name);
+                fprintf(header_file as &FILE, "struct %s {\n" as *byte, struct_name as *byte);
+                
+                const field_count: i32 = decl.struct_decl_field_count;
+                var fi: i32 = 0;
+                while fi < field_count {
+                    const field: &ASTNode = decl.struct_decl_fields[fi];
+                    if field != null && field.type == ASTNodeType.AST_VAR_DECL && field.var_decl_type != null {
+                        const field_name: &byte = get_safe_c_identifier(&temp_codegen, field.var_decl_name);
+                        const field_type_c: &byte = c99_type_to_c(&temp_codegen, field.var_decl_type);
+                        fprintf(header_file as &FILE, "    %s %s;\n" as *byte, field_type_c as *byte, field_name as *byte);
+                    }
+                    fi = fi + 1;
+                }
+                fprintf(header_file as &FILE, "};\n\n" as *byte);
+            }
+            struct_i = struct_i + 1;
+        }
+        
+        // 输出所有 export 函数声明
+        fprintf(header_file as &FILE, "// export 函数声明\n" as *byte);
+        var fn_i: i32 = 0;
+        while fn_i < merged_ast.program_decl_count {
+            const decl: &ASTNode = merged_ast.program_decls[fn_i];
+            if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_is_export != 0 {
+                const func_name: &byte = get_safe_c_identifier(&temp_codegen, decl.fn_decl_name);
+                const return_type_c: &byte = c99_type_to_c(&temp_codegen, decl.fn_decl_return_type);
+                
+                fprintf(header_file as &FILE, "extern %s %s(" as *byte, return_type_c as *byte, func_name as *byte);
+                
+                const param_count: i32 = decl.fn_decl_param_count;
+                var pi: i32 = 0;
+                while pi < param_count {
+                    const param: &ASTNode = decl.fn_decl_params[pi];
+                    if param != null && param.type == ASTNodeType.AST_VAR_DECL && param.var_decl_type != null {
+                        const param_type_c: &byte = c99_type_to_c(&temp_codegen, param.var_decl_type);
+                        const param_name: &byte = get_safe_c_identifier(&temp_codegen, param.var_decl_name);
+                        fprintf(header_file as &FILE, "%s %s" as *byte, param_type_c as *byte, param_name as *byte);
+                        if pi < param_count - 1 {
+                            fprintf(header_file as &FILE, ", " as *byte);
+                        }
+                    }
+                    pi = pi + 1;
+                }
+                fprintf(header_file as &FILE, ");\n" as *byte);
+            }
+            fn_i = fn_i + 1;
+        }
+        
+        fprintf(header_file as &FILE, "\n#endif // UYA_TYPES_H\n" as *byte);
+        fclose(header_file);
+        fprintf(libc.stderr, "头文件生成完成: %s\n" as *byte, &header_path[0]);
+        
+        // 统计用户输入文件（排除标准库文件）
+        var user_file_count: i32 = 0;
+        var user_file_indices: [i32: MAX_INPUT_FILES] = [];
+        var ufi: i32 = 0;
+        while ufi < all_file_count {
+            const fpath: *byte = all_files[ufi];
+            if fpath != null {
+                // 检查是否是标准库文件（路径包含 lib/std 或 lib/libc）
+                var is_stdlib: i32 = 0;
+                if strstr(fpath as *byte, "lib/std" as *byte) != null || strstr(fpath as *byte, "lib/libc" as *byte) != null {
+                    is_stdlib = 1;
+                }
+                if is_stdlib == 0 {
+                    user_file_indices[user_file_count] = ufi;
+                    user_file_count = user_file_count + 1;
+                }
+            }
+            ufi = ufi + 1;
+        }
+        
+        fprintf(libc.stderr, "用户源文件数量: %d\n" as *byte, user_file_count);
+        
+        // 为每个用户文件生成独立的 C 文件
+        var file_idx: i32 = 0;
+        while file_idx < user_file_count {
+            const src_idx: i32 = user_file_indices[file_idx];
+            const src_path: &byte = all_files[src_idx];
+            
+            // 从源文件名生成 C 文件名
+            var c_filename: [byte: PATH_MAX] = [];
+            var basename_start: i32 = 0;
+            var basename_len: i32 = 0;
+            
+            // 提取文件名（不含扩展名）
+            const last_slash_ptr: *byte = strrchr(src_path as *byte, 47);
+            if last_slash_ptr != null {
+                basename_start = (last_slash_ptr as i64 - src_path as i64 + 1) as i32;
+            }
+            var pos: i32 = basename_start;
+            while src_path[pos] != 0 as byte && src_path[pos] != 46 as byte {
+                c_filename[basename_len] = src_path[pos];
+                basename_len = basename_len + 1;
+                pos = pos + 1;
+            }
+            // 添加 .c 扩展名
+            c_filename[basename_len] = 46 as byte;
+            c_filename[basename_len + 1] = 99 as byte;
+            c_filename[basename_len + 2] = 0 as byte;
+            
+            // 构建完整输出路径
+            var c_output_path: [byte: PATH_MAX] = [];
+            snprintf(&c_output_path[0], PATH_MAX, "%s/%s" as *byte, &output_dir[0] as *byte, &c_filename[0] as *byte);
+            
+            fprintf(libc.stderr, "生成文件: %s (源: %s)\n" as *byte, &c_output_path[0], src_path as *byte);
+            
+            // 打开输出文件
+            const c_out_file: *void = fopen(&c_output_path[0], "w" as *byte);
+            if c_out_file == null {
+                fprintf(libc.stderr, "错误: 无法创建输出文件 '%s'\n" as *byte, &c_output_path[0]);
+                return 1;
+            }
+            
+            // 输出文件头
+            fprintf(c_out_file as &FILE, "// C99 代码由 Uya 编译器生成\n" as *byte);
+            fprintf(c_out_file as &FILE, "// 源文件: %s\n" as *byte, src_path as *byte);
+            fprintf(c_out_file as &FILE, "#include \"uya_types.h\"\n\n" as *byte);
+            
+            // 创建代码生成器并设置文件过滤
+            var file_codegen: C99CodeGenerator = C99CodeGenerator { };
+            if c99_codegen_new(&file_codegen, &arena, c_out_file, src_path, emit_line_directives, is_nostdlib) != 0 {
+                fprintf(libc.stderr, "错误: CodeGenerator 初始化失败\n" as *byte);
+                fclose(c_out_file);
+                return 1;
+            }
+            file_codegen.program_node = merged_ast;
+            file_codegen.is_multi_file_mode = 1;
+            file_codegen.current_source_file = src_path;
+            c99_codegen_set_mono_instances(&file_codegen, &checker);
+            
+            // 生成代码（只输出当前文件的声明）
+            if c99_codegen_generate(&file_codegen, merged_ast, &c_output_path[0] as &byte) != 0 {
+                fprintf(libc.stderr, "错误: C99 代码生成失败\n" as *byte);
+                c99_codegen_free(&file_codegen);
+                fclose(c_out_file);
+                return 1;
+            }
+            
+            c99_codegen_free(&file_codegen);
+            fclose(c_out_file);
+            file_idx = file_idx + 1;
+        }
+        
+        // 为标准库文件生成 _stdlib.c（包含 C main 等）
+        var stdlib_file_count: i32 = 0;
+        var stdlib_file_indices: [i32: MAX_INPUT_FILES] = [];
+        var sfi: i32 = 0;
+        while sfi < all_file_count {
+            const fpath: *byte = all_files[sfi];
+            if fpath != null {
+                // 检查是否是标准库文件
+                var is_stdlib: i32 = 0;
+                if strstr(fpath as *byte, "lib/std" as *byte) != null || strstr(fpath as *byte, "lib/libc" as *byte) != null {
+                    is_stdlib = 1;
+                }
+                if is_stdlib != 0 {
+                    stdlib_file_indices[stdlib_file_count] = sfi;
+                    stdlib_file_count = stdlib_file_count + 1;
+                }
+            }
+            sfi = sfi + 1;
+        }
+        
+        if stdlib_file_count > 0 {
+            // 生成 _stdlib.c
+            var stdlib_output_path: [byte: PATH_MAX] = [];
+            snprintf(&stdlib_output_path[0], PATH_MAX, "%s/_stdlib.c" as *byte, &output_dir[0] as *byte);
+            
+            fprintf(libc.stderr, "生成标准库文件: %s (%d 个文件)\n" as *byte, &stdlib_output_path[0], stdlib_file_count);
+            
+            const stdlib_out_file: *void = fopen(&stdlib_output_path[0], "w" as *byte);
+            if stdlib_out_file == null {
+                fprintf(libc.stderr, "错误: 无法创建标准库输出文件 '%s'\n" as *byte, &stdlib_output_path[0]);
+                return 1;
+            }
+            
+            // 输出文件头
+            fprintf(stdlib_out_file as &FILE, "// C99 代码由 Uya 编译器生成\n" as *byte);
+            fprintf(stdlib_out_file as &FILE, "// 标准库文件（由以下源文件合并）:\n" as *byte);
+            var si: i32 = 0;
+            while si < stdlib_file_count {
+                fprintf(stdlib_out_file as &FILE, "//   %s\n" as *byte, all_files[stdlib_file_indices[si]] as *byte);
+                si = si + 1;
+            }
+            fprintf(stdlib_out_file as &FILE, "#include \"uya_types.h\"\n\n" as *byte);
+            
+            // 创建代码生成器（不设置文件过滤，输出所有标准库代码）
+            var stdlib_codegen: C99CodeGenerator = C99CodeGenerator { };
+            if c99_codegen_new(&stdlib_codegen, &arena, stdlib_out_file, "_stdlib" as &byte, emit_line_directives, is_nostdlib) != 0 {
+                fprintf(libc.stderr, "错误: 标准库 CodeGenerator 初始化失败\n" as *byte);
+                fclose(stdlib_out_file);
+                return 1;
+            }
+            stdlib_codegen.program_node = merged_ast;
+            stdlib_codegen.is_multi_file_mode = 1;
+            // 标准库模式：设置多个源文件过滤
+            // 由于 should_output_decl 只检查单个文件，我们需要特殊处理
+            // 这里简单地不设置过滤，让所有标准库代码输出
+            stdlib_codegen.current_source_file = null;  // 不过滤
+            c99_codegen_set_mono_instances(&stdlib_codegen, &checker);
+            
+            // 生成代码
+            if c99_codegen_generate(&stdlib_codegen, merged_ast, &stdlib_output_path[0] as &byte) != 0 {
+                fprintf(libc.stderr, "错误: 标准库代码生成失败\n" as *byte);
+                c99_codegen_free(&stdlib_codegen);
+                fclose(stdlib_out_file);
+                return 1;
+            }
+            
+            c99_codegen_free(&stdlib_codegen);
+            fclose(stdlib_out_file);
+        }
+        
+        fprintf(libc.stderr, "多文件生成完成\n" as *byte);
+        return 0;
+    }
+
+    // 单文件模式：生成单个 C 源代码文件
     const out_file: *void = fopen(actual_output, "w" as *byte);
     if out_file == null {
         fprintf(libc.stderr, "错误: 无法打开输出文件 '%s'\n" as *byte, actual_output);
@@ -1618,11 +1975,13 @@ export fn main() i32 {
     var run_arg_start: i32 = -1;
     var is_nostdlib: i32 = 0;
     var is_static: i32 = 0;
+    var is_multi_file: i32 = 0;
+    var is_incremental: i32 = 0;
     
     // 临时缓冲区用于自动生成输出路径
     var auto_output_path: [byte: PATH_MAX] = [];
 
-    if parse_args(&command, &input_file_indices[0], &input_file_count, &output_file_index, &backend, &emit_line_directives, &enable_safety_proof, &outlibc_index, &run_arg_start, &is_nostdlib, &is_static) != 0 {
+    if parse_args(&command, &input_file_indices[0], &input_file_count, &output_file_index, &backend, &emit_line_directives, &enable_safety_proof, &outlibc_index, &run_arg_start, &is_nostdlib, &is_static, &is_multi_file, &is_incremental) != 0 {
         return 1;
     }
 
@@ -1692,7 +2051,7 @@ export fn main() i32 {
         output_path_for_compile = &temp_c_path[0];
     }
 
-    const result: i32 = compile_files(&input_file_indices[0], input_file_count, output_file_index, backend, emit_line_directives, enable_safety_proof, output_path_for_compile, is_nostdlib);
+    const result: i32 = compile_files(&input_file_indices[0], input_file_count, output_file_index, backend, emit_line_directives, enable_safety_proof, output_path_for_compile, is_nostdlib, is_multi_file, is_incremental);
     if result != 0 {
         return result;
     }

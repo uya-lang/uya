@@ -1,0 +1,19 @@
+// test_multi_main.uya - 多文件编译测试主文件
+
+use libc;
+use test_multi_file_a;
+use test_multi_file_b;
+
+fn main() i32 {
+    const sum: i32 = add(10, 20);
+    const product: i32 = multiply(10, 20);
+    const diff: i32 = subtract(100, 30);
+    
+    fprintf(libc.stdout, "add(10, 20) = %d\n" as *byte, sum);
+    fprintf(libc.stdout, "multiply(10, 20) = %d\n" as *byte, product);
+    fprintf(libc.stdout, "subtract(100, 30) = %d\n" as *byte, diff);
+    
+    greet("World" as &byte);
+    
+    return 0;
+}

@@ -1,0 +1,851 @@
+// incremental.uya - 增量编译缓存模块
+// 提供依赖图缓存、文件修改时间检测、依赖传播分析等功能
+
+use libc;
+use libc.stat;
+use libc.Stat;
+use libc.fopen;
+use libc.fclose;
+use libc.fprintf;
+use libc.fread;
+use libc.fwrite;
+use libc.fgets;
+use libc.fseek;
+use libc.ftell;
+use libc.FILE;
+use libc.mkdir;
+use libc.atol;
+
+// ============================================================
+// 常量定义
+// ============================================================
+
+// 最大文件路径数
+const MAX_CACHED_FILES: i32 = 256;
+
+// 最大依赖数（每个文件）
+const MAX_DEPENDENCIES_PER_FILE: i32 = 32;
+
+// 最大路径长度
+const INCR_PATH_MAX: usize = 4096;
+
+// 缓存文件名
+const DEPS_CACHE_FILE: &byte = ".uya/deps.cache" as &byte;
+const MTIME_CACHE_FILE: &byte = ".uya/mtimes.cache" as &byte;
+
+// ============================================================
+// 文件修改时间缓存
+// ============================================================
+
+// 文件修改时间记录
+export struct FileMTime {
+    filepath: &byte,     // 文件路径（Arena 分配）
+    mtime: i64,          // 修改时间（Unix 时间戳）
+}
+
+// 文件修改时间表
+export struct MTimeCache {
+    entries: &FileMTime, // 文件修改时间数组
+    count: i32,          // 记录数
+    capacity: i32,       // 容量
+}
+
+// ============================================================
+// 依赖图缓存
+// ============================================================
+
+// 文件依赖记录
+export struct FileDependency {
+    source_file: &byte,        // 源文件路径（Arena 分配）
+    source_module: &byte,      // 源模块名（从路径提取）
+    dependencies: &&byte,      // 依赖的模块列表
+    dependency_count: i32,     // 依赖数量
+    is_user_file: i32,         // 是否为用户文件（非标准库）
+}
+
+// 依赖图缓存
+export struct DependencyCache {
+    files: &FileDependency,    // 文件依赖数组
+    count: i32,                // 文件数
+    capacity: i32,             // 容量
+    mtime_cache: MTimeCache,   // 文件修改时间缓存
+    cache_dir: &byte,          // 缓存目录路径
+    arena: &Arena,             // Arena 分配器引用
+}
+
+// ============================================================
+// 辅助函数
+// ============================================================
+
+// 获取文件修改时间
+// 返回：成功返回 mtime，失败返回 -1
+fn get_file_mtime(filepath: &byte) i64 {
+    if filepath == null {
+        return -1;
+    }
+    
+    var st: Stat = Stat { 
+        st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, 
+        st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, 
+        st_size: 0, st_blksize: 0, st_blocks: 0, 
+        st_atime: 0, st_atime_nsec: 0, 
+        st_mtime: 0, st_mtime_nsec: 0, 
+        st_ctime: 0, st_ctime_nsec: 0, 
+        _unused0: 0, _unused1: 0, _unused2: 0 
+    };
+    
+    if stat(filepath as *byte, &st) == 0 {
+        return st.st_mtime;
+    }
+    
+    return -1;
+}
+
+// 检查文件是否为标准库文件
+// 返回：1 表示标准库文件，0 表示用户文件
+fn is_stdlib_file(filepath: &byte) i32 {
+    if filepath == null {
+        return 0;
+    }
+    
+    // 检查路径中是否包含 lib/std 或 lib/libc
+    if strstr(filepath as *byte, "lib/std" as *byte) != null {
+        return 1;
+    }
+    if strstr(filepath as *byte, "lib/libc" as *byte) != null {
+        return 1;
+    }
+    if strstr(filepath as *byte, "lib//std" as *byte) != null {
+        return 1;
+    }
+    if strstr(filepath as *byte, "lib//libc" as *byte) != null {
+        return 1;
+    }
+    
+    return 0;
+}
+
+// 从文件路径提取模块名（去掉扩展名和路径前缀）
+// 返回：Arena 分配的模块名字符串
+fn extract_module_name_from_path(arena: &Arena, filepath: &byte) &byte {
+    if arena == null || filepath == null {
+        return "" as &byte;
+    }
+    
+    // 找到最后一个 '/'
+    var last_slash: *byte = strrchr(filepath as *byte, 47);  // '/'
+    var filename_start: &byte = filepath;
+    if last_slash != null {
+        filename_start = (last_slash + 1) as &byte;
+    }
+    
+    // 找到最后一个 '\' (Windows)
+    var last_backslash: *byte = strrchr(filepath as *byte, 92);  // '\'
+    if last_backslash != null && last_backslash > last_slash {
+        filename_start = (last_backslash + 1) as &byte;
+    }
+    
+    // 计算文件名长度（去掉 .uya 扩展名）
+    var filename_len: usize = strlen(filename_start);
+    if filename_len > 4 {
+        // 检查是否以 .uya 结尾
+        const ext: &byte = (filename_start as *byte + filename_len - 4) as &byte;
+        if strcmp(ext as *byte, ".uya" as *byte) == 0 {
+            filename_len = filename_len - 4;
+        }
+    }
+    
+    // 分配并复制
+    const result: &byte = arena_alloc(arena, filename_len + 1) as &byte;
+    if result != null {
+        memcpy(result as *void, filename_start as *void, filename_len);
+        // 设置空终止符
+        const end_ptr: *byte = result as *byte + filename_len;
+        end_ptr[0] = 0 as byte;
+    }
+    
+    return result;
+}
+
+// ============================================================
+// 修改时间缓存操作
+// ============================================================
+
+// 初始化修改时间缓存
+export fn mtime_cache_init(cache: &MTimeCache, arena: &Arena, capacity: i32) i32 {
+    if cache == null || arena == null {
+        return -1;
+    }
+    
+    cache.entries = arena_alloc(arena, @size_of(FileMTime) * capacity) as &FileMTime;
+    if cache.entries == null {
+        return -1;
+    }
+    
+    cache.count = 0;
+    cache.capacity = capacity;
+    
+    return 0;
+}
+
+// 添加/更新文件修改时间记录
+export fn mtime_cache_update(cache: &MTimeCache, arena: &Arena, filepath: &byte, mtime: i64) i32 {
+    if cache == null || filepath == null {
+        return -1;
+    }
+    
+    // 查找现有记录
+    var i: i32 = 0;
+    while i < cache.count {
+        if cache.entries[i].filepath != null && 
+           strcmp(cache.entries[i].filepath as *byte, filepath as *byte) == 0 {
+            cache.entries[i].mtime = mtime;
+            return 0;
+        }
+        i = i + 1;
+    }
+    
+    // 添加新记录
+    if cache.count >= cache.capacity {
+        return -1;  // 容量已满
+    }
+    
+    const entry: &FileMTime = cache.entries + cache.count;
+    entry.filepath = arena_strdup(arena, filepath);
+    entry.mtime = mtime;
+    
+    if entry.filepath == null {
+        return -1;
+    }
+    
+    cache.count = cache.count + 1;
+    return 0;
+}
+
+// 获取缓存的修改时间
+// 返回：找到返回 mtime，未找到返回 -1
+export fn mtime_cache_get(cache: &MTimeCache, filepath: &byte) i64 {
+    if cache == null || filepath == null {
+        return -1;
+    }
+    
+    var i: i32 = 0;
+    while i < cache.count {
+        if cache.entries[i].filepath != null && 
+           strcmp(cache.entries[i].filepath as *byte, filepath as *byte) == 0 {
+            return cache.entries[i].mtime;
+        }
+        i = i + 1;
+    }
+    
+    return -1;
+}
+
+// ============================================================
+// 依赖图缓存操作
+// ============================================================
+
+// 初始化依赖图缓存
+export fn dep_cache_init(cache: &DependencyCache, arena: &Arena, cache_dir: &byte, capacity: i32) i32 {
+    if cache == null || arena == null {
+        return -1;
+    }
+    
+    cache.files = arena_alloc(arena, @size_of(FileDependency) * capacity) as &FileDependency;
+    if cache.files == null {
+        return -1;
+    }
+    
+    cache.count = 0;
+    cache.capacity = capacity;
+    cache.arena = arena;
+    cache.cache_dir = arena_strdup(arena, cache_dir);
+    
+    // 初始化修改时间缓存
+    if mtime_cache_init(&cache.mtime_cache, arena, capacity * 2) != 0 {
+        return -1;
+    }
+    
+    return 0;
+}
+
+// 添加文件依赖记录
+export fn dep_cache_add_file(cache: &DependencyCache, filepath: &byte) i32 {
+    if cache == null || filepath == null {
+        return -1;
+    }
+    
+    // 检查是否已存在
+    var i: i32 = 0;
+    while i < cache.count {
+        if cache.files[i].source_file != null && 
+           strcmp(cache.files[i].source_file as *byte, filepath as *byte) == 0 {
+            return 0;  // 已存在
+        }
+        i = i + 1;
+    }
+    
+    // 容量检查
+    if cache.count >= cache.capacity {
+        return -1;
+    }
+    
+    // 添加新记录
+    const entry: &FileDependency = cache.files + cache.count;
+    entry.source_file = arena_strdup(cache.arena, filepath);
+    entry.source_module = extract_module_name_from_path(cache.arena, filepath);
+    entry.dependencies = null;
+    entry.dependency_count = 0;
+    entry.is_user_file = is_stdlib_file(filepath) == 0 ? 1 : 0;
+    
+    if entry.source_file == null {
+        return -1;
+    }
+    
+    cache.count = cache.count + 1;
+    
+    // 记录当前修改时间
+    const mtime: i64 = get_file_mtime(filepath);
+    if mtime > 0 {
+        mtime_cache_update(&cache.mtime_cache, cache.arena, filepath, mtime);
+    }
+    
+    return 0;
+}
+
+// 添加依赖关系
+export fn dep_cache_add_dependency(cache: &DependencyCache, source_file: &byte, dep_module: &byte) i32 {
+    if cache == null || source_file == null || dep_module == null {
+        return -1;
+    }
+    
+    // 查找源文件记录
+    var i: i32 = 0;
+    while i < cache.count {
+        if cache.files[i].source_file != null && 
+           strcmp(cache.files[i].source_file as *byte, source_file as *byte) == 0 {
+            // 找到记录，添加依赖
+            const entry: &FileDependency = cache.files + i;
+            
+            // 检查依赖是否已存在
+            var j: i32 = 0;
+            while j < entry.dependency_count {
+                if entry.dependencies[j] != null && 
+                   strcmp(entry.dependencies[j] as *byte, dep_module as *byte) == 0 {
+                    return 0;  // 依赖已存在
+                }
+                j = j + 1;
+            }
+            
+            // 扩展依赖数组
+            const new_count: i32 = entry.dependency_count + 1;
+            const new_deps: &&byte = arena_alloc(cache.arena, @size_of(&byte) * new_count) as &&byte;
+            if new_deps == null {
+                return -1;
+            }
+            
+            // 复制旧依赖
+            if entry.dependencies != null && entry.dependency_count > 0 {
+                memcpy(new_deps as *void, entry.dependencies as *void, @size_of(&byte) * entry.dependency_count);
+            }
+            
+            // 添加新依赖
+            new_deps[entry.dependency_count] = arena_strdup(cache.arena, dep_module);
+            entry.dependencies = new_deps;
+            entry.dependency_count = new_count;
+            
+            return 0;
+        }
+        i = i + 1;
+    }
+    
+    return -1;  // 源文件未找到
+}
+
+// ============================================================
+// 增量编译检测
+// ============================================================
+
+// 检测修改的文件
+// changed_files: 输出数组，存储修改的文件路径
+// changed_count: 输出，修改的文件数量
+// max_count: 最大检测数量
+// 返回：成功返回 0，失败返回 -1
+export fn detect_changed_files(
+    cache: &DependencyCache, 
+    changed_files: &&byte, 
+    changed_count: &i32, 
+    max_count: i32
+) i32 {
+    if cache == null || changed_files == null || changed_count == null {
+        return -1;
+    }
+    
+    changed_count[0] = 0;
+    
+    var i: i32 = 0;
+    while i < cache.count {
+        const entry: &FileDependency = cache.files + i;
+        if entry.source_file != null && entry.is_user_file != 0 {
+            // 获取当前修改时间
+            const current_mtime: i64 = get_file_mtime(entry.source_file);
+            const cached_mtime: i64 = mtime_cache_get(&cache.mtime_cache, entry.source_file);
+            
+            // 检查是否修改
+            if current_mtime > 0 && cached_mtime > 0 && current_mtime != cached_mtime {
+                // 文件已修改
+                if changed_count[0] < max_count {
+                    changed_files[changed_count[0]] = entry.source_file;
+                    changed_count[0] = changed_count[0] + 1;
+                }
+            } else if current_mtime > 0 && cached_mtime < 0 {
+                // 新文件
+                if changed_count[0] < max_count {
+                    changed_files[changed_count[0]] = entry.source_file;
+                    changed_count[0] = changed_count[0] + 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    
+    return 0;
+}
+
+// 依赖传播分析
+// 根据修改的文件，找出所有需要重新编译的文件
+// all_changed: 输出数组，存储所有需要重编的文件路径（包括依赖传播）
+// all_count: 输出，文件数量
+// max_count: 最大数量
+// directly_changed: 直接修改的文件
+// directly_count: 直接修改的文件数量
+// 返回：成功返回 0，失败返回 -1
+export fn propagate_dependencies(
+    cache: &DependencyCache,
+    all_changed: &&byte,
+    all_count: &i32,
+    max_count: i32,
+    directly_changed: &&byte,
+    directly_count: i32
+) i32 {
+    if cache == null || all_changed == null || all_count == null {
+        return -1;
+    }
+    
+    all_count[0] = 0;
+    
+    // 使用标记数组记录已处理的文件
+    var processed: [i32: MAX_CACHED_FILES] = [];
+    var processed_count: i32 = 0;
+    
+    // 初始化处理队列
+    var queue: [&byte: MAX_CACHED_FILES] = [];
+    var queue_head: i32 = 0;
+    var queue_tail: i32 = 0;
+    
+    // 将直接修改的文件加入队列
+    var i: i32 = 0;
+    while i < directly_count {
+        if queue_tail < MAX_CACHED_FILES && directly_changed[i] != null {
+            queue[queue_tail] = directly_changed[i];
+            queue_tail = queue_tail + 1;
+        }
+        i = i + 1;
+    }
+    
+    // 广度优先搜索传播依赖
+    while queue_head < queue_tail {
+        const current_file: &byte = queue[queue_head];
+        queue_head = queue_head + 1;
+        
+        if current_file == null {
+            continue;
+        }
+        
+        // 检查是否已处理
+        var already_processed: i32 = 0;
+        var p: i32 = 0;
+        while p < processed_count {
+            if processed[p] != 0 {
+                const idx: i32 = processed[p] - 1;  // 使用索引+1作为标记
+                if idx >= 0 && idx < cache.count {
+                    const entry: &FileDependency = cache.files + idx;
+                    if entry.source_file != null && 
+                       strcmp(entry.source_file as *byte, current_file as *byte) == 0 {
+                        already_processed = 1;
+                        break;
+                    }
+                }
+            }
+            p = p + 1;
+        }
+        
+        if already_processed != 0 {
+            continue;
+        }
+        
+        // 添加到结果
+        if all_count[0] < max_count {
+            all_changed[all_count[0]] = current_file;
+            all_count[0] = all_count[0] + 1;
+        }
+        
+        // 查找依赖此文件的其他文件
+        // 首先找到当前文件的模块名
+        var current_module: &byte = null;
+        var file_idx: i32 = -1;
+        var fi: i32 = 0;
+        while fi < cache.count {
+            const entry: &FileDependency = cache.files + fi;
+            if entry.source_file != null && 
+               strcmp(entry.source_file as *byte, current_file as *byte) == 0 {
+                current_module = entry.source_module;
+                file_idx = fi;
+                break;
+            }
+            fi = fi + 1;
+        }
+        
+        // 标记为已处理
+        if file_idx >= 0 && processed_count < MAX_CACHED_FILES {
+            processed[processed_count] = file_idx + 1;  // 使用索引+1作为标记
+            processed_count = processed_count + 1;
+        }
+        
+        // 查找所有依赖此模块的文件
+        if current_module != null {
+            var j: i32 = 0;
+            while j < cache.count {
+                const entry: &FileDependency = cache.files + j;
+                if entry.is_user_file != 0 && entry.dependencies != null {
+                    // 检查是否依赖当前模块
+                    var k: i32 = 0;
+                    while k < entry.dependency_count {
+                        if entry.dependencies[k] != null && 
+                           strcmp(entry.dependencies[k] as *byte, current_module as *byte) == 0 {
+                            // 找到依赖此模块的文件
+                            if queue_tail < MAX_CACHED_FILES {
+                                queue[queue_tail] = entry.source_file;
+                                queue_tail = queue_tail + 1;
+                            }
+                            break;
+                        }
+                        k = k + 1;
+                    }
+                }
+                j = j + 1;
+            }
+        }
+    }
+    
+    return 0;
+}
+
+// ============================================================
+// 缓存持久化
+// ============================================================
+
+// 保存依赖缓存到文件
+// 返回：成功返回 0，失败返回 -1
+export fn save_dependency_cache(cache: &DependencyCache, cache_dir: &byte) i32 {
+    if cache == null || cache_dir == null {
+        return -1;
+    }
+    
+    // 构建缓存文件路径
+    var deps_path: [byte: INCR_PATH_MAX] = [];
+    var mtimes_path: [byte: INCR_PATH_MAX] = [];
+    
+    snprintf(&deps_path[0], INCR_PATH_MAX, "%s/deps.cache" as *byte, cache_dir as *byte);
+    snprintf(&mtimes_path[0], INCR_PATH_MAX, "%s/mtimes.cache" as *byte, cache_dir as *byte);
+    
+    // 创建缓存目录（如果不存在）
+    // 使用 mkdir 系统调用
+    const mkdir_result: i32 = mkdir(cache_dir as *byte, 493);  // 0755
+    
+    // 保存依赖图
+    const deps_file: *void = fopen(&deps_path[0], "w" as *byte);
+    if deps_file == null {
+        fprintf(libc.stderr, "警告: 无法创建依赖缓存文件 '%s'\n" as *byte, &deps_path[0]);
+        return -1;
+    }
+    
+    // 写入依赖数据
+    // 格式：每行一个文件记录
+    // filepath|module_name|is_user_file|dep1,dep2,dep3
+    var i: i32 = 0;
+    while i < cache.count {
+        const entry: &FileDependency = cache.files + i;
+        if entry.source_file != null {
+            fprintf(deps_file as &FILE, "%s|%s|%d" as *byte, 
+                    entry.source_file as *byte, 
+                    entry.source_module != null ? entry.source_module as *byte : "" as *byte,
+                    entry.is_user_file);
+            
+            // 写入依赖列表
+            if entry.dependencies != null && entry.dependency_count > 0 {
+                fprintf(deps_file as &FILE, "|" as *byte);
+                var j: i32 = 0;
+                while j < entry.dependency_count {
+                    if entry.dependencies[j] != null {
+                        if j > 0 {
+                            fprintf(deps_file as &FILE, "," as *byte);
+                        }
+                        fprintf(deps_file as &FILE, "%s" as *byte, entry.dependencies[j] as *byte);
+                    }
+                    j = j + 1;
+                }
+            }
+            fprintf(deps_file as &FILE, "\n" as *byte);
+        }
+        i = i + 1;
+    }
+    
+    fclose(deps_file);
+    
+    // 保存修改时间
+    const mtimes_file: *void = fopen(&mtimes_path[0], "w" as *byte);
+    if mtimes_file == null {
+        fprintf(libc.stderr, "警告: 无法创建修改时间缓存文件 '%s'\n" as *byte, &mtimes_path[0]);
+        return -1;
+    }
+    
+    // 写入修改时间数据
+    // 格式：filepath|mtime
+    i = 0;
+    while i < cache.mtime_cache.count {
+        const entry: &FileMTime = cache.mtime_cache.entries + i;
+        if entry.filepath != null {
+            fprintf(mtimes_file as &FILE, "%s|%ld\n" as *byte, 
+                    entry.filepath as *byte, entry.mtime);
+        }
+        i = i + 1;
+    }
+    
+    fclose(mtimes_file);
+    
+    fprintf(libc.stderr, "缓存已保存到 %s/\n" as *byte, cache_dir as *byte);
+    return 0;
+}
+
+// 从文件加载依赖缓存
+// 返回：成功返回 0，失败返回 -1
+export fn load_dependency_cache(cache: &DependencyCache, cache_dir: &byte) i32 {
+    if cache == null || cache_dir == null {
+        return -1;
+    }
+    
+    // 构建缓存文件路径
+    var deps_path: [byte: INCR_PATH_MAX] = [];
+    var mtimes_path: [byte: INCR_PATH_MAX] = [];
+    
+    snprintf(&deps_path[0], INCR_PATH_MAX, "%s/deps.cache" as *byte, cache_dir as *byte);
+    snprintf(&mtimes_path[0], INCR_PATH_MAX, "%s/mtimes.cache" as *byte, cache_dir as *byte);
+    
+    // 加载修改时间缓存
+    const mtimes_file: *void = fopen(&mtimes_path[0], "r" as *byte);
+    if mtimes_file != null {
+        var line: [byte: 4096] = [];
+        while fgets(&line[0], 4096, mtimes_file) != null {
+            // 解析格式：filepath|mtime
+            var filepath: &byte = &line[0];
+            var sep: *byte = strchr(&line[0], 124);  // '|'
+            if sep != null {
+                sep[0] = 0 as byte;
+                const mtime_str: &byte = (sep + 1) as &byte;
+                const mtime: i64 = atol(mtime_str as *byte);
+                
+                const filepath_copy: &byte = arena_strdup(cache.arena, filepath);
+                if filepath_copy != null {
+                    mtime_cache_update(&cache.mtime_cache, cache.arena, filepath_copy, mtime);
+                }
+            }
+        }
+        fclose(mtimes_file);
+    }
+    
+    // 加载依赖图缓存
+    const deps_file: *void = fopen(&deps_path[0], "r" as *byte);
+    if deps_file != null {
+        var line: [byte: 4096] = [];
+        while fgets(&line[0], 4096, deps_file) != null {
+            // 解析格式：filepath|module_name|is_user_file|dep1,dep2,dep3
+            // 移除换行符
+            var line_len: usize = strlen(&line[0]);
+            while line_len > 0 && (line[line_len - 1] == 10 || line[line_len - 1] == 13) {
+                line[line_len - 1] = 0 as byte;
+                line_len = line_len - 1;
+            }
+            
+            // 解析字段
+            var filepath: &byte = &line[0];
+            var sep1: *byte = strchr(&line[0], 124);  // '|'
+            if sep1 == null {
+                continue;
+            }
+            sep1[0] = 0 as byte;
+            
+            var module_name: &byte = (sep1 + 1) as &byte;
+            var sep2: *byte = strchr(module_name as *byte, 124);
+            if sep2 == null {
+                continue;
+            }
+            sep2[0] = 0 as byte;
+            
+            var is_user_str: &byte = (sep2 + 1) as &byte;
+            var sep3: *byte = strchr(is_user_str as *byte, 124);
+            var is_user: i32 = atoi(is_user_str as *byte);
+            
+            // 添加文件记录
+            const filepath_copy: &byte = arena_strdup(cache.arena, filepath);
+            if filepath_copy != null && cache.count < cache.capacity {
+                const entry: &FileDependency = cache.files + cache.count;
+                entry.source_file = filepath_copy;
+                entry.source_module = arena_strdup(cache.arena, module_name);
+                entry.is_user_file = is_user;
+                entry.dependencies = null;
+                entry.dependency_count = 0;
+                
+                // 解析依赖列表
+                if sep3 != null {
+                    const deps_str: &byte = (sep3 + 1) as &byte;
+                    // 计算依赖数量
+                    var dep_count: i32 = 0;
+                    var p: &byte = deps_str;
+                    while p[0] != 0 {
+                        if p[0] == 44 {  // ','
+                            dep_count = dep_count + 1;
+                        }
+                        p = p + 1;
+                    }
+                    if deps_str[0] != 0 {
+                        dep_count = dep_count + 1;
+                    }
+                    
+                    if dep_count > 0 {
+                        entry.dependencies = arena_alloc(cache.arena, @size_of(&byte) * dep_count) as &&byte;
+                        if entry.dependencies != null {
+                            // 解析依赖名称
+                            var dep_start: &byte = deps_str;
+                            var idx: i32 = 0;
+                            while idx < dep_count && dep_start[0] != 0 {
+                                var comma: *byte = strchr(dep_start as *byte, 44);  // ','
+                                if comma != null {
+                                    comma[0] = 0 as byte;
+                                }
+                                
+                                // 去除空白
+                                var dep_name: &byte = dep_start;
+                                while dep_name[0] == 32 || dep_name[0] == 9 {  // 空格或制表符
+                                    dep_name = dep_name + 1;
+                                }
+                                
+                                entry.dependencies[idx] = arena_strdup(cache.arena, dep_name);
+                                entry.dependency_count = entry.dependency_count + 1;
+                                idx = idx + 1;
+                                
+                                if comma != null {
+                                    dep_start = (comma + 1) as &byte;
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                cache.count = cache.count + 1;
+            }
+        }
+        fclose(deps_file);
+        return 0;
+    }
+    
+    return -1;  // 文件不存在
+}
+
+// ============================================================
+// 增量编译主接口
+// ============================================================
+
+// 检查是否需要增量编译
+// 返回：1 表示需要增量编译，0 表示需要全量编译，-1 表示错误
+export fn should_incremental_compile(cache_dir: &byte) i32 {
+    if cache_dir == null {
+        return 0;
+    }
+    
+    // 检查缓存目录是否存在
+    var deps_path: [byte: INCR_PATH_MAX] = [];
+    snprintf(&deps_path[0], INCR_PATH_MAX, "%s/deps.cache" as *byte, cache_dir as *byte);
+    
+    const deps_file: *void = fopen(&deps_path[0], "r" as *byte);
+    if deps_file != null {
+        fclose(deps_file);
+        return 1;  // 缓存存在，可以进行增量编译
+    }
+    
+    return 0;  // 缓存不存在，需要全量编译
+}
+
+// 更新缓存中的修改时间
+export fn update_cache_mtimes(cache: &DependencyCache) i32 {
+    if cache == null {
+        return -1;
+    }
+    
+    var i: i32 = 0;
+    while i < cache.count {
+        const entry: &FileDependency = cache.files + i;
+        if entry.source_file != null {
+            const mtime: i64 = get_file_mtime(entry.source_file);
+            if mtime > 0 {
+                mtime_cache_update(&cache.mtime_cache, cache.arena, entry.source_file, mtime);
+            }
+        }
+        i = i + 1;
+    }
+    
+    return 0;
+}
+
+// 获取文件依赖信息（用于调试）
+fn print_dependency_info(cache: &DependencyCache) void {
+    if cache == null {
+        fprintf(libc.stderr, "缓存为空\n" as *byte);
+        return;
+    }
+    
+    fprintf(libc.stderr, "=== 依赖图缓存信息 ===\n" as *byte);
+    fprintf(libc.stderr, "文件数: %d\n" as *byte, cache.count);
+    
+    var i: i32 = 0;
+    while i < cache.count {
+        const entry: &FileDependency = cache.files + i;
+        if entry.source_file != null {
+            fprintf(libc.stderr, "  %s (模块: %s, 用户文件: %d)\n" as *byte, 
+                    entry.source_file as *byte,
+                    entry.source_module != null ? entry.source_module as *byte : "(null)" as *byte,
+                    entry.is_user_file);
+            
+            if entry.dependencies != null && entry.dependency_count > 0 {
+                fprintf(libc.stderr, "    依赖: " as *byte);
+                var j: i32 = 0;
+                while j < entry.dependency_count {
+                    if entry.dependencies[j] != null {
+                        if j > 0 {
+                            fprintf(libc.stderr, ", " as *byte);
+                        }
+                        fprintf(libc.stderr, "%s" as *byte, entry.dependencies[j] as *byte);
+                    }
+                    j = j + 1;
+                }
+                fprintf(libc.stderr, "\n" as *byte);
+            }
+        }
+        i = i + 1;
+    }
+    
+    fprintf(libc.stderr, "=== 修改时间缓存信息 ===\n" as *byte);
+    fprintf(libc.stderr, "记录数: %d\n" as *byte, cache.mtime_cache.count);
+}

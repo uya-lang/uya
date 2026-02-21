@@ -1,0 +1,21 @@
+// 测试：多文件独立 C 输出
+// 验证每个 .uya 文件生成独立 .c 文件
+// 验证非 export 函数标记为 static
+
+export fn multiply(a: i32, b: i32) i32 {
+    return a * b;
+}
+
+// 内部辅助函数，应生成 static
+fn helper_add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+// 测试内部函数调用
+export fn test_internal() i32 {
+    const result: i32 = helper_add(1, 2);
+    if result != 3 {
+        return 1;
+    }
+    return 0;
+}

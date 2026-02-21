@@ -1,0 +1,11 @@
+// test_multi_file_a.uya - 多文件编译测试 A
+
+use libc;
+
+export fn add(a: i32, b: i32) i32 {
+    return a + b;
+}
+
+export fn greet(name: &byte) void {
+    fprintf(libc.stdout, "Hello, %s!\n" as *byte, name as *byte);
+}

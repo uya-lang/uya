@@ -230,6 +230,10 @@ struct C99CodeGenerator {
     // --nostdlib 模式：生成 _start 入口
     is_nostdlib: i32,                    // 1 表示生成 _start 内联汇编
     
+    // 多文件输出模式
+    is_multi_file_mode: i32,             // 1 表示多文件输出模式
+    current_source_file: &byte,          // 当前正在处理的源文件路径（用于筛选声明）
+    
     // 异步函数状态机生成
     is_async_function: i32,              // 1 表示当前正在生成 @async_fn 函数
     async_function_has_await: i32,       // 1 表示当前异步函数包含 @await 表达式

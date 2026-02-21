@@ -13,11 +13,11 @@ provider:
 新功能开发时，遵循测试驱动开发：
 
 ```bash
-# 1. 先写测试（测试文件放在 tests/programs/）
-vim tests/programs/test_new_feature.uya
+# 1. 先写测试放在 tests/，使用 test "name" {} 风格）
+vim tests/test_new_feature.uya
 
 # 2. 运行测试，确认失败（红）
-make tests-uya  # 新测试应该失败
+make tests  # 新测试应该失败
 
 # 3. 编写最小代码使测试通过（绿）
 vim src/related_module.uya
@@ -31,6 +31,52 @@ make check
 - ✅ **红-绿-重构**：先写失败测试，再写代码，最后重构
 - ✅ **小步迭代**：每次只添加一个小功能点
 - ✅ **测试先行**：任何新功能必须有对应测试
+
+## 测试编写规范
+
+### 测试文件风格
+
+**测试文件不使用 main 函数**，使用 `test "name" {}` 风格：
+
+```uya
+// tests/test_feature.uya
+
+// 单个测试用例
+test "basic_addition" {
+    const result: i32 = add(1, 2);
+    try assert_eq_i32(result, 3, "1 + 2 should equal 3");
+}
+
+// 多个测试用例
+test "addition_with_negative" {
+    const result: i32 = add(-1, 1);
+    try assert_eq_i32(result, 0, "-1 + 1 should equal 0");
+}
+
+test "addition_overflow" {
+    // 测试溢出情况
+    const result: i32 = try I32_MAX + 1;  // 预期失败
+}
+```
+
+### 测试文件组织
+
+```
+tests/
+├── test_basic.uya        # 基础功能测试
+├── test_types.uya        # 类型系统测试
+├── test_generics.uya     # 泛型测试
+├── test_errors/          # 错误处理测试（子目录）
+│   ├── test_compile_error.uya
+│   └── test_runtime_error.uya
+└── bridge.c              # 测试运行器桥接
+```
+
+### 测试命名规范
+
+- 文件名：`test_<feature>.uya`
+- 测试名：描述性名称，说明测试什么
+- 格式：`test "描述性名称" { ... }`
 
 ## 开发前准备
 
@@ -62,7 +108,7 @@ cat .codebuddy/skills/uya-development.md
 
 - `str_equals(a, b) != 0` 表示字符串相等（返回 1 = 相等）
 - Union 变体不能包含引用类型 `&T`
-- 参考 `tests/programs/` 中的测试文件学习语法
+- 参考 `tests/` 中的测试文件（test "name" {} 风格）学习语法
 
 ## 开发前验证
 
@@ -88,7 +134,7 @@ make check      # 一键验证（自举 + 测试）
 
 这会依次执行：
 1. 自举验证（`make b`）- 编译器编译自身，验证输出一致性
-2. 测试验证（`make tests-uya`）- 运行所有测试
+2. 测试验证（`make tests`）- 运行所有测试
 
 ### 完整验证和备份
 
@@ -105,7 +151,7 @@ make backup     # 验证 + 备份（依赖 check 通过）
 ```bash
 make uya        # 构建自举编译器 + 更新 bin/uya.c
 make b          # 自举验证
-make tests-uya  # 测试验证
+make tests  # 测试验证
 ```
 
 ## 关键命令速查
@@ -116,7 +162,7 @@ make tests-uya  # 测试验证
 | `make backup` | 验证 + 备份 |
 | `make uya` | 构建自举编译器 |
 | `make b` | 自举验证 |
-| `make tests-uya` | 测试验证 |
+| `make tests` | 测试验证 |
 | `make from-c` | 从备份恢复并构建 |
 
 ## uya.c 备份机制
@@ -127,7 +173,7 @@ make tests-uya  # 测试验证
 
 **只有 `make backup` 才会备份**，且必须满足：
 1. 自举验证通过（`make b`）
-2. 测试全部通过（`make tests-uya`）
+2. 测试全部通过（`make tests`）
 
 ```bash
 make backup     # 验证通过后备份（推荐：开发完成后执行）
@@ -152,7 +198,7 @@ make clean && make from-c  # 清理后从备份恢复构建
 |------|------|
 | `src/*.uya` | 编译器源代码（唯一维护源） |
 | `bin/uya.c` | 自举 C99 代码（种子文件） |
-| `tests/programs/*.uya` | 测试文件 |
+| `tests/*.uya` | 测试文件（test "name" {} 风格） |
 
 ## 禁止操作
 
@@ -161,6 +207,168 @@ make clean && make from-c  # 清理后从备份恢复构建
 - ❌ 不要在测试失败时提交代码
 - ❌ 不要删除有意义的测试（测试是回归保护）
 - ❌ 不要瞎编乱造语法（参考现有代码和测试）
+
+## 代码风格规范（强制）
+
+### 核心原则
+
+**AI 必须遵守以下规范，确保生成的代码可维护：**
+
+| 规则 | 限制 | 原因 |
+|------|------|------|
+| 函数行数 | ≤ 50 行 | 超出则拆分，提高可读性 |
+| 嵌套深度 | ≤ 3 层 | 超出则提前返回/提取函数 |
+| 单一职责 | 每函数做一件事 | 降低认知负担 |
+
+### 函数拆分示例
+
+**❌ 错误：超过 50 行的函数**
+
+```uya
+fn check_expression(checker: &TypeChecker, node: &ASTNode) Type {
+    // 100+ 行代码，包含多种表达式处理...
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        // 30 行处理二元表达式
+    } else if node.type == ASTNodeType.AST_CALL_EXPR {
+        // 40 行处理调用表达式
+    } else if ...
+        // 更多分支
+}
+```
+
+**✅ 正确：拆分为多个小函数**
+
+```uya
+// 主入口：分发到具体处理函数（< 20 行）
+fn check_expression(checker: &TypeChecker, node: &ASTNode) Type {
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        return check_binary_expr(checker, node);
+    }
+    if node.type == ASTNodeType.AST_CALL_EXPR {
+        return check_call_expr(checker, node);
+    }
+    if node.type == ASTNodeType.AST_MEMBER_EXPR {
+        return check_member_expr(checker, node);
+    }
+    // ... 其他分发
+    return make_void_type();
+}
+
+// 各处理函数独立，每个 ≤ 50 行
+fn check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
+    // ≤ 50 行，专注二元表达式
+}
+
+fn check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
+    // ≤ 50 行，专注调用表达式
+}
+```
+
+### 嵌套深度控制示例
+
+**❌ 错误：嵌套超过 3 层**
+
+```uya
+fn process_node(node: &ASTNode) void {
+    if node != null {
+        if node.type == ASTNodeType.AST_FUNCTION {
+            if node.function_body != null {
+                if node.function_body.statements != null {
+                    // 第 4 层嵌套，难以理解
+                    for node.function_body.statements |stmt| {
+                        if stmt != null {
+                            // 第 5 层...
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+**✅ 正确：提前返回 + 提取函数**
+
+```uya
+fn process_node(node: &ASTNode) void {
+    // 第 1 层：提前返回
+    if node == null { return; }
+    if node.type != ASTNodeType.AST_FUNCTION { return; }
+    if node.function_body == null { return; }
+    
+    // 提取函数，保持第 1 层
+    process_function_body(node.function_body);
+}
+
+fn process_function_body(body: &ASTNode) void {
+    // 第 1 层
+    if body.statements == null { return; }
+    
+    for body.statements |stmt| {
+        // 第 2 层
+        if stmt == null { continue; }
+        process_statement(stmt);  // 提取函数
+    }
+}
+
+fn process_statement(stmt: &ASTNode) void {
+    // 第 1 层，处理具体语句
+}
+```
+
+### 扁平化技巧
+
+1. **提前返回（Early Return）**
+   ```uya
+   // ❌ 嵌套
+   if cond {
+       // 大量代码
+   }
+   
+   // ✅ 提前返回
+   if !cond { return; }
+   // 主流程代码
+   ```
+
+2. **提取辅助函数**
+   ```uya
+   // ❌ 嵌套处理
+   if a {
+       if b {
+           // 复杂逻辑
+       }
+   }
+   
+   // ✅ 提取函数
+   if a && should_process(b) {
+       do_process();
+   }
+   ```
+
+3. **使用 continue/break**
+   ```uya
+   // ❌ 嵌套过滤
+   for items |item| {
+       if valid(item) {
+           // 处理代码
+       }
+   }
+   
+   // ✅ 提前跳过
+   for items |item| {
+       if !valid(item) { continue; }
+       // 处理代码
+   }
+   ```
+
+### 重构触发条件
+
+当发现以下情况时，**立即重构**：
+
+- 函数行数 > 50 行 → 拆分
+- 嵌套深度 > 3 层 → 提前返回或提取函数
+- 函数参数 > 5 个 → 封装为结构体
+- 相同代码重复 > 2 次 → 提取公共函数
 
 ## 开发经验积累
 

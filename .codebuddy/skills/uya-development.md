@@ -546,3 +546,66 @@ while i < 512 {
     i = i + 1;
 }
 ```
+
+---
+
+## 9. 多文件编译实现（Phase 1 进行中）
+
+### 9.1 当前状态
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| `--multi-file` 选项 | ✅ 已添加 | 自动启用 C99 后端 |
+| 多文件输出逻辑 | ⏳ 进行中 | 需要实现头文件生成和独立 C 文件生成 |
+| 公共头文件 | ❌ 未实现 | `uya_types.h` |
+| 模块级头文件 | ❌ 未实现 | `xxx.h` |
+
+### 9.2 关键文件
+
+| 文件 | 说明 |
+|------|------|
+| `src/main.uya` | `compile_files` 函数，添加 `is_multi_file` 参数 |
+| `src/codegen/c99/main.uya` | `c99_codegen_generate` 函数，需要支持单文件输出 |
+| `.cursor/plans/实现文件级并行编译_5b0090ff.plan.md` | 详细设计文档 |
+
+### 9.3 实现路线
+
+```
+Phase 1（当前）：
+  1. ✅ 添加 --multi-file 选项
+  2. ⏳ 生成公共头文件（uya_types.h）
+  3. ⏳ 为每个源文件生成独立 C 文件
+  4. ⏳ 支持 GCC 并行编译多个 C 文件
+
+Phase 2（后续）：
+  - 模块级头文件（xxx.h）
+  - 增量编译支持
+
+Phase 3（长期）：
+  - pthread 线程并行编译
+```
+
+### 9.4 多文件输出策略
+
+```
+输入：tests/programs/test_multi_file_a.uya
+      tests/programs/test_multi_file_b.uya
+
+输出：build/
+      ├── uya_types.h    # 公共类型定义
+      ├── module_a.c     # 模块 A 的 C 代码
+      └── module_b.c     # 模块 B 的 C 代码
+
+编译：gcc module_a.c module_b.c -o output
+```
+
+### 9.5 static 函数处理
+
+当前 C99 代码生成器已经正确处理：
+- `export fn` → 非 static（全局可见）
+- `fn` → static（文件内可见）
+
+多文件模式需要确保：
+- 每个 C 文件只包含该文件的函数定义
+- 公共头文件包含所有 export 函数的 extern 声明
+

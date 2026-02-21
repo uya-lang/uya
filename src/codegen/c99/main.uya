@@ -582,12 +582,30 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         }
     }
     
-    // 输出文件头
-    fputs("// C99 代码由 Uya Mini 编译器生成\n" as *byte, codegen.output as *void);
-    fputs("// 使用 -std=c99 编译\n" as *byte, codegen.output as *void);
-    fputs("//\n" as *byte, codegen.output as *void);
-    
-    if is_std_lib != 0 {
+    // 多文件模式：跳过文件头和类型定义（由公共头文件提供）
+    if codegen.is_multi_file_mode != 0 {
+        // 跳过类型定义，直接进入声明生成
+        // 但需要预扫描 AST 收集 needs_string_h 等标志
+        var check_i: i32 = 0;
+        const check_decl_count: i32 = ast.program_decl_count;
+        while check_i < check_decl_count {
+            const check_decl: &ASTNode = ast.program_decls[check_i];
+            if check_decl != null && check_decl.type == ASTNodeType.AST_STRUCT_DECL {
+                collect_stdlib_functions_from_node(codegen, check_decl);
+            }
+            if check_decl != null && check_decl.type == ASTNodeType.AST_FN_DECL && check_decl.fn_decl_body != null {
+                collect_stdlib_functions_from_node(codegen, check_decl.fn_decl_body);
+            }
+            check_i = check_i + 1;
+        }
+    } else {
+        // 单文件模式：输出完整的文件头和类型定义
+        // 输出文件头
+        fputs("// C99 代码由 Uya Mini 编译器生成\n" as *byte, codegen.output as *void);
+        fputs("// 使用 -std=c99 编译\n" as *byte, codegen.output as *void);
+        fputs("//\n" as *byte, codegen.output as *void);
+        
+        if is_std_lib != 0 {
         // 标准库模式：零依赖，自己定义所有类型
         fputs("// 零依赖标准库：自己定义所有类型（用于 --nostdlib 编译）\n" as *byte, codegen.output as *void);
         fputs("\n" as *byte, codegen.output as *void);
@@ -755,6 +773,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         fputs("    for (size_t i = 0; i < n; i++) { if (a[i] != b[i]) return a[i] - b[i]; } return 0;\n" as *byte, codegen.output as *void);
         fputs("}\n\n" as *byte, codegen.output as *void);
     }
+    }  // 关闭单文件模式的 else 块
     
     // --nostdlib 模式：生成 _start 入口（内联汇编）
     if codegen.is_nostdlib != 0 {
@@ -1316,6 +1335,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
+            // 多文件模式：只为当前文件生成前向声明
+            if should_output_decl(codegen, decl) == 0 {
+                i = i + 1;
+                continue;
+            }
             // 跳过泛型函数模板，为单态化实例生成原型
             if is_generic_function_c99(decl) != 0 {
                 const fn_name: &byte = decl.fn_decl_name;
@@ -1526,12 +1550,18 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
             }
             // 只生成常量（const 变量）
             if decl.type == ASTNodeType.AST_VAR_DECL && decl.var_decl_is_const != 0 {
-                gen_global_var(codegen, decl);
-                fputs("\n" as *byte, codegen.output as *void);
+                // 多文件模式：只为当前文件生成
+                if should_output_decl(codegen, decl) != 0 {
+                    gen_global_var(codegen, decl);
+                    fputs("\n" as *byte, codegen.output as *void);
+                }
             }
             // 生成 extern 变量声明
             if decl.type == ASTNodeType.AST_EXTERN_VAR_DECL {
-                gen_extern_var_decl(codegen, decl);
+                // 多文件模式：只为当前文件生成
+                if should_output_decl(codegen, decl) != 0 {
+                    gen_extern_var_decl(codegen, decl);
+                }
             }
         }
         i = i + 1;
@@ -1542,8 +1572,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     while i < decl_count {
         const decl: &ASTNode = ast.program_decls[i];
         if decl != null && decl.type == ASTNodeType.AST_VAR_DECL && decl.var_decl_is_const == 0 && decl.var_decl_is_export == 0 {
-            gen_global_var(codegen, decl);
-            fputs("\n" as *byte, codegen.output as *void);
+            // 多文件模式：只为当前文件生成
+            if should_output_decl(codegen, decl) != 0 {
+                gen_global_var(codegen, decl);
+                fputs("\n" as *byte, codegen.output as *void);
+            }
         }
         i = i + 1;
     }
@@ -1683,12 +1716,20 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
             } else if decl.type == ASTNodeType.AST_VAR_DECL {
                 // 常量已在第九步 a 生成；非常量非 export 已在第九步 b0 生成，这里只生成 export 非常量变量
                 if decl.var_decl_is_const == 0 && decl.var_decl_is_export != 0 {
-                    gen_global_var(codegen, decl);
-                    fputs("\n" as *byte, codegen.output as *void);
+                    // 多文件模式：只为当前文件生成
+                    if should_output_decl(codegen, decl) != 0 {
+                        gen_global_var(codegen, decl);
+                        fputs("\n" as *byte, codegen.output as *void);
+                    }
                 }
             } else if decl.type == ASTNodeType.AST_EXTERN_VAR_DECL {
                 // extern 变量已在第九步 a 生成声明，这里不重复生成
             } else if decl.type == ASTNodeType.AST_FN_DECL {
+                // 文件过滤：多文件模式下只输出当前文件的声明
+                if should_output_decl(codegen, decl) == 0 {
+                    i = i + 1;
+                    continue;
+                }
                 // 特殊处理：main 函数在后面生成（需要添加测试运行器调用）
                 const func_name: &byte = decl.fn_decl_name;
                 var is_main: i32 = 0;
@@ -1788,6 +1829,11 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
             const func_name: &byte = decl.fn_decl_name;
             if func_name != null && strcmp(func_name as *byte, "main" as *byte) == 0 && decl.fn_decl_body != null {
+                // 多文件模式：只为当前文件生成 main 函数
+                if should_output_decl(codegen, decl) == 0 {
+                    i = i + 1;
+                    continue;
+                }
                 const is_export: i32 = decl.fn_decl_is_export;
                 const is_extern_keyword: i32 = decl.fn_decl_is_extern;  // extern 关键字（含 export extern fn main）
                 var is_c_main: i32 = 0;
