@@ -3313,7 +3313,6 @@ struct FILE * stderr = (&_stderr);
 const int64_t STDIN = 0;
 const int64_t STDOUT = 1;
 const int64_t STDERR = 2;
-extern uint8_t * * environ;
 const size_t READDIR_BUF_SIZE = 8192;
 
 const int64_t SYS_read = 0;

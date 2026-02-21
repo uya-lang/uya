@@ -529,7 +529,7 @@ extern fn bsearch(key: &const void, base: &const void, nmemb: usize, size: usize
 
 // environ - 环境变量数组（由 C 运行时初始化）
 // 声明为 extern 以访问 C 运行时的 environ
-extern var environ: & &byte;
+export extern var environ: & &byte;
 
 use std.string.strcmp;
 use std.string.strncpy;
