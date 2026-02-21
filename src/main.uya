@@ -565,6 +565,40 @@ fn extract_use_modules(
     return 0;
 }
 
+// 记录文件的依赖关系到增量编译缓存
+// 直接从 AST 提取 use 语句中的模块名，不重新解析文件
+// 返回：成功返回 0，失败返回 -1
+fn record_file_dependencies_from_ast(
+    ast: &ASTNode,
+    filepath: &byte,
+    cache: &DependencyCache,
+    project_root: &byte,
+    uya_root: &byte,
+    arena: &Arena
+) i32 {
+    if ast == null || filepath == null || cache == null || arena == null {
+        return -1;
+    }
+    
+    // 提取 use 语句中的模块路径
+    var modules: [&byte: MAX_INPUT_FILES] = [];
+    var module_count: i32 = 0;
+    if extract_use_modules(ast, &modules[0], MAX_INPUT_FILES, &module_count, project_root, uya_root, arena) != 0 {
+        return -1;
+    }
+    
+    // 记录依赖关系
+    var mi: i32 = 0;
+    while mi < module_count {
+        if modules[mi] != null {
+            dep_cache_add_dependency(cache, filepath, modules[mi]);
+        }
+        mi = mi + 1;
+    }
+    
+    return 0;
+}
+
 // 对路径指针数组按字符串排序（与 C 编译器 qsort 一致，保证自举比对顺序）
 fn sort_paths(paths: &(&byte), count: i32) void {
     var i: i32 = 0;
@@ -1528,11 +1562,23 @@ fn compile_files(
                         fprintf(libc.stderr, "没有检测到文件变更，跳过编译\n" as *byte);
                         return 0;  // 无变更，跳过编译
                     } else {
-                        fprintf(libc.stderr, "检测到 %d 个文件变更:\n" as *byte, changed_count);
-                        var ci: i32 = 0;
-                        while ci < changed_count {
-                            fprintf(libc.stderr, "  %s\n" as *byte, changed_files[ci] as *byte);
-                            ci = ci + 1;
+                        // 使用依赖传播计算需要重编的所有文件
+                        var all_changed: [&byte: MAX_CACHED_FILES] = [];
+                        var all_changed_count: i32 = 0;
+                        if propagate_dependencies(&incr_cache, &all_changed[0], &all_changed_count, MAX_CACHED_FILES, &changed_files[0], changed_count) == 0 {
+                            fprintf(libc.stderr, "检测到 %d 个文件变更，依赖传播后需重编 %d 个文件:\n" as *byte, changed_count, all_changed_count);
+                            var ci: i32 = 0;
+                            while ci < all_changed_count {
+                                fprintf(libc.stderr, "  %s\n" as *byte, all_changed[ci] as *byte);
+                                ci = ci + 1;
+                            }
+                        } else {
+                            fprintf(libc.stderr, "检测到 %d 个文件变更:\n" as *byte, changed_count);
+                            var ci: i32 = 0;
+                            while ci < changed_count {
+                                fprintf(libc.stderr, "  %s\n" as *byte, changed_files[ci] as *byte);
+                                ci = ci + 1;
+                            }
                         }
                     }
                 }
@@ -1613,6 +1659,12 @@ fn compile_files(
         }
         programs[i] = ast;
         fprintf(libc.stderr, "  解析完成: %s\n" as *byte, input_path);
+        
+        // 增量编译模式：记录文件的依赖关系
+        if need_incremental != 0 {
+            record_file_dependencies_from_ast(ast, input_path as &byte, &incr_cache, project_root, &uya_root_buffer[0] as &byte, &arena);
+        }
+        
         i = i + 1;
     }
     fprintf(libc.stderr, "=== 词法/语法分析完成，共 %d 个文件 ===\n" as *byte, all_file_count);
