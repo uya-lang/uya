@@ -15,6 +15,16 @@ use libc.ftell;
 use libc.FILE;
 use libc.mkdir;
 use libc.atol;
+use libc.strcmp;
+use libc.strcpy;
+use libc.strchr;
+use libc.strrchr;
+use libc.strstr;
+use libc.strlen;
+use libc.strcat;
+use libc.memcpy;
+use libc.atoi;
+use std.string.strcmp as str_equals;
 
 // ============================================================
 // 常量定义

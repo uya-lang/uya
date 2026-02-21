@@ -9,6 +9,8 @@
 use main;
 // C99 代码生成（子目录，整体导入该目录模块）
 use codegen.c99;
+// 增量编译模块
+use incremental;
 // C 程序入口（提供 export extern fn main 调用 main_main）
 use std.runtime.entry;
 use libc;
@@ -1607,6 +1609,20 @@ fn compile_files(
     if is_multi_file != 0 {
         fprintf(libc.stderr, "多文件输出模式\n" as *byte);
         
+        // 确定缓存目录（项目根目录下的 .uya 目录）
+        if project_root != null {
+            snprintf(&cache_dir_buffer[0], PATH_MAX, "%s.uya" as *byte, project_root as *byte);
+        } else {
+            strcpy(&cache_dir_buffer[0], ".uya" as *byte);
+        }
+        
+        // 增量编译模式
+        if is_incremental != 0 {
+            fprintf(libc.stderr, "增量编译模式\n" as *byte);
+            fprintf(libc.stderr, "注意: 增量编译功能正在完善中，当前执行完整编译\n" as *byte);
+            // TODO: 完善增量编译集成
+        }
+        
         // 确定输出目录
         var output_dir: [byte: PATH_MAX] = [];
         const out_last_slash: *byte = strrchr(actual_output, 47);
@@ -1947,6 +1963,12 @@ fn compile_files(
         }
         
         fprintf(libc.stderr, "多文件生成完成\n" as *byte);
+        
+        // 增量编译模式：保存缓存（简化版本）
+        if is_incremental != 0 && incr_cache.count > 0 {
+            fprintf(libc.stderr, "增量编译完成\n" as *byte);
+        }
+        
         return 0;
     }
 

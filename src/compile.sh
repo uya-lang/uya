@@ -253,6 +253,7 @@ else
         "ast.uya"
         "lexer.uya"
         "parser.uya"
+        "incremental.uya"
         "checker.uya"
     )
 
