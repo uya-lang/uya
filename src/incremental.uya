@@ -82,6 +82,7 @@ export struct FileDependency {
     dependencies: &&byte,      // 依赖的模块列表
     dependency_count: i32,     // 依赖数量
     is_user_file: i32,         // 是否为用户文件（非标准库）
+    interface_hash: i64,       // 接口哈希（用于检测 API 变化）
 }
 
 // 依赖图缓存
@@ -598,7 +599,7 @@ export fn save_dependency_cache(cache: &DependencyCache, cache_dir: &byte) i32 {
     
     // 写入依赖数据
     // 格式：每行一个文件记录
-    // filepath|module_name|is_user_file|dep1,dep2,dep3
+    // filepath|module_name|is_user_file|interface_hash|dep1,dep2,dep3
     var i: i32 = 0;
     while i < cache.count {
         const entry: &FileDependency = cache.files + i;
@@ -608,10 +609,11 @@ export fn save_dependency_cache(cache: &DependencyCache, cache_dir: &byte) i32 {
             if entry.source_module != null {
                 module_name_for_print = entry.source_module;
             }
-            fprintf(deps_file as &FILE, "%s|%s|%d" as *byte, 
+            fprintf(deps_file as &FILE, "%s|%s|%d|%lld" as *byte, 
                     entry.source_file as *byte, 
                     module_name_for_print as *byte,
-                    entry.is_user_file);
+                    entry.is_user_file,
+                    entry.interface_hash);
             
             // 写入依赖列表
             if entry.dependencies != null && entry.dependency_count > 0 {
@@ -700,7 +702,8 @@ export fn load_dependency_cache(cache: &DependencyCache, cache_dir: &byte) i32 {
     if deps_file != null {
         var line: [byte: 4096] = [];
         while fgets(&line[0], 4096, deps_file) != null {
-            // 解析格式：filepath|module_name|is_user_file|dep1,dep2,dep3
+            // 解析格式：filepath|module_name|is_user_file|interface_hash|dep1,dep2,dep3
+            // 向后兼容旧格式：filepath|module_name|is_user_file|dep1,dep2,dep3
             // 移除换行符
             var line_len: usize = strlen(&line[0]);
             while line_len > 0 && (line[line_len - 1] == CHAR_NEWLINE || line[line_len - 1] == CHAR_CARRIAGE) {
@@ -727,6 +730,41 @@ export fn load_dependency_cache(cache: &DependencyCache, cache_dir: &byte) i32 {
             var sep3: *byte = strchr(is_user_str as *byte, CHAR_PIPE);
             var is_user: i32 = atoi(is_user_str as *byte);
             
+            // 解析接口哈希（新格式）
+            var interface_hash: i64 = 0;
+            var deps_str: &byte = null;
+            var sep4: *byte = null;
+            
+            if sep3 != null {
+                // 检查是否是数字（接口哈希）还是依赖列表
+                const after_sep3: &byte = (sep3 + 1) as &byte;
+                var is_hash_field: i32 = 1;
+                var check_p: &byte = after_sep3;
+                // 检查到下一个 | 或行尾
+                while check_p[0] != 0 && check_p[0] != CHAR_PIPE {
+                    const c: byte = check_p[0];
+                    // 数字、负号是合法的哈希字符
+                    if !((c >= 48 && c <= 57) || c == 45) {  // 0-9 或 -
+                        is_hash_field = 0;
+                        break;
+                    }
+                    check_p = check_p + 1;
+                }
+                
+                if is_hash_field != 0 {
+                    // 是接口哈希字段
+                    interface_hash = atol(after_sep3 as *byte);
+                    // 如果后面还有 |，则解析依赖列表
+                    if check_p[0] == CHAR_PIPE {
+                        deps_str = (check_p + 1) as &byte;
+                    }
+                    // 否则没有依赖项，deps_str 保持 null
+                } else {
+                    // 旧格式：deps（无接口哈希）
+                    deps_str = after_sep3;
+                }
+            }
+            
             // 添加文件记录
             const filepath_copy: &byte = arena_strdup(cache.arena, filepath);
             if filepath_copy != null && cache.count < cache.capacity {
@@ -734,12 +772,12 @@ export fn load_dependency_cache(cache: &DependencyCache, cache_dir: &byte) i32 {
                 entry.source_file = filepath_copy;
                 entry.source_module = arena_strdup(cache.arena, module_name);
                 entry.is_user_file = is_user;
+                entry.interface_hash = interface_hash;
                 entry.dependencies = null;
                 entry.dependency_count = 0;
                 
                 // 解析依赖列表
-                if sep3 != null {
-                    const deps_str: &byte = (sep3 + 1) as &byte;
+                if deps_str != null {
                     // 计算依赖数量
                     var dep_count: i32 = 0;
                     var p: &byte = deps_str;
@@ -840,6 +878,128 @@ export fn update_cache_mtimes(cache: &DependencyCache) i32 {
     return 0;
 }
 
+// ============================================================
+// 接口哈希计算
+// ============================================================
+
+// 字符串哈希函数（djb2 算法）
+// 返回：字符串的哈希值
+export fn hash_string(str: &byte) i64 {
+    if str == null {
+        return 0;
+    }
+    
+    var hash: i64 = 5381;
+    var i: usize = 0;
+    while str[i] != 0 {
+        // hash = hash * 33 + c
+        hash = ((hash << 5) + hash) + (str[i] as i64);
+        i = i + 1;
+    }
+    
+    // 确保返回正数
+    if hash < 0 {
+        hash = 0 - hash;
+    }
+    return hash;
+}
+
+// 组合两个哈希值
+export fn hash_combine(h1: i64, h2: i64) i64 {
+    // 使用简单的异或和位移组合
+    return (h1 << 1) ^ h2;
+}
+
+// 更新文件的接口哈希
+export fn dep_cache_update_interface_hash(cache: &DependencyCache, filepath: &byte, hash: i64) i32 {
+    if cache == null || filepath == null {
+        return -1;
+    }
+    
+    var i: i32 = 0;
+    while i < cache.count {
+        if cache.files[i].source_file != null && 
+           strcmp(cache.files[i].source_file as *byte, filepath as *byte) == 0 {
+            cache.files[i].interface_hash = hash;
+            return 0;
+        }
+        i = i + 1;
+    }
+    
+    return -1;  // 文件未找到
+}
+
+// 获取文件的接口哈希
+export fn dep_cache_get_interface_hash(cache: &DependencyCache, filepath: &byte) i64 {
+    if cache == null || filepath == null {
+        return 0;
+    }
+    
+    var i: i32 = 0;
+    while i < cache.count {
+        if cache.files[i].source_file != null && 
+           strcmp(cache.files[i].source_file as *byte, filepath as *byte) == 0 {
+            return cache.files[i].interface_hash;
+        }
+        i = i + 1;
+    }
+    
+    return 0;  // 文件未找到或哈希为 0
+}
+
+// 检测接口变化的文件
+// 接口变化的文件需要传播依赖，仅实现变化的文件只需重编自己
+// changed_files: 直接修改的文件
+// changed_count: 直接修改的文件数量
+// interface_changed_files: 输出，接口变化的文件
+// interface_changed_count: 输出，接口变化的文件数量
+// impl_only_changed_files: 输出，仅实现变化的文件
+// impl_only_changed_count: 输出，仅实现变化的文件数量
+// new_hashes: 输入，新计算的接口哈希数组（与 changed_files 对应）
+// 返回：成功返回 0，失败返回 -1
+export fn detect_interface_changes(
+    cache: &DependencyCache,
+    changed_files: &&byte,
+    changed_count: i32,
+    interface_changed_files: &&byte,
+    interface_changed_count: &i32,
+    impl_only_changed_files: &&byte,
+    impl_only_changed_count: &i32,
+    new_hashes: &i64
+) i32 {
+    if cache == null || changed_files == null {
+        return -1;
+    }
+    
+    interface_changed_count[0] = 0;
+    impl_only_changed_count[0] = 0;
+    
+    var i: i32 = 0;
+    while i < changed_count {
+        if changed_files[i] != null {
+            const cached_hash: i64 = dep_cache_get_interface_hash(cache, changed_files[i]);
+            const new_hash: i64 = new_hashes[i];
+            
+            if cached_hash != new_hash {
+                // 接口变化
+                if interface_changed_count[0] < MAX_CACHED_FILES {
+                    interface_changed_files[interface_changed_count[0]] = changed_files[i];
+                    interface_changed_count[0] = interface_changed_count[0] + 1;
+                }
+            } else {
+                // 仅实现变化
+                if impl_only_changed_count[0] < MAX_CACHED_FILES {
+                    impl_only_changed_files[impl_only_changed_count[0]] = changed_files[i];
+                    impl_only_changed_count[0] = impl_only_changed_count[0] + 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    
+    return 0;
+}
+
 // 获取文件依赖信息（用于调试）
 fn print_dependency_info(cache: &DependencyCache) void {
     if cache == null {
@@ -859,10 +1019,11 @@ fn print_dependency_info(cache: &DependencyCache) void {
             if entry.source_module != null {
                 module_name_for_print = entry.source_module;
             }
-            fprintf(libc.stderr, "  %s (模块: %s, 用户文件: %d)\n" as *byte, 
+            fprintf(libc.stderr, "  %s (模块: %s, 用户文件: %d, 接口哈希: %lld)\n" as *byte, 
                     entry.source_file as *byte,
                     module_name_for_print as *byte,
-                    entry.is_user_file);
+                    entry.is_user_file,
+                    entry.interface_hash);
             
             if entry.dependencies != null && entry.dependency_count > 0 {
                 fprintf(libc.stderr, "    依赖: " as *byte);

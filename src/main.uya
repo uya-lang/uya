@@ -567,6 +567,7 @@ fn extract_use_modules(
 
 // 记录文件的依赖关系到增量编译缓存
 // 直接从 AST 提取 use 语句中的模块名，不重新解析文件
+// 同时计算并更新接口哈希
 // 返回：成功返回 0，失败返回 -1
 fn record_file_dependencies_from_ast(
     ast: &ASTNode,
@@ -596,7 +597,312 @@ fn record_file_dependencies_from_ast(
         mi = mi + 1;
     }
     
+    // 计算并更新接口哈希
+    const interface_hash: i64 = compute_interface_hash(ast, arena);
+    dep_cache_update_interface_hash(cache, filepath, interface_hash);
+    
     return 0;
+}
+
+// 计算模块的接口哈希
+// 只包含 export 的声明签名（函数签名、类型定义等），不包含实现
+// 返回：接口哈希值
+fn compute_interface_hash(ast: &ASTNode, arena: &Arena) i64 {
+    if ast == null || ast.type != ASTNodeType.AST_PROGRAM {
+        return 0;
+    }
+    
+    var hash: i64 = 0;
+    
+    // 遍历所有顶层声明
+    var i: i32 = 0;
+    while i < ast.program_decl_count {
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl == null {
+            i = i + 1;
+            continue;
+        }
+        
+        // 只处理 export 的声明
+        var is_export: i32 = 0;
+        if decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_is_export != 0 {
+            is_export = 1;
+        } else if decl.type == ASTNodeType.AST_STRUCT_DECL && decl.struct_decl_is_export != 0 {
+            is_export = 1;
+        } else if decl.type == ASTNodeType.AST_ENUM_DECL && decl.enum_decl_is_export != 0 {
+            is_export = 1;
+        } else if decl.type == ASTNodeType.AST_UNION_DECL && decl.union_decl_is_export != 0 {
+            is_export = 1;
+        } else if decl.type == ASTNodeType.AST_TYPE_ALIAS && decl.type_alias_is_export != 0 {
+            is_export = 1;
+        } else if decl.type == ASTNodeType.AST_VAR_DECL && decl.var_decl_is_export != 0 {
+            is_export = 1;
+        } else if decl.type == ASTNodeType.AST_EXTERN_VAR_DECL && decl.extern_var_decl_is_export != 0 {
+            is_export = 1;
+        } else if decl.type == ASTNodeType.AST_INTERFACE_DECL && decl.interface_decl_is_export != 0 {
+            is_export = 1;
+        } else if decl.type == ASTNodeType.AST_ERROR_DECL && decl.error_decl_is_export != 0 {
+            is_export = 1;
+        } else if decl.type == ASTNodeType.AST_MACRO_DECL && decl.macro_decl_is_export != 0 {
+            is_export = 1;
+        }
+        
+        if is_export == 0 {
+            i = i + 1;
+            continue;
+        }
+        
+        // 根据声明类型计算签名哈希
+        if decl.type == ASTNodeType.AST_FN_DECL {
+            // 函数签名：名称 + 类型参数 + 参数类型 + 返回类型
+            hash = hash_combine(hash, hash_string(decl.fn_decl_name));
+            
+            // 类型参数
+            var ti: i32 = 0;
+            while ti < decl.fn_decl_type_param_count {
+                if decl.fn_decl_type_params != null {
+                    const tparam: &TypeParam = decl.fn_decl_type_params + ti;
+                    hash = hash_combine(hash, hash_string(tparam.name));
+                }
+                ti = ti + 1;
+            }
+            
+            // 参数类型
+            var pi: i32 = 0;
+            while pi < decl.fn_decl_param_count {
+                if decl.fn_decl_params != null && decl.fn_decl_params[pi] != null {
+                    const param: &ASTNode = decl.fn_decl_params[pi];
+                    hash = hash_combine(hash, hash_string(param.var_decl_name));
+                    hash = hash_combine(hash, compute_type_hash(param.var_decl_type));
+                }
+                pi = pi + 1;
+            }
+            
+            // 返回类型
+            if decl.fn_decl_return_type != null {
+                hash = hash_combine(hash, compute_type_hash(decl.fn_decl_return_type));
+            }
+            
+            // 是否可变参数
+            if decl.fn_decl_is_varargs != 0 {
+                hash = hash_combine(hash, 12345);
+            }
+            
+            // 是否 extern
+            if decl.fn_decl_is_extern != 0 {
+                hash = hash_combine(hash, 54321);
+            }
+        } else if decl.type == ASTNodeType.AST_STRUCT_DECL {
+            // 结构体签名：名称 + 字段名和类型
+            hash = hash_combine(hash, hash_string(decl.struct_decl_name));
+            
+            // 类型参数
+            var ti: i32 = 0;
+            while ti < decl.struct_decl_type_param_count {
+                if decl.struct_decl_type_params != null {
+                    const tparam: &TypeParam = decl.struct_decl_type_params + ti;
+                    hash = hash_combine(hash, hash_string(tparam.name));
+                }
+                ti = ti + 1;
+            }
+            
+            // 字段
+            var fi: i32 = 0;
+            while fi < decl.struct_decl_field_count {
+                if decl.struct_decl_fields != null && decl.struct_decl_fields[fi] != null {
+                    const field: &ASTNode = decl.struct_decl_fields[fi];
+                    hash = hash_combine(hash, hash_string(field.var_decl_name));
+                    hash = hash_combine(hash, compute_type_hash(field.var_decl_type));
+                }
+                fi = fi + 1;
+            }
+        } else if decl.type == ASTNodeType.AST_ENUM_DECL {
+            // 枚举签名：名称 + 变体名称
+            hash = hash_combine(hash, hash_string(decl.enum_decl_name));
+            
+            var vi: i32 = 0;
+            while vi < decl.enum_decl_variant_count {
+                if decl.enum_decl_variants != null {
+                    const variant: &EnumVariant = decl.enum_decl_variants + vi;
+                    hash = hash_combine(hash, hash_string(variant.name));
+                    if variant.value != null {
+                        hash = hash_combine(hash, hash_string(variant.value));
+                    }
+                }
+                vi = vi + 1;
+            }
+        } else if decl.type == ASTNodeType.AST_UNION_DECL {
+            // 联合体签名：名称 + 变体名和类型
+            hash = hash_combine(hash, hash_string(decl.union_decl_name));
+            
+            var vi: i32 = 0;
+            while vi < decl.union_decl_variant_count {
+                if decl.union_decl_variants != null && decl.union_decl_variants[vi] != null {
+                    const variant: &ASTNode = decl.union_decl_variants[vi];
+                    hash = hash_combine(hash, hash_string(variant.var_decl_name));
+                    hash = hash_combine(hash, compute_type_hash(variant.var_decl_type));
+                }
+                vi = vi + 1;
+            }
+        } else if decl.type == ASTNodeType.AST_TYPE_ALIAS {
+            // 类型别名签名：名称 + 目标类型
+            hash = hash_combine(hash, hash_string(decl.type_alias_name));
+            hash = hash_combine(hash, compute_type_hash(decl.type_alias_target_type));
+        } else if decl.type == ASTNodeType.AST_VAR_DECL || decl.type == ASTNodeType.AST_EXTERN_VAR_DECL {
+            // 变量签名：名称 + 类型（不包含初始化值）
+            if decl.type == ASTNodeType.AST_VAR_DECL {
+                hash = hash_combine(hash, hash_string(decl.var_decl_name));
+                hash = hash_combine(hash, compute_type_hash(decl.var_decl_type));
+                if decl.var_decl_is_const != 0 {
+                    hash = hash_combine(hash, 999);
+                }
+            } else {
+                hash = hash_combine(hash, hash_string(decl.extern_var_decl_name));
+                hash = hash_combine(hash, compute_type_hash(decl.extern_var_decl_var_type));
+                if decl.extern_var_decl_is_const != 0 {
+                    hash = hash_combine(hash, 998);
+                }
+            }
+        } else if decl.type == ASTNodeType.AST_INTERFACE_DECL {
+            // 接口签名：名称 + 方法签名
+            hash = hash_combine(hash, hash_string(decl.interface_decl_name));
+            
+            // 类型参数
+            var ti: i32 = 0;
+            while ti < decl.interface_decl_type_param_count {
+                if decl.interface_decl_type_params != null {
+                    const tparam: &TypeParam = decl.interface_decl_type_params + ti;
+                    hash = hash_combine(hash, hash_string(tparam.name));
+                }
+                ti = ti + 1;
+            }
+            
+            // 方法签名
+            var mi: i32 = 0;
+            while mi < decl.interface_decl_method_sig_count {
+                if decl.interface_decl_method_sigs != null && decl.interface_decl_method_sigs[mi] != null {
+                    const method: &ASTNode = decl.interface_decl_method_sigs[mi];
+                    hash = hash_combine(hash, compute_fn_sig_hash(method));
+                }
+                mi = mi + 1;
+            }
+        } else if decl.type == ASTNodeType.AST_ERROR_DECL {
+            // 错误声明签名：名称
+            hash = hash_combine(hash, hash_string(decl.error_decl_name));
+        } else if decl.type == ASTNodeType.AST_MACRO_DECL {
+            // 宏签名：名称 + 参数 + 返回类型标签
+            hash = hash_combine(hash, hash_string(decl.macro_decl_name));
+            hash = hash_combine(hash, hash_string(decl.macro_decl_return_tag));
+            
+            var pi: i32 = 0;
+            while pi < decl.macro_decl_param_count {
+                if decl.macro_decl_params != null && decl.macro_decl_params[pi] != null {
+                    const param: &ASTNode = decl.macro_decl_params[pi];
+                    hash = hash_combine(hash, hash_string(param.var_decl_name));
+                }
+                pi = pi + 1;
+            }
+        }
+        
+        i = i + 1;
+    }
+    
+    return hash;
+}
+
+// 计算类型节点的哈希
+fn compute_type_hash(type_node: &ASTNode) i64 {
+    if type_node == null {
+        return 0;
+    }
+    
+    var hash: i64 = 0;
+    
+    if type_node.type == ASTNodeType.AST_TYPE_NAMED {
+        hash = hash_combine(hash, 1);  // 类型标记
+        hash = hash_combine(hash, hash_string(type_node.type_named_name));
+    } else if type_node.type == ASTNodeType.AST_TYPE_POINTER {
+        hash = hash_combine(hash, 2);  // 指针标记
+        hash = hash_combine(hash, compute_type_hash(type_node.type_pointer_pointed_type));
+    } else if type_node.type == ASTNodeType.AST_TYPE_ARRAY {
+        hash = hash_combine(hash, 3);  // 数组标记
+        hash = hash_combine(hash, compute_type_hash(type_node.type_array_element_type));
+        // 数组大小：尝试从 size_expr 计算常量值
+        if type_node.type_array_size_expr != null {
+            hash = hash_combine(hash, compute_expr_const_value_hash(type_node.type_array_size_expr));
+        }
+    } else if type_node.type == ASTNodeType.AST_TYPE_SLICE {
+        hash = hash_combine(hash, 4);  // 切片标记
+        hash = hash_combine(hash, compute_type_hash(type_node.type_slice_element_type));
+    } else if type_node.type == ASTNodeType.AST_TYPE_TUPLE {
+        hash = hash_combine(hash, 5);  // 元组标记
+        var ti: i32 = 0;
+        while ti < type_node.type_tuple_element_count {
+            if type_node.type_tuple_element_types != null && type_node.type_tuple_element_types[ti] != null {
+                hash = hash_combine(hash, compute_type_hash(type_node.type_tuple_element_types[ti]));
+            }
+            ti = ti + 1;
+        }
+    } else if type_node.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+        hash = hash_combine(hash, 6);  // 错误联合标记
+        hash = hash_combine(hash, compute_type_hash(type_node.type_error_union_payload_type));
+    } else if type_node.type == ASTNodeType.AST_TYPE_ATOMIC {
+        hash = hash_combine(hash, 7);  // 原子类型标记
+        hash = hash_combine(hash, compute_type_hash(type_node.type_atomic_inner_type));
+    }
+    
+    return hash;
+}
+
+// 计算表达式的常量值哈希（用于数组大小等）
+fn compute_expr_const_value_hash(expr: &ASTNode) i64 {
+    if expr == null {
+        return 0;
+    }
+    
+    if expr.type == ASTNodeType.AST_NUMBER {
+        return expr.number_value as i64;
+    } else if expr.type == ASTNodeType.AST_UNARY_EXPR {
+        // 处理负数
+        const op: i32 = expr.unary_expr_op;
+        if op == 45 {  // '-' 的 ASCII 码
+            const inner: i64 = compute_expr_const_value_hash(expr.unary_expr_operand);
+            return 0 - inner;
+        }
+        return compute_expr_const_value_hash(expr.unary_expr_operand);
+    }
+    
+    return hash_string("unknown" as &byte);
+}
+
+// 计算函数签名的哈希（用于接口方法）
+fn compute_fn_sig_hash(fn_node: &ASTNode) i64 {
+    if fn_node == null {
+        return 0;
+    }
+    
+    var hash: i64 = 0;
+    
+    // 函数名
+    hash = hash_combine(hash, hash_string(fn_node.fn_decl_name));
+    
+    // 参数
+    var pi: i32 = 0;
+    while pi < fn_node.fn_decl_param_count {
+        if fn_node.fn_decl_params != null && fn_node.fn_decl_params[pi] != null {
+            const param: &ASTNode = fn_node.fn_decl_params[pi];
+            hash = hash_combine(hash, hash_string(param.var_decl_name));
+            hash = hash_combine(hash, compute_type_hash(param.var_decl_type));
+        }
+        pi = pi + 1;
+    }
+    
+    // 返回类型
+    if fn_node.fn_decl_return_type != null {
+        hash = hash_combine(hash, compute_type_hash(fn_node.fn_decl_return_type));
+    }
+    
+    return hash;
 }
 
 // 对路径指针数组按字符串排序（与 C 编译器 qsort 一致，保证自举比对顺序）
@@ -1562,23 +1868,113 @@ fn compile_files(
                         fprintf(libc.stderr, "没有检测到文件变更，跳过编译\n" as *byte);
                         return 0;  // 无变更，跳过编译
                     } else {
-                        // 使用依赖传播计算需要重编的所有文件
+                        // 解析变更文件，计算新接口哈希
+                        var new_hashes: [i64: MAX_CACHED_FILES] = [];
+                        var hash_arena: Arena = Arena { buffer: null, size: 0 as usize, offset: 0 as usize };
+                        var hash_arena_buffer: [byte: 1024 * 1024] = [];  // 1MB 临时缓冲区
+                        arena_init(&hash_arena, &hash_arena_buffer[0], 1024 * 1024 as usize);
+                        
+                        var hi: i32 = 0;
+                        while hi < changed_count {
+                            const chg_file: &byte = changed_files[hi];
+                            if chg_file != null {
+                                // 读取文件内容
+                                var chg_buffer: [byte: 1024 * 512] = [];  // 512KB
+                                const chg_size: i32 = read_file_content(chg_file, &chg_buffer[0], 512 * 1024 as usize);
+                                if chg_size > 0 {
+                                    // 初始化临时 lexer 和 parser
+                                    var chg_lexer: Lexer = Lexer { buffer: [], buffer_size: 0 as usize, position: 0 as usize, line: 0, column: 0, filename: null, has_error: 0 };
+                                    if lexer_init(&chg_lexer, &chg_buffer[0], chg_size as usize, chg_file, &hash_arena) == 0 {
+                                        var chg_parser: Parser = Parser { lexer: null, current_token: null, arena: null, context: ParserContext.PARSER_CONTEXT_NORMAL };
+                                        if parser_init(&chg_parser, &chg_lexer, &hash_arena) == 0 {
+                                            const chg_ast: &ASTNode = parser_parse(&chg_parser);
+                                            if chg_ast != null && chg_ast.type == ASTNodeType.AST_PROGRAM {
+                                                // 计算新接口哈希
+                                                new_hashes[hi] = compute_interface_hash(chg_ast, &hash_arena);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            hi = hi + 1;
+                            // 重置 arena 供下次使用
+                            hash_arena.offset = 0 as usize;
+                        }
+                        
+                        // 检测接口变化 vs 实现变化
+                        var interface_changed: [&byte: MAX_CACHED_FILES] = [];
+                        var interface_changed_count: i32 = 0;
+                        var impl_only_changed: [&byte: MAX_CACHED_FILES] = [];
+                        var impl_only_changed_count: i32 = 0;
+                        
+                        detect_interface_changes(
+                            &incr_cache,
+                            &changed_files[0],
+                            changed_count,
+                            &interface_changed[0],
+                            &interface_changed_count,
+                            &impl_only_changed[0],
+                            &impl_only_changed_count,
+                            &new_hashes[0]
+                        );
+                        
+                        // 更新缓存中的接口哈希
+                        hi = 0;
+                        while hi < changed_count {
+                            if changed_files[hi] != null {
+                                dep_cache_update_interface_hash(&incr_cache, changed_files[hi], new_hashes[hi]);
+                            }
+                            hi = hi + 1;
+                        }
+                        
+                        // 构建最终需要重编的文件列表
                         var all_changed: [&byte: MAX_CACHED_FILES] = [];
                         var all_changed_count: i32 = 0;
-                        if propagate_dependencies(&incr_cache, &all_changed[0], &all_changed_count, MAX_CACHED_FILES, &changed_files[0], changed_count) == 0 {
-                            fprintf(libc.stderr, "检测到 %d 个文件变更，依赖传播后需重编 %d 个文件:\n" as *byte, changed_count, all_changed_count);
-                            var ci: i32 = 0;
-                            while ci < all_changed_count {
-                                fprintf(libc.stderr, "  %s\n" as *byte, all_changed[ci] as *byte);
-                                ci = ci + 1;
+                        
+                        // 仅实现变化的文件只需重编自己
+                        hi = 0;
+                        while hi < impl_only_changed_count {
+                            if all_changed_count < MAX_CACHED_FILES {
+                                all_changed[all_changed_count] = impl_only_changed[hi];
+                                all_changed_count = all_changed_count + 1;
                             }
-                        } else {
-                            fprintf(libc.stderr, "检测到 %d 个文件变更:\n" as *byte, changed_count);
-                            var ci: i32 = 0;
-                            while ci < changed_count {
-                                fprintf(libc.stderr, "  %s\n" as *byte, changed_files[ci] as *byte);
-                                ci = ci + 1;
+                            hi = hi + 1;
+                        }
+                        
+                        // 接口变化的文件需要传播依赖
+                        if interface_changed_count > 0 {
+                            var propagated: [&byte: MAX_CACHED_FILES] = [];
+                            var propagated_count: i32 = 0;
+                            propagate_dependencies(&incr_cache, &propagated[0], &propagated_count, MAX_CACHED_FILES, &interface_changed[0], interface_changed_count);
+                            
+                            // 合并传播结果（去重）
+                            hi = 0;
+                            while hi < propagated_count {
+                                var already_added: i32 = 0;
+                                var aj: i32 = 0;
+                                while aj < all_changed_count {
+                                    if all_changed[aj] != null && propagated[hi] != null && 
+                                       strcmp(all_changed[aj] as *byte, propagated[hi] as *byte) == 0 {
+                                        already_added = 1;
+                                        break;
+                                    }
+                                    aj = aj + 1;
+                                }
+                                if already_added == 0 && all_changed_count < MAX_CACHED_FILES {
+                                    all_changed[all_changed_count] = propagated[hi];
+                                    all_changed_count = all_changed_count + 1;
+                                }
+                                hi = hi + 1;
                             }
+                        }
+                        
+                        fprintf(libc.stderr, "检测到 %d 个文件变更 (接口变化: %d, 仅实现变化: %d)\n" as *byte, 
+                                changed_count, interface_changed_count, impl_only_changed_count);
+                        fprintf(libc.stderr, "需要重编 %d 个文件:\n" as *byte, all_changed_count);
+                        var ci: i32 = 0;
+                        while ci < all_changed_count {
+                            fprintf(libc.stderr, "  %s\n" as *byte, all_changed[ci] as *byte);
+                            ci = ci + 1;
                         }
                     }
                 }
