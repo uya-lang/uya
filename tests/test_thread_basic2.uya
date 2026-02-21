@@ -1,0 +1,134 @@
+// test_thread_basic2.uya - 基础线程测试
+// 直接使用 pthread API 验证线程功能
+
+use libc.pthread;
+use libc.pthread_t;
+use libc.pthread_mutex_init;
+use libc.pthread_mutex_destroy;
+use libc.pthread_mutex_lock;
+use libc.pthread_mutex_unlock;
+use libc.pthread_create;
+use libc.pthread_join;
+use libc.pthread_cond_init;
+use libc.pthread_cond_destroy;
+use libc.pthread_cond_wait;
+use libc.pthread_cond_signal;
+use libc.pthread_cond_broadcast;
+use std.testing.assert;
+
+// 共享数据
+var counter: i32 = 0;
+var mutex_storage: [byte: 64] = [];
+var cond_storage: [byte: 64] = [];
+var completed_count: i32 = 0;
+
+// 线程函数：增加计数器
+fn worker_thread(arg: &void) &void {
+    pthread_mutex_lock(mutex_storage as *void);
+    counter = counter + 1;
+    completed_count = completed_count + 1;
+    pthread_cond_signal(cond_storage as *void);
+    pthread_mutex_unlock(mutex_storage as *void);
+    return null;
+}
+
+test "thread_create_and_join" {
+    // 初始化同步原语（传递地址，pthread_mutex_init 需要 **void）
+    pthread_mutex_init(&mutex_storage, null);
+    pthread_cond_init(&cond_storage, null);
+    
+    counter = 0;
+    completed_count = 0;
+    
+    // 创建 4 个线程
+    var threads: [pthread_t: 4] = [];
+    var i: i32 = 0;
+    while i < 4 {
+        pthread_create(&threads[i], null, worker_thread as *void, null);
+        i = i + 1;
+    }
+    
+    // 等待所有线程完成
+    pthread_mutex_lock(mutex_storage as *void);
+    while completed_count < 4 {
+        pthread_cond_wait(cond_storage as *void, mutex_storage as *void);
+    }
+    pthread_mutex_unlock(mutex_storage as *void);
+    
+    // 验证结果
+    try assert(counter == 4, "counter should be 4");
+    
+    // 等待线程结束（资源清理）
+    i = 0;
+    while i < 4 {
+        pthread_join(threads[i], null);
+        i = i + 1;
+    }
+    
+    // 销毁同步原语
+    pthread_mutex_destroy(&mutex_storage);
+    pthread_cond_destroy(&cond_storage);
+}
+
+// 线程参数结构
+struct ThreadArg {
+    value: i32,
+    result_ptr: &i32,
+}
+
+// 带参数的线程函数
+fn adder_thread(arg: &void) &void {
+    const ctx: &ThreadArg = arg as &ThreadArg;
+    const value: i32 = ctx.value;
+    const result_ptr: &i32 = ctx.result_ptr;
+    
+    pthread_mutex_lock(mutex_storage as *void);
+    result_ptr[0] = result_ptr[0] + value;
+    completed_count = completed_count + 1;
+    pthread_cond_signal(cond_storage as *void);
+    pthread_mutex_unlock(mutex_storage as *void);
+    
+    return null;
+}
+
+test "thread_parallel_computation" {
+    // 初始化同步原语
+    pthread_mutex_init(&mutex_storage, null);
+    pthread_cond_init(&cond_storage, null);
+    
+    completed_count = 0;
+    var total: i32 = 0;
+    
+    // 创建线程参数
+    var args: [ThreadArg: 4] = [];
+    var threads: [pthread_t: 4] = [];
+    
+    var i: i32 = 0;
+    while i < 4 {
+        args[i].value = (i + 1) * 10;  // 10, 20, 30, 40
+        args[i].result_ptr = &total;
+        pthread_create(&threads[i], null, adder_thread as *void, &args[i] as *void);
+        i = i + 1;
+    }
+    
+    // 等待所有线程完成
+    pthread_mutex_lock(mutex_storage as *void);
+    while completed_count < 4 {
+        pthread_cond_wait(cond_storage as *void, mutex_storage as *void);
+    }
+    pthread_mutex_unlock(mutex_storage as *void);
+    
+    // 验证结果：10 + 20 + 30 + 40 = 100
+    try assert(total == 100, "total should be 100");
+    
+    // 等待线程结束
+    i = 0;
+    while i < 4 {
+        pthread_join(threads[i], null);
+        i = i + 1;
+    }
+    
+    // 销毁同步原语
+    pthread_mutex_destroy(&mutex_storage);
+    pthread_cond_destroy(&cond_storage);
+}

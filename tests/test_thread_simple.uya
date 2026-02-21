@@ -1,0 +1,81 @@
+// test_thread_simple.uya - 简单线程测试
+// 直接打印验证线程功能
+
+use libc.pthread;
+use libc.pthread_t;
+use libc.pthread_mutex_init;
+use libc.pthread_mutex_destroy;
+use libc.pthread_mutex_lock;
+use libc.pthread_mutex_unlock;
+use libc.pthread_create;
+use libc.pthread_join;
+use libc.pthread_cond_init;
+use libc.pthread_cond_destroy;
+use libc.pthread_cond_wait;
+use libc.pthread_cond_signal;
+use libc.printf;
+
+// 共享数据
+var counter: i32 = 0;
+var mutex_storage: [byte: 64] = [];
+var cond_storage: [byte: 64] = [];
+var completed_count: i32 = 0;
+
+// 线程函数：增加计数器
+fn worker_thread(arg: &void) &void {
+    pthread_mutex_lock(mutex_storage as *void);
+    counter = counter + 1;
+    completed_count = completed_count + 1;
+    pthread_cond_signal(cond_storage as *void);
+    pthread_mutex_unlock(mutex_storage as *void);
+    return null;
+}
+
+fn main() i32 {
+    printf("Starting thread test...\n" as *byte);
+    
+    // 初始化同步原语
+    pthread_mutex_init(&mutex_storage, null);
+    pthread_cond_init(&cond_storage, null);
+    
+    counter = 0;
+    completed_count = 0;
+    
+    // 创建 4 个线程
+    var threads: [pthread_t: 4] = [];
+    var i: i32 = 0;
+    while i < 4 {
+        printf("Creating thread %d\n" as *byte, i);
+        pthread_create(&threads[i], null, worker_thread as *void, null);
+        i = i + 1;
+    }
+    
+    // 等待所有线程完成
+    pthread_mutex_lock(mutex_storage as *void);
+    while completed_count < 4 {
+        pthread_cond_wait(cond_storage as *void, mutex_storage as *void);
+    }
+    pthread_mutex_unlock(mutex_storage as *void);
+    
+    printf("All threads completed\n" as *byte);
+    printf("Counter value: %d (expected: 4)\n" as *byte, counter);
+    
+    // 等待线程结束
+    i = 0;
+    while i < 4 {
+        pthread_join(threads[i], null);
+        i = i + 1;
+    }
+    
+    // 销毁同步原语
+    pthread_mutex_destroy(&mutex_storage);
+    pthread_cond_destroy(&cond_storage);
+    
+    if counter == 4 {
+        printf("TEST PASSED\n" as *byte);
+        return 0;
+    } else {
+        printf("TEST FAILED: counter=%d\n" as *byte, counter);
+        return 1;
+    }
+}

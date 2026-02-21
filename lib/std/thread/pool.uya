@@ -1,0 +1,201 @@
+// pool.uya - 线程池实现
+// 用于并行任务的线程管理
+
+use libc.pthread;
+use libc.pthread_t;
+use libc.pthread_mutex_t;
+use libc.pthread_cond_t;
+
+// ============================================================
+// 简单线程池
+// ============================================================
+
+// 最大线程数
+export const MAX_THREADS: i32 = 16;
+
+// 任务函数类型（使用 &void 引用类型，而非 FFI *void）
+export type TaskFn = fn(&void) void;
+
+// 任务结构
+export type Task = struct {
+    fn_ptr: TaskFn,
+    arg: &void,
+    next: &Task,
+}
+
+// 线程池结构
+type ThreadPool = struct {
+    threads: [pthread_t: MAX_THREADS],
+    thread_count: i32,
+    
+    // 任务队列
+    task_queue_head: &Task,
+    task_queue_tail: &Task,
+    
+    // 同步原语存储
+    mutex_storage: [byte: 64],
+    cond_storage: [byte: 64],
+    
+    // 状态
+    shutdown: i32,
+    active_tasks: i32,
+}
+
+// 全局线程池实例
+var g_pool: ThreadPool = ThreadPool {
+    threads: [],
+    thread_count: 0,
+    task_queue_head: null,
+    task_queue_tail: null,
+    mutex_storage: [],
+    cond_storage: [],
+    shutdown: 0,
+    active_tasks: 0,
+};
+
+// 线程工作函数
+fn pool_worker(arg: *void) *void {
+    const pool: &ThreadPool = arg as &ThreadPool;
+    
+    while true {
+        // 加锁
+        pthread.pthread_mutex_lock(pool.mutex_storage as pthread_mutex_t);
+        
+        // 等待任务或关闭信号
+        while pool.task_queue_head == null && pool.shutdown == 0 {
+            pthread.pthread_cond_wait(pool.cond_storage as pthread_cond_t, pool.mutex_storage as pthread_mutex_t);
+        }
+        
+        // 检查关闭
+        if pool.shutdown != 0 {
+            pthread.pthread_mutex_unlock(pool.mutex_storage as pthread_mutex_t);
+            return null;
+        }
+        
+        // 取出任务
+        const task: &Task = pool.task_queue_head;
+        if task != null {
+            pool.task_queue_head = task.next;
+            if pool.task_queue_head == null {
+                pool.task_queue_tail = null;
+            }
+            pool.active_tasks = pool.active_tasks + 1;
+        }
+        
+        // 解锁
+        pthread.pthread_mutex_unlock(pool.mutex_storage as pthread_mutex_t);
+        
+        // 执行任务
+        if task != null {
+            const fn_ptr: TaskFn = task.fn_ptr;
+            const task_arg: &void = task.arg;
+            fn_ptr(task_arg);
+            
+            // 任务完成
+            pthread.pthread_mutex_lock(pool.mutex_storage as pthread_mutex_t);
+            pool.active_tasks = pool.active_tasks - 1;
+            // 通知等待者
+            pthread.pthread_cond_broadcast(pool.cond_storage as pthread_cond_t);
+            pthread.pthread_mutex_unlock(pool.mutex_storage as pthread_mutex_t);
+        }
+    }
+    
+    return null;
+}
+
+// 初始化线程池
+export fn pool_init(num_threads: i32) i32 {
+    if num_threads <= 0 || num_threads > MAX_THREADS {
+        return -1;
+    }
+    
+    const pool: &ThreadPool = &g_pool;
+    
+    // 初始化互斥锁和条件变量
+    pthread.pthread_mutex_init(pool.mutex_storage as *pthread_mutex_t, null);
+    pthread.pthread_cond_init(pool.cond_storage as *pthread_cond_t, null);
+    
+    pool.thread_count = num_threads;
+    pool.task_queue_head = null;
+    pool.task_queue_tail = null;
+    pool.shutdown = 0;
+    pool.active_tasks = 0;
+    
+    // 创建工作线程
+    var i: i32 = 0;
+    while i < num_threads {
+        const result: i32 = pthread.pthread_create(&pool.threads[i], null, pool_worker as *void, pool as *void);
+        if result != 0 {
+            // 创建失败，关闭已创建的线程
+            pool.shutdown = 1;
+            pthread.pthread_cond_broadcast(pool.cond_storage as pthread_cond_t);
+            var j: i32 = 0;
+            while j < i {
+                pthread.pthread_join(pool.threads[j], null);
+                j = j + 1;
+            }
+            return -1;
+        }
+        i = i + 1;
+    }
+    
+    return 0;
+}
+
+// 提交任务（使用外部分配的任务结构）
+export fn pool_submit(task: &Task) i32 {
+    if task == null {
+        return -1;
+    }
+    
+    const pool: &ThreadPool = &g_pool;
+    
+    pthread.pthread_mutex_lock(pool.mutex_storage as pthread_mutex_t);
+    
+    task.next = null;
+    if pool.task_queue_tail == null {
+        pool.task_queue_head = task;
+        pool.task_queue_tail = task;
+    } else {
+        pool.task_queue_tail.next = task;
+        pool.task_queue_tail = task;
+    }
+    
+    // 唤醒一个工作线程
+    pthread.pthread_cond_signal(pool.cond_storage as pthread_cond_t);
+    pthread.pthread_mutex_unlock(pool.mutex_storage as pthread_mutex_t);
+    
+    return 0;
+}
+
+// 等待所有任务完成
+export fn pool_wait() void {
+    const pool: &ThreadPool = &g_pool;
+    
+    pthread.pthread_mutex_lock(pool.mutex_storage as pthread_mutex_t);
+    while pool.task_queue_head != null || pool.active_tasks > 0 {
+        pthread.pthread_cond_wait(pool.cond_storage as pthread_cond_t, pool.mutex_storage as pthread_mutex_t);
+    }
+    pthread.pthread_mutex_unlock(pool.mutex_storage as pthread_mutex_t);
+}
+
+// 关闭线程池
+export fn pool_shutdown() void {
+    const pool: &ThreadPool = &g_pool;
+    
+    pthread.pthread_mutex_lock(pool.mutex_storage as pthread_mutex_t);
+    pool.shutdown = 1;
+    pthread.pthread_cond_broadcast(pool.cond_storage as pthread_cond_t);
+    pthread.pthread_mutex_unlock(pool.mutex_storage as pthread_mutex_t);
+    
+    // 等待所有线程结束
+    var i: i32 = 0;
+    while i < pool.thread_count {
+        pthread.pthread_join(pool.threads[i], null);
+        i = i + 1;
+    }
+    
+    // 销毁同步原语
+    pthread.pthread_mutex_destroy(pool.mutex_storage as *pthread_mutex_t);
+    pthread.pthread_cond_destroy(pool.cond_storage as *pthread_cond_t);
+}
