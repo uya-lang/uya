@@ -20,6 +20,7 @@ use libc.waitpid;
 use libc.unlink;
 use libc.WNOHANG;
 use libc.environ;
+use libc._exit;
 
 // 后端类型
 enum BackendType {
@@ -259,6 +260,7 @@ fn print_usage(program_name: &byte) void {
     fprintf(libc.stderr, "  --static             静态链接所有依赖\n" as *byte);
     fprintf(libc.stderr, "  --multi-file         多文件输出模式（每个 .uya 生成独立 .c 文件）\n" as *byte);
     fprintf(libc.stderr, "  --incremental        增量编译模式（只重编修改的文件）\n" as *byte);
+    fprintf(libc.stderr, "  --parallel           并行编译模式（多进程并行代码生成）\n" as *byte);
     fprintf(libc.stderr, "\n说明:\n" as *byte);
     fprintf(libc.stderr, "  - 可以指定单个文件或目录，编译器会自动解析模块依赖\n" as *byte);
     fprintf(libc.stderr, "  - 如果指定目录，目录中必须只有一个文件包含 main 函数\n" as *byte);
@@ -1404,7 +1406,8 @@ fn parse_args(
     is_nostdlib: &i32,
     is_static: &i32,
     is_multi_file: &i32,
-    is_incremental: &i32
+    is_incremental: &i32,
+    is_parallel: &i32
 ) i32 {
     const argc: i32 = get_argc();
     if argc < 2 {
@@ -1428,6 +1431,7 @@ fn parse_args(
     is_static[0] = 0;
     is_multi_file[0] = 0;
     is_incremental[0] = 0;
+    is_parallel[0] = 0;
 
     // 检测子命令
     const first_arg: *byte = get_argv(1);
@@ -1489,6 +1493,10 @@ fn parse_args(
         } else if strcmp(arg, "--incremental" as *byte) == 0 {
             is_incremental[0] = 1;
             is_multi_file[0] = 1;  // 增量编译需要多文件模式
+            backend_type[0] = BackendType.BACKEND_C99;
+        } else if strcmp(arg, "--parallel" as *byte) == 0 {
+            is_parallel[0] = 1;
+            is_multi_file[0] = 1;  // 并行编译需要多文件模式
             backend_type[0] = BackendType.BACKEND_C99;
         } else if strcmp(arg, "--outlibc" as *byte) == 0 {
             if i + 1 < argc {
@@ -1555,6 +1563,7 @@ fn parse_args(
 // is_nostdlib: 生成 _start 入口（无 C 标准库链接）
 // is_multi_file: 多文件输出模式（每个 .uya 生成独立 .c 文件）
 // is_incremental: 增量编译模式（只重编修改的文件）
+// is_parallel: 并行编译模式（多进程并行代码生成）
 fn compile_files(
     input_file_indices: &i32,
     input_file_count: i32,
@@ -1565,7 +1574,8 @@ fn compile_files(
     output_path_override: &byte,
     is_nostdlib: i32,
     is_multi_file: i32,
-    is_incremental: i32
+    is_incremental: i32,
+    is_parallel: i32
 ) i32 {
     
     // 初始化临时 Arena（用于依赖收集，使用全局缓冲区避免栈溢出）
@@ -2321,8 +2331,111 @@ fn compile_files(
         }
         
         fprintf(libc.stderr, "用户源文件数量: %d\n" as *byte, user_file_count);
-        
-        // 为每个用户文件生成独立的 C 文件
+
+        // 并行模式：使用多进程并行生成 C 文件
+        if is_parallel != 0 && user_file_count > 1 {
+            fprintf(libc.stderr, "=== 并行代码生成模式 ===\n" as *byte);
+            var child_pids: [i32: MAX_INPUT_FILES] = [];
+            var child_count: i32 = 0;
+            var parallel_errors: i32 = 0;
+
+            // 为每个文件 fork 子进程
+            var pfile_idx: i32 = 0;
+            while pfile_idx < user_file_count {
+                const src_idx: i32 = user_file_indices[pfile_idx];
+                const src_path: &byte = all_files[src_idx];
+
+                // 从源文件名生成 C 文件名
+                var pc_filename: [byte: PATH_MAX] = [];
+                var pbasename_start: i32 = 0;
+                var pbasename_len: i32 = 0;
+
+                const plast_slash_ptr: *byte = strrchr(src_path as *byte, 47);
+                if plast_slash_ptr != null {
+                    pbasename_start = (plast_slash_ptr as i64 - src_path as i64 + 1) as i32;
+                }
+                var ppos: i32 = pbasename_start;
+                while src_path[ppos] != 0 as byte && src_path[ppos] != 46 as byte {
+                    pc_filename[pbasename_len] = src_path[ppos];
+                    pbasename_len = pbasename_len + 1;
+                    ppos = ppos + 1;
+                }
+                pc_filename[pbasename_len] = 46 as byte;
+                pc_filename[pbasename_len + 1] = 99 as byte;
+                pc_filename[pbasename_len + 2] = 0 as byte;
+
+                var pc_output_path: [byte: PATH_MAX] = [];
+                snprintf(&pc_output_path[0], PATH_MAX, "%s/%s" as *byte, &output_dir[0] as &byte, &pc_filename[0] as &byte);
+
+                const pid: i32 = fork();
+                if pid < 0 {
+                    fprintf(libc.stderr, "错误: fork 失败\n" as *byte);
+                    return 1;
+                }
+
+                if pid == 0 {
+                    // 子进程：生成单个 C 文件
+                    const pc_out_file: *void = fopen(&pc_output_path[0], "w" as *byte);
+                    if pc_out_file == null {
+                        _exit(1);
+                    }
+
+                    fprintf(pc_out_file as &FILE, "// C99 代码由 Uya 编译器生成\n" as *byte);
+                    fprintf(pc_out_file as &FILE, "// 源文件: %s\n" as *byte, src_path as *byte);
+                    fprintf(pc_out_file as &FILE, "#include \"uya_types.h\"\n\n" as *byte);
+
+                    var pfile_codegen: C99CodeGenerator = C99CodeGenerator { };
+                    if c99_codegen_new(&pfile_codegen, &arena, pc_out_file, src_path, emit_line_directives, is_nostdlib) != 0 {
+                        fclose(pc_out_file);
+                        _exit(1);
+                    }
+                    pfile_codegen.program_node = merged_ast;
+                    pfile_codegen.is_multi_file_mode = 1;
+                    pfile_codegen.current_source_file = src_path;
+                    c99_codegen_set_mono_instances(&pfile_codegen, &checker);
+
+                    if c99_codegen_generate(&pfile_codegen, merged_ast, &pc_output_path[0] as &byte) != 0 {
+                        c99_codegen_free(&pfile_codegen);
+                        fclose(pc_out_file);
+                        _exit(1);
+                    }
+
+                    c99_codegen_free(&pfile_codegen);
+                    fclose(pc_out_file);
+                    _exit(0);
+                }
+
+                // 父进程：记录子进程 PID
+                child_pids[child_count] = pid;
+                child_count = child_count + 1;
+                pfile_idx = pfile_idx + 1;
+            }
+
+            // 等待所有子进程完成
+            var wait_i: i32 = 0;
+            while wait_i < child_count {
+                var status: i32 = 0;
+                const wait_res: i32 = waitpid(child_pids[wait_i], &status, 0);
+                if wait_res < 0 {
+                    parallel_errors = parallel_errors + 1;
+                } else if (status & 0x7f) != 0 {
+                    parallel_errors = parallel_errors + 1;
+                } else {
+                    const exit_code: i32 = (status >> 8) & 0xff;
+                    if exit_code != 0 {
+                        parallel_errors = parallel_errors + 1;
+                    }
+                }
+                wait_i = wait_i + 1;
+            }
+
+            if parallel_errors > 0 {
+                fprintf(libc.stderr, "错误: 并行代码生成失败 (%d 个文件)\n" as *byte, parallel_errors);
+                return 1;
+            }
+            fprintf(libc.stderr, "并行代码生成完成: %d 个文件\n" as *byte, user_file_count);
+        } else {
+            // 串行模式：为每个用户文件生成独立的 C 文件
         var file_idx: i32 = 0;
         while file_idx < user_file_count {
             const src_idx: i32 = user_file_indices[file_idx];
@@ -2390,8 +2503,9 @@ fn compile_files(
             c99_codegen_free(&file_codegen);
             fclose(c_out_file);
             file_idx = file_idx + 1;
+            }
         }
-        
+
         // 为标准库文件生成 _stdlib.c（包含 C main 等）
         var stdlib_file_count: i32 = 0;
         var stdlib_file_indices: [i32: MAX_INPUT_FILES] = [];
@@ -2520,11 +2634,12 @@ export fn main() i32 {
     var is_static: i32 = 0;
     var is_multi_file: i32 = 0;
     var is_incremental: i32 = 0;
+    var is_parallel: i32 = 0;
     
     // 临时缓冲区用于自动生成输出路径
     var auto_output_path: [byte: PATH_MAX] = [];
 
-    if parse_args(&command, &input_file_indices[0], &input_file_count, &output_file_index, &backend, &emit_line_directives, &enable_safety_proof, &outlibc_index, &run_arg_start, &is_nostdlib, &is_static, &is_multi_file, &is_incremental) != 0 {
+    if parse_args(&command, &input_file_indices[0], &input_file_count, &output_file_index, &backend, &emit_line_directives, &enable_safety_proof, &outlibc_index, &run_arg_start, &is_nostdlib, &is_static, &is_multi_file, &is_incremental, &is_parallel) != 0 {
         return 1;
     }
 
@@ -2594,7 +2709,7 @@ export fn main() i32 {
         output_path_for_compile = &temp_c_path[0];
     }
 
-    const result: i32 = compile_files(&input_file_indices[0], input_file_count, output_file_index, backend, emit_line_directives, enable_safety_proof, output_path_for_compile, is_nostdlib, is_multi_file, is_incremental);
+    const result: i32 = compile_files(&input_file_indices[0], input_file_count, output_file_index, backend, emit_line_directives, enable_safety_proof, output_path_for_compile, is_nostdlib, is_multi_file, is_incremental, is_parallel);
     if result != 0 {
         return result;
     }
