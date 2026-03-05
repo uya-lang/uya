@@ -1,0 +1,168 @@
+// dispatcher.uya - Uya 工具链主入口（转发器）
+// 职责：解析子命令，转发到对应工具
+// 
+// 架构：
+//   uya build  -> uya-build (编译器)
+//   uya run    -> uya-run   (编译并运行)
+//   uya test   -> uya-test  (测试运行器)
+//   uya fmt    -> uya-fmt   (格式化器)
+//
+// 当前状态：Phase 1 - 仅支持 build 子命令（转发到编译器核心）
+
+use libc;
+use libc.stdio;
+use libc.stdlib;
+use libc.string;
+use libc.unistd;
+
+const PATH_MAX: usize = 4096;
+const MAX_ARGS: i32 = 128;
+
+// 子命令定义
+const CMD_BUILD: i32 = 1;
+const CMD_RUN: i32 = 2;
+const CMD_TEST: i32 = 3;
+const CMD_FMT: i32 = 4;
+const CMD_HELP: i32 = 5;
+const CMD_VERSION: i32 = 6;
+
+// 打印版本信息
+fn print_version() void {
+    fprintf(libc.stderr, "Uya v0.7.4\n" as *byte);
+    fprintf(libc.stderr, "零GC系统编程语言工具链\n" as *byte);
+}
+
+// 打印使用说明
+fn print_usage(program_name: &byte) void {
+    var name: &byte = program_name;
+    if name == null { name = "uya" as *byte; }
+    
+    fprintf(libc.stderr, "Uya - 零GC系统编程语言工具链\n" as *byte);
+    fprintf(libc.stderr, "版本：v0.7.4\n" as *byte);
+    fprintf(libc.stderr, "\n用法:\n" as *byte);
+    fprintf(libc.stderr, "  %s <命令> [选项] [文件]\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "\n命令:\n" as *byte);
+    fprintf(libc.stderr, "  build    编译为可执行文件\n" as *byte);
+    fprintf(libc.stderr, "  run      编译并运行（开发中）\n" as *byte);
+    fprintf(libc.stderr, "  test     运行测试（开发中）\n" as *byte);
+    fprintf(libc.stderr, "  fmt      格式化代码（开发中）\n" as *byte);
+    fprintf(libc.stderr, "\n选项:\n" as *byte);
+    fprintf(libc.stderr, "  -h, --help     显示帮助信息\n" as *byte);
+    fprintf(libc.stderr, "  -v, --version  显示版本信息\n" as *byte);
+    fprintf(libc.stderr, "\n运行 '%s build --help' 获取编译选项\n" as *byte, name as *byte);
+}
+
+// 解析子命令
+fn parse_command(arg: &byte) i32 {
+    if arg == null { return 0; }
+    
+    if strcmp(arg as *byte, "build" as *byte) == 0 { return CMD_BUILD; }
+    if strcmp(arg as *byte, "run" as *byte) == 0 { return CMD_RUN; }
+    if strcmp(arg as *byte, "test" as *byte) == 0 { return CMD_TEST; }
+    if strcmp(arg as *byte, "fmt" as *byte) == 0 { return CMD_FMT; }
+    if strcmp(arg as *byte, "help" as *byte) == 0 { return CMD_HELP; }
+    if strcmp(arg as *byte, "version" as *byte) == 0 { return CMD_VERSION; }
+    
+    return 0;
+}
+
+// 检查是否是帮助或版本选项
+fn is_help_option(arg: &byte) i32 {
+    if arg == null { return 0; }
+    if strcmp(arg as *byte, "-h" as *byte) == 0 { return 1; }
+    if strcmp(arg as *byte, "--help" as *byte) == 0 { return 1; }
+    return 0;
+}
+
+fn is_version_option(arg: &byte) i32 {
+    if arg == null { return 0; }
+    if strcmp(arg as *byte, "-v" as *byte) == 0 { return 1; }
+    if strcmp(arg as *byte, "--version" as *byte) == 0 { return 1; }
+    return 0;
+}
+
+// 主函数 - 转发器入口
+export fn main() i32 {
+    const argc: i32 = get_argc();
+    
+    // 无参数：显示帮助
+    if argc < 2 {
+        var name: &byte = "uya" as *byte;
+        const argv0: *byte = get_argv(0);
+        if argv0 != null {
+            name = argv0 as &byte;
+        }
+        print_usage(name);
+        return 0;
+    }
+    
+    const first_arg: *byte = get_argv(1);
+    if first_arg == null {
+        fprintf(libc.stderr, "错误: 无法获取命令参数\n" as *byte);
+        return 1;
+    }
+    
+    // 检查帮助选项
+    if is_help_option(first_arg as &byte) != 0 {
+        var name: &byte = "uya" as *byte;
+        const argv0: *byte = get_argv(0);
+        if argv0 != null {
+            name = argv0 as &byte;
+        }
+        print_usage(name);
+        return 0;
+    }
+    
+    // 检查版本选项
+    if is_version_option(first_arg as &byte) != 0 {
+        print_version();
+        return 0;
+    }
+    
+    // 解析子命令
+    const cmd: i32 = parse_command(first_arg as &byte);
+    
+    if cmd == 0 {
+        fprintf(libc.stderr, "错误: 未知命令 '%s'\n" as *byte, first_arg);
+        fprintf(libc.stderr, "运行 'uya --help' 查看可用命令\n" as *byte);
+        return 1;
+    }
+    
+    if cmd == CMD_HELP {
+        var name: &byte = "uya" as *byte;
+        const argv0: *byte = get_argv(0);
+        if argv0 != null {
+            name = argv0 as &byte;
+        }
+        print_usage(name);
+        return 0;
+    }
+    
+    if cmd == CMD_VERSION {
+        print_version();
+        return 0;
+    }
+    
+    // 目前只实现 build 子命令
+    // 其他子命令返回"开发中"提示
+    if cmd == CMD_RUN {
+        fprintf(libc.stderr, "错误: 'run' 子命令开发中\n" as *byte);
+        fprintf(libc.stderr, "请使用 'uya build' 编译后手动运行\n" as *byte);
+        return 1;
+    }
+    
+    if cmd == CMD_TEST {
+        fprintf(libc.stderr, "错误: 'test' 子命令开发中\n" as *byte);
+        fprintf(libc.stderr, "请使用 'make tests-uya' 运行测试\n" as *byte);
+        return 1;
+    }
+    
+    if cmd == CMD_FMT {
+        fprintf(libc.stderr, "错误: 'fmt' 子命令开发中\n" as *byte);
+        return 1;
+    }
+    
+    // CMD_BUILD: 返回特殊退出码，告诉调用者需要调用编译器
+    // 退出码 42 表示需要调用编译器核心
+    return 42;
+}

@@ -1,0 +1,219 @@
+// config.uya - 编译配置模块
+// 职责：定义编译配置结构体和命令行参数解析
+// 供 uya-build, uya-run, uya-test 共享使用
+
+use libc;
+use libc.stdlib;
+use libc.string;
+
+// 优化级别
+enum OptLevel {
+    OPT_0,  // 禁用优化（调试模式）
+    OPT_1,  // 常量折叠 + 死代码消除（默认）
+    OPT_2,  // + 证明优化
+    OPT_3   // + 内联 + 循环展开
+}
+
+// 编译配置
+struct CompileConfig {
+    // 输入
+    input_files: &(&byte),      // 输入文件列表
+    input_count: i32,           // 输入文件数量
+    
+    // 输出
+    output_file: &byte,         // 输出文件名
+    output_c99: i32,            // 生成 C99 代码
+    
+    // 优化
+    opt_level: OptLevel,        // 优化级别
+    safety_proof: i32,          // 启用内存安全证明
+    nostdlib: i32,              // 无标准库模式
+    
+    // 代码生成
+    line_directives: i32,       // 生成 #line 指令
+    
+    // 其他
+    verbose: i32,               // 详细输出
+    stack_size: i32,            // 堆栈大小（KB）
+}
+
+// 默认配置
+export fn default_config() CompileConfig {
+    return CompileConfig {
+        input_files = null,
+        input_count = 0,
+        output_file = null,
+        output_c99 = 0,
+        opt_level = OptLevel.OPT_1,
+        safety_proof = 1,
+        nostdlib = 0,
+        line_directives = 0,
+        verbose = 0,
+        stack_size = 65536
+    };
+}
+
+// 解析命令行参数
+// 返回：0=成功，-1=失败
+export fn parse_args(
+    config: &CompileConfig,
+    argc: i32,
+    argv: &(&byte)
+) i32 {
+    if config == null || argv == null {
+        return -1;
+    }
+    
+    var input_list: [&byte: 64] = [];
+    var input_count: i32 = 0;
+    var output_file: &byte = null;
+    var opt_level: OptLevel = OptLevel.OPT_1;
+    var safety_proof: i32 = 1;
+    var nostdlib: i32 = 0;
+    var line_directives: i32 = 0;
+    var verbose: i32 = 0;
+    var stack_size: i32 = 65536;
+    
+    var i: i32 = 0;
+    while i < argc {
+        const arg: *byte = argv[i] as *byte;
+        if arg == null { break; }
+        
+        // 输出文件
+        if strcmp(arg, "-o" as *byte) == 0 {
+            if i + 1 < argc {
+                output_file = argv[i + 1] as &byte;
+                i = i + 2;
+                continue;
+            }
+        }
+        
+        // C99 后端
+        if strcmp(arg, "--c99" as *byte) == 0 {
+            output_c99 = 1;
+            i = i + 1;
+            continue;
+        }
+        
+        // 优化级别
+        if strcmp(arg, "--opt=0" as *byte) == 0 || strcmp(arg, "-O0" as *byte) == 0 {
+            opt_level = OptLevel.OPT_0;
+            i = i + 1;
+            continue;
+        }
+        if strcmp(arg, "--opt=1" as *byte) == 0 || strcmp(arg, "-O1" as *byte) == 0 {
+            opt_level = OptLevel.OPT_1;
+            i = i + 1;
+            continue;
+        }
+        if strcmp(arg, "--opt=2" as *byte) == 0 || strcmp(arg, "-O2" as *byte) == 0 {
+            opt_level = OptLevel.OPT_2;
+            i = i + 1;
+            continue;
+        }
+        if strcmp(arg, "--opt=3" as *byte) == 0 || strcmp(arg, "-O3" as *byte) == 0 {
+            opt_level = OptLevel.OPT_3;
+            i = i + 1;
+            continue;
+        }
+        
+        // 安全证明
+        if strcmp(arg, "--safety-proof" as *byte) == 0 {
+            safety_proof = 1;
+            i = i + 1;
+            continue;
+        }
+        if strcmp(arg, "--no-safety-proof" as *byte) == 0 {
+            safety_proof = 0;
+            i = i + 1;
+            continue;
+        }
+        
+        // 无标准库
+        if strcmp(arg, "--nostdlib" as *byte) == 0 {
+            nostdlib = 1;
+            i = i + 1;
+            continue;
+        }
+        
+        // #line 指令
+        if strcmp(arg, "--line-directives" as *byte) == 0 {
+            line_directives = 1;
+            i = i + 1;
+            continue;
+        }
+        if strcmp(arg, "--no-line-directives" as *byte) == 0 {
+            line_directives = 0;
+            i = i + 1;
+            continue;
+        }
+        
+        // 堆栈大小
+        if strcmp(arg, "--stack-size" as *byte) == 0 {
+            if i + 1 < argc {
+                const val: *byte = argv[i + 1] as *byte;
+                if val != null {
+                    stack_size = atoi(val) * 1024;
+                }
+                i = i + 2;
+                continue;
+            }
+        }
+        
+        // 详细输出
+        if strcmp(arg, "-v" as *byte) == 0 || strcmp(arg, "--verbose" as *byte) == 0 {
+            verbose = 1;
+            i = i + 1;
+            continue;
+        }
+        
+        // 帮助
+        if strcmp(arg, "-h" as *byte) == 0 || strcmp(arg, "--help" as *byte) == 0 {
+            return -1;
+        }
+        
+        // 其他参数视为输入文件
+        if arg[0] != 45 {  // 不是 '-' 开头
+            if input_count < 64 {
+                input_list[input_count] = arg as &byte;
+                input_count = input_count + 1;
+            }
+        }
+        
+        i = i + 1;
+    }
+    
+    // 保存到 config
+    config.input_files = &input_list[0] as &(&byte);
+    config.input_count = input_count;
+    config.output_file = output_file;
+    config.opt_level = opt_level;
+    config.safety_proof = safety_proof;
+    config.nostdlib = nostdlib;
+    config.line_directives = line_directives;
+    config.verbose = verbose;
+    config.stack_size = stack_size;
+    
+    return 0;
+}
+
+// 打印编译配置
+export fn print_config(config: &CompileConfig) void {
+    if config == null { return; }
+    
+    fprintf(libc.stderr, "编译配置:\n" as *byte);
+    fprintf(libc.stderr, "  输入文件数：%d\n" as *byte, config.input_count);
+    fprintf(libc.stderr, "  输出文件：%s\n" as *byte, config.output_file as *byte);
+    fprintf(libc.stderr, "  C99 后端：%d\n" as *byte, config.output_c99);
+    
+    var opt_str: &byte = "O1" as *byte;
+    if config.opt_level == OptLevel.OPT_0 { opt_str = "O0" as *byte; }
+    else if config.opt_level == OptLevel.OPT_2 { opt_str = "O2" as *byte; }
+    else if config.opt_level == OptLevel.OPT_3 { opt_str = "O3" as *byte; }
+    fprintf(libc.stderr, "  优化级别：%s\n" as *byte, opt_str as *byte);
+    
+    fprintf(libc.stderr, "  安全证明：%d\n" as *byte, config.safety_proof);
+    fprintf(libc.stderr, "  无标准库：%d\n" as *byte, config.nostdlib);
+    fprintf(libc.stderr, "  #line 指令：%d\n" as *byte, config.line_directives);
+    fprintf(libc.stderr, "  堆栈大小：%d KB\n" as *byte, config.stack_size / 1024);
+}

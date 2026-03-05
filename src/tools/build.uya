@@ -1,0 +1,2409 @@
+// main.uya - 编译器主程序
+// Uya 自举编译器
+// 架构：export fn main 编译为 main_main，由 std.runtime.entry 的 C main 调用
+// 命令行参数通过 get_argc/get_argv 获取
+
+// ===== 模块导入（按依赖顺序）=====
+// use main：收集主文件所在目录下所有 .uya（arena, extern_decls, ast, lexer, parser, checker, str_utils）
+// 否则单文件依赖收集不会自动包含同目录文件，生成的 C 会缺少 ASTNode/Arena 等类型定义导致链接失败。
+use main;
+use parser;
+use checker;  // 包含 checker 目录下所有文件（包括 optimizer.uya）
+// C99 代码生成（子目录，整体导入该目录模块）
+use codegen.c99;
+// C 程序入口（提供 export extern fn main 调用 main_main）
+use std.runtime.entry;
+use libc;
+use libc.stdlib;  // clock, CLOCKS_PER_SEC
+use libc.syscall;  // sys_setrlimit, RLIMIT_STACK
+use libc.unistd;  // system
+
+// ===== 计时函数 =====
+// 暂时禁用精确计时，使用简单计数器
+
+// 编译统计结构体
+struct CompileStats {
+    parse_time_ms: i64,      // 解析阶段耗时（毫秒）
+    merge_time_ms: i64,      // AST 合并耗时
+    check_time_ms: i64,      // 类型检查耗时
+    opt_time_ms: i64,        // 优化阶段耗时（v0.7.3 新增）
+    codegen_time_ms: i64,    // 代码生成耗时
+    total_time_ms: i64,      // 总耗时
+    file_count: i32,         // 编译文件数
+    ast_nodes: i32,          // AST 节点数（近似）
+}
+
+// 后端类型
+enum BackendType {
+    BACKEND_LLVM,
+    BACKEND_C99
+}
+
+// 命令类型
+enum CommandType {
+    COMMAND_BUILD,   // uya build - 编译为可执行文件
+    COMMAND_RUN,     // uya run - 编译并运行
+    COMMAND_TEST,    // uya test - 编译测试并运行
+    COMMAND_OUTLIBC  // uya --outlibc - 生成独立 libc
+}
+
+// 文件读取缓冲区大小（与 Lexer 一致）
+const FILE_BUFFER_SIZE: i32 = 1024 * 1024;
+
+// Arena 缓冲区大小（v2.0: 动态增长 Arena）
+// 初始缓冲区 64MB，不足时自动分配新 chunk
+const ARENA_BUFFER_SIZE: i32 = 64 * 1024 * 1024;  // 64MB 初始
+
+// 最大输入文件数
+const MAX_INPUT_FILES: i32 = 64;
+
+// 全局缓冲区（替代 C 的 static 数组，零初始化）
+var arena_buffer: [byte: ARENA_BUFFER_SIZE] = [];
+var file_buffer: [byte: FILE_BUFFER_SIZE] = [];
+// 临时 Arena 缓冲区（用于依赖收集，全局变量避免栈溢出）
+// v2.0: 动态增长，初始 16MB
+var temp_arena_buffer: [byte: 16 * 1024 * 1024] = [];
+// 大数组移到全局变量避免栈溢出（main_file_paths 是 64 * 4096 = 262KB）
+var main_file_paths_global: [[byte: PATH_MAX]: MAX_INPUT_FILES] = [];
+// 将 resolved_files 也移到全局变量，避免栈溢出
+var resolved_files_global: [&byte: MAX_INPUT_FILES] = [];
+
+// 读取文件内容到缓冲区
+// 成功返回读取字节数，失败返回 -1
+// 注意：filename 用 &byte，调用 fopen 时转为 *byte
+fn read_file_content(filename: &byte, buffer: &byte, buffer_size: usize) i32 {
+    const file: *void = fopen(filename as *byte, "rb" as *byte);
+    if file == null {
+        return -1;
+    }
+    const bytes_read: usize = fread(buffer as *byte, 1, buffer_size - 1, file);
+    const c: i32 = fgetc(file);
+    if bytes_read >= buffer_size - 1 {
+        fclose(file);
+        if c != -1 {
+            return -1;
+        }
+    } else {
+        fclose(file);
+    }
+    buffer[bytes_read] = 0 as byte;
+    return bytes_read as i32;
+}
+
+// 常量定义
+const PATH_MAX: usize = 4096;
+
+// 比较两个路径是否指向同一个文件（考虑路径格式差异）
+// 参数：path1 - 第一个路径
+//       path2 - 第二个路径
+// 返回：相同返回1，不同返回0
+fn paths_equal(path1: &byte, path2: &byte) i32 {
+    if path1 == null || path2 == null {
+        return 0;
+    }
+    
+    // 首先尝试直接比较（最常见的情况）
+    if strcmp(path1 as *byte, path2 as *byte) == 0 {
+        return 1;
+    }
+    
+    // 如果直接比较失败，提取文件名进行比较
+    // 如果文件名相同，使用 stat 检查是否是同一个文件（相同的 inode）
+    var name1: &byte = strrchr(path1 as *byte, 47);  // '/'
+    var name2: &byte = strrchr(path2 as *byte, 47);  // '/'
+    if name1 == null {
+        name1 = path1;
+    } else {
+        name1 = name1 + 1;
+    }
+    if name2 == null {
+        name2 = path2;
+    } else {
+        name2 = name2 + 1;
+    }
+    
+    // 如果文件名不同，肯定不是同一个文件
+    if strcmp(name1 as *byte, name2 as *byte) != 0 {
+        return 0;
+    }
+    
+    // 文件名相同，使用 stat 检查是否是同一个文件
+    var st1: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+    var st2: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+    if stat(path1 as *byte, &st1) == 0 && stat(path2 as *byte, &st2) == 0 {
+        // 检查是否是同一个文件（相同的设备和 inode）
+        if st1.st_dev == st2.st_dev && st1.st_ino == st2.st_ino {
+            return 1;
+        }
+    }
+    
+    // stat 失败或不是同一个文件，返回0
+    return 0;
+}
+
+// 注意：arena_strdup 函数在 parser.uya 中定义，这里不再重复定义
+
+// 检查路径是否为目录
+fn is_directory(path: &byte) i32 {
+    if path == null {
+        return 0;
+    }
+    var st: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+    if stat(path as *byte, &st) == 0 {
+        if ((st.st_mode as u32) & S_IFMT) == S_IFDIR {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// 检查路径是否为文件
+fn is_file(path: &byte) i32 {
+    if path == null {
+        return 0;
+    }
+    var st: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+    if stat(path as *byte, &st) == 0 {
+        if ((st.st_mode as u32) & S_IFMT) == S_IFREG {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// 获取编译器程序所在目录
+fn get_compiler_dir(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
+    if argv0 == null || buffer == null || buffer_size == 0 {
+        return -1;
+    }
+    
+    // 如果是绝对路径，直接提取目录
+    if argv0[0] == 47 {
+        const last_slash: *byte = strrchr(argv0 as *byte, 47);
+        if last_slash != null {
+            const dir_len: usize = ptr_diff(last_slash, argv0);
+            if dir_len + 1 < buffer_size {
+                memcpy(buffer as *void, argv0 as *void, dir_len);
+                buffer[dir_len] = 47 as byte;
+                buffer[dir_len + 1] = 0 as byte;
+                return 0;
+            }
+        }
+    }
+    
+    // 尝试使用 readlink 获取真实路径（Linux）
+    var resolved_path: [byte: PATH_MAX] = [];
+    const len: i32 = readlink("/proc/self/exe" as *byte, &resolved_path[0], PATH_MAX - 1);
+    if len != -1 {
+        resolved_path[len as usize] = 0 as byte;
+        const last_slash: *byte = strrchr(&resolved_path[0], 47);
+        if last_slash != null {
+            const dir_len: usize = ptr_diff(last_slash, &resolved_path[0] as *byte);
+            if dir_len + 1 < buffer_size {
+                memcpy(buffer as *void, &resolved_path[0] as *void, dir_len);
+                buffer[dir_len] = 47 as byte;
+                buffer[dir_len + 1] = 0 as byte;
+                return 0;
+            }
+        }
+    }
+    
+    // 回退：使用当前目录
+    if buffer_size > 1 {
+        buffer[0] = 46 as byte;  // '.'
+        buffer[1] = 47 as byte;   // '/'
+        buffer[2] = 0 as byte;
+        return 0;
+    }
+    
+    return -1;
+}
+
+// 获取 UYA_ROOT 环境变量或默认目录
+fn get_uya_root(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
+    if buffer == null || buffer_size == 0 {
+        return -1;
+    }
+    
+    // 首先尝试从环境变量获取
+    const env_root: *byte = getenv("UYA_ROOT" as *byte);
+    if env_root != null && env_root[0] != 0 {
+        const len: usize = strlen(env_root);
+        if len < buffer_size {
+            strcpy(buffer as *byte, env_root);
+            // 确保以 '/' 结尾
+            if len > 0 && buffer[len - 1] != 47 {
+                if len + 1 < buffer_size {
+                    buffer[len] = 47 as byte;
+                    buffer[len + 1] = 0 as byte;
+                }
+            }
+            return 0;
+        }
+    }
+    
+    // 如果环境变量未设置，使用编译器程序所在目录
+    const result: i32 = get_compiler_dir(argv0, buffer, buffer_size);
+    return result;
+}
+
+// 打印使用说明（program_name 用 &byte，传给 fprintf 时转为 *byte；若为 null 则用默认名避免 %s 段错误）
+fn print_usage(program_name: &byte) void {
+    var name: &byte = program_name;
+    if name == null { name = "uya" as *byte; }
+    fprintf(libc.stderr, "Uya 编译器 - 零GC系统编程语言\n" as *byte);
+    fprintf(libc.stderr, "版本：v0.7.4\n" as *byte);
+    fprintf(libc.stderr, "\n用法:\n" as *byte);
+    fprintf(libc.stderr, "  %s build <文件> [-o <输出>] [选项]  编译为可执行文件\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s run <文件> [选项] [-- <参数>...]  编译并运行\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s test <文件> [选项]               编译测试并运行\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s --outlibc <目录>                 生成独立 libc\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "\n示例:\n" as *byte);
+    fprintf(libc.stderr, "  %s build main.uya -o myapp\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s run main.uya\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s test tests.uya\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s build main.uya -o main.c --c99   # 生成 C99 代码\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "\n选项:\n" as *byte);
+    fprintf(libc.stderr, "  --c99                使用 C99 后端生成 C 代码\n" as *byte);
+    fprintf(libc.stderr, "  --line-directives    启用 #line 指令生成（C99 后端）\n" as *byte);
+    fprintf(libc.stderr, "  --no-line-directives 禁用 #line 指令生成\n" as *byte);
+    fprintf(libc.stderr, "  --opt=<0-3>          优化级别（0=禁用, 1=默认, 2=+证明优化, 3=+内联）\n" as *byte);
+    fprintf(libc.stderr, "  -O0, -O1, -O2, -O3   优化级别（简写形式）\n" as *byte);
+    fprintf(libc.stderr, "  --safety-proof       启用内存安全证明（默认启用）\n" as *byte);
+    fprintf(libc.stderr, "  --no-safety-proof    禁用内存安全证明\n" as *byte);
+    fprintf(libc.stderr, "  --nostdlib           完全独立模式：无标准库依赖，使用 syscall\n" as *byte);
+    fprintf(libc.stderr, "  -o <文件>            指定输出文件名\n" as *byte);
+    fprintf(libc.stderr, "  --stack-size <KB>    设置堆栈大小（KB），默认 65536 (64MB)\n" as *byte);
+    fprintf(libc.stderr, "  -h, --help           显示此帮助信息\n" as *byte);
+    fprintf(libc.stderr, "\n说明:\n" as *byte);
+    fprintf(libc.stderr, "  - 可以指定单个文件或目录，编译器会自动解析模块依赖\n" as *byte);
+    fprintf(libc.stderr, "  - 如果指定目录，目录中必须只有一个文件包含 main 函数\n" as *byte);
+    fprintf(libc.stderr, "  - 使用 UYA_ROOT 环境变量指定标准库位置（默认在编译器所在目录）\n" as *byte);
+    fprintf(libc.stderr, "\n语言特性:\n" as *byte);
+    fprintf(libc.stderr, "  - 零 GC，手动内存管理\n" as *byte);
+    fprintf(libc.stderr, "  - 编译期内存安全证明\n" as *byte);
+    fprintf(libc.stderr, "  - 泛型支持 <T: Constraint>\n" as *byte);
+    fprintf(libc.stderr, "  - 接口鸭子类型\n" as *byte);
+    fprintf(libc.stderr, "  - 错误处理 !T 联合类型\n" as *byte);
+    fprintf(libc.stderr, "  - defer/errdefer 资源清理\n" as *byte);
+    fprintf(libc.stderr, "  - 原子类型 atomic T\n" as *byte);
+    fprintf(libc.stderr, "  - 内联汇编 @asm { }\n" as *byte);
+}
+
+// 检测文件是否包含 main 函数
+// 返回值：0=无main，1=fn main，2=export fn main
+fn detect_main_function(filename: &byte) i32 {
+    if filename == null {
+        return 0;
+    }
+    const file_size: i32 = read_file_content(filename, &file_buffer[0], FILE_BUFFER_SIZE as usize);
+    if file_size < 0 {
+        return 0;
+    }
+    // 检测 "export fn main" (返回 2，表示需要自动包含 entry.uya)
+    var i: usize = 0;
+    while i < file_size as usize {
+        if i + 15 <= file_size as usize {
+            if strncmp(&file_buffer[i], "export fn main" as *byte, 14) == 0 {
+                const next_char: byte = file_buffer[i + 14];
+                if next_char == 40 || next_char == 32 || next_char == 10 || next_char == 9 || next_char == 13 {
+                    return 2;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    // 检测 "fn main" (返回 1，普通 main)
+    i = 0;
+    while i < file_size as usize {
+        if i + 7 <= file_size as usize {
+            if strncmp(&file_buffer[i], "fn main" as *byte, 7) == 0 {
+                var is_export: i32 = 0;
+                if i >= 7 {
+                    if strncmp(&file_buffer[i - 7], "export " as *byte, 7) == 0 {
+                        is_export = 1;
+                    }
+                }
+                const next_char: byte = file_buffer[i + 7];
+                if is_export == 0 && (next_char == 40 || next_char == 32 || next_char == 10 || next_char == 9 || next_char == 13) {
+                    return 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    // 检测 "test \"" (返回 1，表示有测试代码)
+    i = 0;
+    while i < file_size as usize {
+        if i + 6 <= file_size as usize {
+            // 检测顶层 test 语句（前面是换行或文件开头）
+            if strncmp(&file_buffer[i], "test \"" as *byte, 6) == 0 {
+                // 检查前面是否是文件开头或换行
+                if i == 0 || file_buffer[i - 1] == 10 {  // 10 = '\n'
+                    return 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// Linux x86_64 struct dirent 布局:
+// d_ino: i64 (offset 0, 8 bytes)
+// d_off: i64 (offset 8, 8 bytes)
+// d_reclen: u16 (offset 16, 2 bytes)
+// d_type: u8 (offset 18, 1 byte)
+// d_name: char[256] (offset 19)
+// Uya 的 Dirent struct 布局不匹配，使用手动偏移量访问
+
+fn dirent_get_type(entry_ptr: &byte) byte {
+    return entry_ptr[18];
+}
+
+fn dirent_get_name(entry_ptr: &byte) &byte {
+    var p: &byte = entry_ptr;
+    p = p + 19;
+    return p;
+}
+
+// 在目录中查找包含 main 函数的文件
+fn find_main_files_in_dir(
+    dir_path: &byte,
+    main_files: &(&byte),
+    file_paths_buffer: &([byte: PATH_MAX]),
+    max_files: i32,
+    file_count: &i32
+) i32 {
+    if dir_path == null || main_files == null || file_count == null {
+        return -1;
+    }
+    file_count[0] = 0;
+    const dir: *DIR = opendir(dir_path as *byte);
+    if dir == null {
+        return -1;
+    }
+    var entry: *Dirent = readdir(dir);
+    while entry != null && file_count[0] < max_files {
+        if dirent_get_type(entry as &byte) == 8 as byte {
+            const name: *byte = dirent_get_name(entry as &byte) as *byte;
+            const name_len: usize = strlen(name);
+            if name_len > 4 {
+                const ext: *byte = name + (name_len - 4);
+                if strcmp(ext, ".uya" as *byte) == 0 {
+                    const len: i32 = snprintf(&file_paths_buffer[file_count[0]][0], PATH_MAX, "%s/%s" as *byte, dir_path as *byte, name);
+                    if len > 0 && len < PATH_MAX as i32 {
+                        if detect_main_function(&file_paths_buffer[file_count[0]][0] as &byte) != 0 {
+                            main_files[file_count[0]] = &file_paths_buffer[file_count[0]][0] as &byte;
+                            file_count[0] = file_count[0] + 1;
+                        }
+                    }
+                }
+            }
+        }
+        entry = readdir(dir);
+    }
+    closedir(dir);
+    return 0;
+}
+
+// 根据模块路径查找文件
+fn find_module_file(
+    module_path: &byte,
+    project_root: &byte,
+    uya_root: &byte,
+    buffer: &byte,
+    buffer_size: usize
+) i32 {
+    if module_path == null || buffer == null || buffer_size == 0 {
+        return -1;
+    }
+    
+    // 将模块路径转换为文件路径（std.io -> std/io/）
+    var file_path: [byte: PATH_MAX] = [];
+    const path_len: usize = strlen(module_path as *byte);
+    if path_len >= PATH_MAX {
+        return -1;
+    }
+    strcpy(&file_path[0], module_path as *byte);
+    // 将 '.' 替换为 '/'
+    var i: usize = 0;
+    while i < path_len {
+        if file_path[i] == 46 {
+            file_path[i] = 47;
+        }
+        i = i + 1;
+    }
+    
+    // 在给定根目录下查找模块文件
+    // 策略1：path/ 目录中的 .uya 文件（如 std/c/syscall/ → syscall.uya）
+    // 策略2：path.uya 直接文件（如 std/c/string.uya）
+    var ri: i32 = 0;
+    while ri < 2 {
+        var root: &byte = null;
+        if ri == 0 { root = project_root; }
+        if ri == 1 { root = uya_root; }
+        ri = ri + 1;
+        if root == null { continue; }
+        const root_nonnull: &byte = root;  // 为安全证明建立非空引用
+        if root_nonnull[0] == 0 { continue; }
+        
+        var full_path: [byte: PATH_MAX] = [];
+        const len: i32 = snprintf(&full_path[0], PATH_MAX, "%s%s" as *byte, root as *byte, &file_path[0]);
+        if len <= 0 || len >= PATH_MAX as i32 { continue; }
+        
+        // 策略1：目录中查找 .uya 文件
+        if is_directory(&full_path[0] as &byte) != 0 {
+            const dir: *DIR = opendir(&full_path[0]);
+            if dir != null {
+                var entry: *Dirent = readdir(dir);
+                while entry != null {
+                    if dirent_get_type(entry as &byte) == 8 as byte {
+                        const name: *byte = dirent_get_name(entry as &byte) as *byte;
+                        const name_len: usize = strlen(name);
+                        if name_len > 4 {
+                            const ext: *byte = name + (name_len - 4);
+                            if strcmp(ext, ".uya" as *byte) == 0 {
+                                closedir(dir);
+                                const result_len: i32 = snprintf(buffer as *byte, buffer_size, "%s%s/%s" as *byte, root as *byte, &file_path[0], name);
+                                if result_len > 0 && result_len < buffer_size as i32 {
+                                    return 0;
+                                }
+                            }
+                        }
+                    }
+                    entry = readdir(dir);
+                }
+                closedir(dir);
+            }
+        }
+        
+        // 策略2：直接文件 path.uya
+        var uya_path: [byte: PATH_MAX] = [];
+        const ulen: i32 = snprintf(&uya_path[0], PATH_MAX, "%s%s.uya" as *byte, root as *byte, &file_path[0]);
+        if ulen > 0 && ulen < PATH_MAX as i32 {
+            const f: *void = fopen(&uya_path[0], "r" as *byte);
+            if f != null {
+                fclose(f);
+                const ulen_sz: usize = ulen as usize;
+                if ulen_sz < buffer_size {
+                    strcpy(buffer as *byte, &uya_path[0]);
+                    return 0;
+                }
+            }
+        }
+    }
+    
+    return -1;
+}
+
+// 从 AST 中提取 use 语句的模块路径
+// 辅助函数：将 segments[0..count) 连接为 "a.b.c" 形式
+fn join_segments_alloc(segs: &(&byte), count: i32, arena: &Arena) &byte {
+    var total_len: usize = 0;
+    var j: i32 = 0;
+    while j < count {
+        if segs[j] != null {
+            total_len = total_len + strlen(segs[j] as *byte);
+            if j > 0 { total_len = total_len + 1; }
+        }
+        j = j + 1;
+    }
+    if total_len == 0 { return null; }
+    const buf: &byte = arena_alloc(arena, total_len + 1) as &byte;
+    if buf == null { return null; }
+    var dst: &byte = buf;
+    j = 0;
+    while j < count {
+        if segs[j] != null {
+            if j > 0 { dst[0] = 46 as byte; dst = dst + 1; }
+            const sl: usize = strlen(segs[j] as *byte);
+            memcpy(dst as *void, segs[j] as *void, sl);
+            dst = dst + sl;
+        }
+        j = j + 1;
+    }
+    dst[0] = 0 as byte;
+    return buf;
+}
+
+fn extract_use_modules(
+    ast: &ASTNode,
+    modules: &(&byte),
+    max_modules: i32,
+    module_count: &i32,
+    project_root: &byte,
+    uya_root: &byte,
+    arena: &Arena
+) i32 {
+    if ast == null || ast.type != ASTNodeType.AST_PROGRAM || modules == null || module_count == null || arena == null {
+        return -1;
+    }
+    module_count[0] = 0;
+    var i: i32 = 0;
+    while i < ast.program_decl_count && module_count[0] < max_modules {
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_USE_STMT {
+            const seg_count: i32 = decl.use_stmt_path_segment_count;
+            if seg_count > 0 {
+                var module_name: &byte = null;
+                
+                if decl.use_stmt_item_name != null {
+                    // item_name 已设置，所有 segments 都是模块路径
+                    module_name = join_segments_alloc(decl.use_stmt_path_segments, seg_count, arena);
+                } else if seg_count > 1 {
+                    // 先尝试全路径作为模块名
+                    const full_path: &byte = join_segments_alloc(decl.use_stmt_path_segments, seg_count, arena);
+                    if full_path != null {
+                        var module_file: [byte: PATH_MAX] = [];
+                        if find_module_file(full_path, project_root, uya_root, &module_file[0] as &byte, PATH_MAX) == 0 {
+                            module_name = full_path;
+                        } else {
+                            module_name = join_segments_alloc(decl.use_stmt_path_segments, seg_count - 1, arena);
+                        }
+                    }
+                } else {
+                    module_name = join_segments_alloc(decl.use_stmt_path_segments, seg_count, arena);
+                }
+                
+                if module_name != null {
+                    // 去重
+                    var duplicate: i32 = 0;
+                    var k: i32 = 0;
+                    while k < module_count[0] {
+                        if modules[k] != null && strcmp(modules[k] as *byte, module_name as *byte) == 0 {
+                            duplicate = 1;
+                            break;
+                        }
+                        k = k + 1;
+                    }
+                    if duplicate == 0 {
+                        modules[module_count[0]] = module_name;
+                        module_count[0] = module_count[0] + 1;
+                    }
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 对路径指针数组按字符串排序（与 C 编译器 qsort 一致，保证自举比对顺序）
+fn sort_paths(paths: &(&byte), count: i32) void {
+    var i: i32 = 0;
+    while i < count - 1 {
+        var j: i32 = i + 1;
+        while j < count {
+            if strcmp(paths[i] as *byte, paths[j] as *byte) > 0 {
+                const tmp: &byte = paths[i];
+                paths[i] = paths[j];
+                paths[j] = tmp;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+}
+
+// 递归收集模块依赖
+// 返回：成功返回新的文件列表大小，失败返回-1
+fn collect_module_dependencies(
+    filename: &byte,
+    file_list: &(&byte),
+    file_list_size: i32,
+    max_files: i32,
+    processed_files: &(&byte),
+    processed_count: &i32,
+    max_processed: i32,
+    project_root: &byte,
+    uya_root: &byte,
+    arena: &Arena
+) i32 {
+    if filename == null || file_list == null || processed_files == null || processed_count == null || arena == null {
+        return -1;
+    }
+    
+    // 使用局部变量存储可修改的 file_list_size（函数参数在 Uya 中不可修改）
+    var current_size: i32 = file_list_size;
+    
+    // 检查是否已处理过（避免循环依赖）
+    // 使用路径比较函数，考虑路径格式差异
+    var i: i32 = 0;
+    while i < processed_count[0] {
+        if processed_files[i] != null && paths_equal(processed_files[i], filename) != 0 {
+            return current_size;  // 已处理，直接返回
+        }
+        i = i + 1;
+    }
+    
+    // 标记为已处理
+    if processed_count[0] >= max_processed {
+        return -1;
+    }
+    processed_files[processed_count[0]] = filename;
+    processed_count[0] = processed_count[0] + 1;
+
+    // 保存 arena 偏移量，用于解析后回滚释放 AST 内存
+    const arena_save_offset: usize = arena_save(arena);
+
+    // 读取文件并解析 AST
+    const file_size: i32 = read_file_content(filename, &file_buffer[0], FILE_BUFFER_SIZE as usize);
+    if file_size < 0 {
+        arena_restore(arena, arena_save_offset);
+        return -1;
+    }
+
+    var lexer: Lexer = Lexer { buffer: [], buffer_size: 0 as usize, position: 0 as usize, line: 1, column: 1, filename: null, string_mode: 0, interp_depth: 0, pending_interp_open: 0, reading_spec: 0, string_text_len: 0 };
+    if lexer_init(&lexer, &file_buffer[0], file_size as usize, filename, arena) != 0 {
+        arena_restore(arena, arena_save_offset);
+        return -1;
+    }
+
+    var parser: Parser = Parser { lexer: null, current_token: null, arena: null, context: ParserContext.PARSER_CONTEXT_NORMAL };
+    if parser_init(&parser, &lexer, arena) != 0 {
+        arena_restore(arena, arena_save_offset);
+        return -1;
+    }
+
+    const ast: &ASTNode = parser_parse(&parser);
+    if ast == null || ast.type != ASTNodeType.AST_PROGRAM {
+        arena_restore(arena, arena_save_offset);
+        return -1;
+    }
+
+    // 提取 use 语句中的模块路径
+    var modules: [&byte: MAX_INPUT_FILES] = [];
+    var module_count: i32 = 0;
+    if extract_use_modules(ast, &modules[0], MAX_INPUT_FILES, &module_count, project_root, uya_root, arena) != 0 {
+        arena_restore(arena, arena_save_offset);
+        return -1;
+    }
+
+    // 将模块名复制到栈上（arena 回滚后 modules 指针会失效）
+    var module_names_stack: [[byte: 256]: MAX_INPUT_FILES] = [];
+    var mi: i32 = 0;
+    while mi < module_count {
+        if modules[mi] != null {
+            var si: usize = 0;
+            while si < 255 && modules[mi][si] != 0 {
+                module_names_stack[mi][si] = modules[mi][si];
+                si = si + 1;
+            }
+            module_names_stack[mi][si] = 0 as byte;
+        }
+        mi = mi + 1;
+    }
+
+    // 回滚 arena，释放 AST 内存（依赖收集阶段不需要保留 AST）
+    arena_restore(arena, arena_save_offset);
+
+    // 对于每个模块，查找文件并递归处理
+    i = 0;
+    while i < module_count {
+        if module_names_stack[i][0] == 0 {
+            i = i + 1;
+            continue;
+        }
+        // std 模块：收集 lib/std/ 目录下所有 .uya 文件（与 C 编译器一致）
+        if (strcmp(&module_names_stack[i][0] as *byte, "std" as *byte) == 0 || strncmp(&module_names_stack[i][0] as *byte, "std." as *byte, 4) == 0) && uya_root != null && uya_root[0] != 0 {
+            var std_dir: [byte: PATH_MAX] = [];
+            var dlen: i32 = 0;
+            if strcmp(&module_names_stack[i][0] as *byte, "std" as *byte) == 0 {
+                dlen = snprintf(&std_dir[0], PATH_MAX, "%sstd/" as *byte, uya_root as *byte);
+            } else {
+                // std.xxx.yyy 模块 -> lib/std/xxx/yyy/
+                // 需要将点号替换为斜杠
+                var path_suffix: [byte: PATH_MAX] = [];
+                const suffix: &byte = &module_names_stack[i][0] as *byte + 4;  // 跳过 "std."
+                var k: usize = 0;
+                while suffix[k] != 0 && k < PATH_MAX - 2 {
+                    if suffix[k] == 46 {  // '.'
+                        path_suffix[k] = 47;  // '/'
+                    } else {
+                        path_suffix[k] = suffix[k];
+                    }
+                    k = k + 1;
+                }
+                path_suffix[k] = 47;  // 添加末尾斜杠
+                path_suffix[k + 1] = 0;
+                dlen = snprintf(&std_dir[0], PATH_MAX, "%sstd/%s" as *byte, uya_root as *byte, &path_suffix[0]);
+            }
+            // 如果目录不存在，尝试去掉最后一段（可能是 item_name 被错误地当作模块路径）
+            if dlen <= 0 || dlen >= PATH_MAX || is_directory(&std_dir[0] as &byte) == 0 {
+                // 查找最后一个斜杠，截断路径
+                var last_slash: i32 = dlen - 1;
+                while last_slash > 0 {
+                    if std_dir[last_slash] == 47 {  // '/'
+                        break;
+                    }
+                    last_slash = last_slash - 1;
+                }
+                if last_slash > 0 {
+                    std_dir[last_slash + 1] = 0;  // 截断到最后一个斜杠后
+                    dlen = last_slash + 1;
+                }
+            }
+            if dlen > 0 && dlen < PATH_MAX && is_directory(&std_dir[0] as &byte) != 0 {
+                const dir: *DIR = opendir(&std_dir[0]);
+                if dir != null {
+                    var pending: [&byte: MAX_INPUT_FILES] = [];
+                    var pending_count: i32 = 0;
+                    var entry: *Dirent = readdir(dir);
+                    while entry != null && pending_count < max_files {
+                        if (dirent_get_type(entry as &byte) == DT_REG || dirent_get_type(entry as &byte) == DT_UNKNOWN) {
+                            const name: *byte = dirent_get_name(entry as &byte) as *byte;
+                            const nlen: usize = strlen(name);
+                            if nlen > 4 && strcmp(name + (nlen - 4), ".uya" as *byte) == 0 {
+                                var fp: [byte: PATH_MAX] = [];
+                                const flen: i32 = snprintf(&fp[0], PATH_MAX, "%s%s" as *byte, &std_dir[0], name);
+                                if flen > 0 && flen < PATH_MAX {
+                                    var in_list: i32 = 0;
+                                    var j: i32 = 0;
+                                    while j < current_size {
+                                        if file_list[j] != null && paths_equal(file_list[j], &fp[0] as &byte) != 0 {
+                                            in_list = 1;
+                                            break;
+                                        }
+                                        j = j + 1;
+                                    }
+                                    // 同时检查 pending 数组中是否已存在（防止重复添加）
+                                    if in_list == 0 {
+                                        var pk: i32 = 0;
+                                        while pk < pending_count {
+                                            if pending[pk] != null && paths_equal(pending[pk], &fp[0] as &byte) != 0 {
+                                                in_list = 1;
+                                                break;
+                                            }
+                                            pk = pk + 1;
+                                        }
+                                    }
+                                    if in_list == 0 {
+                                        const path_copy: &byte = arena_alloc(arena, strlen(&fp[0]) + 1) as &byte;
+                                        if path_copy != null {
+                                            strcpy(path_copy as *byte, &fp[0]);
+                                            pending[pending_count] = path_copy;
+                                            pending_count = pending_count + 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        entry = readdir(dir);
+                    }
+                    closedir(dir);
+                    if pending_count > 0 {
+                        sort_paths(&pending[0] as &(&byte), pending_count);
+                        // 先把所有文件添加到 file_list（防止递归时重复添加）
+                        var idx: i32 = 0;
+                        while idx < pending_count {
+                            file_list[current_size] = pending[idx];
+                            current_size = current_size + 1;
+                            idx = idx + 1;
+                        }
+                        // 然后递归处理每个文件的依赖
+                        idx = 0;
+                        while idx < pending_count {
+                            const pc: &byte = pending[idx];
+                            current_size = collect_module_dependencies(pc, file_list, current_size, max_files, processed_files, processed_count, max_processed, project_root, uya_root, arena);
+                            if current_size < 0 { return -1; }
+                            idx = idx + 1;
+                        }
+                    }
+                }
+            }
+            i = i + 1;
+            continue;
+        }
+        // libc 模块：收集 lib/libc/ 目录下所有 .uya 文件（与 C 编译器一致）
+        if strcmp(&module_names_stack[i][0] as *byte, "libc" as *byte) == 0 && uya_root != null && uya_root[0] != 0 {
+            var libc_dir: [byte: PATH_MAX] = [];
+            const dlen: i32 = snprintf(&libc_dir[0], PATH_MAX, "%slibc/" as *byte, uya_root as *byte);
+            if dlen > 0 && dlen < PATH_MAX && is_directory(&libc_dir[0] as &byte) != 0 {
+                const dir: *DIR = opendir(&libc_dir[0]);
+                if dir != null {
+                    var pending: [&byte: MAX_INPUT_FILES] = [];
+                    var pending_count: i32 = 0;
+                    var entry: *Dirent = readdir(dir);
+                    while entry != null && pending_count < max_files {
+                        if (dirent_get_type(entry as &byte) == DT_REG || dirent_get_type(entry as &byte) == DT_UNKNOWN) {
+                            const name: *byte = dirent_get_name(entry as &byte) as *byte;
+                            const nlen: usize = strlen(name);
+                            if nlen > 4 && strcmp(name + (nlen - 4), ".uya" as *byte) == 0 {
+                                var fp: [byte: PATH_MAX] = [];
+                                const flen: i32 = snprintf(&fp[0], PATH_MAX, "%s%s" as *byte, &libc_dir[0], name);
+                                if flen > 0 && flen < PATH_MAX {
+                                    var in_list: i32 = 0;
+                                    var j: i32 = 0;
+                                    while j < current_size {
+                                        if file_list[j] != null && paths_equal(file_list[j], &fp[0] as &byte) != 0 {
+                                            in_list = 1;
+                                            break;
+                                        }
+                                        j = j + 1;
+                                    }
+                                    if in_list == 0 {
+                                        var in_proc: i32 = 0;
+                                        j = 0;
+                                        while j < processed_count[0] {
+                                            if processed_files[j] != null && paths_equal(processed_files[j], &fp[0] as &byte) != 0 {
+                                                in_proc = 1;
+                                                break;
+                                            }
+                                            j = j + 1;
+                                        }
+                                        // 同时检查 pending 数组中是否已存在（防止重复添加）
+                                        if in_proc == 0 {
+                                            var k: i32 = 0;
+                                            while k < pending_count {
+                                                if pending[k] != null && paths_equal(pending[k], &fp[0] as &byte) != 0 {
+                                                    in_proc = 1;
+                                                    break;
+                                                }
+                                                k = k + 1;
+                                            }
+                                        }
+                                        if in_proc == 0 {
+                                            const path_copy: &byte = arena_alloc(arena, strlen(&fp[0]) + 1) as &byte;
+                                            if path_copy != null {
+                                                strcpy(path_copy as *byte, &fp[0]);
+                                                pending[pending_count] = path_copy;
+                                                pending_count = pending_count + 1;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        entry = readdir(dir);
+                    }
+                    closedir(dir);
+                    if pending_count > 0 {
+                        sort_paths(&pending[0] as &(&byte), pending_count);
+                        // 先把所有文件添加到 file_list（防止递归时重复添加）
+                        var idx: i32 = 0;
+                        while idx < pending_count {
+                            file_list[current_size] = pending[idx];
+                            current_size = current_size + 1;
+                            idx = idx + 1;
+                        }
+                        // 然后递归处理每个文件的依赖
+                        idx = 0;
+                        while idx < pending_count {
+                            const pc: &byte = pending[idx];
+                            current_size = collect_module_dependencies(pc, file_list, current_size, max_files, processed_files, processed_count, max_processed, project_root, uya_root, arena);
+                            if current_size < 0 { return -1; }
+                            idx = idx + 1;
+                        }
+                    }
+                }
+            }
+            i = i + 1;
+            continue;
+        }
+        // syscall 模块：收集 lib/syscall/ 目录下所有 .uya 文件（标准库重构 syscall 层）
+        if strcmp(&module_names_stack[i][0] as *byte, "syscall" as *byte) == 0 && uya_root != null && uya_root[0] != 0 {
+            var syscall_dir: [byte: PATH_MAX] = [];
+            const dlen: i32 = snprintf(&syscall_dir[0], PATH_MAX, "%ssyscall/" as *byte, uya_root as *byte);
+            if dlen > 0 && dlen < PATH_MAX && is_directory(&syscall_dir[0] as &byte) != 0 {
+                const dir: *DIR = opendir(&syscall_dir[0]);
+                if dir != null {
+                    var pending: [&byte: MAX_INPUT_FILES] = [];
+                    var pending_count: i32 = 0;
+                    var entry: *Dirent = readdir(dir);
+                    while entry != null && pending_count < max_files {
+                        if (dirent_get_type(entry as &byte) == DT_REG || dirent_get_type(entry as &byte) == DT_UNKNOWN) {
+                            const name: *byte = dirent_get_name(entry as &byte) as *byte;
+                            const nlen: usize = strlen(name);
+                            if nlen > 4 && strcmp(name + (nlen - 4), ".uya" as *byte) == 0 {
+                                var fp: [byte: PATH_MAX] = [];
+                                const flen: i32 = snprintf(&fp[0], PATH_MAX, "%s%s" as *byte, &syscall_dir[0], name);
+                                if flen > 0 && flen < PATH_MAX {
+                                    var in_list: i32 = 0;
+                                    var j: i32 = 0;
+                                    while j < current_size {
+                                        if file_list[j] != null && paths_equal(file_list[j], &fp[0] as &byte) != 0 {
+                                            in_list = 1;
+                                            break;
+                                        }
+                                        j = j + 1;
+                                    }
+                                    if in_list == 0 {
+                                        var k: i32 = 0;
+                                        while k < pending_count {
+                                            if pending[k] != null && paths_equal(pending[k], &fp[0] as &byte) != 0 {
+                                                in_list = 1;
+                                                break;
+                                            }
+                                            k = k + 1;
+                                        }
+                                    }
+                                    if in_list == 0 {
+                                        const path_copy: &byte = arena_alloc(arena, strlen(&fp[0]) + 1) as &byte;
+                                        if path_copy != null {
+                                            strcpy(path_copy as *byte, &fp[0]);
+                                            pending[pending_count] = path_copy;
+                                            pending_count = pending_count + 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        entry = readdir(dir);
+                    }
+                    closedir(dir);
+                    if pending_count > 0 {
+                        sort_paths(&pending[0] as &(&byte), pending_count);
+                        var idx: i32 = 0;
+                        while idx < pending_count {
+                            file_list[current_size] = pending[idx];
+                            current_size = current_size + 1;
+                            idx = idx + 1;
+                        }
+                        idx = 0;
+                        while idx < pending_count {
+                            const pc: &byte = pending[idx];
+                            current_size = collect_module_dependencies(pc, file_list, current_size, max_files, processed_files, processed_count, max_processed, project_root, uya_root, arena);
+                            if current_size < 0 { return -1; }
+                            idx = idx + 1;
+                        }
+                    }
+                }
+            }
+            i = i + 1;
+            continue;
+        }
+        // use main：收集入口文件所在目录下所有 .uya，排序后加入（与 C 编译器一致）
+        if strcmp(&module_names_stack[i][0] as *byte, "main" as *byte) == 0 {
+            var proc_cnt: i32 = processed_count[0];
+            if processed_count[0] > 0 && processed_files[0] != null {
+                const entry_file: &byte = processed_files[0];
+                var main_dir: [byte: PATH_MAX] = [];
+                const slash: *byte = strrchr(entry_file as *byte, 47);
+                if slash != null {
+                    const dlen: usize = (slash as i64 - entry_file as i64 + 1) as usize;
+                    if dlen < PATH_MAX as usize {
+                        memcpy(&main_dir[0] as *void, entry_file as *void, dlen);
+                        main_dir[dlen] = 0 as byte;
+                    } else {
+                        strcpy(&main_dir[0], "." as *byte);
+                    }
+                } else {
+                    strcpy(&main_dir[0], "." as *byte);
+                }
+                const dir: *DIR = opendir(&main_dir[0]);
+                if dir != null {
+                    var pending: [&byte: MAX_INPUT_FILES] = [];
+                    var pending_count: i32 = 0;
+                    var entry: *Dirent = readdir(dir);
+                    while entry != null && pending_count < max_files {
+                        const dt: byte = dirent_get_type(entry as &byte);
+                        const name: *byte = dirent_get_name(entry as &byte) as *byte;
+                        if (dt == DT_REG || dt == DT_UNKNOWN) && strlen(name) > 4 {
+                            if strcmp(name + (strlen(name) - 4), ".uya" as *byte) == 0 {
+                                var fp: [byte: PATH_MAX] = [];
+                                const flen: i32 = snprintf(&fp[0], PATH_MAX, "%s%s" as *byte, &main_dir[0], name);
+                                if flen > 0 && flen < PATH_MAX as i32 {
+                                    var in_list: i32 = 0;
+                                    var j: i32 = 0;
+                                    while j < current_size {
+                                        if file_list[j] != null && paths_equal(file_list[j], &fp[0] as &byte) != 0 {
+                                            in_list = 1;
+                                            break;
+                                        }
+                                        j = j + 1;
+                                    }
+                                    if in_list == 0 {
+                                        var in_proc: i32 = 0;
+                                        j = 0;
+                                        while j < processed_count[0] {
+                                            if processed_files[j] != null && paths_equal(processed_files[j], &fp[0] as &byte) != 0 {
+                                                in_proc = 1;
+                                                break;
+                                            }
+                                            j = j + 1;
+                                        }
+                                        if in_proc == 0 {
+                                            const path_copy: &byte = arena_alloc(arena, strlen(&fp[0]) + 1) as &byte;
+                                            if path_copy != null {
+                                                strcpy(path_copy as *byte, &fp[0]);
+                                                pending[pending_count] = path_copy;
+                                                pending_count = pending_count + 1;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        entry = readdir(dir);
+                    }
+                    closedir(dir);
+                    if pending_count > 0 {
+                        sort_paths(&pending[0] as &(&byte), pending_count);
+                        // 先把所有文件添加到 file_list（防止递归时重复添加）
+                        var idx: i32 = 0;
+                        while idx < pending_count {
+                            file_list[current_size] = pending[idx];
+                            current_size = current_size + 1;
+                            idx = idx + 1;
+                        }
+                        // 然后递归处理每个文件的依赖
+                        idx = 0;
+                        while idx < pending_count {
+                            const pc: &byte = pending[idx];
+                            current_size = collect_module_dependencies(pc, file_list, current_size, max_files, processed_files, processed_count, max_processed, project_root, uya_root, arena);
+                            if current_size < 0 { return -1; }
+                            idx = idx + 1;
+                        }
+                    }
+                }
+            }
+            i = i + 1;
+            continue;
+        }
+        // 目录模块：将模块路径转为目录路径，若存在则收集该目录下所有 .uya（与 C 一致）
+        var file_path: [byte: PATH_MAX] = [];
+        const path_len: usize = strlen(&module_names_stack[i][0] as *byte);
+        if path_len >= PATH_MAX as usize {
+            i = i + 1;
+            continue;
+        }
+        strcpy(&file_path[0], &module_names_stack[i][0] as *byte);
+        var k: usize = 0;
+        while k < path_len {
+            if file_path[k] == 46 as byte { file_path[k] = 47 as byte; }
+            k = k + 1;
+        }
+        var found_dir: i32 = 0;
+        var module_dir_path: [byte: PATH_MAX] = [];
+        var ri: i32 = 0;
+        while ri < 2 {
+            var root: &byte = null;
+            if ri == 0 { root = project_root; }
+            if ri == 1 { root = uya_root; }
+            ri = ri + 1;
+            if root == null { continue; }
+            const root_nonnull: &byte = root;  // 为安全证明建立非空引用
+            if root_nonnull[0] == 0 { continue; }
+            const len: i32 = snprintf(&module_dir_path[0], PATH_MAX, "%s%s" as *byte, root as *byte, &file_path[0]);
+            if len > 0 && len < PATH_MAX as i32 && is_directory(&module_dir_path[0] as &byte) != 0 {
+                found_dir = 1;
+                break;
+            }
+        }
+        if found_dir != 0 {
+            const dir_path: &byte = &module_dir_path[0] as &byte;
+            const dir: *DIR = opendir(&module_dir_path[0]);
+            if dir != null {
+                var pending: [&byte: MAX_INPUT_FILES] = [];
+                var pending_count: i32 = 0;
+                var entry: *Dirent = readdir(dir);
+                while entry != null && pending_count < max_files {
+                    if dirent_get_type(entry as &byte) == 8 as byte {
+                        const name: *byte = dirent_get_name(entry as &byte) as *byte;
+                        const name_len: usize = strlen(name);
+                        if name_len > 4 && strcmp(name + (name_len - 4), ".uya" as *byte) == 0 {
+                            var full_path: [byte: PATH_MAX] = [];
+                            const flen: i32 = snprintf(&full_path[0], PATH_MAX, "%s/%s" as *byte, dir_path as *byte, name);
+                            if flen > 0 && flen < PATH_MAX as i32 {
+                                var already_added: i32 = 0;
+                                var j: i32 = 0;
+                                while j < current_size {
+                                    if file_list[j] != null && paths_equal(file_list[j], &full_path[0] as &byte) != 0 {
+                                        already_added = 1;
+                                        break;
+                                    }
+                                    j = j + 1;
+                                }
+                                // 同时检查 pending 数组中是否已存在（防止重复添加）
+                                if already_added == 0 {
+                                    var pk: i32 = 0;
+                                    while pk < pending_count {
+                                        if pending[pk] != null && paths_equal(pending[pk], &full_path[0] as &byte) != 0 {
+                                            already_added = 1;
+                                            break;
+                                        }
+                                        pk = pk + 1;
+                                    }
+                                }
+                                if already_added == 0 {
+                                    const path_copy: &byte = arena_alloc(arena, strlen(&full_path[0]) + 1) as &byte;
+                                    if path_copy != null {
+                                        strcpy(path_copy as *byte, &full_path[0]);
+                                        pending[pending_count] = path_copy;
+                                        pending_count = pending_count + 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    entry = readdir(dir);
+                }
+                closedir(dir);
+                if pending_count > 0 {
+                    sort_paths(&pending[0] as &(&byte), pending_count);
+                    var idx: i32 = 0;
+                    while idx < pending_count {
+                        const path_copy: &byte = pending[idx];
+                        file_list[current_size] = path_copy;
+                        current_size = current_size + 1;
+                        current_size = collect_module_dependencies(path_copy, file_list, current_size, max_files, processed_files, processed_count, max_processed, project_root, uya_root, arena);
+                        if current_size < 0 { return -1; }
+                        idx = idx + 1;
+                    }
+                }
+            }
+            i = i + 1;
+            continue;
+        }
+        // 单文件模块：find_module_file
+        var module_file: [byte: PATH_MAX] = [];
+        if find_module_file(&module_names_stack[i][0] as &byte, project_root, uya_root, &module_file[0] as &byte, PATH_MAX) == 0 {
+            var already_added: i32 = 0;
+            var j: i32 = 0;
+            while j < current_size {
+                if file_list[j] != null && paths_equal(file_list[j], &module_file[0] as &byte) != 0 {
+                    already_added = 1;
+                    break;
+                }
+                j = j + 1;
+            }
+            if already_added == 0 && current_size < max_files {
+                const path_copy: &byte = arena_alloc(arena, strlen(&module_file[0]) + 1) as &byte;
+                if path_copy != null {
+                    strcpy(path_copy as *byte, &module_file[0]);
+                    file_list[current_size] = path_copy;
+                    current_size = current_size + 1;
+                    current_size = collect_module_dependencies(path_copy, file_list, current_size, max_files, processed_files, processed_count, max_processed, project_root, uya_root, arena);
+                    if current_size < 0 { return -1; }
+                }
+            }
+        }
+        i = i + 1;
+    }
+    
+    return current_size;
+}
+
+// 解析命令行参数
+// command: 输出命令类型
+// input_file_indices: 填充前 *input_file_count 个为输入文件在 argv 中的下标
+// outlibc_index: --outlibc 选项的参数索引（-1 表示未指定）
+// run_arg_start: run 命令的运行时参数起始索引（-1 表示无运行时参数）
+// is_nostdlib: --nostdlib 选项（生成 _start 入口）
+// stack_size: 堆栈大小（KB），0 表示自动设置
+// 返回：0 成功，-1 失败
+fn parse_args(
+    command: &CommandType,
+    input_file_indices: &i32,
+    input_file_count: &i32,
+    output_file_index: &i32,
+    backend_type: &BackendType,
+    emit_line_directives: &i32,
+    enable_safety_proof: &i32,
+    opt_level: &i32,
+    outlibc_index: &i32,
+    run_arg_start: &i32,
+    is_nostdlib: &i32,
+    stack_size: &i32
+) i32 {
+    const argc: i32 = get_argc();
+    if argc < 2 {
+        const program_name: *byte = get_argv(0);
+        if program_name != null {
+            print_usage(program_name as &byte);
+        }
+        return -1;
+    }
+
+    // 初始化输出参数
+    command[0] = CommandType.COMMAND_BUILD;  // 默认为 build
+    input_file_count[0] = 0;
+    output_file_index[0] = -1;
+    backend_type[0] = BackendType.BACKEND_LLVM;
+    emit_line_directives[0] = 0;
+    enable_safety_proof[0] = 0;  // 默认禁用内存安全证明（使用 --safety-proof 启用）
+    opt_level[0] = 1;  // 默认优化级别 1
+    outlibc_index[0] = -1;
+    run_arg_start[0] = -1;
+    is_nostdlib[0] = 0;  // 默认不启用 nostdlib
+    stack_size[0] = 0;  // 默认自动设置堆栈大小
+
+    // 检测子命令
+    const first_arg: *byte = get_argv(1);
+    var start_idx: i32 = 1;  // 参数解析起始位置
+    
+    if first_arg != null {
+        if strcmp(first_arg, "build" as *byte) == 0 {
+            command[0] = CommandType.COMMAND_BUILD;
+            start_idx = 2;
+        } else if strcmp(first_arg, "run" as *byte) == 0 {
+            command[0] = CommandType.COMMAND_RUN;
+            start_idx = 2;
+        } else if strcmp(first_arg, "test" as *byte) == 0 {
+            command[0] = CommandType.COMMAND_TEST;
+            start_idx = 2;
+        }
+        // 如果不是子命令，保持默认 COMMAND_BUILD，start_idx = 1
+    }
+
+    var i: i32 = start_idx;
+    while i < argc {
+        const arg: *byte = get_argv(i);
+        if arg == null {
+            fprintf(libc.stderr, "错误: 无法获取命令行参数（索引 %d）\n" as *byte, i);
+            return -1;
+        }
+        
+        // run 命令：检测 -- 之后的参数作为运行时参数
+        if command[0] == CommandType.COMMAND_RUN && strcmp(arg, "--" as *byte) == 0 {
+            run_arg_start[0] = i + 1;
+            break;  // -- 之后的参数不再解析
+        }
+        
+        if strcmp(arg, "-o" as *byte) == 0 {
+            if i + 1 < argc {
+                output_file_index[0] = i + 1;
+                i = i + 1;
+            } else {
+                fprintf(libc.stderr, "错误: -o 选项需要指定输出文件名\n" as *byte);
+                return -1;
+            }
+        } else if strcmp(arg, "--c99" as *byte) == 0 {
+            backend_type[0] = BackendType.BACKEND_C99;
+        } else if strcmp(arg, "--no-line-directives" as *byte) == 0 {
+            emit_line_directives[0] = 0;
+        } else if strcmp(arg, "--line-directives" as *byte) == 0 {
+            emit_line_directives[0] = 1;
+        } else if strcmp(arg, "--safety-proof" as *byte) == 0 {
+            enable_safety_proof[0] = 1;
+        } else if strcmp(arg, "--no-safety-proof" as *byte) == 0 {
+            enable_safety_proof[0] = 0;
+        } else if strcmp(arg, "--opt=0" as *byte) == 0 {
+            opt_level[0] = 0;
+        } else if strcmp(arg, "--opt=1" as *byte) == 0 {
+            opt_level[0] = 1;
+        } else if strcmp(arg, "--opt=2" as *byte) == 0 {
+            opt_level[0] = 2;
+        } else if strcmp(arg, "--opt=3" as *byte) == 0 {
+            opt_level[0] = 3;
+        } else if strcmp(arg, "-O0" as *byte) == 0 {
+            opt_level[0] = 0;
+        } else if strcmp(arg, "-O1" as *byte) == 0 {
+            opt_level[0] = 1;
+        } else if strcmp(arg, "-O2" as *byte) == 0 {
+            opt_level[0] = 2;
+        } else if strcmp(arg, "-O3" as *byte) == 0 {
+            opt_level[0] = 3;
+        } else if strcmp(arg, "--nostdlib" as *byte) == 0 {
+            is_nostdlib[0] = 1;
+        } else if strcmp(arg, "--outlibc" as *byte) == 0 {
+            if i + 1 < argc {
+                outlibc_index[0] = i + 1;
+                command[0] = CommandType.COMMAND_OUTLIBC;
+                backend_type[0] = BackendType.BACKEND_C99;
+                i = i + 1;
+            } else {
+                fprintf(libc.stderr, "错误: --outlibc 选项需要指定输出目录\n" as *byte);
+                return -1;
+            }
+        } else if strcmp(arg, "--stack-size" as *byte) == 0 {
+            if i + 1 < argc {
+                const size_str: *byte = get_argv(i + 1);
+                if size_str != null {
+                    var j: i32 = 0;
+                    var size_val: i32 = 0;
+                    while size_str[j] >= 48 && size_str[j] <= 57 {
+                        size_val = size_val * 10 + (size_str[j] - 48);
+                        j = j + 1;
+                    }
+                    if size_val > 0 {
+                        stack_size[0] = size_val;
+                    } else {
+                        fprintf(libc.stderr, "警告：无效的堆栈大小值\n" as *byte);
+                    }
+                }
+                i = i + 1;
+            } else {
+                fprintf(libc.stderr, "错误：--stack-size 选项需要指定堆栈大小（KB）\n" as *byte);
+                return -1;
+            }
+        } else {
+            const c: byte = arg[0];
+            if c != 45 {  // 不是 '-' 开头
+                if input_file_count[0] >= MAX_INPUT_FILES {
+                    fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d)\n" as *byte, MAX_INPUT_FILES);
+                    return -1;
+                }
+                const idx: i32 = input_file_count[0];
+                input_file_indices[idx] = i;
+                input_file_count[0] = idx + 1;
+            }
+        }
+        i = i + 1;
+    }
+
+    // --outlibc 模式：不需要输入文件和 -o 参数
+    if command[0] == CommandType.COMMAND_OUTLIBC {
+        return 0;
+    }
+
+    if input_file_count[0] == 0 {
+        fprintf(libc.stderr, "错误: 未指定输入文件\n" as *byte);
+        const program_name: *byte = get_argv(0);
+        if program_name != null {
+            print_usage(program_name as &byte);
+        }
+        return -1;
+    }
+    
+    // run 和 test 命令：如果没有指定 -o，自动生成输出路径
+    // 输出路径将在主函数中根据输入文件名生成
+    
+    const out_idx: i32 = output_file_index[0];
+    if out_idx >= 0 {
+        const out_path: *byte = get_argv(out_idx);
+        if out_path == null {
+            fprintf(libc.stderr, "错误: 无法获取输出文件路径（索引 %d）\n" as *byte, out_idx);
+            return -1;
+        }
+        if backend_type[0] == BackendType.BACKEND_LLVM {
+            const ext: *byte = strrchr(out_path, 46);
+            if ext != null && strcmp(ext, ".c" as *byte) == 0 {
+                backend_type[0] = BackendType.BACKEND_C99;
+            }
+        }
+    }
+    return 0;
+}
+
+// 检测输出路径是否为 C 文件（以 .c 结尾）
+// 返回：1 表示 C 文件，0 表示其他
+fn is_c_output(output_path: &byte) i32 {
+    if output_path == null { return 0; }
+    const len: usize = strlen(output_path as *byte);
+    if len < 2 { return 0; }
+    if output_path[len - 2] == 46 as byte && output_path[len - 1] == 99 as byte {
+        return 1;
+    }
+    return 0;
+}
+
+// 调用 gcc 链接生成可执行文件
+// c_file: C 源代码文件路径
+// output: 输出可执行文件路径
+// is_nostdlib: 是否使用 --nostdlib 模式
+// 返回：0 成功，非 0 失败
+fn link_with_gcc(c_file: &byte, output: &byte, is_nostdlib: i32) i32 {
+    var cmd: [byte: 4096] = [];
+    var cmd_len: i32 = 0;
+
+    if is_nostdlib != 0 {
+        // --nostdlib 模式：零依赖静态链接
+        cmd_len = snprintf(&cmd[0], 4096, "PATH=/usr/lib/gcc/x86_64-linux-gnu/12:$PATH gcc -std=c99 -O2 -nostdlib -fno-builtin -static %s -o %s -lgcc" as *byte, c_file as *byte, output as *byte);
+    } else {
+        // 普通模式
+        cmd_len = snprintf(&cmd[0], 4096, "PATH=/usr/lib/gcc/x86_64-linux-gnu/12:$PATH gcc -std=c99 -O2 -fno-builtin %s -o %s" as *byte, c_file as *byte, output as *byte);
+    }
+
+    if cmd_len <= 0 || cmd_len >= 4096 {
+        fprintf(libc.stderr, "错误：构建 gcc 命令失败\n" as *byte);
+        return 1;
+    }
+
+    fprintf(libc.stderr, "信息：调用 gcc 链接：%s\n" as *byte, &cmd[0] as *byte);
+    const result: i32 = system(&cmd[0] as *byte);
+    if result != 0 {
+        fprintf(libc.stderr, "错误：gcc 链接失败，返回码：%d\n" as *byte, result);
+        return 1;
+    }
+    return 0;
+}
+
+// 主编译函数：词法 → 语法 → AST 合并 → 类型检查 → 代码生成
+// 支持目录输入和自动依赖收集
+// output_path_override: 如果非 null，使用此路径替代 get_argv(output_file_index)
+// is_nostdlib: 生成 _start 入口（无 C 标准库链接）
+// stack_size: 堆栈大小（KB），0 表示默认
+fn compile_files(
+    input_file_indices: &i32,
+    input_file_count: i32,
+    output_file_index: i32,
+    backend: BackendType,
+    emit_line_directives: i32,
+    enable_safety_proof: i32,
+    opt_level: i32,
+    output_path_override: &byte,
+    is_nostdlib: i32,
+    stack_size: i32
+) i32 {
+    
+    // 初始化临时 Arena（用于依赖收集，使用全局缓冲区避免栈溢出）
+    var temp_arena: Arena = Arena { buffer: null, size: 0 as usize, offset: 0 as usize };
+    arena_init(&temp_arena, &temp_arena_buffer[0], 16 * 1024 * 1024);
+    
+    // 获取 UYA_ROOT 和编译器目录
+    var uya_root_base: [byte: PATH_MAX] = [];
+    const argv0: *byte = get_argv(0);
+    if argv0 == null {
+        fprintf(libc.stderr, "错误: 无法获取程序路径\n" as *byte);
+        return 1;
+    }
+    if get_uya_root(argv0 as &byte, &uya_root_base[0] as &byte, PATH_MAX) != 0 {
+        fprintf(libc.stderr, "错误: 无法获取 UYA_ROOT 目录\n" as *byte);
+        return 1;
+    }
+    
+    // 标准库在编译器所在目录的上一级目录的 lib/ 下
+    // 例如：编译器在 /path/bin/uya，标准库在 /path/lib/
+    // 与 C 编译器一致：若 UYA_ROOT 已指向 lib 目录则直接使用，否则追加 /lib/
+    var base_len: usize = strlen(&uya_root_base[0]);
+    if base_len > 1 && uya_root_base[base_len - 1] == 47 {  // '/'
+        uya_root_base[base_len - 1] = 0;
+        base_len = base_len - 1;
+    }
+    const last_slash: *byte = strrchr(&uya_root_base[0], 47);
+    var already_lib: i32 = 0;
+    if last_slash != null && strcmp(last_slash, "/lib" as *byte) == 0 {
+        already_lib = 1;
+    }
+    if already_lib == 0 && last_slash != null && strcmp(last_slash, "/bin" as *byte) == 0 {
+        var slash_idx: usize = (last_slash as i64 - &uya_root_base[0] as i64) as usize;
+        uya_root_base[slash_idx] = 0;
+    }
+    var uya_root_buffer: [byte: PATH_MAX] = [];
+    var lib_len: i32 = 0;
+    if already_lib != 0 {
+        lib_len = snprintf(&uya_root_buffer[0] as &byte, PATH_MAX, "%s/" as *byte, &uya_root_base[0] as &byte);
+    } else {
+        lib_len = snprintf(&uya_root_buffer[0] as &byte, PATH_MAX, "%s/lib/" as *byte, &uya_root_base[0] as &byte);
+    }
+    if lib_len <= 0 || lib_len >= PATH_MAX {
+        fprintf(libc.stderr, "错误: UYA_ROOT 路径过长\n" as *byte);
+        return 1;
+    }
+    
+    // 处理输入：如果是目录，查找包含 main 的文件；如果是文件，检查是否包含 main
+    // 使用全局变量避免栈溢出
+    var resolved_files: [&byte: MAX_INPUT_FILES] = resolved_files_global;
+    var resolved_count: i32 = 0;
+    var project_root_buffer: [byte: PATH_MAX] = [];
+    var project_root: &byte = null;
+    // 使用全局变量避免栈溢出（262KB 太大），直接使用全局数组
+    // var main_file_paths: [[byte: PATH_MAX]: MAX_INPUT_FILES] = [];
+    
+    var i: i32 = 0;
+    while i < input_file_count {
+        const idx_i: i32 = input_file_indices[i];
+        const input_path: *byte = get_argv(idx_i);
+        if input_path == null {
+            fprintf(libc.stderr, "错误: 无法获取输入文件路径（索引 %d）\n" as *byte, idx_i);
+            return 1;
+        }
+        const input: &byte = input_path as &byte;
+        
+        const is_dir_result: i32 = is_directory(input);
+        if is_dir_result != 0 {
+            // 是目录，查找包含 main 的文件
+            var main_files: [&byte: MAX_INPUT_FILES] = [];
+            var main_count: i32 = 0;
+            if find_main_files_in_dir(input, &main_files[0], &main_file_paths_global[0], MAX_INPUT_FILES, &main_count) != 0 {
+                fprintf(libc.stderr, "错误: 无法读取目录 '%s'\n" as *byte, input_path);
+                return 1;
+            }
+            if main_count == 0 {
+                fprintf(libc.stderr, "错误: 目录 '%s' 中未找到包含 main 函数的文件\n" as *byte, input_path);
+                return 1;
+            }
+            if main_count > 1 {
+                fprintf(libc.stderr, "错误: 目录 '%s' 中有多个文件包含 main 函数:\n" as *byte, input_path);
+                var j: i32 = 0;
+                while j < main_count {
+                    fprintf(libc.stderr, "  %s\n" as *byte, main_files[j] as *byte);
+                    j = j + 1;
+                }
+                return 1;
+            }
+            resolved_files[resolved_count] = main_files[0];
+            resolved_count = resolved_count + 1;
+            // 设置项目根目录
+            if project_root == null {
+                const input_len: usize = strlen(input_path);
+                if input_len < PATH_MAX - 1 {
+                    strcpy(&project_root_buffer[0], input_path);
+                    if project_root_buffer[input_len - 1] != 47 {
+                        project_root_buffer[input_len] = 47 as byte;
+                        project_root_buffer[input_len + 1] = 0 as byte;
+                    }
+                    project_root = &project_root_buffer[0] as &byte;
+                } else {
+                    project_root = input;
+                }
+            }
+        } else if is_file(input) != 0 {
+            // 检查是否已在 resolved_files 中（避免重复添加）
+            var already_resolved: i32 = 0;
+            var j: i32 = 0;
+            while j < resolved_count {
+                if resolved_files[j] != null && paths_equal(resolved_files[j], input) != 0 {
+                    already_resolved = 1;
+                    break;
+                }
+                j = j + 1;
+            }
+            if already_resolved != 0 {
+                i = i + 1;
+                continue;
+            }
+            
+            // 是文件，检查是否包含 main
+            if detect_main_function(input) != 0 {
+                resolved_files[resolved_count] = input;
+                resolved_count = resolved_count + 1;
+                // 设置项目根目录（文件所在目录）
+                if project_root == null {
+                    const input_last_slash: *byte = strrchr(input_path, 47);
+                    if input_last_slash != null {
+                        const dir_len: usize = ptr_diff(input_last_slash, input) + 1;
+                        if dir_len < PATH_MAX {
+                            memcpy(&project_root_buffer[0], input_path, dir_len);
+                            project_root_buffer[dir_len] = 0 as byte;
+                            project_root = &project_root_buffer[0] as &byte;
+                        } else {
+                            strcpy(&project_root_buffer[0], "./" as *byte);
+                            project_root = &project_root_buffer[0] as &byte;
+                        }
+                    } else {
+                        strcpy(&project_root_buffer[0], "./" as *byte);
+                        project_root = &project_root_buffer[0] as &byte;
+                    }
+                }
+            } else {
+                // 多文件模式下，允许某些文件不包含 main（它们是库文件）
+                // 但如果这是唯一输入文件�����则必须包含 main
+                if input_file_count == 1 {
+                    fprintf(libc.stderr, "错误: 文件 '%s' 不包含 main 函数\n" as *byte, input_path);
+                    return 1;
+                }
+                // 多文件模式：将不包含 main 的文件也加入列表（作为���文件）
+                resolved_files[resolved_count] = input;
+                resolved_count = resolved_count + 1;
+            }
+        } else {
+            fprintf(libc.stderr, "错误: '%s' 既不是文件也不是目录\n" as *byte, input_path);
+            return 1;
+        }
+        i = i + 1;
+    }
+    
+    if resolved_count == 0 {
+        fprintf(libc.stderr, "错误: 未找到包含 main 函数的文件\n" as *byte);
+        return 1;
+    }
+    
+    // 检测是否有 export fn main 或 test 语句，如果有则自动添加 entry.uya
+    // 返回值：0=无main/test，1=fn main 或 test，2=export fn main
+    var has_export_main: i32 = 0;
+    var has_test_stmt: i32 = 0;
+    i = 0;
+    while i < resolved_count {
+        const main_type: i32 = detect_main_function(resolved_files[i]);
+        if main_type == 2 {
+            has_export_main = 1;
+        } else if main_type == 1 {
+            has_test_stmt = 1;
+        }
+        i = i + 1;
+    }
+    
+    // 如果有 export fn main 或 test 语句（但没有 export fn main），自动添加 std.runtime.entry
+    // test 模式下需要 entry.uya 来提供 C main 入口
+    if has_export_main != 0 || has_test_stmt != 0 {
+        var entry_path: [byte: PATH_MAX] = [];
+        const entry_len: i32 = snprintf(&entry_path[0], PATH_MAX, "%sstd/runtime/entry/entry.uya" as *byte, &uya_root_buffer[0] as *byte);
+        if entry_len > 0 && entry_len < PATH_MAX {
+            if is_file(&entry_path[0] as &byte) != 0 {
+                var already_in_list: i32 = 0;
+                var j: i32 = 0;
+                while j < resolved_count {
+                    if resolved_files[j] != null && paths_equal(resolved_files[j], &entry_path[0] as &byte) != 0 {
+                        already_in_list = 1;
+                        break;
+                    }
+                    j = j + 1;
+                }
+                if already_in_list == 0 && resolved_count < MAX_INPUT_FILES {
+                    const entry_copy: &byte = arena_alloc(&temp_arena, entry_len + 1) as &byte;
+                    if entry_copy != null {
+                        strcpy(entry_copy as *byte, &entry_path[0]);
+                        resolved_files[resolved_count] = entry_copy;
+                        resolved_count = resolved_count + 1;
+                    }
+                }
+            }
+        }
+    }
+    
+    // 自动收集模块依赖
+    // 只对包含 main 的文件进行依赖收集，库文件已经在列表中，不需要进行依赖收集
+    var all_files: [&byte: MAX_INPUT_FILES] = [];
+    var all_file_count: i32 = resolved_count;
+    i = 0;
+    while i < resolved_count {
+        all_files[i] = resolved_files[i];
+        i = i + 1;
+    }
+    
+    // 收集依赖（只对包含 main 的文件进行依赖收集）
+    var processed_files: [&byte: MAX_INPUT_FILES] = [];
+    var processed_count: i32 = 0;
+    
+    // 找出包含 main 的文件（入口文件）
+    var main_files: [&byte: MAX_INPUT_FILES] = [];
+    var main_file_count: i32 = 0;
+    i = 0;
+    while i < resolved_count {
+        if detect_main_function(resolved_files[i]) != 0 {
+            main_files[main_file_count] = resolved_files[i];
+            main_file_count = main_file_count + 1;
+        }
+        i = i + 1;
+    }
+    
+    // 依赖收集策略：对所有输入文件进行依赖收集（与 C 版一致）
+    i = 0;
+    while i < all_file_count {
+        const new_count: i32 = collect_module_dependencies(
+            all_files[i],
+            &all_files[0],
+            all_file_count,
+            MAX_INPUT_FILES,
+            &processed_files[0],
+            &processed_count,
+            MAX_INPUT_FILES,
+            project_root,
+            &uya_root_buffer[0] as &byte,
+            &temp_arena
+        );
+        if new_count < 0 {
+            fprintf(libc.stderr, "错误: 收集模块依赖失败: %s\n" as *byte, all_files[i] as *byte);
+            return 1;
+        }
+        all_file_count = new_count;
+        i = i + 1;
+    }
+    
+    fprintf(libc.stderr, "=== 开始编译 ===\n" as *byte);
+    fprintf(libc.stderr, "输入文件数量: %d (包含依赖)\n" as *byte, all_file_count);
+    i = 0;
+    while i < all_file_count {
+        fprintf(libc.stderr, "  %d: %s\n" as *byte, i, all_files[i] as *byte);
+        i = i + 1;
+    }
+    const output_file: *byte = get_argv(output_file_index);
+    // 如果有覆盖路径，使用覆盖路径
+    var actual_output: *byte = output_file;
+    if output_path_override != null {
+        actual_output = output_path_override as *byte;
+    }
+    fprintf(libc.stderr, "输出文件: %s\n" as *byte, actual_output);
+    if project_root != null {
+        fprintf(libc.stderr, "项目根目录: %s\n" as *byte, project_root as *byte);
+    }
+    fprintf(libc.stderr, "UYA_ROOT: %s\n" as *byte, &uya_root_buffer[0]);
+    fprintf(libc.stderr, "=== 词法/语法分析 ===\n" as *byte);
+    var backend_str: *byte = "LLVM" as *byte;
+    if backend == BackendType.BACKEND_C99 {
+        backend_str = "C99" as *byte;
+    }
+    fprintf(libc.stderr, "后端类型: %s\n" as *byte, backend_str);
+
+    // 初始化编译统计
+    var stats: CompileStats = CompileStats { parse_time_ms: 0, merge_time_ms: 0, check_time_ms: 0, opt_time_ms: 0, codegen_time_ms: 0, total_time_ms: 0, file_count: 0, ast_nodes: 0 };
+    stats.file_count = all_file_count;  // 记录文件数
+
+    // 计时变量
+    const start_time: i64 = clock();
+    var parse_end_time: i64 = 0;
+    var merge_end_time: i64 = 0;
+    var check_end_time: i64 = 0;
+    var codegen_end_time: i64 = 0;
+
+    var arena: Arena = Arena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize };
+    arena_init(&arena, &arena_buffer[0], ARENA_BUFFER_SIZE as usize);
+
+    var programs: [&ASTNode: MAX_INPUT_FILES] = [];
+
+    i = 0;
+    while i < all_file_count {
+        const input_path: *byte = all_files[i] as *byte;
+        const file_size: i32 = read_file_content(input_path as &byte, &file_buffer[0], FILE_BUFFER_SIZE as usize);
+        if file_size < 0 {
+            fprintf(libc.stderr, "错误: 无法读取文件 '%s' (可能文件太大或不存在)\n" as *byte, input_path);
+            return 1;
+        }
+        var lexer: Lexer = Lexer { buffer: [], buffer_size: 0 as usize, position: 0 as usize, line: 0, column: 0, filename: null, has_error: 0 };
+        const input_path_ref: &byte = input_path as &byte;
+        if lexer_init(&lexer, &file_buffer[0], file_size as usize, input_path_ref, &arena) != 0 {
+            fprintf(libc.stderr, "错误: Lexer 初始化失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        var parser: Parser = Parser { lexer: null, current_token: null, arena: null, context: ParserContext.PARSER_CONTEXT_NORMAL };
+        if parser_init(&parser, &lexer, &arena) != 0 {
+            fprintf(libc.stderr, "错误: Parser 初始化失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        const ast: &ASTNode = parser_parse(&parser);
+        if ast == null {
+            fprintf(libc.stderr, "错误: 语法分析失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        if ast.type != ASTNodeType.AST_PROGRAM {
+            fprintf(libc.stderr, "错误: 解析结果不是程序节点: %s\n" as *byte, input_path);
+            return 1;
+        }
+        // 检查词法分析错误（如未闭合块注释）
+        if lexer.has_error != 0 {
+            fprintf(libc.stderr, "错误: 语法分析失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        programs[i] = ast;
+        fprintf(libc.stderr, "  解析完成: %s\n" as *byte, input_path);
+        i = i + 1;
+    }
+    parse_end_time = clock();
+    fprintf(libc.stderr, "=== 词法/语法分析完成，共 %d 个文件 ===\n" as *byte, all_file_count);
+
+    fprintf(libc.stderr, "=== AST 合并阶段 ===\n" as *byte);
+    const merged_ast: &ASTNode = ast_merge_programs(programs, all_file_count, &arena);
+    if merged_ast == null {
+        fprintf(libc.stderr, "错误: AST 合并失败\n" as *byte);
+        return 1;
+    }
+    merge_end_time = clock();
+    fprintf(libc.stderr, "AST 合并完成，共 %d 个声明\n" as *byte, merged_ast.program_decl_count);
+
+    fprintf(libc.stderr, "=== 类型检查阶段 ===\n" as *byte);
+    const void_type: Type = Type { kind: TypeKind.TYPE_VOID, enum_name: null, struct_name: null, pointer_to: null, is_ffi_pointer: 0, element_type: null, array_size: 0 };
+    var checker: TypeChecker = TypeChecker { arena: null, symbol_table: SymbolTable { slots: [], count: 0 }, function_table: FunctionTable { slots: [], count: 0 }, scope_level: 0, loop_depth: 0, program_node: null, error_count: 0, default_filename: null, current_return_type: void_type, in_function: 0, in_defer_or_errdefer: 0 };
+    var default_filename: *byte = "(unknown)" as *byte;
+    if all_file_count > 0 {
+        default_filename = all_files[0] as *byte;
+    }
+    if checker_init(&checker, &arena, default_filename as &byte) != 0 {
+        fprintf(libc.stderr, "错误: TypeChecker 初始化失败\n" as *byte);
+        return 1;
+    }
+    // 设置 UYA_ROOT 目录，供 checker 识别标准库模块
+    checker.uya_root_dir = &uya_root_buffer[0] as &byte;
+    // 设置内存安全证明开关
+    checker.enable_safety_proof = enable_safety_proof;
+    
+    if checker_check(&checker, merged_ast) != 0 {
+        fprintf(libc.stderr, "错误: 类型检查失败（错误数量: %d）\n" as *byte, checker_get_error_count(&checker));
+        const err_msg: &byte = get_last_checker_error();
+        if err_msg != null {
+            fprintf(libc.stderr, "最后错误: %s\n" as *byte, err_msg as *byte);
+        }
+        return 1;
+    }
+    if checker_get_error_count(&checker) > 0 {
+        fprintf(libc.stderr, "错误: 类型检查失败（错误数量: %d）\n" as *byte, checker_get_error_count(&checker));
+        const err_msg: &byte = get_last_checker_error();
+        if err_msg != null {
+            fprintf(libc.stderr, "最后错误: %s\n" as *byte, err_msg as *byte);
+        }
+        return 1;
+    }
+    check_end_time = clock();
+    fprintf(libc.stderr, "类型检查通过\n" as *byte);
+
+    // ===== 优化阶段（v0.7.3 新增）=====
+    var opt_end_time: i64 = 0;
+
+    // 创建优化配置
+    var opt_config: OptimizationConfig = create_optimization_config(opt_level);
+    opt_config.verbose = 1;  // 启用详细输出
+    
+    if opt_level > 0 {
+        fprintf(libc.stderr, "\n=== 优化阶段 (级别: %d) ===\n" as *byte, opt_level);
+        
+        // 执行优化
+        const optimized_ast: &ASTNode = optimize_program(&checker, merged_ast, opt_config);
+        opt_end_time = clock();
+        
+        // 打印优化统计
+        const opt_stats: OptimizationStats = get_optimization_stats();
+        fprintf(libc.stderr, "常量折叠: %d\n" as *byte, opt_stats.constant_folded);
+        fprintf(libc.stderr, "死代码消除: %d\n" as *byte, opt_stats.dead_code_eliminated);
+        fprintf(libc.stderr, "证明优化: %d\n" as *byte, opt_stats.proof_optimized);
+        fprintf(libc.stderr, "函数内联: %d\n" as *byte, opt_stats.inlined_functions);
+        fprintf(libc.stderr, "循环展开: %d\n" as *byte, opt_stats.loops_unrolled);
+    } else {
+        opt_end_time = clock();
+    }
+
+    fprintf(libc.stderr, "\n=== 代码生成阶段 ===\n" as *byte);
+    var module_name: *byte = "(unknown)" as *byte;
+    if all_file_count > 0 {
+        module_name = all_files[0] as *byte;
+    }
+    fprintf(libc.stderr, "模块名: %s\n" as *byte, module_name);
+
+    // C99 后端：生成 C 源代码（与 C 版本保持一致，直接使用 C99 后端）
+    const out_file: *void = fopen(actual_output, "w" as *byte);
+    if out_file == null {
+        fprintf(libc.stderr, "错误: 无法打开输出文件 '%s'\n" as *byte, actual_output);
+        return 1;
+    }
+    var c99_codegen: C99CodeGenerator = C99CodeGenerator { };
+    if c99_codegen_new(&c99_codegen, &arena, out_file, module_name as &byte, emit_line_directives, is_nostdlib, stack_size) != 0 {
+        fprintf(libc.stderr, "错误: C99CodeGenerator 初始化失败\n" as *byte);
+        fclose(out_file);
+        return 1;
+    }
+    // 设置单态化实例（从 TypeChecker 传入）
+    c99_codegen_set_mono_instances(&c99_codegen, &checker);
+    if c99_codegen_generate(&c99_codegen, merged_ast, actual_output as &byte) != 0 {
+        fprintf(libc.stderr, "错误: C99 代码生成失败\n" as *byte);
+        c99_codegen_free(&c99_codegen);
+        fclose(out_file);
+        return 1;
+    }
+    c99_codegen_free(&c99_codegen);
+    fclose(out_file);
+    codegen_end_time = clock();
+
+    // 计算各阶段耗时（毫秒）
+    stats.parse_time_ms = (parse_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
+    stats.merge_time_ms = (merge_end_time - parse_end_time) * 1000 / CLOCKS_PER_SEC;
+    stats.check_time_ms = (check_end_time - merge_end_time) * 1000 / CLOCKS_PER_SEC;
+    stats.codegen_time_ms = (codegen_end_time - opt_end_time) * 1000 / CLOCKS_PER_SEC;
+    stats.total_time_ms = (codegen_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
+    
+    // 输出编译统计
+    fprintf(libc.stderr, "\n=== 编译统计 ===\n" as *byte);
+    fprintf(libc.stderr, "文件数: %d\n" as *byte, stats.file_count);
+    fprintf(libc.stderr, "解析耗时: %ld ms\n" as *byte, stats.parse_time_ms);
+    fprintf(libc.stderr, "合并耗时: %ld ms\n" as *byte, stats.merge_time_ms);
+    fprintf(libc.stderr, "检查耗时: %ld ms\n" as *byte, stats.check_time_ms);
+    if opt_level > 0 {
+        const opt_time_ms: i64 = (opt_end_time - check_end_time) * 1000 / CLOCKS_PER_SEC;
+        fprintf(libc.stderr, "优化耗时: %ld ms\n" as *byte, opt_time_ms);
+    }
+    fprintf(libc.stderr, "生成耗时: %ld ms\n" as *byte, stats.codegen_time_ms);
+    fprintf(libc.stderr, "总耗时: %ld ms\n" as *byte, stats.total_time_ms);
+    
+    fprintf(libc.stderr, "\n代码生成完成: %s\n" as *byte, actual_output);
+
+    return 0;
+}
+
+// 程序入口（export fn main 编译为 main_main，由 std.runtime.entry 的 C main 调用）
+export fn main() i32 {
+
+    var input_file_indices: [i32: 64] = [];
+    var input_file_count: i32 = 0;
+    var output_file_index: i32 = -1;
+    var backend: BackendType = BackendType.BACKEND_LLVM;
+    var emit_line_directives: i32 = 0;
+    var enable_safety_proof: i32 = 0;
+    var opt_level: i32 = 1;
+    var outlibc_index: i32 = -1;
+    var command: CommandType = CommandType.COMMAND_BUILD;
+    var run_arg_start: i32 = -1;
+    var is_nostdlib: i32 = 0;
+    var stack_size: i32 = 65536;  // 默认 64MB 堆栈
+
+    // 临时缓冲区用于自动生成输出路径
+    var auto_output_path: [byte: PATH_MAX] = [];
+
+    if parse_args(&command, &input_file_indices[0], &input_file_count, &output_file_index, &backend, &emit_line_directives, &enable_safety_proof, &opt_level, &outlibc_index, &run_arg_start, &is_nostdlib, &stack_size) != 0 {
+        return 1;
+    }
+
+    // 设置堆栈大小（如果指定了，使用传入值；否则使用默认 16MB）
+    if stack_size > 0 {
+        // 将 KB 转换为字节
+        const stack_bytes: u64 = stack_size as u64 * 1024;
+        var rlim: RLimit = RLimit {
+            rlim_cur: stack_bytes,
+            rlim_max: stack_bytes
+        };
+        // 忽略错误，因为可能没有权限设置
+        _ = sys_setrlimit(RLIMIT_STACK, &rlim);
+    }
+
+    // --outlibc 模式
+    if command == CommandType.COMMAND_OUTLIBC {
+        const outlibc_path: *byte = get_argv(outlibc_index);
+        if outlibc_path == null {
+            fprintf(libc.stderr, "错误: 无法获取 --outlibc 参数\n" as *byte);
+            return 1;
+        }
+        const result: i32 = generate_libc(outlibc_path as &byte);
+        return result;
+    }
+
+    // build 命令：如果没有指定 -o，使用默认输出 a.out
+    if command == CommandType.COMMAND_BUILD && output_file_index < 0 {
+        // 生成临时 C 文件路径
+        const written: i32 = snprintf(&auto_output_path[0], PATH_MAX, "/tmp/uya_output.c" as *byte);
+        if written <= 0 || written >= PATH_MAX {
+            fprintf(libc.stderr, "错误：无法生成临时输出路径\n" as *byte);
+            return 1;
+        }
+        output_file_index = -2;  // 标记为自动生成的路径
+        backend = BackendType.BACKEND_C99;  // build 模式默认使用 C99 后端
+    }
+
+    // run 和 test 命令：自动生成输出路径
+    if (command == CommandType.COMMAND_RUN || command == CommandType.COMMAND_TEST) && output_file_index < 0 {
+        // 从输入文件名生成输出路径
+        const input_path: *byte = get_argv(input_file_indices[0]);
+        if input_path == null {
+            fprintf(libc.stderr, "错误: 无法获取输入文件路径\n" as *byte);
+            return 1;
+        }
+        
+        // 生成临时文件路径（使用固定路径，因为 getpid 在 nostdlib 模式下不可用）
+        const written: i32 = snprintf(&auto_output_path[0], PATH_MAX, "/tmp/uya_output.c" as *byte);
+        if written <= 0 || written >= PATH_MAX {
+            fprintf(libc.stderr, "错误: 无法生成临时输出路径\n" as *byte);
+            return 1;
+        }
+        output_file_index = -2;  // 标记为自动生成的路径
+        backend = BackendType.BACKEND_C99;  // run/test 模式默认使用 C99 后端
+    }
+    
+    // build 命令：如果指定了非 .c 输出，需要生成临时 C 文件
+    var user_output_path: *byte = null;  // 用户指定的输出路径（用于 gcc 链接）
+    if command == CommandType.COMMAND_BUILD && output_file_index >= 0 {
+        const out_path: *byte = get_argv(output_file_index);
+        if out_path != null && is_c_output(out_path as &byte) == 0 {
+            // 输出不是 .c 文件，保存用户指定的路径，生成临时 C 文件路径
+            user_output_path = out_path;
+            const written: i32 = snprintf(&auto_output_path[0], PATH_MAX, "/tmp/uya_output.c" as *byte);
+            if written <= 0 || written >= PATH_MAX {
+                fprintf(libc.stderr, "错误: 无法生成临时输出路径\n" as *byte);
+                return 1;
+            }
+            output_file_index = -2;  // 标记为自动生成的路径
+            backend = BackendType.BACKEND_C99;
+        }
+    }
+    
+    // 确定输出路径覆盖参数
+    var output_path_for_compile: &byte = null;
+    if output_file_index == -2 {
+        output_path_for_compile = &auto_output_path[0];
+    }
+
+    const result: i32 = compile_files(&input_file_indices[0], input_file_count, output_file_index, backend, emit_line_directives, enable_safety_proof, opt_level, output_path_for_compile, is_nostdlib, stack_size);
+    if result != 0 {
+        return result;
+    }
+
+    // build 命令：检测输出类型（C 文件或可执行文件）
+    // 注意：output_file_index 可能是 -2（自动生成路径），此时用户指定了非 .c 输出
+    var is_output_c_file: i32 = 0;
+    if command == CommandType.COMMAND_BUILD && output_file_index >= 0 {
+        const out_path: *byte = get_argv(output_file_index);
+        if out_path != null && is_c_output(out_path as &byte) != 0 {
+            is_output_c_file = 1;
+        }
+    }
+
+    // build 命令：如果输出不是 C 文件，调用 gcc 链接
+    // 条件：output_file_index == -2（自动生成 C 文件）或用户指定了非 .c 输出
+    if command == CommandType.COMMAND_BUILD && is_output_c_file == 0 {
+        // C 文件路径（auto_output_path 已设置）
+        const c_file: &byte = &auto_output_path[0];
+        
+        var output: &byte = "a.out" as *byte;
+
+        // 如果用户指定了输出路径，使用它
+        if user_output_path != null {
+            output = user_output_path as &byte;
+        } else if output_file_index >= 0 {
+            output = get_argv(output_file_index) as &byte;
+        }
+
+        // 调用 gcc 链接
+        const link_result: i32 = link_with_gcc(c_file, output, is_nostdlib);
+        if link_result != 0 {
+            fprintf(libc.stderr, "错误：链接失败\n" as *byte);
+            return 1;
+        }
+
+        fprintf(libc.stderr, "\n编译完成：%s\n" as *byte, output as *byte);
+        return 0;
+    }
+
+    // run 和 test 命令：自动编译并运行
+    if command == CommandType.COMMAND_RUN || command == CommandType.COMMAND_TEST {
+        // 获取输出路径
+        var actual_output: &byte = &auto_output_path[0];
+        if output_file_index >= 0 {
+            actual_output = get_argv(output_file_index) as &byte;
+        }
+
+        // 生成临时可执行文件路径
+        var run_output: [byte: PATH_MAX] = [];
+        const run_written: i32 = snprintf(&run_output[0], PATH_MAX, "/tmp/uya_out" as *byte);
+        if run_written <= 0 || run_written >= PATH_MAX {
+            fprintf(libc.stderr, "错误：无法生成运行时输出路径\n" as *byte);
+            return 1;
+        }
+
+        // 调用 gcc 链接生成可执行文件
+        fprintf(libc.stderr, "\n编译完成：%s\n" as *byte, actual_output as *byte);
+        
+        var gcc_cmd: [byte: 4096] = [];
+        var gcc_cmd_len: i32 = 0;
+        if is_nostdlib != 0 {
+            gcc_cmd_len = snprintf(&gcc_cmd[0], 4096, "PATH=/usr/lib/gcc/x86_64-linux-gnu/12:$PATH gcc -std=c99 -O2 -nostdlib -fno-builtin -static %s -o /tmp/uya_out -lgcc" as *byte, actual_output as *byte);
+        } else {
+            gcc_cmd_len = snprintf(&gcc_cmd[0], 4096, "PATH=/usr/lib/gcc/x86_64-linux-gnu/12:$PATH gcc -std=c99 -O2 %s -o /tmp/uya_out -lm" as *byte, actual_output as *byte);
+        }
+        
+        if gcc_cmd_len <= 0 || gcc_cmd_len >= 4096 {
+            fprintf(libc.stderr, "错误：构建 gcc 命令失败\n" as *byte);
+            return 1;
+        }
+        
+        const gcc_result: i32 = system(&gcc_cmd[0] as *byte);
+        if gcc_result != 0 {
+            fprintf(libc.stderr, "错误：gcc 链接失败，返回码：%d\n" as *byte, gcc_result);
+            return 1;
+        }
+
+        // 运行程序
+        var run_cmd: [byte: 4096] = [];
+        var run_cmd_len: i32 = snprintf(&run_cmd[0], 4096, "/tmp/uya_out" as *byte);
+        const run_result: i32 = system(&run_cmd[0] as *byte);
+        if run_result != 0 {
+            fprintf(libc.stderr, "程序运行返回码：%d\n" as *byte, run_result);
+        }
+        
+        return 0;
+    }
+    
+    return 0;
+}
+
+// ===== --outlibc 功能实现 =====
+
+// libc 源文件列表（相对于 lib/ 目录）
+const LIBC_SOURCES: i32 = 8;
+const LIBC_SOURCE_NAMES: [&byte: 8] = [
+    "libc/syscall.uya" as *byte,
+    "libc/errno.uya" as *byte,
+    "libc/ctype.uya" as *byte,
+    "libc/string.uya" as *byte,
+    "libc/mem.uya" as *byte,
+    "libc/stdio.uya" as *byte,
+    "libc/stdlib.uya" as *byte,
+    "libc/unistd.uya" as *byte
+];
+
+// 生成 libuya.c 和 libuya.h
+// output_dir: 输出目录
+// 返回：0 成功，非 0 失败
+fn generate_libc(output_dir: &byte) i32 {
+    fprintf(libc.stderr, "信息: 开始生成 libuya 库到 %s/\n" as *byte, output_dir as *byte);
+
+    // 获取 UYA_ROOT
+    var uya_root_buffer: [byte: PATH_MAX] = [];
+    const argv0: *byte = get_argv(0);
+    if argv0 == null {
+        fprintf(libc.stderr, "错误: 无法获取程序路径\n" as *byte);
+        return 1;
+    }
+    if get_uya_root(argv0 as &byte, &uya_root_buffer[0] as &byte, PATH_MAX) != 0 {
+        fprintf(libc.stderr, "错误: 无法获取 UYA_ROOT 目录\n" as *byte);
+        return 1;
+    }
+
+    // 标准库在编译器所在目录的上一级目录的 lib/ 下
+    var base_len: usize = strlen(&uya_root_buffer[0]);
+    if base_len > 1 && uya_root_buffer[base_len - 1] == 47 {
+        uya_root_buffer[base_len - 1] = 0;
+        base_len = base_len - 1;
+    }
+    const last_slash: *byte = strrchr(&uya_root_buffer[0], 47);
+    if last_slash != null && strcmp(last_slash, "/bin" as *byte) == 0 {
+        var slash_idx: usize = (last_slash as i64 - &uya_root_buffer[0] as i64) as usize;
+        uya_root_buffer[slash_idx] = 0;
+    }
+    var lib_dir: [byte: PATH_MAX] = [];
+    snprintf(&lib_dir[0], PATH_MAX, "%s/lib/" as *byte, &uya_root_buffer[0] as *byte);
+
+    // 创建输出目录（如果不存在）
+    mkdir(output_dir as *byte, 493);  // 0755 = 493
+
+    // 构建输出文件路径
+    var header_path: [byte: PATH_MAX] = [];
+    var source_path: [byte: PATH_MAX] = [];
+    snprintf(&header_path[0], PATH_MAX, "%s/libuya.h" as *byte, output_dir as *byte);
+    snprintf(&source_path[0], PATH_MAX, "%s/libuya.c" as *byte, output_dir as *byte);
+
+    // 打开输出文件
+    const header_file: *void = fopen(&header_path[0] as *byte, "w" as *byte);
+    const source_file: *void = fopen(&source_path[0] as *byte, "w" as *byte);
+    if header_file == null || source_file == null {
+        fprintf(libc.stderr, "错误: 无法创建输出文件\n" as *byte);
+        if header_file != null { fclose(header_file); }
+        if source_file != null { fclose(source_file); }
+        return 1;
+    }
+
+    // 写入头文件
+    fprintf(header_file, "/* libuya.h - Uya 标准库头文件 */\n" as *byte);
+    fprintf(header_file, "/* 自动生成，请勿手动修改 */\n" as *byte);
+    fprintf(header_file, "#ifndef LIBUYA_H\n" as *byte);
+    fprintf(header_file, "#define LIBUYA_H\n\n" as *byte);
+
+    // 类型定义（零依赖）
+    fprintf(header_file, "/* 类型定义 */\n" as *byte);
+    fprintf(header_file, "typedef signed char int8_t;\n" as *byte);
+    fprintf(header_file, "typedef unsigned char uint8_t;\n" as *byte);
+    fprintf(header_file, "typedef signed short int16_t;\n" as *byte);
+    fprintf(header_file, "typedef unsigned short uint16_t;\n" as *byte);
+    fprintf(header_file, "typedef signed int int32_t;\n" as *byte);
+    fprintf(header_file, "typedef unsigned int uint32_t;\n" as *byte);
+    fprintf(header_file, "typedef signed long long int64_t;\n" as *byte);
+    fprintf(header_file, "typedef unsigned long long uint64_t;\n" as *byte);
+    fprintf(header_file, "typedef unsigned long size_t;\n" as *byte);
+    fprintf(header_file, "typedef long ssize_t;\n" as *byte);
+    fprintf(header_file, "\n" as *byte);
+
+    // NULL 定义
+    fprintf(header_file, "#ifndef NULL\n" as *byte);
+    fprintf(header_file, "#define NULL ((void*)0)\n" as *byte);
+    fprintf(header_file, "#endif\n\n" as *byte);
+
+    // syscall 内联函数（放在头文件中因为是 static inline）
+    fprintf(header_file, "/* syscall 内联函数（x86-64） */\n" as *byte);
+    fprintf(header_file, "#ifdef __x86_64__\n" as *byte);
+    fprintf(header_file, "static inline int64_t uya_syscall0(int64_t n) {\n" as *byte);
+    fprintf(header_file, "    register long rax __asm__(\"rax\") = n;\n" as *byte);
+    fprintf(header_file, "    __asm__ volatile(\"syscall\" : \"+r\"(rax) : : \"rcx\", \"r11\", \"memory\");\n" as *byte);
+    fprintf(header_file, "    return rax;\n" as *byte);
+    fprintf(header_file, "}\n" as *byte);
+    fprintf(header_file, "static inline int64_t uya_syscall1(int64_t n, int64_t a1) {\n" as *byte);
+    fprintf(header_file, "    register long rax __asm__(\"rax\") = n;\n" as *byte);
+    fprintf(header_file, "    register long rdi __asm__(\"rdi\") = a1;\n" as *byte);
+    fprintf(header_file, "    __asm__ volatile(\"syscall\" : \"+r\"(rax) : \"r\"(rdi) : \"rcx\", \"r11\", \"memory\");\n" as *byte);
+    fprintf(header_file, "    return rax;\n" as *byte);
+    fprintf(header_file, "}\n" as *byte);
+    fprintf(header_file, "static inline int64_t uya_syscall2(int64_t n, int64_t a1, int64_t a2) {\n" as *byte);
+    fprintf(header_file, "    register long rax __asm__(\"rax\") = n;\n" as *byte);
+    fprintf(header_file, "    register long rdi __asm__(\"rdi\") = a1;\n" as *byte);
+    fprintf(header_file, "    register long rsi __asm__(\"rsi\") = a2;\n" as *byte);
+    fprintf(header_file, "    __asm__ volatile(\"syscall\" : \"+r\"(rax) : \"r\"(rdi), \"r\"(rsi) : \"rcx\", \"r11\", \"memory\");\n" as *byte);
+    fprintf(header_file, "    return rax;\n" as *byte);
+    fprintf(header_file, "}\n" as *byte);
+    fprintf(header_file, "static inline int64_t uya_syscall3(int64_t n, int64_t a1, int64_t a2, int64_t a3) {\n" as *byte);
+    fprintf(header_file, "    register long rax __asm__(\"rax\") = n;\n" as *byte);
+    fprintf(header_file, "    register long rdi __asm__(\"rdi\") = a1;\n" as *byte);
+    fprintf(header_file, "    register long rsi __asm__(\"rsi\") = a2;\n" as *byte);
+    fprintf(header_file, "    register long rdx __asm__(\"rdx\") = a3;\n" as *byte);
+    fprintf(header_file, "    __asm__ volatile(\"syscall\" : \"+r\"(rax) : \"r\"(rdi), \"r\"(rsi), \"r\"(rdx) : \"rcx\", \"r11\", \"memory\");\n" as *byte);
+    fprintf(header_file, "    return rax;\n" as *byte);
+    fprintf(header_file, "}\n" as *byte);
+    fprintf(header_file, "#endif\n\n" as *byte);
+
+    // 函数声明（从各模块收集）
+    fprintf(header_file, "/* 函数声明 */\n" as *byte);
+    fprintf(header_file, "\n/* string 模块 */\n" as *byte);
+    fprintf(header_file, "size_t uya_strlen(const char *s);\n" as *byte);
+    fprintf(header_file, "int uya_strcmp(const char *s1, const char *s2);\n" as *byte);
+    fprintf(header_file, "int uya_strncmp(const char *s1, const char *s2, size_t n);\n" as *byte);
+    fprintf(header_file, "char *uya_strcpy(char *dest, const char *src);\n" as *byte);
+    fprintf(header_file, "char *uya_strncpy(char *dest, const char *src, size_t n);\n" as *byte);
+    fprintf(header_file, "char *uya_strcat(char *dest, const char *src);\n" as *byte);
+    fprintf(header_file, "char *uya_strchr(const char *s, int c);\n" as *byte);
+    fprintf(header_file, "char *uya_strrchr(const char *s, int c);\n" as *byte);
+
+    fprintf(header_file, "\n/* mem 模块 */\n" as *byte);
+    fprintf(header_file, "void *uya_memcpy(void *dest, const void *src, size_t n);\n" as *byte);
+    fprintf(header_file, "void *uya_memmove(void *dest, const void *src, size_t n);\n" as *byte);
+    fprintf(header_file, "void *uya_memset(void *s, int c, size_t n);\n" as *byte);
+    fprintf(header_file, "int uya_memcmp(const void *s1, const void *s2, size_t n);\n" as *byte);
+    fprintf(header_file, "void *uya_memchr(const void *s, int c, size_t n);\n" as *byte);
+
+    fprintf(header_file, "\n/* stdio 模块 */\n" as *byte);
+    fprintf(header_file, "int uya_putchar(int c);\n" as *byte);
+    fprintf(header_file, "int uya_puts(const char *s);\n" as *byte);
+    fprintf(header_file, "size_t uya_strlen(const char *s);\n" as *byte);
+    fprintf(header_file, "int uya_printf(const char *fmt, ...);\n" as *byte);
+
+    fprintf(header_file, "\n/* stdlib 模块 */\n" as *byte);
+    fprintf(header_file, "void uya_exit(int status);\n" as *byte);
+    fprintf(header_file, "void *uya_malloc(size_t size);\n" as *byte);
+    fprintf(header_file, "void uya_free(void *ptr);\n" as *byte);
+    fprintf(header_file, "void *uya_calloc(size_t nmemb, size_t size);\n" as *byte);
+    fprintf(header_file, "int uya_atoi(const char *s);\n" as *byte);
+    fprintf(header_file, "long uya_atol(const char *s);\n" as *byte);
+
+    fprintf(header_file, "\n/* unistd 模块 */\n" as *byte);
+    fprintf(header_file, "int uya_write(int fd, const void *buf, size_t count);\n" as *byte);
+    fprintf(header_file, "int uya_read(int fd, void *buf, size_t count);\n" as *byte);
+    fprintf(header_file, "int uya_close(int fd);\n" as *byte);
+
+    fprintf(header_file, "\n#endif /* LIBUYA_H */\n" as *byte);
+    fclose(header_file);
+
+    // 写入源文件
+    fprintf(source_file, "/* libuya.c - Uya 标准库实现 */\n" as *byte);
+    fprintf(source_file, "/* 自动生成，请勿手动修改 */\n" as *byte);
+    fprintf(source_file, "#include \"libuya.h\"\n\n" as *byte);
+
+    // 简化实现（使用 syscall）
+    fprintf(source_file, "/* ===== stdlib 模块 ===== */\n" as *byte);
+    fprintf(source_file, "void uya_exit(int status) {\n" as *byte);
+    fprintf(source_file, "    uya_syscall1(60, status);\n" as *byte);
+    fprintf(source_file, "    __builtin_unreachable();\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "/* ===== unistd 模块 ===== */\n" as *byte);
+    fprintf(source_file, "int uya_write(int fd, const void *buf, size_t count) {\n" as *byte);
+    fprintf(source_file, "    return (int)uya_syscall3(1, fd, (int64_t)buf, (int64_t)count);\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "int uya_read(int fd, void *buf, size_t count) {\n" as *byte);
+    fprintf(source_file, "    return (int)uya_syscall3(0, fd, (int64_t)buf, (int64_t)count);\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "int uya_close(int fd) {\n" as *byte);
+    fprintf(source_file, "    return (int)uya_syscall1(3, fd);\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "/* ===== stdio 模块 ===== */\n" as *byte);
+    fprintf(source_file, "int uya_putchar(int c) {\n" as *byte);
+    fprintf(source_file, "    char ch = (char)c;\n" as *byte);
+    fprintf(source_file, "    return uya_write(1, &ch, 1) == 1 ? c : -1;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "int uya_puts(const char *s) {\n" as *byte);
+    fprintf(source_file, "    size_t len = 0;\n" as *byte);
+    fprintf(source_file, "    while (s[len]) len++;\n" as *byte);
+    fprintf(source_file, "    uya_write(1, s, len);\n" as *byte);
+    fprintf(source_file, "    uya_write(1, \"\\n\", 1);\n" as *byte);
+    fprintf(source_file, "    return 0;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "/* ===== string 模块 ===== */\n" as *byte);
+    fprintf(source_file, "size_t uya_strlen(const char *s) {\n" as *byte);
+    fprintf(source_file, "    size_t len = 0;\n" as *byte);
+    fprintf(source_file, "    while (s[len]) len++;\n" as *byte);
+    fprintf(source_file, "    return len;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "int uya_strcmp(const char *s1, const char *s2) {\n" as *byte);
+    fprintf(source_file, "    while (*s1 && (*s1 == *s2)) { s1++; s2++; }\n" as *byte);
+    fprintf(source_file, "    return *(unsigned char*)s1 - *(unsigned char*)s2;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "int uya_strncmp(const char *s1, const char *s2, size_t n) {\n" as *byte);
+    fprintf(source_file, "    while (n && *s1 && (*s1 == *s2)) { s1++; s2++; n--; }\n" as *byte);
+    fprintf(source_file, "    return n ? *(unsigned char*)s1 - *(unsigned char*)s2 : 0;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "char *uya_strcpy(char *dest, const char *src) {\n" as *byte);
+    fprintf(source_file, "    char *d = dest;\n" as *byte);
+    fprintf(source_file, "    while ((*d++ = *src++));\n" as *byte);
+    fprintf(source_file, "    return dest;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "char *uya_strncpy(char *dest, const char *src, size_t n) {\n" as *byte);
+    fprintf(source_file, "    char *d = dest;\n" as *byte);
+    fprintf(source_file, "    while (n && (*d++ = *src++)) n--;\n" as *byte);
+    fprintf(source_file, "    while (n--) *d++ = 0;\n" as *byte);
+    fprintf(source_file, "    return dest;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "char *uya_strcat(char *dest, const char *src) {\n" as *byte);
+    fprintf(source_file, "    char *d = dest;\n" as *byte);
+    fprintf(source_file, "    while (*d) d++;\n" as *byte);
+    fprintf(source_file, "    while ((*d++ = *src++));\n" as *byte);
+    fprintf(source_file, "    return dest;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "char *uya_strchr(const char *s, int c) {\n" as *byte);
+    fprintf(source_file, "    while (*s && *s != (char)c) s++;\n" as *byte);
+    fprintf(source_file, "    return (*s == (char)c) ? (char*)s : NULL;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "char *uya_strrchr(const char *s, int c) {\n" as *byte);
+    fprintf(source_file, "    const char *last = NULL;\n" as *byte);
+    fprintf(source_file, "    while (*s) { if (*s == (char)c) last = s; s++; }\n" as *byte);
+    fprintf(source_file, "    return (char*)last;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "/* ===== mem 模块 ===== */\n" as *byte);
+    fprintf(source_file, "void *uya_memcpy(void *dest, const void *src, size_t n) {\n" as *byte);
+    fprintf(source_file, "    char *d = (char*)dest;\n" as *byte);
+    fprintf(source_file, "    const char *s = (const char*)src;\n" as *byte);
+    fprintf(source_file, "    while (n--) *d++ = *s++;\n" as *byte);
+    fprintf(source_file, "    return dest;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "void *uya_memmove(void *dest, const void *src, size_t n) {\n" as *byte);
+    fprintf(source_file, "    char *d = (char*)dest;\n" as *byte);
+    fprintf(source_file, "    const char *s = (const char*)src;\n" as *byte);
+    fprintf(source_file, "    if (d < s) while (n--) *d++ = *s++;\n" as *byte);
+    fprintf(source_file, "    else { d += n; s += n; while (n--) *--d = *--s; }\n" as *byte);
+    fprintf(source_file, "    return dest;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "void *uya_memset(void *s, int c, size_t n) {\n" as *byte);
+    fprintf(source_file, "    char *p = (char*)s;\n" as *byte);
+    fprintf(source_file, "    while (n--) *p++ = (char)c;\n" as *byte);
+    fprintf(source_file, "    return s;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "int uya_memcmp(const void *s1, const void *s2, size_t n) {\n" as *byte);
+    fprintf(source_file, "    const unsigned char *p1 = (const unsigned char*)s1;\n" as *byte);
+    fprintf(source_file, "    const unsigned char *p2 = (const unsigned char*)s2;\n" as *byte);
+    fprintf(source_file, "    while (n--) { if (*p1 != *p2) return *p1 - *p2; p1++; p2++; }\n" as *byte);
+    fprintf(source_file, "    return 0;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "void *uya_memchr(const void *s, int c, size_t n) {\n" as *byte);
+    fprintf(source_file, "    const unsigned char *p = (const unsigned char*)s;\n" as *byte);
+    fprintf(source_file, "    while (n--) { if (*p == (unsigned char)c) return (void*)p; p++; }\n" as *byte);
+    fprintf(source_file, "    return NULL;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "/* ===== stdlib 模块 ===== */\n" as *byte);
+    fprintf(source_file, "int uya_atoi(const char *s) {\n" as *byte);
+    fprintf(source_file, "    int n = 0, neg = 0;\n" as *byte);
+    fprintf(source_file, "    while (*s == ' ' || *s == '\\t') s++;\n" as *byte);
+    fprintf(source_file, "    if (*s == '-') { neg = 1; s++; }\n" as *byte);
+    fprintf(source_file, "    else if (*s == '+') s++;\n" as *byte);
+    fprintf(source_file, "    while (*s >= '0' && *s <= '9') n = n * 10 + (*s++ - '0');\n" as *byte);
+    fprintf(source_file, "    return neg ? -n : n;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "long uya_atol(const char *s) {\n" as *byte);
+    fprintf(source_file, "    long n = 0;\n" as *byte);
+    fprintf(source_file, "    int neg = 0;\n" as *byte);
+    fprintf(source_file, "    while (*s == ' ' || *s == '\\t') s++;\n" as *byte);
+    fprintf(source_file, "    if (*s == '-') { neg = 1; s++; }\n" as *byte);
+    fprintf(source_file, "    else if (*s == '+') s++;\n" as *byte);
+    fprintf(source_file, "    while (*s >= '0' && *s <= '9') n = n * 10 + (*s++ - '0');\n" as *byte);
+    fprintf(source_file, "    return neg ? -n : n;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fclose(source_file);
+
+    fprintf(libc.stderr, "信息: 已生成 %s 和 %s\n" as *byte, &header_path[0] as *byte, &source_path[0] as *byte);
+    fprintf(libc.stderr, "信息: 使用方法:\n" as *byte);
+    fprintf(libc.stderr, "  gcc -c libuya.c -o libuya.o\n" as *byte);
+    fprintf(libc.stderr, "  gcc -nostdlib your_program.c libuya.o -o your_program -lgcc\n" as *byte);
+
+    return 0;
+}
+

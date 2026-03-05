@@ -1,7 +1,7 @@
 # Uya 项目根目录 Makefile
 # 提供统一的构建和测试入口
 
-.PHONY: all from-c uya uya-nostdlib b tests tests-uya outlibc c e clean check backup restore release help
+.PHONY: all from-c uya uya-nostdlib b tests tests-uya outlibc c e clean check backup restore release help tools install
 
 # 编译选项（可通过环境变量覆盖）
 CFLAGS ?= -std=c99 -O0 -g -fno-builtin
@@ -234,6 +234,30 @@ restore:
 	@echo "✓ 恢复完成: bin/uya.c"
 	@ls -la bin/uya.c
 
+# 构建工具链（Phase 1：转发器）
+tools: uya
+	@echo "=========================================="
+	@echo "构建 Uya 工具链"
+	@echo "=========================================="
+	@echo "✓ 编译器已构建：bin/uya"
+	@echo "✓ 转发器已构建：bin/uya-wrapper"
+	@echo ""
+	@echo "提示：使用 './bin/uya-wrapper build' 编译代码"
+
+# 安装工具链
+install: tools
+	@echo "=========================================="
+	@echo "安装 Uya 工具链"
+	@echo "=========================================="
+	@mkdir -p /usr/local/bin
+	@cp bin/uya /usr/local/bin/uya-compiler
+	@cp bin/uya-wrapper /usr/local/bin/uya
+	@chmod +x /usr/local/bin/uya
+	@chmod +x /usr/local/bin/uya-compiler
+	@echo "✓ 已安装到 /usr/local/bin"
+	@echo "  - uya (转发器)"
+	@echo "  - uya-compiler (编译器)"
+
 # 显示帮助信息
 help:
 	@echo "Uya 项目 Makefile"
@@ -262,6 +286,8 @@ help:
 	@echo "  make release       - 发布版本：验证 + 备份 + -O3 优化构建 + strip"
 	@echo "  make restore       - 从 backup/uya.c 恢复 bin/uya.c"
 	@echo "  make clean         - 清理所有构建产物"
+	@echo "  make tools         - 构建工具链（转发器 + 编译器）"
+	@echo "  make install       - 安装工具链到 /usr/local/bin"
 	@echo "  make help          - 显示此帮助信息"
 	@echo ""
 	@echo "示例:"
@@ -270,4 +296,6 @@ help:
 	@echo "  make tests                           # 运行所有测试"
 	@echo "  make tests e                         # 运行所有测试，只显示错误"
 	@echo "  make clean && make from-c            # 清理后从备份恢复并构建"
+	@echo "  make tools                           # 构建工具链"
+	@echo "  make install                         # 安装到系统目录"
 

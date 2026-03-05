@@ -1,0 +1,341 @@
+// dependency.uya - 依赖收集模块
+// 职责：收集和管理模块依赖，供编译器核心使用
+//
+// 功能：
+// - 从 use 语句提取模块路径
+// - 递归收集依赖
+// - 依赖排序（拓扑排序）
+// - 循环依赖检测
+
+use ast;
+use arena;
+use lexer;
+use parser;
+use libc;
+use libc.string;
+
+const PATH_MAX: usize = 4096;
+const MAX_DEPENDENCIES: i32 = 256;
+
+// 依赖项
+struct Dependency {
+    module_path: &byte,     // 模块路径（如 "std.io"）
+    file_path: &byte,       // 文件路径（如 "lib/std/io.uya"）
+    resolved: i32,          // 是否已解析
+    depth: i32,             // 依赖深度
+}
+
+// 依赖列表
+struct DependencyList {
+    deps: &[Dependency: MAX_DEPENDENCIES],
+    count: i32,
+}
+
+// 依赖收集器
+struct DependencyCollector {
+    project_root: &byte,
+    uya_root: &byte,
+    arena: &Arena.Arena,
+    processed: &(&byte),    // 已处理的文件
+    processed_count: i32,
+}
+
+// 初始化依赖收集器
+export fn init_collector(
+    collector: &DependencyCollector,
+    project_root: &byte,
+    uya_root: &byte,
+    arena: &Arena.Arena
+) void {
+    if collector == null { return; }
+    
+    collector.project_root = project_root;
+    collector.uya_root = uya_root;
+    collector.arena = arena;
+    collector.processed = null;
+    collector.processed_count = 0;
+}
+
+// 从 AST 提取 use 语句的模块路径
+fn extract_use_modules(
+    ast: &ASTNode,
+    modules: &(&byte),
+    max_modules: i32,
+    module_count: &i32,
+    arena: &Arena.Arena
+) i32 {
+    if ast == null || ast.type != ASTNodeType.AST_PROGRAM || modules == null || module_count == null || arena == null {
+        return -1;
+    }
+    
+    module_count[0] = 0;
+    
+    var i: i32 = 0;
+    while i < ast.program_decl_count && module_count[0] < max_modules {
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_USE_STMT {
+            const seg_count: i32 = decl.use_stmt_path_segment_count;
+            if seg_count > 0 {
+                // 连接路径段为 "a.b.c" 形式
+                var total_len: usize = 0;
+                var j: i32 = 0;
+                while j < seg_count {
+                    if decl.use_stmt_path_segments[j] != null {
+                        total_len = total_len + strlen(decl.use_stmt_path_segments[j] as *byte);
+                        if j > 0 { total_len = total_len + 1; }
+                    }
+                    j = j + 1;
+                }
+                
+                if total_len > 0 {
+                    const buf: &byte = arena.arena_alloc(arena, total_len + 1) as &byte;
+                    if buf != null {
+                        var dst: &byte = buf;
+                        j = 0;
+                        while j < seg_count {
+                            if decl.use_stmt_path_segments[j] != null {
+                                if j > 0 { dst[0] = 46 as byte; dst = dst + 1; }
+                                const sl: usize = strlen(decl.use_stmt_path_segments[j] as *byte);
+                                memcpy(dst as *void, decl.use_stmt_path_segments[j] as *void, sl);
+                                dst = dst + sl;
+                            }
+                            j = j + 1;
+                        }
+                        dst[0] = 0 as byte;
+                        
+                        // 去重
+                        var duplicate: i32 = 0;
+                        var k: i32 = 0;
+                        while k < module_count[0] {
+                            if modules[k] != null && strcmp(modules[k] as *byte, buf as *byte) == 0 {
+                                duplicate = 1;
+                                break;
+                            }
+                            k = k + 1;
+                        }
+                        if duplicate == 0 {
+                            modules[module_count[0]] = buf;
+                            module_count[0] = module_count[0] + 1;
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1;
+    }
+    
+    return 0;
+}
+
+// 查找模块文件
+// 返回：0=找到，-1=未找到
+export fn find_module_file(
+    module_path: &byte,
+    project_root: &byte,
+    uya_root: &byte,
+    buffer: &byte,
+    buffer_size: usize
+) i32 {
+    if module_path == null || buffer == null || buffer_size == 0 {
+        return -1;
+    }
+    
+    // 将模块路径转换为文件路径（std.io -> std/io/）
+    var file_path: [byte: PATH_MAX] = [];
+    const path_len: usize = strlen(module_path as *byte);
+    if path_len >= PATH_MAX {
+        return -1;
+    }
+    strcpy(&file_path[0], module_path as *byte);
+    
+    // 将 '.' 替换为 '/'
+    var i: usize = 0;
+    while i < path_len {
+        if file_path[i] == 46 {
+            file_path[i] = 47;
+        }
+        i = i + 1;
+    }
+    
+    // 在给定根目录下查找模块文件
+    var ri: i32 = 0;
+    while ri < 2 {
+        var root: &byte = null;
+        if ri == 0 { root = project_root; }
+        if ri == 1 { root = uya_root; }
+        ri = ri + 1;
+        
+        if root == null || root[0] == 0 { continue; }
+        
+        // 策略 1：目录中查找 .uya 文件
+        var full_path: [byte: PATH_MAX] = [];
+        const len: i32 = snprintf(&full_path[0], PATH_MAX, "%s%s" as *byte, root as *byte, &file_path[0]);
+        if len > 0 && len < PATH_MAX as i32 {
+            // 检查是否是目录
+            var st: Stat = Stat { st_dev = 0, st_ino = 0, st_nlink = 0, st_mode = 0, st_uid = 0, st_gid = 0, _pad0 = 0, st_rdev = 0, st_size = 0, st_blksize = 0, st_blocks = 0, st_atime = 0, st_atime_nsec = 0, st_mtime = 0, st_mtime_nsec = 0, st_ctime = 0, st_ctime_nsec = 0, _unused0 = 0, _unused1 = 0, _unused2 = 0 };
+            if stat(&full_path[0] as &byte, &st) == 0 {
+                if ((st.st_mode as u32) & S_IFMT) == S_IFDIR {
+                    const dir: *DIR = opendir(&full_path[0]);
+                    if dir != null {
+                        var entry: *Dirent = readdir(dir);
+                        while entry != null {
+                            const name: *byte = dirent_get_name(entry as &byte) as *byte;
+                            const name_len: usize = strlen(name);
+                            if name_len > 4 {
+                                const ext: *byte = name + (name_len - 4);
+                                if strcmp(ext, ".uya" as *byte) == 0 {
+                                    closedir(dir);
+                                    const result_len: i32 = snprintf(buffer as *byte, buffer_size, "%s%s/%s" as *byte, root as *byte, &file_path[0], name);
+                                    if result_len > 0 && result_len < buffer_size as i32 {
+                                        return 0;
+                                    }
+                                }
+                            }
+                            entry = readdir(dir);
+                        }
+                        closedir(dir);
+                    }
+                }
+            }
+        }
+        
+        // 策略 2：直接文件 path.uya
+        var uya_path: [byte: PATH_MAX] = [];
+        const ulen: i32 = snprintf(&uya_path[0], PATH_MAX, "%s%s.uya" as *byte, root as *byte, &file_path[0]);
+        if ulen > 0 && ulen < PATH_MAX as i32 {
+            const f: *void = fopen(&uya_path[0], "r" as *byte);
+            if f != null {
+                fclose(f);
+                const ulen_sz: usize = ulen as usize;
+                if ulen_sz < buffer_size {
+                    strcpy(buffer as *byte, &uya_path[0]);
+                    return 0;
+                }
+            }
+        }
+    }
+    
+    return -1;
+}
+
+// 收集依赖（简化版）
+// 返回：依赖列表
+export fn collect_dependencies(
+    input_file: &byte,
+    collector: &DependencyCollector,
+    deps: &DependencyList
+) i32 {
+    if input_file == null || collector == null || deps == null {
+        return -1;
+    }
+    
+    deps.count = 0;
+    
+    // 读取文件
+    var buffer: [byte: 1024 * 1024] = [];
+    const file: *void = fopen(input_file as *byte, "rb" as *byte);
+    if file == null {
+        return -1;
+    }
+    const bytes_read: usize = fread(&buffer[0], 1, 1024 * 1024 - 1, file);
+    buffer[bytes_read] = 0 as byte;
+    fclose(file);
+    
+    // 解析 AST
+    var arena_buffer: [byte: 1024 * 1024] = [];
+    var arena: Arena.Arena = Arena.Arena {
+        buffer = &arena_buffer[0],
+        size = 1024 * 1024,
+        used = 0
+    };
+    
+    var lexer: Lexer.Lexer = Lexer.Lexer {
+        buffer = null,
+        buffer_size = 0,
+        position = 0,
+        line = 1,
+        column = 1,
+        filename = null,
+        string_mode = 0,
+        interp_depth = 0,
+        pending_interp_open = 0,
+        reading_spec = 0,
+        string_text_len = 0
+    };
+    Lexer.lexer_init(&lexer, &buffer[0], bytes_read, input_file, &arena);
+    
+    var parser: Parser.Parser = Parser.Parser {
+        lexer = null,
+        current_token = null,
+        arena = null,
+        context = Parser.ParserContext.PARSER_CONTEXT_NORMAL
+    };
+    Parser.parser_init(&parser, &lexer, &arena);
+    
+    const ast: &ASTNode = Parser.parser_parse(&parser);
+    if ast == null {
+        return -1;
+    }
+    
+    // 提取 use 语句
+    var modules: [&byte: MAX_DEPENDENCIES] = [];
+    var module_count: i32 = 0;
+    extract_use_modules(ast, &modules[0], MAX_DEPENDENCIES, &module_count, &arena);
+    
+    // 查找模块文件
+    var i: i32 = 0;
+    while i < module_count && deps.count < MAX_DEPENDENCIES {
+        var module_file: [byte: PATH_MAX] = [];
+        if find_module_file(
+            modules[i],
+            collector.project_root,
+            collector.uya_root,
+            &module_file[0] as &byte,
+            PATH_MAX
+        ) == 0 {
+            deps.deps[deps.count].module_path = modules[i];
+            deps.deps[deps.count].file_path = arena.arena_alloc(&arena, strlen(&module_file[0]) + 1) as &byte;
+            strcpy(deps.deps[deps.count].file_path as *byte, &module_file[0]);
+            deps.deps[deps.count].resolved = 1;
+            deps.deps[deps.count].depth = 1;
+            deps.count = deps.count + 1;
+        }
+        i = i + 1;
+    }
+    
+    return 0;
+}
+
+// 拓扑排序依赖
+// 返回：0=成功，-1=循环依赖
+export fn topological_sort(deps: &DependencyList) i32 {
+    if deps == null || deps.count <= 1 {
+        return 0;
+    }
+    
+    // 简化实现：按深度排序
+    var i: i32 = 0;
+    while i < deps.count - 1 {
+        var j: i32 = i + 1;
+        while j < deps.count {
+            if deps.deps[i].depth > deps.deps[j].depth {
+                // 交换
+                var temp: Dependency = deps.deps[i];
+                deps.deps[i] = deps.deps[j];
+                deps.deps[j] = temp;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    
+    return 0;
+}
+
+// 检测循环依赖
+export fn detect_cycle(deps: &DependencyList) i32 {
+    // TODO: 实现循环依赖检测
+    // 当前简化实现：总是返回无循环
+    _ = deps;
+    return 0;
+}

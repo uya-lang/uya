@@ -1,0 +1,650 @@
+// formatter.uya - 格式化器核心实现
+// 职责：将源代码解析为 AST，然后按规则输出格式化代码
+//
+// 当前状态：基础实现（Phase 3）
+// - 支持基本缩进和换行
+// - 支持函数、结构体、接口定义格式化
+// - 支持表达式和语句格式化
+
+use fmt.config;
+use lexer;
+use parser;
+use ast;
+use arena;
+use libc;
+use libc.stdio;
+use libc.string;
+
+// 格式化上下文
+struct FormatContext {
+    config: FormatConfig,
+    output: &byte,          // 输出缓冲区
+    output_size: usize,     // 输出缓冲区大小
+    output_pos: usize,      // 当前写入位置
+    indent_level: i32,      // 当前缩进级别
+    line_start: i32,        // 是否在行首
+    line_length: i32,       // 当前行长度
+}
+
+// 格式化结果
+struct FormatResult {
+    success: i32,           // 是否成功（0 = 失败，1 = 成功）
+    output_len: usize,      // 输出长度
+    error_message: &byte,   // 错误消息（失败时）
+}
+
+// 写入字符
+fn write_char(ctx: &FormatContext, c: byte) void {
+    if ctx.output_pos < ctx.output_size {
+        ctx.output[ctx.output_pos] = c;
+        ctx.output_pos = ctx.output_pos + 1;
+    }
+    ctx.line_length = ctx.line_length + 1;
+    ctx.line_start = 0;
+}
+
+// 写入字符串
+fn write_str(ctx: &FormatContext, s: &byte) void {
+    if s == null { return; }
+    var i: usize = 0;
+    while s[i] != 0 {
+        write_char(ctx, s[i]);
+        i = i + 1;
+    }
+}
+
+// 写入换行
+fn write_newline(ctx: &FormatContext) void {
+    write_char(ctx, 10);  // '\n'
+    ctx.line_length = 0;
+    ctx.line_start = 1;
+}
+
+// 写入缩进
+fn write_indent(ctx: &FormatContext) void {
+    if ctx.line_start == 0 { return; }
+    var i: i32 = 0;
+    while i < ctx.indent_level {
+        var j: i32 = 0;
+        while j < ctx.config.indent_size {
+            write_char(ctx, 32);  // ' '
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+}
+
+// 跳过空白字符
+fn skip_whitespace(s: &byte, pos: usize, len: usize) usize {
+    var p: usize = pos;
+    while p < len {
+        const c: byte = s[p];
+        if c == 32 || c == 9 || c == 10 || c == 13 {
+            p = p + 1;
+        } else {
+            break;
+        }
+    }
+    return p;
+}
+
+// 格式化标识符
+fn format_identifier(ctx: &FormatContext, name: &byte) void {
+    if name != null {
+        write_str(ctx, name);
+    }
+}
+
+// 格式化类型
+fn format_type(ctx: &FormatContext, type_name: &byte) void {
+    if type_name != null {
+        write_str(ctx, type_name);
+    }
+}
+
+// 格式化表达式（简化版）
+fn format_expr(ctx: &FormatContext, expr: &ASTNode) void {
+    if expr == null { return; }
+
+    if expr.type == ASTNodeType.AST_LITERAL {
+        // 字面量：直接输出
+        if expr.literal_value != null {
+            write_str(ctx, expr.literal_value);
+        }
+    } else if expr.type == ASTNodeType.AST_IDENTIFIER {
+        // 标识量：直接输出
+        format_identifier(ctx, expr.name);
+    } else if expr.type == ASTNodeType.AST_BINARY_EXPR {
+        // 二元表达式：left op right
+        format_expr(ctx, expr.left);
+        write_char(ctx, 32);
+        if expr.op != null {
+            write_str(ctx, expr.op);
+        }
+        write_char(ctx, 32);
+        format_expr(ctx, expr.right);
+    } else if expr.type == ASTNodeType.AST_UNARY_EXPR {
+        // 一元表达式：op expr
+        if expr.op != null {
+            write_str(ctx, expr.op);
+        }
+        format_expr(ctx, expr.operand);
+    } else if expr.type == ASTNodeType.AST_CALL_EXPR {
+        // 调用表达式：func(args)
+        format_expr(ctx, expr.callee);
+        write_char(ctx, 40);  // '('
+        var i: usize = 0;
+        while i < expr.arg_count {
+            if i > 0 {
+                write_str(ctx, ", " as *byte);
+            }
+            format_expr(ctx, expr.args[i]);
+            i = i + 1;
+        }
+        write_char(ctx, 41);  // ')'
+    } else if expr.type == ASTNodeType.AST_INDEX_EXPR {
+        // 索引表达式：arr[index]
+        format_expr(ctx, expr.array);
+        write_char(ctx, 91);  // '['
+        format_expr(ctx, expr.index);
+        write_char(ctx, 93);  // ']'
+    } else if expr.type == ASTNodeType.AST_MEMBER_EXPR {
+        // 成员访问：obj.member
+        format_expr(ctx, expr.object);
+        write_char(ctx, 46);  // '.'
+        format_identifier(ctx, expr.member);
+    } else {
+        // 其他类型：尝试输出值
+        if expr.literal_value != null {
+            write_str(ctx, expr.literal_value);
+        }
+    }
+}
+
+// 格式化语句
+fn format_stmt(ctx: &FormatContext, stmt: &ASTNode) void {
+    if stmt == null { return; }
+
+    write_indent(ctx);
+
+    if stmt.type == ASTNodeType.AST_VAR_DECL {
+        // 变量声明：var name: Type = value;
+        write_str(ctx, "var " as *byte);
+        format_identifier(ctx, stmt.name);
+        write_str(ctx, ": " as *byte);
+        format_type(ctx, stmt.var_type);
+        if stmt.init != null {
+            write_str(ctx, " = " as *byte);
+            format_expr(ctx, stmt.init);
+        }
+        if ctx.config.semicolons != 0 {
+            write_char(ctx, 59);  // ';'
+        }
+        write_newline(ctx);
+    } else if stmt.type == ASTNodeType.AST_CONST_DECL {
+        // 常量声明：const name: Type = value;
+        write_str(ctx, "const " as *byte);
+        format_identifier(ctx, stmt.name);
+        write_str(ctx, ": " as *byte);
+        format_type(ctx, stmt.const_type);
+        if stmt.init != null {
+            write_str(ctx, " = " as *byte);
+            format_expr(ctx, stmt.init);
+        }
+        if ctx.config.semicolons != 0 {
+            write_char(ctx, 59);  // ';'
+        }
+        write_newline(ctx);
+    } else if stmt.type == ASTNodeType.AST_RETURN_STMT {
+        // 返回语句：return value;
+        write_str(ctx, "return" as *byte);
+        if stmt.return_value != null {
+            write_char(ctx, 32);
+            format_expr(ctx, stmt.return_value);
+        }
+        if ctx.config.semicolons != 0 {
+            write_char(ctx, 59);  // ';'
+        }
+        write_newline(ctx);
+    } else if stmt.type == ASTNodeType.AST_IF_STMT {
+        // if 语句
+        write_str(ctx, "if " as *byte);
+        write_char(ctx, 40);  // '('
+        format_expr(ctx, stmt.if_condition);
+        write_str(ctx, ") " as *byte);
+        if ctx.config.brace_style == 0 {
+            write_char(ctx, 123);  // '{'
+            write_newline(ctx);
+        } else {
+            write_str(ctx, "{" as *byte);
+            write_newline(ctx);
+        }
+
+        ctx.indent_level = ctx.indent_level + 1;
+        if stmt.if_body != null {
+            format_block(ctx, stmt.if_body);
+        }
+        ctx.indent_level = ctx.indent_level - 1;
+
+        write_indent(ctx);
+        write_char(ctx, 125);  // '}'
+
+        // else if / else
+        if stmt.else_body != null {
+            write_str(ctx, " else " as *byte);
+            if stmt.else_if_condition != null {
+                write_str(ctx, "if " as *byte);
+                write_char(ctx, 40);
+                format_expr(ctx, stmt.else_if_condition);
+                write_str(ctx, ") " as *byte);
+            }
+            if ctx.config.brace_style == 0 {
+                write_char(ctx, 123);
+                write_newline(ctx);
+            } else {
+                write_str(ctx, "{" as *byte);
+                write_newline(ctx);
+            }
+
+            ctx.indent_level = ctx.indent_level + 1;
+            format_block(ctx, stmt.else_body);
+            ctx.indent_level = ctx.indent_level - 1;
+
+            write_indent(ctx);
+            write_char(ctx, 125);
+        }
+        write_newline(ctx);
+    } else if stmt.type == ASTNodeType.AST_WHILE_STMT {
+        // while 语句
+        write_str(ctx, "while " as *byte);
+        write_char(ctx, 40);
+        format_expr(ctx, stmt.while_condition);
+        write_str(ctx, ") " as *byte);
+        if ctx.config.brace_style == 0 {
+            write_char(ctx, 123);
+            write_newline(ctx);
+        } else {
+            write_str(ctx, "{" as *byte);
+            write_newline(ctx);
+        }
+
+        ctx.indent_level = ctx.indent_level + 1;
+        if stmt.while_body != null {
+            format_block(ctx, stmt.while_body);
+        }
+        ctx.indent_level = ctx.indent_level - 1;
+
+        write_indent(ctx);
+        write_char(ctx, 125);
+        write_newline(ctx);
+    } else if stmt.type == ASTNodeType.AST_FOR_STMT {
+        // for 语句：for item in collection { }
+        write_str(ctx, "for " as *byte);
+        if stmt.for_var != null {
+            format_identifier(ctx, stmt.for_var);
+        }
+        write_str(ctx, " in " as *byte);
+        if stmt.for_collection != null {
+            format_expr(ctx, stmt.for_collection);
+        }
+        write_char(ctx, 32);
+        if ctx.config.brace_style == 0 {
+            write_char(ctx, 123);
+            write_newline(ctx);
+        } else {
+            write_str(ctx, "{" as *byte);
+            write_newline(ctx);
+        }
+
+        ctx.indent_level = ctx.indent_level + 1;
+        if stmt.for_body != null {
+            format_block(ctx, stmt.for_body);
+        }
+        ctx.indent_level = ctx.indent_level - 1;
+
+        write_indent(ctx);
+        write_char(ctx, 125);
+        write_newline(ctx);
+    } else if stmt.type == ASTNodeType.AST_BREAK_STMT {
+        write_str(ctx, "break" as *byte);
+        if ctx.config.semicolons != 0 {
+            write_char(ctx, 59);
+        }
+        write_newline(ctx);
+    } else if stmt.type == ASTNodeType.AST_CONTINUE_STMT {
+        write_str(ctx, "continue" as *byte);
+        if ctx.config.semicolons != 0 {
+            write_char(ctx, 59);
+        }
+        write_newline(ctx);
+    } else if stmt.type == ASTNodeType.AST_EXPR_STMT {
+        // 表达式语句
+        format_expr(ctx, stmt.expr_value);
+        if ctx.config.semicolons != 0 {
+            write_char(ctx, 59);
+        }
+        write_newline(ctx);
+    } else if stmt.type == ASTNodeType.AST_BLOCK {
+        // 代码块
+        write_char(ctx, 123);  // '{'
+        write_newline(ctx);
+
+        ctx.indent_level = ctx.indent_level + 1;
+        format_block(ctx, stmt);
+        ctx.indent_level = ctx.indent_level - 1;
+
+        write_indent(ctx);
+        write_char(ctx, 125);  // '}'
+        write_newline(ctx);
+    } else {
+        // 未知语句类型，尝试输出
+        write_str(ctx, "/* unknown stmt */" as *byte);
+        write_newline(ctx);
+    }
+}
+
+// 格式化代码块
+fn format_block(ctx: &FormatContext, block: &ASTNode) void {
+    if block == null { return; }
+
+    // 尝试使用 program_decls
+    if block.program_decls != null && block.program_decl_count > 0 {
+        var i: i32 = 0;
+        while i < block.program_decl_count {
+            const decl: &ASTNode = block.program_decls[i];
+            if decl != null {
+                if decl.type == ASTNodeType.AST_FUNCTION {
+                    format_function(ctx, decl);
+                    write_newline(ctx);
+                } else if decl.type == ASTNodeType.AST_STRUCT {
+                    format_struct(ctx, decl);
+                    write_newline(ctx);
+                } else if decl.type == ASTNodeType.AST_INTERFACE {
+                    format_interface(ctx, decl);
+                    write_newline(ctx);
+                } else {
+                    format_stmt(ctx, decl);
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    // 尝试使用 statements
+    if block.statements != null && block.stmt_count > 0 {
+        var i: usize = 0;
+        while i < block.stmt_count {
+            format_stmt(ctx, block.statements[i]);
+            i = i + 1;
+        }
+    }
+}
+
+// 格式化函数定义
+fn format_function(ctx: &FormatContext, func: &ASTNode) void {
+    write_indent(ctx);
+
+    // fn name(params) ReturnType { body }
+    write_str(ctx, "fn " as *byte);
+    format_identifier(ctx, func.name);
+    write_char(ctx, 40);  // '('
+
+    // 参数
+    if func.params != null && func.param_count > 0 {
+        var i: usize = 0;
+        while i < func.param_count {
+            if i > 0 {
+                write_str(ctx, ", " as *byte);
+            }
+            if func.params[i] != null {
+                format_identifier(ctx, func.params[i].name);
+                write_str(ctx, ": " as *byte);
+                format_type(ctx, func.params[i].param_type);
+            }
+            i = i + 1;
+        }
+    }
+
+    write_char(ctx, 41);  // ')'
+
+    // 返回类型
+    if func.return_type != null {
+        write_char(ctx, 32);
+        format_type(ctx, func.return_type);
+    }
+
+    write_char(ctx, 32);
+    if ctx.config.brace_style == 0 {
+        write_char(ctx, 123);
+        write_newline(ctx);
+    } else {
+        write_str(ctx, "{" as *byte);
+        write_newline(ctx);
+    }
+
+    // 函数体
+    ctx.indent_level = ctx.indent_level + 1;
+    if func.body != null {
+        format_block(ctx, func.body);
+    }
+    ctx.indent_level = ctx.indent_level - 1;
+
+    write_indent(ctx);
+    write_char(ctx, 125);  // '}'
+}
+
+// 格式化结构体定义
+fn format_struct(ctx: &FormatContext, st: &ASTNode) void {
+    write_indent(ctx);
+
+    // struct Name { fields }
+    write_str(ctx, "struct " as *byte);
+    format_identifier(ctx, st.name);
+
+    if ctx.config.brace_style == 0 {
+        write_char(ctx, 32);
+        write_char(ctx, 123);
+        write_newline(ctx);
+    } else {
+        write_char(ctx, 32);
+        write_str(ctx, "{" as *byte);
+        write_newline(ctx);
+    }
+
+    // 字段
+    ctx.indent_level = ctx.indent_level + 1;
+    if st.fields != null && st.field_count > 0 {
+        var i: usize = 0;
+        while i < st.field_count {
+            write_indent(ctx);
+            const field: &ASTNode = st.fields[i];
+            if field != null {
+                format_identifier(ctx, field.name);
+                write_str(ctx, ": " as *byte);
+                format_type(ctx, field.field_type);
+                if ctx.config.semicolons != 0 {
+                    write_char(ctx, 59);
+                }
+                write_newline(ctx);
+            }
+            i = i + 1;
+        }
+    }
+    ctx.indent_level = ctx.indent_level - 1;
+
+    write_indent(ctx);
+    write_char(ctx, 125);  // '}'
+}
+
+// 格式化接口定义
+fn format_interface(ctx: &FormatContext, iface: &ASTNode) void {
+    write_indent(ctx);
+
+    // interface Name { methods }
+    write_str(ctx, "interface " as *byte);
+    format_identifier(ctx, iface.name);
+
+    if ctx.config.brace_style == 0 {
+        write_char(ctx, 32);
+        write_char(ctx, 123);
+        write_newline(ctx);
+    } else {
+        write_char(ctx, 32);
+        write_str(ctx, "{" as *byte);
+        write_newline(ctx);
+    }
+
+    // 方法
+    ctx.indent_level = ctx.indent_level + 1;
+    if iface.methods != null && iface.method_count > 0 {
+        var i: usize = 0;
+        while i < iface.method_count {
+            write_indent(ctx);
+            const method: &ASTNode = iface.methods[i];
+            if method != null {
+                write_str(ctx, "fn " as *byte);
+                format_identifier(ctx, method.name);
+                write_char(ctx, 40);
+                // 参数（简化处理）
+                write_char(ctx, 41);
+                // 返回类型
+                if method.return_type != null {
+                    write_char(ctx, 32);
+                    format_type(ctx, method.return_type);
+                }
+                if ctx.config.semicolons != 0 {
+                    write_char(ctx, 59);
+                }
+                write_newline(ctx);
+            }
+            i = i + 1;
+        }
+    }
+    ctx.indent_level = ctx.indent_level - 1;
+
+    write_indent(ctx);
+    write_char(ctx, 125);  // '}'
+}
+
+// 主格式化函数
+export fn format_code(
+    input: &byte,
+    input_len: usize,
+    output: &byte,
+    output_max: usize
+) FormatResult {
+    var result: FormatResult = FormatResult {
+        success: 1,
+        output_len: 0,
+        error_message: null
+    };
+
+    // 检查输入
+    if input == null || input_len == 0 {
+        result.success = 0;
+        result.error_message = "输入为空" as *byte;
+        return result;
+    }
+
+    if output == null || output_max == 0 {
+        result.success = 0;
+        result.error_message = "输出缓冲区无效" as *byte;
+        return result;
+    }
+
+    // 初始化 arena
+    var arena_buffer: [byte: 1024 * 1024] = [];
+    var arena: Arena.Arena = Arena.Arena {
+        buffer = &arena_buffer[0],
+        size = 1024 * 1024,
+        used = 0
+    };
+
+    // 1. 词法分析
+    var lexer: Lexer.Lexer = Lexer.Lexer {
+        buffer = null,
+        buffer_size = 0,
+        position = 0,
+        line = 1,
+        column = 1,
+        filename = null,
+        string_mode = 0,
+        interp_depth = 0,
+        pending_interp_open = 0,
+        reading_spec = 0,
+        string_text_len = 0
+    };
+    Lexer.lexer_init(&lexer, input, input_len, "input" as *byte, &arena);
+
+    // 2. 语法分析
+    var parser: Parser.Parser = Parser.Parser {
+        lexer = null,
+        current_token = null,
+        arena = null,
+        context = Parser.ParserContext.PARSER_CONTEXT_NORMAL
+    };
+    Parser.parser_init(&parser, &lexer, &arena);
+
+    const ast_root: &ASTNode = Parser.parser_parse(&parser);
+    if ast_root == null {
+        result.success = 0;
+        result.error_message = "语法分析失败" as *byte;
+        return result;
+    }
+
+    // 3. 格式化输出
+    var ctx: FormatContext = FormatContext {
+        config = config.default_config(),
+        output = output,
+        output_size = output_max,
+        output_pos = 0,
+        indent_level = 0,
+        line_start = 1,
+        line_length = 0
+    };
+
+    // 遍历 AST，输出格式化代码
+    if ast_root.program_decls != null && ast_root.program_decl_count > 0 {
+        var i: i32 = 0;
+        while i < ast_root.program_decl_count {
+            const decl: &ASTNode = ast_root.program_decls[i];
+            if decl != null {
+                if decl.type == ASTNodeType.AST_FUNCTION {
+                    format_function(&ctx, decl);
+                    write_newline(&ctx);
+                } else if decl.type == ASTNodeType.AST_STRUCT {
+                    format_struct(&ctx, decl);
+                    write_newline(&ctx);
+                } else if decl.type == ASTNodeType.AST_INTERFACE {
+                    format_interface(&ctx, decl);
+                    write_newline(&ctx);
+                } else if decl.type == ASTNodeType.AST_USE_STMT {
+                    // use 语句
+                    write_indent(&ctx);
+                    write_str(&ctx, "use " as *byte);
+                    // 输出模块路径（简化处理）
+                    write_str(&ctx, "/* use stmt */" as *byte);
+                    if ctx.config.semicolons != 0 {
+                        write_char(&ctx, 59);
+                    }
+                    write_newline(&ctx);
+                } else if decl.type == ASTNodeType.AST_EXTERN_DECL {
+                    // extern 声明
+                    write_indent(&ctx);
+                    write_str(&ctx, "extern " as *byte);
+                    write_str(&ctx, "/* extern decl */" as *byte);
+                    if ctx.config.semicolons != 0 {
+                        write_char(&ctx, 59);
+                    }
+                    write_newline(&ctx);
+                } else {
+                    format_stmt(&ctx, decl);
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    result.output_len = ctx.output_pos;
+    return result;
+}

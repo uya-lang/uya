@@ -1,0 +1,38 @@
+// config.uya - 格式化器配置
+// 职责：定义格式化配置结构体和默认值
+
+// 格式化配置
+struct FormatConfig {
+    indent_size: i32,           // 缩进空格数（默认 4）
+    max_line_width: i32,        // 最大行宽（默认 100）
+    use_tabs: i32,              // 使用 Tab 缩进（默认 false）
+    trailing_newline: i32,      // 文件末尾空行（默认 true）
+    semicolons: i32,            // 保留分号（默认 true）
+    brace_style: i32,           // 大括号风格：0=同行为，1=换行（默认 1）
+}
+
+// 默认配置
+export fn default_config() FormatConfig {
+    return FormatConfig {
+        indent_size: 4,
+        max_line_width: 100,
+        use_tabs: 0,
+        trailing_newline: 1,
+        semicolons: 1,
+        brace_style: 1
+    };
+}
+
+// 从文件读取配置（未来支持 .uyafmt）
+export fn load_config_file(path: &byte, config: &FormatConfig) i32 {
+    // TODO: 实现配置文件读取
+    // 目前使用默认配置
+    _ = path;
+    config.indent_size = 4;
+    config.max_line_width = 100;
+    config.use_tabs = 0;
+    config.trailing_newline = 1;
+    config.semicolons = 1;
+    config.brace_style = 1;
+    return 0;
+}
