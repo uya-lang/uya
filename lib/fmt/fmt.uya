@@ -1,0 +1,303 @@
+// lib/fmt/comment_collector.uya
+// 注释收集器 - 用于 AST 格式化器
+//
+// 设计原则：
+// - 独立于 Lexer，不影响现有编译流程
+// - 支持收集单行注释和块注释
+// - 支持嵌套块注释（符合 Uya 规范）
+
+use libc;
+
+// ============================================================
+// 注释类型枚举
+// ============================================================
+
+export enum CommentKind {
+    COMMENT_LINE,   // 单行注释 //
+    COMMENT_BLOCK,  // 块注释 /* */
+}
+
+// ============================================================
+// 注释结构体
+// ============================================================
+
+export const MAX_COMMENT_TEXT_SIZE: i32 = 512;
+
+export struct Comment {
+    text: [byte: MAX_COMMENT_TEXT_SIZE],  // 注释内容（含 // 或 /* */）
+    text_len: usize,
+    start_line: i32,
+    start_col: i32,
+    end_line: i32,
+    end_col: i32,
+    kind: CommentKind,
+}
+
+// ============================================================
+// 注释收集器
+// ============================================================
+
+export const MAX_COMMENTS: i32 = 64;
+
+export struct CommentCollector {
+    comments: [Comment: MAX_COMMENTS],
+    comment_count: i32,
+    source: &byte,        // 源代码指针
+    source_len: usize,    // 源代码长度
+    position: usize,      // 当前位置
+    line: i32,            // 当前行号
+    column: i32,          // 当前列号
+    has_error: i32,       // 1 表示有错误
+}
+
+// ============================================================
+// 辅助函数
+// ============================================================
+
+// 查看指定偏移的字符
+fn cc_peek(collector: &CommentCollector, offset: usize) byte {
+    const pos: usize = collector.position + offset;
+    if pos >= collector.source_len {
+        return 0 as byte;
+    }
+    return collector.source[pos];
+}
+
+// 前进一个字符，更新位置
+fn cc_advance(collector: &CommentCollector) byte {
+    if collector.position >= collector.source_len {
+        return 0 as byte;
+    }
+    const c: byte = collector.source[collector.position];
+    collector.position = collector.position + 1;
+    if c == 10 {
+        collector.line = collector.line + 1;
+        collector.column = 1;
+    } else {
+        collector.column = collector.column + 1;
+    }
+    return c;
+}
+
+// 添加注释到收集器
+fn cc_add_comment(collector: &CommentCollector, text: &byte, text_len: usize, start_line: i32, start_col: i32, end_line: i32, end_col: i32, kind: CommentKind) i32 {
+    if collector.comment_count >= MAX_COMMENTS {
+        return -1;  // 已满
+    }
+    const c: &Comment = &collector.comments[collector.comment_count];
+    
+    // 复制文本
+    var i: usize = 0;
+    while i < text_len && i < MAX_COMMENT_TEXT_SIZE - 1 {
+        c.text[i] = text[i];
+        i = i + 1;
+    }
+    c.text[i] = 0;
+    c.text_len = i;
+    
+    c.start_line = start_line;
+    c.start_col = start_col;
+    c.end_line = end_line;
+    c.end_col = end_col;
+    c.kind = kind;
+    
+    collector.comment_count = collector.comment_count + 1;
+    return 0;
+}
+
+// ============================================================
+// 注释收集主函数
+// ============================================================
+
+// 初始化收集器
+export fn comment_collector_init(collector: &CommentCollector, source: &byte, source_len: usize) void {
+    collector.comment_count = 0;
+    collector.source = source;
+    collector.source_len = source_len;
+    collector.position = 0;
+    collector.line = 1;
+    collector.column = 1;
+    collector.has_error = 0;
+}
+
+// 收集所有注释
+export fn collect_comments(collector: &CommentCollector) void {
+    while collector.position < collector.source_len {
+        const c: byte = cc_peek(collector, 0);
+        
+        if c == 47 && cc_peek(collector, 1) == 47 {
+            // 单行注释 //
+            collect_line_comment(collector);
+        } else if c == 47 && cc_peek(collector, 1) == 42 {
+            // 块注释 /* */
+            collect_block_comment(collector);
+        } else if c == 34 {
+            // 字符串字面量 "..."，跳过
+            skip_string(collector);
+        } else if c == 96 {
+            // 原始字符串 `...`，跳过
+            skip_raw_string(collector);
+        } else {
+            cc_advance(collector);
+        }
+    }
+}
+
+// 收集单行注释
+fn collect_line_comment(collector: &CommentCollector) void {
+    const start_line: i32 = collector.line;
+    const start_col: i32 = collector.column;
+    const start_pos: usize = collector.position;
+    
+    // 跳过 //
+    cc_advance(collector);
+    cc_advance(collector);
+    
+    // 读取直到换行或 EOF
+    while collector.position < collector.source_len {
+        const c: byte = cc_peek(collector, 0);
+        if c == 10 {
+            break;
+        }
+        cc_advance(collector);
+    }
+    
+    const end_line: i32 = collector.line;
+    const end_col: i32 = collector.column;
+    const text: &byte = &collector.source[start_pos];
+    const text_len: usize = collector.position - start_pos;
+    
+    cc_add_comment(collector, text, text_len, start_line, start_col, end_line, end_col, CommentKind.COMMENT_LINE);
+}
+
+// 收集块注释（支持嵌套）
+fn collect_block_comment(collector: &CommentCollector) void {
+    const start_line: i32 = collector.line;
+    const start_col: i32 = collector.column;
+    const start_pos: usize = collector.position;
+    
+    // 跳过 /*
+    cc_advance(collector);
+    cc_advance(collector);
+    
+    var depth: i32 = 1;
+    
+    while depth > 0 && collector.position < collector.source_len {
+        const c: byte = cc_peek(collector, 0);
+        const next: byte = cc_peek(collector, 1);
+        
+        if c == 47 && next == 42 {
+            // 嵌套块注释开始 /*
+            depth = depth + 1;
+            cc_advance(collector);
+            cc_advance(collector);
+        } else if c == 42 && next == 47 {
+            // 块注释结束 */
+            depth = depth - 1;
+            cc_advance(collector);
+            cc_advance(collector);
+        } else {
+            cc_advance(collector);
+        }
+    }
+    
+    if depth > 0 {
+        // 未闭合块注释
+        collector.has_error = 1;
+    }
+    
+    const end_line: i32 = collector.line;
+    const end_col: i32 = collector.column;
+    const text: &byte = &collector.source[start_pos];
+    const text_len: usize = collector.position - start_pos;
+    
+    cc_add_comment(collector, text, text_len, start_line, start_col, end_line, end_col, CommentKind.COMMENT_BLOCK);
+}
+
+// 跳过字符串字面量
+fn skip_string(collector: &CommentCollector) void {
+    cc_advance(collector);  // 跳过开头 "
+    
+    while collector.position < collector.source_len {
+        const c: byte = cc_peek(collector, 0);
+        
+        if c == 34 {
+            // 结束 "
+            cc_advance(collector);
+            break;
+        } else if c == 92 {
+            // 转义字符
+            cc_advance(collector);
+            cc_advance(collector);
+        } else if c == 36 && cc_peek(collector, 1) == 123 {
+            // ${ 插值开始，需要特殊处理
+            cc_advance(collector);
+            cc_advance(collector);
+            skip_interp_expr(collector);
+        } else {
+            cc_advance(collector);
+        }
+    }
+}
+
+// 跳过原始字符串
+fn skip_raw_string(collector: &CommentCollector) void {
+    cc_advance(collector);  // 跳过开头 `
+    
+    while collector.position < collector.source_len {
+        const c: byte = cc_peek(collector, 0);
+        
+        if c == 96 {
+            // 结束 `
+            cc_advance(collector);
+            break;
+        } else {
+            cc_advance(collector);
+        }
+    }
+}
+
+// 跳过字符串插值表达式
+fn skip_interp_expr(collector: &CommentCollector) void {
+    var depth: i32 = 1;
+    
+    while depth > 0 && collector.position < collector.source_len {
+        const c: byte = cc_peek(collector, 0);
+        
+        if c == 123 {
+            depth = depth + 1;
+            cc_advance(collector);
+        } else if c == 125 {
+            depth = depth - 1;
+            cc_advance(collector);
+        } else if c == 34 {
+            skip_string(collector);
+        } else if c == 96 {
+            skip_raw_string(collector);
+        } else {
+            cc_advance(collector);
+        }
+    }
+}
+
+// ============================================================
+// 导出函数
+// ============================================================
+
+// 获取 Comment 的 text 作为字符串
+export fn comment_get_text(comment: &Comment) &byte {
+    return &comment.text[0];
+}
+
+// 获取注释数量
+export fn comment_collector_get_count(collector: &CommentCollector) i32 {
+    return collector.comment_count;
+}
+
+// 获取指定索引的注释
+export fn comment_collector_get(collector: &CommentCollector, index: i32) &Comment {
+    if index < 0 || index >= collector.comment_count {
+        return null as &Comment;
+    }
+    return &collector.comments[index];
+}

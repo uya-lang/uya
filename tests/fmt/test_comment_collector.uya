@@ -1,0 +1,83 @@
+// tests/fmt/test_comment_collector.uya
+// 注释收集器功能测试
+
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+// 从 fmt 模块导入
+use fmt.CommentKind;
+use fmt.Comment;
+use fmt.CommentCollector;
+use fmt.comment_collector_init;
+use fmt.collect_comments;
+use fmt.comment_collector_get;
+use fmt.comment_get_text;
+
+// 辅助函数：字符串相等比较
+fn str_eq(s1: &byte, s2: &byte) i32 {
+    if s1 == null && s2 == null {
+        return 1;
+    }
+    if s1 == null || s2 == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while true {
+        const c1: byte = s1[i];
+        const c2: byte = s2[i];
+        if c1 != c2 {
+            return 0;
+        }
+        if c1 == 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+}
+
+// ============================================================
+// 基本测试
+// ============================================================
+
+test "test_single_line_comment" {
+    var collector: CommentCollector = CommentCollector {};
+    
+    // 使用简单字符串
+    const src: [byte: 12] = "// comment\0";
+    comment_collector_init(&collector, &src[0], 10);
+    collect_comments(&collector);
+    
+    // 验证数量
+    try assert_eq_i32(collector.comment_count, 1);
+}
+
+test "test_block_comment" {
+    var collector: CommentCollector = CommentCollector {};
+    
+    const src: [byte: 12] = "/* block */";
+    comment_collector_init(&collector, &src[0], 11);
+    collect_comments(&collector);
+    
+    try assert_eq_i32(collector.comment_count, 1);
+    
+    const c: &Comment = comment_collector_get(&collector, 0);
+    try expect(c.kind == CommentKind.COMMENT_BLOCK);
+}
+
+test "test_nested_block_comment" {
+    var collector: CommentCollector = CommentCollector {};
+    
+    const src: [byte: 35] = "/* outer /* inner */ still outer */";
+    comment_collector_init(&collector, &src[0], 34);
+    collect_comments(&collector);
+    
+    try assert_eq_i32(collector.comment_count, 1);
+}
+
+test "test_no_comment" {
+    var collector: CommentCollector = CommentCollector {};
+    comment_collector_init(&collector, "const x = 1;", 12);
+    collect_comments(&collector);
+    
+    try assert_eq_i32(collector.comment_count, 0);
+}
