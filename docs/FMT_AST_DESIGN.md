@@ -201,6 +201,8 @@ fn emit_comments_before(gen: &UyaCodeGenerator, line: i32) void;
 
 ## 5. 格式化规则
 
+**详细规范见 [`UYA_STYLE_GUIDE.md`](./UYA_STYLE_GUIDE.md)**，本节仅摘要关键规则。
+
 ### 5.1 缩进
 
 | 场景 | 规则 |
