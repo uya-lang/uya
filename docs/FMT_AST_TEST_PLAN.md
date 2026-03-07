@@ -53,13 +53,26 @@
 | 16 | `test_comment_after_spaces` | `    // indented` | `start_line = 1`, `start_col = 5` | 缩进注释 |
 | 17 | `test_multiline_positions` | `/* a\nb\nc */` | `start_line = 1`, `end_line = 3` | 多行位置 |
 
-### 1.5 边界条件测试
+### 1.5 嵌套块注释测试
 
 | # | 测试名 | 输入 | 预期结果 | 覆盖场景 |
 |---|--------|------|----------|----------|
-| 18 | `test_max_comments` | 100 行注释 + 代码 | `comment_count = 100` | 最大注释数 |
-| 19 | `test_comment_in_string` | `const s = "// not comment";` | `comment_count = 0` | 字符串内伪注释 |
-| 20 | `test_comment_in_block_string` | `const s = \`\n// not comment\n\`;` | `comment_count = 0` | 块字符串内伪注释 |
+| 18 | `test_nested_block_comment` | `/* outer /* inner */ still outer */` | `comments[0].text` 包含完整内容 | 嵌套块注释（现有代码支持） |
+
+### 1.6 边界条件测试
+
+| # | 测试名 | 输入 | 预期结果 | 覆盖场景 |
+|---|--------|------|----------|----------|
+| 19 | `test_max_comments` | 100 行注释 + 代码 | `comment_count = 100` | 最大注释数 |
+| 20 | `test_comment_in_string` | `const s = "// not comment";` | `comment_count = 0` | 字符串内伪注释 |
+| 21 | `test_comment_in_block_string` | `const s = \`\n// not comment\n\`;` | `comment_count = 0` | 块字符串内伪注释 |
+
+### 1.7 实现说明
+
+**现有代码分析**：
+- `skip_whitespace_and_comments()` 当前会跳过注释
+- 需要修改为**收集注释**而非跳过
+- 支持嵌套块注释（`/* /* */ */`）
 
 ### 1.6 测试代码示例
 
@@ -143,7 +156,19 @@ test "test_no_comment" {
 | 14 | `test_blank_line_separator` | `const x = 1;\n\n// after blank\nconst y = 2;` | 属于 y 的 leading | 空行分隔 |
 | 15 | `test_multiple_blank_lines` | `const x = 1;\n\n\n// after blanks\nconst y = 2;` | 仍然属于 y 的 leading | 多空行 |
 
-### 2.5 测试代码示例
+### 2.5 注释归属算法
+
+**判定规则**：
+1. **Trailing（行尾注释）**：与前一 token 同行，且在该 token 之后
+2. **Leading（前导注释）**：与后一 token 相邻（中间无空行或有空行）
+3. **Standalone（独立注释）**：文件末尾无后续节点的注释
+
+**边界情况**：
+- 空行不切断 leading 关联
+- 多个注释连续出现时，都属于下一个 token 的 leading
+- 文件头注释属于第一个声明节点的 leading
+
+### 2.6 测试代码示例
 
 ```uya
 // tests/fmt/test_ast_comment.uya
@@ -283,7 +308,37 @@ test "test_standalone_comment" {
 | 63 | `test_atomic_type` | `var x:atomic i32=0` | `var x: atomic i32 = 0;` | 原子类型 |
 | 64 | `test_asm_block` | `@asm{"nop"()}` | `@asm {\n    "nop" ();\n}` | 内联汇编 |
 
-### 3.8 测试代码示例
+### 3.8 高级语法格式化测试 (`test_fmt_advanced.uya`)
+
+| # | 测试名 | 输入 | 预期输出 | 覆盖场景 |
+|---|--------|------|----------|----------|
+| 65 | `test_interface_decl` | `interface I{fn f(self:&Self);}` | `interface I {\n    fn f(self: &Self);\n}` | 接口声明 |
+| 66 | `test_interface_compose` | `interface I:Base{}` | `interface I: Base {}` | 接口组合 |
+| 67 | `test_fn_generic` | `fn max<T:Ord>(a:T,b:T)T{}` | `fn max<T: Ord>(a: T, b: T) T {}` | 泛型函数 |
+| 68 | `test_fn_multi_constraint` | `fn f<T:Clone+Ord>(){}` | `fn f<T: Clone + Ord>() {}` | 多约束泛型 |
+| 69 | `test_extern_fn_body` | `extern fn f()i32{return 0;}` | `extern fn f() i32 {\n    return 0;\n}` | extern带函数体 |
+| 70 | `test_catch_expr` | `f()catch\|e\|{x}` | `f() catch \|e\| {\n    x\n}` | catch表达式 |
+| 71 | `test_string_interp` | `"a${x}b"` | `"a${x}b"` | 字符串插值 |
+| 72 | `test_tuple_type` | `(i32,f64)` | `(i32, f64)` | 元组类型 |
+| 73 | `test_tuple_literal` | `(1,2.0)` | `(1, 2.0)` | 元组字面量 |
+| 74 | `test_destructure_decl` | `const (a,b)=x` | `const (a, b) = x;` | 解构声明 |
+
+### 3.9 运算符格式化测试 (`test_fmt_operators.uya`)
+
+| # | 测试名 | 输入 | 预期输出 | 覆盖场景 |
+|---|--------|------|----------|----------|
+| 75 | `test_saturating_add` | `a+|b` | `a +\| b` | 饱和加法 |
+| 76 | `test_saturating_sub` | `a-\|b` | `a -\| b` | 饱和减法 |
+| 77 | `test_saturating_mul` | `a*\|b` | `a *\| b` | 饱和乘法 |
+| 78 | `test_wrapping_add` | `a+%b` | `a +% b` | 包装加法 |
+| 79 | `test_wrapping_sub` | `a-%b` | `a -% b` | 包装减法 |
+| 80 | `test_wrapping_mul` | `a*%b` | `a *% b` | 包装乘法 |
+| 81 | `test_range_op` | `1..10` | `1..10` | 范围运算符 |
+| 82 | `test_path_separator` | `mod::item` | `mod::item` | 路径分隔符 |
+| 83 | `test_arrow` | `a->b` | `a -> b` | 箭头（@asm内） |
+| 84 | `test_fat_arrow` | `a=>b` | `a => b` | 粗箭头（match臂） |
+
+### 3.10 测试代码示例
 
 ```uya
 // tests/fmt/test_fmt_basic.uya
@@ -316,6 +371,10 @@ test "test_max_blank" {
     try expect(str_equals(output, expected) != 0);
 }
 ```
+
+**注意**：
+- 测试示例中的 API（`fmt_format`, `lexer_collect_comments`, `parse`）将在实现时定义
+- `str_equals(a, b) != 0` 表示字符串相等（返回 1 = 相等，0 = 不等）
 
 ---
 
@@ -373,7 +432,7 @@ test "test_idempotent_comment" {
 
 | Phase | 测试文件 | 用例数 | 覆盖率目标 |
 |-------|----------|--------|------------|
-| Phase 1 | test_lexer_comment.uya | 20 | 100% |
+| Phase 1 | test_lexer_comment.uya | 21 | 100% |
 | Phase 2 | test_ast_comment.uya | 15 | 100% |
 | Phase 3 | test_fmt_basic.uya | 10 | 100% |
 | Phase 3 | test_fmt_blank.uya | 6 | 100% |
@@ -382,8 +441,10 @@ test "test_idempotent_comment" {
 | Phase 3 | test_fmt_expr.uya | 13 | 100% |
 | Phase 3 | test_fmt_comment.uya | 8 | 100% |
 | Phase 3 | test_fmt_special.uya | 8 | 100% |
+| Phase 3 | test_fmt_advanced.uya | 10 | 100% |
+| Phase 3 | test_fmt_operators.uya | 10 | 100% |
 | Phase 4 | test_fmt_integration.uya | 7 | 100% |
-| **总计** | **10 文件** | **106 用例** | **100%** |
+| **总计** | **12 文件** | **127 用例** | **100%** |
 
 ---
 
