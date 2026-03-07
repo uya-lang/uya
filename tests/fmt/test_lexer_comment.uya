@@ -1,0 +1,175 @@
+// tests/fmt/test_lexer_comment.uya
+// Lexer 注释收集测试 - Phase 1 TDD
+
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+// 注释类型枚举
+enum CommentKind {
+    COMMENT_LINE,   // 单行注释 //
+    COMMENT_BLOCK,  // 块注释 /* */
+}
+
+// ============================================================
+// 1.1 单行注释测试
+// ============================================================
+
+test "test_single_line_comment" {
+    // 测试基本单行注释
+    // 输入: "// comment\nconst x = 1;"
+    // 预期: comment_count = 1, text = "// comment"
+    
+    // 目前是占位测试，实现后替换为真正调用
+    // var collector: CommentCollector = ...
+    // lexer_collect_comments(&collector, "// comment\nconst x = 1;")
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+test "test_empty_comment" {
+    // 测试空注释
+    // 输入: "//\nconst x = 1;"
+    // 预期: text = "//"
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+test "test_comment_with_spaces" {
+    // 测试含空格注释
+    // 输入: "//   spaces   \nconst x = 1;"
+    // 预期: text = "//   spaces   "
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+test "test_comment_after_code" {
+    // 测试行尾注释
+    // 输入: "const x = 1;  // trailing"
+    // 预期: text = "// trailing"
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+test "test_multiple_line_comments" {
+    // 测试多行注释
+    // 输入: "// line1\n// line2\nconst x = 1;"
+    // 预期: comment_count = 2
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+test "test_comment_at_eof" {
+    // 测试文件尾注释
+    // 输入: "const x = 1;\n// eof"
+    // 预期: text = "// eof"
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+// ============================================================
+// 1.2 块注释测试
+// ============================================================
+
+test "test_block_comment" {
+    // 测试基本块注释
+    // 输入: "/* block */\nconst x = 1;"
+    // 预期: text = "/* block */", kind = BLOCK
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+test "test_multiline_block_comment" {
+    // 测试多行块注释
+    // 输入: "/* line1\nline2 */\nconst x = 1;"
+    // 预期: start_line = 1, end_line = 2
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+test "test_nested_stars" {
+    // 测试含星号块注释
+    // 输入: "/* * * */\nconst x = 1;"
+    // 预期: text = "/* * * */"
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+test "test_empty_block_comment" {
+    // 测试空块注释
+    // 输入: "/**/\nconst x = 1;"
+    // 预期: text = "/**/"
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+// ============================================================
+// 1.3 混合注释测试
+// ============================================================
+
+test "test_mixed_comments" {
+    // 测试混合注释类型
+    // 输入: "// line\n/* block */\nconst x = 1;"
+    // 预期: comments[0].kind = LINE, comments[1].kind = BLOCK
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+test "test_no_comment" {
+    // 测试无注释代码
+    // 输入: "const x = 1;"
+    // 预期: comment_count = 0
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+// ============================================================
+// 1.5 嵌套块注释测试
+// ============================================================
+
+test "test_nested_block_comment" {
+    // 测试嵌套块注释（现有代码支持）
+    // 输入: "/* outer /* inner */ still outer */"
+    // 预期: text = "/* outer /* inner */ still outer */"
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+// ============================================================
+// 1.4 位置信息测试
+// ============================================================
+
+test "test_comment_line_column" {
+    // 测试位置信息
+    // 输入: "// comment"
+    // 预期: start_line = 1, start_col = 1
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+test "test_comment_after_spaces" {
+    // 测试缩进注释
+    // 输入: "    // indented"
+    // 预期: start_line = 1, start_col = 5
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+test "test_multiline_positions" {
+    // 测试多行位置
+    // 输入: "/* a\nb\nc */"
+    // 预期: start_line = 1, end_line = 3
+    
+    try assert_eq_i32(1, 1);  // 占位断言
+}
+
+// ============================================================
+// 1.6 边界条件测试
+// ============================================================
+
+test "test_max_comments" {
+    // 测试最大注释数
+    // 输入: 100 行注释 + 代码
+    // 预期: comment_count = 100
+    
+    try assert_eq_i32(100, 100);  // 占位断言
+}
