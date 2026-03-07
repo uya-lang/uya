@@ -215,10 +215,43 @@ for items |item, index| {
 ### 5.4 match 语句
 
 ```uya
+// 基本匹配
 match value {
     .variant1 => result1,
     .variant2 => result2,
     else => default_result,
+}
+
+// 带值绑定
+union Optional {
+    some: i32,
+    none: void,
+}
+
+const opt: Optional = Optional { some: 42 };
+const result: i32 = match opt {
+    .some(value) => value,
+    .none => 0,
+};
+
+// 枚举匹配
+enum Color {
+    RED,
+    GREEN,
+    BLUE,
+}
+
+const color: Color = Color.RED;
+const name: &byte = match color {
+    .RED => "red",
+    .GREEN => "green",
+    .BLUE => "blue",
+};
+
+// 作为语句使用
+match status {
+    .Ok => { proceed(); },
+    .Error => { handle_error(); },
 }
 ```
 
@@ -432,11 +465,21 @@ const len: usize = @len(array);
 ### 11.4 泛型
 
 ```uya
-fn max(a: T, b: T) T {
+// 泛型函数：类型参数放在函数名后
+fn max<T: Ord>(a: T, b: T) T {
     if a > b {
         return a;
     }
     return b;
+}
+
+// 多约束泛型
+fn clone_and_compare<T: Clone + Ord>(a: T, b: T) i32 {
+    const a_copy: T = a.clone();
+    const b_copy: T = b.clone();
+    if a_copy == b_copy { return 0; }
+    if a_copy < b_copy { return -1; }
+    return 1;
 }
 ```
 
@@ -449,6 +492,98 @@ Point {
         const dy: i32 = self.y - other.y;
         return @sqrt(dx * dx + dy * dy);
     }
+}
+```
+
+### 11.6 宏声明
+
+```uya
+// 返回表达式类型的宏
+mc double(x: expr) expr {
+    ${x} * 2;
+}
+
+// 返回类型类型的宏
+mc int_type() type {
+    i32;
+}
+
+// 返回语句类型的宏
+mc check_positive(x: expr) stmt {
+    if ${x} < 0 {
+        return error.NegativeValue;
+    }
+}
+
+// 使用宏
+const result: i32 = double(21);  // 展开为 21 * 2
+```
+
+### 11.7 原子类型
+
+```uya
+// 原子类型声明
+var counter: atomic i32 = 0;
+var flag: atomic bool = false;
+
+// 原子操作
+counter += 1;
+counter -= 1;
+const value: i32 = counter;  // 原子读取
+```
+
+### 11.8 内联汇编
+
+```uya
+// 基本内联汇编
+@asm {
+    "nop" ();
+}
+
+// 带输入输出的汇编
+var result: i32 = 0;
+@asm {
+    "mov %0, #42" (-> result);
+}
+
+// 带多个操作数
+var a: i32 = 10;
+var b: i32 = 20;
+var sum: i32 = 0;
+@asm {
+    "add %0, %1, %2" (a, b, -> sum);
+} clobbers = ["memory"];
+```
+
+### 11.9 defer 和 errdefer
+
+```uya
+// defer：作用域结束时执行
+fn process_file(path: &byte) i32 {
+    const file: *void = fopen(path, "r");
+    defer fclose(file);  // 函数返回时执行
+    
+    // 或者块形式
+    defer {
+        cleanup();
+        log("cleanup done");
+    }
+    
+    // ...
+    return 0;
+}
+
+// errdefer：仅在错误返回时执行
+fn allocate_and_process(size: usize) !&byte {
+    var buffer: &byte = malloc(size);
+    errdefer free(buffer);  // 仅在返回错误时执行
+    
+    const result: i32 = process(buffer);
+    if result != 0 {
+        return error.ProcessFailed;  // 此时会执行 errdefer
+    }
+    
+    return buffer;  // 成功返回，不执行 errdefer
 }
 ```
 
@@ -641,5 +776,9 @@ test "test_distance" {
 
 ---
 
-**版本**: v1.0
+**版本**: v1.1
 **更新日期**: 2026-03-07
+
+**变更记录**：
+- v1.1: 修复泛型函数语法示例，添加宏声明、原子类型、内联汇编、defer/errdefer 详细格式
+- v1.0: 初始版本

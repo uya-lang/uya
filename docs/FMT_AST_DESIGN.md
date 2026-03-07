@@ -115,6 +115,9 @@ struct Comment {
 **修改函数**：
 - `lexer_next_token()`: 解析到注释时，存入 comments 数组
 
+**特殊处理**：
+- 嵌套泛型 `>>`：Lexer 拆分为两个 `>` token（已在现有代码中实现）
+
 #### 3.2.2 AST 增强 (src/ast.uya)
 
 **新增字段**：
@@ -143,6 +146,43 @@ src/codegen/uya/
 ├── stmt.uya       # 生成语句
 └── type.uya       # 生成类型（简化版）
 ```
+
+**支持的 AST 节点类型**：
+
+| 节点类型 | 文件 | 输出格式 |
+|----------|------|----------|
+| `AST_PROGRAM` | main.uya | 顶层声明序列 |
+| `AST_FN_DECL` | decl.uya | `fn name(params) ret { body }` |
+| `AST_STRUCT_DECL` | decl.uya | `struct Name { fields }` |
+| `AST_ENUM_DECL` | decl.uya | `enum Name { variants }` |
+| `AST_UNION_DECL` | decl.uya | `union Name { variants }` |
+| `AST_INTERFACE_DECL` | decl.uya | `interface Name { methods }` |
+| `AST_METHOD_BLOCK` | decl.uya | `TypeName { methods }` |
+| `AST_MACRO_DECL` | decl.uya | `mc name(params) ret { body }` |
+| `AST_TYPE_ALIAS` | decl.uya | `type Name = Type;` |
+| `AST_VAR_DECL` | decl.uya | `const/var name: Type = init;` |
+| `AST_EXTERN_VAR_DECL` | decl.uya | `extern const/var name: Type;` |
+| `AST_USE_STMT` | decl.uya | `use path;` |
+| `AST_ERROR_DECL` | decl.uya | `error Name;` |
+| `AST_TEST_STMT` | stmt.uya | `test "name" { body }` |
+| `AST_DEFER_STMT` | stmt.uya | `defer { body }` 或 `defer stmt;` |
+| `AST_ERRDEFER_STMT` | stmt.uya | `errdefer { body }` 或 `errdefer stmt;` |
+| `AST_IF_STMT` | stmt.uya | `if cond { } else { }` |
+| `AST_WHILE_STMT` | stmt.uya | `while cond { }` |
+| `AST_FOR_STMT` | stmt.uya | `for items \|item\| { }` |
+| `AST_RETURN_STMT` | stmt.uya | `return expr;` |
+| `AST_BREAK_STMT` | stmt.uya | `break;` |
+| `AST_CONTINUE_STMT` | stmt.uya | `continue;` |
+| `AST_BLOCK` | stmt.uya | `{ stmts }` |
+| `AST_BINARY_EXPR` | expr.uya | `a op b` |
+| `AST_UNARY_EXPR` | expr.uya | `op a` |
+| `AST_CALL_EXPR` | expr.uya | `func(args)` |
+| `AST_MEMBER_ACCESS` | expr.uya | `obj.field` |
+| `AST_ARRAY_ACCESS` | expr.uya | `arr[index]` |
+| `AST_SLICE_EXPR` | expr.uya | `arr[start:len]` |
+| `AST_STRUCT_INIT` | expr.uya | `Type { fields }` |
+| `AST_ARRAY_LITERAL` | expr.uya | `[elem1, elem2]` |
+| `AST_MATCH_EXPR` | expr.uya | `match val { arms }` |
 
 ## 4. 数据结构设计
 
@@ -370,8 +410,6 @@ const b: i32 = 2;
 #!/bin/bash
 # scripts/verify_fmt.sh
 
-set -e
-
 SRC_DIR="src"
 TMP_DIR="/tmp/uya-fmt-verify"
 PASS=0
@@ -470,8 +508,9 @@ fi
 | 复杂表达式格式化 | 中 | 参考 C99 后端实现 |
 | 性能问题 | 低 | 使用缓冲区，避免频繁 IO |
 
-## 10. 后续优化
+## 10. 后续扩展
 
-- Phase 2: 长行自动换行
-- Phase 3: 函数参数对齐
-- Phase 4: import 分组排序
+- 长行自动换行
+- 函数参数对齐
+- import 分组排序
+- 结构体字段对齐
