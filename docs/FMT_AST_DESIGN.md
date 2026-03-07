@@ -287,7 +287,7 @@ fn emit_comments_before(gen: &UyaCodeGenerator, line: i32) void;
                 |---------|---------|
 输入:    // comment1      // comment2
          const x = 1;     // trailing
-         
+
 AST:
   VarDecl {
     line: 2
@@ -299,9 +299,14 @@ AST:
 输出:
   // comment1
   const x: i32 = 1;  // trailing
-  
+
   // comment2
 ```
+
+**行尾注释不对齐**：
+- 注释前 2 空格
+- 不对齐到统一列
+- 原因：保持幂等性，避免代码修改时破坏对齐
 
 ## 6. 实现步骤
 
