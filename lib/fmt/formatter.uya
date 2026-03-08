@@ -76,8 +76,28 @@ fn write_str_len(out: &FormatOutput, s: &byte, len: usize) void {
 }
 
 // 写入换行
-fn write_newline(out: &FormatOutput) void {
+export fn write_newline(out: &FormatOutput) void {
     write_char(out, 10);  // '\n'
+    out.line_start = 1;
+}
+
+// 写入空行（两个连续换行）
+export fn write_blank_line(out: &FormatOutput) void {
+    write_char(out, 10);  // '\n'
+    write_char(out, 10);  // '\n'
+    out.line_start = 1;
+}
+
+// 确保有一个空行（如果当前行是新行，只写一个换行）
+export fn ensure_blank_line(out: &FormatOutput) void {
+    // 如果当前行是新行，写一个换行形成空行
+    // 否则写两个换行形成空行
+    if out.line_start != 0 {
+        write_char(out, 10);  // '\n'
+    } else {
+        write_char(out, 10);  // '\n'
+        write_char(out, 10);  // '\n'
+    }
     out.line_start = 1;
 }
 

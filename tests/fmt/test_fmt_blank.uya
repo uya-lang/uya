@@ -1,0 +1,47 @@
+// tests/fmt/test_fmt_blank.uya
+// 空行规则测试 - Phase 3.2
+
+use std.testing.assert_eq_i32;
+
+// 从 fmt 模块导入
+use fmt.FormatOutput;
+use fmt.format_output_init;
+use fmt.format_output_get;
+use fmt.write_newline;
+use fmt.write_blank_line;
+
+test "test_write_newline" {
+    var out: FormatOutput = FormatOutput {};
+    format_output_init(&out);
+    
+    write_newline(&out);
+    
+    const result: &byte = format_output_get(&out);
+    try assert_eq_i32(result[0], 10);
+}
+
+test "test_write_blank_line" {
+    var out: FormatOutput = FormatOutput {};
+    format_output_init(&out);
+    
+    write_blank_line(&out);
+    
+    const result: &byte = format_output_get(&out);
+    try assert_eq_i32(result[0], 10);
+    try assert_eq_i32(result[1], 10);
+}
+
+test "test_multiple_newlines" {
+    var out: FormatOutput = FormatOutput {};
+    format_output_init(&out);
+    
+    write_newline(&out);
+    write_newline(&out);
+    write_blank_line(&out);
+    
+    const result: &byte = format_output_get(&out);
+    try assert_eq_i32(result[0], 10);
+    try assert_eq_i32(result[1], 10);
+    try assert_eq_i32(result[2], 10);
+    try assert_eq_i32(result[3], 10);
+}
