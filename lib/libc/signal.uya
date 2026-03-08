@@ -62,13 +62,14 @@ export const SIG_ERR: usize = 0xFFFFFFFF;  // 错误返回值 (-1)
 
 // ============================================================
 // 系统调用定义
+// SYS_kill 已在 libc.syscall 中定义，直接使用
 // ============================================================
 
 const SYS_rt_sigaction: i64 = 13;
 const SYS_rt_sigprocmask: i64 = 14;
 const SYS_rt_sigpending: i64 = 127;
 const SYS_rt_sigsuspend: i64 = 130;
-const SYS_kill: i64 = 62;
+// SYS_kill 在 syscall.uya 中定义，不重复
 const SYS_tgkill: i64 = 234;
 const SYS_alarm: i64 = 37;
 const SYS_pause: i64 = 34;

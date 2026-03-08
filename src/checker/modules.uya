@@ -1153,7 +1153,28 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
             var lookup_name: &byte = item_name;
             if alias != null { lookup_name = alias; }
             if function_table_lookup(checker, lookup_name) == null {
-                checker_register_fn_decl(checker, export_decl);
+                // 先用原名注册（如果尚未注册）
+                if function_table_lookup(checker, item_name) == null {
+                    checker_register_fn_decl(checker, export_decl);
+                }
+                // 如果有别名字且不同于原名，创建别名签名并插入
+                if alias != null && str_equals(alias, item_name) == 0 {
+                    const orig_sig: &FunctionSignature = function_table_lookup(checker, item_name);
+                    if orig_sig != null {
+                        const alias_sig: &FunctionSignature = arena_alloc(checker.arena, @size_of(FunctionSignature)) as &FunctionSignature;
+                        if alias_sig != null {
+                            alias_sig.name = alias;  // 使用别名
+                            alias_sig.param_types = orig_sig.param_types;
+                            alias_sig.param_count = orig_sig.param_count;
+                            alias_sig.return_type = copy_type(&orig_sig.return_type);
+                            alias_sig.is_extern = orig_sig.is_extern;
+                            alias_sig.is_varargs = orig_sig.is_varargs;
+                            alias_sig.line = orig_sig.line;
+                            alias_sig.column = orig_sig.column;
+                            function_table_insert(checker, alias_sig);
+                        }
+                    }
+                }
             }
         }
     } else {

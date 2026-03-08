@@ -44,7 +44,7 @@ fn is_extern_libc_function(codegen: &C99CodeGenerator, func_name: &byte) i32 {
     return 0;
 }
 
-// 从文件名提取模块前缀（lib/libc/ -> libc_, lib/std/io/ -> std_io_）
+// 从文件名提取模块前缀（lib/libc/ -> libc_, lib/std/io/ -> std_io_, lib/mem/ -> mem_）
 fn get_module_prefix_from_filename(codegen: &C99CodeGenerator, filename: &byte) &byte {
     if codegen == null || filename == null || codegen.arena == null {
         return ("" as *byte) as &byte;
@@ -52,6 +52,7 @@ fn get_module_prefix_from_filename(codegen: &C99CodeGenerator, filename: &byte) 
     if strstr(filename as *byte, "/lib/libc/" as *byte) != null || strstr(filename as *byte, "lib/libc/" as *byte) != null {
         return ("libc_" as *byte) as &byte;
     }
+    // 先检查 lib/std/，因为后面的一般 lib/ 处理会匹配到它
     var lib_std: *byte = strstr(filename as *byte, "/lib/std/" as *byte);
     if lib_std == null {
         lib_std = strstr(filename as *byte, "lib/std/" as *byte);
@@ -96,6 +97,42 @@ fn get_module_prefix_from_filename(codegen: &C99CodeGenerator, filename: &byte) 
             }
         }
         return ("std_" as *byte) as &byte;
+    }
+    // 处理一般的 lib/xxx/ 目录（如 lib/mem/, lib/err/, lib/build/, lib/fmt/ 等）
+    var lib_general: *byte = strstr(filename as *byte, "/lib/" as *byte);
+    if lib_general == null {
+        lib_general = strstr(filename as *byte, "lib/" as *byte);
+    }
+    if lib_general != null {
+        var rel: &byte = lib_general as &byte;
+        if rel[0] == 47 { rel = &rel[1]; }  // 跳过开头的 /
+        if strncmp(rel as *byte, "lib/" as *byte, 4) == 0 {
+            rel = &rel[4];  // 跳过 "lib/"
+        }
+        // 现在 rel 指向 "mem/mem.uya" 或 "fmt/fmt.uya" 等
+        // 找到第一个 / 或 \ 来确定模块名
+        const rel_len: usize = strlen(rel as *byte);
+        var module_name_len: usize = rel_len;
+        var si: usize = 0;
+        while si < rel_len {
+            if rel[si] == 47 || rel[si] == 92 {  // '/' or '\'
+                module_name_len = si;
+                break;
+            }
+            si = si + 1;
+        }
+        // 如果没有找到 /，说明是 lib/xxx.uya，使用去掉 .uya 后的文件名
+        if module_name_len == rel_len && rel_len > 4 {
+            module_name_len = rel_len - 4;  // 去掉 ".uya"
+        }
+        // 分配前缀（模块名 + "_"）
+        const prefix: &byte = arena_alloc(codegen.arena, module_name_len + 2) as &byte;
+        if prefix != null {
+            memcpy(prefix as *void, rel as *void, module_name_len);
+            prefix[module_name_len] = 95 as byte;  // '_'
+            prefix[module_name_len + 1] = 0 as byte;
+            return prefix;
+        }
     }
     // 检查是否是 src/ 文件（应用程序主文件）
     var src_path: *byte = strstr(filename as *byte, "/src/" as *byte);

@@ -417,7 +417,7 @@ export extern "libc" fn fopen(filename: &const byte, mode: &const byte) &FILE {
             if flags == O_RDONLY {
                 flags = O_RDWR;
             } else {
-                flags = flags | O_RDWR;
+                flags = flags | (O_RDWR as i64);
             }
         } else if c == 98 {  // 'b' (binary mode, ignored on Linux)
             // 忽略
