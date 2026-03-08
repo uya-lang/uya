@@ -1,0 +1,281 @@
+// lib/fmt/comment_attributor.uya
+// 注释归属模块 - 将注释关联到 AST 节点
+//
+// 设计原则：
+// - 独立于 AST 结构，不修改 ASTNode
+// - 不依赖 Comment 类型，使用原始位置信息
+// - 支持三种注释类型：leading、trailing、standalone
+
+use libc;
+
+// ============================================================
+// 注释归属类型
+// ============================================================
+
+export enum CommentAttachmentKind {
+    ATTACH_LEADING,    // 前导注释（在节点前）
+    ATTACH_TRAILING,   // 行尾注释（在节点后同行）
+    ATTACH_STANDALONE, // 独立注释（不关联任何节点）
+}
+
+// 单个注释的归属信息
+export struct CommentAttachment {
+    comment_index: i32,           // 注释索引
+    node_index: i32,              // 关联的节点索引（-1 表示 standalone）
+    kind: CommentAttachmentKind,
+}
+
+// 节点位置信息（用于归属判定）
+export struct NodePosition {
+    node_id: i32,           // 节点标识符
+    start_line: i32,
+    start_col: i32,
+    end_line: i32,
+    end_col: i32,
+}
+
+// 注释位置信息
+export struct CommentPosition {
+    comment_id: i32,
+    start_line: i32,
+    start_col: i32,
+    end_line: i32,
+    end_col: i32,
+}
+
+// 注释归属结果
+export const MAX_ATTACHMENTS: i32 = 32;
+export const MAX_NODE_POSITIONS: i32 = 64;
+export const MAX_COMMENT_POSITIONS: i32 = 32;
+
+export struct CommentAttribution {
+    attachments: [CommentAttachment: MAX_ATTACHMENTS],
+    attachment_count: i32,
+    nodes: [NodePosition: MAX_NODE_POSITIONS],
+    node_count: i32,
+    comments: [CommentPosition: MAX_COMMENT_POSITIONS],
+    comment_count: i32,
+}
+
+// ============================================================
+// 归属结果初始化
+// ============================================================
+
+export fn comment_attribution_init(attribution: &CommentAttribution) void {
+    attribution.attachment_count = 0;
+    attribution.node_count = 0;
+    attribution.comment_count = 0;
+}
+
+// ============================================================
+// 数据添加
+// ============================================================
+
+export fn attribution_add_node(
+    attribution: &CommentAttribution,
+    node_id: i32,
+    start_line: i32,
+    start_col: i32,
+    end_line: i32,
+    end_col: i32
+) i32 {
+    if attribution.node_count >= MAX_NODE_POSITIONS {
+        return -1;
+    }
+    
+    const pos: &NodePosition = &attribution.nodes[attribution.node_count];
+    pos.node_id = node_id;
+    pos.start_line = start_line;
+    pos.start_col = start_col;
+    pos.end_line = end_line;
+    pos.end_col = end_col;
+    
+    attribution.node_count = attribution.node_count + 1;
+    return 0;
+}
+
+export fn attribution_add_comment(
+    attribution: &CommentAttribution,
+    comment_id: i32,
+    start_line: i32,
+    start_col: i32,
+    end_line: i32,
+    end_col: i32
+) i32 {
+    if attribution.comment_count >= MAX_COMMENT_POSITIONS {
+        return -1;
+    }
+    
+    const pos: &CommentPosition = &attribution.comments[attribution.comment_count];
+    pos.comment_id = comment_id;
+    pos.start_line = start_line;
+    pos.start_col = start_col;
+    pos.end_line = end_line;
+    pos.end_col = end_col;
+    
+    attribution.comment_count = attribution.comment_count + 1;
+    return 0;
+}
+
+// ============================================================
+// 注释归属核心算法
+// ============================================================
+
+// 比较函数：按行号排序节点
+fn compare_node_positions(a: &NodePosition, b: &NodePosition) i32 {
+    if a.start_line != b.start_line {
+        return a.start_line - b.start_line;
+    }
+    return a.start_col - b.start_col;
+}
+
+// 简单插入排序
+fn sort_node_positions(attribution: &CommentAttribution) void {
+    var i: i32 = 1;
+    while i < attribution.node_count {
+        const temp: NodePosition = attribution.nodes[i];
+        var j: i32 = i - 1;
+        
+        while j >= 0 && compare_node_positions(&attribution.nodes[j], &temp) > 0 {
+            attribution.nodes[j + 1] = attribution.nodes[j];
+            j = j - 1;
+        }
+        attribution.nodes[j + 1] = temp;
+        i = i + 1;
+    }
+}
+
+// 查找注释后的最近节点索引
+fn find_next_node_idx(attribution: &CommentAttribution, comment_end_line: i32, comment_end_col: i32) i32 {
+    var i: i32 = 0;
+    while i < attribution.node_count {
+        const node: &NodePosition = &attribution.nodes[i];
+        if node.start_line > comment_end_line || (node.start_line == comment_end_line && node.start_col > comment_end_col) {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+// 查找注释前的最近节点索引
+fn find_prev_node_idx(attribution: &CommentAttribution, comment_start_line: i32, comment_start_col: i32) i32 {
+    var result: i32 = -1;
+    var i: i32 = 0;
+    while i < attribution.node_count {
+        const node: &NodePosition = &attribution.nodes[i];
+        if node.start_line < comment_start_line || (node.start_line == comment_start_line && node.start_col < comment_start_col) {
+            result = i;
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+// 添加归属
+fn add_attachment(
+    attribution: &CommentAttribution,
+    comment_index: i32,
+    node_index: i32,
+    kind: CommentAttachmentKind
+) i32 {
+    if attribution.attachment_count >= MAX_ATTACHMENTS {
+        return -1;
+    }
+    
+    const att: &CommentAttachment = &attribution.attachments[attribution.attachment_count];
+    att.comment_index = comment_index;
+    att.node_index = node_index;
+    att.kind = kind;
+    
+    attribution.attachment_count = attribution.attachment_count + 1;
+    return 0;
+}
+
+// ============================================================
+// 主函数：执行注释归属
+// ============================================================
+
+export fn attribute_comments(attribution: &CommentAttribution) void {
+    // 1. 按位置排序节点
+    sort_node_positions(attribution);
+    
+    // 2. 遍历每个注释，确定归属
+    var ci: i32 = 0;
+    while ci < attribution.comment_count {
+        const comment: &CommentPosition = &attribution.comments[ci];
+        
+        // 查找注释后的最近节点
+        const next_idx: i32 = find_next_node_idx(attribution, comment.end_line, comment.end_col);
+        
+        if next_idx >= 0 {
+            // 检查是否为 trailing（与前一节点同行）
+            const prev_idx: i32 = find_prev_node_idx(attribution, comment.start_line, comment.start_col);
+            
+            if prev_idx >= 0 {
+                const prev_node: &NodePosition = &attribution.nodes[prev_idx];
+                
+                // 同一行，且在节点之后 → trailing
+                if comment.start_line == prev_node.start_line && comment.start_col > prev_node.end_col {
+                    add_attachment(attribution, ci, prev_idx, CommentAttachmentKind.ATTACH_TRAILING);
+                } else {
+                    // 否则作为下一个节点的 leading
+                    add_attachment(attribution, ci, next_idx, CommentAttachmentKind.ATTACH_LEADING);
+                }
+            } else {
+                // 没有前节点，作为第一个节点的 leading
+                add_attachment(attribution, ci, next_idx, CommentAttachmentKind.ATTACH_LEADING);
+            }
+        } else {
+            // 没有后续节点 → standalone
+            add_attachment(attribution, ci, -1, CommentAttachmentKind.ATTACH_STANDALONE);
+        }
+        
+        ci = ci + 1;
+    }
+}
+
+// ============================================================
+// 查询接口
+// ============================================================
+
+// 获取指定节点的 leading 注释数量
+export fn get_leading_count_for_node(attribution: &CommentAttribution, node_index: i32) i32 {
+    var count: i32 = 0;
+    var i: i32 = 0;
+    while i < attribution.attachment_count {
+        if attribution.attachments[i].node_index == node_index && 
+           attribution.attachments[i].kind == CommentAttachmentKind.ATTACH_LEADING {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    return count;
+}
+
+// 获取指定节点的 trailing 注释数量
+export fn get_trailing_count_for_node(attribution: &CommentAttribution, node_index: i32) i32 {
+    var count: i32 = 0;
+    var i: i32 = 0;
+    while i < attribution.attachment_count {
+        if attribution.attachments[i].node_index == node_index && 
+           attribution.attachments[i].kind == CommentAttachmentKind.ATTACH_TRAILING {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    return count;
+}
+
+// 获取 standalone 注释数量
+export fn get_standalone_count(attribution: &CommentAttribution) i32 {
+    var count: i32 = 0;
+    var i: i32 = 0;
+    while i < attribution.attachment_count {
+        if attribution.attachments[i].kind == CommentAttachmentKind.ATTACH_STANDALONE {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    return count;
+}

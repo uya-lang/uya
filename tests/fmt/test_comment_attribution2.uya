@@ -1,0 +1,87 @@
+// tests/fmt/test_comment_attribution2.uya
+// 注释归属判定测试 - Phase 2 核心功能
+//
+// 测试注释归属算法：leading、trailing、standalone
+
+use std.testing.assert_eq_i32;
+
+// 从 fmt 模块导入（使用短路径）
+use fmt.Comment;
+use fmt.CommentCollector;
+use fmt.comment_collector_init;
+use fmt.collect_comments;
+use fmt.comment_collector_get;
+
+// 从 comment_attributor 模块导入
+use fmt.CommentAttribution;
+use fmt.CommentAttachmentKind;
+use fmt.comment_attribution_init;
+use fmt.attribution_add_node;
+use fmt.attribution_add_comment;
+use fmt.attribute_comments;
+use fmt.get_leading_count_for_node;
+use fmt.get_trailing_count_for_node;
+use fmt.get_standalone_count;
+
+// ============================================================
+// 2.1 Leading 注释测试
+// ============================================================
+
+test "test_leading_single_comment" {
+    // 模拟场景：
+    // // leading
+    // node1
+    
+    var collector: CommentCollector = CommentCollector {};
+    const src: [byte: 12] = "// leading\n";
+    comment_collector_init(&collector, &src[0], 11);
+    collect_comments(&collector);
+    
+    try assert_eq_i32(collector.comment_count, 1);
+    
+    // 创建归属结构
+    var attribution: CommentAttribution = CommentAttribution {};
+    comment_attribution_init(&attribution);
+    
+    // 添加节点（节点ID=1，在第2行）
+    attribution_add_node(&attribution, 1, 2, 1, 2, 5);
+    
+    // 添加注释（从 collector 获取位置）
+    const c: &Comment = comment_collector_get(&collector, 0);
+    attribution_add_comment(&attribution, 0, c.start_line, c.start_col, c.end_line, c.end_col);
+    
+    // 执行归属
+    attribute_comments(&attribution);
+    
+    // 验证：注释是 node0 的 leading
+    try assert_eq_i32(get_leading_count_for_node(&attribution, 0), 1);
+    try assert_eq_i32(get_trailing_count_for_node(&attribution, 0), 0);
+}
+
+test "test_standalone_comment" {
+    // 模拟场景：注释在节点之后，且之后没有节点
+    // node1
+    // // standalone
+    
+    var collector: CommentCollector = CommentCollector {};
+    const src: [byte: 14] = "// standalone\n";
+    comment_collector_init(&collector, &src[0], 13);
+    collect_comments(&collector);
+    
+    try assert_eq_i32(collector.comment_count, 1);
+    
+    var attribution: CommentAttribution = CommentAttribution {};
+    comment_attribution_init(&attribution);
+    
+    // 节点在第1行
+    attribution_add_node(&attribution, 1, 1, 1, 1, 5);
+    
+    // 注释在第2行
+    const c: &Comment = comment_collector_get(&collector, 0);
+    attribution_add_comment(&attribution, 0, c.start_line, c.start_col, c.end_line, c.end_col);
+    
+    attribute_comments(&attribution);
+    
+    // 注释是 standalone
+    try assert_eq_i32(get_standalone_count(&attribution), 1);
+}

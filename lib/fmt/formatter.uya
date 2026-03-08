@@ -1,0 +1,343 @@
+// lib/fmt/formatter.uya
+// Uya 代码格式化器 - AST 到代码转换
+//
+// 设计原则：
+// - 基于 AST 进行格式化，不依赖原始文本
+// - 4 空格缩进
+// - 运算符两侧空格
+// - 一致的括号风格
+
+use libc;
+
+// ============================================================
+// 格式化配置
+// ============================================================
+
+export const INDENT_SIZE: i32 = 4;
+export const MAX_LINE_WIDTH: i32 = 100;
+
+// ============================================================
+// 格式化输出缓冲区
+// ============================================================
+
+export const OUTPUT_BUFFER_SIZE: i32 = 2048;
+
+export struct FormatOutput {
+    buffer: [byte: OUTPUT_BUFFER_SIZE],
+    position: usize,
+    indent_level: i32,
+    line_start: i32,     // 1 表示当前行是新的（需要缩进）
+    has_error: i32,
+}
+
+// ============================================================
+// 输出函数
+// ============================================================
+
+export fn format_output_init(out: &FormatOutput) void {
+    out.position = 0;
+    out.indent_level = 0;
+    out.line_start = 1;
+    out.has_error = 0;
+}
+
+// 写入单个字符
+fn write_char(out: &FormatOutput, c: byte) void {
+    if out.position >= OUTPUT_BUFFER_SIZE - 1 {
+        out.has_error = 1;
+        return;
+    }
+    out.buffer[out.position] = c;
+    out.position = out.position + 1;
+}
+
+// 写入字符串
+fn write_str(out: &FormatOutput, s: &byte) void {
+    if s == null {
+        return;
+    }
+    var i: usize = 0;
+    while s[i] != 0 {
+        write_char(out, s[i]);
+        i = i + 1;
+    }
+}
+
+// 写入字符串指定长度
+fn write_str_len(out: &FormatOutput, s: &byte, len: usize) void {
+    if s == null {
+        return;
+    }
+    var i: usize = 0;
+    while i < len && s[i] != 0 {
+        write_char(out, s[i]);
+        i = i + 1;
+    }
+}
+
+// 写入换行
+fn write_newline(out: &FormatOutput) void {
+    write_char(out, 10);  // '\n'
+    out.line_start = 1;
+}
+
+// 确保缩进
+fn ensure_indent(out: &FormatOutput) void {
+    if out.line_start == 0 {
+        return;
+    }
+    var i: i32 = 0;
+    while i < out.indent_level * INDENT_SIZE {
+        write_char(out, 32);  // ' '
+        i = i + 1;
+    }
+    out.line_start = 0;
+}
+
+// 写入空格
+export fn write_space(out: &FormatOutput) void {
+    write_char(out, 32);
+}
+
+// 写入字符（导出版本）
+export fn write_char_export(out: &FormatOutput, c: byte) void {
+    write_char(out, c);
+}
+
+// 增加缩进
+fn indent_incr(out: &FormatOutput) void {
+    out.indent_level = out.indent_level + 1;
+}
+
+// 减少缩进
+fn indent_decr(out: &FormatOutput) void {
+    if out.indent_level > 0 {
+        out.indent_level = out.indent_level - 1;
+    }
+}
+
+// ============================================================
+// 格式化辅助函数
+// ============================================================
+
+// 写入标识符
+fn write_ident(out: &FormatOutput, name: &byte) void {
+    ensure_indent(out);
+    write_str(out, name);
+}
+
+// 写入关键字
+fn write_keyword(out: &FormatOutput, kw: &byte) void {
+    ensure_indent(out);
+    write_str(out, kw);
+}
+
+// 写入分隔符
+fn write_separator(out: &FormatOutput, sep: byte) void {
+    write_char(out, sep);
+    write_space(out);
+}
+
+// ============================================================
+// 获取格式化结果
+// ============================================================
+
+export fn format_output_get(out: &FormatOutput) &byte {
+    if out.position >= OUTPUT_BUFFER_SIZE {
+        out.buffer[OUTPUT_BUFFER_SIZE - 1] = 0;
+    } else {
+        out.buffer[out.position] = 0;
+    }
+    return &out.buffer[0];
+}
+
+export fn format_output_len(out: &FormatOutput) usize {
+    return out.position;
+}
+
+// ============================================================
+// 格式化函数声明
+// ============================================================
+
+// 格式化函数签名（简化版）
+export fn format_fn_sig(
+    out: &FormatOutput,
+    name: &byte,
+    is_export: i32,
+    is_extern: i32
+) void {
+    if is_export != 0 {
+        write_keyword(out, "export");
+        write_space(out);
+    }
+    if is_extern != 0 {
+        write_keyword(out, "extern");
+        write_space(out);
+    }
+    write_keyword(out, "fn");
+    write_space(out);
+    write_str(out, name);
+}
+
+// 格式化函数体开始
+export fn format_fn_body_start(out: &FormatOutput) void {
+    write_space(out);
+    write_char(out, 123);  // '{'
+    write_newline(out);
+    indent_incr(out);
+}
+
+// 格式化函数体结束
+export fn format_fn_body_end(out: &FormatOutput) void {
+    indent_decr(out);
+    ensure_indent(out);
+    write_char(out, 125);  // '}'
+}
+
+// ============================================================
+// 格式化变量声明
+// ============================================================
+
+export fn format_var_decl(
+    out: &FormatOutput,
+    name: &byte,
+    type_name: &byte,
+    init_val: &byte,
+    is_const: i32
+) void {
+    ensure_indent(out);
+    
+    if is_const != 0 {
+        write_str(out, "const");
+    } else {
+        write_str(out, "var");
+    }
+    
+    write_space(out);
+    write_str(out, name);
+    
+    if type_name != null {
+        write_char(out, 58);  // ':'
+        write_space(out);
+        write_str(out, type_name);
+    }
+    
+    if init_val != null {
+        write_space(out);
+        write_char(out, 61);  // '='
+        write_space(out);
+        write_str(out, init_val);
+    }
+    
+    write_char(out, 59);  // ';'
+}
+
+// ============================================================
+// 格式化结构体声明
+// ============================================================
+
+export fn format_struct_start(out: &FormatOutput, name: &byte) void {
+    ensure_indent(out);
+    write_str(out, "struct");
+    write_space(out);
+    write_str(out, name);
+    write_space(out);
+    write_char(out, 123);  // '{'
+    write_newline(out);
+    indent_incr(out);
+}
+
+export fn format_struct_field(out: &FormatOutput, name: &byte, type_name: &byte) void {
+    ensure_indent(out);
+    write_str(out, name);
+    write_char(out, 58);  // ':'
+    write_space(out);
+    write_str(out, type_name);
+    write_char(out, 44);  // ','
+    write_newline(out);
+}
+
+export fn format_struct_end(out: &FormatOutput) void {
+    indent_decr(out);
+    ensure_indent(out);
+    write_char(out, 125);  // '}'
+}
+
+// ============================================================
+// 格式化控制语句
+// ============================================================
+
+export fn format_if_start(out: &FormatOutput, cond: &byte) void {
+    ensure_indent(out);
+    write_str(out, "if");
+    write_space(out);
+    write_str(out, cond);
+    write_space(out);
+    write_char(out, 123);  // '{'
+    write_newline(out);
+    indent_incr(out);
+}
+
+export fn format_else(out: &FormatOutput) void {
+    indent_decr(out);
+    ensure_indent(out);
+    write_char(out, 125);  // '}'
+    write_space(out);
+    write_str(out, "else");
+    write_space(out);
+    write_char(out, 123);  // '{'
+    write_newline(out);
+    indent_incr(out);
+}
+
+export fn format_block_end(out: &FormatOutput) void {
+    indent_decr(out);
+    ensure_indent(out);
+    write_char(out, 125);  // '}'
+}
+
+// ============================================================
+// 格式化表达式
+// ============================================================
+
+export fn format_binary_expr(out: &FormatOutput, left: &byte, op: &byte, right: &byte) void {
+    ensure_indent(out);
+    write_str(out, left);
+    write_space(out);
+    write_str(out, op);
+    write_space(out);
+    write_str(out, right);
+}
+
+export fn format_call_expr(out: &FormatOutput, name: &byte) void {
+    ensure_indent(out);
+    write_str(out, name);
+    write_char(out, 40);  // '('
+}
+
+export fn format_call_end(out: &FormatOutput) void {
+    write_char(out, 41);  // ')'
+}
+
+export fn format_member_access(out: &FormatOutput, base: &byte, member: &byte) void {
+    ensure_indent(out);
+    write_str(out, base);
+    write_char(out, 46);  // '.'
+    write_str(out, member);
+}
+
+// ============================================================
+// 格式化注释
+// ============================================================
+
+export fn format_line_comment(out: &FormatOutput, text: &byte) void {
+    ensure_indent(out);
+    write_str(out, text);
+    write_newline(out);
+}
+
+export fn format_block_comment(out: &FormatOutput, text: &byte) void {
+    ensure_indent(out);
+    write_str(out, text);
+    write_newline(out);
+}

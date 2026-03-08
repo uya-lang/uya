@@ -1,0 +1,150 @@
+// tests/fmt/test_fmt_basic.uya
+// 基础格式化测试 - Phase 3
+
+use std.testing.assert_eq_i32;
+
+// 从 fmt 模块导入
+use fmt.FormatOutput;
+use fmt.format_output_init;
+use fmt.format_output_get;
+use fmt.format_output_len;
+use fmt.format_fn_sig;
+use fmt.format_var_decl;
+use fmt.format_struct_start;
+use fmt.format_struct_field;
+use fmt.format_struct_end;
+use fmt.format_if_start;
+use fmt.format_block_end;
+use fmt.format_binary_expr;
+use fmt.format_line_comment;
+use fmt.write_space;
+use fmt.write_char_export;
+
+// ============================================================
+// 辅助函数
+// ============================================================
+
+fn str_eq(s1: &byte, s2: &byte) i32 {
+    if s1 == null && s2 == null {
+        return 1;
+    }
+    if s1 == null || s2 == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while true {
+        const c1: byte = s1[i];
+        const c2: byte = s2[i];
+        if c1 != c2 {
+            return 0;
+        }
+        if c1 == 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+}
+
+fn wc(out: &FormatOutput, c: byte) void {
+    write_char_export(out, c);
+}
+
+// ============================================================
+// 基础格式化测试
+// ============================================================
+
+test "test_fn_basic_format" {
+    var out: FormatOutput = FormatOutput {};
+    format_output_init(&out);
+    
+    // fn foo() {}
+    format_fn_sig(&out, "foo", 0, 0);
+    write_space(&out);
+    wc(&out, 123);  // '{'
+    wc(&out, 125);  // '}'
+    
+    const result: &byte = format_output_get(&out);
+    try assert_eq_i32(str_eq(result, "fn foo {}"), 1);
+}
+
+test "test_export_fn_format" {
+    var out: FormatOutput = FormatOutput {};
+    format_output_init(&out);
+    
+    // export fn foo() {}
+    format_fn_sig(&out, "foo", 1, 0);
+    write_space(&out);
+    wc(&out, 123);
+    wc(&out, 125);
+    
+    const result: &byte = format_output_get(&out);
+    try assert_eq_i32(str_eq(result, "export fn foo {}"), 1);
+}
+
+test "test_var_decl_format" {
+    var out: FormatOutput = FormatOutput {};
+    format_output_init(&out);
+    
+    // const x: i32 = 1;
+    format_var_decl(&out, "x", "i32", "1", 1);
+    
+    const result: &byte = format_output_get(&out);
+    try assert_eq_i32(str_eq(result, "const x: i32 = 1;"), 1);
+}
+
+test "test_var_decl_no_init" {
+    var out: FormatOutput = FormatOutput {};
+    format_output_init(&out);
+    
+    // var x: i32;
+    format_var_decl(&out, "x", "i32", null, 0);
+    
+    const result: &byte = format_output_get(&out);
+    try assert_eq_i32(str_eq(result, "var x: i32;"), 1);
+}
+
+test "test_struct_format" {
+    var out: FormatOutput = FormatOutput {};
+    format_output_init(&out);
+    
+    // struct S { x: i32, }
+    format_struct_start(&out, "S");
+    format_struct_field(&out, "x", "i32");
+    format_struct_end(&out);
+    
+    // 预期包含结构体声明
+    try assert_eq_i32(out.position > 10, 1);
+}
+
+test "test_if_format" {
+    var out: FormatOutput = FormatOutput {};
+    format_output_init(&out);
+    
+    // if cond { }
+    format_if_start(&out, "cond");
+    format_block_end(&out);
+    
+    try assert_eq_i32(out.position > 5, 1);
+}
+
+test "test_binary_expr_format" {
+    var out: FormatOutput = FormatOutput {};
+    format_output_init(&out);
+    
+    // a + b
+    format_binary_expr(&out, "a", "+", "b");
+    
+    const result: &byte = format_output_get(&out);
+    try assert_eq_i32(str_eq(result, "a + b"), 1);
+}
+
+test "test_line_comment_format" {
+    var out: FormatOutput = FormatOutput {};
+    format_output_init(&out);
+    
+    // // comment
+    format_line_comment(&out, "// comment");
+    
+    const result: &byte = format_output_get(&out);
+    try assert_eq_i32(str_eq(result, "// comment\n"), 1);
+}

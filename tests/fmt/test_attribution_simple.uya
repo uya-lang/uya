@@ -1,0 +1,17 @@
+// tests/fmt/test_attribution_simple.uya
+// 简化测试 - 只测试 comment_attributor 基本导入
+
+use std.testing.assert_eq_i32;
+
+// 只导入 comment_attributor 的基本类型
+use fmt.CommentAttribution;
+use fmt.CommentAttachmentKind;
+use fmt.comment_attribution_init;
+
+test "test_attribution_init" {
+    var attribution: CommentAttribution = CommentAttribution {};
+    comment_attribution_init(&attribution);
+    
+    try assert_eq_i32(attribution.attachment_count, 0);
+    try assert_eq_i32(attribution.node_count, 0);
+}

@@ -1,0 +1,18 @@
+// tests/fmt/test_fmt_only.uya
+// 只测试 fmt.fmt 模块导入
+
+use std.testing.assert_eq_i32;
+
+// 只导入 fmt.fmt 的基本类型
+use fmt.Comment;
+use fmt.CommentCollector;
+use fmt.comment_collector_init;
+use fmt.collect_comments;
+
+test "test_fmt_import" {
+    var collector: CommentCollector = CommentCollector {};
+    comment_collector_init(&collector, "test", 4);
+    collect_comments(&collector);
+    
+    try assert_eq_i32(collector.comment_count, 0);
+}

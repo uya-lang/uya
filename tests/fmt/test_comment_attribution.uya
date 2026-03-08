@@ -1,0 +1,115 @@
+// tests/fmt/test_comment_attribution.uya
+// AST 注释归属测试 - Phase 2
+//
+// 测试注释如何关联到 AST 节点
+
+use std.testing.assert_eq_i32;
+
+// 从 fmt 模块导入
+use fmt.CommentKind;
+use fmt.Comment;
+use fmt.CommentCollector;
+use fmt.comment_collector_init;
+use fmt.collect_comments;
+use fmt.comment_collector_get;
+use fmt.comment_get_text;
+
+// ============================================================
+// 测试辅助：创建 CommentCollector
+// ============================================================
+
+fn make_collector_from_str(source: &byte, source_len: usize, collector: &CommentCollector) void {
+    comment_collector_init(collector, source, source_len);
+    collect_comments(collector);
+}
+
+// ============================================================
+// 2.1 Leading Comments 测试
+// ============================================================
+
+test "test_leading_detection" {
+    // "// leading\nconst x = 1;"
+    const src: [byte: 22] = "// leading\nconst x = 1;";
+    
+    var collector: CommentCollector = CommentCollector {};
+    comment_collector_init(&collector, &src[0], 21);
+    collect_comments(&collector);
+    
+    // 验证注释被收集
+    try assert_eq_i32(collector.comment_count, 1);
+    
+    const c: &Comment = comment_collector_get(&collector, 0);
+    try assert_eq_i32(c.start_line, 1);  // 第1行
+    try assert_eq_i32(c.end_line, 1);
+}
+
+test "test_trailing_detection" {
+    // "const x = 1;  // trailing"
+    const src: [byte: 26] = "const x = 1;  // trailing";
+    
+    var collector: CommentCollector = CommentCollector {};
+    comment_collector_init(&collector, &src[0], 25);
+    collect_comments(&collector);
+    
+    try assert_eq_i32(collector.comment_count, 1);
+    
+    const c: &Comment = comment_collector_get(&collector, 0);
+    // trailing 注释在第1行，列13开始
+    try assert_eq_i32(c.start_line, 1);
+    try assert_eq_i32(c.start_col, 15);  // const x = 1;[空格][空格]//...
+}
+
+// ============================================================
+// 2.2 多注释测试
+// ============================================================
+
+test "test_multiple_comments" {
+    // "// c1\n// c2\nconst x = 1;"
+    const src: [byte: 24] = "// c1\n// c2\nconst x = 1;";
+    
+    var collector: CommentCollector = CommentCollector {};
+    comment_collector_init(&collector, &src[0], 23);
+    collect_comments(&collector);
+    
+    try assert_eq_i32(collector.comment_count, 2);
+    
+    const c1: &Comment = comment_collector_get(&collector, 0);
+    try assert_eq_i32(c1.start_line, 1);
+    
+    const c2: &Comment = comment_collector_get(&collector, 1);
+    try assert_eq_i32(c2.start_line, 2);
+}
+
+// ============================================================
+// 2.3 位置信息测试
+// ============================================================
+
+test "test_comment_positions" {
+    // "    // indented\nconst x = 1;"
+    const src: [byte: 28] = "    // indented\nconst x = 1;";
+    
+    var collector: CommentCollector = CommentCollector {};
+    comment_collector_init(&collector, &src[0], 27);
+    collect_comments(&collector);
+    
+    try assert_eq_i32(collector.comment_count, 1);
+    
+    const c: &Comment = comment_collector_get(&collector, 0);
+    // 缩进4空格后开始
+    try assert_eq_i32(c.start_col, 5);
+}
+
+test "test_multiline_block_position" {
+    // "/* a\nb\nc */"
+    const src: [byte: 12] = "/* a\nb\nc */";
+    
+    var collector: CommentCollector = CommentCollector {};
+    comment_collector_init(&collector, &src[0], 11);
+    collect_comments(&collector);
+    
+    try assert_eq_i32(collector.comment_count, 1);
+    
+    const c: &Comment = comment_collector_get(&collector, 0);
+    try assert_eq_i32(c.start_line, 1);
+    try assert_eq_i32(c.end_line, 3);
+}

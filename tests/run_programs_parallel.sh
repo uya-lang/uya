@@ -184,10 +184,20 @@ else
         TEST_FILES+=("MULTIFILE:$TEST_DIR/cross_deps:cross_deps")
     fi
     
-    # 单文件测试
+    # 单文件测试（递归扫描子目录，排除多文件测试目录和 WIP）
     while IFS= read -r -d '' file; do
         TEST_FILES+=("$file")
-    done < <(find "$TEST_DIR" -maxdepth 1 -name "*.uya" -type f -print0 2>/dev/null)
+    done < <(find "$TEST_DIR" -maxdepth 2 -name "*.uya" -type f \
+        ! -path "$TEST_DIR/multifile/*" \
+        ! -path "$TEST_DIR/cross_deps/*" \
+        ! -path "$TEST_DIR/module_test/*" \
+        ! -path "$TEST_DIR/module_a/*" \
+        ! -path "$TEST_DIR/circular_a/*" \
+        ! -path "$TEST_DIR/circular_b/*" \
+        ! -path "$TEST_DIR/wip/*" \
+        ! -path "$TEST_DIR/build/*" \
+        ! -path "$TEST_DIR/programs/*" \
+        -print0 2>/dev/null)
 fi
 
 # 单个测试执行函数（用于并行）
