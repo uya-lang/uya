@@ -13,14 +13,20 @@ use mem.mem_find;
 // 内存操作函数
 // ============================================================
 
-// memcpy - 复制内存区域
+// memcpy - 复制内存区域（null 或 n==0 时直接返回 dest，不访问指针）
 export extern "libc" fn memcpy(dest: *byte, src: *const byte, n: usize) *byte {
+    if dest == null || src == null || n == 0 {
+        return dest;
+    }
     mem_copy(dest as &byte, src as &const byte, n);
     return dest;
 }
 
 // memmove - 复制内存区域（允许重叠）
 export extern "libc" fn memmove(dest: *byte, src: *const byte, n: usize) *byte {
+    if dest == null || src == null || n == 0 {
+        return dest;
+    }
     if @usize_from_ptr(dest as &void) <= @usize_from_ptr(src as &void) {
         mem_copy(dest as &byte, src as &const byte, n);
     } else {
@@ -31,17 +37,26 @@ export extern "libc" fn memmove(dest: *byte, src: *const byte, n: usize) *byte {
 
 // memset - 填充内存区域
 export extern "libc" fn memset(s: *byte, c: i32, n: usize) *byte {
+    if s == null || n == 0 {
+        return s;
+    }
     mem_set(s as &byte, c, n);
     return s;
 }
 
 // memcmp - 比较内存区域
 export extern "libc" fn memcmp(s1: *const byte, s2: *const byte, n: usize) i32 {
+    if s1 == null || s2 == null || n == 0 {
+        return 0;
+    }
     return mem_compare(s1 as &const byte, s2 as &const byte, n);
 }
 
 // memchr - 在内存区域中查找字符
 export extern "libc" fn memchr(s: *const byte, c: i32, n: usize) *byte {
+    if s == null || n == 0 {
+        return null;
+    }
     const result: &const byte = mem_find(s as &const byte, c, n);
     if result == null { return null; }
     return result as *byte;
