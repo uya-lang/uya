@@ -1,6 +1,21 @@
 // libc.string - 字符串操作函数
-// 版本：v0.5.0
-// 说明：导出 libc 标准函数名
+// 版本：v0.6.0
+// 说明：浅封装 lib/mem，导出 libc 标准函数名
+
+// 从 mem 层导入基础实现
+use mem.str_len;
+use mem.str_nlen;
+use mem.str_cmp;
+use mem.str_ncmp;
+use mem.str_cpy;
+use mem.str_ncpy;
+use mem.str_cat;
+use mem.str_ncat;
+use mem.str_chr;
+use mem.str_rchr;
+
+// 从 libc.mem 导入内存函数
+use libc.memcpy;
 
 // ============================================================
 // 字符串操作函数
@@ -9,145 +24,72 @@
 // strlen - 计算字符串长度
 export extern "libc" fn strlen(s: *const byte) usize {
     if s == null { return 0; }
-    var len: usize = 0;
-    while s[len] != 0 { len = len + 1; }
-    return len;
+    return str_len(s as &const byte);
 }
 
-// strnlen - 计算字符串长度（带最大长度限制）
+// strnlen - 计算字符串长度（限制）
 export extern "libc" fn strnlen(s: *const byte, maxlen: usize) usize {
     if s == null { return 0; }
-    var len: usize = 0;
-    while len < maxlen && s[len] != 0 { len = len + 1; }
-    return len;
+    return str_nlen(s as &const byte, maxlen);
 }
 
-// strcmp - 比较两个字符串
+// strcmp - 比较字符串
 export extern "libc" fn strcmp(s1: *const byte, s2: *const byte) i32 {
     if s1 == null || s2 == null { return 0; }
-    var i: usize = 0;
-    while s1[i] != 0 && s2[i] != 0 {
-        const b1: byte = s1[i];
-        const b2: byte = s2[i];
-        if b1 < b2 { return -1; }
-        if b1 > b2 { return 1; }
-        i = i + 1;
-    }
-    if s1[i] == 0 && s2[i] != 0 { return -1; }
-    if s1[i] != 0 && s2[i] == 0 { return 1; }
-    return 0;
+    return str_cmp(s1 as &const byte, s2 as &const byte);
 }
 
-// strncmp - 比较两个字符串的前 n 个字符
+// strncmp - 比较字符串（限制）
 export extern "libc" fn strncmp(s1: *const byte, s2: *const byte, n: usize) i32 {
     if s1 == null || s2 == null || n == 0 { return 0; }
-    var i: usize = 0;
-    while i < n && s1[i] != 0 && s2[i] != 0 {
-        const b1: byte = s1[i];
-        const b2: byte = s2[i];
-        if b1 < b2 { return -1; }
-        if b1 > b2 { return 1; }
-        i = i + 1;
-    }
-    if i >= n { return 0; }
-    if s1[i] == 0 && s2[i] != 0 { return -1; }
-    if s1[i] != 0 && s2[i] == 0 { return 1; }
-    return 0;
+    return str_ncmp(s1 as &const byte, s2 as &const byte, n);
 }
 
 // strcpy - 复制字符串
 export extern "libc" fn strcpy(dest: *byte, src: *const byte) *byte {
     if dest == null || src == null { return dest; }
-    var i: usize = 0;
-    while src[i] != 0 {
-        dest[i] = src[i];
-        i = i + 1;
-    }
-    dest[i] = 0;
-    return dest;
+    return str_cpy(dest as &byte, src as &const byte) as *byte;
 }
 
-// strncpy - 复制字符串的前 n 个字符
+// strncpy - 复制字符串（限制）
 export extern "libc" fn strncpy(dest: *byte, src: *const byte, n: usize) *byte {
     if dest == null || src == null || n == 0 { return dest; }
-    var i: usize = 0;
-    while i < n && src[i] != 0 {
-        dest[i] = src[i];
-        i = i + 1;
-    }
-    while i < n {
-        dest[i] = 0;
-        i = i + 1;
-    }
-    return dest;
+    return str_ncpy(dest as &byte, src as &const byte, n) as *byte;
 }
 
 // strcat - 连接字符串
 export extern "libc" fn strcat(dest: *byte, src: *const byte) *byte {
     if dest == null || src == null { return dest; }
-    var i: usize = 0;
-    while dest[i] != 0 { i = i + 1; }
-    var j: usize = 0;
-    while src[j] != 0 {
-        dest[i] = src[j];
-        i = i + 1;
-        j = j + 1;
-    }
-    dest[i] = 0;
-    return dest;
+    return str_cat(dest as &byte, src as &const byte) as *byte;
 }
 
-// strncat - 限定长度连接
+// strncat - 连接字符串（限制）
 export extern "libc" fn strncat(dest: *byte, src: *const byte, n: usize) *byte {
     if dest == null || src == null || n == 0 { return dest; }
-    var i: usize = 0;
-    while dest[i] != 0 { i = i + 1; }
-    var j: usize = 0;
-    while j < n && src[j] != 0 {
-        dest[i] = src[j];
-        i = i + 1;
-        j = j + 1;
-    }
-    dest[i] = 0;
-    return dest;
+    return str_ncat(dest as &byte, src as &const byte, n) as *byte;
 }
 
-// strchr - 在字符串中查找字符
+// strchr - 查找字符
 export extern "libc" fn strchr(s: *const byte, c: i32) *byte {
     if s == null { return null; }
-    const val: byte = c as byte;
-    var i: usize = 0;
-    while s[i] != 0 {
-        if s[i] == val {
-            return @ptr_from_usize(@usize_from_ptr(s) + i) as *byte;
-        }
-        i = i + 1;
-    }
-    if val == 0 { return @ptr_from_usize(@usize_from_ptr(s) + i) as *byte; }
-    return null;
+    const result: &const byte = str_chr(s as &const byte, c);
+    if result == null { return null; }
+    return result as *byte;
 }
 
-// strrchr - 在字符串中从后往前查找字符
+// strrchr - 查找字符（从后）
 export extern "libc" fn strrchr(s: *const byte, c: i32) *byte {
     if s == null { return null; }
-    const val: byte = c as byte;
-    var last: *byte = null;
-    var i: usize = 0;
-    while s[i] != 0 {
-        if s[i] == val {
-            last = @ptr_from_usize(@usize_from_ptr(s) + i) as *byte;
-        }
-        i = i + 1;
-    }
-    if val == 0 { return @ptr_from_usize(@usize_from_ptr(s) + i) as *byte; }
-    return last;
+    const result: &const byte = str_rchr(s as &const byte, c);
+    if result == null { return null; }
+    return result as *byte;
 }
 
 // ============================================================
-// 大小写不敏感比较
+// 大小写不敏感比较（libc 特有）
 // ============================================================
 
-// strcasecmp - 大小写不敏感比较两个字符串
+// strcasecmp - 大小写不敏感比较
 export extern "libc" fn strcasecmp(s1: *const byte, s2: *const byte) i32 {
     if s1 == null || s2 == null { return 0; }
     var i: usize = 0;
@@ -169,7 +111,7 @@ export extern "libc" fn strcasecmp(s1: *const byte, s2: *const byte) i32 {
     return 0;
 }
 
-// strncasecmp - 大小写不敏感比较前 n 个字符
+// strncasecmp - 大小写不敏感比较（限制）
 export extern "libc" fn strncasecmp(s1: *const byte, s2: *const byte, n: usize) i32 {
     if s1 == null || s2 == null || n == 0 { return 0; }
     var i: usize = 0;
@@ -193,48 +135,37 @@ export extern "libc" fn strncasecmp(s1: *const byte, s2: *const byte, n: usize) 
 }
 
 // ============================================================
-// 字符串复制（动态分配版本）
+// 动态分配版本（libc 特有）
 // ============================================================
 
 extern fn malloc(size: usize) &void;
 
-// strdup - 复制字符串（动态分配内存）
+// strdup - 复制字符串（动态分配）
 export extern "libc" fn strdup(s: *const byte) *byte {
     if s == null { return null; }
     const len: usize = strlen(s);
     const dup: *byte = malloc(len + 1) as *byte;
     if dup == null { return null; }
-    var i: usize = 0;
-    while i < len {
-        dup[i] = s[i];
-        i = i + 1;
-    }
+    memcpy(dup, s, len + 1);
+    return dup;
+}
+
+// strndup - 复制字符串（动态分配，限制）
+export extern "libc" fn strndup(s: *const byte, n: usize) *byte {
+    if s == null { return null; }
+    const len: usize = strnlen(s, n);
+    const dup: *byte = malloc(len + 1) as *byte;
+    if dup == null { return null; }
+    memcpy(dup, s, len);
     dup[len] = 0;
     return dup;
 }
 
-// strndup - 复制字符串前 n 个字符（动态分配内存）
-export extern "libc" fn strndup(s: *const byte, n: usize) *byte {
-    if s == null { return null; }
-    const len: usize = strlen(s);
-    var copy_len: usize = len;
-    if n < len { copy_len = n; }
-    const dup: *byte = malloc(copy_len + 1) as *byte;
-    if dup == null { return null; }
-    var i: usize = 0;
-    while i < copy_len {
-        dup[i] = s[i];
-        i = i + 1;
-    }
-    dup[copy_len] = 0;
-    return dup;
-}
-
 // ============================================================
-// 其他字符串函数
+// 其他字符串函数（libc 特有）
 // ============================================================
 
-// strstr - 在字符串中查找子串
+// strstr - 查找子串
 export extern "libc" fn strstr(haystack: *const byte, needle: *const byte) *byte {
     if haystack == null || needle == null { return null; }
     if needle[0] == 0 { return haystack as *byte; }
@@ -320,7 +251,7 @@ export extern "libc" fn strpbrk(s: *const byte, accept: *const byte) *byte {
     return null;
 }
 
-// strtok - 字符串分割（非线程安全）
+// strtok - 字符串分割
 var _strtok_saved: *byte = null;
 
 export extern "libc" fn strtok(s: *byte, delim: *const byte) *byte {
@@ -330,6 +261,7 @@ export extern "libc" fn strtok(s: *byte, delim: *const byte) *byte {
     if s == null { start = _strtok_saved; }
     if start == null { return null; }
     
+    // 跳过前导分隔符
     var i: usize = 0;
     while start[i] != 0 {
         var is_delim: i32 = 0;
@@ -352,6 +284,7 @@ export extern "libc" fn strtok(s: *byte, delim: *const byte) *byte {
     
     const token_start: *byte = @ptr_from_usize(@usize_from_ptr(start) + i) as *byte;
     
+    // 查找下一个分隔符
     while start[i] != 0 {
         var j: usize = 0;
         while delim[j] != 0 {

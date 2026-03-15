@@ -6,9 +6,7 @@ use mem.mem_copy_backward;
 use mem.mem_set;
 use mem.mem_zero;
 use mem.mem_compare;
-use mem.memcmp;
-use mem.memset;
-use mem.memchr;
+use mem.mem_find;
 use std.testing.expect;
 use std.testing.assert_eq_i32;
 
@@ -81,37 +79,12 @@ test "mem_compare" {
     try expect(cmp_ca > 0);
 }
 
-test "memcmp" {
-    var a: [byte: 5] = ['h', 'e', 'l', 'l', 'o'];
-    var b: [byte: 5] = ['h', 'e', 'l', 'l', 'o'];
-    var c: [byte: 5] = ['h', 'e', 'l', 'p', 'o'];
-    
-    const cmp_ab: i32 = memcmp(&a[0], &b[0], 5);
-    try expect(cmp_ab == 0);
-    
-    const cmp_ac: i32 = memcmp(&a[0], &c[0], 5);
-    try expect(cmp_ac != 0);
-}
-
-test "memset" {
-    var buf: [byte: 10] = [];
-    
-    const ptr: &byte = memset(&buf[0], 65, 10);
-    try expect(ptr == &buf[0]);
-    
-    var i: usize = 0;
-    while i < 10 {
-        try expect(buf[i] == 65);
-        i = i + 1;
-    }
-}
-
-test "memchr" {
+test "mem_find" {
     var str: [byte: 10] = ['h', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l'];
     
-    const result1: &const byte = memchr(&str[0], 'l', 10);
+    const result1: &const byte = mem_find(&str[0], 'l', 10);
     try expect(result1 == &str[2]);
     
-    const result2: &const byte = memchr(&str[0], 'x', 10);
+    const result2: &const byte = mem_find(&str[0], 'x', 10);
     try expect(result2 == null);
 }

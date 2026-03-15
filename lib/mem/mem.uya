@@ -1,14 +1,13 @@
 // mem.mem - mem 层内存操作
 // 纯内存操作，无系统调用依赖
+// 版本：v0.2.0
+// 说明：使用内部命名（mem_xxx），避免与 libc 层冲突
 
 // ============================================================
 // 内存操作函数
 // ============================================================
 
 // mem_copy - 复制内存区域
-// dest: 目标地址
-// src: 源地址
-// n: 字节数
 export fn mem_copy(dest: &byte, src: &const byte, n: usize) void {
     var i: usize = 0;
     while i < n {
@@ -18,9 +17,6 @@ export fn mem_copy(dest: &byte, src: &const byte, n: usize) void {
 }
 
 // mem_copy_backward - 向后复制内存区域（处理重叠区域）
-// dest: 目标地址
-// src: 源地址
-// n: 字节数
 export fn mem_copy_backward(dest: &byte, src: &const byte, n: usize) void {
     var i: usize = n;
     while i > 0 {
@@ -30,9 +26,6 @@ export fn mem_copy_backward(dest: &byte, src: &const byte, n: usize) void {
 }
 
 // mem_set - 设置内存区域的值
-// s: 目标地址
-// c: 要设置的值
-// n: 字节数
 export fn mem_set(s: &byte, c: i32, n: usize) void {
     var i: usize = 0;
     while i < n {
@@ -42,8 +35,6 @@ export fn mem_set(s: &byte, c: i32, n: usize) void {
 }
 
 // mem_zero - 将内存区域清零
-// s: 目标地址
-// n: 字节数
 export fn mem_zero(s: &byte, n: usize) void {
     var i: usize = 0;
     while i < n {
@@ -53,10 +44,6 @@ export fn mem_zero(s: &byte, n: usize) void {
 }
 
 // mem_compare - 比较两个内存区域
-// s1: 第一个内存区域
-// s2: 第二个内存区域
-// n: 比较字节数
-// 返回：0 表示相等，<0 表示 s1 < s2，>0 表示 s1 > s2
 export fn mem_compare(s1: &const byte, s2: &const byte, n: usize) i32 {
     var i: usize = 0;
     while i < n {
@@ -68,31 +55,8 @@ export fn mem_compare(s1: &const byte, s2: &const byte, n: usize) i32 {
     return 0;
 }
 
-// memcmp - 比较两个内存区域（C 风格）
-// s1: 第一个内存区域
-// s2: 第二个内存区域
-// n: 比较字节数
-// 返回：0 表示相等，<0 表示 s1 < s2，>0 表示 s1 > s2
-export fn memcmp(s1: &const byte, s2: &const byte, n: usize) i32 {
-    return mem_compare(s1, s2, n);
-}
-
-// memset - 设置内存区域的值（C 风格）
-// s: 目标地址
-// c: 要设置的值
-// n: 字节数
-// 返回：目标地址
-export fn memset(s: &byte, c: i32, n: usize) &byte {
-    mem_set(s, c, n);
-    return s;
-}
-
-// memchr - 在内存区域中查找字节
-// s: 内存区域
-// c: 要查找的字节
-// n: 搜索字节数
-// 返回：找到的地址，未找到返回 null
-export fn memchr(s: &const byte, c: i32, n: usize) &const byte {
+// mem_find - 在内存区域中查找字节
+export fn mem_find(s: &const byte, c: i32, n: usize) &const byte {
     var i: usize = 0;
     while i < n {
         if s[i] == (c as byte) {
@@ -107,10 +71,8 @@ export fn memchr(s: &const byte, c: i32, n: usize) &const byte {
 // 字符串操作函数（纯内存）
 // ============================================================
 
-// strlen - 计算字符串长度
-// s: 字符串
-// 返回：字符串长度（不包括终止符）
-export fn strlen(s: &const byte) usize {
+// str_len - 计算字符串长度
+export fn str_len(s: &const byte) usize {
     var len: usize = 0;
     while s[len] != 0 {
         len = len + 1;
@@ -118,11 +80,8 @@ export fn strlen(s: &const byte) usize {
     return len;
 }
 
-// strnlen - 计算字符串长度（限制最大长度）
-// s: 字符串
-// maxlen: 最大长度
-// 返回：字符串长度（不包括终止符）
-export fn strnlen(s: &const byte, maxlen: usize) usize {
+// str_nlen - 计算字符串长度（限制最大长度）
+export fn str_nlen(s: &const byte, maxlen: usize) usize {
     var len: usize = 0;
     while len < maxlen && s[len] != 0 {
         len = len + 1;
@@ -130,11 +89,8 @@ export fn strnlen(s: &const byte, maxlen: usize) usize {
     return len;
 }
 
-// strcmp - 比较两个字符串
-// s1: 第一个字符串
-// s2: 第二个字符串
-// 返回：0 表示相等，<0 表示 s1 < s2，>0 表示 s1 > s2
-export fn strcmp(s1: &const byte, s2: &const byte) i32 {
+// str_cmp - 比较两个字符串
+export fn str_cmp(s1: &const byte, s2: &const byte) i32 {
     var i: usize = 0;
     while s1[i] != 0 && s2[i] != 0 {
         if s1[i] != s2[i] {
@@ -145,12 +101,8 @@ export fn strcmp(s1: &const byte, s2: &const byte) i32 {
     return (s1[i] as i32) - (s2[i] as i32);
 }
 
-// strncmp - 比较两个字符串（限制长度）
-// s1: 第一个字符串
-// s2: 第二个字符串
-// n: 比较的最大字符数
-// 返回：0 表示相等，<0 表示 s1 < s2，>0 表示 s1 > s2
-export fn strncmp(s1: &const byte, s2: &const byte, n: usize) i32 {
+// str_ncmp - 比较两个字符串（限制长度）
+export fn str_ncmp(s1: &const byte, s2: &const byte, n: usize) i32 {
     var i: usize = 0;
     while i < n && s1[i] != 0 && s2[i] != 0 {
         if s1[i] != s2[i] {
@@ -164,11 +116,8 @@ export fn strncmp(s1: &const byte, s2: &const byte, n: usize) i32 {
     return (s1[i] as i32) - (s2[i] as i32);
 }
 
-// strcpy - 复制字符串
-// dest: 目标地址
-// src: 源字符串
-// 返回：目标地址
-export fn strcpy(dest: &byte, src: &const byte) &byte {
+// str_cpy - 复制字符串
+export fn str_cpy(dest: &byte, src: &const byte) &byte {
     var i: usize = 0;
     while src[i] != 0 {
         dest[i] = src[i];
@@ -178,12 +127,8 @@ export fn strcpy(dest: &byte, src: &const byte) &byte {
     return dest;
 }
 
-// strncpy - 复制字符串（限制长度）
-// dest: 目标地址
-// src: 源字符串
-// n: 最大复制字符数
-// 返回：目标地址
-export fn strncpy(dest: &byte, src: &const byte, n: usize) &byte {
+// str_ncpy - 复制字符串（限制长度）
+export fn str_ncpy(dest: &byte, src: &const byte, n: usize) &byte {
     var i: usize = 0;
     while i < n && src[i] != 0 {
         dest[i] = src[i];
@@ -196,12 +141,9 @@ export fn strncpy(dest: &byte, src: &const byte, n: usize) &byte {
     return dest;
 }
 
-// strcat - 连接字符串
-// dest: 目标字符串（必须以 0 结尾）
-// src: 源字符串
-// 返回：目标地址
-export fn strcat(dest: &byte, src: &const byte) &byte {
-    var dest_len: usize = strlen(dest);
+// str_cat - 连接字符串
+export fn str_cat(dest: &byte, src: &const byte) &byte {
+    var dest_len: usize = str_len(dest);
     var i: usize = 0;
     while src[i] != 0 {
         dest[dest_len + i] = src[i];
@@ -211,13 +153,9 @@ export fn strcat(dest: &byte, src: &const byte) &byte {
     return dest;
 }
 
-// strncat - 连接字符串（限制长度）
-// dest: 目标字符串（必须以 0 结尾）
-// src: 源字符串
-// n: 最大连接字符数
-// 返回：目标地址
-export fn strncat(dest: &byte, src: &const byte, n: usize) &byte {
-    var dest_len: usize = strlen(dest);
+// str_ncat - 连接字符串（限制长度）
+export fn str_ncat(dest: &byte, src: &const byte, n: usize) &byte {
+    var dest_len: usize = str_len(dest);
     var i: usize = 0;
     while i < n && src[i] != 0 {
         dest[dest_len + i] = src[i];
@@ -227,11 +165,8 @@ export fn strncat(dest: &byte, src: &const byte, n: usize) &byte {
     return dest;
 }
 
-// strchr - 在字符串中查找字符
-// s: 字符串
-// c: 要查找的字符
-// 返回：找到的地址，未找到返回 null
-export fn strchr(s: &const byte, c: i32) &const byte {
+// str_chr - 在字符串中查找字符
+export fn str_chr(s: &const byte, c: i32) &const byte {
     var i: usize = 0;
     while s[i] != 0 {
         if s[i] == (c as byte) {
@@ -245,11 +180,8 @@ export fn strchr(s: &const byte, c: i32) &const byte {
     return null;
 }
 
-// strrchr - 在字符串中查找字符（从后向前）
-// s: 字符串
-// c: 要查找的字符
-// 返回：找到的地址，未找到返回 null
-export fn strrchr(s: &const byte, c: i32) &const byte {
+// str_rchr - 在字符串中查找字符（从后向前）
+export fn str_rchr(s: &const byte, c: i32) &const byte {
     var result: &const byte = null;
     var i: usize = 0;
     while s[i] != 0 {
