@@ -808,7 +808,7 @@ fn print_usage(program_name: &byte) void {
     var name: &byte = program_name;
     if name == null { name = "uya" as *byte; }
     fprintf(libc.stderr, "Uya 编译器 - 零GC系统编程语言\n" as *byte);
-    fprintf(libc.stderr, "版本：v0.9.1\n" as *byte);
+    fprintf(libc.stderr, "版本：v0.9.2\n" as *byte);
     fprintf(libc.stderr, "\n用法:\n" as *byte);
     fprintf(libc.stderr, "  %s build <文件> [-o <输出>] [选项]  编译为可执行文件或中间产物\n" as *byte, name as *byte);
     fprintf(libc.stderr, "  %s build --app microapp <文件> -o <xxx.pobj|xxx.uapp>  输出 microapp 载荷对象或镜像\n" as *byte, name as *byte);

@@ -1,5 +1,31 @@
 # Uya 变更日志
 
+## v0.9.2 - 测试基础设施：并行测试独立目录与实时输出
+
+> 发布日期：2026-04-12
+
+### 概要
+
+**v0.9.x** 补丁：改进并行测试脚本与 `make tests` 体验。
+
+1. **独立输出目录避免冲突**：基于测试文件相对路径生成唯一 ID，每个单文件/多文件测试用例拥有独立的编译输出目录，彻底消除同名 `.uya` 文件在并行运行时的产物覆盖问题。
+2. **实时结果输出**：后台测试每完成一个立即输出 `✓` / `❌`，不再等全部跑完才汇总；通过 `stdbuf -oL` 自动处理非 TTY 环境（如 `make`/`CI`）的行缓冲，解决 `make tests` 看不到实时进度的问题。
+3. **`make tests` 去掉 `--hide-pass`**：默认模式下通过的测试也会实时显示，与直接运行脚本行为保持一致。
+
+`make check` **779** 项测试通过。详见 [docs/releases/RELEASE_v0.9.2.md](./docs/releases/RELEASE_v0.9.2.md)。
+
+### 测试基础设施
+
+- `tests/run_programs_parallel.sh`：新增 `generate_test_id()`、`process_ready_single_results()`；重构编译产物路径与流水线式结果收集逻辑；顶部增加 `stdbuf -oL` 自举逻辑。
+- `Makefile`：`tests:`、`tests-hosted:`、`tests-uya:` 移除 `--hide-pass`。
+
+### 文档与版本字符串
+
+- 新增 `docs/releases/RELEASE_v0.9.2.md`
+- 编译器帮助中的版本字符串更新为 **v0.9.2**
+
+---
+
 ## v0.9.1 - 修复 `@async_fn` 变量提升与嵌套块初始化 bug
 
 > 发布日期：2026-04-12

@@ -16,6 +16,12 @@
 # 快速验证单个测试（在项目根目录下执行）:
 #   ./tests/run_programs_parallel.sh test_global_var.uya
 
+# 当 stdout 不是 TTY 时（如通过 make/pipe/CI 运行），强制行缓冲输出，避免大块缓冲导致看不到实时结果
+if [ -z "${UYA_TEST_STDOUT_LINEBUF:-}" ] && [ ! -t 1 ] && command -v stdbuf >/dev/null 2>&1; then
+    export UYA_TEST_STDOUT_LINEBUF=1
+    exec stdbuf -oL bash "$0" "$@"
+fi
+
 set -e
 
 # 自举编译器递归较深，需增大栈限制避免段错误
@@ -152,6 +158,8 @@ mkdir -p "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/multifile"
 mkdir -p "$BUILD_DIR/cross_deps"
 mkdir -p "$BUILD_DIR/parallel_results"
+mkdir -p "$BUILD_DIR/tests"          # 单文件测试独立输出目录
+mkdir -p "$BUILD_DIR/multifile_tests" # 多文件测试独立输出目录
 
 cleanup_network_skip_marker() {
     rm -f "$NETWORK_SKIP_MARKER"
@@ -226,6 +234,17 @@ if [ "$ERRORS_ONLY" = false ]; then
     echo ""
 fi
 
+# 生成唯一测试ID（基于相对路径，避免同名冲突）
+generate_test_id() {
+    local test_path="$1"
+    local rel_path="$test_path"
+    if [[ "$test_path" == "$REPO_ROOT"* ]]; then
+        rel_path="${test_path#$REPO_ROOT/}"
+    fi
+    # 将路径中的 / 替换为 _，生成唯一ID
+    echo "$rel_path" | sed 's|/|_|g' | sed 's|\.uya$||'
+}
+
 # 收集所有需要测试的文件
 collect_test_files() {
     local target="$1"
@@ -281,10 +300,25 @@ else
     done < <(find "$TEST_DIR" -maxdepth 1 -name "*.uya" -type f -print0 2>/dev/null)
 fi
 
+# 优先级排序：把耗时/网络测试提到最前面，避免它们拖在最后才执行
+priority_names=("test_https_google" "test_std_thread")
+priority_items=()
+for name in "${priority_names[@]}"; do
+    for i in "${!TEST_FILES[@]}"; do
+        if [[ "${TEST_FILES[$i]}" == *"${name}.uya" ]]; then
+            priority_items+=("${TEST_FILES[$i]}")
+            unset 'TEST_FILES[i]'
+            break
+        fi
+    done
+done
+TEST_FILES=("${priority_items[@]}" "${TEST_FILES[@]}")
+
 link_generated_test_output() {
     local output_file="$1"
     local base_name="$2"
-    local exe_file="$BUILD_DIR/${base_name}.bin${TARGET_EXE_SUFFIX}"
+    local output_dir="$3"
+    local exe_file="${output_dir}/${base_name}.bin${TARGET_EXE_SUFFIX}"
     local extra_c_file=""
     local bridge_c_file=""
     local link_succeeded=false
@@ -310,7 +344,7 @@ link_generated_test_output() {
     if grep -q "int32_t uya_main(void)" "$output_file" 2>/dev/null && \
        grep -q "extern int32_t main_main()" "$output_file" 2>/dev/null && \
        ! grep -q "int32_t main_main(void)" "$output_file" 2>/dev/null; then
-        bridge_c_file="$BUILD_DIR/${base_name}_bridge.c"
+        bridge_c_file="${output_dir}/${base_name}_bridge.c"
         printf '%s\n' '#include <stdint.h>' 'extern int32_t uya_main(void);' 'int32_t main_main(void) { return uya_main(); }' > "$bridge_c_file"
         link_cmd+=("$bridge_c_file")
     fi
@@ -342,8 +376,9 @@ run_compiled_test_args() {
     local base_name="$1"
     local result_file="$2"
     local expect_fail="$3"
-    shift 3
-    local output_file="$BUILD_DIR/${base_name}.c"
+    local output_dir="$4"
+    shift 4
+    local output_file="${output_dir}/${base_name}.c"
     local safety_proof_arg="--safety-proof"
     local compiler_exit=0
     local exe_file=""
@@ -360,9 +395,9 @@ run_compiled_test_args() {
             echo "PASS:$base_name:预期编译失败" > "$result_file"
         else
             echo "FAIL:$base_name:编译失败(退出码:$compiler_exit)" > "$result_file"
-            # 并行任务的 stdout 可能交错，但在 CI 里能直接看到“具体报错行/信息”
+            # 并行任务的 stdout 可能交错，但在 CI 里能直接看到"具体报错行/信息"
             # 额外把完整输出写入 log 便于二次定位。
-            local log_file="$BUILD_DIR/parallel_results/${base_name}.compiler_output.log"
+            local log_file="${output_dir}/${base_name}.compiler_output.log"
             echo "$compiler_output" > "$log_file" 2>/dev/null || true
             echo "----- compiler output begin: $base_name (exit:$compiler_exit) -----"
             echo "$compiler_output"
@@ -381,17 +416,25 @@ run_compiled_test_args() {
         return
     fi
 
-    exe_file=$(link_generated_test_output "$output_file" "$base_name")
+    exe_file=$(link_generated_test_output "$output_file" "$base_name" "$output_dir")
     if [ $? -ne 0 ] || [ -z "$exe_file" ] || [ ! -x "$exe_file" ]; then
         echo "FAIL:$base_name:链接失败" > "$result_file"
         return
     fi
 
-    "$exe_file" > /dev/null 2>&1 || exit_code=$?
-    if [ $exit_code -eq 0 ]; then
-        echo "PASS:$base_name:测试通过" > "$result_file"
+    local test_timeout="${UYA_TEST_TIMEOUT:-30}"
+    local run_exit=0
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "${test_timeout}s" "$exe_file" > /dev/null 2>&1 || run_exit=$?
     else
-        echo "FAIL:$base_name:测试失败（退出码: $exit_code）" > "$result_file"
+        "$exe_file" > /dev/null 2>&1 || run_exit=$?
+    fi
+    if [ $run_exit -eq 0 ]; then
+        echo "PASS:$base_name:测试通过" > "$result_file"
+    elif command -v timeout >/dev/null 2>&1 && [ $run_exit -eq 124 ]; then
+        echo "FAIL:$base_name:测试运行超时（>${test_timeout}s）" > "$result_file"
+    else
+        echo "FAIL:$base_name:测试失败（退出码: $run_exit）" > "$result_file"
     fi
 }
 
@@ -399,34 +442,50 @@ run_compiled_test_input() {
     local uya_input="$1"
     local base_name="$2"
     local result_file="$3"
+    local output_dir="$4"
     local expect_fail=false
     if [[ "$base_name" =~ ^error_ ]]; then
         expect_fail=true
     fi
-    run_compiled_test_args "$base_name" "$result_file" "$expect_fail" "$uya_input"
+    run_compiled_test_args "$base_name" "$result_file" "$expect_fail" "$output_dir" "$uya_input"
 }
 
 run_single_test() {
     local uya_file="$1"
     local result_file="$2"
     local base_name=$(basename "$uya_file" .uya)
-    run_compiled_test_input "$uya_file" "$base_name" "$result_file"
+    local test_id=$(generate_test_id "$uya_file")
+    local output_dir="$BUILD_DIR/tests/${test_id}"
+    
+    # 创建独立的输出目录
+    mkdir -p "$output_dir"
+    
+    run_compiled_test_input "$uya_file" "$base_name" "$result_file" "$output_dir"
 }
 
 run_multifile_test() {
     local test_dir="$1"
     local test_name="$2"
     local result_file="$3"
-    local case_file="$BUILD_DIR/parallel_results/${test_name}.case"
     local failed_cases=0
     local run_known_blockers="${RUN_KNOWN_MULTIFILE_BLOCKERS:-false}"
+    local output_dir="$BUILD_DIR/multifile_tests/${test_name}"
+    local case_file="${output_dir}/${test_name}.case"
+    
+    # 创建多文件测试输出目录
+    mkdir -p "$output_dir"
 
     run_case() {
         local case_name="$1"
         local expect_fail="$2"
+        local case_output_dir="${output_dir}/${case_name}"
         shift 2
+        
+        # 每个子用例也有独立目录
+        mkdir -p "$case_output_dir"
+        
         > "$case_file"
-        run_compiled_test_args "$case_name" "$case_file" "$expect_fail" "$@"
+        run_compiled_test_args "$case_name" "$case_file" "$expect_fail" "$case_output_dir" "$@"
         result=$(tr -d '\0' < "$case_file" 2>/dev/null || true)
         status="${result%%:*}"
         if [ "$status" != "PASS" ]; then
@@ -483,14 +542,64 @@ run_multifile_test() {
     fi
 }
 
+# 处理已完成的单文件测试并实时输出结果
+# 从 PENDING_RFS/PENDING_BNS 数组中查找非空结果文件并输出
+process_ready_single_results() {
+    local found_any=1
+    while [ $found_any -eq 1 ]; do
+        found_any=0
+        for i in "${!PENDING_RFS[@]}"; do
+            local rf="${PENDING_RFS[$i]}"
+            local bn="${PENDING_BNS[$i]}"
+            if [ -f "$rf" ] && [ -s "$rf" ]; then
+                local result
+                result=$(tr -d '\0' < "$rf")
+                local status="${result%%:*}"
+                if [ "$status" = "PASS" ]; then
+                    if [ "$ERRORS_ONLY" = false ] && [ "$HIDE_PASS_OUTPUT" = false ]; then
+                        echo "  ✓ ${result#*:}"
+                    fi
+                    PASSED=$((PASSED + 1))
+                else
+                    if [ "$ERRORS_ONLY" = true ]; then
+                        echo "测试: $bn"
+                    fi
+                    echo "  ❌ ${result#*:}"
+                    FAILED=$((FAILED + 1))
+                fi
+                rm -f "$rf"
+                unset 'PENDING_RFS[i]'
+                unset 'PENDING_BNS[i]'
+                found_any=1
+                break
+            fi
+        done
+    done
+}
+
 # 导出函数和变量供子进程使用
-export -f link_generated_test_output run_compiled_test_args run_compiled_test_input run_single_test run_multifile_test normalize_os normalize_arch
+export -f generate_test_id link_generated_test_output run_compiled_test_args run_compiled_test_input run_single_test run_multifile_test process_ready_single_results normalize_os normalize_arch
 export COMPILER USE_UYA SCRIPT_DIR BUILD_DIR USE_C99 CC CC_DRIVER CC_TARGET_FLAGS HOST_OS HOST_ARCH TARGET_OS TARGET_ARCH TARGET_TRIPLE TARGET_EXE_SUFFIX TEST_PROFILE REPO_ROOT
 
 SKIP_TESTS=()
 if [ -n "${SKIP_TESTS_EXTRA:-}" ]; then
     read -r -a SKIP_TESTS_EXTRA_ARR <<< "$SKIP_TESTS_EXTRA"
     SKIP_TESTS+=("${SKIP_TESTS_EXTRA_ARR[@]}")
+fi
+
+# CI 或本地无外网时直接跳过访问外网的测试（比运行时检测更快，节省编译时间）
+if [ -n "${SKIP_NETWORK:-}" ] || [ "${ALLOW_SKIP_NETWORK:-}" = "1" ]; then
+    SKIP_TESTS+=(
+        test_https_google
+        test_https_real_site
+        test_https_debug
+        test_https_production
+        test_raw_tls
+    )
+    if [ "$ERRORS_ONLY" = false ]; then
+        echo "提示: 已跳过访问外网的测试（SKIP_NETWORK 或 ALLOW_SKIP_NETWORK 设置）"
+        echo ""
+    fi
 fi
 
 # macOS：在 syscall/osal/async Darwin 完成前默认跳过已知 Linux centric 用例（SKIP_DARWIN_DEFAULT=0 关闭）
@@ -569,7 +678,9 @@ for test_item in "${multifile_tests[@]}"; do
         echo "[$multifile_index/$TOTAL_TESTS] 测试: $test_name (多文件编译)"
     fi
     
-    result_file="$BUILD_DIR/parallel_results/${test_name}.result"
+    output_dir="$BUILD_DIR/multifile_tests/${test_name}"
+    mkdir -p "$output_dir"
+    result_file="${output_dir}/${test_name}.result"
     > "$result_file"
     run_multifile_test "$test_dir" "$test_name" "$result_file"
     result=$(tr -d '\0' < "$result_file" 2>/dev/null || true)
@@ -607,12 +718,17 @@ if [ ${#single_tests[@]} -gt 0 ]; then
     running_count=0
     test_index=0
     total_single_tests=${#single_tests[@]}
+    declare -a PENDING_RFS=()
+    declare -a PENDING_BNS=()
     
     # 先启动第一批任务（最多 PARALLEL_JOBS 个）
     while [ $test_index -lt $total_single_tests ] && [ $running_count -lt $PARALLEL_JOBS ]; do
         test_item="${single_tests[$test_index]}"
         base_name=$(basename "$test_item" .uya)
-        result_file="$BUILD_DIR/parallel_results/${base_name}.result"
+        test_id=$(generate_test_id "$test_item")
+        output_dir="$BUILD_DIR/tests/${test_id}"
+        mkdir -p "$output_dir"
+        result_file="${output_dir}/${base_name}.result"
         
         > "$result_file"
         
@@ -620,20 +736,26 @@ if [ ${#single_tests[@]} -gt 0 ]; then
             run_single_test "$test_item" "$result_file"
         ) &
         
+        PENDING_RFS+=("$result_file")
+        PENDING_BNS+=("$base_name")
         running_count=$((running_count + 1))
         test_index=$((test_index + 1))
     done
     
-    # 流水线模式：每当一个任务完成，立即启动下一个
+    # 流水线模式：每当一个任务完成，立即输出结果并启动下一个
     if [ "$USE_WAIT_N" = true ]; then
         while [ $test_index -lt $total_single_tests ]; do
             wait -n  # 等待任意一个后台任务完成
             running_count=$((running_count - 1))
+            process_ready_single_results
             
             # 立即启动下一个任务
             test_item="${single_tests[$test_index]}"
             base_name=$(basename "$test_item" .uya)
-            result_file="$BUILD_DIR/parallel_results/${base_name}.result"
+            test_id=$(generate_test_id "$test_item")
+            output_dir="$BUILD_DIR/tests/${test_id}"
+            mkdir -p "$output_dir"
+            result_file="${output_dir}/${base_name}.result"
             
             > "$result_file"
             
@@ -641,8 +763,17 @@ if [ ${#single_tests[@]} -gt 0 ]; then
                 run_single_test "$test_item" "$result_file"
             ) &
             
+            PENDING_RFS+=("$result_file")
+            PENDING_BNS+=("$base_name")
             running_count=$((running_count + 1))
             test_index=$((test_index + 1))
+        done
+        
+        # 等待剩余任务完成并实时输出
+        while [ $running_count -gt 0 ]; do
+            wait -n
+            running_count=$((running_count - 1))
+            process_ready_single_results
         done
     else
         # 回退到批量模式（旧 bash 不支持 wait -n）
@@ -652,6 +783,7 @@ if [ ${#single_tests[@]} -gt 0 ]; then
         while [ $test_index -lt $total_single_tests ]; do
             wait
             running_count=0
+            process_ready_single_results
             batch_size=$PARALLEL_JOBS
             remaining=$((total_single_tests - test_index))
             [ $batch_size -gt $remaining ] && batch_size=$remaining
@@ -659,7 +791,10 @@ if [ ${#single_tests[@]} -gt 0 ]; then
             for ((i=0; i<batch_size; i++)); do
                 test_item="${single_tests[$test_index]}"
                 base_name=$(basename "$test_item" .uya)
-                result_file="$BUILD_DIR/parallel_results/${base_name}.result"
+                test_id=$(generate_test_id "$test_item")
+                output_dir="$BUILD_DIR/tests/${test_id}"
+                mkdir -p "$output_dir"
+                result_file="${output_dir}/${base_name}.result"
                 
                 > "$result_file"
                 
@@ -667,43 +802,37 @@ if [ ${#single_tests[@]} -gt 0 ]; then
                     run_single_test "$test_item" "$result_file"
                 ) &
                 
+                PENDING_RFS+=("$result_file")
+                PENDING_BNS+=("$base_name")
                 test_index=$((test_index + 1))
             done
         done
+        wait
+        process_ready_single_results
     fi
-    wait  # 等待所有剩余任务完成
     
-    # 收集结果
-    for test_item in "${single_tests[@]}"; do
-        base_name=$(basename "$test_item" .uya)
-        result_file="$BUILD_DIR/parallel_results/${base_name}.result"
-        
-        # 读取结果（去掉可能的 null 字节，避免命令替换警告和漏计）
-        if [ -f "$result_file" ] && [ -s "$result_file" ]; then
-            result=$(tr -d '\0' < "$result_file")
-            status="${result%%:*}"
-            
-            if [ "$status" = "PASS" ]; then
-                if [ "$ERRORS_ONLY" = false ] && [ "$HIDE_PASS_OUTPUT" = false ]; then
-                    echo "  ✓ ${result#*:}"
-                fi
-                PASSED=$((PASSED + 1))
-            else
+    # 收尾：处理任何残留（进程崩溃等情况）
+    while [ ${#PENDING_RFS[@]} -gt 0 ]; do
+        sleep 0.1
+        process_ready_single_results
+        if [ ${#PENDING_RFS[@]} -gt 0 ]; then
+            local first_idx=""
+            for i in "${!PENDING_RFS[@]}"; do
+                first_idx="$i"
+                break
+            done
+            if [ -n "$first_idx" ]; then
+                local rf="${PENDING_RFS[$first_idx]}"
+                local bn="${PENDING_BNS[$first_idx]}"
                 if [ "$ERRORS_ONLY" = true ]; then
-                    echo "测试: $base_name"
+                    echo "测试: $bn"
                 fi
-                echo "  ❌ ${result#*:}"
+                echo "  ❌ $bn:无测试结果或结果文件为空（子进程可能崩溃或未写入）"
                 FAILED=$((FAILED + 1))
+                rm -f "$rf"
+                unset 'PENDING_RFS[$first_idx]'
+                unset 'PENDING_BNS[$first_idx]'
             fi
-            
-            rm -f "$result_file"
-        else
-            if [ "$ERRORS_ONLY" = true ]; then
-                echo "测试: $base_name"
-            fi
-            echo "  ❌ $base_name:无测试结果或结果文件为空（子进程可能崩溃或未写入）"
-            FAILED=$((FAILED + 1))
-            rm -f "$result_file"
         fi
     done
     
