@@ -2998,10 +2998,10 @@ static const char str2582[] = "%s)";
 static const char str2583[] = "struct uya_slice_int32_t";
 static const char str2584[] = "(%s){ .ptr = ";
 static const char str2585[] = ").ptr + ";
-static const char str2586[] = "->ptr + ";
-static const char str2587[] = "uya_slice_uint8_t";
-static const char str2588[] = "(uint8_t *)(";
-static const char str2589[] = ") + ";
+static const char str2586[] = "uya_slice_uint8_t";
+static const char str2587[] = "(uint8_t *)(";
+static const char str2588[] = ") + ";
+static const char str2589[] = "->ptr + ";
 static const char str2590[] = ", .len = ";
 static const char str2591[] = "({";
 static const char str2592[] = "char __uya_interp_%d[%d];\n";
@@ -77331,52 +77331,77 @@ static __attribute__((used)) void gen_slice_expr(struct C99CodeGenerator * codeg
         (void)(gen_expr(codegen, base)        );
         (void)(std_io_fputs((uint8_t *)(uint8_t *)str2585, (void *)codegen->emit_stream)        );
     } else {
-        if (base->type == ASTNodeType_AST_IDENTIFIER) {
-            uint8_t * const type_c = get_identifier_type_c(codegen, base->identifier_name);
-            if (((type_c != NULL) && (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str1881) != NULL))) {
-                if (std_string_strchr((uint8_t *)type_c, 42) != NULL) {
-                    (void)(gen_expr(codegen, base)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str2586, (void *)codegen->emit_stream)                    );
-                } else {
-                    (void)(std_io_fputc(40, (void *)codegen->emit_stream)                    );
-                    (void)(gen_expr(codegen, base)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str2585, (void *)codegen->emit_stream)                    );
-                }
+        if (base->type == ASTNodeType_AST_MEMBER_ACCESS) {
+            uint8_t * const base_member_type_c = get_c_type_of_expr(codegen, base);
+            if (((base_member_type_c != NULL) && (std_string_strstr((uint8_t *)base_member_type_c, (uint8_t *)(uint8_t *)str1881) != NULL))) {
+                (void)(std_io_fputc(40, (void *)codegen->emit_stream)                );
+                (void)(gen_expr(codegen, base)                );
+                (void)(std_io_fputs((uint8_t *)(uint8_t *)str2585, (void *)codegen->emit_stream)                );
             } else {
-                int32_t need_uint8_cast = 0;
-                if (((slice_type_str != NULL) && (std_string_strstr((uint8_t *)slice_type_str, (uint8_t *)(uint8_t *)str2587) != NULL))) {
-                    need_uint8_cast = 1;
+                int32_t need_uint8_cast_member = 0;
+                if (((slice_type_str != NULL) && (std_string_strstr((uint8_t *)slice_type_str, (uint8_t *)(uint8_t *)str2586) != NULL))) {
+                    need_uint8_cast_member = 1;
                 }
-                if (((((need_uint8_cast == 0) && (type_c != NULL)) && (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str1201) != NULL)) && (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str811) != NULL))) {
-                    need_uint8_cast = 1;
+                if (((((need_uint8_cast_member == 0) && (base_member_type_c != NULL)) && (std_string_strstr((uint8_t *)base_member_type_c, (uint8_t *)(uint8_t *)str1201) != NULL)) && (std_string_strstr((uint8_t *)base_member_type_c, (uint8_t *)(uint8_t *)str811) != NULL))) {
+                    need_uint8_cast_member = 1;
                 }
-                if (need_uint8_cast != 0) {
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str2588, (void *)codegen->emit_stream)                    );
+                if (need_uint8_cast_member != 0) {
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str2587, (void *)codegen->emit_stream)                    );
                     (void)(gen_expr(codegen, base)                    );
-                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str2589, (void *)codegen->emit_stream)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str2588, (void *)codegen->emit_stream)                    );
                 } else {
                     (void)(gen_expr(codegen, base)                    );
                     (void)(std_io_fputs((uint8_t *)(uint8_t *)str812, (void *)codegen->emit_stream)                    );
                 }
             }
         } else {
-            int32_t need_uint8_cast = 0;
-            if (((slice_type_str != NULL) && (std_string_strstr((uint8_t *)slice_type_str, (uint8_t *)(uint8_t *)str2587) != NULL))) {
-                need_uint8_cast = 1;
-            }
-            if (need_uint8_cast == 0) {
-                uint8_t * const base_type_c = get_c_type_of_expr(codegen, base);
-                if ((((base_type_c != NULL) && (std_string_strstr((uint8_t *)base_type_c, (uint8_t *)(uint8_t *)str1201) != NULL)) && (std_string_strstr((uint8_t *)base_type_c, (uint8_t *)(uint8_t *)str811) != NULL))) {
+            if (base->type == ASTNodeType_AST_IDENTIFIER) {
+                uint8_t * const type_c = get_identifier_type_c(codegen, base->identifier_name);
+                if (((type_c != NULL) && (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str1881) != NULL))) {
+                    if (std_string_strchr((uint8_t *)type_c, 42) != NULL) {
+                        (void)(gen_expr(codegen, base)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str2589, (void *)codegen->emit_stream)                        );
+                    } else {
+                        (void)(std_io_fputc(40, (void *)codegen->emit_stream)                        );
+                        (void)(gen_expr(codegen, base)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str2585, (void *)codegen->emit_stream)                        );
+                    }
+                } else {
+                    int32_t need_uint8_cast = 0;
+                    if (((slice_type_str != NULL) && (std_string_strstr((uint8_t *)slice_type_str, (uint8_t *)(uint8_t *)str2586) != NULL))) {
+                        need_uint8_cast = 1;
+                    }
+                    if (((((need_uint8_cast == 0) && (type_c != NULL)) && (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str1201) != NULL)) && (std_string_strstr((uint8_t *)type_c, (uint8_t *)(uint8_t *)str811) != NULL))) {
+                        need_uint8_cast = 1;
+                    }
+                    if (need_uint8_cast != 0) {
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str2587, (void *)codegen->emit_stream)                        );
+                        (void)(gen_expr(codegen, base)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str2588, (void *)codegen->emit_stream)                        );
+                    } else {
+                        (void)(gen_expr(codegen, base)                        );
+                        (void)(std_io_fputs((uint8_t *)(uint8_t *)str812, (void *)codegen->emit_stream)                        );
+                    }
+                }
+            } else {
+                int32_t need_uint8_cast = 0;
+                if (((slice_type_str != NULL) && (std_string_strstr((uint8_t *)slice_type_str, (uint8_t *)(uint8_t *)str2586) != NULL))) {
                     need_uint8_cast = 1;
                 }
-            }
-            if (need_uint8_cast != 0) {
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str2588, (void *)codegen->emit_stream)                );
-                (void)(gen_expr(codegen, base)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str2589, (void *)codegen->emit_stream)                );
-            } else {
-                (void)(gen_expr(codegen, base)                );
-                (void)(std_io_fputs((uint8_t *)(uint8_t *)str812, (void *)codegen->emit_stream)                );
+                if (need_uint8_cast == 0) {
+                    uint8_t * const base_type_c = get_c_type_of_expr(codegen, base);
+                    if ((((base_type_c != NULL) && (std_string_strstr((uint8_t *)base_type_c, (uint8_t *)(uint8_t *)str1201) != NULL)) && (std_string_strstr((uint8_t *)base_type_c, (uint8_t *)(uint8_t *)str811) != NULL))) {
+                        need_uint8_cast = 1;
+                    }
+                }
+                if (need_uint8_cast != 0) {
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str2587, (void *)codegen->emit_stream)                    );
+                    (void)(gen_expr(codegen, base)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str2588, (void *)codegen->emit_stream)                    );
+                } else {
+                    (void)(gen_expr(codegen, base)                    );
+                    (void)(std_io_fputs((uint8_t *)(uint8_t *)str812, (void *)codegen->emit_stream)                    );
+                }
             }
         }
     }
@@ -103273,12 +103298,17 @@ static __attribute__((used)) uint8_t * get_slice_struct_type_c(struct C99CodeGen
         return _uya_ret;
     }
     struct ASTNode * const base = slice_expr->slice_expr_base;
+    uint8_t * const base_type_c = get_c_type_of_expr(codegen, base);
     if (base->type == ASTNodeType_AST_SLICE_EXPR) {
         uint8_t * _uya_ret = get_slice_struct_type_c(codegen, base);
         return _uya_ret;
     }
     if (base->type == ASTNodeType_AST_STRING) {
         uint8_t * _uya_ret = (uint8_t *)(uint8_t *)(uint8_t *)"struct uya_slice_uint8_t";
+        return _uya_ret;
+    }
+    if (((base_type_c != NULL) && (std_string_strstr((uint8_t *)base_type_c, (uint8_t *)(uint8_t *)str1881) != NULL))) {
+        uint8_t * _uya_ret = base_type_c;
         return _uya_ret;
     }
     if (base->type == ASTNodeType_AST_IDENTIFIER) {
@@ -103311,6 +103341,34 @@ static __attribute__((used)) uint8_t * get_slice_struct_type_c(struct C99CodeGen
         uint8_t * _uya_ret = c99_slice_struct_type_from_elem_c(codegen, (uint8_t *)elem_c);
         return _uya_ret;
     }
+    if (((base_type_c != NULL) && (std_string_strchr((uint8_t *)base_type_c, 42) != NULL))) {
+        uint8_t * working_ptr = base_type_c;
+        if (std_string_strncmp((uint8_t *)working_ptr, (uint8_t *)(uint8_t *)str790, 6) == 0) {
+            working_ptr = (&working_ptr[6]);
+        }
+        const int32_t type_len = std_string_strlen((uint8_t *)working_ptr);
+        int32_t end = type_len;
+        while (((end > 0) && (working_ptr[(end - 1)] == 32))) {
+            end = (end - 1);
+        }
+        if (((end > 0) && (working_ptr[(end - 1)] == 42))) {
+            end = (end - 1);
+        }
+        while (((end > 0) && (working_ptr[(end - 1)] == 32))) {
+            end = (end - 1);
+        }
+        if (((end > 0) && (end < STRUCT_NAME_BUF_SIZE))) {
+            uint8_t temp_buf2[128] = {0};
+            int32_t j2 = 0;
+            while (j2 < end) {
+                temp_buf2[j2] = working_ptr[j2];
+                j2 = (j2 + 1);
+            }
+            temp_buf2[j2] = 0;
+            uint8_t * _uya_ret = c99_slice_struct_type_from_elem_c(codegen, (uint8_t *)(&temp_buf2[0]));
+            return _uya_ret;
+        }
+    }
     if (base->type == ASTNodeType_AST_MEMBER_ACCESS) {
         uint8_t * const base_type_c_array = get_c_type_of_expr(codegen, base);
         if (base_type_c_array != NULL) {
@@ -103326,16 +103384,16 @@ static __attribute__((used)) uint8_t * get_slice_struct_type_c(struct C99CodeGen
                 }
             }
         }
-        uint8_t * const base_type_c = get_c_type_of_expr(codegen, base);
-        if (base_type_c != NULL) {
-            const int32_t base_len = std_string_strlen((uint8_t *)base_type_c);
+        uint8_t * const member_type_c = get_c_type_of_expr(codegen, base);
+        if (member_type_c != NULL) {
+            const int32_t base_len = std_string_strlen((uint8_t *)member_type_c);
             if (base_len > 2) {
-                uint8_t * const elem_ptr = (uint8_t *)base_type_c;
+                uint8_t * const elem_ptr = (uint8_t *)member_type_c;
                 uint8_t * const last = (elem_ptr + (base_len - 1));
                 if (last[0] == 42) {
-                    uint8_t * working = base_type_c;
-                    if (((base_len >= 6) && (std_string_strncmp((uint8_t *)base_type_c, (uint8_t *)(uint8_t *)str790, 6) == 0))) {
-                        working = (&base_type_c[6]);
+                    uint8_t * working = member_type_c;
+                    if (((base_len >= 6) && (std_string_strncmp((uint8_t *)member_type_c, (uint8_t *)(uint8_t *)str790, 6) == 0))) {
+                        working = (&member_type_c[6]);
                     }
                     int32_t end = (std_string_strlen((uint8_t *)working) - 1);
                     while (end > 0) {
@@ -106384,7 +106442,7 @@ static __attribute__((used)) void c99_register_embed_slice_types(struct C99CodeG
     if (codegen == NULL) {
         return;
     }
-    (void)(c99_register_embed_builtin_slice_struct(codegen, (uint8_t *)(uint8_t *)str2587, (uint8_t *)(uint8_t *)str1198)    );
+    (void)(c99_register_embed_builtin_slice_struct(codegen, (uint8_t *)(uint8_t *)str2586, (uint8_t *)(uint8_t *)str1198)    );
     if (need_dir_entry != 0) {
         (void)(c99_register_embed_builtin_slice_struct(codegen, (uint8_t *)(uint8_t *)"uya_slice_EmbedDirEntry", (uint8_t *)(uint8_t *)str1355)        );
     }
