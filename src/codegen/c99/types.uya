@@ -6831,12 +6831,16 @@ fn get_slice_struct_type_c(codegen: &C99CodeGenerator, slice_expr: &ASTNode) &by
         return ("struct uya_slice_int32_t" as *byte) as &byte;
     }
     const base: &ASTNode = slice_expr.slice_expr_base;
+    const base_type_c: &byte = get_c_type_of_expr(codegen, base);
     if base.type == ASTNodeType.AST_SLICE_EXPR {
         return get_slice_struct_type_c(codegen, base);
     }
     // 字符串字面量可切片为 &[byte]，C 侧为 uya_slice_uint8_t
     if base.type == ASTNodeType.AST_STRING {
         return ("struct uya_slice_uint8_t" as *byte) as &byte;
+    }
+    if base_type_c != null && strstr(base_type_c as *byte, "uya_slice_" as *byte) != null {
+        return base_type_c;
     }
     if base.type == ASTNodeType.AST_IDENTIFIER {
         const type_c: &byte = get_identifier_type_c(codegen, base.identifier_name);
@@ -6863,6 +6867,33 @@ fn get_slice_struct_type_c(codegen: &C99CodeGenerator, slice_expr: &ASTNode) &by
         }
         return c99_slice_struct_type_from_elem_c(codegen, elem_c);
     }
+    if base_type_c != null && strchr(base_type_c as *byte, 42) != null {
+        var working_ptr: &byte = base_type_c;
+        if strncmp(working_ptr as *byte, "const " as *byte, 6) == 0 {
+            working_ptr = &working_ptr[6];
+        }
+        const type_len: i32 = strlen(working_ptr as *byte);
+        var end: i32 = type_len;
+        while end > 0 && working_ptr[end - 1] == 32 {
+            end = end - 1;
+        }
+        if end > 0 && working_ptr[end - 1] == 42 {
+            end = end - 1;
+        }
+        while end > 0 && working_ptr[end - 1] == 32 {
+            end = end - 1;
+        }
+        if end > 0 && end < STRUCT_NAME_BUF_SIZE {
+            var temp_buf2: [byte: STRUCT_NAME_BUF_SIZE] = [];
+            var j2: i32 = 0;
+            while j2 < end {
+                temp_buf2[j2] = working_ptr[j2];
+                j2 = j2 + 1;
+            }
+            temp_buf2[j2] = 0;
+            return c99_slice_struct_type_from_elem_c(codegen, &temp_buf2[0] as &byte);
+        }
+    }
     // base 为成员访问（如 view.ptr）时，base 类型为指针（如 uint8_t *），取其指向类型作为切片元素类型
     if base.type == ASTNodeType.AST_MEMBER_ACCESS {
         const base_type_c_array: &byte = get_c_type_of_expr(codegen, base);
@@ -6878,16 +6909,16 @@ fn get_slice_struct_type_c(codegen: &C99CodeGenerator, slice_expr: &ASTNode) &by
                 }
             }
         }
-        const base_type_c: &byte = get_c_type_of_expr(codegen, base);
-        if base_type_c != null {
-            const base_len: i32 = strlen(base_type_c as *byte);
+        const member_type_c: &byte = get_c_type_of_expr(codegen, base);
+        if member_type_c != null {
+            const base_len: i32 = strlen(member_type_c as *byte);
             if base_len > 2 {
-                const elem_ptr: *byte = base_type_c as *byte;
+                const elem_ptr: *byte = member_type_c as *byte;
                 const last: *byte = elem_ptr + (base_len - 1);
                 if last[0] == 42 {
-                    var working: &byte = base_type_c;
-                    if base_len >= 6 && strncmp(base_type_c as *byte, "const " as *byte, 6) == 0 {
-                        working = &base_type_c[6];
+                    var working: &byte = member_type_c;
+                    if base_len >= 6 && strncmp(member_type_c as *byte, "const " as *byte, 6) == 0 {
+                        working = &member_type_c[6];
                     }
                     var end: i32 = strlen(working as *byte) - 1;
                     while end > 0 {

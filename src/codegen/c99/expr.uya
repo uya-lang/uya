@@ -8087,6 +8087,29 @@ fn gen_slice_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             fputc(40, codegen.emit_stream as *void);
             gen_expr(codegen, base);
             fputs(").ptr + " as *byte, codegen.emit_stream as *void);
+        } else if base.type == ASTNodeType.AST_MEMBER_ACCESS {
+            const base_member_type_c: &byte = get_c_type_of_expr(codegen, base);
+            if base_member_type_c != null && strstr(base_member_type_c as *byte, "uya_slice_" as *byte) != null {
+                fputc(40, codegen.emit_stream as *void);
+                gen_expr(codegen, base);
+                fputs(").ptr + " as *byte, codegen.emit_stream as *void);
+            } else {
+                var need_uint8_cast_member: i32 = 0;
+                if slice_type_str != null && strstr(slice_type_str as *byte, "uya_slice_uint8_t" as *byte) != null {
+                    need_uint8_cast_member = 1;
+                }
+                if need_uint8_cast_member == 0 && base_member_type_c != null && strstr(base_member_type_c as *byte, "void" as *byte) != null && strstr(base_member_type_c as *byte, "*" as *byte) != null {
+                    need_uint8_cast_member = 1;
+                }
+                if need_uint8_cast_member != 0 {
+                    fputs("(uint8_t *)(" as *byte, codegen.emit_stream as *void);
+                    gen_expr(codegen, base);
+                    fputs(") + " as *byte, codegen.emit_stream as *void);
+                } else {
+                    gen_expr(codegen, base);
+                    fputs(" + " as *byte, codegen.emit_stream as *void);
+                }
+            }
         } else if base.type == ASTNodeType.AST_IDENTIFIER {
             const type_c: &byte = get_identifier_type_c(codegen, base.identifier_name);
             if type_c != null && strstr(type_c as *byte, "uya_slice_" as *byte) != null {
