@@ -143,6 +143,17 @@ Parse
 
 迁移顺序建议先从 C99/checker 热点表开始，因为它们同时影响 1 秒目标、内存目标和 correctness。exec/VM 表如果不在 `make uya` 最终路径中，也必须在相关 staged smoke 中保持动态增长，避免以后成为自举边界。
 
+### 5.2.1 旧固定表临时保留标注
+
+动态表基础设施完成前，旧固定表只能作为 legacy oracle/fallback 留在迁移边界内，不计入 1 秒硬路径成功。任何 benchmark、阶段 KPI 或 release readiness 都不能把下表中的 legacy/fallback 路径当作 L4/L5 成功证据；只有迁到动态表后的 `cmd/build` native hard path 才能计入 1 秒承诺。
+
+| 区域 | 临时角色标注 | 不能计入 hard path 的原因 | 退出条件 |
+| --- | --- | --- | --- |
+| `src/main.uya` 旧驱动输入图 | legacy driver fallback | 输入/依赖/program 列表仍有固定容量，当前仅用于旧入口兼容和自举兜底 | `FileId`/dependency worklist/program range 迁为动态 vector |
+| `src/codegen/c99/` 固定 codegen 表 | C99 oracle / fallback | C99 是差分 oracle 与跨平台 fallback，不是 1 秒主路径；固定 registry/cache/worklist 不能作为成功容量 | C99Plan/C99Emitter 改为动态 plan/table 后仅作为 oracle 消费 LoweredProgram |
+| `src/checker/` 固定 checker 表 | legacy checker oracle until SemanticDb | checker hash/cache/proof/worklist 仍由固定容量承载，只能作为 SemanticDb 迁移前的对照实现 | SemanticDb/TypedProgram 动态索引接管 lookup、mono、proof 和 reachability |
+| `src/exec/` 固定 VM 表 | staged exec fallback | exec VM 仍是 staged backend，locals/bytecode/frame/cleanup/call args 固定表不能定义自举容量 | LoweredProgram + bytecode/frame dynamic vector 或 native path 替换固定 staging 表 |
+
 ### 5.3 核心 ID
 
 引入以下稳定 ID：
