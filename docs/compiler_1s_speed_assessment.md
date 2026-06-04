@@ -36,6 +36,25 @@
 
 `body_ms` 占 codegen 约 83%，是第一主战场。
 
+### Phase 0 冷构建时间 baseline
+
+2026-06-04 使用当前 `bench-compiler-1s` 硬 KPI 口径复测：
+
+```bash
+bash scripts/bench_compiler_1s.sh --runs 3 --keep-logs
+```
+
+运行环境：commit `15216ade5671`，branch `1.0`，Linux x86_64，28 CPU，`cc`，C99 backend，未设置 `CFLAGS`，未启用 native。该脚本每轮主动清理 `bin/`、`src/build/`、`src/.uyacache/`，因此结果比上方旧 `make uya` 约 30 秒口径更接近 1 秒硬目标的冷构建定义。
+
+| run | total_ms | total_s |
+| --- | ---: | ---: |
+| 1 | 74676 | 74.676 |
+| 2 | 74278 | 74.278 |
+| 3 | 74337 | 74.337 |
+| median | 74337 | 74.337 |
+
+结论：当前硬口径冷构建时间 baseline 为 74.337s median，距离 1s 目标约 74.3x；后续性能阶段必须同时报告该口径前后对比。
+
 ## 当前内存缺口
 
 本文当前已有时间基线，但还没有可信的内存基线。下一轮 benchmark 必须补齐：

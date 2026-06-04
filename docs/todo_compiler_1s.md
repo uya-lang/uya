@@ -78,7 +78,7 @@ make uya
 run	mode	seed_ms	parse_ms	bind_ms	check_ms	lower_ms	emit_ms	link_ms	total_ms	peak_rss_kb	arena_peak_bytes	output_bytes	table_count	table_capacity	table_bytes	table_capacity_bytes	table_realloc_count
 ```
 
-- [ ] 用当前实现跑 3 次冷构建，记录时间 baseline 到 `docs/compiler_1s_speed_assessment.md`。
+- [x] 用当前实现跑 3 次冷构建，记录时间 baseline 到 `docs/compiler_1s_speed_assessment.md`。
 - [ ] 用当前实现跑 3 次冷构建，记录内存 baseline 到 `docs/compiler_1s_speed_assessment.md`。
 - [ ] 用当前实现扫描固定容量表和直接映射缓存，记录需要迁移的 `MAX_*` / magic capacity 清单。
 
