@@ -54,6 +54,53 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MAKE_CMD="${MAKE:-make}"
 
+flag_enabled() {
+    local value
+    value="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+    case "$value" in
+        1|true|yes|on|enabled)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+reject_hard_kpi_cache_inputs() {
+    local bad=()
+    local var_name value cc_driver_value
+    local cache_vars=(
+        UYA_DAEMON
+        UYA_USE_DAEMON
+        UYA_BUILD_DAEMON
+        UYA_OBJECT_CACHE
+        UYA_USE_OBJECT_CACHE
+        UYA_ENABLE_OBJECT_CACHE
+        UYA_IR_CACHE
+        UYA_USE_IR_CACHE
+        UYA_ENABLE_IR_CACHE
+        UYA_BUILD_CACHE
+        UYA_COMPILER_CACHE
+        UYA_SKIP_UYA
+    )
+
+    for var_name in "${cache_vars[@]}"; do
+        value="${!var_name:-}"
+        if flag_enabled "$value"; then
+            bad+=("$var_name=$value")
+        fi
+    done
+
+    cc_driver_value="${CC_DRIVER:-${CC:-}}"
+    if [[ "$cc_driver_value" == *ccache* || "$cc_driver_value" == *sccache* ]]; then
+        bad+=("CC_DRIVER=$cc_driver_value")
+    fi
+
+    if [[ "${#bad[@]}" -gt 0 ]]; then
+        echo "错误: bench-compiler-1s 硬 KPI 禁止 daemon/object cache/IR cache: ${bad[*]}" >&2
+        exit 1
+    fi
+}
+
 cleanup() {
     if [[ "$KEEP_LOGS" -eq 0 && -n "${WORK_DIR:-}" && "$WORK_DIR" == "$BENCH_TMPDIR"/uya-bench-compiler-1s.* ]]; then
         rm -rf "$WORK_DIR"
@@ -167,6 +214,7 @@ median_value() {
     '
 }
 
+reject_hard_kpi_cache_inputs
 mkdir -p "$BENCH_TMPDIR"
 WORK_DIR="$(mktemp -d "$BENCH_TMPDIR/uya-bench-compiler-1s.XXXXXX")"
 

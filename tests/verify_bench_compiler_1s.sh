@@ -73,6 +73,29 @@ fi
 EOF
 chmod +x "$FAKE_MAKE"
 
+assert_rejects_cache_flag() {
+    local var_name="$1"
+    local reject_out="$TMP_DIR/reject-${var_name}.out"
+    local reject_err="$TMP_DIR/reject-${var_name}.err"
+    local reject_calls="$TMP_DIR/reject-${var_name}.calls"
+    : >"$reject_calls"
+
+    if env "$var_name=1" MAKE="$FAKE_MAKE" UYA_FAKE_MAKE_CALL_LOG="$reject_calls" UYA_BENCH_TMPDIR="$TMP_DIR" bash "$BENCH_SCRIPT" --runs 1 >"$reject_out" 2>"$reject_err"; then
+        echo "错误: $var_name=1 应被 benchmark 拒绝" >&2
+        exit 1
+    fi
+    if ! grep -q "$var_name" "$reject_err" || ! grep -q "禁止" "$reject_err"; then
+        echo "错误: $var_name=1 未输出预期拒绝诊断" >&2
+        cat "$reject_err" >&2
+        exit 1
+    fi
+    if [[ -s "$reject_calls" ]]; then
+        echo "错误: $var_name=1 被拒绝前不应调用 make" >&2
+        cat "$reject_calls" >&2
+        exit 1
+    fi
+}
+
 if MAKE="$FAKE_MAKE" UYA_BENCH_TMPDIR="$TMP_DIR" bash "$BENCH_SCRIPT" --runs 0 >"$TMP_DIR/runs0.out" 2>"$TMP_DIR/runs0.err"; then
     echo "错误: --runs 0 应失败" >&2
     exit 1
@@ -92,6 +115,11 @@ if ! grep -q "未知参数" "$TMP_DIR/unknown.err"; then
     cat "$TMP_DIR/unknown.err" >&2
     exit 1
 fi
+
+assert_rejects_cache_flag "UYA_DAEMON"
+assert_rejects_cache_flag "UYA_OBJECT_CACHE"
+assert_rejects_cache_flag "UYA_IR_CACHE"
+assert_rejects_cache_flag "UYA_SKIP_UYA"
 
 CALL_LOG="$TMP_DIR/calls.ok"
 : >"$CALL_LOG"
