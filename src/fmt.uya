@@ -86,7 +86,8 @@ fn uyafmt_cli(start_index: i32) i32 {
         offset: 0 as usize,
         first_chunk: null,
         current_chunk: null,
-        total_allocated: 0 as usize
+        total_allocated: 0 as usize,
+        peak_allocated: 0 as usize
     };
     compiler_arena_init(&arena, null, (64 * 1024 * 1024) as usize);
 

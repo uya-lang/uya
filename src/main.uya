@@ -41,6 +41,7 @@ struct CompileStats {
     total_time_ms: i64,      // 总耗时
     file_count: i32,         // 编译文件数
     ast_nodes: i32,          // AST 节点数（近似）
+    arena_peak_bytes: usize, // CompilerArena 峰值分配字节数
 }
 
 struct CImportItem {
@@ -2077,6 +2078,7 @@ fn compile_files(
         first_chunk: null,
         current_chunk: null,
         total_allocated: 0 as usize,
+        peak_allocated: 0 as usize,
     };
     compiler_arena_init(&temp_arena, &temp_arena_buffer[0], 16 * 1024 * 1024);
 
@@ -2411,7 +2413,7 @@ fn compile_files(
     fprintf(libc.stderr, "后端类型: %s\n" as *byte, backend_str);
 
     // 初始化编译统计
-    var stats: CompileStats = CompileStats { parse_time_ms: 0, merge_time_ms: 0, check_time_ms: 0, opt_time_ms: 0, codegen_time_ms: 0, total_time_ms: 0, file_count: 0, ast_nodes: 0 };
+    var stats: CompileStats = CompileStats { parse_time_ms: 0, merge_time_ms: 0, check_time_ms: 0, opt_time_ms: 0, codegen_time_ms: 0, total_time_ms: 0, file_count: 0, ast_nodes: 0, arena_peak_bytes: 0 as usize };
     stats.file_count = all_file_count;  // 记录文件数
 
     // 计时变量
@@ -2421,7 +2423,7 @@ fn compile_files(
     var check_end_time: i64 = 0;
     var codegen_end_time: i64 = 0;
 
-    var arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize };
+    var arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
     compiler_arena_init(&arena, &arena_buffer[0], ARENA_BUFFER_SIZE as usize);
 
     var programs: [&ASTNode: MAX_INPUT_FILES] = [];
@@ -2665,6 +2667,7 @@ fn compile_files(
         stats.check_time_ms = (check_end_time - merge_end_time) * 1000 / CLOCKS_PER_SEC;
         stats.codegen_time_ms = (codegen_end_time - opt_end_time) * 1000 / CLOCKS_PER_SEC;
         stats.total_time_ms = (codegen_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
+        stats.arena_peak_bytes = compiler_arena_peak_allocated(&arena);
 
         fprintf(libc.stderr, "\n=== 编译统计 ===\n" as *byte);
         fprintf(libc.stderr, "文件数: %d\n" as *byte, stats.file_count);
@@ -2678,6 +2681,7 @@ fn compile_files(
         fprintf(libc.stderr, "exec lowering 耗时: %ld ms\n" as *byte, exec_backend_get_last_lower_time_ms());
         fprintf(libc.stderr, "exec bytecode 构建耗时: %ld ms\n" as *byte, exec_backend_get_last_bytecode_build_time_ms());
         fprintf(libc.stderr, "exec build 耗时: %ld ms\n" as *byte, stats.codegen_time_ms);
+        fprintf(libc.stderr, "arena_peak_bytes: %zu\n" as *byte, stats.arena_peak_bytes);
         fprintf(libc.stderr, "总耗时: %ld ms\n" as *byte, stats.total_time_ms);
 
         if exec_result != 0 {
@@ -2773,6 +2777,7 @@ fn compile_files(
     stats.check_time_ms = (check_end_time - merge_end_time) * 1000 / CLOCKS_PER_SEC;
     stats.codegen_time_ms = (codegen_end_time - opt_end_time) * 1000 / CLOCKS_PER_SEC;
     stats.total_time_ms = (codegen_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
+    stats.arena_peak_bytes = compiler_arena_peak_allocated(&arena);
 
     // 输出编译统计
     fprintf(libc.stderr, "\n=== 编译统计 ===\n" as *byte);
@@ -2785,6 +2790,7 @@ fn compile_files(
         fprintf(libc.stderr, "优化耗时: %ld ms\n" as *byte, opt_time_ms);
     }
     fprintf(libc.stderr, "生成耗时: %ld ms\n" as *byte, stats.codegen_time_ms);
+    fprintf(libc.stderr, "arena_peak_bytes: %zu\n" as *byte, stats.arena_peak_bytes);
     fprintf(libc.stderr, "总耗时: %ld ms\n" as *byte, stats.total_time_ms);
 
     fprintf(libc.stderr, "\n代码生成完成: %s\n" as *byte, actual_output);

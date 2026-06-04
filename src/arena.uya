@@ -25,6 +25,7 @@ struct CompilerArena {
     first_chunk: &ArenaChunk, // 第一个动态 chunk
     current_chunk: &ArenaChunk, // 当前活跃 chunk
     total_allocated: usize,   // 总分配量（统计用）
+    peak_allocated: usize,    // 峰值分配量（统计用）
 }
 
 // 内存对齐边界（字节）
@@ -49,6 +50,16 @@ fn compiler_arena_init(arena: &CompilerArena, buffer: &byte, size: usize) void {
     arena.first_chunk = null;
     arena.current_chunk = null;
     arena.total_allocated = 0;
+    arena.peak_allocated = 0;
+}
+
+fn compiler_arena_update_peak(arena: &CompilerArena) void {
+    if arena == null {
+        return;
+    }
+    if arena.total_allocated > arena.peak_allocated {
+        arena.peak_allocated = arena.total_allocated;
+    }
 }
 
 // 从 Arena 分配内存（支持动态增长）
@@ -67,6 +78,7 @@ fn compiler_arena_alloc(arena: &CompilerArena, size: usize) &byte {
             const result: &byte = &arena.buffer[aligned_offset];
             arena.offset = aligned_offset + aligned_size;
             arena.total_allocated = arena.total_allocated + aligned_size;
+            compiler_arena_update_peak(arena);
             return result;
         }
     }
@@ -79,6 +91,7 @@ fn compiler_arena_alloc(arena: &CompilerArena, size: usize) &byte {
             const result: &byte = &chunk.buffer[chunk_offset];
             chunk.used = chunk_offset + aligned_size;
             arena.total_allocated = arena.total_allocated + aligned_size;
+            compiler_arena_update_peak(arena);
             return result;
         }
     }
@@ -127,6 +140,7 @@ fn compiler_arena_alloc(arena: &CompilerArena, size: usize) &byte {
     const result: &byte = &new_chunk.buffer[result_offset];
     new_chunk.used = result_offset + aligned_size;
     arena.total_allocated = arena.total_allocated + aligned_size;
+    compiler_arena_update_peak(arena);
     
     return result;
 }
@@ -169,6 +183,8 @@ fn compiler_arena_free_all(arena: &CompilerArena) void {
     arena.buffer = null;
     arena.size = 0;
     arena.offset = 0;
+    arena.total_allocated = 0;
+    arena.peak_allocated = 0;
 }
 
 // 保存 Arena 状态
@@ -195,4 +211,11 @@ fn compiler_arena_total_allocated(arena: &CompilerArena) usize {
         return 0;
     }
     return arena.total_allocated;
+}
+
+fn compiler_arena_peak_allocated(arena: &CompilerArena) usize {
+    if arena == null {
+        return 0;
+    }
+    return arena.peak_allocated;
 }
