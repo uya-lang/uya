@@ -132,7 +132,7 @@ git diff --check
 
 ## Phase 1: SemanticDb 基础
 
-- [ ] 新建 `src/semantic/` 目录。
+- [x] 新建 `src/semantic/` 目录。
 - [ ] 新建 `src/semantic/ids.uya`，定义：
 
 ```text
