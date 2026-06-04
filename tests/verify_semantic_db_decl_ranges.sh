@@ -157,6 +157,9 @@ fn semantic_test_db() SemanticDb {
         function_ranges: semantic_test_vector(),
         function_range_decl_ids: semantic_test_vector(),
         functions_by_name: semantic_test_hash(),
+        type_ranges: semantic_test_vector(),
+        type_range_decl_ids: semantic_test_vector(),
+        types_by_name: semantic_test_hash(),
         import_bindings: semantic_test_vector(),
         export_bindings: semantic_test_vector(),
     };

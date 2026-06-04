@@ -211,7 +211,7 @@ make tests-uya
 
 - [x] 建 `decls_by_name: InternedNameId -> DeclRange`。
 - [x] 建 `functions_by_name: InternedNameId -> FunctionOverloadRange`。
-- [ ] 建 `types_by_name: InternedNameId -> TypeDeclRange`。
+- [x] 建 `types_by_name: InternedNameId -> TypeDeclRange`。
 - [ ] 建 `enum_variants_by_name: InternedNameId -> EnumVariantRange`。
 - [ ] 建 `exports_by_module_name: (ModuleId, InternedNameId) -> SymbolId`。
 - [ ] 建 `aliases_by_file_name: (FileId, InternedNameId) -> DeclId`。

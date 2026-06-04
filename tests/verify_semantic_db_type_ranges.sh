@@ -14,7 +14,7 @@ require_pattern() {
     local pattern="$2"
     local description="$3"
     if ! grep -Eq "$pattern" "$file"; then
-        echo "错误: SemanticDb FileId/ModuleId 缺少证据: $description" >&2
+        echo "错误: SemanticDb types_by_name 缺少证据: $description" >&2
         return 1
     fi
 }
@@ -26,15 +26,13 @@ for file in "$TABLE_FILE" "$INTERN_FILE" "$DB_FILE" "$BUILD_FILE"; do
     fi
 done
 
-require_pattern "$DB_FILE" "^export[[:space:]]+struct[[:space:]]+SemanticFileRecord" "FileId 记录结构"
-require_pattern "$DB_FILE" "^export[[:space:]]+struct[[:space:]]+SemanticModuleRecord" "ModuleId 记录结构"
-require_pattern "$DB_FILE" "file_records:[[:space:]]+SemanticVector" "文件记录动态 vector"
-require_pattern "$DB_FILE" "module_records:[[:space:]]+SemanticVector" "模块记录动态 vector"
-require_pattern "$DB_FILE" "semantic_db_file_name" "FileId 名字 accessor"
-require_pattern "$DB_FILE" "semantic_db_module_name" "ModuleId 名字 accessor"
-require_pattern "$DB_FILE" "semantic_db_decl_record_get" "DeclRecord accessor"
+require_pattern "$DB_FILE" "^export[[:space:]]+struct[[:space:]]+SemanticTypeDeclRange" "TypeDeclRange 结构"
+require_pattern "$DB_FILE" "type_ranges:[[:space:]]+SemanticVector" "type range 为动态 vector"
+require_pattern "$DB_FILE" "type_range_decl_ids:[[:space:]]+SemanticVector" "类型 DeclId range 数据为动态 vector"
+require_pattern "$DB_FILE" "types_by_name:[[:space:]]+SemanticHash" "types_by_name 为动态 hash"
+require_pattern "$BUILD_FILE" "semantic_db_rebuild_types_by_name" "构建 types_by_name 索引"
 
-tmp_dir="$(mktemp -d /tmp/uya-semantic-db-file-module.XXXXXX)"
+tmp_dir="$(mktemp -d /tmp/uya-semantic-db-type-ranges.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 cat >"$tmp_dir/main.uya" <<'EOF'
@@ -98,23 +96,6 @@ EOF
 cat "$BUILD_FILE" >>"$tmp_dir/main.uya"
 
 cat >>"$tmp_dir/main.uya" <<'EOF'
-fn semantic_test_cstr_equals(a: &byte, b: &byte) i32 {
-    if a == null || b == null {
-        return 0;
-    }
-    var i: usize = 0usize;
-    while a[i] != 0 as byte && b[i] != 0 as byte {
-        if a[i] != b[i] {
-            return 0;
-        }
-        i = i + 1usize;
-    }
-    if a[i] == b[i] {
-        return 1;
-    }
-    return 0;
-}
-
 fn semantic_test_vector() SemanticVector {
     return SemanticVector{
         data: null,
@@ -217,50 +198,64 @@ fn semantic_test_node(kind: ASTNodeType, filename: &byte, name: &byte) ASTNode {
         node.struct_decl_name = name;
     } else if kind == ASTNodeType.AST_TYPE_ALIAS {
         node.type_alias_name = name;
+    } else if kind == ASTNodeType.AST_UNION_DECL {
+        node.union_decl_name = name;
     }
     return node;
 }
 
-test "semantic db assigns file and module ids" {
-    var fn_decl: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "a.uya", "main");
-    var struct_decl: ASTNode = semantic_test_node(ASTNodeType.AST_STRUCT_DECL, "b.uya", "Box");
-    var alias_decl: ASTNode = semantic_test_node(ASTNodeType.AST_TYPE_ALIAS, "b.uya", "Alias");
+test "semantic db types_by_name keeps only type declarations" {
+    var struct_decl: ASTNode = semantic_test_node(ASTNodeType.AST_STRUCT_DECL, "thing_struct.uya", "Thing");
+    var same_name_fn: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "thing_fn.uya", "Thing");
+    var alias_decl: ASTNode = semantic_test_node(ASTNodeType.AST_TYPE_ALIAS, "thing_alias.uya", "Thing");
+    var union_decl: ASTNode = semantic_test_node(ASTNodeType.AST_UNION_DECL, "other.uya", "Other");
 
-    var decls: [&ASTNode: 3] = [];
-    decls[0] = &fn_decl;
-    decls[1] = &struct_decl;
+    var decls: [&ASTNode: 4] = [];
+    decls[0] = &struct_decl;
+    decls[1] = &same_name_fn;
     decls[2] = &alias_decl;
+    decls[3] = &union_decl;
 
-    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "a.uya", null);
+    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "thing_struct.uya", null);
     program.program_decls = &decls[0] as & & ASTNode;
-    program.program_decl_count = 3;
+    program.program_decl_count = 4;
 
     var db: SemanticDb = semantic_test_db();
     try assert_eq_i32(semantic_db_build_from_merged_ast(&db, &program), 0);
-    try assert_eq_i32(db.file_count, 2);
-    try assert_eq_i32(db.module_count, 2);
-    try assert_eq_i32(semantic_db_file_record_count(&db), 2);
-    try assert_eq_i32(semantic_db_module_record_count(&db), 2);
-    try expect(semantic_test_cstr_equals(semantic_db_file_name(&db, 0), "a.uya") != 0);
-    try expect(semantic_test_cstr_equals(semantic_db_file_name(&db, 1), "b.uya") != 0);
-    try expect(semantic_test_cstr_equals(semantic_db_module_name(&db, 1), "b.uya") != 0);
+    try assert_eq_i32(db.decl_count, 4);
+    try assert_eq_i32(db.type_count, 3);
+    try assert_eq_i32(db.function_count, 1);
+    try assert_eq_i32(db.interned_name_count, 2);
+    try assert_eq_i32(semantic_db_type_decl_range_count(&db), 2);
 
-    var rec0: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
-    var rec1: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
-    var rec2: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
-    try assert_eq_i32(semantic_db_decl_record_get(&db, 0, &rec0), 1);
-    try assert_eq_i32(semantic_db_decl_record_get(&db, 1, &rec1), 1);
-    try assert_eq_i32(semantic_db_decl_record_get(&db, 2, &rec2), 1);
-    try assert_eq_i32(rec0.file_id, 0);
-    try assert_eq_i32(rec0.module_id, 0);
-    try assert_eq_i32(rec1.file_id, 1);
-    try assert_eq_i32(rec1.module_id, 1);
-    try assert_eq_i32(rec2.file_id, 1);
-    try assert_eq_i32(rec2.module_id, 1);
+    const thing_name_id: i32 = semantic_db_find_interned_name(&db, "Thing");
+    const other_name_id: i32 = semantic_db_find_interned_name(&db, "Other");
+    try expect(thing_name_id >= 0);
+    try expect(other_name_id >= 0);
+
+    var thing_range: SemanticTypeDeclRange = SemanticTypeDeclRange{
+        name_id: -1,
+        type_start: -1,
+        type_count: 0,
+    };
+    try assert_eq_i32(semantic_db_find_type_decl_range(&db, thing_name_id, &thing_range), 1);
+    try assert_eq_i32(thing_range.name_id, thing_name_id);
+    try assert_eq_i32(thing_range.type_count, 2);
+    try assert_eq_i32(semantic_db_type_range_decl_id(&db, &thing_range, 0), 0);
+    try assert_eq_i32(semantic_db_type_range_decl_id(&db, &thing_range, 1), 2);
+
+    var other_range: SemanticTypeDeclRange = SemanticTypeDeclRange{
+        name_id: -1,
+        type_start: -1,
+        type_count: 0,
+    };
+    try assert_eq_i32(semantic_db_find_type_decl_range(&db, other_name_id, &other_range), 1);
+    try assert_eq_i32(other_range.type_count, 1);
+    try assert_eq_i32(semantic_db_type_range_decl_id(&db, &other_range, 0), 3);
     semantic_db_release(&db);
 }
 EOF
 
 (cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
 
-echo "✓ SemanticDb FileId/ModuleId smoke passed"
+echo "✓ SemanticDb types_by_name range lookup passed"
