@@ -107,7 +107,7 @@ make bench-compiler-1s-check
 - [x] 为审计清单中的每类表标注迁移目标：dynamic vector、dynamic hash、range builder、worklist 或 bounded small buffer。
 - 所有 `count >= MAX` 后静默截断、静默跳过或继续成功的路径改为明确 diagnostic，拆分为：
   - [x] 扫描 `count >= MAX` 静默路径，记录 codegen/checker/exec/main 修复清单。
-  - [ ] 修复 `src/main.uya` input/resolved/processed files 相关静默跳过，改为明确 diagnostic。
+  - [x] 修复 `src/main.uya` input/resolved/processed files 相关静默跳过，改为明确 diagnostic。
   - [ ] 修复 C99 codegen 固定表 `count >= C99_MAX_*` 静默截断/跳过，改为明确 diagnostic。
   - [ ] 修复 checker 固定表 `count >= MAX_*` / `*_SIZE` 静默截断/跳过，改为明确 diagnostic。
   - [ ] 修复 exec 固定表 `count >= EXEC_MAX_*` 静默截断/跳过，改为明确 diagnostic。

@@ -1658,6 +1658,7 @@ fn host_run_microapp_loader(loader_exe: &byte, uapp_path: &byte, payload_exe_pat
 // 解析命令行参数
 // command: 输出命令类型
 // input_file_indices: 填充前 *input_file_count 个为输入文件在 argv 中的下标
+// input_file_capacity: input_file_indices 可写入的元素数
 // outlibc_index: --outlibc 选项的参数索引（-1 表示未指定）
 // run_arg_start: run 命令的运行时参数起始索引（-1 表示无运行时参数）
 // is_nostdlib: --nostdlib 选项（生成 _start 入口）
@@ -1666,6 +1667,7 @@ fn host_run_microapp_loader(loader_exe: &byte, uapp_path: &byte, payload_exe_pat
 fn parse_args(
     command: &CommandType,
     input_file_indices: &i32,
+    input_file_capacity: i32,
     input_file_count: &i32,
     output_file_index: &i32,
     backend_type: &BackendType,
@@ -1689,6 +1691,10 @@ fn parse_args(
         if program_name != null {
             print_usage(program_name as &byte);
         }
+        return -1;
+    }
+    if input_file_capacity <= 0 {
+        fprintf(libc.stderr, "错误: 输入文件索引容量无效\n" as *byte);
         return -1;
     }
 
@@ -1987,8 +1993,8 @@ fn parse_args(
         } else {
             const c: byte = arg[0];
             if c != 45 {  // 不是 '-' 开头
-                if input_file_count[0] >= MAX_INPUT_FILES {
-                    fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d)\n" as *byte, MAX_INPUT_FILES);
+                if input_file_count[0] >= input_file_capacity {
+                    fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d)\n" as *byte, input_file_capacity);
                     return -1;
                 }
                 const idx: i32 = input_file_count[0];
@@ -2127,6 +2133,11 @@ fn compile_files(
     // 使用全局变量避免栈溢出
     var resolved_files: [&byte: MAX_INPUT_FILES] = resolved_files_global;
     var resolved_count: i32 = 0;
+    const resolved_capacity: i32 = @len(resolved_files) as i32;
+    if input_file_count < 0 || input_file_count > resolved_capacity {
+        fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d)\n" as *byte, resolved_capacity);
+        return 1;
+    }
     var module_root_buffer: [byte: PATH_MAX] = [];
     var module_root: &byte = null;
     if g_module_root_override_active != 0 {
@@ -2187,6 +2198,10 @@ fn compile_files(
                 }
                 return 1;
             }
+            if resolved_count < 0 || resolved_count >= resolved_capacity {
+                fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d): %s\n" as *byte, resolved_capacity, input_path);
+                return 1;
+            }
             resolved_files[resolved_count] = main_files[0];
             resolved_count = resolved_count + 1;
             // 设置模块根目录
@@ -2221,6 +2236,10 @@ fn compile_files(
 
             // check 模式允许单文件无 main；其余命令保持现有 main 约束
             if stop_after_checker != 0 || detect_main_function(input) != 0 {
+                if resolved_count < 0 || resolved_count >= resolved_capacity {
+                    fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d): %s\n" as *byte, resolved_capacity, input_path);
+                    return 1;
+                }
                 resolved_files[resolved_count] = input;
                 resolved_count = resolved_count + 1;
                 // 设置模块根目录（文件所在目录）
@@ -2249,6 +2268,10 @@ fn compile_files(
                     return 1;
                 }
                 // 多文件模式：将不包含 main 的文件也加入列表（作为���文件）
+                if resolved_count < 0 || resolved_count >= resolved_capacity {
+                    fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d): %s\n" as *byte, resolved_capacity, input_path);
+                    return 1;
+                }
                 resolved_files[resolved_count] = input;
                 resolved_count = resolved_count + 1;
             }
@@ -2302,13 +2325,19 @@ fn compile_files(
                     }
                     j = j + 1;
                 }
-                if already_in_list == 0 && resolved_count < MAX_INPUT_FILES {
-                    const entry_copy: &byte = compiler_arena_alloc(&temp_arena, entry_len + 1) as &byte;
-                    if entry_copy != null {
-                        strcpy(entry_copy as *byte, &entry_path[0]);
-                        resolved_files[resolved_count] = entry_copy;
-                        resolved_count = resolved_count + 1;
+                if already_in_list == 0 {
+                    if resolved_count < 0 || resolved_count >= resolved_capacity {
+                        fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d)，无法自动加入 entry.uya\n" as *byte, resolved_capacity);
+                        return 1;
                     }
+                    const entry_copy: &byte = compiler_arena_alloc(&temp_arena, entry_len + 1) as &byte;
+                    if entry_copy == null {
+                        fprintf(libc.stderr, "错误: 自动加入 entry.uya 时分配路径失败\n" as *byte);
+                        return 1;
+                    }
+                    strcpy(entry_copy as *byte, &entry_path[0]);
+                    resolved_files[resolved_count] = entry_copy;
+                    resolved_count = resolved_count + 1;
                 }
             }
         }
@@ -2330,10 +2359,15 @@ fn compile_files(
 
     // 找出包含 main 的文件（入口文件）
     var main_files: [&byte: MAX_INPUT_FILES] = [];
+    const main_file_capacity: i32 = @len(main_files) as i32;
     var main_file_count: i32 = 0;
     i = 0;
     while i < resolved_count {
         if detect_main_function(resolved_files[i]) != 0 {
+            if main_file_count < 0 || main_file_count >= main_file_capacity {
+                fprintf(libc.stderr, "错误: main 文件数量超过最大限制 (%d)\n" as *byte, main_file_capacity);
+                return 1;
+            }
             main_files[main_file_count] = resolved_files[i];
             main_file_count = main_file_count + 1;
         }
@@ -2427,6 +2461,11 @@ fn compile_files(
     compiler_arena_init(&arena, &arena_buffer[0], ARENA_BUFFER_SIZE as usize);
 
     var programs: [&ASTNode: MAX_INPUT_FILES] = [];
+    const program_capacity: i32 = @len(programs) as i32;
+    if all_file_count < 0 || all_file_count > program_capacity {
+        fprintf(libc.stderr, "错误: 程序文件数量超过最大限制 (%d)\n" as *byte, program_capacity);
+        return 1;
+    }
 
     i = 0;
     while i < all_file_count {
@@ -2829,7 +2868,8 @@ export fn main() i32 {
     // 临时缓冲区用于自动生成输出路径
     var auto_output_path: [byte: PATH_MAX] = [];
 
-    if parse_args(&command, &input_file_indices[0], &input_file_count, &output_file_index, &backend, &emit_line_directives, &enable_safety_proof, &opt_level, &outlibc_index, &run_arg_start, &is_nostdlib, &stack_size, &async_frame_heap_fallback, &exec_requested, &exec_only, &dump_exec_hir, &dump_bytecode, &trace_vm) != 0 {
+    const input_file_index_capacity: i32 = @len(input_file_indices) as i32;
+    if parse_args(&command, &input_file_indices[0], input_file_index_capacity, &input_file_count, &output_file_index, &backend, &emit_line_directives, &enable_safety_proof, &opt_level, &outlibc_index, &run_arg_start, &is_nostdlib, &stack_size, &async_frame_heap_fallback, &exec_requested, &exec_only, &dump_exec_hir, &dump_bytecode, &trace_vm) != 0 {
         return 1;
     }
     g_exec_dump_hir_enabled = dump_exec_hir;
