@@ -55,9 +55,22 @@ bash scripts/bench_compiler_1s.sh --runs 3 --keep-logs
 
 结论：当前硬口径冷构建时间 baseline 为 74.337s median，距离 1s 目标约 74.3x；后续性能阶段必须同时报告该口径前后对比。
 
+### Phase 0 冷构建内存 baseline
+
+同一次三轮 `bench-compiler-1s` 运行得到的内存和输出基线：
+
+| run | peak_rss_kb | peak_rss_mib | output_bytes | output_mib | arena_peak_bytes | table_stats |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | 2103824 | 2054.5 | 15236271 | 14.53 | NA | unavailable |
+| 2 | 2104400 | 2055.1 | 15236271 | 14.53 | NA | unavailable |
+| 3 | 2102676 | 2053.4 | 15236271 | 14.53 | NA | unavailable |
+| median | 2103824 | 2054.5 | 15236271 | 14.53 | NA | unavailable |
+
+结论：当前硬口径 peak RSS baseline 为 2,103,824 KiB median，约 2.01 GiB；输出产物 baseline 为 15,236,271 bytes。`make uya` 日志当前未暴露 compiler 内部 `arena_peak_bytes` 和动态表统计，所以这些字段仍为 `NA`，不能用于内部内存达标判断。
+
 ## 当前内存缺口
 
-本文当前已有时间基线，但还没有可信的内存基线。下一轮 benchmark 必须补齐：
+本文已经有 `bench-compiler-1s` 硬口径 `peak_rss_kb` / `output_bytes` baseline；下一步仍必须补齐 compiler 内部内存字段，并确保后续阶段持续报告：
 
 - `peak_rss_kb`：编译器进程峰值常驻内存。
 - `arena_peak_bytes`：compiler arena 峰值。
