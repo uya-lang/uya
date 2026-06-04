@@ -150,7 +150,7 @@ MonoInstanceId
 
 - [x] 新建 `src/semantic/table.uya` 或等价基础设施，提供动态 vector/hash/range builder。
 - [x] 动态表 API 必须包含 `reserve`、`ensure_capacity`、`append/insert`、`reset`、`free/release`。
-- [ ] 动态表必须记录 `count`、`capacity`、`bytes`、`realloc_count`。
+- [x] 动态表必须记录 `count`、`capacity`、`bytes`、`realloc_count`。
 - [ ] 动态表增长必须检查整数溢出和 allocation failure。
 - [ ] 新建 `src/semantic/intern.uya`，实现字符串 intern 表。
 - [ ] intern 表按负载因子动态扩容，不允许固定 4096/8192 槽作为语义上限。
@@ -185,6 +185,7 @@ MonoInstanceId
 bash tests/verify_semantic_ids.sh
 bash tests/verify_semantic_table.sh
 bash tests/verify_semantic_table_api.sh
+bash tests/verify_semantic_table_stats.sh
 bash tests/verify_semantic_db_smoke.sh
 make tests-uya
 ```
