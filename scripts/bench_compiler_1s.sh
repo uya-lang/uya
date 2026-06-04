@@ -53,6 +53,11 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MAKE_CMD="${MAKE:-make}"
+RSS_SAMPLE_INTERVAL="${UYA_BENCH_RSS_SAMPLE_INTERVAL:-0.10}"
+RSS_AVAILABLE=0
+if [[ -d /proc && -r /proc/self/status ]]; then
+    RSS_AVAILABLE=1
+fi
 
 flag_enabled() {
     local value
@@ -184,10 +189,108 @@ clean_cold_build_artifacts() {
     rm -rf "$REPO_ROOT/bin" "$REPO_ROOT/src/build" "$REPO_ROOT/src/.uyacache"
 }
 
+process_is_active() {
+    local pid="$1"
+    local state
+    if [[ "$RSS_AVAILABLE" -ne 1 || ! -r "/proc/$pid/status" ]]; then
+        return 1
+    fi
+    state="$(awk '/^State:/ { print $2; exit }' "/proc/$pid/status" 2>/dev/null || true)"
+    [[ -n "$state" && "$state" != "Z" && "$state" != "X" ]]
+}
+
+rss_kb_for_pid() {
+    local pid="$1"
+    local value
+    if [[ -r "/proc/$pid/smaps_rollup" ]]; then
+        value="$(awk '/^Rss:/ { print $2; found = 1; exit } END { if (!found) print 0 }' "/proc/$pid/smaps_rollup" 2>/dev/null || printf '0\n')"
+    elif [[ -r "/proc/$pid/status" ]]; then
+        value="$(awk '/^VmRSS:/ { print $2; found = 1; exit } END { if (!found) print 0 }' "/proc/$pid/status" 2>/dev/null || printf '0\n')"
+    else
+        value=0
+    fi
+    if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+        value=0
+    fi
+    printf '%s\n' "$value"
+}
+
+collect_process_tree_pids() {
+    local root_pid="$1"
+    local seen=" $root_pid "
+    local result=("$root_pid")
+    local changed stat_file pid stat_content after_comm state ppid
+
+    changed=1
+    while [[ "$changed" -eq 1 ]]; do
+        changed=0
+        for stat_file in /proc/[0-9]*/stat; do
+            [[ -r "$stat_file" ]] || continue
+            pid="${stat_file#/proc/}"
+            pid="${pid%/stat}"
+            [[ "$seen" == *" $pid "* ]] && continue
+            stat_content="$(<"$stat_file")" || continue
+            after_comm="${stat_content##*) }"
+            read -r state ppid _ <<< "$after_comm"
+            [[ -n "$ppid" ]] || continue
+            if [[ "$seen" == *" $ppid "* ]]; then
+                seen="$seen$pid "
+                result+=("$pid")
+                changed=1
+            fi
+        done
+    done
+
+    printf '%s\n' "${result[@]}"
+}
+
+sample_process_tree_rss_kb() {
+    local root_pid="$1"
+    local total=0
+    local pid rss
+
+    if [[ "$RSS_AVAILABLE" -ne 1 ]]; then
+        printf '0\n'
+        return
+    fi
+
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] || continue
+        rss="$(rss_kb_for_pid "$pid")"
+        total=$((total + rss))
+    done < <(collect_process_tree_pids "$root_pid")
+
+    printf '%s\n' "$total"
+}
+
 run_make_target() {
     local target="$1"
     local log_file="$2"
-    "$MAKE_CMD" -C "$REPO_ROOT" "$target" >"$log_file" 2>&1
+    local rss_out_var="$3"
+    local pid status peak_rss sample_rss
+
+    "$MAKE_CMD" -C "$REPO_ROOT" "$target" >"$log_file" 2>&1 &
+    pid="$!"
+    peak_rss=0
+
+    if [[ "$RSS_AVAILABLE" -eq 1 ]]; then
+        while process_is_active "$pid"; do
+            sample_rss="$(sample_process_tree_rss_kb "$pid")"
+            if [[ "$sample_rss" =~ ^[0-9]+$ && "$sample_rss" -gt "$peak_rss" ]]; then
+                peak_rss="$sample_rss"
+            fi
+            sleep "$RSS_SAMPLE_INTERVAL" 2>/dev/null || sleep 1
+        done
+    fi
+
+    if wait "$pid"; then
+        status=0
+    else
+        status=$?
+    fi
+
+    printf -v "$rss_out_var" '%s' "$peak_rss"
+    return "$status"
 }
 
 print_failure_log() {
@@ -225,9 +328,10 @@ fi
 clean_values=()
 build_values=()
 total_values=()
+rss_values=()
 
 print_metadata
-printf 'run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tstatus\n'
+printf 'run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tpeak_rss_kb\tstatus\n'
 
 run=1
 while [[ "$run" -le "$RUNS" ]]; do
@@ -241,12 +345,13 @@ while [[ "$run" -le "$RUNS" ]]; do
 
     clean_start="$(now_ns)"
     clean_cold_build_artifacts
-    if ! run_make_target clean "$clean_log"; then
+    clean_rss=0
+    if ! run_make_target clean "$clean_log" clean_rss; then
         clean_end="$(now_ns)"
         clean_ms="$(elapsed_ms "$clean_start" "$clean_end")"
         total_end="$(now_ns)"
         total_ms="$(elapsed_ms "$total_start" "$total_end")"
-        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" 0 "$total_ms" "clean_failed"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" 0 "$total_ms" "$clean_rss" "clean_failed"
         print_failure_log "make clean" "$clean_log"
         exit 1
     fi
@@ -254,12 +359,17 @@ while [[ "$run" -le "$RUNS" ]]; do
     clean_ms="$(elapsed_ms "$clean_start" "$clean_end")"
 
     build_start="$(now_ns)"
-    if ! run_make_target uya "$build_log"; then
+    build_rss=0
+    if ! run_make_target uya "$build_log" build_rss; then
         build_end="$(now_ns)"
         build_ms="$(elapsed_ms "$build_start" "$build_end")"
         total_end="$(now_ns)"
         total_ms="$(elapsed_ms "$total_start" "$total_end")"
-        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "build_failed"
+        peak_rss="$clean_rss"
+        if [[ "$build_rss" -gt "$peak_rss" ]]; then
+            peak_rss="$build_rss"
+        fi
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "$peak_rss" "build_failed"
         print_failure_log "make uya" "$build_log"
         exit 1
     fi
@@ -268,20 +378,26 @@ while [[ "$run" -le "$RUNS" ]]; do
 
     total_end="$(now_ns)"
     total_ms="$(elapsed_ms "$total_start" "$total_end")"
+    peak_rss="$clean_rss"
+    if [[ "$build_rss" -gt "$peak_rss" ]]; then
+        peak_rss="$build_rss"
+    fi
 
     clean_values+=("$clean_ms")
     build_values+=("$build_ms")
     total_values+=("$total_ms")
+    rss_values+=("$peak_rss")
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "ok"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "$peak_rss" "ok"
     run=$((run + 1))
 done
 
 if [[ "$RUNS" -gt 1 ]]; then
-    printf 'median\t%s\t%s\t%s\t%s\t%s\n' \
+    printf 'median\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$MODE" \
         "$(median_value "${clean_values[@]}")" \
         "$(median_value "${build_values[@]}")" \
         "$(median_value "${total_values[@]}")" \
+        "$(median_value "${rss_values[@]}")" \
         "ok"
 fi

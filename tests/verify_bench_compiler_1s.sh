@@ -130,17 +130,17 @@ if ! CFLAGS="-std=c99 -O2 -Werror" CC_DRIVER="fake-cc" MAKE="$FAKE_MAKE" UYA_FAK
     exit 1
 fi
 
-if ! grep -q $'^run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tstatus$' "$TMP_DIR/bench.tsv"; then
+if ! grep -q $'^run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tpeak_rss_kb\tstatus$' "$TMP_DIR/bench.tsv"; then
     echo "错误: benchmark TSV 表头不正确" >&2
     cat "$TMP_DIR/bench.tsv" >&2
     exit 1
 fi
 if ! awk -F '\t' '
     NR == 2 || NR == 3 {
-        if (!($1 ~ /^[12]$/ && $2 == "c99" && NF == 6 && $3 >= 0 && $4 >= 0 && $5 >= 0 && $6 == "ok")) exit 1;
+        if (!($1 ~ /^[12]$/ && $2 == "c99" && NF == 7 && $3 >= 0 && $4 >= 0 && $5 >= 0 && $6 >= 0 && $7 == "ok")) exit 1;
     }
     NR == 4 {
-        if (!($1 == "median" && $2 == "c99" && NF == 6 && $3 >= 0 && $4 >= 0 && $5 >= 0 && $6 == "ok")) exit 1;
+        if (!($1 == "median" && $2 == "c99" && NF == 7 && $3 >= 0 && $4 >= 0 && $5 >= 0 && $6 >= 0 && $7 == "ok")) exit 1;
     }
     END { if (NR != 4) exit 1 }
 ' "$TMP_DIR/bench.tsv"; then
