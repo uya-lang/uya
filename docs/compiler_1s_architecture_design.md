@@ -154,6 +154,12 @@ Parse
 | `src/checker/` 固定 checker 表 | legacy checker oracle until SemanticDb | checker hash/cache/proof/worklist 仍由固定容量承载，只能作为 SemanticDb 迁移前的对照实现 | SemanticDb/TypedProgram 动态索引接管 lookup、mono、proof 和 reachability |
 | `src/exec/` 固定 VM 表 | staged exec fallback | exec VM 仍是 staged backend，locals/bytecode/frame/cleanup/call args 固定表不能定义自举容量 | LoweredProgram + bytecode/frame dynamic vector 或 native path 替换固定 staging 表 |
 
+### 5.2.2 固定表新增冻结门禁
+
+动态表基础设施完成前，不得新增任何承担 compiler table/index/cache/list/mapping 角色的固定容量结构。新增小缓冲只有在不承载源文件数、声明数、函数数、类型数、局部变量数、泛型实例数、字符串常量数或 bytecode/reloc 项数时才允许，并且不能使用 `C99_MAX_*`、`CHECKER_*_SIZE`、`EXEC_MAX_*` 或等价语义上限命名。
+
+该冻结期由 `tests/verify_no_fixed_compiler_tables.sh` 对 diff 执行门禁；策略自测必须覆盖 `src/main.uya`、`src/codegen/c99/`、`src/checker/` 和 `src/exec/`，直到 Phase 1 动态 vector/hash/range builder 和 SemanticDb 动态索引完成后，才允许按动态表 API 新增 compiler 表。
+
 ### 5.3 核心 ID
 
 引入以下稳定 ID：

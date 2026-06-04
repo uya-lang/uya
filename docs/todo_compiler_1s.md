@@ -116,12 +116,14 @@ bash tests/verify_no_fixed_compiler_tables.sh
   - [x] 修复 checker 固定表 `count >= MAX_*` / `*_SIZE` 静默截断/跳过，改为明确 diagnostic。
   - [x] 修复 exec 固定表 `count >= EXEC_MAX_*` 静默截断/跳过，改为明确 diagnostic。
 - [x] 所有旧固定表如需临时保留，必须标注为 oracle/fallback，不允许计入 1 秒硬路径成功。
-- [ ] 动态表基础设施完成前，不得新增新的编译器表固定容量。
+- [x] 动态表基础设施完成前，不得新增新的编译器表固定容量。
 
 验证：
 
 ```bash
 bash tests/verify_fixed_table_retention_labels.sh
+bash tests/verify_fixed_table_freeze_policy.sh
+bash tests/verify_no_fixed_compiler_tables.sh --self-test
 bash tests/verify_no_fixed_compiler_tables.sh
 git diff --check
 ```
