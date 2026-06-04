@@ -178,6 +178,8 @@ fn semantic_test_db() SemanticDb {
         symbol_records: semantic_test_vector(),
         name_ranges: semantic_test_vector(),
         name_range_index: semantic_test_hash(),
+        import_bindings: semantic_test_vector(),
+        export_bindings: semantic_test_vector(),
     };
 }
 

@@ -44,6 +44,26 @@ export struct SemanticModuleRecord {
     file_id: i32,
 }
 
+/// 功能说明：保存 use 语句导入绑定。
+/// 参数说明：无；`name` 为 alias 或导入项名，`ast_node` 指向原始 use AST。
+/// 返回值说明：无。
+export struct SemanticImportBinding {
+    file_id: i32,
+    module_id: i32,
+    name: &byte,
+    ast_node: &void,
+}
+
+/// 功能说明：保存模块对外可索引的顶层声明绑定。
+/// 参数说明：无；`decl_id` 指向对应顶层声明记录。
+/// 返回值说明：无。
+export struct SemanticExportBinding {
+    file_id: i32,
+    module_id: i32,
+    name: &byte,
+    decl_id: i32,
+}
+
 /// 功能说明：保存 SemanticDb 的顶层计数、估算字节数和紧凑记录数组。
 /// 参数说明：无；调用 `semantic_db_init` 后使用。
 /// 返回值说明：无。
@@ -65,6 +85,8 @@ export struct SemanticDb {
     symbol_records: SemanticVector,
     name_ranges: SemanticVector,
     name_range_index: SemanticHash,
+    import_bindings: SemanticVector,
+    export_bindings: SemanticVector,
 }
 
 fn semantic_db_clear_counts(db: &SemanticDb) void {
@@ -106,6 +128,8 @@ export fn semantic_db_init(db: &SemanticDb) void {
     semantic_vector_init(&db.symbol_records, @size_of(SemanticSymbolRecord));
     semantic_vector_init(&db.name_ranges, @size_of(SemanticNameRange));
     semantic_hash_init(&db.name_range_index);
+    semantic_vector_init(&db.import_bindings, @size_of(SemanticImportBinding));
+    semantic_vector_init(&db.export_bindings, @size_of(SemanticExportBinding));
 }
 
 /// 功能说明：重置 SemanticDb 以支持同进程多次编译。
@@ -122,6 +146,8 @@ export fn semantic_db_reset(db: &SemanticDb) void {
     semantic_vector_reset(&db.symbol_records);
     semantic_vector_reset(&db.name_ranges);
     semantic_hash_reset(&db.name_range_index);
+    semantic_vector_reset(&db.import_bindings);
+    semantic_vector_reset(&db.export_bindings);
 }
 
 /// 功能说明：释放 SemanticDb 内部动态数组并清空状态。
@@ -137,6 +163,8 @@ export fn semantic_db_release(db: &SemanticDb) void {
     semantic_vector_release(&db.symbol_records);
     semantic_vector_release(&db.name_ranges);
     semantic_hash_release(&db.name_range_index);
+    semantic_vector_release(&db.import_bindings);
+    semantic_vector_release(&db.export_bindings);
     semantic_db_clear_counts(db);
 }
 
@@ -153,7 +181,9 @@ export fn semantic_db_storage_bytes(db: &SemanticDb) usize {
         db.decl_records.bytes +
         db.symbol_records.bytes +
         db.name_ranges.bytes +
-        db.name_range_index.bytes;
+        db.name_range_index.bytes +
+        db.import_bindings.bytes +
+        db.export_bindings.bytes;
 }
 
 /// 功能说明：追加 FileId 对应的文件记录。
@@ -195,6 +225,64 @@ export fn semantic_db_append_module_record(db: &SemanticDb, name: &byte, file_id
         return -1;
     }
     return module_id;
+}
+
+/// 功能说明：追加 use 导入绑定记录。
+/// 参数说明：`db` 为目标库，`file_id/module_id` 指明所属位置，`name` 为导入名，`ast_node` 为 use AST。
+/// 返回值说明：成功返回新 binding 下标；失败返回 `-1`。
+export fn semantic_db_append_import_binding(
+    db: &SemanticDb,
+    file_id: i32,
+    module_id: i32,
+    name: &byte,
+    ast_node: &void,
+) i32 {
+    if db == null || file_id < 0 || module_id < 0 || name == null || ast_node == null {
+        return -1;
+    }
+    const binding_id: i32 = semantic_db_usize_to_i32(db.import_bindings.count);
+    if binding_id < 0 {
+        return -1;
+    }
+    var record: SemanticImportBinding = SemanticImportBinding{
+        file_id: file_id,
+        module_id: module_id,
+        name: name,
+        ast_node: ast_node,
+    };
+    if semantic_vector_append(&db.import_bindings, &record as &const void) != 0 {
+        return -1;
+    }
+    return binding_id;
+}
+
+/// 功能说明：追加模块导出绑定记录。
+/// 参数说明：`db` 为目标库，`file_id/module_id` 指明所属位置，`name` 为导出名，`decl_id` 为声明 ID。
+/// 返回值说明：成功返回新 binding 下标；失败返回 `-1`。
+export fn semantic_db_append_export_binding(
+    db: &SemanticDb,
+    file_id: i32,
+    module_id: i32,
+    name: &byte,
+    decl_id: i32,
+) i32 {
+    if db == null || file_id < 0 || module_id < 0 || name == null || decl_id < 0 {
+        return -1;
+    }
+    const binding_id: i32 = semantic_db_usize_to_i32(db.export_bindings.count);
+    if binding_id < 0 {
+        return -1;
+    }
+    var record: SemanticExportBinding = SemanticExportBinding{
+        file_id: file_id,
+        module_id: module_id,
+        name: name,
+        decl_id: decl_id,
+    };
+    if semantic_vector_append(&db.export_bindings, &record as &const void) != 0 {
+        return -1;
+    }
+    return binding_id;
 }
 
 /// 功能说明：追加 DeclId 对应的紧凑声明记录。
@@ -341,6 +429,66 @@ export fn semantic_db_module_record_count(db: &SemanticDb) i32 {
         return 0;
     }
     return count;
+}
+
+/// 功能说明：读取 SemanticDb import binding 数量。
+/// 参数说明：`db` 为目标 SemanticDb。
+/// 返回值说明：返回 import binding 数量；参数无效时返回 `0`。
+export fn semantic_db_import_binding_count(db: &SemanticDb) i32 {
+    if db == null {
+        return 0;
+    }
+    const count: i32 = semantic_db_usize_to_i32(db.import_bindings.count);
+    if count < 0 {
+        return 0;
+    }
+    return count;
+}
+
+/// 功能说明：读取 SemanticDb export binding 数量。
+/// 参数说明：`db` 为目标 SemanticDb。
+/// 返回值说明：返回 export binding 数量；参数无效时返回 `0`。
+export fn semantic_db_export_binding_count(db: &SemanticDb) i32 {
+    if db == null {
+        return 0;
+    }
+    const count: i32 = semantic_db_usize_to_i32(db.export_bindings.count);
+    if count < 0 {
+        return 0;
+    }
+    return count;
+}
+
+/// 功能说明：按下标复制 import binding。
+/// 参数说明：`db` 为目标库，`binding_id` 为 binding 下标，`out_binding` 接收记录副本。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn semantic_db_import_binding_get(db: &SemanticDb, binding_id: i32, out_binding: &SemanticImportBinding) i32 {
+    if db == null || out_binding == null || binding_id < 0 {
+        return 0;
+    }
+    const record_ptr: &byte = semantic_vector_item_ptr(&db.import_bindings, binding_id as usize);
+    if record_ptr == null {
+        return 0;
+    }
+    const record: &SemanticImportBinding = record_ptr as &SemanticImportBinding;
+    out_binding[0] = record[0];
+    return 1;
+}
+
+/// 功能说明：按下标复制 export binding。
+/// 参数说明：`db` 为目标库，`binding_id` 为 binding 下标，`out_binding` 接收记录副本。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn semantic_db_export_binding_get(db: &SemanticDb, binding_id: i32, out_binding: &SemanticExportBinding) i32 {
+    if db == null || out_binding == null || binding_id < 0 {
+        return 0;
+    }
+    const record_ptr: &byte = semantic_vector_item_ptr(&db.export_bindings, binding_id as usize);
+    if record_ptr == null {
+        return 0;
+    }
+    const record: &SemanticExportBinding = record_ptr as &SemanticExportBinding;
+    out_binding[0] = record[0];
+    return 1;
 }
 
 /// 功能说明：按 FileId 读取文件名。

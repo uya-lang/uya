@@ -13,7 +13,7 @@ require_pattern() {
     local pattern="$2"
     local description="$3"
     if ! grep -Eq "$pattern" "$file"; then
-        echo "错误: SemanticDb DeclId mapping 缺少证据: $description" >&2
+        echo "错误: SemanticDb ImportBinding 缺少证据: $description" >&2
         return 1
     fi
 }
@@ -25,11 +25,14 @@ for file in "$TABLE_FILE" "$DB_FILE" "$BUILD_FILE"; do
     fi
 done
 
-require_pattern "$DB_FILE" "ast_node:[[:space:]]+&void" "DeclRecord 保存 AST 指针"
-require_pattern "$BUILD_FILE" "semantic_db_decl_ast_node" "DeclId -> ASTNode accessor"
-require_pattern "$BUILD_FILE" "semantic_vector_item_ptr" "accessor 从紧凑 decl_records 读取"
+require_pattern "$DB_FILE" "^export[[:space:]]+struct[[:space:]]+SemanticImportBinding" "ImportBinding 结构"
+require_pattern "$DB_FILE" "^export[[:space:]]+struct[[:space:]]+SemanticExportBinding" "module export binding 结构"
+require_pattern "$DB_FILE" "import_bindings:[[:space:]]+SemanticVector" "import binding 动态 vector"
+require_pattern "$DB_FILE" "export_bindings:[[:space:]]+SemanticVector" "export binding 动态 vector"
+require_pattern "$BUILD_FILE" "semantic_db_append_import_binding" "build 登记 use import"
+require_pattern "$BUILD_FILE" "semantic_db_append_export_binding" "build 登记 module export"
 
-tmp_dir="$(mktemp -d /tmp/uya-semantic-db-decl-map.XXXXXX)"
+tmp_dir="$(mktemp -d /tmp/uya-semantic-db-imports.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 cat >"$tmp_dir/main.uya" <<'EOF'
@@ -90,6 +93,23 @@ EOF
 cat "$BUILD_FILE" >>"$tmp_dir/main.uya"
 
 cat >>"$tmp_dir/main.uya" <<'EOF'
+fn semantic_test_cstr_equals(a: &byte, b: &byte) i32 {
+    if a == null || b == null {
+        return 0;
+    }
+    var i: usize = 0usize;
+    while a[i] != 0 as byte && b[i] != 0 as byte {
+        if a[i] != b[i] {
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    if a[i] == b[i] {
+        return 1;
+    }
+    return 0;
+}
+
 fn semantic_test_vector() SemanticVector {
     return SemanticVector{
         data: null,
@@ -165,39 +185,48 @@ fn semantic_test_node(kind: ASTNodeType, filename: &byte, name: &byte) ASTNode {
     };
     if kind == ASTNodeType.AST_FN_DECL {
         node.fn_decl_name = name;
-    } else if kind == ASTNodeType.AST_STRUCT_DECL {
-        node.struct_decl_name = name;
-    } else if kind == ASTNodeType.AST_TYPE_ALIAS {
-        node.type_alias_name = name;
     }
     return node;
 }
 
-test "semantic db maps decl ids to ast nodes" {
-    var fn_decl: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "map.uya", "main");
-    var struct_decl: ASTNode = semantic_test_node(ASTNodeType.AST_STRUCT_DECL, "map.uya", "Box");
-    var alias_decl: ASTNode = semantic_test_node(ASTNodeType.AST_TYPE_ALIAS, "map.uya", "Alias");
+test "semantic db records use imports and module exports" {
+    var fn_decl: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "imports.uya", "main");
+    var use_item: ASTNode = semantic_test_node(ASTNodeType.AST_USE_STMT, "imports.uya", null);
+    use_item.use_stmt_item_name = "printf";
+    var use_alias: ASTNode = semantic_test_node(ASTNodeType.AST_USE_STMT, "imports.uya", null);
+    use_alias.use_stmt_alias = "io";
 
     var decls: [&ASTNode: 3] = [];
-    decls[0] = &fn_decl;
-    decls[1] = &struct_decl;
-    decls[2] = &alias_decl;
+    decls[0] = &use_item;
+    decls[1] = &fn_decl;
+    decls[2] = &use_alias;
 
-    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "map.uya", null);
+    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "imports.uya", null);
     program.program_decls = &decls[0] as & & ASTNode;
     program.program_decl_count = 3;
 
     var db: SemanticDb = semantic_test_db();
     try assert_eq_i32(semantic_db_build_from_merged_ast(&db, &program), 0);
-    try expect(semantic_db_decl_ast_node(&db, 0) == &fn_decl);
-    try expect(semantic_db_decl_ast_node(&db, 1) == &struct_decl);
-    try expect(semantic_db_decl_ast_node(&db, 2) == &alias_decl);
-    try expect(semantic_db_decl_ast_node(&db, -1) == null);
-    try expect(semantic_db_decl_ast_node(&db, 99) == null);
+    try assert_eq_i32(semantic_db_import_binding_count(&db), 2);
+    try assert_eq_i32(semantic_db_export_binding_count(&db), 1);
+
+    var import0: SemanticImportBinding = SemanticImportBinding{ file_id: -1, module_id: -1, name: null, ast_node: null };
+    var import1: SemanticImportBinding = SemanticImportBinding{ file_id: -1, module_id: -1, name: null, ast_node: null };
+    var export0: SemanticExportBinding = SemanticExportBinding{ file_id: -1, module_id: -1, name: null, decl_id: -1 };
+    try assert_eq_i32(semantic_db_import_binding_get(&db, 0, &import0), 1);
+    try assert_eq_i32(semantic_db_import_binding_get(&db, 1, &import1), 1);
+    try assert_eq_i32(semantic_db_export_binding_get(&db, 0, &export0), 1);
+    try expect(semantic_test_cstr_equals(import0.name, "printf") != 0);
+    try expect(semantic_test_cstr_equals(import1.name, "io") != 0);
+    try expect(semantic_test_cstr_equals(export0.name, "main") != 0);
+    try assert_eq_i32(import0.file_id, 0);
+    try assert_eq_i32(import0.module_id, 0);
+    try assert_eq_i32(export0.file_id, 0);
+    try assert_eq_i32(export0.module_id, 0);
     semantic_db_release(&db);
 }
 EOF
 
 (cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
 
-echo "✓ SemanticDb DeclId -> ASTNode mapping smoke passed"
+echo "✓ SemanticDb ImportBinding smoke passed"

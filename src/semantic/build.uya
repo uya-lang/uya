@@ -92,7 +92,9 @@ fn semantic_db_prepare_for_build(db: &SemanticDb) void {
         db.decl_records.item_size != @size_of(SemanticDeclRecord) ||
         db.symbol_records.item_size != @size_of(SemanticSymbolRecord) ||
         db.name_ranges.item_size != @size_of(SemanticNameRange) ||
-        db.name_range_index.capacity < db.name_range_index.count {
+        db.name_range_index.capacity < db.name_range_index.count ||
+        db.import_bindings.item_size != @size_of(SemanticImportBinding) ||
+        db.export_bindings.item_size != @size_of(SemanticExportBinding) {
         semantic_db_init(db);
         return;
     }
@@ -174,6 +176,16 @@ fn semantic_db_build_file_module_ids(db: &SemanticDb, program: &ASTNode) i32 {
     return 0;
 }
 
+fn semantic_db_use_binding_name(decl: &ASTNode) &byte {
+    if decl == null || decl.type != ASTNodeType.AST_USE_STMT {
+        return null;
+    }
+    if decl.use_stmt_alias != null {
+        return decl.use_stmt_alias;
+    }
+    return decl.use_stmt_item_name;
+}
+
 fn semantic_db_append_named_symbol(db: &SemanticDb, decl_id: i32, kind: i32) i32 {
     if db == null || decl_id < 0 {
         return -1;
@@ -227,7 +239,19 @@ fn semantic_db_count_decl(db: &SemanticDb, decl: &ASTNode, file_id: i32, module_
     }
     db.decl_count = db.decl_count + 1;
 
+    if decl.type == ASTNodeType.AST_USE_STMT {
+        const import_name: &byte = semantic_db_use_binding_name(decl);
+        if import_name != null {
+            if semantic_db_append_import_binding(db, file_id, module_id, import_name, decl as &void) < 0 {
+                return -1;
+            }
+        }
+    }
+
     if primary_name != null {
+        if semantic_db_append_export_binding(db, file_id, module_id, primary_name, decl_id) < 0 {
+            return -1;
+        }
         if semantic_db_append_named_symbol(db, decl_id, decl.type as i32) < 0 {
             return -1;
         }

@@ -83,6 +83,8 @@ test "semantic db definition initializes and resets" {
         symbol_records: semantic_test_vector(),
         name_ranges: semantic_test_vector(),
         name_range_index: semantic_test_hash(),
+        import_bindings: semantic_test_vector(),
+        export_bindings: semantic_test_vector(),
     };
     semantic_db_init(&db);
     try assert_eq_i32(db.file_count, 0);
