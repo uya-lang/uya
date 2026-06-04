@@ -133,7 +133,7 @@ git diff --check
 ## Phase 1: SemanticDb 基础
 
 - [x] 新建 `src/semantic/` 目录。
-- [ ] 新建 `src/semantic/ids.uya`，定义：
+- [x] 新建 `src/semantic/ids.uya`，定义：
 
 ```text
 FileId
@@ -182,6 +182,7 @@ MonoInstanceId
 验证：
 
 ```bash
+bash tests/verify_semantic_ids.sh
 bash tests/verify_semantic_db_smoke.sh
 make tests-uya
 ```

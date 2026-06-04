@@ -1,0 +1,15 @@
+// semantic/ids.uya - Stable integer identifiers used by SemanticDb.
+//
+// IDs start as compact signed integers so early migration code can use -1 as
+// an invalid sentinel while dynamic tables are introduced.
+
+export type FileId = i32;
+export type ModuleId = i32;
+export type InternedNameId = i32;
+export type DeclId = i32;
+export type SymbolId = i32;
+export type ScopeId = i32;
+export type TypeId = i32;
+export type ExprId = i32;
+export type FunctionId = i32;
+export type MonoInstanceId = i32;
