@@ -175,7 +175,7 @@ MonoInstanceId
 - [x] 覆盖 file-local alias。
 - [x] 覆盖 whole-module import export。
 - [x] 新增 `tests/verify_dynamic_table_growth.sh`。
-- [ ] 覆盖超过旧固定容量的声明数、函数数、局部变量数、泛型实例数。
+- [x] 覆盖超过旧固定容量的声明数、函数数、局部变量数、泛型实例数。
 - [ ] 覆盖 intern/hash 高负载和高冲突增长。
 - [ ] 覆盖 growth failure 模拟，必须得到明确 diagnostic。
 
