@@ -225,6 +225,41 @@ test "semantic db records use imports and module exports" {
     try assert_eq_i32(export0.module_id, 0);
     semantic_db_release(&db);
 }
+
+test "semantic db keeps file-local aliases separate" {
+    var alias_a: ASTNode = semantic_test_node(ASTNodeType.AST_USE_STMT, "src/a.uya", null);
+    alias_a.use_stmt_alias = "io";
+    var alias_b: ASTNode = semantic_test_node(ASTNodeType.AST_USE_STMT, "src/b.uya", null);
+    alias_b.use_stmt_alias = "io";
+
+    var decls: [&ASTNode: 2] = [];
+    decls[0] = &alias_a;
+    decls[1] = &alias_b;
+
+    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "src/a.uya", null);
+    program.program_decls = &decls[0] as & & ASTNode;
+    program.program_decl_count = 2;
+
+    var db: SemanticDb = semantic_test_db();
+    try assert_eq_i32(semantic_db_build_from_merged_ast(&db, &program), 0);
+    try assert_eq_i32(db.file_count, 2);
+    try assert_eq_i32(db.module_count, 2);
+    try assert_eq_i32(semantic_db_import_binding_count(&db), 2);
+
+    var import0: SemanticImportBinding = SemanticImportBinding{ file_id: -1, module_id: -1, name: null, ast_node: null };
+    var import1: SemanticImportBinding = SemanticImportBinding{ file_id: -1, module_id: -1, name: null, ast_node: null };
+    try assert_eq_i32(semantic_db_import_binding_get(&db, 0, &import0), 1);
+    try assert_eq_i32(semantic_db_import_binding_get(&db, 1, &import1), 1);
+    try expect(semantic_test_cstr_equals(import0.name, "io") != 0);
+    try expect(semantic_test_cstr_equals(import1.name, "io") != 0);
+    try assert_eq_i32(import0.file_id, 0);
+    try assert_eq_i32(import0.module_id, 0);
+    try assert_eq_i32(import1.file_id, 1);
+    try assert_eq_i32(import1.module_id, 1);
+    try expect(import0.ast_node == &alias_a as &void);
+    try expect(import1.ast_node == &alias_b as &void);
+    semantic_db_release(&db);
+}
 EOF
 
 (cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
