@@ -148,7 +148,7 @@ FunctionId
 MonoInstanceId
 ```
 
-- [ ] 新建 `src/semantic/table.uya` 或等价基础设施，提供动态 vector/hash/range builder。
+- [x] 新建 `src/semantic/table.uya` 或等价基础设施，提供动态 vector/hash/range builder。
 - [ ] 动态表 API 必须包含 `reserve`、`ensure_capacity`、`append/insert`、`reset`、`free/release`。
 - [ ] 动态表必须记录 `count`、`capacity`、`bytes`、`realloc_count`。
 - [ ] 动态表增长必须检查整数溢出和 allocation failure。
@@ -183,6 +183,7 @@ MonoInstanceId
 
 ```bash
 bash tests/verify_semantic_ids.sh
+bash tests/verify_semantic_table.sh
 bash tests/verify_semantic_db_smoke.sh
 make tests-uya
 ```

@@ -1,0 +1,538 @@
+// semantic/table.uya - Dynamic table primitives for the SemanticDb pipeline.
+
+use libc;
+
+const SEMANTIC_TABLE_MIN_CAPACITY: usize = 8usize;
+const SEMANTIC_TABLE_MAX_BYTES: usize = 9223372036854775807usize;
+const SEMANTIC_HASH_EMPTY: i32 = 0;
+const SEMANTIC_HASH_FILLED: i32 = 1;
+
+/// 功能说明：记录动态表的容量、字节数和增长次数。
+/// 参数说明：无；字段由具体 table helper 填充。
+/// 返回值说明：无。
+export struct SemanticTableStats {
+    count: usize,
+    capacity: usize,
+    bytes: usize,
+    realloc_count: i32,
+}
+
+/// 功能说明：按元素字节宽度存储的动态 vector。
+/// 参数说明：无；调用 `semantic_vector_init` 后使用。
+/// 返回值说明：无。
+export struct SemanticVector {
+    data: &byte,
+    item_size: usize,
+    count: usize,
+    capacity: usize,
+    bytes: usize,
+    realloc_count: i32,
+}
+
+/// 功能说明：i64 key 到 i32 value 的开放寻址 hash entry。
+/// 参数说明：无；由 `SemanticHash` 内部维护。
+/// 返回值说明：无。
+export struct SemanticHashEntry {
+    key: i64,
+    value: i32,
+    state: i32,
+}
+
+/// 功能说明：动态扩容的开放寻址 hash 表。
+/// 参数说明：无；调用 `semantic_hash_init` 后使用。
+/// 返回值说明：无。
+export struct SemanticHash {
+    entries: &SemanticHashEntry,
+    count: usize,
+    capacity: usize,
+    bytes: usize,
+    realloc_count: i32,
+}
+
+/// 功能说明：表示同一紧凑数组中的一段连续 range。
+/// 参数说明：无；字段为 range 起点和元素数量。
+/// 返回值说明：无。
+export struct SemanticRange {
+    start: i32,
+    count: i32,
+}
+
+/// 功能说明：动态收集 `SemanticRange` 的 builder。
+/// 参数说明：无；调用 `semantic_range_builder_init` 后使用。
+/// 返回值说明：无。
+export struct SemanticRangeBuilder {
+    ranges: SemanticVector,
+}
+
+fn semantic_table_add_overflows(a: usize, b: usize) i32 {
+    if b > SEMANTIC_TABLE_MAX_BYTES {
+        return 1;
+    }
+    if a > SEMANTIC_TABLE_MAX_BYTES - b {
+        return 1;
+    }
+    return 0;
+}
+
+fn semantic_table_mul_overflows(a: usize, b: usize) i32 {
+    if a == 0usize || b == 0usize {
+        return 0;
+    }
+    if a > SEMANTIC_TABLE_MAX_BYTES / b {
+        return 1;
+    }
+    return 0;
+}
+
+fn semantic_table_next_capacity(current: usize, min_capacity: usize) usize {
+    var next: usize = current;
+    if next < SEMANTIC_TABLE_MIN_CAPACITY {
+        next = SEMANTIC_TABLE_MIN_CAPACITY;
+    }
+    while next < min_capacity {
+        if next > SEMANTIC_TABLE_MAX_BYTES / 2usize {
+            return min_capacity;
+        }
+        next = next * 2usize;
+    }
+    return next;
+}
+
+fn semantic_table_stats(count: usize, capacity: usize, bytes: usize, realloc_count: i32) SemanticTableStats {
+    return SemanticTableStats{
+        count: count,
+        capacity: capacity,
+        bytes: bytes,
+        realloc_count: realloc_count,
+    };
+}
+
+/// 功能说明：初始化动态 vector。
+/// 参数说明：`vec` 为待初始化 vector，`item_size` 为每个元素的字节数。
+/// 返回值说明：无。
+export fn semantic_vector_init(vec: &SemanticVector, item_size: usize) void {
+    if vec == null {
+        return;
+    }
+    vec.data = null;
+    vec.item_size = item_size;
+    vec.count = 0usize;
+    vec.capacity = 0usize;
+    vec.bytes = 0usize;
+    vec.realloc_count = 0;
+}
+
+/// 功能说明：将动态 vector 容量至少扩到 `new_capacity`。
+/// 参数说明：`vec` 为目标 vector，`new_capacity` 为所需元素容量。
+/// 返回值说明：成功返回 `0`，参数、溢出或分配失败返回 `-1`。
+export fn semantic_vector_reserve(vec: &SemanticVector, new_capacity: usize) i32 {
+    if vec == null || vec.item_size == 0usize {
+        return -1;
+    }
+    if new_capacity <= vec.capacity {
+        return 0;
+    }
+    if semantic_table_mul_overflows(new_capacity, vec.item_size) != 0 {
+        return -1;
+    }
+    const new_bytes: usize = new_capacity * vec.item_size;
+    const new_data: &byte = realloc(vec.data as &void, new_bytes) as &byte;
+    if new_data == null {
+        return -1;
+    }
+    vec.data = new_data;
+    vec.capacity = new_capacity;
+    vec.bytes = new_bytes;
+    vec.realloc_count = vec.realloc_count + 1;
+    return 0;
+}
+
+/// 功能说明：确保动态 vector 至少能容纳 `min_capacity` 个元素。
+/// 参数说明：`vec` 为目标 vector，`min_capacity` 为所需最小元素数。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn semantic_vector_ensure_capacity(vec: &SemanticVector, min_capacity: usize) i32 {
+    if vec == null {
+        return -1;
+    }
+    if min_capacity <= vec.capacity {
+        return 0;
+    }
+    const next: usize = semantic_table_next_capacity(vec.capacity, min_capacity);
+    return semantic_vector_reserve(vec, next);
+}
+
+/// 功能说明：向动态 vector 末尾追加一个元素。
+/// 参数说明：`vec` 为目标 vector，`item` 指向待复制的元素字节。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn semantic_vector_append(vec: &SemanticVector, item: &const void) i32 {
+    if vec == null || item == null || vec.item_size == 0usize {
+        return -1;
+    }
+    if semantic_table_add_overflows(vec.count, 1usize) != 0 {
+        return -1;
+    }
+    const next_count: usize = vec.count + 1usize;
+    if semantic_vector_ensure_capacity(vec, next_count) != 0 {
+        return -1;
+    }
+    const dst_addr: usize = @usize_from_ptr(vec.data) + vec.count * vec.item_size;
+    _ = memcpy(@ptr_from_usize(dst_addr) as *byte, item as *const byte, vec.item_size);
+    vec.count = next_count;
+    return 0;
+}
+
+/// 功能说明：在动态 vector 指定位置插入一个元素。
+/// 参数说明：`vec` 为目标 vector，`index` 为插入位置，`item` 指向待复制元素。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn semantic_vector_insert(vec: &SemanticVector, index: usize, item: &const void) i32 {
+    if vec == null || item == null || vec.item_size == 0usize || index > vec.count {
+        return -1;
+    }
+    if semantic_table_add_overflows(vec.count, 1usize) != 0 {
+        return -1;
+    }
+    const old_count: usize = vec.count;
+    const next_count: usize = old_count + 1usize;
+    if semantic_vector_ensure_capacity(vec, next_count) != 0 {
+        return -1;
+    }
+    const base_addr: usize = @usize_from_ptr(vec.data);
+    const insert_addr: usize = base_addr + index * vec.item_size;
+    if index < old_count {
+        const move_count: usize = old_count - index;
+        const move_bytes: usize = move_count * vec.item_size;
+        const dst_addr: usize = insert_addr + vec.item_size;
+        _ = memmove(@ptr_from_usize(dst_addr) as *byte, @ptr_from_usize(insert_addr) as *const byte, move_bytes);
+    }
+    _ = memcpy(@ptr_from_usize(insert_addr) as *byte, item as *const byte, vec.item_size);
+    vec.count = next_count;
+    return 0;
+}
+
+/// 功能说明：获取动态 vector 中某个元素的字节指针。
+/// 参数说明：`vec` 为目标 vector，`index` 为元素下标。
+/// 返回值说明：存在时返回元素地址，越界或参数无效时返回 null。
+export fn semantic_vector_item_ptr(vec: &SemanticVector, index: usize) &byte {
+    if vec == null || vec.data == null || vec.item_size == 0usize || index >= vec.count {
+        return null;
+    }
+    const addr: usize = @usize_from_ptr(vec.data) + index * vec.item_size;
+    return @ptr_from_usize(addr) as &byte;
+}
+
+/// 功能说明：重置动态 vector 元素数量但保留已分配容量。
+/// 参数说明：`vec` 为目标 vector。
+/// 返回值说明：无。
+export fn semantic_vector_reset(vec: &SemanticVector) void {
+    if vec == null {
+        return;
+    }
+    vec.count = 0usize;
+}
+
+/// 功能说明：释放动态 vector 的底层存储并清空元数据。
+/// 参数说明：`vec` 为目标 vector。
+/// 返回值说明：无。
+export fn semantic_vector_free(vec: &SemanticVector) void {
+    if vec == null {
+        return;
+    }
+    if vec.data != null {
+        free(vec.data as &void);
+    }
+    semantic_vector_init(vec, 0usize);
+}
+
+/// 功能说明：释放动态 vector；与 `semantic_vector_free` 等价。
+/// 参数说明：`vec` 为目标 vector。
+/// 返回值说明：无。
+export fn semantic_vector_release(vec: &SemanticVector) void {
+    semantic_vector_free(vec);
+}
+
+/// 功能说明：读取动态 vector 的统计信息。
+/// 参数说明：`vec` 为目标 vector。
+/// 返回值说明：返回 count、capacity、bytes 和 realloc_count。
+export fn semantic_vector_stats(vec: &SemanticVector) SemanticTableStats {
+    if vec == null {
+        return semantic_table_stats(0usize, 0usize, 0usize, 0);
+    }
+    return semantic_table_stats(vec.count, vec.capacity, vec.bytes, vec.realloc_count);
+}
+
+fn semantic_hash_key(key: i64) usize {
+    if key < 0 {
+        return 0usize;
+    }
+    const h_tmp: !usize = key as! usize;
+    var h: usize = h_tmp catch {
+        return 0usize;
+    };
+    h = h ^ (h / 65537usize);
+    h = h ^ (h / 257usize);
+    return h;
+}
+
+fn semantic_hash_find_slot(entries: &SemanticHashEntry, capacity: usize, key: i64, found: &i32) usize {
+    if entries == null || capacity == 0usize || found == null {
+        return capacity;
+    }
+    var idx: usize = semantic_hash_key(key) % capacity;
+    var probes: usize = 0usize;
+    while probes < capacity {
+        const entry: &SemanticHashEntry = &entries[idx];
+        if entry.state == SEMANTIC_HASH_EMPTY {
+            found[0] = 0;
+            return idx;
+        }
+        if entry.state == SEMANTIC_HASH_FILLED && entry.key == key {
+            found[0] = 1;
+            return idx;
+        }
+        idx = idx + 1usize;
+        if idx >= capacity {
+            idx = 0usize;
+        }
+        probes = probes + 1usize;
+    }
+    found[0] = 0;
+    return capacity;
+}
+
+fn semantic_hash_put_entry(entries: &SemanticHashEntry, capacity: usize, key: i64, value: i32) i32 {
+    var found: i32 = 0;
+    const slot: usize = semantic_hash_find_slot(entries, capacity, key, &found);
+    if slot >= capacity {
+        return -1;
+    }
+    entries[slot].key = key;
+    entries[slot].value = value;
+    entries[slot].state = SEMANTIC_HASH_FILLED;
+    return found;
+}
+
+/// 功能说明：初始化动态 hash 表。
+/// 参数说明：`hash` 为待初始化 hash。
+/// 返回值说明：无。
+export fn semantic_hash_init(hash: &SemanticHash) void {
+    if hash == null {
+        return;
+    }
+    hash.entries = null;
+    hash.count = 0usize;
+    hash.capacity = 0usize;
+    hash.bytes = 0usize;
+    hash.realloc_count = 0;
+}
+
+/// 功能说明：将动态 hash 容量至少扩到 `min_capacity`。
+/// 参数说明：`hash` 为目标 hash，`min_capacity` 为最小 bucket 数。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn semantic_hash_reserve(hash: &SemanticHash, min_capacity: usize) i32 {
+    if hash == null {
+        return -1;
+    }
+    if min_capacity <= hash.capacity {
+        return 0;
+    }
+    const next_capacity: usize = semantic_table_next_capacity(hash.capacity, min_capacity);
+    if semantic_table_mul_overflows(next_capacity, @size_of(SemanticHashEntry)) != 0 {
+        return -1;
+    }
+    const new_bytes: usize = next_capacity * @size_of(SemanticHashEntry);
+    const new_entries: &SemanticHashEntry = realloc(null, new_bytes) as &SemanticHashEntry;
+    if new_entries == null {
+        return -1;
+    }
+    _ = memset(new_entries as *byte, 0, new_bytes);
+
+    var i: usize = 0usize;
+    while i < hash.capacity {
+        const entry: &SemanticHashEntry = &hash.entries[i];
+        if entry.state == SEMANTIC_HASH_FILLED {
+            if semantic_hash_put_entry(new_entries, next_capacity, entry.key, entry.value) < 0 {
+                free(new_entries as &void);
+                return -1;
+            }
+        }
+        i = i + 1usize;
+    }
+
+    if hash.entries != null {
+        free(hash.entries as &void);
+    }
+    hash.entries = new_entries;
+    hash.capacity = next_capacity;
+    hash.bytes = new_bytes;
+    hash.realloc_count = hash.realloc_count + 1;
+    return 0;
+}
+
+/// 功能说明：插入或更新动态 hash 中的 key/value。
+/// 参数说明：`hash` 为目标 hash，`key` 为 i64 key，`value` 为 i32 value。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn semantic_hash_insert(hash: &SemanticHash, key: i64, value: i32) i32 {
+    if hash == null {
+        return -1;
+    }
+    if semantic_table_add_overflows(hash.count, 1usize) != 0 {
+        return -1;
+    }
+    const next_count: usize = hash.count + 1usize;
+    if hash.capacity == 0usize || next_count >= hash.capacity - (hash.capacity / 4usize) {
+        var min_capacity: usize = SEMANTIC_TABLE_MIN_CAPACITY;
+        if hash.capacity > 0usize {
+            if hash.capacity > SEMANTIC_TABLE_MAX_BYTES / 2usize {
+                return -1;
+            }
+            min_capacity = hash.capacity * 2usize;
+        }
+        if semantic_hash_reserve(hash, min_capacity) != 0 {
+            return -1;
+        }
+    }
+    var found: i32 = 0;
+    const slot: usize = semantic_hash_find_slot(hash.entries, hash.capacity, key, &found);
+    if slot >= hash.capacity {
+        return -1;
+    }
+    hash.entries[slot].key = key;
+    hash.entries[slot].value = value;
+    hash.entries[slot].state = SEMANTIC_HASH_FILLED;
+    if found == 0 {
+        hash.count = hash.count + 1usize;
+    }
+    return 0;
+}
+
+/// 功能说明：查询动态 hash 中的 key。
+/// 参数说明：`hash` 为目标 hash，`key` 为 i64 key，`out_value` 接收命中值。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn semantic_hash_get(hash: &SemanticHash, key: i64, out_value: &i32) i32 {
+    if hash == null || out_value == null || hash.entries == null || hash.capacity == 0usize {
+        return 0;
+    }
+    var found: i32 = 0;
+    const slot: usize = semantic_hash_find_slot(hash.entries, hash.capacity, key, &found);
+    if found == 0 || slot >= hash.capacity {
+        return 0;
+    }
+    out_value[0] = hash.entries[slot].value;
+    return 1;
+}
+
+/// 功能说明：清空动态 hash 内容但保留 bucket 存储。
+/// 参数说明：`hash` 为目标 hash。
+/// 返回值说明：无。
+export fn semantic_hash_reset(hash: &SemanticHash) void {
+    if hash == null {
+        return;
+    }
+    if hash.entries != null && hash.bytes > 0usize {
+        _ = memset(hash.entries as *byte, 0, hash.bytes);
+    }
+    hash.count = 0usize;
+}
+
+/// 功能说明：释放动态 hash 的 bucket 存储并清空元数据。
+/// 参数说明：`hash` 为目标 hash。
+/// 返回值说明：无。
+export fn semantic_hash_free(hash: &SemanticHash) void {
+    if hash == null {
+        return;
+    }
+    if hash.entries != null {
+        free(hash.entries as &void);
+    }
+    semantic_hash_init(hash);
+}
+
+/// 功能说明：释放动态 hash；与 `semantic_hash_free` 等价。
+/// 参数说明：`hash` 为目标 hash。
+/// 返回值说明：无。
+export fn semantic_hash_release(hash: &SemanticHash) void {
+    semantic_hash_free(hash);
+}
+
+/// 功能说明：读取动态 hash 的统计信息。
+/// 参数说明：`hash` 为目标 hash。
+/// 返回值说明：返回 count、capacity、bytes 和 realloc_count。
+export fn semantic_hash_stats(hash: &SemanticHash) SemanticTableStats {
+    if hash == null {
+        return semantic_table_stats(0usize, 0usize, 0usize, 0);
+    }
+    return semantic_table_stats(hash.count, hash.capacity, hash.bytes, hash.realloc_count);
+}
+
+/// 功能说明：初始化动态 range builder。
+/// 参数说明：`builder` 为待初始化 builder。
+/// 返回值说明：无。
+export fn semantic_range_builder_init(builder: &SemanticRangeBuilder) void {
+    if builder == null {
+        return;
+    }
+    semantic_vector_init(&builder.ranges, @size_of(SemanticRange));
+}
+
+/// 功能说明：向 range builder 追加一个 range。
+/// 参数说明：`builder` 为目标 builder，`start` 为起点，`count` 为元素数量。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn semantic_range_builder_append(builder: &SemanticRangeBuilder, start: i32, count: i32) i32 {
+    if builder == null || start < 0 || count < 0 {
+        return -1;
+    }
+    var range: SemanticRange = SemanticRange{ start: start, count: count };
+    return semantic_vector_append(&builder.ranges, &range as &const void);
+}
+
+/// 功能说明：读取 range builder 中指定下标的 range。
+/// 参数说明：`builder` 为目标 builder，`index` 为 range 下标，`out_range` 接收结果。
+/// 返回值说明：命中返回 `1`，越界或参数无效返回 `0`。
+export fn semantic_range_builder_get(builder: &SemanticRangeBuilder, index: usize, out_range: &SemanticRange) i32 {
+    if builder == null || out_range == null {
+        return 0;
+    }
+    const ptr: &SemanticRange = semantic_vector_item_ptr(&builder.ranges, index) as &SemanticRange;
+    if ptr == null {
+        return 0;
+    }
+    out_range[0] = ptr[0];
+    return 1;
+}
+
+/// 功能说明：重置 range builder 内容但保留容量。
+/// 参数说明：`builder` 为目标 builder。
+/// 返回值说明：无。
+export fn semantic_range_builder_reset(builder: &SemanticRangeBuilder) void {
+    if builder == null {
+        return;
+    }
+    semantic_vector_reset(&builder.ranges);
+}
+
+/// 功能说明：释放 range builder 的底层存储。
+/// 参数说明：`builder` 为目标 builder。
+/// 返回值说明：无。
+export fn semantic_range_builder_free(builder: &SemanticRangeBuilder) void {
+    if builder == null {
+        return;
+    }
+    semantic_vector_free(&builder.ranges);
+}
+
+/// 功能说明：释放 range builder；与 `semantic_range_builder_free` 等价。
+/// 参数说明：`builder` 为目标 builder。
+/// 返回值说明：无。
+export fn semantic_range_builder_release(builder: &SemanticRangeBuilder) void {
+    semantic_range_builder_free(builder);
+}
+
+/// 功能说明：读取 range builder 的统计信息。
+/// 参数说明：`builder` 为目标 builder。
+/// 返回值说明：返回内部 range vector 的统计信息。
+export fn semantic_range_builder_stats(builder: &SemanticRangeBuilder) SemanticTableStats {
+    if builder == null {
+        return semantic_table_stats(0usize, 0usize, 0usize, 0);
+    }
+    return semantic_vector_stats(&builder.ranges);
+}
