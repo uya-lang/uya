@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TABLE_FILE="$REPO_ROOT/src/semantic/table.uya"
 DB_FILE="$REPO_ROOT/src/semantic/db.uya"
 
 require_pattern() {
@@ -15,26 +16,43 @@ require_pattern() {
     fi
 }
 
-if [[ ! -f "$DB_FILE" ]]; then
-    echo "错误: 缺少 $DB_FILE" >&2
-    exit 1
-fi
+for file in "$TABLE_FILE" "$DB_FILE"; do
+    if [[ ! -f "$file" ]]; then
+        echo "错误: 缺少 $file" >&2
+        exit 1
+    fi
+done
 
 require_pattern "^export[[:space:]]+struct[[:space:]]+SemanticDb" "SemanticDb 结构"
+require_pattern "^export[[:space:]]+struct[[:space:]]+SemanticDeclRecord" "SemanticDeclRecord 结构"
 require_pattern "semantic_db_init" "init API"
 require_pattern "semantic_db_reset" "reset API"
 require_pattern "semantic_db_estimated_bytes" "bytes API"
+require_pattern "semantic_db_release" "release API"
 require_pattern "file_count" "file_count 字段"
 require_pattern "module_count" "module_count 字段"
 require_pattern "decl_count" "decl_count 字段"
 require_pattern "interned_name_count" "interned_name_count 字段"
+require_pattern "decl_records" "decl_records 字段"
 
 tmp_dir="$(mktemp -d /tmp/uya-semantic-db.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
-cp "$DB_FILE" "$tmp_dir/main.uya"
+cat "$TABLE_FILE" >"$tmp_dir/main.uya"
+cat "$DB_FILE" >>"$tmp_dir/main.uya"
 
 cat >>"$tmp_dir/main.uya" <<'EOF'
 use std.testing.assert_eq_i32;
+
+fn semantic_test_vector() SemanticVector {
+    return SemanticVector{
+        data: null,
+        item_size: 0usize,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+}
 
 test "semantic db definition initializes and resets" {
     var db: SemanticDb = SemanticDb{
@@ -49,17 +67,23 @@ test "semantic db definition initializes and resets" {
         function_count: 8,
         mono_instance_count: 10,
         estimated_bytes: 123usize,
+        decl_records: semantic_test_vector(),
+        symbol_records: semantic_test_vector(),
+        name_ranges: semantic_test_vector(),
     };
     semantic_db_init(&db);
     try assert_eq_i32(db.file_count, 0);
     try assert_eq_i32(db.module_count, 0);
     try assert_eq_i32(db.interned_name_count, 0);
+    try assert_eq_i32(semantic_db_decl_record_count(&db), 0);
     try assert_eq_i32(semantic_db_estimated_bytes(&db) as i32, 0);
     db.decl_count = 11;
     db.estimated_bytes = 44usize;
     semantic_db_reset(&db);
     try assert_eq_i32(db.decl_count, 0);
+    try assert_eq_i32(semantic_db_symbol_record_count(&db), 0);
     try assert_eq_i32(semantic_db_estimated_bytes(&db) as i32, 0);
+    semantic_db_release(&db);
 }
 EOF
 

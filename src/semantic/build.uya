@@ -83,9 +83,39 @@ fn semantic_db_count_unique_files(program: &ASTNode) i32 {
     return count;
 }
 
-fn semantic_db_count_method_symbols(db: &SemanticDb, methods: & & ASTNode, method_count: i32) void {
-    if db == null || methods == null || method_count <= 0 {
+fn semantic_db_prepare_for_build(db: &SemanticDb) void {
+    if db == null {
         return;
+    }
+    if db.decl_records.item_size != @size_of(SemanticDeclRecord) ||
+        db.symbol_records.item_size != @size_of(SemanticSymbolRecord) ||
+        db.name_ranges.item_size != @size_of(SemanticNameRange) {
+        semantic_db_init(db);
+        return;
+    }
+    semantic_db_reset(db);
+}
+
+fn semantic_db_append_named_symbol(db: &SemanticDb, decl_id: i32, kind: i32) i32 {
+    if db == null || decl_id < 0 {
+        return -1;
+    }
+    const name_id: i32 = db.interned_name_count;
+    const symbol_id: i32 = semantic_db_append_symbol_record(db, name_id, decl_id, kind);
+    if symbol_id < 0 {
+        return -1;
+    }
+    if semantic_db_append_name_range(db, name_id, symbol_id, 1) < 0 {
+        return -1;
+    }
+    db.symbol_count = db.symbol_count + 1;
+    db.interned_name_count = db.interned_name_count + 1;
+    return name_id;
+}
+
+fn semantic_db_count_method_symbols(db: &SemanticDb, methods: & & ASTNode, method_count: i32, owner_decl_id: i32) i32 {
+    if db == null || methods == null || method_count <= 0 {
+        return 0;
     }
     var i: i32 = 0;
     while i < method_count {
@@ -93,45 +123,65 @@ fn semantic_db_count_method_symbols(db: &SemanticDb, methods: & & ASTNode, metho
         if method != null && method.type == ASTNodeType.AST_FN_DECL {
             db.function_count = db.function_count + 1;
             if method.fn_decl_name != null {
-                db.symbol_count = db.symbol_count + 1;
-                db.interned_name_count = db.interned_name_count + 1;
+                if semantic_db_append_named_symbol(db, owner_decl_id, method.type as i32) < 0 {
+                    return -1;
+                }
             }
         }
         i = i + 1;
     }
+    return 0;
 }
 
-fn semantic_db_count_decl(db: &SemanticDb, decl: &ASTNode) void {
+fn semantic_db_count_decl(db: &SemanticDb, decl: &ASTNode) i32 {
     if db == null || decl == null {
-        return;
+        return 0;
+    }
+    const primary_name: &byte = semantic_db_decl_primary_name(decl);
+    var primary_name_id: i32 = -1;
+    if primary_name != null {
+        primary_name_id = db.interned_name_count;
+    }
+
+    const decl_id: i32 = semantic_db_append_decl_record(db, decl as &void, primary_name_id, decl.type as i32, 0, 0);
+    if decl_id < 0 {
+        return -1;
     }
     db.decl_count = db.decl_count + 1;
 
-    const primary_name: &byte = semantic_db_decl_primary_name(decl);
     if primary_name != null {
-        db.symbol_count = db.symbol_count + 1;
-        db.interned_name_count = db.interned_name_count + 1;
+        if semantic_db_append_named_symbol(db, decl_id, decl.type as i32) < 0 {
+            return -1;
+        }
     }
 
     if decl.type == ASTNodeType.AST_FN_DECL {
         db.function_count = db.function_count + 1;
     } else if decl.type == ASTNodeType.AST_STRUCT_DECL {
         db.type_count = db.type_count + 1;
-        semantic_db_count_method_symbols(db, decl.struct_decl_methods, decl.struct_decl_method_count);
+        if semantic_db_count_method_symbols(db, decl.struct_decl_methods, decl.struct_decl_method_count, decl_id) != 0 {
+            return -1;
+        }
     } else if decl.type == ASTNodeType.AST_UNION_DECL {
         db.type_count = db.type_count + 1;
-        semantic_db_count_method_symbols(db, decl.union_decl_methods, decl.union_decl_method_count);
+        if semantic_db_count_method_symbols(db, decl.union_decl_methods, decl.union_decl_method_count, decl_id) != 0 {
+            return -1;
+        }
     } else if decl.type == ASTNodeType.AST_INTERFACE_DECL {
         db.type_count = db.type_count + 1;
-        semantic_db_count_method_symbols(db, decl.interface_decl_method_sigs, decl.interface_decl_method_sig_count);
+        if semantic_db_count_method_symbols(db, decl.interface_decl_method_sigs, decl.interface_decl_method_sig_count, decl_id) != 0 {
+            return -1;
+        }
     } else if decl.type == ASTNodeType.AST_ENUM_DECL {
         db.type_count = db.type_count + 1;
-        db.symbol_count = db.symbol_count + decl.enum_decl_variant_count;
     } else if decl.type == ASTNodeType.AST_TYPE_ALIAS {
         db.type_count = db.type_count + 1;
     } else if decl.type == ASTNodeType.AST_METHOD_BLOCK {
-        semantic_db_count_method_symbols(db, decl.method_block_methods, decl.method_block_method_count);
+        if semantic_db_count_method_symbols(db, decl.method_block_methods, decl.method_block_method_count, decl_id) != 0 {
+            return -1;
+        }
     }
+    return 0;
 }
 
 fn semantic_db_update_estimated_bytes(db: &SemanticDb) void {
@@ -139,12 +189,9 @@ fn semantic_db_update_estimated_bytes(db: &SemanticDb) void {
         return;
     }
     var bytes: usize = @size_of(SemanticDb);
-    if db.decl_count > 0 {
-        bytes = bytes + (db.decl_count as usize) * @size_of(&ASTNode);
-    }
-    if db.symbol_count > 0 {
-        bytes = bytes + (db.symbol_count as usize) * @size_of(i32);
-    }
+    bytes = bytes + db.decl_records.bytes;
+    bytes = bytes + db.symbol_records.bytes;
+    bytes = bytes + db.name_ranges.bytes;
     db.estimated_bytes = bytes;
 }
 
@@ -159,13 +206,21 @@ export fn semantic_db_build_from_merged_ast(db: &SemanticDb, program: &ASTNode) 
         return -1;
     }
 
-    semantic_db_reset(db);
+    semantic_db_prepare_for_build(db);
+    if program.program_decl_count > 0 {
+        if semantic_vector_ensure_capacity(&db.decl_records, program.program_decl_count as usize) != 0 {
+            return -1;
+        }
+    }
     db.file_count = semantic_db_count_unique_files(program);
     db.module_count = db.file_count;
 
     var i: i32 = 0;
     while i < program.program_decl_count {
-        semantic_db_count_decl(db, program.program_decls[i]);
+        if semantic_db_count_decl(db, program.program_decls[i]) != 0 {
+            semantic_db_reset(db);
+            return -1;
+        }
         i = i + 1;
     }
     semantic_db_update_estimated_bytes(db);

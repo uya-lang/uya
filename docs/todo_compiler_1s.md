@@ -156,7 +156,7 @@ MonoInstanceId
 - [x] intern 表按负载因子动态扩容，不允许固定 4096/8192 槽作为语义上限。
 - [x] 新建 `src/semantic/db.uya`，定义 `SemanticDb`。
 - [x] 新建 `src/semantic/build.uya`，从 merged AST 构建 `SemanticDb`。
-- [ ] `SemanticDb` 内部使用紧凑数组/range，不为每个名字单独堆分配链表节点。
+- [x] `SemanticDb` 内部使用紧凑数组/range，不为每个名字单独堆分配链表节点。
 - [ ] `SemanticDb` 所有数组、range、hash bucket、collision list 都随数据增长动态扩容。
 - [ ] `SemanticDb` 记录自身估算字节数。
 - [ ] 为顶层声明建立 `DeclId -> ASTNode` 映射。
@@ -190,6 +190,7 @@ bash tests/verify_semantic_table_growth_failures.sh
 bash tests/verify_semantic_intern.sh
 bash tests/verify_semantic_intern_growth.sh
 bash tests/verify_semantic_db_definition.sh
+bash tests/verify_semantic_db_compact_storage.sh
 bash tests/verify_semantic_db_smoke.sh
 make tests-uya
 ```

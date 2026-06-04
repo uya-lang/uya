@@ -1,6 +1,35 @@
 // semantic/db.uya - SemanticDb root state for the 1-second compiler pipeline.
 
-/// 功能说明：保存 SemanticDb 的顶层计数和估算字节数。
+/// 功能说明：保存 DeclId 对应的紧凑声明记录。
+/// 参数说明：无；记录由 SemanticDb 构建阶段追加。
+/// 返回值说明：无。
+export struct SemanticDeclRecord {
+    ast_node: &void,
+    name_id: i32,
+    kind: i32,
+    file_id: i32,
+    module_id: i32,
+}
+
+/// 功能说明：保存 SymbolId 对应的紧凑符号记录。
+/// 参数说明：无；记录由 SemanticDb 构建阶段追加。
+/// 返回值说明：无。
+export struct SemanticSymbolRecord {
+    name_id: i32,
+    decl_id: i32,
+    kind: i32,
+}
+
+/// 功能说明：保存一个名字在符号数组中的连续 range。
+/// 参数说明：无；`symbol_start` 和 `symbol_count` 指向 `symbol_records`。
+/// 返回值说明：无。
+export struct SemanticNameRange {
+    name_id: i32,
+    symbol_start: i32,
+    symbol_count: i32,
+}
+
+/// 功能说明：保存 SemanticDb 的顶层计数、估算字节数和紧凑记录数组。
 /// 参数说明：无；调用 `semantic_db_init` 后使用。
 /// 返回值说明：无。
 export struct SemanticDb {
@@ -15,12 +44,12 @@ export struct SemanticDb {
     function_count: i32,
     mono_instance_count: i32,
     estimated_bytes: usize,
+    decl_records: SemanticVector,
+    symbol_records: SemanticVector,
+    name_ranges: SemanticVector,
 }
 
-/// 功能说明：初始化 SemanticDb 顶层状态。
-/// 参数说明：`db` 为待初始化 SemanticDb。
-/// 返回值说明：无。
-export fn semantic_db_init(db: &SemanticDb) void {
+fn semantic_db_clear_counts(db: &SemanticDb) void {
     if db == null {
         return;
     }
@@ -37,11 +66,168 @@ export fn semantic_db_init(db: &SemanticDb) void {
     db.estimated_bytes = 0usize;
 }
 
+fn semantic_db_usize_to_i32(value: usize) i32 {
+    const converted_tmp: !i32 = value as! i32;
+    const converted: i32 = converted_tmp catch {
+        return -1;
+    };
+    return converted;
+}
+
+/// 功能说明：初始化 SemanticDb 顶层状态和紧凑动态数组。
+/// 参数说明：`db` 为待初始化 SemanticDb。
+/// 返回值说明：无。
+export fn semantic_db_init(db: &SemanticDb) void {
+    if db == null {
+        return;
+    }
+    semantic_db_clear_counts(db);
+    semantic_vector_init(&db.decl_records, @size_of(SemanticDeclRecord));
+    semantic_vector_init(&db.symbol_records, @size_of(SemanticSymbolRecord));
+    semantic_vector_init(&db.name_ranges, @size_of(SemanticNameRange));
+}
+
 /// 功能说明：重置 SemanticDb 以支持同进程多次编译。
 /// 参数说明：`db` 为待重置 SemanticDb。
 /// 返回值说明：无。
 export fn semantic_db_reset(db: &SemanticDb) void {
-    semantic_db_init(db);
+    if db == null {
+        return;
+    }
+    semantic_db_clear_counts(db);
+    semantic_vector_reset(&db.decl_records);
+    semantic_vector_reset(&db.symbol_records);
+    semantic_vector_reset(&db.name_ranges);
+}
+
+/// 功能说明：释放 SemanticDb 内部动态数组并清空状态。
+/// 参数说明：`db` 为待释放 SemanticDb。
+/// 返回值说明：无。
+export fn semantic_db_release(db: &SemanticDb) void {
+    if db == null {
+        return;
+    }
+    semantic_vector_release(&db.decl_records);
+    semantic_vector_release(&db.symbol_records);
+    semantic_vector_release(&db.name_ranges);
+    semantic_db_clear_counts(db);
+}
+
+/// 功能说明：追加 DeclId 对应的紧凑声明记录。
+/// 参数说明：`db` 为目标库，其余参数为声明 AST 指针、名字 ID、种类、文件 ID 和模块 ID。
+/// 返回值说明：成功返回新 DeclId；失败返回 `-1`。
+export fn semantic_db_append_decl_record(
+    db: &SemanticDb,
+    ast_node: &void,
+    name_id: i32,
+    kind: i32,
+    file_id: i32,
+    module_id: i32,
+) i32 {
+    if db == null || ast_node == null {
+        return -1;
+    }
+    const decl_id: i32 = semantic_db_usize_to_i32(db.decl_records.count);
+    if decl_id < 0 {
+        return -1;
+    }
+    var record: SemanticDeclRecord = SemanticDeclRecord{
+        ast_node: ast_node,
+        name_id: name_id,
+        kind: kind,
+        file_id: file_id,
+        module_id: module_id,
+    };
+    if semantic_vector_append(&db.decl_records, &record as &const void) != 0 {
+        return -1;
+    }
+    return decl_id;
+}
+
+/// 功能说明：追加 SymbolId 对应的紧凑符号记录。
+/// 参数说明：`db` 为目标库，`name_id` 为名字 ID，`decl_id` 为声明 ID，`kind` 为符号种类。
+/// 返回值说明：成功返回新 SymbolId；失败返回 `-1`。
+export fn semantic_db_append_symbol_record(db: &SemanticDb, name_id: i32, decl_id: i32, kind: i32) i32 {
+    if db == null || name_id < 0 || decl_id < 0 {
+        return -1;
+    }
+    const symbol_id: i32 = semantic_db_usize_to_i32(db.symbol_records.count);
+    if symbol_id < 0 {
+        return -1;
+    }
+    var record: SemanticSymbolRecord = SemanticSymbolRecord{
+        name_id: name_id,
+        decl_id: decl_id,
+        kind: kind,
+    };
+    if semantic_vector_append(&db.symbol_records, &record as &const void) != 0 {
+        return -1;
+    }
+    return symbol_id;
+}
+
+/// 功能说明：追加一个名字到紧凑符号数组的 range。
+/// 参数说明：`db` 为目标库，`name_id` 为名字 ID，`symbol_start/count` 为连续符号段。
+/// 返回值说明：成功返回新 range 下标；失败返回 `-1`。
+export fn semantic_db_append_name_range(db: &SemanticDb, name_id: i32, symbol_start: i32, symbol_count: i32) i32 {
+    if db == null || name_id < 0 || symbol_start < 0 || symbol_count < 0 {
+        return -1;
+    }
+    const range_id: i32 = semantic_db_usize_to_i32(db.name_ranges.count);
+    if range_id < 0 {
+        return -1;
+    }
+    var record: SemanticNameRange = SemanticNameRange{
+        name_id: name_id,
+        symbol_start: symbol_start,
+        symbol_count: symbol_count,
+    };
+    if semantic_vector_append(&db.name_ranges, &record as &const void) != 0 {
+        return -1;
+    }
+    return range_id;
+}
+
+/// 功能说明：读取 SemanticDb 声明记录数量。
+/// 参数说明：`db` 为目标 SemanticDb。
+/// 返回值说明：返回声明记录数量；参数无效时返回 `0`。
+export fn semantic_db_decl_record_count(db: &SemanticDb) i32 {
+    if db == null {
+        return 0;
+    }
+    const count: i32 = semantic_db_usize_to_i32(db.decl_records.count);
+    if count < 0 {
+        return 0;
+    }
+    return count;
+}
+
+/// 功能说明：读取 SemanticDb 符号记录数量。
+/// 参数说明：`db` 为目标 SemanticDb。
+/// 返回值说明：返回符号记录数量；参数无效时返回 `0`。
+export fn semantic_db_symbol_record_count(db: &SemanticDb) i32 {
+    if db == null {
+        return 0;
+    }
+    const count: i32 = semantic_db_usize_to_i32(db.symbol_records.count);
+    if count < 0 {
+        return 0;
+    }
+    return count;
+}
+
+/// 功能说明：读取 SemanticDb 名字 range 数量。
+/// 参数说明：`db` 为目标 SemanticDb。
+/// 返回值说明：返回名字 range 数量；参数无效时返回 `0`。
+export fn semantic_db_name_range_count(db: &SemanticDb) i32 {
+    if db == null {
+        return 0;
+    }
+    const count: i32 = semantic_db_usize_to_i32(db.name_ranges.count);
+    if count < 0 {
+        return 0;
+    }
+    return count;
 }
 
 /// 功能说明：读取 SemanticDb 当前估算字节数。
