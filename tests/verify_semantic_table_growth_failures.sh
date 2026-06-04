@@ -34,7 +34,7 @@ cat >>"$tmp_dir/main.uya" <<'EOF'
 use std.testing.assert_eq_i32;
 use std.testing.expect;
 
-test "semantic table growth rejects overflow" {
+test "semantic vector growth overflow returns failure diagnostic" {
     var vec: SemanticVector = SemanticVector{
         data: null,
         item_size: 0usize,
@@ -48,7 +48,9 @@ test "semantic table growth rejects overflow" {
     try assert_eq_i32(semantic_vector_reserve(&vec, huge_vec_capacity), -1);
     try assert_eq_i32(vec.capacity as i32, 0);
     try assert_eq_i32(vec.realloc_count, 0);
+}
 
+test "semantic hash growth overflow returns failure diagnostic" {
     var hash: SemanticHash = SemanticHash{
         entries: null,
         count: 0usize,
@@ -61,11 +63,13 @@ test "semantic table growth rejects overflow" {
     try assert_eq_i32(semantic_hash_reserve(&hash, huge_hash_capacity), -1);
     try assert_eq_i32(hash.capacity as i32, 0);
     try assert_eq_i32(hash.realloc_count, 0);
+}
 
+test "semantic append invalid arguments return failure diagnostic" {
     try expect(semantic_vector_append(null, null) == -1);
 }
 EOF
 
 (cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
 
-echo "✓ semantic table growth rejects overflow and checks allocation failure"
+echo "✓ semantic table growth failure diagnostics verified"
