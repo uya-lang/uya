@@ -78,6 +78,61 @@ elapsed_ms() {
     printf '%s\n' "$(((end_ns - start_ns + 999999) / 1000000))"
 }
 
+git_value() {
+    local fallback="$1"
+    shift
+    git -C "$REPO_ROOT" "$@" 2>/dev/null || printf '%s\n' "$fallback"
+}
+
+detect_os() {
+    if [[ -n "${HOST_OS:-}" ]]; then
+        printf '%s\n' "$HOST_OS"
+        return
+    fi
+    uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' | sed -e 's/darwin/macos/' -e 's/msys.*/windows/' -e 's/mingw.*/windows/' -e 's/cygwin.*/windows/' || printf 'unknown\n'
+}
+
+detect_arch() {
+    if [[ -n "${HOST_ARCH:-}" ]]; then
+        printf '%s\n' "$HOST_ARCH"
+        return
+    fi
+    uname -m 2>/dev/null | sed -e 's/amd64/x86_64/' -e 's/aarch64/arm64/' || printf 'unknown\n'
+}
+
+detect_cpu_count() {
+    nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || printf 'unknown\n'
+}
+
+print_metadata() {
+    local commit branch os_name arch_name cpu_count cflags cc_driver backend native_enabled c99_enabled
+    commit="$(git_value unknown rev-parse --short=12 HEAD)"
+    branch="$(git_value unknown rev-parse --abbrev-ref HEAD)"
+    os_name="$(detect_os)"
+    arch_name="$(detect_arch)"
+    cpu_count="$(detect_cpu_count)"
+    cflags="${CFLAGS:-}"
+    cc_driver="${CC_DRIVER:-${CC:-cc}}"
+    backend="${UYA_BUILD_BACKEND:-$MODE}"
+    native_enabled=0
+    c99_enabled=1
+    if [[ "$backend" == "native" ]]; then
+        native_enabled=1
+        c99_enabled=0
+    fi
+
+    printf 'metadata\tcommit\t%s\n' "$commit" >&2
+    printf 'metadata\tbranch\t%s\n' "$branch" >&2
+    printf 'metadata\tos\t%s\n' "$os_name" >&2
+    printf 'metadata\tarch\t%s\n' "$arch_name" >&2
+    printf 'metadata\tcpu_count\t%s\n' "$cpu_count" >&2
+    printf 'metadata\tcflags\t%s\n' "$cflags" >&2
+    printf 'metadata\tcc_driver\t%s\n' "$cc_driver" >&2
+    printf 'metadata\tbackend\t%s\n' "$backend" >&2
+    printf 'metadata\tnative_enabled\t%s\n' "$native_enabled" >&2
+    printf 'metadata\tc99_enabled\t%s\n' "$c99_enabled" >&2
+}
+
 run_make_target() {
     local target="$1"
     local log_file="$2"
@@ -119,6 +174,7 @@ clean_values=()
 build_values=()
 total_values=()
 
+print_metadata
 printf 'run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tstatus\n'
 
 run=1

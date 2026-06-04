@@ -65,7 +65,7 @@ fi
 
 CALL_LOG="$TMP_DIR/calls.ok"
 : >"$CALL_LOG"
-MAKE="$FAKE_MAKE" UYA_FAKE_MAKE_CALL_LOG="$CALL_LOG" UYA_BENCH_TMPDIR="$TMP_DIR" bash "$BENCH_SCRIPT" --runs 2 >"$TMP_DIR/bench.tsv" 2>"$TMP_DIR/bench.err"
+CFLAGS="-std=c99 -O2 -Werror" CC_DRIVER="fake-cc" MAKE="$FAKE_MAKE" UYA_FAKE_MAKE_CALL_LOG="$CALL_LOG" UYA_BENCH_TMPDIR="$TMP_DIR" bash "$BENCH_SCRIPT" --runs 2 >"$TMP_DIR/bench.tsv" 2>"$TMP_DIR/bench.err"
 
 if ! grep -q $'^run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tstatus$' "$TMP_DIR/bench.tsv"; then
     echo "错误: benchmark TSV 表头不正确" >&2
@@ -90,6 +90,24 @@ if ! diff -u <(printf 'clean\nuya\nclean\nuya\n') "$CALL_LOG" >"$TMP_DIR/calls.d
     cat "$TMP_DIR/calls.diff" >&2
     exit 1
 fi
+for pattern in \
+    $'^metadata\tcommit\t' \
+    $'^metadata\tbranch\t' \
+    $'^metadata\tos\t' \
+    $'^metadata\tarch\t' \
+    $'^metadata\tcpu_count\t' \
+    $'^metadata\tcflags\t-std=c99 -O2 -Werror$' \
+    $'^metadata\tcc_driver\tfake-cc$' \
+    $'^metadata\tbackend\tc99$' \
+    $'^metadata\tnative_enabled\t0$' \
+    $'^metadata\tc99_enabled\t1$'
+do
+    if ! grep -q "$pattern" "$TMP_DIR/bench.err"; then
+        echo "错误: benchmark metadata 缺少字段: $pattern" >&2
+        cat "$TMP_DIR/bench.err" >&2
+        exit 1
+    fi
+done
 if compgen -G "$TMP_DIR/uya-bench-compiler-1s.*" >/dev/null; then
     echo "错误: benchmark 临时日志目录未清理" >&2
     compgen -G "$TMP_DIR/uya-bench-compiler-1s.*" >&2
