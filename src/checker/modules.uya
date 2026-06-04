@@ -617,7 +617,8 @@ fn find_or_create_module(checker: &TypeChecker, module_name: &byte, filename: &b
         i = i + 1;
     }
     
-    return null;  // 哈希表已满
+    checker_report_error(checker, checker.program_node, "checker module table 容量已满" as *byte);
+    return null;
 }
 
 fn append_module_export(
@@ -1379,14 +1380,20 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
         const import_hash: i32 = hash_string(import.local_name);
         var import_index: i32 = import_hash & (IMPORT_TABLE_SIZE - 1);
         var j: i32 = 0;
+        var import_inserted: i32 = 0;
         while j < IMPORT_TABLE_SIZE {
             const slot: i32 = (import_index + j) & (IMPORT_TABLE_SIZE - 1);
             if checker.import_table.slots[slot] == null {
                 checker.import_table.slots[slot] = import;
                 checker.import_table.count = checker.import_table.count + 1;
+                import_inserted = 1;
                 break;
             }
             j = j + 1;
+        }
+        if import_inserted == 0 {
+            checker_report_error(checker, node, "checker import table 容量已满" as *byte);
+            return 0;
         }
     } else if item_name != null {
         // 导入特定项（如 use module_a.public_func;）
@@ -1450,14 +1457,20 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
         const import_hash: i32 = hash_string(import.local_name);
         var import_index: i32 = import_hash & (IMPORT_TABLE_SIZE - 1);
         var slot_i: i32 = 0;
+        var import_inserted: i32 = 0;
         while slot_i < IMPORT_TABLE_SIZE {
             const slot: i32 = (import_index + slot_i) & (IMPORT_TABLE_SIZE - 1);
             if checker.import_table.slots[slot] == null {
                 checker.import_table.slots[slot] = import;
                 checker.import_table.count = checker.import_table.count + 1;
+                import_inserted = 1;
                 break;
             }
             slot_i = slot_i + 1;
+        }
+        if import_inserted == 0 {
+            checker_report_error(checker, node, "checker import table 容量已满" as *byte);
+            return 0;
         }
         // 导入函数时若表中尚无该名则注册到函数表，使 call 能解析到返回类型（如 !i64）
         if item_type == 1 && export_decl != null && export_decl.type == ASTNodeType.AST_FN_DECL {
@@ -1488,8 +1501,10 @@ struct VisitState {
 
 fn dfs_visit_module(checker: &TypeChecker, module_name: &byte, path: & & byte, path_len: i32,
                      visit_state: &VisitState, visit_count: i32) i32 {
-    if path_len >= MAX_MODULES {
-        return 0;  // 路径太长，跳过
+    const path_limit: i32 = MAX_MODULES;
+    if path_len >= path_limit {
+        checker_report_error(checker, checker.program_node, "checker module cycle table 容量已满" as *byte);
+        return 0;
     }
     
     // 查找模块的访问状态
@@ -1504,7 +1519,8 @@ fn dfs_visit_module(checker: &TypeChecker, module_name: &byte, path: & & byte, p
     }
     
     if state_idx == -1 {
-        return 0;  // 模块不在表中，跳过
+        checker_report_error(checker, checker.program_node, "checker module cycle table 缺少访问状态" as *byte);
+        return 0;
     }
     
     // 检查是否在递归栈中（发现循环）
@@ -1616,10 +1632,14 @@ fn detect_circular_dependencies(checker: &TypeChecker) void {
     while i < MODULE_TABLE_SIZE {
         const module: &ModuleInfo = checker.module_table.slots[i];
         if module != null {
-            if visit_count < MAX_MODULES {
+            const module_cycle_limit: i32 = MAX_MODULES;
+            if visit_count < module_cycle_limit {
                 visit_state[visit_count].module_name = module.module_name;
                 visit_state[visit_count].state = 0;
                 visit_count = visit_count + 1;
+            } else {
+                checker_report_error(checker, checker.program_node, "checker module cycle table 容量已满" as *byte);
+                return;
             }
         }
         i = i + 1;

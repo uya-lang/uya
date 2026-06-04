@@ -50,9 +50,11 @@ defer_out="$tmpdir/many_defers.out"
 drop_probe="$tmpdir/many_drops.uya"
 drop_out="$tmpdir/many_drops.out"
 {
+    echo "fn c99_local_seed() i32 { return 0; }"
+    echo ""
     echo "export fn main() i32 {"
     for i in $(seq 0 1024); do
-        printf '    var local_%04d: i32 = %d;\n' "$i" "$i"
+        printf '    var local_%04d: i32 = c99_local_seed();\n' "$i"
     done
     echo "    return 0;"
     echo "}"

@@ -162,7 +162,16 @@ fn mono_instance_type_args_match(checker: &TypeChecker, inst: &MonoInstance,
 fn register_mono_instance(checker: &TypeChecker, generic_name: &byte,
                           type_arg_nodes: & & ASTNode, type_arg_count: i32,
                           is_function: i32) i32 {
-    if checker == null || generic_name == null || checker.mono_instance_count >= MAX_MONO_INSTANCES {
+    if checker == null || generic_name == null {
+        return -1;
+    }
+    const mono_limit: i32 = MAX_MONO_INSTANCES;
+    if checker.mono_instance_count >= mono_limit {
+        var error_node: &ASTNode = checker.current_function_decl;
+        if error_node == null {
+            error_node = checker.program_node;
+        }
+        checker_report_error(checker, error_node, "checker mono instance table 容量已满" as *byte);
         return -1;
     }
     mono_instance_index_ensure(checker);

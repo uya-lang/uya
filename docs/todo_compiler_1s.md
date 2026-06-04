@@ -112,7 +112,7 @@ make bench-compiler-1s-check
     - [x] 修复 C99 mono/reachable/test worklist 上限静默跳过，改为明确 diagnostic。
     - [x] 修复 C99 registry/emitted metadata 上限静默返回或截断，改为明确 diagnostic。
     - [x] 修复 C99 locals/defer/drop 上限静默跳过，改为明确 diagnostic。
-  - [ ] 修复 checker 固定表 `count >= MAX_*` / `*_SIZE` 静默截断/跳过，改为明确 diagnostic。
+  - [x] 修复 checker 固定表 `count >= MAX_*` / `*_SIZE` 静默截断/跳过，改为明确 diagnostic。
   - [ ] 修复 exec 固定表 `count >= EXEC_MAX_*` 静默截断/跳过，改为明确 diagnostic。
 - [ ] 所有旧固定表如需临时保留，必须标注为 oracle/fallback，不允许计入 1 秒硬路径成功。
 - [ ] 动态表基础设施完成前，不得新增新的编译器表固定容量。

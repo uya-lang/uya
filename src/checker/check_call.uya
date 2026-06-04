@@ -213,7 +213,7 @@ fn async_call_visited_contains(visited: & & byte, visited_count: i32, name: &byt
     return 0;
 }
 
-fn async_call_add_edge(checker: &TypeChecker, from_name: &byte, to_name: &byte) i32 {
+fn async_call_add_edge(checker: &TypeChecker, from_name: &byte, to_name: &byte, node: &ASTNode) i32 {
     if checker == null || from_name == null || to_name == null {
         return 0;
     }
@@ -226,14 +226,17 @@ fn async_call_add_edge(checker: &TypeChecker, from_name: &byte, to_name: &byte) 
         }
         i = i + 1;
     }
-    if checker.async_call_edge_count >= @len(checker.async_call_edge_from) {
+    const edge_limit: i32 = @len(checker.async_call_edge_from);
+    if checker.async_call_edge_count >= edge_limit {
+        checker_report_error(checker, node, "checker async call graph 容量已满" as *byte);
         return 0;
     }
     const edge_idx: i32 = checker.async_call_edge_count;
     if edge_idx < 0 {
         return 0;
     }
-    if edge_idx >= @len(checker.async_call_edge_from) {
+    if edge_idx >= edge_limit {
+        checker_report_error(checker, node, "checker async call graph 容量已满" as *byte);
         return 0;
     }
     async_call_set_edge(checker, edge_idx, from_name, to_name);
@@ -252,14 +255,16 @@ fn async_call_set_edge(checker: &TypeChecker, idx: i32, from_name: &byte, to_nam
 }
 
 fn async_call_path_exists(checker: &TypeChecker, from_name: &byte, target_name: &byte,
-                         visited: & & byte, visited_count: i32) i32 {
+                         visited: & & byte, visited_count: i32, node: &ASTNode) i32 {
     if checker == null || from_name == null || target_name == null {
         return 0;
     }
     if str_equals(from_name, target_name) != 0 {
         return 1;
     }
-    if visited_count >= MAX_ASYNC_CALL_VISITED {
+    const visited_limit: i32 = MAX_ASYNC_CALL_VISITED;
+    if visited_count >= visited_limit {
+        checker_report_error(checker, node, "checker async call visited 容量已满" as *byte);
         return 0;
     }
     if async_call_visited_contains(visited, visited_count, from_name) != 0 {
@@ -274,7 +279,7 @@ fn async_call_path_exists(checker: &TypeChecker, from_name: &byte, target_name: 
                 return 1;
             }
             if async_call_path_exists(checker, checker.async_call_edge_to[i], target_name,
-                visited, visited_count + 1) != 0 {
+                visited, visited_count + 1, node) != 0 {
                 return 1;
             }
         }
@@ -1488,9 +1493,9 @@ fn checker_check_call_expr(checker: &TypeChecker, node: &ASTNode) Type {
                 checker_report_error(checker, node, "@async_fn 函数不允许直接递归调用（待 CPS/状态机大小计算实现）" as *byte);
                 return result;
             }
-            if async_call_add_edge(checker, current_async_name, callee_async_name) != 0 {
+            if async_call_add_edge(checker, current_async_name, callee_async_name, node) != 0 {
                 var visited: [&byte: 64] = [];
-                if async_call_path_exists(checker, callee_async_name, current_async_name, &visited[0], 0) != 0 {
+                if async_call_path_exists(checker, callee_async_name, current_async_name, &visited[0], 0, node) != 0 {
                     checker_report_error(checker, node, "@async_fn 函数不允许形成递归调用环（待 CPS/状态机大小计算实现）" as *byte);
                     return result;
                 }
