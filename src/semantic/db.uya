@@ -38,6 +38,15 @@ export struct SemanticDeclRange {
     decl_count: i32,
 }
 
+/// 功能说明：保存一个名字在函数 DeclId 数组中的连续 overload range。
+/// 参数说明：无；`function_start` 和 `function_count` 指向 `function_range_decl_ids`。
+/// 返回值说明：无。
+export struct SemanticFunctionOverloadRange {
+    name_id: i32,
+    function_start: i32,
+    function_count: i32,
+}
+
 /// 功能说明：保存 FileId 对应的源文件记录。
 /// 参数说明：无；`filename` 指向 AST 中稳定存在的文件名字符串。
 /// 返回值说明：无。
@@ -98,6 +107,9 @@ export struct SemanticDb {
     decl_ranges: SemanticVector,
     decl_range_ids: SemanticVector,
     decls_by_name: SemanticHash,
+    function_ranges: SemanticVector,
+    function_range_decl_ids: SemanticVector,
+    functions_by_name: SemanticHash,
     import_bindings: SemanticVector,
     export_bindings: SemanticVector,
 }
@@ -145,6 +157,9 @@ export fn semantic_db_init(db: &SemanticDb) void {
     semantic_vector_init(&db.decl_ranges, @size_of(SemanticDeclRange));
     semantic_vector_init(&db.decl_range_ids, @size_of(i32));
     semantic_hash_init(&db.decls_by_name);
+    semantic_vector_init(&db.function_ranges, @size_of(SemanticFunctionOverloadRange));
+    semantic_vector_init(&db.function_range_decl_ids, @size_of(i32));
+    semantic_hash_init(&db.functions_by_name);
     semantic_vector_init(&db.import_bindings, @size_of(SemanticImportBinding));
     semantic_vector_init(&db.export_bindings, @size_of(SemanticExportBinding));
 }
@@ -167,6 +182,9 @@ export fn semantic_db_reset(db: &SemanticDb) void {
     semantic_vector_reset(&db.decl_ranges);
     semantic_vector_reset(&db.decl_range_ids);
     semantic_hash_reset(&db.decls_by_name);
+    semantic_vector_reset(&db.function_ranges);
+    semantic_vector_reset(&db.function_range_decl_ids);
+    semantic_hash_reset(&db.functions_by_name);
     semantic_vector_reset(&db.import_bindings);
     semantic_vector_reset(&db.export_bindings);
 }
@@ -188,6 +206,9 @@ export fn semantic_db_release(db: &SemanticDb) void {
     semantic_vector_release(&db.decl_ranges);
     semantic_vector_release(&db.decl_range_ids);
     semantic_hash_release(&db.decls_by_name);
+    semantic_vector_release(&db.function_ranges);
+    semantic_vector_release(&db.function_range_decl_ids);
+    semantic_hash_release(&db.functions_by_name);
     semantic_vector_release(&db.import_bindings);
     semantic_vector_release(&db.export_bindings);
     semantic_db_clear_counts(db);
@@ -212,6 +233,9 @@ export fn semantic_db_storage_bytes(db: &SemanticDb) usize {
         db.decl_ranges.bytes +
         db.decl_range_ids.bytes +
         db.decls_by_name.bytes +
+        db.function_ranges.bytes +
+        db.function_range_decl_ids.bytes +
+        db.functions_by_name.bytes +
         db.import_bindings.bytes +
         db.export_bindings.bytes;
 }
@@ -493,6 +517,83 @@ export fn semantic_db_decl_range_decl_id(db: &SemanticDb, range: &SemanticDeclRa
     return decl_id[0];
 }
 
+/// 功能说明：追加一个名字到紧凑函数 DeclId 数组的 overload range。
+/// 参数说明：`db` 为目标库，`name_id` 为名字 ID，`function_start/count` 为连续函数 DeclId 段。
+/// 返回值说明：成功返回新 range 下标；失败返回 `-1`。
+export fn semantic_db_append_function_overload_range(
+    db: &SemanticDb,
+    name_id: i32,
+    function_start: i32,
+    function_count: i32,
+) i32 {
+    if db == null || name_id < 0 || function_start < 0 || function_count < 0 {
+        return -1;
+    }
+    const range_id: i32 = semantic_db_usize_to_i32(db.function_ranges.count);
+    if range_id < 0 {
+        return -1;
+    }
+    var record: SemanticFunctionOverloadRange = SemanticFunctionOverloadRange{
+        name_id: name_id,
+        function_start: function_start,
+        function_count: function_count,
+    };
+    if semantic_vector_append(&db.function_ranges, &record as &const void) != 0 {
+        return -1;
+    }
+    if semantic_hash_insert(&db.functions_by_name, name_id as i64, range_id) != 0 {
+        return -1;
+    }
+    return range_id;
+}
+
+/// 功能说明：按名字 ID 查询函数 overload range。
+/// 参数说明：`db` 为目标库，`name_id` 为名字 ID，`out_range` 接收 range 副本。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn semantic_db_find_function_overload_range(
+    db: &SemanticDb,
+    name_id: i32,
+    out_range: &SemanticFunctionOverloadRange,
+) i32 {
+    if db == null || out_range == null || name_id < 0 {
+        return 0;
+    }
+    var range_id: i32 = -1;
+    if semantic_hash_get(&db.functions_by_name, name_id as i64, &range_id) == 0 {
+        return 0;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(&db.function_ranges, range_id as usize);
+    if ptr == null {
+        return 0;
+    }
+    const range: &SemanticFunctionOverloadRange = ptr as &SemanticFunctionOverloadRange;
+    out_range[0] = range[0];
+    return 1;
+}
+
+/// 功能说明：读取 FunctionOverloadRange 中指定 offset 对应的函数 DeclId。
+/// 参数说明：`db` 为目标库，`range` 为函数 overload range，`offset` 为 range 内偏移。
+/// 返回值说明：命中返回 DeclId；参数无效或越界返回 `-1`。
+export fn semantic_db_function_range_decl_id(
+    db: &SemanticDb,
+    range: &SemanticFunctionOverloadRange,
+    offset: i32,
+) i32 {
+    if db == null || range == null || offset < 0 || offset >= range.function_count {
+        return -1;
+    }
+    const index: i32 = range.function_start + offset;
+    if index < 0 {
+        return -1;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(&db.function_range_decl_ids, index as usize);
+    if ptr == null {
+        return -1;
+    }
+    const decl_id: &i32 = ptr as &i32;
+    return decl_id[0];
+}
+
 /// 功能说明：读取 SemanticDb 声明记录数量。
 /// 参数说明：`db` 为目标 SemanticDb。
 /// 返回值说明：返回声明记录数量；参数无效时返回 `0`。
@@ -661,6 +762,20 @@ export fn semantic_db_decl_range_count(db: &SemanticDb) i32 {
         return 0;
     }
     const count: i32 = semantic_db_usize_to_i32(db.decl_ranges.count);
+    if count < 0 {
+        return 0;
+    }
+    return count;
+}
+
+/// 功能说明：读取 SemanticDb 函数 overload range 数量。
+/// 参数说明：`db` 为目标 SemanticDb。
+/// 返回值说明：返回 function overload range 数量；参数无效时返回 `0`。
+export fn semantic_db_function_overload_range_count(db: &SemanticDb) i32 {
+    if db == null {
+        return 0;
+    }
+    const count: i32 = semantic_db_usize_to_i32(db.function_ranges.count);
     if count < 0 {
         return 0;
     }
