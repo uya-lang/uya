@@ -14,17 +14,7 @@ require_pattern() {
     local pattern="$2"
     local description="$3"
     if ! grep -Eq "$pattern" "$file"; then
-        echo "错误: SemanticDb compact storage 缺少证据: $description" >&2
-        return 1
-    fi
-}
-
-reject_pattern() {
-    local file="$1"
-    local pattern="$2"
-    local description="$3"
-    if grep -Eq "$pattern" "$file"; then
-        echo "错误: SemanticDb compact storage 不应包含: $description" >&2
+        echo "错误: SemanticDb exports_by_module_name 缺少证据: $description" >&2
         return 1
     fi
 }
@@ -36,18 +26,12 @@ for file in "$TABLE_FILE" "$INTERN_FILE" "$DB_FILE" "$BUILD_FILE"; do
     fi
 done
 
-require_pattern "$DB_FILE" "^export[[:space:]]+struct[[:space:]]+SemanticDeclRecord" "声明记录紧凑结构"
-require_pattern "$DB_FILE" "^export[[:space:]]+struct[[:space:]]+SemanticSymbolRecord" "符号记录紧凑结构"
-require_pattern "$DB_FILE" "^export[[:space:]]+struct[[:space:]]+SemanticNameRange" "名字到符号 range 结构"
-require_pattern "$DB_FILE" "decl_records:[[:space:]]+SemanticVector" "声明记录动态 vector"
-require_pattern "$DB_FILE" "symbol_records:[[:space:]]+SemanticVector" "符号记录动态 vector"
-require_pattern "$DB_FILE" "name_ranges:[[:space:]]+SemanticVector" "名字 range 动态 vector"
-require_pattern "$BUILD_FILE" "semantic_db_append_decl_record" "build pass 填充声明记录"
-require_pattern "$BUILD_FILE" "semantic_db_append_symbol_record" "build pass 填充符号记录"
-require_pattern "$BUILD_FILE" "semantic_db_append_name_range" "build pass 填充名字 range"
-reject_pattern "$DB_FILE" "next_symbol|next_decl|linked|链表" "每个名字单独链表节点"
+require_pattern "$DB_FILE" "exports_by_module_name:[[:space:]]+SemanticHash" "exports_by_module_name 动态 hash"
+require_pattern "$DB_FILE" "semantic_db_find_export_symbol" "按 module/name 查询 SymbolId API"
+require_pattern "$DB_FILE" "semantic_db_symbol_record_get" "按 SymbolId 读取 symbol record API"
+require_pattern "$BUILD_FILE" "semantic_db_rebuild_exports_by_module_name" "构建 exports_by_module_name 索引"
 
-tmp_dir="$(mktemp -d /tmp/uya-semantic-db-compact.XXXXXX)"
+tmp_dir="$(mktemp -d /tmp/uya-semantic-db-exports.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 cat >"$tmp_dir/main.uya" <<'EOF'
@@ -221,50 +205,69 @@ fn semantic_test_node(kind: ASTNodeType, filename: &byte, name: &byte) ASTNode {
     };
     if kind == ASTNodeType.AST_FN_DECL {
         node.fn_decl_name = name;
-    } else if kind == ASTNodeType.AST_STRUCT_DECL {
-        node.struct_decl_name = name;
     } else if kind == ASTNodeType.AST_TYPE_ALIAS {
         node.type_alias_name = name;
-    } else if kind == ASTNodeType.AST_EXTERN_VAR_DECL {
-        node.extern_var_decl_name = name;
     }
     return node;
 }
 
-test "semantic db compact storage records declarations and ranges" {
-    var main_fn: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "a.uya", "main");
-    var method: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "a.uya", "push");
-    var methods: [&ASTNode: 1] = [];
-    methods[0] = &method;
+test "semantic db exports_by_module_name separates same name by module" {
+    var run_a: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "src/a.uya", "run");
+    var run_b: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "src/b.uya", "run");
+    var alias_b: ASTNode = semantic_test_node(ASTNodeType.AST_TYPE_ALIAS, "src/b.uya", "Box");
 
-    var struct_decl: ASTNode = semantic_test_node(ASTNodeType.AST_STRUCT_DECL, "a.uya", "Vec");
-    struct_decl.struct_decl_methods = &methods[0] as & & ASTNode;
-    struct_decl.struct_decl_method_count = 1;
-    var alias_decl: ASTNode = semantic_test_node(ASTNodeType.AST_TYPE_ALIAS, "a.uya", "Count");
-    var global_decl: ASTNode = semantic_test_node(ASTNodeType.AST_EXTERN_VAR_DECL, "b.uya", "errno");
+    var decls: [&ASTNode: 3] = [];
+    decls[0] = &run_a;
+    decls[1] = &run_b;
+    decls[2] = &alias_b;
 
-    var decls: [&ASTNode: 4] = [];
-    decls[0] = &main_fn;
-    decls[1] = &struct_decl;
-    decls[2] = &alias_decl;
-    decls[3] = &global_decl;
-
-    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "a.uya", null);
+    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "src/a.uya", null);
     program.program_decls = &decls[0] as & & ASTNode;
-    program.program_decl_count = 4;
+    program.program_decl_count = 3;
 
     var db: SemanticDb = semantic_test_db();
     try assert_eq_i32(semantic_db_build_from_merged_ast(&db, &program), 0);
-    try assert_eq_i32(semantic_db_decl_record_count(&db), 4);
-    try assert_eq_i32(semantic_db_symbol_record_count(&db), 5);
-    try assert_eq_i32(semantic_db_name_range_count(&db), 5);
-    try expect(db.decl_records.capacity >= 4usize);
-    try expect(db.symbol_records.capacity >= 5usize);
-    try expect(db.name_ranges.capacity >= 5usize);
+    try assert_eq_i32(db.file_count, 2);
+    try assert_eq_i32(db.module_count, 2);
+    try assert_eq_i32(semantic_db_export_binding_count(&db), 3);
+    try assert_eq_i32(semantic_db_symbol_record_count(&db), 3);
+    try expect(db.exports_by_module_name.count == 3usize);
+
+    const run_name_id: i32 = semantic_db_find_interned_name(&db, "run");
+    const box_name_id: i32 = semantic_db_find_interned_name(&db, "Box");
+    try expect(run_name_id >= 0);
+    try expect(box_name_id >= 0);
+
+    var symbol_id_a: i32 = -1;
+    var symbol_id_b: i32 = -1;
+    var symbol_id_box: i32 = -1;
+    try assert_eq_i32(semantic_db_find_export_symbol(&db, 0, run_name_id, &symbol_id_a), 1);
+    try assert_eq_i32(semantic_db_find_export_symbol(&db, 1, run_name_id, &symbol_id_b), 1);
+    try assert_eq_i32(semantic_db_find_export_symbol(&db, 1, box_name_id, &symbol_id_box), 1);
+    try expect(symbol_id_a != symbol_id_b);
+
+    var symbol_a: SemanticSymbolRecord = SemanticSymbolRecord{ name_id: -1, decl_id: -1, kind: -1 };
+    var symbol_b: SemanticSymbolRecord = SemanticSymbolRecord{ name_id: -1, decl_id: -1, kind: -1 };
+    var symbol_box: SemanticSymbolRecord = SemanticSymbolRecord{ name_id: -1, decl_id: -1, kind: -1 };
+    try assert_eq_i32(semantic_db_symbol_record_get(&db, symbol_id_a, &symbol_a), 1);
+    try assert_eq_i32(semantic_db_symbol_record_get(&db, symbol_id_b, &symbol_b), 1);
+    try assert_eq_i32(semantic_db_symbol_record_get(&db, symbol_id_box, &symbol_box), 1);
+    try assert_eq_i32(symbol_a.name_id, run_name_id);
+    try assert_eq_i32(symbol_a.decl_id, 0);
+    try assert_eq_i32(symbol_b.name_id, run_name_id);
+    try assert_eq_i32(symbol_b.decl_id, 1);
+    try assert_eq_i32(symbol_box.name_id, box_name_id);
+    try assert_eq_i32(symbol_box.decl_id, 2);
+
+    var missing_symbol_id: i32 = 99;
+    try assert_eq_i32(semantic_db_find_export_symbol(&db, 0, box_name_id, &missing_symbol_id), 0);
+    try assert_eq_i32(missing_symbol_id, 99);
+    try assert_eq_i32(semantic_db_find_export_symbol(&db, 4, run_name_id, &missing_symbol_id), 0);
+    try assert_eq_i32(semantic_db_find_export_symbol(&db, 1, -1, &missing_symbol_id), 0);
     semantic_db_release(&db);
 }
 EOF
 
 (cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
 
-echo "✓ SemanticDb compact storage smoke passed"
+echo "✓ SemanticDb exports_by_module_name lookup passed"

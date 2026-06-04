@@ -86,6 +86,9 @@ fn checker_semantic_cache_has_layout(checker: &TypeChecker) i32 {
     if checker.semantic_db.enum_variants_by_name.capacity < checker.semantic_db.enum_variants_by_name.count {
         return 0;
     }
+    if checker.semantic_db.exports_by_module_name.capacity < checker.semantic_db.exports_by_module_name.count {
+        return 0;
+    }
     return 1;
 }
 
@@ -138,10 +141,17 @@ fn checker_dump_semantic_db_records(db: &SemanticDb) void {
     }
     i = 0;
     while i < semantic_db_export_binding_count(db) && i < 8 {
-        var export_binding: SemanticExportBinding = SemanticExportBinding{ file_id: -1, module_id: -1, name: null, decl_id: -1 };
+        var export_binding: SemanticExportBinding = SemanticExportBinding{
+            file_id: -1,
+            module_id: -1,
+            name: null,
+            decl_id: -1,
+            symbol_id: -1,
+        };
         if semantic_db_export_binding_get(db, i, &export_binding) != 0 {
-            fprintf(libc.stderr, "  export[%d] file=%d module=%d decl=%d name=%s\n" as *byte,
-                i, export_binding.file_id, export_binding.module_id, export_binding.decl_id, checker_semantic_dump_name(export_binding.name) as *byte);
+            fprintf(libc.stderr, "  export[%d] file=%d module=%d decl=%d symbol=%d name=%s\n" as *byte,
+                i, export_binding.file_id, export_binding.module_id, export_binding.decl_id,
+                export_binding.symbol_id, checker_semantic_dump_name(export_binding.name) as *byte);
         }
         i = i + 1;
     }
@@ -161,7 +171,7 @@ fn checker_dump_semantic_db(db: &SemanticDb) void {
         semantic_db_import_binding_count(db),
         semantic_db_export_binding_count(db),
         semantic_db_estimated_bytes(db));
-    fprintf(libc.stderr, "table file=%zu/%zu module=%zu/%zu decl=%zu/%zu symbol=%zu/%zu name_range=%zu/%zu hash=%zu/%zu import=%zu/%zu export=%zu/%zu reallocs=%d\n" as *byte,
+    fprintf(libc.stderr, "table file=%zu/%zu module=%zu/%zu decl=%zu/%zu symbol=%zu/%zu name_range=%zu/%zu hash=%zu/%zu import=%zu/%zu export=%zu/%zu export_hash=%zu/%zu reallocs=%d\n" as *byte,
         db.file_records.count, db.file_records.capacity,
         db.module_records.count, db.module_records.capacity,
         db.decl_records.count, db.decl_records.capacity,
@@ -170,9 +180,10 @@ fn checker_dump_semantic_db(db: &SemanticDb) void {
         db.name_range_index.count, db.name_range_index.capacity,
         db.import_bindings.count, db.import_bindings.capacity,
         db.export_bindings.count, db.export_bindings.capacity,
+        db.exports_by_module_name.count, db.exports_by_module_name.capacity,
         db.file_records.realloc_count + db.module_records.realloc_count + db.decl_records.realloc_count +
             db.symbol_records.realloc_count + db.name_ranges.realloc_count + db.name_range_index.realloc_count +
-            db.import_bindings.realloc_count + db.export_bindings.realloc_count);
+            db.import_bindings.realloc_count + db.export_bindings.realloc_count + db.exports_by_module_name.realloc_count);
     checker_dump_semantic_db_records(db);
     fprintf(libc.stderr, "=== semantic db end ===\n" as *byte);
 }

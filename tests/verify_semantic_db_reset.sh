@@ -188,6 +188,7 @@ fn semantic_test_db() SemanticDb {
         enum_variants_by_name: semantic_test_hash(),
         import_bindings: semantic_test_vector(),
         export_bindings: semantic_test_vector(),
+        exports_by_module_name: semantic_test_hash(),
     };
 }
 
@@ -329,7 +330,7 @@ test "semantic db reset supports same-process rebuilds" {
     try assert_eq_i32(semantic_db_export_binding_count(&db), 1);
 
     var fresh_import: SemanticImportBinding = SemanticImportBinding{ file_id: -1, module_id: -1, name: null, ast_node: null };
-    var fresh_export: SemanticExportBinding = SemanticExportBinding{ file_id: -1, module_id: -1, name: null, decl_id: -1 };
+    var fresh_export: SemanticExportBinding = SemanticExportBinding{ file_id: -1, module_id: -1, name: null, decl_id: -1, symbol_id: -1 };
     try assert_eq_i32(semantic_db_import_binding_get(&db, 0, &fresh_import), 1);
     try assert_eq_i32(semantic_db_export_binding_get(&db, 0, &fresh_export), 1);
     try expect(semantic_test_cstr_equals(fresh_import.name, "fresh_io") != 0);

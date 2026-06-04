@@ -2194,10 +2194,10 @@ static const char str1604[] = "UYA_DUMP_SEMANTIC_DB";
 static const char str1605[] = "(null)";
 static const char str1606[] = "  file[%d]=%s\n";
 static const char str1607[] = "  import[%d] file=%d module=%d name=%s\n";
-static const char str1608[] = "  export[%d] file=%d module=%d decl=%d name=%s\n";
+static const char str1608[] = "  export[%d] file=%d module=%d decl=%d symbol=%d name=%s\n";
 static const char str1609[] = "=== semantic db ===\n";
 static const char str1610[] = "files=%d modules=%d decls=%d symbols=%d name_ranges=%d imports=%d exports=%d bytes=%zu\n";
-static const char str1611[] = "table file=%zu/%zu module=%zu/%zu decl=%zu/%zu symbol=%zu/%zu name_range=%zu/%zu hash=%zu/%zu import=%zu/%zu export=%zu/%zu reallocs=%d\n";
+static const char str1611[] = "table file=%zu/%zu module=%zu/%zu decl=%zu/%zu symbol=%zu/%zu name_range=%zu/%zu hash=%zu/%zu import=%zu/%zu export=%zu/%zu export_hash=%zu/%zu reallocs=%d\n";
 static const char str1612[] = "=== semantic db end ===\n";
 static const char str1613[] = "顶层函数 root 容量已满";
 static const char str1614[] = "顶层函数 call edge 容量已满";
@@ -8351,6 +8351,7 @@ struct SemanticExportBinding {
     int32_t module_id;
     uint8_t * name;
     int32_t decl_id;
+    int32_t symbol_id;
 };
 
 struct SemanticInternTable {
@@ -8413,6 +8414,7 @@ struct SemanticDb {
     struct SemanticHash enum_variants_by_name;
     struct SemanticVector import_bindings;
     struct SemanticVector export_bindings;
+    struct SemanticHash exports_by_module_name;
 };
 
 struct SemanticInternEntry {
@@ -10610,11 +10612,13 @@ static __attribute__((used)) int32_t semantic_db_prefix_enum_variant_ranges(stru
 static __attribute__((used)) int32_t semantic_db_build_enum_variant_range_cursors(struct SemanticDb * db, struct SemanticVector * cursors);
 static __attribute__((used)) int32_t semantic_db_fill_enum_variant_ranges(struct SemanticDb * db, struct SemanticVector * cursors);
 static __attribute__((used)) int32_t semantic_db_rebuild_enum_variants_by_name(struct SemanticDb * db);
+static __attribute__((used)) int32_t semantic_db_rebuild_exports_by_module_name(struct SemanticDb * db);
 static __attribute__((used)) int32_t semantic_db_refresh_interned_name_count(struct SemanticDb * db);
 static __attribute__((used)) void semantic_db_update_estimated_bytes(struct SemanticDb * db);
 int32_t semantic_build_semantic_db_build_from_merged_ast(struct SemanticDb * db, struct ASTNode * program);
 static __attribute__((used)) void semantic_db_clear_counts(struct SemanticDb * db);
 static __attribute__((used)) int32_t semantic_db_usize_to_i32(size_t value);
+static __attribute__((used)) int64_t semantic_db_module_name_key(int32_t module_id, int32_t name_id);
 void semantic_db_semantic_db_init(struct SemanticDb * db);
 void semantic_db_semantic_db_reset(struct SemanticDb * db);
 void semantic_db_semantic_db_release(struct SemanticDb * db);
@@ -10622,10 +10626,13 @@ size_t semantic_db_semantic_db_storage_bytes(struct SemanticDb * db);
 int32_t semantic_db_semantic_db_append_file_record(struct SemanticDb * db, uint8_t * filename);
 int32_t semantic_db_semantic_db_append_module_record(struct SemanticDb * db, uint8_t * name, int32_t file_id);
 int32_t semantic_db_semantic_db_append_import_binding(struct SemanticDb * db, int32_t file_id, int32_t module_id, uint8_t * name, void * ast_node);
-int32_t semantic_db_semantic_db_append_export_binding(struct SemanticDb * db, int32_t file_id, int32_t module_id, uint8_t * name, int32_t decl_id);
+int32_t semantic_db_semantic_db_append_export_binding(struct SemanticDb * db, int32_t file_id, int32_t module_id, uint8_t * name, int32_t decl_id, int32_t symbol_id);
+int32_t semantic_db_semantic_db_append_export_symbol_index(struct SemanticDb * db, int32_t module_id, int32_t name_id, int32_t symbol_id);
+int32_t semantic_db_semantic_db_find_export_symbol(struct SemanticDb * db, int32_t module_id, int32_t name_id, int32_t * out_symbol_id);
 int32_t semantic_db_semantic_db_append_decl_record(struct SemanticDb * db, void * ast_node, int32_t name_id, int32_t kind, int32_t file_id, int32_t module_id);
 int32_t semantic_db_semantic_db_decl_record_get(struct SemanticDb * db, int32_t decl_id, struct SemanticDeclRecord * out_record);
 int32_t semantic_db_semantic_db_append_symbol_record(struct SemanticDb * db, int32_t name_id, int32_t decl_id, int32_t kind);
+int32_t semantic_db_semantic_db_symbol_record_get(struct SemanticDb * db, int32_t symbol_id, struct SemanticSymbolRecord * out_record);
 int32_t semantic_db_semantic_db_append_name_range(struct SemanticDb * db, int32_t name_id, int32_t symbol_start, int32_t symbol_count);
 int32_t semantic_db_semantic_db_find_name_range(struct SemanticDb * db, int32_t name_id, int32_t * out_range_id);
 int32_t semantic_db_semantic_db_find_interned_name(struct SemanticDb * db, uint8_t * name);
@@ -13008,6 +13015,8 @@ uint8_t * * saved_envp = NULL;
 __attribute__((used)) const int32_t MAX_INTERP_SEGMENTS = 64;
 
 __attribute__((used)) const int32_t MAX_GENERIC_NAME_BUF = 512;
+
+__attribute__((used)) const int64_t SEMANTIC_DB_MODULE_NAME_KEY_STRIDE = ((int64_t)(uint32_t)0x80000000ULL + ((int64_t)(uint32_t)0x0ULL << 32));
 
 __attribute__((used)) const size_t SEMANTIC_INTERN_MIN_CAPACITY = 8ULL;
 
@@ -46515,7 +46524,7 @@ static __attribute__((used)) void semantic_db_prepare_for_build(struct SemanticD
     if (db == NULL) {
         return;
     }
-    if ((((((((((((((((((((((db->file_records.item_size != (int32_t)sizeof(struct SemanticFileRecord)) || (db->module_records.item_size != (int32_t)sizeof(struct SemanticModuleRecord))) || (db->decl_records.item_size != (int32_t)sizeof(struct SemanticDeclRecord))) || (db->symbol_records.item_size != (int32_t)sizeof(struct SemanticSymbolRecord))) || (db->name_ranges.item_size != (int32_t)sizeof(struct SemanticNameRange))) || (db->name_range_index.capacity < db->name_range_index.count)) || (db->decl_ranges.item_size != (int32_t)sizeof(struct SemanticDeclRange))) || (db->decl_range_ids.item_size != /* optimized */ 4)) || (db->decls_by_name.capacity < db->decls_by_name.count)) || (db->function_ranges.item_size != (int32_t)sizeof(struct SemanticFunctionOverloadRange))) || (db->function_range_decl_ids.item_size != /* optimized */ 4)) || (db->functions_by_name.capacity < db->functions_by_name.count)) || (db->type_ranges.item_size != (int32_t)sizeof(struct SemanticTypeDeclRange))) || (db->type_range_decl_ids.item_size != /* optimized */ 4)) || (db->types_by_name.capacity < db->types_by_name.count)) || (db->enum_variant_records.item_size != (int32_t)sizeof(struct SemanticEnumVariantRecord))) || (db->enum_variant_ranges.item_size != (int32_t)sizeof(struct SemanticEnumVariantRange))) || (db->enum_variant_range_record_ids.item_size != /* optimized */ 4)) || (db->enum_variants_by_name.capacity < db->enum_variants_by_name.count)) || (db->import_bindings.item_size != (int32_t)sizeof(struct SemanticImportBinding))) || (db->export_bindings.item_size != (int32_t)sizeof(struct SemanticExportBinding)))) {
+    if (((((((((((((((((((((((db->file_records.item_size != (int32_t)sizeof(struct SemanticFileRecord)) || (db->module_records.item_size != (int32_t)sizeof(struct SemanticModuleRecord))) || (db->decl_records.item_size != (int32_t)sizeof(struct SemanticDeclRecord))) || (db->symbol_records.item_size != (int32_t)sizeof(struct SemanticSymbolRecord))) || (db->name_ranges.item_size != (int32_t)sizeof(struct SemanticNameRange))) || (db->name_range_index.capacity < db->name_range_index.count)) || (db->decl_ranges.item_size != (int32_t)sizeof(struct SemanticDeclRange))) || (db->decl_range_ids.item_size != /* optimized */ 4)) || (db->decls_by_name.capacity < db->decls_by_name.count)) || (db->function_ranges.item_size != (int32_t)sizeof(struct SemanticFunctionOverloadRange))) || (db->function_range_decl_ids.item_size != /* optimized */ 4)) || (db->functions_by_name.capacity < db->functions_by_name.count)) || (db->type_ranges.item_size != (int32_t)sizeof(struct SemanticTypeDeclRange))) || (db->type_range_decl_ids.item_size != /* optimized */ 4)) || (db->types_by_name.capacity < db->types_by_name.count)) || (db->enum_variant_records.item_size != (int32_t)sizeof(struct SemanticEnumVariantRecord))) || (db->enum_variant_ranges.item_size != (int32_t)sizeof(struct SemanticEnumVariantRange))) || (db->enum_variant_range_record_ids.item_size != /* optimized */ 4)) || (db->enum_variants_by_name.capacity < db->enum_variants_by_name.count)) || (db->import_bindings.item_size != (int32_t)sizeof(struct SemanticImportBinding))) || (db->export_bindings.item_size != (int32_t)sizeof(struct SemanticExportBinding))) || (db->exports_by_module_name.capacity < db->exports_by_module_name.count))) {
         (void)(semantic_db_semantic_db_init(db)        );
         return;
     }
@@ -46709,7 +46718,7 @@ static __attribute__((used)) int32_t semantic_db_append_named_symbol(struct Sema
     }
     db->symbol_count = (db->symbol_count + 1);
         {
-        int32_t _uya_ret = name_id;
+        int32_t _uya_ret = symbol_id;
         return _uya_ret;
         }
 }
@@ -46850,13 +46859,14 @@ static __attribute__((used)) int32_t semantic_db_count_decl(struct SemanticDb * 
         }
     }
     if (primary_name != NULL) {
-        if (semantic_db_semantic_db_append_export_binding(db, file_id, module_id, primary_name, decl_id) < 0) {
+        const int32_t symbol_id = semantic_db_append_named_symbol(db, primary_name_id, decl_id, (int32_t)decl->type);
+        if (symbol_id < 0) {
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
                         }
         }
-        if (semantic_db_append_named_symbol(db, primary_name_id, decl_id, (int32_t)decl->type) < 0) {
+        if (semantic_db_semantic_db_append_export_binding(db, file_id, module_id, primary_name, decl_id, symbol_id) < 0) {
                         {
                 int32_t _uya_ret = (-1);
                 return _uya_ret;
@@ -48060,6 +48070,45 @@ static __attribute__((used)) int32_t semantic_db_rebuild_enum_variants_by_name(s
         }
 }
 
+static __attribute__((used)) int32_t semantic_db_rebuild_exports_by_module_name(struct SemanticDb * db) {
+    (void)db;
+    if (db == NULL) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    (void)(semantic_table_semantic_hash_reset((&db->exports_by_module_name))    );
+    int32_t binding_id = 0;
+    while (binding_id < semantic_db_semantic_db_export_binding_count(db)) {
+        struct SemanticExportBinding binding = (struct SemanticExportBinding){.file_id = (-1), .module_id = (-1), .name = NULL, .decl_id = (-1), .symbol_id = (-1)};
+        if (semantic_db_semantic_db_export_binding_get(db, binding_id, (&binding)) == 0) {
+                        {
+                int32_t _uya_ret = (-1);
+                return _uya_ret;
+                        }
+        }
+        const int32_t name_id = semantic_intern_semantic_intern_find((&db->name_intern), binding.name);
+        if (name_id < 0) {
+                        {
+                int32_t _uya_ret = (-1);
+                return _uya_ret;
+                        }
+        }
+        if (semantic_db_semantic_db_append_export_symbol_index(db, binding.module_id, name_id, binding.symbol_id) != 0) {
+                        {
+                int32_t _uya_ret = (-1);
+                return _uya_ret;
+                        }
+        }
+        binding_id = (binding_id + 1);
+    }
+        {
+        int32_t _uya_ret = 0;
+        return _uya_ret;
+        }
+}
+
 static __attribute__((used)) int32_t semantic_db_refresh_interned_name_count(struct SemanticDb * db) {
     (void)db;
     if (db == NULL) {
@@ -48173,6 +48222,13 @@ int32_t semantic_build_semantic_db_build_from_merged_ast(struct SemanticDb * db,
             return _uya_ret;
                 }
     }
+    if (semantic_db_rebuild_exports_by_module_name(db) != 0) {
+        (void)(semantic_db_semantic_db_reset(db)        );
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
     (void)(semantic_db_update_estimated_bytes(db)    );
         {
         int32_t _uya_ret = 0;
@@ -48213,6 +48269,21 @@ static __attribute__((used)) int32_t semantic_db_usize_to_i32(size_t value) {
         }
 }
 
+static __attribute__((used)) int64_t semantic_db_module_name_key(int32_t module_id, int32_t name_id) {
+    (void)module_id;
+    (void)name_id;
+    if (((module_id < 0) || (name_id < 0))) {
+                {
+            int64_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+        {
+        int64_t _uya_ret = (((int64_t)module_id * SEMANTIC_DB_MODULE_NAME_KEY_STRIDE) + (int64_t)name_id);
+        return _uya_ret;
+        }
+}
+
 void semantic_db_semantic_db_init(struct SemanticDb * db) {
     (void)db;
     if (db == NULL) {
@@ -48241,6 +48312,7 @@ void semantic_db_semantic_db_init(struct SemanticDb * db) {
     (void)(semantic_table_semantic_hash_init((&db->enum_variants_by_name))    );
     (void)(semantic_table_semantic_vector_init((&db->import_bindings), (int32_t)sizeof(struct SemanticImportBinding))    );
     (void)(semantic_table_semantic_vector_init((&db->export_bindings), (int32_t)sizeof(struct SemanticExportBinding))    );
+    (void)(semantic_table_semantic_hash_init((&db->exports_by_module_name))    );
 }
 
 void semantic_db_semantic_db_reset(struct SemanticDb * db) {
@@ -48271,6 +48343,7 @@ void semantic_db_semantic_db_reset(struct SemanticDb * db) {
     (void)(semantic_table_semantic_hash_reset((&db->enum_variants_by_name))    );
     (void)(semantic_table_semantic_vector_reset((&db->import_bindings))    );
     (void)(semantic_table_semantic_vector_reset((&db->export_bindings))    );
+    (void)(semantic_table_semantic_hash_reset((&db->exports_by_module_name))    );
 }
 
 void semantic_db_semantic_db_release(struct SemanticDb * db) {
@@ -48300,6 +48373,7 @@ void semantic_db_semantic_db_release(struct SemanticDb * db) {
     (void)(semantic_table_semantic_hash_release((&db->enum_variants_by_name))    );
     (void)(semantic_table_semantic_vector_release((&db->import_bindings))    );
     (void)(semantic_table_semantic_vector_release((&db->export_bindings))    );
+    (void)(semantic_table_semantic_hash_release((&db->exports_by_module_name))    );
     (void)(semantic_db_clear_counts(db)    );
 }
 
@@ -48312,7 +48386,7 @@ size_t semantic_db_semantic_db_storage_bytes(struct SemanticDb * db) {
                 }
     }
         {
-        size_t _uya_ret = ((((((((((((((((((((((((int32_t)sizeof(struct SemanticDb) + db->name_intern.bytes) + db->name_intern.string_bytes) + db->file_records.bytes) + db->module_records.bytes) + db->decl_records.bytes) + db->symbol_records.bytes) + db->name_ranges.bytes) + db->name_range_index.bytes) + db->decl_ranges.bytes) + db->decl_range_ids.bytes) + db->decls_by_name.bytes) + db->function_ranges.bytes) + db->function_range_decl_ids.bytes) + db->functions_by_name.bytes) + db->type_ranges.bytes) + db->type_range_decl_ids.bytes) + db->types_by_name.bytes) + db->enum_variant_records.bytes) + db->enum_variant_ranges.bytes) + db->enum_variant_range_record_ids.bytes) + db->enum_variants_by_name.bytes) + db->import_bindings.bytes) + db->export_bindings.bytes);
+        size_t _uya_ret = (((((((((((((((((((((((((int32_t)sizeof(struct SemanticDb) + db->name_intern.bytes) + db->name_intern.string_bytes) + db->file_records.bytes) + db->module_records.bytes) + db->decl_records.bytes) + db->symbol_records.bytes) + db->name_ranges.bytes) + db->name_range_index.bytes) + db->decl_ranges.bytes) + db->decl_range_ids.bytes) + db->decls_by_name.bytes) + db->function_ranges.bytes) + db->function_range_decl_ids.bytes) + db->functions_by_name.bytes) + db->type_ranges.bytes) + db->type_range_decl_ids.bytes) + db->types_by_name.bytes) + db->enum_variant_records.bytes) + db->enum_variant_ranges.bytes) + db->enum_variant_range_record_ids.bytes) + db->enum_variants_by_name.bytes) + db->import_bindings.bytes) + db->export_bindings.bytes) + db->exports_by_module_name.bytes);
         return _uya_ret;
         }
 }
@@ -48408,13 +48482,14 @@ int32_t semantic_db_semantic_db_append_import_binding(struct SemanticDb * db, in
         }
 }
 
-int32_t semantic_db_semantic_db_append_export_binding(struct SemanticDb * db, int32_t file_id, int32_t module_id, uint8_t * name, int32_t decl_id) {
+int32_t semantic_db_semantic_db_append_export_binding(struct SemanticDb * db, int32_t file_id, int32_t module_id, uint8_t * name, int32_t decl_id, int32_t symbol_id) {
     (void)db;
     (void)file_id;
     (void)module_id;
     (void)name;
     (void)decl_id;
-    if ((((((db == NULL) || (file_id < 0)) || (module_id < 0)) || (name == NULL)) || (decl_id < 0))) {
+    (void)symbol_id;
+    if (((((((db == NULL) || (file_id < 0)) || (module_id < 0)) || (name == NULL)) || (decl_id < 0)) || (symbol_id < 0))) {
                 {
             int32_t _uya_ret = (-1);
             return _uya_ret;
@@ -48427,7 +48502,7 @@ int32_t semantic_db_semantic_db_append_export_binding(struct SemanticDb * db, in
             return _uya_ret;
                 }
     }
-    struct SemanticExportBinding record = (struct SemanticExportBinding){.file_id = file_id, .module_id = module_id, .name = name, .decl_id = decl_id};
+    struct SemanticExportBinding record = (struct SemanticExportBinding){.file_id = file_id, .module_id = module_id, .name = name, .decl_id = decl_id, .symbol_id = symbol_id};
     if (semantic_table_semantic_vector_append((&db->export_bindings), (const void *)(&record)) != 0) {
                 {
             int32_t _uya_ret = (-1);
@@ -48436,6 +48511,54 @@ int32_t semantic_db_semantic_db_append_export_binding(struct SemanticDb * db, in
     }
         {
         int32_t _uya_ret = binding_id;
+        return _uya_ret;
+        }
+}
+
+int32_t semantic_db_semantic_db_append_export_symbol_index(struct SemanticDb * db, int32_t module_id, int32_t name_id, int32_t symbol_id) {
+    (void)db;
+    (void)module_id;
+    (void)name_id;
+    (void)symbol_id;
+    if (((((db == NULL) || (module_id < 0)) || (name_id < 0)) || (symbol_id < 0))) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+    const int64_t key = semantic_db_module_name_key(module_id, name_id);
+    if (key < 0) {
+                {
+            int32_t _uya_ret = (-1);
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = semantic_table_semantic_hash_insert((&db->exports_by_module_name), key, symbol_id);
+        return _uya_ret;
+        }
+}
+
+int32_t semantic_db_semantic_db_find_export_symbol(struct SemanticDb * db, int32_t module_id, int32_t name_id, int32_t * out_symbol_id) {
+    (void)db;
+    (void)module_id;
+    (void)name_id;
+    (void)out_symbol_id;
+    if (((((db == NULL) || (out_symbol_id == NULL)) || (module_id < 0)) || (name_id < 0))) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    const int64_t key = semantic_db_module_name_key(module_id, name_id);
+    if (key < 0) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+        {
+        int32_t _uya_ret = semantic_table_semantic_hash_get((&db->exports_by_module_name), key, out_symbol_id);
         return _uya_ret;
         }
 }
@@ -48525,6 +48648,31 @@ int32_t semantic_db_semantic_db_append_symbol_record(struct SemanticDb * db, int
     }
         {
         int32_t _uya_ret = symbol_id;
+        return _uya_ret;
+        }
+}
+
+int32_t semantic_db_semantic_db_symbol_record_get(struct SemanticDb * db, int32_t symbol_id, struct SemanticSymbolRecord * out_record) {
+    (void)db;
+    (void)symbol_id;
+    (void)out_record;
+    if ((((db == NULL) || (out_record == NULL)) || (symbol_id < 0))) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    uint8_t * const record_ptr = semantic_table_semantic_vector_item_ptr((&db->symbol_records), (size_t)symbol_id);
+    if (record_ptr == NULL) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
+    struct SemanticSymbolRecord * const record = (struct SemanticSymbolRecord *)record_ptr;
+    out_record[0] = record[0];
+        {
+        int32_t _uya_ret = 1;
         return _uya_ret;
         }
 }
@@ -81312,6 +81460,12 @@ static __attribute__((used)) int32_t checker_semantic_cache_has_layout(struct Ty
             return _uya_ret;
                 }
     }
+    if (checker->semantic_db.exports_by_module_name.capacity < checker->semantic_db.exports_by_module_name.count) {
+                {
+            int32_t _uya_ret = 0;
+            return _uya_ret;
+                }
+    }
         {
         int32_t _uya_ret = 1;
         return _uya_ret;
@@ -81384,9 +81538,9 @@ static __attribute__((used)) void checker_dump_semantic_db_records(struct Semant
     }
     i = 0;
     while (((i < semantic_db_semantic_db_export_binding_count(db)) && (i < 8))) {
-        struct SemanticExportBinding export_binding = (struct SemanticExportBinding){.file_id = (-1), .module_id = (-1), .name = NULL, .decl_id = (-1)};
+        struct SemanticExportBinding export_binding = (struct SemanticExportBinding){.file_id = (-1), .module_id = (-1), .name = NULL, .decl_id = (-1), .symbol_id = (-1)};
         if (semantic_db_semantic_db_export_binding_get(db, i, (&export_binding)) != 0) {
-            (void)(fprintf(stderr, (const char *)str1608, i, export_binding.file_id, export_binding.module_id, export_binding.decl_id, (uint8_t *)checker_semantic_dump_name(export_binding.name))            );
+            (void)(fprintf(stderr, (const char *)str1608, i, export_binding.file_id, export_binding.module_id, export_binding.decl_id, export_binding.symbol_id, (uint8_t *)checker_semantic_dump_name(export_binding.name))            );
         }
         i = (i + 1);
     }
@@ -81399,7 +81553,7 @@ static __attribute__((used)) void checker_dump_semantic_db(struct SemanticDb * d
     }
     (void)(fprintf(stderr, (const char *)str1609)    );
     (void)(fprintf(stderr, (const char *)str1610, semantic_db_semantic_db_file_record_count(db), semantic_db_semantic_db_module_record_count(db), semantic_db_semantic_db_decl_record_count(db), semantic_db_semantic_db_symbol_record_count(db), semantic_db_semantic_db_name_range_count(db), semantic_db_semantic_db_import_binding_count(db), semantic_db_semantic_db_export_binding_count(db), semantic_db_semantic_db_estimated_bytes(db))    );
-    (void)(fprintf(stderr, (const char *)str1611, db->file_records.count, db->file_records.capacity, db->module_records.count, db->module_records.capacity, db->decl_records.count, db->decl_records.capacity, db->symbol_records.count, db->symbol_records.capacity, db->name_ranges.count, db->name_ranges.capacity, db->name_range_index.count, db->name_range_index.capacity, db->import_bindings.count, db->import_bindings.capacity, db->export_bindings.count, db->export_bindings.capacity, (((((((db->file_records.realloc_count + db->module_records.realloc_count) + db->decl_records.realloc_count) + db->symbol_records.realloc_count) + db->name_ranges.realloc_count) + db->name_range_index.realloc_count) + db->import_bindings.realloc_count) + db->export_bindings.realloc_count))    );
+    (void)(fprintf(stderr, (const char *)str1611, db->file_records.count, db->file_records.capacity, db->module_records.count, db->module_records.capacity, db->decl_records.count, db->decl_records.capacity, db->symbol_records.count, db->symbol_records.capacity, db->name_ranges.count, db->name_ranges.capacity, db->name_range_index.count, db->name_range_index.capacity, db->import_bindings.count, db->import_bindings.capacity, db->export_bindings.count, db->export_bindings.capacity, db->exports_by_module_name.count, db->exports_by_module_name.capacity, ((((((((db->file_records.realloc_count + db->module_records.realloc_count) + db->decl_records.realloc_count) + db->symbol_records.realloc_count) + db->name_ranges.realloc_count) + db->name_range_index.realloc_count) + db->import_bindings.realloc_count) + db->export_bindings.realloc_count) + db->exports_by_module_name.realloc_count))    );
     (void)(checker_dump_semantic_db_records(db)    );
     (void)(fprintf(stderr, (const char *)str1612)    );
 }

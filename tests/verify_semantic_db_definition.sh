@@ -37,6 +37,7 @@ require_pattern "interned_name_count" "interned_name_count 字段"
 require_pattern "name_intern" "name_intern 字段"
 require_pattern "decl_records" "decl_records 字段"
 require_pattern "decls_by_name" "decls_by_name 字段"
+require_pattern "exports_by_module_name" "exports_by_module_name 字段"
 
 tmp_dir="$(mktemp -d /tmp/uya-semantic-db.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
@@ -114,6 +115,7 @@ test "semantic db definition initializes and resets" {
         enum_variants_by_name: semantic_test_hash(),
         import_bindings: semantic_test_vector(),
         export_bindings: semantic_test_vector(),
+        exports_by_module_name: semantic_test_hash(),
     };
     semantic_db_init(&db);
     try assert_eq_i32(db.file_count, 0);

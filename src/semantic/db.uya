@@ -107,6 +107,7 @@ export struct SemanticExportBinding {
     module_id: i32,
     name: &byte,
     decl_id: i32,
+    symbol_id: i32,
 }
 
 /// 功能说明：保存 SemanticDb 的顶层计数、估算字节数和紧凑记录数组。
@@ -146,6 +147,7 @@ export struct SemanticDb {
     enum_variants_by_name: SemanticHash,
     import_bindings: SemanticVector,
     export_bindings: SemanticVector,
+    exports_by_module_name: SemanticHash,
 }
 
 fn semantic_db_clear_counts(db: &SemanticDb) void {
@@ -171,6 +173,15 @@ fn semantic_db_usize_to_i32(value: usize) i32 {
         return -1;
     };
     return converted;
+}
+
+const SEMANTIC_DB_MODULE_NAME_KEY_STRIDE: i64 = 2147483648;
+
+fn semantic_db_module_name_key(module_id: i32, name_id: i32) i64 {
+    if module_id < 0 || name_id < 0 {
+        return -1;
+    }
+    return (module_id as i64) * SEMANTIC_DB_MODULE_NAME_KEY_STRIDE + (name_id as i64);
 }
 
 /// 功能说明：初始化 SemanticDb 顶层状态和紧凑动态数组。
@@ -203,6 +214,7 @@ export fn semantic_db_init(db: &SemanticDb) void {
     semantic_hash_init(&db.enum_variants_by_name);
     semantic_vector_init(&db.import_bindings, @size_of(SemanticImportBinding));
     semantic_vector_init(&db.export_bindings, @size_of(SemanticExportBinding));
+    semantic_hash_init(&db.exports_by_module_name);
 }
 
 /// 功能说明：重置 SemanticDb 以支持同进程多次编译。
@@ -235,6 +247,7 @@ export fn semantic_db_reset(db: &SemanticDb) void {
     semantic_hash_reset(&db.enum_variants_by_name);
     semantic_vector_reset(&db.import_bindings);
     semantic_vector_reset(&db.export_bindings);
+    semantic_hash_reset(&db.exports_by_module_name);
 }
 
 /// 功能说明：释放 SemanticDb 内部动态数组并清空状态。
@@ -266,6 +279,7 @@ export fn semantic_db_release(db: &SemanticDb) void {
     semantic_hash_release(&db.enum_variants_by_name);
     semantic_vector_release(&db.import_bindings);
     semantic_vector_release(&db.export_bindings);
+    semantic_hash_release(&db.exports_by_module_name);
     semantic_db_clear_counts(db);
 }
 
@@ -299,7 +313,8 @@ export fn semantic_db_storage_bytes(db: &SemanticDb) usize {
         db.enum_variant_range_record_ids.bytes +
         db.enum_variants_by_name.bytes +
         db.import_bindings.bytes +
-        db.export_bindings.bytes;
+        db.export_bindings.bytes +
+        db.exports_by_module_name.bytes;
 }
 
 /// 功能说明：追加 FileId 对应的文件记录。
@@ -373,7 +388,7 @@ export fn semantic_db_append_import_binding(
 }
 
 /// 功能说明：追加模块导出绑定记录。
-/// 参数说明：`db` 为目标库，`file_id/module_id` 指明所属位置，`name` 为导出名，`decl_id` 为声明 ID。
+/// 参数说明：`db` 为目标库，`file_id/module_id` 指明所属位置，`name` 为导出名，`decl_id` 为声明 ID，`symbol_id` 为导出符号 ID。
 /// 返回值说明：成功返回新 binding 下标；失败返回 `-1`。
 export fn semantic_db_append_export_binding(
     db: &SemanticDb,
@@ -381,8 +396,9 @@ export fn semantic_db_append_export_binding(
     module_id: i32,
     name: &byte,
     decl_id: i32,
+    symbol_id: i32,
 ) i32 {
-    if db == null || file_id < 0 || module_id < 0 || name == null || decl_id < 0 {
+    if db == null || file_id < 0 || module_id < 0 || name == null || decl_id < 0 || symbol_id < 0 {
         return -1;
     }
     const binding_id: i32 = semantic_db_usize_to_i32(db.export_bindings.count);
@@ -394,11 +410,40 @@ export fn semantic_db_append_export_binding(
         module_id: module_id,
         name: name,
         decl_id: decl_id,
+        symbol_id: symbol_id,
     };
     if semantic_vector_append(&db.export_bindings, &record as &const void) != 0 {
         return -1;
     }
     return binding_id;
+}
+
+/// 功能说明：向模块导出索引追加或更新 `(ModuleId, InternedNameId) -> SymbolId` 映射。
+/// 参数说明：`db` 为目标库，`module_id/name_id` 组成复合 key，`symbol_id` 为导出符号 ID。
+/// 返回值说明：成功返回 `0`；参数无效、key 溢出或 hash 插入失败返回 `-1`。
+export fn semantic_db_append_export_symbol_index(db: &SemanticDb, module_id: i32, name_id: i32, symbol_id: i32) i32 {
+    if db == null || module_id < 0 || name_id < 0 || symbol_id < 0 {
+        return -1;
+    }
+    const key: i64 = semantic_db_module_name_key(module_id, name_id);
+    if key < 0 {
+        return -1;
+    }
+    return semantic_hash_insert(&db.exports_by_module_name, key, symbol_id);
+}
+
+/// 功能说明：按模块 ID 和 intern 名字 ID 查询导出 SymbolId。
+/// 参数说明：`db` 为目标库，`module_id/name_id` 组成复合 key，`out_symbol_id` 接收命中的 SymbolId。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn semantic_db_find_export_symbol(db: &SemanticDb, module_id: i32, name_id: i32, out_symbol_id: &i32) i32 {
+    if db == null || out_symbol_id == null || module_id < 0 || name_id < 0 {
+        return 0;
+    }
+    const key: i64 = semantic_db_module_name_key(module_id, name_id);
+    if key < 0 {
+        return 0;
+    }
+    return semantic_hash_get(&db.exports_by_module_name, key, out_symbol_id);
 }
 
 /// 功能说明：追加 DeclId 对应的紧凑声明记录。
@@ -468,6 +513,22 @@ export fn semantic_db_append_symbol_record(db: &SemanticDb, name_id: i32, decl_i
         return -1;
     }
     return symbol_id;
+}
+
+/// 功能说明：按 SymbolId 复制紧凑符号记录。
+/// 参数说明：`db` 为目标库，`symbol_id` 为符号 ID，`out_record` 接收记录副本。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn semantic_db_symbol_record_get(db: &SemanticDb, symbol_id: i32, out_record: &SemanticSymbolRecord) i32 {
+    if db == null || out_record == null || symbol_id < 0 {
+        return 0;
+    }
+    const record_ptr: &byte = semantic_vector_item_ptr(&db.symbol_records, symbol_id as usize);
+    if record_ptr == null {
+        return 0;
+    }
+    const record: &SemanticSymbolRecord = record_ptr as &SemanticSymbolRecord;
+    out_record[0] = record[0];
+    return 1;
 }
 
 /// 功能说明：追加一个名字到紧凑符号数组的 range。

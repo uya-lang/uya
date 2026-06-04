@@ -107,7 +107,8 @@ fn semantic_db_prepare_for_build(db: &SemanticDb) void {
         db.enum_variant_range_record_ids.item_size != @size_of(i32) ||
         db.enum_variants_by_name.capacity < db.enum_variants_by_name.count ||
         db.import_bindings.item_size != @size_of(SemanticImportBinding) ||
-        db.export_bindings.item_size != @size_of(SemanticExportBinding) {
+        db.export_bindings.item_size != @size_of(SemanticExportBinding) ||
+        db.exports_by_module_name.capacity < db.exports_by_module_name.count {
         semantic_db_init(db);
         return;
     }
@@ -218,7 +219,7 @@ fn semantic_db_append_named_symbol(db: &SemanticDb, name_id: i32, decl_id: i32, 
         return -1;
     }
     db.symbol_count = db.symbol_count + 1;
-    return name_id;
+    return symbol_id;
 }
 
 fn semantic_db_count_method_symbols(db: &SemanticDb, methods: & & ASTNode, method_count: i32, owner_decl_id: i32) i32 {
@@ -304,10 +305,11 @@ fn semantic_db_count_decl(db: &SemanticDb, decl: &ASTNode, file_id: i32, module_
     }
 
     if primary_name != null {
-        if semantic_db_append_export_binding(db, file_id, module_id, primary_name, decl_id) < 0 {
+        const symbol_id: i32 = semantic_db_append_named_symbol(db, primary_name_id, decl_id, decl.type as i32);
+        if symbol_id < 0 {
             return -1;
         }
-        if semantic_db_append_named_symbol(db, primary_name_id, decl_id, decl.type as i32) < 0 {
+        if semantic_db_append_export_binding(db, file_id, module_id, primary_name, decl_id, symbol_id) < 0 {
             return -1;
         }
     }
@@ -1046,6 +1048,35 @@ fn semantic_db_rebuild_enum_variants_by_name(db: &SemanticDb) i32 {
     return filled;
 }
 
+fn semantic_db_rebuild_exports_by_module_name(db: &SemanticDb) i32 {
+    if db == null {
+        return -1;
+    }
+    semantic_hash_reset(&db.exports_by_module_name);
+    var binding_id: i32 = 0;
+    while binding_id < semantic_db_export_binding_count(db) {
+        var binding: SemanticExportBinding = SemanticExportBinding{
+            file_id: -1,
+            module_id: -1,
+            name: null,
+            decl_id: -1,
+            symbol_id: -1,
+        };
+        if semantic_db_export_binding_get(db, binding_id, &binding) == 0 {
+            return -1;
+        }
+        const name_id: i32 = semantic_intern_find(&db.name_intern, binding.name);
+        if name_id < 0 {
+            return -1;
+        }
+        if semantic_db_append_export_symbol_index(db, binding.module_id, name_id, binding.symbol_id) != 0 {
+            return -1;
+        }
+        binding_id = binding_id + 1;
+    }
+    return 0;
+}
+
 fn semantic_db_refresh_interned_name_count(db: &SemanticDb) i32 {
     if db == null {
         return -1;
@@ -1118,6 +1149,10 @@ export fn semantic_db_build_from_merged_ast(db: &SemanticDb, program: &ASTNode) 
         return -1;
     }
     if semantic_db_rebuild_enum_variants_by_name(db) != 0 {
+        semantic_db_reset(db);
+        return -1;
+    }
+    if semantic_db_rebuild_exports_by_module_name(db) != 0 {
         semantic_db_reset(db);
         return -1;
     }

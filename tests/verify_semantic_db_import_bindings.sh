@@ -187,6 +187,7 @@ fn semantic_test_db() SemanticDb {
         enum_variants_by_name: semantic_test_hash(),
         import_bindings: semantic_test_vector(),
         export_bindings: semantic_test_vector(),
+        exports_by_module_name: semantic_test_hash(),
     };
 }
 
@@ -252,7 +253,7 @@ test "semantic db records use imports and module exports" {
 
     var import0: SemanticImportBinding = SemanticImportBinding{ file_id: -1, module_id: -1, name: null, ast_node: null };
     var import1: SemanticImportBinding = SemanticImportBinding{ file_id: -1, module_id: -1, name: null, ast_node: null };
-    var export0: SemanticExportBinding = SemanticExportBinding{ file_id: -1, module_id: -1, name: null, decl_id: -1 };
+    var export0: SemanticExportBinding = SemanticExportBinding{ file_id: -1, module_id: -1, name: null, decl_id: -1, symbol_id: -1 };
     try assert_eq_i32(semantic_db_import_binding_get(&db, 0, &import0), 1);
     try assert_eq_i32(semantic_db_import_binding_get(&db, 1, &import1), 1);
     try assert_eq_i32(semantic_db_export_binding_get(&db, 0, &export0), 1);
@@ -328,8 +329,8 @@ test "semantic db records whole-module imports and exports" {
     try assert_eq_i32(semantic_db_export_binding_count(&db), 2);
 
     var import0: SemanticImportBinding = SemanticImportBinding{ file_id: -1, module_id: -1, name: null, ast_node: null };
-    var export0: SemanticExportBinding = SemanticExportBinding{ file_id: -1, module_id: -1, name: null, decl_id: -1 };
-    var export1: SemanticExportBinding = SemanticExportBinding{ file_id: -1, module_id: -1, name: null, decl_id: -1 };
+    var export0: SemanticExportBinding = SemanticExportBinding{ file_id: -1, module_id: -1, name: null, decl_id: -1, symbol_id: -1 };
+    var export1: SemanticExportBinding = SemanticExportBinding{ file_id: -1, module_id: -1, name: null, decl_id: -1, symbol_id: -1 };
     try assert_eq_i32(semantic_db_import_binding_get(&db, 0, &import0), 1);
     try assert_eq_i32(semantic_db_export_binding_get(&db, 0, &export0), 1);
     try assert_eq_i32(semantic_db_export_binding_get(&db, 1, &export1), 1);

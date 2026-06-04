@@ -188,6 +188,7 @@ fn semantic_test_db() SemanticDb {
         enum_variants_by_name: semantic_test_hash(),
         import_bindings: semantic_test_vector(),
         export_bindings: semantic_test_vector(),
+        exports_by_module_name: semantic_test_hash(),
     };
 }
 
