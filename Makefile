@@ -4,7 +4,7 @@
 # 若出现「没有规则可制作目标 install」：说明当前 Makefile 过旧，请用本仓库最新 Makefile
 # 替换，或从上游同步后再执行：make install PREFIX=$HOME/.local
 
-.PHONY: all from-c from-c-native uya uya-hosted uya-std uya-nostdlib uya-portable b b-hosted b-portable bench-compile-stats bench-compile-stats-check tests tests-hosted tests-uya tests-emcc tests-portable microapp-check microapp-hosted-smoke microapp-aarch64-runtime-check microapp-macos-runtime-check microapp-compat-check microapp-recovery-check outlibc c e clean check check-hosted backup backup-seed backup-hosted-seed backup-all-seed back-all-seed backup-hosted-seed-native backup-all restore release release-bootstrap release-flow release-build release-dirty release-preflight release-clean install help cmds cmd-upm uya-upm-stage2 upm-check fmt check-fmt
+.PHONY: all from-c from-c-native uya uya-hosted uya-std uya-nostdlib uya-portable b b-hosted b-portable bench-compile-stats bench-compile-stats-check bench-compiler-1s tests tests-hosted tests-uya tests-emcc tests-portable microapp-check microapp-hosted-smoke microapp-aarch64-runtime-check microapp-macos-runtime-check microapp-compat-check microapp-recovery-check outlibc c e clean check check-hosted backup backup-seed backup-hosted-seed backup-all-seed back-all-seed backup-hosted-seed-native backup-all restore release release-bootstrap release-flow release-build release-dirty release-preflight release-clean install help cmds cmd-upm uya-upm-stage2 upm-check fmt check-fmt
 
 # 共享平台/工具链模型（可通过环境变量覆盖）
 HOST_OS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]' | sed -e 's/darwin/macos/' -e 's/msys.*/windows/' -e 's/mingw.*/windows/' -e 's/cygwin.*/windows/')
@@ -373,6 +373,10 @@ bench-compile-stats:
 
 bench-compile-stats-check:
 	@./tests/verify_bench_compile_stats.sh
+
+# 专用 1 秒冷构建 benchmark：每轮执行 make clean && make uya
+bench-compiler-1s:
+	@MAKE="$(MAKE)" CC="$(CC)" CC_DRIVER="$(CC_DRIVER)" CC_TARGET_FLAGS="$(CC_TARGET_FLAGS)" HOST_OS="$(HOST_OS)" HOST_ARCH="$(HOST_ARCH)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_TRIPLE="$(TARGET_TRIPLE)" TOOLCHAIN="$(TOOLCHAIN)" ZIG="$(ZIG)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" bash scripts/bench_compiler_1s.sh $(ARGS)
 
 # 运行测试：默认使用 tests/run_programs_parallel.sh 并行测试（默认同 CPU 核数；可 UYA_TEST_JOBS= 或脚本 -j N）
 # 默认 --hide-pass：不打印每条通过的 ✓，其余输出与直接跑脚本相同
@@ -1315,6 +1319,7 @@ help:
 	@echo "  make b-portable    - 跨平台入口：Linux 用 b，其它平台用 b-hosted"
 	@echo "  make bench-compile-stats ARGS='--runs 3' - 抓取 CompileStats 基准数据"
 	@echo "  make bench-compile-stats-check - 验证 CompileStats 基准脚本的边界、smoke 与临时产物清理"
+	@echo "  make bench-compiler-1s ARGS='--runs 3' - 测量 make clean && make uya 冷构建耗时"
 	@echo "  make tests         - 运行测试套件（并行数默认 CPU 核数，UYA_TEST_JOBS=N 可改；默认不打印每条通过的 ✓）"
 	@echo "  make tests-hosted  - 运行 hosted 主测试集（同上，默认 --hide-pass）"
 	@echo "  make tests-portable - 跨平台入口：Linux 用 tests，其它平台用 tests-hosted"
