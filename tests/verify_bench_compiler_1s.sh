@@ -145,6 +145,23 @@ assert_rejects_cache_flag "UYA_OBJECT_CACHE"
 assert_rejects_cache_flag "UYA_IR_CACHE"
 assert_rejects_cache_flag "UYA_SKIP_UYA"
 
+CALL_LOG="$TMP_DIR/reject-dump.calls"
+: >"$CALL_LOG"
+if UYA_DUMP_SEMANTIC_DB=1 MAKE="$FAKE_MAKE" UYA_FAKE_MAKE_CALL_LOG="$CALL_LOG" UYA_BENCH_TMPDIR="$TMP_DIR" bash "$BENCH_SCRIPT" --runs 1 >"$TMP_DIR/reject-dump.out" 2>"$TMP_DIR/reject-dump.err"; then
+    echo "错误: UYA_DUMP_SEMANTIC_DB=1 应被硬 KPI benchmark 拒绝" >&2
+    exit 1
+fi
+if ! grep -q "UYA_DUMP_SEMANTIC_DB" "$TMP_DIR/reject-dump.err" || ! grep -q "debug dump" "$TMP_DIR/reject-dump.err"; then
+    echo "错误: UYA_DUMP_SEMANTIC_DB=1 未输出预期拒绝诊断" >&2
+    cat "$TMP_DIR/reject-dump.err" >&2
+    exit 1
+fi
+if [[ -s "$CALL_LOG" ]]; then
+    echo "错误: UYA_DUMP_SEMANTIC_DB=1 被拒绝前不应调用 make" >&2
+    cat "$CALL_LOG" >&2
+    exit 1
+fi
+
 CALL_LOG="$TMP_DIR/calls.ok"
 : >"$CALL_LOG"
 seed_stale_artifacts
@@ -187,7 +204,8 @@ for pattern in \
     $'^metadata\tcc_driver\tfake-cc$' \
     $'^metadata\tbackend\tc99$' \
     $'^metadata\tnative_enabled\t0$' \
-    $'^metadata\tc99_enabled\t1$'
+    $'^metadata\tc99_enabled\t1$' \
+    $'^metadata\tsemantic_db_dump_enabled\t0$'
 do
     if ! grep -q "$pattern" "$TMP_DIR/bench.err"; then
         echo "错误: benchmark metadata 缺少字段: $pattern" >&2

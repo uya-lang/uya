@@ -123,6 +123,26 @@ reject_hard_kpi_cache_inputs() {
     fi
 }
 
+reject_hard_kpi_debug_dump_inputs() {
+    local bad=()
+    local var_name value
+    local dump_vars=(
+        UYA_DUMP_SEMANTIC_DB
+    )
+
+    for var_name in "${dump_vars[@]}"; do
+        value="${!var_name:-}"
+        if flag_enabled "$value"; then
+            bad+=("$var_name=$value")
+        fi
+    done
+
+    if [[ "${#bad[@]}" -gt 0 ]]; then
+        echo "错误: bench-compiler-1s 硬 KPI 禁止 debug dump: ${bad[*]}" >&2
+        exit 1
+    fi
+}
+
 cleanup() {
     if [[ "$KEEP_LOGS" -eq 0 && -n "${WORK_DIR:-}" && "$WORK_DIR" == "$BENCH_TMPDIR"/uya-bench-compiler-1s.* ]]; then
         rm -rf "$WORK_DIR"
@@ -200,6 +220,7 @@ print_metadata() {
     printf 'metadata\tbackend\t%s\n' "$backend" >&2
     printf 'metadata\tnative_enabled\t%s\n' "$native_enabled" >&2
     printf 'metadata\tc99_enabled\t%s\n' "$c99_enabled" >&2
+    printf 'metadata\tsemantic_db_dump_enabled\t0\n' >&2
     printf 'metadata\tbaseline_peak_rss_kb\t%s\n' "$BASELINE_RSS_KB" >&2
     printf 'metadata\ttable_capacity_ratio_warn\t%s\n' "$TABLE_CAPACITY_RATIO_WARN" >&2
 }
@@ -565,6 +586,7 @@ median_value() {
 }
 
 reject_hard_kpi_cache_inputs
+reject_hard_kpi_debug_dump_inputs
 mkdir -p "$BENCH_TMPDIR"
 WORK_DIR="$(mktemp -d "$BENCH_TMPDIR/uya-bench-compiler-1s.XXXXXX")"
 
