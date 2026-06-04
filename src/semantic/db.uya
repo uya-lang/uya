@@ -117,6 +117,20 @@ export fn semantic_db_release(db: &SemanticDb) void {
     semantic_db_clear_counts(db);
 }
 
+/// 功能说明：估算 SemanticDb 当前结构和动态存储占用字节数。
+/// 参数说明：`db` 为目标 SemanticDb。
+/// 返回值说明：返回结构体本体、紧凑 vector 和动态 hash bucket 的估算字节数；参数无效时返回 `0`。
+export fn semantic_db_storage_bytes(db: &SemanticDb) usize {
+    if db == null {
+        return 0usize;
+    }
+    return @size_of(SemanticDb) +
+        db.decl_records.bytes +
+        db.symbol_records.bytes +
+        db.name_ranges.bytes +
+        db.name_range_index.bytes;
+}
+
 /// 功能说明：追加 DeclId 对应的紧凑声明记录。
 /// 参数说明：`db` 为目标库，其余参数为声明 AST 指针、名字 ID、种类、文件 ID 和模块 ID。
 /// 返回值说明：成功返回新 DeclId；失败返回 `-1`。

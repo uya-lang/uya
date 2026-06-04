@@ -158,7 +158,7 @@ MonoInstanceId
 - [x] 新建 `src/semantic/build.uya`，从 merged AST 构建 `SemanticDb`。
 - [x] `SemanticDb` 内部使用紧凑数组/range，不为每个名字单独堆分配链表节点。
 - [x] `SemanticDb` 所有数组、range、hash bucket、collision list 都随数据增长动态扩容。
-- [ ] `SemanticDb` 记录自身估算字节数。
+- [x] `SemanticDb` 记录自身估算字节数。
 - [ ] 为顶层声明建立 `DeclId -> ASTNode` 映射。
 - [ ] 为文件和模块建立 `FileId` / `ModuleId`。
 - [ ] 将 `use` 语句和 module export 登记为 `ImportBinding`。
@@ -192,6 +192,7 @@ bash tests/verify_semantic_intern_growth.sh
 bash tests/verify_semantic_db_definition.sh
 bash tests/verify_semantic_db_compact_storage.sh
 bash tests/verify_semantic_db_dynamic_growth.sh
+bash tests/verify_semantic_db_estimated_bytes.sh
 bash tests/verify_semantic_db_smoke.sh
 make tests-uya
 ```

@@ -189,12 +189,7 @@ fn semantic_db_update_estimated_bytes(db: &SemanticDb) void {
     if db == null {
         return;
     }
-    var bytes: usize = @size_of(SemanticDb);
-    bytes = bytes + db.decl_records.bytes;
-    bytes = bytes + db.symbol_records.bytes;
-    bytes = bytes + db.name_ranges.bytes;
-    bytes = bytes + db.name_range_index.bytes;
-    db.estimated_bytes = bytes;
+    db.estimated_bytes = semantic_db_storage_bytes(db);
 }
 
 /// 功能说明：从已合并的 `AST_PROGRAM` 根节点构建 SemanticDb 基础计数。
