@@ -14,7 +14,7 @@ require_pattern() {
     local pattern="$2"
     local description="$3"
     if ! grep -Eq "$pattern" "$file"; then
-        echo "错误: SemanticDb enum_variants_by_name 缺少证据: $description" >&2
+        echo "错误: SemanticDb use_items_by_file_name 缺少证据: $description" >&2
         return 1
     fi
 }
@@ -26,14 +26,12 @@ for file in "$TABLE_FILE" "$INTERN_FILE" "$DB_FILE" "$BUILD_FILE"; do
     fi
 done
 
-require_pattern "$DB_FILE" "^export[[:space:]]+struct[[:space:]]+SemanticEnumVariantRecord" "EnumVariantRecord 结构"
-require_pattern "$DB_FILE" "^export[[:space:]]+struct[[:space:]]+SemanticEnumVariantRange" "EnumVariantRange 结构"
-require_pattern "$DB_FILE" "enum_variant_records:[[:space:]]+SemanticVector" "enum variant record 为动态 vector"
-require_pattern "$DB_FILE" "enum_variant_ranges:[[:space:]]+SemanticVector" "enum variant range 为动态 vector"
-require_pattern "$DB_FILE" "enum_variants_by_name:[[:space:]]+SemanticHash" "enum_variants_by_name 为动态 hash"
-require_pattern "$BUILD_FILE" "semantic_db_rebuild_enum_variants_by_name" "构建 enum_variants_by_name 索引"
+require_pattern "$DB_FILE" "use_items_by_file_name:[[:space:]]+SemanticHash" "use_items_by_file_name 动态 hash"
+require_pattern "$DB_FILE" "semantic_db_append_file_use_item_index" "use item 索引 append API"
+require_pattern "$DB_FILE" "semantic_db_find_file_use_item_binding" "use item 索引 lookup API"
+require_pattern "$BUILD_FILE" "semantic_db_rebuild_use_items_by_file_name" "构建 use_items_by_file_name 索引"
 
-tmp_dir="$(mktemp -d /tmp/uya-semantic-db-enum-variant-ranges.XXXXXX)"
+tmp_dir="$(mktemp -d /tmp/uya-semantic-db-use-items.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 cat >"$tmp_dir/main.uya" <<'EOF'
@@ -103,6 +101,23 @@ EOF
 cat "$BUILD_FILE" >>"$tmp_dir/main.uya"
 
 cat >>"$tmp_dir/main.uya" <<'EOF'
+fn semantic_test_cstr_equals(a: &byte, b: &byte) i32 {
+    if a == null || b == null {
+        return 0;
+    }
+    var i: usize = 0usize;
+    while a[i] != 0 as byte && b[i] != 0 as byte {
+        if a[i] != b[i] {
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    if a[i] == b[i] {
+        return 1;
+    }
+    return 0;
+}
+
 fn semantic_test_vector() SemanticVector {
     return SemanticVector{
         data: null,
@@ -207,72 +222,73 @@ fn semantic_test_node(kind: ASTNodeType, filename: &byte, name: &byte) ASTNode {
         use_stmt_item_name: null,
         use_stmt_alias: null,
     };
-    if kind == ASTNodeType.AST_ENUM_DECL {
-        node.enum_decl_name = name;
+    if kind == ASTNodeType.AST_FN_DECL {
+        node.fn_decl_name = name;
+    } else if kind == ASTNodeType.AST_TYPE_ALIAS {
+        node.type_alias_name = name;
     }
     return node;
 }
 
-test "semantic db enum_variants_by_name groups variants across enums" {
-    var color_variants: [EnumVariant: 2] = [];
-    color_variants[0] = EnumVariant{ name: "Red", value: null };
-    color_variants[1] = EnumVariant{ name: "Shared", value: null };
-    var color_enum: ASTNode = semantic_test_node(ASTNodeType.AST_ENUM_DECL, "color.uya", "Color");
-    color_enum.enum_decl_variants = &color_variants[0];
-    color_enum.enum_decl_variant_count = 2;
+fn semantic_test_expect_binding(db: &SemanticDb, file_id: i32, name: &byte, expected_id: i32, expected_name: &byte) !void {
+    const name_id: i32 = semantic_db_find_interned_name(db, name);
+    try expect(name_id >= 0);
+    var binding_id: i32 = -99;
+    try assert_eq_i32(semantic_db_find_file_use_item_binding(db, file_id, name_id, &binding_id), 1);
+    try assert_eq_i32(binding_id, expected_id);
+    var binding: SemanticImportBinding = SemanticImportBinding{ file_id: -1, module_id: -1, name: null, ast_node: null };
+    try assert_eq_i32(semantic_db_import_binding_get(db, binding_id, &binding), 1);
+    try assert_eq_i32(binding.file_id, file_id);
+    try expect(semantic_test_cstr_equals(binding.name, expected_name) != 0);
+}
 
-    var state_variants: [EnumVariant: 2] = [];
-    state_variants[0] = EnumVariant{ name: "Shared", value: "7" };
-    state_variants[1] = EnumVariant{ name: "Done", value: null };
-    var state_enum: ASTNode = semantic_test_node(ASTNodeType.AST_ENUM_DECL, "state.uya", "State");
-    state_enum.enum_decl_variants = &state_variants[0];
-    state_enum.enum_decl_variant_count = 2;
+test "semantic db indexes use items by file and import name" {
+    var alias_a: ASTNode = semantic_test_node(ASTNodeType.AST_USE_STMT, "src/a.uya", null);
+    alias_a.use_stmt_alias = "io";
+    var alias_b: ASTNode = semantic_test_node(ASTNodeType.AST_USE_STMT, "src/b.uya", null);
+    alias_b.use_stmt_alias = "io";
+    var item_a: ASTNode = semantic_test_node(ASTNodeType.AST_USE_STMT, "src/a.uya", null);
+    item_a.use_stmt_item_name = "printf";
 
-    var decls: [&ASTNode: 2] = [];
-    decls[0] = &color_enum;
-    decls[1] = &state_enum;
+    var path_segments: [&byte: 3] = [];
+    path_segments[0] = "std";
+    path_segments[1] = "io";
+    path_segments[2] = "file";
+    var whole_module_a: ASTNode = semantic_test_node(ASTNodeType.AST_USE_STMT, "src/a.uya", null);
+    whole_module_a.use_stmt_path_segments = &path_segments[0] as & & byte;
+    whole_module_a.use_stmt_path_segment_count = 3;
 
-    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "color.uya", null);
+    var decls: [&ASTNode: 4] = [];
+    decls[0] = &alias_a;
+    decls[1] = &alias_b;
+    decls[2] = &item_a;
+    decls[3] = &whole_module_a;
+
+    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "src/a.uya", null);
     program.program_decls = &decls[0] as & & ASTNode;
-    program.program_decl_count = 2;
+    program.program_decl_count = 4;
 
     var db: SemanticDb = semantic_test_db();
     try assert_eq_i32(semantic_db_build_from_merged_ast(&db, &program), 0);
-    try assert_eq_i32(db.decl_count, 2);
-    try assert_eq_i32(db.type_count, 2);
-    try assert_eq_i32(db.interned_name_count, 5);
-    try assert_eq_i32(semantic_db_enum_variant_record_count(&db), 4);
-    try assert_eq_i32(semantic_db_enum_variant_range_count(&db), 3);
+    try assert_eq_i32(semantic_db_import_binding_count(&db), 4);
+    try expect(db.use_items_by_file_name.count == 4usize);
 
-    const shared_name_id: i32 = semantic_db_find_interned_name(&db, "Shared");
-    try expect(shared_name_id >= 0);
+    try semantic_test_expect_binding(&db, 0, "io", 0, "io");
+    try semantic_test_expect_binding(&db, 1, "io", 1, "io");
+    try semantic_test_expect_binding(&db, 0, "printf", 2, "printf");
+    try semantic_test_expect_binding(&db, 0, "file", 3, "file");
 
-    var shared_range: SemanticEnumVariantRange = SemanticEnumVariantRange{
-        name_id: -1,
-        variant_start: -1,
-        variant_count: 0,
-    };
-    try assert_eq_i32(semantic_db_find_enum_variant_range(&db, shared_name_id, &shared_range), 1);
-    try assert_eq_i32(shared_range.name_id, shared_name_id);
-    try assert_eq_i32(shared_range.variant_count, 2);
+    const missing_name_id: i32 = semantic_db_find_interned_name(&db, "missing");
+    try assert_eq_i32(missing_name_id, -1);
+    const io_name_id: i32 = semantic_db_find_interned_name(&db, "io");
+    var missing_binding_id: i32 = 1234;
+    try assert_eq_i32(semantic_db_find_file_use_item_binding(&db, 2, io_name_id, &missing_binding_id), 0);
+    try assert_eq_i32(missing_binding_id, 1234);
 
-    const first_record_id: i32 = semantic_db_enum_variant_range_record_id(&db, &shared_range, 0);
-    const second_record_id: i32 = semantic_db_enum_variant_range_record_id(&db, &shared_range, 1);
-    try assert_eq_i32(first_record_id, 1);
-    try assert_eq_i32(second_record_id, 2);
-
-    var first_record: SemanticEnumVariantRecord = SemanticEnumVariantRecord{ name_id: -1, enum_decl_id: -1, variant_index: -1 };
-    var second_record: SemanticEnumVariantRecord = SemanticEnumVariantRecord{ name_id: -1, enum_decl_id: -1, variant_index: -1 };
-    try assert_eq_i32(semantic_db_enum_variant_record_get(&db, first_record_id, &first_record), 1);
-    try assert_eq_i32(semantic_db_enum_variant_record_get(&db, second_record_id, &second_record), 1);
-    try assert_eq_i32(first_record.enum_decl_id, 0);
-    try assert_eq_i32(first_record.variant_index, 1);
-    try assert_eq_i32(second_record.enum_decl_id, 1);
-    try assert_eq_i32(second_record.variant_index, 0);
     semantic_db_release(&db);
 }
 EOF
 
 (cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
 
-echo "✓ SemanticDb enum_variants_by_name range lookup passed"
+echo "✓ SemanticDb use_items_by_file_name lookup passed"

@@ -149,6 +149,7 @@ export struct SemanticDb {
     export_bindings: SemanticVector,
     exports_by_module_name: SemanticHash,
     aliases_by_file_name: SemanticHash,
+    use_items_by_file_name: SemanticHash,
 }
 
 fn semantic_db_clear_counts(db: &SemanticDb) void {
@@ -221,6 +222,7 @@ export fn semantic_db_init(db: &SemanticDb) void {
     semantic_vector_init(&db.export_bindings, @size_of(SemanticExportBinding));
     semantic_hash_init(&db.exports_by_module_name);
     semantic_hash_init(&db.aliases_by_file_name);
+    semantic_hash_init(&db.use_items_by_file_name);
 }
 
 /// 功能说明：重置 SemanticDb 以支持同进程多次编译。
@@ -255,6 +257,7 @@ export fn semantic_db_reset(db: &SemanticDb) void {
     semantic_vector_reset(&db.export_bindings);
     semantic_hash_reset(&db.exports_by_module_name);
     semantic_hash_reset(&db.aliases_by_file_name);
+    semantic_hash_reset(&db.use_items_by_file_name);
 }
 
 /// 功能说明：释放 SemanticDb 内部动态数组并清空状态。
@@ -288,6 +291,7 @@ export fn semantic_db_release(db: &SemanticDb) void {
     semantic_vector_release(&db.export_bindings);
     semantic_hash_release(&db.exports_by_module_name);
     semantic_hash_release(&db.aliases_by_file_name);
+    semantic_hash_release(&db.use_items_by_file_name);
     semantic_db_clear_counts(db);
 }
 
@@ -323,7 +327,8 @@ export fn semantic_db_storage_bytes(db: &SemanticDb) usize {
         db.import_bindings.bytes +
         db.export_bindings.bytes +
         db.exports_by_module_name.bytes +
-        db.aliases_by_file_name.bytes;
+        db.aliases_by_file_name.bytes +
+        db.use_items_by_file_name.bytes;
 }
 
 /// 功能说明：追加 FileId 对应的文件记录。
@@ -481,6 +486,34 @@ export fn semantic_db_find_file_alias_decl(db: &SemanticDb, file_id: i32, name_i
         return 0;
     }
     return semantic_hash_get(&db.aliases_by_file_name, key, out_decl_id);
+}
+
+/// 功能说明：向文件局部 use item 索引追加或更新 `(FileId, InternedNameId) -> ImportBinding` 映射。
+/// 参数说明：`db` 为目标库，`file_id/name_id` 组成复合 key，`binding_id` 为 import binding 下标。
+/// 返回值说明：成功返回 `0`；参数无效、key 溢出或 hash 插入失败返回 `-1`。
+export fn semantic_db_append_file_use_item_index(db: &SemanticDb, file_id: i32, name_id: i32, binding_id: i32) i32 {
+    if db == null || file_id < 0 || name_id < 0 || binding_id < 0 {
+        return -1;
+    }
+    const key: i64 = semantic_db_file_name_key(file_id, name_id);
+    if key < 0 {
+        return -1;
+    }
+    return semantic_hash_insert(&db.use_items_by_file_name, key, binding_id);
+}
+
+/// 功能说明：按文件 ID 和 intern 名字 ID 查询 use import binding 下标。
+/// 参数说明：`db` 为目标库，`file_id/name_id` 组成复合 key，`out_binding_id` 接收命中的 binding 下标。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn semantic_db_find_file_use_item_binding(db: &SemanticDb, file_id: i32, name_id: i32, out_binding_id: &i32) i32 {
+    if db == null || out_binding_id == null || file_id < 0 || name_id < 0 {
+        return 0;
+    }
+    const key: i64 = semantic_db_file_name_key(file_id, name_id);
+    if key < 0 {
+        return 0;
+    }
+    return semantic_hash_get(&db.use_items_by_file_name, key, out_binding_id);
 }
 
 /// 功能说明：追加 DeclId 对应的紧凑声明记录。

@@ -223,6 +223,7 @@ fn semantic_test_db() SemanticDb {
         export_bindings: semantic_test_vector(),
         exports_by_module_name: semantic_test_hash(),
         aliases_by_file_name: semantic_test_hash(),
+        use_items_by_file_name: semantic_test_hash(),
     };
 }
 
@@ -285,10 +286,11 @@ test "semantic db build counts merged ast declarations" {
     try assert_eq_i32(db.function_count, 2);
     try assert_eq_i32(db.type_count, 2);
     try assert_eq_i32(db.symbol_count, 5);
-    try assert_eq_i32(db.interned_name_count, 5);
+    try assert_eq_i32(db.interned_name_count, 6);
     try assert_eq_i32(semantic_db_decl_record_count(&db), 5);
     try assert_eq_i32(semantic_db_symbol_record_count(&db), 5);
     try assert_eq_i32(semantic_db_name_range_count(&db), 5);
+    try expect(db.use_items_by_file_name.count == 1usize);
     try expect(semantic_db_estimated_bytes(&db) >= @size_of(SemanticDb));
     semantic_db_release(&db);
 }

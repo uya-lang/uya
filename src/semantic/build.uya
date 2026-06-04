@@ -109,7 +109,8 @@ fn semantic_db_prepare_for_build(db: &SemanticDb) void {
         db.import_bindings.item_size != @size_of(SemanticImportBinding) ||
         db.export_bindings.item_size != @size_of(SemanticExportBinding) ||
         db.exports_by_module_name.capacity < db.exports_by_module_name.count ||
-        db.aliases_by_file_name.capacity < db.aliases_by_file_name.count {
+        db.aliases_by_file_name.capacity < db.aliases_by_file_name.count ||
+        db.use_items_by_file_name.capacity < db.use_items_by_file_name.count {
         semantic_db_init(db);
         return;
     }
@@ -299,6 +300,9 @@ fn semantic_db_count_decl(db: &SemanticDb, decl: &ASTNode, file_id: i32, module_
     if decl.type == ASTNodeType.AST_USE_STMT {
         const import_name: &byte = semantic_db_use_binding_name(decl);
         if import_name != null {
+            if semantic_intern_get_or_put(&db.name_intern, import_name) < 0 {
+                return -1;
+            }
             if semantic_db_append_import_binding(db, file_id, module_id, import_name, decl as &void) < 0 {
                 return -1;
             }
@@ -1105,6 +1109,34 @@ fn semantic_db_rebuild_aliases_by_file_name(db: &SemanticDb) i32 {
     return 0;
 }
 
+fn semantic_db_rebuild_use_items_by_file_name(db: &SemanticDb) i32 {
+    if db == null {
+        return -1;
+    }
+    semantic_hash_reset(&db.use_items_by_file_name);
+    var binding_id: i32 = 0;
+    while binding_id < semantic_db_import_binding_count(db) {
+        var binding: SemanticImportBinding = SemanticImportBinding{
+            file_id: -1,
+            module_id: -1,
+            name: null,
+            ast_node: null,
+        };
+        if semantic_db_import_binding_get(db, binding_id, &binding) == 0 {
+            return -1;
+        }
+        const name_id: i32 = semantic_intern_find(&db.name_intern, binding.name);
+        if name_id < 0 {
+            return -1;
+        }
+        if semantic_db_append_file_use_item_index(db, binding.file_id, name_id, binding_id) != 0 {
+            return -1;
+        }
+        binding_id = binding_id + 1;
+    }
+    return 0;
+}
+
 fn semantic_db_refresh_interned_name_count(db: &SemanticDb) i32 {
     if db == null {
         return -1;
@@ -1185,6 +1217,10 @@ export fn semantic_db_build_from_merged_ast(db: &SemanticDb, program: &ASTNode) 
         return -1;
     }
     if semantic_db_rebuild_aliases_by_file_name(db) != 0 {
+        semantic_db_reset(db);
+        return -1;
+    }
+    if semantic_db_rebuild_use_items_by_file_name(db) != 0 {
         semantic_db_reset(db);
         return -1;
     }

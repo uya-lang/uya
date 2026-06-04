@@ -173,6 +173,7 @@ fn semantic_test_db() SemanticDb {
         export_bindings: semantic_test_vector(),
         exports_by_module_name: semantic_test_hash(),
         aliases_by_file_name: semantic_test_hash(),
+        use_items_by_file_name: semantic_test_hash(),
     };
 }
 

@@ -92,6 +92,9 @@ fn checker_semantic_cache_has_layout(checker: &TypeChecker) i32 {
     if checker.semantic_db.aliases_by_file_name.capacity < checker.semantic_db.aliases_by_file_name.count {
         return 0;
     }
+    if checker.semantic_db.use_items_by_file_name.capacity < checker.semantic_db.use_items_by_file_name.count {
+        return 0;
+    }
     return 1;
 }
 
@@ -174,7 +177,7 @@ fn checker_dump_semantic_db(db: &SemanticDb) void {
         semantic_db_import_binding_count(db),
         semantic_db_export_binding_count(db),
         semantic_db_estimated_bytes(db));
-    fprintf(libc.stderr, "table file=%zu/%zu module=%zu/%zu decl=%zu/%zu symbol=%zu/%zu name_range=%zu/%zu hash=%zu/%zu import=%zu/%zu export=%zu/%zu export_hash=%zu/%zu alias_hash=%zu/%zu reallocs=%d\n" as *byte,
+    fprintf(libc.stderr, "table file=%zu/%zu module=%zu/%zu decl=%zu/%zu symbol=%zu/%zu name_range=%zu/%zu hash=%zu/%zu import=%zu/%zu export=%zu/%zu export_hash=%zu/%zu alias_hash=%zu/%zu use_hash=%zu/%zu reallocs=%d\n" as *byte,
         db.file_records.count, db.file_records.capacity,
         db.module_records.count, db.module_records.capacity,
         db.decl_records.count, db.decl_records.capacity,
@@ -185,10 +188,12 @@ fn checker_dump_semantic_db(db: &SemanticDb) void {
         db.export_bindings.count, db.export_bindings.capacity,
         db.exports_by_module_name.count, db.exports_by_module_name.capacity,
         db.aliases_by_file_name.count, db.aliases_by_file_name.capacity,
+        db.use_items_by_file_name.count, db.use_items_by_file_name.capacity,
         db.file_records.realloc_count + db.module_records.realloc_count + db.decl_records.realloc_count +
             db.symbol_records.realloc_count + db.name_ranges.realloc_count + db.name_range_index.realloc_count +
             db.import_bindings.realloc_count + db.export_bindings.realloc_count +
-            db.exports_by_module_name.realloc_count + db.aliases_by_file_name.realloc_count);
+            db.exports_by_module_name.realloc_count + db.aliases_by_file_name.realloc_count +
+            db.use_items_by_file_name.realloc_count);
     checker_dump_semantic_db_records(db);
     fprintf(libc.stderr, "=== semantic db end ===\n" as *byte);
 }

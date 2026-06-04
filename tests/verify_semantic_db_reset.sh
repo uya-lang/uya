@@ -190,6 +190,7 @@ fn semantic_test_db() SemanticDb {
         export_bindings: semantic_test_vector(),
         exports_by_module_name: semantic_test_hash(),
         aliases_by_file_name: semantic_test_hash(),
+        use_items_by_file_name: semantic_test_hash(),
     };
 }
 
@@ -245,10 +246,13 @@ fn semantic_test_assert_empty(db: &SemanticDb) !void {
     try assert_eq_i32(semantic_db_import_binding_count(db), 0);
     try assert_eq_i32(semantic_db_export_binding_count(db), 0);
     try assert_eq_i32(semantic_db_estimated_bytes(db) as i32, 0);
+    try expect(db.use_items_by_file_name.count == 0usize);
 
     var stale_range: i32 = -1;
     try assert_eq_i32(semantic_db_find_name_range(db, 0, &stale_range), 0);
     try assert_eq_i32(semantic_db_find_name_range(db, 1, &stale_range), 0);
+    var stale_binding: i32 = -1;
+    try assert_eq_i32(semantic_db_find_file_use_item_binding(db, 0, 0, &stale_binding), 0);
 }
 
 fn semantic_test_assert_old_program(db: &SemanticDb) !void {
@@ -257,18 +261,33 @@ fn semantic_test_assert_old_program(db: &SemanticDb) !void {
     try assert_eq_i32(db.module_count, 2);
     try assert_eq_i32(db.function_count, 2);
     try assert_eq_i32(db.symbol_count, 2);
-    try assert_eq_i32(db.interned_name_count, 2);
+    try assert_eq_i32(db.interned_name_count, 4);
     try assert_eq_i32(semantic_db_decl_record_count(db), 4);
     try assert_eq_i32(semantic_db_name_range_count(db), 2);
     try assert_eq_i32(semantic_db_import_binding_count(db), 2);
     try assert_eq_i32(semantic_db_export_binding_count(db), 2);
+    try expect(db.use_items_by_file_name.count == 2usize);
     try expect(semantic_db_estimated_bytes(db) > @size_of(SemanticDb));
 
+    const old_main_id: i32 = semantic_db_find_interned_name(db, "old_main");
+    const old_helper_id: i32 = semantic_db_find_interned_name(db, "old_helper");
+    try expect(old_main_id >= 0);
+    try expect(old_helper_id >= 0);
     var range_id: i32 = -1;
-    try assert_eq_i32(semantic_db_find_name_range(db, 0, &range_id), 1);
+    try assert_eq_i32(semantic_db_find_name_range(db, old_main_id, &range_id), 1);
     try assert_eq_i32(range_id, 0);
-    try assert_eq_i32(semantic_db_find_name_range(db, 1, &range_id), 1);
+    try assert_eq_i32(semantic_db_find_name_range(db, old_helper_id, &range_id), 1);
     try assert_eq_i32(range_id, 1);
+
+    const printf_id: i32 = semantic_db_find_interned_name(db, "printf");
+    const old_io_id: i32 = semantic_db_find_interned_name(db, "old_io");
+    try expect(printf_id >= 0);
+    try expect(old_io_id >= 0);
+    var binding_id: i32 = -1;
+    try assert_eq_i32(semantic_db_find_file_use_item_binding(db, 0, printf_id, &binding_id), 1);
+    try assert_eq_i32(binding_id, 0);
+    try assert_eq_i32(semantic_db_find_file_use_item_binding(db, 1, old_io_id, &binding_id), 1);
+    try assert_eq_i32(binding_id, 1);
 }
 
 test "semantic db reset supports same-process rebuilds" {
@@ -324,11 +343,12 @@ test "semantic db reset supports same-process rebuilds" {
     try assert_eq_i32(db.module_count, 1);
     try assert_eq_i32(db.function_count, 1);
     try assert_eq_i32(db.symbol_count, 1);
-    try assert_eq_i32(db.interned_name_count, 1);
+    try assert_eq_i32(db.interned_name_count, 2);
     try assert_eq_i32(semantic_db_decl_record_count(&db), 2);
     try assert_eq_i32(semantic_db_name_range_count(&db), 1);
     try assert_eq_i32(semantic_db_import_binding_count(&db), 1);
     try assert_eq_i32(semantic_db_export_binding_count(&db), 1);
+    try expect(db.use_items_by_file_name.count == 1usize);
 
     var fresh_import: SemanticImportBinding = SemanticImportBinding{ file_id: -1, module_id: -1, name: null, ast_node: null };
     var fresh_export: SemanticExportBinding = SemanticExportBinding{ file_id: -1, module_id: -1, name: null, decl_id: -1, symbol_id: -1 };
@@ -342,8 +362,15 @@ test "semantic db reset supports same-process rebuilds" {
     try expect(semantic_test_cstr_equals(semantic_db_file_name(&db, 0), "fresh.uya") != 0);
     try expect(semantic_test_cstr_equals(semantic_db_module_name(&db, 0), "fresh.uya") != 0);
 
+    const fresh_io_id: i32 = semantic_db_find_interned_name(&db, "fresh_io");
+    try expect(fresh_io_id >= 0);
+    var fresh_binding_id: i32 = -1;
+    try assert_eq_i32(semantic_db_find_file_use_item_binding(&db, 0, fresh_io_id, &fresh_binding_id), 1);
+    try assert_eq_i32(fresh_binding_id, 0);
+    try assert_eq_i32(semantic_db_find_interned_name(&db, "old_io"), -1);
+
     var stale_range: i32 = -1;
-    try assert_eq_i32(semantic_db_find_name_range(&db, 1, &stale_range), 0);
+    try assert_eq_i32(semantic_db_find_name_range(&db, 2, &stale_range), 0);
     semantic_db_release(&db);
 }
 EOF
