@@ -30,6 +30,7 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
     reset_program_lookup_caches();
     type_from_ast_reset_cache();
     mono_instance_index_reset();
+    checker_capacity_warning_reset();
     
     checker.arena = arena;
     

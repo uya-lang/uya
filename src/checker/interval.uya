@@ -25,7 +25,7 @@ fn pointer_nonnull_add(checker: &TypeChecker, ptr_name: &byte) void {
     }
     const nonnull_limit: i32 = MAX_POINTER_NAMES;
     if checker.pointer_nonnull_count >= nonnull_limit {
-        checker_report_error(checker, null, "checker pointer nonnull table 容量已满" as *byte);
+        checker_report_capacity_warning(checker, "checker pointer nonnull table 容量已满" as *byte);
         return;
     }
     // 检查是否已存在
@@ -115,7 +115,7 @@ fn pointer_nullable_add(checker: &TypeChecker, ptr_name: &byte) void {
     }
     const nullable_limit: i32 = MAX_POINTER_NAMES;
     if checker.pointer_nullable_count >= nullable_limit {
-        checker_report_error(checker, null, "checker pointer nullable table 容量已满" as *byte);
+        checker_report_capacity_warning(checker, "checker pointer nullable table 容量已满" as *byte);
         return;
     }
     // 检查是否已存在
@@ -182,7 +182,7 @@ fn constraint_add(checker: &TypeChecker, var_name: &byte, op: i32, value: i32) v
     }
     const constraint_limit: i32 = MAX_CONSTRAINTS;
     if checker.constraint_count >= constraint_limit {
-        checker_report_error(checker, null, "checker constraint table 容量已满" as *byte);
+        checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
         return;
     }
     const idx: i32 = checker.constraint_count;

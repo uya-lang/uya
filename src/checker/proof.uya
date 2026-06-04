@@ -9,6 +9,54 @@ var last_checker_error_storage: [byte: 512] = [];
 var reported_error_vars: [&byte: 32] = [];
 var reported_error_sizes: [i32: 32] = [];
 var reported_error_count: i32 = 0;
+var checker_constraint_capacity_warned: i32 = 0;
+var checker_pointer_nonnull_capacity_warned: i32 = 0;
+var checker_pointer_nullable_capacity_warned: i32 = 0;
+
+fn checker_capacity_warning_reset() void {
+    checker_constraint_capacity_warned = 0;
+    checker_pointer_nonnull_capacity_warned = 0;
+    checker_pointer_nullable_capacity_warned = 0;
+}
+
+fn checker_capacity_warning_mark_seen(message: &byte) i32 {
+    if message == null {
+        return 1;
+    }
+    if str_equals(message, "checker constraint table 容量已满" as *byte) != 0 {
+        if checker_constraint_capacity_warned != 0 { return 1; }
+        checker_constraint_capacity_warned = 1;
+        return 0;
+    }
+    if str_equals(message, "checker pointer nonnull table 容量已满" as *byte) != 0 {
+        if checker_pointer_nonnull_capacity_warned != 0 { return 1; }
+        checker_pointer_nonnull_capacity_warned = 1;
+        return 0;
+    }
+    if str_equals(message, "checker pointer nullable table 容量已满" as *byte) != 0 {
+        if checker_pointer_nullable_capacity_warned != 0 { return 1; }
+        checker_pointer_nullable_capacity_warned = 1;
+        return 0;
+    }
+    return 0;
+}
+
+fn checker_report_capacity_warning(checker: &TypeChecker, message: &byte) void {
+    if checker == null || message == null || checker.suppress_codegen_diagnostics != 0 {
+        return;
+    }
+    checker.enable_safety_proof = 0;
+    if checker_capacity_warning_mark_seen(message) != 0 {
+        return;
+    }
+    if libc.stderr != null {
+        var filename: &byte = "(unknown)" as *byte;
+        if checker.default_filename != null {
+            filename = checker.default_filename;
+        }
+        fprintf(libc.stderr, "%s: 警告: %s\n" as *byte, filename as *byte, message as *byte);
+    }
+}
 
 fn reported_error_slot_set(idx: i32, var_name: &byte, array_size: i32) void {
     if idx >= 0 && idx < 32 {
@@ -916,6 +964,10 @@ fn checker_reset_proof_steps(checker: &TypeChecker) void {
             checker.pointer_nonnull_names[i] = null;
         }
         checker.pointer_nonnull_count = 0;
+        for 0..@len(checker.pointer_nullable_names) |i| {
+            checker.pointer_nullable_names[i] = null;
+        }
+        checker.pointer_nullable_count = 0;
     }
 }
 
