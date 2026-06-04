@@ -1,0 +1,55 @@
+// semantic/db.uya - SemanticDb root state for the 1-second compiler pipeline.
+
+/// 功能说明：保存 SemanticDb 的顶层计数和估算字节数。
+/// 参数说明：无；调用 `semantic_db_init` 后使用。
+/// 返回值说明：无。
+export struct SemanticDb {
+    file_count: i32,
+    module_count: i32,
+    interned_name_count: i32,
+    decl_count: i32,
+    symbol_count: i32,
+    scope_count: i32,
+    type_count: i32,
+    expr_count: i32,
+    function_count: i32,
+    mono_instance_count: i32,
+    estimated_bytes: usize,
+}
+
+/// 功能说明：初始化 SemanticDb 顶层状态。
+/// 参数说明：`db` 为待初始化 SemanticDb。
+/// 返回值说明：无。
+export fn semantic_db_init(db: &SemanticDb) void {
+    if db == null {
+        return;
+    }
+    db.file_count = 0;
+    db.module_count = 0;
+    db.interned_name_count = 0;
+    db.decl_count = 0;
+    db.symbol_count = 0;
+    db.scope_count = 0;
+    db.type_count = 0;
+    db.expr_count = 0;
+    db.function_count = 0;
+    db.mono_instance_count = 0;
+    db.estimated_bytes = 0usize;
+}
+
+/// 功能说明：重置 SemanticDb 以支持同进程多次编译。
+/// 参数说明：`db` 为待重置 SemanticDb。
+/// 返回值说明：无。
+export fn semantic_db_reset(db: &SemanticDb) void {
+    semantic_db_init(db);
+}
+
+/// 功能说明：读取 SemanticDb 当前估算字节数。
+/// 参数说明：`db` 为目标 SemanticDb。
+/// 返回值说明：返回估算字节数；参数无效时返回 `0`。
+export fn semantic_db_estimated_bytes(db: &SemanticDb) usize {
+    if db == null {
+        return 0usize;
+    }
+    return db.estimated_bytes;
+}
