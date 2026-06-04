@@ -55,7 +55,7 @@ make uya
 - [x] 修正 `scripts/bench_compile_stats.sh`，避免覆盖正式 `bin/uya`。
 - [x] `make bench-compile-stats` 默认先重建当前 `bin/uya`。
 - [x] 增加 `tests/verify_bench_compile_stats.sh`。
-- [ ] 新增 `scripts/bench_compiler_1s.sh`，专门测 `make clean && make uya` 冷构建。
+- [x] 新增 `scripts/bench_compiler_1s.sh`，专门测 `make clean && make uya` 冷构建。
 - [ ] 新增 `make bench-compiler-1s`。
 - [ ] 新增 `make bench-compiler-1s-check`。
 - [ ] benchmark 输出 commit、branch、OS、arch、CPU 核数、`CFLAGS`、`CC_DRIVER`、是否启用 native/C99。
