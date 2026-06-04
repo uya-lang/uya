@@ -164,7 +164,7 @@ MonoInstanceId
 - [x] 将 `use` 语句和 module export 登记为 `ImportBinding`。
 - [x] 增加 `semantic_db_reset()`，用于同进程多次编译。
 - [x] 在 `checker_init()` 或等价入口纳入 semantic cache reset。
-- [ ] 增加 debug dump 开关 `UYA_DUMP_SEMANTIC_DB=1`。
+- [x] 增加 debug dump 开关 `UYA_DUMP_SEMANTIC_DB=1`。
 - [ ] debug dump 默认关闭，打开时不计入性能/内存 KPI。
 
 测试：
@@ -198,6 +198,7 @@ bash tests/verify_semantic_db_file_module_ids.sh
 bash tests/verify_semantic_db_import_bindings.sh
 bash tests/verify_semantic_db_reset.sh
 bash tests/verify_checker_semantic_cache_reset.sh
+bash tests/verify_semantic_db_debug_dump.sh
 bash tests/verify_semantic_db_smoke.sh
 make tests-uya
 ```

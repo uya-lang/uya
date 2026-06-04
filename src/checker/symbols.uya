@@ -61,6 +61,92 @@ fn checker_reset_semantic_cache(checker: &TypeChecker) void {
     semantic_db_init(&checker.semantic_db);
 }
 
+fn checker_semantic_dump_enabled() i32 {
+    const value: *byte = getenv("UYA_DUMP_SEMANTIC_DB" as *byte);
+    if value == null {
+        return 0;
+    }
+    if value[0] == 49 as byte && value[1] == 0 as byte {
+        return 1;
+    }
+    return 0;
+}
+
+fn checker_semantic_dump_name(value: &byte) &byte {
+    if value == null {
+        return "(null)" as &byte;
+    }
+    return value;
+}
+
+fn checker_dump_semantic_db_records(db: &SemanticDb) void {
+    if db == null {
+        return;
+    }
+    var i: i32 = 0;
+    while i < semantic_db_file_record_count(db) && i < 8 {
+        fprintf(libc.stderr, "  file[%d]=%s\n" as *byte, i, checker_semantic_dump_name(semantic_db_file_name(db, i)) as *byte);
+        i = i + 1;
+    }
+    i = 0;
+    while i < semantic_db_import_binding_count(db) && i < 8 {
+        var import_binding: SemanticImportBinding = SemanticImportBinding{ file_id: -1, module_id: -1, name: null, ast_node: null };
+        if semantic_db_import_binding_get(db, i, &import_binding) != 0 {
+            fprintf(libc.stderr, "  import[%d] file=%d module=%d name=%s\n" as *byte,
+                i, import_binding.file_id, import_binding.module_id, checker_semantic_dump_name(import_binding.name) as *byte);
+        }
+        i = i + 1;
+    }
+    i = 0;
+    while i < semantic_db_export_binding_count(db) && i < 8 {
+        var export_binding: SemanticExportBinding = SemanticExportBinding{ file_id: -1, module_id: -1, name: null, decl_id: -1 };
+        if semantic_db_export_binding_get(db, i, &export_binding) != 0 {
+            fprintf(libc.stderr, "  export[%d] file=%d module=%d decl=%d name=%s\n" as *byte,
+                i, export_binding.file_id, export_binding.module_id, export_binding.decl_id, checker_semantic_dump_name(export_binding.name) as *byte);
+        }
+        i = i + 1;
+    }
+}
+
+fn checker_dump_semantic_db(db: &SemanticDb) void {
+    if db == null {
+        return;
+    }
+    fprintf(libc.stderr, "=== semantic db ===\n" as *byte);
+    fprintf(libc.stderr, "files=%d modules=%d decls=%d symbols=%d name_ranges=%d imports=%d exports=%d bytes=%zu\n" as *byte,
+        semantic_db_file_record_count(db),
+        semantic_db_module_record_count(db),
+        semantic_db_decl_record_count(db),
+        semantic_db_symbol_record_count(db),
+        semantic_db_name_range_count(db),
+        semantic_db_import_binding_count(db),
+        semantic_db_export_binding_count(db),
+        semantic_db_estimated_bytes(db));
+    fprintf(libc.stderr, "table file=%zu/%zu module=%zu/%zu decl=%zu/%zu symbol=%zu/%zu name_range=%zu/%zu hash=%zu/%zu import=%zu/%zu export=%zu/%zu reallocs=%d\n" as *byte,
+        db.file_records.count, db.file_records.capacity,
+        db.module_records.count, db.module_records.capacity,
+        db.decl_records.count, db.decl_records.capacity,
+        db.symbol_records.count, db.symbol_records.capacity,
+        db.name_ranges.count, db.name_ranges.capacity,
+        db.name_range_index.count, db.name_range_index.capacity,
+        db.import_bindings.count, db.import_bindings.capacity,
+        db.export_bindings.count, db.export_bindings.capacity,
+        db.file_records.realloc_count + db.module_records.realloc_count + db.decl_records.realloc_count +
+            db.symbol_records.realloc_count + db.name_ranges.realloc_count + db.name_range_index.realloc_count +
+            db.import_bindings.realloc_count + db.export_bindings.realloc_count);
+    checker_dump_semantic_db_records(db);
+    fprintf(libc.stderr, "=== semantic db end ===\n" as *byte);
+}
+
+fn checker_maybe_dump_semantic_db(checker: &TypeChecker) void {
+    if checker == null {
+        return;
+    }
+    if checker_semantic_dump_enabled() != 0 {
+        checker_dump_semantic_db(&checker.semantic_db);
+    }
+}
+
 // 初始化 TypeChecker
 fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: &byte) i32 {
     if checker == null || arena == null {

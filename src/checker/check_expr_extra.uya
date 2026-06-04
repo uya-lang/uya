@@ -2178,6 +2178,7 @@ fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32 {
         checker_report_error(checker, ast_ptr, "SemanticDb 构建失败" as *byte);
         return -1;
     }
+    checker_maybe_dump_semantic_db(checker);
     
     // 第二遍：检查所有声明（包括函数体、结构体、变量等）
     // 此时所有函数都已被注册，函数体中的函数调用可以正确解析
