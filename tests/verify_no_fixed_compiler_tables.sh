@@ -7,6 +7,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BASE_REF="${UYA_FIXED_TABLE_BASE_REF:-HEAD}"
 DIFF_FILE="${UYA_FIXED_TABLE_DIFF_FILE:-}"
 SELF_TEST=0
+PRINT_SCOPE=0
+SCAN_PATHS=(
+    "src/main.uya"
+    "src/checker"
+    "src/codegen/c99"
+    "src/exec"
+)
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -14,8 +21,12 @@ while [[ $# -gt 0 ]]; do
             SELF_TEST=1
             shift
             ;;
+        --print-scope)
+            PRINT_SCOPE=1
+            shift
+            ;;
         -h|--help)
-            echo "用法: bash tests/verify_no_fixed_compiler_tables.sh [--self-test]" >&2
+            echo "用法: bash tests/verify_no_fixed_compiler_tables.sh [--self-test] [--print-scope]" >&2
             exit 0
             ;;
         *)
@@ -35,11 +46,14 @@ read_diff() {
         return
     fi
 
-    git -C "$REPO_ROOT" diff --no-ext-diff --unified=0 "$BASE_REF" -- \
-        src/main.uya \
-        src/checker \
-        src/codegen/c99 \
-        src/exec
+    git -C "$REPO_ROOT" diff --no-ext-diff --unified=0 "$BASE_REF" -- "${SCAN_PATHS[@]}"
+}
+
+print_scope() {
+    local path
+    for path in "${SCAN_PATHS[@]}"; do
+        printf '%s\n' "$path"
+    done
 }
 
 is_fixed_capacity_shape() {
@@ -140,7 +154,7 @@ run_guard() {
 }
 
 run_self_test() {
-    local tmp_dir small_diff bad_diff small_out small_err bad_out bad_err
+    local tmp_dir small_diff bad_diff small_out small_err bad_out bad_err scope_out
     tmp_dir="$(mktemp -d /tmp/uya-fixed-table-guard.XXXXXX)"
     trap 'rm -rf "$tmp_dir"' RETURN
     small_diff="$tmp_dir/small-buffer.diff"
@@ -149,6 +163,7 @@ run_self_test() {
     small_err="$tmp_dir/small.err"
     bad_out="$tmp_dir/bad.out"
     bad_err="$tmp_dir/bad.err"
+    scope_out="$tmp_dir/scope.out"
 
     cat >"$small_diff" <<'EOF'
 diff --git a/src/checker/example.uya b/src/checker/example.uya
@@ -187,9 +202,25 @@ EOF
         cat "$bad_err" >&2
         return 1
     fi
+    if ! bash "$0" --print-scope >"$scope_out"; then
+        echo "错误: 扫描范围输出失败" >&2
+        return 1
+    fi
+    for required_path in src/main.uya src/checker src/codegen/c99 src/exec; do
+        if ! grep -qx "$required_path" "$scope_out"; then
+            echo "错误: 扫描范围缺少 $required_path" >&2
+            cat "$scope_out" >&2
+            return 1
+        fi
+    done
 
     echo "✓ fixed compiler table guard 小缓冲/表缓存区分自测通过"
 }
+
+if [[ "$PRINT_SCOPE" -ne 0 ]]; then
+    print_scope
+    exit 0
+fi
 
 if [[ "$SELF_TEST" -ne 0 ]]; then
     run_self_test
