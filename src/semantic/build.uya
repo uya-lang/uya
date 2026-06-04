@@ -97,6 +97,24 @@ fn semantic_db_prepare_for_build(db: &SemanticDb) void {
     semantic_db_reset(db);
 }
 
+/// 功能说明：按 DeclId 取回顶层声明 AST 节点。
+/// 参数说明：`db` 为目标 SemanticDb，`decl_id` 为构建阶段分配的声明 ID。
+/// 返回值说明：命中返回 AST 节点指针；参数无效或越界时返回 null。
+export fn semantic_db_decl_ast_node(db: &SemanticDb, decl_id: i32) &ASTNode {
+    if db == null || decl_id < 0 {
+        return null;
+    }
+    const record_ptr: &byte = semantic_vector_item_ptr(&db.decl_records, decl_id as usize);
+    if record_ptr == null {
+        return null;
+    }
+    const record: &SemanticDeclRecord = record_ptr as &SemanticDeclRecord;
+    if record.ast_node == null {
+        return null;
+    }
+    return record.ast_node as &ASTNode;
+}
+
 fn semantic_db_append_named_symbol(db: &SemanticDb, decl_id: i32, kind: i32) i32 {
     if db == null || decl_id < 0 {
         return -1;
