@@ -62,7 +62,7 @@ make uya
 - [x] benchmark 主动清理 `bin/`、`src/build/`、`src/.uyacache/`。
 - [x] benchmark 明确拒绝 daemon、object cache、IR cache 参与硬 KPI。
 - [x] benchmark 通过 `/proc/<pid>/status` 或 `/proc/<pid>/smaps_rollup` 采样 `peak_rss_kb`。
-- [ ] benchmark 在缺少 `/proc` 的平台打印“RSS 未测量”，不能把该运行计入内存达标。
+- [x] benchmark 在缺少 `/proc` 的平台打印“RSS 未测量”，不能把该运行计入内存达标。
 - [ ] 编译器内部新增 arena 峰值统计输出字段。
 - [ ] benchmark 记录生成文件总字节数：
   - [ ] C99 单文件大小。

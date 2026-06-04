@@ -53,9 +53,10 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MAKE_CMD="${MAKE:-make}"
+PROC_ROOT="${UYA_BENCH_PROC_ROOT:-/proc}"
 RSS_SAMPLE_INTERVAL="${UYA_BENCH_RSS_SAMPLE_INTERVAL:-0.10}"
 RSS_AVAILABLE=0
-if [[ -d /proc && -r /proc/self/status ]]; then
+if [[ -d "$PROC_ROOT" && -r "$PROC_ROOT/self/status" ]]; then
     RSS_AVAILABLE=1
 fi
 
@@ -192,20 +193,20 @@ clean_cold_build_artifacts() {
 process_is_active() {
     local pid="$1"
     local state
-    if [[ "$RSS_AVAILABLE" -ne 1 || ! -r "/proc/$pid/status" ]]; then
+    if [[ "$RSS_AVAILABLE" -ne 1 || ! -r "$PROC_ROOT/$pid/status" ]]; then
         return 1
     fi
-    state="$(awk '/^State:/ { print $2; exit }' "/proc/$pid/status" 2>/dev/null || true)"
+    state="$(awk '/^State:/ { print $2; exit }' "$PROC_ROOT/$pid/status" 2>/dev/null || true)"
     [[ -n "$state" && "$state" != "Z" && "$state" != "X" ]]
 }
 
 rss_kb_for_pid() {
     local pid="$1"
     local value
-    if [[ -r "/proc/$pid/smaps_rollup" ]]; then
-        value="$(awk '/^Rss:/ { print $2; found = 1; exit } END { if (!found) print 0 }' "/proc/$pid/smaps_rollup" 2>/dev/null || printf '0\n')"
-    elif [[ -r "/proc/$pid/status" ]]; then
-        value="$(awk '/^VmRSS:/ { print $2; found = 1; exit } END { if (!found) print 0 }' "/proc/$pid/status" 2>/dev/null || printf '0\n')"
+    if [[ -r "$PROC_ROOT/$pid/smaps_rollup" ]]; then
+        value="$(awk '/^Rss:/ { print $2; found = 1; exit } END { if (!found) print 0 }' "$PROC_ROOT/$pid/smaps_rollup" 2>/dev/null || printf '0\n')"
+    elif [[ -r "$PROC_ROOT/$pid/status" ]]; then
+        value="$(awk '/^VmRSS:/ { print $2; found = 1; exit } END { if (!found) print 0 }' "$PROC_ROOT/$pid/status" 2>/dev/null || printf '0\n')"
     else
         value=0
     fi
@@ -224,9 +225,9 @@ collect_process_tree_pids() {
     changed=1
     while [[ "$changed" -eq 1 ]]; do
         changed=0
-        for stat_file in /proc/[0-9]*/stat; do
+        for stat_file in "$PROC_ROOT"/[0-9]*/stat; do
             [[ -r "$stat_file" ]] || continue
-            pid="${stat_file#/proc/}"
+            pid="${stat_file#"$PROC_ROOT"/}"
             pid="${pid%/stat}"
             [[ "$seen" == *" $pid "* ]] && continue
             stat_content="$(<"$stat_file")" || continue
@@ -269,6 +270,16 @@ run_make_target() {
     local rss_out_var="$3"
     local pid status peak_rss sample_rss
 
+    if [[ "$RSS_AVAILABLE" -ne 1 ]]; then
+        if "$MAKE_CMD" -C "$REPO_ROOT" "$target" >"$log_file" 2>&1; then
+            status=0
+        else
+            status=$?
+        fi
+        printf -v "$rss_out_var" '%s' "NA"
+        return "$status"
+    fi
+
     "$MAKE_CMD" -C "$REPO_ROOT" "$target" >"$log_file" 2>&1 &
     pid="$!"
     peak_rss=0
@@ -291,6 +302,24 @@ run_make_target() {
 
     printf -v "$rss_out_var" '%s' "$peak_rss"
     return "$status"
+}
+
+combine_peak_rss() {
+    local first="$1"
+    local second="$2"
+    if [[ "$first" == "NA" || "$second" == "NA" ]]; then
+        printf 'NA\n'
+    elif [[ "$second" -gt "$first" ]]; then
+        printf '%s\n' "$second"
+    else
+        printf '%s\n' "$first"
+    fi
+}
+
+print_rss_unavailable_warning() {
+    if [[ "$RSS_AVAILABLE" -ne 1 ]]; then
+        echo "RSS 未测量: 缺少可用的 $PROC_ROOT/<pid>/status 或 smaps_rollup；该运行不能计入内存达标。" >&2
+    fi
 }
 
 print_failure_log() {
@@ -331,6 +360,7 @@ total_values=()
 rss_values=()
 
 print_metadata
+print_rss_unavailable_warning
 printf 'run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tpeak_rss_kb\tstatus\n'
 
 run=1
@@ -365,10 +395,7 @@ while [[ "$run" -le "$RUNS" ]]; do
         build_ms="$(elapsed_ms "$build_start" "$build_end")"
         total_end="$(now_ns)"
         total_ms="$(elapsed_ms "$total_start" "$total_end")"
-        peak_rss="$clean_rss"
-        if [[ "$build_rss" -gt "$peak_rss" ]]; then
-            peak_rss="$build_rss"
-        fi
+        peak_rss="$(combine_peak_rss "$clean_rss" "$build_rss")"
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "$peak_rss" "build_failed"
         print_failure_log "make uya" "$build_log"
         exit 1
@@ -378,10 +405,7 @@ while [[ "$run" -le "$RUNS" ]]; do
 
     total_end="$(now_ns)"
     total_ms="$(elapsed_ms "$total_start" "$total_end")"
-    peak_rss="$clean_rss"
-    if [[ "$build_rss" -gt "$peak_rss" ]]; then
-        peak_rss="$build_rss"
-    fi
+    peak_rss="$(combine_peak_rss "$clean_rss" "$build_rss")"
 
     clean_values+=("$clean_ms")
     build_values+=("$build_ms")
@@ -393,11 +417,15 @@ while [[ "$run" -le "$RUNS" ]]; do
 done
 
 if [[ "$RUNS" -gt 1 ]]; then
+    median_rss="NA"
+    if [[ "$RSS_AVAILABLE" -eq 1 ]]; then
+        median_rss="$(median_value "${rss_values[@]}")"
+    fi
     printf 'median\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$MODE" \
         "$(median_value "${clean_values[@]}")" \
         "$(median_value "${build_values[@]}")" \
         "$(median_value "${total_values[@]}")" \
-        "$(median_value "${rss_values[@]}")" \
+        "$median_rss" \
         "ok"
 fi

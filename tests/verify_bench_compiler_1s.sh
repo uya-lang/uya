@@ -177,6 +177,29 @@ if compgen -G "$TMP_DIR/uya-bench-compiler-1s.*" >/dev/null; then
     exit 1
 fi
 
+CALL_LOG="$TMP_DIR/calls.noproc"
+: >"$CALL_LOG"
+if ! MAKE="$FAKE_MAKE" UYA_FAKE_MAKE_CALL_LOG="$CALL_LOG" UYA_BENCH_PROC_ROOT="$TMP_DIR/no-proc" UYA_BENCH_TMPDIR="$TMP_DIR" bash "$BENCH_SCRIPT" --runs 1 >"$TMP_DIR/noproc.tsv" 2>"$TMP_DIR/noproc.err"; then
+    echo "错误: 缺少 /proc 时 benchmark 仍应完成时间测量" >&2
+    cat "$TMP_DIR/noproc.err" >&2
+    exit 1
+fi
+if ! grep -q "RSS 未测量" "$TMP_DIR/noproc.err"; then
+    echo "错误: 缺少 /proc 时未输出 RSS 未测量诊断" >&2
+    cat "$TMP_DIR/noproc.err" >&2
+    exit 1
+fi
+if ! awk -F '\t' 'NR == 2 { exit !($1 == "1" && $2 == "c99" && NF == 7 && $6 == "NA" && $7 == "ok") } END { if (NR != 2) exit 1 }' "$TMP_DIR/noproc.tsv"; then
+    echo "错误: 缺少 /proc 时 peak_rss_kb 应为 NA" >&2
+    cat "$TMP_DIR/noproc.tsv" >&2
+    exit 1
+fi
+if ! diff -u <(printf 'clean\nuya\n') "$CALL_LOG" >"$TMP_DIR/calls-noproc.diff"; then
+    echo "错误: 缺少 /proc 路径调用顺序不正确" >&2
+    cat "$TMP_DIR/calls-noproc.diff" >&2
+    exit 1
+fi
+
 CALL_LOG="$TMP_DIR/calls.fail"
 : >"$CALL_LOG"
 seed_stale_artifacts
