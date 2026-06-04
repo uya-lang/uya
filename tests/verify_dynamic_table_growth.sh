@@ -5,15 +5,26 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TABLE_FILE="$REPO_ROOT/src/semantic/table.uya"
-TMP_DIR=""
+INTERN_FILE="$REPO_ROOT/src/semantic/intern.uya"
+TMP_DIRS=()
 
 cleanup() {
-    if [[ -n "${TMP_DIR:-}" && "$TMP_DIR" == /tmp/uya-dynamic-table-growth.* ]]; then
-        rm -rf "$TMP_DIR"
-    fi
+    local dir
+    for dir in "${TMP_DIRS[@]}"; do
+        if [[ -n "$dir" && "$dir" == /tmp/uya-dynamic-table-growth.* ]]; then
+            rm -rf "$dir"
+        fi
+    done
 }
 
 trap cleanup EXIT
+
+make_tmp_dir() {
+    local dir
+    dir="$(mktemp -d /tmp/uya-dynamic-table-growth.XXXXXX)"
+    TMP_DIRS+=("$dir")
+    printf '%s\n' "$dir"
+}
 
 run_check() {
     local script="$1"
@@ -32,9 +43,10 @@ verify_large_legacy_counts() {
         exit 1
     fi
 
-    TMP_DIR="$(mktemp -d /tmp/uya-dynamic-table-growth.XXXXXX)"
-    cp "$TABLE_FILE" "$TMP_DIR/main.uya"
-    cat >>"$TMP_DIR/main.uya" <<'EOF'
+    local tmp_dir
+    tmp_dir="$(make_tmp_dir)"
+    cp "$TABLE_FILE" "$tmp_dir/main.uya"
+    cat >>"$tmp_dir/main.uya" <<'EOF'
 use std.testing.assert_eq_i32;
 use std.testing.expect;
 
@@ -102,11 +114,89 @@ test "dynamic vectors exceed legacy compiler table capacities" {
 }
 EOF
 
-    (cd "$REPO_ROOT" && ./bin/uya test "$TMP_DIR/main.uya" --no-split-c)
+    (cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
     echo "✓ dynamic vectors exceed legacy declaration/function/local/mono capacities"
 }
 
+verify_high_load_and_collision_growth() {
+    if [[ ! -f "$TABLE_FILE" || ! -f "$INTERN_FILE" ]]; then
+        echo "错误: 缺少 dynamic table/intern 源文件" >&2
+        exit 1
+    fi
+
+    local tmp_dir
+    tmp_dir="$(make_tmp_dir)"
+    cat "$TABLE_FILE" "$INTERN_FILE" >"$tmp_dir/main.uya"
+    cat >>"$tmp_dir/main.uya" <<'EOF'
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+test "semantic hash grows under high collision load" {
+    var hash: SemanticHash = SemanticHash{
+        entries: null,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+    semantic_hash_init(&hash);
+
+    var i: i32 = 0;
+    while i < 128 {
+        const key: i64 = (0 - i - 1) as i64;
+        try assert_eq_i32(semantic_hash_insert(&hash, key, i), 0);
+        i = i + 1;
+    }
+
+    try assert_eq_i32(hash.count as i32, 128);
+    try expect(hash.capacity >= 128usize);
+    try expect(hash.realloc_count > 1);
+
+    i = 0;
+    while i < 128 {
+        const key2: i64 = (0 - i - 1) as i64;
+        var value: i32 = -1;
+        try assert_eq_i32(semantic_hash_get(&hash, key2, &value), 1);
+        try assert_eq_i32(value, i);
+        i = i + 1;
+    }
+    semantic_hash_release(&hash);
+}
+
+test "semantic intern grows under high load" {
+    var table: SemanticInternTable = SemanticInternTable{
+        entries: null,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+        string_bytes: 0usize,
+    };
+    semantic_intern_init(&table);
+EOF
+
+    local i
+    for i in $(seq 0 127); do
+        printf '    try expect(semantic_intern_get_or_put(&table, "load_%03d") >= 0);\n' "$i" >>"$tmp_dir/main.uya"
+    done
+
+    cat >>"$tmp_dir/main.uya" <<'EOF'
+    try assert_eq_i32(table.count as i32, 128);
+    try expect(table.capacity >= 128usize);
+    try expect(table.realloc_count > 1);
+    try expect(semantic_intern_find(&table, "load_000") >= 0);
+    try expect(semantic_intern_find(&table, "load_064") >= 0);
+    try expect(semantic_intern_find(&table, "load_127") >= 0);
+    semantic_intern_free(&table);
+}
+EOF
+
+    (cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
+    echo "✓ dynamic hash collision and intern high-load growth checks passed"
+}
+
 verify_large_legacy_counts
+verify_high_load_and_collision_growth
 run_check "verify_semantic_table_growth_failures.sh"
 run_check "verify_semantic_intern_growth.sh"
 run_check "verify_semantic_db_dynamic_growth.sh"
