@@ -19,6 +19,25 @@ extern fn unlink(path: *byte) i32;
 extern fn fflush(stream: *void) i32;
 extern fn fread(ptr: *void, size: usize, nmemb: usize, stream: *void) usize;
 
+use libc;
+
+var g_c99_codegen_has_error: i32 = 0;
+
+fn c99_codegen_report_capacity_error(node: &ASTNode, table_name: &byte, count: i32, limit: i32) void {
+    g_c99_codegen_has_error = 1;
+    var name: &byte = table_name;
+    if name == null {
+        name = "unknown worklist" as &byte;
+    }
+    if node != null && node.filename != null {
+        fprintf(libc.stderr as *void, "%s:(%d:%d): 错误: C99 codegen %s 超出固定上限 (%d/%d)\n" as *byte,
+            node.filename as *byte, node.line, node.column, name as *byte, count, limit);
+        return;
+    }
+    fprintf(libc.stderr as *void, "错误: C99 codegen %s 超出固定上限 (%d/%d)\n" as *byte,
+        name as *byte, count, limit);
+}
+
 fn c99_path_buf_char_at(buf: &byte, idx: i32) byte {
     if buf == null {
         return 0 as byte;
@@ -181,6 +200,7 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
     codegen.checker = null;
     codegen.output = out_file;
     codegen.emit_stream = out_file;
+    g_c99_codegen_has_error = 0;
     if split_root != null && split_root[0] != 0 as byte && split_mirror != 0 && types_h != null {
         codegen.split_part1_types_h = types_h;
         codegen.emit_stream = types_h;

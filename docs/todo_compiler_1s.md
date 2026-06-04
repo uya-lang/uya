@@ -108,7 +108,10 @@ make bench-compiler-1s-check
 - 所有 `count >= MAX` 后静默截断、静默跳过或继续成功的路径改为明确 diagnostic，拆分为：
   - [x] 扫描 `count >= MAX` 静默路径，记录 codegen/checker/exec/main 修复清单。
   - [x] 修复 `src/main.uya` input/resolved/processed files 相关静默跳过，改为明确 diagnostic。
-  - [ ] 修复 C99 codegen 固定表 `count >= C99_MAX_*` 静默截断/跳过，改为明确 diagnostic。
+  - 修复 C99 codegen 固定表 `count >= C99_MAX_*` 静默截断/跳过，改为明确 diagnostic，拆分为：
+    - [x] 修复 C99 mono/reachable/test worklist 上限静默跳过，改为明确 diagnostic。
+    - [ ] 修复 C99 registry/emitted metadata 上限静默返回或截断，改为明确 diagnostic。
+    - [ ] 修复 C99 locals/defer/drop 上限静默跳过，改为明确 diagnostic。
   - [ ] 修复 checker 固定表 `count >= MAX_*` / `*_SIZE` 静默截断/跳过，改为明确 diagnostic。
   - [ ] 修复 exec 固定表 `count >= EXEC_MAX_*` 静默截断/跳过，改为明确 diagnostic。
 - [ ] 所有旧固定表如需临时保留，必须标注为 oracle/fallback，不允许计入 1 秒硬路径成功。
