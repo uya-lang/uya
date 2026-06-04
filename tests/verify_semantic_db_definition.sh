@@ -54,6 +54,16 @@ fn semantic_test_vector() SemanticVector {
     };
 }
 
+fn semantic_test_hash() SemanticHash {
+    return SemanticHash{
+        entries: null,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+}
+
 test "semantic db definition initializes and resets" {
     var db: SemanticDb = SemanticDb{
         file_count: 7,
@@ -70,6 +80,7 @@ test "semantic db definition initializes and resets" {
         decl_records: semantic_test_vector(),
         symbol_records: semantic_test_vector(),
         name_ranges: semantic_test_vector(),
+        name_range_index: semantic_test_hash(),
     };
     semantic_db_init(&db);
     try assert_eq_i32(db.file_count, 0);

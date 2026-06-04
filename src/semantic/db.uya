@@ -47,6 +47,7 @@ export struct SemanticDb {
     decl_records: SemanticVector,
     symbol_records: SemanticVector,
     name_ranges: SemanticVector,
+    name_range_index: SemanticHash,
 }
 
 fn semantic_db_clear_counts(db: &SemanticDb) void {
@@ -85,6 +86,7 @@ export fn semantic_db_init(db: &SemanticDb) void {
     semantic_vector_init(&db.decl_records, @size_of(SemanticDeclRecord));
     semantic_vector_init(&db.symbol_records, @size_of(SemanticSymbolRecord));
     semantic_vector_init(&db.name_ranges, @size_of(SemanticNameRange));
+    semantic_hash_init(&db.name_range_index);
 }
 
 /// 功能说明：重置 SemanticDb 以支持同进程多次编译。
@@ -98,6 +100,7 @@ export fn semantic_db_reset(db: &SemanticDb) void {
     semantic_vector_reset(&db.decl_records);
     semantic_vector_reset(&db.symbol_records);
     semantic_vector_reset(&db.name_ranges);
+    semantic_hash_reset(&db.name_range_index);
 }
 
 /// 功能说明：释放 SemanticDb 内部动态数组并清空状态。
@@ -110,6 +113,7 @@ export fn semantic_db_release(db: &SemanticDb) void {
     semantic_vector_release(&db.decl_records);
     semantic_vector_release(&db.symbol_records);
     semantic_vector_release(&db.name_ranges);
+    semantic_hash_release(&db.name_range_index);
     semantic_db_clear_counts(db);
 }
 
@@ -185,7 +189,20 @@ export fn semantic_db_append_name_range(db: &SemanticDb, name_id: i32, symbol_st
     if semantic_vector_append(&db.name_ranges, &record as &const void) != 0 {
         return -1;
     }
+    if semantic_hash_insert(&db.name_range_index, name_id as i64, range_id) != 0 {
+        return -1;
+    }
     return range_id;
+}
+
+/// 功能说明：按名字 ID 查询对应的紧凑 name range 下标。
+/// 参数说明：`db` 为目标库，`name_id` 为名字 ID，`out_range_id` 接收 range 下标。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn semantic_db_find_name_range(db: &SemanticDb, name_id: i32, out_range_id: &i32) i32 {
+    if db == null || out_range_id == null || name_id < 0 {
+        return 0;
+    }
+    return semantic_hash_get(&db.name_range_index, name_id as i64, out_range_id);
 }
 
 /// 功能说明：读取 SemanticDb 声明记录数量。

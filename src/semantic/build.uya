@@ -89,7 +89,8 @@ fn semantic_db_prepare_for_build(db: &SemanticDb) void {
     }
     if db.decl_records.item_size != @size_of(SemanticDeclRecord) ||
         db.symbol_records.item_size != @size_of(SemanticSymbolRecord) ||
-        db.name_ranges.item_size != @size_of(SemanticNameRange) {
+        db.name_ranges.item_size != @size_of(SemanticNameRange) ||
+        db.name_range_index.capacity < db.name_range_index.count {
         semantic_db_init(db);
         return;
     }
@@ -192,6 +193,7 @@ fn semantic_db_update_estimated_bytes(db: &SemanticDb) void {
     bytes = bytes + db.decl_records.bytes;
     bytes = bytes + db.symbol_records.bytes;
     bytes = bytes + db.name_ranges.bytes;
+    bytes = bytes + db.name_range_index.bytes;
     db.estimated_bytes = bytes;
 }
 
