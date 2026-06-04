@@ -77,7 +77,7 @@ bash scripts/bench_compiler_1s.sh --runs 3 --keep-logs
 - `semantic_db_bytes` / `typed_program_bytes` / `lowered_bytes`：新增语义和 IR 表占用。
 - `emit_buffer_bytes`：输出缓冲峰值。
 - `output_bytes`：C99 / split-C / native 产物总字节数。
-- `table_count` / `table_capacity` / `table_realloc_count`：主要动态表的实际项数、容量和增长次数。
+- `table_count` / `table_capacity` / `table_realloc_count`：所有编译器动态表的实际项数、容量和增长次数，可按表类别输出明细。
 
 当前环境只确认 shell 内置 `time` 可用，未确认 GNU `/usr/bin/time -v`。因此 1 秒 benchmark 不应依赖外部 `time -v`，应优先通过 `/proc/<pid>/status` 或 `/proc/<pid>/smaps_rollup` 采样 RSS。没有 RSS 采样的运行只能记录时间，不能计入内存达标。
 
@@ -102,15 +102,45 @@ bash scripts/bench_compiler_1s.sh --runs 3 --keep-logs
 
 ## 动态表要求
 
-当前已有的 4096 槽直接映射缓存只能算临时缓解，不能作为最终索引结构。后续 `SemanticDb`、`TypedProgram`、`LoweredProgram`、C99 planner 和 native backend 中所有随源文件、声明、表达式、函数、类型、泛型实例、字符串常量、reloc/symbol 数增长的表，都必须按需动态扩容。
+当前已有的 4096 槽直接映射缓存只能算临时缓解，不能作为最终索引结构。后续 `SemanticDb`、`TypedProgram`、`LoweredProgram`、C99 planner 和 native backend 中所有表都必须按需动态扩容；凡是承担 table/index/cache/list/mapping 角色的结构，都不能写死容量。
 
 具体要求：
 
 - 不新增 `C99_MAX_*`、`CHECKER_*_SIZE` 或魔法容量作为程序规模相关表的语义上限。
-- 表必须记录 `count`、`capacity`、`bytes`、`realloc_count`，并进入 benchmark 摘要。
+- 表必须记录 `count`、`capacity`、`bytes`、`realloc_count`，并进入 benchmark 摘要或按表明细。
 - 动态增长必须检查整数溢出和 allocation failure，失败时给出明确 diagnostic。
 - hash/intern/scope 表必须按负载因子增长，高冲突场景不能回退到全程序线性扫描。
-- 静态数组仅允许用于语言或 ABI 已证明有界的小缓冲，且必须在实现旁写清楚界限来源。
+- 静态数组仅允许用于语言或 ABI 已证明有界的非 table 小缓冲，且必须在实现旁写清楚界限来源。
+
+### Phase 0 固定容量扫描清单
+
+扫描命令：
+
+```bash
+rg -n "^const (C99_MAX|C99_.*CACHE|C99_.*SIZE|C99_ASYNC|C99_DECL|C99_TYPE|MAX_|SYMBOL_TABLE_SIZE|FUNCTION_TABLE_SIZE|MODULE_TABLE_SIZE|IMPORT_TABLE_SIZE|STRING_POOL_SIZE|CHECKER_LOOKUP|MONO_INSTANCE_INDEX|EXEC_MAX)" src/codegen/c99 src/checker src/exec src/main.uya
+rg -n "\\[[^\\]\\n]+:\\s*(MAX_|C99_MAX_|EXEC_MAX_|[0-9]{2,})" src/main.uya src/checker src/codegen/c99 src/exec
+rg -n "count >=|>= C99_MAX|>= MAX_|>= EXEC_MAX|>= FUNCTION_TABLE_SIZE|>= SYMBOL_TABLE_SIZE|>= IMPORT_TABLE_SIZE|>= MODULE_TABLE_SIZE|>= STRING_POOL_SIZE" src/codegen/c99 src/checker src/exec src/main.uya
+```
+
+需要迁移或明确诊断的固定表、索引、缓存、worklist：
+
+- `src/main.uya`：`MAX_INPUT_FILES=128` 驱动 `main_file_paths_global`、`resolved_files_global`、`all_files_global`、`processed_files_global`、`main_files_global`、`programs`、`input_paths_override`；`input_file_indices: [i32: 64]` 也是输入列表硬上限。迁移目标：`FileId`/path dynamic vector、dependency worklist、program range。
+- `src/codegen/c99/internal.uya`：`C99_MAX_STRING_CONSTANTS=4096`、`C99_MAX_EMBEDDED_CONSTANTS=4096`、`C99_MAX_EMBED_DIR_TABLES=512`、`C99_MAX_STRUCT_DEFINITIONS=1024`、`C99_MAX_ENUM_DEFINITIONS=512`、`C99_MAX_FUNCTION_DECLS=512`、`C99_MAX_REACHABLE_FUNCTIONS=4096`、`C99_MAX_GLOBAL_VARS=512`、`C99_MAX_LOCAL_VARS=1024`、`C99_MAX_LOOP_STACK=64`、`C99_MAX_CALL_ARGS=64`、`C99_MAX_DEFER_STACK=64`、`C99_MAX_DEFERS_PER_BLOCK=128`、`C99_MAX_DROP_VARS_PER_BLOCK=128`、`C99_MAX_SLICE_STRUCTS=128`、`C99_MAX_ERR_UNION_STRUCTS=256`、`C99_MAX_SIMD_STRUCTS=128`、`C99_MAX_MONO_INSTANCES=1024`、`C99_MAX_ERROR_IDS=1024`、`C99_ASYNC_MAX_AWAITS=4096`、`C99_MAX_INTERFACE_METHODS=128` 都落在 `C99CodeGenerator` 的表/栈/列表字段上。迁移目标：codegen state dynamic vector、range builder、scoped stack、async worklist。
+- `src/codegen/c99/internal.uya` 声明缓存：`C99_DECL_CACHE_SIZE=4096` / `C99_DECL_CACHE_MASK=4095` 直接映射 `fn_decl_cache`、`struct_decl_cache`、`enum_decl_cache`、`type_alias_cache`、`union_decl_cache`、`macro_decl_cache`、`interface_decl_cache`。迁移目标：按名字 intern id 的动态 hash + collision range。
+- `src/codegen/c99/global.uya`：`C99_IDENT_REF_CACHE_SIZE=4096` / mask 直接映射 identifier ref cache。迁移目标：上下文 key dynamic hash。
+- `src/codegen/c99/types.uya`：`C99_TYPE_TO_C_CACHE_SIZE=4096`、`C99_IDENTIFIER_TYPE_CACHE_SIZE=4096` 直接映射类型和 identifier type cache；`dims: [i32: 10]`、interface signature scratch arrays、local variable scans 仍依赖固定上限。迁移目标：type key dynamic hash、per-function local index、small-array builder。
+- `src/codegen/c99/utils.uya`：`C99_SAFE_IDENT_CACHE_SIZE=2048`、`C99_STRING_CONST_CACHE_SIZE=4096` 直接映射缓存；mirror/split-C 路径去重有 `uniq: [[byte: 512]: 128]` 等固定列表。迁移目标：dynamic hash/set、path vector。
+- `src/codegen/c99/main.uya` / `structs.uya` / `function.uya` / `expr.uya`：`MAX_TESTS=1000`、interface method scratch arrays `C99_MAX_INTERFACE_METHODS` / `128`、async saved-local arrays `32`、async param arrays `16`、`C99_ASYNC_MAX_AWAITS` 相关 await 数组仍是固定 worklist；生成端还写出 `AsyncFrameDescriptor entries[512]`、`FieldInfo fields[64]`、async pool cap `4096`，需要明确是 runtime 有界结构还是迁到动态输出表。
+- `src/checker/types.uya`：`SYMBOL_TABLE_SIZE=32768`、`FUNCTION_TABLE_SIZE=4096`、`MODULE_TABLE_SIZE=256`、`IMPORT_TABLE_SIZE=512`、`STRING_POOL_SIZE=16384` 是核心 checker hash/table 上限；`MAX_ERROR_NAMES=1024`、`MAX_MOVED_NAMES=128`、`MAX_MONO_INSTANCES=512`、`MAX_UNION_VARIANTS=32`、`MAX_INTERFACE_METHODS=128`、`MAX_INTERFACE_STACK=64`、`MAX_POINTER_NAMES=32`、`MAX_CONSTRAINTS=64`、`MAX_ASYNC_CALL_EDGES=512`、`MAX_FN_CALL_EDGES=16384`、`MAX_FN_ROOTS=4096`、`MAX_REACHABLE_FN_DECLS=4096`、`MAX_REACHABILITY_VISIT_SLOTS=262144`、`MAX_ASYNC_FRAME_METAS=512` 都进入 `TypeChecker` 表/缓存/worklist。迁移目标：SemanticDb dynamic table、dynamic hash、queue/worklist、scoped proof state vector。
+- `src/checker/lookup.uya`：`CHECKER_LOOKUP_CACHE_SIZE=2048` 直接映射 enum/struct/type alias/union/interface/function/method block lookup cache。迁移目标：program decl index dynamic hash。
+- `src/checker/generics.uya`：`MONO_INSTANCE_INDEX_SIZE=1024`、`g_mono_index_next: [i32: MAX_MONO_INSTANCES]` 与 checker `mono_instances` 共用固定 mono 容量。迁移目标：mono instance dynamic vector + hash buckets。
+- `src/checker/symbols.uya` / `interval.uya` / `check_stmt.uya` / `check_expr*.uya`：`count >= MAX_*` 路径覆盖 error/moved names、function roots/call edges/reachable queue、pointer nonnull/nullable、constraints、interface stack/methods、union variant coverage；其中 `MAX_UNION_VARIANTS` 相关代码会截断覆盖数组。迁移目标：明确 diagnostic 或动态 bitset/vector。
+- `src/checker/modules.uya`：`MAX_MODULES=64` 控制循环检测 path/visit_state，`path_len >= MAX_MODULES` 当前会跳过循环检测。迁移目标：module graph dynamic DFS stack。
+- `src/checker/macro_expand.uya`：macro scope arrays `scope_names: [&byte: 256]`、`scope_renamed_names: [&byte: 256]`、`scope_starts: [i32: 64]`、`local_bindings: [MacroParamBinding: 64]`、局部 `MAX_FIELDS=64` / `MAX_LOCAL_BINDINGS=64` 是宏展开表/worklist。迁移目标：macro expansion context dynamic vector。
+- `src/exec/lower.uya`：`EXEC_MAX_LOCALS=256`、`EXEC_MAX_GLOBALS=1024`、`EXEC_MAX_SCOPE_DEPTH=512`、`EXEC_MAX_INTERFACE_METHODS=64`、`EXEC_MAX_MODULE_GLOBAL_REQUESTS=256` 固定 lowering locals/globals/scope/request 表。迁移目标：HIR local/global dynamic vector、scope stack、request set。
+- `src/exec/builder.uya` / `frame.uya` / `hir.uya`：`EXEC_MAX_BYTECODE_INSTRS=16384`、`EXEC_MAX_CONST_POOL_VALUES=8192`、`EXEC_MAX_HOST_CALL_SITES=64`、`EXEC_MAX_CLEANUP_SCOPE_DEPTH=512`、`EXEC_MAX_FRAME_SLOTS=8192`、`EXEC_MAX_CALL_ARGS=32`，加上 `break_jumps/continue_jumps: [i32:128]`、`defers/errdefers/drop_locals: [&HIRStmt:64]`、`loop_stack: [ExecLoopPatch:32]`，仍是 bytecode/frame/cleanup 固定表。迁移目标：bytecode builder dynamic vector、frame slot vector、cleanup/defer stack。
+
+允许保留但必须被后续门禁识别为“小缓冲”的候选：`PATH_MAX` 路径缓冲、`NAME_BUF_SIZE` / `TEMP_BUF_SIZE` / `NUM_BUF_SIZE` / `FMT_BUF_SIZE` / message buffer 这类格式化缓冲、`C99_TYPE_CONV_MAX_DEPTH` 递归保护、ABI/语言规范证明有界的 SIMD lane 分支。若这些缓冲承担 table/index/cache/list/mapping 角色，仍必须迁移或补明确 diagnostic。
 
 ## 1 秒预算
 
