@@ -4,9 +4,21 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-BENCH_SCRIPT="$REPO_ROOT/scripts/bench_compiler_1s.sh"
 TMP_DIR="$(mktemp -d /tmp/uya-bench-compiler-1s-verify.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
+FIXTURE_REPO="$TMP_DIR/repo"
+
+mkdir -p "$FIXTURE_REPO/scripts" "$FIXTURE_REPO/bin" "$FIXTURE_REPO/src/build" "$FIXTURE_REPO/src/.uyacache"
+cp "$REPO_ROOT/scripts/bench_compiler_1s.sh" "$FIXTURE_REPO/scripts/bench_compiler_1s.sh"
+chmod +x "$FIXTURE_REPO/scripts/bench_compiler_1s.sh"
+BENCH_SCRIPT="$FIXTURE_REPO/scripts/bench_compiler_1s.sh"
+
+seed_stale_artifacts() {
+    mkdir -p "$FIXTURE_REPO/bin" "$FIXTURE_REPO/src/build" "$FIXTURE_REPO/src/.uyacache"
+    touch "$FIXTURE_REPO/bin/stale"
+    touch "$FIXTURE_REPO/src/build/stale"
+    touch "$FIXTURE_REPO/src/.uyacache/stale"
+}
 
 FAKE_MAKE="$TMP_DIR/fake_make.sh"
 cat >"$FAKE_MAKE" <<'EOF'
@@ -14,11 +26,13 @@ cat >"$FAKE_MAKE" <<'EOF'
 set -euo pipefail
 
 CALL_LOG="${UYA_FAKE_MAKE_CALL_LOG:?}"
+repo_root=""
 target=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -C)
+            repo_root="$2"
             shift 2
             ;;
         *)
@@ -33,12 +47,28 @@ if [[ -z "$target" ]]; then
     exit 2
 fi
 
+if [[ "${UYA_FAKE_MAKE_ASSERT_CLEAN:-0}" == "1" && "$target" == "clean" ]]; then
+    for stale in "$repo_root/bin/stale" "$repo_root/src/build/stale" "$repo_root/src/.uyacache/stale"; do
+        if [[ -e "$stale" ]]; then
+            echo "fake_make: stale artifact was not removed before make clean: $stale" >&2
+            exit 23
+        fi
+    done
+fi
+
 printf '%s\n' "$target" >>"$CALL_LOG"
 echo "fake make $target"
 
 if [[ "${UYA_FAKE_MAKE_FAIL_TARGET:-}" == "$target" ]]; then
     echo "fake failure for $target" >&2
     exit 17
+fi
+
+if [[ "${UYA_FAKE_MAKE_CREATE_ARTIFACTS:-0}" == "1" && "$target" == "uya" ]]; then
+    mkdir -p "$repo_root/bin" "$repo_root/src/build" "$repo_root/src/.uyacache"
+    touch "$repo_root/bin/stale"
+    touch "$repo_root/src/build/stale"
+    touch "$repo_root/src/.uyacache/stale"
 fi
 EOF
 chmod +x "$FAKE_MAKE"
@@ -65,7 +95,12 @@ fi
 
 CALL_LOG="$TMP_DIR/calls.ok"
 : >"$CALL_LOG"
-CFLAGS="-std=c99 -O2 -Werror" CC_DRIVER="fake-cc" MAKE="$FAKE_MAKE" UYA_FAKE_MAKE_CALL_LOG="$CALL_LOG" UYA_BENCH_TMPDIR="$TMP_DIR" bash "$BENCH_SCRIPT" --runs 2 >"$TMP_DIR/bench.tsv" 2>"$TMP_DIR/bench.err"
+seed_stale_artifacts
+if ! CFLAGS="-std=c99 -O2 -Werror" CC_DRIVER="fake-cc" MAKE="$FAKE_MAKE" UYA_FAKE_MAKE_CALL_LOG="$CALL_LOG" UYA_FAKE_MAKE_ASSERT_CLEAN=1 UYA_FAKE_MAKE_CREATE_ARTIFACTS=1 UYA_BENCH_TMPDIR="$TMP_DIR" bash "$BENCH_SCRIPT" --runs 2 >"$TMP_DIR/bench.tsv" 2>"$TMP_DIR/bench.err"; then
+    echo "错误: benchmark smoke 运行失败" >&2
+    cat "$TMP_DIR/bench.err" >&2
+    exit 1
+fi
 
 if ! grep -q $'^run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tstatus$' "$TMP_DIR/bench.tsv"; then
     echo "错误: benchmark TSV 表头不正确" >&2
@@ -116,7 +151,8 @@ fi
 
 CALL_LOG="$TMP_DIR/calls.fail"
 : >"$CALL_LOG"
-if MAKE="$FAKE_MAKE" UYA_FAKE_MAKE_CALL_LOG="$CALL_LOG" UYA_FAKE_MAKE_FAIL_TARGET="uya" UYA_BENCH_TMPDIR="$TMP_DIR" bash "$BENCH_SCRIPT" --runs 1 >"$TMP_DIR/fail.tsv" 2>"$TMP_DIR/fail.err"; then
+seed_stale_artifacts
+if MAKE="$FAKE_MAKE" UYA_FAKE_MAKE_CALL_LOG="$CALL_LOG" UYA_FAKE_MAKE_ASSERT_CLEAN=1 UYA_FAKE_MAKE_FAIL_TARGET="uya" UYA_BENCH_TMPDIR="$TMP_DIR" bash "$BENCH_SCRIPT" --runs 1 >"$TMP_DIR/fail.tsv" 2>"$TMP_DIR/fail.err"; then
     echo "错误: make uya 失败时 benchmark 应失败" >&2
     exit 1
 fi

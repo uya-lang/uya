@@ -133,6 +133,10 @@ print_metadata() {
     printf 'metadata\tc99_enabled\t%s\n' "$c99_enabled" >&2
 }
 
+clean_cold_build_artifacts() {
+    rm -rf "$REPO_ROOT/bin" "$REPO_ROOT/src/build" "$REPO_ROOT/src/.uyacache"
+}
+
 run_make_target() {
     local target="$1"
     local log_file="$2"
@@ -188,6 +192,7 @@ while [[ "$run" -le "$RUNS" ]]; do
     total_start="$(now_ns)"
 
     clean_start="$(now_ns)"
+    clean_cold_build_artifacts
     if ! run_make_target clean "$clean_log"; then
         clean_end="$(now_ns)"
         clean_ms="$(elapsed_ms "$clean_start" "$clean_end")"

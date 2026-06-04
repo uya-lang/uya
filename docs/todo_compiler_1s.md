@@ -59,7 +59,7 @@ make uya
 - [x] 新增 `make bench-compiler-1s`。
 - [x] 新增 `make bench-compiler-1s-check`。
 - [x] benchmark 输出 commit、branch、OS、arch、CPU 核数、`CFLAGS`、`CC_DRIVER`、是否启用 native/C99。
-- [ ] benchmark 主动清理 `bin/`、`src/build/`、`src/.uyacache/`。
+- [x] benchmark 主动清理 `bin/`、`src/build/`、`src/.uyacache/`。
 - [ ] benchmark 明确拒绝 daemon、object cache、IR cache 参与硬 KPI。
 - [ ] benchmark 通过 `/proc/<pid>/status` 或 `/proc/<pid>/smaps_rollup` 采样 `peak_rss_kb`。
 - [ ] benchmark 在缺少 `/proc` 的平台打印“RSS 未测量”，不能把该运行计入内存达标。
