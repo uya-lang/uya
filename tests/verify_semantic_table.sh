@@ -75,6 +75,7 @@ test "semantic hash grows and updates" {
         realloc_count: 0,
     };
     semantic_hash_init(&hash);
+    try assert_eq_i32(semantic_hash_ensure_capacity(&hash, 40usize), 0);
     var i: i32 = 0;
     while i < 40 {
         try assert_eq_i32(semantic_hash_insert(&hash, i as i64, i + 100), 0);
@@ -106,6 +107,8 @@ test "semantic range builder stores ranges dynamically" {
         },
     };
     semantic_range_builder_init(&builder);
+    try assert_eq_i32(semantic_range_builder_reserve(&builder, 2usize), 0);
+    try assert_eq_i32(semantic_range_builder_ensure_capacity(&builder, 4usize), 0);
     try assert_eq_i32(semantic_range_builder_append(&builder, 5, 3), 0);
     try assert_eq_i32(semantic_range_builder_append(&builder, 12, 4), 0);
     var out: SemanticRange = SemanticRange{ start: 0, count: 0 };

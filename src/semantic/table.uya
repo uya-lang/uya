@@ -368,6 +368,27 @@ export fn semantic_hash_reserve(hash: &SemanticHash, min_capacity: usize) i32 {
     return 0;
 }
 
+/// 功能说明：确保动态 hash 至少能容纳 `min_count` 个条目。
+/// 参数说明：`hash` 为目标 hash，`min_count` 为所需最小条目数。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn semantic_hash_ensure_capacity(hash: &SemanticHash, min_count: usize) i32 {
+    if hash == null {
+        return -1;
+    }
+    if min_count == 0usize {
+        return 0;
+    }
+    if semantic_table_add_overflows(min_count, min_count / 3usize) != 0 {
+        return -1;
+    }
+    var min_capacity: usize = min_count + (min_count / 3usize);
+    if semantic_table_add_overflows(min_capacity, 1usize) != 0 {
+        return -1;
+    }
+    min_capacity = min_capacity + 1usize;
+    return semantic_hash_reserve(hash, min_capacity);
+}
+
 /// 功能说明：插入或更新动态 hash 中的 key/value。
 /// 参数说明：`hash` 为目标 hash，`key` 为 i64 key，`value` 为 i32 value。
 /// 返回值说明：成功返回 `0`，失败返回 `-1`。
@@ -472,6 +493,26 @@ export fn semantic_range_builder_init(builder: &SemanticRangeBuilder) void {
         return;
     }
     semantic_vector_init(&builder.ranges, @size_of(SemanticRange));
+}
+
+/// 功能说明：将 range builder 的内部 range 容量至少扩到 `new_capacity`。
+/// 参数说明：`builder` 为目标 builder，`new_capacity` 为所需 range 容量。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn semantic_range_builder_reserve(builder: &SemanticRangeBuilder, new_capacity: usize) i32 {
+    if builder == null {
+        return -1;
+    }
+    return semantic_vector_reserve(&builder.ranges, new_capacity);
+}
+
+/// 功能说明：确保 range builder 至少能容纳 `min_capacity` 个 range。
+/// 参数说明：`builder` 为目标 builder，`min_capacity` 为所需最小 range 数。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn semantic_range_builder_ensure_capacity(builder: &SemanticRangeBuilder, min_capacity: usize) i32 {
+    if builder == null {
+        return -1;
+    }
+    return semantic_vector_ensure_capacity(&builder.ranges, min_capacity);
 }
 
 /// 功能说明：向 range builder 追加一个 range。
