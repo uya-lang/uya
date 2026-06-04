@@ -69,7 +69,7 @@ make uya
   - [x] split-C 目录总大小。
   - [x] native executable / object 总大小。
   - [x] 临时目录总大小。
-- [ ] benchmark 输出内存趋势：当前值、baseline、变化百分比。
+- [x] benchmark 输出内存趋势：当前值、baseline、变化百分比。
 - [ ] benchmark 输出主要动态表摘要：`table_count`、`table_capacity`、`table_bytes`、`table_realloc_count`。
 - [ ] benchmark 检查表容量不是一次性巨大预分配；若 `capacity/count` 比例异常，报告 warning。
 - [ ] benchmark TSV 输出字段：

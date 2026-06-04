@@ -128,7 +128,7 @@ assert_rejects_cache_flag "UYA_SKIP_UYA"
 CALL_LOG="$TMP_DIR/calls.ok"
 : >"$CALL_LOG"
 seed_stale_artifacts
-if ! CFLAGS="-std=c99 -O2 -Werror" CC_DRIVER="fake-cc" MAKE="$FAKE_MAKE" UYA_FAKE_MAKE_CALL_LOG="$CALL_LOG" UYA_FAKE_MAKE_ASSERT_CLEAN=1 UYA_FAKE_MAKE_CREATE_ARTIFACTS=1 UYA_BENCH_TMPDIR="$TMP_DIR" bash "$BENCH_SCRIPT" --runs 2 >"$TMP_DIR/bench.tsv" 2>"$TMP_DIR/bench.err"; then
+if ! CFLAGS="-std=c99 -O2 -Werror" CC_DRIVER="fake-cc" MAKE="$FAKE_MAKE" UYA_FAKE_MAKE_CALL_LOG="$CALL_LOG" UYA_FAKE_MAKE_ASSERT_CLEAN=1 UYA_FAKE_MAKE_CREATE_ARTIFACTS=1 UYA_BENCH_BASELINE_RSS_KB=100 UYA_BENCH_TMPDIR="$TMP_DIR" bash "$BENCH_SCRIPT" --runs 2 >"$TMP_DIR/bench.tsv" 2>"$TMP_DIR/bench.err"; then
     echo "错误: benchmark smoke 运行失败" >&2
     cat "$TMP_DIR/bench.err" >&2
     exit 1
@@ -177,6 +177,11 @@ do
 done
 if ! grep -Eq $'^outputs\trun\t1\tc99_single_bytes\t[1-9][0-9]*\tsplit_c_bytes\t[1-9][0-9]*\tnative_bytes\t[1-9][0-9]*\ttemp_bytes\t[1-9][0-9]*\toutput_bytes\t[1-9][0-9]*$' "$TMP_DIR/bench.err"; then
     echo "错误: benchmark 未输出 run 1 生成文件字节明细" >&2
+    cat "$TMP_DIR/bench.err" >&2
+    exit 1
+fi
+if ! grep -Eq $'^memory_trend\trun\t1\tcurrent_peak_rss_kb\t[0-9]+\tbaseline_peak_rss_kb\t100\tchange_pct\t-?[0-9]+$' "$TMP_DIR/bench.err"; then
+    echo "错误: benchmark 未输出内存趋势" >&2
     cat "$TMP_DIR/bench.err" >&2
     exit 1
 fi

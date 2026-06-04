@@ -6,6 +6,7 @@ RUNS=1
 MODE="c99"
 KEEP_LOGS=0
 BENCH_TMPDIR="${UYA_BENCH_TMPDIR:-/tmp}"
+BASELINE_RSS_KB="${UYA_BENCH_BASELINE_RSS_KB:-NA}"
 WORK_DIR=""
 
 usage() {
@@ -14,6 +15,8 @@ usage() {
 
 选项:
   --runs N       运行 N 次冷构建（默认: 1）
+  --baseline-rss-kb N
+                 设置 peak RSS baseline，用于输出内存趋势
   --keep-logs    保留每轮 make clean / make uya 日志目录
   -h, --help     显示帮助
 
@@ -27,6 +30,10 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --runs)
             RUNS="$2"
+            shift 2
+            ;;
+        --baseline-rss-kb)
+            BASELINE_RSS_KB="$2"
             shift 2
             ;;
         --keep-logs)
@@ -47,6 +54,10 @@ done
 
 if ! [[ "$RUNS" =~ ^[0-9]+$ ]] || [[ "$RUNS" -lt 1 ]]; then
     echo "错误: --runs 必须是大于等于 1 的整数" >&2
+    exit 1
+fi
+if [[ "$BASELINE_RSS_KB" != "NA" ]] && ! [[ "$BASELINE_RSS_KB" =~ ^[0-9]+$ ]]; then
+    echo "错误: --baseline-rss-kb 必须是非负整数" >&2
     exit 1
 fi
 
@@ -184,6 +195,7 @@ print_metadata() {
     printf 'metadata\tbackend\t%s\n' "$backend" >&2
     printf 'metadata\tnative_enabled\t%s\n' "$native_enabled" >&2
     printf 'metadata\tc99_enabled\t%s\n' "$c99_enabled" >&2
+    printf 'metadata\tbaseline_peak_rss_kb\t%s\n' "$BASELINE_RSS_KB" >&2
 }
 
 clean_cold_build_artifacts() {
@@ -374,6 +386,28 @@ collect_output_bytes() {
         "$run_index" "$OUTPUT_C99_SINGLE_BYTES" "$OUTPUT_SPLIT_C_BYTES" "$OUTPUT_NATIVE_BYTES" "$OUTPUT_TEMP_BYTES" "$OUTPUT_TOTAL_BYTES" >&2
 }
 
+memory_change_pct() {
+    local current="$1"
+    if [[ "$BASELINE_RSS_KB" == "NA" || "$BASELINE_RSS_KB" == "0" || "$current" == "NA" ]]; then
+        printf 'NA\n'
+        return
+    fi
+    if ! [[ "$current" =~ ^[0-9]+$ ]]; then
+        printf 'NA\n'
+        return
+    fi
+    printf '%s\n' "$(((current - BASELINE_RSS_KB) * 100 / BASELINE_RSS_KB))"
+}
+
+print_memory_trend() {
+    local run_index="$1"
+    local current="$2"
+    local change_pct
+    change_pct="$(memory_change_pct "$current")"
+    printf 'memory_trend\trun\t%s\tcurrent_peak_rss_kb\t%s\tbaseline_peak_rss_kb\t%s\tchange_pct\t%s\n' \
+        "$run_index" "$current" "$BASELINE_RSS_KB" "$change_pct" >&2
+}
+
 print_rss_unavailable_warning() {
     if [[ "$RSS_AVAILABLE" -ne 1 ]]; then
         echo "RSS 未测量: 缺少可用的 $PROC_ROOT/<pid>/status 或 smaps_rollup；该运行不能计入内存达标。" >&2
@@ -456,6 +490,7 @@ while [[ "$run" -le "$RUNS" ]]; do
         total_ms="$(elapsed_ms "$total_start" "$total_end")"
         peak_rss="$(combine_peak_rss "$clean_rss" "$build_rss")"
         collect_output_bytes "$run" "$run_dir"
+        print_memory_trend "$run" "$peak_rss"
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "$peak_rss" "$OUTPUT_TOTAL_BYTES" "build_failed"
         print_failure_log "make uya" "$build_log"
         exit 1
@@ -467,6 +502,7 @@ while [[ "$run" -le "$RUNS" ]]; do
     total_ms="$(elapsed_ms "$total_start" "$total_end")"
     peak_rss="$(combine_peak_rss "$clean_rss" "$build_rss")"
     collect_output_bytes "$run" "$run_dir"
+    print_memory_trend "$run" "$peak_rss"
 
     clean_values+=("$clean_ms")
     build_values+=("$build_ms")
