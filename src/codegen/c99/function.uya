@@ -1277,13 +1277,13 @@ fn gen_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode) void {
                 fprintf(codegen.emit_stream, "    __uya_memcpy(%s, %s_param, sizeof(%s));\n" as *byte, param_name as *byte, param_name as *byte, param_name as *byte);
                 
                 // 将参数名注册为局部数组（而不是参数）
-                if param_name != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+                if param_name != null {
                     c99_push_local_variable(codegen, param.var_decl_name, array_type_c, param.var_decl_type, codegen.current_depth);
                 }
             } else {
                 // 非数组参数：正常添加到局部变量表（slice 形参 C 侧为按值 struct，类型串无 *）
                 const param_type_c: &byte = c99_type_to_c(codegen, param_type);
-                if param_name != null && param_type_c != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+                if param_name != null && param_type_c != null {
                     c99_push_local_variable(codegen, param.var_decl_name, param_type_c, param.var_decl_type, codegen.current_depth);
                 }
             }
@@ -5503,7 +5503,7 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
             codegen.async_param_names[pi] = param.var_decl_name;
             codegen.async_param_count = codegen.async_param_count + 1;
             // 将捕获参数注册为 local_variables，使 get_identifier_type_c 能找到类型（用于 reader.read 等接口/方法调用）
-            if param.var_decl_type != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+            if param.var_decl_type != null {
                 var ptype_c: &byte = async_param_type_cs[pi];
                 if ptype_c == null {
                     var fallback_param_type: &ASTNode = async_param_type_nodes[pi];
@@ -6340,7 +6340,7 @@ fn gen_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struct_nam
         if param != null && param.type == ASTNodeType.AST_VAR_DECL {
             const param_name: &byte = get_safe_c_identifier(codegen, param.var_decl_name);
             const param_type_c: &byte = c99_type_to_c_with_self_opt(codegen, param.var_decl_type, struct_name, 0);
-            if param_name != null && param_type_c != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+            if param_name != null && param_type_c != null {
                 c99_push_local_variable(codegen, param.var_decl_name, param_type_c, param.var_decl_type, codegen.current_depth);
             }
         }
@@ -7163,10 +7163,8 @@ fn gen_mono_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, type_args: &
     while i < param_count {
         const param: &ASTNode = params[i];
         if param != null && param.type == ASTNodeType.AST_VAR_DECL {
-            if codegen.local_variable_count < C99_MAX_LOCAL_VARS {
-                const mono_param_type_c: &byte = c99_mono_type_to_c(codegen, param.var_decl_type);
-                c99_push_local_variable(codegen, param.var_decl_name, mono_param_type_c, param.var_decl_type, codegen.current_depth);
-            }
+            const mono_param_type_c: &byte = c99_mono_type_to_c(codegen, param.var_decl_type);
+            c99_push_local_variable(codegen, param.var_decl_name, mono_param_type_c, param.var_decl_type, codegen.current_depth);
         }
         i = i + 1;
     }
@@ -7425,10 +7423,8 @@ fn gen_mono_method_function(codegen: &C99CodeGenerator, fn_decl: &ASTNode, struc
     while i < param_count {
         const param: &ASTNode = params[i];
         if param != null && param.type == ASTNodeType.AST_VAR_DECL {
-            if codegen.local_variable_count < C99_MAX_LOCAL_VARS {
-                const method_param_type_c: &byte = c99_type_to_c_with_self(codegen, param.var_decl_type, struct_name);
-                c99_push_local_variable(codegen, param.var_decl_name, method_param_type_c, param.var_decl_type, codegen.current_depth);
-            }
+            const method_param_type_c: &byte = c99_type_to_c_with_self(codegen, param.var_decl_type, struct_name);
+            c99_push_local_variable(codegen, param.var_decl_name, method_param_type_c, param.var_decl_type, codegen.current_depth);
         }
         i = i + 1;
     }

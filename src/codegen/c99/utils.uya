@@ -1779,6 +1779,9 @@ fn add_string_constant(codegen: &C99CodeGenerator, value: &byte) &byte {
     
     // 创建新的字符串常量
     if codegen.string_constant_count >= C99_MAX_STRING_CONSTANTS {
+        if codegen.split_enabled != 0 {
+            return null;
+        }
         c99_codegen_report_capacity_error(null, "string constant registry" as &byte,
             codegen.string_constant_count, C99_MAX_STRING_CONSTANTS);
         return null;

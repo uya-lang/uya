@@ -8218,16 +8218,8 @@ fn gen_match_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                         }
                         if bind != null {
                             fprintf(codegen.emit_stream as *void, "%sif (_uya_m%s_tag == %d) { %s %s = _uya_m%su.%s; _uya_r = " as *byte, prefix as &byte, acc as &byte, idx, vtype as &byte, bind as &byte, acc as &byte, vname as &byte);
-                            if expr.match_expr_arms[i].var_name != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
-                                const local_idx: i32 = codegen.local_variable_count;
-                                if local_idx >= 0 && local_idx < @len(codegen.local_variables) {
-                                    codegen.local_variables[local_idx].name = expr.match_expr_arms[i].var_name;
-                                    codegen.local_variables[local_idx].type_c = vtype;
-                                    codegen.local_variables[local_idx].type_node = null;
-                                    codegen.local_variables[local_idx].owner_fn = codegen.current_function_decl;
-                                    codegen.local_variables[local_idx].is_error_value = 0;
-                                    codegen.local_variable_count = local_idx + 1;
-                                }
+                            if expr.match_expr_arms[i].var_name != null {
+                                c99_push_local_variable(codegen, expr.match_expr_arms[i].var_name, vtype, null, codegen.current_depth);
                             }
                         } else {
                             fprintf(codegen.emit_stream as *void, "%sif (_uya_m%s_tag == %d) _uya_r = " as *byte, prefix as &byte, acc as &byte, idx);
@@ -8339,29 +8331,13 @@ fn gen_match_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                 const bind_payload: &byte = c99_err_union_match_bind_payload_c(codegen, m_type);
                 if v != null && bind_payload != null {
                     fprintf(codegen.emit_stream as *void, "%sif (_uya_m.error_id == 0U) { %s %s = _uya_m.value; _uya_r = " as *byte, prefix as *byte, bind_payload as *byte, v as *byte);
-                    if expr.match_expr_arms[i].var_name != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
-                        const local_idx2: i32 = codegen.local_variable_count;
-                        if local_idx2 >= 0 && local_idx2 < @len(codegen.local_variables) {
-                            codegen.local_variables[local_idx2].name = expr.match_expr_arms[i].var_name;
-                            codegen.local_variables[local_idx2].type_c = bind_payload;
-                            codegen.local_variables[local_idx2].type_node = null;
-                            codegen.local_variables[local_idx2].owner_fn = codegen.current_function_decl;
-                            codegen.local_variables[local_idx2].is_error_value = 0;
-                            codegen.local_variable_count = local_idx2 + 1;
-                        }
+                    if expr.match_expr_arms[i].var_name != null {
+                        c99_push_local_variable(codegen, expr.match_expr_arms[i].var_name, bind_payload, null, codegen.current_depth);
                     }
                 } else if v != null {
                     fprintf(codegen.emit_stream as *void, "%s{ %s %s = _uya_m; _uya_r = " as *byte, prefix as *byte, m_type as *byte, v as *byte);
-                    if expr.match_expr_arms[i].var_name != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
-                        const local_idx3: i32 = codegen.local_variable_count;
-                        if local_idx3 >= 0 && local_idx3 < @len(codegen.local_variables) {
-                            codegen.local_variables[local_idx3].name = expr.match_expr_arms[i].var_name;
-                            codegen.local_variables[local_idx3].type_c = m_type;
-                            codegen.local_variables[local_idx3].type_node = null;
-                            codegen.local_variables[local_idx3].owner_fn = codegen.current_function_decl;
-                            codegen.local_variables[local_idx3].is_error_value = 0;
-                            codegen.local_variable_count = local_idx3 + 1;
-                        }
+                    if expr.match_expr_arms[i].var_name != null {
+                        c99_push_local_variable(codegen, expr.match_expr_arms[i].var_name, m_type, null, codegen.current_depth);
                     }
                 }
                 gen_expr(codegen, expr.match_expr_arms[i].result_expr);
@@ -8645,17 +8621,8 @@ fn gen_catch_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             const safe: &byte = get_safe_c_identifier(codegen, err_name);
             c99_emit_indent(codegen);
             fprintf(codegen.emit_stream as *void, "const uint32_t %s = _uya_catch_tmp.error_id;\n" as *byte, safe as *byte);
-            if codegen.local_variable_count < C99_MAX_LOCAL_VARS {
-                const local_idx4: i32 = codegen.local_variable_count;
-                if local_idx4 >= 0 && local_idx4 < @len(codegen.local_variables) {
-                    codegen.local_variables[local_idx4].name = err_name;
-                    codegen.local_variables[local_idx4].type_c = "const uint32_t" as *byte;
-                    codegen.local_variables[local_idx4].type_node = null;
-                    codegen.local_variables[local_idx4].owner_fn = codegen.current_function_decl;
-                    codegen.local_variables[local_idx4].is_error_value = 1;
-                    codegen.local_variable_count = local_idx4 + 1;
-                }
-            }
+            c99_push_local_variable(codegen, err_name, "const uint32_t" as *byte, null, codegen.current_depth);
+            c99_mark_local_variable_error_value(codegen, err_name);
         }
         var i: i32 = 0;
         while i < n {

@@ -10,6 +10,42 @@ extern fn hash_string(str: &byte) i32;
 extern fn fopen(filename: *byte, mode: *byte) *void;
 extern fn fflush(stream: *void) i32;
 extern fn fclose(stream: *void) i32;
+extern fn c99_codegen_report_capacity_error(node: &ASTNode, table_name: &byte, count: i32, limit: i32) void;
+
+// capacity label: local variable registry
+var g_c99_capacity_msg0: [byte: 24] = [];
+var g_c99_capacity_msg0_ready: i32 = 0;
+
+fn c99_local_variable_registry_label() &byte {
+    if g_c99_capacity_msg0_ready == 0 {
+        g_c99_capacity_msg0[0] = 108 as byte;
+        g_c99_capacity_msg0[1] = 111 as byte;
+        g_c99_capacity_msg0[2] = 99 as byte;
+        g_c99_capacity_msg0[3] = 97 as byte;
+        g_c99_capacity_msg0[4] = 108 as byte;
+        g_c99_capacity_msg0[5] = 32 as byte;
+        g_c99_capacity_msg0[6] = 118 as byte;
+        g_c99_capacity_msg0[7] = 97 as byte;
+        g_c99_capacity_msg0[8] = 114 as byte;
+        g_c99_capacity_msg0[9] = 105 as byte;
+        g_c99_capacity_msg0[10] = 97 as byte;
+        g_c99_capacity_msg0[11] = 98 as byte;
+        g_c99_capacity_msg0[12] = 108 as byte;
+        g_c99_capacity_msg0[13] = 101 as byte;
+        g_c99_capacity_msg0[14] = 32 as byte;
+        g_c99_capacity_msg0[15] = 114 as byte;
+        g_c99_capacity_msg0[16] = 101 as byte;
+        g_c99_capacity_msg0[17] = 103 as byte;
+        g_c99_capacity_msg0[18] = 105 as byte;
+        g_c99_capacity_msg0[19] = 115 as byte;
+        g_c99_capacity_msg0[20] = 116 as byte;
+        g_c99_capacity_msg0[21] = 114 as byte;
+        g_c99_capacity_msg0[22] = 121 as byte;
+        g_c99_capacity_msg0[23] = 0 as byte;
+        g_c99_capacity_msg0_ready = 1;
+    }
+    return &g_c99_capacity_msg0[0] as &byte;
+}
 
 // get_c_name_for_identifier_ref 缓存：与 lookup_identifier_type_c_impl 相同的上下文键 + async 字段
 const C99_IDENT_REF_CACHE_SIZE: i32 = 4096;
@@ -508,6 +544,7 @@ fn c99_push_local_variable(codegen: &C99CodeGenerator, name: &byte, type_c: &byt
         codegen.local_variable_count = local_idx + 1;
         return 1;
     }
+    c99_codegen_report_capacity_error(type_node, c99_local_variable_registry_label(), local_idx, C99_MAX_LOCAL_VARS);
     return 0;
 }
 

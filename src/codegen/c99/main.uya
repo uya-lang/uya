@@ -1365,7 +1365,7 @@ fn collect_slice_push_param_locals(codegen: &C99CodeGenerator, fn_decl: &ASTNode
     while jp < fn_decl.fn_decl_param_count && fn_decl.fn_decl_params != null {
         const pp: &ASTNode = fn_decl.fn_decl_params[jp];
         if pp != null && pp.type == ASTNodeType.AST_VAR_DECL && pp.var_decl_name != null &&
-            pp.var_decl_type != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+            pp.var_decl_type != null {
             c99_push_local_variable(codegen, pp.var_decl_name, "" as *byte, pp.var_decl_type, 0);
         }
         jp = jp + 1;
@@ -1424,7 +1424,7 @@ fn collect_slice_types_from_node(codegen: &C99CodeGenerator, node: &ASTNode) voi
         while bi < node.block_stmt_count {
             const st: &ASTNode = node.block_stmts[bi];
             if st != null && st.type == ASTNodeType.AST_VAR_DECL && st.var_decl_name != null &&
-                st.var_decl_type != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+                st.var_decl_type != null {
                 if st.var_decl_type.type == ASTNodeType.AST_TYPE_SLICE || st.var_decl_type.type == ASTNodeType.AST_TYPE_ERROR_UNION ||
                     st.var_decl_type.type == ASTNodeType.AST_TYPE_VECTOR || st.var_decl_type.type == ASTNodeType.AST_TYPE_MASK {
                     c99_type_to_c(codegen, st.var_decl_type);

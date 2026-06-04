@@ -6,6 +6,106 @@
 
 // ===== 外部函数声明 =====
 // C 标准库函数（在 extern_decls.uya 中声明）
+extern fn c99_codegen_report_capacity_error(node: &ASTNode, table_name: &byte, count: i32, limit: i32) void;
+
+// capacity label: defer stack
+// capacity label: defer block
+// capacity label: drop cleanup stack
+// capacity label: drop cleanup block
+var g_c99_capacity_msg1: [byte: 12] = [];
+var g_c99_capacity_msg2: [byte: 12] = [];
+var g_c99_capacity_msg3: [byte: 19] = [];
+var g_c99_capacity_msg4: [byte: 19] = [];
+var g_c99_capacity_msg_ready: i32 = 0;
+
+fn c99_stmt_capacity_labels_init() void {
+    if g_c99_capacity_msg_ready != 0 {
+        return;
+    }
+    g_c99_capacity_msg1[0] = 100 as byte;
+    g_c99_capacity_msg1[1] = 101 as byte;
+    g_c99_capacity_msg1[2] = 102 as byte;
+    g_c99_capacity_msg1[3] = 101 as byte;
+    g_c99_capacity_msg1[4] = 114 as byte;
+    g_c99_capacity_msg1[5] = 32 as byte;
+    g_c99_capacity_msg1[6] = 115 as byte;
+    g_c99_capacity_msg1[7] = 116 as byte;
+    g_c99_capacity_msg1[8] = 97 as byte;
+    g_c99_capacity_msg1[9] = 99 as byte;
+    g_c99_capacity_msg1[10] = 107 as byte;
+    g_c99_capacity_msg1[11] = 0 as byte;
+    g_c99_capacity_msg2[0] = 100 as byte;
+    g_c99_capacity_msg2[1] = 101 as byte;
+    g_c99_capacity_msg2[2] = 102 as byte;
+    g_c99_capacity_msg2[3] = 101 as byte;
+    g_c99_capacity_msg2[4] = 114 as byte;
+    g_c99_capacity_msg2[5] = 32 as byte;
+    g_c99_capacity_msg2[6] = 98 as byte;
+    g_c99_capacity_msg2[7] = 108 as byte;
+    g_c99_capacity_msg2[8] = 111 as byte;
+    g_c99_capacity_msg2[9] = 99 as byte;
+    g_c99_capacity_msg2[10] = 107 as byte;
+    g_c99_capacity_msg2[11] = 0 as byte;
+    g_c99_capacity_msg3[0] = 100 as byte;
+    g_c99_capacity_msg3[1] = 114 as byte;
+    g_c99_capacity_msg3[2] = 111 as byte;
+    g_c99_capacity_msg3[3] = 112 as byte;
+    g_c99_capacity_msg3[4] = 32 as byte;
+    g_c99_capacity_msg3[5] = 99 as byte;
+    g_c99_capacity_msg3[6] = 108 as byte;
+    g_c99_capacity_msg3[7] = 101 as byte;
+    g_c99_capacity_msg3[8] = 97 as byte;
+    g_c99_capacity_msg3[9] = 110 as byte;
+    g_c99_capacity_msg3[10] = 117 as byte;
+    g_c99_capacity_msg3[11] = 112 as byte;
+    g_c99_capacity_msg3[12] = 32 as byte;
+    g_c99_capacity_msg3[13] = 115 as byte;
+    g_c99_capacity_msg3[14] = 116 as byte;
+    g_c99_capacity_msg3[15] = 97 as byte;
+    g_c99_capacity_msg3[16] = 99 as byte;
+    g_c99_capacity_msg3[17] = 107 as byte;
+    g_c99_capacity_msg3[18] = 0 as byte;
+    g_c99_capacity_msg4[0] = 100 as byte;
+    g_c99_capacity_msg4[1] = 114 as byte;
+    g_c99_capacity_msg4[2] = 111 as byte;
+    g_c99_capacity_msg4[3] = 112 as byte;
+    g_c99_capacity_msg4[4] = 32 as byte;
+    g_c99_capacity_msg4[5] = 99 as byte;
+    g_c99_capacity_msg4[6] = 108 as byte;
+    g_c99_capacity_msg4[7] = 101 as byte;
+    g_c99_capacity_msg4[8] = 97 as byte;
+    g_c99_capacity_msg4[9] = 110 as byte;
+    g_c99_capacity_msg4[10] = 117 as byte;
+    g_c99_capacity_msg4[11] = 112 as byte;
+    g_c99_capacity_msg4[12] = 32 as byte;
+    g_c99_capacity_msg4[13] = 98 as byte;
+    g_c99_capacity_msg4[14] = 108 as byte;
+    g_c99_capacity_msg4[15] = 111 as byte;
+    g_c99_capacity_msg4[16] = 99 as byte;
+    g_c99_capacity_msg4[17] = 107 as byte;
+    g_c99_capacity_msg4[18] = 0 as byte;
+    g_c99_capacity_msg_ready = 1;
+}
+
+fn c99_defer_stack_label() &byte {
+    c99_stmt_capacity_labels_init();
+    return &g_c99_capacity_msg1[0] as &byte;
+}
+
+fn c99_defer_block_label() &byte {
+    c99_stmt_capacity_labels_init();
+    return &g_c99_capacity_msg2[0] as &byte;
+}
+
+fn c99_drop_cleanup_stack_label() &byte {
+    c99_stmt_capacity_labels_init();
+    return &g_c99_capacity_msg3[0] as &byte;
+}
+
+fn c99_drop_cleanup_block_label() &byte {
+    c99_stmt_capacity_labels_init();
+    return &g_c99_capacity_msg4[0] as &byte;
+}
 
 // 判断节点类型是否为表达式类型
 fn is_expr_type(node_type: ASTNodeType) i32 {
@@ -232,6 +332,74 @@ fn c99_defer_node_at(codegen: &C99CodeGenerator, slot: i32, is_errdefer: i32) &A
         return codegen.errdefer_stack[slot];
     }
     return codegen.defer_stack[slot];
+}
+
+fn c99_register_defer_node(codegen: &C99CodeGenerator, node: &ASTNode, scope_idx: i32, is_errdefer: i32) i32 {
+    if codegen == null || node == null {
+        return 0;
+    }
+    if scope_idx < 0 {
+        return 0;
+    }
+    const stack_limit: i32 = C99_MAX_DEFER_STACK;
+    if scope_idx >= stack_limit {
+        c99_codegen_report_capacity_error(node, c99_defer_stack_label(), scope_idx, stack_limit);
+        return 0;
+    }
+    const count: i32 = c99_defer_count_at(codegen, scope_idx, is_errdefer);
+    if count < 0 {
+        return 0;
+    }
+    const block_limit: i32 = C99_MAX_DEFERS_PER_BLOCK;
+    if count >= block_limit {
+        c99_codegen_report_capacity_error(node, c99_defer_block_label(), count, block_limit);
+        return 0;
+    }
+    const slot: i32 = scope_idx * block_limit + count;
+    const total_limit: i32 = stack_limit * block_limit;
+    if slot < 0 || slot >= total_limit {
+        c99_codegen_report_capacity_error(node, c99_defer_block_label(), slot, total_limit);
+        return 0;
+    }
+    if is_errdefer != 0 {
+        codegen.errdefer_stack[slot] = node;
+    } else {
+        codegen.defer_stack[slot] = node;
+    }
+    c99_defer_count_set(codegen, scope_idx, is_errdefer, count + 1);
+    return 1;
+}
+
+fn c99_register_drop_cleanup(codegen: &C99CodeGenerator, node: &ASTNode, scope_idx: i32, var_name: &byte, mono_name: &byte) i32 {
+    if codegen == null || node == null || var_name == null || mono_name == null {
+        return 0;
+    }
+    if scope_idx < 0 {
+        return 0;
+    }
+    const stack_limit: i32 = C99_MAX_DEFER_STACK;
+    if scope_idx >= stack_limit {
+        c99_codegen_report_capacity_error(node, c99_drop_cleanup_stack_label(), scope_idx, stack_limit);
+        return 0;
+    }
+    const drop_count: i32 = c99_drop_var_count_at(codegen, scope_idx);
+    if drop_count < 0 {
+        return 0;
+    }
+    const block_limit: i32 = C99_MAX_DROP_VARS_PER_BLOCK;
+    if drop_count >= block_limit {
+        c99_codegen_report_capacity_error(node, c99_drop_cleanup_block_label(), drop_count, block_limit);
+        return 0;
+    }
+    const drop_slot: i32 = scope_idx * block_limit + drop_count;
+    const total_limit: i32 = stack_limit * block_limit;
+    if drop_slot < 0 || drop_slot >= total_limit {
+        c99_codegen_report_capacity_error(node, c99_drop_cleanup_block_label(), drop_slot, total_limit);
+        return 0;
+    }
+    c99_drop_entry_set(codegen, drop_slot, var_name, mono_name);
+    c99_drop_var_count_set(codegen, scope_idx, drop_count + 1);
+    return 1;
 }
 
 fn emit_drop_cleanup_at_scope(codegen: &C99CodeGenerator, scope_idx: i32) void {
@@ -2298,26 +2466,16 @@ fn gen_block_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         c99_defer_count_set(codegen, d, 0, 0);
         c99_defer_count_set(codegen, d, 1, 0);
         codegen.defer_stack_depth = codegen.defer_stack_depth + 1;
+    } else {
+        c99_codegen_report_capacity_error(stmt, c99_defer_stack_label(), d, C99_MAX_DEFER_STACK);
     }
     i = 0;
     while i < stmt_count {
         const s: &ASTNode = stmts[i];
         if s.type == ASTNodeType.AST_DEFER_STMT {
-            if d < C99_MAX_DEFER_STACK {
-                const nd: i32 = c99_defer_count_at(codegen, d, 0);
-                if nd >= 0 && nd < C99_MAX_DEFERS_PER_BLOCK {
-                    codegen.defer_stack[d * C99_MAX_DEFERS_PER_BLOCK + nd] = s;
-                    c99_defer_count_set(codegen, d, 0, nd + 1);
-                }
-            }
+            c99_register_defer_node(codegen, s, d, 0);
         } else if s.type == ASTNodeType.AST_ERRDEFER_STMT {
-            if d < C99_MAX_DEFER_STACK {
-                const ne: i32 = c99_defer_count_at(codegen, d, 1);
-                if ne >= 0 && ne < C99_MAX_DEFERS_PER_BLOCK {
-                    codegen.errdefer_stack[d * C99_MAX_DEFERS_PER_BLOCK + ne] = s;
-                    c99_defer_count_set(codegen, d, 1, ne + 1);
-                }
-            }
+            c99_register_defer_node(codegen, s, d, 1);
         } else {
             gen_stmt(codegen, s);
         }
@@ -2375,18 +2533,16 @@ fn gen_destructure_decl(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                     }
                     gen_expr(codegen, init);
                     fprintf(codegen.emit_stream as *void, ".f%d;\n" as *byte, i);
-                    if codegen.local_variable_count < C99_MAX_LOCAL_VARS {
-                        var type_to_store: &byte = elem_type_c;
-                        if is_const != 0 && elem_type_c != null {
-                            const str_len: i32 = strlen(elem_type_c as *byte) + 8;
-                            const buf: &byte = compiler_arena_alloc(codegen.arena, str_len) as &byte;
-                            if buf != null {
-                                snprintf(buf as *byte, str_len, "const %s" as *byte, elem_type_c as *byte);
-                                type_to_store = buf;
-                            }
+                    var type_to_store: &byte = elem_type_c;
+                    if is_const != 0 && elem_type_c != null {
+                        const str_len: i32 = strlen(elem_type_c as *byte) + 8;
+                        const buf: &byte = compiler_arena_alloc(codegen.arena, str_len) as &byte;
+                        if buf != null {
+                            snprintf(buf as *byte, str_len, "const %s" as *byte, elem_type_c as *byte);
+                            type_to_store = buf;
                         }
-                        c99_push_local_variable(codegen, safe_name, type_to_store, null, codegen.current_depth);
                     }
+                    c99_push_local_variable(codegen, safe_name, type_to_store, null, codegen.current_depth);
                 }
             }
             i = i + 1;
@@ -2494,7 +2650,7 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                         handled = 1;
                     }
                     if handled != 0 {
-                        if var_type != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+                        if var_type != null {
                             const type_c2: &byte = c99_type_to_c(codegen, var_type);
                             if type_c2 != null {
                                 c99_push_local_variable(codegen, stmt.var_decl_name, type_c2, var_type, codegen.current_depth);
@@ -2618,7 +2774,7 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                             codegen.indent_level = codegen.indent_level - 1;
                             c99_emit_indent(codegen);
                             fputs("}\n" as *byte, codegen.emit_stream as *void);
-                            if stored_type_c != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+                            if stored_type_c != null {
                                 c99_push_local_variable(codegen, stmt.var_decl_name, stored_type_c, stmt.var_decl_type, codegen.current_depth);
                             }
                             codegen.expected_type = saved_expected_type;
@@ -2672,7 +2828,7 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                         if need_pragma_missing_braces != 0 {
                             fputs("#pragma GCC diagnostic pop\n" as *byte, codegen.emit_stream as *void);
                         }
-                        if stored_type_c != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+                        if stored_type_c != null {
                             c99_push_local_variable(codegen, stmt.var_decl_name, stored_type_c, stmt.var_decl_type, codegen.current_depth);
                         }
                         codegen.expected_type = saved_expected_type;
@@ -2709,9 +2865,7 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                 // va_list 类型变量：生成 va_list ap; 不初始化（va_start 会初始化）
                 c99_emit_indent(codegen);
                 fprintf(codegen.emit_stream as *void, "va_list %s;\n" as *byte, var_name as *byte);
-                if codegen.local_variable_count < C99_MAX_LOCAL_VARS {
-                    c99_push_local_variable(codegen, stmt.var_decl_name, "va_list" as *byte, stmt.var_decl_type, codegen.current_depth);
-                }
+                c99_push_local_variable(codegen, stmt.var_decl_name, "va_list" as *byte, stmt.var_decl_type, codegen.current_depth);
                 // va_list 变量不由初始化表达式初始化，va_start 会初始化，必须提前返回
                 if need_pragma_missing_braces != 0 {
                     fputs("#pragma GCC diagnostic pop\n" as *byte, codegen.emit_stream as *void);
@@ -2724,9 +2878,7 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             if use_va_list != 0 {
                 c99_emit_indent(codegen);
                 fprintf(codegen.emit_stream as *void, "va_list %s;\n" as *byte, var_name as *byte);
-                if codegen.local_variable_count < C99_MAX_LOCAL_VARS {
-                    c99_push_local_variable(codegen, stmt.var_decl_name, "va_list" as *byte, stmt.var_decl_type, codegen.current_depth);
-                }
+                c99_push_local_variable(codegen, stmt.var_decl_name, "va_list" as *byte, stmt.var_decl_type, codegen.current_depth);
                 // va_list 变量不由初始化表达式初始化，va_start 会初始化，必须提前返回
                 if need_pragma_missing_braces != 0 {
                     fputs("#pragma GCC diagnostic pop\n" as *byte, codegen.emit_stream as *void);
@@ -2800,7 +2952,7 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
         } else {
             type_to_store = type_c;
         }
-        if var_name != null && type_to_store != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+        if var_name != null && type_to_store != null {
             c99_push_local_variable(codegen, stmt.var_decl_name, type_to_store, stmt.var_decl_type, codegen.current_depth);
         }
         
@@ -3111,26 +3263,11 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             }
             if codegen.current_drop_scope >= 0 && var_type != null && var_type.type == ASTNodeType.AST_TYPE_NAMED && var_type.type_named_name != null && type_has_drop_c99(codegen, var_type.type_named_name) != 0 && stmt.var_decl_was_moved == 0 {
                 const dd: i32 = codegen.current_drop_scope;
-                if dd >= 0 {
-                    if dd < C99_MAX_DEFER_STACK {
-                        const drop_count: i32 = c99_drop_var_count_at(codegen, dd);
-                        const drop_slot: i32 = dd * C99_MAX_DROP_VARS_PER_BLOCK + drop_count;
-                        if drop_count >= 0 {
-                            if drop_count < C99_MAX_DROP_VARS_PER_BLOCK {
-                                if drop_slot >= 0 {
-                                    if drop_slot < C99_MAX_DEFER_STACK * C99_MAX_DROP_VARS_PER_BLOCK {
-                                        var mono_drop: &byte = var_type.type_named_name;
-                                        if var_type.type_named_type_arg_count > 0 && var_type.type_named_type_args != null {
-                                            mono_drop = get_mono_struct_name(codegen, var_type.type_named_name, var_type.type_named_type_args, var_type.type_named_type_arg_count);
-                                        }
-                                        c99_drop_entry_set(codegen, drop_slot, var_name, mono_drop);
-                                        c99_drop_var_count_set(codegen, dd, drop_count + 1);
-                                    }
-                                }
-                            }
-                        }
-                    }
+                var mono_drop: &byte = var_type.type_named_name;
+                if var_type.type_named_type_arg_count > 0 && var_type.type_named_type_args != null {
+                    mono_drop = get_mono_struct_name(codegen, var_type.type_named_name, var_type.type_named_type_args, var_type.type_named_type_arg_count);
                 }
+                c99_register_drop_cleanup(codegen, stmt, dd, var_name, mono_drop);
             }
             }
             }
@@ -3141,26 +3278,11 @@ fn gen_var_decl_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
             c99_emit_semi_newline(codegen);
             if codegen.current_drop_scope >= 0 && var_type != null && var_type.type == ASTNodeType.AST_TYPE_NAMED && var_type.type_named_name != null && type_has_drop_c99(codegen, var_type.type_named_name) != 0 && stmt.var_decl_was_moved == 0 {
                 const dd: i32 = codegen.current_drop_scope;
-                if dd >= 0 {
-                    if dd < C99_MAX_DEFER_STACK {
-                        const drop_count2: i32 = c99_drop_var_count_at(codegen, dd);
-                        const drop_slot2: i32 = dd * C99_MAX_DROP_VARS_PER_BLOCK + drop_count2;
-                        if drop_count2 >= 0 {
-                            if drop_count2 < C99_MAX_DROP_VARS_PER_BLOCK {
-                                if drop_slot2 >= 0 {
-                                    if drop_slot2 < C99_MAX_DEFER_STACK * C99_MAX_DROP_VARS_PER_BLOCK {
-                                        var mono_drop2: &byte = var_type.type_named_name;
-                                        if var_type.type_named_type_arg_count > 0 && var_type.type_named_type_args != null {
-                                            mono_drop2 = get_mono_struct_name(codegen, var_type.type_named_name, var_type.type_named_type_args, var_type.type_named_type_arg_count);
-                                        }
-                                        c99_drop_entry_set(codegen, drop_slot2, var_name, mono_drop2);
-                                        c99_drop_var_count_set(codegen, dd, drop_count2 + 1);
-                                    }
-                                }
-                            }
-                        }
-                    }
+                var mono_drop2: &byte = var_type.type_named_name;
+                if var_type.type_named_type_arg_count > 0 && var_type.type_named_type_args != null {
+                    mono_drop2 = get_mono_struct_name(codegen, var_type.type_named_name, var_type.type_named_type_args, var_type.type_named_type_arg_count);
                 }
+                c99_register_drop_cleanup(codegen, stmt, dd, var_name, mono_drop2);
             }
         }
             }
@@ -3295,7 +3417,7 @@ fn gen_match_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                             codegen.indent_level = codegen.indent_level + 1;
                             c99_emit_indent(codegen);
                             fprintf(codegen.emit_stream as *void, "%s %s = _uya_m.u.%s;\n" as *byte, vtype as *byte, bind as *byte, vname as *byte);
-                            if stmt.match_expr_arms[i].var_name != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+                            if stmt.match_expr_arms[i].var_name != null {
                                 c99_push_local_variable(codegen, stmt.match_expr_arms[i].var_name, vtype, null, codegen.current_depth);
                             }
                         } else {
@@ -3362,13 +3484,13 @@ fn gen_match_stmt(codegen: &C99CodeGenerator, stmt: &ASTNode) void {
                     codegen.indent_level = codegen.indent_level + 1;
                     c99_emit_indent(codegen);
                     fprintf(codegen.emit_stream as *void, "%s %s = _uya_m.value;\n" as *byte, bind_payload as *byte, v as *byte);
-                    if stmt.match_expr_arms[i].var_name != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+                    if stmt.match_expr_arms[i].var_name != null {
                         c99_push_local_variable(codegen, stmt.match_expr_arms[i].var_name, bind_payload, null, codegen.current_depth);
                     }
                     bind_err_union_ok = 1;
                 } else if v != null {
                     fprintf(codegen.emit_stream as *void, "%s{ %s %s = _uya_m;\n" as *byte, prefix as *byte, m_type as *byte, v as *byte);
-                    if stmt.match_expr_arms[i].var_name != null && codegen.local_variable_count < C99_MAX_LOCAL_VARS {
+                    if stmt.match_expr_arms[i].var_name != null {
                         c99_push_local_variable(codegen, stmt.match_expr_arms[i].var_name, m_type, null, codegen.current_depth);
                     }
                 } else {
@@ -3616,10 +3738,8 @@ fn gen_var_decl_void_type(codegen: &C99CodeGenerator, init_expr: &ASTNode) i32 {
                     const safe: &byte = get_safe_c_identifier(codegen, err_name);
                     c99_emit_indent(codegen);
                     fprintf(codegen.emit_stream as *void, "const uint32_t %s = _uya_catch_tmp.error_id;\n" as *byte, safe as *byte);
-                    if codegen.local_variable_count < C99_MAX_LOCAL_VARS {
-                        c99_push_local_variable(codegen, err_name, "const uint32_t" as *byte, null, codegen.current_depth);
-                        c99_mark_local_variable_error_value(codegen, err_name);
-                    }
+                    c99_push_local_variable(codegen, err_name, "const uint32_t" as *byte, null, codegen.current_depth);
+                    c99_mark_local_variable_error_value(codegen, err_name);
                 }
                 var i: i32 = 0;
                 while i < block.block_stmt_count {
