@@ -118,19 +118,22 @@ export fn attach_decl_comments(file: &FmtFile, groups: &[CommentGroup]) void {
     }
 
     var gi: usize = 0;
-    di = 0;
-    while gi < groups.len && di < file.decl_count {
+    while gi < groups.len {
         const last_comment_span: Span = groups[gi].comments[groups[gi].count - 1].span;
+        di = 0;
         while di < file.decl_count && !span_before(last_comment_span, file.decls[di].span) {
             di = di + 1;
         }
         if di < file.decl_count {
-            file.decls[di].doc_comment_start = gi;
-            file.decls[di].doc_comment_count = 1;
-            groups[gi].attached_decl_index = di as i32;
-            gi = gi + 1;
-            di = di + 1;
+            const decl_line: usize = file.decls[di].span.start.line;
+            const comment_line: usize = last_comment_span.end.line;
+            if comment_line == decl_line || comment_line + 1 == decl_line {
+                file.decls[di].doc_comment_start = gi;
+                file.decls[di].doc_comment_count = 1;
+                groups[gi].attached_decl_index = di as i32;
+            }
         }
+        gi = gi + 1;
     }
 }
 
@@ -142,28 +145,41 @@ fn span_after_offsets(a_start: usize, b_end: usize) bool {
     return a_start >= b_end;
 }
 
-fn attach_stmt_comments_in_block(groups: &[CommentGroup], stmts: &Stmt, stmt_count: usize, base_stmt_index: &usize) void {
+fn attach_stmt_comments_in_block(groups: &[CommentGroup], stmts: &Stmt, stmt_count: usize, block_start_offset: usize, block_end_offset: usize, base_stmt_index: &usize) void {
     var gi: usize = 0;
     while gi < groups.len {
         if groups[gi].attached_decl_index < 0 && groups[gi].attached_stmt_index < 0 && groups[gi].count > 0 {
             const first_span: Span = groups[gi].comments[0].span;
             const last_span: Span = groups[gi].comments[groups[gi].count - 1].span;
-            var si: usize = 0;
-            var stmt_index: usize = *base_stmt_index;
-            while si < stmt_count {
-                const stmt_span: Span = stmts[si].span;
-                if first_span.start.line == stmt_span.end.line && span_after_offsets(first_span.start.offset, stmt_span.end.offset) {
-                    groups[gi].attached_stmt_index = stmt_index as i32;
+            if first_span.start.offset > block_start_offset && first_span.start.offset < block_end_offset {
+                var trailing_stmt_index: i32 = -1;
+                var si: usize = 0;
+                var stmt_index: usize = *base_stmt_index;
+                while si < stmt_count {
+                    const stmt_span: Span = stmts[si].span;
+                    if first_span.start.line == stmt_span.end.line && span_after_offsets(first_span.start.offset, stmt_span.end.offset) {
+                        trailing_stmt_index = stmt_index as i32;
+                    }
+                    stmt_index = stmt_index + 1;
+                    si = si + 1;
+                }
+                if trailing_stmt_index >= 0 {
+                    groups[gi].attached_stmt_index = trailing_stmt_index;
                     groups[gi].is_trailing = true;
-                    break;
+                } else {
+                    si = 0;
+                    stmt_index = *base_stmt_index;
+                    while si < stmt_count {
+                        const stmt_span2: Span = stmts[si].span;
+                        if span_before_offsets(last_span.end.offset, stmt_span2.start.offset) {
+                            groups[gi].attached_stmt_index = stmt_index as i32;
+                            groups[gi].is_trailing = false;
+                            break;
+                        }
+                        stmt_index = stmt_index + 1;
+                        si = si + 1;
+                    }
                 }
-                if span_before_offsets(last_span.end.offset, stmt_span.start.offset) {
-                    groups[gi].attached_stmt_index = stmt_index as i32;
-                    groups[gi].is_trailing = false;
-                    break;
-                }
-                stmt_index = stmt_index + 1;
-                si = si + 1;
             }
         }
         gi = gi + 1;
@@ -175,7 +191,14 @@ export fn attach_stmt_comments(file: &FmtFile, groups: &[CommentGroup]) void {
     var next_stmt_index: usize = 0;
     var di: usize = 0;
     while di < file.decl_count {
-        attach_stmt_comments_in_block(groups, file.decls[di].fn_decl.body.stmts, file.decls[di].fn_decl.body.stmt_count, &next_stmt_index);
+        attach_stmt_comments_in_block(
+            groups,
+            file.decls[di].fn_decl.body.stmts,
+            file.decls[di].fn_decl.body.stmt_count,
+            file.decls[di].fn_decl.body.span.start.offset,
+            file.decls[di].fn_decl.body.span.end.offset,
+            &next_stmt_index
+        );
         di = di + 1;
     }
 }

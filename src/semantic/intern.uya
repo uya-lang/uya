@@ -171,7 +171,7 @@ fn semantic_intern_copy_name(name: &byte, len: usize) &byte {
         return null;
     }
     _ = memcpy(copy as *byte, name as *const byte, len);
-    copy[len] = 0 as byte;
+    _ = memset((copy + len) as *byte, 0, 1usize);
     return copy;
 }
 

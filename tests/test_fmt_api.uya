@@ -166,20 +166,6 @@ fn test_format_with_imports_parses_and_sorts() !void {
     try assert_eq_i32(slice_contains(result.output, "use std.runtime.entry;\nuse tls.https;\n\nfn main()" as &[byte]) as i32, true as i32);
 }
 
-fn test_format_with_imports_parses_and_sorts() !void {
-    var arena_buf: [byte: 65536] = [];
-    var a: Arena = undefined;
-    arena_init(&a, &arena_buf[0], 65536);
-
-    var opts: FormatOptions = default_options(&a);
-    opts.sort_imports = true;
-    const src: &[byte] = "use tls.https;\nuse std.runtime.entry;\nfn main(){return 1;}" as &[byte];
-    const result: FormatResult = try format_result_with_options(&a, src, opts);
-
-    try assert_eq_i32(result.changed as i32, true as i32);
-    try assert_eq_i32(slice_contains(result.output, "use std.runtime.entry;\nuse tls.https;\n\nfn main()" as &[byte]) as i32, true as i32);
-}
-
 export fn main() i32 {
     test_suite_begin("fmt api tests");
     run_test("format expected prefix", test_format_returns_expected_prefix);

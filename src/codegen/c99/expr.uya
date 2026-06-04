@@ -3296,7 +3296,8 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                         // 检查是否是字符串常量表中的名称
                         var j: i32 = 0;
                         while j < codegen.string_constant_count {
-                            if strcmp(codegen.string_constants[j].name as *byte, arg_name as *byte) == 0 {
+                            const string_name: &byte = c99_string_const_name_at(codegen, j);
+                            if string_name != null && strcmp(string_name as *byte, arg_name as *byte) == 0 {
                                 is_byte_ptr_arg = 1;
                                 break;
                             }

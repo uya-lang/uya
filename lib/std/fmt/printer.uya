@@ -81,9 +81,7 @@ fn print_unattached_comment_groups_before_decl(p: &Printer, decl_index: usize) !
                 should_print = first_comment_line < decl_line;
             }
             if should_print {
-                if printed_any {
-                    try formatter_newline(p.f);
-                }
+                try ensure_blank_line(p);
                 try print_comment_group(p, group);
                 printed_any = true;
                 if decl_index < p.total_decl_count {
@@ -120,11 +118,19 @@ fn find_leading_comment_group(p: &Printer, stmt_index: usize) i32 {
     return -1;
 }
 
-fn print_stmt_with_comments(p: &Printer, stmt: &Stmt, stmt_index: usize) !void {
-    const leading_group_index: i32 = find_leading_comment_group(p, stmt_index);
-    if leading_group_index >= 0 {
-        try print_comment_group(p, &p.comment_groups[leading_group_index as usize]);
+fn print_leading_comment_groups(p: &Printer, stmt_index: usize) !void {
+    var i: usize = 0;
+    while i < p.comment_groups.len {
+        const group: &CommentGroup = &p.comment_groups[i];
+        if group.attached_stmt_index == stmt_index as i32 && !group.is_trailing {
+            try print_comment_group(p, group);
+        }
+        i = i + 1;
     }
+}
+
+fn print_stmt_with_comments(p: &Printer, stmt: &Stmt, stmt_index: usize) !void {
+    try print_leading_comment_groups(p, stmt_index);
     try print_stmt(p, stmt);
     const trailing_group_index: i32 = find_trailing_comment_group(p, stmt_index);
     if trailing_group_index >= 0 {
@@ -237,6 +243,7 @@ fn print_block(p: &Printer, block: &BlockStmt) !void {
 fn print_decl(p: &Printer, decl: &Decl, decl_index: usize) !void {
     if decl.doc_comment_count > 0 {
         try print_comment_group(p, &p.comment_groups[decl.doc_comment_start]);
+        try ensure_blank_line(p);
     }
     if decl.kind == DeclKind.DECL_FN {
         try write_keyword_fn(p);
@@ -288,6 +295,10 @@ export fn print_file_to_buffer(arena: &Arena, file: &FmtFile, comment_groups: &[
     }
     if file.use_count > 0 && file.decl_count > 0 {
         try formatter_write_byte(&f, '\n' as byte);
+    }
+
+    if file.decl_count > 0 {
+        _ = try print_unattached_comment_groups_before_decl(&p, 0);
     }
 
     i = 0;

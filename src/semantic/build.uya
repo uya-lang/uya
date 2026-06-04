@@ -102,6 +102,10 @@ fn semantic_db_prepare_for_build(db: &SemanticDb) void {
         db.type_ranges.item_size != @size_of(SemanticTypeDeclRange) ||
         db.type_range_decl_ids.item_size != @size_of(i32) ||
         db.types_by_name.capacity < db.types_by_name.count ||
+        db.enum_variant_records.item_size != @size_of(SemanticEnumVariantRecord) ||
+        db.enum_variant_ranges.item_size != @size_of(SemanticEnumVariantRange) ||
+        db.enum_variant_range_record_ids.item_size != @size_of(i32) ||
+        db.enum_variants_by_name.capacity < db.enum_variants_by_name.count ||
         db.import_bindings.item_size != @size_of(SemanticImportBinding) ||
         db.export_bindings.item_size != @size_of(SemanticExportBinding) {
         semantic_db_init(db);
@@ -241,6 +245,36 @@ fn semantic_db_count_method_symbols(db: &SemanticDb, methods: & & ASTNode, metho
     return 0;
 }
 
+fn semantic_db_append_enum_variant_records(db: &SemanticDb, decl: &ASTNode, enum_decl_id: i32) i32 {
+    if db == null || decl == null || decl.type != ASTNodeType.AST_ENUM_DECL {
+        return 0;
+    }
+    if enum_decl_id < 0 {
+        return -1;
+    }
+    if decl.enum_decl_variant_count <= 0 {
+        return 0;
+    }
+    if decl.enum_decl_variants == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < decl.enum_decl_variant_count {
+        const variant_name: &byte = decl.enum_decl_variants[i].name;
+        if variant_name != null {
+            const name_id: i32 = semantic_intern_get_or_put(&db.name_intern, variant_name);
+            if name_id < 0 {
+                return -1;
+            }
+            if semantic_db_append_enum_variant_record(db, name_id, enum_decl_id, i) < 0 {
+                return -1;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
 fn semantic_db_count_decl(db: &SemanticDb, decl: &ASTNode, file_id: i32, module_id: i32) i32 {
     if db == null || decl == null {
         return 0;
@@ -297,6 +331,9 @@ fn semantic_db_count_decl(db: &SemanticDb, decl: &ASTNode, file_id: i32, module_
         }
     } else if decl.type == ASTNodeType.AST_ENUM_DECL {
         db.type_count = db.type_count + 1;
+        if semantic_db_append_enum_variant_records(db, decl, decl_id) != 0 {
+            return -1;
+        }
     } else if decl.type == ASTNodeType.AST_TYPE_ALIAS {
         db.type_count = db.type_count + 1;
     } else if decl.type == ASTNodeType.AST_METHOD_BLOCK {
@@ -841,6 +878,174 @@ fn semantic_db_rebuild_types_by_name(db: &SemanticDb) i32 {
     return filled;
 }
 
+fn semantic_db_enum_variant_range_ptr(db: &SemanticDb, range_id: i32) &SemanticEnumVariantRange {
+    if db == null || range_id < 0 {
+        return null;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(&db.enum_variant_ranges, range_id as usize);
+    if ptr == null {
+        return null;
+    }
+    return ptr as &SemanticEnumVariantRange;
+}
+
+fn semantic_db_enum_variant_record_id_slot(db: &SemanticDb, index: i32) &i32 {
+    if db == null || index < 0 {
+        return null;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(&db.enum_variant_range_record_ids, index as usize);
+    if ptr == null {
+        return null;
+    }
+    return ptr as &i32;
+}
+
+fn semantic_db_count_enum_variant_range_name(db: &SemanticDb, name_id: i32) i32 {
+    if db == null || name_id < 0 {
+        return -1;
+    }
+    var range_id: i32 = -1;
+    if semantic_hash_get(&db.enum_variants_by_name, name_id as i64, &range_id) == 0 {
+        if semantic_db_append_enum_variant_range(db, name_id, 0, 1) < 0 {
+            return -1;
+        }
+        return 0;
+    }
+    const range: &SemanticEnumVariantRange = semantic_db_enum_variant_range_ptr(db, range_id);
+    if range == null {
+        return -1;
+    }
+    range.variant_count = range.variant_count + 1;
+    return 0;
+}
+
+fn semantic_db_collect_enum_variant_range_counts(db: &SemanticDb) i32 {
+    if db == null {
+        return -1;
+    }
+    var record_id: i32 = 0;
+    while record_id < semantic_db_enum_variant_record_count(db) {
+        var record: SemanticEnumVariantRecord = SemanticEnumVariantRecord{ name_id: -1, enum_decl_id: -1, variant_index: -1 };
+        if semantic_db_enum_variant_record_get(db, record_id, &record) == 0 {
+            return -1;
+        }
+        if record.name_id >= 0 {
+            if semantic_db_count_enum_variant_range_name(db, record.name_id) != 0 {
+                return -1;
+            }
+        }
+        record_id = record_id + 1;
+    }
+    return 0;
+}
+
+fn semantic_db_prefix_enum_variant_ranges(db: &SemanticDb) i32 {
+    if db == null {
+        return -1;
+    }
+    var start: i32 = 0;
+    var range_id: i32 = 0;
+    while range_id < semantic_db_enum_variant_range_count(db) {
+        const range: &SemanticEnumVariantRange = semantic_db_enum_variant_range_ptr(db, range_id);
+        if range == null {
+            return -1;
+        }
+        range.variant_start = start;
+        start = start + range.variant_count;
+        range_id = range_id + 1;
+    }
+
+    var placeholder: i32 = -1;
+    var i: i32 = 0;
+    while i < start {
+        if semantic_vector_append(&db.enum_variant_range_record_ids, &placeholder as &const void) != 0 {
+            return -1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn semantic_db_build_enum_variant_range_cursors(db: &SemanticDb, cursors: &SemanticVector) i32 {
+    if db == null || cursors == null {
+        return -1;
+    }
+    semantic_vector_init(cursors, @size_of(i32));
+    var zero: i32 = 0;
+    var i: i32 = 0;
+    while i < semantic_db_enum_variant_range_count(db) {
+        if semantic_vector_append(cursors, &zero as &const void) != 0 {
+            return -1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn semantic_db_fill_enum_variant_ranges(db: &SemanticDb, cursors: &SemanticVector) i32 {
+    if db == null || cursors == null {
+        return -1;
+    }
+    var record_id: i32 = 0;
+    while record_id < semantic_db_enum_variant_record_count(db) {
+        var record: SemanticEnumVariantRecord = SemanticEnumVariantRecord{ name_id: -1, enum_decl_id: -1, variant_index: -1 };
+        if semantic_db_enum_variant_record_get(db, record_id, &record) == 0 {
+            return -1;
+        }
+        if record.name_id >= 0 {
+            var range_id: i32 = -1;
+            if semantic_hash_get(&db.enum_variants_by_name, record.name_id as i64, &range_id) == 0 {
+                return -1;
+            }
+            const range: &SemanticEnumVariantRange = semantic_db_enum_variant_range_ptr(db, range_id);
+            const cursor: &i32 = semantic_db_cursor_ptr(cursors, range_id);
+            if range == null || cursor == null {
+                return -1;
+            }
+            const slot_index: i32 = range.variant_start + cursor[0];
+            const slot: &i32 = semantic_db_enum_variant_record_id_slot(db, slot_index);
+            if slot == null {
+                return -1;
+            }
+            slot[0] = record_id;
+            cursor[0] = cursor[0] + 1;
+        }
+        record_id = record_id + 1;
+    }
+    return 0;
+}
+
+fn semantic_db_rebuild_enum_variants_by_name(db: &SemanticDb) i32 {
+    if db == null {
+        return -1;
+    }
+    semantic_vector_reset(&db.enum_variant_ranges);
+    semantic_vector_reset(&db.enum_variant_range_record_ids);
+    semantic_hash_reset(&db.enum_variants_by_name);
+    if semantic_db_collect_enum_variant_range_counts(db) != 0 {
+        return -1;
+    }
+    if semantic_db_prefix_enum_variant_ranges(db) != 0 {
+        return -1;
+    }
+
+    var cursors: SemanticVector = SemanticVector{
+        data: null,
+        item_size: 0usize,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+    if semantic_db_build_enum_variant_range_cursors(db, &cursors) != 0 {
+        semantic_vector_release(&cursors);
+        return -1;
+    }
+    const filled: i32 = semantic_db_fill_enum_variant_ranges(db, &cursors);
+    semantic_vector_release(&cursors);
+    return filled;
+}
+
 fn semantic_db_refresh_interned_name_count(db: &SemanticDb) i32 {
     if db == null {
         return -1;
@@ -909,6 +1114,10 @@ export fn semantic_db_build_from_merged_ast(db: &SemanticDb, program: &ASTNode) 
         return -1;
     }
     if semantic_db_rebuild_types_by_name(db) != 0 {
+        semantic_db_reset(db);
+        return -1;
+    }
+    if semantic_db_rebuild_enum_variants_by_name(db) != 0 {
         semantic_db_reset(db);
         return -1;
     }

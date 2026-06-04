@@ -108,6 +108,10 @@ test "semantic db definition initializes and resets" {
         type_ranges: semantic_test_vector(),
         type_range_decl_ids: semantic_test_vector(),
         types_by_name: semantic_test_hash(),
+        enum_variant_records: semantic_test_vector(),
+        enum_variant_ranges: semantic_test_vector(),
+        enum_variant_range_record_ids: semantic_test_vector(),
+        enum_variants_by_name: semantic_test_hash(),
         import_bindings: semantic_test_vector(),
         export_bindings: semantic_test_vector(),
     };

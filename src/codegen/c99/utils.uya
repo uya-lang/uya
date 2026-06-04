@@ -59,27 +59,16 @@ extern fn hash_string(str: &byte) i32;
 const C99_SAFE_IDENT_CACHE_BITS: i32 = 11;
 const C99_SAFE_IDENT_CACHE_SIZE: i32 = 2048;
 const C99_SAFE_IDENT_CACHE_MASK: i32 = 2047;
-const C99_STRING_CONST_CACHE_BITS: i32 = 12;
-const C99_STRING_CONST_CACHE_SIZE: i32 = 4096;
-const C99_STRING_CONST_CACHE_MASK: i32 = 4095;
 
 var g_c99_utils_cached_codegen: &C99CodeGenerator = null;
 var g_c99_safe_ident_keys: [&byte: C99_SAFE_IDENT_CACHE_SIZE] = [];
 var g_c99_safe_ident_values: [&byte: C99_SAFE_IDENT_CACHE_SIZE] = [];
-var g_c99_string_const_keys: [&byte: C99_STRING_CONST_CACHE_SIZE] = [];
-var g_c99_string_const_values: [&byte: C99_STRING_CONST_CACHE_SIZE] = [];
 
 fn c99_utils_reset_caches(codegen: &C99CodeGenerator) void {
     var i: i32 = 0;
     while i < C99_SAFE_IDENT_CACHE_SIZE {
         g_c99_safe_ident_keys[i] = null;
         g_c99_safe_ident_values[i] = null;
-        i = i + 1;
-    }
-    i = 0;
-    while i < C99_STRING_CONST_CACHE_SIZE {
-        g_c99_string_const_keys[i] = null;
-        g_c99_string_const_values[i] = null;
         i = i + 1;
     }
     g_c99_utils_cached_codegen = codegen;
@@ -115,9 +104,6 @@ fn c99_string_const_cache_store(codegen: &C99CodeGenerator, value: &byte, const_
         return;
     }
     c99_utils_cache_ensure(codegen);
-    const slot: i32 = (hash_string(value) & C99_STRING_CONST_CACHE_MASK) as i32;
-    g_c99_string_const_keys[slot] = value;
-    g_c99_string_const_values[slot] = const_name;
 }
 
 // 创建 C99 代码生成器
@@ -237,6 +223,7 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
     codegen.module_name = module_name;
 
     // 初始化表
+    semantic_vector_init(&codegen.string_constants, @size_of(StringConstant));
     codegen.string_constant_count = 0;
     codegen.string_constants_emitted_count = 0;
     codegen.embedded_constant_count = 0;
@@ -630,30 +617,37 @@ fn c99_mkdir_p_for_file(file_path: &byte) void {
     c99_mkdir_p_chain(&buf[0] as &byte);
 }
 
-fn c99_string_const_name_at(codegen: &C99CodeGenerator, idx: i32) &byte {
+fn c99_string_const_ptr(codegen: &C99CodeGenerator, idx: i32) &StringConstant {
     if codegen == null {
         return null;
     }
     if idx < 0 {
         return null;
     }
-    if idx >= C99_MAX_STRING_CONSTANTS {
+    if idx >= codegen.string_constant_count {
         return null;
     }
-    return codegen.string_constants[idx].name;
+    const ptr: &byte = semantic_vector_item_ptr(&codegen.string_constants, idx as usize);
+    if ptr == null {
+        return null;
+    }
+    return ptr as &StringConstant;
+}
+
+fn c99_string_const_name_at(codegen: &C99CodeGenerator, idx: i32) &byte {
+    const item: &StringConstant = c99_string_const_ptr(codegen, idx);
+    if item == null {
+        return null;
+    }
+    return item.name;
 }
 
 fn c99_string_const_value_at(codegen: &C99CodeGenerator, idx: i32) &byte {
-    if codegen == null {
+    const item: &StringConstant = c99_string_const_ptr(codegen, idx);
+    if item == null {
         return null;
     }
-    if idx < 0 {
-        return null;
-    }
-    if idx >= C99_MAX_STRING_CONSTANTS {
-        return null;
-    }
-    return codegen.string_constants[idx].value;
+    return item.value;
 }
 
 fn c99_mirror_lcp_len_flat(uniq: &byte, count: i32) i32 {
@@ -1074,8 +1068,9 @@ export fn c99_split_finish_part2_externs(codegen: &C99CodeGenerator) void {
                 fputs("// 由 Uya 镜像分 TU 模式生成：与 uya_part1.c 中字符串定义链接\n" as *byte, hw as *void);
                 var si: i32 = 0;
                 while si < codegen.string_constant_count {
-                    if codegen.string_constants[si].name != null {
-                        fprintf(hw as *void, "extern const char %s[];\n" as *byte, codegen.string_constants[si].name as *byte);
+                    const string_name: &byte = c99_string_const_name_at(codegen, si);
+                    if string_name != null {
+                        fprintf(hw as *void, "extern const char %s[];\n" as *byte, string_name as *byte);
                     }
                     si = si + 1;
                 }
@@ -1128,8 +1123,9 @@ export fn c99_split_finish_part2_externs(codegen: &C99CodeGenerator) void {
     fputs("// 与 uya_part1.c 中字符串符号链接；由 Uya 在分 TU 模式下自动生成\n" as *byte, out_wr as *void);
     var si: i32 = 0;
     while si < codegen.string_constant_count {
-        if codegen.string_constants[si].name != null {
-            fprintf(out_wr as *void, "extern const char %s[];\n" as *byte, codegen.string_constants[si].name as *byte);
+        const string_name: &byte = c99_string_const_name_at(codegen, si);
+        if string_name != null {
+            fprintf(out_wr as *void, "extern const char %s[];\n" as *byte, string_name as *byte);
         }
         si = si + 1;
     }
@@ -1761,30 +1757,16 @@ fn add_string_constant(codegen: &C99CodeGenerator, value: &byte) &byte {
         return null;
     }
     c99_utils_cache_ensure(codegen);
-    const slot: i32 = (hash_string(value) & C99_STRING_CONST_CACHE_MASK) as i32;
-    const cached_key: &byte = g_c99_string_const_keys[slot];
-    if cached_key != null && strcmp(cached_key as *byte, value as *byte) == 0 {
-        return g_c99_string_const_values[slot];
-    }
     // 检查是否已存在相同的字符串常量
     var i: i32 = 0;
     while i < codegen.string_constant_count {
-        if codegen.string_constants[i].value != null &&
-           strcmp(codegen.string_constants[i].value as *byte, value as *byte) == 0 {
-            c99_string_const_cache_store(codegen, value, codegen.string_constants[i].name);
-            return codegen.string_constants[i].name;
+        const item: &StringConstant = c99_string_const_ptr(codegen, i);
+        if item != null && item.value != null &&
+           strcmp(item.value as *byte, value as *byte) == 0 {
+            c99_string_const_cache_store(codegen, value, item.name);
+            return item.name;
         }
         i = i + 1;
-    }
-    
-    // 创建新的字符串常量
-    if codegen.string_constant_count >= C99_MAX_STRING_CONSTANTS {
-        if codegen.split_enabled != 0 {
-            return null;
-        }
-        c99_codegen_report_capacity_error(null, "string constant registry" as &byte,
-            codegen.string_constant_count, C99_MAX_STRING_CONSTANTS);
-        return null;
     }
     
     // 生成常量名称（如 str0）
@@ -1792,26 +1774,29 @@ fn add_string_constant(codegen: &C99CodeGenerator, value: &byte) &byte {
     snprintf(&name_buf[0] as *byte, NUM_BUF_SIZE, "str%d" as *byte, codegen.string_constant_count);
     
     // 存储到表中
-    const string_idx: i32 = codegen.string_constant_count;
-    if string_idx >= 0 && string_idx < @len(codegen.string_constants) {
-        codegen.string_constants[string_idx].name = c99_arena_strdup(codegen.arena, &name_buf[0] as &byte);
-        codegen.string_constants[string_idx].value = value;  // 注意：value 应该已经在 Arena 中
-        codegen.string_constant_count = string_idx + 1;
-    } else {
-        c99_codegen_report_capacity_error(null, "string constant registry" as &byte,
-            string_idx, C99_MAX_STRING_CONSTANTS);
+    var record: StringConstant = StringConstant{
+        name: c99_arena_strdup(codegen.arena, &name_buf[0] as &byte),
+        value: value,
+    };
+    if record.name == null {
         return null;
     }
+    if semantic_vector_append(&codegen.string_constants, &record as &const void) != 0 {
+        c99_codegen_report_capacity_error(null, "string constant registry allocation" as &byte,
+            codegen.string_constant_count, codegen.string_constant_count + 1);
+        return null;
+    }
+    codegen.string_constant_count = codegen.string_constant_count + 1;
     const stored_idx: i32 = codegen.string_constant_count - 1;
     if stored_idx < 0 {
         return null;
     }
-    if stored_idx >= C99_MAX_STRING_CONSTANTS {
-        c99_codegen_report_capacity_error(null, "string constant registry" as &byte,
-            stored_idx, C99_MAX_STRING_CONSTANTS);
+    const const_name: &byte = c99_string_const_name_at(codegen, stored_idx);
+    if const_name == null {
+        c99_codegen_report_capacity_error(null, "string constant registry metadata" as &byte,
+            stored_idx, codegen.string_constant_count);
         return null;
     }
-    const const_name: &byte = codegen.string_constants[stored_idx].name;
     c99_string_const_cache_store(codegen, value, const_name);
     return const_name;
 }
@@ -1822,17 +1807,13 @@ fn find_string_constant(codegen: &C99CodeGenerator, value: &byte) &byte {
         return null;
     }
     c99_utils_cache_ensure(codegen);
-    const slot: i32 = (hash_string(value) & C99_STRING_CONST_CACHE_MASK) as i32;
-    const cached_key: &byte = g_c99_string_const_keys[slot];
-    if cached_key != null && strcmp(cached_key as *byte, value as *byte) == 0 {
-        return g_c99_string_const_values[slot];
-    }
     var i: i32 = 0;
     while i < codegen.string_constant_count {
-        if codegen.string_constants[i].value != null && 
-           strcmp(codegen.string_constants[i].value as *byte, value as *byte) == 0 {
-            c99_string_const_cache_store(codegen, value, codegen.string_constants[i].name);
-            return codegen.string_constants[i].name;
+        const item: &StringConstant = c99_string_const_ptr(codegen, i);
+        if item != null && item.value != null &&
+            strcmp(item.value as *byte, value as *byte) == 0 {
+            c99_string_const_cache_store(codegen, value, item.name);
+            return item.name;
         }
         i = i + 1;
     }
@@ -2022,13 +2003,17 @@ fn emit_string_constants(codegen: &C99CodeGenerator) void {
     fputs("\n// 字符串常量（char 类型以满足 -Wformat= 对 fprintf/snprintf 格式参数的要求）\n" as *byte, codegen.emit_stream as *void);
     var i: i32 = 0;
     while i < codegen.string_constant_count {
-        if codegen.split_enabled != 0 {
-            fprintf(codegen.emit_stream as *void, "const char %s[] = \"" as *byte, codegen.string_constants[i].name as *byte);
-        } else {
-            fprintf(codegen.emit_stream as *void, "static const char %s[] = \"" as *byte, codegen.string_constants[i].name as *byte);
+        const string_name: &byte = c99_string_const_name_at(codegen, i);
+        const string_value: &byte = c99_string_const_value_at(codegen, i);
+        if string_name != null && string_value != null {
+            if codegen.split_enabled != 0 {
+                fprintf(codegen.emit_stream as *void, "const char %s[] = \"" as *byte, string_name as *byte);
+            } else {
+                fprintf(codegen.emit_stream as *void, "static const char %s[] = \"" as *byte, string_name as *byte);
+            }
+            escape_string_for_c(codegen.emit_stream, string_value);
+            fputs("\";\n" as *byte, codegen.emit_stream as *void);
         }
-        escape_string_for_c(codegen.emit_stream, codegen.string_constants[i].value);
-        fputs("\";\n" as *byte, codegen.emit_stream as *void);
         i = i + 1;
     }
     codegen.string_constants_emitted_count = codegen.string_constant_count;
@@ -2049,27 +2034,15 @@ export fn emit_pending_string_constants(codegen: &C99CodeGenerator) void {
         emit_start = 0;
     }
     var emit_end: i32 = codegen.string_constant_count;
-    if emit_end > C99_MAX_STRING_CONSTANTS {
-        c99_codegen_report_capacity_error(null, "string constant emitted metadata" as &byte,
-            emit_end, C99_MAX_STRING_CONSTANTS);
-        codegen.emit_stream = saved;
-        return;
-    }
     var i: i32 = emit_start;
     while i < emit_end {
         if i < 0 {
             i = i + 1;
             continue;
         }
-        if i >= C99_MAX_STRING_CONSTANTS {
-            c99_codegen_report_capacity_error(null, "string constant emitted metadata" as &byte,
-                i, C99_MAX_STRING_CONSTANTS);
-            codegen.emit_stream = saved;
-            return;
-        }
         const string_value: &byte = c99_string_const_value_at(codegen, i);
         const string_name: &byte = c99_string_const_name_at(codegen, i);
-        if string_value != null {
+        if string_name != null && string_value != null {
             if codegen.split_enabled != 0 {
                 fprintf(codegen.emit_stream as *void, "const char %s[] = \"" as *byte, string_name as *byte);
             } else {

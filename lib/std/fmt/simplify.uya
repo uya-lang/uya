@@ -54,6 +54,82 @@ fn is_paren_atom_char(c: byte) bool {
     return is_ident_char(c);
 }
 
-fn match_return_paren(source: &[byte], pos: usize, inner_start: &usize, inner_end: &usize, end_pos: &usize) bool { return false; }
-fn match_redundant_paren(source: &[byte], pos: usize, inner_start: &usize, inner_end: &usize, end_pos: &usize) bool { return false; }
-export fn simplify_text(arena: &Arena, source: &[byte]) !&[byte] { return source; }
+fn match_return_paren(source: &[byte], pos: usize, inner_start: &usize, inner_end: &usize, end_pos: &usize) bool {
+    const prefix: &[byte] = "return (" as &[byte];
+    if pos + prefix.len >= source.len {
+        return false;
+    }
+    var i: usize = 0;
+    while i < prefix.len {
+        if source.ptr[pos + i] != prefix.ptr[i] {
+            return false;
+        }
+        i = i + 1;
+    }
+    const start: usize = pos + prefix.len;
+    var end: usize = start;
+    while end < source.len && is_paren_atom_char(source.ptr[end]) {
+        end = end + 1;
+    }
+    if end == start || end >= source.len || source.ptr[end] != ')' as byte {
+        return false;
+    }
+    *inner_start = start;
+    *inner_end = end;
+    *end_pos = end + 1;
+    return true;
+}
+
+fn match_redundant_paren(source: &[byte], pos: usize, inner_start: &usize, inner_end: &usize, end_pos: &usize) bool {
+    if pos >= source.len || source.ptr[pos] != '(' as byte {
+        return false;
+    }
+    if pos > 0 && is_ident_char(source.ptr[pos - 1]) {
+        return false;
+    }
+    const start: usize = pos + 1;
+    var end: usize = start;
+    while end < source.len && is_paren_atom_char(source.ptr[end]) {
+        end = end + 1;
+    }
+    if end == start || end >= source.len || source.ptr[end] != ')' as byte {
+        return false;
+    }
+    *inner_start = start;
+    *inner_end = end;
+    *end_pos = end + 1;
+    return true;
+}
+
+export fn simplify_text(arena: &Arena, source: &[byte]) !&[byte] {
+    const out: &byte = arena_alloc(arena, source.len);
+    if out == null {
+        return error.AllocOutOfMemory;
+    }
+    var pos: usize = 0;
+    var i: usize = 0;
+    var changed: bool = false;
+    while i < source.len {
+        var inner_start: usize = 0;
+        var inner_end: usize = 0;
+        var end_pos: usize = 0;
+        if match_redundant_paren(source, i, &inner_start, &inner_end, &end_pos) {
+            var j: usize = inner_start;
+            while j < inner_end {
+                out[pos] = source.ptr[j];
+                pos = pos + 1;
+                j = j + 1;
+            }
+            i = end_pos;
+            changed = true;
+        } else {
+            out[pos] = source.ptr[i];
+            pos = pos + 1;
+            i = i + 1;
+        }
+    }
+    if !changed {
+        return source;
+    }
+    return out[0:pos];
+}

@@ -1489,21 +1489,24 @@ fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
 }
 }
 // DFS 辅助函数（用于循环依赖检测）
-// 参数：checker - TypeChecker 指针，module_name - 当前模块名，path - 当前路径数组，path_len - 路径长度
-//       visit_state - 访问状态数组，visit_count - 访问状态数量
+// 参数：checker - TypeChecker 指针，module_name - 当前模块名，path - 当前递归栈，path_len - 栈长度
+//       visit_state - 访问状态数组，visit_count - 访问状态数量，path_capacity - 递归栈容量
 // 返回：发现循环返回 1，否则返回 0
-const MAX_MODULES: i32 = 64;
-
 struct VisitState {
     module_name: &byte,
     state: i32,  // 0=未访问，1=正在访问（在递归栈中），2=已访问
 }
 
-fn dfs_visit_module(checker: &TypeChecker, module_name: &byte, path: & & byte, path_len: i32,
-                     visit_state: &VisitState, visit_count: i32) i32 {
-    const path_limit: i32 = MAX_MODULES;
-    if path_len >= path_limit {
-        checker_report_error(checker, checker.program_node, "checker module cycle table 容量已满" as *byte);
+fn dfs_visit_module(
+    checker: &TypeChecker,
+    module_name: &byte,
+    path: & & byte,
+    path_len: i32,
+    visit_state: &VisitState,
+    visit_count: i32,
+    path_capacity: i32,
+) i32 {
+    if checker == null || module_name == null || path == null || visit_state == null {
         return 0;
     }
     
@@ -1567,6 +1570,12 @@ fn dfs_visit_module(checker: &TypeChecker, module_name: &byte, path: & & byte, p
         return 0;
     }
     
+    if path_len < 0 || path_len >= path_capacity {
+        checker_report_error(checker, checker.program_node, "checker module cycle table 容量已满" as *byte);
+        return 0;
+    }
+    path[path_len] = module_name;
+
     // 标记为正在访问
     visit_state[state_idx].state = 1;
     
@@ -1587,24 +1596,13 @@ fn dfs_visit_module(checker: &TypeChecker, module_name: &byte, path: & & byte, p
     
     if module != null {
         // 递归访问所有依赖
-        // 注意：Uya 不支持动态数组，使用固定大小数组
-        var new_path: [&byte: MAX_MODULES] = [null: MAX_MODULES];
-        i = 0;
-        while i < path_len && i < MAX_MODULES {
-            new_path[i] = path[i];
-            i = i + 1;
-        }
-        const path_idx: i32 = path_len;
-        if path_idx >= 0 && path_idx < MAX_MODULES {
-            new_path[path_idx] = module_name;
-        }
         const new_path_len: i32 = path_len + 1;
         
         i = 0;
         while i < module.dependency_count {
             // 传递数组指针
-            if dfs_visit_module(checker, module.dependencies[i].target_module, &new_path[0], new_path_len,
-                                 visit_state, visit_count) != 0 {
+            if dfs_visit_module(checker, module.dependencies[i].target_module, path, new_path_len,
+                                 visit_state, visit_count, path_capacity) != 0 {
                 return 1;  // 发现循环
             }
             i = i + 1;
@@ -1613,6 +1611,7 @@ fn dfs_visit_module(checker: &TypeChecker, module_name: &byte, path: & & byte, p
     
     // 标记为已访问
     visit_state[state_idx].state = 2;
+    path[path_len] = null;
     return 0;
 }
 
@@ -1623,17 +1622,33 @@ fn detect_circular_dependencies(checker: &TypeChecker) void {
     }
     
     // 为每个模块分配访问状态（0=未访问，1=正在访问，2=已访问）
-    // 使用简单的数组存储，最大支持 64 个模块
-    var visit_state: [VisitState: MAX_MODULES] = [VisitState { module_name: null, state: 0 }: MAX_MODULES];
+    const module_count: i32 = checker.module_table.count;
+    if module_count <= 0 {
+        return;
+    }
+    const visit_bytes: usize = @size_of(VisitState) * (module_count as usize);
+    const path_bytes: usize = @size_of(&byte) * (module_count as usize);
+    const visit_state: &VisitState = compiler_arena_alloc(checker.arena, visit_bytes) as &VisitState;
+    const path: & & byte = compiler_arena_alloc(checker.arena, path_bytes) as & & byte;
+    if visit_state == null || path == null {
+        checker_report_error(checker, checker.program_node, "checker module cycle table 容量已满" as *byte);
+        return;
+    }
     var visit_count: i32 = 0;
+    var clear_i: i32 = 0;
+    while clear_i < module_count {
+        visit_state[clear_i].module_name = null;
+        visit_state[clear_i].state = 0;
+        path[clear_i] = null;
+        clear_i = clear_i + 1;
+    }
     
     // 初始化访问状态
     var i: i32 = 0;
     while i < MODULE_TABLE_SIZE {
         const module: &ModuleInfo = checker.module_table.slots[i];
         if module != null {
-            const module_cycle_limit: i32 = MAX_MODULES;
-            if visit_count < module_cycle_limit {
+            if visit_count < module_count {
                 visit_state[visit_count].module_name = module.module_name;
                 visit_state[visit_count].state = 0;
                 visit_count = visit_count + 1;
@@ -1649,10 +1664,8 @@ fn detect_circular_dependencies(checker: &TypeChecker) void {
     i = 0;
     while i < visit_count {
         if visit_state[i].state == 0 {
-            var path: [&byte: MAX_MODULES] = [null: MAX_MODULES];
-            path[0] = visit_state[i].module_name;
             // 传递数组指针
-            dfs_visit_module(checker, visit_state[i].module_name, &path[0], 1, &visit_state[0], visit_count);
+            dfs_visit_module(checker, visit_state[i].module_name, path, 0, visit_state, visit_count, module_count);
         }
         i = i + 1;
     }

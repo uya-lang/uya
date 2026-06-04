@@ -74,11 +74,170 @@ export fn rewrite_file(file: &FmtFile, rule: RewriteRule) void {
     }
 }
 
-fn is_space(c: byte) bool { return c == ' ' as byte; }
-fn copy_trimmed(arena: &Arena, s: &[byte], start_inclusive: usize, end_exclusive: usize) &[byte] { return s[start_inclusive:end_exclusive - start_inclusive]; }
-fn find_arrow(text: &[byte]) i32 { return -1; }
-export fn parse_rewrite_rule(arena: &Arena, text: &[byte]) !RewriteRule { return RewriteRule { from: text, to: text }; }
-fn is_boundary_byte(c: byte) bool { return true; }
-fn match_at(source: &[byte], pos: usize, needle: &[byte]) bool { return false; }
-fn match_rule_at(source: &[byte], pos: usize, needle: &[byte]) bool { return false; }
-export fn apply_rewrite_text(arena: &Arena, source: &[byte], rule: RewriteRule) !&[byte] { return source; }
+fn is_space(c: byte) bool {
+    return c == ' ' as byte ||
+        c == '\t' as byte ||
+        c == '\n' as byte ||
+        c == '\r' as byte;
+}
+
+fn is_ident_part(c: byte) bool {
+    return (c >= 'a' as byte && c <= 'z' as byte) ||
+        (c >= 'A' as byte && c <= 'Z' as byte) ||
+        (c >= '0' as byte && c <= '9' as byte) ||
+        c == '_' as byte ||
+        c == '.' as byte;
+}
+
+fn empty_rewrite_slice(arena: &Arena) !&[byte] {
+    const buf: &byte = arena_alloc(arena, 1);
+    if buf == null {
+        return error.AllocOutOfMemory;
+    }
+    return buf[0:0];
+}
+
+fn copy_trimmed(arena: &Arena, s: &[byte], start_inclusive: usize, end_exclusive: usize) !&[byte] {
+    var start: usize = start_inclusive;
+    var end: usize = end_exclusive;
+    while start < end && is_space(s.ptr[start]) {
+        start = start + 1;
+    }
+    while end > start && is_space(s.ptr[end - 1]) {
+        end = end - 1;
+    }
+    const len: usize = end - start;
+    if len == 0 {
+        return empty_rewrite_slice(arena);
+    }
+    const buf: &byte = arena_alloc(arena, len);
+    if buf == null {
+        return error.AllocOutOfMemory;
+    }
+    var i: usize = 0;
+    while i < len {
+        buf[i] = s.ptr[start + i];
+        i = i + 1;
+    }
+    return buf[0:len];
+}
+
+fn find_arrow(text: &[byte]) i32 {
+    if text.len < 2 {
+        return -1;
+    }
+    var i: usize = 0;
+    while i + 1 < text.len {
+        if text.ptr[i] == '-' as byte && text.ptr[i + 1] == '>' as byte {
+            return i as i32;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+export fn parse_rewrite_rule(arena: &Arena, text: &[byte]) !RewriteRule {
+    const arrow: i32 = find_arrow(text);
+    if arrow < 0 {
+        return RewriteRule {
+            from: try copy_trimmed(arena, text, 0, text.len),
+            to: try empty_rewrite_slice(arena),
+        };
+    }
+    const arrow_pos: usize = arrow as usize;
+    return RewriteRule {
+        from: try copy_trimmed(arena, text, 0, arrow_pos),
+        to: try copy_trimmed(arena, text, arrow_pos + 2, text.len),
+    };
+}
+
+fn is_boundary_byte(c: byte) bool {
+    return !is_ident_part(c);
+}
+
+fn match_at(source: &[byte], pos: usize, needle: &[byte]) bool {
+    if needle.len == 0 || pos + needle.len > source.len {
+        return false;
+    }
+    var i: usize = 0;
+    while i < needle.len {
+        if source.ptr[pos + i] != needle.ptr[i] {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+fn match_rule_at(source: &[byte], pos: usize, needle: &[byte]) bool {
+    if !match_at(source, pos, needle) {
+        return false;
+    }
+    if pos > 0 && !is_boundary_byte(source.ptr[pos - 1]) {
+        return false;
+    }
+    const end: usize = pos + needle.len;
+    if end < source.len && !is_boundary_byte(source.ptr[end]) {
+        return false;
+    }
+    return true;
+}
+
+fn count_rewrite_matches(source: &[byte], needle: &[byte]) usize {
+    if needle.len == 0 {
+        return 0;
+    }
+    var count: usize = 0;
+    var i: usize = 0;
+    while i < source.len {
+        if match_rule_at(source, i, needle) {
+            count = count + 1;
+            i = i + needle.len;
+        } else {
+            i = i + 1;
+        }
+    }
+    return count;
+}
+
+export fn apply_rewrite_text(arena: &Arena, source: &[byte], rule: RewriteRule) !&[byte] {
+    const from: &[byte] = rule.from;
+    const to: &[byte] = rule.to;
+    const match_count: usize = count_rewrite_matches(source, from);
+    if match_count == 0 {
+        return source;
+    }
+
+    var out_len: usize = source.len;
+    if to.len >= from.len {
+        out_len = out_len + (to.len - from.len) * match_count;
+    } else {
+        out_len = out_len - (from.len - to.len) * match_count;
+    }
+    if out_len == 0 {
+        return empty_rewrite_slice(arena);
+    }
+
+    const out: &byte = arena_alloc(arena, out_len);
+    if out == null {
+        return error.AllocOutOfMemory;
+    }
+    var pos: usize = 0;
+    var i: usize = 0;
+    while i < source.len {
+        if match_rule_at(source, i, from) {
+            var j: usize = 0;
+            while j < to.len {
+                out[pos] = to.ptr[j];
+                pos = pos + 1;
+                j = j + 1;
+            }
+            i = i + from.len;
+        } else {
+            out[pos] = source.ptr[i];
+            pos = pos + 1;
+            i = i + 1;
+        }
+    }
+    return out[0:pos];
+}

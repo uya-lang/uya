@@ -38,6 +38,33 @@ fn checker_semantic_cache_has_layout(checker: &TypeChecker) i32 {
     if checker.semantic_db.name_ranges.item_size != @size_of(SemanticNameRange) {
         return 0;
     }
+    if checker.semantic_db.decl_ranges.item_size != @size_of(SemanticDeclRange) {
+        return 0;
+    }
+    if checker.semantic_db.decl_range_ids.item_size != @size_of(i32) {
+        return 0;
+    }
+    if checker.semantic_db.function_ranges.item_size != @size_of(SemanticFunctionOverloadRange) {
+        return 0;
+    }
+    if checker.semantic_db.function_range_decl_ids.item_size != @size_of(i32) {
+        return 0;
+    }
+    if checker.semantic_db.type_ranges.item_size != @size_of(SemanticTypeDeclRange) {
+        return 0;
+    }
+    if checker.semantic_db.type_range_decl_ids.item_size != @size_of(i32) {
+        return 0;
+    }
+    if checker.semantic_db.enum_variant_records.item_size != @size_of(SemanticEnumVariantRecord) {
+        return 0;
+    }
+    if checker.semantic_db.enum_variant_ranges.item_size != @size_of(SemanticEnumVariantRange) {
+        return 0;
+    }
+    if checker.semantic_db.enum_variant_range_record_ids.item_size != @size_of(i32) {
+        return 0;
+    }
     if checker.semantic_db.import_bindings.item_size != @size_of(SemanticImportBinding) {
         return 0;
     }
@@ -45,6 +72,18 @@ fn checker_semantic_cache_has_layout(checker: &TypeChecker) i32 {
         return 0;
     }
     if checker.semantic_db.name_range_index.capacity < checker.semantic_db.name_range_index.count {
+        return 0;
+    }
+    if checker.semantic_db.decls_by_name.capacity < checker.semantic_db.decls_by_name.count {
+        return 0;
+    }
+    if checker.semantic_db.functions_by_name.capacity < checker.semantic_db.functions_by_name.count {
+        return 0;
+    }
+    if checker.semantic_db.types_by_name.capacity < checker.semantic_db.types_by_name.count {
+        return 0;
+    }
+    if checker.semantic_db.enum_variants_by_name.capacity < checker.semantic_db.enum_variants_by_name.count {
         return 0;
     }
     return 1;

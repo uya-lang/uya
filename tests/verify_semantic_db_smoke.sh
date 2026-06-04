@@ -54,12 +54,18 @@ enum ASTNodeType {
     AST_BLOCK,
 }
 
+struct EnumVariant {
+    name: &byte,
+    value: &byte,
+}
+
 struct ASTNode {
     type: ASTNodeType,
     filename: &byte,
     program_decls: & & ASTNode,
     program_decl_count: i32,
     enum_decl_name: &byte,
+    enum_decl_variants: &EnumVariant,
     enum_decl_variant_count: i32,
     error_decl_name: &byte,
     interface_decl_name: &byte,
@@ -92,6 +98,7 @@ fn semantic_test_node(kind: ASTNodeType, filename: &byte, name: &byte) ASTNode {
         program_decls: null,
         program_decl_count: 0,
         enum_decl_name: null,
+        enum_decl_variants: null,
         enum_decl_variant_count: 0,
         error_decl_name: null,
         interface_decl_name: null,
@@ -208,6 +215,10 @@ fn semantic_test_db() SemanticDb {
         type_ranges: semantic_test_vector(),
         type_range_decl_ids: semantic_test_vector(),
         types_by_name: semantic_test_hash(),
+        enum_variant_records: semantic_test_vector(),
+        enum_variant_ranges: semantic_test_vector(),
+        enum_variant_range_record_ids: semantic_test_vector(),
+        enum_variants_by_name: semantic_test_hash(),
         import_bindings: semantic_test_vector(),
         export_bindings: semantic_test_vector(),
     };

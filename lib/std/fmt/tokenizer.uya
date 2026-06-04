@@ -55,6 +55,10 @@ fn is_alnum(c: byte) bool {
     return is_alpha(c) || is_digit(c);
 }
 
+fn is_ident_continue(c: byte) bool {
+    return is_alnum(c) || c == '.' as byte;
+}
+
 fn skip_whitespace(s: &TokenizerState) void {
     while s.pos < s.len {
         const c: byte = s.ptr[s.pos];
@@ -133,7 +137,7 @@ export fn tokenize_ptr_len(arena: &Arena, ptr: &byte, len: usize) !&[Token] {
         if is_alpha(c) {
             s.pos = s.pos + 1;
             s.column = s.column + 1;
-            while s.pos < s.len && is_alnum(s.ptr[s.pos]) {
+            while s.pos < s.len && is_ident_continue(s.ptr[s.pos]) {
                 s.pos = s.pos + 1;
                 s.column = s.column + 1;
             }

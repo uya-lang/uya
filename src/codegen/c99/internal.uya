@@ -15,8 +15,6 @@ use libc.atoi;
 
 // ===== 常量定义 =====
 
-// 字符串常量表大小
-const C99_MAX_STRING_CONSTANTS: i32 = 4096;
 const C99_MAX_EMBEDDED_CONSTANTS: i32 = 4096;
 const C99_MAX_EMBED_DIR_TABLES: i32 = 512;
 
@@ -148,7 +146,7 @@ struct C99CodeGenerator {
     module_name: &byte,  // 模块名称
     
     // 字符串常量表
-    string_constants: [StringConstant: C99_MAX_STRING_CONSTANTS],
+    string_constants: SemanticVector,
     string_constant_count: i32,
     string_constants_emitted_count: i32,  // 第二步已输出的数量；宏展开等可能后续 add，末尾补输出
     embedded_constants: [EmbeddedBinaryConstant: C99_MAX_EMBEDDED_CONSTANTS],

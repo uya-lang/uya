@@ -56,6 +56,24 @@ export struct SemanticTypeDeclRange {
     type_count: i32,
 }
 
+/// 功能说明：保存一个 enum variant 对应的紧凑记录。
+/// 参数说明：无；`enum_decl_id` 指向所属 enum 声明，`variant_index` 为 enum 内 variant 下标。
+/// 返回值说明：无。
+export struct SemanticEnumVariantRecord {
+    name_id: i32,
+    enum_decl_id: i32,
+    variant_index: i32,
+}
+
+/// 功能说明：保存一个名字在 enum variant 记录 ID 数组中的连续 range。
+/// 参数说明：无；`variant_start` 和 `variant_count` 指向 `enum_variant_range_record_ids`。
+/// 返回值说明：无。
+export struct SemanticEnumVariantRange {
+    name_id: i32,
+    variant_start: i32,
+    variant_count: i32,
+}
+
 /// 功能说明：保存 FileId 对应的源文件记录。
 /// 参数说明：无；`filename` 指向 AST 中稳定存在的文件名字符串。
 /// 返回值说明：无。
@@ -122,6 +140,10 @@ export struct SemanticDb {
     type_ranges: SemanticVector,
     type_range_decl_ids: SemanticVector,
     types_by_name: SemanticHash,
+    enum_variant_records: SemanticVector,
+    enum_variant_ranges: SemanticVector,
+    enum_variant_range_record_ids: SemanticVector,
+    enum_variants_by_name: SemanticHash,
     import_bindings: SemanticVector,
     export_bindings: SemanticVector,
 }
@@ -175,6 +197,10 @@ export fn semantic_db_init(db: &SemanticDb) void {
     semantic_vector_init(&db.type_ranges, @size_of(SemanticTypeDeclRange));
     semantic_vector_init(&db.type_range_decl_ids, @size_of(i32));
     semantic_hash_init(&db.types_by_name);
+    semantic_vector_init(&db.enum_variant_records, @size_of(SemanticEnumVariantRecord));
+    semantic_vector_init(&db.enum_variant_ranges, @size_of(SemanticEnumVariantRange));
+    semantic_vector_init(&db.enum_variant_range_record_ids, @size_of(i32));
+    semantic_hash_init(&db.enum_variants_by_name);
     semantic_vector_init(&db.import_bindings, @size_of(SemanticImportBinding));
     semantic_vector_init(&db.export_bindings, @size_of(SemanticExportBinding));
 }
@@ -203,6 +229,10 @@ export fn semantic_db_reset(db: &SemanticDb) void {
     semantic_vector_reset(&db.type_ranges);
     semantic_vector_reset(&db.type_range_decl_ids);
     semantic_hash_reset(&db.types_by_name);
+    semantic_vector_reset(&db.enum_variant_records);
+    semantic_vector_reset(&db.enum_variant_ranges);
+    semantic_vector_reset(&db.enum_variant_range_record_ids);
+    semantic_hash_reset(&db.enum_variants_by_name);
     semantic_vector_reset(&db.import_bindings);
     semantic_vector_reset(&db.export_bindings);
 }
@@ -230,6 +260,10 @@ export fn semantic_db_release(db: &SemanticDb) void {
     semantic_vector_release(&db.type_ranges);
     semantic_vector_release(&db.type_range_decl_ids);
     semantic_hash_release(&db.types_by_name);
+    semantic_vector_release(&db.enum_variant_records);
+    semantic_vector_release(&db.enum_variant_ranges);
+    semantic_vector_release(&db.enum_variant_range_record_ids);
+    semantic_hash_release(&db.enum_variants_by_name);
     semantic_vector_release(&db.import_bindings);
     semantic_vector_release(&db.export_bindings);
     semantic_db_clear_counts(db);
@@ -260,6 +294,10 @@ export fn semantic_db_storage_bytes(db: &SemanticDb) usize {
         db.type_ranges.bytes +
         db.type_range_decl_ids.bytes +
         db.types_by_name.bytes +
+        db.enum_variant_records.bytes +
+        db.enum_variant_ranges.bytes +
+        db.enum_variant_range_record_ids.bytes +
+        db.enum_variants_by_name.bytes +
         db.import_bindings.bytes +
         db.export_bindings.bytes;
 }
@@ -682,6 +720,130 @@ export fn semantic_db_type_range_decl_id(db: &SemanticDb, range: &SemanticTypeDe
     return decl_id[0];
 }
 
+/// 功能说明：追加 enum variant 紧凑记录。
+/// 参数说明：`db` 为目标库，`name_id` 为 variant 名字 ID，`enum_decl_id` 为所属 enum DeclId，`variant_index` 为 enum 内下标。
+/// 返回值说明：成功返回新 enum variant record 下标；失败返回 `-1`。
+export fn semantic_db_append_enum_variant_record(
+    db: &SemanticDb,
+    name_id: i32,
+    enum_decl_id: i32,
+    variant_index: i32,
+) i32 {
+    if db == null || name_id < 0 || enum_decl_id < 0 || variant_index < 0 {
+        return -1;
+    }
+    const record_id: i32 = semantic_db_usize_to_i32(db.enum_variant_records.count);
+    if record_id < 0 {
+        return -1;
+    }
+    var record: SemanticEnumVariantRecord = SemanticEnumVariantRecord{
+        name_id: name_id,
+        enum_decl_id: enum_decl_id,
+        variant_index: variant_index,
+    };
+    if semantic_vector_append(&db.enum_variant_records, &record as &const void) != 0 {
+        return -1;
+    }
+    return record_id;
+}
+
+/// 功能说明：按 record 下标复制 enum variant 紧凑记录。
+/// 参数说明：`db` 为目标库，`record_id` 为 enum variant record 下标，`out_record` 接收记录副本。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn semantic_db_enum_variant_record_get(
+    db: &SemanticDb,
+    record_id: i32,
+    out_record: &SemanticEnumVariantRecord,
+) i32 {
+    if db == null || out_record == null || record_id < 0 {
+        return 0;
+    }
+    const record_ptr: &byte = semantic_vector_item_ptr(&db.enum_variant_records, record_id as usize);
+    if record_ptr == null {
+        return 0;
+    }
+    const record: &SemanticEnumVariantRecord = record_ptr as &SemanticEnumVariantRecord;
+    out_record[0] = record[0];
+    return 1;
+}
+
+/// 功能说明：追加一个名字到 enum variant record ID 数组的 range。
+/// 参数说明：`db` 为目标库，`name_id` 为名字 ID，`variant_start/count` 为连续 enum variant record ID 段。
+/// 返回值说明：成功返回新 range 下标；失败返回 `-1`。
+export fn semantic_db_append_enum_variant_range(
+    db: &SemanticDb,
+    name_id: i32,
+    variant_start: i32,
+    variant_count: i32,
+) i32 {
+    if db == null || name_id < 0 || variant_start < 0 || variant_count < 0 {
+        return -1;
+    }
+    const range_id: i32 = semantic_db_usize_to_i32(db.enum_variant_ranges.count);
+    if range_id < 0 {
+        return -1;
+    }
+    var record: SemanticEnumVariantRange = SemanticEnumVariantRange{
+        name_id: name_id,
+        variant_start: variant_start,
+        variant_count: variant_count,
+    };
+    if semantic_vector_append(&db.enum_variant_ranges, &record as &const void) != 0 {
+        return -1;
+    }
+    if semantic_hash_insert(&db.enum_variants_by_name, name_id as i64, range_id) != 0 {
+        return -1;
+    }
+    return range_id;
+}
+
+/// 功能说明：按名字 ID 查询 enum variant range。
+/// 参数说明：`db` 为目标库，`name_id` 为名字 ID，`out_range` 接收 range 副本。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn semantic_db_find_enum_variant_range(
+    db: &SemanticDb,
+    name_id: i32,
+    out_range: &SemanticEnumVariantRange,
+) i32 {
+    if db == null || out_range == null || name_id < 0 {
+        return 0;
+    }
+    var range_id: i32 = -1;
+    if semantic_hash_get(&db.enum_variants_by_name, name_id as i64, &range_id) == 0 {
+        return 0;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(&db.enum_variant_ranges, range_id as usize);
+    if ptr == null {
+        return 0;
+    }
+    const range: &SemanticEnumVariantRange = ptr as &SemanticEnumVariantRange;
+    out_range[0] = range[0];
+    return 1;
+}
+
+/// 功能说明：读取 EnumVariantRange 中指定 offset 对应的 enum variant record 下标。
+/// 参数说明：`db` 为目标库，`range` 为 enum variant range，`offset` 为 range 内偏移。
+/// 返回值说明：命中返回 enum variant record 下标；参数无效或越界返回 `-1`。
+export fn semantic_db_enum_variant_range_record_id(
+    db: &SemanticDb,
+    range: &SemanticEnumVariantRange,
+    offset: i32,
+) i32 {
+    if db == null || range == null || offset < 0 || offset >= range.variant_count {
+        return -1;
+    }
+    const index: i32 = range.variant_start + offset;
+    if index < 0 {
+        return -1;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(&db.enum_variant_range_record_ids, index as usize);
+    if ptr == null {
+        return -1;
+    }
+    const record_id: &i32 = ptr as &i32;
+    return record_id[0];
+}
+
 /// 功能说明：读取 SemanticDb 声明记录数量。
 /// 参数说明：`db` 为目标 SemanticDb。
 /// 返回值说明：返回声明记录数量；参数无效时返回 `0`。
@@ -878,6 +1040,34 @@ export fn semantic_db_type_decl_range_count(db: &SemanticDb) i32 {
         return 0;
     }
     const count: i32 = semantic_db_usize_to_i32(db.type_ranges.count);
+    if count < 0 {
+        return 0;
+    }
+    return count;
+}
+
+/// 功能说明：读取 SemanticDb enum variant 记录数量。
+/// 参数说明：`db` 为目标 SemanticDb。
+/// 返回值说明：返回 enum variant record 数量；参数无效时返回 `0`。
+export fn semantic_db_enum_variant_record_count(db: &SemanticDb) i32 {
+    if db == null {
+        return 0;
+    }
+    const count: i32 = semantic_db_usize_to_i32(db.enum_variant_records.count);
+    if count < 0 {
+        return 0;
+    }
+    return count;
+}
+
+/// 功能说明：读取 SemanticDb enum variant range 数量。
+/// 参数说明：`db` 为目标 SemanticDb。
+/// 返回值说明：返回 enum variant range 数量；参数无效时返回 `0`。
+export fn semantic_db_enum_variant_range_count(db: &SemanticDb) i32 {
+    if db == null {
+        return 0;
+    }
+    const count: i32 = semantic_db_usize_to_i32(db.enum_variant_ranges.count);
     if count < 0 {
         return 0;
     }
