@@ -1,0 +1,623 @@
+# Uya 编译器 1 秒编译目标评估
+
+**日期**: 2026-06-04
+**目标**: 评估将 `uya` 编译器自身编译时间压入 1 秒的可行路径。
+**当前结论**: 以当前 Linux x86_64 本机、`bin/uya` 默认 `-O2` 产物为准，直接生成 C99 的前端路径仍约 20 秒；`make uya` 真实落地约 30 秒。进入 1 秒不能靠单点微优化，需要同时做 codegen 查找索引化、编译器入口裁剪、增量 C 落地和常驻/增量前端。
+
+## 当前实测
+
+工作树干净，测试口径如下：
+
+- 直接编译器口径：`UYA_ROOT="$PWD/lib/" UYA_PROFILE_CODEGEN=1 ./bin/uya src/main.uya -o /tmp/uya-direct-profile.c --c99 --nostdlib --safety-proof`
+- Makefile 口径：`make uya`
+- 源文件规模：自动依赖共 86 个文件，AST 合并后约 3828 个声明。
+
+| 口径 | wall | parse | check | opt | codegen | total |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 直接生成 C99 | 20.45s | 674ms | 4683ms | 390ms | 14002ms | 19751ms |
+| `--no-safety-proof` | 19.06s | 794ms | 4233ms | 360ms | 12883ms | 18272ms |
+| `--opt=0` | 19.25s | 804ms | 4531ms | n/a | 13088ms | 18433ms |
+| `make uya` | 29.98s | 未展开 | 未展开 | 未展开 | 未展开 | 真实落地 |
+
+`UYA_PROFILE_CODEGEN=1` 子计时：
+
+| codegen 子段 | 时间 |
+| --- | ---: |
+| precollect | 1679ms |
+| header | 0ms |
+| step1_typedef | 2ms |
+| step6_mid | 418ms |
+| step6e_tail | 233ms |
+| prelude | 2334ms |
+| body | 11666ms |
+| total | 14000ms |
+
+`body_ms` 占 codegen 约 83%，是第一主战场。
+
+## perf 热点
+
+`perf record -F 99 -g -- ./bin/uya src/main.uya -o /tmp/uya-perf.c --c99 --nostdlib --safety-proof` 的 self time 前列：
+
+| 函数 | self |
+| --- | ---: |
+| `find_type_alias_from_program` | 11.04% |
+| `c99_find_enum_decl_in_context` | 9.84% |
+| `std_string_strcmp` | 7.37% |
+| `str_equals` | 7.33% |
+| `c99_find_identifier_type_node` | 6.58% |
+| `find_interface_decl_c99` | 5.37% |
+| `is_enum_variant_name_in_program` | 4.31% |
+| `find_union_decl_c99` | 3.63% |
+| `find_enum_decl_c99` | 3.44% |
+| `find_function_decl_c99` / unqualified call lookup | 4.67% 合计 |
+
+判断：当前 codegen body 的主要成本是“反复在全程序声明数组和局部/全局变量表里线性查找，再做大量字符串比较”。已有 4096 槽直接映射缓存能缓解简单命中，但冲突、同名/同族优先级、上下文敏感查找仍频繁回退全表扫描。
+
+## 1 秒预算
+
+若目标是“直接生成 C99”，1 秒预算建议：
+
+| 阶段 | 当前 | 目标 |
+| --- | ---: | ---: |
+| parse | 0.7s | 0.10s |
+| check | 4.6s | 0.25s |
+| opt | 0.4s | 0.03s |
+| codegen | 14.0s | 0.45s |
+| overhead | 0.7s | 0.17s |
+
+若目标是“`make uya` 产出可运行 `bin/uya`”，还要给 C 编译/链接留预算。传统 `cc` 全量编译 9MB C 文件或清空 split cache 后重编，无法进入 1 秒；必须是热增量缓存或常驻构建。
+
+## 优化路线
+
+### P0: 基准可信化
+
+- `bench-compile-stats` 不应覆盖 `bin/uya`，也不应绕开 Makefile 默认 `-O2` 退回 `compile.sh` 的 `-O0 -g` 默认值。
+- profile 口径固定三条：直接 C99、split-C no-link、`make uya`。
+- 每次优化记录 `UYA_PROFILE_CODEGEN` 和 `perf top` 前 20。
+
+### P1: C99 声明索引
+
+目标：把 `find_*_from_program` 和 `find_*_c99` 从高频 O(N) 变成 O(1)/短链。
+
+- 建立多值声明索引，而不是单槽缓存：`name_hash -> list/range`，支持同名 extern/body、libc/std family、context filename。
+- `find_function_decl_c99` 当前即使缓存命中仍全表扫描以选择 body/family；应在索引构建时预分类 `best_body`, `best_stub`, `family_body`, `family_stub`。
+- 将 `find_type_alias_from_program`、`is_enum_variant_name_in_program` 迁到 checker/codegen 共享索引，避免 codegen 继续调用 checker 的全表扫描版本。
+- `c99_find_enum_decl_in_context` 按 `(enum_name, context_module/file)` 建二级缓存，避免枚举/别名解析反复穿透。
+
+预期收益：codegen 14.0s -> 5-7s。
+
+### P2: 标识符/类型上下文缓存
+
+- `c99_find_identifier_type_node` 与 `lookup_identifier_type_c_impl` 仍在局部变量、全局变量、async locals 间反复倒扫；按函数进入时构建局部名称表，按 block depth 做栈式增量。
+- `str_equals`/`strcmp` 占比高，说明缓存 key 仍以字符串比较为主。对 AST 声明名、模块名、类型名引入 intern id，热点路径比较整数。
+- 泛型/async 禁用缓存是正确性保护，但可用 “template decl ptr + mono args signature id + local generation” 作为安全 key，恢复缓存命中。
+
+预期收益：codegen 5-7s -> 3-4s，checker 小幅下降。
+
+### P3: 入口瘦身
+
+当前编译 `src/main.uya` 会拉入 exec、microapp、kernel image、upm lib、完整 C99 后端等 86 个文件。1 秒目标必须缩小默认 `bin/uya`：
+
+- dispatcher `bin/uya` 只保留命令分发、版本、帮助、兼容提示。
+- `bin/cmd/build` 才是真编译器；`check/run/test/fmt/upm` 独立二进制。
+- `src/main.uya` 的隐式编译入口仅过渡保留，最终移除。
+
+这与 `docs/cmd_subcommand_split_design.md` 的方向一致，但需要按当前源码重估：现在 `src/main.uya` 已瘦到约 3747 行，真正的大头转移到 `src/codegen/c99/*.uya`、exec 和 microapp。
+
+预期收益：默认 `bin/uya` 编译可接近 1 秒；`cmd/build` 全量仍需要后续 P1/P2/P4。
+
+### P4: 热增量和常驻编译
+
+全量 1 秒不现实，热路径 1 秒可行：
+
+- AST/checker/type/codegen prelude 缓存按文件 mtime + content hash 失效。
+- split C 不再默认清空 `.uyacache`；改为只重写发生变化的 module C 和公共头，Makefile 依赖复用 `.o`。
+- 常驻 compiler daemon 保留 intern 表、模块 AST、声明索引和类型缓存；CLI 只做轻量 RPC。
+
+预期收益：改动单文件的 `cmd/build` 热编译进入 0.5-1.0s；全量冷编译仍可能 5s+。
+
+## 架构判断
+
+- “当前全量 `make uya` 进入 1 秒”不可由局部修补达成；需要改构建模型。
+- “热编译编译器自身进入 1 秒”可达，但依赖增量缓存与 split C 对象复用。
+- “默认 `uya --help`/dispatcher 自举进入 1 秒”可通过入口瘦身优先达成。
+- 首个工程目标应定为：`UYA_PROFILE_CODEGEN` 下 `body_ms < 4000ms`，再推进 `body_ms < 1000ms`。
+
+## 更深层架构诊断
+
+上面的 P1/P2 仍偏“热点修复”。真正的结构性问题更大：当前编译器没有稳定的“语义层边界”。C99 后端不是单纯把已解析、已类型化、已实例化的 IR 打印成 C，而是在打印 C 的过程中继续做名称解析、类型推断、泛型实例发现、错误联合注册、async frame 补登记、头文件需求收集和 split-C 产物规划。
+
+### 1. `bin/uya` 入口职责仍然过宽
+
+`src/main.uya` 已经从旧设计中的 8k 行降到约 3747 行，但入口仍直接 `use` 编译器核心、C99、exec、microapp、kernel image/payload、upm lib 和 fmt。也就是说，即使用户只是需要 `build/check` 主路径，自举编译器也会把大量非必需子系统带入同一个程序。
+
+这不是“文件大”问题，而是产品边界问题：
+
+- `uya` 应是稳定 launcher/dispatcher。
+- `uya build` 应是编译器。
+- `uya pack-image` / microapp 应是独立工具。
+- exec backend 应是开发/运行后端，不应强制进入默认 C99 自举二进制。
+- upm、fmt 应是独立命令，不能被编译器入口静态拉入。
+
+当前架构下，入口瘦身不能只移动代码文件；必须改变二进制构成边界。
+
+### 2. Program AST 被当成全局数据库使用
+
+当前核心数据形态是一个扁平 `AST_PROGRAM.program_decls` 数组。checker、optimizer、codegen 都反复在这个数组上扫描：
+
+- `find_type_alias_from_program`
+- `find_struct_decl_from_program`
+- `find_union_decl_from_program`
+- `find_interface_decl_from_program`
+- `find_enum_decl_c99`
+- `find_function_decl_c99`
+- `c99_find_enum_decl_in_context`
+- `is_enum_variant_name_in_program`
+
+`perf` 的前几名基本都是这些查询。这里的问题不是“缓存槽太小”，而是缺一个真正的 semantic database：
+
+- `ModuleId`
+- `SymbolId`
+- `TypeId`
+- `DeclId`
+- `ScopeId`
+- `FileId`
+- `InternedNameId`
+
+没有这些 ID，后端只能拿 `&byte` 名字和 filename 继续推理；于是每次推理都要重新扫 AST、重新比较字符串、重新判断 lib/std family、重新处理同名 extern/body。
+
+### 3. Checker 和 Codegen 互相穿透
+
+C99 后端多处直接调用或模拟 checker 语义：
+
+- `checker_infer_type`
+- `type_from_ast`
+- 临时写 `checker.current_function_decl`
+- 临时写 `checker.current_type_params`
+- 临时进入/退出 checker scope
+- `checker.suppress_codegen_diagnostics`
+
+这意味着 checker 没有输出足够完整的 typed/bound representation。codegen 为了知道表达式类型、方法接收者、泛型替换、err_union payload，只能重新“问 checker”，甚至在 codegen 中搭临时 checker 上下文。
+
+结构上应改成：
+
+```text
+Parse AST
+  -> Resolve/Binder: 给每个标识符、成员、调用、类型名绑定 SymbolId/DeclId/TypeId
+  -> TypeCheck: 产出 TypedProgram + ExprType table + CallTarget table + MethodDispatch table
+  -> Lower: 展开 async/generic/error-union/drop/defer/test/macro
+  -> Backend IR: C99/Wasm/exec 共用的已降级 IR
+  -> Emit C99
+```
+
+codegen 不应再调用 `checker_infer_type`。如果后端还需要推断类型，说明前一阶段没有把合同交清楚。
+
+### 4. C99 后端同时做 lowering、planning 和 emission
+
+`c99_codegen_generate` 是一个综合调度器，职责包含：
+
+- 预收集 hosted header 需求、字符串常量、embed、slice 类型。
+- 构建声明缓存。
+- 预注册结构体、枚举、接口、union、err_union。
+- 处理 generic mono instance 和 mono method。
+- 对 async frame 发 forward/descriptor。
+- 生成前向声明。
+- 生成 vtable、测试函数、全局变量、普通函数、main bridge。
+- 最后写 split-C manifest 和 Makefile。
+
+这导致几种问题：
+
+- 生成顺序变成语义正确性的一部分。
+- 后期发现的新类型要通过 `emit_pending_*` 补发。
+- mono instance 可能在生成函数体时继续增加，迫使多轮扫描。
+- split-C mirror 产物组织和语义生成混在一个阶段，难以增量。
+
+应拆成三个对象：
+
+```text
+C99Plan
+  declarations: 已解析符号与发射顺序
+  type_defs: 所有需要的 C 类型定义
+  functions: 已实例化函数体列表
+  globals: 全局与常量
+  runtime_helpers: 按需 runtime helper 列表
+
+C99LoweredUnit
+  module/file scoped C fragments
+  stable dependency fingerprints
+
+C99Emitter
+  只负责把 Plan/Unit 写成 bytes
+```
+
+当前 `body_ms` 大，根因就是 body 阶段边生成边问全局 AST，而不是消费一个预先完成的 plan。
+
+### 5. 泛型、async、err_union 是“边生成边发现”
+
+当前 C99 路径里，泛型实例、async frame 类型、err_union 结构体经常在以下阶段被补发现：
+
+- `collect_err_union_from_ast`
+- `collect_err_union_from_function_body`
+- mono function/method prototype pass
+- mono function/method body pass
+- `emit_pending_err_union_structs`
+- `emit_pending_string_constants`
+- `emit_async_frame_descriptors`
+
+这说明 lowering 没有收敛点。一个健康结构应该先构建完整闭包：
+
+```text
+worklist = entry roots
+while worklist not empty:
+  resolve call target
+  instantiate generic if needed
+  lower async body if needed
+  register all concrete frame/err_union/drop/helper types
+  add newly referenced concrete functions/types
+```
+
+闭包稳定后再开始输出。这样 codegen 不需要多轮“边写边补”。
+
+### 6. 类型现在有两套身份：AST/Type 与 C 字符串
+
+热点路径里有大量 `strstr(type_c, "err_union_")`、`strncmp(type_c, "struct ")`、从 C 类型字符串回推 struct 名、从 `safe_name` 判断 async frame 的逻辑。这是后端把“C 文本”反向当语义信息用。
+
+这会造成：
+
+- 缓存 key 很难正确。
+- 泛型上下文下不得不禁用缓存。
+- 指针/数组/接口/err_union 的判断散落在字符串处理里。
+- 性能受字符串长度和字符串比较支配。
+
+应以 `TypeId` / `ConcreteTypeId` / `CTypeId` 表达身份，C 字符串只在最后 emission 生成一次。
+
+### 7. split-C 现在是输出格式，不是构建模型
+
+当前 split-C 能把 C 文件拆开，但 `make uya` 仍默认清理 `.uyacache`，然后全量生成、全量编译。即使不清理，公共头和 mirror manifest 的稳定性也会决定对象缓存是否可复用。
+
+要进入 1 秒，split-C 必须变成真实构建模型：
+
+- 每个 `ModuleId` 或 `C99LoweredUnit` 对应稳定 `.c`。
+- 公共头按内容 hash 写入，未变不更新时间戳。
+- 每个 unit 记录 semantic fingerprint，不变不重写。
+- Makefile/ninja depfile 稳定输出，不随扫描顺序抖动。
+- `cmd/build` 热路径只重编受影响 unit。
+
+当前 split-C 更像“把大 C 文件镜像拆成多个文件”，不是增量编译系统。
+
+## 目标架构
+
+建议把“1 秒编译”拆成两个产品目标：
+
+### 目标 A：`uya` launcher 自举 1 秒
+
+这是短期可达目标。`bin/uya` 只保留：
+
+- help/version
+- 子命令发现
+- execve 原样转发
+- 隐式入口兼容提示
+
+它不静态链接 C99 backend、exec backend、microapp、upm、kernel image。真正编译器进入 `bin/cmd/build`。
+
+### 目标 B：`cmd/build` 热编译 1 秒
+
+这是中期目标。需要 compiler database + lowered IR + split-C 增量。
+
+冷编译全量 `cmd/build` 仍可能是 5-10 秒；热编译单模块进入 1 秒。
+
+### 目标 C：`cmd/build` 冷编译接近 1 秒
+
+这是长期目标。除上述架构外，还需要：
+
+- 常驻 compiler daemon。
+- 前端 AST/type/index 缓存。
+- C99 emission 写缓冲或二进制 IR 后端。
+- 或者让自举主线从 C99 全量文本后端迁移到更快的 native/bytecode/VM 后端。
+
+## 重构路线调整
+
+原 P1/P2 可以继续做，但不应把它们误认为最终架构。建议路线改为：
+
+### Phase 0: 先保基准
+
+- 保持 `bench-compile-stats` 不污染 `bin/uya`。
+- 新增 profile fixture：直接 C99、split-C、`make uya` 三口径。
+- 所有性能 PR 都要给 `UYA_PROFILE_CODEGEN` 和 `perf top` 前后对比。
+
+2026-06-04 评审修复后，`bench-compile-stats` 口径收紧为：
+
+- 默认先执行 `make uya`，确保使用当前源码和 Makefile 默认 `-O2` 构建出的 `bin/uya`；只有显式传 `--no-rebuild` 或 `UYA_BENCH_SKIP_REBUILD=1` 时才复用已有二进制。
+- benchmark 输出写入 `UYA_BENCH_TMPDIR` 下的临时目录，最终二进制使用 `bin/uya-bench-compile-stats` 临时名，脚本结束后必须清理临时目录和临时二进制。
+- `make bench-compile-stats-check` 覆盖 `--runs 0`、未知参数、单次真实 TSV 输出和临时产物清理，作为该 benchmark 工具的 smoke/boundary/performance 门禁。
+- 同机复核 `make bench-compile-stats ARGS='--runs 1'`：`files=86 parse=643ms check=4555ms opt=370ms codegen=14110ms total=19680ms`。这与本文 20s 级直接 C99 结论一致，旧文档里的 3-5s 历史记录不能作为当前口径的达标证据。
+
+## 正确性与性能验收矩阵
+
+1 秒目标相关改动必须按风险分层验证，不能只看单个 wall time：
+
+| 类别 | 必跑门禁 | 覆盖内容 |
+| --- | --- | --- |
+| benchmark 工具 | `make bench-compile-stats-check` | 参数边界、真实 `CompileStats` TSV、临时产物清理 |
+| C99 后端 smoke | C99 相关 `tests/verify_*.sh`，尤其 split-C、async frame、imported main、private name collision | 生成顺序、符号、Makefile 依赖和历史 codegen 回归 |
+| 编译器冒烟 | `make tests-uya` 或本次改动相关 `./bin/uya test tests/test_xxx.uya` | 前端/checker/codegen 基础行为 |
+| 性能采样 | `make bench-compile-stats ARGS='--runs 3'` 与 `UYA_PROFILE_CODEGEN=1 ...` | parse/check/opt/codegen 与 codegen 子段 |
+| 性能热点 | `perf record -F 99 -g -- ./bin/uya ...` | `find_*`、字符串比较、identifier/type 查询热点是否真实下降 |
+| 收口验证 | `make check`；准备提交时 `make clean && make backup-all` | 全量正确性、自举一致性和备份种子同步 |
+
+对架构性重构，新增或改动的阶段至少要有三类测试：最小正向 smoke、边界/负向用例、和同机性能对比。性能优化若改变语义阶段边界，还必须补历史 C99 回归，避免“速度达标但生成错误 C”的假阳性。
+
+### Phase 1: 建 SemanticIndex，不改语义
+
+新增 `SemanticIndex` 或先放在 `TypeChecker` 里：
+
+- name interning。
+- module/file table。
+- decl id table。
+- 按 kind 的 name -> decl list。
+- enum variant -> enum decl。
+- type alias -> target。
+- function name -> body/stub/family candidates。
+
+先只让 checker/codegen 查询它，输出保持不变。目标是把 codegen 14s 压到 5s 内。
+
+### Phase 2: TypedProgram，禁止 codegen 重新推断
+
+checker 给每个表达式/调用/成员/类型名填表：
+
+- `expr_type[NodeId]`
+- `call_target[NodeId]`
+- `member_target[NodeId]`
+- `resolved_type[NodeId]`
+- `symbol_ref[NodeId]`
+
+C99 后端用这些表，不再调用 `checker_infer_type`。目标是减少 checker/codegen 互相穿透和重复推断。
+
+### Phase 3: ConcreteProgram lowering
+
+在 codegen 前完成：
+
+- generic monomorphization closure。
+- async lowering/frame metadata。
+- err_union concrete type closure。
+- test runner lowering。
+- defer/drop lowering。
+- runtime helper dependency closure。
+
+C99 后端只消费 concrete list。
+
+### Phase 4: C99Plan + incremental split
+
+生成稳定 `C99Plan`，按 module/unit 输出：
+
+- 不变 unit 不重写。
+- 不变头不更新时间戳。
+- depfile/Makefile 稳定。
+- 支持热编译跳过 host C 编译。
+
+### Phase 5: Command binary split
+
+把 `bin/uya`、`bin/cmd/build`、`bin/cmd/check`、`bin/cmd/run`、`bin/cmd/test`、`bin/cmd/fmt`、`bin/cmd/upm` 的构成边界固化到 Makefile 和 backup seed。
+
+## 新的判断
+
+现在架构的核心问题是：**后端承担了语义数据库、lowering 调度器和文本 emitter 三个角色**。只修缓存会让数字变好，但仍会把正确性绑定在生成顺序上。1 秒目标需要把“查询/决策/降级/输出”拆开，让每个阶段只做一次，并且让结果可缓存。
+
+## 再深入一层：当前不是“慢编译器”，而是“不可增量架构”
+
+如果目标只是把 20s 降到 8s，热点缓存和索引足够。但如果目标是 1s，现有形态更根本的问题是：它几乎没有可以持久化、复用、并行化或局部失效的边界。
+
+### A. AST 是语法树、语义树、IR、数据库的混合体
+
+`ASTNode` 是一个扁平 mega struct：所有节点变体共享一套字段，语法、类型节点、声明、表达式、内建、macro、async、asm、embed、error union 都放在同一结构里。这个设计对早期自举很友好，但到现在有几个代价：
+
+- 没有 `NodeId`，缓存只能用指针和上下文指针做 key。
+- 没有不可变源 AST 与后续 IR 的边界，checker/optimizer/lowering 可以继续改同一棵树。
+- AST 字段承载太多阶段含义，新增语言特性会直接扩大所有阶段的可见面。
+- 后端看到的是“语法形状”，不是“已解析语义”；所以它会继续解析名字、推断类型、判断调用目标。
+
+更正确的分层应是：
+
+```text
+SyntaxNode   只表达源代码形状
+BoundNode    所有名字、模块、成员、调用都已绑定 ID
+TypedNode    所有表达式/类型节点有 TypeId
+LoweredNode  async/defer/drop/macro/test/generic 已降到核心模型
+BackendIR    面向 C99/exec/wasm 的稳定发射输入
+```
+
+只要 AST 继续同时承担这些角色，1 秒编译就会被“每个阶段重新理解同一棵树”拖住。
+
+### B. 全局可变上下文让编译器难以常驻
+
+当前有多类全局或准全局状态：
+
+- `src/main.uya` 的 `g_split_c_dir`、`g_container_mode`、`g_app_mode_microapp`、`g_module_root_override` 等编译参数全局。
+- `main_file_paths_global`、`resolved_files_global`、`all_files_global`、`processed_files_global` 等全局缓冲。
+- checker 里 `current_function_decl`、`current_type_params`、`current_self_type_name` 等当前上下文。
+- C99 codegen 里 `current_function_decl`、`current_type_params`、`struct_type_args`、`expected_type`、`async_state_var`、`local_variable_count` 等当前上下文。
+- 多处 `g_*_cache` 需要显式 reset，历史上已经出现过同进程 EXEC 后 fallback C99 的缓存污染问题。
+
+这说明编译请求不是一个纯 `CompileContext` 对象。它更像“进程级单例编译器”。这会直接阻挡：
+
+- compiler daemon。
+- 多项目/多 target 同进程编译。
+- 并行模块编译。
+- 增量缓存复用。
+- 可测试的阶段级 API。
+
+1 秒热编译需要常驻或至少强缓存；常驻需要 request-local state。当前架构在这点上是反向的。
+
+### C. TypeChecker 和 C99CodeGenerator 都是“上帝对象”
+
+`TypeChecker` 包含 symbol/module/import/string pool、当前函数状态、错误集、mono instances、proof 状态、reachability、async frame metas。`C99CodeGenerator` 又包含输出流、声明缓存、全局/局部变量表、defer/drop 栈、slice/err_union/SIMD 待输出表、mono instances、async 状态机、header 需求、split-C 状态等。
+
+这两个结构并不是窄接口对象，而是把多个阶段的全量状态堆在一起：
+
+```text
+TypeChecker =
+  resolver + type checker + proof engine + mono registry + reachability analyzer + async metadata registry
+
+C99CodeGenerator =
+  semantic query layer + lowering state + C type registry + function planner + output writer + split-C build planner
+```
+
+只要这些对象不拆，性能优化会继续变成“在上帝对象里加缓存字段”。这可以缓解热点，但不会形成可维护的 1 秒架构。
+
+### D. 没有真正的 Compiler Database
+
+现在编译器需要的核心查询分散在很多线性函数里：
+
+- name -> decl
+- name + module/file -> visible decl
+- enum variant -> enum
+- type alias -> canonical target
+- struct/union/interface -> method set
+- expression node -> type
+- call node -> callee
+- concrete generic instance -> lowered body
+- Type -> layout
+- Type -> C ABI representation
+
+这些都应该是一个 compiler database 的 query：
+
+```text
+query module_graph(root_file) -> ModuleGraph
+query parse(file_id) -> SyntaxTree
+query resolve(module_id) -> BoundModule
+query type_of(expr_id) -> TypeId
+query decl_by_name(scope_id, name_id, kind) -> DeclId
+query instantiate_generic(decl_id, type_args) -> ConcreteDeclId
+query lower_function(concrete_fn_id) -> LoweredFunctionId
+query c_abi_type(type_id) -> CTypeId
+query emit_unit(unit_id) -> ByteBuffer
+```
+
+每个 query 有输入 key、输出值、依赖列表和 fingerprint。没有这个层，增量编译只能靠文件 mtime 和临时缓存，很难正确。
+
+### E. C99 是自举产物，但不该是唯一主中间层
+
+当前自举主线是 Uya -> C99 -> host cc -> `bin/uya`。这很稳，但 1 秒目标和 C99 主中间层天然冲突：
+
+- C 文本大，当前单文件约 9MB。
+- C 编译器不是 Uya 可控阶段。
+- C 的头文件/原型/顺序限制反向污染 Uya lowering。
+- split-C 需要维护 C 层依赖稳定性。
+- C 字符串一旦成为内部语义载体，就会拖慢所有类型判断。
+
+更稳的路线不是丢掉 C99，而是把它降级为后端之一：
+
+```text
+Uya source -> Compiler DB -> Core IR -> backend:
+  - C99 backend: portability/bootstrap/release seed
+  - Exec/bytecode backend: fast dev/test/run
+  - Future native/wasm backend: fast production build
+```
+
+短期仍用 C99 做 release seed；日常热编译和测试应尽快走更短路径。
+
+### F. 目前的优化阶段位置不对
+
+现在优化在 checker 后、codegen 前直接遍历 AST。它标记常量折叠、死代码等，但没有改变后续架构问题：
+
+- 它还是 AST pass，不是 typed IR pass。
+- 它不能减少 codegen 的语义查询，因为后端仍要重新理解 AST。
+- 它对泛型/async/err_union 的 concrete closure 没有形成约束。
+
+真正的优化入口应在 `TypedProgram -> LoweredProgram` 之间，优化对象是有 `TypeId/SymbolId/ControlFlow` 的 IR，而不是语法树。
+
+### G. 当前“模块”只是文件收集，不是编译单元
+
+`collect_module_dependencies` 递归找到文件，随后 `ast_merge_programs` 合成一个 program。这个模型简单，但它把模块边界消掉了：
+
+- 作用域/可见性需要通过 filename/module path 反推。
+- 后端 split-C 只能事后根据 source path 镜像输出。
+- 增量失效不能表达“这个模块 public API 未变，依赖者不用重查”。
+- 并行 checker/codegen 很难做。
+
+1 秒热编译需要模块成为真实编译单元：
+
+```text
+ModuleUnit {
+  module_id
+  source_file_id
+  import_ids
+  public_api_fingerprint
+  private_body_fingerprint
+  bound_symbols
+  typed_items
+  lowered_items
+}
+```
+
+这样 private 改动可以只重 lower/codegen 当前模块，public API 改动才传播。
+
+## 架构原则重写
+
+后续重构不要以“把现有文件拆小”为目标，而要按这些原则约束：
+
+1. **后端不得发起语义查询**：C99 backend 只能查询已冻结表，不能调用 checker 推断。
+2. **所有名字先 intern**：热点路径不得比较长字符串；字符串只在 diagnostics/emission 出现。
+3. **所有节点有稳定 ID**：缓存 key 不用裸指针；为 daemon/增量/序列化做准备。
+4. **所有全局状态归入 CompileSession**：一次编译请求可并行、可重复、可在同进程多次运行。
+5. **先闭包，后发射**：generic/async/err_union/runtime helper 必须在 emission 前固定。
+6. **C 类型不是语义信息**：`CTypeId` 到字符串是最后一步，不能从 C 字符串反推 Uya 类型。
+7. **模块是编译单元**：merge program 只可作为兼容视图，不能作为内部唯一表示。
+8. **C99 是后端，不是中间语义层**：release bootstrap 可以依赖 C99，日常速度目标不能被 C99 全量文本绑死。
+
+## 更激进但更正确的路线
+
+如果目标真的是“编译 Uya 进入 1 秒”，推荐不要先全力优化 C99 emitter，而是并行开两条线：
+
+### 线 1：建立 Compiler DB，仍输出 C99
+
+这是保守线，保证现有 release/bootstrap 稳定：
+
+1. `NameId/FileId/ModuleId/DeclId/TypeId`。
+2. `SemanticIndex` 替换 `find_*_from_program`。
+3. `TypedProgram` 表替换 codegen re-infer。
+4. `ConcreteProgram` 闭包替换边生成边发现。
+5. `C99Plan` 替换 `c99_codegen_generate` 巨型调度器。
+6. split-C 按 unit fingerprint 增量写入。
+
+目标：全量从 20s 降到 5s 以内，热编译 1s。
+
+### 线 2：让 exec/bytecode 成为开发期主路径
+
+这是速度线，目标是日常 run/test/check：
+
+1. 用同一 `TypedProgram/ConcreteProgram` 喂给 exec lowering。
+2. 支持不完整特性 fallback，但 fallback 不能污染 checker/codegen 全局状态。
+3. `uya test --exec` 成为默认开发测试路径之一。
+4. C99 只在 release/backup/portable 输出时跑。
+
+目标：小程序和 compiler smoke 的开发反馈明显短于 C99。
+
+### 最终形态
+
+```text
+bin/uya                launcher, <1s self-build
+bin/cmd/build          full compiler, C99/native/bytecode backends
+bin/cmd/check          parse+resolve+type only
+bin/cmd/run            default fast backend, C99 fallback
+bin/cmd/test           default fast backend, C99 fallback
+bin/cmd/fmt            syntax-only tool
+bin/cmd/upm            package manager
+
+compiler-core/
+  session
+  source_db
+  parser
+  resolver
+  typeck
+  lower
+  query_db
+  diagnostics
+
+backends/
+  c99
+  exec
+  wasm/native future
+```
+
+这才是和 1 秒目标一致的架构。当前架构可以继续优化，但它的自然极限更像“几秒级全量 + 1 秒热路径”，不是“全量 `make uya` 永久 1 秒”。

@@ -2,6 +2,8 @@
 
 **更新日期**：2026-03-23（默认 `-O2` 链 `bin/uya`、`get_c_name` 标识符缓存、声明缓存 4096、prelude 分段子计时）
 
+> 2026-06-04 说明：本文保留 2026-03 的历史热路径记录。当前 1 秒目标、可信 benchmark 口径和 20s 级复核数据见 [`compiler_1s_speed_assessment.md`](compiler_1s_speed_assessment.md)。现在 `make bench-compile-stats` 默认会先重建当前 `bin/uya`，并使用临时输出名避免覆盖正式编译器；只有显式 `--no-rebuild` / `UYA_BENCH_SKIP_REBUILD=1` 才复用已有二进制。
+
 ## 复现入口
 
 - `make bench-compile-stats`

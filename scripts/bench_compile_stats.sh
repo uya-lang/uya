@@ -5,6 +5,10 @@ set -euo pipefail
 RUNS=1
 MODE="nostdlib"
 VERBOSE=0
+BENCH_NAME="uya-bench-compile-stats"
+SKIP_REBUILD="${UYA_BENCH_SKIP_REBUILD:-0}"
+BENCH_TMPDIR="${UYA_BENCH_TMPDIR:-/tmp}"
+BUILD_DIRS=()
 
 usage() {
     cat <<'EOF'
@@ -14,12 +18,14 @@ usage() {
   --runs N     运行 N 次并输出逐次结果与平均值（默认: 1）
   --hosted     使用 hosted 链接路径（默认: nostdlib）
   --verbose    打印每次编译的完整输出
+  --no-rebuild 跳过默认的 make uya 重建，仅用于调试已有 bin/uya
   -h, --help   显示帮助
 
 示例:
   bash scripts/bench_compile_stats.sh
   bash scripts/bench_compile_stats.sh --runs 3
   bash scripts/bench_compile_stats.sh --hosted --runs 2
+  bash scripts/bench_compile_stats.sh --no-rebuild --runs 1
 EOF
 }
 
@@ -35,6 +41,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --verbose)
             VERBOSE=1
+            shift
+            ;;
+        --no-rebuild)
+            SKIP_REBUILD=1
             shift
             ;;
         -h|--help)
@@ -58,10 +68,42 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SRC_DIR="$REPO_ROOT/src"
 
+cleanup() {
+    local dir
+    for dir in "${BUILD_DIRS[@]}"; do
+        cleanup_build_dir "$dir"
+    done
+    rm -f "$REPO_ROOT/bin/$BENCH_NAME" "$REPO_ROOT/bin/${BENCH_NAME}.build"
+}
+
+cleanup_build_dir() {
+    local dir="$1"
+    if [[ "$dir" == "$BENCH_TMPDIR"/uya-bench-compile-stats.* ]]; then
+        rm -rf "$dir"
+    fi
+}
+
+cleanup_bin_outputs() {
+    rm -f "$REPO_ROOT/bin/$BENCH_NAME" "$REPO_ROOT/bin/${BENCH_NAME}.build"
+}
+
+trap cleanup EXIT
+
 if [[ ! -x "$REPO_ROOT/bin/uya" ]]; then
     echo "bin/uya 不存在，先执行 make from-c ..." >&2
-    make -C "$REPO_ROOT" from-c >/dev/null
+    make -C "$REPO_ROOT" from-c >&2
 fi
+
+case "$SKIP_REBUILD" in
+    1|true|TRUE|yes|YES)
+        echo "提示: 已跳过 make uya，直接复用现有 bin/uya；性能数据只代表该二进制。" >&2
+        ;;
+    *)
+        echo "重建当前 bin/uya，确保 benchmark 使用 Makefile 默认构建口径 ..." >&2
+        MAKE_CMD="${MAKE:-make}"
+        "$MAKE_CMD" -C "$REPO_ROOT" uya >&2
+        ;;
+esac
 
 extract_stat() {
     local label="$1"
@@ -84,7 +126,11 @@ extract_stat() {
 
 run_once() {
     local run_index="$1"
-    local -a cmd=(./compile.sh --c99 -e -v)
+    local build_dir
+    mkdir -p "$BENCH_TMPDIR"
+    build_dir="$(mktemp -d "$BENCH_TMPDIR/uya-bench-compile-stats.XXXXXX")"
+    BUILD_DIRS+=("$build_dir")
+    local -a cmd=(./compile.sh --c99 -e -v -o "$build_dir" --name "$BENCH_NAME")
     if [[ "$MODE" == "nostdlib" ]]; then
         cmd+=(--nostdlib)
     fi
@@ -92,8 +138,12 @@ run_once() {
     local output
     if ! output="$(cd "$SRC_DIR" && "${cmd[@]}" 2>&1)"; then
         printf '%s\n' "$output" >&2
+        cleanup_build_dir "$build_dir"
+        cleanup_bin_outputs
         return 1
     fi
+    cleanup_build_dir "$build_dir"
+    cleanup_bin_outputs
 
     if [[ "$VERBOSE" -ne 0 ]]; then
         printf '===== run %s raw output =====\n%s\n' "$run_index" "$output" >&2
