@@ -2,7 +2,9 @@
 
 **日期**: 2026-06-04
 **目标**: 评估将 `uya` 编译器自身编译时间压入 1 秒的可行路径。
-**当前结论**: 以当前 Linux x86_64 本机、`bin/uya` 默认 `-O2` 产物为准，直接生成 C99 的前端路径仍约 20 秒；`make uya` 真实落地约 30 秒。进入 1 秒不能靠单点微优化，需要同时做 codegen 查找索引化、编译器入口裁剪、增量 C 落地和常驻/增量前端。
+**当前结论**: 以当前 Linux x86_64 本机、`bin/uya` 默认 `-O2` 产物为准，直接生成 C99 的前端路径仍约 20 秒；`make uya` 真实落地约 30 秒。进入 1 秒不能靠单点微优化，需要同时做 codegen 查找索引化、编译器入口裁剪、增量 C 落地和常驻/增量前端。后续目标还必须纳入内存压降，避免用更大的常驻表、IR 或输出缓冲换取表面 wall time；所有程序规模相关表必须动态增长，不能靠写死容量达标。
+**配套设计**: [`compiler_1s_architecture_design.md`](compiler_1s_architecture_design.md)
+**配套 TODO**: [`todo_compiler_1s.md`](todo_compiler_1s.md)
 
 ## 当前实测
 
@@ -34,6 +36,19 @@
 
 `body_ms` 占 codegen 约 83%，是第一主战场。
 
+## 当前内存缺口
+
+本文当前已有时间基线，但还没有可信的内存基线。下一轮 benchmark 必须补齐：
+
+- `peak_rss_kb`：编译器进程峰值常驻内存。
+- `arena_peak_bytes`：compiler arena 峰值。
+- `semantic_db_bytes` / `typed_program_bytes` / `lowered_bytes`：新增语义和 IR 表占用。
+- `emit_buffer_bytes`：输出缓冲峰值。
+- `output_bytes`：C99 / split-C / native 产物总字节数。
+- `table_count` / `table_capacity` / `table_realloc_count`：主要动态表的实际项数、容量和增长次数。
+
+当前环境只确认 shell 内置 `time` 可用，未确认 GNU `/usr/bin/time -v`。因此 1 秒 benchmark 不应依赖外部 `time -v`，应优先通过 `/proc/<pid>/status` 或 `/proc/<pid>/smaps_rollup` 采样 RSS。没有 RSS 采样的运行只能记录时间，不能计入内存达标。
+
 ## perf 热点
 
 `perf record -F 99 -g -- ./bin/uya src/main.uya -o /tmp/uya-perf.c --c99 --nostdlib --safety-proof` 的 self time 前列：
@@ -52,6 +67,18 @@
 | `find_function_decl_c99` / unqualified call lookup | 4.67% 合计 |
 
 判断：当前 codegen body 的主要成本是“反复在全程序声明数组和局部/全局变量表里线性查找，再做大量字符串比较”。已有 4096 槽直接映射缓存能缓解简单命中，但冲突、同名/同族优先级、上下文敏感查找仍频繁回退全表扫描。
+
+## 动态表要求
+
+当前已有的 4096 槽直接映射缓存只能算临时缓解，不能作为最终索引结构。后续 `SemanticDb`、`TypedProgram`、`LoweredProgram`、C99 planner 和 native backend 中所有随源文件、声明、表达式、函数、类型、泛型实例、字符串常量、reloc/symbol 数增长的表，都必须按需动态扩容。
+
+具体要求：
+
+- 不新增 `C99_MAX_*`、`CHECKER_*_SIZE` 或魔法容量作为程序规模相关表的语义上限。
+- 表必须记录 `count`、`capacity`、`bytes`、`realloc_count`，并进入 benchmark 摘要。
+- 动态增长必须检查整数溢出和 allocation failure，失败时给出明确 diagnostic。
+- hash/intern/scope 表必须按负载因子增长，高冲突场景不能回退到全程序线性扫描。
+- 静态数组仅允许用于语言或 ABI 已证明有界的小缓冲，且必须在实现旁写清楚界限来源。
 
 ## 1 秒预算
 
@@ -73,7 +100,7 @@
 
 - `bench-compile-stats` 不应覆盖 `bin/uya`，也不应绕开 Makefile 默认 `-O2` 退回 `compile.sh` 的 `-O0 -g` 默认值。
 - profile 口径固定三条：直接 C99、split-C no-link、`make uya`。
-- 每次优化记录 `UYA_PROFILE_CODEGEN` 和 `perf top` 前 20。
+- 每次优化记录 `UYA_PROFILE_CODEGEN`、`perf top` 前 20、`peak_rss_kb`、arena 峰值和输出字节数。
 
 ### P1: C99 声明索引
 
@@ -331,6 +358,7 @@ while worklist not empty:
 - benchmark 输出写入 `UYA_BENCH_TMPDIR` 下的临时目录，最终二进制使用 `bin/uya-bench-compile-stats` 临时名，脚本结束后必须清理临时目录和临时二进制。
 - `make bench-compile-stats-check` 覆盖 `--runs 0`、未知参数、单次真实 TSV 输出和临时产物清理，作为该 benchmark 工具的 smoke/boundary/performance 门禁。
 - 同机复核 `make bench-compile-stats ARGS='--runs 1'`：`files=86 parse=643ms check=4555ms opt=370ms codegen=14110ms total=19680ms`。这与本文 20s 级直接 C99 结论一致，旧文档里的 3-5s 历史记录不能作为当前口径的达标证据。
+- 内存口径尚未收紧；下一步应新增 `bench-compiler-1s`，输出 `peak_rss_kb`、`arena_peak_bytes`、`output_bytes`，并记录当前基线。
 
 ## 正确性与性能验收矩阵
 
@@ -343,6 +371,7 @@ while worklist not empty:
 | 编译器冒烟 | `make tests-uya` 或本次改动相关 `./bin/uya test tests/test_xxx.uya` | 前端/checker/codegen 基础行为 |
 | 性能采样 | `make bench-compile-stats ARGS='--runs 3'` 与 `UYA_PROFILE_CODEGEN=1 ...` | parse/check/opt/codegen 与 codegen 子段 |
 | 性能热点 | `perf record -F 99 -g -- ./bin/uya ...` | `find_*`、字符串比较、identifier/type 查询热点是否真实下降 |
+| 内存采样 | `make bench-compiler-1s ARGS='--runs 3'`，并采样 `/proc/<pid>/status` 或 `/proc/<pid>/smaps_rollup` | peak RSS、arena 峰值、输出字节数、是否用内存换时间 |
 | 收口验证 | `make check`；准备提交时 `make clean && make backup-all` | 全量正确性、自举一致性和备份种子同步 |
 
 对架构性重构，新增或改动的阶段至少要有三类测试：最小正向 smoke、边界/负向用例、和同机性能对比。性能优化若改变语义阶段边界，还必须补历史 C99 回归，避免“速度达标但生成错误 C”的假阳性。
