@@ -214,7 +214,7 @@ make tests-uya
 - [x] 建 `types_by_name: InternedNameId -> TypeDeclRange`。
 - [x] 建 `enum_variants_by_name: InternedNameId -> EnumVariantRange`。
 - [x] 建 `exports_by_module_name: (ModuleId, InternedNameId) -> SymbolId`。
-- [ ] 建 `aliases_by_file_name: (FileId, InternedNameId) -> DeclId`。
+- [x] 建 `aliases_by_file_name: (FileId, InternedNameId) -> DeclId`。
 - [ ] 建 `use_items_by_file_name: (FileId, InternedNameId) -> ImportBinding`。
 - [ ] 上述索引全部使用动态 hash/range builder，禁止固定 bucket 数作为容量上限。
 - [ ] range builder 增长后保持 `DeclId` / `SymbolId` 稳定。

@@ -148,6 +148,7 @@ export struct SemanticDb {
     import_bindings: SemanticVector,
     export_bindings: SemanticVector,
     exports_by_module_name: SemanticHash,
+    aliases_by_file_name: SemanticHash,
 }
 
 fn semantic_db_clear_counts(db: &SemanticDb) void {
@@ -184,6 +185,10 @@ fn semantic_db_module_name_key(module_id: i32, name_id: i32) i64 {
     return (module_id as i64) * SEMANTIC_DB_MODULE_NAME_KEY_STRIDE + (name_id as i64);
 }
 
+fn semantic_db_file_name_key(file_id: i32, name_id: i32) i64 {
+    return semantic_db_module_name_key(file_id, name_id);
+}
+
 /// 功能说明：初始化 SemanticDb 顶层状态和紧凑动态数组。
 /// 参数说明：`db` 为待初始化 SemanticDb。
 /// 返回值说明：无。
@@ -215,6 +220,7 @@ export fn semantic_db_init(db: &SemanticDb) void {
     semantic_vector_init(&db.import_bindings, @size_of(SemanticImportBinding));
     semantic_vector_init(&db.export_bindings, @size_of(SemanticExportBinding));
     semantic_hash_init(&db.exports_by_module_name);
+    semantic_hash_init(&db.aliases_by_file_name);
 }
 
 /// 功能说明：重置 SemanticDb 以支持同进程多次编译。
@@ -248,6 +254,7 @@ export fn semantic_db_reset(db: &SemanticDb) void {
     semantic_vector_reset(&db.import_bindings);
     semantic_vector_reset(&db.export_bindings);
     semantic_hash_reset(&db.exports_by_module_name);
+    semantic_hash_reset(&db.aliases_by_file_name);
 }
 
 /// 功能说明：释放 SemanticDb 内部动态数组并清空状态。
@@ -280,6 +287,7 @@ export fn semantic_db_release(db: &SemanticDb) void {
     semantic_vector_release(&db.import_bindings);
     semantic_vector_release(&db.export_bindings);
     semantic_hash_release(&db.exports_by_module_name);
+    semantic_hash_release(&db.aliases_by_file_name);
     semantic_db_clear_counts(db);
 }
 
@@ -314,7 +322,8 @@ export fn semantic_db_storage_bytes(db: &SemanticDb) usize {
         db.enum_variants_by_name.bytes +
         db.import_bindings.bytes +
         db.export_bindings.bytes +
-        db.exports_by_module_name.bytes;
+        db.exports_by_module_name.bytes +
+        db.aliases_by_file_name.bytes;
 }
 
 /// 功能说明：追加 FileId 对应的文件记录。
@@ -444,6 +453,34 @@ export fn semantic_db_find_export_symbol(db: &SemanticDb, module_id: i32, name_i
         return 0;
     }
     return semantic_hash_get(&db.exports_by_module_name, key, out_symbol_id);
+}
+
+/// 功能说明：向文件局部 type alias 索引追加或更新 `(FileId, InternedNameId) -> DeclId` 映射。
+/// 参数说明：`db` 为目标库，`file_id/name_id` 组成复合 key，`decl_id` 为 type alias 声明 ID。
+/// 返回值说明：成功返回 `0`；参数无效、key 溢出或 hash 插入失败返回 `-1`。
+export fn semantic_db_append_file_alias_index(db: &SemanticDb, file_id: i32, name_id: i32, decl_id: i32) i32 {
+    if db == null || file_id < 0 || name_id < 0 || decl_id < 0 {
+        return -1;
+    }
+    const key: i64 = semantic_db_file_name_key(file_id, name_id);
+    if key < 0 {
+        return -1;
+    }
+    return semantic_hash_insert(&db.aliases_by_file_name, key, decl_id);
+}
+
+/// 功能说明：按文件 ID 和 intern 名字 ID 查询 type alias DeclId。
+/// 参数说明：`db` 为目标库，`file_id/name_id` 组成复合 key，`out_decl_id` 接收命中的 DeclId。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn semantic_db_find_file_alias_decl(db: &SemanticDb, file_id: i32, name_id: i32, out_decl_id: &i32) i32 {
+    if db == null || out_decl_id == null || file_id < 0 || name_id < 0 {
+        return 0;
+    }
+    const key: i64 = semantic_db_file_name_key(file_id, name_id);
+    if key < 0 {
+        return 0;
+    }
+    return semantic_hash_get(&db.aliases_by_file_name, key, out_decl_id);
 }
 
 /// 功能说明：追加 DeclId 对应的紧凑声明记录。
