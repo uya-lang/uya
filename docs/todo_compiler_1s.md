@@ -174,7 +174,7 @@ MonoInstanceId
 - [x] 覆盖 `libc` / `std` family 上下文。
 - [x] 覆盖 file-local alias。
 - [x] 覆盖 whole-module import export。
-- [ ] 新增 `tests/verify_dynamic_table_growth.sh`。
+- [x] 新增 `tests/verify_dynamic_table_growth.sh`。
 - [ ] 覆盖超过旧固定容量的声明数、函数数、局部变量数、泛型实例数。
 - [ ] 覆盖 intern/hash 高负载和高冲突增长。
 - [ ] 覆盖 growth failure 模拟，必须得到明确 diagnostic。
@@ -187,6 +187,7 @@ bash tests/verify_semantic_table.sh
 bash tests/verify_semantic_table_api.sh
 bash tests/verify_semantic_table_stats.sh
 bash tests/verify_semantic_table_growth_failures.sh
+bash tests/verify_dynamic_table_growth.sh
 bash tests/verify_semantic_intern.sh
 bash tests/verify_semantic_intern_growth.sh
 bash tests/verify_semantic_db_definition.sh
