@@ -50,6 +50,7 @@ enum ASTNodeType {
     AST_EXTERN_VAR_DECL,
     AST_USE_STMT,
     AST_C_IMPORT_DECL,
+    AST_BLOCK,
 }
 
 struct ASTNode {
@@ -72,6 +73,7 @@ struct ASTNode {
     method_block_methods: & & ASTNode,
     method_block_method_count: i32,
     fn_decl_name: &byte,
+    fn_decl_body: &ASTNode,
     macro_decl_name: &byte,
     type_alias_name: &byte,
     var_decl_name: &byte,
@@ -101,6 +103,7 @@ fn semantic_test_node(kind: ASTNodeType, filename: &byte, name: &byte) ASTNode {
         method_block_methods: null,
         method_block_method_count: 0,
         fn_decl_name: null,
+        fn_decl_body: null,
         macro_decl_name: null,
         type_alias_name: null,
         var_decl_name: null,
@@ -230,6 +233,34 @@ test "semantic db build counts merged ast declarations" {
     try assert_eq_i32(semantic_db_symbol_record_count(&db), 5);
     try assert_eq_i32(semantic_db_name_range_count(&db), 5);
     try expect(semantic_db_estimated_bytes(&db) >= @size_of(SemanticDb));
+    semantic_db_release(&db);
+}
+
+test "semantic db build keeps same-name function body and stub" {
+    var body_block: ASTNode = semantic_test_node(ASTNodeType.AST_BLOCK, "family_body.uya", null);
+    var body_fn: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "family_body.uya", "family");
+    body_fn.fn_decl_body = &body_block;
+    var stub_fn: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "family_stub.uya", "family");
+
+    var decls: [&ASTNode: 2] = [];
+    decls[0] = &body_fn;
+    decls[1] = &stub_fn;
+
+    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "family_body.uya", null);
+    program.program_decls = &decls[0] as & & ASTNode;
+    program.program_decl_count = 2;
+
+    var db: SemanticDb = semantic_test_db();
+
+    try assert_eq_i32(semantic_db_build_from_merged_ast(&db, &program), 0);
+    try assert_eq_i32(db.decl_count, 2);
+    try assert_eq_i32(db.file_count, 2);
+    try assert_eq_i32(db.function_count, 2);
+    try assert_eq_i32(db.symbol_count, 2);
+    try expect(semantic_db_decl_ast_node(&db, 0) == &body_fn);
+    try expect(semantic_db_decl_ast_node(&db, 1) == &stub_fn);
+    try expect(body_fn.fn_decl_body != null);
+    try expect(stub_fn.fn_decl_body == null);
     semantic_db_release(&db);
 }
 EOF
