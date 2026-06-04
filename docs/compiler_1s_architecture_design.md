@@ -117,17 +117,33 @@ Parse
 
 ### 5.1 动态表原则
 
-所有程序规模相关结构都必须采用动态表：
+所有编译器表都必须采用动态增长结构，程序规模相关表没有固定容量例外：
 
 - `SemanticDb`、`TypedProgram`、`LoweredProgram`、`C99Plan`、`NativePlan`、intern 表、scope 表、worklist、reloc/symbol table 都不得使用 `C99_MAX_*`、`CHECKER_*_SIZE`、固定数组长度或魔法容量作为语义上限。
+- 该规则同时适用于现有 C99/checker/exec 代码里的旧表；迁移计划不能只约束新模块。
 - 每个表必须显式记录 `count`、`capacity`、`bytes` 和可选的 `realloc_count`。
 - 每个表必须提供 `reserve`、`ensure_capacity`、`append/insert` 或等价接口；增长策略可按 1.5x/2x，但必须检查整数溢出。
 - hash table 必须按负载因子增长，冲突处理不得退化为全程序线性扫描；高冲突场景要有回归测试。
 - allocation/growth 失败必须返回明确错误或 diagnostic，不能静默截断、覆盖旧项或继续生成错误代码。
-- 静态数组只允许用于语言或 ABI 明确定界的小栈/小缓冲，并且必须在代码旁说明界限来源；凡是与源文件数、声明数、表达式数、函数数、类型数、泛型实例数、字符串常量数、reloc 数相关的表都不属于此例外。
-- benchmark 必须能报告主要表的峰值容量、实际项数、重分配次数和字节数，防止“动态表”变成隐藏的大块预分配。
+- 迁移前允许保留旧固定表作为 oracle 或 fallback，但不能作为 1 秒路径的成功条件；任何 `count >= MAX` 后静默丢弃、截断或继续生成的逻辑都必须先改成错误诊断。
+- 静态数组只允许用于语言或 ABI 明确定界的非 table 小栈/小缓冲，并且必须在代码旁说明界限来源；凡是承担 table/index/cache/list/mapping 角色，或与源文件数、声明数、表达式数、函数数、类型数、泛型实例数、字符串常量数、reloc 数相关的结构，都不属于此例外。
+- benchmark 必须能报告所有编译器表的峰值容量、实际项数、重分配次数和字节数；可先按表类别汇总，但不能遗漏新引入的表，防止“动态表”变成隐藏的大块预分配。
 
-### 5.2 核心 ID
+### 5.2 现有固定表迁移范围
+
+初扫当前源码后，以下旧表必须纳入迁移，不得在新架构中继续作为容量上限：
+
+| 区域 | 代表文件 | 必须动态增长的内容 |
+| --- | --- | --- |
+| C99 codegen state | `src/codegen/c99/internal.uya` | string constants、embedded constants、struct/enum/function/global/local tables、defer/drop stacks、slice/err_union/SIMD tables、mono instances、async await/bind tables |
+| C99 direct caches | `src/codegen/c99/global.uya`, `src/codegen/c99/types.uya`, `src/codegen/c99/utils.uya` | identifier ref cache、identifier type cache、type-to-C cache、safe identifier cache、string constant cache |
+| checker lookup/generic/reachability | `src/checker/lookup.uya`, `src/checker/types.uya`, `src/checker/generics.uya`, `src/checker/symbols.uya` | lookup caches、mono instance index、function table、reachable function roots/queue |
+| exec / VM staging | `src/exec/lower.uya`, `src/exec/builder.uya`, `src/exec/frame.uya` | locals/globals/scope stacks、HIR functions/globals、bytecode instrs、const pool、cleanup scopes、frame slots |
+| main compiler input graph | `src/main.uya` | input files、resolved files、processed files、program list |
+
+迁移顺序建议先从 C99/checker 热点表开始，因为它们同时影响 1 秒目标、内存目标和 correctness。exec/VM 表如果不在 `make uya` 最终路径中，也必须在相关 staged smoke 中保持动态增长，避免以后成为自举边界。
+
+### 5.3 核心 ID
 
 引入以下稳定 ID：
 
@@ -153,7 +169,7 @@ MonoInstanceId
 
 这四类路径使用。
 
-### 5.3 声明索引
+### 5.4 声明索引
 
 `SemanticDb` 构建以下索引：
 
@@ -179,7 +195,7 @@ extern_decl
 
 C99 当前的 `find_function_decl_c99` 不应在缓存命中后继续扫全程序。上下文敏感规则必须在索引层表达清楚。
 
-### 5.4 作用域索引
+### 5.5 作用域索引
 
 函数进入时一次性构建局部符号表：
 
@@ -194,7 +210,7 @@ FunctionScopeIndex
 
 block 进入/退出只更新栈式 generation。`c99_find_identifier_type_node` 和 `lookup_identifier_type_c_impl` 这类倒扫局部变量的逻辑要迁出后端。
 
-### 5.5 类型索引
+### 5.6 类型索引
 
 类型转换和布局必须可缓存：
 
@@ -485,11 +501,11 @@ typed_program_bytes  # TypedProgram 表占用
 lowered_bytes        # LoweredProgram / BuildPlan 占用
 emit_buffer_bytes    # C99/native 输出缓冲峰值
 output_bytes         # 生成 C/native/object/executable 字节数
-table_count          # 主要动态表实际项数
-table_capacity       # 主要动态表容量项数
-table_bytes          # 主要动态表实际占用
-table_capacity_bytes # 主要动态表容量占用
-table_realloc_count  # 主要动态表增长次数
+table_count          # 所有编译器动态表实际项数汇总
+table_capacity       # 所有编译器动态表容量项数汇总
+table_bytes          # 所有编译器动态表实际占用汇总
+table_capacity_bytes # 所有编译器动态表容量占用汇总
+table_realloc_count  # 所有编译器动态表增长次数汇总
 ```
 
 当前环境不应依赖 GNU `/usr/bin/time -v`；benchmark 脚本应优先通过 `/proc/<pid>/status` 或 `/proc/<pid>/smaps_rollup` 采样 RSS。非 Linux 平台再提供平台专用实现。
@@ -525,7 +541,7 @@ table_realloc_count  # 主要动态表增长次数
 - 与 baseline 的百分比变化。
 - arena 峰值。
 - 输出产物总字节数。
-- 主要动态表的 count/capacity/realloc/bytes 摘要。
+- 所有编译器动态表的 count/capacity/realloc/bytes 摘要或按表明细。
 - 是否打开 dump/debug/cache/daemon。
 
 如果 wall time 达标但 peak RSS 或 arena 峰值显著上升，该阶段不能标记完成。

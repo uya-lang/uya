@@ -32,7 +32,7 @@ make uya
 - Phase 3 前，直接 C99 路径 peak RSS 相比 Phase 0 至少下降 25%。
 - Phase 9 前，native build compiler 路径 peak RSS 相比 Phase 0 至少下降 50%。
 - 任一阶段如果 wall time 下降但 peak RSS / arena 峰值明显上升，不能勾选性能达标。
-- 所有随程序规模增长的表必须动态扩容，不能有写死容量、固定最大项数或静默截断。
+- 所有编译器表必须动态扩容；凡是 table/index/cache/list/mapping 角色，都不能有写死容量、固定最大项数或静默截断。
 
 ---
 
@@ -42,7 +42,7 @@ make uya
 - 不改语言语法、BNF 或内建函数。
 - 不删除 C99 fallback；C99 是差分 oracle。
 - 不用大表预分配或长期常驻 IR 换取表面速度；内存指标必须和时间一起报告。
-- 不新增 `C99_MAX_*`、`CHECKER_*_SIZE` 或魔法容量作为程序规模相关表的语义上限。
+- 不新增 `C99_MAX_*`、`CHECKER_*_SIZE` 或魔法容量作为编译器表的语义上限。
 - 不用 `git add -A` 提交生成物或无关 WIP。
 - 修改编译器行为前先读 `docs/uya_ai_prompt.md`、本设计文档、相邻源码和测试。
 - 验证前先重建可信 compiler；不要用陈旧 `bin/uya` 判断修复结果。
@@ -70,7 +70,7 @@ make uya
   - [x] native executable / object 总大小。
   - [x] 临时目录总大小。
 - [x] benchmark 输出内存趋势：当前值、baseline、变化百分比。
-- [x] benchmark 输出主要动态表摘要：`table_count`、`table_capacity`、`table_bytes`、`table_realloc_count`。
+- [x] benchmark 输出所有编译器动态表摘要或按表明细：`table_count`、`table_capacity`、`table_bytes`、`table_realloc_count`。
 - [x] benchmark 检查表容量不是一次性巨大预分配；若 `capacity/count` 比例异常，报告 warning。
 - [x] benchmark TSV 输出字段：
 
@@ -91,6 +91,7 @@ run	mode	seed_ms	parse_ms	bind_ms	check_ms	lower_ms	emit_ms	link_ms	total_ms	pea
 git diff --check
 make bench-compile-stats-check
 make bench-compiler-1s-check
+bash tests/verify_no_fixed_compiler_tables.sh
 ```
 
 ---
@@ -365,7 +366,7 @@ make check
 - [ ] 为 parser AST、SemanticDb、TypedProgram、LoweredProgram、Emitter 分配独立 arena。
 - [ ] 明确每个 arena 的创建点、最后使用点和释放点。
 - [ ] `make bench-compiler-1s` 输出每个 arena 的 peak bytes。
-- [ ] `make bench-compiler-1s` 输出主要动态表的 count/capacity/realloc/bytes。
+- [ ] `make bench-compiler-1s` 输出所有编译器动态表的 count/capacity/realloc/bytes。
 - [ ] 新增动态表预算检查：不得通过启动时预分配超大容量降低增长次数。
 - [ ] C99 输出从“全局状态 + 边生成边补发”收口为 unit 流式写。
 - [ ] native 输出不生成 debug info，不保留全量机器码临时副本。
