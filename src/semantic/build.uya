@@ -87,7 +87,9 @@ fn semantic_db_prepare_for_build(db: &SemanticDb) void {
     if db == null {
         return;
     }
-    if db.decl_records.item_size != @size_of(SemanticDeclRecord) ||
+    if db.file_records.item_size != @size_of(SemanticFileRecord) ||
+        db.module_records.item_size != @size_of(SemanticModuleRecord) ||
+        db.decl_records.item_size != @size_of(SemanticDeclRecord) ||
         db.symbol_records.item_size != @size_of(SemanticSymbolRecord) ||
         db.name_ranges.item_size != @size_of(SemanticNameRange) ||
         db.name_range_index.capacity < db.name_range_index.count {
@@ -113,6 +115,63 @@ export fn semantic_db_decl_ast_node(db: &SemanticDb, decl_id: i32) &ASTNode {
         return null;
     }
     return record.ast_node as &ASTNode;
+}
+
+fn semantic_db_find_file_id(db: &SemanticDb, filename: &byte) i32 {
+    if db == null || filename == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < semantic_db_file_record_count(db) {
+        if semantic_db_cstr_equals(semantic_db_file_name(db, i), filename) != 0 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn semantic_db_add_file_module(db: &SemanticDb, filename: &byte) i32 {
+    if db == null || filename == null {
+        return -1;
+    }
+    const existing: i32 = semantic_db_find_file_id(db, filename);
+    if existing >= 0 {
+        return existing;
+    }
+    const file_id: i32 = semantic_db_append_file_record(db, filename);
+    if file_id < 0 {
+        return -1;
+    }
+    const module_id: i32 = semantic_db_append_module_record(db, filename, file_id);
+    if module_id < 0 {
+        return -1;
+    }
+    return file_id;
+}
+
+fn semantic_db_build_file_module_ids(db: &SemanticDb, program: &ASTNode) i32 {
+    if db == null || program == null {
+        return -1;
+    }
+    if program.filename != null {
+        if semantic_db_add_file_module(db, program.filename) < 0 {
+            return -1;
+        }
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null && decl.filename != null {
+            if semantic_db_add_file_module(db, decl.filename) < 0 {
+                return -1;
+            }
+        }
+        i = i + 1;
+    }
+    db.file_count = semantic_db_file_record_count(db);
+    db.module_count = semantic_db_module_record_count(db);
+    return 0;
 }
 
 fn semantic_db_append_named_symbol(db: &SemanticDb, decl_id: i32, kind: i32) i32 {
@@ -152,7 +211,7 @@ fn semantic_db_count_method_symbols(db: &SemanticDb, methods: & & ASTNode, metho
     return 0;
 }
 
-fn semantic_db_count_decl(db: &SemanticDb, decl: &ASTNode) i32 {
+fn semantic_db_count_decl(db: &SemanticDb, decl: &ASTNode, file_id: i32, module_id: i32) i32 {
     if db == null || decl == null {
         return 0;
     }
@@ -162,7 +221,7 @@ fn semantic_db_count_decl(db: &SemanticDb, decl: &ASTNode) i32 {
         primary_name_id = db.interned_name_count;
     }
 
-    const decl_id: i32 = semantic_db_append_decl_record(db, decl as &void, primary_name_id, decl.type as i32, 0, 0);
+    const decl_id: i32 = semantic_db_append_decl_record(db, decl as &void, primary_name_id, decl.type as i32, file_id, module_id);
     if decl_id < 0 {
         return -1;
     }
@@ -227,12 +286,20 @@ export fn semantic_db_build_from_merged_ast(db: &SemanticDb, program: &ASTNode) 
             return -1;
         }
     }
-    db.file_count = semantic_db_count_unique_files(program);
-    db.module_count = db.file_count;
+    if semantic_db_build_file_module_ids(db, program) != 0 {
+        semantic_db_reset(db);
+        return -1;
+    }
 
     var i: i32 = 0;
     while i < program.program_decl_count {
-        if semantic_db_count_decl(db, program.program_decls[i]) != 0 {
+        const decl: &ASTNode = program.program_decls[i];
+        var file_id: i32 = -1;
+        if decl != null && decl.filename != null {
+            file_id = semantic_db_find_file_id(db, decl.filename);
+        }
+        const module_id: i32 = file_id;
+        if semantic_db_count_decl(db, decl, file_id, module_id) != 0 {
             semantic_db_reset(db);
             return -1;
         }

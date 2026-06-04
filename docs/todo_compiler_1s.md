@@ -160,7 +160,7 @@ MonoInstanceId
 - [x] `SemanticDb` 所有数组、range、hash bucket、collision list 都随数据增长动态扩容。
 - [x] `SemanticDb` 记录自身估算字节数。
 - [x] 为顶层声明建立 `DeclId -> ASTNode` 映射。
-- [ ] 为文件和模块建立 `FileId` / `ModuleId`。
+- [x] 为文件和模块建立 `FileId` / `ModuleId`。
 - [ ] 将 `use` 语句和 module export 登记为 `ImportBinding`。
 - [ ] 增加 `semantic_db_reset()`，用于同进程多次编译。
 - [ ] 在 `checker_init()` 或等价入口纳入 semantic cache reset。
@@ -194,6 +194,7 @@ bash tests/verify_semantic_db_compact_storage.sh
 bash tests/verify_semantic_db_dynamic_growth.sh
 bash tests/verify_semantic_db_estimated_bytes.sh
 bash tests/verify_semantic_db_decl_ast_mapping.sh
+bash tests/verify_semantic_db_file_module_ids.sh
 bash tests/verify_semantic_db_smoke.sh
 make tests-uya
 ```

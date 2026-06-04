@@ -29,6 +29,21 @@ export struct SemanticNameRange {
     symbol_count: i32,
 }
 
+/// 功能说明：保存 FileId 对应的源文件记录。
+/// 参数说明：无；`filename` 指向 AST 中稳定存在的文件名字符串。
+/// 返回值说明：无。
+export struct SemanticFileRecord {
+    filename: &byte,
+}
+
+/// 功能说明：保存 ModuleId 对应的模块记录。
+/// 参数说明：无；当前基础阶段用源文件名作为模块名占位。
+/// 返回值说明：无。
+export struct SemanticModuleRecord {
+    name: &byte,
+    file_id: i32,
+}
+
 /// 功能说明：保存 SemanticDb 的顶层计数、估算字节数和紧凑记录数组。
 /// 参数说明：无；调用 `semantic_db_init` 后使用。
 /// 返回值说明：无。
@@ -44,6 +59,8 @@ export struct SemanticDb {
     function_count: i32,
     mono_instance_count: i32,
     estimated_bytes: usize,
+    file_records: SemanticVector,
+    module_records: SemanticVector,
     decl_records: SemanticVector,
     symbol_records: SemanticVector,
     name_ranges: SemanticVector,
@@ -83,6 +100,8 @@ export fn semantic_db_init(db: &SemanticDb) void {
         return;
     }
     semantic_db_clear_counts(db);
+    semantic_vector_init(&db.file_records, @size_of(SemanticFileRecord));
+    semantic_vector_init(&db.module_records, @size_of(SemanticModuleRecord));
     semantic_vector_init(&db.decl_records, @size_of(SemanticDeclRecord));
     semantic_vector_init(&db.symbol_records, @size_of(SemanticSymbolRecord));
     semantic_vector_init(&db.name_ranges, @size_of(SemanticNameRange));
@@ -97,6 +116,8 @@ export fn semantic_db_reset(db: &SemanticDb) void {
         return;
     }
     semantic_db_clear_counts(db);
+    semantic_vector_reset(&db.file_records);
+    semantic_vector_reset(&db.module_records);
     semantic_vector_reset(&db.decl_records);
     semantic_vector_reset(&db.symbol_records);
     semantic_vector_reset(&db.name_ranges);
@@ -110,6 +131,8 @@ export fn semantic_db_release(db: &SemanticDb) void {
     if db == null {
         return;
     }
+    semantic_vector_release(&db.file_records);
+    semantic_vector_release(&db.module_records);
     semantic_vector_release(&db.decl_records);
     semantic_vector_release(&db.symbol_records);
     semantic_vector_release(&db.name_ranges);
@@ -125,10 +148,53 @@ export fn semantic_db_storage_bytes(db: &SemanticDb) usize {
         return 0usize;
     }
     return @size_of(SemanticDb) +
+        db.file_records.bytes +
+        db.module_records.bytes +
         db.decl_records.bytes +
         db.symbol_records.bytes +
         db.name_ranges.bytes +
         db.name_range_index.bytes;
+}
+
+/// 功能说明：追加 FileId 对应的文件记录。
+/// 参数说明：`db` 为目标库，`filename` 为源文件名。
+/// 返回值说明：成功返回新 FileId；失败返回 `-1`。
+export fn semantic_db_append_file_record(db: &SemanticDb, filename: &byte) i32 {
+    if db == null || filename == null {
+        return -1;
+    }
+    const file_id: i32 = semantic_db_usize_to_i32(db.file_records.count);
+    if file_id < 0 {
+        return -1;
+    }
+    var record: SemanticFileRecord = SemanticFileRecord{
+        filename: filename,
+    };
+    if semantic_vector_append(&db.file_records, &record as &const void) != 0 {
+        return -1;
+    }
+    return file_id;
+}
+
+/// 功能说明：追加 ModuleId 对应的模块记录。
+/// 参数说明：`db` 为目标库，`name` 为模块名，`file_id` 为所属文件 ID。
+/// 返回值说明：成功返回新 ModuleId；失败返回 `-1`。
+export fn semantic_db_append_module_record(db: &SemanticDb, name: &byte, file_id: i32) i32 {
+    if db == null || name == null || file_id < 0 {
+        return -1;
+    }
+    const module_id: i32 = semantic_db_usize_to_i32(db.module_records.count);
+    if module_id < 0 {
+        return -1;
+    }
+    var record: SemanticModuleRecord = SemanticModuleRecord{
+        name: name,
+        file_id: file_id,
+    };
+    if semantic_vector_append(&db.module_records, &record as &const void) != 0 {
+        return -1;
+    }
+    return module_id;
 }
 
 /// 功能说明：追加 DeclId 对应的紧凑声明记录。
@@ -160,6 +226,22 @@ export fn semantic_db_append_decl_record(
         return -1;
     }
     return decl_id;
+}
+
+/// 功能说明：按 DeclId 复制紧凑声明记录。
+/// 参数说明：`db` 为目标库，`decl_id` 为声明 ID，`out_record` 接收记录副本。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn semantic_db_decl_record_get(db: &SemanticDb, decl_id: i32, out_record: &SemanticDeclRecord) i32 {
+    if db == null || out_record == null || decl_id < 0 {
+        return 0;
+    }
+    const record_ptr: &byte = semantic_vector_item_ptr(&db.decl_records, decl_id as usize);
+    if record_ptr == null {
+        return 0;
+    }
+    const record: &SemanticDeclRecord = record_ptr as &SemanticDeclRecord;
+    out_record[0] = record[0];
+    return 1;
 }
 
 /// 功能说明：追加 SymbolId 对应的紧凑符号记录。
@@ -231,6 +313,64 @@ export fn semantic_db_decl_record_count(db: &SemanticDb) i32 {
         return 0;
     }
     return count;
+}
+
+/// 功能说明：读取 SemanticDb 文件记录数量。
+/// 参数说明：`db` 为目标 SemanticDb。
+/// 返回值说明：返回文件记录数量；参数无效时返回 `0`。
+export fn semantic_db_file_record_count(db: &SemanticDb) i32 {
+    if db == null {
+        return 0;
+    }
+    const count: i32 = semantic_db_usize_to_i32(db.file_records.count);
+    if count < 0 {
+        return 0;
+    }
+    return count;
+}
+
+/// 功能说明：读取 SemanticDb 模块记录数量。
+/// 参数说明：`db` 为目标 SemanticDb。
+/// 返回值说明：返回模块记录数量；参数无效时返回 `0`。
+export fn semantic_db_module_record_count(db: &SemanticDb) i32 {
+    if db == null {
+        return 0;
+    }
+    const count: i32 = semantic_db_usize_to_i32(db.module_records.count);
+    if count < 0 {
+        return 0;
+    }
+    return count;
+}
+
+/// 功能说明：按 FileId 读取文件名。
+/// 参数说明：`db` 为目标 SemanticDb，`file_id` 为文件 ID。
+/// 返回值说明：命中返回文件名；参数无效或越界时返回 null。
+export fn semantic_db_file_name(db: &SemanticDb, file_id: i32) &byte {
+    if db == null || file_id < 0 {
+        return null;
+    }
+    const record_ptr: &byte = semantic_vector_item_ptr(&db.file_records, file_id as usize);
+    if record_ptr == null {
+        return null;
+    }
+    const record: &SemanticFileRecord = record_ptr as &SemanticFileRecord;
+    return record.filename;
+}
+
+/// 功能说明：按 ModuleId 读取模块名。
+/// 参数说明：`db` 为目标 SemanticDb，`module_id` 为模块 ID。
+/// 返回值说明：命中返回模块名；参数无效或越界时返回 null。
+export fn semantic_db_module_name(db: &SemanticDb, module_id: i32) &byte {
+    if db == null || module_id < 0 {
+        return null;
+    }
+    const record_ptr: &byte = semantic_vector_item_ptr(&db.module_records, module_id as usize);
+    if record_ptr == null {
+        return null;
+    }
+    const record: &SemanticModuleRecord = record_ptr as &SemanticModuleRecord;
+    return record.name;
 }
 
 /// 功能说明：读取 SemanticDb 符号记录数量。

@@ -13,7 +13,7 @@ require_pattern() {
     local pattern="$2"
     local description="$3"
     if ! grep -Eq "$pattern" "$file"; then
-        echo "错误: SemanticDb dynamic growth 缺少证据: $description" >&2
+        echo "错误: SemanticDb FileId/ModuleId 缺少证据: $description" >&2
         return 1
     fi
 }
@@ -25,14 +25,15 @@ for file in "$TABLE_FILE" "$DB_FILE" "$BUILD_FILE"; do
     fi
 done
 
-require_pattern "$DB_FILE" "decl_records:[[:space:]]+SemanticVector" "声明数组为动态 vector"
-require_pattern "$DB_FILE" "symbol_records:[[:space:]]+SemanticVector" "符号数组为动态 vector"
-require_pattern "$DB_FILE" "name_ranges:[[:space:]]+SemanticVector" "名字 range 为动态 vector"
-require_pattern "$DB_FILE" "name_range_index:[[:space:]]+SemanticHash" "名字 range index 为动态 hash"
-require_pattern "$DB_FILE" "semantic_hash_insert" "range hash 插入"
-require_pattern "$DB_FILE" "semantic_hash_get" "range hash 查询"
+require_pattern "$DB_FILE" "^export[[:space:]]+struct[[:space:]]+SemanticFileRecord" "FileId 记录结构"
+require_pattern "$DB_FILE" "^export[[:space:]]+struct[[:space:]]+SemanticModuleRecord" "ModuleId 记录结构"
+require_pattern "$DB_FILE" "file_records:[[:space:]]+SemanticVector" "文件记录动态 vector"
+require_pattern "$DB_FILE" "module_records:[[:space:]]+SemanticVector" "模块记录动态 vector"
+require_pattern "$DB_FILE" "semantic_db_file_name" "FileId 名字 accessor"
+require_pattern "$DB_FILE" "semantic_db_module_name" "ModuleId 名字 accessor"
+require_pattern "$DB_FILE" "semantic_db_decl_record_get" "DeclRecord accessor"
 
-tmp_dir="$(mktemp -d /tmp/uya-semantic-db-growth.XXXXXX)"
+tmp_dir="$(mktemp -d /tmp/uya-semantic-db-file-module.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 cat >"$tmp_dir/main.uya" <<'EOF'
@@ -93,6 +94,23 @@ EOF
 cat "$BUILD_FILE" >>"$tmp_dir/main.uya"
 
 cat >>"$tmp_dir/main.uya" <<'EOF'
+fn semantic_test_cstr_equals(a: &byte, b: &byte) i32 {
+    if a == null || b == null {
+        return 0;
+    }
+    var i: usize = 0usize;
+    while a[i] != 0 as byte && b[i] != 0 as byte {
+        if a[i] != b[i] {
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    if a[i] == b[i] {
+        return 1;
+    }
+    return 0;
+}
+
 fn semantic_test_vector() SemanticVector {
     return SemanticVector{
         data: null,
@@ -166,47 +184,54 @@ fn semantic_test_node(kind: ASTNodeType, filename: &byte, name: &byte) ASTNode {
     };
     if kind == ASTNodeType.AST_FN_DECL {
         node.fn_decl_name = name;
+    } else if kind == ASTNodeType.AST_STRUCT_DECL {
+        node.struct_decl_name = name;
+    } else if kind == ASTNodeType.AST_TYPE_ALIAS {
+        node.type_alias_name = name;
     }
     return node;
 }
 
-test "semantic db vectors and name hash grow with declarations" {
-    var decls: [&ASTNode: 40] = [];
-EOF
+test "semantic db assigns file and module ids" {
+    var fn_decl: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "a.uya", "main");
+    var struct_decl: ASTNode = semantic_test_node(ASTNodeType.AST_STRUCT_DECL, "b.uya", "Box");
+    var alias_decl: ASTNode = semantic_test_node(ASTNodeType.AST_TYPE_ALIAS, "b.uya", "Alias");
 
-for i in $(seq 0 39); do
-    printf '    var fn_%02d: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "growth.uya", "fn_%02d");\n' "$i" "$i" >>"$tmp_dir/main.uya"
-    printf '    decls[%d] = &fn_%02d;\n' "$i" "$i" >>"$tmp_dir/main.uya"
-done
+    var decls: [&ASTNode: 3] = [];
+    decls[0] = &fn_decl;
+    decls[1] = &struct_decl;
+    decls[2] = &alias_decl;
 
-cat >>"$tmp_dir/main.uya" <<'EOF'
-    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "growth.uya", null);
+    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "a.uya", null);
     program.program_decls = &decls[0] as & & ASTNode;
-    program.program_decl_count = 40;
+    program.program_decl_count = 3;
 
     var db: SemanticDb = semantic_test_db();
     try assert_eq_i32(semantic_db_build_from_merged_ast(&db, &program), 0);
-    try assert_eq_i32(db.decl_count, 40);
-    try assert_eq_i32(db.symbol_count, 40);
-    try assert_eq_i32(db.interned_name_count, 40);
-    try assert_eq_i32(semantic_db_decl_record_count(&db), 40);
-    try assert_eq_i32(semantic_db_symbol_record_count(&db), 40);
-    try assert_eq_i32(semantic_db_name_range_count(&db), 40);
-    try expect(db.decl_records.capacity >= 40usize);
-    try expect(db.symbol_records.capacity >= 40usize);
-    try expect(db.name_ranges.capacity >= 40usize);
-    try expect(db.name_range_index.capacity >= 40usize);
-    try expect(db.decl_records.realloc_count > 0);
-    try expect(db.symbol_records.realloc_count > 0);
-    try expect(db.name_ranges.realloc_count > 0);
-    try expect(db.name_range_index.realloc_count > 0);
-    var range_id: i32 = -1;
-    try assert_eq_i32(semantic_hash_get(&db.name_range_index, 39 as i64, &range_id), 1);
-    try expect(range_id >= 0);
+    try assert_eq_i32(db.file_count, 2);
+    try assert_eq_i32(db.module_count, 2);
+    try assert_eq_i32(semantic_db_file_record_count(&db), 2);
+    try assert_eq_i32(semantic_db_module_record_count(&db), 2);
+    try expect(semantic_test_cstr_equals(semantic_db_file_name(&db, 0), "a.uya") != 0);
+    try expect(semantic_test_cstr_equals(semantic_db_file_name(&db, 1), "b.uya") != 0);
+    try expect(semantic_test_cstr_equals(semantic_db_module_name(&db, 1), "b.uya") != 0);
+
+    var rec0: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
+    var rec1: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
+    var rec2: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
+    try assert_eq_i32(semantic_db_decl_record_get(&db, 0, &rec0), 1);
+    try assert_eq_i32(semantic_db_decl_record_get(&db, 1, &rec1), 1);
+    try assert_eq_i32(semantic_db_decl_record_get(&db, 2, &rec2), 1);
+    try assert_eq_i32(rec0.file_id, 0);
+    try assert_eq_i32(rec0.module_id, 0);
+    try assert_eq_i32(rec1.file_id, 1);
+    try assert_eq_i32(rec1.module_id, 1);
+    try assert_eq_i32(rec2.file_id, 1);
+    try assert_eq_i32(rec2.module_id, 1);
     semantic_db_release(&db);
 }
 EOF
 
 (cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
 
-echo "✓ SemanticDb dynamic growth smoke passed"
+echo "✓ SemanticDb FileId/ModuleId smoke passed"

@@ -141,6 +141,8 @@ fn semantic_test_db() SemanticDb {
         function_count: 0,
         mono_instance_count: 0,
         estimated_bytes: 0usize,
+        file_records: semantic_test_vector(),
+        module_records: semantic_test_vector(),
         decl_records: semantic_test_vector(),
         symbol_records: semantic_test_vector(),
         name_ranges: semantic_test_vector(),

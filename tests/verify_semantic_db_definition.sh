@@ -77,6 +77,8 @@ test "semantic db definition initializes and resets" {
         function_count: 8,
         mono_instance_count: 10,
         estimated_bytes: 123usize,
+        file_records: semantic_test_vector(),
+        module_records: semantic_test_vector(),
         decl_records: semantic_test_vector(),
         symbol_records: semantic_test_vector(),
         name_ranges: semantic_test_vector(),
