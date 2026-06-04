@@ -171,7 +171,7 @@ MonoInstanceId
 
 - [x] 新增 `tests/verify_semantic_db_smoke.sh`。
 - [x] 覆盖同名函数 body/stub。
-- [ ] 覆盖 `libc` / `std` family 上下文。
+- [x] 覆盖 `libc` / `std` family 上下文。
 - [ ] 覆盖 file-local alias。
 - [ ] 覆盖 whole-module import export。
 - [ ] 新增 `tests/verify_dynamic_table_growth.sh`。

@@ -186,6 +186,23 @@ fn semantic_test_db() SemanticDb {
     };
 }
 
+fn semantic_test_cstr_equals(a: &byte, b: &byte) i32 {
+    if a == null || b == null {
+        return 0;
+    }
+    var i: usize = 0usize;
+    while a[i] != 0 as byte && b[i] != 0 as byte {
+        if a[i] != b[i] {
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    if a[i] == b[i] {
+        return 1;
+    }
+    return 0;
+}
+
 test "semantic db build rejects invalid input" {
     var db: SemanticDb = semantic_test_db();
     try assert_eq_i32(semantic_db_build_from_merged_ast(&db, null), -1);
@@ -261,6 +278,57 @@ test "semantic db build keeps same-name function body and stub" {
     try expect(semantic_db_decl_ast_node(&db, 1) == &stub_fn);
     try expect(body_fn.fn_decl_body != null);
     try expect(stub_fn.fn_decl_body == null);
+    semantic_db_release(&db);
+}
+
+test "semantic db build preserves libc and std family contexts" {
+    var libc_read: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "lib/libc/unistd.uya", "read");
+    var libc_strlen: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "lib/libc/string.uya", "strlen");
+    var std_read: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "lib/std/io/reader.uya", "read");
+    var std_string_alias: ASTNode = semantic_test_node(ASTNodeType.AST_TYPE_ALIAS, "lib/std/string/string.uya", "String");
+
+    var decls: [&ASTNode: 4] = [];
+    decls[0] = &libc_read;
+    decls[1] = &libc_strlen;
+    decls[2] = &std_read;
+    decls[3] = &std_string_alias;
+
+    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "lib/std/io/reader.uya", null);
+    program.program_decls = &decls[0] as & & ASTNode;
+    program.program_decl_count = 4;
+
+    var db: SemanticDb = semantic_test_db();
+    try assert_eq_i32(semantic_db_build_from_merged_ast(&db, &program), 0);
+    try assert_eq_i32(db.decl_count, 4);
+    try assert_eq_i32(db.file_count, 4);
+    try assert_eq_i32(db.module_count, 4);
+    try assert_eq_i32(db.function_count, 3);
+    try assert_eq_i32(db.type_count, 1);
+    try assert_eq_i32(db.symbol_count, 4);
+
+    try expect(semantic_test_cstr_equals(semantic_db_file_name(&db, 0), "lib/std/io/reader.uya") != 0);
+    try expect(semantic_test_cstr_equals(semantic_db_file_name(&db, 1), "lib/libc/unistd.uya") != 0);
+    try expect(semantic_test_cstr_equals(semantic_db_file_name(&db, 2), "lib/libc/string.uya") != 0);
+    try expect(semantic_test_cstr_equals(semantic_db_file_name(&db, 3), "lib/std/string/string.uya") != 0);
+    try expect(semantic_test_cstr_equals(semantic_db_module_name(&db, 0), "lib/std/io/reader.uya") != 0);
+    try expect(semantic_test_cstr_equals(semantic_db_module_name(&db, 1), "lib/libc/unistd.uya") != 0);
+
+    var rec0: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
+    var rec1: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
+    var rec2: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
+    var rec3: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
+    try assert_eq_i32(semantic_db_decl_record_get(&db, 0, &rec0), 1);
+    try assert_eq_i32(semantic_db_decl_record_get(&db, 1, &rec1), 1);
+    try assert_eq_i32(semantic_db_decl_record_get(&db, 2, &rec2), 1);
+    try assert_eq_i32(semantic_db_decl_record_get(&db, 3, &rec3), 1);
+    try assert_eq_i32(rec0.file_id, 1);
+    try assert_eq_i32(rec0.module_id, 1);
+    try assert_eq_i32(rec1.file_id, 2);
+    try assert_eq_i32(rec1.module_id, 2);
+    try assert_eq_i32(rec2.file_id, 0);
+    try assert_eq_i32(rec2.module_id, 0);
+    try assert_eq_i32(rec3.file_id, 3);
+    try assert_eq_i32(rec3.module_id, 3);
     semantic_db_release(&db);
 }
 EOF
