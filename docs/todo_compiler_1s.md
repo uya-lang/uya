@@ -64,11 +64,11 @@ make uya
 - [x] benchmark 通过 `/proc/<pid>/status` 或 `/proc/<pid>/smaps_rollup` 采样 `peak_rss_kb`。
 - [x] benchmark 在缺少 `/proc` 的平台打印“RSS 未测量”，不能把该运行计入内存达标。
 - [x] 编译器内部新增 arena 峰值统计输出字段。
-- [ ] benchmark 记录生成文件总字节数：
-  - [ ] C99 单文件大小。
-  - [ ] split-C 目录总大小。
-  - [ ] native executable / object 总大小。
-  - [ ] 临时目录总大小。
+- [x] benchmark 记录生成文件总字节数：
+  - [x] C99 单文件大小。
+  - [x] split-C 目录总大小。
+  - [x] native executable / object 总大小。
+  - [x] 临时目录总大小。
 - [ ] benchmark 输出内存趋势：当前值、baseline、变化百分比。
 - [ ] benchmark 输出主要动态表摘要：`table_count`、`table_capacity`、`table_bytes`、`table_realloc_count`。
 - [ ] benchmark 检查表容量不是一次性巨大预分配；若 `capacity/count` 比例异常，报告 warning。

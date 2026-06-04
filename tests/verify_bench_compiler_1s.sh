@@ -66,6 +66,10 @@ fi
 
 if [[ "${UYA_FAKE_MAKE_CREATE_ARTIFACTS:-0}" == "1" && "$target" == "uya" ]]; then
     mkdir -p "$repo_root/bin" "$repo_root/src/build" "$repo_root/src/.uyacache"
+    printf 'bin-output\n' >"$repo_root/bin/uya"
+    printf 'object\n' >"$repo_root/bin/fake.o"
+    printf 'single-c\n' >"$repo_root/src/build/uya.c"
+    printf 'split-c\n' >"$repo_root/src/.uyacache/uya_part1.c"
     touch "$repo_root/bin/stale"
     touch "$repo_root/src/build/stale"
     touch "$repo_root/src/.uyacache/stale"
@@ -130,17 +134,17 @@ if ! CFLAGS="-std=c99 -O2 -Werror" CC_DRIVER="fake-cc" MAKE="$FAKE_MAKE" UYA_FAK
     exit 1
 fi
 
-if ! grep -q $'^run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tpeak_rss_kb\tstatus$' "$TMP_DIR/bench.tsv"; then
+if ! grep -q $'^run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tpeak_rss_kb\toutput_bytes\tstatus$' "$TMP_DIR/bench.tsv"; then
     echo "错误: benchmark TSV 表头不正确" >&2
     cat "$TMP_DIR/bench.tsv" >&2
     exit 1
 fi
 if ! awk -F '\t' '
     NR == 2 || NR == 3 {
-        if (!($1 ~ /^[12]$/ && $2 == "c99" && NF == 7 && $3 >= 0 && $4 >= 0 && $5 >= 0 && $6 >= 0 && $7 == "ok")) exit 1;
+        if (!($1 ~ /^[12]$/ && $2 == "c99" && NF == 8 && $3 >= 0 && $4 >= 0 && $5 >= 0 && $6 >= 0 && $7 > 0 && $8 == "ok")) exit 1;
     }
     NR == 4 {
-        if (!($1 == "median" && $2 == "c99" && NF == 7 && $3 >= 0 && $4 >= 0 && $5 >= 0 && $6 >= 0 && $7 == "ok")) exit 1;
+        if (!($1 == "median" && $2 == "c99" && NF == 8 && $3 >= 0 && $4 >= 0 && $5 >= 0 && $6 >= 0 && $7 > 0 && $8 == "ok")) exit 1;
     }
     END { if (NR != 4) exit 1 }
 ' "$TMP_DIR/bench.tsv"; then
@@ -171,6 +175,11 @@ do
         exit 1
     fi
 done
+if ! grep -Eq $'^outputs\trun\t1\tc99_single_bytes\t[1-9][0-9]*\tsplit_c_bytes\t[1-9][0-9]*\tnative_bytes\t[1-9][0-9]*\ttemp_bytes\t[1-9][0-9]*\toutput_bytes\t[1-9][0-9]*$' "$TMP_DIR/bench.err"; then
+    echo "错误: benchmark 未输出 run 1 生成文件字节明细" >&2
+    cat "$TMP_DIR/bench.err" >&2
+    exit 1
+fi
 if compgen -G "$TMP_DIR/uya-bench-compiler-1s.*" >/dev/null; then
     echo "错误: benchmark 临时日志目录未清理" >&2
     compgen -G "$TMP_DIR/uya-bench-compiler-1s.*" >&2
@@ -189,7 +198,7 @@ if ! grep -q "RSS 未测量" "$TMP_DIR/noproc.err"; then
     cat "$TMP_DIR/noproc.err" >&2
     exit 1
 fi
-if ! awk -F '\t' 'NR == 2 { exit !($1 == "1" && $2 == "c99" && NF == 7 && $6 == "NA" && $7 == "ok") } END { if (NR != 2) exit 1 }' "$TMP_DIR/noproc.tsv"; then
+if ! awk -F '\t' 'NR == 2 { exit !($1 == "1" && $2 == "c99" && NF == 8 && $6 == "NA" && $7 >= 0 && $8 == "ok") } END { if (NR != 2) exit 1 }' "$TMP_DIR/noproc.tsv"; then
     echo "错误: 缺少 /proc 时 peak_rss_kb 应为 NA" >&2
     cat "$TMP_DIR/noproc.tsv" >&2
     exit 1

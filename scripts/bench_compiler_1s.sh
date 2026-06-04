@@ -316,6 +316,64 @@ combine_peak_rss() {
     fi
 }
 
+file_size_bytes() {
+    local path="$1"
+    local size
+    if [[ ! -f "$path" ]]; then
+        printf '0\n'
+        return
+    fi
+    size="$(stat -c '%s' "$path" 2>/dev/null || stat -f '%z' "$path" 2>/dev/null || wc -c <"$path")"
+    size="${size//[[:space:]]/}"
+    if ! [[ "$size" =~ ^[0-9]+$ ]]; then
+        size=0
+    fi
+    printf '%s\n' "$size"
+}
+
+dir_total_bytes() {
+    local dir="$1"
+    local total=0
+    local file size
+    if [[ ! -d "$dir" ]]; then
+        printf '0\n'
+        return
+    fi
+    while IFS= read -r -d '' file; do
+        size="$(file_size_bytes "$file")"
+        total=$((total + size))
+    done < <(find "$dir" -type f -print0 2>/dev/null)
+    printf '%s\n' "$total"
+}
+
+native_output_bytes() {
+    local total=0
+    local file size
+    if [[ -f "$REPO_ROOT/bin/uya" ]]; then
+        size="$(file_size_bytes "$REPO_ROOT/bin/uya")"
+        total=$((total + size))
+    fi
+    if [[ -d "$REPO_ROOT/bin" ]]; then
+        while IFS= read -r -d '' file; do
+            size="$(file_size_bytes "$file")"
+            total=$((total + size))
+        done < <(find "$REPO_ROOT/bin" -maxdepth 1 -type f \( -name '*.o' -o -name '*.a' -o -name '*.so' -o -name '*.dylib' -o -name '*.dll' \) -print0 2>/dev/null)
+    fi
+    printf '%s\n' "$total"
+}
+
+collect_output_bytes() {
+    local run_index="$1"
+    local run_dir="$2"
+    OUTPUT_C99_SINGLE_BYTES="$(file_size_bytes "$REPO_ROOT/src/build/uya.c")"
+    OUTPUT_SPLIT_C_BYTES="$(dir_total_bytes "$REPO_ROOT/src/.uyacache")"
+    OUTPUT_NATIVE_BYTES="$(native_output_bytes)"
+    OUTPUT_TEMP_BYTES="$(dir_total_bytes "$run_dir")"
+    OUTPUT_TOTAL_BYTES=$((OUTPUT_C99_SINGLE_BYTES + OUTPUT_SPLIT_C_BYTES + OUTPUT_NATIVE_BYTES + OUTPUT_TEMP_BYTES))
+    printf 'outputs\trun\t%s\tc99_single_bytes\t%s\tsplit_c_bytes\t%s\tnative_bytes\t%s\ttemp_bytes\t%s\toutput_bytes\t%s\n' \
+        "$run_index" "$OUTPUT_C99_SINGLE_BYTES" "$OUTPUT_SPLIT_C_BYTES" "$OUTPUT_NATIVE_BYTES" "$OUTPUT_TEMP_BYTES" "$OUTPUT_TOTAL_BYTES" >&2
+}
+
 print_rss_unavailable_warning() {
     if [[ "$RSS_AVAILABLE" -ne 1 ]]; then
         echo "RSS 未测量: 缺少可用的 $PROC_ROOT/<pid>/status 或 smaps_rollup；该运行不能计入内存达标。" >&2
@@ -358,10 +416,11 @@ clean_values=()
 build_values=()
 total_values=()
 rss_values=()
+output_values=()
 
 print_metadata
 print_rss_unavailable_warning
-printf 'run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tpeak_rss_kb\tstatus\n'
+printf 'run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tpeak_rss_kb\toutput_bytes\tstatus\n'
 
 run=1
 while [[ "$run" -le "$RUNS" ]]; do
@@ -381,7 +440,7 @@ while [[ "$run" -le "$RUNS" ]]; do
         clean_ms="$(elapsed_ms "$clean_start" "$clean_end")"
         total_end="$(now_ns)"
         total_ms="$(elapsed_ms "$total_start" "$total_end")"
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" 0 "$total_ms" "$clean_rss" "clean_failed"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" 0 "$total_ms" "$clean_rss" 0 "clean_failed"
         print_failure_log "make clean" "$clean_log"
         exit 1
     fi
@@ -396,7 +455,8 @@ while [[ "$run" -le "$RUNS" ]]; do
         total_end="$(now_ns)"
         total_ms="$(elapsed_ms "$total_start" "$total_end")"
         peak_rss="$(combine_peak_rss "$clean_rss" "$build_rss")"
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "$peak_rss" "build_failed"
+        collect_output_bytes "$run" "$run_dir"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "$peak_rss" "$OUTPUT_TOTAL_BYTES" "build_failed"
         print_failure_log "make uya" "$build_log"
         exit 1
     fi
@@ -406,13 +466,15 @@ while [[ "$run" -le "$RUNS" ]]; do
     total_end="$(now_ns)"
     total_ms="$(elapsed_ms "$total_start" "$total_end")"
     peak_rss="$(combine_peak_rss "$clean_rss" "$build_rss")"
+    collect_output_bytes "$run" "$run_dir"
 
     clean_values+=("$clean_ms")
     build_values+=("$build_ms")
     total_values+=("$total_ms")
     rss_values+=("$peak_rss")
+    output_values+=("$OUTPUT_TOTAL_BYTES")
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "$peak_rss" "ok"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "$peak_rss" "$OUTPUT_TOTAL_BYTES" "ok"
     run=$((run + 1))
 done
 
@@ -421,11 +483,12 @@ if [[ "$RUNS" -gt 1 ]]; then
     if [[ "$RSS_AVAILABLE" -eq 1 ]]; then
         median_rss="$(median_value "${rss_values[@]}")"
     fi
-    printf 'median\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf 'median\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$MODE" \
         "$(median_value "${clean_values[@]}")" \
         "$(median_value "${build_values[@]}")" \
         "$(median_value "${total_values[@]}")" \
         "$median_rss" \
+        "$(median_value "${output_values[@]}")" \
         "ok"
 fi
