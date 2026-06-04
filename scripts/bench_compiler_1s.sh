@@ -437,6 +437,45 @@ extract_log_stat() {
     printf '%s\n' "$value"
 }
 
+extract_first_log_stat() {
+    local log_file="$1"
+    shift
+    local value label
+    for label in "$@"; do
+        value="$(extract_log_stat "$label" "$log_file")"
+        if [[ "$value" != "NA" ]]; then
+            printf '%s\n' "$value"
+            return
+        fi
+    done
+    printf 'NA\n'
+}
+
+reset_compiler_phase_stats() {
+    PHASE_SEED_MS="NA"
+    PHASE_PARSE_MS="NA"
+    PHASE_BIND_MS="NA"
+    PHASE_CHECK_MS="NA"
+    PHASE_LOWER_MS="NA"
+    PHASE_EMIT_MS="NA"
+    PHASE_LINK_MS="NA"
+    ARENA_PEAK_BYTES="NA"
+}
+
+collect_compiler_phase_stats() {
+    local run_index="$1"
+    local build_log="$2"
+    reset_compiler_phase_stats
+    PHASE_PARSE_MS="$(extract_log_stat "解析耗时" "$build_log")"
+    PHASE_BIND_MS="$(extract_log_stat "合并耗时" "$build_log")"
+    PHASE_CHECK_MS="$(extract_log_stat "检查耗时" "$build_log")"
+    PHASE_LOWER_MS="$(extract_log_stat "exec lowering 耗时" "$build_log")"
+    PHASE_EMIT_MS="$(extract_first_log_stat "$build_log" "生成耗时" "exec build 耗时")"
+    ARENA_PEAK_BYTES="$(extract_log_stat "arena_peak_bytes" "$build_log")"
+    printf 'phase_stats\trun\t%s\tseed_ms\t%s\tparse_ms\t%s\tbind_ms\t%s\tcheck_ms\t%s\tlower_ms\t%s\temit_ms\t%s\tlink_ms\t%s\tarena_peak_bytes\t%s\n' \
+        "$run_index" "$PHASE_SEED_MS" "$PHASE_PARSE_MS" "$PHASE_BIND_MS" "$PHASE_CHECK_MS" "$PHASE_LOWER_MS" "$PHASE_EMIT_MS" "$PHASE_LINK_MS" "$ARENA_PEAK_BYTES" >&2
+}
+
 collect_table_stats() {
     local run_index="$1"
     local build_log="$2"
@@ -471,6 +510,17 @@ print_table_capacity_warning() {
         printf 'table_capacity_warning\trun\t%s\ttable_count\t%s\ttable_capacity\t%s\tratio\t%s\tthreshold\t%s\n' \
             "$run_index" "$TABLE_COUNT" "$TABLE_CAPACITY" "$ratio" "$TABLE_CAPACITY_RATIO_WARN" >&2
     fi
+}
+
+print_tsv_row() {
+    local run_index="$1"
+    local total_ms="$2"
+    local peak_rss="$3"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$run_index" "$MODE" \
+        "$PHASE_SEED_MS" "$PHASE_PARSE_MS" "$PHASE_BIND_MS" "$PHASE_CHECK_MS" "$PHASE_LOWER_MS" "$PHASE_EMIT_MS" "$PHASE_LINK_MS" \
+        "$total_ms" "$peak_rss" "$ARENA_PEAK_BYTES" "$OUTPUT_TOTAL_BYTES" \
+        "$TABLE_COUNT" "$TABLE_CAPACITY" "$TABLE_BYTES" "$TABLE_CAPACITY_BYTES" "$TABLE_REALLOC_COUNT"
 }
 
 median_or_na() {
@@ -526,6 +576,14 @@ clean_values=()
 build_values=()
 total_values=()
 rss_values=()
+seed_values=()
+parse_values=()
+bind_values=()
+check_values=()
+lower_values=()
+emit_values=()
+link_values=()
+arena_peak_values=()
 output_values=()
 table_count_values=()
 table_capacity_values=()
@@ -535,7 +593,7 @@ table_realloc_count_values=()
 
 print_metadata
 print_rss_unavailable_warning
-printf 'run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tpeak_rss_kb\toutput_bytes\ttable_count\ttable_capacity\ttable_bytes\ttable_capacity_bytes\ttable_realloc_count\tstatus\n'
+printf 'run\tmode\tseed_ms\tparse_ms\tbind_ms\tcheck_ms\tlower_ms\temit_ms\tlink_ms\ttotal_ms\tpeak_rss_kb\tarena_peak_bytes\toutput_bytes\ttable_count\ttable_capacity\ttable_bytes\ttable_capacity_bytes\ttable_realloc_count\n'
 
 run=1
 while [[ "$run" -le "$RUNS" ]]; do
@@ -555,7 +613,14 @@ while [[ "$run" -le "$RUNS" ]]; do
         clean_ms="$(elapsed_ms "$clean_start" "$clean_end")"
         total_end="$(now_ns)"
         total_ms="$(elapsed_ms "$total_start" "$total_end")"
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" 0 "$total_ms" "$clean_rss" 0 "NA" "NA" "NA" "NA" "NA" "clean_failed"
+        reset_compiler_phase_stats
+        OUTPUT_TOTAL_BYTES=0
+        TABLE_COUNT="NA"
+        TABLE_CAPACITY="NA"
+        TABLE_BYTES="NA"
+        TABLE_CAPACITY_BYTES="NA"
+        TABLE_REALLOC_COUNT="NA"
+        print_tsv_row "$run" "$total_ms" "$clean_rss"
         print_failure_log "make clean" "$clean_log"
         exit 1
     fi
@@ -572,9 +637,10 @@ while [[ "$run" -le "$RUNS" ]]; do
         peak_rss="$(combine_peak_rss "$clean_rss" "$build_rss")"
         collect_output_bytes "$run" "$run_dir"
         print_memory_trend "$run" "$peak_rss"
+        collect_compiler_phase_stats "$run" "$build_log"
         collect_table_stats "$run" "$build_log"
         print_table_capacity_warning "$run"
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "$peak_rss" "$OUTPUT_TOTAL_BYTES" "$TABLE_COUNT" "$TABLE_CAPACITY" "$TABLE_BYTES" "$TABLE_CAPACITY_BYTES" "$TABLE_REALLOC_COUNT" "build_failed"
+        print_tsv_row "$run" "$total_ms" "$peak_rss"
         print_failure_log "make uya" "$build_log"
         exit 1
     fi
@@ -586,6 +652,7 @@ while [[ "$run" -le "$RUNS" ]]; do
     peak_rss="$(combine_peak_rss "$clean_rss" "$build_rss")"
     collect_output_bytes "$run" "$run_dir"
     print_memory_trend "$run" "$peak_rss"
+    collect_compiler_phase_stats "$run" "$build_log"
     collect_table_stats "$run" "$build_log"
     print_table_capacity_warning "$run"
 
@@ -593,6 +660,14 @@ while [[ "$run" -le "$RUNS" ]]; do
     build_values+=("$build_ms")
     total_values+=("$total_ms")
     rss_values+=("$peak_rss")
+    seed_values+=("$PHASE_SEED_MS")
+    parse_values+=("$PHASE_PARSE_MS")
+    bind_values+=("$PHASE_BIND_MS")
+    check_values+=("$PHASE_CHECK_MS")
+    lower_values+=("$PHASE_LOWER_MS")
+    emit_values+=("$PHASE_EMIT_MS")
+    link_values+=("$PHASE_LINK_MS")
+    arena_peak_values+=("$ARENA_PEAK_BYTES")
     output_values+=("$OUTPUT_TOTAL_BYTES")
     table_count_values+=("$TABLE_COUNT")
     table_capacity_values+=("$TABLE_CAPACITY")
@@ -600,7 +675,7 @@ while [[ "$run" -le "$RUNS" ]]; do
     table_capacity_bytes_values+=("$TABLE_CAPACITY_BYTES")
     table_realloc_count_values+=("$TABLE_REALLOC_COUNT")
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "$peak_rss" "$OUTPUT_TOTAL_BYTES" "$TABLE_COUNT" "$TABLE_CAPACITY" "$TABLE_BYTES" "$TABLE_CAPACITY_BYTES" "$TABLE_REALLOC_COUNT" "ok"
+    print_tsv_row "$run" "$total_ms" "$peak_rss"
     run=$((run + 1))
 done
 
@@ -609,17 +684,22 @@ if [[ "$RUNS" -gt 1 ]]; then
     if [[ "$RSS_AVAILABLE" -eq 1 ]]; then
         median_rss="$(median_value "${rss_values[@]}")"
     fi
-    printf 'median\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf 'median\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$MODE" \
-        "$(median_value "${clean_values[@]}")" \
-        "$(median_value "${build_values[@]}")" \
+        "$(median_or_na "${seed_values[@]}")" \
+        "$(median_or_na "${parse_values[@]}")" \
+        "$(median_or_na "${bind_values[@]}")" \
+        "$(median_or_na "${check_values[@]}")" \
+        "$(median_or_na "${lower_values[@]}")" \
+        "$(median_or_na "${emit_values[@]}")" \
+        "$(median_or_na "${link_values[@]}")" \
         "$(median_value "${total_values[@]}")" \
         "$median_rss" \
+        "$(median_or_na "${arena_peak_values[@]}")" \
         "$(median_value "${output_values[@]}")" \
         "$(median_or_na "${table_count_values[@]}")" \
         "$(median_or_na "${table_capacity_values[@]}")" \
         "$(median_or_na "${table_bytes_values[@]}")" \
         "$(median_or_na "${table_capacity_bytes_values[@]}")" \
-        "$(median_or_na "${table_realloc_count_values[@]}")" \
-        "ok"
+        "$(median_or_na "${table_realloc_count_values[@]}")"
 fi

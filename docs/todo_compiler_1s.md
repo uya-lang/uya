@@ -72,7 +72,7 @@ make uya
 - [x] benchmark 输出内存趋势：当前值、baseline、变化百分比。
 - [x] benchmark 输出主要动态表摘要：`table_count`、`table_capacity`、`table_bytes`、`table_realloc_count`。
 - [x] benchmark 检查表容量不是一次性巨大预分配；若 `capacity/count` 比例异常，报告 warning。
-- [ ] benchmark TSV 输出字段：
+- [x] benchmark TSV 输出字段：
 
 ```text
 run	mode	seed_ms	parse_ms	bind_ms	check_ms	lower_ms	emit_ms	link_ms	total_ms	peak_rss_kb	arena_peak_bytes	output_bytes	table_count	table_capacity	table_bytes	table_capacity_bytes	table_realloc_count
