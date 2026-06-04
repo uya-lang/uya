@@ -2189,8 +2189,13 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             return -1;
         }
         var call_args: [ExecValue: EXEC_MAX_CALL_ARGS] = [];
+        const call_arg_limit: i32 = EXEC_MAX_CALL_ARGS;
+        if instr.c > call_arg_limit {
+            exec_backend_set_error(function.decl, "exec: VM CALL 参数超出上限" as *byte, 0);
+            return -1;
+        }
         var ai: i32 = 0;
-        while ai < instr.c && ai < EXEC_MAX_CALL_ARGS {
+        while ai < instr.c {
             const arg_slot: &ExecValue = exec_vm_slot_ref(frame, instr.b + ai);
             if arg_slot == null {
                 exec_backend_set_error(function.decl, "exec: CALL 参数槽位越界" as *byte, 0);
@@ -2219,8 +2224,14 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             return -1;
         }
         var call_args3: [ExecValue: EXEC_MAX_CALL_ARGS] = [];
+        const indirect_arg_count: i32 = instr.imm as i32;
+        const indirect_arg_limit: i32 = EXEC_MAX_CALL_ARGS;
+        if indirect_arg_count > indirect_arg_limit {
+            exec_backend_set_error(function.decl, "exec: VM CALL_INDIRECT 参数超出上限" as *byte, 0);
+            return -1;
+        }
         var ai3: i32 = 0;
-        while ai3 < instr.imm as i32 && ai3 < EXEC_MAX_CALL_ARGS {
+        while ai3 < indirect_arg_count {
             const arg_slot3: &ExecValue = exec_vm_slot_ref(frame, instr.c + ai3);
             if arg_slot3 == null {
                 exec_backend_set_error(function.decl, "exec: CALL_INDIRECT 参数槽位越界" as *byte, 0);
@@ -2230,7 +2241,7 @@ fn vm_step(program: &BCProgram, frame: &ExecFrame, trace_vm: i32, out_value: &Ex
             ai3 = ai3 + 1;
         }
         var indirect_result: ExecValue = exec_make_void();
-        if exec_vm_call_function(program, callee_idx2, &call_args3[0], instr.imm as i32, trace_vm, &indirect_result) != 0 {
+        if exec_vm_call_function(program, callee_idx2, &call_args3[0], indirect_arg_count, trace_vm, &indirect_result) != 0 {
             return -1;
         }
         exec_vm_store_slot(slot_a, indirect_result);
@@ -2360,7 +2371,13 @@ fn exec_vm_call_function(program: &BCProgram, function_index: i32, args: &ExecVa
     }
     if function.is_varargs != 0 {
         var vi: i32 = 0;
-        while function.param_count + vi < arg_count && vi < EXEC_MAX_CALL_ARGS {
+        const vararg_count: i32 = arg_count - function.param_count;
+        const vararg_limit: i32 = EXEC_MAX_CALL_ARGS;
+        if vararg_count > vararg_limit {
+            exec_backend_set_error(function.decl, "exec: VM varargs 参数超出上限" as *byte, 0);
+            return -1;
+        }
+        while function.param_count + vi < arg_count {
             frame.varargs[vi] = exec_vm_promote_vararg_value(args[function.param_count + vi]);
             vi = vi + 1;
         }

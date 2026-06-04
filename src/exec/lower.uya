@@ -782,7 +782,13 @@ fn exec_lower_find_drop_decl(checker: &TypeChecker, decl: &ASTNode, type: &Type)
 }
 
 fn exec_lower_append_local(ctx: &ExecLowerContext, decl: &ASTNode, name: &byte, type: &Type, is_param: i32) i32 {
-    if ctx == null || name == null || ctx.active_local_count >= EXEC_MAX_LOCALS || ctx.next_slot >= EXEC_MAX_LOCALS {
+    if ctx == null || name == null {
+        exec_backend_set_error(decl, "exec: local slot table 输入无效" as *byte, 0);
+        return -1;
+    }
+    const local_limit: i32 = EXEC_MAX_LOCALS;
+    if ctx.active_local_count >= local_limit || ctx.next_slot >= local_limit {
+        exec_backend_set_error(decl, "exec: local slot table 超出上限" as *byte, 0);
         return -1;
     }
     const slot: i32 = ctx.next_slot;
@@ -1430,7 +1436,9 @@ fn exec_lower_add_unique_decl(out_decls: & & ASTNode, out_count: &i32, decl: &AS
         }
         i = i + 1;
     }
-    if out_count[0] >= EXEC_MAX_INTERFACE_METHODS {
+    const iface_method_limit: i32 = EXEC_MAX_INTERFACE_METHODS;
+    if out_count[0] >= iface_method_limit {
+        exec_backend_set_error(decl, "exec: interface method table 超出上限" as *byte, 0);
         return -1;
     }
     out_decls[out_count[0]] = decl;
@@ -2179,7 +2187,7 @@ fn exec_lower_make_for_range_stmt(ctx: &ExecLowerContext, stmt_node: &ASTNode) &
     const end_slot: i32 = exec_lower_append_local(ctx, null, "__exec_for_end" as *byte, &iter_type, 0);
     if iter_slot < 0 || end_slot < 0 {
         exec_lower_pop_scope(ctx);
-        exec_backend_set_error(stmt_node, "exec: for range 槽位不足" as *byte, 0);
+        exec_backend_set_error(stmt_node, "exec: local slot table 超出上限" as *byte, 0);
         return null;
     }
 
@@ -3004,7 +3012,9 @@ fn exec_lower_add_requested_module_global_name(out_names: & & byte, out_count: &
         }
         i = i + 1;
     }
-    if out_count[0] >= EXEC_MAX_MODULE_GLOBAL_REQUESTS {
+    const request_limit: i32 = EXEC_MAX_MODULE_GLOBAL_REQUESTS;
+    if out_count[0] >= request_limit {
+        exec_backend_set_error(null, "exec: module global request table 超出上限" as *byte, 0);
         return;
     }
     out_names[out_count[0]] = name;
@@ -3255,6 +3265,9 @@ fn exec_lower_collect_global_slots_from_module_imports(checker: &TypeChecker, gl
             var requested_names: [&byte: EXEC_MAX_MODULE_GLOBAL_REQUESTS] = [];
             var requested_count: i32 = 0;
             exec_lower_collect_module_global_use_names_node(checker, checker.program_node, import_item.module_name, &requested_names[0] as & & byte, &requested_count);
+            if exec_backend_get_last_error() != null {
+                return -1;
+            }
             if exec_lower_collect_global_slots_from_module_import(checker, import_item.module_name, &requested_names[0] as & & byte, requested_count, globals, out_count) != 0 {
                 return -1;
             }
@@ -3283,6 +3296,9 @@ fn exec_lower_collect_global_slots_from_use_stmts(checker: &TypeChecker, globals
                     var requested_names: [&byte: EXEC_MAX_MODULE_GLOBAL_REQUESTS] = [];
                     var requested_count: i32 = 0;
                     exec_lower_collect_module_global_use_names_node(checker, checker.program_node, module_name, &requested_names[0] as & & byte, &requested_count);
+                    if exec_backend_get_last_error() != null {
+                        return -1;
+                    }
                     if exec_lower_collect_global_slots_from_module_import(checker, module_name, &requested_names[0] as & & byte, requested_count, globals, out_count) != 0 {
                         return -1;
                     }
@@ -3947,7 +3963,7 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             catch_bind_slot_early = exec_lower_append_local(ctx, null, expr.catch_expr_err_name, &catch_err_type_early, 0);
             if catch_bind_slot_early < 0 {
                 exec_lower_pop_scope(ctx);
-                exec_backend_set_error(expr, "exec: catch 错误绑定槽位不足" as *byte, 0);
+                exec_backend_set_error(expr, "exec: local slot table 超出上限" as *byte, 0);
                 return null;
             }
         }
@@ -5060,7 +5076,7 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
             catch_bind_slot = exec_lower_append_local(ctx, null, expr.catch_expr_err_name, &catch_err_type, 0);
             if catch_bind_slot < 0 {
                 exec_lower_pop_scope(ctx);
-                exec_backend_set_error(expr, "exec: catch 错误绑定槽位不足" as *byte, 0);
+                exec_backend_set_error(expr, "exec: local slot table 超出上限" as *byte, 0);
                 return null;
             }
         }
@@ -5211,7 +5227,7 @@ fn exec_lower_expr(ctx: &ExecLowerContext, expr: &ASTNode) &HIRExpr {
                         bind_slot = exec_lower_append_local(ctx, null, arm_union.var_name, &bind_type, 0);
                         if bind_slot < 0 {
                             exec_lower_pop_scope(ctx);
-                            exec_backend_set_error(expr, "exec: union match 绑定槽位不足" as *byte, 0);
+                            exec_backend_set_error(expr, "exec: local slot table 超出上限" as *byte, 0);
                             return null;
                         }
                     }
@@ -5338,7 +5354,7 @@ fn exec_lower_block(ctx: &ExecLowerContext, block: &ASTNode) &HIRBlock {
             const slot: i32 = exec_lower_append_local(ctx, stmt_node, stmt_node.var_decl_name, &local_type, 0);
             if slot < 0 {
                 exec_lower_pop_scope(ctx);
-                exec_backend_set_error(stmt_node, "exec: 局部变量槽位不足" as *byte, 0);
+                exec_backend_set_error(stmt_node, "exec: local slot table 超出上限" as *byte, 0);
                 return null;
             }
             const init_expr: &HIRExpr = exec_lower_coerce_expr(ctx, stmt_node.var_decl_init, &local_type);
@@ -5702,7 +5718,7 @@ fn exec_lower_function(arena: &CompilerArena, checker: &TypeChecker, fn_decl: &A
         if exec_lower_append_local(&ctx, param, param.var_decl_name, &param_type, 1) < 0 {
             checker.current_self_type_name = saved_self_type_name;
             checker.current_self_is_union = saved_self_is_union;
-            exec_backend_set_error(param, "exec: 参数槽位不足" as *byte, 0);
+            exec_backend_set_error(param, "exec: local slot table 超出上限" as *byte, 0);
             return null;
         }
         i = i + 1;
