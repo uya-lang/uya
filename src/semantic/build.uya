@@ -1,0 +1,173 @@
+// semantic/build.uya - Build a SemanticDb from the merged AST root.
+
+fn semantic_db_cstr_equals(a: &byte, b: &byte) i32 {
+    if a == null || b == null {
+        return 0;
+    }
+    var i: usize = 0usize;
+    while a[i] != 0 as byte && b[i] != 0 as byte {
+        if a[i] != b[i] {
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    if a[i] == b[i] {
+        return 1;
+    }
+    return 0;
+}
+
+fn semantic_db_decl_primary_name(decl: &ASTNode) &byte {
+    if decl == null {
+        return null;
+    }
+    if decl.type == ASTNodeType.AST_FN_DECL {
+        return decl.fn_decl_name;
+    } else if decl.type == ASTNodeType.AST_STRUCT_DECL {
+        return decl.struct_decl_name;
+    } else if decl.type == ASTNodeType.AST_UNION_DECL {
+        return decl.union_decl_name;
+    } else if decl.type == ASTNodeType.AST_INTERFACE_DECL {
+        return decl.interface_decl_name;
+    } else if decl.type == ASTNodeType.AST_ENUM_DECL {
+        return decl.enum_decl_name;
+    } else if decl.type == ASTNodeType.AST_TYPE_ALIAS {
+        return decl.type_alias_name;
+    } else if decl.type == ASTNodeType.AST_VAR_DECL {
+        return decl.var_decl_name;
+    } else if decl.type == ASTNodeType.AST_EXTERN_VAR_DECL {
+        return decl.extern_var_decl_name;
+    } else if decl.type == ASTNodeType.AST_ERROR_DECL {
+        return decl.error_decl_name;
+    } else if decl.type == ASTNodeType.AST_MACRO_DECL {
+        return decl.macro_decl_name;
+    }
+    return null;
+}
+
+fn semantic_db_filename_seen_before(program: &ASTNode, limit: i32, filename: &byte) i32 {
+    if program == null || filename == null {
+        return 0;
+    }
+    if semantic_db_cstr_equals(program.filename, filename) != 0 {
+        return 1;
+    }
+    var i: i32 = 0;
+    while i < limit {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null && semantic_db_cstr_equals(decl.filename, filename) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn semantic_db_count_unique_files(program: &ASTNode) i32 {
+    if program == null {
+        return 0;
+    }
+    var count: i32 = 0;
+    if program.filename != null {
+        count = 1;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null && decl.filename != null &&
+            semantic_db_filename_seen_before(program, i, decl.filename) == 0 {
+            count = count + 1;
+        }
+        i = i + 1;
+    }
+    return count;
+}
+
+fn semantic_db_count_method_symbols(db: &SemanticDb, methods: & & ASTNode, method_count: i32) void {
+    if db == null || methods == null || method_count <= 0 {
+        return;
+    }
+    var i: i32 = 0;
+    while i < method_count {
+        const method: &ASTNode = methods[i];
+        if method != null && method.type == ASTNodeType.AST_FN_DECL {
+            db.function_count = db.function_count + 1;
+            if method.fn_decl_name != null {
+                db.symbol_count = db.symbol_count + 1;
+                db.interned_name_count = db.interned_name_count + 1;
+            }
+        }
+        i = i + 1;
+    }
+}
+
+fn semantic_db_count_decl(db: &SemanticDb, decl: &ASTNode) void {
+    if db == null || decl == null {
+        return;
+    }
+    db.decl_count = db.decl_count + 1;
+
+    const primary_name: &byte = semantic_db_decl_primary_name(decl);
+    if primary_name != null {
+        db.symbol_count = db.symbol_count + 1;
+        db.interned_name_count = db.interned_name_count + 1;
+    }
+
+    if decl.type == ASTNodeType.AST_FN_DECL {
+        db.function_count = db.function_count + 1;
+    } else if decl.type == ASTNodeType.AST_STRUCT_DECL {
+        db.type_count = db.type_count + 1;
+        semantic_db_count_method_symbols(db, decl.struct_decl_methods, decl.struct_decl_method_count);
+    } else if decl.type == ASTNodeType.AST_UNION_DECL {
+        db.type_count = db.type_count + 1;
+        semantic_db_count_method_symbols(db, decl.union_decl_methods, decl.union_decl_method_count);
+    } else if decl.type == ASTNodeType.AST_INTERFACE_DECL {
+        db.type_count = db.type_count + 1;
+        semantic_db_count_method_symbols(db, decl.interface_decl_method_sigs, decl.interface_decl_method_sig_count);
+    } else if decl.type == ASTNodeType.AST_ENUM_DECL {
+        db.type_count = db.type_count + 1;
+        db.symbol_count = db.symbol_count + decl.enum_decl_variant_count;
+    } else if decl.type == ASTNodeType.AST_TYPE_ALIAS {
+        db.type_count = db.type_count + 1;
+    } else if decl.type == ASTNodeType.AST_METHOD_BLOCK {
+        semantic_db_count_method_symbols(db, decl.method_block_methods, decl.method_block_method_count);
+    }
+}
+
+fn semantic_db_update_estimated_bytes(db: &SemanticDb) void {
+    if db == null {
+        return;
+    }
+    var bytes: usize = @size_of(SemanticDb);
+    if db.decl_count > 0 {
+        bytes = bytes + (db.decl_count as usize) * @size_of(&ASTNode);
+    }
+    if db.symbol_count > 0 {
+        bytes = bytes + (db.symbol_count as usize) * @size_of(i32);
+    }
+    db.estimated_bytes = bytes;
+}
+
+/// 功能说明：从已合并的 `AST_PROGRAM` 根节点构建 SemanticDb 基础计数。
+/// 参数说明：`db` 为输出数据库，`program` 为 `ast_merge_programs` 后的程序根。
+/// 返回值说明：成功返回 `0`；参数无效或输入不是 merged program 时返回 `-1`。
+export fn semantic_db_build_from_merged_ast(db: &SemanticDb, program: &ASTNode) i32 {
+    if db == null || program == null || program.type != ASTNodeType.AST_PROGRAM {
+        return -1;
+    }
+    if program.program_decl_count > 0 && program.program_decls == null {
+        return -1;
+    }
+
+    semantic_db_reset(db);
+    db.file_count = semantic_db_count_unique_files(program);
+    db.module_count = db.file_count;
+
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        semantic_db_count_decl(db, program.program_decls[i]);
+        i = i + 1;
+    }
+    semantic_db_update_estimated_bytes(db);
+    return 0;
+}

@@ -155,7 +155,7 @@ MonoInstanceId
 - [x] 新建 `src/semantic/intern.uya`，实现字符串 intern 表。
 - [x] intern 表按负载因子动态扩容，不允许固定 4096/8192 槽作为语义上限。
 - [x] 新建 `src/semantic/db.uya`，定义 `SemanticDb`。
-- [ ] 新建 `src/semantic/build.uya`，从 merged AST 构建 `SemanticDb`。
+- [x] 新建 `src/semantic/build.uya`，从 merged AST 构建 `SemanticDb`。
 - [ ] `SemanticDb` 内部使用紧凑数组/range，不为每个名字单独堆分配链表节点。
 - [ ] `SemanticDb` 所有数组、range、hash bucket、collision list 都随数据增长动态扩容。
 - [ ] `SemanticDb` 记录自身估算字节数。
