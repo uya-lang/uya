@@ -2144,6 +2144,12 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         t_mk1 = clock();
         prof_ms_precollect = ((t_mk1 as i64) - (t_precollect_start as i64)) * 1000 / (CLOCKS_PER_SEC as i64);
     }
+    if g_c99_codegen_has_error != 0 {
+        if codegen.checker != null {
+            codegen.checker.suppress_codegen_diagnostics = saved_checker_codegen_diag;
+        }
+        return -1;
+    }
 
     // 镜像多 TU：须在 precollect 之后打开各 .c，以便根据 has_stdio_conflicts 写入 stdin/stdout/stderr 前向声明
     if codegen.split_enabled != 0 && codegen.split_mirror != 0 {
@@ -5010,7 +5016,9 @@ fn emit_async_frame_descriptors(codegen: &C99CodeGenerator) void {
         count = 0;
     }
     if count > MAX_ASYNC_FRAME_METAS {
-        count = MAX_ASYNC_FRAME_METAS;
+        c99_codegen_report_capacity_error(null, "async frame descriptor metadata" as &byte,
+            count, MAX_ASYNC_FRAME_METAS);
+        return;
     }
     if count == 0 && c99_program_uses_async_frame_runtime(codegen) == 0 {
         fprintf(codegen.emit_stream as *void, "int32_t _uya_async_frame_heap_fallback = %d;\n" as *byte, codegen.async_frame_heap_fallback);

@@ -4,6 +4,8 @@
 // 注意：需要先包含 internal.uya（包含类型定义和函数声明）
 // 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
 
+extern fn c99_codegen_report_capacity_error(node: &ASTNode, table_name: &byte, count: i32, limit: i32) void;
+
 // 检查结构体是否已添加到表中
 fn is_struct_in_table(codegen: &C99CodeGenerator, struct_name: &byte) i32 {
     if struct_name == null {
@@ -50,6 +52,9 @@ fn mark_struct_defined(codegen: &C99CodeGenerator, struct_name: &byte) void {
         codegen.struct_definitions[struct_idx].name = struct_name;
         codegen.struct_definitions[struct_idx].defined = 1;
         codegen.struct_definition_count = struct_idx + 1;
+    } else {
+        c99_codegen_report_capacity_error(null, "struct definition registry" as &byte,
+            struct_idx, C99_MAX_STRUCT_DEFINITIONS);
     }
 }
 
@@ -67,6 +72,9 @@ fn add_struct_definition(codegen: &C99CodeGenerator, struct_name: &byte) void {
         codegen.struct_definitions[struct_idx2].name = struct_name;
         codegen.struct_definitions[struct_idx2].defined = 0;
         codegen.struct_definition_count = struct_idx2 + 1;
+    } else {
+        c99_codegen_report_capacity_error(null, "struct definition registry" as &byte,
+            struct_idx2, C99_MAX_STRUCT_DEFINITIONS);
     }
 }
 

@@ -27,7 +27,7 @@ fn c99_codegen_report_capacity_error(node: &ASTNode, table_name: &byte, count: i
     g_c99_codegen_has_error = 1;
     var name: &byte = table_name;
     if name == null {
-        name = "unknown worklist" as &byte;
+        name = "unknown table" as &byte;
     }
     if node != null && node.filename != null {
         fprintf(libc.stderr as *void, "%s:(%d:%d): 错误: C99 codegen %s 超出固定上限 (%d/%d)\n" as *byte,
@@ -490,6 +490,8 @@ fn c99_get_or_add_error_id(codegen: &C99CodeGenerator, name: &byte) i32 {
         i = i + 1;
     }
     if codegen.error_count >= C99_MAX_ERROR_IDS {
+        c99_codegen_report_capacity_error(null, "error id registry" as &byte,
+            codegen.error_count, C99_MAX_ERROR_IDS);
         return 0;
     }
     const copy: &byte = c99_arena_strdup(codegen.arena, name);
@@ -500,6 +502,10 @@ fn c99_get_or_add_error_id(codegen: &C99CodeGenerator, name: &byte) i32 {
     if err_idx >= 0 && err_idx < C99_MAX_ERROR_IDS {
         codegen.error_names[err_idx] = copy;
         codegen.error_hashes[err_idx] = h;
+    } else {
+        c99_codegen_report_capacity_error(null, "error id registry" as &byte,
+            err_idx, C99_MAX_ERROR_IDS);
+        return 0;
     }
     codegen.error_count = codegen.error_count + 1;
     return h as i32;
@@ -1751,7 +1757,7 @@ fn get_safe_c_identifier(codegen: &C99CodeGenerator, name: &byte) &byte {
 
 // 添加字符串常量
 fn add_string_constant(codegen: &C99CodeGenerator, value: &byte) &byte {
-    if value == null {
+    if codegen == null || value == null {
         return null;
     }
     c99_utils_cache_ensure(codegen);
@@ -1773,6 +1779,8 @@ fn add_string_constant(codegen: &C99CodeGenerator, value: &byte) &byte {
     
     // 创建新的字符串常量
     if codegen.string_constant_count >= C99_MAX_STRING_CONSTANTS {
+        c99_codegen_report_capacity_error(null, "string constant registry" as &byte,
+            codegen.string_constant_count, C99_MAX_STRING_CONSTANTS);
         return null;
     }
     
@@ -1787,6 +1795,8 @@ fn add_string_constant(codegen: &C99CodeGenerator, value: &byte) &byte {
         codegen.string_constants[string_idx].value = value;  // 注意：value 应该已经在 Arena 中
         codegen.string_constant_count = string_idx + 1;
     } else {
+        c99_codegen_report_capacity_error(null, "string constant registry" as &byte,
+            string_idx, C99_MAX_STRING_CONSTANTS);
         return null;
     }
     const stored_idx: i32 = codegen.string_constant_count - 1;
@@ -1794,6 +1804,8 @@ fn add_string_constant(codegen: &C99CodeGenerator, value: &byte) &byte {
         return null;
     }
     if stored_idx >= C99_MAX_STRING_CONSTANTS {
+        c99_codegen_report_capacity_error(null, "string constant registry" as &byte,
+            stored_idx, C99_MAX_STRING_CONSTANTS);
         return null;
     }
     const const_name: &byte = codegen.string_constants[stored_idx].name;
@@ -1837,6 +1849,8 @@ fn c99_register_embed_builtin_slice_struct(codegen: &C99CodeGenerator, struct_na
         i = i + 1;
     }
     if codegen.slice_struct_count < 0 || codegen.slice_struct_count >= C99_MAX_SLICE_STRUCTS {
+        c99_codegen_report_capacity_error(null, "slice struct registry" as &byte,
+            codegen.slice_struct_count, C99_MAX_SLICE_STRUCTS);
         return;
     }
     const elem_type: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, 0, 0, codegen.arena, null);
@@ -1882,12 +1896,16 @@ fn add_embed_constant(codegen: &C99CodeGenerator, resolved_path: &byte, data: &b
         i = i + 1;
     }
     if codegen.embedded_constant_count < 0 || codegen.embedded_constant_count >= C99_MAX_EMBEDDED_CONSTANTS {
+        c99_codegen_report_capacity_error(null, "embedded constant registry" as &byte,
+            codegen.embedded_constant_count, C99_MAX_EMBEDDED_CONSTANTS);
         return null;
     }
     var name_buf: [byte: NUM_BUF_SIZE] = [];
     snprintf(&name_buf[0] as *byte, NUM_BUF_SIZE, "uya_embed_%d" as *byte, codegen.embedded_constant_count);
     const idx: i32 = codegen.embedded_constant_count;
     if idx < 0 || idx >= @len(codegen.embedded_constants) as i32 {
+        c99_codegen_report_capacity_error(null, "embedded constant registry" as &byte,
+            idx, C99_MAX_EMBEDDED_CONSTANTS);
         return null;
     }
     if idx >= 0 && idx < @len(codegen.embedded_constants) as i32 {
@@ -1915,6 +1933,8 @@ fn add_embed_dir_table(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
         i = i + 1;
     }
     if codegen.embedded_dir_table_count < 0 || codegen.embedded_dir_table_count >= C99_MAX_EMBED_DIR_TABLES {
+        c99_codegen_report_capacity_error(expr, "embedded dir table registry" as &byte,
+            codegen.embedded_dir_table_count, C99_MAX_EMBED_DIR_TABLES);
         return null;
     }
     c99_register_embed_slice_types(codegen, 1);
@@ -1922,6 +1942,8 @@ fn add_embed_dir_table(codegen: &C99CodeGenerator, expr: &ASTNode) &byte {
     snprintf(&name_buf[0] as *byte, NUM_BUF_SIZE, "uya_embed_dir_%d" as *byte, codegen.embedded_dir_table_count);
     const idx: i32 = codegen.embedded_dir_table_count;
     if idx < 0 || idx >= @len(codegen.embedded_dir_tables) as i32 {
+        c99_codegen_report_capacity_error(expr, "embedded dir table registry" as &byte,
+            idx, C99_MAX_EMBED_DIR_TABLES);
         return null;
     }
     if idx >= 0 && idx < @len(codegen.embedded_dir_tables) as i32 {
@@ -2025,7 +2047,10 @@ export fn emit_pending_string_constants(codegen: &C99CodeGenerator) void {
     }
     var emit_end: i32 = codegen.string_constant_count;
     if emit_end > C99_MAX_STRING_CONSTANTS {
-        emit_end = C99_MAX_STRING_CONSTANTS;
+        c99_codegen_report_capacity_error(null, "string constant emitted metadata" as &byte,
+            emit_end, C99_MAX_STRING_CONSTANTS);
+        codegen.emit_stream = saved;
+        return;
     }
     var i: i32 = emit_start;
     while i < emit_end {
@@ -2034,7 +2059,10 @@ export fn emit_pending_string_constants(codegen: &C99CodeGenerator) void {
             continue;
         }
         if i >= C99_MAX_STRING_CONSTANTS {
-            break;
+            c99_codegen_report_capacity_error(null, "string constant emitted metadata" as &byte,
+                i, C99_MAX_STRING_CONSTANTS);
+            codegen.emit_stream = saved;
+            return;
         }
         const string_value: &byte = c99_string_const_value_at(codegen, i);
         const string_name: &byte = c99_string_const_name_at(codegen, i);
@@ -2063,7 +2091,9 @@ fn emit_embed_constants_range(codegen: &C99CodeGenerator, start_idx: i32, end_id
     }
     var emit_end: i32 = end_idx;
     if emit_end > @len(codegen.embedded_constants) as i32 {
-        emit_end = @len(codegen.embedded_constants) as i32;
+        c99_codegen_report_capacity_error(null, "embedded constant emitted metadata" as &byte,
+            emit_end, C99_MAX_EMBEDDED_CONSTANTS);
+        return;
     }
     while i < emit_end {
         if i < 0 || i >= @len(codegen.embedded_constants) as i32 {
@@ -2153,7 +2183,9 @@ fn emit_embed_dir_tables_range(codegen: &C99CodeGenerator, start_idx: i32, end_i
     }
     var emit_end: i32 = end_idx;
     if emit_end > @len(codegen.embedded_dir_tables) as i32 {
-        emit_end = @len(codegen.embedded_dir_tables) as i32;
+        c99_codegen_report_capacity_error(null, "embedded dir table emitted metadata" as &byte,
+            emit_end, C99_MAX_EMBED_DIR_TABLES);
+        return;
     }
     while i < emit_end {
         if i < 0 || i >= @len(codegen.embedded_dir_tables) as i32 {

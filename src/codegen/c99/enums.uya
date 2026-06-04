@@ -7,6 +7,8 @@
 // ===== 外部函数声明 =====
 // C 标准库函数（在 extern_decls.uya 中声明）
 
+extern fn c99_codegen_report_capacity_error(node: &ASTNode, table_name: &byte, count: i32, limit: i32) void;
+
 fn find_enum_decl_c99(codegen: &C99CodeGenerator, enum_name: &byte) &ASTNode {
     if codegen == null || enum_name == null || codegen.program_node == null {
         return null;
@@ -337,6 +339,9 @@ fn add_enum_definition(codegen: &C99CodeGenerator, enum_name: &byte) void {
         codegen.enum_definitions[enum_idx].name = enum_name;
         codegen.enum_definitions[enum_idx].defined = 0;
         codegen.enum_definition_count = enum_idx + 1;
+    } else {
+        c99_codegen_report_capacity_error(null, "enum definition registry" as &byte,
+            enum_idx, C99_MAX_ENUM_DEFINITIONS);
     }
 }
 
