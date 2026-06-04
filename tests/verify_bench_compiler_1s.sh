@@ -58,6 +58,13 @@ fi
 
 printf '%s\n' "$target" >>"$CALL_LOG"
 echo "fake make $target"
+if [[ "$target" == "uya" ]]; then
+    echo "table_count: 3"
+    echo "table_capacity: 8"
+    echo "table_bytes: 96"
+    echo "table_capacity_bytes: 256"
+    echo "table_realloc_count: 2"
+fi
 
 if [[ "${UYA_FAKE_MAKE_FAIL_TARGET:-}" == "$target" ]]; then
     echo "fake failure for $target" >&2
@@ -134,17 +141,17 @@ if ! CFLAGS="-std=c99 -O2 -Werror" CC_DRIVER="fake-cc" MAKE="$FAKE_MAKE" UYA_FAK
     exit 1
 fi
 
-if ! grep -q $'^run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tpeak_rss_kb\toutput_bytes\tstatus$' "$TMP_DIR/bench.tsv"; then
+if ! grep -q $'^run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tpeak_rss_kb\toutput_bytes\ttable_count\ttable_capacity\ttable_bytes\ttable_capacity_bytes\ttable_realloc_count\tstatus$' "$TMP_DIR/bench.tsv"; then
     echo "错误: benchmark TSV 表头不正确" >&2
     cat "$TMP_DIR/bench.tsv" >&2
     exit 1
 fi
 if ! awk -F '\t' '
     NR == 2 || NR == 3 {
-        if (!($1 ~ /^[12]$/ && $2 == "c99" && NF == 8 && $3 >= 0 && $4 >= 0 && $5 >= 0 && $6 >= 0 && $7 > 0 && $8 == "ok")) exit 1;
+        if (!($1 ~ /^[12]$/ && $2 == "c99" && NF == 13 && $3 >= 0 && $4 >= 0 && $5 >= 0 && $6 >= 0 && $7 > 0 && $8 == 3 && $9 == 8 && $10 == 96 && $11 == 256 && $12 == 2 && $13 == "ok")) exit 1;
     }
     NR == 4 {
-        if (!($1 == "median" && $2 == "c99" && NF == 8 && $3 >= 0 && $4 >= 0 && $5 >= 0 && $6 >= 0 && $7 > 0 && $8 == "ok")) exit 1;
+        if (!($1 == "median" && $2 == "c99" && NF == 13 && $3 >= 0 && $4 >= 0 && $5 >= 0 && $6 >= 0 && $7 > 0 && $8 == 3 && $9 == 8 && $10 == 96 && $11 == 256 && $12 == 2 && $13 == "ok")) exit 1;
     }
     END { if (NR != 4) exit 1 }
 ' "$TMP_DIR/bench.tsv"; then
@@ -185,6 +192,11 @@ if ! grep -Eq $'^memory_trend\trun\t1\tcurrent_peak_rss_kb\t[0-9]+\tbaseline_pea
     cat "$TMP_DIR/bench.err" >&2
     exit 1
 fi
+if ! grep -Eq $'^table_stats\trun\t1\ttable_count\t3\ttable_capacity\t8\ttable_bytes\t96\ttable_capacity_bytes\t256\ttable_realloc_count\t2\tstatus\tok$' "$TMP_DIR/bench.err"; then
+    echo "错误: benchmark 未输出动态表统计摘要" >&2
+    cat "$TMP_DIR/bench.err" >&2
+    exit 1
+fi
 if compgen -G "$TMP_DIR/uya-bench-compiler-1s.*" >/dev/null; then
     echo "错误: benchmark 临时日志目录未清理" >&2
     compgen -G "$TMP_DIR/uya-bench-compiler-1s.*" >&2
@@ -203,7 +215,7 @@ if ! grep -q "RSS 未测量" "$TMP_DIR/noproc.err"; then
     cat "$TMP_DIR/noproc.err" >&2
     exit 1
 fi
-if ! awk -F '\t' 'NR == 2 { exit !($1 == "1" && $2 == "c99" && NF == 8 && $6 == "NA" && $7 >= 0 && $8 == "ok") } END { if (NR != 2) exit 1 }' "$TMP_DIR/noproc.tsv"; then
+if ! awk -F '\t' 'NR == 2 { exit !($1 == "1" && $2 == "c99" && NF == 13 && $6 == "NA" && $7 >= 0 && $8 == 3 && $13 == "ok") } END { if (NR != 2) exit 1 }' "$TMP_DIR/noproc.tsv"; then
     echo "错误: 缺少 /proc 时 peak_rss_kb 应为 NA" >&2
     cat "$TMP_DIR/noproc.tsv" >&2
     exit 1

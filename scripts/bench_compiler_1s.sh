@@ -408,6 +408,56 @@ print_memory_trend() {
         "$run_index" "$current" "$BASELINE_RSS_KB" "$change_pct" >&2
 }
 
+extract_log_stat() {
+    local label="$1"
+    local log_file="$2"
+    local value
+    value="$(awk -F': ' -v label="$label" '
+        $1 == label {
+            split($2, parts, " ");
+            result = parts[1];
+        }
+        END {
+            if (result == "") {
+                print "NA";
+            } else {
+                print result;
+            }
+        }
+    ' "$log_file" 2>/dev/null || printf 'NA\n')"
+    if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+        value="NA"
+    fi
+    printf '%s\n' "$value"
+}
+
+collect_table_stats() {
+    local run_index="$1"
+    local build_log="$2"
+    TABLE_COUNT="$(extract_log_stat "table_count" "$build_log")"
+    TABLE_CAPACITY="$(extract_log_stat "table_capacity" "$build_log")"
+    TABLE_BYTES="$(extract_log_stat "table_bytes" "$build_log")"
+    TABLE_CAPACITY_BYTES="$(extract_log_stat "table_capacity_bytes" "$build_log")"
+    TABLE_REALLOC_COUNT="$(extract_log_stat "table_realloc_count" "$build_log")"
+    TABLE_STATS_STATUS="ok"
+    if [[ "$TABLE_COUNT" == "NA" || "$TABLE_CAPACITY" == "NA" || "$TABLE_BYTES" == "NA" || "$TABLE_CAPACITY_BYTES" == "NA" || "$TABLE_REALLOC_COUNT" == "NA" ]]; then
+        TABLE_STATS_STATUS="unavailable"
+    fi
+    printf 'table_stats\trun\t%s\ttable_count\t%s\ttable_capacity\t%s\ttable_bytes\t%s\ttable_capacity_bytes\t%s\ttable_realloc_count\t%s\tstatus\t%s\n' \
+        "$run_index" "$TABLE_COUNT" "$TABLE_CAPACITY" "$TABLE_BYTES" "$TABLE_CAPACITY_BYTES" "$TABLE_REALLOC_COUNT" "$TABLE_STATS_STATUS" >&2
+}
+
+median_or_na() {
+    local value
+    for value in "$@"; do
+        if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+            printf 'NA\n'
+            return
+        fi
+    done
+    median_value "$@"
+}
+
 print_rss_unavailable_warning() {
     if [[ "$RSS_AVAILABLE" -ne 1 ]]; then
         echo "RSS 未测量: 缺少可用的 $PROC_ROOT/<pid>/status 或 smaps_rollup；该运行不能计入内存达标。" >&2
@@ -451,10 +501,15 @@ build_values=()
 total_values=()
 rss_values=()
 output_values=()
+table_count_values=()
+table_capacity_values=()
+table_bytes_values=()
+table_capacity_bytes_values=()
+table_realloc_count_values=()
 
 print_metadata
 print_rss_unavailable_warning
-printf 'run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tpeak_rss_kb\toutput_bytes\tstatus\n'
+printf 'run\tmode\tclean_ms\tbuild_ms\ttotal_ms\tpeak_rss_kb\toutput_bytes\ttable_count\ttable_capacity\ttable_bytes\ttable_capacity_bytes\ttable_realloc_count\tstatus\n'
 
 run=1
 while [[ "$run" -le "$RUNS" ]]; do
@@ -474,7 +529,7 @@ while [[ "$run" -le "$RUNS" ]]; do
         clean_ms="$(elapsed_ms "$clean_start" "$clean_end")"
         total_end="$(now_ns)"
         total_ms="$(elapsed_ms "$total_start" "$total_end")"
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" 0 "$total_ms" "$clean_rss" 0 "clean_failed"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" 0 "$total_ms" "$clean_rss" 0 "NA" "NA" "NA" "NA" "NA" "clean_failed"
         print_failure_log "make clean" "$clean_log"
         exit 1
     fi
@@ -491,7 +546,8 @@ while [[ "$run" -le "$RUNS" ]]; do
         peak_rss="$(combine_peak_rss "$clean_rss" "$build_rss")"
         collect_output_bytes "$run" "$run_dir"
         print_memory_trend "$run" "$peak_rss"
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "$peak_rss" "$OUTPUT_TOTAL_BYTES" "build_failed"
+        collect_table_stats "$run" "$build_log"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "$peak_rss" "$OUTPUT_TOTAL_BYTES" "$TABLE_COUNT" "$TABLE_CAPACITY" "$TABLE_BYTES" "$TABLE_CAPACITY_BYTES" "$TABLE_REALLOC_COUNT" "build_failed"
         print_failure_log "make uya" "$build_log"
         exit 1
     fi
@@ -503,14 +559,20 @@ while [[ "$run" -le "$RUNS" ]]; do
     peak_rss="$(combine_peak_rss "$clean_rss" "$build_rss")"
     collect_output_bytes "$run" "$run_dir"
     print_memory_trend "$run" "$peak_rss"
+    collect_table_stats "$run" "$build_log"
 
     clean_values+=("$clean_ms")
     build_values+=("$build_ms")
     total_values+=("$total_ms")
     rss_values+=("$peak_rss")
     output_values+=("$OUTPUT_TOTAL_BYTES")
+    table_count_values+=("$TABLE_COUNT")
+    table_capacity_values+=("$TABLE_CAPACITY")
+    table_bytes_values+=("$TABLE_BYTES")
+    table_capacity_bytes_values+=("$TABLE_CAPACITY_BYTES")
+    table_realloc_count_values+=("$TABLE_REALLOC_COUNT")
 
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "$peak_rss" "$OUTPUT_TOTAL_BYTES" "ok"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "$peak_rss" "$OUTPUT_TOTAL_BYTES" "$TABLE_COUNT" "$TABLE_CAPACITY" "$TABLE_BYTES" "$TABLE_CAPACITY_BYTES" "$TABLE_REALLOC_COUNT" "ok"
     run=$((run + 1))
 done
 
@@ -519,12 +581,17 @@ if [[ "$RUNS" -gt 1 ]]; then
     if [[ "$RSS_AVAILABLE" -eq 1 ]]; then
         median_rss="$(median_value "${rss_values[@]}")"
     fi
-    printf 'median\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf 'median\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$MODE" \
         "$(median_value "${clean_values[@]}")" \
         "$(median_value "${build_values[@]}")" \
         "$(median_value "${total_values[@]}")" \
         "$median_rss" \
         "$(median_value "${output_values[@]}")" \
+        "$(median_or_na "${table_count_values[@]}")" \
+        "$(median_or_na "${table_capacity_values[@]}")" \
+        "$(median_or_na "${table_bytes_values[@]}")" \
+        "$(median_or_na "${table_capacity_bytes_values[@]}")" \
+        "$(median_or_na "${table_realloc_count_values[@]}")" \
         "ok"
 fi
