@@ -7,6 +7,7 @@ MODE="c99"
 KEEP_LOGS=0
 BENCH_TMPDIR="${UYA_BENCH_TMPDIR:-/tmp}"
 BASELINE_RSS_KB="${UYA_BENCH_BASELINE_RSS_KB:-NA}"
+TABLE_CAPACITY_RATIO_WARN="${UYA_BENCH_TABLE_CAPACITY_RATIO_WARN:-8}"
 WORK_DIR=""
 
 usage() {
@@ -58,6 +59,10 @@ if ! [[ "$RUNS" =~ ^[0-9]+$ ]] || [[ "$RUNS" -lt 1 ]]; then
 fi
 if [[ "$BASELINE_RSS_KB" != "NA" ]] && ! [[ "$BASELINE_RSS_KB" =~ ^[0-9]+$ ]]; then
     echo "错误: --baseline-rss-kb 必须是非负整数" >&2
+    exit 1
+fi
+if ! [[ "$TABLE_CAPACITY_RATIO_WARN" =~ ^[0-9]+$ ]] || [[ "$TABLE_CAPACITY_RATIO_WARN" -lt 1 ]]; then
+    echo "错误: UYA_BENCH_TABLE_CAPACITY_RATIO_WARN 必须是大于等于 1 的整数" >&2
     exit 1
 fi
 
@@ -196,6 +201,7 @@ print_metadata() {
     printf 'metadata\tnative_enabled\t%s\n' "$native_enabled" >&2
     printf 'metadata\tc99_enabled\t%s\n' "$c99_enabled" >&2
     printf 'metadata\tbaseline_peak_rss_kb\t%s\n' "$BASELINE_RSS_KB" >&2
+    printf 'metadata\ttable_capacity_ratio_warn\t%s\n' "$TABLE_CAPACITY_RATIO_WARN" >&2
 }
 
 clean_cold_build_artifacts() {
@@ -447,6 +453,26 @@ collect_table_stats() {
         "$run_index" "$TABLE_COUNT" "$TABLE_CAPACITY" "$TABLE_BYTES" "$TABLE_CAPACITY_BYTES" "$TABLE_REALLOC_COUNT" "$TABLE_STATS_STATUS" >&2
 }
 
+print_table_capacity_warning() {
+    local run_index="$1"
+    local ratio
+    if [[ "$TABLE_STATS_STATUS" != "ok" ]]; then
+        return
+    fi
+    if [[ "$TABLE_COUNT" -eq 0 ]]; then
+        if [[ "$TABLE_CAPACITY" -gt 0 ]]; then
+            printf 'table_capacity_warning\trun\t%s\ttable_count\t%s\ttable_capacity\t%s\tratio\tinf\tthreshold\t%s\n' \
+                "$run_index" "$TABLE_COUNT" "$TABLE_CAPACITY" "$TABLE_CAPACITY_RATIO_WARN" >&2
+        fi
+        return
+    fi
+    ratio=$((TABLE_CAPACITY / TABLE_COUNT))
+    if [[ "$TABLE_CAPACITY" -gt $((TABLE_COUNT * TABLE_CAPACITY_RATIO_WARN)) ]]; then
+        printf 'table_capacity_warning\trun\t%s\ttable_count\t%s\ttable_capacity\t%s\tratio\t%s\tthreshold\t%s\n' \
+            "$run_index" "$TABLE_COUNT" "$TABLE_CAPACITY" "$ratio" "$TABLE_CAPACITY_RATIO_WARN" >&2
+    fi
+}
+
 median_or_na() {
     local value
     for value in "$@"; do
@@ -547,6 +573,7 @@ while [[ "$run" -le "$RUNS" ]]; do
         collect_output_bytes "$run" "$run_dir"
         print_memory_trend "$run" "$peak_rss"
         collect_table_stats "$run" "$build_log"
+        print_table_capacity_warning "$run"
         printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$run" "$MODE" "$clean_ms" "$build_ms" "$total_ms" "$peak_rss" "$OUTPUT_TOTAL_BYTES" "$TABLE_COUNT" "$TABLE_CAPACITY" "$TABLE_BYTES" "$TABLE_CAPACITY_BYTES" "$TABLE_REALLOC_COUNT" "build_failed"
         print_failure_log "make uya" "$build_log"
         exit 1
@@ -560,6 +587,7 @@ while [[ "$run" -le "$RUNS" ]]; do
     collect_output_bytes "$run" "$run_dir"
     print_memory_trend "$run" "$peak_rss"
     collect_table_stats "$run" "$build_log"
+    print_table_capacity_warning "$run"
 
     clean_values+=("$clean_ms")
     build_values+=("$build_ms")

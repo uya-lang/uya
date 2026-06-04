@@ -59,11 +59,19 @@ fi
 printf '%s\n' "$target" >>"$CALL_LOG"
 echo "fake make $target"
 if [[ "$target" == "uya" ]]; then
-    echo "table_count: 3"
-    echo "table_capacity: 8"
-    echo "table_bytes: 96"
-    echo "table_capacity_bytes: 256"
-    echo "table_realloc_count: 2"
+    if [[ "${UYA_FAKE_TABLE_OVERALLOC:-0}" == "1" ]]; then
+        echo "table_count: 1"
+        echo "table_capacity: 100"
+        echo "table_bytes: 8"
+        echo "table_capacity_bytes: 800"
+        echo "table_realloc_count: 0"
+    else
+        echo "table_count: 3"
+        echo "table_capacity: 8"
+        echo "table_bytes: 96"
+        echo "table_capacity_bytes: 256"
+        echo "table_realloc_count: 2"
+    fi
 fi
 
 if [[ "${UYA_FAKE_MAKE_FAIL_TARGET:-}" == "$target" ]]; then
@@ -200,6 +208,19 @@ fi
 if compgen -G "$TMP_DIR/uya-bench-compiler-1s.*" >/dev/null; then
     echo "错误: benchmark 临时日志目录未清理" >&2
     compgen -G "$TMP_DIR/uya-bench-compiler-1s.*" >&2
+    exit 1
+fi
+
+CALL_LOG="$TMP_DIR/calls.overalloc"
+: >"$CALL_LOG"
+if ! MAKE="$FAKE_MAKE" UYA_FAKE_MAKE_CALL_LOG="$CALL_LOG" UYA_FAKE_TABLE_OVERALLOC=1 UYA_BENCH_TMPDIR="$TMP_DIR" bash "$BENCH_SCRIPT" --runs 1 >"$TMP_DIR/overalloc.tsv" 2>"$TMP_DIR/overalloc.err"; then
+    echo "错误: 过度预分配场景 benchmark 应完成并报告 warning" >&2
+    cat "$TMP_DIR/overalloc.err" >&2
+    exit 1
+fi
+if ! grep -Eq $'^table_capacity_warning\trun\t1\ttable_count\t1\ttable_capacity\t100\tratio\t100\tthreshold\t[0-9]+$' "$TMP_DIR/overalloc.err"; then
+    echo "错误: 过度预分配场景未输出 table capacity warning" >&2
+    cat "$TMP_DIR/overalloc.err" >&2
     exit 1
 fi
 
