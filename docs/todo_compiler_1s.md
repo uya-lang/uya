@@ -95,6 +95,18 @@ make bench-compiler-1s-check
 
 ---
 
+## Phase 0A: 固定表迁移门禁
+
+- [x] 建立固定表审计清单，至少包含：
+  - [x] `src/codegen/c99/internal.uya` 的 `C99_MAX_*` codegen state 表。
+  - [x] `src/codegen/c99/global.uya` / `types.uya` / `utils.uya` 的直接映射 cache。
+  - [x] `src/checker/lookup.uya` 的 checker lookup cache。
+  - [x] `src/checker/types.uya` / `generics.uya` / `symbols.uya` 的 mono/reachability/function table。
+  - [x] `src/exec/lower.uya` / `builder.uya` / `frame.uya` 的 locals/globals/bytecode/frame 表。
+  - [x] `src/main.uya` 的 input/resolved/processed files 和 program list。
+
+---
+
 ## Phase 1: SemanticDb 基础
 
 - [ ] 新建 `src/semantic/` 目录。
