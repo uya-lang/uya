@@ -290,6 +290,7 @@ struct TypeChecker {
     scope_level: i32,
     loop_depth: i32,
     program_node: &ASTNode,
+    semantic_db: SemanticDb,
     error_count: i32,
     last_reported_error_filename: &byte,
     last_reported_error_message: &byte,

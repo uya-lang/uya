@@ -8,6 +8,7 @@
 // 否则单文件依赖收集不会自动包含同目录文件，生成的 C 会缺少 ASTNode/CompilerArena 等类型定义导致链接失败。
 use main;
 use parser;
+use semantic;
 use checker;  // 包含 checker 目录下所有文件（包括 optimizer.uya）
 use driver;
 use microapp;

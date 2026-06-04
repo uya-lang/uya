@@ -19,6 +19,48 @@ fn hash_string(str: &byte) i32 {
 
 // ===== 初始化函数 =====
 
+fn checker_semantic_cache_has_layout(checker: &TypeChecker) i32 {
+    if checker == null {
+        return 0;
+    }
+    if checker.semantic_db.file_records.item_size != @size_of(SemanticFileRecord) {
+        return 0;
+    }
+    if checker.semantic_db.module_records.item_size != @size_of(SemanticModuleRecord) {
+        return 0;
+    }
+    if checker.semantic_db.decl_records.item_size != @size_of(SemanticDeclRecord) {
+        return 0;
+    }
+    if checker.semantic_db.symbol_records.item_size != @size_of(SemanticSymbolRecord) {
+        return 0;
+    }
+    if checker.semantic_db.name_ranges.item_size != @size_of(SemanticNameRange) {
+        return 0;
+    }
+    if checker.semantic_db.import_bindings.item_size != @size_of(SemanticImportBinding) {
+        return 0;
+    }
+    if checker.semantic_db.export_bindings.item_size != @size_of(SemanticExportBinding) {
+        return 0;
+    }
+    if checker.semantic_db.name_range_index.capacity < checker.semantic_db.name_range_index.count {
+        return 0;
+    }
+    return 1;
+}
+
+fn checker_reset_semantic_cache(checker: &TypeChecker) void {
+    if checker == null {
+        return;
+    }
+    if checker_semantic_cache_has_layout(checker) != 0 {
+        semantic_db_reset(&checker.semantic_db);
+        return;
+    }
+    semantic_db_init(&checker.semantic_db);
+}
+
 // 初始化 TypeChecker
 fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: &byte) i32 {
     if checker == null || arena == null {
@@ -31,6 +73,7 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
     type_from_ast_reset_cache();
     mono_instance_index_reset();
     checker_capacity_warning_reset();
+    checker_reset_semantic_cache(checker);
     
     checker.arena = arena;
     

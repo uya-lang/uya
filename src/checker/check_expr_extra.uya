@@ -2157,6 +2157,7 @@ fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32 {
     
     checker.program_node = ast;
     checker.error_count = 0;
+    checker_reset_semantic_cache(checker);
     reset_program_lookup_caches();
     if checker_prepass_top_level_decls(checker, ast) == 0 {
         return -1;
@@ -2173,6 +2174,10 @@ fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32 {
     }
     checker.program_node = ast_ptr;
     reset_program_lookup_caches();
+    if semantic_db_build_from_merged_ast(&checker.semantic_db, ast_ptr) != 0 {
+        checker_report_error(checker, ast_ptr, "SemanticDb 构建失败" as *byte);
+        return -1;
+    }
     
     // 第二遍：检查所有声明（包括函数体、结构体、变量等）
     // 此时所有函数都已被注册，函数体中的函数调用可以正确解析
