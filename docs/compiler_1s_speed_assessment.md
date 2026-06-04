@@ -142,6 +142,22 @@ rg -n "count >=|>= C99_MAX|>= MAX_|>= EXEC_MAX|>= FUNCTION_TABLE_SIZE|>= SYMBOL_
 
 允许保留但必须被后续门禁识别为“小缓冲”的候选：`PATH_MAX` 路径缓冲、`NAME_BUF_SIZE` / `TEMP_BUF_SIZE` / `NUM_BUF_SIZE` / `FMT_BUF_SIZE` / message buffer 这类格式化缓冲、`C99_TYPE_CONV_MAX_DEPTH` 递归保护、ABI/语言规范证明有界的 SIMD lane 分支。若这些缓冲承担 table/index/cache/list/mapping 角色，仍必须迁移或补明确 diagnostic。
 
+### Phase 0A 静默上限路径修复清单
+
+2026-06-04 对 `src/main.uya`、`src/codegen/c99/`、`src/checker/`、`src/exec/` 继续扫描 `count >= MAX`、`>= C99_MAX_*`、`>= EXEC_MAX_*`、`>= *_SIZE`、`< MAX_*` 受限循环和固定容量写入保护。本清单只列扫描后仍可能静默截断、静默跳过或继续成功的路径；已经立即调用 `checker_report_error` / `exec_backend_set_error` 的分支不作为本轮修复队列主项，但仍要在动态表迁移时移除固定容量。
+
+| 子系统 | 静默或截断路径 | 后续修复要求 |
+| --- | --- | --- |
+| `src/main.uya` 输入/文件列表 | `resolved_file_at` / `resolved_file_set` 对 `idx >= MAX_INPUT_FILES` 返回 `null` 或 no-op；`entry.uya` 仅在 `resolved_count < MAX_INPUT_FILES` 时追加，没有溢出诊断；`input_file_indices: [i32: 64]` 小于 `MAX_INPUT_FILES=128`，`parse_args` 仍按 `MAX_INPUT_FILES` 写入。 | 任何 input/resolved/all/processed/program/input override append 超出容量都必须在 CLI 或 compile_files 层报错并失败；`input_file_indices` 容量要和实际上限一致或迁为动态 vector。 |
+| C99 mono / reachable / test worklist | `c99_codegen_ensure_mono_struct`、`c99_codegen_ensure_mono_function`、`c99_codegen_ensure_mono_method` 在 `mono_instance_count >= C99_MAX_MONO_INSTANCES` 后直接返回；`mark_top_level_function_reachable` 在 `reachable_function_decl_count >= C99_MAX_REACHABLE_FUNCTIONS` 后返回；`append_collected_test` / `collect_tests_from_node` 在 `MAX_TESTS` 后返回 0。 | 生成端必须报告表名、当前 count 和上限，并让 C99 codegen 失败；不得让缺失 mono/reachable/test 项继续生成不完整 C。 |
+| C99 registry / emitted metadata | `c99_get_or_add_error_id` 满 `C99_MAX_ERROR_IDS` 返回 0；`get_string_constant_name` 满 `C99_MAX_STRING_CONSTANTS` 返回 `null`；embed constant、embed dir table、slice struct registry 满后返回 `null`/return；`emit_async_frame_descriptors` 将 `checker.async_frame_meta_count` 截到 `MAX_ASYNC_FRAME_METAS`。 | registry 失败必须变成明确 diagnostic；descriptor 输出不能静默 clamp，必须迁为动态输出表或显式失败。 |
+| C99 locals / cleanup stacks | `c99_push_local_variable` 只在 `local_idx < C99_MAX_LOCAL_VARS` 时写入，调用点普遍用 `local_variable_count < C99_MAX_LOCAL_VARS` 保护后跳过登记；local lookup 循环以 `li < C99_MAX_LOCAL_VARS` 截止；defer/drop accessors 对 `C99_MAX_DEFER_STACK`、`C99_MAX_DEFERS_PER_BLOCK`、`C99_MAX_DROP_VARS_PER_BLOCK` 越界返回 `null`/no-op。 | 局部变量登记、defer、errdefer 和 drop cleanup 超上限必须报错并失败，不能继续生成缺少类型/cleanup 信息的 C。 |
+| checker reachability / async graph | `checker_mark_reachability_node_visited` 在 `MAX_REACHABILITY_VISIT_SLOTS` 满后返回 1，等价于“已访问”；`checker_register_async_call_edge` 满 `MAX_ASYNC_CALL_EDGES` 返回 0；`async_call_path_exists` 满 `MAX_ASYNC_CALL_VISITED` 返回 0；`checker_register_async_frame_meta` 满 `MAX_ASYNC_FRAME_METAS` 返回 -1。 | reachability/async 图容量不足必须用 checker diagnostic 失败，不能把未访问节点当作已完成，也不能丢失 async call/frame 信息。 |
+| checker proof / union / module DFS | `pointer_nonnull_add`、`pointer_nullable_add`、`constraint_add` 满 `MAX_POINTER_NAMES` / `MAX_CONSTRAINTS` 后返回；`checker_add_moved_name` 和 `checker_add_error_name` 满 `MAX_MOVED_NAMES` / `MAX_ERROR_NAMES` 后返回；`MAX_UNION_VARIANTS` 会截断 match 覆盖检查；interface visited stack 满后不再追加；`dfs_visit_module` 在 `path_len >= MAX_MODULES` 后返回 0，循环检测被跳过，`visit_state` 也只初始化前 `MAX_MODULES` 个模块。 | proof 状态、error/moved 名称、union coverage、interface stack 和 module DFS 达上限必须诊断失败，或者迁为动态 bitset/vector/DFS stack。 |
+| checker mono index | `register_mono_instance` 在 `MAX_MONO_INSTANCES` 后返回 -1；`mono_index_head_set` / `mono_index_next_set` 对 `MONO_INSTANCE_INDEX_SIZE` / `MAX_MONO_INSTANCES` 越界 no-op。 | 单态化容量不足必须带源码位置报错；mono index 后续迁为 dynamic vector + hash bucket 后才能计入 1 秒硬路径。 |
+| exec lowering | `exec_lower_append_local` 在 `EXEC_MAX_LOCALS` / `next_slot` 满后返回 -1 但不直接设置 diagnostic；`exec_lower_collect_interface_method` 满 `EXEC_MAX_INTERFACE_METHODS` 返回 -1；`exec_lower_add_module_global_request` 满 `EXEC_MAX_MODULE_GLOBAL_REQUESTS` 返回；部分 HIR reachable 收集只在 `out_count < MAX_REACHABLE_FN_DECLS` 时追加，超限分支没有统一报错。 | lowering 层所有 `-1` / return 型容量失败必须设置 exec diagnostic 并向调用者传播失败；module global request 和 reachable 收集不得静默丢项。 |
+| exec builder / VM 边界 | builder 的 host call、const pool、bytecode、frame slot、cleanup scope 多数已有 `exec_backend_set_error`；仍存在 `EXEC_MAX_CALL_ARGS` / `EXEC_MAX_FRAME_SLOTS` 受限循环和验证数组，VM/bytecode 路径需要确认不会静默截断实参、slot 或 cleanup 数据。 | 已有 diagnostic 的固定表后续迁动态；仍然只靠受限循环保护的路径要补诊断或证明为 ABI/runtime 有界小缓冲。 |
+
 ## 1 秒预算
 
 若目标是“直接生成 C99”，1 秒预算建议：
