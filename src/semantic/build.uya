@@ -183,7 +183,14 @@ fn semantic_db_use_binding_name(decl: &ASTNode) &byte {
     if decl.use_stmt_alias != null {
         return decl.use_stmt_alias;
     }
-    return decl.use_stmt_item_name;
+    if decl.use_stmt_item_name != null {
+        return decl.use_stmt_item_name;
+    }
+    if decl.use_stmt_path_segments != null && decl.use_stmt_path_segment_count > 0 {
+        const last_index: i32 = decl.use_stmt_path_segment_count - 1;
+        return decl.use_stmt_path_segments[last_index];
+    }
+    return null;
 }
 
 fn semantic_db_append_named_symbol(db: &SemanticDb, decl_id: i32, kind: i32) i32 {

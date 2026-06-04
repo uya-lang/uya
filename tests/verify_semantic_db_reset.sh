@@ -86,6 +86,8 @@ struct ASTNode {
     type_alias_name: &byte,
     var_decl_name: &byte,
     extern_var_decl_name: &byte,
+    use_stmt_path_segments: & & byte,
+    use_stmt_path_segment_count: i32,
     use_stmt_item_name: &byte,
     use_stmt_alias: &byte,
 }
@@ -181,6 +183,8 @@ fn semantic_test_node(kind: ASTNodeType, filename: &byte, name: &byte) ASTNode {
         type_alias_name: null,
         var_decl_name: null,
         extern_var_decl_name: null,
+        use_stmt_path_segments: null,
+        use_stmt_path_segment_count: 0,
         use_stmt_item_name: null,
         use_stmt_alias: null,
     };

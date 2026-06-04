@@ -85,6 +85,8 @@ struct ASTNode {
     type_alias_name: &byte,
     var_decl_name: &byte,
     extern_var_decl_name: &byte,
+    use_stmt_path_segments: & & byte,
+    use_stmt_path_segment_count: i32,
     use_stmt_item_name: &byte,
     use_stmt_alias: &byte,
 }
@@ -180,11 +182,15 @@ fn semantic_test_node(kind: ASTNodeType, filename: &byte, name: &byte) ASTNode {
         type_alias_name: null,
         var_decl_name: null,
         extern_var_decl_name: null,
+        use_stmt_path_segments: null,
+        use_stmt_path_segment_count: 0,
         use_stmt_item_name: null,
         use_stmt_alias: null,
     };
     if kind == ASTNodeType.AST_FN_DECL {
         node.fn_decl_name = name;
+    } else if kind == ASTNodeType.AST_TYPE_ALIAS {
+        node.type_alias_name = name;
     }
     return node;
 }
@@ -258,6 +264,50 @@ test "semantic db keeps file-local aliases separate" {
     try assert_eq_i32(import1.module_id, 1);
     try expect(import0.ast_node == &alias_a as &void);
     try expect(import1.ast_node == &alias_b as &void);
+    semantic_db_release(&db);
+}
+
+test "semantic db records whole-module imports and exports" {
+    var path_segments: [&byte: 3] = [];
+    path_segments[0] = "std";
+    path_segments[1] = "io";
+    path_segments[2] = "file";
+
+    var whole_module_import: ASTNode = semantic_test_node(ASTNodeType.AST_USE_STMT, "app/main.uya", null);
+    whole_module_import.use_stmt_path_segments = &path_segments[0] as & & byte;
+    whole_module_import.use_stmt_path_segment_count = 3;
+    var exported_fn: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "lib/std/io/file.uya", "open");
+    var exported_alias: ASTNode = semantic_test_node(ASTNodeType.AST_TYPE_ALIAS, "lib/std/io/file.uya", "File");
+
+    var decls: [&ASTNode: 3] = [];
+    decls[0] = &whole_module_import;
+    decls[1] = &exported_fn;
+    decls[2] = &exported_alias;
+
+    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "app/main.uya", null);
+    program.program_decls = &decls[0] as & & ASTNode;
+    program.program_decl_count = 3;
+
+    var db: SemanticDb = semantic_test_db();
+    try assert_eq_i32(semantic_db_build_from_merged_ast(&db, &program), 0);
+    try assert_eq_i32(semantic_db_import_binding_count(&db), 1);
+    try assert_eq_i32(semantic_db_export_binding_count(&db), 2);
+
+    var import0: SemanticImportBinding = SemanticImportBinding{ file_id: -1, module_id: -1, name: null, ast_node: null };
+    var export0: SemanticExportBinding = SemanticExportBinding{ file_id: -1, module_id: -1, name: null, decl_id: -1 };
+    var export1: SemanticExportBinding = SemanticExportBinding{ file_id: -1, module_id: -1, name: null, decl_id: -1 };
+    try assert_eq_i32(semantic_db_import_binding_get(&db, 0, &import0), 1);
+    try assert_eq_i32(semantic_db_export_binding_get(&db, 0, &export0), 1);
+    try assert_eq_i32(semantic_db_export_binding_get(&db, 1, &export1), 1);
+    try expect(semantic_test_cstr_equals(import0.name, "file") != 0);
+    try expect(semantic_test_cstr_equals(export0.name, "open") != 0);
+    try expect(semantic_test_cstr_equals(export1.name, "File") != 0);
+    try assert_eq_i32(import0.file_id, 0);
+    try assert_eq_i32(import0.module_id, 0);
+    try assert_eq_i32(export0.file_id, 1);
+    try assert_eq_i32(export0.module_id, 1);
+    try assert_eq_i32(export1.file_id, 1);
+    try assert_eq_i32(export1.module_id, 1);
     semantic_db_release(&db);
 }
 EOF
