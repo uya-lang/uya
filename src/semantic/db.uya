@@ -29,6 +29,15 @@ export struct SemanticNameRange {
     symbol_count: i32,
 }
 
+/// 功能说明：保存一个名字在 DeclId 数组中的连续 range。
+/// 参数说明：无；`decl_start` 和 `decl_count` 指向 `decl_range_ids`。
+/// 返回值说明：无。
+export struct SemanticDeclRange {
+    name_id: i32,
+    decl_start: i32,
+    decl_count: i32,
+}
+
 /// 功能说明：保存 FileId 对应的源文件记录。
 /// 参数说明：无；`filename` 指向 AST 中稳定存在的文件名字符串。
 /// 返回值说明：无。
@@ -79,12 +88,16 @@ export struct SemanticDb {
     function_count: i32,
     mono_instance_count: i32,
     estimated_bytes: usize,
+    name_intern: SemanticInternTable,
     file_records: SemanticVector,
     module_records: SemanticVector,
     decl_records: SemanticVector,
     symbol_records: SemanticVector,
     name_ranges: SemanticVector,
     name_range_index: SemanticHash,
+    decl_ranges: SemanticVector,
+    decl_range_ids: SemanticVector,
+    decls_by_name: SemanticHash,
     import_bindings: SemanticVector,
     export_bindings: SemanticVector,
 }
@@ -122,12 +135,16 @@ export fn semantic_db_init(db: &SemanticDb) void {
         return;
     }
     semantic_db_clear_counts(db);
+    semantic_intern_init(&db.name_intern);
     semantic_vector_init(&db.file_records, @size_of(SemanticFileRecord));
     semantic_vector_init(&db.module_records, @size_of(SemanticModuleRecord));
     semantic_vector_init(&db.decl_records, @size_of(SemanticDeclRecord));
     semantic_vector_init(&db.symbol_records, @size_of(SemanticSymbolRecord));
     semantic_vector_init(&db.name_ranges, @size_of(SemanticNameRange));
     semantic_hash_init(&db.name_range_index);
+    semantic_vector_init(&db.decl_ranges, @size_of(SemanticDeclRange));
+    semantic_vector_init(&db.decl_range_ids, @size_of(i32));
+    semantic_hash_init(&db.decls_by_name);
     semantic_vector_init(&db.import_bindings, @size_of(SemanticImportBinding));
     semantic_vector_init(&db.export_bindings, @size_of(SemanticExportBinding));
 }
@@ -140,12 +157,16 @@ export fn semantic_db_reset(db: &SemanticDb) void {
         return;
     }
     semantic_db_clear_counts(db);
+    semantic_intern_reset(&db.name_intern);
     semantic_vector_reset(&db.file_records);
     semantic_vector_reset(&db.module_records);
     semantic_vector_reset(&db.decl_records);
     semantic_vector_reset(&db.symbol_records);
     semantic_vector_reset(&db.name_ranges);
     semantic_hash_reset(&db.name_range_index);
+    semantic_vector_reset(&db.decl_ranges);
+    semantic_vector_reset(&db.decl_range_ids);
+    semantic_hash_reset(&db.decls_by_name);
     semantic_vector_reset(&db.import_bindings);
     semantic_vector_reset(&db.export_bindings);
 }
@@ -157,12 +178,16 @@ export fn semantic_db_release(db: &SemanticDb) void {
     if db == null {
         return;
     }
+    semantic_intern_release(&db.name_intern);
     semantic_vector_release(&db.file_records);
     semantic_vector_release(&db.module_records);
     semantic_vector_release(&db.decl_records);
     semantic_vector_release(&db.symbol_records);
     semantic_vector_release(&db.name_ranges);
     semantic_hash_release(&db.name_range_index);
+    semantic_vector_release(&db.decl_ranges);
+    semantic_vector_release(&db.decl_range_ids);
+    semantic_hash_release(&db.decls_by_name);
     semantic_vector_release(&db.import_bindings);
     semantic_vector_release(&db.export_bindings);
     semantic_db_clear_counts(db);
@@ -176,12 +201,17 @@ export fn semantic_db_storage_bytes(db: &SemanticDb) usize {
         return 0usize;
     }
     return @size_of(SemanticDb) +
+        db.name_intern.bytes +
+        db.name_intern.string_bytes +
         db.file_records.bytes +
         db.module_records.bytes +
         db.decl_records.bytes +
         db.symbol_records.bytes +
         db.name_ranges.bytes +
         db.name_range_index.bytes +
+        db.decl_ranges.bytes +
+        db.decl_range_ids.bytes +
+        db.decls_by_name.bytes +
         db.import_bindings.bytes +
         db.export_bindings.bytes;
 }
@@ -389,6 +419,80 @@ export fn semantic_db_find_name_range(db: &SemanticDb, name_id: i32, out_range_i
     return semantic_hash_get(&db.name_range_index, name_id as i64, out_range_id);
 }
 
+/// 功能说明：查找已 intern 的名字 ID。
+/// 参数说明：`db` 为目标库，`name` 为以 `\0` 结尾的名字。
+/// 返回值说明：命中返回非负 InternedNameId，未命中或参数无效返回 `-1`。
+export fn semantic_db_find_interned_name(db: &SemanticDb, name: &byte) i32 {
+    if db == null || name == null {
+        return -1;
+    }
+    return semantic_intern_find(&db.name_intern, name);
+}
+
+/// 功能说明：追加一个名字到紧凑 DeclId 数组的 range。
+/// 参数说明：`db` 为目标库，`name_id` 为名字 ID，`decl_start/count` 为连续 DeclId 段。
+/// 返回值说明：成功返回新 range 下标；失败返回 `-1`。
+export fn semantic_db_append_decl_range(db: &SemanticDb, name_id: i32, decl_start: i32, decl_count: i32) i32 {
+    if db == null || name_id < 0 || decl_start < 0 || decl_count < 0 {
+        return -1;
+    }
+    const range_id: i32 = semantic_db_usize_to_i32(db.decl_ranges.count);
+    if range_id < 0 {
+        return -1;
+    }
+    var record: SemanticDeclRange = SemanticDeclRange{
+        name_id: name_id,
+        decl_start: decl_start,
+        decl_count: decl_count,
+    };
+    if semantic_vector_append(&db.decl_ranges, &record as &const void) != 0 {
+        return -1;
+    }
+    if semantic_hash_insert(&db.decls_by_name, name_id as i64, range_id) != 0 {
+        return -1;
+    }
+    return range_id;
+}
+
+/// 功能说明：按名字 ID 查询声明 range。
+/// 参数说明：`db` 为目标库，`name_id` 为名字 ID，`out_range` 接收 range 副本。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn semantic_db_find_decl_range(db: &SemanticDb, name_id: i32, out_range: &SemanticDeclRange) i32 {
+    if db == null || out_range == null || name_id < 0 {
+        return 0;
+    }
+    var range_id: i32 = -1;
+    if semantic_hash_get(&db.decls_by_name, name_id as i64, &range_id) == 0 {
+        return 0;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(&db.decl_ranges, range_id as usize);
+    if ptr == null {
+        return 0;
+    }
+    const range: &SemanticDeclRange = ptr as &SemanticDeclRange;
+    out_range[0] = range[0];
+    return 1;
+}
+
+/// 功能说明：读取 DeclRange 中指定 offset 对应的 DeclId。
+/// 参数说明：`db` 为目标库，`range` 为声明 range，`offset` 为 range 内偏移。
+/// 返回值说明：命中返回 DeclId；参数无效或越界返回 `-1`。
+export fn semantic_db_decl_range_decl_id(db: &SemanticDb, range: &SemanticDeclRange, offset: i32) i32 {
+    if db == null || range == null || offset < 0 || offset >= range.decl_count {
+        return -1;
+    }
+    const index: i32 = range.decl_start + offset;
+    if index < 0 {
+        return -1;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(&db.decl_range_ids, index as usize);
+    if ptr == null {
+        return -1;
+    }
+    const decl_id: &i32 = ptr as &i32;
+    return decl_id[0];
+}
+
 /// 功能说明：读取 SemanticDb 声明记录数量。
 /// 参数说明：`db` 为目标 SemanticDb。
 /// 返回值说明：返回声明记录数量；参数无效时返回 `0`。
@@ -543,6 +647,20 @@ export fn semantic_db_name_range_count(db: &SemanticDb) i32 {
         return 0;
     }
     const count: i32 = semantic_db_usize_to_i32(db.name_ranges.count);
+    if count < 0 {
+        return 0;
+    }
+    return count;
+}
+
+/// 功能说明：读取 SemanticDb 声明名字 range 数量。
+/// 参数说明：`db` 为目标 SemanticDb。
+/// 返回值说明：返回 decl range 数量；参数无效时返回 `0`。
+export fn semantic_db_decl_range_count(db: &SemanticDb) i32 {
+    if db == null {
+        return 0;
+    }
+    const count: i32 = semantic_db_usize_to_i32(db.decl_ranges.count);
     if count < 0 {
         return 0;
     }

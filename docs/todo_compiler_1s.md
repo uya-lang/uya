@@ -209,7 +209,7 @@ make tests-uya
 
 ## Phase 2: 声明与模块索引替换
 
-- [ ] 建 `decls_by_name: InternedNameId -> DeclRange`。
+- [x] 建 `decls_by_name: InternedNameId -> DeclRange`。
 - [ ] 建 `functions_by_name: InternedNameId -> FunctionOverloadRange`。
 - [ ] 建 `types_by_name: InternedNameId -> TypeDeclRange`。
 - [ ] 建 `enum_variants_by_name: InternedNameId -> EnumVariantRange`。

@@ -5,6 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TABLE_FILE="$REPO_ROOT/src/semantic/table.uya"
+INTERN_FILE="$REPO_ROOT/src/semantic/intern.uya"
 DB_FILE="$REPO_ROOT/src/semantic/db.uya"
 BUILD_FILE="$REPO_ROOT/src/semantic/build.uya"
 
@@ -18,7 +19,7 @@ require_pattern() {
     fi
 }
 
-for file in "$TABLE_FILE" "$DB_FILE" "$BUILD_FILE"; do
+for file in "$TABLE_FILE" "$INTERN_FILE" "$DB_FILE" "$BUILD_FILE"; do
     if [[ ! -f "$file" ]]; then
         echo "错误: 缺少 $file" >&2
         exit 1
@@ -41,6 +42,7 @@ use std.testing.expect;
 EOF
 
 cat "$TABLE_FILE" >>"$tmp_dir/main.uya"
+cat "$INTERN_FILE" >>"$tmp_dir/main.uya"
 cat "$DB_FILE" >>"$tmp_dir/main.uya"
 
 cat >>"$tmp_dir/main.uya" <<'EOF'
@@ -116,6 +118,17 @@ fn semantic_test_hash() SemanticHash {
     };
 }
 
+fn semantic_test_intern() SemanticInternTable {
+    return SemanticInternTable{
+        entries: null,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+        string_bytes: 0usize,
+    };
+}
+
 fn semantic_test_db() SemanticDb {
     return SemanticDb{
         file_count: 0,
@@ -129,12 +142,16 @@ fn semantic_test_db() SemanticDb {
         function_count: 0,
         mono_instance_count: 0,
         estimated_bytes: 0usize,
+        name_intern: semantic_test_intern(),
         file_records: semantic_test_vector(),
         module_records: semantic_test_vector(),
         decl_records: semantic_test_vector(),
         symbol_records: semantic_test_vector(),
         name_ranges: semantic_test_vector(),
         name_range_index: semantic_test_hash(),
+        decl_ranges: semantic_test_vector(),
+        decl_range_ids: semantic_test_vector(),
+        decls_by_name: semantic_test_hash(),
         import_bindings: semantic_test_vector(),
         export_bindings: semantic_test_vector(),
     };

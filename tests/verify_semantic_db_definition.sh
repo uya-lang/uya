@@ -5,6 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TABLE_FILE="$REPO_ROOT/src/semantic/table.uya"
+INTERN_FILE="$REPO_ROOT/src/semantic/intern.uya"
 DB_FILE="$REPO_ROOT/src/semantic/db.uya"
 
 require_pattern() {
@@ -16,7 +17,7 @@ require_pattern() {
     fi
 }
 
-for file in "$TABLE_FILE" "$DB_FILE"; do
+for file in "$TABLE_FILE" "$INTERN_FILE" "$DB_FILE"; do
     if [[ ! -f "$file" ]]; then
         echo "错误: 缺少 $file" >&2
         exit 1
@@ -33,11 +34,14 @@ require_pattern "file_count" "file_count 字段"
 require_pattern "module_count" "module_count 字段"
 require_pattern "decl_count" "decl_count 字段"
 require_pattern "interned_name_count" "interned_name_count 字段"
+require_pattern "name_intern" "name_intern 字段"
 require_pattern "decl_records" "decl_records 字段"
+require_pattern "decls_by_name" "decls_by_name 字段"
 
 tmp_dir="$(mktemp -d /tmp/uya-semantic-db.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
 cat "$TABLE_FILE" >"$tmp_dir/main.uya"
+cat "$INTERN_FILE" >>"$tmp_dir/main.uya"
 cat "$DB_FILE" >>"$tmp_dir/main.uya"
 
 cat >>"$tmp_dir/main.uya" <<'EOF'
@@ -64,6 +68,17 @@ fn semantic_test_hash() SemanticHash {
     };
 }
 
+fn semantic_test_intern() SemanticInternTable {
+    return SemanticInternTable{
+        entries: null,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+        string_bytes: 0usize,
+    };
+}
+
 test "semantic db definition initializes and resets" {
     var db: SemanticDb = SemanticDb{
         file_count: 7,
@@ -77,12 +92,16 @@ test "semantic db definition initializes and resets" {
         function_count: 8,
         mono_instance_count: 10,
         estimated_bytes: 123usize,
+        name_intern: semantic_test_intern(),
         file_records: semantic_test_vector(),
         module_records: semantic_test_vector(),
         decl_records: semantic_test_vector(),
         symbol_records: semantic_test_vector(),
         name_ranges: semantic_test_vector(),
         name_range_index: semantic_test_hash(),
+        decl_ranges: semantic_test_vector(),
+        decl_range_ids: semantic_test_vector(),
+        decls_by_name: semantic_test_hash(),
         import_bindings: semantic_test_vector(),
         export_bindings: semantic_test_vector(),
     };

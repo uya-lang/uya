@@ -14,7 +14,7 @@ require_pattern() {
     local pattern="$2"
     local description="$3"
     if ! grep -Eq "$pattern" "$file"; then
-        echo "错误: SemanticDb estimated bytes 缺少证据: $description" >&2
+        echo "错误: SemanticDb decls_by_name 缺少证据: $description" >&2
         return 1
     fi
 }
@@ -26,14 +26,14 @@ for file in "$TABLE_FILE" "$INTERN_FILE" "$DB_FILE" "$BUILD_FILE"; do
     fi
 done
 
-require_pattern "$DB_FILE" "semantic_db_storage_bytes" "storage bytes helper"
-require_pattern "$BUILD_FILE" "semantic_db_storage_bytes" "build 使用统一 bytes helper"
-require_pattern "$DB_FILE" "decl_records\\.bytes" "声明记录 bytes 计入估算"
-require_pattern "$DB_FILE" "symbol_records\\.bytes" "符号记录 bytes 计入估算"
-require_pattern "$DB_FILE" "name_ranges\\.bytes" "名字 range bytes 计入估算"
-require_pattern "$DB_FILE" "name_range_index\\.bytes" "hash bucket bytes 计入估算"
+require_pattern "$DB_FILE" "^export[[:space:]]+struct[[:space:]]+SemanticDeclRange" "DeclRange 结构"
+require_pattern "$DB_FILE" "name_intern:[[:space:]]+SemanticInternTable" "SemanticDb 持有 intern 表"
+require_pattern "$DB_FILE" "decl_ranges:[[:space:]]+SemanticVector" "decl range 为动态 vector"
+require_pattern "$DB_FILE" "decl_range_ids:[[:space:]]+SemanticVector" "DeclId range 数据为动态 vector"
+require_pattern "$DB_FILE" "decls_by_name:[[:space:]]+SemanticHash" "decls_by_name 为动态 hash"
+require_pattern "$BUILD_FILE" "semantic_db_rebuild_decls_by_name" "构建 decls_by_name 索引"
 
-tmp_dir="$(mktemp -d /tmp/uya-semantic-db-bytes.XXXXXX)"
+tmp_dir="$(mktemp -d /tmp/uya-semantic-db-decl-ranges.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
 cat >"$tmp_dir/main.uya" <<'EOF'
@@ -61,6 +61,7 @@ enum ASTNodeType {
     AST_EXTERN_VAR_DECL,
     AST_USE_STMT,
     AST_C_IMPORT_DECL,
+    AST_BLOCK,
 }
 
 struct ASTNode {
@@ -83,6 +84,7 @@ struct ASTNode {
     method_block_methods: & & ASTNode,
     method_block_method_count: i32,
     fn_decl_name: &byte,
+    fn_decl_body: &ASTNode,
     macro_decl_name: &byte,
     type_alias_name: &byte,
     var_decl_name: &byte,
@@ -178,6 +180,7 @@ fn semantic_test_node(kind: ASTNodeType, filename: &byte, name: &byte) ASTNode {
         method_block_methods: null,
         method_block_method_count: 0,
         fn_decl_name: null,
+        fn_decl_body: null,
         macro_decl_name: null,
         type_alias_name: null,
         var_decl_name: null,
@@ -189,36 +192,65 @@ fn semantic_test_node(kind: ASTNodeType, filename: &byte, name: &byte) ASTNode {
     };
     if kind == ASTNodeType.AST_FN_DECL {
         node.fn_decl_name = name;
+    } else if kind == ASTNodeType.AST_TYPE_ALIAS {
+        node.type_alias_name = name;
     }
     return node;
 }
 
-test "semantic db estimated bytes include dynamic storage" {
-    var decls: [&ASTNode: 12] = [];
-EOF
+test "semantic db decls_by_name groups same interned declaration name" {
+    var body_block: ASTNode = semantic_test_node(ASTNodeType.AST_BLOCK, "family_body.uya", null);
+    var body_fn: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "family_body.uya", "family");
+    body_fn.fn_decl_body = &body_block;
+    var stub_fn: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "family_stub.uya", "family");
+    var other_alias: ASTNode = semantic_test_node(ASTNodeType.AST_TYPE_ALIAS, "other.uya", "Other");
 
-for i in $(seq 0 11); do
-    printf '    var fn_%02d: ASTNode = semantic_test_node(ASTNodeType.AST_FN_DECL, "bytes.uya", "fn_%02d");\n' "$i" "$i" >>"$tmp_dir/main.uya"
-    printf '    decls[%d] = &fn_%02d;\n' "$i" "$i" >>"$tmp_dir/main.uya"
-done
+    var decls: [&ASTNode: 3] = [];
+    decls[0] = &body_fn;
+    decls[1] = &stub_fn;
+    decls[2] = &other_alias;
 
-cat >>"$tmp_dir/main.uya" <<'EOF'
-    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "bytes.uya", null);
+    var program: ASTNode = semantic_test_node(ASTNodeType.AST_PROGRAM, "family_body.uya", null);
     program.program_decls = &decls[0] as & & ASTNode;
-    program.program_decl_count = 12;
+    program.program_decl_count = 3;
 
     var db: SemanticDb = semantic_test_db();
     try assert_eq_i32(semantic_db_build_from_merged_ast(&db, &program), 0);
-    const storage_bytes: usize = semantic_db_storage_bytes(&db);
-    try expect(storage_bytes > @size_of(SemanticDb));
-    try expect(semantic_db_estimated_bytes(&db) == storage_bytes);
-    try expect(storage_bytes >= @size_of(SemanticDb) + db.decl_records.bytes +
-        db.symbol_records.bytes + db.name_ranges.bytes + db.name_range_index.bytes);
+    try assert_eq_i32(db.decl_count, 3);
+    try assert_eq_i32(db.interned_name_count, 2);
+    try assert_eq_i32(semantic_db_decl_range_count(&db), 2);
+
+    const family_name_id: i32 = semantic_db_find_interned_name(&db, "family");
+    const other_name_id: i32 = semantic_db_find_interned_name(&db, "Other");
+    try expect(family_name_id >= 0);
+    try expect(other_name_id >= 0);
+    try expect(family_name_id != other_name_id);
+
+    var family_range: SemanticDeclRange = SemanticDeclRange{ name_id: -1, decl_start: -1, decl_count: 0 };
+    try assert_eq_i32(semantic_db_find_decl_range(&db, family_name_id, &family_range), 1);
+    try assert_eq_i32(family_range.name_id, family_name_id);
+    try assert_eq_i32(family_range.decl_start, 0);
+    try assert_eq_i32(family_range.decl_count, 2);
+    try assert_eq_i32(semantic_db_decl_range_decl_id(&db, &family_range, 0), 0);
+    try assert_eq_i32(semantic_db_decl_range_decl_id(&db, &family_range, 1), 1);
+    try expect(semantic_db_decl_ast_node(&db, 0) == &body_fn);
+    try expect(semantic_db_decl_ast_node(&db, 1) == &stub_fn);
+
+    var rec0: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
+    var rec1: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
+    try assert_eq_i32(semantic_db_decl_record_get(&db, 0, &rec0), 1);
+    try assert_eq_i32(semantic_db_decl_record_get(&db, 1, &rec1), 1);
+    try assert_eq_i32(rec0.name_id, family_name_id);
+    try assert_eq_i32(rec1.name_id, family_name_id);
+
+    var other_range: SemanticDeclRange = SemanticDeclRange{ name_id: -1, decl_start: -1, decl_count: 0 };
+    try assert_eq_i32(semantic_db_find_decl_range(&db, other_name_id, &other_range), 1);
+    try assert_eq_i32(other_range.decl_count, 1);
+    try assert_eq_i32(semantic_db_decl_range_decl_id(&db, &other_range, 0), 2);
     semantic_db_release(&db);
-    try assert_eq_i32(semantic_db_estimated_bytes(&db) as i32, 0);
 }
 EOF
 
 (cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
 
-echo "✓ SemanticDb estimated bytes smoke passed"
+echo "✓ SemanticDb decls_by_name range lookup passed"

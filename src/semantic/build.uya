@@ -93,6 +93,9 @@ fn semantic_db_prepare_for_build(db: &SemanticDb) void {
         db.symbol_records.item_size != @size_of(SemanticSymbolRecord) ||
         db.name_ranges.item_size != @size_of(SemanticNameRange) ||
         db.name_range_index.capacity < db.name_range_index.count ||
+        db.decl_ranges.item_size != @size_of(SemanticDeclRange) ||
+        db.decl_range_ids.item_size != @size_of(i32) ||
+        db.decls_by_name.capacity < db.decls_by_name.count ||
         db.import_bindings.item_size != @size_of(SemanticImportBinding) ||
         db.export_bindings.item_size != @size_of(SemanticExportBinding) {
         semantic_db_init(db);
@@ -193,11 +196,10 @@ fn semantic_db_use_binding_name(decl: &ASTNode) &byte {
     return null;
 }
 
-fn semantic_db_append_named_symbol(db: &SemanticDb, decl_id: i32, kind: i32) i32 {
-    if db == null || decl_id < 0 {
+fn semantic_db_append_named_symbol(db: &SemanticDb, name_id: i32, decl_id: i32, kind: i32) i32 {
+    if db == null || name_id < 0 || decl_id < 0 {
         return -1;
     }
-    const name_id: i32 = db.interned_name_count;
     const symbol_id: i32 = semantic_db_append_symbol_record(db, name_id, decl_id, kind);
     if symbol_id < 0 {
         return -1;
@@ -206,7 +208,6 @@ fn semantic_db_append_named_symbol(db: &SemanticDb, decl_id: i32, kind: i32) i32
         return -1;
     }
     db.symbol_count = db.symbol_count + 1;
-    db.interned_name_count = db.interned_name_count + 1;
     return name_id;
 }
 
@@ -220,7 +221,11 @@ fn semantic_db_count_method_symbols(db: &SemanticDb, methods: & & ASTNode, metho
         if method != null && method.type == ASTNodeType.AST_FN_DECL {
             db.function_count = db.function_count + 1;
             if method.fn_decl_name != null {
-                if semantic_db_append_named_symbol(db, owner_decl_id, method.type as i32) < 0 {
+                const name_id: i32 = semantic_intern_get_or_put(&db.name_intern, method.fn_decl_name);
+                if name_id < 0 {
+                    return -1;
+                }
+                if semantic_db_append_named_symbol(db, name_id, owner_decl_id, method.type as i32) < 0 {
                     return -1;
                 }
             }
@@ -237,7 +242,10 @@ fn semantic_db_count_decl(db: &SemanticDb, decl: &ASTNode, file_id: i32, module_
     const primary_name: &byte = semantic_db_decl_primary_name(decl);
     var primary_name_id: i32 = -1;
     if primary_name != null {
-        primary_name_id = db.interned_name_count;
+        primary_name_id = semantic_intern_get_or_put(&db.name_intern, primary_name);
+        if primary_name_id < 0 {
+            return -1;
+        }
     }
 
     const decl_id: i32 = semantic_db_append_decl_record(db, decl as &void, primary_name_id, decl.type as i32, file_id, module_id);
@@ -259,7 +267,7 @@ fn semantic_db_count_decl(db: &SemanticDb, decl: &ASTNode, file_id: i32, module_
         if semantic_db_append_export_binding(db, file_id, module_id, primary_name, decl_id) < 0 {
             return -1;
         }
-        if semantic_db_append_named_symbol(db, decl_id, decl.type as i32) < 0 {
+        if semantic_db_append_named_symbol(db, primary_name_id, decl_id, decl.type as i32) < 0 {
             return -1;
         }
     }
@@ -290,6 +298,205 @@ fn semantic_db_count_decl(db: &SemanticDb, decl: &ASTNode, file_id: i32, module_
             return -1;
         }
     }
+    return 0;
+}
+
+fn semantic_db_i32_from_usize(value: usize) i32 {
+    const converted_tmp: !i32 = value as! i32;
+    const converted: i32 = converted_tmp catch {
+        return -1;
+    };
+    return converted;
+}
+
+fn semantic_db_decl_range_ptr(db: &SemanticDb, range_id: i32) &SemanticDeclRange {
+    if db == null || range_id < 0 {
+        return null;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(&db.decl_ranges, range_id as usize);
+    if ptr == null {
+        return null;
+    }
+    return ptr as &SemanticDeclRange;
+}
+
+fn semantic_db_decl_id_slot(db: &SemanticDb, index: i32) &i32 {
+    if db == null || index < 0 {
+        return null;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(&db.decl_range_ids, index as usize);
+    if ptr == null {
+        return null;
+    }
+    return ptr as &i32;
+}
+
+fn semantic_db_count_decl_range_name(db: &SemanticDb, name_id: i32) i32 {
+    if db == null || name_id < 0 {
+        return -1;
+    }
+    var range_id: i32 = -1;
+    if semantic_hash_get(&db.decls_by_name, name_id as i64, &range_id) == 0 {
+        if semantic_db_append_decl_range(db, name_id, 0, 1) < 0 {
+            return -1;
+        }
+        return 0;
+    }
+    const range: &SemanticDeclRange = semantic_db_decl_range_ptr(db, range_id);
+    if range == null {
+        return -1;
+    }
+    range.decl_count = range.decl_count + 1;
+    return 0;
+}
+
+fn semantic_db_collect_decl_range_counts(db: &SemanticDb) i32 {
+    if db == null {
+        return -1;
+    }
+    var decl_id: i32 = 0;
+    while decl_id < semantic_db_decl_record_count(db) {
+        var record: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
+        if semantic_db_decl_record_get(db, decl_id, &record) == 0 {
+            return -1;
+        }
+        if record.name_id >= 0 {
+            if semantic_db_count_decl_range_name(db, record.name_id) != 0 {
+                return -1;
+            }
+        }
+        decl_id = decl_id + 1;
+    }
+    return 0;
+}
+
+fn semantic_db_prefix_decl_ranges(db: &SemanticDb) i32 {
+    if db == null {
+        return -1;
+    }
+    var start: i32 = 0;
+    var range_id: i32 = 0;
+    while range_id < semantic_db_decl_range_count(db) {
+        const range: &SemanticDeclRange = semantic_db_decl_range_ptr(db, range_id);
+        if range == null {
+            return -1;
+        }
+        range.decl_start = start;
+        start = start + range.decl_count;
+        range_id = range_id + 1;
+    }
+
+    var placeholder: i32 = -1;
+    var i: i32 = 0;
+    while i < start {
+        if semantic_vector_append(&db.decl_range_ids, &placeholder as &const void) != 0 {
+            return -1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn semantic_db_build_decl_range_cursors(db: &SemanticDb, cursors: &SemanticVector) i32 {
+    if db == null || cursors == null {
+        return -1;
+    }
+    semantic_vector_init(cursors, @size_of(i32));
+    var zero: i32 = 0;
+    var i: i32 = 0;
+    while i < semantic_db_decl_range_count(db) {
+        if semantic_vector_append(cursors, &zero as &const void) != 0 {
+            return -1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn semantic_db_cursor_ptr(cursors: &SemanticVector, range_id: i32) &i32 {
+    if cursors == null || range_id < 0 {
+        return null;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(cursors, range_id as usize);
+    if ptr == null {
+        return null;
+    }
+    return ptr as &i32;
+}
+
+fn semantic_db_fill_decl_ranges(db: &SemanticDb, cursors: &SemanticVector) i32 {
+    if db == null || cursors == null {
+        return -1;
+    }
+    var decl_id: i32 = 0;
+    while decl_id < semantic_db_decl_record_count(db) {
+        var record: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
+        if semantic_db_decl_record_get(db, decl_id, &record) == 0 {
+            return -1;
+        }
+        if record.name_id >= 0 {
+            var range_id: i32 = -1;
+            if semantic_hash_get(&db.decls_by_name, record.name_id as i64, &range_id) == 0 {
+                return -1;
+            }
+            const range: &SemanticDeclRange = semantic_db_decl_range_ptr(db, range_id);
+            const cursor: &i32 = semantic_db_cursor_ptr(cursors, range_id);
+            if range == null || cursor == null {
+                return -1;
+            }
+            const slot_index: i32 = range.decl_start + cursor[0];
+            const slot: &i32 = semantic_db_decl_id_slot(db, slot_index);
+            if slot == null {
+                return -1;
+            }
+            slot[0] = decl_id;
+            cursor[0] = cursor[0] + 1;
+        }
+        decl_id = decl_id + 1;
+    }
+    return 0;
+}
+
+fn semantic_db_rebuild_decls_by_name(db: &SemanticDb) i32 {
+    if db == null {
+        return -1;
+    }
+    semantic_vector_reset(&db.decl_ranges);
+    semantic_vector_reset(&db.decl_range_ids);
+    semantic_hash_reset(&db.decls_by_name);
+    if semantic_db_collect_decl_range_counts(db) != 0 {
+        return -1;
+    }
+    if semantic_db_prefix_decl_ranges(db) != 0 {
+        return -1;
+    }
+
+    var cursors: SemanticVector = SemanticVector{
+        data: null,
+        item_size: 0usize,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+    if semantic_db_build_decl_range_cursors(db, &cursors) != 0 {
+        semantic_vector_release(&cursors);
+        return -1;
+    }
+    const filled: i32 = semantic_db_fill_decl_ranges(db, &cursors);
+    semantic_vector_release(&cursors);
+    return filled;
+}
+
+fn semantic_db_refresh_interned_name_count(db: &SemanticDb) i32 {
+    if db == null {
+        return -1;
+    }
+    const count: i32 = semantic_db_i32_from_usize(db.name_intern.count);
+    if count < 0 {
+        return -1;
+    }
+    db.interned_name_count = count;
     return 0;
 }
 
@@ -335,6 +542,14 @@ export fn semantic_db_build_from_merged_ast(db: &SemanticDb, program: &ASTNode) 
             return -1;
         }
         i = i + 1;
+    }
+    if semantic_db_refresh_interned_name_count(db) != 0 {
+        semantic_db_reset(db);
+        return -1;
+    }
+    if semantic_db_rebuild_decls_by_name(db) != 0 {
+        semantic_db_reset(db);
+        return -1;
     }
     semantic_db_update_estimated_bytes(db);
     return 0;
