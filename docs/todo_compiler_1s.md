@@ -105,6 +105,8 @@ make bench-compiler-1s-check
   - [x] `src/exec/lower.uya` / `builder.uya` / `frame.uya` 的 locals/globals/bytecode/frame 表。
   - [x] `src/main.uya` 的 input/resolved/processed files 和 program list。
 
+- [x] 为审计清单中的每类表标注迁移目标：dynamic vector、dynamic hash、range builder、worklist 或 bounded small buffer。
+
 ---
 
 ## Phase 1: SemanticDb 基础
