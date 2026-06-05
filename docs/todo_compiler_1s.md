@@ -394,14 +394,14 @@ make check
 - [ ] native 输出不生成 debug info，不保留全量机器码临时副本。
 - [ ] diagnostic 默认延迟格式化；无错误时不构造长诊断字符串。
 - [ ] `UYA_DUMP_*` 相关 dump 输出不计入性能达标，并在 benchmark 中标记。
-- [ ] 新增内存回归脚本 `tests/verify_compiler_memory_budget.sh`。
+- [x] 新增内存回归脚本 `tests/verify_compiler_memory_budget.sh`。
 
 测试：
 
-- [ ] `tests/verify_compiler_memory_budget.sh` 检查 benchmark TSV 含内存字段。
-- [ ] `tests/verify_compiler_memory_budget.sh` 检查缺少 RSS 采样时不会误报达标。
-- [ ] `tests/verify_compiler_memory_budget.sh` 检查 arena 字段存在且为非负整数。
-- [ ] `tests/verify_compiler_memory_budget.sh` 检查动态表字段存在且为非负整数。
+- [x] `tests/verify_compiler_memory_budget.sh` 检查 benchmark TSV 含内存字段。
+- [x] `tests/verify_compiler_memory_budget.sh` 检查缺少 RSS 采样时不会误报达标。
+- [x] `tests/verify_compiler_memory_budget.sh` 检查 arena 字段存在且为非负整数。
+- [x] `tests/verify_compiler_memory_budget.sh` 检查动态表字段存在且为非负整数。
 
 验证：
 
