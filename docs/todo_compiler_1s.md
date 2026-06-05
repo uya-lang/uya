@@ -347,25 +347,25 @@ make check
 - [x] 定义 `ErrorUnionLayout`。
 - [x] 定义 `AsyncFramePlan`。
 - [x] 实现 worklist roots 初始化。
-- [ ] 实现泛型函数实例闭包。
-- [ ] 实现泛型方法实例闭包。
-- [ ] 实现泛型结构体实例闭包。
-- [ ] 实现 err_union 类型闭包。
-- [ ] 实现 async frame 元数据闭包。
-- [ ] 实现 drop/defer plan 闭包。
-- [ ] 实现 runtime helper 需求闭包。
-- [ ] 输出稳定排序。
-- [ ] `UYA_DUMP_LOWERED_PROGRAM=1` 输出摘要。
+- [x] 实现泛型函数实例闭包。
+- [x] 实现泛型方法实例闭包。
+- [x] 实现泛型结构体实例闭包。
+- [x] 实现 err_union 类型闭包。
+- [x] 实现 async frame 元数据闭包。
+- [x] 实现 drop/defer plan 闭包。
+- [x] 实现 runtime helper 需求闭包。
+- [x] 输出稳定排序。
+- [x] `UYA_DUMP_LOWERED_PROGRAM=1` 输出摘要。
 
 测试：
 
-- [ ] 新增 `tests/verify_lowered_program_closure.sh`。
-- [ ] 覆盖 nested generic call。
-- [ ] 覆盖 method generic call。
-- [ ] 覆盖 `try/catch` 嵌套 err_union。
-- [ ] 覆盖 async frame descriptor。
-- [ ] 覆盖 vtable/interface method。
-- [ ] `tests/verify_dynamic_table_growth.sh` 覆盖大量 mono instances、err_union layouts、async frames、helpers。
+- [x] 新增 `tests/verify_lowered_program_closure.sh`。
+- [x] 覆盖 nested generic call。
+- [x] 覆盖 method generic call。
+- [x] 覆盖 `try/catch` 嵌套 err_union。
+- [x] 覆盖 async frame descriptor。
+- [x] 覆盖 vtable/interface method。
+- [x] `tests/verify_dynamic_table_growth.sh` 覆盖大量 mono instances、err_union layouts、async frames、helpers。
 
 验证：
 

@@ -1,5 +1,7 @@
 // lower/core.uya - Core lowered program contract shared by future C99/native planners.
 
+use libc;
+
 export const LOWERED_PROGRAM_LIFECYCLE_UNINITIALIZED: i32 = 0;
 export const LOWERED_PROGRAM_LIFECYCLE_ACTIVE: i32 = 1;
 export const LOWERED_PROGRAM_LIFECYCLE_RELEASED: i32 = 2;
@@ -8,6 +10,8 @@ export const LOWER_WORK_ITEM_TYPE: i32 = 2;
 export const LOWER_WORK_ITEM_ERR_UNION: i32 = 3;
 export const LOWER_WORK_ITEM_ASYNC_FRAME: i32 = 4;
 export const LOWER_WORK_ITEM_RUNTIME_HELPER: i32 = 5;
+export const LOWER_WORK_ITEM_INTERFACE: i32 = 6;
+export const LOWER_WORK_ITEM_DROP_DEFER: i32 = 7;
 export const LOWERED_RUNTIME_HELPER_UNKNOWN: i32 = 0;
 
 /// 功能说明：记录一个已经收敛到具体实例的函数。
@@ -80,6 +84,20 @@ export struct AsyncFramePlan {
     slot_count: i32,
 }
 
+/// 功能说明：记录一个 drop/defer 收尾计划。
+/// 参数说明：无；字段保存类型、drop 函数、归属函数、作用域和 defer/errdefer range 的稳定整数 ID。
+/// 返回值说明：无。
+export struct DropDeferPlan {
+    type_id: TypeId,
+    drop_function_id: FunctionId,
+    owner_function_id: FunctionId,
+    scope_id: i32,
+    defer_start: i32,
+    defer_count: i32,
+    errdefer_start: i32,
+    errdefer_count: i32,
+}
+
 /// 功能说明：记录 lowering worklist 中的一项待收敛工作。
 /// 参数说明：无；`kind` 标识工作类型，其余 ID 含义由 kind 决定。
 /// 返回值说明：无。
@@ -120,6 +138,7 @@ export struct LoweredProgram {
     interface_count: usize,
     err_union_count: usize,
     async_frame_count: usize,
+    drop_defer_count: usize,
     helper_count: usize,
     work_item_count: usize,
     estimated_bytes: usize,
@@ -131,6 +150,7 @@ export struct LoweredProgram {
     interfaces: SemanticVector,
     err_unions: SemanticVector,
     async_frames: SemanticVector,
+    drop_defer_plans: SemanticVector,
     helpers: SemanticVector,
     worklist: SemanticVector,
 }
@@ -145,6 +165,7 @@ fn lowered_program_clear_counts(program: &LoweredProgram) void {
     program.interface_count = 0usize;
     program.err_union_count = 0usize;
     program.async_frame_count = 0usize;
+    program.drop_defer_count = 0usize;
     program.helper_count = 0usize;
     program.work_item_count = 0usize;
     program.estimated_bytes = 0usize;
@@ -189,6 +210,7 @@ export fn lowered_program_init(program: &LoweredProgram, arena: &CompilerArena) 
     semantic_vector_init(&program.interfaces, @size_of(InterfacePlan));
     semantic_vector_init(&program.err_unions, @size_of(ErrorUnionLayout));
     semantic_vector_init(&program.async_frames, @size_of(AsyncFramePlan));
+    semantic_vector_init(&program.drop_defer_plans, @size_of(DropDeferPlan));
     semantic_vector_init(&program.helpers, @size_of(RuntimeHelper));
     semantic_vector_init(&program.worklist, @size_of(LowerWorkItem));
     lowered_program_refresh_bytes(program);
@@ -209,6 +231,7 @@ export fn lowered_program_reset(program: &LoweredProgram) void {
     semantic_vector_reset(&program.interfaces);
     semantic_vector_reset(&program.err_unions);
     semantic_vector_reset(&program.async_frames);
+    semantic_vector_reset(&program.drop_defer_plans);
     semantic_vector_reset(&program.helpers);
     semantic_vector_reset(&program.worklist);
     lowered_program_refresh_bytes(program);
@@ -230,6 +253,7 @@ export fn lowered_program_release(program: &LoweredProgram) void {
     semantic_vector_release(&program.interfaces);
     semantic_vector_release(&program.err_unions);
     semantic_vector_release(&program.async_frames);
+    semantic_vector_release(&program.drop_defer_plans);
     semantic_vector_release(&program.helpers);
     semantic_vector_release(&program.worklist);
     lowered_program_clear_counts(program);
@@ -337,6 +361,21 @@ export fn lowered_program_append_async_frame(program: &LoweredProgram, item: &As
     return 0;
 }
 
+/// 功能说明：追加 drop/defer 收尾计划。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为待追加 drop/defer 计划。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn lowered_program_append_drop_defer_plan(program: &LoweredProgram, item: &DropDeferPlan) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    if semantic_vector_append(&program.drop_defer_plans, item as &const void) != 0 {
+        return -1;
+    }
+    program.drop_defer_count = program.drop_defer_plans.count;
+    lowered_program_refresh_bytes(program);
+    return 0;
+}
+
 /// 功能说明：追加运行时 helper 需求。
 /// 参数说明：`program` 为目标 LoweredProgram，`item` 为待追加 helper 记录。
 /// 返回值说明：成功返回 `0`，失败返回 `-1`。
@@ -432,6 +471,7 @@ export fn lowered_program_storage_bytes(program: &LoweredProgram) usize {
         program.interfaces.bytes +
         program.err_unions.bytes +
         program.async_frames.bytes +
+        program.drop_defer_plans.bytes +
         program.helpers.bytes +
         program.worklist.bytes;
 }
@@ -511,7 +551,533 @@ export fn lowered_program_stats(program: &LoweredProgram) LoweredProgramStats {
     lowered_program_stats_add(&stats, &program.interfaces);
     lowered_program_stats_add(&stats, &program.err_unions);
     lowered_program_stats_add(&stats, &program.async_frames);
+    lowered_program_stats_add(&stats, &program.drop_defer_plans);
     lowered_program_stats_add(&stats, &program.helpers);
     lowered_program_stats_add(&stats, &program.worklist);
     return stats;
+}
+
+// ---- Phase 5: 闭包收敛 ----
+
+fn lowered_program_has_function_mono(program: &LoweredProgram, mono_id: MonoInstanceId) i32 {
+    var i: usize = 0usize;
+    while i < program.functions.count {
+        const fn_ptr: &ConcreteFunction = semantic_vector_item_ptr(&program.functions, i) as &ConcreteFunction;
+        if fn_ptr != null && fn_ptr.mono_instance_id == mono_id {
+            return 1;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn lowered_program_close_call_instances(program: &LoweredProgram, typed: &TypedProgram, want_kind: i32) i32 {
+    if program == null || typed == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < typed.call_targets.count {
+        const target: &TypedCallTarget = semantic_vector_item_ptr(&typed.call_targets, i) as &TypedCallTarget;
+        if target == null {
+            return -1;
+        }
+        if target.kind == want_kind && target.mono_instance_id != TYPED_PROGRAM_INVALID_ID {
+            if lowered_program_has_function_mono(program, target.mono_instance_id) == 0 {
+                var fn_item: ConcreteFunction = ConcreteFunction{
+                    function_id: target.function_id,
+                    decl_id: target.decl_id,
+                    mono_instance_id: target.mono_instance_id,
+                    body_start: 0,
+                    body_count: 0,
+                };
+                if lowered_program_append_function(program, &fn_item) != 0 {
+                    return -1;
+                }
+                var work: LowerWorkItem = LowerWorkItem{
+                    kind: LOWER_WORK_ITEM_FUNCTION,
+                    primary_id: target.function_id,
+                    secondary_id: target.mono_instance_id,
+                };
+                if lowered_program_append_work_item(program, &work) != 0 {
+                    return -1;
+                }
+            }
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+/// 功能说明：从 TypedProgram 函数调用目标收敛泛型函数实例闭包。
+/// 参数说明：`program` 为目标 LoweredProgram，`typed` 为 checker 输出的 TypedProgram。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`；按 mono_instance_id 去重，可重复调用保持幂等。
+export fn lowered_program_close_generic_function_instances(program: &LoweredProgram, typed: &TypedProgram) i32 {
+    return lowered_program_close_call_instances(program, typed, TYPED_CALL_TARGET_FUNCTION);
+}
+
+/// 功能说明：从 TypedProgram 方法调用目标收敛泛型方法实例闭包。
+/// 参数说明：`program` 为目标 LoweredProgram，`typed` 为 checker 输出的 TypedProgram。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`；按 mono_instance_id 去重，可重复调用保持幂等。
+export fn lowered_program_close_generic_method_instances(program: &LoweredProgram, typed: &TypedProgram) i32 {
+    return lowered_program_close_call_instances(program, typed, TYPED_CALL_TARGET_METHOD);
+}
+
+/// 功能说明：收敛一个泛型结构体实例闭包。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为已收敛的 ConcreteType。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`；按 type_id 去重。
+export fn lowered_program_close_generic_struct_instance(program: &LoweredProgram, item: &ConcreteType) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < program.types.count {
+        const existing: &ConcreteType = semantic_vector_item_ptr(&program.types, i) as &ConcreteType;
+        if existing != null && existing.type_id == item.type_id {
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    if lowered_program_append_type(program, item) != 0 {
+        return -1;
+    }
+    var work: LowerWorkItem = LowerWorkItem{
+        kind: LOWER_WORK_ITEM_TYPE,
+        primary_id: item.type_id,
+        secondary_id: item.decl_id,
+    };
+    return lowered_program_append_work_item(program, &work);
+}
+
+/// 功能说明：收敛一个 error union 类型闭包。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为已收敛的 ErrorUnionLayout。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`；按 type_id 去重。
+export fn lowered_program_close_err_union_type(program: &LoweredProgram, item: &ErrorUnionLayout) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < program.err_unions.count {
+        const existing: &ErrorUnionLayout = semantic_vector_item_ptr(&program.err_unions, i) as &ErrorUnionLayout;
+        if existing != null && existing.type_id == item.type_id {
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    if lowered_program_append_error_union(program, item) != 0 {
+        return -1;
+    }
+    var work: LowerWorkItem = LowerWorkItem{
+        kind: LOWER_WORK_ITEM_ERR_UNION,
+        primary_id: item.type_id,
+        secondary_id: item.payload_type_id,
+    };
+    return lowered_program_append_work_item(program, &work);
+}
+
+/// 功能说明：收敛一个 async frame 元数据闭包。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为已收敛的 AsyncFramePlan。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`；按 function_id 去重。
+export fn lowered_program_close_async_frame_metadata(program: &LoweredProgram, item: &AsyncFramePlan) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < program.async_frames.count {
+        const existing: &AsyncFramePlan = semantic_vector_item_ptr(&program.async_frames, i) as &AsyncFramePlan;
+        if existing != null && existing.function_id == item.function_id {
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    if lowered_program_append_async_frame(program, item) != 0 {
+        return -1;
+    }
+    var work: LowerWorkItem = LowerWorkItem{
+        kind: LOWER_WORK_ITEM_ASYNC_FRAME,
+        primary_id: item.function_id,
+        secondary_id: item.frame_type_id,
+    };
+    return lowered_program_append_work_item(program, &work);
+}
+
+/// 功能说明：收敛一个 drop/defer 收尾计划闭包。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为已收敛的 DropDeferPlan。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`；按 (owner_function_id, scope_id) 去重。
+export fn lowered_program_close_drop_defer_plan(program: &LoweredProgram, item: &DropDeferPlan) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < program.drop_defer_plans.count {
+        const existing: &DropDeferPlan = semantic_vector_item_ptr(&program.drop_defer_plans, i) as &DropDeferPlan;
+        if existing != null && existing.owner_function_id == item.owner_function_id && existing.scope_id == item.scope_id {
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    if lowered_program_append_drop_defer_plan(program, item) != 0 {
+        return -1;
+    }
+    var work: LowerWorkItem = LowerWorkItem{
+        kind: LOWER_WORK_ITEM_DROP_DEFER,
+        primary_id: item.owner_function_id,
+        secondary_id: item.scope_id,
+    };
+    return lowered_program_append_work_item(program, &work);
+}
+
+/// 功能说明：收敛一个 vtable/interface 方法计划闭包。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为已收敛的 InterfacePlan。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`；按 (type_id, symbol_id) 去重。
+export fn lowered_program_close_interface_method_plan(program: &LoweredProgram, item: &InterfacePlan) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < program.interfaces.count {
+        const existing: &InterfacePlan = semantic_vector_item_ptr(&program.interfaces, i) as &InterfacePlan;
+        if existing != null && existing.type_id == item.type_id && existing.symbol_id == item.symbol_id {
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    if lowered_program_append_interface(program, item) != 0 {
+        return -1;
+    }
+    var work: LowerWorkItem = LowerWorkItem{
+        kind: LOWER_WORK_ITEM_INTERFACE,
+        primary_id: item.type_id,
+        secondary_id: item.symbol_id,
+    };
+    return lowered_program_append_work_item(program, &work);
+}
+
+/// 功能说明：收敛一个 runtime helper 需求闭包。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为已收敛的 RuntimeHelper。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`；按 helper_id 去重。
+export fn lowered_program_close_runtime_helper_requirement(program: &LoweredProgram, item: &RuntimeHelper) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < program.helpers.count {
+        const existing: &RuntimeHelper = semantic_vector_item_ptr(&program.helpers, i) as &RuntimeHelper;
+        if existing != null && existing.helper_id == item.helper_id {
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    if lowered_program_append_helper(program, item) != 0 {
+        return -1;
+    }
+    var work: LowerWorkItem = LowerWorkItem{
+        kind: LOWER_WORK_ITEM_RUNTIME_HELPER,
+        primary_id: item.helper_id,
+        secondary_id: item.name_id,
+    };
+    return lowered_program_append_work_item(program, &work);
+}
+
+// ---- Phase 5: 输出稳定排序 ----
+
+fn lowered_program_swap_items(vec: &SemanticVector, i: usize, j: usize) void {
+    var tmp: [byte: 64] = [];
+    const pa: &byte = semantic_vector_item_ptr(vec, i);
+    const pb: &byte = semantic_vector_item_ptr(vec, j);
+    if pa == null || pb == null {
+        return;
+    }
+    const sz: usize = vec.item_size;
+    _ = memcpy(&tmp[0] as *byte, pa as *const byte, sz);
+    _ = memcpy(pa as *byte, pb as *const byte, sz);
+    _ = memcpy(pb as *byte, &tmp[0] as *const byte, sz);
+}
+
+/// 功能说明：按 function_id 对 ConcreteFunction 表做稳定插入排序。
+export fn lowered_program_sort_functions(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    const vec: &SemanticVector = &program.functions;
+    var i: usize = 1usize;
+    while i < vec.count {
+        var j: usize = i;
+        while j > 0usize {
+            const a: &ConcreteFunction = semantic_vector_item_ptr(vec, j - 1usize) as &ConcreteFunction;
+            const b: &ConcreteFunction = semantic_vector_item_ptr(vec, j) as &ConcreteFunction;
+            if a == null || b == null {
+                return -1;
+            }
+            if a.function_id <= b.function_id {
+                break;
+            }
+            lowered_program_swap_items(vec, j - 1usize, j);
+            j = j - 1usize;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+/// 功能说明：按 global_id 对 GlobalObject 表做稳定插入排序。
+export fn lowered_program_sort_globals(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    const vec: &SemanticVector = &program.globals;
+    var i: usize = 1usize;
+    while i < vec.count {
+        var j: usize = i;
+        while j > 0usize {
+            const a: &GlobalObject = semantic_vector_item_ptr(vec, j - 1usize) as &GlobalObject;
+            const b: &GlobalObject = semantic_vector_item_ptr(vec, j) as &GlobalObject;
+            if a == null || b == null {
+                return -1;
+            }
+            if a.global_id <= b.global_id {
+                break;
+            }
+            lowered_program_swap_items(vec, j - 1usize, j);
+            j = j - 1usize;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+/// 功能说明：按 type_id 对 ConcreteType 表做稳定插入排序。
+export fn lowered_program_sort_types(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    const vec: &SemanticVector = &program.types;
+    var i: usize = 1usize;
+    while i < vec.count {
+        var j: usize = i;
+        while j > 0usize {
+            const a: &ConcreteType = semantic_vector_item_ptr(vec, j - 1usize) as &ConcreteType;
+            const b: &ConcreteType = semantic_vector_item_ptr(vec, j) as &ConcreteType;
+            if a == null || b == null {
+                return -1;
+            }
+            if a.type_id <= b.type_id {
+                break;
+            }
+            lowered_program_swap_items(vec, j - 1usize, j);
+            j = j - 1usize;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+/// 功能说明：按 (type_id, symbol_id) 对 InterfacePlan 表做稳定插入排序。
+export fn lowered_program_sort_interfaces(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    const vec: &SemanticVector = &program.interfaces;
+    var i: usize = 1usize;
+    while i < vec.count {
+        var j: usize = i;
+        while j > 0usize {
+            const a: &InterfacePlan = semantic_vector_item_ptr(vec, j - 1usize) as &InterfacePlan;
+            const b: &InterfacePlan = semantic_vector_item_ptr(vec, j) as &InterfacePlan;
+            if a == null || b == null {
+                return -1;
+            }
+            var greater: i32 = 0;
+            if a.type_id > b.type_id {
+                greater = 1;
+            } else if a.type_id == b.type_id && a.symbol_id > b.symbol_id {
+                greater = 1;
+            }
+            if greater == 0 {
+                break;
+            }
+            lowered_program_swap_items(vec, j - 1usize, j);
+            j = j - 1usize;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+/// 功能说明：按 type_id 对 ErrorUnionLayout 表做稳定插入排序。
+export fn lowered_program_sort_err_unions(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    const vec: &SemanticVector = &program.err_unions;
+    var i: usize = 1usize;
+    while i < vec.count {
+        var j: usize = i;
+        while j > 0usize {
+            const a: &ErrorUnionLayout = semantic_vector_item_ptr(vec, j - 1usize) as &ErrorUnionLayout;
+            const b: &ErrorUnionLayout = semantic_vector_item_ptr(vec, j) as &ErrorUnionLayout;
+            if a == null || b == null {
+                return -1;
+            }
+            if a.type_id <= b.type_id {
+                break;
+            }
+            lowered_program_swap_items(vec, j - 1usize, j);
+            j = j - 1usize;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+/// 功能说明：按 function_id 对 AsyncFramePlan 表做稳定插入排序。
+export fn lowered_program_sort_async_frames(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    const vec: &SemanticVector = &program.async_frames;
+    var i: usize = 1usize;
+    while i < vec.count {
+        var j: usize = i;
+        while j > 0usize {
+            const a: &AsyncFramePlan = semantic_vector_item_ptr(vec, j - 1usize) as &AsyncFramePlan;
+            const b: &AsyncFramePlan = semantic_vector_item_ptr(vec, j) as &AsyncFramePlan;
+            if a == null || b == null {
+                return -1;
+            }
+            if a.function_id <= b.function_id {
+                break;
+            }
+            lowered_program_swap_items(vec, j - 1usize, j);
+            j = j - 1usize;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+/// 功能说明：按 (owner_function_id, scope_id) 对 DropDeferPlan 表做稳定插入排序。
+export fn lowered_program_sort_drop_defer_plans(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    const vec: &SemanticVector = &program.drop_defer_plans;
+    var i: usize = 1usize;
+    while i < vec.count {
+        var j: usize = i;
+        while j > 0usize {
+            const a: &DropDeferPlan = semantic_vector_item_ptr(vec, j - 1usize) as &DropDeferPlan;
+            const b: &DropDeferPlan = semantic_vector_item_ptr(vec, j) as &DropDeferPlan;
+            if a == null || b == null {
+                return -1;
+            }
+            var greater: i32 = 0;
+            if a.owner_function_id > b.owner_function_id {
+                greater = 1;
+            } else if a.owner_function_id == b.owner_function_id && a.scope_id > b.scope_id {
+                greater = 1;
+            }
+            if greater == 0 {
+                break;
+            }
+            lowered_program_swap_items(vec, j - 1usize, j);
+            j = j - 1usize;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+/// 功能说明：按 helper_id 对 RuntimeHelper 表做稳定插入排序。
+export fn lowered_program_sort_helpers(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    const vec: &SemanticVector = &program.helpers;
+    var i: usize = 1usize;
+    while i < vec.count {
+        var j: usize = i;
+        while j > 0usize {
+            const a: &RuntimeHelper = semantic_vector_item_ptr(vec, j - 1usize) as &RuntimeHelper;
+            const b: &RuntimeHelper = semantic_vector_item_ptr(vec, j) as &RuntimeHelper;
+            if a == null || b == null {
+                return -1;
+            }
+            if a.helper_id <= b.helper_id {
+                break;
+            }
+            lowered_program_swap_items(vec, j - 1usize, j);
+            j = j - 1usize;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+/// 功能说明：对 LoweredProgram 所有输出表按稳定 ID 排序，保证后端确定性输出。
+/// 参数说明：`program` 为目标 LoweredProgram。
+/// 返回值说明：成功返回 `0`，任一子表排序失败返回 `-1`。
+export fn lowered_program_sort_stable(program: &LoweredProgram) i32 {
+    if program == null {
+        return -1;
+    }
+    if lowered_program_sort_functions(program) != 0 {
+        return -1;
+    }
+    if lowered_program_sort_globals(program) != 0 {
+        return -1;
+    }
+    if lowered_program_sort_types(program) != 0 {
+        return -1;
+    }
+    if lowered_program_sort_interfaces(program) != 0 {
+        return -1;
+    }
+    if lowered_program_sort_err_unions(program) != 0 {
+        return -1;
+    }
+    if lowered_program_sort_async_frames(program) != 0 {
+        return -1;
+    }
+    if lowered_program_sort_drop_defer_plans(program) != 0 {
+        return -1;
+    }
+    if lowered_program_sort_helpers(program) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+// ---- Phase 5: debug dump ----
+
+fn lowered_program_dump_enabled() i32 {
+    const value: *byte = getenv("UYA_DUMP_LOWERED_PROGRAM" as *byte);
+    if value == null {
+        return 0;
+    }
+    if value[0] == 49 as byte && value[1] == 0 as byte {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：在设置 `UYA_DUMP_LOWERED_PROGRAM=1` 时向 stderr 打印 LoweredProgram 摘要。
+/// 参数说明：`program` 为目标 LoweredProgram。
+/// 返回值说明：无；默认关闭，不计入性能/内存 KPI。
+export fn lowered_program_maybe_dump_summary(program: &LoweredProgram) void {
+    if program == null {
+        return;
+    }
+    if lowered_program_dump_enabled() == 0 {
+        return;
+    }
+    const stats: LoweredProgramStats = lowered_program_stats(program);
+    fprintf(libc.stderr, "=== lowered program ===\n" as *byte);
+    fprintf(libc.stderr, "functions=%zu globals=%zu types=%zu interfaces=%zu err_unions=%zu async_frames=%zu drop_defers=%zu helpers=%zu work_items=%zu\n" as *byte,
+        program.function_count, program.global_count, program.type_count, program.interface_count,
+        program.err_union_count, program.async_frame_count, program.drop_defer_count, program.helper_count, program.work_item_count);
+    fprintf(libc.stderr, "tables=%d table_items=%zu table_capacity=%zu table_bytes=%zu table_reallocs=%d\n" as *byte,
+        stats.table_count, stats.table_items, stats.table_capacity, stats.table_bytes, stats.table_realloc_count);
+    fprintf(libc.stderr, "estimated_bytes=%zu peak_bytes=%zu\n" as *byte,
+        lowered_program_estimated_bytes(program), lowered_program_peak_bytes(program));
+    fprintf(libc.stderr, "=== lowered program end ===\n" as *byte);
 }

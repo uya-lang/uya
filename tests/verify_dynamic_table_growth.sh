@@ -8,6 +8,8 @@ TABLE_FILE="$REPO_ROOT/src/semantic/table.uya"
 INTERN_FILE="$REPO_ROOT/src/semantic/intern.uya"
 IDS_FILE="$REPO_ROOT/src/semantic/ids.uya"
 TYPED_FILE="$REPO_ROOT/src/typed/program.uya"
+ARENA_FILE="$REPO_ROOT/src/arena.uya"
+LOWER_CORE_FILE="$REPO_ROOT/src/lower/core.uya"
 TMP_DIRS=()
 
 cleanup() {
@@ -309,9 +311,173 @@ EOF
     echo "✓ TypedProgram dynamic expression/call/proof growth checks passed"
 }
 
+verify_lowered_program_dynamic_growth() {
+    if [[ ! -f "$ARENA_FILE" || ! -f "$TABLE_FILE" || ! -f "$IDS_FILE" || ! -f "$TYPED_FILE" || ! -f "$LOWER_CORE_FILE" ]]; then
+        echo "错误: 缺少 LoweredProgram 动态增长源文件" >&2
+        exit 1
+    fi
+
+    local tmp_dir
+    tmp_dir="$(make_tmp_dir)"
+    cat "$ARENA_FILE" "$TABLE_FILE" "$IDS_FILE" "$TYPED_FILE" "$LOWER_CORE_FILE" >"$tmp_dir/main.uya"
+    cat >>"$tmp_dir/main.uya" <<'EOF'
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+const OVER_LOWERED_MONO_INSTANCES: i32 = 4097;
+const OVER_LOWERED_ERR_UNIONS: i32 = 1025;
+const OVER_LOWERED_ASYNC_FRAMES: i32 = 1025;
+const OVER_LOWERED_HELPERS: i32 = 1025;
+
+fn lower_growth_vector() SemanticVector {
+    return SemanticVector{
+        data: null,
+        item_size: 0usize,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+}
+
+fn lower_growth_program() LoweredProgram {
+    return LoweredProgram{
+        arena: null,
+        function_count: 0usize,
+        global_count: 0usize,
+        type_count: 0usize,
+        interface_count: 0usize,
+        err_union_count: 0usize,
+        async_frame_count: 0usize,
+        drop_defer_count: 0usize,
+        helper_count: 0usize,
+        work_item_count: 0usize,
+        estimated_bytes: 0usize,
+        resident_peak_bytes: 0usize,
+        lifecycle_state: LOWERED_PROGRAM_LIFECYCLE_UNINITIALIZED,
+        functions: lower_growth_vector(),
+        globals: lower_growth_vector(),
+        types: lower_growth_vector(),
+        interfaces: lower_growth_vector(),
+        err_unions: lower_growth_vector(),
+        async_frames: lower_growth_vector(),
+        drop_defer_plans: lower_growth_vector(),
+        helpers: lower_growth_vector(),
+        worklist: lower_growth_vector(),
+    };
+}
+
+fn lower_growth_typed() TypedProgram {
+    return TypedProgram{
+        expr_count: 0,
+        global_init_count: 0,
+        reachable_root_count: 0,
+        proof_result_count: 0,
+        estimated_bytes: 0usize,
+        resident_peak_bytes: 0usize,
+        lifecycle_state: TYPED_PROGRAM_LIFECYCLE_UNINITIALIZED,
+        expr_types: lower_growth_vector(),
+        identifier_bindings: lower_growth_vector(),
+        call_targets: lower_growth_vector(),
+        method_dispatch: lower_growth_vector(),
+        field_access: lower_growth_vector(),
+        global_init_order: lower_growth_vector(),
+        reachable_roots: lower_growth_vector(),
+        proof_results: lower_growth_vector(),
+    };
+}
+
+test "lowered program closure tables grow past legacy capacities" {
+    var arena_buf: [byte: 4096] = [];
+    var arena: CompilerArena = CompilerArena{
+        buffer: null,
+        size: 0usize,
+        offset: 0usize,
+        first_chunk: null,
+        current_chunk: null,
+        total_allocated: 0usize,
+        peak_allocated: 0usize,
+    };
+    compiler_arena_init(&arena, &arena_buf[0], @len(arena_buf) as usize);
+
+    var typed: TypedProgram = lower_growth_typed();
+    typed_program_init(&typed);
+    var i: i32 = 0;
+    while i < OVER_LOWERED_MONO_INSTANCES {
+        var target: TypedCallTarget = TypedCallTarget{
+            kind: TYPED_CALL_TARGET_FUNCTION,
+            function_id: i,
+            decl_id: i,
+            symbol_id: i,
+            mono_instance_id: i,
+        };
+        try assert_eq_i32(typed_program_set_call_target(&typed, i, &target), 0);
+        i = i + 1;
+    }
+
+    var lowered: LoweredProgram = lower_growth_program();
+    lowered_program_init(&lowered, &arena);
+    try assert_eq_i32(lowered_program_close_generic_function_instances(&lowered, &typed), 0);
+    try assert_eq_i32(lowered.function_count as i32, OVER_LOWERED_MONO_INSTANCES);
+    try expect(lowered.functions.capacity >= OVER_LOWERED_MONO_INSTANCES as usize);
+    try expect(lowered.functions.realloc_count > 1);
+
+    i = 0;
+    while i < OVER_LOWERED_ERR_UNIONS {
+        var layout: ErrorUnionLayout = ErrorUnionLayout{
+            type_id: 1000000 + i,
+            payload_type_id: i,
+            error_type_id: i + 1,
+        };
+        try assert_eq_i32(lowered_program_close_err_union_type(&lowered, &layout), 0);
+        i = i + 1;
+    }
+    try assert_eq_i32(lowered.err_union_count as i32, OVER_LOWERED_ERR_UNIONS);
+    try expect(lowered.err_unions.realloc_count > 1);
+
+    i = 0;
+    while i < OVER_LOWERED_ASYNC_FRAMES {
+        var frame: AsyncFramePlan = AsyncFramePlan{
+            function_id: 2000000 + i,
+            frame_type_id: i,
+            slot_start: 0,
+            slot_count: 1,
+        };
+        try assert_eq_i32(lowered_program_close_async_frame_metadata(&lowered, &frame), 0);
+        i = i + 1;
+    }
+    try assert_eq_i32(lowered.async_frame_count as i32, OVER_LOWERED_ASYNC_FRAMES);
+    try expect(lowered.async_frames.realloc_count > 1);
+
+    i = 0;
+    while i < OVER_LOWERED_HELPERS {
+        var helper: RuntimeHelper = RuntimeHelper{
+            helper_id: 3000000 + i,
+            kind: LOWERED_RUNTIME_HELPER_UNKNOWN,
+            name_id: i,
+        };
+        try assert_eq_i32(lowered_program_close_runtime_helper_requirement(&lowered, &helper), 0);
+        i = i + 1;
+    }
+    try assert_eq_i32(lowered.helper_count as i32, OVER_LOWERED_HELPERS);
+    try expect(lowered.helpers.realloc_count > 1);
+
+    try assert_eq_i32(lowered_program_sort_stable(&lowered), 0);
+
+    lowered_program_release(&lowered);
+    typed_program_release(&typed);
+    compiler_arena_free_all(&arena);
+}
+EOF
+
+    (cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
+    echo "✓ LoweredProgram dynamic mono/err_union/async/helper growth checks passed"
+}
+
 verify_large_legacy_counts
 verify_high_load_and_collision_growth
 verify_typed_program_dynamic_growth
+verify_lowered_program_dynamic_growth
 run_check "verify_semantic_table_growth_failures.sh"
 run_check "verify_semantic_intern_growth.sh"
 run_check "verify_semantic_db_dynamic_growth.sh"

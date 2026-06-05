@@ -81,6 +81,7 @@ fn lower_test_program() LoweredProgram {
         interface_count: 0,
         err_union_count: 0,
         async_frame_count: 0,
+        drop_defer_count: 0,
         helper_count: 0,
         work_item_count: 0,
         estimated_bytes: 0usize,
@@ -92,6 +93,7 @@ fn lower_test_program() LoweredProgram {
         interfaces: lower_test_vector(),
         err_unions: lower_test_vector(),
         async_frames: lower_test_vector(),
+        drop_defer_plans: lower_test_vector(),
         helpers: lower_test_vector(),
         worklist: lower_test_vector(),
     };
@@ -192,7 +194,7 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
     try expect(lowered_program_peak_bytes(&lowered) >= lowered_program_current_bytes(&lowered));
 
     const stats: LoweredProgramStats = lowered_program_stats(&lowered);
-    try assert_eq_i32(stats.table_count, 8);
+    try assert_eq_i32(stats.table_count, 9);
     try expect(stats.table_capacity >= 320usize);
 
     lowered_program_release(&lowered);
