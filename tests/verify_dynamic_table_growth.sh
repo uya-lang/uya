@@ -10,6 +10,7 @@ IDS_FILE="$REPO_ROOT/src/semantic/ids.uya"
 TYPED_FILE="$REPO_ROOT/src/typed/program.uya"
 ARENA_FILE="$REPO_ROOT/src/arena.uya"
 LOWER_CORE_FILE="$REPO_ROOT/src/lower/core.uya"
+C99_PLAN_FILE="$REPO_ROOT/src/codegen/c99/plan.uya"
 TMP_DIRS=()
 
 cleanup() {
@@ -474,10 +475,117 @@ EOF
     echo "✓ LoweredProgram dynamic mono/err_union/async/helper growth checks passed"
 }
 
+verify_c99_plan_dynamic_growth() {
+    if [[ ! -f "$ARENA_FILE" || ! -f "$TABLE_FILE" || ! -f "$IDS_FILE" || ! -f "$C99_PLAN_FILE" ]]; then
+        echo "错误: 缺少 C99Plan 动态增长源文件" >&2
+        exit 1
+    fi
+
+    local tmp_dir
+    tmp_dir="$(make_tmp_dir)"
+    cat "$ARENA_FILE" "$TABLE_FILE" "$IDS_FILE" "$C99_PLAN_FILE" >"$tmp_dir/main.uya"
+    cat >>"$tmp_dir/main.uya" <<'EOF'
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+const OVER_C99_PLAN_UNITS: i32 = 1025;
+const OVER_C99_PLAN_PROTOTYPES: i32 = 4097;
+const OVER_C99_PLAN_HELPERS: i32 = 1025;
+const OVER_C99_PLAN_DEPS: i32 = 1025;
+
+fn c99_plan_growth_vec() SemanticVector {
+    return SemanticVector{
+        data: null,
+        item_size: 0usize,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+}
+
+fn c99_plan_growth_program() C99Plan {
+    return C99Plan{
+        arena: null,
+        unit_count: 0usize,
+        estimated_bytes: 0usize,
+        resident_peak_bytes: 0usize,
+        lifecycle_state: C99_PLAN_LIFECYCLE_UNINITIALIZED,
+        includes: c99_plan_growth_vec(),
+        typedefs: c99_plan_growth_vec(),
+        prototypes: c99_plan_growth_vec(),
+        globals: c99_plan_growth_vec(),
+        functions: c99_plan_growth_vec(),
+        helpers: c99_plan_growth_vec(),
+        deps: c99_plan_growth_vec(),
+        units: c99_plan_growth_vec(),
+    };
+}
+
+test "c99 plan units prototypes helpers deps grow past legacy capacities" {
+    var arena_buf: [byte: 4096] = [];
+    var arena: CompilerArena = CompilerArena{
+        buffer: null,
+        size: 0usize,
+        offset: 0usize,
+        first_chunk: null,
+        current_chunk: null,
+        total_allocated: 0usize,
+        peak_allocated: 0usize,
+    };
+    compiler_arena_init(&arena, &arena_buf[0], @len(arena_buf) as usize);
+
+    var plan: C99Plan = c99_plan_growth_program();
+    c99_plan_init(&plan, &arena);
+
+    var i: i32 = 0;
+    while i < OVER_C99_PLAN_UNITS {
+        const uid: i32 = c99_plan_add_unit(&plan, i);
+        try assert_eq_i32(uid, i);
+        i = i + 1;
+    }
+    try assert_eq_i32(c99_plan_unit_count(&plan) as i32, OVER_C99_PLAN_UNITS);
+    try expect(plan.units.realloc_count > 1);
+
+    i = 0;
+    while i < OVER_C99_PLAN_PROTOTYPES {
+        try assert_eq_i32(c99_plan_unit_add_prototype(&plan, 0, i), 0);
+        i = i + 1;
+    }
+    i = 0;
+    while i < OVER_C99_PLAN_HELPERS {
+        try assert_eq_i32(c99_plan_unit_add_helper(&plan, 0, i), 0);
+        i = i + 1;
+    }
+    i = 0;
+    while i < OVER_C99_PLAN_DEPS {
+        try assert_eq_i32(c99_plan_add_dep(&plan, i), 0);
+        i = i + 1;
+    }
+
+    const unit0: &C99UnitPlan = c99_plan_unit_ptr(&plan, 0);
+    try expect(unit0 != null);
+    try assert_eq_i32(unit0.prototypes.count as i32, OVER_C99_PLAN_PROTOTYPES);
+    try assert_eq_i32(unit0.helpers.count as i32, OVER_C99_PLAN_HELPERS);
+    try assert_eq_i32(plan.deps.count as i32, OVER_C99_PLAN_DEPS);
+    try expect(unit0.prototypes.realloc_count > 1);
+    try expect(unit0.helpers.realloc_count > 1);
+    try expect(plan.deps.realloc_count > 1);
+
+    c99_plan_release(&plan);
+    compiler_arena_free_all(&arena);
+}
+EOF
+
+    (cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
+    echo "✓ C99Plan dynamic units/prototypes/helpers/deps growth checks passed"
+}
+
 verify_large_legacy_counts
 verify_high_load_and_collision_growth
 verify_typed_program_dynamic_growth
 verify_lowered_program_dynamic_growth
+verify_c99_plan_dynamic_growth
 run_check "verify_semantic_table_growth_failures.sh"
 run_check "verify_semantic_intern_growth.sh"
 run_check "verify_semantic_db_dynamic_growth.sh"

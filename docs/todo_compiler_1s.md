@@ -419,11 +419,11 @@ make bench-compiler-1s-check
 
 ## Phase 6: C99 Planner / Emitter 分层
 
-- [ ] 新建 `src/codegen/c99/plan.uya`。
-- [ ] 定义 `C99Plan`。
-- [ ] 定义 `C99UnitPlan`。
-- [ ] `C99Plan` / `C99UnitPlan` 的 includes、typedefs、prototypes、globals、functions、helpers、deps 全部动态增长。
-- [ ] split-C unit 列表动态增长，不允许固定最大 unit 数。
+- [x] 新建 `src/codegen/c99/plan.uya`。
+- [x] 定义 `C99Plan`。
+- [x] 定义 `C99UnitPlan`。
+- [x] `C99Plan` / `C99UnitPlan` 的 includes、typedefs、prototypes、globals、functions、helpers、deps 全部动态增长。
+- [x] split-C unit 列表动态增长，不允许固定最大 unit 数。
 - [ ] 将 include/header/prelude 规划迁入 planner。
 - [ ] 将 function prototype 规划迁入 planner。
 - [ ] 将 type definitions 规划迁入 planner。
@@ -444,9 +444,9 @@ c99_write_split_makefile(plan)
 
 测试：
 
-- [ ] 新增 `tests/verify_c99_plan_stability.sh`。
-- [ ] 新增 split-C plan dependency regression。
-- [ ] `tests/verify_dynamic_table_growth.sh` 覆盖大量 C99 units、prototypes、helpers、deps。
+- [x] 新增 `tests/verify_c99_plan_stability.sh`。
+- [x] 新增 split-C plan dependency regression。
+- [x] `tests/verify_dynamic_table_growth.sh` 覆盖大量 C99 units、prototypes、helpers、deps。
 - [ ] 复跑现有 C99 regression：
   - [ ] async frame descriptors
   - [ ] imported `main`

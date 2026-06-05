@@ -15,11 +15,18 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TMP_DIR="$(mktemp -d /tmp/uya-compiler-memory-budget.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-BENCH_SCRIPT="$REPO_ROOT/scripts/bench_compiler_1s.sh"
-if [[ ! -f "$BENCH_SCRIPT" ]]; then
-    echo "错误: 缺少 $BENCH_SCRIPT" >&2
+if [[ ! -f "$REPO_ROOT/scripts/bench_compiler_1s.sh" ]]; then
+    echo "错误: 缺少 $REPO_ROOT/scripts/bench_compiler_1s.sh" >&2
     exit 1
 fi
+
+# 在隔离的 fixture repo 中运行 benchmark：benchmark 以自身脚本位置推导 REPO_ROOT，
+# fake make 的 `make -C <repo>` 因此只会写入 fixture，绝不触碰真实仓库产物。
+FIXTURE_REPO="$TMP_DIR/repo"
+mkdir -p "$FIXTURE_REPO/scripts" "$FIXTURE_REPO/bin" "$FIXTURE_REPO/src/build" "$FIXTURE_REPO/src/.uyacache"
+cp "$REPO_ROOT/scripts/bench_compiler_1s.sh" "$FIXTURE_REPO/scripts/bench_compiler_1s.sh"
+chmod +x "$FIXTURE_REPO/scripts/bench_compiler_1s.sh"
+BENCH_SCRIPT="$FIXTURE_REPO/scripts/bench_compiler_1s.sh"
 
 EXPECTED_HEADER=$'run\tmode\tseed_ms\tparse_ms\tbind_ms\tcheck_ms\tlower_ms\temit_ms\tlink_ms\ttotal_ms\tpeak_rss_kb\tarena_peak_bytes\toutput_bytes\ttable_count\ttable_capacity\ttable_bytes\ttable_capacity_bytes\ttable_realloc_count'
 

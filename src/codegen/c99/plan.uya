@@ -1,0 +1,450 @@
+// codegen/c99/plan.uya - C99 planner 合同：把发射计划与实际发射解耦的数据结构。
+//
+// 仅依赖 arena + semantic 动态 vector，所有列表（includes/typedefs/prototypes/
+// globals/functions/helpers/deps 以及 split-C unit 列表）随数据动态增长，
+// 不设固定最大 unit 数或固定容量上限。
+
+export const C99_PLAN_LIFECYCLE_UNINITIALIZED: i32 = 0;
+export const C99_PLAN_LIFECYCLE_ACTIVE: i32 = 1;
+export const C99_PLAN_LIFECYCLE_RELEASED: i32 = 2;
+
+/// 功能说明：一个 split-C translation unit 的发射计划。
+/// 参数说明：无；`unit_id` 为稳定下标，`name_id` 为 intern 后的 unit 名称。
+/// 返回值说明：无。所有列表为 i32 稳定 ID 的动态 vector。
+export struct C99UnitPlan {
+    unit_id: i32,
+    name_id: InternedNameId,
+    includes: SemanticVector,
+    typedefs: SemanticVector,
+    prototypes: SemanticVector,
+    globals: SemanticVector,
+    functions: SemanticVector,
+    helpers: SemanticVector,
+    deps: SemanticVector,
+}
+
+/// 功能说明：整个 C99 输出的发射计划。
+/// 参数说明：无；调用 `c99_plan_init` 后使用。
+/// 返回值说明：无。program 级列表与 split-C unit 列表全部动态增长。
+export struct C99Plan {
+    arena: &CompilerArena,
+    unit_count: usize,
+    estimated_bytes: usize,
+    resident_peak_bytes: usize,
+    lifecycle_state: i32,
+    includes: SemanticVector,
+    typedefs: SemanticVector,
+    prototypes: SemanticVector,
+    globals: SemanticVector,
+    functions: SemanticVector,
+    helpers: SemanticVector,
+    deps: SemanticVector,
+    units: SemanticVector,
+}
+
+/// 功能说明：聚合 C99Plan 所有动态表的统计摘要。
+/// 参数说明：无；由 `c99_plan_stats` 返回。
+/// 返回值说明：无。
+export struct C99PlanStats {
+    table_count: i32,
+    table_items: usize,
+    table_capacity: usize,
+    table_bytes: usize,
+    table_realloc_count: i32,
+}
+
+fn c99_plan_usize_to_i32(value: usize) i32 {
+    const converted: !i32 = value as! i32;
+    return converted catch {
+        return -1;
+    };
+}
+
+fn c99_plan_i32_to_usize(value: i32) usize {
+    if value < 0 {
+        return 0usize;
+    }
+    const converted: !usize = value as! usize;
+    return converted catch {
+        return 0usize;
+    };
+}
+
+fn c99_plan_empty_vector() SemanticVector {
+    return SemanticVector{
+        data: null,
+        item_size: 0usize,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+}
+
+fn c99_unit_plan_init_vectors(unit: &C99UnitPlan) void {
+    if unit == null {
+        return;
+    }
+    semantic_vector_init(&unit.includes, @size_of(i32));
+    semantic_vector_init(&unit.typedefs, @size_of(i32));
+    semantic_vector_init(&unit.prototypes, @size_of(i32));
+    semantic_vector_init(&unit.globals, @size_of(i32));
+    semantic_vector_init(&unit.functions, @size_of(i32));
+    semantic_vector_init(&unit.helpers, @size_of(i32));
+    semantic_vector_init(&unit.deps, @size_of(i32));
+}
+
+fn c99_unit_plan_release_vectors(unit: &C99UnitPlan) void {
+    if unit == null {
+        return;
+    }
+    semantic_vector_release(&unit.includes);
+    semantic_vector_release(&unit.typedefs);
+    semantic_vector_release(&unit.prototypes);
+    semantic_vector_release(&unit.globals);
+    semantic_vector_release(&unit.functions);
+    semantic_vector_release(&unit.helpers);
+    semantic_vector_release(&unit.deps);
+}
+
+fn c99_unit_plan_storage_bytes(unit: &C99UnitPlan) usize {
+    if unit == null {
+        return 0usize;
+    }
+    return unit.includes.bytes +
+        unit.typedefs.bytes +
+        unit.prototypes.bytes +
+        unit.globals.bytes +
+        unit.functions.bytes +
+        unit.helpers.bytes +
+        unit.deps.bytes;
+}
+
+fn c99_plan_stats_add(stats: &C99PlanStats, table: &SemanticVector) void {
+    if stats == null || table == null {
+        return;
+    }
+    stats.table_count = stats.table_count + 1;
+    stats.table_items = stats.table_items + table.count;
+    stats.table_capacity = stats.table_capacity + table.capacity;
+    stats.table_bytes = stats.table_bytes + table.bytes;
+    stats.table_realloc_count = stats.table_realloc_count + table.realloc_count;
+}
+
+/// 功能说明：估算 C99Plan 当前结构与所有动态表（含每个 unit）占用字节数。
+/// 参数说明：`plan` 为目标 C99Plan。
+/// 返回值说明：返回结构体本体与所有动态表容量字节数；参数无效时返回 `0`。
+export fn c99_plan_storage_bytes(plan: &C99Plan) usize {
+    if plan == null {
+        return 0usize;
+    }
+    var total: usize = @size_of(C99Plan) +
+        plan.includes.bytes +
+        plan.typedefs.bytes +
+        plan.prototypes.bytes +
+        plan.globals.bytes +
+        plan.functions.bytes +
+        plan.helpers.bytes +
+        plan.deps.bytes +
+        plan.units.bytes;
+    var i: usize = 0usize;
+    while i < plan.units.count {
+        const unit: &C99UnitPlan = semantic_vector_item_ptr(&plan.units, i) as &C99UnitPlan;
+        total = total + c99_unit_plan_storage_bytes(unit);
+        i = i + 1usize;
+    }
+    return total;
+}
+
+fn c99_plan_refresh_bytes(plan: &C99Plan) void {
+    if plan == null {
+        return;
+    }
+    const current_bytes: usize = c99_plan_storage_bytes(plan);
+    plan.estimated_bytes = current_bytes;
+    if current_bytes > plan.resident_peak_bytes {
+        plan.resident_peak_bytes = current_bytes;
+    }
+}
+
+fn c99_plan_release_unit_vectors(plan: &C99Plan) void {
+    if plan == null {
+        return;
+    }
+    var i: usize = 0usize;
+    while i < plan.units.count {
+        const unit: &C99UnitPlan = semantic_vector_item_ptr(&plan.units, i) as &C99UnitPlan;
+        c99_unit_plan_release_vectors(unit);
+        i = i + 1usize;
+    }
+}
+
+/// 功能说明：初始化 C99Plan 的 program 级动态表与 split-C unit 列表。
+/// 参数说明：`plan` 为目标 C99Plan，`arena` 为 planner 阶段专用 arena。
+/// 返回值说明：无。
+export fn c99_plan_init(plan: &C99Plan, arena: &CompilerArena) void {
+    if plan == null {
+        return;
+    }
+    plan.arena = arena;
+    plan.unit_count = 0usize;
+    plan.estimated_bytes = 0usize;
+    plan.resident_peak_bytes = 0usize;
+    plan.lifecycle_state = C99_PLAN_LIFECYCLE_ACTIVE;
+    semantic_vector_init(&plan.includes, @size_of(i32));
+    semantic_vector_init(&plan.typedefs, @size_of(i32));
+    semantic_vector_init(&plan.prototypes, @size_of(i32));
+    semantic_vector_init(&plan.globals, @size_of(i32));
+    semantic_vector_init(&plan.functions, @size_of(i32));
+    semantic_vector_init(&plan.helpers, @size_of(i32));
+    semantic_vector_init(&plan.deps, @size_of(i32));
+    semantic_vector_init(&plan.units, @size_of(C99UnitPlan));
+    c99_plan_refresh_bytes(plan);
+}
+
+/// 功能说明：重置 C99Plan 内容并保留 program 级表已分配容量。
+/// 参数说明：`plan` 为目标 C99Plan。
+/// 返回值说明：无。每个 unit 的子表会被释放。
+export fn c99_plan_reset(plan: &C99Plan) void {
+    if plan == null {
+        return;
+    }
+    c99_plan_release_unit_vectors(plan);
+    semantic_vector_reset(&plan.includes);
+    semantic_vector_reset(&plan.typedefs);
+    semantic_vector_reset(&plan.prototypes);
+    semantic_vector_reset(&plan.globals);
+    semantic_vector_reset(&plan.functions);
+    semantic_vector_reset(&plan.helpers);
+    semantic_vector_reset(&plan.deps);
+    semantic_vector_reset(&plan.units);
+    plan.unit_count = 0usize;
+    plan.lifecycle_state = C99_PLAN_LIFECYCLE_ACTIVE;
+    c99_plan_refresh_bytes(plan);
+}
+
+/// 功能说明：释放 C99Plan 所有动态表（含每个 unit 的子表）。
+/// 参数说明：`plan` 为目标 C99Plan。
+/// 返回值说明：无。
+export fn c99_plan_release(plan: &C99Plan) void {
+    if plan == null {
+        return;
+    }
+    c99_plan_release_unit_vectors(plan);
+    semantic_vector_release(&plan.includes);
+    semantic_vector_release(&plan.typedefs);
+    semantic_vector_release(&plan.prototypes);
+    semantic_vector_release(&plan.globals);
+    semantic_vector_release(&plan.functions);
+    semantic_vector_release(&plan.helpers);
+    semantic_vector_release(&plan.deps);
+    semantic_vector_release(&plan.units);
+    plan.unit_count = 0usize;
+    plan.estimated_bytes = 0usize;
+    plan.arena = null;
+    plan.lifecycle_state = C99_PLAN_LIFECYCLE_RELEASED;
+}
+
+/// 功能说明：追加一个 split-C unit 计划。
+/// 参数说明：`plan` 为目标 C99Plan，`name_id` 为 unit 名称的 intern ID。
+/// 返回值说明：成功返回新 unit 的下标（unit_id），失败返回 `-1`。
+export fn c99_plan_add_unit(plan: &C99Plan, name_id: InternedNameId) i32 {
+    if plan == null {
+        return -1;
+    }
+    const idx: i32 = c99_plan_usize_to_i32(plan.units.count);
+    var unit: C99UnitPlan = C99UnitPlan{
+        unit_id: idx,
+        name_id: name_id,
+        includes: c99_plan_empty_vector(),
+        typedefs: c99_plan_empty_vector(),
+        prototypes: c99_plan_empty_vector(),
+        globals: c99_plan_empty_vector(),
+        functions: c99_plan_empty_vector(),
+        helpers: c99_plan_empty_vector(),
+        deps: c99_plan_empty_vector(),
+    };
+    if semantic_vector_append(&plan.units, &unit as &const void) != 0 {
+        return -1;
+    }
+    const stored: &C99UnitPlan = semantic_vector_item_ptr(&plan.units, c99_plan_i32_to_usize(idx)) as &C99UnitPlan;
+    if stored == null {
+        return -1;
+    }
+    c99_unit_plan_init_vectors(stored);
+    plan.unit_count = plan.units.count;
+    c99_plan_refresh_bytes(plan);
+    return idx;
+}
+
+/// 功能说明：按下标获取 unit 计划指针。
+/// 参数说明：`plan` 为目标 C99Plan，`unit_id` 为 unit 下标。
+/// 返回值说明：命中返回指针，越界或无效返回 null。
+export fn c99_plan_unit_ptr(plan: &C99Plan, unit_id: i32) &C99UnitPlan {
+    if plan == null || unit_id < 0 {
+        return null;
+    }
+    return semantic_vector_item_ptr(&plan.units, c99_plan_i32_to_usize(unit_id)) as &C99UnitPlan;
+}
+
+/// 功能说明：读取 C99Plan 当前 unit 数量。
+export fn c99_plan_unit_count(plan: &C99Plan) usize {
+    if plan == null {
+        return 0usize;
+    }
+    return plan.units.count;
+}
+
+fn c99_plan_append_i32(plan: &C99Plan, vec: &SemanticVector, value: i32) i32 {
+    if plan == null || vec == null {
+        return -1;
+    }
+    var v: i32 = value;
+    if semantic_vector_append(vec, &v as &const void) != 0 {
+        return -1;
+    }
+    c99_plan_refresh_bytes(plan);
+    return 0;
+}
+
+/// 功能说明：向 program 级各表追加一项稳定 ID。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn c99_plan_add_include(plan: &C99Plan, id: i32) i32 {
+    if plan == null { return -1; }
+    return c99_plan_append_i32(plan, &plan.includes, id);
+}
+export fn c99_plan_add_typedef(plan: &C99Plan, id: i32) i32 {
+    if plan == null { return -1; }
+    return c99_plan_append_i32(plan, &plan.typedefs, id);
+}
+export fn c99_plan_add_prototype(plan: &C99Plan, id: FunctionId) i32 {
+    if plan == null { return -1; }
+    return c99_plan_append_i32(plan, &plan.prototypes, id);
+}
+export fn c99_plan_add_global(plan: &C99Plan, id: i32) i32 {
+    if plan == null { return -1; }
+    return c99_plan_append_i32(plan, &plan.globals, id);
+}
+export fn c99_plan_add_function(plan: &C99Plan, id: FunctionId) i32 {
+    if plan == null { return -1; }
+    return c99_plan_append_i32(plan, &plan.functions, id);
+}
+export fn c99_plan_add_helper(plan: &C99Plan, id: i32) i32 {
+    if plan == null { return -1; }
+    return c99_plan_append_i32(plan, &plan.helpers, id);
+}
+export fn c99_plan_add_dep(plan: &C99Plan, id: i32) i32 {
+    if plan == null { return -1; }
+    return c99_plan_append_i32(plan, &plan.deps, id);
+}
+
+fn c99_plan_unit_append_i32(plan: &C99Plan, unit_id: i32, selector: i32, value: i32) i32 {
+    const unit: &C99UnitPlan = c99_plan_unit_ptr(plan, unit_id);
+    if unit == null {
+        return -1;
+    }
+    var vec: &SemanticVector = null;
+    if selector == 0 { vec = &unit.includes; }
+    else if selector == 1 { vec = &unit.typedefs; }
+    else if selector == 2 { vec = &unit.prototypes; }
+    else if selector == 3 { vec = &unit.globals; }
+    else if selector == 4 { vec = &unit.functions; }
+    else if selector == 5 { vec = &unit.helpers; }
+    else if selector == 6 { vec = &unit.deps; }
+    if vec == null {
+        return -1;
+    }
+    var v: i32 = value;
+    if semantic_vector_append(vec, &v as &const void) != 0 {
+        return -1;
+    }
+    c99_plan_refresh_bytes(plan);
+    return 0;
+}
+
+/// 功能说明：向指定 unit 的各表追加一项稳定 ID。
+/// 返回值说明：成功返回 `0`，unit 越界或追加失败返回 `-1`。
+export fn c99_plan_unit_add_include(plan: &C99Plan, unit_id: i32, id: i32) i32 {
+    return c99_plan_unit_append_i32(plan, unit_id, 0, id);
+}
+export fn c99_plan_unit_add_typedef(plan: &C99Plan, unit_id: i32, id: i32) i32 {
+    return c99_plan_unit_append_i32(plan, unit_id, 1, id);
+}
+export fn c99_plan_unit_add_prototype(plan: &C99Plan, unit_id: i32, id: FunctionId) i32 {
+    return c99_plan_unit_append_i32(plan, unit_id, 2, id);
+}
+export fn c99_plan_unit_add_global(plan: &C99Plan, unit_id: i32, id: i32) i32 {
+    return c99_plan_unit_append_i32(plan, unit_id, 3, id);
+}
+export fn c99_plan_unit_add_function(plan: &C99Plan, unit_id: i32, id: FunctionId) i32 {
+    return c99_plan_unit_append_i32(plan, unit_id, 4, id);
+}
+export fn c99_plan_unit_add_helper(plan: &C99Plan, unit_id: i32, id: i32) i32 {
+    return c99_plan_unit_append_i32(plan, unit_id, 5, id);
+}
+export fn c99_plan_unit_add_dep(plan: &C99Plan, unit_id: i32, dep_unit_id: i32) i32 {
+    return c99_plan_unit_append_i32(plan, unit_id, 6, dep_unit_id);
+}
+
+/// 功能说明：读取 C99Plan 当前估算字节数。
+export fn c99_plan_estimated_bytes(plan: &C99Plan) usize {
+    if plan == null {
+        return 0usize;
+    }
+    return plan.estimated_bytes;
+}
+
+/// 功能说明：读取 C99Plan 生命周期窗口内峰值字节数。
+export fn c99_plan_peak_bytes(plan: &C99Plan) usize {
+    if plan == null {
+        return 0usize;
+    }
+    return plan.resident_peak_bytes;
+}
+
+/// 功能说明：读取 C99Plan 当前生命周期状态。
+export fn c99_plan_lifecycle_state(plan: &C99Plan) i32 {
+    if plan == null {
+        return C99_PLAN_LIFECYCLE_UNINITIALIZED;
+    }
+    return plan.lifecycle_state;
+}
+
+/// 功能说明：聚合 C99Plan 所有动态表（program 级 + units 列表 + 每个 unit 子表）统计。
+/// 参数说明：`plan` 为目标 C99Plan。
+/// 返回值说明：返回 table 数量、项数、容量、字节数与重分配次数摘要。
+export fn c99_plan_stats(plan: &C99Plan) C99PlanStats {
+    var stats: C99PlanStats = C99PlanStats{
+        table_count: 0,
+        table_items: 0usize,
+        table_capacity: 0usize,
+        table_bytes: 0usize,
+        table_realloc_count: 0,
+    };
+    if plan == null {
+        return stats;
+    }
+    c99_plan_stats_add(&stats, &plan.includes);
+    c99_plan_stats_add(&stats, &plan.typedefs);
+    c99_plan_stats_add(&stats, &plan.prototypes);
+    c99_plan_stats_add(&stats, &plan.globals);
+    c99_plan_stats_add(&stats, &plan.functions);
+    c99_plan_stats_add(&stats, &plan.helpers);
+    c99_plan_stats_add(&stats, &plan.deps);
+    c99_plan_stats_add(&stats, &plan.units);
+    var i: usize = 0usize;
+    while i < plan.units.count {
+        const unit: &C99UnitPlan = semantic_vector_item_ptr(&plan.units, i) as &C99UnitPlan;
+        if unit != null {
+            c99_plan_stats_add(&stats, &unit.includes);
+            c99_plan_stats_add(&stats, &unit.typedefs);
+            c99_plan_stats_add(&stats, &unit.prototypes);
+            c99_plan_stats_add(&stats, &unit.globals);
+            c99_plan_stats_add(&stats, &unit.functions);
+            c99_plan_stats_add(&stats, &unit.helpers);
+            c99_plan_stats_add(&stats, &unit.deps);
+        }
+        i = i + 1usize;
+    }
+    return stats;
+}
