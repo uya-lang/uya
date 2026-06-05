@@ -329,24 +329,24 @@ make check
 阶段 KPI：
 
 - [x] codegen `body_ms < 7000ms`。
-- [~] TypedProgram 常驻峰值可测量，且与 AST/LoweredProgram 生命周期分离。
+- [x] TypedProgram 常驻峰值可测量，且与 AST/LoweredProgram 生命周期分离。
 
 ---
 
 ## Phase 5: LoweredProgram 闭包收敛
 
-- [ ] 新建 `src/lower/core.uya`。
-- [ ] 定义 `LoweredProgram`。
-- [ ] `LoweredProgram` 使用独立 arena。
-- [ ] `LoweredProgram` 的 functions、globals、types、interfaces、err_unions、async_frames、helpers 全部动态增长。
-- [ ] lowering worklist 动态增长，不允许泛型实例、err_union、runtime helper 有固定最大数量。
-- [ ] `LoweredProgram` 记录自身估算字节数。
-- [ ] 定义 `ConcreteFunction`。
-- [ ] 定义 `ConcreteType`。
-- [ ] 定义 `RuntimeHelper`。
-- [ ] 定义 `ErrorUnionLayout`。
-- [ ] 定义 `AsyncFramePlan`。
-- [ ] 实现 worklist roots 初始化。
+- [x] 新建 `src/lower/core.uya`。
+- [x] 定义 `LoweredProgram`。
+- [x] `LoweredProgram` 使用独立 arena。
+- [x] `LoweredProgram` 的 functions、globals、types、interfaces、err_unions、async_frames、helpers 全部动态增长。
+- [x] lowering worklist 动态增长，不允许泛型实例、err_union、runtime helper 有固定最大数量。
+- [x] `LoweredProgram` 记录自身估算字节数。
+- [x] 定义 `ConcreteFunction`。
+- [x] 定义 `ConcreteType`。
+- [x] 定义 `RuntimeHelper`。
+- [x] 定义 `ErrorUnionLayout`。
+- [x] 定义 `AsyncFramePlan`。
+- [x] 实现 worklist roots 初始化。
 - [ ] 实现泛型函数实例闭包。
 - [ ] 实现泛型方法实例闭包。
 - [ ] 实现泛型结构体实例闭包。

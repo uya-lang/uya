@@ -1,0 +1,517 @@
+// lower/core.uya - Core lowered program contract shared by future C99/native planners.
+
+export const LOWERED_PROGRAM_LIFECYCLE_UNINITIALIZED: i32 = 0;
+export const LOWERED_PROGRAM_LIFECYCLE_ACTIVE: i32 = 1;
+export const LOWERED_PROGRAM_LIFECYCLE_RELEASED: i32 = 2;
+export const LOWER_WORK_ITEM_FUNCTION: i32 = 1;
+export const LOWER_WORK_ITEM_TYPE: i32 = 2;
+export const LOWER_WORK_ITEM_ERR_UNION: i32 = 3;
+export const LOWER_WORK_ITEM_ASYNC_FRAME: i32 = 4;
+export const LOWER_WORK_ITEM_RUNTIME_HELPER: i32 = 5;
+export const LOWERED_RUNTIME_HELPER_UNKNOWN: i32 = 0;
+
+/// 功能说明：记录一个已经收敛到具体实例的函数。
+/// 参数说明：无；字段均为 SemanticDb/TypedProgram 阶段分配的稳定整数 ID 或 range。
+/// 返回值说明：无。
+export struct ConcreteFunction {
+    function_id: FunctionId,
+    decl_id: DeclId,
+    mono_instance_id: MonoInstanceId,
+    body_start: i32,
+    body_count: i32,
+}
+
+/// 功能说明：记录一个已经收敛到具体布局的类型。
+/// 参数说明：无；字段保存类型、声明、布局和方法 range 的稳定整数 ID。
+/// 返回值说明：无。
+export struct ConcreteType {
+    type_id: TypeId,
+    decl_id: DeclId,
+    layout_id: i32,
+    method_range_start: i32,
+    method_range_count: i32,
+}
+
+/// 功能说明：记录一个全局对象及其初始化来源。
+/// 参数说明：无；字段保存全局、声明、类型和初始化表达式的稳定整数 ID。
+/// 返回值说明：无。
+export struct GlobalObject {
+    global_id: i32,
+    decl_id: DeclId,
+    type_id: TypeId,
+    init_expr_id: ExprId,
+}
+
+/// 功能说明：记录接口派发计划。
+/// 参数说明：无；字段保存接口类型、符号和方法 range 的稳定整数 ID。
+/// 返回值说明：无。
+export struct InterfacePlan {
+    type_id: TypeId,
+    symbol_id: SymbolId,
+    method_range_start: i32,
+    method_range_count: i32,
+}
+
+/// 功能说明：记录运行时 helper 需求。
+/// 参数说明：无；`kind` 标识 helper 类型，`name_id` 指向 intern 后的 helper 名称。
+/// 返回值说明：无。
+export struct RuntimeHelper {
+    helper_id: i32,
+    kind: i32,
+    name_id: InternedNameId,
+}
+
+/// 功能说明：记录 error union 的具体布局。
+/// 参数说明：无；字段保存 error union、payload 和 error tag 的类型 ID。
+/// 返回值说明：无。
+export struct ErrorUnionLayout {
+    type_id: TypeId,
+    payload_type_id: TypeId,
+    error_type_id: TypeId,
+}
+
+/// 功能说明：记录 async 函数的 frame 计划。
+/// 参数说明：无；字段保存函数、frame 类型和 frame slot range。
+/// 返回值说明：无。
+export struct AsyncFramePlan {
+    function_id: FunctionId,
+    frame_type_id: TypeId,
+    slot_start: i32,
+    slot_count: i32,
+}
+
+/// 功能说明：记录 lowering worklist 中的一项待收敛工作。
+/// 参数说明：无；`kind` 标识工作类型，其余 ID 含义由 kind 决定。
+/// 返回值说明：无。
+export struct LowerWorkItem {
+    kind: i32,
+    primary_id: i32,
+    secondary_id: i32,
+}
+
+/// 功能说明：聚合 LoweredProgram 所有动态表的统计摘要。
+/// 参数说明：无；由 `lowered_program_stats` 返回。
+/// 返回值说明：无。
+export struct LoweredProgramStats {
+    table_count: i32,
+    table_items: usize,
+    table_capacity: usize,
+    table_bytes: usize,
+    table_realloc_count: i32,
+}
+
+/// 功能说明：记录 LoweredProgram 生命周期窗口内的常驻内存统计。
+/// 参数说明：无；字段由 `lowered_program_lifetime_stats` 返回。
+/// 返回值说明：无。
+export struct LoweredProgramLifetimeStats {
+    current_bytes: usize,
+    peak_bytes: usize,
+    lifecycle_state: i32,
+}
+
+/// 功能说明：checker 之后、emitter 之前共享的闭包收敛 IR。
+/// 参数说明：无；调用 `lowered_program_init` 后使用。
+/// 返回值说明：无。
+export struct LoweredProgram {
+    arena: &CompilerArena,
+    function_count: usize,
+    global_count: usize,
+    type_count: usize,
+    interface_count: usize,
+    err_union_count: usize,
+    async_frame_count: usize,
+    helper_count: usize,
+    work_item_count: usize,
+    estimated_bytes: usize,
+    resident_peak_bytes: usize,
+    lifecycle_state: i32,
+    functions: SemanticVector,
+    globals: SemanticVector,
+    types: SemanticVector,
+    interfaces: SemanticVector,
+    err_unions: SemanticVector,
+    async_frames: SemanticVector,
+    helpers: SemanticVector,
+    worklist: SemanticVector,
+}
+
+fn lowered_program_clear_counts(program: &LoweredProgram) void {
+    if program == null {
+        return;
+    }
+    program.function_count = 0usize;
+    program.global_count = 0usize;
+    program.type_count = 0usize;
+    program.interface_count = 0usize;
+    program.err_union_count = 0usize;
+    program.async_frame_count = 0usize;
+    program.helper_count = 0usize;
+    program.work_item_count = 0usize;
+    program.estimated_bytes = 0usize;
+}
+
+fn lowered_program_refresh_bytes(program: &LoweredProgram) void {
+    if program == null {
+        return;
+    }
+    const current_bytes: usize = lowered_program_storage_bytes(program);
+    program.estimated_bytes = current_bytes;
+    if current_bytes > program.resident_peak_bytes {
+        program.resident_peak_bytes = current_bytes;
+    }
+}
+
+fn lowered_program_stats_add(stats: &LoweredProgramStats, table: &SemanticVector) void {
+    if stats == null || table == null {
+        return;
+    }
+    stats.table_count = stats.table_count + 1;
+    stats.table_items = stats.table_items + table.count;
+    stats.table_capacity = stats.table_capacity + table.capacity;
+    stats.table_bytes = stats.table_bytes + table.bytes;
+    stats.table_realloc_count = stats.table_realloc_count + table.realloc_count;
+}
+
+/// 功能说明：初始化 LoweredProgram 动态表和独立 lowering arena 句柄。
+/// 参数说明：`program` 为目标 LoweredProgram，`arena` 为 lowering 阶段专用 arena。
+/// 返回值说明：无。
+export fn lowered_program_init(program: &LoweredProgram, arena: &CompilerArena) void {
+    if program == null {
+        return;
+    }
+    lowered_program_clear_counts(program);
+    program.arena = arena;
+    program.resident_peak_bytes = 0usize;
+    program.lifecycle_state = LOWERED_PROGRAM_LIFECYCLE_ACTIVE;
+    semantic_vector_init(&program.functions, @size_of(ConcreteFunction));
+    semantic_vector_init(&program.globals, @size_of(GlobalObject));
+    semantic_vector_init(&program.types, @size_of(ConcreteType));
+    semantic_vector_init(&program.interfaces, @size_of(InterfacePlan));
+    semantic_vector_init(&program.err_unions, @size_of(ErrorUnionLayout));
+    semantic_vector_init(&program.async_frames, @size_of(AsyncFramePlan));
+    semantic_vector_init(&program.helpers, @size_of(RuntimeHelper));
+    semantic_vector_init(&program.worklist, @size_of(LowerWorkItem));
+    lowered_program_refresh_bytes(program);
+}
+
+/// 功能说明：重置 LoweredProgram 内容并保留已分配容量。
+/// 参数说明：`program` 为目标 LoweredProgram。
+/// 返回值说明：无。
+export fn lowered_program_reset(program: &LoweredProgram) void {
+    if program == null {
+        return;
+    }
+    lowered_program_clear_counts(program);
+    program.lifecycle_state = LOWERED_PROGRAM_LIFECYCLE_ACTIVE;
+    semantic_vector_reset(&program.functions);
+    semantic_vector_reset(&program.globals);
+    semantic_vector_reset(&program.types);
+    semantic_vector_reset(&program.interfaces);
+    semantic_vector_reset(&program.err_unions);
+    semantic_vector_reset(&program.async_frames);
+    semantic_vector_reset(&program.helpers);
+    semantic_vector_reset(&program.worklist);
+    lowered_program_refresh_bytes(program);
+}
+
+/// 功能说明：释放 LoweredProgram 动态表。
+/// 参数说明：`program` 为目标 LoweredProgram。
+/// 返回值说明：无。
+export fn lowered_program_release(program: &LoweredProgram) void {
+    if program == null {
+        return;
+    }
+    if program.lifecycle_state == LOWERED_PROGRAM_LIFECYCLE_ACTIVE {
+        lowered_program_refresh_bytes(program);
+    }
+    semantic_vector_release(&program.functions);
+    semantic_vector_release(&program.globals);
+    semantic_vector_release(&program.types);
+    semantic_vector_release(&program.interfaces);
+    semantic_vector_release(&program.err_unions);
+    semantic_vector_release(&program.async_frames);
+    semantic_vector_release(&program.helpers);
+    semantic_vector_release(&program.worklist);
+    lowered_program_clear_counts(program);
+    program.arena = null;
+    program.lifecycle_state = LOWERED_PROGRAM_LIFECYCLE_RELEASED;
+}
+
+/// 功能说明：读取 LoweredProgram 使用的 lowering arena 句柄。
+/// 参数说明：`program` 为目标 LoweredProgram。
+/// 返回值说明：返回初始化时传入的 arena；无效或释放后返回 null。
+export fn lowered_program_arena(program: &LoweredProgram) &CompilerArena {
+    if program == null {
+        return null;
+    }
+    return program.arena;
+}
+
+/// 功能说明：追加具体函数。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为待追加函数记录。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn lowered_program_append_function(program: &LoweredProgram, item: &ConcreteFunction) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    if semantic_vector_append(&program.functions, item as &const void) != 0 {
+        return -1;
+    }
+    program.function_count = program.functions.count;
+    lowered_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：追加全局对象。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为待追加全局对象。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn lowered_program_append_global(program: &LoweredProgram, item: &GlobalObject) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    if semantic_vector_append(&program.globals, item as &const void) != 0 {
+        return -1;
+    }
+    program.global_count = program.globals.count;
+    lowered_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：追加具体类型。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为待追加类型记录。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn lowered_program_append_type(program: &LoweredProgram, item: &ConcreteType) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    if semantic_vector_append(&program.types, item as &const void) != 0 {
+        return -1;
+    }
+    program.type_count = program.types.count;
+    lowered_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：追加接口计划。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为待追加接口计划。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn lowered_program_append_interface(program: &LoweredProgram, item: &InterfacePlan) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    if semantic_vector_append(&program.interfaces, item as &const void) != 0 {
+        return -1;
+    }
+    program.interface_count = program.interfaces.count;
+    lowered_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：追加 error union 布局。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为待追加布局记录。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn lowered_program_append_error_union(program: &LoweredProgram, item: &ErrorUnionLayout) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    if semantic_vector_append(&program.err_unions, item as &const void) != 0 {
+        return -1;
+    }
+    program.err_union_count = program.err_unions.count;
+    lowered_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：追加 async frame 计划。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为待追加 frame 计划。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn lowered_program_append_async_frame(program: &LoweredProgram, item: &AsyncFramePlan) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    if semantic_vector_append(&program.async_frames, item as &const void) != 0 {
+        return -1;
+    }
+    program.async_frame_count = program.async_frames.count;
+    lowered_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：追加运行时 helper 需求。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为待追加 helper 记录。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn lowered_program_append_helper(program: &LoweredProgram, item: &RuntimeHelper) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    if semantic_vector_append(&program.helpers, item as &const void) != 0 {
+        return -1;
+    }
+    program.helper_count = program.helpers.count;
+    lowered_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：追加 lowering worklist 项。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为待追加工作项。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn lowered_program_append_work_item(program: &LoweredProgram, item: &LowerWorkItem) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    if semantic_vector_append(&program.worklist, item as &const void) != 0 {
+        return -1;
+    }
+    program.work_item_count = program.worklist.count;
+    lowered_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：查询 lowering worklist 中的指定工作项。
+/// 参数说明：`program` 为目标 LoweredProgram，`index` 为工作项下标，`out_item` 接收结果。
+/// 返回值说明：命中返回 `1`，越界或参数无效返回 `0`。
+export fn lowered_program_get_work_item(program: &LoweredProgram, index: usize, out_item: &LowerWorkItem) i32 {
+    if program == null || out_item == null {
+        return 0;
+    }
+    const item: &LowerWorkItem = semantic_vector_item_ptr(&program.worklist, index) as &LowerWorkItem;
+    if item == null {
+        return 0;
+    }
+    out_item[0] = item[0];
+    return 1;
+}
+
+fn lowered_program_reset_worklist(program: &LoweredProgram) void {
+    if program == null {
+        return;
+    }
+    semantic_vector_reset(&program.worklist);
+    program.work_item_count = 0usize;
+    lowered_program_refresh_bytes(program);
+}
+
+/// 功能说明：用 TypedProgram 的 reachable roots 初始化 lowering worklist。
+/// 参数说明：`program` 为目标 LoweredProgram，`typed` 为 checker 输出的 TypedProgram。
+/// 返回值说明：成功返回 `0`，参数无效或追加失败返回 `-1`。
+export fn lowered_program_init_worklist_roots(program: &LoweredProgram, typed: &TypedProgram) i32 {
+    if program == null || typed == null {
+        return -1;
+    }
+    lowered_program_reset_worklist(program);
+    var i: usize = 0usize;
+    while i < typed.reachable_roots.count {
+        const root: &FunctionId = semantic_vector_item_ptr(&typed.reachable_roots, i) as &FunctionId;
+        if root == null {
+            return -1;
+        }
+        var item: LowerWorkItem = LowerWorkItem{
+            kind: LOWER_WORK_ITEM_FUNCTION,
+            primary_id: root[0],
+            secondary_id: 0,
+        };
+        if lowered_program_append_work_item(program, &item) != 0 {
+            return -1;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+/// 功能说明：估算 LoweredProgram 当前结构和动态存储占用字节数。
+/// 参数说明：`program` 为目标 LoweredProgram。
+/// 返回值说明：返回结构体本体和所有动态表容量字节数；参数无效时返回 `0`。
+export fn lowered_program_storage_bytes(program: &LoweredProgram) usize {
+    if program == null {
+        return 0usize;
+    }
+    return @size_of(LoweredProgram) +
+        program.functions.bytes +
+        program.globals.bytes +
+        program.types.bytes +
+        program.interfaces.bytes +
+        program.err_unions.bytes +
+        program.async_frames.bytes +
+        program.helpers.bytes +
+        program.worklist.bytes;
+}
+
+/// 功能说明：读取 LoweredProgram 当前估算字节数。
+/// 参数说明：`program` 为目标 LoweredProgram。
+/// 返回值说明：返回最近一次 init/reset/append 后记录的估算字节数。
+export fn lowered_program_estimated_bytes(program: &LoweredProgram) usize {
+    if program == null {
+        return 0usize;
+    }
+    return program.estimated_bytes;
+}
+
+/// 功能说明：读取 LoweredProgram 当前常驻字节数。
+/// 参数说明：`program` 为目标 LoweredProgram。
+/// 返回值说明：返回当前生命周期窗口内仍常驻的估算字节数；释放后返回 `0`。
+export fn lowered_program_current_bytes(program: &LoweredProgram) usize {
+    return lowered_program_estimated_bytes(program);
+}
+
+/// 功能说明：读取 LoweredProgram 生命周期窗口内的峰值常驻字节数。
+/// 参数说明：`program` 为目标 LoweredProgram。
+/// 返回值说明：返回最近一次 init/reset 到 release 期间观察到的最大估算字节数。
+export fn lowered_program_peak_bytes(program: &LoweredProgram) usize {
+    if program == null {
+        return 0usize;
+    }
+    return program.resident_peak_bytes;
+}
+
+/// 功能说明：读取 LoweredProgram 当前生命周期状态。
+/// 参数说明：`program` 为目标 LoweredProgram。
+/// 返回值说明：返回 `LOWERED_PROGRAM_LIFECYCLE_*` 常量之一；参数无效时返回 uninitialized。
+export fn lowered_program_lifecycle_state(program: &LoweredProgram) i32 {
+    if program == null {
+        return LOWERED_PROGRAM_LIFECYCLE_UNINITIALIZED;
+    }
+    return program.lifecycle_state;
+}
+
+/// 功能说明：读取 LoweredProgram 当前常驻、峰值和生命周期状态摘要。
+/// 参数说明：`program` 为目标 LoweredProgram。
+/// 返回值说明：返回当前 bytes、峰值 bytes 和生命周期状态；参数无效时返回全零摘要。
+export fn lowered_program_lifetime_stats(program: &LoweredProgram) LoweredProgramLifetimeStats {
+    if program == null {
+        return LoweredProgramLifetimeStats{
+            current_bytes: 0usize,
+            peak_bytes: 0usize,
+            lifecycle_state: LOWERED_PROGRAM_LIFECYCLE_UNINITIALIZED,
+        };
+    }
+    return LoweredProgramLifetimeStats{
+        current_bytes: lowered_program_current_bytes(program),
+        peak_bytes: lowered_program_peak_bytes(program),
+        lifecycle_state: lowered_program_lifecycle_state(program),
+    };
+}
+
+/// 功能说明：读取 LoweredProgram 所有动态表的聚合统计。
+/// 参数说明：`program` 为目标 LoweredProgram。
+/// 返回值说明：返回 table 数量、项数、容量、字节数和重分配次数摘要。
+export fn lowered_program_stats(program: &LoweredProgram) LoweredProgramStats {
+    var stats: LoweredProgramStats = LoweredProgramStats{
+        table_count: 0,
+        table_items: 0usize,
+        table_capacity: 0usize,
+        table_bytes: 0usize,
+        table_realloc_count: 0,
+    };
+    if program == null {
+        return stats;
+    }
+    lowered_program_stats_add(&stats, &program.functions);
+    lowered_program_stats_add(&stats, &program.globals);
+    lowered_program_stats_add(&stats, &program.types);
+    lowered_program_stats_add(&stats, &program.interfaces);
+    lowered_program_stats_add(&stats, &program.err_unions);
+    lowered_program_stats_add(&stats, &program.async_frames);
+    lowered_program_stats_add(&stats, &program.helpers);
+    lowered_program_stats_add(&stats, &program.worklist);
+    return stats;
+}
