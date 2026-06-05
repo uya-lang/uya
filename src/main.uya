@@ -2515,6 +2515,7 @@ fn compile_files(
 
     var arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
     compiler_arena_init(&arena, &arena_buffer[0], ARENA_BUFFER_SIZE as usize);
+    var lex_arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
 
     var programs: [&ASTNode: MAX_INPUT_FILES] = [];
     const program_capacity: i32 = @len(programs) as i32;
@@ -2531,7 +2532,7 @@ fn compile_files(
             fprintf(libc.stderr, "错误: 无法读取文件 '%s' (可能文件太大或不存在)\n" as *byte, input_path);
             return 1;
         }
-        const lexer: &Lexer = compiler_arena_alloc(&arena, HOST_SIZE_LEXER_BYTES) as &Lexer;
+        const lexer: &Lexer = compiler_arena_alloc(&lex_arena, HOST_SIZE_LEXER_BYTES) as &Lexer;
         if lexer == null {
             fprintf(libc.stderr, "错误: Lexer 分配失败: %s\n" as *byte, input_path);
             return 1;
