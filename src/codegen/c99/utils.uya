@@ -315,6 +315,11 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
         ii = ii + 1;
     }
 
+    // 初始化 C99 emitter start 稳定性快照字段
+    codegen.emitter_start_mono_instance_count = -1;
+    codegen.emitter_start_err_union_struct_count = -1;
+    codegen.emitter_start_async_frame_meta_count = -1;
+
     // 初始化泛型单态化相关字段
     codegen.mono_instance_count = 0;
     ii = 0;

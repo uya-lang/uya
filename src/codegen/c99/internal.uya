@@ -401,6 +401,11 @@ struct C99CodeGenerator {
     async_frame_needs_drop: i32,              // 1=需要生成 frame_drop_fields
     async_frame_has_coro_pool: i32,           // 1=当前模块已生成 pool 使用代码，需要包含 std_async_frame 头
 
+    // C99 emitter start 稳定性快照（Phase 5 KPI：emitter 开始前 mono/err_union/async frame 数量已稳定）
+    emitter_start_mono_instance_count: i32,   // 进入函数原型/函数体发射阶段时的 mono 实例数量快照
+    emitter_start_err_union_struct_count: i32, // 进入发射阶段时的 err_union 结构体数量快照
+    emitter_start_async_frame_meta_count: i32, // 进入发射阶段时的 async frame 元数据数量快照
+
     // microapp 模式：生成指针访问边界检查
     container_mode: i32,
     microapp_softvm_mode: i32,

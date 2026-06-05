@@ -4948,6 +4948,61 @@ fn c99_type_to_c_async_method_opt(codegen: &C99CodeGenerator, type_node: &ASTNod
     return c99_type_to_c(codegen, type_node);
 }
 
+/// 功能说明：向 checker 注册（或更新）一个 async 函数的 frame 元信息。
+/// 参数说明：`codegen` 为 C99 生成器，`fn_decl` 为 async 函数声明，`func_c_name` 为其 C 名称（frame key）。
+/// 返回值说明：无。已存在同 key 的元信息时只更新 frame_size/align/escape_class，避免重复登记。
+fn c99_codegen_preregister_async_frame_meta(codegen: &C99CodeGenerator, fn_decl: &ASTNode, func_c_name: &byte) void {
+    if codegen == null || fn_decl == null || func_c_name == null {
+        return;
+    }
+    if codegen.checker == null {
+        return;
+    }
+    var type_arg_count_for_meta: i32 = 0;
+    var generic_name_for_meta: &byte = fn_decl.fn_decl_name;
+    if fn_decl.fn_decl_type_param_count > 0 {
+        var mi: i32 = 0;
+        while mi < codegen.mono_instance_count {
+            if codegen.mono_instances[mi].generic_name != null &&
+                strcmp(codegen.mono_instances[mi].generic_name as *byte, fn_decl.fn_decl_name as *byte) == 0 &&
+                codegen.mono_instances[mi].is_function != 0 {
+                const test_name: &byte = get_mono_function_name(codegen, fn_decl.fn_decl_name,
+                    codegen.mono_instances[mi].type_args, codegen.mono_instances[mi].type_arg_count, fn_decl);
+                if test_name != null && strcmp(test_name as *byte, func_c_name as *byte) == 0 {
+                    type_arg_count_for_meta = codegen.mono_instances[mi].type_arg_count;
+                    break;
+                }
+            }
+            mi = mi + 1;
+        }
+    }
+    const escape_class: AsyncFrameEscapeClass = async_lower_analyze_escape_class(codegen.checker, fn_decl.fn_decl_body);
+    const existing: &AsyncFrameMeta = checker_find_async_frame_meta_by_key_text(codegen.checker, func_c_name);
+    if existing == null {
+        var meta: AsyncFrameMeta = AsyncFrameMeta{};
+        meta.frame_key_text = func_c_name;
+        meta.frame_id = codegen.checker.async_frame_meta_count as u32;
+        meta.descriptor_index = meta.frame_id;
+        meta.fn_name = func_c_name;
+        meta.generic_name = generic_name_for_meta;
+        meta.type_arg_count = type_arg_count_for_meta;
+        meta.decl_node = fn_decl;
+        meta.instance_node = fn_decl;
+        meta.frame_size = codegen.async_frame_size;
+        meta.frame_align = codegen.async_frame_align;
+        meta.escape_class = escape_class;
+        meta.is_pinned = 1;
+        meta.contains_pinned_field = 0;
+        meta.needs_drop = 0;
+        meta.field_count = 0;
+        checker_register_async_frame_meta(codegen.checker, &meta);
+    } else {
+        existing.frame_size = codegen.async_frame_size;
+        existing.frame_align = codegen.async_frame_align;
+        existing.escape_class = escape_class;
+    }
+}
+
 fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, func_c_name: &byte, full_return_type: &ASTNode, effective_return_type: &ASTNode, only_struct: i32) void {
     if codegen == null || fn_decl == null || effective_return_type == null {
         return;
@@ -5619,52 +5674,8 @@ fn gen_async_function_stage_b(codegen: &C99CodeGenerator, fn_decl: &ASTNode, fun
         codegen.async_frame_align = est_align as usize;
     }
 
-    // 注册 async frame 元信息到 checker
-    if codegen.checker != null {
-        var type_arg_count_for_meta: i32 = 0;
-        var generic_name_for_meta: &byte = fn_decl.fn_decl_name;
-        if fn_decl.fn_decl_type_param_count > 0 {
-            var mi: i32 = 0;
-            while mi < codegen.mono_instance_count {
-                if codegen.mono_instances[mi].generic_name != null &&
-                    strcmp(codegen.mono_instances[mi].generic_name as *byte, fn_decl.fn_decl_name as *byte) == 0 &&
-                    codegen.mono_instances[mi].is_function != 0 {
-                    const test_name: &byte = get_mono_function_name(codegen, fn_decl.fn_decl_name,
-                        codegen.mono_instances[mi].type_args, codegen.mono_instances[mi].type_arg_count, fn_decl);
-                    if test_name != null && strcmp(test_name as *byte, func_c_name as *byte) == 0 {
-                        type_arg_count_for_meta = codegen.mono_instances[mi].type_arg_count;
-                        break;
-                    }
-                }
-                mi = mi + 1;
-            }
-        }
-        const escape_class: AsyncFrameEscapeClass = async_lower_analyze_escape_class(codegen.checker, fn_decl.fn_decl_body);
-        const existing: &AsyncFrameMeta = checker_find_async_frame_meta_by_key_text(codegen.checker, func_c_name);
-        if existing == null {
-            var meta: AsyncFrameMeta = AsyncFrameMeta{};
-            meta.frame_key_text = func_c_name;
-            meta.frame_id = codegen.checker.async_frame_meta_count as u32;
-            meta.descriptor_index = meta.frame_id;
-            meta.fn_name = func_c_name;
-            meta.generic_name = generic_name_for_meta;
-            meta.type_arg_count = type_arg_count_for_meta;
-            meta.decl_node = fn_decl;
-            meta.instance_node = fn_decl;
-            meta.frame_size = codegen.async_frame_size;
-            meta.frame_align = codegen.async_frame_align;
-            meta.escape_class = escape_class;
-            meta.is_pinned = 1;
-            meta.contains_pinned_field = 0;
-            meta.needs_drop = 0;
-            meta.field_count = 0;
-            checker_register_async_frame_meta(codegen.checker, &meta);
-        } else {
-            existing.frame_size = codegen.async_frame_size;
-            existing.frame_align = codegen.async_frame_align;
-            existing.escape_class = escape_class;
-        }
-    }
+    // 注册 async frame 元信息到 checker（提取为共享 helper，便于 emitter 前预注册）
+    c99_codegen_preregister_async_frame_meta(codegen, fn_decl, func_c_name);
 
     // 设置 async 参数捕获（poll 内 gen_expr 将参数引用为 s->param）
     const async_s: &byte = "s" as *byte;

@@ -2032,6 +2032,135 @@ fn gen_test_runner(codegen: &C99CodeGenerator, tests: & & ASTNode, test_count: i
     c99_emit_close_brace_newline(codegen);
 }
 
+fn c99_emitter_start_dump_enabled() i32 {
+    const p: &byte = getenv("UYA_DUMP_C99_EMITTER_START" as &byte);
+    if p == null {
+        return 0;
+    }
+    if p[0] == 0 as byte {
+        return 0;
+    }
+    return 1;
+}
+
+fn c99_emitter_start_strict_enabled() i32 {
+    const p: &byte = getenv("UYA_STRICT_C99_EMITTER_START" as &byte);
+    if p == null {
+        return 0;
+    }
+    if p[0] == 0 as byte {
+        return 0;
+    }
+    return 1;
+}
+
+fn c99_codegen_current_async_frame_meta_count(codegen: &C99CodeGenerator) i32 {
+    if codegen == null || codegen.checker == null {
+        return 0;
+    }
+    return codegen.checker.async_frame_meta_count;
+}
+
+/// 功能说明：在 C99 emitter（函数原型/函数体发射）开始前，遍历所有 async 函数及其单态实例，
+///           预先把 async frame 元数据登记到 checker，使 emitter 启动前数量已稳定。
+/// 参数说明：`codegen` 为 C99 生成器，`ast` 为合并后的程序 AST。
+/// 返回值说明：无。
+fn c99_preregister_async_frame_metadata(codegen: &C99CodeGenerator, ast: &ASTNode) void {
+    if codegen == null || ast == null {
+        return;
+    }
+    if codegen.checker == null {
+        return;
+    }
+    const total: i32 = ast.program_decl_count;
+    var di: i32 = 0;
+    while di < total {
+        const decl: &ASTNode = ast.program_decls[di];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_is_async != 0 {
+            if decl.fn_decl_type_param_count > 0 {
+                var mi: i32 = 0;
+                while mi < codegen.mono_instance_count {
+                    if codegen.mono_instances[mi].generic_name != null &&
+                        codegen.mono_instances[mi].is_function != 0 &&
+                        strcmp(codegen.mono_instances[mi].generic_name as *byte, decl.fn_decl_name as *byte) == 0 {
+                        const mono_name: &byte = get_mono_function_name(codegen, decl.fn_decl_name,
+                            codegen.mono_instances[mi].type_args, codegen.mono_instances[mi].type_arg_count, decl);
+                        if mono_name != null {
+                            c99_codegen_preregister_async_frame_meta(codegen, decl, mono_name);
+                        }
+                    }
+                    mi = mi + 1;
+                }
+            } else {
+                var fname: &byte = null;
+                if decl.fn_decl_is_export != 0 {
+                    fname = get_export_function_c_name(codegen, decl.fn_decl_name, decl.filename);
+                } else {
+                    fname = get_safe_c_identifier(codegen, decl.fn_decl_name);
+                }
+                if fname != null {
+                    c99_codegen_preregister_async_frame_meta(codegen, decl, fname);
+                }
+            }
+        }
+        di = di + 1;
+    }
+}
+
+/// 功能说明：拍摄 emitter 启动前的 mono/err_union/async frame 数量快照（Phase 5 KPI）。
+/// 参数说明：`codegen` 为 C99 生成器。
+/// 返回值说明：成功返回 `0`，参数无效返回 `-1`。设置 `UYA_DUMP_C99_EMITTER_START=1` 时输出快照。
+fn c99_codegen_capture_emitter_start_stability(codegen: &C99CodeGenerator) i32 {
+    if codegen == null {
+        return -1;
+    }
+    codegen.emitter_start_mono_instance_count = codegen.mono_instance_count;
+    codegen.emitter_start_err_union_struct_count = codegen.err_union_struct_count;
+    codegen.emitter_start_async_frame_meta_count = c99_codegen_current_async_frame_meta_count(codegen);
+    if c99_emitter_start_dump_enabled() != 0 {
+        fprintf(libc.stderr, "[UYA_C99_EMITTER_START] mono=%d err_union=%d async_frame=%d\n" as *byte,
+            codegen.emitter_start_mono_instance_count,
+            codegen.emitter_start_err_union_struct_count,
+            codegen.emitter_start_async_frame_meta_count);
+    }
+    return 0;
+}
+
+/// 功能说明：校验 emitter 阶段未新增 mono/err_union/async frame（Phase 5 KPI）。
+/// 参数说明：`codegen` 为 C99 生成器。
+/// 返回值说明：无漂移返回 `0`；出现漂移时默认仅告警返回 `0`，设置 `UYA_STRICT_C99_EMITTER_START=1` 时返回 `-1`。
+fn c99_codegen_verify_emitter_start_stability(codegen: &C99CodeGenerator) i32 {
+    if codegen == null {
+        return -1;
+    }
+    if codegen.emitter_start_mono_instance_count < 0 {
+        return 0;
+    }
+    const cur_mono: i32 = codegen.mono_instance_count;
+    const cur_err: i32 = codegen.err_union_struct_count;
+    const cur_async: i32 = c99_codegen_current_async_frame_meta_count(codegen);
+    var drift: i32 = 0;
+    if cur_mono != codegen.emitter_start_mono_instance_count {
+        drift = 1;
+    }
+    if cur_err != codegen.emitter_start_err_union_struct_count {
+        drift = 1;
+    }
+    if cur_async != codegen.emitter_start_async_frame_meta_count {
+        drift = 1;
+    }
+    if drift != 0 {
+        fprintf(libc.stderr, "[UYA_C99_EMITTER_START] 警告: emitter 阶段数量漂移 mono %d->%d err_union %d->%d async_frame %d->%d\n" as *byte,
+            codegen.emitter_start_mono_instance_count, cur_mono,
+            codegen.emitter_start_err_union_struct_count, cur_err,
+            codegen.emitter_start_async_frame_meta_count, cur_async);
+        if c99_emitter_start_strict_enabled() != 0 {
+            return -1;
+        }
+    }
+    return 0;
+}
+
 // 生成 C99 代码
 fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: &byte) i32 {
     if codegen == null || ast == null || output_file == null {
@@ -4241,6 +4370,12 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         }
     }
     
+    // emitter 启动前：预注册 async frame 元数据，并拍摄 mono/err_union/async frame 稳定快照（Phase 5 KPI）
+    c99_preregister_async_frame_metadata(codegen, ast);
+    if c99_codegen_capture_emitter_start_stability(codegen) != 0 {
+        return 1;
+    }
+
     // 第七步：生成所有函数的前向声明（解决相互递归调用）
     c99_mirror_emit_common(codegen);
     i = 0;
@@ -4953,6 +5088,14 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
             prof_simd_ms, prof_ms_precollect, prof_ms_header, prof_ms_step1_typedef, prof_ms_step6_mid, prof_ms_step6e_tail, prof_ms_prelude, body_ms, total_ms);
     }
     
+    // emitter 结束后校验 mono/err_union/async frame 未发生漂移（Phase 5 KPI）
+    if c99_codegen_verify_emitter_start_stability(codegen) != 0 {
+        if codegen.checker != null {
+            codegen.checker.suppress_codegen_diagnostics = saved_checker_codegen_diag;
+        }
+        return -1;
+    }
+
     c99_split_finish_part2_externs(codegen);
     c99_write_mirror_manifest(codegen, ast);
     c99_write_split_makefile(codegen);

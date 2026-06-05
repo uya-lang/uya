@@ -376,9 +376,9 @@ make check
 
 阶段 KPI：
 
-- [ ] C99 emitter 开始前，mono/err_union/async frame 数量已稳定。
-- [ ] C99 emitter 中不得新增 mono instance。
-- [ ] C99 emitter 中不得新增 err_union body。
+- [x] C99 emitter 开始前，mono/err_union/async frame 数量已稳定。
+- [x] C99 emitter 中不得新增 mono instance。
+- [x] C99 emitter 中不得新增 err_union body。
 - [ ] peak RSS 相比 Phase 0 baseline 下降至少 25%。
 
 ---
