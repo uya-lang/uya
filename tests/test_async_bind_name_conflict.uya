@@ -1,0 +1,47 @@
+use std.async;
+use std.testing.assert_eq_i32;
+
+fn ready_conflict_i32(v: i32) Future<!i32> {
+    return Future<!i32>{ state: Poll<!i32>.Ready(ok<i32>(v)) };
+}
+
+@async_fn
+fn sibling_async_bind_names(flag: bool) Future<!i32> {
+    var total: i32 = 0;
+    if flag {
+        const step: i32 = try @await ready_conflict_i32(3);
+        total = total + step;
+    } else {
+        const step: i32 = try @await ready_conflict_i32(5);
+        total = total + step;
+    }
+    return total;
+}
+
+@async_fn
+fn bind_then_later_local_same_name() Future<!i32> {
+    var total: i32 = 0;
+    {
+        const value: i32 = try @await ready_conflict_i32(4);
+        total = total + value;
+    }
+    const value: i32 = 6;
+    total = total + value;
+    return total;
+}
+
+test "async bind names do not conflict across sibling blocks" {
+    const left_result: !i32 = block_on<i32>(sibling_async_bind_names(true));
+    const left: i32 = left_result catch { -1; };
+    try assert_eq_i32(left, 3);
+
+    const right_result: !i32 = block_on<i32>(sibling_async_bind_names(false));
+    const right: i32 = right_result catch { -1; };
+    try assert_eq_i32(right, 5);
+}
+
+test "async bind name does not conflict with later local" {
+    const result_union: !i32 = block_on<i32>(bind_then_later_local_same_name());
+    const result: i32 = result_union catch { -1; };
+    try assert_eq_i32(result, 10);
+}

@@ -29,6 +29,8 @@ require_pattern "$CHECKER_SYMBOLS_FILE" "UYA_DUMP_SEMANTIC_DB" "debug dump 环�
 require_pattern "$CHECKER_SYMBOLS_FILE" "checker_maybe_dump_semantic_db" "debug dump 调度函数"
 require_pattern "$CHECKER_SYMBOLS_FILE" "=== semantic db ===" "debug dump 起始标记"
 require_pattern "$CHECKER_SYMBOLS_FILE" "semantic_db_estimated_bytes" "debug dump 输出 bytes"
+require_pattern "$CHECKER_SYMBOLS_FILE" "checker_dump_semantic_phase2_index" "Phase 2 索引摘要输出函数"
+require_pattern "$CHECKER_SYMBOLS_FILE" "load_ppm" "Phase 2 索引 load factor 字段"
 require_pattern "$CHECKER_ENTRY_FILE" "checker_maybe_dump_semantic_db\\(checker\\)" "checker 入口调用 debug dump"
 
 tmp_dir="$(mktemp -d /tmp/uya-semantic-db-dump.XXXXXX)"
@@ -58,6 +60,12 @@ if ! grep -Fq "files=" "$dump_stderr" || ! grep -Fq "decls=" "$dump_stderr" || !
     echo "错误: SemanticDb dump 缺少核心摘要字段" >&2
     exit 1
 fi
+for index_name in decls_by_name functions_by_name types_by_name global_vars_by_name enum_variants_by_name exports_by_module_name aliases_by_file_name use_items_by_file_name; do
+    if ! grep -Eq "phase2_index name=${index_name} count=[0-9]+ capacity=[0-9]+ load_ppm=[0-9]+ reallocs=[0-9]+ bytes=[0-9]+" "$dump_stderr"; then
+        echo "错误: SemanticDb dump 缺少 Phase 2 索引摘要: $index_name" >&2
+        exit 1
+    fi
+done
 if ! grep -Fq "=== semantic db end ===" "$dump_stderr"; then
     echo "错误: UYA_DUMP_SEMANTIC_DB=1 时缺少 SemanticDb dump 结束标记" >&2
     exit 1

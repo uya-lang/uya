@@ -37,6 +37,7 @@ require_pattern "interned_name_count" "interned_name_count 字段"
 require_pattern "name_intern" "name_intern 字段"
 require_pattern "decl_records" "decl_records 字段"
 require_pattern "decls_by_name" "decls_by_name 字段"
+require_pattern "global_vars_by_name" "global_vars_by_name 字段"
 require_pattern "exports_by_module_name" "exports_by_module_name 字段"
 require_pattern "aliases_by_file_name" "aliases_by_file_name 字段"
 require_pattern "use_items_by_file_name" "use_items_by_file_name 字段"
@@ -111,6 +112,9 @@ test "semantic db definition initializes and resets" {
         type_ranges: semantic_test_vector(),
         type_range_decl_ids: semantic_test_vector(),
         types_by_name: semantic_test_hash(),
+        global_var_ranges: semantic_test_vector(),
+        global_var_range_decl_ids: semantic_test_vector(),
+        global_vars_by_name: semantic_test_hash(),
         enum_variant_records: semantic_test_vector(),
         enum_variant_ranges: semantic_test_vector(),
         enum_variant_range_record_ids: semantic_test_vector(),

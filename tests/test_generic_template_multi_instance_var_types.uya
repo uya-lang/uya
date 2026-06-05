@@ -1,0 +1,14 @@
+use std.testing.assert_eq_i32;
+
+fn local_value_align<T>(input: T) i32 {
+    const value: T = input;
+    return @align_of(value);
+}
+
+test "generic template multi instance local value types stay distinct" {
+    const u8_align: i32 = local_value_align<u8>(1u8);
+    const i64_align: i32 = local_value_align<i64>(9i64);
+
+    try assert_eq_i32(u8_align, 1);
+    try assert_eq_i32(i64_align, 8);
+}

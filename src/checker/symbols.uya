@@ -56,6 +56,12 @@ fn checker_semantic_cache_has_layout(checker: &TypeChecker) i32 {
     if checker.semantic_db.type_range_decl_ids.item_size != @size_of(i32) {
         return 0;
     }
+    if checker.semantic_db.global_var_ranges.item_size != @size_of(SemanticGlobalVarRange) {
+        return 0;
+    }
+    if checker.semantic_db.global_var_range_decl_ids.item_size != @size_of(i32) {
+        return 0;
+    }
     if checker.semantic_db.enum_variant_records.item_size != @size_of(SemanticEnumVariantRecord) {
         return 0;
     }
@@ -83,6 +89,9 @@ fn checker_semantic_cache_has_layout(checker: &TypeChecker) i32 {
     if checker.semantic_db.types_by_name.capacity < checker.semantic_db.types_by_name.count {
         return 0;
     }
+    if checker.semantic_db.global_vars_by_name.capacity < checker.semantic_db.global_vars_by_name.count {
+        return 0;
+    }
     if checker.semantic_db.enum_variants_by_name.capacity < checker.semantic_db.enum_variants_by_name.count {
         return 0;
     }
@@ -98,15 +107,58 @@ fn checker_semantic_cache_has_layout(checker: &TypeChecker) i32 {
     return 1;
 }
 
+fn checker_typed_program_has_layout(checker: &TypeChecker) i32 {
+    if checker == null {
+        return 0;
+    }
+    if checker.typed_program.expr_types.item_size != @size_of(TypeId) {
+        return 0;
+    }
+    if checker.typed_program.identifier_bindings.item_size != @size_of(SymbolId) {
+        return 0;
+    }
+    if checker.typed_program.call_targets.item_size != @size_of(TypedCallTarget) {
+        return 0;
+    }
+    if checker.typed_program.method_dispatch.item_size != @size_of(TypedMethodDispatch) {
+        return 0;
+    }
+    if checker.typed_program.field_access.item_size != @size_of(FieldId) {
+        return 0;
+    }
+    if checker.typed_program.global_init_order.item_size != @size_of(GlobalId) {
+        return 0;
+    }
+    if checker.typed_program.reachable_roots.item_size != @size_of(FunctionId) {
+        return 0;
+    }
+    if checker.typed_program.proof_results.item_size != @size_of(TypedProofResult) {
+        return 0;
+    }
+    if checker.typed_type_records.item_size != @size_of(Type) {
+        return 0;
+    }
+    return 1;
+}
+
 fn checker_reset_semantic_cache(checker: &TypeChecker) void {
     if checker == null {
         return;
     }
+    checker_clear_semantic_lookup_db();
     if checker_semantic_cache_has_layout(checker) != 0 {
         semantic_db_reset(&checker.semantic_db);
-        return;
+    } else {
+        semantic_db_init(&checker.semantic_db);
     }
-    semantic_db_init(&checker.semantic_db);
+    if checker_typed_program_has_layout(checker) != 0 {
+        typed_program_reset(&checker.typed_program);
+        semantic_vector_reset(&checker.typed_type_records);
+    } else {
+        typed_program_init(&checker.typed_program);
+        semantic_vector_init(&checker.typed_type_records, @size_of(Type));
+    }
+    checker.typed_backend_reentry_count = 0;
 }
 
 fn checker_semantic_dump_enabled() i32 {
@@ -163,6 +215,45 @@ fn checker_dump_semantic_db_records(db: &SemanticDb) void {
     }
 }
 
+const CHECKER_SEMANTIC_LOAD_PPM_SCALE: usize = 1000000usize;
+
+fn checker_semantic_load_ppm(count: usize, capacity: usize) usize {
+    if capacity == 0usize {
+        return 0usize;
+    }
+    if count > 9223372036854775807usize / CHECKER_SEMANTIC_LOAD_PPM_SCALE {
+        return 9223372036854775807usize;
+    }
+    return (count * CHECKER_SEMANTIC_LOAD_PPM_SCALE) / capacity;
+}
+
+fn checker_dump_semantic_phase2_index(name: &byte, hash: &SemanticHash) void {
+    if name == null || hash == null {
+        return;
+    }
+    fprintf(libc.stderr, "phase2_index name=%s count=%zu capacity=%zu load_ppm=%zu reallocs=%d bytes=%zu\n" as *byte,
+        name as *byte,
+        hash.count,
+        hash.capacity,
+        checker_semantic_load_ppm(hash.count, hash.capacity),
+        hash.realloc_count,
+        hash.bytes);
+}
+
+fn checker_dump_semantic_phase2_indexes(db: &SemanticDb) void {
+    if db == null {
+        return;
+    }
+    checker_dump_semantic_phase2_index("decls_by_name" as &byte, &db.decls_by_name);
+    checker_dump_semantic_phase2_index("functions_by_name" as &byte, &db.functions_by_name);
+    checker_dump_semantic_phase2_index("types_by_name" as &byte, &db.types_by_name);
+    checker_dump_semantic_phase2_index("global_vars_by_name" as &byte, &db.global_vars_by_name);
+    checker_dump_semantic_phase2_index("enum_variants_by_name" as &byte, &db.enum_variants_by_name);
+    checker_dump_semantic_phase2_index("exports_by_module_name" as &byte, &db.exports_by_module_name);
+    checker_dump_semantic_phase2_index("aliases_by_file_name" as &byte, &db.aliases_by_file_name);
+    checker_dump_semantic_phase2_index("use_items_by_file_name" as &byte, &db.use_items_by_file_name);
+}
+
 fn checker_dump_semantic_db(db: &SemanticDb) void {
     if db == null {
         return;
@@ -194,6 +285,11 @@ fn checker_dump_semantic_db(db: &SemanticDb) void {
             db.import_bindings.realloc_count + db.export_bindings.realloc_count +
             db.exports_by_module_name.realloc_count + db.aliases_by_file_name.realloc_count +
             db.use_items_by_file_name.realloc_count);
+    fprintf(libc.stderr, "global_var_range=%zu/%zu global_var_ids=%zu/%zu global_hash=%zu/%zu\n" as *byte,
+        db.global_var_ranges.count, db.global_var_ranges.capacity,
+        db.global_var_range_decl_ids.count, db.global_var_range_decl_ids.capacity,
+        db.global_vars_by_name.count, db.global_vars_by_name.capacity);
+    checker_dump_semantic_phase2_indexes(db);
     checker_dump_semantic_db_records(db);
     fprintf(libc.stderr, "=== semantic db end ===\n" as *byte);
 }
@@ -220,6 +316,10 @@ fn checker_init(checker: &TypeChecker, arena: &CompilerArena, default_filename: 
     mono_instance_index_reset();
     checker_capacity_warning_reset();
     checker_reset_semantic_cache(checker);
+    checker.function_scope_index = function_scope_index_empty();
+    if function_scope_index_init(&checker.function_scope_index) != 0 {
+        return -1;
+    }
     
     checker.arena = arena;
     

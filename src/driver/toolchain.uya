@@ -805,7 +805,7 @@ fn link_split_with_make(split_dir: &byte, output_exe: &byte, is_nostdlib: i32) i
             ld_use = &ld_buf[0];
         }
     }
-    const jobs_env: &byte = get_env_or_default("UYA_GCC_JOBS" as *byte, "4" as *byte);
+    const jobs_env: &byte = get_env_or_default("UYA_GCC_JOBS" as *byte, "2" as *byte);
     var zig_env_prefix: [byte: 2048] = [];
     var zig_env_prefix_use: &byte = "" as *byte;
     if strstr(cc_driver as *byte, "zig cc" as *byte) != null || strstr(cc_driver as *byte, "zig c++" as *byte) != null {
@@ -1109,4 +1109,3 @@ fn link_with_toolchain(c_file: &byte, output: &byte, is_nostdlib: i32, plan: &CI
     }
     return 0;
 }
-

@@ -2178,6 +2178,11 @@ fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32 {
         checker_report_error(checker, ast_ptr, "SemanticDb 构建失败" as *byte);
         return -1;
     }
+    if typed_program_assign_expr_ids(&checker.typed_program, ast_ptr) != 0 {
+        checker_report_error(checker, ast_ptr, "TypedProgram ExprId 分配失败" as *byte);
+        return -1;
+    }
+    checker_register_semantic_lookup_db(ast_ptr, &checker.semantic_db);
     checker_maybe_dump_semantic_db(checker);
     
     // 第二遍：检查所有声明（包括函数体、结构体、变量等）

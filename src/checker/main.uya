@@ -419,6 +419,10 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
         // 放宽检查：代码块中的语句检查失败不报告错误
         // 这在编译器自举时很常见，因为类型推断可能失败
         checker_enter_scope(checker);
+        if checker_function_scope_enter_block(checker, node) == 0 {
+            checker_exit_scope(checker);
+            return 0;
+        }
         var i: i32 = 0;
         while i < node.block_stmt_count {
             const stmt: &ASTNode = node.block_stmts[i];
@@ -456,7 +460,11 @@ fn checker_check_node(checker: &TypeChecker, node: &ASTNode) i32 {
             }
             i = i + 1;
         }
+        const function_scope_exit_ok: i32 = checker_function_scope_exit_block(checker, node);
         checker_exit_scope(checker);
+        if function_scope_exit_ok == 0 {
+            return 0;
+        }
         return 1;
     } else if node.type == ASTNodeType.AST_ASM {
         // E4001: microapp 模式禁止用户代码中的 @asm

@@ -1,0 +1,668 @@
+// typed/program.uya - TypedProgram contract storage for backend queries.
+
+export const TYPED_PROGRAM_INVALID_ID: i32 = -1;
+export const TYPED_CALL_TARGET_UNKNOWN: i32 = 0;
+export const TYPED_CALL_TARGET_FUNCTION: i32 = 1;
+export const TYPED_CALL_TARGET_METHOD: i32 = 2;
+export const TYPED_CALL_TARGET_EXTERN: i32 = 3;
+export const TYPED_PROOF_UNKNOWN: i32 = 0;
+export const TYPED_PROOF_OK: i32 = 1;
+export const TYPED_PROOF_ERROR: i32 = 2;
+export const TYPED_PROGRAM_LIFECYCLE_UNINITIALIZED: i32 = 0;
+export const TYPED_PROGRAM_LIFECYCLE_ACTIVE: i32 = 1;
+export const TYPED_PROGRAM_LIFECYCLE_RELEASED: i32 = 2;
+
+/// 功能说明：TypedProgram 内部使用的字段 ID。
+/// 参数说明：无；值由后续 binder/lower 阶段分配。
+/// 返回值说明：无。
+export type FieldId = i32;
+
+/// 功能说明：TypedProgram 内部使用的全局变量 ID。
+/// 参数说明：无；值由后续 binder/lower 阶段分配。
+/// 返回值说明：无。
+export type GlobalId = i32;
+
+/// 功能说明：记录一个调用表达式的解析目标。
+/// 参数说明：无；字段均为稳定整数 ID，未知字段使用 `TYPED_PROGRAM_INVALID_ID`。
+/// 返回值说明：无。
+export struct TypedCallTarget {
+    kind: i32,
+    function_id: FunctionId,
+    decl_id: DeclId,
+    symbol_id: SymbolId,
+    mono_instance_id: MonoInstanceId,
+}
+
+/// 功能说明：记录一个方法调用表达式的派发结果。
+/// 参数说明：无；字段均为稳定整数 ID，未知字段使用 `TYPED_PROGRAM_INVALID_ID`。
+/// 返回值说明：无。
+export struct TypedMethodDispatch {
+    receiver_type_id: TypeId,
+    method_symbol_id: SymbolId,
+    interface_symbol_id: SymbolId,
+    vtable_slot: i32,
+}
+
+/// 功能说明：记录 checker 对表达式或证明点的证明结果。
+/// 参数说明：无；`expr_id` 为表达式 ID，`status` 为证明状态，`error_id` 为失败时的语言错误 ID。
+/// 返回值说明：无。
+export struct TypedProofResult {
+    expr_id: ExprId,
+    status: i32,
+    error_id: i32,
+}
+
+/// 功能说明：聚合 TypedProgram 所有动态表的统计摘要。
+/// 参数说明：无；由 `typed_program_stats` 返回。
+/// 返回值说明：无。
+export struct TypedProgramStats {
+    table_count: i32,
+    table_items: usize,
+    table_capacity: usize,
+    table_bytes: usize,
+    table_realloc_count: i32,
+}
+
+/// 功能说明：记录 TypedProgram 在生命周期窗口内的常驻内存统计。
+/// 参数说明：无；字段由 `typed_program_lifetime_stats` 返回。
+/// 返回值说明：无。
+export struct TypedProgramLifetimeStats {
+    current_bytes: usize,
+    peak_bytes: usize,
+    lifecycle_state: i32,
+}
+
+/// 功能说明：checker 输出给后端消费的紧凑类型化程序合同。
+/// 参数说明：无；调用 `typed_program_init` 后使用。
+/// 返回值说明：无。
+export struct TypedProgram {
+    expr_count: i32,
+    global_init_count: i32,
+    reachable_root_count: i32,
+    proof_result_count: i32,
+    estimated_bytes: usize,
+    resident_peak_bytes: usize,
+    lifecycle_state: i32,
+    expr_types: SemanticVector,
+    identifier_bindings: SemanticVector,
+    call_targets: SemanticVector,
+    method_dispatch: SemanticVector,
+    field_access: SemanticVector,
+    global_init_order: SemanticVector,
+    reachable_roots: SemanticVector,
+    proof_results: SemanticVector,
+}
+
+fn typed_program_clear_counts(program: &TypedProgram) void {
+    if program == null {
+        return;
+    }
+    program.expr_count = 0;
+    program.global_init_count = 0;
+    program.reachable_root_count = 0;
+    program.proof_result_count = 0;
+    program.estimated_bytes = 0usize;
+}
+
+fn typed_program_i32_to_usize(value: i32) usize {
+    if value < 0 {
+        return 9223372036854775807usize;
+    }
+    const converted_tmp: !usize = value as! usize;
+    const converted: usize = converted_tmp catch {
+        return 9223372036854775807usize;
+    };
+    return converted;
+}
+
+fn typed_program_usize_to_i32(value: usize) i32 {
+    const converted_tmp: !i32 = value as! i32;
+    const converted: i32 = converted_tmp catch {
+        return -1;
+    };
+    return converted;
+}
+
+fn typed_program_default_call_target() TypedCallTarget {
+    return TypedCallTarget{
+        kind: TYPED_CALL_TARGET_UNKNOWN,
+        function_id: TYPED_PROGRAM_INVALID_ID,
+        decl_id: TYPED_PROGRAM_INVALID_ID,
+        symbol_id: TYPED_PROGRAM_INVALID_ID,
+        mono_instance_id: TYPED_PROGRAM_INVALID_ID,
+    };
+}
+
+fn typed_program_default_method_dispatch() TypedMethodDispatch {
+    return TypedMethodDispatch{
+        receiver_type_id: TYPED_PROGRAM_INVALID_ID,
+        method_symbol_id: TYPED_PROGRAM_INVALID_ID,
+        interface_symbol_id: TYPED_PROGRAM_INVALID_ID,
+        vtable_slot: TYPED_PROGRAM_INVALID_ID,
+    };
+}
+
+fn typed_program_refresh_bytes(program: &TypedProgram) void {
+    if program == null {
+        return;
+    }
+    const current_bytes: usize = typed_program_storage_bytes(program);
+    program.estimated_bytes = current_bytes;
+    if current_bytes > program.resident_peak_bytes {
+        program.resident_peak_bytes = current_bytes;
+    }
+}
+
+fn typed_program_update_expr_count(program: &TypedProgram, min_count: usize) i32 {
+    if program == null {
+        return -1;
+    }
+    const next_count: i32 = typed_program_usize_to_i32(min_count);
+    if next_count < 0 {
+        return -1;
+    }
+    if next_count > program.expr_count {
+        program.expr_count = next_count;
+    }
+    return 0;
+}
+
+fn typed_program_ensure_i32_slots(vec: &SemanticVector, min_count: usize, fill_value: i32) i32 {
+    if vec == null || vec.item_size != @size_of(i32) {
+        return -1;
+    }
+    if semantic_vector_ensure_capacity(vec, min_count) != 0 {
+        return -1;
+    }
+    while vec.count < min_count {
+        var value: i32 = fill_value;
+        if semantic_vector_append(vec, &value as &const void) != 0 {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+fn typed_program_ensure_call_target_slots(vec: &SemanticVector, min_count: usize) i32 {
+    if vec == null || vec.item_size != @size_of(TypedCallTarget) {
+        return -1;
+    }
+    if semantic_vector_ensure_capacity(vec, min_count) != 0 {
+        return -1;
+    }
+    while vec.count < min_count {
+        var target: TypedCallTarget = typed_program_default_call_target();
+        if semantic_vector_append(vec, &target as &const void) != 0 {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+fn typed_program_ensure_method_dispatch_slots(vec: &SemanticVector, min_count: usize) i32 {
+    if vec == null || vec.item_size != @size_of(TypedMethodDispatch) {
+        return -1;
+    }
+    if semantic_vector_ensure_capacity(vec, min_count) != 0 {
+        return -1;
+    }
+    while vec.count < min_count {
+        var dispatch: TypedMethodDispatch = typed_program_default_method_dispatch();
+        if semantic_vector_append(vec, &dispatch as &const void) != 0 {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+fn typed_program_expr_slot(expr_id: ExprId) usize {
+    if expr_id < 0 {
+        return 9223372036854775807usize;
+    }
+    return typed_program_i32_to_usize(expr_id);
+}
+
+fn typed_program_stats_add(stats: &TypedProgramStats, table: &SemanticVector) void {
+    if stats == null || table == null {
+        return;
+    }
+    stats.table_count = stats.table_count + 1;
+    stats.table_items = stats.table_items + table.count;
+    stats.table_capacity = stats.table_capacity + table.capacity;
+    stats.table_bytes = stats.table_bytes + table.bytes;
+    stats.table_realloc_count = stats.table_realloc_count + table.realloc_count;
+}
+
+/// 功能说明：初始化 TypedProgram 动态表。
+/// 参数说明：`program` 为待初始化 TypedProgram。
+/// 返回值说明：无。
+export fn typed_program_init(program: &TypedProgram) void {
+    if program == null {
+        return;
+    }
+    typed_program_clear_counts(program);
+    program.resident_peak_bytes = 0usize;
+    program.lifecycle_state = TYPED_PROGRAM_LIFECYCLE_ACTIVE;
+    semantic_vector_init(&program.expr_types, @size_of(TypeId));
+    semantic_vector_init(&program.identifier_bindings, @size_of(SymbolId));
+    semantic_vector_init(&program.call_targets, @size_of(TypedCallTarget));
+    semantic_vector_init(&program.method_dispatch, @size_of(TypedMethodDispatch));
+    semantic_vector_init(&program.field_access, @size_of(FieldId));
+    semantic_vector_init(&program.global_init_order, @size_of(GlobalId));
+    semantic_vector_init(&program.reachable_roots, @size_of(FunctionId));
+    semantic_vector_init(&program.proof_results, @size_of(TypedProofResult));
+    typed_program_refresh_bytes(program);
+}
+
+/// 功能说明：重置 TypedProgram 内容并保留已分配容量。
+/// 参数说明：`program` 为目标 TypedProgram。
+/// 返回值说明：无。
+export fn typed_program_reset(program: &TypedProgram) void {
+    if program == null {
+        return;
+    }
+    typed_program_clear_counts(program);
+    program.lifecycle_state = TYPED_PROGRAM_LIFECYCLE_ACTIVE;
+    semantic_vector_reset(&program.expr_types);
+    semantic_vector_reset(&program.identifier_bindings);
+    semantic_vector_reset(&program.call_targets);
+    semantic_vector_reset(&program.method_dispatch);
+    semantic_vector_reset(&program.field_access);
+    semantic_vector_reset(&program.global_init_order);
+    semantic_vector_reset(&program.reachable_roots);
+    semantic_vector_reset(&program.proof_results);
+    typed_program_refresh_bytes(program);
+}
+
+/// 功能说明：释放 TypedProgram 内部动态表。
+/// 参数说明：`program` 为目标 TypedProgram。
+/// 返回值说明：无。
+export fn typed_program_release(program: &TypedProgram) void {
+    if program == null {
+        return;
+    }
+    if program.lifecycle_state == TYPED_PROGRAM_LIFECYCLE_ACTIVE {
+        typed_program_refresh_bytes(program);
+    }
+    semantic_vector_release(&program.expr_types);
+    semantic_vector_release(&program.identifier_bindings);
+    semantic_vector_release(&program.call_targets);
+    semantic_vector_release(&program.method_dispatch);
+    semantic_vector_release(&program.field_access);
+    semantic_vector_release(&program.global_init_order);
+    semantic_vector_release(&program.reachable_roots);
+    semantic_vector_release(&program.proof_results);
+    typed_program_clear_counts(program);
+    program.lifecycle_state = TYPED_PROGRAM_LIFECYCLE_RELEASED;
+}
+
+/// 功能说明：预留所有按 ExprId 查询表的容量。
+/// 参数说明：`program` 为目标 TypedProgram，`min_expr_count` 为表达式容量下限。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn typed_program_reserve_exprs(program: &TypedProgram, min_expr_count: usize) i32 {
+    if program == null {
+        return -1;
+    }
+    if semantic_vector_reserve(&program.expr_types, min_expr_count) != 0 {
+        return -1;
+    }
+    if semantic_vector_reserve(&program.identifier_bindings, min_expr_count) != 0 {
+        return -1;
+    }
+    if semantic_vector_reserve(&program.call_targets, min_expr_count) != 0 {
+        return -1;
+    }
+    if semantic_vector_reserve(&program.method_dispatch, min_expr_count) != 0 {
+        return -1;
+    }
+    if semantic_vector_reserve(&program.field_access, min_expr_count) != 0 {
+        return -1;
+    }
+    typed_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：写入表达式类型映射 `ExprId -> TypeId`。
+/// 参数说明：`program` 为目标 TypedProgram，`expr_id` 为表达式 ID，`type_id` 为类型 ID。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn typed_program_set_expr_type(program: &TypedProgram, expr_id: ExprId, type_id: TypeId) i32 {
+    const slot: usize = typed_program_expr_slot(expr_id);
+    if program == null || type_id < 0 || slot == 9223372036854775807usize {
+        return -1;
+    }
+    const min_count: usize = slot + 1usize;
+    if typed_program_ensure_i32_slots(&program.expr_types, min_count, TYPED_PROGRAM_INVALID_ID) != 0 {
+        return -1;
+    }
+    const item: &TypeId = semantic_vector_item_ptr(&program.expr_types, slot) as &TypeId;
+    if item == null {
+        return -1;
+    }
+    item[0] = type_id;
+    if typed_program_update_expr_count(program, min_count) != 0 {
+        return -1;
+    }
+    typed_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：查询表达式类型映射。
+/// 参数说明：`program` 为目标 TypedProgram，`expr_id` 为表达式 ID，`out_type_id` 接收类型 ID。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn typed_program_get_expr_type(program: &TypedProgram, expr_id: ExprId, out_type_id: &TypeId) i32 {
+    const slot: usize = typed_program_expr_slot(expr_id);
+    if program == null || out_type_id == null || slot >= program.expr_types.count {
+        return 0;
+    }
+    const item: &TypeId = semantic_vector_item_ptr(&program.expr_types, slot) as &TypeId;
+    if item == null || item[0] < 0 {
+        return 0;
+    }
+    out_type_id[0] = item[0];
+    return 1;
+}
+
+/// 功能说明：写入标识符绑定映射 `ExprId -> SymbolId`。
+/// 参数说明：`program` 为目标 TypedProgram，`expr_id` 为表达式 ID，`symbol_id` 为符号 ID。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn typed_program_set_identifier_binding(program: &TypedProgram, expr_id: ExprId, symbol_id: SymbolId) i32 {
+    const slot: usize = typed_program_expr_slot(expr_id);
+    if program == null || symbol_id < 0 || slot == 9223372036854775807usize {
+        return -1;
+    }
+    const min_count: usize = slot + 1usize;
+    if typed_program_ensure_i32_slots(&program.identifier_bindings, min_count, TYPED_PROGRAM_INVALID_ID) != 0 {
+        return -1;
+    }
+    const item: &SymbolId = semantic_vector_item_ptr(&program.identifier_bindings, slot) as &SymbolId;
+    if item == null {
+        return -1;
+    }
+    item[0] = symbol_id;
+    if typed_program_update_expr_count(program, min_count) != 0 {
+        return -1;
+    }
+    typed_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：查询标识符绑定映射。
+/// 参数说明：`program` 为目标 TypedProgram，`expr_id` 为表达式 ID，`out_symbol_id` 接收符号 ID。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn typed_program_get_identifier_binding(program: &TypedProgram, expr_id: ExprId, out_symbol_id: &SymbolId) i32 {
+    const slot: usize = typed_program_expr_slot(expr_id);
+    if program == null || out_symbol_id == null || slot >= program.identifier_bindings.count {
+        return 0;
+    }
+    const item: &SymbolId = semantic_vector_item_ptr(&program.identifier_bindings, slot) as &SymbolId;
+    if item == null || item[0] < 0 {
+        return 0;
+    }
+    out_symbol_id[0] = item[0];
+    return 1;
+}
+
+/// 功能说明：写入调用目标映射 `ExprId -> CallTarget`。
+/// 参数说明：`program` 为目标 TypedProgram，`expr_id` 为表达式 ID，`target` 为调用目标。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn typed_program_set_call_target(program: &TypedProgram, expr_id: ExprId, target: &TypedCallTarget) i32 {
+    const slot: usize = typed_program_expr_slot(expr_id);
+    if program == null || target == null || slot == 9223372036854775807usize {
+        return -1;
+    }
+    const min_count: usize = slot + 1usize;
+    if typed_program_ensure_call_target_slots(&program.call_targets, min_count) != 0 {
+        return -1;
+    }
+    const item: &TypedCallTarget = semantic_vector_item_ptr(&program.call_targets, slot) as &TypedCallTarget;
+    if item == null {
+        return -1;
+    }
+    item[0] = target[0];
+    if typed_program_update_expr_count(program, min_count) != 0 {
+        return -1;
+    }
+    typed_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：查询调用目标映射。
+/// 参数说明：`program` 为目标 TypedProgram，`expr_id` 为表达式 ID，`out_target` 接收调用目标。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn typed_program_get_call_target(program: &TypedProgram, expr_id: ExprId, out_target: &TypedCallTarget) i32 {
+    const slot: usize = typed_program_expr_slot(expr_id);
+    if program == null || out_target == null || slot >= program.call_targets.count {
+        return 0;
+    }
+    const item: &TypedCallTarget = semantic_vector_item_ptr(&program.call_targets, slot) as &TypedCallTarget;
+    if item == null || item.kind == TYPED_CALL_TARGET_UNKNOWN {
+        return 0;
+    }
+    out_target[0] = item[0];
+    return 1;
+}
+
+/// 功能说明：写入方法派发映射 `ExprId -> MethodDispatch`。
+/// 参数说明：`program` 为目标 TypedProgram，`expr_id` 为表达式 ID，`dispatch` 为方法派发结果。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn typed_program_set_method_dispatch(program: &TypedProgram, expr_id: ExprId, dispatch: &TypedMethodDispatch) i32 {
+    const slot: usize = typed_program_expr_slot(expr_id);
+    if program == null || dispatch == null || slot == 9223372036854775807usize {
+        return -1;
+    }
+    const min_count: usize = slot + 1usize;
+    if typed_program_ensure_method_dispatch_slots(&program.method_dispatch, min_count) != 0 {
+        return -1;
+    }
+    const item: &TypedMethodDispatch = semantic_vector_item_ptr(&program.method_dispatch, slot) as &TypedMethodDispatch;
+    if item == null {
+        return -1;
+    }
+    item[0] = dispatch[0];
+    if typed_program_update_expr_count(program, min_count) != 0 {
+        return -1;
+    }
+    typed_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：查询方法派发映射。
+/// 参数说明：`program` 为目标 TypedProgram，`expr_id` 为表达式 ID，`out_dispatch` 接收派发结果。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn typed_program_get_method_dispatch(program: &TypedProgram, expr_id: ExprId, out_dispatch: &TypedMethodDispatch) i32 {
+    const slot: usize = typed_program_expr_slot(expr_id);
+    if program == null || out_dispatch == null || slot >= program.method_dispatch.count {
+        return 0;
+    }
+    const item: &TypedMethodDispatch = semantic_vector_item_ptr(&program.method_dispatch, slot) as &TypedMethodDispatch;
+    if item == null || item.method_symbol_id < 0 {
+        return 0;
+    }
+    out_dispatch[0] = item[0];
+    return 1;
+}
+
+/// 功能说明：写入字段访问映射 `ExprId -> FieldId`。
+/// 参数说明：`program` 为目标 TypedProgram，`expr_id` 为表达式 ID，`field_id` 为字段 ID。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn typed_program_set_field_access(program: &TypedProgram, expr_id: ExprId, field_id: FieldId) i32 {
+    const slot: usize = typed_program_expr_slot(expr_id);
+    if program == null || field_id < 0 || slot == 9223372036854775807usize {
+        return -1;
+    }
+    const min_count: usize = slot + 1usize;
+    if typed_program_ensure_i32_slots(&program.field_access, min_count, TYPED_PROGRAM_INVALID_ID) != 0 {
+        return -1;
+    }
+    const item: &FieldId = semantic_vector_item_ptr(&program.field_access, slot) as &FieldId;
+    if item == null {
+        return -1;
+    }
+    item[0] = field_id;
+    if typed_program_update_expr_count(program, min_count) != 0 {
+        return -1;
+    }
+    typed_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：查询字段访问映射。
+/// 参数说明：`program` 为目标 TypedProgram，`expr_id` 为表达式 ID，`out_field_id` 接收字段 ID。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn typed_program_get_field_access(program: &TypedProgram, expr_id: ExprId, out_field_id: &FieldId) i32 {
+    const slot: usize = typed_program_expr_slot(expr_id);
+    if program == null || out_field_id == null || slot >= program.field_access.count {
+        return 0;
+    }
+    const item: &FieldId = semantic_vector_item_ptr(&program.field_access, slot) as &FieldId;
+    if item == null || item[0] < 0 {
+        return 0;
+    }
+    out_field_id[0] = item[0];
+    return 1;
+}
+
+/// 功能说明：追加全局初始化顺序项。
+/// 参数说明：`program` 为目标 TypedProgram，`global_id` 为全局变量 ID。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn typed_program_append_global_init(program: &TypedProgram, global_id: GlobalId) i32 {
+    if program == null || global_id < 0 {
+        return -1;
+    }
+    var value: GlobalId = global_id;
+    if semantic_vector_append(&program.global_init_order, &value as &const void) != 0 {
+        return -1;
+    }
+    program.global_init_count = typed_program_usize_to_i32(program.global_init_order.count);
+    typed_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：追加可达根函数项。
+/// 参数说明：`program` 为目标 TypedProgram，`function_id` 为函数 ID。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn typed_program_append_reachable_root(program: &TypedProgram, function_id: FunctionId) i32 {
+    if program == null || function_id < 0 {
+        return -1;
+    }
+    var value: FunctionId = function_id;
+    if semantic_vector_append(&program.reachable_roots, &value as &const void) != 0 {
+        return -1;
+    }
+    program.reachable_root_count = typed_program_usize_to_i32(program.reachable_roots.count);
+    typed_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：追加安全证明结果。
+/// 参数说明：`program` 为目标 TypedProgram，`result` 为证明结果。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn typed_program_append_proof_result(program: &TypedProgram, result: &TypedProofResult) i32 {
+    if program == null || result == null || result.expr_id < 0 {
+        return -1;
+    }
+    if semantic_vector_append(&program.proof_results, result as &const void) != 0 {
+        return -1;
+    }
+    program.proof_result_count = typed_program_usize_to_i32(program.proof_results.count);
+    typed_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：估算 TypedProgram 当前结构和动态存储占用字节数。
+/// 参数说明：`program` 为目标 TypedProgram。
+/// 返回值说明：返回结构体本体和所有紧凑 vector 动态容量字节数；参数无效时返回 `0`。
+export fn typed_program_storage_bytes(program: &TypedProgram) usize {
+    if program == null {
+        return 0usize;
+    }
+    return @size_of(TypedProgram) +
+        program.expr_types.bytes +
+        program.identifier_bindings.bytes +
+        program.call_targets.bytes +
+        program.method_dispatch.bytes +
+        program.field_access.bytes +
+        program.global_init_order.bytes +
+        program.reachable_roots.bytes +
+        program.proof_results.bytes;
+}
+
+/// 功能说明：读取 TypedProgram 当前估算字节数。
+/// 参数说明：`program` 为目标 TypedProgram。
+/// 返回值说明：返回最近一次 init/reserve/append/set 后记录的估算字节数。
+export fn typed_program_estimated_bytes(program: &TypedProgram) usize {
+    if program == null {
+        return 0usize;
+    }
+    return program.estimated_bytes;
+}
+
+/// 功能说明：读取 TypedProgram 当前常驻字节数。
+/// 参数说明：`program` 为目标 TypedProgram。
+/// 返回值说明：返回当前生命周期窗口内仍常驻的估算字节数；释放后返回 `0`。
+export fn typed_program_current_bytes(program: &TypedProgram) usize {
+    return typed_program_estimated_bytes(program);
+}
+
+/// 功能说明：读取 TypedProgram 生命周期窗口内的峰值常驻字节数。
+/// 参数说明：`program` 为目标 TypedProgram。
+/// 返回值说明：返回最近一次 init/reset 到 release 期间观察到的最大估算字节数。
+export fn typed_program_peak_bytes(program: &TypedProgram) usize {
+    if program == null {
+        return 0usize;
+    }
+    return program.resident_peak_bytes;
+}
+
+/// 功能说明：读取 TypedProgram 当前生命周期状态。
+/// 参数说明：`program` 为目标 TypedProgram。
+/// 返回值说明：返回 `TYPED_PROGRAM_LIFECYCLE_*` 常量之一；参数无效时返回 uninitialized。
+export fn typed_program_lifecycle_state(program: &TypedProgram) i32 {
+    if program == null {
+        return TYPED_PROGRAM_LIFECYCLE_UNINITIALIZED;
+    }
+    return program.lifecycle_state;
+}
+
+/// 功能说明：读取 TypedProgram 当前常驻、峰值和生命周期状态摘要。
+/// 参数说明：`program` 为目标 TypedProgram。
+/// 返回值说明：返回当前 bytes、峰值 bytes 和生命周期状态；参数无效时返回全零摘要。
+export fn typed_program_lifetime_stats(program: &TypedProgram) TypedProgramLifetimeStats {
+    if program == null {
+        return TypedProgramLifetimeStats{
+            current_bytes: 0usize,
+            peak_bytes: 0usize,
+            lifecycle_state: TYPED_PROGRAM_LIFECYCLE_UNINITIALIZED,
+        };
+    }
+    return TypedProgramLifetimeStats{
+        current_bytes: typed_program_current_bytes(program),
+        peak_bytes: typed_program_peak_bytes(program),
+        lifecycle_state: typed_program_lifecycle_state(program),
+    };
+}
+
+/// 功能说明：读取 TypedProgram 所有动态表的聚合统计。
+/// 参数说明：`program` 为目标 TypedProgram。
+/// 返回值说明：返回 table 数量、项数、容量、字节数和重分配次数摘要。
+export fn typed_program_stats(program: &TypedProgram) TypedProgramStats {
+    var stats: TypedProgramStats = TypedProgramStats{
+        table_count: 0,
+        table_items: 0usize,
+        table_capacity: 0usize,
+        table_bytes: 0usize,
+        table_realloc_count: 0,
+    };
+    if program == null {
+        return stats;
+    }
+    typed_program_stats_add(&stats, &program.expr_types);
+    typed_program_stats_add(&stats, &program.identifier_bindings);
+    typed_program_stats_add(&stats, &program.call_targets);
+    typed_program_stats_add(&stats, &program.method_dispatch);
+    typed_program_stats_add(&stats, &program.field_access);
+    typed_program_stats_add(&stats, &program.global_init_order);
+    typed_program_stats_add(&stats, &program.reachable_roots);
+    typed_program_stats_add(&stats, &program.proof_results);
+    return stats;
+}

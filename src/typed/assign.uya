@@ -1,0 +1,208 @@
+// typed/assign.uya - Stable ExprId assignment for AST nodes.
+
+fn typed_program_walk_ast_array(items: & & ASTNode, count: i32, next_id: &i32, mode: i32) void {
+    if items == null || count <= 0 {
+        return;
+    }
+    var i: i32 = 0;
+    while i < count {
+        typed_program_walk_ast_expr_ids(items[i], next_id, mode);
+        i = i + 1;
+    }
+}
+
+fn typed_program_walk_ast_match_arms(arms: &ASTMatchArm, count: i32, next_id: &i32, mode: i32) void {
+    if arms == null || count <= 0 {
+        return;
+    }
+    var i: i32 = 0;
+    while i < count {
+        typed_program_walk_ast_expr_ids(arms[i].literal_expr, next_id, mode);
+        typed_program_walk_ast_expr_ids(arms[i].result_expr, next_id, mode);
+        i = i + 1;
+    }
+}
+
+fn typed_program_walk_ast_string_segments(segments: &ASTStringInterpSegment, count: i32, next_id: &i32, mode: i32) void {
+    if segments == null || count <= 0 {
+        return;
+    }
+    var i: i32 = 0;
+    while i < count {
+        typed_program_walk_ast_expr_ids(segments[i].expr, next_id, mode);
+        i = i + 1;
+    }
+}
+
+fn typed_program_walk_ast_decl_children(node: &ASTNode, next_id: &i32, mode: i32) void {
+    if node == null {
+        return;
+    }
+    typed_program_walk_ast_array(node.interface_decl_method_sigs, node.interface_decl_method_sig_count, next_id, mode);
+    typed_program_walk_ast_array(node.struct_decl_fields, node.struct_decl_field_count, next_id, mode);
+    typed_program_walk_ast_array(node.struct_decl_methods, node.struct_decl_method_count, next_id, mode);
+    typed_program_walk_ast_array(node.union_decl_variants, node.union_decl_variant_count, next_id, mode);
+    typed_program_walk_ast_array(node.union_decl_methods, node.union_decl_method_count, next_id, mode);
+    typed_program_walk_ast_array(node.method_block_methods, node.method_block_method_count, next_id, mode);
+    typed_program_walk_ast_array(node.fn_decl_params, node.fn_decl_param_count, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.fn_decl_return_type, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.fn_decl_body, next_id, mode);
+    typed_program_walk_ast_array(node.macro_decl_params, node.macro_decl_param_count, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.macro_decl_body, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.type_alias_target_type, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.var_decl_type, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.var_decl_init, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.extern_var_decl_var_type, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.extern_var_decl_init_expr, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.destructure_decl_init, next_id, mode);
+}
+
+fn typed_program_walk_ast_expr_children(node: &ASTNode, next_id: &i32, mode: i32) void {
+    if node == null {
+        return;
+    }
+    typed_program_walk_ast_expr_ids(node.binary_expr_left, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.binary_expr_right, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.unary_expr_operand, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.try_expr_operand, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.catch_expr_operand, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.catch_expr_catch_block, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.await_expr_operand, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.match_expr_expr, next_id, mode);
+    typed_program_walk_ast_match_arms(node.match_expr_arms, node.match_expr_arm_count, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.call_expr_callee, next_id, mode);
+    typed_program_walk_ast_array(node.call_expr_args, node.call_expr_arg_count, next_id, mode);
+    typed_program_walk_ast_array(node.call_expr_type_args, node.call_expr_type_arg_count, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.member_access_object, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.array_access_array, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.array_access_index, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.slice_expr_base, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.slice_expr_start_expr, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.slice_expr_len_expr, next_id, mode);
+    typed_program_walk_ast_array(node.struct_init_field_values, node.struct_init_field_count, next_id, mode);
+    typed_program_walk_ast_array(node.struct_init_type_args, node.struct_init_type_arg_count, next_id, mode);
+    typed_program_walk_ast_array(node.array_literal_elements, node.array_literal_element_count, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.array_literal_repeat_count_expr, next_id, mode);
+    typed_program_walk_ast_array(node.tuple_literal_elements, node.tuple_literal_element_count, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.sizeof_expr_target, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.len_expr_array, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.alignof_expr_target, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.cast_expr_expr, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.cast_expr_target_type, next_id, mode);
+    typed_program_walk_ast_string_segments(node.string_interp_segments, node.string_interp_segment_count, next_id, mode);
+}
+
+fn typed_program_walk_ast_stmt_children(node: &ASTNode, next_id: &i32, mode: i32) void {
+    if node == null {
+        return;
+    }
+    typed_program_walk_ast_expr_ids(node.if_stmt_condition, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.if_stmt_then_branch, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.if_stmt_else_branch, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.while_stmt_condition, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.while_stmt_body, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.for_stmt_array, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.for_stmt_range_start, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.for_stmt_range_end, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.for_stmt_body, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.return_stmt_expr, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.defer_stmt_body, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.errdefer_stmt_body, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.test_stmt_body, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.assign_dest, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.assign_src, next_id, mode);
+    typed_program_walk_ast_array(node.block_stmts, node.block_stmt_count, next_id, mode);
+}
+
+fn typed_program_walk_ast_type_children(node: &ASTNode, next_id: &i32, mode: i32) void {
+    if node == null {
+        return;
+    }
+    typed_program_walk_ast_array(node.type_named_type_args, node.type_named_type_arg_count, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.type_pointer_pointed_type, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.type_array_element_type, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.type_array_size_expr, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.type_slice_element_type, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.type_slice_size_expr, next_id, mode);
+    typed_program_walk_ast_array(node.type_tuple_element_types, node.type_tuple_element_count, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.type_error_union_payload_type, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.type_atomic_inner_type, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.type_vector_element_type, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.type_vector_size_expr, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.type_mask_size_expr, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.type_frame_operand, next_id, mode);
+}
+
+fn typed_program_walk_ast_builtin_children(node: &ASTNode, next_id: &i32, mode: i32) void {
+    if node == null {
+        return;
+    }
+    typed_program_walk_ast_expr_ids(node.mc_eval_operand, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.mc_code_operand, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.mc_ast_operand, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.mc_error_operand, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.mc_interp_operand, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.mc_type_operand, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.mc_source_operand, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.syscall_number, next_id, mode);
+    typed_program_walk_ast_array(node.syscall_args, node.syscall_arg_count, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.ptr_from_usize_value, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.usize_from_ptr_ptr, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.error_id_operand, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.error_name_operand, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.va_start_ap, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.va_start_last_param, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.va_end_ap, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.va_arg_ap, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.va_arg_arg_type, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.va_copy_dest, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.va_copy_src, next_id, mode);
+    typed_program_walk_ast_array(node.asm_inputs, node.asm_instruction_count, next_id, mode);
+    typed_program_walk_ast_array(node.asm_outputs, node.asm_instruction_count, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.print_expr, next_id, mode);
+    typed_program_walk_ast_expr_ids(node.simd_splat_target_type, next_id, mode);
+}
+
+fn typed_program_walk_ast_expr_ids(node: &ASTNode, next_id: &i32, mode: i32) void {
+    if node == null {
+        return;
+    }
+    if mode == 0 {
+        node.expr_id = TYPED_PROGRAM_INVALID_ID;
+    } else {
+        if node.expr_id >= 0 {
+            return;
+        }
+        node.expr_id = next_id[0];
+        next_id[0] = next_id[0] + 1;
+    }
+    typed_program_walk_ast_array(node.program_decls, node.program_decl_count, next_id, mode);
+    typed_program_walk_ast_decl_children(node, next_id, mode);
+    typed_program_walk_ast_expr_children(node, next_id, mode);
+    typed_program_walk_ast_stmt_children(node, next_id, mode);
+    typed_program_walk_ast_type_children(node, next_id, mode);
+    typed_program_walk_ast_builtin_children(node, next_id, mode);
+}
+
+/// 功能说明：为当前 AST 树分配稳定的前序 ExprId，并同步 TypedProgram 表容量。
+/// 参数说明：`program` 为目标 TypedProgram，`root` 为宏展开后的 AST 根节点。
+/// 返回值说明：成功返回 `0`，参数无效、ID 溢出或容量预留失败返回 `-1`。
+export fn typed_program_assign_expr_ids(program: &TypedProgram, root: &ASTNode) i32 {
+    if program == null || root == null {
+        return -1;
+    }
+    typed_program_reset(program);
+    var next_id: i32 = 0;
+    typed_program_walk_ast_expr_ids(root, &next_id, 0);
+    typed_program_walk_ast_expr_ids(root, &next_id, 1);
+    if next_id < 0 {
+        return -1;
+    }
+    program.expr_count = next_id;
+    const expr_count_usize: usize = typed_program_i32_to_usize(next_id);
+    if typed_program_reserve_exprs(program, expr_count_usize) != 0 {
+        return -1;
+    }
+    typed_program_refresh_bytes(program);
+    return 0;
+}

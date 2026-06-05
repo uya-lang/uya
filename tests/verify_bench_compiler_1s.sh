@@ -64,6 +64,9 @@ if [[ "$target" == "uya" ]]; then
     echo "检查耗时: 13 ms"
     echo "生成耗时: 17 ms"
     echo "arena_peak_bytes: 4096"
+    echo "typed_program_bytes: 2048"
+    echo "typed_program_peak_bytes: 8192"
+    echo "typed_program_released_bytes: 0"
     if [[ "${UYA_FAKE_TABLE_OVERALLOC:-0}" == "1" ]]; then
         echo "table_count: 1"
         echo "table_capacity: 100"
@@ -228,7 +231,7 @@ if ! grep -Eq $'^table_stats\trun\t1\ttable_count\t3\ttable_capacity\t8\ttable_b
     cat "$TMP_DIR/bench.err" >&2
     exit 1
 fi
-if ! grep -Eq $'^phase_stats\trun\t1\tseed_ms\tNA\tparse_ms\t11\tbind_ms\t2\tcheck_ms\t13\tlower_ms\tNA\temit_ms\t17\tlink_ms\tNA\tarena_peak_bytes\t4096$' "$TMP_DIR/bench.err"; then
+if ! grep -Eq $'^phase_stats\trun\t1\tseed_ms\tNA\tparse_ms\t11\tbind_ms\t2\tcheck_ms\t13\tlower_ms\tNA\temit_ms\t17\tlink_ms\tNA\tarena_peak_bytes\t4096\ttyped_program_bytes\t2048\ttyped_program_peak_bytes\t8192\ttyped_program_released_bytes\t0$' "$TMP_DIR/bench.err"; then
     echo "错误: benchmark 未输出编译阶段和 arena 统计摘要" >&2
     cat "$TMP_DIR/bench.err" >&2
     exit 1

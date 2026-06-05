@@ -504,7 +504,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         }
     } else if expr.type == ASTNodeType.AST_EMBED {
         if codegen.checker != null && (expr.embed_resolved_path == null || expr.embed_data == null) {
-            _ = checker_infer_type(codegen.checker, expr);
+            _ = checker_typed_backend_type_for_codegen(codegen.checker, expr);
         }
         c99_register_embed_slice_types(codegen, 0);
         const embed_name: &byte = add_embed_constant(codegen, expr.embed_resolved_path, expr.embed_data, expr.embed_size);
@@ -517,7 +517,7 @@ fn gen_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         fprintf(codegen.emit_stream as *void, ", .len = (size_t)%d })" as *byte, expr.embed_size);
     } else if expr.type == ASTNodeType.AST_EMBED_DIR {
         if codegen.checker != null && (expr.embed_resolved_path == null || expr.embed_dir_paths == null) {
-            _ = checker_infer_type(codegen.checker, expr);
+            _ = checker_typed_backend_type_for_codegen(codegen.checker, expr);
         }
         c99_register_embed_slice_types(codegen, 1);
         const table_name: &byte = add_embed_dir_table(codegen, expr);
@@ -1652,17 +1652,43 @@ fn c99_find_function_decl_for_unqualified_call(codegen: &C99CodeGenerator, name:
         codegen.current_function_decl.filename != null &&
         codegen.program_node != null && codegen.program_node.type == ASTNodeType.AST_PROGRAM {
         const cur_file: &byte = codegen.current_function_decl.filename;
-        var i: i32 = 0;
-        while i < codegen.program_node.program_decl_count {
-            const decl: &ASTNode = codegen.program_node.program_decls[i];
-            if decl != null && decl.type == ASTNodeType.AST_FN_DECL &&
-                decl.fn_decl_name != null && decl.filename != null &&
-                decl.fn_decl_body != null &&
-                strcmp(decl.fn_decl_name as *byte, name as *byte) == 0 &&
-                strcmp(decl.filename as *byte, cur_file as *byte) == 0 {
-                return decl;
+        if codegen.checker != null {
+            const name_id: i32 = semantic_db_find_interned_name(&codegen.checker.semantic_db, name);
+            if name_id >= 0 {
+                var range: SemanticFunctionOverloadRange = SemanticFunctionOverloadRange{
+                    name_id: -1,
+                    function_start: 0,
+                    function_count: 0,
+                };
+                if semantic_db_find_function_overload_range(&codegen.checker.semantic_db, name_id, &range) != 0 {
+                    var ri: i32 = 0;
+                    while ri < range.function_count {
+                        const decl_id: i32 = semantic_db_function_range_decl_id(&codegen.checker.semantic_db, &range, ri);
+                        const range_decl: &ASTNode = semantic_db_decl_ast_node(&codegen.checker.semantic_db, decl_id);
+                        if range_decl != null && range_decl.type == ASTNodeType.AST_FN_DECL &&
+                            range_decl.fn_decl_name != null && range_decl.filename != null &&
+                            range_decl.fn_decl_body != null &&
+                            strcmp(range_decl.fn_decl_name as *byte, name as *byte) == 0 &&
+                            strcmp(range_decl.filename as *byte, cur_file as *byte) == 0 {
+                            return range_decl;
+                        }
+                        ri = ri + 1;
+                    }
+                }
             }
-            i = i + 1;
+        } else {
+            var i: i32 = 0;
+            while i < codegen.program_node.program_decl_count {
+                const decl: &ASTNode = codegen.program_node.program_decls[i];
+                if decl != null && decl.type == ASTNodeType.AST_FN_DECL &&
+                    decl.fn_decl_name != null && decl.filename != null &&
+                    decl.fn_decl_body != null &&
+                    strcmp(decl.fn_decl_name as *byte, name as *byte) == 0 &&
+                    strcmp(decl.filename as *byte, cur_file as *byte) == 0 {
+                    return decl;
+                }
+                i = i + 1;
+            }
         }
     }
     return find_function_decl_c99(codegen, name);
@@ -1761,7 +1787,7 @@ fn c99_emit_method_receiver_arg(codegen: &C99CodeGenerator, param_decl: &ASTNode
     if arg_is_lvalue == 0 {
         var temp_value_type_c2: &byte = null;
         if codegen.checker != null {
-            const inferred_arg_type: Type = checker_infer_type(codegen.checker, arg_expr);
+            const inferred_arg_type: Type = checker_typed_backend_type_for_codegen(codegen.checker, arg_expr);
             temp_value_type_c2 = c99_type_to_c_from_inferred_type(codegen, inferred_arg_type, arg_expr.line, arg_expr.column, arg_expr.filename);
         }
         if temp_value_type_c2 == null && arg_type_c != null {
@@ -1885,7 +1911,7 @@ fn c99_async_frame_fn_decl_from_expr(codegen: &C99CodeGenerator, expr: &ASTNode)
     if codegen == null || expr == null || codegen.checker == null {
         return null;
     }
-    var object_type: Type = checker_infer_type(codegen.checker, expr);
+    var object_type: Type = checker_typed_backend_type_for_codegen(codegen.checker, expr);
     if object_type.kind == TypeKind.TYPE_POINTER && object_type.pointer_to != null {
         object_type = object_type.pointer_to[0];
     }
@@ -1987,7 +2013,7 @@ fn c99_try_emit_method_call_from_inferred_type(codegen: &C99CodeGenerator, expr:
     if codegen == null || expr == null || obj == null || method_name == null || codegen.checker == null {
         return 0;
     }
-    var object_type: Type = checker_infer_type(codegen.checker, obj);
+    var object_type: Type = checker_typed_backend_type_for_codegen(codegen.checker, obj);
     const object_was_pointer: i32 = (object_type.kind == TypeKind.TYPE_POINTER) as i32;
     const object_type_c_hint: &byte = get_c_type_of_expr(codegen, obj);
     if object_type.kind == TypeKind.TYPE_POINTER && object_type.pointer_to != null {
@@ -2363,7 +2389,7 @@ fn c99_emit_static_method_call(codegen: &C99CodeGenerator, expr: &ASTNode,
         }
     }
     if instance_method_fn != null && expr.call_expr_args != null && expr.call_expr_arg_count > 0 && codegen.checker != null {
-        var receiver_type: Type = checker_infer_type(codegen.checker, expr.call_expr_args[0]);
+        var receiver_type: Type = checker_typed_backend_type_for_codegen(codegen.checker, expr.call_expr_args[0]);
         if receiver_type.kind == TypeKind.TYPE_POINTER && receiver_type.pointer_to != null {
             receiver_type = receiver_type.pointer_to[0];
         }
@@ -2931,7 +2957,7 @@ fn gen_call_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             var inferred_is_interface: i32 = 0;
             var inferred_is_pointer: i32 = 0;
             if codegen.checker != null {
-                const inferred_obj_type_old: Type = checker_infer_type(codegen.checker, obj);
+                const inferred_obj_type_old: Type = checker_typed_backend_type_for_codegen(codegen.checker, obj);
                 inferred_is_pointer = (inferred_obj_type_old.kind == TypeKind.TYPE_POINTER) as i32;
                 if inferred_obj_type_old.kind == TypeKind.TYPE_INTERFACE {
                     inferred_is_interface = 1;
@@ -3571,7 +3597,7 @@ fn c99_struct_decl_for_value_comparison(codegen: &C99CodeGenerator, expr: &ASTNo
     const type_c: &byte = get_c_type_of_expr(codegen, expr);
     if type_c == null || strchr(type_c as *byte, 42) != null {
         if codegen.checker != null {
-            const inferred: Type = checker_infer_type(codegen.checker, expr);
+            const inferred: Type = checker_typed_backend_type_for_codegen(codegen.checker, expr);
             if inferred.kind == TypeKind.TYPE_STRUCT && inferred.struct_name != null {
                 return find_struct_decl_c99(codegen, inferred.struct_name);
             }
@@ -3583,7 +3609,7 @@ fn c99_struct_decl_for_value_comparison(codegen: &C99CodeGenerator, expr: &ASTNo
         return decl;
     }
     if codegen.checker != null {
-        const inferred2: Type = checker_infer_type(codegen.checker, expr);
+        const inferred2: Type = checker_typed_backend_type_for_codegen(codegen.checker, expr);
         if inferred2.kind == TypeKind.TYPE_STRUCT && inferred2.struct_name != null {
             return find_struct_decl_c99(codegen, inferred2.struct_name);
         }
@@ -6120,6 +6146,15 @@ fn c99_find_identifier_type_node(codegen: &C99CodeGenerator, name: &byte) &ASTNo
     if codegen == null || name == null {
         return null;
     }
+    const scope_type: &ASTNode = c99_find_scope_identifier_type_node(codegen, name);
+    if scope_type != null {
+        return scope_type;
+    }
+    if codegen.async_state_var != null && codegen.async_current_bind_name != null &&
+        str_equals(codegen.async_current_bind_name, name) != 0 &&
+        codegen.async_current_bind_type != null {
+        return codegen.async_current_bind_type;
+    }
     if codegen.async_state_var != null && codegen.async_bind_count > 0 {
         var abi: i32 = 0;
         while abi < codegen.async_bind_count && abi < C99_ASYNC_MAX_AWAITS {
@@ -6131,48 +6166,9 @@ fn c99_find_identifier_type_node(codegen: &C99CodeGenerator, name: &byte) &ASTNo
             abi = abi + 1;
         }
     }
-    var local_i: i32 = codegen.local_variable_count - 1;
-    while local_i >= 0 {
-        if local_i >= C99_MAX_LOCAL_VARS {
-            local_i = local_i - 1;
-            continue;
-        }
-        const local_name: &byte = c99_local_var_name_at(codegen, local_i);
-        const local_type_node: &ASTNode = c99_local_var_type_node_at(codegen, local_i);
-        if local_name != null &&
-            str_equals(local_name, name) != 0 &&
-            local_type_node != null {
-            return local_type_node;
-        }
-        local_i = local_i - 1;
-    }
-    if codegen.current_function_decl != null && codegen.current_function_decl.fn_decl_params != null {
-        var i: i32 = 0;
-        while i < codegen.current_function_decl.fn_decl_param_count {
-            const param: &ASTNode = codegen.current_function_decl.fn_decl_params[i];
-            if param != null && param.type == ASTNodeType.AST_VAR_DECL && param.var_decl_name != null &&
-                str_equals(param.var_decl_name, name) != 0 {
-                return param.var_decl_type;
-            }
-            i = i + 1;
-        }
-        if codegen.current_function_decl.fn_decl_body != null {
-            const found_local: &ASTNode = c99_find_var_decl_type_in_node(codegen.current_function_decl.fn_decl_body, name);
-            if found_local != null {
-                return found_local;
-            }
-        }
-    }
-    if codegen.program_node != null && codegen.program_node.program_decls != null {
-        var i: i32 = 0;
-        while i < codegen.program_node.program_decl_count {
-            const decl: &ASTNode = codegen.program_node.program_decls[i];
-            if decl != null && decl.type == ASTNodeType.AST_VAR_DECL && decl.var_decl_name != null &&
-                str_equals(decl.var_decl_name, name) != 0 {
-                return decl.var_decl_type;
-            }
-            i = i + 1;
-        }
+    const global_type: &ASTNode = c99_find_global_identifier_type_node(codegen, name);
+    if global_type != null {
+        return global_type;
     }
     return null;
 }
@@ -7713,7 +7709,7 @@ fn gen_len_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
             }
         }
 
-        const inferred_array_type: Type = checker_infer_type(codegen.checker, array);
+        const inferred_array_type: Type = checker_typed_backend_type_for_codegen(codegen.checker, array);
         if inferred_array_type.kind == TypeKind.TYPE_ARRAY && inferred_array_type.array_size > 0 {
             fprintf(codegen.emit_stream as *void, "%d" as *byte, inferred_array_type.array_size);
             return;
@@ -8820,7 +8816,7 @@ fn c99_asbang_err_success_allows_value_cast(codegen: &C99CodeGenerator, src_expr
     if strncmp(dc as *byte, "struct " as *byte, 7) == 0 {
         dc_struct = 1;
     }
-    const st: Type = checker_infer_type(codegen.checker, src_expr);
+    const st: Type = checker_typed_backend_type_for_codegen(codegen.checker, src_expr);
     var sc: &byte = null;
     if st.kind == TypeKind.TYPE_ERROR_UNION && st.error_union_payload_type != null {
         const spl: Type = st.error_union_payload_type[0];
@@ -9334,7 +9330,10 @@ fn c99_try_emit_error_return_stmt(codegen: &C99CodeGenerator, ret_union_c: &byte
 fn gen_try_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
         if codegen != null && expr != null && codegen.async_expr_subst_try_expr != null &&
             @usize_from_ptr(expr as &void) == @usize_from_ptr(codegen.async_expr_subst_try_expr as &void) {
-            const subst_name: &byte = get_safe_c_identifier(codegen, codegen.async_expr_subst_name);
+            var subst_name: &byte = codegen.async_expr_subst_c_name;
+            if subst_name == null {
+                subst_name = get_safe_c_identifier(codegen, codegen.async_expr_subst_name);
+            }
             if codegen.async_state_var != null && subst_name != null {
                 fprintf(codegen.emit_stream as *void, "%s->_uya_bind_%s" as *byte,
                     codegen.async_state_var as *byte, subst_name as *byte);
@@ -9491,14 +9490,14 @@ fn gen_try_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                                         sj = sj - 1;
                                     }
                                 }
-                                const payload_type: Type = checker_infer_type(codegen.checker, infer_node);
-                                if payload_type.kind == TypeKind.TYPE_ERROR_UNION {
-                                    const try_ast: &ASTNode = type_to_ast(codegen.checker, &payload_type, expr.line, expr.column, expr.filename);
+                                const payload_value_type: Type = checker_typed_backend_type_for_codegen(codegen.checker, infer_node);
+                                if payload_value_type.kind == TypeKind.TYPE_ERROR_UNION {
+                                    const try_ast: &ASTNode = type_to_ast(codegen.checker, &payload_value_type, expr.line, expr.column, expr.filename);
                                     if try_ast != null { try_union_c = c99_type_to_c(codegen, try_ast); }
-                                } else if payload_type.kind != TypeKind.TYPE_VOID {
+                                } else if payload_value_type.kind != TypeKind.TYPE_VOID {
                                     const payload_ptr: &Type = compiler_arena_alloc(codegen.checker.arena, @size_of(Type)) as &Type;
                                     if payload_ptr != null {
-                                        payload_ptr[0] = payload_type;
+                                        payload_ptr[0] = payload_value_type;
                                         const eu_type: Type = make_error_union_type(codegen.checker.arena, payload_ptr);
                                         const try_ast: &ASTNode = type_to_ast(codegen.checker, &eu_type, expr.line, expr.column, expr.filename);
                                         if try_ast != null { try_union_c = c99_type_to_c(codegen, try_ast); }
@@ -9529,7 +9528,7 @@ fn gen_try_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                             operand.call_expr_callee.member_access_object != null &&
                             operand.call_expr_callee.member_access_field_name != null &&
                             codegen.checker != null && codegen.checker.program_node != null {
-                            var iface_obj_type: Type = checker_infer_type(codegen.checker, operand.call_expr_callee.member_access_object);
+                            var iface_obj_type: Type = checker_typed_backend_type_for_codegen(codegen.checker, operand.call_expr_callee.member_access_object);
                             if iface_obj_type.kind == TypeKind.TYPE_POINTER && iface_obj_type.pointer_to != null {
                                 iface_obj_type = iface_obj_type.pointer_to[0];
                             }
@@ -9543,7 +9542,7 @@ fn gen_try_expr(codegen: &C99CodeGenerator, expr: &ASTNode) void {
                         }
                     }
                     if try_union_c == null {
-                        const try_type: Type = checker_infer_type(codegen.checker, operand);
+                        const try_type: Type = checker_typed_backend_type_for_codegen(codegen.checker, operand);
                         if try_type.kind == TypeKind.TYPE_ERROR_UNION {
                             const try_ast: &ASTNode = type_to_ast(codegen.checker, &try_type, expr.line, expr.column, expr.filename);
                             if try_ast != null { try_union_c = c99_type_to_c(codegen, try_ast); }

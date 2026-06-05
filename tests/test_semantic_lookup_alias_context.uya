@@ -1,0 +1,34 @@
+use std.testing.assert_eq_i32;
+
+struct Widget {
+    value: i32,
+}
+
+Widget {
+    fn make(value: i32) Self {
+        return Widget{ value: value };
+    }
+}
+
+type WidgetAlias = Widget;
+type WidgetAgain = WidgetAlias;
+
+fn pass_alias(value: WidgetAgain) WidgetAlias {
+    return value;
+}
+
+test "alias resolves static owner context" {
+    var item: WidgetAlias = WidgetAlias.make(17);
+    try assert_eq_i32(item.value, 17);
+}
+
+test "nested alias resolves variable type context" {
+    var item: WidgetAgain = Widget{ value: 23 };
+    try assert_eq_i32(item.value, 23);
+}
+
+test "alias remains stable across parameter and return context" {
+    var item: WidgetAgain = Widget{ value: 31 };
+    const passed: WidgetAlias = pass_alias(item);
+    try assert_eq_i32(passed.value, 31);
+}

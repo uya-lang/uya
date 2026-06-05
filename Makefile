@@ -27,6 +27,9 @@ CC_TARGET_FLAGS ?=
 # 编译选项（可通过环境变量覆盖）
 # 默认 -O2：加快自举编译器与 codegen 性能；调试可用 CFLAGS='-std=c99 -O0 -g ...' 覆盖
 CFLAGS ?= -std=c99 -O2 -fno-builtin -Werror
+# 冷启动 seed 只用于恢复可运行编译器，最终 bin/uya 仍由 make uya 用 CFLAGS 重建。
+# 使用较低优化级可显著降低单文件 seed 的宿主 cc 峰值 RSS。
+SEED_CFLAGS ?= -std=c99 -O1 -fno-builtin -Werror
 LDFLAGS ?=
 
 # 并行程序测试 worker 数（默认 CPU 核数；可覆盖：make tests UYA_TEST_JOBS=4）
@@ -128,13 +131,13 @@ from-c-native:
 			cp "$$SEED_PATH" bin/uya.c; \
 		fi'
 	@echo "编译 bin/uya.c ..."
-	@echo "CFLAGS: $(CFLAGS)"
+	@echo "SEED_CFLAGS: $(SEED_CFLAGS)"
 	@echo "HOST_OS=$(HOST_OS) HOST_ARCH=$(HOST_ARCH)"
 	@echo "TOOLCHAIN=$(TOOLCHAIN)"
 	@echo "CC_DRIVER=$(CC_DRIVER)"
 	@HOST_OS="$(HOST_OS)" HOST_ARCH="$(HOST_ARCH)" \
 		CC_DRIVER="$(CC_DRIVER)" CC_TARGET_FLAGS="$(CC_TARGET_FLAGS)" \
-		CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" \
+		SEED_CFLAGS="$(SEED_CFLAGS)" LDFLAGS="$(LDFLAGS)" \
 		bash -c 'set -e; ulimit -s 32768 2>/dev/null || true; \
 		EXTRA_HOST_SOURCES=""; \
 		if [ "$$HOST_OS" = "macos" ] && [ -f "src/host/macos_stat_shim.c" ]; then EXTRA_HOST_SOURCES="src/host/macos_stat_shim.c"; fi; \
@@ -147,17 +150,17 @@ from-c-native:
 		if grep -qE "^[[:space:]]*__attribute__\\(\\(naked\\)\\)[[:space:]]+void[[:space:]]+_start\\(void\\)" bin/uya.c 2>/dev/null \
 			&& [ "$$HOST_OS" = "linux" ] && [ "$$HOST_ARCH" = "x86_64" ]; then \
 			echo "备份 C 含 nostdlib _start，使用 crti.o + uya.o + crtn.o 链接（避免与 Scrt1 _start 冲突）..."; \
-			$$CC_DRIVER $$CC_TARGET_FLAGS $$CFLAGS -fno-stack-protector -c bin/uya.c -o bin/.from_c.o; \
+			$$CC_DRIVER $$CC_TARGET_FLAGS $$SEED_CFLAGS -fno-stack-protector -c bin/uya.c -o bin/.from_c.o; \
 			CRTI=$$($$CC_DRIVER $$CC_TARGET_FLAGS -print-file-name=crti.o); \
 			CRTN=$$($$CC_DRIVER $$CC_TARGET_FLAGS -print-file-name=crtn.o); \
 			if [ ! -f "$$CRTI" ] || [ "$$CRTI" = "crti.o" ] || [ ! -f "$$CRTN" ] || [ "$$CRTN" = "crtn.o" ]; then \
 				echo "错误: 当前工具链无法解析 crti.o/crtn.o，无法用 from-c-native 链接 nostdlib 版 uya.c"; exit 1; \
 			fi; \
-			$$CC_DRIVER $$CC_TARGET_FLAGS $$CFLAGS -fno-stack-protector -no-pie -nostdlib -static \
+			$$CC_DRIVER $$CC_TARGET_FLAGS $$SEED_CFLAGS -fno-stack-protector -no-pie -nostdlib -static \
 				-o bin/uya "$$CRTI" bin/.from_c.o "$$CRTN" $$LDFLAGS; \
 			rm -f bin/.from_c.o; \
 		else \
-			$$CC_DRIVER $$CC_TARGET_FLAGS $$CFLAGS bin/uya.c $$EXTRA_HOST_SOURCES -o bin/uya -lm $$LDFLAGS; \
+			$$CC_DRIVER $$CC_TARGET_FLAGS $$SEED_CFLAGS bin/uya.c $$EXTRA_HOST_SOURCES -o bin/uya -lm $$LDFLAGS; \
 		fi'
 	@echo ""
 	@echo "✓ 编译器构建完成: bin/uya"
@@ -204,13 +207,13 @@ from-c:
 			cp "$$SEED_PATH" bin/uya.c; \
 		fi'
 	@echo "编译 bin/uya.c ..."
-	@echo "CFLAGS: $(CFLAGS)"
+	@echo "SEED_CFLAGS: $(SEED_CFLAGS)"
 	@echo "HOST_OS=$(HOST_OS) HOST_ARCH=$(HOST_ARCH)"
 	@echo "TOOLCHAIN=$(TOOLCHAIN)"
 	@echo "CC_DRIVER=$(CC_DRIVER)"
 	@HOST_OS="$(HOST_OS)" HOST_ARCH="$(HOST_ARCH)" \
 		CC_DRIVER="$(CC_DRIVER)" CC_TARGET_FLAGS="$(CC_TARGET_FLAGS)" \
-		CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" \
+		SEED_CFLAGS="$(SEED_CFLAGS)" LDFLAGS="$(LDFLAGS)" \
 		bash -c 'set -e; ulimit -s 32768 2>/dev/null || true; \
 		if grep -qE "^[[:space:]]*__attribute__\\(\\(naked\\)\\)[[:space:]]+void[[:space:]]+_start\\(void\\)" bin/uya.c 2>/dev/null \
 			&& [ "$$HOST_OS" = "macos" ]; then \
@@ -221,17 +224,17 @@ from-c:
 		if grep -qE "^[[:space:]]*__attribute__\\(\\(naked\\)\\)[[:space:]]+void[[:space:]]+_start\\(void\\)" bin/uya.c 2>/dev/null \
 			&& [ "$$HOST_OS" = "linux" ] && [ "$$HOST_ARCH" = "x86_64" ]; then \
 			echo "备份 C 含 nostdlib _start，使用 crti.o + uya.o + crtn.o 链接（避免与 Scrt1 _start 冲突）..."; \
-			$$CC_DRIVER $$CC_TARGET_FLAGS $$CFLAGS -fno-stack-protector -c bin/uya.c -o bin/.from_c.o; \
+			$$CC_DRIVER $$CC_TARGET_FLAGS $$SEED_CFLAGS -fno-stack-protector -c bin/uya.c -o bin/.from_c.o; \
 			CRTI=$$($$CC_DRIVER $$CC_TARGET_FLAGS -print-file-name=crti.o); \
 			CRTN=$$($$CC_DRIVER $$CC_TARGET_FLAGS -print-file-name=crtn.o); \
 			if [ ! -f "$$CRTI" ] || [ "$$CRTI" = "crti.o" ] || [ ! -f "$$CRTN" ] || [ "$$CRTN" = "crtn.o" ]; then \
 				echo "错误: 当前工具链无法解析 crti.o/crtn.o，无法用 from-c 链接 nostdlib 版 uya.c"; exit 1; \
 			fi; \
-			$$CC_DRIVER $$CC_TARGET_FLAGS $$CFLAGS -fno-stack-protector -no-pie -nostdlib -static \
+			$$CC_DRIVER $$CC_TARGET_FLAGS $$SEED_CFLAGS -fno-stack-protector -no-pie -nostdlib -static \
 				-o bin/uya "$$CRTI" bin/.from_c.o "$$CRTN" $$LDFLAGS; \
 			rm -f bin/.from_c.o; \
 		else \
-			$$CC_DRIVER $$CC_TARGET_FLAGS $$CFLAGS bin/uya.c -o bin/uya -lm $$LDFLAGS; \
+			$$CC_DRIVER $$CC_TARGET_FLAGS $$SEED_CFLAGS bin/uya.c -o bin/uya -lm $$LDFLAGS; \
 		fi'
 	@echo ""
 	@echo "✓ 编译器构建完成: bin/uya"

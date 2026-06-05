@@ -102,6 +102,9 @@ fn semantic_db_prepare_for_build(db: &SemanticDb) void {
         db.type_ranges.item_size != @size_of(SemanticTypeDeclRange) ||
         db.type_range_decl_ids.item_size != @size_of(i32) ||
         db.types_by_name.capacity < db.types_by_name.count ||
+        db.global_var_ranges.item_size != @size_of(SemanticGlobalVarRange) ||
+        db.global_var_range_decl_ids.item_size != @size_of(i32) ||
+        db.global_vars_by_name.capacity < db.global_vars_by_name.count ||
         db.enum_variant_records.item_size != @size_of(SemanticEnumVariantRecord) ||
         db.enum_variant_ranges.item_size != @size_of(SemanticEnumVariantRange) ||
         db.enum_variant_range_record_ids.item_size != @size_of(i32) ||
@@ -885,6 +888,182 @@ fn semantic_db_rebuild_types_by_name(db: &SemanticDb) i32 {
     return filled;
 }
 
+fn semantic_db_is_global_var_decl_kind(kind: i32) i32 {
+    if kind == ASTNodeType.AST_VAR_DECL as i32 ||
+        kind == ASTNodeType.AST_EXTERN_VAR_DECL as i32 {
+        return 1;
+    }
+    return 0;
+}
+
+fn semantic_db_global_var_range_ptr(db: &SemanticDb, range_id: i32) &SemanticGlobalVarRange {
+    if db == null || range_id < 0 {
+        return null;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(&db.global_var_ranges, range_id as usize);
+    if ptr == null {
+        return null;
+    }
+    return ptr as &SemanticGlobalVarRange;
+}
+
+fn semantic_db_global_var_decl_id_slot(db: &SemanticDb, index: i32) &i32 {
+    if db == null || index < 0 {
+        return null;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(&db.global_var_range_decl_ids, index as usize);
+    if ptr == null {
+        return null;
+    }
+    return ptr as &i32;
+}
+
+fn semantic_db_count_global_var_range_name(db: &SemanticDb, name_id: i32) i32 {
+    if db == null || name_id < 0 {
+        return -1;
+    }
+    var range_id: i32 = -1;
+    if semantic_hash_get(&db.global_vars_by_name, name_id as i64, &range_id) == 0 {
+        if semantic_db_append_global_var_range(db, name_id, 0, 1) < 0 {
+            return -1;
+        }
+        return 0;
+    }
+    const range: &SemanticGlobalVarRange = semantic_db_global_var_range_ptr(db, range_id);
+    if range == null {
+        return -1;
+    }
+    range.global_count = range.global_count + 1;
+    return 0;
+}
+
+fn semantic_db_collect_global_var_range_counts(db: &SemanticDb) i32 {
+    if db == null {
+        return -1;
+    }
+    var decl_id: i32 = 0;
+    while decl_id < semantic_db_decl_record_count(db) {
+        var record: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
+        if semantic_db_decl_record_get(db, decl_id, &record) == 0 {
+            return -1;
+        }
+        if record.name_id >= 0 && semantic_db_is_global_var_decl_kind(record.kind) != 0 {
+            if semantic_db_count_global_var_range_name(db, record.name_id) != 0 {
+                return -1;
+            }
+        }
+        decl_id = decl_id + 1;
+    }
+    return 0;
+}
+
+fn semantic_db_prefix_global_var_ranges(db: &SemanticDb) i32 {
+    if db == null {
+        return -1;
+    }
+    var start: i32 = 0;
+    var range_id: i32 = 0;
+    while range_id < semantic_db_global_var_range_count(db) {
+        const range: &SemanticGlobalVarRange = semantic_db_global_var_range_ptr(db, range_id);
+        if range == null {
+            return -1;
+        }
+        range.global_start = start;
+        start = start + range.global_count;
+        range_id = range_id + 1;
+    }
+
+    var placeholder: i32 = -1;
+    var i: i32 = 0;
+    while i < start {
+        if semantic_vector_append(&db.global_var_range_decl_ids, &placeholder as &const void) != 0 {
+            return -1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn semantic_db_build_global_var_range_cursors(db: &SemanticDb, cursors: &SemanticVector) i32 {
+    if db == null || cursors == null {
+        return -1;
+    }
+    semantic_vector_init(cursors, @size_of(i32));
+    var zero: i32 = 0;
+    var i: i32 = 0;
+    while i < semantic_db_global_var_range_count(db) {
+        if semantic_vector_append(cursors, &zero as &const void) != 0 {
+            return -1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn semantic_db_fill_global_var_ranges(db: &SemanticDb, cursors: &SemanticVector) i32 {
+    if db == null || cursors == null {
+        return -1;
+    }
+    var decl_id: i32 = 0;
+    while decl_id < semantic_db_decl_record_count(db) {
+        var record: SemanticDeclRecord = SemanticDeclRecord{ ast_node: null, name_id: -1, kind: -1, file_id: -1, module_id: -1 };
+        if semantic_db_decl_record_get(db, decl_id, &record) == 0 {
+            return -1;
+        }
+        if record.name_id >= 0 && semantic_db_is_global_var_decl_kind(record.kind) != 0 {
+            var range_id: i32 = -1;
+            if semantic_hash_get(&db.global_vars_by_name, record.name_id as i64, &range_id) == 0 {
+                return -1;
+            }
+            const range: &SemanticGlobalVarRange = semantic_db_global_var_range_ptr(db, range_id);
+            const cursor: &i32 = semantic_db_cursor_ptr(cursors, range_id);
+            if range == null || cursor == null {
+                return -1;
+            }
+            const slot_index: i32 = range.global_start + cursor[0];
+            const slot: &i32 = semantic_db_global_var_decl_id_slot(db, slot_index);
+            if slot == null {
+                return -1;
+            }
+            slot[0] = decl_id;
+            cursor[0] = cursor[0] + 1;
+        }
+        decl_id = decl_id + 1;
+    }
+    return 0;
+}
+
+fn semantic_db_rebuild_global_vars_by_name(db: &SemanticDb) i32 {
+    if db == null {
+        return -1;
+    }
+    semantic_vector_reset(&db.global_var_ranges);
+    semantic_vector_reset(&db.global_var_range_decl_ids);
+    semantic_hash_reset(&db.global_vars_by_name);
+    if semantic_db_collect_global_var_range_counts(db) != 0 {
+        return -1;
+    }
+    if semantic_db_prefix_global_var_ranges(db) != 0 {
+        return -1;
+    }
+
+    var cursors: SemanticVector = SemanticVector{
+        data: null,
+        item_size: 0usize,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+    if semantic_db_build_global_var_range_cursors(db, &cursors) != 0 {
+        semantic_vector_release(&cursors);
+        return -1;
+    }
+    const filled: i32 = semantic_db_fill_global_var_ranges(db, &cursors);
+    semantic_vector_release(&cursors);
+    return filled;
+}
+
 fn semantic_db_enum_variant_range_ptr(db: &SemanticDb, range_id: i32) &SemanticEnumVariantRange {
     if db == null || range_id < 0 {
         return null;
@@ -1205,6 +1384,10 @@ export fn semantic_db_build_from_merged_ast(db: &SemanticDb, program: &ASTNode) 
         return -1;
     }
     if semantic_db_rebuild_types_by_name(db) != 0 {
+        semantic_db_reset(db);
+        return -1;
+    }
+    if semantic_db_rebuild_global_vars_by_name(db) != 0 {
         semantic_db_reset(db);
         return -1;
     }

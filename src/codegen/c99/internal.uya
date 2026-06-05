@@ -178,6 +178,10 @@ struct C99CodeGenerator {
     macro_decl_cache: [&ASTNode: C99_DECL_CACHE_SIZE],    // 宏名哈希缓存
     interface_decl_cache: [&ASTNode: C99_DECL_CACHE_SIZE], // 接口名哈希缓存
     decl_cache_initialized: i32,                          // 缓存是否已构建（1=已构建）
+    enum_context_cache_name: &byte,
+    enum_context_cache_filename: &byte,
+    enum_context_cache_result: &ASTNode,
+    enum_context_cache_valid: i32,
     
     // 全局变量表
     global_variables: [GlobalVariable: C99_MAX_GLOBAL_VARS],
@@ -340,7 +344,11 @@ struct C99CodeGenerator {
     async_loop_var_name: &byte,           // 循环内持久化变量名（如 "total"），null 表示无
     async_loop_var_c: &byte,              // 对应的 C 表达式（如 "s->_uya_total"）
     async_bind_names: [&byte: C99_ASYNC_MAX_AWAITS], // await 绑定变量名（如 "n", "written"）
+    async_bind_c_names: [&byte: C99_ASYNC_MAX_AWAITS], // await 绑定变量在状态机中的唯一 C 字段名
     async_bind_count: i32,               // await 绑定变量数量
+    async_current_bind_name: &byte,       // 当前 continuation 正在恢复的 await 源绑定名
+    async_current_bind_c_name: &byte,     // 当前 continuation 对应的状态机 C 字段名
+    async_current_bind_type: &ASTNode,    // 当前 continuation 对应的绑定类型
     async_collect_operands: [&ASTNode: C99_ASYNC_MAX_AWAITS],
     async_collect_names: [&byte: C99_ASYNC_MAX_AWAITS],
     async_collect_types: [&ASTNode: C99_ASYNC_MAX_AWAITS],
@@ -373,6 +381,7 @@ struct C99CodeGenerator {
     // 重新发射包含 try @await 的语句时，用于把当前 await 节点替换成已绑定的结果字段
     async_expr_subst_try_expr: &ASTNode,
     async_expr_subst_name: &byte,
+    async_expr_subst_c_name: &byte,
     // 通用协程变换上下文（emit_async_segment 递归使用）
     async_fn_decl: &ASTNode,                // 当前 async 函数声明
     async_fn_body: &ASTNode,                // 当前 async 函数体

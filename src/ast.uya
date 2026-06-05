@@ -169,6 +169,7 @@ struct ASTNode {
     line: i32,
     column: i32,
     filename: &byte,
+    expr_id: i32,
     // program（指针数组在 C 中为 T**，Uya 中用 & & T 表示）
     program_decls: & & ASTNode,
     program_decl_count: i32,
@@ -503,6 +504,7 @@ fn ast_new_node(type: ASTNodeType, line: i32, column: i32, arena: &CompilerArena
     node.line = line;
     node.column = column;
     node.filename = filename;
+    node.expr_id = -1;
     node.program_decls = null;
     node.program_decl_count = 0;
     node.enum_decl_name = null;

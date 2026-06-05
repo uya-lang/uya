@@ -216,26 +216,26 @@ make tests-uya
 - [x] 建 `exports_by_module_name: (ModuleId, InternedNameId) -> SymbolId`。
 - [x] 建 `aliases_by_file_name: (FileId, InternedNameId) -> DeclId`。
 - [x] 建 `use_items_by_file_name: (FileId, InternedNameId) -> ImportBinding`。
-- [ ] 上述索引全部使用动态 hash/range builder，禁止固定 bucket 数作为容量上限。
-- [ ] range builder 增长后保持 `DeclId` / `SymbolId` 稳定。
-- [ ] 索引构建完成后输出 count/capacity/load factor 摘要。
-- [ ] 将 `find_type_alias_from_program` 改为读 `SemanticDb`。
-- [ ] 将 `find_struct_decl_from_program` 改为读 `SemanticDb`。
-- [ ] 将 `find_union_decl_from_program` 改为读 `SemanticDb`。
-- [ ] 将 `find_interface_decl_from_program` 改为读 `SemanticDb`。
-- [ ] 将 `find_enum_decl_from_program` 改为读 `SemanticDb`。
-- [ ] 将 `is_enum_variant_name_in_program` 改为读 `SemanticDb`。
-- [ ] 保留旧扫描函数作为临时 oracle，新增 debug 比对模式。
-- [ ] 每个迁移点先跑新旧 lookup 对照，确认返回同一 AST 节点或同一诊断。
+- [x] 上述索引全部使用动态 hash/range builder，禁止固定 bucket 数作为容量上限。
+- [x] range builder 增长后保持 `DeclId` / `SymbolId` 稳定。
+- [x] 索引构建完成后输出 count/capacity/load factor 摘要。
+- [x] 将 `find_type_alias_from_program` 改为读 `SemanticDb`。
+- [x] 将 `find_struct_decl_from_program` 改为读 `SemanticDb`。
+- [x] 将 `find_union_decl_from_program` 改为读 `SemanticDb`。
+- [x] 将 `find_interface_decl_from_program` 改为读 `SemanticDb`。
+- [x] 将 `find_enum_decl_from_program` 改为读 `SemanticDb`。
+- [x] 将 `is_enum_variant_name_in_program` 改为读 `SemanticDb`。
+- [x] 保留旧扫描函数作为临时 oracle，新增 debug 比对模式。
+- [x] 每个迁移点先跑新旧 lookup 对照，确认返回同一 AST 节点或同一诊断。
 
 测试：
 
-- [ ] 新增 `tests/test_semantic_lookup_alias_context.uya`。
-- [ ] 新增 `tests/test_semantic_lookup_enum_variant.uya`。
-- [ ] 新增 `tests/test_semantic_lookup_function_family.uya`。
-- [ ] 新增 `tests/verify_semantic_lookup_oracle.sh`。
-- [ ] `tests/verify_dynamic_table_growth.sh` 覆盖 Phase 2 索引超过旧容量仍能查询正确。
-- [ ] `tests/verify_dynamic_table_growth.sh` 覆盖 hash 高冲突时不会回退全程序线性扫描。
+- [x] 新增 `tests/test_semantic_lookup_alias_context.uya`。
+- [x] 新增 `tests/test_semantic_lookup_enum_variant.uya`。
+- [x] 新增 `tests/test_semantic_lookup_function_family.uya`。
+- [x] 新增 `tests/verify_semantic_lookup_oracle.sh`。
+- [x] `tests/verify_dynamic_table_growth.sh` 覆盖 Phase 2 索引超过旧容量仍能查询正确。
+- [x] `tests/verify_dynamic_table_growth.sh` 覆盖 hash 高冲突时不会回退全程序线性扫描。
 
 验证：
 
@@ -246,25 +246,25 @@ make check
 
 阶段 KPI：
 
-- [ ] `perf` 前 20 中 `find_type_alias_from_program` 不再是第一热点。
-- [ ] 直接 C99 `check + codegen` 不回退出新错误。
-- [ ] SemanticDb 引入后 peak RSS 不得高于 Phase 0 baseline；若上升，必须先压缩表结构再继续。
-- [ ] 主要索引 `capacity/count` 比例在正常数据下保持可解释，不能靠超大预分配压低 rehash 次数。
+- [x] `perf` 前 20 中 `find_type_alias_from_program` 不再是第一热点。
+- [x] 直接 C99 `check + codegen` 不回退出新错误。
+- [x] SemanticDb 引入后 peak RSS 不得高于 Phase 0 baseline；若上升，必须先压缩表结构再继续。
+- [x] 主要索引 `capacity/count` 比例在正常数据下保持可解释，不能靠超大预分配压低 rehash 次数。
 
 ---
 
 ## Phase 3: 函数与局部作用域索引
 
-- [ ] 新建 `FunctionScopeIndex`。
-- [ ] `FunctionScopeIndex` 的 params、locals、captures、async bindings 全部动态增长。
-- [ ] 函数进入时一次性登记 params。
-- [ ] block 进入/退出时维护 local generation。
-- [ ] async bind / async local 进入同一作用域查询模型。
-- [ ] 全局变量可见性由 `SemanticDb` 提供。
-- [ ] 将 `c99_find_identifier_type_node` 改为读 typed/scope 表。
-- [ ] 将 `lookup_identifier_type_c_impl` 改为读 typed/scope 表。
-- [ ] 删除或禁用按 `local_variable_count` 拼 hash 的热点缓存。
-- [ ] 泛型/async 场景恢复安全缓存 key：
+- [x] 新建 `FunctionScopeIndex`。
+- [x] `FunctionScopeIndex` 的 params、locals、captures、async bindings 全部动态增长。
+- [x] 函数进入时一次性登记 params。
+- [x] block 进入/退出时维护 local generation。
+- [x] async bind / async local 进入同一作用域查询模型。
+- [x] 全局变量可见性由 `SemanticDb` 提供。
+- [x] 将 `c99_find_identifier_type_node` 改为读 typed/scope 表。
+- [x] 将 `lookup_identifier_type_c_impl` 改为读 typed/scope 表。
+- [x] 删除或禁用按 `local_variable_count` 拼 hash 的热点缓存。
+- [x] 泛型/async 场景恢复安全缓存 key：
 
 ```text
 (template DeclId, mono signature id, local generation, async frame id)
@@ -272,11 +272,11 @@ make check
 
 测试：
 
-- [ ] 新增局部 shadowing 测试。
-- [ ] 新增泛型同模板多实例变量类型测试。
-- [ ] 新增 async bind 名称冲突测试。
-- [ ] 新增 block depth 退出后不可见测试。
-- [ ] `tests/verify_dynamic_table_growth.sh` 覆盖大量 locals、深 block、async locals 的动态增长。
+- [x] 新增局部 shadowing 测试。
+- [x] 新增泛型同模板多实例变量类型测试。
+- [x] 新增 async bind 名称冲突测试。
+- [x] 新增 block depth 退出后不可见测试。
+- [x] `tests/verify_dynamic_table_growth.sh` 覆盖大量 locals、深 block、async locals 的动态增长。
 
 验证：
 
@@ -287,37 +287,37 @@ make check
 
 阶段 KPI：
 
-- [ ] `c99_find_identifier_type_node` 不再进入 perf 前 20。
-- [ ] codegen `body_ms` 较 Phase 0 降低至少 20%。
+- [x] `c99_find_identifier_type_node` 不再进入 perf 前 20。
+- [x] codegen `body_ms` 较 Phase 0 降低至少 20%。
 
 ---
 
 ## Phase 4: TypedProgram 合同
 
-- [ ] 新建 `src/typed/` 目录。
-- [ ] 定义 `TypedProgram`。
-- [ ] `TypedProgram` 只存整数 ID 和紧凑表，不复制 AST 子树。
-- [ ] `TypedProgram` 内所有 `ExprId -> *`、roots、proof results 表动态增长。
-- [ ] `TypedProgram` 提供 reserve/append 查询统计，不允许表达式数量固定上限。
-- [ ] `TypedProgram` 记录自身估算字节数。
-- [ ] 输出 `expr_types: ExprId -> TypeId`。
-- [ ] 输出 `identifier_bindings: ExprId -> SymbolId`。
-- [ ] 输出 `call_targets: ExprId -> CallTarget`。
-- [ ] 输出 `method_dispatch: ExprId -> MethodDispatch`。
-- [ ] 输出 `field_access: ExprId -> FieldId`。
-- [ ] 输出 `global_init_order: GlobalId[]`。
-- [ ] 输出 `reachable_roots: FunctionId[]`。
-- [ ] 输出 `proof_results: ProofResult[]`。
-- [ ] 给 AST 节点分配稳定 `ExprId`。
-- [ ] 将 C99 后端的常规 `checker_infer_type` 调用替换为 `TypedProgram` 查询。
-- [ ] 增加后端重进 checker 计数器。
-- [ ] `UYA_STRICT_TYPED_BACKEND=1` 时，后端常规重进 checker 直接报错。
+- [x] 新建 `src/typed/` 目录。
+- [x] 定义 `TypedProgram`。
+- [x] `TypedProgram` 只存整数 ID 和紧凑表，不复制 AST 子树。
+- [x] `TypedProgram` 内所有 `ExprId -> *`、roots、proof results 表动态增长。
+- [x] `TypedProgram` 提供 reserve/append 查询统计，不允许表达式数量固定上限。
+- [x] `TypedProgram` 记录自身估算字节数。
+- [x] 输出 `expr_types: ExprId -> TypeId`。
+- [x] 输出 `identifier_bindings: ExprId -> SymbolId`。
+- [x] 输出 `call_targets: ExprId -> CallTarget`。
+- [x] 输出 `method_dispatch: ExprId -> MethodDispatch`。
+- [x] 输出 `field_access: ExprId -> FieldId`。
+- [x] 输出 `global_init_order: GlobalId[]`。
+- [x] 输出 `reachable_roots: FunctionId[]`。
+- [x] 输出 `proof_results: ProofResult[]`。
+- [x] 给 AST 节点分配稳定 `ExprId`。
+- [x] 将 C99 后端的常规 `checker_infer_type` 调用替换为 `TypedProgram` 查询。
+- [x] 增加后端重进 checker 计数器。
+- [x] `UYA_STRICT_TYPED_BACKEND=1` 时，后端常规重进 checker 直接报错。
 
 测试：
 
-- [ ] 新增 `tests/verify_typed_program_backend_contract.sh`。
-- [ ] 覆盖普通调用、方法调用、泛型调用、field access、global init。
-- [ ] `tests/verify_dynamic_table_growth.sh` 覆盖大量表达式、调用目标和 proof result。
+- [x] 新增 `tests/verify_typed_program_backend_contract.sh`。
+- [x] 覆盖普通调用、方法调用、泛型调用、field access、global init。
+- [x] `tests/verify_dynamic_table_growth.sh` 覆盖大量表达式、调用目标和 proof result。
 
 验证：
 
@@ -328,8 +328,8 @@ make check
 
 阶段 KPI：
 
-- [ ] codegen `body_ms < 7000ms`。
-- [ ] TypedProgram 常驻峰值可测量，且与 AST/LoweredProgram 生命周期分离。
+- [x] codegen `body_ms < 7000ms`。
+- [~] TypedProgram 常驻峰值可测量，且与 AST/LoweredProgram 生命周期分离。
 
 ---
 

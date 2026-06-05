@@ -1,0 +1,44 @@
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+enum TrafficLight {
+    RED,
+    YELLOW,
+    GREEN,
+}
+
+enum PaintColor {
+    RED,
+    BLUE,
+}
+
+fn traffic_code(value: TrafficLight) i32 {
+    if value == TrafficLight.RED {
+        return 1;
+    }
+    if value == TrafficLight.YELLOW {
+        return 2;
+    }
+    return 3;
+}
+
+fn paint_code(value: PaintColor) i32 {
+    if value == PaintColor.RED {
+        return 10;
+    }
+    return 20;
+}
+
+test "qualified enum variants with shared names" {
+    const traffic: TrafficLight = TrafficLight.RED;
+    const paint: PaintColor = PaintColor.RED;
+    try assert_eq_i32(traffic_code(traffic), 1);
+    try assert_eq_i32(paint_code(paint), 10);
+    try expect(traffic == TrafficLight.RED);
+    try expect(paint == PaintColor.RED);
+}
+
+test "local identifier may share enum variant name" {
+    const RED: i32 = 42;
+    try assert_eq_i32(RED, 42);
+}

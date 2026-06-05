@@ -334,6 +334,10 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
 
     // 初始化声明缓存（由 build_decl_caches 填充，这里仅重置）
     codegen.decl_cache_initialized = 0;
+    codegen.enum_context_cache_name = null;
+    codegen.enum_context_cache_filename = null;
+    codegen.enum_context_cache_result = null;
+    codegen.enum_context_cache_valid = 0;
     ii = 0;
     while ii < C99_DECL_CACHE_SIZE {
         codegen.fn_decl_cache[ii] = null;
@@ -365,6 +369,9 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
     codegen.async_state_var = null;
     codegen.async_param_count = 0;
     codegen.async_bind_count = 0;
+    codegen.async_current_bind_name = null;
+    codegen.async_current_bind_c_name = null;
+    codegen.async_current_bind_type = null;
     codegen.async_collect_count = 0;
     codegen.async_collect_ret_expr = null;
     codegen.async_collect_has_loop = 0;
@@ -384,11 +391,20 @@ fn c99_codegen_new(codegen: &C99CodeGenerator, arena: &CompilerArena, output: &v
     codegen.async_emit_poll_return = 0;
     codegen.async_poll_ready_payload_c = null;
     codegen.async_poll_inner_is_err_union = 0;
+    codegen.async_expr_subst_try_expr = null;
+    codegen.async_expr_subst_name = null;
+    codegen.async_expr_subst_c_name = null;
     codegen.container_mode = 0;
     codegen.c_import_plan = null;
     ii = 0;
     while ii < @len(codegen.async_param_names) {
         codegen.async_param_names[ii] = null;
+        ii = ii + 1;
+    }
+    ii = 0;
+    while ii < C99_ASYNC_MAX_AWAITS {
+        codegen.async_bind_names[ii] = null;
+        codegen.async_bind_c_names[ii] = null;
         ii = ii + 1;
     }
 

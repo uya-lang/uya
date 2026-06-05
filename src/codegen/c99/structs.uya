@@ -95,7 +95,7 @@ fn find_struct_decl_c99(codegen: &C99CodeGenerator, struct_name: &byte) &ASTNode
             return cached;
         }
     }
-    
+
     const decl_count: i32 = codegen.program_node.program_decl_count;
     
     var i: i32 = 0;

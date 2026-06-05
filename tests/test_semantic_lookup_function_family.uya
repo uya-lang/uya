@@ -1,0 +1,55 @@
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+struct Counter {
+    base: i32,
+}
+
+Counter {
+    fn family(self: &Self, delta: i32) i32 {
+        return self.base + delta;
+    }
+}
+
+fn family(value: i32) i32 {
+    return value + 1;
+}
+
+fn family_extra(value: i32) i32 {
+    return value + 10;
+}
+
+fn family_bool(value: bool) i32 {
+    if value {
+        return 1;
+    }
+    return 0;
+}
+
+fn identity<T>(value: T) T {
+    return value;
+}
+
+fn identity_value(value: i32) i32 {
+    return value + 100;
+}
+
+test "top level function family resolves exact names" {
+    try assert_eq_i32(family(4), 5);
+    try assert_eq_i32(family_extra(4), 14);
+    try assert_eq_i32(family_bool(true), 1);
+}
+
+test "generic function family resolves explicit instances" {
+    const int_value: i32 = identity<i32>(21);
+    const bool_value: bool = identity<bool>(true);
+    try assert_eq_i32(int_value, 21);
+    try expect(bool_value == true);
+    try assert_eq_i32(identity_value(5), 105);
+}
+
+test "method family does not shadow top level function" {
+    var counter: Counter = Counter{ base: 30 };
+    try assert_eq_i32(counter.family(7), 37);
+    try assert_eq_i32(family(7), 8);
+}

@@ -940,7 +940,7 @@ fn c99_collect_nested_mono_calls_from_ast(codegen: &C99CodeGenerator, node: &AST
                     c99_codegen_ensure_mono_method(codegen, owner_name_from_ctx, callee.member_access_field_name,
                         subst_args, node.call_expr_type_arg_count);
                 } else {
-                    var owner_type: Type = checker_infer_type(codegen.checker, callee.member_access_object);
+                    var owner_type: Type = checker_typed_backend_type_for_codegen(codegen.checker, callee.member_access_object);
                     if owner_type.kind == TypeKind.TYPE_POINTER && owner_type.pointer_to != null {
                         owner_type = owner_type.pointer_to[0];
                     }
@@ -1162,7 +1162,7 @@ fn collect_err_union_from_ast(codegen: &C99CodeGenerator, node: &ASTNode) void {
                         }
                     }
                     if registered == 0 && infer_node != null {
-                        const payload_type: Type = checker_infer_type(codegen.checker, infer_node);
+                        const payload_type: Type = checker_typed_backend_type_for_codegen(codegen.checker, infer_node);
                         if payload_type.kind == TypeKind.TYPE_ERROR_UNION {
                             const try_ast: &ASTNode = type_to_ast(codegen.checker, &payload_type, node.line, node.column, node.filename);
                             if try_ast != null {
@@ -1199,7 +1199,7 @@ fn collect_err_union_from_ast(codegen: &C99CodeGenerator, node: &ASTNode) void {
                 }
             }
             if registered == 0 {
-                const try_type: Type = checker_infer_type(codegen.checker, node);
+                const try_type: Type = checker_typed_backend_type_for_codegen(codegen.checker, node);
                 if try_type.kind == TypeKind.TYPE_ERROR_UNION {
                     const try_ast: &ASTNode = type_to_ast(codegen.checker, &try_type, node.line, node.column, node.filename);
                     if try_ast != null {

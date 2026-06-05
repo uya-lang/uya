@@ -100,6 +100,52 @@ bash scripts/bench_compiler_1s.sh --runs 3 --keep-logs
 
 判断：当前 codegen body 的主要成本是“反复在全程序声明数组和局部/全局变量表里线性查找，再做大量字符串比较”。已有 4096 槽直接映射缓存能缓解简单命中，但冲突、同名/同族优先级、上下文敏感查找仍频繁回退全表扫描。
 
+### Phase 3 perf checkpoint（2026-06-05）
+
+Phase 3 函数与局部作用域索引落地后，使用当前 `bin/uya` 重建后复测同一直接 C99 口径：
+
+```bash
+make uya
+UYA_ROOT="$PWD/lib/" perf record -F 99 -g -o /tmp/uya-phase3-perf.data -- \
+  ./bin/uya src/main.uya -o /tmp/uya-phase3-perf.c --c99 --nostdlib --safety-proof
+perf report -i /tmp/uya-phase3-perf.data --stdio --no-children --sort symbol --no-call-graph
+```
+
+self time 前 20：
+
+| 排名 | 函数 | self |
+| ---: | --- | ---: |
+| 1 | `c99_find_enum_decl_in_context` | 15.65% |
+| 2 | `std_string_strcmp` | 10.35% |
+| 3 | `str_equals` | 9.03% |
+| 4 | `find_interface_decl_c99` | 7.09% |
+| 5 | `find_union_decl_c99` | 5.39% |
+| 6 | `find_enum_decl_c99` | 4.49% |
+| 7 | `c99_find_function_decl_for_unqualified_call` | 3.63% |
+| 8 | `c99_private_function_needs_file_scope_name` | 3.08% |
+| 9 | `find_function_decl_c99` | 2.93% |
+| 10 | `checker_fn_decl_is_owned_method` | 2.82% |
+| 11 | `find_struct_decl_c99` | 2.34% |
+| 12 | `symbol_table_lookup` | 2.23% |
+| 13 | `find_macro_decl_from_program` | 2.10% |
+| 14 | `memset` | 2.10% |
+| 15 | `checker_canonicalize_fn_decl` | 1.85% |
+| 16 | `find_method_block_for_union_c99` | 1.48% |
+| 17 | `lookup_scan_interface_decl_from_program` | 1.31% |
+| 18 | `checker_eval_const_expr` | 1.19% |
+| 19 | `checker_find_reachable_fn_decl_by_name` | 1.15% |
+| 20 | `semantic_intern_semantic_intern_name` | 1.09% |
+
+结论：`c99_find_identifier_type_node` 未出现在 self time 前 20；`perf report` 直接检索同名符号也无命中。本阶段局部/async 名称查找热点已从前 20 移出，后续主战场转向枚举/接口/函数声明索引和字符串比较。
+
+同一轮重建后的 `UYA_PROFILE_CODEGEN=1` 直接 C99 复测：
+
+```text
+[UYA_PROFILE_CODEGEN] simd_ms=0 precollect_ms=472 header_ms=1 step1_typedef_ms=3 step6_mid_ms=419 step6e_tail_ms=141 prelude_ms=1037 body_ms=7653 total_ms=8690
+```
+
+Phase 0 `body_ms=11666ms`，当前 `body_ms=7653ms`，下降约 34.4%，满足 Phase 3 “较 Phase 0 降低至少 20%” KPI。
+
 ## 动态表要求
 
 当前已有的 4096 槽直接映射缓存只能算临时缓解，不能作为最终索引结构。后续 `SemanticDb`、`TypedProgram`、`LoweredProgram`、C99 planner 和 native backend 中所有表都必须按需动态扩容；凡是承担 table/index/cache/list/mapping 角色的结构，都不能写死容量。

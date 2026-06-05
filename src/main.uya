@@ -9,6 +9,7 @@
 use main;
 use parser;
 use semantic;
+use typed;
 use checker;  // 包含 checker 目录下所有文件（包括 optimizer.uya）
 use driver;
 use microapp;
@@ -43,6 +44,9 @@ struct CompileStats {
     file_count: i32,         // 编译文件数
     ast_nodes: i32,          // AST 节点数（近似）
     arena_peak_bytes: usize, // CompilerArena 峰值分配字节数
+    typed_program_bytes: usize,
+    typed_program_peak_bytes: usize,
+    typed_program_released_bytes: usize,
 }
 
 struct CImportItem {
@@ -66,6 +70,23 @@ struct CompileArtifacts {
     generated_c_path: &byte,
     c_import_plan: CImportPlan,
     c_import_sidecar_path: &byte,
+}
+
+fn compile_stats_record_and_release_typed_program(stats: &CompileStats, checker: &TypeChecker) void {
+    if stats == null {
+        return;
+    }
+    stats.typed_program_bytes = 0usize;
+    stats.typed_program_peak_bytes = 0usize;
+    stats.typed_program_released_bytes = 0usize;
+    if checker == null {
+        return;
+    }
+    stats.typed_program_bytes = typed_program_current_bytes(&checker.typed_program);
+    stats.typed_program_peak_bytes = typed_program_peak_bytes(&checker.typed_program);
+    typed_program_release(&checker.typed_program);
+    semantic_vector_release(&checker.typed_type_records);
+    stats.typed_program_released_bytes = typed_program_current_bytes(&checker.typed_program);
 }
 
 // 当前 exec vm 自举路径仍缺少部分大型命名类型的 @size_of 折叠，
@@ -2052,6 +2073,27 @@ fn is_c_output(output_path: &byte) i32 {
     return 0;
 }
 
+fn compile_files_artifacts_need_arena(out_artifacts: &CompileArtifacts) i32 {
+    if out_artifacts == null {
+        return 0;
+    }
+    if c_import_plan_has_items(&out_artifacts.c_import_plan) != 0 {
+        return 1;
+    }
+    if out_artifacts.c_import_sidecar_path != null {
+        return 1;
+    }
+    return 0;
+}
+
+fn compile_files_maybe_release_transient_arenas(arena: &CompilerArena, temp_arena: &CompilerArena, out_artifacts: &CompileArtifacts) void {
+    if compile_files_artifacts_need_arena(out_artifacts) != 0 {
+        return;
+    }
+    compiler_arena_free_all(arena);
+    compiler_arena_free_all(temp_arena);
+}
+
 // 主编译函数：词法 → 语法 → AST 合并 → 类型检查 → 代码生成
 // 支持目录输入和自动依赖收集
 // output_path_override: 如果非 null，使用此路径替代 get_argv(output_file_index)
@@ -2448,7 +2490,20 @@ fn compile_files(
     fprintf(libc.stderr, "后端类型: %s\n" as *byte, backend_str);
 
     // 初始化编译统计
-    var stats: CompileStats = CompileStats { parse_time_ms: 0, merge_time_ms: 0, check_time_ms: 0, opt_time_ms: 0, codegen_time_ms: 0, total_time_ms: 0, file_count: 0, ast_nodes: 0, arena_peak_bytes: 0 as usize };
+    var stats: CompileStats = CompileStats {
+        parse_time_ms: 0,
+        merge_time_ms: 0,
+        check_time_ms: 0,
+        opt_time_ms: 0,
+        codegen_time_ms: 0,
+        total_time_ms: 0,
+        file_count: 0,
+        ast_nodes: 0,
+        arena_peak_bytes: 0 as usize,
+        typed_program_bytes: 0usize,
+        typed_program_peak_bytes: 0usize,
+        typed_program_released_bytes: 0usize,
+    };
     stats.file_count = all_file_count;  // 记录文件数
 
     // 计时变量
@@ -2708,6 +2763,7 @@ fn compile_files(
         stats.codegen_time_ms = (codegen_end_time - opt_end_time) * 1000 / CLOCKS_PER_SEC;
         stats.total_time_ms = (codegen_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
         stats.arena_peak_bytes = compiler_arena_peak_allocated(&arena);
+        compile_stats_record_and_release_typed_program(&stats, checker);
 
         fprintf(libc.stderr, "\n=== 编译统计 ===\n" as *byte);
         fprintf(libc.stderr, "文件数: %d\n" as *byte, stats.file_count);
@@ -2722,6 +2778,9 @@ fn compile_files(
         fprintf(libc.stderr, "exec bytecode 构建耗时: %ld ms\n" as *byte, exec_backend_get_last_bytecode_build_time_ms());
         fprintf(libc.stderr, "exec build 耗时: %ld ms\n" as *byte, stats.codegen_time_ms);
         fprintf(libc.stderr, "arena_peak_bytes: %zu\n" as *byte, stats.arena_peak_bytes);
+        fprintf(libc.stderr, "typed_program_bytes: %zu\n" as *byte, stats.typed_program_bytes);
+        fprintf(libc.stderr, "typed_program_peak_bytes: %zu\n" as *byte, stats.typed_program_peak_bytes);
+        fprintf(libc.stderr, "typed_program_released_bytes: %zu\n" as *byte, stats.typed_program_released_bytes);
         fprintf(libc.stderr, "总耗时: %ld ms\n" as *byte, stats.total_time_ms);
 
         if exec_result != 0 {
@@ -2818,6 +2877,7 @@ fn compile_files(
     stats.codegen_time_ms = (codegen_end_time - opt_end_time) * 1000 / CLOCKS_PER_SEC;
     stats.total_time_ms = (codegen_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
     stats.arena_peak_bytes = compiler_arena_peak_allocated(&arena);
+    compile_stats_record_and_release_typed_program(&stats, checker);
 
     // 输出编译统计
     fprintf(libc.stderr, "\n=== 编译统计 ===\n" as *byte);
@@ -2831,10 +2891,14 @@ fn compile_files(
     }
     fprintf(libc.stderr, "生成耗时: %ld ms\n" as *byte, stats.codegen_time_ms);
     fprintf(libc.stderr, "arena_peak_bytes: %zu\n" as *byte, stats.arena_peak_bytes);
+    fprintf(libc.stderr, "typed_program_bytes: %zu\n" as *byte, stats.typed_program_bytes);
+    fprintf(libc.stderr, "typed_program_peak_bytes: %zu\n" as *byte, stats.typed_program_peak_bytes);
+    fprintf(libc.stderr, "typed_program_released_bytes: %zu\n" as *byte, stats.typed_program_released_bytes);
     fprintf(libc.stderr, "总耗时: %ld ms\n" as *byte, stats.total_time_ms);
 
     fprintf(libc.stderr, "\n代码生成完成: %s\n" as *byte, actual_output);
 
+    compile_files_maybe_release_transient_arenas(&arena, &temp_arena, out_artifacts);
     return 0;
 }
 

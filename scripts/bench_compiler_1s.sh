@@ -481,6 +481,9 @@ reset_compiler_phase_stats() {
     PHASE_EMIT_MS="NA"
     PHASE_LINK_MS="NA"
     ARENA_PEAK_BYTES="NA"
+    TYPED_PROGRAM_BYTES="NA"
+    TYPED_PROGRAM_PEAK_BYTES="NA"
+    TYPED_PROGRAM_RELEASED_BYTES="NA"
 }
 
 collect_compiler_phase_stats() {
@@ -493,8 +496,11 @@ collect_compiler_phase_stats() {
     PHASE_LOWER_MS="$(extract_log_stat "exec lowering 耗时" "$build_log")"
     PHASE_EMIT_MS="$(extract_first_log_stat "$build_log" "生成耗时" "exec build 耗时")"
     ARENA_PEAK_BYTES="$(extract_log_stat "arena_peak_bytes" "$build_log")"
-    printf 'phase_stats\trun\t%s\tseed_ms\t%s\tparse_ms\t%s\tbind_ms\t%s\tcheck_ms\t%s\tlower_ms\t%s\temit_ms\t%s\tlink_ms\t%s\tarena_peak_bytes\t%s\n' \
-        "$run_index" "$PHASE_SEED_MS" "$PHASE_PARSE_MS" "$PHASE_BIND_MS" "$PHASE_CHECK_MS" "$PHASE_LOWER_MS" "$PHASE_EMIT_MS" "$PHASE_LINK_MS" "$ARENA_PEAK_BYTES" >&2
+    TYPED_PROGRAM_BYTES="$(extract_log_stat "typed_program_bytes" "$build_log")"
+    TYPED_PROGRAM_PEAK_BYTES="$(extract_log_stat "typed_program_peak_bytes" "$build_log")"
+    TYPED_PROGRAM_RELEASED_BYTES="$(extract_log_stat "typed_program_released_bytes" "$build_log")"
+    printf 'phase_stats\trun\t%s\tseed_ms\t%s\tparse_ms\t%s\tbind_ms\t%s\tcheck_ms\t%s\tlower_ms\t%s\temit_ms\t%s\tlink_ms\t%s\tarena_peak_bytes\t%s\ttyped_program_bytes\t%s\ttyped_program_peak_bytes\t%s\ttyped_program_released_bytes\t%s\n' \
+        "$run_index" "$PHASE_SEED_MS" "$PHASE_PARSE_MS" "$PHASE_BIND_MS" "$PHASE_CHECK_MS" "$PHASE_LOWER_MS" "$PHASE_EMIT_MS" "$PHASE_LINK_MS" "$ARENA_PEAK_BYTES" "$TYPED_PROGRAM_BYTES" "$TYPED_PROGRAM_PEAK_BYTES" "$TYPED_PROGRAM_RELEASED_BYTES" >&2
 }
 
 collect_table_stats() {

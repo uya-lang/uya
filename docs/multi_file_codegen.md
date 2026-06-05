@@ -82,7 +82,7 @@ export UYA_SPLIT_C_MIRROR=0
 
 - **`<目录>`**：将创建/使用 `Makefile`、**`mirror_manifest.txt`**，以及 **`uya_part1.c`**；镜像默认时另有 **`uya_common.c`**、**`uya_split_protos.h`**、按镜像路径生成的多个 `.c`；两文件模式时另有 **`uya_part2.c`**。
 - **`-o`**：最终可执行文件路径，传给 `make UYA_OUT=...`。
-- **并行度**：`make -j` 的任务数由环境变量 **`UYA_GCC_JOBS`** 控制（默认在实现中为 `4`，若未设置）。
+- **并行度**：`make -j` 的任务数由环境变量 **`UYA_GCC_JOBS`** 控制（默认在实现中为 `2`，若未设置）。
 
 ## 与 `uya build` / `run` / `test`
 

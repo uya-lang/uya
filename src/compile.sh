@@ -160,7 +160,7 @@ run_uya_split_make_link() {
         fi
         ld_use="$LDFLAGS -nostdlib -static -lgcc"
     fi
-    local jobs="${UYA_GCC_JOBS:-4}"
+    local jobs="${UYA_GCC_JOBS:-2}"
     if [ "$VERBOSE" = true ]; then
         echo "多文件 C 链接: env -u MAKEFLAGS … make -C \"$split_dir\" -j$jobs UYA_OUT=\"$out_exe\" …"
     fi
@@ -298,7 +298,7 @@ usage() {
   UYA_SPLIT_C_DIR    若设置：C99 多文件输出目录 + Makefile，链接走 make -j（默认镜像多 .c；UYA_SPLIT_C_MIRROR=0 为 part1+part2）
   UYA_MULTI_FILE_C   C99 且 -e 时：设为 1/true 则 -o 指向可执行文件，默认多文件 .uyacache（make uya）
   UYA_SINGLE_FILE_C  设为 1/true 则强制单文件 build/<name>.c（make backup 种子；与编译器 --no-split-c 同类效果）
-  UYA_GCC_JOBS       上述 make 的并行度（默认 4）
+  UYA_GCC_JOBS       上述 make 的并行度（默认 2）
   UYA_BOOTSTRAP_COMPARE_BIN  设为 1/true 时，-b 用 cmp 比较两次可执行文件而非 diff C
 
 示例:
@@ -887,7 +887,7 @@ if [ $COMPILER_EXIT -eq 0 ]; then
             # std.runtime 提供 export extern "libc" fn main(argc, argv) 作为 C 入口
             # 用户 export fn main() 被编译为 main_main()
             if [ "$USE_C99" = true ] && [ -n "${UYA_SPLIT_C_DIR:-}" ] && [ -f "${UYA_SPLIT_C_DIR}/Makefile" ]; then
-                LINK_CMD_DESC="make -C ${UYA_SPLIT_C_DIR} -j\${UYA_GCC_JOBS:-4} UYA_OUT=${EXECUTABLE_FILE} CC=${CC_DRIVER} ..."
+                LINK_CMD_DESC="make -C ${UYA_SPLIT_C_DIR} -j\${UYA_GCC_JOBS:-2} UYA_OUT=${EXECUTABLE_FILE} CC=${CC_DRIVER} ..."
                 if run_uya_split_make_link "$UYA_SPLIT_C_DIR" "$EXECUTABLE_FILE"; then
                     echo -e "${GREEN}✓ C99 可执行文件已生成（多文件 C / make）: $EXECUTABLE_FILE${NC}"
                 else
@@ -896,7 +896,7 @@ if [ $COMPILER_EXIT -eq 0 ]; then
                     exit 1
                 fi
             elif [ "$USE_C99" = true ] && [ "$MULTI_FILE_C" = "1" ] && [ -f ".uyacache/Makefile" ]; then
-                LINK_CMD_DESC="make -C .uyacache -j\${UYA_GCC_JOBS:-4} UYA_OUT=${EXECUTABLE_FILE} ..."
+                LINK_CMD_DESC="make -C .uyacache -j\${UYA_GCC_JOBS:-2} UYA_OUT=${EXECUTABLE_FILE} ..."
                 if run_uya_split_make_link ".uyacache" "$EXECUTABLE_FILE"; then
                     echo -e "${GREEN}✓ C99 可执行文件已生成（默认 .uyacache / make）: $EXECUTABLE_FILE${NC}"
                 else

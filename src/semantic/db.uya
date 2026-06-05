@@ -56,6 +56,15 @@ export struct SemanticTypeDeclRange {
     type_count: i32,
 }
 
+/// 功能说明：保存一个名字在全局变量 DeclId 数组中的连续 range。
+/// 参数说明：无；`global_start` 和 `global_count` 指向 `global_var_range_decl_ids`。
+/// 返回值说明：无。
+export struct SemanticGlobalVarRange {
+    name_id: i32,
+    global_start: i32,
+    global_count: i32,
+}
+
 /// 功能说明：保存一个 enum variant 对应的紧凑记录。
 /// 参数说明：无；`enum_decl_id` 指向所属 enum 声明，`variant_index` 为 enum 内 variant 下标。
 /// 返回值说明：无。
@@ -141,6 +150,9 @@ export struct SemanticDb {
     type_ranges: SemanticVector,
     type_range_decl_ids: SemanticVector,
     types_by_name: SemanticHash,
+    global_var_ranges: SemanticVector,
+    global_var_range_decl_ids: SemanticVector,
+    global_vars_by_name: SemanticHash,
     enum_variant_records: SemanticVector,
     enum_variant_ranges: SemanticVector,
     enum_variant_range_record_ids: SemanticVector,
@@ -214,6 +226,9 @@ export fn semantic_db_init(db: &SemanticDb) void {
     semantic_vector_init(&db.type_ranges, @size_of(SemanticTypeDeclRange));
     semantic_vector_init(&db.type_range_decl_ids, @size_of(i32));
     semantic_hash_init(&db.types_by_name);
+    semantic_vector_init(&db.global_var_ranges, @size_of(SemanticGlobalVarRange));
+    semantic_vector_init(&db.global_var_range_decl_ids, @size_of(i32));
+    semantic_hash_init(&db.global_vars_by_name);
     semantic_vector_init(&db.enum_variant_records, @size_of(SemanticEnumVariantRecord));
     semantic_vector_init(&db.enum_variant_ranges, @size_of(SemanticEnumVariantRange));
     semantic_vector_init(&db.enum_variant_range_record_ids, @size_of(i32));
@@ -249,6 +264,9 @@ export fn semantic_db_reset(db: &SemanticDb) void {
     semantic_vector_reset(&db.type_ranges);
     semantic_vector_reset(&db.type_range_decl_ids);
     semantic_hash_reset(&db.types_by_name);
+    semantic_vector_reset(&db.global_var_ranges);
+    semantic_vector_reset(&db.global_var_range_decl_ids);
+    semantic_hash_reset(&db.global_vars_by_name);
     semantic_vector_reset(&db.enum_variant_records);
     semantic_vector_reset(&db.enum_variant_ranges);
     semantic_vector_reset(&db.enum_variant_range_record_ids);
@@ -283,6 +301,9 @@ export fn semantic_db_release(db: &SemanticDb) void {
     semantic_vector_release(&db.type_ranges);
     semantic_vector_release(&db.type_range_decl_ids);
     semantic_hash_release(&db.types_by_name);
+    semantic_vector_release(&db.global_var_ranges);
+    semantic_vector_release(&db.global_var_range_decl_ids);
+    semantic_hash_release(&db.global_vars_by_name);
     semantic_vector_release(&db.enum_variant_records);
     semantic_vector_release(&db.enum_variant_ranges);
     semantic_vector_release(&db.enum_variant_range_record_ids);
@@ -320,6 +341,9 @@ export fn semantic_db_storage_bytes(db: &SemanticDb) usize {
         db.type_ranges.bytes +
         db.type_range_decl_ids.bytes +
         db.types_by_name.bytes +
+        db.global_var_ranges.bytes +
+        db.global_var_range_decl_ids.bytes +
+        db.global_vars_by_name.bytes +
         db.enum_variant_records.bytes +
         db.enum_variant_ranges.bytes +
         db.enum_variant_range_record_ids.bytes +
@@ -851,6 +875,70 @@ export fn semantic_db_type_range_decl_id(db: &SemanticDb, range: &SemanticTypeDe
     return decl_id[0];
 }
 
+/// 功能说明：追加一个名字到紧凑全局变量 DeclId 数组的 range。
+/// 参数说明：`db` 为目标库，`name_id` 为名字 ID，`global_start/count` 为连续全局变量 DeclId 段。
+/// 返回值说明：成功返回新 range 下标；失败返回 `-1`。
+export fn semantic_db_append_global_var_range(db: &SemanticDb, name_id: i32, global_start: i32, global_count: i32) i32 {
+    if db == null || name_id < 0 || global_start < 0 || global_count < 0 {
+        return -1;
+    }
+    const range_id: i32 = semantic_db_usize_to_i32(db.global_var_ranges.count);
+    if range_id < 0 {
+        return -1;
+    }
+    var record: SemanticGlobalVarRange = SemanticGlobalVarRange{
+        name_id: name_id,
+        global_start: global_start,
+        global_count: global_count,
+    };
+    if semantic_vector_append(&db.global_var_ranges, &record as &const void) != 0 {
+        return -1;
+    }
+    if semantic_hash_insert(&db.global_vars_by_name, name_id as i64, range_id) != 0 {
+        return -1;
+    }
+    return range_id;
+}
+
+/// 功能说明：按名字 ID 查询全局变量 range。
+/// 参数说明：`db` 为目标库，`name_id` 为名字 ID，`out_range` 接收 range 副本。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn semantic_db_find_global_var_range(db: &SemanticDb, name_id: i32, out_range: &SemanticGlobalVarRange) i32 {
+    if db == null || out_range == null || name_id < 0 {
+        return 0;
+    }
+    var range_id: i32 = -1;
+    if semantic_hash_get(&db.global_vars_by_name, name_id as i64, &range_id) == 0 {
+        return 0;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(&db.global_var_ranges, range_id as usize);
+    if ptr == null {
+        return 0;
+    }
+    const range: &SemanticGlobalVarRange = ptr as &SemanticGlobalVarRange;
+    out_range[0] = range[0];
+    return 1;
+}
+
+/// 功能说明：读取 GlobalVarRange 中指定 offset 对应的全局变量 DeclId。
+/// 参数说明：`db` 为目标库，`range` 为全局变量 range，`offset` 为 range 内偏移。
+/// 返回值说明：命中返回 DeclId；参数无效或越界返回 `-1`。
+export fn semantic_db_global_var_range_decl_id(db: &SemanticDb, range: &SemanticGlobalVarRange, offset: i32) i32 {
+    if db == null || range == null || offset < 0 || offset >= range.global_count {
+        return -1;
+    }
+    const index: i32 = range.global_start + offset;
+    if index < 0 {
+        return -1;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(&db.global_var_range_decl_ids, index as usize);
+    if ptr == null {
+        return -1;
+    }
+    const decl_id: &i32 = ptr as &i32;
+    return decl_id[0];
+}
+
 /// 功能说明：追加 enum variant 紧凑记录。
 /// 参数说明：`db` 为目标库，`name_id` 为 variant 名字 ID，`enum_decl_id` 为所属 enum DeclId，`variant_index` 为 enum 内下标。
 /// 返回值说明：成功返回新 enum variant record 下标；失败返回 `-1`。
@@ -1171,6 +1259,20 @@ export fn semantic_db_type_decl_range_count(db: &SemanticDb) i32 {
         return 0;
     }
     const count: i32 = semantic_db_usize_to_i32(db.type_ranges.count);
+    if count < 0 {
+        return 0;
+    }
+    return count;
+}
+
+/// 功能说明：读取 SemanticDb 全局变量 range 数量。
+/// 参数说明：`db` 为目标 SemanticDb。
+/// 返回值说明：返回 global var range 数量；参数无效时返回 `0`。
+export fn semantic_db_global_var_range_count(db: &SemanticDb) i32 {
+    if db == null {
+        return 0;
+    }
+    const count: i32 = semantic_db_usize_to_i32(db.global_var_ranges.count);
     if count < 0 {
         return 0;
     }

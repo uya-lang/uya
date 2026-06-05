@@ -222,6 +222,10 @@ fn checker_check_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
                 checker_report_error(checker, node, "符号表已满，无法添加变量" as *byte);
                 return 0;
             }
+            if checker_function_scope_register_var_decl(checker, node) == 0 {
+                checker_report_error(checker, node, "FunctionScopeIndex 变量登记失败" as *byte);
+                return 0;
+            }
             if node.var_decl_init != null && node.var_decl_init.type == ASTNodeType.AST_UNARY_EXPR &&
                 (node.var_decl_init.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND {
                 symbol.pointer_known_length = 1;
@@ -363,6 +367,10 @@ fn checker_register_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
         symbol.pointer_known_length = 1;
     }
     if symbol_table_insert(checker, symbol) != 0 {
+        return 0;
+    }
+    if checker_function_scope_register_var_decl(checker, node) == 0 {
+        checker_report_error(checker, node, "FunctionScopeIndex 变量登记失败" as *byte);
         return 0;
     }
     return 1;
@@ -563,6 +571,200 @@ fn checker_check_extern_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     return 1;
 }
 
+fn checker_function_scope_dump_enabled() i32 {
+    const value: *byte = getenv("UYA_DUMP_FUNCTION_SCOPE" as *byte);
+    if value == null {
+        return 0;
+    }
+    if value[0] == 49 as byte && value[1] == 0 as byte {
+        return 1;
+    }
+    return 0;
+}
+
+fn checker_function_scope_register_params(checker: &TypeChecker, node: &ASTNode) i32 {
+    if checker == null || node == null || node.type != ASTNodeType.AST_FN_DECL || node.fn_decl_param_count < 0 {
+        return 0;
+    }
+    if node.fn_decl_param_count > 0 && node.fn_decl_params == null {
+        return 0;
+    }
+    if function_scope_index_reset(&checker.function_scope_index) != 0 {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < node.fn_decl_param_count {
+        const param: &ASTNode = node.fn_decl_params[i];
+        if param == null || param.type != ASTNodeType.AST_VAR_DECL {
+            return 0;
+        }
+        if param.var_decl_name != null {
+            if function_scope_index_add_param(&checker.function_scope_index, param.var_decl_name,
+                param.var_decl_type as &void, param as &void) < 0 {
+                return 0;
+            }
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn checker_maybe_dump_function_scope_params(checker: &TypeChecker, node: &ASTNode) void {
+    if checker == null || node == null || checker_function_scope_dump_enabled() == 0 {
+        return;
+    }
+    fprintf(libc.stderr,
+        "function_scope fn=%s params=%d param_capacity=%d param_reallocs=%d bindings=%d\n" as *byte,
+        checker_semantic_dump_name(node.fn_decl_name) as *byte,
+        function_scope_index_kind_count(&checker.function_scope_index, FUNCTION_SCOPE_BINDING_PARAM),
+        function_scope_index_kind_capacity(&checker.function_scope_index, FUNCTION_SCOPE_BINDING_PARAM),
+        function_scope_index_kind_realloc_count(&checker.function_scope_index, FUNCTION_SCOPE_BINDING_PARAM),
+        function_scope_index_binding_count(&checker.function_scope_index));
+}
+
+fn checker_function_scope_active(checker: &TypeChecker) i32 {
+    if checker == null || checker.in_function == 0 || checker.current_function_decl == null {
+        return 0;
+    }
+    if checker.current_function_decl.type != ASTNodeType.AST_FN_DECL {
+        return 0;
+    }
+    return 1;
+}
+
+fn checker_var_decl_init_is_await_bind(init: &ASTNode) i32 {
+    if init == null {
+        return 0;
+    }
+    if init.type == ASTNodeType.AST_AWAIT_EXPR && init.await_expr_operand != null {
+        return 1;
+    }
+    if init.type != ASTNodeType.AST_TRY_EXPR || init.try_expr_operand == null {
+        return 0;
+    }
+    const op: &ASTNode = init.try_expr_operand;
+    if op.type == ASTNodeType.AST_AWAIT_EXPR && op.await_expr_operand != null {
+        return 1;
+    }
+    return 0;
+}
+
+fn checker_function_scope_empty_binding() FunctionScopeBinding {
+    return FunctionScopeBinding{
+        name_id: -1,
+        name: null,
+        type_node: null,
+        decl_node: null,
+        depth: -1,
+        generation: -1,
+        kind: -1,
+        previous_binding_id: -1,
+    };
+}
+
+fn checker_function_scope_binding_visible_kind(checker: &TypeChecker, name: &byte, out_depth: &i32) i32 {
+    if checker == null || name == null || out_depth == null {
+        return -1;
+    }
+    var binding: FunctionScopeBinding = checker_function_scope_empty_binding();
+    if function_scope_index_find_binding(&checker.function_scope_index, name, &binding) == 0 {
+        return -1;
+    }
+    out_depth[0] = binding.depth;
+    return binding.kind;
+}
+
+fn checker_function_scope_enter_block(checker: &TypeChecker, node: &ASTNode) i32 {
+    if checker_function_scope_active(checker) == 0 {
+        return 1;
+    }
+    if function_scope_index_enter_scope(&checker.function_scope_index) != 0 {
+        checker_report_error(checker, node, "FunctionScopeIndex block 进入失败" as *byte);
+        return 0;
+    }
+    if checker_function_scope_dump_enabled() != 0 {
+        fprintf(libc.stderr,
+            "function_scope block_enter fn=%s depth=%d generation=%d scopes=%d\n" as *byte,
+            checker_semantic_dump_name(checker.current_function_decl.fn_decl_name) as *byte,
+            function_scope_index_current_depth(&checker.function_scope_index),
+            function_scope_index_current_generation(&checker.function_scope_index),
+            function_scope_index_scope_count(&checker.function_scope_index));
+    }
+    return 1;
+}
+
+fn checker_function_scope_exit_block(checker: &TypeChecker, node: &ASTNode) i32 {
+    if checker_function_scope_active(checker) == 0 {
+        return 1;
+    }
+    if function_scope_index_exit_scope(&checker.function_scope_index) != 0 {
+        checker_report_error(checker, node, "FunctionScopeIndex block 退出失败" as *byte);
+        return 0;
+    }
+    if checker_function_scope_dump_enabled() != 0 {
+        fprintf(libc.stderr,
+            "function_scope block_exit fn=%s depth=%d generation=%d scopes=%d\n" as *byte,
+            checker_semantic_dump_name(checker.current_function_decl.fn_decl_name) as *byte,
+            function_scope_index_current_depth(&checker.function_scope_index),
+            function_scope_index_current_generation(&checker.function_scope_index),
+            function_scope_index_scope_count(&checker.function_scope_index));
+    }
+    return 1;
+}
+
+fn checker_function_scope_register_var_decl(checker: &TypeChecker, node: &ASTNode) i32 {
+    if checker_function_scope_active(checker) == 0 || node == null || node.type != ASTNodeType.AST_VAR_DECL {
+        return 1;
+    }
+    if node.var_decl_name == null {
+        return 1;
+    }
+    var is_async_bind: i32 = 0;
+    if checker.current_function_decl != null && checker.current_function_decl.fn_decl_is_async != 0 &&
+        checker_var_decl_init_is_await_bind(node.var_decl_init) != 0 {
+        is_async_bind = 1;
+    }
+    var binding_id: i32 = -1;
+    if is_async_bind != 0 {
+        binding_id = function_scope_index_add_async_binding(&checker.function_scope_index, node.var_decl_name,
+            node.var_decl_type as &void, node as &void);
+    } else {
+        binding_id = function_scope_index_add_local(&checker.function_scope_index, node.var_decl_name,
+            node.var_decl_type as &void, node as &void);
+    }
+    if binding_id < 0 {
+        return 0;
+    }
+    if checker_function_scope_dump_enabled() != 0 {
+        var visible_depth: i32 = -1;
+        const visible_kind: i32 = checker_function_scope_binding_visible_kind(checker, node.var_decl_name, &visible_depth);
+        if is_async_bind != 0 {
+            fprintf(libc.stderr,
+                "function_scope async_bind fn=%s name=%s asyncs=%d depth=%d generation=%d binding=%d visible_kind=%d visible_depth=%d\n" as *byte,
+                checker_semantic_dump_name(checker.current_function_decl.fn_decl_name) as *byte,
+                checker_semantic_dump_name(node.var_decl_name) as *byte,
+                function_scope_index_kind_count(&checker.function_scope_index, FUNCTION_SCOPE_BINDING_ASYNC),
+                function_scope_index_current_depth(&checker.function_scope_index),
+                function_scope_index_current_generation(&checker.function_scope_index),
+                binding_id,
+                visible_kind,
+                visible_depth);
+        } else {
+            fprintf(libc.stderr,
+                "function_scope local fn=%s name=%s locals=%d depth=%d generation=%d binding=%d visible_kind=%d visible_depth=%d\n" as *byte,
+                checker_semantic_dump_name(checker.current_function_decl.fn_decl_name) as *byte,
+                checker_semantic_dump_name(node.var_decl_name) as *byte,
+                function_scope_index_kind_count(&checker.function_scope_index, FUNCTION_SCOPE_BINDING_LOCAL),
+                function_scope_index_current_depth(&checker.function_scope_index),
+                function_scope_index_current_generation(&checker.function_scope_index),
+                binding_id,
+                visible_kind,
+                visible_depth);
+        }
+    }
+    return 1;
+}
+
 // 检查函数声明
 // 参数：checker - TypeChecker 指针，node - 函数声明节点
 // 返回：1 表示检查通过，0 表示检查失败
@@ -715,6 +917,19 @@ fn checker_check_fn_decl(checker: &TypeChecker, node: &ASTNode) i32 {
     // 检查函数体（如果有）
     if node.fn_decl_body != null {
         checker_enter_scope(checker);
+        if checker_function_scope_register_params(checker, node) == 0 {
+            checker_report_error(checker, node, "FunctionScopeIndex 参数登记失败" as *byte);
+            checker_exit_scope(checker);
+            checker.current_type_params = saved_type_params;
+            checker.current_type_param_count = saved_type_param_count;
+            checker.current_return_type = copy_type(&prev_return_type);
+            checker.in_function = prev_in_function;
+            checker.current_function_decl = prev_function_decl;
+            checker.current_self_type_name = saved_self_type_name;
+            checker.current_self_is_union = saved_self_is_union;
+            return 0;
+        }
+        checker_maybe_dump_function_scope_params(checker, node);
         
         // 将参数添加到符号表（仅用于函数体内的类型检查）
         var i: i32 = 0;
