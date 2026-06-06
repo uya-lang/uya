@@ -123,22 +123,39 @@ reject_hard_kpi_cache_inputs() {
     fi
 }
 
-reject_hard_kpi_debug_dump_inputs() {
+# 返回当前环境中所有处于启用状态的 UYA_DUMP_* dump 开关（"name=value" 列表）。
+# 动态扫描而非硬编码，确保将来新增的 UYA_DUMP_* dump 输出也自动被硬 KPI 排除。
+HARD_KPI_DUMP_ENABLED=""
+collect_enabled_dump_vars() {
     local bad=()
     local var_name value
-    local dump_vars=(
+    # 已知 dump 开关（始终检查，即使未导出到 compgen 也能命中）。
+    local known_dump_vars=(
         UYA_DUMP_SEMANTIC_DB
+        UYA_DUMP_FUNCTION_SCOPE
+        UYA_DUMP_LOWERED_PROGRAM
     )
-
-    for var_name in "${dump_vars[@]}"; do
+    # 动态发现：任何以 UYA_DUMP_ 开头的环境变量。
+    local discovered
+    discovered="$(compgen -v 2>/dev/null | grep -E '^UYA_DUMP_' || true)"
+    local seen=" "
+    for var_name in "${known_dump_vars[@]}" $discovered; do
+        case "$seen" in
+            *" $var_name "*) continue ;;
+        esac
+        seen="$seen$var_name "
         value="${!var_name:-}"
         if flag_enabled "$value"; then
             bad+=("$var_name=$value")
         fi
     done
+    HARD_KPI_DUMP_ENABLED="${bad[*]}"
+}
 
-    if [[ "${#bad[@]}" -gt 0 ]]; then
-        echo "错误: bench-compiler-1s 硬 KPI 禁止 debug dump: ${bad[*]}" >&2
+reject_hard_kpi_debug_dump_inputs() {
+    collect_enabled_dump_vars
+    if [[ -n "$HARD_KPI_DUMP_ENABLED" ]]; then
+        echo "错误: bench-compiler-1s 硬 KPI 禁止 debug dump（UYA_DUMP_* 输出不计入性能达标）: $HARD_KPI_DUMP_ENABLED" >&2
         exit 1
     fi
 }
@@ -221,6 +238,9 @@ print_metadata() {
     printf 'metadata\tnative_enabled\t%s\n' "$native_enabled" >&2
     printf 'metadata\tc99_enabled\t%s\n' "$c99_enabled" >&2
     printf 'metadata\tsemantic_db_dump_enabled\t0\n' >&2
+    # 硬 KPI 运行已在启动时拒绝任何启用的 UYA_DUMP_*，故此处恒为 0；
+    # 该标记明确声明本次 benchmark 不含 dump 输出，dump 不计入性能达标（L396）。
+    printf 'metadata\tdump_enabled\t0\n' >&2
     printf 'metadata\tbaseline_peak_rss_kb\t%s\n' "$BASELINE_RSS_KB" >&2
     printf 'metadata\ttable_capacity_ratio_warn\t%s\n' "$TABLE_CAPACITY_RATIO_WARN" >&2
 }
@@ -481,6 +501,9 @@ reset_compiler_phase_stats() {
     PHASE_EMIT_MS="NA"
     PHASE_LINK_MS="NA"
     ARENA_PEAK_BYTES="NA"
+    AST_ARENA_PEAK_BYTES="NA"
+    CHECK_ARENA_PEAK_BYTES="NA"
+    EMIT_ARENA_PEAK_BYTES="NA"
     TYPED_PROGRAM_BYTES="NA"
     TYPED_PROGRAM_PEAK_BYTES="NA"
     TYPED_PROGRAM_RELEASED_BYTES="NA"
@@ -496,11 +519,14 @@ collect_compiler_phase_stats() {
     PHASE_LOWER_MS="$(extract_log_stat "exec lowering 耗时" "$build_log")"
     PHASE_EMIT_MS="$(extract_first_log_stat "$build_log" "生成耗时" "exec build 耗时")"
     ARENA_PEAK_BYTES="$(extract_log_stat "arena_peak_bytes" "$build_log")"
+    AST_ARENA_PEAK_BYTES="$(extract_log_stat "ast_arena_peak_bytes" "$build_log")"
+    CHECK_ARENA_PEAK_BYTES="$(extract_log_stat "check_arena_peak_bytes" "$build_log")"
+    EMIT_ARENA_PEAK_BYTES="$(extract_log_stat "emit_arena_peak_bytes" "$build_log")"
     TYPED_PROGRAM_BYTES="$(extract_log_stat "typed_program_bytes" "$build_log")"
     TYPED_PROGRAM_PEAK_BYTES="$(extract_log_stat "typed_program_peak_bytes" "$build_log")"
     TYPED_PROGRAM_RELEASED_BYTES="$(extract_log_stat "typed_program_released_bytes" "$build_log")"
-    printf 'phase_stats\trun\t%s\tseed_ms\t%s\tparse_ms\t%s\tbind_ms\t%s\tcheck_ms\t%s\tlower_ms\t%s\temit_ms\t%s\tlink_ms\t%s\tarena_peak_bytes\t%s\ttyped_program_bytes\t%s\ttyped_program_peak_bytes\t%s\ttyped_program_released_bytes\t%s\n' \
-        "$run_index" "$PHASE_SEED_MS" "$PHASE_PARSE_MS" "$PHASE_BIND_MS" "$PHASE_CHECK_MS" "$PHASE_LOWER_MS" "$PHASE_EMIT_MS" "$PHASE_LINK_MS" "$ARENA_PEAK_BYTES" "$TYPED_PROGRAM_BYTES" "$TYPED_PROGRAM_PEAK_BYTES" "$TYPED_PROGRAM_RELEASED_BYTES" >&2
+    printf 'phase_stats\trun\t%s\tseed_ms\t%s\tparse_ms\t%s\tbind_ms\t%s\tcheck_ms\t%s\tlower_ms\t%s\temit_ms\t%s\tlink_ms\t%s\tarena_peak_bytes\t%s\tast_arena_peak_bytes\t%s\tcheck_arena_peak_bytes\t%s\temit_arena_peak_bytes\t%s\ttyped_program_bytes\t%s\ttyped_program_peak_bytes\t%s\ttyped_program_released_bytes\t%s\n' \
+        "$run_index" "$PHASE_SEED_MS" "$PHASE_PARSE_MS" "$PHASE_BIND_MS" "$PHASE_CHECK_MS" "$PHASE_LOWER_MS" "$PHASE_EMIT_MS" "$PHASE_LINK_MS" "$ARENA_PEAK_BYTES" "$AST_ARENA_PEAK_BYTES" "$CHECK_ARENA_PEAK_BYTES" "$EMIT_ARENA_PEAK_BYTES" "$TYPED_PROGRAM_BYTES" "$TYPED_PROGRAM_PEAK_BYTES" "$TYPED_PROGRAM_RELEASED_BYTES" >&2
 }
 
 collect_table_stats() {

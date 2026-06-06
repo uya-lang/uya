@@ -563,6 +563,28 @@ table_realloc_count  # 所有编译器动态表增长次数汇总
 
 如果 wall time 达标但 peak RSS 或 arena 峰值显著上升，该阶段不能标记完成。
 
+### 12.5 已落地的子系统独立 arena（Phase 5A L388/L389）
+
+`src/main.uya` 的 `compile_files` 已把原先共用单一 64MB 静态 `arena` 的子系统拆为独立 arena，
+每个 arena 的创建点、最后使用点、释放点如下（均为纯动态 arena：静态 buffer 为 null，按需 malloc 1MB chunk）：
+
+| arena | 承载内容 | create | last-use | free |
+| --- | --- | --- | --- | --- |
+| `arena` | driver 杂项：c_import plan、sidecar、module_root 拷贝 | `compile_files` 入口 `compiler_arena_init` | codegen 收尾 sidecar 写出 | `compile_files_maybe_release_transient_arenas`（依赖 artifacts 时延后） |
+| `lex_arena` | 每文件 `Lexer` 结构 | `compile_files` 入口 | 各文件 `lexer_init` | `compile_files` 末尾 `compiler_arena_free_all` |
+| `ast_arena` | lexer token 文本 + parser AST + merge/flatten | `compile_files` 入口 | C99 codegen 读取 AST | `compile_files` 末尾 |
+| `check_arena` | `TypeChecker` 结构与检查期工作内存 | `compile_files` 入口 | codegen 读取 reachable/mono | `compile_files` 末尾 |
+| `emit_arena` | `C99CodeGenerator` 结构与输出缓冲 | C99 阶段 alloc | `c99_codegen_generate` | `compile_files` 末尾 |
+
+`SemanticDb` / `TypedProgram` / `LoweredProgram` 不走编译器 arena，而是各自使用 malloc/realloc 后端的动态表
+（`SemanticVector` / `SemanticHash`），由 `typed_program_release` / `semantic_*_free` 独立释放，
+因此它们天然与上述 arena 生命周期解耦。
+
+各 arena 峰值通过 `ast_arena_peak_bytes` / `check_arena_peak_bytes` / `emit_arena_peak_bytes`
+打印到编译统计（stderr），`arena_peak_bytes` 为五个 arena 峰值之和，保持与 Phase 0 baseline 的口径连续。
+当前实测（直接 C99，96 文件）：`ast_arena≈1.2GB`、`check_arena≈77MB`、`emit_arena≈9.9MB`、driver `arena≈40B`，
+说明 AST 仍是常驻大头，是后续 L382（peak RSS 下降 25%）按阶段释放 AST 的主要目标。
+
 ---
 
 ## 13. Benchmark 与验收

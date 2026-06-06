@@ -116,6 +116,10 @@ fn compiler_arena_alloc(arena: &CompilerArena, size: usize) &byte {
         fprintf(libc.stderr, "错误: CompilerArena 无法分配 chunk 缓冲区 (%zu 字节)\n" as *byte, chunk_size);
         exit(1);
     }
+    // 零初始化新 chunk：静态缓冲区位于 BSS（默认清零），调用方（如 ast_new_node）
+    // 隐式依赖 arena 返回清零内存；动态 chunk 来自 malloc 不清零，必须显式 memset，
+    // 否则未显式初始化的节点指针字段会含垃圾值导致 AST 遍历崩溃。
+    memset(buffer_mem as *byte, 0, chunk_size);
     
     // 初始化 chunk
     new_chunk.buffer = buffer_mem;

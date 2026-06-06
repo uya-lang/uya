@@ -385,15 +385,15 @@ make check
 
 ## Phase 5A: 内存生命周期收口
 
-- [ ] 为 parser AST、SemanticDb、TypedProgram、LoweredProgram、Emitter 分配独立 arena。
-- [ ] 明确每个 arena 的创建点、最后使用点和释放点。
-- [ ] `make bench-compiler-1s` 输出每个 arena 的 peak bytes。
-- [ ] `make bench-compiler-1s` 输出所有编译器动态表的 count/capacity/realloc/bytes。
-- [ ] 新增动态表预算检查：不得通过启动时预分配超大容量降低增长次数。
+- [x] 为 parser AST、SemanticDb、TypedProgram、LoweredProgram、Emitter 分配独立 arena。
+- [x] 明确每个 arena 的创建点、最后使用点和释放点。
+- [x] `make bench-compiler-1s` 输出每个 arena 的 peak bytes。
+- [x] `make bench-compiler-1s` 输出所有编译器动态表的 count/capacity/realloc/bytes。
+- [x] 新增动态表预算检查：不得通过启动时预分配超大容量降低增长次数。
 - [ ] C99 输出从“全局状态 + 边生成边补发”收口为 unit 流式写。
 - [ ] native 输出不生成 debug info，不保留全量机器码临时副本。
 - [ ] diagnostic 默认延迟格式化；无错误时不构造长诊断字符串。
-- [ ] `UYA_DUMP_*` 相关 dump 输出不计入性能达标，并在 benchmark 中标记。
+- [x] `UYA_DUMP_*` 相关 dump 输出不计入性能达标，并在 benchmark 中标记。
 - [x] 新增内存回归脚本 `tests/verify_compiler_memory_budget.sh`。
 
 测试：
@@ -407,12 +407,13 @@ make check
 
 ```bash
 bash tests/verify_compiler_memory_budget.sh
+bash tests/verify_dynamic_table_budget.sh
 make bench-compiler-1s-check
 ```
 
 阶段 KPI：
 
-- [ ] 内存字段进入所有 1 秒 benchmark 输出。
+- [x] 内存字段进入所有 1 秒 benchmark 输出。
 - [ ] AST / TypedProgram / LoweredProgram 不再无界同时常驻。
 
 ---

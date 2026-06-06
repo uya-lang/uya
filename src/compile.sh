@@ -811,6 +811,10 @@ else
             if (count >= 30) exit;
         }
     ' "$TEMP_OUTPUT"
+    # 透出编译统计的耗时/内存/arena/动态表字段，供 bench-compiler-1s 等工具从
+    # make uya 日志中解析（普通模式默认把编译器 stderr 收进 TEMP_OUTPUT，否则这些
+    # 字段在硬 KPI 日志里全为 NA）。仅透出 KPI 字段，不放开全部调试输出。
+    grep -E '^(解析耗时|合并耗时|检查耗时|优化耗时|生成耗时|exec lowering 耗时|exec bytecode 构建耗时|exec build 耗时|总耗时|arena_peak_bytes|ast_arena_peak_bytes|check_arena_peak_bytes|emit_arena_peak_bytes|typed_program_bytes|typed_program_peak_bytes|typed_program_released_bytes|table_count|table_capacity|table_bytes|table_capacity_bytes|table_realloc_count):' "$TEMP_OUTPUT" || true
 
     if [ $COMPILER_EXIT -ne 0 ]; then
         echo ""

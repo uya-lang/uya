@@ -1316,3 +1316,49 @@ export fn semantic_db_estimated_bytes(db: &SemanticDb) usize {
     }
     return db.estimated_bytes;
 }
+
+/// 功能说明：把 SemanticDb 的所有动态表（intern + 全部 vector/hash）累加进聚合统计。
+/// 参数说明：`db` 为目标 SemanticDb；`agg` 为待累加的聚合统计。
+/// 返回值说明：无；参数无效时不修改 agg。
+export fn semantic_db_accumulate_table_stats(db: &SemanticDb, agg: &SemanticTableAgg) void {
+    if db == null || agg == null {
+        return;
+    }
+    // intern 表：entries 表 + 字符串池。used = 项占用 + 已用字符串字节；capacity = 项容量字节 + 已用字符串字节。
+    const intern_entry_size: usize = @size_of(SemanticInternEntry);
+    agg.table_count = agg.table_count + 1;
+    agg.items = agg.items + db.name_intern.count;
+    agg.capacity = agg.capacity + db.name_intern.capacity;
+    agg.used_bytes = agg.used_bytes + db.name_intern.count * intern_entry_size + db.name_intern.string_bytes;
+    agg.capacity_bytes = agg.capacity_bytes + db.name_intern.bytes + db.name_intern.string_bytes;
+    agg.realloc_count = agg.realloc_count + db.name_intern.realloc_count;
+    // 全部 vector
+    semantic_table_agg_add_vector(agg, &db.file_records);
+    semantic_table_agg_add_vector(agg, &db.module_records);
+    semantic_table_agg_add_vector(agg, &db.decl_records);
+    semantic_table_agg_add_vector(agg, &db.symbol_records);
+    semantic_table_agg_add_vector(agg, &db.name_ranges);
+    semantic_table_agg_add_vector(agg, &db.decl_ranges);
+    semantic_table_agg_add_vector(agg, &db.decl_range_ids);
+    semantic_table_agg_add_vector(agg, &db.function_ranges);
+    semantic_table_agg_add_vector(agg, &db.function_range_decl_ids);
+    semantic_table_agg_add_vector(agg, &db.type_ranges);
+    semantic_table_agg_add_vector(agg, &db.type_range_decl_ids);
+    semantic_table_agg_add_vector(agg, &db.global_var_ranges);
+    semantic_table_agg_add_vector(agg, &db.global_var_range_decl_ids);
+    semantic_table_agg_add_vector(agg, &db.enum_variant_records);
+    semantic_table_agg_add_vector(agg, &db.enum_variant_ranges);
+    semantic_table_agg_add_vector(agg, &db.enum_variant_range_record_ids);
+    semantic_table_agg_add_vector(agg, &db.import_bindings);
+    semantic_table_agg_add_vector(agg, &db.export_bindings);
+    // 全部 hash
+    semantic_table_agg_add_hash(agg, &db.name_range_index);
+    semantic_table_agg_add_hash(agg, &db.decls_by_name);
+    semantic_table_agg_add_hash(agg, &db.functions_by_name);
+    semantic_table_agg_add_hash(agg, &db.types_by_name);
+    semantic_table_agg_add_hash(agg, &db.global_vars_by_name);
+    semantic_table_agg_add_hash(agg, &db.enum_variants_by_name);
+    semantic_table_agg_add_hash(agg, &db.exports_by_module_name);
+    semantic_table_agg_add_hash(agg, &db.aliases_by_file_name);
+    semantic_table_agg_add_hash(agg, &db.use_items_by_file_name);
+}

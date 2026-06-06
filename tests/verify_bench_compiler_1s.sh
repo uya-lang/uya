@@ -64,6 +64,9 @@ if [[ "$target" == "uya" ]]; then
     echo "检查耗时: 13 ms"
     echo "生成耗时: 17 ms"
     echo "arena_peak_bytes: 4096"
+    echo "ast_arena_peak_bytes: 3000"
+    echo "check_arena_peak_bytes: 800"
+    echo "emit_arena_peak_bytes: 296"
     echo "typed_program_bytes: 2048"
     echo "typed_program_peak_bytes: 8192"
     echo "typed_program_released_bytes: 0"
@@ -165,6 +168,26 @@ if [[ -s "$CALL_LOG" ]]; then
     exit 1
 fi
 
+# L396：所有 UYA_DUMP_* dump 开关（含未来新增的）都必须被硬 KPI 拒绝、不计入性能达标。
+for DUMP_VAR in UYA_DUMP_FUNCTION_SCOPE UYA_DUMP_LOWERED_PROGRAM UYA_DUMP_FUTURE_FEATURE; do
+    CALL_LOG="$TMP_DIR/reject-$DUMP_VAR.calls"
+    : >"$CALL_LOG"
+    if env "$DUMP_VAR=1" MAKE="$FAKE_MAKE" UYA_FAKE_MAKE_CALL_LOG="$CALL_LOG" UYA_BENCH_TMPDIR="$TMP_DIR" \
+            bash "$BENCH_SCRIPT" --runs 1 >"$TMP_DIR/reject-$DUMP_VAR.out" 2>"$TMP_DIR/reject-$DUMP_VAR.err"; then
+        echo "错误: $DUMP_VAR=1 应被硬 KPI benchmark 拒绝" >&2
+        exit 1
+    fi
+    if ! grep -q "$DUMP_VAR" "$TMP_DIR/reject-$DUMP_VAR.err" || ! grep -q "debug dump" "$TMP_DIR/reject-$DUMP_VAR.err"; then
+        echo "错误: $DUMP_VAR=1 未输出预期拒绝诊断" >&2
+        cat "$TMP_DIR/reject-$DUMP_VAR.err" >&2
+        exit 1
+    fi
+    if [[ -s "$CALL_LOG" ]]; then
+        echo "错误: $DUMP_VAR=1 被拒绝前不应调用 make" >&2
+        exit 1
+    fi
+done
+
 CALL_LOG="$TMP_DIR/calls.ok"
 : >"$CALL_LOG"
 seed_stale_artifacts
@@ -208,7 +231,8 @@ for pattern in \
     $'^metadata\tbackend\tc99$' \
     $'^metadata\tnative_enabled\t0$' \
     $'^metadata\tc99_enabled\t1$' \
-    $'^metadata\tsemantic_db_dump_enabled\t0$'
+    $'^metadata\tsemantic_db_dump_enabled\t0$' \
+    $'^metadata\tdump_enabled\t0$'
 do
     if ! grep -q "$pattern" "$TMP_DIR/bench.err"; then
         echo "错误: benchmark metadata 缺少字段: $pattern" >&2
@@ -231,7 +255,7 @@ if ! grep -Eq $'^table_stats\trun\t1\ttable_count\t3\ttable_capacity\t8\ttable_b
     cat "$TMP_DIR/bench.err" >&2
     exit 1
 fi
-if ! grep -Eq $'^phase_stats\trun\t1\tseed_ms\tNA\tparse_ms\t11\tbind_ms\t2\tcheck_ms\t13\tlower_ms\tNA\temit_ms\t17\tlink_ms\tNA\tarena_peak_bytes\t4096\ttyped_program_bytes\t2048\ttyped_program_peak_bytes\t8192\ttyped_program_released_bytes\t0$' "$TMP_DIR/bench.err"; then
+if ! grep -Eq $'^phase_stats\trun\t1\tseed_ms\tNA\tparse_ms\t11\tbind_ms\t2\tcheck_ms\t13\tlower_ms\tNA\temit_ms\t17\tlink_ms\tNA\tarena_peak_bytes\t4096\tast_arena_peak_bytes\t3000\tcheck_arena_peak_bytes\t800\temit_arena_peak_bytes\t296\ttyped_program_bytes\t2048\ttyped_program_peak_bytes\t8192\ttyped_program_released_bytes\t0$' "$TMP_DIR/bench.err"; then
     echo "错误: benchmark 未输出编译阶段和 arena 统计摘要" >&2
     cat "$TMP_DIR/bench.err" >&2
     exit 1

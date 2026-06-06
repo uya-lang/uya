@@ -43,10 +43,18 @@ struct CompileStats {
     total_time_ms: i64,      // 总耗时
     file_count: i32,         // 编译文件数
     ast_nodes: i32,          // AST 节点数（近似）
-    arena_peak_bytes: usize, // CompilerArena 峰值分配字节数
+    arena_peak_bytes: usize, // 所有编译器 arena 峰值合计（driver+ast+check+emit）
+    ast_arena_peak_bytes: usize,   // parser AST / lexer / merge 专用 arena 峰值
+    check_arena_peak_bytes: usize, // checker 工作内存专用 arena 峰值
+    emit_arena_peak_bytes: usize,  // C99 emitter 专用 arena 峰值
     typed_program_bytes: usize,
     typed_program_peak_bytes: usize,
     typed_program_released_bytes: usize,
+    table_items: usize,          // 所有编译器动态表实际项数之和
+    table_capacity: usize,       // 所有编译器动态表容量项数之和
+    table_used_bytes: usize,     // 所有编译器动态表实际占用字节之和
+    table_capacity_bytes: usize, // 所有编译器动态表容量字节之和
+    table_realloc_count: i32,    // 所有编译器动态表重分配次数之和
 }
 
 struct CImportItem {
@@ -84,6 +92,17 @@ fn compile_stats_record_and_release_typed_program(stats: &CompileStats, checker:
     }
     stats.typed_program_bytes = typed_program_current_bytes(&checker.typed_program);
     stats.typed_program_peak_bytes = typed_program_peak_bytes(&checker.typed_program);
+    // 在释放 TypedProgram 之前，聚合所有编译器动态表（SemanticDb + TypedProgram）的
+    // 项数/容量/字节/重分配次数，供 benchmark 输出 table_* 字段（L391）。
+    // 注：C99/checker 固定表仍为 C99_MAX_*/*_SIZE 静态容量，尚未迁为动态表，不计入此聚合。
+    var table_agg: SemanticTableAgg = semantic_table_agg_init();
+    semantic_db_accumulate_table_stats(&checker.semantic_db, &table_agg);
+    typed_program_accumulate_table_stats(&checker.typed_program, &table_agg);
+    stats.table_items = table_agg.items;
+    stats.table_capacity = table_agg.capacity;
+    stats.table_used_bytes = table_agg.used_bytes;
+    stats.table_capacity_bytes = table_agg.capacity_bytes;
+    stats.table_realloc_count = table_agg.realloc_count;
     typed_program_release(&checker.typed_program);
     semantic_vector_release(&checker.typed_type_records);
     stats.typed_program_released_bytes = typed_program_current_bytes(&checker.typed_program);
@@ -2500,9 +2519,17 @@ fn compile_files(
         file_count: 0,
         ast_nodes: 0,
         arena_peak_bytes: 0 as usize,
+        ast_arena_peak_bytes: 0usize,
+        check_arena_peak_bytes: 0usize,
+        emit_arena_peak_bytes: 0usize,
         typed_program_bytes: 0usize,
         typed_program_peak_bytes: 0usize,
         typed_program_released_bytes: 0usize,
+        table_items: 0usize,
+        table_capacity: 0usize,
+        table_used_bytes: 0usize,
+        table_capacity_bytes: 0usize,
+        table_realloc_count: 0,
     };
     stats.file_count = all_file_count;  // 记录文件数
 
@@ -2513,9 +2540,23 @@ fn compile_files(
     var check_end_time: i64 = 0;
     var codegen_end_time: i64 = 0;
 
+    // ===== 各编译子系统独立 arena（Phase 5A L388）=====
+    // 生命周期边界（create / last-use / free）：
+    // - arena       : driver/杂项（c_import plan、sidecar、module_root 拷贝）。create 此处；last-use=codegen 收尾；free=compile_files 末尾。
+    // - ast_arena   : lexer token 文本 + parser AST + merge/flatten。create 此处；last-use=codegen 读取 AST；free=compile_files 末尾。
+    // - check_arena : TypeChecker 结构与检查期工作内存。create 此处；last-use=codegen 读取 reachable/mono；free=compile_files 末尾。
+    // - emit_arena  : C99 emitter 结构与输出缓冲。create 此处；last-use=c99_codegen_generate；free=compile_files 末尾。
+    // 说明：SemanticDb / TypedProgram / LoweredProgram 不走编译器 arena，
+    //       它们使用各自 malloc/realloc 后端的动态表（SemanticVector/SemanticHash），
+    //       生命周期由 typed_program_release / semantic_*_free 独立管理。
+    // 这三个新增 arena 均为纯动态 arena（静态 buffer 为 null），按需 malloc 1MB chunk，
+    // 与既有 lex_arena 一致，从而把原先共用单一 64MB 静态 arena 的三个子系统隔离开。
     var arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
     compiler_arena_init(&arena, &arena_buffer[0], ARENA_BUFFER_SIZE as usize);
     var lex_arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
+    var ast_arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
+    var check_arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
+    var emit_arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
 
     var programs: [&ASTNode: MAX_INPUT_FILES] = [];
     const program_capacity: i32 = @len(programs) as i32;
@@ -2538,7 +2579,7 @@ fn compile_files(
             return 1;
         }
         const input_path_ref: &byte = input_path as &byte;
-        if lexer_init(lexer, &file_buffer[0], file_size as usize, input_path_ref, &arena) != 0 {
+        if lexer_init(lexer, &file_buffer[0], file_size as usize, input_path_ref, &ast_arena) != 0 {
             fprintf(libc.stderr, "错误: Lexer 初始化失败: %s\n" as *byte, input_path);
             return 1;
         }
@@ -2551,7 +2592,7 @@ fn compile_files(
             saw_use_std: 0,
             has_error: 0,
         };
-        if parser_init(&parser, lexer, &arena) != 0 {
+        if parser_init(&parser, lexer, &ast_arena) != 0 {
             fprintf(libc.stderr, "错误: Parser 初始化失败: %s\n" as *byte, input_path);
             return 1;
         }
@@ -2581,12 +2622,12 @@ fn compile_files(
     fprintf(libc.stderr, "=== 词法/语法分析完成，共 %d 个文件 ===\n" as *byte, all_file_count);
 
     fprintf(libc.stderr, "=== AST 合并阶段 ===\n" as *byte);
-    var merged_ast: &ASTNode = ast_merge_programs(programs, all_file_count, &arena);
+    var merged_ast: &ASTNode = ast_merge_programs(programs, all_file_count, &ast_arena);
     if merged_ast == null {
         fprintf(libc.stderr, "错误: AST 合并失败\n" as *byte);
         return 1;
     }
-    merged_ast = ast_flatten_nested_program_decls(merged_ast, &arena);
+    merged_ast = ast_flatten_nested_program_decls(merged_ast, &ast_arena);
     if merged_ast == null {
         fprintf(libc.stderr, "错误: AST 展平失败\n" as *byte);
         return 1;
@@ -2622,7 +2663,7 @@ fn compile_files(
         union_type_args: null,
         union_type_arg_count: 0,
     };
-    const checker: &TypeChecker = compiler_arena_alloc(&arena, HOST_SIZE_TYPECHECKER_BYTES) as &TypeChecker;
+    const checker: &TypeChecker = compiler_arena_alloc(&check_arena, HOST_SIZE_TYPECHECKER_BYTES) as &TypeChecker;
     if checker == null {
         fprintf(libc.stderr, "错误: TypeChecker 分配失败\n" as *byte);
         return 1;
@@ -2632,7 +2673,7 @@ fn compile_files(
     if all_file_count > 0 {
         default_filename = all_files[0] as *byte;
     }
-    if checker_init(checker, &arena, default_filename as &byte) != 0 {
+    if checker_init(checker, &check_arena, default_filename as &byte) != 0 {
         fprintf(libc.stderr, "错误: TypeChecker 初始化失败\n" as *byte);
         return 1;
     }
@@ -2648,7 +2689,7 @@ fn compile_files(
                 need_slash = 1;
             }
             const alloc_len: usize = pr_len + (need_slash as usize) + 1 as usize;
-            const pr_copy: &u8 = compiler_arena_alloc(&arena, alloc_len) as &u8;
+            const pr_copy: &u8 = compiler_arena_alloc(&check_arena, alloc_len) as &u8;
             if pr_copy != null {
                 memcpy(pr_copy as *void, module_root as *void, pr_len);
                 if need_slash != 0 {
@@ -2763,7 +2804,14 @@ fn compile_files(
         stats.check_time_ms = (check_end_time - merge_end_time) * 1000 / CLOCKS_PER_SEC;
         stats.codegen_time_ms = (codegen_end_time - opt_end_time) * 1000 / CLOCKS_PER_SEC;
         stats.total_time_ms = (codegen_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
-        stats.arena_peak_bytes = compiler_arena_peak_allocated(&arena);
+        stats.ast_arena_peak_bytes = compiler_arena_peak_allocated(&ast_arena);
+        stats.check_arena_peak_bytes = compiler_arena_peak_allocated(&check_arena);
+        stats.emit_arena_peak_bytes = compiler_arena_peak_allocated(&emit_arena);
+        stats.arena_peak_bytes = compiler_arena_peak_allocated(&arena)
+            + compiler_arena_peak_allocated(&lex_arena)
+            + stats.ast_arena_peak_bytes
+            + stats.check_arena_peak_bytes
+            + stats.emit_arena_peak_bytes;
         compile_stats_record_and_release_typed_program(&stats, checker);
 
         fprintf(libc.stderr, "\n=== 编译统计 ===\n" as *byte);
@@ -2779,9 +2827,17 @@ fn compile_files(
         fprintf(libc.stderr, "exec bytecode 构建耗时: %ld ms\n" as *byte, exec_backend_get_last_bytecode_build_time_ms());
         fprintf(libc.stderr, "exec build 耗时: %ld ms\n" as *byte, stats.codegen_time_ms);
         fprintf(libc.stderr, "arena_peak_bytes: %zu\n" as *byte, stats.arena_peak_bytes);
+        fprintf(libc.stderr, "ast_arena_peak_bytes: %zu\n" as *byte, stats.ast_arena_peak_bytes);
+        fprintf(libc.stderr, "check_arena_peak_bytes: %zu\n" as *byte, stats.check_arena_peak_bytes);
+        fprintf(libc.stderr, "emit_arena_peak_bytes: %zu\n" as *byte, stats.emit_arena_peak_bytes);
         fprintf(libc.stderr, "typed_program_bytes: %zu\n" as *byte, stats.typed_program_bytes);
         fprintf(libc.stderr, "typed_program_peak_bytes: %zu\n" as *byte, stats.typed_program_peak_bytes);
         fprintf(libc.stderr, "typed_program_released_bytes: %zu\n" as *byte, stats.typed_program_released_bytes);
+        fprintf(libc.stderr, "table_count: %zu\n" as *byte, stats.table_items);
+        fprintf(libc.stderr, "table_capacity: %zu\n" as *byte, stats.table_capacity);
+        fprintf(libc.stderr, "table_bytes: %zu\n" as *byte, stats.table_used_bytes);
+        fprintf(libc.stderr, "table_capacity_bytes: %zu\n" as *byte, stats.table_capacity_bytes);
+        fprintf(libc.stderr, "table_realloc_count: %d\n" as *byte, stats.table_realloc_count);
         fprintf(libc.stderr, "总耗时: %ld ms\n" as *byte, stats.total_time_ms);
 
         if exec_result != 0 {
@@ -2808,7 +2864,7 @@ fn compile_files(
             return 1;
         }
     }
-    const c99_codegen: &C99CodeGenerator = compiler_arena_alloc(&arena, HOST_SIZE_C99_CODEGENERATOR_BYTES) as &C99CodeGenerator;
+    const c99_codegen: &C99CodeGenerator = compiler_arena_alloc(&emit_arena, HOST_SIZE_C99_CODEGENERATOR_BYTES) as &C99CodeGenerator;
     if c99_codegen == null {
         fprintf(libc.stderr, "错误: C99CodeGenerator 分配失败\n" as *byte);
         if out_file != null {
@@ -2830,7 +2886,7 @@ fn compile_files(
             }
         }
     }
-    if c99_codegen_new(c99_codegen, &arena, out_file as &void, module_name as &byte, emit_line_directives, is_nostdlib, stack_size, split_c_dir, split_mirror_flag, async_frame_heap_fallback) != 0 {
+    if c99_codegen_new(c99_codegen, &emit_arena, out_file as &void, module_name as &byte, emit_line_directives, is_nostdlib, stack_size, split_c_dir, split_mirror_flag, async_frame_heap_fallback) != 0 {
         fprintf(libc.stderr, "错误: C99CodeGenerator 初始化失败\n" as *byte);
         if out_file != null {
             fclose(out_file);
@@ -2877,7 +2933,14 @@ fn compile_files(
     stats.check_time_ms = (check_end_time - merge_end_time) * 1000 / CLOCKS_PER_SEC;
     stats.codegen_time_ms = (codegen_end_time - opt_end_time) * 1000 / CLOCKS_PER_SEC;
     stats.total_time_ms = (codegen_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
-    stats.arena_peak_bytes = compiler_arena_peak_allocated(&arena);
+    stats.ast_arena_peak_bytes = compiler_arena_peak_allocated(&ast_arena);
+    stats.check_arena_peak_bytes = compiler_arena_peak_allocated(&check_arena);
+    stats.emit_arena_peak_bytes = compiler_arena_peak_allocated(&emit_arena);
+    stats.arena_peak_bytes = compiler_arena_peak_allocated(&arena)
+        + compiler_arena_peak_allocated(&lex_arena)
+        + stats.ast_arena_peak_bytes
+        + stats.check_arena_peak_bytes
+        + stats.emit_arena_peak_bytes;
     compile_stats_record_and_release_typed_program(&stats, checker);
 
     // 输出编译统计
@@ -2892,13 +2955,27 @@ fn compile_files(
     }
     fprintf(libc.stderr, "生成耗时: %ld ms\n" as *byte, stats.codegen_time_ms);
     fprintf(libc.stderr, "arena_peak_bytes: %zu\n" as *byte, stats.arena_peak_bytes);
+    fprintf(libc.stderr, "ast_arena_peak_bytes: %zu\n" as *byte, stats.ast_arena_peak_bytes);
+    fprintf(libc.stderr, "check_arena_peak_bytes: %zu\n" as *byte, stats.check_arena_peak_bytes);
+    fprintf(libc.stderr, "emit_arena_peak_bytes: %zu\n" as *byte, stats.emit_arena_peak_bytes);
     fprintf(libc.stderr, "typed_program_bytes: %zu\n" as *byte, stats.typed_program_bytes);
     fprintf(libc.stderr, "typed_program_peak_bytes: %zu\n" as *byte, stats.typed_program_peak_bytes);
     fprintf(libc.stderr, "typed_program_released_bytes: %zu\n" as *byte, stats.typed_program_released_bytes);
+    fprintf(libc.stderr, "table_count: %zu\n" as *byte, stats.table_items);
+    fprintf(libc.stderr, "table_capacity: %zu\n" as *byte, stats.table_capacity);
+    fprintf(libc.stderr, "table_bytes: %zu\n" as *byte, stats.table_used_bytes);
+    fprintf(libc.stderr, "table_capacity_bytes: %zu\n" as *byte, stats.table_capacity_bytes);
+    fprintf(libc.stderr, "table_realloc_count: %d\n" as *byte, stats.table_realloc_count);
     fprintf(libc.stderr, "总耗时: %ld ms\n" as *byte, stats.total_time_ms);
 
     fprintf(libc.stderr, "\n代码生成完成: %s\n" as *byte, actual_output);
 
+    // 释放各子系统独立 arena 的动态 chunk（AST/emitter 已被 codegen 消费完毕，
+    // checker 工作内存已不再需要）。SemanticDb/TypedProgram 由其自身 release 管理。
+    compiler_arena_free_all(&emit_arena);
+    compiler_arena_free_all(&check_arena);
+    compiler_arena_free_all(&ast_arena);
+    compiler_arena_free_all(&lex_arena);
     compile_files_maybe_release_transient_arenas(&arena, &temp_arena, out_artifacts);
     return 0;
 }

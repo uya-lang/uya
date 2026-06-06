@@ -68,6 +68,33 @@ bash scripts/bench_compiler_1s.sh --runs 3 --keep-logs
 
 结论：当前硬口径 peak RSS baseline 为 2,103,824 KiB median，约 2.01 GiB；输出产物 baseline 为 15,236,271 bytes。`make uya` 日志当前未暴露 compiler 内部 `arena_peak_bytes` 和动态表统计，所以这些字段仍为 `NA`，不能用于内部内存达标判断。
 
+### Phase 5A 更新：arena / 动态表内存字段已落地（2026-06-06）
+
+Phase 5A 把 parser AST、checker 工作内存、C99 emitter 拆为独立 arena（详见
+[`compiler_1s_architecture_design.md`](compiler_1s_architecture_design.md) 12.5），并让
+`compile.sh` 在普通模式透出编译统计的内存字段，因此 `make uya` 日志与
+`make bench-compiler-1s` 不再为 `NA`。单轮真实冷构建（`make clean && make uya`，直接 C99）实测：
+
+| 字段 | 值 |
+| --- | ---: |
+| peak_rss_kb | 2,141,652 |
+| arena_peak_bytes（driver+ast+check+emit 合计） | 1,395,852,048 |
+| ast_arena_peak_bytes | 1,207,713,896 |
+| check_arena_peak_bytes | 77,056,144 |
+| emit_arena_peak_bytes | 10,018,544 |
+| table_count（动态表项数） | 683,234 |
+| table_capacity | 3,219,324 |
+| table_bytes（实占） | 3,469,475 |
+| table_capacity_bytes | 31,566,927 |
+| table_realloc_count | 229 |
+
+说明：peak RSS 相比 Phase 0 baseline 略升约 1.8%（动态 arena chunk 改为零初始化 + 堆分配），
+属预期；arena 拆分本身不降 RSS，只是把 AST（约 1.2 GB）单独可见、可在后续按阶段释放。
+真正的 25% RSS 下降（L382）与“AST/TypedProgram/LoweredProgram 不再无界同时常驻”（L416）
+仍需在 Phase 5A 后续做按阶段释放，本表为其提供可量化基线。动态表 `capacity/count≈4.7`，
+低于 benchmark 告警阈值 8，且 `realloc_count=229>0`，由 `tests/verify_dynamic_table_budget.sh`
+门禁确认容量是按需增长而非启动超大预分配。
+
 ## 当前内存缺口
 
 本文已经有 `bench-compiler-1s` 硬口径 `peak_rss_kb` / `output_bytes` baseline；下一步仍必须补齐 compiler 内部内存字段，并确保后续阶段持续报告：

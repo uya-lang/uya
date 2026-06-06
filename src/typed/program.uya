@@ -666,3 +666,20 @@ export fn typed_program_stats(program: &TypedProgram) TypedProgramStats {
     typed_program_stats_add(&stats, &program.proof_results);
     return stats;
 }
+
+/// 功能说明：把 TypedProgram 的所有动态表累加进编译器级聚合统计。
+/// 参数说明：`program` 为目标 TypedProgram；`agg` 为待累加聚合。
+/// 返回值说明：无；参数无效时不修改 agg。
+export fn typed_program_accumulate_table_stats(program: &TypedProgram, agg: &SemanticTableAgg) void {
+    if program == null || agg == null {
+        return;
+    }
+    semantic_table_agg_add_vector(agg, &program.expr_types);
+    semantic_table_agg_add_vector(agg, &program.identifier_bindings);
+    semantic_table_agg_add_vector(agg, &program.call_targets);
+    semantic_table_agg_add_vector(agg, &program.method_dispatch);
+    semantic_table_agg_add_vector(agg, &program.field_access);
+    semantic_table_agg_add_vector(agg, &program.global_init_order);
+    semantic_table_agg_add_vector(agg, &program.reachable_roots);
+    semantic_table_agg_add_vector(agg, &program.proof_results);
+}

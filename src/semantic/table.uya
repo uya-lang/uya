@@ -107,6 +107,57 @@ fn semantic_table_stats(count: usize, capacity: usize, bytes: usize, realloc_cou
     };
 }
 
+/// 编译器动态表聚合统计：跨多张动态表累加项数/容量/字节/重分配次数。
+/// `used_bytes` 为实际项占用（count*item_size），`capacity_bytes` 为已分配容量字节。
+/// 用于 benchmark 输出 table_count/table_capacity/table_bytes/table_capacity_bytes/table_realloc_count。
+export struct SemanticTableAgg {
+    table_count: i32,        // 参与聚合的动态表张数
+    items: usize,            // 所有表实际项数之和
+    capacity: usize,         // 所有表容量项数之和
+    used_bytes: usize,       // 所有表实际占用字节之和（count*item_size）
+    capacity_bytes: usize,   // 所有表已分配容量字节之和
+    realloc_count: i32,      // 所有表重分配次数之和
+}
+
+/// 初始化空聚合。
+export fn semantic_table_agg_init() SemanticTableAgg {
+    return SemanticTableAgg{
+        table_count: 0,
+        items: 0usize,
+        capacity: 0usize,
+        used_bytes: 0usize,
+        capacity_bytes: 0usize,
+        realloc_count: 0,
+    };
+}
+
+/// 把一张动态 vector 计入聚合。
+export fn semantic_table_agg_add_vector(agg: &SemanticTableAgg, vec: &SemanticVector) void {
+    if agg == null || vec == null {
+        return;
+    }
+    agg.table_count = agg.table_count + 1;
+    agg.items = agg.items + vec.count;
+    agg.capacity = agg.capacity + vec.capacity;
+    agg.used_bytes = agg.used_bytes + vec.count * vec.item_size;
+    agg.capacity_bytes = agg.capacity_bytes + vec.bytes;
+    agg.realloc_count = agg.realloc_count + vec.realloc_count;
+}
+
+/// 把一张动态 hash 计入聚合。
+export fn semantic_table_agg_add_hash(agg: &SemanticTableAgg, hash: &SemanticHash) void {
+    if agg == null || hash == null {
+        return;
+    }
+    const entry_size: usize = @size_of(SemanticHashEntry);
+    agg.table_count = agg.table_count + 1;
+    agg.items = agg.items + hash.count;
+    agg.capacity = agg.capacity + hash.capacity;
+    agg.used_bytes = agg.used_bytes + hash.count * entry_size;
+    agg.capacity_bytes = agg.capacity_bytes + hash.bytes;
+    agg.realloc_count = agg.realloc_count + hash.realloc_count;
+}
+
 /// 功能说明：初始化动态 vector。
 /// 参数说明：`vec` 为待初始化 vector，`item_size` 为每个元素的字节数。
 /// 返回值说明：无。
