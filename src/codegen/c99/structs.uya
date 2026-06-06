@@ -1217,6 +1217,26 @@ fn struct_implements_interface_c99(codegen: &C99CodeGenerator, struct_name: &byt
 }
 
 // 查找接口声明（_impl：原始查找逻辑，带缓存优化；外层同名薄包装做查询剖析记账）
+// interface 精确名全程序线性扫描（oracle 对照 / 无 SemanticDb 时回退用）。
+fn find_interface_decl_c99_scan(codegen: &C99CodeGenerator, interface_name: &byte) &ASTNode {
+    if codegen == null || interface_name == null || codegen.program_node == null {
+        return null;
+    }
+    const decl_count: i32 = codegen.program_node.program_decl_count;
+    var i: i32 = 0;
+    while i < decl_count {
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_INTERFACE_DECL {
+            const decl_name: &byte = decl.interface_decl_name;
+            if decl_name != null && strcmp(decl_name as *byte, interface_name as *byte) == 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
 fn find_interface_decl_c99_impl(codegen: &C99CodeGenerator, interface_name: &byte) &ASTNode {
     if codegen == null || interface_name == null || codegen.program_node == null {
         return null;
@@ -1234,20 +1254,22 @@ fn find_interface_decl_c99_impl(codegen: &C99CodeGenerator, interface_name: &byt
             return cached;
         }
     }
-    // 缓存未命中，线性查找
-    const decl_count: i32 = codegen.program_node.program_decl_count;
-    var i: i32 = 0;
-    while i < decl_count {
-        const decl: &ASTNode = codegen.program_node.program_decls[i];
-        if decl != null && decl.type == ASTNodeType.AST_INTERFACE_DECL {
-            const decl_name: &byte = decl.interface_decl_name;
-            if decl_name != null && strcmp(decl_name as *byte, interface_name as *byte) == 0 {
-                return decl;
+    // SemanticDb O(1) 精确查找替代全程序线性扫描：interface 查找是纯精确匹配（无泛型 mono 回退），
+    // 故 SemanticDb 否定即真否定。perf 实测 find_interface_decl_c99 100% 否定（10 万次全表扫描），
+    // 此短路直接消除。type range 经 Phase 2 oracle 验证覆盖全部 interface 声明；
+    // UYA_C99_LOOKUP_ORACLE=1 时再与原扫描对照确认完整性。
+    if codegen.checker != null {
+        const r_sem: &ASTNode = c99_semantic_find_type_decl_by_kind(codegen, interface_name, ASTNodeType.AST_INTERFACE_DECL);
+        if c99_lookup_oracle_enabled() != 0 {
+            const r_scan: &ASTNode = find_interface_decl_c99_scan(codegen, interface_name);
+            if r_sem != r_scan {
+                fprintf(libc.stderr, "[UYA_C99_LOOKUP_ORACLE] iface 否定短路与扫描不一致: name=%s\n" as *byte, interface_name as *byte);
             }
         }
-        i = i + 1;
+        return r_sem;
     }
-    return null;
+    // 无 checker（SemanticDb 不可用）：回退原线性扫描。
+    return find_interface_decl_c99_scan(codegen, interface_name);
 }
 
 // 查找接口声明：薄包装，记账查询剖析后委托 _impl。

@@ -88,6 +88,51 @@ export fn c99_qprof_dump() void {
         g_qp_calls[QP_IFACE], g_qp_hits[QP_IFACE]);
 }
 
+/// 功能说明：用 SemanticDb 类型声明索引按 (精确 intern 名, AST 节点类型) O(1) 查找声明。
+///           range 按 intern name_id 组织，命中即精确名匹配；未 intern / 无 type range / 无同类型项
+///           返回 null。供 codegen 否定查找短路替代全程序线性扫描。
+/// 参数说明：`codegen`；`name` 待查名；`kind` 期望 AST 节点类型。返回值说明：命中返回节点，否则 null。
+export fn c99_semantic_find_type_decl_by_kind(codegen: &C99CodeGenerator, name: &byte, kind: ASTNodeType) &ASTNode {
+    if codegen == null || name == null || codegen.checker == null {
+        return null;
+    }
+    const db: &SemanticDb = &codegen.checker.semantic_db;
+    const name_id: i32 = semantic_db_find_interned_name(db, name);
+    if name_id < 0 {
+        return null;
+    }
+    var range: SemanticTypeDeclRange = SemanticTypeDeclRange{
+        name_id: -1,
+        type_start: -1,
+        type_count: -1,
+    };
+    if semantic_db_find_type_decl_range(db, name_id, &range) == 0 {
+        return null;
+    }
+    var offset: i32 = 0;
+    while offset < range.type_count {
+        const decl_id: i32 = semantic_db_type_range_decl_id(db, &range, offset);
+        if decl_id >= 0 {
+            const decl: &ASTNode = semantic_db_decl_ast_node(db, decl_id);
+            if decl != null && decl.type == kind {
+                return decl;
+            }
+        }
+        offset = offset + 1;
+    }
+    return null;
+}
+
+/// 功能说明：是否启用查找 oracle（UYA_C99_LOOKUP_ORACLE=1）：短路决策与原全表扫描对照，不一致则报警。
+/// 参数说明：无。返回值说明：启用返回 1，否则 0。
+export fn c99_lookup_oracle_enabled() i32 {
+    const p: &byte = getenv("UYA_C99_LOOKUP_ORACLE" as &byte);
+    if p != null && p[0] != 0 as byte {
+        return 1;
+    }
+    return 0;
+}
+
 fn c99_codegen_report_capacity_error(node: &ASTNode, table_name: &byte, count: i32, limit: i32) void {
     g_c99_codegen_has_error = 1;
     var name: &byte = table_name;

@@ -177,6 +177,19 @@ L393 关心的是"C99 输出从全局状态 + 边生成边补发收口为 unit �
 另记一个我在 Phase 5A 引入的回归点：`arena.uya:122` 的动态 chunk 零初始化 `memset` 占 perf 5.3%
 （AST ~1.2GB / 1MB chunk ≈ 1200 次 1MB memset），可改 `calloc`（大块走 mmap 零页，近乎免费）。
 
+#### 已落地：interface 否定查找短路（2026-06-06）
+
+按上面第 1 步实现了 `find_interface_decl_c99` 的否定短路：interface 查找是纯精确匹配（无泛型 mono
+回退），故用 `c99_semantic_find_type_decl_by_kind`（SemanticDb intern→type range→按 kind）O(1)
+完全替代原全程序线性扫描，否定即真否定直接返回 null。`UYA_C99_LOOKUP_ORACLE=1` 下与原扫描逐次
+对照：`src/main.uya` **0 处不一致**，证明 SemanticDb 对 interface 完整、短路正确性无损。
+
+实测 `body_ms` 中位 **6604ms → 5378ms（−18.5%）**，`total_ms` ~7600 → ~6300；`make check` 全绿。
+降幅大于 perf 的 iface 8.9%，因为连带消除了大量 `str_equals`/`strcmp`（每次否定原本要扫 ~3828 decl）。
+验证了"埋点定位否定查找 → SemanticDb 否定短路"这条数据驱动路径。下一步对 `find_union_decl_c99`
+（99.9% 否定，但有 mono 回退，只能短路第一轮 exact 扫描、保留 mono fallback）和
+`c99_find_enum_decl_in_context` 同法推进。
+
 ## 当前内存缺口
 
 本文已经有 `bench-compiler-1s` 硬口径 `peak_rss_kb` / `output_bytes` baseline；下一步仍必须补齐 compiler 内部内存字段，并确保后续阶段持续报告：
