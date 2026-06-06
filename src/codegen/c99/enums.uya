@@ -9,6 +9,26 @@
 
 extern fn c99_codegen_report_capacity_error(node: &ASTNode, table_name: &byte, count: i32, limit: i32) void;
 
+// enum 精确名全程序线性扫描（oracle 对照 / 无 SemanticDb 时回退用）。
+fn find_enum_decl_c99_scan(codegen: &C99CodeGenerator, enum_name: &byte) &ASTNode {
+    if codegen == null || enum_name == null || codegen.program_node == null {
+        return null;
+    }
+    const decl_count: i32 = codegen.program_node.program_decl_count;
+    var i: i32 = 0;
+    while i < decl_count {
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_ENUM_DECL {
+            const decl_name: &byte = decl.enum_decl_name;
+            if decl_name != null && strcmp(decl_name as *byte, enum_name as *byte) == 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
 fn find_enum_decl_c99_impl(codegen: &C99CodeGenerator, enum_name: &byte) &ASTNode {
     if codegen == null || enum_name == null || codegen.program_node == null {
         return null;
@@ -25,22 +45,20 @@ fn find_enum_decl_c99_impl(codegen: &C99CodeGenerator, enum_name: &byte) &ASTNod
             return cached;
         }
     }
-
-    const decl_count: i32 = codegen.program_node.program_decl_count;
-    
-    var i: i32 = 0;
-    while i < decl_count {
-        const decl: &ASTNode = codegen.program_node.program_decls[i];
-        if decl != null && decl.type == ASTNodeType.AST_ENUM_DECL {
-            const decl_name: &byte = decl.enum_decl_name;
-            if decl_name != null && strcmp(decl_name as *byte, enum_name as *byte) == 0 {
-                return decl;
+    // SemanticDb O(1) 精确查找替代全程序线性扫描：enum 查找纯精确匹配（无 mono 回退），
+    // 否定即真否定。type range 经 Phase 2 oracle 验证覆盖全部 enum 声明；
+    // UYA_C99_LOOKUP_ORACLE=1 时与原扫描对照确认完整性。
+    if codegen.checker != null {
+        const r_sem: &ASTNode = c99_semantic_find_type_decl_by_kind(codegen, enum_name, ASTNodeType.AST_ENUM_DECL);
+        if c99_lookup_oracle_enabled() != 0 {
+            const r_scan: &ASTNode = find_enum_decl_c99_scan(codegen, enum_name);
+            if r_sem != r_scan {
+                fprintf(libc.stderr, "[UYA_C99_LOOKUP_ORACLE] enum 否定短路与扫描不一致: name=%s\n" as *byte, enum_name as *byte);
             }
         }
-        i = i + 1;
+        return r_sem;
     }
-    
-    return null;
+    return find_enum_decl_c99_scan(codegen, enum_name);
 }
 
 // 查找枚举声明：薄包装，记账查询剖析后委托 _impl。
