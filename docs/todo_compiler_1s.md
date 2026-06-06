@@ -471,8 +471,8 @@ make check
 
 ## Phase 7: 入口瘦身与命令外置
 
-- [ ] 阅读 `docs/cmd_subcommand_split_design.md`。
-- [ ] 更新其中过期的 8400 行基线为当前实际基线。
+- [x] 阅读 `docs/cmd_subcommand_split_design.md`。
+- [x] 更新其中过期的 8400 行基线为当前实际基线。
 - [ ] 提取 `src/compiler_driver.uya`。
 - [ ] 新建 `src/cmd/build/main.uya`。
 - [ ] 新建 `src/cmd/check/main.uya`。

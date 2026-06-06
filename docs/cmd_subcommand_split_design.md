@@ -1,10 +1,10 @@
 # Uya 编译器入口瘦身设计：`src/main.uya` 拆分与职责外置
 
 **状态**: design draft, implementation pending
-**更新日期**: 2026-05-03
+**更新日期**: 2026-06-06
 **范围**: `src/main.uya` 物理拆分，`build`/`check`/`run`/`test`/`fmt`/`upm` 真实独立
 
-> **当前问题**: 当前仓库中 `src/main.uya` 仍约 8400 行，`parse_args()` 和 `main()` 仍直接处理 `build`/`check`/`run`/`test`/`fmt` 等业务参数；`src/cmd/` 入口、`make cmds`、`dispatch_external_cmd` 和 `bin/cmd/*` 尚未落地。本设计目标是先把业务逻辑物理拆出 `src/main.uya`，再引入真实独立子命令，而不是增加一层回调 `src/main.uya` 的代理壳。
+> **当前问题**: 当前仓库中 `src/main.uya` 约 3859 行（2026-06-06 实测；microapp 核心逻辑已外置到 `microapp` 模块，见 `use microapp;`），但 `parse_args()` 和 `main()` 仍直接处理 `build`/`check`/`run`/`test`/`fmt` 等业务参数；`src/cmd/` 入口、`make cmds`、`dispatch_external_cmd` 和 `bin/cmd/*` 尚未落地。本设计目标是先把业务逻辑物理拆出 `src/main.uya`，再引入真实独立子命令，而不是增加一层回调 `src/main.uya` 的代理壳。
 
 ---
 
@@ -18,16 +18,17 @@
 - 辅助命令（`pack-image`/`inspect-image`/`verify-image`/`--outlibc`）
 - 隐式编译入口（`uya file.uya -o out`，自举兼容）
 
-`src/main.uya` 当前约 **8400 行**，其中：
+`src/main.uya` 当前约 **3859 行**（2026-06-06 实测），其中：
 
 | 区域 | 大约行数 | 说明 |
 |------|---------|------|
-| Microapp 逻辑 | ~3250 | ELF/Mach-O 提取、重定位、打包、检查、验证 |
-| 参数解析 `parse_args` | ~1400 | 所有命令行选项与校验 |
-| 编译主流程 `compile_files` | ~700 | 依赖收集、AST 合并、代码生成 |
-| 工具链/链接 | ~500 | `link_with_toolchain`、`compile_c_source_to_object`、C import 处理 |
-| 通用工具 | ~1000 | 路径处理、模块查找、`detect_main`、`collect_module_dependencies` |
-| 主入口与帮助信息 | ~1000 | `main()` 命令分支、输出路径处理、帮助信息 |
+| 编译主流程 `compile_files` | ~810 | 依赖收集、AST 合并、代码生成、工具链链接编排 |
+| 主入口 `main` + 帮助 `print_usage` | ~690 | `main()` 命令分支、输出路径处理、帮助信息 |
+| 参数解析 `parse_args` | ~380 | 所有命令行选项与校验 |
+| `--outlibc` `generate_libc` | ~344 | 导出 libc 源码 |
+| 其余（路径/模块查找/锁/`detect_main`/全局状态/microapp 参数桥接） | ~1600 | 通用工具与 microapp CLI 参数（核心 microapp 逻辑已外置） |
+
+> 注：早期设计（2026-05-03）记录的 ~8400 行基线已过期。Microapp 的 ELF/Mach-O 提取、重定位、打包、检查、验证等核心逻辑已物理外置到独立 `microapp` 模块（`src/main.uya` 仅保留 `use microapp;` 与 CLI 参数桥接），因此入口文件已显著瘦身。本表为当前实测快照，后续拆分目标应以 3859 行为基线计算。
 
 当前尚未完成的基础设施：
 
@@ -241,9 +242,11 @@ bin/cmd/build build main.uya -o app   # 兼容但不推荐
 3. `src/main.uya` 中 `use compiler_driver;`，隐式入口改为调用 `compiler_driver_main()`。
 4. 运行 `./tests/run_programs_parallel.sh` 和 `make tests-uya` 验证。
 
-**预期效果**：`src/main.uya` 从约 8400 → ~6000 行。
+**预期效果**：`src/main.uya` 从约 3859 → ~2600 行（业务参数与编译编排迁入 `compiler_driver` 后）。
 
-### Phase B：提取 Microapp 逻辑（~3250 行）
+### Phase B：提取 Microapp 逻辑（已完成）
+
+> **状态（2026-06-06）**：已完成。Microapp 核心逻辑已外置为独立 `microapp` 模块，`src/main.uya` 仅保留 `use microapp;` 与 CLI 参数桥接。本节保留为历史记录。
 
 1. 新建 `src/microapp.uya`。
 2. 把所有 microapp 相关函数移入。
@@ -394,4 +397,4 @@ make backup-all
 - [ ] Phase D 准备完成：`cmd/build` seed 已纳入 `make from-c` / `make from-c-native` / `make backup-all`，清理后冷启动可生成 `bin/cmd/build`。
 - [ ] Phase D 完成：`src/main.uya` 隐式编译入口已移除，变为纯调度器，自举种子已更新，`make backup-all` 通过。
 
-**当前进度**：Phase A 尚未开始；调度器、`src/cmd/*`、`make cmds` 和调度测试均尚未落地。`src/main.uya` 仍约 8400 行，业务逻辑尚未拆分。
+**当前进度（2026-06-06）**：Phase B（microapp 外置）已完成，`src/main.uya` 已从约 8400 行瘦身至约 3859 行。Phase A（调度器、`src/cmd/*`、`make cmds`、调度测试）尚未落地；业务参数解析与编译编排仍在 `src/main.uya` 内，尚未拆出 `src/compiler_driver.uya`。
