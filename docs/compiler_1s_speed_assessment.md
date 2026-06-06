@@ -119,6 +119,30 @@ L393 关心的是"C99 输出从全局状态 + 边生成边补发收口为 unit �
 末尾 `emit_pending_*` 补发机制仍作为防御性代码存在；将其改为 plan 驱动的逐 unit 发射属 Phase 6
 （L428-L433、L441-L444）。
 
+### Phase 5A/6 更新：两条 1s 杠杆的可行性结论（2026-06-06）
+
+实测后对两条剩余 1s 杠杆给出明确结论，供后续不再重复试错：
+
+**L382/L417（−25% peak RSS）当前架构下不可由"按阶段释放"达成。** `ast_merge_programs` 是指针
+拼接而非深拷贝（`src/ast.uya:796`），故 `ast_arena≈1.2GB` 是 C99 emitter 全程遍历的**活** AST
+（非合并前死副本），无法在 codegen 前释放；AST 占 2.05GB peak 的主体。`check_arena`(77MB)/
+`emit_arena`(10MB)/TypedProgram(30MB) 即便提前释放也远不够 25%（≈512MB）。真正的 25% 需要：
+缩小 `ASTNode` mega-struct，或让 C99 改为消费紧凑 IR（LoweredProgram）而非 AST（设计文档第 3-7 节
+的整体重构），或走 native 路径（本 TODO L33 把 50% RSS 下降定位在 Phase 9-10）。均非可控小增量。
+
+**L467（body_ms<4000）naive 查找迁移不奏效。** 把 `find_struct/union/enum/interface_decl_c99`
+加 SemanticDb 类型索引精确名快路径后，实测 body_ms 无变化（迁移前中位 6604ms、迁移后 6653ms，
+落在抖动内），已回退。原因：这些 `find_*_c99` 的成本由**否定/试探性查找**（"X 是不是 union？"→否）
+主导，否定时 SemanticDb 命中失败后仍回退全程序线性扫描，正向快路径帮不上，反而多一次探测。
+真正要降 body_ms 需要：(1) 否定查找短路——SemanticDb miss 即返回 null、跳过回退扫描，前提是用
+完整性 oracle（同 Phase 2 做法）证明索引覆盖全部真实声明；(2) 迁移上下文敏感的
+`c99_find_enum_decl_in_context`（perf 第一热点，3 次线性扫描）。属需谨慎验证的较大改造，且仅靠
+查找迁移也填不平 6.6s→4s 的差距。
+
+结论：两条 KPI 都不是收口式小改能达成的；1s 目标的现实路径是设计文档主张的 IR 化重构与 native
+后端（Phase 9-12），而非在当前 AST-直出-C99 架构上做局部优化。这与设计文档"当前架构自然极限是
+几秒级全量 + 1 秒热路径"的判断一致。
+
 ## 当前内存缺口
 
 本文已经有 `bench-compiler-1s` 硬口径 `peak_rss_kb` / `output_bytes` baseline；下一步仍必须补齐 compiler 内部内存字段，并确保后续阶段持续报告：
