@@ -9,7 +9,7 @@
 
 extern fn c99_codegen_report_capacity_error(node: &ASTNode, table_name: &byte, count: i32, limit: i32) void;
 
-fn find_enum_decl_c99(codegen: &C99CodeGenerator, enum_name: &byte) &ASTNode {
+fn find_enum_decl_c99_impl(codegen: &C99CodeGenerator, enum_name: &byte) &ASTNode {
     if codegen == null || enum_name == null || codegen.program_node == null {
         return null;
     }
@@ -41,6 +41,17 @@ fn find_enum_decl_c99(codegen: &C99CodeGenerator, enum_name: &byte) &ASTNode {
     }
     
     return null;
+}
+
+// 查找枚举声明：薄包装，记账查询剖析后委托 _impl。
+fn find_enum_decl_c99(codegen: &C99CodeGenerator, enum_name: &byte) &ASTNode {
+    const r: &ASTNode = find_enum_decl_c99_impl(codegen, enum_name);
+    if c99_qprof_enabled() != 0 {
+        var hit: i32 = 0;
+        if r != null { hit = 1; }
+        c99_qprof_bump(QP_ENUM, hit);
+    }
+    return r;
 }
 
 fn c99_build_use_module_name(codegen: &C99CodeGenerator, use_stmt: &ASTNode) &byte {
@@ -167,7 +178,7 @@ fn c99_enum_context_cache_store(codegen: &C99CodeGenerator, enum_name: &byte, co
     return result;
 }
 
-fn c99_find_enum_decl_in_context(codegen: &C99CodeGenerator, enum_name: &byte, context_filename: &byte) &ASTNode {
+fn c99_find_enum_decl_in_context_impl(codegen: &C99CodeGenerator, enum_name: &byte, context_filename: &byte) &ASTNode {
     if codegen == null || codegen.program_node == null || enum_name == null {
         return null;
     }
@@ -188,7 +199,7 @@ fn c99_find_enum_decl_in_context(codegen: &C99CodeGenerator, enum_name: &byte, c
                 decl_alias.type_alias_target_type.type_named_name != null &&
                 strcmp(decl_alias.type_alias_target_type.type_named_name as *byte, enum_name as *byte) != 0 {
                 return c99_enum_context_cache_store(codegen, enum_name, context_filename,
-                    c99_find_enum_decl_in_context(codegen,
+                    c99_find_enum_decl_in_context_impl(codegen,
                         decl_alias.type_alias_target_type.type_named_name, context_filename));
             }
             i_alias = i_alias + 1;
@@ -227,12 +238,23 @@ fn c99_find_enum_decl_in_context(codegen: &C99CodeGenerator, enum_name: &byte, c
         alias_decl.type_alias_target_type.type_named_name != null &&
         strcmp(alias_decl.type_alias_target_type.type_named_name as *byte, enum_name as *byte) != 0 {
         return c99_enum_context_cache_store(codegen, enum_name, context_filename,
-            c99_find_enum_decl_in_context(codegen,
+            c99_find_enum_decl_in_context_impl(codegen,
                 alias_decl.type_alias_target_type.type_named_name, alias_decl.filename));
     }
 
     return c99_enum_context_cache_store(codegen, enum_name, context_filename,
         find_enum_decl_c99(codegen, enum_name));
+}
+
+// 上下文敏感枚举查找：薄包装，记账查询剖析后委托 _impl（仅记最外层调用，递归走 _impl）。
+fn c99_find_enum_decl_in_context(codegen: &C99CodeGenerator, enum_name: &byte, context_filename: &byte) &ASTNode {
+    const r: &ASTNode = c99_find_enum_decl_in_context_impl(codegen, enum_name, context_filename);
+    if c99_qprof_enabled() != 0 {
+        var hit: i32 = 0;
+        if r != null { hit = 1; }
+        c99_qprof_bump(QP_ENUM_CTX, hit);
+    }
+    return r;
 }
 
 fn c99_get_enum_module_prefix(codegen: &C99CodeGenerator, filename: &byte) &byte {

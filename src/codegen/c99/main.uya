@@ -2235,6 +2235,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     
     // 保存程序节点引用
     codegen.program_node = ast;
+    c99_qprof_init();  // UYA_PROFILE_QUERIES：初始化声明查询计数（默认关）
     var saved_checker_codegen_diag: i32 = 0;
     if codegen.checker != null {
         saved_checker_codegen_diag = codegen.checker.suppress_codegen_diagnostics;
@@ -5156,7 +5157,8 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         fprintf(libc.stderr, "[UYA_PROFILE_CODEGEN] simd_ms=%ld precollect_ms=%ld header_ms=%ld step1_typedef_ms=%ld step6_mid_ms=%ld step6e_tail_ms=%ld prelude_ms=%ld body_ms=%ld total_ms=%ld\n" as *byte,
             prof_simd_ms, prof_ms_precollect, prof_ms_header, prof_ms_step1_typedef, prof_ms_step6_mid, prof_ms_step6e_tail, prof_ms_prelude, body_ms, total_ms);
     }
-    
+    c99_qprof_dump();  // UYA_PROFILE_QUERIES：打印各 find_*_c99 的 calls/hits（仅启用时）
+
     // emitter 结束后校验 mono/err_union/async frame 未发生漂移（Phase 5 KPI）
     if c99_codegen_verify_emitter_start_stability(codegen) != 0 {
         if codegen.checker != null {

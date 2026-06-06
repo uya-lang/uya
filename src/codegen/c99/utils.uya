@@ -23,6 +23,71 @@ use libc;
 
 var g_c99_codegen_has_error: i32 = 0;
 
+// ===== codegen 声明查询剖析（UYA_PROFILE_QUERIES=1，默认关、不计入 KPI）=====
+// 量化 perf 给不了的绝对调用次数与命中率：揭示 find_*_c99 被调多少次、其中多少是
+// 否定查找（hit=0，需回退线性扫描），为"消除重复查询 / 否定缓存 / SemanticDb 短路"提供依据。
+const QP_KIND_COUNT: i32 = 5;
+const QP_ENUM_CTX: i32 = 0;   // c99_find_enum_decl_in_context（上下文敏感，3 次线性扫描）
+const QP_STRUCT: i32 = 1;     // find_struct_decl_c99
+const QP_UNION: i32 = 2;      // find_union_decl_c99
+const QP_ENUM: i32 = 3;       // find_enum_decl_c99
+const QP_IFACE: i32 = 4;      // find_interface_decl_c99
+var g_qp_enabled: i32 = 0;
+var g_qp_calls: [i64: QP_KIND_COUNT] = [];
+var g_qp_hits: [i64: QP_KIND_COUNT] = [];
+
+/// 功能说明：从 UYA_PROFILE_QUERIES 初始化查询剖析开关并清零计数器。codegen 入口调用一次。
+/// 参数说明：无。返回值说明：无。
+export fn c99_qprof_init() void {
+    const p: &byte = getenv("UYA_PROFILE_QUERIES" as &byte);
+    var on: i32 = 0;
+    if p != null && p[0] != 0 as byte {
+        on = 1;
+    }
+    g_qp_enabled = on;
+    var i: i32 = 0;
+    while i < QP_KIND_COUNT {
+        g_qp_calls[i] = 0i64;
+        g_qp_hits[i] = 0i64;
+        i = i + 1;
+    }
+}
+
+/// 功能说明：查询剖析是否启用（启用时 find 包装才记账）。
+/// 参数说明：无。返回值说明：启用返回 1，否则 0。
+export fn c99_qprof_enabled() i32 {
+    return g_qp_enabled;
+}
+
+/// 功能说明：记一次声明查询：kind 类计数 +1，命中（返回非 null）时命中计数 +1。
+/// 参数说明：`kind` 为 QP_* 类别；`hit` 非 0 表示本次查询命中。返回值说明：无。
+export fn c99_qprof_bump(kind: i32, hit: i32) void {
+    if g_qp_enabled == 0 {
+        return;
+    }
+    if kind < 0 || kind >= QP_KIND_COUNT {
+        return;
+    }
+    g_qp_calls[kind] = g_qp_calls[kind] + 1i64;
+    if hit != 0 {
+        g_qp_hits[kind] = g_qp_hits[kind] + 1i64;
+    }
+}
+
+/// 功能说明：codegen 结束时打印各 find_*_c99 的 calls/hits（命中率），仅启用时输出。
+/// 参数说明：无。返回值说明：无。
+export fn c99_qprof_dump() void {
+    if g_qp_enabled == 0 {
+        return;
+    }
+    fprintf(libc.stderr, "[UYA_PROFILE_QUERIES] enum_ctx calls=%ld hits=%ld | struct calls=%ld hits=%ld | union calls=%ld hits=%ld | enum calls=%ld hits=%ld | iface calls=%ld hits=%ld\n" as *byte,
+        g_qp_calls[QP_ENUM_CTX], g_qp_hits[QP_ENUM_CTX],
+        g_qp_calls[QP_STRUCT], g_qp_hits[QP_STRUCT],
+        g_qp_calls[QP_UNION], g_qp_hits[QP_UNION],
+        g_qp_calls[QP_ENUM], g_qp_hits[QP_ENUM],
+        g_qp_calls[QP_IFACE], g_qp_hits[QP_IFACE]);
+}
+
 fn c99_codegen_report_capacity_error(node: &ASTNode, table_name: &byte, count: i32, limit: i32) void {
     g_c99_codegen_has_error = 1;
     var name: &byte = table_name;

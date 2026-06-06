@@ -78,8 +78,8 @@ fn add_struct_definition(codegen: &C99CodeGenerator, struct_name: &byte) void {
     }
 }
 
-// 查找结构体声明
-fn find_struct_decl_c99(codegen: &C99CodeGenerator, struct_name: &byte) &ASTNode {
+// 查找结构体声明（_impl：原始查找逻辑；外层同名薄包装做查询剖析记账）
+fn find_struct_decl_c99_impl(codegen: &C99CodeGenerator, struct_name: &byte) &ASTNode {
     if codegen == null || struct_name == null || codegen.program_node == null {
         return null;
     }
@@ -136,8 +136,19 @@ fn find_struct_decl_c99(codegen: &C99CodeGenerator, struct_name: &byte) &ASTNode
     return null;
 }
 
-// 查找联合体声明
-fn find_union_decl_c99(codegen: &C99CodeGenerator, union_name: &byte) &ASTNode {
+// 查找结构体声明：薄包装，记账查询剖析后委托 _impl。
+fn find_struct_decl_c99(codegen: &C99CodeGenerator, struct_name: &byte) &ASTNode {
+    const r: &ASTNode = find_struct_decl_c99_impl(codegen, struct_name);
+    if c99_qprof_enabled() != 0 {
+        var hit: i32 = 0;
+        if r != null { hit = 1; }
+        c99_qprof_bump(QP_STRUCT, hit);
+    }
+    return r;
+}
+
+// 查找联合体声明（_impl：原始查找逻辑；外层同名薄包装做查询剖析记账）
+fn find_union_decl_c99_impl(codegen: &C99CodeGenerator, union_name: &byte) &ASTNode {
     if codegen == null || union_name == null || codegen.program_node == null {
         return null;
     }
@@ -187,6 +198,17 @@ fn find_union_decl_c99(codegen: &C99CodeGenerator, union_name: &byte) &ASTNode {
         i = i + 1;
     }
     return null;
+}
+
+// 查找联合体声明：薄包装，记账查询剖析后委托 _impl。
+fn find_union_decl_c99(codegen: &C99CodeGenerator, union_name: &byte) &ASTNode {
+    const r: &ASTNode = find_union_decl_c99_impl(codegen, union_name);
+    if c99_qprof_enabled() != 0 {
+        var hit: i32 = 0;
+        if r != null { hit = 1; }
+        c99_qprof_bump(QP_UNION, hit);
+    }
+    return r;
 }
 
 // 查找联合体对应的方法块
@@ -1194,8 +1216,8 @@ fn struct_implements_interface_c99(codegen: &C99CodeGenerator, struct_name: &byt
     return 0;
 }
 
-// 查找接口声明（带缓存优化）
-fn find_interface_decl_c99(codegen: &C99CodeGenerator, interface_name: &byte) &ASTNode {
+// 查找接口声明（_impl：原始查找逻辑，带缓存优化；外层同名薄包装做查询剖析记账）
+fn find_interface_decl_c99_impl(codegen: &C99CodeGenerator, interface_name: &byte) &ASTNode {
     if codegen == null || interface_name == null || codegen.program_node == null {
         return null;
     }
@@ -1226,6 +1248,17 @@ fn find_interface_decl_c99(codegen: &C99CodeGenerator, interface_name: &byte) &A
         i = i + 1;
     }
     return null;
+}
+
+// 查找接口声明：薄包装，记账查询剖析后委托 _impl。
+fn find_interface_decl_c99(codegen: &C99CodeGenerator, interface_name: &byte) &ASTNode {
+    const r: &ASTNode = find_interface_decl_c99_impl(codegen, interface_name);
+    if c99_qprof_enabled() != 0 {
+        var hit: i32 = 0;
+        if r != null { hit = 1; }
+        c99_qprof_bump(QP_IFACE, hit);
+    }
+    return r;
 }
 
 /// 在接口及组合接口中查找方法签名（与 checker lookup 语义一致，供 codegen 解析 Future 操作数 C 类型）

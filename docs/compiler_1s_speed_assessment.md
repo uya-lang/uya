@@ -143,6 +143,40 @@ L393 关心的是"C99 输出从全局状态 + 边生成边补发收口为 unit �
 后端（Phase 9-12），而非在当前 AST-直出-C99 架构上做局部优化。这与设计文档"当前架构自然极限是
 几秒级全量 + 1 秒热路径"的判断一致。
 
+### 前端剖析：codegen 声明查询埋点（2026-06-06）
+
+实测确认前端瓶颈是共享的逐节点语义重复查询：`--vm` 字节码路径 `exec lowering 7201ms` ≈
+直接 C99 `codegen 7516ms`，而 `exec bytecode 构建耗时: 0ms`——输出格式不是成本，lowering 才是。
+故 native 后端会继承同样的 ~7s lowering，只省去 host `cc`（make uya 30s 里约 10s），碰不到前端。
+
+新增 `UYA_PROFILE_QUERIES=1` 埋点（`src/codegen/c99/utils.uya` 的 `c99_qprof_*`，对 5 个
+`find_*_c99` 做薄包装记 calls/hits，默认关、零 KPI 影响）。`src/main.uya` 一轮实测：
+
+| 查询 | calls | hits | 命中率 |
+| --- | ---: | ---: | ---: |
+| `c99_find_enum_decl_in_context` | 73,978 | 14,411 | 19% |
+| `find_struct_decl_c99` | 149,620 | 135,908 | 91% |
+| `find_union_decl_c99` | 36,729 | 30 | **0.08%** |
+| `find_enum_decl_c99` | 47,912 | 10,470 | 22% |
+| `find_interface_decl_c99` | 100,128 | 0 | **0%** |
+
+合计 **408,367 次**声明查询。关键发现：**`find_interface_decl_c99` 100% 否定、`find_union_decl_c99`
+99.9% 否定**——codegen 在某热路径反复问"X 是不是接口/联合体？"，答案几乎永远是否，但每次都
+全程序线性扫描（~3828 decl 各 strcmp）确认。这两项 ≈ perf self-time 的 15.7%
+（iface 8.9% + union 6.8%），是纯浪费的全表扫描。
+
+由此得出下一步优化（数据驱动，优先级从高到低）：
+
+1. **否定查找短路**：用 SemanticDb 的名字集合 O(1) 判定"X 是否是某 interface/union 名"，不在集合
+   即立即返回 null、跳过全表扫描，消除约 13.7 万次全程序扫描。需用完整性 oracle（同 Phase 2）证明
+   SemanticDb 覆盖全部真实声明后才能信任否定。
+2. **调用点否定缓存**：iface 100% 否定说明调用点逻辑可能本可避免该查询；查清 100,128 次 iface
+   查询从哪来，可能直接消除而非加速。
+3. `c99_find_enum_decl_in_context`（73,978 次、3 轮线性扫描）迁到 SemanticDb 的 (FileId,NameId) 索引。
+
+另记一个我在 Phase 5A 引入的回归点：`arena.uya:122` 的动态 chunk 零初始化 `memset` 占 perf 5.3%
+（AST ~1.2GB / 1MB chunk ≈ 1200 次 1MB memset），可改 `calloc`（大块走 mmap 零页，近乎免费）。
+
 ## 当前内存缺口
 
 本文已经有 `bench-compiler-1s` 硬口径 `peak_rss_kb` / `output_bytes` baseline；下一步仍必须补齐 compiler 内部内存字段，并确保后续阶段持续报告：
