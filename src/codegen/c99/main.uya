@@ -2044,14 +2044,17 @@ fn c99_emitter_start_dump_enabled() i32 {
 }
 
 fn c99_emitter_start_strict_enabled() i32 {
-    const p: &byte = getenv("UYA_STRICT_C99_EMITTER_START" as &byte);
-    if p == null {
-        return 0;
+    // L444：统一开关 UYA_STRICT_C99_EMITTER（设计文档/TODO 验证块使用此名）与历史
+    // UYA_STRICT_C99_EMITTER_START 任一启用即视为严格模式：发射阶段待输出表漂移直接失败。
+    const p: &byte = getenv("UYA_STRICT_C99_EMITTER" as &byte);
+    if p != null && p[0] != 0 as byte {
+        return 1;
     }
-    if p[0] == 0 as byte {
-        return 0;
+    const q: &byte = getenv("UYA_STRICT_C99_EMITTER_START" as &byte);
+    if q != null && q[0] != 0 as byte {
+        return 1;
     }
-    return 1;
+    return 0;
 }
 
 fn c99_codegen_current_async_frame_meta_count(codegen: &C99CodeGenerator) i32 {
@@ -2059,6 +2062,22 @@ fn c99_codegen_current_async_frame_meta_count(codegen: &C99CodeGenerator) i32 {
         return 0;
     }
     return codegen.checker.async_frame_meta_count;
+}
+
+/// 功能说明：测试专用故障注入开关。启用时在 emitter 稳定快照之后注册一个哑字符串常量，
+///           使发射阶段出现真实漂移，从而验证 UYA_STRICT_C99_EMITTER 漂移门禁确实会触发
+///           （证明门禁非空转）。仅 UYA_C99_EMITTER_SELFTEST_DRIFT=1 时生效，默认零影响。
+/// 参数说明：无。
+/// 返回值说明：启用返回 `1`，否则返回 `0`。
+fn c99_emitter_selftest_drift_enabled() i32 {
+    const p: &byte = getenv("UYA_C99_EMITTER_SELFTEST_DRIFT" as &byte);
+    if p == null {
+        return 0;
+    }
+    if p[0] == 0 as byte {
+        return 0;
+    }
+    return 1;
 }
 
 /// 功能说明：在 C99 emitter（函数原型/函数体发射）开始前，遍历所有 async 函数及其单态实例，
@@ -2117,11 +2136,22 @@ fn c99_codegen_capture_emitter_start_stability(codegen: &C99CodeGenerator) i32 {
     codegen.emitter_start_mono_instance_count = codegen.mono_instance_count;
     codegen.emitter_start_err_union_struct_count = codegen.err_union_struct_count;
     codegen.emitter_start_async_frame_meta_count = c99_codegen_current_async_frame_meta_count(codegen);
+    // L393/L444：快照全部"边生成边补发"待输出表，作为 unit 流式写的稳定基线。
+    codegen.emitter_start_string_constant_count = codegen.string_constant_count;
+    codegen.emitter_start_slice_struct_count = codegen.slice_struct_count;
+    codegen.emitter_start_simd_struct_count = codegen.simd_struct_count;
+    codegen.emitter_start_embedded_constant_count = codegen.embedded_constant_count;
+    codegen.emitter_start_embedded_dir_table_count = codegen.embedded_dir_table_count;
     if c99_emitter_start_dump_enabled() != 0 {
-        fprintf(libc.stderr, "[UYA_C99_EMITTER_START] mono=%d err_union=%d async_frame=%d\n" as *byte,
+        fprintf(libc.stderr, "[UYA_C99_EMITTER_START] mono=%d err_union=%d async_frame=%d string=%d slice=%d simd=%d embed=%d embed_dir=%d\n" as *byte,
             codegen.emitter_start_mono_instance_count,
             codegen.emitter_start_err_union_struct_count,
-            codegen.emitter_start_async_frame_meta_count);
+            codegen.emitter_start_async_frame_meta_count,
+            codegen.emitter_start_string_constant_count,
+            codegen.emitter_start_slice_struct_count,
+            codegen.emitter_start_simd_struct_count,
+            codegen.emitter_start_embedded_constant_count,
+            codegen.emitter_start_embedded_dir_table_count);
     }
     return 0;
 }
@@ -2154,6 +2184,37 @@ fn c99_codegen_verify_emitter_start_stability(codegen: &C99CodeGenerator) i32 {
             codegen.emitter_start_mono_instance_count, cur_mono,
             codegen.emitter_start_err_union_struct_count, cur_err,
             codegen.emitter_start_async_frame_meta_count, cur_async);
+        if c99_emitter_start_strict_enabled() != 0 {
+            return -1;
+        }
+    }
+    // L393/L444：校验全部"边生成边补发"待输出表在发射阶段未增长。任一漂移说明发射期间
+    // 仍在发现新的字符串/切片/SIMD/embed，即尚未收口为纯 unit 流式写。
+    var pending_drift: i32 = 0;
+    if codegen.emitter_start_string_constant_count >= 0 {
+        if codegen.string_constant_count != codegen.emitter_start_string_constant_count {
+            pending_drift = 1;
+        }
+        if codegen.slice_struct_count != codegen.emitter_start_slice_struct_count {
+            pending_drift = 1;
+        }
+        if codegen.simd_struct_count != codegen.emitter_start_simd_struct_count {
+            pending_drift = 1;
+        }
+        if codegen.embedded_constant_count != codegen.emitter_start_embedded_constant_count {
+            pending_drift = 1;
+        }
+        if codegen.embedded_dir_table_count != codegen.emitter_start_embedded_dir_table_count {
+            pending_drift = 1;
+        }
+    }
+    if pending_drift != 0 {
+        fprintf(libc.stderr, "[UYA_C99_EMITTER] 警告: emitter 阶段待输出表漂移 string %d->%d slice %d->%d simd %d->%d embed %d->%d embed_dir %d->%d\n" as *byte,
+            codegen.emitter_start_string_constant_count, codegen.string_constant_count,
+            codegen.emitter_start_slice_struct_count, codegen.slice_struct_count,
+            codegen.emitter_start_simd_struct_count, codegen.simd_struct_count,
+            codegen.emitter_start_embedded_constant_count, codegen.embedded_constant_count,
+            codegen.emitter_start_embedded_dir_table_count, codegen.embedded_dir_table_count);
         if c99_emitter_start_strict_enabled() != 0 {
             return -1;
         }
@@ -4374,6 +4435,14 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     c99_preregister_async_frame_metadata(codegen, ast);
     if c99_codegen_capture_emitter_start_stability(codegen) != 0 {
         return 1;
+    }
+    // 测试专用：在快照之后注入一个真实的待输出表增长（哑字符串常量），用于证明
+    // UYA_STRICT_C99_EMITTER 漂移门禁非空转。默认不启用，对正常构建零影响。
+    if c99_emitter_selftest_drift_enabled() != 0 {
+        const selftest_name: &byte = add_string_constant(codegen, "__uya_emitter_selftest_drift__" as &byte);
+        if selftest_name == null {
+            fprintf(libc.stderr, "[UYA_C99_EMITTER] selftest: add_string_constant 返回 null\n" as *byte);
+        }
     }
 
     // 第七步：生成所有函数的前向声明（解决相互递归调用）

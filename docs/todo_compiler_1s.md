@@ -448,6 +448,7 @@ c99_write_split_makefile(plan)
 - [x] 新增 `tests/verify_c99_plan_stability.sh`。
 - [x] 新增 split-C plan dependency regression。
 - [x] `tests/verify_dynamic_table_growth.sh` 覆盖大量 C99 units、prototypes、helpers、deps。
+- [x] 新增 `tests/verify_c99_emitter_streaming.sh`：`UYA_STRICT_C99_EMITTER=1` emitter-start 全待输出表稳定门禁；代表性输入（含 `src/main.uya`）零漂移 + 故障注入证明门禁非空转。
 - [ ] 复跑现有 C99 regression：
   - [ ] async frame descriptors
   - [ ] imported `main`
@@ -459,6 +460,7 @@ c99_write_split_makefile(plan)
 
 ```bash
 UYA_STRICT_C99_EMITTER=1 ./bin/uya src/main.uya -o /tmp/uya_c99_plan.c --c99 --nostdlib --safety-proof
+bash tests/verify_c99_emitter_streaming.sh
 make check
 ```
 

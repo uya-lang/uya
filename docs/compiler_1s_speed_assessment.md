@@ -95,6 +95,30 @@ Phase 5A 把 parser AST、checker 工作内存、C99 emitter 拆为独立 arena�
 低于 benchmark 告警阈值 8，且 `realloc_count=229>0`，由 `tests/verify_dynamic_table_budget.sh`
 门禁确认容量是按需增长而非启动超大预分配。
 
+### Phase 5A/6 更新：C99 发射阶段已是"收口的流式写"（2026-06-06）
+
+L393 关心的是"C99 输出从全局状态 + 边生成边补发收口为 unit 流式写"。实测结论：
+
+- C99 输出本就是 `FILE*` 流式写（`emit_stream` 直接 `fputs/fprintf`，split-C 模式按 part1/part2
+  与镜像 .c 动态切换写入目标），不存在"先在内存攒全量再 flush"。
+- "边生成边补发"对应六张待输出表（string/slice/simd/embed/embed_dir，外加既有
+  mono/err_union/async_frame）。原 emitter-start 稳定性快照只覆盖 mono/err_union/async_frame
+  （Phase 5 KPI L379-381）。本次把快照扩展到全部六张待输出表，并新增统一开关
+  `UYA_STRICT_C99_EMITTER=1`：发射阶段（原型 + 函数体，快照点 → 校验点）任一待输出表增长即报
+  漂移；strict 时直接令 codegen 失败。
+- 在自举编译器本体 `src/main.uya`（1 秒硬目标输入）实测，emitter 启动快照为
+  `string=6199 slice=3 simd=0 embed=0 embed_dir=0`，发射全程**零漂移**——末尾
+  `emit_pending_*` 补发对该输入是空操作，即发射已是无新发现的稳定流式写。覆盖插值、@embed、
+  JSON 反射、async 等代表性输入同样零漂移。
+- 新增回归 `tests/verify_c99_emitter_streaming.sh`：A) strict 下代表性输入零漂移；
+  B) 用 `UYA_C99_EMITTER_SELFTEST_DRIFT=1` 在快照后注入真实漂移，证明门禁会失败（非空转）；
+  C) 不开 strict 时漂移仅告警、编译成功（显式 opt-in）。`make check` 全绿（无回归）。
+
+说明：本次确立并门禁化了发射阶段的**行为收敛**（emitter 不再发现新类型/字符串/embed）。
+仍残留的是**结构收口**——`C99Plan`/`C99UnitPlan` 合同已定义但尚未接入 `c99_codegen_generate`，
+末尾 `emit_pending_*` 补发机制仍作为防御性代码存在；将其改为 plan 驱动的逐 unit 发射属 Phase 6
+（L428-L433、L441-L444）。
+
 ## 当前内存缺口
 
 本文已经有 `bench-compiler-1s` 硬口径 `peak_rss_kb` / `output_bytes` baseline；下一步仍必须补齐 compiler 内部内存字段，并确保后续阶段持续报告：
