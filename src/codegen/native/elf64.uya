@@ -1,0 +1,197 @@
+// codegen/native/elf64.uya - ELF64 二进制结构编码（little-endian）。
+//
+// 提供 ELF64 header / program header / section header 的精确字节编码，
+// 供 native 后端 ELF executable writer 复用。本文件只负责字节布局编码，
+// 不负责段内容生成或重定位求解。
+
+// e_ident 索引与常量
+export const ELF_MAG0: i32 = 127;        // 0x7f
+export const ELF_MAG1: i32 = 69;         // 'E'
+export const ELF_MAG2: i32 = 76;         // 'L'
+export const ELF_MAG3: i32 = 70;         // 'F'
+export const ELFCLASS64: i32 = 2;
+export const ELFDATA2LSB: i32 = 1;
+export const EV_CURRENT: i32 = 1;
+export const ELFOSABI_SYSV: i32 = 0;
+
+// e_type
+export const ET_REL: i32 = 1;
+export const ET_EXEC: i32 = 2;
+export const ET_DYN: i32 = 3;
+
+// e_machine
+export const EM_X86_64: i32 = 62;
+export const EM_AARCH64: i32 = 183;
+
+// program header type / flags
+export const PT_LOAD: i32 = 1;
+export const PF_X: i32 = 1;
+export const PF_W: i32 = 2;
+export const PF_R: i32 = 4;
+
+// section header type / flags
+export const SHT_NULL: i32 = 0;
+export const SHT_PROGBITS: i32 = 1;
+export const SHT_SYMTAB: i32 = 2;
+export const SHT_STRTAB: i32 = 3;
+export const SHT_NOBITS: i32 = 8;
+export const SHF_WRITE: i32 = 1;
+export const SHF_ALLOC: i32 = 2;
+export const SHF_EXECINSTR: i32 = 4;
+
+// 各结构字节大小
+export const ELF64_EHDR_SIZE: i32 = 64;
+export const ELF64_PHDR_SIZE: i32 = 56;
+export const ELF64_SHDR_SIZE: i32 = 64;
+
+/// 功能说明：把一个字节写入缓冲区指定偏移。
+fn elf64_put_u8(buf: &byte, off: usize, val: i32) void {
+    buf[off] = ((val & 255) as! byte).value;
+}
+
+/// 功能说明：little-endian 写入 16 位。
+fn elf64_put_u16(buf: &byte, off: usize, val: i32) void {
+    buf[off] = ((val & 255) as! byte).value;
+    buf[off + 1usize] = (((val >> 8) & 255) as! byte).value;
+}
+
+/// 功能说明：little-endian 写入 32 位。
+fn elf64_put_u32(buf: &byte, off: usize, val: i64) void {
+    buf[off] = ((val & 255i64) as! byte).value;
+    buf[off + 1usize] = (((val >> 8) & 255i64) as! byte).value;
+    buf[off + 2usize] = (((val >> 16) & 255i64) as! byte).value;
+    buf[off + 3usize] = (((val >> 24) & 255i64) as! byte).value;
+}
+
+/// 功能说明：little-endian 写入 64 位。
+fn elf64_put_u64(buf: &byte, off: usize, val: i64) void {
+    buf[off] = ((val & 255i64) as! byte).value;
+    buf[off + 1usize] = (((val >> 8) & 255i64) as! byte).value;
+    buf[off + 2usize] = (((val >> 16) & 255i64) as! byte).value;
+    buf[off + 3usize] = (((val >> 24) & 255i64) as! byte).value;
+    buf[off + 4usize] = (((val >> 32) & 255i64) as! byte).value;
+    buf[off + 5usize] = (((val >> 40) & 255i64) as! byte).value;
+    buf[off + 6usize] = (((val >> 48) & 255i64) as! byte).value;
+    buf[off + 7usize] = (((val >> 56) & 255i64) as! byte).value;
+}
+
+/// 功能说明：编码 ELF64 文件头（64 字节，little-endian）到 `buf` 起始处。
+/// 参数说明：`buf`/`cap` 为输出缓冲区与容量；`e_type`/`e_machine`；
+///           `entry` 入口虚拟地址；`phoff`/`shoff` 程序头/段头表偏移；
+///           `phnum`/`shnum` 程序头/段头数量；`shstrndx` 段名字符串表段下标。
+/// 返回值说明：成功返回写入字节数（64），缓冲区不足返回 `-1`。
+export fn elf64_encode_ehdr(buf: &byte, cap: usize, e_type: i32, e_machine: i32,
+    entry: i64, phoff: i64, shoff: i64, phnum: i32, shnum: i32, shstrndx: i32) i32 {
+    if buf == null || cap < (ELF64_EHDR_SIZE as usize) {
+        return -1;
+    }
+    // e_ident[16]
+    elf64_put_u8(buf, 0usize, ELF_MAG0);
+    elf64_put_u8(buf, 1usize, ELF_MAG1);
+    elf64_put_u8(buf, 2usize, ELF_MAG2);
+    elf64_put_u8(buf, 3usize, ELF_MAG3);
+    elf64_put_u8(buf, 4usize, ELFCLASS64);
+    elf64_put_u8(buf, 5usize, ELFDATA2LSB);
+    elf64_put_u8(buf, 6usize, EV_CURRENT);
+    elf64_put_u8(buf, 7usize, ELFOSABI_SYSV);
+    var pad: usize = 8usize;
+    while pad < 16usize {
+        elf64_put_u8(buf, pad, 0);
+        pad = pad + 1usize;
+    }
+    elf64_put_u16(buf, 16usize, e_type);
+    elf64_put_u16(buf, 18usize, e_machine);
+    elf64_put_u32(buf, 20usize, EV_CURRENT as i64);
+    elf64_put_u64(buf, 24usize, entry);
+    elf64_put_u64(buf, 32usize, phoff);
+    elf64_put_u64(buf, 40usize, shoff);
+    elf64_put_u32(buf, 48usize, 0i64);                 // e_flags
+    elf64_put_u16(buf, 52usize, ELF64_EHDR_SIZE);      // e_ehsize
+    elf64_put_u16(buf, 54usize, ELF64_PHDR_SIZE);      // e_phentsize
+    elf64_put_u16(buf, 56usize, phnum);                // e_phnum
+    elf64_put_u16(buf, 58usize, ELF64_SHDR_SIZE);      // e_shentsize
+    elf64_put_u16(buf, 60usize, shnum);                // e_shnum
+    elf64_put_u16(buf, 62usize, shstrndx);             // e_shstrndx
+    return ELF64_EHDR_SIZE;
+}
+
+/// 功能说明：编码一个 ELF64 program header（56 字节，little-endian）。
+/// 返回值说明：成功返回写入字节数（56），缓冲区不足返回 `-1`。
+export fn elf64_encode_phdr(buf: &byte, off: usize, cap: usize, p_type: i32, p_flags: i32,
+    p_offset: i64, p_vaddr: i64, p_filesz: i64, p_memsz: i64, p_align: i64) i32 {
+    if buf == null || cap < off + (ELF64_PHDR_SIZE as usize) {
+        return -1;
+    }
+    elf64_put_u32(buf, off + 0usize, p_type as i64);
+    elf64_put_u32(buf, off + 4usize, p_flags as i64);
+    elf64_put_u64(buf, off + 8usize, p_offset);
+    elf64_put_u64(buf, off + 16usize, p_vaddr);
+    elf64_put_u64(buf, off + 24usize, p_vaddr);        // p_paddr == p_vaddr
+    elf64_put_u64(buf, off + 32usize, p_filesz);
+    elf64_put_u64(buf, off + 40usize, p_memsz);
+    elf64_put_u64(buf, off + 48usize, p_align);
+    return ELF64_PHDR_SIZE;
+}
+
+/// 功能说明：编码一个 ELF64 section header（64 字节，little-endian）。
+/// 返回值说明：成功返回写入字节数（64），缓冲区不足返回 `-1`。
+export fn elf64_encode_shdr(buf: &byte, off: usize, cap: usize, sh_name: i32, sh_type: i32,
+    sh_flags: i64, sh_addr: i64, sh_offset: i64, sh_size: i64, sh_link: i32, sh_info: i32,
+    sh_addralign: i64, sh_entsize: i64) i32 {
+    if buf == null || cap < off + (ELF64_SHDR_SIZE as usize) {
+        return -1;
+    }
+    elf64_put_u32(buf, off + 0usize, sh_name as i64);
+    elf64_put_u32(buf, off + 4usize, sh_type as i64);
+    elf64_put_u64(buf, off + 8usize, sh_flags);
+    elf64_put_u64(buf, off + 16usize, sh_addr);
+    elf64_put_u64(buf, off + 24usize, sh_offset);
+    elf64_put_u64(buf, off + 32usize, sh_size);
+    elf64_put_u32(buf, off + 40usize, sh_link as i64);
+    elf64_put_u32(buf, off + 44usize, sh_info as i64);
+    elf64_put_u64(buf, off + 48usize, sh_addralign);
+    elf64_put_u64(buf, off + 56usize, sh_entsize);
+    return ELF64_SHDR_SIZE;
+}
+
+// 头部总大小：ehdr + 单个 program header（无 section header 的最小可执行映像）。
+export const ELF64_MIN_EXEC_HEADERS: i32 = 120;   // ELF64_EHDR_SIZE(64) + ELF64_PHDR_SIZE(56)
+// 默认映像加载虚拟地址（page 对齐）。
+export const ELF64_DEFAULT_LOAD_VADDR: i64 = 4194304i64;  // 0x400000
+
+/// 功能说明：把一段已编码机器码组装为最小静态 nostdlib ELF64 可执行映像写入 `buf`。
+///           布局：ehdr(64) + 单个 PT_LOAD program header(56) + 机器码；整文件以 p_offset=0
+///           映射到 p_vaddr=load_vaddr（R|X），入口 entry = load_vaddr + 120。无 section header。
+/// 参数说明：`buf`/`cap` 为输出缓冲与容量；`code`/`code_len` 为机器码字节；`e_machine` 目标架构
+///           （如 EM_X86_64）；`load_vaddr` 映像加载虚拟地址，须 page(4KB) 对齐。
+/// 返回值说明：成功返回映像总字节数（120 + code_len）；缓冲不足或参数非法返回 `-1`。
+export fn elf64_write_executable(buf: &byte, cap: usize, code: &byte, code_len: usize,
+    e_machine: i32, load_vaddr: i64) i32 {
+    if buf == null || code == null {
+        return -1;
+    }
+    const headers_size: usize = ELF64_MIN_EXEC_HEADERS as usize;
+    const total: usize = headers_size + code_len;
+    if cap < total {
+        return -1;
+    }
+    const entry: i64 = load_vaddr + (ELF64_MIN_EXEC_HEADERS as i64);
+    const total_i64: i64 = (total as! i64).value;
+    // ELF 文件头：单 program header，无 section header；入口指向 headers 之后的代码。
+    if elf64_encode_ehdr(buf, cap, ET_EXEC, e_machine, entry,
+        ELF64_EHDR_SIZE as i64, 0i64, 1, 0, 0) < 0 {
+        return -1;
+    }
+    // 单 PT_LOAD：整文件 R|X 映射到 load_vaddr，4KB 对齐（PF_R|PF_X 为不相交位，用加法即 5）。
+    if elf64_encode_phdr(buf, ELF64_EHDR_SIZE as usize, cap, PT_LOAD, PF_R + PF_X,
+        0i64, load_vaddr, total_i64, total_i64, 4096i64) < 0 {
+        return -1;
+    }
+    // 机器码紧随 headers 之后。
+    var i: usize = 0usize;
+    while i < code_len {
+        buf[headers_size + i] = code[i];
+        i = i + 1usize;
+    }
+    return (total as! i32).value;
+}

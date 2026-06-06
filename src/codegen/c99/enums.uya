@@ -203,50 +203,70 @@ fn c99_find_enum_decl_in_context_impl(codegen: &C99CodeGenerator, enum_name: &by
     if c99_enum_context_cache_matches(codegen, enum_name, context_filename) != 0 {
         return codegen.enum_context_cache_result;
     }
-    const decl_count: i32 = codegen.program_node.program_decl_count;
     if context_filename != null {
-        var i_alias: i32 = 0;
-        while i_alias < decl_count {
-            const decl_alias: &ASTNode = codegen.program_node.program_decls[i_alias];
-            if decl_alias != null && decl_alias.type == ASTNodeType.AST_TYPE_ALIAS &&
-                decl_alias.type_alias_name != null && decl_alias.filename != null &&
-                strcmp(decl_alias.type_alias_name as *byte, enum_name as *byte) == 0 &&
-                strcmp(decl_alias.filename as *byte, context_filename as *byte) == 0 &&
-                decl_alias.type_alias_target_type != null &&
-                decl_alias.type_alias_target_type.type == ASTNodeType.AST_TYPE_NAMED &&
-                decl_alias.type_alias_target_type.type_named_name != null &&
-                strcmp(decl_alias.type_alias_target_type.type_named_name as *byte, enum_name as *byte) != 0 {
-                return c99_enum_context_cache_store(codegen, enum_name, context_filename,
-                    c99_find_enum_decl_in_context_impl(codegen,
-                        decl_alias.type_alias_target_type.type_named_name, context_filename));
-            }
-            i_alias = i_alias + 1;
+        // 否定短路：SemanticDb (FileId,NameId) 三索引(alias/enum/use)对 (context_filename,enum_name)
+        // 都不存在时(present_ctx==0)，下面 3 轮上下文全表扫描必然全否定，跳过直接走 fallback。
+        // present_ctx==1/-1（可能命中/无法判定）仍走扫描。c99_find_enum_decl_in_context 是短路后 perf #1。
+        // UYA_C99_LOOKUP_ORACLE=1 时即便 present_ctx==0 也走扫描，命中即报警（证明短路非漏判）。
+        var present_ctx: i32 = -1;
+        if codegen.checker != null {
+            present_ctx = c99_enum_ctx_name_present_in_file(codegen, enum_name, context_filename);
         }
-
-        var i_local: i32 = 0;
-        while i_local < decl_count {
-            const decl_local: &ASTNode = codegen.program_node.program_decls[i_local];
-            if decl_local != null && decl_local.type == ASTNodeType.AST_ENUM_DECL &&
-                decl_local.enum_decl_name != null && decl_local.filename != null &&
-                strcmp(decl_local.enum_decl_name as *byte, enum_name as *byte) == 0 &&
-                strcmp(decl_local.filename as *byte, context_filename as *byte) == 0 {
-                return c99_enum_context_cache_store(codegen, enum_name, context_filename, decl_local);
-            }
-            i_local = i_local + 1;
-        }
-
-        var i_use: i32 = 0;
-        while i_use < decl_count {
-            const decl_use: &ASTNode = codegen.program_node.program_decls[i_use];
-            if decl_use != null && decl_use.type == ASTNodeType.AST_USE_STMT &&
-                decl_use.filename != null &&
-                strcmp(decl_use.filename as *byte, context_filename as *byte) == 0 {
-                const imported_decl: &ASTNode = c99_find_enum_decl_from_use_stmt(codegen, decl_use, enum_name);
-                if imported_decl != null {
-                    return c99_enum_context_cache_store(codegen, enum_name, context_filename, imported_decl);
+        const ctx_oracle: i32 = c99_lookup_oracle_enabled();
+        if present_ctx != 0 || ctx_oracle != 0 {
+            const decl_count: i32 = codegen.program_node.program_decl_count;
+            var i_alias: i32 = 0;
+            while i_alias < decl_count {
+                const decl_alias: &ASTNode = codegen.program_node.program_decls[i_alias];
+                if decl_alias != null && decl_alias.type == ASTNodeType.AST_TYPE_ALIAS &&
+                    decl_alias.type_alias_name != null && decl_alias.filename != null &&
+                    strcmp(decl_alias.type_alias_name as *byte, enum_name as *byte) == 0 &&
+                    strcmp(decl_alias.filename as *byte, context_filename as *byte) == 0 &&
+                    decl_alias.type_alias_target_type != null &&
+                    decl_alias.type_alias_target_type.type == ASTNodeType.AST_TYPE_NAMED &&
+                    decl_alias.type_alias_target_type.type_named_name != null &&
+                    strcmp(decl_alias.type_alias_target_type.type_named_name as *byte, enum_name as *byte) != 0 {
+                    if ctx_oracle != 0 && present_ctx == 0 {
+                        fprintf(libc.stderr, "[UYA_C99_LOOKUP_ORACLE] enum_ctx 短路漏判(alias): name=%s file=%s\n" as *byte, enum_name as *byte, context_filename as *byte);
+                    }
+                    return c99_enum_context_cache_store(codegen, enum_name, context_filename,
+                        c99_find_enum_decl_in_context_impl(codegen,
+                            decl_alias.type_alias_target_type.type_named_name, context_filename));
                 }
+                i_alias = i_alias + 1;
             }
-            i_use = i_use + 1;
+
+            var i_local: i32 = 0;
+            while i_local < decl_count {
+                const decl_local: &ASTNode = codegen.program_node.program_decls[i_local];
+                if decl_local != null && decl_local.type == ASTNodeType.AST_ENUM_DECL &&
+                    decl_local.enum_decl_name != null && decl_local.filename != null &&
+                    strcmp(decl_local.enum_decl_name as *byte, enum_name as *byte) == 0 &&
+                    strcmp(decl_local.filename as *byte, context_filename as *byte) == 0 {
+                    if ctx_oracle != 0 && present_ctx == 0 {
+                        fprintf(libc.stderr, "[UYA_C99_LOOKUP_ORACLE] enum_ctx 短路漏判(enum): name=%s file=%s\n" as *byte, enum_name as *byte, context_filename as *byte);
+                    }
+                    return c99_enum_context_cache_store(codegen, enum_name, context_filename, decl_local);
+                }
+                i_local = i_local + 1;
+            }
+
+            var i_use: i32 = 0;
+            while i_use < decl_count {
+                const decl_use: &ASTNode = codegen.program_node.program_decls[i_use];
+                if decl_use != null && decl_use.type == ASTNodeType.AST_USE_STMT &&
+                    decl_use.filename != null &&
+                    strcmp(decl_use.filename as *byte, context_filename as *byte) == 0 {
+                    const imported_decl: &ASTNode = c99_find_enum_decl_from_use_stmt(codegen, decl_use, enum_name);
+                    if imported_decl != null {
+                        if ctx_oracle != 0 && present_ctx == 0 {
+                            fprintf(libc.stderr, "[UYA_C99_LOOKUP_ORACLE] enum_ctx 短路漏判(use): name=%s file=%s\n" as *byte, enum_name as *byte, context_filename as *byte);
+                        }
+                        return c99_enum_context_cache_store(codegen, enum_name, context_filename, imported_decl);
+                    }
+                }
+                i_use = i_use + 1;
+            }
         }
     }
 

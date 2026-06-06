@@ -190,6 +190,36 @@ L393 关心的是"C99 输出从全局状态 + 边生成边补发收口为 unit �
 （99.9% 否定，但有 mono 回退，只能短路第一轮 exact 扫描、保留 mono fallback）和
 `c99_find_enum_decl_in_context` 同法推进。
 
+#### 已落地：union/enum exact + enum_ctx 否定查找短路（2026-06-06，续）
+
+沿 interface 短路线继续：先对 `find_union_decl_c99` / `find_enum_decl_c99` 的 exact 扫描做否定短路
+（commit `a41f3d8f`，保留 mono fallback），再对 perf #1 的上下文敏感查找
+`c99_find_enum_decl_in_context`（原 3 轮全程序扫描：alias-in-file / enum-in-file / use-in-file）做否定短路。
+新增 `c99_enum_ctx_name_present_in_file`（`src/codegen/c99/utils.uya`）：用 SemanticDb (FileId,NameId)
+的 alias/use 存在性（保守超集）+ enum decl-range × file_id 精确判定，三处都判否（`present_ctx==0`）即跳过
+3 轮上下文扫描，直接走 fallback。
+
+- **正确性**：`UYA_C99_LOOKUP_ORACLE=1` 下 `present_ctx==0` 仍执行原扫描对照，命中即报 "短路漏判"。
+  `src/main.uya` 实测 **0 处漏判**，证明短路是真否定、无遗漏。
+- **性能**（`UYA_PROFILE_CODEGEN=1`，`src/main.uya`，3 轮中位）：`body_ms` 6604 → … →
+  **2709ms**（本步 ~4600 → 2709），codegen `total_ms` **3331ms**；端到端 wall 中位 **9218ms**。
+  `make check` 全绿（无回归）。
+- **KPI**：L469（`UYA_PROFILE_CODEGEN body_ms < 4000`）**达标**（2709，已勾）。
+  L470（直接 C99 total `< 8000`）以**端到端**口径仍**未达标**（9218 > 8000）：codegen 已非瓶颈（3331），
+  剩余 ~5.9s 主体是 **check 阶段（Phase 0 = 4683ms，尚未优化）** + parse + overhead。
+  下一个 1s 杠杆从 codegen 转向 **checker 查询 / 字符串比较**。
+
+#### 发现：checker proof 表在自编译时溢出（待迁移，硬约束 L35）
+
+编译 `src/main.uya` 时 `checker constraint table` / `pointer nonnull table` 即溢出
+（`src/checker/interval.uya:28/185` "容量已满" 警告）：`MAX_CONSTRAINTS=64` / `MAX_POINTER_NAMES=32`
+（`src/checker/types.uya:25-26`）固定容量，满后**警告并 return 截断**。截断方向偏保守（约束/非空记录变少
+→ 证明更保守、要求显式检查，而非放行不安全代码；`src/main.uya` 仍编译通过即证明），故**非安全漏洞**，
+但 (a) 违反"所有编译器表动态扩容"硬约束 L35；(b) 削弱大函数的证明能力。完整修复需把 5 个 proof 字段
++ `if` 路径敏感分析的 ~16 个栈快照数组（`src/checker/main.uya` 的 save/restore/merge）全部动态化，
+触及**安全证明核心 + 递归热路径**，属需专门测试基础设施 + 分步验证的高风险重构（本文上方 Phase 0A 清单
+已将其列为"诊断失败或迁为动态 bitset/vector"的待迁移项）。
+
 ## 当前内存缺口
 
 本文已经有 `bench-compiler-1s` 硬口径 `peak_rss_kb` / `output_bytes` baseline；下一步仍必须补齐 compiler 内部内存字段，并确保后续阶段持续报告：

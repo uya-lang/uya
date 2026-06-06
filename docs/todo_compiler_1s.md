@@ -466,7 +466,7 @@ make check
 
 阶段 KPI：
 
-- [ ] `UYA_PROFILE_CODEGEN` 下 `body_ms < 4000ms`。
+- [x] `UYA_PROFILE_CODEGEN` 下 `body_ms < 4000ms`。
 - [ ] 直接 C99 total `< 8000ms`。
 - [ ] C99 输出缓冲 peak bytes 可测量且不随输出文本大小线性常驻。
 
