@@ -1,0 +1,484 @@
+// codegen/native/machine.uya - Native 后端机器 IR 合同（数据结构层）。
+//
+// 仅依赖 arena + semantic 动态 vector。MachineModule 的 functions、每个
+// MachineFunction 的 blocks、每个 MachineBlock 的 insts，以及 reloc / symbol /
+// string / section 表全部随数据动态增长，不写死最大函数/block/指令/reloc/symbol 数。
+
+export const MACHINE_LIFECYCLE_UNINITIALIZED: i32 = 0;
+export const MACHINE_LIFECYCLE_ACTIVE: i32 = 1;
+export const MACHINE_LIFECYCLE_RELEASED: i32 = 2;
+
+/// 功能说明：一条机器指令（与具体 ISA 无关的紧凑记录）。
+/// 参数说明：无；`opcode` 为指令选择阶段分配的操作码，操作数为稳定整数 ID/立即数。
+/// 返回值说明：无。
+export struct MachineInst {
+    opcode: i32,
+    dst: i32,
+    src0: i32,
+    src1: i32,
+    imm: i64,
+    flags: i32,
+}
+
+/// 功能说明：一个基本块，持有自己的指令动态表。
+/// 参数说明：无；`block_id` 为函数内稳定下标，`label_name_id` 为 intern 标签名。
+/// 返回值说明：无。
+export struct MachineBlock {
+    block_id: i32,
+    label_name_id: InternedNameId,
+    insts: SemanticVector,
+}
+
+/// 功能说明：一个机器函数，持有自己的基本块动态表。
+/// 参数说明：无；`function_id` / `name_id` 为稳定 ID，frame 字段为栈帧布局。
+/// 返回值说明：无。
+export struct MachineFunction {
+    function_id: FunctionId,
+    name_id: InternedNameId,
+    frame_size: i32,
+    frame_align: i32,
+    blocks: SemanticVector,
+}
+
+/// 功能说明：一条重定位记录。
+/// 参数说明：无；字段为段内偏移、目标符号、重定位类型与加数。
+/// 返回值说明：无。
+export struct MachineReloc {
+    offset: i64,
+    symbol_id: i32,
+    kind: i32,
+    addend: i64,
+}
+
+/// 功能说明：一个符号表项。
+/// 参数说明：无；字段为名称、所属段、值、大小、类型与绑定。
+/// 返回值说明：无。
+export struct MachineSymbol {
+    name_id: InternedNameId,
+    section_id: i32,
+    value: i64,
+    size: i64,
+    kind: i32,
+    binding: i32,
+}
+
+/// 功能说明：一个段（section）描述。
+/// 参数说明：无；字段为名称、类型、大小与对齐。
+/// 返回值说明：无。
+export struct MachineSection {
+    name_id: InternedNameId,
+    kind: i32,
+    size: i64,
+    align: i32,
+}
+
+/// 功能说明：聚合 MachineModule 所有动态表的统计摘要。
+/// 参数说明：无；由 `machine_module_stats` 返回。
+/// 返回值说明：无。
+export struct MachineModuleStats {
+    table_count: i32,
+    table_items: usize,
+    table_capacity: usize,
+    table_bytes: usize,
+    table_realloc_count: i32,
+}
+
+/// 功能说明：native 后端的机器 IR 容器。
+/// 参数说明：无；调用 `machine_module_init` 后使用。
+/// 返回值说明：无。functions / relocs / symbols / strings / sections 全部动态增长。
+export struct MachineModule {
+    arena: &CompilerArena,
+    function_count: usize,
+    estimated_bytes: usize,
+    resident_peak_bytes: usize,
+    lifecycle_state: i32,
+    functions: SemanticVector,
+    relocs: SemanticVector,
+    symbols: SemanticVector,
+    strings: SemanticVector,
+    sections: SemanticVector,
+}
+
+fn machine_usize_to_i32(value: usize) i32 {
+    const converted: !i32 = value as! i32;
+    return converted catch {
+        return -1;
+    };
+}
+
+fn machine_i32_to_usize(value: i32) usize {
+    if value < 0 {
+        return 0usize;
+    }
+    const converted: !usize = value as! usize;
+    return converted catch {
+        return 0usize;
+    };
+}
+
+fn machine_empty_vector() SemanticVector {
+    return SemanticVector{
+        data: null,
+        item_size: 0usize,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+}
+
+fn machine_block_release_vectors(block: &MachineBlock) void {
+    if block == null {
+        return;
+    }
+    semantic_vector_release(&block.insts);
+}
+
+fn machine_function_release_vectors(fn_ptr: &MachineFunction) void {
+    if fn_ptr == null {
+        return;
+    }
+    var i: usize = 0usize;
+    while i < fn_ptr.blocks.count {
+        const block: &MachineBlock = semantic_vector_item_ptr(&fn_ptr.blocks, i) as &MachineBlock;
+        machine_block_release_vectors(block);
+        i = i + 1usize;
+    }
+    semantic_vector_release(&fn_ptr.blocks);
+}
+
+fn machine_module_release_functions(module: &MachineModule) void {
+    if module == null {
+        return;
+    }
+    var i: usize = 0usize;
+    while i < module.functions.count {
+        const fn_ptr: &MachineFunction = semantic_vector_item_ptr(&module.functions, i) as &MachineFunction;
+        machine_function_release_vectors(fn_ptr);
+        i = i + 1usize;
+    }
+}
+
+fn machine_function_storage_bytes(fn_ptr: &MachineFunction) usize {
+    if fn_ptr == null {
+        return 0usize;
+    }
+    var total: usize = fn_ptr.blocks.bytes;
+    var i: usize = 0usize;
+    while i < fn_ptr.blocks.count {
+        const block: &MachineBlock = semantic_vector_item_ptr(&fn_ptr.blocks, i) as &MachineBlock;
+        if block != null {
+            total = total + block.insts.bytes;
+        }
+        i = i + 1usize;
+    }
+    return total;
+}
+
+/// 功能说明：估算 MachineModule 当前结构与所有动态表占用字节数。
+/// 参数说明：`module` 为目标 MachineModule。
+/// 返回值说明：返回结构体本体与所有动态表容量字节数；参数无效时返回 `0`。
+export fn machine_module_storage_bytes(module: &MachineModule) usize {
+    if module == null {
+        return 0usize;
+    }
+    var total: usize = @size_of(MachineModule) +
+        module.functions.bytes +
+        module.relocs.bytes +
+        module.symbols.bytes +
+        module.strings.bytes +
+        module.sections.bytes;
+    var i: usize = 0usize;
+    while i < module.functions.count {
+        const fn_ptr: &MachineFunction = semantic_vector_item_ptr(&module.functions, i) as &MachineFunction;
+        total = total + machine_function_storage_bytes(fn_ptr);
+        i = i + 1usize;
+    }
+    return total;
+}
+
+fn machine_module_refresh_bytes(module: &MachineModule) void {
+    if module == null {
+        return;
+    }
+    const current_bytes: usize = machine_module_storage_bytes(module);
+    module.estimated_bytes = current_bytes;
+    if current_bytes > module.resident_peak_bytes {
+        module.resident_peak_bytes = current_bytes;
+    }
+}
+
+fn machine_module_stats_add(stats: &MachineModuleStats, table: &SemanticVector) void {
+    if stats == null || table == null {
+        return;
+    }
+    stats.table_count = stats.table_count + 1;
+    stats.table_items = stats.table_items + table.count;
+    stats.table_capacity = stats.table_capacity + table.capacity;
+    stats.table_bytes = stats.table_bytes + table.bytes;
+    stats.table_realloc_count = stats.table_realloc_count + table.realloc_count;
+}
+
+/// 功能说明：初始化 MachineModule 的所有动态表。
+/// 参数说明：`module` 为目标 MachineModule，`arena` 为 native 后端专用 arena。
+/// 返回值说明：无。
+export fn machine_module_init(module: &MachineModule, arena: &CompilerArena) void {
+    if module == null {
+        return;
+    }
+    module.arena = arena;
+    module.function_count = 0usize;
+    module.estimated_bytes = 0usize;
+    module.resident_peak_bytes = 0usize;
+    module.lifecycle_state = MACHINE_LIFECYCLE_ACTIVE;
+    semantic_vector_init(&module.functions, @size_of(MachineFunction));
+    semantic_vector_init(&module.relocs, @size_of(MachineReloc));
+    semantic_vector_init(&module.symbols, @size_of(MachineSymbol));
+    semantic_vector_init(&module.strings, @size_of(i32));
+    semantic_vector_init(&module.sections, @size_of(MachineSection));
+    machine_module_refresh_bytes(module);
+}
+
+/// 功能说明：释放 MachineModule 所有动态表（含每个函数的 blocks 与每个 block 的 insts）。
+/// 参数说明：`module` 为目标 MachineModule。
+/// 返回值说明：无。
+export fn machine_module_release(module: &MachineModule) void {
+    if module == null {
+        return;
+    }
+    machine_module_release_functions(module);
+    semantic_vector_release(&module.functions);
+    semantic_vector_release(&module.relocs);
+    semantic_vector_release(&module.symbols);
+    semantic_vector_release(&module.strings);
+    semantic_vector_release(&module.sections);
+    module.function_count = 0usize;
+    module.estimated_bytes = 0usize;
+    module.arena = null;
+    module.lifecycle_state = MACHINE_LIFECYCLE_RELEASED;
+}
+
+/// 功能说明：追加一个机器函数。
+/// 参数说明：`module` 为目标 MachineModule，`function_id` / `name_id` 为稳定 ID。
+/// 返回值说明：成功返回新函数下标，失败返回 `-1`。
+export fn machine_module_add_function(module: &MachineModule, function_id: FunctionId, name_id: InternedNameId) i32 {
+    if module == null {
+        return -1;
+    }
+    const idx: i32 = machine_usize_to_i32(module.functions.count);
+    if idx < 0 {
+        return -1;
+    }
+    var fn_item: MachineFunction = MachineFunction{
+        function_id: function_id,
+        name_id: name_id,
+        frame_size: 0,
+        frame_align: 0,
+        blocks: machine_empty_vector(),
+    };
+    if semantic_vector_append(&module.functions, &fn_item as &const void) != 0 {
+        return -1;
+    }
+    const stored: &MachineFunction = semantic_vector_item_ptr(&module.functions, machine_i32_to_usize(idx)) as &MachineFunction;
+    if stored == null {
+        return -1;
+    }
+    semantic_vector_init(&stored.blocks, @size_of(MachineBlock));
+    module.function_count = module.functions.count;
+    machine_module_refresh_bytes(module);
+    return idx;
+}
+
+/// 功能说明：按下标获取机器函数指针。
+export fn machine_module_function_ptr(module: &MachineModule, function_index: i32) &MachineFunction {
+    if module == null || function_index < 0 {
+        return null;
+    }
+    return semantic_vector_item_ptr(&module.functions, machine_i32_to_usize(function_index)) as &MachineFunction;
+}
+
+/// 功能说明：向指定函数追加一个基本块。
+/// 参数说明：`module` 目标模块，`function_index` 函数下标，`label_name_id` 标签名。
+/// 返回值说明：成功返回新 block 下标，失败返回 `-1`。
+export fn machine_function_add_block(module: &MachineModule, function_index: i32, label_name_id: InternedNameId) i32 {
+    const fn_ptr: &MachineFunction = machine_module_function_ptr(module, function_index);
+    if fn_ptr == null {
+        return -1;
+    }
+    const idx: i32 = machine_usize_to_i32(fn_ptr.blocks.count);
+    if idx < 0 {
+        return -1;
+    }
+    var block_item: MachineBlock = MachineBlock{
+        block_id: idx,
+        label_name_id: label_name_id,
+        insts: machine_empty_vector(),
+    };
+    if semantic_vector_append(&fn_ptr.blocks, &block_item as &const void) != 0 {
+        return -1;
+    }
+    const stored: &MachineBlock = semantic_vector_item_ptr(&fn_ptr.blocks, machine_i32_to_usize(idx)) as &MachineBlock;
+    if stored == null {
+        return -1;
+    }
+    semantic_vector_init(&stored.insts, @size_of(MachineInst));
+    machine_module_refresh_bytes(module);
+    return idx;
+}
+
+/// 功能说明：获取指定函数内某个基本块指针。
+export fn machine_function_block_ptr(module: &MachineModule, function_index: i32, block_index: i32) &MachineBlock {
+    const fn_ptr: &MachineFunction = machine_module_function_ptr(module, function_index);
+    if fn_ptr == null || block_index < 0 {
+        return null;
+    }
+    return semantic_vector_item_ptr(&fn_ptr.blocks, machine_i32_to_usize(block_index)) as &MachineBlock;
+}
+
+/// 功能说明：向指定基本块追加一条指令。
+/// 返回值说明：成功返回 `0`，越界或失败返回 `-1`。
+export fn machine_block_add_inst(module: &MachineModule, function_index: i32, block_index: i32, inst: &MachineInst) i32 {
+    if module == null || inst == null {
+        return -1;
+    }
+    const block: &MachineBlock = machine_function_block_ptr(module, function_index, block_index);
+    if block == null {
+        return -1;
+    }
+    if semantic_vector_append(&block.insts, inst as &const void) != 0 {
+        return -1;
+    }
+    machine_module_refresh_bytes(module);
+    return 0;
+}
+
+/// 功能说明：追加一条重定位记录。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn machine_module_add_reloc(module: &MachineModule, reloc: &MachineReloc) i32 {
+    if module == null || reloc == null {
+        return -1;
+    }
+    if semantic_vector_append(&module.relocs, reloc as &const void) != 0 {
+        return -1;
+    }
+    machine_module_refresh_bytes(module);
+    return 0;
+}
+
+/// 功能说明：追加一个符号表项。
+/// 返回值说明：成功返回新符号下标，失败返回 `-1`。
+export fn machine_module_add_symbol(module: &MachineModule, symbol: &MachineSymbol) i32 {
+    if module == null || symbol == null {
+        return -1;
+    }
+    const idx: i32 = machine_usize_to_i32(module.symbols.count);
+    if idx < 0 {
+        return -1;
+    }
+    if semantic_vector_append(&module.symbols, symbol as &const void) != 0 {
+        return -1;
+    }
+    machine_module_refresh_bytes(module);
+    return idx;
+}
+
+/// 功能说明：向字符串表追加一项（intern 后的字符串 ID 或偏移）。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn machine_module_add_string(module: &MachineModule, string_id: i32) i32 {
+    if module == null {
+        return -1;
+    }
+    var v: i32 = string_id;
+    if semantic_vector_append(&module.strings, &v as &const void) != 0 {
+        return -1;
+    }
+    machine_module_refresh_bytes(module);
+    return 0;
+}
+
+/// 功能说明：追加一个段描述。
+/// 返回值说明：成功返回新段下标，失败返回 `-1`。
+export fn machine_module_add_section(module: &MachineModule, section: &MachineSection) i32 {
+    if module == null || section == null {
+        return -1;
+    }
+    const idx: i32 = machine_usize_to_i32(module.sections.count);
+    if idx < 0 {
+        return -1;
+    }
+    if semantic_vector_append(&module.sections, section as &const void) != 0 {
+        return -1;
+    }
+    machine_module_refresh_bytes(module);
+    return idx;
+}
+
+/// 功能说明：读取 MachineModule 当前函数数量。
+export fn machine_module_function_count(module: &MachineModule) usize {
+    if module == null {
+        return 0usize;
+    }
+    return module.functions.count;
+}
+
+/// 功能说明：读取 MachineModule 当前估算字节数。
+export fn machine_module_estimated_bytes(module: &MachineModule) usize {
+    if module == null {
+        return 0usize;
+    }
+    return module.estimated_bytes;
+}
+
+/// 功能说明：读取 MachineModule 生命周期窗口内峰值字节数。
+export fn machine_module_peak_bytes(module: &MachineModule) usize {
+    if module == null {
+        return 0usize;
+    }
+    return module.resident_peak_bytes;
+}
+
+/// 功能说明：读取 MachineModule 当前生命周期状态。
+export fn machine_module_lifecycle_state(module: &MachineModule) i32 {
+    if module == null {
+        return MACHINE_LIFECYCLE_UNINITIALIZED;
+    }
+    return module.lifecycle_state;
+}
+
+/// 功能说明：聚合 MachineModule 所有动态表（含每个函数 blocks 与每个 block insts）统计。
+/// 参数说明：`module` 为目标 MachineModule。
+/// 返回值说明：返回 table 数量、项数、容量、字节数与重分配次数摘要。
+export fn machine_module_stats(module: &MachineModule) MachineModuleStats {
+    var stats: MachineModuleStats = MachineModuleStats{
+        table_count: 0,
+        table_items: 0usize,
+        table_capacity: 0usize,
+        table_bytes: 0usize,
+        table_realloc_count: 0,
+    };
+    if module == null {
+        return stats;
+    }
+    machine_module_stats_add(&stats, &module.functions);
+    machine_module_stats_add(&stats, &module.relocs);
+    machine_module_stats_add(&stats, &module.symbols);
+    machine_module_stats_add(&stats, &module.strings);
+    machine_module_stats_add(&stats, &module.sections);
+    var i: usize = 0usize;
+    while i < module.functions.count {
+        const fn_ptr: &MachineFunction = semantic_vector_item_ptr(&module.functions, i) as &MachineFunction;
+        if fn_ptr != null {
+            machine_module_stats_add(&stats, &fn_ptr.blocks);
+            var j: usize = 0usize;
+            while j < fn_ptr.blocks.count {
+                const block: &MachineBlock = semantic_vector_item_ptr(&fn_ptr.blocks, j) as &MachineBlock;
+                if block != null {
+                    machine_module_stats_add(&stats, &block.insts);
+                }
+                j = j + 1usize;
+            }
+        }
+        i = i + 1usize;
+    }
+    return stats;
+}

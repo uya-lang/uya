@@ -11,6 +11,7 @@ TYPED_FILE="$REPO_ROOT/src/typed/program.uya"
 ARENA_FILE="$REPO_ROOT/src/arena.uya"
 LOWER_CORE_FILE="$REPO_ROOT/src/lower/core.uya"
 C99_PLAN_FILE="$REPO_ROOT/src/codegen/c99/plan.uya"
+NATIVE_MACHINE_FILE="$REPO_ROOT/src/codegen/native/machine.uya"
 TMP_DIRS=()
 
 cleanup() {
@@ -581,11 +582,116 @@ EOF
     echo "✓ C99Plan dynamic units/prototypes/helpers/deps growth checks passed"
 }
 
+verify_native_machine_dynamic_growth() {
+    if [[ ! -f "$ARENA_FILE" || ! -f "$TABLE_FILE" || ! -f "$IDS_FILE" || ! -f "$NATIVE_MACHINE_FILE" ]]; then
+        echo "错误: 缺少 native machine IR 动态增长源文件" >&2
+        exit 1
+    fi
+
+    local tmp_dir
+    tmp_dir="$(make_tmp_dir)"
+    cat "$ARENA_FILE" "$TABLE_FILE" "$IDS_FILE" "$NATIVE_MACHINE_FILE" >"$tmp_dir/main.uya"
+    cat >>"$tmp_dir/main.uya" <<'EOF'
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+const OVER_NATIVE_SYMBOLS: i32 = 4097;
+const OVER_NATIVE_RELOCS: i32 = 1025;
+const OVER_NATIVE_STRINGS: i32 = 1025;
+const OVER_NATIVE_SECTIONS: i32 = 257;
+
+fn native_growth_vec() SemanticVector {
+    return SemanticVector{
+        data: null,
+        item_size: 0usize,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+}
+
+fn native_growth_module() MachineModule {
+    return MachineModule{
+        arena: null,
+        function_count: 0usize,
+        estimated_bytes: 0usize,
+        resident_peak_bytes: 0usize,
+        lifecycle_state: MACHINE_LIFECYCLE_UNINITIALIZED,
+        functions: native_growth_vec(),
+        relocs: native_growth_vec(),
+        symbols: native_growth_vec(),
+        strings: native_growth_vec(),
+        sections: native_growth_vec(),
+    };
+}
+
+test "native machine symbols relocs strings sections grow past legacy capacities" {
+    var arena_buf: [byte: 4096] = [];
+    var arena: CompilerArena = CompilerArena{
+        buffer: null,
+        size: 0usize,
+        offset: 0usize,
+        first_chunk: null,
+        current_chunk: null,
+        total_allocated: 0usize,
+        peak_allocated: 0usize,
+    };
+    compiler_arena_init(&arena, &arena_buf[0], @len(arena_buf) as usize);
+
+    var module: MachineModule = native_growth_module();
+    machine_module_init(&module, &arena);
+
+    var i: i32 = 0;
+    while i < OVER_NATIVE_SYMBOLS {
+        var s: MachineSymbol = MachineSymbol{ name_id: i, section_id: 1, value: 0, size: 0, kind: 1, binding: 1 };
+        try expect(machine_module_add_symbol(&module, &s) >= 0);
+        i = i + 1;
+    }
+    try assert_eq_i32(module.symbols.count as i32, OVER_NATIVE_SYMBOLS);
+    try expect(module.symbols.realloc_count > 1);
+
+    i = 0;
+    while i < OVER_NATIVE_RELOCS {
+        var r: MachineReloc = MachineReloc{ offset: i as i64, symbol_id: i, kind: 1, addend: 0 };
+        try assert_eq_i32(machine_module_add_reloc(&module, &r), 0);
+        i = i + 1;
+    }
+    try assert_eq_i32(module.relocs.count as i32, OVER_NATIVE_RELOCS);
+    try expect(module.relocs.realloc_count > 1);
+
+    i = 0;
+    while i < OVER_NATIVE_STRINGS {
+        try assert_eq_i32(machine_module_add_string(&module, i), 0);
+        i = i + 1;
+    }
+    try assert_eq_i32(module.strings.count as i32, OVER_NATIVE_STRINGS);
+    try expect(module.strings.realloc_count > 1);
+
+    i = 0;
+    while i < OVER_NATIVE_SECTIONS {
+        var sec: MachineSection = MachineSection{ name_id: i, kind: 1, size: 0, align: 1 };
+        try expect(machine_module_add_section(&module, &sec) >= 0);
+        i = i + 1;
+    }
+    try assert_eq_i32(module.sections.count as i32, OVER_NATIVE_SECTIONS);
+    try expect(module.sections.realloc_count > 1);
+
+    machine_module_release(&module);
+    compiler_arena_free_all(&arena);
+}
+EOF
+
+    (cd "$REPO_ROOT" && ./bin/uya test "$tmp_dir/main.uya" --no-split-c)
+    echo "✓ native machine symbols/relocs/strings/sections growth checks passed"
+}
+
 verify_large_legacy_counts
 verify_high_load_and_collision_growth
 verify_typed_program_dynamic_growth
 verify_lowered_program_dynamic_growth
 verify_c99_plan_dynamic_growth
+verify_native_machine_dynamic_growth
 run_check "verify_semantic_table_growth_failures.sh"
 run_check "verify_semantic_intern_growth.sh"
 run_check "verify_semantic_db_dynamic_growth.sh"

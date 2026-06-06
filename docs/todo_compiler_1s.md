@@ -556,15 +556,15 @@ make check
 
 ## Phase 9: Native backend v1
 
-- [ ] 新建 `src/codegen/native/`。
+- [x] 新建 `src/codegen/native/`。
 - [ ] 新建 `src/codegen/native/abi.uya`。
-- [ ] 新建 `src/codegen/native/machine.uya`。
+- [x] 新建 `src/codegen/native/machine.uya`。
 - [ ] 新建 `src/codegen/native/x86_64.uya`。
 - [ ] 新建 `src/codegen/native/elf64.uya`。
 - [ ] 新建 `src/codegen/native/main.uya`。
-- [ ] 定义 `MachineFunction`。
-- [ ] 定义 `MachineBlock`。
-- [ ] 定义 `MachineInst`。
+- [x] 定义 `MachineFunction`。
+- [x] 定义 `MachineBlock`。
+- [x] 定义 `MachineInst`。
 - [ ] 实现 Linux x86_64 SysV 调用约定。
 - [ ] 实现栈帧布局。
 - [ ] 实现线性扫描或保守寄存器分配。
@@ -574,13 +574,13 @@ make check
 - [ ] 实现字符串常量。
 - [ ] 实现 reloc / symbol table 最小集合。
 - [ ] 实现 ELF64 executable writer。
-- [ ] reloc / symbol table / string table / section table 全部动态增长。
+- [x] reloc / symbol table / string table / section table 全部动态增长。
 - [ ] 实现 nostdlib `_start`。
 - [ ] 实现 syscall bridge。
 - [ ] 实现 `NativeEmitter` 读取 `LoweredProgram`。
 - [ ] Native emitter 输出采用 streaming writer，不保留完整 ELF 镜像副本后再写盘。
-- [ ] relocation / symbol table 使用紧凑数组。
-- [ ] Native emitter 不允许写死最大函数数、block 数、指令数、reloc 数或 symbol 数。
+- [x] relocation / symbol table 使用紧凑数组。
+- [x] Native emitter 不允许写死最大函数数、block 数、指令数、reloc 数或 symbol 数。
 
 首批 native 测试：
 
@@ -591,7 +591,7 @@ make check
 - [ ] `tests/test_native_error_union.uya`
 - [ ] `tests/test_native_global_init.uya`
 - [ ] `tests/verify_native_backend_smoke.sh`
-- [ ] `tests/verify_dynamic_table_growth.sh` 覆盖 native 大量 symbols、relocs、strings、sections。
+- [x] `tests/verify_dynamic_table_growth.sh` 覆盖 native 大量 symbols、relocs、strings、sections。
 
 验证：
 
