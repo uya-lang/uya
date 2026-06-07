@@ -4941,6 +4941,13 @@ fn native_build_expr_to_body_op(program: &ASTNode, expr: &ASTNode,
         out_op.imm = size_align_value as i64;
         return 1;
     }
+    var len_value: i32 = 0;
+    if native_build_expr_len_const_value(expr, null, &len_value) != 0 &&
+       len_value >= 0 && len_value <= 255 {
+        out_op.opcode = LOWERED_BODY_OP_RETURN_CONST_I32;
+        out_op.imm = len_value as i64;
+        return 1;
+    }
     if native_build_expr_is_get_argc_call(expr) != 0 {
         out_op.opcode = LOWERED_BODY_OP_RETURN_ARGC_I32;
         return 1;
@@ -5261,6 +5268,39 @@ fn native_build_expr_size_align_const_value(expr: &ASTNode, out_value: &i32) i32
     return 0;
 }
 
+fn native_build_expr_len_const_value(expr: &ASTNode, locals: &NativeBuildLocalTable,
+    out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if expr == null || out_value == null {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_expr != null {
+        return native_build_expr_len_const_value(expr.cast_expr_expr, locals, out_value);
+    }
+    if expr.type != ASTNodeType.AST_LEN || expr.len_expr_array == null {
+        return 0;
+    }
+    if expr.len_expr_array.type == ASTNodeType.AST_ARRAY_LITERAL {
+        if expr.len_expr_array.array_literal_element_count < 0 {
+            return 0;
+        }
+        *out_value = expr.len_expr_array.array_literal_element_count;
+        return 1;
+    }
+    if expr.len_expr_array.type == ASTNodeType.AST_IDENTIFIER &&
+       expr.len_expr_array.identifier_name != null &&
+       locals != null && locals.lengths != null {
+        const len_slot: i32 = native_build_local_find(locals, expr.len_expr_array.identifier_name);
+        if len_slot >= 0 && locals.lengths[len_slot] > 0 {
+            *out_value = locals.lengths[len_slot];
+            return 1;
+        }
+    }
+    return 0;
+}
+
 fn native_build_expr_scalar_const_value(expr: &ASTNode, locals: &NativeBuildLocalTable, out_value: &i32) i32 {
     if out_value != null {
         *out_value = 0;
@@ -5302,6 +5342,9 @@ fn native_build_expr_scalar_const_value(expr: &ASTNode, locals: &NativeBuildLoca
     if native_build_expr_size_align_const_value(expr, out_value) != 0 {
         return 1;
     }
+    if native_build_expr_len_const_value(expr, locals, out_value) != 0 {
+        return 1;
+    }
     if expr.type == ASTNodeType.AST_BINARY_EXPR && expr.binary_expr_left != null &&
        expr.binary_expr_right != null {
         const op_tmp2: !TokenType = expr.binary_expr_op as! TokenType;
@@ -5329,16 +5372,6 @@ fn native_build_expr_scalar_const_value(expr: &ASTNode, locals: &NativeBuildLoca
         if slot >= 0 && locals.kinds[slot] == NATIVE_BUILD_LOCAL_KIND_SCALAR_I32 &&
            locals.static_knowns[slot] != 0 {
             *out_value = locals.init_values[slot];
-            return 1;
-        }
-    }
-    if expr.type == ASTNodeType.AST_LEN && expr.len_expr_array != null &&
-       expr.len_expr_array.type == ASTNodeType.AST_IDENTIFIER &&
-       expr.len_expr_array.identifier_name != null &&
-       locals != null && locals.lengths != null {
-        const len_slot: i32 = native_build_local_find(locals, expr.len_expr_array.identifier_name);
-        if len_slot >= 0 && locals.lengths[len_slot] > 0 {
-            *out_value = locals.lengths[len_slot];
             return 1;
         }
     }
