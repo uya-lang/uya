@@ -64,6 +64,7 @@ run_step bash tests/verify_native_machine_ir.sh
 run_step bash tests/verify_native_output_policy.sh
 run_step bash tests/verify_native_emitter_lowered_program.sh
 run_step bash tests/verify_native_emitter_streaming_output.sh
+run_step bash tests/verify_native_mir_emitter.sh
 run_step bash tests/verify_native_build_minimal_program.sh
 
 echo "✓ native backend smoke verified"

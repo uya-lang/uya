@@ -1,0 +1,301 @@
+// codegen/native/mir_emitter.uya - Native backend main path from verified PortableMIR.
+
+use libc.FILE;
+
+export const NATIVE_MIR_EMITTER_STATUS_ERROR: i32 = -1;
+export const NATIVE_MIR_EMITTER_STATUS_UNINITIALIZED: i32 = 0;
+export const NATIVE_MIR_EMITTER_STATUS_READY: i32 = 1;
+export const NATIVE_MIR_EMITTER_STATUS_DONE: i32 = 2;
+
+/// 功能说明：记录 native backend 从 PortableMIR 到 MachineModule 的主路径状态。
+/// 参数说明：无；字段由 `native_mir_emitter_begin` 和 `native_mir_emitter_read_portable_mir` 填充。
+/// 返回值说明：无。
+export struct NativeMirEmitter {
+    status: i32,
+    target: i32,
+    request: &MirTargetBackendRequest,
+    portable_mir: &PortableMirModule,
+    machine_module: &MachineModule,
+    mir_function_count: usize,
+    mir_block_count: usize,
+    mir_inst_count: usize,
+    mir_value_count: usize,
+    mir_type_count: usize,
+    imported_function_count: usize,
+    imported_block_count: usize,
+    imported_inst_count: usize,
+}
+
+/// 功能说明：记录 native MIR emitter 写出 executable 的 streaming 输出摘要。
+/// 参数说明：无；字段由 `native_mir_emitter_write_executable_stream` 填充。
+/// 返回值说明：无。
+export struct NativeMirEmitterOutputResult {
+    status: i32,
+    target: i32,
+    code_bytes: usize,
+    output_bytes: usize,
+    temp_peak_bytes: usize,
+}
+
+fn native_mir_emitter_error(emitter: &NativeMirEmitter) i32 {
+    if emitter != null {
+        emitter.status = NATIVE_MIR_EMITTER_STATUS_ERROR;
+    }
+    return -1;
+}
+
+fn native_mir_emitter_output_error(target: i32) NativeMirEmitterOutputResult {
+    return NativeMirEmitterOutputResult{
+        status: NATIVE_MIR_EMITTER_STATUS_ERROR,
+        target: target,
+        code_bytes: 0usize,
+        output_bytes: 0usize,
+        temp_peak_bytes: 0usize,
+    };
+}
+
+fn native_mir_emitter_reset_counts(emitter: &NativeMirEmitter) void {
+    if emitter == null {
+        return;
+    }
+    emitter.mir_function_count = 0usize;
+    emitter.mir_block_count = 0usize;
+    emitter.mir_inst_count = 0usize;
+    emitter.mir_value_count = 0usize;
+    emitter.mir_type_count = 0usize;
+    emitter.imported_function_count = 0usize;
+    emitter.imported_block_count = 0usize;
+    emitter.imported_inst_count = 0usize;
+}
+
+fn native_mir_emitter_refresh_snapshot(emitter: &NativeMirEmitter) i32 {
+    if emitter == null || emitter.portable_mir == null {
+        return native_mir_emitter_error(emitter);
+    }
+    emitter.mir_function_count = emitter.portable_mir.function_count;
+    emitter.mir_block_count = emitter.portable_mir.block_count;
+    emitter.mir_inst_count = emitter.portable_mir.inst_count;
+    emitter.mir_value_count = emitter.portable_mir.value_count;
+    emitter.mir_type_count = emitter.portable_mir.type_count;
+    return 0;
+}
+
+fn native_mir_range_valid(start: i32, count: i32, total: usize) i32 {
+    if start < 0 || count < 0 {
+        return 0;
+    }
+    if (start as usize) > total {
+        return 0;
+    }
+    if (count as usize) > total - (start as usize) {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_mir_machine_inst_from_mir(inst: &MirInst) MachineInst {
+    if inst == null {
+        return MachineInst{
+            opcode: MIR_INST_OP_NOP,
+            dst: MIR_VALUE_INVALID_ID,
+            src0: 0,
+            src1: 0,
+            target_id: MIR_TYPE_INVALID_ID,
+            imm: 0i64,
+            flags: 0,
+        };
+    }
+    return MachineInst{
+        opcode: inst.op,
+        dst: inst.result_value_id,
+        src0: inst.operand_start,
+        src1: inst.operand_count,
+        target_id: inst.type_id,
+        imm: inst.debug_loc_id as i64,
+        flags: inst.flags,
+    };
+}
+
+fn native_mir_emitter_import_block(emitter: &NativeMirEmitter,
+    function_index: i32, block: &MirBlock) i32 {
+    if emitter == null || emitter.portable_mir == null || emitter.machine_module == null ||
+       function_index < 0 || block == null {
+        return -1;
+    }
+    if native_mir_range_valid(block.inst_start, block.inst_count, emitter.portable_mir.insts.count) == 0 {
+        return -1;
+    }
+    const block_index: i32 = machine_function_add_block(emitter.machine_module,
+        function_index, block.block_id);
+    if block_index < 0 {
+        return -1;
+    }
+    emitter.imported_block_count = emitter.imported_block_count + 1usize;
+    var offset: i32 = 0;
+    while offset < block.inst_count {
+        const inst_index_result: !usize = (block.inst_start + offset) as! usize;
+        const inst_index: usize = inst_index_result catch {
+            return -1;
+        };
+        const mir_inst: &MirInst = semantic_vector_item_ptr(&emitter.portable_mir.insts, inst_index) as &MirInst;
+        if mir_inst == null {
+            return -1;
+        }
+        var machine_inst: MachineInst = native_mir_machine_inst_from_mir(mir_inst);
+        if machine_block_add_inst(emitter.machine_module, function_index, block_index, &machine_inst) != 0 {
+            return -1;
+        }
+        emitter.imported_inst_count = emitter.imported_inst_count + 1usize;
+        offset = offset + 1;
+    }
+    return 0;
+}
+
+fn native_mir_emitter_import_function(emitter: &NativeMirEmitter, function: &MirFunction) i32 {
+    if emitter == null || emitter.portable_mir == null || emitter.machine_module == null || function == null {
+        return -1;
+    }
+    if native_mir_range_valid(function.block_start, function.block_count, emitter.portable_mir.blocks.count) == 0 {
+        return -1;
+    }
+    const function_index: i32 = machine_module_add_function(emitter.machine_module,
+        function.function_id, function.symbol_id);
+    if function_index < 0 {
+        return -1;
+    }
+    emitter.imported_function_count = emitter.imported_function_count + 1usize;
+    var offset: i32 = 0;
+    while offset < function.block_count {
+        const block_index_result: !usize = (function.block_start + offset) as! usize;
+        const block_index: usize = block_index_result catch {
+            return -1;
+        };
+        const block: &MirBlock = semantic_vector_item_ptr(&emitter.portable_mir.blocks, block_index) as &MirBlock;
+        if native_mir_emitter_import_block(emitter, function_index, block) != 0 {
+            return -1;
+        }
+        offset = offset + 1;
+    }
+    return 0;
+}
+
+/// 功能说明：构造空的 native MIR emitter。
+/// 参数说明：无。
+/// 返回值说明：返回未绑定 PortableMIR request / MachineModule 的 emitter。
+export fn native_mir_emitter_empty() NativeMirEmitter {
+    return NativeMirEmitter{
+        status: NATIVE_MIR_EMITTER_STATUS_UNINITIALIZED,
+        target: 0,
+        request: null,
+        portable_mir: null,
+        machine_module: null,
+        mir_function_count: 0usize,
+        mir_block_count: 0usize,
+        mir_inst_count: 0usize,
+        mir_value_count: 0usize,
+        mir_type_count: 0usize,
+        imported_function_count: 0usize,
+        imported_block_count: 0usize,
+        imported_inst_count: 0usize,
+    };
+}
+
+/// 功能说明：绑定 native backend 到已验证 PortableMIR request 和 MachineModule。
+/// 参数说明：`emitter` 为目标 emitter，`request` 为 Machine backend 请求，`module` 为输出机器 IR，`target` 为目标平台。
+/// 返回值说明：成功返回 `0`，参数、backend kind、verifier 或生命周期无效返回 `-1`。
+export fn native_mir_emitter_begin(emitter: &NativeMirEmitter, request: &MirTargetBackendRequest,
+    module: &MachineModule, target: i32) i32 {
+    if emitter == null || request == null || module == null {
+        return native_mir_emitter_error(emitter);
+    }
+    if request.backend_kind != MIR_TARGET_BACKEND_MACHINE ||
+       portable_mir_backend_request_is_verified(request) == 0 ||
+       machine_module_lifecycle_state(module) != MACHINE_LIFECYCLE_ACTIVE {
+        return native_mir_emitter_error(emitter);
+    }
+    emitter.status = NATIVE_MIR_EMITTER_STATUS_READY;
+    emitter.target = target;
+    emitter.request = request;
+    emitter.portable_mir = request.module;
+    emitter.machine_module = module;
+    native_mir_emitter_reset_counts(emitter);
+    return native_mir_emitter_refresh_snapshot(emitter);
+}
+
+/// 功能说明：读取 PortableMIR 并导入 native MachineModule。
+/// 参数说明：`emitter` 必须已通过 `native_mir_emitter_begin` 绑定已验证 PortableMIR。
+/// 返回值说明：成功返回 `0` 并将状态置为 DONE；无效状态或导入失败返回 `-1`。
+export fn native_mir_emitter_read_portable_mir(emitter: &NativeMirEmitter) i32 {
+    if emitter == null || emitter.status != NATIVE_MIR_EMITTER_STATUS_READY {
+        return native_mir_emitter_error(emitter);
+    }
+    emitter.imported_function_count = 0usize;
+    emitter.imported_block_count = 0usize;
+    emitter.imported_inst_count = 0usize;
+    if native_mir_emitter_refresh_snapshot(emitter) != 0 {
+        return native_mir_emitter_error(emitter);
+    }
+    var i: usize = 0usize;
+    while i < emitter.portable_mir.functions.count {
+        const function: &MirFunction = semantic_vector_item_ptr(&emitter.portable_mir.functions, i) as &MirFunction;
+        if native_mir_emitter_import_function(emitter, function) != 0 {
+            return native_mir_emitter_error(emitter);
+        }
+        i = i + 1usize;
+    }
+    emitter.status = NATIVE_MIR_EMITTER_STATUS_DONE;
+    return 0;
+}
+
+/// 功能说明：把已完成的 native MIR emitter 输出绑定到 backend output payload。
+/// 参数说明：`emitter` 为已导入 MachineModule 的 emitter，`output` 为 target backend 输出描述。
+/// 返回值说明：成功返回 `0`；状态错误或 output 初始化失败返回 `-1`。
+export fn native_mir_emitter_finish_output(emitter: &NativeMirEmitter,
+    output: &MirTargetBackendOutput) i32 {
+    if emitter == null || output == null || emitter.status != NATIVE_MIR_EMITTER_STATUS_DONE ||
+       emitter.machine_module == null {
+        return -1;
+    }
+    if portable_mir_backend_output_init(output, MIR_TARGET_BACKEND_MACHINE) != 0 {
+        return -1;
+    }
+    output.machine_module = emitter.machine_module as &void;
+    return 0;
+}
+
+/// 功能说明：报告 native MIR emitter streaming executable writer 的临时缓冲上界。
+/// 参数说明：`code_len` 为待写机器码长度。
+/// 返回值说明：返回 ELF header 固定临时缓冲大小。
+export fn native_mir_emitter_stream_temp_peak_bytes(code_len: usize) usize {
+    return elf64_stream_peak_temp_bytes(code_len);
+}
+
+/// 功能说明：用 native MIR emitter 的 MachineModule path 写出 Linux x86_64 ELF64 executable。
+/// 参数说明：`emitter` 为已初始化 emitter；`stream` 为目标 FILE；`code`/`code_len` 为机器码输入。
+/// 返回值说明：成功返回输出摘要；参数、状态或写入失败时 `status == -1`。
+export fn native_mir_emitter_write_executable_stream(emitter: &NativeMirEmitter, stream: &FILE,
+    code: &const byte, code_len: usize) NativeMirEmitterOutputResult {
+    var target: i32 = 0;
+    if emitter != null {
+        target = emitter.target;
+    }
+    if emitter == null || stream == null || (code == null && code_len != 0usize) {
+        return native_mir_emitter_output_error(target);
+    }
+    if emitter.status != NATIVE_MIR_EMITTER_STATUS_READY &&
+       emitter.status != NATIVE_MIR_EMITTER_STATUS_DONE {
+        return native_mir_emitter_output_error(target);
+    }
+    const written: i32 = elf64_write_executable_stream(stream, code, code_len,
+        EM_X86_64, ELF64_DEFAULT_LOAD_VADDR);
+    if written < 0 {
+        return native_mir_emitter_output_error(target);
+    }
+    return NativeMirEmitterOutputResult{
+        status: NATIVE_MIR_EMITTER_STATUS_DONE,
+        target: target,
+        code_bytes: code_len,
+        output_bytes: written as usize,
+        temp_peak_bytes: native_mir_emitter_stream_temp_peak_bytes(code_len),
+    };
+}

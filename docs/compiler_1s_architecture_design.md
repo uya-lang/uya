@@ -608,6 +608,11 @@ PortableMIR
   -> ObjectWriter / ELFWriter
 ```
 
+当前 native 主合同由 `NativeMirEmitter` 表达：入口接收 `MirTargetBackendRequest`，确认其 backend kind 为
+`MIR_TARGET_BACKEND_MACHINE` 且 verifier-clean，然后按 MIR function / block / inst range 导入
+`MachineModule`，再交给 object/executable writer。历史 build-seed 子集里的 `LoweredProgram -> MachineModule`
+helper 只作为 Phase 10 freestanding 回归边界保留，不能作为 hosted native 完整语言主路径。
+
 v1 可采用简单策略：
 
 - 固定调用约定。
