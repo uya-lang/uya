@@ -1,0 +1,242 @@
+// lower/mir_contract.uya - PortableMIR lowering contract from frozen CoreIR.
+
+export const MIR_LOWER_FEATURE_EXPRESSIONS: i32 = 1;
+export const MIR_LOWER_FEATURE_STATEMENTS: i32 = 2;
+export const MIR_LOWER_FEATURE_CONTROL_FLOW: i32 = 4;
+export const MIR_LOWER_FEATURE_LOAD_STORE_ADDRESS: i32 = 8;
+export const MIR_LOWER_FEATURE_ATOMIC: i32 = 16;
+export const MIR_LOWER_FEATURE_VECTOR_MASK: i32 = 32;
+export const MIR_LOWER_FEATURE_CALL_RETURN_BRANCH: i32 = 64;
+export const MIR_LOWER_FEATURE_FIELD_INDEX_SLICE_ADDRESS: i32 = 128;
+export const MIR_LOWER_FEATURE_COPY_MOVE_DROP: i32 = 256;
+export const MIR_LOWER_FEATURE_CLEANUP_PATH: i32 = 512;
+export const MIR_INST_OP_ADDR_OF_LOCAL: i32 = 5;
+export const MIR_INST_OP_ADDR_OF_GLOBAL: i32 = 6;
+export const MIR_INST_OP_ADDR_OF_PARAM: i32 = 7;
+export const MIR_INST_OP_FIELD_ADDR: i32 = 8;
+export const MIR_INST_OP_INDEX_ADDR: i32 = 9;
+export const MIR_INST_OP_SLICE_PTR_ADDR: i32 = 10;
+export const MIR_INST_OP_SLICE_LEN_ADDR: i32 = 11;
+export const MIR_INST_OP_PTR_OFFSET: i32 = 12;
+export const MIR_INST_OP_COPY: i32 = 13;
+export const MIR_INST_OP_MOVE: i32 = 14;
+export const MIR_INST_OP_DROP_VALUE: i32 = 15;
+export const MIR_INST_OP_DROP_IN_PLACE: i32 = 16;
+export const MIR_INST_OP_ATOMIC_LOAD: i32 = 17;
+export const MIR_INST_OP_ATOMIC_STORE: i32 = 18;
+export const MIR_INST_OP_ATOMIC_RMW: i32 = 19;
+export const MIR_INST_OP_ATOMIC_CMPXCHG: i32 = 20;
+export const MIR_INST_OP_VECTOR_SPLAT: i32 = 21;
+export const MIR_INST_OP_VECTOR_LOAD: i32 = 22;
+export const MIR_INST_OP_VECTOR_STORE: i32 = 23;
+export const MIR_INST_OP_VECTOR_SELECT: i32 = 24;
+export const MIR_INST_OP_RUNTIME_HELPER: i32 = 25;
+
+/// 功能说明：记录 `LoweredProgram + CoreBody` 到 PortableMIR 的完整语言 lowering 合同。
+/// 参数说明：无；字段保存 frozen Core 输入、必需 feature mask、当前支持 mask 和首轮缺失 mask。
+/// 返回值说明：无。
+export struct PortableMirLoweringContract {
+    input: PortableMirCoreInput,
+    required_feature_mask: i32,
+    supported_feature_mask: i32,
+    missing_feature_mask: i32,
+    lowered_feature_mask: i32,
+    flags: i32,
+}
+
+/// 功能说明：判断 feature mask 是否包含指定 PortableMIR lowering feature。
+/// 参数说明：`mask` 为 feature mask，`feature` 为单个 feature bit。
+/// 返回值说明：包含返回 `1`，否则返回 `0`。
+export fn portable_mir_lowering_mask_has(mask: i32, feature: i32) i32 {
+    if feature == 0 {
+        return 0;
+    }
+    if (mask & feature) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：返回完整语言 CoreBody 到 PortableMIR lowering 必须覆盖的 feature mask。
+/// 参数说明：无。
+/// 返回值说明：返回 expressions、statements、control flow、memory/address、atomic、vector/mask、call/return/branch、aggregate address、copy/move/drop 和 cleanup path 的并集。
+export fn portable_mir_lowering_contract_required_features() i32 {
+    var mask: i32 = MIR_LOWER_FEATURE_EXPRESSIONS;
+    mask = mask + MIR_LOWER_FEATURE_STATEMENTS;
+    mask = mask + MIR_LOWER_FEATURE_CONTROL_FLOW;
+    mask = mask + MIR_LOWER_FEATURE_LOAD_STORE_ADDRESS;
+    mask = mask + MIR_LOWER_FEATURE_ATOMIC;
+    mask = mask + MIR_LOWER_FEATURE_VECTOR_MASK;
+    mask = mask + MIR_LOWER_FEATURE_CALL_RETURN_BRANCH;
+    mask = mask + MIR_LOWER_FEATURE_FIELD_INDEX_SLICE_ADDRESS;
+    mask = mask + MIR_LOWER_FEATURE_COPY_MOVE_DROP;
+    mask = mask + MIR_LOWER_FEATURE_CLEANUP_PATH;
+    return mask;
+}
+
+/// 功能说明：构造空 PortableMIR lowering 合同值，便于测试和调用方初始化。
+/// 参数说明：无。
+/// 返回值说明：返回未绑定 Core 输入且 feature mask 清零的合同值。
+export fn portable_mir_lowering_contract_empty() PortableMirLoweringContract {
+    return PortableMirLoweringContract{
+        input: PortableMirCoreInput{
+            program: null,
+            body_id: CORE_BODY_INVALID_ID,
+            target_profile_id: 0,
+            flags: 0,
+        },
+        required_feature_mask: 0,
+        supported_feature_mask: 0,
+        missing_feature_mask: 0,
+        lowered_feature_mask: 0,
+        flags: 0,
+    };
+}
+
+fn portable_mir_lowering_contract_missing_features(supported_feature_mask: i32) i32 {
+    var missing: i32 = 0;
+    if portable_mir_lowering_mask_has(supported_feature_mask, MIR_LOWER_FEATURE_EXPRESSIONS) == 0 {
+        missing = missing + MIR_LOWER_FEATURE_EXPRESSIONS;
+    }
+    if portable_mir_lowering_mask_has(supported_feature_mask, MIR_LOWER_FEATURE_STATEMENTS) == 0 {
+        missing = missing + MIR_LOWER_FEATURE_STATEMENTS;
+    }
+    if portable_mir_lowering_mask_has(supported_feature_mask, MIR_LOWER_FEATURE_CONTROL_FLOW) == 0 {
+        missing = missing + MIR_LOWER_FEATURE_CONTROL_FLOW;
+    }
+    if portable_mir_lowering_mask_has(supported_feature_mask, MIR_LOWER_FEATURE_LOAD_STORE_ADDRESS) == 0 {
+        missing = missing + MIR_LOWER_FEATURE_LOAD_STORE_ADDRESS;
+    }
+    if portable_mir_lowering_mask_has(supported_feature_mask, MIR_LOWER_FEATURE_ATOMIC) == 0 {
+        missing = missing + MIR_LOWER_FEATURE_ATOMIC;
+    }
+    if portable_mir_lowering_mask_has(supported_feature_mask, MIR_LOWER_FEATURE_VECTOR_MASK) == 0 {
+        missing = missing + MIR_LOWER_FEATURE_VECTOR_MASK;
+    }
+    if portable_mir_lowering_mask_has(supported_feature_mask, MIR_LOWER_FEATURE_CALL_RETURN_BRANCH) == 0 {
+        missing = missing + MIR_LOWER_FEATURE_CALL_RETURN_BRANCH;
+    }
+    if portable_mir_lowering_mask_has(supported_feature_mask, MIR_LOWER_FEATURE_FIELD_INDEX_SLICE_ADDRESS) == 0 {
+        missing = missing + MIR_LOWER_FEATURE_FIELD_INDEX_SLICE_ADDRESS;
+    }
+    if portable_mir_lowering_mask_has(supported_feature_mask, MIR_LOWER_FEATURE_COPY_MOVE_DROP) == 0 {
+        missing = missing + MIR_LOWER_FEATURE_COPY_MOVE_DROP;
+    }
+    if portable_mir_lowering_mask_has(supported_feature_mask, MIR_LOWER_FEATURE_CLEANUP_PATH) == 0 {
+        missing = missing + MIR_LOWER_FEATURE_CLEANUP_PATH;
+    }
+    return missing;
+}
+
+/// 功能说明：判断当前 PortableMIR lowering 合同是否声明支持指定 feature。
+/// 参数说明：`contract` 为已初始化合同，`feature` 为单个 feature bit。
+/// 返回值说明：合同有效且支持该 feature 返回 `1`，否则返回 `0`。
+export fn portable_mir_lowering_contract_accepts_feature(contract: &PortableMirLoweringContract, feature: i32) i32 {
+    if contract == null {
+        return 0;
+    }
+    if portable_mir_lowering_mask_has(contract.required_feature_mask, feature) == 0 {
+        return 0;
+    }
+    return portable_mir_lowering_mask_has(contract.supported_feature_mask, feature);
+}
+
+/// 功能说明：把 CoreStmt kind 映射为 PortableMIR lowering feature mask。
+/// 参数说明：`kind` 为 CoreStmt kind 常量。
+/// 返回值说明：返回该 statement lowering 需要的 feature mask；未知 kind 返回 `0`。
+export fn portable_mir_lowering_feature_for_stmt_kind(kind: i32) i32 {
+    if kind == CORE_STMT_KIND_RETURN {
+        return MIR_LOWER_FEATURE_STATEMENTS + MIR_LOWER_FEATURE_CONTROL_FLOW + MIR_LOWER_FEATURE_CALL_RETURN_BRANCH;
+    }
+    if kind == CORE_STMT_KIND_ASM {
+        return MIR_LOWER_FEATURE_STATEMENTS + MIR_LOWER_FEATURE_CALL_RETURN_BRANCH;
+    }
+    if kind == CORE_STMT_KIND_DEFER || kind == CORE_STMT_KIND_ERRDEFER {
+        return MIR_LOWER_FEATURE_STATEMENTS + MIR_LOWER_FEATURE_CLEANUP_PATH;
+    }
+    if kind == CORE_STMT_KIND_DROP {
+        return MIR_LOWER_FEATURE_STATEMENTS + MIR_LOWER_FEATURE_COPY_MOVE_DROP + MIR_LOWER_FEATURE_CLEANUP_PATH;
+    }
+    if kind == CORE_STMT_KIND_ERROR_PROPAGATION {
+        return MIR_LOWER_FEATURE_STATEMENTS + MIR_LOWER_FEATURE_CONTROL_FLOW + MIR_LOWER_FEATURE_CLEANUP_PATH;
+    }
+    return 0;
+}
+
+/// 功能说明：把 CoreExpr kind 映射为 PortableMIR lowering feature mask。
+/// 参数说明：`kind` 为 CoreExpr kind 常量。
+/// 返回值说明：返回该 expression lowering 需要的 feature mask；未知 kind 返回 `0`。
+export fn portable_mir_lowering_feature_for_expr_kind(kind: i32) i32 {
+    if kind == CORE_EXPR_KIND_CALL {
+        return MIR_LOWER_FEATURE_EXPRESSIONS + MIR_LOWER_FEATURE_CALL_RETURN_BRANCH;
+    }
+    if kind == CORE_EXPR_KIND_INDEX || kind == CORE_EXPR_KIND_SLICE {
+        return MIR_LOWER_FEATURE_EXPRESSIONS + MIR_LOWER_FEATURE_LOAD_STORE_ADDRESS +
+            MIR_LOWER_FEATURE_FIELD_INDEX_SLICE_ADDRESS;
+    }
+    if kind == CORE_EXPR_KIND_ATOMIC {
+        return MIR_LOWER_FEATURE_EXPRESSIONS + MIR_LOWER_FEATURE_LOAD_STORE_ADDRESS +
+            MIR_LOWER_FEATURE_ATOMIC;
+    }
+    if kind == CORE_EXPR_KIND_VECTOR || kind == CORE_EXPR_KIND_MASK {
+        return MIR_LOWER_FEATURE_EXPRESSIONS + MIR_LOWER_FEATURE_VECTOR_MASK;
+    }
+    return 0;
+}
+
+/// 功能说明：把 CorePlace kind 映射为 PortableMIR lowering feature mask。
+/// 参数说明：`kind` 为 CorePlace kind 常量。
+/// 返回值说明：返回该 place lowering 需要的 feature mask；未知 kind 返回 `0`。
+export fn portable_mir_lowering_feature_for_place_kind(kind: i32) i32 {
+    if kind == CORE_PLACE_KIND_FIELD || kind == CORE_PLACE_KIND_INDEX || kind == CORE_PLACE_KIND_SLICE {
+        return MIR_LOWER_FEATURE_LOAD_STORE_ADDRESS + MIR_LOWER_FEATURE_FIELD_INDEX_SLICE_ADDRESS;
+    }
+    return 0;
+}
+
+/// 功能说明：把 CoreCleanupEdge kind 映射为 PortableMIR lowering feature mask。
+/// 参数说明：`kind` 为 CoreCleanupEdge kind 常量。
+/// 返回值说明：返回该 cleanup edge lowering 需要的 feature mask；未知 kind 返回 `0`。
+export fn portable_mir_lowering_feature_for_cleanup_kind(kind: i32) i32 {
+    if kind == CORE_CLEANUP_EDGE_KIND_RETURN {
+        return MIR_LOWER_FEATURE_CONTROL_FLOW + MIR_LOWER_FEATURE_CALL_RETURN_BRANCH +
+            MIR_LOWER_FEATURE_CLEANUP_PATH;
+    }
+    return 0;
+}
+
+/// 功能说明：初始化 `LoweredProgram + CoreBody` 到 PortableMIR 的 lowering 合同。
+/// 参数说明：`contract` 为输出合同，`input` 为 frozen CoreIR 输入，`supported_feature_mask` 为当前 lowering 实现声明支持的 feature。
+/// 返回值说明：输入通过 CoreIR verifier 且 feature 覆盖完整返回 `0`，否则返回 `-1` 并记录缺失 feature mask。
+export fn portable_mir_lowering_contract_init(
+    contract: &PortableMirLoweringContract,
+    input: &PortableMirCoreInput,
+    supported_feature_mask: i32,
+) i32 {
+    if contract == null {
+        return -1;
+    }
+    contract.required_feature_mask = portable_mir_lowering_contract_required_features();
+    contract.supported_feature_mask = supported_feature_mask;
+    contract.missing_feature_mask = portable_mir_lowering_contract_missing_features(supported_feature_mask);
+    contract.lowered_feature_mask = 0;
+    contract.flags = 0;
+    if input == null {
+        contract.input.program = null;
+        contract.input.body_id = CORE_BODY_INVALID_ID;
+        contract.input.target_profile_id = 0;
+        contract.input.flags = 0;
+        return -1;
+    }
+    contract.input.program = input.program;
+    contract.input.body_id = input.body_id;
+    contract.input.target_profile_id = input.target_profile_id;
+    contract.input.flags = input.flags;
+    if portable_mir_core_input_is_frozen(input) == 0 {
+        return -1;
+    }
+    if contract.missing_feature_mask != 0 {
+        return -1;
+    }
+    return 0;
+}

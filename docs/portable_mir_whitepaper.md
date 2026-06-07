@@ -71,7 +71,25 @@ PortableMIR 拥有低级函数体：
 - error / defer / errdefer / drop cleanup paths
 - target capability requirements
 
-### 3.3 Target backend
+### 3.3 LoweredProgram + CoreBody -> PortableMIR lowering 合同
+
+PortableMIR lowering 合同必须把完整语言面拆成可验证 feature mask：
+
+- expressions 和 statements。
+- structured control flow 到 basic blocks / terminators。
+- load/store/address 显式内存形态。
+- atomic operation。
+- SIMD vector / mask operation。
+- call / return / branch。
+- field / index / slice address lowering。
+- copy / move / drop。
+- cleanup path。
+
+`portable_mir_lowering_contract_init` 只接受 verifier-clean 的 `PortableMirCoreInput`，并要求当前 lowering
+实现声明支持上述全部 feature。某个 feature 未实现时必须表现为缺失合同，而不是让 backend 临时发现语义缺口。
+合同 API 不接受 `TypedProgram` 或 checker state；缺 source/proof/capability/layout metadata 时先回补 CoreIR。
+
+### 3.4 Target backend
 
 backend 消费 verifier 通过后的 PortableMIR：
 
