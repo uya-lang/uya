@@ -33,6 +33,14 @@ export const MIR_RUNTIME_CAP_FREESTANDING: i32 = 4;
 export const MIR_ABI_CLASS_DIRECT: i32 = 1;
 export const MIR_ABI_CLASS_MEMORY: i32 = 2;
 export const MIR_MASK_REPR_BITSET: i32 = 1;
+export const MIR_PARALLEL_OUTPUT_MIR_FUNCTIONS: i32 = 1;
+export const MIR_PARALLEL_OUTPUT_DIAGNOSTICS: i32 = 2;
+export const MIR_PARALLEL_OUTPUT_DUMP: i32 = 4;
+export const MIR_PARALLEL_OUTPUT_BACKEND_FRAGMENTS: i32 = 8;
+export const MIR_PARALLEL_MERGE_STABLE_FUNCTION_ORDER: i32 = 1;
+export const MIR_PARALLEL_FORBID_SHARED_MODULE_WRITE: i32 = 1;
+export const MIR_PARALLEL_FORBID_HASH_ORDER: i32 = 2;
+export const MIR_PARALLEL_FORBID_CLOSURE_MUTATION: i32 = 4;
 export const MIR_INST_OP_ADDR_OF_LOCAL: i32 = 5;
 export const MIR_INST_OP_ADDR_OF_GLOBAL: i32 = 6;
 export const MIR_INST_OP_ADDR_OF_PARAM: i32 = 7;
@@ -67,6 +75,28 @@ export struct PortableMirLoweringContract {
     flags: i32,
 }
 
+/// 功能说明：记录 PortableMIR 并行 worker 的只读输入合同。
+/// 参数说明：无；字段保存 frozen Core 输入、稳定函数序号、worker ID 和 flags。
+/// 返回值说明：无。
+export struct PortableMirParallelWorkerInput {
+    core_input: PortableMirCoreInput,
+    stable_function_index: i32,
+    worker_id: i32,
+    flags: i32,
+}
+
+/// 功能说明：记录 PortableMIR 并行构造后的稳定归并合同。
+/// 参数说明：无；字段保存函数/worker 数量、输出 mask、merge order mask 和禁止行为 mask。
+/// 返回值说明：无。
+export struct PortableMirParallelMergeContract {
+    function_count: i32,
+    worker_count: i32,
+    output_mask: i32,
+    merge_order_mask: i32,
+    forbidden_mask: i32,
+    flags: i32,
+}
+
 /// 功能说明：判断 feature mask 是否包含指定 PortableMIR lowering feature。
 /// 参数说明：`mask` 为 feature mask，`feature` 为单个 feature bit。
 /// 返回值说明：包含返回 `1`，否则返回 `0`。
@@ -78,6 +108,73 @@ export fn portable_mir_lowering_mask_has(mask: i32, feature: i32) i32 {
         return 1;
     }
     return 0;
+}
+
+/// 功能说明：返回并行 MIR 构造必须稳定归并的输出集合。
+/// 参数说明：无。
+/// 返回值说明：返回 MIR functions、diagnostics、dump 和 backend fragments 的 bit mask。
+export fn portable_mir_parallel_required_output_mask() i32 {
+    return MIR_PARALLEL_OUTPUT_MIR_FUNCTIONS + MIR_PARALLEL_OUTPUT_DIAGNOSTICS +
+        MIR_PARALLEL_OUTPUT_DUMP + MIR_PARALLEL_OUTPUT_BACKEND_FRAGMENTS;
+}
+
+/// 功能说明：返回并行 MIR worker 禁止执行的非确定性行为集合。
+/// 参数说明：无。
+/// 返回值说明：返回禁止共享 module 写入、hash 顺序决定输出和修改闭包的 bit mask。
+export fn portable_mir_parallel_required_forbidden_mask() i32 {
+    return MIR_PARALLEL_FORBID_SHARED_MODULE_WRITE + MIR_PARALLEL_FORBID_HASH_ORDER +
+        MIR_PARALLEL_FORBID_CLOSURE_MUTATION;
+}
+
+/// 功能说明：判断 PortableMIR 并行 worker 输入是否只消费 frozen CoreIR。
+/// 参数说明：`input` 为待检查 worker 输入。
+/// 返回值说明：Core 输入已冻结且 stable function index / worker ID 合法时返回 `1`，否则返回 `0`。
+export fn portable_mir_parallel_worker_input_is_valid(input: &PortableMirParallelWorkerInput) i32 {
+    if input == null {
+        return 0;
+    }
+    if input.stable_function_index < 0 || input.worker_id < 0 {
+        return 0;
+    }
+    return portable_mir_core_input_is_frozen(&input.core_input);
+}
+
+/// 功能说明：初始化 PortableMIR 并行稳定归并合同。
+/// 参数说明：`contract` 为输出合同，`function_count` 为 stable function 数量，`worker_count` 为 worker 数量。
+/// 返回值说明：成功返回 `0`，参数非法返回 `-1`。
+export fn portable_mir_parallel_merge_contract_init(contract: &PortableMirParallelMergeContract,
+    function_count: i32, worker_count: i32) i32 {
+    if contract == null || function_count < 0 || worker_count <= 0 {
+        return -1;
+    }
+    contract.function_count = function_count;
+    contract.worker_count = worker_count;
+    contract.output_mask = portable_mir_parallel_required_output_mask();
+    contract.merge_order_mask = MIR_PARALLEL_MERGE_STABLE_FUNCTION_ORDER;
+    contract.forbidden_mask = portable_mir_parallel_required_forbidden_mask();
+    contract.flags = 0;
+    return 0;
+}
+
+/// 功能说明：判断 PortableMIR 并行归并合同是否保证确定性输出。
+/// 参数说明：`contract` 为已初始化的归并合同。
+/// 返回值说明：覆盖稳定函数顺序、必需输出和禁止行为时返回 `1`，否则返回 `0`。
+export fn portable_mir_parallel_merge_contract_is_deterministic(contract: &PortableMirParallelMergeContract) i32 {
+    if contract == null || contract.function_count < 0 || contract.worker_count <= 0 {
+        return 0;
+    }
+    const required_outputs: i32 = portable_mir_parallel_required_output_mask();
+    const required_forbidden: i32 = portable_mir_parallel_required_forbidden_mask();
+    if (contract.output_mask & required_outputs) != required_outputs {
+        return 0;
+    }
+    if portable_mir_lowering_mask_has(contract.merge_order_mask, MIR_PARALLEL_MERGE_STABLE_FUNCTION_ORDER) == 0 {
+        return 0;
+    }
+    if (contract.forbidden_mask & required_forbidden) != required_forbidden {
+        return 0;
+    }
+    return 1;
 }
 
 /// 功能说明：判断 PortableMIR lowering metadata 缺口是否必须回补 CoreIR 合同。

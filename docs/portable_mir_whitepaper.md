@@ -710,7 +710,7 @@ PortableMIR 可以在 CoreIR 冻结后并行构造，但并行边界必须清晰
 - 每个 worker 只处理一个或一组 concrete functions。
 - worker 输入只能是只读 `LoweredProgram + CoreBody + target profile`。
 - worker 输出写入局部 `MirFunctionBuilder` / scratch arena。
-- 主线程按 stable function order 合并 `MirFunction`、diagnostics、symbols 和 dump 片段。
+- 主线程按 stable function order 合并 `MirFunction`、diagnostics、dump 和 backend fragments。
 - 并行开关不得改变 `MirFunctionId`、`MirBlockId`、`MirValueId`、dump 文本、diagnostic 顺序或 object symbol order。
 
 禁止事项：
