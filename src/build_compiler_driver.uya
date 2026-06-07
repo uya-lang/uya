@@ -1022,6 +1022,40 @@ fn native_build_hosted_find_noarg_i32_function(program: &ASTNode, name: &byte,
     return 0;
 }
 
+fn native_build_hosted_find_extern_two_i32_function(program: &ASTNode, name: &byte,
+    out_function_id: &i32, out_decl_index: &i32) i32 {
+    if out_function_id != null {
+        *out_function_id = TYPED_PROGRAM_INVALID_ID;
+    }
+    if out_decl_index != null {
+        *out_decl_index = TYPED_PROGRAM_INVALID_ID;
+    }
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || name == null ||
+       out_function_id == null || out_decl_index == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    var function_id: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
+            if decl.fn_decl_name != null &&
+               str_equals(decl.fn_decl_name as *byte, name as *byte) != 0 {
+                if native_build_decl_is_extern_two_i32_param_fn(decl) == 0 {
+                    return 0;
+                }
+                *out_function_id = function_id;
+                *out_decl_index = i;
+                return 1;
+            }
+            function_id = function_id + 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
 fn native_build_hosted_return_call_target(program: &ASTNode, expr: &ASTNode,
     out_function_id: &i32, out_decl_index: &i32) i32 {
     if out_function_id != null {
@@ -1038,6 +1072,48 @@ fn native_build_hosted_return_call_target(program: &ASTNode, expr: &ASTNode,
     }
     return native_build_hosted_find_noarg_i32_function(program,
         expr.call_expr_callee.identifier_name, out_function_id, out_decl_index);
+}
+
+fn native_build_hosted_return_extern_const2_call_expr(program: &ASTNode,
+    decl: &ASTNode, out_function_id: &i32, out_decl_index: &i32,
+    out_arg0: &i32, out_arg1: &i32) &ASTNode {
+    if out_function_id != null {
+        *out_function_id = TYPED_PROGRAM_INVALID_ID;
+    }
+    if out_decl_index != null {
+        *out_decl_index = TYPED_PROGRAM_INVALID_ID;
+    }
+    if out_arg0 != null {
+        *out_arg0 = 0;
+    }
+    if out_arg1 != null {
+        *out_arg1 = 0;
+    }
+    if program == null || native_build_decl_is_noarg_i32_fn(decl) == 0 ||
+       decl.fn_decl_name == null ||
+       str_equals(decl.fn_decl_name as *byte, "main" as *byte) == 0 ||
+       decl.fn_decl_body == null || decl.fn_decl_body.type != ASTNodeType.AST_BLOCK ||
+       decl.fn_decl_body.block_stmt_count != 1 || decl.fn_decl_body.block_stmts == null ||
+       out_function_id == null || out_decl_index == null ||
+       out_arg0 == null || out_arg1 == null {
+        return null;
+    }
+    const stmt: &ASTNode = decl.fn_decl_body.block_stmts[0];
+    if stmt == null || stmt.type != ASTNodeType.AST_RETURN_STMT ||
+       stmt.return_stmt_expr == null ||
+       stmt.return_stmt_expr.type != ASTNodeType.AST_CALL_EXPR {
+        return null;
+    }
+    var extern_name: &byte = null;
+    if native_build_hosted_const2_extern_call_args(program, stmt.return_stmt_expr,
+        &extern_name, out_arg0, out_arg1) == 0 {
+        return null;
+    }
+    if native_build_hosted_find_extern_two_i32_function(program, extern_name,
+        out_function_id, out_decl_index) == 0 {
+        return null;
+    }
+    return stmt.return_stmt_expr;
 }
 
 fn native_build_hosted_stmt_number_return_expr(stmt: &ASTNode) &ASTNode {
@@ -1242,6 +1318,25 @@ fn native_build_hosted_decl_can_materialize_safe_core_body(program: &ASTNode, de
             return 1;
         }
     }
+    var extern_target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var extern_target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    var extern_arg0: i32 = 0;
+    var extern_arg1: i32 = 0;
+    const extern_call_expr: &ASTNode = native_build_hosted_return_extern_const2_call_expr(program,
+        decl, &extern_target_function_id, &extern_target_decl_index, &extern_arg0, &extern_arg1);
+    if extern_call_expr != null && checker != null && extern_call_expr.call_expr_args != null {
+        var extern_call_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+        var extern_arg0_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+        var extern_arg1_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+        if native_build_hosted_ensure_expr_type_id(checker, extern_call_expr,
+            &extern_call_type_id) == 0 &&
+           native_build_hosted_ensure_expr_type_id(checker, extern_call_expr.call_expr_args[0],
+            &extern_arg0_type_id) == 0 &&
+           native_build_hosted_ensure_expr_type_id(checker, extern_call_expr.call_expr_args[1],
+            &extern_arg1_type_id) == 0 {
+            return 1;
+        }
+    }
     return 0;
 }
 
@@ -1327,6 +1422,100 @@ fn native_build_hosted_coreir_append_call_expr(lowered: &LoweredProgram,
         flags: 0,
     };
     return lowered_program_append_core_expr(lowered, &expr);
+}
+
+fn native_build_hosted_coreir_append_extern_const2_call_expr(lowered: &LoweredProgram,
+    body_id: i32, expr_node: &ASTNode, type_id: TypeId, arg0_expr_id: CoreExprId,
+    arg1_expr_id: CoreExprId, target_function_id: i32, target_decl_index: i32) i32 {
+    if lowered == null || expr_node == null || expr_node.type != ASTNodeType.AST_CALL_EXPR ||
+       type_id == TYPED_PROGRAM_INVALID_ID || arg0_expr_id == CORE_EXPR_INVALID_ID ||
+       arg1_expr_id == CORE_EXPR_INVALID_ID || target_function_id == TYPED_PROGRAM_INVALID_ID ||
+       target_decl_index == TYPED_PROGRAM_INVALID_ID {
+        return -1;
+    }
+    const expr_id: i32 = lowered.core_expr_count as i32;
+    var expr: CoreExpr = CoreExpr{
+        expr_id: expr_id,
+        kind: CORE_EXPR_KIND_CALL,
+        body_id: body_id,
+        source_expr_id: expr_node.expr_id,
+        type_id: type_id,
+        literal_i64: 0i64,
+        lhs_expr_id: arg0_expr_id,
+        rhs_expr_id: arg1_expr_id,
+        callee_expr_id: CORE_EXPR_INVALID_ID,
+        place_id: CORE_PLACE_INVALID_ID,
+        target_function_id: target_function_id,
+        target_decl_id: target_decl_index,
+        field_id: TYPED_PROGRAM_INVALID_ID,
+        proof_result_id: TYPED_PROGRAM_INVALID_ID,
+        capability_id: TYPED_PROGRAM_INVALID_ID,
+        source_span_id: expr_node.line,
+        flags: 0,
+    };
+    return lowered_program_append_core_expr(lowered, &expr);
+}
+
+fn native_build_hosted_coreir_append_extern_const2_call_body(lowered: &LoweredProgram,
+    checker: &TypeChecker, program: &ASTNode, function_id: i32, decl_index: i32,
+    decl: &ASTNode) i32 {
+    if lowered == null || checker == null || program == null || decl == null ||
+       decl.fn_decl_body == null || decl.fn_decl_body.block_stmts == null {
+        return -1;
+    }
+    var target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    var arg0: i32 = 0;
+    var arg1: i32 = 0;
+    const call_expr: &ASTNode = native_build_hosted_return_extern_const2_call_expr(program,
+        decl, &target_function_id, &target_decl_index, &arg0, &arg1);
+    if call_expr == null || call_expr.call_expr_args == null {
+        return -1;
+    }
+    var call_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var arg0_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    var arg1_type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if native_build_hosted_ensure_expr_type_id(checker, call_expr, &call_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, call_expr.call_expr_args[0],
+        &arg0_type_id) != 0 ||
+       native_build_hosted_ensure_expr_type_id(checker, call_expr.call_expr_args[1],
+        &arg1_type_id) != 0 {
+        return -1;
+    }
+    const body_id: i32 = lowered.core_body_count as i32;
+    const stmt_start: i32 = lowered.core_stmt_count as i32;
+    const expr_start: i32 = lowered.core_expr_count as i32;
+    const stmt_node: &ASTNode = decl.fn_decl_body.block_stmts[0];
+    var body: CoreBody = CoreBody{
+        body_id: body_id,
+        function_id: function_id,
+        decl_id: decl_index,
+        root_stmt_start: stmt_start,
+        root_stmt_count: 1,
+        expr_start: expr_start,
+        expr_count: 3,
+        place_start: CORE_PLACE_INVALID_ID,
+        place_count: 0,
+        cleanup_edge_start: CORE_CLEANUP_EDGE_INVALID_ID,
+        cleanup_edge_count: 0,
+        semantic_fact_start: CORE_SEMANTIC_FACT_INVALID_ID,
+        semantic_fact_count: 0,
+        source_span_id: decl.line,
+        flags: CORE_BODY_FLAG_SOURCE_BODY,
+    };
+    if lowered_program_append_core_body(lowered, &body) != 0 ||
+       native_build_hosted_coreir_append_return_stmt(lowered, body_id, stmt_node,
+        expr_start + 2) != 0 ||
+       native_build_hosted_coreir_append_int_literal_expr(lowered, body_id,
+        call_expr.call_expr_args[0], arg0_type_id) != 0 ||
+       native_build_hosted_coreir_append_int_literal_expr(lowered, body_id,
+        call_expr.call_expr_args[1], arg1_type_id) != 0 ||
+       native_build_hosted_coreir_append_extern_const2_call_expr(lowered, body_id,
+        call_expr, call_type_id, expr_start, expr_start + 1, target_function_id,
+        target_decl_index) != 0 {
+        return -1;
+    }
+    return 0;
 }
 
 fn native_build_hosted_coreir_append_main_local_if_body(lowered: &LoweredProgram,
@@ -1918,6 +2107,16 @@ fn native_build_hosted_coreir_append_safe_core_body(lowered: &LoweredProgram,
         return native_build_hosted_coreir_append_main_local_if_body(lowered,
             checker, program, function_id, decl_index, decl);
     }
+    var extern_target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var extern_target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    var extern_arg0: i32 = 0;
+    var extern_arg1: i32 = 0;
+    if native_build_hosted_return_extern_const2_call_expr(program, decl,
+        &extern_target_function_id, &extern_target_decl_index, &extern_arg0,
+        &extern_arg1) != null {
+        return native_build_hosted_coreir_append_extern_const2_call_body(lowered,
+            checker, program, function_id, decl_index, decl);
+    }
     const body_id: i32 = lowered.core_body_count as i32;
     var root_stmt_start: i32 = CORE_STMT_INVALID_ID;
     var root_stmt_count: i32 = 0;
@@ -2265,6 +2464,19 @@ fn native_build_hosted_decl_can_lower_call_mir_body(program: &ASTNode, decl: &AS
     var target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
     if native_build_hosted_return_call_target(program, call_expr, &target_function_id,
         &target_decl_index) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_hosted_decl_can_lower_extern_const2_call_mir_body(program: &ASTNode,
+    decl: &ASTNode) i32 {
+    var target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    var arg0: i32 = 0;
+    var arg1: i32 = 0;
+    if native_build_hosted_return_extern_const2_call_expr(program, decl,
+        &target_function_id, &target_decl_index, &arg0, &arg1) != null {
         return 1;
     }
     return 0;
@@ -2634,6 +2846,170 @@ fn native_build_hosted_mir_append_call_body_function(module: &PortableMirModule,
         return -1;
     }
     return portable_mir_append_block(module, &block);
+}
+
+fn native_build_hosted_mir_append_extern_const2_call_body_function(module: &PortableMirModule,
+    lowered_function_id: i32, decl_index: i32, source_core_body_id: i32,
+    decl: &ASTNode, program: &ASTNode) i32 {
+    if module == null || lowered_function_id < 0 || decl_index < 0 ||
+       source_core_body_id < 0 || decl == null || program == null {
+        return -1;
+    }
+    var target_function_id: i32 = TYPED_PROGRAM_INVALID_ID;
+    var target_decl_index: i32 = TYPED_PROGRAM_INVALID_ID;
+    var arg0: i32 = 0;
+    var arg1: i32 = 0;
+    const call_expr: &ASTNode = native_build_hosted_return_extern_const2_call_expr(program,
+        decl, &target_function_id, &target_decl_index, &arg0, &arg1);
+    if call_expr == null {
+        return -1;
+    }
+    var signature_type_id: i32 = MIR_TYPE_INVALID_ID;
+    if native_build_hosted_mir_ensure_signature_type(module, &signature_type_id) != 0 {
+        return -1;
+    }
+    var i32_type_id: i32 = MIR_TYPE_INVALID_ID;
+    if native_build_hosted_mir_ensure_i32_type(module, &i32_type_id) != 0 {
+        return -1;
+    }
+    const function_id: i32 = module.function_count as i32;
+    const block_id: i32 = module.block_count as i32;
+    const inst_id: i32 = module.inst_count as i32;
+    const value_id: i32 = module.value_count as i32;
+    const call_operand_id: i32 = module.operand_count as i32;
+    const arg0_operand_id: i32 = call_operand_id + 1;
+    const arg1_operand_id: i32 = call_operand_id + 2;
+    const return_operand_id: i32 = call_operand_id + 3;
+    const terminator_id: i32 = module.terminator_count as i32;
+    var function: MirFunction = MirFunction{
+        function_id: function_id,
+        lowered_function_id: lowered_function_id,
+        decl_id: decl_index,
+        source_core_body_id: source_core_body_id,
+        symbol_id: decl_index,
+        signature_type_id: signature_type_id,
+        param_start: 0,
+        param_count: 0,
+        local_start: 0,
+        local_count: 0,
+        block_start: block_id,
+        block_count: 1,
+        entry_block_id: block_id,
+        cleanup_model: 0,
+        capability_req_start: 0,
+        capability_req_count: 0,
+        calling_convention: MIR_CALL_CONV_UYA,
+        runtime_capability_mask: MIR_RUNTIME_CAP_HOSTED_LIBC + MIR_RUNTIME_CAP_C_EXTERN,
+        required_address_space_mask: MIR_ADDRESS_SPACE_GENERIC,
+        body_kind: MIR_FUNCTION_BODY_KIND_NORMAL,
+        naked_asm_inst_start: -1,
+        naked_asm_inst_count: 0,
+        naked_forbidden_lowering_mask: 0,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var value: MirValue = MirValue{
+        value_id: value_id,
+        function_id: function_id,
+        block_id: block_id,
+        type_id: i32_type_id,
+        defining_inst_id: inst_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        param_index: -1,
+        source_expr_id: call_expr.expr_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var inst: MirInst = MirInst{
+        inst_id: inst_id,
+        function_id: function_id,
+        block_id: block_id,
+        op: MIR_INST_OP_CALL,
+        type_id: i32_type_id,
+        result_value_id: value_id,
+        operand_start: call_operand_id,
+        operand_count: 3,
+        calling_convention: MIR_CALL_CONV_C,
+        runtime_capability_mask: MIR_RUNTIME_CAP_C_EXTERN,
+        address_space: MIR_ADDRESS_SPACE_GENERIC,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: target_decl_index,
+    };
+    var call_operand: MirOperand = MirOperand{
+        operand_id: call_operand_id,
+        kind: 0,
+        value_id: MIR_VALUE_INVALID_ID,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: signature_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: target_function_id,
+        flags: 0,
+    };
+    var arg0_operand: MirOperand = MirOperand{
+        operand_id: arg0_operand_id,
+        kind: 0,
+        value_id: MIR_VALUE_INVALID_ID,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: arg0,
+        flags: 0,
+    };
+    var arg1_operand: MirOperand = MirOperand{
+        operand_id: arg1_operand_id,
+        kind: 0,
+        value_id: MIR_VALUE_INVALID_ID,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: arg1,
+        flags: 0,
+    };
+    var return_operand: MirOperand = MirOperand{
+        operand_id: return_operand_id,
+        kind: 0,
+        value_id: value_id,
+        local_id: MIR_LOCAL_INVALID_ID,
+        type_id: i32_type_id,
+        capability_req_id: MIR_CAPABILITY_REQ_INVALID_ID,
+        immediate_i32: 0,
+        flags: 0,
+    };
+    var terminator: MirTerminator = MirTerminator{
+        terminator_id: terminator_id,
+        function_id: function_id,
+        block_id: block_id,
+        kind: MIR_TERMINATOR_KIND_RETURN,
+        operand_start: return_operand_id,
+        operand_count: 1,
+        successor_start: 0,
+        successor_count: 0,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    var block: MirBlock = MirBlock{
+        block_id: block_id,
+        function_id: function_id,
+        param_start: 0,
+        param_count: 0,
+        inst_start: inst_id,
+        inst_count: 1,
+        terminator_id: terminator_id,
+        debug_loc_id: MIR_DEBUG_LOC_INVALID_ID,
+        flags: 0,
+    };
+    if portable_mir_append_function(module, &function) != 0 ||
+       portable_mir_append_value(module, &value) != 0 ||
+       portable_mir_append_inst(module, &inst) != 0 ||
+       portable_mir_append_operand(module, &call_operand) != 0 ||
+       portable_mir_append_operand(module, &arg0_operand) != 0 ||
+       portable_mir_append_operand(module, &arg1_operand) != 0 ||
+       portable_mir_append_operand(module, &return_operand) != 0 ||
+       portable_mir_append_terminator(module, &terminator) != 0 ||
+       portable_mir_append_block(module, &block) != 0 {
+        return -1;
+    }
+    return 0;
 }
 
 fn native_build_hosted_mir_append_main_local_if_body_function(module: &PortableMirModule,
@@ -3449,6 +3825,13 @@ fn native_build_hosted_mir_append_program_safe_bodies(module: &PortableMirModule
                     body_function_count = body_function_count + 1;
                 } else if native_build_hosted_decl_can_lower_call_mir_body(program, decl) != 0 {
                     if native_build_hosted_mir_append_call_body_function(module,
+                        lowered_function_id, i, source_core_body_id, decl, program) != 0 {
+                        return -1;
+                    }
+                    body_function_count = body_function_count + 1;
+                } else if native_build_hosted_decl_can_lower_extern_const2_call_mir_body(program,
+                    decl) != 0 {
+                    if native_build_hosted_mir_append_extern_const2_call_body_function(module,
                         lowered_function_id, i, source_core_body_id, decl, program) != 0 {
                         return -1;
                     }

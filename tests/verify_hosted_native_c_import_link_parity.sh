@@ -46,7 +46,8 @@ EOF
 
 test -s "$native_bin"
 grep -q '后端类型: Native' "$TMP_DIR/native.build.err"
-grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[1-9][0-9]* mir_body_functions=[0-9]+ mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=1 hosted_link_objects=1' "$TMP_DIR/native.build.err"
+grep -Eq 'native_hosted_coreir_preflight: status=0 verifier_error=0 functions=[1-9][0-9]* core_bodies=1 pending_bodies=[0-9]+' "$TMP_DIR/native.build.err"
+grep -Eq 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=[1-9][0-9]* mir_body_functions=1 mir_types=[1-9][0-9]* extern_symbols=[1-9][0-9]* c_import_objects=1 hosted_link_objects=1' "$TMP_DIR/native.build.err"
 grep -q 'native_hosted_linker_handoff: extern=add_i32 c_import_objects=1 linked_objects=2' "$TMP_DIR/native.build.err"
 grep -q 'native_hosted_subset: c_import_extern_link_path=1' "$TMP_DIR/native.build.err"
 grep -q 'native_output_bytes:' "$TMP_DIR/native.build.err"
