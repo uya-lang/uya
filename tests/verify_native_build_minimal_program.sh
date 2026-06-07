@@ -4,7 +4,7 @@
 # 当前允许无参/窄 i32 参数函数，函数体为 `return 0..255;`、`return callee();`、
 # `return lhs() + rhs();`，一个 direct call 局部初始化后 `return local;`，或最小 `&i32`
 # / `&array[0]` out-param 写回、两个 `&i32` out-param 的最小调用，以及 `get_argc`
-# 的 Linux `_start` 初始栈 argc 读取。
+# 的 Linux `_start` 初始栈 argc 读取，以及 `get_argv(1)[0]` 的 argv 指针读取。
 
 set -euo pipefail
 
@@ -177,6 +177,15 @@ export fn main() i32 {
 }
 EOF
 
+cat >"$TMP_DIR/argv_first_byte.uya" <<'EOF'
+use std.runtime.get_argv;
+
+export fn main() i32 {
+    const arg: &byte = get_argv(1);
+    return arg[0] as i32;
+}
+EOF
+
 cat >"$TMP_DIR/unsupported.uya" <<'EOF'
 fn value(x: i32) i32 {
     return x;
@@ -283,6 +292,7 @@ run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_array_addr_call_ret
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/local_addr2_call_return.uya" 8 0 2 5 5
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/argc_direct.uya" 3 0 1 1 1 first second
 run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/argc_local_return.uya" 3 0 1 2 2 first second
+run_success_check "$REPO_ROOT/bin/uya" "uya" "$TMP_DIR/argv_first_byte.uya" 90 0 1 2 2 Zed
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/exit0.uya" 0 1 1
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/return1.uya" 1 1 1
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/call.uya" 1 0 2
@@ -298,6 +308,7 @@ run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_array_a
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/local_addr2_call_return.uya" 8 0 2 5 5
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/argc_direct.uya" 3 0 1 1 1 first second
 run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/argc_local_return.uya" 3 0 1 2 2 first second
+run_success_check "$REPO_ROOT/bin/cmd/build" "cmd-build" "$TMP_DIR/argv_first_byte.uya" 90 0 1 2 2 Zed
 run_reject_check "$REPO_ROOT/bin/uya" "uya"
 run_reject_check "$REPO_ROOT/bin/cmd/build" "cmd-build"
 

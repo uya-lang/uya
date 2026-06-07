@@ -34,6 +34,7 @@ export const NATIVE_BUILD_RETURN_CALL_ADDR1_LOCAL_I32: i32 = 9;
 export const NATIVE_BUILD_RETURN_STORE_PARAMS01_CONST_I32: i32 = 10;
 export const NATIVE_BUILD_RETURN_CALL_ADDR2_LOCAL_I32: i32 = 11;
 export const NATIVE_BUILD_RETURN_ARGC_I32: i32 = 12;
+export const NATIVE_BUILD_RETURN_ARGV_BYTE_I32: i32 = 13;
 
 const NB_EHDR_SIZE: i32 = 64;
 const NB_PHDR_SIZE: i32 = 56;
@@ -43,7 +44,7 @@ const NB_EM_X86_64: i32 = 62;
 const NB_PT_LOAD: i32 = 1;
 const NB_PF_X: i32 = 1;
 const NB_PF_R: i32 = 4;
-const NB_START_CODE_SIZE: usize = 17usize;
+const NB_START_CODE_SIZE: usize = 22usize;
 const NB_FUNCTION_CODE_SIZE: usize = 64usize;
 
 /// 功能说明：build-seed native writer 可编码的极小函数计划。
@@ -167,6 +168,35 @@ fn nb_emit_mov_edi_stack_argc(buf: &byte, cap: usize, pos: &usize) i32 {
         return -1;
     }
     return nb_code_put_u8(buf, cap, pos, 36);
+}
+
+fn nb_emit_mov_rax_argv_index(buf: &byte, cap: usize, pos: &usize, index: i32) i32 {
+    if index < 0 || index > 15 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 72) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 139) != 0 {
+        return -1;
+    }
+    if index == 0 {
+        return nb_code_put_u8(buf, cap, pos, 6);
+    }
+    if nb_code_put_u8(buf, cap, pos, 70) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, index * 8);
+}
+
+fn nb_emit_movzx_eax_ptr_rax_u8(buf: &byte, cap: usize, pos: &usize) i32 {
+    if nb_code_put_u8(buf, cap, pos, 15) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 182) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, 0);
 }
 
 fn nb_emit_syscall(buf: &byte, cap: usize, pos: &usize) i32 {
@@ -554,6 +584,9 @@ fn native_build_emit_function_code(code: &byte, code_size: usize,
     if nb_emit_mov_edi_stack_argc(code, code_size, &pos) != 0 {
         return -1;
     }
+    if nb_emit_lea_rsi_rsp8(code, code_size, &pos) != 0 {
+        return -1;
+    }
     if nb_emit_call_rel32(code, code_size, &pos, nb_function_offset(entry_index)) != 0 {
         return -1;
     }
@@ -584,6 +617,13 @@ fn native_build_emit_function_code(code: &byte, code_size: usize,
             }
         } else if plan.return_kind == NATIVE_BUILD_RETURN_ARGC_I32 {
             if nb_emit_mov_eax_edi(code, code_size, &pos) != 0 {
+                return -1;
+            }
+        } else if plan.return_kind == NATIVE_BUILD_RETURN_ARGV_BYTE_I32 {
+            if nb_emit_mov_rax_argv_index(code, code_size, &pos, plan.return_value) != 0 {
+                return -1;
+            }
+            if nb_emit_movzx_eax_ptr_rax_u8(code, code_size, &pos) != 0 {
                 return -1;
             }
         } else if plan.return_kind == NATIVE_BUILD_RETURN_CALL {
@@ -900,6 +940,14 @@ fn native_build_machine_inst_to_plan(inst: &MachineInst,
         out_plan.return_kind = NATIVE_BUILD_RETURN_ARGC_I32;
         return 0;
     }
+    if inst.opcode == LOWERED_BODY_OP_RETURN_ARGV_BYTE_I32 {
+        const argv_index_result: !i32 = inst.imm as! i32;
+        out_plan.return_kind = NATIVE_BUILD_RETURN_ARGV_BYTE_I32;
+        out_plan.return_value = argv_index_result catch {
+            return -1;
+        };
+        return 0;
+    }
     if inst.opcode == LOWERED_BODY_OP_ADD_I32 {
         if inst.src0 < 0 || inst.src0 >= function_count ||
            inst.src1 < 0 || inst.src1 >= function_count {
@@ -975,6 +1023,30 @@ fn native_build_machine_local_argc_return_to_plan(first: &MachineInst, second: &
     }
     out_plan.return_kind = NATIVE_BUILD_RETURN_ARGC_I32;
     out_plan.return_value = 0;
+    out_plan.call_target = -1;
+    out_plan.call_target_right = -1;
+    out_plan.call_arg0_value = 0;
+    out_plan.call_arg1_value = 0;
+    return 0;
+}
+
+fn native_build_machine_local_argv_byte_return_to_plan(first: &MachineInst, second: &MachineInst,
+    out_plan: &NativeBuildFunctionPlan) i32 {
+    if first == null || second == null || out_plan == null {
+        return -1;
+    }
+    if first.opcode != LOWERED_BODY_OP_LOCAL_ARGV_PTR ||
+       second.opcode != LOWERED_BODY_OP_RETURN_ARGV_BYTE_I32 {
+        return -1;
+    }
+    if first.dst < 0 || second.src0 != first.dst || first.imm != second.imm {
+        return -1;
+    }
+    const argv_index_result: !i32 = first.imm as! i32;
+    out_plan.return_kind = NATIVE_BUILD_RETURN_ARGV_BYTE_I32;
+    out_plan.return_value = argv_index_result catch {
+        return -1;
+    };
     out_plan.call_target = -1;
     out_plan.call_target_right = -1;
     out_plan.call_arg0_value = 0;
@@ -1118,11 +1190,13 @@ fn native_build_machine_to_function_plans(module: &MachineModule, plans: &Native
         } else if block.insts.count == 2usize {
             const first: &MachineInst = semantic_vector_item_ptr(&block.insts, 0usize) as &MachineInst;
             const second: &MachineInst = semantic_vector_item_ptr(&block.insts, 1usize) as &MachineInst;
-            if native_build_machine_local_argc_return_to_plan(first, second, &plans[i]) != 0 {
-                if native_build_machine_local_call_return_to_plan(first, second, function_count, &plans[i]) != 0 {
-                    if native_build_machine_local_call_const_return_to_plan(first, second, function_count, &plans[i]) != 0 {
-                        if native_build_machine_local_call_const2_return_to_plan(first, second, function_count, &plans[i]) != 0 {
-                            return -1;
+            if native_build_machine_local_argv_byte_return_to_plan(first, second, &plans[i]) != 0 {
+                if native_build_machine_local_argc_return_to_plan(first, second, &plans[i]) != 0 {
+                    if native_build_machine_local_call_return_to_plan(first, second, function_count, &plans[i]) != 0 {
+                        if native_build_machine_local_call_const_return_to_plan(first, second, function_count, &plans[i]) != 0 {
+                            if native_build_machine_local_call_const2_return_to_plan(first, second, function_count, &plans[i]) != 0 {
+                                return -1;
+                            }
                         }
                     }
                 }
