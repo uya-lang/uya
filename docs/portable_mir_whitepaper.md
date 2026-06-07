@@ -744,7 +744,8 @@ PortableMIR 可以在 CoreIR 冻结后并行构造，但并行边界必须清晰
 
 1. 定义 MIR tables、lifecycle、dump。
 2. 增加 empty module、empty function、constants、return 的 verifier。
-3. 从 CoreBody lower 当前 native subset 的 returns/calls。
+3. 从 CoreBody lower 当前 native subset 的 returns/calls；当前 hosted preflight 已能把 safe void CoreBody lowered
+   为 verifier-clean 普通 `MirFunction`，整数字面量 return 仍等待常量 value/inst 合同。
 4. 将 MIR 导入 `MachineModule`，复用现有 native smoke。
 5. 增加 locals、load/store、branch、block parameters。
 6. 增加 aggregate address operations。

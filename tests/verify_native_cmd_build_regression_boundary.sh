@@ -80,6 +80,8 @@ require_pattern "$NO_SILENT_TEST" 'native_hosted_coreir_preflight: status=0 veri
     "no-silent-C99 测试缺少 hosted CoreIR function inventory preflight 证据"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_preflight: status=0 verifier_error=0 mir_extern_functions=' \
     "no-silent-C99 测试缺少 hosted PortableMIR preflight 证据"
+require_pattern "$NO_SILENT_TEST" 'mir_body_functions=' \
+    "no-silent-C99 测试缺少 hosted PortableMIR body function lowering 证据"
 require_pattern "$NO_SILENT_TEST" 'native_hosted_portable_mir_lowering_missing' \
     "no-silent-C99 测试缺少 hosted 函数体 MIR lowering 缺口"
 require_pattern "$NO_SILENT_TEST" 'build-seed LoweredProgram helper 仅限 --nostdlib freestanding 子集' \
@@ -114,6 +116,8 @@ require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_link_plan_add_extern_symbol' 
     "build compiler driver 缺少 extern symbol hosted link plan 记录"
 require_pattern "$BUILD_DRIVER_SRC" 'portable_mir_append_function' \
     "build compiler driver 缺少 hosted extern function MIR 记录"
+require_pattern "$BUILD_DRIVER_SRC" 'native_build_hosted_mir_append_void_body_function' \
+    "build compiler driver 缺少 hosted void CoreBody 到 PortableMIR 函数体 lower"
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_portable_mir_lowering_missing' \
     "build compiler driver 缺少 hosted native MIR lowering 缺口诊断"
 require_pattern "$BUILD_DRIVER_SRC" 'native_hosted_link_plan_init' \

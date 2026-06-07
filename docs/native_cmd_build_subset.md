@@ -97,7 +97,8 @@ Phase 10 的 freestanding native `cmd/build` seed 只记录 build-seed 回归边
 - hosted `build --native` 入口必须先进入 CoreIR function inventory，再进入 `PortableMIR` /
   `MirTargetBackendRequest` / `NativeHostedLinkPlan` handoff；当前已把 AST function 清单、安全 void body
   和整数字面量 return body 子集作为 verifier-clean `LoweredProgram` 预检，把 AST extern function 作为 verified `PortableMIR` extern
-  function stub，并固定 Machine backend request 和 `NativeHostedLinkPlan` preflight，同时把 AST 中的 extern
+  function stub，把安全 void `CoreBody` 降成 verifier-clean `MirFunction` / `MirBlock` / return `MirTerminator`，并固定
+  Machine backend request 和 `NativeHostedLinkPlan` preflight，同时把 AST 中的 extern
   function symbol 与 `@c_import` object 计入 hosted link plan。真正的缺口是
   `native_hosted_portable_mir_lowering_missing`，不能借用 freestanding build-seed helper。
 - `cmd/build` 当前失败卡点必须继续由 `tests/verify_native_cmd_build_no_silent_c99.sh` 固定；失败时必须保留
