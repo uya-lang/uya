@@ -18,10 +18,28 @@ export const CORE_EXPR_INVALID_ID: CoreExprId = -1;
 export const CORE_PLACE_INVALID_ID: CorePlaceId = -1;
 export const CORE_CLEANUP_EDGE_INVALID_ID: CoreCleanupEdgeId = -1;
 export const CORE_SEMANTIC_FACT_INVALID_ID: CoreSemanticFactId = -1;
+export const CORE_FUNCTION_FLAG_NAKED: i32 = 1;
 export const CORE_BODY_FLAG_SOURCE_BODY: i32 = 1;
+export const CORE_BODY_FLAG_NAKED: i32 = 2;
+export const CORE_BODY_FLAG_ASYNC: i32 = 4;
+export const CORE_BODY_FLAG_CLEANUP: i32 = 8;
+export const CORE_BODY_FLAG_DROP: i32 = 16;
+export const CORE_BODY_FLAG_ERROR_PROPAGATION: i32 = 32;
+export const CORE_BODY_FLAG_IMPLICIT_RETURN: i32 = 64;
 export const CORE_STMT_KIND_RETURN: i32 = 10;
+export const CORE_STMT_KIND_ASM: i32 = 11;
+export const CORE_STMT_FLAG_LOCAL_STACK_SLOT: i32 = 1;
+export const CORE_STMT_FLAG_CLEANUP: i32 = 2;
+export const CORE_STMT_FLAG_DROP: i32 = 4;
+export const CORE_STMT_FLAG_ASYNC: i32 = 8;
+export const CORE_STMT_FLAG_ERROR_PROPAGATION: i32 = 16;
+export const CORE_STMT_FLAG_IMPLICIT_RETURN: i32 = 32;
 export const CORE_EXPR_KIND_CALL: i32 = 11;
+export const CORE_EXPR_FLAG_NAKED_ASM_OPERAND: i32 = 1;
+export const CORE_EXPR_FLAG_ERROR_PROPAGATION: i32 = 2;
 export const CORE_PLACE_KIND_FIELD: i32 = 4;
+export const CORE_PLACE_FLAG_STACK_SLOT: i32 = 1;
+export const CORE_PLACE_FLAG_NAKED_ASM_OPERAND: i32 = 2;
 export const CORE_CLEANUP_EDGE_KIND_RETURN: i32 = 2;
 export const CORE_SEMANTIC_FACT_RESOLVED_CALL: i32 = 1;
 export const CORE_SEMANTIC_FACT_METHOD_DISPATCH: i32 = 2;
@@ -31,6 +49,8 @@ export const CORE_SEMANTIC_FACT_PROOF_RESULT: i32 = 5;
 export const CORE_SEMANTIC_FACT_SOURCE_SPAN: i32 = 6;
 export const CORE_SEMANTIC_FACT_CLEANUP: i32 = 7;
 export const CORE_SEMANTIC_FACT_CAPABILITY: i32 = 8;
+export const CORE_CAPABILITY_INLINE_ASM: i32 = 1;
+export const CORE_CAPABILITY_NAKED_FUNCTION: i32 = 2;
 export const COREIR_VERIFY_OK: i32 = 0;
 export const COREIR_VERIFY_ERR_INVALID_PROGRAM: i32 = 1;
 export const COREIR_VERIFY_ERR_MISSING_CORE_BODY: i32 = 2;
@@ -42,6 +62,7 @@ export const COREIR_VERIFY_ERR_UNFROZEN_FIELD: i32 = 7;
 export const COREIR_VERIFY_ERR_UNFROZEN_PROOF: i32 = 8;
 export const COREIR_VERIFY_ERR_INCOMPLETE_CLEANUP: i32 = 9;
 export const COREIR_VERIFY_ERR_CAPABILITY_SEMANTICS: i32 = 10;
+export const COREIR_VERIFY_ERR_NAKED_BODY: i32 = 11;
 export const LOWER_WORK_ITEM_FUNCTION: i32 = 1;
 export const LOWER_WORK_ITEM_TYPE: i32 = 2;
 export const LOWER_WORK_ITEM_ERR_UNION: i32 = 3;
@@ -119,6 +140,7 @@ export struct ConcreteFunction {
     mono_instance_id: MonoInstanceId,
     body_start: i32,
     body_count: i32,
+    flags: i32,
 }
 
 /// 功能说明：记录一个 concrete function 的结构化 Core-level 函数体入口。
@@ -1446,6 +1468,7 @@ fn lowered_program_close_call_instances(program: &LoweredProgram, typed: &TypedP
                     mono_instance_id: target.mono_instance_id,
                     body_start: 0,
                     body_count: 0,
+                    flags: 0,
                 };
                 if lowered_program_append_function(program, &fn_item) != 0 {
                     return -1;
@@ -2233,6 +2256,160 @@ fn lowered_program_coreir_body_has_capability_fact(program: &LoweredProgram, bod
     return 0;
 }
 
+fn lowered_program_coreir_body_has_capability_id(program: &LoweredProgram, body: &CoreBody, capability_id: i32) i32 {
+    var offset: i32 = 0;
+    while offset < body.semantic_fact_count {
+        const fact: &CoreSemanticFact = lowered_program_coreir_get_body_fact(program, body, offset);
+        if fact != null && fact.kind == CORE_SEMANTIC_FACT_CAPABILITY && fact.capability_id == capability_id {
+            return lowered_program_coreir_capability_is_requirement_only(fact);
+        }
+        offset = offset + 1;
+    }
+    return 0;
+}
+
+fn lowered_program_coreir_naked_forbidden_body_flags(body: &CoreBody) i32 {
+    const forbidden: i32 = CORE_BODY_FLAG_ASYNC | CORE_BODY_FLAG_CLEANUP | CORE_BODY_FLAG_DROP |
+        CORE_BODY_FLAG_ERROR_PROPAGATION | CORE_BODY_FLAG_IMPLICIT_RETURN;
+    if (body.flags & forbidden) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn lowered_program_coreir_naked_forbidden_stmt_flags(stmt: &CoreStmt) i32 {
+    const forbidden: i32 = CORE_STMT_FLAG_LOCAL_STACK_SLOT | CORE_STMT_FLAG_CLEANUP |
+        CORE_STMT_FLAG_DROP | CORE_STMT_FLAG_ASYNC | CORE_STMT_FLAG_ERROR_PROPAGATION |
+        CORE_STMT_FLAG_IMPLICIT_RETURN;
+    if (stmt.flags & forbidden) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn lowered_program_coreir_verify_naked_function_flags(program: &LoweredProgram, body: &CoreBody, result: &CoreVerifierResult) i32 {
+    const function: &ConcreteFunction = lowered_program_coreir_find_function(program, body.function_id, body.decl_id);
+    if function == null || (function.flags & CORE_FUNCTION_FLAG_NAKED) == 0 {
+        return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_NAKED_BODY,
+            body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
+            CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, body.source_span_id);
+    }
+    return 0;
+}
+
+fn lowered_program_coreir_verify_naked_stmt(body: &CoreBody, stmt: &CoreStmt, result: &CoreVerifierResult) i32 {
+    if stmt == null || stmt.kind != CORE_STMT_KIND_ASM ||
+       stmt.child_stmt_count != 0 || stmt.expr_id != CORE_EXPR_INVALID_ID ||
+       stmt.place_id != CORE_PLACE_INVALID_ID || stmt.cleanup_edge_count != 0 ||
+       lowered_program_coreir_naked_forbidden_stmt_flags(stmt) != 0 {
+        var stmt_id: CoreStmtId = CORE_STMT_INVALID_ID;
+        var source_span_id: i32 = body.source_span_id;
+        if stmt != null {
+            stmt_id = stmt.stmt_id;
+            source_span_id = stmt.source_span_id;
+        }
+        return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_NAKED_BODY,
+            body.body_id, stmt_id, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
+            CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, source_span_id);
+    }
+    return 0;
+}
+
+fn lowered_program_coreir_verify_naked_stmts(program: &LoweredProgram, body: &CoreBody, result: &CoreVerifierResult) i32 {
+    var offset: i32 = 0;
+    while offset < body.root_stmt_count {
+        const index: usize = lowered_program_i32_to_usize(body.root_stmt_start + offset);
+        const stmt: &CoreStmt = semantic_vector_item_ptr(&program.core_stmts, index) as &CoreStmt;
+        if lowered_program_coreir_verify_naked_stmt(body, stmt, result) != 0 {
+            return -1;
+        }
+        offset = offset + 1;
+    }
+    return 0;
+}
+
+fn lowered_program_coreir_verify_naked_exprs(program: &LoweredProgram, body: &CoreBody, result: &CoreVerifierResult) i32 {
+    var offset: i32 = 0;
+    while offset < body.expr_count {
+        const index: usize = lowered_program_i32_to_usize(body.expr_start + offset);
+        const expr: &CoreExpr = semantic_vector_item_ptr(&program.core_exprs, index) as &CoreExpr;
+        if expr == null || (expr.flags & CORE_EXPR_FLAG_ERROR_PROPAGATION) != 0 ||
+           (expr.flags & CORE_EXPR_FLAG_NAKED_ASM_OPERAND) == 0 {
+            var expr_id: CoreExprId = CORE_EXPR_INVALID_ID;
+            var source_span_id: i32 = body.source_span_id;
+            if expr != null {
+                expr_id = expr.expr_id;
+                source_span_id = expr.source_span_id;
+            }
+            return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_NAKED_BODY,
+                body.body_id, CORE_STMT_INVALID_ID, expr_id, CORE_PLACE_INVALID_ID,
+                CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, source_span_id);
+        }
+        offset = offset + 1;
+    }
+    return 0;
+}
+
+fn lowered_program_coreir_verify_naked_places(program: &LoweredProgram, body: &CoreBody, result: &CoreVerifierResult) i32 {
+    var offset: i32 = 0;
+    while offset < body.place_count {
+        const index: usize = lowered_program_i32_to_usize(body.place_start + offset);
+        const place: &CorePlace = semantic_vector_item_ptr(&program.core_places, index) as &CorePlace;
+        if place == null || (place.flags & CORE_PLACE_FLAG_STACK_SLOT) != 0 ||
+           (place.flags & CORE_PLACE_FLAG_NAKED_ASM_OPERAND) == 0 {
+            var place_id: CorePlaceId = CORE_PLACE_INVALID_ID;
+            var source_span_id: i32 = body.source_span_id;
+            if place != null {
+                place_id = place.place_id;
+                source_span_id = place.source_span_id;
+            }
+            return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_NAKED_BODY,
+                body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, place_id,
+                CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, source_span_id);
+        }
+        offset = offset + 1;
+    }
+    return 0;
+}
+
+fn lowered_program_coreir_verify_naked_facts(program: &LoweredProgram, body: &CoreBody, result: &CoreVerifierResult) i32 {
+    var offset: i32 = 0;
+    while offset < body.semantic_fact_count {
+        const fact: &CoreSemanticFact = lowered_program_coreir_get_body_fact(program, body, offset);
+        if fact != null && fact.kind == CORE_SEMANTIC_FACT_CLEANUP {
+            return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_NAKED_BODY,
+                body.body_id, fact.stmt_id, fact.expr_id, fact.place_id,
+                fact.cleanup_edge_id, fact.fact_id, fact.source_span_id);
+        }
+        offset = offset + 1;
+    }
+    if lowered_program_coreir_body_has_capability_id(program, body, CORE_CAPABILITY_NAKED_FUNCTION) == 0 ||
+       lowered_program_coreir_body_has_capability_id(program, body, CORE_CAPABILITY_INLINE_ASM) == 0 {
+        return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_NAKED_BODY,
+            body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
+            CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, body.source_span_id);
+    }
+    return 0;
+}
+
+fn lowered_program_coreir_verify_naked_body(program: &LoweredProgram, body: &CoreBody, result: &CoreVerifierResult) i32 {
+    if (body.flags & CORE_BODY_FLAG_NAKED) == 0 {
+        return 0;
+    }
+    if lowered_program_coreir_verify_naked_function_flags(program, body, result) != 0 { return -1; }
+    if body.root_stmt_count <= 0 || body.cleanup_edge_count != 0 ||
+       lowered_program_coreir_naked_forbidden_body_flags(body) != 0 {
+        return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_NAKED_BODY,
+            body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
+            CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, body.source_span_id);
+    }
+    if lowered_program_coreir_verify_naked_facts(program, body, result) != 0 { return -1; }
+    if lowered_program_coreir_verify_naked_stmts(program, body, result) != 0 { return -1; }
+    if lowered_program_coreir_verify_naked_exprs(program, body, result) != 0 { return -1; }
+    if lowered_program_coreir_verify_naked_places(program, body, result) != 0 { return -1; }
+    return 0;
+}
+
 fn lowered_program_coreir_verify_function_bodies(program: &LoweredProgram, result: &CoreVerifierResult) i32 {
     var i: usize = 0usize;
     while i < program.functions.count {
@@ -2243,10 +2420,16 @@ fn lowered_program_coreir_verify_function_bodies(program: &LoweredProgram, resul
                 CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, TYPED_PROGRAM_INVALID_ID);
         }
         if item.body_count > 0 {
-            if lowered_program_coreir_find_body_for_function(program, item.function_id, item.decl_id) == null {
+            const body: &CoreBody = lowered_program_coreir_find_body_for_function(program, item.function_id, item.decl_id);
+            if body == null {
                 return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_MISSING_CORE_BODY,
                     CORE_BODY_INVALID_ID, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
                     CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, TYPED_PROGRAM_INVALID_ID);
+            }
+            if (item.flags & CORE_FUNCTION_FLAG_NAKED) != 0 && (body.flags & CORE_BODY_FLAG_NAKED) == 0 {
+                return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_NAKED_BODY,
+                    body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
+                    CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, body.source_span_id);
             }
         }
         i = i + 1usize;
@@ -2293,6 +2476,11 @@ fn lowered_program_coreir_verify_body_ranges(program: &LoweredProgram, body: &Co
         }
     }
     if (body.flags & CORE_BODY_FLAG_SOURCE_BODY) != 0 && body.root_stmt_count <= 0 {
+        if (body.flags & CORE_BODY_FLAG_NAKED) != 0 {
+            return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_NAKED_BODY,
+                body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
+                CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, body.source_span_id);
+        }
         return lowered_program_coreir_verify_fail(result, COREIR_VERIFY_ERR_INVALID_BODY_RANGE,
             body.body_id, CORE_STMT_INVALID_ID, CORE_EXPR_INVALID_ID, CORE_PLACE_INVALID_ID,
             CORE_CLEANUP_EDGE_INVALID_ID, CORE_SEMANTIC_FACT_INVALID_ID, body.source_span_id);
@@ -2575,6 +2763,7 @@ fn lowered_program_coreir_verify_bodies(program: &LoweredProgram, result: &CoreV
         }
         if lowered_program_coreir_verify_body_ranges(program, body, result) != 0 { return -1; }
         if lowered_program_coreir_verify_body_facts(program, body, result) != 0 { return -1; }
+        if lowered_program_coreir_verify_naked_body(program, body, result) != 0 { return -1; }
         if lowered_program_coreir_verify_body_stmts(program, body, result) != 0 { return -1; }
         if lowered_program_coreir_verify_body_exprs(program, body, result) != 0 { return -1; }
         if lowered_program_coreir_verify_body_places(program, body, result) != 0 { return -1; }

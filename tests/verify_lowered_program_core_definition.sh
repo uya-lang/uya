@@ -208,6 +208,7 @@ test "lowered program core uses dynamic tables and records lifetime bytes" {
             mono_instance_id: i,
             body_start: i,
             body_count: i + 1,
+            flags: 0,
         };
         var global_item: GlobalObject = GlobalObject{
             global_id: i,

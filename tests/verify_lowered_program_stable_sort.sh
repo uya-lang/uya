@@ -108,9 +108,9 @@ test "lowered program sorts output tables by stable ids" {
     var lowered: LoweredProgram = lower_sort_program();
     lowered_program_init(&lowered, &arena);
 
-    var fn_b: ConcreteFunction = ConcreteFunction{ function_id: 30, decl_id: 30, mono_instance_id: 2, body_start: 0, body_count: 0 };
-    var fn_a: ConcreteFunction = ConcreteFunction{ function_id: 10, decl_id: 10, mono_instance_id: 1, body_start: 0, body_count: 0 };
-    var fn_c: ConcreteFunction = ConcreteFunction{ function_id: 20, decl_id: 20, mono_instance_id: 3, body_start: 0, body_count: 0 };
+    var fn_b: ConcreteFunction = ConcreteFunction{ function_id: 30, decl_id: 30, mono_instance_id: 2, body_start: 0, body_count: 0, flags: 0 };
+    var fn_a: ConcreteFunction = ConcreteFunction{ function_id: 10, decl_id: 10, mono_instance_id: 1, body_start: 0, body_count: 0, flags: 0 };
+    var fn_c: ConcreteFunction = ConcreteFunction{ function_id: 20, decl_id: 20, mono_instance_id: 3, body_start: 0, body_count: 0, flags: 0 };
     try assert_eq_i32(lowered_program_append_function(&lowered, &fn_b), 0);
     try assert_eq_i32(lowered_program_append_function(&lowered, &fn_a), 0);
     try assert_eq_i32(lowered_program_append_function(&lowered, &fn_c), 0);

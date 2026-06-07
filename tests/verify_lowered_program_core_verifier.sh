@@ -61,6 +61,7 @@ fn append_core_verify_function(lowered: &LoweredProgram) !void {
         mono_instance_id: TYPED_PROGRAM_INVALID_ID,
         body_start: 0,
         body_count: 1,
+        flags: 0,
     };
     try assert_eq_i32(lowered_program_append_function(lowered, &func), 0);
 }

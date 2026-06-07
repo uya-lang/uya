@@ -140,6 +140,7 @@ test "native emitter reads lowered program counts and imports machine skeletons"
         mono_instance_id: 0,
         body_start: 0,
         body_count: 3,
+        flags: 0,
     };
     var fn1: ConcreteFunction = ConcreteFunction{
         function_id: 11,
@@ -147,6 +148,7 @@ test "native emitter reads lowered program counts and imports machine skeletons"
         mono_instance_id: 1,
         body_start: 3,
         body_count: 2,
+        flags: 0,
     };
     var global0: GlobalObject = GlobalObject{
         global_id: 30,

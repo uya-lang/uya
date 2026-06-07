@@ -760,6 +760,14 @@ fn native_build_print_unsupported_function_body(decl: &ASTNode, decl_index: i32,
         stmt_index, stmt_kind, stmt_file, stmt_line);
 }
 
+fn native_build_core_function_flags_from_decl(decl: &ASTNode) i32 {
+    var flags: i32 = 0;
+    if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_is_naked != 0 {
+        flags = flags | CORE_FUNCTION_FLAG_NAKED;
+    }
+    return flags;
+}
+
 fn native_build_find_function_index(program: &ASTNode, name: &byte) i32 {
     if program == null || program.type != ASTNodeType.AST_PROGRAM ||
        program.program_decls == null || name == null {
@@ -3062,6 +3070,7 @@ fn native_build_decl_to_lowered_function(program: &ASTNode,
         mono_instance_id: 0,
         body_start: body_start,
         body_count: body_count,
+        flags: native_build_core_function_flags_from_decl(decl),
     };
     if lowered_program_append_function(lowered, &fn_item) != 0 {
         return 0;

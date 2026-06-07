@@ -113,6 +113,7 @@ test "lowered program dump is controlled by env" {
         mono_instance_id: 1,
         body_start: 0,
         body_count: 0,
+        flags: 0,
     };
     var helper_item: RuntimeHelper = RuntimeHelper{
         helper_id: 2,

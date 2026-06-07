@@ -441,7 +441,7 @@ PortableMIR 实现必须以本阶段通过为硬门槛；如果 MIR lowering 需
   是否已冻结、cleanup path 是否完整、capability metadata 是否只描述能力需求而不改变语言语义。
 - [x] 明确语言语义与 target capability 边界：`@c_import`、filesystem、pthread、syscall、
   `@asm`、未来 PTX device subset 等限制只能产生 capability diagnostic，不能变成 Uya 方言。
-- [ ] CoreIR 冻结 `@naked_fn` 函数属性，并在 verifier 中拒绝非 asm-only naked body、普通局部栈槽、
+- [x] CoreIR 冻结 `@naked_fn` 函数属性，并在 verifier 中拒绝非 asm-only naked body、普通局部栈槽、
   cleanup、drop、async、error propagation 和隐式 return。
 - [ ] 明确 CoreLower 并行边界：冻结前的 discovery 必须稳定归并，冻结后的 per-function CoreBody
   materialization 不得改变 ID、dump 或 diagnostics 顺序。
