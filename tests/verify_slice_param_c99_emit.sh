@@ -19,9 +19,9 @@ if [ ! -f "$COMPILER" ]; then
 fi
 
 echo "验证：编译 test_slice_param_c99_emit.uya 并检查 C 输出 ..."
-if ! "$COMPILER" --c99 "$SRC" -o "$OUT" >/dev/null 2>&1; then
+if ! "$COMPILER" build --c99 "$SRC" -o "$OUT" >/dev/null 2>&1; then
     echo "✗ 编译 test_slice_param_c99_emit.uya 失败"
-    "$COMPILER" --c99 "$SRC" -o "$OUT" 2>&1 || true
+    "$COMPILER" build --c99 "$SRC" -o "$OUT" 2>&1 || true
     exit 1
 fi
 

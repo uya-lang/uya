@@ -14,7 +14,7 @@ OUT_C="$SCRIPT_DIR/build/proof_opt_verify.c"
 mkdir -p "$SCRIPT_DIR/build"
 
 echo "验证证明优化：编译 test_proof_optimization.uya (-O2)..."
-COMPILE_OUT=$("$COMPILER" --c99 -O2 "$SCRIPT_DIR/test_proof_optimization.uya" -o "$OUT_C" 2>&1)
+COMPILE_OUT=$("$COMPILER" build --c99 -O2 "$SCRIPT_DIR/test_proof_optimization.uya" -o "$OUT_C" 2>&1)
 STATUS=$?
 if [ $STATUS -ne 0 ]; then
     echo "✗ 编译失败"

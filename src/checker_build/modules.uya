@@ -1,0 +1,1672 @@
+// checker/modules.uya - 模块系统函数
+// 从 main.uya 拆分
+// 包含：模块路径提取、模块表管理、use 语句处理、循环依赖检测
+
+// 例如：
+//   "path/to/module_a/file.uya" -> "module_a"
+//   "path/to/std/io/file.uya" -> "std.io"
+//   "path/to/main.uya" -> "main" (模块根目录)
+// 注意：当前实现支持多级路径，提取从第一个目录到最后一个目录的所有目录名，用 '.' 连接
+// 如果模块根目录已设置，文件在模块根目录下时返回 "main"
+fn extract_module_path_allocated(checker: &TypeChecker, filename: &byte) &byte {
+    if checker == null || filename == null {
+        return null;
+    }
+    
+    // 如果文件本身位于 UYA_ROOT，下方的 std/tls/UYA_ROOT 规则应优先于 module_root。
+    var skip_module_root: i32 = 0;
+    if checker.uya_root_dir != null {
+        const uya_root_len_skip: usize = strlen(checker.uya_root_dir as *byte);
+        if uya_root_len_skip > 0 && strncmp(filename as *byte, checker.uya_root_dir as *byte, uya_root_len_skip) == 0 {
+            skip_module_root = 1;
+        }
+    }
+
+    // 如果模块根目录已设置，检查文件是否在模块根目录下
+    if checker.module_root_dir != null && skip_module_root == 0 {
+        const root_len: usize = strlen(checker.module_root_dir as *byte);
+        // root_len==0 时 strncmp 恒为相等，会把任意路径误判为「在项目根下」
+        if root_len > 0 && strncmp(filename as *byte, checker.module_root_dir as *byte, root_len) == 0 {
+            // 文件在模块根目录下，检查是否在根目录的直接子目录中
+            const relative_path: &byte = (filename as *byte + root_len) as &byte;
+            var first_slash: *byte = strchr(relative_path as *byte, 47);  // '/'
+            if first_slash == null {
+                first_slash = strchr(relative_path as *byte, 92);  // '\'
+            }
+            
+            if first_slash == null {
+                // 文件直接在模块根目录下，返回 "main"
+                const main_str: &byte = "main" as *byte;
+                const module_name: &byte = checker_arena_strdup(checker.arena, main_str);
+                return module_name;
+            }
+            
+            // 文件在模块根目录的子目录中，提取相对路径作为模块路径
+            // 例如：module_root_dir = "path/to/multifile/test_use_main/"
+            //      filename = "path/to/multifile/test_use_main/submodule/file.uya"
+            //      relative_path = "submodule/file.uya"
+            //      模块路径 = "submodule"
+            
+            // 找到最后一个 '/' 或 '\'（文件所在目录）
+            var last_slash: *byte = strrchr(relative_path as *byte, 47);  // '/'
+            if last_slash == null {
+                last_slash = strrchr(relative_path as *byte, 92);  // '\'
+            }
+            
+            if last_slash == null {
+                // 没有目录分隔符，文件在根目录，返回 "main"
+                const main_str: &byte = "main" as *byte;
+                const module_name: &byte = checker_arena_strdup(checker.arena, main_str);
+                return module_name;
+            }
+            
+            // 提取目录路径（从 relative_path 开始到 last_slash）
+            const dir_start: &byte = relative_path;
+            const dir_end: *byte = last_slash;
+            
+            // 计算所需的总长度（所有目录名 + '.' 分隔符）
+            var total_len: usize = 0;
+            var p: &byte = dir_start;
+            var dir_count: i32 = 0;
+            while (p as *byte) < dir_end {
+                var next_slash: *byte = strchr(p as *byte, 47);  // '/'
+                if next_slash == null {
+                    next_slash = strchr(p as *byte, 92);  // '\'
+                }
+                if next_slash == null || next_slash >= dir_end {
+                    next_slash = dir_end;
+                }
+                
+                const dir_len_tmp: !usize = ptr_diff(next_slash, p as *byte) as! usize;
+                const dir_len: usize = dir_len_tmp.value;
+                if dir_len > 0 {
+                    total_len = total_len + dir_len;
+                    if dir_count > 0 {
+                        total_len = total_len + 1;  // '.' 分隔符
+                    }
+                    dir_count = dir_count + 1;
+                }
+                
+                if next_slash >= dir_end {
+                    break;
+                }
+                p = (next_slash + 1) as &byte;
+            }
+            
+            if dir_count == 0 {
+                // 没有目录，返回 "main"
+                const main_str: &byte = "main" as *byte;
+                const module_name: &byte = checker_arena_strdup(checker.arena, main_str);
+                return module_name;
+            }
+            
+            // 分配内存并构建模块路径
+            const module_name: &byte = compiler_arena_alloc(checker.arena, total_len + 1) as &byte;
+            if module_name == null {
+                return null;
+            }
+            
+            var dst: &byte = module_name;
+            p = dir_start;
+            dir_count = 0;
+            while (p as *byte) < dir_end {
+                var next_slash: *byte = strchr(p as *byte, 47);  // '/'
+                if next_slash == null {
+                    next_slash = strchr(p as *byte, 92);  // '\'
+                }
+                if next_slash == null || next_slash >= dir_end {
+                    next_slash = dir_end;
+                }
+                
+                const dir_len_tmp: !usize = ptr_diff(next_slash, p as *byte) as! usize;
+                const dir_len: usize = dir_len_tmp.value;
+                if dir_len > 0 {
+                    if dir_count > 0 {
+                        dst[0] = 46;  // '.'
+                        dst = &dst[1];
+                    }
+                    memcpy(dst as *void, p as *void, dir_len);
+                    dst = &dst[dir_len];
+                    dir_count = dir_count + 1;
+                }
+                
+                if next_slash >= dir_end {
+                    break;
+                }
+                p = (next_slash + 1) as &byte;
+            }
+            
+            dst[0] = 0;  // '\0'
+            return module_name;
+        }
+    }
+    
+    // 特殊处理：检查是否是标准库文件（lib/std/...）
+    // 例如：lib/std/c/string.uya -> std.c.string
+    //      lib/std/c/syscall/syscall.uya -> std.c.syscall
+    //      lib/std/runtime/runtime.uya -> std.runtime.runtime
+    //      lib/std/syscall/linux.uya -> std.syscall.linux
+    // 注意：需要处理路径中的双斜杠（lib//std/ 或 /lib//std/）
+    var lib_std: *byte = strstr(filename as *byte, "/lib/std/" as *byte);
+    if lib_std == null {
+        lib_std = strstr(filename as *byte, "/lib//std/" as *byte);
+    }
+    if lib_std == null {
+        lib_std = strstr(filename as *byte, "lib/std/" as *byte);
+    }
+    if lib_std == null {
+        lib_std = strstr(filename as *byte, "lib//std/" as *byte);
+    }
+    if lib_std == null {
+        lib_std = strstr(filename as *byte, "\\lib\\std\\" as *byte);
+    }
+    if lib_std == null {
+        lib_std = strstr(filename as *byte, "\\lib\\\\std\\" as *byte);
+    }
+    if lib_std != null {
+        // 找到 lib/std/ 位置，提取后面的路径
+        // 需要跳过 "/lib/std/" 或 "lib/std/" 或 "/lib//std/" 或 "lib//std/"
+        var relative_path: &byte = lib_std as &byte;
+        // 跳过开头的 "/" 或 "//"（如果有）
+        if relative_path[0] == 47 {
+            relative_path = &relative_path[1];
+            if relative_path[0] == 47 {
+                relative_path = &relative_path[1];  // 跳过双斜杠
+            }
+        }
+        // 跳过 "lib/std/" 或 "lib//std/"
+        if strncmp(relative_path as *byte, "lib/" as *byte, 4) == 0 || strncmp(relative_path as *byte, "lib//" as *byte, 5) == 0 {
+            if strncmp(relative_path as *byte, "lib//" as *byte, 5) == 0 {
+                relative_path = &relative_path[5];  // 跳过 "lib//"
+            } else {
+                relative_path = &relative_path[4];  // 跳过 "lib/"
+            }
+            if strncmp(relative_path as *byte, "std/" as *byte, 4) == 0 || strncmp(relative_path as *byte, "std//" as *byte, 5) == 0 {
+                if strncmp(relative_path as *byte, "std//" as *byte, 5) == 0 {
+                    relative_path = &relative_path[5];  // 跳过 "std//"
+                } else {
+                    relative_path = &relative_path[4];  // 跳过 "std/"
+                }
+            }
+        }
+        const rel_len: usize = strlen(relative_path as *byte);
+        
+        // 去掉 .uya 后缀
+        var base_len: usize = rel_len;
+        if rel_len > 4 && strcmp((relative_path as *byte + (rel_len - 4)) as *byte, ".uya" as *byte) == 0 {
+            base_len = rel_len - 4;
+        }
+        
+        // 模块路径：std/io/file.uya -> std.io（目录名，便于 use std.io.fopen）；
+        // std/syscall/linux.uya -> std.syscall.linux（目录+文件名，便于 use std.syscall.linux.sys_open）
+        var last_slash_uya: &byte = null;
+        var si: usize = base_len;
+        while si > 0 {
+            si = si - 1;
+            if relative_path[si] == 47 || relative_path[si] == 92 {
+                last_slash_uya = &relative_path[si];
+                break;
+            }
+        }
+        var module_len: usize = base_len;
+        if last_slash_uya != null {
+            const slash_pos_tmp: !usize = ptr_diff(last_slash_uya as *byte, relative_path as *byte) as! usize;
+            const slash_pos: usize = slash_pos_tmp.value;
+            const base_name: &byte = (relative_path as *byte + slash_pos + 1) as &byte;
+            const base_name_len: usize = base_len - slash_pos - 1;
+            if base_name_len == 4 && strncmp(base_name as *byte, "file" as *byte, 4) == 0 {
+                module_len = slash_pos;
+            }
+        }
+        if module_len > 0 {
+            const total_len: usize = 4 + module_len;
+            const module_name: &byte = compiler_arena_alloc(checker.arena, total_len + 1) as &byte;
+            if module_name != null {
+                strcpy(module_name as *byte, "std." as *byte);
+                memcpy((module_name as *byte + 4) as *void, relative_path as *void, module_len);
+                module_name[4 + module_len] = 0;
+                var idx: usize = 4;
+                while idx < 4 + module_len {
+                    if module_name[idx] == 47 || module_name[idx] == 92 {
+                        module_name[idx] = 46;
+                    }
+                    idx = idx + 1;
+                }
+                return module_name;
+            }
+        }
+    }
+    
+    // 保持向后兼容：特殊处理 lib/std/c/（旧代码路径）
+    // 注意：需要处理路径中的双斜杠（lib//std/c/ 或 /lib//std/c/）
+    var lib_std_c: *byte = strstr(filename as *byte, "/lib/std/c/" as *byte);
+    if lib_std_c == null {
+        lib_std_c = strstr(filename as *byte, "/lib//std/c/" as *byte);
+    }
+    if lib_std_c == null {
+        lib_std_c = strstr(filename as *byte, "lib/std/c/" as *byte);
+    }
+    if lib_std_c == null {
+        lib_std_c = strstr(filename as *byte, "lib//std/c/" as *byte);
+    }
+    if lib_std_c == null {
+        lib_std_c = strstr(filename as *byte, "\\lib\\std\\c\\" as *byte);
+    }
+    if lib_std_c == null {
+        lib_std_c = strstr(filename as *byte, "\\lib\\\\std\\c\\" as *byte);
+    }
+    if lib_std_c != null {
+        // 找到 lib/std/c/ 位置，提取后面的路径
+        var relative_path_c: &byte = lib_std_c as &byte;
+        // 确定正确的偏移量（使用 strncmp 避免指针类型比较警告）
+        var offset: usize = 0;
+        if strncmp(lib_std_c, "/lib/std/c/" as *byte, 11) == 0 {
+            offset = 11;  // 跳过 "/lib/std/c/"
+        } else if strncmp(lib_std_c, "/lib//std/c/" as *byte, 12) == 0 {
+            offset = 12;  // 跳过 "/lib//std/c/"
+        } else if strncmp(lib_std_c, "lib/std/c/" as *byte, 10) == 0 {
+            offset = 10;  // 跳过 "lib/std/c/"
+        } else if strncmp(lib_std_c, "lib//std/c/" as *byte, 11) == 0 {
+            offset = 11;  // 跳过 "lib//std/c/"
+        } else if strncmp(lib_std_c, "\\lib\\std\\c\\" as *byte, 12) == 0 {
+            offset = 12;  // 跳过 "\\lib\\std\\c\\"
+        } else if strncmp(lib_std_c, "\\lib\\\\std\\c\\" as *byte, 13) == 0 {
+            offset = 13;  // 跳过 "\\lib\\\\std\\c\\"
+        }
+        relative_path_c = (lib_std_c as *byte + offset) as &byte;
+        const rel_len_c: usize = strlen(relative_path_c as *byte);
+        
+        // 去掉 .uya 后缀
+        var base_len_c: usize = rel_len_c;
+        if rel_len_c > 4 && strcmp((relative_path_c as *byte + (rel_len_c - 4)) as *byte, ".uya" as *byte) == 0 {
+            base_len_c = rel_len_c - 4;
+        }
+        
+        // 同级目录下的文件应该使用同一个模块，所以只取目录路径，不包含文件名
+        var last_slash_c: &byte = null;
+        var si_c: usize = base_len_c;
+        while si_c > 0 {
+            si_c = si_c - 1;
+            if relative_path_c[si_c] == 47 || relative_path_c[si_c] == 92 {
+                last_slash_c = &relative_path_c[si_c];
+                break;
+            }
+        }
+        
+        var module_len_c: usize = base_len_c;
+        if last_slash_c != null {
+            // 只取目录路径，不包含文件名
+            const slash_pos_c_tmp: !usize = ptr_diff(last_slash_c as *byte, relative_path_c as *byte) as! usize;
+            const slash_pos_c: usize = slash_pos_c_tmp.value;
+            module_len_c = slash_pos_c;
+        }
+        
+        if module_len_c > 0 {
+            // 构建模块路径：std.c.xxx
+            const total_len_c: usize = 6 + module_len_c; // "std.c." + 路径长度
+            const module_name_c: &byte = compiler_arena_alloc(checker.arena, total_len_c + 1) as &byte;
+            if module_name_c != null {
+                strcpy(module_name_c as *byte, "std.c." as *byte);
+                memcpy((module_name_c as *byte + 6) as *void, relative_path_c as *void, module_len_c);
+                module_name_c[6 + module_len_c] = 0;
+                // 将 '/' 替换为 '.'
+                var idx_c: usize = 6;
+                while idx_c < 6 + module_len_c {
+                    if module_name_c[idx_c] == 47 || module_name_c[idx_c] == 92 {
+                        module_name_c[idx_c] = 46;
+                    }
+                    idx_c = idx_c + 1;
+                }
+                return module_name_c;
+            }
+        }
+    }
+    
+    // 特殊处理：检查是否是内核库文件（lib/kernel/...）
+    // 例如：lib/kernel/errors.uya -> kernel.errors
+    //       lib/kernel/paging.uya -> kernel.paging
+    var lib_kernel: *byte = strstr(filename as *byte, "/lib/kernel/" as *byte);
+    if lib_kernel == null {
+        lib_kernel = strstr(filename as *byte, "lib/kernel/" as *byte);
+    }
+    if lib_kernel != null {
+        var relative_path_k: &byte = lib_kernel as &byte;
+        // 跳过开头的 "/"
+        if relative_path_k[0] == 47 {
+            relative_path_k = &relative_path_k[1];
+        }
+        // 跳过 "lib/"
+        if strncmp(relative_path_k as *byte, "lib/" as *byte, 4) == 0 {
+            relative_path_k = &relative_path_k[4];
+        }
+        // relative_path_k 现在是 "kernel/errors.uya" 等
+        const rel_len_k: usize = strlen(relative_path_k as *byte);
+
+        // 去掉 .uya 后缀
+        var base_len_k: usize = rel_len_k;
+        if rel_len_k > 4 && strcmp((relative_path_k as *byte + (rel_len_k - 4)) as *byte, ".uya" as *byte) == 0 {
+            base_len_k = rel_len_k - 4;
+        }
+
+        if base_len_k > 0 {
+            const module_name_k: &byte = compiler_arena_alloc(checker.arena, base_len_k + 1) as &byte;
+            if module_name_k != null {
+                memcpy(module_name_k as *void, relative_path_k as *void, base_len_k);
+                if base_len_k >= 0 && base_len_k < 1000000 {
+                    module_name_k[base_len_k] = 0;
+                }
+                // 将 '/' 替换为 '.'  （kernel/errors → kernel.errors）
+                var idx_k: usize = 0;
+                while idx_k < base_len_k {
+                    if module_name_k[idx_k] == 47 || module_name_k[idx_k] == 92 {
+                        module_name_k[idx_k] = 46;
+                    }
+                    idx_k = idx_k + 1;
+                }
+                return module_name_k;
+            }
+        }
+    }
+
+    // 特殊处理：lib/tls/（TLS 标准库，模块路径包含文件名）
+    // 例如：lib/tls/common.uya -> tls.common
+    //      lib/tls/base/mpi.uya -> tls.base.mpi
+    var lib_tls: *byte = strstr(filename as *byte, "/lib/tls/" as *byte);
+    if lib_tls == null {
+        lib_tls = strstr(filename as *byte, "lib/tls/" as *byte);
+    }
+    if lib_tls != null {
+        var relative_path_tls: &byte = lib_tls as &byte;
+        if relative_path_tls[0] == 47 {
+            relative_path_tls = &relative_path_tls[1];
+        }
+        if strncmp(relative_path_tls as *byte, "lib/tls/" as *byte, 8) == 0 {
+            relative_path_tls = &relative_path_tls[8];
+        }
+        const rel_len_tls: usize = strlen(relative_path_tls as *byte);
+        var base_len_tls: usize = rel_len_tls;
+        if rel_len_tls > 4 && strcmp((relative_path_tls as *byte + (rel_len_tls - 4)) as *byte, ".uya" as *byte) == 0 {
+            base_len_tls = rel_len_tls - 4;
+        }
+        if base_len_tls > 0 {
+            const total_len_tls: usize = 4 + base_len_tls;
+            const module_name_tls: &byte = compiler_arena_alloc(checker.arena, total_len_tls + 1) as &byte;
+            if module_name_tls != null {
+                strcpy(module_name_tls as *byte, "tls." as *byte);
+                memcpy((module_name_tls as *byte + 4) as *void, relative_path_tls as *void, base_len_tls);
+                module_name_tls[4 + base_len_tls] = 0;
+                var idx_tls: usize = 4;
+                while idx_tls < 4 + base_len_tls {
+                    if module_name_tls[idx_tls] == 47 || module_name_tls[idx_tls] == 92 {
+                        module_name_tls[idx_tls] = 46;
+                    }
+                    idx_tls = idx_tls + 1;
+                }
+                return module_name_tls;
+            }
+        }
+    }
+
+    // 如果 UYA_ROOT 目录已设置，检查文件是否在 UYA_ROOT 下
+    if checker.uya_root_dir != null {
+        const uya_root_len: usize = strlen(checker.uya_root_dir as *byte);
+        if uya_root_len > 0 && strncmp(filename as *byte, checker.uya_root_dir as *byte, uya_root_len) == 0 {
+            // 文件在 UYA_ROOT 下，提取相对路径作为模块路径
+            // 去掉 .uya 后缀，得到基础路径，然后将 '/' 替换为 '.'
+            // 例如：std/c/string.uya → std.c.string
+            //       std/c/syscall/syscall.uya → std.c.syscall（去重）
+            const relative_path_uya: &byte = (filename as *byte + uya_root_len) as &byte;
+            const rel_len: usize = strlen(relative_path_uya as *byte);
+            
+            // 去掉 .uya 后缀
+            var base_len: usize = rel_len;
+            if rel_len > 4 && strcmp((relative_path_uya as *byte + (rel_len - 4)) as *byte, ".uya" as *byte) == 0 {
+                base_len = rel_len - 4;
+            }
+            
+            // 找最后一个 '/'
+            var last_slash_uya: &byte = null;
+            var si: usize = base_len;
+            while si > 0 {
+                si = si - 1;
+                if relative_path_uya[si] == 47 || relative_path_uya[si] == 92 {
+                    last_slash_uya = &relative_path_uya[si];
+                    break;
+                }
+            }
+            
+            // 同级目录下的文件应该使用同一个模块，所以只取目录路径，不包含文件名
+            var module_len: usize = base_len;
+            if last_slash_uya != null {
+                // 只取目录路径，不包含文件名
+            const slash_pos_tmp: !usize = ptr_diff(last_slash_uya as *byte, relative_path_uya as *byte) as! usize;
+            const slash_pos: usize = slash_pos_tmp.value;
+                module_len = slash_pos;
+            }
+            
+            if module_len > 0 {
+                const module_name_uya: &byte = compiler_arena_alloc(checker.arena, module_len + 1) as &byte;
+                if module_name_uya != null {
+                    memcpy(module_name_uya as *void, relative_path_uya as *void, module_len);
+                    if module_len >= 0 && module_len < 1000000 {
+                        module_name_uya[module_len] = 0;
+                    }
+                    // 将 '/' 替换为 '.'
+                    var idx: usize = 0;
+                    while idx < module_len {
+                        if module_name_uya[idx] == 47 || module_name_uya[idx] == 92 {
+                            module_name_uya[idx] = 46;
+                        }
+                        idx = idx + 1;
+                    }
+                    return module_name_uya;
+                }
+            }
+        }
+    }
+    
+    // 如果模块根目录未设置，使用旧逻辑（向后兼容）
+    // 找到最后一个 '/' 或 '\'（文件所在目录）
+    var last_slash: *byte = strrchr(filename as *byte, 47);  // '/'
+    if last_slash == null {
+        last_slash = strrchr(filename as *byte, 92);  // '\'
+    }
+    
+    if last_slash == null {
+        // 文件在根目录，返回 "main"
+        const main_str: &byte = "main" as *byte;
+        const module_name: &byte = checker_arena_strdup(checker.arena, main_str);
+        return module_name;
+    }
+    
+    // 支持多级路径：提取从第一个目录到最后一个目录的所有目录名
+    // 例如 "path/to/std/io/file.uya" -> "std.io"
+    // 回退到根据目录结构推导模块路径
+    var dir_start: &byte = filename;
+    {
+        // 找到第一个目录分隔符
+        var first_slash: *byte = strchr(filename as *byte, 47);  // '/'
+        if first_slash == null {
+            first_slash = strchr(filename as *byte, 92);  // '\'
+        }
+        if first_slash != null {
+            dir_start = (first_slash + 1) as &byte;
+        }
+    }
+    
+    // 检查 dir_start 是否在 last_slash 之前
+    if (dir_start as *byte) >= last_slash {
+        // 没有目录，返回 "main"
+        const main_str: &byte = "main" as *byte;
+        const module_name: &byte = checker_arena_strdup(checker.arena, main_str);
+        return module_name;
+    }
+    
+    const dir_end: *byte = last_slash;
+    
+    // 计算所需的总长度（所有目录名 + '.' 分隔符）
+    var total_len: usize = 0;
+    var p: &byte = dir_start;
+    var dir_count: i32 = 0;
+    while (p as *byte) < dir_end {
+        var next_slash: *byte = strchr(p as *byte, 47);  // '/'
+        if next_slash == null {
+            next_slash = strchr(p as *byte, 92);  // '\'
+        }
+        if next_slash == null || next_slash >= dir_end {
+            next_slash = dir_end;
+        }
+        
+        const dir_len_tmp: !usize = ptr_diff(next_slash, p as *byte) as! usize;
+        const dir_len: usize = dir_len_tmp.value;
+        if dir_len > 0 {
+            total_len = total_len + dir_len;
+            if dir_count > 0 {
+                total_len = total_len + 1;  // '.' 分隔符
+            }
+            dir_count = dir_count + 1;
+        }
+        
+        if next_slash >= dir_end {
+            break;
+        }
+        p = (next_slash + 1) as &byte;
+    }
+    
+    if dir_count == 0 {
+        // 没有目录，返回 "main"
+        const main_str: &byte = "main" as *byte;
+        const module_name: &byte = checker_arena_strdup(checker.arena, main_str);
+        return module_name;
+    }
+    
+    // 分配内存并构建模块路径
+    const module_name: &byte = compiler_arena_alloc(checker.arena, total_len + 1) as &byte;
+    if module_name == null {
+        return null;
+    }
+    
+    var dst: &byte = module_name;
+    p = dir_start;
+    dir_count = 0;
+    while (p as *byte) < dir_end {
+        var next_slash: *byte = strchr(p as *byte, 47);  // '/'
+        if next_slash == null {
+            next_slash = strchr(p as *byte, 92);  // '\'
+        }
+        if next_slash == null || next_slash >= dir_end {
+            next_slash = dir_end;
+        }
+        
+        const dir_len_tmp: !usize = ptr_diff(next_slash, p as *byte) as! usize;
+        const dir_len: usize = dir_len_tmp.value;
+        if dir_len > 0 {
+            if dir_count > 0 {
+                dst[0] = 46;  // '.'
+                dst = &dst[1];
+            }
+            memcpy(dst as *void, p as *void, dir_len);
+            dst = &dst[dir_len];
+            dir_count = dir_count + 1;
+        }
+        
+        if next_slash >= dir_end {
+            break;
+        }
+        p = (next_slash + 1) as &byte;
+    }
+    
+    dst[0] = 0;  // '\0'
+    return module_name;
+}
+
+// 查找或创建模块信息
+fn find_or_create_module(checker: &TypeChecker, module_name: &byte, filename: &byte) &ModuleInfo {
+    if checker == null || module_name == null {
+        return null;
+    }
+    
+    // 计算哈希值
+    const hash: i32 = hash_string(module_name);
+    var index: i32 = hash & (MODULE_TABLE_SIZE - 1);
+    
+    // 查找现有模块
+    var i: i32 = 0;
+    while i < MODULE_TABLE_SIZE {
+        const slot: i32 = (index + i) & (MODULE_TABLE_SIZE - 1);
+        var module: &ModuleInfo = checker.module_table.slots[slot];
+        if module != null && str_equals(module.module_name, module_name) != 0 {
+            return module;
+        }
+        if module == null {
+            // 找到空槽位，创建新模块
+            module = compiler_arena_alloc(checker.arena, @size_of(ModuleInfo)) as &ModuleInfo;
+            if module == null {
+                return null;
+            }
+            module.module_name = module_name;
+            module.filename = filename;
+            module.exports = null;
+            module.export_count = 0;
+            module.dependencies = null;
+            module.dependency_count = 0;
+            checker.module_table.slots[slot] = module;
+            checker.module_table.count = checker.module_table.count + 1;
+            return module;
+        }
+        i = i + 1;
+    }
+    
+    checker_report_error(checker, checker.program_node, "checker module table 容量已满" as *byte);
+    return null;
+}
+
+fn append_module_export(
+    checker: &TypeChecker,
+    module: &ModuleInfo,
+    module_name: &byte,
+    item_name: &byte,
+    item_type: i32,
+    decl: &ASTNode
+) i32 {
+    if checker == null || module == null || module_name == null || item_name == null || decl == null {
+        return 0;
+    }
+
+    const new_count: i32 = module.export_count + 1;
+    const new_exports: &ExportedItem = compiler_arena_alloc(checker.arena, @size_of(ExportedItem) * new_count) as &ExportedItem;
+    if new_exports == null {
+        return 0;
+    }
+
+    if module.exports != null && module.export_count > 0 {
+        memcpy(new_exports as *void, module.exports as *void, @size_of(ExportedItem) * module.export_count);
+    }
+
+    const last_idx: i32 = module.export_count;
+    new_exports[last_idx].name = item_name;
+    new_exports[last_idx].decl_node = decl;
+    new_exports[last_idx].module_name = module_name;
+    new_exports[last_idx].item_type = item_type;
+
+    module.exports = new_exports;
+    module.export_count = new_count;
+    return 1;
+}
+
+fn append_export_to_module_name(
+    checker: &TypeChecker,
+    module_name: &byte,
+    filename: &byte,
+    item_name: &byte,
+    item_type: i32,
+    decl: &ASTNode
+) i32 {
+    if checker == null || module_name == null || item_name == null || decl == null {
+        return 0;
+    }
+    const module: &ModuleInfo = find_or_create_module(checker, module_name, filename);
+    if module == null {
+        return 0;
+    }
+    return append_module_export(checker, module, module_name, item_name, item_type, decl);
+}
+
+// 为项目内 `dir/file.uya` 生成兼容别名 `dir.file`。
+// 这样既兼容目录模块（dir.*），也支持文件模式导入（dir.file.*）。
+fn build_project_file_module_alias(checker: &TypeChecker, filename: &byte, dir_module_name: &byte) &byte {
+    if checker == null || filename == null || dir_module_name == null || checker.module_root_dir == null {
+        return null;
+    }
+
+    const root_len: usize = strlen(checker.module_root_dir as *byte);
+    if root_len == 0 || strncmp(filename as *byte, checker.module_root_dir as *byte, root_len) != 0 {
+        return null;
+    }
+
+    const relative_path: &byte = (filename as *byte + root_len) as &byte;
+    var last_slash: *byte = strrchr(relative_path as *byte, 47);
+    if last_slash == null {
+        last_slash = strrchr(relative_path as *byte, 92);
+    }
+    if last_slash == null {
+        return null;
+    }
+
+    const file_name: &byte = (last_slash + 1) as &byte;
+    const file_len_all: usize = strlen(file_name as *byte);
+    if file_len_all <= 4 {
+        return null;
+    }
+    if strcmp((file_name as *byte + (file_len_all - 4)) as *byte, ".uya" as *byte) != 0 {
+        return null;
+    }
+
+    const file_base_len: usize = file_len_all - 4;
+    if file_base_len == 0 {
+        return null;
+    }
+    if file_base_len == 4 && strncmp(file_name as *byte, "main" as *byte, 4) == 0 {
+        return null;
+    }
+
+    var dir_last_start: &byte = relative_path;
+    var p: &byte = relative_path;
+    while (p as *byte) < last_slash {
+        if p[0] == 47 || p[0] == 92 {
+            dir_last_start = &p[1];
+        }
+        p = &p[1];
+    }
+    const dir_last_len_tmp: !usize = ptr_diff(last_slash, dir_last_start as *byte) as! usize;
+    const dir_last_len: usize = dir_last_len_tmp.value;
+    if dir_last_len == file_base_len && strncmp(dir_last_start as *byte, file_name as *byte, file_base_len) == 0 {
+        return null;
+    }
+
+    const dir_module_len: usize = strlen(dir_module_name as *byte);
+    const total_len: usize = dir_module_len + 1 + file_base_len;
+    const alias_name: &byte = compiler_arena_alloc(checker.arena, total_len + 1) as &byte;
+    if alias_name == null {
+        return null;
+    }
+
+    memcpy(alias_name as *void, dir_module_name as *void, dir_module_len);
+    if dir_module_len >= 0 && dir_module_len < 1000000 {
+        alias_name[dir_module_len] = 46;
+    }
+    memcpy((alias_name as *byte + dir_module_len + 1) as *void, file_name as *void, file_base_len);
+    if total_len >= 0 && total_len < 1000000 {
+        alias_name[total_len] = 0;
+    }
+    return alias_name;
+}
+
+// 为任意 UYA_ROOT 下的单文件生成文件模块别名，例如：
+//   lib/std/mem/mem.uya       -> std.mem.mem
+//   lib/std/runtime/entry.uya -> std.runtime.entry
+// 目录模块仍然保留；该别名只用于兼容和规范化单文件模块导入。
+fn build_uya_root_file_module_alias(checker: &TypeChecker, filename: &byte, dir_module_name: &byte) &byte {
+    if checker == null || filename == null || dir_module_name == null || checker.uya_root_dir == null {
+        return null;
+    }
+
+    const root_len: usize = strlen(checker.uya_root_dir as *byte);
+    if root_len == 0 || strncmp(filename as *byte, checker.uya_root_dir as *byte, root_len) != 0 {
+        return null;
+    }
+
+    const relative_path: &byte = (filename as *byte + root_len) as &byte;
+    const rel_len: usize = strlen(relative_path as *byte);
+    if rel_len <= 4 {
+        return null;
+    }
+    if strcmp((relative_path as *byte + (rel_len - 4)) as *byte, ".uya" as *byte) != 0 {
+        return null;
+    }
+
+    const base_len: usize = rel_len - 4;
+    const alias_name: &byte = compiler_arena_alloc(checker.arena, base_len + 1) as &byte;
+    if alias_name == null {
+        return null;
+    }
+    memcpy(alias_name as *void, relative_path as *void, base_len);
+    alias_name[base_len] = 0;
+
+    var idx: usize = 0;
+    while idx < base_len {
+        if alias_name[idx] == 47 || alias_name[idx] == 92 {
+            alias_name[idx] = 46;
+        }
+        idx = idx + 1;
+    }
+
+    if str_equals(alias_name, dir_module_name) != 0 {
+        return null;
+    }
+    return alias_name;
+}
+
+// 建立模块导出表（遍历所有声明，收集 export 标记的项）
+fn build_module_exports(checker: &TypeChecker, program: &ASTNode) void {
+    if checker == null || program == null || program.type != ASTNodeType.AST_PROGRAM {
+        return;
+    }
+    
+    // 按文件分组声明（基于 filename）
+    // 简化实现：遍历所有声明，根据 filename 分组
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl == null {
+            i = i + 1;
+            continue;
+        }
+        
+        // 获取声明所属的模块名（从 filename 提取）
+        const filename: &byte = decl.filename;
+        if filename == null {
+            i = i + 1;
+            continue;
+        }
+        
+        const module_name: &byte = extract_module_path_allocated(checker, filename);
+        if module_name == null {
+            i = i + 1;
+            continue;
+        }
+        
+        // 查找或创建模块
+        const module: &ModuleInfo = find_or_create_module(checker, module_name, filename);
+        if module == null {
+            i = i + 1;
+            continue;
+        }
+        
+        // 检查是否是导出项
+        var is_export: i32 = 0;
+        var item_name: &byte = null;
+        var item_type: i32 = 0;
+        
+        if decl.type == ASTNodeType.AST_FN_DECL {
+            is_export = decl.fn_decl_is_export;
+            item_name = decl.fn_decl_name;
+            item_type = 1;  // 函数
+        } else if decl.type == ASTNodeType.AST_STRUCT_DECL {
+            is_export = decl.struct_decl_is_export;
+            item_name = decl.struct_decl_name;
+            item_type = 2;  // 结构体
+        } else if decl.type == ASTNodeType.AST_UNION_DECL {
+            is_export = decl.union_decl_is_export;
+            item_name = decl.union_decl_name;
+            item_type = 3;  // 联合体
+        } else if decl.type == ASTNodeType.AST_INTERFACE_DECL {
+            is_export = decl.interface_decl_is_export;
+            item_name = decl.interface_decl_name;
+            item_type = 4;  // 接口
+        } else if decl.type == ASTNodeType.AST_ENUM_DECL {
+            is_export = decl.enum_decl_is_export;
+            item_name = decl.enum_decl_name;
+            item_type = 5;  // 枚举
+        } else if decl.type == ASTNodeType.AST_ERROR_DECL {
+            is_export = decl.error_decl_is_export;
+            item_name = decl.error_decl_name;
+            item_type = 7;  // 错误
+        } else if decl.type == ASTNodeType.AST_VAR_DECL {
+            is_export = decl.var_decl_is_export;
+            item_name = decl.var_decl_name;
+            item_type = 10;  // 变量/常量
+        } else if decl.type == ASTNodeType.AST_EXTERN_VAR_DECL {
+            // export const / export var（解析为 AST_EXTERN_VAR_DECL，见 parser/main.uya）
+            is_export = decl.extern_var_decl_is_export;
+            item_name = decl.extern_var_decl_name;
+            item_type = 10;
+        }
+        
+        // 如果是导出项，添加到模块的导出列表
+        if is_export != 0 && item_name != null {
+            if append_module_export(checker, module, module_name, item_name, item_type, decl) == 0 {
+                i = i + 1;
+                continue;
+            }
+
+            const alias_module_name: &byte = build_project_file_module_alias(checker, filename, module_name);
+            if alias_module_name != null && str_equals(alias_module_name, module_name) == 0 {
+                append_export_to_module_name(checker, alias_module_name, filename, item_name, item_type, decl);
+            }
+
+            const root_alias_module_name: &byte = build_uya_root_file_module_alias(checker, filename, module_name);
+            if root_alias_module_name != null {
+                append_export_to_module_name(checker, root_alias_module_name, filename, item_name, item_type, decl);
+            }
+        }
+        
+        i = i + 1;
+    }
+}
+
+// 处理 use 语句（建立导入关系）
+fn process_use_stmt(checker: &TypeChecker, node: &ASTNode) i32 {
+    if checker == null || node == null || node.type != ASTNodeType.AST_USE_STMT {
+        return 0;
+    }
+    
+    // 获取模块路径（支持多级路径，如 "std.io"）
+    if node.use_stmt_path_segment_count == 0 {
+        checker_report_error(checker, node, "use 语句必须包含至少一个路径段" as *byte);
+        return 0;
+    }
+    
+    // 辅助：将 segments[0..count) 连接为 "a.b.c" 形式
+    // join_segs_inline: 内联实现（Uya 不支持嵌套函数，所以用变量保存结果）
+    
+    var module_name: &byte = null;
+    var item_name: &byte = node.use_stmt_item_name;
+    var is_whole_module_import: i32 = 0;
+    
+    const seg_count: i32 = node.use_stmt_path_segment_count;
+    const segs: &(&byte) = node.use_stmt_path_segments;
+    
+    if item_name != null {
+        // item_name 已设置，所有 segments 都是模块路径
+        // 连接 segs[0..seg_count)
+        var total_len: usize = 0;
+        var i: i32 = 0;
+        while i < seg_count {
+            if segs[i] != null {
+                total_len = total_len + strlen(segs[i] as *byte);
+                if i > 0 { total_len = total_len + 1; }
+            }
+            i = i + 1;
+        }
+        if total_len > 0 {
+            const buf: &byte = compiler_arena_alloc(checker.arena, total_len + 1) as &byte;
+            if buf != null {
+                var dst: &byte = buf;
+                i = 0;
+                while i < seg_count {
+                    if segs[i] != null {
+                        if i > 0 { dst[0] = 46; dst = &dst[1]; }
+                        const sl: usize = strlen(segs[i] as *byte);
+                        memcpy(dst as *void, segs[i] as *void, sl);
+                        dst = &dst[sl];
+                    }
+                    i = i + 1;
+                }
+                dst[0] = 0;
+                module_name = buf;
+            }
+        }
+    } else if seg_count > 1 {
+        // 检查第一个路径段是否对应的目录存在
+        // 如果第一个路径段不是目录，报错并提示用户
+        const first_seg: &byte = segs[0];
+        if first_seg != null {
+            // 检查第一个路径段是否对应的目录存在
+            var first_seg_dir_found: i32 = 0;
+            var first_seg_dir_path: [byte: PATH_MAX] = [];
+            const first_seg_len: usize = strlen(first_seg as *byte);
+            
+            // 从 node.filename 提取模块根目录
+            var module_root_for_check: &byte = null;
+            if node.filename != null {
+                var last_slash_check: &byte = strrchr(node.filename as *byte, 47 as byte);  // '/'
+                if last_slash_check == null {
+                    last_slash_check = strrchr(node.filename as *byte, 92 as byte);  // '\'
+                }
+                if last_slash_check != null {
+                    const dir_len_check: usize = ptr_diff(last_slash_check, node.filename as *byte) as usize + 1;
+                    if dir_len_check < PATH_MAX {
+                        module_root_for_check = compiler_arena_alloc(checker.arena, dir_len_check + 1) as &byte;
+                        if module_root_for_check != null {
+                            memcpy(module_root_for_check as *void, node.filename as *void, dir_len_check);
+                            module_root_for_check[dir_len_check] = 0;
+                        }
+                    }
+                }
+            }
+            
+            // 尝试在模块根目录中查找
+            if module_root_for_check != null {
+                const root_len_check: usize = strlen(module_root_for_check as *byte);
+                if root_len_check + first_seg_len < PATH_MAX {
+                    strcpy(&first_seg_dir_path[0], module_root_for_check as *byte);
+                    strcat(&first_seg_dir_path[0] as *byte, first_seg as *byte);
+                    var st_check: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+                    if stat(&first_seg_dir_path[0] as *byte, &st_check as &Stat) == 0 {
+                        if ((st_check.st_mode as u32) & S_IFMT) == S_IFDIR {
+                            first_seg_dir_found = 1;
+                        }
+                    }
+                }
+            }
+            
+            // 尝试在 checker.module_root_dir 中查找
+            if first_seg_dir_found == 0 && checker.module_root_dir != null {
+                const root_len_check2: usize = strlen(checker.module_root_dir as *byte);
+                if root_len_check2 + first_seg_len < PATH_MAX {
+                    strcpy(&first_seg_dir_path[0], checker.module_root_dir as *byte);
+                    strcat(&first_seg_dir_path[0] as *byte, first_seg as *byte);
+                    var st_check2: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+                    if stat(&first_seg_dir_path[0] as *byte, &st_check2 as &Stat) == 0 {
+                        if ((st_check2.st_mode as u32) & S_IFMT) == S_IFDIR {
+                            first_seg_dir_found = 1;
+                        }
+                    }
+                }
+            }
+            
+            // 尝试在 UYA_ROOT 中查找（标准库）
+            if first_seg_dir_found == 0 && checker.uya_root_dir != null {
+                const root_len_check3: usize = strlen(checker.uya_root_dir as *byte);
+                if root_len_check3 + first_seg_len < PATH_MAX {
+                    strcpy(&first_seg_dir_path[0], checker.uya_root_dir as *byte);
+                    strcat(&first_seg_dir_path[0] as *byte, first_seg as *byte);
+                    var st_check3: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+                    if stat(&first_seg_dir_path[0] as *byte, &st_check3 as &Stat) == 0 {
+                        if ((st_check3.st_mode as u32) & S_IFMT) == S_IFDIR {
+                            first_seg_dir_found = 1;
+                        }
+                    }
+                }
+            }
+            
+            // 如果第一个路径段不是目录，报错
+            if first_seg_dir_found == 0 {
+                // 构建错误消息
+                var error_msg_buf: [byte: 512] = [];
+                const msg_prefix: &byte = "模块路径段 '" as *byte;
+                const msg_suffix: &byte = "' 不是目录。模块必须是一个目录。" as *byte;
+                var msg_idx: usize = 0;
+                const prefix_len: usize = strlen(msg_prefix);
+                const suffix_len: usize = strlen(msg_suffix);
+                
+                // 复制前缀
+                var p_i: usize = 0;
+                while p_i < prefix_len && msg_idx < 500 {
+                    error_msg_buf[msg_idx] = (msg_prefix as *byte + p_i)[0];
+                    msg_idx = msg_idx + 1;
+                    p_i = p_i + 1;
+                }
+                
+                // 复制路径段名
+                var s_i: usize = 0;
+                while s_i < first_seg_len && msg_idx < 500 {
+                    error_msg_buf[msg_idx] = (first_seg as *byte + s_i)[0];
+                    msg_idx = msg_idx + 1;
+                    s_i = s_i + 1;
+                }
+                
+                // 复制后缀
+                p_i = 0;
+                while p_i < suffix_len && msg_idx < 510 {
+                    error_msg_buf[msg_idx] = (msg_suffix as *byte + p_i)[0];
+                    msg_idx = msg_idx + 1;
+                    p_i = p_i + 1;
+                }
+                
+                error_msg_buf[msg_idx] = 0;
+                checker_report_error(checker, node, &error_msg_buf[0]);
+                return 0;
+            }
+        }
+        
+        // 先尝试全路径作为模块名
+        var full_total: usize = 0;
+        var i: i32 = 0;
+        while i < seg_count {
+            if segs[i] != null {
+                full_total = full_total + strlen(segs[i] as *byte);
+                if i > 0 { full_total = full_total + 1; }
+            }
+            i = i + 1;
+        }
+        var full_path: &byte = null;
+        if full_total > 0 {
+            full_path = compiler_arena_alloc(checker.arena, full_total + 1) as &byte;
+            if full_path != null {
+                var dst: &byte = full_path;
+                i = 0;
+                while i < seg_count {
+                    if segs[i] != null {
+                        if i > 0 { dst[0] = 46; dst = &dst[1]; }
+                        const sl: usize = strlen(segs[i] as *byte);
+                        memcpy(dst as *void, segs[i] as *void, sl);
+                        dst = &dst[sl];
+                    }
+                    i = i + 1;
+                }
+                dst[0] = 0;
+            }
+        }
+        
+        if full_path != null {
+            // 首先检查目录是否存在（目录模块）
+            // 将模块路径转换为目录路径（将 '.' 替换为 '/'）
+            var file_path_buf: [byte: PATH_MAX] = [];
+            const full_path_len: usize = strlen(full_path as *byte);
+            if full_path_len < PATH_MAX {
+                strcpy(&file_path_buf[0], full_path as *byte);
+                var idx: usize = 0;
+                while idx < full_path_len {
+                    if file_path_buf[idx] == 46 {
+                        file_path_buf[idx] = 47;
+                    }
+                    idx = idx + 1;
+                }
+                
+                // 检查目录是否存在（使用 stat 检查）
+                // 首先从 node.filename 提取模块根目录
+                var found_dir: i32 = 0;
+                var module_root_from_file: &byte = null;
+                if node.filename != null {
+                    var last_slash: &byte = strrchr(node.filename as *byte, 47 as byte);  // '/'
+                    if last_slash == null {
+                        last_slash = strrchr(node.filename as *byte, 92 as byte);  // '\'
+                    }
+                    if last_slash != null {
+                        const dir_len: usize = ptr_diff(last_slash, node.filename as *byte) as usize + 1;
+                        if dir_len < PATH_MAX {
+                            module_root_from_file = compiler_arena_alloc(checker.arena, dir_len + 1) as &byte;
+                            if module_root_from_file != null {
+                                memcpy(module_root_from_file as *void, node.filename as *void, dir_len);
+                                module_root_from_file[dir_len] = 0;
+                            }
+                        }
+                    }
+                }
+                
+                // 尝试在模块根目录中查找
+                if module_root_from_file != null {
+                    var dir_path: [byte: PATH_MAX] = [];
+                    const root_len: usize = strlen(module_root_from_file as *byte);
+                    const file_path_len: usize = strlen(&file_path_buf[0] as *byte);
+                    if root_len + file_path_len < PATH_MAX {
+                        strcpy(&dir_path[0], module_root_from_file as *byte);
+                        strcat(&dir_path[0] as *byte, &file_path_buf[0] as *byte);
+                        // 使用 stat 检查目录
+                        var st: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+                        if stat(&dir_path[0] as *byte, &st as &Stat) == 0 {
+                            if ((st.st_mode as u32) & S_IFMT) == S_IFDIR {
+                                found_dir = 1;
+                            }
+                        }
+                    }
+                }
+                // 如果模块根目录未设置或未找到，尝试 checker.module_root_dir
+                if found_dir == 0 && checker.module_root_dir != null {
+                    var dir_path: [byte: PATH_MAX] = [];
+                    const root_len: usize = strlen(checker.module_root_dir as *byte);
+                    const file_path_len: usize = strlen(&file_path_buf[0] as *byte);
+                    if root_len + file_path_len < PATH_MAX {
+                        strcpy(&dir_path[0], checker.module_root_dir as *byte);
+                        strcat(&dir_path[0] as *byte, &file_path_buf[0] as *byte);
+                        // 使用 stat 检查目录
+                        var st: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+                        if stat(&dir_path[0] as *byte, &st as &Stat) == 0 {
+                            if ((st.st_mode as u32) & S_IFMT) == S_IFDIR {
+                                found_dir = 1;
+                            }
+                        }
+                    }
+                }
+                // 最后尝试 UYA_ROOT
+                if found_dir == 0 && checker.uya_root_dir != null {
+                    var dir_path: [byte: PATH_MAX] = [];
+                    const root_len: usize = strlen(checker.uya_root_dir as *byte);
+                    const file_path_len: usize = strlen(&file_path_buf[0] as *byte);
+                    if root_len + file_path_len < PATH_MAX {
+                        strcpy(&dir_path[0], checker.uya_root_dir as *byte);
+                        strcat(&dir_path[0] as *byte, &file_path_buf[0] as *byte);
+                        // 使用 stat 检查目录
+                        var st: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+                        if stat(&dir_path[0] as *byte, &st as &Stat) == 0 {
+                            if ((st.st_mode as u32) & S_IFMT) == S_IFDIR {
+                                found_dir = 1;
+                            }
+                        }
+                    }
+                }
+                
+                if found_dir != 0 {
+                    // 目录存在 → 整体导入目录模块
+                    module_name = full_path;
+                    is_whole_module_import = 1;
+                } else {
+                // 在 module_table 中查找全路径
+                const fh: i32 = hash_string(full_path);
+                var fi: i32 = fh & (MODULE_TABLE_SIZE - 1);
+                var full_mod: &ModuleInfo = null;
+                i = 0;
+                while i < MODULE_TABLE_SIZE {
+                    const slot: i32 = (fi + i) & (MODULE_TABLE_SIZE - 1);
+                    const m: &ModuleInfo = checker.module_table.slots[slot];
+                    if m != null && str_equals(m.module_name, full_path) != 0 {
+                        full_mod = m;
+                        break;
+                    }
+                    if m == null { break; }
+                    i = i + 1;
+                }
+                
+                var full_path_is_tls: i32 = 0;
+                if full_path != null && strlen(full_path as *byte) >= 4
+                    && (full_path[0] as byte) == 116 && (full_path[1] as byte) == 108
+                    && (full_path[2] as byte) == 115 && (full_path[3] as byte) == 46 {
+                    full_path_is_tls = 1;
+                }
+                if full_mod != null && (full_mod.export_count > 0 || full_path_is_tls != 0) {
+                    // 全路径是有效模块 → 整体导入
+                    module_name = full_path;
+                    is_whole_module_import = 1;
+                } else {
+                // 全路径不是模块 → 最后一个 segment 是项名
+                item_name = segs[seg_count - 1];
+                const strip_count: i32 = seg_count - 1;
+                var strip_total: usize = 0;
+                i = 0;
+                while i < strip_count {
+                    if segs[i] != null {
+                        strip_total = strip_total + strlen(segs[i] as *byte);
+                        if i > 0 { strip_total = strip_total + 1; }
+                    }
+                    i = i + 1;
+                }
+                if strip_total > 0 {
+                    const sbuf: &byte = compiler_arena_alloc(checker.arena, strip_total + 1) as &byte;
+                    if sbuf != null {
+                        var sdst: &byte = sbuf;
+                        i = 0;
+                        while i < strip_count {
+                            if segs[i] != null {
+                                if i > 0 { sdst[0] = 46; sdst = &sdst[1]; }
+                                const sl: usize = strlen(segs[i] as *byte);
+                                memcpy(sdst as *void, segs[i] as *void, sl);
+                                sdst = &sdst[sl];
+                            }
+                            i = i + 1;
+                        }
+                        sdst[0] = 0;
+                        module_name = sbuf;
+                    }
+                } else if strip_count == 1 {
+                    module_name = segs[0];
+                }
+            }
+        }
+    } else if seg_count == 1 {
+        module_name = segs[0];
+    }
+    }
+    
+    if module_name == null {
+        checker_report_error(checker, node, "use 语句的模块名无效" as *byte);
+        return 0;
+    }
+
+    // `use libc.foo;` 是合法的扁平 libc 导入。若前面的模块探测把它整体识别成模块路径，
+    // 这里回退成 module=`libc`, item=`foo`，仅保留更深层的 `libc.stdio.xxx` 等非法写法报错。
+    if item_name == null && module_name != null && strlen(module_name as *byte) > 5
+        && (module_name[0] as byte) == 108 && (module_name[1] as byte) == 105
+        && (module_name[2] as byte) == 98 && (module_name[3] as byte) == 99
+        && (module_name[4] as byte) == 46 {
+        const flat_item: &byte = &module_name[5];
+        if flat_item[0] != 0 && strchr(flat_item as *byte, 46) == null {
+            item_name = flat_item;
+            module_name = "libc" as &byte;
+        }
+    }
+    
+    // 检测错误的 libc 模块用法（libc.stdio.xxx → 应该使用 libc.xxx）
+    // libc 模块是扁平化的，所有函数都在 libc 模块下，不是 libc.stdio
+    if module_name != null && strlen(module_name as *byte) >= 5
+        && (module_name[0] as byte) == 108 && (module_name[1] as byte) == 105
+        && (module_name[2] as byte) == 98 && (module_name[3] as byte) == 99
+        && (module_name[4] as byte) == 46 {
+        // 模块名以 "libc." 开头，说明用户尝试使用 libc.stdio.xxx 这样的路径
+        // 这是错误的，因为 libc 是扁平化模块
+        checker_report_error(checker, node, "libc 模块是扁平化的，请使用 'use libc.xxx;' 而不是 'use libc.stdio.xxx;'" as *byte);
+        return 0;
+    }
+
+    if checker_microapp_forbid_host_api_import(checker, node, module_name, item_name) != 0 {
+        return 0;
+    }
+    
+    // 查找或创建模块（如果模块不存在，先创建它）
+    // 这样可以处理 main 模块等可能还没有导出项的模块
+    var module: &ModuleInfo = find_or_create_module(checker, module_name, node.filename);
+    if module == null {
+        // 构建错误消息（简化：直接使用固定消息，不格式化）
+        checker_report_error(checker, node, "模块未找到或无法创建" as *byte);
+        return 0;
+    }
+    
+    // 记录模块依赖关系（用于循环依赖检测）
+    // 获取当前模块名（从 node.filename 提取）
+    const current_module_name: &byte = extract_module_path_allocated(checker, node.filename);
+    if current_module_name != null && str_equals(current_module_name, module_name) == 0 {
+        // 特殊处理：main 模块不记录依赖，避免循环依赖检测误报
+        // main 模块是程序入口点，可以自由引用任何模块
+        if str_equals(current_module_name, "main" as *byte) != 0 {
+            // main 模块：跳过依赖记录，继续处理导入项
+        } else {
+            // 查找当前模块
+            const current_hash: i32 = hash_string(current_module_name);
+            var current_index: i32 = current_hash & (MODULE_TABLE_SIZE - 1);
+            var current_module: &ModuleInfo = null;
+            var si: i32 = 0;
+            while si < MODULE_TABLE_SIZE {
+                const slot: i32 = (current_index + si) & (MODULE_TABLE_SIZE - 1);
+                const m: &ModuleInfo = checker.module_table.slots[slot];
+                if m != null && str_equals(m.module_name, current_module_name) != 0 {
+                    current_module = m;
+                    break;
+                }
+                si = si + 1;
+            }
+            
+            var skip_dependency: i32 = 0;
+            if module_name != null {
+                const mlen: usize = strlen(module_name as *byte);
+                if mlen >= 7 {
+                    const p: usize = mlen - 7;
+                    if module_name[p] == 46
+                        && module_name[p + 1] == 109 && module_name[p + 2] == 97
+                        && module_name[p + 3] == 99 && module_name[p + 4] == 114
+                        && module_name[p + 5] == 111 && module_name[p + 6] == 115 {
+                        skip_dependency = 1;
+                    }
+                }
+            }
+            // 如果找到当前模块，添加依赖关系
+            if current_module != null && skip_dependency == 0 {
+                // 检查依赖是否已存在
+                var dep_exists: i32 = 0;
+                si = 0;
+                while si < current_module.dependency_count {
+                    if str_equals(current_module.dependencies[si].target_module, module_name) != 0 {
+                        dep_exists = 1;
+                        break;
+                    }
+                    si = si + 1;
+                }
+                
+                if dep_exists == 0 {
+                    // 添加新依赖
+                    const new_count: i32 = current_module.dependency_count + 1;
+                    const new_deps: &ModuleDependency = compiler_arena_alloc(checker.arena, @size_of(ModuleDependency) * new_count) as &ModuleDependency;
+                    if new_deps != null {
+                        if current_module.dependencies != null && current_module.dependency_count > 0 {
+                            memcpy(new_deps as *void, current_module.dependencies as *void, @size_of(ModuleDependency) * current_module.dependency_count);
+                        }
+                        const last_idx: i32 = current_module.dependency_count;
+                        new_deps[last_idx].target_module = module_name;
+                        new_deps[last_idx].use_stmt_node = node;
+                        current_module.dependencies = new_deps;
+                        current_module.dependency_count = new_count;
+                    }
+                }
+            }
+        }
+    }
+    
+    // 处理导入项
+    const alias: &byte = node.use_stmt_alias;
+    
+    // 整体导入模块的条件：
+    // 1. is_whole_module_import != 0（已确认为整体导入，如 use std.c.stdio;）
+    // 2. item_name == null（没有指定具体项名）
+    //    - 单段路径（use mem;）→ 整体导入
+    //    - 多段路径（use a.b.c;）→ 整体导入
+    if is_whole_module_import != 0 || item_name == null {
+        // 整体导入模块（use mem; 或 use std.c.stdio; 或 use std.c.stdio as io;）
+        var local_name: &byte = alias;
+        if local_name == null && seg_count > 0 {
+            local_name = segs[seg_count - 1];
+        }
+        if local_name == null {
+            checker_report_error(checker, node, "use 语句的本地名称无效" as *byte);
+            return 0;
+        }
+        
+        const import: &ImportedItem = compiler_arena_alloc(checker.arena, @size_of(ImportedItem)) as &ImportedItem;
+        if import == null { return 0; }
+        import.local_name = local_name;
+        import.original_name = null;
+        import.module_name = module_name;
+        import.item_type = 0 - 1;  // -1 = 模块导入
+        
+        const import_hash: i32 = hash_string(import.local_name);
+        var import_index: i32 = import_hash & (IMPORT_TABLE_SIZE - 1);
+        var j: i32 = 0;
+        var import_inserted: i32 = 0;
+        while j < IMPORT_TABLE_SIZE {
+            const slot: i32 = (import_index + j) & (IMPORT_TABLE_SIZE - 1);
+            if checker.import_table.slots[slot] == null {
+                checker.import_table.slots[slot] = import;
+                checker.import_table.count = checker.import_table.count + 1;
+                import_inserted = 1;
+                break;
+            }
+            j = j + 1;
+        }
+        if import_inserted == 0 {
+            checker_report_error(checker, node, "checker import table 容量已满" as *byte);
+            return 0;
+        }
+    } else if item_name != null {
+        // 导入特定项（如 use module_a.public_func;）
+        var found: i32 = 0;
+        var item_type: i32 = 0;
+        var export_decl: &ASTNode = null;
+        var k: i32 = 0;
+        // 防御性检查：确保 exports 不为 null
+        if module.exports != null {
+            while k < module.export_count {
+                if str_equals(module.exports[k].name, item_name) != 0 {
+                    found = 1;
+                    item_type = module.exports[k].item_type;
+                    export_decl = module.exports[k].decl_node;
+                    break;
+                }
+                k = k + 1;
+            }
+        }
+        
+        if found == 0 {
+            // 自举时 std/libc 可能未参与编译或导出表未建，将 use std.xxx / use libc.xxx 视为外部符号，不报错（与 C 编译器一致）
+            var is_external: i32 = 0;
+            if module_name != null && strlen(module_name as *byte) >= 4
+                && (module_name[0] as byte) == 115 && (module_name[1] as byte) == 116
+                && (module_name[2] as byte) == 100 && (module_name[3] as byte) == 46 {
+                is_external = 1;  // std.*
+            }
+            if is_external == 0 && module_name != null && strlen(module_name as *byte) >= 4
+                && (module_name[0] as byte) == 108 && (module_name[1] as byte) == 105
+                && (module_name[2] as byte) == 98 && (module_name[3] as byte) == 99 {
+                is_external = 1;  // libc
+            }
+            if is_external == 0 && module_name != null && strlen(module_name as *byte) >= 4
+                && (module_name[0] as byte) == 116 && (module_name[1] as byte) == 108
+                && (module_name[2] as byte) == 115 && (module_name[3] as byte) == 46 {
+                is_external = 1;  // tls.*
+            }
+            if is_external == 0 {
+                checker_report_error(checker, node, "模块中未找到导出项" as *byte);
+                return 0;
+            }
+            // 兜底：若函数已在函数表中，按函数导入（便于返回值类型检查）
+            if function_table_lookup(checker, item_name) != null {
+                item_type = 1;
+            }
+            // item_type 保持 0
+        }
+        
+        const import: &ImportedItem = compiler_arena_alloc(checker.arena, @size_of(ImportedItem)) as &ImportedItem;
+        if import == null { return 0; }
+        if alias != null {
+            import.local_name = alias;
+        } else {
+            import.local_name = item_name;
+        }
+        import.original_name = item_name;
+        import.module_name = module_name;
+        import.item_type = item_type;
+        
+        const import_hash: i32 = hash_string(import.local_name);
+        var import_index: i32 = import_hash & (IMPORT_TABLE_SIZE - 1);
+        var slot_i: i32 = 0;
+        var import_inserted: i32 = 0;
+        while slot_i < IMPORT_TABLE_SIZE {
+            const slot: i32 = (import_index + slot_i) & (IMPORT_TABLE_SIZE - 1);
+            if checker.import_table.slots[slot] == null {
+                checker.import_table.slots[slot] = import;
+                checker.import_table.count = checker.import_table.count + 1;
+                import_inserted = 1;
+                break;
+            }
+            slot_i = slot_i + 1;
+        }
+        if import_inserted == 0 {
+            checker_report_error(checker, node, "checker import table 容量已满" as *byte);
+            return 0;
+        }
+        // 导入函数时若表中尚无该名则注册到函数表，使 call 能解析到返回类型（如 !i64）
+        if item_type == 1 && export_decl != null && export_decl.type == ASTNodeType.AST_FN_DECL {
+            var lookup_name: &byte = item_name;
+            if alias != null { lookup_name = alias; }
+            if function_table_lookup(checker, lookup_name) == null {
+                checker_register_fn_decl(checker, export_decl);
+            }
+        }
+    } else {
+        checker_report_error(checker, node, "use 语句无法解析" as *byte);
+        return 0;
+    }
+    
+    return 1;
+}
+}
+// DFS 辅助函数（用于循环依赖检测）
+// 参数：checker - TypeChecker 指针，module_name - 当前模块名，path - 当前递归栈，path_len - 栈长度
+//       visit_state - 访问状态数组，visit_count - 访问状态数量，path_capacity - 递归栈容量
+// 返回：发现循环返回 1，否则返回 0
+struct VisitState {
+    module_name: &byte,
+    state: i32,  // 0=未访问，1=正在访问（在递归栈中），2=已访问
+}
+
+fn dfs_visit_module(
+    checker: &TypeChecker,
+    module_name: &byte,
+    path: & & byte,
+    path_len: i32,
+    visit_state: &VisitState,
+    visit_count: i32,
+    path_capacity: i32,
+) i32 {
+    if checker == null || module_name == null || path == null || visit_state == null {
+        return 0;
+    }
+    
+    // 查找模块的访问状态
+    var state_idx: i32 = -1;
+    var i: i32 = 0;
+    while i < visit_count {
+        if str_equals(visit_state[i].module_name, module_name) != 0 {
+            state_idx = i;
+            break;
+        }
+        i = i + 1;
+    }
+    
+    if state_idx == -1 {
+        checker_report_error(checker, checker.program_node, "checker module cycle table 缺少访问状态" as *byte);
+        return 0;
+    }
+    
+    // 检查是否在递归栈中（发现循环）
+    if visit_state[state_idx].state == 1 {
+        // 找到循环依赖，构建错误消息（简化：使用固定消息）
+        // 查找导致循环的依赖（在路径中最后一个模块的依赖中）
+        var error_node: &ASTNode = null;
+        if path_len > 0 {
+            const last_module: &byte = path[path_len - 1];
+            const last_hash: i32 = hash_string(last_module);
+            var last_index: i32 = last_hash & (MODULE_TABLE_SIZE - 1);
+            i = 0;
+            while i < MODULE_TABLE_SIZE {
+                const slot: i32 = (last_index + i) & (MODULE_TABLE_SIZE - 1);
+                const m: &ModuleInfo = checker.module_table.slots[slot];
+                if m != null && str_equals(m.module_name, last_module) != 0 {
+                    // 查找对 module_name 的依赖
+                    var j: i32 = 0;
+                    while j < m.dependency_count {
+                        if str_equals(m.dependencies[j].target_module, module_name) != 0 {
+                            error_node = m.dependencies[j].use_stmt_node;
+                            break;
+                        }
+                        j = j + 1;
+                    }
+                    break;
+                }
+                i = i + 1;
+            }
+        }
+        
+        if error_node != null {
+            checker_report_error(checker, error_node, "检测到循环依赖" as *byte);
+        } else {
+            // 如果没有找到节点，使用程序节点
+            checker_report_error(checker, checker.program_node, "检测到循环依赖" as *byte);
+        }
+        
+        return 1;  // 发现循环
+    }
+    
+    // 如果已访问过，跳过
+    if visit_state[state_idx].state == 2 {
+        return 0;
+    }
+    
+    if path_len < 0 || path_len >= path_capacity {
+        checker_report_error(checker, checker.program_node, "checker module cycle table 容量已满" as *byte);
+        return 0;
+    }
+    path[path_len] = module_name;
+
+    // 标记为正在访问
+    visit_state[state_idx].state = 1;
+    
+    // 查找模块
+    const hash: i32 = hash_string(module_name);
+    var index: i32 = hash & (MODULE_TABLE_SIZE - 1);
+    var module: &ModuleInfo = null;
+    i = 0;
+    while i < MODULE_TABLE_SIZE {
+        const slot: i32 = (index + i) & (MODULE_TABLE_SIZE - 1);
+        const m: &ModuleInfo = checker.module_table.slots[slot];
+        if m != null && str_equals(m.module_name, module_name) != 0 {
+            module = m;
+            break;
+        }
+        i = i + 1;
+    }
+    
+    if module != null {
+        // 递归访问所有依赖
+        const new_path_len: i32 = path_len + 1;
+        
+        i = 0;
+        while i < module.dependency_count {
+            // 传递数组指针
+            if dfs_visit_module(checker, module.dependencies[i].target_module, path, new_path_len,
+                                 visit_state, visit_count, path_capacity) != 0 {
+                return 1;  // 发现循环
+            }
+            i = i + 1;
+        }
+    }
+    
+    // 标记为已访问
+    visit_state[state_idx].state = 2;
+    path[path_len] = null;
+    return 0;
+}
+
+// 循环依赖检测：使用 DFS 检测强连通分量（循环依赖）
+fn detect_circular_dependencies(checker: &TypeChecker) void {
+    if checker == null {
+        return;
+    }
+    
+    // 为每个模块分配访问状态（0=未访问，1=正在访问，2=已访问）
+    const module_count: i32 = checker.module_table.count;
+    if module_count <= 0 {
+        return;
+    }
+    const visit_bytes: usize = @size_of(VisitState) * (module_count as usize);
+    const path_bytes: usize = @size_of(&byte) * (module_count as usize);
+    const visit_state: &VisitState = compiler_arena_alloc(checker.arena, visit_bytes) as &VisitState;
+    const path: & & byte = compiler_arena_alloc(checker.arena, path_bytes) as & & byte;
+    if visit_state == null || path == null {
+        checker_report_error(checker, checker.program_node, "checker module cycle table 容量已满" as *byte);
+        return;
+    }
+    var visit_count: i32 = 0;
+    var clear_i: i32 = 0;
+    while clear_i < module_count {
+        visit_state[clear_i].module_name = null;
+        visit_state[clear_i].state = 0;
+        path[clear_i] = null;
+        clear_i = clear_i + 1;
+    }
+    
+    // 初始化访问状态
+    var i: i32 = 0;
+    while i < MODULE_TABLE_SIZE {
+        const module: &ModuleInfo = checker.module_table.slots[i];
+        if module != null {
+            if visit_count < module_count {
+                visit_state[visit_count].module_name = module.module_name;
+                visit_state[visit_count].state = 0;
+                visit_count = visit_count + 1;
+            } else {
+                checker_report_error(checker, checker.program_node, "checker module cycle table 容量已满" as *byte);
+                return;
+            }
+        }
+        i = i + 1;
+    }
+    
+    // 对所有未访问的模块进行 DFS
+    i = 0;
+    while i < visit_count {
+        if visit_state[i].state == 0 {
+            // 传递数组指针
+            dfs_visit_module(checker, visit_state[i].module_name, path, 0, visit_state, visit_count, module_count);
+        }
+        i = i + 1;
+    }
+}

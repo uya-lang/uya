@@ -84,6 +84,7 @@ fn make_inst(op: i32, imm: i64) MachineInst {
         dst: 0,
         src0: 0,
         src1: 0,
+        target_id: 0,
         imm: imm,
         flags: 0,
     };

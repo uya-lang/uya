@@ -1,0 +1,89 @@
+// test_native_struct_field.uya - native x86_64 struct field memory access smoke.
+
+use codegen.native.x86_64;
+use std.testing.assert_eq_i32;
+use std.testing.assert_eq_i64;
+use std.testing.expect;
+
+struct NativeStructFieldSample {
+    header: i64,
+    payload: i64,
+    footer: i64,
+}
+
+fn native_struct_bval(buf: &byte, i: usize) i32 {
+    return buf[i] as i32;
+}
+
+fn native_struct_header_offset() i32 {
+    return 0;
+}
+
+fn native_struct_payload_offset() i32 {
+    return @size_of(i64) as i32;
+}
+
+fn native_struct_footer_offset() i32 {
+    return (@size_of(i64) * 2usize) as i32;
+}
+
+test "native struct field semantic anchor stays stable" {
+    const sample: NativeStructFieldSample = NativeStructFieldSample{
+        header: 11i64,
+        payload: 22i64,
+        footer: 33i64,
+    };
+
+    try assert_eq_i64(sample.header, 11i64);
+    try assert_eq_i64(sample.payload, 22i64);
+    try assert_eq_i64(sample.footer, 33i64);
+    try assert_eq_i32(native_struct_header_offset(), 0);
+    try assert_eq_i32(native_struct_payload_offset(), 8);
+    try assert_eq_i32(native_struct_footer_offset(), 16);
+    try assert_eq_i32(@size_of(NativeStructFieldSample) as i32, 24);
+}
+
+test "native x86_64 struct field memory ops encode exact bytes" {
+    var buf: [byte: 64] = [];
+    var pos: usize = 0usize;
+
+    try assert_eq_i32(x86_64_emit_load_r64_base_disp32(&buf[0], 64usize, &pos,
+        X86_64_REG_R10, X86_64_REG_RDI, native_struct_payload_offset()), 0);
+    try expect(pos == 7usize);
+    try assert_eq_i32(native_struct_bval(&buf[0], 0usize), 76);
+    try assert_eq_i32(native_struct_bval(&buf[0], 1usize), 139);
+    try assert_eq_i32(native_struct_bval(&buf[0], 2usize), 151);
+    try assert_eq_i32(native_struct_bval(&buf[0], 3usize), 8);
+    try assert_eq_i32(native_struct_bval(&buf[0], 4usize), 0);
+    try assert_eq_i32(native_struct_bval(&buf[0], 5usize), 0);
+    try assert_eq_i32(native_struct_bval(&buf[0], 6usize), 0);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_store_r64_base_disp32(&buf[0], 64usize, &pos,
+        X86_64_REG_RDI, native_struct_footer_offset(), X86_64_REG_RAX), 0);
+    try expect(pos == 7usize);
+    try assert_eq_i32(native_struct_bval(&buf[0], 0usize), 72);
+    try assert_eq_i32(native_struct_bval(&buf[0], 1usize), 137);
+    try assert_eq_i32(native_struct_bval(&buf[0], 2usize), 135);
+    try assert_eq_i32(native_struct_bval(&buf[0], 3usize), 16);
+    try assert_eq_i32(native_struct_bval(&buf[0], 4usize), 0);
+    try assert_eq_i32(native_struct_bval(&buf[0], 5usize), 0);
+    try assert_eq_i32(native_struct_bval(&buf[0], 6usize), 0);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_lea_r64_base_disp32(&buf[0], 64usize, &pos,
+        X86_64_REG_R11, X86_64_REG_RBP, native_struct_header_offset()), 0);
+    try expect(pos == 7usize);
+    try assert_eq_i32(native_struct_bval(&buf[0], 0usize), 76);
+    try assert_eq_i32(native_struct_bval(&buf[0], 1usize), 141);
+    try assert_eq_i32(native_struct_bval(&buf[0], 2usize), 157);
+    try assert_eq_i32(native_struct_bval(&buf[0], 3usize), 0);
+    try assert_eq_i32(native_struct_bval(&buf[0], 4usize), 0);
+    try assert_eq_i32(native_struct_bval(&buf[0], 5usize), 0);
+    try assert_eq_i32(native_struct_bval(&buf[0], 6usize), 0);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_load_r64_base_disp32(&buf[0], 6usize, &pos,
+        X86_64_REG_R10, X86_64_REG_RDI, native_struct_payload_offset()), -1);
+    try expect(pos == 0usize);
+}

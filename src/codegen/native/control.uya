@@ -1,0 +1,191 @@
+// codegen/native/control.uya - Native control-flow cleanup helpers.
+
+use codegen.native.table;
+
+export const NATIVE_CLEANUP_KIND_DEFER: i32 = 1;
+export const NATIVE_CLEANUP_KIND_ERRDEFER: i32 = 2;
+
+export const NATIVE_CLEANUP_EXIT_SUCCESS: i32 = 0;
+export const NATIVE_CLEANUP_EXIT_ERROR: i32 = 1;
+
+/// 功能说明：native defer/errdefer cleanup 动作。
+/// 参数说明：无；字段记录 cleanup 类型、所属作用域和稳定动作 ID。
+/// 返回值说明：无。
+export struct NativeCleanupAction {
+    kind: i32,
+    scope_id: i32,
+    action_id: i32,
+}
+
+/// 功能说明：native cleanup plan，使用动态表记录 defer/errdefer 动作。
+/// 参数说明：无；调用 `native_cleanup_plan_init` 后使用。
+/// 返回值说明：无。
+export struct NativeCleanupPlan {
+    actions: NativeTable,
+    initialized: i32,
+}
+
+fn native_cleanup_action(kind: i32, scope_id: i32, action_id: i32) NativeCleanupAction {
+    return NativeCleanupAction{
+        kind: kind,
+        scope_id: scope_id,
+        action_id: action_id,
+    };
+}
+
+fn native_cleanup_is_exit_kind(kind: i32) i32 {
+    if kind == NATIVE_CLEANUP_EXIT_SUCCESS || kind == NATIVE_CLEANUP_EXIT_ERROR {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_cleanup_is_action_kind(kind: i32) i32 {
+    if kind == NATIVE_CLEANUP_KIND_DEFER || kind == NATIVE_CLEANUP_KIND_ERRDEFER {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_cleanup_append_action(out: &NativeTable, action: &NativeCleanupAction) i32 {
+    if out == null || action == null {
+        return -1;
+    }
+    return native_table_append(out, action as &const void);
+}
+
+fn native_cleanup_emit_kind_for_scope(plan: &NativeCleanupPlan, out: &NativeTable,
+    scope_id: i32, kind: i32) i32 {
+    if plan == null || out == null || plan.initialized == 0 || scope_id < 0 ||
+        native_cleanup_is_action_kind(kind) == 0 {
+        return -1;
+    }
+    var i: usize = native_table_count(&plan.actions);
+    while i > 0usize {
+        i = i - 1usize;
+        const action: &NativeCleanupAction = native_table_item_ptr(&plan.actions, i) as &NativeCleanupAction;
+        if action != null && action.kind == kind && action.scope_id == scope_id {
+            if native_cleanup_append_action(out, action) != 0 {
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
+fn native_cleanup_emit_scope(plan: &NativeCleanupPlan, exit_kind: i32, scope_id: i32,
+    out: &NativeTable) i32 {
+    if exit_kind == NATIVE_CLEANUP_EXIT_ERROR {
+        if native_cleanup_emit_kind_for_scope(plan, out, scope_id, NATIVE_CLEANUP_KIND_ERRDEFER) != 0 {
+            return -1;
+        }
+    }
+    return native_cleanup_emit_kind_for_scope(plan, out, scope_id, NATIVE_CLEANUP_KIND_DEFER);
+}
+
+/// 功能说明：构造未初始化的 cleanup plan。
+/// 参数说明：无。
+/// 返回值说明：返回 `initialized == 0` 的空 plan。
+export fn native_cleanup_plan_empty() NativeCleanupPlan {
+    return NativeCleanupPlan{
+        actions: native_table_empty(),
+        initialized: 0,
+    };
+}
+
+/// 功能说明：初始化 cleanup plan。
+/// 参数说明：`plan` 为目标 cleanup plan。
+/// 返回值说明：无；空 plan 被忽略。
+export fn native_cleanup_plan_init(plan: &NativeCleanupPlan) void {
+    if plan == null {
+        return;
+    }
+    native_table_init(&plan.actions, @size_of(NativeCleanupAction));
+    plan.initialized = 1;
+}
+
+/// 功能说明：重置 cleanup plan，保留底层动态表容量。
+/// 参数说明：`plan` 为目标 cleanup plan。
+/// 返回值说明：无。
+export fn native_cleanup_plan_reset(plan: &NativeCleanupPlan) void {
+    if plan == null || plan.initialized == 0 {
+        return;
+    }
+    native_table_reset(&plan.actions);
+}
+
+/// 功能说明：释放 cleanup plan 的动态表存储。
+/// 参数说明：`plan` 为目标 cleanup plan。
+/// 返回值说明：无。
+export fn native_cleanup_plan_release(plan: &NativeCleanupPlan) void {
+    if plan == null {
+        return;
+    }
+    native_table_release(&plan.actions);
+    plan.initialized = 0;
+}
+
+/// 功能说明：读取 cleanup plan 中的动作数量。
+/// 参数说明：`plan` 为目标 cleanup plan。
+/// 返回值说明：返回动作数量；参数无效时返回 0。
+export fn native_cleanup_plan_count(plan: &NativeCleanupPlan) usize {
+    if plan == null || plan.initialized == 0 {
+        return 0usize;
+    }
+    return native_table_count(&plan.actions);
+}
+
+/// 功能说明：读取 cleanup plan 中指定动作。
+/// 参数说明：`plan` 为目标 cleanup plan；`index` 为动作下标。
+/// 返回值说明：存在时返回动作指针；越界或参数无效时返回 null。
+export fn native_cleanup_action_at(plan: &NativeCleanupPlan, index: usize) &NativeCleanupAction {
+    if plan == null || plan.initialized == 0 {
+        return null;
+    }
+    return native_table_item_ptr(&plan.actions, index) as &NativeCleanupAction;
+}
+
+/// 功能说明：注册一个 defer cleanup 动作。
+/// 参数说明：`plan` 为目标 cleanup plan；`scope_id` 为作用域 ID；`action_id` 为稳定动作 ID。
+/// 返回值说明：成功返回 0；参数或动态表追加失败返回 -1。
+export fn native_cleanup_push_defer(plan: &NativeCleanupPlan, scope_id: i32, action_id: i32) i32 {
+    if plan == null || plan.initialized == 0 || scope_id < 0 {
+        return -1;
+    }
+    var action: NativeCleanupAction = native_cleanup_action(NATIVE_CLEANUP_KIND_DEFER, scope_id, action_id);
+    return native_table_append(&plan.actions, &action as &const void);
+}
+
+/// 功能说明：注册一个 errdefer cleanup 动作。
+/// 参数说明：`plan` 为目标 cleanup plan；`scope_id` 为作用域 ID；`action_id` 为稳定动作 ID。
+/// 返回值说明：成功返回 0；参数或动态表追加失败返回 -1。
+export fn native_cleanup_push_errdefer(plan: &NativeCleanupPlan, scope_id: i32, action_id: i32) i32 {
+    if plan == null || plan.initialized == 0 || scope_id < 0 {
+        return -1;
+    }
+    var action: NativeCleanupAction = native_cleanup_action(NATIVE_CLEANUP_KIND_ERRDEFER, scope_id, action_id);
+    return native_table_append(&plan.actions, &action as &const void);
+}
+
+/// 功能说明：按 native function 退出路径展开 cleanup 执行顺序。
+/// 参数说明：`plan` 为 cleanup plan；`exit_kind` 为 success/error；`scope_id` 为当前最内层作用域；
+///           `out` 为接收 `NativeCleanupAction` 的动态表。
+/// 返回值说明：成功返回 0；参数、生命周期或输出表追加失败返回 -1。
+export fn native_cleanup_emit_exit_order(plan: &NativeCleanupPlan, exit_kind: i32,
+    scope_id: i32, out: &NativeTable) i32 {
+    if plan == null || out == null || plan.initialized == 0 || scope_id < 0 ||
+        native_cleanup_is_exit_kind(exit_kind) == 0 {
+        return -1;
+    }
+    var current: i32 = scope_id;
+    while current >= 0 {
+        if native_cleanup_emit_scope(plan, exit_kind, current, out) != 0 {
+            return -1;
+        }
+        if current == 0 {
+            return 0;
+        }
+        current = current - 1;
+    }
+    return 0;
+}

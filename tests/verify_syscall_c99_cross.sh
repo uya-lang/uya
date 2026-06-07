@@ -22,7 +22,7 @@ if [ ! -x "$COMPILER" ]; then
 fi
 
 echo "验证 @syscall C99：含 x86_64、Linux AArch64、Linux ARM32 分支..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/syscall_c99_cross.uya" -o "$OUT_C" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/syscall_c99_cross.uya" -o "$OUT_C" 2>&1; then
 	echo "✗ 编译失败"
 	exit 1
 fi

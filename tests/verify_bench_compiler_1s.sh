@@ -67,6 +67,7 @@ if [[ "$target" == "uya" ]]; then
     echo "ast_arena_peak_bytes: 3000"
     echo "check_arena_peak_bytes: 800"
     echo "emit_arena_peak_bytes: 296"
+    echo "c99_output_buffer_peak_bytes: 65536"
     echo "typed_program_bytes: 2048"
     echo "typed_program_peak_bytes: 8192"
     echo "typed_program_released_bytes: 0"
@@ -91,8 +92,10 @@ if [[ "${UYA_FAKE_MAKE_FAIL_TARGET:-}" == "$target" ]]; then
 fi
 
 if [[ "${UYA_FAKE_MAKE_CREATE_ARTIFACTS:-0}" == "1" && "$target" == "uya" ]]; then
-    mkdir -p "$repo_root/bin" "$repo_root/src/build" "$repo_root/src/.uyacache"
+    mkdir -p "$repo_root/bin/cmd" "$repo_root/backup" "$repo_root/src/build" "$repo_root/src/.uyacache"
     printf 'bin-output\n' >"$repo_root/bin/uya"
+    printf 'cmd-build-bin\n' >"$repo_root/bin/cmd/build"
+    printf 'cmd-build-seed-c\n' >"$repo_root/backup/cmd-build.c"
     printf 'object\n' >"$repo_root/bin/fake.o"
     printf 'single-c\n' >"$repo_root/src/build/uya.c"
     printf 'split-c\n' >"$repo_root/src/.uyacache/uya_part1.c"
@@ -197,17 +200,17 @@ if ! CFLAGS="-std=c99 -O2 -Werror" CC_DRIVER="fake-cc" MAKE="$FAKE_MAKE" UYA_FAK
     exit 1
 fi
 
-if ! grep -q $'^run\tmode\tseed_ms\tparse_ms\tbind_ms\tcheck_ms\tlower_ms\temit_ms\tlink_ms\ttotal_ms\tpeak_rss_kb\tarena_peak_bytes\toutput_bytes\ttable_count\ttable_capacity\ttable_bytes\ttable_capacity_bytes\ttable_realloc_count$' "$TMP_DIR/bench.tsv"; then
+if ! grep -q $'^run\tmode\tseed_ms\tparse_ms\tbind_ms\tcheck_ms\tlower_ms\temit_ms\tlink_ms\ttotal_ms\tpeak_rss_kb\tarena_peak_bytes\toutput_bytes\tc99_output_buffer_peak_bytes\ttable_count\ttable_capacity\ttable_bytes\ttable_capacity_bytes\ttable_realloc_count$' "$TMP_DIR/bench.tsv"; then
     echo "错误: benchmark TSV 表头不正确" >&2
     cat "$TMP_DIR/bench.tsv" >&2
     exit 1
 fi
 if ! awk -F '\t' '
     NR == 2 || NR == 3 {
-        if (!($1 ~ /^[12]$/ && $2 == "c99" && NF == 18 && $3 == "NA" && $4 == 11 && $5 == 2 && $6 == 13 && $7 == "NA" && $8 == 17 && $9 == "NA" && $10 >= 0 && $11 >= 0 && $12 == 4096 && $13 > 0 && $14 == 3 && $15 == 8 && $16 == 96 && $17 == 256 && $18 == 2)) exit 1;
+        if (!($1 ~ /^[12]$/ && $2 == "c99" && NF == 19 && $3 == "NA" && $4 == 11 && $5 == 2 && $6 == 13 && $7 == "NA" && $8 == 17 && $9 == "NA" && $10 >= 0 && $11 >= 0 && $12 == 4096 && $13 > 0 && $14 == 65536 && $15 == 3 && $16 == 8 && $17 == 96 && $18 == 256 && $19 == 2)) exit 1;
     }
     NR == 4 {
-        if (!($1 == "median" && $2 == "c99" && NF == 18 && $3 == "NA" && $4 == 11 && $5 == 2 && $6 == 13 && $7 == "NA" && $8 == 17 && $9 == "NA" && $10 >= 0 && $11 >= 0 && $12 == 4096 && $13 > 0 && $14 == 3 && $15 == 8 && $16 == 96 && $17 == 256 && $18 == 2)) exit 1;
+        if (!($1 == "median" && $2 == "c99" && NF == 19 && $3 == "NA" && $4 == 11 && $5 == 2 && $6 == 13 && $7 == "NA" && $8 == 17 && $9 == "NA" && $10 >= 0 && $11 >= 0 && $12 == 4096 && $13 > 0 && $14 == 65536 && $15 == 3 && $16 == 8 && $17 == 96 && $18 == 256 && $19 == 2)) exit 1;
     }
     END { if (NR != 4) exit 1 }
 ' "$TMP_DIR/bench.tsv"; then
@@ -240,7 +243,7 @@ do
         exit 1
     fi
 done
-if ! grep -Eq $'^outputs\trun\t1\tc99_single_bytes\t[1-9][0-9]*\tsplit_c_bytes\t[1-9][0-9]*\tnative_bytes\t[1-9][0-9]*\ttemp_bytes\t[1-9][0-9]*\toutput_bytes\t[1-9][0-9]*$' "$TMP_DIR/bench.err"; then
+if ! grep -Eq $'^outputs\trun\t1\tc99_single_bytes\t[1-9][0-9]*\tsplit_c_bytes\t[1-9][0-9]*\tnative_bytes\t[1-9][0-9]*\tbuild_seed_bytes\t[1-9][0-9]*\ttemp_bytes\t[1-9][0-9]*\toutput_bytes\t[1-9][0-9]*$' "$TMP_DIR/bench.err"; then
     echo "错误: benchmark 未输出 run 1 生成文件字节明细" >&2
     cat "$TMP_DIR/bench.err" >&2
     exit 1
@@ -255,7 +258,7 @@ if ! grep -Eq $'^table_stats\trun\t1\ttable_count\t3\ttable_capacity\t8\ttable_b
     cat "$TMP_DIR/bench.err" >&2
     exit 1
 fi
-if ! grep -Eq $'^phase_stats\trun\t1\tseed_ms\tNA\tparse_ms\t11\tbind_ms\t2\tcheck_ms\t13\tlower_ms\tNA\temit_ms\t17\tlink_ms\tNA\tarena_peak_bytes\t4096\tast_arena_peak_bytes\t3000\tcheck_arena_peak_bytes\t800\temit_arena_peak_bytes\t296\ttyped_program_bytes\t2048\ttyped_program_peak_bytes\t8192\ttyped_program_released_bytes\t0$' "$TMP_DIR/bench.err"; then
+if ! grep -Eq $'^phase_stats\trun\t1\tseed_ms\tNA\tparse_ms\t11\tbind_ms\t2\tcheck_ms\t13\tlower_ms\tNA\temit_ms\t17\tlink_ms\tNA\tarena_peak_bytes\t4096\tast_arena_peak_bytes\t3000\tcheck_arena_peak_bytes\t800\temit_arena_peak_bytes\t296\tc99_output_buffer_peak_bytes\t65536\ttyped_program_bytes\t2048\ttyped_program_peak_bytes\t8192\ttyped_program_released_bytes\t0$' "$TMP_DIR/bench.err"; then
     echo "错误: benchmark 未输出编译阶段和 arena 统计摘要" >&2
     cat "$TMP_DIR/bench.err" >&2
     exit 1
@@ -291,7 +294,7 @@ if ! grep -q "RSS 未测量" "$TMP_DIR/noproc.err"; then
     cat "$TMP_DIR/noproc.err" >&2
     exit 1
 fi
-if ! awk -F '\t' 'NR == 2 { exit !($1 == "1" && $2 == "c99" && NF == 18 && $11 == "NA" && $12 == 4096 && $13 >= 0 && $14 == 3 && $18 == 2) } END { if (NR != 2) exit 1 }' "$TMP_DIR/noproc.tsv"; then
+if ! awk -F '\t' 'NR == 2 { exit !($1 == "1" && $2 == "c99" && NF == 19 && $11 == "NA" && $12 == 4096 && $13 >= 0 && $14 == 65536 && $15 == 3 && $19 == 2) } END { if (NR != 2) exit 1 }' "$TMP_DIR/noproc.tsv"; then
     echo "错误: 缺少 /proc 时 peak_rss_kb 应为 NA" >&2
     cat "$TMP_DIR/noproc.tsv" >&2
     exit 1
@@ -309,7 +312,7 @@ if MAKE="$FAKE_MAKE" UYA_FAKE_MAKE_CALL_LOG="$CALL_LOG" UYA_FAKE_MAKE_ASSERT_CLE
     echo "错误: make uya 失败时 benchmark 应失败" >&2
     exit 1
 fi
-if ! awk -F '\t' 'NR == 2 { exit !($1 == "1" && $2 == "c99" && NF == 18 && $4 == 11 && $12 == 4096 && $14 == 3) } END { if (NR != 2) exit 1 }' "$TMP_DIR/fail.tsv"; then
+if ! awk -F '\t' 'NR == 2 { exit !($1 == "1" && $2 == "c99" && NF == 19 && $4 == 11 && $12 == 4096 && $14 == 65536 && $15 == 3) } END { if (NR != 2) exit 1 }' "$TMP_DIR/fail.tsv"; then
     echo "错误: build 失败未输出固定字段 TSV 行" >&2
     cat "$TMP_DIR/fail.tsv" >&2
     exit 1

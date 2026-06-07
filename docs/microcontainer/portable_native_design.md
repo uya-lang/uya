@@ -474,13 +474,13 @@ loader 的目标从“校验 + 对照运行”改为“校验 + 装载 + 真执�
 
 建议形成清晰的用户心智：
 
-- `build --app microapp`：
+- `microapp build`：
   - 产出可执行 `.uapp`
-- `run --app microapp`：
+- `microapp run`：
   - 真正执行 `.uapp`
-- `build --app microapp --emit-loader-elf`
+- `microapp build --emit-loader-elf`
   - 仅用于调试
-- `inspect-image`
+- `microapp inspect`
   - 展示 profile、segment、relocation、entry_va
 
 新增建议参数：
@@ -637,7 +637,7 @@ loader 的目标从“校验 + 对照运行”改为“校验 + 装载 + 真执�
 
 - [ ] 扩展 `PayloadObj` 支持 `data/bss/reloc/entry_va/profile`
 - [ ] 扩展 `image.uya` 支持 v2 header
-- [ ] 扩展 `pack-image` 支持 v2 生成
+- [ ] 扩展 `microapp pack` 支持 v2 生成
 - [ ] 增加 `.uapp v2` roundtrip 测试
 
 ### 阶段 2：编译链升级

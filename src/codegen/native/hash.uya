@@ -1,0 +1,267 @@
+// codegen/native/hash.uya - Native hash and intern table memory helpers.
+
+export const NATIVE_HASH_EMPTY: i32 = 0;
+export const NATIVE_HASH_FILLED: i32 = 1;
+export const NATIVE_INTERN_EMPTY: i32 = 0;
+export const NATIVE_INTERN_FILLED: i32 = 1;
+
+/// 功能说明：native i64 -> i32 开放寻址 hash entry。
+/// 参数说明：无；字段为 key/value/state，调用方负责表容量和计数。
+/// 返回值说明：无。
+export struct NativeHashEntry {
+    key: i64,
+    value: i32,
+    state: i32,
+}
+
+/// 功能说明：native intern 表中的开放寻址 entry。
+/// 参数说明：无；字段匹配 `SemanticInternEntry` 的 hash/name/len/id/state 形态。
+/// 返回值说明：无。
+export struct NativeInternEntry {
+    hash: usize,
+    name: &byte,
+    len: usize,
+    id: i32,
+    state: i32,
+}
+
+/// 功能说明：计算 i64 key 的 native hash bucket key。
+/// 参数说明：`key` 为 hash 表 key；负数按现有 SemanticHash 兼容规则映射到 0。
+/// 返回值说明：返回用于取模 capacity 的 usize hash key。
+export fn native_hash_key_i64(key: i64) usize {
+    if key < 0 {
+        return 0usize;
+    }
+    const h_tmp: !usize = key as! usize;
+    var h: usize = h_tmp catch {
+        return 0usize;
+    };
+    h = h ^ (h / 65537usize);
+    h = h ^ (h / 257usize);
+    return h;
+}
+
+/// 功能说明：计算开放寻址表的 75% 负载阈值。
+/// 参数说明：`capacity` 为 bucket 数。
+/// 返回值说明：返回达到该 count 前需要扩容的阈值；容量为 0 时返回 0。
+export fn native_hash_load_limit(capacity: usize) usize {
+    if capacity == 0usize {
+        return 0usize;
+    }
+    return capacity - (capacity / 4usize);
+}
+
+/// 功能说明：判断 hash 表插入下一项前是否需要扩容。
+/// 参数说明：`count` 为当前项数；`capacity` 为当前 bucket 数。
+/// 返回值说明：需要扩容返回 `1`，否则返回 `0`。
+export fn native_hash_should_grow(count: usize, capacity: usize) i32 {
+    if capacity == 0usize {
+        return 1;
+    }
+    const limit: usize = native_hash_load_limit(capacity);
+    if count + 1usize >= limit {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_hash_probe_start(key: i64, capacity: usize) usize {
+    if capacity == 0usize {
+        return 0usize;
+    }
+    return native_hash_key_i64(key) % capacity;
+}
+
+fn native_hash_next_probe(index: usize, capacity: usize) usize {
+    if capacity == 0usize {
+        return 0usize;
+    }
+    const next: usize = index + 1usize;
+    if next >= capacity {
+        return 0usize;
+    }
+    return next;
+}
+
+/// 功能说明：在 native hash entry 表中查找 key 的 slot。
+/// 参数说明：`entries`/`capacity` 为 bucket 数组；`key` 为目标 key；`found` 返回是否命中已有项。
+/// 返回值说明：返回可用 slot；表满或参数无效时返回 `capacity`。
+export fn native_hash_find_slot(entries: &NativeHashEntry, capacity: usize, key: i64, found: &i32) usize {
+    if entries == null || capacity == 0usize || found == null {
+        return capacity;
+    }
+    var idx: usize = native_hash_probe_start(key, capacity);
+    var probes: usize = 0usize;
+    while probes < capacity {
+        const entry: &NativeHashEntry = &entries[idx];
+        if entry.state == NATIVE_HASH_EMPTY {
+            found[0] = 0;
+            return idx;
+        }
+        if entry.state == NATIVE_HASH_FILLED && entry.key == key {
+            found[0] = 1;
+            return idx;
+        }
+        idx = native_hash_next_probe(idx, capacity);
+        probes = probes + 1usize;
+    }
+    found[0] = 0;
+    return capacity;
+}
+
+/// 功能说明：在 native hash entry 表中插入或更新 key/value。
+/// 参数说明：`entries`/`capacity` 为 bucket 数组；`key`/`value` 为写入项。
+/// 返回值说明：新增返回 `0`，更新已有项返回 `1`，失败返回 `-1`。
+export fn native_hash_put_entry(entries: &NativeHashEntry, capacity: usize, key: i64, value: i32) i32 {
+    var found: i32 = 0;
+    const slot: usize = native_hash_find_slot(entries, capacity, key, &found);
+    if slot >= capacity {
+        return -1;
+    }
+    entries[slot].key = key;
+    entries[slot].value = value;
+    entries[slot].state = NATIVE_HASH_FILLED;
+    return found;
+}
+
+/// 功能说明：在 native hash entry 表中查询 key。
+/// 参数说明：`entries`/`capacity` 为 bucket 数组；`key` 为目标 key；`out_value` 接收 value。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn native_hash_get_entry(entries: &NativeHashEntry, capacity: usize, key: i64, out_value: &i32) i32 {
+    if out_value == null {
+        return 0;
+    }
+    var found: i32 = 0;
+    const slot: usize = native_hash_find_slot(entries, capacity, key, &found);
+    if found == 0 || slot >= capacity {
+        return 0;
+    }
+    out_value[0] = entries[slot].value;
+    return 1;
+}
+
+/// 功能说明：计算 NUL 结尾 byte string 的长度。
+/// 参数说明：`name` 为 C string 指针。
+/// 返回值说明：返回不含结尾 NUL 的字节长度；null 返回 0。
+export fn native_intern_strlen(name: &byte) usize {
+    if name == null {
+        return 0usize;
+    }
+    var len: usize = 0usize;
+    while name[len] != 0 as byte {
+        len = len + 1usize;
+    }
+    return len;
+}
+
+/// 功能说明：计算 intern 表使用的 FNV-1a 字节 hash。
+/// 参数说明：`name`/`len` 为输入字节串。
+/// 返回值说明：返回非零 hash；空串会返回 offset basis。
+export fn native_intern_hash_bytes(name: &byte, len: usize) usize {
+    var hash: usize = 1469598103usize;
+    if name == null && len != 0usize {
+        return 1usize;
+    }
+    var i: usize = 0usize;
+    while i < len {
+        hash = hash ^ (name[i] as usize);
+        hash = hash * 16777619usize;
+        i = i + 1usize;
+    }
+    if hash == 0usize {
+        return 1usize;
+    }
+    return hash;
+}
+
+/// 功能说明：比较两个 intern name 的固定长度字节内容。
+/// 参数说明：`a`/`b` 为字节串；`len` 为比较长度。
+/// 返回值说明：完全相等返回 `1`，否则返回 `0`。
+export fn native_intern_bytes_equal(a: &byte, b: &byte, len: usize) i32 {
+    if a == null || b == null {
+        return 0;
+    }
+    var i: usize = 0usize;
+    while i < len {
+        if a[i] != b[i] {
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    return 1;
+}
+
+/// 功能说明：构造一个已填充的 native intern entry。
+/// 参数说明：`hash`/`name`/`len`/`id` 为 entry 字段。
+/// 返回值说明：返回 `state == NATIVE_INTERN_FILLED` 的 entry。
+export fn native_intern_entry_make(hash: usize, name: &byte, len: usize, id: i32) NativeInternEntry {
+    return NativeInternEntry{
+        hash: hash,
+        name: name,
+        len: len,
+        id: id,
+        state: NATIVE_INTERN_FILLED,
+    };
+}
+
+fn native_intern_probe_start(hash: usize, capacity: usize) usize {
+    if capacity == 0usize {
+        return 0usize;
+    }
+    return hash % capacity;
+}
+
+fn native_intern_next_probe(index: usize, capacity: usize) usize {
+    if capacity == 0usize {
+        return 0usize;
+    }
+    const next: usize = index + 1usize;
+    if next >= capacity {
+        return 0usize;
+    }
+    return next;
+}
+
+/// 功能说明：在 native intern entry 表中查找 name 的 slot。
+/// 参数说明：`entries`/`capacity` 为 bucket 数组；`hash`/`name`/`len` 为目标名字；`found` 返回是否命中已有项。
+/// 返回值说明：返回可用 slot；表满或参数无效时返回 `capacity`。
+export fn native_intern_find_slot(entries: &NativeInternEntry, capacity: usize,
+    hash: usize, name: &byte, len: usize, found: &i32) usize {
+    if entries == null || capacity == 0usize || found == null {
+        return capacity;
+    }
+    var idx: usize = native_intern_probe_start(hash, capacity);
+    var probes: usize = 0usize;
+    while probes < capacity {
+        const entry: &NativeInternEntry = &entries[idx];
+        if entry.state == NATIVE_INTERN_EMPTY {
+            found[0] = 0;
+            return idx;
+        }
+        if entry.state == NATIVE_INTERN_FILLED && entry.hash == hash && entry.len == len &&
+            native_intern_bytes_equal(entry.name, name, len) != 0 {
+            found[0] = 1;
+            return idx;
+        }
+        idx = native_intern_next_probe(idx, capacity);
+        probes = probes + 1usize;
+    }
+    found[0] = 0;
+    return capacity;
+}
+
+/// 功能说明：在 native intern entry 表中插入或更新 entry。
+/// 参数说明：`entries`/`capacity` 为 bucket 数组；`entry` 为待写入 entry。
+/// 返回值说明：新增返回 `0`，更新已有项返回 `1`，失败返回 `-1`。
+export fn native_intern_put_entry(entries: &NativeInternEntry, capacity: usize, entry: &NativeInternEntry) i32 {
+    if entry == null || entry.state != NATIVE_INTERN_FILLED {
+        return -1;
+    }
+    var found: i32 = 0;
+    const slot: usize = native_intern_find_slot(entries, capacity, entry.hash, entry.name, entry.len, &found);
+    if slot >= capacity {
+        return -1;
+    }
+    entries[slot] = entry[0];
+    return found;
+}

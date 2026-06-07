@@ -1,0 +1,85 @@
+// test_native_arena_peak_stats.uya - native compiler arena peak metric smoke.
+
+use codegen.native.arena;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+fn native_peak_expected_total(driver: &NativeArena, lex: &NativeArena, ast: &NativeArena,
+    check: &NativeArena, emit: &NativeArena) usize {
+    return native_arena_peak_allocated(driver)
+        + native_arena_peak_allocated(lex)
+        + native_arena_peak_allocated(ast)
+        + native_arena_peak_allocated(check)
+        + native_arena_peak_allocated(emit);
+}
+
+test "native arena peak stats keep compiler metric names" {
+    var driver_buf: [byte: 64] = [];
+    var lex_buf: [byte: 32] = [];
+    var ast_buf: [byte: 64] = [];
+    var check_buf: [byte: 64] = [];
+    var emit_buf: [byte: 64] = [];
+
+    var driver: NativeArena = native_arena_empty();
+    var lex: NativeArena = native_arena_empty();
+    var ast: NativeArena = native_arena_empty();
+    var check: NativeArena = native_arena_empty();
+    var emit: NativeArena = native_arena_empty();
+
+    native_arena_init(&driver, &driver_buf[0], @len(driver_buf));
+    native_arena_init(&lex, &lex_buf[0], @len(lex_buf));
+    native_arena_init(&ast, &ast_buf[0], @len(ast_buf));
+    native_arena_init(&check, &check_buf[0], @len(check_buf));
+    native_arena_init(&emit, &emit_buf[0], @len(emit_buf));
+
+    try expect(native_arena_alloc(&driver, 24usize) != null);
+    try expect(native_arena_alloc(&lex, 8usize) != null);
+    try expect(native_arena_alloc(&ast, 40usize) != null);
+    try expect(native_arena_alloc(&check, 16usize) != null);
+    try expect(native_arena_alloc(&emit, 32usize) != null);
+
+    const stats: NativeArenaPeakStats = native_arena_peak_stats_from_arenas(&driver, &lex,
+        &ast, &check, &emit);
+    try expect(stats.arena_peak_bytes == native_peak_expected_total(&driver, &lex, &ast,
+        &check, &emit));
+    try expect(stats.ast_arena_peak_bytes == native_arena_peak_allocated(&ast));
+    try expect(stats.check_arena_peak_bytes == native_arena_peak_allocated(&check));
+    try expect(stats.emit_arena_peak_bytes == native_arena_peak_allocated(&emit));
+    try expect(native_arena_peak_stats_total(&stats) == stats.arena_peak_bytes);
+
+    native_arena_reset(&ast);
+    try expect(native_arena_total_allocated(&ast) == 0usize);
+    try expect(native_arena_peak_allocated(&ast) == stats.ast_arena_peak_bytes);
+
+    const after_reset: NativeArenaPeakStats = native_arena_peak_stats_from_arenas(&driver, &lex,
+        &ast, &check, &emit);
+    try expect(after_reset.arena_peak_bytes == stats.arena_peak_bytes);
+    try expect(after_reset.ast_arena_peak_bytes == stats.ast_arena_peak_bytes);
+
+    native_arena_release(&driver);
+    native_arena_release(&lex);
+    native_arena_release(&ast);
+    native_arena_release(&check);
+    native_arena_release(&emit);
+}
+
+test "native arena peak stats include dynamic chunk peaks" {
+    var backing: [byte: 16] = [];
+    var arena: NativeArena = native_arena_empty();
+    var empty: NativeArena = native_arena_empty();
+    native_arena_init(&arena, &backing[0], @len(backing));
+    native_arena_init(&empty, null, 0usize);
+
+    try expect(native_arena_alloc(&arena, 80usize) != null);
+    try expect(native_arena_chunk_count(&arena) >= 1);
+
+    const stats: NativeArenaPeakStats = native_arena_peak_stats_from_arenas(&empty, &empty,
+        &arena, &empty, &empty);
+    try expect(stats.arena_peak_bytes >= 80usize);
+    try expect(stats.ast_arena_peak_bytes >= 80usize);
+    try assert_eq_i32(stats.check_arena_peak_bytes as i32, 0);
+    try assert_eq_i32(stats.emit_arena_peak_bytes as i32, 0);
+
+    native_arena_release(&arena);
+    native_arena_release(&empty);
+}

@@ -1,0 +1,699 @@
+// checker/check_node_extra.uya - checker_check_node 辅助函数
+// 从 main.uya 拆分
+// 包含：match 表达式、赋值语句、for 循环的检查函数
+
+// 检查 match 表达式节点
+// 参数：checker - TypeChecker 指针，node - match 表达式节点
+// 返回：1 表示检查通过，0 表示检查失败
+fn check_match_expr_node(checker: &TypeChecker, node: &ASTNode) i32 {
+    var expr_type: Type = checker_infer_type(checker, node.match_expr_expr);
+    // 如果是指针类型，自动解引用
+    if expr_type.kind == TypeKind.TYPE_POINTER && expr_type.pointer_to != null {
+        expr_type = expr_type.pointer_to[0];
+    }
+    if expr_type.kind == TypeKind.TYPE_UNION && expr_type.union_name != null && checker.program_node != null {
+        const ud: &ASTNode = find_union_decl_from_program(checker.program_node, expr_type.union_name);
+        if ud != null && ud.union_decl_is_extern != 0 {
+            checker_report_error(checker, node, "extern union 不支持 match" as *byte);
+            return 0;
+        }
+    }
+    checker_check_node(checker, node.match_expr_expr);
+    var has_else: i32 = 0;
+    var i: i32 = 0;
+    while i < node.match_expr_arm_count {
+        const arm: ASTMatchArm = node.match_expr_arms[i];
+        if arm.kind == MatchPatternKind.MATCH_PAT_ELSE {
+            has_else = 1;
+        }
+        checker_enter_scope(checker);
+        if arm.kind == MatchPatternKind.MATCH_PAT_BIND && arm.var_name != null {
+            const sym: &Symbol = compiler_arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
+            if sym != null {
+                sym.name = arm.var_name;
+                sym.type = copy_type(&expr_type);
+                sym.is_const = 1;
+                sym.is_initialized = 1;  // match 绑定变量已初始化
+                sym.scope_level = checker.scope_level;
+                sym.line = node.line;
+                sym.column = node.column;
+                sym.pointee_of = null;
+                sym.pointer_known_length = -1;
+                sym.pointer_length_param = null;
+                symbol_table_insert(checker, sym);
+            }
+        }
+        if arm.kind == MatchPatternKind.MATCH_PAT_ENUM && arm.enum_name != null && arm.variant_name != null {
+            if expr_type.kind != TypeKind.TYPE_ENUM {
+                checker_report_error(checker, node, "枚举模式只能匹配枚举类型" as *byte);
+            } else if expr_type.enum_name != null && str_equals(expr_type.enum_name, arm.enum_name) == 0 {
+                checker_report_error(checker, node, "match 枚举模式与表达式类型不匹配" as *byte);
+            }
+        }
+        if arm.kind == MatchPatternKind.MATCH_PAT_UNION && arm.variant_name != null &&
+            expr_type.kind == TypeKind.TYPE_UNION && expr_type.union_name != null && checker.program_node != null {
+            const union_decl: &ASTNode = find_union_decl_from_program(checker.program_node, expr_type.union_name);
+            if union_decl != null {
+                var found: i32 = 0;
+                var variant_type: Type = make_void_type();
+                var k: i32 = 0;
+                while k < union_decl.union_decl_variant_count {
+                    const v: &ASTNode = union_decl.union_decl_variants[k];
+                    if v != null && v.type == ASTNodeType.AST_VAR_DECL && v.var_decl_name != null &&
+                        str_equals(v.var_decl_name, arm.variant_name) != 0 {
+                        found = 1;
+                        variant_type = type_from_ast(checker, v.var_decl_type);
+                        if expr_type.union_type_args != null && expr_type.union_type_arg_count >= 1 &&
+                            union_decl.union_decl_type_param_count >= 1 &&
+                            (variant_type.kind == TypeKind.TYPE_GENERIC_PARAM ||
+                             (v.var_decl_type.type == ASTNodeType.AST_TYPE_NAMED && v.var_decl_type.type_named_name != null &&
+                              (v.var_decl_type.type_named_type_arg_count == 0 || v.var_decl_type.type_named_type_args == null))) {
+                            variant_type = copy_type(&expr_type.union_type_args[0]);
+                        }
+                        break;
+                    }
+                    k = k + 1;
+                }
+                if found == 0 {
+                    checker_report_error(checker, node, "match 联合体模式中的变体不存在于该联合体类型" as *byte);
+                } else if arm.var_name != null && str_equals(arm.var_name, "_" as *byte) == 0 {
+                    const sym: &Symbol = compiler_arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
+                    if sym != null {
+                        sym.name = arm.var_name;
+                        sym.type = copy_type(&variant_type);
+                        sym.is_const = 1;
+                        sym.is_initialized = 1;  // match 联合体绑定变量已初始化
+                        sym.scope_level = checker.scope_level;
+                        sym.line = node.line;
+                        sym.pointer_known_length = -1;
+                        sym.pointer_length_param = null;
+                        sym.column = node.column;
+                        sym.pointee_of = null;
+                        symbol_table_insert(checker, sym);
+                    }
+                }
+            }
+        }
+        checker_check_node(checker, arm.result_expr);
+        checker_exit_scope(checker);
+        i = i + 1;
+    }
+    var has_catch_all: i32 = has_else;
+    if expr_type.kind == TypeKind.TYPE_UNION && expr_type.union_name != null && checker.program_node != null {
+        const union_decl: &ASTNode = find_union_decl_from_program(checker.program_node, expr_type.union_name);
+        if union_decl != null && union_decl.union_decl_variant_count > 0 {
+            var covered: [i32: 32] = [];
+            var nv: i32 = union_decl.union_decl_variant_count;
+            if nv > MAX_UNION_VARIANTS { nv = MAX_UNION_VARIANTS; }
+            var k: i32 = 0;
+            while k < nv && k < MAX_UNION_VARIANTS {
+                covered[k] = 0;
+                k = k + 1;
+            }
+            var j: i32 = 0;
+            while j < node.match_expr_arm_count {
+                const arm: ASTMatchArm = node.match_expr_arms[j];
+                if arm.kind == MatchPatternKind.MATCH_PAT_ELSE || arm.kind == MatchPatternKind.MATCH_PAT_BIND || arm.kind == MatchPatternKind.MATCH_PAT_WILDCARD {
+                    has_catch_all = 1;
+                    break;
+                }
+                if arm.kind == MatchPatternKind.MATCH_PAT_UNION && arm.variant_name != null {
+                    var kk: i32 = 0;
+                    while kk < nv && kk < MAX_UNION_VARIANTS {
+                        const v: &ASTNode = union_decl.union_decl_variants[kk];
+                        if v != null && v.type == ASTNodeType.AST_VAR_DECL && v.var_decl_name != null &&
+                            str_equals(v.var_decl_name, arm.variant_name) != 0 {
+                            covered[kk] = 1;
+                            break;
+                        }
+                        kk = kk + 1;
+                    }
+                }
+                j = j + 1;
+            }
+            if has_catch_all == 0 {
+                k = 0;
+                while k < nv && k < MAX_UNION_VARIANTS {
+                    if covered[k] == 0 {
+                        checker_report_error(checker, node, "match 联合体必须处理所有变体" as *byte);
+                        break;
+                    }
+                    k = k + 1;
+                }
+            }
+        }
+    } else {
+        var j: i32 = 0;
+        while j < node.match_expr_arm_count && has_catch_all == 0 {
+            const arm: ASTMatchArm = node.match_expr_arms[j];
+            if arm.kind == MatchPatternKind.MATCH_PAT_BIND || arm.kind == MatchPatternKind.MATCH_PAT_WILDCARD {
+                has_catch_all = 1;
+            }
+            j = j + 1;
+        }
+        if has_catch_all == 0 && node.match_expr_arm_count > 0 {
+            checker_report_error(checker, node, "match 必须包含 else 分支或变量绑定/通配符" as *byte);
+        }
+    }
+    return 1;
+}
+
+fn checker_assign_member_rooted_in_const_slice(expr: &ASTNode, checker: &TypeChecker) i32 {
+    if expr == null || checker == null {
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_ARRAY_ACCESS && expr.array_access_array != null {
+        const base_ty: Type = checker_infer_type(checker, expr.array_access_array);
+        if base_ty.kind == TypeKind.TYPE_SLICE && base_ty.slice_element_is_const != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return checker_assign_member_rooted_in_const_slice(expr.member_access_object, checker);
+    }
+    return 0;
+}
+
+// 检查赋值节点
+// 参数：checker - TypeChecker 指针，node - 赋值节点
+// 返回：1 表示检查通过，0 表示检查失败
+fn check_assign_node(checker: &TypeChecker, node: &ASTNode) i32 {
+    // 检查赋值目标（可以是标识符或字段访问）
+    const dest: &ASTNode = node.assign_dest;
+    if dest == null {
+        checker_report_error(checker, node, "赋值目标不能为空" as *byte);
+        return 0;
+    }
+    
+    var dest_type: Type = make_void_type();
+    if dest.type == ASTNodeType.AST_UNDERSCORE {
+        // _ = expr：仅检查右侧，显式忽略返回值
+        if checker_check_node(checker, node.assign_src) == 0 {
+            return 0;
+        }
+        // 检查右侧表达式类型（用于类型检查，结果不使用）
+        checker_infer_type(checker, node.assign_src);
+        return 1;
+    }
+    checker_walk_reachability_expr(checker, node.assign_src);
+    if dest.type == ASTNodeType.AST_IDENTIFIER {
+        // 标识符赋值：检查是否为 var（不能是 const）
+        const symbol: &Symbol = symbol_table_lookup(checker, dest.identifier_name);
+        if symbol == null {
+            // 未定义的变量：放宽检查，允许通过（不报错）
+            // 这在编译器自举时可能发生，因为变量可能在不同作用域中定义，或符号查找有问题
+            // 返回一个默认类型（指针类型），允许通过
+            dest_type.kind = TypeKind.TYPE_POINTER;
+            dest_type.pointer_to = null;
+            dest_type.is_ffi_pointer = 0;
+        } else {
+            if symbol.is_const != 0 {
+                // 不能给 const 变量赋值
+                checker_report_error(checker, dest, "const 变量不能重新赋值" as *byte);
+                return 0;
+            }
+            
+            // 标记变量为已初始化
+            symbol.is_initialized = 1;
+            dest_type = symbol.type;
+        }
+    } else if dest.type == ASTNodeType.AST_MEMBER_ACCESS {
+        if checker_assign_member_rooted_in_const_slice(dest.member_access_object, checker) != 0 {
+            checker_report_error(checker, dest, "不能修改 &[const T] 切片元素的字段" as *byte);
+            return 0;
+        }
+        // 字段访问赋值：检查字段类型（与 C 一致：VOID 时不报错，继续由 checker_check_expr_type 放宽处理）
+        dest_type = checker_check_member_access(checker, dest);
+        if is_void_type(dest_type) != 0 {
+            // 类型推断失败：放宽检查，允许通过（与 C 一致，不阻塞）
+        }
+    } else if dest.type == ASTNodeType.AST_ARRAY_ACCESS {
+        // 元素为只读的切片 &[const T]：禁止元素赋值（含 += 等降级的 =）
+        const acc_base: &ASTNode = dest.array_access_array;
+        if acc_base != null {
+            const base_ty: Type = checker_infer_type(checker, acc_base);
+            if base_ty.kind == TypeKind.TYPE_SLICE && base_ty.slice_element_is_const != 0 {
+                checker_report_error(checker, dest, "不能对 &[const T] 切片的元素赋值" as *byte);
+                return 0;
+            }
+        }
+        // 数组访问赋值：检查元素类型
+        dest_type = checker_check_array_access(checker, dest);
+        if is_void_type(dest_type) != 0 {
+            // 数组访问失败（错误已在 checker_check_array_access 中报告）
+            return 0;
+        }
+    } else if dest.type == ASTNodeType.AST_UNARY_EXPR {
+        // 解引用赋值（*p = value）：检查解引用表达式
+        // 解引用表达式必须是 *expr 形式，其中 expr 是指针类型
+        const op_tmp: !TokenType = dest.unary_expr_op as! TokenType;
+        const op: TokenType = op_tmp.value;
+        if op != TokenType.TOKEN_ASTERISK {
+            // 不是解引用运算符，不能作为赋值目标
+            checker_report_error(checker, dest, "无效的赋值目标（只有解引用表达式可以作为赋值目标）" as *byte);
+            return 0;
+        }
+        
+        // 检查操作数类型：必须是指针类型
+        const operand_type: Type = checker_infer_type(checker, dest.unary_expr_operand);
+        if operand_type.kind != TypeKind.TYPE_POINTER {
+            // 类型推断失败：放宽检查，允许通过（不报错）
+            // 这在编译器自举时很常见，因为类型推断可能失败（如 for 循环变量）
+            // 允许解引用赋值，但不进行严格的类型检查
+            dest_type = make_void_type();
+        } else if operand_type.pointer_to == null {
+            // 指针类型无效（可能是 void 指针）
+            // 对于 void 指针，不允许解引用赋值（类型不明确）
+            checker_report_error(checker, dest, "不能对 void 指针进行解引用赋值" as *byte);
+            return 0;
+        } else {
+            // 解引用表达式的类型是指针指向的类型
+            // 注意：Uya 不支持指针解引用，需要使用数组访问
+            dest_type = operand_type.pointer_to[0];
+        }
+    } else {
+        checker_report_error(checker, dest, "无效的赋值目标" as *byte);
+        return 0;
+    }
+    
+    const src: &ASTNode = node.assign_src;
+    // 检查赋值类型匹配
+    if src != null {
+        checker_check_node(checker, src);
+    }
+    if checker_check_expr_type(checker, node.assign_src, copy_type(&dest_type)) == 0 {
+        return 0;
+    }
+
+    // Pinned 类型检查：禁止对包含 async frame 的类型进行整体赋值和按值移动
+    if checker_type_contains_pinned_field(checker, &dest_type) != 0 {
+        checker_report_frame_move_error(checker, node, "assign" as &byte);
+        return 0;
+    }
+    if src != null {
+        const src_type: Type = checker_infer_type(checker, src);
+        if checker_type_contains_pinned_field(checker, &src_type) != 0 {
+            checker_report_frame_move_error(checker, src, null);
+            return 0;
+        }
+    }
+
+    // 原子类型的复合赋值额外检查：
+    // 1) atomic +=/-=/*=//=/= 的右侧不能是浮点或 bool
+    // 2) atomic /=、%= 的右侧若是常量 0 则报错
+    if dest_type.kind == TypeKind.TYPE_ATOMIC && dest_type.atomic_inner_type != null &&
+        src != null && src.type == ASTNodeType.AST_BINARY_EXPR {
+        const bin_left: &ASTNode = src.binary_expr_left;
+        const bin_right: &ASTNode = src.binary_expr_right;
+        const bin_op_tmp: !TokenType = src.binary_expr_op as! TokenType;
+        const bin_op: TokenType = bin_op_tmp.value;
+
+        // 仅匹配编译器对复合赋值的降级模式：var = var op expr
+        if dest.type == ASTNodeType.AST_IDENTIFIER && bin_left != null &&
+            bin_left.type == ASTNodeType.AST_IDENTIFIER &&
+            str_equals(bin_left.identifier_name, dest.identifier_name) != 0 {
+            const right_type: Type = checker_infer_type(checker, bin_right);
+
+            if bin_op == TokenType.TOKEN_PLUS || bin_op == TokenType.TOKEN_MINUS ||
+               bin_op == TokenType.TOKEN_ASTERISK || bin_op == TokenType.TOKEN_SLASH ||
+               bin_op == TokenType.TOKEN_PERCENT {
+                // 右侧禁止浮点和 bool，用于构造 atomic 负向用例
+                if right_type.kind == TypeKind.TYPE_F32 || right_type.kind == TypeKind.TYPE_F64 ||
+                    right_type.kind == TypeKind.TYPE_BOOL {
+                    checker_report_error(checker, bin_right,
+                        "atomic 复合赋值右侧类型必须为整数类型，且与内部类型兼容" as *byte);
+                    return 0;
+                }
+            }
+
+            // atomic /= 0 或 %= 0：常量 0 视为错误
+            if bin_op == TokenType.TOKEN_SLASH || bin_op == TokenType.TOKEN_PERCENT {
+                const denom_val: i32 = checker_eval_const_expr(checker, bin_right);
+                if denom_val == 0 {
+                    checker_report_error(checker, bin_right,
+                        "atomic /= 或 %= 的右操作数不能为常量 0" as *byte);
+                    return 0;
+                }
+            }
+        }
+    }
+
+    if dest.type == ASTNodeType.AST_IDENTIFIER && src != null && src.type == ASTNodeType.AST_UNARY_EXPR {
+        const src_unary_op_tmp: !TokenType = src.unary_expr_op as! TokenType;
+        const src_unary_op: TokenType = src_unary_op_tmp.value;
+        if src_unary_op == TokenType.TOKEN_AMPERSAND {
+            const src_operand: &ASTNode = src.unary_expr_operand;
+            if src_operand != null && src_operand.type == ASTNodeType.AST_IDENTIFIER {
+                const sym: &Symbol = symbol_table_lookup(checker, dest.identifier_name);
+                if sym != null {
+                    const x: &byte = src_operand.identifier_name;
+                    const copy: &byte = checker_intern_strdup(checker, x);
+                    if copy != null {
+                        sym.pointee_of = copy;
+                    }
+                }
+            }
+        }
+    }
+    if src != null && src.type == ASTNodeType.AST_IDENTIFIER {
+        const st: Type = checker_infer_type(checker, src);
+        if st.kind == TypeKind.TYPE_STRUCT && st.struct_name != null {
+            checker_mark_moved(checker, node, src.identifier_name, st.struct_name);
+        }
+    }
+    
+    // 安全证明：更新赋值后的约束
+    // 同时支持普通变量和结构体计数字段（如 codegen.mono_instance_count）
+    if checker.enable_safety_proof != 0 {
+        const var_name: &byte = constraint_expr_name(checker, dest);
+        if var_name != null {
+            if src != null && src.type == ASTNodeType.AST_BINARY_EXPR {
+                const left: &ASTNode = src.binary_expr_left;
+                const right: &ASTNode = src.binary_expr_right;
+                const op_tmp: !TokenType = src.binary_expr_op as! TokenType;
+                const op: TokenType = op_tmp.value;
+                const left_linear: LinearExpr = extract_linear_expr(checker, left);
+                const right_val: i32 = checker_eval_const_expr(checker, right);
+                var right_is_const: i32 = 0;
+                if right_val >= 0 {
+                    right_is_const = 1;
+                } else if right != null && right.type == ASTNodeType.AST_NUMBER {
+                    right_is_const = 1;
+                }
+                
+                // 检查是否是 var = var op const 模式
+                if left_linear.is_valid != 0 && left_linear.var_name != null &&
+                    left_linear.offset == 0 && str_equals(left_linear.var_name, var_name) != 0 &&
+                    right_is_const != 0 {
+                    if op == TokenType.TOKEN_PLUS {
+                        constraint_update_for_increment(checker, var_name, right_val);
+                    } else if op == TokenType.TOKEN_MINUS {
+                        constraint_update_for_increment(checker, var_name, 0 - right_val);
+                    } else {
+                        constraint_remove_var(checker, var_name);
+                    }
+                } else {
+                    const src_interval: Interval = eval_expr_interval(checker, src);
+                    if src_interval.is_valid != 0 {
+                        constraint_replace_with_interval(checker, var_name, &src_interval);
+                    } else {
+                        constraint_remove_var(checker, var_name);
+                    }
+                }
+            } else {
+                const src_interval: Interval = eval_expr_interval(checker, src);
+                if src_interval.is_valid != 0 {
+                    constraint_replace_with_interval(checker, var_name, &src_interval);
+                } else {
+                    constraint_remove_var(checker, var_name);
+                }
+            }
+        }
+    }
+    
+    return 1;
+}
+
+// 检查 for 循环节点
+// 参数：checker - TypeChecker 指针，node - for 循环节点
+// 返回：1 表示检查通过，0 表示检查失败
+fn check_for_stmt_node(checker: &TypeChecker, node: &ASTNode) i32 {
+    if node.for_stmt_is_range != 0 {
+        checker_walk_reachability_expr(checker, node.for_stmt_range_start);
+        var start_type: Type = checker_infer_type(checker, node.for_stmt_range_start);
+        checker_check_node(checker, node.for_stmt_range_start);
+        if node.for_stmt_range_end != null {
+            checker_walk_reachability_expr(checker, node.for_stmt_range_end);
+            var end_type: Type = checker_infer_type(checker, node.for_stmt_range_end);
+            checker_check_node(checker, node.for_stmt_range_end);
+            if is_integer_type(start_type.kind) == 0 || is_integer_type(end_type.kind) == 0 {
+                checker_report_error(checker, node, "for 范围表达式须为整数类型" as *byte);
+            }
+        } else {
+            if is_integer_type(start_type.kind) == 0 {
+                checker_report_error(checker, node, "for 范围起始表达式须为整数类型" as *byte);
+            }
+        }
+        checker_enter_scope(checker);
+        checker.loop_depth = checker.loop_depth + 1;
+        if node.for_stmt_var_name != null {
+            const loop_var: &Symbol = compiler_arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
+            if loop_var != null {
+                loop_var.name = node.for_stmt_var_name;
+                loop_var.type = start_type;
+                loop_var.is_const = 0;
+                loop_var.is_initialized = 1;  // for 循环变量已初始化
+                loop_var.scope_level = checker.scope_level;
+                loop_var.line = node.line;
+                loop_var.column = node.column;
+                loop_var.pointee_of = null;
+                loop_var.pointer_known_length = -1;
+                loop_var.pointer_length_param = null;
+                symbol_table_insert(checker, loop_var);
+            }
+        }
+        
+        // 路径敏感分析：保存当前约束状态
+        const saved_constraint_count: i32 = checker.constraint_count;
+        
+        // 从范围提取约束
+        // for start..end |i| 意味着 start <= i && i < end
+        if node.for_stmt_var_name != null {
+            // 从起始值提取约束：i >= start
+            const start_val: i32 = checker_eval_const_expr(checker, node.for_stmt_range_start);
+            if start_val >= 0 {
+                constraint_add(checker, node.for_stmt_var_name, CONSTRAINT_GE, start_val);
+            }
+            // 从结束值提取约束：i < end
+            if node.for_stmt_range_end != null {
+                const end_val: i32 = checker_eval_const_expr(checker, node.for_stmt_range_end);
+                if end_val >= 0 {
+                    constraint_add(checker, node.for_stmt_var_name, CONSTRAINT_LT, end_val);
+                }
+            }
+        }
+        
+        if node.for_stmt_body != null {
+            checker_check_node(checker, node.for_stmt_body);
+        }
+        
+        // 恢复约束状态
+        checker.constraint_count = saved_constraint_count;
+        
+        checker.loop_depth = checker.loop_depth - 1;
+        checker_exit_scope(checker);
+        return 1;
+    }
+    // 数组遍历或接口迭代形式：检查表达式类型
+    checker_walk_reachability_expr(checker, node.for_stmt_array);
+    const expr_type: Type = checker_infer_type(checker, node.for_stmt_array);
+    
+    // 首先尝试作为数组类型处理
+    var array_type: Type = copy_type(&expr_type);
+    if array_type.kind != TypeKind.TYPE_ARRAY || array_type.element_type == null {
+        // 类型推断失败或不是数组类型
+        // 如果数组表达式是标识符，尝试从符号表获取类型
+        if node.for_stmt_array.type == ASTNodeType.AST_IDENTIFIER {
+            const symbol: &Symbol = symbol_table_lookup(checker, node.for_stmt_array.identifier_name);
+            if symbol != null && symbol.type.kind == TypeKind.TYPE_ARRAY && symbol.type.element_type != null {
+                // 从符号表获取到了有效的数组类型，使用它
+                array_type = copy_type(&symbol.type);
+            }
+        }
+    }
+    
+    // 如果不是数组类型，尝试作为接口迭代器处理
+    if array_type.kind != TypeKind.TYPE_ARRAY || array_type.element_type == null {
+        // 检查是否是结构体类型，且实现了迭代器接口（有 next 和 value 方法）
+        if expr_type.kind == TypeKind.TYPE_STRUCT && expr_type.struct_name != null && checker.program_node != null {
+            const struct_name: &byte = expr_type.struct_name;
+            const next_method: &ASTNode = find_instance_method_in_struct(checker.program_node, struct_name, "next" as *byte);
+            const value_method: &ASTNode = find_instance_method_in_struct(checker.program_node, struct_name, "value" as *byte);
+            
+            if next_method != null && value_method != null {
+                // 检查 next 方法签名：next(self: &Self) !void
+                const next_return_type: Type = type_from_ast(checker, next_method.fn_decl_return_type);
+                if next_return_type.kind == TypeKind.TYPE_ERROR_UNION {
+                    // 检查 value 方法返回类型，作为循环变量类型
+                    const value_return_type: Type = type_from_ast(checker, value_method.fn_decl_return_type);
+                    
+                    // 进入循环作用域并添加循环变量
+                    checker_enter_scope(checker);
+                    checker.loop_depth = checker.loop_depth + 1;
+                    
+                    // 创建循环变量类型（从 value 方法返回类型）
+                    const var_type: Type = value_return_type;
+                    
+                    // 添加循环变量到符号表
+                    if node.for_stmt_var_name != null {
+                        const loop_var: &Symbol = compiler_arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
+                        if loop_var != null {
+                            loop_var.name = node.for_stmt_var_name;
+                            loop_var.type = var_type;
+                            loop_var.is_const = 0;
+                            loop_var.is_initialized = 1;  // for 循环变量已初始化
+                            loop_var.scope_level = checker.scope_level;
+                            loop_var.line = node.line;
+                            loop_var.column = node.column;
+                            loop_var.pointee_of = null;
+                            loop_var.pointer_known_length = -1;
+                            loop_var.pointer_length_param = null;
+                            symbol_table_insert(checker, loop_var);
+                        }
+                    }
+                    
+                    // 检查循环体
+                    if node.for_stmt_body != null {
+                        checker_check_node(checker, node.for_stmt_body);
+                    }
+                    
+                    // 退出循环作用域
+                    checker.loop_depth = checker.loop_depth - 1;
+                    checker_exit_scope(checker);
+                    return 1;
+                } else {
+                    // next 方法返回类型不是 !void，报告错误
+                    checker_report_error(checker, node, "迭代器的 next 方法必须返回 !void" as *byte);
+                }
+            }
+        }
+        
+        // 既不是数组类型，也不是实现了迭代器接口的结构体
+        // 如果数组表达式是标识符，尝试从符号表获取类型
+        if node.for_stmt_array.type == ASTNodeType.AST_IDENTIFIER {
+            const symbol: &Symbol = symbol_table_lookup(checker, node.for_stmt_array.identifier_name);
+            if symbol != null && symbol.type.kind == TypeKind.TYPE_ARRAY && symbol.type.element_type != null {
+                // 从符号表获取到了有效的数组类型，使用它
+                array_type = symbol.type;
+            } else {
+                // 符号表中也没有有效的数组类型，报告错误但继续检查
+                checker_report_error(checker, node, "for 循环需要数组类型或实现了迭代器接口的结构体，但无法推断表达式类型" as *byte);
+                checker_enter_scope(checker);
+                checker.loop_depth = checker.loop_depth + 1;
+                if node.for_stmt_body != null {
+                    checker_check_node(checker, node.for_stmt_body);
+                }
+                checker.loop_depth = checker.loop_depth - 1;
+                checker_exit_scope(checker);
+                return 1;
+            }
+        } else if node.for_stmt_array.type == ASTNodeType.AST_MEMBER_ACCESS {
+            // 结构体字段访问：可能是数组字段，但类型推断失败
+            // 放宽检查，允许通过（不报错），继续检查循环体
+            // 这在编译器自举时很常见，因为类型推断可能失败
+            checker_enter_scope(checker);
+            checker.loop_depth = checker.loop_depth + 1;
+            if node.for_stmt_body != null {
+                checker_check_node(checker, node.for_stmt_body);
+            }
+            checker.loop_depth = checker.loop_depth - 1;
+            checker_exit_scope(checker);
+            return 1;
+        } else {
+            // 不是标识符或字段访问，无法从符号表获取，报告错误但继续检查
+            checker_report_error(checker, node, "for 循环需要数组类型或实现了迭代器接口的结构体，但无法推断表达式类型" as *byte);
+            checker_enter_scope(checker);
+            checker.loop_depth = checker.loop_depth + 1;
+            if node.for_stmt_body != null {
+                checker_check_node(checker, node.for_stmt_body);
+            }
+            checker.loop_depth = checker.loop_depth - 1;
+            checker_exit_scope(checker);
+            return 1;
+        }
+    }
+    
+    // 确保 array_type 是有效的数组类型（此时应该已经是有效的，因为上面已经处理了无效的情况）
+    if array_type.kind == TypeKind.TYPE_ARRAY && array_type.element_type != null {
+        // 2. 如果引用迭代形式，检查数组是否为可变变量
+        if node.for_stmt_is_ref != 0 {
+            // 引用迭代形式只能用于可变数组（var arr）
+            // 需要检查数组表达式是否是可变变量
+            // 注意：这里简化处理，如果数组表达式是标识符，检查符号表
+            if node.for_stmt_array.type == ASTNodeType.AST_IDENTIFIER {
+                const symbol: &Symbol = symbol_table_lookup(checker, node.for_stmt_array.identifier_name);
+                if symbol != null && symbol.is_const != 0 {
+                    // 引用迭代形式不能用于 const 变量
+                    checker_report_error(checker, node, "for 引用迭代（for &x）不能使用 const 数组变量，请将数组改为 var" as *byte);
+                }
+            }
+            // 其他情况（如数组字面量）也允许引用迭代，但运行时可能出错
+        }
+        
+        // 3. 进入循环作用域并添加循环变量
+        checker_enter_scope(checker);
+        checker.loop_depth = checker.loop_depth + 1;  // 进入循环（增加循环深度）
+        
+        if array_type.element_type == null {
+            // 元素类型无效，报告错误
+            checker_report_error(checker, node, "for 循环数组类型无效：无法确定元素类型" as *byte);
+            checker_enter_scope(checker);
+            checker.loop_depth = checker.loop_depth + 1;
+            if node.for_stmt_body != null {
+                checker_check_node(checker, node.for_stmt_body);
+            }
+            checker.loop_depth = checker.loop_depth - 1;
+            checker_exit_scope(checker);
+            return 1;  // 继续检查，但已报告错误
+        }
+
+        var ref_element_type_ptr: &Type = null;
+        if node.for_stmt_is_ref != 0 {
+            // 引用迭代：变量类型为 &T（指向元素的指针）
+            // 注意：Uya 不支持指针解引用，需要使用数组访问
+            // 注意：Uya 不支持指针运算，需要使用数组访问
+            ref_element_type_ptr = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+            if ref_element_type_ptr == null {
+                checker_report_error(checker, node, "类型检查错误：内存分配失败" as *byte);
+                checker_enter_scope(checker);
+                checker.loop_depth = checker.loop_depth + 1;
+                if node.for_stmt_body != null {
+                    checker_check_node(checker, node.for_stmt_body);
+                }
+                checker.loop_depth = checker.loop_depth - 1;
+                checker_exit_scope(checker);
+                return 1;
+            } else {
+                ref_element_type_ptr[0] = copy_type(&array_type.element_type[0]);
+            }
+        }
+
+        // 添加循环变量到符号表（var，可修改）
+        const loop_var: &Symbol = compiler_arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
+        if loop_var == null {
+            // 内存分配失败：放宽检查，允许通过（不报错），继续检查循环体
+        } else {
+            loop_var.name = node.for_stmt_var_name;
+            if node.for_stmt_is_ref != 0 {
+                const ref_var_type: Type = make_pointer_type(checker.arena, ref_element_type_ptr, 0);
+                loop_var.type = ref_var_type;
+            } else {
+                const iter_var_type: Type = copy_type(&array_type.element_type[0]);
+                loop_var.type = iter_var_type;
+            }
+            loop_var.is_const = 0;  // for 循环变量是可修改的（即使是值迭代形式，在循环体内也可以使用）
+            loop_var.is_initialized = 1;  // for 循环变量已初始化
+            loop_var.scope_level = checker.scope_level;
+            loop_var.line = node.line;
+            loop_var.column = node.column;
+            loop_var.pointee_of = null;
+            loop_var.pointer_known_length = -1;
+            loop_var.pointer_length_param = null;
+            if symbol_table_insert(checker, loop_var) != 0 {
+                // 符号表插入失败：放宽检查，允许通过（不报错），继续检查循环体
+                // 这可能是因为符号已存在或其他原因，但不应该阻止循环体的检查
+            }
+        }
+        
+        // 4. 检查循环体（即使循环变量插入失败，也继续检查循环体）
+        if node.for_stmt_body != null {
+            checker_check_node(checker, node.for_stmt_body);
+        }
+        
+        // 5. 退出循环作用域和循环深度
+        checker.loop_depth = checker.loop_depth - 1;
+        checker_exit_scope(checker);
+    }
+    return 1;
+}

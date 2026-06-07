@@ -1,0 +1,85 @@
+// test_native_hash_intern_memory_ops.uya - native hash/intern table memory operation smoke.
+
+use codegen.native.hash;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+test "native hash entries probe collide update and miss" {
+    var entries: [NativeHashEntry: 8] = [];
+    var found: i32 = 0;
+    var out: i32 = 0;
+
+    try assert_eq_i32(native_hash_load_limit(8usize) as i32, 6);
+    try assert_eq_i32(native_hash_should_grow(4usize, 8usize), 0);
+    try assert_eq_i32(native_hash_should_grow(5usize, 8usize), 1);
+
+    const slot0: usize = native_hash_find_slot(&entries[0], 8usize, -1i64, &found);
+    try expect(slot0 == 0usize);
+    try assert_eq_i32(found, 0);
+    try assert_eq_i32(native_hash_put_entry(&entries[0], 8usize, -1i64, 11), 0);
+    try assert_eq_i32(native_hash_put_entry(&entries[0], 8usize, 0i64, 22), 0);
+
+    try assert_eq_i32(entries[0].state, NATIVE_HASH_FILLED);
+    try assert_eq_i32(entries[0].value, 11);
+    try assert_eq_i32(entries[1].state, NATIVE_HASH_FILLED);
+    try assert_eq_i32(entries[1].value, 22);
+
+    try assert_eq_i32(native_hash_get_entry(&entries[0], 8usize, -1i64, &out), 1);
+    try assert_eq_i32(out, 11);
+    try assert_eq_i32(native_hash_get_entry(&entries[0], 8usize, 0i64, &out), 1);
+    try assert_eq_i32(out, 22);
+
+    try assert_eq_i32(native_hash_put_entry(&entries[0], 8usize, -1i64, 33), 1);
+    try assert_eq_i32(native_hash_get_entry(&entries[0], 8usize, -1i64, &out), 1);
+    try assert_eq_i32(out, 33);
+    try assert_eq_i32(native_hash_get_entry(&entries[0], 8usize, 99i64, &out), 0);
+}
+
+test "native intern entries hash compare probe and update" {
+    const alpha: &byte = "alpha" as &byte;
+    const alpha2: &byte = "alpha" as &byte;
+    const beta: &byte = "beta" as &byte;
+    var entries: [NativeInternEntry: 8] = [];
+    var found: i32 = 0;
+
+    try expect(native_intern_strlen(alpha) == 5usize);
+    try expect(native_intern_strlen(beta) == 4usize);
+    try assert_eq_i32(native_intern_bytes_equal(alpha, alpha2, 5usize), 1);
+    try assert_eq_i32(native_intern_bytes_equal(alpha, beta, 4usize), 0);
+    try assert_eq_i32(native_intern_bytes_equal(null, beta, 4usize), 0);
+
+    const alpha_hash: usize = native_intern_hash_bytes(alpha, 5usize);
+    const beta_hash: usize = native_intern_hash_bytes(beta, 4usize);
+    try expect(alpha_hash != 0usize);
+    try expect(beta_hash != 0usize);
+    try expect(alpha_hash != beta_hash);
+
+    var alpha_entry: NativeInternEntry = native_intern_entry_make(alpha_hash, alpha, 5usize, 7);
+    var beta_entry: NativeInternEntry = native_intern_entry_make(beta_hash, beta, 4usize, 8);
+    try assert_eq_i32(native_intern_put_entry(&entries[0], 8usize, &alpha_entry), 0);
+    try assert_eq_i32(native_intern_put_entry(&entries[0], 8usize, &beta_entry), 0);
+
+    const alpha_slot: usize = native_intern_find_slot(&entries[0], 8usize, alpha_hash, alpha2, 5usize, &found);
+    try assert_eq_i32(found, 1);
+    if alpha_slot >= 8usize {
+        try expect(false);
+        return;
+    }
+    try assert_eq_i32(entries[alpha_slot].id, 7);
+
+    var alpha_update: NativeInternEntry = native_intern_entry_make(alpha_hash, alpha2, 5usize, 70);
+    try assert_eq_i32(native_intern_put_entry(&entries[0], 8usize, &alpha_update), 1);
+    const alpha_slot2: usize = native_intern_find_slot(&entries[0], 8usize, alpha_hash, alpha, 5usize, &found);
+    try assert_eq_i32(found, 1);
+    try expect(alpha_slot2 == alpha_slot);
+    if alpha_slot2 >= 8usize {
+        try expect(false);
+        return;
+    }
+    try assert_eq_i32(entries[alpha_slot2].id, 70);
+
+    const missing_slot: usize = native_intern_find_slot(&entries[0], 8usize,
+        native_intern_hash_bytes("gamma" as &byte, 5usize), "gamma" as &byte, 5usize, &found);
+    try assert_eq_i32(found, 0);
+    try expect(missing_slot < 8usize);
+}

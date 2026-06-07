@@ -1,0 +1,272 @@
+// codegen/native/format.uya - Native minimal snprintf-style formatter.
+
+export const NATIVE_FORMAT_ARG_INVALID: i32 = 0;
+export const NATIVE_FORMAT_ARG_CSTR: i32 = 1;
+export const NATIVE_FORMAT_ARG_I64: i32 = 2;
+export const NATIVE_FORMAT_ARG_USIZE: i32 = 3;
+
+const NATIVE_FORMAT_I32_MAX_AS_USIZE: usize = 2147483647usize;
+
+const NF_PERCENT: byte = 37 as byte;
+const NF_ZERO: byte = 48 as byte;
+const NF_NINE: byte = 57 as byte;
+const NF_DOT: byte = 46 as byte;
+const NF_MINUS: byte = 45 as byte;
+const NF_PLUS: byte = 43 as byte;
+const NF_SPACE: byte = 32 as byte;
+const NF_HASH: byte = 35 as byte;
+const NF_S: byte = 115 as byte;
+const NF_D: byte = 100 as byte;
+const NF_I: byte = 105 as byte;
+const NF_U: byte = 117 as byte;
+const NF_L: byte = 108 as byte;
+const NF_Z: byte = 122 as byte;
+
+/// 功能说明：native 最小格式化参数。
+/// 参数说明：无；使用 `native_format_arg_*` 构造后传给 `native_format_snprintf`。
+/// 返回值说明：无。
+export struct NativeFormatArg {
+    kind: i32,
+    str_value: &byte,
+    i64_value: i64,
+    usize_value: usize,
+}
+
+/// 功能说明：构造 C string 格式化参数。
+/// 参数说明：`value` 为 NUL 结尾 byte string。
+/// 返回值说明：返回 `NATIVE_FORMAT_ARG_CSTR` 参数。
+export fn native_format_arg_cstr(value: &byte) NativeFormatArg {
+    return NativeFormatArg{
+        kind: NATIVE_FORMAT_ARG_CSTR,
+        str_value: value,
+        i64_value: 0,
+        usize_value: 0usize,
+    };
+}
+
+/// 功能说明：构造 i64 格式化参数。
+/// 参数说明：`value` 为有符号整数。
+/// 返回值说明：返回 `NATIVE_FORMAT_ARG_I64` 参数。
+export fn native_format_arg_i64(value: i64) NativeFormatArg {
+    return NativeFormatArg{
+        kind: NATIVE_FORMAT_ARG_I64,
+        str_value: null,
+        i64_value: value,
+        usize_value: 0usize,
+    };
+}
+
+/// 功能说明：构造 i32 格式化参数。
+/// 参数说明：`value` 为有符号整数。
+/// 返回值说明：返回 `NATIVE_FORMAT_ARG_I64` 参数。
+export fn native_format_arg_i32(value: i32) NativeFormatArg {
+    return native_format_arg_i64(value as i64);
+}
+
+/// 功能说明：构造 usize 格式化参数。
+/// 参数说明：`value` 为无符号机器字整数。
+/// 返回值说明：返回 `NATIVE_FORMAT_ARG_USIZE` 参数。
+export fn native_format_arg_usize(value: usize) NativeFormatArg {
+    return NativeFormatArg{
+        kind: NATIVE_FORMAT_ARG_USIZE,
+        str_value: null,
+        i64_value: 0,
+        usize_value: value,
+    };
+}
+
+fn native_format_arg_at(args: &NativeFormatArg, index: usize, arg_count: usize) &NativeFormatArg {
+    if args == null || index >= arg_count {
+        return null;
+    }
+    return &args[index];
+}
+
+fn native_format_is_digit(c: byte) bool {
+    return c >= NF_ZERO && c <= NF_NINE;
+}
+
+fn native_format_emit_byte(out: &byte, cap: usize, written: &usize, total: &usize, value: byte) void {
+    if out != null && cap > 0usize {
+        if written[0] + 1usize < cap {
+            out[written[0]] = value;
+            written[0] = written[0] + 1usize;
+        }
+    }
+    total[0] = total[0] + 1usize;
+}
+
+fn native_format_emit_cstr(out: &byte, cap: usize, written: &usize, total: &usize, value: &byte) i32 {
+    if value == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while value[i] != 0 as byte {
+        native_format_emit_byte(out, cap, written, total, value[i]);
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn native_format_emit_u64(out: &byte, cap: usize, written: &usize, total: &usize, value_in: u64) void {
+    var value: u64 = value_in;
+    if value == 0 as u64 {
+        native_format_emit_byte(out, cap, written, total, NF_ZERO);
+        return;
+    }
+
+    var digits: [byte: 32] = [];
+    var count: usize = 0usize;
+    while value > 0 as u64 {
+        const digit: u64 = value % (10 as u64);
+        digits[count] = (48 + (digit as i32)) as byte;
+        count = count + 1usize;
+        value = value / (10 as u64);
+    }
+
+    while count > 0usize {
+        count = count - 1usize;
+        native_format_emit_byte(out, cap, written, total, digits[count]);
+    }
+}
+
+fn native_format_emit_i64(out: &byte, cap: usize, written: &usize, total: &usize, value: i64) void {
+    if value < 0 {
+        native_format_emit_byte(out, cap, written, total, NF_MINUS);
+        native_format_emit_u64(out, cap, written, total, (0 - value) as u64);
+        return;
+    }
+    native_format_emit_u64(out, cap, written, total, value as u64);
+}
+
+fn native_format_finish(out: &byte, cap: usize, written: &usize) void {
+    if out == null || cap == 0usize {
+        return;
+    }
+    out[written[0]] = 0 as byte;
+}
+
+fn native_format_total_to_i32(total: usize) i32 {
+    if total > NATIVE_FORMAT_I32_MAX_AS_USIZE {
+        return -1;
+    }
+    return total as i32;
+}
+
+fn native_format_parse_flags_and_width(format: &byte, index: &usize) void {
+    while format[index[0]] == NF_MINUS || format[index[0]] == NF_PLUS ||
+        format[index[0]] == NF_SPACE || format[index[0]] == NF_HASH ||
+        format[index[0]] == NF_ZERO {
+        index[0] = index[0] + 1usize;
+    }
+
+    while native_format_is_digit(format[index[0]]) {
+        index[0] = index[0] + 1usize;
+    }
+
+    if format[index[0]] == NF_DOT {
+        index[0] = index[0] + 1usize;
+        while native_format_is_digit(format[index[0]]) {
+            index[0] = index[0] + 1usize;
+        }
+    }
+}
+
+fn native_format_emit_arg(
+    out: &byte,
+    cap: usize,
+    written: &usize,
+    total: &usize,
+    spec: byte,
+    arg: &NativeFormatArg,
+) i32 {
+    if arg == null {
+        return -1;
+    }
+    if spec == NF_S {
+        if arg.kind != NATIVE_FORMAT_ARG_CSTR {
+            return -1;
+        }
+        return native_format_emit_cstr(out, cap, written, total, arg.str_value);
+    }
+    if spec == NF_D || spec == NF_I {
+        if arg.kind == NATIVE_FORMAT_ARG_I64 {
+            native_format_emit_i64(out, cap, written, total, arg.i64_value);
+            return 0;
+        }
+        if arg.kind == NATIVE_FORMAT_ARG_USIZE {
+            native_format_emit_u64(out, cap, written, total, arg.usize_value as u64);
+            return 0;
+        }
+        return -1;
+    }
+    if spec == NF_U {
+        if arg.kind == NATIVE_FORMAT_ARG_USIZE {
+            native_format_emit_u64(out, cap, written, total, arg.usize_value as u64);
+            return 0;
+        }
+        if arg.kind == NATIVE_FORMAT_ARG_I64 {
+            native_format_emit_u64(out, cap, written, total, arg.i64_value as u64);
+            return 0;
+        }
+        return -1;
+    }
+    return -1;
+}
+
+/// 功能说明：最小 `snprintf` 替代，支持 `%s`、`%d`、`%u`、`%ld`、`%zu` 和 `%%`。
+/// 参数说明：`out`/`cap` 为输出缓冲；`format` 为格式串；`args`/`arg_count` 为参数数组。
+/// 返回值说明：成功返回未截断时应写入长度；格式或参数无效返回 `-1`。
+export fn native_format_snprintf(
+    out: &byte,
+    cap: usize,
+    format: &byte,
+    args: &NativeFormatArg,
+    arg_count: usize,
+) i32 {
+    if format == null {
+        return -1;
+    }
+    if out == null && cap != 0usize {
+        return -1;
+    }
+
+    var written: usize = 0usize;
+    var total: usize = 0usize;
+    var arg_index: usize = 0usize;
+    var i: usize = 0usize;
+
+    while format[i] != 0 as byte {
+        if format[i] != NF_PERCENT {
+            native_format_emit_byte(out, cap, &written, &total, format[i]);
+            i = i + 1usize;
+            continue;
+        }
+
+        i = i + 1usize;
+        if format[i] == NF_PERCENT {
+            native_format_emit_byte(out, cap, &written, &total, NF_PERCENT);
+            i = i + 1usize;
+            continue;
+        }
+
+        native_format_parse_flags_and_width(format, &i);
+        if format[i] == NF_L || format[i] == NF_Z {
+            i = i + 1usize;
+        }
+
+        const spec: byte = format[i];
+        if spec == 0 as byte {
+            return -1;
+        }
+        const arg: &NativeFormatArg = native_format_arg_at(args, arg_index, arg_count);
+        if native_format_emit_arg(out, cap, &written, &total, spec, arg) != 0 {
+            return -1;
+        }
+        arg_index = arg_index + 1usize;
+        i = i + 1usize;
+    }
+
+    native_format_finish(out, cap, &written);
+    return native_format_total_to_i32(total);
+}

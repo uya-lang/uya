@@ -209,8 +209,11 @@
 
 推荐优先用 CLI，而不是只依赖环境变量：
 
+> 目标 CLI 为 `uya microapp build|inspect|verify|run`。在 `cmd/microapp` 完全接线前，
+> 旧的 `build --app microapp` / `inspect-image` / `verify-image` 仍可作为过渡实现对照。
+
 ```bash
-./bin/uya build --app microapp \
+./bin/uya microapp build \
   --microapp-profile linux_x86_64_hardvm \
   examples/microapp/microcontainer_hello_source.uya \
   -o /tmp/hello.uapp
@@ -220,7 +223,7 @@
 
 ```bash
 MICROAPP_TARGET_PROFILE=linux_x86_64_hardvm \
-./bin/uya build --app microapp \
+./bin/uya microapp build \
   examples/microapp/microcontainer_hello_source.uya \
   -o /tmp/hello.uapp
 ```
@@ -233,7 +236,7 @@ MICROAPP_TARGET_PROFILE=linux_x86_64_hardvm \
 
 ```bash
 TARGET_OS=macos TARGET_ARCH=arm64 \
-./bin/uya build --app microapp \
+./bin/uya microapp build \
   examples/microapp/microcontainer_hello_source.uya \
   -o /tmp/hello.uapp
 ```
@@ -253,27 +256,27 @@ TARGET_OS=macos TARGET_ARCH=arm64 \
 如果当前机器没有对应交叉 gcc，最稳的做法是先编到 `.c`，验证 profile 选择、bridge 和前端可移植子集都成立：
 
 ```bash
-./bin/uya build --app microapp \
+./bin/uya microapp build \
   --microapp-profile linux_x86_64_hardvm \
   examples/microapp/microcontainer_hello_source.uya \
   -o /tmp/hello_linux_x86_64.c
 
-./bin/uya build --app microapp \
+./bin/uya microapp build \
   --microapp-profile linux_aarch64_hardvm \
   examples/microapp/microcontainer_hello_source.uya \
   -o /tmp/hello_linux_aarch64.c
 
-./bin/uya build --app microapp \
+./bin/uya microapp build \
   --microapp-profile macos_arm64_hardvm \
   examples/microapp/microcontainer_hello_source.uya \
   -o /tmp/hello_macos_arm64.c
 
-./bin/uya build --app microapp \
+./bin/uya microapp build \
   --microapp-profile rv32_baremetal_softvm \
   examples/microapp/microcontainer_hello_source.uya \
   -o /tmp/hello_rv32.c
 
-./bin/uya build --app microapp \
+./bin/uya microapp build \
   --microapp-profile xtensa_baremetal_softvm \
   examples/microapp/microcontainer_hello_source.uya \
   -o /tmp/hello_xtensa.c
@@ -292,10 +295,10 @@ TARGET_OS=macos TARGET_ARCH=arm64 \
 当前可以通过下面两个命令查看/校验 profile 相关信息：
 
 ```bash
-./bin/uya inspect-image hello.pobj
-./bin/uya inspect-image hello.uapp
-./bin/uya verify-image hello.pobj
-./bin/uya verify-image hello.uapp
+./bin/uya microapp inspect hello.pobj
+./bin/uya microapp inspect hello.uapp
+./bin/uya microapp verify hello.pobj
+./bin/uya microapp verify hello.uapp
 ```
 
 其中会直接显示：

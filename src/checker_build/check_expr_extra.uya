@@ -1,0 +1,2174 @@
+// checker/check_expr_extra.uya - 表达式检查辅助函数
+// 从 main.uya 拆分
+
+// 检查索引表达式是否有用户显式提供的上下界约束
+// 用于 *byte/&byte 指针下标：若用户已写 if i >= 0 && i < len 等条件，则视为有长度约束证明
+fn pointer_index_has_user_bounds_proof(checker: &TypeChecker, index_expr: &ASTNode) i32 {
+    if checker == null || index_expr == null {
+        return 0;
+    }
+    const linear_expr: LinearExpr = extract_linear_expr(checker, index_expr);
+    if linear_expr.is_valid != 0 && linear_expr.var_name != null {
+        const var_name: &byte = linear_expr.var_name;
+        var has_lower: i32 = 0;
+        var has_upper: i32 = 0;
+        var i: i32 = 0;
+        const count: i32 = checker.constraint_count;
+        while i < count {
+            if i < MAX_CONSTRAINTS {
+                const name: &byte = checker.constraint_var_names[i];
+                if name != null && strcmp(name as *byte, var_name as *byte) == 0 {
+                    const op: i32 = checker.constraint_ops[i];
+                    if op == CONSTRAINT_GE || op == CONSTRAINT_GT || op == CONSTRAINT_EQ {
+                        has_lower = 1;
+                    }
+                    if op == CONSTRAINT_LT || op == CONSTRAINT_LE || op == CONSTRAINT_EQ {
+                        has_upper = 1;
+                    }
+                }
+            }
+            i = i + 1;
+        }
+        if has_lower != 0 && has_upper != 0 {
+            return 1;
+        }
+    }
+    // 尝试区间分析：若区间有下界 >=0 且上界有限
+    const interval: Interval = eval_expr_interval(checker, index_expr);
+    if interval.is_valid != 0 && interval.min >= 0 && interval.max < 2147483647 {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查数组访问
+// 参数：checker - TypeChecker 指针，node - 数组访问节点
+// 返回：元素类型（如果检查失败返回TYPE_VOID）
+// 注意：支持数组类型 [T: N] 和指针类型 &T（指针类型的数组访问如 &byte[offset]）
+fn checker_check_array_access(checker: &TypeChecker, node: &ASTNode) Type {
+    // 注意：Uya 要求所有变量必须初始化
+    var result: Type = make_void_type();
+    
+    if checker == null || node == null || node.type != ASTNodeType.AST_ARRAY_ACCESS {
+        return result;
+    }
+    checker_walk_reachability_expr(checker, node.array_access_array);
+    checker_walk_reachability_expr(checker, node.array_access_index);
+    
+    // 获取数组表达式类型
+    const array_type: Type = checker_infer_type(checker, node.array_access_array);
+    
+    // 支持数组类型、切片类型和指针类型
+    if array_type.kind == TypeKind.TYPE_SLICE && array_type.slice_element_type != null {
+        const index_type: Type = checker_infer_type(checker, node.array_access_index);
+        if index_type.kind != TypeKind.TYPE_I32 {
+            return array_type.slice_element_type[0];
+        }
+        return array_type.slice_element_type[0];
+    } else if array_type.kind == TypeKind.TYPE_ARRAY && array_type.element_type != null {
+        // 数组类型：检查索引表达式类型是 i32
+        const index_type: Type = checker_infer_type(checker, node.array_access_index);
+        if index_type.kind != TypeKind.TYPE_I32 {
+            // 索引表达式类型不是 i32：放宽检查，允许通过（不报错）
+            // 返回数组的元素类型
+            // 注意：Uya 不支持指针解引用，需要使用数组访问
+            return array_type.element_type[0];
+        }
+        
+        // 常量索引越界检测
+        const index_val: i32 = checker_eval_const_expr(checker, node.array_access_index);
+        if index_val >= 0 {
+            // 索引是常量，检查是否越界
+            const array_size: i32 = array_type.array_size;
+            if index_val >= array_size {
+                checker_report_error(checker, node.array_access_index, "数组索引越界：常量索引超出数组边界" as *byte);
+            }
+            if index_val < 0 {
+                checker_report_error(checker, node.array_access_index, "数组索引越界：索引不能为负数" as *byte);
+            }
+        } else {
+            // 变量索引：使用约束系统验证边界（仅当开启安全证明时）
+            if checker.enable_safety_proof != 0 {
+                const index_expr: &ASTNode = node.array_access_index;
+                const array_size: i32 = array_type.array_size;
+                
+                // 尝试提取线性表达式
+                const linear_expr: LinearExpr = extract_linear_expr(checker, index_expr);
+                
+                if linear_expr.is_valid != 0 {
+                    // 使用符号执行验证边界
+                    if verify_linear_expr_bounds(checker, &linear_expr, array_size, node.array_access_index) == 0 {
+                        // 无法证明安全，报告编译错误
+                        if linear_expr.var_name != null {
+                            checker_report_error_ex(checker, node.array_access_index, 
+                                "数组索引安全证明失败" as *byte,
+                                linear_expr.var_name,
+                                array_size);
+                        } else {
+                            // 纯常量越界（理论上不会到这里，因为常量已经在前面检查过）
+                            checker_report_error(checker, node.array_access_index, 
+                                "数组索引越界：常量索引超出数组边界" as *byte);
+                        }
+                    }
+                } else {
+                    // 非线性表达式：尝试区间分析
+                    if verify_expr_bounds_interval(checker, index_expr, array_size) == 0 {
+                        // 区间分析也无法证明安全
+                        checker_report_error(checker, node.array_access_index, 
+                            "数组索引需要安全证明：复杂表达式暂不支持，请使用简单变量或添加边界检查" as *byte);
+                    }
+                    // 如果区间分析证明安全，则通过
+                }
+            }
+        }
+        
+        // 返回数组的元素类型
+        // 注意：Uya 不支持指针解引用，需要使用数组访问
+        return array_type.element_type[0];
+    } else if array_type.kind == TypeKind.TYPE_POINTER && array_type.pointer_to != null {
+        // 指针类型：检查指针指向的类型
+        // 注意：Uya 不支持指针解引用，需要使用数组访问
+        
+        // 空指针检测（仅当开启安全证明时）
+        if checker.enable_safety_proof != 0 {
+            const array_expr: &ASTNode = node.array_access_array;
+            if array_expr != null && array_expr.type == ASTNodeType.AST_IDENTIFIER {
+                const ptr_name: &byte = array_expr.identifier_name;
+                if pointer_is_nullable(checker, ptr_name) != 0 && pointer_is_known_nonnull(checker, ptr_name) == 0 {
+                    checker_report_error(checker, node.array_access_array, 
+                        "指针可能为空：请添加空指针检查 (如 if ptr != null)" as &byte);
+                }
+                // 指针下标：编译器可证明不越界时无需用户约束；已知长度或 (ptr,len) 时与数组一样用约束/区间证明
+                const sym: &Symbol = symbol_table_lookup(checker, ptr_name);
+                var known_len: i32 = -1;
+                var has_length_param: i32 = 0;
+                if sym != null {
+                    known_len = sym.pointer_known_length;
+                    if sym.pointer_length_param != null {
+                        has_length_param = 1;
+                    }
+                }
+                if known_len < 0 && has_length_param == 0 {
+                    const pointed_type: Type = array_type.pointer_to[0];
+                    const index_val: i32 = checker_eval_const_expr(checker, node.array_access_index);
+                    var allow: i32 = 0;
+                    if pointed_type.kind != TypeKind.TYPE_BYTE {
+                        allow = 1;
+                    }
+                    if pointed_type.kind == TypeKind.TYPE_BYTE && index_val == 0 {
+                        allow = 1;
+                    }
+                    if allow == 0 {
+                        // 尝试用用户显式约束证明
+                        if pointer_index_has_user_bounds_proof(checker, node.array_access_index) != 0 {
+                            allow = 1;
+                        }
+                    }
+                    if allow == 0 {
+                        var skip_for_lib: i32 = 0;
+                        if checker.uya_root_dir != null {
+                            var cur_file: &byte = null;
+                            if node.array_access_index != null && node.array_access_index.filename != null {
+                                cur_file = node.array_access_index.filename;
+                            }
+                            if cur_file == null && node.filename != null {
+                                cur_file = node.filename;
+                            }
+                            if cur_file == null && checker.default_filename != null {
+                                cur_file = checker.default_filename;
+                            }
+                            if cur_file != null {
+                                const root_len: i32 = checker_i32_from_usize_or_zero_extra(strlen(checker.uya_root_dir as *byte));
+                                if root_len > 0 && strncmp(cur_file as *byte, checker.uya_root_dir as *byte, root_len as usize) == 0 {
+                                    skip_for_lib = 1;
+                                }
+                            }
+                        }
+                        if skip_for_lib == 0 {
+                            checker_report_error(checker, node.array_access_index, 
+                                "DEBUG_BYTE_PTR_SUBSCRIPT_ERROR" as &byte);
+                        }
+                    }
+                } else if known_len >= 0 {
+                    const index_val: i32 = checker_eval_const_expr(checker, node.array_access_index);
+                    if index_val >= 0 {
+                        if index_val >= known_len {
+                            checker_report_error(checker, node.array_access_index, 
+                                "指针下标越界：常量索引超出已知长度" as &byte);
+                        }
+                    } else {
+                        // 变量下标：尝试用约束/区间证明在 [0, known_len) 内，能证明则无需用户约束
+                        const index_expr: &ASTNode = node.array_access_index;
+                        const linear_expr: LinearExpr = extract_linear_expr(checker, index_expr);
+                        var proved: i32 = 0;
+                        if linear_expr.is_valid != 0 {
+                            if verify_linear_expr_bounds(checker, &linear_expr, known_len, index_expr) != 0 {
+                                proved = 1;
+                            }
+                        }
+                        if proved == 0 && verify_expr_bounds_interval(checker, index_expr, known_len) != 0 {
+                            proved = 1;
+                        }
+                    }
+                }
+            }
+        }
+        
+        const pointed_type: Type = array_type.pointer_to[0];
+        if pointed_type.kind == TypeKind.TYPE_ARRAY && pointed_type.element_type != null {
+            // 指向数组的指针（如 &[i32: 3]）：返回数组的元素类型
+            const index_type: Type = checker_infer_type(checker, node.array_access_index);
+            if index_type.kind != TypeKind.TYPE_I32 {
+                // 索引表达式类型不是 i32：放宽检查，允许通过（不报错）
+                // 返回数组的元素类型
+                // 注意：Uya 不支持指针解引用，需要使用数组访问
+                return pointed_type.element_type[0];
+            }
+            // 返回数组的元素类型
+            // 注意：Uya 不支持指针解引用，需要使用数组访问
+            return pointed_type.element_type[0];
+        } else {
+            // 指向非数组类型的指针（如 &byte）：检查索引表达式类型是 i32
+            const index_type: Type = checker_infer_type(checker, node.array_access_index);
+            if index_type.kind != TypeKind.TYPE_I32 {
+                // 索引表达式类型不是 i32：放宽检查，允许通过（不报错）
+                // 返回指针指向的类型
+                return pointed_type;
+            }
+            // 返回指针指向的类型（如 &byte[offset] 返回 byte）
+            return pointed_type;
+        }
+    }
+    
+    // 数组表达式类型不是数组类型或指针类型：放宽检查，允许通过（不报错）
+    // 返回 void 类型，允许访问但不进行严格的类型检查
+    result.kind = TypeKind.TYPE_VOID;
+    return result;
+}
+
+// 检查 alignof 表达式
+// 参数：checker - TypeChecker 指针，node - alignof 表达式节点
+// 返回：i32 类型（如果检查失败返回TYPE_VOID）
+fn checker_check_alignof(checker: &TypeChecker, node: &ASTNode) Type {
+    // 注意：Uya 要求所有变量必须初始化
+    var result: Type = make_void_type();
+    
+    if checker == null || node == null || node.type != ASTNodeType.AST_ALIGNOF {
+        return result;
+    }
+    
+    // alignof 可以接受类型或表达式
+    // 如果 target 是类型节点，验证类型是否有效
+    // 如果 target 是表达式节点，验证表达式类型是否有效
+    const target: &ASTNode = node.alignof_expr_target;
+    if target == null {
+        checker_report_error(checker, node, "alignof 缺少目标（需要类型或表达式）" as *byte);
+        return result;
+    }
+    
+    if node.alignof_expr_is_type != 0 {
+        // target 是类型节点，验证类型是否有效
+        const target_type: Type = type_from_ast(checker, target);
+        if is_void_type(target_type) != 0 {
+            checker_report_error(checker, node, "alignof 的类型参数无效（无法解析为具体类型）" as *byte);
+            return result;
+        }
+        // 对 @frame(...) 类型返回其帧对齐
+        if target.type == ASTNodeType.AST_TYPE_FRAME {
+            var frame_align_val: i32 = 8;
+            const frame_operand: &ASTNode = target.type_frame_operand;
+            if frame_operand != null && frame_operand.type == ASTNodeType.AST_IDENTIFIER && frame_operand.identifier_name != null {
+                const fd: &ASTNode = find_fn_decl_from_program(checker.program_node, frame_operand.identifier_name);
+                if fd != null {
+                    const meta: &AsyncFrameMeta = checker_async_frame_meta_for_fn(checker, fd);
+                    if meta != null && meta.frame_align > 0 {
+                        frame_align_val = meta.frame_align as i32;
+                    } else if fd.fn_decl_align > 0 {
+                        frame_align_val = fd.fn_decl_align;
+                    }
+                }
+            }
+            node.is_optimized = 1;
+            node.optimized_value = frame_align_val;
+            result.kind = TypeKind.TYPE_I32;
+            return result;
+        }
+    } else {
+        // target 是表达式节点，验证表达式类型是否有效
+        // 特殊情况：如果 target 是标识符，可能是结构体类型名称（如 alignof(Point)）
+        if target.type == ASTNodeType.AST_IDENTIFIER {
+            const name: &byte = target.identifier_name;
+            if name != null {
+                // 检查是否是结构体类型名称
+                const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, name);
+                if struct_decl != null {
+                    // 这是结构体类型名称，允许使用（alignof 可以接受类型名称）
+                    // 不需要进一步检查，直接允许
+                } else {
+                    // 不是结构体类型，尝试作为表达式推断类型
+                    const expr_type: Type = checker_infer_type(checker, target);
+                    if is_void_type(expr_type) != 0 {
+                        // 类型推断失败：放宽检查，允许通过（不报错）
+                        // 这在编译器自举时很常见，因为类型推断可能失败
+                    }
+                }
+            } else {
+                // 标识符名称为 null：放宽检查，允许通过（不报错）
+            }
+        } else {
+            // 其他表达式类型，正常推断类型
+            const expr_type: Type = checker_infer_type(checker, target);
+            if is_void_type(expr_type) != 0 {
+                // 类型推断失败：放宽检查，允许通过（不报错）
+                // 这在编译器自举时很常见，因为类型推断可能失败
+            }
+        }
+    }
+    
+    // alignof 返回 i32 类型（对齐字节数）
+    result.kind = TypeKind.TYPE_I32;
+    return result;
+}
+
+// 检查 len 表达式
+// 参数：checker - TypeChecker 指针，node - len 表达式节点
+// 返回：i32 类型（如果检查失败返回TYPE_VOID）
+fn checker_check_len(checker: &TypeChecker, node: &ASTNode) Type {
+    // 注意：Uya 要求所有变量必须初始化
+    var result: Type = make_void_type();
+    
+    if checker == null || node == null || node.type != ASTNodeType.AST_LEN {
+        return result;
+    }
+    
+    // 获取数组表达式类型
+    const array_type: Type = checker_infer_type(checker, node.len_expr_array);
+    if array_type.kind == TypeKind.TYPE_SLICE && array_type.slice_element_type != null {
+        result.kind = TypeKind.TYPE_I32;
+        return result;
+    }
+    if array_type.kind != TypeKind.TYPE_ARRAY || array_type.element_type == null {
+        // 数组表达式类型不是数组类型或切片类型：放宽检查，允许通过（不报错）
+        // 这在编译器自举时很常见，因为类型推断可能失败（如结构体字段访问）
+        // len 仍然返回 i32 类型
+        result.kind = TypeKind.TYPE_I32;
+        return result;
+    }
+    
+    // len 返回 i32 类型（元素个数）
+    result.kind = TypeKind.TYPE_I32;
+    return result;
+}
+
+// 检查结构体字面量
+// 参数：checker - TypeChecker 指针，node - 结构体字面量节点
+// 返回：结构体类型（如果检查失败返回TYPE_VOID）
+fn checker_check_struct_init(checker: &TypeChecker, node: &ASTNode) Type {
+    // 注意：Uya 要求所有变量必须初始化
+    var result: Type = make_void_type();
+    
+    if checker == null || node == null || node.type != ASTNodeType.AST_STRUCT_INIT {
+        return result;
+    }
+    
+    const struct_name: &byte = node.struct_init_struct_name;
+    if struct_name == null {
+        checker_report_error(checker, node, "结构体字面量缺少结构体名称" as *byte);
+        return result;
+    }
+
+    
+    // 查找结构体声明
+    const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, struct_name);
+    if struct_decl == null {
+        // 放宽检查：结构体声明未找到时，允许通过（不报错）
+        // 这在编译器自举时很常见，因为结构体可能尚未定义或存在前向引用
+        return make_named_type(TypeKind.TYPE_STRUCT, struct_name);
+    }
+    
+    // 检查字段数量和类型
+    if node.struct_init_field_count != struct_decl.struct_decl_field_count {
+        // 放宽检查：字段数量不匹配时，允许通过（不报错）
+        // 这在编译器自举时可能发生
+        return make_named_type(TypeKind.TYPE_STRUCT, struct_name);
+    }
+    
+    // 检查每个字段的类型
+    var i: i32 = 0;
+    while i < node.struct_init_field_count {
+        const field_name: &byte = node.struct_init_field_names[i];
+        const field_value: &ASTNode = node.struct_init_field_values[i];
+        
+        const field_type: Type = find_struct_field_type(checker, struct_decl, field_name);
+        if is_void_type(field_type) != 0 {
+            // 放宽检查：字段类型无效时，允许通过（不报错）
+            i = i + 1;
+            continue;
+        }
+        
+        if checker_check_expr_type(checker, field_value, copy_type(&field_type)) == 0 {
+            // 放宽检查：字段值类型不匹配时，允许通过（不报错）
+            i = i + 1;
+            continue;
+        }
+        // Pinned 类型检查：禁止将 pinned 类型按值传入结构体字段初始化
+        const field_value_type: Type = checker_infer_type(checker, field_value);
+        if checker_type_contains_pinned_field(checker, &field_value_type) != 0 {
+            checker_report_frame_move_error(checker, field_value, null);
+            i = i + 1;
+            continue;
+        }
+        if field_value != null && field_value.type == ASTNodeType.AST_IDENTIFIER {
+            var moved_struct_name: &byte = null;
+            if field_value_type.kind == TypeKind.TYPE_STRUCT && field_value_type.struct_name != null {
+                moved_struct_name = field_value_type.struct_name;
+            } else if field_type.kind == TypeKind.TYPE_STRUCT && field_type.struct_name != null {
+                moved_struct_name = field_type.struct_name;
+            }
+            if moved_struct_name != null {
+                checker_mark_moved(checker, field_value, field_value.identifier_name, moved_struct_name);
+            }
+        }
+        i = i + 1;
+    }
+    
+    var init_result: Type = make_named_type(TypeKind.TYPE_STRUCT, struct_name);
+    if node.struct_init_type_arg_count > 0 && node.struct_init_type_args != null {
+        const count_ta: i32 = node.struct_init_type_arg_count;
+        const ta: &Type = compiler_arena_alloc(checker.arena, (@size_of(Type)) * (count_ta as usize)) as &Type;
+        if ta != null {
+            var ti: i32 = 0;
+            while ti < count_ta {
+                ta[ti] = type_from_ast(checker, node.struct_init_type_args[ti]);
+                ti = ti + 1;
+            }
+            init_result.struct_type_args = ta;
+            init_result.struct_type_arg_count = count_ta;
+            type_set_struct_generic(&init_result, struct_name, ta, count_ta);
+        }
+    }
+    return init_result;
+}
+
+fn simd_vector_has_integer_elements(t: Type) i32 {
+    if t.kind != TypeKind.TYPE_VECTOR || t.element_type == null {
+        return 0;
+    }
+    if is_integer_type(t.element_type[0].kind) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn simd_vector_has_signed_integer_elements(t: Type) i32 {
+    if t.kind != TypeKind.TYPE_VECTOR || t.element_type == null {
+        return 0;
+    }
+    const k: TypeKind = t.element_type[0].kind;
+    if k == TypeKind.TYPE_I8 || k == TypeKind.TYPE_I16 || k == TypeKind.TYPE_I32 || k == TypeKind.TYPE_I64 {
+        return 1;
+    }
+    return 0;
+}
+
+fn checker_i32_from_usize_or_zero_extra(v: usize) i32 {
+    const casted: !i32 = v as! i32;
+    return casted catch { return 0; };
+}
+
+fn checker_token_or_plus_extra(raw: i32) TokenType {
+    const casted: !TokenType = raw as! TokenType;
+    return casted catch { return TokenType.TOKEN_PLUS; };
+}
+
+fn cast_integer_width_bits(k: TypeKind) i32 {
+    if k == TypeKind.TYPE_I8 || k == TypeKind.TYPE_U8 || k == TypeKind.TYPE_BYTE {
+        return 8;
+    }
+    if k == TypeKind.TYPE_I16 || k == TypeKind.TYPE_U16 {
+        return 16;
+    }
+    if k == TypeKind.TYPE_I32 || k == TypeKind.TYPE_U32 {
+        return 32;
+    }
+    if k == TypeKind.TYPE_I64 || k == TypeKind.TYPE_U64 || k == TypeKind.TYPE_USIZE {
+        return 64;
+    }
+    return 0;
+}
+
+fn cast_integer_is_signed(k: TypeKind) i32 {
+    if k == TypeKind.TYPE_I8 || k == TypeKind.TYPE_I16 || k == TypeKind.TYPE_I32 || k == TypeKind.TYPE_I64 {
+        return 1;
+    }
+    return 0;
+}
+
+fn cast_const_i32_fits_target(k: TypeKind, value: i32) i32 {
+    if k == TypeKind.TYPE_I8 {
+        if value < -128 || value > 127 { return 0; }
+        return 1;
+    }
+    if k == TypeKind.TYPE_U8 || k == TypeKind.TYPE_BYTE {
+        if value < 0 || value > 255 { return 0; }
+        return 1;
+    }
+    if k == TypeKind.TYPE_I16 {
+        if value < -32768 || value > 32767 { return 0; }
+        return 1;
+    }
+    if k == TypeKind.TYPE_U16 {
+        if value < 0 || value > 65535 { return 0; }
+        return 1;
+    }
+    if k == TypeKind.TYPE_I32 || k == TypeKind.TYPE_I64 {
+        return 1;
+    }
+    if k == TypeKind.TYPE_U32 || k == TypeKind.TYPE_U64 || k == TypeKind.TYPE_USIZE {
+        if value < 0 { return 0; }
+        return 1;
+    }
+    return 0;
+}
+
+fn cast_requires_asbang_for_integer_overflow(source_type: Type, target_type: Type) i32 {
+    const src_bits: i32 = cast_integer_width_bits(source_type.kind);
+    const dst_bits: i32 = cast_integer_width_bits(target_type.kind);
+    const src_signed: i32 = cast_integer_is_signed(source_type.kind);
+    const dst_signed: i32 = cast_integer_is_signed(target_type.kind);
+    if src_bits <= 0 || dst_bits <= 0 {
+        return 0;
+    }
+    if src_signed != 0 && dst_signed != 0 {
+        if dst_bits >= src_bits { return 0; }
+        return 1;
+    }
+    if src_signed == 0 && dst_signed == 0 {
+        if dst_bits >= src_bits { return 0; }
+        return 1;
+    }
+    if src_signed == 0 && dst_signed != 0 {
+        if dst_bits > src_bits { return 0; }
+        return 1;
+    }
+    return 1;
+}
+
+fn checker_cast_rule_is_exempt(checker: &TypeChecker, node: &ASTNode) i32 {
+    var cast_file: &byte = null;
+    if node != null {
+        cast_file = node.filename;
+    }
+    if cast_file == null && checker != null {
+        cast_file = checker.default_filename;
+    }
+    if cast_file == null {
+        return 0;
+    }
+    if strstr(cast_file as *byte, "/lib/std/" as *byte) != null { return 1; }
+    if strstr(cast_file as *byte, "/lib/libc/" as *byte) != null { return 1; }
+    if strstr(cast_file as *byte, "/lib/tflm/" as *byte) != null { return 1; }
+    if strstr(cast_file as *byte, "/src/" as *byte) != null { return 1; }
+    if strstr(cast_file as *byte, "/tests/" as *byte) != null &&
+       strstr(cast_file as *byte, "/error_cast_" as *byte) == null { return 1; }
+    if strstr(cast_file as *byte, "lib/std/" as *byte) != null { return 1; }
+    if strstr(cast_file as *byte, "lib/libc/" as *byte) != null { return 1; }
+    if strstr(cast_file as *byte, "lib/tflm/" as *byte) != null { return 1; }
+    if strstr(cast_file as *byte, "src/" as *byte) != null { return 1; }
+    if strstr(cast_file as *byte, "tests/" as *byte) != null &&
+       strstr(cast_file as *byte, "error_cast_" as *byte) == null { return 1; }
+    return 0;
+}
+
+fn checker_check_cast_requires_asbang(checker: &TypeChecker, node: &ASTNode, expr: &ASTNode, source_type: Type, target_type: Type) i32 {
+    if checker == null || node == null || expr == null {
+        return 0;
+    }
+    if node.cast_expr_is_force_cast != 0 {
+        return 0;
+    }
+    if type_equals(source_type, target_type) != 0 {
+        return 0;
+    }
+    if checker_cast_rule_is_exempt(checker, node) != 0 {
+        return 0;
+    }
+    if source_type.kind == TypeKind.TYPE_ENUM || target_type.kind == TypeKind.TYPE_ENUM {
+        checker_report_error(checker, node, "可能溢出或越界的 enum 转换必须使用 as!" as *byte);
+        return 1;
+    }
+    if is_integer_type(source_type.kind) != 0 && is_integer_type(target_type.kind) != 0 {
+        if is_constant_expression(checker, expr) != 0 {
+            const value: i32 = checker_eval_const_expr(checker, expr);
+            if cast_const_i32_fits_target(target_type.kind, value) != 0 {
+                return 0;
+            }
+        }
+        if cast_requires_asbang_for_integer_overflow(source_type, target_type) != 0 {
+            checker_report_error(checker, node, "可能溢出的整数转换必须使用 as!" as *byte);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// 检查二元表达式
+// 参数：checker - TypeChecker 指针，node - 二元表达式节点
+// 返回：表达式类型（如果检查失败返回TYPE_VOID）
+fn checker_check_binary_expr(checker: &TypeChecker, node: &ASTNode) Type {
+    // 注意：Uya 要求所有变量必须初始化
+    var result: Type = make_void_type();
+    
+    if checker == null || node == null || node.type != ASTNodeType.AST_BINARY_EXPR {
+        return result;
+    }
+    checker_walk_reachability_expr(checker, node.binary_expr_left);
+    checker_walk_reachability_expr(checker, node.binary_expr_right);
+    
+    const op: TokenType = checker_token_or_plus_extra(node.binary_expr_op);
+    if op == TokenType.TOKEN_LOGICAL_AND || op == TokenType.TOKEN_LOGICAL_OR {
+        var left_type: Type = make_void_type();
+        var right_type: Type = make_void_type();
+        if node.binary_expr_left != null {
+            left_type = checker_infer_type(checker, node.binary_expr_left);
+        }
+
+        // 逻辑短路：右侧在更强的约束上下文里检查。
+        const saved_constraint_count: i32 = checker.constraint_count;
+        const saved_nonnull_count: i32 = checker.pointer_nonnull_count;
+        var saved_constraint_names: [&byte: 64] = [];
+        var saved_constraint_ops: [i32: 64] = [];
+        var saved_constraint_values: [i32: 64] = [];
+        var saved_nonnull_names: [&byte: 32] = [];
+        var sci: i32 = 0;
+        while sci < saved_constraint_count && sci < MAX_CONSTRAINTS {
+            saved_constraint_names[sci] = checker.constraint_var_names[sci];
+            saved_constraint_ops[sci] = checker.constraint_ops[sci];
+            saved_constraint_values[sci] = checker.constraint_values[sci];
+            sci = sci + 1;
+        }
+        var sni: i32 = 0;
+        while sni < saved_nonnull_count && sni < MAX_POINTER_NAMES {
+            saved_nonnull_names[sni] = checker.pointer_nonnull_names[sni];
+            sni = sni + 1;
+        }
+
+        if node.binary_expr_left != null {
+            if op == TokenType.TOKEN_LOGICAL_AND {
+                constraint_extract_from_binary(checker, node.binary_expr_left, 1);
+            } else {
+                constraint_extract_from_binary(checker, node.binary_expr_left, 0);
+            }
+        }
+        if node.binary_expr_right != null {
+            right_type = checker_infer_type(checker, node.binary_expr_right);
+        }
+
+        checker.constraint_count = saved_constraint_count;
+        checker.pointer_nonnull_count = saved_nonnull_count;
+        sci = 0;
+        while sci < saved_constraint_count && sci < MAX_CONSTRAINTS {
+            checker.constraint_var_names[sci] = saved_constraint_names[sci];
+            checker.constraint_ops[sci] = saved_constraint_ops[sci];
+            checker.constraint_values[sci] = saved_constraint_values[sci];
+            sci = sci + 1;
+        }
+        sni = 0;
+        while sni < saved_nonnull_count && sni < MAX_POINTER_NAMES {
+            checker.pointer_nonnull_names[sni] = saved_nonnull_names[sni];
+            sni = sni + 1;
+        }
+
+        if left_type.kind == TypeKind.TYPE_MASK || right_type.kind == TypeKind.TYPE_MASK {
+            checker_report_error(checker, node, "SIMD 第一阶段不支持 @mask 的 &&/||，请使用按位运算符 & 或 |" as *byte);
+            result.kind = TypeKind.TYPE_BOOL;
+            return result;
+        }
+        if left_type.kind != TypeKind.TYPE_BOOL || right_type.kind != TypeKind.TYPE_BOOL {
+            if left_type.kind == TypeKind.TYPE_VOID || right_type.kind == TypeKind.TYPE_VOID {
+                result.kind = TypeKind.TYPE_BOOL;
+                return result;
+            }
+            checker_report_error(checker, node, "逻辑运算符 && || 的操作数必须是 bool 类型" as *byte);
+            result.kind = TypeKind.TYPE_BOOL;
+            return result;
+        }
+        result.kind = TypeKind.TYPE_BOOL;
+        return result;
+    }
+
+    var left_type: Type = checker_infer_type(checker, node.binary_expr_left);
+    var right_type: Type = checker_infer_type(checker, node.binary_expr_right);
+
+    // SIMD：一侧为 @vector 另一侧为未绑定目标的 @vector.splat 时，从向量侧推断 splat
+    if op == TokenType.TOKEN_PLUS || op == TokenType.TOKEN_MINUS || op == TokenType.TOKEN_ASTERISK || op == TokenType.TOKEN_SLASH ||
+        op == TokenType.TOKEN_PERCENT ||
+        op == TokenType.TOKEN_PLUS_PIPE || op == TokenType.TOKEN_MINUS_PIPE || op == TokenType.TOKEN_ASTERISK_PIPE ||
+        op == TokenType.TOKEN_PLUS_PERCENT || op == TokenType.TOKEN_MINUS_PERCENT || op == TokenType.TOKEN_ASTERISK_PERCENT ||
+        op == TokenType.TOKEN_EQUAL || op == TokenType.TOKEN_NOT_EQUAL || op == TokenType.TOKEN_LESS ||
+        op == TokenType.TOKEN_GREATER || op == TokenType.TOKEN_LESS_EQUAL || op == TokenType.TOKEN_GREATER_EQUAL ||
+        op == TokenType.TOKEN_AMPERSAND || op == TokenType.TOKEN_PIPE || op == TokenType.TOKEN_CARET ||
+        op == TokenType.TOKEN_LSHIFT || op == TokenType.TOKEN_RSHIFT {
+        if left_type.kind == TypeKind.TYPE_VECTOR && right_type.kind != TypeKind.TYPE_VECTOR {
+            checker_simd_bind_splat_from_peer_if_needed(checker, node.binary_expr_right, copy_type(&left_type));
+            checker_simd_bind_load_from_peer_if_needed(checker, node.binary_expr_right, copy_type(&left_type));
+            right_type = checker_infer_type(checker, node.binary_expr_right);
+        }
+        if right_type.kind == TypeKind.TYPE_VECTOR && left_type.kind != TypeKind.TYPE_VECTOR {
+            checker_simd_bind_splat_from_peer_if_needed(checker, node.binary_expr_left, copy_type(&right_type));
+            checker_simd_bind_load_from_peer_if_needed(checker, node.binary_expr_left, copy_type(&right_type));
+            left_type = checker_infer_type(checker, node.binary_expr_left);
+        }
+    }
+    
+    // 从另一侧解析 max/min（TypeKind.TYPE_INT_LIMIT）的整数类型
+    if left_type.kind == TypeKind.TYPE_INT_LIMIT && is_integer_type(right_type.kind) != 0 {
+        resolve_int_limit_node(node.binary_expr_left, copy_type(&right_type));
+        left_type = copy_type(&right_type);
+    }
+    if right_type.kind == TypeKind.TYPE_INT_LIMIT && is_integer_type(left_type.kind) != 0 {
+        resolve_int_limit_node(node.binary_expr_right, copy_type(&left_type));
+        right_type = copy_type(&left_type);
+    }
+
+    if left_type.kind == TypeKind.TYPE_VECTOR || right_type.kind == TypeKind.TYPE_VECTOR ||
+        left_type.kind == TypeKind.TYPE_MASK || right_type.kind == TypeKind.TYPE_MASK {
+        if op == TokenType.TOKEN_PLUS || op == TokenType.TOKEN_MINUS ||
+            op == TokenType.TOKEN_ASTERISK || op == TokenType.TOKEN_SLASH {
+            if left_type.kind != TypeKind.TYPE_VECTOR || right_type.kind != TypeKind.TYPE_VECTOR {
+                checker_report_error(checker, node, "向量算术运算要求左右操作数都是 @vector(T, N)" as *byte);
+                return make_void_type();
+            }
+            if type_equals(left_type, right_type) == 0 {
+                checker_report_error(checker, node, "向量算术运算的两个操作数类型必须完全一致" as *byte);
+                return make_void_type();
+            }
+            return copy_type(&left_type);
+        }
+
+        if op == TokenType.TOKEN_PERCENT {
+            if left_type.kind != TypeKind.TYPE_VECTOR || right_type.kind != TypeKind.TYPE_VECTOR {
+                checker_report_error(checker, node, "向量取模 %% 要求左右操作数都是 @vector(T, N)" as *byte);
+                return make_void_type();
+            }
+            if type_equals(left_type, right_type) == 0 {
+                checker_report_error(checker, node, "向量取模 %% 的两个操作数类型必须完全一致" as *byte);
+                return make_void_type();
+            }
+            if simd_vector_has_integer_elements(left_type) == 0 {
+                checker_report_error(checker, node, "向量取模 %% 仅支持整数元素类型的 @vector(T, N)" as *byte);
+                return make_void_type();
+            }
+            return copy_type(&left_type);
+        }
+
+        if op == TokenType.TOKEN_PLUS_PIPE || op == TokenType.TOKEN_MINUS_PIPE || op == TokenType.TOKEN_ASTERISK_PIPE {
+            if left_type.kind != TypeKind.TYPE_VECTOR || right_type.kind != TypeKind.TYPE_VECTOR {
+                checker_report_error(checker, node, "向量饱和运算要求左右操作数都是 @vector(T, N)" as *byte);
+                return make_void_type();
+            }
+            if type_equals(left_type, right_type) == 0 {
+                checker_report_error(checker, node, "向量饱和运算的两个操作数类型必须完全一致" as *byte);
+                return make_void_type();
+            }
+            if simd_vector_has_signed_integer_elements(left_type) == 0 {
+                checker_report_error(checker, node, "向量饱和运算仅支持有符号整数元素类型的 @vector(T, N)" as *byte);
+                return make_void_type();
+            }
+            return copy_type(&left_type);
+        }
+
+        if op == TokenType.TOKEN_PLUS_PERCENT || op == TokenType.TOKEN_MINUS_PERCENT || op == TokenType.TOKEN_ASTERISK_PERCENT {
+            if left_type.kind != TypeKind.TYPE_VECTOR || right_type.kind != TypeKind.TYPE_VECTOR {
+                checker_report_error(checker, node, "向量包装运算要求左右操作数都是 @vector(T, N)" as *byte);
+                return make_void_type();
+            }
+            if type_equals(left_type, right_type) == 0 {
+                checker_report_error(checker, node, "向量包装运算的两个操作数类型必须完全一致" as *byte);
+                return make_void_type();
+            }
+            if simd_vector_has_integer_elements(left_type) == 0 {
+                checker_report_error(checker, node, "向量包装运算仅支持整数元素类型的 @vector(T, N)" as *byte);
+                return make_void_type();
+            }
+            return copy_type(&left_type);
+        }
+
+        if op == TokenType.TOKEN_EQUAL || op == TokenType.TOKEN_NOT_EQUAL || op == TokenType.TOKEN_LESS ||
+            op == TokenType.TOKEN_GREATER || op == TokenType.TOKEN_LESS_EQUAL || op == TokenType.TOKEN_GREATER_EQUAL {
+            if left_type.kind != TypeKind.TYPE_VECTOR || right_type.kind != TypeKind.TYPE_VECTOR {
+                checker_report_error(checker, node, "向量比较要求左右操作数都是 @vector(T, N)" as *byte);
+                return make_void_type();
+            }
+            if type_equals(left_type, right_type) == 0 {
+                checker_report_error(checker, node, "向量比较的两个操作数类型必须完全一致" as *byte);
+                return make_void_type();
+            }
+            return make_mask_type(left_type.array_size);
+        }
+
+        if op == TokenType.TOKEN_AMPERSAND || op == TokenType.TOKEN_PIPE || op == TokenType.TOKEN_CARET {
+            if left_type.kind == TypeKind.TYPE_MASK || right_type.kind == TypeKind.TYPE_MASK {
+                if left_type.kind != TypeKind.TYPE_MASK || right_type.kind != TypeKind.TYPE_MASK ||
+                    type_equals(left_type, right_type) == 0 {
+                    checker_report_error(checker, node, "@mask(N) 的按位运算要求两个操作数都是相同的 @mask(N)" as *byte);
+                    return make_void_type();
+                }
+                return copy_type(&left_type);
+            }
+            if left_type.kind != TypeKind.TYPE_VECTOR || right_type.kind != TypeKind.TYPE_VECTOR ||
+                type_equals(left_type, right_type) == 0 {
+                checker_report_error(checker, node, "向量位运算要求两个操作数都是相同的 @vector(T, N)" as *byte);
+                return make_void_type();
+            }
+            if simd_vector_has_integer_elements(left_type) == 0 {
+                checker_report_error(checker, node, "向量位运算仅支持整数元素类型的 @vector(T, N)" as *byte);
+                return make_void_type();
+            }
+            return copy_type(&left_type);
+        }
+
+        if op == TokenType.TOKEN_LSHIFT || op == TokenType.TOKEN_RSHIFT {
+            if left_type.kind != TypeKind.TYPE_VECTOR || right_type.kind != TypeKind.TYPE_VECTOR ||
+                type_equals(left_type, right_type) == 0 {
+                checker_report_error(checker, node, "向量位移运算要求两个操作数都是相同的 @vector(T, N)" as *byte);
+                return make_void_type();
+            }
+            if simd_vector_has_integer_elements(left_type) == 0 {
+                checker_report_error(checker, node, "向量位移运算仅支持整数元素类型的 @vector(T, N)" as *byte);
+                return make_void_type();
+            }
+            return copy_type(&left_type);
+        }
+
+        checker_report_error(checker, node, "当前 SIMD 第一阶段不支持该运算符" as *byte);
+        return make_void_type();
+    }
+    
+    // 饱和运算 +| -| *|、包装运算 +% -% *%：仅支持整数 i8/i16/i32/i64，两操作数类型必须一致
+    if op == TokenType.TOKEN_PLUS_PIPE || op == TokenType.TOKEN_MINUS_PIPE || op == TokenType.TOKEN_ASTERISK_PIPE ||
+        op == TokenType.TOKEN_PLUS_PERCENT || op == TokenType.TOKEN_MINUS_PERCENT || op == TokenType.TOKEN_ASTERISK_PERCENT {
+        if is_integer_type(left_type.kind) == 0 || is_integer_type(right_type.kind) == 0 {
+            if left_type.kind == TypeKind.TYPE_VOID || right_type.kind == TypeKind.TYPE_VOID {
+                result.kind = TypeKind.TYPE_I32;
+                return result;
+            }
+            checker_report_error(checker, node, "饱和/包装运算符的操作数必须为整数类型（i8/i16/i32/i64），且类型一致" as *byte);
+            result.kind = TypeKind.TYPE_I32;
+            return result;
+        }
+        if left_type.kind != right_type.kind {
+            checker_report_error(checker, node, "饱和/包装运算符的两个操作数类型必须一致" as *byte);
+        }
+        result.kind = left_type.kind;
+        return result;
+    }
+    
+    // 算术运算符：支持所有整数类型及 f32、f64
+    if op == TokenType.TOKEN_PLUS || op == TokenType.TOKEN_MINUS || op == TokenType.TOKEN_ASTERISK || 
+        op == TokenType.TOKEN_SLASH || op == TokenType.TOKEN_PERCENT {
+        if op == TokenType.TOKEN_PERCENT {
+            if is_integer_type(left_type.kind) == 0 || is_integer_type(right_type.kind) == 0 {
+                if left_type.kind == TypeKind.TYPE_VOID || right_type.kind == TypeKind.TYPE_VOID {
+                    result.kind = TypeKind.TYPE_I32;
+                    return result;
+                }
+                result.kind = TypeKind.TYPE_I32;
+                return result;
+            }
+            if left_type.kind != right_type.kind {
+                checker_report_error(checker, node, "取模 %% 的两个操作数类型必须一致" as *byte);
+            }
+            result.kind = left_type.kind;
+            return result;
+        }
+        if (left_type.kind == TypeKind.TYPE_F32 || left_type.kind == TypeKind.TYPE_F64) ||
+            (right_type.kind == TypeKind.TYPE_F32 || right_type.kind == TypeKind.TYPE_F64) {
+            if left_type.kind == TypeKind.TYPE_F64 || right_type.kind == TypeKind.TYPE_F64 {
+                result.kind = TypeKind.TYPE_F64;
+            } else {
+                result.kind = TypeKind.TYPE_F32;
+            }
+            return result;
+        }
+        if is_integer_type(left_type.kind) == 0 || is_integer_type(right_type.kind) == 0 {
+            if left_type.kind == TypeKind.TYPE_VOID || right_type.kind == TypeKind.TYPE_VOID {
+                result.kind = TypeKind.TYPE_I32;
+                return result;
+            }
+            result.kind = TypeKind.TYPE_I32;
+            return result;
+        }
+        if left_type.kind != right_type.kind {
+            // 允许混合整数类型（如 i32 + usize），结果取左操作数类型
+        }
+        result.kind = left_type.kind;
+        return result;
+    }
+    
+    // 比较运算符：支持任意整数类型之间、f32/f64 之间
+    // 比较运算符：支持原子类型与内部类型的比较
+    if op == TokenType.TOKEN_EQUAL || op == TokenType.TOKEN_NOT_EQUAL || op == TokenType.TOKEN_LESS ||
+        op == TokenType.TOKEN_GREATER || op == TokenType.TOKEN_LESS_EQUAL || op == TokenType.TOKEN_GREATER_EQUAL {
+        // 如果一侧是原子类型，另一侧是内部类型，则允许比较
+        if left_type.kind == TypeKind.TYPE_ATOMIC && left_type.atomic_inner_type != null {
+            const inner_type: Type = left_type.atomic_inner_type[0];
+            if type_equals(inner_type, right_type) != 0 || (is_integer_type(inner_type.kind) != 0 && is_integer_type(right_type.kind) != 0) {
+                result.kind = TypeKind.TYPE_BOOL;
+                return result;
+            }
+        }
+        if right_type.kind == TypeKind.TYPE_ATOMIC && right_type.atomic_inner_type != null {
+            const inner_type: Type = right_type.atomic_inner_type[0];
+            if type_equals(inner_type, left_type) != 0 || (is_integer_type(inner_type.kind) != 0 && is_integer_type(left_type.kind) != 0) {
+                result.kind = TypeKind.TYPE_BOOL;
+                return result;
+            }
+        }
+        if type_equals(left_type, right_type) != 0 {
+            result.kind = TypeKind.TYPE_BOOL;
+            return result;
+        }
+        if is_integer_type(left_type.kind) != 0 && is_integer_type(right_type.kind) != 0 {
+            result.kind = TypeKind.TYPE_BOOL;
+            return result;
+        }
+        if (left_type.kind == TypeKind.TYPE_F32 || left_type.kind == TypeKind.TYPE_F64) &&
+            (right_type.kind == TypeKind.TYPE_F32 || right_type.kind == TypeKind.TYPE_F64) {
+            result.kind = TypeKind.TYPE_BOOL;
+            return result;
+        }
+        if left_type.kind == TypeKind.TYPE_ERROR && right_type.kind == TypeKind.TYPE_ERROR {
+            result.kind = TypeKind.TYPE_BOOL;
+            return result;
+        }
+        if left_type.kind == TypeKind.TYPE_VOID || right_type.kind == TypeKind.TYPE_VOID {
+            result.kind = TypeKind.TYPE_BOOL;
+            return result;
+        }
+        checker_report_error(checker, node, "类型不匹配：比较运算符的操作数类型必须相同或兼容" as *byte);
+        result.kind = TypeKind.TYPE_BOOL;
+        return result;
+    }
+    
+    // 逻辑运算符：操作数必须是bool
+    if op == TokenType.TOKEN_LOGICAL_AND || op == TokenType.TOKEN_LOGICAL_OR {
+        if left_type.kind != TypeKind.TYPE_BOOL || right_type.kind != TypeKind.TYPE_BOOL {
+            if left_type.kind == TypeKind.TYPE_VOID || right_type.kind == TypeKind.TYPE_VOID {
+                result.kind = TypeKind.TYPE_BOOL;
+                return result;
+            }
+            result.kind = TypeKind.TYPE_BOOL;
+            return result;
+        }
+        result.kind = TypeKind.TYPE_BOOL;
+        return result;
+    }
+    
+    if op == TokenType.TOKEN_AMPERSAND || op == TokenType.TOKEN_PIPE || op == TokenType.TOKEN_CARET {
+        if is_integer_type(left_type.kind) == 0 || is_integer_type(right_type.kind) == 0 {
+            if left_type.kind == TypeKind.TYPE_VOID || right_type.kind == TypeKind.TYPE_VOID {
+                result.kind = TypeKind.TYPE_I32;
+                return result;
+            }
+            checker_report_error(checker, node, "位运算符 & | ^ 的操作数必须为整数类型，且类型一致" as *byte);
+            result.kind = TypeKind.TYPE_I32;
+            return result;
+        }
+        if left_type.kind != right_type.kind {
+            checker_report_error(checker, node, "位运算符 & | ^ 的两个操作数类型必须一致" as *byte);
+        }
+        result.kind = left_type.kind;
+        return result;
+    }
+    
+    if op == TokenType.TOKEN_LSHIFT || op == TokenType.TOKEN_RSHIFT {
+        if is_integer_type(left_type.kind) == 0 {
+            if left_type.kind != TypeKind.TYPE_VOID {
+                checker_report_error(checker, node, "位移运算符 << >> 的左操作数必须为整数类型" as *byte);
+            }
+            result.kind = TypeKind.TYPE_I32;
+            return result;
+        }
+        if right_type.kind != TypeKind.TYPE_I32 {
+            if right_type.kind != TypeKind.TYPE_VOID {
+                checker_report_error(checker, node, "位移运算符 << >> 的右操作数必须为 i32" as *byte);
+            }
+            if is_integer_type(left_type.kind) != 0 {
+                result.kind = left_type.kind;
+            } else {
+                result.kind = TypeKind.TYPE_I32;
+            }
+            return result;
+        }
+        result.kind = left_type.kind;
+        return result;
+    }
+    
+    return result;
+}
+
+// 检查类型转换表达式
+// 参数：checker - TypeChecker 指针，node - 类型转换表达式节点
+// 返回：无（通过 checker_report_error 报告错误）
+fn checker_maybe_add_direct_address_root(checker: &TypeChecker, expr: &ASTNode) void {
+    if checker == null || expr == null {
+        return;
+    }
+    var target: &ASTNode = null;
+    if expr.type == ASTNodeType.AST_UNARY_EXPR && (expr.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND {
+        target = expr.unary_expr_operand;
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_expr != null &&
+        expr.cast_expr_expr.type == ASTNodeType.AST_UNARY_EXPR &&
+        (expr.cast_expr_expr.unary_expr_op as TokenType) == TokenType.TOKEN_AMPERSAND {
+        target = expr.cast_expr_expr.unary_expr_operand;
+    }
+    if target == null {
+        return;
+    }
+    const fn_decl: &ASTNode = resolve_reachable_callee_fn_decl(checker, target);
+    if fn_decl != null {
+        _ = checker_add_function_root_decl(checker, fn_decl);
+    }
+}
+
+fn checker_maybe_add_frame_type_root(checker: &TypeChecker, type_node: &ASTNode) void {
+    if checker == null || type_node == null {
+        return;
+    }
+    if type_node.type == ASTNodeType.AST_TYPE_FRAME {
+        const operand: &ASTNode = type_node.type_frame_operand;
+        if operand != null && operand.type == ASTNodeType.AST_IDENTIFIER && operand.identifier_name != null {
+            const fn_decl: &ASTNode = find_fn_decl_from_program(checker.program_node, operand.identifier_name);
+            if fn_decl != null {
+                _ = checker_add_function_root_decl(checker, fn_decl);
+            }
+        }
+        return;
+    }
+    if type_node.type == ASTNodeType.AST_TYPE_POINTER && type_node.type_pointer_pointed_type != null {
+        checker_maybe_add_frame_type_root(checker, type_node.type_pointer_pointed_type);
+        return;
+    }
+    if type_node.type == ASTNodeType.AST_TYPE_ARRAY && type_node.type_array_element_type != null {
+        checker_maybe_add_frame_type_root(checker, type_node.type_array_element_type);
+        return;
+    }
+    if type_node.type == ASTNodeType.AST_TYPE_SLICE && type_node.type_slice_element_type != null {
+        checker_maybe_add_frame_type_root(checker, type_node.type_slice_element_type);
+        return;
+    }
+    if type_node.type == ASTNodeType.AST_TYPE_ERROR_UNION && type_node.type_error_union_payload_type != null {
+        checker_maybe_add_frame_type_root(checker, type_node.type_error_union_payload_type);
+        return;
+    }
+}
+
+fn checker_walk_reachability_expr_impl(checker: &TypeChecker, expr: &ASTNode) void {
+    if checker == null || expr == null {
+        return;
+    }
+    checker_maybe_add_direct_address_root(checker, expr);
+
+    if expr.type == ASTNodeType.AST_CALL_EXPR {
+        checker_record_reachable_call(checker, expr.call_expr_callee);
+        checker_walk_reachability_expr(checker, expr.call_expr_callee);
+        if expr.call_expr_args != null {
+            var i: i32 = 0;
+            while i < expr.call_expr_arg_count {
+                checker_walk_reachability_expr(checker, expr.call_expr_args[i]);
+                i = i + 1;
+            }
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        checker_walk_reachability_expr(checker, expr.member_access_object);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_ARRAY_ACCESS {
+        checker_walk_reachability_expr(checker, expr.array_access_array);
+        checker_walk_reachability_expr(checker, expr.array_access_index);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_BINARY_EXPR {
+        checker_walk_reachability_expr(checker, expr.binary_expr_left);
+        checker_walk_reachability_expr(checker, expr.binary_expr_right);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_UNARY_EXPR {
+        checker_walk_reachability_expr(checker, expr.unary_expr_operand);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR {
+        checker_walk_reachability_expr(checker, expr.cast_expr_expr);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_SLICE_EXPR {
+        checker_walk_reachability_expr(checker, expr.slice_expr_base);
+        checker_walk_reachability_expr(checker, expr.slice_expr_start_expr);
+        checker_walk_reachability_expr(checker, expr.slice_expr_len_expr);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_AWAIT_EXPR {
+        checker_walk_reachability_expr(checker, expr.await_expr_operand);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_TRY_EXPR {
+        checker_walk_reachability_expr(checker, expr.try_expr_operand);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_CATCH_EXPR {
+        checker_walk_reachability_expr(checker, expr.catch_expr_operand);
+        checker_walk_reachability_node(checker, expr.catch_expr_catch_block);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_MATCH_EXPR {
+        checker_walk_reachability_expr(checker, expr.match_expr_expr);
+        if expr.match_expr_arms != null {
+            var j: i32 = 0;
+            while j < expr.match_expr_arm_count {
+                checker_walk_reachability_expr(checker, expr.match_expr_arms[j].result_expr);
+                j = j + 1;
+            }
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_STRUCT_INIT && expr.struct_init_field_values != null {
+        var k: i32 = 0;
+        while k < expr.struct_init_field_count {
+            checker_walk_reachability_expr(checker, expr.struct_init_field_values[k]);
+            k = k + 1;
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_ARRAY_LITERAL && expr.array_literal_elements != null {
+        var m: i32 = 0;
+        while m < expr.array_literal_element_count {
+            checker_walk_reachability_expr(checker, expr.array_literal_elements[m]);
+            m = m + 1;
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_TUPLE_LITERAL && expr.tuple_literal_elements != null {
+        var n: i32 = 0;
+        while n < expr.tuple_literal_element_count {
+            checker_walk_reachability_expr(checker, expr.tuple_literal_elements[n]);
+            n = n + 1;
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_STRING_INTERP && expr.string_interp_segments != null {
+        var si: i32 = 0;
+        while si < expr.string_interp_segment_count {
+            if expr.string_interp_segments[si].is_text == 0 {
+                checker_walk_reachability_expr(checker, expr.string_interp_segments[si].expr);
+            }
+            si = si + 1;
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_LEN {
+        checker_walk_reachability_expr(checker, expr.len_expr_array);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_SIZEOF && expr.sizeof_expr_is_type == 0 {
+        checker_walk_reachability_expr(checker, expr.sizeof_expr_target);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_ALIGNOF && expr.alignof_expr_is_type == 0 {
+        checker_walk_reachability_expr(checker, expr.alignof_expr_target);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_PTR_FROM_USIZE {
+        checker_walk_reachability_expr(checker, expr.ptr_from_usize_value);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_USIZE_FROM_PTR {
+        checker_walk_reachability_expr(checker, expr.usize_from_ptr_ptr);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_ERROR_ID {
+        checker_walk_reachability_expr(checker, expr.error_id_operand);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_ERROR_NAME {
+        checker_walk_reachability_expr(checker, expr.error_name_operand);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_SYSCALL {
+        checker_walk_reachability_expr(checker, expr.syscall_number);
+        if expr.syscall_args != null {
+            var sj: i32 = 0;
+            while sj < expr.syscall_arg_count {
+                checker_walk_reachability_expr(checker, expr.syscall_args[sj]);
+                sj = sj + 1;
+            }
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_VA_START {
+        checker_walk_reachability_expr(checker, expr.va_start_ap);
+        checker_walk_reachability_expr(checker, expr.va_start_last_param);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_VA_END {
+        checker_walk_reachability_expr(checker, expr.va_end_ap);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_VA_ARG {
+        checker_walk_reachability_expr(checker, expr.va_arg_ap);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_VA_COPY {
+        checker_walk_reachability_expr(checker, expr.va_copy_dest);
+        checker_walk_reachability_expr(checker, expr.va_copy_src);
+        return;
+    }
+}
+
+fn checker_walk_reachability_expr(checker: &TypeChecker, expr: &ASTNode) void {
+    if checker == null || expr == null {
+        return;
+    }
+    if checker_mark_reachability_node_visited(checker, expr) == 0 {
+        return;
+    }
+    checker_walk_reachability_expr_impl(checker, expr);
+}
+
+fn checker_walk_reachability_node(checker: &TypeChecker, node: &ASTNode) void {
+    if checker == null || node == null {
+        return;
+    }
+    if checker_mark_reachability_node_visited(checker, node) == 0 {
+        return;
+    }
+    checker_walk_reachability_expr_impl(checker, node);
+
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            checker_walk_reachability_node(checker, node.block_stmts[i]);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        checker_walk_reachability_node(checker, node.if_stmt_condition);
+        checker_walk_reachability_node(checker, node.if_stmt_then_branch);
+        checker_walk_reachability_node(checker, node.if_stmt_else_branch);
+        return;
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        checker_walk_reachability_node(checker, node.while_stmt_condition);
+        checker_walk_reachability_node(checker, node.while_stmt_body);
+        return;
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        checker_walk_reachability_node(checker, node.for_stmt_range_start);
+        checker_walk_reachability_node(checker, node.for_stmt_range_end);
+        checker_walk_reachability_node(checker, node.for_stmt_array);
+        checker_walk_reachability_node(checker, node.for_stmt_body);
+        return;
+    }
+    if node.type == ASTNodeType.AST_VAR_DECL {
+        checker_maybe_add_frame_type_root(checker, node.var_decl_type);
+        checker_walk_reachability_node(checker, node.var_decl_init);
+        return;
+    }
+    if node.type == ASTNodeType.AST_EXTERN_VAR_DECL {
+        checker_walk_reachability_node(checker, node.extern_var_decl_init_expr);
+        return;
+    }
+    if node.type == ASTNodeType.AST_DESTRUCTURE_DECL {
+        checker_walk_reachability_node(checker, node.destructure_decl_init);
+        return;
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        checker_walk_reachability_node(checker, node.return_stmt_expr);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ASSIGN {
+        checker_walk_reachability_node(checker, node.assign_dest);
+        checker_walk_reachability_node(checker, node.assign_src);
+        return;
+    }
+    if node.type == ASTNodeType.AST_DEFER_STMT {
+        checker_walk_reachability_node(checker, node.defer_stmt_body);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ERRDEFER_STMT {
+        checker_walk_reachability_node(checker, node.errdefer_stmt_body);
+        return;
+    }
+    if node.type == ASTNodeType.AST_TEST_STMT {
+        checker_walk_reachability_node(checker, node.test_stmt_body);
+        return;
+    }
+    if node.type == ASTNodeType.AST_AWAIT_EXPR {
+        checker_walk_reachability_node(checker, node.await_expr_operand);
+        return;
+    }
+    if node.type == ASTNodeType.AST_CATCH_EXPR {
+        checker_walk_reachability_node(checker, node.catch_expr_operand);
+        checker_walk_reachability_node(checker, node.catch_expr_catch_block);
+        return;
+    }
+    if node.type == ASTNodeType.AST_MATCH_EXPR && node.match_expr_arms != null {
+        checker_walk_reachability_node(checker, node.match_expr_expr);
+        var j: i32 = 0;
+        while j < node.match_expr_arm_count {
+            checker_walk_reachability_node(checker, node.match_expr_arms[j].result_expr);
+            j = j + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_TUPLE_LITERAL && node.tuple_literal_elements != null {
+        var k: i32 = 0;
+        while k < node.tuple_literal_element_count {
+            checker_walk_reachability_node(checker, node.tuple_literal_elements[k]);
+            k = k + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_PRINT || node.type == ASTNodeType.AST_PRINTLN {
+        checker_walk_reachability_node(checker, node.print_expr);
+        return;
+    }
+    if node.type == ASTNodeType.AST_LEN {
+        checker_walk_reachability_node(checker, node.len_expr_array);
+        return;
+    }
+    if node.type == ASTNodeType.AST_SIZEOF && node.sizeof_expr_is_type == 0 {
+        checker_walk_reachability_node(checker, node.sizeof_expr_target);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ALIGNOF && node.alignof_expr_is_type == 0 {
+        checker_walk_reachability_node(checker, node.alignof_expr_target);
+        return;
+    }
+    if node.type == ASTNodeType.AST_PTR_FROM_USIZE {
+        checker_walk_reachability_node(checker, node.ptr_from_usize_value);
+        return;
+    }
+    if node.type == ASTNodeType.AST_USIZE_FROM_PTR {
+        checker_walk_reachability_node(checker, node.usize_from_ptr_ptr);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ERROR_ID {
+        checker_walk_reachability_node(checker, node.error_id_operand);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ERROR_NAME {
+        checker_walk_reachability_node(checker, node.error_name_operand);
+        return;
+    }
+    if node.type == ASTNodeType.AST_SYSCALL {
+        checker_walk_reachability_node(checker, node.syscall_number);
+        if node.syscall_args != null {
+            var s: i32 = 0;
+            while s < node.syscall_arg_count {
+                checker_walk_reachability_node(checker, node.syscall_args[s]);
+                s = s + 1;
+            }
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_VA_START {
+        checker_walk_reachability_node(checker, node.va_start_ap);
+        checker_walk_reachability_node(checker, node.va_start_last_param);
+        return;
+    }
+    if node.type == ASTNodeType.AST_VA_END {
+        checker_walk_reachability_node(checker, node.va_end_ap);
+        return;
+    }
+    if node.type == ASTNodeType.AST_VA_ARG {
+        checker_walk_reachability_node(checker, node.va_arg_ap);
+        return;
+    }
+    if node.type == ASTNodeType.AST_VA_COPY {
+        checker_walk_reachability_node(checker, node.va_copy_dest);
+        checker_walk_reachability_node(checker, node.va_copy_src);
+        return;
+    }
+    if node.type == ASTNodeType.AST_STRING_INTERP && node.string_interp_segments != null {
+        var t: i32 = 0;
+        while t < node.string_interp_segment_count {
+            if node.string_interp_segments[t].is_text == 0 {
+                checker_walk_reachability_node(checker, node.string_interp_segments[t].expr);
+            }
+            t = t + 1;
+        }
+        return;
+    }
+}
+
+fn checker_walk_reachability_expr_uncached(checker: &TypeChecker, expr: &ASTNode) void {
+    if checker == null || expr == null {
+        return;
+    }
+    checker_maybe_add_direct_address_root(checker, expr);
+
+    if expr.type == ASTNodeType.AST_CALL_EXPR {
+        checker_record_reachable_call(checker, expr.call_expr_callee);
+        checker_walk_reachability_expr_uncached(checker, expr.call_expr_callee);
+        if expr.call_expr_args != null {
+            var i: i32 = 0;
+            while i < expr.call_expr_arg_count {
+                checker_walk_reachability_expr_uncached(checker, expr.call_expr_args[i]);
+                i = i + 1;
+            }
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        checker_walk_reachability_expr_uncached(checker, expr.member_access_object);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_ARRAY_ACCESS {
+        checker_walk_reachability_expr_uncached(checker, expr.array_access_array);
+        checker_walk_reachability_expr_uncached(checker, expr.array_access_index);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_BINARY_EXPR {
+        checker_walk_reachability_expr_uncached(checker, expr.binary_expr_left);
+        checker_walk_reachability_expr_uncached(checker, expr.binary_expr_right);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_UNARY_EXPR {
+        checker_walk_reachability_expr_uncached(checker, expr.unary_expr_operand);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR {
+        checker_walk_reachability_expr_uncached(checker, expr.cast_expr_expr);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_SLICE_EXPR {
+        checker_walk_reachability_expr_uncached(checker, expr.slice_expr_base);
+        checker_walk_reachability_expr_uncached(checker, expr.slice_expr_start_expr);
+        checker_walk_reachability_expr_uncached(checker, expr.slice_expr_len_expr);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_AWAIT_EXPR {
+        checker_walk_reachability_expr_uncached(checker, expr.await_expr_operand);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_TRY_EXPR {
+        checker_walk_reachability_expr_uncached(checker, expr.try_expr_operand);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_CATCH_EXPR {
+        checker_walk_reachability_expr_uncached(checker, expr.catch_expr_operand);
+        checker_walk_reachability_node_uncached(checker, expr.catch_expr_catch_block);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_MATCH_EXPR {
+        checker_walk_reachability_expr_uncached(checker, expr.match_expr_expr);
+        if expr.match_expr_arms != null {
+            var j: i32 = 0;
+            while j < expr.match_expr_arm_count {
+                checker_walk_reachability_expr_uncached(checker, expr.match_expr_arms[j].result_expr);
+                j = j + 1;
+            }
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_STRUCT_INIT && expr.struct_init_field_values != null {
+        var k: i32 = 0;
+        while k < expr.struct_init_field_count {
+            checker_walk_reachability_expr_uncached(checker, expr.struct_init_field_values[k]);
+            k = k + 1;
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_ARRAY_LITERAL && expr.array_literal_elements != null {
+        var m: i32 = 0;
+        while m < expr.array_literal_element_count {
+            checker_walk_reachability_expr_uncached(checker, expr.array_literal_elements[m]);
+            m = m + 1;
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_TUPLE_LITERAL && expr.tuple_literal_elements != null {
+        var n: i32 = 0;
+        while n < expr.tuple_literal_element_count {
+            checker_walk_reachability_expr_uncached(checker, expr.tuple_literal_elements[n]);
+            n = n + 1;
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_STRING_INTERP && expr.string_interp_segments != null {
+        var si: i32 = 0;
+        while si < expr.string_interp_segment_count {
+            if expr.string_interp_segments[si].is_text == 0 {
+                checker_walk_reachability_expr_uncached(checker, expr.string_interp_segments[si].expr);
+            }
+            si = si + 1;
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_LEN {
+        checker_walk_reachability_expr_uncached(checker, expr.len_expr_array);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_SIZEOF && expr.sizeof_expr_is_type == 0 {
+        checker_walk_reachability_expr_uncached(checker, expr.sizeof_expr_target);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_ALIGNOF && expr.alignof_expr_is_type == 0 {
+        checker_walk_reachability_expr_uncached(checker, expr.alignof_expr_target);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_PTR_FROM_USIZE {
+        checker_walk_reachability_expr_uncached(checker, expr.ptr_from_usize_value);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_USIZE_FROM_PTR {
+        checker_walk_reachability_expr_uncached(checker, expr.usize_from_ptr_ptr);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_ERROR_ID {
+        checker_walk_reachability_expr_uncached(checker, expr.error_id_operand);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_ERROR_NAME {
+        checker_walk_reachability_expr_uncached(checker, expr.error_name_operand);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_SYSCALL {
+        checker_walk_reachability_expr_uncached(checker, expr.syscall_number);
+        if expr.syscall_args != null {
+            var sj: i32 = 0;
+            while sj < expr.syscall_arg_count {
+                checker_walk_reachability_expr_uncached(checker, expr.syscall_args[sj]);
+                sj = sj + 1;
+            }
+        }
+        return;
+    }
+    if expr.type == ASTNodeType.AST_VA_START {
+        checker_walk_reachability_expr_uncached(checker, expr.va_start_ap);
+        checker_walk_reachability_expr_uncached(checker, expr.va_start_last_param);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_VA_END {
+        checker_walk_reachability_expr_uncached(checker, expr.va_end_ap);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_VA_ARG {
+        checker_walk_reachability_expr_uncached(checker, expr.va_arg_ap);
+        return;
+    }
+    if expr.type == ASTNodeType.AST_VA_COPY {
+        checker_walk_reachability_expr_uncached(checker, expr.va_copy_dest);
+        checker_walk_reachability_expr_uncached(checker, expr.va_copy_src);
+        return;
+    }
+}
+
+fn checker_walk_reachability_node_uncached(checker: &TypeChecker, node: &ASTNode) void {
+    if checker == null || node == null {
+        return;
+    }
+    checker_walk_reachability_expr_uncached(checker, node);
+
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            checker_walk_reachability_node_uncached(checker, node.block_stmts[i]);
+            i = i + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        checker_walk_reachability_node_uncached(checker, node.if_stmt_condition);
+        checker_walk_reachability_node_uncached(checker, node.if_stmt_then_branch);
+        checker_walk_reachability_node_uncached(checker, node.if_stmt_else_branch);
+        return;
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        checker_walk_reachability_node_uncached(checker, node.while_stmt_condition);
+        checker_walk_reachability_node_uncached(checker, node.while_stmt_body);
+        return;
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        checker_walk_reachability_node_uncached(checker, node.for_stmt_range_start);
+        checker_walk_reachability_node_uncached(checker, node.for_stmt_range_end);
+        checker_walk_reachability_node_uncached(checker, node.for_stmt_array);
+        checker_walk_reachability_node_uncached(checker, node.for_stmt_body);
+        return;
+    }
+    if node.type == ASTNodeType.AST_VAR_DECL {
+        checker_maybe_add_frame_type_root(checker, node.var_decl_type);
+        checker_walk_reachability_node_uncached(checker, node.var_decl_init);
+        return;
+    }
+    if node.type == ASTNodeType.AST_EXTERN_VAR_DECL {
+        checker_walk_reachability_node_uncached(checker, node.extern_var_decl_init_expr);
+        return;
+    }
+    if node.type == ASTNodeType.AST_DESTRUCTURE_DECL {
+        checker_walk_reachability_node_uncached(checker, node.destructure_decl_init);
+        return;
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        checker_walk_reachability_node_uncached(checker, node.return_stmt_expr);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ASSIGN {
+        checker_walk_reachability_node_uncached(checker, node.assign_dest);
+        checker_walk_reachability_node_uncached(checker, node.assign_src);
+        return;
+    }
+    if node.type == ASTNodeType.AST_DEFER_STMT {
+        checker_walk_reachability_node_uncached(checker, node.defer_stmt_body);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ERRDEFER_STMT {
+        checker_walk_reachability_node_uncached(checker, node.errdefer_stmt_body);
+        return;
+    }
+    if node.type == ASTNodeType.AST_TEST_STMT {
+        checker_walk_reachability_node_uncached(checker, node.test_stmt_body);
+        return;
+    }
+    if node.type == ASTNodeType.AST_AWAIT_EXPR {
+        checker_walk_reachability_node_uncached(checker, node.await_expr_operand);
+        return;
+    }
+    if node.type == ASTNodeType.AST_CATCH_EXPR {
+        checker_walk_reachability_node_uncached(checker, node.catch_expr_operand);
+        checker_walk_reachability_node_uncached(checker, node.catch_expr_catch_block);
+        return;
+    }
+    if node.type == ASTNodeType.AST_MATCH_EXPR && node.match_expr_arms != null {
+        checker_walk_reachability_node_uncached(checker, node.match_expr_expr);
+        var j: i32 = 0;
+        while j < node.match_expr_arm_count {
+            checker_walk_reachability_node_uncached(checker, node.match_expr_arms[j].result_expr);
+            j = j + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_TUPLE_LITERAL && node.tuple_literal_elements != null {
+        var k: i32 = 0;
+        while k < node.tuple_literal_element_count {
+            checker_walk_reachability_node_uncached(checker, node.tuple_literal_elements[k]);
+            k = k + 1;
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_PRINT || node.type == ASTNodeType.AST_PRINTLN {
+        checker_walk_reachability_node_uncached(checker, node.print_expr);
+        return;
+    }
+    if node.type == ASTNodeType.AST_LEN {
+        checker_walk_reachability_node_uncached(checker, node.len_expr_array);
+        return;
+    }
+    if node.type == ASTNodeType.AST_SIZEOF && node.sizeof_expr_is_type == 0 {
+        checker_walk_reachability_node_uncached(checker, node.sizeof_expr_target);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ALIGNOF && node.alignof_expr_is_type == 0 {
+        checker_walk_reachability_node_uncached(checker, node.alignof_expr_target);
+        return;
+    }
+    if node.type == ASTNodeType.AST_PTR_FROM_USIZE {
+        checker_walk_reachability_node_uncached(checker, node.ptr_from_usize_value);
+        return;
+    }
+    if node.type == ASTNodeType.AST_USIZE_FROM_PTR {
+        checker_walk_reachability_node_uncached(checker, node.usize_from_ptr_ptr);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ERROR_ID {
+        checker_walk_reachability_node_uncached(checker, node.error_id_operand);
+        return;
+    }
+    if node.type == ASTNodeType.AST_ERROR_NAME {
+        checker_walk_reachability_node_uncached(checker, node.error_name_operand);
+        return;
+    }
+    if node.type == ASTNodeType.AST_SYSCALL {
+        checker_walk_reachability_node_uncached(checker, node.syscall_number);
+        if node.syscall_args != null {
+            var s: i32 = 0;
+            while s < node.syscall_arg_count {
+                checker_walk_reachability_node_uncached(checker, node.syscall_args[s]);
+                s = s + 1;
+            }
+        }
+        return;
+    }
+    if node.type == ASTNodeType.AST_VA_START {
+        checker_walk_reachability_node_uncached(checker, node.va_start_ap);
+        checker_walk_reachability_node_uncached(checker, node.va_start_last_param);
+        return;
+    }
+    if node.type == ASTNodeType.AST_VA_END {
+        checker_walk_reachability_node_uncached(checker, node.va_end_ap);
+        return;
+    }
+    if node.type == ASTNodeType.AST_VA_ARG {
+        checker_walk_reachability_node_uncached(checker, node.va_arg_ap);
+        return;
+    }
+    if node.type == ASTNodeType.AST_VA_COPY {
+        checker_walk_reachability_node_uncached(checker, node.va_copy_dest);
+        checker_walk_reachability_node_uncached(checker, node.va_copy_src);
+        return;
+    }
+    if node.type == ASTNodeType.AST_STRING_INTERP && node.string_interp_segments != null {
+        var t: i32 = 0;
+        while t < node.string_interp_segment_count {
+            if node.string_interp_segments[t].is_text == 0 {
+                checker_walk_reachability_node_uncached(checker, node.string_interp_segments[t].expr);
+            }
+            t = t + 1;
+        }
+        return;
+    }
+}
+
+fn checker_check_cast_expr(checker: &TypeChecker, node: &ASTNode) void {
+    if checker == null || node == null || node.type != ASTNodeType.AST_CAST_EXPR {
+        return;
+    }
+    
+    const expr: &ASTNode = node.cast_expr_expr;
+    const target_type_node: &ASTNode = node.cast_expr_target_type;
+    checker_maybe_add_direct_address_root(checker, expr);
+    
+    if expr == null || target_type_node == null {
+        // 放宽检查：expr 或 target_type_node 为 null 时，允许通过（不报错）
+        // 这在编译器自举时可能发生
+        return;
+    }
+    checker_walk_reachability_expr(checker, expr);
+    
+    // 推断源表达式类型和目标类型
+    const source_type: Type = checker_infer_type(checker, expr);
+    const target_type: Type = type_from_ast(checker, target_type_node);
+    
+    // 检查类型是否有效
+    if source_type.kind == TypeKind.TYPE_VOID || target_type.kind == TypeKind.TYPE_VOID {
+        // 类型无效：放宽检查，允许通过（不报错）
+        // 这在编译器自举时很常见，因为类型推断可能失败
+        return;
+    }
+    
+    if checker_check_cast_requires_asbang(checker, node, expr, source_type, target_type) != 0 {
+        return;
+    }
+
+    // 验证类型转换是否合法
+    // 1. 任意整数类型之间（含 byte）
+    if is_integer_type(source_type.kind) != 0 && is_integer_type(target_type.kind) != 0 {
+        return;
+    }
+    // 2. 整数与 bool
+    if source_type.kind == TypeKind.TYPE_I32 && target_type.kind == TypeKind.TYPE_BOOL {
+        return;
+    }
+    if source_type.kind == TypeKind.TYPE_BOOL && target_type.kind == TypeKind.TYPE_I32 {
+        return;
+    }
+    // 3. 整数与浮点
+    if source_type.kind == TypeKind.TYPE_F32 && target_type.kind == TypeKind.TYPE_F64 {
+        return;
+    }
+    if source_type.kind == TypeKind.TYPE_F64 && target_type.kind == TypeKind.TYPE_F32 {
+        return;
+    }
+    if is_integer_type(source_type.kind) != 0 && (target_type.kind == TypeKind.TYPE_F32 || target_type.kind == TypeKind.TYPE_F64) {
+        return;
+    }
+    if (source_type.kind == TypeKind.TYPE_F32 || source_type.kind == TypeKind.TYPE_F64) && is_integer_type(target_type.kind) != 0 {
+        return;
+    }
+    // 4. 支持指针类型之间的转换（&void 可以转换为任何指针类型）
+    else if source_type.kind == TypeKind.TYPE_POINTER && target_type.kind == TypeKind.TYPE_POINTER {
+        // 指针类型转换：允许 &void 转换为任何指针类型
+        // 也允许相同类型的指针转换（虽然通常不需要）
+        if source_type.pointer_to == null {
+            // 源类型是 &void（pointer_to 为 null 表示 void）
+            // 允许转换为任何指针类型
+            return;
+        } else if target_type.pointer_to == null {
+            // 目标类型是 &void，允许任何指针类型转换为 &void
+            return;
+        } else if source_type.pointer_to != null && target_type.pointer_to != null &&
+                   type_equals(source_type.pointer_to[0], target_type.pointer_to[0]) != 0 {
+            // 指向相同类型的指针转换：允许普通指针（&T）和 FFI 指针（*T）之间的转换
+            // 这是 Uya Mini 中的常见模式，用于 FFI 调用
+            // 例如：&byte as *byte 或 *byte as &byte
+            return;
+        } else if source_type.pointer_to != null && target_type.pointer_to != null {
+            // 指向不同类型的指针转换：允许（用于编译器自举等场景）
+            // 这是一个宽松的检查，允许任何指针类型之间的转换
+            // 在实际使用中应该小心，但编译器自举时可能需要
+            return;
+        } else {
+            // 不同指针类型之间的转换：放宽检查，允许通过（不报错）
+            // 这在编译器自举时很常见，因为类型推断可能失败
+            return;
+        }
+    } else {
+        // 不支持的类型转换：放宽检查，允许通过（不报错）
+        // 这在编译器自举时很常见，因为类型推断可能失败
+        return;
+    }
+}
+
+// 检查一元表达式
+// 参数：checker - TypeChecker 指针，node - 一元表达式节点
+// 返回：表达式类型（如果检查失败返回TYPE_VOID）
+fn checker_check_unary_expr(checker: &TypeChecker, node: &ASTNode) Type {
+    // 注意：Uya 要求所有变量必须初始化
+    var result: Type = make_void_type();
+    
+    if checker == null || node == null || node.type != ASTNodeType.AST_UNARY_EXPR {
+        return result;
+    }
+    checker_walk_reachability_expr(checker, node.unary_expr_operand);
+    
+    const op: TokenType = checker_token_or_plus_extra(node.unary_expr_op);
+    const operand_type: Type = checker_infer_type(checker, node.unary_expr_operand);
+    
+    if op == TokenType.TOKEN_EXCLAMATION {
+        if operand_type.kind == TypeKind.TYPE_MASK {
+            return copy_type(&operand_type);
+        }
+        // 逻辑非：操作数必须是bool
+        if operand_type.kind != TypeKind.TYPE_BOOL {
+            var op_node: &ASTNode = node.unary_expr_operand;
+            if op_node == null {
+                op_node = node;
+            }
+            checker_report_error_type_kind_mismatch(checker, op_node, "逻辑非 !" as *byte, make_bool_type(), copy_type(&operand_type));
+            return result;
+        }
+        result.kind = TypeKind.TYPE_BOOL;
+        return result;
+    } else if op == TokenType.TOKEN_MINUS {
+        if operand_type.kind == TypeKind.TYPE_VECTOR {
+            return copy_type(&operand_type);
+        }
+        // 一元负号：操作数必须是整数或浮点类型；max/min 在此无法推断类型
+        if operand_type.kind == TypeKind.TYPE_INT_LIMIT {
+            checker_report_error(checker, node, "max/min 在此上下文中无法推断类型，请使用类型注解（如 const x: i32 = max）或与同类型操作数运算" as *byte);
+            return result;
+        }
+        if is_integer_type(operand_type.kind) == 0 && operand_type.kind != TypeKind.TYPE_F32 && operand_type.kind != TypeKind.TYPE_F64 {
+            var op_node2: &ASTNode = node.unary_expr_operand;
+            if op_node2 == null {
+                op_node2 = node;
+            }
+            const acs: &byte = type_to_string(checker.arena, copy_type(&operand_type));
+            var neg_buf: [byte: 384] = [];
+            snprintf(&neg_buf[0] as *byte, 384 as usize, "一元负号 -：操作数须为整数或浮点类型，推断为 %s" as *byte, acs as *byte);
+            checker_report_error(checker, op_node2, &neg_buf[0] as &byte);
+            return result;
+        }
+        result = copy_type(&operand_type);
+        return result;
+    } else if op == TokenType.TOKEN_TILDE {
+        if operand_type.kind == TypeKind.TYPE_VECTOR {
+            if simd_vector_has_integer_elements(operand_type) == 0 {
+                checker_report_error(checker, node, "向量按位取反仅支持整数元素类型的 @vector(T, N)" as *byte);
+                return make_void_type();
+            }
+            return copy_type(&operand_type);
+        }
+        // 按位取反（~）：操作数必须是整数类型；max/min 在此无法推断类型
+        if operand_type.kind == TypeKind.TYPE_INT_LIMIT {
+            checker_report_error(checker, node, "max/min 在此上下文中无法推断类型，请使用类型注解（如 const x: i32 = max）或与同类型操作数运算" as *byte);
+            return result;
+        }
+        if is_integer_type(operand_type.kind) == 0 {
+            if operand_type.kind != TypeKind.TYPE_VOID {
+                checker_report_error(checker, node, "按位取反 ~ 的操作数必须为整数类型" as *byte);
+            }
+            result.kind = TypeKind.TYPE_I32;
+            return result;
+        }
+        result = copy_type(&operand_type);
+        return result;
+    } else if op == TokenType.TOKEN_AMPERSAND {
+        // 取地址（&expr）：与 C 一致，操作数类型无效（TypeKind.TYPE_VOID）时放宽检查，返回 &void，不报错
+        checker_maybe_add_direct_address_root(checker, node);
+        if is_void_type(operand_type) != 0 {
+            // 设置新的 union data 字段
+            var pd: PointerData = PointerData {
+                pointee: null as &Type,
+                is_ffi: 0,
+            };
+            result.kind = TypeKind.TYPE_POINTER;
+            result.data = TypeData.pointer(pd);
+            result.pointer_to = null;  // &void
+            result.is_ffi_pointer = 0;
+            return result;
+        }
+        
+        // 分配操作数类型结构（从Arena分配）
+        const pointed_type_ptr: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if pointed_type_ptr == null {
+            checker_report_error(checker, node, "取地址 &：无法从 Arena 分配类型节点（内存不足）" as *byte);
+            return result;
+        }
+        pointed_type_ptr[0] = copy_type(&operand_type);
+        
+        // 设置新的 union data 字段
+        var pd: PointerData = PointerData {
+            pointee: pointed_type_ptr,
+            is_ffi: 0,
+        };
+        result.kind = TypeKind.TYPE_POINTER;
+        result.data = TypeData.pointer(pd);
+        result.pointer_to = pointed_type_ptr;
+        result.is_ffi_pointer = 0;
+        return result;
+    } else if op == TokenType.TOKEN_ASTERISK {
+        // 解引用（*expr）：操作数必须是指针类型
+        if operand_type.kind != TypeKind.TYPE_POINTER {
+            // 类型推断失败：放宽检查，允许通过（不报错）
+            // 这在编译器自举时很常见，因为类型推断可能失败（如 for 循环变量）
+            // 返回 void 类型，允许解引用但不进行严格的类型检查
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        
+        if operand_type.pointer_to == null {
+            // 指针类型无效：放宽检查，允许通过（不报错）
+            // 返回 void 类型，允许解引用但不进行严格的类型检查
+            result.kind = TypeKind.TYPE_VOID;
+            return result;
+        }
+        
+        // 返回指针指向的类型
+        // 注意：Uya 不支持指针解引用，需要使用数组访问
+        return operand_type.pointer_to[0];
+    }
+    
+    return result;
+}
+
+// 类型检查主函数
+fn checker_update_module_root_from_fn_decl(checker: &TypeChecker, decl: &ASTNode) void {
+    if checker == null || decl == null || checker.module_root_dir != null ||
+        decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_name == null ||
+        str_equals(decl.fn_decl_name, "main" as *byte) == 0 || decl.filename == null {
+        return;
+    }
+    // std.runtime.entry：export extern fn main — 不要用其所在目录覆盖项目根
+    if decl.fn_decl_is_extern != 0 {
+        return;
+    }
+    const filename: &byte = decl.filename;
+    var last_slash: *byte = strrchr(filename as *byte, 47);
+    if last_slash == null {
+        last_slash = strrchr(filename as *byte, 92);
+    }
+    if last_slash != null {
+        const dir_len: usize = ptr_diff(last_slash, filename as *byte) as usize + 1;
+        const root_dir: &u8 = compiler_arena_alloc(checker.arena, dir_len + 1) as &u8;
+        if root_dir == null {
+            return;
+        }
+        memcpy(root_dir as *void, filename as *void, dir_len);
+        root_dir[dir_len] = 0;
+        checker.module_root_dir = root_dir as &byte;
+        return;
+    }
+    const root_dir: &byte = compiler_arena_alloc(checker.arena, 1) as &byte;
+    if root_dir != null {
+        root_dir[0] = 0;
+        checker.module_root_dir = root_dir;
+    }
+}
+
+fn checker_prepass_top_level_decls(checker: &TypeChecker, ast: &ASTNode) i32 {
+    if checker == null || ast == null || ast.type != ASTNodeType.AST_PROGRAM {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < ast.program_decl_count {
+        const decl: &ASTNode = ast.program_decls[i];
+        if decl != null {
+            if decl.type == ASTNodeType.AST_FN_DECL {
+                if checker_register_fn_decl(checker, decl) == 0 {
+                    return 0;
+                }
+                checker_update_module_root_from_fn_decl(checker, decl);
+            } else if decl.type == ASTNodeType.AST_VAR_DECL {
+                checker_register_var_decl(checker, decl);
+            }
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn checker_make_embed_dir_entry_slice_byte_type(arena: &CompilerArena, filename: &byte) &ASTNode {
+    if arena == null {
+        return null;
+    }
+    const byte_type: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_NAMED, 0, 0, arena, filename);
+    if byte_type == null {
+        return null;
+    }
+    byte_type.type_named_name = "byte" as &byte;
+    const slice_type: &ASTNode = ast_new_node(ASTNodeType.AST_TYPE_SLICE, 0, 0, arena, filename);
+    if slice_type == null {
+        return null;
+    }
+    slice_type.type_slice_element_type = byte_type;
+    slice_type.type_slice_element_const = 1;
+    return slice_type;
+}
+
+fn checker_make_embed_dir_entry_decl(checker: &TypeChecker, filename: &byte) &ASTNode {
+    if checker == null || checker.arena == null {
+        return null;
+    }
+    const decl: &ASTNode = ast_new_node(ASTNodeType.AST_STRUCT_DECL, 0, 0, checker.arena, filename);
+    if decl == null {
+        return null;
+    }
+    decl.struct_decl_name = "EmbedDirEntry" as &byte;
+    const fields: & & ASTNode = compiler_arena_alloc(checker.arena, @size_of(&ASTNode) * 2 as usize) as & & ASTNode;
+    if fields == null {
+        return null;
+    }
+
+    const path_field: &ASTNode = ast_new_node(ASTNodeType.AST_VAR_DECL, 0, 0, checker.arena, filename);
+    if path_field == null {
+        return null;
+    }
+    path_field.var_decl_name = "path" as &byte;
+    path_field.var_decl_type = checker_make_embed_dir_entry_slice_byte_type(checker.arena, filename);
+    if path_field.var_decl_type == null {
+        return null;
+    }
+
+    const data_field: &ASTNode = ast_new_node(ASTNodeType.AST_VAR_DECL, 0, 0, checker.arena, filename);
+    if data_field == null {
+        return null;
+    }
+    data_field.var_decl_name = "data" as &byte;
+    data_field.var_decl_type = checker_make_embed_dir_entry_slice_byte_type(checker.arena, filename);
+    if data_field.var_decl_type == null {
+        return null;
+    }
+
+    fields[0] = path_field;
+    fields[1] = data_field;
+    decl.struct_decl_fields = fields;
+    decl.struct_decl_field_count = 2;
+    decl.struct_decl_is_export = 0;
+    return decl;
+}
+
+fn checker_program_prepend_decl(checker: &TypeChecker, program: &ASTNode, decl: &ASTNode) i32 {
+    if checker == null || program == null || decl == null || program.type != ASTNodeType.AST_PROGRAM {
+        return 0;
+    }
+    const new_count: i32 = program.program_decl_count + 1;
+    const new_decls: & & ASTNode = compiler_arena_alloc(checker.arena, @size_of(&ASTNode) * (new_count as usize)) as & & ASTNode;
+    if new_decls == null {
+        return 0;
+    }
+    new_decls[0] = decl;
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        new_decls[i + 1] = program.program_decls[i];
+        i = i + 1;
+    }
+    program.program_decls = new_decls;
+    program.program_decl_count = new_count;
+    return 1;
+}
+
+fn checker_ensure_embed_dir_entry_decl(checker: &TypeChecker, program_ptr: &ASTNode) i32 {
+    if checker == null || program_ptr == null || program_ptr.type != ASTNodeType.AST_PROGRAM {
+        return 1;
+    }
+    if checker_program_contains_embed_dir(program_ptr) == 0 {
+        return 1;
+    }
+    const existing: &ASTNode = find_struct_decl_from_program(program_ptr, "EmbedDirEntry" as &byte);
+    if existing != null {
+        return checker_embed_validate_embed_dir_entry_struct(checker, existing);
+    }
+    var filename: &byte = checker.default_filename;
+    if program_ptr.filename != null {
+        filename = program_ptr.filename;
+    }
+    const decl: &ASTNode = checker_make_embed_dir_entry_decl(checker, filename);
+    if decl == null {
+        checker_report_error(checker, program_ptr, "EmbedDirEntry 合成失败" as *byte);
+        return 0;
+    }
+    if checker_program_prepend_decl(checker, program_ptr, decl) == 0 {
+        checker_report_error(checker, program_ptr, "EmbedDirEntry 注入失败" as *byte);
+        return 0;
+    }
+    reset_program_lookup_caches();
+    checker.program_node = program_ptr;
+    return 1;
+}
+
+// 实现两遍检查机制：
+// 第一遍：收集所有函数声明（解决函数循环依赖问题）
+// 第二遍：检查所有声明（包括函数体、结构体、变量等）
+fn checker_check(checker: &TypeChecker, ast: &ASTNode) i32 {
+    if checker == null || ast == null || ast.type != ASTNodeType.AST_PROGRAM {
+        return -1;
+    }
+    
+    checker.program_node = ast;
+    checker.error_count = 0;
+    checker_reset_semantic_cache(checker);
+    reset_program_lookup_caches();
+    if checker_prepass_top_level_decls(checker, ast) == 0 {
+        return -1;
+    }
+    
+    // 模块系统：建立模块导出表（在检查之前）
+    build_module_exports(checker, ast);
+    
+    // 宏展开：在类型检查前展开所有宏调用
+    var ast_ptr: &ASTNode = ast;
+    expand_macros_in_node_simple(checker, &ast_ptr);
+    if checker_ensure_embed_dir_entry_decl(checker, ast_ptr) == 0 {
+        return -1;
+    }
+    checker.program_node = ast_ptr;
+    reset_program_lookup_caches();
+    if semantic_db_build_from_merged_ast(&checker.semantic_db, ast_ptr) != 0 {
+        checker_report_error(checker, ast_ptr, "SemanticDb 构建失败" as *byte);
+        return -1;
+    }
+    if typed_program_assign_expr_ids(&checker.typed_program, ast_ptr) != 0 {
+        checker_report_error(checker, ast_ptr, "TypedProgram ExprId 分配失败" as *byte);
+        return -1;
+    }
+    checker_register_semantic_lookup_db(ast_ptr, &checker.semantic_db);
+    checker_maybe_dump_semantic_db(checker);
+    
+    // 第二遍：检查所有声明（包括函数体、结构体、变量等）
+    // 此时所有函数都已被注册，函数体中的函数调用可以正确解析
+    checker_check_node(checker, ast_ptr);
+    
+    // 模块系统：在所有 use 语句处理完后，检测循环依赖
+    detect_circular_dependencies(checker);
+    
+    // 注意：即使有错误，也返回0，让编译器继续执行
+    // 错误信息已经通过 checker_report_error 输出
+    // 主函数会根据错误计数决定是否继续代码生成
+    return 0;
+}

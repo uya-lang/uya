@@ -1,0 +1,4290 @@
+// build_compiler_driver.uya - build-only compiler CLI driver
+// Uya 自举编译器
+// 架构：export fn main 编译为 main_main，由 std.runtime.entry 的 C main 调用
+// 命令行参数通过 get_argc/get_argv 获取
+
+// ===== 模块导入（按依赖顺序）=====
+// build_compiler_driver 只保留 C99 build/link 所需依赖，作为 Phase 8 build seed 根。
+use arena;
+use ast;
+use lexer;
+use extern_decls;
+use str_utils;
+use std_cfg;
+use parser;
+use semantic;
+use typed;
+use checker_build;  // build seed 专用 checker，裁掉 microapp/container-only 静态字符串
+use driver;
+use lower.core;
+// C99 build seed 专用代码生成（子目录，整体导入该目录模块）
+use codegen.c99_build;
+use codegen.native_build;
+use std;
+// C 程序入口由编译器自动注入 std.runtime.entry；此处仅导入堆栈上限设置（避免与局部名 entry 冲突）
+use std.runtime.entry.set_process_stack_limit_bytes;
+use libc;
+use libc.stdlib;  // clock, CLOCKS_PER_SEC
+use libc.unistd;  // system
+
+// ===== 计时函数 =====
+// 暂时禁用精确计时，使用简单计数器
+
+// 编译统计结构体
+struct CompileStats {
+    parse_time_ms: i64,      // 解析阶段耗时（毫秒）
+    merge_time_ms: i64,      // AST 合并耗时
+    check_time_ms: i64,      // 类型检查耗时
+    opt_time_ms: i64,        // 优化阶段耗时（v0.7.3 新增）
+    codegen_time_ms: i64,    // 代码生成耗时
+    total_time_ms: i64,      // 总耗时
+    file_count: i32,         // 编译文件数
+    ast_nodes: i32,          // AST 节点数（近似）
+    arena_peak_bytes: usize, // 所有编译器 arena 峰值合计（driver+ast+check+emit）
+    ast_arena_peak_bytes: usize,   // parser AST / lexer / merge 专用 arena 峰值
+    check_arena_peak_bytes: usize, // checker 工作内存专用 arena 峰值
+    emit_arena_peak_bytes: usize,  // C99 emitter 专用 arena 峰值
+    c99_output_buffer_peak_bytes: usize, // C99 输出 FILE 缓冲峰值
+    typed_program_bytes: usize,
+    typed_program_peak_bytes: usize,
+    typed_program_released_bytes: usize,
+    table_items: usize,          // 所有编译器动态表实际项数之和
+    table_capacity: usize,       // 所有编译器动态表容量项数之和
+    table_used_bytes: usize,     // 所有编译器动态表实际占用字节之和
+    table_capacity_bytes: usize, // 所有编译器动态表容量字节之和
+    table_realloc_count: i32,    // 所有编译器动态表重分配次数之和
+}
+
+struct CImportItem {
+    resolved_path: &byte,
+    relative_path: &byte,
+    cflags_tokens: & & byte,
+    cflags_token_count: i32,
+    filename: &byte,
+    line: i32,
+    column: i32,
+}
+
+struct CImportPlan {
+    items: &CImportItem,
+    item_count: i32,
+    aggregated_ldflags_tokens: & & byte,
+    aggregated_ldflags_token_count: i32,
+}
+
+struct CompileArtifacts {
+    generated_c_path: &byte,
+    c_import_plan: CImportPlan,
+    c_import_sidecar_path: &byte,
+}
+
+fn compile_stats_record_and_release_typed_program(stats: &CompileStats, checker: &TypeChecker) void {
+    if stats == null {
+        return;
+    }
+    stats.typed_program_bytes = 0usize;
+    stats.typed_program_peak_bytes = 0usize;
+    stats.typed_program_released_bytes = 0usize;
+    if checker == null {
+        return;
+    }
+    stats.typed_program_bytes = typed_program_current_bytes(&checker.typed_program);
+    stats.typed_program_peak_bytes = typed_program_peak_bytes(&checker.typed_program);
+    // 在释放 TypedProgram 之前，聚合所有编译器动态表（SemanticDb + TypedProgram）的
+    // 项数/容量/字节/重分配次数，供 benchmark 输出 table_* 字段（L391）。
+    // 注：C99/checker 固定表仍为 C99_MAX_*/*_SIZE 静态容量，尚未迁为动态表，不计入此聚合。
+    var table_agg: SemanticTableAgg = semantic_table_agg_init();
+    semantic_db_accumulate_table_stats(&checker.semantic_db, &table_agg);
+    typed_program_accumulate_table_stats(&checker.typed_program, &table_agg);
+    stats.table_items = table_agg.items;
+    stats.table_capacity = table_agg.capacity;
+    stats.table_used_bytes = table_agg.used_bytes;
+    stats.table_capacity_bytes = table_agg.capacity_bytes;
+    stats.table_realloc_count = table_agg.realloc_count;
+    typed_program_release(&checker.typed_program);
+    semantic_vector_release(&checker.typed_type_records);
+    stats.typed_program_released_bytes = typed_program_current_bytes(&checker.typed_program);
+}
+
+fn compiler_should_profile_diagnostics() i32 {
+    const value: *byte = getenv("UYA_PROFILE_DIAGNOSTICS" as *byte);
+    if value == null || value[0] == 0 as byte {
+        return 0;
+    }
+    if strcmp(value, "0" as *byte) == 0 ||
+       strcmp(value, "false" as *byte) == 0 ||
+       strcmp(value, "no" as *byte) == 0 ||
+       strcmp(value, "off" as *byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn compiler_print_diagnostic_profile(checker: &TypeChecker) void {
+    if compiler_should_profile_diagnostics() == 0 || libc.stderr == null {
+        return;
+    }
+    var count: i32 = 0;
+    if checker != null {
+        count = checker.diagnostic_format_count;
+    }
+    fprintf(libc.stderr, "diagnostic_format_count: %d\n" as *byte, count);
+}
+
+// Host-side reserve constants for older bootstrap compilers whose generated C
+// layout may lag the current Uya struct layout.
+const HOST_SIZE_PTR_BYTES: usize = 8usize;
+const HOST_SIZE_LEXER_BYTES: usize = 1052744usize;
+// Host-side reserve for TypeChecker. The async metadata tables live near the
+// end of this structure in generated C, so keep slack for bootstrap layout
+// drift when rebuilding from an older compiler.
+const HOST_SIZE_TYPECHECKER_BYTES: usize = 8388608usize;
+// Host-side reserve for C99CodeGenerator. The generated C layout can change as
+// backend caches grow; keep this above the exact current sizeof to avoid arena
+// overlap when bootstrapping from an older compiler.
+const HOST_SIZE_C99_CODEGENERATOR_BYTES: usize = 2097152usize;
+const HOST_SIZE_CIMPORT_ITEM_BYTES: usize = 48usize;
+
+// 后端类型
+enum BackendType {
+    BACKEND_LLVM,
+    BACKEND_C99,
+    BACKEND_NATIVE
+}
+
+struct NativeBuildAstPlan {
+    plans: &NativeBuildFunctionPlan,
+    function_count: i32,
+    entry_index: i32,
+}
+
+struct NativeBuildLoweredPlan {
+    lowered: LoweredProgram,
+    entry_index: i32,
+}
+
+struct NativeBuildReachability {
+    decl_to_function_index: &i32,
+    function_decl_indices: &i32,
+    assigned_count: i32,
+    capacity: i32,
+}
+
+struct NativeBuildLocalTable {
+    names: & & byte,
+    call_targets: &i32,
+    kinds: &i32,
+    init_values: &i32,
+    count: i32,
+    capacity: i32,
+}
+
+const NATIVE_BUILD_LOCAL_KIND_CALL_I32: i32 = 1;
+const NATIVE_BUILD_LOCAL_KIND_SCALAR_I32: i32 = 2;
+
+fn native_build_ast_plan_empty() NativeBuildAstPlan {
+    return NativeBuildAstPlan{
+        plans: null,
+        function_count: 0,
+        entry_index: -1,
+    };
+}
+
+fn native_build_empty_vector() SemanticVector {
+    return SemanticVector{
+        data: null,
+        item_size: 0usize,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+}
+
+fn native_build_lowered_plan_empty() NativeBuildLoweredPlan {
+    return NativeBuildLoweredPlan{
+        lowered: LoweredProgram{
+            arena: null,
+            function_count: 0usize,
+            global_count: 0usize,
+            type_count: 0usize,
+            interface_count: 0usize,
+            err_union_count: 0usize,
+            async_frame_count: 0usize,
+            drop_defer_count: 0usize,
+            helper_count: 0usize,
+            work_item_count: 0usize,
+            body_op_count: 0usize,
+            estimated_bytes: 0usize,
+            resident_peak_bytes: 0usize,
+            lifecycle_state: LOWERED_PROGRAM_LIFECYCLE_UNINITIALIZED,
+            functions: native_build_empty_vector(),
+            body_ops: native_build_empty_vector(),
+            globals: native_build_empty_vector(),
+            types: native_build_empty_vector(),
+            interfaces: native_build_empty_vector(),
+            err_unions: native_build_empty_vector(),
+            async_frames: native_build_empty_vector(),
+            drop_defer_plans: native_build_empty_vector(),
+            helpers: native_build_empty_vector(),
+            worklist: native_build_empty_vector(),
+        },
+        entry_index: -1,
+    };
+}
+
+fn native_build_reachability_empty() NativeBuildReachability {
+    return NativeBuildReachability{
+        decl_to_function_index: null,
+        function_decl_indices: null,
+        assigned_count: 0,
+        capacity: 0,
+    };
+}
+
+fn native_build_local_table_empty() NativeBuildLocalTable {
+    return NativeBuildLocalTable{
+        names: null,
+        call_targets: null,
+        kinds: null,
+        init_values: null,
+        count: 0,
+        capacity: 0,
+    };
+}
+
+fn native_build_local_table_init(arena: &CompilerArena, capacity: i32) NativeBuildLocalTable {
+    var locals: NativeBuildLocalTable = native_build_local_table_empty();
+    if arena == null || capacity <= 0 {
+        return locals;
+    }
+    const cap_usize_result: !usize = capacity as! usize;
+    const cap_usize: usize = cap_usize_result catch {
+        return locals;
+    };
+    locals.names = compiler_arena_alloc(arena, @size_of(&byte) * cap_usize) as & & byte;
+    locals.call_targets = compiler_arena_alloc(arena, @size_of(i32) * cap_usize) as &i32;
+    locals.kinds = compiler_arena_alloc(arena, @size_of(i32) * cap_usize) as &i32;
+    locals.init_values = compiler_arena_alloc(arena, @size_of(i32) * cap_usize) as &i32;
+    if locals.names == null || locals.call_targets == null ||
+       locals.kinds == null || locals.init_values == null {
+        return native_build_local_table_empty();
+    }
+    locals.capacity = capacity;
+    var i: i32 = 0;
+    while i < capacity {
+        locals.names[i] = null;
+        locals.call_targets[i] = -1;
+        locals.kinds[i] = 0;
+        locals.init_values[i] = 0;
+        i = i + 1;
+    }
+    return locals;
+}
+
+fn native_build_reachability_init(arena: &CompilerArena, decl_count: i32) NativeBuildReachability {
+    var reach: NativeBuildReachability = native_build_reachability_empty();
+    if arena == null || decl_count <= 0 {
+        return reach;
+    }
+    const count_usize_result: !usize = decl_count as! usize;
+    const count_usize: usize = count_usize_result catch {
+        return reach;
+    };
+    const bytes: usize = @size_of(i32) * count_usize;
+    reach.decl_to_function_index = compiler_arena_alloc(arena, bytes) as &i32;
+    reach.function_decl_indices = compiler_arena_alloc(arena, bytes) as &i32;
+    if reach.decl_to_function_index == null || reach.function_decl_indices == null {
+        return native_build_reachability_empty();
+    }
+    reach.capacity = decl_count;
+    var i: i32 = 0;
+    while i < decl_count {
+        reach.decl_to_function_index[i] = -1;
+        reach.function_decl_indices[i] = -1;
+        i = i + 1;
+    }
+    return reach;
+}
+
+fn native_build_type_is_i32(type_node: &ASTNode) i32 {
+    if type_node == null || type_node.type != ASTNodeType.AST_TYPE_NAMED || type_node.type_named_name == null {
+        return 0;
+    }
+    if str_equals(type_node.type_named_name, "i32" as *byte) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_type_is_i32_ptr(type_node: &ASTNode) i32 {
+    if type_node == null || type_node.type != ASTNodeType.AST_TYPE_POINTER ||
+       type_node.type_pointer_is_ffi_pointer != 0 || type_node.type_pointer_is_const != 0 {
+        return 0;
+    }
+    return native_build_type_is_i32(type_node.type_pointer_pointed_type);
+}
+
+fn native_build_decl_is_noarg_i32_fn(decl: &ASTNode) i32 {
+    if decl == null || decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_name == null {
+        return 0;
+    }
+    if decl.fn_decl_param_count != 0 || decl.fn_decl_is_extern != 0 ||
+       decl.fn_decl_is_async != 0 || decl.fn_decl_is_naked != 0 ||
+       decl.fn_decl_is_varargs != 0 {
+        return 0;
+    }
+    return native_build_type_is_i32(decl.fn_decl_return_type);
+}
+
+fn native_build_decl_is_one_i32_param_fn(decl: &ASTNode) i32 {
+    if decl == null || decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_name == null {
+        return 0;
+    }
+    if decl.fn_decl_param_count != 1 || decl.fn_decl_is_extern != 0 ||
+       decl.fn_decl_is_async != 0 || decl.fn_decl_is_naked != 0 ||
+       decl.fn_decl_is_varargs != 0 || native_build_type_is_i32(decl.fn_decl_return_type) == 0 ||
+       decl.fn_decl_params == null {
+        return 0;
+    }
+    const param: &ASTNode = decl.fn_decl_params[0];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL {
+        return 0;
+    }
+    return native_build_type_is_i32(param.var_decl_type);
+}
+
+fn native_build_decl_is_two_i32_param_fn(decl: &ASTNode) i32 {
+    if decl == null || decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_name == null {
+        return 0;
+    }
+    if decl.fn_decl_param_count != 2 || decl.fn_decl_is_extern != 0 ||
+       decl.fn_decl_is_async != 0 || decl.fn_decl_is_naked != 0 ||
+       decl.fn_decl_is_varargs != 0 || native_build_type_is_i32(decl.fn_decl_return_type) == 0 ||
+       decl.fn_decl_params == null {
+        return 0;
+    }
+    const param0: &ASTNode = decl.fn_decl_params[0];
+    const param1: &ASTNode = decl.fn_decl_params[1];
+    if param0 == null || param1 == null ||
+       param0.type != ASTNodeType.AST_VAR_DECL || param1.type != ASTNodeType.AST_VAR_DECL {
+        return 0;
+    }
+    if native_build_type_is_i32(param0.var_decl_type) == 0 {
+        return 0;
+    }
+    return native_build_type_is_i32(param1.var_decl_type);
+}
+
+fn native_build_decl_is_one_i32_ptr_param_fn(decl: &ASTNode) i32 {
+    if decl == null || decl.type != ASTNodeType.AST_FN_DECL || decl.fn_decl_name == null {
+        return 0;
+    }
+    if decl.fn_decl_param_count != 1 || decl.fn_decl_is_extern != 0 ||
+       decl.fn_decl_is_async != 0 || decl.fn_decl_is_naked != 0 ||
+       decl.fn_decl_is_varargs != 0 || native_build_type_is_i32(decl.fn_decl_return_type) == 0 ||
+       decl.fn_decl_params == null {
+        return 0;
+    }
+    const param: &ASTNode = decl.fn_decl_params[0];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL {
+        return 0;
+    }
+    return native_build_type_is_i32_ptr(param.var_decl_type);
+}
+
+fn native_build_decl_is_supported_i32_fn(decl: &ASTNode) i32 {
+    if native_build_decl_is_noarg_i32_fn(decl) != 0 {
+        return 1;
+    }
+    if native_build_decl_is_one_i32_param_fn(decl) != 0 {
+        return 1;
+    }
+    if native_build_decl_is_two_i32_param_fn(decl) != 0 {
+        return 1;
+    }
+    if native_build_decl_is_one_i32_ptr_param_fn(decl) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_decl_is_ignorable_top_level(decl: &ASTNode) i32 {
+    if decl == null {
+        return 0;
+    }
+    if decl.type == ASTNodeType.AST_USE_STMT {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_ast_kind_name(kind: ASTNodeType) &byte {
+    if kind == ASTNodeType.AST_FN_DECL {
+        return "fn" as &byte;
+    }
+    if kind == ASTNodeType.AST_STRUCT_DECL {
+        return "struct" as &byte;
+    }
+    if kind == ASTNodeType.AST_ENUM_DECL {
+        return "enum" as &byte;
+    }
+    if kind == ASTNodeType.AST_UNION_DECL {
+        return "union" as &byte;
+    }
+    if kind == ASTNodeType.AST_INTERFACE_DECL {
+        return "interface" as &byte;
+    }
+    if kind == ASTNodeType.AST_METHOD_BLOCK {
+        return "method_block" as &byte;
+    }
+    if kind == ASTNodeType.AST_TYPE_ALIAS {
+        return "type_alias" as &byte;
+    }
+    if kind == ASTNodeType.AST_EXTERN_VAR_DECL {
+        return "extern_var" as &byte;
+    }
+    if kind == ASTNodeType.AST_VAR_DECL {
+        return "var" as &byte;
+    }
+    if kind == ASTNodeType.AST_ERROR_DECL {
+        return "error" as &byte;
+    }
+    if kind == ASTNodeType.AST_MACRO_DECL {
+        return "macro" as &byte;
+    }
+    if kind == ASTNodeType.AST_USE_STMT {
+        return "use" as &byte;
+    }
+    if kind == ASTNodeType.AST_DESTRUCTURE_DECL {
+        return "destructure" as &byte;
+    }
+    if kind == ASTNodeType.AST_C_IMPORT_DECL {
+        return "c_import" as &byte;
+    }
+    if kind == ASTNodeType.AST_IF_STMT {
+        return "if" as &byte;
+    }
+    if kind == ASTNodeType.AST_WHILE_STMT {
+        return "while" as &byte;
+    }
+    if kind == ASTNodeType.AST_FOR_STMT {
+        return "for" as &byte;
+    }
+    if kind == ASTNodeType.AST_BREAK_STMT {
+        return "break" as &byte;
+    }
+    if kind == ASTNodeType.AST_CONTINUE_STMT {
+        return "continue" as &byte;
+    }
+    if kind == ASTNodeType.AST_RETURN_STMT {
+        return "return" as &byte;
+    }
+    if kind == ASTNodeType.AST_DEFER_STMT {
+        return "defer" as &byte;
+    }
+    if kind == ASTNodeType.AST_ERRDEFER_STMT {
+        return "errdefer" as &byte;
+    }
+    if kind == ASTNodeType.AST_TEST_STMT {
+        return "test" as &byte;
+    }
+    if kind == ASTNodeType.AST_ASSIGN {
+        return "assign" as &byte;
+    }
+    if kind == ASTNodeType.AST_EXPR_STMT {
+        return "expr_stmt" as &byte;
+    }
+    if kind == ASTNodeType.AST_BLOCK {
+        return "block" as &byte;
+    }
+    if kind == ASTNodeType.AST_BINARY_EXPR {
+        return "binary_expr" as &byte;
+    }
+    if kind == ASTNodeType.AST_UNARY_EXPR {
+        return "unary_expr" as &byte;
+    }
+    if kind == ASTNodeType.AST_CALL_EXPR {
+        return "call_expr" as &byte;
+    }
+    if kind == ASTNodeType.AST_IDENTIFIER {
+        return "identifier" as &byte;
+    }
+    if kind == ASTNodeType.AST_NUMBER {
+        return "number" as &byte;
+    }
+    if kind == ASTNodeType.AST_STRING {
+        return "string" as &byte;
+    }
+    if kind == ASTNodeType.AST_FLOAT {
+        return "float" as &byte;
+    }
+    if kind == ASTNodeType.AST_BOOL {
+        return "bool" as &byte;
+    }
+    if kind == ASTNodeType.AST_CHAR {
+        return "char" as &byte;
+    }
+    if kind == ASTNodeType.AST_MEMBER_ACCESS {
+        return "member_access" as &byte;
+    }
+    if kind == ASTNodeType.AST_ARRAY_LITERAL {
+        return "array_literal" as &byte;
+    }
+    if kind == ASTNodeType.AST_SIZEOF {
+        return "sizeof" as &byte;
+    }
+    if kind == ASTNodeType.AST_LEN {
+        return "len" as &byte;
+    }
+    if kind == ASTNodeType.AST_ALIGNOF {
+        return "alignof" as &byte;
+    }
+    if kind == ASTNodeType.AST_CAST_EXPR {
+        return "cast_expr" as &byte;
+    }
+    return "other" as &byte;
+}
+
+fn native_build_decl_name_for_diagnostic(decl: &ASTNode) &byte {
+    if decl == null {
+        return "<null>" as &byte;
+    }
+    if decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_name != null {
+        return decl.fn_decl_name;
+    }
+    if decl.type == ASTNodeType.AST_STRUCT_DECL && decl.struct_decl_name != null {
+        return decl.struct_decl_name;
+    }
+    if decl.type == ASTNodeType.AST_ENUM_DECL && decl.enum_decl_name != null {
+        return decl.enum_decl_name;
+    }
+    if decl.type == ASTNodeType.AST_UNION_DECL && decl.union_decl_name != null {
+        return decl.union_decl_name;
+    }
+    if decl.type == ASTNodeType.AST_INTERFACE_DECL && decl.interface_decl_name != null {
+        return decl.interface_decl_name;
+    }
+    if decl.type == ASTNodeType.AST_TYPE_ALIAS && decl.type_alias_name != null {
+        return decl.type_alias_name;
+    }
+    if decl.type == ASTNodeType.AST_EXTERN_VAR_DECL && decl.extern_var_decl_name != null {
+        return decl.extern_var_decl_name;
+    }
+    if decl.type == ASTNodeType.AST_VAR_DECL && decl.var_decl_name != null {
+        return decl.var_decl_name;
+    }
+    if decl.type == ASTNodeType.AST_ERROR_DECL && decl.error_decl_name != null {
+        return decl.error_decl_name;
+    }
+    if decl.type == ASTNodeType.AST_MACRO_DECL && decl.macro_decl_name != null {
+        return decl.macro_decl_name;
+    }
+    if decl.type == ASTNodeType.AST_METHOD_BLOCK {
+        if decl.method_block_struct_name != null {
+            return decl.method_block_struct_name;
+        }
+        if decl.method_block_union_name != null {
+            return decl.method_block_union_name;
+        }
+    }
+    return "<anonymous>" as &byte;
+}
+
+fn native_build_print_unsupported_decl(decl: &ASTNode, index: i32) void {
+    if decl == null {
+        fprintf(libc.stderr, "native_unsupported_decl: index=%d kind=null name=<null>\n" as *byte, index);
+        return;
+    }
+    fprintf(libc.stderr, "native_unsupported_decl: index=%d kind=%s name=%s file=%s line=%d\n" as *byte,
+        index, native_build_ast_kind_name(decl.type), native_build_decl_name_for_diagnostic(decl),
+        decl.filename, decl.line);
+    if decl.type == ASTNodeType.AST_FN_DECL {
+        var body_stmts: i32 = -1;
+        if decl.fn_decl_body != null && decl.fn_decl_body.type == ASTNodeType.AST_BLOCK {
+            body_stmts = decl.fn_decl_body.block_stmt_count;
+        }
+        fprintf(libc.stderr,
+            "native_unsupported_fn_shape: params=%d extern=%d async=%d naked=%d varargs=%d body_stmts=%d\n" as *byte,
+            decl.fn_decl_param_count, decl.fn_decl_is_extern, decl.fn_decl_is_async,
+            decl.fn_decl_is_naked, decl.fn_decl_is_varargs, body_stmts);
+    }
+}
+
+fn native_build_print_unsupported_function_body(decl: &ASTNode, decl_index: i32,
+    reason: &byte, stmt: &ASTNode, stmt_index: i32) void {
+    var stmt_kind: &byte = "<null>" as &byte;
+    var stmt_file: &byte = "<null>" as &byte;
+    var stmt_line: i32 = 0;
+    if stmt != null {
+        stmt_kind = native_build_ast_kind_name(stmt.type);
+        stmt_file = stmt.filename;
+        stmt_line = stmt.line;
+    }
+    fprintf(libc.stderr,
+        "native_unsupported_fn_body: decl=%d name=%s reason=%s stmt_index=%d stmt_kind=%s stmt_file=%s stmt_line=%d\n" as *byte,
+        decl_index, native_build_decl_name_for_diagnostic(decl), reason,
+        stmt_index, stmt_kind, stmt_file, stmt_line);
+}
+
+fn native_build_find_function_index(program: &ASTNode, name: &byte) i32 {
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || name == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    var function_index: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL &&
+           decl.fn_decl_name != null && str_equals(decl.fn_decl_name, name as *byte) != 0 {
+            if native_build_decl_is_noarg_i32_fn(decl) != 0 {
+                return function_index;
+            }
+            native_build_print_unsupported_decl(decl, i);
+            return -1;
+        }
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 {
+            function_index = function_index + 1;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn native_build_find_function_decl_index(program: &ASTNode, name: &byte) i32 {
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || name == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_noarg_i32_fn(decl) != 0 &&
+           decl.fn_decl_name != null && str_equals(decl.fn_decl_name, name as *byte) != 0 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn native_build_find_one_i32_param_function_decl_index(program: &ASTNode, name: &byte) i32 {
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || name == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_one_i32_param_fn(decl) != 0 &&
+           decl.fn_decl_name != null && str_equals(decl.fn_decl_name, name as *byte) != 0 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn native_build_find_two_i32_param_function_decl_index(program: &ASTNode, name: &byte) i32 {
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || name == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_two_i32_param_fn(decl) != 0 &&
+           decl.fn_decl_name != null && str_equals(decl.fn_decl_name, name as *byte) != 0 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn native_build_find_one_i32_ptr_param_function_decl_index(program: &ASTNode, name: &byte) i32 {
+    if program == null || program.type != ASTNodeType.AST_PROGRAM ||
+       program.program_decls == null || name == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_is_one_i32_ptr_param_fn(decl) != 0 &&
+           decl.fn_decl_name != null && str_equals(decl.fn_decl_name, name as *byte) != 0 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn native_build_assign_reachable_function(program: &ASTNode,
+    reach: &NativeBuildReachability, decl_index: i32) i32 {
+    if program == null || reach == null || reach.decl_to_function_index == null ||
+       reach.function_decl_indices == null || decl_index < 0 ||
+       decl_index >= program.program_decl_count || decl_index >= reach.capacity {
+        return -1;
+    }
+    const existing: i32 = reach.decl_to_function_index[decl_index];
+    if existing >= 0 {
+        return existing;
+    }
+    if reach.assigned_count < 0 || reach.assigned_count >= reach.capacity {
+        return -1;
+    }
+    const decl: &ASTNode = program.program_decls[decl_index];
+    if native_build_decl_is_supported_i32_fn(decl) == 0 {
+        return -1;
+    }
+    const function_index: i32 = reach.assigned_count;
+    reach.decl_to_function_index[decl_index] = function_index;
+    reach.function_decl_indices[function_index] = decl_index;
+    reach.assigned_count = reach.assigned_count + 1;
+    return function_index;
+}
+
+fn native_build_resolve_reachable_zero_arg_call(program: &ASTNode, expr: &ASTNode,
+    reach: &NativeBuildReachability, out_target: &i32) i32 {
+    if out_target != null {
+        *out_target = -1;
+    }
+    if program == null || expr == null || reach == null || out_target == null {
+        return 0;
+    }
+    if expr.type != ASTNodeType.AST_CALL_EXPR || expr.call_expr_arg_count != 0 ||
+       expr.call_expr_type_arg_count != 0 || expr.call_expr_callee == null ||
+       expr.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER {
+        return 0;
+    }
+    const target_decl: i32 = native_build_find_function_decl_index(program, expr.call_expr_callee.identifier_name);
+    if target_decl < 0 {
+        fprintf(libc.stderr, "native_unsupported_call_target: name=%s args=%d type_args=%d\n" as *byte,
+            expr.call_expr_callee.identifier_name, expr.call_expr_arg_count, expr.call_expr_type_arg_count);
+        return 0;
+    }
+    const target: i32 = native_build_assign_reachable_function(program, reach, target_decl);
+    if target < 0 {
+        fprintf(libc.stderr, "native_unsupported_call_target: name=%s decl=%d\n" as *byte,
+            expr.call_expr_callee.identifier_name, target_decl);
+        return 0;
+    }
+    *out_target = target;
+    return 1;
+}
+
+fn native_build_print_unsupported_call_expr(expr: &ASTNode, reason: &byte) void {
+    if expr == null || expr.type != ASTNodeType.AST_CALL_EXPR || expr.call_expr_callee == null {
+        return;
+    }
+    var callee_name: &byte = "<non_identifier>" as &byte;
+    if expr.call_expr_callee.type == ASTNodeType.AST_IDENTIFIER &&
+       expr.call_expr_callee.identifier_name != null {
+        callee_name = expr.call_expr_callee.identifier_name;
+    }
+    fprintf(libc.stderr,
+        "native_unsupported_call_expr: name=%s reason=%s args=%d type_args=%d\n" as *byte,
+        callee_name, reason, expr.call_expr_arg_count, expr.call_expr_type_arg_count);
+}
+
+fn native_build_resolve_reachable_const1_i32_call(program: &ASTNode, expr: &ASTNode,
+    reach: &NativeBuildReachability, out_target: &i32, out_arg0: &i32) i32 {
+    if out_target != null {
+        *out_target = -1;
+    }
+    if out_arg0 != null {
+        *out_arg0 = 0;
+    }
+    if program == null || expr == null || reach == null || out_target == null || out_arg0 == null {
+        return 0;
+    }
+    if expr.type != ASTNodeType.AST_CALL_EXPR || expr.call_expr_arg_count != 1 ||
+       expr.call_expr_type_arg_count != 0 || expr.call_expr_callee == null ||
+       expr.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER || expr.call_expr_args == null {
+        return 0;
+    }
+    const arg0: &ASTNode = expr.call_expr_args[0];
+    if arg0 == null || arg0.type != ASTNodeType.AST_NUMBER {
+        return 0;
+    }
+    const arg0_result: !i32 = arg0.number_value_i64 as! i32;
+    const arg0_value: i32 = arg0_result catch {
+        return 0;
+    };
+    const target_decl: i32 = native_build_find_one_i32_param_function_decl_index(program,
+        expr.call_expr_callee.identifier_name);
+    if target_decl < 0 {
+        return 0;
+    }
+    const target: i32 = native_build_assign_reachable_function(program, reach, target_decl);
+    if target < 0 {
+        return 0;
+    }
+    *out_target = target;
+    *out_arg0 = arg0_value;
+    return 1;
+}
+
+fn native_build_resolve_reachable_const2_i32_call(program: &ASTNode, expr: &ASTNode,
+    reach: &NativeBuildReachability, out_target: &i32, out_arg0: &i32, out_arg1: &i32) i32 {
+    if out_target != null {
+        *out_target = -1;
+    }
+    if out_arg0 != null {
+        *out_arg0 = 0;
+    }
+    if out_arg1 != null {
+        *out_arg1 = 0;
+    }
+    if program == null || expr == null || reach == null || out_target == null ||
+       out_arg0 == null || out_arg1 == null {
+        return 0;
+    }
+    if expr.type != ASTNodeType.AST_CALL_EXPR || expr.call_expr_arg_count != 2 ||
+       expr.call_expr_type_arg_count != 0 || expr.call_expr_callee == null ||
+       expr.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER || expr.call_expr_args == null {
+        return 0;
+    }
+    const arg0: &ASTNode = expr.call_expr_args[0];
+    const arg1: &ASTNode = expr.call_expr_args[1];
+    if arg0 == null || arg1 == null ||
+       arg0.type != ASTNodeType.AST_NUMBER || arg1.type != ASTNodeType.AST_NUMBER {
+        return 0;
+    }
+    const arg0_result: !i32 = arg0.number_value_i64 as! i32;
+    const arg0_value: i32 = arg0_result catch {
+        return 0;
+    };
+    const arg1_result: !i32 = arg1.number_value_i64 as! i32;
+    const arg1_value: i32 = arg1_result catch {
+        return 0;
+    };
+    const target_decl: i32 = native_build_find_two_i32_param_function_decl_index(program,
+        expr.call_expr_callee.identifier_name);
+    if target_decl < 0 {
+        return 0;
+    }
+    const target: i32 = native_build_assign_reachable_function(program, reach, target_decl);
+    if target < 0 {
+        return 0;
+    }
+    *out_target = target;
+    *out_arg0 = arg0_value;
+    *out_arg1 = arg1_value;
+    return 1;
+}
+
+fn native_build_resolve_reachable_addr1_i32_call(program: &ASTNode, expr: &ASTNode,
+    reach: &NativeBuildReachability, locals: &NativeBuildLocalTable,
+    out_target: &i32, out_slot: &i32) i32 {
+    if out_target != null {
+        *out_target = -1;
+    }
+    if out_slot != null {
+        *out_slot = -1;
+    }
+    if program == null || expr == null || reach == null || locals == null ||
+       out_target == null || out_slot == null {
+        return 0;
+    }
+    if expr.type != ASTNodeType.AST_CALL_EXPR || expr.call_expr_arg_count != 1 ||
+       expr.call_expr_type_arg_count != 0 || expr.call_expr_callee == null ||
+       expr.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER || expr.call_expr_args == null {
+        return 0;
+    }
+    const arg0: &ASTNode = expr.call_expr_args[0];
+    if arg0 == null || arg0.type != ASTNodeType.AST_UNARY_EXPR ||
+       arg0.unary_expr_operand == null || arg0.unary_expr_operand.type != ASTNodeType.AST_IDENTIFIER ||
+       arg0.unary_expr_operand.identifier_name == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = arg0.unary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_AMPERSAND {
+        return 0;
+    }
+    const slot: i32 = native_build_local_find(locals, arg0.unary_expr_operand.identifier_name);
+    if slot < 0 || locals.kinds == null || locals.kinds[slot] != NATIVE_BUILD_LOCAL_KIND_SCALAR_I32 {
+        return 0;
+    }
+    const target_decl: i32 = native_build_find_one_i32_ptr_param_function_decl_index(program,
+        expr.call_expr_callee.identifier_name);
+    if target_decl < 0 {
+        return 0;
+    }
+    const target: i32 = native_build_assign_reachable_function(program, reach, target_decl);
+    if target < 0 {
+        return 0;
+    }
+    *out_target = target;
+    *out_slot = slot;
+    return 1;
+}
+
+fn native_build_expr_zero_arg_call_target(program: &ASTNode, expr: &ASTNode, out_target: &i32) i32 {
+    if out_target != null {
+        *out_target = -1;
+    }
+    if program == null || expr == null || out_target == null {
+        return 0;
+    }
+    if expr.type != ASTNodeType.AST_CALL_EXPR || expr.call_expr_arg_count != 0 ||
+       expr.call_expr_type_arg_count != 0 || expr.call_expr_callee == null ||
+       expr.call_expr_callee.type != ASTNodeType.AST_IDENTIFIER {
+        return 0;
+    }
+    const target: i32 = native_build_find_function_index(program, expr.call_expr_callee.identifier_name);
+    if target < 0 {
+        fprintf(libc.stderr, "native_unsupported_call_target: name=%s args=%d type_args=%d\n" as *byte,
+            expr.call_expr_callee.identifier_name, expr.call_expr_arg_count, expr.call_expr_type_arg_count);
+        return 0;
+    }
+    *out_target = target;
+    return 1;
+}
+
+fn native_build_expr_to_body_op(program: &ASTNode, expr: &ASTNode,
+    reach: &NativeBuildReachability, out_op: &LoweredBodyOp) i32 {
+    if program == null || expr == null || reach == null || out_op == null {
+        return 0;
+    }
+    out_op.opcode = LOWERED_BODY_OP_NOP;
+    out_op.dst = 0;
+    out_op.src0 = 0;
+    out_op.src1 = 0;
+    out_op.target_id = -1;
+    out_op.imm = 0i64;
+    out_op.flags = 0;
+    if expr.type == ASTNodeType.AST_NUMBER &&
+       expr.number_value_i64 >= 0i64 && expr.number_value_i64 <= 255i64 {
+        out_op.opcode = LOWERED_BODY_OP_RETURN_CONST_I32;
+        out_op.imm = expr.number_value_i64;
+        return 1;
+    }
+    var target: i32 = -1;
+    if native_build_resolve_reachable_zero_arg_call(program, expr, reach, &target) != 0 {
+        out_op.opcode = LOWERED_BODY_OP_RETURN_CALL;
+        out_op.target_id = target;
+        return 1;
+    }
+    if expr.type == ASTNodeType.AST_BINARY_EXPR && expr.binary_expr_left != null &&
+       expr.binary_expr_right != null {
+        const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+        const op: TokenType = op_tmp catch {
+            return 0;
+        };
+        if op != TokenType.TOKEN_PLUS {
+            return 0;
+        }
+        var left_target: i32 = -1;
+        var right_target: i32 = -1;
+        if native_build_resolve_reachable_zero_arg_call(program, expr.binary_expr_left, reach, &left_target) != 0 &&
+           native_build_resolve_reachable_zero_arg_call(program, expr.binary_expr_right, reach, &right_target) != 0 {
+            out_op.opcode = LOWERED_BODY_OP_ADD_I32;
+            out_op.src0 = left_target;
+            out_op.src1 = right_target;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+fn native_build_expr_is_side_effect_free_placeholder(expr: &ASTNode) i32 {
+    if expr == null {
+        return 1;
+    }
+    if expr.type == ASTNodeType.AST_NUMBER || expr.type == ASTNodeType.AST_FLOAT ||
+       expr.type == ASTNodeType.AST_BOOL || expr.type == ASTNodeType.AST_CHAR ||
+       expr.type == ASTNodeType.AST_STRING || expr.type == ASTNodeType.AST_IDENTIFIER ||
+       expr.type == ASTNodeType.AST_INT_LIMIT {
+        return 1;
+    }
+    if expr.type == ASTNodeType.AST_UNARY_EXPR {
+        return native_build_expr_is_side_effect_free_placeholder(expr.unary_expr_operand);
+    }
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return native_build_expr_is_side_effect_free_placeholder(expr.member_access_object);
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR {
+        return native_build_expr_is_side_effect_free_placeholder(expr.cast_expr_expr);
+    }
+    if expr.type == ASTNodeType.AST_SIZEOF || expr.type == ASTNodeType.AST_ALIGNOF {
+        if expr.sizeof_expr_is_type != 0 || expr.alignof_expr_is_type != 0 {
+            return 1;
+        }
+        if expr.type == ASTNodeType.AST_SIZEOF {
+            return native_build_expr_is_side_effect_free_placeholder(expr.sizeof_expr_target);
+        }
+        return native_build_expr_is_side_effect_free_placeholder(expr.alignof_expr_target);
+    }
+    if expr.type == ASTNodeType.AST_LEN {
+        return native_build_expr_is_side_effect_free_placeholder(expr.len_expr_array);
+    }
+    if expr.type == ASTNodeType.AST_ARRAY_LITERAL {
+        if native_build_expr_is_side_effect_free_placeholder(expr.array_literal_repeat_count_expr) == 0 {
+            return 0;
+        }
+        var i: i32 = 0;
+        while i < expr.array_literal_element_count {
+            if expr.array_literal_elements == null {
+                return 0;
+            }
+            if native_build_expr_is_side_effect_free_placeholder(expr.array_literal_elements[i]) == 0 {
+                return 0;
+            }
+            i = i + 1;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+fn native_build_var_decl_is_noop_placeholder(stmt: &ASTNode) i32 {
+    if stmt == null || stmt.type != ASTNodeType.AST_VAR_DECL {
+        return 0;
+    }
+    return native_build_expr_is_side_effect_free_placeholder(stmt.var_decl_init);
+}
+
+fn native_build_local_find(locals: &NativeBuildLocalTable, name: &byte) i32 {
+    if locals == null || locals.names == null || name == null {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < locals.count {
+        if locals.names[i] != null && str_equals(locals.names[i] as *byte, name as *byte) != 0 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn native_build_local_add_call(locals: &NativeBuildLocalTable, name: &byte, call_target: i32) i32 {
+    if locals == null || locals.names == null || locals.call_targets == null ||
+       locals.kinds == null || locals.init_values == null ||
+       name == null || call_target < 0 || locals.count < 0 || locals.count >= locals.capacity {
+        return -1;
+    }
+    if locals.count >= 1 {
+        return -1;
+    }
+    const existing: i32 = native_build_local_find(locals, name);
+    if existing >= 0 {
+        return -1;
+    }
+    const slot: i32 = locals.count;
+    locals.names[slot] = name;
+    locals.call_targets[slot] = call_target;
+    locals.kinds[slot] = NATIVE_BUILD_LOCAL_KIND_CALL_I32;
+    locals.init_values[slot] = 0;
+    locals.count = locals.count + 1;
+    return slot;
+}
+
+fn native_build_local_add_i32_const(locals: &NativeBuildLocalTable, name: &byte, value: i32) i32 {
+    if locals == null || locals.names == null || locals.call_targets == null ||
+       locals.kinds == null || locals.init_values == null ||
+       name == null || locals.count < 0 || locals.count >= locals.capacity {
+        return -1;
+    }
+    const existing: i32 = native_build_local_find(locals, name);
+    if existing >= 0 {
+        return -1;
+    }
+    const slot: i32 = locals.count;
+    locals.names[slot] = name;
+    locals.call_targets[slot] = -1;
+    locals.kinds[slot] = NATIVE_BUILD_LOCAL_KIND_SCALAR_I32;
+    locals.init_values[slot] = value;
+    locals.count = locals.count + 1;
+    return slot;
+}
+
+fn native_build_var_decl_i32_const_value(stmt: &ASTNode, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if stmt == null || out_value == null || stmt.type != ASTNodeType.AST_VAR_DECL ||
+       stmt.var_decl_name == null || native_build_type_is_i32(stmt.var_decl_type) == 0 ||
+       stmt.var_decl_init == null || stmt.var_decl_init.type != ASTNodeType.AST_NUMBER {
+        return 0;
+    }
+    const value_result: !i32 = stmt.var_decl_init.number_value_i64 as! i32;
+    *out_value = value_result catch {
+        return 0;
+    };
+    return 1;
+}
+
+fn native_build_expr_to_return_local_op(expr: &ASTNode, locals: &NativeBuildLocalTable,
+    out_op: &LoweredBodyOp) i32 {
+    if expr == null || locals == null || out_op == null ||
+       expr.type != ASTNodeType.AST_IDENTIFIER || expr.identifier_name == null {
+        return 0;
+    }
+    const slot: i32 = native_build_local_find(locals, expr.identifier_name);
+    if slot < 0 {
+        return 0;
+    }
+    out_op.opcode = LOWERED_BODY_OP_RETURN_LOCAL_I32;
+    out_op.dst = 0;
+    out_op.src0 = slot;
+    out_op.src1 = 0;
+    out_op.target_id = -1;
+    out_op.imm = 0i64;
+    out_op.flags = 0;
+    return 1;
+}
+
+fn native_build_param_index(decl: &ASTNode, name: &byte) i32 {
+    if decl == null || name == null || decl.fn_decl_params == null ||
+       native_build_decl_is_supported_i32_fn(decl) == 0 {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < decl.fn_decl_param_count {
+        const param: &ASTNode = decl.fn_decl_params[i];
+        if param != null && param.type == ASTNodeType.AST_VAR_DECL &&
+           param.var_decl_name != null && str_equals(param.var_decl_name as *byte, name as *byte) != 0 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn native_build_expr_to_return_param_op(decl: &ASTNode, expr: &ASTNode, out_op: &LoweredBodyOp) i32 {
+    if decl == null || expr == null || out_op == null ||
+       expr.type != ASTNodeType.AST_IDENTIFIER || expr.identifier_name == null {
+        return 0;
+    }
+    const param_index: i32 = native_build_param_index(decl, expr.identifier_name);
+    if param_index != 0 {
+        return 0;
+    }
+    out_op.opcode = LOWERED_BODY_OP_RETURN_PARAM_I32;
+    out_op.dst = 0;
+    out_op.src0 = param_index;
+    out_op.src1 = 0;
+    out_op.target_id = -1;
+    out_op.imm = 0i64;
+    out_op.flags = 0;
+    return 1;
+}
+
+fn native_build_expr_to_return_add_params_op(decl: &ASTNode, expr: &ASTNode, out_op: &LoweredBodyOp) i32 {
+    if decl == null || expr == null || out_op == null ||
+       native_build_decl_is_two_i32_param_fn(decl) == 0 ||
+       expr.type != ASTNodeType.AST_BINARY_EXPR || expr.binary_expr_left == null ||
+       expr.binary_expr_right == null {
+        return 0;
+    }
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp catch {
+        return 0;
+    };
+    if op != TokenType.TOKEN_PLUS ||
+       expr.binary_expr_left.type != ASTNodeType.AST_IDENTIFIER ||
+       expr.binary_expr_right.type != ASTNodeType.AST_IDENTIFIER ||
+       expr.binary_expr_left.identifier_name == null ||
+       expr.binary_expr_right.identifier_name == null {
+        return 0;
+    }
+    const left_index: i32 = native_build_param_index(decl, expr.binary_expr_left.identifier_name);
+    const right_index: i32 = native_build_param_index(decl, expr.binary_expr_right.identifier_name);
+    if left_index != 0 || right_index != 1 {
+        return 0;
+    }
+    out_op.opcode = LOWERED_BODY_OP_RETURN_ADD_PARAMS_I32;
+    out_op.dst = 0;
+    out_op.src0 = left_index;
+    out_op.src1 = right_index;
+    out_op.target_id = -1;
+    out_op.imm = 0i64;
+    out_op.flags = 0;
+    return 1;
+}
+
+fn native_build_assign_stmt_to_param0_store_const(decl: &ASTNode, stmt: &ASTNode, out_value: &i32) i32 {
+    if out_value != null {
+        *out_value = 0;
+    }
+    if decl == null || stmt == null || out_value == null ||
+       native_build_decl_is_one_i32_ptr_param_fn(decl) == 0 ||
+       stmt.type != ASTNodeType.AST_ASSIGN || stmt.assign_dest == null ||
+       stmt.assign_src == null || stmt.assign_dest.type != ASTNodeType.AST_ARRAY_ACCESS ||
+       stmt.assign_dest.array_access_array == null || stmt.assign_dest.array_access_index == null ||
+       stmt.assign_src.type != ASTNodeType.AST_NUMBER {
+        return 0;
+    }
+    if stmt.assign_dest.array_access_array.type != ASTNodeType.AST_IDENTIFIER ||
+       stmt.assign_dest.array_access_array.identifier_name == null ||
+       stmt.assign_dest.array_access_index.type != ASTNodeType.AST_NUMBER ||
+       stmt.assign_dest.array_access_index.number_value_i64 != 0i64 ||
+       decl.fn_decl_params == null {
+        return 0;
+    }
+    const param: &ASTNode = decl.fn_decl_params[0];
+    if param == null || param.var_decl_name == null ||
+       str_equals(param.var_decl_name as *byte, stmt.assign_dest.array_access_array.identifier_name as *byte) == 0 {
+        return 0;
+    }
+    const value_result: !i32 = stmt.assign_src.number_value_i64 as! i32;
+    *out_value = value_result catch {
+        return 0;
+    };
+    return 1;
+}
+
+fn native_build_expr_to_return_plan(program: &ASTNode, expr: &ASTNode, plan: &NativeBuildFunctionPlan) i32 {
+    if program == null || expr == null || plan == null {
+        return 0;
+    }
+    plan.return_kind = 0;
+    plan.return_value = 0;
+    plan.call_target = -1;
+    plan.call_target_right = -1;
+    plan.call_arg0_value = 0;
+    plan.call_arg1_value = 0;
+    if expr.type == ASTNodeType.AST_NUMBER &&
+       expr.number_value_i64 >= 0i64 && expr.number_value_i64 <= 255i64 {
+        plan.return_kind = NATIVE_BUILD_RETURN_CONST_I32;
+        plan.return_value = expr.number_value_i64 as i32;
+        return 1;
+    }
+    var target: i32 = -1;
+    if native_build_expr_zero_arg_call_target(program, expr, &target) != 0 {
+        plan.return_kind = NATIVE_BUILD_RETURN_CALL;
+        plan.call_target = target;
+        return 1;
+    }
+    if expr.type == ASTNodeType.AST_BINARY_EXPR && expr.binary_expr_left != null &&
+       expr.binary_expr_right != null {
+        const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+        const op: TokenType = op_tmp catch {
+            return 0;
+        };
+        if op != TokenType.TOKEN_PLUS {
+            return 0;
+        }
+        var left_target: i32 = -1;
+        var right_target: i32 = -1;
+        if native_build_expr_zero_arg_call_target(program, expr.binary_expr_left, &left_target) != 0 &&
+           native_build_expr_zero_arg_call_target(program, expr.binary_expr_right, &right_target) != 0 {
+            plan.return_kind = NATIVE_BUILD_RETURN_ADD_CALLS;
+            plan.call_target = left_target;
+            plan.call_target_right = right_target;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+fn native_build_decl_to_function_plan(program: &ASTNode, decl: &ASTNode, plan: &NativeBuildFunctionPlan) i32 {
+    if native_build_decl_is_noarg_i32_fn(decl) == 0 || plan == null {
+        return 0;
+    }
+    const body: &ASTNode = decl.fn_decl_body;
+    if body == null || body.type != ASTNodeType.AST_BLOCK || body.block_stmts == null ||
+       body.block_stmt_count != 1 {
+        return 0;
+    }
+    const stmt: &ASTNode = body.block_stmts[0];
+    if stmt == null || stmt.type != ASTNodeType.AST_RETURN_STMT || stmt.return_stmt_expr == null {
+        return 0;
+    }
+    return native_build_expr_to_return_plan(program, stmt.return_stmt_expr, plan);
+}
+
+fn native_build_program_to_function_plan(program: &ASTNode, arena: &CompilerArena) NativeBuildAstPlan {
+    if program == null || program.type != ASTNodeType.AST_PROGRAM || program.program_decls == null ||
+       program.program_decl_count <= 0 || arena == null {
+        return native_build_ast_plan_empty();
+    }
+    const bytes: usize = @size_of(NativeBuildFunctionPlan) * (program.program_decl_count as usize);
+    const plans: &NativeBuildFunctionPlan = compiler_arena_alloc(arena, bytes) as &NativeBuildFunctionPlan;
+    if plans == null {
+        return native_build_ast_plan_empty();
+    }
+    var entry_index: i32 = -1;
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if native_build_decl_to_function_plan(program, decl, &plans[i]) == 0 {
+            return native_build_ast_plan_empty();
+        }
+        if decl.fn_decl_name != null && str_equals(decl.fn_decl_name, "main" as *byte) != 0 {
+            entry_index = i;
+        }
+        i = i + 1;
+    }
+    if entry_index < 0 {
+        return native_build_ast_plan_empty();
+    }
+    return NativeBuildAstPlan{
+        plans: plans,
+        function_count: program.program_decl_count,
+        entry_index: entry_index,
+    };
+}
+
+fn native_build_decl_to_lowered_function(program: &ASTNode,
+    decl: &ASTNode, lowered: &LoweredProgram, function_index: i32,
+    decl_index: i32, reach: &NativeBuildReachability) i32 {
+    if native_build_decl_is_supported_i32_fn(decl) == 0 || lowered == null || function_index < 0 {
+        return 0;
+    }
+    const body: &ASTNode = decl.fn_decl_body;
+    if body == null || body.type != ASTNodeType.AST_BLOCK || body.block_stmts == null {
+        native_build_print_unsupported_function_body(decl, decl_index,
+            "missing_or_non_block_body" as &byte, null, -1);
+        return 0;
+    }
+    var locals: NativeBuildLocalTable = native_build_local_table_init(lowered.arena, body.block_stmt_count);
+    if locals.names == null || locals.call_targets == null ||
+       locals.kinds == null || locals.init_values == null {
+        native_build_print_unsupported_function_body(decl, decl_index,
+            "local_table_alloc_failed" as &byte, null, -1);
+        return 0;
+    }
+    const body_start_result: !i32 = lowered.body_op_count as! i32;
+    const body_start: i32 = body_start_result catch {
+        return 0;
+    };
+    var found_return: i32 = 0;
+    var emitted_local_ops: i32 = 0;
+    var pending_store_param0: i32 = 0;
+    var pending_store_value: i32 = 0;
+    var stmt_index: i32 = 0;
+    while stmt_index < body.block_stmt_count {
+        const stmt: &ASTNode = body.block_stmts[stmt_index];
+        if stmt == null {
+            native_build_print_unsupported_function_body(decl, decl_index,
+                "null_statement" as &byte, stmt, stmt_index);
+            return 0;
+        }
+        if stmt.type == ASTNodeType.AST_VAR_DECL {
+            var scalar_init_value: i32 = 0;
+            if native_build_var_decl_i32_const_value(stmt, &scalar_init_value) != 0 {
+                if native_build_local_add_i32_const(&locals, stmt.var_decl_name, scalar_init_value) < 0 {
+                    native_build_print_unsupported_function_body(decl, decl_index,
+                        "unsupported_local_slot" as &byte, stmt, stmt_index);
+                    return 0;
+                }
+                stmt_index = stmt_index + 1;
+                continue;
+            }
+            if native_build_var_decl_is_noop_placeholder(stmt) != 0 {
+                stmt_index = stmt_index + 1;
+                continue;
+            }
+            var call_target: i32 = -1;
+            if stmt.var_decl_name != null &&
+               native_build_resolve_reachable_zero_arg_call(program, stmt.var_decl_init, reach, &call_target) != 0 {
+                const slot: i32 = native_build_local_add_call(&locals, stmt.var_decl_name, call_target);
+                if slot < 0 {
+                    native_build_print_unsupported_function_body(decl, decl_index,
+                        "unsupported_local_slot" as &byte, stmt, stmt_index);
+                    return 0;
+                }
+                var local_op: LoweredBodyOp = LoweredBodyOp{
+                    opcode: LOWERED_BODY_OP_LOCAL_CALL_I32,
+                    dst: slot,
+                    src0: 0,
+                    src1: 0,
+                    target_id: call_target,
+                    imm: 0i64,
+                    flags: 0,
+                };
+                if lowered_program_append_body_op(lowered, &local_op) != 0 {
+                    return 0;
+                }
+                emitted_local_ops = emitted_local_ops + 1;
+                stmt_index = stmt_index + 1;
+                continue;
+            }
+            var const_call_target: i32 = -1;
+            var const_call_arg0: i32 = 0;
+            if stmt.var_decl_name != null &&
+               native_build_resolve_reachable_const1_i32_call(program, stmt.var_decl_init, reach,
+                   &const_call_target, &const_call_arg0) != 0 {
+                const slot2: i32 = native_build_local_add_call(&locals, stmt.var_decl_name, const_call_target);
+                if slot2 < 0 {
+                    native_build_print_unsupported_function_body(decl, decl_index,
+                        "unsupported_local_slot" as &byte, stmt, stmt_index);
+                    return 0;
+                }
+                var local_const_op: LoweredBodyOp = LoweredBodyOp{
+                    opcode: LOWERED_BODY_OP_LOCAL_CALL_CONST1_I32,
+                    dst: slot2,
+                    src0: 0,
+                    src1: 0,
+                    target_id: const_call_target,
+                    imm: const_call_arg0 as i64,
+                    flags: 0,
+                };
+                if lowered_program_append_body_op(lowered, &local_const_op) != 0 {
+                    return 0;
+                }
+                emitted_local_ops = emitted_local_ops + 1;
+                stmt_index = stmt_index + 1;
+                continue;
+            }
+            var const2_call_target: i32 = -1;
+            var const2_call_arg0: i32 = 0;
+            var const2_call_arg1: i32 = 0;
+            if stmt.var_decl_name != null &&
+               native_build_resolve_reachable_const2_i32_call(program, stmt.var_decl_init, reach,
+                   &const2_call_target, &const2_call_arg0, &const2_call_arg1) != 0 {
+                const slot3: i32 = native_build_local_add_call(&locals, stmt.var_decl_name, const2_call_target);
+                if slot3 < 0 {
+                    native_build_print_unsupported_function_body(decl, decl_index,
+                        "unsupported_local_slot" as &byte, stmt, stmt_index);
+                    return 0;
+                }
+                var local_const2_op: LoweredBodyOp = LoweredBodyOp{
+                    opcode: LOWERED_BODY_OP_LOCAL_CALL_CONST2_I32,
+                    dst: slot3,
+                    src0: const2_call_arg0,
+                    src1: const2_call_arg1,
+                    target_id: const2_call_target,
+                    imm: 0i64,
+                    flags: 0,
+                };
+                if lowered_program_append_body_op(lowered, &local_const2_op) != 0 {
+                    return 0;
+                }
+                emitted_local_ops = emitted_local_ops + 1;
+                stmt_index = stmt_index + 1;
+                continue;
+            }
+            var addr_call_target: i32 = -1;
+            var addr_call_slot: i32 = -1;
+            if stmt.var_decl_name != null &&
+               native_build_resolve_reachable_addr1_i32_call(program, stmt.var_decl_init, reach,
+                   &locals, &addr_call_target, &addr_call_slot) != 0 {
+                var local_init_op: LoweredBodyOp = LoweredBodyOp{
+                    opcode: LOWERED_BODY_OP_LOCAL_I32_CONST,
+                    dst: addr_call_slot,
+                    src0: 0,
+                    src1: 0,
+                    target_id: -1,
+                    imm: locals.init_values[addr_call_slot] as i64,
+                    flags: 0,
+                };
+                if lowered_program_append_body_op(lowered, &local_init_op) != 0 {
+                    return 0;
+                }
+                var local_addr_call_op: LoweredBodyOp = LoweredBodyOp{
+                    opcode: LOWERED_BODY_OP_LOCAL_CALL_ADDR1_I32,
+                    dst: 0,
+                    src0: addr_call_slot,
+                    src1: 0,
+                    target_id: addr_call_target,
+                    imm: 0i64,
+                    flags: 0,
+                };
+                if lowered_program_append_body_op(lowered, &local_addr_call_op) != 0 {
+                    return 0;
+                }
+                emitted_local_ops = emitted_local_ops + 2;
+                stmt_index = stmt_index + 1;
+                continue;
+            }
+            native_build_print_unsupported_call_expr(stmt.var_decl_init, "unsupported_var_init" as &byte);
+            native_build_print_unsupported_function_body(decl, decl_index,
+                "unsupported_var_init" as &byte, stmt, stmt_index);
+            return 0;
+        }
+        var store_value: i32 = 0;
+        if native_build_assign_stmt_to_param0_store_const(decl, stmt, &store_value) != 0 {
+            if pending_store_param0 != 0 {
+                native_build_print_unsupported_function_body(decl, decl_index,
+                    "unsupported_multiple_pointer_stores" as &byte, stmt, stmt_index);
+                return 0;
+            }
+            pending_store_param0 = 1;
+            pending_store_value = store_value;
+            stmt_index = stmt_index + 1;
+            continue;
+        }
+        if stmt.type != ASTNodeType.AST_RETURN_STMT || stmt.return_stmt_expr == null {
+            native_build_print_unsupported_function_body(decl, decl_index,
+                "unsupported_statement" as &byte, stmt, stmt_index);
+            return 0;
+        }
+        var body_op: LoweredBodyOp = LoweredBodyOp{
+            opcode: LOWERED_BODY_OP_NOP,
+            dst: 0,
+            src0: 0,
+            src1: 0,
+            target_id: -1,
+            imm: 0i64,
+            flags: 0,
+        };
+        if pending_store_param0 != 0 {
+            if stmt.return_stmt_expr.type != ASTNodeType.AST_NUMBER {
+                native_build_print_unsupported_function_body(decl, decl_index,
+                    "unsupported_pointer_store_return" as &byte, stmt.return_stmt_expr, stmt_index);
+                return 0;
+            }
+            const ret_result: !i32 = stmt.return_stmt_expr.number_value_i64 as! i32;
+            body_op.opcode = LOWERED_BODY_OP_STORE_PARAM0_CONST_I32;
+            body_op.dst = 0;
+            body_op.src0 = ret_result catch {
+                return 0;
+            };
+            body_op.src1 = 0;
+            body_op.target_id = -1;
+            body_op.imm = pending_store_value as i64;
+            body_op.flags = 0;
+        } else if native_build_expr_to_body_op(program, stmt.return_stmt_expr, reach, &body_op) == 0 {
+            if native_build_expr_to_return_local_op(stmt.return_stmt_expr, &locals, &body_op) == 0 {
+                if native_build_expr_to_return_param_op(decl, stmt.return_stmt_expr, &body_op) == 0 {
+                    if native_build_expr_to_return_add_params_op(decl, stmt.return_stmt_expr, &body_op) == 0 {
+                        native_build_print_unsupported_function_body(decl, decl_index,
+                            "unsupported_return_expr" as &byte, stmt.return_stmt_expr, stmt_index);
+                        return 0;
+                    }
+                }
+            }
+        } else if emitted_local_ops > 0 {
+            native_build_print_unsupported_function_body(decl, decl_index,
+                "unsupported_local_return_shape" as &byte, stmt, stmt_index);
+            return 0;
+        }
+        if body_op.opcode == LOWERED_BODY_OP_RETURN_LOCAL_I32 && emitted_local_ops == 0 {
+            native_build_print_unsupported_function_body(decl, decl_index,
+                "unsupported_unmaterialized_local_return" as &byte, stmt, stmt_index);
+            return 0;
+        }
+        if lowered_program_append_body_op(lowered, &body_op) != 0 {
+            return 0;
+        }
+        found_return = 1;
+        break;
+    }
+    if found_return == 0 {
+        native_build_print_unsupported_function_body(decl, decl_index,
+            "missing_return" as &byte, null, -1);
+        return 0;
+    }
+    const body_end_result: !i32 = lowered.body_op_count as! i32;
+    const body_end: i32 = body_end_result catch {
+        return 0;
+    };
+    const body_count: i32 = body_end - body_start;
+    if body_count <= 0 {
+        return 0;
+    }
+    var fn_item: ConcreteFunction = ConcreteFunction{
+        function_id: function_index,
+        decl_id: decl_index,
+        mono_instance_id: 0,
+        body_start: body_start,
+        body_count: body_count,
+    };
+    if lowered_program_append_function(lowered, &fn_item) != 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_build_program_to_lowered_plan(program: &ASTNode, arena: &CompilerArena) NativeBuildLoweredPlan {
+    var plan: NativeBuildLoweredPlan = native_build_lowered_plan_empty();
+    if program == null || program.type != ASTNodeType.AST_PROGRAM || program.program_decls == null ||
+       program.program_decl_count <= 0 || arena == null {
+        return plan;
+    }
+    lowered_program_init(&plan.lowered, arena);
+    var reach: NativeBuildReachability = native_build_reachability_init(arena, program.program_decl_count);
+    if reach.decl_to_function_index == null || reach.function_decl_indices == null {
+        lowered_program_release(&plan.lowered);
+        return native_build_lowered_plan_empty();
+    }
+    const entry_decl_index: i32 = native_build_find_function_decl_index(program, "main" as &byte);
+    if entry_decl_index < 0 {
+        lowered_program_release(&plan.lowered);
+        return native_build_lowered_plan_empty();
+    }
+    const entry_index: i32 = native_build_assign_reachable_function(program, &reach, entry_decl_index);
+    if entry_index < 0 {
+        lowered_program_release(&plan.lowered);
+        return native_build_lowered_plan_empty();
+    }
+    var next_function: i32 = 0;
+    while next_function < reach.assigned_count {
+        const decl_index: i32 = reach.function_decl_indices[next_function];
+        if decl_index < 0 || decl_index >= program.program_decl_count {
+            lowered_program_release(&plan.lowered);
+            return native_build_lowered_plan_empty();
+        }
+        const decl: &ASTNode = program.program_decls[decl_index];
+        if native_build_decl_to_lowered_function(program, decl, &plan.lowered,
+            next_function, decl_index, &reach) == 0 {
+            native_build_print_unsupported_decl(decl, decl_index);
+            lowered_program_release(&plan.lowered);
+            return native_build_lowered_plan_empty();
+        }
+        next_function = next_function + 1;
+    }
+    plan.entry_index = entry_index;
+    return plan;
+}
+
+fn native_build_lowered_main_const_exit_code(plan: &NativeBuildLoweredPlan, out_code: &i32) i32 {
+    if out_code != null {
+        *out_code = -1;
+    }
+    if plan == null || plan.lowered.lifecycle_state != LOWERED_PROGRAM_LIFECYCLE_ACTIVE ||
+       plan.entry_index < 0 {
+        return 0;
+    }
+    const entry_index_result: !usize = plan.entry_index as! usize;
+    const entry_index: usize = entry_index_result catch {
+        return 0;
+    };
+    const entry: &ConcreteFunction = semantic_vector_item_ptr(&plan.lowered.functions, entry_index) as &ConcreteFunction;
+    if entry == null || entry.body_count != 1 || entry.body_start < 0 {
+        return 0;
+    }
+    const body_start_result: !usize = entry.body_start as! usize;
+    const body_start: usize = body_start_result catch {
+        return 0;
+    };
+    const op: &LoweredBodyOp = semantic_vector_item_ptr(&plan.lowered.body_ops, body_start) as &LoweredBodyOp;
+    if op == null || op.opcode != LOWERED_BODY_OP_RETURN_CONST_I32 ||
+       op.imm < 0i64 || op.imm > 255i64 {
+        return 0;
+    }
+    if out_code != null {
+        const code_result: !i32 = op.imm as! i32;
+        *out_code = code_result catch {
+            return 0;
+        };
+    }
+    return 1;
+}
+
+fn native_build_plan_main_const_exit_code(plan: &NativeBuildAstPlan, out_code: &i32) i32 {
+    if out_code != null {
+        *out_code = -1;
+    }
+    if plan == null || plan.plans == null || plan.entry_index < 0 ||
+       plan.entry_index >= plan.function_count {
+        return 0;
+    }
+    const entry: &NativeBuildFunctionPlan = &plan.plans[plan.entry_index];
+    if entry.return_kind != NATIVE_BUILD_RETURN_CONST_I32 {
+        return 0;
+    }
+    if out_code != null {
+        *out_code = entry.return_value;
+    }
+    return 1;
+}
+
+// 文件读取缓冲区大小（与 Lexer 一致）
+const FILE_BUFFER_SIZE: i32 = 1024 * 1024;
+
+// Arena 缓冲区大小（v2.0: 动态增长 Arena）
+// 初始缓冲区 64MB，不足时自动分配新 chunk
+const ARENA_BUFFER_SIZE: i32 = 64 * 1024 * 1024;  // 64MB 初始
+
+// 最大输入文件数
+const MAX_INPUT_FILES: i32 = 128;
+
+// --split-c-dir / UYA_SPLIT_C_DIR：多文件 C 输出目录；非空时链接阶段走 make -j
+// C99 且非「显式 -o xxx.c」时默认目录 .uyacache（与显式 --split-c-dir 省略路径一致）；UYA_SPLIT_C=0 或 --no-split-c 可关闭
+var g_split_c_dir: [byte: PATH_MAX] = [];
+var g_split_c_dir_active: i32 = 0;
+// 命令行 --no-split-c：强制单文件 C，忽略默认多文件、UYA_SPLIT_C_DIR 与 --split-c-dir
+var g_split_c_disabled_cli: i32 = 0;
+// split-C 共享输出目录锁：同一目录一次只允许一个编译进程写入，避免 .c/.h 生成物交错损坏
+var g_split_c_lock_dir: [byte: PATH_MAX] = [];
+var g_split_c_lock_active: i32 = 0;
+
+// --async-frame-heap=on：async frame pool 满时回退到调试 heap
+var g_async_frame_heap_fallback: i32 = 0;
+
+// build seed 不启用 microapp/container 限制；相关 image/payload 逻辑由完整命令或外置工具承担。
+const BUILD_CONTAINER_MODE: i32 = 0;
+
+// package mode / command split 预留：允许显式覆盖模块根。
+var g_module_root_override: [byte: PATH_MAX] = [];
+var g_module_root_override_active: i32 = 0;
+
+fn split_c_set_default_dir() void {
+    const def: &byte = ".uyacache" as &byte;
+    const sl: usize = strlen(def);
+    if sl > 0 && sl < PATH_MAX - 1 {
+        strcpy(&g_split_c_dir[0] as *byte, def);
+        g_split_c_dir_active = 1;
+    }
+}
+
+fn split_c_lock_reset() void {
+    g_split_c_lock_active = 0;
+    g_split_c_lock_dir[0] = 0 as byte;
+}
+
+fn split_c_copy_dir_without_trailing_sep(src: &byte, out: &byte, out_cap: usize) i32 {
+    if src == null || out == null || out_cap == 0usize {
+        return 1;
+    }
+    const copied: i32 = snprintf(out as *byte, out_cap, "%s" as *byte, src as *byte);
+    if copied <= 0 || copied >= out_cap as i32 {
+        return 1;
+    }
+    var len: usize = copied as usize;
+    while len > 1usize {
+        const tail: byte = out[len - 1usize];
+        if tail != 47 as byte && tail != 92 as byte {
+            break;
+        }
+        if len == 3usize {
+            const c0: i32 = out[0] as i32;
+            if ((c0 >= 65 && c0 <= 90) || (c0 >= 97 && c0 <= 122)) && out[1] == 58 as byte {
+                break;
+            }
+        }
+        out[len - 1usize] = 0 as byte;
+        len = len - 1usize;
+    }
+    return 0;
+}
+
+fn split_c_fill_lock_dir(split_dir: &byte, out: &byte, out_cap: usize) i32 {
+    if split_dir == null || out == null || out_cap == 0usize {
+        return 1;
+    }
+    var split_dir_norm: [byte: PATH_MAX] = [];
+    if split_c_copy_dir_without_trailing_sep(split_dir, &split_dir_norm[0] as &byte, PATH_MAX) != 0 {
+        return 1;
+    }
+    const wl: i32 = snprintf(out as *byte, out_cap, "%s/.uya-lock" as *byte, &split_dir_norm[0] as *byte);
+    if wl <= 0 || wl >= out_cap as i32 {
+        return 1;
+    }
+    return 0;
+}
+
+fn split_c_fill_lock_pid_path(lock_dir: &byte, out: &byte, out_cap: usize) i32 {
+    if lock_dir == null || out == null || out_cap == 0usize {
+        return 1;
+    }
+    const wl: i32 = snprintf(out as *byte, out_cap, "%s/owner.pid" as *byte, lock_dir as *byte);
+    if wl <= 0 || wl >= out_cap as i32 {
+        return 1;
+    }
+    return 0;
+}
+
+fn split_c_fill_lock_stage_dir(lock_dir: &byte, out: &byte, out_cap: usize) i32 {
+    if lock_dir == null || out == null || out_cap == 0usize {
+        return 1;
+    }
+    const wl: i32 = snprintf(out as *byte, out_cap, "%s.stage-%d" as *byte, lock_dir as *byte, getpid());
+    if wl <= 0 || wl >= out_cap as i32 {
+        return 1;
+    }
+    return 0;
+}
+
+fn split_c_parse_owner_pid(text: &byte) i32 {
+    if text == null {
+        return 0 - 1;
+    }
+    var i: usize = 0;
+    while text[i] == 32 as byte || text[i] == 9 as byte || text[i] == 10 as byte || text[i] == 13 as byte {
+        i = i + 1;
+    }
+    if text[i] == 0 as byte {
+        return 0 - 1;
+    }
+    var value: i32 = 0;
+    var digit_count: i32 = 0;
+    while text[i] >= '0' as byte && text[i] <= '9' as byte {
+        value = value * 10 + (text[i] as i32 - '0' as i32);
+        digit_count = digit_count + 1;
+        i = i + 1;
+    }
+    if digit_count == 0 {
+        return 0 - 1;
+    }
+    while text[i] == 32 as byte || text[i] == 9 as byte || text[i] == 10 as byte || text[i] == 13 as byte {
+        i = i + 1;
+    }
+    if text[i] != 0 as byte || value <= 0 {
+        return 0 - 1;
+    }
+    return value;
+}
+
+fn split_c_write_lock_owner_pid(lock_dir: &byte) i32 {
+    var pid_path: [byte: PATH_MAX] = [];
+    if split_c_fill_lock_pid_path(lock_dir, &pid_path[0] as &byte, PATH_MAX) != 0 {
+        return 1;
+    }
+    const file: &void = fopen(&pid_path[0] as *byte, "w" as *byte) as &void;
+    if file == null {
+        return 1;
+    }
+    fprintf(file as *void, "%d\n" as *byte, getpid());
+    fclose(file as *void);
+    return 0;
+}
+
+fn split_c_read_lock_owner_pid(lock_dir: &byte, pid_out: &i32) i32 {
+    if lock_dir == null || pid_out == null {
+        return 1;
+    }
+    var pid_path: [byte: PATH_MAX] = [];
+    if split_c_fill_lock_pid_path(lock_dir, &pid_path[0] as &byte, PATH_MAX) != 0 {
+        return 1;
+    }
+    const file: &FILE = fopen(&pid_path[0] as *byte, "r" as *byte);
+    if file == null {
+        return 1;
+    }
+    var buf: [byte: 64] = [];
+    const line: &byte = fgets(&buf[0] as &byte, 64, file);
+    fclose(file);
+    if line == null {
+        return 1;
+    }
+    const pid: i32 = split_c_parse_owner_pid(&buf[0] as &byte);
+    if pid <= 0 {
+        return 1;
+    }
+    pid_out[0] = pid;
+    return 0;
+}
+
+fn split_c_cleanup_lock_dir(lock_dir: &byte) void {
+    if lock_dir == null || lock_dir[0] == 0 as byte {
+        return;
+    }
+    var pid_path: [byte: PATH_MAX] = [];
+    if split_c_fill_lock_pid_path(lock_dir, &pid_path[0] as &byte, PATH_MAX) == 0 {
+        _ = unlink(&pid_path[0] as *byte);
+    }
+    _ = rmdir(lock_dir as *byte);
+}
+
+fn split_c_owner_pid_is_alive(pid: i32) i32 {
+    if pid <= 0 {
+        return 0;
+    }
+    const probe: !i32 = sys_kill(pid as i64, 0);
+    if probe.error_id == 0u32 {
+        return 1;
+    }
+    const eid: i32 = probe.error_id as i32;
+    if eid == EPERM {
+        return 1;
+    }
+    if eid == ESRCH {
+        return 0;
+    }
+    // 其它错误保守按「仍占锁」处理，避免误删活锁。
+    return 1;
+}
+
+fn split_c_try_reclaim_stale_lock(lock_dir: &byte) i32 {
+    if lock_dir == null || lock_dir[0] == 0 as byte {
+        return 0;
+    }
+    var owner_pid: i32 = 0;
+    if split_c_read_lock_owner_pid(lock_dir, &owner_pid) != 0 {
+        if rmdir(lock_dir as *byte) == 0 {
+            fprintf(libc.stderr, "信息：检测到 incomplete split-C 锁，已回收（锁目录：%s，缺少 owner.pid）\n" as *byte, lock_dir as *byte);
+            return 1;
+        }
+        return 0;
+    }
+    if split_c_owner_pid_is_alive(owner_pid) != 0 {
+        return 0;
+    }
+    split_c_cleanup_lock_dir(lock_dir);
+    if access(lock_dir as *byte, F_OK) != 0 {
+        fprintf(libc.stderr, "信息：检测到 stale split-C 锁，已回收（锁目录：%s，owner pid=%d）\n" as *byte, lock_dir as *byte, owner_pid);
+        return 1;
+    }
+    return 0;
+}
+
+fn split_c_lock_take_ownership(lock_dir: &byte) i32 {
+    if lock_dir == null || lock_dir[0] == 0 as byte {
+        return 1;
+    }
+    var stage_dir: [byte: PATH_MAX] = [];
+    if split_c_fill_lock_stage_dir(lock_dir, &stage_dir[0] as &byte, PATH_MAX) != 0 {
+        return 1;
+    }
+    split_c_cleanup_lock_dir(&stage_dir[0] as &byte);
+    if mkdir(&stage_dir[0] as *byte, 493) != 0 {
+        return 1;
+    }
+    if split_c_write_lock_owner_pid(&stage_dir[0] as &byte) != 0 {
+        split_c_cleanup_lock_dir(&stage_dir[0] as &byte);
+        return 1;
+    }
+    const rename_result: !i32 = sys_rename(&stage_dir[0] as &byte, lock_dir);
+    if rename_result.error_id != 0u32 {
+        split_c_cleanup_lock_dir(&stage_dir[0] as &byte);
+        return 1;
+    }
+    strcpy(&g_split_c_lock_dir[0] as *byte, lock_dir as *byte);
+    g_split_c_lock_active = 1;
+    return 0;
+}
+
+fn split_c_acquire_lock(split_dir: &byte) i32 {
+    if split_dir == null || split_dir[0] == 0 as byte {
+        return 0;
+    }
+    if g_split_c_lock_active != 0 {
+        return 0;
+    }
+    var split_dir_norm: [byte: PATH_MAX] = [];
+    if split_c_copy_dir_without_trailing_sep(split_dir, &split_dir_norm[0] as &byte, PATH_MAX) != 0 {
+        fprintf(libc.stderr, "错误：无法规范化 split-C 输出目录路径: %s\n" as *byte, split_dir as *byte);
+        return 1;
+    }
+    c99_mkdir_p_chain(&split_dir_norm[0] as &byte);
+    var lock_dir: [byte: PATH_MAX] = [];
+    if split_c_fill_lock_dir(&split_dir_norm[0] as &byte, &lock_dir[0] as &byte, PATH_MAX) != 0 {
+        fprintf(libc.stderr, "错误：无法构建 split-C 锁目录路径: %s\n" as *byte, &split_dir_norm[0] as *byte);
+        return 1;
+    }
+    if access(&lock_dir[0] as *byte, F_OK) != 0 {
+        if split_c_lock_take_ownership(&lock_dir[0] as &byte) != 0 {
+            if access(&lock_dir[0] as *byte, F_OK) == 0 {
+                if split_c_try_reclaim_stale_lock(&lock_dir[0] as &byte) != 0 {
+                    if split_c_lock_take_ownership(&lock_dir[0] as &byte) != 0 {
+                        fprintf(libc.stderr, "错误：无法写入 split-C 锁信息 '%s'\n" as *byte, &lock_dir[0] as *byte);
+                        return 1;
+                    }
+                    return 0;
+                }
+            }
+            if access(&lock_dir[0] as *byte, F_OK) == 0 {
+                var owner_pid: i32 = 0;
+                if split_c_read_lock_owner_pid(&lock_dir[0] as &byte, &owner_pid) == 0 {
+                    fprintf(libc.stderr, "错误：多文件 C 输出目录 '%s' 正在被另一编译进程使用（锁目录：%s，owner pid=%d）；请等待当前编译结束，或改用独立 --split-c-dir / worktree\n" as *byte, split_dir as *byte, &lock_dir[0] as *byte, owner_pid);
+                } else {
+                    fprintf(libc.stderr, "错误：多文件 C 输出目录 '%s' 正在被另一编译进程使用（锁目录：%s）；请等待当前编译结束，或改用独立 --split-c-dir / worktree\n" as *byte, split_dir as *byte, &lock_dir[0] as *byte);
+                }
+            } else {
+                fprintf(libc.stderr, "错误：无法写入 split-C 锁信息 '%s'\n" as *byte, &lock_dir[0] as *byte);
+            }
+            return 1;
+        }
+        return 0;
+    }
+    if split_c_try_reclaim_stale_lock(&lock_dir[0] as &byte) != 0 {
+        if split_c_lock_take_ownership(&lock_dir[0] as &byte) != 0 {
+            fprintf(libc.stderr, "错误：无法写入 split-C 锁信息 '%s'\n" as *byte, &lock_dir[0] as *byte);
+            return 1;
+        }
+        return 0;
+    }
+    if access(&lock_dir[0] as *byte, F_OK) == 0 {
+        var owner_pid: i32 = 0;
+        if split_c_read_lock_owner_pid(&lock_dir[0] as &byte, &owner_pid) == 0 {
+            fprintf(libc.stderr, "错误：多文件 C 输出目录 '%s' 正在被另一编译进程使用（锁目录：%s，owner pid=%d）；请等待当前编译结束，或改用独立 --split-c-dir / worktree\n" as *byte, split_dir as *byte, &lock_dir[0] as *byte, owner_pid);
+        } else {
+            fprintf(libc.stderr, "错误：多文件 C 输出目录 '%s' 正在被另一编译进程使用（锁目录：%s）；请等待当前编译结束，或改用独立 --split-c-dir / worktree\n" as *byte, split_dir as *byte, &lock_dir[0] as *byte);
+        }
+        return 1;
+    }
+    fprintf(libc.stderr, "错误：无法创建 split-C 锁目录 '%s'\n" as *byte, &lock_dir[0] as *byte);
+    return 1;
+}
+
+fn split_c_release_lock() void {
+    if g_split_c_lock_active == 0 {
+        return;
+    }
+    var pid_path: [byte: PATH_MAX] = [];
+    if split_c_fill_lock_pid_path(&g_split_c_lock_dir[0] as &byte, &pid_path[0] as &byte, PATH_MAX) == 0 {
+        _ = unlink(&pid_path[0] as *byte);
+    }
+    _ = rmdir(&g_split_c_lock_dir[0] as *byte);
+    split_c_lock_reset();
+}
+
+// 编译器全局缓冲区（替代 C 的 static 数组，零初始化）
+var arena_buffer: [byte: ARENA_BUFFER_SIZE] = [];
+var file_buffer: [byte: FILE_BUFFER_SIZE] = [];
+// 临时 Arena 缓冲区（用于依赖收集，全局变量避免栈溢出）
+// v2.0: 动态增长，初始 16MB
+var temp_arena_buffer: [byte: 16 * 1024 * 1024] = [];
+// 大数组移到全局变量避免栈溢出（main_file_paths 是 64 * 4096 = 262KB）
+var main_file_paths_global: [[byte: PATH_MAX]: MAX_INPUT_FILES] = [];
+// 将 resolved_files 也移到全局变量，避免栈溢出
+var resolved_files_global: [&byte: MAX_INPUT_FILES] = [];
+
+// 大数组移到全局变量避免 compile_files/build driver 主栈帧膨胀（macOS x86_64 hosted seed 会在 ___chkstk_darwin 崩）
+var all_files_global: [&byte: MAX_INPUT_FILES] = [];
+var processed_files_global: [&byte: MAX_INPUT_FILES] = [];
+var main_files_global: [&byte: MAX_INPUT_FILES] = [];
+
+fn main_file_buffer_ptr_at(idx: usize) &byte {
+    const slot: usize = idx;
+    if slot >= @len(file_buffer) {
+        return null;
+    }
+    return &file_buffer[slot] as &byte;
+}
+
+fn main_path_buf_char_at(buf: [byte: PATH_MAX], idx: i32) byte {
+    const slot: i32 = idx;
+    if slot < 0 {
+        return 0 as byte;
+    }
+    if slot >= PATH_MAX {
+        return 0 as byte;
+    }
+    return buf[slot];
+}
+
+fn main_path_buf_set(buf: [byte: PATH_MAX], idx: i32, value: byte) void {
+    const slot: i32 = idx;
+    if slot < 0 {
+        return;
+    }
+    if slot >= PATH_MAX {
+        return;
+    }
+    buf[slot] = value;
+}
+
+fn resolved_file_at(files: [&byte: MAX_INPUT_FILES], idx: i32) &byte {
+    const slot: i32 = idx;
+    if slot < 0 {
+        return null;
+    }
+    if slot >= MAX_INPUT_FILES {
+        return null;
+    }
+    return files[slot];
+}
+
+fn resolved_file_set(files: [&byte: MAX_INPUT_FILES], idx: i32, value: &byte) void {
+    const slot: i32 = idx;
+    if slot < 0 {
+        return;
+    }
+    if slot >= MAX_INPUT_FILES {
+        return;
+    }
+    files[slot] = value;
+}
+
+// 读取文件内容到缓冲区
+// 成功返回读取字节数，失败返回 -1
+// 注意：filename 用 &byte，调用 fopen 时转为 *byte
+fn read_file_content(filename: &byte, buffer: &byte, buffer_size: usize) i32 {
+    const file: &FILE = fopen(filename as *byte, "rb" as *byte);
+    if file == null {
+        return -1;
+    }
+    const bytes_read: usize = fread(buffer as *byte, 1, buffer_size - 1, file);
+    const c: i32 = fgetc(file);
+    if bytes_read >= buffer_size - 1 {
+        fclose(file);
+        if c != -1 {
+            return -1;
+        }
+    } else {
+        fclose(file);
+    }
+    buffer[bytes_read] = 0 as byte;
+    return bytes_read as i32;
+}
+
+// system(3) 返回值为 wait 状态字；转为与 shell 类似的退出码（段错误等为 128+信号，便于压测与 if 判断）
+fn exit_code_from_system_status(wstatus: i32) i32 {
+    if wstatus < 0 {
+        return 1;
+    }
+    const low: i32 = wstatus & 0x7f;
+    const code: i32 = (wstatus >> 8) & 0xff;
+    if low == 0 {
+        return code;
+    }
+    const sig: i32 = low & 0x7f;
+    if sig == 0 {
+        return 1;
+    }
+    return 128 + sig;
+}
+
+fn shell_quote_append(cmd: &byte, cap: i32, len: &i32, text: &byte) i32 {
+    if cmd == null || len == null || text == null {
+        return 1;
+    }
+    var i: usize = 0;
+    if len[0] > 0 {
+        if len[0] + 1 >= cap {
+            return 1;
+        }
+        cmd[len[0] as usize] = 32 as byte;
+        len[0] = len[0] + 1;
+    }
+    if len[0] + 2 >= cap {
+        return 1;
+    }
+    cmd[len[0] as usize] = 39 as byte;
+    len[0] = len[0] + 1;
+    while text[i] != 0 as byte {
+        if text[i] == 39 as byte {
+            if len[0] + 4 >= cap {
+                return 1;
+            }
+            cmd[len[0] as usize] = 39 as byte;
+            cmd[(len[0] + 1) as usize] = 92 as byte;
+            cmd[(len[0] + 2) as usize] = 39 as byte;
+            cmd[(len[0] + 3) as usize] = 39 as byte;
+            len[0] = len[0] + 4;
+        } else {
+            if len[0] + 1 >= cap {
+                return 1;
+            }
+            cmd[len[0] as usize] = text[i];
+            len[0] = len[0] + 1;
+        }
+        i = i + 1;
+    }
+    if len[0] + 2 >= cap {
+        return 1;
+    }
+    cmd[len[0] as usize] = 39 as byte;
+    len[0] = len[0] + 1;
+    cmd[len[0] as usize] = 0 as byte;
+    return 0;
+}
+
+// 常量定义
+const PATH_MAX: usize = 4096;
+
+// 比较两个路径是否指向同一个文件（考虑路径格式差异）
+// 参数：path1 - 第一个路径
+//       path2 - 第二个路径
+// 返回：相同返回1，不同返回0
+fn paths_equal(path1: &byte, path2: &byte) i32 {
+    if path1 == null || path2 == null {
+        return 0;
+    }
+
+    // 首先尝试直接比较（最常见的情况）
+    if strcmp(path1 as *byte, path2 as *byte) == 0 {
+        return 1;
+    }
+
+    // 直接比较失败后先用 stat 判定真实文件身份；macOS 常见大小写不敏感卷上，
+    // std.io.File 与 std.io.file 可能解析到同一 inode，但文件名字符串大小写不同。
+    var st1: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+    var st2: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+    if stat(path1 as *byte, &st1) == 0 && stat(path2 as *byte, &st2) == 0 {
+        if st1.st_dev == st2.st_dev && st1.st_ino == st2.st_ino {
+            return 1;
+        }
+    }
+
+    // stat 失败时再提取文件名快速排除，避免明显不同的路径继续做额外判断。
+    var name1: &byte = strrchr(path1 as *byte, 47);  // '/'
+    var name2: &byte = strrchr(path2 as *byte, 47);  // '/'
+    if name1 == null {
+        name1 = path1;
+    } else {
+        name1 = name1 + 1;
+    }
+    if name2 == null {
+        name2 = path2;
+    } else {
+        name2 = name2 + 1;
+    }
+
+    // 如果文件名不同，肯定不是同一个文件
+    if strcmp(name1 as *byte, name2 as *byte) != 0 {
+        return 0;
+    }
+
+    // stat 失败或不是同一个文件，返回0
+    return 0;
+}
+
+// 原地稳定去重路径数组，保留首次出现顺序。
+// 依赖收集阶段可能因为目录模块与单文件模块交叉命中，把同一文件放进 all_files 多次；
+// 若不在最终编译列表收口，会导致同一源文件被重复解析并在 split-C 下重复发射定义。
+fn dedupe_paths_in_place(paths: &(&byte), count: i32) i32 {
+    if paths == null || count <= 0 {
+        return 0;
+    }
+
+    var write_idx: i32 = 0;
+    var read_idx: i32 = 0;
+    while read_idx < count {
+        const candidate: &byte = paths[read_idx];
+        var duplicate: i32 = 0;
+        if candidate != null {
+            var seen_idx: i32 = 0;
+            while seen_idx < write_idx {
+                if paths[seen_idx] != null && paths_equal(paths[seen_idx], candidate) != 0 {
+                    duplicate = 1;
+                    break;
+                }
+                seen_idx = seen_idx + 1;
+            }
+        }
+        if duplicate == 0 {
+            paths[write_idx] = candidate;
+            write_idx = write_idx + 1;
+        }
+        read_idx = read_idx + 1;
+    }
+
+    const unique_count: i32 = write_idx;
+    while write_idx < count {
+        paths[write_idx] = null;
+        write_idx = write_idx + 1;
+    }
+    return unique_count;
+}
+
+// 注意：arena_strdup 函数在 parser.uya 中定义，这里不再重复定义
+
+// 检查路径是否为目录
+fn is_directory(path: &byte) i32 {
+    if path == null {
+        return 0;
+    }
+    var st: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+    if stat(path as *byte, &st) == 0 {
+        if ((st.st_mode as u32) & S_IFMT) == S_IFDIR {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// 检查路径是否为文件
+fn is_file(path: &byte) i32 {
+    if path == null {
+        return 0;
+    }
+    var st: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+    if stat(path as *byte, &st) == 0 {
+        if ((st.st_mode as u32) & S_IFMT) == S_IFREG {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// 仅 Darwin 宿主进 AST；Linux 自举时整段裁剪，不链接 _NSGetExecutablePath
+std.cfg(std.host_os == .hos_macos, {
+extern fn _NSGetExecutablePath(buf: *byte, bufsize: *u32) i32;
+extern fn realpath(path: *byte, resolved_path: *byte) *byte;
+fn main_darwin_get_compiler_dir(buffer: &byte, buffer_size: usize) i32 {
+    if buffer == null || buffer_size < 3 {
+        return -1;
+    }
+    var raw: [byte: PATH_MAX] = [];
+    var sz: u32 = (PATH_MAX - 1) as u32;
+    if _NSGetExecutablePath(&raw[0] as *byte, &sz) != 0 {
+        return -1;
+    }
+    raw[(PATH_MAX - 1) as usize] = 0 as byte;
+    var full: [byte: PATH_MAX] = [];
+    const rp: *byte = realpath(&raw[0] as *byte, &full[0] as *byte);
+    if rp == null {
+        return -1;
+    }
+    const last_slash: *byte = strrchr(&full[0] as *byte, 47);
+    if last_slash == null {
+        return -1;
+    }
+    const dir_len: usize = ptr_diff(last_slash, &full[0] as *byte);
+    if dir_len + 1 >= buffer_size {
+        return -1;
+    }
+    memcpy(buffer as *void, &full[0] as *void, dir_len);
+    buffer[dir_len] = 47 as byte;
+    buffer[dir_len + 1] = 0 as byte;
+    return 0;
+}
+}, {})
+
+// 获取编译器程序所在目录
+fn get_compiler_dir(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
+    if argv0 == null || buffer == null || buffer_size == 0 {
+        return -1;
+    }
+
+    // 如果 argv0 自带目录（绝对或相对路径），直接提取目录。
+    const argv_slash: *byte = strrchr(argv0 as *byte, 47);
+    if argv_slash != null {
+        const dir_len: usize = ptr_diff(argv_slash, argv0);
+        if dir_len + 1 < buffer_size {
+            memcpy(buffer as *void, argv0 as *void, dir_len);
+            buffer[dir_len] = 47 as byte;
+            buffer[dir_len + 1] = 0 as byte;
+            return 0;
+        }
+    }
+
+    std.cfg(std.host_os == .hos_linux, {
+        var resolved_path: [byte: PATH_MAX] = [];
+        const len: i32 = readlink("/proc/self/exe" as *byte, &resolved_path[0], PATH_MAX - 1);
+        if len != -1 {
+            resolved_path[len as usize] = 0 as byte;
+            const last_slash: *byte = strrchr(&resolved_path[0], 47);
+            if last_slash != null {
+                const dir_len: usize = ptr_diff(last_slash, &resolved_path[0] as *byte);
+                if dir_len + 1 < buffer_size {
+                    memcpy(buffer as *void, &resolved_path[0] as *void, dir_len);
+                    buffer[dir_len] = 47 as byte;
+                    buffer[dir_len + 1] = 0 as byte;
+                    return 0;
+                }
+            }
+        }
+    }, std.cfg(std.host_os == .hos_macos, {
+        if main_darwin_get_compiler_dir(buffer, buffer_size) == 0 {
+            return 0;
+        }
+    }, {}))
+
+    // 回退：使用当前目录
+    if buffer_size > 1 {
+        buffer[0] = 46 as byte;  // '.'
+        buffer[1] = 47 as byte;   // '/'
+        buffer[2] = 0 as byte;
+        return 0;
+    }
+
+    return -1;
+}
+
+// 从「含末尾 / 的绝对或相对目录路径」得到父目录，写入 dst（带尾 /）。用于 bin/ → 源码树根。
+fn path_get_parent_dir(src: &byte, dst: &byte, dst_cap: usize) i32 {
+    if src == null || dst == null || dst_cap < 4 {
+        return -1;
+    }
+    var work: [byte: PATH_MAX] = [];
+    const sl: usize = strlen(src as *byte);
+    if sl >= PATH_MAX {
+        return -1;
+    }
+    memcpy(&work[0] as *void, src as *void, sl + 1 as usize);
+    var len: usize = sl;
+    while len > 0 && work[len - 1] == 47 as byte {
+        len = len - 1;
+        work[len] = 0 as byte;
+    }
+    if len == 0 {
+        return -1;
+    }
+    var last: *byte = strrchr(&work[0] as *byte, 47);
+    if last == null {
+        if strcmp(&work[0] as *byte, "." as *byte) == 0 {
+            strcpy(dst as *byte, "../" as *byte);
+            return 0;
+        }
+        return -1;
+    }
+    if last == &work[0] as *byte {
+        dst[0] = 47 as byte;
+        dst[1] = 0 as byte;
+        return 0;
+    }
+    last[0] = 0 as byte;
+    const plen: usize = strlen(&work[0] as *byte);
+    if plen + 2 >= dst_cap {
+        return -1;
+    }
+    memcpy(dst as *void, &work[0] as *void, plen);
+    dst[plen] = 47 as byte;
+    dst[plen + 1] = 0 as byte;
+    return 0;
+}
+
+// 获取 UYA_ROOT 环境变量或默认目录
+fn get_uya_root(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
+    if buffer == null || buffer_size == 0 {
+        return -1;
+    }
+
+    // 首先尝试从环境变量获取
+    const env_root: *byte = getenv("UYA_ROOT" as *byte);
+    if env_root != null && env_root[0] != 0 {
+        const len: usize = strlen(env_root);
+        if len < buffer_size {
+            strcpy(buffer as *byte, env_root);
+            // 确保以 '/' 结尾
+            if len > 0 && buffer[len - 1] != 47 {
+                if len + 1 < buffer_size {
+                    buffer[len] = 47 as byte;
+                    buffer[len + 1] = 0 as byte;
+                }
+            }
+            return 0;
+        }
+    }
+
+    // 未设置 UYA_ROOT：默认可执行文件所在目录的上一级（如 …/bin/uya → …/…/lib/）
+    var comp_dir: [byte: PATH_MAX] = [];
+    if get_compiler_dir(argv0, &comp_dir[0] as &byte, PATH_MAX) != 0 {
+        return -1;
+    }
+    return path_get_parent_dir(&comp_dir[0] as &byte, buffer, buffer_size);
+}
+
+// 打印使用说明（program_name 用 &byte，传给 fprintf 时转为 *byte；若为 null 则用默认名避免 %s 段错误）
+fn print_usage(program_name: &byte) void {
+    var name: &byte = program_name;
+    if name == null { name = "cmd/build" as *byte; }
+    fprintf(libc.stderr, "Uya build compiler - C99 build seed\n" as *byte);
+    fprintf(libc.stderr, "版本：v0.9.9\n" as *byte);
+    fprintf(libc.stderr, "\n用法:\n" as *byte);
+    fprintf(libc.stderr, "  %s <文件|目录> [-o <输出>] [选项]\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s build <文件|目录> [-o <输出>] [选项]\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "\n选项:\n" as *byte);
+    fprintf(libc.stderr, "  --c99                使用 C99 后端生成 C 代码\n" as *byte);
+    fprintf(libc.stderr, "  --native             使用 native 后端（Phase 10，当前缺 LoweredProgram 到机器码接线）\n" as *byte);
+    fprintf(libc.stderr, "  --line-directives    启用 #line 指令生成\n" as *byte);
+    fprintf(libc.stderr, "  --no-line-directives 禁用 #line 指令生成\n" as *byte);
+    fprintf(libc.stderr, "  --opt=<0-3>, -O0..3  优化级别\n" as *byte);
+    fprintf(libc.stderr, "  --safety-proof       启用内存安全证明（默认）\n" as *byte);
+    fprintf(libc.stderr, "  --no-safety-proof    禁用内存安全证明\n" as *byte);
+    fprintf(libc.stderr, "  --nostdlib           生成 _start 入口\n" as *byte);
+    fprintf(libc.stderr, "  --async-frame-heap=on  async frame pool 满时回退到调试 heap\n" as *byte);
+    fprintf(libc.stderr, "  --project-root <dir> 覆盖模块根目录\n" as *byte);
+    fprintf(libc.stderr, "  -o <文件>            指定输出文件；.c 输出只生成 C，否则链接为可执行文件\n" as *byte);
+    fprintf(libc.stderr, "  --stack-size <KB>    设置生成物堆栈提示；编译器进程默认提升到 65536 KB\n" as *byte);
+    fprintf(libc.stderr, "  --split-c-dir[=<dir>] 多文件 C 输出目录，默认 .uyacache\n" as *byte);
+    fprintf(libc.stderr, "  --no-split-c         关闭多文件 C\n" as *byte);
+    fprintf(libc.stderr, "  -h, --help           显示此帮助信息\n" as *byte);
+    fprintf(libc.stderr, "  -v, --version        显示版本信息\n" as *byte);
+}
+
+fn detect_main_is_space(ch: byte) i32 {
+    if ch == 32 || ch == 10 || ch == 9 || ch == 13 {
+        return 1;
+    }
+    return 0;
+}
+
+fn detect_main_is_ident_start(ch: byte) i32 {
+    if (ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122) || ch == 95 {
+        return 1;
+    }
+    return 0;
+}
+
+fn detect_main_is_ident_continue(ch: byte) i32 {
+    if detect_main_is_ident_start(ch) != 0 || (ch >= 48 && ch <= 57) {
+        return 1;
+    }
+    return 0;
+}
+
+fn detect_main_skip_string(buf: &byte, file_size: usize, pos: &usize, quote: byte) void {
+    if buf == null || pos == null || pos[0] >= file_size {
+        return;
+    }
+    pos[0] = pos[0] + 1;
+    while pos[0] < file_size {
+        const ch: byte = buf[pos[0]];
+        if ch == 92 && pos[0] + 1 < file_size {
+            pos[0] = pos[0] + 2;
+            continue;
+        }
+        pos[0] = pos[0] + 1;
+        if ch == quote {
+            return;
+        }
+    }
+}
+
+fn detect_main_skip_ws_and_comments(buf: &byte, file_size: usize, pos: &usize) void {
+    if buf == null || pos == null {
+        return;
+    }
+    while pos[0] < file_size {
+        const ch: byte = buf[pos[0]];
+        if detect_main_is_space(ch) != 0 {
+            pos[0] = pos[0] + 1;
+            continue;
+        }
+        if ch == 47 && pos[0] + 1 < file_size {
+            const next: byte = buf[pos[0] + 1];
+            if next == 47 {
+                pos[0] = pos[0] + 2;
+                while pos[0] < file_size && buf[pos[0]] != 10 {
+                    pos[0] = pos[0] + 1;
+                }
+                continue;
+            }
+            if next == 42 {
+                pos[0] = pos[0] + 2;
+                while pos[0] + 1 < file_size {
+                    if buf[pos[0]] == 42 && buf[pos[0] + 1] == 47 {
+                        pos[0] = pos[0] + 2;
+                        break;
+                    }
+                    pos[0] = pos[0] + 1;
+                }
+                continue;
+            }
+        }
+        return;
+    }
+}
+
+fn detect_main_token_eq(buf: &byte, start: usize, end: usize, text: &byte) i32 {
+    if buf == null || text == null || end < start {
+        return 0;
+    }
+    const len: usize = end - start;
+    if strlen(text as *byte) != len {
+        return 0;
+    }
+    if len == 0 {
+        return 0;
+    }
+    if strncmp(&buf[start], text as *byte, len) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn detect_main_match_ident_after(buf: &byte, file_size: usize, pos: usize, text: &byte, next_pos: &usize) i32 {
+    var cursor: usize = pos;
+    detect_main_skip_ws_and_comments(buf, file_size, &cursor);
+    if cursor >= file_size || detect_main_is_ident_start(buf[cursor]) == 0 {
+        return 0;
+    }
+    const start: usize = cursor;
+    cursor = cursor + 1;
+    while cursor < file_size && detect_main_is_ident_continue(buf[cursor]) != 0 {
+        cursor = cursor + 1;
+    }
+    if detect_main_token_eq(buf, start, cursor, text) == 0 {
+        return 0;
+    }
+    if next_pos != null {
+        next_pos[0] = cursor;
+    }
+    return 1;
+}
+
+// 检测文件是否包含 main 函数
+// 返回值：0=无main，1=fn main / test，2=export fn main，3=export extern fn main
+fn detect_main_function(filename: &byte) i32 {
+    if filename == null {
+        return 0;
+    }
+    const file_size: i32 = read_file_content(filename, &file_buffer[0], FILE_BUFFER_SIZE as usize);
+    if file_size < 0 {
+        return 0;
+    }
+    const buf: &byte = &file_buffer[0];
+    const size: usize = file_size as usize;
+    var i: usize = 0;
+    while i < size {
+        detect_main_skip_ws_and_comments(buf, size, &i);
+        if i >= size {
+            break;
+        }
+        const ch: byte = buf[i];
+        if ch == 34 || ch == 39 {
+            detect_main_skip_string(buf, size, &i, ch);
+            continue;
+        }
+        if detect_main_is_ident_start(ch) == 0 {
+            i = i + 1;
+            continue;
+        }
+        const token_start: usize = i;
+        i = i + 1;
+        while i < size && detect_main_is_ident_continue(buf[i]) != 0 {
+            i = i + 1;
+        }
+        if detect_main_token_eq(buf, token_start, i, "export" as &byte) != 0 {
+            var after_export: usize = i;
+            if detect_main_match_ident_after(buf, size, after_export, "extern" as &byte, &after_export) != 0 {
+                if detect_main_match_ident_after(buf, size, after_export, "fn" as &byte, &after_export) != 0 &&
+                    detect_main_match_ident_after(buf, size, after_export, "main" as &byte, null) != 0 {
+                    return 3;
+                }
+            }
+            after_export = i;
+            if detect_main_match_ident_after(buf, size, after_export, "fn" as &byte, &after_export) != 0 &&
+                detect_main_match_ident_after(buf, size, after_export, "main" as &byte, null) != 0 {
+                return 2;
+            }
+            continue;
+        }
+        if detect_main_token_eq(buf, token_start, i, "fn" as &byte) != 0 {
+            if detect_main_match_ident_after(buf, size, i, "main" as &byte, null) != 0 {
+                return 1;
+            }
+            continue;
+        }
+        if detect_main_token_eq(buf, token_start, i, "test" as &byte) != 0 {
+            var after_test: usize = i;
+            detect_main_skip_ws_and_comments(buf, size, &after_test);
+            if after_test < size && buf[after_test] == 34 {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+fn node_has_tests(node: &ASTNode) i32 {
+    if node == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_TEST_STMT {
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            if node_has_tests(node.block_stmts[i]) != 0 {
+                return 1;
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        if node_has_tests(node.if_stmt_then_branch) != 0 {
+            return 1;
+        }
+        if node.if_stmt_else_branch != null && node_has_tests(node.if_stmt_else_branch) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        return node_has_tests(node.while_stmt_body);
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        return node_has_tests(node.for_stmt_body);
+    }
+    if node.type == ASTNodeType.AST_FN_DECL {
+        return node_has_tests(node.fn_decl_body);
+    }
+    if node.type == ASTNodeType.AST_VAR_DECL {
+        return node_has_tests(node.var_decl_init);
+    }
+    if node.type == ASTNodeType.AST_EXTERN_VAR_DECL {
+        return node_has_tests(node.extern_var_decl_init_expr);
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        return node_has_tests(node.return_stmt_expr);
+    }
+    if node.type == ASTNodeType.AST_ASSIGN {
+        if node_has_tests(node.assign_dest) != 0 {
+            return 1;
+        }
+        return node_has_tests(node.assign_src);
+    }
+    if node.type == ASTNodeType.AST_CALL_EXPR {
+        if node_has_tests(node.call_expr_callee) != 0 {
+            return 1;
+        }
+        if node.call_expr_args != null {
+            var j: i32 = 0;
+            while j < node.call_expr_arg_count {
+                if node_has_tests(node.call_expr_args[j]) != 0 {
+                    return 1;
+                }
+                j = j + 1;
+            }
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return node_has_tests(node.member_access_object);
+    }
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        if node_has_tests(node.binary_expr_left) != 0 {
+            return 1;
+        }
+        return node_has_tests(node.binary_expr_right);
+    }
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        return node_has_tests(node.unary_expr_operand);
+    }
+    if node.type == ASTNodeType.AST_CAST_EXPR {
+        if node_has_tests(node.cast_expr_expr) != 0 {
+            return 1;
+        }
+        return node_has_tests(node.cast_expr_target_type);
+    }
+    if node.type == ASTNodeType.AST_TRY_EXPR {
+        return node_has_tests(node.try_expr_operand);
+    }
+    if node.type == ASTNodeType.AST_MATCH_EXPR && node.match_expr_arms != null {
+        if node_has_tests(node.match_expr_expr) != 0 {
+            return 1;
+        }
+        var k: i32 = 0;
+        while k < node.match_expr_arm_count {
+            if node_has_tests(node.match_expr_arms[k].result_expr) != 0 {
+                return 1;
+            }
+            k = k + 1;
+        }
+        return 0;
+    }
+    return 0;
+}
+
+fn program_has_tests(program: &ASTNode) i32 {
+    if program == null || program.type != ASTNodeType.AST_PROGRAM {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        if node_has_tests(program.program_decls[i]) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn seed_function_reachability_from_owned_method(checker: &TypeChecker, method: &ASTNode) void {
+    if checker == null || method == null || method.type != ASTNodeType.AST_FN_DECL || method.fn_decl_body == null {
+        return;
+    }
+    // Methods are emitted unconditionally by the C99 backend, so keep the method
+    // itself reachable. We still need the uncached walk because inline method
+    // bodies are not covered by the ordinary checker traversal today.
+    _ = checker_add_function_root_decl(checker, method);
+    const saved_owner: &ASTNode = checker.current_function_decl;
+    checker.current_function_decl = method;
+    checker_walk_reachability_node_uncached(checker, method.fn_decl_body);
+    checker.current_function_decl = saved_owner;
+}
+
+fn seed_function_reachability_module_export_roots(checker: &TypeChecker, module_name: &byte) void {
+    if checker == null || module_name == null {
+        return;
+    }
+    var mh: u32 = hash_string(module_name);
+    var mi: i32 = (mh as i32) & (MODULE_TABLE_SIZE - 1);
+    var i: i32 = 0;
+    while i < MODULE_TABLE_SIZE {
+        const sl: i32 = (mi + i) & (MODULE_TABLE_SIZE - 1);
+        const module: &ModuleInfo = checker.module_table.slots[sl];
+        if module == null {
+            break;
+        }
+        if str_equals(module.module_name, module_name) != 0 {
+            if module.exports != null {
+                var ei: i32 = 0;
+                while ei < module.export_count {
+                    const decl: &ASTNode = module.exports[ei].decl_node;
+                    if module.exports[ei].item_type == 1 &&
+                        decl != null && decl.type == ASTNodeType.AST_FN_DECL &&
+                        decl.fn_decl_body != null {
+                        _ = checker_add_function_root_decl(checker, decl);
+                    }
+                    ei = ei + 1;
+                }
+            }
+            return;
+        }
+        i = i + 1;
+    }
+}
+
+fn seed_function_reachability_core_std_roots(checker: &TypeChecker) void {
+    // build-only seed 仍依赖 std.string/std.io 作为宿主工具链前的最小运行时。
+    // lib/std/string/string.uya 的真实模块名是 std.string.string；
+    // std.string 保留给当前 use 兼容路径与将来目录模块折叠。
+    seed_function_reachability_module_export_roots(checker, "std.string" as &byte);
+    seed_function_reachability_module_export_roots(checker, "std.string.string" as &byte);
+    seed_function_reachability_module_export_roots(checker, "std.io" as &byte);
+}
+
+fn seed_function_reachability_roots(checker: &TypeChecker, program: &ASTNode) void {
+    if checker == null || program == null || program.type != ASTNodeType.AST_PROGRAM {
+        return;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null {
+            if decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_name != null {
+                if str_equals(decl.fn_decl_name, "main" as *byte) != 0 {
+                    checker_add_function_root_decl(checker, decl);
+                }
+            } else if decl.type == ASTNodeType.AST_STRUCT_DECL && decl.struct_decl_methods != null {
+                var mj: i32 = 0;
+                while mj < decl.struct_decl_method_count {
+                    const method: &ASTNode = decl.struct_decl_methods[mj];
+                    seed_function_reachability_from_owned_method(checker, method);
+                    mj = mj + 1;
+                }
+            } else if decl.type == ASTNodeType.AST_UNION_DECL && decl.union_decl_methods != null {
+                var uj: i32 = 0;
+                while uj < decl.union_decl_method_count {
+                    const method: &ASTNode = decl.union_decl_methods[uj];
+                    seed_function_reachability_from_owned_method(checker, method);
+                    uj = uj + 1;
+                }
+            } else if decl.type == ASTNodeType.AST_METHOD_BLOCK && decl.method_block_methods != null {
+                var mj2: i32 = 0;
+                while mj2 < decl.method_block_method_count {
+                    const method2: &ASTNode = decl.method_block_methods[mj2];
+                    seed_function_reachability_from_owned_method(checker, method2);
+                    mj2 = mj2 + 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    seed_function_reachability_core_std_roots(checker);
+}
+
+// 注意：这里访问的是 Uya `libc.Dirent` 抽象，不是宿主 libc 的原生 `struct dirent`。
+// `libc.stdlib.readdir` 已将平台原生目录项收敛到统一布局：
+// d_ino(8) d_off(8) d_reclen(2) d_type(1) d_name[]
+const DIRENT_OFF_D_TYPE: usize = 18;
+const DIRENT_OFF_D_NAME: usize = 19;
+
+fn dirent_get_type(entry_ptr: &byte) byte {
+    return entry_ptr[DIRENT_OFF_D_TYPE];
+}
+
+fn dirent_get_name(entry_ptr: &byte) &byte {
+    var p: &byte = entry_ptr;
+    p = p + DIRENT_OFF_D_NAME;
+    return p;
+}
+
+// 是否为「普通文件」语义（.uya 扫描等，仅 DT_REG）
+fn dirent_is_regular_file(entry_ptr: &byte) i32 {
+    if dirent_get_type(entry_ptr) == DT_REG as byte {
+        return 1;
+    }
+    return 0;
+}
+
+// DT_REG 或 DT_UNKNOWN（NFS 等可能未知类型，需后续 stat）
+fn dirent_may_be_regular_file(entry_ptr: &byte) i32 {
+    const t: byte = dirent_get_type(entry_ptr);
+    if t == DT_REG as byte || t == DT_UNKNOWN as byte {
+        return 1;
+    }
+    return 0;
+}
+
+fn host_append_temp_path_byte(buf: &byte, cap: usize, pos: &usize, value: byte) i32 {
+    if buf == null || pos == null || pos[0] + 1 >= cap {
+        return -1;
+    }
+    buf[pos[0]] = value;
+    pos[0] = pos[0] + 1;
+    return 0;
+}
+
+fn host_append_temp_path_bytes(buf: &byte, cap: usize, pos: &usize, text: &byte) i32 {
+    if text == null {
+        return 0;
+    }
+    var i: usize = 0;
+    while text[i] != 0 {
+        if host_append_temp_path_byte(buf, cap, pos, text[i]) != 0 {
+            return -1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn host_append_temp_path_i32(buf: &byte, cap: usize, pos: &usize, value: i32) i32 {
+    var digits: [byte: 16] = [];
+    var v: i32 = value;
+    if v < 0 {
+        if host_append_temp_path_byte(buf, cap, pos, 45 as byte) != 0 {
+            return -1;
+        }
+        v = 0 - v;
+    }
+    var n: usize = 0;
+    if v == 0 {
+        digits[0] = 48 as byte;
+        n = 1;
+    } else {
+        while v > 0 && n < 16 {
+            digits[n] = (48 + (v % 10)) as byte;
+            v = v / 10;
+            n = n + 1;
+        }
+    }
+    while n > 0 {
+        n = n - 1;
+        if host_append_temp_path_byte(buf, cap, pos, digits[n]) != 0 {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+// 默认临时路径：$TMPDIR/<prefix>_<pid>[_<extra_index>]<suffix>，否则 /tmp/...（Darwin/Linux 通用）
+fn host_fill_temp_path(buf: &byte, cap: usize, prefix: &byte, suffix: &byte, extra_index: i32) i32 {
+    if buf == null || cap < 32 || prefix == null {
+        return -1;
+    }
+    var suf: &byte = suffix;
+    if suf == null {
+        suf = "" as *byte;
+    }
+    var tmpdir: &byte = getenv("TMPDIR" as *byte);
+    if tmpdir == null || tmpdir[0] == 0 {
+        tmpdir = "/tmp" as *byte;
+    }
+    var pos: usize = 0;
+    if host_append_temp_path_bytes(buf, cap, &pos, tmpdir) != 0 {
+        return -1;
+    }
+    if pos == 0 { return -1; }
+    if buf[pos - 1] != 47 as byte {
+        if host_append_temp_path_byte(buf, cap, &pos, 47 as byte) != 0 {
+            return -1;
+        }
+    }
+    if host_append_temp_path_bytes(buf, cap, &pos, prefix) != 0 {
+        return -1;
+    }
+    if host_append_temp_path_byte(buf, cap, &pos, 95 as byte) != 0 {
+        return -1;
+    }
+    var pid: i32 = getpid();
+    if pid <= 0 {
+        pid = 1;
+    }
+    if host_append_temp_path_i32(buf, cap, &pos, pid) != 0 {
+        return -1;
+    }
+    if extra_index >= 0 {
+        if host_append_temp_path_byte(buf, cap, &pos, 95 as byte) != 0 ||
+            host_append_temp_path_i32(buf, cap, &pos, extra_index) != 0 {
+            return -1;
+        }
+    }
+    if host_append_temp_path_bytes(buf, cap, &pos, suf) != 0 {
+        return -1;
+    }
+    if pos >= cap { return -1; }
+    buf[pos] = 0 as byte;
+    return 0;
+}
+
+fn host_fill_temp_c_compile_path(buf: &byte, cap: usize) i32 {
+    return host_fill_temp_path(buf, cap, "uya_output" as *byte, ".c" as *byte, -1);
+}
+
+// run/test 临时可执行路径：$TMPDIR/uya_out_<pid><suffix> 或 /tmp/uya_out_<pid><suffix>
+fn host_fill_temp_run_exe_path(buf: &byte, cap: usize, exe_suffix: &byte) i32 {
+    return host_fill_temp_path(buf, cap, "uya_out" as *byte, exe_suffix, -1);
+}
+
+
+
+// 解析命令行参数
+// default_command: 未显式写子命令时采用的命令
+// allow_all_subcommands: 非 0 时按 bin/uya 兼容入口识别所有公开子命令
+// command: 输出命令类型
+// input_file_indices: 填充前 *input_file_count 个为输入文件在 argv 中的下标
+// input_file_capacity: input_file_indices 可写入的元素数
+// outlibc_index: --outlibc 选项的参数索引（-1 表示未指定）
+// run_arg_start: run 命令的运行时参数起始索引（-1 表示无运行时参数）
+// is_nostdlib: --nostdlib 选项（生成 _start 入口）
+// stack_size: 堆栈大小（KB），0 表示自动设置
+// 返回：0 成功，-1 失败
+fn parse_build_args(
+    input_file_indices: &i32,
+    input_file_capacity: i32,
+    input_file_count: &i32,
+    output_file_index: &i32,
+    backend_type: &BackendType,
+    emit_line_directives: &i32,
+    enable_safety_proof: &i32,
+    opt_level: &i32,
+    is_nostdlib: &i32,
+    stack_size: &i32,
+    async_frame_heap_fallback: &i32
+) i32 {
+    const argc: i32 = get_argc();
+    const program_name: *byte = get_argv(0);
+    if argc < 2 {
+        if program_name != null {
+            print_usage(program_name as &byte);
+        }
+        return -1;
+    }
+    if input_file_capacity <= 0 {
+        fprintf(libc.stderr, "错误: 输入文件索引容量无效\n" as *byte);
+        return -1;
+    }
+
+    input_file_count[0] = 0;
+    output_file_index[0] = -1;
+    backend_type[0] = BackendType.BACKEND_LLVM;
+    emit_line_directives[0] = 0;
+    enable_safety_proof[0] = 1;
+    opt_level[0] = 1;
+    is_nostdlib[0] = 0;
+    stack_size[0] = 0;
+    g_split_c_dir_active = 0;
+    g_split_c_dir[0] = 0 as byte;
+    g_split_c_disabled_cli = 0;
+    g_module_root_override_active = 0;
+    g_module_root_override[0] = 0 as byte;
+    async_frame_heap_fallback[0] = 0;
+
+    const first_arg: *byte = get_argv(1);
+    if first_arg != null {
+        if strcmp(first_arg, "--help" as *byte) == 0 || strcmp(first_arg, "-h" as *byte) == 0 {
+            print_usage(program_name as &byte);
+            return 2;
+        }
+        if strcmp(first_arg, "--version" as *byte) == 0 || strcmp(first_arg, "-v" as *byte) == 0 {
+            fprintf(libc.stdout, "v0.9.9\n" as *byte);
+            return 2;
+        }
+    }
+
+    var start_idx: i32 = 1;
+    if first_arg != null && strcmp(first_arg, "build" as *byte) == 0 {
+        start_idx = 2;
+    }
+
+    var i: i32 = start_idx;
+    while i < argc {
+        const arg: *byte = get_argv(i);
+        if arg == null {
+            fprintf(libc.stderr, "错误: 无法获取命令行参数（索引 %d）\n" as *byte, i);
+            return -1;
+        }
+
+        if strcmp(arg, "-o" as *byte) == 0 {
+            if i + 1 < argc {
+                output_file_index[0] = i + 1;
+                i = i + 1;
+            } else {
+                fprintf(libc.stderr, "错误: -o 选项需要指定输出文件名\n" as *byte);
+                return -1;
+            }
+        } else if strcmp(arg, "--c99" as *byte) == 0 {
+            backend_type[0] = BackendType.BACKEND_C99;
+        } else if strcmp(arg, "--native" as *byte) == 0 {
+            backend_type[0] = BackendType.BACKEND_NATIVE;
+        } else if strcmp(arg, "--no-line-directives" as *byte) == 0 {
+            emit_line_directives[0] = 0;
+        } else if strcmp(arg, "--line-directives" as *byte) == 0 {
+            emit_line_directives[0] = 1;
+        } else if strcmp(arg, "--safety-proof" as *byte) == 0 {
+            enable_safety_proof[0] = 1;
+        } else if strcmp(arg, "--no-safety-proof" as *byte) == 0 {
+            enable_safety_proof[0] = 0;
+        } else if strcmp(arg, "--opt=0" as *byte) == 0 || strcmp(arg, "-O0" as *byte) == 0 {
+            opt_level[0] = 0;
+        } else if strcmp(arg, "--opt=1" as *byte) == 0 || strcmp(arg, "-O1" as *byte) == 0 {
+            opt_level[0] = 1;
+        } else if strcmp(arg, "--opt=2" as *byte) == 0 || strcmp(arg, "-O2" as *byte) == 0 {
+            opt_level[0] = 2;
+        } else if strcmp(arg, "--opt=3" as *byte) == 0 || strcmp(arg, "-O3" as *byte) == 0 {
+            opt_level[0] = 3;
+        } else if strcmp(arg, "--nostdlib" as *byte) == 0 {
+            is_nostdlib[0] = 1;
+        } else if strcmp(arg, "--project-root" as *byte) == 0 {
+            if i + 1 >= argc {
+                fprintf(libc.stderr, "错误: --project-root 需要指定目录\n" as *byte);
+                return -1;
+            }
+            i = i + 1;
+            const root_arg: *byte = get_argv(i);
+            if root_arg == null || root_arg[0] == 0 as byte {
+                fprintf(libc.stderr, "错误: --project-root 不能为空\n" as *byte);
+                return -1;
+            }
+            const root_len: usize = strlen(root_arg);
+            if root_len >= PATH_MAX {
+                fprintf(libc.stderr, "错误: --project-root 路径过长\n" as *byte);
+                return -1;
+            }
+            strcpy(&g_module_root_override[0] as *byte, root_arg);
+            g_module_root_override_active = 1;
+        } else if strcmp(arg, "--manifest-path" as *byte) == 0 {
+            fprintf(libc.stderr, "错误: cmd/build seed 不支持 --manifest-path；请通过 upm build 解析包 manifest\n" as *byte);
+            return -1;
+        } else if strcmp(arg, "--exec" as *byte) == 0 || strcmp(arg, "--vm" as *byte) == 0 ||
+                  strcmp(arg, "--dump-exec-hir" as *byte) == 0 || strcmp(arg, "--dump-bytecode" as *byte) == 0 ||
+                  strcmp(arg, "--trace-vm" as *byte) == 0 {
+            fprintf(libc.stderr, "错误: cmd/build seed 不包含 exec backend\n" as *byte);
+            return -1;
+        } else if strcmp(arg, "--app" as *byte) == 0 || strcmp(arg, "--microapp-profile" as *byte) == 0 ||
+                  strncmp(arg as &const byte, "--microapp-profile=" as &const byte, 19) == 0 {
+            fprintf(libc.stderr, "错误: cmd/build seed 不包含 microapp image/payload 支持\n" as *byte);
+            return -1;
+        } else if strcmp(arg, "--outlibc" as *byte) == 0 {
+            fprintf(libc.stderr, "错误: cmd/build seed 不包含 --outlibc 生成器\n" as *byte);
+            return -1;
+        } else if strcmp(arg, "--stack-size" as *byte) == 0 {
+            if i + 1 < argc {
+                const size_str: *byte = get_argv(i + 1);
+                if size_str != null {
+                    var j: i32 = 0;
+                    var size_val: i32 = 0;
+                    while size_str[j] >= 48 && size_str[j] <= 57 {
+                        size_val = size_val * 10 + (size_str[j] - 48);
+                        j = j + 1;
+                    }
+                    if size_val > 0 {
+                        stack_size[0] = size_val;
+                    } else {
+                        fprintf(libc.stderr, "警告：无效的堆栈大小值\n" as *byte);
+                    }
+                }
+                i = i + 1;
+            } else {
+                fprintf(libc.stderr, "错误：--stack-size 选项需要指定堆栈大小（KB）\n" as *byte);
+                return -1;
+            }
+        } else if strcmp(arg, "--async-frame-heap=on" as *byte) == 0 {
+            async_frame_heap_fallback[0] = 1;
+        } else if strcmp(arg, "--no-split-c" as *byte) == 0 {
+            g_split_c_disabled_cli = 1;
+            g_split_c_dir_active = 0;
+            g_split_c_dir[0] = 0 as byte;
+        } else if strncmp(arg as &const byte, "--split-c-dir=" as &const byte, 14) == 0 {
+            if g_split_c_disabled_cli != 0 {
+                fprintf(libc.stderr, "警告: 已指定 --no-split-c，忽略 --split-c-dir\n" as *byte);
+            } else {
+                const split_dir_inline: *byte = arg + 14;
+                const sl: usize = strlen(split_dir_inline);
+                if sl > 0 {
+                    if sl < PATH_MAX - 1 {
+                        strcpy(&g_split_c_dir[0] as *byte, split_dir_inline);
+                        g_split_c_dir_active = 1;
+                    } else {
+                        split_c_set_default_dir();
+                    }
+                } else {
+                    split_c_set_default_dir();
+                }
+            }
+        } else if strcmp(arg, "--split-c-dir" as *byte) == 0 {
+            if g_split_c_disabled_cli != 0 {
+                fprintf(libc.stderr, "警告: 已指定 --no-split-c，忽略 --split-c-dir\n" as *byte);
+                if i + 1 < argc {
+                    const sd_skip: *byte = get_argv(i + 1);
+                    if sd_skip != null && sd_skip[0] != 45 as byte {
+                        i = i + 1;
+                    }
+                }
+            } else {
+                if i + 1 < argc {
+                    const sd: *byte = get_argv(i + 1);
+                    if sd != null {
+                        const sl: usize = strlen(sd);
+                        if sl > 0 && sl < PATH_MAX - 1 {
+                            strcpy(&g_split_c_dir[0] as *byte, sd);
+                            g_split_c_dir_active = 1;
+                        } else {
+                            split_c_set_default_dir();
+                        }
+                    } else {
+                        split_c_set_default_dir();
+                    }
+                    i = i + 1;
+                } else {
+                    split_c_set_default_dir();
+                }
+            }
+        } else {
+            const c: byte = arg[0];
+            if c != 45 {
+                if input_file_count[0] >= input_file_capacity {
+                    fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d)\n" as *byte, input_file_capacity);
+                    return -1;
+                }
+                const idx: i32 = input_file_count[0];
+                input_file_indices[idx] = i;
+                input_file_count[0] = idx + 1;
+            }
+        }
+        i = i + 1;
+    }
+
+    if input_file_count[0] == 0 {
+        fprintf(libc.stderr, "错误: 未指定输入文件\n" as *byte);
+        if program_name != null {
+            print_usage(program_name as &byte);
+        }
+        return -1;
+    }
+
+    const out_idx: i32 = output_file_index[0];
+    if out_idx >= 0 {
+        const out_path: *byte = get_argv(out_idx);
+        if out_path == null {
+            fprintf(libc.stderr, "错误: 无法获取输出文件路径（索引 %d）\n" as *byte, out_idx);
+            return -1;
+        }
+        if backend_type[0] == BackendType.BACKEND_LLVM {
+            const ext: *byte = strrchr(out_path, 46);
+            if ext != null && strcmp(ext, ".c" as *byte) == 0 {
+                backend_type[0] = BackendType.BACKEND_C99;
+            }
+        }
+        if backend_type[0] == BackendType.BACKEND_NATIVE && is_c_output(out_path as &byte) != 0 {
+            fprintf(libc.stderr, "错误: --native 不能输出 .c 文件；C 输出请使用 --c99\n" as *byte);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+
+// 检测输出路径是否为 C 文件
+
+// 检测输出路径是否为 C 文件（以 .c 结尾）
+// 返回：1 表示 C 文件，0 表示其他
+fn is_c_output(output_path: &byte) i32 {
+    if output_path == null { return 0; }
+    const len: usize = strlen(output_path as *byte);
+    if len < 2 { return 0; }
+    if output_path[len - 2] == 46 as byte && output_path[len - 1] == 99 as byte {
+        return 1;
+    }
+    return 0;
+}
+
+fn compile_files_artifacts_need_arena(out_artifacts: &CompileArtifacts) i32 {
+    if out_artifacts == null {
+        return 0;
+    }
+    if c_import_plan_has_items(&out_artifacts.c_import_plan) != 0 {
+        return 1;
+    }
+    if out_artifacts.c_import_sidecar_path != null {
+        return 1;
+    }
+    return 0;
+}
+
+fn compile_files_maybe_release_transient_arenas(arena: &CompilerArena, temp_arena: &CompilerArena, out_artifacts: &CompileArtifacts) void {
+    if compile_files_artifacts_need_arena(out_artifacts) != 0 {
+        return;
+    }
+    compiler_arena_free_all(arena);
+    compiler_arena_free_all(temp_arena);
+}
+
+// 主编译函数：词法 → 语法 → AST 合并 → 类型检查 → 代码生成
+// 支持目录输入和自动依赖收集
+// output_path_override: 如果非 null，使用此路径替代 get_argv(output_file_index)
+// is_nostdlib: 生成 _start 入口（无 C 标准库链接）
+// stack_size: 堆栈大小（KB），0 表示默认
+fn compile_files(
+    input_file_indices: &i32,
+    input_file_count: i32,
+    input_paths_override: &(&byte),
+    input_paths_override_count: i32,
+    output_file_index: i32,
+    backend: BackendType,
+    emit_line_directives: i32,
+    enable_safety_proof: i32,
+    opt_level: i32,
+    output_path_override: &byte,
+    is_nostdlib: i32,
+    stack_size: i32,
+    split_c_dir: &byte,
+    async_frame_heap_fallback: i32,
+    stop_after_checker: i32,
+    out_artifacts: &CompileArtifacts
+) i32 {
+    compile_artifacts_reset(out_artifacts);
+
+    // 初始化临时 Arena（用于依赖收集，使用全局缓冲区避免栈溢出）
+    var temp_arena: CompilerArena = CompilerArena {
+        buffer: null,
+        size: 0 as usize,
+        offset: 0 as usize,
+        first_chunk: null,
+        current_chunk: null,
+        total_allocated: 0 as usize,
+        peak_allocated: 0 as usize,
+    };
+    compiler_arena_init(&temp_arena, &temp_arena_buffer[0], 16 * 1024 * 1024);
+
+    // 获取 UYA_ROOT 和编译器目录
+    var uya_root_base: [byte: PATH_MAX] = [];
+    const argv0: *byte = get_argv(0);
+    if argv0 == null {
+        fprintf(libc.stderr, "错误: 无法获取程序路径\n" as *byte);
+        return 1;
+    }
+    if get_uya_root(argv0 as &byte, &uya_root_base[0] as &byte, PATH_MAX) != 0 {
+        fprintf(libc.stderr, "错误: 无法获取 UYA_ROOT 目录\n" as *byte);
+        return 1;
+    }
+
+    // 标准库在编译器所在目录的上一级目录的 lib/ 下
+    // 例如：编译器在 /path/bin/uya，标准库在 /path/lib/
+    // 与 C 编译器一致：若 UYA_ROOT 已指向 lib 目录则直接使用，否则追加 /lib/
+    var base_len: usize = strlen(&uya_root_base[0]);
+    if base_len > 1 && base_len < PATH_MAX && uya_root_base[base_len - 1] == 47 {  // '/'
+        uya_root_base[base_len - 1] = 0;
+        base_len = base_len - 1;
+    }
+    const last_slash: *byte = strrchr(&uya_root_base[0], 47);
+    var already_lib: i32 = 0;
+    if last_slash != null && strcmp(last_slash, "/lib" as *byte) == 0 {
+        already_lib = 1;
+    }
+    if already_lib == 0 && last_slash != null && strcmp(last_slash, "/bin" as *byte) == 0 {
+        const slash_idx: usize = ((last_slash as i64 - &uya_root_base[0] as i64) as! usize) catch { 0usize; };
+        uya_root_base[slash_idx] = 0;
+    }
+    var uya_root_buffer: [byte: PATH_MAX] = [];
+    var lib_len: i32 = 0;
+    if already_lib != 0 {
+        lib_len = snprintf(&uya_root_buffer[0] as &byte, PATH_MAX, "%s/" as *byte, &uya_root_base[0] as &byte);
+    } else {
+        lib_len = snprintf(&uya_root_buffer[0] as &byte, PATH_MAX, "%s/lib/" as *byte, &uya_root_base[0] as &byte);
+    }
+    if lib_len <= 0 || lib_len >= PATH_MAX {
+        fprintf(libc.stderr, "错误: UYA_ROOT 路径过长\n" as *byte);
+        return 1;
+    }
+
+    // 处理输入：如果是目录，查找包含 main 的文件；如果是文件，检查是否包含 main
+    // 使用全局变量避免栈溢出
+    var resolved_files: [&byte: MAX_INPUT_FILES] = resolved_files_global;
+    var resolved_count: i32 = 0;
+    const resolved_capacity: i32 = @len(resolved_files) as i32;
+    if input_file_count < 0 || input_file_count > resolved_capacity {
+        fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d)\n" as *byte, resolved_capacity);
+        return 1;
+    }
+    var module_root_buffer: [byte: PATH_MAX] = [];
+    var module_root: &byte = null;
+    if g_module_root_override_active != 0 {
+        if strlen(&g_module_root_override[0] as *byte) >= PATH_MAX - 2usize {
+            fprintf(libc.stderr, "错误: --project-root 路径过长\n" as *byte);
+            return 1;
+        }
+        strcpy(&module_root_buffer[0] as *byte, &g_module_root_override[0] as *byte);
+        if module_root_buffer[0] == 32 as byte || module_root_buffer[0] == 9 as byte ||
+            module_root_buffer[0] == 10 as byte || module_root_buffer[0] == 13 as byte {
+            fprintf(libc.stderr, "错误: --project-root 不能为空白\n" as *byte);
+            return 1;
+        }
+        if module_root_buffer[strlen(&module_root_buffer[0] as *byte) - 1usize] != 47 as byte {
+            strcat(&module_root_buffer[0] as *byte, "/" as *byte);
+        }
+        module_root = &module_root_buffer[0] as &byte;
+    }
+    // 使用全局变量避免栈溢出（262KB 太大），直接使用全局数组
+    // var main_file_paths: [[byte: PATH_MAX]: MAX_INPUT_FILES] = [];
+
+    var i: i32 = 0;
+    while i < input_file_count {
+        const idx_i: i32 = input_file_indices[i];
+        var input_path: *byte = null;
+        if input_paths_override != null && i < input_paths_override_count {
+            if input_paths_override[i] != null {
+                input_path = input_paths_override[i] as *byte;
+            }
+        } else {
+            input_path = get_argv(idx_i);
+        }
+        if input_path == null {
+            fprintf(libc.stderr, "错误: 无法获取输入文件路径（索引 %d）\n" as *byte, idx_i);
+            return 1;
+        }
+        const input: &byte = input_path as &byte;
+
+        const is_dir_result: i32 = is_directory(input);
+        if is_dir_result != 0 {
+            // 是目录，查找包含 main 的文件
+            var main_files: [&byte: MAX_INPUT_FILES] = main_files_global;
+            var main_count: i32 = 0;
+            if find_main_files_in_dir(input, &main_files[0], &main_file_paths_global[0], MAX_INPUT_FILES, &main_count) != 0 {
+                fprintf(libc.stderr, "错误: 无法读取目录 '%s'\n" as *byte, input_path);
+                return 1;
+            }
+            if main_count == 0 {
+                fprintf(libc.stderr, "错误: 目录 '%s' 中未找到包含 main 函数的文件\n" as *byte, input_path);
+                return 1;
+            }
+            if main_count > 1 {
+                fprintf(libc.stderr, "错误: 目录 '%s' 中有多个文件包含 main 函数:\n" as *byte, input_path);
+                var j: i32 = 0;
+                while j < main_count {
+                    fprintf(libc.stderr, "  %s\n" as *byte, main_files[j] as *byte);
+                    j = j + 1;
+                }
+                return 1;
+            }
+            if resolved_count < 0 || resolved_count >= resolved_capacity {
+                fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d): %s\n" as *byte, resolved_capacity, input_path);
+                return 1;
+            }
+            resolved_files[resolved_count] = main_files[0];
+            resolved_count = resolved_count + 1;
+            // 设置模块根目录
+            if module_root == null {
+                const input_len: usize = strlen(input_path);
+                if input_len > 0 && input_len < PATH_MAX - 1 {
+                    strcpy(&module_root_buffer[0], input_path);
+                    if module_root_buffer[input_len - 1] != 47 {
+                        module_root_buffer[input_len] = 47 as byte;
+                        module_root_buffer[input_len + 1] = 0 as byte;
+                    }
+                    module_root = &module_root_buffer[0] as &byte;
+                } else {
+                    module_root = input;
+                }
+            }
+        } else if is_file(input) != 0 {
+            // 检查是否已在 resolved_files 中（避免重复添加）
+            var already_resolved: i32 = 0;
+            var j: i32 = 0;
+            while j < resolved_count {
+                if resolved_files[j] != null && paths_equal(resolved_files[j], input) != 0 {
+                    already_resolved = 1;
+                    break;
+                }
+                j = j + 1;
+            }
+            if already_resolved != 0 {
+                i = i + 1;
+                continue;
+            }
+
+            // check 模式允许单文件无 main；其余命令保持现有 main 约束
+            if stop_after_checker != 0 || detect_main_function(input) != 0 {
+                if resolved_count < 0 || resolved_count >= resolved_capacity {
+                    fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d): %s\n" as *byte, resolved_capacity, input_path);
+                    return 1;
+                }
+                resolved_files[resolved_count] = input;
+                resolved_count = resolved_count + 1;
+                // 设置模块根目录（文件所在目录）
+                if module_root == null {
+                    const input_last_slash: *byte = strrchr(input_path, 47);
+                    if input_last_slash != null {
+                        const dir_len: usize = ptr_diff(input_last_slash, input) + 1;
+                        if dir_len < PATH_MAX {
+                            memcpy(&module_root_buffer[0], input_path, dir_len);
+                            module_root_buffer[dir_len] = 0 as byte;
+                            module_root = &module_root_buffer[0] as &byte;
+                        } else {
+                            strcpy(&module_root_buffer[0], "./" as *byte);
+                            module_root = &module_root_buffer[0] as &byte;
+                        }
+                    } else {
+                        strcpy(&module_root_buffer[0], "./" as *byte);
+                        module_root = &module_root_buffer[0] as &byte;
+                    }
+                }
+            } else {
+                // 多文件模式下，允许某些文件不包含 main（它们是库文件）
+                // 但如果这是唯一输入文件�����则必须包含 main
+                if stop_after_checker == 0 && input_file_count == 1 {
+                    fprintf(libc.stderr, "错误: 文件 '%s' 不包含 main 函数\n" as *byte, input_path);
+                    return 1;
+                }
+                // 多文件模式：将不包含 main 的文件也加入列表（作为���文件）
+                if resolved_count < 0 || resolved_count >= resolved_capacity {
+                    fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d): %s\n" as *byte, resolved_capacity, input_path);
+                    return 1;
+                }
+                resolved_files[resolved_count] = input;
+                resolved_count = resolved_count + 1;
+            }
+        } else {
+            fprintf(libc.stderr, "错误: '%s' 既不是文件也不是目录\n" as *byte, input_path);
+            return 1;
+        }
+        i = i + 1;
+    }
+
+    if resolved_count == 0 {
+        if stop_after_checker != 0 {
+            fprintf(libc.stderr, "错误: 未找到可检查的 .uya 文件\n" as *byte);
+        } else {
+            fprintf(libc.stderr, "错误: 未找到包含 main 函数的文件\n" as *byte);
+        }
+        return 1;
+    }
+
+    // 检测是否有 export fn main 或 test 语句，如果有则自动添加 entry.uya
+    // 返回值：0=无main/test，1=fn main 或 test，2=export fn main，3=export extern fn main
+    var has_export_main: i32 = 0;
+    var has_test_stmt: i32 = 0;
+    var has_export_extern_main: i32 = 0;
+    i = 0;
+    while i < resolved_count {
+        const main_type: i32 = detect_main_function(resolved_files[i]);
+        if main_type == 3 {
+            has_export_extern_main = 1;
+        } else if main_type == 2 {
+            has_export_main = 1;
+        } else if main_type == 1 {
+            has_test_stmt = 1;
+        }
+        i = i + 1;
+    }
+
+    // 如果有 export fn main 或 test 语句（但没有 export fn main），自动添加 std.runtime.entry
+    // test 模式下需要 entry.uya 来提供 C main 入口
+    if stop_after_checker == 0 && has_export_extern_main == 0 && (has_export_main != 0 || has_test_stmt != 0) {
+        var entry_path: [byte: PATH_MAX] = [];
+        const entry_len: i32 = snprintf(&entry_path[0], PATH_MAX, "%sstd/runtime/entry/entry.uya" as *byte, &uya_root_buffer[0] as *byte);
+        if entry_len > 0 && entry_len < PATH_MAX {
+            if is_file(&entry_path[0] as &byte) != 0 {
+                var already_in_list: i32 = 0;
+                var j: i32 = 0;
+                while j < resolved_count {
+                    if resolved_files[j] != null && paths_equal(resolved_files[j], &entry_path[0] as &byte) != 0 {
+                        already_in_list = 1;
+                        break;
+                    }
+                    j = j + 1;
+                }
+                if already_in_list == 0 {
+                    if resolved_count < 0 || resolved_count >= resolved_capacity {
+                        fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d)，无法自动加入 entry.uya\n" as *byte, resolved_capacity);
+                        return 1;
+                    }
+                    const entry_copy: &byte = compiler_arena_alloc(&temp_arena, entry_len + 1) as &byte;
+                    if entry_copy == null {
+                        fprintf(libc.stderr, "错误: 自动加入 entry.uya 时分配路径失败\n" as *byte);
+                        return 1;
+                    }
+                    strcpy(entry_copy as *byte, &entry_path[0]);
+                    resolved_files[resolved_count] = entry_copy;
+                    resolved_count = resolved_count + 1;
+                }
+            }
+        }
+    }
+
+    // 自动收集模块依赖
+    // 只对包含 main 的文件进行依赖收集，库文件已经在列表中，不需要进行依赖收集
+    var all_files: [&byte: MAX_INPUT_FILES] = all_files_global;
+    var all_file_count: i32 = resolved_count;
+    i = 0;
+    while i < resolved_count {
+        all_files[i] = resolved_files[i];
+        i = i + 1;
+    }
+
+    // 收集依赖（只对包含 main 的文件进行依赖收集）
+    var processed_files: [&byte: MAX_INPUT_FILES] = processed_files_global;
+    var processed_count: i32 = 0;
+
+    // 找出包含 main 的文件（入口文件）
+    var main_files: [&byte: MAX_INPUT_FILES] = [];
+    const main_file_capacity: i32 = @len(main_files) as i32;
+    var main_file_count: i32 = 0;
+    i = 0;
+    while i < resolved_count {
+        if detect_main_function(resolved_files[i]) != 0 {
+            if main_file_count < 0 || main_file_count >= main_file_capacity {
+                fprintf(libc.stderr, "错误: main 文件数量超过最大限制 (%d)\n" as *byte, main_file_capacity);
+                return 1;
+            }
+            main_files[main_file_count] = resolved_files[i];
+            main_file_count = main_file_count + 1;
+        }
+        i = i + 1;
+    }
+
+    // 依赖收集策略：对所有输入文件进行依赖收集（与 C 版一致）
+    i = 0;
+    while i < all_file_count {
+        const new_count: i32 = collect_module_dependencies(
+            all_files[i],
+            &all_files[0],
+            all_file_count,
+            MAX_INPUT_FILES,
+            &processed_files[0],
+            &processed_count,
+            MAX_INPUT_FILES,
+            module_root,
+            &uya_root_buffer[0] as &byte,
+            &temp_arena
+        );
+        if new_count < 0 {
+            fprintf(libc.stderr, "错误: 收集模块依赖失败: %s\n" as *byte, all_files[i] as *byte);
+            return 1;
+        }
+        all_file_count = new_count;
+        i = i + 1;
+    }
+
+    all_file_count = dedupe_paths_in_place(&all_files[0], all_file_count);
+
+    fprintf(libc.stderr, "=== 开始编译 ===\n" as *byte);
+    fprintf(libc.stderr, "输入文件数量: %d (包含依赖)\n" as *byte, all_file_count);
+    i = 0;
+    while i < all_file_count {
+        fprintf(libc.stderr, "  %d: %s\n" as *byte, i, all_files[i] as *byte);
+        i = i + 1;
+    }
+    const output_file: *byte = get_argv(output_file_index);
+    // 如果有覆盖路径，使用覆盖路径
+    var actual_output: *byte = output_file;
+    if output_path_override != null {
+        actual_output = output_path_override as *byte;
+    }
+    if out_artifacts != null {
+        out_artifacts.generated_c_path = actual_output as &byte;
+    }
+    if stop_after_checker != 0 {
+        fprintf(libc.stderr, "输出模式: checker-only\n" as *byte);
+    } else {
+        fprintf(libc.stderr, "输出文件: %s\n" as *byte, actual_output);
+    }
+    if module_root != null {
+        fprintf(libc.stderr, "模块根目录: %s\n" as *byte, module_root as *byte);
+    }
+    fprintf(libc.stderr, "UYA_ROOT: %s\n" as *byte, &uya_root_buffer[0]);
+    var module_name: *byte = "(unknown)" as *byte;
+    if all_file_count > 0 {
+        module_name = all_files[0] as *byte;
+    }
+    i = 0;
+    while i < all_file_count {
+        const entry_main_type: i32 = detect_main_function(all_files[i]);
+        if entry_main_type == 1 || entry_main_type == 2 {
+            module_name = all_files[i] as *byte;
+            break;
+        }
+        i = i + 1;
+    }
+    fprintf(libc.stderr, "=== 词法/语法分析 ===\n" as *byte);
+    var backend_str: *byte = "LLVM" as *byte;
+    if backend == BackendType.BACKEND_C99 {
+        backend_str = "C99" as *byte;
+    } else if backend == BackendType.BACKEND_NATIVE {
+        backend_str = "Native" as *byte;
+    }
+    fprintf(libc.stderr, "后端类型: %s\n" as *byte, backend_str);
+
+    // 初始化编译统计
+    var stats: CompileStats = CompileStats {
+        parse_time_ms: 0,
+        merge_time_ms: 0,
+        check_time_ms: 0,
+        opt_time_ms: 0,
+        codegen_time_ms: 0,
+        total_time_ms: 0,
+        file_count: 0,
+        ast_nodes: 0,
+        arena_peak_bytes: 0 as usize,
+        ast_arena_peak_bytes: 0usize,
+        check_arena_peak_bytes: 0usize,
+        emit_arena_peak_bytes: 0usize,
+        c99_output_buffer_peak_bytes: 0usize,
+        typed_program_bytes: 0usize,
+        typed_program_peak_bytes: 0usize,
+        typed_program_released_bytes: 0usize,
+        table_items: 0usize,
+        table_capacity: 0usize,
+        table_used_bytes: 0usize,
+        table_capacity_bytes: 0usize,
+        table_realloc_count: 0,
+    };
+    stats.file_count = all_file_count;  // 记录文件数
+
+    // 计时变量
+    const start_time: i64 = clock();
+    var parse_end_time: i64 = 0;
+    var merge_end_time: i64 = 0;
+    var check_end_time: i64 = 0;
+    var codegen_end_time: i64 = 0;
+
+    // ===== 各编译子系统独立 arena（Phase 5A L388）=====
+    // 生命周期边界（create / last-use / free）：
+    // - arena       : driver/杂项（c_import plan、sidecar、module_root 拷贝）。create 此处；last-use=codegen 收尾；free=compile_files 末尾。
+    // - ast_arena   : lexer token 文本 + parser AST + merge/flatten。create 此处；last-use=codegen 读取 AST；free=compile_files 末尾。
+    // - check_arena : TypeChecker 结构与检查期工作内存。create 此处；last-use=codegen 读取 reachable/mono；free=compile_files 末尾。
+    // - emit_arena  : C99 emitter 结构与输出缓冲。create 此处；last-use=c99_codegen_generate；free=compile_files 末尾。
+    // 说明：SemanticDb / TypedProgram / LoweredProgram 不走编译器 arena，
+    //       它们使用各自 malloc/realloc 后端的动态表（SemanticVector/SemanticHash），
+    //       生命周期由 typed_program_release / semantic_*_free 独立管理。
+    // 这三个新增 arena 均为纯动态 arena（静态 buffer 为 null），按需 malloc 1MB chunk，
+    // 与既有 lex_arena 一致，从而把原先共用单一 64MB 静态 arena 的三个子系统隔离开。
+    var arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
+    compiler_arena_init(&arena, &arena_buffer[0], ARENA_BUFFER_SIZE as usize);
+    var lex_arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
+    var ast_arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
+    var check_arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
+    var emit_arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
+
+    var programs: [&ASTNode: MAX_INPUT_FILES] = [];
+    const program_capacity: i32 = @len(programs) as i32;
+    if all_file_count < 0 || all_file_count > program_capacity {
+        fprintf(libc.stderr, "错误: 程序文件数量超过最大限制 (%d)\n" as *byte, program_capacity);
+        return 1;
+    }
+
+    i = 0;
+    while i < all_file_count {
+        const input_path: *byte = all_files[i] as *byte;
+        const file_size: i32 = read_file_content(input_path as &byte, &file_buffer[0], FILE_BUFFER_SIZE as usize);
+        if file_size < 0 {
+            fprintf(libc.stderr, "错误: 无法读取文件 '%s' (可能文件太大或不存在)\n" as *byte, input_path);
+            return 1;
+        }
+        const lexer: &Lexer = compiler_arena_alloc(&lex_arena, HOST_SIZE_LEXER_BYTES) as &Lexer;
+        if lexer == null {
+            fprintf(libc.stderr, "错误: Lexer 分配失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        const input_path_ref: &byte = input_path as &byte;
+        if lexer_init(lexer, &file_buffer[0], file_size as usize, input_path_ref, &ast_arena) != 0 {
+            fprintf(libc.stderr, "错误: Lexer 初始化失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        var parser: Parser = Parser {
+            lexer: null,
+            current_token: null,
+            arena: null,
+            context: ParserContext.PARSER_CONTEXT_NORMAL,
+            pending_greater_token: null,
+            saw_use_std: 0,
+            has_error: 0,
+        };
+        if parser_init(&parser, lexer, &ast_arena) != 0 {
+            fprintf(libc.stderr, "错误: Parser 初始化失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        const ast: &ASTNode = parser_parse(&parser);
+        if ast == null {
+            fprintf(libc.stderr, "错误: 语法分析失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        if ast.type != ASTNodeType.AST_PROGRAM {
+            fprintf(libc.stderr, "错误: 解析结果不是程序节点: %s\n" as *byte, input_path);
+            return 1;
+        }
+        // 检查词法分析错误（如未闭合块注释）
+        if lexer.has_error != 0 {
+            fprintf(libc.stderr, "错误: 语法分析失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        if parser.has_error != 0 {
+            fprintf(libc.stderr, "错误: 语法分析失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        programs[i] = ast;
+        fprintf(libc.stderr, "  解析完成: %s\n" as *byte, input_path);
+        i = i + 1;
+    }
+    parse_end_time = clock();
+    fprintf(libc.stderr, "=== 词法/语法分析完成，共 %d 个文件 ===\n" as *byte, all_file_count);
+
+    fprintf(libc.stderr, "=== AST 合并阶段 ===\n" as *byte);
+    var merged_ast: &ASTNode = ast_merge_programs(programs, all_file_count, &ast_arena);
+    if merged_ast == null {
+        fprintf(libc.stderr, "错误: AST 合并失败\n" as *byte);
+        return 1;
+    }
+    merged_ast = ast_flatten_nested_program_decls(merged_ast, &ast_arena);
+    if merged_ast == null {
+        fprintf(libc.stderr, "错误: AST 展平失败\n" as *byte);
+        return 1;
+    }
+    merge_end_time = clock();
+    fprintf(libc.stderr, "AST 合并完成，共 %d 个声明\n" as *byte, merged_ast.program_decl_count);
+
+    fprintf(libc.stderr, "=== 类型检查阶段 ===\n" as *byte);
+    const void_type: Type = Type {
+        kind: TypeKind.TYPE_VOID,
+        data: TypeData.named(null as &byte),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+    const checker: &TypeChecker = compiler_arena_alloc(&check_arena, HOST_SIZE_TYPECHECKER_BYTES) as &TypeChecker;
+    if checker == null {
+        fprintf(libc.stderr, "错误: TypeChecker 分配失败\n" as *byte);
+        return 1;
+    }
+    memset(checker as *byte, 0, HOST_SIZE_TYPECHECKER_BYTES);
+    var default_filename: *byte = "(unknown)" as *byte;
+    if all_file_count > 0 {
+        default_filename = all_files[0] as *byte;
+    }
+    if checker_init(checker, &check_arena, default_filename as &byte) != 0 {
+        fprintf(libc.stderr, "错误: TypeChecker 初始化失败\n" as *byte);
+        return 1;
+    }
+    // 设置 UYA_ROOT 目录，供 checker 识别标准库模块
+    checker.uya_root_dir = &uya_root_buffer[0] as &byte;
+    // 用 CLI 推导的项目根（与依赖收集一致）初始化 module 路径前缀，避免仅靠「首个 main 文件名」
+    // 得到空字符串或标准库 entry 目录，进而误判 extract_module_path / use 导出解析。
+    if module_root != null {
+        const pr_len: usize = strlen(module_root as *byte);
+        if pr_len > 0 {
+            var need_slash: i32 = 0;
+            if module_root[pr_len - 1] != 47 as byte && module_root[pr_len - 1] != 92 as byte {
+                need_slash = 1;
+            }
+            const alloc_len: usize = pr_len + (need_slash as usize) + 1 as usize;
+            const pr_copy: &u8 = compiler_arena_alloc(&check_arena, alloc_len) as &u8;
+            if pr_copy != null {
+                memcpy(pr_copy as *void, module_root as *void, pr_len);
+                if need_slash != 0 {
+                    pr_copy[pr_len] = 47 as u8;
+                    pr_copy[pr_len + 1] = 0 as u8;
+                } else {
+                    pr_copy[pr_len] = 0 as u8;
+                }
+                checker.module_root_dir = pr_copy as &byte;
+            }
+        }
+    }
+    // 设置内存安全证明开关
+    checker.enable_safety_proof = enable_safety_proof;
+    checker.container_mode = BUILD_CONTAINER_MODE;
+
+    if checker_check(checker, merged_ast) != 0 {
+        fprintf(libc.stderr, "错误: 类型检查失败（错误数量: %d）\n" as *byte, checker_get_error_count(checker));
+        compiler_print_diagnostic_profile(checker);
+        const err_msg: &byte = get_last_checker_error();
+        if err_msg != null {
+            fprintf(libc.stderr, "最后错误: %s\n" as *byte, err_msg as *byte);
+        }
+        return 1;
+    }
+    if checker_get_error_count(checker) > 0 {
+        fprintf(libc.stderr, "错误: 类型检查失败（错误数量: %d）\n" as *byte, checker_get_error_count(checker));
+        compiler_print_diagnostic_profile(checker);
+        const err_msg: &byte = get_last_checker_error();
+        if err_msg != null {
+            fprintf(libc.stderr, "最后错误: %s\n" as *byte, err_msg as *byte);
+        }
+        return 1;
+    }
+    check_end_time = clock();
+    fprintf(libc.stderr, "类型检查通过\n" as *byte);
+    if checker.program_node != null && checker.program_node.type == ASTNodeType.AST_PROGRAM {
+        merged_ast = checker.program_node;
+    }
+    if stop_after_checker != 0 {
+        fprintf(libc.stderr, "\n检查完成：checker 通过（未执行代码生成）\n" as *byte);
+        compiler_print_diagnostic_profile(checker);
+        return 0;
+    }
+    if out_artifacts != null {
+        if collect_c_import_plan(&arena, merged_ast, &out_artifacts.c_import_plan) != 0 {
+            return 1;
+        }
+    }
+    checker_reset_reachability_visit_cache(checker);
+    seed_function_reachability_roots(checker, merged_ast);
+    checker_compute_function_reachability(checker);
+
+    // ===== 优化阶段（v0.7.3 新增）=====
+    var opt_end_time: i64 = 0;
+
+    // 创建优化配置
+    var opt_config: OptimizationConfig = create_optimization_config(opt_level);
+    opt_config.verbose = 1;  // 启用详细输出
+
+    if opt_level > 0 {
+        fprintf(libc.stderr, "\n=== 优化阶段 (级别: %d) ===\n" as *byte, opt_level);
+
+        // 执行优化
+        const optimized_ast: &ASTNode = optimize_program(checker, merged_ast, opt_config);
+        opt_end_time = clock();
+
+        // 打印优化统计
+        const opt_stats: OptimizationStats = get_optimization_stats();
+        fprintf(libc.stderr, "常量折叠: %d\n" as *byte, opt_stats.constant_folded);
+        fprintf(libc.stderr, "死代码消除: %d\n" as *byte, opt_stats.dead_code_eliminated);
+        fprintf(libc.stderr, "证明优化: %d\n" as *byte, opt_stats.proof_optimized);
+        fprintf(libc.stderr, "函数内联: %d\n" as *byte, opt_stats.inlined_functions);
+        fprintf(libc.stderr, "循环展开: %d\n" as *byte, opt_stats.loops_unrolled);
+    } else {
+        opt_end_time = clock();
+    }
+
+    fprintf(libc.stderr, "\n=== 代码生成阶段 ===\n" as *byte);
+    fprintf(libc.stderr, "模块名: %s\n" as *byte, module_name);
+
+    var c99_output_buffer_peak_bytes: usize = 0usize;
+    if backend == BackendType.BACKEND_NATIVE {
+        var native_plan: NativeBuildLoweredPlan = native_build_program_to_lowered_plan(merged_ast, &emit_arena);
+        if all_file_count <= 0 || native_plan.lowered.lifecycle_state != LOWERED_PROGRAM_LIFECYCLE_ACTIVE {
+            codegen_end_time = clock();
+            fprintf(libc.stderr, "错误: native backend 尚未完成: 当前仅支持无参、最多两个 i32 参数或单个 &i32 out-param 函数，函数体为 `return 0..255;`、`return param;`、`return param0 + param1;`、`return callee();`、`return lhs() + rhs();`、direct call 局部初始化后 `return local;` 或最小 out-param 写回; LoweredProgram 到机器码 compiler path 未接入\n" as *byte);
+            return 1;
+        }
+        const native_result: NativeBuildEmitResult = native_build_emit_lowered_program_file(actual_output as &byte,
+            &native_plan.lowered, native_plan.entry_index);
+        if native_result.status != NATIVE_BUILD_EMIT_STATUS_OK {
+            codegen_end_time = clock();
+            fprintf(libc.stderr, "错误: native executable 输出失败: %s\n" as *byte, actual_output);
+            lowered_program_release(&native_plan.lowered);
+            return 1;
+        }
+        var native_exit_code: i32 = -1;
+        if native_build_lowered_main_const_exit_code(&native_plan, &native_exit_code) != 0 {
+            fprintf(libc.stderr, "native_exit_code: %d\n" as *byte, native_exit_code);
+        }
+        fprintf(libc.stderr, "native_function_count: %zu\n" as *byte, native_plan.lowered.function_count);
+        fprintf(libc.stderr, "native_lowered_body_ops: %zu\n" as *byte, native_plan.lowered.body_op_count);
+        fprintf(libc.stderr, "native_machine_function_count: %zu\n" as *byte, native_result.machine_function_count);
+        fprintf(libc.stderr, "native_machine_inst_count: %zu\n" as *byte, native_result.machine_inst_count);
+        fprintf(libc.stderr, "native_machine_peak_bytes: %zu\n" as *byte, native_result.machine_peak_bytes);
+        fprintf(libc.stderr, "native_entry_index: %d\n" as *byte, native_plan.entry_index);
+        fprintf(libc.stderr, "native_output_bytes: %zu\n" as *byte, native_result.output_bytes);
+        fprintf(libc.stderr, "native_code_bytes: %zu\n" as *byte, native_result.code_bytes);
+        fprintf(libc.stderr, "native_temp_peak_bytes: %zu\n" as *byte, native_result.temp_peak_bytes);
+        lowered_program_release(&native_plan.lowered);
+    } else {
+        // C99 后端：生成 C 源代码（与 C 版本保持一致，直接使用 C99 后端）
+        var out_file: *void = null;
+        if split_c_dir == null || split_c_dir[0] == 0 as byte {
+            out_file = fopen(actual_output, "w" as *byte);
+            if out_file == null {
+                fprintf(libc.stderr, "错误: 无法打开输出文件 '%s'\n" as *byte, actual_output);
+                return 1;
+            }
+        }
+        const c99_codegen: &C99CodeGenerator = compiler_arena_alloc(&emit_arena, HOST_SIZE_C99_CODEGENERATOR_BYTES) as &C99CodeGenerator;
+        if c99_codegen == null {
+            fprintf(libc.stderr, "错误: C99CodeGenerator 分配失败\n" as *byte);
+            if out_file != null {
+                fclose(out_file);
+            }
+            return 1;
+        }
+        memset(c99_codegen as *byte, 0, HOST_SIZE_C99_CODEGENERATOR_BYTES);
+        var split_mirror_flag: i32 = 0;
+        if split_c_dir != null && split_c_dir[0] != 0 as byte {
+            split_mirror_flag = 1;
+            const smg: *byte = getenv("UYA_SPLIT_C_MIRROR" as *byte);
+            if smg != null && smg[0] != 0 as byte {
+                if strcmp(smg as *byte, "0" as *byte) == 0 ||
+                   strcmp(smg as *byte, "false" as *byte) == 0 ||
+                   strcmp(smg as *byte, "no" as *byte) == 0 ||
+                   strcmp(smg as *byte, "off" as *byte) == 0 {
+                    split_mirror_flag = 0;
+                }
+            }
+        }
+        if c99_codegen_new(c99_codegen, &emit_arena, out_file as &void, module_name as &byte, emit_line_directives, is_nostdlib, stack_size, split_c_dir, split_mirror_flag, async_frame_heap_fallback) != 0 {
+            fprintf(libc.stderr, "错误: C99CodeGenerator 初始化失败\n" as *byte);
+            if out_file != null {
+                fclose(out_file);
+            }
+            return 1;
+        }
+        // 设置单态化实例（从 TypeChecker 传入）
+        c99_codegen_set_mono_instances(c99_codegen, checker);
+        c99_codegen_set_reachable_functions(c99_codegen, checker);
+        if out_artifacts != null {
+            c99_codegen_set_c_import_plan(c99_codegen, &out_artifacts.c_import_plan);
+        } else {
+            c99_codegen_set_c_import_plan(c99_codegen, null);
+        }
+        c99_codegen.container_mode = BUILD_CONTAINER_MODE;
+        c99_codegen.microapp_softvm_mode = 0;
+        if c99_codegen_generate(c99_codegen, merged_ast, actual_output as &byte) != 0 {
+            fprintf(libc.stderr, "错误: C99 代码生成失败\n" as *byte);
+            c99_codegen_free(c99_codegen);
+            if out_file != null {
+                fclose(out_file);
+            }
+            return 1;
+        }
+        c99_output_buffer_peak_bytes = c99_codegen_output_buffer_peak_bytes(c99_codegen);
+        c99_codegen_free(c99_codegen);
+        if out_file != null {
+            fclose(out_file);
+        }
+        if out_artifacts != null {
+            if out_file != null && output_file_index >= 0 && is_c_output(actual_output as &byte) != 0 {
+                if write_c_import_sidecar(&arena, actual_output as &byte, &out_artifacts.c_import_plan, &out_artifacts.c_import_sidecar_path) != 0 {
+                    fprintf(libc.stderr, "错误: @c_import sidecar 生成失败\n" as *byte);
+                    return 1;
+                }
+            } else if actual_output != null {
+                remove_c_import_sidecar_if_exists(&arena, actual_output as &byte);
+            }
+        }
+    }
+    codegen_end_time = clock();
+
+    // 计算各阶段耗时（毫秒）
+    stats.parse_time_ms = (parse_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
+    stats.merge_time_ms = (merge_end_time - parse_end_time) * 1000 / CLOCKS_PER_SEC;
+    stats.check_time_ms = (check_end_time - merge_end_time) * 1000 / CLOCKS_PER_SEC;
+    stats.codegen_time_ms = (codegen_end_time - opt_end_time) * 1000 / CLOCKS_PER_SEC;
+    stats.total_time_ms = (codegen_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
+    stats.ast_arena_peak_bytes = compiler_arena_peak_allocated(&ast_arena);
+    stats.check_arena_peak_bytes = compiler_arena_peak_allocated(&check_arena);
+    stats.emit_arena_peak_bytes = compiler_arena_peak_allocated(&emit_arena);
+    stats.c99_output_buffer_peak_bytes = c99_output_buffer_peak_bytes;
+    stats.arena_peak_bytes = compiler_arena_peak_allocated(&arena)
+        + compiler_arena_peak_allocated(&lex_arena)
+        + stats.ast_arena_peak_bytes
+        + stats.check_arena_peak_bytes
+        + stats.emit_arena_peak_bytes;
+    compile_stats_record_and_release_typed_program(&stats, checker);
+
+    // 输出编译统计
+    fprintf(libc.stderr, "\n=== 编译统计 ===\n" as *byte);
+    fprintf(libc.stderr, "文件数: %d\n" as *byte, stats.file_count);
+    fprintf(libc.stderr, "解析耗时: %ld ms\n" as *byte, stats.parse_time_ms);
+    fprintf(libc.stderr, "合并耗时: %ld ms\n" as *byte, stats.merge_time_ms);
+    fprintf(libc.stderr, "检查耗时: %ld ms\n" as *byte, stats.check_time_ms);
+    if opt_level > 0 {
+        const opt_time_ms: i64 = (opt_end_time - check_end_time) * 1000 / CLOCKS_PER_SEC;
+        fprintf(libc.stderr, "优化耗时: %ld ms\n" as *byte, opt_time_ms);
+    }
+    fprintf(libc.stderr, "生成耗时: %ld ms\n" as *byte, stats.codegen_time_ms);
+    fprintf(libc.stderr, "arena_peak_bytes: %zu\n" as *byte, stats.arena_peak_bytes);
+    fprintf(libc.stderr, "ast_arena_peak_bytes: %zu\n" as *byte, stats.ast_arena_peak_bytes);
+    fprintf(libc.stderr, "check_arena_peak_bytes: %zu\n" as *byte, stats.check_arena_peak_bytes);
+    fprintf(libc.stderr, "emit_arena_peak_bytes: %zu\n" as *byte, stats.emit_arena_peak_bytes);
+    fprintf(libc.stderr, "c99_output_buffer_peak_bytes: %zu\n" as *byte, stats.c99_output_buffer_peak_bytes);
+    fprintf(libc.stderr, "typed_program_bytes: %zu\n" as *byte, stats.typed_program_bytes);
+    fprintf(libc.stderr, "typed_program_peak_bytes: %zu\n" as *byte, stats.typed_program_peak_bytes);
+    fprintf(libc.stderr, "typed_program_released_bytes: %zu\n" as *byte, stats.typed_program_released_bytes);
+    fprintf(libc.stderr, "table_count: %zu\n" as *byte, stats.table_items);
+    fprintf(libc.stderr, "table_capacity: %zu\n" as *byte, stats.table_capacity);
+    fprintf(libc.stderr, "table_bytes: %zu\n" as *byte, stats.table_used_bytes);
+    fprintf(libc.stderr, "table_capacity_bytes: %zu\n" as *byte, stats.table_capacity_bytes);
+    fprintf(libc.stderr, "table_realloc_count: %d\n" as *byte, stats.table_realloc_count);
+    compiler_print_diagnostic_profile(checker);
+    fprintf(libc.stderr, "总耗时: %ld ms\n" as *byte, stats.total_time_ms);
+
+    fprintf(libc.stderr, "\n代码生成完成: %s\n" as *byte, actual_output);
+
+    // 释放各子系统独立 arena 的动态 chunk（AST/emitter 已被 codegen 消费完毕，
+    // checker 工作内存已不再需要）。SemanticDb/TypedProgram 由其自身 release 管理。
+    compiler_arena_free_all(&emit_arena);
+    compiler_arena_free_all(&check_arena);
+    compiler_arena_free_all(&ast_arena);
+    compiler_arena_free_all(&lex_arena);
+    compile_files_maybe_release_transient_arenas(&arena, &temp_arena, out_artifacts);
+    return 0;
+}
+
+fn build_compiler_driver_run() i32 {
+    var input_file_indices: [i32: 64] = [];
+    var input_file_count: i32 = 0;
+    var output_file_index: i32 = -1;
+    var backend: BackendType = BackendType.BACKEND_LLVM;
+    var emit_line_directives: i32 = 0;
+    var enable_safety_proof: i32 = 1;
+    var opt_level: i32 = 1;
+    var is_nostdlib: i32 = 0;
+    var stack_size: i32 = 65536;
+    var async_frame_heap_fallback: i32 = 0;
+    var auto_output_path: [byte: PATH_MAX] = [];
+
+    const input_file_index_capacity: i32 = @len(input_file_indices) as i32;
+    const parse_result: i32 = parse_build_args(&input_file_indices[0], input_file_index_capacity, &input_file_count, &output_file_index, &backend, &emit_line_directives, &enable_safety_proof, &opt_level, &is_nostdlib, &stack_size, &async_frame_heap_fallback);
+    if parse_result == 2 {
+        return 0;
+    }
+    if parse_result != 0 {
+        return 1;
+    }
+
+    var eff_compiler_stack_kb: i32 = stack_size;
+    if eff_compiler_stack_kb <= 0 {
+        eff_compiler_stack_kb = 65536;
+    }
+    set_process_stack_limit_bytes(eff_compiler_stack_kb as u64 * 1024);
+    if g_split_c_dir_active == 0 && g_split_c_disabled_cli == 0 {
+        const env_split: *byte = getenv("UYA_SPLIT_C_DIR" as *byte);
+        if env_split != null && env_split[0] != 0 {
+            const el: usize = strlen(env_split);
+            if el > 0 && el < PATH_MAX - 1 {
+                strcpy(&g_split_c_dir[0] as *byte, env_split);
+                g_split_c_dir_active = 1;
+            }
+        }
+    }
+
+    if output_file_index < 0 {
+        if backend == BackendType.BACKEND_NATIVE {
+            strcpy(&auto_output_path[0] as *byte, "a.out" as *byte);
+        } else {
+            if host_fill_temp_c_compile_path(&auto_output_path[0], PATH_MAX) != 0 {
+                fprintf(libc.stderr, "错误：无法生成临时输出路径\n" as *byte);
+                return 1;
+            }
+            backend = BackendType.BACKEND_C99;
+        }
+        output_file_index = -2;
+    }
+
+    var user_output_path: *byte = null;
+    if output_file_index >= 0 {
+        const out_path: *byte = get_argv(output_file_index);
+        if out_path != null {
+            if backend == BackendType.BACKEND_NATIVE {
+                if is_c_output(out_path as &byte) != 0 {
+                    fprintf(libc.stderr, "错误: --native 不能输出 .c 文件；C 输出请使用 --c99\n" as *byte);
+                    return 1;
+                }
+            } else {
+                if is_c_output(out_path as &byte) == 0 {
+                    user_output_path = out_path;
+                    if host_fill_temp_c_compile_path(&auto_output_path[0], PATH_MAX) != 0 {
+                        fprintf(libc.stderr, "错误: 无法生成临时输出路径\n" as *byte);
+                        return 1;
+                    }
+                    output_file_index = -2;
+                }
+                backend = BackendType.BACKEND_C99;
+            }
+        }
+    }
+    if backend == BackendType.BACKEND_LLVM {
+        backend = BackendType.BACKEND_C99;
+    }
+
+    if g_split_c_dir_active == 0 && g_split_c_disabled_cli == 0 && backend == BackendType.BACKEND_C99 {
+        var explicit_single_c: i32 = 0;
+        if output_file_index >= 0 {
+            const outp: *byte = get_argv(output_file_index);
+            if outp != null && is_c_output(outp as &byte) != 0 {
+                explicit_single_c = 1;
+            }
+        }
+        if explicit_single_c == 0 && env_disables_auto_split_c() == 0 {
+            split_c_set_default_dir();
+        }
+    }
+
+    var output_path_for_compile: &byte = null;
+    if output_file_index == -2 {
+        output_path_for_compile = &auto_output_path[0];
+    } else if backend == BackendType.BACKEND_NATIVE && output_file_index >= 0 {
+        output_path_for_compile = get_argv(output_file_index) as &byte;
+    }
+    var split_c_arg: &byte = null;
+    if g_split_c_dir_active != 0 {
+        split_c_arg = &g_split_c_dir[0] as &byte;
+    }
+    var artifacts: CompileArtifacts = CompileArtifacts {
+        generated_c_path: null,
+        c_import_plan: CImportPlan {
+            items: null,
+            item_count: 0,
+            aggregated_ldflags_tokens: null,
+            aggregated_ldflags_token_count: 0,
+        },
+        c_import_sidecar_path: null,
+    };
+    var split_c_lock_held: i32 = 0;
+    defer {
+        if split_c_lock_held != 0 {
+            split_c_release_lock();
+            split_c_lock_held = 0;
+        }
+    }
+    if split_c_arg != null && split_c_arg[0] != 0 as byte {
+        if split_c_acquire_lock(split_c_arg) != 0 {
+            return 1;
+        }
+        split_c_lock_held = 1;
+    }
+
+    const result: i32 = compile_files(&input_file_indices[0], input_file_count, null, 0, output_file_index, backend, emit_line_directives, enable_safety_proof, opt_level, output_path_for_compile, is_nostdlib, stack_size, split_c_arg, async_frame_heap_fallback, 0, &artifacts);
+    if result != 0 {
+        return 1;
+    }
+    if backend == BackendType.BACKEND_NATIVE {
+        fprintf(libc.stderr, "\n编译完成：%s\n" as *byte, output_path_for_compile as *byte);
+        return 0;
+    }
+
+    var is_output_c_file: i32 = 0;
+    if output_file_index >= 0 {
+        const out_path: *byte = get_argv(output_file_index);
+        if out_path != null && is_c_output(out_path as &byte) != 0 {
+            is_output_c_file = 1;
+        }
+    }
+
+    if is_output_c_file == 0 {
+        const c_file: &byte = artifacts.generated_c_path;
+        var output: &byte = "a.out" as *byte;
+        if user_output_path != null {
+            output = user_output_path as &byte;
+        } else if output_file_index >= 0 {
+            output = get_argv(output_file_index) as &byte;
+        }
+        const link_result: i32 = link_with_toolchain(c_file, output, is_nostdlib, &artifacts.c_import_plan);
+        if link_result != 0 {
+            fprintf(libc.stderr, "错误：链接失败\n" as *byte);
+            return 1;
+        }
+        fprintf(libc.stderr, "\n编译完成：%s\n" as *byte, output as *byte);
+        return 0;
+    }
+
+    return 0;
+}
+
+
+/// 运行 `cmd/build` 的 build-only CLI。
+/// 参数说明：无，直接读取进程 argv；未写子命令时默认执行 build。
+/// 返回值说明：返回 build 命令的进程退出码。
+export fn build_compiler_driver_main() i32 {
+    return build_compiler_driver_run();
+}

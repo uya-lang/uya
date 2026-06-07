@@ -148,8 +148,8 @@
 
 验收标准：
 
-- [ ] `inspect-image` 能看见共享库元数据
-- [ ] `verify-image` 能报告链接级结构错误
+- [ ] `microapp inspect` 能看见共享库元数据
+- [ ] `microapp verify` 能报告链接级结构错误
 - [ ] `.ulib` roundtrip 用例通过
 
 ---
@@ -158,9 +158,9 @@
 
 ### 6.1 共享库构建入口
 
-- [ ] 在 [main.uya](../../src/main.uya) 增加 CLI：
+- [ ] 在 `src/cmd/microapp/main.uya` 增加 CLI：
   - `--emit-shared-lib`
-  - 或等价 `build --app microapp --kind shared_lib`
+  - 或等价 `microapp build --kind shared_lib`
 - [ ] 定义输出扩展名建议 `.ulib`
 - [ ] 区分 `exec` 与 `shared_lib` 构建路径
 
@@ -277,12 +277,12 @@
 ### 9.1 命令入口
 
 - [ ] 增加：
-  - `install-shared-lib`
-  - `list-shared-lib`
-  - `remove-shared-lib`
-  - `inspect-link`
-- [ ] `inspect-image` 支持 `.ulib`
-- [ ] `verify-image` 支持 `.ulib`
+  - `microapp install-shared-lib`
+  - `microapp list-shared-lib`
+  - `microapp remove-shared-lib`
+  - `microapp inspect-link`
+- [ ] `microapp inspect` 支持 `.ulib`
+- [ ] `microapp verify` 支持 `.ulib`
 
 ### 9.2 可观测性
 
@@ -312,8 +312,8 @@
 ### 10.2 镜像回归
 
 - [ ] `.ulib` pack/unpack roundtrip
-- [ ] `inspect-image` 输出回归
-- [ ] `verify-image` 错误回归
+- [ ] `microapp inspect` 输出回归
+- [ ] `microapp verify` 错误回归
 
 ### 10.3 运行时回归
 
@@ -411,7 +411,7 @@
 - [ ] 能把应用中的共享调用降成 import slot
 - [ ] loader 能完成依赖解析与绑定
 - [ ] 至少 2 个 `uapp` 共享 1 个官方函数库
-- [ ] `inspect-image` / `verify-image` / 调试日志足够可用
+- [ ] `microapp inspect` / `microapp verify` / 调试日志足够可用
 - [ ] 至少有一组体积收益数据证明该机制值得保留
 
 只有同时满足这些条件，才应宣布 v1 共享库机制可用。

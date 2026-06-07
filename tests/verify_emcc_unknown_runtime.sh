@@ -32,7 +32,7 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 echo "验证 unknown target 经 emcc 编译并运行最小闭环..."
-TARGET_OS=unknown TARGET_ARCH=unknown "$COMPILER" --c99 "$SOURCE_UYA" -o "$OUT_C"
+TARGET_OS=unknown TARGET_ARCH=unknown "$COMPILER" build --c99 "$SOURCE_UYA" -o "$OUT_C"
 
 sed -i '/@syscall C99 backend: supported targets/d' "$OUT_C"
 sed -i 's/^int32_t main(int32_t argc, char \*\*argv) {$/__attribute__((used, visibility("default"))) int32_t main(int32_t argc, char **argv) {/' "$OUT_C"

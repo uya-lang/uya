@@ -4,7 +4,7 @@
 # 若出现「没有规则可制作目标 install」：说明当前 Makefile 过旧，请用本仓库最新 Makefile
 # 替换，或从上游同步后再执行：make install PREFIX=$HOME/.local
 
-.PHONY: all from-c from-c-native uya uya-hosted uya-std uya-nostdlib uya-portable b b-hosted b-portable bench-compile-stats bench-compile-stats-check bench-compiler-1s bench-compiler-1s-check tests tests-hosted tests-uya tests-emcc tests-portable microapp-check microapp-hosted-smoke microapp-aarch64-runtime-check microapp-macos-runtime-check microapp-compat-check microapp-recovery-check outlibc c e clean check check-hosted backup backup-seed backup-hosted-seed backup-all-seed back-all-seed backup-hosted-seed-native backup-all restore release release-bootstrap release-flow release-build release-dirty release-preflight release-clean install help cmds cmd-upm uya-upm-stage2 upm-check fmt check-fmt
+.PHONY: all from-c from-c-native restore-cmd-build-seed uya uya-hosted uya-std uya-nostdlib uya-portable b b-hosted b-portable bench-compile-stats bench-compile-stats-check bench-compiler-1s bench-compiler-1s-check tests tests-hosted tests-uya tests-emcc tests-portable microapp-check microapp-hosted-smoke microapp-aarch64-runtime-check microapp-compat-check microapp-recovery-check outlibc c e clean check check-hosted backup backup-seed backup-cmd-build-seed backup-cmd-build-blob-seed backup-hosted-seed backup-all-seed back-all-seed backup-hosted-seed-native backup-all restore release release-bootstrap release-flow release-build release-dirty release-preflight release-clean install help cmds cmd-build cmd-check cmd-run cmd-test cmd-fmt cmd-upm uya-upm-stage2 upm-check fmt check-fmt
 
 # 共享平台/工具链模型（可通过环境变量覆盖）
 HOST_OS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]' | sed -e 's/darwin/macos/' -e 's/msys.*/windows/' -e 's/mingw.*/windows/' -e 's/cygwin.*/windows/')
@@ -34,9 +34,10 @@ LDFLAGS ?=
 
 # 并行程序测试 worker 数（默认 CPU 核数；可覆盖：make tests UYA_TEST_JOBS=4）
 UYA_TEST_JOBS ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
-UYA_CMD_NAMES := upm
+UYA_CMD_NAMES := build check run test fmt upm
 UYA_CMD_BINS := $(patsubst %,bin/cmd/%,$(UYA_CMD_NAMES))
-UYA_CMD_BOOTSTRAP_COMPILER ?= ./bin/uya
+UYA_CMD_BOOTSTRAP_COMPILER ?= ./bin/cmd/build
+UYA_BUILD_SEED_COMPILER ?= ./bin/cmd/build
 
 # 安装路径（install 目标）
 # 用法: make install
@@ -79,6 +80,88 @@ all: help
 # 注意：uya 是真实目标，不能在这里声明
 c e:
 	@:
+
+restore-cmd-build-seed:
+	@echo "恢复 bin/cmd/build ..."
+	@mkdir -p bin/cmd
+	@HOST_OS="$(HOST_OS)" HOST_ARCH="$(HOST_ARCH)" \
+		CC_DRIVER="$(CC_DRIVER)" CC_TARGET_FLAGS="$(CC_TARGET_FLAGS)" \
+		SEED_CFLAGS="$(SEED_CFLAGS)" LDFLAGS="$(LDFLAGS)" \
+		bash -c 'set -e; \
+		BLOB_PATH=""; \
+		BLOB_DESC=""; \
+		SEED_PATH=""; \
+		SEED_DESC=""; \
+		if [ "$$HOST_OS" = "macos" ]; then \
+			CMD_BLOB_ARCH="backup/cmd-build-macos-$$HOST_ARCH-blob.c"; \
+			if [ -f "$$CMD_BLOB_ARCH" ]; then \
+				BLOB_PATH="$$CMD_BLOB_ARCH"; \
+				BLOB_DESC="macOS cmd/build 快速 blob seed $$CMD_BLOB_ARCH"; \
+			fi; \
+			CMD_SEED_ARCH="backup/cmd-build-macos-$$HOST_ARCH.c"; \
+			CMD_SEED_UNIFIED="backup/cmd-build-macos.c"; \
+			if [ -f "$$CMD_SEED_ARCH" ]; then \
+				SEED_PATH="$$CMD_SEED_ARCH"; \
+				SEED_DESC="macOS cmd/build 本机备份 $$CMD_SEED_ARCH"; \
+			elif [ -f "$$CMD_SEED_UNIFIED" ]; then \
+				SEED_PATH="$$CMD_SEED_UNIFIED"; \
+				SEED_DESC="macOS cmd/build 通用备份 $$CMD_SEED_UNIFIED"; \
+			elif [ -f backup/cmd-build.c ]; then \
+				SEED_PATH="backup/cmd-build.c"; \
+				SEED_DESC="通用 cmd/build 备份 backup/cmd-build.c"; \
+			fi; \
+		else \
+			CMD_BLOB_HOST="backup/cmd-build-$$HOST_OS-$$HOST_ARCH-blob.c"; \
+			if [ -f "$$CMD_BLOB_HOST" ]; then \
+				BLOB_PATH="$$CMD_BLOB_HOST"; \
+				BLOB_DESC="host/arch cmd/build 快速 blob seed $$CMD_BLOB_HOST"; \
+			fi; \
+			CMD_SEED_HOST="backup/cmd-build-$$HOST_OS-$$HOST_ARCH.c"; \
+			if [ -f "$$CMD_SEED_HOST" ]; then \
+				SEED_PATH="$$CMD_SEED_HOST"; \
+				SEED_DESC="host/arch cmd/build 备份 $$CMD_SEED_HOST"; \
+			elif [ -f backup/cmd-build.c ]; then \
+				SEED_PATH="backup/cmd-build.c"; \
+				SEED_DESC="通用 cmd/build 备份 backup/cmd-build.c"; \
+			fi; \
+		fi; \
+		if [ -n "$$BLOB_PATH" ]; then \
+			echo "使用 $$BLOB_DESC ..."; \
+			EXTRACTOR="bin/cmd/.build_blob_extract"; \
+			$$CC_DRIVER $$CC_TARGET_FLAGS $$SEED_CFLAGS "$$BLOB_PATH" -o "$$EXTRACTOR" -lm $$LDFLAGS; \
+			"$$EXTRACTOR" bin/cmd/build; \
+			rm -f "$$EXTRACTOR"; \
+			exit 0; \
+		fi; \
+		if [ -z "$$SEED_PATH" ]; then \
+			echo "错误: 缺少 cmd/build seed。请先生成 backup/cmd-build.c 或 backup/cmd-build-$$HOST_OS-$$HOST_ARCH.c。"; \
+			exit 1; \
+		fi; \
+		echo "使用 $$SEED_DESC ..."; \
+		EXTRA_HOST_SOURCES=""; \
+		if [ "$$HOST_OS" = "macos" ] && [ -f "src/host/macos_stat_shim.c" ]; then EXTRA_HOST_SOURCES="src/host/macos_stat_shim.c"; fi; \
+		if grep -qE "^[[:space:]]*__attribute__\\(\\(naked\\)\\)[[:space:]]+void[[:space:]]+_start\\(void\\)" "$$SEED_PATH" 2>/dev/null \
+			&& [ "$$HOST_OS" = "macos" ]; then \
+			echo "错误: cmd/build seed 为 Linux nostdlib，无法在 macOS 上恢复。"; \
+			exit 1; \
+		fi; \
+		if grep -qE "^[[:space:]]*__attribute__\\(\\(naked\\)\\)[[:space:]]+void[[:space:]]+_start\\(void\\)" "$$SEED_PATH" 2>/dev/null \
+			&& [ "$$HOST_OS" = "linux" ] && [ "$$HOST_ARCH" = "x86_64" ]; then \
+			echo "cmd/build seed 含 nostdlib _start，使用 crti.o + cmd-build.o + crtn.o 链接..."; \
+			$$CC_DRIVER $$CC_TARGET_FLAGS $$SEED_CFLAGS -fno-stack-protector -c "$$SEED_PATH" -o bin/cmd/.build_from_c.o; \
+			CRTI=$$($$CC_DRIVER $$CC_TARGET_FLAGS -print-file-name=crti.o); \
+			CRTN=$$($$CC_DRIVER $$CC_TARGET_FLAGS -print-file-name=crtn.o); \
+			if [ ! -f "$$CRTI" ] || [ "$$CRTI" = "crti.o" ] || [ ! -f "$$CRTN" ] || [ "$$CRTN" = "crtn.o" ]; then \
+				echo "错误: 当前工具链无法解析 crti.o/crtn.o，无法恢复 nostdlib cmd/build seed"; exit 1; \
+			fi; \
+			$$CC_DRIVER $$CC_TARGET_FLAGS $$SEED_CFLAGS -fno-stack-protector -no-pie -nostdlib -static \
+				-o bin/cmd/build "$$CRTI" bin/cmd/.build_from_c.o "$$CRTN" $$LDFLAGS; \
+			rm -f bin/cmd/.build_from_c.o; \
+		else \
+			$$CC_DRIVER $$CC_TARGET_FLAGS $$SEED_CFLAGS "$$SEED_PATH" $$EXTRA_HOST_SOURCES -o bin/cmd/build -lm $$LDFLAGS; \
+		fi'
+	@echo "✓ cmd/build seed 已恢复: bin/cmd/build"
+	@ls -la bin/cmd/build
 
 # 从本机 seed 构建（macOS 不回退 Linux seed）
 # macOS 主线优先使用 backup/uya-hosted-macos-<arch>.c，本机 arch seed 不存在时才回退
@@ -162,10 +245,11 @@ from-c-native:
 		else \
 			$$CC_DRIVER $$CC_TARGET_FLAGS $$SEED_CFLAGS bin/uya.c $$EXTRA_HOST_SOURCES -o bin/uya -lm $$LDFLAGS; \
 		fi'
+	@$(MAKE) --no-print-directory restore-cmd-build-seed
 	@echo ""
-	@echo "✓ 编译器构建完成: bin/uya"
+	@echo "✓ 编译器构建完成: bin/uya 与 bin/cmd/build"
 	@touch bin/.uya_cold_start
-	@ls -la bin/uya
+	@ls -la bin/uya bin/cmd/build
 
 # 从 bin/uya.c 构建（零依赖）
 from-c:
@@ -236,10 +320,11 @@ from-c:
 		else \
 			$$CC_DRIVER $$CC_TARGET_FLAGS $$SEED_CFLAGS bin/uya.c -o bin/uya -lm $$LDFLAGS; \
 		fi'
+	@$(MAKE) --no-print-directory restore-cmd-build-seed
 	@echo ""
-	@echo "✓ 编译器构建完成: bin/uya"
+	@echo "✓ 编译器构建完成: bin/uya 与 bin/cmd/build"
 	@touch bin/.uya_cold_start
-	@ls -la bin/uya
+	@ls -la bin/uya bin/cmd/build
 
 # 构建自举编译器（src），默认使用 --nostdlib（静态链接，零依赖）
 uya:
@@ -268,7 +353,11 @@ uya:
 				$(MAKE) from-c; \
 			fi; \
 		fi; \
-		echo "使用 bin/uya 编译 src/ ..."; \
+		if [ ! -x bin/cmd/build ]; then \
+			echo "bin/cmd/build 不存在，先从 seed 恢复..."; \
+			$(MAKE) restore-cmd-build-seed; \
+		fi; \
+		echo "使用 bin/cmd/build 编译 src/launcher ..."; \
 		echo "TARGET_OS=$(TARGET_OS) TARGET_ARCH=$(TARGET_ARCH) TARGET_TRIPLE=$(TARGET_TRIPLE)"; \
 		( ulimit -s 32768 && cd src && UYA_MULTI_FILE_C=1 UYA_SPLIT_C=0 UYA_SPLIT_C_DIR= UYA_SPLIT_C_MIRROR= CC="$(CC)" CC_DRIVER="$(CC_DRIVER)" CC_TARGET_FLAGS="$(CC_TARGET_FLAGS)" HOST_OS="$(HOST_OS)" HOST_ARCH="$(HOST_ARCH)" TARGET_OS="$(TARGET_OS)" TARGET_ARCH="$(TARGET_ARCH)" TARGET_TRIPLE="$(TARGET_TRIPLE)" TOOLCHAIN="$(TOOLCHAIN)" ZIG="$(ZIG)" RUNTIME_MODE=nostdlib LINK_MODE=static CFLAGS="$(CFLAGS) -fno-stack-protector" LDFLAGS="$(LDFLAGS)" ./compile.sh --c99 -e --nostdlib --safety-proof $$EXTRA_FLAGS ); \
 		if [ "$$COLD_START" = "1" ]; then \
@@ -303,7 +392,7 @@ uya-hosted:
 	fi
 	@echo "使用 hosted 编译器编译 src/ ..."
 	@echo "TARGET_OS=$(TARGET_OS) TARGET_ARCH=$(TARGET_ARCH) TARGET_TRIPLE=$(TARGET_TRIPLE)"
-	@bash -c 'set -e; REPO_ROOT="$$(pwd)"; UYA_COMPILER_PATH=""; if [ -f "$$REPO_ROOT/bin/uya" ]; then UYA_COMPILER_PATH="$$REPO_ROOT/bin/uya"; else UYA_COMPILER_PATH="$$REPO_ROOT/bin/uya-hosted"; fi; BUILD_MODE_ENV="UYA_MULTI_FILE_C=1 UYA_SPLIT_C_DIR= UYA_SPLIT_C_MIRROR="; if [ "$(HOST_OS)" = "macos" ] && [ "$(TARGET_OS)" = "macos" ]; then BUILD_MODE_ENV="UYA_SINGLE_FILE_C=1 UYA_SPLIT_C=0 UYA_SPLIT_C_DIR= UYA_MULTI_FILE_C= UYA_SPLIT_C_MIRROR="; fi; ulimit -s 32768 && cd src && eval "$$BUILD_MODE_ENV UYA_COMPILER=\"$$UYA_COMPILER_PATH\" CC=\"$(CC)\" CC_DRIVER=\"$(CC_DRIVER)\" CC_TARGET_FLAGS=\"$(CC_TARGET_FLAGS)\" HOST_OS=\"$(HOST_OS)\" HOST_ARCH=\"$(HOST_ARCH)\" TARGET_OS=\"$(TARGET_OS)\" TARGET_ARCH=\"$(TARGET_ARCH)\" TARGET_TRIPLE=\"$(TARGET_TRIPLE)\" TOOLCHAIN=\"$(TOOLCHAIN)\" ZIG=\"$(ZIG)\" RUNTIME_MODE=hosted LINK_MODE=\"$(LINK_MODE)\" UYA_BOOTSTRAP_PROFILE=\"$$( [ \"$(HOST_OS)\" = \"macos\" ] && [ \"$(TARGET_OS)\" = \"macos\" ] && echo darwin-hosted || echo hosted )\" UYA_NATIVE_BOOTSTRAP=\"$$( [ \"$(HOST_OS)\" = \"macos\" ] && [ \"$(TARGET_OS)\" = \"macos\" ] && [ \"$(HOST_ARCH)\" = \"$(TARGET_ARCH)\" ] && echo 1 || echo 0 )\" CFLAGS=\"$(CFLAGS)\" LDFLAGS=\"$(LDFLAGS)\" ./compile.sh --c99 -e --name uya-hosted --safety-proof"'
+	@bash -c 'set -e; REPO_ROOT="$$(pwd)"; UYA_COMPILER_PATH=""; if [ -x "$$REPO_ROOT/bin/cmd/build" ]; then UYA_COMPILER_PATH="$$REPO_ROOT/bin/cmd/build"; elif [ -f "$$REPO_ROOT/bin/uya-hosted" ]; then UYA_COMPILER_PATH="$$REPO_ROOT/bin/uya-hosted"; else UYA_COMPILER_PATH="$$REPO_ROOT/bin/uya"; fi; BUILD_MODE_ENV="UYA_MULTI_FILE_C=1 UYA_SPLIT_C_DIR= UYA_SPLIT_C_MIRROR="; if [ "$(HOST_OS)" = "macos" ] && [ "$(TARGET_OS)" = "macos" ]; then BUILD_MODE_ENV="UYA_SINGLE_FILE_C=1 UYA_SPLIT_C=0 UYA_SPLIT_C_DIR= UYA_MULTI_FILE_C= UYA_SPLIT_C_MIRROR="; fi; ulimit -s 32768 && cd src && eval "$$BUILD_MODE_ENV UYA_COMPILER=\"$$UYA_COMPILER_PATH\" CC=\"$(CC)\" CC_DRIVER=\"$(CC_DRIVER)\" CC_TARGET_FLAGS=\"$(CC_TARGET_FLAGS)\" HOST_OS=\"$(HOST_OS)\" HOST_ARCH=\"$(HOST_ARCH)\" TARGET_OS=\"$(TARGET_OS)\" TARGET_ARCH=\"$(TARGET_ARCH)\" TARGET_TRIPLE=\"$(TARGET_TRIPLE)\" TOOLCHAIN=\"$(TOOLCHAIN)\" ZIG=\"$(ZIG)\" RUNTIME_MODE=hosted LINK_MODE=\"$(LINK_MODE)\" UYA_BOOTSTRAP_PROFILE=\"$$( [ \"$(HOST_OS)\" = \"macos\" ] && [ \"$(TARGET_OS)\" = \"macos\" ] && echo darwin-hosted || echo hosted )\" UYA_NATIVE_BOOTSTRAP=\"$$( [ \"$(HOST_OS)\" = \"macos\" ] && [ \"$(TARGET_OS)\" = \"macos\" ] && [ \"$(HOST_ARCH)\" = \"$(TARGET_ARCH)\" ] && echo 1 || echo 0 )\" CFLAGS=\"$(CFLAGS)\" LDFLAGS=\"$(LDFLAGS)\" ./compile.sh --c99 -e --name uya-hosted --safety-proof"'
 	@echo ""
 	@echo "更新 bin/uya.c（若存在单文件 src/build/uya.c）…"
 	@if [ -f src/build/uya.c ]; then cp src/build/uya.c bin/uya.c && echo "✓ bin/uya.c 已更新"; else echo "（多文件 C：未生成 src/build/uya.c；单文件见 make backup-seed）"; fi
@@ -470,7 +559,7 @@ check-fmt:
 	@echo "检查 uya fmt 状态（仓库检查）"
 	@echo "=========================================="
 	@mkdir -p ./tests/build/fmt_cli ./bin
-	@./bin/uya --c99 ./tools/fmt.uya -o ./tests/build/fmt_cli/uyafmt.c >/tmp/check_fmt_build.out 2>/tmp/check_fmt_build.err
+	@./bin/uya build --c99 ./tools/fmt.uya -o ./tests/build/fmt_cli/uyafmt.c >/tmp/check_fmt_build.out 2>/tmp/check_fmt_build.err
 	@cc -O0 -g ./tests/build/fmt_cli/uyafmt.c -o ./bin/uyafmt
 	@OUT="$$(./bin/uyafmt -l ./src ./lib ./tests ./tools 2>/dev/null || true)"; \
 	if [ -n "$$OUT" ]; then \
@@ -586,6 +675,16 @@ clean:
 
 cmds: $(UYA_CMD_BINS) bin/uya-upm-stage2
 
+cmd-build: bin/cmd/build
+
+cmd-check: bin/cmd/check
+
+cmd-run: bin/cmd/run
+
+cmd-test: bin/cmd/test
+
+cmd-fmt: bin/cmd/fmt
+
 cmd-upm: bin/cmd/upm bin/uya-upm-stage2
 
 uya-upm-stage2: bin/uya-upm-stage2
@@ -595,15 +694,28 @@ bin/uya-upm-stage2: scripts/uya-upm-stage2.sh
 	@cp scripts/uya-upm-stage2.sh $@
 	@chmod +x $@
 
-bin/cmd/upm: src/cmd/upm/main.uya uya
+bin/cmd/build: src/cmd/build/main.uya
+	@mkdir -p bin/cmd
+	@if [ ! -x "$@" ]; then \
+		echo "bin/cmd/build 不存在，先从 cmd/build C seed 恢复..."; \
+		$(MAKE) --no-print-directory restore-cmd-build-seed; \
+	else \
+		echo "构建 cmd/build ..."; \
+		tmp="$@.tmp"; \
+		rm -f "$$tmp"; \
+		UYA_ROOT="$$(pwd)" $(UYA_CMD_BOOTSTRAP_COMPILER) $< -o "$$tmp" --no-split-c --project-root src/; \
+		mv "$$tmp" $@; \
+	fi
+
+bin/cmd/upm: src/cmd/upm/main.uya $(UYA_CMD_BOOTSTRAP_COMPILER)
 	@mkdir -p bin/cmd
 	@echo "构建 cmd/upm ..."
-	@$(UYA_CMD_BOOTSTRAP_COMPILER) build $< -o $@ --no-split-c --project-root src/cmd/upm/
+	@UYA_ROOT="$$(pwd)" $(UYA_CMD_BOOTSTRAP_COMPILER) $< -o $@ --no-split-c --project-root src/cmd/upm/
 
-bin/cmd/%: src/cmd/%/main.uya uya
+bin/cmd/%: src/cmd/%/main.uya $(UYA_CMD_BOOTSTRAP_COMPILER)
 	@mkdir -p bin/cmd
 	@echo "构建 cmd/$* ..."
-	@$(UYA_CMD_BOOTSTRAP_COMPILER) build $< -o $@ --no-split-c --project-root src/
+	@UYA_ROOT="$$(pwd)" $(UYA_CMD_BOOTSTRAP_COMPILER) $< -o $@ --no-split-c --project-root src/
 
 upm-check: uya cmd-upm
 	@echo "=========================================="
@@ -1028,6 +1140,53 @@ backup-seed:
 	fi
 	@echo "✓ backup/uya.c、backup/uya-$(HOST_OS)-$(HOST_ARCH).c 与 bin/uya.c 已更新（单文件种子；bin/uya 已由 compile.sh 同步重建）"
 
+backup-cmd-build-seed:
+	@echo "单文件 C 编译以更新 backup/cmd-build.c 与 host/arch build seed …"
+	@mkdir -p backup src/build
+	@bash -c 'set -e; \
+		COMPILER="$(UYA_BUILD_SEED_COMPILER)"; \
+		if [ -z "$$COMPILER" ]; then COMPILER="./bin/uya"; fi; \
+		if [ ! -x "$$COMPILER" ]; then \
+			echo "错误: 缺少可执行 compiler，无法生成 cmd/build seed（默认需要 bin/cmd/build，可用 UYA_BUILD_SEED_COMPILER=... 覆盖）"; \
+			exit 1; \
+		fi; \
+		echo "使用 $$COMPILER 生成 src/build/cmd-build.c ..."; \
+		UYA_ROOT="$$(pwd)" "$$COMPILER" build --c99 src/cmd/build/main.uya -o src/build/cmd-build.c --no-split-c --project-root src/ --safety-proof'
+	@if [ ! -s src/build/cmd-build.c ]; then \
+		echo "错误: cmd/build seed 生成失败，src/build/cmd-build.c 不存在或为空"; \
+		exit 1; \
+	fi
+	@cp src/build/cmd-build.c backup/cmd-build.c
+	@cp src/build/cmd-build.c backup/cmd-build-$(HOST_OS)-$(HOST_ARCH).c
+	@if [ "$(HOST_OS)" = "macos" ]; then \
+		cp src/build/cmd-build.c backup/cmd-build-macos.c; \
+		cp src/build/cmd-build.c backup/cmd-build-macos-$(HOST_ARCH).c; \
+		echo "✓ backup/cmd-build-macos.c 与 backup/cmd-build-macos-$(HOST_ARCH).c 已按本机结果更新"; \
+	fi
+	@echo "✓ backup/cmd-build.c 与 backup/cmd-build-$(HOST_OS)-$(HOST_ARCH).c 已更新"
+
+backup-cmd-build-blob-seed: backup-cmd-build-seed
+	@echo "生成 host/arch cmd/build 快速 blob seed …"
+	@mkdir -p backup src/build bin/cmd
+	@bash -c 'set -e; \
+		COMPILER="$(UYA_BUILD_SEED_COMPILER)"; \
+		if [ -z "$$COMPILER" ]; then COMPILER="./bin/uya"; fi; \
+		if [ ! -x "$$COMPILER" ]; then \
+			echo "错误: 缺少可执行 compiler，无法生成 cmd/build blob seed（默认需要 bin/cmd/build，可用 UYA_BUILD_SEED_COMPILER=... 覆盖）"; \
+			exit 1; \
+		fi; \
+		echo "使用 $$COMPILER 生成 bin/cmd/build ..."; \
+		UYA_ROOT="$$(pwd)" "$$COMPILER" src/cmd/build/main.uya -o bin/cmd/build --no-split-c --project-root src/; \
+		BLOB_INPUT="src/build/cmd-build.blob.bin"; \
+		cp bin/cmd/build "$$BLOB_INPUT"; \
+		if command -v strip >/dev/null 2>&1; then strip "$$BLOB_INPUT" || true; fi; \
+		scripts/generate_cmd_build_blob_seed.sh "$$BLOB_INPUT" "backup/cmd-build-$(HOST_OS)-$(HOST_ARCH)-blob.c"; \
+		if [ "$(HOST_OS)" = "macos" ]; then \
+			scripts/generate_cmd_build_blob_seed.sh "$$BLOB_INPUT" "backup/cmd-build-macos-$(HOST_ARCH)-blob.c"; \
+		fi; \
+		rm -f "$$BLOB_INPUT"'
+	@echo "✓ backup/cmd-build-$(HOST_OS)-$(HOST_ARCH)-blob.c 已更新"
+
 # hosted 单文件 C 本机种子：在当前宿主平台上更新 hosted seed；macOS 同步刷新统一入口 seed
 backup-hosted-seed-native:
 	@echo "单文件 C 编译（UYA_SINGLE_FILE_C=1）以更新当前宿主 hosted 本机种子 …"
@@ -1105,8 +1264,8 @@ backup-hosted-seed:
 		fi'
 	@echo "✓ backup/uya-hosted.c、backup/uya-hosted-$(HOST_OS)-$(HOST_ARCH).c 与可用的 macOS hosted 种子已更新"
 
-# 全量单文件种子：Linux/host nostdlib + hosted + 可用的 macOS hosted 种子
-backup-all-seed: backup-seed backup-hosted-seed
+# 全量单文件种子：Linux/host nostdlib + cmd/build + hosted + 可用的 macOS hosted 种子
+backup-all-seed: backup-seed backup-cmd-build-blob-seed backup-hosted-seed
 
 # 兼容缩写/旧口误：make back-all-seed
 back-all-seed: backup-all-seed
@@ -1313,8 +1472,8 @@ help:
 	@echo "  TOOLCHAIN=zig ZIG=$(ZIG) make uya-hosted # 使用 zig cc hosted 构建"
 	@echo ""
 	@echo "可用目标:"
-	@echo "  make from-c        - 从 bin/uya.c 构建（零依赖）"
-	@echo "  make from-c-native - 从本机 seed 构建；macOS 优先使用 backup/uya-hosted-macos-<arch>.c，其次是 backup/uya-hosted-macos.c"
+	@echo "  make from-c        - 从 C seed 恢复 bin/uya 与 bin/cmd/build"
+	@echo "  make from-c-native - 从本机 seed 恢复 bin/uya 与 bin/cmd/build；macOS 优先使用 backup/uya-hosted-macos-<arch>.c，其次是 backup/uya-hosted-macos.c"
 	@echo "  make uya           - 构建自举编译器（默认 --nostdlib，静态链接）"
 	@echo "  make uya-hosted    - 构建自举编译器（hosted 主线）"
 	@echo "  make uya-portable  - 跨平台入口：Linux 用 uya，其它平台用 uya-hosted"
@@ -1334,7 +1493,7 @@ help:
 	@echo "  make tests-uya     - 快捷方式：测试自举编译器"
 	@echo "  make tests-uya e   - 同上 + 最小输出（-e）"
 	@echo "  make tests-emcc    - 运行独立 emcc/unknown target smoke（需本机安装 emcc 与 node）"
-	@echo "  make cmds          - 构建外置子命令（当前包含 cmd/upm）"
+	@echo "  make cmds          - 构建外置子命令（build/check/run/test/fmt/upm）"
 	@echo "  make upm-check     - 运行 UPM/包管理专项回归套件"
 	@echo "  make microapp-check - 运行当前 microapp 聚合回归套件"
 	@echo "  make microapp-hosted-smoke - 运行 hosted 平台可用的 microapp smoke 套件"
@@ -1347,10 +1506,12 @@ help:
 	@echo "  make check-hosted  - hosted 验证（自举 + 测试），不备份"
 	@echo "  make backup        - 验证 + 备份多文件 C 目录 backup/uyacache（与 make uya 一致）"
 	@echo "  make backup-seed   - 单文件 C 重编译，更新 bin/uya.c、backup/uya.c 与 host/arch 专用备份"
+	@echo "  make backup-cmd-build-seed - 生成 backup/cmd-build.c 与 host/arch build seed"
+	@echo "  make backup-cmd-build-blob-seed - 生成 host/arch cmd/build 快速 restore blob seed（保留 C seed fallback）"
 	@echo "  make backup-hosted-seed - hosted 单文件种子，更新 backup/uya-hosted.c、host/arch 备份；有 zig 时可辅助刷新 macOS hosted seeds"
 	@echo "  make backup-hosted-seed-native - 仅按当前宿主更新 hosted 本机种子；macOS 同步刷新 backup/uya-hosted-macos.c"
 	@echo "                           macOS 统一入口 seed 为 backup/uya-hosted-macos.c；backup/uya-hosted-macos-arm64.c 与 -x86_64.c 永久保留作对照"
-	@echo "  make backup-all-seed - 全量单文件种子：Linux/host nostdlib + hosted + 可选的 macOS hosted seeds（可加 UYA_BACKUP_MACOS_AUX=0 提速）"
+	@echo "  make backup-all-seed - 全量单文件种子：Linux/host nostdlib + cmd/build + hosted + 可选的 macOS hosted seeds（可加 UYA_BACKUP_MACOS_AUX=0 提速）"
 	@echo "  make back-all-seed - backup-all-seed 的别名"
 	@echo "  make backup-all    - backup + backup-all-seed（提交前完整备份；本地提速可加 UYA_BACKUP_MACOS_AUX=0）"
 	@echo "  make release       - 一键最终验证：要求工作树干净，再 clean+自举验证+backup-all-seed 后 -O3 -DNDEBUG 重链 + strip"

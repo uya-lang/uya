@@ -1,0 +1,62 @@
+// test_native_memory_string_primitives.uya - native memcpy/memset/strcmp/strlen smoke.
+
+use codegen.native.memory;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+test "native memcpy copies byte ranges and returns destination" {
+    var src: [byte: 8] = [];
+    var dst: [byte: 8] = [];
+    var i: usize = 0usize;
+    while i < @len(src) {
+        src[i] = (10usize + i) as byte;
+        dst[i] = 0 as byte;
+        i = i + 1usize;
+    }
+
+    const ret: &byte = native_memcpy(&dst[1], &src[2] as &const byte, 4usize);
+    try expect(@usize_from_ptr(ret) == @usize_from_ptr(&dst[1]));
+    try assert_eq_i32(dst[0] as i32, 0);
+    try assert_eq_i32(dst[1] as i32, 12);
+    try assert_eq_i32(dst[2] as i32, 13);
+    try assert_eq_i32(dst[3] as i32, 14);
+    try assert_eq_i32(dst[4] as i32, 15);
+    try assert_eq_i32(dst[5] as i32, 0);
+
+    try expect(native_memcpy(null, &src[0] as &const byte, 4usize) == null);
+    try expect(native_memcpy(&dst[0], null, 4usize) == &dst[0]);
+    try expect(native_memcpy(&dst[0], &src[0] as &const byte, 0usize) == &dst[0]);
+}
+
+test "native memset fills byte ranges and returns destination" {
+    var buf: [byte: 8] = [];
+    const ret: &byte = native_memset(&buf[2], 65, 4usize);
+    try expect(@usize_from_ptr(ret) == @usize_from_ptr(&buf[2]));
+    try assert_eq_i32(buf[0] as i32, 0);
+    try assert_eq_i32(buf[1] as i32, 0);
+    try assert_eq_i32(buf[2] as i32, 65);
+    try assert_eq_i32(buf[3] as i32, 65);
+    try assert_eq_i32(buf[4] as i32, 65);
+    try assert_eq_i32(buf[5] as i32, 65);
+    try assert_eq_i32(buf[6] as i32, 0);
+    try assert_eq_i32(buf[7] as i32, 0);
+
+    try expect(native_memset(null, 65, 4usize) == null);
+    try expect(native_memset(&buf[0], 66, 0usize) == &buf[0]);
+}
+
+test "native strlen returns c string lengths" {
+    try expect(native_strlen("hello\0" as &const byte) == 5usize);
+    try expect(native_strlen("\0" as &const byte) == 0usize);
+    try expect(native_strlen("compiler\0tail" as &const byte) == 8usize);
+    try expect(native_strlen(null) == 0usize);
+}
+
+test "native strcmp follows libc ordering" {
+    try assert_eq_i32(native_strcmp("same\0" as &const byte, "same\0" as &const byte), 0);
+    try expect(native_strcmp("abc\0" as &const byte, "abd\0" as &const byte) < 0);
+    try expect(native_strcmp("abd\0" as &const byte, "abc\0" as &const byte) > 0);
+    try expect(native_strcmp("abc\0" as &const byte, "abcd\0" as &const byte) < 0);
+    try expect(native_strcmp("abcd\0" as &const byte, "abc\0" as &const byte) > 0);
+    try assert_eq_i32(native_strcmp(null, "abc\0" as &const byte), 0);
+}

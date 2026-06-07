@@ -28,7 +28,7 @@ cp "$REPO_ROOT/scripts/bench_compiler_1s.sh" "$FIXTURE_REPO/scripts/bench_compil
 chmod +x "$FIXTURE_REPO/scripts/bench_compiler_1s.sh"
 BENCH_SCRIPT="$FIXTURE_REPO/scripts/bench_compiler_1s.sh"
 
-EXPECTED_HEADER=$'run\tmode\tseed_ms\tparse_ms\tbind_ms\tcheck_ms\tlower_ms\temit_ms\tlink_ms\ttotal_ms\tpeak_rss_kb\tarena_peak_bytes\toutput_bytes\ttable_count\ttable_capacity\ttable_bytes\ttable_capacity_bytes\ttable_realloc_count'
+EXPECTED_HEADER=$'run\tmode\tseed_ms\tparse_ms\tbind_ms\tcheck_ms\tlower_ms\temit_ms\tlink_ms\ttotal_ms\tpeak_rss_kb\tarena_peak_bytes\toutput_bytes\tc99_output_buffer_peak_bytes\ttable_count\ttable_capacity\ttable_bytes\ttable_capacity_bytes\ttable_realloc_count'
 
 # fake make：输出与真实编译器一致的 arena / 动态表统计字段，并按需生成产物。
 FAKE_MAKE="$TMP_DIR/fake_make.sh"
@@ -54,6 +54,7 @@ if [[ "$target" == "uya" ]]; then
     echo "检查耗时: 13 ms"
     echo "生成耗时: 17 ms"
     echo "arena_peak_bytes: 4096"
+    echo "c99_output_buffer_peak_bytes: 65536"
     echo "typed_program_bytes: 2048"
     echo "typed_program_peak_bytes: 8192"
     echo "typed_program_released_bytes: 0"
@@ -110,22 +111,24 @@ if ! grep -qF "$EXPECTED_HEADER" "$BUDGET_TSV"; then
 fi
 
 # ---- 检查 3 + 4：arena 字段与动态表字段存在且为非负整数 ----
-# 列序：11 peak_rss_kb，12 arena_peak_bytes，13 output_bytes，
-#       14 table_count，15 table_capacity，16 table_bytes，17 table_capacity_bytes，18 table_realloc_count
+# 列序：11 peak_rss_kb，12 arena_peak_bytes，13 output_bytes，14 c99_output_buffer_peak_bytes，
+#       15 table_count，16 table_capacity，17 table_bytes，18 table_capacity_bytes，19 table_realloc_count
 if ! awk -F '\t' '
     NR == 2 {
         ok = 1
-        if (NF != 18) ok = 0
+        if (NF != 19) ok = 0
         # arena_peak_bytes 必须为非负整数
         if ($12 !~ /^[0-9]+$/) ok = 0
         # output_bytes 必须为非负整数
         if ($13 !~ /^[0-9]+$/) ok = 0
-        # 动态表字段必须为非负整数
+        # C99 输出缓冲峰值必须为非负整数
         if ($14 !~ /^[0-9]+$/) ok = 0
+        # 动态表字段必须为非负整数
         if ($15 !~ /^[0-9]+$/) ok = 0
         if ($16 !~ /^[0-9]+$/) ok = 0
         if ($17 !~ /^[0-9]+$/) ok = 0
         if ($18 !~ /^[0-9]+$/) ok = 0
+        if ($19 !~ /^[0-9]+$/) ok = 0
         exit !ok
     }
     END { if (NR < 2) exit 1 }
@@ -138,6 +141,11 @@ fi
 # phase_stats 行须含 arena_peak_bytes，table_stats 行须含动态表 count/capacity/realloc/bytes
 if ! grep -Eq $'^phase_stats\trun\t1\t.*\tarena_peak_bytes\t[0-9]+\t' "$BUDGET_ERR"; then
     echo "错误: benchmark 未输出 arena_peak_bytes phase 统计" >&2
+    cat "$BUDGET_ERR" >&2
+    exit 1
+fi
+if ! grep -Eq $'^phase_stats\trun\t1\t.*\tc99_output_buffer_peak_bytes\t[0-9]+\t' "$BUDGET_ERR"; then
+    echo "错误: benchmark 未输出 C99 输出缓冲峰值统计" >&2
     cat "$BUDGET_ERR" >&2
     exit 1
 fi

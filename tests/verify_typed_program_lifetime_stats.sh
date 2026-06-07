@@ -10,6 +10,7 @@ TABLE_FILE="$REPO_ROOT/src/semantic/table.uya"
 IDS_FILE="$REPO_ROOT/src/semantic/ids.uya"
 TYPED_PROGRAM_FILE="$REPO_ROOT/src/typed/program.uya"
 TYPED_ASSIGN_FILE="$REPO_ROOT/src/typed/assign.uya"
+MAIN_FILE="$REPO_ROOT/src/main.uya"
 
 require_pattern() {
     local file="$1"
@@ -21,7 +22,7 @@ require_pattern() {
     fi
 }
 
-for file in "$ARENA_FILE" "$AST_FILE" "$TABLE_FILE" "$IDS_FILE" "$TYPED_PROGRAM_FILE" "$TYPED_ASSIGN_FILE"; do
+for file in "$ARENA_FILE" "$AST_FILE" "$TABLE_FILE" "$IDS_FILE" "$TYPED_PROGRAM_FILE" "$TYPED_ASSIGN_FILE" "$MAIN_FILE"; do
     if [[ ! -f "$file" ]]; then
         echo "错误: 缺少 $file" >&2
         exit 1
@@ -36,6 +37,21 @@ require_pattern "$TYPED_PROGRAM_FILE" 'typed_program_lifetime_stats' "生命周�
 
 if grep -Eq 'ASTNode|ast_node|program_decls|LoweredProgram|lowered_program' "$TYPED_PROGRAM_FILE"; then
     echo "错误: TypedProgram 统计合同不应持有 AST/LoweredProgram 引用" >&2
+    exit 1
+fi
+
+typed_release_calls="$(grep -n '^[[:space:]]*compile_stats_record_and_release_typed_program(&stats, checker);' "$MAIN_FILE" || true)"
+typed_release_count="$(printf '%s\n' "$typed_release_calls" | sed '/^$/d' | wc -l | tr -d '[:space:]')"
+if [[ "$typed_release_count" != "2" ]]; then
+    echo "错误: driver 应仅在 exec lowering 前和 C99 codegen 后释放 TypedProgram" >&2
+    printf '%s\n' "$typed_release_calls" >&2
+    exit 1
+fi
+
+first_typed_release_line="$(printf '%s\n' "$typed_release_calls" | head -n 1 | cut -d: -f1)"
+exec_build_line="$(grep -n 'const exec_result: i32 = exec_build_program' "$MAIN_FILE" | head -n 1 | cut -d: -f1)"
+if [[ -z "$first_typed_release_line" || -z "$exec_build_line" || "$first_typed_release_line" -ge "$exec_build_line" ]]; then
+    echo "错误: exec lowering 前必须先记录并释放 TypedProgram，避免 AST/TypedProgram/HIR 同时常驻" >&2
     exit 1
 fi
 

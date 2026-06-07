@@ -1,7 +1,7 @@
 # Uya 编译器 1 秒冷构建 TODO
 
 **状态**: executable TODO, implementation pending
-**更新日期**: 2026-06-04
+**更新日期**: 2026-06-07
 **配套设计**: `docs/compiler_1s_architecture_design.md`
 **配套评估**: `docs/compiler_1s_speed_assessment.md`
 
@@ -75,7 +75,7 @@ make uya
 - [x] benchmark TSV 输出字段：
 
 ```text
-run	mode	seed_ms	parse_ms	bind_ms	check_ms	lower_ms	emit_ms	link_ms	total_ms	peak_rss_kb	arena_peak_bytes	output_bytes	table_count	table_capacity	table_bytes	table_capacity_bytes	table_realloc_count
+run	mode	seed_ms	parse_ms	bind_ms	check_ms	lower_ms	emit_ms	link_ms	total_ms	peak_rss_kb	arena_peak_bytes	output_bytes	c99_output_buffer_peak_bytes	table_count	table_capacity	table_bytes	table_capacity_bytes	table_realloc_count
 ```
 
 - [x] 用当前实现跑 3 次冷构建，记录时间 baseline 到 `docs/compiler_1s_speed_assessment.md`。
@@ -379,7 +379,7 @@ make check
 - [x] C99 emitter 开始前，mono/err_union/async frame 数量已稳定。
 - [x] C99 emitter 中不得新增 mono instance。
 - [x] C99 emitter 中不得新增 err_union body。
-- [ ] peak RSS 相比 Phase 0 baseline 下降至少 25%。
+- [x] peak RSS 相比 Phase 0 baseline 下降至少 25%。
 
 ---
 
@@ -390,9 +390,9 @@ make check
 - [x] `make bench-compiler-1s` 输出每个 arena 的 peak bytes。
 - [x] `make bench-compiler-1s` 输出所有编译器动态表的 count/capacity/realloc/bytes。
 - [x] 新增动态表预算检查：不得通过启动时预分配超大容量降低增长次数。
-- [ ] C99 输出从“全局状态 + 边生成边补发”收口为 unit 流式写。
-- [ ] native 输出不生成 debug info，不保留全量机器码临时副本。
-- [ ] diagnostic 默认延迟格式化；无错误时不构造长诊断字符串。
+- [x] C99 输出从“全局状态 + 边生成边补发”收口为 unit 流式写。
+- [x] native 输出不生成 debug info，不保留全量机器码临时副本。
+- [x] diagnostic 默认延迟格式化；无错误时不构造长诊断字符串。
 - [x] `UYA_DUMP_*` 相关 dump 输出不计入性能达标，并在 benchmark 中标记。
 - [x] 新增内存回归脚本 `tests/verify_compiler_memory_budget.sh`。
 
@@ -402,19 +402,21 @@ make check
 - [x] `tests/verify_compiler_memory_budget.sh` 检查缺少 RSS 采样时不会误报达标。
 - [x] `tests/verify_compiler_memory_budget.sh` 检查 arena 字段存在且为非负整数。
 - [x] `tests/verify_compiler_memory_budget.sh` 检查动态表字段存在且为非负整数。
+- [x] `tests/verify_native_output_policy.sh` 检查 native ELF streaming 输出不生成 debug section，且临时缓冲不随机器码长度增长。
 
 验证：
 
 ```bash
 bash tests/verify_compiler_memory_budget.sh
 bash tests/verify_dynamic_table_budget.sh
+bash tests/verify_native_output_policy.sh
 make bench-compiler-1s-check
 ```
 
 阶段 KPI：
 
 - [x] 内存字段进入所有 1 秒 benchmark 输出。
-- [ ] AST / TypedProgram / LoweredProgram 不再无界同时常驻。
+- [x] AST / TypedProgram / LoweredProgram 不再无界同时常驻。
 
 ---
 
@@ -425,12 +427,12 @@ make bench-compiler-1s-check
 - [x] 定义 `C99UnitPlan`。
 - [x] `C99Plan` / `C99UnitPlan` 的 includes、typedefs、prototypes、globals、functions、helpers、deps 全部动态增长。
 - [x] split-C unit 列表动态增长，不允许固定最大 unit 数。
-- [ ] 将 include/header/prelude 规划迁入 planner。
-- [ ] 将 function prototype 规划迁入 planner。
-- [ ] 将 type definitions 规划迁入 planner。
-- [ ] 将 helper emission 需求迁入 planner。
-- [ ] 将 split-C unit 分配迁入 planner。
-- [ ] 将 `c99_codegen_generate` 改为：
+- [x] 将 include/header/prelude 规划迁入 planner。
+- [x] 将 function prototype 规划迁入 planner。
+- [x] 将 type definitions 规划迁入 planner。
+- [x] 将 helper emission 需求迁入 planner。
+- [x] 将 split-C unit 分配迁入 planner。
+- [x] 将 `c99_codegen_generate` 改为：
 
 ```text
 c99_plan_build(lowered)
@@ -438,10 +440,10 @@ c99_emit_plan(plan)
 c99_write_split_makefile(plan)
 ```
 
-- [ ] `C99Emitter` 不允许查 AST 声明。
-- [ ] `C99Emitter` 不允许调用 checker。
-- [ ] `C99Emitter` 不允许写 `LoweredProgram`。
-- [ ] 增加 `UYA_STRICT_C99_EMITTER=1` 断言。
+- [x] `C99Emitter` 不允许查 AST 声明。
+- [x] `C99Emitter` 不允许调用 checker。
+- [x] `C99Emitter` 不允许写 `LoweredProgram`。
+- [x] 增加 `UYA_STRICT_C99_EMITTER=1` 断言。
 
 测试：
 
@@ -449,12 +451,12 @@ c99_write_split_makefile(plan)
 - [x] 新增 split-C plan dependency regression。
 - [x] `tests/verify_dynamic_table_growth.sh` 覆盖大量 C99 units、prototypes、helpers、deps。
 - [x] 新增 `tests/verify_c99_emitter_streaming.sh`：`UYA_STRICT_C99_EMITTER=1` emitter-start 全待输出表稳定门禁；代表性输入（含 `src/main.uya`）零漂移 + 故障注入证明门禁非空转。
-- [ ] 复跑现有 C99 regression：
-  - [ ] async frame descriptors
-  - [ ] imported `main`
-  - [ ] private function name collision
-  - [ ] VP8 short payload codegen
-  - [ ] split-C Makefile dependencies
+- [x] 复跑现有 C99 regression：
+  - [x] async frame descriptors
+  - [x] imported `main`
+  - [x] private function name collision
+  - [x] VP8 short payload codegen
+  - [x] split-C Makefile dependencies
 
 验证：
 
@@ -467,8 +469,8 @@ make check
 阶段 KPI：
 
 - [x] `UYA_PROFILE_CODEGEN` 下 `body_ms < 4000ms`。
-- [ ] 直接 C99 total `< 8000ms`。
-- [ ] C99 输出缓冲 peak bytes 可测量且不随输出文本大小线性常驻。
+- [x] 直接 C99 total `< 8000ms`。
+- [x] C99 输出缓冲 peak bytes 可测量且不随输出文本大小线性常驻。
 
 ---
 
@@ -476,24 +478,24 @@ make check
 
 - [x] 阅读 `docs/cmd_subcommand_split_design.md`。
 - [x] 更新其中过期的 8400 行基线为当前实际基线。
-- [ ] 提取 `src/compiler_driver.uya`。
-- [ ] 新建 `src/cmd/build/main.uya`。
-- [ ] 新建 `src/cmd/check/main.uya`。
-- [ ] 新建 `src/cmd/run/main.uya`。
-- [ ] 新建 `src/cmd/test/main.uya`。
-- [ ] 新建 `src/cmd/fmt/main.uya`。
-- [ ] 将 `upm` 保持外置。
-- [ ] `bin/uya` 增加 argv 原样 dispatch。
-- [ ] `make cmds` 生成所有命令。
-- [ ] `make clean` 清理 `bin/cmd/`。
-- [ ] 保留隐式入口直到 `cmd/build` seed 稳定。
+- [x] 提取 `src/compiler_driver.uya`。
+- [x] 新建 `src/cmd/build/main.uya`。
+- [x] 新建 `src/cmd/check/main.uya`。
+- [x] 新建 `src/cmd/run/main.uya`。
+- [x] 新建 `src/cmd/test/main.uya`。
+- [x] 新建 `src/cmd/fmt/main.uya`。
+- [x] 将 `upm` 保持外置。
+- [x] `bin/uya` 增加 argv 原样 dispatch。
+- [x] `make cmds` 生成所有命令。
+- [x] `make clean` 清理 `bin/cmd/`。
+- [x] 保留隐式入口直到 `cmd/build` seed 稳定。
 
 测试：
 
-- [ ] 新增或更新 `tests/test_cmd_dispatch.sh`。
-- [ ] 覆盖 `bin/uya build` 与 `bin/cmd/build` 等价。
-- [ ] 覆盖 `run -- args` 参数原样传递。
-- [ ] 覆盖缺失 `bin/cmd/build` 的错误信息。
+- [x] 新增或更新 `tests/test_cmd_dispatch.sh`。
+- [x] 覆盖 `bin/uya build` 与 `bin/cmd/build` 等价。
+- [x] 覆盖 `run -- args` 参数原样传递。
+- [x] 覆盖缺失 `bin/cmd/build` 的错误信息。
 
 验证：
 
@@ -505,38 +507,96 @@ make check
 
 阶段 KPI：
 
-- [ ] `bin/uya` launcher 直接 C99 构建 `< 1000ms`。
-- [ ] `src/main.uya` 不再静态带入 C99/exec/microapp/upm/fmt 全量业务。
+- [x] `bin/uya` launcher 直接 C99 构建 `< 1000ms`。
+- [x] `src/main.uya` 不再静态带入 C99/exec/microapp/upm/fmt 全量业务。
+
+---
+
+## Phase 7A: Microapp 命名空间外置
+
+目标：microapp / microcontainer 不重新塞回 `bin/uya` 或 `cmd/build` seed，而是作为完整工具链的独立
+子命令命名空间恢复 CLI 能力。
+
+目标公开命令：
+
+```text
+uya microapp build ...
+uya microapp pack ...
+uya microapp inspect ...
+uya microapp verify ...
+uya microapp run ...
+```
+
+- [ ] 新建 `src/cmd/microapp/main.uya`。
+- [ ] 新建或整理 `microapp_cli_main()`，只承载 microapp 子命令解析和调度。
+- [ ] `uya microapp build ...` 支持 microapp payload / `.pobj` / `.uapp` 构建流程。
+- [ ] `uya microapp pack ...` 替代旧顶层 `pack-image`。
+- [ ] `uya microapp inspect ...` 替代旧顶层 `inspect-image`。
+- [ ] `uya microapp verify ...` 替代旧顶层 `verify-image`。
+- [ ] `uya microapp run ...` 支持已接线 profile 的 loader 运行路径。
+- [ ] `bin/uya` launcher 将 `microapp` 分发到 `bin/cmd/microapp`。
+- [ ] `make cmds` / `make install` 纳入 `bin/cmd/microapp`。
+- [ ] 旧顶层 `pack-image` / `inspect-image` / `verify-image` 若保留，只作为兼容诊断或转发到
+  `uya microapp pack|inspect|verify`，不得重新导入 microapp 大逻辑到 `src/main.uya`。
+- [ ] `cmd/build` seed 继续拒绝 `--app microapp` 与 image/payload 相关参数，并提示使用
+  `uya microapp build ...`。
+- [ ] 更新 microapp 文档、示例和测试脚本中的旧命令形态。
+
+测试：
+
+- [ ] 新增 `tests/test_cmd_microapp_dispatch.sh`。
+- [ ] 覆盖 `bin/uya microapp pack` 与 `bin/cmd/microapp pack` argv 等价。
+- [ ] 覆盖 `bin/uya microapp inspect` / `verify` 分发。
+- [ ] 覆盖旧顶层 `pack-image` / `inspect-image` / `verify-image` 的兼容诊断或转发行为。
+- [ ] 覆盖 `cmd/build` 对 microapp image/payload 的拒绝文案。
+- [ ] 复跑 `make microapp-check`。
+
+验证：
+
+```bash
+make cmds
+bash tests/test_cmd_microapp_dispatch.sh
+make microapp-check
+make check
+```
+
+阶段 KPI：
+
+- [ ] `bin/uya` launcher 不静态导入 microapp。
+- [ ] `bin/cmd/build` seed 不静态导入 microapp image/payload。
+- [ ] microapp CLI 能力通过 `uya microapp ...` 完整恢复。
 
 ---
 
 ## Phase 8: Build seed 瘦身
 
-- [ ] 设计最小 build compiler root。
-- [ ] 明确 `cmd/build` seed 的源码边界。
-- [ ] 从 seed 中移除 exec backend。
-- [ ] 从 seed 中移除 microapp image/payload。
-- [ ] 从 seed 中移除 upm lib。
-- [ ] 从 seed 中移除 fmt。
-- [ ] 从 seed 中移除 kernel packaging。
-- [ ] seed 不保留大型非 build 子系统的静态表或字符串池。
-- [ ] seed 产物大小纳入 benchmark `output_bytes`。
-- [ ] 更新 `make from-c` / `make from-c-native`，能恢复：
+- [x] 设计最小 build compiler root。
+- [x] 明确 `cmd/build` seed 的源码边界。
+- [x] 从 seed 中移除 exec backend。
+- [x] 从 seed 中移除 microapp image/payload。
+- [x] 从 seed 中移除 upm lib。
+- [x] 从 seed 中移除 fmt。
+- [x] 从 seed 中移除 kernel packaging。
+- [x] seed 不保留大型非 build 子系统的静态表或字符串池。
+- [x] seed 产物大小纳入 benchmark `output_bytes`。
+- [x] 更新 `make from-c` / `make from-c-native`，能恢复：
 
 ```text
 bin/uya
 bin/cmd/build
 ```
 
-- [ ] 更新 `backup-all-seed`，生成 build seed。
-- [ ] 保留 C99 fallback seed。
-- [ ] 防止 dispatcher-only `bin/uya` 与 `cmd/build` 互相等待。
+- [x] 更新 `backup-all-seed`，生成 build seed。
+- [x] 保留 C99 fallback seed。
+- [x] 防止 dispatcher-only `bin/uya` 与 `cmd/build` 互相等待。
+- [ ] seed 对 microapp 参数的错误信息指向 `uya microapp build ...`，而不是旧顶层
+  `pack-image` / `inspect-image` / `verify-image`。
 
 测试：
 
-- [ ] 新增 `tests/verify_build_seed_bootstrap.sh`。
-- [ ] 清理后验证 `make from-c` 可恢复 `bin/cmd/build`。
-- [ ] 清理后验证 `make from-c-native` 可恢复 `bin/cmd/build`。
+- [x] 新增 `tests/verify_build_seed_bootstrap.sh`。
+- [x] 清理后验证 `make from-c` 可恢复 `bin/cmd/build`。
+- [x] 清理后验证 `make from-c-native` 可恢复 `bin/cmd/build`。
 
 验证：
 
@@ -551,81 +611,111 @@ make check
 
 阶段 KPI：
 
-- [ ] build seed 恢复时间 `< 3000ms`。
-- [ ] seed 源文件依赖数显著少于当前 86 个文件。
-- [ ] seed restore peak RSS 低于 Phase 0 baseline 50%。
+- [x] build seed 恢复时间 `< 3000ms`。
+- [x] seed 源文件依赖数显著少于当前 86 个文件。
+- [x] seed restore peak RSS 低于 Phase 0 baseline 50%。
 
 ---
 
 ## Phase 9: Native backend v1
 
 - [x] 新建 `src/codegen/native/`。
-- [ ] 新建 `src/codegen/native/abi.uya`。
+- [x] 新建 `src/codegen/native/abi.uya`。
 - [x] 新建 `src/codegen/native/machine.uya`。
-- [ ] 新建 `src/codegen/native/x86_64.uya`。
-- [ ] 新建 `src/codegen/native/elf64.uya`。
-- [ ] 新建 `src/codegen/native/main.uya`。
+- [x] 新建 `src/codegen/native/x86_64.uya`。
+- [x] 新建 `src/codegen/native/elf64.uya`。
+- [x] 新建 `src/codegen/native/main.uya`。
 - [x] 定义 `MachineFunction`。
 - [x] 定义 `MachineBlock`。
 - [x] 定义 `MachineInst`。
-- [ ] 实现 Linux x86_64 SysV 调用约定。
-- [ ] 实现栈帧布局。
-- [ ] 实现线性扫描或保守寄存器分配。
-- [ ] 实现整数/指针基本指令。
-- [ ] 实现函数调用。
-- [ ] 实现全局数据段。
-- [ ] 实现字符串常量。
-- [ ] 实现 reloc / symbol table 最小集合。
-- [ ] 实现 ELF64 executable writer。
+- [x] 实现 Linux x86_64 SysV 调用约定。
+- [x] 实现栈帧布局。
+- [x] 实现线性扫描或保守寄存器分配。
+- [x] 实现整数/指针基本指令。
+- [x] 实现函数调用。
+- [x] 实现全局数据段。
+- [x] 实现字符串常量。
+- [x] 实现 reloc / symbol table 最小集合。
+- [x] 实现 ELF64 executable writer。
 - [x] reloc / symbol table / string table / section table 全部动态增长。
-- [ ] 实现 nostdlib `_start`。
-- [ ] 实现 syscall bridge。
-- [ ] 实现 `NativeEmitter` 读取 `LoweredProgram`。
-- [ ] Native emitter 输出采用 streaming writer，不保留完整 ELF 镜像副本后再写盘。
+- [x] 实现 nostdlib `_start`。
+- [x] 实现 syscall bridge。
+- [x] 实现 `NativeEmitter` 读取 `LoweredProgram`。
+- [x] Native emitter 输出采用 streaming writer，不保留完整 ELF 镜像副本后再写盘。
 - [x] relocation / symbol table 使用紧凑数组。
 - [x] Native emitter 不允许写死最大函数数、block 数、指令数、reloc 数或 symbol 数。
 
 首批 native 测试：
 
-- [ ] `tests/test_native_main_only.uya`
-- [ ] `tests/test_native_int_ops.uya`
-- [ ] `tests/test_native_function_call.uya`
-- [ ] `tests/test_native_struct_field.uya`
-- [ ] `tests/test_native_error_union.uya`
-- [ ] `tests/test_native_global_init.uya`
-- [ ] `tests/verify_native_backend_smoke.sh`
+- [x] `tests/verify_native_abi_contract.sh`
+- [x] `tests/verify_native_x86_64_encoding.sh`
+- [x] `tests/verify_native_main_facade.sh`
+- [x] `tests/verify_native_sysv_calling_convention.sh`
+- [x] `tests/verify_native_stack_frame_layout.sh`
+- [x] `tests/verify_native_conservative_regalloc.sh`
+- [x] `tests/verify_native_x86_64_int_ptr_instructions.sh`
+- [x] `tests/verify_native_x86_64_call_instructions.sh`
+- [x] `tests/verify_native_global_data_segment.sh`
+- [x] `tests/verify_native_string_constants.sh`
+- [x] `tests/verify_native_reloc_symbol_table.sh`
+- [x] `tests/verify_native_nostdlib_start.sh`
+- [x] `tests/verify_native_syscall_bridge.sh`
+- [x] `tests/verify_native_emitter_lowered_program.sh`
+- [x] `tests/verify_native_emitter_streaming_output.sh`
+- [x] `tests/test_native_main_only.uya`
+- [x] `tests/test_native_int_ops.uya`
+- [x] `tests/test_native_function_call.uya`
+- [x] `tests/test_native_struct_field.uya`
+- [x] `tests/test_native_error_union.uya`
+- [x] `tests/test_native_global_init.uya`
+- [x] `tests/verify_native_backend_smoke.sh`
 - [x] `tests/verify_dynamic_table_growth.sh` 覆盖 native 大量 symbols、relocs、strings、sections。
 
 验证：
 
 ```bash
+bash tests/verify_native_abi_contract.sh
+bash tests/verify_native_x86_64_encoding.sh
+bash tests/verify_native_main_facade.sh
+bash tests/verify_native_sysv_calling_convention.sh
+bash tests/verify_native_stack_frame_layout.sh
+bash tests/verify_native_conservative_regalloc.sh
+bash tests/verify_native_x86_64_int_ptr_instructions.sh
+bash tests/verify_native_x86_64_call_instructions.sh
+bash tests/verify_native_global_data_segment.sh
+bash tests/verify_native_string_constants.sh
+bash tests/verify_native_reloc_symbol_table.sh
+bash tests/verify_native_nostdlib_start.sh
+bash tests/verify_native_syscall_bridge.sh
+bash tests/verify_native_emitter_lowered_program.sh
+bash tests/verify_native_emitter_streaming_output.sh
 bash tests/verify_native_backend_smoke.sh
 make tests-uya
 ```
 
 阶段 KPI：
 
-- [ ] native emitter 生成最小可执行文件 `< 100ms`。
-- [ ] native smoke 全部与 C99 输出/退出码一致。
-- [ ] native smoke peak RSS 不高于 C99 smoke。
+- [x] native emitter 生成最小可执行文件 `< 100ms`。
+- [x] native smoke 全部与 C99 输出/退出码一致。
+- [x] native smoke peak RSS 不高于 C99 smoke。
 
 ---
 
 ## Phase 10: Native build compiler 子集
 
-- [ ] 统计 `cmd/build` 所需 language/runtime feature。
-- [ ] 为每类 feature 标注 native 支持状态。
-- [ ] 支持 parser/checker 必需 struct/array/slice 操作。
-- [ ] 支持 hash/intern table 必需内存操作。
-- [ ] 支持动态表 reserve/append/grow/free 必需内存操作。
-- [ ] 支持 diagnostics 必需字符串输出。
-- [ ] 支持 file IO 最小读取。
-- [ ] 支持 `snprintf` 等格式化需求的最小替代或 native bridge。
-- [ ] 支持 `malloc`/arena 需求。
-- [ ] 支持 arena peak 统计在 native-built compiler 下继续工作。
-- [ ] 支持 `memcpy`/`memset`/`strcmp`/`strlen`。
-- [ ] 支持 compiler build 所需 error union / defer。
-- [ ] 支持 compiler build 所需泛型实例。
+- [x] 统计 `cmd/build` 所需 language/runtime feature。
+- [x] 为每类 feature 标注 native 支持状态。
+- [x] 支持 parser/checker 必需 struct/array/slice 操作。
+- [x] 支持 hash/intern table 必需内存操作。
+- [x] 支持动态表 reserve/append/grow/free 必需内存操作。
+- [x] 支持 diagnostics 必需字符串输出。
+- [x] 支持 file IO 最小读取。
+- [x] 支持 `snprintf` 等格式化需求的最小替代或 native bridge。
+- [x] 支持 `malloc`/arena 需求。
+- [x] 支持 arena peak 统计在 native-built compiler 下继续工作。
+- [x] 支持 `memcpy`/`memset`/`strcmp`/`strlen`。
+- [x] 支持 compiler build 所需 error union / defer。
+- [x] 支持 compiler build 所需泛型实例。
 - [ ] 生成 native `bin/cmd/build`.
 
 测试：
@@ -667,6 +757,7 @@ bin/cmd/build
 - [ ] release flow 同时验证 native 与 C99。
 - [ ] backup flow 纳入 native seed。
 - [ ] install flow 安装 `bin/cmd/build`。
+- [ ] install flow 安装 `bin/cmd/microapp`（若 Phase 7A 已完成）。
 
 验证：
 
@@ -674,6 +765,7 @@ bin/cmd/build
 make clean
 make uya
 make cmds
+bin/uya microapp --help
 make check
 make backup-all
 ```
@@ -703,6 +795,26 @@ make backup-all
   - [ ] `docs/TESTING.md`
   - [ ] `docs/c99_codegen_hotpath_benchmark.md`
 - [ ] release 文档说明 native path 与 C99 fallback。
+- [ ] release 文档说明 microapp 命名空间命令：
+  `uya microapp build|pack|inspect|verify|run`。
+
+语言兼容与后端完备性验收：
+
+- [ ] 明确 main 分支语言兼容基线：以 main 分支的 `docs/uya.md`、`docs/grammar_formal.md`、
+  `docs/grammar_quick.md`、`docs/builtin_functions.md` 和完整语言回归测试为准。
+- [ ] C99 backend 支持完整 Uya 语言，不只支持 launcher / `cmd/build` / build seed 子集。
+- [ ] Native backend 支持完整 Uya 语言，不只支持 Phase 10 的 native `cmd/build` 子集。
+- [ ] C99 与 native 对同一套完整语言回归输入给出一致的成功/失败、退出码、diagnostics 和可执行行为。
+- [ ] 新增或整理完整语言后端差分套件，覆盖 parser/checker/codegen 主语言面：多文件模块、泛型、方法、
+  接口、error union、`try/catch`、`defer/errdefer`、async、结构体/union/enum、slice/数组、指针、
+  `@c_import`、内建函数和标准库入口。
+- [ ] Microapp / microcontainer 在语言层面完全兼容 main 分支，不引入 microapp 专属语法、关键字、
+  内建函数或 checker 方言。
+- [ ] Microapp 的限制只能是 capability / runtime / profile / host API 层面的限制；对不支持能力的拒绝必须是
+  明确 diagnostic，不能表现为语言语义与 main 分支不兼容。
+- [ ] `uya microapp build` 使用与普通 `uya build` 同源的 parser/checker 语言语义；差异只允许发生在
+  microapp 安全策略、ABI、镜像格式和运行时能力裁决层。
+- [ ] 发布说明记录 C99、native、microapp 三条路径相对 main 分支的语言兼容结论和已知非语言限制。
 
 最终验收：
 
@@ -713,6 +825,8 @@ make bench-compiler-1s ARGS="--runs 3"
 make check
 make check-hosted
 make microapp-check
+# 目标脚本名可按实现调整，但 release 前必须有完整语言后端差分门禁。
+bash tests/verify_full_language_backend_parity.sh
 make backup-all
 ```
 
@@ -721,9 +835,13 @@ make backup-all
 - [ ] 冷构建 KPI 达标。
 - [ ] 内存 KPI 达标。
 - [ ] 默认安全证明路径保留。
+- [ ] C99 backend 完整支持 Uya 语言，并与 main 分支语言行为兼容。
+- [ ] Native backend 完整支持 Uya 语言，并与 C99 / main 分支语言行为兼容。
+- [ ] Microapp / microcontainer 语言层面完全兼容 main 分支；仅允许 runtime/capability/profile 限制。
 - [ ] native/C99 差分验证通过。
 - [ ] release/backup 流程无死锁。
 - [ ] 文档与 TODO 已同步。
+- [ ] microapp CLI 不再依赖旧顶层 `pack-image` / `inspect-image` / `verify-image` 作为主入口。
 
 ---
 

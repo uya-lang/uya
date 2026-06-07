@@ -1,0 +1,69 @@
+// test_native_int_ops.uya - native x86_64 integer instruction smoke.
+
+use codegen.native.x86_64;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+fn native_int_bval(buf: &byte, i: usize) i32 {
+    return buf[i] as i32;
+}
+
+test "native x86_64 register integer ops encode exact bytes" {
+    var buf: [byte: 64] = [];
+    var pos: usize = 0usize;
+
+    try assert_eq_i32(x86_64_emit_mov_r64_r64(&buf[0], 64usize, &pos, X86_64_REG_RAX, X86_64_REG_R10), 0);
+    try expect(pos == 3usize);
+    try assert_eq_i32(native_int_bval(&buf[0], 0usize), 76);
+    try assert_eq_i32(native_int_bval(&buf[0], 1usize), 137);
+    try assert_eq_i32(native_int_bval(&buf[0], 2usize), 208);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_add_r64_r64(&buf[0], 64usize, &pos, X86_64_REG_RAX, X86_64_REG_RCX), 0);
+    try expect(pos == 3usize);
+    try assert_eq_i32(native_int_bval(&buf[0], 0usize), 72);
+    try assert_eq_i32(native_int_bval(&buf[0], 1usize), 1);
+    try assert_eq_i32(native_int_bval(&buf[0], 2usize), 200);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_sub_r64_r64(&buf[0], 64usize, &pos, X86_64_REG_R8, X86_64_REG_R9), 0);
+    try expect(pos == 3usize);
+    try assert_eq_i32(native_int_bval(&buf[0], 0usize), 77);
+    try assert_eq_i32(native_int_bval(&buf[0], 1usize), 41);
+    try assert_eq_i32(native_int_bval(&buf[0], 2usize), 200);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_cmp_r64_r64(&buf[0], 64usize, &pos, X86_64_REG_RDX, X86_64_REG_R11), 0);
+    try expect(pos == 3usize);
+    try assert_eq_i32(native_int_bval(&buf[0], 0usize), 76);
+    try assert_eq_i32(native_int_bval(&buf[0], 1usize), 57);
+    try assert_eq_i32(native_int_bval(&buf[0], 2usize), 218);
+}
+
+test "native x86_64 immediate integer ops encode exact bytes" {
+    var buf: [byte: 64] = [];
+    var pos: usize = 0usize;
+
+    try assert_eq_i32(x86_64_emit_add_r64_imm32(&buf[0], 64usize, &pos, X86_64_REG_RAX, 5), 0);
+    try expect(pos == 7usize);
+    try assert_eq_i32(native_int_bval(&buf[0], 0usize), 72);
+    try assert_eq_i32(native_int_bval(&buf[0], 1usize), 129);
+    try assert_eq_i32(native_int_bval(&buf[0], 2usize), 192);
+    try assert_eq_i32(native_int_bval(&buf[0], 3usize), 5);
+    try assert_eq_i32(native_int_bval(&buf[0], 4usize), 0);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_sub_r64_imm32(&buf[0], 64usize, &pos, X86_64_REG_R9, -1), 0);
+    try expect(pos == 7usize);
+    try assert_eq_i32(native_int_bval(&buf[0], 0usize), 73);
+    try assert_eq_i32(native_int_bval(&buf[0], 1usize), 129);
+    try assert_eq_i32(native_int_bval(&buf[0], 2usize), 233);
+    try assert_eq_i32(native_int_bval(&buf[0], 3usize), 255);
+    try assert_eq_i32(native_int_bval(&buf[0], 4usize), 255);
+    try assert_eq_i32(native_int_bval(&buf[0], 5usize), 255);
+    try assert_eq_i32(native_int_bval(&buf[0], 6usize), 255);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_add_r64_imm32(&buf[0], 6usize, &pos, X86_64_REG_RAX, 1), -1);
+    try expect(pos == 0usize);
+}

@@ -1,7 +1,7 @@
 # Uya 编译器入口瘦身 TODO
 
 **状态**: executable TODO, implementation pending
-**更新日期**: 2026-05-03
+**更新日期**: 2026-06-07
 **配套设计**: `docs/cmd_subcommand_split_design.md`
 
 ---
@@ -25,8 +25,10 @@
 - 按 TDD 推进：先加相关测试，再做最小实现。
 - 保留 `uya <file.uya> ...` 隐式编译入口，直到 `cmd/build` seed 或等价 bootstrap 编译器来源稳定。
 - 最终目标是 `src/main.uya` 只负责命令分发；编译器业务归属 `cmd/build` 和共享 compiler driver。
-- 公开 `uya build/check/run/test/fmt/upm` 完成外置化后必须走 `cmd/xxx`，不要静默回退内部实现。
+- 公开 `uya build/check/run/test/fmt/upm/microapp` 完成外置化后必须走 `cmd/xxx`，不要静默回退内部实现。
 - `cmd/run` 与 `cmd/test` 由 compiler driver 完成编译、链接、执行和退出码映射，不在 wrapper 里另写一套执行逻辑。
+- microapp / microcontainer 统一收敛到 `uya microapp build|pack|inspect|verify|run`；
+  旧顶层 `pack-image` / `inspect-image` / `verify-image` 只允许作为兼容诊断或薄转发。
 
 ---
 
@@ -75,7 +77,8 @@ compiler_driver_compile(command, argv_start, result_out) -> exit_code
 - [ ] 将通用编译工具移入 driver：路径处理、模块查找、`detect_main`、依赖收集排序等。
 - [ ] `src/main.uya` 过渡期 `use compiler_driver;`，隐式入口改为调用 `compiler_driver_main(COMMAND_BUILD, 1)`。
 - [ ] 保持 `build`、`run`、`test` 原有语义：默认 C99 后端、`run/test` 单文件 C、`run -- <args>`、test 默认栈、microapp 特殊路径、`@c_import` 链接计划。
-- [ ] 暂不移动 `pack-image`、`inspect-image`、`verify-image`、`--outlibc`。
+- [ ] 暂不把 microapp image/payload 逻辑接回 `src/main.uya`；目标入口是后续
+  `src/cmd/microapp/main.uya`。
 - [ ] 所有新增公共 `export fn` 前写 `///` 注释，说明功能、参数和返回值。
 - [ ] 提取后验证隐式入口仍能工作：
 
@@ -95,7 +98,8 @@ make tests-uya
 - [ ] 将 `inspect_microapp_image` / `inspect_microapp_pobj` / `inspect_microapp_uapp` 移入 microapp 模块。
 - [ ] 将 `verify_microapp_image` / `verify_microapp_pobj` 移入 microapp 模块。
 - [ ] 将 ELF64/Mach-O 解析、提取、重定位辅助函数移入 microapp 模块。
-- [ ] `src/main.uya` 过渡期 `use microapp;`，`pack-image`/`inspect-image`/`verify-image` 改为调用 `microapp_*` 导出函数。
+- [ ] 旧过渡方案曾计划让 `src/main.uya` `use microapp;` 并处理 `pack-image`/`inspect-image`/`verify-image`；
+  目标方案改为 `src/cmd/microapp/main.uya`。
 - [ ] `src/compiler_driver.uya` 若仍需 `--app microapp` 编译流程，也 `use microapp;`。
 - [ ] 验证 microapp 与 hosted 路线：
 
@@ -123,6 +127,8 @@ make check-hosted
 - [ ] 覆盖 `uya test` 与直调 `cmd/test` 摘要和退出码一致。
 - [ ] 覆盖 `uya fmt` 与直调 `cmd/fmt` 输出一致。
 - [ ] 覆盖 `uya upm --help` 与直调 `cmd/upm --help` 均退出 0。
+- [ ] 覆盖 `uya microapp --help` 与直调 `cmd/microapp --help` 均退出 0。
+- [ ] 覆盖 `uya microapp pack/inspect/verify ...` 与直调 `cmd/microapp pack/inspect/verify ...` argv 分发一致。
 - [ ] 覆盖缺失命令的错误路径：临时重命名 `bin/cmd/build`，确认 `./bin/uya build ...` 返回非 0，错误信息包含 `cmd/build` 和 `make cmds`。
 
 ### C2：新增 `src/cmd/*` 入口
@@ -138,11 +144,17 @@ make check-hosted
   - [ ] `--help` / `-h` 打印用法并退出 0。
   - [ ] `--version` / `-v` 打印版本并退出 0。
   - [ ] 未实现命令打印提示并退出 2。
+- [ ] 创建 `src/cmd/microapp/main.uya`：
+  - [ ] `build` 执行 microapp payload / `.pobj` / `.uapp` 构建。
+  - [ ] `pack` 替代旧顶层 `pack-image`。
+  - [ ] `inspect` 替代旧顶层 `inspect-image`。
+  - [ ] `verify` 替代旧顶层 `verify-image`。
+  - [ ] `run` 执行已接线 profile 的 loader 路径。
 - [ ] 每个公开入口前写 `///` 注释，符合仓库 Uya 代码风格。
 
 ### C3：改造 Makefile 生成 `bin/cmd/*`
 
-- [ ] 在 `Makefile` 增加 `UYA_CMD_NAMES := build run test fmt upm`。
+- [ ] 在 `Makefile` 增加 `UYA_CMD_NAMES := build run test fmt upm microapp`。
 - [ ] 增加 `cmds`、`cmd-build`、`cmd-run`、`cmd-test`、`cmd-fmt`、`cmd-upm` 目标。
 - [ ] 过渡期用 `UYA_CMD_BOOTSTRAP_COMPILER ?= ./bin/uya` 构建命令程序。
 - [ ] `bin/cmd/%` 规则包含 `--project-root src/`：
@@ -161,6 +173,7 @@ bin/cmd/run
 bin/cmd/test
 bin/cmd/fmt
 bin/cmd/upm
+bin/cmd/microapp
 ```
 
 - [ ] `make clean` 清理 `bin/cmd/` 和 `src/build/cmd/`，但不清理 `src/cmd/*` 源码。
@@ -169,7 +182,7 @@ bin/cmd/upm
 
 ### C4：实现主程序调度器
 
-- [ ] 在 `src/main.uya` 新增 `is_external_cmd(name)`，识别 `build/check/run/test/fmt/upm`。
+- [ ] 在 `src/main.uya` 新增 `is_external_cmd(name)`，识别 `build/check/run/test/fmt/upm/microapp`。
 - [ ] 新增 `build_external_cmd_path(cmd_name, out, out_cap)`，基于 `get_compiler_dir(get_argv(0), ...)` 生成 `cmd/<name>` 路径，Windows 目标补 `.exe`。
 - [ ] 新增 `dispatch_external_cmd(cmd_name, strip_subcommand)`：
   - [ ] 构造新的 argv 数组，`argv[0]` 为 `cmd_path`。
@@ -181,7 +194,8 @@ bin/cmd/upm
 - [ ] 在 `export fn main()` 开头做分流：
   - [ ] `argv[1]` 是外置命令：立即 `dispatch_external_cmd(argv[1], 1)`，不再进入 `parse_args()`。
   - [ ] `argv[1]` 是 `--version` / `-v`：保持当前版本输出。
-  - [ ] `pack-image` / `inspect-image` / `verify-image` 继续走过渡期内部路径。
+  - [ ] 旧顶层 `pack-image` / `inspect-image` / `verify-image` 打印迁移提示或薄转发到
+    `microapp pack` / `microapp inspect` / `microapp verify`。
   - [ ] 非命令参数继续走隐式编译入口。
 - [ ] 不要使用 `system()` 拼接公开子命令调用。
 - [ ] 验证 Phase C：
@@ -216,7 +230,8 @@ make cmds
 
 - [ ] 确认 Phase D 准备已完成，`make clean && make from-c` 可生成 `bin/uya` 和 `bin/cmd/build`。
 - [ ] 移除 `src/main.uya` 中的隐式编译入口，非命令 `.uya` 输入应提示使用 `uya build`。
-- [ ] 如果 `pack-image` / `inspect-image` / `verify-image` 已外置，删除 `src/main.uya` 中的 `use compiler_driver;` 和 `use microapp;`。
+- [ ] 确认 microapp 已外置为 `bin/cmd/microapp` 后，删除 `src/main.uya` 中的 `use compiler_driver;`
+  和任何 microapp 直接依赖。
 - [ ] 更新 `src/compile.sh`，显式区分“构建调度器 `bin/uya`”与“使用 `bin/cmd/build` 编译普通入口”。
 - [ ] 验证隐式入口已移除：
 

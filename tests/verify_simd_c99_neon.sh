@@ -22,7 +22,7 @@ if [ ! -x "$COMPILER" ]; then
 fi
 
 echo "验证 SIMD C99：UYA_HAVE_SIMD_ARM_NEON 分支与 AArch64 交叉编译..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/simd_c99_neon.uya" -o "$OUT_C" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/simd_c99_neon.uya" -o "$OUT_C" 2>&1; then
 	echo "✗ 编译 simd_c99_neon.uya 失败"
 	exit 1
 fi

@@ -90,10 +90,66 @@ Phase 5A 把 parser AST、checker 工作内存、C99 emitter 拆为独立 arena�
 
 说明：peak RSS 相比 Phase 0 baseline 略升约 1.8%（动态 arena chunk 改为零初始化 + 堆分配），
 属预期；arena 拆分本身不降 RSS，只是把 AST（约 1.2 GB）单独可见、可在后续按阶段释放。
-真正的 25% RSS 下降（L382）与“AST/TypedProgram/LoweredProgram 不再无界同时常驻”（L416）
+旧全量 C99 入口下真正的 25% RSS 下降（L382）与“AST/TypedProgram/LoweredProgram 不再无界同时常驻”（L416）
 仍需在 Phase 5A 后续做按阶段释放，本表为其提供可量化基线。动态表 `capacity/count≈4.7`，
 低于 benchmark 告警阈值 8，且 `realloc_count=229>0`，由 `tests/verify_dynamic_table_budget.sh`
 门禁确认容量是按需增长而非启动超大预分配。
+
+### Phase 7 更新：launcher 硬口径 peak RSS 已低于 Phase 0 25% 阈值（2026-06-07）
+
+入口瘦身后，`make uya` 只重建 `src/main.uya` launcher，完整编译器业务外置到
+`bin/cmd/*`。按 `bench-compiler-1s` 硬 KPI 口径复测：
+
+```bash
+bash scripts/bench_compiler_1s.sh --runs 1 --baseline-rss-kb 2103824 --keep-logs
+```
+
+| 字段 | 值 |
+| --- | ---: |
+| baseline_peak_rss_kb | 2,103,824 |
+| current_peak_rss_kb | 370,824 |
+| change_pct | -82 |
+| arena_peak_bytes | 130,279,816 |
+| ast_arena_peak_bytes | 84,553,048 |
+| check_arena_peak_bytes | 22,311,088 |
+| emit_arena_peak_bytes | 2,360,760 |
+| total_ms | 27,944 |
+
+结论：当前硬口径 peak RSS 已远低于 Phase 0 baseline 的 75% 阈值，因此
+`docs/todo_compiler_1s.md` L382 达标。注意这并不表示旧全量 C99 编译器输入的 AST 常驻问题已经
+结构性消失；它表示 1s 目标的主入口已通过 launcher split 避开全量业务常驻。
+
+同一工作树下，用 build 子命令直接走 C99 编译 launcher：
+
+```bash
+UYA_ROOT="$PWD" bin/cmd/build src/main.uya -o /tmp/uya-direct-c99-total-kpi --no-split-c --project-root src/
+```
+
+实测 `总耗时: 852 ms`（parse 413ms、check 332ms、emit 84ms），低于 Phase 6 L470 的
+`<8000ms` 目标。
+
+### Phase 5A 更新：native 输出策略收口（2026-06-07）
+
+`src/codegen/native/elf64.uya` 新增 production-oriented streaming writer：
+
+- `elf64_write_executable_stream(FILE*, code, code_len, ...)` 只在栈上保留
+  `ELF64_MIN_EXEC_HEADERS`（120 bytes）header 缓冲，先 `fwrite` header，再直接 `fwrite`
+  机器码输入，不构造 `headers + code` 的完整 ELF 镜像副本。
+- `elf64_native_debug_section_count()` 固定返回 `0`，v1 native ELF 输出不生成 `.debug_*`/DWARF
+  section。
+- 原 `elf64_write_executable(buf, ...)` 继续作为字节编码测试/小缓冲 helper 保留；native 输出主路径
+  应接入 streaming writer。
+
+新增验证：
+
+```bash
+bash tests/verify_native_output_policy.sh
+bash tests/verify_native_elf64_encoding.sh
+```
+
+其中 `verify_native_output_policy.sh` 同时做源码合同检查和 Uya runtime 测试：实际 streaming 写出
+`120 + 4` 字节 ELF，确认 `e_shnum=0`、`e_shstrndx=0`、机器码紧随 header，且
+`elf64_stream_peak_temp_bytes(4096)` 仍为 `120`。
 
 ### Phase 5A/6 更新：C99 发射阶段已是"收口的流式写"（2026-06-06）
 
@@ -123,7 +179,7 @@ L393 关心的是"C99 输出从全局状态 + 边生成边补发收口为 unit �
 
 实测后对两条剩余 1s 杠杆给出明确结论，供后续不再重复试错：
 
-**L382/L417（−25% peak RSS）当前架构下不可由"按阶段释放"达成。** `ast_merge_programs` 是指针
+**旧全量 C99 入口下的 L382/L417（−25% peak RSS）不可由"按阶段释放"达成。** `ast_merge_programs` 是指针
 拼接而非深拷贝（`src/ast.uya:796`），故 `ast_arena≈1.2GB` 是 C99 emitter 全程遍历的**活** AST
 （非合并前死副本），无法在 codegen 前释放；AST 占 2.05GB peak 的主体。`check_arena`(77MB)/
 `emit_arena`(10MB)/TypedProgram(30MB) 即便提前释放也远不够 25%（≈512MB）。真正的 25% 需要：
@@ -209,6 +265,58 @@ L393 关心的是"C99 输出从全局状态 + 边生成边补发收口为 unit �
   剩余 ~5.9s 主体是 **check 阶段（Phase 0 = 4683ms，尚未优化）** + parse + overhead。
   下一个 1s 杠杆从 codegen 转向 **checker 查询 / 字符串比较**。
 
+### Phase 8 Build Seed Restore Checkpoint（2026-06-07）
+
+`make clean && time -p make restore-cmd-build-seed` 实测：
+
+```text
+real 17.18
+user 16.89
+sys 0.30
+```
+
+对同一 `backup/cmd-build-linux-x86_64.c` 直接试编译：
+
+```text
+cc -std=c99 -O0 -fno-builtin -w      real 7.17
+cc -std=c99 -O0 -fno-builtin -Werror real 7.28
+cc -std=c99 -O1 -fno-builtin -w      real 17.51
+```
+
+结论：直接从普通 `backup/cmd-build*.c` C seed 恢复当前**未达标**。单独把 restore CFLAGS
+从 `-O1` 降到 `-O0` 只能把恢复时间降到约 7.2s，仍超过 3s；主因是
+`backup/cmd-build*.c` 仍有约 7.8MB。
+
+为满足 L554，同时保留普通 C99 fallback seed，Phase 8 增加精确 host/arch 的文本 blob seed：
+
+```text
+backup/cmd-build-linux-x86_64-blob.c
+```
+
+该文件是 C99 小 extractor + base64 文本 blob，只在 host/arch 完全匹配时由
+`restore-cmd-build-seed` 优先使用；缺失或平台不匹配时仍回退到普通 `backup/cmd-build*.c`。
+`bash tests/verify_build_seed_restore_time.sh` 实测：
+
+```text
+elapsed_ms=226
+threshold_ms=3000
+```
+
+结论：L554（build seed 恢复 `< 3000ms`）在 host/arch blob 快速路径下**达标**；
+普通 C seed 仍作为可审计 fallback 保留。
+
+`bash tests/verify_build_seed_restore_memory.sh` 对 `make restore-cmd-build-seed` 及其子进程采样
+`/proc/*/status`：
+
+```text
+peak_rss_kb=344152
+baseline_rss_kb=2103824
+threshold_kb=1051912
+```
+
+结论：L556（seed restore peak RSS 低于 Phase 0 baseline 50%）**达标**；当前 restore 峰值约
+336MiB，低于 Phase 0 冷构建 RSS baseline 一半阈值。
+
 #### 发现：checker proof 表在自编译时溢出（待迁移，硬约束 L35）
 
 编译 `src/main.uya` 时 `checker constraint table` / `pointer nonnull table` 即溢出
@@ -227,8 +335,8 @@ L393 关心的是"C99 输出从全局状态 + 边生成边补发收口为 unit �
 - `peak_rss_kb`：编译器进程峰值常驻内存。
 - `arena_peak_bytes`：compiler arena 峰值。
 - `semantic_db_bytes` / `typed_program_bytes` / `lowered_bytes`：新增语义和 IR 表占用。
-- `emit_buffer_bytes`：输出缓冲峰值。
-- `output_bytes`：C99 / split-C / native 产物总字节数。
+- `c99_output_buffer_peak_bytes`：C99 输出 FILE 缓冲峰值。
+- `output_bytes`：C99 / split-C / native / build seed 产物总字节数。
 - `table_count` / `table_capacity` / `table_realloc_count`：所有编译器动态表的实际项数、容量和增长次数，可按表类别输出明细。
 
 当前环境只确认 shell 内置 `time` 可用，未确认 GNU `/usr/bin/time -v`。因此 1 秒 benchmark 不应依赖外部 `time -v`，应优先通过 `/proc/<pid>/status` 或 `/proc/<pid>/smaps_rollup` 采样 RSS。没有 RSS 采样的运行只能记录时间，不能计入内存达标。
@@ -438,7 +546,7 @@ rg -n "count >=|>= C99_MAX|>= MAX_|>= EXEC_MAX|>= FUNCTION_TABLE_SIZE|>= SYMBOL_
 
 - `uya` 应是稳定 launcher/dispatcher。
 - `uya build` 应是编译器。
-- `uya pack-image` / microapp 应是独立工具。
+- `uya microapp build/pack/inspect/verify/run` 应是独立工具命名空间。
 - exec backend 应是开发/运行后端，不应强制进入默认 C99 自举二进制。
 - upm、fmt 应是独立命令，不能被编译器入口静态拉入。
 

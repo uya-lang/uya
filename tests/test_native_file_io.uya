@@ -1,0 +1,54 @@
+// test_native_file_io.uya - native minimal file read smoke.
+
+use codegen.native.file_io;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+test "native file io reads complete source fixture" {
+    var buf: NativeFileBuffer = native_file_buffer_empty();
+    native_file_buffer_init(&buf);
+
+    try assert_eq_i32(native_file_read_all("tests/fixtures/native_file_io_sample.txt" as &byte, &buf), 0);
+    try assert_eq_i32(native_file_len(&buf) as i32, 23);
+    try expect(native_file_capacity(&buf) >= native_file_len(&buf) + 1usize);
+    try expect(native_file_data(&buf) != null);
+    try expect(native_file_read_count(&buf) >= 1);
+
+    try assert_eq_i32(native_file_byte_at(&buf, 0usize), 110);
+    try assert_eq_i32(native_file_byte_at(&buf, 6usize), 32);
+    try assert_eq_i32(native_file_byte_at(&buf, 14usize), 10);
+    try assert_eq_i32(native_file_byte_at(&buf, 22usize), 10);
+    try assert_eq_i32(native_file_byte_at(&buf, 23usize), -1);
+
+    native_file_release(&buf);
+}
+
+test "native file io resets before reread" {
+    var buf: NativeFileBuffer = native_file_buffer_empty();
+    native_file_buffer_init(&buf);
+
+    try assert_eq_i32(native_file_read_all("tests/fixtures/native_file_io_sample.txt" as &byte, &buf), 0);
+    const first_capacity: usize = native_file_capacity(&buf);
+    native_file_reset(&buf);
+    try expect(native_file_len(&buf) == 0usize);
+
+    try assert_eq_i32(native_file_read_all("tests/fixtures/native_file_io_sample.txt" as &byte, &buf), 0);
+    try assert_eq_i32(native_file_len(&buf) as i32, 23);
+    try expect(native_file_capacity(&buf) >= first_capacity);
+
+    native_file_release(&buf);
+}
+
+test "native file io reports missing paths and invalid sinks" {
+    var buf: NativeFileBuffer = native_file_buffer_empty();
+
+    try assert_eq_i32(native_file_read_all("tests/fixtures/native_file_io_sample.txt" as &byte, &buf), -1);
+
+    native_file_buffer_init(&buf);
+    try assert_eq_i32(native_file_read_all(null, &buf), -1);
+    try assert_eq_i32(native_file_read_all("tests/fixtures/does_not_exist_native_file_io.txt" as &byte, &buf), -1);
+    try expect(native_file_len(&buf) == 0usize);
+    try expect(native_file_data(&buf) != null || native_file_capacity(&buf) == 0usize);
+
+    native_file_release(&buf);
+}

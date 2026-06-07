@@ -1,0 +1,310 @@
+// checker/type_layout.uya - 共享类型布局计算
+// 为 checker、exec 和其他需要 size/align 的路径提供统一实现
+
+fn layout_align_up_i32(value: i32, align: i32) i32 {
+    if align <= 1 || value < 0 {
+        return value;
+    }
+    const remainder: i32 = value % align;
+    if remainder == 0 {
+        return value;
+    }
+    if value > 0x7FFFFFFF - (align - remainder) {
+        return -1;
+    }
+    return value + (align - remainder);
+}
+
+fn compute_struct_align_v2(checker: &TypeChecker, decl: &ASTNode, program_node: &ASTNode) i32 {
+    if decl == null || decl.struct_decl_field_count <= 0 || decl.struct_decl_fields == null {
+        return 1;
+    }
+    var max_align: i32 = 1;
+    var i: i32 = 0;
+    while i < decl.struct_decl_field_count {
+        const field: &ASTNode = decl.struct_decl_fields[i];
+        if field != null && field.type == ASTNodeType.AST_VAR_DECL && field.var_decl_type != null {
+            const ft: Type = type_from_ast(checker, field.var_decl_type);
+            const fa: i32 = get_type_align_bytes_v2(checker, &ft, program_node);
+            if fa < 0 {
+                return -1;
+            }
+            if fa > max_align {
+                max_align = fa;
+            }
+        }
+        i = i + 1;
+    }
+    return max_align;
+}
+
+fn compute_union_align_v2(checker: &TypeChecker, decl: &ASTNode, program_node: &ASTNode) i32 {
+    if decl == null || decl.union_decl_variant_count <= 0 || decl.union_decl_variants == null {
+        return 4;
+    }
+    var max_align: i32 = 4;
+    var i: i32 = 0;
+    while i < decl.union_decl_variant_count {
+        const field: &ASTNode = decl.union_decl_variants[i];
+        if field != null && field.type == ASTNodeType.AST_VAR_DECL && field.var_decl_type != null {
+            const ft: Type = type_from_ast(checker, field.var_decl_type);
+            const fa: i32 = get_type_align_bytes_v2(checker, &ft, program_node);
+            if fa < 0 {
+                return -1;
+            }
+            if fa > max_align {
+                max_align = fa;
+            }
+        }
+        i = i + 1;
+    }
+    return max_align;
+}
+
+fn compute_struct_size_v2(checker: &TypeChecker, decl: &ASTNode, program_node: &ASTNode) i32 {
+    if decl == null || decl.struct_decl_field_count <= 0 || decl.struct_decl_fields == null {
+        return 0;
+    }
+    var offset: i32 = 0;
+    var max_align: i32 = 1;
+    var i: i32 = 0;
+    while i < decl.struct_decl_field_count {
+        const field: &ASTNode = decl.struct_decl_fields[i];
+        if field == null || field.type != ASTNodeType.AST_VAR_DECL || field.var_decl_type == null {
+            i = i + 1;
+            continue;
+        }
+        const ft: Type = type_from_ast(checker, field.var_decl_type);
+        const fs: i32 = get_type_size_bytes_v2(checker, &ft, program_node);
+        const fa: i32 = get_type_align_bytes_v2(checker, &ft, program_node);
+        if fs < 0 || fa < 0 {
+            return -1;
+        }
+        offset = layout_align_up_i32(offset, fa);
+        if offset < 0 || offset > 0x7FFFFFFF - fs {
+            return -1;
+        }
+        offset = offset + fs;
+        if fa > max_align {
+            max_align = fa;
+        }
+        i = i + 1;
+    }
+    return layout_align_up_i32(offset, max_align);
+}
+
+fn compute_union_size_v2(checker: &TypeChecker, decl: &ASTNode, program_node: &ASTNode) i32 {
+    if decl == null || decl.union_decl_variant_count <= 0 || decl.union_decl_variants == null {
+        return 4;
+    }
+    var max_payload_size: i32 = 0;
+    var max_payload_align: i32 = 1;
+    var i: i32 = 0;
+    while i < decl.union_decl_variant_count {
+        const field: &ASTNode = decl.union_decl_variants[i];
+        if field == null || field.type != ASTNodeType.AST_VAR_DECL || field.var_decl_type == null {
+            i = i + 1;
+            continue;
+        }
+        const ft: Type = type_from_ast(checker, field.var_decl_type);
+        const fs: i32 = get_type_size_bytes_v2(checker, &ft, program_node);
+        const fa: i32 = get_type_align_bytes_v2(checker, &ft, program_node);
+        if fs < 0 || fa < 0 {
+            return -1;
+        }
+        if fs > max_payload_size {
+            max_payload_size = fs;
+        }
+        if fa > max_payload_align {
+            max_payload_align = fa;
+        }
+        i = i + 1;
+    }
+    var max_align: i32 = max_payload_align;
+    if max_align < 4 {
+        max_align = 4;
+    }
+    const payload_offset: i32 = layout_align_up_i32(4, max_payload_align);
+    if payload_offset < 0 || payload_offset > 0x7FFFFFFF - max_payload_size {
+        return -1;
+    }
+    return layout_align_up_i32(payload_offset + max_payload_size, max_align);
+}
+
+fn get_type_align_bytes_v2(checker: &TypeChecker, t: &Type, program_node: &ASTNode) i32 {
+    if t == null {
+        return -1;
+    }
+    if t.kind == TypeKind.TYPE_I8 || t.kind == TypeKind.TYPE_U8 || t.kind == TypeKind.TYPE_BOOL || t.kind == TypeKind.TYPE_BYTE {
+        return 1;
+    }
+    if t.kind == TypeKind.TYPE_I16 || t.kind == TypeKind.TYPE_U16 {
+        return 2;
+    }
+    if t.kind == TypeKind.TYPE_I32 || t.kind == TypeKind.TYPE_U32 || t.kind == TypeKind.TYPE_F32 || t.kind == TypeKind.TYPE_ENUM {
+        return 4;
+    }
+    if t.kind == TypeKind.TYPE_I64 || t.kind == TypeKind.TYPE_U64 || t.kind == TypeKind.TYPE_F64 ||
+        t.kind == TypeKind.TYPE_USIZE || t.kind == TypeKind.TYPE_POINTER {
+        return 8;
+    }
+    if t.kind == TypeKind.TYPE_ATOMIC {
+        const inner: &Type = type_get_atomic_inner(t);
+        if inner != null {
+            return get_type_align_bytes_v2(checker, inner, program_node);
+        }
+        return -1;
+    }
+    if t.kind == TypeKind.TYPE_ARRAY && t.element_type != null {
+        return get_type_align_bytes_v2(checker, t.element_type, program_node);
+    }
+    if t.kind == TypeKind.TYPE_SLICE || t.kind == TypeKind.TYPE_INTERFACE {
+        return 8;
+    }
+    if t.kind == TypeKind.TYPE_TUPLE && t.tuple_count > 0 && t.tuple_element_types != null {
+        var max_align: i32 = 1;
+        var i: i32 = 0;
+        while i < t.tuple_count {
+            const elem_align: i32 = get_type_align_bytes_v2(checker, &t.tuple_element_types[i], program_node);
+            if elem_align < 0 {
+                return -1;
+            }
+            if elem_align > max_align {
+                max_align = elem_align;
+            }
+            i = i + 1;
+        }
+        return max_align;
+    }
+    if t.kind == TypeKind.TYPE_ERROR_UNION {
+        const payload: &Type = type_get_error_payload(t);
+        if payload == null {
+            return 4;
+        }
+        const payload_align: i32 = get_type_align_bytes_v2(checker, payload, program_node);
+        if payload_align < 0 {
+            return -1;
+        }
+        if payload_align < 4 {
+            return 4;
+        }
+        return payload_align;
+    }
+    if t.kind == TypeKind.TYPE_STRUCT && t.struct_name != null && checker != null && program_node != null {
+        const decl: &ASTNode = find_struct_decl_from_program(program_node, t.struct_name as *byte);
+        if decl != null {
+            return compute_struct_align_v2(checker, decl, program_node);
+        }
+        return -1;
+    }
+    if t.kind == TypeKind.TYPE_UNION && t.union_name != null && checker != null && program_node != null {
+        const decl: &ASTNode = find_union_decl_from_program(program_node, t.union_name as *byte);
+        if decl != null {
+            return compute_union_align_v2(checker, decl, program_node);
+        }
+        return -1;
+    }
+    return -1;
+}
+
+fn get_type_size_bytes_v2(checker: &TypeChecker, t: &Type, program_node: &ASTNode) i32 {
+    if t == null {
+        return -1;
+    }
+    if t.kind == TypeKind.TYPE_I8 || t.kind == TypeKind.TYPE_U8 || t.kind == TypeKind.TYPE_BOOL || t.kind == TypeKind.TYPE_BYTE {
+        return 1;
+    }
+    if t.kind == TypeKind.TYPE_I16 || t.kind == TypeKind.TYPE_U16 {
+        return 2;
+    }
+    if t.kind == TypeKind.TYPE_I32 || t.kind == TypeKind.TYPE_U32 || t.kind == TypeKind.TYPE_F32 {
+        return 4;
+    }
+    if t.kind == TypeKind.TYPE_ENUM {
+        return 4;
+    }
+    if t.kind == TypeKind.TYPE_I64 || t.kind == TypeKind.TYPE_U64 || t.kind == TypeKind.TYPE_F64 || t.kind == TypeKind.TYPE_USIZE {
+        return 8;
+    }
+    if t.kind == TypeKind.TYPE_POINTER {
+        return 8;
+    }
+    if t.kind == TypeKind.TYPE_ATOMIC {
+        const inner: &Type = type_get_atomic_inner(t);
+        if inner != null {
+            return get_type_size_bytes_v2(checker, inner, program_node);
+        }
+        return -1;
+    }
+    if t.kind == TypeKind.TYPE_ARRAY {
+        const elem_sz: i32 = get_type_size_bytes_v2(checker, t.element_type, program_node);
+        if elem_sz > 0 && t.array_size > 0 && t.array_size <= 0x7FFFFFFF / elem_sz {
+            return elem_sz * t.array_size;
+        }
+        return -1;
+    }
+    if t.kind == TypeKind.TYPE_SLICE {
+        return 16;
+    }
+    if t.kind == TypeKind.TYPE_TUPLE && t.tuple_count > 0 && t.tuple_element_types != null {
+        var total: i32 = 0;
+        var max_align: i32 = 1;
+        var i: i32 = 0;
+        while i < t.tuple_count {
+            const ft: &Type = &t.tuple_element_types[i];
+            const fs: i32 = get_type_size_bytes_v2(checker, ft, program_node);
+            const fa: i32 = get_type_align_bytes_v2(checker, ft, program_node);
+            if fs < 0 || fa < 0 {
+                return -1;
+            }
+            total = layout_align_up_i32(total, fa);
+            if total < 0 || total > 0x7FFFFFFF - fs {
+                return -1;
+            }
+            total = total + fs;
+            if fa > max_align {
+                max_align = fa;
+            }
+            i = i + 1;
+        }
+        return layout_align_up_i32(total, max_align);
+    }
+    if t.kind == TypeKind.TYPE_ERROR_UNION {
+        const payload: &Type = type_get_error_payload(t);
+        if payload != null {
+            const ps: i32 = get_type_size_bytes_v2(checker, payload, program_node);
+            const pa: i32 = get_type_align_bytes_v2(checker, payload, program_node);
+            if ps < 0 || pa < 0 {
+                return -1;
+            }
+            var max_align: i32 = pa;
+            if max_align < 4 {
+                max_align = 4;
+            }
+            const payload_offset: i32 = layout_align_up_i32(4, pa);
+            if payload_offset < 0 || payload_offset > 0x7FFFFFFF - ps {
+                return -1;
+            }
+            return layout_align_up_i32(payload_offset + ps, max_align);
+        }
+        return 4;
+    }
+    if t.kind == TypeKind.TYPE_STRUCT && t.struct_name != null && program_node != null {
+        const decl: &ASTNode = find_struct_decl_from_program(program_node, t.struct_name as *byte);
+        if decl != null && decl.struct_decl_fields != null && decl.struct_decl_field_count > 0 {
+            return compute_struct_size_v2(checker, decl, program_node);
+        }
+        return -1;
+    }
+    if t.kind == TypeKind.TYPE_UNION && t.union_name != null && program_node != null {
+        const decl: &ASTNode = find_union_decl_from_program(program_node, t.union_name as *byte);
+        if decl != null && decl.union_decl_variants != null && decl.union_decl_variant_count > 0 {
+            return compute_union_size_v2(checker, decl, program_node);
+        }
+        return -1;
+    }
+    if t.kind == TypeKind.TYPE_INTERFACE {
+        return 16;
+    }
+    return -1;
+}

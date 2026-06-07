@@ -421,16 +421,37 @@ native_output_bytes() {
     printf '%s\n' "$total"
 }
 
+build_seed_output_bytes() {
+    local total=0
+    local file size
+    if [[ -d "$REPO_ROOT/backup" ]]; then
+        while IFS= read -r -d '' file; do
+            size="$(file_size_bytes "$file")"
+            total=$((total + size))
+        done < <(find "$REPO_ROOT/backup" -maxdepth 1 -type f -name 'cmd-build*.c' -print0 2>/dev/null)
+    fi
+    for file in \
+        "$REPO_ROOT/src/build/cmd-build.c" \
+        "$REPO_ROOT/src/build/cmd/build.c" \
+        "$REPO_ROOT/bin/cmd/build"
+    do
+        size="$(file_size_bytes "$file")"
+        total=$((total + size))
+    done
+    printf '%s\n' "$total"
+}
+
 collect_output_bytes() {
     local run_index="$1"
     local run_dir="$2"
     OUTPUT_C99_SINGLE_BYTES="$(file_size_bytes "$REPO_ROOT/src/build/uya.c")"
     OUTPUT_SPLIT_C_BYTES="$(dir_total_bytes "$REPO_ROOT/src/.uyacache")"
     OUTPUT_NATIVE_BYTES="$(native_output_bytes)"
+    OUTPUT_BUILD_SEED_BYTES="$(build_seed_output_bytes)"
     OUTPUT_TEMP_BYTES="$(dir_total_bytes "$run_dir")"
-    OUTPUT_TOTAL_BYTES=$((OUTPUT_C99_SINGLE_BYTES + OUTPUT_SPLIT_C_BYTES + OUTPUT_NATIVE_BYTES + OUTPUT_TEMP_BYTES))
-    printf 'outputs\trun\t%s\tc99_single_bytes\t%s\tsplit_c_bytes\t%s\tnative_bytes\t%s\ttemp_bytes\t%s\toutput_bytes\t%s\n' \
-        "$run_index" "$OUTPUT_C99_SINGLE_BYTES" "$OUTPUT_SPLIT_C_BYTES" "$OUTPUT_NATIVE_BYTES" "$OUTPUT_TEMP_BYTES" "$OUTPUT_TOTAL_BYTES" >&2
+    OUTPUT_TOTAL_BYTES=$((OUTPUT_C99_SINGLE_BYTES + OUTPUT_SPLIT_C_BYTES + OUTPUT_NATIVE_BYTES + OUTPUT_BUILD_SEED_BYTES + OUTPUT_TEMP_BYTES))
+    printf 'outputs\trun\t%s\tc99_single_bytes\t%s\tsplit_c_bytes\t%s\tnative_bytes\t%s\tbuild_seed_bytes\t%s\ttemp_bytes\t%s\toutput_bytes\t%s\n' \
+        "$run_index" "$OUTPUT_C99_SINGLE_BYTES" "$OUTPUT_SPLIT_C_BYTES" "$OUTPUT_NATIVE_BYTES" "$OUTPUT_BUILD_SEED_BYTES" "$OUTPUT_TEMP_BYTES" "$OUTPUT_TOTAL_BYTES" >&2
 }
 
 memory_change_pct() {
@@ -504,6 +525,7 @@ reset_compiler_phase_stats() {
     AST_ARENA_PEAK_BYTES="NA"
     CHECK_ARENA_PEAK_BYTES="NA"
     EMIT_ARENA_PEAK_BYTES="NA"
+    C99_OUTPUT_BUFFER_PEAK_BYTES="NA"
     TYPED_PROGRAM_BYTES="NA"
     TYPED_PROGRAM_PEAK_BYTES="NA"
     TYPED_PROGRAM_RELEASED_BYTES="NA"
@@ -522,11 +544,12 @@ collect_compiler_phase_stats() {
     AST_ARENA_PEAK_BYTES="$(extract_log_stat "ast_arena_peak_bytes" "$build_log")"
     CHECK_ARENA_PEAK_BYTES="$(extract_log_stat "check_arena_peak_bytes" "$build_log")"
     EMIT_ARENA_PEAK_BYTES="$(extract_log_stat "emit_arena_peak_bytes" "$build_log")"
+    C99_OUTPUT_BUFFER_PEAK_BYTES="$(extract_log_stat "c99_output_buffer_peak_bytes" "$build_log")"
     TYPED_PROGRAM_BYTES="$(extract_log_stat "typed_program_bytes" "$build_log")"
     TYPED_PROGRAM_PEAK_BYTES="$(extract_log_stat "typed_program_peak_bytes" "$build_log")"
     TYPED_PROGRAM_RELEASED_BYTES="$(extract_log_stat "typed_program_released_bytes" "$build_log")"
-    printf 'phase_stats\trun\t%s\tseed_ms\t%s\tparse_ms\t%s\tbind_ms\t%s\tcheck_ms\t%s\tlower_ms\t%s\temit_ms\t%s\tlink_ms\t%s\tarena_peak_bytes\t%s\tast_arena_peak_bytes\t%s\tcheck_arena_peak_bytes\t%s\temit_arena_peak_bytes\t%s\ttyped_program_bytes\t%s\ttyped_program_peak_bytes\t%s\ttyped_program_released_bytes\t%s\n' \
-        "$run_index" "$PHASE_SEED_MS" "$PHASE_PARSE_MS" "$PHASE_BIND_MS" "$PHASE_CHECK_MS" "$PHASE_LOWER_MS" "$PHASE_EMIT_MS" "$PHASE_LINK_MS" "$ARENA_PEAK_BYTES" "$AST_ARENA_PEAK_BYTES" "$CHECK_ARENA_PEAK_BYTES" "$EMIT_ARENA_PEAK_BYTES" "$TYPED_PROGRAM_BYTES" "$TYPED_PROGRAM_PEAK_BYTES" "$TYPED_PROGRAM_RELEASED_BYTES" >&2
+    printf 'phase_stats\trun\t%s\tseed_ms\t%s\tparse_ms\t%s\tbind_ms\t%s\tcheck_ms\t%s\tlower_ms\t%s\temit_ms\t%s\tlink_ms\t%s\tarena_peak_bytes\t%s\tast_arena_peak_bytes\t%s\tcheck_arena_peak_bytes\t%s\temit_arena_peak_bytes\t%s\tc99_output_buffer_peak_bytes\t%s\ttyped_program_bytes\t%s\ttyped_program_peak_bytes\t%s\ttyped_program_released_bytes\t%s\n' \
+        "$run_index" "$PHASE_SEED_MS" "$PHASE_PARSE_MS" "$PHASE_BIND_MS" "$PHASE_CHECK_MS" "$PHASE_LOWER_MS" "$PHASE_EMIT_MS" "$PHASE_LINK_MS" "$ARENA_PEAK_BYTES" "$AST_ARENA_PEAK_BYTES" "$CHECK_ARENA_PEAK_BYTES" "$EMIT_ARENA_PEAK_BYTES" "$C99_OUTPUT_BUFFER_PEAK_BYTES" "$TYPED_PROGRAM_BYTES" "$TYPED_PROGRAM_PEAK_BYTES" "$TYPED_PROGRAM_RELEASED_BYTES" >&2
 }
 
 collect_table_stats() {
@@ -569,10 +592,10 @@ print_tsv_row() {
     local run_index="$1"
     local total_ms="$2"
     local peak_rss="$3"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$run_index" "$MODE" \
         "$PHASE_SEED_MS" "$PHASE_PARSE_MS" "$PHASE_BIND_MS" "$PHASE_CHECK_MS" "$PHASE_LOWER_MS" "$PHASE_EMIT_MS" "$PHASE_LINK_MS" \
-        "$total_ms" "$peak_rss" "$ARENA_PEAK_BYTES" "$OUTPUT_TOTAL_BYTES" \
+        "$total_ms" "$peak_rss" "$ARENA_PEAK_BYTES" "$OUTPUT_TOTAL_BYTES" "$C99_OUTPUT_BUFFER_PEAK_BYTES" \
         "$TABLE_COUNT" "$TABLE_CAPACITY" "$TABLE_BYTES" "$TABLE_CAPACITY_BYTES" "$TABLE_REALLOC_COUNT"
 }
 
@@ -639,6 +662,7 @@ emit_values=()
 link_values=()
 arena_peak_values=()
 output_values=()
+c99_output_buffer_peak_values=()
 table_count_values=()
 table_capacity_values=()
 table_bytes_values=()
@@ -647,7 +671,7 @@ table_realloc_count_values=()
 
 print_metadata
 print_rss_unavailable_warning
-printf 'run\tmode\tseed_ms\tparse_ms\tbind_ms\tcheck_ms\tlower_ms\temit_ms\tlink_ms\ttotal_ms\tpeak_rss_kb\tarena_peak_bytes\toutput_bytes\ttable_count\ttable_capacity\ttable_bytes\ttable_capacity_bytes\ttable_realloc_count\n'
+printf 'run\tmode\tseed_ms\tparse_ms\tbind_ms\tcheck_ms\tlower_ms\temit_ms\tlink_ms\ttotal_ms\tpeak_rss_kb\tarena_peak_bytes\toutput_bytes\tc99_output_buffer_peak_bytes\ttable_count\ttable_capacity\ttable_bytes\ttable_capacity_bytes\ttable_realloc_count\n'
 
 run=1
 while [[ "$run" -le "$RUNS" ]]; do
@@ -723,6 +747,7 @@ while [[ "$run" -le "$RUNS" ]]; do
     link_values+=("$PHASE_LINK_MS")
     arena_peak_values+=("$ARENA_PEAK_BYTES")
     output_values+=("$OUTPUT_TOTAL_BYTES")
+    c99_output_buffer_peak_values+=("$C99_OUTPUT_BUFFER_PEAK_BYTES")
     table_count_values+=("$TABLE_COUNT")
     table_capacity_values+=("$TABLE_CAPACITY")
     table_bytes_values+=("$TABLE_BYTES")
@@ -738,7 +763,7 @@ if [[ "$RUNS" -gt 1 ]]; then
     if [[ "$RSS_AVAILABLE" -eq 1 ]]; then
         median_rss="$(median_value "${rss_values[@]}")"
     fi
-    printf 'median\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf 'median\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$MODE" \
         "$(median_or_na "${seed_values[@]}")" \
         "$(median_or_na "${parse_values[@]}")" \
@@ -751,6 +776,7 @@ if [[ "$RUNS" -gt 1 ]]; then
         "$median_rss" \
         "$(median_or_na "${arena_peak_values[@]}")" \
         "$(median_value "${output_values[@]}")" \
+        "$(median_or_na "${c99_output_buffer_peak_values[@]}")" \
         "$(median_or_na "${table_count_values[@]}")" \
         "$(median_or_na "${table_capacity_values[@]}")" \
         "$(median_or_na "${table_bytes_values[@]}")" \

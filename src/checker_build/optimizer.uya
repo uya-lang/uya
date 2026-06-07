@@ -1,0 +1,1356 @@
+// checker/optimizer.uya - 编译期优化器
+// 实现常量折叠、死代码消除、证明优化等
+
+// ===== 优化配置 =====
+
+// 优化级别
+export enum OptimizationLevel {
+    OPT_LEVEL_0,  // 不优化
+    OPT_LEVEL_1,  // 基础优化（常量折叠、死代码消除）
+    OPT_LEVEL_2,  // 标准优化（+ 证明优化）
+    OPT_LEVEL_3   // 激进优化（+ 内联、循环展开）
+}
+
+// 优化配置
+export struct OptimizationConfig {
+    enable_constant_folding: i32,      // 启用常量折叠
+    enable_dead_code_elimination: i32, // 启用死代码消除
+    enable_proof_optimization: i32,    // 启用证明优化
+    enable_inline: i32,                // 启用内联优化
+    enable_loop_unrolling: i32,        // 启用循环展开
+    level: i32,                        // 优化级别
+    verbose: i32                       // 详细日志
+}
+
+// 优化统计
+export struct OptimizationStats {
+    constant_folded: i32,        // 常量折叠次数
+    dead_code_eliminated: i32,   // 死代码消除次数
+    proof_optimized: i32,        // 证明优化次数
+    inlined_functions: i32,      // 内联函数次数
+    loops_unrolled: i32          // 循环展开次数
+}
+
+// 优化器状态
+var optimizer_stats: OptimizationStats = OptimizationStats{
+    constant_folded: 0,
+    dead_code_eliminated: 0,
+    proof_optimized: 0,
+    inlined_functions: 0,
+    loops_unrolled: 0
+};
+
+var optimizer_verbose: i32 = 0;
+
+// ===== 配置函数 =====
+
+// 根据优化级别创建配置
+export fn create_optimization_config(level: i32) OptimizationConfig {
+    var config: OptimizationConfig = OptimizationConfig{
+        enable_constant_folding: 0,
+        enable_dead_code_elimination: 0,
+        enable_proof_optimization: 0,
+        enable_inline: 0,
+        enable_loop_unrolling: 0,
+        level: level,
+        verbose: 0
+    };
+    
+    if level >= 1 {
+        config.enable_constant_folding = 1;
+        config.enable_dead_code_elimination = 1;
+    }
+    if level >= 2 {
+        config.enable_proof_optimization = 1;
+    }
+    if level >= 3 {
+        config.enable_inline = 1;
+        config.enable_loop_unrolling = 1;
+    }
+    
+    return config;
+}
+
+// 设置优化器详细模式
+export fn optimizer_set_verbose(verbose: i32) void {
+    optimizer_verbose = verbose;
+}
+
+// 重置优化统计
+export fn optimizer_reset_stats() void {
+    optimizer_stats.constant_folded = 0;
+    optimizer_stats.dead_code_eliminated = 0;
+    optimizer_stats.proof_optimized = 0;
+    optimizer_stats.inlined_functions = 0;
+    optimizer_stats.loops_unrolled = 0;
+}
+
+// 获取优化统计（移到前面以确保生成）
+export fn get_optimization_stats() OptimizationStats {
+    return optimizer_stats;
+}
+
+// 执行优化
+export fn optimize_program(checker: &TypeChecker, node: &ASTNode, config: OptimizationConfig) &ASTNode {
+    if node == null || checker == null {
+        return node;
+    }
+    
+    // 重置统计
+    optimizer_reset_stats();
+    optimizer_verbose = config.verbose;
+    
+    if config.verbose != 0 {
+        printf("[optimize] optimize_program called (level %d)\n" as *byte, config.level);
+    }
+    
+    // Pass 1: 常量折叠
+    if config.enable_constant_folding != 0 {
+        if config.verbose != 0 {
+            printf("[optimize] running constant_folding_pass\n" as *byte);
+        }
+        constant_folding_pass(checker, node);
+    }
+    
+    // Pass 2: 死代码消除
+    if config.enable_dead_code_elimination != 0 {
+        if config.verbose != 0 {
+            printf("[optimize] running dead_code_elimination_pass\n" as *byte);
+        }
+        dead_code_elimination_pass(checker, node);
+    }
+    
+    // Pass 3: 证明优化
+    if config.enable_proof_optimization != 0 {
+        if config.verbose != 0 {
+            printf("[optimize] running proof_optimization_pass\n" as *byte);
+        }
+        proof_optimization_pass(checker, node);
+    }
+    
+    // Pass 4: 内联优化
+    if config.enable_inline != 0 {
+        if config.verbose != 0 {
+            printf("[optimize] running inline_pass\n" as *byte);
+        }
+        inline_pass(checker, node);
+    }
+    
+    // Pass 5: 循环展开
+    if config.enable_loop_unrolling != 0 {
+        if config.verbose != 0 {
+            printf("[optimize] running loop_unrolling_pass\n" as *byte);
+        }
+        loop_unrolling_pass(checker, node);
+    }
+    
+    return node;
+}
+
+// ===== 常量折叠 =====
+
+// 检查表达式是否为常量表达式
+fn is_constant_expression(checker: &TypeChecker, node: &ASTNode) i32 {
+    if node == null || checker == null {
+        return 0;
+    }
+    
+    if node.type == ASTNodeType.AST_NUMBER {
+        return 1;
+    }
+    
+    if node.type == ASTNodeType.AST_BOOL {
+        return 1;
+    }
+    
+    if node.type == ASTNodeType.AST_IDENTIFIER {
+        // 检查是否为 const 变量
+        const symbol: &Symbol = symbol_table_lookup(checker, node.identifier_name);
+        if symbol != null && symbol.is_const != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        const left_const: i32 = is_constant_expression(checker, node.binary_expr_left);
+        const right_const: i32 = is_constant_expression(checker, node.binary_expr_right);
+        if left_const != 0 && right_const != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        return is_constant_expression(checker, node.unary_expr_operand);
+    }
+    
+    if node.type == ASTNodeType.AST_LEN {
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_SIZEOF || node.type == ASTNodeType.AST_ALIGNOF {
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_CAST_EXPR {
+        return is_constant_expression(checker, node.cast_expr_expr);
+    }
+    return 0;
+}
+
+// 带 block 的常量表达式检查（优化阶段用，可解析块内局部 const）
+fn is_constant_expression_in_block(checker: &TypeChecker, node: &ASTNode, block: &ASTNode) i32 {
+    if node == null || checker == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_NUMBER || node.type == ASTNodeType.AST_BOOL {
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_IDENTIFIER {
+        if symbol_table_lookup(checker, node.identifier_name) != null {
+            return 1;
+        }
+        if block != null && find_const_init_in_block(block, node.identifier_name) != null {
+            return 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        if is_constant_expression_in_block(checker, node.binary_expr_left, block) != 0 &&
+           is_constant_expression_in_block(checker, node.binary_expr_right, block) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        return is_constant_expression_in_block(checker, node.unary_expr_operand, block);
+    }
+    if node.type == ASTNodeType.AST_LEN {
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_SIZEOF || node.type == ASTNodeType.AST_ALIGNOF {
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_CAST_EXPR {
+        return is_constant_expression_in_block(checker, node.cast_expr_expr, block);
+    }
+    return 0;
+}
+
+// 常量折叠：二元表达式
+fn constant_fold_binary(checker: &TypeChecker, node: &ASTNode) &ASTNode {
+    if node == null || checker == null {
+        return node;
+    }
+    
+    // 检查是否为常量表达式
+    if is_constant_expression(checker, node) == 0 {
+        return node;
+    }
+    
+    // 使用现有的常量求值函数
+    const value: i32 = checker_eval_const_expr(checker, node);
+    
+    // 如果求值失败（返回-1），返回原节点
+    // 注意：-1 也可能是合法值，但这里简化处理
+    if value == -1 {
+        return node;
+    }
+    
+    // 标记节点已优化
+    node.is_optimized = 1;
+    node.optimized_value = value;
+    
+    optimizer_stats.constant_folded = optimizer_stats.constant_folded + 1;
+    
+    if optimizer_verbose != 0 {
+        printf("[optimize] constant folded: expression -> %d\n" as *byte, value);
+    }
+    
+    return node;
+}
+
+// 常量折叠 Pass
+export fn constant_folding_pass(checker: &TypeChecker, node: &ASTNode) &ASTNode {
+    if node == null || checker == null {
+        return node;
+    }
+    
+    // 处理程序顶层声明
+    if node.type == ASTNodeType.AST_PROGRAM && node.program_decls != null {
+        var i: i32 = 0;
+        while i < node.program_decl_count {
+            constant_folding_pass(checker, node.program_decls[i]);
+            i = i + 1;
+        }
+        return node;
+    }
+    
+    // 递归处理子节点
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        constant_folding_pass(checker, node.binary_expr_left);
+        constant_folding_pass(checker, node.binary_expr_right);
+        constant_fold_binary(checker, node);
+    } else if node.type == ASTNodeType.AST_UNARY_EXPR {
+        constant_folding_pass(checker, node.unary_expr_operand);
+    } else if node.type == ASTNodeType.AST_SIZEOF || node.type == ASTNodeType.AST_ALIGNOF {
+        if node.type == ASTNodeType.AST_SIZEOF && node.sizeof_expr_is_type == 0 && node.sizeof_expr_target != null {
+            constant_folding_pass(checker, node.sizeof_expr_target);
+        }
+        if node.type == ASTNodeType.AST_ALIGNOF && node.alignof_expr_is_type == 0 && node.alignof_expr_target != null {
+            constant_folding_pass(checker, node.alignof_expr_target);
+        }
+        const value: i32 = checker_eval_const_expr(checker, node);
+        if value != -1 {
+            node.is_optimized = 1;
+            node.optimized_value = value;
+            optimizer_stats.constant_folded = optimizer_stats.constant_folded + 1;
+            if optimizer_verbose != 0 {
+                printf("[optimize] constant folded: expression -> %d\n" as *byte, value);
+            }
+        }
+    } else if node.type == ASTNodeType.AST_VAR_DECL && node.var_decl_init != null {
+        constant_folding_pass(checker, node.var_decl_init);
+    } else if node.type == ASTNodeType.AST_IF_STMT {
+        constant_folding_pass(checker, node.if_stmt_condition);
+        if node.if_stmt_then_branch != null {
+            constant_folding_pass(checker, node.if_stmt_then_branch);
+        }
+        if node.if_stmt_else_branch != null {
+            constant_folding_pass(checker, node.if_stmt_else_branch);
+        }
+    } else if node.type == ASTNodeType.AST_WHILE_STMT {
+        constant_folding_pass(checker, node.while_stmt_condition);
+        if node.while_stmt_body != null {
+            constant_folding_pass(checker, node.while_stmt_body);
+        }
+    } else if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            constant_folding_pass(checker, node.block_stmts[i]);
+            i = i + 1;
+        }
+    } else if node.type == ASTNodeType.AST_FN_DECL && node.fn_decl_body != null {
+        // 泛型函数模板先保留原始条件表达式，等待单态化后再展开/裁剪。
+        if node.fn_decl_type_param_count > 0 {
+            return node;
+        }
+        // 处理函数体
+        constant_folding_pass(checker, node.fn_decl_body);
+    } else if node.type == ASTNodeType.AST_ASM {
+        // @asm 内联汇编块优化
+        constant_fold_asm_block(checker, node);
+    }
+    
+    return node;
+}
+
+// ===== @asm 常量折叠优化 =====
+
+// 计算 @asm 块的总输入数量
+fn get_total_asm_input_count(node: &ASTNode) i32 {
+    if node == null || node.asm_input_counts == null {
+        return 0;
+    }
+    var total: i32 = 0;
+    var i: i32 = 0;
+    while i < node.asm_instruction_count {
+        total = total + node.asm_input_counts[i];
+        i = i + 1;
+    }
+    return total;
+}
+
+// 检查 @asm 块是否可以进行常量折叠
+fn can_fold_asm_block(checker: &TypeChecker, node: &ASTNode) i32 {
+    if node == null {
+        return 0;
+    }
+    
+    // 计算总输入数量
+    const total_input_count: i32 = get_total_asm_input_count(node);
+    
+    // 检查是否有输入
+    if total_input_count == 0 {
+        // 无输入的简单指令，可以优化
+        return 1;
+    }
+    
+    // 检查所有输入是否都是常量
+    if node.asm_inputs != null {
+        var i: i32 = 0;
+        while i < total_input_count {
+            const input: &ASTNode = node.asm_inputs[i];
+            if input != null && is_constant_expression(checker, input) == 0 {
+                // 有非常量输入，不能折叠
+                return 0;
+            }
+            i = i + 1;
+        }
+    }
+    
+    return 1;
+}
+
+// 常量折叠 @asm 块
+fn constant_fold_asm_block(checker: &TypeChecker, node: &ASTNode) &ASTNode {
+    if node == null || checker == null {
+        return node;
+    }
+    
+    // 计算总输入数量
+    const total_input_count: i32 = get_total_asm_input_count(node);
+    
+    // 检查是否可以折叠
+    if can_fold_asm_block(checker, node) == 0 {
+        // 递归处理输入表达式
+        if node.asm_inputs != null {
+            var i: i32 = 0;
+            while i < total_input_count {
+                constant_folding_pass(checker, node.asm_inputs[i]);
+                i = i + 1;
+            }
+        }
+        return node;
+    }
+    
+    // 特定指令优化
+    if node.asm_instructions != null && node.asm_instruction_count > 0 {
+        var i: i32 = 0;
+        while i < node.asm_instruction_count {
+            const instr: &byte = node.asm_instructions[i];
+            
+            // 检查是否为纯计算指令（可折叠）
+            if can_fold_asm_instruction_str(instr) != 0 {
+                // 标记为可优化
+                if optimizer_verbose != 0 {
+                    printf("[optimize] @asm instruction can be constant folded\n" as *byte);
+                }
+                
+                // TODO: 实际的指令求值需要更复杂的逻辑
+                // 注意：@asm 是语句块，不应该标记 is_optimized（那是用于表达式的）
+                // 如果是 nop 等无副作用指令，可以标记为死代码
+                
+                optimizer_stats.constant_folded = optimizer_stats.constant_folded + 1;
+            }
+            
+            i = i + 1;
+        }
+    }
+    
+    // 注意：不要标记 is_optimized，因为 @asm 不是表达式
+    // node.is_optimized = 1;
+    
+    return node;
+}
+
+// 检查 @asm 指令字符串是否可以折叠
+fn can_fold_asm_instruction_str(instr: &byte) i32 {
+    if instr == null {
+        return 0;
+    }
+    
+    // 可以折叠的指令模式
+    // 例如：纯算术运算、位运算等
+    
+    // nop 指令可以优化掉（无副作用）
+    if strcmp(instr as *byte, "nop" as *byte) == 0 {
+        return 1;
+    }
+    
+    // 简单的 mov 指令（如果输入是常量）
+    // 这需要更复杂的分析，暂时返回 0
+    
+    return 0;
+}
+
+// ===== @asm 寄存器重用优化 =====
+
+// 寄存器分配信息
+struct RegisterAllocation {
+    reg_name: &byte,       // 寄存器名称
+    var_name: &byte,       // 变量名
+    last_use: i32,         // 最后使用位置
+    is_alive: i32          // 是否活跃
+}
+
+// 分析 @asm 块的寄存器使用
+fn analyze_asm_register_usage(node: &ASTNode) void {
+    if node == null || node.asm_instructions == null {
+        return;
+    }
+    
+    // TODO: 实现寄存器使用分析
+    // 这需要数据流分析来确定寄存器的生命周期
+    
+    if optimizer_verbose != 0 {
+        printf("[optimize] analyzing register usage for @asm block\n" as *byte);
+    }
+}
+
+// 寄存器重用优化 Pass
+export fn register_reuse_optimization_pass(checker: &TypeChecker, node: &ASTNode) &ASTNode {
+    if node == null || checker == null {
+        return node;
+    }
+    
+    // 只处理 @asm 节点
+    if node.type != ASTNodeType.AST_ASM {
+        return node;
+    }
+    
+    // 分析寄存器使用
+    analyze_asm_register_usage(node);
+    
+    // TODO: 实现寄存器重用
+    // 需要分析：
+    // 1. 每个输入/输出的生命周期
+    // 2. 哪些寄存器可以重用
+    // 3. 优化寄存器分配
+    
+    return node;
+}
+
+// ===== 死代码消除 =====
+
+// 检查条件是否为编译期常量
+fn is_constant_condition(checker: &TypeChecker, node: &ASTNode) i32 {
+    if node == null {
+        return 0;
+    }
+    
+    // 布尔字面量
+    if node.type == ASTNodeType.AST_BOOL {
+        return 1;
+    }
+    
+    // 检查是否为常量表达式
+    return is_constant_expression(checker, node);
+}
+
+// 获取常量条件的布尔值
+fn get_constant_condition_value(checker: &TypeChecker, node: &ASTNode) i32 {
+    return get_constant_condition_value_in_block(checker, node, null);
+}
+
+// 带 block 上下文的常量条件求值（可解析块内局部 const）
+fn get_constant_condition_value_in_block(checker: &TypeChecker, node: &ASTNode, block: &ASTNode) i32 {
+    if node == null {
+        return -1;
+    }
+    if node.type == ASTNodeType.AST_BOOL {
+        return node.bool_literal_value;
+    }
+    if block != null {
+        const v: i32 = checker_eval_const_expr_in_block(checker, node, block);
+        return v;
+    }
+    const value: i32 = checker_eval_const_expr(checker, node);
+    return value;
+}
+
+// 死代码消除 Pass
+export fn dead_code_elimination_pass(checker: &TypeChecker, node: &ASTNode) &ASTNode {
+    if node == null || checker == null {
+        return node;
+    }
+    
+    // 处理程序顶层声明
+    if node.type == ASTNodeType.AST_PROGRAM && node.program_decls != null {
+        var i: i32 = 0;
+        while i < node.program_decl_count {
+            dead_code_elimination_pass(checker, node.program_decls[i]);
+            i = i + 1;
+        }
+        return node;
+    }
+    
+    // 处理 if 语句
+    if node.type == ASTNodeType.AST_IF_STMT {
+        const condition: &ASTNode = node.if_stmt_condition;
+        
+        if is_constant_condition(checker, condition) != 0 {
+            const cond_value: i32 = get_constant_condition_value(checker, condition);
+            
+            if cond_value == 1 {
+                // 条件恒为真：标记 else 分支为死代码
+                if node.if_stmt_else_branch != null {
+                    node.if_stmt_else_branch.is_dead_code = 1;
+                    optimizer_stats.dead_code_eliminated = optimizer_stats.dead_code_eliminated + 1;
+                    
+                    if optimizer_verbose != 0 {
+                        printf("[optimize] dead code eliminated: else branch (condition always true)\n" as *byte);
+                    }
+                }
+            } else if cond_value == 0 {
+                // 条件恒为假：标记 then 分支为死代码
+                if node.if_stmt_then_branch != null {
+                    node.if_stmt_then_branch.is_dead_code = 1;
+                    optimizer_stats.dead_code_eliminated = optimizer_stats.dead_code_eliminated + 1;
+                    
+                    if optimizer_verbose != 0 {
+                        printf("[optimize] dead code eliminated: then branch (condition always false)\n" as *byte);
+                    }
+                }
+            }
+        }
+        
+        // 递归处理子节点
+        if node.if_stmt_then_branch != null {
+            dead_code_elimination_pass(checker, node.if_stmt_then_branch);
+        }
+        if node.if_stmt_else_branch != null {
+            dead_code_elimination_pass(checker, node.if_stmt_else_branch);
+        }
+    }
+    
+    // 处理其他节点类型
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            dead_code_elimination_pass(checker, node.block_stmts[i]);
+            i = i + 1;
+        }
+    } else if node.type == ASTNodeType.AST_FN_DECL && node.fn_decl_body != null {
+        if node.fn_decl_type_param_count > 0 {
+            return node;
+        }
+        dead_code_elimination_pass(checker, node.fn_decl_body);
+    } else if node.type == ASTNodeType.AST_TEST_STMT && node.test_stmt_body != null {
+        dead_code_elimination_pass(checker, node.test_stmt_body);
+    }
+    
+    return node;
+}
+
+// ===== 证明优化 =====
+
+// 检查边界检查是否可被证明为真
+fn can_prove_bounds_check(checker: &TypeChecker, array_expr: &ASTNode, index_expr: &ASTNode) i32 {
+    if checker == null || array_expr == null || index_expr == null {
+        return 0;
+    }
+    
+    // 获取数组大小
+    const array_type: Type = checker_infer_type(checker, array_expr);
+    if array_type.kind != TypeKind.TYPE_ARRAY {
+        return 0;
+    }
+    const array_size: i32 = array_type.array_size;
+    
+    // 检查索引是否为常量
+    if is_constant_expression(checker, index_expr) != 0 {
+        const index_value: i32 = checker_eval_const_expr(checker, index_expr);
+        if index_value >= 0 && index_value < array_size {
+            return 1;
+        }
+    }
+    
+    return 0;
+}
+
+// 证明优化 Pass（内部实现，支持传入 enclosing_block 以解析局部 const）
+fn proof_optimization_pass_impl(checker: &TypeChecker, node: &ASTNode, enclosing_block: &ASTNode) &ASTNode {
+    if node == null || checker == null {
+        return node;
+    }
+
+    // 处理程序顶层声明
+    if node.type == ASTNodeType.AST_PROGRAM && node.program_decls != null {
+        var i: i32 = 0;
+        while i < node.program_decl_count {
+            proof_optimization_pass_impl(checker, node.program_decls[i], null);
+            i = i + 1;
+        }
+        return node;
+    }
+
+    // 处理数组访问
+    if node.type == ASTNodeType.AST_ARRAY_ACCESS {
+        const array_expr: &ASTNode = node.array_access_array;
+        const index_expr: &ASTNode = node.array_access_index;
+        
+        if can_prove_bounds_check(checker, array_expr, index_expr) != 0 {
+            // 可以证明边界安全，标记为优化
+            node.is_proved_safe = 1;
+            optimizer_stats.proof_optimized = optimizer_stats.proof_optimized + 1;
+            
+            if optimizer_verbose != 0 {
+                printf("[optimize] proof optimized: bounds check removed\n" as *byte);
+            }
+        }
+    }
+    
+    // 处理 if 语句：条件恒为真时标记 is_proved_safe（codegen 将移除 if 包装）
+    if node.type == ASTNodeType.AST_IF_STMT {
+        const condition: &ASTNode = node.if_stmt_condition;
+
+        var cond_constant: i32 = 0;
+        if condition != null {
+            if enclosing_block != null {
+                cond_constant = is_constant_expression_in_block(checker, condition, enclosing_block);
+            } else {
+                cond_constant = is_constant_condition(checker, condition);
+            }
+        }
+        if condition != null && cond_constant != 0 {
+            const cond_value: i32 = get_constant_condition_value_in_block(checker, condition, enclosing_block);
+            if cond_value == 1 {
+                node.is_proved_safe = 1;
+                optimizer_stats.proof_optimized = optimizer_stats.proof_optimized + 1;
+                
+                if optimizer_verbose != 0 {
+                    printf("[optimize] proof optimized: condition proved true\n" as *byte);
+                }
+            }
+        }
+        
+        // 递归处理子节点
+        if node.if_stmt_then_branch != null {
+            proof_optimization_pass_impl(checker, node.if_stmt_then_branch, enclosing_block);
+        }
+        if node.if_stmt_else_branch != null {
+            proof_optimization_pass_impl(checker, node.if_stmt_else_branch, enclosing_block);
+        }
+    }
+
+    // 处理 block：传递自身作为 enclosing_block
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            proof_optimization_pass_impl(checker, node.block_stmts[i], node);
+            i = i + 1;
+        }
+    } else if node.type == ASTNodeType.AST_FN_DECL && node.fn_decl_body != null {
+        proof_optimization_pass_impl(checker, node.fn_decl_body, null);
+    } else if node.type == ASTNodeType.AST_TEST_STMT && node.test_stmt_body != null {
+        proof_optimization_pass_impl(checker, node.test_stmt_body, null);
+    } else if node.type == ASTNodeType.AST_VAR_DECL && node.var_decl_init != null {
+        proof_optimization_pass_impl(checker, node.var_decl_init, enclosing_block);
+    } else if node.type == ASTNodeType.AST_RETURN_STMT && node.return_stmt_expr != null {
+        proof_optimization_pass_impl(checker, node.return_stmt_expr, enclosing_block);
+    } else if node.type == ASTNodeType.AST_ASSIGN {
+        if node.assign_dest != null {
+            proof_optimization_pass_impl(checker, node.assign_dest, enclosing_block);
+        }
+        if node.assign_src != null {
+            proof_optimization_pass_impl(checker, node.assign_src, enclosing_block);
+        }
+    }
+
+    return node;
+}
+
+// 证明优化 Pass（对外入口）
+export fn proof_optimization_pass(checker: &TypeChecker, node: &ASTNode) &ASTNode {
+    return proof_optimization_pass_impl(checker, node, null);
+}
+
+// ===== 内联优化 =====
+
+// 内联配置
+const INLINE_MAX_LINES: i32 = 20;      // 最大可内联函数行数
+const INLINE_MAX_DEPTH: i32 = 3;       // 最大内联深度
+
+// 内联上下文（跟踪递归）
+var inline_depth: i32 = 0;
+var inline_call_stack: [&byte: 64] = [];  // 调用栈，防止递归
+var inline_call_stack_top: i32 = 0;
+
+fn inline_call_stack_set(idx: i32, value: &byte) void {
+    if idx >= 0 && idx < 64 {
+        inline_call_stack[idx] = value;
+    }
+}
+
+// 检查函数是否可内联
+fn can_inline_function(checker: &TypeChecker, fn_decl: &ASTNode) i32 {
+    if fn_decl == null || checker == null {
+        return 0;
+    }
+    
+    // 必须有函数体
+    if fn_decl.fn_decl_body == null {
+        return 0;
+    }
+    
+    // extern 函数不能内联
+    if fn_decl.fn_decl_is_extern != 0 {
+        return 0;
+    }
+    
+    // 泛型函数暂不内联
+    if fn_decl.fn_decl_type_param_count > 0 {
+        return 0;
+    }
+    
+    // 估算函数体大小（简化：用语句数量）
+    const body: &ASTNode = fn_decl.fn_decl_body;
+    if body == null || body.type != ASTNodeType.AST_BLOCK {
+        return 0;
+    }
+    
+    // 函数体语句数量限制
+    if body.block_stmt_count > INLINE_MAX_LINES {
+        return 0;
+    }
+    
+    return 1;
+}
+
+// 检查函数是否在调用栈中（递归检测）
+fn is_in_call_stack(fn_name: &byte) i32 {
+    if fn_name == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < inline_call_stack_top && i < @len(inline_call_stack) {
+        if inline_call_stack[i] != null && str_equals(inline_call_stack[i], fn_name) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 内联函数调用
+fn inline_call_expr(checker: &TypeChecker, call_node: &ASTNode, current_fn: &ASTNode) &ASTNode {
+    if call_node == null || checker == null {
+        return call_node;
+    }
+    
+    // 获取被调函数名
+    const callee: &ASTNode = call_node.call_expr_callee;
+    if callee == null || callee.type != ASTNodeType.AST_IDENTIFIER {
+        return call_node;
+    }
+    const fn_name: &byte = callee.identifier_name;
+    if fn_name == null {
+        return call_node;
+    }
+    
+    // 防止递归内联
+    if is_in_call_stack(fn_name) != 0 {
+        return call_node;
+    }
+    
+    // 查找函数声明
+    const fn_decl: &ASTNode = find_fn_decl_from_program(checker.program_node, fn_name);
+    if fn_decl == null {
+        return call_node;
+    }
+    
+    // 检查是否可内联
+    if can_inline_function(checker, fn_decl) == 0 {
+        return call_node;
+    }
+    
+    // 检查内联深度
+    if inline_depth >= INLINE_MAX_DEPTH {
+        return call_node;
+    }
+    
+    // 标记内联
+    call_node.is_inlined = 1;
+    call_node.inlined_body = fn_decl.fn_decl_body;
+    
+    // 更新统计
+    optimizer_stats.inlined_functions = optimizer_stats.inlined_functions + 1;
+    
+    if optimizer_verbose != 0 {
+        printf("[optimize] inlined function: %s\n" as *byte, fn_name);
+    }
+    
+    // 将函数名加入调用栈
+    const call_stack_idx: i32 = inline_call_stack_top;
+    if call_stack_idx >= 0 {
+        if call_stack_idx < @len(inline_call_stack) {
+            inline_call_stack_set(call_stack_idx, fn_name);
+            inline_call_stack_top = call_stack_idx + 1;
+        }
+    }
+
+    // 递归处理内联后的函数体
+    inline_depth = inline_depth + 1;
+    inline_pass(checker, fn_decl.fn_decl_body);
+    inline_depth = inline_depth - 1;
+
+    // 从调用栈弹出
+    inline_call_stack_top = inline_call_stack_top - 1;
+    if inline_call_stack_top >= 0 && inline_call_stack_top < @len(inline_call_stack) {
+        inline_call_stack_set(inline_call_stack_top, null);
+    }
+    
+    return call_node;
+}
+
+// 内联优化 Pass
+export fn inline_pass(checker: &TypeChecker, node: &ASTNode) &ASTNode {
+    if node == null || checker == null {
+        return node;
+    }
+    
+    // 重置内联状态（仅在顶层调用）
+    if inline_depth == 0 {
+        inline_call_stack_top = 0;
+        var i: i32 = 0;
+        while i < @len(inline_call_stack) {
+            inline_call_stack[i] = null;
+            i = i + 1;
+        }
+    }
+    
+    // 处理程序顶层声明
+    if node.type == ASTNodeType.AST_PROGRAM && node.program_decls != null {
+        var i: i32 = 0;
+        while i < node.program_decl_count {
+            inline_pass(checker, node.program_decls[i]);
+            i = i + 1;
+        }
+        return node;
+    }
+    
+    // 获取当前函数
+    const current_fn: &ASTNode = checker.current_function_decl;
+    
+    // 处理函数调用
+    if node.type == ASTNodeType.AST_CALL_EXPR {
+        inline_call_expr(checker, node, current_fn);
+    }
+    
+    // 递归处理子节点
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        inline_pass(checker, node.binary_expr_left);
+        inline_pass(checker, node.binary_expr_right);
+    } else if node.type == ASTNodeType.AST_UNARY_EXPR {
+        inline_pass(checker, node.unary_expr_operand);
+    } else if node.type == ASTNodeType.AST_CALL_EXPR {
+        // 处理参数
+        if node.call_expr_args != null {
+            var i: i32 = 0;
+            while i < node.call_expr_arg_count {
+                inline_pass(checker, node.call_expr_args[i]);
+                i = i + 1;
+            }
+        }
+    } else if node.type == ASTNodeType.AST_MEMBER_ACCESS {
+        inline_pass(checker, node.member_access_object);
+    } else if node.type == ASTNodeType.AST_ARRAY_ACCESS {
+        inline_pass(checker, node.array_access_array);
+        inline_pass(checker, node.array_access_index);
+    } else if node.type == ASTNodeType.AST_VAR_DECL && node.var_decl_init != null {
+        inline_pass(checker, node.var_decl_init);
+    } else if node.type == ASTNodeType.AST_IF_STMT {
+        inline_pass(checker, node.if_stmt_condition);
+        if node.if_stmt_then_branch != null {
+            inline_pass(checker, node.if_stmt_then_branch);
+        }
+        if node.if_stmt_else_branch != null {
+            inline_pass(checker, node.if_stmt_else_branch);
+        }
+    } else if node.type == ASTNodeType.AST_WHILE_STMT {
+        inline_pass(checker, node.while_stmt_condition);
+        if node.while_stmt_body != null {
+            inline_pass(checker, node.while_stmt_body);
+        }
+    } else if node.type == ASTNodeType.AST_FOR_STMT {
+        if node.for_stmt_array != null {
+            inline_pass(checker, node.for_stmt_array);
+        }
+        if node.for_stmt_range_start != null {
+            inline_pass(checker, node.for_stmt_range_start);
+        }
+        if node.for_stmt_range_end != null {
+            inline_pass(checker, node.for_stmt_range_end);
+        }
+        if node.for_stmt_body != null {
+            inline_pass(checker, node.for_stmt_body);
+        }
+    } else if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            inline_pass(checker, node.block_stmts[i]);
+            i = i + 1;
+        }
+    } else if node.type == ASTNodeType.AST_FN_DECL && node.fn_decl_body != null {
+        // 设置当前函数上下文
+        const prev_fn: &ASTNode = checker.current_function_decl;
+        checker.current_function_decl = node;
+        inline_pass(checker, node.fn_decl_body);
+        checker.current_function_decl = prev_fn;
+    } else if node.type == ASTNodeType.AST_RETURN_STMT && node.return_stmt_expr != null {
+        inline_pass(checker, node.return_stmt_expr);
+    }
+    
+    return node;
+}
+
+// ===== 循环展开 =====
+
+// 循环展开配置
+const UNROLL_MAX_ITERATIONS: i32 = 8;   // 最大展开迭代次数
+const UNROLL_MIN_ITERATIONS: i32 = 2;   // 最小展开迭代次数
+
+// 检查范围循环是否可展开
+fn can_unroll_for_range(node: &ASTNode) i32 {
+    if node == null {
+        return 0;
+    }
+    
+    // 必须是范围循环
+    if node.for_stmt_is_range == 0 {
+        return 0;
+    }
+    
+    // 起止必须是常量
+    if node.for_stmt_range_start == null || node.for_stmt_range_end == null {
+        return 0;
+    }
+    
+    return 1;
+}
+
+// 计算范围循环迭代次数
+fn get_range_iteration_count(node: &ASTNode, checker: &TypeChecker) i32 {
+    if node == null || checker == null {
+        return -1;
+    }
+    
+    // 检查起始是否为常量
+    const start: &ASTNode = node.for_stmt_range_start;
+    const end: &ASTNode = node.for_stmt_range_end;
+    
+    if is_constant_expression(checker, start) == 0 {
+        return -1;
+    }
+    if is_constant_expression(checker, end) == 0 {
+        return -1;
+    }
+    
+    const start_val: i32 = checker_eval_const_expr(checker, start);
+    const end_val: i32 = checker_eval_const_expr(checker, end);
+    
+    // 计算迭代次数
+    const count: i32 = end_val - start_val;
+    if count < UNROLL_MIN_ITERATIONS || count > UNROLL_MAX_ITERATIONS {
+        return -1;
+    }
+    
+    return count;
+}
+
+// 循环展开 Pass
+export fn loop_unrolling_pass(checker: &TypeChecker, node: &ASTNode) &ASTNode {
+    if node == null || checker == null {
+        return node;
+    }
+    
+    // 处理程序顶层声明
+    if node.type == ASTNodeType.AST_PROGRAM && node.program_decls != null {
+        var i: i32 = 0;
+        while i < node.program_decl_count {
+            loop_unrolling_pass(checker, node.program_decls[i]);
+            i = i + 1;
+        }
+        return node;
+    }
+    
+    // 处理 for 范围循环
+    if node.type == ASTNodeType.AST_FOR_STMT && can_unroll_for_range(node) != 0 {
+        const iter_count: i32 = get_range_iteration_count(node, checker);
+        
+        if iter_count > 0 && iter_count <= UNROLL_MAX_ITERATIONS {
+            // 标记循环为可展开
+            node.is_unrolled = 1;
+            node.unroll_count = iter_count;
+            
+            optimizer_stats.loops_unrolled = optimizer_stats.loops_unrolled + 1;
+            
+            if optimizer_verbose != 0 {
+                printf("[optimize] loop unrolled: %d iterations\n" as *byte, iter_count);
+            }
+        }
+    }
+    
+    // 递归处理子节点
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            loop_unrolling_pass(checker, node.block_stmts[i]);
+            i = i + 1;
+        }
+    } else if node.type == ASTNodeType.AST_FN_DECL && node.fn_decl_body != null {
+        loop_unrolling_pass(checker, node.fn_decl_body);
+    } else if node.type == ASTNodeType.AST_IF_STMT {
+        if node.if_stmt_then_branch != null {
+            loop_unrolling_pass(checker, node.if_stmt_then_branch);
+        }
+        if node.if_stmt_else_branch != null {
+            loop_unrolling_pass(checker, node.if_stmt_else_branch);
+        }
+    } else if node.type == ASTNodeType.AST_WHILE_STMT && node.while_stmt_body != null {
+        loop_unrolling_pass(checker, node.while_stmt_body);
+    } else if node.type == ASTNodeType.AST_FOR_STMT && node.for_stmt_body != null {
+        loop_unrolling_pass(checker, node.for_stmt_body);
+    }
+    
+    return node;
+}
+
+// ===== P2: 指令融合优化 =====
+
+// 可融合的指令模式
+// 例如：add r0, r1, r2; add r0, r0, r3 -> add r0, r1, r2, r3（如果架构支持）
+
+// 指令融合结果
+struct InstructionFusionResult {
+    can_fuse: i32,           // 是否可以融合
+    fused_instruction: &byte, // 融合后的指令
+    eliminated_count: i32    // 消除的指令数
+}
+
+// 检测两条连续的算术指令是否可以融合
+fn can_fuse_arithmetic_instructions(instr1: &byte, instr2: &byte) InstructionFusionResult {
+    var result: InstructionFusionResult = InstructionFusionResult{
+        can_fuse: 0,
+        fused_instruction: null,
+        eliminated_count: 0
+    };
+    
+    if instr1 == null || instr2 == null {
+        return result;
+    }
+    
+    // 简单的融合模式检测
+    // 例如：连续的 add/sub 可以合并（如果第二条指令的目标和第一条相同）
+    // 这是一个框架实现，实际融合需要更复杂的模式匹配
+    
+    // 检测是否为相同类型的算术指令
+    if strstr(instr1 as *byte, "add" as *byte) != null && strstr(instr2 as *byte, "add" as *byte) != null {
+        // 两条连续的加法可能可以合并
+        // TODO: 需要分析操作数来确定是否真正可以融合
+        if optimizer_verbose != 0 {
+            printf("[optimize] detected consecutive add instructions (potential fusion)\n" as *byte);
+        }
+    }
+    
+    if strstr(instr1 as *byte, "mul" as *byte) != null && strstr(instr2 as *byte, "add" as *byte) != null {
+        // 乘法后加法可以合并为乘加指令（如果架构支持）
+        if optimizer_verbose != 0 {
+            printf("[optimize] detected mul+add pattern (potential MAC fusion)\n" as *byte);
+        }
+    }
+    
+    return result;
+}
+
+// @asm 指令融合 Pass
+export fn instruction_fusion_pass(checker: &TypeChecker, node: &ASTNode) &ASTNode {
+    if node == null || checker == null {
+        return node;
+    }
+    
+    // 只处理 @asm 节点
+    if node.type != ASTNodeType.AST_ASM {
+        // 递归处理其他节点
+        if node.type == ASTNodeType.AST_PROGRAM && node.program_decls != null {
+            var i: i32 = 0;
+            while i < node.program_decl_count {
+                instruction_fusion_pass(checker, node.program_decls[i]);
+                i = i + 1;
+            }
+        } else if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+            var i: i32 = 0;
+            while i < node.block_stmt_count {
+                instruction_fusion_pass(checker, node.block_stmts[i]);
+                i = i + 1;
+            }
+        } else if node.type == ASTNodeType.AST_FN_DECL && node.fn_decl_body != null {
+            instruction_fusion_pass(checker, node.fn_decl_body);
+        }
+        return node;
+    }
+    
+    // 处理 @asm 块中的指令序列
+    if node.asm_instructions != null && node.asm_instruction_count > 1 {
+        var i: i32 = 0;
+        while i < node.asm_instruction_count - 1 {
+            const instr1: &byte = node.asm_instructions[i];
+            const instr2: &byte = node.asm_instructions[i + 1];
+            
+            if instr1 != null && instr2 != null {
+                const fusion_result: InstructionFusionResult = can_fuse_arithmetic_instructions(instr1, instr2);
+                
+                if fusion_result.can_fuse != 0 {
+                    // 标记可以融合
+                    // TODO: 实际的指令融合需要修改代码生成阶段
+                    optimizer_stats.proof_optimized = optimizer_stats.proof_optimized + 1;
+                    
+                    if optimizer_verbose != 0 {
+                        printf("[optimize] instruction fusion opportunity detected at index %d\n" as *byte, i);
+                    }
+                }
+            }
+            i = i + 1;
+        }
+    }
+    
+    return node;
+}
+
+// ===== P2: 冗余消除优化 =====
+
+// 冗余指令类型
+enum RedundantInstructionType {
+    REDUNDANT_NONE,         // 非冗余
+    REDUNDANT_NOP,          // 无操作指令
+    REDUNDANT_SELF_MOVE,    // 自移动（mov r0, r0）
+    REDUNDANT_DEAD_STORE,   // 死存储（写入后未读取就被覆盖）
+    REDUNDANT_CONST_LOAD    // 重复加载相同常量
+}
+
+// 冗余指令检测结果
+struct RedundantInstructionResult {
+    is_redundant: i32,               // 是否冗余
+    redundant_type: i32,             // RedundantInstructionType
+    reason: &byte                    // 冗余原因
+}
+
+// 检测单条指令是否为冗余
+fn detect_redundant_instruction(instr: &byte, prev_instr: &byte) RedundantInstructionResult {
+    var result: RedundantInstructionResult = RedundantInstructionResult{
+        is_redundant: 0,
+        redundant_type: RedundantInstructionType.REDUNDANT_NONE as i32,
+        reason: null
+    };
+    
+    if instr == null {
+        return result;
+    }
+    
+    // 检测 nop 指令
+    if strcmp(instr as *byte, "nop" as *byte) == 0 {
+        result.is_redundant = 1;
+        result.redundant_type = RedundantInstructionType.REDUNDANT_NOP as i32;
+        result.reason = "nop 指令无副作用，可以消除" as &byte;
+        return result;
+    }
+    
+    // 检测自移动指令（如 mov r0, r0）
+    // 这需要解析指令格式，简化处理
+    if strstr(instr as *byte, "mov" as *byte) != null {
+        // 简单检测：如果 mov 指令的源和目标相同
+        // 实际实现需要解析操作数
+        // 这里只是框架，标记 TODO
+    }
+    
+    // 检测重复的常量加载
+    if prev_instr != null {
+        if strstr(instr as *byte, "mov" as *byte) != null && strstr(prev_instr as *byte, "mov" as *byte) != null {
+            // 检查是否加载相同的常量到相同的寄存器
+            // TODO: 需要解析操作数
+        }
+    }
+    
+    return result;
+}
+
+// 分析寄存器生命周期（简化版）
+fn analyze_register_lifecycle(node: &ASTNode) void {
+    if node == null || node.asm_instructions == null {
+        return;
+    }
+    
+    // 这是一个简化版的生命周期分析
+    // 完整实现需要：
+    // 1. 解析每条指令的输入/输出寄存器
+    // 2. 构建数据流图
+    // 3. 计算每个寄存器的活跃区间
+    // 4. 识别死存储
+    
+    if optimizer_verbose != 0 {
+        printf("[optimize] analyzing register lifecycle for @asm block (%d instructions)\n" as *byte, node.asm_instruction_count);
+    }
+}
+
+// @asm 冗余指令消除 Pass
+export fn redundant_instruction_elimination_pass(checker: &TypeChecker, node: &ASTNode) &ASTNode {
+    if node == null || checker == null {
+        return node;
+    }
+    
+    // 只处理 @asm 节点
+    if node.type != ASTNodeType.AST_ASM {
+        // 递归处理其他节点
+        if node.type == ASTNodeType.AST_PROGRAM && node.program_decls != null {
+            var i: i32 = 0;
+            while i < node.program_decl_count {
+                redundant_instruction_elimination_pass(checker, node.program_decls[i]);
+                i = i + 1;
+            }
+        } else if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+            var i: i32 = 0;
+            while i < node.block_stmt_count {
+                redundant_instruction_elimination_pass(checker, node.block_stmts[i]);
+                i = i + 1;
+            }
+        } else if node.type == ASTNodeType.AST_FN_DECL && node.fn_decl_body != null {
+            redundant_instruction_elimination_pass(checker, node.fn_decl_body);
+        }
+        return node;
+    }
+    
+    // 分析寄存器生命周期
+    analyze_register_lifecycle(node);
+    
+    // 检测冗余指令
+    if node.asm_instructions != null && node.asm_instruction_count > 0 {
+        var prev_instr: &byte = null;
+        var i: i32 = 0;
+        while i < node.asm_instruction_count {
+            const instr: &byte = node.asm_instructions[i];
+            
+            if instr != null {
+                const redundant_result: RedundantInstructionResult = detect_redundant_instruction(instr, prev_instr);
+                
+                if redundant_result.is_redundant != 0 {
+                    // 标记指令为死代码
+                    // 注意：不能直接删除指令，需要标记让代码生成阶段处理
+                    // node.asm_instructions[i] = null; // 不推荐直接修改
+                    
+                    optimizer_stats.dead_code_eliminated = optimizer_stats.dead_code_eliminated + 1;
+                    
+                    if optimizer_verbose != 0 {
+                        printf("[optimize] redundant instruction detected: %s (%s)\n" as *byte, instr, redundant_result.reason);
+                    }
+                }
+                
+                prev_instr = instr;
+            }
+            i = i + 1;
+        }
+    }
+    
+    return node;
+}
+
+// ===== 综合优化入口 =====
+
+// 执行所有 P2 优化（指令融合 + 冗余消除）
+export fn optimize_asm_block(checker: &TypeChecker, node: &ASTNode, config: OptimizationConfig) &ASTNode {
+    if node == null || checker == null {
+        return node;
+    }
+    
+    // 只处理 @asm 节点
+    if node.type != ASTNodeType.AST_ASM {
+        return node;
+    }
+    
+    // Pass 1: 冗余消除（先执行，为后续优化创造机会）
+    redundant_instruction_elimination_pass(checker, node);
+    
+    // Pass 2: 指令融合
+    instruction_fusion_pass(checker, node);
+    
+    return node;
+}

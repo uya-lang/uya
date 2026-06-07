@@ -1,0 +1,525 @@
+// enums.uya - C99 代码生成器枚举模块
+// 提供枚举定义生成功能
+//
+// 注意：需要先包含 internal.uya（包含类型定义和函数声明）
+// 由于 Uya Mini 不支持模块系统，这里假设相关类型已经定义
+
+// ===== 外部函数声明 =====
+// C 标准库函数（在 extern_decls.uya 中声明）
+
+extern fn c99_codegen_report_capacity_error(node: &ASTNode, table_name: &byte, count: i32, limit: i32) void;
+
+// enum 精确名全程序线性扫描（oracle 对照 / 无 SemanticDb 时回退用）。
+fn find_enum_decl_c99_scan(codegen: &C99CodeGenerator, enum_name: &byte) &ASTNode {
+    if codegen == null || enum_name == null || codegen.program_node == null {
+        return null;
+    }
+    const decl_count: i32 = codegen.program_node.program_decl_count;
+    var i: i32 = 0;
+    while i < decl_count {
+        const decl: &ASTNode = codegen.program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_ENUM_DECL {
+            const decl_name: &byte = decl.enum_decl_name;
+            if decl_name != null && strcmp(decl_name as *byte, enum_name as *byte) == 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+fn find_enum_decl_c99_impl(codegen: &C99CodeGenerator, enum_name: &byte) &ASTNode {
+    if codegen == null || enum_name == null || codegen.program_node == null {
+        return null;
+    }
+    if codegen.decl_cache_initialized == 0 {
+        build_decl_caches(codegen);
+    }
+    if codegen.decl_cache_initialized != 0 {
+        const h: i32 = (hash_string(enum_name) & C99_DECL_CACHE_MASK) as i32;
+        const cached: &ASTNode = codegen.enum_decl_cache[h];
+        if cached != null && cached.type == ASTNodeType.AST_ENUM_DECL &&
+            cached.enum_decl_name != null &&
+            strcmp(cached.enum_decl_name as *byte, enum_name as *byte) == 0 {
+            return cached;
+        }
+    }
+    // SemanticDb O(1) 精确查找替代全程序线性扫描：enum 查找纯精确匹配（无 mono 回退），
+    // 否定即真否定。type range 经 Phase 2 oracle 验证覆盖全部 enum 声明；
+    // UYA_C99_LOOKUP_ORACLE=1 时与原扫描对照确认完整性。
+    if codegen.checker != null {
+        const r_sem: &ASTNode = c99_semantic_find_type_decl_by_kind(codegen, enum_name, ASTNodeType.AST_ENUM_DECL);
+        if c99_lookup_oracle_enabled() != 0 {
+            const r_scan: &ASTNode = find_enum_decl_c99_scan(codegen, enum_name);
+            if r_sem != r_scan {
+                fprintf(libc.stderr, "[UYA_C99_LOOKUP_ORACLE] enum 否定短路与扫描不一致: name=%s\n" as *byte, enum_name as *byte);
+            }
+        }
+        return r_sem;
+    }
+    return find_enum_decl_c99_scan(codegen, enum_name);
+}
+
+// 查找枚举声明：薄包装，记账查询剖析后委托 _impl。
+fn find_enum_decl_c99(codegen: &C99CodeGenerator, enum_name: &byte) &ASTNode {
+    const r: &ASTNode = find_enum_decl_c99_impl(codegen, enum_name);
+    if c99_qprof_enabled() != 0 {
+        var hit: i32 = 0;
+        if r != null { hit = 1; }
+        c99_qprof_bump(QP_ENUM, hit);
+    }
+    return r;
+}
+
+fn c99_build_use_module_name(codegen: &C99CodeGenerator, use_stmt: &ASTNode) &byte {
+    if codegen == null || use_stmt == null || use_stmt.use_stmt_path_segments == null ||
+        use_stmt.use_stmt_path_segment_count <= 0 {
+        return null;
+    }
+    var total_len: usize = 0;
+    var i: i32 = 0;
+    while i < use_stmt.use_stmt_path_segment_count {
+        if use_stmt.use_stmt_path_segments[i] != null {
+            total_len = total_len + strlen(use_stmt.use_stmt_path_segments[i] as *byte);
+            if i > 0 {
+                total_len = total_len + 1;
+            }
+        }
+        i = i + 1;
+    }
+    if total_len == 0 {
+        return null;
+    }
+    const buf: &byte = compiler_arena_alloc(codegen.arena, total_len + 1) as &byte;
+    if buf == null {
+        return null;
+    }
+    var dst: &byte = buf;
+    i = 0;
+    while i < use_stmt.use_stmt_path_segment_count {
+        const seg: &byte = use_stmt.use_stmt_path_segments[i];
+        if seg != null {
+            if i > 0 {
+                dst[0] = 46;
+                dst = &dst[1];
+            }
+            const sl: usize = strlen(seg as *byte);
+            memcpy(dst as *void, seg as *void, sl);
+            dst = &dst[sl];
+        }
+        i = i + 1;
+    }
+    dst[0] = 0;
+    return buf;
+}
+
+fn c99_find_module_export_decl(codegen: &C99CodeGenerator, module_name: &byte, item_name: &byte, item_type: i32) &ASTNode {
+    if codegen == null || codegen.checker == null || module_name == null || item_name == null {
+        return null;
+    }
+    var mi: i32 = 0;
+    while mi < MODULE_TABLE_SIZE {
+        const module: &ModuleInfo = codegen.checker.module_table.slots[mi];
+        if module != null && module.module_name != null &&
+            strcmp(module.module_name as *byte, module_name as *byte) == 0 {
+            var ei: i32 = 0;
+            while ei < module.export_count {
+                if module.exports != null && module.exports[ei].name != null &&
+                    strcmp(module.exports[ei].name as *byte, item_name as *byte) == 0 &&
+                    module.exports[ei].item_type == item_type {
+                    return module.exports[ei].decl_node;
+                }
+                ei = ei + 1;
+            }
+            return null;
+        }
+        mi = mi + 1;
+    }
+    return null;
+}
+
+fn c99_find_enum_decl_from_use_stmt(codegen: &C99CodeGenerator, use_stmt: &ASTNode, local_name: &byte) &ASTNode {
+    if codegen == null || use_stmt == null || local_name == null || use_stmt.use_stmt_item_name == null {
+        return null;
+    }
+    var imported_local: &byte = use_stmt.use_stmt_item_name;
+    if use_stmt.use_stmt_alias != null {
+        imported_local = use_stmt.use_stmt_alias;
+    }
+    if imported_local == null || strcmp(imported_local as *byte, local_name as *byte) != 0 {
+        return null;
+    }
+    const module_name: &byte = c99_build_use_module_name(codegen, use_stmt);
+    if module_name == null {
+        return null;
+    }
+    const decl: &ASTNode = c99_find_module_export_decl(codegen, module_name, use_stmt.use_stmt_item_name, 5);
+    if decl != null && decl.type == ASTNodeType.AST_ENUM_DECL {
+        return decl;
+    }
+    return null;
+}
+
+fn c99_enum_context_filename_matches(cached: &byte, current: &byte) i32 {
+    if cached == current {
+        return 1;
+    }
+    if cached == null || current == null {
+        return 0;
+    }
+    if strcmp(cached as *byte, current as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn c99_enum_context_cache_matches(codegen: &C99CodeGenerator, enum_name: &byte, context_filename: &byte) i32 {
+    if codegen == null || codegen.enum_context_cache_valid == 0 ||
+        codegen.enum_context_cache_name == null || enum_name == null {
+        return 0;
+    }
+    if strcmp(codegen.enum_context_cache_name as *byte, enum_name as *byte) != 0 {
+        return 0;
+    }
+    return c99_enum_context_filename_matches(codegen.enum_context_cache_filename, context_filename);
+}
+
+fn c99_enum_context_cache_store(codegen: &C99CodeGenerator, enum_name: &byte, context_filename: &byte, result: &ASTNode) &ASTNode {
+    if codegen == null {
+        return result;
+    }
+    codegen.enum_context_cache_name = enum_name;
+    codegen.enum_context_cache_filename = context_filename;
+    codegen.enum_context_cache_result = result;
+    codegen.enum_context_cache_valid = 1;
+    return result;
+}
+
+fn c99_find_enum_decl_in_context_impl(codegen: &C99CodeGenerator, enum_name: &byte, context_filename: &byte) &ASTNode {
+    if codegen == null || codegen.program_node == null || enum_name == null {
+        return null;
+    }
+    if c99_enum_context_cache_matches(codegen, enum_name, context_filename) != 0 {
+        return codegen.enum_context_cache_result;
+    }
+    if context_filename != null {
+        // 否定短路：SemanticDb (FileId,NameId) 三索引(alias/enum/use)对 (context_filename,enum_name)
+        // 都不存在时(present_ctx==0)，下面 3 轮上下文全表扫描必然全否定，跳过直接走 fallback。
+        // present_ctx==1/-1（可能命中/无法判定）仍走扫描。c99_find_enum_decl_in_context 是短路后 perf #1。
+        // UYA_C99_LOOKUP_ORACLE=1 时即便 present_ctx==0 也走扫描，命中即报警（证明短路非漏判）。
+        var present_ctx: i32 = -1;
+        if codegen.checker != null {
+            present_ctx = c99_enum_ctx_name_present_in_file(codegen, enum_name, context_filename);
+        }
+        const ctx_oracle: i32 = c99_lookup_oracle_enabled();
+        if present_ctx != 0 || ctx_oracle != 0 {
+            const decl_count: i32 = codegen.program_node.program_decl_count;
+            var i_alias: i32 = 0;
+            while i_alias < decl_count {
+                const decl_alias: &ASTNode = codegen.program_node.program_decls[i_alias];
+                if decl_alias != null && decl_alias.type == ASTNodeType.AST_TYPE_ALIAS &&
+                    decl_alias.type_alias_name != null && decl_alias.filename != null &&
+                    strcmp(decl_alias.type_alias_name as *byte, enum_name as *byte) == 0 &&
+                    strcmp(decl_alias.filename as *byte, context_filename as *byte) == 0 &&
+                    decl_alias.type_alias_target_type != null &&
+                    decl_alias.type_alias_target_type.type == ASTNodeType.AST_TYPE_NAMED &&
+                    decl_alias.type_alias_target_type.type_named_name != null &&
+                    strcmp(decl_alias.type_alias_target_type.type_named_name as *byte, enum_name as *byte) != 0 {
+                    if ctx_oracle != 0 && present_ctx == 0 {
+                        fprintf(libc.stderr, "[UYA_C99_LOOKUP_ORACLE] enum_ctx 短路漏判(alias): name=%s file=%s\n" as *byte, enum_name as *byte, context_filename as *byte);
+                    }
+                    return c99_enum_context_cache_store(codegen, enum_name, context_filename,
+                        c99_find_enum_decl_in_context_impl(codegen,
+                            decl_alias.type_alias_target_type.type_named_name, context_filename));
+                }
+                i_alias = i_alias + 1;
+            }
+
+            var i_local: i32 = 0;
+            while i_local < decl_count {
+                const decl_local: &ASTNode = codegen.program_node.program_decls[i_local];
+                if decl_local != null && decl_local.type == ASTNodeType.AST_ENUM_DECL &&
+                    decl_local.enum_decl_name != null && decl_local.filename != null &&
+                    strcmp(decl_local.enum_decl_name as *byte, enum_name as *byte) == 0 &&
+                    strcmp(decl_local.filename as *byte, context_filename as *byte) == 0 {
+                    if ctx_oracle != 0 && present_ctx == 0 {
+                        fprintf(libc.stderr, "[UYA_C99_LOOKUP_ORACLE] enum_ctx 短路漏判(enum): name=%s file=%s\n" as *byte, enum_name as *byte, context_filename as *byte);
+                    }
+                    return c99_enum_context_cache_store(codegen, enum_name, context_filename, decl_local);
+                }
+                i_local = i_local + 1;
+            }
+
+            var i_use: i32 = 0;
+            while i_use < decl_count {
+                const decl_use: &ASTNode = codegen.program_node.program_decls[i_use];
+                if decl_use != null && decl_use.type == ASTNodeType.AST_USE_STMT &&
+                    decl_use.filename != null &&
+                    strcmp(decl_use.filename as *byte, context_filename as *byte) == 0 {
+                    const imported_decl: &ASTNode = c99_find_enum_decl_from_use_stmt(codegen, decl_use, enum_name);
+                    if imported_decl != null {
+                        if ctx_oracle != 0 && present_ctx == 0 {
+                            fprintf(libc.stderr, "[UYA_C99_LOOKUP_ORACLE] enum_ctx 短路漏判(use): name=%s file=%s\n" as *byte, enum_name as *byte, context_filename as *byte);
+                        }
+                        return c99_enum_context_cache_store(codegen, enum_name, context_filename, imported_decl);
+                    }
+                }
+                i_use = i_use + 1;
+            }
+        }
+    }
+
+    const alias_decl: &ASTNode = find_type_alias_from_program(codegen.program_node, enum_name);
+    if alias_decl != null && alias_decl.type_alias_target_type != null &&
+        alias_decl.type_alias_target_type.type == ASTNodeType.AST_TYPE_NAMED &&
+        alias_decl.type_alias_target_type.type_named_name != null &&
+        strcmp(alias_decl.type_alias_target_type.type_named_name as *byte, enum_name as *byte) != 0 {
+        return c99_enum_context_cache_store(codegen, enum_name, context_filename,
+            c99_find_enum_decl_in_context_impl(codegen,
+                alias_decl.type_alias_target_type.type_named_name, alias_decl.filename));
+    }
+
+    return c99_enum_context_cache_store(codegen, enum_name, context_filename,
+        find_enum_decl_c99(codegen, enum_name));
+}
+
+// 上下文敏感枚举查找：薄包装，记账查询剖析后委托 _impl（仅记最外层调用，递归走 _impl）。
+fn c99_find_enum_decl_in_context(codegen: &C99CodeGenerator, enum_name: &byte, context_filename: &byte) &ASTNode {
+    const r: &ASTNode = c99_find_enum_decl_in_context_impl(codegen, enum_name, context_filename);
+    if c99_qprof_enabled() != 0 {
+        var hit: i32 = 0;
+        if r != null { hit = 1; }
+        c99_qprof_bump(QP_ENUM_CTX, hit);
+    }
+    return r;
+}
+
+fn c99_get_enum_module_prefix(codegen: &C99CodeGenerator, filename: &byte) &byte {
+    if codegen == null || filename == null {
+        return ("" as *byte) as &byte;
+    }
+    if codegen.checker != null {
+        const module_name: &byte = extract_module_path_allocated(codegen.checker, filename);
+        if module_name != null && module_name[0] != 0 as byte {
+            const module_len: i32 = strlen(module_name as *byte);
+            const buf: &byte = compiler_arena_alloc(codegen.arena, (module_len + 2) as usize) as &byte;
+            if buf != null {
+                var i: i32 = 0;
+                while i < module_len {
+                    var ch: byte = module_name[i];
+                    if ch == 46 as byte || ch == 47 as byte || ch == 92 as byte {
+                        ch = 95 as byte;
+                    }
+                    buf[i] = ch;
+                    i = i + 1;
+                }
+                ((buf as *byte) + module_len)[0] = 95 as byte;
+                ((buf as *byte) + module_len + 1)[0] = 0 as byte;
+                return buf;
+            }
+        }
+    }
+    const legacy_prefix: &byte = get_module_prefix_from_filename(codegen, filename);
+    if legacy_prefix != null {
+        return legacy_prefix;
+    }
+    return ("" as *byte) as &byte;
+}
+
+fn c99_get_enum_c_name_from_decl(codegen: &C99CodeGenerator, enum_decl: &ASTNode) &byte {
+    if codegen == null || enum_decl == null || enum_decl.enum_decl_name == null {
+        return null;
+    }
+    const safe_name: &byte = get_safe_c_identifier(codegen, enum_decl.enum_decl_name);
+    if safe_name == null {
+        return null;
+    }
+    const prefix: &byte = c99_get_enum_module_prefix(codegen, enum_decl.filename);
+    if prefix == null || prefix[0] == 0 as byte {
+        return safe_name;
+    }
+    const prefix_len: usize = strlen(prefix as *byte);
+    const name_len: usize = strlen(safe_name as *byte);
+    const result: &byte = compiler_arena_alloc(codegen.arena, prefix_len + name_len + 1) as &byte;
+    if result == null {
+        return safe_name;
+    }
+    strcpy(result as *byte, prefix as *byte);
+    strcpy((result as *byte + prefix_len) as *byte, safe_name as *byte);
+    return result;
+}
+
+// 查找枚举变体的值（返回-1表示未找到）
+fn find_enum_variant_value(codegen: &C99CodeGenerator, enum_decl: &ASTNode, variant_name: &byte) i32 {
+    // codegen 参数未使用，但保留以保持接口一致性
+    if enum_decl == null || enum_decl.type != ASTNodeType.AST_ENUM_DECL || variant_name == null {
+        return -1;
+    }
+    
+    const variants: &EnumVariant = enum_decl.enum_decl_variants;
+    const variant_count: i32 = enum_decl.enum_decl_variant_count;
+    var current_value: i32 = 0;
+    
+    var i: i32 = 0;
+    while i < variant_count {
+        const variant: &EnumVariant = variants + i;
+        if variant.name == null {
+            i = i + 1;
+            continue;
+        }
+        
+        // 确定当前变体的值
+        if variant.value != null {
+            current_value = atoi(variant.value as *byte);
+        }
+        
+        // 检查是否匹配
+        if strcmp(variant.name as *byte, variant_name as *byte) == 0 {
+            return current_value;
+        }
+        
+        // 为下一变体准备值（无论是否有显式值都递增）
+        current_value = current_value + 1;
+        
+        i = i + 1;
+    }
+    
+    return -1;
+}
+
+fn is_enum_defined(codegen: &C99CodeGenerator, enum_name: &byte) i32 {
+    var i: i32 = 0;
+    while i < codegen.enum_definition_count {
+        if strcmp(codegen.enum_definitions[i].name as *byte, enum_name as *byte) == 0 {
+            const result: i32 = codegen.enum_definitions[i].defined;
+            return result;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 检查枚举是否已添加到表中
+fn is_enum_in_table(codegen: &C99CodeGenerator, enum_name: &byte) i32 {
+    var i: i32 = 0;
+    while i < codegen.enum_definition_count {
+        if strcmp(codegen.enum_definitions[i].name as *byte, enum_name as *byte) == 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 标记枚举已定义
+fn mark_enum_defined(codegen: &C99CodeGenerator, enum_name: &byte) void {
+    var i: i32 = 0;
+    while i < codegen.enum_definition_count {
+        if strcmp(codegen.enum_definitions[i].name as *byte, enum_name as *byte) == 0 {
+            codegen.enum_definitions[i].defined = 1;
+            return;
+        }
+        i = i + 1;
+    }
+}
+
+// 添加枚举定义
+fn add_enum_definition(codegen: &C99CodeGenerator, enum_name: &byte) void {
+    // 如果已存在，则返回
+    var i: i32 = 0;
+    while i < codegen.enum_definition_count {
+        if strcmp(codegen.enum_definitions[i].name as *byte, enum_name as *byte) == 0 {
+            return;
+        }
+        i = i + 1;
+    }
+    
+    const enum_idx: i32 = codegen.enum_definition_count;
+    if enum_idx >= 0 && enum_idx < C99_MAX_ENUM_DEFINITIONS {
+        codegen.enum_definitions[enum_idx].name = enum_name;
+        codegen.enum_definitions[enum_idx].defined = 0;
+        codegen.enum_definition_count = enum_idx + 1;
+    } else {
+        c99_codegen_report_capacity_error(null, "enum definition registry" as &byte,
+            enum_idx, C99_MAX_ENUM_DEFINITIONS);
+    }
+}
+
+// 生成枚举定义
+fn gen_enum_definition(codegen: &C99CodeGenerator, enum_decl: &ASTNode) i32 {
+    if enum_decl == null || enum_decl.type != ASTNodeType.AST_ENUM_DECL {
+        return -1;
+    }
+    
+    const enum_name: &byte = c99_get_enum_c_name_from_decl(codegen, enum_decl);
+    if enum_name == null {
+        return -1;
+    }
+    
+    // 如果已定义，跳过
+    if is_enum_defined(codegen, enum_name) != 0 {
+        return 0;
+    }
+    
+    // 添加枚举定义标记
+    add_enum_definition(codegen, enum_name);
+    
+    // 输出枚举定义
+    c99_emit_indent(codegen);
+    fprintf(codegen.emit_stream as *void, "enum %s {\n" as *byte, enum_name as *byte);
+    codegen.indent_level = codegen.indent_level + 1;
+    
+    const variants: &EnumVariant = enum_decl.enum_decl_variants;
+    const variant_count: i32 = enum_decl.enum_decl_variant_count;
+    var current_value: i32 = 0;
+    
+    var i: i32 = 0;
+    while i < variant_count {
+        const variant: &EnumVariant = variants + i;
+        if variant.name == null {
+            return -1;
+        }
+        
+        // 确定变体的值
+        if variant.value != null {
+            // 有显式值，使用atoi转换
+            const safe_variant_name: &byte = get_safe_c_identifier(codegen, variant.name);
+            current_value = atoi(variant.value as *byte);
+            c99_emit_indent(codegen);
+            fputs(enum_name as *byte, codegen.emit_stream as *void);
+            fputc(95, codegen.emit_stream as *void);
+            fputs(safe_variant_name as *byte, codegen.emit_stream as *void);
+            fprintf(codegen.emit_stream as *void, " = %d" as *byte, current_value);
+        } else {
+            // 无显式值，使用当前值（从0开始或基于前一个值）
+            const safe_variant_name2: &byte = get_safe_c_identifier(codegen, variant.name);
+            c99_emit_indent(codegen);
+            fputs(enum_name as *byte, codegen.emit_stream as *void);
+            fputc(95, codegen.emit_stream as *void);
+            fputs(safe_variant_name2 as *byte, codegen.emit_stream as *void);
+            // 当前值保持不变，供下一个变体使用（C中隐式递增）
+        }
+        
+        // 添加逗号（除非是最后一个）
+        if i < variant_count - 1 {
+            fputs("," as *byte, codegen.emit_stream as *void);
+        }
+        c99_emit_newline(codegen);
+        
+        // 如果没有显式值，下一个变体的值会自动递增
+        if variant.value == null {
+            current_value = current_value + 1;
+        }
+        
+        i = i + 1;
+    }
+    
+    codegen.indent_level = codegen.indent_level - 1;
+    c99_emit_indent(codegen);
+    fputs("};\n" as *byte, codegen.emit_stream as *void);
+    
+    // 标记为已定义
+    mark_enum_defined(codegen, enum_name);
+    return 0;
+}

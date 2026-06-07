@@ -1,0 +1,126 @@
+// test_native_generic_instances.uya - native generic instance registry smoke.
+
+use codegen.native.generic;
+use codegen.native.memory;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+const NATIVE_GENERIC_OVER_LEGACY_MONO_CAP: i32 = 520;
+
+fn native_generic_fill_type_name(buf: &byte, value: i32) void {
+    buf[0] = 84 as byte;
+    buf[1] = (48 + ((value / 1000) % 10)) as byte;
+    buf[2] = (48 + ((value / 100) % 10)) as byte;
+    buf[3] = (48 + ((value / 10) % 10)) as byte;
+    buf[4] = (48 + (value % 10)) as byte;
+    buf[5] = 0 as byte;
+}
+
+test "native generic registry deduplicates instances and queues work items" {
+    var registry: NativeGenericRegistry = native_generic_registry_empty();
+    try assert_eq_i32(native_generic_registry_init(&registry), 0);
+
+    var fn_args: [NativeGenericTypeArg: 1] = [];
+    fn_args[0] = native_generic_type_arg_make("i32" as &byte);
+    var byte_args: [NativeGenericTypeArg: 1] = [];
+    byte_args[0] = native_generic_type_arg_make("byte" as &byte);
+
+    var fn_id: i32 = -1;
+    try assert_eq_i32(native_generic_register_function(&registry,
+        "identity" as &byte, &fn_args[0], 1usize, &fn_id), 0);
+    try assert_eq_i32(fn_id, 0);
+    try expect(native_generic_instance_count(&registry) == 1usize);
+    try expect(native_generic_worklist_count(&registry) == 1usize);
+
+    var duplicate_id: i32 = -1;
+    try assert_eq_i32(native_generic_register_function(&registry,
+        "identity" as &byte, &fn_args[0], 1usize, &duplicate_id), 1);
+    try assert_eq_i32(duplicate_id, fn_id);
+    try expect(native_generic_instance_count(&registry) == 1usize);
+    try expect(native_generic_worklist_count(&registry) == 1usize);
+
+    var struct_id: i32 = -1;
+    try assert_eq_i32(native_generic_register_struct(&registry,
+        "Vec" as &byte, &byte_args[0], 1usize, &struct_id), 0);
+    try assert_eq_i32(struct_id, 1);
+
+    var method_id: i32 = -1;
+    try assert_eq_i32(native_generic_register_method(&registry,
+        "Vec_byte" as &byte, "push" as &byte, &byte_args[0], 1usize, &method_id), 0);
+    try assert_eq_i32(method_id, 2);
+    try expect(native_generic_instance_count(&registry) == 3usize);
+    try expect(native_generic_worklist_count(&registry) == 3usize);
+
+    const method: &NativeGenericInstance = native_generic_instance_at(&registry, method_id);
+    try expect(method != null);
+    try assert_eq_i32(method.kind, NATIVE_GENERIC_KIND_METHOD);
+    try assert_eq_i32(method.lower_state, NATIVE_GENERIC_LOWER_STATE_PENDING);
+    try assert_eq_i32(native_strcmp(method.owner_name as &const byte, "Vec_byte" as &const byte), 0);
+    try assert_eq_i32(native_strcmp(method.generic_name as &const byte, "push" as &const byte), 0);
+    try expect(method.type_arg_count == 1usize);
+
+    var symbol: [byte: 64] = [];
+    var symbol_len: usize = 0usize;
+    try assert_eq_i32(native_generic_write_instance_name(method, &symbol[0], 64usize, &symbol_len), 0);
+    try expect(symbol_len == 18usize);
+    try assert_eq_i32(native_strcmp(&symbol[0] as &const byte, "Vec_byte_push_byte" as &const byte), 0);
+
+    var work_id: i32 = -1;
+    try assert_eq_i32(native_generic_next_work_item(&registry, &work_id), 1);
+    try assert_eq_i32(work_id, 0);
+    try assert_eq_i32(native_generic_mark_lowered(&registry, work_id), 0);
+    try assert_eq_i32(native_generic_instance_at(&registry, work_id).lower_state,
+        NATIVE_GENERIC_LOWER_STATE_LOWERED);
+    try assert_eq_i32(native_generic_next_work_item(&registry, &work_id), 1);
+    try assert_eq_i32(work_id, 1);
+    try assert_eq_i32(native_generic_next_work_item(&registry, &work_id), 1);
+    try assert_eq_i32(work_id, 2);
+    try assert_eq_i32(native_generic_next_work_item(&registry, &work_id), 0);
+
+    native_generic_registry_release(&registry);
+    try expect(native_generic_instance_count(&registry) == 0usize);
+}
+
+test "native generic registry grows beyond old fixed mono instance cap" {
+    var registry: NativeGenericRegistry = native_generic_registry_empty();
+    try assert_eq_i32(native_generic_registry_init(&registry), 0);
+
+    var i: i32 = 0;
+    while i < NATIVE_GENERIC_OVER_LEGACY_MONO_CAP {
+        var name_buf: [byte: 8] = [];
+        native_generic_fill_type_name(&name_buf[0], i);
+        var args: [NativeGenericTypeArg: 1] = [];
+        args[0] = native_generic_type_arg_make(&name_buf[0]);
+        var id: i32 = -1;
+        try assert_eq_i32(native_generic_register_function(&registry,
+            "box_value" as &byte, &args[0], 1usize, &id), 0);
+        try assert_eq_i32(id, i);
+        i = i + 1;
+    }
+
+    try expect(native_generic_instance_count(&registry) == NATIVE_GENERIC_OVER_LEGACY_MONO_CAP as usize);
+    try expect(native_generic_instance_capacity(&registry) >= native_generic_instance_count(&registry));
+    try expect(native_generic_worklist_count(&registry) == native_generic_instance_count(&registry));
+
+    const first: &NativeGenericInstance = native_generic_instance_at(&registry, 0);
+    const last: &NativeGenericInstance = native_generic_instance_at(&registry,
+        NATIVE_GENERIC_OVER_LEGACY_MONO_CAP - 1);
+    try expect(first != null);
+    try expect(last != null);
+    try assert_eq_i32(native_strcmp(first.type_args[0].name as &const byte, "T0000" as &const byte), 0);
+    try assert_eq_i32(native_strcmp(last.type_args[0].name as &const byte, "T0519" as &const byte), 0);
+
+    native_generic_registry_release(&registry);
+}
+
+test "native generic bindings substitute parameter names" {
+    var bindings: [NativeGenericBinding: 2] = [];
+    bindings[0] = native_generic_binding_make("T" as &byte, "i32" as &byte);
+    bindings[1] = native_generic_binding_make("E" as &byte, "CompileError" as &byte);
+
+    try assert_eq_i32(native_strcmp(native_generic_binding_lookup(&bindings[0], 2usize,
+        "T" as &byte) as &const byte, "i32" as &const byte), 0);
+    try assert_eq_i32(native_strcmp(native_generic_binding_lookup(&bindings[0], 2usize,
+        "E" as &byte) as &const byte, "CompileError" as &const byte), 0);
+    try expect(native_generic_binding_lookup(&bindings[0], 2usize, "Missing" as &byte) == null);
+}

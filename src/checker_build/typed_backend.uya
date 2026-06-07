@@ -1,0 +1,85 @@
+// checker/typed_backend.uya - TypedProgram-backed backend type queries.
+
+fn checker_typed_backend_strict_enabled() i32 {
+    const value: *byte = getenv("UYA_STRICT_TYPED_BACKEND" as *byte);
+    if value == null {
+        return 0;
+    }
+    if value[0] == 49 as byte && value[1] == 0 as byte {
+        return 1;
+    }
+    return 0;
+}
+
+fn checker_typed_backend_type_id_to_type(checker: &TypeChecker, type_id: TypeId, out_type: &Type) i32 {
+    if checker == null || out_type == null || type_id < 0 {
+        return 0;
+    }
+    const index: usize = type_id as usize;
+    if index >= checker.typed_type_records.count {
+        return 0;
+    }
+    const ptr: &Type = semantic_vector_item_ptr(&checker.typed_type_records, index) as &Type;
+    if ptr == null {
+        return 0;
+    }
+    out_type[0] = ptr[0];
+    return 1;
+}
+
+fn checker_typed_backend_store_expr_type(checker: &TypeChecker, expr: &ASTNode, ty: &Type) TypeId {
+    if checker == null || expr == null || ty == null || expr.expr_id < 0 {
+        return TYPED_PROGRAM_INVALID_ID;
+    }
+    const type_id: TypeId = checker.typed_type_records.count as TypeId;
+    var copy: Type = ty[0];
+    if semantic_vector_append(&checker.typed_type_records, &copy as &const void) != 0 {
+        return TYPED_PROGRAM_INVALID_ID;
+    }
+    if typed_program_set_expr_type(&checker.typed_program, expr.expr_id, type_id) != 0 {
+        return TYPED_PROGRAM_INVALID_ID;
+    }
+    return type_id;
+}
+
+fn checker_typed_backend_cached_expr_type(checker: &TypeChecker, expr: &ASTNode, out_type: &Type) i32 {
+    if checker == null || expr == null || out_type == null || expr.expr_id < 0 {
+        return 0;
+    }
+    var type_id: TypeId = TYPED_PROGRAM_INVALID_ID;
+    if typed_program_get_expr_type(&checker.typed_program, expr.expr_id, &type_id) == 0 {
+        return 0;
+    }
+    return checker_typed_backend_type_id_to_type(checker, type_id, out_type);
+}
+
+/// 功能说明：供 C99 后端读取表达式类型，优先使用 TypedProgram，未命中时按策略回填或报错。
+/// 参数说明：`checker` 为当前 TypeChecker，`expr` 为需要查询类型的表达式 AST。
+/// 返回值说明：返回表达式类型；参数无效或 strict 模式缺失缓存时返回 `void` 类型并记录诊断。
+export fn checker_typed_backend_type_for_codegen(checker: &TypeChecker, expr: &ASTNode) Type {
+    var result: Type = make_void_type();
+    if checker == null || expr == null {
+        return result;
+    }
+    if checker_typed_backend_cached_expr_type(checker, expr, &result) != 0 {
+        return result;
+    }
+    if checker_typed_backend_strict_enabled() != 0 {
+        checker_report_error(checker, expr, "TypedProgram 缺少后端表达式类型" as *byte);
+        return result;
+    }
+    checker.typed_backend_reentry_count = checker.typed_backend_reentry_count + 1;
+    result = checker_infer_type(checker, expr);
+    _ = checker_typed_backend_store_expr_type(checker, expr, &result);
+    return result;
+}
+
+/// 功能说明：读取 C99 后端因 TypedProgram 缺失而重进 checker 的次数。
+/// 参数说明：`checker` 为当前 TypeChecker。
+/// 返回值说明：返回重进次数；参数无效时返回 `0`。
+export fn checker_typed_backend_reentry_count(checker: &TypeChecker) i32 {
+    if checker == null {
+        return 0;
+    }
+    return checker.typed_backend_reentry_count;
+}

@@ -1,0 +1,402 @@
+// checker/type_accessors.uya - 类型访问器函数
+// 阶段四：Union 化重构 - 封装对 Type 字段的访问
+// 提供统一的访问接口，便于渐进式迁移
+
+// ===== 命名类型访问器 =====
+
+// 获取命名类型的名称（enum/struct/union/interface）
+// 返回类型名称，失败返回 null
+fn type_get_name(t: &Type) &byte {
+    if t == null {
+        return null as &byte;
+    }
+    
+    match t.kind {
+        TypeKind.TYPE_ENUM => {
+            match t.data {
+                .named(name) => { return name; },
+                else => {
+                    if t.enum_name != null {
+                        return t.enum_name;
+                    }
+                    return null as &byte;
+                },
+            }
+        },
+        TypeKind.TYPE_STRUCT => {
+            match t.data {
+                .named(name) => { return name; },
+                .struct_generic(sg) => { return sg.name; },
+                else => {
+                    if t.struct_name != null {
+                        return t.struct_name;
+                    }
+                    return null as &byte;
+                },
+            }
+        },
+        TypeKind.TYPE_UNION => {
+            match t.data {
+                .named(name) => { return name; },
+                else => {
+                    if t.union_name != null {
+                        return t.union_name;
+                    }
+                    return null as &byte;
+                },
+            }
+        },
+        TypeKind.TYPE_INTERFACE => {
+            match t.data {
+                .named(name) => { return name; },
+                else => {
+                    if t.interface_name != null {
+                        return t.interface_name;
+                    }
+                    return null as &byte;
+                },
+            }
+        },
+        else => { return null as &byte; },
+    }
+}
+
+// 获取枚举类型名称
+fn type_get_enum_name(t: &Type) &byte {
+    if t == null || t.kind != TypeKind.TYPE_ENUM {
+        return null as &byte;
+    }
+    match t.data {
+        .named(name) => { return name; },
+        else => {
+            if t.enum_name != null {
+                return t.enum_name;
+            }
+            return null as &byte;
+        },
+    }
+}
+
+// 获取结构体类型名称
+fn type_get_struct_name(t: &Type) &byte {
+    if t == null || t.kind != TypeKind.TYPE_STRUCT {
+        return null as &byte;
+    }
+    match t.data {
+        .named(name) => { return name; },
+        .struct_generic(sg) => { return sg.name; },
+        else => {
+            if t.struct_name != null {
+                return t.struct_name;
+            }
+            return null as &byte;
+        },
+    }
+}
+
+// 获取联合体类型名称
+fn type_get_union_name(t: &Type) &byte {
+    if t == null || t.kind != TypeKind.TYPE_UNION {
+        return null as &byte;
+    }
+    match t.data {
+        .named(name) => { return name; },
+        else => {
+            if t.union_name != null {
+                return t.union_name;
+            }
+            return null as &byte;
+        },
+    }
+}
+
+// 获取接口类型名称
+fn type_get_interface_name(t: &Type) &byte {
+    if t == null || t.kind != TypeKind.TYPE_INTERFACE {
+        return null as &byte;
+    }
+    match t.data {
+        .named(name) => { return name; },
+        else => {
+            if t.interface_name != null {
+                return t.interface_name;
+            }
+            return null as &byte;
+        },
+    }
+}
+
+// ===== 指针类型访问器 =====
+
+// 获取指针目标类型
+fn type_get_pointer_to(t: &Type) &Type {
+    if t == null || t.kind != TypeKind.TYPE_POINTER {
+        return null as &Type;
+    }
+    match t.data {
+        .pointer(p) => { return p.pointee; },
+        else => { return null as &Type; },
+    }
+}
+
+// 检查是否为 FFI 指针
+fn type_is_ffi_pointer(t: &Type) i32 {
+    if t == null || t.kind != TypeKind.TYPE_POINTER {
+        return 0;
+    }
+    match t.data {
+        .pointer(p) => { return p.is_ffi; },
+        else => { return 0; },
+    }
+}
+
+// ===== 数组类型访问器 =====
+
+// 获取数组元素类型
+fn type_get_array_element(t: &Type) &Type {
+    if t == null || t.kind != TypeKind.TYPE_ARRAY {
+        return null as &Type;
+    }
+    match t.data {
+        .array(arr) => { return arr.element; },
+        else => { return null as &Type; },
+    }
+}
+
+// 获取数组大小
+fn type_get_array_size(t: &Type) i32 {
+    if t == null || t.kind != TypeKind.TYPE_ARRAY {
+        return 0;
+    }
+    match t.data {
+        .array(arr) => { return arr.size; },
+        else => { return 0; },
+    }
+}
+
+// ===== 切片类型访问器 =====
+
+// 获取切片元素类型
+fn type_get_slice_element(t: &Type) &Type {
+    if t == null || t.kind != TypeKind.TYPE_SLICE {
+        return null as &Type;
+    }
+    match t.data {
+        .slice(s) => { return s.element; },
+        else => { return null as &Type; },
+    }
+}
+
+// 获取切片长度（已知长度切片）
+fn type_get_slice_len(t: &Type) i32 {
+    if t == null || t.kind != TypeKind.TYPE_SLICE {
+        return 0;
+    }
+    match t.data {
+        .slice(s) => { return s.len; },
+        else => { return 0; },
+    }
+}
+
+// ===== 元组类型访问器 =====
+
+// 获取元组元素类型数组
+fn type_get_tuple_elements(t: &Type) &Type {
+    if t == null || t.kind != TypeKind.TYPE_TUPLE {
+        return null as &Type;
+    }
+    match t.data {
+        .tuple(tu) => { return tu.elements; },
+        else => { return null as &Type; },
+    }
+}
+
+// 获取元组元素数量
+fn type_get_tuple_count(t: &Type) i32 {
+    if t == null || t.kind != TypeKind.TYPE_TUPLE {
+        return 0;
+    }
+    match t.data {
+        .tuple(tu) => { return tu.count; },
+        else => { return 0; },
+    }
+}
+
+// ===== 错误联合类型访问器 =====
+
+// 获取错误联合负载类型
+fn type_get_error_payload(t: &Type) &Type {
+    if t == null || t.kind != TypeKind.TYPE_ERROR_UNION {
+        return null as &Type;
+    }
+    match t.data {
+        .error_union(eu) => { return eu.payload; },
+        else => { return null as &Type; },
+    }
+}
+
+// 获取错误 ID
+fn type_get_error_id(t: &Type) u32 {
+    if t == null || t.kind != TypeKind.TYPE_ERROR_UNION {
+        return 0;
+    }
+    match t.data {
+        .error_union(eu) => { return eu.error_id; },
+        else => { return 0; },
+    }
+}
+
+// ===== 原子类型访问器 =====
+
+// 获取原子内部类型
+fn type_get_atomic_inner(t: &Type) &Type {
+    if t == null || t.kind != TypeKind.TYPE_ATOMIC {
+        return null as &Type;
+    }
+    match t.data {
+        .atomic_data(a) => { return a.inner; },
+        else => { return null as &Type; },
+    }
+}
+
+// ===== 泛型参数访问器 =====
+
+// 获取泛型参数名称
+fn type_get_generic_param_name(t: &Type) &byte {
+    if t == null || t.kind != TypeKind.TYPE_GENERIC_PARAM {
+        return null as &byte;
+    }
+    match t.data {
+        .generic_param(gp) => { return gp.name; },
+        else => { return null as &byte; },
+    }
+}
+
+// ===== 结构体泛型访问器 =====
+
+// 获取结构体类型参数
+fn type_get_struct_type_args(t: &Type) &Type {
+    if t == null || t.kind != TypeKind.TYPE_STRUCT {
+        return null as &Type;
+    }
+    match t.data {
+        .struct_generic(sg) => { return sg.type_args; },
+        else => { return null as &Type; },
+    }
+}
+
+// 获取结构体类型参数数量
+fn type_get_struct_type_arg_count(t: &Type) i32 {
+    if t == null || t.kind != TypeKind.TYPE_STRUCT {
+        return 0;
+    }
+    match t.data {
+        .struct_generic(sg) => { return sg.type_arg_count; },
+        else => { return 0; },
+    }
+}
+
+// ===== 类型设置器函数（用于构造函数）=====
+
+// 设置命名类型名称
+fn type_set_name(t: &Type, name: &byte) void {
+    if t == null {
+        return;
+    }
+    t.data = TypeData.named(name);
+}
+
+// 设置指针类型数据
+fn type_set_pointer(t: &Type, pointee: &Type, is_ffi: i32) void {
+    if t == null {
+        return;
+    }
+    var pd: PointerData = PointerData{
+        pointee: pointee,
+        is_ffi: is_ffi,
+    };
+    t.data = TypeData.pointer(pd);
+}
+
+// 设置数组类型数据
+fn type_set_array(t: &Type, element: &Type, size: i32) void {
+    if t == null {
+        return;
+    }
+    var ad: ArrayData = ArrayData{
+        element: element,
+        size: size,
+    };
+    t.data = TypeData.array(ad);
+}
+
+// 设置切片类型数据
+fn type_set_slice(t: &Type, element: &Type, len: i32) void {
+    if t == null {
+        return;
+    }
+    var sd: SliceData = SliceData{
+        element: element,
+        len: len,
+    };
+    t.data = TypeData.slice(sd);
+}
+
+// 设置元组类型数据
+fn type_set_tuple(t: &Type, elements: &Type, count: i32) void {
+    if t == null {
+        return;
+    }
+    var td: TupleData = TupleData{
+        elements: elements,
+        count: count,
+    };
+    t.data = TypeData.tuple(td);
+}
+
+// 设置错误联合类型数据
+fn type_set_error_union(t: &Type, payload: &Type, error_id: u32) void {
+    if t == null {
+        return;
+    }
+    var eud: ErrorUnionData = ErrorUnionData{
+        payload: payload,
+        error_id: error_id,
+    };
+    t.data = TypeData.error_union(eud);
+}
+
+// 设置原子类型数据
+fn type_set_atomic(t: &Type, inner: &Type) void {
+    if t == null {
+        return;
+    }
+    var ad: AtomicData = AtomicData{
+        inner: inner,
+    };
+    t.data = TypeData.atomic_data(ad);
+}
+
+// 设置泛型参数数据
+fn type_set_generic_param(t: &Type, name: &byte) void {
+    if t == null {
+        return;
+    }
+    var gpd: GenericParamData = GenericParamData{
+        name: name,
+    };
+    t.data = TypeData.generic_param(gpd);
+}
+
+// 设置结构体泛型数据
+fn type_set_struct_generic(t: &Type, name: &byte, type_args: &Type, type_arg_count: i32) void {
+    if t == null {
+        return;
+    }
+    var sgd: StructGenericData = StructGenericData{
+        name: name,
+        type_args: type_args,
+        type_arg_count: type_arg_count,
+    };
+    t.data = TypeData.struct_generic(sgd);
+}

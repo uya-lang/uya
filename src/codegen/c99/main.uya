@@ -470,6 +470,12 @@ fn precollect_codegen_decl(codegen: &C99CodeGenerator, decl: &ASTNode, collect_h
     if codegen == null || decl == null {
         return;
     }
+    if decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null {
+        const is_special_main: i32 = c99_fn_decl_is_c_main(decl) | c99_fn_decl_is_user_entry_main(codegen, decl);
+        if is_special_main == 0 && should_emit_top_level_function_decl(codegen, decl) == 0 {
+            return;
+        }
+    }
     if collect_hosted_flags != 0 {
         if decl.type == ASTNodeType.AST_INTERFACE_DECL {
             // interface 值装箱在 hosted C 路径下可能需要堆分配；头文件需求必须在真正发出函数体前预收集。
@@ -1839,8 +1845,8 @@ fn build_decl_caches(codegen: &C99CodeGenerator) void {
 
 // 准备 codegen：收集测试，并启用 syscall 辅助与全部函数类单态。
 // 不再做调用图可达性遍历（原 collect_reachable_top_level_functions_from_node）。
-fn prepare_codegen_tests_and_emit_flags(codegen: &C99CodeGenerator, ast: &ASTNode, tests: & & ASTNode, test_count: &i32) void {
-    if codegen == null || ast == null || ast.type != ASTNodeType.AST_PROGRAM || tests == null || test_count == null {
+fn prepare_codegen_tests_and_emit_flags(codegen: &C99CodeGenerator, plan: &C99Plan, tests: & & ASTNode, test_count: &i32) void {
+    if codegen == null || plan == null || tests == null || test_count == null {
         return;
     }
 
@@ -1863,8 +1869,8 @@ fn prepare_codegen_tests_and_emit_flags(codegen: &C99CodeGenerator, ast: &ASTNod
     }
 
     i = 0;
-    while i < ast.program_decl_count {
-        const decl: &ASTNode = ast.program_decls[i];
+    while i < plan.decl_count {
+        const decl: &ASTNode = c99_plan_decl_at(plan, i);
         if decl != null {
             if seed_decl_cache_inline != 0 {
                 cache_decl_for_lookup(codegen, decl);
@@ -2084,17 +2090,17 @@ fn c99_emitter_selftest_drift_enabled() i32 {
 ///           预先把 async frame 元数据登记到 checker，使 emitter 启动前数量已稳定。
 /// 参数说明：`codegen` 为 C99 生成器，`ast` 为合并后的程序 AST。
 /// 返回值说明：无。
-fn c99_preregister_async_frame_metadata(codegen: &C99CodeGenerator, ast: &ASTNode) void {
-    if codegen == null || ast == null {
+fn c99_preregister_async_frame_metadata(codegen: &C99CodeGenerator, plan: &C99Plan) void {
+    if codegen == null || plan == null {
         return;
     }
     if codegen.checker == null {
         return;
     }
-    const total: i32 = ast.program_decl_count;
+    const total: i32 = plan.decl_count;
     var di: i32 = 0;
     while di < total {
-        const decl: &ASTNode = ast.program_decls[di];
+        const decl: &ASTNode = c99_plan_decl_at(plan, di);
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_is_async != 0 {
             if decl.fn_decl_type_param_count > 0 {
                 var mi: i32 = 0;
@@ -2222,9 +2228,321 @@ fn c99_codegen_verify_emitter_start_stability(codegen: &C99CodeGenerator) i32 {
     return 0;
 }
 
-// 生成 C99 代码
-fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: &byte) i32 {
-    if codegen == null || ast == null || output_file == null {
+fn c99_emit_type_definition_registration_entry(codegen: &C99CodeGenerator, entry: &C99TypeDefinitionPlanEntry) void {
+    if codegen == null || entry == null {
+        return;
+    }
+    if entry.kind == C99_TYPEDEF_KIND_REGISTER_STRUCT {
+        if entry.decl != null && entry.decl.struct_decl_name != null {
+            const struct_name: &byte = get_safe_c_identifier(codegen, entry.decl.struct_decl_name);
+            if is_struct_in_table(codegen, struct_name) == 0 {
+                add_struct_definition(codegen, struct_name);
+            }
+        }
+    } else if entry.kind == C99_TYPEDEF_KIND_REGISTER_MONO_STRUCT {
+        if entry.decl != null && entry.decl.struct_decl_name != null {
+            const mono_name: &byte = get_mono_struct_name(codegen, entry.decl.struct_decl_name,
+                entry.type_args, entry.type_arg_count);
+            if is_struct_in_table(codegen, mono_name) == 0 {
+                add_struct_definition(codegen, mono_name);
+            }
+        }
+    } else if entry.kind == C99_TYPEDEF_KIND_REGISTER_ENUM {
+        if entry.decl != null && entry.decl.enum_decl_name != null {
+            const enum_name: &byte = get_safe_c_identifier(codegen, entry.decl.enum_decl_name);
+            if is_enum_in_table(codegen, enum_name) == 0 {
+                add_enum_definition(codegen, enum_name);
+            }
+        }
+    }
+}
+
+fn c99_build_helper_plan(codegen: &C99CodeGenerator, plan: &C99Plan) C99HelperPlan {
+    var async_meta_count: i32 = 0;
+    if codegen != null && codegen.checker != null {
+        async_meta_count = codegen.checker.async_frame_meta_count;
+    }
+    var container_mode: i32 = 0;
+    var microapp_softvm_mode: i32 = 0;
+    var needs_syscall_helpers: i32 = 0;
+    var simd_struct_count: i32 = 0;
+    if codegen != null {
+        container_mode = codegen.container_mode;
+        microapp_softvm_mode = codegen.microapp_softvm_mode;
+        needs_syscall_helpers = codegen.needs_syscall_helpers;
+        simd_struct_count = codegen.simd_struct_count;
+    }
+    const input: C99HelperPlanInput = C99HelperPlanInput{
+        ast: null,
+        decl_plan: plan,
+        decl_count: 0,
+        container_mode: container_mode,
+        microapp_softvm_mode: microapp_softvm_mode,
+        needs_syscall_helpers: needs_syscall_helpers,
+        simd_struct_count: simd_struct_count,
+        async_frame_meta_count: async_meta_count,
+    };
+    return c99_helper_plan_build(input);
+}
+
+fn c99_emit_type_definition_registrations(codegen: &C99CodeGenerator, plan: &C99TypeDefinitionPlan) void {
+    if codegen == null || plan == null {
+        return;
+    }
+    var i: i32 = 0;
+    while i < plan.registration_count {
+        const entry: &C99TypeDefinitionPlanEntry = c99_type_definition_plan_registration_at(plan, i);
+        if entry != null {
+            c99_emit_type_definition_registration_entry(codegen, entry);
+        }
+        i = i + 1;
+    }
+}
+
+fn c99_emit_type_forward_declarations(codegen: &C99CodeGenerator) void {
+    if codegen == null {
+        return;
+    }
+    fputs("struct TypeInfo;\n" as *byte, codegen.emit_stream as *void);
+    var i: i32 = 0;
+    while i < codegen.struct_definition_count {
+        if is_struct_defined(codegen, codegen.struct_definitions[i].name) == 0 {
+            fprintf(codegen.emit_stream as *void, "struct %s;\n" as *byte, codegen.struct_definitions[i].name as *byte);
+        }
+        i = i + 1;
+    }
+    if codegen.struct_definition_count > 0 {
+        c99_emit_newline(codegen);
+    }
+}
+
+fn c99_emit_type_alias_definition(codegen: &C99CodeGenerator, decl: &ASTNode) void {
+    if codegen == null || decl == null || decl.type != ASTNodeType.AST_TYPE_ALIAS ||
+        decl.type_alias_name == null || decl.type_alias_target_type == null {
+        return;
+    }
+    const alias_name: &byte = get_safe_c_identifier(codegen, decl.type_alias_name);
+    const target_type: &ASTNode = decl.type_alias_target_type;
+    if target_type.type == ASTNodeType.AST_TYPE_ARRAY {
+        var dims: [i32: 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        var dim_count: i32 = 0;
+        var current: &ASTNode = target_type;
+        while current != null && current.type == ASTNodeType.AST_TYPE_ARRAY && dim_count < 16 {
+            var size: i32 = 1;
+            if current.type_array_size_expr != null {
+                size = eval_const_expr(codegen, current.type_array_size_expr);
+                if size <= 0 {
+                    size = 1;
+                }
+            }
+            dims[dim_count] = size;
+            dim_count = dim_count + 1;
+            current = current.type_array_element_type;
+        }
+        const base_type_c: &byte = c99_type_to_c(codegen, current);
+        fprintf(codegen.emit_stream as *void, "typedef %s %s" as *byte, base_type_c as *byte, alias_name as *byte);
+        var d: i32 = 0;
+        while d < dim_count {
+            fprintf(codegen.emit_stream as *void, "[%d]" as *byte, dims[d]);
+            d = d + 1;
+        }
+        c99_emit_semi_newline(codegen);
+    } else {
+        const target_type_c: &byte = c99_type_to_c(codegen, target_type);
+        fprintf(codegen.emit_stream as *void, "typedef %s %s;\n" as *byte, target_type_c as *byte, alias_name as *byte);
+    }
+}
+
+fn c99_emit_type_definition_early_entry(codegen: &C99CodeGenerator, entry: &C99TypeDefinitionPlanEntry) void {
+    if codegen == null || entry == null {
+        return;
+    }
+    if entry.kind == C99_TYPEDEF_KIND_ENUM {
+        gen_enum_definition(codegen, entry.decl);
+        c99_emit_newline(codegen);
+    } else if entry.kind == C99_TYPEDEF_KIND_ALIAS {
+        c99_emit_type_alias_definition(codegen, entry.decl);
+    }
+}
+
+fn c99_emit_type_definition_early(codegen: &C99CodeGenerator, plan: &C99TypeDefinitionPlan) void {
+    if codegen == null || plan == null {
+        return;
+    }
+    var i: i32 = 0;
+    while i < plan.early_definition_count {
+        const entry: &C99TypeDefinitionPlanEntry = c99_type_definition_plan_early_at(plan, i);
+        if entry != null {
+            c99_emit_type_definition_early_entry(codegen, entry);
+        }
+        i = i + 1;
+    }
+    c99_emit_newline(codegen);
+}
+
+fn c99_emit_builtin_typeinfo_definition(codegen: &C99CodeGenerator) void {
+    if codegen == null {
+        return;
+    }
+    if is_struct_defined(codegen, ("TypeInfo" as *byte) as &byte) != 0 {
+        return;
+    }
+    if is_struct_defined(codegen, ("FieldInfo" as *byte) as &byte) == 0 {
+        fputs("// 内置 FieldInfo（由 TypeInfo.fields 使用）\n" as *byte, codegen.emit_stream as *void);
+        fputs("struct FieldInfo { int8_t *name; int8_t *type_name; };\n\n" as *byte, codegen.emit_stream as *void);
+        mark_struct_defined(codegen, ("FieldInfo" as *byte) as &byte);
+    }
+    fputs("// 内置 TypeInfo 结构体（由 @mc_type 使用）\n" as *byte, codegen.emit_stream as *void);
+    fputs("struct TypeInfo {\n" as *byte, codegen.emit_stream as *void);
+    fputs("    int8_t * name;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    int32_t size;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    int32_t align;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    int32_t kind;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    int32_t type_id;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    bool is_integer;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    bool is_float;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    bool is_bool;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    bool is_pointer;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    bool is_array;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    bool is_void;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    int32_t field_count;\n" as *byte, codegen.emit_stream as *void);
+    fputs("    struct FieldInfo fields[64];\n" as *byte, codegen.emit_stream as *void);
+    fputs("};\n\n" as *byte, codegen.emit_stream as *void);
+    mark_struct_defined(codegen, ("TypeInfo" as *byte) as &byte);
+}
+
+fn c99_emit_type_definition_layout_entry(codegen: &C99CodeGenerator, entry: &C99TypeDefinitionPlanEntry) void {
+    if codegen == null || entry == null {
+        return;
+    }
+    if entry.kind == C99_TYPEDEF_KIND_UNION {
+        emit_struct_deps_for_union(codegen, entry.decl);
+        gen_union_definition(codegen, entry.decl);
+        c99_emit_newline(codegen);
+    } else if entry.kind == C99_TYPEDEF_KIND_MONO_UNION {
+        emit_struct_deps_for_union(codegen, entry.decl);
+        gen_mono_union_definition(codegen, entry.decl, entry.type_args, entry.type_arg_count);
+        c99_emit_newline(codegen);
+    } else if entry.kind == C99_TYPEDEF_KIND_BUILTIN_TYPEINFO {
+        c99_emit_builtin_typeinfo_definition(codegen);
+    } else if entry.kind == C99_TYPEDEF_KIND_STRUCT {
+        gen_struct_definition(codegen, entry.decl);
+        c99_emit_newline(codegen);
+    } else if entry.kind == C99_TYPEDEF_KIND_MONO_STRUCT {
+        gen_mono_struct_definition(codegen, entry.decl, entry.type_args, entry.type_arg_count);
+        c99_emit_newline(codegen);
+    }
+}
+
+fn c99_emit_type_definition_layouts(codegen: &C99CodeGenerator, plan: &C99TypeDefinitionPlan) void {
+    if codegen == null || plan == null {
+        return;
+    }
+    var i: i32 = 0;
+    while i < plan.layout_definition_count {
+        const entry: &C99TypeDefinitionPlanEntry = c99_type_definition_plan_layout_at(plan, i);
+        if entry != null {
+            c99_emit_type_definition_layout_entry(codegen, entry);
+        }
+        i = i + 1;
+    }
+}
+
+fn c99_emit_prototype_plan_entry_body(codegen: &C99CodeGenerator, entry: &C99PrototypePlanEntry) void {
+    if codegen == null || entry == null || entry.decl == null {
+        return;
+    }
+    if entry.kind == C99_PROTOTYPE_KIND_FUNCTION {
+        gen_function_prototype(codegen, entry.decl);
+    } else if entry.kind == C99_PROTOTYPE_KIND_MONO_FUNCTION {
+        gen_mono_function_prototype(codegen, entry.decl, entry.type_args, entry.type_arg_count);
+    } else if entry.kind == C99_PROTOTYPE_KIND_METHOD {
+        gen_method_prototype(codegen, entry.decl, entry.owner_name);
+    } else if entry.kind == C99_PROTOTYPE_KIND_MONO_METHOD {
+        gen_mono_method_prototype(codegen, entry.decl, entry.owner_name, entry.type_args, entry.type_arg_count);
+    }
+}
+
+fn c99_emit_prototype_plan_entry(codegen: &C99CodeGenerator, entry: &C99PrototypePlanEntry) void {
+    if codegen == null || entry == null {
+        return;
+    }
+    const saved_stp: &TypeParam = codegen.struct_type_params;
+    const saved_stpc: i32 = codegen.struct_type_param_count;
+    const saved_sta: & & ASTNode = codegen.struct_type_args;
+    const saved_stac: i32 = codegen.struct_type_arg_count;
+    if entry.owner_decl != null && entry.owner_decl.type == ASTNodeType.AST_STRUCT_DECL {
+        codegen.struct_type_params = entry.owner_decl.struct_decl_type_params;
+        codegen.struct_type_param_count = entry.owner_decl.struct_decl_type_param_count;
+        codegen.struct_type_args = entry.owner_type_args;
+        codegen.struct_type_arg_count = entry.owner_type_arg_count;
+    }
+    c99_emit_prototype_plan_entry_body(codegen, entry);
+    codegen.struct_type_params = saved_stp;
+    codegen.struct_type_param_count = saved_stpc;
+    codegen.struct_type_args = saved_sta;
+    codegen.struct_type_arg_count = saved_stac;
+}
+
+fn c99_emit_prototype_plan(codegen: &C99CodeGenerator, plan: &C99PrototypePlan) void {
+    if codegen == null || plan == null {
+        return;
+    }
+    var i: i32 = 0;
+    while i < plan.count {
+        const entry: &C99PrototypePlanEntry = c99_prototype_plan_entry_at(plan, i);
+        if entry != null {
+            c99_emit_prototype_plan_entry(codegen, entry);
+        }
+        i = i + 1;
+    }
+}
+
+fn c99_emit_diag_suppress_begin(codegen: &C99CodeGenerator) i32 {
+    if codegen == null || codegen.checker == null {
+        return 0;
+    }
+    const saved: i32 = codegen.checker.suppress_codegen_diagnostics;
+    codegen.checker.suppress_codegen_diagnostics = 1;
+    return saved;
+}
+
+fn c99_emit_diag_suppress_restore(codegen: &C99CodeGenerator, saved: i32) void {
+    if codegen == null || codegen.checker == null {
+        return;
+    }
+    codegen.checker.suppress_codegen_diagnostics = saved;
+}
+
+fn c99_emit_has_frontend_services(codegen: &C99CodeGenerator) i32 {
+    if codegen == null || codegen.checker == null {
+        return 0;
+    }
+    return 1;
+}
+
+fn c99_prepare_from_json_reflect_body_for_emit(codegen: &C99CodeGenerator, type_arg: &ASTNode) &ASTNode {
+    if codegen == null || codegen.checker == null || type_arg == null {
+        return null;
+    }
+    return build_from_json_reflect_body(codegen.checker, type_arg, 0, 0, null);
+}
+
+fn c99_prepare_mono_body_for_emit(codegen: &C99CodeGenerator,
+                                  decl: &ASTNode,
+                                  type_args: & & ASTNode,
+                                  type_arg_count: i32) &ASTNode {
+    if codegen == null || codegen.checker == null || decl == null || decl.fn_decl_body == null {
+        return null;
+    }
+    return prepare_mono_body_expand_macros(codegen.checker, decl.fn_decl_body,
+        decl.fn_decl_type_params, decl.fn_decl_type_param_count,
+        type_args, type_arg_count);
+}
+
+// 按已构建的 C99Plan 发射 C99 代码。更深层旧 codegen 依赖会在后续条目继续收紧。
+fn c99_emit_plan(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: &byte, split_unit_plan: &C99Plan) i32 {
+    if codegen == null || ast == null || output_file == null || split_unit_plan == null {
         return -1;
     }
     
@@ -2236,15 +2554,9 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 保存程序节点引用
     codegen.program_node = ast;
     c99_qprof_init();  // UYA_PROFILE_QUERIES：初始化声明查询计数（默认关）
-    var saved_checker_codegen_diag: i32 = 0;
-    if codegen.checker != null {
-        saved_checker_codegen_diag = codegen.checker.suppress_codegen_diagnostics;
-        codegen.checker.suppress_codegen_diagnostics = 1;
-    }
+    var saved_codegen_diag: i32 = c99_emit_diag_suppress_begin(codegen);
     if g_c99_codegen_has_error != 0 {
-        if codegen.checker != null {
-            codegen.checker.suppress_codegen_diagnostics = saved_checker_codegen_diag;
-        }
+        c99_emit_diag_suppress_restore(codegen, saved_codegen_diag);
         return -1;
     }
     
@@ -2319,13 +2631,13 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         fputs("//\n" as *byte, codegen.emit_stream as *void);
     }
 
-    const decl_count: i32 = ast.program_decl_count;
+    const decl_count: i32 = split_unit_plan.decl_count;
     if prof_codegen != 0 {
         t_precollect_start = clock();
     }
     var precollect_i: i32 = 0;
     while precollect_i < decl_count {
-        const decl: &ASTNode = ast.program_decls[precollect_i];
+        const decl: &ASTNode = c99_plan_decl_at(split_unit_plan, precollect_i);
         if decl != null {
             precollect_codegen_decl(codegen, decl, (is_std_lib == 0) as i32);
         }
@@ -2336,20 +2648,37 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         prof_ms_precollect = ((t_mk1 as i64) - (t_precollect_start as i64)) * 1000 / (CLOCKS_PER_SEC as i64);
     }
     if g_c99_codegen_has_error != 0 {
-        if codegen.checker != null {
-            codegen.checker.suppress_codegen_diagnostics = saved_checker_codegen_diag;
-        }
+        c99_emit_diag_suppress_restore(codegen, saved_codegen_diag);
         return -1;
     }
 
     // 镜像多 TU：须在 precollect 之后打开各 .c，以便根据 has_stdio_conflicts 写入 stdin/stdout/stderr 前向声明
     if codegen.split_enabled != 0 && codegen.split_mirror != 0 {
-        if c99_split_mirror_prepare(codegen, ast) != 0 {
-            if codegen.checker != null {
-                codegen.checker.suppress_codegen_diagnostics = saved_checker_codegen_diag;
-            }
+        if c99_split_mirror_prepare(codegen, split_unit_plan) != 0 {
+            c99_emit_diag_suppress_restore(codegen, saved_codegen_diag);
             return -1;
         }
+    }
+
+    const prelude_plan_input: C99PreludePlanInput = C99PreludePlanInput{
+        ast: ast,
+        decl_plan: split_unit_plan,
+        decl_count: decl_count,
+        freestanding: codegen.freestanding,
+        needs_string_h: codegen.needs_string_h,
+        needs_stdio_h: codegen.needs_stdio_h,
+        needs_stdlib_h: codegen.needs_stdlib_h,
+        has_stdio_conflicts: codegen.has_stdio_conflicts,
+        is_bootstrap: is_bootstrap,
+        target_os_is_macos: target_os_is_macos,
+    };
+    const prelude_plan: C99PreludePlan = c99_prelude_plan_build(prelude_plan_input);
+    var helper_plan: C99HelperPlan = c99_build_helper_plan(codegen, split_unit_plan);
+    var type_definition_plan: C99TypeDefinitionPlan = c99_type_definition_plan_empty();
+    c99_type_definition_plan_init(&type_definition_plan);
+    if c99_type_definition_plan_build_from_c99_plan(&type_definition_plan, codegen, split_unit_plan) != 0 {
+        c99_type_definition_plan_release(&type_definition_plan);
+        return 1;
     }
 
     if is_std_lib != 0 {
@@ -2455,7 +2784,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         fputs("  #define UYA_TARGET_ARCH_X86_64 0\n  #define UYA_TARGET_ARCH_ARM64 0\n  #define UYA_TARGET_ARCH_RISCV64 0\n" as *byte, codegen.emit_stream as *void);
         fputs("#endif\n" as *byte, codegen.emit_stream as *void);
         c99_emit_newline(codegen);
-        if codegen.freestanding == 0 {
+        if prelude_plan.include_stddef_h != 0 {
             fputs("#include <stddef.h>\n" as *byte, codegen.emit_stream as *void);
         }
         // 手动定义标准类型，避免包含标准库头文件
@@ -2497,10 +2826,10 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         // 避免与标准库声明冲突。自举编译时强制与 C 编译器一致。
         // freestanding 模式下不包含任何标准库头文件
         if codegen.freestanding == 0 {
-            if codegen.has_stdio_conflicts == 0 && is_bootstrap == 0 {
+            if prelude_plan.include_stdio_base_h != 0 {
                 fputs("#include <stdio.h>\n" as *byte, codegen.emit_stream as *void);  // for standard I/O functions (printf, puts, etc.)
             }
-            if is_bootstrap == 0 {
+            if prelude_plan.include_math_h != 0 {
                 fputs("#include <math.h>\n" as *byte, codegen.emit_stream as *void);
                 // Zig cc 会把 math.h 里的同名宏映射成 builtin；显式撤销，避免与后续原型冲突
                 fputs("#ifdef isnan\n#undef isnan\n#endif\n" as *byte, codegen.emit_stream as *void);
@@ -2518,53 +2847,16 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         }
         // 不包含 stdlib.h，避免间接引入 stdio.h 导致 fprintf 与 built-in 冲突；exit/malloc 等由 libc 通过 syscall 实现
         // 仅当 needs_string_h 且未定义 string/mem 函数时才包含 <string.h>
-        var has_mem_functions: i32 = 0;
-        var has_string_functions: i32 = 0;
-        var mi: i32 = 0;
-        while mi < decl_count {
-            const md: &ASTNode = ast.program_decls[mi];
-            if md != null && md.type == ASTNodeType.AST_FN_DECL && md.fn_decl_body != null {
-                const mn: &byte = md.fn_decl_name;
-                if mn != null {
-                    if strcmp(mn as *byte, "memcpy" as *byte) == 0 || strcmp(mn as *byte, "memset" as *byte) == 0 ||
-                       strcmp(mn as *byte, "memmove" as *byte) == 0 || strcmp(mn as *byte, "memcmp" as *byte) == 0 ||
-                       strcmp(mn as *byte, "memchr" as *byte) == 0 { has_mem_functions = 1; }
-                    else if strcmp(mn as *byte, "strlen" as *byte) == 0 || strcmp(mn as *byte, "strcmp" as *byte) == 0 ||
-                       strcmp(mn as *byte, "strncmp" as *byte) == 0 || strcmp(mn as *byte, "strcpy" as *byte) == 0 ||
-                       strcmp(mn as *byte, "strncpy" as *byte) == 0 || strcmp(mn as *byte, "strcat" as *byte) == 0 ||
-                       strcmp(mn as *byte, "strchr" as *byte) == 0 || strcmp(mn as *byte, "strrchr" as *byte) == 0 ||
-                       strcmp(mn as *byte, "strstr" as *byte) == 0 { has_string_functions = 1; }
-                }
-            }
-            mi = mi + 1;
-        }
-        if codegen.freestanding == 0 && codegen.needs_string_h != 0 && has_string_functions == 0 && has_mem_functions == 0 && is_bootstrap == 0 {
+        if prelude_plan.include_string_h != 0 {
             fputs("#include <string.h>\n" as *byte, codegen.emit_stream as *void);
         }
         // 检测是否定义了与 stdlib.h 冲突的函数（labs, strtoul, qsort, bsearch 等）
-        var has_stdlib_conflicts: i32 = 0;
-        var si: i32 = 0;
-        while si < decl_count {
-            const sd: &ASTNode = ast.program_decls[si];
-            if sd != null && sd.type == ASTNodeType.AST_FN_DECL && sd.fn_decl_body != null {
-                const sn: &byte = sd.fn_decl_name;
-                if sn != null {
-                    if strcmp(sn as *byte, "labs" as *byte) == 0 ||
-                       strcmp(sn as *byte, "strtoul" as *byte) == 0 ||
-                       strcmp(sn as *byte, "qsort" as *byte) == 0 ||
-                       strcmp(sn as *byte, "bsearch" as *byte) == 0 {
-                        has_stdlib_conflicts = 1;
-                    }
-                }
-            }
-            si = si + 1;
-        }
         // 如果使用了 stdlib 函数（exit, malloc, free 等）且没有冲突，包含 <stdlib.h>
-        if codegen.freestanding == 0 && codegen.needs_stdlib_h != 0 && has_stdlib_conflicts == 0 && is_bootstrap == 0 {
+        if prelude_plan.include_stdlib_h != 0 {
             fputs("#include <stdlib.h>\n" as *byte, codegen.emit_stream as *void);
         }
         // 如果使用了 stdio 函数（printf, fprintf 等）且没有冲突，包含 <stdio.h>
-        if codegen.freestanding == 0 && codegen.needs_stdio_h != 0 && codegen.has_stdio_conflicts == 0 && is_bootstrap == 0 {
+        if prelude_plan.include_stdio_requested_h != 0 {
             fputs("#include <stdio.h>\n" as *byte, codegen.emit_stream as *void);
         }
         if is_bootstrap == 0 {
@@ -2584,76 +2876,21 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         }
         // 不包含 sys/stat.h、unistd.h，避免间接引入 stdio.h 导致 fprintf 等与 built-in 冲突；stat/readlink 由 libc 通过 syscall 实现
         // 若本程序定义了 opendir/readdir/closedir（如 stdlib），不声明系统符号，避免与生成的 uya_opendir 等冲突
-        var has_own_opendir: i32 = 0;
-        var has_own_readdir: i32 = 0;
-        var has_own_closedir: i32 = 0;
-        var has_decl_malloc: i32 = 0;
-        var has_decl_free: i32 = 0;
-        var has_decl_realloc: i32 = 0;
-        var has_decl_calloc: i32 = 0;
-        var has_decl_clock: i32 = 0;
-        var has_decl_read: i32 = 0;
-        var has_decl_write: i32 = 0;
-        var has_impl_malloc: i32 = 0;
-        var has_impl_free: i32 = 0;
-        var has_impl_realloc: i32 = 0;
-        var has_impl_calloc: i32 = 0;
-        var has_impl_clock: i32 = 0;
-        var has_impl_read: i32 = 0;
-        var has_impl_write: i32 = 0;
-        var di: i32 = 0;
-        while di < decl_count {
-            const d: &ASTNode = ast.program_decls[di];
-            if d != null && d.type == ASTNodeType.AST_FN_DECL {
-                const n: &byte = d.fn_decl_name;
-                if n != null {
-                    if strcmp(n as *byte, "malloc" as *byte) == 0 {
-                        has_decl_malloc = 1;
-                        if d.fn_decl_body != null { has_impl_malloc = 1; }
-                    } else if strcmp(n as *byte, "free" as *byte) == 0 {
-                        has_decl_free = 1;
-                        if d.fn_decl_body != null { has_impl_free = 1; }
-                    } else if strcmp(n as *byte, "realloc" as *byte) == 0 {
-                        has_decl_realloc = 1;
-                        if d.fn_decl_body != null { has_impl_realloc = 1; }
-                    } else if strcmp(n as *byte, "calloc" as *byte) == 0 {
-                        has_decl_calloc = 1;
-                        if d.fn_decl_body != null { has_impl_calloc = 1; }
-                    } else if strcmp(n as *byte, "clock" as *byte) == 0 {
-                        has_decl_clock = 1;
-                        if d.fn_decl_body != null { has_impl_clock = 1; }
-                    } else if strcmp(n as *byte, "read" as *byte) == 0 {
-                        has_decl_read = 1;
-                        if d.fn_decl_body != null { has_impl_read = 1; }
-                    } else if strcmp(n as *byte, "write" as *byte) == 0 {
-                        has_decl_write = 1;
-                        if d.fn_decl_body != null { has_impl_write = 1; }
-                    } else if d.fn_decl_body != null && strcmp(n as *byte, "opendir" as *byte) == 0 {
-                        has_own_opendir = 1;
-                    } else if d.fn_decl_body != null && strcmp(n as *byte, "readdir" as *byte) == 0 {
-                        has_own_readdir = 1;
-                    } else if d.fn_decl_body != null && strcmp(n as *byte, "closedir" as *byte) == 0 {
-                        has_own_closedir = 1;
-                    }
-                }
-            }
-            di = di + 1;
-        }
         if codegen.freestanding == 0 {
             if is_bootstrap == 0 {
-                if has_decl_malloc != 0 && has_impl_malloc == 0 {
+                if prelude_plan.emit_malloc_decl != 0 {
                     fputs("extern void *malloc(size_t);\n" as *byte, codegen.emit_stream as *void);
                 }
-                if has_decl_free != 0 && has_impl_free == 0 {
+                if prelude_plan.emit_free_decl != 0 {
                     fputs("extern void free(void *);\n" as *byte, codegen.emit_stream as *void);
                 }
-                if has_decl_realloc != 0 && has_impl_realloc == 0 {
+                if prelude_plan.emit_realloc_decl != 0 {
                     fputs("extern void *realloc(void *, size_t);\n" as *byte, codegen.emit_stream as *void);
                 }
-                if has_decl_calloc != 0 && has_impl_calloc == 0 {
+                if prelude_plan.emit_calloc_decl != 0 {
                     fputs("extern void *calloc(size_t, size_t);\n" as *byte, codegen.emit_stream as *void);
                 }
-                if has_decl_clock != 0 && has_impl_clock == 0 {
+                if prelude_plan.emit_clock_decl != 0 {
                     fputs("extern int64_t clock(void);\n" as *byte, codegen.emit_stream as *void);
                 }
             }
@@ -2662,35 +2899,31 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
             // 若此时头部缺少 extern，clang 会在 exec/vm 的 builtin bridge 处直接报
             // “call to undeclared function 'write'”。这里在“未生成本地实现”前提下补一个保底声明。
             if target_os_is_macos != 0 && is_bootstrap != 0 {
-                if has_impl_read == 0 {
+                if prelude_plan.emit_read_decl != 0 {
                     fputs("extern ssize_t read(int, void *, size_t);\n" as *byte, codegen.emit_stream as *void);
                 }
-                if has_impl_write == 0 {
+                if prelude_plan.emit_write_decl != 0 {
                     fputs("extern ssize_t write(int, const void *, size_t);\n" as *byte, codegen.emit_stream as *void);
                 }
             } else {
-                if has_decl_read != 0 && (has_impl_read == 0 || target_os_is_macos != 0) {
-                    if is_bootstrap == 0 || target_os_is_macos != 0 {
-                        fputs("extern ssize_t read(int, void *, size_t);\n" as *byte, codegen.emit_stream as *void);
-                    }
+                if prelude_plan.emit_read_decl != 0 {
+                    fputs("extern ssize_t read(int, void *, size_t);\n" as *byte, codegen.emit_stream as *void);
                 }
-                if has_decl_write != 0 && (has_impl_write == 0 || target_os_is_macos != 0) {
-                    if is_bootstrap == 0 || target_os_is_macos != 0 {
-                        fputs("extern ssize_t write(int, const void *, size_t);\n" as *byte, codegen.emit_stream as *void);
-                    }
+                if prelude_plan.emit_write_decl != 0 {
+                    fputs("extern ssize_t write(int, const void *, size_t);\n" as *byte, codegen.emit_stream as *void);
                 }
             }
         }
-        if has_own_opendir == 0 && is_bootstrap == 0 && codegen.freestanding == 0 {
+        if prelude_plan.emit_opendir_decl != 0 {
             fputs("extern void *opendir(const char *);\n" as *byte, codegen.emit_stream as *void);
         }
-        if has_own_readdir == 0 && is_bootstrap == 0 && codegen.freestanding == 0 {
+        if prelude_plan.emit_readdir_decl != 0 {
             fputs("extern void *readdir(void *);\n" as *byte, codegen.emit_stream as *void);
         }
-        if has_own_closedir == 0 && is_bootstrap == 0 && codegen.freestanding == 0 {
+        if prelude_plan.emit_closedir_decl != 0 {
             fputs("extern int closedir(void *);\n" as *byte, codegen.emit_stream as *void);
         }
-        if is_bootstrap == 0 && codegen.freestanding == 0 {
+        if prelude_plan.emit_exit_decl != 0 {
             fputs("extern void _exit(int);\n" as *byte, codegen.emit_stream as *void);
         }
         c99_emit_newline(codegen);
@@ -2708,7 +2941,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         fputs("    const unsigned char *a = (const unsigned char *)s1, *b = (const unsigned char *)s2;\n" as *byte, codegen.emit_stream as *void);
         fputs("    for (size_t i = 0; i < n; i++) { if (a[i] != b[i]) return a[i] - b[i]; } return 0;\n" as *byte, codegen.emit_stream as *void);
         fputs("}\n\n" as *byte, codegen.emit_stream as *void);
-        if codegen.container_mode != 0 && codegen.microapp_softvm_mode != 0 {
+        if helper_plan.emit_microapp_mmu_helpers != 0 {
             emit_microapp_mmu_helpers(codegen);
         }
     }
@@ -2756,7 +2989,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         var has_full_libc_runtime: i32 = 0;
         var ns_i: i32 = 0;
         while ns_i < decl_count {
-            const ns_decl: &ASTNode = ast.program_decls[ns_i];
+            const ns_decl: &ASTNode = c99_plan_decl_at(split_unit_plan, ns_i);
             if ns_decl != null && ns_decl.type == ASTNodeType.AST_FN_DECL &&
                 ns_decl.fn_decl_name != null && ns_decl.fn_decl_body != null {
                 if strcmp(ns_decl.fn_decl_name as *byte, "printf" as *byte) == 0 {
@@ -2868,7 +3101,9 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 生成 err_union_void 用于 test "name" {} 语句
     fputs("struct err_union_void { uint32_t error_id; };\n" as *byte, codegen.emit_stream as *void);
     mark_struct_defined(codegen, ("err_union_void" as *byte) as &byte);
-    emit_error_name_helper(codegen);
+    if helper_plan.emit_error_name_helper != 0 {
+        emit_error_name_helper(codegen);
+    }
     fputs("#ifdef __APPLE__\n" as *byte, codegen.emit_stream as *void);
     fputs("#define stat uya_macos_native_stat_call\n" as *byte, codegen.emit_stream as *void);
     fputs("#define fstat uya_macos_native_fstat_call\n" as *byte, codegen.emit_stream as *void);
@@ -3287,7 +3522,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 第三步：注册所有错误声明（用于 return error.X 等）
     i = 0;
     while i < decl_count {
-        const decl: &ASTNode = ast.program_decls[i];
+        const decl: &ASTNode = c99_plan_decl_at(split_unit_plan, i);
         if decl != null && decl.type == ASTNodeType.AST_ERROR_DECL {
             if decl.error_decl_name != null {
                 c99_get_or_add_error_id(codegen, decl.error_decl_name);
@@ -3296,135 +3531,10 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         i = i + 1;
     }
     
-    // 第四步：收集所有结构体和枚举定义（添加到表中但不生成代码）
-    i = 0;
-    while i < decl_count {
-        const decl: &ASTNode = ast.program_decls[i];
-        if decl != null {
-            if decl.type == ASTNodeType.AST_STRUCT_DECL {
-                // 泛型结构体：注册原始名（但也为单态化实例预注册）
-                if is_generic_struct_c99(decl) != 0 {
-                    // 为单态化实例注册名称
-                    var j: i32 = 0;
-                    while j < codegen.mono_instance_count {
-                        if codegen.mono_instances[j].generic_name != null &&
-                            strcmp(codegen.mono_instances[j].generic_name as *byte, decl.struct_decl_name as *byte) == 0 &&
-                            codegen.mono_instances[j].is_function == 0 {
-                            // 跳过包含未解析类型参数的实例
-                            if has_unresolved_mono_type_args(decl,
-                                codegen.mono_instances[j].type_args,
-                                codegen.mono_instances[j].type_arg_count) == 0 {
-                                const mono_name: &byte = get_mono_struct_name(codegen, decl.struct_decl_name,
-                                    codegen.mono_instances[j].type_args,
-                                    codegen.mono_instances[j].type_arg_count);
-                                if is_struct_in_table(codegen, mono_name) == 0 {
-                                    add_struct_definition(codegen, mono_name);
-                                }
-                            }
-                        }
-                        j = j + 1;
-                    }
-                } else {
-                    const struct_name: &byte = get_safe_c_identifier(codegen, decl.struct_decl_name);
-                    if is_struct_in_table(codegen, struct_name) == 0 {
-                        add_struct_definition(codegen, struct_name);
-                    }
-                }
-            } else if decl.type == ASTNodeType.AST_ENUM_DECL {
-                const enum_name: &byte = get_safe_c_identifier(codegen, decl.enum_decl_name);
-                if is_enum_in_table(codegen, enum_name) == 0 {
-                    add_enum_definition(codegen, enum_name);
-                }
-            }
-        }
-        i = i + 1;
-    }
-    
-    // 第五步：生成所有结构体的前向声明（解决相互依赖）
-    // 首先添加内置 TypeInfo 的前向声明（用于 @mc_type）
-    fputs("struct TypeInfo;\n" as *byte, codegen.emit_stream as *void);
-    i = 0;
-    while i < codegen.struct_definition_count {
-        if is_struct_defined(codegen, codegen.struct_definitions[i].name) == 0 {
-            fprintf(codegen.emit_stream as *void, "struct %s;\n" as *byte, codegen.struct_definitions[i].name as *byte);
-        }
-        i = i + 1;
-    }
-    if codegen.struct_definition_count > 0 {
-        c99_emit_newline(codegen);
-    }
-    
-    // 第五步：生成所有枚举定义（在结构体之前，因为结构体可能使用枚举类型）
-    i = 0;
-    while i < decl_count {
-        const decl: &ASTNode = ast.program_decls[i];
-        if decl != null {
-            // 跳过 use 语句（模块导入，不需要生成代码）
-            if decl.type == ASTNodeType.AST_USE_STMT {
-                i = i + 1;
-                continue;
-            }
-            if decl.type == ASTNodeType.AST_C_IMPORT_DECL {
-                i = i + 1;
-                continue;
-            }
-            // 跳过宏声明（宏在 checker 阶段已展开，不需要生成代码）
-            if decl.type == ASTNodeType.AST_MACRO_DECL {
-                i = i + 1;
-                continue;
-            }
-            if decl.type == ASTNodeType.AST_ENUM_DECL {
-                gen_enum_definition(codegen, decl);
-                c99_emit_newline(codegen);
-            }
-        }
-        i = i + 1;
-    }
-    
-    // 第五步 b：生成类型别名（typedef）
-    i = 0;
-    while i < decl_count {
-        const decl: &ASTNode = ast.program_decls[i];
-        if decl != null && decl.type == ASTNodeType.AST_TYPE_ALIAS && 
-            decl.type_alias_name != null && decl.type_alias_target_type != null {
-            const alias_name: &byte = get_safe_c_identifier(codegen, decl.type_alias_name);
-            const target_type: &ASTNode = decl.type_alias_target_type;
-            
-            // 数组类型需要特殊处理：typedef int32_t IntArray[4]; 而不是 typedef int32_t[4] IntArray;
-            if target_type.type == ASTNodeType.AST_TYPE_ARRAY {
-                // 收集所有数组维度
-                var dims: [i32: 16] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-                var dim_count: i32 = 0;
-                var current: &ASTNode = target_type;
-                while current != null && current.type == ASTNodeType.AST_TYPE_ARRAY && dim_count < 16 {
-                    var size: i32 = 1;
-                    if current.type_array_size_expr != null {
-                        size = eval_const_expr(codegen, current.type_array_size_expr);
-                        if size <= 0 {
-                            size = 1;
-                        }
-                    }
-                    dims[dim_count] = size;
-                    dim_count = dim_count + 1;
-                    current = current.type_array_element_type;
-                }
-                // current 现在是基础元素类型
-                const base_type_c: &byte = c99_type_to_c(codegen, current);
-                fprintf(codegen.emit_stream as *void, "typedef %s %s" as *byte, base_type_c as *byte, alias_name as *byte);
-                var d: i32 = 0;
-                while d < dim_count {
-                    fprintf(codegen.emit_stream as *void, "[%d]" as *byte, dims[d]);
-                    d = d + 1;
-                }
-                c99_emit_semi_newline(codegen);
-            } else {
-                const target_type_c: &byte = c99_type_to_c(codegen, target_type);
-                fprintf(codegen.emit_stream as *void, "typedef %s %s;\n" as *byte, target_type_c as *byte, alias_name as *byte);
-            }
-        }
-        i = i + 1;
-    }
-    c99_emit_newline(codegen);
+    // 第四步/第五步：按 type definition plan 注册类型并发射前向声明、枚举与 typedef
+    c99_emit_type_definition_registrations(codegen, &type_definition_plan);
+    c99_emit_type_forward_declarations(codegen);
+    c99_emit_type_definition_early(codegen, &type_definition_plan);
     if prof_codegen != 0 {
         t_mk3 = clock();
         prof_ms_step1_typedef = ((t_mk3 as i64) - (t_mk2 as i64)) * 1000 / (CLOCKS_PER_SEC as i64);
@@ -3437,7 +3547,8 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         c99_emit_newline(codegen);
     }
     emit_pending_simd_structs(codegen);
-    if codegen.simd_struct_count > 0 {
+    helper_plan = c99_build_helper_plan(codegen, split_unit_plan);
+    if helper_plan.emit_simd_runtime_helpers != 0 {
         var t_simd0: clock_t = 0;
         if prof_codegen != 0 {
             t_simd0 = clock();
@@ -3509,7 +3620,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 若仅依赖原第六步 e1.5，则登记发生在关闭 uya_part1_types.h 之后，types 头里只有「struct err_union_*;」前向声明而无完整定义，各镜像 .c 会编译失败。
     i = 0;
     while i < decl_count {
-        const decl: &ASTNode = ast.program_decls[i];
+        const decl: &ASTNode = c99_plan_decl_at(split_unit_plan, i);
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
             if is_generic_function_c99(decl) == 0 {
                 preregister_err_union_from_fn_signature(codegen, decl);
@@ -3544,118 +3655,23 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     if codegen.err_union_struct_count > 0 {
         c99_emit_newline(codegen);
     }
-    // 第六步 c：生成联合体定义（在结构体之前，因结构体可能含联合体）
-    // 但首先需要生成联合体变体中引用的结构体（解决嵌套结构体的代码生成顺序问题）
-    i = 0;
-    while i < decl_count {
-        const decl: &ASTNode = ast.program_decls[i];
-        if decl != null && decl.type == ASTNodeType.AST_UNION_DECL {
-            if is_generic_union_c99(decl) != 0 {
-                const uname: &byte = decl.union_decl_name;
-                var j: i32 = 0;
-                while j < codegen.mono_instance_count {
-                    if codegen.mono_instances[j].generic_name != null &&
-                        strcmp(codegen.mono_instances[j].generic_name as *byte, uname as *byte) == 0 &&
-                        codegen.mono_instances[j].is_function == 0 {
-                        if has_unresolved_mono_type_args(decl,
-                            codegen.mono_instances[j].type_args,
-                            codegen.mono_instances[j].type_arg_count) == 0 {
-                            emit_struct_deps_for_union(codegen, decl);
-                            gen_mono_union_definition(codegen, decl,
-                                codegen.mono_instances[j].type_args,
-                                codegen.mono_instances[j].type_arg_count);
-                            c99_emit_newline(codegen);
-                        }
-                    }
-                    j = j + 1;
-                }
-            } else {
-                emit_struct_deps_for_union(codegen, decl);
-                gen_union_definition(codegen, decl);
-                c99_emit_newline(codegen);
-            }
-        }
-        i = i + 1;
+    // 第六步 c/d：late mono 注册可能发生在 typedef/err_union 预注册阶段，layout 发射前重建一次 type plan。
+    if c99_type_definition_plan_build_from_c99_plan(&type_definition_plan, codegen, split_unit_plan) != 0 {
+        c99_type_definition_plan_release(&type_definition_plan);
+        return 1;
     }
-    // 第六步 d1：自动生成内置 TypeInfo 结构体（如果用户没有定义且代码中使用了 @mc_type）
-    {
-        var user_defined_typeinfo: i32 = 0;
-        i = 0;
-        while i < decl_count {
-            const d: &ASTNode = ast.program_decls[i];
-            if d != null && d.type == ASTNodeType.AST_STRUCT_DECL && d.struct_decl_name != null &&
-                strcmp(d.struct_decl_name as *byte, "TypeInfo" as *byte) == 0 {
-                user_defined_typeinfo = 1;
-            }
-            i = i + 1;
-        }
-        if user_defined_typeinfo == 0 && is_struct_defined(codegen, ("TypeInfo" as *byte) as &byte) == 0 {
-            // 生成内置 FieldInfo（@mc_type 结构体字段反射）
-            if is_struct_defined(codegen, ("FieldInfo" as *byte) as &byte) == 0 {
-                fputs("// 内置 FieldInfo（由 TypeInfo.fields 使用）\n" as *byte, codegen.emit_stream as *void);
-                fputs("struct FieldInfo { int8_t *name; int8_t *type_name; };\n\n" as *byte, codegen.emit_stream as *void);
-                mark_struct_defined(codegen, ("FieldInfo" as *byte) as &byte);
-            }
-            // 生成内置 TypeInfo 结构体（含 field_count、fields 以支持结构体字段反射）
-            fputs("// 内置 TypeInfo 结构体（由 @mc_type 使用）\n" as *byte, codegen.emit_stream as *void);
-            fputs("struct TypeInfo {\n" as *byte, codegen.emit_stream as *void);
-            fputs("    int8_t * name;\n" as *byte, codegen.emit_stream as *void);
-            fputs("    int32_t size;\n" as *byte, codegen.emit_stream as *void);
-            fputs("    int32_t align;\n" as *byte, codegen.emit_stream as *void);
-            fputs("    int32_t kind;\n" as *byte, codegen.emit_stream as *void);
-            fputs("    int32_t type_id;\n" as *byte, codegen.emit_stream as *void);
-            fputs("    bool is_integer;\n" as *byte, codegen.emit_stream as *void);
-            fputs("    bool is_float;\n" as *byte, codegen.emit_stream as *void);
-            fputs("    bool is_bool;\n" as *byte, codegen.emit_stream as *void);
-            fputs("    bool is_pointer;\n" as *byte, codegen.emit_stream as *void);
-            fputs("    bool is_array;\n" as *byte, codegen.emit_stream as *void);
-            fputs("    bool is_void;\n" as *byte, codegen.emit_stream as *void);
-            fputs("    int32_t field_count;\n" as *byte, codegen.emit_stream as *void);
-            fputs("    struct FieldInfo fields[64];\n" as *byte, codegen.emit_stream as *void);
-            fputs("};\n\n" as *byte, codegen.emit_stream as *void);
-            mark_struct_defined(codegen, ("TypeInfo" as *byte) as &byte);
-        }
-    }
-    // 第六步 d2：生成所有结构体定义（在切片结构体之后，因为结构体可能含切片字段）
-    i = 0;
-    while i < decl_count {
-        const decl: &ASTNode = ast.program_decls[i];
-        if decl != null && decl.type == ASTNodeType.AST_STRUCT_DECL {
-            // 跳过泛型结构体模板，为单态化实例生成定义
-            if is_generic_struct_c99(decl) != 0 {
-                const sname: &byte = decl.struct_decl_name;
-                var j: i32 = 0;
-                while j < codegen.mono_instance_count {
-                    if codegen.mono_instances[j].generic_name != null &&
-                        strcmp(codegen.mono_instances[j].generic_name as *byte, sname as *byte) == 0 &&
-                        codegen.mono_instances[j].is_function == 0 {
-                        // 跳过包含未解析类型参数的实例（如 Box<T>）
-                        if has_unresolved_mono_type_args(decl,
-                            codegen.mono_instances[j].type_args,
-                            codegen.mono_instances[j].type_arg_count) == 0 {
-                            gen_mono_struct_definition(codegen, decl,
-                                codegen.mono_instances[j].type_args,
-                                codegen.mono_instances[j].type_arg_count);
-                            c99_emit_newline(codegen);
-                        }
-                    }
-                    j = j + 1;
-                }
-            } else {
-                gen_struct_definition(codegen, decl);
-                c99_emit_newline(codegen);
-            }
-        }
-        i = i + 1;
-    }
+    // 按 type definition plan 发射 union、内置 TypeInfo、struct/mono struct 定义
+    c99_emit_type_definition_layouts(codegen, &type_definition_plan);
+    c99_type_definition_plan_release(&type_definition_plan);
 
     // 统一扫描所有声明中的 @frame 类型并补前向声明，避免多 TU 编译报 incomplete type
     // 必须在关闭 uya_part1_types.h 之前完成，确保前向声明写入类型头文件
-    c99_emit_all_async_frame_forwards(codegen, ast);
+    c99_emit_all_async_frame_forwards(codegen, split_unit_plan);
 
     // 镜像：关闭类型头文件，再写 uya_part1.c 字符串池并进入 uya_common.c（此前 emit_stream 指向 uya_part1_types.h）
     if codegen.split_mirror != 0 && codegen.split_part1_types_h != null {
         _ = fflush(codegen.split_part1_types_h as *void);
+        c99_output_buffer_note_close(codegen, codegen.split_part1_types_h);
         _ = fclose(codegen.split_part1_types_h as *void);
         codegen.split_part1_types_h = null;
         codegen.emit_stream = codegen.output;
@@ -3682,11 +3698,9 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     }
     var test_count: i32 = 0;
     
-    prepare_codegen_tests_and_emit_flags(codegen, ast, tests_array, &test_count);
+    prepare_codegen_tests_and_emit_flags(codegen, split_unit_plan, tests_array, &test_count);
     if g_c99_codegen_has_error != 0 {
-        if codegen.checker != null {
-            codegen.checker.suppress_codegen_diagnostics = saved_checker_codegen_diag;
-        }
+        c99_emit_diag_suppress_restore(codegen, saved_codegen_diag);
         return -1;
     }
     
@@ -3809,7 +3823,8 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     fputs("}\n\n" as *byte, codegen.emit_stream as *void);
     
     // 第七步 d：按需生成系统调用辅助函数（@syscall 内置函数支持）
-    if codegen.needs_syscall_helpers != 0 {
+    helper_plan = c99_build_helper_plan(codegen, split_unit_plan);
+    if helper_plan.emit_syscall_helpers != 0 {
         const saved_syscall_emit: &void = codegen.emit_stream;
         // 镜像分 TU：syscall 仅写入 uya_common 会导致 lib/libc/pthread.c 等 TU 无 uya_syscall*；追加到已关闭的 uya_part1_types.h 供全 TU 含入
         if codegen.split_mirror != 0 && codegen.split_dir != null {
@@ -3818,12 +3833,13 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
             if al > 0 && al < 1024 {
                 const ah: *void = fopen(&apath[0] as *byte, "a" as *byte);
                 if ah != null {
+                    c99_output_buffer_note_open(codegen, ah as &void);
                     fputs("\n\n/* mirror split: syscall helpers (appended to uya_part1_types.h for all TUs) */\n" as *byte, ah as *void);
                     codegen.emit_stream = ah as &void;
                 }
             }
         }
-        if codegen.container_mode != 0 {
+        if helper_plan.emit_microapp_syscall_helpers != 0 {
             emit_microapp_syscall_helpers(codegen);
         }
             fputs("// 系统调用辅助函数：Linux/Darwin x86-64；Linux/Darwin AArch64；Linux ARM32 EABI\n" as *byte, codegen.emit_stream as *void);
@@ -4120,6 +4136,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         fputs("#endif\n\n" as *byte, codegen.emit_stream as *void);
         if codegen.split_mirror != 0 && codegen.emit_stream != saved_syscall_emit {
             _ = fflush(codegen.emit_stream as *void);
+            c99_output_buffer_note_close(codegen, codegen.emit_stream);
             _ = fclose(codegen.emit_stream as *void);
             codegen.emit_stream = saved_syscall_emit;
         }
@@ -4135,7 +4152,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     {
         var di2: i32 = 0;
         while di2 < decl_count {
-            const decl_plain: &ASTNode = ast.program_decls[di2];
+            const decl_plain: &ASTNode = c99_plan_decl_at(split_unit_plan, di2);
             if decl_plain != null && decl_plain.type == ASTNodeType.AST_FN_DECL &&
                 decl_plain.fn_decl_body != null &&
                 is_generic_function_c99(decl_plain) == 0 {
@@ -4152,7 +4169,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                 }
                 var dk: i32 = 0;
                 while dk < decl_count {
-                    const decl2: &ASTNode = ast.program_decls[dk];
+                    const decl2: &ASTNode = c99_plan_decl_at(split_unit_plan, dk);
                     if decl2 != null && decl2.type == ASTNodeType.AST_FN_DECL &&
                         decl2.fn_decl_body != null &&
                         is_generic_function_c99(decl2) != 0 &&
@@ -4175,7 +4192,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
             const before_nested_method_count: i32 = codegen.mono_instance_count;
             var smi: i32 = 0;
             while smi < decl_count {
-                const struct_decl_nested: &ASTNode = ast.program_decls[smi];
+                const struct_decl_nested: &ASTNode = c99_plan_decl_at(split_unit_plan, smi);
                 if struct_decl_nested != null && struct_decl_nested.type == ASTNodeType.AST_STRUCT_DECL &&
                     is_generic_struct_c99(struct_decl_nested) == 0 &&
                     struct_decl_nested.struct_decl_methods != null {
@@ -4229,7 +4246,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                 var k: i32 = 0;
                 var found: i32 = 0;
                 while k < decl_count && found == 0 {
-                    const decl: &ASTNode = ast.program_decls[k];
+                    const decl: &ASTNode = c99_plan_decl_at(split_unit_plan, k);
                     if decl != null && decl.type == ASTNodeType.AST_FN_DECL &&
                         c99_mono_fn_name_matches_decl(codegen, gn, decl) != 0 {
                         if has_unresolved_mono_type_args(decl, codegen.mono_instances[j].type_args, codegen.mono_instances[j].type_arg_count) != 0 {
@@ -4246,7 +4263,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                 if found == 0 {
                     k = 0;
                     while k < decl_count && found == 0 {
-                        const decl: &ASTNode = ast.program_decls[k];
+                        const decl: &ASTNode = c99_plan_decl_at(split_unit_plan, k);
                         if decl != null && decl.type == ASTNodeType.AST_METHOD_BLOCK {
                             var type_name: &byte = null;
                             if decl.method_block_struct_name != null {
@@ -4306,7 +4323,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
             if codegen.mono_instances[mi].generic_name != null && codegen.mono_instances[mi].is_function == 0 {
                 var di: i32 = 0;
                 while di < decl_count {
-                    const decl: &ASTNode = ast.program_decls[di];
+                    const decl: &ASTNode = c99_plan_decl_at(split_unit_plan, di);
                     if decl != null && decl.type == ASTNodeType.AST_STRUCT_DECL && decl.struct_decl_name != null &&
                         strcmp(decl.struct_decl_name as *byte, codegen.mono_instances[mi].generic_name as *byte) == 0 &&
                         has_unresolved_mono_type_args(decl, codegen.mono_instances[mi].type_args, codegen.mono_instances[mi].type_arg_count) == 0 {
@@ -4329,7 +4346,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         }
     }
     // 第六步 e2：遍历所有函数体中的 try 表达式，注册其类型（如 from_json 内层 !Point），便于后续 emit 时类型已定义
-    if codegen.checker != null {
+    if c99_emit_has_frontend_services(codegen) != 0 {
         const from_json_decl: &ASTNode = find_function_decl_c99(codegen, "from_json" as *byte);
         var j: i32 = 0;
         while j < codegen.mono_instance_count {
@@ -4338,7 +4355,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                 codegen.mono_instances[j].type_args != null && codegen.mono_instances[j].type_arg_count >= 1 {
                 const ta0: &ASTNode = codegen.mono_instances[j].type_args[0];
                 if ta0 != null && ta0.type == ASTNodeType.AST_TYPE_NAMED && ta0.type_named_name != null {
-                    const body_to_walk: &ASTNode = build_from_json_reflect_body(codegen.checker, ta0, 0, 0, null);
+                    const body_to_walk: &ASTNode = c99_prepare_from_json_reflect_body_for_emit(codegen, ta0);
                     if body_to_walk != null {
                         if from_json_decl != null {
                             collect_err_union_from_function_body(codegen, from_json_decl, body_to_walk,
@@ -4380,7 +4397,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         }
         i = 0;
         while i < decl_count {
-            const decl: &ASTNode = ast.program_decls[i];
+            const decl: &ASTNode = c99_plan_decl_at(split_unit_plan, i);
             if decl != null && decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_body != null {
                 if is_generic_function_c99(decl) != 0 {
                     j = 0;
@@ -4390,8 +4407,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                             codegen.mono_instances[j].is_function != 0 &&
                             has_unresolved_mono_type_args(decl, codegen.mono_instances[j].type_args, codegen.mono_instances[j].type_arg_count) == 0 {
                             if strcmp(decl.fn_decl_name as *byte, "from_json" as *byte) != 0 {
-                                const expanded: &ASTNode = prepare_mono_body_expand_macros(codegen.checker, decl.fn_decl_body,
-                                    decl.fn_decl_type_params, decl.fn_decl_type_param_count,
+                                const expanded: &ASTNode = c99_prepare_mono_body_for_emit(codegen, decl,
                                     codegen.mono_instances[j].type_args, codegen.mono_instances[j].type_arg_count);
                                 if expanded != null {
                                     collect_err_union_from_function_body(codegen, decl, expanded,
@@ -4426,15 +4442,24 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         if pl > 0 && pl < 1024 {
             const pf: *void = fopen(&pp[0] as *byte, "w" as *byte);
             if pf != null {
+                c99_output_buffer_note_open(codegen, pf as &void);
                 fputs("#ifndef UYA_SPLIT_PROTOS_H\n#define UYA_SPLIT_PROTOS_H\n#include \"uya_part1_types.h\"\n\n" as *byte, pf as *void);
                 codegen.split_protos_out = pf as &void;
             }
         }
     }
+
+    var prototype_plan: C99PrototypePlan = c99_prototype_plan_empty();
+    c99_prototype_plan_init(&prototype_plan);
+    if c99_prototype_plan_build_from_c99_plan(&prototype_plan, codegen, split_unit_plan) != 0 {
+        c99_prototype_plan_release(&prototype_plan);
+        return 1;
+    }
     
     // emitter 启动前：预注册 async frame 元数据，并拍摄 mono/err_union/async frame 稳定快照（Phase 5 KPI）
-    c99_preregister_async_frame_metadata(codegen, ast);
+    c99_preregister_async_frame_metadata(codegen, split_unit_plan);
     if c99_codegen_capture_emitter_start_stability(codegen) != 0 {
+        c99_prototype_plan_release(&prototype_plan);
         return 1;
     }
     // 测试专用：在快照之后注入一个真实的待输出表增长（哑字符串常量），用于证明
@@ -4448,204 +4473,13 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
 
     // 第七步：生成所有函数的前向声明（解决相互递归调用）
     c99_mirror_emit_common(codegen);
-    i = 0;
-    while i < decl_count {
-        const decl: &ASTNode = ast.program_decls[i];
-        if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
-            if should_emit_top_level_function_decl(codegen, decl) == 0 {
-                i = i + 1;
-                continue;
-            }
-            // 跳过泛型函数模板，为单态化实例生成原型
-            if is_generic_function_c99(decl) != 0 {
-                const fn_name: &byte = decl.fn_decl_name;
-                var j: i32 = 0;
-                while j < codegen.mono_instance_count && j < @len(codegen.mono_instances) {
-                    if codegen.mono_instances[j].generic_name != null &&
-                        c99_mono_fn_name_matches_decl(codegen, codegen.mono_instances[j].generic_name, decl) != 0 &&
-                        codegen.mono_instances[j].is_function != 0 &&
-                        codegen.reachable_mono_instances[j] != 0 &&
-                        has_unresolved_mono_type_args(decl, codegen.mono_instances[j].type_args, codegen.mono_instances[j].type_arg_count) == 0 {
-                        gen_mono_function_prototype(codegen, decl,
-                            codegen.mono_instances[j].type_args,
-                            codegen.mono_instances[j].type_arg_count);
-                    }
-                    j = j + 1;
-                }
-            } else {
-                gen_function_prototype(codegen, decl);
-            }
-        } else if decl != null && decl.type == ASTNodeType.AST_METHOD_BLOCK {
-            var type_name: &byte = null;
-            if decl.method_block_struct_name != null {
-                type_name = decl.method_block_struct_name;
-            } else {
-                type_name = decl.method_block_union_name;
-            }
-            if type_name != null {
-                var j: i32 = 0;
-                while j < decl.method_block_method_count {
-                    const m: &ASTNode = decl.method_block_methods[j];
-                    if m != null && m.type == ASTNodeType.AST_FN_DECL {
-                        // 检查是否是泛型方法
-                        if m.fn_decl_type_param_count > 0 {
-                            // 泛型方法：为每个单态化实例生成原型
-                            var k: i32 = 0;
-                            while k < codegen.mono_instance_count {
-                                const mono_inst: &MonoInstanceCodegen = c99_mono_instance_codegen_at(codegen, k);
-                                if mono_inst == null {
-                                    break;
-                                }
-                                if mono_inst.generic_name != null && mono_inst.is_function != 0 {
-                                    // 检查单态化实例名称是否匹配 "TypeName_method_name" 格式
-                                    var expected_prefix: [byte: NAME_BUF_SIZE] = [];
-                                    var prefix_len: i32 = snprintf(&expected_prefix[0] as *byte, NAME_BUF_SIZE, "%s_%s_" as *byte, type_name as *byte, m.fn_decl_name as *byte);
-                                    
-                                    const gn: &byte = mono_inst.generic_name;
-                                    if gn != null && strncmp(gn as *byte, &expected_prefix[0] as *byte, prefix_len) == 0 {
-                                        gen_mono_method_prototype(codegen, m, type_name,
-                                            mono_inst.type_args,
-                                            mono_inst.type_arg_count);
-                                    }
-                                }
-                                k = k + 1;
-                            }
-                        } else {
-                            // 非泛型方法
-                            gen_method_prototype(codegen, m, type_name);
-                        }
-                    }
-                    j = j + 1;
-                }
-            }
-        } else if decl != null && decl.type == ASTNodeType.AST_STRUCT_DECL {
-            // 生成结构体内部定义的方法的前向声明
-            const struct_name: &byte = decl.struct_decl_name;
-            // 跳过泛型结构体模板的内部方法，为单态化实例生成方法原型
-            if is_generic_struct_c99(decl) != 0 {
-                var k: i32 = 0;
-                while k < codegen.mono_instance_count {
-                    const mono_inst_k: &MonoInstanceCodegen = c99_mono_instance_codegen_at(codegen, k);
-                    if mono_inst_k == null {
-                        break;
-                    }
-                    if mono_inst_k.generic_name != null &&
-                        strcmp(mono_inst_k.generic_name as *byte, struct_name as *byte) == 0 &&
-                        mono_inst_k.is_function == 0 {
-                        // 跳过包含未解析类型参数的实例
-                        if has_unresolved_mono_type_args(decl,
-                            mono_inst_k.type_args,
-                            mono_inst_k.type_arg_count) == 0 {
-                            // 为该单态化实例生成方法原型
-                            const mono_name: &byte = get_mono_struct_name(codegen, struct_name,
-                                mono_inst_k.type_args,
-                                mono_inst_k.type_arg_count);
-                            // 设置结构体的类型参数上下文（用于二级查找）
-                            const saved_stp: &TypeParam = codegen.struct_type_params;
-                            const saved_stpc: i32 = codegen.struct_type_param_count;
-                            const saved_sta: & & ASTNode = codegen.struct_type_args;
-                            const saved_stac: i32 = codegen.struct_type_arg_count;
-                            codegen.struct_type_params = decl.struct_decl_type_params;
-                            codegen.struct_type_param_count = decl.struct_decl_type_param_count;
-                            codegen.struct_type_args = mono_inst_k.type_args;
-                            codegen.struct_type_arg_count = mono_inst_k.type_arg_count;
-                            
-                            var j: i32 = 0;
-                            while j < decl.struct_decl_method_count {
-                                const m: &ASTNode = decl.struct_decl_methods[j];
-                                if m != null && m.type == ASTNodeType.AST_FN_DECL {
-                                    // 跳过泛型方法（它们通过方法单态化机制处理）
-                                    if m.fn_decl_type_param_count > 0 {
-                                        // 为泛型方法生成单态化原型
-                                        var mi: i32 = 0;
-                                        while mi < codegen.mono_instance_count {
-                                            const mono_inst_mi: &MonoInstanceCodegen = c99_mono_instance_codegen_at(codegen, mi);
-                                            if mono_inst_mi == null {
-                                                break;
-                                            }
-                                            if mono_inst_mi.generic_name != null && mono_inst_mi.is_function != 0 {
-                                                // 检查单态化实例名称是否匹配 "StructName_method_name" 格式
-                                                var expected_prefix: [byte: NAME_BUF_SIZE] = [];
-                                                var prefix_len: i32 = snprintf(&expected_prefix[0] as *byte, NAME_BUF_SIZE, "%s_%s_" as *byte, mono_name as *byte, m.fn_decl_name as *byte);
-                                                
-                                                const gn: &byte = mono_inst_mi.generic_name;
-                                                if gn != null && strncmp(gn as *byte, &expected_prefix[0] as *byte, prefix_len) == 0 {
-                                                    gen_mono_method_prototype(codegen, m, mono_name,
-                                                        mono_inst_mi.type_args,
-                                                        mono_inst_mi.type_arg_count);
-                                                }
-                                            }
-                                            mi = mi + 1;
-                                        }
-                                    } else {
-                                        gen_method_prototype(codegen, m, mono_name);
-                                    }
-                                }
-                                j = j + 1;
-                            }
-                            
-                            // 恢复结构体类型参数上下文
-                            codegen.struct_type_params = saved_stp;
-                            codegen.struct_type_param_count = saved_stpc;
-                            codegen.struct_type_args = saved_sta;
-                            codegen.struct_type_arg_count = saved_stac;
-                        }
-                    }
-                    k = k + 1;
-                }
-            } else {
-                // 非泛型结构体：需要处理内部定义的泛型方法单态化
-                var j: i32 = 0;
-                while j < decl.struct_decl_method_count {
-                    const m: &ASTNode = decl.struct_decl_methods[j];
-                    if m != null && m.type == ASTNodeType.AST_FN_DECL {
-                        // 检查是否是泛型方法
-                        if m.fn_decl_type_param_count > 0 {
-                            // 泛型方法：为每个单态化实例生成原型
-                            var expected_prefix: [byte: NAME_BUF_SIZE] = [];
-                            const prefix_len: i32 = snprintf(&expected_prefix[0] as *byte, NAME_BUF_SIZE, "%s_%s_" as *byte, struct_name as *byte, m.fn_decl_name as *byte);
-                            var k: i32 = 0;
-                            while k < codegen.mono_instance_count {
-                                const mono_inst_k: &MonoInstanceCodegen = c99_mono_instance_codegen_at(codegen, k);
-                                if mono_inst_k == null {
-                                    break;
-                                }
-                                if mono_inst_k.generic_name != null && mono_inst_k.is_function != 0 {
-                                    // 检查单态化实例名称是否匹配 "StructName_method_name" 格式
-                                    const gn: &byte = mono_inst_k.generic_name;
-                                    if gn != null && strncmp(gn as *byte, &expected_prefix[0] as *byte, prefix_len) == 0 {
-                                        gen_mono_method_prototype(codegen, m, struct_name,
-                                            mono_inst_k.type_args,
-                                            mono_inst_k.type_arg_count);
-                                    }
-                                }
-                                k = k + 1;
-                            }
-                        } else {
-                            gen_method_prototype(codegen, m, struct_name);
-                        }
-                    }
-                    j = j + 1;
-                }
-            }
-        } else if decl != null && decl.type == ASTNodeType.AST_UNION_DECL {
-            // 生成联合体内部方法的前向声明
-            const union_name: &byte = decl.union_decl_name;
-            var j: i32 = 0;
-            while j < decl.union_decl_method_count {
-                const m: &ASTNode = decl.union_decl_methods[j];
-                if m != null && m.type == ASTNodeType.AST_FN_DECL {
-                    gen_method_prototype(codegen, m, union_name);
-                }
-                j = j + 1;
-            }
-        }
-        i = i + 1;
-    }
+    c99_emit_prototype_plan(codegen, &prototype_plan);
+    c99_prototype_plan_release(&prototype_plan);
     
     if codegen.split_mirror != 0 && codegen.split_protos_out != null {
         fputs("\n#endif /* UYA_SPLIT_PROTOS_H */\n" as *byte, codegen.split_protos_out as *void);
         _ = fflush(codegen.split_protos_out as *void);
+        c99_output_buffer_note_close(codegen, codegen.split_protos_out);
         _ = fclose(codegen.split_protos_out as *void);
         codegen.split_protos_out = null;
         if codegen.split_common_out != null {
@@ -4654,7 +4488,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     }
     
     // 第八步 b：生成 vtable 常量（依赖方法前向声明）
-    c99_mirror_emit_extern_const_fwd(codegen, ast);
+    c99_mirror_emit_extern_const_fwd(codegen, split_unit_plan);
     emit_vtable_constants(codegen);
     c99_emit_newline(codegen);
     
@@ -4679,7 +4513,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
         var has_std_testing: i32 = 0;
         i = 0;
         while i < decl_count {
-            const decl: &ASTNode = ast.program_decls[i];
+            const decl: &ASTNode = c99_plan_decl_at(split_unit_plan, i);
             if decl != null && decl.type == ASTNodeType.AST_USE_STMT {
                 // 检查路径段是否是 std.testing
                 const seg_count: i32 = decl.use_stmt_path_segment_count;
@@ -4715,7 +4549,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 第九步 a：先生成所有常量（确保在函数之前定义）
     i = 0;
     while i < decl_count {
-        const decl: &ASTNode = ast.program_decls[i];
+        const decl: &ASTNode = c99_plan_decl_at(split_unit_plan, i);
         if decl != null {
             c99_mirror_emit_for_node(codegen, decl);
             // 跳过 use 语句（模块导入，不需要生成代码）
@@ -4727,7 +4561,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                 i = i + 1;
                 continue;
             }
-            // 跳过宏声明（宏在 checker 阶段已展开，不需要生成代码）
+            // 跳过宏声明（前置阶段已展开，不需要生成代码）
             if decl.type == ASTNodeType.AST_MACRO_DECL {
                 i = i + 1;
                 continue;
@@ -4748,7 +4582,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 第九步 b0：先生成非常量、非 export 的全局变量（保证被 export 变量初始器引用的符号先定义）
     i = 0;
     while i < decl_count {
-        const decl: &ASTNode = ast.program_decls[i];
+        const decl: &ASTNode = c99_plan_decl_at(split_unit_plan, i);
         if decl != null && decl.type == ASTNodeType.AST_VAR_DECL && decl.var_decl_is_const == 0 && decl.var_decl_is_export == 0 {
             c99_mirror_emit_for_node(codegen, decl);
             gen_global_var(codegen, decl);
@@ -4760,7 +4594,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     // 第九步 b：生成所有声明（export 非常量全局变量、函数定义）
     i = 0;
     while i < decl_count {
-        const decl: &ASTNode = ast.program_decls[i];
+        const decl: &ASTNode = c99_plan_decl_at(split_unit_plan, i);
         if decl != null {
             c99_mirror_emit_for_node(codegen, decl);
             // 跳过 use 语句（模块导入，不需要生成代码）
@@ -4768,7 +4602,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
                 i = i + 1;
                 continue;
             }
-            // 跳过宏声明（宏在 checker 阶段已展开，不需要生成代码）
+            // 跳过宏声明（前置阶段已展开，不需要生成代码）
             if decl.type == ASTNodeType.AST_MACRO_DECL {
                 i = i + 1;
                 continue;
@@ -5024,7 +4858,7 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     var has_plain_user_main: i32 = 0;  // 普通 fn main()，需要生成 main_main -> uya_main 桥接
     i = 0;
     while i < decl_count {
-        const decl: &ASTNode = ast.program_decls[i];
+        const decl: &ASTNode = c99_plan_decl_at(split_unit_plan, i);
         if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
             const is_c_main: i32 = c99_fn_decl_is_c_main(decl);
             const is_entry_main: i32 = c99_fn_decl_is_user_entry_main(codegen, decl);
@@ -5145,7 +4979,10 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
     emit_pending_string_constants(codegen);
 
     // 生成 async frame descriptor 静态表（供统一 AsyncFramePool 运行时查表）
-    emit_async_frame_descriptors(codegen);
+    helper_plan = c99_build_helper_plan(codegen, split_unit_plan);
+    if helper_plan.emit_async_frame_descriptors != 0 {
+        emit_async_frame_descriptors(codegen, &helper_plan);
+    }
     
     if prof_codegen != 0 {
         const t1: clock_t = clock();
@@ -5161,23 +4998,59 @@ fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: 
 
     // emitter 结束后校验 mono/err_union/async frame 未发生漂移（Phase 5 KPI）
     if c99_codegen_verify_emitter_start_stability(codegen) != 0 {
-        if codegen.checker != null {
-            codegen.checker.suppress_codegen_diagnostics = saved_checker_codegen_diag;
-        }
+        c99_emit_diag_suppress_restore(codegen, saved_codegen_diag);
         return -1;
     }
 
-    c99_split_finish_part2_externs(codegen);
-    c99_write_mirror_manifest(codegen, ast);
-    c99_write_split_makefile(codegen);
     if g_c99_codegen_has_error != 0 {
-        if codegen.checker != null {
-            codegen.checker.suppress_codegen_diagnostics = saved_checker_codegen_diag;
-        }
+        c99_emit_diag_suppress_restore(codegen, saved_codegen_diag);
         return -1;
     }
-    if codegen.checker != null {
-        codegen.checker.suppress_codegen_diagnostics = saved_checker_codegen_diag;
+    c99_emit_diag_suppress_restore(codegen, saved_codegen_diag);
+    return 0;
+}
+
+fn c99_plan_build(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: &byte, plan: &C99Plan) i32 {
+    if codegen == null || ast == null || output_file == null || plan == null {
+        return -1;
+    }
+    if ast.type != ASTNodeType.AST_PROGRAM {
+        return -1;
+    }
+    c99_plan_reset(plan);
+    if c99_plan_build_decls(plan, ast) != 0 {
+        return -1;
+    }
+    const split_plan_input: C99SplitUnitPlanInput = C99SplitUnitPlanInput{
+        ast: ast,
+        decl_count: plan.decl_count,
+        split_enabled: codegen.split_enabled,
+        split_mirror: codegen.split_mirror,
+    };
+    return c99_split_unit_plan_build(plan, split_plan_input);
+}
+
+// 生成 C99 代码
+fn c99_codegen_generate(codegen: &C99CodeGenerator, ast: &ASTNode, output_file: &byte) i32 {
+    if codegen == null || ast == null || output_file == null {
+        return -1;
+    }
+    var plan: C99Plan = c99_plan_empty();
+    c99_plan_init(&plan, codegen.arena);
+    defer {
+        c99_plan_release(&plan);
+    }
+    if c99_plan_build(codegen, ast, output_file, &plan) != 0 {
+        return -1;
+    }
+    if c99_emit_plan(codegen, ast, output_file, &plan) != 0 {
+        return -1;
+    }
+    c99_split_finish_part2_externs(codegen);
+    c99_write_mirror_manifest(codegen, &plan);
+    c99_write_split_makefile(codegen, &plan);
+    if g_c99_codegen_has_error != 0 {
+        return -1;
     }
     return 0;
 }
@@ -5202,30 +5075,17 @@ fn emit_async_frame_descriptor_type_defs(codegen: &C99CodeGenerator) void {
     }
 }
 
-fn c99_program_uses_async_frame_runtime(codegen: &C99CodeGenerator) i32 {
-    if codegen == null || codegen.program_node == null {
-        return 0;
-    }
-    const program: &ASTNode = codegen.program_node;
-    var i: i32 = 0;
-    while i < program.program_decl_count {
-        const decl: &ASTNode = program.program_decls[i];
-        if decl != null && decl.filename != null {
-            if strstr(decl.filename as *byte, "std/async_frame.uya" as *byte) != null {
-                return 1;
-            }
-        }
-        i = i + 1;
-    }
-    return 0;
-}
-
 // 生成 async frame descriptor 静态表，供统一 AsyncFramePool 运行时 O(1) 查表
-fn emit_async_frame_descriptors(codegen: &C99CodeGenerator) void {
+fn emit_async_frame_descriptors(codegen: &C99CodeGenerator, helper_plan: &C99HelperPlan) void {
     if codegen == null || codegen.emit_stream == null || codegen.checker == null {
         return;
     }
-    var count: i32 = codegen.checker.async_frame_meta_count;
+    var count: i32 = 0;
+    var runtime_used: i32 = 0;
+    if helper_plan != null {
+        count = helper_plan.async_frame_descriptor_count;
+        runtime_used = helper_plan.async_frame_runtime_used;
+    }
     if count < 0 {
         count = 0;
     }
@@ -5234,7 +5094,7 @@ fn emit_async_frame_descriptors(codegen: &C99CodeGenerator) void {
             count, MAX_ASYNC_FRAME_METAS);
         return;
     }
-    if count == 0 && c99_program_uses_async_frame_runtime(codegen) == 0 {
+    if count == 0 && runtime_used == 0 {
         fprintf(codegen.emit_stream as *void, "int32_t _uya_async_frame_heap_fallback = %d;\n" as *byte, codegen.async_frame_heap_fallback);
         return;
     }

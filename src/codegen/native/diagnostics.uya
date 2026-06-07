@@ -1,0 +1,253 @@
+// codegen/native/diagnostics.uya - Native diagnostic byte output buffer.
+
+use libc;
+
+const NATIVE_DIAG_MIN_CAPACITY: usize = 64usize;
+const NATIVE_DIAG_MAX_BYTES: usize = 9223372036854775807usize;
+
+/// 功能说明：native diagnostics 字符串输出缓冲。
+/// 参数说明：无；调用 `native_diag_buffer_init` 后可追加字节和 C string。
+/// 返回值说明：无。
+export struct NativeDiagnosticBuffer {
+    data: &byte,
+    len: usize,
+    capacity: usize,
+    realloc_count: i32,
+    initialized: i32,
+}
+
+fn native_diag_add_overflows(a: usize, b: usize) i32 {
+    if b > NATIVE_DIAG_MAX_BYTES {
+        return 1;
+    }
+    if a > NATIVE_DIAG_MAX_BYTES - b {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_diag_next_capacity(current: usize, min_capacity: usize) usize {
+    var next: usize = current;
+    if next < NATIVE_DIAG_MIN_CAPACITY {
+        next = NATIVE_DIAG_MIN_CAPACITY;
+    }
+    while next < min_capacity {
+        if next > NATIVE_DIAG_MAX_BYTES / 2usize {
+            return min_capacity;
+        }
+        next = next * 2usize;
+    }
+    return next;
+}
+
+fn native_diag_ensure_capacity(buffer: &NativeDiagnosticBuffer, min_capacity: usize) i32 {
+    if buffer == null || buffer.initialized == 0 {
+        return -1;
+    }
+    if min_capacity <= buffer.capacity {
+        return 0;
+    }
+    const next: usize = native_diag_next_capacity(buffer.capacity, min_capacity);
+    const new_data: &byte = realloc(buffer.data as &void, next) as &byte;
+    if new_data == null {
+        return -1;
+    }
+    buffer.data = new_data;
+    buffer.capacity = next;
+    buffer.realloc_count = buffer.realloc_count + 1;
+    return 0;
+}
+
+fn native_diag_set_terminator(buffer: &NativeDiagnosticBuffer) void {
+    if buffer == null || buffer.data == null || buffer.len >= buffer.capacity {
+        return;
+    }
+    buffer.data[buffer.len] = 0 as byte;
+}
+
+fn native_diag_c_string_len(data: &byte) usize {
+    if data == null {
+        return 0usize;
+    }
+    var len: usize = 0usize;
+    while data[len] != 0 as byte {
+        len = len + 1usize;
+    }
+    return len;
+}
+
+/// 功能说明：构造未初始化的 native diagnostic buffer。
+/// 参数说明：无。
+/// 返回值说明：返回空缓冲；调用 init 前 append 会失败。
+export fn native_diag_buffer_empty() NativeDiagnosticBuffer {
+    return NativeDiagnosticBuffer{
+        data: null,
+        len: 0usize,
+        capacity: 0usize,
+        realloc_count: 0,
+        initialized: 0,
+    };
+}
+
+/// 功能说明：初始化 native diagnostic buffer。
+/// 参数说明：`buffer` 为目标缓冲。
+/// 返回值说明：无；null 参数被忽略。
+export fn native_diag_buffer_init(buffer: &NativeDiagnosticBuffer) void {
+    if buffer == null {
+        return;
+    }
+    buffer.data = null;
+    buffer.len = 0usize;
+    buffer.capacity = 0usize;
+    buffer.realloc_count = 0;
+    buffer.initialized = 1;
+}
+
+/// 功能说明：追加一个字节到 diagnostic buffer。
+/// 参数说明：`buffer` 为目标缓冲；`value` 为追加字节。
+/// 返回值说明：成功返回 `0`；未初始化、溢出或分配失败返回 `-1`。
+export fn native_diag_append_byte(buffer: &NativeDiagnosticBuffer, value: byte) i32 {
+    if buffer == null || buffer.initialized == 0 {
+        return -1;
+    }
+    if native_diag_add_overflows(buffer.len, 2usize) != 0 {
+        return -1;
+    }
+    const required: usize = buffer.len + 2usize;
+    if native_diag_ensure_capacity(buffer, required) != 0 {
+        return -1;
+    }
+    buffer.data[buffer.len] = value;
+    buffer.len = buffer.len + 1usize;
+    native_diag_set_terminator(buffer);
+    return 0;
+}
+
+/// 功能说明：追加固定长度字节串到 diagnostic buffer。
+/// 参数说明：`buffer` 为目标缓冲；`data`/`len` 为待追加字节范围。
+/// 返回值说明：成功返回 `0`；参数无效、溢出或分配失败返回 `-1`。
+export fn native_diag_append_bytes(buffer: &NativeDiagnosticBuffer, data: &byte, len: usize) i32 {
+    if buffer == null || buffer.initialized == 0 {
+        return -1;
+    }
+    if len == 0usize {
+        return 0;
+    }
+    if data == null {
+        return -1;
+    }
+    if native_diag_add_overflows(buffer.len, len) != 0 {
+        return -1;
+    }
+    const end_len: usize = buffer.len + len;
+    if native_diag_add_overflows(end_len, 1usize) != 0 {
+        return -1;
+    }
+    const required: usize = end_len + 1usize;
+    if native_diag_ensure_capacity(buffer, required) != 0 {
+        return -1;
+    }
+    _ = memcpy(@ptr_from_usize(@usize_from_ptr(buffer.data) + buffer.len) as *byte, data as *const byte, len);
+    buffer.len = end_len;
+    native_diag_set_terminator(buffer);
+    return 0;
+}
+
+/// 功能说明：追加 NUL 结尾 C string 到 diagnostic buffer。
+/// 参数说明：`buffer` 为目标缓冲；`data` 为 C string 指针。
+/// 返回值说明：成功返回 `0`；参数无效、溢出或分配失败返回 `-1`。
+export fn native_diag_append_c_string(buffer: &NativeDiagnosticBuffer, data: &byte) i32 {
+    if data == null {
+        return -1;
+    }
+    const len: usize = native_diag_c_string_len(data);
+    return native_diag_append_bytes(buffer, data, len);
+}
+
+/// 功能说明：追加 C string 并补一个换行字节。
+/// 参数说明：`buffer` 为目标缓冲；`data` 为 C string 指针。
+/// 返回值说明：成功返回 `0`；任一追加步骤失败返回 `-1`。
+export fn native_diag_append_line(buffer: &NativeDiagnosticBuffer, data: &byte) i32 {
+    if native_diag_append_c_string(buffer, data) != 0 {
+        return -1;
+    }
+    return native_diag_append_byte(buffer, 10 as byte);
+}
+
+/// 功能说明：读取 diagnostic buffer 底层字节指针。
+/// 参数说明：`buffer` 为目标缓冲。
+/// 返回值说明：返回 data；参数无效时返回 null。
+export fn native_diag_data(buffer: &NativeDiagnosticBuffer) &byte {
+    if buffer == null {
+        return null;
+    }
+    return buffer.data;
+}
+
+/// 功能说明：读取 diagnostic buffer 当前字节长度。
+/// 参数说明：`buffer` 为目标缓冲。
+/// 返回值说明：返回 len；参数无效时返回 0。
+export fn native_diag_len(buffer: &NativeDiagnosticBuffer) usize {
+    if buffer == null {
+        return 0usize;
+    }
+    return buffer.len;
+}
+
+/// 功能说明：读取 diagnostic buffer 当前容量。
+/// 参数说明：`buffer` 为目标缓冲。
+/// 返回值说明：返回 capacity；参数无效时返回 0。
+export fn native_diag_capacity(buffer: &NativeDiagnosticBuffer) usize {
+    if buffer == null {
+        return 0usize;
+    }
+    return buffer.capacity;
+}
+
+/// 功能说明：读取 diagnostic buffer 分配次数。
+/// 参数说明：`buffer` 为目标缓冲。
+/// 返回值说明：返回 realloc_count；参数无效时返回 0。
+export fn native_diag_realloc_count(buffer: &NativeDiagnosticBuffer) i32 {
+    if buffer == null {
+        return 0;
+    }
+    return buffer.realloc_count;
+}
+
+/// 功能说明：读取 diagnostic buffer 指定位置字节。
+/// 参数说明：`buffer` 为目标缓冲；`index` 为字节下标。
+/// 返回值说明：存在时返回字节值；越界或参数无效时返回 `-1`。
+export fn native_diag_byte_at(buffer: &NativeDiagnosticBuffer, index: usize) i32 {
+    if buffer == null || buffer.data == null || index >= buffer.len {
+        return -1;
+    }
+    return buffer.data[index] as i32;
+}
+
+/// 功能说明：清空 diagnostic buffer 内容并保留容量。
+/// 参数说明：`buffer` 为目标缓冲。
+/// 返回值说明：无。
+export fn native_diag_reset(buffer: &NativeDiagnosticBuffer) void {
+    if buffer == null {
+        return;
+    }
+    buffer.len = 0usize;
+    native_diag_set_terminator(buffer);
+}
+
+/// 功能说明：释放 diagnostic buffer 底层存储。
+/// 参数说明：`buffer` 为目标缓冲。
+/// 返回值说明：无；释放后 append 需要重新 init。
+export fn native_diag_release(buffer: &NativeDiagnosticBuffer) void {
+    if buffer == null {
+        return;
+    }
+    if buffer.data != null {
+        free(buffer.data as &void);
+    }
+    buffer.data = null;
+    buffer.len = 0usize;
+    buffer.capacity = 0usize;
+    buffer.realloc_count = 0;
+    buffer.initialized = 0;
+}

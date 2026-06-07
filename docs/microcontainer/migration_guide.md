@@ -14,7 +14,12 @@
 1. 写 portable 源码
 2. 只使用 `std.microapp.*`
 3. 用 `--microapp-profile` 或 target tuple 选择目标 profile
-4. 用 `build/run/inspect-image/verify-image` 走统一链路
+4. 目标 CLI 使用 `microapp build/run/inspect/verify` 走统一链路
+
+> 过渡说明：当前仓库仍有不少脚本和历史文档使用旧形态
+> `build --app microapp`、`run --app microapp`、`pack-image`、`inspect-image`、`verify-image`。
+> 新的工具链目标是 `uya microapp build|pack|inspect|verify|run`；在 `cmd/microapp`
+> 真正落地前，旧命令可以继续作为实现对照或兼容入口。
 
 推荐优先参考这些源码示例：
 
@@ -44,10 +49,10 @@
 MICROAPP_TARGET_ARCH=x86_64 ./bin/uya build --app microapp app.uya -o app.uapp
 ```
 
-当前推荐：
+目标推荐：
 
 ```bash
-./bin/uya build --app microapp \
+./bin/uya microapp build \
   --microapp-profile linux_x86_64_hardvm \
   app.uya -o app.uapp
 ```
@@ -56,14 +61,14 @@ MICROAPP_TARGET_ARCH=x86_64 ./bin/uya build --app microapp app.uya -o app.uapp
 
 ```bash
 MICROAPP_TARGET_PROFILE=linux_x86_64_hardvm \
-./bin/uya build --app microapp app.uya -o app.uapp
+./bin/uya microapp build app.uya -o app.uapp
 ```
 
 如果你不想显式写 profile，也可以让目标平台 tuple 自动推导：
 
 ```bash
 TARGET_OS=macos TARGET_ARCH=arm64 \
-./bin/uya build --app microapp app.uya -o app.uapp
+./bin/uya microapp build app.uya -o app.uapp
 ```
 
 一句话：
@@ -124,22 +129,22 @@ export fn main() i32 {
 - 再手工 `pack-image`
 - 或直接跑宿主侧 builder / loader 示例
 
-当前推荐把日常路径统一成：
+目标推荐把日常路径统一成：
 
 ```bash
-./bin/uya build --app microapp app.uya -o app.uapp
-./bin/uya run --app microapp app.uya
-./bin/uya inspect-image app.uapp
-./bin/uya verify-image app.uapp
+./bin/uya microapp build app.uya -o app.uapp
+./bin/uya microapp run app.uya
+./bin/uya microapp inspect app.uapp
+./bin/uya microapp verify app.uapp
 ```
 
 如果你确实需要看中间产物，再拆成：
 
 ```bash
-./bin/uya build --app microapp app.uya -o app.pobj
-./bin/uya pack-image app.pobj -o app.uapp
-./bin/uya inspect-image app.pobj
-./bin/uya verify-image app.pobj
+./bin/uya microapp build app.uya -o app.pobj
+./bin/uya microapp pack app.pobj -o app.uapp
+./bin/uya microapp inspect app.pobj
+./bin/uya microapp verify app.pobj
 ```
 
 所以现在的建议是：
@@ -156,9 +161,9 @@ export fn main() i32 {
 1. 把源码里的 `libc.*` / `std.time` 换成 `std.microapp.*`
 2. 确认源码只保留 portable source 允许的接口
 3. 把构建入口改成 `--microapp-profile ...`
-4. 用 `build --app microapp -o xxx.c` 先验证 compile matrix
-5. 用 `build --app microapp -o xxx.uapp` / `run --app microapp` 验证当前已支持的 runtime profile
-6. 用 `inspect-image` / `verify-image` 确认产物元数据和格式版本
+4. 用 `microapp build -o xxx.c` 先验证 compile matrix
+5. 用 `microapp build -o xxx.uapp` / `microapp run` 验证当前已支持的 runtime profile
+6. 用 `microapp inspect` / `microapp verify` 确认产物元数据和格式版本
 
 ---
 

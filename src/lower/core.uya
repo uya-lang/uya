@@ -13,6 +13,19 @@ export const LOWER_WORK_ITEM_RUNTIME_HELPER: i32 = 5;
 export const LOWER_WORK_ITEM_INTERFACE: i32 = 6;
 export const LOWER_WORK_ITEM_DROP_DEFER: i32 = 7;
 export const LOWERED_RUNTIME_HELPER_UNKNOWN: i32 = 0;
+export const LOWERED_BODY_OP_NOP: i32 = 0;
+export const LOWERED_BODY_OP_RETURN_CONST_I32: i32 = 1;
+export const LOWERED_BODY_OP_RETURN_CALL: i32 = 2;
+export const LOWERED_BODY_OP_ADD_I32: i32 = 3;
+export const LOWERED_BODY_OP_LOCAL_CALL_I32: i32 = 4;
+export const LOWERED_BODY_OP_RETURN_LOCAL_I32: i32 = 5;
+export const LOWERED_BODY_OP_LOCAL_CALL_CONST1_I32: i32 = 6;
+export const LOWERED_BODY_OP_RETURN_PARAM_I32: i32 = 7;
+export const LOWERED_BODY_OP_LOCAL_CALL_CONST2_I32: i32 = 8;
+export const LOWERED_BODY_OP_RETURN_ADD_PARAMS_I32: i32 = 9;
+export const LOWERED_BODY_OP_LOCAL_I32_CONST: i32 = 10;
+export const LOWERED_BODY_OP_LOCAL_CALL_ADDR1_I32: i32 = 11;
+export const LOWERED_BODY_OP_STORE_PARAM0_CONST_I32: i32 = 12;
 
 /// 功能说明：记录一个已经收敛到具体实例的函数。
 /// 参数说明：无；字段均为 SemanticDb/TypedProgram 阶段分配的稳定整数 ID 或 range。
@@ -107,6 +120,19 @@ export struct LowerWorkItem {
     secondary_id: i32,
 }
 
+/// 功能说明：记录 LoweredProgram 中一条函数体操作。
+/// 参数说明：无；字段为指令选择前的 opcode、寄存器/临时值 ID、目标 ID、立即数和标志。
+/// 返回值说明：无。
+export struct LoweredBodyOp {
+    opcode: i32,
+    dst: i32,
+    src0: i32,
+    src1: i32,
+    target_id: i32,
+    imm: i64,
+    flags: i32,
+}
+
 /// 功能说明：聚合 LoweredProgram 所有动态表的统计摘要。
 /// 参数说明：无；由 `lowered_program_stats` 返回。
 /// 返回值说明：无。
@@ -141,10 +167,12 @@ export struct LoweredProgram {
     drop_defer_count: usize,
     helper_count: usize,
     work_item_count: usize,
+    body_op_count: usize,
     estimated_bytes: usize,
     resident_peak_bytes: usize,
     lifecycle_state: i32,
     functions: SemanticVector,
+    body_ops: SemanticVector,
     globals: SemanticVector,
     types: SemanticVector,
     interfaces: SemanticVector,
@@ -168,6 +196,7 @@ fn lowered_program_clear_counts(program: &LoweredProgram) void {
     program.drop_defer_count = 0usize;
     program.helper_count = 0usize;
     program.work_item_count = 0usize;
+    program.body_op_count = 0usize;
     program.estimated_bytes = 0usize;
 }
 
@@ -205,6 +234,7 @@ export fn lowered_program_init(program: &LoweredProgram, arena: &CompilerArena) 
     program.resident_peak_bytes = 0usize;
     program.lifecycle_state = LOWERED_PROGRAM_LIFECYCLE_ACTIVE;
     semantic_vector_init(&program.functions, @size_of(ConcreteFunction));
+    semantic_vector_init(&program.body_ops, @size_of(LoweredBodyOp));
     semantic_vector_init(&program.globals, @size_of(GlobalObject));
     semantic_vector_init(&program.types, @size_of(ConcreteType));
     semantic_vector_init(&program.interfaces, @size_of(InterfacePlan));
@@ -226,6 +256,7 @@ export fn lowered_program_reset(program: &LoweredProgram) void {
     lowered_program_clear_counts(program);
     program.lifecycle_state = LOWERED_PROGRAM_LIFECYCLE_ACTIVE;
     semantic_vector_reset(&program.functions);
+    semantic_vector_reset(&program.body_ops);
     semantic_vector_reset(&program.globals);
     semantic_vector_reset(&program.types);
     semantic_vector_reset(&program.interfaces);
@@ -248,6 +279,7 @@ export fn lowered_program_release(program: &LoweredProgram) void {
         lowered_program_refresh_bytes(program);
     }
     semantic_vector_release(&program.functions);
+    semantic_vector_release(&program.body_ops);
     semantic_vector_release(&program.globals);
     semantic_vector_release(&program.types);
     semantic_vector_release(&program.interfaces);
@@ -282,6 +314,21 @@ export fn lowered_program_append_function(program: &LoweredProgram, item: &Concr
         return -1;
     }
     program.function_count = program.functions.count;
+    lowered_program_refresh_bytes(program);
+    return 0;
+}
+
+/// 功能说明：追加一条函数体操作到 LoweredProgram body op 表。
+/// 参数说明：`program` 为目标 LoweredProgram，`item` 为待追加 body op。
+/// 返回值说明：成功返回 `0`，失败返回 `-1`。
+export fn lowered_program_append_body_op(program: &LoweredProgram, item: &LoweredBodyOp) i32 {
+    if program == null || item == null {
+        return -1;
+    }
+    if semantic_vector_append(&program.body_ops, item as &const void) != 0 {
+        return -1;
+    }
+    program.body_op_count = program.body_ops.count;
     lowered_program_refresh_bytes(program);
     return 0;
 }
@@ -421,6 +468,21 @@ export fn lowered_program_get_work_item(program: &LoweredProgram, index: usize, 
     return 1;
 }
 
+/// 功能说明：查询 LoweredProgram body op 表中的指定操作。
+/// 参数说明：`program` 为目标 LoweredProgram，`index` 为 body op 下标，`out_item` 接收结果。
+/// 返回值说明：命中返回 `1`，越界或参数无效返回 `0`。
+export fn lowered_program_get_body_op(program: &LoweredProgram, index: usize, out_item: &LoweredBodyOp) i32 {
+    if program == null || out_item == null {
+        return 0;
+    }
+    const item: &LoweredBodyOp = semantic_vector_item_ptr(&program.body_ops, index) as &LoweredBodyOp;
+    if item == null {
+        return 0;
+    }
+    out_item[0] = item[0];
+    return 1;
+}
+
 fn lowered_program_reset_worklist(program: &LoweredProgram) void {
     if program == null {
         return;
@@ -466,6 +528,7 @@ export fn lowered_program_storage_bytes(program: &LoweredProgram) usize {
     }
     return @size_of(LoweredProgram) +
         program.functions.bytes +
+        program.body_ops.bytes +
         program.globals.bytes +
         program.types.bytes +
         program.interfaces.bytes +
@@ -546,6 +609,7 @@ export fn lowered_program_stats(program: &LoweredProgram) LoweredProgramStats {
         return stats;
     }
     lowered_program_stats_add(&stats, &program.functions);
+    lowered_program_stats_add(&stats, &program.body_ops);
     lowered_program_stats_add(&stats, &program.globals);
     lowered_program_stats_add(&stats, &program.types);
     lowered_program_stats_add(&stats, &program.interfaces);
@@ -1072,8 +1136,8 @@ export fn lowered_program_maybe_dump_summary(program: &LoweredProgram) void {
     }
     const stats: LoweredProgramStats = lowered_program_stats(program);
     fprintf(libc.stderr, "=== lowered program ===\n" as *byte);
-    fprintf(libc.stderr, "functions=%zu globals=%zu types=%zu interfaces=%zu err_unions=%zu async_frames=%zu drop_defers=%zu helpers=%zu work_items=%zu\n" as *byte,
-        program.function_count, program.global_count, program.type_count, program.interface_count,
+    fprintf(libc.stderr, "functions=%zu body_ops=%zu globals=%zu types=%zu interfaces=%zu err_unions=%zu async_frames=%zu drop_defers=%zu helpers=%zu work_items=%zu\n" as *byte,
+        program.function_count, program.body_op_count, program.global_count, program.type_count, program.interface_count,
         program.err_union_count, program.async_frame_count, program.drop_defer_count, program.helper_count, program.work_item_count);
     fprintf(libc.stderr, "tables=%d table_items=%zu table_capacity=%zu table_bytes=%zu table_reallocs=%d\n" as *byte,
         stats.table_count, stats.table_items, stats.table_capacity, stats.table_bytes, stats.table_realloc_count);

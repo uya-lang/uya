@@ -4,6 +4,10 @@
 // 供 native 后端 ELF executable writer 复用。本文件只负责字节布局编码，
 // 不负责段内容生成或重定位求解。
 
+use libc.FILE;
+use libc.fwrite;
+use libc.fflush;
+
 // e_ident 索引与常量
 export const ELF_MAG0: i32 = 127;        // 0x7f
 export const ELF_MAG1: i32 = 69;         // 'E'
@@ -158,8 +162,26 @@ export fn elf64_encode_shdr(buf: &byte, off: usize, cap: usize, sh_name: i32, sh
 export const ELF64_MIN_EXEC_HEADERS: i32 = 120;   // ELF64_EHDR_SIZE(64) + ELF64_PHDR_SIZE(56)
 // 默认映像加载虚拟地址（page 对齐）。
 export const ELF64_DEFAULT_LOAD_VADDR: i64 = 4194304i64;  // 0x400000
+// v1 native 输出策略：不生成 DWARF/debug sections，且 streaming writer 只保留 header 临时缓冲。
+export const ELF64_NATIVE_DEBUG_SECTION_COUNT: i32 = 0;
+
+/// 功能说明：报告 v1 native ELF 输出固定关闭 debug section。
+/// 参数说明：无。
+/// 返回值说明：始终返回 `0`，表示 `.debug_*`/DWARF 段数量为零。
+export fn elf64_native_debug_section_count() i32 {
+    return ELF64_NATIVE_DEBUG_SECTION_COUNT;
+}
+
+/// 功能说明：报告 streaming ELF writer 的固定临时缓冲上界。
+/// 参数说明：`code_len` 为机器码长度；当前策略不随机器码长度扩大临时缓冲。
+/// 返回值说明：返回固定 header 缓冲字节数。
+export fn elf64_stream_peak_temp_bytes(code_len: usize) usize {
+    _ = code_len;
+    return ELF64_MIN_EXEC_HEADERS as usize;
+}
 
 /// 功能说明：把一段已编码机器码组装为最小静态 nostdlib ELF64 可执行映像写入 `buf`。
+///           这是字节编码测试/小缓冲 helper；native 输出主路径应使用 streaming writer。
 ///           布局：ehdr(64) + 单个 PT_LOAD program header(56) + 机器码；整文件以 p_offset=0
 ///           映射到 p_vaddr=load_vaddr（R|X），入口 entry = load_vaddr + 120。无 section header。
 /// 参数说明：`buf`/`cap` 为输出缓冲与容量；`code`/`code_len` 为机器码字节；`e_machine` 目标架构
@@ -194,4 +216,51 @@ export fn elf64_write_executable(buf: &byte, cap: usize, code: &byte, code_len: 
         i = i + 1usize;
     }
     return (total as! i32).value;
+}
+
+/// 功能说明：把一段已编码机器码以 streaming 方式写为最小 ELF64 可执行映像。
+/// 参数说明：`stream` 为输出 FILE；`code`/`code_len` 为机器码字节；`e_machine` 为目标架构；
+///           `load_vaddr` 为 4KB 对齐加载地址。
+/// 返回值说明：成功返回写出总字节数；参数非法、编码失败或写入短缺时返回 `-1`。
+export fn elf64_write_executable_stream(stream: &FILE, code: &const byte, code_len: usize,
+    e_machine: i32, load_vaddr: i64) i32 {
+    if stream == null || (code == null && code_len != 0usize) {
+        return -1;
+    }
+    var headers: [byte: ELF64_MIN_EXEC_HEADERS] = [];
+    const headers_size: usize = ELF64_MIN_EXEC_HEADERS as usize;
+    const total: usize = headers_size + code_len;
+    const total_i64_result: !i64 = total as! i64;
+    const total_i64: i64 = total_i64_result catch {
+        return -1;
+    };
+    const total_i32_result: !i32 = total as! i32;
+    const total_i32: i32 = total_i32_result catch {
+        return -1;
+    };
+    const entry: i64 = load_vaddr + (ELF64_MIN_EXEC_HEADERS as i64);
+
+    if elf64_encode_ehdr(&headers[0], headers_size, ET_EXEC, e_machine, entry,
+        ELF64_EHDR_SIZE as i64, 0i64, 1, 0, 0) < 0 {
+        return -1;
+    }
+    if elf64_encode_phdr(&headers[0], ELF64_EHDR_SIZE as usize, headers_size, PT_LOAD, PF_R + PF_X,
+        0i64, load_vaddr, total_i64, total_i64, 4096i64) < 0 {
+        return -1;
+    }
+
+    const header_written: usize = fwrite(&headers[0] as &const byte, 1usize, headers_size, stream);
+    if header_written != headers_size {
+        return -1;
+    }
+    if code_len > 0usize {
+        const code_written: usize = fwrite(code, 1usize, code_len, stream);
+        if code_written != code_len {
+            return -1;
+        }
+    }
+    if fflush(stream) != 0 {
+        return -1;
+    }
+    return total_i32;
 }

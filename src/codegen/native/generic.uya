@@ -1,0 +1,581 @@
+// codegen/native/generic.uya - Native generic instance registry helpers.
+
+use codegen.native.arena;
+use codegen.native.memory;
+use codegen.native.table;
+
+export const NATIVE_GENERIC_KIND_INVALID: i32 = 0;
+export const NATIVE_GENERIC_KIND_FUNCTION: i32 = 1;
+export const NATIVE_GENERIC_KIND_STRUCT: i32 = 2;
+export const NATIVE_GENERIC_KIND_METHOD: i32 = 3;
+
+export const NATIVE_GENERIC_LOWER_STATE_PENDING: i32 = 0;
+export const NATIVE_GENERIC_LOWER_STATE_LOWERED: i32 = 1;
+
+/// 功能说明：native 泛型实例的一个类型实参。
+/// 参数说明：无；`name` 为已稳定化的类型实参名。
+/// 返回值说明：无。
+export struct NativeGenericTypeArg {
+    name: &byte,
+}
+
+/// 功能说明：native 泛型参数到具体类型实参的绑定。
+/// 参数说明：无；`param_name` 为形参名，`arg_name` 为替换后的实参名。
+/// 返回值说明：无。
+export struct NativeGenericBinding {
+    param_name: &byte,
+    arg_name: &byte,
+}
+
+/// 功能说明：native 泛型单态实例记录。
+/// 参数说明：无；字段记录实例种类、owner、泛型名、类型实参和 lowering 状态。
+/// 返回值说明：无。
+export struct NativeGenericInstance {
+    id: i32,
+    kind: i32,
+    generic_name: &byte,
+    owner_name: &byte,
+    type_args: &NativeGenericTypeArg,
+    type_arg_count: usize,
+    lower_state: i32,
+}
+
+/// 功能说明：native 泛型实例 registry。
+/// 参数说明：无；调用 `native_generic_registry_init` 后使用。
+/// 返回值说明：无。
+export struct NativeGenericRegistry {
+    instances: NativeTable,
+    worklist: NativeTable,
+    work_cursor: usize,
+    initialized: i32,
+}
+
+fn native_generic_is_valid_kind(kind: i32) i32 {
+    if kind == NATIVE_GENERIC_KIND_FUNCTION ||
+        kind == NATIVE_GENERIC_KIND_STRUCT ||
+        kind == NATIVE_GENERIC_KIND_METHOD {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_generic_string_equals(left: &byte, right: &byte) i32 {
+    if left == null || right == null {
+        if left == right {
+            return 1;
+        }
+        return 0;
+    }
+    if native_strcmp(left as &const byte, right as &const byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_generic_copy_string(text: &byte) &byte {
+    if text == null {
+        return null;
+    }
+    const len: usize = native_strlen(text as &const byte);
+    const copy: &byte = native_malloc_bytes(len + 1usize);
+    if copy == null {
+        return null;
+    }
+    _ = native_memcpy(copy, text as &const byte, len + 1usize);
+    return copy;
+}
+
+fn native_generic_release_string(text: &byte) void {
+    if text != null {
+        native_free_bytes(text);
+    }
+}
+
+fn native_generic_type_args_valid(type_args: &NativeGenericTypeArg, type_arg_count: usize) i32 {
+    if type_arg_count == 0usize {
+        return 0;
+    }
+    if type_args == null {
+        return 0;
+    }
+    var i: usize = 0usize;
+    while i < type_arg_count {
+        if type_args[i].name == null {
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    return 1;
+}
+
+fn native_generic_copy_type_args(type_args: &NativeGenericTypeArg,
+    type_arg_count: usize) &NativeGenericTypeArg {
+    if native_generic_type_args_valid(type_args, type_arg_count) == 0 {
+        return null;
+    }
+    const bytes: usize = @size_of(NativeGenericTypeArg) * type_arg_count;
+    const copy: &NativeGenericTypeArg = native_malloc_bytes(bytes) as &NativeGenericTypeArg;
+    if copy == null {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < type_arg_count {
+        copy[i].name = native_generic_copy_string(type_args[i].name);
+        if copy[i].name == null {
+            var j: usize = 0usize;
+            while j < i {
+                native_generic_release_string(copy[j].name);
+                j = j + 1usize;
+            }
+            native_free_bytes(copy as &byte);
+            return null;
+        }
+        i = i + 1usize;
+    }
+    return copy;
+}
+
+fn native_generic_release_type_args(type_args: &NativeGenericTypeArg, type_arg_count: usize) void {
+    if type_args == null {
+        return;
+    }
+    var i: usize = 0usize;
+    while i < type_arg_count {
+        native_generic_release_string(type_args[i].name);
+        i = i + 1usize;
+    }
+    native_free_bytes(type_args as &byte);
+}
+
+fn native_generic_release_instance(instance: &NativeGenericInstance) void {
+    if instance == null {
+        return;
+    }
+    native_generic_release_string(instance.generic_name);
+    native_generic_release_string(instance.owner_name);
+    native_generic_release_type_args(instance.type_args, instance.type_arg_count);
+    instance.id = -1;
+    instance.kind = NATIVE_GENERIC_KIND_INVALID;
+    instance.generic_name = null;
+    instance.owner_name = null;
+    instance.type_args = null;
+    instance.type_arg_count = 0usize;
+    instance.lower_state = NATIVE_GENERIC_LOWER_STATE_PENDING;
+}
+
+fn native_generic_type_args_match(stored: &NativeGenericTypeArg, stored_count: usize,
+    incoming: &NativeGenericTypeArg, incoming_count: usize) i32 {
+    if stored_count != incoming_count {
+        return 0;
+    }
+    if stored_count == 0usize {
+        return 1;
+    }
+    if stored == null || incoming == null {
+        return 0;
+    }
+    var i: usize = 0usize;
+    while i < stored_count {
+        if native_generic_string_equals(stored[i].name, incoming[i].name) == 0 {
+            return 0;
+        }
+        i = i + 1usize;
+    }
+    return 1;
+}
+
+fn native_generic_instance_matches(instance: &NativeGenericInstance, kind: i32,
+    owner_name: &byte, generic_name: &byte, type_args: &NativeGenericTypeArg,
+    type_arg_count: usize) i32 {
+    if instance == null {
+        return 0;
+    }
+    if instance.kind != kind {
+        return 0;
+    }
+    if native_generic_string_equals(instance.generic_name, generic_name) == 0 {
+        return 0;
+    }
+    if native_generic_string_equals(instance.owner_name, owner_name) == 0 {
+        return 0;
+    }
+    return native_generic_type_args_match(instance.type_args, instance.type_arg_count,
+        type_args, type_arg_count);
+}
+
+fn native_generic_find_instance(registry: &NativeGenericRegistry, kind: i32,
+    owner_name: &byte, generic_name: &byte, type_args: &NativeGenericTypeArg,
+    type_arg_count: usize) i32 {
+    if registry == null || registry.initialized == 0 {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < native_table_count(&registry.instances) {
+        const instance: &NativeGenericInstance = native_table_item_ptr(&registry.instances, i) as &NativeGenericInstance;
+        if native_generic_instance_matches(instance, kind, owner_name, generic_name,
+            type_args, type_arg_count) != 0 {
+            return instance.id;
+        }
+        i = i + 1usize;
+    }
+    return -1;
+}
+
+fn native_generic_make_instance(id: i32, kind: i32, owner_name: &byte,
+    generic_name: &byte, type_args: &NativeGenericTypeArg,
+    type_arg_count: usize) NativeGenericInstance {
+    return NativeGenericInstance{
+        id: id,
+        kind: kind,
+        generic_name: generic_name,
+        owner_name: owner_name,
+        type_args: type_args,
+        type_arg_count: type_arg_count,
+        lower_state: NATIVE_GENERIC_LOWER_STATE_PENDING,
+    };
+}
+
+fn native_generic_append_work_item(registry: &NativeGenericRegistry, id: i32) i32 {
+    if registry == null || registry.initialized == 0 || id < 0 {
+        return -1;
+    }
+    return native_table_append(&registry.worklist, &id as &const void);
+}
+
+fn native_generic_register_instance(registry: &NativeGenericRegistry, kind: i32,
+    owner_name: &byte, generic_name: &byte, type_args: &NativeGenericTypeArg,
+    type_arg_count: usize, out_id: &i32) i32 {
+    if out_id != null {
+        out_id[0] = -1;
+    }
+    if registry == null || registry.initialized == 0 || generic_name == null ||
+        native_generic_is_valid_kind(kind) == 0 ||
+        native_generic_type_args_valid(type_args, type_arg_count) == 0 {
+        return -1;
+    }
+    if kind == NATIVE_GENERIC_KIND_METHOD && owner_name == null {
+        return -1;
+    }
+    const existing: i32 = native_generic_find_instance(registry, kind, owner_name,
+        generic_name, type_args, type_arg_count);
+    if existing >= 0 {
+        if out_id != null {
+            out_id[0] = existing;
+        }
+        return 1;
+    }
+    const count: usize = native_table_count(&registry.instances);
+    if count > 2147483647usize {
+        return -1;
+    }
+    const id: i32 = count as i32;
+    const name_copy: &byte = native_generic_copy_string(generic_name);
+    if name_copy == null {
+        return -1;
+    }
+    var owner_copy: &byte = null;
+    if owner_name != null {
+        owner_copy = native_generic_copy_string(owner_name);
+        if owner_copy == null {
+            native_generic_release_string(name_copy);
+            return -1;
+        }
+    }
+    const args_copy: &NativeGenericTypeArg = native_generic_copy_type_args(type_args, type_arg_count);
+    if args_copy == null {
+        native_generic_release_string(name_copy);
+        native_generic_release_string(owner_copy);
+        return -1;
+    }
+    var instance: NativeGenericInstance = native_generic_make_instance(id, kind,
+        owner_copy, name_copy, args_copy, type_arg_count);
+    if native_table_append(&registry.instances, &instance as &const void) != 0 {
+        native_generic_release_instance(&instance);
+        return -1;
+    }
+    if native_generic_append_work_item(registry, id) != 0 {
+        const stored: &NativeGenericInstance = native_generic_instance_at(registry, id);
+        native_generic_release_instance(stored);
+        if registry.instances.count > 0usize {
+            registry.instances.count = registry.instances.count - 1usize;
+        }
+        return -1;
+    }
+    if out_id != null {
+        out_id[0] = id;
+    }
+    return 0;
+}
+
+fn native_generic_append_byte(buf: &byte, cap: usize, pos: &usize, value: byte) i32 {
+    if buf == null || pos == null || pos[0] + 1usize >= cap {
+        return -1;
+    }
+    buf[pos[0]] = value;
+    pos[0] = pos[0] + 1usize;
+    return 0;
+}
+
+fn native_generic_append_text(buf: &byte, cap: usize, pos: &usize, text: &byte) i32 {
+    if buf == null || pos == null || text == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while text[i] != 0 as byte {
+        if native_generic_append_byte(buf, cap, pos, text[i]) != 0 {
+            return -1;
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+/// 功能说明：构造 native 泛型类型实参。
+/// 参数说明：`name` 为类型实参名，调用方可传临时缓冲；注册时会复制。
+/// 返回值说明：返回只借用 `name` 的类型实参记录。
+export fn native_generic_type_arg_make(name: &byte) NativeGenericTypeArg {
+    return NativeGenericTypeArg{
+        name: name,
+    };
+}
+
+/// 功能说明：构造 native 泛型参数绑定。
+/// 参数说明：`param_name` 为泛型形参名；`arg_name` 为具体类型实参名。
+/// 返回值说明：返回借用传入字符串的绑定记录。
+export fn native_generic_binding_make(param_name: &byte, arg_name: &byte) NativeGenericBinding {
+    return NativeGenericBinding{
+        param_name: param_name,
+        arg_name: arg_name,
+    };
+}
+
+/// 功能说明：按泛型形参名查找替换后的类型实参名。
+/// 参数说明：`bindings`/`binding_count` 为绑定数组；`param_name` 为目标形参名。
+/// 返回值说明：命中返回 `arg_name`；未命中或参数无效返回 null。
+export fn native_generic_binding_lookup(bindings: &NativeGenericBinding,
+    binding_count: usize, param_name: &byte) &byte {
+    if bindings == null || param_name == null {
+        return null;
+    }
+    var i: usize = 0usize;
+    while i < binding_count {
+        if native_generic_string_equals(bindings[i].param_name, param_name) != 0 {
+            return bindings[i].arg_name;
+        }
+        i = i + 1usize;
+    }
+    return null;
+}
+
+/// 功能说明：构造未初始化的 native 泛型 registry。
+/// 参数说明：无。
+/// 返回值说明：返回空 registry；调用 init 前注册会失败。
+export fn native_generic_registry_empty() NativeGenericRegistry {
+    return NativeGenericRegistry{
+        instances: native_table_empty(),
+        worklist: native_table_empty(),
+        work_cursor: 0usize,
+        initialized: 0,
+    };
+}
+
+/// 功能说明：初始化 native 泛型 registry。
+/// 参数说明：`registry` 为目标 registry。
+/// 返回值说明：成功返回 `0`；参数无效返回 `-1`。
+export fn native_generic_registry_init(registry: &NativeGenericRegistry) i32 {
+    if registry == null {
+        return -1;
+    }
+    native_table_init(&registry.instances, @size_of(NativeGenericInstance));
+    native_table_init(&registry.worklist, @size_of(i32));
+    registry.work_cursor = 0usize;
+    registry.initialized = 1;
+    return 0;
+}
+
+/// 功能说明：释放 registry 内所有泛型实例与动态表。
+/// 参数说明：`registry` 为目标 registry。
+/// 返回值说明：无。
+export fn native_generic_registry_release(registry: &NativeGenericRegistry) void {
+    if registry == null {
+        return;
+    }
+    var i: usize = 0usize;
+    while i < native_table_count(&registry.instances) {
+        const instance: &NativeGenericInstance = native_table_item_ptr(&registry.instances, i) as &NativeGenericInstance;
+        native_generic_release_instance(instance);
+        i = i + 1usize;
+    }
+    native_table_release(&registry.instances);
+    native_table_release(&registry.worklist);
+    registry.work_cursor = 0usize;
+    registry.initialized = 0;
+}
+
+/// 功能说明：重置 registry 内容但保留动态表容量。
+/// 参数说明：`registry` 为目标 registry。
+/// 返回值说明：无。
+export fn native_generic_registry_reset(registry: &NativeGenericRegistry) void {
+    if registry == null || registry.initialized == 0 {
+        return;
+    }
+    var i: usize = 0usize;
+    while i < native_table_count(&registry.instances) {
+        const instance: &NativeGenericInstance = native_table_item_ptr(&registry.instances, i) as &NativeGenericInstance;
+        native_generic_release_instance(instance);
+        i = i + 1usize;
+    }
+    native_table_reset(&registry.instances);
+    native_table_reset(&registry.worklist);
+    registry.work_cursor = 0usize;
+}
+
+/// 功能说明：读取已注册泛型实例数量。
+/// 参数说明：`registry` 为目标 registry。
+/// 返回值说明：返回实例数；参数无效返回 0。
+export fn native_generic_instance_count(registry: &NativeGenericRegistry) usize {
+    if registry == null {
+        return 0usize;
+    }
+    return native_table_count(&registry.instances);
+}
+
+/// 功能说明：读取泛型实例表当前容量。
+/// 参数说明：`registry` 为目标 registry。
+/// 返回值说明：返回实例表容量；参数无效返回 0。
+export fn native_generic_instance_capacity(registry: &NativeGenericRegistry) usize {
+    if registry == null {
+        return 0usize;
+    }
+    return native_table_capacity(&registry.instances);
+}
+
+/// 功能说明：读取待 lowering 的泛型实例 worklist 长度。
+/// 参数说明：`registry` 为目标 registry。
+/// 返回值说明：返回 worklist 项数；参数无效返回 0。
+export fn native_generic_worklist_count(registry: &NativeGenericRegistry) usize {
+    if registry == null {
+        return 0usize;
+    }
+    return native_table_count(&registry.worklist);
+}
+
+/// 功能说明：按实例 ID 读取泛型实例。
+/// 参数说明：`registry` 为目标 registry；`id` 为实例 ID。
+/// 返回值说明：存在返回实例指针；越界或参数无效返回 null。
+export fn native_generic_instance_at(registry: &NativeGenericRegistry, id: i32) &NativeGenericInstance {
+    if registry == null || id < 0 {
+        return null;
+    }
+    return native_table_item_ptr(&registry.instances, id as usize) as &NativeGenericInstance;
+}
+
+/// 功能说明：注册泛型函数单态实例。
+/// 参数说明：`registry` 为 registry；`generic_name` 为函数模板名；`type_args` 为类型实参；`out_id` 接收实例 ID。
+/// 返回值说明：新增返回 `0`，已存在返回 `1`，失败返回 `-1`。
+export fn native_generic_register_function(registry: &NativeGenericRegistry,
+    generic_name: &byte, type_args: &NativeGenericTypeArg, type_arg_count: usize,
+    out_id: &i32) i32 {
+    return native_generic_register_instance(registry, NATIVE_GENERIC_KIND_FUNCTION,
+        null, generic_name, type_args, type_arg_count, out_id);
+}
+
+/// 功能说明：注册泛型结构体单态实例。
+/// 参数说明：`registry` 为 registry；`generic_name` 为结构体模板名；`type_args` 为类型实参；`out_id` 接收实例 ID。
+/// 返回值说明：新增返回 `0`，已存在返回 `1`，失败返回 `-1`。
+export fn native_generic_register_struct(registry: &NativeGenericRegistry,
+    generic_name: &byte, type_args: &NativeGenericTypeArg, type_arg_count: usize,
+    out_id: &i32) i32 {
+    return native_generic_register_instance(registry, NATIVE_GENERIC_KIND_STRUCT,
+        null, generic_name, type_args, type_arg_count, out_id);
+}
+
+/// 功能说明：注册泛型方法单态实例。
+/// 参数说明：`registry` 为 registry；`owner_name` 为宿主类型名；`generic_name` 为方法模板名；`type_args` 为类型实参；`out_id` 接收实例 ID。
+/// 返回值说明：新增返回 `0`，已存在返回 `1`，失败返回 `-1`。
+export fn native_generic_register_method(registry: &NativeGenericRegistry,
+    owner_name: &byte, generic_name: &byte, type_args: &NativeGenericTypeArg,
+    type_arg_count: usize, out_id: &i32) i32 {
+    return native_generic_register_instance(registry, NATIVE_GENERIC_KIND_METHOD,
+        owner_name, generic_name, type_args, type_arg_count, out_id);
+}
+
+/// 功能说明：取出下一个待 lowering 的泛型实例 ID。
+/// 参数说明：`registry` 为 registry；`out_id` 接收实例 ID。
+/// 返回值说明：成功取出返回 `1`；worklist 已空返回 `0`；参数无效返回 `-1`。
+export fn native_generic_next_work_item(registry: &NativeGenericRegistry, out_id: &i32) i32 {
+    if out_id != null {
+        out_id[0] = -1;
+    }
+    if registry == null || registry.initialized == 0 || out_id == null {
+        return -1;
+    }
+    if registry.work_cursor >= native_table_count(&registry.worklist) {
+        return 0;
+    }
+    const item: &i32 = native_table_item_ptr(&registry.worklist, registry.work_cursor) as &i32;
+    if item == null {
+        return -1;
+    }
+    out_id[0] = item[0];
+    registry.work_cursor = registry.work_cursor + 1usize;
+    return 1;
+}
+
+/// 功能说明：标记泛型实例已经完成 lowering。
+/// 参数说明：`registry` 为 registry；`id` 为实例 ID。
+/// 返回值说明：成功返回 `0`；实例不存在返回 `-1`。
+export fn native_generic_mark_lowered(registry: &NativeGenericRegistry, id: i32) i32 {
+    const instance: &NativeGenericInstance = native_generic_instance_at(registry, id);
+    if instance == null {
+        return -1;
+    }
+    instance.lower_state = NATIVE_GENERIC_LOWER_STATE_LOWERED;
+    return 0;
+}
+
+/// 功能说明：生成泛型实例的稳定 native 符号名。
+/// 参数说明：`instance` 为实例；`buf`/`cap` 为输出缓冲；`out_len` 接收不含 NUL 的长度。
+/// 返回值说明：成功返回 `0`；容量不足或参数无效返回 `-1`。
+export fn native_generic_write_instance_name(instance: &NativeGenericInstance,
+    buf: &byte, cap: usize, out_len: &usize) i32 {
+    if out_len != null {
+        out_len[0] = 0usize;
+    }
+    if instance == null || buf == null || cap == 0usize || out_len == null ||
+        instance.generic_name == null || native_generic_is_valid_kind(instance.kind) == 0 {
+        return -1;
+    }
+    var pos: usize = 0usize;
+    if instance.kind == NATIVE_GENERIC_KIND_METHOD {
+        if instance.owner_name == null {
+            return -1;
+        }
+        if native_generic_append_text(buf, cap, &pos, instance.owner_name) != 0 {
+            return -1;
+        }
+        if native_generic_append_byte(buf, cap, &pos, 95 as byte) != 0 {
+            return -1;
+        }
+    }
+    if native_generic_append_text(buf, cap, &pos, instance.generic_name) != 0 {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < instance.type_arg_count {
+        if native_generic_append_byte(buf, cap, &pos, 95 as byte) != 0 {
+            return -1;
+        }
+        if instance.type_args == null || native_generic_append_text(buf, cap, &pos,
+            instance.type_args[i].name) != 0 {
+            return -1;
+        }
+        i = i + 1usize;
+    }
+    if pos >= cap {
+        return -1;
+    }
+    buf[pos] = 0 as byte;
+    out_len[0] = pos;
+    return 0;
+}

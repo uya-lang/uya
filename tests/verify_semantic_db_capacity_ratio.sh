@@ -6,9 +6,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPILER="$REPO_ROOT/bin/uya"
 MAX_RATIO="${UYA_SEMANTIC_INDEX_MAX_RATIO:-8}"
+CHECK_ENTRY="$REPO_ROOT/src/cmd/check/main.uya"
 
 if [[ ! -x "$COMPILER" ]]; then
     echo "错误: 缺少可执行编译器: $COMPILER" >&2
+    exit 1
+fi
+if [[ ! -f "$CHECK_ENTRY" ]]; then
+    echo "错误: 缺少 cmd/check 入口: $CHECK_ENTRY" >&2
     exit 1
 fi
 
@@ -20,8 +25,17 @@ fi
 tmp_dir="$(mktemp -d /tmp/uya-semantic-db-ratio.XXXXXX)"
 trap 'rm -rf "$tmp_dir"' EXIT
 
+cmd_check="$tmp_dir/cmd-check"
+"$COMPILER" build "$CHECK_ENTRY" \
+    -o "$cmd_check" --no-split-c --project-root "$REPO_ROOT/src/" \
+    >"$tmp_dir/build-check.stdout" 2>"$tmp_dir/build-check.stderr"
+if [[ ! -x "$cmd_check" ]]; then
+    echo "错误: 无法构建临时 cmd/check" >&2
+    exit 1
+fi
+
 dump_stderr="$tmp_dir/dump.stderr"
-(cd "$REPO_ROOT" && UYA_DUMP_SEMANTIC_DB=1 "$COMPILER" check src/main.uya >"$tmp_dir/dump.stdout" 2>"$dump_stderr")
+(cd "$REPO_ROOT" && UYA_ROOT="$REPO_ROOT" UYA_DUMP_SEMANTIC_DB=1 "$cmd_check" src/main.uya >"$tmp_dir/dump.stdout" 2>"$dump_stderr")
 
 expected_indexes=(
     decls_by_name

@@ -1,0 +1,254 @@
+// codegen/native/file_io.uya - Native minimal file read helpers.
+
+use libc.free;
+use libc.O_RDONLY;
+use libc.realloc;
+use libc.sys_close;
+use libc.sys_open;
+use libc.sys_read;
+
+const NATIVE_FILE_READ_CHUNK: usize = 4096usize;
+const NATIVE_FILE_MAX_BYTES: usize = 9223372036854775807usize;
+
+/// 功能说明：native file IO 读取缓冲。
+/// 参数说明：无；调用 `native_file_buffer_init` 后可用 `native_file_read_all` 填充。
+/// 返回值说明：无。
+export struct NativeFileBuffer {
+    data: &byte,
+    len: usize,
+    capacity: usize,
+    realloc_count: i32,
+    read_count: i32,
+    initialized: i32,
+}
+
+fn native_file_add_overflows(a: usize, b: usize) i32 {
+    if b > NATIVE_FILE_MAX_BYTES {
+        return 1;
+    }
+    if a > NATIVE_FILE_MAX_BYTES - b {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_file_next_capacity(current: usize, min_capacity: usize) usize {
+    var next: usize = current;
+    if next < NATIVE_FILE_READ_CHUNK {
+        next = NATIVE_FILE_READ_CHUNK;
+    }
+    while next < min_capacity {
+        if next > NATIVE_FILE_MAX_BYTES / 2usize {
+            return min_capacity;
+        }
+        next = next * 2usize;
+    }
+    return next;
+}
+
+fn native_file_ensure_capacity(buffer: &NativeFileBuffer, min_capacity: usize) i32 {
+    if buffer == null || buffer.initialized == 0 {
+        return -1;
+    }
+    if min_capacity <= buffer.capacity {
+        return 0;
+    }
+    const next: usize = native_file_next_capacity(buffer.capacity, min_capacity);
+    const new_data: &byte = realloc(buffer.data as &void, next) as &byte;
+    if new_data == null {
+        return -1;
+    }
+    buffer.data = new_data;
+    buffer.capacity = next;
+    buffer.realloc_count = buffer.realloc_count + 1;
+    return 0;
+}
+
+fn native_file_set_terminator(buffer: &NativeFileBuffer) void {
+    if buffer == null || buffer.data == null || buffer.len >= buffer.capacity {
+        return;
+    }
+    buffer.data[buffer.len] = 0 as byte;
+}
+
+fn native_file_fail_after_open(fd: i32, buffer: &NativeFileBuffer) i32 {
+    _ = sys_close(fd) catch { -1; };
+    if buffer != null {
+        buffer.len = 0usize;
+        native_file_set_terminator(buffer);
+    }
+    return -1;
+}
+
+/// 功能说明：构造未初始化的 native file buffer。
+/// 参数说明：无。
+/// 返回值说明：返回空缓冲；调用 init 前读取会失败。
+export fn native_file_buffer_empty() NativeFileBuffer {
+    return NativeFileBuffer{
+        data: null,
+        len: 0usize,
+        capacity: 0usize,
+        realloc_count: 0,
+        read_count: 0,
+        initialized: 0,
+    };
+}
+
+/// 功能说明：初始化 native file buffer。
+/// 参数说明：`buffer` 为目标缓冲。
+/// 返回值说明：无；null 参数被忽略。
+export fn native_file_buffer_init(buffer: &NativeFileBuffer) void {
+    if buffer == null {
+        return;
+    }
+    buffer.data = null;
+    buffer.len = 0usize;
+    buffer.capacity = 0usize;
+    buffer.realloc_count = 0;
+    buffer.read_count = 0;
+    buffer.initialized = 1;
+}
+
+/// 功能说明：读取整个文件到 native file buffer。
+/// 参数说明：`path` 为 NUL 结尾路径；`buffer` 为目标缓冲。
+/// 返回值说明：成功返回 `0`；参数、打开、读取或分配失败返回 `-1`。
+export fn native_file_read_all(path: &byte, buffer: &NativeFileBuffer) i32 {
+    if path == null || buffer == null || buffer.initialized == 0 {
+        return -1;
+    }
+
+    buffer.len = 0usize;
+    buffer.read_count = 0;
+    native_file_set_terminator(buffer);
+
+    const fd_result: !i32 = sys_open(path as *const byte, O_RDONLY as i32, 0);
+    const fd: i32 = fd_result catch {
+        return -1;
+    };
+
+    while true {
+        if native_file_add_overflows(buffer.len, NATIVE_FILE_READ_CHUNK) != 0 {
+            return native_file_fail_after_open(fd, buffer);
+        }
+        const after_chunk: usize = buffer.len + NATIVE_FILE_READ_CHUNK;
+        if native_file_add_overflows(after_chunk, 1usize) != 0 {
+            return native_file_fail_after_open(fd, buffer);
+        }
+        const required: usize = after_chunk + 1usize;
+        if native_file_ensure_capacity(buffer, required) != 0 {
+            return native_file_fail_after_open(fd, buffer);
+        }
+
+        const dst: *byte = @ptr_from_usize(@usize_from_ptr(buffer.data) + buffer.len) as *byte;
+        const read_result: !isize = sys_read(fd, dst, NATIVE_FILE_READ_CHUNK);
+        const bytes_read: isize = read_result catch {
+            return native_file_fail_after_open(fd, buffer);
+        };
+        if bytes_read < 0 as isize {
+            return native_file_fail_after_open(fd, buffer);
+        }
+        if bytes_read == 0 as isize {
+            break;
+        }
+
+        buffer.len = buffer.len + (bytes_read as usize);
+        buffer.read_count = buffer.read_count + 1;
+        native_file_set_terminator(buffer);
+    }
+
+    _ = sys_close(fd) catch {
+        return -1;
+    };
+    native_file_set_terminator(buffer);
+    return 0;
+}
+
+/// 功能说明：读取 native file buffer 底层字节指针。
+/// 参数说明：`buffer` 为目标缓冲。
+/// 返回值说明：返回 data；参数无效时返回 null。
+export fn native_file_data(buffer: &NativeFileBuffer) &byte {
+    if buffer == null {
+        return null;
+    }
+    return buffer.data;
+}
+
+/// 功能说明：读取 native file buffer 当前字节长度。
+/// 参数说明：`buffer` 为目标缓冲。
+/// 返回值说明：返回 len；参数无效时返回 0。
+export fn native_file_len(buffer: &NativeFileBuffer) usize {
+    if buffer == null {
+        return 0usize;
+    }
+    return buffer.len;
+}
+
+/// 功能说明：读取 native file buffer 当前容量。
+/// 参数说明：`buffer` 为目标缓冲。
+/// 返回值说明：返回 capacity；参数无效时返回 0。
+export fn native_file_capacity(buffer: &NativeFileBuffer) usize {
+    if buffer == null {
+        return 0usize;
+    }
+    return buffer.capacity;
+}
+
+/// 功能说明：读取 native file buffer 分配次数。
+/// 参数说明：`buffer` 为目标缓冲。
+/// 返回值说明：返回 realloc_count；参数无效时返回 0。
+export fn native_file_realloc_count(buffer: &NativeFileBuffer) i32 {
+    if buffer == null {
+        return 0;
+    }
+    return buffer.realloc_count;
+}
+
+/// 功能说明：读取 native file buffer 的 read syscall 次数。
+/// 参数说明：`buffer` 为目标缓冲。
+/// 返回值说明：返回 read_count；参数无效时返回 0。
+export fn native_file_read_count(buffer: &NativeFileBuffer) i32 {
+    if buffer == null {
+        return 0;
+    }
+    return buffer.read_count;
+}
+
+/// 功能说明：读取 native file buffer 指定位置字节。
+/// 参数说明：`buffer` 为目标缓冲；`index` 为字节下标。
+/// 返回值说明：存在时返回字节值；越界或参数无效时返回 `-1`。
+export fn native_file_byte_at(buffer: &NativeFileBuffer, index: usize) i32 {
+    if buffer == null || buffer.data == null || index >= buffer.len {
+        return -1;
+    }
+    return buffer.data[index] as i32;
+}
+
+/// 功能说明：清空 native file buffer 内容并保留容量。
+/// 参数说明：`buffer` 为目标缓冲。
+/// 返回值说明：无。
+export fn native_file_reset(buffer: &NativeFileBuffer) void {
+    if buffer == null {
+        return;
+    }
+    buffer.len = 0usize;
+    buffer.read_count = 0;
+    native_file_set_terminator(buffer);
+}
+
+/// 功能说明：释放 native file buffer 底层存储。
+/// 参数说明：`buffer` 为目标缓冲。
+/// 返回值说明：无；释放后读取需要重新 init。
+export fn native_file_release(buffer: &NativeFileBuffer) void {
+    if buffer == null {
+        return;
+    }
+    if buffer.data != null {
+        free(buffer.data as &void);
+    }
+    buffer.data = null;
+    buffer.len = 0usize;
+    buffer.capacity = 0usize;
+    buffer.realloc_count = 0;
+    buffer.read_count = 0;
+    buffer.initialized = 0;
+}

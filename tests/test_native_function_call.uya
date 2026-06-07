@@ -1,0 +1,58 @@
+// test_native_function_call.uya - native x86_64 call instruction smoke.
+
+use codegen.native.x86_64;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+fn native_call_bval(buf: &byte, i: usize) i32 {
+    return buf[i] as i32;
+}
+
+test "native x86_64 direct call rel32 encodes exact bytes" {
+    var buf: [byte: 16] = [];
+    var pos: usize = 0usize;
+
+    try assert_eq_i32(x86_64_emit_call_rel32(&buf[0], 16usize, &pos, 5), 0);
+    try expect(pos == 5usize);
+    try assert_eq_i32(native_call_bval(&buf[0], 0usize), 232);
+    try assert_eq_i32(native_call_bval(&buf[0], 1usize), 5);
+    try assert_eq_i32(native_call_bval(&buf[0], 2usize), 0);
+    try assert_eq_i32(native_call_bval(&buf[0], 3usize), 0);
+    try assert_eq_i32(native_call_bval(&buf[0], 4usize), 0);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_call_rel32(&buf[0], 16usize, &pos, -4), 0);
+    try expect(pos == 5usize);
+    try assert_eq_i32(native_call_bval(&buf[0], 0usize), 232);
+    try assert_eq_i32(native_call_bval(&buf[0], 1usize), 252);
+    try assert_eq_i32(native_call_bval(&buf[0], 2usize), 255);
+    try assert_eq_i32(native_call_bval(&buf[0], 3usize), 255);
+    try assert_eq_i32(native_call_bval(&buf[0], 4usize), 255);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_call_rel32(&buf[0], 4usize, &pos, 0), -1);
+    try expect(pos == 0usize);
+}
+
+test "native x86_64 indirect register call encodes exact bytes" {
+    var buf: [byte: 16] = [];
+    var pos: usize = 0usize;
+
+    try assert_eq_i32(x86_64_emit_call_r64(&buf[0], 16usize, &pos, X86_64_REG_RAX), 0);
+    try expect(pos == 2usize);
+    try assert_eq_i32(native_call_bval(&buf[0], 0usize), 255);
+    try assert_eq_i32(native_call_bval(&buf[0], 1usize), 208);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_call_r64(&buf[0], 16usize, &pos, X86_64_REG_R11), 0);
+    try expect(pos == 3usize);
+    try assert_eq_i32(native_call_bval(&buf[0], 0usize), 65);
+    try assert_eq_i32(native_call_bval(&buf[0], 1usize), 255);
+    try assert_eq_i32(native_call_bval(&buf[0], 2usize), 211);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_call_r64(&buf[0], 1usize, &pos, X86_64_REG_RAX), -1);
+    try expect(pos == 0usize);
+    try assert_eq_i32(x86_64_emit_call_r64(&buf[0], 16usize, &pos, 99), -1);
+    try expect(pos == 0usize);
+}

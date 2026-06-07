@@ -1,0 +1,8 @@
+use fmt;
+
+/// `cmd/fmt` 独立可执行入口。
+/// 参数说明：无，直接读取进程 argv。
+/// 返回值说明：返回 formatter CLI 的退出码。
+export fn main() i32 {
+    return uyafmt_main();
+}

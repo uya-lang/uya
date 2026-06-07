@@ -1,0 +1,97 @@
+// codegen/native/main.uya - Native backend public facade.
+//
+// v1 先暴露 Linux x86_64 最小 executable 输出入口，用于把 x86_64
+// 指令编码层和 ELF64 streaming writer 接成可验证链路。完整 LoweredProgram
+// NativeEmitter 接入在后续阶段实现。
+
+use codegen.native.elf64;
+use codegen.native.x86_64;
+use libc.FILE;
+
+export const NATIVE_EMIT_STATUS_OK: i32 = 0;
+export const NATIVE_EMIT_STATUS_ERROR: i32 = -1;
+export const NATIVE_TARGET_LINUX_X86_64: i32 = 1;
+export const NATIVE_NOSTDLIB_START_CODE_OFFSET: i32 = ELF64_MIN_EXEC_HEADERS;
+
+/// 功能说明：native 输出入口的结果摘要。
+/// 参数说明：无；字段由 native facade 写入。
+/// 返回值说明：无。
+export struct NativeEmitResult {
+    status: i32,
+    target: i32,
+    code_bytes: usize,
+    output_bytes: usize,
+    temp_peak_bytes: usize,
+}
+
+fn native_emit_result_error(target: i32) NativeEmitResult {
+    return NativeEmitResult{
+        status: NATIVE_EMIT_STATUS_ERROR,
+        target: target,
+        code_bytes: 0usize,
+        output_bytes: 0usize,
+        temp_peak_bytes: 0usize,
+    };
+}
+
+/// 功能说明：返回 native facade 当前支持的目标平台。
+/// 参数说明：无。
+/// 返回值说明：当前返回 Linux x86_64 目标 ID。
+export fn native_default_target() i32 {
+    return NATIVE_TARGET_LINUX_X86_64;
+}
+
+/// 功能说明：计算 nostdlib `_start` 的入口虚拟地址。
+/// 参数说明：`load_vaddr` 为 ELF64 映像加载地址。
+/// 返回值说明：返回 `load_vaddr + ELF64_MIN_EXEC_HEADERS`。
+export fn native_nostdlib_start_entry_vaddr(load_vaddr: i64) i64 {
+    return load_vaddr + (NATIVE_NOSTDLIB_START_CODE_OFFSET as i64);
+}
+
+/// 功能说明：编码 Linux x86_64 nostdlib `exit(0)` 机器码。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`out_len` 返回实际机器码长度。
+/// 返回值说明：成功返回 `0`，参数或容量无效返回 `-1`。
+export fn native_encode_linux_x86_64_exit0_code(buf: &byte, cap: usize, out_len: &usize) i32 {
+    if out_len == null {
+        return -1;
+    }
+    *out_len = 0usize;
+    if x86_64_emit_linux_exit0(buf, cap, out_len) != 0 {
+        *out_len = 0usize;
+        return -1;
+    }
+    return 0;
+}
+
+/// 功能说明：编码 Linux x86_64 nostdlib `_start` 的最小实现。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`out_len` 返回实际机器码长度。
+/// 返回值说明：成功返回 `0`，参数或容量无效返回 `-1`。
+export fn native_encode_linux_x86_64_nostdlib_start(buf: &byte, cap: usize, out_len: &usize) i32 {
+    return native_encode_linux_x86_64_exit0_code(buf, cap, out_len);
+}
+
+/// 功能说明：生成一个最小 Linux x86_64 ELF64 executable，进程启动后执行 `exit(0)`。
+/// 参数说明：`stream` 为输出 FILE，调用方负责打开和关闭。
+/// 返回值说明：返回输出摘要；`status == 0` 表示成功。
+export fn native_emit_linux_x86_64_exit0_stream(stream: &FILE) NativeEmitResult {
+    if stream == null {
+        return native_emit_result_error(NATIVE_TARGET_LINUX_X86_64);
+    }
+    var code: [byte: X86_64_LINUX_EXIT0_SIZE] = [];
+    var code_len: usize = 0usize;
+    if native_encode_linux_x86_64_nostdlib_start(&code[0], X86_64_LINUX_EXIT0_SIZE as usize, &code_len) != 0 {
+        return native_emit_result_error(NATIVE_TARGET_LINUX_X86_64);
+    }
+    const written: i32 = elf64_write_executable_stream(stream, &code[0] as &const byte, code_len,
+        EM_X86_64, ELF64_DEFAULT_LOAD_VADDR);
+    if written < 0 {
+        return native_emit_result_error(NATIVE_TARGET_LINUX_X86_64);
+    }
+    return NativeEmitResult{
+        status: NATIVE_EMIT_STATUS_OK,
+        target: NATIVE_TARGET_LINUX_X86_64,
+        code_bytes: code_len,
+        output_bytes: written as usize,
+        temp_peak_bytes: elf64_stream_peak_temp_bytes(code_len) + (X86_64_LINUX_EXIT0_SIZE as usize),
+    };
+}

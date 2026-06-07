@@ -1,0 +1,62 @@
+// test_native_diagnostic_output.uya - native diagnostic string output smoke.
+
+use codegen.native.diagnostics;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+test "native diagnostic buffer appends strings bytes and lines" {
+    var diag: NativeDiagnosticBuffer = native_diag_buffer_empty();
+    native_diag_buffer_init(&diag);
+
+    try assert_eq_i32(native_diag_append_c_string(&diag, "error: " as &byte), 0);
+    try assert_eq_i32(native_diag_append_c_string(&diag, "syntax" as &byte), 0);
+    try assert_eq_i32(native_diag_append_byte(&diag, 10 as byte), 0);
+
+    try expect(native_diag_len(&diag) == 14usize);
+    try assert_eq_i32(native_diag_byte_at(&diag, 0usize), 101);
+    try assert_eq_i32(native_diag_byte_at(&diag, 5usize), 58);
+    try assert_eq_i32(native_diag_byte_at(&diag, 6usize), 32);
+    try assert_eq_i32(native_diag_byte_at(&diag, 13usize), 10);
+    try assert_eq_i32(native_diag_byte_at(&diag, 14usize), -1);
+    try expect(native_diag_data(&diag) != null);
+
+    native_diag_reset(&diag);
+    try expect(native_diag_len(&diag) == 0usize);
+    try assert_eq_i32(native_diag_append_line(&diag, "warning: retained capacity" as &byte), 0);
+    try expect(native_diag_len(&diag) == 27usize);
+    try assert_eq_i32(native_diag_byte_at(&diag, 26usize), 10);
+
+    native_diag_release(&diag);
+    try expect(native_diag_len(&diag) == 0usize);
+    try expect(native_diag_data(&diag) == null);
+}
+
+test "native diagnostic buffer grows past short messages" {
+    var diag: NativeDiagnosticBuffer = native_diag_buffer_empty();
+    native_diag_buffer_init(&diag);
+
+    var i: i32 = 0;
+    while i < 1300 {
+        try assert_eq_i32(native_diag_append_byte(&diag, 120 as byte), 0);
+        i = i + 1;
+    }
+
+    try assert_eq_i32(native_diag_len(&diag) as i32, 1300);
+    try expect(native_diag_capacity(&diag) >= native_diag_len(&diag));
+    try expect(native_diag_realloc_count(&diag) > 1);
+    try assert_eq_i32(native_diag_byte_at(&diag, 0usize), 120);
+    try assert_eq_i32(native_diag_byte_at(&diag, 1299usize), 120);
+
+    native_diag_release(&diag);
+}
+
+test "native diagnostic buffer rejects invalid sinks" {
+    var diag: NativeDiagnosticBuffer = native_diag_buffer_empty();
+    try assert_eq_i32(native_diag_append_byte(&diag, 1 as byte), -1);
+    try assert_eq_i32(native_diag_append_c_string(&diag, null), -1);
+
+    native_diag_buffer_init(&diag);
+    try assert_eq_i32(native_diag_append_bytes(&diag, null, 0usize), 0);
+    try assert_eq_i32(native_diag_append_bytes(&diag, null, 1usize), -1);
+    native_diag_release(&diag);
+}

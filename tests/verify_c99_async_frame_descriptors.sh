@@ -14,7 +14,7 @@ trap cleanup EXIT
 
 export UYA_ROOT="$REPO_ROOT/lib/"
 
-"$COMPILER" --c99 "$SCRIPT_DIR/test_c99_async_frame_descriptors.uya" -o "$OUT_C" >/dev/null
+"$COMPILER" build --c99 "$SCRIPT_DIR/test_c99_async_frame_descriptors.uya" -o "$OUT_C" >/dev/null
 
 if ! grep -q "struct AsyncFrameDescriptor {" "$OUT_C"; then
     echo "missing AsyncFrameDescriptor type definition"

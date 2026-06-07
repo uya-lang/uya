@@ -1,0 +1,91 @@
+// test_native_error_defer_control.uya - native error-union cleanup/defer smoke.
+
+use codegen.native.control;
+use codegen.native.table;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+fn native_cleanup_test_action(table: &NativeTable, index: usize) &NativeCleanupAction {
+    return native_table_item_ptr(table, index) as &NativeCleanupAction;
+}
+
+test "native cleanup plan emits success defers in LIFO scope order" {
+    var plan: NativeCleanupPlan = native_cleanup_plan_empty();
+    native_cleanup_plan_init(&plan);
+
+    try assert_eq_i32(native_cleanup_push_defer(&plan, 0, 10), 0);
+    try assert_eq_i32(native_cleanup_push_defer(&plan, 1, 20), 0);
+    try assert_eq_i32(native_cleanup_push_errdefer(&plan, 1, 30), 0);
+    try assert_eq_i32(native_cleanup_push_defer(&plan, 1, 40), 0);
+    try expect(native_cleanup_plan_count(&plan) == 4usize);
+
+    var out: NativeTable = native_table_empty();
+    native_table_init(&out, @size_of(NativeCleanupAction));
+    try assert_eq_i32(native_cleanup_emit_exit_order(&plan, NATIVE_CLEANUP_EXIT_SUCCESS, 1, &out), 0);
+    try expect(native_table_count(&out) == 3usize);
+
+    const first: &NativeCleanupAction = native_cleanup_test_action(&out, 0usize);
+    const second: &NativeCleanupAction = native_cleanup_test_action(&out, 1usize);
+    const third: &NativeCleanupAction = native_cleanup_test_action(&out, 2usize);
+    try expect(first != null);
+    try expect(second != null);
+    try expect(third != null);
+    try assert_eq_i32(first.kind, NATIVE_CLEANUP_KIND_DEFER);
+    try assert_eq_i32(first.action_id, 40);
+    try assert_eq_i32(second.action_id, 20);
+    try assert_eq_i32(third.scope_id, 0);
+    try assert_eq_i32(third.action_id, 10);
+
+    native_table_release(&out);
+    native_cleanup_plan_release(&plan);
+}
+
+test "native cleanup plan emits errdefer only on error path" {
+    var plan: NativeCleanupPlan = native_cleanup_plan_empty();
+    native_cleanup_plan_init(&plan);
+
+    try assert_eq_i32(native_cleanup_push_errdefer(&plan, 0, 5), 0);
+    try assert_eq_i32(native_cleanup_push_defer(&plan, 0, 10), 0);
+    try assert_eq_i32(native_cleanup_push_defer(&plan, 1, 20), 0);
+    try assert_eq_i32(native_cleanup_push_errdefer(&plan, 1, 30), 0);
+    try assert_eq_i32(native_cleanup_push_errdefer(&plan, 1, 40), 0);
+
+    var out: NativeTable = native_table_empty();
+    native_table_init(&out, @size_of(NativeCleanupAction));
+    try assert_eq_i32(native_cleanup_emit_exit_order(&plan, NATIVE_CLEANUP_EXIT_ERROR, 1, &out), 0);
+    try expect(native_table_count(&out) == 5usize);
+
+    const a0: &NativeCleanupAction = native_cleanup_test_action(&out, 0usize);
+    const a1: &NativeCleanupAction = native_cleanup_test_action(&out, 1usize);
+    const a2: &NativeCleanupAction = native_cleanup_test_action(&out, 2usize);
+    const a3: &NativeCleanupAction = native_cleanup_test_action(&out, 3usize);
+    const a4: &NativeCleanupAction = native_cleanup_test_action(&out, 4usize);
+    try assert_eq_i32(a0.kind, NATIVE_CLEANUP_KIND_ERRDEFER);
+    try assert_eq_i32(a0.action_id, 40);
+    try assert_eq_i32(a1.action_id, 30);
+    try assert_eq_i32(a2.kind, NATIVE_CLEANUP_KIND_DEFER);
+    try assert_eq_i32(a2.action_id, 20);
+    try assert_eq_i32(a3.scope_id, 0);
+    try assert_eq_i32(a3.action_id, 5);
+    try assert_eq_i32(a4.scope_id, 0);
+    try assert_eq_i32(a4.action_id, 10);
+
+    native_table_release(&out);
+    native_cleanup_plan_release(&plan);
+}
+
+test "native cleanup plan rejects invalid lifecycle and scopes" {
+    var plan: NativeCleanupPlan = native_cleanup_plan_empty();
+    var out: NativeTable = native_table_empty();
+    native_table_init(&out, @size_of(NativeCleanupAction));
+
+    try assert_eq_i32(native_cleanup_push_defer(&plan, 0, 1), -1);
+    try assert_eq_i32(native_cleanup_emit_exit_order(&plan, NATIVE_CLEANUP_EXIT_SUCCESS, 0, &out), -1);
+
+    native_cleanup_plan_init(&plan);
+    try assert_eq_i32(native_cleanup_push_defer(&plan, -1, 1), -1);
+    try assert_eq_i32(native_cleanup_emit_exit_order(&plan, NATIVE_CLEANUP_EXIT_SUCCESS, -1, &out), -1);
+
+    native_table_release(&out);
+    native_cleanup_plan_release(&plan);
+}

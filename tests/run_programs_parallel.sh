@@ -468,7 +468,7 @@ run_compiled_test_args() {
         fi
     done
 
-    compiler_output=$(cd "$compiler_work_dir" && "$COMPILER" --c99 "$safety_proof_arg" "${extra_args[@]}" "${compiler_args[@]}" -o "${base_name}.c" 2>&1)
+    compiler_output=$(cd "$compiler_work_dir" && "$COMPILER" build --c99 "$safety_proof_arg" "${extra_args[@]}" "${compiler_args[@]}" -o "${base_name}.c" 2>&1)
     compiler_exit=$?
     if [ $compiler_exit -ne 0 ]; then
         if [ "$expect_fail" = true ]; then

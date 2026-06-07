@@ -1,0 +1,505 @@
+// checker/function_scope.uya - dynamic function-local scope index.
+
+export const FUNCTION_SCOPE_BINDING_PARAM: i32 = 1;
+export const FUNCTION_SCOPE_BINDING_LOCAL: i32 = 2;
+export const FUNCTION_SCOPE_BINDING_CAPTURE: i32 = 3;
+export const FUNCTION_SCOPE_BINDING_ASYNC: i32 = 4;
+
+/// 功能说明：记录函数作用域中的一个名字绑定。
+/// 参数说明：无；记录由 `FunctionScopeIndex` 动态追加和查询。
+/// 返回值说明：无。
+export struct FunctionScopeBinding {
+    name_id: i32,
+    name: &byte,
+    type_node: &void,
+    decl_node: &void,
+    depth: i32,
+    generation: i32,
+    kind: i32,
+    previous_binding_id: i32,
+}
+
+/// 功能说明：记录一个函数内 block scope 的绑定范围。
+/// 参数说明：无；`binding_start/count` 指向同一 `FunctionScopeIndex.bindings` 数组。
+/// 返回值说明：无。
+export struct FunctionScopeFrame {
+    binding_start: usize,
+    binding_count: usize,
+    generation: i32,
+}
+
+/// 功能说明：函数级 params、locals、captures 和 async bindings 的动态作用域索引。
+/// 参数说明：无；调用 `function_scope_index_init` 后使用。
+/// 返回值说明：无。
+export struct FunctionScopeIndex {
+    name_intern: SemanticInternTable,
+    bindings: SemanticVector,
+    param_binding_ids: SemanticVector,
+    local_binding_ids: SemanticVector,
+    capture_binding_ids: SemanticVector,
+    async_binding_ids: SemanticVector,
+    scope_frames: SemanticVector,
+    by_name: SemanticHash,
+    current_depth: i32,
+    generation: i32,
+}
+
+fn function_scope_vector_empty() SemanticVector {
+    return SemanticVector{
+        data: null,
+        item_size: 0usize,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+}
+
+fn function_scope_hash_empty() SemanticHash {
+    return SemanticHash{
+        entries: null,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+    };
+}
+
+fn function_scope_intern_empty() SemanticInternTable {
+    return SemanticInternTable{
+        entries: null,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+        string_bytes: 0usize,
+    };
+}
+
+fn function_scope_usize_to_i32(value: usize) i32 {
+    const converted_tmp: !i32 = value as! i32;
+    const converted: i32 = converted_tmp catch {
+        return -1;
+    };
+    return converted;
+}
+
+fn function_scope_i32_to_usize(value: i32) usize {
+    if value < 0 {
+        return 9223372036854775807usize;
+    }
+    const converted_tmp: !usize = value as! usize;
+    const converted: usize = converted_tmp catch {
+        return 9223372036854775807usize;
+    };
+    return converted;
+}
+
+fn function_scope_frame_at(index: &FunctionScopeIndex, depth: i32) &FunctionScopeFrame {
+    if index == null || depth < 0 {
+        return null;
+    }
+    const depth_usize: usize = function_scope_i32_to_usize(depth);
+    if depth_usize >= index.scope_frames.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&index.scope_frames, depth_usize) as &FunctionScopeFrame;
+}
+
+fn function_scope_binding_at(index: &FunctionScopeIndex, binding_id: i32) &FunctionScopeBinding {
+    if index == null || binding_id < 0 {
+        return null;
+    }
+    const binding_usize: usize = function_scope_i32_to_usize(binding_id);
+    if binding_usize >= index.bindings.count {
+        return null;
+    }
+    return semantic_vector_item_ptr(&index.bindings, binding_usize) as &FunctionScopeBinding;
+}
+
+fn function_scope_index_kind_vector(index: &FunctionScopeIndex, kind: i32) &SemanticVector {
+    if index == null {
+        return null;
+    }
+    if kind == FUNCTION_SCOPE_BINDING_PARAM {
+        return &index.param_binding_ids;
+    }
+    if kind == FUNCTION_SCOPE_BINDING_LOCAL {
+        return &index.local_binding_ids;
+    }
+    if kind == FUNCTION_SCOPE_BINDING_CAPTURE {
+        return &index.capture_binding_ids;
+    }
+    if kind == FUNCTION_SCOPE_BINDING_ASYNC {
+        return &index.async_binding_ids;
+    }
+    return null;
+}
+
+fn function_scope_index_kind_vector_ready(index: &FunctionScopeIndex, kind: i32) i32 {
+    const ids: &SemanticVector = function_scope_index_kind_vector(index, kind);
+    if ids == null || ids.item_size != @size_of(i32) {
+        return 0;
+    }
+    return 1;
+}
+
+fn function_scope_index_pop_kind_binding(index: &FunctionScopeIndex, kind: i32, binding_id: i32) i32 {
+    const ids: &SemanticVector = function_scope_index_kind_vector(index, kind);
+    if ids == null || ids.item_size != @size_of(i32) || ids.count == 0usize {
+        return -1;
+    }
+    const last_index: usize = ids.count - 1usize;
+    const last_id: &i32 = semantic_vector_item_ptr(ids, last_index) as &i32;
+    if last_id == null || last_id[0] != binding_id {
+        return -1;
+    }
+    ids.count = last_index;
+    return 0;
+}
+
+fn function_scope_append_root_frame(index: &FunctionScopeIndex) i32 {
+    if index == null {
+        return -1;
+    }
+    var frame: FunctionScopeFrame = FunctionScopeFrame{
+        binding_start: index.bindings.count,
+        binding_count: 0usize,
+        generation: index.generation,
+    };
+    if semantic_vector_append(&index.scope_frames, &frame as &const void) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+/// 功能说明：返回一个零初始化的 `FunctionScopeIndex` 值，方便栈上声明后再 init。
+/// 参数说明：无。
+/// 返回值说明：返回尚未分配动态存储的空索引。
+export fn function_scope_index_empty() FunctionScopeIndex {
+    return FunctionScopeIndex{
+        name_intern: function_scope_intern_empty(),
+        bindings: function_scope_vector_empty(),
+        param_binding_ids: function_scope_vector_empty(),
+        local_binding_ids: function_scope_vector_empty(),
+        capture_binding_ids: function_scope_vector_empty(),
+        async_binding_ids: function_scope_vector_empty(),
+        scope_frames: function_scope_vector_empty(),
+        by_name: function_scope_hash_empty(),
+        current_depth: 0,
+        generation: 0,
+    };
+}
+
+/// 功能说明：初始化函数作用域索引，并创建根作用域 frame。
+/// 参数说明：`index` 为待初始化索引。
+/// 返回值说明：成功返回 `0`，参数无效或分配失败返回 `-1`。
+export fn function_scope_index_init(index: &FunctionScopeIndex) i32 {
+    if index == null {
+        return -1;
+    }
+    semantic_intern_init(&index.name_intern);
+    semantic_vector_init(&index.bindings, @size_of(FunctionScopeBinding));
+    semantic_vector_init(&index.param_binding_ids, @size_of(i32));
+    semantic_vector_init(&index.local_binding_ids, @size_of(i32));
+    semantic_vector_init(&index.capture_binding_ids, @size_of(i32));
+    semantic_vector_init(&index.async_binding_ids, @size_of(i32));
+    semantic_vector_init(&index.scope_frames, @size_of(FunctionScopeFrame));
+    semantic_hash_init(&index.by_name);
+    index.current_depth = 0;
+    index.generation = 0;
+    return function_scope_append_root_frame(index);
+}
+
+/// 功能说明：重置函数作用域索引，保留已分配容量并重新创建根作用域 frame。
+/// 参数说明：`index` 为目标索引。
+/// 返回值说明：成功返回 `0`，参数无效或分配失败返回 `-1`。
+export fn function_scope_index_reset(index: &FunctionScopeIndex) i32 {
+    if index == null {
+        return -1;
+    }
+    semantic_intern_reset(&index.name_intern);
+    semantic_vector_reset(&index.bindings);
+    semantic_vector_reset(&index.param_binding_ids);
+    semantic_vector_reset(&index.local_binding_ids);
+    semantic_vector_reset(&index.capture_binding_ids);
+    semantic_vector_reset(&index.async_binding_ids);
+    semantic_vector_reset(&index.scope_frames);
+    semantic_hash_reset(&index.by_name);
+    index.current_depth = 0;
+    index.generation = 0;
+    return function_scope_append_root_frame(index);
+}
+
+/// 功能说明：释放函数作用域索引的全部动态存储。
+/// 参数说明：`index` 为目标索引。
+/// 返回值说明：无。
+export fn function_scope_index_release(index: &FunctionScopeIndex) void {
+    if index == null {
+        return;
+    }
+    semantic_intern_release(&index.name_intern);
+    semantic_vector_release(&index.bindings);
+    semantic_vector_release(&index.param_binding_ids);
+    semantic_vector_release(&index.local_binding_ids);
+    semantic_vector_release(&index.capture_binding_ids);
+    semantic_vector_release(&index.async_binding_ids);
+    semantic_vector_release(&index.scope_frames);
+    semantic_hash_release(&index.by_name);
+    index.current_depth = 0;
+    index.generation = 0;
+}
+
+/// 功能说明：进入一个新的函数局部作用域。
+/// 参数说明：`index` 为目标索引。
+/// 返回值说明：成功返回 `0`，参数无效或分配失败返回 `-1`。
+export fn function_scope_index_enter_scope(index: &FunctionScopeIndex) i32 {
+    if index == null || index.scope_frames.item_size != @size_of(FunctionScopeFrame) {
+        return -1;
+    }
+    index.generation = index.generation + 1;
+    var frame: FunctionScopeFrame = FunctionScopeFrame{
+        binding_start: index.bindings.count,
+        binding_count: 0usize,
+        generation: index.generation,
+    };
+    if semantic_vector_append(&index.scope_frames, &frame as &const void) != 0 {
+        return -1;
+    }
+    index.current_depth = index.current_depth + 1;
+    return 0;
+}
+
+/// 功能说明：退出当前函数局部作用域，并恢复被 shadow 的外层绑定。
+/// 参数说明：`index` 为目标索引。
+/// 返回值说明：成功返回 `0`，没有可退出的局部作用域或状态无效返回 `-1`。
+export fn function_scope_index_exit_scope(index: &FunctionScopeIndex) i32 {
+    if index == null || index.current_depth <= 0 {
+        return -1;
+    }
+    const frame: &FunctionScopeFrame = function_scope_frame_at(index, index.current_depth);
+    if frame == null {
+        return -1;
+    }
+    var i: usize = index.bindings.count;
+    while i > frame.binding_start {
+        i = i - 1usize;
+        const binding: &FunctionScopeBinding = semantic_vector_item_ptr(&index.bindings, i) as &FunctionScopeBinding;
+        if binding != null {
+            const binding_id: i32 = function_scope_usize_to_i32(i);
+            if binding_id < 0 || function_scope_index_pop_kind_binding(index, binding.kind, binding_id) != 0 {
+                return -1;
+            }
+            if semantic_hash_insert(&index.by_name, binding.name_id as i64, binding.previous_binding_id) != 0 {
+                return -1;
+            }
+        }
+    }
+    index.bindings.count = frame.binding_start;
+    index.scope_frames.count = function_scope_i32_to_usize(index.current_depth);
+    index.current_depth = index.current_depth - 1;
+    index.generation = index.generation + 1;
+    return 0;
+}
+
+/// 功能说明：向当前函数作用域追加一个名字绑定。
+/// 参数说明：`index` 为目标索引，`name` 为绑定名，`kind` 为绑定类别，`type_node/decl_node` 保存调用方上下文指针。
+/// 返回值说明：成功返回新 binding id，参数无效或分配失败返回 `-1`。
+export fn function_scope_index_add_binding(
+    index: &FunctionScopeIndex,
+    name: &byte,
+    kind: i32,
+    type_node: &void,
+    decl_node: &void,
+) i32 {
+    if index == null || name == null || kind <= 0 || index.bindings.item_size != @size_of(FunctionScopeBinding) ||
+        function_scope_index_kind_vector_ready(index, kind) == 0 {
+        return -1;
+    }
+    const frame: &FunctionScopeFrame = function_scope_frame_at(index, index.current_depth);
+    if frame == null {
+        return -1;
+    }
+    const name_id: i32 = semantic_intern_get_or_put(&index.name_intern, name);
+    if name_id < 0 {
+        return -1;
+    }
+    var previous_binding_id: i32 = -1;
+    _ = semantic_hash_get(&index.by_name, name_id as i64, &previous_binding_id);
+    const binding_id: i32 = function_scope_usize_to_i32(index.bindings.count);
+    if binding_id < 0 {
+        return -1;
+    }
+    var binding: FunctionScopeBinding = FunctionScopeBinding{
+        name_id: name_id,
+        name: semantic_intern_name(&index.name_intern, name_id),
+        type_node: type_node,
+        decl_node: decl_node,
+        depth: index.current_depth,
+        generation: index.generation,
+        kind: kind,
+        previous_binding_id: previous_binding_id,
+    };
+    if semantic_vector_append(&index.bindings, &binding as &const void) != 0 {
+        return -1;
+    }
+    const kind_ids: &SemanticVector = function_scope_index_kind_vector(index, kind);
+    var kind_binding_id: i32 = binding_id;
+    if semantic_vector_append(kind_ids, &kind_binding_id as &const void) != 0 {
+        index.bindings.count = index.bindings.count - 1usize;
+        return -1;
+    }
+    if semantic_hash_insert(&index.by_name, name_id as i64, binding_id) != 0 {
+        kind_ids.count = kind_ids.count - 1usize;
+        index.bindings.count = index.bindings.count - 1usize;
+        return -1;
+    }
+    frame.binding_count = index.bindings.count - frame.binding_start;
+    return binding_id;
+}
+
+/// 功能说明：向当前函数作用域追加一个参数绑定。
+/// 参数说明：`index` 为目标索引，`name` 为参数名，`type_node/decl_node` 保存调用方上下文指针。
+/// 返回值说明：成功返回新 binding id，参数无效或分配失败返回 `-1`。
+export fn function_scope_index_add_param(index: &FunctionScopeIndex, name: &byte, type_node: &void, decl_node: &void) i32 {
+    return function_scope_index_add_binding(index, name, FUNCTION_SCOPE_BINDING_PARAM, type_node, decl_node);
+}
+
+/// 功能说明：向当前函数作用域追加一个局部变量绑定。
+/// 参数说明：`index` 为目标索引，`name` 为局部名，`type_node/decl_node` 保存调用方上下文指针。
+/// 返回值说明：成功返回新 binding id，参数无效或分配失败返回 `-1`。
+export fn function_scope_index_add_local(index: &FunctionScopeIndex, name: &byte, type_node: &void, decl_node: &void) i32 {
+    return function_scope_index_add_binding(index, name, FUNCTION_SCOPE_BINDING_LOCAL, type_node, decl_node);
+}
+
+/// 功能说明：向当前函数作用域追加一个闭包捕获绑定。
+/// 参数说明：`index` 为目标索引，`name` 为捕获名，`type_node/decl_node` 保存调用方上下文指针。
+/// 返回值说明：成功返回新 binding id，参数无效或分配失败返回 `-1`。
+export fn function_scope_index_add_capture(index: &FunctionScopeIndex, name: &byte, type_node: &void, decl_node: &void) i32 {
+    return function_scope_index_add_binding(index, name, FUNCTION_SCOPE_BINDING_CAPTURE, type_node, decl_node);
+}
+
+/// 功能说明：向当前函数作用域追加一个 async binding。
+/// 参数说明：`index` 为目标索引，`name` 为 async binding 名，`type_node/decl_node` 保存调用方上下文指针。
+/// 返回值说明：成功返回新 binding id，参数无效或分配失败返回 `-1`。
+export fn function_scope_index_add_async_binding(index: &FunctionScopeIndex, name: &byte, type_node: &void, decl_node: &void) i32 {
+    return function_scope_index_add_binding(index, name, FUNCTION_SCOPE_BINDING_ASYNC, type_node, decl_node);
+}
+
+/// 功能说明：按名字查询当前可见的函数作用域绑定。
+/// 参数说明：`index` 为目标索引，`name` 为查询名，`out_binding` 接收命中的绑定副本。
+/// 返回值说明：命中返回 `1`，未命中或参数无效返回 `0`。
+export fn function_scope_index_find_binding(index: &FunctionScopeIndex, name: &byte, out_binding: &FunctionScopeBinding) i32 {
+    if index == null || name == null || out_binding == null {
+        return 0;
+    }
+    const name_id: i32 = semantic_intern_find(&index.name_intern, name);
+    if name_id < 0 {
+        return 0;
+    }
+    var binding_id: i32 = -1;
+    if semantic_hash_get(&index.by_name, name_id as i64, &binding_id) == 0 || binding_id < 0 {
+        return 0;
+    }
+    const binding: &FunctionScopeBinding = function_scope_binding_at(index, binding_id);
+    if binding == null {
+        return 0;
+    }
+    out_binding[0] = binding[0];
+    return 1;
+}
+
+/// 功能说明：返回当前索引中的活跃绑定数量。
+/// 参数说明：`index` 为目标索引。
+/// 返回值说明：返回活跃 binding 数；参数无效时返回 `0`。
+export fn function_scope_index_binding_count(index: &FunctionScopeIndex) i32 {
+    if index == null {
+        return 0;
+    }
+    return function_scope_usize_to_i32(index.bindings.count);
+}
+
+/// 功能说明：返回当前索引中的 binding 容量。
+/// 参数说明：`index` 为目标索引。
+/// 返回值说明：返回 binding 容量；参数无效或溢出时返回 `0`。
+export fn function_scope_index_binding_capacity(index: &FunctionScopeIndex) i32 {
+    if index == null {
+        return 0;
+    }
+    const capacity: i32 = function_scope_usize_to_i32(index.bindings.capacity);
+    if capacity < 0 {
+        return 0;
+    }
+    return capacity;
+}
+
+/// 功能说明：返回当前索引中的作用域 frame 数量。
+/// 参数说明：`index` 为目标索引。
+/// 返回值说明：返回 frame 数；参数无效时返回 `0`。
+export fn function_scope_index_scope_count(index: &FunctionScopeIndex) i32 {
+    if index == null {
+        return 0;
+    }
+    return function_scope_usize_to_i32(index.scope_frames.count);
+}
+
+/// 功能说明：返回当前函数作用域索引的 block 深度。
+/// 参数说明：`index` 为目标索引。
+/// 返回值说明：返回当前深度；参数无效时返回 `0`。
+export fn function_scope_index_current_depth(index: &FunctionScopeIndex) i32 {
+    if index == null {
+        return 0;
+    }
+    return index.current_depth;
+}
+
+/// 功能说明：返回当前函数作用域索引的 local generation。
+/// 参数说明：`index` 为目标索引。
+/// 返回值说明：返回当前 generation；参数无效时返回 `0`。
+export fn function_scope_index_current_generation(index: &FunctionScopeIndex) i32 {
+    if index == null {
+        return 0;
+    }
+    return index.generation;
+}
+
+/// 功能说明：返回指定类别的活跃 binding 数量。
+/// 参数说明：`index` 为目标索引，`kind` 为 `FUNCTION_SCOPE_BINDING_*` 类别。
+/// 返回值说明：返回该类别活跃 binding 数；参数无效或溢出时返回 `0`。
+export fn function_scope_index_kind_count(index: &FunctionScopeIndex, kind: i32) i32 {
+    const ids: &SemanticVector = function_scope_index_kind_vector(index, kind);
+    if ids == null {
+        return 0;
+    }
+    const count: i32 = function_scope_usize_to_i32(ids.count);
+    if count < 0 {
+        return 0;
+    }
+    return count;
+}
+
+/// 功能说明：返回指定类别 binding ID 动态数组的容量。
+/// 参数说明：`index` 为目标索引，`kind` 为 `FUNCTION_SCOPE_BINDING_*` 类别。
+/// 返回值说明：返回该类别容量；参数无效或溢出时返回 `0`。
+export fn function_scope_index_kind_capacity(index: &FunctionScopeIndex, kind: i32) i32 {
+    const ids: &SemanticVector = function_scope_index_kind_vector(index, kind);
+    if ids == null {
+        return 0;
+    }
+    const capacity: i32 = function_scope_usize_to_i32(ids.capacity);
+    if capacity < 0 {
+        return 0;
+    }
+    return capacity;
+}
+
+/// 功能说明：返回指定类别 binding ID 动态数组的扩容次数。
+/// 参数说明：`index` 为目标索引，`kind` 为 `FUNCTION_SCOPE_BINDING_*` 类别。
+/// 返回值说明：返回该类别 realloc 次数；参数无效时返回 `0`。
+export fn function_scope_index_kind_realloc_count(index: &FunctionScopeIndex, kind: i32) i32 {
+    const ids: &SemanticVector = function_scope_index_kind_vector(index, kind);
+    if ids == null {
+        return 0;
+    }
+    return ids.realloc_count;
+}

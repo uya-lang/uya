@@ -1,0 +1,85 @@
+// test_native_dynamic_table_ops.uya - native dynamic table reserve/append/grow/free smoke.
+
+use codegen.native.table;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+const NATIVE_TABLE_OVER_LEGACY_CAP: i32 = 1025;
+
+struct NativeTableItem {
+    key: i32,
+    value: i64,
+}
+
+fn native_table_make_item(key: i32) NativeTableItem {
+    return NativeTableItem{
+        key: key,
+        value: (key as i64) * 10i64,
+    };
+}
+
+test "native dynamic table reserves appends grows resets and releases" {
+    var table: NativeTable = native_table_empty();
+    native_table_init(&table, @size_of(NativeTableItem));
+
+    try assert_eq_i32(native_table_lifecycle_state(&table), NATIVE_TABLE_LIFECYCLE_ACTIVE);
+    try expect(native_table_count(&table) == 0usize);
+    try assert_eq_i32(native_table_reserve(&table, 4usize), 0);
+    try expect(native_table_capacity(&table) >= 4usize);
+    try expect(native_table_bytes(&table) >= @size_of(NativeTableItem) * 4usize);
+
+    var i: i32 = 0;
+    while i < NATIVE_TABLE_OVER_LEGACY_CAP {
+        var item: NativeTableItem = native_table_make_item(i);
+        try assert_eq_i32(native_table_append(&table, &item as &const void), 0);
+        i = i + 1;
+    }
+
+    try assert_eq_i32(native_table_count(&table) as i32, NATIVE_TABLE_OVER_LEGACY_CAP);
+    try expect(native_table_capacity(&table) >= native_table_count(&table));
+    try expect(table.realloc_count > 1);
+
+    const first: &NativeTableItem = native_table_item_ptr(&table, 0usize) as &NativeTableItem;
+    const middle: &NativeTableItem = native_table_item_ptr(&table, 512usize) as &NativeTableItem;
+    const last: &NativeTableItem = native_table_item_ptr(&table, 1024usize) as &NativeTableItem;
+    try expect(first != null);
+    try expect(middle != null);
+    try expect(last != null);
+    try assert_eq_i32(first.key, 0);
+    try assert_eq_i32(middle.key, 512);
+    try assert_eq_i32(last.key, 1024);
+    try expect(last.value == 10240i64);
+    try expect(native_table_item_ptr(&table, 1025usize) == null);
+
+    const stats: NativeTableStats = native_table_stats(&table);
+    try expect(stats.count == native_table_count(&table));
+    try expect(stats.capacity == native_table_capacity(&table));
+    try expect(stats.bytes == native_table_bytes(&table));
+    try assert_eq_i32(stats.realloc_count, table.realloc_count);
+
+    native_table_reset(&table);
+    try expect(native_table_count(&table) == 0usize);
+    try expect(native_table_capacity(&table) == stats.capacity);
+    var after_reset: NativeTableItem = native_table_make_item(77);
+    try assert_eq_i32(native_table_append(&table, &after_reset as &const void), 0);
+    const reset_item: &NativeTableItem = native_table_item_ptr(&table, 0usize) as &NativeTableItem;
+    try expect(reset_item != null);
+    try assert_eq_i32(reset_item.key, 77);
+
+    native_table_release(&table);
+    try assert_eq_i32(native_table_lifecycle_state(&table), NATIVE_TABLE_LIFECYCLE_RELEASED);
+    try expect(native_table_count(&table) == 0usize);
+    try expect(native_table_capacity(&table) == 0usize);
+    try expect(native_table_item_ptr(&table, 0usize) == null);
+}
+
+test "native dynamic table rejects invalid append and reserve" {
+    var table: NativeTable = native_table_empty();
+    try assert_eq_i32(native_table_append(&table, null), -1);
+    try assert_eq_i32(native_table_reserve(&table, 1usize), -1);
+
+    native_table_init(&table, 0usize);
+    var item: NativeTableItem = native_table_make_item(1);
+    try assert_eq_i32(native_table_append(&table, &item as &const void), -1);
+    native_table_release(&table);
+}

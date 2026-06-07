@@ -565,7 +565,7 @@ exports:
 建议新增构建语义：
 
 ```text
-uya build --app microapp --emit-shared-lib foo.uya -o foo.ulib
+uya microapp build --emit-shared-lib foo.uya -o foo.ulib
 ```
 
 编译器职责：
@@ -828,9 +828,9 @@ effective_required_caps =
 
 ## 12. 校验与 inspect 设计
 
-建议扩展 `verify-image` / `inspect-image`：
+建议扩展 `microapp verify` / `microapp inspect`：
 
-### 12.1 `inspect-image`
+### 12.1 `microapp inspect`
 
 应显示：
 
@@ -841,7 +841,7 @@ effective_required_caps =
 - export 列表
 - import 列表
 
-### 12.2 `verify-image`
+### 12.2 `microapp verify`
 
 新增检查：
 
@@ -859,19 +859,19 @@ effective_required_caps =
 建议新增或扩展以下能力：
 
 ```text
-uya build --app microapp --emit-shared-lib foo.uya -o foo.ulib
-uya install-shared-lib foo.ulib
-uya inspect-image foo.ulib
-uya verify-image foo.ulib
-uya run app.uapp
+uya microapp build --emit-shared-lib foo.uya -o foo.ulib
+uya microapp install-shared-lib foo.ulib
+uya microapp inspect foo.ulib
+uya microapp verify foo.ulib
+uya microapp run app.uapp
 ```
 
 可选增强：
 
 ```text
-uya list-shared-lib
-uya remove-shared-lib <library_id>
-uya inspect-link app.uapp
+uya microapp list-shared-lib
+uya microapp remove-shared-lib <library_id>
+uya microapp inspect-link app.uapp
 ```
 
 其中：
@@ -889,7 +889,7 @@ uya inspect-link app.uapp
 
 - `.ulib` 基本打包与解析
 - import/export/dependency section roundtrip
-- `inspect-image` / `verify-image` 可见性
+- `microapp inspect` / `microapp verify` 可见性
 
 ### 14.2 失败回归
 

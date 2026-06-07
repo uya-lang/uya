@@ -1,0 +1,258 @@
+// codegen/native/table.uya - Native dynamic table primitives.
+
+use libc;
+
+export const NATIVE_TABLE_LIFECYCLE_UNINITIALIZED: i32 = 0;
+export const NATIVE_TABLE_LIFECYCLE_ACTIVE: i32 = 1;
+export const NATIVE_TABLE_LIFECYCLE_RELEASED: i32 = 2;
+
+const NATIVE_TABLE_MIN_CAPACITY: usize = 8usize;
+const NATIVE_TABLE_MAX_BYTES: usize = 9223372036854775807usize;
+
+/// 功能说明：native 后端通用动态表。
+/// 参数说明：无；调用 `native_table_init` 后使用，`item_size` 为元素字节宽度。
+/// 返回值说明：无。
+export struct NativeTable {
+    data: &byte,
+    item_size: usize,
+    count: usize,
+    capacity: usize,
+    bytes: usize,
+    realloc_count: i32,
+    lifecycle_state: i32,
+}
+
+/// 功能说明：native 动态表统计摘要。
+/// 参数说明：无；由 `native_table_stats` 返回。
+/// 返回值说明：无。
+export struct NativeTableStats {
+    count: usize,
+    capacity: usize,
+    bytes: usize,
+    realloc_count: i32,
+}
+
+fn native_table_add_overflows(a: usize, b: usize) i32 {
+    if b > NATIVE_TABLE_MAX_BYTES {
+        return 1;
+    }
+    if a > NATIVE_TABLE_MAX_BYTES - b {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_table_mul_overflows(a: usize, b: usize) i32 {
+    if a == 0usize || b == 0usize {
+        return 0;
+    }
+    if a > NATIVE_TABLE_MAX_BYTES / b {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_table_next_capacity(current: usize, min_capacity: usize) usize {
+    var next: usize = current;
+    if next < NATIVE_TABLE_MIN_CAPACITY {
+        next = NATIVE_TABLE_MIN_CAPACITY;
+    }
+    while next < min_capacity {
+        if next > NATIVE_TABLE_MAX_BYTES / 2usize {
+            return min_capacity;
+        }
+        next = next * 2usize;
+    }
+    return next;
+}
+
+/// 功能说明：构造未初始化的 native 动态表值。
+/// 参数说明：无。
+/// 返回值说明：返回 `lifecycle_state == NATIVE_TABLE_LIFECYCLE_UNINITIALIZED` 的空表。
+export fn native_table_empty() NativeTable {
+    return NativeTable{
+        data: null,
+        item_size: 0usize,
+        count: 0usize,
+        capacity: 0usize,
+        bytes: 0usize,
+        realloc_count: 0,
+        lifecycle_state: NATIVE_TABLE_LIFECYCLE_UNINITIALIZED,
+    };
+}
+
+/// 功能说明：初始化 native 动态表。
+/// 参数说明：`table` 为目标表；`item_size` 为每个元素的字节大小。
+/// 返回值说明：无；`item_size == 0` 会保持 active 但后续 append/reserve 返回失败。
+export fn native_table_init(table: &NativeTable, item_size: usize) void {
+    if table == null {
+        return;
+    }
+    table.data = null;
+    table.item_size = item_size;
+    table.count = 0usize;
+    table.capacity = 0usize;
+    table.bytes = 0usize;
+    table.realloc_count = 0;
+    table.lifecycle_state = NATIVE_TABLE_LIFECYCLE_ACTIVE;
+}
+
+/// 功能说明：读取 native 动态表当前元素数量。
+/// 参数说明：`table` 为目标表。
+/// 返回值说明：返回 count；参数无效时返回 0。
+export fn native_table_count(table: &NativeTable) usize {
+    if table == null {
+        return 0usize;
+    }
+    return table.count;
+}
+
+/// 功能说明：读取 native 动态表当前容量。
+/// 参数说明：`table` 为目标表。
+/// 返回值说明：返回 capacity；参数无效时返回 0。
+export fn native_table_capacity(table: &NativeTable) usize {
+    if table == null {
+        return 0usize;
+    }
+    return table.capacity;
+}
+
+/// 功能说明：读取 native 动态表当前分配字节数。
+/// 参数说明：`table` 为目标表。
+/// 返回值说明：返回容量字节数；参数无效时返回 0。
+export fn native_table_bytes(table: &NativeTable) usize {
+    if table == null {
+        return 0usize;
+    }
+    return table.bytes;
+}
+
+/// 功能说明：读取 native 动态表生命周期状态。
+/// 参数说明：`table` 为目标表。
+/// 返回值说明：返回 lifecycle state；参数无效时返回 uninitialized。
+export fn native_table_lifecycle_state(table: &NativeTable) i32 {
+    if table == null {
+        return NATIVE_TABLE_LIFECYCLE_UNINITIALIZED;
+    }
+    return table.lifecycle_state;
+}
+
+/// 功能说明：将 native 动态表容量至少扩到 `new_capacity`。
+/// 参数说明：`table` 为目标表；`new_capacity` 为所需元素容量。
+/// 返回值说明：成功返回 `0`；未初始化、元素大小为 0、溢出或分配失败返回 `-1`。
+export fn native_table_reserve(table: &NativeTable, new_capacity: usize) i32 {
+    if table == null || table.lifecycle_state != NATIVE_TABLE_LIFECYCLE_ACTIVE || table.item_size == 0usize {
+        return -1;
+    }
+    if new_capacity <= table.capacity {
+        return 0;
+    }
+    if native_table_mul_overflows(new_capacity, table.item_size) != 0 {
+        return -1;
+    }
+    const new_bytes: usize = new_capacity * table.item_size;
+    const new_data: &byte = realloc(table.data as &void, new_bytes) as &byte;
+    if new_data == null {
+        return -1;
+    }
+    table.data = new_data;
+    table.capacity = new_capacity;
+    table.bytes = new_bytes;
+    table.realloc_count = table.realloc_count + 1;
+    return 0;
+}
+
+/// 功能说明：确保 native 动态表容量至少能容纳 `min_capacity` 个元素。
+/// 参数说明：`table` 为目标表；`min_capacity` 为所需最小元素数。
+/// 返回值说明：成功返回 `0`；失败返回 `-1`。
+export fn native_table_ensure_capacity(table: &NativeTable, min_capacity: usize) i32 {
+    if table == null {
+        return -1;
+    }
+    if min_capacity <= table.capacity {
+        return 0;
+    }
+    const next: usize = native_table_next_capacity(table.capacity, min_capacity);
+    return native_table_reserve(table, next);
+}
+
+/// 功能说明：向 native 动态表末尾追加一个元素。
+/// 参数说明：`table` 为目标表；`item` 指向待复制元素。
+/// 返回值说明：成功返回 `0`；参数、容量或分配失败返回 `-1`。
+export fn native_table_append(table: &NativeTable, item: &const void) i32 {
+    if table == null || item == null || table.item_size == 0usize ||
+        table.lifecycle_state != NATIVE_TABLE_LIFECYCLE_ACTIVE {
+        return -1;
+    }
+    if native_table_add_overflows(table.count, 1usize) != 0 {
+        return -1;
+    }
+    const next_count: usize = table.count + 1usize;
+    if native_table_ensure_capacity(table, next_count) != 0 {
+        return -1;
+    }
+    const dst_addr: usize = @usize_from_ptr(table.data) + table.count * table.item_size;
+    _ = memcpy(@ptr_from_usize(dst_addr) as *byte, item as *const byte, table.item_size);
+    table.count = next_count;
+    return 0;
+}
+
+/// 功能说明：读取 native 动态表指定元素的字节指针。
+/// 参数说明：`table` 为目标表；`index` 为元素下标。
+/// 返回值说明：存在时返回元素地址；越界或参数无效时返回 null。
+export fn native_table_item_ptr(table: &NativeTable, index: usize) &byte {
+    if table == null || table.data == null || table.item_size == 0usize || index >= table.count {
+        return null;
+    }
+    const addr: usize = @usize_from_ptr(table.data) + index * table.item_size;
+    return @ptr_from_usize(addr) as &byte;
+}
+
+/// 功能说明：重置 native 动态表元素数量但保留已分配容量。
+/// 参数说明：`table` 为目标表。
+/// 返回值说明：无。
+export fn native_table_reset(table: &NativeTable) void {
+    if table == null {
+        return;
+    }
+    table.count = 0usize;
+}
+
+/// 功能说明：释放 native 动态表底层存储并进入 released 状态。
+/// 参数说明：`table` 为目标表。
+/// 返回值说明：无。
+export fn native_table_release(table: &NativeTable) void {
+    if table == null {
+        return;
+    }
+    if table.data != null {
+        free(table.data as &void);
+    }
+    table.data = null;
+    table.item_size = 0usize;
+    table.count = 0usize;
+    table.capacity = 0usize;
+    table.bytes = 0usize;
+    table.realloc_count = 0;
+    table.lifecycle_state = NATIVE_TABLE_LIFECYCLE_RELEASED;
+}
+
+/// 功能说明：读取 native 动态表统计摘要。
+/// 参数说明：`table` 为目标表。
+/// 返回值说明：返回 count/capacity/bytes/realloc_count；参数无效时返回全零。
+export fn native_table_stats(table: &NativeTable) NativeTableStats {
+    if table == null {
+        return NativeTableStats{
+            count: 0usize,
+            capacity: 0usize,
+            bytes: 0usize,
+            realloc_count: 0,
+        };
+    }
+    return NativeTableStats{
+        count: table.count,
+        capacity: table.capacity,
+        bytes: table.bytes,
+        realloc_count: table.realloc_count,
+    };
+}

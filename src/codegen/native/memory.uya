@@ -1,0 +1,304 @@
+// codegen/native/memory.uya - Native aggregate memory layout helpers.
+
+export const NATIVE_MEMORY_KIND_INVALID: i32 = 0;
+export const NATIVE_MEMORY_KIND_STRUCT_FIELD: i32 = 1;
+export const NATIVE_MEMORY_KIND_ARRAY_ELEMENT: i32 = 2;
+export const NATIVE_MEMORY_KIND_SLICE_PTR: i32 = 3;
+export const NATIVE_MEMORY_KIND_SLICE_LEN: i32 = 4;
+export const NATIVE_MEMORY_KIND_SLICE_ELEMENT: i32 = 5;
+
+/// 功能说明：native 聚合内存中的一个定长 slot。
+/// 参数说明：无；字段记录 slot 类型、字节偏移、字节大小和数组上下文。
+/// 返回值说明：无。
+export struct NativeMemorySlot {
+    kind: i32,
+    byte_offset: i32,
+    byte_size: i32,
+    element_size: i32,
+    element_count: i32,
+}
+
+/// 功能说明：native indexed addressing 所需的数组或 slice 元素地址摘要。
+/// 参数说明：无；`scale` 为 x86_64 SIB 可直接使用的 1/2/4/8，无法直接编码时为 `-1`。
+/// 返回值说明：无。
+export struct NativeIndexedAddress {
+    kind: i32,
+    base_offset: i32,
+    element_size: i32,
+    scale: i32,
+    element_count: i32,
+}
+
+/// 功能说明：native slice header 的稳定布局摘要。
+/// 参数说明：无；当前 slice header 为 data pointer + usize length。
+/// 返回值说明：无。
+export struct NativeSliceLayout {
+    ptr_offset: i32,
+    len_offset: i32,
+    header_size: i32,
+    element_size: i32,
+    element_scale: i32,
+}
+
+fn native_memory_invalid_slot(kind: i32) NativeMemorySlot {
+    return NativeMemorySlot{
+        kind: kind,
+        byte_offset: -1,
+        byte_size: 0,
+        element_size: 0,
+        element_count: -1,
+    };
+}
+
+fn native_memory_invalid_indexed(kind: i32, element_size: i32, element_count: i32) NativeIndexedAddress {
+    return NativeIndexedAddress{
+        kind: kind,
+        base_offset: -1,
+        element_size: element_size,
+        scale: -1,
+        element_count: element_count,
+    };
+}
+
+fn native_memory_checked_mul_i32(a: i32, b: i32, out: &i32) i32 {
+    if out == null || a < 0 || b < 0 {
+        return -1;
+    }
+    const product: i64 = (a as i64) * (b as i64);
+    if product > 2147483647i64 {
+        return -1;
+    }
+    out[0] = product as i32;
+    return 0;
+}
+
+fn native_memory_checked_add_i32(a: i32, b: i32, out: &i32) i32 {
+    if out == null || a < 0 || b < 0 {
+        return -1;
+    }
+    const sum: i64 = (a as i64) + (b as i64);
+    if sum > 2147483647i64 {
+        return -1;
+    }
+    out[0] = sum as i32;
+    return 0;
+}
+
+/// 功能说明：native runtime 最小 memcpy，实现非重叠字节复制。
+/// 参数说明：`dest` 为目标字节指针；`src` 为源字节指针；`n` 为复制字节数。
+/// 返回值说明：返回 `dest`；目标为空、源为空或 `n == 0` 时不复制。
+export fn native_memcpy(dest: &byte, src: &const byte, n: usize) &byte {
+    if dest == null || src == null || n == 0usize {
+        return dest;
+    }
+    var i: usize = 0usize;
+    while i < n {
+        dest[i] = src[i];
+        i = i + 1usize;
+    }
+    return dest;
+}
+
+/// 功能说明：native runtime 最小 memset，实现字节填充。
+/// 参数说明：`dest` 为目标字节指针；`value` 为填充值；`n` 为填充字节数。
+/// 返回值说明：返回 `dest`；目标为空或 `n == 0` 时不填充。
+export fn native_memset(dest: &byte, value: i32, n: usize) &byte {
+    if dest == null || n == 0usize {
+        return dest;
+    }
+    const b: byte = value as byte;
+    var i: usize = 0usize;
+    while i < n {
+        dest[i] = b;
+        i = i + 1usize;
+    }
+    return dest;
+}
+
+/// 功能说明：native runtime 最小 strlen，计算 NUL 结尾字符串长度。
+/// 参数说明：`text` 为 C 字符串指针。
+/// 返回值说明：返回 NUL 前字节数；参数为空返回 0。
+export fn native_strlen(text: &const byte) usize {
+    if text == null {
+        return 0usize;
+    }
+    var len: usize = 0usize;
+    while text[len] != 0 {
+        len = len + 1usize;
+    }
+    return len;
+}
+
+/// 功能说明：native runtime 最小 strcmp，按字节序比较两个 NUL 结尾字符串。
+/// 参数说明：`left` 与 `right` 为 C 字符串指针。
+/// 返回值说明：小于返回 -1，大于返回 1，相等返回 0；任一参数为空返回 0。
+export fn native_strcmp(left: &const byte, right: &const byte) i32 {
+    if left == null || right == null {
+        return 0;
+    }
+    var i: usize = 0usize;
+    while left[i] != 0 && right[i] != 0 {
+        const l: byte = left[i];
+        const r: byte = right[i];
+        if l < r {
+            return -1;
+        }
+        if l > r {
+            return 1;
+        }
+        i = i + 1usize;
+    }
+    if left[i] == 0 && right[i] != 0 {
+        return -1;
+    }
+    if left[i] != 0 && right[i] == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：判断 slot 是否为有效 native 聚合内存 slot。
+/// 参数说明：`slot` 为待检查的内存 slot。
+/// 返回值说明：有效返回 `1`，否则返回 `0`。
+export fn native_memory_slot_is_valid(slot: NativeMemorySlot) i32 {
+    if slot.kind == NATIVE_MEMORY_KIND_INVALID || slot.byte_offset < 0 || slot.byte_size <= 0 {
+        return 0;
+    }
+    return 1;
+}
+
+/// 功能说明：把元素字节大小映射到 x86_64 SIB scale。
+/// 参数说明：`element_size` 为元素字节数。
+/// 返回值说明：1/2/4/8 可直接编码时返回同值；其他大小返回 `-1`。
+export fn native_memory_index_scale_for_element_size(element_size: i32) i32 {
+    if element_size == 1 || element_size == 2 || element_size == 4 || element_size == 8 {
+        return element_size;
+    }
+    return -1;
+}
+
+/// 功能说明：构造 struct 字段的 native 内存 slot。
+/// 参数说明：`field_offset` 为字段字节偏移；`field_size` 为字段字节大小。
+/// 返回值说明：返回有效 slot；参数非法时 `byte_offset == -1`。
+export fn native_memory_struct_field_slot(field_offset: i32, field_size: i32) NativeMemorySlot {
+    if field_offset < 0 || field_size <= 0 {
+        return native_memory_invalid_slot(NATIVE_MEMORY_KIND_STRUCT_FIELD);
+    }
+    return NativeMemorySlot{
+        kind: NATIVE_MEMORY_KIND_STRUCT_FIELD,
+        byte_offset: field_offset,
+        byte_size: field_size,
+        element_size: field_size,
+        element_count: 1,
+    };
+}
+
+/// 功能说明：构造数组常量下标元素的 native 内存 slot。
+/// 参数说明：`base_offset` 为数组基址偏移；`element_size` 为元素大小；`index` 为常量下标；`element_count` 为数组长度，未知可传 `-1`。
+/// 返回值说明：返回有效 slot；越界、溢出或参数非法时 `byte_offset == -1`。
+export fn native_memory_array_element_slot(base_offset: i32, element_size: i32,
+    index: i32, element_count: i32) NativeMemorySlot {
+    if base_offset < 0 || element_size <= 0 || index < 0 {
+        return native_memory_invalid_slot(NATIVE_MEMORY_KIND_ARRAY_ELEMENT);
+    }
+    if element_count >= 0 && index >= element_count {
+        return native_memory_invalid_slot(NATIVE_MEMORY_KIND_ARRAY_ELEMENT);
+    }
+    var rel: i32 = 0;
+    if native_memory_checked_mul_i32(index, element_size, &rel) != 0 {
+        return native_memory_invalid_slot(NATIVE_MEMORY_KIND_ARRAY_ELEMENT);
+    }
+    var offset: i32 = 0;
+    if native_memory_checked_add_i32(base_offset, rel, &offset) != 0 {
+        return native_memory_invalid_slot(NATIVE_MEMORY_KIND_ARRAY_ELEMENT);
+    }
+    return NativeMemorySlot{
+        kind: NATIVE_MEMORY_KIND_ARRAY_ELEMENT,
+        byte_offset: offset,
+        byte_size: element_size,
+        element_size: element_size,
+        element_count: element_count,
+    };
+}
+
+/// 功能说明：构造数组动态下标 native indexed address 摘要。
+/// 参数说明：`base_offset` 为数组基址偏移；`element_size` 为元素大小；`element_count` 为数组长度，未知可传 `-1`。
+/// 返回值说明：返回 indexed address；`scale == -1` 表示需要乘法 lowering，不能直接使用 SIB scale。
+export fn native_memory_array_indexed_address(base_offset: i32, element_size: i32,
+    element_count: i32) NativeIndexedAddress {
+    if base_offset < 0 || element_size <= 0 {
+        return native_memory_invalid_indexed(NATIVE_MEMORY_KIND_ARRAY_ELEMENT, element_size, element_count);
+    }
+    return NativeIndexedAddress{
+        kind: NATIVE_MEMORY_KIND_ARRAY_ELEMENT,
+        base_offset: base_offset,
+        element_size: element_size,
+        scale: native_memory_index_scale_for_element_size(element_size),
+        element_count: element_count,
+    };
+}
+
+/// 功能说明：构造 native slice header 布局摘要。
+/// 参数说明：`element_size` 为 slice 元素字节大小。
+/// 返回值说明：返回 ptr/len/header 布局；非法元素大小会保留 `element_scale == -1`。
+export fn native_memory_slice_layout(element_size: i32) NativeSliceLayout {
+    const ptr_size: i32 = @size_of(&byte) as i32;
+    const len_size: i32 = @size_of(usize) as i32;
+    return NativeSliceLayout{
+        ptr_offset: 0,
+        len_offset: ptr_size,
+        header_size: ptr_size + len_size,
+        element_size: element_size,
+        element_scale: native_memory_index_scale_for_element_size(element_size),
+    };
+}
+
+/// 功能说明：构造 slice header 中 data pointer 字段的 native slot。
+/// 参数说明：`layout` 指向 `native_memory_slice_layout` 返回的布局。
+/// 返回值说明：返回 data pointer 字段 slot；布局非法时 `byte_offset == -1`。
+export fn native_memory_slice_ptr_slot(layout: &NativeSliceLayout) NativeMemorySlot {
+    if layout == null || layout.header_size <= 0 || layout.ptr_offset < 0 {
+        return native_memory_invalid_slot(NATIVE_MEMORY_KIND_SLICE_PTR);
+    }
+    const ptr_size: i32 = @size_of(&byte) as i32;
+    return NativeMemorySlot{
+        kind: NATIVE_MEMORY_KIND_SLICE_PTR,
+        byte_offset: layout.ptr_offset,
+        byte_size: ptr_size,
+        element_size: ptr_size,
+        element_count: 1,
+    };
+}
+
+/// 功能说明：构造 slice header 中 length 字段的 native slot。
+/// 参数说明：`layout` 指向 `native_memory_slice_layout` 返回的布局。
+/// 返回值说明：返回 length 字段 slot；布局非法时 `byte_offset == -1`。
+export fn native_memory_slice_len_slot(layout: &NativeSliceLayout) NativeMemorySlot {
+    if layout == null || layout.header_size <= 0 || layout.len_offset < 0 {
+        return native_memory_invalid_slot(NATIVE_MEMORY_KIND_SLICE_LEN);
+    }
+    const len_size: i32 = @size_of(usize) as i32;
+    return NativeMemorySlot{
+        kind: NATIVE_MEMORY_KIND_SLICE_LEN,
+        byte_offset: layout.len_offset,
+        byte_size: len_size,
+        element_size: len_size,
+        element_count: 1,
+    };
+}
+
+/// 功能说明：构造 slice data pointer 载入后元素动态下标的 native indexed address 摘要。
+/// 参数说明：`layout` 指向 slice 布局；`element_count` 为已知长度，未知可传 `-1`。
+/// 返回值说明：返回 data pointer 基址下的元素地址摘要；`scale == -1` 表示需要乘法 lowering。
+export fn native_memory_slice_element_address(layout: &NativeSliceLayout, element_count: i32) NativeIndexedAddress {
+    if layout == null || layout.element_size <= 0 {
+        return native_memory_invalid_indexed(NATIVE_MEMORY_KIND_SLICE_ELEMENT, 0, element_count);
+    }
+    return NativeIndexedAddress{
+        kind: NATIVE_MEMORY_KIND_SLICE_ELEMENT,
+        base_offset: 0,
+        element_size: layout.element_size,
+        scale: layout.element_scale,
+        element_count: element_count,
+    };
+}

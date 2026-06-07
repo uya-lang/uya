@@ -1,0 +1,116 @@
+// test_native_struct_array_slice_ops.uya - native aggregate memory operation smoke.
+
+use codegen.native.memory;
+use codegen.native.x86_64;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+struct NativeParserToken {
+    kind: i32,
+    start: i32,
+    len: i32,
+    flags: i32,
+}
+
+fn native_agg_bval(buf: &byte, i: usize) i32 {
+    return buf[i] as i32;
+}
+
+test "native memory slots match parser checker aggregate semantics" {
+    var tokens: [NativeParserToken: 4] = [
+        NativeParserToken{ kind: 10, start: 0, len: 1, flags: 0 },
+        NativeParserToken{ kind: 20, start: 1, len: 2, flags: 1 },
+        NativeParserToken{ kind: 30, start: 3, len: 5, flags: 0 },
+        NativeParserToken{ kind: 40, start: 8, len: 13, flags: 1 },
+    ];
+    const window: &[NativeParserToken] = tokens[1: 2];
+
+    try assert_eq_i32(window[0].kind, 20);
+    try assert_eq_i32(window[1].len, 5);
+    tokens[2].flags = tokens[2].flags + 7;
+    try assert_eq_i32(tokens[2].flags, 7);
+
+    const field: NativeMemorySlot = native_memory_struct_field_slot(@size_of(i32) as i32, @size_of(i32) as i32);
+    try assert_eq_i32(field.kind, NATIVE_MEMORY_KIND_STRUCT_FIELD);
+    try assert_eq_i32(field.byte_offset, 4);
+    try assert_eq_i32(field.byte_size, 4);
+
+    const elem: NativeMemorySlot = native_memory_array_element_slot(0, @size_of(NativeParserToken) as i32, 2, 4);
+    try assert_eq_i32(elem.kind, NATIVE_MEMORY_KIND_ARRAY_ELEMENT);
+    try assert_eq_i32(elem.byte_offset, 32);
+    try assert_eq_i32(elem.byte_size, 16);
+    try assert_eq_i32(native_memory_slot_is_valid(elem), 1);
+
+    const slice_layout: NativeSliceLayout = native_memory_slice_layout(@size_of(NativeParserToken) as i32);
+    try assert_eq_i32(slice_layout.ptr_offset, 0);
+    try assert_eq_i32(slice_layout.len_offset, @size_of(&byte) as i32);
+    try assert_eq_i32(slice_layout.header_size, (@size_of(&byte) + @size_of(usize)) as i32);
+    try assert_eq_i32(slice_layout.element_size, 16);
+
+    const ptr_slot: NativeMemorySlot = native_memory_slice_ptr_slot(&slice_layout);
+    const len_slot: NativeMemorySlot = native_memory_slice_len_slot(&slice_layout);
+    try assert_eq_i32(ptr_slot.kind, NATIVE_MEMORY_KIND_SLICE_PTR);
+    try assert_eq_i32(len_slot.kind, NATIVE_MEMORY_KIND_SLICE_LEN);
+    try assert_eq_i32(len_slot.byte_offset, @size_of(&byte) as i32);
+}
+
+test "native indexed addresses cover byte i32 and pointer arrays" {
+    const byte_addr: NativeIndexedAddress = native_memory_array_indexed_address(0, 1, 200);
+    const i32_addr: NativeIndexedAddress = native_memory_array_indexed_address(12, @size_of(i32) as i32, 64);
+    const ptr_addr: NativeIndexedAddress = native_memory_array_indexed_address(24, @size_of(&byte) as i32, 80);
+    const wide_addr: NativeIndexedAddress = native_memory_array_indexed_address(0, @size_of(NativeParserToken) as i32, 4);
+
+    try assert_eq_i32(byte_addr.kind, NATIVE_MEMORY_KIND_ARRAY_ELEMENT);
+    try assert_eq_i32(byte_addr.scale, 1);
+    try assert_eq_i32(i32_addr.scale, 4);
+    try assert_eq_i32(ptr_addr.scale, 8);
+    try assert_eq_i32(wide_addr.scale, -1);
+    try assert_eq_i32(native_memory_index_scale_for_element_size(3), -1);
+}
+
+test "x86_64 indexed aggregate memory ops encode exact bytes" {
+    var buf: [byte: 64] = [];
+    var pos: usize = 0usize;
+    const ptr_addr: NativeIndexedAddress = native_memory_array_indexed_address(24, @size_of(&byte) as i32, 80);
+
+    try assert_eq_i32(x86_64_emit_load_r64_base_index_scale_disp32(&buf[0], 64usize, &pos,
+        X86_64_REG_R10, X86_64_REG_RDI, X86_64_REG_RSI, ptr_addr.scale, ptr_addr.base_offset), 0);
+    try expect(pos == 8usize);
+    try assert_eq_i32(native_agg_bval(&buf[0], 0usize), 76);
+    try assert_eq_i32(native_agg_bval(&buf[0], 1usize), 139);
+    try assert_eq_i32(native_agg_bval(&buf[0], 2usize), 148);
+    try assert_eq_i32(native_agg_bval(&buf[0], 3usize), 247);
+    try assert_eq_i32(native_agg_bval(&buf[0], 4usize), 24);
+    try assert_eq_i32(native_agg_bval(&buf[0], 5usize), 0);
+    try assert_eq_i32(native_agg_bval(&buf[0], 6usize), 0);
+    try assert_eq_i32(native_agg_bval(&buf[0], 7usize), 0);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_store_r64_base_index_scale_disp32(&buf[0], 64usize, &pos,
+        X86_64_REG_RBP, X86_64_REG_R10, 4, 12, X86_64_REG_RAX), 0);
+    try expect(pos == 8usize);
+    try assert_eq_i32(native_agg_bval(&buf[0], 0usize), 74);
+    try assert_eq_i32(native_agg_bval(&buf[0], 1usize), 137);
+    try assert_eq_i32(native_agg_bval(&buf[0], 2usize), 132);
+    try assert_eq_i32(native_agg_bval(&buf[0], 3usize), 149);
+    try assert_eq_i32(native_agg_bval(&buf[0], 4usize), 12);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_lea_r64_base_index_scale_disp32(&buf[0], 64usize, &pos,
+        X86_64_REG_R11, X86_64_REG_R12, X86_64_REG_RDX, 1, 0), 0);
+    try expect(pos == 8usize);
+    try assert_eq_i32(native_agg_bval(&buf[0], 0usize), 77);
+    try assert_eq_i32(native_agg_bval(&buf[0], 1usize), 141);
+    try assert_eq_i32(native_agg_bval(&buf[0], 2usize), 156);
+    try assert_eq_i32(native_agg_bval(&buf[0], 3usize), 20);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_load_r64_base_index_scale_disp32(&buf[0], 7usize, &pos,
+        X86_64_REG_R10, X86_64_REG_RDI, X86_64_REG_RSI, 8, 24), -1);
+    try expect(pos == 0usize);
+
+    try assert_eq_i32(x86_64_emit_load_r64_base_index_scale_disp32(&buf[0], 64usize, &pos,
+        X86_64_REG_R10, X86_64_REG_RDI, X86_64_REG_RSP, 8, 24), -1);
+    try assert_eq_i32(x86_64_emit_load_r64_base_index_scale_disp32(&buf[0], 64usize, &pos,
+        X86_64_REG_R10, X86_64_REG_RDI, X86_64_REG_RSI, 3, 24), -1);
+}

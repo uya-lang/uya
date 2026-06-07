@@ -1,0 +1,99 @@
+// test_native_global_init.uya - native backend global initializer smoke.
+
+use codegen.native.x86_64;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+var native_global_counter: i32 = 7;
+var native_global_words: [i32: 4] = [3, 5, 8, 13];
+var native_global_bytes: [byte: 4] = [1, 2, 3, 4];
+
+struct NativeGlobalImage {
+    counter: i64,
+    word0: i64,
+    bytes: i64,
+}
+
+fn native_global_bval(buf: &byte, i: usize) i32 {
+    return buf[i] as i32;
+}
+
+fn native_global_counter_offset() i32 {
+    return 0;
+}
+
+fn native_global_word0_offset() i32 {
+    return @size_of(i64) as i32;
+}
+
+fn native_global_bytes_offset() i32 {
+    return (@size_of(i64) * 2usize) as i32;
+}
+
+test "native global initializer language path keeps scalar and array values" {
+    try assert_eq_i32(native_global_counter, 7);
+    try assert_eq_i32(native_global_words[0], 3);
+    try assert_eq_i32(native_global_words[1], 5);
+    try assert_eq_i32(native_global_words[2], 8);
+    try assert_eq_i32(native_global_words[3], 13);
+    try assert_eq_i32(native_global_bytes[0] as i32, 1);
+    try assert_eq_i32(native_global_bytes[3] as i32, 4);
+
+    native_global_counter = native_global_counter + 35;
+    native_global_words[2] = native_global_words[2] + native_global_counter;
+    try assert_eq_i32(native_global_counter, 42);
+    try assert_eq_i32(native_global_words[2], 50);
+}
+
+test "native x86_64 global init memory slots encode exact bytes" {
+    const image: NativeGlobalImage = NativeGlobalImage{
+        counter: 7i64,
+        word0: 3i64,
+        bytes: 67305985i64,
+    };
+    try expect(image.counter == 7i64);
+    try expect(image.word0 == 3i64);
+    try expect(image.bytes == 67305985i64);
+    try assert_eq_i32(native_global_counter_offset(), 0);
+    try assert_eq_i32(native_global_word0_offset(), 8);
+    try assert_eq_i32(native_global_bytes_offset(), 16);
+    try assert_eq_i32(@size_of(NativeGlobalImage) as i32, 24);
+
+    var buf: [byte: 64] = [];
+    var pos: usize = 0usize;
+
+    try assert_eq_i32(x86_64_emit_load_r64_base_disp32(&buf[0], 64usize, &pos,
+        X86_64_REG_RAX, X86_64_REG_R15, native_global_counter_offset()), 0);
+    try expect(pos == 7usize);
+    try assert_eq_i32(native_global_bval(&buf[0], 0usize), 73);
+    try assert_eq_i32(native_global_bval(&buf[0], 1usize), 139);
+    try assert_eq_i32(native_global_bval(&buf[0], 2usize), 135);
+    try assert_eq_i32(native_global_bval(&buf[0], 3usize), 0);
+    try assert_eq_i32(native_global_bval(&buf[0], 4usize), 0);
+    try assert_eq_i32(native_global_bval(&buf[0], 5usize), 0);
+    try assert_eq_i32(native_global_bval(&buf[0], 6usize), 0);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_store_r64_base_disp32(&buf[0], 64usize, &pos,
+        X86_64_REG_R15, native_global_word0_offset(), X86_64_REG_R10), 0);
+    try expect(pos == 7usize);
+    try assert_eq_i32(native_global_bval(&buf[0], 0usize), 77);
+    try assert_eq_i32(native_global_bval(&buf[0], 1usize), 137);
+    try assert_eq_i32(native_global_bval(&buf[0], 2usize), 151);
+    try assert_eq_i32(native_global_bval(&buf[0], 3usize), 8);
+    try assert_eq_i32(native_global_bval(&buf[0], 4usize), 0);
+    try assert_eq_i32(native_global_bval(&buf[0], 5usize), 0);
+    try assert_eq_i32(native_global_bval(&buf[0], 6usize), 0);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_lea_r64_base_disp32(&buf[0], 64usize, &pos,
+        X86_64_REG_R11, X86_64_REG_R15, native_global_bytes_offset()), 0);
+    try expect(pos == 7usize);
+    try assert_eq_i32(native_global_bval(&buf[0], 0usize), 77);
+    try assert_eq_i32(native_global_bval(&buf[0], 1usize), 141);
+    try assert_eq_i32(native_global_bval(&buf[0], 2usize), 159);
+    try assert_eq_i32(native_global_bval(&buf[0], 3usize), 16);
+    try assert_eq_i32(native_global_bval(&buf[0], 4usize), 0);
+    try assert_eq_i32(native_global_bval(&buf[0], 5usize), 0);
+    try assert_eq_i32(native_global_bval(&buf[0], 6usize), 0);
+}

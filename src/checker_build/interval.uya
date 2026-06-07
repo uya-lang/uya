@@ -1,0 +1,1212 @@
+// checker/interval.uya - 区间算术和约束系统
+// 从 checker/main.uya 拆分
+
+// ============================================
+// 约束系统（路径敏感分析）
+// ============================================
+
+// 约束操作符常量
+const CONSTRAINT_LT: i32 = 0;   // <
+const CONSTRAINT_LE: i32 = 1;   // <=
+const CONSTRAINT_GT: i32 = 2;   // >
+const CONSTRAINT_GE: i32 = 3;   // >=
+const CONSTRAINT_EQ: i32 = 4;   // ==
+const CONSTRAINT_NE: i32 = 5;   // !=
+
+// 指针非空状态管理
+
+const CONSTRAINT_EXPR_NAME_MAX: i32 = 256;
+
+// 添加指针非空状态
+// 参数：ptr_name - 指针变量名
+fn pointer_nonnull_add(checker: &TypeChecker, ptr_name: &byte) void {
+    if checker == null || ptr_name == null {
+        return;
+    }
+    const nonnull_limit: i32 = MAX_POINTER_NAMES;
+    if checker.pointer_nonnull_count >= nonnull_limit {
+        checker_report_capacity_warning(checker, "checker pointer nonnull table 容量已满" as *byte);
+        return;
+    }
+    // 检查是否已存在
+    var i: i32 = 0;
+    const count: i32 = checker.pointer_nonnull_count;
+    while i < count {
+        if i < MAX_POINTER_NAMES {
+            const name: &byte = checker.pointer_nonnull_names[i];
+            if name != null && strcmp(name as *byte, ptr_name as *byte) == 0 {
+                return;  // 已存在
+            }
+        }
+        i = i + 1;
+    }
+    const idx: i32 = checker.pointer_nonnull_count;
+    if idx >= 0 && idx < MAX_POINTER_NAMES {
+        checker.pointer_nonnull_names[idx] = ptr_name;
+        checker.pointer_nonnull_count = idx + 1;
+    }
+}
+
+// 移除指针非空状态
+// 参数：ptr_name - 指针变量名
+fn pointer_nonnull_remove(checker: &TypeChecker, ptr_name: &byte) void {
+    if checker == null || ptr_name == null {
+        return;
+    }
+    var write_idx: i32 = 0;
+    var i: i32 = 0;
+    const count: i32 = checker.pointer_nonnull_count;
+    while i < count {
+        if i < MAX_POINTER_NAMES {
+            const name: &byte = checker.pointer_nonnull_names[i];
+            if name != null && strcmp(name as *byte, ptr_name as *byte) != 0 {
+                if write_idx < MAX_POINTER_NAMES {
+                    checker.pointer_nonnull_names[write_idx] = name;
+                }
+                write_idx = write_idx + 1;
+            }
+        }
+        i = i + 1;
+    }
+    checker.pointer_nonnull_count = write_idx;
+}
+
+// 检查指针是否已知非空
+// 参数：ptr_name - 指针变量名
+// 返回：1 表示已知非空，0 表示未知
+fn pointer_is_known_nonnull(checker: &TypeChecker, ptr_name: &byte) i32 {
+    if checker == null || ptr_name == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    const count: i32 = checker.pointer_nonnull_count;
+    while i < count {
+        if i < MAX_POINTER_NAMES {
+            const name: &byte = checker.pointer_nonnull_names[i];
+            if name != null && strcmp(name as *byte, ptr_name as *byte) == 0 {
+                return 1;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 清除所有指针非空状态
+fn pointer_nonnull_clear(checker: &TypeChecker) void {
+    if checker == null {
+        return;
+    }
+    var i: i32 = 0;
+    while i < MAX_POINTER_NAMES {
+        checker.pointer_nonnull_names[i] = null;
+        i = i + 1;
+    }
+    checker.pointer_nonnull_count = 0;
+}
+
+// 可能为空的指针管理
+
+// 添加可能为空的指针
+// 参数：ptr_name - 指针变量名
+fn pointer_nullable_add(checker: &TypeChecker, ptr_name: &byte) void {
+    if checker == null || ptr_name == null {
+        return;
+    }
+    const nullable_limit: i32 = MAX_POINTER_NAMES;
+    if checker.pointer_nullable_count >= nullable_limit {
+        checker_report_capacity_warning(checker, "checker pointer nullable table 容量已满" as *byte);
+        return;
+    }
+    // 检查是否已存在
+    var i: i32 = 0;
+    const count: i32 = checker.pointer_nullable_count;
+    while i < count {
+        if i < MAX_POINTER_NAMES {
+            const name: &byte = checker.pointer_nullable_names[i];
+            if name != null && strcmp(name as *byte, ptr_name as *byte) == 0 {
+                return;  // 已存在
+            }
+        }
+        i = i + 1;
+    }
+    const idx: i32 = checker.pointer_nullable_count;
+    if idx >= 0 && idx < MAX_POINTER_NAMES {
+        checker.pointer_nullable_names[idx] = ptr_name;
+        checker.pointer_nullable_count = idx + 1;
+    }
+}
+
+// 检查指针是否可能为空（被初始化为 null）
+// 参数：ptr_name - 指针变量名
+// 返回：1 表示可能为空，0 表示不可能为空
+fn pointer_is_nullable(checker: &TypeChecker, ptr_name: &byte) i32 {
+    if checker == null || ptr_name == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    const count: i32 = checker.pointer_nullable_count;
+    while i < count {
+        if i < MAX_POINTER_NAMES {
+            const name: &byte = checker.pointer_nullable_names[i];
+            if name != null && strcmp(name as *byte, ptr_name as *byte) == 0 {
+                return 1;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 清除所有约束
+fn constraint_clear(checker: &TypeChecker) void {
+    if checker == null {
+        return;
+    }
+    var i: i32 = 0;
+    const count: i32 = checker.constraint_count;
+    while i < count && i < MAX_CONSTRAINTS {
+        checker.constraint_var_names[i] = null;
+        checker.constraint_ops[i] = 0;
+        checker.constraint_values[i] = 0;
+        i = i + 1;
+    }
+    checker.constraint_count = 0;
+}
+
+// 添加约束
+// 参数：var_name - 变量名，op - 操作符，value - 常量值
+fn constraint_add(checker: &TypeChecker, var_name: &byte, op: i32, value: i32) void {
+    if checker == null || var_name == null {
+        return;
+    }
+    const constraint_limit: i32 = MAX_CONSTRAINTS;
+    if checker.constraint_count >= constraint_limit {
+        checker_report_capacity_warning(checker, "checker constraint table 容量已满" as *byte);
+        return;
+    }
+    const idx: i32 = checker.constraint_count;
+    if idx >= 0 && idx < MAX_CONSTRAINTS {
+        checker.constraint_var_names[idx] = var_name;
+        checker.constraint_ops[idx] = op;
+        checker.constraint_values[idx] = value;
+        checker.constraint_count = idx + 1;
+    }
+}
+
+// 移除指定变量的所有约束
+// 参数：var_name - 变量名
+fn constraint_remove_var(checker: &TypeChecker, var_name: &byte) void {
+    if checker == null || var_name == null {
+        return;
+    }
+    var write_idx: i32 = 0;
+    var i: i32 = 0;
+    const count: i32 = checker.constraint_count;
+    while i < count {
+        if i < MAX_CONSTRAINTS {
+            const name: &byte = checker.constraint_var_names[i];
+            if name != null && strcmp(name as *byte, var_name as *byte) != 0 {
+                // 保留不是该变量的约束
+                if write_idx < MAX_CONSTRAINTS {
+                    checker.constraint_var_names[write_idx] = name;
+                    checker.constraint_ops[write_idx] = checker.constraint_ops[i];
+                    checker.constraint_values[write_idx] = checker.constraint_values[i];
+                }
+                write_idx = write_idx + 1;
+            }
+        }
+        i = i + 1;
+    }
+    checker.constraint_count = write_idx;
+}
+
+// 更新递增赋值后的约束
+// 参数：var_name - 变量名，increment - 递增值
+// 例如：i = i + 1 后，如果原来 i >= 0，新值也 >= 0
+fn constraint_update_for_increment(checker: &TypeChecker, var_name: &byte, increment: i32) void {
+    if checker == null || var_name == null {
+        return;
+    }
+    // 对于 i = i + n（n > 0）：
+    // 如果原来 i >= k，新值 i >= k + n
+    // 如果原来 i >= 0 且 n >= 0，新值也 >= 0
+    var i: i32 = 0;
+    const count: i32 = checker.constraint_count;
+    while i < count {
+        if i < MAX_CONSTRAINTS {
+            const name: &byte = checker.constraint_var_names[i];
+            if name != null && strcmp(name as *byte, var_name as *byte) == 0 {
+                const op: i32 = checker.constraint_ops[i];
+                const val: i32 = checker.constraint_values[i];
+                // 更新精确值/上下界约束
+                if op == CONSTRAINT_EQ {
+                    checker.constraint_values[i] = val + increment;
+                } else if op == CONSTRAINT_GE {
+                    checker.constraint_values[i] = val + increment;
+                } else if op == CONSTRAINT_GT {
+                    checker.constraint_values[i] = val + increment;
+                } else if op == CONSTRAINT_LE {
+                    checker.constraint_values[i] = val + increment;
+                } else if op == CONSTRAINT_LT {
+                    checker.constraint_ops[i] = CONSTRAINT_LE;
+                    checker.constraint_values[i] = val + increment - 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+}
+
+fn constraint_expr_name(checker: &TypeChecker, expr: &ASTNode) &byte {
+    if checker == null || expr == null {
+        return null;
+    }
+    if expr.type == ASTNodeType.AST_IDENTIFIER {
+        return expr.identifier_name;
+    }
+    if expr.type == ASTNodeType.AST_CAST_EXPR && expr.cast_expr_expr != null {
+        return constraint_expr_name(checker, expr.cast_expr_expr);
+    }
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        if expr.member_access_is_module_access != 0 || expr.member_access_field_name == null {
+            return null;
+        }
+        const object_name: &byte = constraint_expr_name(checker, expr.member_access_object);
+        if object_name == null {
+            return null;
+        }
+        const object_len: i32 = strlen(object_name as *byte) as i32;
+        const field_len: i32 = strlen(expr.member_access_field_name as *byte) as i32;
+        if object_len <= 0 || field_len <= 0 || object_len + field_len + 2 > CONSTRAINT_EXPR_NAME_MAX {
+            return null;
+        }
+        var buf: [byte: CONSTRAINT_EXPR_NAME_MAX] = [];
+        const name_len: i32 = snprintf(&buf[0], CONSTRAINT_EXPR_NAME_MAX, "%s.%s" as *byte,
+            object_name as *byte, expr.member_access_field_name as *byte);
+        if name_len <= 0 || name_len >= CONSTRAINT_EXPR_NAME_MAX {
+            return null;
+        }
+        return checker_intern_strdup(checker, &buf[0] as &byte);
+    }
+    return null;
+}
+
+// 从二元比较表达式提取约束
+// 参数：expr - 二元表达式，is_positive - 是否取正条件
+// 例如：i < 10 提取为 (i, LT, 10)
+//       is_positive = false 时，i < 10 提取为 (i, GE, 10)
+// 特殊处理：ptr == null / ptr != null 用于空指针检测
+fn constraint_extract_from_binary(checker: &TypeChecker, expr: &ASTNode, is_positive: i32) void {
+    if checker == null || expr == null {
+        return;
+    }
+    if expr.type != ASTNodeType.AST_BINARY_EXPR {
+        return;
+    }
+    
+    const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+    const op: TokenType = op_tmp.value;
+    
+    // 处理逻辑与（&&）：递归提取左右子表达式的约束
+    if op == TokenType.TOKEN_LOGICAL_AND {
+        const left_expr: &ASTNode = expr.binary_expr_left;
+        const right_expr: &ASTNode = expr.binary_expr_right;
+        if left_expr != null {
+            constraint_extract_from_binary(checker, left_expr, is_positive);
+        }
+        if right_expr != null {
+            constraint_extract_from_binary(checker, right_expr, is_positive);
+        }
+        return;
+    }
+    
+    // 处理逻辑或（||）：暂不支持（需要更复杂的约束合并）
+    if op == TokenType.TOKEN_LOGICAL_OR {
+        return;  // 逻辑或的约束提取较复杂，暂不支持
+    }
+    
+    // 只处理比较运算符
+    if op != TokenType.TOKEN_EQUAL && op != TokenType.TOKEN_NOT_EQUAL &&
+       op != TokenType.TOKEN_LESS && op != TokenType.TOKEN_GREATER &&
+       op != TokenType.TOKEN_LESS_EQUAL && op != TokenType.TOKEN_GREATER_EQUAL {
+        return;
+    }
+    
+    // 获取左右操作数
+    var left: &ASTNode = expr.binary_expr_left;
+    var right: &ASTNode = expr.binary_expr_right;
+    var effective_op: TokenType = op;  // 有效操作符（可能因交换律而改变）
+
+    if left == null || right == null {
+        return;
+    }
+
+    // 尝试标准化：将 "常量 op 变量" 转换为 "变量 op' 常量"
+    // 例如：10 > i => i < 10
+    const left_hint: LinearExpr = extract_linear_expr(checker, left);
+    const right_hint: LinearExpr = extract_linear_expr(checker, right);
+    if left_hint.is_valid != 0 && left_hint.var_name == null &&
+        right_hint.is_valid != 0 && right_hint.var_name != null {
+        // 左边不是标识符，右边是标识符：交换并翻转操作符
+        const tmp: &ASTNode = left;
+        left = right;
+        right = tmp;
+        // 翻转比较操作符
+        if op == TokenType.TOKEN_LESS {             // < -> >
+            effective_op = TokenType.TOKEN_GREATER;
+        } else if op == TokenType.TOKEN_GREATER {   // > -> <
+            effective_op = TokenType.TOKEN_LESS;
+        } else if op == TokenType.TOKEN_LESS_EQUAL {    // <= -> >=
+            effective_op = TokenType.TOKEN_GREATER_EQUAL;
+        } else if op == TokenType.TOKEN_GREATER_EQUAL { // >= -> <=
+            effective_op = TokenType.TOKEN_LESS_EQUAL;
+        }
+        // == 和 != 不需要翻转
+    }
+
+    // 左操作数必须是标识符或线性表达式（var + const 或 var - const）
+    // 使用 extract_linear_expr 提取线性表达式
+    const left_linear: LinearExpr = extract_linear_expr(checker, left);
+    if left_linear.is_valid == 0 {
+        return;
+    }
+    
+    // 必须有变量名（纯常量不需要约束）
+    if left_linear.var_name == null {
+        return;
+    }
+    
+    const var_name: &byte = left_linear.var_name;
+    const var_offset: i32 = left_linear.offset;  // 变量的偏移量
+    
+    // 检查是否是指针与 null 的比较（用于空指针检测）
+    // 注意：指针比较不支持偏移量
+    if (op == TokenType.TOKEN_EQUAL || op == TokenType.TOKEN_NOT_EQUAL) && var_offset == 0 {
+        var is_null_compare: i32 = 0;
+        var ptr_name: &byte = null;
+        
+        // 检查 ptr == null 或 ptr != null
+        if right.type == ASTNodeType.AST_IDENTIFIER && right.identifier_name != null {
+            if str_equals(right.identifier_name, "null" as &byte) != 0 {
+                is_null_compare = 1;
+                ptr_name = var_name;
+            }
+        }
+        // 检查 null == ptr 或 null != ptr
+        if left.type == ASTNodeType.AST_IDENTIFIER && left.identifier_name != null && str_equals(left.identifier_name, "null" as &byte) != 0 {
+            if right.type == ASTNodeType.AST_IDENTIFIER && right.identifier_name != null {
+                is_null_compare = 1;
+                ptr_name = right.identifier_name;
+            }
+        }
+        
+        if is_null_compare != 0 && ptr_name != null {
+            // 指针与 null 的比较
+            if op == TokenType.TOKEN_NOT_EQUAL {
+                // ptr != null
+                if is_positive != 0 {
+                    // then 分支：ptr 非空
+                    pointer_nonnull_add(checker, ptr_name);
+                } else {
+                    // else 分支：ptr 为空（移除非空状态）
+                    pointer_nonnull_remove(checker, ptr_name);
+                }
+            } else {
+                // ptr == null
+                if is_positive != 0 {
+                    // then 分支：ptr 为空（移除非空状态）
+                    pointer_nonnull_remove(checker, ptr_name);
+                } else {
+                    // else 分支：ptr 非空
+                    pointer_nonnull_add(checker, ptr_name);
+                }
+            }
+            return;
+        }
+    }
+    
+    // 右操作数可以是常量，也可以是具有有限区间的表达式
+    const right_interval: Interval = eval_expr_interval(checker, right);
+    if right_interval.is_valid == 0 {
+        return;
+    }
+    
+    // 映射操作符
+    // 正条件：直接映射
+    // 负条件：取反（LT <-> GE, GT <-> LE, EQ <-> NE）
+    var constraint_op: i32 = 0;
+
+    if is_positive != 0 {
+        // 正条件
+        if effective_op == TokenType.TOKEN_LESS {
+            constraint_op = CONSTRAINT_LT;
+        } else if effective_op == TokenType.TOKEN_GREATER {
+            constraint_op = CONSTRAINT_GT;
+        } else if effective_op == TokenType.TOKEN_LESS_EQUAL {
+            constraint_op = CONSTRAINT_LE;
+        } else if effective_op == TokenType.TOKEN_GREATER_EQUAL {
+            constraint_op = CONSTRAINT_GE;
+        } else if effective_op == TokenType.TOKEN_EQUAL {
+            constraint_op = CONSTRAINT_EQ;
+        } else if effective_op == TokenType.TOKEN_NOT_EQUAL {
+            constraint_op = CONSTRAINT_NE;
+        }
+    } else {
+        // 负条件（取反）
+        if effective_op == TokenType.TOKEN_LESS {           // !(a < b) -> a >= b
+            constraint_op = CONSTRAINT_GE;
+        } else if effective_op == TokenType.TOKEN_GREATER { // !(a > b) -> a <= b
+            constraint_op = CONSTRAINT_LE;
+        } else if effective_op == TokenType.TOKEN_LESS_EQUAL {    // !(a <= b) -> a > b
+            constraint_op = CONSTRAINT_GT;
+        } else if effective_op == TokenType.TOKEN_GREATER_EQUAL { // !(a >= b) -> a < b
+            constraint_op = CONSTRAINT_LT;
+        } else if effective_op == TokenType.TOKEN_EQUAL {    // !(a == b) -> a != b
+            constraint_op = CONSTRAINT_NE;
+        } else if effective_op == TokenType.TOKEN_NOT_EQUAL { // !(a != b) -> a == b
+            constraint_op = CONSTRAINT_EQ;
+        }
+    }
+    
+    // 计算调整后的约束值
+    // 例如：i + 1 < 10 应该转换为 i < 9
+    // 若右侧是区间，则选取对当前约束最保守但仍有效的常量边界。
+    var bound_val: i32 = 0;
+    if constraint_op == CONSTRAINT_LT || constraint_op == CONSTRAINT_LE {
+        bound_val = right_interval.max;
+    } else if constraint_op == CONSTRAINT_GT || constraint_op == CONSTRAINT_GE {
+        bound_val = right_interval.min;
+    } else {
+        if right_interval.min != right_interval.max {
+            return;
+        }
+        bound_val = right_interval.min;
+    }
+    var adjusted_val: i32 = bound_val - var_offset;
+    
+    constraint_add(checker, var_name, constraint_op, adjusted_val);
+}
+
+// 验证数组访问边界
+// 参数：var_name - 索引变量名，array_size - 数组大小
+// 返回：1 表示证明安全，0 表示无法证明
+fn constraint_verify_bounds(checker: &TypeChecker, var_name: &byte, array_size: i32) i32 {
+    if checker == null || var_name == null {
+        return 0;
+    }
+    
+    var has_lower_bound: i32 = 0;  // var >= 0
+    var has_upper_bound: i32 = 0;  // var < size
+    
+    var i: i32 = 0;
+    const count: i32 = checker.constraint_count;
+    while i < count {
+        if i < MAX_CONSTRAINTS {
+            const name: &byte = checker.constraint_var_names[i];
+            if name != null && strcmp(name as *byte, var_name as *byte) == 0 {
+                const op: i32 = checker.constraint_ops[i];
+                const val: i32 = checker.constraint_values[i];
+                
+                // 检查下界：var >= 0 或 var > -1
+                if op == CONSTRAINT_GE && val == 0 {
+                    has_lower_bound = 1;
+                } else if op == CONSTRAINT_GT && val == -1 {
+                    has_lower_bound = 1;
+                }
+                
+                // 检查上界：var < size 或 var <= size-1
+                if op == CONSTRAINT_LT && val == array_size {
+                    has_upper_bound = 1;
+                } else if op == CONSTRAINT_LE && val == array_size - 1 {
+                    has_upper_bound = 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    
+    if has_lower_bound != 0 && has_upper_bound != 0 {
+        return 1;  // 证明安全
+    }
+    return 0;  // 无法证明
+}
+
+// 线性表达式结构（用于符号执行）
+// 表示 var + offset 或 var - offset 的形式
+struct LinearExpr {
+    var_name: &byte,      // 基础变量名（null 表示纯常量）
+    offset: i32,          // 偏移量（正数表示加，负数表示减）
+    is_valid: i32,        // 是否是有效的线性表达式
+}
+
+// 区间结构（用于非线性表达式边界分析）
+// 表示变量可能值的范围 [min, max]
+struct Interval {
+    min: i32,             // 最小值
+    max: i32,             // 最大值
+    is_valid: i32,        // 是否是有效区间
+}
+
+// 创建常量区间（单点区间）
+fn interval_const(val: i32) Interval {
+    return Interval {
+        min: val,
+        max: val,
+        is_valid: 1,
+    };
+}
+
+// 创建范围区间
+fn interval_range(min_val: i32, max_val: i32) Interval {
+    return Interval {
+        min: min_val,
+        max: max_val,
+        is_valid: 1,
+    };
+}
+
+// 创建无效区间
+fn interval_invalid() Interval {
+    return Interval {
+        min: 0,
+        max: 0,
+        is_valid: 0,
+    };
+}
+
+// 区间加法
+fn interval_add(a: Interval, b: Interval) Interval {
+    if a.is_valid == 0 || b.is_valid == 0 {
+        return interval_invalid();
+    }
+    // [a.min, a.max] + [b.min, b.max] = [a.min + b.min, a.max + b.max]
+    return interval_range(a.min + b.min, a.max + b.max);
+}
+
+// 区间减法
+fn interval_sub(a: Interval, b: Interval) Interval {
+    if a.is_valid == 0 || b.is_valid == 0 {
+        return interval_invalid();
+    }
+    // [a.min, a.max] - [b.min, b.max] = [a.min - b.max, a.max - b.min]
+    return interval_range(a.min - b.max, a.max - b.min);
+}
+
+// 区间乘法
+fn interval_mul(a: Interval, b: Interval) Interval {
+    if a.is_valid == 0 || b.is_valid == 0 {
+        return interval_invalid();
+    }
+    // 乘法需要考虑所有组合，找出最小和最大值
+    const p1: i32 = a.min * b.min;
+    const p2: i32 = a.min * b.max;
+    const p3: i32 = a.max * b.min;
+    const p4: i32 = a.max * b.max;
+    
+    var min_val: i32 = p1;
+    var max_val: i32 = p1;
+    
+    if p2 < min_val { min_val = p2; }
+    if p3 < min_val { min_val = p3; }
+    if p4 < min_val { min_val = p4; }
+    if p2 > max_val { max_val = p2; }
+    if p3 > max_val { max_val = p3; }
+    if p4 > max_val { max_val = p4; }
+    
+    return interval_range(min_val, max_val);
+}
+
+// 区间整数除法（保守估计）
+fn interval_div(a: Interval, b: Interval) Interval {
+    if a.is_valid == 0 || b.is_valid == 0 {
+        return interval_invalid();
+    }
+    // 除以零检查：如果 b 区间包含 0，结果不确定
+    if b.min <= 0 && b.max >= 0 {
+        // 包含 0，保守估计为全范围
+        return interval_range(-2147483647, 2147483647);
+    }
+    
+    // 整数除法：需要考虑所有组合
+    // 注意：整数除法向零取整
+    const q1: i32 = a.min / b.min;
+    const q2: i32 = a.min / b.max;
+    const q3: i32 = a.max / b.min;
+    const q4: i32 = a.max / b.max;
+    
+    var min_val: i32 = q1;
+    var max_val: i32 = q1;
+    
+    if q2 < min_val { min_val = q2; }
+    if q3 < min_val { min_val = q3; }
+    if q4 < min_val { min_val = q4; }
+    if q2 > max_val { max_val = q2; }
+    if q3 > max_val { max_val = q3; }
+    if q4 > max_val { max_val = q4; }
+    
+    return interval_range(min_val, max_val);
+}
+
+// 区间左移（等价于乘以 2^n，但只支持常量移位）
+fn interval_shl(a: Interval, b: Interval) Interval {
+    if a.is_valid == 0 || b.is_valid == 0 {
+        return interval_invalid();
+    }
+    // 如果 b 是常量，转换为乘法
+    if b.min == b.max && b.min >= 0 && b.min < 31 {
+        const factor: i32 = 1 << b.min;  // 2^n
+        return interval_mul(a, interval_const(factor));
+    }
+    // 保守估计：左移 n 位 = 乘以 [2^0, 2^30]
+    return interval_mul(a, interval_range(1, 1073741824));
+}
+
+// 区间右移
+fn interval_shr(a: Interval, b: Interval) Interval {
+    if a.is_valid == 0 || b.is_valid == 0 {
+        return interval_invalid();
+    }
+    // 如果 b 是常量
+    if b.min == b.max && b.min >= 0 && b.min < 31 {
+        // 右移 n 位 = 除以 2^n（向下取整）
+        const factor: i32 = 1 << b.min;
+        return interval_div(a, interval_const(factor));
+    }
+    // 保守估计
+    return interval_div(a, interval_range(1, 1073741824));
+}
+
+// 区间按位与
+// 对常见的 mask 场景（x & (2^n-1)）收敛到 [0, mask]
+fn interval_bitand(a: Interval, b: Interval) Interval {
+    if a.is_valid == 0 || b.is_valid == 0 {
+        return interval_invalid();
+    }
+    if b.min == b.max && b.min >= 0 {
+        var upper: i32 = b.min;
+        if a.min >= 0 && a.max < upper {
+            upper = a.max;
+        }
+        return interval_range(0, upper);
+    }
+    if a.min == a.max && a.min >= 0 {
+        var upper2: i32 = a.min;
+        if b.min >= 0 && b.max < upper2 {
+            upper2 = b.max;
+        }
+        return interval_range(0, upper2);
+    }
+    return interval_invalid();
+}
+
+// 检查区间是否完全在 [lower, upper) 范围内
+fn interval_within_bounds(interval: Interval, lower: i32, upper: i32) i32 {
+    if interval.is_valid == 0 {
+        return 0;
+    }
+    if interval.min >= lower && interval.max < upper {
+        return 1;
+    }
+    return 0;
+}
+
+// 从表达式中提取线性表达式
+// 支持：标识符、常量、标识符+常量、标识符-常量、类型转换表达式
+// 返回 LinearExpr 结构
+fn extract_linear_expr(checker: &TypeChecker, expr: &ASTNode) LinearExpr {
+    var result: LinearExpr = LinearExpr {
+        var_name: null,
+        offset: 0,
+        is_valid: 0,
+    };
+    
+    if checker == null || expr == null {
+        return result;
+    }
+    
+    if expr.type == ASTNodeType.AST_NUMBER {
+        // 纯常量
+        result.offset = expr.number_value;
+        result.is_valid = 1;
+        return result;
+    }
+    
+    if expr.type == ASTNodeType.AST_IDENTIFIER {
+        // 检查是否是 const 变量，如果是则尝试获取其常量值
+        const symbol: &Symbol = symbol_table_lookup(checker, expr.identifier_name);
+        if symbol != null && symbol.is_const != 0 {
+            // const 变量：尝试获取其常量值
+            const const_val: i32 = checker_eval_const_expr(checker, expr);
+            if const_val != -1 {
+                // 成功获取常量值，作为纯常量处理
+                result.var_name = null;
+                result.offset = const_val;
+                result.is_valid = 1;
+                return result;
+            }
+        }
+        // 非 const 变量或无法求值：作为纯变量处理
+        result.var_name = expr.identifier_name;
+        result.offset = 0;
+        result.is_valid = 1;
+        return result;
+    }
+
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        const member_name: &byte = constraint_expr_name(checker, expr);
+        if member_name != null {
+            result.var_name = member_name;
+            result.offset = 0;
+            result.is_valid = 1;
+        }
+        return result;
+    }
+    
+    // 类型转换表达式：递归提取内部表达式
+    // 例如：base + 3 as usize -> base + 3
+    if expr.type == ASTNodeType.AST_CAST_EXPR {
+        const inner_expr: &ASTNode = expr.cast_expr_expr;
+        if inner_expr != null {
+            return extract_linear_expr(checker, inner_expr);
+        }
+        return result;
+    }
+    
+    if expr.type == ASTNodeType.AST_BINARY_EXPR {
+        const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+        const op: TokenType = op_tmp.value;
+        const left: &ASTNode = expr.binary_expr_left;
+        const right: &ASTNode = expr.binary_expr_right;
+        
+        // 只支持 + 和 - 运算
+        if op != TokenType.TOKEN_PLUS && op != TokenType.TOKEN_MINUS {
+            return result;
+        }
+        
+        // 提取左边和右边
+        const left_expr: LinearExpr = extract_linear_expr(checker, left);
+        const right_expr: LinearExpr = extract_linear_expr(checker, right);
+        
+        // 检查是否可以组合
+        // 情况1: var + const 或 var - const
+        // 情况2: const + var 或 const - var
+        if left_expr.is_valid != 0 && right_expr.is_valid != 0 {
+            if left_expr.var_name != null && right_expr.var_name == null {
+                // var + const 或 var - const
+                result.var_name = left_expr.var_name;
+                if op == TokenType.TOKEN_PLUS {
+                    result.offset = left_expr.offset + right_expr.offset;
+                } else {
+                    result.offset = left_expr.offset - right_expr.offset;
+                }
+                result.is_valid = 1;
+                return result;
+            } else if left_expr.var_name == null && right_expr.var_name != null && op == TokenType.TOKEN_PLUS {
+                // const + var（只有加法支持交换律）
+                result.var_name = right_expr.var_name;
+                result.offset = left_expr.offset + right_expr.offset;
+                result.is_valid = 1;
+                return result;
+            }
+        }
+    }
+    
+    return result;  // 无法识别的线性表达式
+}
+
+// 从约束系统获取变量的区间
+// 参数：var_name - 变量名
+// 返回：变量的区间估计（基于已收集的约束）
+fn get_var_interval(checker: &TypeChecker, var_name: &byte) Interval {
+    if checker == null || var_name == null {
+        return interval_invalid();
+    }
+    
+    // 初始区间：无界
+    var min_val: i32 = -2147483647;
+    var max_val: i32 = 2147483647;
+    
+    var i: i32 = 0;
+    const count: i32 = checker.constraint_count;
+    while i < count {
+        if i < MAX_CONSTRAINTS {
+            const name: &byte = checker.constraint_var_names[i];
+            if name != null && strcmp(name as *byte, var_name as *byte) == 0 {
+                const op: i32 = checker.constraint_ops[i];
+                const val: i32 = checker.constraint_values[i];
+                
+                // 根据约束类型更新区间
+                if op == CONSTRAINT_EQ {
+                    // 精确值约束：区间收缩为单点
+                    min_val = val;
+                    max_val = val;
+                } else if op == CONSTRAINT_GE {
+                    // >= val：更新下界
+                    if val > min_val {
+                        min_val = val;
+                    }
+                } else if op == CONSTRAINT_GT {
+                    // > val：更新下界（至少 val + 1）
+                    if val + 1 > min_val {
+                        min_val = val + 1;
+                    }
+                } else if op == CONSTRAINT_LE {
+                    // <= val：更新上界
+                    if val < max_val {
+                        max_val = val;
+                    }
+                } else if op == CONSTRAINT_LT {
+                    // < val：更新上界（最多 val - 1）
+                    if val - 1 < max_val {
+                        max_val = val - 1;
+                    }
+                }
+            }
+        }
+        i = i + 1;
+    }
+
+    if min_val == -2147483647 {
+        const sym: &Symbol = symbol_table_lookup(checker, var_name);
+        if sym != null {
+            const kind: TypeKind = sym.type.kind;
+            if kind == TypeKind.TYPE_U8 || kind == TypeKind.TYPE_U16 ||
+                kind == TypeKind.TYPE_U32 || kind == TypeKind.TYPE_U64 ||
+                kind == TypeKind.TYPE_USIZE || kind == TypeKind.TYPE_BYTE {
+                min_val = 0;
+            }
+        }
+    }
+
+    // 检查区间有效性
+    if min_val > max_val {
+        return interval_invalid();  // 矛盾的约束
+    }
+    
+    return interval_range(min_val, max_val);
+}
+
+fn constraint_replace_with_interval(checker: &TypeChecker, var_name: &byte, interval: &Interval) void {
+    if checker == null || var_name == null || interval == null || interval.is_valid == 0 {
+        return;
+    }
+    constraint_remove_var(checker, var_name);
+    if interval.min == interval.max {
+        constraint_add(checker, var_name, CONSTRAINT_EQ, interval.min);
+    } else {
+        if interval.min > -2147483647 {
+            constraint_add(checker, var_name, CONSTRAINT_GE, interval.min);
+        }
+        if interval.max < 2147483647 {
+            constraint_add(checker, var_name, CONSTRAINT_LE, interval.max);
+        }
+    }
+    if interval.min >= 0 {
+        constraint_add(checker, var_name, CONSTRAINT_GE, 0);
+    }
+}
+
+// 对表达式进行区间求值
+// 支持：常量、变量、加法、减法、乘法、除法、移位运算
+// 参数：expr - AST 表达式节点
+// 返回：表达式的区间估计
+fn eval_expr_interval(checker: &TypeChecker, expr: &ASTNode) Interval {
+    if checker == null || expr == null {
+        return interval_invalid();
+    }
+    
+    // 常量
+    if expr.type == ASTNodeType.AST_NUMBER {
+        return interval_const(expr.number_value);
+    }
+    
+    // 变量
+    if expr.type == ASTNodeType.AST_IDENTIFIER {
+        const var_name: &byte = expr.identifier_name;
+        if var_name != null {
+            const const_val: i32 = checker_eval_const_expr(checker, expr);
+            if const_val != -1 {
+                return interval_const(const_val);
+            }
+            return get_var_interval(checker, var_name);
+        }
+        return interval_invalid();
+    }
+
+    if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        const member_name: &byte = constraint_expr_name(checker, expr);
+        if member_name != null {
+            return get_var_interval(checker, member_name);
+        }
+        return interval_invalid();
+    }
+    
+    // 类型转换
+    if expr.type == ASTNodeType.AST_CAST_EXPR {
+        const inner_expr: &ASTNode = expr.cast_expr_expr;
+        if inner_expr != null {
+            return eval_expr_interval(checker, inner_expr);
+        }
+        return interval_invalid();
+    }
+
+    if expr.type == ASTNodeType.AST_LEN {
+        const len_val: i32 = checker_eval_const_expr(checker, expr);
+        if len_val >= 0 {
+            return interval_const(len_val);
+        }
+        return interval_invalid();
+    }
+    
+    // 二元运算
+    if expr.type == ASTNodeType.AST_BINARY_EXPR {
+        const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+        const op: TokenType = op_tmp.value;
+        const left: &ASTNode = expr.binary_expr_left;
+        const right: &ASTNode = expr.binary_expr_right;
+        if op == TokenType.TOKEN_AMPERSAND {
+            const right_const: i32 = checker_eval_const_expr(checker, right);
+            if right_const >= 0 {
+                return interval_range(0, right_const);
+            }
+            const left_const: i32 = checker_eval_const_expr(checker, left);
+            if left_const >= 0 {
+                return interval_range(0, left_const);
+            }
+        } else if op == TokenType.TOKEN_PERCENT {
+            const mod_const: i32 = checker_eval_const_expr(checker, right);
+            if mod_const > 0 {
+                const left_mod_interval: Interval = eval_expr_interval(checker, left);
+                if left_mod_interval.is_valid != 0 && left_mod_interval.min >= 0 {
+                    if left_mod_interval.max < mod_const {
+                        return interval_range(left_mod_interval.min, left_mod_interval.max);
+                    }
+                    return interval_range(0, mod_const - 1);
+                }
+            }
+        }
+        
+        const left_interval: Interval = eval_expr_interval(checker, left);
+        const right_interval: Interval = eval_expr_interval(checker, right);
+        
+        if left_interval.is_valid == 0 || right_interval.is_valid == 0 {
+            return interval_invalid();
+        }
+        
+        if op == TokenType.TOKEN_PLUS {
+            return interval_add(left_interval, right_interval);
+        } else if op == TokenType.TOKEN_MINUS {
+            return interval_sub(left_interval, right_interval);
+        } else if op == TokenType.TOKEN_ASTERISK {
+            return interval_mul(left_interval, right_interval);
+        } else if op == TokenType.TOKEN_SLASH {
+            return interval_div(left_interval, right_interval);
+        } else if op == TokenType.TOKEN_PERCENT {
+            if right_interval.min == right_interval.max && right_interval.min > 0 && left_interval.min >= 0 {
+                if left_interval.max < right_interval.min {
+                    return interval_range(left_interval.min, left_interval.max);
+                }
+                return interval_range(0, right_interval.min - 1);
+            }
+            return interval_invalid();
+        } else if op == TokenType.TOKEN_AMPERSAND {
+            return interval_bitand(left_interval, right_interval);
+        } else if op == TokenType.TOKEN_LSHIFT {
+            return interval_shl(left_interval, right_interval);
+        } else if op == TokenType.TOKEN_RSHIFT {
+            return interval_shr(left_interval, right_interval);
+        }
+        
+        // 其他运算暂不支持
+        return interval_invalid();
+    }
+    
+    return interval_invalid();
+}
+
+// 验证表达式的数组访问边界（使用区间分析）
+// 支持：非线性表达式（乘法、除法、移位等）
+// 参数：expr - 索引表达式，array_size - 数组大小
+// 返回：1 表示证明安全，0 表示无法证明
+fn verify_expr_bounds_interval(checker: &TypeChecker, expr: &ASTNode, array_size: i32) i32 {
+    if checker == null || expr == null {
+        return 0;
+    }
+    
+    // 对索引表达式进行区间求值
+    const index_interval: Interval = eval_expr_interval(checker, expr);
+    
+    if index_interval.is_valid == 0 {
+        return 0;
+    }
+    
+    // 检查区间是否完全在有效范围内 [0, array_size)
+    return interval_within_bounds(index_interval, 0, array_size);
+}
+
+// 验证线性表达式的数组访问边界
+// 对于 expr = var + offset，验证 var >= -offset && var < size - offset
+// 参数：linear_expr - 线性表达式，array_size - 数组大小，node - AST节点（用于错误报告）
+// 返回：1 表示证明安全，0 表示无法证明
+fn verify_linear_expr_bounds(checker: &TypeChecker, linear_expr: &LinearExpr, array_size: i32, node: &ASTNode) i32 {
+    if checker == null || linear_expr == null || linear_expr.is_valid == 0 {
+        return 0;
+    }
+    
+    // 证明步数检查
+    if checker_proof_step(checker, node) == 0 {
+        return 1;  // 超限，已报告错误，返回1避免重复报告
+    }
+    
+    // 纯常量：直接检查
+    if linear_expr.var_name == null {
+        if linear_expr.offset >= 0 && linear_expr.offset < array_size {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // 变量 + 偏移量：需要检查调整后的边界
+    // arr[i + offset] 安全需要: i >= -offset 且 i < size - offset
+    const offset: i32 = linear_expr.offset;
+    const var_name: &byte = linear_expr.var_name;
+    const var_interval: Interval = get_var_interval(checker, var_name);
+    
+    var has_lower_bound: i32 = 0;
+    var has_upper_bound: i32 = 0;
+    
+    // 计算需要的下界和上界
+    const need_lower: i32 = -offset;  // i >= -offset
+    const need_upper: i32 = array_size - offset;  // i < size - offset
+
+    if var_interval.is_valid != 0 &&
+        var_interval.min >= need_lower && var_interval.max < need_upper {
+        return 1;
+    }
+    
+    var i: i32 = 0;
+    const count: i32 = checker.constraint_count;
+    while i < count {
+        if i < MAX_CONSTRAINTS {
+            const name: &byte = checker.constraint_var_names[i];
+            if name != null && strcmp(name as *byte, var_name as *byte) == 0 {
+                const op: i32 = checker.constraint_ops[i];
+                const val: i32 = checker.constraint_values[i];
+                
+                // 检查下界：需要 i >= need_lower
+                // 如果约束是 i >= val，需要 val >= need_lower（val 更强）
+                if op == CONSTRAINT_GE && val >= need_lower {
+                    has_lower_bound = 1;
+                } else if op == CONSTRAINT_GT && val > need_lower {
+                    has_lower_bound = 1;
+                }
+                
+                // 检查上界：需要 i < need_upper
+                // 如果约束是 i < val，需要 val <= need_upper（val 更强）
+                if op == CONSTRAINT_LT && val <= need_upper {
+                    has_upper_bound = 1;
+                } else if op == CONSTRAINT_LE && val < need_upper {
+                    has_upper_bound = 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    
+    if has_lower_bound != 0 && has_upper_bound != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+// 验证线性表达式的数组访问边界（扩展版本）
+// 对于无符号类型索引，下界自动为 0
+// 参数：linear_expr - 线性表达式，array_size - 数组大小，node - AST节点，is_unsigned - 是否是无符号类型
+// 返回：1 表示证明安全，0 表示无法证明
+fn verify_linear_expr_bounds_ex(checker: &TypeChecker, linear_expr: &LinearExpr, array_size: i32, node: &ASTNode, is_unsigned: i32) i32 {
+    if checker == null || linear_expr == null || linear_expr.is_valid == 0 {
+        return 0;
+    }
+    
+    // 证明步数检查
+    if checker_proof_step(checker, node) == 0 {
+        return 1;  // 超限，已报告错误，返回1避免重复报告
+    }
+    
+    // 纯常量：直接检查
+    if linear_expr.var_name == null {
+        if linear_expr.offset >= 0 && linear_expr.offset < array_size {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // 变量 + 偏移量：需要检查调整后的边界
+    // arr[i + offset] 安全需要: i >= -offset 且 i < size - offset
+    const offset: i32 = linear_expr.offset;
+    const var_name: &byte = linear_expr.var_name;
+    const var_interval: Interval = get_var_interval(checker, var_name);
+    
+    var has_lower_bound: i32 = 0;
+    var has_upper_bound: i32 = 0;
+    
+    // 对于无符号类型，下界自动为 0
+    if is_unsigned != 0 {
+        // 无符号类型：i >= 0 恒成立
+        // 但仍需检查 i >= -offset（如果 offset < 0）
+        if offset >= 0 {
+            // offset >= 0: i >= 0 自动满足，i >= -offset 也自动满足
+            has_lower_bound = 1;
+        } else {
+            // offset < 0: 需要 i >= -offset > 0
+            // 这种情况下仍需检查约束
+        }
+    }
+    
+    // 计算需要的下界和上界
+    const need_lower: i32 = -offset;  // i >= -offset
+    const need_upper: i32 = array_size - offset;  // i < size - offset
+
+    if var_interval.is_valid != 0 &&
+        var_interval.min >= need_lower && var_interval.max < need_upper {
+        return 1;
+    }
+    
+    var i: i32 = 0;
+    const count: i32 = checker.constraint_count;
+    while i < count {
+        if i < MAX_CONSTRAINTS {
+            const name: &byte = checker.constraint_var_names[i];
+            if name != null && strcmp(name as *byte, var_name as *byte) == 0 {
+                const op: i32 = checker.constraint_ops[i];
+                const val: i32 = checker.constraint_values[i];
+                
+                // 检查下界：需要 i >= need_lower
+                // 如果约束是 i >= val，需要 val >= need_lower（val 更强）
+                if op == CONSTRAINT_GE && val >= need_lower {
+                    has_lower_bound = 1;
+                } else if op == CONSTRAINT_GT && val > need_lower {
+                    has_lower_bound = 1;
+                }
+                
+                // 检查上界：需要 i < need_upper
+                // 如果约束是 i < val，需要 val <= need_upper（val 更强）
+                if op == CONSTRAINT_LT && val <= need_upper {
+                    has_upper_bound = 1;
+                } else if op == CONSTRAINT_LE && val < need_upper {
+                    has_upper_bound = 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    
+    // 对于无符号类型，如果 offset >= 0，下界已自动满足
+    // 如果 offset < 0，需要显式检查约束
+    
+    if has_lower_bound != 0 && has_upper_bound != 0 {
+        return 1;
+    }
+    return 0;
+}

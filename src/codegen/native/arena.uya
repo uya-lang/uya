@@ -1,0 +1,424 @@
+// codegen/native/arena.uya - Native malloc facade and bump arena.
+
+use libc.free;
+use libc.malloc;
+use libc.realloc;
+
+const NATIVE_ARENA_ALIGNMENT: usize = 8usize;
+const NATIVE_ARENA_CHUNK_SIZE: usize = 4096usize;
+const NATIVE_ARENA_MAX_BYTES: usize = 9223372036854775807usize;
+
+/// 功能说明：native arena 动态 chunk。
+/// 参数说明：无；由 `NativeArena` 内部维护。
+/// 返回值说明：无。
+export struct NativeArenaChunk {
+    buffer: &byte,
+    size: usize,
+    used: usize,
+    next: &NativeArenaChunk,
+}
+
+/// 功能说明：native bump arena，优先使用调用方提供的静态 buffer，再按需分配动态 chunk。
+/// 参数说明：无；调用 `native_arena_init` 后使用。
+/// 返回值说明：无。
+export struct NativeArena {
+    buffer: &byte,
+    size: usize,
+    offset: usize,
+    first_chunk: &NativeArenaChunk,
+    current_chunk: &NativeArenaChunk,
+    total_allocated: usize,
+    peak_allocated: usize,
+    dynamic_bytes: usize,
+    chunk_count: i32,
+    initialized: i32,
+}
+
+/// 功能说明：native-built compiler 的 arena peak 统计快照。
+/// 参数说明：无；由 `native_arena_peak_stats_from_arenas` 构造。
+/// 返回值说明：无。
+export struct NativeArenaPeakStats {
+    arena_peak_bytes: usize,
+    ast_arena_peak_bytes: usize,
+    check_arena_peak_bytes: usize,
+    emit_arena_peak_bytes: usize,
+}
+
+fn native_arena_add_overflows(a: usize, b: usize) i32 {
+    if b > NATIVE_ARENA_MAX_BYTES {
+        return 1;
+    }
+    if a > NATIVE_ARENA_MAX_BYTES - b {
+        return 1;
+    }
+    return 0;
+}
+
+fn native_arena_align_size(size: usize) usize {
+    if size == 0usize {
+        return 0usize;
+    }
+    const rem: usize = size % NATIVE_ARENA_ALIGNMENT;
+    if rem == 0usize {
+        return size;
+    }
+    return size + (NATIVE_ARENA_ALIGNMENT - rem);
+}
+
+fn native_arena_zero(ptr: &byte, size: usize) void {
+    if ptr == null {
+        return;
+    }
+    var i: usize = 0usize;
+    while i < size {
+        ptr[i] = 0 as byte;
+        i = i + 1usize;
+    }
+}
+
+fn native_arena_update_peak(arena: &NativeArena) void {
+    if arena == null {
+        return;
+    }
+    if arena.total_allocated > arena.peak_allocated {
+        arena.peak_allocated = arena.total_allocated;
+    }
+}
+
+fn native_arena_peak_stats_add(total: usize, value: usize) usize {
+    if native_arena_add_overflows(total, value) != 0 {
+        return NATIVE_ARENA_MAX_BYTES;
+    }
+    return total + value;
+}
+
+fn native_arena_link_chunk(arena: &NativeArena, chunk: &NativeArenaChunk) void {
+    if arena.first_chunk == null {
+        arena.first_chunk = chunk;
+    } else {
+        var last: &NativeArenaChunk = arena.first_chunk;
+        while last.next != null {
+            last = last.next;
+        }
+        last.next = chunk;
+    }
+    arena.current_chunk = chunk;
+    arena.chunk_count = arena.chunk_count + 1;
+    arena.dynamic_bytes = arena.dynamic_bytes + chunk.size;
+}
+
+fn native_arena_make_chunk(size: usize) &NativeArenaChunk {
+    const chunk_mem: &byte = malloc(@size_of(NativeArenaChunk)) as &byte;
+    if chunk_mem == null {
+        return null;
+    }
+    const chunk: &NativeArenaChunk = chunk_mem as &NativeArenaChunk;
+    const buffer_mem: &byte = malloc(size) as &byte;
+    if buffer_mem == null {
+        free(chunk as &void);
+        return null;
+    }
+    native_arena_zero(buffer_mem, size);
+    chunk.buffer = buffer_mem;
+    chunk.size = size;
+    chunk.used = 0usize;
+    chunk.next = null;
+    return chunk;
+}
+
+fn native_arena_alloc_from_static(arena: &NativeArena, aligned_size: usize) &byte {
+    if arena.buffer == null {
+        return null;
+    }
+    const aligned_offset: usize = native_arena_align_size(arena.offset);
+    if native_arena_add_overflows(aligned_offset, aligned_size) != 0 {
+        return null;
+    }
+    if aligned_offset + aligned_size > arena.size {
+        return null;
+    }
+    const result: &byte = &arena.buffer[aligned_offset];
+    arena.offset = aligned_offset + aligned_size;
+    arena.total_allocated = arena.total_allocated + aligned_size;
+    native_arena_update_peak(arena);
+    return result;
+}
+
+fn native_arena_alloc_from_current_chunk(arena: &NativeArena, aligned_size: usize) &byte {
+    if arena.current_chunk == null {
+        return null;
+    }
+    const chunk: &NativeArenaChunk = arena.current_chunk;
+    const aligned_offset: usize = native_arena_align_size(chunk.used);
+    if native_arena_add_overflows(aligned_offset, aligned_size) != 0 {
+        return null;
+    }
+    if aligned_offset + aligned_size > chunk.size {
+        return null;
+    }
+    const result: &byte = &chunk.buffer[aligned_offset];
+    chunk.used = aligned_offset + aligned_size;
+    arena.total_allocated = arena.total_allocated + aligned_size;
+    native_arena_update_peak(arena);
+    return result;
+}
+
+fn native_arena_alloc_new_chunk(arena: &NativeArena, aligned_size: usize) &byte {
+    var chunk_size: usize = NATIVE_ARENA_CHUNK_SIZE;
+    if aligned_size > chunk_size {
+        chunk_size = aligned_size;
+    }
+    const chunk: &NativeArenaChunk = native_arena_make_chunk(chunk_size);
+    if chunk == null {
+        return null;
+    }
+    native_arena_link_chunk(arena, chunk);
+    return native_arena_alloc_from_current_chunk(arena, aligned_size);
+}
+
+/// 功能说明：分配 `size` 字节 heap 内存。
+/// 参数说明：`size` 为字节数。
+/// 返回值说明：成功返回字节指针；`size == 0` 或分配失败返回 null。
+export fn native_malloc_bytes(size: usize) &byte {
+    if size == 0usize {
+        return null;
+    }
+    return malloc(size) as &byte;
+}
+
+/// 功能说明：重新分配 heap 字节块。
+/// 参数说明：`ptr` 为旧指针；`size` 为新字节数。
+/// 返回值说明：成功返回新指针；`size == 0` 或分配失败返回 null。
+export fn native_realloc_bytes(ptr: &byte, size: usize) &byte {
+    if size == 0usize {
+        if ptr != null {
+            free(ptr as &void);
+        }
+        return null;
+    }
+    return realloc(ptr as &void, size) as &byte;
+}
+
+/// 功能说明：释放 heap 字节块。
+/// 参数说明：`ptr` 为待释放指针。
+/// 返回值说明：无。
+export fn native_free_bytes(ptr: &byte) void {
+    if ptr == null {
+        return;
+    }
+    free(ptr as &void);
+}
+
+/// 功能说明：构造未初始化的 native arena。
+/// 参数说明：无。
+/// 返回值说明：返回空 arena；调用 init 前分配返回 null。
+export fn native_arena_empty() NativeArena {
+    return NativeArena{
+        buffer: null,
+        size: 0usize,
+        offset: 0usize,
+        first_chunk: null,
+        current_chunk: null,
+        total_allocated: 0usize,
+        peak_allocated: 0usize,
+        dynamic_bytes: 0usize,
+        chunk_count: 0,
+        initialized: 0,
+    };
+}
+
+/// 功能说明：初始化 native arena。
+/// 参数说明：`arena` 为目标 arena；`buffer`/`size` 为可选静态缓冲。
+/// 返回值说明：无；null arena 被忽略。
+export fn native_arena_init(arena: &NativeArena, buffer: &byte, size: usize) void {
+    if arena == null {
+        return;
+    }
+    arena.buffer = buffer;
+    arena.size = size;
+    arena.offset = 0usize;
+    arena.first_chunk = null;
+    arena.current_chunk = null;
+    arena.total_allocated = 0usize;
+    arena.peak_allocated = 0usize;
+    arena.dynamic_bytes = 0usize;
+    arena.chunk_count = 0;
+    arena.initialized = 1;
+}
+
+/// 功能说明：从 native arena 分配字节块。
+/// 参数说明：`arena` 为目标 arena；`size` 为字节数。
+/// 返回值说明：成功返回已对齐指针；未初始化、`size == 0`、溢出或分配失败返回 null。
+export fn native_arena_alloc(arena: &NativeArena, size: usize) &byte {
+    if arena == null || arena.initialized == 0 || size == 0usize {
+        return null;
+    }
+    const aligned_size: usize = native_arena_align_size(size);
+    if aligned_size == 0usize {
+        return null;
+    }
+
+    const from_static: &byte = native_arena_alloc_from_static(arena, aligned_size);
+    if from_static != null {
+        return from_static;
+    }
+
+    const from_chunk: &byte = native_arena_alloc_from_current_chunk(arena, aligned_size);
+    if from_chunk != null {
+        return from_chunk;
+    }
+
+    return native_arena_alloc_new_chunk(arena, aligned_size);
+}
+
+/// 功能说明：保存 native arena 静态 buffer offset。
+/// 参数说明：`arena` 为目标 arena。
+/// 返回值说明：返回当前 offset；参数无效返回 0。
+export fn native_arena_save(arena: &NativeArena) usize {
+    if arena == null {
+        return 0usize;
+    }
+    return arena.offset;
+}
+
+/// 功能说明：恢复 native arena 静态 buffer offset。
+/// 参数说明：`arena` 为目标 arena；`offset` 为 `native_arena_save` 返回值。
+/// 返回值说明：无；动态 chunk 状态不回滚。
+export fn native_arena_restore(arena: &NativeArena, offset: usize) void {
+    if arena == null || offset > arena.size {
+        return;
+    }
+    arena.offset = offset;
+}
+
+/// 功能说明：重置 native arena 以复用已有 chunk。
+/// 参数说明：`arena` 为目标 arena。
+/// 返回值说明：无。
+export fn native_arena_reset(arena: &NativeArena) void {
+    if arena == null {
+        return;
+    }
+    arena.offset = 0usize;
+    arena.total_allocated = 0usize;
+    var chunk: &NativeArenaChunk = arena.first_chunk;
+    while chunk != null {
+        chunk.used = 0usize;
+        chunk = chunk.next;
+    }
+    arena.current_chunk = arena.first_chunk;
+}
+
+/// 功能说明：释放 native arena 的全部动态 chunk。
+/// 参数说明：`arena` 为目标 arena。
+/// 返回值说明：无；释放后需要重新 init 才能分配。
+export fn native_arena_release(arena: &NativeArena) void {
+    if arena == null {
+        return;
+    }
+    var chunk: &NativeArenaChunk = arena.first_chunk;
+    while chunk != null {
+        const next: &NativeArenaChunk = chunk.next;
+        if chunk.buffer != null {
+            free(chunk.buffer as &void);
+        }
+        free(chunk as &void);
+        chunk = next;
+    }
+    arena.buffer = null;
+    arena.size = 0usize;
+    arena.offset = 0usize;
+    arena.first_chunk = null;
+    arena.current_chunk = null;
+    arena.total_allocated = 0usize;
+    arena.peak_allocated = 0usize;
+    arena.dynamic_bytes = 0usize;
+    arena.chunk_count = 0;
+    arena.initialized = 0;
+}
+
+/// 功能说明：读取 native arena 当前活跃分配字节数。
+/// 参数说明：`arena` 为目标 arena。
+/// 返回值说明：返回 total_allocated；参数无效时返回 0。
+export fn native_arena_total_allocated(arena: &NativeArena) usize {
+    if arena == null {
+        return 0usize;
+    }
+    return arena.total_allocated;
+}
+
+/// 功能说明：读取 native arena 峰值分配字节数。
+/// 参数说明：`arena` 为目标 arena。
+/// 返回值说明：返回 peak_allocated；参数无效时返回 0。
+export fn native_arena_peak_allocated(arena: &NativeArena) usize {
+    if arena == null {
+        return 0usize;
+    }
+    return arena.peak_allocated;
+}
+
+/// 功能说明：构造空 arena peak 统计快照。
+/// 参数说明：无。
+/// 返回值说明：返回所有字段为 0 的 `NativeArenaPeakStats`。
+export fn native_arena_peak_stats_empty() NativeArenaPeakStats {
+    return NativeArenaPeakStats{
+        arena_peak_bytes: 0usize,
+        ast_arena_peak_bytes: 0usize,
+        check_arena_peak_bytes: 0usize,
+        emit_arena_peak_bytes: 0usize,
+    };
+}
+
+/// 功能说明：按现有 compiler stats 口径从多个 arena 采集 peak 统计。
+/// 参数说明：`driver`/`lex`/`ast`/`check`/`emit` 为 native-built compiler 的阶段 arena。
+/// 返回值说明：返回兼容 `arena_peak_bytes`、`ast_arena_peak_bytes`、`check_arena_peak_bytes`
+///           与 `emit_arena_peak_bytes` 的统计快照。
+export fn native_arena_peak_stats_from_arenas(driver: &NativeArena, lex: &NativeArena,
+    ast: &NativeArena, check: &NativeArena, emit: &NativeArena) NativeArenaPeakStats {
+    const driver_peak: usize = native_arena_peak_allocated(driver);
+    const lex_peak: usize = native_arena_peak_allocated(lex);
+    const ast_peak: usize = native_arena_peak_allocated(ast);
+    const check_peak: usize = native_arena_peak_allocated(check);
+    const emit_peak: usize = native_arena_peak_allocated(emit);
+    var total: usize = 0usize;
+    total = native_arena_peak_stats_add(total, driver_peak);
+    total = native_arena_peak_stats_add(total, lex_peak);
+    total = native_arena_peak_stats_add(total, ast_peak);
+    total = native_arena_peak_stats_add(total, check_peak);
+    total = native_arena_peak_stats_add(total, emit_peak);
+    return NativeArenaPeakStats{
+        arena_peak_bytes: total,
+        ast_arena_peak_bytes: ast_peak,
+        check_arena_peak_bytes: check_peak,
+        emit_arena_peak_bytes: emit_peak,
+    };
+}
+
+/// 功能说明：读取 arena peak 统计快照的总峰值字段。
+/// 参数说明：`stats` 为统计快照。
+/// 返回值说明：返回 `arena_peak_bytes`；参数无效时返回 0。
+export fn native_arena_peak_stats_total(stats: &NativeArenaPeakStats) usize {
+    if stats == null {
+        return 0usize;
+    }
+    return stats.arena_peak_bytes;
+}
+
+/// 功能说明：读取 native arena 已分配动态 chunk 容量。
+/// 参数说明：`arena` 为目标 arena。
+/// 返回值说明：返回 dynamic_bytes；参数无效时返回 0。
+export fn native_arena_dynamic_bytes(arena: &NativeArena) usize {
+    if arena == null {
+        return 0usize;
+    }
+    return arena.dynamic_bytes;
+}
+
+/// 功能说明：读取 native arena 动态 chunk 数量。
+/// 参数说明：`arena` 为目标 arena。
+/// 返回值说明：返回 chunk_count；参数无效时返回 0。
+export fn native_arena_chunk_count(arena: &NativeArena) i32 {
+    if arena == null {
+        return 0;
+    }
+    return arena.chunk_count;
+}

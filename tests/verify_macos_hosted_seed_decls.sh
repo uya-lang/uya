@@ -25,7 +25,7 @@ HOST_OS=macos HOST_ARCH=x86_64 TARGET_OS=macos TARGET_ARCH=x86_64 TARGET_TRIPLE=
 TOOLCHAIN="${TOOLCHAIN:-system}" ZIG="${ZIG:-}" RUNTIME_MODE=hosted LINK_MODE="${LINK_MODE:-dynamic}" \
 UYA_SINGLE_FILE_C=1 UYA_SPLIT_C=0 UYA_SPLIT_C_DIR= UYA_MULTI_FILE_C= UYA_SPLIT_C_MIRROR= \
 UYA_BOOTSTRAP_PROFILE=darwin-hosted UYA_NATIVE_BOOTSTRAP=0 \
-"$COMPILER" --c99 "$REPO_ROOT/src/main.uya" -o "$OUT_C" >/dev/null 2>&1
+"$COMPILER" build --c99 "$REPO_ROOT/src/main.uya" -o "$OUT_C" >/dev/null 2>&1
 
 if ! grep -Fqx 'extern ssize_t read(int, void *, size_t);' "$OUT_C"; then
     echo "✗ 生成的 uya-hosted.c 缺少 read extern 声明"

@@ -9,7 +9,7 @@ mkdir -p "$TMP_DIR"
 
 build_fmt() {
     mkdir -p "$REPO_ROOT/bin"
-    "$REPO_ROOT/bin/uya" --c99 "$REPO_ROOT/tools/fmt.uya" -o "$TMP_DIR/uyafmt.c" >/tmp/verify_fmt_build.out 2>/tmp/verify_fmt_build.err
+    "$REPO_ROOT/bin/uya" build --c99 "$REPO_ROOT/tools/fmt.uya" -o "$TMP_DIR/uyafmt.c" >/tmp/verify_fmt_build.out 2>/tmp/verify_fmt_build.err
     cc -O0 -g "$TMP_DIR/uyafmt.c" -o "$FMT_BIN"
 }
 

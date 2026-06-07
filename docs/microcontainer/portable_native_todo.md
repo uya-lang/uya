@@ -93,7 +93,7 @@
 
 ### 4.3 打包与校验
 
-- [x] `pack-image` 支持 v2 生成
+- [x] legacy `pack-image` 支持 v2 生成；目标入口迁移到 `microapp pack`
 - [x] `image_validate()` 支持 v2 结构检查
 - [x] 增加 `.uapp v2` roundtrip 测试
 
@@ -101,8 +101,8 @@
 
 - [x] v1 / v2 `.pobj` 打包入口兼容读取
 - [~] v1 `.uapp` / v2 `.uapp` 双版本读取与显式 inspect/verify CLI
-  - [x] 已新增 `inspect-image` CLI，可直接查看 `.pobj/.uapp` 头信息
-  - [x] 已新增 `verify-image` CLI，可直接校验 `.pobj/.uapp`
+  - [x] 已新增 legacy `inspect-image` CLI，可直接查看 `.pobj/.uapp` 头信息；目标入口为 `microapp inspect`
+  - [x] 已新增 legacy `verify-image` CLI，可直接校验 `.pobj/.uapp`；目标入口为 `microapp verify`
   - [x] 已补齐 `v1 .uapp / v2 .uapp / v5-v8 .pobj` CLI 回归覆盖
 
 ---

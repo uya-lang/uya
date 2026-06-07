@@ -1,0 +1,356 @@
+// checker/async_frame_meta.uya - 异步帧元数据定义
+// 为 checker 和 codegen 提供统一的 async frame 元信息接口
+
+// 帧逃逸分类
+enum AsyncFrameEscapeClass {
+    ESCAPE_STACK_CANDIDATE,   // 可证明不逃逸，优先栈分配
+    ESCAPE_POOL_REQUIRED,     // 可能逃逸，必须走池
+    ESCAPE_HEAP_DEBUG_ONLY,   // 仅在调试模式下允许堆回退
+}
+
+// 帧字段元数据
+struct AsyncFrameFieldMeta {
+    field_name: &byte,
+    field_type: Type,
+    field_offset: usize,
+    field_align: usize,
+    is_pinned: i32,
+    is_movable_by_value: i32,
+}
+
+// 帧元数据（单态实例级）
+struct AsyncFrameMeta {
+    frame_key_text: &byte,      // <fully_qualified_fn_name>@<mangled_concrete_type_args>
+    frame_id: u32,               // 编译期生成的紧凑整数 ID，用于运行时 O(1) 查 descriptor 表
+    descriptor_index: u32,       // codegen descriptor 表索引
+    fn_name: &byte,              // 原始函数名
+    generic_name: &byte,         // 泛型函数名（非泛型时与 fn_name 相同）
+    type_arg_count: i32,         // 类型实参数量
+    decl_node: &ASTNode,         // 函数定义点
+    instance_node: &ASTNode,     // 单态实例化点（泛型时有用）
+    frame_size: usize,           // 帧大小（字节）
+    frame_align: usize,          // 帧对齐（字节）
+    escape_class: i32,           // AsyncFrameEscapeClass
+    is_pinned: i32,
+    contains_pinned_field: i32,
+    needs_drop: i32,
+    field_count: i32,
+    fields: [AsyncFrameFieldMeta: 32],  // 最多 32 个需要显式追踪的字段
+}
+
+const MAX_ASYNC_FRAME_METAS: i32 = 512;
+
+// ===== 查询 helper（声明在 async_frame_meta.uya，实现在此文件中内联） =====
+
+fn checker_set_async_frame_meta(checker: &TypeChecker, idx: i32, meta: &AsyncFrameMeta) void {
+    if checker == null || meta == null {
+        return;
+    }
+    if idx >= 0 && idx < MAX_ASYNC_FRAME_METAS {
+        checker.async_frame_metas[idx] = *meta;
+    }
+}
+
+fn checker_register_async_frame_meta(checker: &TypeChecker, meta: &AsyncFrameMeta) i32 {
+    if checker == null || meta == null {
+        return -1;
+    }
+    if checker.async_frame_meta_count >= MAX_ASYNC_FRAME_METAS {
+        return -1;
+    }
+    const idx: i32 = checker.async_frame_meta_count;
+    if idx < 0 {
+        return -1;
+    }
+    if idx >= @len(checker.async_frame_metas) {
+        return -1;
+    }
+    checker_set_async_frame_meta(checker, idx, meta);
+    checker.async_frame_meta_count = checker.async_frame_meta_count + 1;
+    return idx;
+}
+
+fn checker_find_async_frame_meta_by_key_text(checker: &TypeChecker, key_text: &byte) &AsyncFrameMeta {
+    if checker == null || key_text == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < checker.async_frame_meta_count {
+        const meta: &AsyncFrameMeta = &checker.async_frame_metas[i];
+        if meta.frame_key_text != null && strcmp(meta.frame_key_text as *byte, key_text as *byte) == 0 {
+            return meta;
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+fn checker_async_frame_meta_for_fn(checker: &TypeChecker, fn_decl: &ASTNode) &AsyncFrameMeta {
+    if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
+        return null;
+    }
+    // 优先用 mono_name 或 fn_decl_name 作为 key 查找
+    var name: &byte = fn_decl.fn_decl_name;
+    if name == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < checker.async_frame_meta_count {
+        const meta: &AsyncFrameMeta = &checker.async_frame_metas[i];
+        if meta.fn_name != null && strcmp(meta.fn_name as *byte, name as *byte) == 0 {
+            return meta;
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+fn checker_frame_id_for_mono_instance(checker: &TypeChecker, generic_name: &byte, type_args: &Type, type_arg_count: i32) u32 {
+    const meta: &AsyncFrameMeta = checker_find_async_frame_meta_by_mono(checker, generic_name, type_args, type_arg_count);
+    if meta != null {
+        return meta.frame_id;
+    }
+    return 0;
+}
+
+fn checker_find_async_frame_meta_by_mono(checker: &TypeChecker, generic_name: &byte, type_args: &Type, type_arg_count: i32) &AsyncFrameMeta {
+    if checker == null || generic_name == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < checker.async_frame_meta_count {
+        const meta: &AsyncFrameMeta = &checker.async_frame_metas[i];
+        if meta.generic_name == null {
+            i = i + 1;
+            continue;
+        }
+        if strcmp(meta.generic_name as *byte, generic_name as *byte) != 0 {
+            i = i + 1;
+            continue;
+        }
+        if type_arg_count == 0 && meta.type_arg_count == 0 {
+            return meta;
+        }
+        // 简化：只比较 type_arg_count；实际应逐类型比较
+        if type_arg_count == meta.type_arg_count {
+            var match_all: i32 = 1;
+            var j: i32 = 0;
+            while j < type_arg_count && j < 32 {
+                // 简化比较：只比较 kind（实际完整实现需比较更多字段）
+                if type_args[j].kind != meta.fields[j].field_type.kind {
+                    match_all = 0;
+                }
+                j = j + 1;
+            }
+            if match_all != 0 {
+                return meta;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 判断类型是否为 async frame（暂用 TYPE_STRUCT + 名称前缀匹配，后续可换成显式标记）
+fn checker_is_async_frame_type(checker: &TypeChecker, ty: &Type) i32 {
+    if checker == null || ty == null {
+        return 0;
+    }
+    if ty.kind != TypeKind.TYPE_STRUCT {
+        return 0;
+    }
+    const name: &byte = ty.struct_name;
+    if name == null {
+        return 0;
+    }
+    const prefix: &byte = "uya_async_";
+    var i: i32 = 0;
+    while i < 10 {
+        if name[i] == 0 as byte {
+            return 0;
+        }
+        if name[i] != prefix[i] {
+            return 0;
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// 判断类型是否按值拥有 async frame（结构体/数组/元组等按值存储层里包含 frame；指针/引用不算）
+fn checker_type_owns_async_frame(checker: &TypeChecker, ty: &Type) i32 {
+    if checker == null || ty == null {
+        return 0;
+    }
+    if checker_is_async_frame_type(checker, ty) != 0 {
+        return 1;
+    }
+    if ty.kind == TypeKind.TYPE_STRUCT && ty.struct_type_args != null {
+        // 泛型结构体：检查字段（简化版只递归检查 type_args）
+        var i: i32 = 0;
+        while i < ty.struct_type_arg_count {
+            if checker_type_owns_async_frame(checker, &ty.struct_type_args[i]) != 0 {
+                return 1;
+            }
+            i = i + 1;
+        }
+    }
+    if ty.kind == TypeKind.TYPE_ARRAY && ty.element_type != null {
+        return checker_type_owns_async_frame(checker, ty.element_type);
+    }
+    if ty.kind == TypeKind.TYPE_TUPLE && ty.tuple_element_types != null {
+        var i: i32 = 0;
+        while i < ty.tuple_count {
+            if checker_type_owns_async_frame(checker, &ty.tuple_element_types[i]) != 0 {
+                return 1;
+            }
+            i = i + 1;
+        }
+    }
+    return 0;
+}
+
+// 判断类型是否引用 async frame（仅用于诊断和 API 校验，不传播 pinned owner 语义）
+fn checker_type_refs_async_frame(checker: &TypeChecker, ty: &Type) i32 {
+    if checker == null || ty == null {
+        return 0;
+    }
+    if ty.kind == TypeKind.TYPE_POINTER && ty.pointer_to != null {
+        return checker_is_async_frame_type(checker, ty.pointer_to);
+    }
+    return 0;
+}
+
+// 判断父结构体是否因 frame 字段而变成 pinned aggregate
+fn checker_type_contains_pinned_field(checker: &TypeChecker, ty: &Type) i32 {
+    if checker == null || ty == null {
+        return 0;
+    }
+    if checker_type_owns_async_frame(checker, ty) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+// 查找结构体类型中第一个包含 async frame 的字段声明节点（用于诊断）
+fn checker_find_first_pinned_field_decl(checker: &TypeChecker, ty: &Type) &ASTNode {
+    if checker == null || ty == null || ty.kind != TypeKind.TYPE_STRUCT || checker.program_node == null {
+        return null;
+    }
+    var struct_name: &byte = ty.struct_name;
+    if struct_name == null {
+        return null;
+    }
+    var decl: &ASTNode = find_struct_decl_from_program(checker.program_node, struct_name);
+    if decl == null {
+        // 尝试基名（单态化结构体名如 Box_i32 -> Box）
+        var base_buf: [byte: 64] = [];
+        var bi: i32 = 0;
+        const sn: &u8 = struct_name as &u8;
+        while sn[bi] != 0 && sn[bi] != 95 && bi < 63 {
+            base_buf[bi] = sn[bi] as byte;
+            bi = bi + 1;
+        }
+        if bi >= 0 && bi < 64 {
+            base_buf[bi] = 0;
+        }
+        decl = find_struct_decl_from_program(checker.program_node, &base_buf[0]);
+    }
+    if decl == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < decl.struct_decl_field_count {
+        const field: &ASTNode = decl.struct_decl_fields[i];
+        if field != null && field.type == ASTNodeType.AST_VAR_DECL && field.var_decl_type != null {
+            const field_type: Type = type_from_ast(checker, field.var_decl_type);
+            if checker_type_owns_async_frame(checker, &field_type) != 0 {
+                return field;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// ===== 诊断 helper =====
+
+// 报告：按值移动 pinned frame（变量初始化、赋值、传参、返回等通用场景）
+fn checker_report_frame_move_error(checker: &TypeChecker, node: &ASTNode, context: &byte) void {
+    if checker == null || node == null {
+        return;
+    }
+    var msg: &byte = "cannot move pinned type by value" as &byte;
+    if context != null {
+        if strcmp(context as *byte, "return" as *byte) == 0 {
+            msg = "cannot return pinned type by value" as &byte;
+        } else if strcmp(context as *byte, "arg" as *byte) == 0 {
+            msg = "cannot pass pinned type by value in function argument" as &byte;
+        } else if strcmp(context as *byte, "assign" as *byte) == 0 {
+            msg = "cannot assign to pinned type: whole-assignment of a type containing @frame is prohibited" as &byte;
+        } else if strcmp(context as *byte, "init" as *byte) == 0 {
+            msg = "cannot initialize variable with pinned type by value" as &byte;
+        }
+    }
+    // 如果 node 是结构体类型，尝试找到第一个 pinned 字段并附加 declaration note
+    const node_type: Type = checker_infer_type(checker, node);
+    const field_decl: &ASTNode = checker_find_first_pinned_field_decl(checker, &node_type);
+    if field_decl != null {
+        var notes: [CheckerNote: 2] = [];
+        notes[0].node = field_decl;
+        notes[0].message = "the pinned @frame field is declared here" as &byte;
+        notes[0].kind = CheckerNoteKind.NOTE_DECLARATION;
+        notes[1].node = node;
+        notes[1].message = "use a pointer or reference instead of moving by value" as &byte;
+        notes[1].kind = CheckerNoteKind.NOTE_SUGGESTION;
+        checker_report_error_with_notes(checker, node, msg, &notes[0], 2);
+        return;
+    }
+    checker_report_error_with_note(checker, node, msg, node,
+        "use a pointer or reference instead of moving by value" as &byte,
+        CheckerNoteKind.NOTE_SUGGESTION);
+}
+
+// 报告：移动含有 pinned frame 字段的父结构体，并指出具体字段名
+fn checker_report_frame_field_move_error(checker: &TypeChecker, node: &ASTNode, field_name: &byte) void {
+    if checker == null || node == null {
+        return;
+    }
+    if field_name != null {
+        _ = field_name;
+    }
+    checker_report_error_with_note(checker, node,
+        "cannot move struct containing pinned @frame field by value" as &byte,
+        node,
+        "move or pass a pointer to the struct instead" as &byte,
+        CheckerNoteKind.NOTE_SUGGESTION);
+}
+
+// 报告：@frame 类型对齐不满足要求（通常因为 pool 分配对齐与类型声明不一致）
+fn checker_report_frame_align_error(checker: &TypeChecker, node: &ASTNode, required_align: usize, actual_align: usize) void {
+    if checker == null || node == null {
+        return;
+    }
+    _ = required_align;
+    _ = actual_align;
+    checker_report_error_with_note(checker, node,
+        "async frame alignment mismatch: the frame type requires stricter alignment than provided" as &byte,
+        node,
+        "ensure the storage or pool allocator respects the frame's alignment requirement" as &byte,
+        CheckerNoteKind.NOTE_SUGGESTION);
+}
+
+// 报告：泛型 @frame 未单态化（@frame(foo<T>) 中 T 仍为泛型形参）
+fn checker_report_frame_monomorphization_error(checker: &TypeChecker, node: &ASTNode, frame_name: &byte) void {
+    if checker == null || node == null {
+        return;
+    }
+    if frame_name != null {
+        _ = frame_name;
+    }
+    checker_report_error_with_note(checker, node,
+        "@frame type requires concrete generic arguments" as &byte,
+        node,
+        "use @frame(foo<ConcreteType>) with fully resolved type arguments" as &byte,
+        CheckerNoteKind.NOTE_SUGGESTION);
+}

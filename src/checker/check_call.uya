@@ -322,6 +322,47 @@ fn checker_import_table_lookup_local_name(checker: &TypeChecker, local_name: &by
     return null;
 }
 
+fn checker_find_imported_fn_decl(checker: &TypeChecker, import: &ImportedItem) &ASTNode {
+    if checker == null || import == null || import.module_name == null || import.item_type != 1 {
+        return null;
+    }
+    var api_name: &byte = import.original_name;
+    if api_name == null || api_name[0] == 0 as byte {
+        api_name = import.local_name;
+    }
+    if api_name == null {
+        return null;
+    }
+    var mh: u32 = hash_string(import.module_name);
+    var mi: i32 = (mh as i32) & (MODULE_TABLE_SIZE - 1);
+    var i: i32 = 0;
+    while i < MODULE_TABLE_SIZE {
+        const sl: i32 = (mi + i) & (MODULE_TABLE_SIZE - 1);
+        const mod: &ModuleInfo = checker.module_table.slots[sl];
+        if mod == null {
+            break;
+        }
+        if str_equals(mod.module_name, import.module_name) != 0 {
+            if mod.exports != null {
+                var ei: i32 = 0;
+                while ei < mod.export_count {
+                    if mod.exports[ei].name != null && str_equals(mod.exports[ei].name, api_name) != 0 {
+                        const decl: &ASTNode = mod.exports[ei].decl_node;
+                        if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
+                            return checker_canonicalize_fn_decl(checker, decl);
+                        }
+                        return null;
+                    }
+                    ei = ei + 1;
+                }
+            }
+            break;
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
 fn checker_microapp_host_module_name_is_forbidden(module_name: &byte) i32 {
     if module_name == null {
         return 0;
@@ -429,8 +470,16 @@ fn resolve_reachable_callee_fn_decl(checker: &TypeChecker, callee: &ASTNode) &AS
     }
     if callee.type == ASTNodeType.AST_IDENTIFIER && callee.identifier_name != null {
         const symbol: &Symbol = symbol_table_lookup(checker, callee.identifier_name);
-        if symbol != null && symbol.decl_node != null && symbol.decl_node.type != ASTNodeType.AST_FN_DECL {
+        if symbol != null && symbol.decl_node != null {
+            if symbol.decl_node.type == ASTNodeType.AST_FN_DECL {
+                return checker_canonicalize_fn_decl(checker, symbol.decl_node);
+            }
             return null;
+        }
+        const import: &ImportedItem = checker_import_table_lookup_local_name(checker, callee.identifier_name);
+        const imported_fn: &ASTNode = checker_find_imported_fn_decl(checker, import);
+        if imported_fn != null {
+            return imported_fn;
         }
         return checker_find_reachable_fn_decl_by_name(checker, callee.identifier_name);
     }

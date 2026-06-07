@@ -25,7 +25,7 @@ i32x2u32x4_c="$BUILD_DIR/simd_emit_select_i32x2_u32x4.c"
 i32x2f32x4_c="$BUILD_DIR/simd_emit_select_i32x2_f32x4.c"
 
 echo "验证：无 @vector.select 的 SIMD 程序不应输出 select 助手定义 ..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/test_simd_sse_lower_i32x4.uya" -o "$no_sel_c" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/test_simd_sse_lower_i32x4.uya" -o "$no_sel_c" 2>&1; then
     echo "✗ 编译 test_simd_sse_lower_i32x4.uya 失败"
     exit 1
 fi
@@ -36,7 +36,7 @@ fi
 echo "  无 select 时无助手定义 ✓"
 
 echo "验证：仅 i32×4 select 助手隔离 ..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_i32_only.uya" -o "$i32_only_c" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_i32_only.uya" -o "$i32_only_c" 2>&1; then
     echo "✗ 编译 test_simd_c99_select_emit_i32_only.uya 失败"
     exit 1
 fi
@@ -51,7 +51,7 @@ fi
 echo "  仅 i32×4 select 助手隔离 ✓"
 
 echo "验证：仅 u32×4 select 助手隔离 ..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_u32_only.uya" -o "$u32_only_c" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_u32_only.uya" -o "$u32_only_c" 2>&1; then
     echo "✗ 编译 test_simd_c99_select_emit_u32_only.uya 失败"
     exit 1
 fi
@@ -66,7 +66,7 @@ fi
 echo "  仅 u32×4 select 助手隔离 ✓"
 
 echo "验证：仅 f32×4 select 助手隔离 ..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_f32_only.uya" -o "$f32_only_c" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_f32_only.uya" -o "$f32_only_c" 2>&1; then
     echo "✗ 编译 test_simd_c99_select_emit_f32_only.uya 失败"
     exit 1
 fi
@@ -81,7 +81,7 @@ fi
 echo "  仅 f32×4 select 助手隔离 ✓"
 
 echo "验证：i32×2 + i32×4 同程序仅生成二者、无 u32/f32 select ..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_i32x2_and_i32x4.uya" -o "$i32x2x4_c" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_i32x2_and_i32x4.uya" -o "$i32x2x4_c" 2>&1; then
     echo "✗ 编译 test_simd_c99_select_emit_i32x2_and_i32x4.uya 失败"
     exit 1
 fi
@@ -100,7 +100,7 @@ fi
 echo "  i32×2 + i32×4 select 助手按需 ✓"
 
 echo "验证：f32×2 + f32×4 同程序仅生成二者、无 i32/u32 select ..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_f32x2_and_f32x4.uya" -o "$f32x2x4_c" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_f32x2_and_f32x4.uya" -o "$f32x2x4_c" 2>&1; then
     echo "✗ 编译 test_simd_c99_select_emit_f32x2_and_f32x4.uya 失败"
     exit 1
 fi
@@ -119,7 +119,7 @@ fi
 echo "  f32×2 + f32×4 select 助手按需 ✓"
 
 echo "验证：u32×2 + u32×4 同程序仅生成二者、无 i32/f32 select ..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_u32x2_and_u32x4.uya" -o "$u32x2x4_c" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_u32x2_and_u32x4.uya" -o "$u32x2x4_c" 2>&1; then
     echo "✗ 编译 test_simd_c99_select_emit_u32x2_and_u32x4.uya 失败"
     exit 1
 fi
@@ -138,7 +138,7 @@ fi
 echo "  u32×2 + u32×4 select 助手按需 ✓"
 
 echo "验证：i32×4 + u32×4 同程序仅生成二者、无 f32/×2 select ..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_i32x4_and_u32x4.uya" -o "$i32u32x4_c" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_i32x4_and_u32x4.uya" -o "$i32u32x4_c" 2>&1; then
     echo "✗ 编译 test_simd_c99_select_emit_i32x4_and_u32x4.uya 失败"
     exit 1
 fi
@@ -157,7 +157,7 @@ fi
 echo "  i32×4 + u32×4 select 助手按需 ✓"
 
 echo "验证：i32×4 + f32×4 同程序仅生成二者、无 u32/×2 select ..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_i32x4_and_f32x4.uya" -o "$i32f32x4_c" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_i32x4_and_f32x4.uya" -o "$i32f32x4_c" 2>&1; then
     echo "✗ 编译 test_simd_c99_select_emit_i32x4_and_f32x4.uya 失败"
     exit 1
 fi
@@ -176,7 +176,7 @@ fi
 echo "  i32×4 + f32×4 select 助手按需 ✓"
 
 echo "验证：i32×2 + u32×4 同程序仅生成二者、无 f32/其它宽度 select ..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_i32x2_and_u32x4.uya" -o "$i32x2u32x4_c" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_i32x2_and_u32x4.uya" -o "$i32x2u32x4_c" 2>&1; then
     echo "✗ 编译 test_simd_c99_select_emit_i32x2_and_u32x4.uya 失败"
     exit 1
 fi
@@ -195,7 +195,7 @@ fi
 echo "  i32×2 + u32×4 select 助手按需 ✓"
 
 echo "验证：i32×2 + f32×4 同程序仅生成二者、无 u32/其它宽度 select ..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_i32x2_and_f32x4.uya" -o "$i32x2f32x4_c" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_i32x2_and_f32x4.uya" -o "$i32x2f32x4_c" 2>&1; then
     echo "✗ 编译 test_simd_c99_select_emit_i32x2_and_f32x4.uya 失败"
     exit 1
 fi
@@ -214,7 +214,7 @@ fi
 echo "  i32×2 + f32×4 select 助手按需 ✓"
 
 echo "验证：仅 i32×2 select 助手隔离 ..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_i32x2_only.uya" -o "$i32x2_only_c" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_i32x2_only.uya" -o "$i32x2_only_c" 2>&1; then
     echo "✗ 编译 test_simd_c99_select_emit_i32x2_only.uya 失败"
     exit 1
 fi
@@ -229,7 +229,7 @@ fi
 echo "  仅 i32×2 select 助手隔离 ✓"
 
 echo "验证：仅 u32×2 select 助手隔离 ..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_u32x2_only.uya" -o "$u32x2_only_c" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_u32x2_only.uya" -o "$u32x2_only_c" 2>&1; then
     echo "✗ 编译 test_simd_c99_select_emit_u32x2_only.uya 失败"
     exit 1
 fi
@@ -244,7 +244,7 @@ fi
 echo "  仅 u32×2 select 助手隔离 ✓"
 
 echo "验证：仅 f32×2 select 助手隔离 ..."
-if ! "$COMPILER" --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_f32x2_only.uya" -o "$f32x2_only_c" 2>&1; then
+if ! "$COMPILER" build --c99 "$SCRIPT_DIR/test_simd_c99_select_emit_f32x2_only.uya" -o "$f32x2_only_c" 2>&1; then
     echo "✗ 编译 test_simd_c99_select_emit_f32x2_only.uya 失败"
     exit 1
 fi

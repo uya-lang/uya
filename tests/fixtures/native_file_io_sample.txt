@@ -1,0 +1,2 @@
+native file io
+read ok

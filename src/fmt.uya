@@ -1,6 +1,13 @@
 // fmt.uya - 代码格式化工具
 // 使用编译器的 lexer 和 parser 验证语法，然后格式化输出
 
+use arena;
+use ast;
+use lexer;
+use parser;
+use std_cfg;
+use libc;
+
 const FMT_BUFFER_SIZE: i32 = 1024 * 1024;
 
 // 读取文件内容

@@ -1,0 +1,535 @@
+// codegen/native/abi.uya - Native 后端 ABI 合同基础层。
+//
+// 本文件只定义 ABI 分类、寄存器角色和对齐 helper。完整 Linux x86_64
+// SysV 参数分配、返回值传递和栈帧布局由后续阶段实现。
+
+export const NATIVE_ABI_CLASS_INVALID: i32 = -1;
+export const NATIVE_ABI_CLASS_VOID: i32 = 0;
+export const NATIVE_ABI_CLASS_INTEGER: i32 = 1;
+export const NATIVE_ABI_CLASS_SSE: i32 = 2;
+export const NATIVE_ABI_CLASS_MEMORY: i32 = 3;
+
+export const NATIVE_ABI_ROLE_NONE: i32 = 0;
+export const NATIVE_ABI_ROLE_GPR_ARG: i32 = 1;
+export const NATIVE_ABI_ROLE_SSE_ARG: i32 = 2;
+export const NATIVE_ABI_ROLE_GPR_RETURN: i32 = 3;
+export const NATIVE_ABI_ROLE_SSE_RETURN: i32 = 4;
+export const NATIVE_ABI_ROLE_CALLER_SAVED: i32 = 5;
+export const NATIVE_ABI_ROLE_CALLEE_SAVED: i32 = 6;
+export const NATIVE_ABI_ROLE_STACK_ARG: i32 = 7;
+export const NATIVE_ABI_ROLE_MEMORY_RETURN: i32 = 8;
+
+export const NATIVE_ABI_SYSV_STACK_ALIGN: i32 = 16;
+export const NATIVE_ABI_SYSV_STACK_SLOT_ALIGN: i32 = 8;
+export const NATIVE_ABI_SYSV_GPR_ARG_COUNT: i32 = 6;
+export const NATIVE_ABI_SYSV_SSE_ARG_COUNT: i32 = 8;
+
+export const NATIVE_STACK_SLOT_INVALID: i32 = -1;
+export const NATIVE_STACK_SLOT_LOCAL: i32 = 1;
+export const NATIVE_STACK_SLOT_SPILL: i32 = 2;
+
+export const NATIVE_REG_ALLOC_INVALID: i32 = -1;
+export const NATIVE_REG_ALLOC_REGISTER: i32 = 1;
+export const NATIVE_REG_ALLOC_SPILL: i32 = 2;
+export const NATIVE_REG_ALLOC_GPR_COUNT: i32 = 7;
+
+export const NATIVE_ABI_REG_NONE: i32 = -1;
+export const NATIVE_ABI_REG_RAX: i32 = 0;
+export const NATIVE_ABI_REG_RCX: i32 = 1;
+export const NATIVE_ABI_REG_RDX: i32 = 2;
+export const NATIVE_ABI_REG_RBX: i32 = 3;
+export const NATIVE_ABI_REG_RSP: i32 = 4;
+export const NATIVE_ABI_REG_RBP: i32 = 5;
+export const NATIVE_ABI_REG_RSI: i32 = 6;
+export const NATIVE_ABI_REG_RDI: i32 = 7;
+export const NATIVE_ABI_REG_R8: i32 = 8;
+export const NATIVE_ABI_REG_R9: i32 = 9;
+export const NATIVE_ABI_REG_R10: i32 = 10;
+export const NATIVE_ABI_REG_R11: i32 = 11;
+export const NATIVE_ABI_REG_R12: i32 = 12;
+export const NATIVE_ABI_REG_R13: i32 = 13;
+export const NATIVE_ABI_REG_R14: i32 = 14;
+export const NATIVE_ABI_REG_R15: i32 = 15;
+export const NATIVE_ABI_REG_XMM0: i32 = 32;
+
+/// 功能说明：描述一个 ABI 位置，例如寄存器或栈参数槽。
+/// 参数说明：无；字段由 ABI lowering 填写。
+/// 返回值说明：无。
+export struct NativeAbiLocation {
+    class: i32,
+    role: i32,
+    reg: i32,
+    stack_offset: i32,
+    size: i32,
+    align: i32,
+}
+
+/// 功能说明：描述函数 ABI 签名的摘要。
+/// 参数说明：无；字段为返回值分类、参数计数和栈参数字节数等。
+/// 返回值说明：无。
+export struct NativeAbiSignature {
+    return_class: i32,
+    return_size: i32,
+    arg_count: i32,
+    gpr_arg_count: i32,
+    sse_arg_count: i32,
+    stack_arg_bytes: i32,
+}
+
+/// 功能说明：描述一个栈帧 slot 的固定偏移。
+/// 参数说明：无；offset 为相对 RBP 的负偏移，kind 区分 local/spill。
+/// 返回值说明：无。
+export struct NativeStackSlot {
+    kind: i32,
+    offset: i32,
+    size: i32,
+    align: i32,
+}
+
+/// 功能说明：描述 Linux x86_64 SysV v1 栈帧布局摘要。
+/// 参数说明：无；通过 `native_stack_frame_*` helper 分配和 finalize。
+/// 返回值说明：无。
+export struct NativeStackFrameLayout {
+    used_bytes: i32,
+    local_bytes: i32,
+    spill_bytes: i32,
+    outgoing_arg_bytes: i32,
+    frame_size: i32,
+    max_align: i32,
+    slot_count: i32,
+    uses_frame_pointer: i32,
+}
+
+/// 功能说明：描述一个 native v1 值的寄存器或 spill 分配结果。
+/// 参数说明：无；kind 区分 register/spill，reg 或 stack_offset 表示具体位置。
+/// 返回值说明：无。
+export struct NativeRegAllocResult {
+    kind: i32,
+    reg: i32,
+    stack_offset: i32,
+    size: i32,
+    align: i32,
+}
+
+/// 功能说明：保守寄存器分配器状态。
+/// 参数说明：无；通过 `native_reg_alloc_begin` 创建，通过 `native_reg_alloc_value` 分配。
+/// 返回值说明：无。
+export struct NativeRegAllocState {
+    frame: NativeStackFrameLayout,
+    next_gpr: i32,
+    allocated_regs: i32,
+    spill_slots: i32,
+    value_count: i32,
+}
+
+/// 功能说明：向上对齐非负整数。
+/// 参数说明：`value` 为待对齐值；`align` 为对齐粒度，非正数时返回原值。
+/// 返回值说明：返回按 `align` 向上对齐后的值。
+export fn native_abi_align_i32(value: i32, align: i32) i32 {
+    if value <= 0 || align <= 1 {
+        return value;
+    }
+    const rem: i32 = value % align;
+    if rem == 0 {
+        return value;
+    }
+    return value + (align - rem);
+}
+
+/// 功能说明：按 v1 ABI 合同对标量宽度做粗分类。
+/// 参数说明：`size` 为字节数；`is_float` 非零表示 f32/f64 浮点标量。
+/// 返回值说明：返回 `NATIVE_ABI_CLASS_*`；大于 8 字节的值走 memory。
+export fn native_abi_classify_scalar(size: i32, is_float: i32) i32 {
+    if size == 0 {
+        return NATIVE_ABI_CLASS_VOID;
+    }
+    if size < 0 {
+        return NATIVE_ABI_CLASS_INVALID;
+    }
+    if size > 8 {
+        return NATIVE_ABI_CLASS_MEMORY;
+    }
+    if is_float != 0 {
+        if size == 4 || size == 8 {
+            return NATIVE_ABI_CLASS_SSE;
+        }
+        return NATIVE_ABI_CLASS_INVALID;
+    }
+    return NATIVE_ABI_CLASS_INTEGER;
+}
+
+/// 功能说明：返回 Linux x86_64 SysV 第 `index` 个整数参数寄存器的角色 ID。
+/// 参数说明：`index` 为 0-based 参数寄存器下标。
+/// 返回值说明：返回寄存器 ID；超出 v1 GPR 参数寄存器数量时返回 `NATIVE_ABI_REG_NONE`。
+export fn native_abi_sysv_gpr_arg_reg(index: i32) i32 {
+    if index == 0 {
+        return NATIVE_ABI_REG_RDI;
+    }
+    if index == 1 {
+        return NATIVE_ABI_REG_RSI;
+    }
+    if index == 2 {
+        return NATIVE_ABI_REG_RDX;
+    }
+    if index == 3 {
+        return NATIVE_ABI_REG_RCX;
+    }
+    if index == 4 {
+        return NATIVE_ABI_REG_R8;
+    }
+    if index == 5 {
+        return NATIVE_ABI_REG_R9;
+    }
+    return NATIVE_ABI_REG_NONE;
+}
+
+/// 功能说明：返回 Linux x86_64 SysV 第 `index` 个 SSE 参数寄存器的角色 ID。
+/// 参数说明：`index` 为 0-based SSE 参数寄存器下标。
+/// 返回值说明：返回 XMM 寄存器 ID；超出 v1 SSE 参数寄存器数量时返回 `NATIVE_ABI_REG_NONE`。
+export fn native_abi_sysv_sse_arg_reg(index: i32) i32 {
+    if index < 0 || index >= NATIVE_ABI_SYSV_SSE_ARG_COUNT {
+        return NATIVE_ABI_REG_NONE;
+    }
+    return NATIVE_ABI_REG_XMM0 + index;
+}
+
+/// 功能说明：构造一个空 ABI 位置。
+/// 参数说明：无。
+/// 返回值说明：返回 class/role/reg 均为空的 `NativeAbiLocation`。
+export fn native_abi_empty_location() NativeAbiLocation {
+    return NativeAbiLocation{
+        class: NATIVE_ABI_CLASS_INVALID,
+        role: NATIVE_ABI_ROLE_NONE,
+        reg: NATIVE_ABI_REG_NONE,
+        stack_offset: 0,
+        size: 0,
+        align: 0,
+    };
+}
+
+fn native_abi_location(class: i32, role: i32, reg: i32, stack_offset: i32, size: i32, align: i32) NativeAbiLocation {
+    return NativeAbiLocation{
+        class: class,
+        role: role,
+        reg: reg,
+        stack_offset: stack_offset,
+        size: size,
+        align: align,
+    };
+}
+
+fn native_abi_scalar_align(size: i32) i32 {
+    if size <= 0 {
+        return 0;
+    }
+    if size >= NATIVE_ABI_SYSV_STACK_SLOT_ALIGN {
+        return NATIVE_ABI_SYSV_STACK_SLOT_ALIGN;
+    }
+    return size;
+}
+
+fn native_abi_stack_slot_size(size: i32) i32 {
+    if size <= NATIVE_ABI_SYSV_STACK_SLOT_ALIGN {
+        return NATIVE_ABI_SYSV_STACK_SLOT_ALIGN;
+    }
+    return native_abi_align_i32(size, NATIVE_ABI_SYSV_STACK_SLOT_ALIGN);
+}
+
+/// 功能说明：构造 Linux x86_64 SysV 签名摘要初值。
+/// 参数说明：`return_size` 为返回值字节数；`return_is_float` 非零表示 f32/f64。
+/// 返回值说明：返回参数计数清零、返回值已分类的 `NativeAbiSignature`。
+export fn native_abi_sysv_signature_begin(return_size: i32, return_is_float: i32) NativeAbiSignature {
+    return NativeAbiSignature{
+        return_class: native_abi_classify_scalar(return_size, return_is_float),
+        return_size: return_size,
+        arg_count: 0,
+        gpr_arg_count: 0,
+        sse_arg_count: 0,
+        stack_arg_bytes: 0,
+    };
+}
+
+/// 功能说明：按 Linux x86_64 SysV 规则返回标量返回值位置。
+/// 参数说明：`size` 为返回值字节数；`is_float` 非零表示 f32/f64。
+/// 返回值说明：返回 RAX/XMM0/memory-return/void/invalid 位置摘要。
+export fn native_abi_sysv_return_location(size: i32, is_float: i32) NativeAbiLocation {
+    const class: i32 = native_abi_classify_scalar(size, is_float);
+    if class == NATIVE_ABI_CLASS_VOID {
+        return native_abi_location(class, NATIVE_ABI_ROLE_NONE, NATIVE_ABI_REG_NONE, 0, 0, 0);
+    }
+    if class == NATIVE_ABI_CLASS_INTEGER {
+        return native_abi_location(class, NATIVE_ABI_ROLE_GPR_RETURN, NATIVE_ABI_REG_RAX, 0,
+            size, native_abi_scalar_align(size));
+    }
+    if class == NATIVE_ABI_CLASS_SSE {
+        return native_abi_location(class, NATIVE_ABI_ROLE_SSE_RETURN, NATIVE_ABI_REG_XMM0, 0,
+            size, native_abi_scalar_align(size));
+    }
+    if class == NATIVE_ABI_CLASS_MEMORY {
+        return native_abi_location(class, NATIVE_ABI_ROLE_MEMORY_RETURN, NATIVE_ABI_REG_NONE, 0,
+            size, NATIVE_ABI_SYSV_STACK_SLOT_ALIGN);
+    }
+    return native_abi_empty_location();
+}
+
+/// 功能说明：返回 SysV memory return 的隐藏 sret 指针参数位置。
+/// 参数说明：无。
+/// 返回值说明：返回 RDI 中的 8 字节整数指针位置。
+export fn native_abi_sysv_sret_pointer_location() NativeAbiLocation {
+    return native_abi_location(NATIVE_ABI_CLASS_INTEGER, NATIVE_ABI_ROLE_GPR_ARG,
+        NATIVE_ABI_REG_RDI, 0, 8, NATIVE_ABI_SYSV_STACK_SLOT_ALIGN);
+}
+
+/// 功能说明：按 Linux x86_64 SysV 规则给下一个参数分配位置，并更新签名计数。
+/// 参数说明：`sig` 为签名摘要；`size` 为参数字节数；`is_float` 非零表示 f32/f64。
+/// 返回值说明：返回参数位置；寄存器耗尽或 memory class 时返回栈参数槽。
+export fn native_abi_sysv_place_arg(sig: &NativeAbiSignature, size: i32, is_float: i32) NativeAbiLocation {
+    if sig == null {
+        return native_abi_empty_location();
+    }
+    const class: i32 = native_abi_classify_scalar(size, is_float);
+    if class == NATIVE_ABI_CLASS_INVALID {
+        return native_abi_empty_location();
+    }
+    if class == NATIVE_ABI_CLASS_VOID {
+        return native_abi_location(class, NATIVE_ABI_ROLE_NONE, NATIVE_ABI_REG_NONE, 0, 0, 0);
+    }
+    sig.arg_count = sig.arg_count + 1;
+    if class == NATIVE_ABI_CLASS_INTEGER && sig.gpr_arg_count < NATIVE_ABI_SYSV_GPR_ARG_COUNT {
+        const reg: i32 = native_abi_sysv_gpr_arg_reg(sig.gpr_arg_count);
+        sig.gpr_arg_count = sig.gpr_arg_count + 1;
+        return native_abi_location(class, NATIVE_ABI_ROLE_GPR_ARG, reg, 0,
+            size, native_abi_scalar_align(size));
+    }
+    if class == NATIVE_ABI_CLASS_SSE && sig.sse_arg_count < NATIVE_ABI_SYSV_SSE_ARG_COUNT {
+        const sse_reg: i32 = native_abi_sysv_sse_arg_reg(sig.sse_arg_count);
+        sig.sse_arg_count = sig.sse_arg_count + 1;
+        return native_abi_location(class, NATIVE_ABI_ROLE_SSE_ARG, sse_reg, 0,
+            size, native_abi_scalar_align(size));
+    }
+    const offset: i32 = native_abi_align_i32(sig.stack_arg_bytes, NATIVE_ABI_SYSV_STACK_SLOT_ALIGN);
+    const slot_size: i32 = native_abi_stack_slot_size(size);
+    sig.stack_arg_bytes = offset + slot_size;
+    return native_abi_location(class, NATIVE_ABI_ROLE_STACK_ARG, NATIVE_ABI_REG_NONE, offset,
+        size, NATIVE_ABI_SYSV_STACK_SLOT_ALIGN);
+}
+
+/// 功能说明：返回按 SysV call-site 对齐后的栈参数字节数。
+/// 参数说明：`sig` 为已分配参数的签名摘要。
+/// 返回值说明：返回按 16 字节对齐后的栈参数区域大小；空签名返回 `0`。
+export fn native_abi_sysv_aligned_stack_arg_bytes(sig: &NativeAbiSignature) i32 {
+    if sig == null {
+        return 0;
+    }
+    return native_abi_align_i32(sig.stack_arg_bytes, NATIVE_ABI_SYSV_STACK_ALIGN);
+}
+
+fn native_stack_slot_invalid() NativeStackSlot {
+    return NativeStackSlot{
+        kind: NATIVE_STACK_SLOT_INVALID,
+        offset: 0,
+        size: 0,
+        align: 0,
+    };
+}
+
+fn native_stack_slot_size(size: i32, align: i32) i32 {
+    if size <= 0 {
+        return -1;
+    }
+    var effective_align: i32 = align;
+    if effective_align <= 0 {
+        effective_align = 1;
+    }
+    return native_abi_align_i32(size, effective_align);
+}
+
+fn native_stack_frame_add_slot(frame: &NativeStackFrameLayout, size: i32, align: i32, kind: i32) NativeStackSlot {
+    if frame == null {
+        return native_stack_slot_invalid();
+    }
+    var effective_align: i32 = align;
+    if effective_align <= 0 {
+        effective_align = 1;
+    }
+    const slot_size: i32 = native_stack_slot_size(size, effective_align);
+    if slot_size <= 0 {
+        return native_stack_slot_invalid();
+    }
+    const aligned_used: i32 = native_abi_align_i32(frame.used_bytes, effective_align);
+    const new_used: i32 = aligned_used + slot_size;
+    frame.used_bytes = new_used;
+    if kind == NATIVE_STACK_SLOT_LOCAL {
+        frame.local_bytes = frame.local_bytes + slot_size;
+    } else if kind == NATIVE_STACK_SLOT_SPILL {
+        frame.spill_bytes = frame.spill_bytes + slot_size;
+    }
+    if effective_align > frame.max_align {
+        frame.max_align = effective_align;
+    }
+    frame.slot_count = frame.slot_count + 1;
+    frame.frame_size = native_abi_align_i32(frame.used_bytes + frame.outgoing_arg_bytes,
+        NATIVE_ABI_SYSV_STACK_ALIGN);
+    return NativeStackSlot{
+        kind: kind,
+        offset: -new_used,
+        size: size,
+        align: effective_align,
+    };
+}
+
+/// 功能说明：创建空的 Linux x86_64 SysV 栈帧布局。
+/// 参数说明：无。
+/// 返回值说明：返回使用 RBP frame pointer、16 字节对齐的空布局。
+export fn native_stack_frame_begin() NativeStackFrameLayout {
+    return NativeStackFrameLayout{
+        used_bytes: 0,
+        local_bytes: 0,
+        spill_bytes: 0,
+        outgoing_arg_bytes: 0,
+        frame_size: 0,
+        max_align: NATIVE_ABI_SYSV_STACK_ALIGN,
+        slot_count: 0,
+        uses_frame_pointer: 1,
+    };
+}
+
+/// 功能说明：在当前栈帧中分配一个 local slot。
+/// 参数说明：`frame` 为栈帧布局；`size`/`align` 为 slot 字节数和对齐。
+/// 返回值说明：成功返回相对 RBP 的负偏移 slot；失败返回 invalid slot。
+export fn native_stack_frame_add_local(frame: &NativeStackFrameLayout, size: i32, align: i32) NativeStackSlot {
+    return native_stack_frame_add_slot(frame, size, align, NATIVE_STACK_SLOT_LOCAL);
+}
+
+/// 功能说明：在当前栈帧中分配一个 spill slot。
+/// 参数说明：`frame` 为栈帧布局；`size`/`align` 为 spill 字节数和对齐。
+/// 返回值说明：成功返回相对 RBP 的负偏移 slot；失败返回 invalid slot。
+export fn native_stack_frame_add_spill(frame: &NativeStackFrameLayout, size: i32, align: i32) NativeStackSlot {
+    return native_stack_frame_add_slot(frame, size, align, NATIVE_STACK_SLOT_SPILL);
+}
+
+/// 功能说明：设置当前函数为 call-site 预留的 outgoing stack-arg 字节数。
+/// 参数说明：`frame` 为栈帧布局；`bytes` 为所需栈参数区域大小。
+/// 返回值说明：成功返回 `0`，参数无效返回 `-1`。
+export fn native_stack_frame_set_outgoing_arg_bytes(frame: &NativeStackFrameLayout, bytes: i32) i32 {
+    if frame == null || bytes < 0 {
+        return -1;
+    }
+    frame.outgoing_arg_bytes = native_abi_align_i32(bytes, NATIVE_ABI_SYSV_STACK_ALIGN);
+    frame.frame_size = native_abi_align_i32(frame.used_bytes + frame.outgoing_arg_bytes,
+        NATIVE_ABI_SYSV_STACK_ALIGN);
+    return 0;
+}
+
+/// 功能说明：完成栈帧布局，刷新最终 `sub rsp, frame_size` 字节数。
+/// 参数说明：`frame` 为栈帧布局。
+/// 返回值说明：返回 16 字节对齐后的 frame size；参数无效返回 `0`。
+export fn native_stack_frame_finalize(frame: &NativeStackFrameLayout) i32 {
+    if frame == null {
+        return 0;
+    }
+    frame.frame_size = native_abi_align_i32(frame.used_bytes + frame.outgoing_arg_bytes,
+        NATIVE_ABI_SYSV_STACK_ALIGN);
+    return frame.frame_size;
+}
+
+fn native_reg_alloc_invalid_result(size: i32, align: i32) NativeRegAllocResult {
+    return NativeRegAllocResult{
+        kind: NATIVE_REG_ALLOC_INVALID,
+        reg: NATIVE_ABI_REG_NONE,
+        stack_offset: 0,
+        size: size,
+        align: align,
+    };
+}
+
+/// 功能说明：返回 v1 保守分配器第 `index` 个可用 GPR。
+/// 参数说明：`index` 为 0-based scratch GPR 下标。
+/// 返回值说明：返回 caller-saved GPR；越界返回 `NATIVE_ABI_REG_NONE`。
+export fn native_reg_alloc_gpr(index: i32) i32 {
+    if index == 0 {
+        return NATIVE_ABI_REG_R10;
+    }
+    if index == 1 {
+        return NATIVE_ABI_REG_R11;
+    }
+    if index == 2 {
+        return NATIVE_ABI_REG_RAX;
+    }
+    if index == 3 {
+        return NATIVE_ABI_REG_RCX;
+    }
+    if index == 4 {
+        return NATIVE_ABI_REG_RDX;
+    }
+    if index == 5 {
+        return NATIVE_ABI_REG_R8;
+    }
+    if index == 6 {
+        return NATIVE_ABI_REG_R9;
+    }
+    return NATIVE_ABI_REG_NONE;
+}
+
+/// 功能说明：创建空的保守寄存器分配器状态。
+/// 参数说明：无。
+/// 返回值说明：返回未分配任何值、持有空栈帧布局的状态。
+export fn native_reg_alloc_begin() NativeRegAllocState {
+    return NativeRegAllocState{
+        frame: native_stack_frame_begin(),
+        next_gpr: 0,
+        allocated_regs: 0,
+        spill_slots: 0,
+        value_count: 0,
+    };
+}
+
+/// 功能说明：为一个 native v1 值分配 register 或 spill slot。
+/// 参数说明：`state` 为分配器状态；`size`/`align` 为值的字节数和对齐。
+/// 返回值说明：8 字节以内优先返回 scratch GPR；寄存器耗尽或值过大则返回 spill slot。
+export fn native_reg_alloc_value(state: &NativeRegAllocState, size: i32, align: i32) NativeRegAllocResult {
+    if state == null || size <= 0 {
+        return native_reg_alloc_invalid_result(size, align);
+    }
+    var effective_align: i32 = align;
+    if effective_align <= 0 {
+        effective_align = 1;
+    }
+    state.value_count = state.value_count + 1;
+    if size <= 8 && state.next_gpr < NATIVE_REG_ALLOC_GPR_COUNT {
+        const reg: i32 = native_reg_alloc_gpr(state.next_gpr);
+        if reg != NATIVE_ABI_REG_NONE {
+            state.next_gpr = state.next_gpr + 1;
+            state.allocated_regs = state.allocated_regs + 1;
+            return NativeRegAllocResult{
+                kind: NATIVE_REG_ALLOC_REGISTER,
+                reg: reg,
+                stack_offset: 0,
+                size: size,
+                align: effective_align,
+            };
+        }
+    }
+    const slot: NativeStackSlot = native_stack_frame_add_spill(&state.frame, size, effective_align);
+    if slot.kind == NATIVE_STACK_SLOT_INVALID {
+        return native_reg_alloc_invalid_result(size, effective_align);
+    }
+    state.spill_slots = state.spill_slots + 1;
+    return NativeRegAllocResult{
+        kind: NATIVE_REG_ALLOC_SPILL,
+        reg: NATIVE_ABI_REG_NONE,
+        stack_offset: slot.offset,
+        size: size,
+        align: slot.align,
+    };
+}
+
+/// 功能说明：完成保守寄存器分配器持有的栈帧布局。
+/// 参数说明：`state` 为分配器状态。
+/// 返回值说明：返回最终 frame size；参数无效返回 `0`。
+export fn native_reg_alloc_finalize_frame(state: &NativeRegAllocState) i32 {
+    if state == null {
+        return 0;
+    }
+    return native_stack_frame_finalize(&state.frame);
+}

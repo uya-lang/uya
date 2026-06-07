@@ -1,0 +1,8 @@
+use compiler_driver;
+
+/// `cmd/check` 独立可执行入口。
+/// 参数说明：无，直接读取进程 argv。
+/// 返回值说明：返回 checker-only CLI 的退出码。
+export fn main() i32 {
+    return compiler_driver_check_main();
+}

@@ -1,0 +1,1021 @@
+// codegen/native_build/main.uya - build-seed native executable writer.
+//
+// This module is intentionally smaller than codegen.native.* so cmd/build can
+// grow a first native output path without pulling the full native backend into
+// the build seed. It writes tiny Linux x86_64 nostdlib executables for a narrow
+// no-arg i32 function subset.
+
+use libc.FILE;
+use libc.fclose;
+use libc.fflush;
+use libc.fopen;
+use libc.free;
+use libc.fwrite;
+use libc.malloc;
+use codegen.native.machine;
+use lower.core;
+use semantic;
+
+export const NATIVE_BUILD_EMIT_STATUS_OK: i32 = 0;
+export const NATIVE_BUILD_EMIT_STATUS_ERROR: i32 = -1;
+export const NATIVE_BUILD_TARGET_LINUX_X86_64: i32 = 1;
+export const NATIVE_BUILD_MIN_EXEC_HEADERS: i32 = 120;
+export const NATIVE_BUILD_EXIT0_CODE_SIZE: i32 = 9;
+export const NATIVE_BUILD_EXIT_CODE_MAX_SIZE: i32 = 12;
+export const NATIVE_BUILD_RETURN_CONST_I32: i32 = 1;
+export const NATIVE_BUILD_RETURN_CALL: i32 = 2;
+export const NATIVE_BUILD_RETURN_ADD_CALLS: i32 = 3;
+export const NATIVE_BUILD_RETURN_PARAM0_I32: i32 = 4;
+export const NATIVE_BUILD_RETURN_CALL_CONST1: i32 = 5;
+export const NATIVE_BUILD_RETURN_CALL_CONST2: i32 = 6;
+export const NATIVE_BUILD_RETURN_ADD_PARAMS_I32: i32 = 7;
+export const NATIVE_BUILD_RETURN_STORE_PARAM0_CONST_I32: i32 = 8;
+export const NATIVE_BUILD_RETURN_CALL_ADDR1_LOCAL_I32: i32 = 9;
+
+const NB_EHDR_SIZE: i32 = 64;
+const NB_PHDR_SIZE: i32 = 56;
+const NB_LOAD_VADDR: i64 = 4194304i64;
+const NB_ET_EXEC: i32 = 2;
+const NB_EM_X86_64: i32 = 62;
+const NB_PT_LOAD: i32 = 1;
+const NB_PF_X: i32 = 1;
+const NB_PF_R: i32 = 4;
+const NB_START_CODE_SIZE: usize = 14usize;
+const NB_FUNCTION_CODE_SIZE: usize = 32usize;
+
+/// 功能说明：build-seed native writer 可编码的极小函数计划。
+/// 参数说明：无；`return_kind` 为常量返回、无参 direct call 或两个 direct call 的 i32 加法；call target 为函数下标。
+/// 返回值说明：无。
+export struct NativeBuildFunctionPlan {
+    return_kind: i32,
+    return_value: i32,
+    call_target: i32,
+    call_target_right: i32,
+    call_arg0_value: i32,
+    call_arg1_value: i32,
+}
+
+/// 功能说明：build-seed native writer 的输出摘要。
+/// 参数说明：无；字段由 native build writer 填充，machine 字段记录 LoweredProgram 导入机器 IR 后的规模。
+/// 返回值说明：无。
+export struct NativeBuildEmitResult {
+    status: i32,
+    target: i32,
+    code_bytes: usize,
+    output_bytes: usize,
+    temp_peak_bytes: usize,
+    machine_function_count: usize,
+    machine_inst_count: usize,
+    machine_peak_bytes: usize,
+}
+
+fn native_build_emit_error() NativeBuildEmitResult {
+    return NativeBuildEmitResult{
+        status: NATIVE_BUILD_EMIT_STATUS_ERROR,
+        target: NATIVE_BUILD_TARGET_LINUX_X86_64,
+        code_bytes: 0usize,
+        output_bytes: 0usize,
+        temp_peak_bytes: 0usize,
+        machine_function_count: 0usize,
+        machine_inst_count: 0usize,
+        machine_peak_bytes: 0usize,
+    };
+}
+
+fn nb_put_u8(buf: &byte, off: usize, val: i32) void {
+    buf[off] = ((val & 255) as! byte).value;
+}
+
+fn nb_put_u16(buf: &byte, off: usize, val: i32) void {
+    nb_put_u8(buf, off, val);
+    nb_put_u8(buf, off + 1usize, val >> 8);
+}
+
+fn nb_put_u32(buf: &byte, off: usize, val: i64) void {
+    nb_put_u8(buf, off, (val & 255i64) as i32);
+    nb_put_u8(buf, off + 1usize, ((val >> 8) & 255i64) as i32);
+    nb_put_u8(buf, off + 2usize, ((val >> 16) & 255i64) as i32);
+    nb_put_u8(buf, off + 3usize, ((val >> 24) & 255i64) as i32);
+}
+
+fn nb_put_u64(buf: &byte, off: usize, val: i64) void {
+    nb_put_u32(buf, off, val);
+    nb_put_u32(buf, off + 4usize, val >> 32);
+}
+
+fn nb_code_put_u8(buf: &byte, cap: usize, pos: &usize, val: i32) i32 {
+    if buf == null || pos == null || *pos >= cap {
+        return -1;
+    }
+    nb_put_u8(buf, *pos, val);
+    *pos = *pos + 1usize;
+    return 0;
+}
+
+fn nb_code_put_u32(buf: &byte, cap: usize, pos: &usize, val: i64) i32 {
+    if buf == null || pos == null || cap - *pos < 4usize {
+        return -1;
+    }
+    nb_put_u32(buf, *pos, val);
+    *pos = *pos + 4usize;
+    return 0;
+}
+
+fn nb_emit_mov_eax_imm32(buf: &byte, cap: usize, pos: &usize, imm: i32) i32 {
+    if nb_code_put_u8(buf, cap, pos, 184) != 0 {
+        return -1;
+    }
+    return nb_code_put_u32(buf, cap, pos, imm as i64);
+}
+
+fn nb_emit_mov_edi_imm32(buf: &byte, cap: usize, pos: &usize, imm: i32) i32 {
+    if nb_code_put_u8(buf, cap, pos, 191) != 0 {
+        return -1;
+    }
+    return nb_code_put_u32(buf, cap, pos, imm as i64);
+}
+
+fn nb_emit_mov_esi_imm32(buf: &byte, cap: usize, pos: &usize, imm: i32) i32 {
+    if nb_code_put_u8(buf, cap, pos, 190) != 0 {
+        return -1;
+    }
+    return nb_code_put_u32(buf, cap, pos, imm as i64);
+}
+
+fn nb_emit_mov_eax_edi(buf: &byte, cap: usize, pos: &usize) i32 {
+    if nb_code_put_u8(buf, cap, pos, 137) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, 248);
+}
+
+fn nb_emit_mov_edi_eax(buf: &byte, cap: usize, pos: &usize) i32 {
+    if nb_code_put_u8(buf, cap, pos, 137) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, 199);
+}
+
+fn nb_emit_syscall(buf: &byte, cap: usize, pos: &usize) i32 {
+    if nb_code_put_u8(buf, cap, pos, 15) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, 5);
+}
+
+fn nb_emit_ret(buf: &byte, cap: usize, pos: &usize) i32 {
+    return nb_code_put_u8(buf, cap, pos, 195);
+}
+
+fn nb_checked_rel32(call_offset: usize, target_offset: usize, out_rel: &i32) i32 {
+    if out_rel == null {
+        return -1;
+    }
+    const call_next_result: !i64 = (call_offset + 5usize) as! i64;
+    const call_next: i64 = call_next_result catch {
+        return -1;
+    };
+    const target_result: !i64 = target_offset as! i64;
+    const target: i64 = target_result catch {
+        return -1;
+    };
+    const rel: i64 = target - call_next;
+    const rel_result: !i32 = rel as! i32;
+    *out_rel = rel_result catch {
+        return -1;
+    };
+    return 0;
+}
+
+fn nb_emit_call_rel32(buf: &byte, cap: usize, pos: &usize, target_offset: usize) i32 {
+    if pos == null {
+        return -1;
+    }
+    var rel: i32 = 0;
+    if nb_checked_rel32(*pos, target_offset, &rel) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 232) != 0 {
+        return -1;
+    }
+    return nb_code_put_u32(buf, cap, pos, rel as i64);
+}
+
+fn nb_emit_push_rax(buf: &byte, cap: usize, pos: &usize) i32 {
+    return nb_code_put_u8(buf, cap, pos, 80);
+}
+
+fn nb_emit_pop_rcx(buf: &byte, cap: usize, pos: &usize) i32 {
+    return nb_code_put_u8(buf, cap, pos, 89);
+}
+
+fn nb_emit_add_eax_ecx(buf: &byte, cap: usize, pos: &usize) i32 {
+    if nb_code_put_u8(buf, cap, pos, 1) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, 200);
+}
+
+fn nb_emit_add_eax_esi(buf: &byte, cap: usize, pos: &usize) i32 {
+    if nb_code_put_u8(buf, cap, pos, 1) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, 240);
+}
+
+fn nb_emit_sub_rsp_8(buf: &byte, cap: usize, pos: &usize) i32 {
+    if nb_code_put_u8(buf, cap, pos, 72) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 131) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 236) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, 8);
+}
+
+fn nb_emit_add_rsp_8(buf: &byte, cap: usize, pos: &usize) i32 {
+    if nb_code_put_u8(buf, cap, pos, 72) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 131) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 196) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, 8);
+}
+
+fn nb_emit_mov_stack_i32_imm32(buf: &byte, cap: usize, pos: &usize, imm: i32) i32 {
+    if nb_code_put_u8(buf, cap, pos, 199) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 4) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 36) != 0 {
+        return -1;
+    }
+    return nb_code_put_u32(buf, cap, pos, imm as i64);
+}
+
+fn nb_emit_lea_rdi_rsp(buf: &byte, cap: usize, pos: &usize) i32 {
+    if nb_code_put_u8(buf, cap, pos, 72) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 141) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 60) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, 36);
+}
+
+fn nb_emit_mov_eax_stack_i32(buf: &byte, cap: usize, pos: &usize) i32 {
+    if nb_code_put_u8(buf, cap, pos, 139) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 4) != 0 {
+        return -1;
+    }
+    return nb_code_put_u8(buf, cap, pos, 36);
+}
+
+fn nb_emit_mov_ptr_rdi_i32_imm32(buf: &byte, cap: usize, pos: &usize, imm: i32) i32 {
+    if nb_code_put_u8(buf, cap, pos, 199) != 0 {
+        return -1;
+    }
+    if nb_code_put_u8(buf, cap, pos, 7) != 0 {
+        return -1;
+    }
+    return nb_code_put_u32(buf, cap, pos, imm as i64);
+}
+
+fn nb_emit_nop(buf: &byte, cap: usize, pos: &usize) i32 {
+    return nb_code_put_u8(buf, cap, pos, 144);
+}
+
+fn nb_function_offset(index: i32) usize {
+    if index < 0 {
+        return 0usize;
+    }
+    return NB_START_CODE_SIZE + (index as usize) * NB_FUNCTION_CODE_SIZE;
+}
+
+fn nb_function_program_code_size(function_count: i32) usize {
+    if function_count <= 0 {
+        return 0usize;
+    }
+    return NB_START_CODE_SIZE + (function_count as usize) * NB_FUNCTION_CODE_SIZE;
+}
+
+fn nb_encode_header(buf: &byte, cap: usize, total: usize) i32 {
+    if buf == null || cap < (NATIVE_BUILD_MIN_EXEC_HEADERS as usize) {
+        return -1;
+    }
+    const total_i64_result: !i64 = total as! i64;
+    const total_i64: i64 = total_i64_result catch {
+        return -1;
+    };
+    const entry: i64 = NB_LOAD_VADDR + (NATIVE_BUILD_MIN_EXEC_HEADERS as i64);
+
+    nb_put_u8(buf, 0usize, 127);
+    nb_put_u8(buf, 1usize, 69);
+    nb_put_u8(buf, 2usize, 76);
+    nb_put_u8(buf, 3usize, 70);
+    nb_put_u8(buf, 4usize, 2);
+    nb_put_u8(buf, 5usize, 1);
+    nb_put_u8(buf, 6usize, 1);
+    nb_put_u8(buf, 7usize, 0);
+    var pad: usize = 8usize;
+    while pad < 16usize {
+        nb_put_u8(buf, pad, 0);
+        pad = pad + 1usize;
+    }
+    nb_put_u16(buf, 16usize, NB_ET_EXEC);
+    nb_put_u16(buf, 18usize, NB_EM_X86_64);
+    nb_put_u32(buf, 20usize, 1i64);
+    nb_put_u64(buf, 24usize, entry);
+    nb_put_u64(buf, 32usize, NB_EHDR_SIZE as i64);
+    nb_put_u64(buf, 40usize, 0i64);
+    nb_put_u32(buf, 48usize, 0i64);
+    nb_put_u16(buf, 52usize, NB_EHDR_SIZE);
+    nb_put_u16(buf, 54usize, NB_PHDR_SIZE);
+    nb_put_u16(buf, 56usize, 1);
+    nb_put_u16(buf, 58usize, 64);
+    nb_put_u16(buf, 60usize, 0);
+    nb_put_u16(buf, 62usize, 0);
+
+    const ph: usize = NB_EHDR_SIZE as usize;
+    nb_put_u32(buf, ph + 0usize, NB_PT_LOAD as i64);
+    nb_put_u32(buf, ph + 4usize, (NB_PF_R + NB_PF_X) as i64);
+    nb_put_u64(buf, ph + 8usize, 0i64);
+    nb_put_u64(buf, ph + 16usize, NB_LOAD_VADDR);
+    nb_put_u64(buf, ph + 24usize, NB_LOAD_VADDR);
+    nb_put_u64(buf, ph + 32usize, total_i64);
+    nb_put_u64(buf, ph + 40usize, total_i64);
+    nb_put_u64(buf, ph + 48usize, 4096i64);
+    return 0;
+}
+
+fn nb_encode_exit0_code(buf: &byte, cap: usize, out_len: &usize) i32 {
+    if out_len == null {
+        return -1;
+    }
+    if buf == null || cap < (NATIVE_BUILD_EXIT0_CODE_SIZE as usize) {
+        return -1;
+    }
+    nb_put_u8(buf, 0usize, 184);
+    nb_put_u32(buf, 1usize, 60i64);
+    nb_put_u8(buf, 5usize, 49);
+    nb_put_u8(buf, 6usize, 255);
+    nb_put_u8(buf, 7usize, 15);
+    nb_put_u8(buf, 8usize, 5);
+    *out_len = NATIVE_BUILD_EXIT0_CODE_SIZE as usize;
+    return 0;
+}
+
+fn nb_encode_exit_code(buf: &byte, cap: usize, exit_code: i32, out_len: &usize) i32 {
+    if out_len == null || exit_code < 0 || exit_code > 255 {
+        return -1;
+    }
+    if exit_code == 0 {
+        return nb_encode_exit0_code(buf, cap, out_len);
+    }
+    if buf == null || cap < (NATIVE_BUILD_EXIT_CODE_MAX_SIZE as usize) {
+        return -1;
+    }
+    nb_put_u8(buf, 0usize, 184);
+    nb_put_u32(buf, 1usize, 60i64);
+    nb_put_u8(buf, 5usize, 191);
+    nb_put_u32(buf, 6usize, exit_code as i64);
+    nb_put_u8(buf, 10usize, 15);
+    nb_put_u8(buf, 11usize, 5);
+    *out_len = NATIVE_BUILD_EXIT_CODE_MAX_SIZE as usize;
+    return 0;
+}
+
+/// 功能说明：向 FILE streaming 写出 Linux x86_64 常量退出码最小 executable。
+/// 参数说明：`stream` 为已打开的输出流，调用方负责关闭。
+/// 返回值说明：成功时 `status == 0`，失败时 `status == -1`。
+export fn native_build_emit_exit_code_stream(stream: &FILE, exit_code: i32) NativeBuildEmitResult {
+    if stream == null {
+        return native_build_emit_error();
+    }
+    var headers: [byte: NATIVE_BUILD_MIN_EXEC_HEADERS] = [];
+    var code: [byte: NATIVE_BUILD_EXIT_CODE_MAX_SIZE] = [];
+    const headers_size: usize = NATIVE_BUILD_MIN_EXEC_HEADERS as usize;
+    var code_size: usize = 0usize;
+    if nb_encode_exit_code(&code[0], NATIVE_BUILD_EXIT_CODE_MAX_SIZE as usize, exit_code, &code_size) != 0 {
+        return native_build_emit_error();
+    }
+    const total_size: usize = headers_size + code_size;
+
+    if nb_encode_header(&headers[0], headers_size, total_size) != 0 {
+        return native_build_emit_error();
+    }
+    if fwrite(&headers[0] as &const byte, 1usize, headers_size, stream) != headers_size {
+        return native_build_emit_error();
+    }
+    if fwrite(&code[0] as &const byte, 1usize, code_size, stream) != code_size {
+        return native_build_emit_error();
+    }
+    if fflush(stream) != 0 {
+        return native_build_emit_error();
+    }
+    return NativeBuildEmitResult{
+        status: NATIVE_BUILD_EMIT_STATUS_OK,
+        target: NATIVE_BUILD_TARGET_LINUX_X86_64,
+        code_bytes: code_size,
+        output_bytes: total_size,
+        temp_peak_bytes: headers_size + code_size,
+        machine_function_count: 0usize,
+        machine_inst_count: 0usize,
+        machine_peak_bytes: 0usize,
+    };
+}
+
+/// 功能说明：向 FILE streaming 写出 Linux x86_64 `exit(0)` 最小 executable。
+/// 参数说明：`stream` 为已打开的输出流，调用方负责关闭。
+/// 返回值说明：成功时 `status == 0`，失败时 `status == -1`。
+export fn native_build_emit_exit0_stream(stream: &FILE) NativeBuildEmitResult {
+    return native_build_emit_exit_code_stream(stream, 0);
+}
+
+fn native_build_emit_function_code(code: &byte, code_size: usize,
+    plans: &NativeBuildFunctionPlan, function_count: i32, entry_index: i32) i32 {
+    if code == null || plans == null || function_count <= 0 ||
+       entry_index < 0 || entry_index >= function_count {
+        return -1;
+    }
+    if code_size != nb_function_program_code_size(function_count) {
+        return -1;
+    }
+
+    var pos: usize = 0usize;
+    if nb_emit_call_rel32(code, code_size, &pos, nb_function_offset(entry_index)) != 0 {
+        return -1;
+    }
+    if nb_emit_mov_edi_eax(code, code_size, &pos) != 0 {
+        return -1;
+    }
+    if nb_emit_mov_eax_imm32(code, code_size, &pos, 60) != 0 {
+        return -1;
+    }
+    if nb_emit_syscall(code, code_size, &pos) != 0 {
+        return -1;
+    }
+
+    var i: i32 = 0;
+    while i < function_count {
+        if pos != nb_function_offset(i) {
+            return -1;
+        }
+        const plan: &NativeBuildFunctionPlan = &plans[i];
+        const function_end: usize = nb_function_offset(i + 1);
+        if plan.return_kind == NATIVE_BUILD_RETURN_CONST_I32 {
+            if nb_emit_mov_eax_imm32(code, code_size, &pos, plan.return_value) != 0 {
+                return -1;
+            }
+        } else if plan.return_kind == NATIVE_BUILD_RETURN_PARAM0_I32 {
+            if nb_emit_mov_eax_edi(code, code_size, &pos) != 0 {
+                return -1;
+            }
+        } else if plan.return_kind == NATIVE_BUILD_RETURN_CALL {
+            if plan.call_target < 0 || plan.call_target >= function_count {
+                return -1;
+            }
+            if nb_emit_call_rel32(code, code_size, &pos, nb_function_offset(plan.call_target)) != 0 {
+                return -1;
+            }
+        } else if plan.return_kind == NATIVE_BUILD_RETURN_ADD_CALLS {
+            if plan.call_target < 0 || plan.call_target >= function_count ||
+               plan.call_target_right < 0 || plan.call_target_right >= function_count {
+                return -1;
+            }
+            if nb_emit_call_rel32(code, code_size, &pos, nb_function_offset(plan.call_target)) != 0 {
+                return -1;
+            }
+            if nb_emit_push_rax(code, code_size, &pos) != 0 {
+                return -1;
+            }
+            if nb_emit_call_rel32(code, code_size, &pos, nb_function_offset(plan.call_target_right)) != 0 {
+                return -1;
+            }
+            if nb_emit_pop_rcx(code, code_size, &pos) != 0 {
+                return -1;
+            }
+            if nb_emit_add_eax_ecx(code, code_size, &pos) != 0 {
+                return -1;
+            }
+        } else if plan.return_kind == NATIVE_BUILD_RETURN_CALL_CONST1 {
+            if plan.call_target < 0 || plan.call_target >= function_count {
+                return -1;
+            }
+            if nb_emit_mov_edi_imm32(code, code_size, &pos, plan.call_arg0_value) != 0 {
+                return -1;
+            }
+            if nb_emit_call_rel32(code, code_size, &pos, nb_function_offset(plan.call_target)) != 0 {
+                return -1;
+            }
+        } else if plan.return_kind == NATIVE_BUILD_RETURN_CALL_CONST2 {
+            if plan.call_target < 0 || plan.call_target >= function_count {
+                return -1;
+            }
+            if nb_emit_mov_edi_imm32(code, code_size, &pos, plan.call_arg0_value) != 0 {
+                return -1;
+            }
+            if nb_emit_mov_esi_imm32(code, code_size, &pos, plan.call_arg1_value) != 0 {
+                return -1;
+            }
+            if nb_emit_call_rel32(code, code_size, &pos, nb_function_offset(plan.call_target)) != 0 {
+                return -1;
+            }
+        } else if plan.return_kind == NATIVE_BUILD_RETURN_ADD_PARAMS_I32 {
+            if nb_emit_mov_eax_edi(code, code_size, &pos) != 0 {
+                return -1;
+            }
+            if nb_emit_add_eax_esi(code, code_size, &pos) != 0 {
+                return -1;
+            }
+        } else if plan.return_kind == NATIVE_BUILD_RETURN_STORE_PARAM0_CONST_I32 {
+            if nb_emit_mov_ptr_rdi_i32_imm32(code, code_size, &pos, plan.call_arg0_value) != 0 {
+                return -1;
+            }
+            if nb_emit_mov_eax_imm32(code, code_size, &pos, plan.return_value) != 0 {
+                return -1;
+            }
+        } else if plan.return_kind == NATIVE_BUILD_RETURN_CALL_ADDR1_LOCAL_I32 {
+            if plan.call_target < 0 || plan.call_target >= function_count {
+                return -1;
+            }
+            if nb_emit_sub_rsp_8(code, code_size, &pos) != 0 {
+                return -1;
+            }
+            if nb_emit_mov_stack_i32_imm32(code, code_size, &pos, plan.return_value) != 0 {
+                return -1;
+            }
+            if nb_emit_lea_rdi_rsp(code, code_size, &pos) != 0 {
+                return -1;
+            }
+            if nb_emit_call_rel32(code, code_size, &pos, nb_function_offset(plan.call_target)) != 0 {
+                return -1;
+            }
+            if nb_emit_mov_eax_stack_i32(code, code_size, &pos) != 0 {
+                return -1;
+            }
+            if nb_emit_add_rsp_8(code, code_size, &pos) != 0 {
+                return -1;
+            }
+        } else {
+            return -1;
+        }
+        if nb_emit_ret(code, code_size, &pos) != 0 {
+            return -1;
+        }
+        while pos < function_end {
+            if nb_emit_nop(code, code_size, &pos) != 0 {
+                return -1;
+            }
+        }
+        if pos != function_end {
+            return -1;
+        }
+        i = i + 1;
+    }
+    if pos != code_size {
+        return -1;
+    }
+    return 0;
+}
+
+/// 功能说明：按极小函数计划向 FILE streaming 写出 Linux x86_64 executable。
+/// 参数说明：`plans` 为函数计划数组，`function_count` 为函数数量，`entry_index` 为 main 下标。
+/// 返回值说明：成功时 `status == 0`，失败时 `status == -1`。
+export fn native_build_emit_function_program_stream(stream: &FILE,
+    plans: &NativeBuildFunctionPlan, function_count: i32, entry_index: i32) NativeBuildEmitResult {
+    if stream == null || plans == null || function_count <= 0 {
+        return native_build_emit_error();
+    }
+    const headers_size: usize = NATIVE_BUILD_MIN_EXEC_HEADERS as usize;
+    const code_size: usize = nb_function_program_code_size(function_count);
+    if code_size == 0usize {
+        return native_build_emit_error();
+    }
+    const code: &byte = malloc(code_size) as &byte;
+    if code == null {
+        return native_build_emit_error();
+    }
+    if native_build_emit_function_code(code, code_size, plans, function_count, entry_index) != 0 {
+        free(code as &void);
+        return native_build_emit_error();
+    }
+
+    var headers: [byte: NATIVE_BUILD_MIN_EXEC_HEADERS] = [];
+    const total_size: usize = headers_size + code_size;
+    if nb_encode_header(&headers[0], headers_size, total_size) != 0 {
+        free(code as &void);
+        return native_build_emit_error();
+    }
+    if fwrite(&headers[0] as &const byte, 1usize, headers_size, stream) != headers_size {
+        free(code as &void);
+        return native_build_emit_error();
+    }
+    if fwrite(code as &const byte, 1usize, code_size, stream) != code_size {
+        free(code as &void);
+        return native_build_emit_error();
+    }
+    if fflush(stream) != 0 {
+        free(code as &void);
+        return native_build_emit_error();
+    }
+    free(code as &void);
+    return NativeBuildEmitResult{
+        status: NATIVE_BUILD_EMIT_STATUS_OK,
+        target: NATIVE_BUILD_TARGET_LINUX_X86_64,
+        code_bytes: code_size,
+        output_bytes: total_size,
+        temp_peak_bytes: headers_size + code_size,
+        machine_function_count: 0usize,
+        machine_inst_count: 0usize,
+        machine_peak_bytes: 0usize,
+    };
+}
+
+/// 功能说明：按极小函数计划写出 Linux x86_64 native executable 文件。
+/// 参数说明：`path` 为 NUL 结尾输出路径；其余参数同 streaming 入口。
+/// 返回值说明：成功时 `status == 0`，失败时 `status == -1`。
+export fn native_build_emit_function_program_file(path: &byte,
+    plans: &NativeBuildFunctionPlan, function_count: i32, entry_index: i32) NativeBuildEmitResult {
+    if path == null {
+        return native_build_emit_error();
+    }
+    const fp: &FILE = fopen(path as &const byte, "wb" as &const byte);
+    if fp == null {
+        return native_build_emit_error();
+    }
+    const result: NativeBuildEmitResult = native_build_emit_function_program_stream(fp, plans, function_count, entry_index);
+    _ = fclose(fp);
+    return result;
+}
+
+fn native_build_machine_module_import_lowered(program: &LoweredProgram, module: &MachineModule) i32 {
+    if program == null || module == null || program.lifecycle_state != LOWERED_PROGRAM_LIFECYCLE_ACTIVE {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < program.functions.count {
+        const fn_item: &ConcreteFunction = semantic_vector_item_ptr(&program.functions, i) as &ConcreteFunction;
+        if fn_item == null || fn_item.body_start < 0 || fn_item.body_count < 0 {
+            return -1;
+        }
+        const function_index: i32 = machine_module_add_function(module, fn_item.function_id, fn_item.function_id);
+        if function_index < 0 {
+            return -1;
+        }
+        if fn_item.body_count > 0 {
+            const block_index: i32 = machine_function_add_block(module, function_index, fn_item.function_id);
+            if block_index < 0 {
+                return -1;
+            }
+            var body_i: i32 = 0;
+            while body_i < fn_item.body_count {
+                const op_index_result: !usize = (fn_item.body_start + body_i) as! usize;
+                const op_index: usize = op_index_result catch {
+                    return -1;
+                };
+                const op: &LoweredBodyOp = semantic_vector_item_ptr(&program.body_ops, op_index) as &LoweredBodyOp;
+                if op == null {
+                    return -1;
+                }
+                var inst: MachineInst = MachineInst{
+                    opcode: op.opcode,
+                    dst: op.dst,
+                    src0: op.src0,
+                    src1: op.src1,
+                    target_id: op.target_id,
+                    imm: op.imm,
+                    flags: op.flags,
+                };
+                if machine_block_add_inst(module, function_index, block_index, &inst) != 0 {
+                    return -1;
+                }
+                body_i = body_i + 1;
+            }
+        }
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn native_build_machine_inst_to_plan(inst: &MachineInst,
+    function_count: i32, out_plan: &NativeBuildFunctionPlan) i32 {
+    if inst == null || out_plan == null || function_count <= 0 {
+        return -1;
+    }
+    out_plan.return_kind = 0;
+    out_plan.return_value = 0;
+    out_plan.call_target = -1;
+    out_plan.call_target_right = -1;
+    out_plan.call_arg0_value = 0;
+    out_plan.call_arg1_value = 0;
+    if inst.opcode == LOWERED_BODY_OP_RETURN_CONST_I32 {
+        if inst.imm < 0i64 || inst.imm > 255i64 {
+            return -1;
+        }
+        const ret_result: !i32 = inst.imm as! i32;
+        out_plan.return_kind = NATIVE_BUILD_RETURN_CONST_I32;
+        out_plan.return_value = ret_result catch {
+            return -1;
+        };
+        return 0;
+    }
+    if inst.opcode == LOWERED_BODY_OP_RETURN_CALL {
+        if inst.target_id < 0 || inst.target_id >= function_count {
+            return -1;
+        }
+        out_plan.return_kind = NATIVE_BUILD_RETURN_CALL;
+        out_plan.call_target = inst.target_id;
+        return 0;
+    }
+    if inst.opcode == LOWERED_BODY_OP_RETURN_PARAM_I32 {
+        if inst.src0 != 0 {
+            return -1;
+        }
+        out_plan.return_kind = NATIVE_BUILD_RETURN_PARAM0_I32;
+        return 0;
+    }
+    if inst.opcode == LOWERED_BODY_OP_ADD_I32 {
+        if inst.src0 < 0 || inst.src0 >= function_count ||
+           inst.src1 < 0 || inst.src1 >= function_count {
+            return -1;
+        }
+        out_plan.return_kind = NATIVE_BUILD_RETURN_ADD_CALLS;
+        out_plan.call_target = inst.src0;
+        out_plan.call_target_right = inst.src1;
+        return 0;
+    }
+    if inst.opcode == LOWERED_BODY_OP_RETURN_ADD_PARAMS_I32 {
+        if inst.src0 != 0 || inst.src1 != 1 {
+            return -1;
+        }
+        out_plan.return_kind = NATIVE_BUILD_RETURN_ADD_PARAMS_I32;
+        return 0;
+    }
+    if inst.opcode == LOWERED_BODY_OP_STORE_PARAM0_CONST_I32 {
+        const store_result: !i32 = inst.imm as! i32;
+        out_plan.return_kind = NATIVE_BUILD_RETURN_STORE_PARAM0_CONST_I32;
+        out_plan.return_value = inst.src0;
+        out_plan.call_arg0_value = store_result catch {
+            return -1;
+        };
+        return 0;
+    }
+    return -1;
+}
+
+fn native_build_machine_local_call_return_to_plan(first: &MachineInst, second: &MachineInst,
+    function_count: i32, out_plan: &NativeBuildFunctionPlan) i32 {
+    if first == null || second == null || out_plan == null || function_count <= 0 {
+        return -1;
+    }
+    if first.opcode != LOWERED_BODY_OP_LOCAL_CALL_I32 ||
+       second.opcode != LOWERED_BODY_OP_RETURN_LOCAL_I32 {
+        return -1;
+    }
+    if first.dst < 0 || second.src0 != first.dst ||
+       first.target_id < 0 || first.target_id >= function_count {
+        return -1;
+    }
+    out_plan.return_kind = NATIVE_BUILD_RETURN_CALL;
+    out_plan.return_value = 0;
+    out_plan.call_target = first.target_id;
+    out_plan.call_target_right = -1;
+    out_plan.call_arg0_value = 0;
+    out_plan.call_arg1_value = 0;
+    return 0;
+}
+
+fn native_build_machine_local_call_const_return_to_plan(first: &MachineInst, second: &MachineInst,
+    function_count: i32, out_plan: &NativeBuildFunctionPlan) i32 {
+    if first == null || second == null || out_plan == null || function_count <= 0 {
+        return -1;
+    }
+    if first.opcode != LOWERED_BODY_OP_LOCAL_CALL_CONST1_I32 ||
+       second.opcode != LOWERED_BODY_OP_RETURN_LOCAL_I32 {
+        return -1;
+    }
+    if first.dst < 0 || second.src0 != first.dst ||
+       first.target_id < 0 || first.target_id >= function_count {
+        return -1;
+    }
+    const arg0_result: !i32 = first.imm as! i32;
+    out_plan.return_kind = NATIVE_BUILD_RETURN_CALL_CONST1;
+    out_plan.return_value = 0;
+    out_plan.call_target = first.target_id;
+    out_plan.call_target_right = -1;
+    out_plan.call_arg0_value = arg0_result catch {
+        return -1;
+    };
+    out_plan.call_arg1_value = 0;
+    return 0;
+}
+
+fn native_build_machine_local_call_const2_return_to_plan(first: &MachineInst, second: &MachineInst,
+    function_count: i32, out_plan: &NativeBuildFunctionPlan) i32 {
+    if first == null || second == null || out_plan == null || function_count <= 0 {
+        return -1;
+    }
+    if first.opcode != LOWERED_BODY_OP_LOCAL_CALL_CONST2_I32 ||
+       second.opcode != LOWERED_BODY_OP_RETURN_LOCAL_I32 {
+        return -1;
+    }
+    if first.dst < 0 || second.src0 != first.dst ||
+       first.target_id < 0 || first.target_id >= function_count {
+        return -1;
+    }
+    out_plan.return_kind = NATIVE_BUILD_RETURN_CALL_CONST2;
+    out_plan.return_value = 0;
+    out_plan.call_target = first.target_id;
+    out_plan.call_target_right = -1;
+    out_plan.call_arg0_value = first.src0;
+    out_plan.call_arg1_value = first.src1;
+    return 0;
+}
+
+fn native_build_machine_local_addr_call_return_to_plan(first: &MachineInst, second: &MachineInst,
+    third: &MachineInst, function_count: i32, out_plan: &NativeBuildFunctionPlan) i32 {
+    if first == null || second == null || third == null || out_plan == null || function_count <= 0 {
+        return -1;
+    }
+    if first.opcode != LOWERED_BODY_OP_LOCAL_I32_CONST ||
+       second.opcode != LOWERED_BODY_OP_LOCAL_CALL_ADDR1_I32 ||
+       third.opcode != LOWERED_BODY_OP_RETURN_LOCAL_I32 {
+        return -1;
+    }
+    if first.dst < 0 || second.src0 != first.dst || third.src0 != first.dst ||
+       second.target_id < 0 || second.target_id >= function_count {
+        return -1;
+    }
+    const init_result: !i32 = first.imm as! i32;
+    out_plan.return_kind = NATIVE_BUILD_RETURN_CALL_ADDR1_LOCAL_I32;
+    out_plan.return_value = init_result catch {
+        return -1;
+    };
+    out_plan.call_target = second.target_id;
+    out_plan.call_target_right = -1;
+    out_plan.call_arg0_value = 0;
+    out_plan.call_arg1_value = 0;
+    return 0;
+}
+
+fn native_build_machine_to_function_plans(module: &MachineModule, plans: &NativeBuildFunctionPlan) i32 {
+    if module == null || plans == null || module.function_count == 0usize {
+        return -1;
+    }
+    const function_count_result: !i32 = module.function_count as! i32;
+    const function_count: i32 = function_count_result catch {
+        return -1;
+    };
+    var i: i32 = 0;
+    while i < function_count {
+        const fn_ptr: &MachineFunction = machine_module_function_ptr(module, i);
+        if fn_ptr == null || fn_ptr.blocks.count != 1usize {
+            return -1;
+        }
+        const block: &MachineBlock = machine_function_block_ptr(module, i, 0);
+        if block == null {
+            return -1;
+        }
+        if block.insts.count == 1usize {
+            const inst: &MachineInst = semantic_vector_item_ptr(&block.insts, 0usize) as &MachineInst;
+            if native_build_machine_inst_to_plan(inst, function_count, &plans[i]) != 0 {
+                return -1;
+            }
+        } else if block.insts.count == 2usize {
+            const first: &MachineInst = semantic_vector_item_ptr(&block.insts, 0usize) as &MachineInst;
+            const second: &MachineInst = semantic_vector_item_ptr(&block.insts, 1usize) as &MachineInst;
+            if native_build_machine_local_call_return_to_plan(first, second, function_count, &plans[i]) != 0 {
+                if native_build_machine_local_call_const_return_to_plan(first, second, function_count, &plans[i]) != 0 {
+                    if native_build_machine_local_call_const2_return_to_plan(first, second, function_count, &plans[i]) != 0 {
+                        return -1;
+                    }
+                }
+            }
+        } else if block.insts.count == 3usize {
+            const first3: &MachineInst = semantic_vector_item_ptr(&block.insts, 0usize) as &MachineInst;
+            const second3: &MachineInst = semantic_vector_item_ptr(&block.insts, 1usize) as &MachineInst;
+            const third3: &MachineInst = semantic_vector_item_ptr(&block.insts, 2usize) as &MachineInst;
+            if native_build_machine_local_addr_call_return_to_plan(first3, second3, third3, function_count, &plans[i]) != 0 {
+                return -1;
+            }
+        } else {
+            return -1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_build_machine_inst_count(module: &MachineModule) usize {
+    if module == null {
+        return 0usize;
+    }
+    var total: usize = 0usize;
+    var i: usize = 0usize;
+    while i < module.functions.count {
+        const fn_ptr: &MachineFunction = semantic_vector_item_ptr(&module.functions, i) as &MachineFunction;
+        if fn_ptr != null {
+            var b: usize = 0usize;
+            while b < fn_ptr.blocks.count {
+                const block: &MachineBlock = semantic_vector_item_ptr(&fn_ptr.blocks, b) as &MachineBlock;
+                if block != null {
+                    total = total + block.insts.count;
+                }
+                b = b + 1usize;
+            }
+        }
+        i = i + 1usize;
+    }
+    return total;
+}
+
+/// 功能说明：按 LoweredProgram 的极小函数体子集写出 Linux x86_64 native executable 文件。
+/// 参数说明：`path` 为 NUL 结尾输出路径；`program` 为已初始化 LoweredProgram；`entry_index` 为 main 函数下标。
+/// 返回值说明：成功时 `status == 0`，失败时 `status == -1`。
+export fn native_build_emit_lowered_program_file(path: &byte,
+    program: &LoweredProgram, entry_index: i32) NativeBuildEmitResult {
+    if path == null || program == null || program.lifecycle_state != LOWERED_PROGRAM_LIFECYCLE_ACTIVE ||
+       program.function_count == 0usize || entry_index < 0 || program.arena == null {
+        return native_build_emit_error();
+    }
+    const function_count_result: !i32 = program.function_count as! i32;
+    const function_count: i32 = function_count_result catch {
+        return native_build_emit_error();
+    };
+    if entry_index >= function_count {
+        return native_build_emit_error();
+    }
+    const bytes: usize = @size_of(NativeBuildFunctionPlan) * program.function_count;
+    const plans: &NativeBuildFunctionPlan = malloc(bytes) as &NativeBuildFunctionPlan;
+    if plans == null {
+        return native_build_emit_error();
+    }
+    var machine: MachineModule = MachineModule{
+        arena: null,
+        function_count: 0usize,
+        estimated_bytes: 0usize,
+        resident_peak_bytes: 0usize,
+        lifecycle_state: MACHINE_LIFECYCLE_UNINITIALIZED,
+        functions: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        relocs: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        symbols: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        strings: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+        sections: SemanticVector{ data: null, item_size: 0usize, count: 0usize, capacity: 0usize, bytes: 0usize, realloc_count: 0 },
+    };
+    machine_module_init(&machine, program.arena);
+    if native_build_machine_module_import_lowered(program, &machine) != 0 {
+        machine_module_release(&machine);
+        free(plans as &void);
+        return native_build_emit_error();
+    }
+    if native_build_machine_to_function_plans(&machine, plans) != 0 {
+        machine_module_release(&machine);
+        free(plans as &void);
+        return native_build_emit_error();
+    }
+    var result: NativeBuildEmitResult = native_build_emit_function_program_file(path, plans, function_count, entry_index);
+    result.machine_function_count = machine.function_count;
+    result.machine_inst_count = native_build_machine_inst_count(&machine);
+    result.machine_peak_bytes = machine_module_peak_bytes(&machine);
+    machine_module_release(&machine);
+    free(plans as &void);
+    return result;
+}
+
+/// 功能说明：写出 Linux x86_64 常量退出码最小 native executable 文件。
+/// 参数说明：`path` 为 NUL 结尾输出路径。
+/// 返回值说明：成功时 `status == 0`，失败时 `status == -1`。
+export fn native_build_emit_exit_code_file(path: &byte, exit_code: i32) NativeBuildEmitResult {
+    if path == null {
+        return native_build_emit_error();
+    }
+    const fp: &FILE = fopen(path as &const byte, "wb" as &const byte);
+    if fp == null {
+        return native_build_emit_error();
+    }
+    const result: NativeBuildEmitResult = native_build_emit_exit_code_stream(fp, exit_code);
+    _ = fclose(fp);
+    return result;
+}
+
+/// 功能说明：写出 Linux x86_64 `exit(0)` 最小 native executable 文件。
+/// 参数说明：`path` 为 NUL 结尾输出路径。
+/// 返回值说明：成功时 `status == 0`，失败时 `status == -1`。
+export fn native_build_emit_exit0_file(path: &byte) NativeBuildEmitResult {
+    return native_build_emit_exit_code_file(path, 0);
+}

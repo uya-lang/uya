@@ -27,7 +27,8 @@ export fn main() i32 {
 ## 说明
 
 - 这份模板现在主要用于说明源码层的意图。
-- 真正的 `source(.uya) -> payload_obj -> .uapp` 链路已经落到当前仓库里，并且 `build --app microapp -o xxx.uapp` 现在可以直接走通。
+- 目标 CLI 是 `uya microapp build -o xxx.uapp`；当前旧形态
+  `build --app microapp -o xxx.uapp` 仍作为过渡实现对照。
 - 当前推荐的源码级心智是：
   - 优先使用 `std.microapp.*`
   - 优先使用 `--microapp-profile ...`

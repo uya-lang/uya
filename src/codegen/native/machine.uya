@@ -8,6 +8,16 @@ export const MACHINE_LIFECYCLE_UNINITIALIZED: i32 = 0;
 export const MACHINE_LIFECYCLE_ACTIVE: i32 = 1;
 export const MACHINE_LIFECYCLE_RELEASED: i32 = 2;
 
+export const MACHINE_SYMBOL_KIND_NONE: i32 = 0;
+export const MACHINE_SYMBOL_KIND_FUNC: i32 = 1;
+export const MACHINE_SYMBOL_KIND_OBJECT: i32 = 2;
+export const MACHINE_SYMBOL_BIND_LOCAL: i32 = 0;
+export const MACHINE_SYMBOL_BIND_GLOBAL: i32 = 1;
+
+export const MACHINE_RELOC_KIND_NONE: i32 = 0;
+export const MACHINE_RELOC_KIND_X86_64_PC32: i32 = 1;
+export const MACHINE_RELOC_KIND_X86_64_64: i32 = 2;
+
 /// 功能说明：一条机器指令（与具体 ISA 无关的紧凑记录）。
 /// 参数说明：无；`opcode` 为指令选择阶段分配的操作码，操作数为稳定整数 ID/立即数。
 /// 返回值说明：无。
@@ -16,6 +26,7 @@ export struct MachineInst {
     dst: i32,
     src0: i32,
     src1: i32,
+    target_id: i32,
     imm: i64,
     flags: i32,
 }
@@ -72,6 +83,25 @@ export struct MachineSection {
     align: i32,
 }
 
+/// 功能说明：native 后端全局数据段的动态字节缓冲。
+/// 参数说明：无；调用 `native_data_segment_init` 后使用。
+/// 返回值说明：无。bytes 动态增长，不写死全局数据大小。
+export struct NativeDataSegment {
+    bytes: SemanticVector,
+    align: i32,
+    lifecycle_state: i32,
+}
+
+/// 功能说明：native 字符串常量在数据段中的位置摘要。
+/// 参数说明：无；offset 指向首字节，byte_len 不含结尾 NUL，storage_len 含实际存储字节。
+/// 返回值说明：无。
+export struct NativeStringConstant {
+    offset: i32,
+    byte_len: usize,
+    storage_len: usize,
+    nul_terminated: i32,
+}
+
 /// 功能说明：聚合 MachineModule 所有动态表的统计摘要。
 /// 参数说明：无；由 `machine_module_stats` 返回。
 /// 返回值说明：无。
@@ -116,6 +146,17 @@ fn machine_i32_to_usize(value: i32) usize {
     };
 }
 
+fn machine_align_i32(value: i32, align: i32) i32 {
+    if value <= 0 || align <= 1 {
+        return value;
+    }
+    const rem: i32 = value % align;
+    if rem == 0 {
+        return value;
+    }
+    return value + (align - rem);
+}
+
 fn machine_empty_vector() SemanticVector {
     return SemanticVector{
         data: null,
@@ -124,6 +165,17 @@ fn machine_empty_vector() SemanticVector {
         capacity: 0usize,
         bytes: 0usize,
         realloc_count: 0,
+    };
+}
+
+/// 功能说明：构造空的 NativeDataSegment 值。
+/// 参数说明：无。
+/// 返回值说明：返回尚未初始化动态表的全局数据段。
+export fn native_data_segment_empty() NativeDataSegment {
+    return NativeDataSegment{
+        bytes: machine_empty_vector(),
+        align: 1,
+        lifecycle_state: MACHINE_LIFECYCLE_UNINITIALIZED,
     };
 }
 
@@ -382,6 +434,51 @@ export fn machine_module_add_symbol(module: &MachineModule, symbol: &MachineSymb
     return idx;
 }
 
+/// 功能说明：构造一个 native symbol table 项。
+/// 参数说明：字段为名称 ID、段 ID、段内值、大小、类型和绑定。
+/// 返回值说明：返回 `MachineSymbol` 值。
+export fn machine_symbol_make(name_id: InternedNameId, section_id: i32, value: i64,
+    size: i64, kind: i32, binding: i32) MachineSymbol {
+    return MachineSymbol{
+        name_id: name_id,
+        section_id: section_id,
+        value: value,
+        size: size,
+        kind: kind,
+        binding: binding,
+    };
+}
+
+/// 功能说明：构造一个 native relocation 项。
+/// 参数说明：字段为使用位置 offset、目标 symbol ID、reloc 类型和 addend。
+/// 返回值说明：返回 `MachineReloc` 值。
+export fn machine_reloc_make(offset: i64, symbol_id: i32, kind: i32, addend: i64) MachineReloc {
+    return MachineReloc{
+        offset: offset,
+        symbol_id: symbol_id,
+        kind: kind,
+        addend: addend,
+    };
+}
+
+/// 功能说明：按 interned name ID 在线性 symbol table 中查找符号。
+/// 参数说明：`module` 为机器模块；`name_id` 为符号名称 ID。
+/// 返回值说明：找到返回 symbol 下标，未找到或参数无效返回 `-1`。
+export fn machine_module_find_symbol(module: &MachineModule, name_id: InternedNameId) i32 {
+    if module == null {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < module.symbols.count {
+        const symbol: &MachineSymbol = semantic_vector_item_ptr(&module.symbols, i) as &MachineSymbol;
+        if symbol != null && symbol.name_id == name_id {
+            return machine_usize_to_i32(i);
+        }
+        i = i + 1usize;
+    }
+    return -1;
+}
+
 /// 功能说明：向字符串表追加一项（intern 后的字符串 ID 或偏移）。
 /// 返回值说明：成功返回 `0`，失败返回 `-1`。
 export fn machine_module_add_string(module: &MachineModule, string_id: i32) i32 {
@@ -481,4 +578,205 @@ export fn machine_module_stats(module: &MachineModule) MachineModuleStats {
         i = i + 1usize;
     }
     return stats;
+}
+
+/// 功能说明：初始化 native 全局数据段动态字节表。
+/// 参数说明：`segment` 为目标数据段；`align` 为段级对齐，非正数按 1 处理。
+/// 返回值说明：无。
+export fn native_data_segment_init(segment: &NativeDataSegment, align: i32) void {
+    if segment == null {
+        return;
+    }
+    var effective_align: i32 = align;
+    if effective_align <= 0 {
+        effective_align = 1;
+    }
+    semantic_vector_init(&segment.bytes, @size_of(byte));
+    segment.align = effective_align;
+    segment.lifecycle_state = MACHINE_LIFECYCLE_ACTIVE;
+}
+
+/// 功能说明：释放 native 全局数据段动态字节表。
+/// 参数说明：`segment` 为目标数据段。
+/// 返回值说明：无。
+export fn native_data_segment_release(segment: &NativeDataSegment) void {
+    if segment == null {
+        return;
+    }
+    semantic_vector_release(&segment.bytes);
+    segment.align = 1;
+    segment.lifecycle_state = MACHINE_LIFECYCLE_RELEASED;
+}
+
+/// 功能说明：读取 native 全局数据段当前字节数。
+/// 参数说明：`segment` 为目标数据段。
+/// 返回值说明：返回已写入字节数；参数无效返回 `0`。
+export fn native_data_segment_size(segment: &NativeDataSegment) usize {
+    if segment == null {
+        return 0usize;
+    }
+    return segment.bytes.count;
+}
+
+/// 功能说明：读取 native 全局数据段当前容量字节数。
+/// 参数说明：`segment` 为目标数据段。
+/// 返回值说明：返回动态表容量字节数；参数无效返回 `0`。
+export fn native_data_segment_capacity_bytes(segment: &NativeDataSegment) usize {
+    if segment == null {
+        return 0usize;
+    }
+    return segment.bytes.bytes;
+}
+
+/// 功能说明：向 native 全局数据段追加单个字节。
+/// 参数说明：`segment` 为目标数据段；`value` 为追加字节。
+/// 返回值说明：成功返回写入 offset；失败返回 `-1`。
+export fn native_data_segment_append_byte(segment: &NativeDataSegment, value: byte) i32 {
+    if segment == null || segment.lifecycle_state != MACHINE_LIFECYCLE_ACTIVE {
+        return -1;
+    }
+    const offset: i32 = machine_usize_to_i32(segment.bytes.count);
+    if offset < 0 {
+        return -1;
+    }
+    var stored: byte = value;
+    if semantic_vector_append(&segment.bytes, &stored as &const void) != 0 {
+        return -1;
+    }
+    return offset;
+}
+
+/// 功能说明：向 native 全局数据段追加一段字节。
+/// 参数说明：`segment` 为目标数据段；`data`/`len` 为输入字节切片。
+/// 返回值说明：成功返回起始 offset；失败返回 `-1`。
+export fn native_data_segment_append_bytes(segment: &NativeDataSegment, data: &const byte, len: usize) i32 {
+    if segment == null || (data == null && len != 0usize) {
+        return -1;
+    }
+    const start: i32 = machine_usize_to_i32(segment.bytes.count);
+    if start < 0 {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < len {
+        if native_data_segment_append_byte(segment, data[i]) < 0 {
+            return -1;
+        }
+        i = i + 1usize;
+    }
+    return start;
+}
+
+/// 功能说明：向 native 全局数据段追加零填充。
+/// 参数说明：`segment` 为目标数据段；`count` 为追加零字节数。
+/// 返回值说明：成功返回起始 offset；失败返回 `-1`。
+export fn native_data_segment_append_zeros(segment: &NativeDataSegment, count: usize) i32 {
+    const start: i32 = machine_usize_to_i32(native_data_segment_size(segment));
+    if start < 0 {
+        return -1;
+    }
+    var i: usize = 0usize;
+    while i < count {
+        if native_data_segment_append_byte(segment, 0 as byte) < 0 {
+            return -1;
+        }
+        i = i + 1usize;
+    }
+    return start;
+}
+
+/// 功能说明：用零填充把 native 全局数据段对齐到 `align`。
+/// 参数说明：`segment` 为目标数据段；`align` 为目标对齐，非正数按 1 处理。
+/// 返回值说明：成功返回对齐后的当前 offset；失败返回 `-1`。
+export fn native_data_segment_align_to(segment: &NativeDataSegment, align: i32) i32 {
+    if segment == null {
+        return -1;
+    }
+    var effective_align: i32 = align;
+    if effective_align <= 0 {
+        effective_align = 1;
+    }
+    const current: i32 = machine_usize_to_i32(segment.bytes.count);
+    if current < 0 {
+        return -1;
+    }
+    const aligned: i32 = machine_align_i32(current, effective_align);
+    const pad: i32 = aligned - current;
+    if native_data_segment_append_zeros(segment, pad as usize) < 0 {
+        return -1;
+    }
+    return aligned;
+}
+
+/// 功能说明：读取 native 全局数据段指定 offset 的字节。
+/// 参数说明：`segment` 为目标数据段；`offset` 为 0-based 字节 offset。
+/// 返回值说明：成功返回 0..255；越界或参数无效返回 `-1`。
+export fn native_data_segment_byte_at(segment: &NativeDataSegment, offset: usize) i32 {
+    if segment == null || offset >= segment.bytes.count {
+        return -1;
+    }
+    const ptr: &byte = semantic_vector_item_ptr(&segment.bytes, offset);
+    if ptr == null {
+        return -1;
+    }
+    return ptr[0] as i32;
+}
+
+fn native_string_constant_invalid() NativeStringConstant {
+    return NativeStringConstant{
+        offset: -1,
+        byte_len: 0usize,
+        storage_len: 0usize,
+        nul_terminated: 0,
+    };
+}
+
+fn native_strlen_const(text: &const byte) usize {
+    if text == null {
+        return 0usize;
+    }
+    var len: usize = 0usize;
+    while text[len] != 0 as byte {
+        len = len + 1usize;
+    }
+    return len;
+}
+
+/// 功能说明：向 native 数据段追加字符串常量字节。
+/// 参数说明：`segment` 为目标数据段；`data`/`len` 为字符串字节；`nul_terminate` 非零则追加结尾 NUL。
+/// 返回值说明：成功返回 offset/长度摘要；失败返回 `offset == -1`。
+export fn native_data_segment_append_string_bytes(segment: &NativeDataSegment,
+    data: &const byte, len: usize, nul_terminate: i32) NativeStringConstant {
+    if segment == null || (data == null && len != 0usize) {
+        return native_string_constant_invalid();
+    }
+    const start: i32 = native_data_segment_append_bytes(segment, data, len);
+    if start < 0 {
+        return native_string_constant_invalid();
+    }
+    var storage_len: usize = len;
+    var terminated: i32 = 0;
+    if nul_terminate != 0 {
+        if native_data_segment_append_byte(segment, 0 as byte) < 0 {
+            return native_string_constant_invalid();
+        }
+        storage_len = storage_len + 1usize;
+        terminated = 1;
+    }
+    return NativeStringConstant{
+        offset: start,
+        byte_len: len,
+        storage_len: storage_len,
+        nul_terminated: terminated,
+    };
+}
+
+/// 功能说明：向 native 数据段追加以 NUL 结尾的 C string 常量。
+/// 参数说明：`segment` 为目标数据段；`text` 为输入 C string。
+/// 返回值说明：成功返回 offset/长度摘要；失败返回 `offset == -1`。
+export fn native_data_segment_append_c_string(segment: &NativeDataSegment, text: &const byte) NativeStringConstant {
+    if text == null {
+        return native_string_constant_invalid();
+    }
+    return native_data_segment_append_string_bytes(segment, text, native_strlen_const(text), 1);
 }

@@ -1,0 +1,1417 @@
+// checker/lookup.uya - 声明查找函数
+// 从 checker/main.uya 拆分
+
+const CHECKER_LOOKUP_CACHE_BITS: i32 = 11;
+const CHECKER_LOOKUP_CACHE_SIZE: i32 = 2048;
+const CHECKER_LOOKUP_CACHE_MASK: i32 = 2047;
+
+var g_lookup_cached_program: &ASTNode = null;
+var g_lookup_cached_decl_count: i32 = -1;
+var g_lookup_cache_initialized: i32 = 0;
+var g_lookup_semantic_program: &ASTNode = null;
+var g_lookup_semantic_db: &SemanticDb = null;
+var g_lookup_semantic_oracle_checked: i32 = 0;
+var g_lookup_semantic_oracle_active: i32 = 0;
+var g_lookup_enum_decl_cache: [&ASTNode: CHECKER_LOOKUP_CACHE_SIZE] = [];
+var g_lookup_struct_decl_cache: [&ASTNode: CHECKER_LOOKUP_CACHE_SIZE] = [];
+var g_lookup_type_alias_cache: [&ASTNode: CHECKER_LOOKUP_CACHE_SIZE] = [];
+var g_lookup_union_decl_cache: [&ASTNode: CHECKER_LOOKUP_CACHE_SIZE] = [];
+var g_lookup_interface_decl_cache: [&ASTNode: CHECKER_LOOKUP_CACHE_SIZE] = [];
+var g_lookup_fn_decl_cache: [&ASTNode: CHECKER_LOOKUP_CACHE_SIZE] = [];
+var g_lookup_method_block_struct_cache: [&ASTNode: CHECKER_LOOKUP_CACHE_SIZE] = [];
+var g_lookup_method_block_union_cache: [&ASTNode: CHECKER_LOOKUP_CACHE_SIZE] = [];
+
+fn reset_program_lookup_caches() void {
+    var i: i32 = 0;
+    while i < CHECKER_LOOKUP_CACHE_SIZE {
+        g_lookup_enum_decl_cache[i] = null;
+        g_lookup_struct_decl_cache[i] = null;
+        g_lookup_type_alias_cache[i] = null;
+        g_lookup_union_decl_cache[i] = null;
+        g_lookup_interface_decl_cache[i] = null;
+        g_lookup_fn_decl_cache[i] = null;
+        g_lookup_method_block_struct_cache[i] = null;
+        g_lookup_method_block_union_cache[i] = null;
+        i = i + 1;
+    }
+    g_lookup_cached_program = null;
+    g_lookup_cached_decl_count = -1;
+    g_lookup_cache_initialized = 0;
+}
+
+fn checker_clear_semantic_lookup_db() void {
+    g_lookup_semantic_program = null;
+    g_lookup_semantic_db = null;
+}
+
+fn checker_register_semantic_lookup_db(program_node: &ASTNode, db: &SemanticDb) void {
+    if program_node == null || db == null || program_node.type != ASTNodeType.AST_PROGRAM {
+        g_lookup_semantic_program = null;
+        g_lookup_semantic_db = null;
+        return;
+    }
+    g_lookup_semantic_program = program_node;
+    g_lookup_semantic_db = db;
+}
+
+fn lookup_decl_cache_slot(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    return (hash_string(name) & CHECKER_LOOKUP_CACHE_MASK) as i32;
+}
+
+fn lookup_name_matches_exact_or_generic_base(decl_name: &byte, query_name: &byte) i32 {
+    if decl_name == null || query_name == null {
+        return 0;
+    }
+    if str_equals(decl_name, query_name) != 0 {
+        return 1;
+    }
+    const qlen_tmp: !i32 = strlen(query_name as *byte) as! i32;
+    const dlen_tmp: !i32 = strlen(decl_name as *byte) as! i32;
+    const qlen: i32 = qlen_tmp.value;
+    const dlen: i32 = dlen_tmp.value;
+    const decl_ptr: *byte = decl_name as *byte;
+    if dlen > qlen && strncmp(decl_name as *byte, query_name as *byte, qlen) == 0 && decl_ptr[qlen] == 60 {
+        return 1;
+    }
+    return 0;
+}
+
+fn lookup_semantic_lookup_active(program_node: &ASTNode) i32 {
+    if program_node != null && g_lookup_semantic_program == program_node && g_lookup_semantic_db != null {
+        return 1;
+    }
+    return 0;
+}
+
+fn lookup_semantic_oracle_enabled() i32 {
+    if g_lookup_semantic_oracle_checked != 0 {
+        return g_lookup_semantic_oracle_active;
+    }
+    g_lookup_semantic_oracle_checked = 1;
+    const value: *byte = getenv("UYA_SEMANTIC_LOOKUP_ORACLE" as *byte);
+    if value == null {
+        return 0;
+    }
+    if value[0] == 49 as byte && value[1] == 0 as byte {
+        g_lookup_semantic_oracle_active = 1;
+    }
+    return g_lookup_semantic_oracle_active;
+}
+
+fn lookup_debug_name(value: &byte) &byte {
+    if value == null {
+        return "(null)" as &byte;
+    }
+    return value;
+}
+
+fn lookup_ast_addr(node: &ASTNode) usize {
+    if node == null {
+        return 0 as usize;
+    }
+    return @usize_from_ptr(node as &void);
+}
+
+fn lookup_report_decl_oracle_mismatch(kind: &byte, name: &byte, semantic_decl: &ASTNode, oracle_decl: &ASTNode) void {
+    fprintf(libc.stderr,
+        "semantic_lookup_oracle mismatch kind=%s name=%s semantic=%zu oracle=%zu\n" as *byte,
+        kind as *byte,
+        lookup_debug_name(name) as *byte,
+        lookup_ast_addr(semantic_decl),
+        lookup_ast_addr(oracle_decl));
+}
+
+fn lookup_compare_decl_oracle(kind: &byte, name: &byte, semantic_decl: &ASTNode, oracle_decl: &ASTNode) void {
+    if semantic_decl == oracle_decl {
+        return;
+    }
+    lookup_report_decl_oracle_mismatch(kind, name, semantic_decl, oracle_decl);
+}
+
+fn lookup_compare_enum_variant_oracle(name: &byte, semantic_value: i32, oracle_value: i32) void {
+    if semantic_value == oracle_value {
+        return;
+    }
+    fprintf(libc.stderr,
+        "semantic_lookup_oracle mismatch kind=enum_variant name=%s semantic=%d oracle=%d\n" as *byte,
+        lookup_debug_name(name) as *byte,
+        semantic_value,
+        oracle_value);
+}
+
+fn ensure_program_lookup_caches(program_node: &ASTNode) void {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM {
+        return;
+    }
+    if g_lookup_cache_initialized != 0 &&
+        g_lookup_cached_program == program_node &&
+        g_lookup_cached_decl_count == program_node.program_decl_count {
+        return;
+    }
+    reset_program_lookup_caches();
+    var i: i32 = 0;
+    while i < program_node.program_decl_count {
+        const decl: &ASTNode = program_node.program_decls[i];
+        if decl == null {
+            i = i + 1;
+            continue;
+        }
+        if decl.type == ASTNodeType.AST_ENUM_DECL && decl.enum_decl_name != null {
+            const enum_slot: i32 = lookup_decl_cache_slot(decl.enum_decl_name);
+            if enum_slot >= 0 && enum_slot < CHECKER_LOOKUP_CACHE_SIZE {
+                g_lookup_enum_decl_cache[enum_slot] = decl;
+            }
+        } else if decl.type == ASTNodeType.AST_STRUCT_DECL && decl.struct_decl_name != null {
+            const struct_slot: i32 = lookup_decl_cache_slot(decl.struct_decl_name);
+            if struct_slot >= 0 && struct_slot < CHECKER_LOOKUP_CACHE_SIZE {
+                g_lookup_struct_decl_cache[struct_slot] = decl;
+            }
+        } else if decl.type == ASTNodeType.AST_TYPE_ALIAS && decl.type_alias_name != null {
+            const type_alias_slot: i32 = lookup_decl_cache_slot(decl.type_alias_name);
+            if type_alias_slot >= 0 && type_alias_slot < CHECKER_LOOKUP_CACHE_SIZE {
+                g_lookup_type_alias_cache[type_alias_slot] = decl;
+            }
+        } else if decl.type == ASTNodeType.AST_UNION_DECL && decl.union_decl_name != null {
+            const union_slot: i32 = lookup_decl_cache_slot(decl.union_decl_name);
+            if union_slot >= 0 && union_slot < CHECKER_LOOKUP_CACHE_SIZE {
+                g_lookup_union_decl_cache[union_slot] = decl;
+            }
+        } else if decl.type == ASTNodeType.AST_INTERFACE_DECL && decl.interface_decl_name != null {
+            const interface_slot: i32 = lookup_decl_cache_slot(decl.interface_decl_name);
+            if interface_slot >= 0 && interface_slot < CHECKER_LOOKUP_CACHE_SIZE {
+                g_lookup_interface_decl_cache[interface_slot] = decl;
+            }
+        } else if decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_name != null {
+            const fn_slot: i32 = lookup_decl_cache_slot(decl.fn_decl_name);
+            if fn_slot >= 0 && fn_slot < CHECKER_LOOKUP_CACHE_SIZE {
+                g_lookup_fn_decl_cache[fn_slot] = decl;
+            }
+        } else if decl.type == ASTNodeType.AST_METHOD_BLOCK {
+            if decl.method_block_struct_name != null {
+                const method_block_struct_slot: i32 = lookup_decl_cache_slot(decl.method_block_struct_name);
+                if method_block_struct_slot >= 0 && method_block_struct_slot < CHECKER_LOOKUP_CACHE_SIZE {
+                    g_lookup_method_block_struct_cache[method_block_struct_slot] = decl;
+                }
+            }
+            if decl.method_block_union_name != null {
+                const method_block_union_slot: i32 = lookup_decl_cache_slot(decl.method_block_union_name);
+                if method_block_union_slot >= 0 && method_block_union_slot < CHECKER_LOOKUP_CACHE_SIZE {
+                    g_lookup_method_block_union_cache[method_block_union_slot] = decl;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    g_lookup_cached_program = program_node;
+    g_lookup_cached_decl_count = program_node.program_decl_count;
+    g_lookup_cache_initialized = 1;
+}
+
+// ===== 枚举查找 =====
+
+fn lookup_find_enum_decl_from_semantic_db(program_node: &ASTNode, enum_name: &byte) &ASTNode {
+    if program_node == null || enum_name == null ||
+        g_lookup_semantic_program != program_node || g_lookup_semantic_db == null {
+        return null;
+    }
+    const name_id: i32 = semantic_db_find_interned_name(g_lookup_semantic_db, enum_name);
+    if name_id < 0 {
+        return null;
+    }
+    var range: SemanticTypeDeclRange = SemanticTypeDeclRange{
+        name_id: -1,
+        type_start: -1,
+        type_count: -1,
+    };
+    if semantic_db_find_type_decl_range(g_lookup_semantic_db, name_id, &range) == 0 {
+        return null;
+    }
+    var offset: i32 = 0;
+    while offset < range.type_count {
+        const decl_id: i32 = semantic_db_type_range_decl_id(g_lookup_semantic_db, &range, offset);
+        if decl_id >= 0 {
+            const decl: &ASTNode = semantic_db_decl_ast_node(g_lookup_semantic_db, decl_id);
+            if decl != null && decl.type == ASTNodeType.AST_ENUM_DECL &&
+                decl.enum_decl_name != null && str_equals(decl.enum_decl_name, enum_name) != 0 {
+                return decl;
+            }
+        }
+        offset = offset + 1;
+    }
+    return null;
+}
+
+fn lookup_scan_enum_decl_from_program(program_node: &ASTNode, enum_name: &byte) &ASTNode {
+    var i: i32 = 0;
+    while i < program_node.program_decl_count {
+        const decl: &ASTNode = program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_ENUM_DECL {
+            if decl.enum_decl_name != null && str_equals(decl.enum_decl_name, enum_name) != 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 从程序节点中查找枚举声明
+fn find_enum_decl_from_program(program_node: &ASTNode, enum_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || enum_name == null {
+        return null;
+    }
+    const semantic_enum: &ASTNode = lookup_find_enum_decl_from_semantic_db(program_node, enum_name);
+    if lookup_semantic_oracle_enabled() != 0 && lookup_semantic_lookup_active(program_node) != 0 {
+        const oracle_enum: &ASTNode = lookup_scan_enum_decl_from_program(program_node, enum_name);
+        lookup_compare_decl_oracle("enum" as &byte, enum_name, semantic_enum, oracle_enum);
+        if semantic_enum != null {
+            return semantic_enum;
+        }
+        return oracle_enum;
+    }
+    if semantic_enum != null {
+        return semantic_enum;
+    }
+    if lookup_semantic_lookup_active(program_node) != 0 {
+        return null;
+    }
+    ensure_program_lookup_caches(program_node);
+    var cached: &ASTNode = null;
+    const enum_slot: i32 = lookup_decl_cache_slot(enum_name);
+    if enum_slot >= 0 && enum_slot < CHECKER_LOOKUP_CACHE_SIZE {
+        cached = g_lookup_enum_decl_cache[enum_slot];
+    }
+    if cached != null && cached.type == ASTNodeType.AST_ENUM_DECL &&
+        cached.enum_decl_name != null && str_equals(cached.enum_decl_name, enum_name) != 0 {
+        return cached;
+    }
+    return lookup_scan_enum_decl_from_program(program_node, enum_name);
+}
+
+// 检查 name 是否是程序中任意枚举的变体名
+fn lookup_is_enum_variant_name_from_semantic_db(program_node: &ASTNode, name: &byte) i32 {
+    if program_node == null || name == null ||
+        g_lookup_semantic_program != program_node || g_lookup_semantic_db == null {
+        return 0;
+    }
+    const name_id: i32 = semantic_db_find_interned_name(g_lookup_semantic_db, name);
+    if name_id < 0 {
+        return 0;
+    }
+    var range: SemanticEnumVariantRange = SemanticEnumVariantRange{
+        name_id: -1,
+        variant_start: -1,
+        variant_count: -1,
+    };
+    if semantic_db_find_enum_variant_range(g_lookup_semantic_db, name_id, &range) == 0 {
+        return 0;
+    }
+    var offset: i32 = 0;
+    while offset < range.variant_count {
+        const record_id: i32 = semantic_db_enum_variant_range_record_id(g_lookup_semantic_db, &range, offset);
+        if record_id >= 0 {
+            var record: SemanticEnumVariantRecord = SemanticEnumVariantRecord{
+                name_id: -1,
+                enum_decl_id: -1,
+                variant_index: -1,
+            };
+            if semantic_db_enum_variant_record_get(g_lookup_semantic_db, record_id, &record) != 0 &&
+                record.name_id == name_id {
+                return 1;
+            }
+        }
+        offset = offset + 1;
+    }
+    return 0;
+}
+
+fn lookup_scan_is_enum_variant_name_in_program(program_node: &ASTNode, name: &byte) i32 {
+    var i: i32 = 0;
+    while i < program_node.program_decl_count {
+        const decl: &ASTNode = program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_ENUM_DECL && decl.enum_decl_variants != null {
+            var j: i32 = 0;
+            while j < decl.enum_decl_variant_count {
+                if decl.enum_decl_variants[j].name != null &&
+                    str_equals(decl.enum_decl_variants[j].name, name) != 0 {
+                    return 1;
+                }
+                j = j + 1;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn is_enum_variant_name_in_program(program_node: &ASTNode, name: &byte) i32 {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || name == null {
+        return 0;
+    }
+    const semantic_variant: i32 = lookup_is_enum_variant_name_from_semantic_db(program_node, name);
+    if lookup_semantic_oracle_enabled() != 0 && lookup_semantic_lookup_active(program_node) != 0 {
+        const oracle_variant: i32 = lookup_scan_is_enum_variant_name_in_program(program_node, name);
+        lookup_compare_enum_variant_oracle(name, semantic_variant, oracle_variant);
+        if semantic_variant != 0 {
+            return 1;
+        }
+        return oracle_variant;
+    }
+    if semantic_variant != 0 {
+        return 1;
+    }
+    if lookup_semantic_lookup_active(program_node) != 0 {
+        return 0;
+    }
+    return lookup_scan_is_enum_variant_name_in_program(program_node, name);
+}
+
+// ===== 结构体查找 =====
+
+fn lookup_find_struct_decl_from_semantic_db(program_node: &ASTNode, struct_name: &byte) &ASTNode {
+    if program_node == null || struct_name == null ||
+        g_lookup_semantic_program != program_node || g_lookup_semantic_db == null {
+        return null;
+    }
+    const name_id: i32 = semantic_db_find_interned_name(g_lookup_semantic_db, struct_name);
+    if name_id < 0 {
+        return null;
+    }
+    var range: SemanticTypeDeclRange = SemanticTypeDeclRange{
+        name_id: -1,
+        type_start: -1,
+        type_count: -1,
+    };
+    if semantic_db_find_type_decl_range(g_lookup_semantic_db, name_id, &range) == 0 {
+        return null;
+    }
+    var offset: i32 = 0;
+    while offset < range.type_count {
+        const decl_id: i32 = semantic_db_type_range_decl_id(g_lookup_semantic_db, &range, offset);
+        if decl_id >= 0 {
+            const decl: &ASTNode = semantic_db_decl_ast_node(g_lookup_semantic_db, decl_id);
+            if decl != null && decl.type == ASTNodeType.AST_STRUCT_DECL &&
+                lookup_name_matches_exact_or_generic_base(decl.struct_decl_name, struct_name) != 0 {
+                return decl;
+            }
+        }
+        offset = offset + 1;
+    }
+    return null;
+}
+
+fn lookup_scan_struct_decl_from_program(program_node: &ASTNode, struct_name: &byte) &ASTNode {
+    var i: i32 = 0;
+    while i < program_node.program_decl_count {
+        const decl: &ASTNode = program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_STRUCT_DECL && decl.struct_decl_name != null {
+            if lookup_name_matches_exact_or_generic_base(decl.struct_decl_name, struct_name) != 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 从程序节点中查找结构体声明（精确匹配 "Future" 或基名匹配 "Future<T>"）；codegen 用其预注册 from_json 内层 err_union
+export fn find_struct_decl_from_program(program_node: &ASTNode, struct_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || struct_name == null {
+        return null;
+    }
+    const semantic_struct: &ASTNode = lookup_find_struct_decl_from_semantic_db(program_node, struct_name);
+    if lookup_semantic_oracle_enabled() != 0 && lookup_semantic_lookup_active(program_node) != 0 {
+        const oracle_struct: &ASTNode = lookup_scan_struct_decl_from_program(program_node, struct_name);
+        lookup_compare_decl_oracle("struct" as &byte, struct_name, semantic_struct, oracle_struct);
+        if semantic_struct != null {
+            return semantic_struct;
+        }
+        return oracle_struct;
+    }
+    if semantic_struct != null {
+        return semantic_struct;
+    }
+    ensure_program_lookup_caches(program_node);
+    var cached: &ASTNode = null;
+    const struct_slot: i32 = lookup_decl_cache_slot(struct_name);
+    if struct_slot >= 0 && struct_slot < CHECKER_LOOKUP_CACHE_SIZE {
+        cached = g_lookup_struct_decl_cache[struct_slot];
+    }
+    if cached != null && cached.type == ASTNodeType.AST_STRUCT_DECL &&
+        lookup_name_matches_exact_or_generic_base(cached.struct_decl_name, struct_name) != 0 {
+        return cached;
+    }
+    return lookup_scan_struct_decl_from_program(program_node, struct_name);
+}
+
+// ===== 类型别名查找 =====
+
+fn lookup_find_type_alias_from_semantic_db(program_node: &ASTNode, alias_name: &byte) &ASTNode {
+    if program_node == null || alias_name == null ||
+        g_lookup_semantic_program != program_node || g_lookup_semantic_db == null {
+        return null;
+    }
+    const name_id: i32 = semantic_db_find_interned_name(g_lookup_semantic_db, alias_name);
+    if name_id < 0 {
+        return null;
+    }
+    var range: SemanticTypeDeclRange = SemanticTypeDeclRange{
+        name_id: -1,
+        type_start: -1,
+        type_count: -1,
+    };
+    if semantic_db_find_type_decl_range(g_lookup_semantic_db, name_id, &range) == 0 {
+        return null;
+    }
+    var offset: i32 = 0;
+    while offset < range.type_count {
+        const decl_id: i32 = semantic_db_type_range_decl_id(g_lookup_semantic_db, &range, offset);
+        if decl_id >= 0 {
+            const decl: &ASTNode = semantic_db_decl_ast_node(g_lookup_semantic_db, decl_id);
+            if decl != null && decl.type == ASTNodeType.AST_TYPE_ALIAS &&
+                decl.type_alias_name != null && str_equals(decl.type_alias_name, alias_name) != 0 {
+                return decl;
+            }
+        }
+        offset = offset + 1;
+    }
+    return null;
+}
+
+fn lookup_scan_type_alias_from_program(program_node: &ASTNode, alias_name: &byte) &ASTNode {
+    var i: i32 = 0;
+    while i < program_node.program_decl_count {
+        const decl: &ASTNode = program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_TYPE_ALIAS {
+            if decl.type_alias_name != null && str_equals(decl.type_alias_name, alias_name) != 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 从程序节点中查找类型别名声明
+fn find_type_alias_from_program(program_node: &ASTNode, alias_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || alias_name == null {
+        return null;
+    }
+    const semantic_alias: &ASTNode = lookup_find_type_alias_from_semantic_db(program_node, alias_name);
+    if lookup_semantic_oracle_enabled() != 0 && lookup_semantic_lookup_active(program_node) != 0 {
+        const oracle_alias: &ASTNode = lookup_scan_type_alias_from_program(program_node, alias_name);
+        lookup_compare_decl_oracle("type_alias" as &byte, alias_name, semantic_alias, oracle_alias);
+        if semantic_alias != null {
+            return semantic_alias;
+        }
+        return oracle_alias;
+    }
+    if semantic_alias != null {
+        return semantic_alias;
+    }
+    if lookup_semantic_lookup_active(program_node) != 0 {
+        return null;
+    }
+    ensure_program_lookup_caches(program_node);
+    var cached: &ASTNode = null;
+    const type_alias_slot: i32 = lookup_decl_cache_slot(alias_name);
+    if type_alias_slot >= 0 && type_alias_slot < CHECKER_LOOKUP_CACHE_SIZE {
+        cached = g_lookup_type_alias_cache[type_alias_slot];
+    }
+    if cached != null && cached.type == ASTNodeType.AST_TYPE_ALIAS &&
+        cached.type_alias_name != null && str_equals(cached.type_alias_name, alias_name) != 0 {
+        return cached;
+    }
+    return lookup_scan_type_alias_from_program(program_node, alias_name);
+}
+
+// ===== 联合体查找 =====
+
+fn lookup_find_union_decl_from_semantic_db(program_node: &ASTNode, union_name: &byte) &ASTNode {
+    if program_node == null || union_name == null ||
+        g_lookup_semantic_program != program_node || g_lookup_semantic_db == null {
+        return null;
+    }
+    const name_id: i32 = semantic_db_find_interned_name(g_lookup_semantic_db, union_name);
+    if name_id < 0 {
+        return null;
+    }
+    var range: SemanticTypeDeclRange = SemanticTypeDeclRange{
+        name_id: -1,
+        type_start: -1,
+        type_count: -1,
+    };
+    if semantic_db_find_type_decl_range(g_lookup_semantic_db, name_id, &range) == 0 {
+        return null;
+    }
+    var offset: i32 = 0;
+    while offset < range.type_count {
+        const decl_id: i32 = semantic_db_type_range_decl_id(g_lookup_semantic_db, &range, offset);
+        if decl_id >= 0 {
+            const decl: &ASTNode = semantic_db_decl_ast_node(g_lookup_semantic_db, decl_id);
+            if decl != null && decl.type == ASTNodeType.AST_UNION_DECL &&
+                decl.union_decl_name != null && str_equals(decl.union_decl_name, union_name) != 0 {
+                return decl;
+            }
+        }
+        offset = offset + 1;
+    }
+    return null;
+}
+
+fn lookup_scan_union_decl_from_program(program_node: &ASTNode, union_name: &byte) &ASTNode {
+    var i: i32 = 0;
+    while i < program_node.program_decl_count {
+        const decl: &ASTNode = program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_UNION_DECL {
+            if decl.union_decl_name != null && str_equals(decl.union_decl_name, union_name) != 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 从程序节点中查找联合体声明
+fn find_union_decl_from_program(program_node: &ASTNode, union_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || union_name == null {
+        return null;
+    }
+    const semantic_union: &ASTNode = lookup_find_union_decl_from_semantic_db(program_node, union_name);
+    if lookup_semantic_oracle_enabled() != 0 && lookup_semantic_lookup_active(program_node) != 0 {
+        const oracle_union: &ASTNode = lookup_scan_union_decl_from_program(program_node, union_name);
+        lookup_compare_decl_oracle("union" as &byte, union_name, semantic_union, oracle_union);
+        if semantic_union != null {
+            return semantic_union;
+        }
+        return oracle_union;
+    }
+    if semantic_union != null {
+        return semantic_union;
+    }
+    if lookup_semantic_lookup_active(program_node) != 0 {
+        return null;
+    }
+    ensure_program_lookup_caches(program_node);
+    var cached: &ASTNode = null;
+    const union_slot: i32 = lookup_decl_cache_slot(union_name);
+    if union_slot >= 0 && union_slot < CHECKER_LOOKUP_CACHE_SIZE {
+        cached = g_lookup_union_decl_cache[union_slot];
+    }
+    if cached != null && cached.type == ASTNodeType.AST_UNION_DECL &&
+        cached.union_decl_name != null && str_equals(cached.union_decl_name, union_name) != 0 {
+        return cached;
+    }
+    return lookup_scan_union_decl_from_program(program_node, union_name);
+}
+
+// ===== 接口查找 =====
+
+fn lookup_find_interface_decl_from_semantic_db(program_node: &ASTNode, interface_name: &byte) &ASTNode {
+    if program_node == null || interface_name == null ||
+        g_lookup_semantic_program != program_node || g_lookup_semantic_db == null {
+        return null;
+    }
+    const name_id: i32 = semantic_db_find_interned_name(g_lookup_semantic_db, interface_name);
+    if name_id < 0 {
+        return null;
+    }
+    var range: SemanticTypeDeclRange = SemanticTypeDeclRange{
+        name_id: -1,
+        type_start: -1,
+        type_count: -1,
+    };
+    if semantic_db_find_type_decl_range(g_lookup_semantic_db, name_id, &range) == 0 {
+        return null;
+    }
+    var offset: i32 = 0;
+    while offset < range.type_count {
+        const decl_id: i32 = semantic_db_type_range_decl_id(g_lookup_semantic_db, &range, offset);
+        if decl_id >= 0 {
+            const decl: &ASTNode = semantic_db_decl_ast_node(g_lookup_semantic_db, decl_id);
+            if decl != null && decl.type == ASTNodeType.AST_INTERFACE_DECL &&
+                lookup_name_matches_exact_or_generic_base(decl.interface_decl_name, interface_name) != 0 {
+                return decl;
+            }
+        }
+        offset = offset + 1;
+    }
+    return null;
+}
+
+fn lookup_scan_interface_decl_from_program(program_node: &ASTNode, interface_name: &byte) &ASTNode {
+    var i: i32 = 0;
+    while i < program_node.program_decl_count {
+        const decl: &ASTNode = program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_INTERFACE_DECL && decl.interface_decl_name != null {
+            if lookup_name_matches_exact_or_generic_base(decl.interface_decl_name, interface_name) != 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 从程序节点中查找接口声明（精确匹配 "Future" 或基名匹配 "Future<T>"）
+fn find_interface_decl_from_program(program_node: &ASTNode, interface_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || interface_name == null {
+        return null;
+    }
+    const semantic_interface: &ASTNode = lookup_find_interface_decl_from_semantic_db(program_node, interface_name);
+    if lookup_semantic_oracle_enabled() != 0 && lookup_semantic_lookup_active(program_node) != 0 {
+        const oracle_interface: &ASTNode = lookup_scan_interface_decl_from_program(program_node, interface_name);
+        lookup_compare_decl_oracle("interface" as &byte, interface_name, semantic_interface, oracle_interface);
+        if semantic_interface != null {
+            return semantic_interface;
+        }
+        return oracle_interface;
+    }
+    if semantic_interface != null {
+        return semantic_interface;
+    }
+    ensure_program_lookup_caches(program_node);
+    var cached: &ASTNode = null;
+    const interface_slot: i32 = lookup_decl_cache_slot(interface_name);
+    if interface_slot >= 0 && interface_slot < CHECKER_LOOKUP_CACHE_SIZE {
+        cached = g_lookup_interface_decl_cache[interface_slot];
+    }
+    if cached != null && cached.type == ASTNodeType.AST_INTERFACE_DECL &&
+        lookup_name_matches_exact_or_generic_base(cached.interface_decl_name, interface_name) != 0 {
+        return cached;
+    }
+    return lookup_scan_interface_decl_from_program(program_node, interface_name);
+}
+
+// 在接口及其组合接口中递归查找方法签名
+fn find_interface_method_sig(program_node: &ASTNode, interface_name: &byte, method_name: &byte) &ASTNode {
+    if program_node == null || interface_name == null || method_name == null {
+        return null;
+    }
+    
+    const iface: &ASTNode = find_interface_decl_from_program(program_node, interface_name);
+    if iface == null {
+        return null;
+    }
+    
+    // 先在本接口中查找
+    if iface.interface_decl_method_sigs != null {
+        var i: i32 = 0;
+        while i < iface.interface_decl_method_sig_count {
+            const msig: &ASTNode = iface.interface_decl_method_sigs[i];
+            if msig != null && msig.type == ASTNodeType.AST_FN_DECL && msig.fn_decl_name != null {
+                if str_equals(msig.fn_decl_name, method_name) != 0 {
+                    return msig;
+                }
+            }
+            i = i + 1;
+        }
+    }
+    
+    // 再在组合接口中递归查找
+    if iface.interface_decl_composed_interfaces != null {
+        var j: i32 = 0;
+        while j < iface.interface_decl_composed_count {
+            const composed_name: &byte = iface.interface_decl_composed_interfaces[j];
+            if composed_name != null {
+                const found: &ASTNode = find_interface_method_sig(program_node, composed_name, method_name);
+                if found != null {
+                    return found;
+                }
+            }
+            j = j + 1;
+        }
+    }
+    
+    return null;
+}
+
+// 检查接口组合是否存在循环依赖
+fn check_interface_compose_cycle(program_node: &ASTNode, interface_name: &byte, visited: & & byte, visited_count: i32) i32 {
+    if program_node == null || interface_name == null {
+        return 0;
+    }
+    
+    // 检查是否已访问过（存在循环）
+    var i: i32 = 0;
+    while i < visited_count {
+        if visited[i] != null && str_equals(visited[i], interface_name) != 0 {
+            return 1;  // 发现循环
+        }
+        i = i + 1;
+    }
+    
+    const iface: &ASTNode = find_interface_decl_from_program(program_node, interface_name);
+    if iface == null || iface.interface_decl_composed_interfaces == null {
+        return 0;
+    }
+    
+    // 递归检查组合接口
+    var j: i32 = 0;
+    while j < iface.interface_decl_composed_count {
+        const composed_name: &byte = iface.interface_decl_composed_interfaces[j];
+        if composed_name != null {
+            visited[visited_count] = interface_name;
+            if check_interface_compose_cycle(program_node, composed_name, visited, visited_count + 1) != 0 {
+                return 1;
+            }
+        }
+        j = j + 1;
+    }
+    
+    return 0;
+}
+
+// ===== 函数查找 =====
+
+// 从程序节点查找函数声明
+fn find_fn_decl_from_program(program_node: &ASTNode, fn_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || fn_name == null {
+        return null;
+    }
+    ensure_program_lookup_caches(program_node);
+    var cached: &ASTNode = null;
+    const fn_slot: i32 = lookup_decl_cache_slot(fn_name);
+    if fn_slot >= 0 && fn_slot < CHECKER_LOOKUP_CACHE_SIZE {
+        cached = g_lookup_fn_decl_cache[fn_slot];
+    }
+    if cached != null && cached.type == ASTNodeType.AST_FN_DECL &&
+        cached.fn_decl_name != null && str_equals(cached.fn_decl_name, fn_name) != 0 {
+        return cached;
+    }
+    var i: i32 = 0;
+    while i < program_node.program_decl_count {
+        const decl: &ASTNode = program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_FN_DECL {
+            if decl.fn_decl_name != null && str_equals(decl.fn_decl_name, fn_name) != 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// ===== 方法查找 =====
+
+fn fn_decl_has_interface_receiver(fn_decl: &ASTNode) i32 {
+    if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL ||
+        fn_decl.fn_decl_param_count < 1 || fn_decl.fn_decl_params == null {
+        return 0;
+    }
+    const param: &ASTNode = fn_decl.fn_decl_params[0];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL || param.var_decl_type == null {
+        return 0;
+    }
+    const param_type: &ASTNode = param.var_decl_type;
+    if param_type.type != ASTNodeType.AST_TYPE_POINTER || param_type.type_pointer_is_ffi_pointer != 0 ||
+        param_type.type_pointer_pointed_type == null {
+        return 0;
+    }
+    const pointed: &ASTNode = param_type.type_pointer_pointed_type;
+    if pointed.type == ASTNodeType.AST_TYPE_NAMED && pointed.type_named_name != null &&
+        str_equals(pointed.type_named_name, "Self" as *byte) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn fn_decl_has_receiver_for_owner(fn_decl: &ASTNode, owner_name: &byte) i32 {
+    if fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL || owner_name == null ||
+        fn_decl.fn_decl_param_count < 1 || fn_decl.fn_decl_params == null {
+        return 0;
+    }
+    const param: &ASTNode = fn_decl.fn_decl_params[0];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL || param.var_decl_type == null {
+        return 0;
+    }
+    const param_type: &ASTNode = param.var_decl_type;
+    if param_type.type != ASTNodeType.AST_TYPE_POINTER || param_type.type_pointer_is_ffi_pointer != 0 ||
+        param_type.type_pointer_pointed_type == null {
+        return 0;
+    }
+    const pointed: &ASTNode = param_type.type_pointer_pointed_type;
+    if pointed.type != ASTNodeType.AST_TYPE_NAMED || pointed.type_named_name == null {
+        return 0;
+    }
+    if str_equals(pointed.type_named_name, "Self" as *byte) != 0 ||
+        str_equals(pointed.type_named_name, owner_name) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn find_method_in_block_with_receiver_kind(method_block: &ASTNode, owner_name: &byte, method_name: &byte, want_self_receiver: i32) &ASTNode {
+    if method_block == null || method_block.type != ASTNodeType.AST_METHOD_BLOCK || method_name == null {
+        return null;
+    }
+    var i: i32 = 0;
+    while i < method_block.method_block_method_count {
+        const m: &ASTNode = method_block.method_block_methods[i];
+        if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+            str_equals(m.fn_decl_name, method_name) != 0 {
+            if want_self_receiver < 0 || fn_decl_has_receiver_for_owner(m, owner_name) == want_self_receiver {
+                return m;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 查找结构体对应的方法块
+fn find_method_block_for_struct(program_node: &ASTNode, struct_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || struct_name == null {
+        return null;
+    }
+    ensure_program_lookup_caches(program_node);
+    var cached: &ASTNode = null;
+    const method_block_struct_slot: i32 = lookup_decl_cache_slot(struct_name);
+    if method_block_struct_slot >= 0 && method_block_struct_slot < CHECKER_LOOKUP_CACHE_SIZE {
+        cached = g_lookup_method_block_struct_cache[method_block_struct_slot];
+    }
+    if cached != null && cached.type == ASTNodeType.AST_METHOD_BLOCK &&
+        cached.method_block_struct_name != null &&
+        str_equals(cached.method_block_struct_name, struct_name) != 0 {
+        return cached;
+    }
+    var i: i32 = 0;
+    while i < program_node.program_decl_count {
+        const decl: &ASTNode = program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_METHOD_BLOCK {
+            if decl.method_block_struct_name != null && str_equals(decl.method_block_struct_name, struct_name) != 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 查找结构体方法
+fn find_method_in_struct(program_node: &ASTNode, struct_name: &byte, method_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || struct_name == null || method_name == null {
+        return null;
+    }
+    // 1. 先检查外部方法块
+    const method_block: &ASTNode = find_method_block_for_struct(program_node, struct_name);
+    if method_block != null && method_block.method_block_methods != null {
+        var i: i32 = 0;
+        while i < method_block.method_block_method_count {
+            const m: &ASTNode = method_block.method_block_methods[i];
+            if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+                str_equals(m.fn_decl_name, method_name) != 0 {
+                return m;
+            }
+            i = i + 1;
+        }
+    }
+    // 2. 再检查结构体内部定义的方法
+    const struct_decl: &ASTNode = find_struct_decl_from_program(program_node, struct_name);
+    if struct_decl != null && struct_decl.struct_decl_methods != null {
+        var i: i32 = 0;
+        while i < struct_decl.struct_decl_method_count {
+            const m: &ASTNode = struct_decl.struct_decl_methods[i];
+            if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+                str_equals(m.fn_decl_name, method_name) != 0 {
+                return m;
+            }
+            i = i + 1;
+        }
+    }
+    return null;
+}
+
+fn find_instance_method_in_struct(program_node: &ASTNode, struct_name: &byte, method_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || struct_name == null || method_name == null {
+        return null;
+    }
+    const method_block: &ASTNode = find_method_block_for_struct(program_node, struct_name);
+    if method_block != null {
+        const m_block: &ASTNode = find_method_in_block_with_receiver_kind(method_block, struct_name, method_name, 1);
+        if m_block != null {
+            return m_block;
+        }
+    }
+    const struct_decl: &ASTNode = find_struct_decl_from_program(program_node, struct_name);
+    if struct_decl != null && struct_decl.struct_decl_methods != null {
+        var i: i32 = 0;
+        while i < struct_decl.struct_decl_method_count {
+            const m: &ASTNode = struct_decl.struct_decl_methods[i];
+            if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+                str_equals(m.fn_decl_name, method_name) != 0 &&
+                fn_decl_has_receiver_for_owner(m, struct_name) != 0 {
+                return m;
+            }
+            i = i + 1;
+        }
+    }
+    return null;
+}
+
+fn find_static_method_in_struct(program_node: &ASTNode, struct_name: &byte, method_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || struct_name == null || method_name == null {
+        return null;
+    }
+    const method_block: &ASTNode = find_method_block_for_struct(program_node, struct_name);
+    if method_block != null {
+        const m_block: &ASTNode = find_method_in_block_with_receiver_kind(method_block, struct_name, method_name, 0);
+        if m_block != null {
+            return m_block;
+        }
+    }
+    const struct_decl: &ASTNode = find_struct_decl_from_program(program_node, struct_name);
+    if struct_decl != null && struct_decl.struct_decl_methods != null {
+        var i: i32 = 0;
+        while i < struct_decl.struct_decl_method_count {
+            const m: &ASTNode = struct_decl.struct_decl_methods[i];
+            if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+                str_equals(m.fn_decl_name, method_name) != 0 &&
+                fn_decl_has_receiver_for_owner(m, struct_name) == 0 {
+                return m;
+            }
+            i = i + 1;
+        }
+    }
+    return null;
+}
+
+// 查找联合体对应的方法块
+fn find_method_block_for_union(program_node: &ASTNode, union_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || union_name == null {
+        return null;
+    }
+    ensure_program_lookup_caches(program_node);
+    var cached: &ASTNode = null;
+    const method_block_union_slot: i32 = lookup_decl_cache_slot(union_name);
+    if method_block_union_slot >= 0 && method_block_union_slot < CHECKER_LOOKUP_CACHE_SIZE {
+        cached = g_lookup_method_block_union_cache[method_block_union_slot];
+    }
+    if cached != null && cached.type == ASTNodeType.AST_METHOD_BLOCK &&
+        cached.method_block_union_name != null &&
+        str_equals(cached.method_block_union_name, union_name) != 0 {
+        return cached;
+    }
+    var i: i32 = 0;
+    while i < program_node.program_decl_count {
+        const decl: &ASTNode = program_node.program_decls[i];
+        if decl != null && decl.type == ASTNodeType.AST_METHOD_BLOCK {
+            if decl.method_block_union_name != null && str_equals(decl.method_block_union_name, union_name) != 0 {
+                return decl;
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+// 查找联合体方法
+fn find_method_in_union(program_node: &ASTNode, union_name: &byte, method_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || union_name == null || method_name == null {
+        return null;
+    }
+    const method_block: &ASTNode = find_method_block_for_union(program_node, union_name);
+    if method_block != null && method_block.method_block_methods != null {
+        var i: i32 = 0;
+        while i < method_block.method_block_method_count {
+            const m: &ASTNode = method_block.method_block_methods[i];
+            if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+                str_equals(m.fn_decl_name, method_name) != 0 {
+                return m;
+            }
+            i = i + 1;
+        }
+    }
+    const union_decl: &ASTNode = find_union_decl_from_program(program_node, union_name);
+    if union_decl != null && union_decl.union_decl_methods != null {
+        var i: i32 = 0;
+        while i < union_decl.union_decl_method_count {
+            const m: &ASTNode = union_decl.union_decl_methods[i];
+            if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+                str_equals(m.fn_decl_name, method_name) != 0 {
+                return m;
+            }
+            i = i + 1;
+        }
+    }
+    return null;
+}
+
+fn find_instance_method_in_union(program_node: &ASTNode, union_name: &byte, method_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || union_name == null || method_name == null {
+        return null;
+    }
+    const method_block: &ASTNode = find_method_block_for_union(program_node, union_name);
+    if method_block != null {
+        const m_block: &ASTNode = find_method_in_block_with_receiver_kind(method_block, union_name, method_name, 1);
+        if m_block != null {
+            return m_block;
+        }
+    }
+    const union_decl: &ASTNode = find_union_decl_from_program(program_node, union_name);
+    if union_decl != null && union_decl.union_decl_methods != null {
+        var i: i32 = 0;
+        while i < union_decl.union_decl_method_count {
+            const m: &ASTNode = union_decl.union_decl_methods[i];
+            if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+                str_equals(m.fn_decl_name, method_name) != 0 &&
+                fn_decl_has_receiver_for_owner(m, union_name) != 0 {
+                return m;
+            }
+            i = i + 1;
+        }
+    }
+    return null;
+}
+
+fn find_static_method_in_union(program_node: &ASTNode, union_name: &byte, method_name: &byte) &ASTNode {
+    if program_node == null || program_node.type != ASTNodeType.AST_PROGRAM || union_name == null || method_name == null {
+        return null;
+    }
+    const method_block: &ASTNode = find_method_block_for_union(program_node, union_name);
+    if method_block != null {
+        const m_block: &ASTNode = find_method_in_block_with_receiver_kind(method_block, union_name, method_name, 0);
+        if m_block != null {
+            return m_block;
+        }
+    }
+    const union_decl: &ASTNode = find_union_decl_from_program(program_node, union_name);
+    if union_decl != null && union_decl.union_decl_methods != null {
+        var i: i32 = 0;
+        while i < union_decl.union_decl_method_count {
+            const m: &ASTNode = union_decl.union_decl_methods[i];
+            if m != null && m.type == ASTNodeType.AST_FN_DECL && m.fn_decl_name != null &&
+                str_equals(m.fn_decl_name, method_name) != 0 &&
+                fn_decl_has_receiver_for_owner(m, union_name) == 0 {
+                return m;
+            }
+            i = i + 1;
+        }
+    }
+    return null;
+}
+
+fn checker_fn_decl_is_owned_method(checker: &TypeChecker, fn_decl: &ASTNode) i32 {
+    if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL ||
+        checker.program_node == null || checker.program_node.type != ASTNodeType.AST_PROGRAM {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < checker.program_node.program_decl_count {
+        const decl: &ASTNode = checker.program_node.program_decls[i];
+        if decl != null {
+            if decl.type == ASTNodeType.AST_STRUCT_DECL && decl.struct_decl_methods != null {
+                var j: i32 = 0;
+                while j < decl.struct_decl_method_count {
+                    if decl.struct_decl_methods[j] == fn_decl {
+                        return 1;
+                    }
+                    j = j + 1;
+                }
+            } else if decl.type == ASTNodeType.AST_UNION_DECL && decl.union_decl_methods != null {
+                var k: i32 = 0;
+                while k < decl.union_decl_method_count {
+                    if decl.union_decl_methods[k] == fn_decl {
+                        return 1;
+                    }
+                    k = k + 1;
+                }
+            } else if decl.type == ASTNodeType.AST_METHOD_BLOCK && decl.method_block_methods != null {
+                var m: i32 = 0;
+                while m < decl.method_block_method_count {
+                    if decl.method_block_methods[m] == fn_decl {
+                        return 1;
+                    }
+                    m = m + 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn checker_fn_decl_owner_type_name(checker: &TypeChecker, fn_decl: &ASTNode, out_is_union: &i32) &byte {
+    if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL ||
+        checker.program_node == null || checker.program_node.type != ASTNodeType.AST_PROGRAM {
+        return null;
+    }
+    if out_is_union != null {
+        out_is_union[0] = 0;
+    }
+    var i: i32 = 0;
+    while i < checker.program_node.program_decl_count {
+        const decl: &ASTNode = checker.program_node.program_decls[i];
+        if decl != null {
+            if decl.type == ASTNodeType.AST_STRUCT_DECL && decl.struct_decl_methods != null {
+                var j: i32 = 0;
+                while j < decl.struct_decl_method_count {
+                    if decl.struct_decl_methods[j] == fn_decl {
+                        return decl.struct_decl_name;
+                    }
+                    j = j + 1;
+                }
+            } else if decl.type == ASTNodeType.AST_UNION_DECL && decl.union_decl_methods != null {
+                var k: i32 = 0;
+                while k < decl.union_decl_method_count {
+                    if decl.union_decl_methods[k] == fn_decl {
+                        if out_is_union != null {
+                            out_is_union[0] = 1;
+                        }
+                        return decl.union_decl_name;
+                    }
+                    k = k + 1;
+                }
+            } else if decl.type == ASTNodeType.AST_METHOD_BLOCK && decl.method_block_methods != null {
+                var m: i32 = 0;
+                while m < decl.method_block_method_count {
+                    if decl.method_block_methods[m] == fn_decl {
+                        if decl.method_block_union_name != null {
+                            if out_is_union != null {
+                                out_is_union[0] = 1;
+                            }
+                            return decl.method_block_union_name;
+                        }
+                        return decl.method_block_struct_name;
+                    }
+                    m = m + 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+fn checker_async_fn_graph_key(checker: &TypeChecker, fn_decl: &ASTNode) &byte {
+    if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL ||
+        fn_decl.fn_decl_name == null {
+        return null;
+    }
+    var owner_is_union: i32 = 0;
+    const owner_name: &byte = checker_fn_decl_owner_type_name(checker, fn_decl, &owner_is_union);
+    if owner_name != null {
+        const buf: &byte = compiler_arena_alloc(checker.arena, 512) as &byte;
+        if buf != null {
+            snprintf(buf as *byte, 512, "%s::%s" as *byte, owner_name as *byte, fn_decl.fn_decl_name as *byte);
+            return buf;
+        }
+    }
+    if checker.program_node != null && checker.program_node.type == ASTNodeType.AST_PROGRAM {
+        var i: i32 = 0;
+        while i < checker.program_node.program_decl_count {
+            const decl: &ASTNode = checker.program_node.program_decls[i];
+            if decl != null && decl.type == ASTNodeType.AST_INTERFACE_DECL &&
+                decl.interface_decl_name != null &&
+                decl.interface_decl_method_sigs != null {
+                var j: i32 = 0;
+                while j < decl.interface_decl_method_sig_count {
+                    if decl.interface_decl_method_sigs[j] == fn_decl {
+                        const ibuf: &byte = compiler_arena_alloc(checker.arena, 512) as &byte;
+                        if ibuf != null {
+                            snprintf(ibuf as *byte, 512, "iface:%s::%s" as *byte,
+                                decl.interface_decl_name as *byte, fn_decl.fn_decl_name as *byte);
+                            return ibuf;
+                        }
+                    }
+                    j = j + 1;
+                }
+            }
+            i = i + 1;
+        }
+    }
+    return fn_decl.fn_decl_name;
+}
+
+// ===== drop 方法校验 =====
+
+// 校验 drop 方法签名（结构体）
+fn check_drop_method_signature(checker: &TypeChecker, fn_decl: &ASTNode, struct_name: &byte) i32 {
+    if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL || struct_name == null {
+        return 1;
+    }
+    if fn_decl.fn_decl_param_count != 1 || fn_decl.fn_decl_params == null {
+        checker_report_error(checker, fn_decl, "drop 方法必须恰好有一个参数 self: T（按值）" as *byte);
+        return 0;
+    }
+    const param: &ASTNode = fn_decl.fn_decl_params[0];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL || param.var_decl_name == null ||
+        str_equals(param.var_decl_name, "self" as *byte) == 0 {
+        checker_report_error(checker, fn_decl, "drop 方法第一个参数必须名为 self" as *byte);
+        return 0;
+    }
+    const param_type: &ASTNode = param.var_decl_type;
+    if param_type == null {
+        checker_report_error(checker, fn_decl, "drop 方法 self 必须为按值类型 T，不能为指针" as *byte);
+        return 0;
+    }
+    if param_type.type == ASTNodeType.AST_TYPE_POINTER {
+        checker_report_error(checker, fn_decl, "drop 方法 self 必须为按值类型 T（不能为 &Self、*Self 或指针）" as *byte);
+        return 0;
+    }
+    if param_type.type != ASTNodeType.AST_TYPE_NAMED || param_type.type_named_name == null ||
+        str_equals(param_type.type_named_name, struct_name) == 0 {
+        checker_report_error(checker, fn_decl, "drop 方法 self 类型必须为该结构体类型（按值）" as *byte);
+        return 0;
+    }
+    const ret: &ASTNode = fn_decl.fn_decl_return_type;
+    if ret == null || ret.type != ASTNodeType.AST_TYPE_NAMED || ret.type_named_name == null ||
+        str_equals(ret.type_named_name, "void" as *byte) == 0 {
+        checker_report_error(checker, fn_decl, "drop 方法返回类型必须为 void" as *byte);
+        return 0;
+    }
+    return 1;
+}
+
+// 校验 drop 方法签名（联合体）
+fn check_drop_method_signature_union(checker: &TypeChecker, fn_decl: &ASTNode, union_name: &byte) i32 {
+    if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL || union_name == null {
+        return 1;
+    }
+    if fn_decl.fn_decl_param_count != 1 || fn_decl.fn_decl_params == null {
+        checker_report_error(checker, fn_decl, "drop 方法必须恰好有一个参数 self: T（按值）" as *byte);
+        return 0;
+    }
+    const param: &ASTNode = fn_decl.fn_decl_params[0];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL || param.var_decl_name == null ||
+        str_equals(param.var_decl_name, "self" as *byte) == 0 {
+        checker_report_error(checker, fn_decl, "drop 方法第一个参数必须名为 self" as *byte);
+        return 0;
+    }
+    const param_type: &ASTNode = param.var_decl_type;
+    if param_type == null || param_type.type == ASTNodeType.AST_TYPE_POINTER {
+        checker_report_error(checker, fn_decl, "drop 方法 self 必须为按值类型 T（不能为指针）" as *byte);
+        return 0;
+    }
+    if param_type.type != ASTNodeType.AST_TYPE_NAMED || param_type.type_named_name == null ||
+        str_equals(param_type.type_named_name, union_name) == 0 {
+        checker_report_error(checker, fn_decl, "drop 方法 self 类型必须为该联合体类型（按值）" as *byte);
+        return 0;
+    }
+    const ret: &ASTNode = fn_decl.fn_decl_return_type;
+    if ret == null || ret.type != ASTNodeType.AST_TYPE_NAMED || ret.type_named_name == null ||
+        str_equals(ret.type_named_name, "void" as *byte) == 0 {
+        checker_report_error(checker, fn_decl, "drop 方法返回类型必须为 void" as *byte);
+        return 0;
+    }
+    return 1;
+}
+
+// 校验方法的 self 参数必须为 &T
+fn check_method_self_param(checker: &TypeChecker, fn_decl: &ASTNode) i32 {
+    if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
+        return 1;
+    }
+    if fn_decl.fn_decl_param_count < 1 || fn_decl.fn_decl_params == null {
+        return 1;
+    }
+    const param: &ASTNode = fn_decl.fn_decl_params[0];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL {
+        return 1;
+    }
+    const param_type: &ASTNode = param.var_decl_type;
+    if param_type == null || param_type.type != ASTNodeType.AST_TYPE_POINTER {
+        checker_report_error(checker, fn_decl, "实例方法首参必须为 &Self，静态方法请省略 receiver 参数" as *byte);
+        return 0;
+    }
+    if param_type.type_pointer_is_ffi_pointer != 0 {
+        checker_report_error(checker, fn_decl, "方法 self 必须为 &T，不能为 *T（*T 仅用于 FFI）" as *byte);
+        return 0;
+    }
+    if param_type.type_pointer_pointed_type == null ||
+        param_type.type_pointer_pointed_type.type != ASTNodeType.AST_TYPE_NAMED ||
+        param_type.type_pointer_pointed_type.type_named_name == null ||
+        str_equals(param_type.type_pointer_pointed_type.type_named_name, "Self" as *byte) == 0 {
+        checker_report_error(checker, fn_decl, "实例方法首参必须为 &Self" as *byte);
+        return 0;
+    }
+    return 1;
+}
+
+fn check_method_self_param_for_owner(checker: &TypeChecker, fn_decl: &ASTNode, owner_name: &byte) i32 {
+    if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL || owner_name == null {
+        return 1;
+    }
+    if fn_decl.fn_decl_param_count < 1 || fn_decl.fn_decl_params == null {
+        return 1;
+    }
+    const param: &ASTNode = fn_decl.fn_decl_params[0];
+    if param == null || param.type != ASTNodeType.AST_VAR_DECL || param.var_decl_type == null {
+        return 1;
+    }
+    const param_type: &ASTNode = param.var_decl_type;
+    if param_type.type != ASTNodeType.AST_TYPE_POINTER {
+        return 1;
+    }
+    if param_type.type_pointer_is_ffi_pointer != 0 {
+        const pointed_ffi: &ASTNode = param_type.type_pointer_pointed_type;
+        if pointed_ffi != null && pointed_ffi.type == ASTNodeType.AST_TYPE_NAMED && pointed_ffi.type_named_name != null &&
+            (str_equals(pointed_ffi.type_named_name, "Self" as *byte) != 0 ||
+             str_equals(pointed_ffi.type_named_name, owner_name) != 0) {
+            checker_report_error(checker, fn_decl, "实例方法 receiver 必须为 &Self 或 &该类型，不能为 *T（*T 仅用于 FFI）" as *byte);
+            return 0;
+        }
+        return 1;
+    }
+    if fn_decl_has_receiver_for_owner(fn_decl, owner_name) != 0 {
+        return 1;
+    }
+    const pointed: &ASTNode = param_type.type_pointer_pointed_type;
+    if pointed != null && pointed.type == ASTNodeType.AST_TYPE_NAMED && pointed.type_named_name != null &&
+        (str_equals(pointed.type_named_name, "Self" as *byte) != 0 ||
+         str_equals(pointed.type_named_name, owner_name) != 0) {
+        checker_report_error(checker, fn_decl, "实例方法 receiver 必须为 &Self 或 &该类型" as *byte);
+        return 0;
+    }
+    return 1;
+}
+
+fn check_interface_method_self_param(checker: &TypeChecker, fn_decl: &ASTNode) i32 {
+    if checker == null || fn_decl == null || fn_decl.type != ASTNodeType.AST_FN_DECL {
+        return 1;
+    }
+    if fn_decl_has_interface_receiver(fn_decl) == 0 {
+        checker_report_error(checker, fn_decl, "接口方法的首参必须为 &Self；静态方法不能出现在 interface 中" as *byte);
+        return 0;
+    }
+    return check_method_self_param(checker, fn_decl);
+}
+
+// ===== 接口实现检查 =====
+
+// 检查结构体是否实现某接口
+// interface_name 为声明中的名称（如 "Future"）；struct 的接口列表可能带泛型（如 "Future<T>"），按基名匹配
+fn struct_implements_interface(checker: &TypeChecker, struct_name: &byte, interface_name: &byte) i32 {
+    if checker == null || checker.program_node == null || struct_name == null || interface_name == null {
+        return 0;
+    }
+    const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, struct_name);
+    if struct_decl == null || struct_decl.struct_decl_interface_names == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < struct_decl.struct_decl_interface_count {
+        const decl_iface: &byte = struct_decl.struct_decl_interface_names[i];
+        if decl_iface != null {
+            if str_equals(decl_iface, interface_name) != 0 {
+                return 1;
+            }
+            // 泛型接口名如 "Future<T>" 与声明名 "Future" 匹配：基名相同且 decl 以 '<' 继续
+            const inlen_tmp: !i32 = strlen(interface_name as *byte) as! i32;
+            const dlen_tmp: !i32 = strlen(decl_iface as *byte) as! i32;
+            const inlen: i32 = inlen_tmp.value;
+            const dlen: i32 = dlen_tmp.value;
+            const decl_ptr: *byte = decl_iface as *byte;
+            if dlen > inlen && strncmp(decl_iface as *byte, interface_name as *byte, inlen) == 0 &&
+                decl_ptr[inlen] == 60 {
+                return 1;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}

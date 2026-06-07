@@ -9,6 +9,7 @@ INTERN_FILE="$REPO_ROOT/src/semantic/intern.uya"
 IDS_FILE="$REPO_ROOT/src/semantic/ids.uya"
 TYPED_FILE="$REPO_ROOT/src/typed/program.uya"
 ARENA_FILE="$REPO_ROOT/src/arena.uya"
+AST_FILE="$REPO_ROOT/src/ast.uya"
 LOWER_CORE_FILE="$REPO_ROOT/src/lower/core.uya"
 C99_PLAN_FILE="$REPO_ROOT/src/codegen/c99/plan.uya"
 NATIVE_MACHINE_FILE="$REPO_ROOT/src/codegen/native/machine.uya"
@@ -354,10 +355,12 @@ fn lower_growth_program() LoweredProgram {
         drop_defer_count: 0usize,
         helper_count: 0usize,
         work_item_count: 0usize,
+        body_op_count: 0usize,
         estimated_bytes: 0usize,
         resident_peak_bytes: 0usize,
         lifecycle_state: LOWERED_PROGRAM_LIFECYCLE_UNINITIALIZED,
         functions: lower_growth_vector(),
+        body_ops: lower_growth_vector(),
         globals: lower_growth_vector(),
         types: lower_growth_vector(),
         interfaces: lower_growth_vector(),
@@ -477,14 +480,71 @@ EOF
 }
 
 verify_c99_plan_dynamic_growth() {
-    if [[ ! -f "$ARENA_FILE" || ! -f "$TABLE_FILE" || ! -f "$IDS_FILE" || ! -f "$C99_PLAN_FILE" ]]; then
+    if [[ ! -f "$ARENA_FILE" || ! -f "$AST_FILE" || ! -f "$TABLE_FILE" || ! -f "$IDS_FILE" || ! -f "$C99_PLAN_FILE" ]]; then
         echo "错误: 缺少 C99Plan 动态增长源文件" >&2
         exit 1
     fi
 
     local tmp_dir
     tmp_dir="$(make_tmp_dir)"
-    cat "$ARENA_FILE" "$TABLE_FILE" "$IDS_FILE" "$C99_PLAN_FILE" >"$tmp_dir/main.uya"
+    cat "$ARENA_FILE" "$AST_FILE" "$TABLE_FILE" "$IDS_FILE" >"$tmp_dir/main.uya"
+    cat >>"$tmp_dir/main.uya" <<'EOF'
+use libc;
+
+const C99_MAX_MONO_INSTANCES: i32 = 16;
+const C99_MAX_REACHABLE_FUNCTIONS: i32 = 16;
+
+struct MonoInstanceCodegen {
+    generic_name: &byte,
+    type_args: & & ASTNode,
+    type_arg_count: i32,
+    is_function: i32,
+}
+
+struct C99CodeGenerator {
+    arena: &CompilerArena,
+    program_node: &ASTNode,
+    mono_instances: [MonoInstanceCodegen: C99_MAX_MONO_INSTANCES],
+    mono_instance_count: i32,
+    reachable_mono_instances: [i32: C99_MAX_MONO_INSTANCES],
+    reachable_function_decls: [&ASTNode: C99_MAX_REACHABLE_FUNCTIONS],
+    reachable_function_decl_count: i32,
+}
+
+fn is_generic_function_c99(fn_decl: &ASTNode) i32 {
+    if fn_decl != null && fn_decl.type == ASTNodeType.AST_FN_DECL && fn_decl.fn_decl_type_param_count > 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn is_generic_struct_c99(struct_decl: &ASTNode) i32 {
+    if struct_decl != null && struct_decl.type == ASTNodeType.AST_STRUCT_DECL && struct_decl.struct_decl_type_param_count > 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn is_generic_union_c99(union_decl: &ASTNode) i32 {
+    if union_decl != null && union_decl.type == ASTNodeType.AST_UNION_DECL && union_decl.union_decl_type_param_count > 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn has_unresolved_mono_type_args(generic_decl: &ASTNode, type_args: & & ASTNode, type_arg_count: i32) i32 {
+    return 0;
+}
+
+fn get_export_function_c_name(codegen: &C99CodeGenerator, name: &byte, filename: &byte) &byte {
+    return name;
+}
+
+fn get_mono_struct_name(codegen: &C99CodeGenerator, generic_name: &byte, type_args: & & ASTNode, type_arg_count: i32) &byte {
+    return generic_name;
+}
+EOF
+    cat "$C99_PLAN_FILE" >>"$tmp_dir/main.uya"
     cat >>"$tmp_dir/main.uya" <<'EOF'
 use std.testing.assert_eq_i32;
 use std.testing.expect;
@@ -509,9 +569,17 @@ fn c99_plan_growth_program() C99Plan {
     return C99Plan{
         arena: null,
         unit_count: 0usize,
+        decl_count: 0,
         estimated_bytes: 0usize,
         resident_peak_bytes: 0usize,
         lifecycle_state: C99_PLAN_LIFECYCLE_UNINITIALIZED,
+        split_enabled: 0,
+        split_mirror: 0,
+        split_lcp: 0,
+        split_part1_unit_id: -1,
+        split_part2_unit_id: -1,
+        split_common_unit_id: -1,
+        split_source_count: 0usize,
         includes: c99_plan_growth_vec(),
         typedefs: c99_plan_growth_vec(),
         prototypes: c99_plan_growth_vec(),
@@ -519,7 +587,9 @@ fn c99_plan_growth_program() C99Plan {
         functions: c99_plan_growth_vec(),
         helpers: c99_plan_growth_vec(),
         deps: c99_plan_growth_vec(),
+        decls: c99_plan_growth_vec(),
         units: c99_plan_growth_vec(),
+        split_sources: c99_plan_growth_vec(),
     };
 }
 

@@ -1,0 +1,72 @@
+// test_native_malloc_arena.uya - native malloc and arena smoke.
+
+use codegen.native.arena;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+test "native malloc facade allocates reallocates and frees bytes" {
+    const ptr: &byte = native_malloc_bytes(16usize);
+    try expect(ptr != null);
+    ptr[0] = 11 as byte;
+    ptr[15] = 22 as byte;
+
+    const bigger: &byte = native_realloc_bytes(ptr, 32usize);
+    try expect(bigger != null);
+    try assert_eq_i32(bigger[0] as i32, 11);
+    try assert_eq_i32(bigger[15] as i32, 22);
+    bigger[31] = 33 as byte;
+    try assert_eq_i32(bigger[31] as i32, 33);
+
+    native_free_bytes(bigger);
+    try expect(native_malloc_bytes(0usize) == null);
+}
+
+test "native arena uses static buffer then dynamic chunks" {
+    var backing: [byte: 32] = [];
+    var arena: NativeArena = native_arena_empty();
+    native_arena_init(&arena, &backing[0], @len(backing));
+
+    const first: &byte = native_arena_alloc(&arena, 8usize);
+    const second: &byte = native_arena_alloc(&arena, 16usize);
+    try expect(first != null);
+    try expect(second != null);
+    first[0] = 1 as byte;
+    second[0] = 2 as byte;
+    try assert_eq_i32(native_arena_chunk_count(&arena), 0);
+
+    const dynamic_mem: &byte = native_arena_alloc(&arena, 80usize);
+    try expect(dynamic_mem != null);
+    dynamic_mem[79] = 99 as byte;
+    try assert_eq_i32(dynamic_mem[79] as i32, 99);
+    try expect(native_arena_chunk_count(&arena) >= 1);
+    try expect(native_arena_dynamic_bytes(&arena) >= 80usize);
+    try expect(native_arena_total_allocated(&arena) >= 104usize);
+
+    native_arena_release(&arena);
+    try expect(native_arena_total_allocated(&arena) == 0usize);
+    try expect(native_arena_chunk_count(&arena) == 0);
+}
+
+test "native arena resets reusable allocations" {
+    var backing: [byte: 64] = [];
+    var arena: NativeArena = native_arena_empty();
+    native_arena_init(&arena, &backing[0], @len(backing));
+
+    const before: &byte = native_arena_alloc(&arena, 24usize);
+    try expect(before != null);
+    const saved: usize = native_arena_save(&arena);
+    const after: &byte = native_arena_alloc(&arena, 16usize);
+    try expect(after != null);
+    try expect(native_arena_total_allocated(&arena) >= 40usize);
+
+    native_arena_restore(&arena, saved);
+    try expect(native_arena_total_allocated(&arena) <= native_arena_peak_allocated(&arena));
+
+    native_arena_reset(&arena);
+    try expect(native_arena_total_allocated(&arena) == 0usize);
+    const reused: &byte = native_arena_alloc(&arena, 16usize);
+    try expect(reused != null);
+
+    native_arena_release(&arena);
+    try expect(native_arena_alloc(&arena, 8usize) == null);
+}

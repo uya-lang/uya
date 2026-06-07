@@ -1,0 +1,63 @@
+// test_native_format_minimal.uya - native minimal snprintf replacement smoke.
+
+use codegen.native.format;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+fn expect_c_string(actual: &byte, expected: &byte) !void {
+    var i: usize = 0usize;
+    while expected[i] != 0 as byte {
+        try expect(actual[i] == expected[i]);
+        i = i + 1usize;
+    }
+    try expect(actual[i] == 0 as byte);
+}
+
+test "native format supports path and pid style patterns" {
+    var out: [byte: 128] = [];
+    var args: [NativeFormatArg: 4] = [];
+    args[0] = native_format_arg_cstr(".uyacache" as &byte);
+    args[1] = native_format_arg_i64(314);
+
+    const n: i32 = native_format_snprintf(&out[0], @len(out), "%s.stage-%d" as &byte, &args[0], 2usize);
+    try assert_eq_i32(n, 19);
+    try expect_c_string(&out[0], ".uyacache.stage-314" as &byte);
+}
+
+test "native format supports c99 build naming patterns" {
+    var out: [byte: 128] = [];
+    var args: [NativeFormatArg: 4] = [];
+    args[0] = native_format_arg_cstr("uya" as &byte);
+    args[1] = native_format_arg_cstr("main" as &byte);
+    args[2] = native_format_arg_usize(42usize);
+
+    const n: i32 = native_format_snprintf(&out[0], @len(out), "struct %s_%s_%zu" as &byte, &args[0], 3usize);
+    try assert_eq_i32(n, 18);
+    try expect_c_string(&out[0], "struct uya_main_42" as &byte);
+}
+
+test "native format keeps snprintf truncation semantics" {
+    var out: [byte: 8] = [];
+    var args: [NativeFormatArg: 1] = [];
+    args[0] = native_format_arg_i64(42);
+
+    const n: i32 = native_format_snprintf(&out[0], @len(out), "prefix-%d" as &byte, &args[0], 1usize);
+    try assert_eq_i32(n, 9);
+    try assert_eq_i32(out[0] as i32, 112);
+    try assert_eq_i32(out[6] as i32, 45);
+    try assert_eq_i32(out[7] as i32, 0);
+}
+
+test "native format supports escaped percent unsigned and invalid inputs" {
+    var out: [byte: 64] = [];
+    var args: [NativeFormatArg: 2] = [];
+    args[0] = native_format_arg_usize(99usize);
+    args[1] = native_format_arg_i64(-7);
+
+    const n: i32 = native_format_snprintf(&out[0], @len(out), "progress=%u%% delta=%ld" as &byte, &args[0], 2usize);
+    try assert_eq_i32(n, 21);
+    try expect_c_string(&out[0], "progress=99% delta=-7" as &byte);
+
+    try assert_eq_i32(native_format_snprintf(null, 0usize, "ok" as &byte, null, 0usize), 2);
+    try assert_eq_i32(native_format_snprintf(&out[0], @len(out), "%s" as &byte, null, 1usize), -1);
+}

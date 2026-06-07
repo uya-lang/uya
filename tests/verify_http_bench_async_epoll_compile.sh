@@ -20,9 +20,9 @@ fi
 
 # 未加 --safety-proof：@async_fn 状态机拆分后，数组索引的支配边界对证明器不可见（见 handle_bench_client 内 g_cli_*[slot]）。
 echo "验证：编译 benchmarks/http_bench_async_epoll.uya → C99 ..."
-if ! "$COMPILER" --c99 "$SRC" -o "$OUT_C" >/dev/null 2>&1; then
+if ! "$COMPILER" build --c99 "$SRC" -o "$OUT_C" >/dev/null 2>&1; then
     echo "✗ Uya 编译 http_bench_async_epoll 失败"
-    "$COMPILER" --c99 "$SRC" -o "$OUT_C" 2>&1 || true
+    "$COMPILER" build --c99 "$SRC" -o "$OUT_C" 2>&1 || true
     exit 1
 fi
 

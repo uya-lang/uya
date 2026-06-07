@@ -23,7 +23,7 @@ export fn main() i32 {
 }
 EOF
 
-if ! "$COMPILER" --c99 --nostdlib "$SRC" -o "$OUT_C" >/dev/null 2>"$OUT_LOG"; then
+if ! "$COMPILER" build --c99 --nostdlib "$SRC" -o "$OUT_C" >/dev/null 2>"$OUT_LOG"; then
     echo "错误: 编译 arena peak smoke 失败" >&2
     cat "$OUT_LOG" >&2
     exit 1

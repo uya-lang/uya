@@ -58,7 +58,7 @@ export fn main() i32 {
 }
 EOF
 
-"$COMPILER" --c99 --nostdlib "$TMP/option_dep/option_dep.uya" "$TMP/option_main.uya" -o "$TMP/option_struct.c"
+"$COMPILER" build --c99 --nostdlib "$TMP/option_dep/option_dep.uya" "$TMP/option_main.uya" -o "$TMP/option_struct.c"
 CC=gcc "$LINKER" "$TMP/option_struct.c" "$TMP/option_struct"
 "$TMP/option_struct" >/dev/null
 
@@ -77,14 +77,14 @@ CC=gcc "$LINKER" "$TMP/option_struct.c" "$TMP/option_struct"
 "$COMPILER" build "$ROOT/tests/test_method_call_in_callback_codegen.uya" --no-split-c -o "$TMP/method_call_in_callback" --c99
 "$TMP/method_call_in_callback" >/dev/null
 
-"$COMPILER" --c99 --nostdlib "$ROOT/tests/test_const_receiver_codegen.uya" -o "$TMP/const_receiver.c"
+"$COMPILER" build --c99 --nostdlib "$ROOT/tests/test_const_receiver_codegen.uya" -o "$TMP/const_receiver.c"
 gcc --std=c99 -Werror=discarded-qualifiers -c "$TMP/const_receiver.c" -o "$TMP/const_receiver.o"
 
-"$COMPILER" --c99 --nostdlib "$ROOT/tests/test_interface_global_init.uya" -o "$TMP/interface_global.c"
+"$COMPILER" build --c99 --nostdlib "$ROOT/tests/test_interface_global_init.uya" -o "$TMP/interface_global.c"
 CC=gcc "$LINKER" "$TMP/interface_global.c" "$TMP/interface_global"
 "$TMP/interface_global" >/dev/null
 
-"$COMPILER" --c99 --nostdlib "$ROOT/tests/test_interface_field_init.uya" -o "$TMP/interface_field.c"
+"$COMPILER" build --c99 --nostdlib "$ROOT/tests/test_interface_field_init.uya" -o "$TMP/interface_field.c"
 CC=gcc "$LINKER" "$TMP/interface_field.c" "$TMP/interface_field"
 "$TMP/interface_field" >/dev/null
 
@@ -126,7 +126,7 @@ export fn main() i32 {
 }
 EOF
 
-"$COMPILER" --c99 --nostdlib \
+"$COMPILER" build --c99 --nostdlib \
     "$TMP/enum_a/text_align.uya" \
     "$TMP/enum_b/text_align.uya" \
     "$TMP/enum_main.uya" \

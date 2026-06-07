@@ -1,0 +1,53 @@
+// test_native_main_only.uya - native backend main-only smoke.
+
+use codegen.native.elf64;
+use codegen.native.x86_64;
+use libc.FILE;
+use libc.fclose;
+use libc.fopen;
+use libc.fread;
+use libc.rewind;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+fn native_main_bval(buf: &byte, i: usize) i32 {
+    return buf[i] as i32;
+}
+
+test "native main only emits minimal exit0 executable" {
+    const output_path: &const byte = "/tmp/uya_test_native_main_only.bin" as &const byte;
+    const fp: &FILE = fopen(output_path, "w+b" as &const byte);
+    try expect(fp != null);
+
+    var code: [byte: X86_64_LINUX_EXIT0_SIZE] = [];
+    var code_len: usize = 0usize;
+    try assert_eq_i32(x86_64_emit_linux_exit0(&code[0], X86_64_LINUX_EXIT0_SIZE as usize, &code_len), 0);
+    try assert_eq_i32(code_len as i32, X86_64_LINUX_EXIT0_SIZE);
+
+    const written: i32 = elf64_write_executable_stream(fp, &code[0] as &const byte, code_len,
+        EM_X86_64, ELF64_DEFAULT_LOAD_VADDR);
+    try assert_eq_i32(written, ELF64_MIN_EXEC_HEADERS + X86_64_LINUX_EXIT0_SIZE);
+    try expect(elf64_stream_peak_temp_bytes(code_len) == ELF64_MIN_EXEC_HEADERS as usize);
+
+    rewind(fp);
+    var out: [byte: 160] = [];
+    const nread: usize = fread(&out[0], 1usize, written as usize, fp);
+    try assert_eq_i32(nread as i32, written);
+
+    try assert_eq_i32(native_main_bval(&out[0], 0usize), 127);
+    try assert_eq_i32(native_main_bval(&out[0], 1usize), 69);
+    try assert_eq_i32(native_main_bval(&out[0], 2usize), 76);
+    try assert_eq_i32(native_main_bval(&out[0], 3usize), 70);
+    try assert_eq_i32(native_main_bval(&out[0], 24usize), 120); // e_entry 0x400078
+    try assert_eq_i32(native_main_bval(&out[0], 26usize), 64);
+    try assert_eq_i32(native_main_bval(&out[0], 56usize), 1);
+    try assert_eq_i32(native_main_bval(&out[0], 60usize), 0);
+    try assert_eq_i32(native_main_bval(&out[0], 62usize), 0);
+    try assert_eq_i32(native_main_bval(&out[0], ELF64_MIN_EXEC_HEADERS as usize), 184);
+    try assert_eq_i32(native_main_bval(&out[0], (ELF64_MIN_EXEC_HEADERS + 1) as usize), 60);
+    try assert_eq_i32(native_main_bval(&out[0], (ELF64_MIN_EXEC_HEADERS + 5) as usize), 49);
+    try assert_eq_i32(native_main_bval(&out[0], (ELF64_MIN_EXEC_HEADERS + 7) as usize), 15);
+    try assert_eq_i32(native_main_bval(&out[0], (ELF64_MIN_EXEC_HEADERS + 8) as usize), 5);
+
+    _ = fclose(fp);
+}

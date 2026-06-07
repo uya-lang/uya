@@ -1,0 +1,643 @@
+// codegen/native/x86_64.uya - x86_64 machine-code byte encoding helpers.
+//
+// 本文件只提供 Linux x86_64 native backend v1 需要的基础编码原语：
+// GPR 编号、REX/ModRM 组合，以及几条可组成 nostdlib syscall smoke 的指令。
+
+export const X86_64_REG_RAX: i32 = 0;
+export const X86_64_REG_RCX: i32 = 1;
+export const X86_64_REG_RDX: i32 = 2;
+export const X86_64_REG_RBX: i32 = 3;
+export const X86_64_REG_RSP: i32 = 4;
+export const X86_64_REG_RBP: i32 = 5;
+export const X86_64_REG_RSI: i32 = 6;
+export const X86_64_REG_RDI: i32 = 7;
+export const X86_64_REG_R8: i32 = 8;
+export const X86_64_REG_R9: i32 = 9;
+export const X86_64_REG_R10: i32 = 10;
+export const X86_64_REG_R11: i32 = 11;
+export const X86_64_REG_R12: i32 = 12;
+export const X86_64_REG_R13: i32 = 13;
+export const X86_64_REG_R14: i32 = 14;
+export const X86_64_REG_R15: i32 = 15;
+
+export const X86_64_REX_BASE: i32 = 64;  // 0x40
+export const X86_64_REX_W: i32 = 8;
+export const X86_64_REX_R: i32 = 4;
+export const X86_64_REX_X: i32 = 2;
+export const X86_64_REX_B: i32 = 1;
+
+export const X86_64_OP_MOV_R32_IMM32: i32 = 184;  // 0xb8 + rd
+export const X86_64_OP_MOV_R64_IMM64: i32 = 184;  // REX.W + 0xb8 + rd
+export const X86_64_OP_MOV_RM64_R64: i32 = 137;   // 0x89 /r
+export const X86_64_OP_MOV_R64_RM64: i32 = 139;   // 0x8b /r
+export const X86_64_OP_LEA_R64_M: i32 = 141;      // 0x8d /r
+export const X86_64_OP_ADD_RM64_R64: i32 = 1;     // 0x01 /r
+export const X86_64_OP_SUB_RM64_R64: i32 = 41;    // 0x29 /r
+export const X86_64_OP_CMP_RM64_R64: i32 = 57;    // 0x39 /r
+export const X86_64_OP_GROUP1_RM64_IMM32: i32 = 129; // 0x81 /digit id
+export const X86_64_OP_CALL_REL32: i32 = 232;     // 0xe8 cd
+export const X86_64_OP_GROUP5_RM64: i32 = 255;    // 0xff /digit
+export const X86_64_OP_XOR_RM32_R32: i32 = 49;    // 0x31 /r
+export const X86_64_OP_RET: i32 = 195;            // 0xc3
+export const X86_64_OP_SYSCALL0: i32 = 15;        // 0x0f
+export const X86_64_OP_SYSCALL1: i32 = 5;         // 0x05
+
+export const X86_64_LINUX_SYSCALL_EXIT: i32 = 60;
+export const X86_64_LINUX_EXIT0_SIZE: i32 = 9;
+export const X86_64_LINUX_SYSCALL_MAX_ARGS: i32 = 6;
+export const X86_64_LINUX_SYSCALL_NR_REG: i32 = X86_64_REG_RAX;
+export const X86_64_LINUX_SYSCALL_RET_REG: i32 = X86_64_REG_RAX;
+export const X86_64_LINUX_SYSCALL_CLOBBER_RCX: i32 = X86_64_REG_RCX;
+export const X86_64_LINUX_SYSCALL_CLOBBER_R11: i32 = X86_64_REG_R11;
+
+fn x86_64_bit(flag: i32) i32 {
+    if flag != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn x86_64_ensure_space(buf: &byte, cap: usize, pos: &usize, need: usize) i32 {
+    if buf == null || pos == null {
+        return -1;
+    }
+    if *pos > cap {
+        return -1;
+    }
+    if cap - *pos < need {
+        return -1;
+    }
+    return 0;
+}
+
+fn x86_64_emit_u8(buf: &byte, cap: usize, pos: &usize, value: i32) i32 {
+    if value < 0 || value > 255 {
+        return -1;
+    }
+    if x86_64_ensure_space(buf, cap, pos, 1usize) != 0 {
+        return -1;
+    }
+    buf[*pos] = ((value & 255) as! byte).value;
+    *pos = *pos + 1usize;
+    return 0;
+}
+
+fn x86_64_emit_u32_le(buf: &byte, cap: usize, pos: &usize, value: i64) i32 {
+    if x86_64_ensure_space(buf, cap, pos, 4usize) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, (value & 255i64) as i32) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, ((value >> 8) & 255i64) as i32) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, ((value >> 16) & 255i64) as i32) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, ((value >> 24) & 255i64) as i32) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn x86_64_emit_u64_le(buf: &byte, cap: usize, pos: &usize, value: i64) i32 {
+    if x86_64_ensure_space(buf, cap, pos, 8usize) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u32_le(buf, cap, pos, value) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u32_le(buf, cap, pos, value >> 32) != 0 {
+        return -1;
+    }
+    return 0;
+}
+
+fn x86_64_base_requires_sib(base_reg: i32) i32 {
+    const low: i32 = x86_64_gpr_low3(base_reg);
+    if low == X86_64_REG_RSP {
+        return 1;
+    }
+    return 0;
+}
+
+fn x86_64_emit_rex_w_reg_rm(buf: &byte, cap: usize, pos: &usize, reg_field: i32, rm_field: i32) i32 {
+    const rex_r: i32 = x86_64_gpr_needs_rex(reg_field);
+    const rex_b: i32 = x86_64_gpr_needs_rex(rm_field);
+    if rex_r < 0 || rex_b < 0 {
+        return -1;
+    }
+    return x86_64_emit_u8(buf, cap, pos, x86_64_rex(1, rex_r, 0, rex_b));
+}
+
+fn x86_64_emit_reg_reg64(buf: &byte, cap: usize, pos: &usize, opcode: i32, dst_reg: i32, src_reg: i32) i32 {
+    if x86_64_is_gpr(dst_reg) == 0 || x86_64_is_gpr(src_reg) == 0 {
+        return -1;
+    }
+    if x86_64_ensure_space(buf, cap, pos, 3usize) != 0 {
+        return -1;
+    }
+    if x86_64_emit_rex_w_reg_rm(buf, cap, pos, src_reg, dst_reg) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, opcode) != 0 {
+        return -1;
+    }
+    return x86_64_emit_u8(buf, cap, pos, x86_64_modrm(3, src_reg, dst_reg));
+}
+
+fn x86_64_emit_reg_imm32_group1(buf: &byte, cap: usize, pos: &usize,
+    dst_reg: i32, group_digit: i32, imm: i32) i32 {
+    if x86_64_is_gpr(dst_reg) == 0 || group_digit < 0 || group_digit > 7 {
+        return -1;
+    }
+    if x86_64_ensure_space(buf, cap, pos, 7usize) != 0 {
+        return -1;
+    }
+    if x86_64_emit_rex_w_reg_rm(buf, cap, pos, X86_64_REG_RAX, dst_reg) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, X86_64_OP_GROUP1_RM64_IMM32) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, x86_64_modrm(3, group_digit, dst_reg)) != 0 {
+        return -1;
+    }
+    return x86_64_emit_u32_le(buf, cap, pos, imm as i64);
+}
+
+fn x86_64_emit_mem_disp32(buf: &byte, cap: usize, pos: &usize, opcode: i32,
+    reg_field: i32, base_reg: i32, disp: i32) i32 {
+    if x86_64_is_gpr(reg_field) == 0 || x86_64_is_gpr(base_reg) == 0 {
+        return -1;
+    }
+    var need: usize = 7usize;
+    if x86_64_base_requires_sib(base_reg) != 0 {
+        need = 8usize;
+    }
+    if x86_64_ensure_space(buf, cap, pos, need) != 0 {
+        return -1;
+    }
+    if x86_64_emit_rex_w_reg_rm(buf, cap, pos, reg_field, base_reg) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, opcode) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, x86_64_modrm(2, reg_field, base_reg)) != 0 {
+        return -1;
+    }
+    if x86_64_base_requires_sib(base_reg) != 0 {
+        if x86_64_emit_u8(buf, cap, pos, 36) != 0 { // scale=0, index=none, base=rsp/r12
+            return -1;
+        }
+    }
+    return x86_64_emit_u32_le(buf, cap, pos, disp as i64);
+}
+
+fn x86_64_scale_bits(scale: i32) i32 {
+    if scale == 1 {
+        return 0;
+    }
+    if scale == 2 {
+        return 1;
+    }
+    if scale == 4 {
+        return 2;
+    }
+    if scale == 8 {
+        return 3;
+    }
+    return -1;
+}
+
+fn x86_64_sib(scale_bits: i32, index_reg: i32, base_reg: i32) i32 {
+    const index_low: i32 = x86_64_gpr_low3(index_reg);
+    const base_low: i32 = x86_64_gpr_low3(base_reg);
+    if scale_bits < 0 || scale_bits > 3 || index_low < 0 || base_low < 0 {
+        return -1;
+    }
+    return (scale_bits << 6) + (index_low << 3) + base_low;
+}
+
+fn x86_64_emit_rex_w_reg_index_base(buf: &byte, cap: usize, pos: &usize,
+    reg_field: i32, index_reg: i32, base_reg: i32) i32 {
+    const rex_r: i32 = x86_64_gpr_needs_rex(reg_field);
+    const rex_x: i32 = x86_64_gpr_needs_rex(index_reg);
+    const rex_b: i32 = x86_64_gpr_needs_rex(base_reg);
+    if rex_r < 0 || rex_x < 0 || rex_b < 0 {
+        return -1;
+    }
+    return x86_64_emit_u8(buf, cap, pos, x86_64_rex(1, rex_r, rex_x, rex_b));
+}
+
+fn x86_64_emit_mem_sib_disp32(buf: &byte, cap: usize, pos: &usize, opcode: i32,
+    reg_field: i32, base_reg: i32, index_reg: i32, scale: i32, disp: i32) i32 {
+    if x86_64_is_gpr(reg_field) == 0 || x86_64_is_gpr(base_reg) == 0 || x86_64_is_gpr(index_reg) == 0 {
+        return -1;
+    }
+    if x86_64_gpr_low3(index_reg) == X86_64_REG_RSP {
+        return -1;
+    }
+    const scale_bits: i32 = x86_64_scale_bits(scale);
+    if scale_bits < 0 {
+        return -1;
+    }
+    if x86_64_ensure_space(buf, cap, pos, 8usize) != 0 {
+        return -1;
+    }
+    if x86_64_emit_rex_w_reg_index_base(buf, cap, pos, reg_field, index_reg, base_reg) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, opcode) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, x86_64_modrm(2, reg_field, X86_64_REG_RSP)) != 0 {
+        return -1;
+    }
+    const sib: i32 = x86_64_sib(scale_bits, index_reg, base_reg);
+    if x86_64_emit_u8(buf, cap, pos, sib) != 0 {
+        return -1;
+    }
+    return x86_64_emit_u32_le(buf, cap, pos, disp as i64);
+}
+
+/// 功能说明：判断整数寄存器编号是否属于 x86_64 GPR。
+/// 参数说明：`reg` 为 0..15 的 x86_64 通用寄存器编号。
+/// 返回值说明：有效返回 `1`，否则返回 `0`。
+export fn x86_64_is_gpr(reg: i32) i32 {
+    if reg >= X86_64_REG_RAX && reg <= X86_64_REG_R15 {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：返回 x86_64 GPR 编号的低三位编码。
+/// 参数说明：`reg` 为 0..15 的通用寄存器编号。
+/// 返回值说明：有效返回 0..7；无效寄存器返回 `-1`。
+export fn x86_64_gpr_low3(reg: i32) i32 {
+    if x86_64_is_gpr(reg) == 0 {
+        return -1;
+    }
+    return reg & 7;
+}
+
+/// 功能说明：判断寄存器编码是否需要 REX 扩展位。
+/// 参数说明：`reg` 为 0..15 的通用寄存器编号。
+/// 返回值说明：R8..R15 返回 `1`，RAX..RDI 返回 `0`，无效寄存器返回 `-1`。
+export fn x86_64_gpr_needs_rex(reg: i32) i32 {
+    if x86_64_is_gpr(reg) == 0 {
+        return -1;
+    }
+    if reg >= X86_64_REG_R8 {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：组合 x86_64 REX prefix 字节。
+/// 参数说明：`w`/`r`/`x`/`b` 为 REX.W/R/X/B 标志，非零视为置位。
+/// 返回值说明：返回完整 REX prefix 字节。
+export fn x86_64_rex(w: i32, r: i32, x: i32, b: i32) i32 {
+    return X86_64_REX_BASE +
+        x86_64_bit(w) * X86_64_REX_W +
+        x86_64_bit(r) * X86_64_REX_R +
+        x86_64_bit(x) * X86_64_REX_X +
+        x86_64_bit(b) * X86_64_REX_B;
+}
+
+/// 功能说明：组合 x86_64 ModRM 字节。
+/// 参数说明：`mod_bits` 为 mod 字段；`reg_bits`/`rm_bits` 为寄存器编号或低三位编码。
+/// 返回值说明：有效返回 ModRM 字节；字段越界返回 `-1`。
+export fn x86_64_modrm(mod_bits: i32, reg_bits: i32, rm_bits: i32) i32 {
+    if mod_bits < 0 || mod_bits > 3 {
+        return -1;
+    }
+    const reg_low: i32 = reg_bits & 7;
+    const rm_low: i32 = rm_bits & 7;
+    if reg_bits < 0 || rm_bits < 0 {
+        return -1;
+    }
+    return (mod_bits << 6) + (reg_low << 3) + rm_low;
+}
+
+/// 功能说明：编码 `ret` 指令。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置。
+/// 返回值说明：成功返回 `0`，参数或容量无效返回 `-1`。
+export fn x86_64_emit_ret(buf: &byte, cap: usize, pos: &usize) i32 {
+    return x86_64_emit_u8(buf, cap, pos, X86_64_OP_RET);
+}
+
+/// 功能说明：编码 `syscall` 指令。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置。
+/// 返回值说明：成功返回 `0`，参数或容量无效返回 `-1`。
+export fn x86_64_emit_syscall(buf: &byte, cap: usize, pos: &usize) i32 {
+    if x86_64_ensure_space(buf, cap, pos, 2usize) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, X86_64_OP_SYSCALL0) != 0 {
+        return -1;
+    }
+    return x86_64_emit_u8(buf, cap, pos, X86_64_OP_SYSCALL1);
+}
+
+/// 功能说明：编码 `mov r32, imm32`。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`reg` 为目标 GPR；`imm` 为立即数。
+/// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
+export fn x86_64_emit_mov_r32_imm32(buf: &byte, cap: usize, pos: &usize, reg: i32, imm: i32) i32 {
+    const low: i32 = x86_64_gpr_low3(reg);
+    if low < 0 {
+        return -1;
+    }
+    const rex_b: i32 = x86_64_gpr_needs_rex(reg);
+    var need: usize = 5usize;
+    if rex_b != 0 {
+        need = 6usize;
+    }
+    if x86_64_ensure_space(buf, cap, pos, need) != 0 {
+        return -1;
+    }
+    if rex_b != 0 {
+        if x86_64_emit_u8(buf, cap, pos, x86_64_rex(0, 0, 0, rex_b)) != 0 {
+            return -1;
+        }
+    }
+    if x86_64_emit_u8(buf, cap, pos, X86_64_OP_MOV_R32_IMM32 + low) != 0 {
+        return -1;
+    }
+    return x86_64_emit_u32_le(buf, cap, pos, imm as i64);
+}
+
+/// 功能说明：编码 `mov r64, imm64`。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`reg` 为目标 GPR；`imm` 为立即数。
+/// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
+export fn x86_64_emit_mov_r64_imm64(buf: &byte, cap: usize, pos: &usize, reg: i32, imm: i64) i32 {
+    const low: i32 = x86_64_gpr_low3(reg);
+    if low < 0 {
+        return -1;
+    }
+    const rex_b: i32 = x86_64_gpr_needs_rex(reg);
+    if x86_64_ensure_space(buf, cap, pos, 10usize) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, x86_64_rex(1, 0, 0, rex_b)) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, X86_64_OP_MOV_R64_IMM64 + low) != 0 {
+        return -1;
+    }
+    return x86_64_emit_u64_le(buf, cap, pos, imm);
+}
+
+/// 功能说明：返回 Linux x86_64 syscall 第 `index` 个参数对应的 GPR。
+/// 参数说明：`index` 为 0..5 的 syscall 参数编号。
+/// 返回值说明：有效返回 RDI/RSI/RDX/R10/R8/R9；越界返回 `-1`。
+export fn x86_64_linux_syscall_arg_reg(index: i32) i32 {
+    if index == 0 {
+        return X86_64_REG_RDI;
+    }
+    if index == 1 {
+        return X86_64_REG_RSI;
+    }
+    if index == 2 {
+        return X86_64_REG_RDX;
+    }
+    if index == 3 {
+        return X86_64_REG_R10;
+    }
+    if index == 4 {
+        return X86_64_REG_R8;
+    }
+    if index == 5 {
+        return X86_64_REG_R9;
+    }
+    return -1;
+}
+
+/// 功能说明：判断寄存器是否会被 Linux x86_64 syscall 指令隐式 clobber。
+/// 参数说明：`reg` 为 x86_64 GPR 编号。
+/// 返回值说明：RCX/R11 返回 `1`，其他有效寄存器返回 `0`，无效寄存器返回 `-1`。
+export fn x86_64_linux_syscall_clobbers(reg: i32) i32 {
+    if x86_64_is_gpr(reg) == 0 {
+        return -1;
+    }
+    if reg == X86_64_LINUX_SYSCALL_CLOBBER_RCX || reg == X86_64_LINUX_SYSCALL_CLOBBER_R11 {
+        return 1;
+    }
+    return 0;
+}
+
+/// 功能说明：计算立即数形式 Linux x86_64 syscall bridge 的机器码长度。
+/// 参数说明：`arg_count` 为 syscall 参数数量。
+/// 返回值说明：有效返回字节数；参数数量非法返回 `-1`。
+export fn x86_64_linux_syscall_imm_size(arg_count: i32) i32 {
+    if arg_count < 0 || arg_count > X86_64_LINUX_SYSCALL_MAX_ARGS {
+        return -1;
+    }
+    return 7 + arg_count * 10;
+}
+
+/// 功能说明：编码 Linux x86_64 syscall bridge，按 ABI 装载 syscall 号和最多 6 个立即数参数。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`nr` 为 syscall 号；`args` 为参数数组。
+/// 返回值说明：成功返回 `0`；参数数量非法、容量不足或 `args` 无效返回 `-1`。
+export fn x86_64_emit_linux_syscall_imm(buf: &byte, cap: usize, pos: &usize,
+    nr: i32, args: &i64, arg_count: i32) i32 {
+    const size: i32 = x86_64_linux_syscall_imm_size(arg_count);
+    if size < 0 {
+        return -1;
+    }
+    if arg_count > 0 && args == null {
+        return -1;
+    }
+    if x86_64_ensure_space(buf, cap, pos, size as usize) != 0 {
+        return -1;
+    }
+    if x86_64_emit_mov_r32_imm32(buf, cap, pos, X86_64_LINUX_SYSCALL_NR_REG, nr) != 0 {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < arg_count {
+        const reg: i32 = x86_64_linux_syscall_arg_reg(i);
+        if reg < 0 {
+            return -1;
+        }
+        if x86_64_emit_mov_r64_imm64(buf, cap, pos, reg, args[i]) != 0 {
+            return -1;
+        }
+        i = i + 1;
+    }
+    return x86_64_emit_syscall(buf, cap, pos);
+}
+
+/// 功能说明：编码 `mov dst_r64, src_r64`。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`dst_reg`/`src_reg` 为 GPR。
+/// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
+export fn x86_64_emit_mov_r64_r64(buf: &byte, cap: usize, pos: &usize, dst_reg: i32, src_reg: i32) i32 {
+    return x86_64_emit_reg_reg64(buf, cap, pos, X86_64_OP_MOV_RM64_R64, dst_reg, src_reg);
+}
+
+/// 功能说明：编码 `add dst_r64, src_r64`。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`dst_reg`/`src_reg` 为 GPR。
+/// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
+export fn x86_64_emit_add_r64_r64(buf: &byte, cap: usize, pos: &usize, dst_reg: i32, src_reg: i32) i32 {
+    return x86_64_emit_reg_reg64(buf, cap, pos, X86_64_OP_ADD_RM64_R64, dst_reg, src_reg);
+}
+
+/// 功能说明：编码 `sub dst_r64, src_r64`。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`dst_reg`/`src_reg` 为 GPR。
+/// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
+export fn x86_64_emit_sub_r64_r64(buf: &byte, cap: usize, pos: &usize, dst_reg: i32, src_reg: i32) i32 {
+    return x86_64_emit_reg_reg64(buf, cap, pos, X86_64_OP_SUB_RM64_R64, dst_reg, src_reg);
+}
+
+/// 功能说明：编码 `cmp left_r64, right_r64`。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`left_reg`/`right_reg` 为 GPR。
+/// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
+export fn x86_64_emit_cmp_r64_r64(buf: &byte, cap: usize, pos: &usize, left_reg: i32, right_reg: i32) i32 {
+    return x86_64_emit_reg_reg64(buf, cap, pos, X86_64_OP_CMP_RM64_R64, left_reg, right_reg);
+}
+
+/// 功能说明：编码 `add dst_r64, imm32`。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`dst_reg` 为 GPR；`imm` 为立即数。
+/// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
+export fn x86_64_emit_add_r64_imm32(buf: &byte, cap: usize, pos: &usize, dst_reg: i32, imm: i32) i32 {
+    return x86_64_emit_reg_imm32_group1(buf, cap, pos, dst_reg, 0, imm);
+}
+
+/// 功能说明：编码 `sub dst_r64, imm32`。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`dst_reg` 为 GPR；`imm` 为立即数。
+/// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
+export fn x86_64_emit_sub_r64_imm32(buf: &byte, cap: usize, pos: &usize, dst_reg: i32, imm: i32) i32 {
+    return x86_64_emit_reg_imm32_group1(buf, cap, pos, dst_reg, 5, imm);
+}
+
+/// 功能说明：编码 `mov dst_r64, [base_r64 + disp32]`。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`dst_reg`/`base_reg` 为 GPR。
+/// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
+export fn x86_64_emit_load_r64_base_disp32(buf: &byte, cap: usize, pos: &usize,
+    dst_reg: i32, base_reg: i32, disp: i32) i32 {
+    return x86_64_emit_mem_disp32(buf, cap, pos, X86_64_OP_MOV_R64_RM64, dst_reg, base_reg, disp);
+}
+
+/// 功能说明：编码 `mov [base_r64 + disp32], src_r64`。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`base_reg`/`src_reg` 为 GPR。
+/// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
+export fn x86_64_emit_store_r64_base_disp32(buf: &byte, cap: usize, pos: &usize,
+    base_reg: i32, disp: i32, src_reg: i32) i32 {
+    return x86_64_emit_mem_disp32(buf, cap, pos, X86_64_OP_MOV_RM64_R64, src_reg, base_reg, disp);
+}
+
+/// 功能说明：编码 `lea dst_r64, [base_r64 + disp32]`。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`dst_reg`/`base_reg` 为 GPR。
+/// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
+export fn x86_64_emit_lea_r64_base_disp32(buf: &byte, cap: usize, pos: &usize,
+    dst_reg: i32, base_reg: i32, disp: i32) i32 {
+    return x86_64_emit_mem_disp32(buf, cap, pos, X86_64_OP_LEA_R64_M, dst_reg, base_reg, disp);
+}
+
+/// 功能说明：编码 `mov dst_r64, [base_r64 + index_r64 * scale + disp32]`。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`scale` 必须为 1/2/4/8。
+/// 返回值说明：成功返回 `0`，无效寄存器、scale 或容量不足返回 `-1`。
+export fn x86_64_emit_load_r64_base_index_scale_disp32(buf: &byte, cap: usize, pos: &usize,
+    dst_reg: i32, base_reg: i32, index_reg: i32, scale: i32, disp: i32) i32 {
+    return x86_64_emit_mem_sib_disp32(buf, cap, pos, X86_64_OP_MOV_R64_RM64, dst_reg, base_reg, index_reg, scale, disp);
+}
+
+/// 功能说明：编码 `mov [base_r64 + index_r64 * scale + disp32], src_r64`。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`scale` 必须为 1/2/4/8。
+/// 返回值说明：成功返回 `0`，无效寄存器、scale 或容量不足返回 `-1`。
+export fn x86_64_emit_store_r64_base_index_scale_disp32(buf: &byte, cap: usize, pos: &usize,
+    base_reg: i32, index_reg: i32, scale: i32, disp: i32, src_reg: i32) i32 {
+    return x86_64_emit_mem_sib_disp32(buf, cap, pos, X86_64_OP_MOV_RM64_R64, src_reg, base_reg, index_reg, scale, disp);
+}
+
+/// 功能说明：编码 `lea dst_r64, [base_r64 + index_r64 * scale + disp32]`。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`scale` 必须为 1/2/4/8。
+/// 返回值说明：成功返回 `0`，无效寄存器、scale 或容量不足返回 `-1`。
+export fn x86_64_emit_lea_r64_base_index_scale_disp32(buf: &byte, cap: usize, pos: &usize,
+    dst_reg: i32, base_reg: i32, index_reg: i32, scale: i32, disp: i32) i32 {
+    return x86_64_emit_mem_sib_disp32(buf, cap, pos, X86_64_OP_LEA_R64_M, dst_reg, base_reg, index_reg, scale, disp);
+}
+
+/// 功能说明：编码 `call rel32` 直接调用。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`rel32` 为相对下一条指令偏移。
+/// 返回值说明：成功返回 `0`，参数或容量无效返回 `-1`。
+export fn x86_64_emit_call_rel32(buf: &byte, cap: usize, pos: &usize, rel32: i32) i32 {
+    if x86_64_ensure_space(buf, cap, pos, 5usize) != 0 {
+        return -1;
+    }
+    if x86_64_emit_u8(buf, cap, pos, X86_64_OP_CALL_REL32) != 0 {
+        return -1;
+    }
+    return x86_64_emit_u32_le(buf, cap, pos, rel32 as i64);
+}
+
+/// 功能说明：编码 `call r64` 间接寄存器调用。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`target_reg` 为目标函数地址寄存器。
+/// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
+export fn x86_64_emit_call_r64(buf: &byte, cap: usize, pos: &usize, target_reg: i32) i32 {
+    if x86_64_is_gpr(target_reg) == 0 {
+        return -1;
+    }
+    const rex_b: i32 = x86_64_gpr_needs_rex(target_reg);
+    var need: usize = 2usize;
+    if rex_b != 0 {
+        need = 3usize;
+    }
+    if x86_64_ensure_space(buf, cap, pos, need) != 0 {
+        return -1;
+    }
+    if rex_b != 0 {
+        if x86_64_emit_u8(buf, cap, pos, x86_64_rex(0, 0, 0, rex_b)) != 0 {
+            return -1;
+        }
+    }
+    if x86_64_emit_u8(buf, cap, pos, X86_64_OP_GROUP5_RM64) != 0 {
+        return -1;
+    }
+    return x86_64_emit_u8(buf, cap, pos, x86_64_modrm(3, 2, target_reg));
+}
+
+/// 功能说明：编码 `xor r32, r32` 形式的寄存器清零/按位异或。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置；`dst_reg`/`src_reg` 为 GPR。
+/// 返回值说明：成功返回 `0`，无效寄存器或容量不足返回 `-1`。
+export fn x86_64_emit_xor_r32_r32(buf: &byte, cap: usize, pos: &usize, dst_reg: i32, src_reg: i32) i32 {
+    if x86_64_is_gpr(dst_reg) == 0 || x86_64_is_gpr(src_reg) == 0 {
+        return -1;
+    }
+    const rex_r: i32 = x86_64_gpr_needs_rex(src_reg);
+    const rex_b: i32 = x86_64_gpr_needs_rex(dst_reg);
+    var need: usize = 2usize;
+    if rex_r != 0 || rex_b != 0 {
+        need = 3usize;
+    }
+    if x86_64_ensure_space(buf, cap, pos, need) != 0 {
+        return -1;
+    }
+    if rex_r != 0 || rex_b != 0 {
+        if x86_64_emit_u8(buf, cap, pos, x86_64_rex(0, rex_r, 0, rex_b)) != 0 {
+            return -1;
+        }
+    }
+    if x86_64_emit_u8(buf, cap, pos, X86_64_OP_XOR_RM32_R32) != 0 {
+        return -1;
+    }
+    return x86_64_emit_u8(buf, cap, pos, x86_64_modrm(3, src_reg, dst_reg));
+}
+
+/// 功能说明：编码 Linux x86_64 `exit(0)` 的最小 syscall 序列。
+/// 参数说明：`buf`/`cap` 为输出缓冲和容量；`pos` 为当前写入位置。
+/// 返回值说明：成功返回 `0`，参数或容量无效返回 `-1`。
+export fn x86_64_emit_linux_exit0(buf: &byte, cap: usize, pos: &usize) i32 {
+    if x86_64_ensure_space(buf, cap, pos, X86_64_LINUX_EXIT0_SIZE as usize) != 0 {
+        return -1;
+    }
+    if x86_64_emit_mov_r32_imm32(buf, cap, pos, X86_64_REG_RAX, X86_64_LINUX_SYSCALL_EXIT) != 0 {
+        return -1;
+    }
+    if x86_64_emit_xor_r32_r32(buf, cap, pos, X86_64_REG_RDI, X86_64_REG_RDI) != 0 {
+        return -1;
+    }
+    return x86_64_emit_syscall(buf, cap, pos);
+}

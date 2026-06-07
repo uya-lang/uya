@@ -23,7 +23,7 @@ if [ ! -f "$COMPILER" ]; then
 fi
 
 echo "验证：构建 uyagin_http_bench 运行时二进制 ..."
-"$COMPILER" --c99 "$SRC" -o "$OUT_C" >/dev/null
+"$COMPILER" build --c99 "$SRC" -o "$OUT_C" >/dev/null
 $CC_CMD $CFLAGS_USE -no-pie "$OUT_C" -o "$OUT_BIN" -lm
 
 server_pid=""

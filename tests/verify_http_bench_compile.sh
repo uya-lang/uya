@@ -19,9 +19,9 @@ if [ ! -f "$COMPILER" ]; then
 fi
 
 echo "验证：编译 benchmarks/http_bench.uya → C99 ..."
-if ! "$COMPILER" --c99 --safety-proof "$SRC" -o "$OUT_C" >/dev/null 2>&1; then
+if ! "$COMPILER" build --c99 --safety-proof "$SRC" -o "$OUT_C" >/dev/null 2>&1; then
     echo "✗ Uya 编译 http_bench 失败"
-    "$COMPILER" --c99 --safety-proof "$SRC" -o "$OUT_C" 2>&1 || true
+    "$COMPILER" build --c99 --safety-proof "$SRC" -o "$OUT_C" 2>&1 || true
     exit 1
 fi
 

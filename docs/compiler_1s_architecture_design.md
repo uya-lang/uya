@@ -395,8 +395,21 @@ bin/cmd/run
 bin/cmd/test
 bin/cmd/fmt
 bin/cmd/upm
-bin/cmd/pack-image
+bin/cmd/microapp
 ```
+
+Microapp / microcontainer 目标 CLI 统一收敛到：
+
+```text
+uya microapp build ...
+uya microapp pack ...
+uya microapp inspect ...
+uya microapp verify ...
+uya microapp run ...
+```
+
+旧顶层 `pack-image` / `inspect-image` / `verify-image` 只允许作为兼容诊断或薄转发，
+不能重新把 microapp image/payload 大逻辑导入 `bin/uya` 或 `cmd/build` seed。
 
 ### 9.1 自举约束
 
@@ -450,7 +463,7 @@ v1 推荐先生成 ELF64 executable，减少外部链接成本。
 暂不作为 v1 native 硬范围：
 
 - 用户级 `@c_import`。
-- microapp image packing。
+- `uya microapp build/pack/inspect/verify/run`。
 - Windows / macOS native executable emission。
 - SIMD 高级优化。
 - debug info。
@@ -516,8 +529,8 @@ arena_peak_bytes     # compiler arena 峰值
 semantic_db_bytes    # SemanticDb 与索引占用
 typed_program_bytes  # TypedProgram 表占用
 lowered_bytes        # LoweredProgram / BuildPlan 占用
-emit_buffer_bytes    # C99/native 输出缓冲峰值
-output_bytes         # 生成 C/native/object/executable 字节数
+c99_output_buffer_peak_bytes # C99 输出 FILE 缓冲峰值
+output_bytes         # 生成 C/native/object/executable/build seed 字节数
 table_count          # 所有编译器动态表实际项数汇总
 table_capacity       # 所有编译器动态表容量项数汇总
 table_bytes          # 所有编译器动态表实际占用汇总
@@ -582,8 +595,9 @@ table_realloc_count  # 所有编译器动态表增长次数汇总
 
 各 arena 峰值通过 `ast_arena_peak_bytes` / `check_arena_peak_bytes` / `emit_arena_peak_bytes`
 打印到编译统计（stderr），`arena_peak_bytes` 为五个 arena 峰值之和，保持与 Phase 0 baseline 的口径连续。
-当前实测（直接 C99，96 文件）：`ast_arena≈1.2GB`、`check_arena≈77MB`、`emit_arena≈9.9MB`、driver `arena≈40B`，
-说明 AST 仍是常驻大头，是后续 L382（peak RSS 下降 25%）按阶段释放 AST 的主要目标。
+旧全量 C99 入口实测（96 文件）：`ast_arena≈1.2GB`、`check_arena≈77MB`、`emit_arena≈9.9MB`、driver `arena≈40B`，
+说明 AST 仍是该口径的常驻大头。Phase 7 把 `make uya` 主入口瘦为 20 文件 launcher 后，
+硬 KPI 口径的 peak RSS 已低于 Phase 0 baseline 25% 阈值；全量 C99 输入的 AST 常驻问题仍留作后续结构性优化。
 
 ---
 
@@ -602,7 +616,7 @@ make bench-compiler-1s-check
 `bench-compiler-1s` 输出：
 
 ```text
-run	mode	seed_ms	parse_ms	bind_ms	check_ms	lower_ms	emit_ms	link_ms	total_ms	peak_rss_kb	arena_peak_bytes	output_bytes
+run	mode	seed_ms	parse_ms	bind_ms	check_ms	lower_ms	emit_ms	link_ms	total_ms	peak_rss_kb	arena_peak_bytes	output_bytes	c99_output_buffer_peak_bytes
 1	native	...
 ```
 
@@ -645,6 +659,16 @@ native 与 C99 对照：
 - C99-built compiler 跑同样测试。
 - 比较关键输出、退出码、错误诊断。
 - 对编译器二次自举产物做 normalized section hash。
+
+语言兼容验收：
+
+- C99 backend 与 native backend 必须支持完整 Uya 语言，不能只以 `cmd/build` 子集或 launcher 子集作为
+  release 成功依据。
+- 完整语言基线以 main 分支的语言规范文档和回归测试为准，包括语法、类型系统、内建函数、标准库入口、
+  多文件模块、泛型、接口、error union、defer/errdefer、async、`@c_import` 和 diagnostics 行为。
+- Microapp / microcontainer 必须在语言层面兼容 main 分支，不允许引入独立语法、关键字、内建函数或 checker
+  方言；它只能在 runtime/capability/profile/host API 层面施加限制。
+- Microapp 对不支持能力的拒绝必须是明确 diagnostic，不能通过改变语言语义、跳过安全证明或静默降级实现。
 
 ---
 
@@ -726,8 +750,11 @@ native 与 C99 对照：
 
 1. `make clean && make uya` 冷构建三次中位数 `< 1.0s`。
 2. 默认安全证明路径保留。
-3. native-built compiler 通过 `make check`。
-4. C99 fallback 仍可构建并通过差分验证。
-5. `bin/uya`、`bin/cmd/build`、backup seed 之间不存在自举死锁。
-6. benchmark 脚本能稳定证明当前是冷构建，不混入缓存或 daemon。
-7. `peak_rss_kb`、arena 峰值和输出字节数都有基线、趋势和门禁；不能用内存换时间。
+3. C99 backend 支持完整 Uya 语言，并与 main 分支语言行为兼容。
+4. Native backend 支持完整 Uya 语言，并与 C99 / main 分支语言行为兼容。
+5. Microapp / microcontainer 语言层面兼容 main 分支；仅允许 runtime/capability/profile 限制。
+6. native-built compiler 通过 `make check`。
+7. C99 fallback 仍可构建并通过差分验证。
+8. `bin/uya`、`bin/cmd/build`、backup seed 之间不存在自举死锁。
+9. benchmark 脚本能稳定证明当前是冷构建，不混入缓存或 daemon。
+10. `peak_rss_kb`、arena 峰值和输出字节数都有基线、趋势和门禁；不能用内存换时间。

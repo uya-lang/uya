@@ -1,0 +1,345 @@
+// codegen/native/emitter.uya - NativeEmitter consumes LoweredProgram.
+//
+// v1 先把 LoweredProgram 的函数/全局对象闭包读入 native MachineModule，
+// 后续阶段再在同一入口下扩展指令选择、布局、reloc 和 ELF 输出。
+
+use libc.FILE;
+
+export const NATIVE_EMITTER_STATUS_ERROR: i32 = -1;
+export const NATIVE_EMITTER_STATUS_UNINITIALIZED: i32 = 0;
+export const NATIVE_EMITTER_STATUS_READY: i32 = 1;
+export const NATIVE_EMITTER_STATUS_DONE: i32 = 2;
+
+/// 功能说明：NativeEmitter 的 LoweredProgram 输入快照与导入进度。
+/// 参数说明：无；调用 `native_emitter_begin` 后字段由 emitter 填充。
+/// 返回值说明：无。
+export struct NativeEmitter {
+    status: i32,
+    target: i32,
+    lowered_program: &LoweredProgram,
+    machine_module: &MachineModule,
+    lowered_function_count: usize,
+    lowered_body_op_count: usize,
+    lowered_global_count: usize,
+    lowered_type_count: usize,
+    lowered_interface_count: usize,
+    lowered_err_union_count: usize,
+    lowered_async_frame_count: usize,
+    lowered_drop_defer_count: usize,
+    lowered_helper_count: usize,
+    lowered_work_item_count: usize,
+    lowered_table_items: usize,
+    lowered_table_bytes: usize,
+    lowered_bytes: usize,
+    imported_function_count: usize,
+    imported_body_op_count: usize,
+    imported_global_count: usize,
+}
+
+/// 功能说明：NativeEmitter streaming 输出结果摘要。
+/// 参数说明：无；字段由 `native_emitter_write_executable_stream` 填充。
+/// 返回值说明：无。
+export struct NativeEmitterOutputResult {
+    status: i32,
+    target: i32,
+    code_bytes: usize,
+    output_bytes: usize,
+    temp_peak_bytes: usize,
+}
+
+fn native_emitter_output_error(target: i32) NativeEmitterOutputResult {
+    return NativeEmitterOutputResult{
+        status: NATIVE_EMITTER_STATUS_ERROR,
+        target: target,
+        code_bytes: 0usize,
+        output_bytes: 0usize,
+        temp_peak_bytes: 0usize,
+    };
+}
+
+fn native_emitter_reset_counts(emitter: &NativeEmitter) void {
+    if emitter == null {
+        return;
+    }
+    emitter.lowered_function_count = 0usize;
+    emitter.lowered_body_op_count = 0usize;
+    emitter.lowered_global_count = 0usize;
+    emitter.lowered_type_count = 0usize;
+    emitter.lowered_interface_count = 0usize;
+    emitter.lowered_err_union_count = 0usize;
+    emitter.lowered_async_frame_count = 0usize;
+    emitter.lowered_drop_defer_count = 0usize;
+    emitter.lowered_helper_count = 0usize;
+    emitter.lowered_work_item_count = 0usize;
+    emitter.lowered_table_items = 0usize;
+    emitter.lowered_table_bytes = 0usize;
+    emitter.lowered_bytes = 0usize;
+    emitter.imported_function_count = 0usize;
+    emitter.imported_body_op_count = 0usize;
+    emitter.imported_global_count = 0usize;
+}
+
+fn native_emitter_error(emitter: &NativeEmitter) i32 {
+    if emitter != null {
+        emitter.status = NATIVE_EMITTER_STATUS_ERROR;
+    }
+    return -1;
+}
+
+fn native_emitter_refresh_lowered_snapshot(emitter: &NativeEmitter) i32 {
+    if emitter == null || emitter.lowered_program == null {
+        return native_emitter_error(emitter);
+    }
+    const program: &LoweredProgram = emitter.lowered_program;
+    emitter.lowered_function_count = program.function_count;
+    emitter.lowered_body_op_count = program.body_op_count;
+    emitter.lowered_global_count = program.global_count;
+    emitter.lowered_type_count = program.type_count;
+    emitter.lowered_interface_count = program.interface_count;
+    emitter.lowered_err_union_count = program.err_union_count;
+    emitter.lowered_async_frame_count = program.async_frame_count;
+    emitter.lowered_drop_defer_count = program.drop_defer_count;
+    emitter.lowered_helper_count = program.helper_count;
+    emitter.lowered_work_item_count = program.work_item_count;
+    const stats: LoweredProgramStats = lowered_program_stats(program);
+    emitter.lowered_table_items = stats.table_items;
+    emitter.lowered_table_bytes = stats.table_bytes;
+    emitter.lowered_bytes = lowered_program_estimated_bytes(program);
+    return 0;
+}
+
+fn native_emitter_import_lowered_functions(emitter: &NativeEmitter) i32 {
+    if emitter == null || emitter.lowered_program == null || emitter.machine_module == null {
+        return native_emitter_error(emitter);
+    }
+    var i: usize = 0usize;
+    while i < emitter.lowered_program.functions.count {
+        const fn_item: &ConcreteFunction = semantic_vector_item_ptr(&emitter.lowered_program.functions, i) as &ConcreteFunction;
+        if fn_item == null {
+            return native_emitter_error(emitter);
+        }
+        const added: i32 = machine_module_add_function(emitter.machine_module, fn_item.function_id, fn_item.function_id);
+        if added < 0 {
+            return native_emitter_error(emitter);
+        }
+        if native_emitter_import_function_body(emitter, fn_item, added) != 0 {
+            return native_emitter_error(emitter);
+        }
+        emitter.imported_function_count = emitter.imported_function_count + 1usize;
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+fn native_emitter_body_range_valid(emitter: &NativeEmitter, fn_item: &ConcreteFunction) i32 {
+    if emitter == null || emitter.lowered_program == null || fn_item == null {
+        return 0;
+    }
+    if fn_item.body_start < 0 || fn_item.body_count < 0 {
+        return 0;
+    }
+    const start_result: !usize = fn_item.body_start as! usize;
+    const start: usize = start_result catch {
+        return 0;
+    };
+    const count_result: !usize = fn_item.body_count as! usize;
+    const count: usize = count_result catch {
+        return 0;
+    };
+    if start > emitter.lowered_program.body_ops.count {
+        return 0;
+    }
+    if emitter.lowered_program.body_ops.count - start < count {
+        return 0;
+    }
+    return 1;
+}
+
+fn native_emitter_body_op_to_machine_inst(op: &LoweredBodyOp) MachineInst {
+    if op == null {
+        return MachineInst{
+            opcode: LOWERED_BODY_OP_NOP,
+            dst: 0,
+            src0: 0,
+            src1: 0,
+            target_id: 0,
+            imm: 0i64,
+            flags: 0,
+        };
+    }
+    return MachineInst{
+        opcode: op.opcode,
+        dst: op.dst,
+        src0: op.src0,
+        src1: op.src1,
+        target_id: op.target_id,
+        imm: op.imm,
+        flags: op.flags,
+    };
+}
+
+fn native_emitter_import_function_body(emitter: &NativeEmitter,
+    fn_item: &ConcreteFunction, function_index: i32) i32 {
+    if emitter == null || emitter.lowered_program == null || emitter.machine_module == null ||
+       fn_item == null || function_index < 0 {
+        return -1;
+    }
+    if native_emitter_body_range_valid(emitter, fn_item) == 0 {
+        return -1;
+    }
+    if fn_item.body_count == 0 {
+        return 0;
+    }
+    const block_index: i32 = machine_function_add_block(emitter.machine_module, function_index, fn_item.function_id);
+    if block_index < 0 {
+        return -1;
+    }
+    var i: i32 = 0;
+    while i < fn_item.body_count {
+        const op_index_result: !usize = (fn_item.body_start + i) as! usize;
+        const op_index: usize = op_index_result catch {
+            return -1;
+        };
+        const op: &LoweredBodyOp = semantic_vector_item_ptr(&emitter.lowered_program.body_ops, op_index) as &LoweredBodyOp;
+        if op == null {
+            return -1;
+        }
+        var inst: MachineInst = native_emitter_body_op_to_machine_inst(op);
+        if machine_block_add_inst(emitter.machine_module, function_index, block_index, &inst) != 0 {
+            return -1;
+        }
+        emitter.imported_body_op_count = emitter.imported_body_op_count + 1usize;
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn native_emitter_import_lowered_globals(emitter: &NativeEmitter) i32 {
+    if emitter == null || emitter.lowered_program == null || emitter.machine_module == null {
+        return native_emitter_error(emitter);
+    }
+    var i: usize = 0usize;
+    while i < emitter.lowered_program.globals.count {
+        const global: &GlobalObject = semantic_vector_item_ptr(&emitter.lowered_program.globals, i) as &GlobalObject;
+        if global == null {
+            return native_emitter_error(emitter);
+        }
+        var symbol: MachineSymbol = machine_symbol_make(global.global_id, 0, 0i64, 0i64,
+            MACHINE_SYMBOL_KIND_OBJECT, MACHINE_SYMBOL_BIND_GLOBAL);
+        if machine_module_add_symbol(emitter.machine_module, &symbol) < 0 {
+            return native_emitter_error(emitter);
+        }
+        emitter.imported_global_count = emitter.imported_global_count + 1usize;
+        i = i + 1usize;
+    }
+    return 0;
+}
+
+/// 功能说明：构造空 NativeEmitter 值。
+/// 参数说明：无。
+/// 返回值说明：返回未绑定 LoweredProgram / MachineModule 的 emitter。
+export fn native_emitter_empty() NativeEmitter {
+    return NativeEmitter{
+        status: NATIVE_EMITTER_STATUS_UNINITIALIZED,
+        target: 0,
+        lowered_program: null,
+        machine_module: null,
+        lowered_function_count: 0usize,
+        lowered_body_op_count: 0usize,
+        lowered_global_count: 0usize,
+        lowered_type_count: 0usize,
+        lowered_interface_count: 0usize,
+        lowered_err_union_count: 0usize,
+        lowered_async_frame_count: 0usize,
+        lowered_drop_defer_count: 0usize,
+        lowered_helper_count: 0usize,
+        lowered_work_item_count: 0usize,
+        lowered_table_items: 0usize,
+        lowered_table_bytes: 0usize,
+        lowered_bytes: 0usize,
+        imported_function_count: 0usize,
+        imported_body_op_count: 0usize,
+        imported_global_count: 0usize,
+    };
+}
+
+/// 功能说明：绑定 NativeEmitter 到一个已激活的 LoweredProgram 与 MachineModule。
+/// 参数说明：`emitter` 为目标 emitter；`program` 为 lowered 输入；`module` 为 native 机器 IR 输出；`target` 为目标平台 ID。
+/// 返回值说明：成功返回 `0` 并记录 LoweredProgram 快照；参数或生命周期无效返回 `-1`。
+export fn native_emitter_begin(emitter: &NativeEmitter, program: &LoweredProgram,
+    module: &MachineModule, target: i32) i32 {
+    if emitter == null || program == null || module == null {
+        return native_emitter_error(emitter);
+    }
+    if lowered_program_lifecycle_state(program) != LOWERED_PROGRAM_LIFECYCLE_ACTIVE {
+        return native_emitter_error(emitter);
+    }
+    if machine_module_lifecycle_state(module) != MACHINE_LIFECYCLE_ACTIVE {
+        return native_emitter_error(emitter);
+    }
+    emitter.status = NATIVE_EMITTER_STATUS_READY;
+    emitter.target = target;
+    emitter.lowered_program = program;
+    emitter.machine_module = module;
+    native_emitter_reset_counts(emitter);
+    return native_emitter_refresh_lowered_snapshot(emitter);
+}
+
+/// 功能说明：读取 LoweredProgram 并把当前 v1 支持的函数/全局对象导入 MachineModule。
+/// 参数说明：`emitter` 必须已通过 `native_emitter_begin` 绑定输入与输出。
+/// 返回值说明：成功返回 `0` 并将状态置为 DONE；无效状态、读取或追加失败返回 `-1`。
+export fn native_emitter_read_lowered_program(emitter: &NativeEmitter) i32 {
+    if emitter == null || emitter.status != NATIVE_EMITTER_STATUS_READY {
+        return native_emitter_error(emitter);
+    }
+    emitter.imported_function_count = 0usize;
+    emitter.imported_body_op_count = 0usize;
+    emitter.imported_global_count = 0usize;
+    if native_emitter_refresh_lowered_snapshot(emitter) != 0 {
+        return native_emitter_error(emitter);
+    }
+    if native_emitter_import_lowered_functions(emitter) != 0 {
+        return native_emitter_error(emitter);
+    }
+    if native_emitter_import_lowered_globals(emitter) != 0 {
+        return native_emitter_error(emitter);
+    }
+    emitter.status = NATIVE_EMITTER_STATUS_DONE;
+    return 0;
+}
+
+/// 功能说明：报告 NativeEmitter streaming 输出路径的临时缓冲上界。
+/// 参数说明：`code_len` 为待写机器码长度。
+/// 返回值说明：返回 ELF header 固定临时缓冲大小；不随完整 ELF 镜像大小增长。
+export fn native_emitter_stream_temp_peak_bytes(code_len: usize) usize {
+    return elf64_stream_peak_temp_bytes(code_len);
+}
+
+/// 功能说明：用 NativeEmitter 的 streaming writer 输出 Linux x86_64 ELF64 executable。
+/// 参数说明：`emitter` 为已初始化 emitter；`stream` 为目标 FILE；`code`/`code_len` 为机器码输入。
+/// 返回值说明：成功返回输出摘要；参数、状态或写入失败时 `status == -1`。
+export fn native_emitter_write_executable_stream(emitter: &NativeEmitter, stream: &FILE,
+    code: &const byte, code_len: usize) NativeEmitterOutputResult {
+    var target: i32 = 0;
+    if emitter != null {
+        target = emitter.target;
+    }
+    if emitter == null || stream == null || (code == null && code_len != 0usize) {
+        return native_emitter_output_error(target);
+    }
+    if emitter.status != NATIVE_EMITTER_STATUS_READY && emitter.status != NATIVE_EMITTER_STATUS_DONE {
+        return native_emitter_output_error(target);
+    }
+    const written: i32 = elf64_write_executable_stream(stream, code, code_len,
+        EM_X86_64, ELF64_DEFAULT_LOAD_VADDR);
+    if written < 0 {
+        return native_emitter_output_error(target);
+    }
+    return NativeEmitterOutputResult{
+        status: NATIVE_EMITTER_STATUS_DONE,
+        target: target,
+        code_bytes: code_len,
+        output_bytes: written as usize,
+        temp_peak_bytes: native_emitter_stream_temp_peak_bytes(code_len),
+    };
+}

@@ -1,0 +1,4057 @@
+// checker/check_expr.uya - 表达式类型推断和检查
+// 从 checker/main.uya 拆分
+
+// ===== 类型辅助函数 =====
+
+// 复制 Type 值
+fn copy_type(t: &Type) Type {
+    var r: Type = Type {
+        kind: t.kind,
+        data: t.data,  // 复制 union data 字段
+        enum_name: t.enum_name,
+        interface_name: t.interface_name,
+        interface_type_args: t.interface_type_args,
+        interface_type_arg_count: t.interface_type_arg_count,
+        struct_name: t.struct_name,
+        union_name: t.union_name,
+        pointer_to: t.pointer_to,
+        is_ffi_pointer: t.is_ffi_pointer,
+        element_type: t.element_type,
+        array_size: t.array_size,
+        slice_element_type: t.slice_element_type,
+        slice_len: t.slice_len,
+        slice_element_is_const: t.slice_element_is_const,
+        tuple_element_types: t.tuple_element_types,
+        tuple_count: t.tuple_count,
+        error_union_payload_type: t.error_union_payload_type,
+        error_error_id: t.error_error_id,
+        atomic_inner_type: t.atomic_inner_type,
+        generic_param_name: t.generic_param_name,
+        struct_type_args: t.struct_type_args,
+        struct_type_arg_count: t.struct_type_arg_count,
+        union_type_args: t.union_type_args,
+        union_type_arg_count: t.union_type_arg_count,
+    };
+    return r;
+}
+
+// 插值格式说明符对应类型的最大输出宽度
+fn checker_interp_format_max_width(t: Type, spec: &byte) i32 {
+    // 字符串插值支持：对 &[const byte] / &[byte] 这种 slice，默认按 C 字符串 %s 输出
+    if t.kind == TypeKind.TYPE_SLICE {
+        // 如用户显式提供了格式说明符（如 :x / :d），当前仅实现默认 ${expr} 这条路径
+        if spec != null && spec[0] != 0 {
+            return -1;
+        }
+        if t.slice_element_type != null {
+            const ek: TypeKind = t.slice_element_type.kind;
+            if ek == TypeKind.TYPE_BYTE || ek == TypeKind.TYPE_I8 || ek == TypeKind.TYPE_U8 {
+                if t.slice_len > 0 {
+                    // slice_len 对应插值缓冲上限；要求 slice 包含终止 NUL 时语义正确
+                    return t.slice_len;
+                }
+                // 未知长度时给一个保守上界，避免 -1
+                return 18;
+            }
+        }
+        return -1;
+    }
+    if t.kind == TypeKind.TYPE_I32 || t.kind == TypeKind.TYPE_U32 {
+        if spec != null {
+            var i: i32 = 0;
+            while spec[i] != 0 {
+                if spec[i] == 108 { return 21; }
+                i = i + 1;
+            }
+        }
+        return 11;
+    }
+    if t.kind == TypeKind.TYPE_I64 || t.kind == TypeKind.TYPE_U64 { return 21; }
+    if t.kind == TypeKind.TYPE_I8 || t.kind == TypeKind.TYPE_I16 ||
+        t.kind == TypeKind.TYPE_U8 || t.kind == TypeKind.TYPE_U16 { return 11; }
+    if t.kind == TypeKind.TYPE_USIZE { return 21; }
+    if t.kind == TypeKind.TYPE_F32 { return 16; }
+    if t.kind == TypeKind.TYPE_F64 { return 24; }
+    if t.kind == TypeKind.TYPE_BOOL { return 5; }
+    if t.kind == TypeKind.TYPE_POINTER { return 18; }
+    return -1;
+}
+
+const CHECKER_EMBED_PATH_MAX: i32 = 4096;
+const CHECKER_EMBED_MAX_DIR_ENTRIES: i32 = 4096;
+const DT_LNK: i8 = 10;
+const CHECKER_C_IMPORT_MAX_EXPANDED: i32 = 4096;
+const CHECKER_C_IMPORT_MAX_VISITED_DIRS: i32 = 4096;
+const CHECKER_C_IMPORT_MAX_SYMLINK_DEPTH: i32 = 64;
+
+fn checker_embed_is_path_sep(ch: byte) i32 {
+    if ch == 47 as byte || ch == 92 as byte {
+        return 1;
+    }
+    return 0;
+}
+
+fn checker_embed_path_is_absolute(path: &byte) i32 {
+    if path == null || path[0] == 0 as byte {
+        return 0;
+    }
+    if checker_embed_is_path_sep(path[0]) != 0 {
+        return 1;
+    }
+    const c0: i32 = path[0] as i32;
+    if ((c0 >= 65 && c0 <= 90) || (c0 >= 97 && c0 <= 122)) &&
+        path[1] == 58 as byte && checker_embed_is_path_sep(path[2]) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn checker_embed_normalize_path(input: &byte, out: &byte, out_cap: i32) i32 {
+    if input == null || out == null || out_cap <= 1 {
+        return -1;
+    }
+    var seg_starts: [i32: 256] = [];
+    var seg_lens: [i32: 256] = [];
+    var seg_count: i32 = 0;
+    var prefix_len: i32 = 0;
+    var has_root: i32 = 0;
+    var start_idx: i32 = 0;
+    if checker_embed_is_path_sep(input[0]) != 0 {
+        has_root = 1;
+        start_idx = 1;
+    } else {
+        const c0: i32 = input[0] as i32;
+        if ((c0 >= 65 && c0 <= 90) || (c0 >= 97 && c0 <= 122)) && input[1] == 58 as byte {
+            prefix_len = 2;
+            start_idx = 2;
+            if checker_embed_is_path_sep(input[2]) != 0 {
+                has_root = 1;
+                start_idx = 3;
+            }
+        }
+    }
+    var i: i32 = start_idx;
+    while input[i] != 0 as byte {
+        while input[i] != 0 as byte && checker_embed_is_path_sep(input[i]) != 0 {
+            i = i + 1;
+        }
+        if input[i] == 0 as byte {
+            break;
+        }
+        const seg_start: i32 = i;
+        while input[i] != 0 as byte && checker_embed_is_path_sep(input[i]) == 0 {
+            i = i + 1;
+        }
+        const seg_len: i32 = i - seg_start;
+        if seg_len == 1 && input[seg_start] == 46 as byte {
+            continue;
+        }
+        if seg_len == 2 && input[seg_start] == 46 as byte && input[seg_start + 1] == 46 as byte {
+            if seg_count > 0 && seg_count - 1 >= 0 && seg_count - 1 < 256 {
+                const prev_start: i32 = seg_starts[seg_count - 1];
+                const prev_len: i32 = seg_lens[seg_count - 1];
+                if !(prev_len == 2 && input[prev_start] == 46 as byte && input[prev_start + 1] == 46 as byte) {
+                    seg_count = seg_count - 1;
+                    continue;
+                }
+            }
+            if has_root == 0 && seg_count < 256 {
+                seg_starts[seg_count] = seg_start;
+                seg_lens[seg_count] = seg_len;
+                seg_count = seg_count + 1;
+            }
+            continue;
+        }
+        if seg_count >= 256 {
+            return -1;
+        }
+        seg_starts[seg_count] = seg_start;
+        seg_lens[seg_count] = seg_len;
+        seg_count = seg_count + 1;
+    }
+
+    var out_pos: i32 = 0;
+    if prefix_len == 2 {
+        if out_pos + 2 >= out_cap {
+            return -1;
+        }
+        out[out_pos] = input[0];
+        out[out_pos + 1] = 58 as byte;
+        out_pos = out_pos + 2;
+    }
+    if has_root != 0 {
+        if out_pos + 1 >= out_cap {
+            return -1;
+        }
+        out[out_pos] = 47 as byte;
+        out_pos = out_pos + 1;
+    }
+
+    var si: i32 = 0;
+    while si < seg_count {
+        if out_pos > 0 && out[out_pos - 1] != 47 as byte {
+            if out_pos + 1 >= out_cap {
+                return -1;
+            }
+            out[out_pos] = 47 as byte;
+            out_pos = out_pos + 1;
+        }
+        var sj: i32 = 0;
+        while sj < seg_lens[si] {
+            if out_pos + 1 >= out_cap {
+                return -1;
+            }
+            out[out_pos] = input[seg_starts[si] + sj];
+            out_pos = out_pos + 1;
+            sj = sj + 1;
+        }
+        si = si + 1;
+    }
+
+    if out_pos == 0 {
+        if out_cap < 2 {
+            return -1;
+        }
+        out[0] = 46 as byte;
+        out[1] = 0 as byte;
+        return 0;
+    }
+    if out_pos == 2 && prefix_len == 2 && has_root == 0 {
+        out[out_pos] = 0 as byte;
+        return 0;
+    }
+    if out_pos < out_cap {
+        out[out_pos] = 0 as byte;
+        return 0;
+    }
+    return -1;
+}
+
+fn checker_embed_extract_dir(filename: &byte, out: &byte, out_cap: i32) i32 {
+    if out == null || out_cap <= 0 {
+        return -1;
+    }
+    out[0] = 0 as byte;
+    if filename == null || filename[0] == 0 as byte {
+        return 0;
+    }
+    var last_slash: *byte = strrchr(filename as *byte, 47);
+    if last_slash == null {
+        last_slash = strrchr(filename as *byte, 92);
+    }
+    if last_slash == null {
+        return 0;
+    }
+    const dir_len: i32 = (ptr_diff(last_slash, filename as *byte) as i32) + 1;
+    if dir_len + 1 > out_cap {
+        return -1;
+    }
+    memcpy(out as *void, filename as *void, dir_len as usize);
+    out[dir_len] = 0 as byte;
+    return 0;
+}
+
+fn checker_embed_join_path(base_dir: &byte, path_literal: &byte, out: &byte, out_cap: i32) i32 {
+    if path_literal == null || out == null || out_cap <= 0 {
+        return -1;
+    }
+    if checker_embed_path_is_absolute(path_literal) != 0 || base_dir == null || base_dir[0] == 0 as byte {
+        const path_len: i32 = strlen(path_literal as *byte) as i32;
+        if path_len + 1 > out_cap {
+            return -1;
+        }
+        memcpy(out as *void, path_literal as *void, (path_len + 1) as usize);
+        return 0;
+    }
+    const base_len: i32 = strlen(base_dir as *byte) as i32;
+    const lit_len: i32 = strlen(path_literal as *byte) as i32;
+    if base_len + lit_len + 2 > out_cap {
+        return -1;
+    }
+    memcpy(out as *void, base_dir as *void, base_len as usize);
+    var pos: i32 = base_len;
+    if pos > 0 && checker_embed_is_path_sep(out[pos - 1]) == 0 {
+        out[pos] = 47 as byte;
+        pos = pos + 1;
+    }
+    memcpy((&out[pos]) as *void, path_literal as *void, (lit_len + 1) as usize);
+    return 0;
+}
+
+fn checker_embed_resolve_path(checker: &TypeChecker, source_filename: &byte, literal: &byte) &byte {
+    if checker == null || checker.arena == null || literal == null {
+        return null;
+    }
+    var base_dir: [byte: CHECKER_EMBED_PATH_MAX] = [];
+    var joined: [byte: CHECKER_EMBED_PATH_MAX] = [];
+    var normalized: [byte: CHECKER_EMBED_PATH_MAX] = [];
+    var absolute_joined: [byte: CHECKER_EMBED_PATH_MAX] = [];
+    var absolute_normalized: [byte: CHECKER_EMBED_PATH_MAX] = [];
+    if checker_embed_extract_dir(source_filename, &base_dir[0], CHECKER_EMBED_PATH_MAX) != 0 {
+        return null;
+    }
+    if checker_embed_join_path(&base_dir[0], literal, &joined[0], CHECKER_EMBED_PATH_MAX) != 0 {
+        return null;
+    }
+    if checker_embed_normalize_path(&joined[0], &normalized[0], CHECKER_EMBED_PATH_MAX) != 0 {
+        return null;
+    }
+    if checker_embed_path_is_absolute(&normalized[0] as &byte) == 0 {
+        var cwd: [byte: CHECKER_EMBED_PATH_MAX] = [];
+        if getcwd(&cwd[0] as &byte, CHECKER_EMBED_PATH_MAX as usize) == null {
+            return checker_arena_strdup(checker.arena, &normalized[0] as &byte);
+        }
+        if checker_embed_join_path(&cwd[0] as &byte, &normalized[0] as &byte, &absolute_joined[0], CHECKER_EMBED_PATH_MAX) != 0 {
+            return checker_arena_strdup(checker.arena, &normalized[0] as &byte);
+        }
+        if checker_embed_normalize_path(&absolute_joined[0], &absolute_normalized[0], CHECKER_EMBED_PATH_MAX) != 0 {
+            return checker_arena_strdup(checker.arena, &normalized[0] as &byte);
+        }
+        return checker_arena_strdup(checker.arena, &absolute_normalized[0] as &byte);
+    }
+    return checker_arena_strdup(checker.arena, &normalized[0] as &byte);
+}
+
+fn checker_embed_path_is_symlink(path: &byte) i32 {
+    if path == null {
+        return 0;
+    }
+    var link_buf: [byte: CHECKER_EMBED_PATH_MAX] = [];
+    const rl: i32 = readlink(path as &const byte, &link_buf[0] as &byte, CHECKER_EMBED_PATH_MAX as usize);
+    if rl >= 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn checker_embed_read_file_bytes(checker: &TypeChecker, path: &byte, out_data: & & byte, out_size: &i32) i32 {
+    if checker == null || checker.arena == null || path == null || out_data == null || out_size == null {
+        return -1;
+    }
+    if checker_embed_path_is_symlink(path) != 0 {
+        return -5;
+    }
+    var st: Stat = Stat {
+        st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0,
+        st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0,
+        st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0
+    };
+    if stat(path as &const byte, &st) != 0 {
+        return -1;
+    }
+    if ((st.st_mode as u32) & S_IFMT) != S_IFREG {
+        return -2;
+    }
+    if st.st_size < 0 || st.st_size > 2147483647 {
+        return -3;
+    }
+    const size_i32: i32 = st.st_size as i32;
+    var alloc_size: usize = 1 as usize;
+    if size_i32 > 0 {
+        alloc_size = size_i32 as usize;
+    }
+    const data: &byte = compiler_arena_alloc(checker.arena, alloc_size) as &byte;
+    if data == null {
+        return -4;
+    }
+    if size_i32 == 0 {
+        data[0] = 0 as byte;
+        out_data[0] = data;
+        out_size[0] = 0;
+        return 0;
+    }
+    const file: &FILE = fopen(path as &const byte, "rb" as &const byte);
+    if file == null {
+        return -1;
+    }
+    const bytes_read: usize = fread(data as &byte, 1 as usize, size_i32 as usize, file);
+    fclose(file);
+    if bytes_read != size_i32 as usize {
+        return -4;
+    }
+    out_data[0] = data;
+    out_size[0] = size_i32;
+    return 0;
+}
+
+fn checker_embed_is_dot_or_dotdot(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if name[0] == 46 as byte && name[1] == 0 as byte {
+        return 1;
+    }
+    if name[0] == 46 as byte && name[1] == 46 as byte && name[2] == 0 as byte {
+        return 1;
+    }
+    return 0;
+}
+
+fn checker_embed_collect_dir_files_recursive(
+    checker: &TypeChecker,
+    current_dir: &byte,
+    rel_prefix: &byte,
+    out_rel_paths: & & byte,
+    out_resolved_paths: & & byte,
+    out_count: &i32,
+    max_entries: i32
+) i32 {
+    if checker == null || current_dir == null || out_rel_paths == null || out_resolved_paths == null || out_count == null {
+        return 0;
+    }
+    const dir: &DIR = opendir(current_dir as &const byte);
+    if dir == null {
+        return 0;
+    }
+    var entry: &Dirent = readdir(dir);
+    while entry != null {
+        const name: &byte = &entry.d_name[0] as &byte;
+        if checker_embed_is_dot_or_dotdot(name) == 0 {
+            var child_path_buf: [byte: CHECKER_EMBED_PATH_MAX] = [];
+            if checker_embed_join_path(current_dir, name, &child_path_buf[0], CHECKER_EMBED_PATH_MAX) != 0 {
+                closedir(dir);
+                return 0;
+            }
+            var child_path_norm: [byte: CHECKER_EMBED_PATH_MAX] = [];
+            if checker_embed_normalize_path(&child_path_buf[0], &child_path_norm[0], CHECKER_EMBED_PATH_MAX) != 0 {
+                closedir(dir);
+                return 0;
+            }
+            if checker_embed_path_is_symlink(&child_path_norm[0] as &byte) != 0 {
+                closedir(dir);
+                return 0;
+            }
+            var child_rel_buf: [byte: CHECKER_EMBED_PATH_MAX] = [];
+            if rel_prefix != null && rel_prefix[0] != 0 as byte {
+                if checker_embed_join_path(rel_prefix, name, &child_rel_buf[0], CHECKER_EMBED_PATH_MAX) != 0 {
+                    closedir(dir);
+                    return 0;
+                }
+            } else {
+                if checker_embed_join_path(null, name, &child_rel_buf[0], CHECKER_EMBED_PATH_MAX) != 0 {
+                    closedir(dir);
+                    return 0;
+                }
+            }
+            var child_rel_norm: [byte: CHECKER_EMBED_PATH_MAX] = [];
+            if checker_embed_normalize_path(&child_rel_buf[0], &child_rel_norm[0], CHECKER_EMBED_PATH_MAX) != 0 {
+                closedir(dir);
+                return 0;
+            }
+
+            var st: Stat = Stat {
+                st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0,
+                st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0,
+                st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0
+            };
+            if stat(&child_path_norm[0] as &const byte, &st) != 0 {
+                closedir(dir);
+                return 0;
+            }
+            const kind: u32 = (st.st_mode as u32) & S_IFMT;
+            if kind == S_IFDIR {
+                if checker_embed_collect_dir_files_recursive(checker,
+                    &child_path_norm[0] as &byte,
+                    &child_rel_norm[0] as &byte,
+                    out_rel_paths, out_resolved_paths, out_count, max_entries) == 0 {
+                    closedir(dir);
+                    return 0;
+                }
+            } else if kind == S_IFREG {
+                if out_count[0] >= max_entries {
+                    closedir(dir);
+                    return 0;
+                }
+                out_rel_paths[out_count[0]] = checker_arena_strdup(checker.arena, &child_rel_norm[0] as &byte);
+                out_resolved_paths[out_count[0]] = checker_arena_strdup(checker.arena, &child_path_norm[0] as &byte);
+                if out_rel_paths[out_count[0]] == null || out_resolved_paths[out_count[0]] == null {
+                    closedir(dir);
+                    return 0;
+                }
+                out_count[0] = out_count[0] + 1;
+            } else {
+                closedir(dir);
+                return 0;
+            }
+        }
+        entry = readdir(dir);
+    }
+    closedir(dir);
+    return 1;
+}
+
+fn checker_embed_sort_dir_entries(rel_paths: & & byte, resolved_paths: & & byte, count: i32) void {
+    if rel_paths == null || resolved_paths == null || count <= 1 {
+        return;
+    }
+    var i: i32 = 0;
+    while i < count {
+        var j: i32 = i + 1;
+        while j < count {
+            if rel_paths[i] != null && rel_paths[j] != null &&
+                strcmp(rel_paths[i] as *byte, rel_paths[j] as *byte) > 0 {
+                const tmp_rel: &byte = rel_paths[i];
+                const tmp_resolved: &byte = resolved_paths[i];
+                rel_paths[i] = rel_paths[j];
+                resolved_paths[i] = resolved_paths[j];
+                rel_paths[j] = tmp_rel;
+                resolved_paths[j] = tmp_resolved;
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+}
+
+fn checker_embed_validate_embed_dir_entry_struct(checker: &TypeChecker, struct_decl: &ASTNode) i32 {
+    if checker == null || struct_decl == null || struct_decl.type != ASTNodeType.AST_STRUCT_DECL {
+        return 0;
+    }
+    if struct_decl.struct_decl_field_count != 2 || struct_decl.struct_decl_fields == null {
+        checker_report_error(checker, struct_decl, "EmbedDirEntry 必须定义为 { path: &[const byte], data: &[const byte] }" as *byte);
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < 2 {
+        const field: &ASTNode = struct_decl.struct_decl_fields[i];
+        if field == null || field.type != ASTNodeType.AST_VAR_DECL || field.var_decl_name == null || field.var_decl_type == null {
+            checker_report_error(checker, struct_decl, "EmbedDirEntry 字段定义无效" as *byte);
+            return 0;
+        }
+        if i == 0 {
+            if str_equals(field.var_decl_name, "path" as *byte) == 0 {
+                checker_report_error(checker, field, "EmbedDirEntry 第一个字段必须名为 path" as *byte);
+                return 0;
+            }
+        } else {
+            if str_equals(field.var_decl_name, "data" as *byte) == 0 {
+                checker_report_error(checker, field, "EmbedDirEntry 第二个字段必须名为 data" as *byte);
+                return 0;
+            }
+        }
+        if field.var_decl_type.type != ASTNodeType.AST_TYPE_SLICE ||
+            field.var_decl_type.type_slice_element_const == 0 ||
+            field.var_decl_type.type_slice_element_type == null ||
+            field.var_decl_type.type_slice_element_type.type != ASTNodeType.AST_TYPE_NAMED ||
+            field.var_decl_type.type_slice_element_type.type_named_name == null ||
+            str_equals(field.var_decl_type.type_slice_element_type.type_named_name, "byte" as *byte) == 0 {
+            checker_report_error(checker, field, "EmbedDirEntry 字段类型必须为 &[const byte]" as *byte);
+            return 0;
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn checker_c_import_ascii_is_space(c: byte) i32 {
+    if c == 32 as byte || c == 9 as byte || c == 10 as byte || c == 13 as byte {
+        return 1;
+    }
+    return 0;
+}
+
+fn checker_c_import_paths_equal(path1: &byte, path2: &byte) i32 {
+    if path1 == null || path2 == null {
+        return 0;
+    }
+    if strcmp(path1 as *byte, path2 as *byte) == 0 {
+        return 1;
+    }
+
+    var st1: Stat = Stat {
+        st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0,
+        st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0,
+        st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0
+    };
+    var st2: Stat = Stat {
+        st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0,
+        st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0,
+        st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0
+    };
+    if stat(path1 as &const byte, &st1) != 0 || stat(path2 as &const byte, &st2) != 0 {
+        return 0;
+    }
+    if st1.st_dev == st2.st_dev && st1.st_ino == st2.st_ino {
+        return 1;
+    }
+    return 0;
+}
+
+fn checker_c_import_is_c_file(path: &byte) i32 {
+    if path == null {
+        return 0;
+    }
+    const len: usize = strlen(path as *byte);
+    if len < 2 {
+        return 0;
+    }
+    if path[len - 2] == 46 as byte && path[len - 1] == 99 as byte {
+        return 1;
+    }
+    return 0;
+}
+
+fn checker_c_import_copy_basename(checker: &TypeChecker, path: &byte) &byte {
+    if checker == null || checker.arena == null || path == null {
+        return null;
+    }
+    var base: &byte = strrchr(path as *byte, 47) as &byte;
+    if base == null {
+        base = strrchr(path as *byte, 92) as &byte;
+    }
+    if base != null {
+        base = (base as *byte + 1) as &byte;
+    } else {
+        base = path;
+    }
+    return checker_arena_strdup(checker.arena, base);
+}
+
+fn checker_c_import_normalize_flags(checker: &TypeChecker, literal: &byte) &byte {
+    if checker == null || checker.arena == null {
+        return null;
+    }
+    var src: &byte = literal;
+    if src == null {
+        src = "" as &byte;
+    }
+    const src_len: usize = strlen(src as *byte);
+    const out: &byte = compiler_arena_alloc(checker.arena, src_len + 1) as &byte;
+    if out == null {
+        return null;
+    }
+    var out_pos: usize = 0;
+    var pending_space: i32 = 0;
+    var i: usize = 0;
+    while i < src_len {
+        const ch: byte = src[i];
+        if checker_c_import_ascii_is_space(ch) != 0 {
+            if out_pos > 0 {
+                pending_space = 1;
+            }
+        } else {
+            if pending_space != 0 && out_pos > 0 {
+                out[out_pos] = 32 as byte;
+                out_pos = out_pos + 1;
+            }
+            out[out_pos] = ch;
+            out_pos = out_pos + 1;
+            pending_space = 0;
+        }
+        i = i + 1;
+    }
+    out[out_pos] = 0 as byte;
+    return out;
+}
+
+fn checker_c_import_follow_symlinks(checker: &TypeChecker, path: &byte, depth: i32) &byte {
+    if checker == null || checker.arena == null || path == null {
+        return null;
+    }
+    if depth >= CHECKER_C_IMPORT_MAX_SYMLINK_DEPTH {
+        return null;
+    }
+    var link_buf: [byte: CHECKER_EMBED_PATH_MAX] = [];
+    const rl: i32 = readlink(path as &const byte, &link_buf[0] as &byte, (CHECKER_EMBED_PATH_MAX - 1) as usize);
+    if rl < 0 {
+        return checker_arena_strdup(checker.arena, path);
+    }
+    if rl >= CHECKER_EMBED_PATH_MAX {
+        return null;
+    }
+    link_buf[rl] = 0 as byte;
+
+    var target_joined: [byte: CHECKER_EMBED_PATH_MAX] = [];
+    if checker_embed_path_is_absolute(&link_buf[0] as &byte) != 0 {
+        if checker_embed_normalize_path(&link_buf[0] as &byte, &target_joined[0], CHECKER_EMBED_PATH_MAX) != 0 {
+            return null;
+        }
+    } else {
+        var parent_dir: [byte: CHECKER_EMBED_PATH_MAX] = [];
+        if checker_embed_extract_dir(path, &parent_dir[0], CHECKER_EMBED_PATH_MAX) != 0 {
+            return null;
+        }
+        var tmp_joined: [byte: CHECKER_EMBED_PATH_MAX] = [];
+        if checker_embed_join_path(&parent_dir[0] as &byte, &link_buf[0] as &byte, &tmp_joined[0], CHECKER_EMBED_PATH_MAX) != 0 {
+            return null;
+        }
+        if checker_embed_normalize_path(&tmp_joined[0] as &byte, &target_joined[0], CHECKER_EMBED_PATH_MAX) != 0 {
+            return null;
+        }
+    }
+    return checker_c_import_follow_symlinks(checker, &target_joined[0] as &byte, depth + 1);
+}
+
+fn checker_c_import_resolve_path(checker: &TypeChecker, source_filename: &byte, literal: &byte) &byte {
+    if checker == null || checker.arena == null || literal == null {
+        return null;
+    }
+    var base_dir: [byte: CHECKER_EMBED_PATH_MAX] = [];
+    var joined: [byte: CHECKER_EMBED_PATH_MAX] = [];
+    var normalized: [byte: CHECKER_EMBED_PATH_MAX] = [];
+    var absolute_joined: [byte: CHECKER_EMBED_PATH_MAX] = [];
+    var absolute_normalized: [byte: CHECKER_EMBED_PATH_MAX] = [];
+    if checker_embed_extract_dir(source_filename, &base_dir[0], CHECKER_EMBED_PATH_MAX) != 0 {
+        return null;
+    }
+    if checker_embed_join_path(&base_dir[0], literal, &joined[0], CHECKER_EMBED_PATH_MAX) != 0 {
+        return null;
+    }
+    if checker_embed_normalize_path(&joined[0], &normalized[0], CHECKER_EMBED_PATH_MAX) != 0 {
+        return null;
+    }
+    if checker_embed_path_is_absolute(&normalized[0] as &byte) == 0 {
+        var cwd: [byte: CHECKER_EMBED_PATH_MAX] = [];
+        if getcwd(&cwd[0] as &byte, CHECKER_EMBED_PATH_MAX as usize) == null {
+            return checker_c_import_follow_symlinks(checker, &normalized[0] as &byte, 0);
+        }
+        if checker_embed_join_path(&cwd[0] as &byte, &normalized[0] as &byte, &absolute_joined[0], CHECKER_EMBED_PATH_MAX) != 0 {
+            return checker_c_import_follow_symlinks(checker, &normalized[0] as &byte, 0);
+        }
+        if checker_embed_normalize_path(&absolute_joined[0], &absolute_normalized[0], CHECKER_EMBED_PATH_MAX) != 0 {
+            return checker_c_import_follow_symlinks(checker, &normalized[0] as &byte, 0);
+        }
+        return checker_c_import_follow_symlinks(checker, &absolute_normalized[0] as &byte, 0);
+    }
+    return checker_c_import_follow_symlinks(checker, &normalized[0] as &byte, 0);
+}
+
+fn checker_c_import_visited_dir_contains(visited_dirs: & & byte, visited_count: i32, dir_path: &byte) i32 {
+    if visited_dirs == null || dir_path == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < visited_count {
+        if visited_dirs[i] != null && checker_c_import_paths_equal(visited_dirs[i], dir_path) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn checker_c_import_collect_dir_recursive(
+    checker: &TypeChecker,
+    current_dir: &byte,
+    rel_prefix: &byte,
+    visited_dirs: & & byte,
+    visited_count: &i32,
+    out_rel_paths: & & byte,
+    out_resolved_paths: & & byte,
+    out_count: &i32,
+    max_entries: i32
+) i32 {
+    if checker == null || current_dir == null || visited_dirs == null || visited_count == null ||
+        out_rel_paths == null || out_resolved_paths == null || out_count == null {
+        return 0;
+    }
+    if checker_c_import_visited_dir_contains(visited_dirs, visited_count[0], current_dir) != 0 {
+        return 1;
+    }
+    if visited_count[0] >= CHECKER_C_IMPORT_MAX_VISITED_DIRS {
+        return 0;
+    }
+    visited_dirs[visited_count[0]] = checker_arena_strdup(checker.arena, current_dir);
+    if visited_dirs[visited_count[0]] == null {
+        return 0;
+    }
+    visited_count[0] = visited_count[0] + 1;
+
+    const dir: &DIR = opendir(current_dir as &const byte);
+    if dir == null {
+        return 0;
+    }
+    var entry: &Dirent = readdir(dir);
+    while entry != null {
+        const name: &byte = &entry.d_name[0] as &byte;
+        if checker_embed_is_dot_or_dotdot(name) == 0 {
+            var child_path_buf: [byte: CHECKER_EMBED_PATH_MAX] = [];
+            if checker_embed_join_path(current_dir, name, &child_path_buf[0], CHECKER_EMBED_PATH_MAX) != 0 {
+                closedir(dir);
+                return 0;
+            }
+            var child_path_norm: [byte: CHECKER_EMBED_PATH_MAX] = [];
+            if checker_embed_normalize_path(&child_path_buf[0], &child_path_norm[0], CHECKER_EMBED_PATH_MAX) != 0 {
+                closedir(dir);
+                return 0;
+            }
+            const child_resolved: &byte = checker_c_import_follow_symlinks(checker, &child_path_norm[0] as &byte, 0);
+            if child_resolved == null {
+                closedir(dir);
+                return 0;
+            }
+
+            var child_rel_buf: [byte: CHECKER_EMBED_PATH_MAX] = [];
+            if rel_prefix != null && rel_prefix[0] != 0 as byte {
+                if checker_embed_join_path(rel_prefix, name, &child_rel_buf[0], CHECKER_EMBED_PATH_MAX) != 0 {
+                    closedir(dir);
+                    return 0;
+                }
+            } else {
+                if checker_embed_join_path(null, name, &child_rel_buf[0], CHECKER_EMBED_PATH_MAX) != 0 {
+                    closedir(dir);
+                    return 0;
+                }
+            }
+            var child_rel_norm: [byte: CHECKER_EMBED_PATH_MAX] = [];
+            if checker_embed_normalize_path(&child_rel_buf[0], &child_rel_norm[0], CHECKER_EMBED_PATH_MAX) != 0 {
+                closedir(dir);
+                return 0;
+            }
+
+            var st: Stat = Stat {
+                st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0,
+                st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0,
+                st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0
+            };
+            if stat(child_resolved as &const byte, &st) != 0 {
+                closedir(dir);
+                return 0;
+            }
+            const kind: u32 = (st.st_mode as u32) & S_IFMT;
+            if kind == S_IFDIR {
+                if checker_c_import_collect_dir_recursive(checker,
+                    child_resolved,
+                    &child_rel_norm[0] as &byte,
+                    visited_dirs,
+                    visited_count,
+                    out_rel_paths,
+                    out_resolved_paths,
+                    out_count,
+                    max_entries) == 0 {
+                    closedir(dir);
+                    return 0;
+                }
+            } else if kind == S_IFREG {
+                if checker_c_import_is_c_file(child_resolved) != 0 {
+                    if out_count[0] >= max_entries {
+                        closedir(dir);
+                        return 0;
+                    }
+                    out_rel_paths[out_count[0]] = checker_arena_strdup(checker.arena, &child_rel_norm[0] as &byte);
+                    out_resolved_paths[out_count[0]] = child_resolved;
+                    if out_rel_paths[out_count[0]] == null || out_resolved_paths[out_count[0]] == null {
+                        closedir(dir);
+                        return 0;
+                    }
+                    out_count[0] = out_count[0] + 1;
+                }
+            } else {
+                closedir(dir);
+                return 0;
+            }
+        }
+        entry = readdir(dir);
+    }
+    closedir(dir);
+    return 1;
+}
+
+fn checker_check_c_import_decl(checker: &TypeChecker, node: &ASTNode) i32 {
+    if checker == null || node == null || node.type != ASTNodeType.AST_C_IMPORT_DECL {
+        return 0;
+    }
+    if checker.scope_level > 0 {
+        checker_report_error(checker, node, "@c_import 只能在顶层使用" as *byte);
+        return 0;
+    }
+    if node.c_import_path_literal == null {
+        checker_report_error(checker, node, "@c_import 需要一个字符串字面量路径参数" as *byte);
+        return 0;
+    }
+    if node.c_import_cflags_normalized == null {
+        node.c_import_cflags_normalized = checker_c_import_normalize_flags(checker, node.c_import_cflags_literal);
+    }
+    if node.c_import_ldflags_normalized == null {
+        node.c_import_ldflags_normalized = checker_c_import_normalize_flags(checker, node.c_import_ldflags_literal);
+    }
+    if node.c_import_resolved_path == null {
+        node.c_import_resolved_path = checker_c_import_resolve_path(checker, node.filename, node.c_import_path_literal);
+    }
+    if node.c_import_resolved_path == null {
+        checker_report_error(checker, node, "@c_import 路径解析失败" as *byte);
+        return 0;
+    }
+
+    var st: Stat = Stat {
+        st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0,
+        st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0,
+        st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0
+    };
+    if stat(node.c_import_resolved_path as &const byte, &st) != 0 {
+        var msg_missing: [byte: 768] = [];
+        snprintf(&msg_missing[0] as *byte, 768, "@c_import 目标不存在: literal=%s resolved=%s" as *byte,
+            node.c_import_path_literal as *byte, node.c_import_resolved_path as *byte);
+        checker_report_error(checker, node, &msg_missing[0] as &byte);
+        return 0;
+    }
+
+    const kind: u32 = (st.st_mode as u32) & S_IFMT;
+    if kind == S_IFREG {
+        if checker_c_import_is_c_file(node.c_import_resolved_path) == 0 {
+            var msg_file: [byte: 768] = [];
+            snprintf(&msg_file[0] as *byte, 768, "@c_import 目标必须是 .c 文件或目录: literal=%s resolved=%s" as *byte,
+                node.c_import_path_literal as *byte, node.c_import_resolved_path as *byte);
+            checker_report_error(checker, node, &msg_file[0] as &byte);
+            return 0;
+        }
+        const paths: & & byte = compiler_arena_alloc(checker.arena, @size_of(&byte)) as & & byte;
+        const rel_paths: & & byte = compiler_arena_alloc(checker.arena, @size_of(&byte)) as & & byte;
+        if paths == null || rel_paths == null {
+            checker_report_error(checker, node, "@c_import 内存分配失败" as *byte);
+            return 0;
+        }
+        paths[0] = node.c_import_resolved_path;
+        rel_paths[0] = checker_c_import_copy_basename(checker, node.c_import_resolved_path);
+        if rel_paths[0] == null {
+            checker_report_error(checker, node, "@c_import 内存分配失败" as *byte);
+            return 0;
+        }
+        node.c_import_expanded_paths = paths;
+        node.c_import_expanded_rel_paths = rel_paths;
+        node.c_import_expanded_count = 1;
+        return 1;
+    }
+    if kind == S_IFDIR {
+        const paths: & & byte = compiler_arena_alloc(checker.arena, @size_of(&byte) * CHECKER_C_IMPORT_MAX_EXPANDED as usize) as & & byte;
+        const rel_paths: & & byte = compiler_arena_alloc(checker.arena, @size_of(&byte) * CHECKER_C_IMPORT_MAX_EXPANDED as usize) as & & byte;
+        const visited_dirs: & & byte = compiler_arena_alloc(checker.arena, @size_of(&byte) * CHECKER_C_IMPORT_MAX_VISITED_DIRS as usize) as & & byte;
+        if paths == null || rel_paths == null || visited_dirs == null {
+            checker_report_error(checker, node, "@c_import 内存分配失败" as *byte);
+            return 0;
+        }
+        var visited_count: i32 = 0;
+        var expanded_count: i32 = 0;
+        if checker_c_import_collect_dir_recursive(checker,
+            node.c_import_resolved_path,
+            "" as &byte,
+            visited_dirs,
+            &visited_count,
+            rel_paths,
+            paths,
+            &expanded_count,
+            CHECKER_C_IMPORT_MAX_EXPANDED) == 0 {
+            var msg_dir: [byte: 768] = [];
+            snprintf(&msg_dir[0] as *byte, 768, "@c_import 目录展开失败: literal=%s resolved=%s" as *byte,
+                node.c_import_path_literal as *byte, node.c_import_resolved_path as *byte);
+            checker_report_error(checker, node, &msg_dir[0] as &byte);
+            return 0;
+        }
+        if expanded_count <= 0 {
+            var msg_empty: [byte: 768] = [];
+            snprintf(&msg_empty[0] as *byte, 768, "@c_import 目录中没有任何 .c 文件: literal=%s resolved=%s" as *byte,
+                node.c_import_path_literal as *byte, node.c_import_resolved_path as *byte);
+            checker_report_error(checker, node, &msg_empty[0] as &byte);
+            return 0;
+        }
+        checker_embed_sort_dir_entries(rel_paths, paths, expanded_count);
+        node.c_import_expanded_paths = paths;
+        node.c_import_expanded_rel_paths = rel_paths;
+        node.c_import_expanded_count = expanded_count;
+        return 1;
+    }
+
+    {
+        var msg_other: [byte: 768] = [];
+        snprintf(&msg_other[0] as *byte, 768, "@c_import 目标必须是普通 .c 文件或目录: literal=%s resolved=%s" as *byte,
+            node.c_import_path_literal as *byte, node.c_import_resolved_path as *byte);
+        checker_report_error(checker, node, &msg_other[0] as &byte);
+    }
+    return 0;
+}
+
+fn checker_program_contains_embed_dir(node: &ASTNode) i32 {
+    if node == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_EMBED_DIR {
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_TYPE_NAMED && node.type_named_name != null &&
+        str_equals(node.type_named_name, "EmbedDirEntry" as *byte) != 0 {
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_PROGRAM && node.program_decls != null {
+        var i: i32 = 0;
+        while i < node.program_decl_count {
+            if checker_program_contains_embed_dir(node.program_decls[i]) != 0 { return 1; }
+            i = i + 1;
+        }
+    } else if node.type == ASTNodeType.AST_FN_DECL {
+        if checker_program_contains_embed_dir(node.fn_decl_body) != 0 { return 1; }
+        if node.fn_decl_params != null {
+            var pi: i32 = 0;
+            while pi < node.fn_decl_param_count {
+                if checker_program_contains_embed_dir(node.fn_decl_params[pi]) != 0 { return 1; }
+                pi = pi + 1;
+            }
+        }
+        if checker_program_contains_embed_dir(node.fn_decl_return_type) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_METHOD_BLOCK && node.method_block_methods != null {
+        var mbi: i32 = 0;
+        while mbi < node.method_block_method_count {
+            if checker_program_contains_embed_dir(node.method_block_methods[mbi]) != 0 { return 1; }
+            mbi = mbi + 1;
+        }
+    } else if node.type == ASTNodeType.AST_STRUCT_DECL {
+        if node.struct_decl_fields != null {
+            var sfi: i32 = 0;
+            while sfi < node.struct_decl_field_count {
+                if checker_program_contains_embed_dir(node.struct_decl_fields[sfi]) != 0 { return 1; }
+                sfi = sfi + 1;
+            }
+        }
+        if node.struct_decl_methods != null {
+            var smi: i32 = 0;
+            while smi < node.struct_decl_method_count {
+                if checker_program_contains_embed_dir(node.struct_decl_methods[smi]) != 0 { return 1; }
+                smi = smi + 1;
+            }
+        }
+    } else if node.type == ASTNodeType.AST_EXTERN_VAR_DECL {
+        if checker_program_contains_embed_dir(node.extern_var_decl_var_type) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.extern_var_decl_init_expr) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_TYPE_POINTER {
+        if checker_program_contains_embed_dir(node.type_pointer_pointed_type) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_TYPE_ARRAY {
+        if checker_program_contains_embed_dir(node.type_array_element_type) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.type_array_size_expr) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_TYPE_SLICE {
+        if checker_program_contains_embed_dir(node.type_slice_element_type) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.type_slice_size_expr) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_TYPE_TUPLE && node.type_tuple_element_types != null {
+        var tyi: i32 = 0;
+        while tyi < node.type_tuple_element_count {
+            if checker_program_contains_embed_dir(node.type_tuple_element_types[tyi]) != 0 { return 1; }
+            tyi = tyi + 1;
+        }
+    } else if node.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+        if checker_program_contains_embed_dir(node.type_error_union_payload_type) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_TYPE_ATOMIC {
+        if checker_program_contains_embed_dir(node.type_atomic_inner_type) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_TYPE_VECTOR {
+        if checker_program_contains_embed_dir(node.type_vector_element_type) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.type_vector_size_expr) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_TYPE_MASK {
+        if checker_program_contains_embed_dir(node.type_mask_size_expr) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_TYPE_FRAME {
+        if checker_program_contains_embed_dir(node.type_frame_operand) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i2: i32 = 0;
+        while i2 < node.block_stmt_count {
+            if checker_program_contains_embed_dir(node.block_stmts[i2]) != 0 { return 1; }
+            i2 = i2 + 1;
+        }
+    } else if node.type == ASTNodeType.AST_BINARY_EXPR {
+        if checker_program_contains_embed_dir(node.binary_expr_left) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.binary_expr_right) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_UNARY_EXPR {
+        if checker_program_contains_embed_dir(node.unary_expr_operand) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_CALL_EXPR {
+        if checker_program_contains_embed_dir(node.call_expr_callee) != 0 { return 1; }
+        if node.call_expr_args != null {
+            var ai: i32 = 0;
+            while ai < node.call_expr_arg_count {
+                if checker_program_contains_embed_dir(node.call_expr_args[ai]) != 0 { return 1; }
+                ai = ai + 1;
+            }
+        }
+    } else if node.type == ASTNodeType.AST_MEMBER_ACCESS {
+        if checker_program_contains_embed_dir(node.member_access_object) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_ARRAY_ACCESS {
+        if checker_program_contains_embed_dir(node.array_access_array) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.array_access_index) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_SLICE_EXPR {
+        if checker_program_contains_embed_dir(node.slice_expr_base) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.slice_expr_start_expr) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.slice_expr_len_expr) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_VAR_DECL {
+        if checker_program_contains_embed_dir(node.var_decl_type) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.var_decl_init) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_IF_STMT {
+        if checker_program_contains_embed_dir(node.if_stmt_condition) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.if_stmt_then_branch) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.if_stmt_else_branch) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_WHILE_STMT {
+        if checker_program_contains_embed_dir(node.while_stmt_condition) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.while_stmt_body) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_FOR_STMT {
+        if checker_program_contains_embed_dir(node.for_stmt_array) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.for_stmt_range_start) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.for_stmt_range_end) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.for_stmt_body) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_RETURN_STMT {
+        if checker_program_contains_embed_dir(node.return_stmt_expr) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_ASSIGN {
+        if checker_program_contains_embed_dir(node.assign_dest) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.assign_src) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_STRUCT_INIT {
+        var fi: i32 = 0;
+        while fi < node.struct_init_field_count {
+            if checker_program_contains_embed_dir(node.struct_init_field_values[fi]) != 0 { return 1; }
+            fi = fi + 1;
+        }
+    } else if node.type == ASTNodeType.AST_ARRAY_LITERAL {
+        if checker_program_contains_embed_dir(node.array_literal_repeat_count_expr) != 0 { return 1; }
+        var ei: i32 = 0;
+        while ei < node.array_literal_element_count {
+            if checker_program_contains_embed_dir(node.array_literal_elements[ei]) != 0 { return 1; }
+            ei = ei + 1;
+        }
+    } else if node.type == ASTNodeType.AST_TUPLE_LITERAL {
+        var ti: i32 = 0;
+        while ti < node.tuple_literal_element_count {
+            if checker_program_contains_embed_dir(node.tuple_literal_elements[ti]) != 0 { return 1; }
+            ti = ti + 1;
+        }
+    } else if node.type == ASTNodeType.AST_CAST_EXPR {
+        if checker_program_contains_embed_dir(node.cast_expr_expr) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_TRY_EXPR {
+        if checker_program_contains_embed_dir(node.try_expr_operand) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_AWAIT_EXPR {
+        if checker_program_contains_embed_dir(node.await_expr_operand) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_CATCH_EXPR {
+        if checker_program_contains_embed_dir(node.catch_expr_operand) != 0 { return 1; }
+        if checker_program_contains_embed_dir(node.catch_expr_catch_block) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_MATCH_EXPR && node.match_expr_arms != null {
+        if checker_program_contains_embed_dir(node.match_expr_expr) != 0 { return 1; }
+        var mi: i32 = 0;
+        while mi < node.match_expr_arm_count {
+            if checker_program_contains_embed_dir(node.match_expr_arms[mi].result_expr) != 0 { return 1; }
+            mi = mi + 1;
+        }
+    } else if node.type == ASTNodeType.AST_TEST_STMT {
+        if checker_program_contains_embed_dir(node.test_stmt_body) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_DEFER_STMT {
+        if checker_program_contains_embed_dir(node.defer_stmt_body) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_ERRDEFER_STMT {
+        if checker_program_contains_embed_dir(node.errdefer_stmt_body) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_PRINT || node.type == ASTNodeType.AST_PRINTLN {
+        if checker_program_contains_embed_dir(node.print_expr) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_PTR_FROM_USIZE {
+        if checker_program_contains_embed_dir(node.ptr_from_usize_value) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_USIZE_FROM_PTR {
+        if checker_program_contains_embed_dir(node.usize_from_ptr_ptr) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_ERROR_ID {
+        if checker_program_contains_embed_dir(node.error_id_operand) != 0 { return 1; }
+    } else if node.type == ASTNodeType.AST_ERROR_NAME {
+        if checker_program_contains_embed_dir(node.error_name_operand) != 0 { return 1; }
+    }
+    return 0;
+}
+
+// fprintf 从 extern_decls.uya 导入（use libc.fprintf）
+
+// 在结构体声明中查找字段
+// 参数：checker - 类型检查器指针，struct_decl - 结构体声明节点，field_name - 字段名称
+// 返回：找到的字段类型，未找到返回TYPE_VOID类型
+fn find_struct_field_type(checker: &TypeChecker, struct_decl: &ASTNode, field_name: &byte) Type {
+    // 注意：Uya 要求所有变量必须初始化
+    var result: Type = make_void_type();
+    
+    if checker == null || struct_decl == null || struct_decl.type != ASTNodeType.AST_STRUCT_DECL || field_name == null {
+        return result;
+    }
+    
+    // 遍历结构体字段列表
+    var i: i32 = 0;
+    while i < struct_decl.struct_decl_field_count {
+        const field: &ASTNode = struct_decl.struct_decl_fields[i];
+        if field != null && field.type == ASTNodeType.AST_VAR_DECL {
+            if field.var_decl_name != null && 
+                str_equals(field.var_decl_name, field_name) != 0 {
+                // 找到字段，返回字段类型
+                return type_from_ast(checker, field.var_decl_type);
+            }
+        }
+        i = i + 1;
+    }
+    
+    // 未找到字段
+    return result;
+}
+
+// 在泛型结构体声明中查找字段，支持类型参数替换
+// 例如：对于 Pair<i32, i64>，查找 key 字段时返回 i32 而非 K
+fn find_struct_field_type_with_substitution(checker: &TypeChecker, struct_decl: &ASTNode, 
+                                             field_name: &byte, type_args: &Type, type_arg_count: i32) Type {
+    var result: Type = make_void_type();
+    
+    if checker == null || struct_decl == null || struct_decl.type != ASTNodeType.AST_STRUCT_DECL || field_name == null {
+        return result;
+    }
+    
+    const type_params: &TypeParam = struct_decl.struct_decl_type_params;
+    const type_param_count: i32 = struct_decl.struct_decl_type_param_count;
+    
+    var i: i32 = 0;
+    while i < struct_decl.struct_decl_field_count {
+        const field: &ASTNode = struct_decl.struct_decl_fields[i];
+        if field != null && field.type == ASTNodeType.AST_VAR_DECL {
+            if field.var_decl_name != null && 
+                str_equals(field.var_decl_name, field_name) != 0 {
+                // 找到字段，获取原始类型
+                // 临时设置结构体的类型参数作为当前作用域的泛型参数
+                const saved_params: &TypeParam = checker.current_type_params;
+                const saved_count: i32 = checker.current_type_param_count;
+                checker.current_type_params = type_params;
+                checker.current_type_param_count = type_param_count;
+                
+                var field_type: Type = type_from_ast(checker, field.var_decl_type);
+                
+                // 恢复
+                checker.current_type_params = saved_params;
+                checker.current_type_param_count = saved_count;
+                
+                // 如果字段类型是泛型参数，则进行替换
+                if field_type.kind == TypeKind.TYPE_GENERIC_PARAM && field_type.generic_param_name != null &&
+                    type_params != null && type_args != null && type_arg_count > 0 {
+                    const param_name: &byte = field_type.generic_param_name;
+                    // 查找匹配的类型参数
+                    var j: i32 = 0;
+                    while j < type_param_count && j < type_arg_count {
+                        if type_params[j].name != null && str_equals(type_params[j].name, param_name) != 0 {
+                            // 返回替换后的类型
+                            return type_args[j];
+                        }
+                        j = j + 1;
+                    }
+                }
+                
+                return field_type;
+            }
+        }
+        i = i + 1;
+    }
+    
+    return result;
+}
+
+// 当前函数是否声明为 Future<!T> / !Future<T> 的 async 形态
+fn checker_current_fn_returns_future_error_union(checker: &TypeChecker) i32 {
+    if checker == null || checker.current_function_decl == null || checker.current_function_decl.fn_decl_return_type == null {
+        return 0;
+    }
+    const ret: &ASTNode = checker.current_function_decl.fn_decl_return_type;
+    if ret.type == ASTNodeType.AST_TYPE_NAMED && ret.type_named_name != null &&
+        str_equals(ret.type_named_name, "Future" as *byte) != 0 &&
+        ret.type_named_type_arg_count == 1 && ret.type_named_type_args != null &&
+        ret.type_named_type_args[0] != null &&
+        ret.type_named_type_args[0].type == ASTNodeType.AST_TYPE_ERROR_UNION {
+        return 1;
+    }
+    if ret.type == ASTNodeType.AST_TYPE_ERROR_UNION && ret.type_error_union_payload_type != null {
+        const future_payload_ast: &ASTNode = ret.type_error_union_payload_type;
+        if future_payload_ast.type == ASTNodeType.AST_TYPE_NAMED && future_payload_ast.type_named_name != null &&
+            str_equals(future_payload_ast.type_named_name, "Future" as *byte) != 0 &&
+            future_payload_ast.type_named_type_arg_count == 1 && future_payload_ast.type_named_type_args != null &&
+            future_payload_ast.type_named_type_args[0] != null {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// ===== 表达式类型推断 =====
+
+fn checker_infer_if_expr_branch_type(checker: &TypeChecker, branch: &ASTNode) Type {
+    if branch == null {
+        return make_void_type();
+    }
+    if branch.type == ASTNodeType.AST_BLOCK {
+        if branch.block_stmts == null || branch.block_stmt_count <= 0 {
+            return make_void_type();
+        }
+        const last: &ASTNode = branch.block_stmts[branch.block_stmt_count - 1];
+        return checker_infer_type(checker, last);
+    }
+    return checker_infer_type(checker, branch);
+}
+
+fn checker_if_expr_branch_value_node(branch: &ASTNode) &ASTNode {
+    if branch == null {
+        return null;
+    }
+    if branch.type == ASTNodeType.AST_BLOCK {
+        if branch.block_stmts == null || branch.block_stmt_count <= 0 {
+            return null;
+        }
+        return branch.block_stmts[branch.block_stmt_count - 1];
+    }
+    return branch;
+}
+
+fn checker_if_expr_branch_matches_expected_type(checker: &TypeChecker, branch: &ASTNode, expected_type: Type, scene: &byte) i32 {
+    const value: &ASTNode = checker_if_expr_branch_value_node(branch);
+    if checker == null || value == null {
+        checker_report_error(checker, branch, "if 表达式分支必须返回值" as *byte);
+        return 0;
+    }
+
+    if value.type == ASTNodeType.AST_STRING && value.string_literal_value != null {
+        if expected_type.kind == TypeKind.TYPE_ARRAY && expected_type.element_type != null &&
+            expected_type.element_type[0].kind == TypeKind.TYPE_BYTE {
+            var sl: i32 = 0;
+            while value.string_literal_value[sl] != 0 {
+                sl = sl + 1;
+            }
+            const need: i32 = sl + 1;
+            if expected_type.array_size < need {
+                const msg_cap: usize = 256;
+                const msg_buf: &byte = compiler_arena_alloc(checker.arena, msg_cap) as &byte;
+                if msg_buf != null {
+                    sprintf(msg_buf as *byte,
+                        "[byte:N] 容量不足：至少需要 N>=%d（含结尾 0；本字面可见 %d 字节），当前 N=%d" as *byte,
+                        need, sl, expected_type.array_size);
+                    checker_report_error(checker, value, msg_buf);
+                } else {
+                    checker_report_error(checker, value, "字符串字面量过长，无法装入 byte 数组（需含结尾 0）" as *byte);
+                }
+                return 0;
+            }
+            return 1;
+        }
+        if expected_type.kind == TypeKind.TYPE_SLICE && expected_type.slice_element_type != null &&
+            expected_type.slice_element_type[0].kind == TypeKind.TYPE_BYTE {
+            if expected_type.slice_element_is_const == 0 {
+                checker_report_error(checker, value, "字符串字面量赋值给切片须使用 &[const byte] 或 &[const byte:N]" as *byte);
+                return 0;
+            }
+            var sl2: i32 = 0;
+            while value.string_literal_value[sl2] != 0 {
+                sl2 = sl2 + 1;
+            }
+            if expected_type.slice_len >= 0 && sl2 > expected_type.slice_len {
+                checker_report_error(checker, value, "字符串可见字节数超过 &[const byte:N] 的 N" as *byte);
+                return 0;
+            }
+            return 1;
+        }
+    }
+
+    if value.type == ASTNodeType.AST_ARRAY_LITERAL && value.array_literal_element_count == 0 {
+        if expected_type.kind == TypeKind.TYPE_ARRAY || expected_type.kind == TypeKind.TYPE_SLICE {
+            return 1;
+        }
+        checker_report_error(checker, value, "empty array literal '[]' can only initialize array or slice types" as *byte);
+        return 0;
+    }
+
+    _ = checker_check_expr_type(checker, value, copy_type(&expected_type));
+
+    const actual_type: Type = checker_infer_type(checker, value);
+    if actual_type.kind == TypeKind.TYPE_ERROR && expected_type.kind == TypeKind.TYPE_ERROR_UNION {
+        return 1;
+    }
+    if actual_type.kind == TypeKind.TYPE_ERROR_UNION && expected_type.kind != TypeKind.TYPE_ERROR_UNION {
+        checker_report_error(checker, value,
+            "错误联合类型 !T 不能隐式用于普通类型上下文；请使用 try 或 catch 处理" as *byte);
+        return 0;
+    }
+    if type_equals(copy_type(&actual_type), copy_type(&expected_type)) != 0 {
+        return 1;
+    }
+    if value.type == ASTNodeType.AST_SLICE_EXPR && value.slice_expr_base != null &&
+        value.slice_expr_base.type == ASTNodeType.AST_STRING &&
+        expected_type.kind == TypeKind.TYPE_SLICE && expected_type.slice_element_type != null &&
+        expected_type.slice_element_type[0].kind == TypeKind.TYPE_BYTE &&
+        expected_type.slice_element_is_const != 0 {
+        if expected_type.slice_len >= 0 && value.slice_expr_len_expr != null &&
+            is_constant_expression(checker, value.slice_expr_len_expr) != 0 {
+            const len_v: i32 = checker_eval_const_expr(checker, value.slice_expr_len_expr);
+            if len_v > expected_type.slice_len {
+                checker_report_error(checker, value, "切片长度超过 &[const byte:N] 的 N" as *byte);
+                return 0;
+            }
+        }
+        return 1;
+    }
+    if actual_type.kind == TypeKind.TYPE_STRUCT && expected_type.kind == TypeKind.TYPE_INTERFACE &&
+        actual_type.struct_name != null && expected_type.interface_name != null {
+        if struct_implements_interface(checker, actual_type.struct_name, expected_type.interface_name) != 0 {
+            return 1;
+        }
+    }
+    if actual_type.kind == TypeKind.TYPE_INT_LIMIT && is_integer_type(expected_type.kind) != 0 {
+        resolve_int_limit_node(value, copy_type(&expected_type));
+        return 1;
+    }
+    if actual_type.kind == TypeKind.TYPE_VOID && expected_type.kind == TypeKind.TYPE_POINTER {
+        return 1;
+    }
+
+    checker_report_error_type_kind_mismatch(checker, value, scene, copy_type(&expected_type), copy_type(&actual_type));
+    return 0;
+}
+
+// 表达式类型推断函数（从表达式AST节点推断类型）
+// 参数：checker - TypeChecker 指针，expr - 表达式AST节点
+// 返回：Type结构，如果无法推断返回TYPE_VOID类型
+// 注意：这是简化版本，完整的类型推断需要类型检查上下文；codegen 用此获取 try 表达式类型以生成正确 err_union 临时
+export fn checker_infer_type(checker: &TypeChecker, expr: &ASTNode) Type {
+    // 注意：Uya 要求所有变量必须初始化
+    var result: Type = make_void_type();
+    
+    if checker == null || expr == null {
+        return result;
+    }
+    
+    if expr.type == ASTNodeType.AST_NUMBER {
+        // 根据字面量后缀返回对应类型
+        const suffix: i32 = expr.literal_suffix;
+        if suffix == 1 {  // I8
+            return make_i8_type();
+        } else if suffix == 2 {  // I16
+            return make_i16_type();
+        } else if suffix == 3 {  // I32
+            return make_i32_type();
+        } else if suffix == 4 {  // I64
+            return make_i64_type();
+        } else if suffix == 5 {  // U8
+            return make_u8_type();
+        } else if suffix == 6 {  // U16
+            return make_u16_type();
+        } else if suffix == 7 {  // U32
+            return make_u32_type();
+        } else if suffix == 8 {  // U64
+            return make_u64_type();
+        } else if suffix == 9 {  // USIZE
+            return make_usize_type();
+        }
+        // 无后缀，默认 i32
+        return make_i32_type();
+    } else if expr.type == ASTNodeType.AST_FLOAT {
+        // 根据浮点字面量后缀返回对应类型
+        const suffix: i32 = expr.float_literal_suffix;
+        if suffix == 10 {  // F32
+            return make_f32_type();
+        } else if suffix == 11 {  // F64
+            return make_f64_type();
+        }
+        // 无后缀，默认 f64
+        return make_f64_type();
+    } else if expr.type == ASTNodeType.AST_BOOL {
+        // 布尔字面量类型为bool
+        return make_bool_type();
+    } else if expr.type == ASTNodeType.AST_INT_LIMIT {
+        // max/min：若已从上下文解析则返回该整数类型，否则返回 TypeKind.TYPE_INT_LIMIT
+        const r: i32 = expr.int_limit_resolved_kind;
+        if r != 0 && is_integer_type(r as TypeKind) != 0 {
+            result.kind = r as TypeKind;
+            return result;
+        }
+        result.kind = TypeKind.TYPE_INT_LIMIT;
+        return result;
+    } else if expr.type == ASTNodeType.AST_SRC_NAME || expr.type == ASTNodeType.AST_SRC_PATH {
+        // @src_name/@src_path 返回 &[i8] 类型（切片类型）
+        const slice_type: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if slice_type == null {
+            return make_void_type();
+        }
+        slice_type.kind = TypeKind.TYPE_SLICE;
+        
+        const element_type: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if element_type == null {
+            return make_void_type();
+        }
+        element_type.kind = TypeKind.TYPE_I8;
+        slice_type.slice_element_type = element_type;
+        
+        result.kind = TypeKind.TYPE_SLICE;
+        result.slice_element_type = element_type;
+        return result;
+    } else if expr.type == ASTNodeType.AST_SRC_LINE || expr.type == ASTNodeType.AST_SRC_COL {
+        // @src_line/@src_col 返回 i32 类型
+        return make_i32_type();
+    } else if expr.type == ASTNodeType.AST_FUNC_NAME {
+        // @func_name 返回 &[i8] 类型（切片类型）
+        // 检查是否在函数体内
+        if checker.in_function == 0 || checker.current_function_decl == null {
+            checker_report_error(checker, expr, "@func_name 只能在函数体内使用" as &byte);
+            return make_void_type();
+        }
+        
+        const slice_type: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if slice_type == null {
+            return make_void_type();
+        }
+        slice_type.kind = TypeKind.TYPE_SLICE;
+        
+        const element_type: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if element_type == null {
+            return make_void_type();
+        }
+        element_type.kind = TypeKind.TYPE_I8;
+        slice_type.slice_element_type = element_type;
+        
+        result.kind = TypeKind.TYPE_SLICE;
+        result.slice_element_type = element_type;
+        return result;
+    } else if expr.type == ASTNodeType.AST_EMBED {
+        if expr.embed_path_literal == null {
+            checker_report_error(checker, expr, "@embed 需要一个字符串字面量路径参数" as *byte);
+            return make_void_type();
+        }
+        if expr.embed_resolved_path == null {
+            expr.embed_resolved_path = checker_embed_resolve_path(checker, expr.filename, expr.embed_path_literal);
+        }
+        if expr.embed_resolved_path == null {
+            checker_report_error(checker, expr, "@embed 路径解析失败" as *byte);
+            return make_void_type();
+        }
+        if expr.embed_data == null {
+            var embed_data: &byte = null;
+            var embed_size: i32 = 0;
+            const read_ret: i32 = checker_embed_read_file_bytes(checker, expr.embed_resolved_path, &embed_data, &embed_size);
+            if read_ret != 0 {
+                var msg: [byte: 768] = [];
+                var reason: &byte = "read failed" as &byte;
+                if read_ret == -1 { reason = "file not found" as &byte; }
+                else if read_ret == -2 { reason = "not a regular file" as &byte; }
+                else if read_ret == -3 { reason = "file too large" as &byte; }
+                else if read_ret == -5 { reason = "symlink is not supported" as &byte; }
+                snprintf(&msg[0] as *byte, 768, "@embed 无法读取文件: literal=%s resolved=%s reason=%s" as *byte,
+                    expr.embed_path_literal as *byte, expr.embed_resolved_path as *byte, reason as *byte);
+                checker_report_error(checker, expr, &msg[0] as &byte);
+                return make_void_type();
+            }
+            expr.embed_data = embed_data;
+            expr.embed_size = embed_size;
+        }
+        const element_type: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if element_type == null {
+            return make_void_type();
+        }
+        element_type[0] = make_void_type();
+        element_type[0].kind = TypeKind.TYPE_BYTE;
+        result.kind = TypeKind.TYPE_SLICE;
+        result.slice_element_type = element_type;
+        result.slice_len = -1;
+        result.slice_element_is_const = 1;
+        return result;
+    } else if expr.type == ASTNodeType.AST_EMBED_DIR {
+        if expr.embed_path_literal == null {
+            checker_report_error(checker, expr, "@embed_dir 需要一个字符串字面量路径参数" as *byte);
+            return make_void_type();
+        }
+        if expr.embed_resolved_path == null {
+            expr.embed_resolved_path = checker_embed_resolve_path(checker, expr.filename, expr.embed_path_literal);
+        }
+        if expr.embed_resolved_path == null {
+            checker_report_error(checker, expr, "@embed_dir 路径解析失败" as *byte);
+            return make_void_type();
+        }
+        if expr.embed_dir_paths == null {
+            if checker_embed_path_is_symlink(expr.embed_resolved_path) != 0 {
+                checker_report_error(checker, expr, "@embed_dir 不支持符号链接目录" as *byte);
+                return make_void_type();
+            }
+            var st_dir: Stat = Stat {
+                st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0,
+                st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0,
+                st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0
+            };
+            if stat(expr.embed_resolved_path as &const byte, &st_dir) != 0 {
+                checker_report_error(checker, expr, "@embed_dir 目标目录不存在" as *byte);
+                return make_void_type();
+            }
+            if ((st_dir.st_mode as u32) & S_IFMT) != S_IFDIR {
+                checker_report_error(checker, expr, "@embed_dir 目标路径不是目录" as *byte);
+                return make_void_type();
+            }
+
+            const rel_paths: & & byte = compiler_arena_alloc(checker.arena, @size_of(&byte) * CHECKER_EMBED_MAX_DIR_ENTRIES as usize) as & & byte;
+            const resolved_paths: & & byte = compiler_arena_alloc(checker.arena, @size_of(&byte) * CHECKER_EMBED_MAX_DIR_ENTRIES as usize) as & & byte;
+            if rel_paths == null || resolved_paths == null {
+                checker_report_error(checker, expr, "@embed_dir 内存分配失败" as *byte);
+                return make_void_type();
+            }
+            var entry_count: i32 = 0;
+            if checker_embed_collect_dir_files_recursive(checker,
+                expr.embed_resolved_path,
+                "" as &byte,
+                rel_paths,
+                resolved_paths,
+                &entry_count,
+                CHECKER_EMBED_MAX_DIR_ENTRIES) == 0 {
+                checker_report_error(checker, expr, "@embed_dir 目录遍历失败，目录中可能包含不支持的特殊文件" as *byte);
+                return make_void_type();
+            }
+            checker_embed_sort_dir_entries(rel_paths, resolved_paths, entry_count);
+            const data_items: & & byte = compiler_arena_alloc(checker.arena, @size_of(&byte) * ((entry_count + 1) as usize)) as & & byte;
+            const size_items: &i32 = compiler_arena_alloc(checker.arena, @size_of(i32) * ((entry_count + 1) as usize)) as &i32;
+            if data_items == null || size_items == null {
+                checker_report_error(checker, expr, "@embed_dir 内存分配失败" as *byte);
+                return make_void_type();
+            }
+            var di: i32 = 0;
+            while di < entry_count {
+                var one_data: &byte = null;
+                var one_size: i32 = 0;
+                const read_item_ret: i32 = checker_embed_read_file_bytes(checker, resolved_paths[di], &one_data, &one_size);
+                if read_item_ret != 0 {
+                    checker_report_error(checker, expr, "@embed_dir 目录中的文件读取失败" as *byte);
+                    return make_void_type();
+                }
+                data_items[di] = one_data;
+                size_items[di] = one_size;
+                di = di + 1;
+            }
+            expr.embed_dir_paths = rel_paths;
+            expr.embed_dir_resolved_paths = resolved_paths;
+            expr.embed_dir_data = data_items;
+            expr.embed_dir_sizes = size_items;
+            expr.embed_dir_entry_count = entry_count;
+        }
+        const entry_type: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if entry_type == null {
+            return make_void_type();
+        }
+        entry_type[0] = make_named_type(TypeKind.TYPE_STRUCT, "EmbedDirEntry" as &byte);
+        result.kind = TypeKind.TYPE_SLICE;
+        result.slice_element_type = entry_type;
+        result.slice_len = -1;
+        result.slice_element_is_const = 1;
+        return result;
+    } else if expr.type == ASTNodeType.AST_SYSCALL {
+        return infer_syscall(checker, expr);
+    } else if expr.type == ASTNodeType.AST_PTR_FROM_USIZE {
+        // @ptr_from_usize 表达式：返回 &void 类型
+        // 设置新的 union data 字段
+        var pd: PointerData = PointerData {
+            pointee: null as &Type,
+            is_ffi: 0,  // &void，不是 *void
+        };
+        result.kind = TypeKind.TYPE_POINTER;
+        result.data = TypeData.pointer(pd);
+        result.pointer_to = null;  // void 类型
+        result.is_ffi_pointer = 0;  // &void，不是 *void
+        // 注意：Uya 版本的 Type 结构体没有 is_const 字段
+        return result;
+    } else if expr.type == ASTNodeType.AST_USIZE_FROM_PTR {
+        // @usize_from_ptr 表达式：返回 usize 类型
+        return make_usize_type();
+    } else if expr.type == ASTNodeType.AST_ERROR_ID {
+        // @error_id(err) 表达式：返回 u32 类型
+        const operand: &ASTNode = expr.error_id_operand;
+        if operand == null {
+            checker_report_error(checker, expr, "@error_id 需要一个 error 参数" as &byte);
+            return make_void_type();
+        }
+        const operand_type: Type = checker_infer_type(checker, operand);
+        if operand_type.kind != TypeKind.TYPE_ERROR {
+            checker_report_error(checker, operand, "@error_id 的参数必须是 error 类型" as &byte);
+            return make_void_type();
+        }
+        return make_u32_type();
+    } else if expr.type == ASTNodeType.AST_ERROR_NAME {
+        // @error_name(err) 表达式：返回 *byte 类型
+        const operand: &ASTNode = expr.error_name_operand;
+        if operand == null {
+            checker_report_error(checker, expr, "@error_name 需要一个 error 参数" as &byte);
+            return make_void_type();
+        }
+        const operand_type: Type = checker_infer_type(checker, operand);
+        if operand_type.kind != TypeKind.TYPE_ERROR {
+            checker_report_error(checker, operand, "@error_name 的参数必须是 error 类型" as &byte);
+            return make_void_type();
+        }
+        var error_name_byte_type: Type = make_void_type();
+        error_name_byte_type.kind = TypeKind.TYPE_BYTE;
+        const error_name_pointed_type_ptr: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if error_name_pointed_type_ptr == null {
+            return make_void_type();
+        }
+        error_name_pointed_type_ptr[0] = error_name_byte_type;
+        return make_pointer_type(checker.arena, error_name_pointed_type_ptr, 1);
+    } else if expr.type == ASTNodeType.AST_PRINT || expr.type == ASTNodeType.AST_PRINTLN {
+        return infer_print_expr(checker, expr);
+    } else if expr.type == ASTNodeType.AST_VA_START || expr.type == ASTNodeType.AST_VA_END {
+        if checker.in_function == 0 || checker.current_function_decl == null {
+            if expr.type == ASTNodeType.AST_VA_START {
+                checker_report_error(checker, expr, "@va_start 只能在可变参数函数内使用" as &byte);
+            } else {
+                checker_report_error(checker, expr, "@va_end 只能在可变参数函数内使用" as &byte);
+            }
+            return make_void_type();
+        }
+        if checker.current_function_decl.fn_decl_is_varargs == 0 {
+            if expr.type == ASTNodeType.AST_VA_START {
+                checker_report_error(checker, expr, "@va_start 只能在可变参数函数内使用" as &byte);
+            } else {
+                checker_report_error(checker, expr, "@va_end 只能在可变参数函数内使用" as &byte);
+            }
+            return make_void_type();
+        }
+        if expr.type == ASTNodeType.AST_VA_START {
+            if expr.va_start_ap != null { checker_infer_type(checker, expr.va_start_ap); }
+            if expr.va_start_last_param != null { checker_infer_type(checker, expr.va_start_last_param); }
+        } else if expr.va_end_ap != null {
+            checker_infer_type(checker, expr.va_end_ap);
+        }
+        return make_void_type();
+    } else if expr.type == ASTNodeType.AST_VA_ARG {
+        // @va_arg 可以在两种上下文中使用：
+        // 1. 可变参数函数内（与 @va_start 配合）
+        // 2. 接收 va_list 参数的函数内
+        if checker.in_function == 0 || checker.current_function_decl == null {
+            checker_report_error(checker, expr, "@va_arg 只能在可变参数函数或接收 va_list 参数的函数内使用" as &byte);
+            return make_void_type();
+        }
+        
+        // 检查是否是可变参数函数
+        const is_variadic: i32 = checker.current_function_decl.fn_decl_is_varargs;
+        
+        // 检查是否有 va_list 参数
+        var has_va_list_param: i32 = 0;
+        if is_variadic == 0 && checker.current_function_decl.fn_decl_params != null {
+            var pi: i32 = 0;
+            while pi < checker.current_function_decl.fn_decl_param_count {
+                const param: &ASTNode = checker.current_function_decl.fn_decl_params[pi];
+                if param != null && param.type == ASTNodeType.AST_VAR_DECL {
+                    const param_type: &ASTNode = param.var_decl_type;
+                    if param_type != null && param_type.type == ASTNodeType.AST_TYPE_NAMED {
+                        const type_name: &byte = param_type.type_named_name;
+                        if type_name != null && str_equals(type_name, "va_list" as *byte) != 0 {
+                            has_va_list_param = 1;
+                            break;
+                        }
+                    }
+                }
+                pi = pi + 1;
+            }
+        }
+        
+        if is_variadic == 0 && has_va_list_param == 0 {
+            checker_report_error(checker, expr, "@va_arg 只能在可变参数函数或接收 va_list 参数的函数内使用" as &byte);
+            return make_void_type();
+        }
+        
+        if expr.va_arg_ap != null { checker_infer_type(checker, expr.va_arg_ap); }
+        if expr.va_arg_arg_type != null {
+            result = type_from_ast(checker, expr.va_arg_arg_type);
+        } else {
+            return make_void_type();
+        }
+        return result;
+    } else if expr.type == ASTNodeType.AST_VA_COPY {
+        // @va_copy 可以在可变参数函数内或接收 va_list 参数的函数内使用
+        if checker.in_function == 0 || checker.current_function_decl == null {
+            checker_report_error(checker, expr, "@va_copy 只能在可变参数函数或接收 va_list 参数的函数内使用" as &byte);
+            return make_void_type();
+        }
+        
+        const is_variadic_va: i32 = checker.current_function_decl.fn_decl_is_varargs;
+        
+        var has_va_list_param_va: i32 = 0;
+        if is_variadic_va == 0 && checker.current_function_decl.fn_decl_params != null {
+            var piva: i32 = 0;
+            while piva < checker.current_function_decl.fn_decl_param_count {
+                const paramva: &ASTNode = checker.current_function_decl.fn_decl_params[piva];
+                if paramva != null && paramva.type == ASTNodeType.AST_VAR_DECL {
+                    const param_typeva: &ASTNode = paramva.var_decl_type;
+                    if param_typeva != null && param_typeva.type == ASTNodeType.AST_TYPE_NAMED {
+                        const type_nameva: &byte = param_typeva.type_named_name;
+                        if type_nameva != null && str_equals(type_nameva, "va_list" as *byte) != 0 {
+                            has_va_list_param_va = 1;
+                            break;
+                        }
+                    }
+                }
+                piva = piva + 1;
+            }
+        }
+        
+        if is_variadic_va == 0 && has_va_list_param_va == 0 {
+            checker_report_error(checker, expr, "@va_copy 只能在可变参数函数或接收 va_list 参数的函数内使用" as &byte);
+            return make_void_type();
+        }
+        
+        if expr.va_copy_dest != null { checker_infer_type(checker, expr.va_copy_dest); }
+        if expr.va_copy_src != null { checker_infer_type(checker, expr.va_copy_src); }
+        return make_void_type();
+    } else if expr.type == ASTNodeType.AST_ASM {
+        // @asm { ... } 内联汇编块
+        return infer_asm_block(checker, expr);
+    } else if expr.type == ASTNodeType.AST_ASM_TARGET {
+        // @asm_target() - 返回平台枚举类型
+        // 返回一个内置枚举类型 @asm_target
+        var target_type: Type = make_named_type(TypeKind.TYPE_ENUM, "@asm_target" as &byte);
+        return target_type;
+    } else if expr.type == ASTNodeType.AST_CHAR {
+        result.kind = TypeKind.TYPE_BYTE;
+        return result;
+    } else if expr.type == ASTNodeType.AST_STRING || expr.type == ASTNodeType.AST_MC_SOURCE {
+        // 字符串字面量 / @mc_source 未展开时类型为 *byte（FFI 指针类型）
+        // 创建指向 byte 类型的指针类型
+        // 注意：Uya 要求所有变量必须初始化
+        var byte_type: Type = make_void_type();
+        byte_type.kind = TypeKind.TYPE_BYTE;
+        
+        // 分配指向的类型结构（从Arena分配）
+        // 注意：Uya 不支持指针运算，需要使用数组访问
+        const pointed_type_ptr: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if pointed_type_ptr == null {
+            return make_void_type();
+        }
+        pointed_type_ptr[0] = byte_type;
+        
+        // 创建 FFI 指针类型（*byte）
+        // 设置新的 union data 字段
+        var pd: PointerData = PointerData {
+            pointee: pointed_type_ptr,
+            is_ffi: 1,  // FFI 指针类型
+        };
+        result.kind = TypeKind.TYPE_POINTER;
+        result.data = TypeData.pointer(pd);
+        result.pointer_to = pointed_type_ptr;
+        result.is_ffi_pointer = 1;  // FFI 指针类型
+        return result;
+    } else if expr.type == ASTNodeType.AST_STRING_INTERP {
+        var total: i32 = 1;
+        var i: i32 = 0;
+        while i < expr.string_interp_segment_count {
+            const seg: &ASTStringInterpSegment = &expr.string_interp_segments[i];
+            if seg.is_text != 0 {
+                total = total + (strlen(seg.text as *byte) as i32);
+            } else {
+                const seg_type: Type = checker_infer_type(checker, seg.expr);
+                const w: i32 = checker_interp_format_max_width(copy_type(&seg_type), seg.format_spec);
+                if w < 0 {
+                    checker_report_error(checker, seg.expr, "不支持的插值类型或格式说明符" as *byte);
+                    return make_void_type();
+                }
+                total = total + w;
+            }
+            i = i + 1;
+        }
+        expr.string_interp_computed_size = total;
+        const i8_ptr: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if i8_ptr == null {
+            return make_void_type();
+        }
+        i8_ptr[0].kind = TypeKind.TYPE_I8;
+        i8_ptr[0].enum_name = null;
+        i8_ptr[0].struct_name = null;
+        i8_ptr[0].pointer_to = null;
+        i8_ptr[0].is_ffi_pointer = 0;
+        i8_ptr[0].element_type = null;
+        i8_ptr[0].array_size = 0;
+        i8_ptr[0].tuple_element_types = null;
+        i8_ptr[0].tuple_count = 0;
+        result.kind = TypeKind.TYPE_ARRAY;
+        result.element_type = i8_ptr;
+        result.array_size = total;
+        return result;
+    } else if expr.type == ASTNodeType.AST_PARAMS {
+        // @params 仅在函数体内有效，类型为当前函数参数元组（可变参数时仅含固定参数）
+        if checker.in_function == 0 || checker.current_function_decl == null {
+            checker_report_error(checker, expr, "@params 只能在函数体内使用" as *byte);
+            return make_void_type();
+        }
+        const cur_fn: &ASTNode = checker.current_function_decl;
+        if cur_fn.type != ASTNodeType.AST_FN_DECL || cur_fn.fn_decl_param_count <= 0 {
+            result.kind = TypeKind.TYPE_TUPLE;
+            result.tuple_element_types = null;
+            result.tuple_count = 0;
+            return result;
+        }
+        const elem_types: &Type = compiler_arena_alloc(checker.arena, @size_of(Type) * cur_fn.fn_decl_param_count) as &Type;
+        if elem_types == null {
+            return make_void_type();
+        }
+        var i: i32 = 0;
+        while i < cur_fn.fn_decl_param_count {
+            const p: &ASTNode = cur_fn.fn_decl_params[i];
+            if p != null && p.type == ASTNodeType.AST_VAR_DECL && p.var_decl_type != null {
+                elem_types[i] = type_from_ast(checker, p.var_decl_type);
+            } else {
+                elem_types[i].kind = TypeKind.TYPE_VOID;
+            }
+            i = i + 1;
+        }
+        result.kind = TypeKind.TYPE_TUPLE;
+        result.tuple_element_types = elem_types;
+        result.tuple_count = cur_fn.fn_decl_param_count;
+        return result;
+    } else if expr.type == ASTNodeType.AST_TRY_EXPR {
+        const operand_type: Type = checker_infer_type(checker, expr.try_expr_operand);
+        if operand_type.kind != TypeKind.TYPE_ERROR_UNION {
+            // 特例：to_json<T> 内 try encode_to_to_json(T,...) 未展开或已展开为占位；单态体在 codegen 时再展开，此处视为 !usize。
+            const op: &ASTNode = expr.try_expr_operand;
+            var accept_as_encode_placeholder: i32 = 0;
+            if op != null && op.type == ASTNodeType.AST_CALL_EXPR && op.call_expr_arg_count >= 4 &&
+               op.call_expr_callee != null {
+                const callee: &ASTNode = op.call_expr_callee;
+                if callee.type == ASTNodeType.AST_IDENTIFIER && callee.identifier_name != null &&
+                   str_equals(callee.identifier_name, "encode_to_to_json" as *byte) != 0 {
+                    accept_as_encode_placeholder = 1;
+                }
+                if accept_as_encode_placeholder == 0 && callee.type == ASTNodeType.AST_MEMBER_ACCESS && callee.member_access_field_name != null &&
+                   str_equals(callee.member_access_field_name, "encode_to_to_json" as *byte) != 0 {
+                    accept_as_encode_placeholder = 1;
+                }
+            }
+            if accept_as_encode_placeholder == 0 && op != null && op.type == ASTNodeType.AST_CAST_EXPR &&
+               op.cast_expr_target_type != null && op.cast_expr_target_type.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+                accept_as_encode_placeholder = 1;
+            }
+            if accept_as_encode_placeholder != 0 {
+                if checker.current_function_decl == null || checker.in_function == 0 {
+                    checker_report_error(checker, expr, "try 只能在函数中使用" as *byte);
+                    return make_void_type();
+                }
+                if checker.current_return_type.kind != TypeKind.TYPE_ERROR_UNION {
+                    var allow: i32 = 0;
+                    if checker.current_function_decl.fn_decl_is_async != 0 ||
+                        checker_current_fn_returns_future_error_union(checker) != 0 {
+                        allow = 1;
+                    }
+                    if allow == 0 {
+                        checker_report_error(checker, expr, "try 只能在返回错误联合类型的函数中使用" as *byte);
+                        return make_void_type();
+                    }
+                }
+                return make_usize_type();
+            }
+            checker_report_error(checker, expr.try_expr_operand, "try 的操作数必须是错误联合类型 !T" as *byte);
+            return make_void_type();
+        }
+        if checker.in_function == 0 {
+            checker_report_error(checker, expr, "try 只能在函数中使用" as *byte);
+            return make_void_type();
+        }
+        // 常规路径：函数返回 !T
+        if checker.current_return_type.kind != TypeKind.TYPE_ERROR_UNION {
+            // 异步阶段 B：@async_fn 返回 Future<!T>，允许 try 传播到内部 !T
+            var allow_in_async: i32 = 0;
+            if checker.current_function_decl != null &&
+                (checker.current_function_decl.fn_decl_is_async != 0 ||
+                 checker_current_fn_returns_future_error_union(checker) != 0) &&
+                checker.current_function_decl.fn_decl_return_type != null {
+                const fr: &ASTNode = checker.current_function_decl.fn_decl_return_type;
+                if fr.type == ASTNodeType.AST_TYPE_NAMED && fr.type_named_name != null &&
+                    str_equals(fr.type_named_name, "Future" as *byte) != 0 &&
+                    fr.type_named_type_arg_count == 1 && fr.type_named_type_args != null {
+                    const a0: &ASTNode = fr.type_named_type_args[0];
+                    if a0 != null && a0.type == ASTNodeType.AST_TYPE_ERROR_UNION {
+                        allow_in_async = 1;
+                    }
+                } else if fr.type == ASTNodeType.AST_TYPE_ERROR_UNION &&
+                    fr.type_error_union_payload_type != null {
+                    const payload2: &ASTNode = fr.type_error_union_payload_type;
+                    if payload2.type == ASTNodeType.AST_TYPE_NAMED && payload2.type_named_name != null &&
+                        str_equals(payload2.type_named_name, "Future" as *byte) != 0 &&
+                        payload2.type_named_type_arg_count == 1 && payload2.type_named_type_args != null &&
+                        payload2.type_named_type_args[0] != null {
+                        allow_in_async = 1;
+                    }
+                }
+            }
+            if allow_in_async == 0 {
+                checker_report_error(checker, expr, "try 只能在返回错误联合类型的函数中使用" as *byte);
+                return make_void_type();
+            }
+        }
+        if operand_type.error_union_payload_type == null {
+            return make_void_type();
+        }
+        return operand_type.error_union_payload_type[0];
+    } else if expr.type == ASTNodeType.AST_AWAIT_EXPR {
+        // @await 只能在 @async_fn 函数内使用
+        if checker.current_function_decl == null ||
+            (checker.current_function_decl.fn_decl_is_async == 0 &&
+             checker_current_fn_returns_future_error_union(checker) == 0) {
+            checker_report_error(checker, expr, "@await 只能在 @async_fn 函数内使用" as &byte);
+            return make_void_type();
+        }
+        const operand_type: Type = checker_infer_type(checker, expr.await_expr_operand);
+        // 支持 Future<!T>、!Future<T>、Future<T>（单态名如 Future_usize 也视为 Future）
+        var inner_err: &Type = null;
+        if operand_type.kind == TypeKind.TYPE_INTERFACE && operand_type.interface_name != null &&
+            (str_equals(operand_type.interface_name, "Future" as *byte) != 0 ||
+             (strlen(operand_type.interface_name as *byte) >= 6 && strncmp(operand_type.interface_name as *byte, "Future" as *byte, 6) == 0)) {
+            if operand_type.interface_type_arg_count != 1 || operand_type.interface_type_args == null {
+                checker_report_error(checker, expr, "@await 操作数必须是 Future<!T> 或 !Future<T> 类型" as &byte);
+                return make_void_type();
+            }
+            inner_err = operand_type.interface_type_args;
+        } else if operand_type.kind == TypeKind.TYPE_STRUCT && operand_type.struct_name != null &&
+            (str_equals(operand_type.struct_name, "Future" as *byte) != 0 ||
+             (strlen(operand_type.struct_name as *byte) >= 6 && strncmp(operand_type.struct_name as *byte, "Future" as *byte, 6) == 0)) {
+            if operand_type.struct_type_arg_count != 1 || operand_type.struct_type_args == null {
+                checker_report_error(checker, expr, "@await 操作数必须是 Future<!T> 或 !Future<T> 类型" as &byte);
+                return make_void_type();
+            }
+            inner_err = operand_type.struct_type_args;
+        } else if operand_type.kind == TypeKind.TYPE_ERROR_UNION && operand_type.error_union_payload_type != null {
+            // !Future<T>：取出 payload Future<T>，@await 结果为 !T（先解包 ! 再 await，语义上等价）
+            const awaited_payload_type: Type = operand_type.error_union_payload_type[0];
+            if awaited_payload_type.kind == TypeKind.TYPE_INTERFACE && awaited_payload_type.interface_name != null &&
+                (str_equals(awaited_payload_type.interface_name, "Future" as *byte) != 0 ||
+                 (strlen(awaited_payload_type.interface_name as *byte) >= 6 && strncmp(awaited_payload_type.interface_name as *byte, "Future" as *byte, 6) == 0)) &&
+                awaited_payload_type.interface_type_arg_count == 1 && awaited_payload_type.interface_type_args != null {
+                inner_err = awaited_payload_type.interface_type_args;
+            } else if awaited_payload_type.kind == TypeKind.TYPE_STRUCT && awaited_payload_type.struct_name != null &&
+                (str_equals(awaited_payload_type.struct_name, "Future" as *byte) != 0 ||
+                 (strlen(awaited_payload_type.struct_name as *byte) >= 6 && strncmp(awaited_payload_type.struct_name as *byte, "Future" as *byte, 6) == 0)) &&
+                awaited_payload_type.struct_type_arg_count == 1 && awaited_payload_type.struct_type_args != null {
+                inner_err = awaited_payload_type.struct_type_args;
+            }
+            if inner_err == null {
+                checker_report_error(checker, expr, "@await 操作数必须是 Future<!T> 或 !Future<T> 类型" as &byte);
+                return make_void_type();
+            }
+            // inner_err[0] 是 T；@await !Future<T> 返回 !T，故构造 !T
+            var result_await: Type = make_error_union_type(checker.arena, inner_err);
+            return result_await;
+        } else {
+            checker_report_error(checker, expr, "@await 操作数必须是 Future<!T> 或 !Future<T> 类型" as &byte);
+            return make_void_type();
+        }
+        if inner_err == null {
+            checker_report_error(checker, expr, "@await 操作数必须是 Future<!T> 或 !Future<T> 或 Future<T> 类型" as &byte);
+            return make_void_type();
+        }
+        // Future<!T>：@await 返回 !T
+        if inner_err[0].kind == TypeKind.TYPE_ERROR_UNION && inner_err[0].error_union_payload_type != null {
+            return inner_err[0];
+        }
+        // Future<T>（T 非错误联合）：@await 操作数必须是 !Future<T> 或 Future<!T>，不接受 plain Future<T>
+        checker_report_error(checker, expr, "@await 操作数必须是 !Future<T> 或 Future<!T> 类型" as &byte);
+        return make_void_type();
+    } else if expr.type == ASTNodeType.AST_CATCH_EXPR {
+        return infer_catch_expr(checker, expr);
+    } else if expr.type == ASTNodeType.AST_ERROR_VALUE {
+        const name: &byte = expr.error_value_name;
+        const id: u32 = get_or_add_error_id(checker, name, expr);
+        if id == 0 {
+            checker_report_error(checker, expr, "错误集已满" as *byte);
+            return make_void_type();
+        }
+        result.kind = TypeKind.TYPE_ERROR;
+        result.error_error_id = id;
+        return result;
+    } else if expr.type == ASTNodeType.AST_UNDERSCORE {
+        checker_report_error(checker, expr, "不能引用 _" as *byte);
+        return make_void_type();
+    } else if expr.type == ASTNodeType.AST_IDENTIFIER {
+        if moved_set_contains(checker, expr.identifier_name) != 0 {
+            checker_report_error_moved(checker, expr, expr.identifier_name);
+            return make_void_type();
+        }
+        // 标识符类型需要从符号表中查找
+        const symbol: &Symbol = symbol_table_lookup(checker, expr.identifier_name);
+        if symbol != null {
+            // 未初始化使用检测（仅当开启安全证明时）
+            if checker.enable_safety_proof != 0 && symbol.is_initialized == 0 {
+                checker_report_error(checker, expr, "变量在初始化前被使用：请确保变量在使用前已赋值" as &byte);
+            }
+            return symbol.type;
+        }
+        // 找不到符号时，仅当该名是程序中某枚举的变体名时才报"裸枚举常量"（Uya 只支持 T.member）
+        // 枚举类型名、null、stderr 等非变体名不在此报错，由 T.member 在 ASTNodeType.AST_MEMBER_ACCESS 分支处理
+        if expr.identifier_name != null && checker != null && checker.program_node != null &&
+            is_enum_variant_name_in_program(checker.program_node, expr.identifier_name) != 0 {
+            checker_report_error(checker, expr,
+                "不能使用裸枚举常量，应使用 枚举类型名.变体名 方式访问（如 Color.RED）" as &byte);
+        }
+        return make_void_type();
+    } else if expr.type == ASTNodeType.AST_UNARY_EXPR {
+        return infer_unary_expr(checker, expr);
+    } else if expr.type == ASTNodeType.AST_BINARY_EXPR {
+        return checker_check_binary_expr(checker, expr);
+    } else if expr.type == ASTNodeType.AST_CALL_EXPR {
+        return infer_call_expr(checker, expr);
+    } else if expr.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return infer_member_access(checker, expr);
+    } else if expr.type == ASTNodeType.AST_ARRAY_ACCESS {
+        return infer_array_access(checker, expr);
+    } else if expr.type == ASTNodeType.AST_SLICE_EXPR {
+        const base_type: Type = checker_infer_type(checker, expr.slice_expr_base);
+        if base_type.kind != TypeKind.TYPE_ARRAY && base_type.kind != TypeKind.TYPE_SLICE &&
+            base_type.kind != TypeKind.TYPE_POINTER {
+            return make_void_type();
+        }
+        var elem: &Type = null;
+        if base_type.kind == TypeKind.TYPE_ARRAY {
+            elem = base_type.element_type;
+        } else if base_type.kind == TypeKind.TYPE_SLICE {
+            elem = base_type.slice_element_type;
+        } else if base_type.kind == TypeKind.TYPE_POINTER && base_type.pointer_to != null {
+            elem = base_type.pointer_to;
+        }
+        if elem == null {
+            return make_void_type();
+        }
+        const element_type_ptr: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if element_type_ptr == null {
+            return make_void_type();
+        }
+        const elem_type: &Type = element_type_ptr;  // 为安全证明建立非空引用
+        if elem != null {
+            elem_type[0] = elem[0];
+        }
+        result.kind = TypeKind.TYPE_SLICE;
+        result.slice_element_type = element_type_ptr;
+        result.slice_len = -1;
+        result.slice_element_is_const = 0;
+        return result;
+    } else if expr.type == ASTNodeType.AST_STRUCT_INIT {
+        // 结构体字面量：返回结构体类型
+        result.kind = TypeKind.TYPE_STRUCT;
+        // 结构体名称需要存储在Arena中（从AST节点获取的名称已经在Arena中）
+        result.struct_name = expr.struct_init_struct_name;
+
+        // 记录结构体类型实参（用于泛型结构体的类型比较/推断）
+        if expr.struct_init_type_arg_count > 0 && expr.struct_init_type_args != null {
+            const count_ta: i32 = expr.struct_init_type_arg_count;
+            const ta: &Type = compiler_arena_alloc(checker.arena, (@size_of(Type)) * (count_ta as usize)) as &Type;
+            if ta != null {
+                var ti: i32 = 0;
+                while ti < count_ta {
+                    ta[ti] = type_from_ast(checker, expr.struct_init_type_args[ti]);
+                    ti = ti + 1;
+                }
+                result.struct_type_args = ta;
+                result.struct_type_arg_count = count_ta;
+            }
+        }
+        
+        // 检查泛型结构体的类型参数约束
+        if expr.struct_init_type_arg_count > 0 && expr.struct_init_type_args != null {
+            const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, expr.struct_init_struct_name);
+            if struct_decl != null && struct_decl.struct_decl_type_param_count > 0 {
+                const struct_type_params: &TypeParam = struct_decl.struct_decl_type_params;
+                const struct_type_param_count: i32 = struct_decl.struct_decl_type_param_count;
+                if expr.struct_init_type_arg_count == struct_type_param_count {
+                    var ci: i32 = 0;
+                    while ci < struct_type_param_count {
+                        const arg_type: Type = type_from_ast(checker, expr.struct_init_type_args[ci]);
+                        if check_type_param_constraints(checker, arg_type, 
+                                                        &struct_type_params[ci], expr,
+                                                        struct_type_params[ci].name) == 0 {
+                            // 约束检查失败，已报错，但继续返回结构体类型
+                            break;
+                        }
+                        ci = ci + 1;
+                    }
+                }
+            }
+        }
+        return result;
+    } else if expr.type == ASTNodeType.AST_TUPLE_LITERAL {
+        // 元组字面量：(expr1, expr2, ...) 推断为 (T1, T2, ...)
+        const n: i32 = expr.tuple_literal_element_count;
+        const elements: & & ASTNode = expr.tuple_literal_elements;
+        if n <= 0 || elements == null {
+            return make_void_type();
+        }
+        const element_types: &Type = compiler_arena_alloc(checker.arena, @size_of(Type) * n as usize) as &Type;
+        if element_types == null {
+            return make_void_type();
+        }
+        var i: i32 = 0;
+        while i < n {
+            const et: Type = checker_infer_type(checker, elements[i]);
+            if is_void_type(et) != 0 {
+                return make_void_type();
+            }
+            element_types[i] = copy_type(&et);
+            i = i + 1;
+        }
+        result.kind = TypeKind.TYPE_TUPLE;
+        result.tuple_element_types = element_types;
+        result.tuple_count = n;
+        return result;
+    } else if expr.type == ASTNodeType.AST_ARRAY_LITERAL {
+        // 数组字面量：列表形式或 [value: N] 重复形式
+        const repeat_count_expr: &ASTNode = expr.array_literal_repeat_count_expr;
+        const element_count: i32 = expr.array_literal_element_count;
+        const elements: & & ASTNode = expr.array_literal_elements;
+        
+        if repeat_count_expr != null {
+            const n: i32 = checker_eval_const_expr(checker, repeat_count_expr);
+            if n < 0 || elements == null || element_count < 1 {
+                return make_void_type();
+            }
+            const element_type: Type = checker_infer_type(checker, elements[0]);
+            if is_void_type(element_type) != 0 {
+                return make_void_type();
+            }
+            // Pinned 类型检查：禁止将 pinned 类型放入数组字面量
+            if checker_type_contains_pinned_field(checker, &element_type) != 0 {
+                checker_report_frame_move_error(checker, elements[0], null);
+                return make_void_type();
+            }
+            const element_type_ptr: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+            if element_type_ptr == null {
+                return make_void_type();
+            }
+            element_type_ptr[0] = copy_type(&element_type);
+            result.kind = TypeKind.TYPE_ARRAY;
+            result.element_type = element_type_ptr;
+            result.array_size = n;
+            return result;
+        }
+        
+        if element_count == 0 {
+            return make_void_type();
+        }
+        
+        const element_type: Type = checker_infer_type(checker, elements[0]);
+        if is_void_type(element_type) != 0 {
+            return make_void_type();
+        }
+        // Pinned 类型检查：禁止将 pinned 类型放入数组字面量
+        if checker_type_contains_pinned_field(checker, &element_type) != 0 {
+            checker_report_frame_move_error(checker, elements[0], null);
+            return make_void_type();
+        }
+        
+        const element_type_ptr: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if element_type_ptr == null {
+            return make_void_type();
+        }
+        element_type_ptr[0] = copy_type(&element_type);
+        
+        result.kind = TypeKind.TYPE_ARRAY;
+        result.element_type = element_type_ptr;
+        result.array_size = element_count;
+        
+        return result;
+    } else if expr.type == ASTNodeType.AST_SIZEOF {
+        // sizeof 表达式：返回 i32 类型（字节数）
+        // 注意：这里不验证 target 是否有效，类型检查阶段会验证
+        return make_i32_type();
+    } else if expr.type == ASTNodeType.AST_ALIGNOF {
+        // alignof 表达式：返回 i32 类型（对齐字节数）
+        // 注意：这里不验证 target 是否有效，类型检查阶段会验证
+        return make_i32_type();
+    } else if expr.type == ASTNodeType.AST_LEN {
+        // len 表达式：返回 i32 类型（元素个数）
+        // 注意：这里不验证 array 是否是数组类型，类型检查阶段会验证
+        return make_i32_type();
+    } else if expr.type == ASTNodeType.AST_CAST_EXPR {
+        // 类型转换表达式：as 返回目标类型 T，as! 返回 !T
+        const target_type_node: &ASTNode = expr.cast_expr_target_type;
+        if target_type_node == null {
+            return make_void_type();
+        }
+        const target_type: Type = type_from_ast(checker, target_type_node);
+        if expr.cast_expr_is_force_cast == 0 {
+            return target_type;
+        }
+        // as! 强转：返回 !T（错误联合类型）
+        const payload_ptr: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if payload_ptr == null {
+            return make_void_type();
+        }
+        payload_ptr[0] = target_type;
+        result.kind = TypeKind.TYPE_ERROR_UNION;
+        result.error_union_payload_type = payload_ptr;
+        return result;
+    } else if expr.type == ASTNodeType.AST_BLOCK {
+        // 代码块：返回void类型（代码块不返回值）
+        // 放宽检查：允许代码块作为表达式使用（在编译器自举时可能发生）
+        return make_void_type();
+    } else if expr.type == ASTNodeType.AST_IF_STMT {
+        const then_type: Type = checker_infer_if_expr_branch_type(checker, expr.if_stmt_then_branch);
+        if is_void_type(then_type) == 0 {
+            return then_type;
+        }
+        return checker_infer_if_expr_branch_type(checker, expr.if_stmt_else_branch);
+    } else if expr.type == ASTNodeType.AST_MATCH_EXPR {
+        return infer_match_expr(checker, expr);
+    } else if expr.type == ASTNodeType.AST_STRUCT_DECL {
+        // 结构体声明：不应该作为表达式使用，但放宽检查
+        // 返回void类型，允许通过（不报错）
+        return make_void_type();
+    } else {
+        // 其他表达式类型，返回void类型
+        return make_void_type();
+    }
+}
+
+fn simd_get_vector_builtin_method(call_expr: &ASTNode) &byte {
+    if call_expr == null || call_expr.type != ASTNodeType.AST_CALL_EXPR || call_expr.call_expr_callee == null {
+        return null;
+    }
+    const callee: &ASTNode = call_expr.call_expr_callee;
+    if callee.type != ASTNodeType.AST_MEMBER_ACCESS || callee.member_access_object == null ||
+        callee.member_access_field_name == null {
+        return null;
+    }
+    const object: &ASTNode = callee.member_access_object;
+    if object.type != ASTNodeType.AST_IDENTIFIER || object.identifier_name == null {
+        return null;
+    }
+    if str_equals(object.identifier_name, "@vector" as *byte) == 0 {
+        return null;
+    }
+    return callee.member_access_field_name;
+}
+
+fn simd_load_pointee_ok_elem(pointee: Type, elem: Type) i32 {
+    if type_equals(pointee, elem) != 0 {
+        return 1;
+    }
+    if pointee.kind == TypeKind.TYPE_BYTE && elem.kind == TypeKind.TYPE_U8 {
+        return 1;
+    }
+    if pointee.kind == TypeKind.TYPE_U8 && elem.kind == TypeKind.TYPE_BYTE {
+        return 1;
+    }
+    return 0;
+}
+
+fn checker_resolve_simd_load_expr(checker: &TypeChecker, expr: &ASTNode, expected_type: Type) i32 {
+    const method_name: &byte = simd_get_vector_builtin_method(expr);
+    if method_name == null || str_equals(method_name, "load" as *byte) == 0 {
+        return 0;
+    }
+    if expected_type.kind != TypeKind.TYPE_VECTOR || expected_type.element_type == null {
+        checker_report_error(checker, expr, "@vector.load 需要明确的目标 @vector(T,N) 类型上下文" as *byte);
+        return -1;
+    }
+    if expr.call_expr_arg_count != 1 || expr.call_expr_args == null || expr.call_expr_args[0] == null {
+        checker_report_error(checker, expr, "@vector.load 需要恰好一个指针参数" as *byte);
+        return -1;
+    }
+    const arg: &ASTNode = expr.call_expr_args[0];
+    checker_check_node(checker, arg);
+    const arg_type: Type = checker_infer_type(checker, arg);
+    if arg_type.kind != TypeKind.TYPE_POINTER || arg_type.pointer_to == null {
+        checker_report_error(checker, arg, "@vector.load 的参数须为 &T（指向向量元素类型的指针）" as *byte);
+        return -1;
+    }
+    const pointee: Type = arg_type.pointer_to[0];
+    const elem: Type = expected_type.element_type[0];
+    if simd_load_pointee_ok_elem(pointee, elem) == 0 {
+        checker_report_error(checker, arg, "@vector.load 指针指向类型与向量元素类型不匹配" as *byte);
+        return -1;
+    }
+    const target_ast: &ASTNode = type_to_ast(checker, &expected_type, expr.line, expr.column, expr.filename);
+    if target_ast != null {
+        expr.simd_splat_target_type = target_ast;
+    }
+    return 1;
+}
+
+fn checker_resolve_simd_store_expr(checker: &TypeChecker, expr: &ASTNode) i32 {
+    const method_name: &byte = simd_get_vector_builtin_method(expr);
+    if method_name == null || str_equals(method_name, "store" as *byte) == 0 {
+        return 0;
+    }
+    if expr.call_expr_arg_count != 2 || expr.call_expr_args == null ||
+        expr.call_expr_args[0] == null || expr.call_expr_args[1] == null {
+        checker_report_error(checker, expr, "@vector.store 需要恰好两个参数：指针与向量值" as *byte);
+        return -1;
+    }
+    const arg_ptr: &ASTNode = expr.call_expr_args[0];
+    const arg_vec: &ASTNode = expr.call_expr_args[1];
+    const vec_type: Type = checker_infer_type(checker, arg_vec);
+    if vec_type.kind != TypeKind.TYPE_VECTOR || vec_type.element_type == null {
+        checker_report_error(checker, arg_vec, "@vector.store 的第二个参数须为 @vector(T,N) 类型" as *byte);
+        return -1;
+    }
+    const ptr_type: Type = checker_infer_type(checker, arg_ptr);
+    if ptr_type.kind != TypeKind.TYPE_POINTER || ptr_type.pointer_to == null {
+        checker_report_error(checker, arg_ptr, "@vector.store 的第一个参数须为 &T（指向向量元素类型的指针）" as *byte);
+        return -1;
+    }
+    const pointee: Type = ptr_type.pointer_to[0];
+    const elem: Type = vec_type.element_type[0];
+    if simd_load_pointee_ok_elem(pointee, elem) == 0 {
+        checker_report_error(checker, arg_ptr, "@vector.store 指针指向类型与向量元素类型不匹配" as *byte);
+        return -1;
+    }
+    const target_ast: &ASTNode = type_to_ast(checker, &vec_type, expr.line, expr.column, expr.filename);
+    if target_ast != null {
+        expr.simd_splat_target_type = target_ast;
+    }
+    return 1;
+}
+
+// @vector.select(mask, a, b)：mask 为 @mask(N)，a/b 为相同 @vector(T,N)，结果为 a；N 与通道一致；mask 为真取 a，否则取 b
+fn checker_resolve_simd_select_expr(checker: &TypeChecker, expr: &ASTNode, expected_vec: Type) i32 {
+    const method_name: &byte = simd_get_vector_builtin_method(expr);
+    if method_name == null || str_equals(method_name, "select" as *byte) == 0 {
+        return 0;
+    }
+    if expr.call_expr_arg_count != 3 || expr.call_expr_args == null ||
+        expr.call_expr_args[0] == null || expr.call_expr_args[1] == null || expr.call_expr_args[2] == null {
+        checker_report_error(checker, expr, "@vector.select 需要恰好三个参数：掩码、真分支向量、假分支向量" as *byte);
+        return -1;
+    }
+    checker_check_node(checker, expr.call_expr_args[0]);
+    checker_check_node(checker, expr.call_expr_args[1]);
+    checker_check_node(checker, expr.call_expr_args[2]);
+    const tm: Type = checker_infer_type(checker, expr.call_expr_args[0]);
+    const t1: Type = checker_infer_type(checker, expr.call_expr_args[1]);
+    const t2: Type = checker_infer_type(checker, expr.call_expr_args[2]);
+    if tm.kind != TypeKind.TYPE_MASK {
+        checker_report_error(checker, expr.call_expr_args[0], "@vector.select 的第一个参数须为 @mask(N)" as *byte);
+        return -1;
+    }
+    if t1.kind != TypeKind.TYPE_VECTOR || t1.element_type == null {
+        checker_report_error(checker, expr.call_expr_args[1], "@vector.select 的第二、三个参数须为相同类型的 @vector(T,N)" as *byte);
+        return -1;
+    }
+    if t2.kind != TypeKind.TYPE_VECTOR || t2.element_type == null {
+        checker_report_error(checker, expr.call_expr_args[2], "@vector.select 的第二、三个参数须为相同类型的 @vector(T,N)" as *byte);
+        return -1;
+    }
+    const t1c: Type = copy_type(&t1);
+    const t2c: Type = copy_type(&t2);
+    if type_equals(t1c, t2c) == 0 {
+        checker_report_error(checker, expr, "@vector.select 的两个向量分支须为完全相同类型" as *byte);
+        return -1;
+    }
+    if t1.array_size != tm.array_size {
+        checker_report_error(checker, expr, "@vector.select 的掩码通道数须与向量通道数一致" as *byte);
+        return -1;
+    }
+    if expected_vec.kind == TypeKind.TYPE_VECTOR {
+        const t1e: Type = copy_type(&t1);
+        const exv: Type = copy_type(&expected_vec);
+        if type_equals(t1e, exv) == 0 {
+            checker_report_error(checker, expr, "@vector.select 的结果类型与上下文期望的 @vector 类型不一致" as *byte);
+            return -1;
+        }
+    }
+    const t1_for_ast: Type = copy_type(&t1);
+    const target_ast: &ASTNode = type_to_ast(checker, &t1_for_ast, expr.line, expr.column, expr.filename);
+    if target_ast != null {
+        expr.simd_splat_target_type = target_ast;
+    }
+    return 1;
+}
+
+fn checker_resolve_simd_splat_expr(checker: &TypeChecker, expr: &ASTNode, expected_type: Type) i32 {
+    const method_name: &byte = simd_get_vector_builtin_method(expr);
+    if method_name == null || str_equals(method_name, "splat" as *byte) == 0 {
+        return 0;
+    }
+    if expected_type.kind != TypeKind.TYPE_VECTOR || expected_type.element_type == null {
+        checker_report_error(checker, expr, "@vector.splat 需要明确的目标向量类型上下文" as *byte);
+        return -1;
+    }
+    if expr.call_expr_arg_count != 1 || expr.call_expr_args == null || expr.call_expr_args[0] == null {
+        checker_report_error(checker, expr, "@vector.splat 需要恰好一个参数" as *byte);
+        return -1;
+    }
+    const arg: &ASTNode = expr.call_expr_args[0];
+    checker_check_node(checker, arg);
+    const arg_type: Type = checker_infer_type(checker, arg);
+    const elem_type: Type = expected_type.element_type[0];
+    if type_equals(arg_type, elem_type) == 0 && type_can_implicitly_convert(arg_type, elem_type) == 0 {
+        checker_report_error(checker, arg, "@vector.splat 的参数类型必须与目标向量元素类型兼容" as *byte);
+        return -1;
+    }
+    const target_ast: &ASTNode = type_to_ast(checker, &expected_type, expr.line, expr.column, expr.filename);
+    if target_ast != null {
+        expr.simd_splat_target_type = target_ast;
+    }
+    return 1;
+}
+
+// 当 splat 尚无可从上下文解析的目标类型时，用对侧已知的 @vector(T,N) 绑定（如 a == @vector.splat(3)）
+fn checker_simd_bind_splat_from_peer_if_needed(checker: &TypeChecker, maybe_splat: &ASTNode, peer_vector: Type) void {
+    if checker == null || maybe_splat == null || peer_vector.kind != TypeKind.TYPE_VECTOR {
+        return;
+    }
+    const sm: &byte = simd_get_vector_builtin_method(maybe_splat);
+    if sm == null || str_equals(sm, "splat" as *byte) == 0 {
+        return;
+    }
+    if maybe_splat.simd_splat_target_type != null {
+        return;
+    }
+    _ = checker_resolve_simd_splat_expr(checker, maybe_splat, copy_type(&peer_vector));
+}
+
+fn checker_simd_bind_load_from_peer_if_needed(checker: &TypeChecker, maybe_load: &ASTNode, peer_vector: Type) void {
+    if checker == null || maybe_load == null || peer_vector.kind != TypeKind.TYPE_VECTOR {
+        return;
+    }
+    const lm: &byte = simd_get_vector_builtin_method(maybe_load);
+    if lm == null || str_equals(lm, "load" as *byte) == 0 {
+        return;
+    }
+    if maybe_load.simd_splat_target_type != null {
+        return;
+    }
+    _ = checker_resolve_simd_load_expr(checker, maybe_load, copy_type(&peer_vector));
+}
+
+fn checker_simd_bind_select_from_peer_if_needed(checker: &TypeChecker, maybe_sel: &ASTNode, peer_vector: Type) void {
+    if checker == null || maybe_sel == null || peer_vector.kind != TypeKind.TYPE_VECTOR {
+        return;
+    }
+    const sm: &byte = simd_get_vector_builtin_method(maybe_sel);
+    if sm == null || str_equals(sm, "select" as *byte) == 0 {
+        return;
+    }
+    if maybe_sel.simd_splat_target_type != null {
+        return;
+    }
+    _ = checker_resolve_simd_select_expr(checker, maybe_sel, copy_type(&peer_vector));
+}
+
+fn checker_expr_is_unbound_vector_splat(expr: &ASTNode) i32 {
+    if expr == null || expr.type != ASTNodeType.AST_CALL_EXPR {
+        return 0;
+    }
+    const sm: &byte = simd_get_vector_builtin_method(expr);
+    if sm == null || str_equals(sm, "splat" as *byte) == 0 {
+        return 0;
+    }
+    if expr.simd_splat_target_type != null {
+        return 0;
+    }
+    return 1;
+}
+
+fn checker_simd_binary_op_supports_splat_context_bind(op: TokenType) i32 {
+    if op == TokenType.TOKEN_PLUS || op == TokenType.TOKEN_MINUS || op == TokenType.TOKEN_ASTERISK || op == TokenType.TOKEN_SLASH ||
+        op == TokenType.TOKEN_PERCENT ||
+        op == TokenType.TOKEN_PLUS_PIPE || op == TokenType.TOKEN_MINUS_PIPE || op == TokenType.TOKEN_ASTERISK_PIPE ||
+        op == TokenType.TOKEN_PLUS_PERCENT || op == TokenType.TOKEN_MINUS_PERCENT || op == TokenType.TOKEN_ASTERISK_PERCENT ||
+        op == TokenType.TOKEN_EQUAL || op == TokenType.TOKEN_NOT_EQUAL || op == TokenType.TOKEN_LESS ||
+        op == TokenType.TOKEN_GREATER || op == TokenType.TOKEN_LESS_EQUAL || op == TokenType.TOKEN_GREATER_EQUAL ||
+        op == TokenType.TOKEN_AMPERSAND || op == TokenType.TOKEN_PIPE || op == TokenType.TOKEN_CARET ||
+        op == TokenType.TOKEN_LSHIFT || op == TokenType.TOKEN_RSHIFT {
+        return 1;
+    }
+    return 0;
+}
+
+// 函数返回类型为 @vector(T,N)（或 !@vector 的成功值）时，在推断 return 表达式前绑定其中 @vector.splat 的目标类型
+fn checker_simd_prep_expr_with_expected_vector(checker: &TypeChecker, expr: &ASTNode, expected_vec: Type) void {
+    if checker == null || expr == null || expected_vec.kind != TypeKind.TYPE_VECTOR {
+        return;
+    }
+    if expr.type == ASTNodeType.AST_BINARY_EXPR {
+        const op_tmp: !TokenType = expr.binary_expr_op as! TokenType;
+        const op: TokenType = op_tmp.value;
+        if checker_simd_binary_op_supports_splat_context_bind(op) == 0 {
+            return;
+        }
+        if expr.binary_expr_left != null {
+            checker_simd_prep_expr_with_expected_vector(checker, expr.binary_expr_left, copy_type(&expected_vec));
+        }
+        if expr.binary_expr_right != null {
+            checker_simd_prep_expr_with_expected_vector(checker, expr.binary_expr_right, copy_type(&expected_vec));
+        }
+        var left_type: Type = checker_infer_type(checker, expr.binary_expr_left);
+        var right_type: Type = checker_infer_type(checker, expr.binary_expr_right);
+        if left_type.kind == TypeKind.TYPE_VECTOR && right_type.kind != TypeKind.TYPE_VECTOR {
+            checker_simd_bind_splat_from_peer_if_needed(checker, expr.binary_expr_right, copy_type(&left_type));
+            checker_simd_bind_load_from_peer_if_needed(checker, expr.binary_expr_right, copy_type(&left_type));
+            checker_simd_bind_select_from_peer_if_needed(checker, expr.binary_expr_right, copy_type(&left_type));
+            right_type = checker_infer_type(checker, expr.binary_expr_right);
+        }
+        if right_type.kind == TypeKind.TYPE_VECTOR && left_type.kind != TypeKind.TYPE_VECTOR {
+            checker_simd_bind_splat_from_peer_if_needed(checker, expr.binary_expr_left, copy_type(&right_type));
+            checker_simd_bind_load_from_peer_if_needed(checker, expr.binary_expr_left, copy_type(&right_type));
+            checker_simd_bind_select_from_peer_if_needed(checker, expr.binary_expr_left, copy_type(&right_type));
+            left_type = checker_infer_type(checker, expr.binary_expr_left);
+        }
+        if left_type.kind != TypeKind.TYPE_VECTOR && right_type.kind != TypeKind.TYPE_VECTOR &&
+            checker_expr_is_unbound_vector_splat(expr.binary_expr_left) != 0 &&
+            checker_expr_is_unbound_vector_splat(expr.binary_expr_right) != 0 {
+            _ = checker_resolve_simd_splat_expr(checker, expr.binary_expr_left, copy_type(&expected_vec));
+            _ = checker_resolve_simd_splat_expr(checker, expr.binary_expr_right, copy_type(&expected_vec));
+        }
+        return;
+    }
+    if checker_expr_is_unbound_vector_splat(expr) != 0 {
+        _ = checker_resolve_simd_splat_expr(checker, expr, copy_type(&expected_vec));
+    }
+    if expr.type == ASTNodeType.AST_CALL_EXPR {
+        const sm_ld: &byte = simd_get_vector_builtin_method(expr);
+        if sm_ld != null && str_equals(sm_ld, "load" as *byte) != 0 && expr.simd_splat_target_type == null {
+            _ = checker_resolve_simd_load_expr(checker, expr, copy_type(&expected_vec));
+        }
+        const sm_sel: &byte = simd_get_vector_builtin_method(expr);
+        if sm_sel != null && str_equals(sm_sel, "select" as *byte) != 0 && expr.simd_splat_target_type == null {
+            _ = checker_resolve_simd_select_expr(checker, expr, copy_type(&expected_vec));
+        }
+    }
+}
+
+fn checker_seed_union_ctor_type_args_from_expected(checker: &TypeChecker, expr: &ASTNode, expected_type: Type) void {
+    if checker == null || expr == null || checker.arena == null {
+        return;
+    }
+    if expr.type != ASTNodeType.AST_CALL_EXPR || expr.call_expr_callee == null {
+        return;
+    }
+    if expr.call_expr_type_args != null || expr.call_expr_type_arg_count != 0 {
+        return;
+    }
+    if expected_type.kind != TypeKind.TYPE_UNION || expected_type.union_name == null ||
+        expected_type.union_type_args == null || expected_type.union_type_arg_count <= 0 {
+        return;
+    }
+    const callee: &ASTNode = expr.call_expr_callee;
+    if callee.type != ASTNodeType.AST_MEMBER_ACCESS || callee.member_access_object == null {
+        return;
+    }
+    const object: &ASTNode = callee.member_access_object;
+    var union_name_for_lookup: &byte = null;
+    if object.type == ASTNodeType.AST_IDENTIFIER && object.identifier_name != null {
+        union_name_for_lookup = object.identifier_name;
+    } else if object.type == ASTNodeType.AST_TYPE_NAMED && object.type_named_name != null {
+        union_name_for_lookup = object.type_named_name;
+    }
+    if union_name_for_lookup == null || str_equals(union_name_for_lookup, expected_type.union_name) == 0 {
+        return;
+    }
+    const union_decl: &ASTNode = find_union_decl_from_program(checker.program_node, union_name_for_lookup);
+    if union_decl == null || union_decl.union_decl_type_param_count <= 0 {
+        return;
+    }
+    const count: i32 = expected_type.union_type_arg_count;
+    const args_ast: & & ASTNode = compiler_arena_alloc(checker.arena, @size_of(&ASTNode) * (count as usize)) as & & ASTNode;
+    if args_ast == null {
+        return;
+    }
+    var i: i32 = 0;
+    while i < count {
+        args_ast[i] = type_to_ast(checker, &expected_type.union_type_args[i], expr.line, expr.column, expr.filename);
+        i = i + 1;
+    }
+    expr.call_expr_type_args = args_ast;
+    expr.call_expr_type_arg_count = count;
+}
+
+// 检查表达式类型是否匹配预期类型
+// 参数：checker - TypeChecker 指针，expr - 表达式节点，expected_type - 预期类型
+// 返回：1 表示类型匹配，0 表示类型不匹配
+fn checker_check_expr_type(checker: &TypeChecker, expr: &ASTNode, expected_type: Type) i32 {
+    if checker == null || expr == null {
+        return 0;
+    }
+    const expected_copy: Type = copy_type(&expected_type);
+    const simd_store_m: &byte = simd_get_vector_builtin_method(expr);
+    if simd_store_m != null && str_equals(simd_store_m, "store" as *byte) != 0 {
+        if is_void_type(expected_copy) == 0 {
+            checker_report_error(checker, expr, "@vector.store 结果为 void，不能用于需要非 void 类型的上下文" as *byte);
+            return 0;
+        }
+        return 1;
+    }
+    const simd_splat_resolved: i32 = checker_resolve_simd_splat_expr(checker, expr, copy_type(&expected_copy));
+    if simd_splat_resolved > 0 {
+        return 1;
+    }
+    if simd_splat_resolved < 0 {
+        return 0;
+    }
+    const simd_load_resolved: i32 = checker_resolve_simd_load_expr(checker, expr, copy_type(&expected_copy));
+    if simd_load_resolved > 0 {
+        return 1;
+    }
+    if simd_load_resolved < 0 {
+        return 0;
+    }
+    const simd_sel_resolved: i32 = checker_resolve_simd_select_expr(checker, expr, copy_type(&expected_copy));
+    if simd_sel_resolved > 0 {
+        return 1;
+    }
+    if simd_sel_resolved < 0 {
+        return 0;
+    }
+    checker_seed_union_ctor_type_args_from_expected(checker, expr, copy_type(&expected_copy));
+    // 字符串字面量 -> [byte:N] 初始化/赋值；-> &[const byte] / &[const byte:N] 切片赋值（重指向）
+    if expr.type == ASTNodeType.AST_STRING && expr.string_literal_value != null {
+        if expected_copy.kind == TypeKind.TYPE_ARRAY && expected_copy.element_type != null &&
+            expected_copy.element_type[0].kind == TypeKind.TYPE_BYTE {
+            var sl: i32 = 0;
+            while expr.string_literal_value[sl] != 0 {
+                sl = sl + 1;
+            }
+            const need: i32 = sl + 1;
+            if expected_copy.array_size < need {
+                const msg_cap: usize = 256;
+                const msg_buf: &byte = compiler_arena_alloc(checker.arena, msg_cap) as &byte;
+                if msg_buf != null {
+                    sprintf(msg_buf as *byte,
+                        "[byte:N] 容量不足：至少需要 N>=%d（含结尾 0；本字面可见 %d 字节），当前 N=%d" as *byte,
+                        need, sl, expected_copy.array_size);
+                    checker_report_error(checker, expr, msg_buf);
+                } else {
+                    checker_report_error(checker, expr, "字符串字面量过长，无法装入 byte 数组（需含结尾 0）" as *byte);
+                }
+                return 0;
+            }
+            return 1;
+        }
+        if expected_copy.kind == TypeKind.TYPE_SLICE && expected_copy.slice_element_type != null &&
+            expected_copy.slice_element_type[0].kind == TypeKind.TYPE_BYTE {
+            if expected_copy.slice_element_is_const == 0 {
+                checker_report_error(checker, expr, "字符串字面量赋值给切片须使用 &[const byte] 或 &[const byte:N]" as *byte);
+                return 0;
+            }
+            var sl2: i32 = 0;
+            while expr.string_literal_value[sl2] != 0 {
+                sl2 = sl2 + 1;
+            }
+            if expected_copy.slice_len >= 0 && sl2 > expected_copy.slice_len {
+                checker_report_error(checker, expr, "字符串可见字节数超过 &[const byte:N] 的 N" as *byte);
+                return 0;
+            }
+            return 1;
+        }
+    }
+    if expr.type == ASTNodeType.AST_IF_STMT {
+        if checker_if_expr_branch_matches_expected_type(checker, expr.if_stmt_then_branch, copy_type(&expected_copy), "if 表达式 then 分支" as *byte) == 0 {
+            return 0;
+        }
+        if checker_if_expr_branch_matches_expected_type(checker, expr.if_stmt_else_branch, copy_type(&expected_copy), "if 表达式 else 分支" as *byte) == 0 {
+            return 0;
+        }
+        return 1;
+    }
+    const actual_type: Type = checker_infer_type(checker, expr);
+    if actual_type.kind == TypeKind.TYPE_ERROR && expected_copy.kind == TypeKind.TYPE_ERROR_UNION {
+        return 1;
+    }
+    if actual_type.kind == TypeKind.TYPE_ERROR_UNION && expected_copy.kind != TypeKind.TYPE_ERROR_UNION {
+        checker_report_error(checker, expr,
+            "错误联合类型 !T 不能隐式用于普通类型上下文；请使用 try 或 catch 处理" as *byte);
+        return 0;
+    }
+    if type_equals(copy_type(&actual_type), copy_type(&expected_copy)) != 0 {
+        return 1;
+    }
+    // &[const byte] / &[const byte:N] <- 字符串子切片 &"..."[a:b]（推断为 &[byte]，此处放宽）
+    if expr.type == ASTNodeType.AST_SLICE_EXPR && expr.slice_expr_base != null &&
+        expr.slice_expr_base.type == ASTNodeType.AST_STRING &&
+        expected_copy.kind == TypeKind.TYPE_SLICE && expected_copy.slice_element_type != null &&
+        expected_copy.slice_element_type[0].kind == TypeKind.TYPE_BYTE &&
+        expected_copy.slice_element_is_const != 0 {
+        if expected_copy.slice_len >= 0 && expr.slice_expr_len_expr != null &&
+            is_constant_expression(checker, expr.slice_expr_len_expr) != 0 {
+            const len_v: i32 = checker_eval_const_expr(checker, expr.slice_expr_len_expr);
+            if len_v > expected_copy.slice_len {
+                checker_report_error(checker, expr, "切片长度超过 &[const byte:N] 的 N" as *byte);
+                return 0;
+            }
+        }
+        return 1;
+    }
+    // 结构体实现接口时，可装箱为接口类型（赋值/传参）
+    if actual_type.kind == TypeKind.TYPE_STRUCT && expected_copy.kind == TypeKind.TYPE_INTERFACE &&
+        actual_type.struct_name != null && expected_copy.interface_name != null {
+        if struct_implements_interface(checker, actual_type.struct_name, expected_copy.interface_name) != 0 {
+            return 1;
+        }
+    }
+    
+    // 特殊情况：max/min（TypeKind.TYPE_INT_LIMIT）从期望的整数类型解析
+    if actual_type.kind == TypeKind.TYPE_INT_LIMIT && is_integer_type(expected_copy.kind) != 0 {
+        resolve_int_limit_node(expr, copy_type(&expected_copy));
+        return 1;
+    }
+    
+    // 特殊情况：允许 null（TypeKind.TYPE_VOID）赋值给任何指针类型
+    // 在 Uya 中，null 字面量可能被推断为 TypeKind.TYPE_VOID，但应该允许赋值给指针类型
+    if actual_type.kind == TypeKind.TYPE_VOID && expected_copy.kind == TypeKind.TYPE_POINTER {
+        // null 可以赋值给任何指针类型
+        return 1;
+    }
+    
+    // 特殊情况：允许指针类型之间的兼容性（如果源类型无法推断但期望类型是指针，可能是类型推断失败）
+    // 这是一个宽松的检查，用于处理编译器自举时的类型推断问题
+    if actual_type.kind == TypeKind.TYPE_VOID && expected_copy.kind == TypeKind.TYPE_POINTER {
+        // 如果实际类型无法推断（TypeKind.TYPE_VOID），但期望类型是指针类型，可能是 null 或类型推断失败
+        // 对于赋值表达式（如 node.field = null），允许通过
+        return 1;
+    }
+    
+    // 特殊情况：放宽对类型推断失败的检查
+    // 如果实际类型是 TypeKind.TYPE_VOID（类型推断失败），允许通过（不报错）
+    // 这在编译器自举时很常见，因为类型推断可能失败
+    if is_void_type(actual_type) != 0 {
+        // 类型推断失败，但不报错（允许通过）
+        return 1;
+    }
+    
+    // 特殊情况：对于数组字面量和二元表达式，放宽检查
+    // 这些表达式在编译器自举时经常出现类型推断失败的情况
+    if expr.type == ASTNodeType.AST_ARRAY_LITERAL || expr.type == ASTNodeType.AST_BINARY_EXPR {
+        // 放宽检查，允许通过（不报错）
+        return 1;
+    }
+    
+    // 特殊情况：对于类型转换表达式，放宽检查
+    // 类型转换表达式在编译器自举时经常出现类型推断失败的情况
+    if expr.type == ASTNodeType.AST_CAST_EXPR {
+        // 放宽检查，允许通过（不报错）
+        return 1;
+    }
+    
+    // 特殊情况：对于代码块，放宽检查
+    // 代码块在编译器自举时可能用于初始化，允许通过（不报错）
+    if expr.type == ASTNodeType.AST_BLOCK {
+        // 放宽检查，允许通过（不报错）
+        return 1;
+    }
+    
+    // 类型不匹配：放宽检查，允许通过（不报错）
+    // 这在编译器自举时很常见，因为类型推断可能失败或类型系统不够完善
+    return 1;
+}
+
+// ===== 拆分的推断函数 =====
+
+// 推断调用表达式类型
+fn infer_call_expr(checker: &TypeChecker, expr: &ASTNode) Type {
+    const callee: &ASTNode = expr.call_expr_callee;
+    if callee == null {
+        return make_void_type();
+    }
+
+    const simd_method: &byte = simd_get_vector_builtin_method(expr);
+    if simd_method != null {
+        if str_equals(simd_method, "splat" as *byte) != 0 {
+            if expr.simd_splat_target_type == null {
+                return make_void_type();
+            }
+            return type_from_ast(checker, expr.simd_splat_target_type);
+        }
+        if str_equals(simd_method, "any" as *byte) != 0 || str_equals(simd_method, "all" as *byte) != 0 {
+            if expr.call_expr_arg_count != 1 || expr.call_expr_args == null || expr.call_expr_args[0] == null {
+                checker_report_error(checker, expr, "@vector.any/@vector.all 需要恰好一个参数" as *byte);
+                return make_void_type();
+            }
+            const arg_type: Type = checker_infer_type(checker, expr.call_expr_args[0]);
+            if arg_type.kind != TypeKind.TYPE_MASK {
+                checker_report_error(checker, expr.call_expr_args[0], "@vector.any/@vector.all 的参数必须是 @mask(N)" as *byte);
+                return make_void_type();
+            }
+            return make_bool_type();
+        }
+        if str_equals(simd_method, "load" as *byte) != 0 {
+            if expr.simd_splat_target_type == null {
+                return make_void_type();
+            }
+            return type_from_ast(checker, expr.simd_splat_target_type);
+        }
+        if str_equals(simd_method, "select" as *byte) != 0 {
+            if expr.simd_splat_target_type == null {
+                return make_void_type();
+            }
+            return type_from_ast(checker, expr.simd_splat_target_type);
+        }
+        if str_equals(simd_method, "store" as *byte) != 0 {
+            return make_void_type();
+        }
+        if str_equals(simd_method, "reduce_add" as *byte) != 0 {
+            if expr.call_expr_arg_count != 1 || expr.call_expr_args == null || expr.call_expr_args[0] == null {
+                checker_report_error(checker, expr, "@vector.reduce_add 需要恰好一个参数" as *byte);
+                return make_void_type();
+            }
+            const vec_tr: Type = checker_infer_type(checker, expr.call_expr_args[0]);
+            if vec_tr.kind != TypeKind.TYPE_VECTOR || vec_tr.element_type == null {
+                checker_report_error(checker, expr.call_expr_args[0], "@vector.reduce_add 的参数须为 @vector(T,N)" as *byte);
+                return make_void_type();
+            }
+            const el_tr: Type = copy_type(&vec_tr.element_type[0]);
+            if simd_reduce_add_elem_ok(el_tr) == 0 {
+                checker_report_error(checker, expr.call_expr_args[0], "@vector.reduce_add 仅支持元素为整数或浮点的向量" as *byte);
+                return make_void_type();
+            }
+            const vec_for_ast2: Type = copy_type(&vec_tr);
+            const target_ast2: &ASTNode = type_to_ast(checker, &vec_for_ast2, expr.line, expr.column, expr.filename);
+            if target_ast2 != null {
+                expr.simd_splat_target_type = target_ast2;
+            }
+            return copy_type(&vec_tr.element_type[0]);
+        }
+        if str_equals(simd_method, "reduce_mul" as *byte) != 0 {
+            if expr.call_expr_arg_count != 1 || expr.call_expr_args == null || expr.call_expr_args[0] == null {
+                checker_report_error(checker, expr, "@vector.reduce_mul 需要恰好一个参数" as *byte);
+                return make_void_type();
+            }
+            const vec_tr_rm: Type = checker_infer_type(checker, expr.call_expr_args[0]);
+            if vec_tr_rm.kind != TypeKind.TYPE_VECTOR || vec_tr_rm.element_type == null {
+                checker_report_error(checker, expr.call_expr_args[0], "@vector.reduce_mul 的参数须为 @vector(T,N)" as *byte);
+                return make_void_type();
+            }
+            const el_tr_rm: Type = copy_type(&vec_tr_rm.element_type[0]);
+            if simd_reduce_add_elem_ok(el_tr_rm) == 0 {
+                checker_report_error(checker, expr.call_expr_args[0], "@vector.reduce_mul 仅支持元素为整数或浮点的向量" as *byte);
+                return make_void_type();
+            }
+            const vec_for_ast_rm: Type = copy_type(&vec_tr_rm);
+            const target_ast_rm: &ASTNode = type_to_ast(checker, &vec_for_ast_rm, expr.line, expr.column, expr.filename);
+            if target_ast_rm != null {
+                expr.simd_splat_target_type = target_ast_rm;
+            }
+            return copy_type(&vec_tr_rm.element_type[0]);
+        }
+        if str_equals(simd_method, "reduce_min" as *byte) != 0 {
+            if expr.call_expr_arg_count != 1 || expr.call_expr_args == null || expr.call_expr_args[0] == null {
+                checker_report_error(checker, expr, "@vector.reduce_min 需要恰好一个参数" as *byte);
+                return make_void_type();
+            }
+            const vec_tr_rmin: Type = checker_infer_type(checker, expr.call_expr_args[0]);
+            if vec_tr_rmin.kind != TypeKind.TYPE_VECTOR || vec_tr_rmin.element_type == null {
+                checker_report_error(checker, expr.call_expr_args[0], "@vector.reduce_min 的参数须为 @vector(T,N)" as *byte);
+                return make_void_type();
+            }
+            const el_tr_rmin: Type = copy_type(&vec_tr_rmin.element_type[0]);
+            if simd_reduce_add_elem_ok(el_tr_rmin) == 0 {
+                checker_report_error(checker, expr.call_expr_args[0], "@vector.reduce_min 仅支持元素为整数或浮点的向量" as *byte);
+                return make_void_type();
+            }
+            const vec_for_ast_rmin: Type = copy_type(&vec_tr_rmin);
+            const target_ast_rmin: &ASTNode = type_to_ast(checker, &vec_for_ast_rmin, expr.line, expr.column, expr.filename);
+            if target_ast_rmin != null {
+                expr.simd_splat_target_type = target_ast_rmin;
+            }
+            return copy_type(&vec_tr_rmin.element_type[0]);
+        }
+        if str_equals(simd_method, "reduce_max" as *byte) != 0 {
+            if expr.call_expr_arg_count != 1 || expr.call_expr_args == null || expr.call_expr_args[0] == null {
+                checker_report_error(checker, expr, "@vector.reduce_max 需要恰好一个参数" as *byte);
+                return make_void_type();
+            }
+            const vec_tr_rmax: Type = checker_infer_type(checker, expr.call_expr_args[0]);
+            if vec_tr_rmax.kind != TypeKind.TYPE_VECTOR || vec_tr_rmax.element_type == null {
+                checker_report_error(checker, expr.call_expr_args[0], "@vector.reduce_max 的参数须为 @vector(T,N)" as *byte);
+                return make_void_type();
+            }
+            const el_tr_rmax: Type = copy_type(&vec_tr_rmax.element_type[0]);
+            if simd_reduce_add_elem_ok(el_tr_rmax) == 0 {
+                checker_report_error(checker, expr.call_expr_args[0], "@vector.reduce_max 仅支持元素为整数或浮点的向量" as *byte);
+                return make_void_type();
+            }
+            const vec_for_ast_rmax: Type = copy_type(&vec_tr_rmax);
+            const target_ast_rmax: &ASTNode = type_to_ast(checker, &vec_for_ast_rmax, expr.line, expr.column, expr.filename);
+            if target_ast_rmax != null {
+                expr.simd_splat_target_type = target_ast_rmax;
+            }
+            return copy_type(&vec_tr_rmax.element_type[0]);
+        }
+        checker_report_error(checker, expr, "@vector 目前仅支持 .splat/.load/.store/.select/.reduce_add/.reduce_mul/.reduce_min/.reduce_max/.any/.all" as *byte);
+        return make_void_type();
+    }
+    
+    // 先检查是否是模块限定调用（module.func(args)）
+    if callee.type == ASTNodeType.AST_MEMBER_ACCESS {
+        const object: &ASTNode = callee.member_access_object;
+        const method_name: &byte = callee.member_access_field_name;
+
+        const mod_obj: &ASTNode = callee.member_access_object;
+        if mod_obj != null && mod_obj.type == ASTNodeType.AST_IDENTIFIER && mod_obj.identifier_name != null {
+            const obj_name: &byte = mod_obj.identifier_name;
+            // 局部/参数变量优先于导入模块：避免变量名与模块别名同名时误判 module.func
+            const obj_symbol: &Symbol = symbol_table_lookup(checker, obj_name);
+            if obj_symbol == null {
+                const ih: i32 = hash_string(obj_name);
+                var ii: i32 = ih & (IMPORT_TABLE_SIZE - 1);
+                var mi: i32 = 0;
+                while mi < IMPORT_TABLE_SIZE {
+                    const sl: i32 = (ii + mi) & (IMPORT_TABLE_SIZE - 1);
+                    const imp: &ImportedItem = checker.import_table.slots[sl];
+                    if imp == null { break; }
+                    if imp.item_type == (0 - 1) && str_equals(imp.local_name, obj_name) != 0 {
+                        // 模块限定调用
+                        callee.member_access_is_module_access = 1;
+                        callee.member_access_module_name = imp.module_name;
+                        const func_name: &byte = callee.member_access_field_name;
+                        if func_name != null {
+                            const fn_decl: &ASTNode = find_fn_decl_from_program(checker.program_node, func_name);
+                            if fn_decl != null {
+                                return type_from_ast(checker, fn_decl.fn_decl_return_type);
+                            }
+                            const sig: &FunctionSignature = function_table_lookup(checker, func_name);
+                            if sig != null {
+                                return sig.return_type;
+                            }
+                        }
+                        return make_void_type();
+                    }
+                    mi = mi + 1;
+                }
+            }
+        }
+        
+        // 联合体变体构造：UnionName.variant(expr) 或 UnionName.variant()
+        var union_name_for_lookup: &byte = null;
+        if object != null && object.type == ASTNodeType.AST_IDENTIFIER && object.identifier_name != null {
+            union_name_for_lookup = object.identifier_name;
+        } else if object != null && object.type == ASTNodeType.AST_TYPE_NAMED && object.type_named_name != null {
+            union_name_for_lookup = object.type_named_name;
+        }
+        if union_name_for_lookup != null && checker != null && checker.program_node != null {
+            const union_decl: &ASTNode = find_union_decl_from_program(checker.program_node, union_name_for_lookup);
+            if union_decl != null {
+                var ctor_type_args: & & ASTNode = null;
+                var ctor_type_arg_count: i32 = 0;
+                if object != null && object.type == ASTNodeType.AST_TYPE_NAMED &&
+                    object.type_named_type_args != null && object.type_named_type_arg_count > 0 {
+                    ctor_type_args = object.type_named_type_args;
+                    ctor_type_arg_count = object.type_named_type_arg_count;
+                } else if expr.call_expr_type_args != null && expr.call_expr_type_arg_count > 0 {
+                    ctor_type_args = expr.call_expr_type_args;
+                    ctor_type_arg_count = expr.call_expr_type_arg_count;
+                }
+                const variant_name: &byte = callee.member_access_field_name;
+                if variant_name != null && union_decl.union_decl_variants != null {
+                    var i: i32 = 0;
+                    while i < union_decl.union_decl_variant_count {
+                        const v: &ASTNode = union_decl.union_decl_variants[i];
+                        if v != null && v.type == ASTNodeType.AST_VAR_DECL && v.var_decl_name != null &&
+                            str_equals(v.var_decl_name, variant_name) != 0 {
+                            const saved_type_params: &TypeParam = checker.current_type_params;
+                            const saved_type_param_count: i32 = checker.current_type_param_count;
+                            checker.current_type_params = union_decl.union_decl_type_params;
+                            checker.current_type_param_count = union_decl.union_decl_type_param_count;
+                            var variant_type: Type = type_from_ast(checker, v.var_decl_type);
+                            checker.current_type_params = saved_type_params;
+                            checker.current_type_param_count = saved_type_param_count;
+                            if union_decl.union_decl_type_param_count > 0 &&
+                                ctor_type_args != null && ctor_type_arg_count > 0 {
+                                variant_type = substitute_generic_type(checker, copy_type(&variant_type),
+                                    union_decl.union_decl_type_params, union_decl.union_decl_type_param_count,
+                                    ctor_type_args, ctor_type_arg_count);
+                                var tp_i: i32 = 0;
+                                while tp_i < union_decl.union_decl_type_param_count && tp_i < ctor_type_arg_count {
+                                    const tp_name: &byte = union_decl.union_decl_type_params[tp_i].name;
+                                    var match_tp: i32 = 0;
+                                    if tp_name != null {
+                                        if variant_type.kind == TypeKind.TYPE_GENERIC_PARAM &&
+                                            variant_type.generic_param_name != null &&
+                                            str_equals(variant_type.generic_param_name, tp_name) != 0 {
+                                            match_tp = 1;
+                                        } else if v.var_decl_type != null &&
+                                            v.var_decl_type.type == ASTNodeType.AST_TYPE_NAMED &&
+                                            v.var_decl_type.type_named_name != null &&
+                                            (v.var_decl_type.type_named_type_arg_count == 0 || v.var_decl_type.type_named_type_args == null) &&
+                                            str_equals(v.var_decl_type.type_named_name, tp_name) != 0 {
+                                            match_tp = 1;
+                                        }
+                                    }
+                                    if match_tp != 0 {
+                                        variant_type = type_from_ast(checker, ctor_type_args[tp_i]);
+                                        break;
+                                    }
+                                    tp_i = tp_i + 1;
+                                }
+                            }
+                            if variant_type.kind == TypeKind.TYPE_VOID {
+                                var allow_empty_block_arg: i32 = 0;
+                                if expr.call_expr_arg_count == 1 && expr.call_expr_args != null &&
+                                    expr.call_expr_args[0] != null &&
+                                    expr.call_expr_args[0].type == ASTNodeType.AST_BLOCK &&
+                                    expr.call_expr_args[0].block_stmt_count == 0 {
+                                    allow_empty_block_arg = 1;
+                                }
+                                if expr.call_expr_arg_count == 0 || allow_empty_block_arg != 0 {
+                                    var result_void: Type = make_named_type(TypeKind.TYPE_UNION, union_decl.union_decl_name);
+                                    if ctor_type_args != null && ctor_type_arg_count > 0 {
+                                        const ta: &Type = compiler_arena_alloc(checker.arena, (@size_of(Type)) * (ctor_type_arg_count as usize)) as &Type;
+                                        if ta != null {
+                                            var tai: i32 = 0;
+                                            while tai < ctor_type_arg_count {
+                                                ta[tai] = type_from_ast(checker, ctor_type_args[tai]);
+                                                tai = tai + 1;
+                                            }
+                                            result_void.union_type_args = ta;
+                                            result_void.union_type_arg_count = ctor_type_arg_count;
+                                        }
+                                    }
+                                    return result_void;
+                                }
+                            } else if expr.call_expr_arg_count == 1 {
+                                var result_val: Type = make_named_type(TypeKind.TYPE_UNION, union_decl.union_decl_name);
+                                if ctor_type_args != null && ctor_type_arg_count > 0 {
+                                    const ta2: &Type = compiler_arena_alloc(checker.arena, (@size_of(Type)) * (ctor_type_arg_count as usize)) as &Type;
+                                    if ta2 != null {
+                                        var tai2: i32 = 0;
+                                        while tai2 < ctor_type_arg_count {
+                                            ta2[tai2] = type_from_ast(checker, ctor_type_args[tai2]);
+                                            tai2 = tai2 + 1;
+                                        }
+                                        result_val.union_type_args = ta2;
+                                        result_val.union_type_arg_count = ctor_type_arg_count;
+                                    }
+                                }
+                                return result_val;
+                            }
+                        }
+                        i = i + 1;
+                    }
+                }
+            }
+        }
+
+        var owner_is_union: i32 = 0;
+        const owner_name: &byte = checker_type_namespace_owner_name(checker, object, &owner_is_union);
+        if owner_name != null && method_name != null && checker.program_node != null {
+            var owner_type_params: &TypeParam = null;
+            var owner_type_param_count: i32 = 0;
+            var owner_type_args: & & ASTNode = null;
+            var owner_type_arg_count: i32 = 0;
+            checker_type_namespace_owner_type_args(checker, object, &owner_type_args, &owner_type_arg_count);
+            var static_method: &ASTNode = null;
+            if owner_is_union != 0 {
+                const union_decl_owner: &ASTNode = find_union_decl_from_program(checker.program_node, owner_name);
+                if union_decl_owner != null {
+                    owner_type_params = union_decl_owner.union_decl_type_params;
+                    owner_type_param_count = union_decl_owner.union_decl_type_param_count;
+                }
+                static_method = find_static_method_in_union(checker.program_node, owner_name, method_name);
+            } else {
+                const struct_decl_owner: &ASTNode = find_struct_decl_from_program(checker.program_node, owner_name);
+                if struct_decl_owner != null {
+                    owner_type_params = struct_decl_owner.struct_decl_type_params;
+                    owner_type_param_count = struct_decl_owner.struct_decl_type_param_count;
+                }
+                static_method = find_static_method_in_struct(checker.program_node, owner_name, method_name);
+            }
+            if static_method != null {
+                if expr.call_expr_arg_count != static_method.fn_decl_param_count {
+                    checker_report_error(checker, expr, "Type.method(...) 调用静态方法时实参个数不匹配" as *byte);
+                    return make_void_type();
+                }
+                const method_return_type: Type = type_from_ast(checker, static_method.fn_decl_return_type);
+                return checker_substitute_method_type_with_owner(checker, &method_return_type,
+                    owner_type_params, owner_type_param_count,
+                    owner_type_args, owner_type_arg_count,
+                    static_method.fn_decl_type_params, static_method.fn_decl_type_param_count,
+                    expr.call_expr_type_args, expr.call_expr_type_arg_count);
+            }
+            var instance_method: &ASTNode = null;
+            if owner_is_union != 0 {
+                instance_method = find_instance_method_in_union(checker.program_node, owner_name, method_name);
+                if instance_method != null {
+                    if expr.call_expr_arg_count != instance_method.fn_decl_param_count {
+                        checker_report_error(checker, expr, "Type.method(...) 调用实例方法时缺少 receiver 或实参个数不匹配" as *byte);
+                        return make_void_type();
+                    }
+                    if expr.call_expr_args == null ||
+                        checker_check_explicit_receiver_arg(checker, expr.call_expr_args[0], instance_method.fn_decl_params[0],
+                            owner_name, owner_is_union,
+                            owner_type_params, owner_type_param_count,
+                            owner_type_args, owner_type_arg_count) == 0 {
+                        checker_report_error(checker, expr, "Type.method(...) 调用实例方法时第一个参数必须是该类型实例或其引用" as *byte);
+                        return make_void_type();
+                    }
+                    const method_return_type: Type = type_from_ast(checker, instance_method.fn_decl_return_type);
+                    return checker_substitute_method_type_with_owner(checker, &method_return_type,
+                        owner_type_params, owner_type_param_count,
+                        owner_type_args, owner_type_arg_count,
+                        instance_method.fn_decl_type_params, instance_method.fn_decl_type_param_count,
+                        expr.call_expr_type_args, expr.call_expr_type_arg_count);
+                }
+                checker_report_error(checker, expr, "联合体上不存在该方法" as *byte);
+                return make_void_type();
+            }
+            instance_method = find_instance_method_in_struct(checker.program_node, owner_name, method_name);
+            if instance_method != null {
+                if expr.call_expr_arg_count != instance_method.fn_decl_param_count {
+                    checker_report_error(checker, expr, "Type.method(...) 调用实例方法时缺少 receiver 或实参个数不匹配" as *byte);
+                    return make_void_type();
+                }
+                if expr.call_expr_args == null ||
+                    checker_check_explicit_receiver_arg(checker, expr.call_expr_args[0], instance_method.fn_decl_params[0],
+                        owner_name, owner_is_union,
+                        owner_type_params, owner_type_param_count,
+                        owner_type_args, owner_type_arg_count) == 0 {
+                    checker_report_error(checker, expr, "Type.method(...) 调用实例方法时第一个参数必须是该类型实例或其引用" as *byte);
+                    return make_void_type();
+                }
+                const method_return_type: Type = type_from_ast(checker, instance_method.fn_decl_return_type);
+                return checker_substitute_method_type_with_owner(checker, &method_return_type,
+                    owner_type_params, owner_type_param_count,
+                    owner_type_args, owner_type_arg_count,
+                    instance_method.fn_decl_type_params, instance_method.fn_decl_type_param_count,
+                    expr.call_expr_type_args, expr.call_expr_type_arg_count);
+            }
+            checker_report_error(checker, expr, "结构体上不存在该方法" as *byte);
+            return make_void_type();
+        }
+
+        var object_type: Type = checker_infer_type(checker, object);
+        if object_type.kind == TypeKind.TYPE_POINTER && object_type.pointer_to != null {
+            object_type = object_type.pointer_to[0];
+        }
+
+        if object_type.kind == TypeKind.TYPE_INTERFACE && object_type.interface_name != null &&
+            method_name != null && checker.program_node != null {
+            const iface_decl: &ASTNode = find_interface_decl_from_program(checker.program_node, object_type.interface_name);
+            const msig: &ASTNode = find_interface_method_sig(checker.program_node, object_type.interface_name, method_name);
+            if msig != null {
+                const iface_return_type: Type = type_from_ast(checker, msig.fn_decl_return_type);
+                if iface_decl != null && iface_decl.interface_decl_type_param_count > 0 &&
+                    object_type.interface_type_args != null && object_type.interface_type_arg_count > 0 {
+                    return substitute_generic_type_with_types(checker, copy_type(&iface_return_type),
+                        iface_decl.interface_decl_type_params, iface_decl.interface_decl_type_param_count,
+                        object_type.interface_type_args, object_type.interface_type_arg_count);
+                }
+                return iface_return_type;
+            }
+        }
+
+        if object_type.kind == TypeKind.TYPE_GENERIC_PARAM && object_type.generic_param_name != null &&
+            method_name != null && checker.current_type_params != null && checker.program_node != null {
+            var tpi: i32 = 0;
+            while tpi < checker.current_type_param_count {
+                const tp: &TypeParam = &checker.current_type_params[tpi];
+                if tp != null && tp.name != null &&
+                    str_equals(tp.name, object_type.generic_param_name) != 0 {
+                    if tp.constraints != null {
+                        var ci: i32 = 0;
+                        while ci < tp.constraint_count {
+                            const constraint_name: &byte = tp.constraints[ci];
+                            if constraint_name != null {
+                                const msig: &ASTNode = find_interface_method_sig(checker.program_node, constraint_name, method_name);
+                                if msig != null {
+                                    return type_from_ast(checker, msig.fn_decl_return_type);
+                                }
+                            }
+                            ci = ci + 1;
+                        }
+                    }
+                    break;
+                }
+                tpi = tpi + 1;
+            }
+        }
+
+        if object_type.kind == TypeKind.TYPE_UNION && object_type.union_name != null &&
+            method_name != null && checker.program_node != null {
+            const m_union: &ASTNode = find_instance_method_in_union(checker.program_node, object_type.union_name, method_name);
+            if m_union != null {
+                return checker_method_type_from_value_owner(checker, m_union.fn_decl_return_type, &object_type,
+                    null, 0,
+                    expr.call_expr_type_args, expr.call_expr_type_arg_count,
+                    expr.line, expr.column, expr.filename);
+            }
+            const m_union_static: &ASTNode = find_static_method_in_union(checker.program_node, object_type.union_name, method_name);
+            if m_union_static != null {
+                checker_report_error(checker, expr, "联合体静态方法应优先通过类型名调用；如需 UFCS，可用 Type.method(value, ...)" as *byte);
+                return make_void_type();
+            }
+        }
+
+        if object_type.kind == TypeKind.TYPE_STRUCT && object_type.struct_name != null &&
+            method_name != null && checker.program_node != null {
+            const m: &ASTNode = find_instance_method_in_struct(checker.program_node, object_type.struct_name, method_name);
+            if m != null {
+                return checker_method_type_from_value_owner(checker, m.fn_decl_return_type, &object_type,
+                    m.fn_decl_type_params, m.fn_decl_type_param_count,
+                    expr.call_expr_type_args, expr.call_expr_type_arg_count,
+                    expr.line, expr.column, expr.filename);
+            }
+            const m_static: &ASTNode = find_static_method_in_struct(checker.program_node, object_type.struct_name, method_name);
+            if m_static != null {
+                checker_report_error(checker, expr, "结构体静态方法应优先通过类型名调用；如需 UFCS，可用 Type.method(value, ...)" as *byte);
+                return make_void_type();
+            }
+
+            var base_buf: [byte: 64] = [];
+            var bi: i32 = 0;
+            const sn: *byte = object_type.struct_name as *byte;
+            while sn[bi] != 0 && sn[bi] != 95 && bi < 63 {
+                base_buf[bi] = sn[bi];
+                bi = bi + 1;
+            }
+            if bi >= 0 && bi < @len(base_buf) {
+                base_buf[bi] = 0;
+            }
+            const base_name: &byte = &base_buf[0];
+            var m_fallback: &ASTNode = find_instance_method_in_struct(checker.program_node, base_name, method_name);
+            if m_fallback == null {
+                if find_interface_decl_from_program(checker.program_node, base_name) != null {
+                    m_fallback = find_interface_method_sig(checker.program_node, base_name, method_name);
+                }
+            }
+            if m_fallback != null {
+                return checker_method_type_from_value_owner(checker, m_fallback.fn_decl_return_type, &object_type,
+                    m_fallback.fn_decl_type_params, m_fallback.fn_decl_type_param_count,
+                    expr.call_expr_type_args, expr.call_expr_type_arg_count,
+                    expr.line, expr.column, expr.filename);
+            }
+        }
+        
+        return make_void_type();
+    }
+    
+    if callee.type != ASTNodeType.AST_IDENTIFIER {
+        return make_void_type();
+    }
+    
+    // 检查是否是泛型函数调用
+    if expr.call_expr_type_arg_count > 0 && expr.call_expr_type_args != null {
+        const fn_decl: &ASTNode = find_fn_decl_from_program(checker.program_node, callee.identifier_name);
+        if fn_decl != null && fn_decl.fn_decl_type_param_count > 0 {
+            // 注册单态化实例
+            register_mono_instance(checker, callee.identifier_name, 
+                expr.call_expr_type_args, expr.call_expr_type_arg_count, 1);
+            // 与 check_call 一致：为返回类型中的泛型 struct/union 注册单态，避免仅生成函数体却缺少结构体定义
+            register_mono_from_return_type_ast(checker, fn_decl.fn_decl_return_type,
+                fn_decl.fn_decl_type_params, fn_decl.fn_decl_type_param_count,
+                expr.call_expr_type_args, expr.call_expr_type_arg_count);
+            
+            // 返回替换后的返回类型
+            const return_type: Type = type_from_ast(checker, fn_decl.fn_decl_return_type);
+            return substitute_generic_type(checker, return_type,
+                fn_decl.fn_decl_type_params, fn_decl.fn_decl_type_param_count,
+                expr.call_expr_type_args, expr.call_expr_type_arg_count);
+        }
+    }
+    
+    const sig: &FunctionSignature = function_table_lookup(checker, callee.identifier_name);
+    if sig != null {
+        return sig.return_type;
+    }
+    
+    // 函数表未找到时从合并后的程序中查找（如跨模块的 export fn）
+    if checker.program_node != null {
+        const fn_decl: &ASTNode = find_fn_decl_from_program(checker.program_node, callee.identifier_name);
+        if fn_decl != null && fn_decl.fn_decl_return_type != null {
+            return type_from_ast(checker, fn_decl.fn_decl_return_type);
+        }
+    }
+    
+    return make_void_type();
+}
+
+// 推断成员访问表达式类型
+fn infer_member_access(checker: &TypeChecker, expr: &ASTNode) Type {
+    const object: &ASTNode = expr.member_access_object;
+    if object == null {
+        return make_void_type();
+    }
+    
+    // 检查是否是枚举类型访问（如 Color.RED）
+    if object.type == ASTNodeType.AST_IDENTIFIER {
+        const enum_name: &byte = object.identifier_name;
+        if enum_name != null && checker != null && checker.program_node != null {
+            // 检查是否是变量
+            const symbol: &Symbol = symbol_table_lookup(checker, enum_name);
+            if symbol == null {
+                // 不是变量，可能是枚举类型名称
+                const enum_decl: &ASTNode = find_enum_decl_from_program(checker.program_node, enum_name);
+                if enum_decl != null {
+                    const variant_name: &byte = expr.member_access_field_name;
+                    if variant_name != null {
+                        var i: i32 = 0;
+                        while i < enum_decl.enum_decl_variant_count {
+                            if enum_decl.enum_decl_variants[i].name != null &&
+                                str_equals(enum_decl.enum_decl_variants[i].name, variant_name) != 0 {
+                                return make_named_type(TypeKind.TYPE_ENUM, enum_name);
+                            }
+                            i = i + 1;
+                        }
+                    }
+                    return make_void_type();
+                }
+                
+                // 不是枚举，检查是否是模块导入
+                const ih: i32 = hash_string(enum_name);
+                var ii: i32 = ih & (IMPORT_TABLE_SIZE - 1);
+                var i2: i32 = 0;
+                while i2 < IMPORT_TABLE_SIZE {
+                    const sl: i32 = (ii + i2) & (IMPORT_TABLE_SIZE - 1);
+                    const imp: &ImportedItem = checker.import_table.slots[sl];
+                    if imp == null { break; }
+                    if imp.item_type == (0 - 1) && str_equals(imp.local_name, enum_name) != 0 {
+                        expr.member_access_is_module_access = 1;
+                        expr.member_access_module_name = imp.module_name;
+                        if imp.module_name != null && strcmp(imp.module_name as *byte, "std" as *byte) == 0 {
+                            const builtin_enum_name: &byte = std_cfg_selector_enum_name(expr.member_access_field_name);
+                            if builtin_enum_name != null {
+                                return make_named_type(TypeKind.TYPE_ENUM, builtin_enum_name);
+                            }
+                        }
+                        return make_void_type();
+                    }
+                    i2 = i2 + 1;
+                }
+            }
+        }
+    }
+    
+    // 按结构体字段访问处理
+    var object_type: Type = checker_infer_type(checker, object);
+    
+    // 指针类型自动解引用
+    if object_type.kind == TypeKind.TYPE_POINTER && object_type.pointer_to != null {
+        object_type = object_type.pointer_to[0];
+    }
+    
+    // 元组类型：.0, .1, ... 访问
+    if object_type.kind == TypeKind.TYPE_TUPLE {
+        const field_name: &byte = expr.member_access_field_name;
+        if field_name == null || object_type.tuple_element_types == null {
+            return make_void_type();
+        }
+        const idx: i32 = atoi(field_name as *byte);
+        if idx < 0 || idx >= object_type.tuple_count {
+            return make_void_type();
+        }
+        return object_type.tuple_element_types[idx];
+    }
+    if checker_is_async_frame_type(checker, &object_type) != 0 {
+        const method_name: &byte = expr.member_access_field_name;
+        if method_name != null {
+            if str_equals(method_name, "start" as *byte) != 0 || str_equals(method_name, "stop" as *byte) != 0 {
+                return make_void_type();
+            }
+            if str_equals(method_name, "poll" as *byte) != 0 {
+                const fn_decl: &ASTNode = checker_async_frame_fn_decl_from_type(checker, &object_type);
+                if fn_decl != null {
+                    return checker_async_frame_poll_return_type(checker, fn_decl);
+                }
+                return make_void_type();
+            }
+        }
+    }
+    
+    // 接口类型方法调用
+    if object_type.kind == TypeKind.TYPE_INTERFACE && object_type.interface_name != null &&
+        checker != null && checker.program_node != null {
+        const iface: &ASTNode = find_interface_decl_from_program(checker.program_node, object_type.interface_name);
+        const method_name: &byte = expr.member_access_field_name;
+        if iface != null && method_name != null && iface.interface_decl_method_sigs != null {
+            var i: i32 = 0;
+            while i < iface.interface_decl_method_sig_count {
+                const msig: &ASTNode = iface.interface_decl_method_sigs[i];
+                if msig != null && msig.type == ASTNodeType.AST_FN_DECL && msig.fn_decl_name != null &&
+                    str_equals(msig.fn_decl_name, method_name) != 0 {
+                    return type_from_ast(checker, msig.fn_decl_return_type);
+                }
+                i = i + 1;
+            }
+        }
+        return make_void_type();
+    }
+    
+    if object_type.kind != TypeKind.TYPE_STRUCT || object_type.struct_name == null {
+        return make_void_type();
+    }
+    
+    // 查找结构体声明
+    const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, object_type.struct_name);
+    if struct_decl == null {
+        // 特殊处理：内置 TypeInfo 结构体
+        if str_equals(object_type.struct_name, ("TypeInfo" as *byte) as &byte) != 0 {
+            const field_name: &byte = expr.member_access_field_name;
+            if field_name != null {
+                if str_equals(field_name, ("name" as *byte) as &byte) != 0 {
+                    // name: *i8 (FFI 指针)
+                    const inner_type: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+                    if inner_type != null {
+                        inner_type[0] = make_i32_type();  // I8 类型简化为 I32
+                        return make_pointer_type(checker.arena, inner_type, 1);
+                    }
+                    return make_void_type();
+                } else if str_equals(field_name, ("size" as *byte) as &byte) != 0 ||
+                          str_equals(field_name, ("align" as *byte) as &byte) != 0 ||
+                          str_equals(field_name, ("kind" as *byte) as &byte) != 0 {
+                    return make_i32_type();
+                } else if str_equals(field_name, ("is_integer" as *byte) as &byte) != 0 ||
+                          str_equals(field_name, ("is_float" as *byte) as &byte) != 0 ||
+                          str_equals(field_name, ("is_bool" as *byte) as &byte) != 0 ||
+                          str_equals(field_name, ("is_pointer" as *byte) as &byte) != 0 ||
+                          str_equals(field_name, ("is_array" as *byte) as &byte) != 0 ||
+                          str_equals(field_name, ("is_void" as *byte) as &byte) != 0 {
+                    return make_bool_type();
+                }
+            }
+        }
+        return make_void_type();
+    }
+    
+    // 查找字段类型
+    var field_type: Type = make_void_type();
+    if object_type.struct_type_args != null && object_type.struct_type_arg_count > 0 {
+        field_type = find_struct_field_type_with_substitution(checker, struct_decl,
+            expr.member_access_field_name,
+            object_type.struct_type_args,
+            object_type.struct_type_arg_count);
+    } else {
+        field_type = find_struct_field_type(checker, struct_decl, expr.member_access_field_name);
+    }
+    return field_type;
+}
+
+// 推断 match 表达式类型
+fn infer_match_expr(checker: &TypeChecker, expr: &ASTNode) Type {
+    var expr_type: Type = checker_infer_type(checker, expr.match_expr_expr);
+    // 如果是指针类型，自动解引用
+    if expr_type.kind == TypeKind.TYPE_POINTER && expr_type.pointer_to != null {
+        expr_type = expr_type.pointer_to[0];
+    }
+    var match_union_decl: &ASTNode = null;
+    if expr_type.kind == TypeKind.TYPE_UNION && expr_type.union_name != null && checker != null && checker.program_node != null {
+        match_union_decl = find_union_decl_from_program(checker.program_node, expr_type.union_name);
+    }
+    var unified: Type = make_void_type();
+    var first: i32 = 1;
+    var i: i32 = 0;
+    while i < expr.match_expr_arm_count {
+        const arm: ASTMatchArm = expr.match_expr_arms[i];
+        
+        // 为 match 分支变量创建符号表条目
+        checker_enter_scope(checker);
+        if arm.kind == MatchPatternKind.MATCH_PAT_UNION && arm.variant_name != null &&
+            expr_type.kind == TypeKind.TYPE_UNION && expr_type.union_name != null && checker.program_node != null {
+            const union_decl: &ASTNode = find_union_decl_from_program(checker.program_node, expr_type.union_name);
+            if union_decl != null && arm.var_name != null && str_equals(arm.var_name, "_" as *byte) == 0 {
+                var k: i32 = 0;
+                while k < union_decl.union_decl_variant_count {
+                    const v: &ASTNode = union_decl.union_decl_variants[k];
+                    if v != null && v.type == ASTNodeType.AST_VAR_DECL && v.var_decl_name != null &&
+                        str_equals(v.var_decl_name, arm.variant_name) != 0 && v.var_decl_type != null {
+                        var variant_type: Type = type_from_ast(checker, v.var_decl_type);
+                        if expr_type.union_type_args != null && expr_type.union_type_arg_count >= 1 &&
+                            union_decl.union_decl_type_param_count >= 1 &&
+                            (variant_type.kind == TypeKind.TYPE_GENERIC_PARAM ||
+                             (v.var_decl_type.type == ASTNodeType.AST_TYPE_NAMED && v.var_decl_type.type_named_name != null &&
+                              (v.var_decl_type.type_named_type_arg_count == 0 || v.var_decl_type.type_named_type_args == null))) {
+                            variant_type = copy_type(&expr_type.union_type_args[0]);
+                        }
+                        const sym: &Symbol = compiler_arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
+                        if sym != null {
+                            sym.name = arm.var_name;
+                            sym.type = copy_type(&variant_type);
+                            sym.is_const = 1;
+                            sym.is_initialized = 1;
+                            sym.scope_level = checker.scope_level;
+                            sym.line = expr.line;
+                            sym.column = expr.column;
+                            sym.pointee_of = null;
+                            sym.pointer_known_length = -1;
+                            sym.pointer_length_param = null;
+                            symbol_table_insert(checker, sym);
+                        }
+                        break;
+                    }
+                    k = k + 1;
+                }
+            }
+        }
+        
+        var t: Type = checker_infer_type(checker, arm.result_expr);
+        checker_exit_scope(checker);
+        
+        if first != 0 {
+            unified = copy_type(&t);
+            first = 0;
+        } else {
+            if unified.kind == TypeKind.TYPE_INT_LIMIT && is_integer_type(t.kind) != 0 {
+                unified = copy_type(&t);
+            } else if t.kind == TypeKind.TYPE_INT_LIMIT && is_integer_type(unified.kind) != 0 {
+                resolve_int_limit_node(arm.result_expr, copy_type(&unified));
+                t = copy_type(&unified);
+            }
+            if type_equals(unified, copy_type(&t)) == 0 {
+            checker_report_error(checker, arm.result_expr, "match 所有分支的返回类型必须一致" as *byte);
+            }
+        }
+        i = i + 1;
+    }
+    
+    // 检查 match 是否有 else 分支或覆盖所有变体
+    var has_catch_all: i32 = 0;
+    var j: i32 = 0;
+    while j < expr.match_expr_arm_count {
+        const arm: ASTMatchArm = expr.match_expr_arms[j];
+        if arm.kind == MatchPatternKind.MATCH_PAT_ELSE || arm.kind == MatchPatternKind.MATCH_PAT_BIND || arm.kind == MatchPatternKind.MATCH_PAT_WILDCARD {
+            has_catch_all = 1;
+            break;
+        }
+        j = j + 1;
+    }
+    
+    // 联合体完备性检查
+    if expr_type.kind == TypeKind.TYPE_UNION && expr_type.union_name != null && checker.program_node != null {
+        const union_decl: &ASTNode = find_union_decl_from_program(checker.program_node, expr_type.union_name);
+        if union_decl != null && union_decl.union_decl_variant_count > 0 && has_catch_all == 0 {
+            var covered: [i32: MAX_UNION_VARIANTS] = [];
+            var nv: i32 = union_decl.union_decl_variant_count;
+            if nv > MAX_UNION_VARIANTS { nv = MAX_UNION_VARIANTS; }
+            var k: i32 = 0;
+            while k < nv {
+                covered[k] = 0;
+                k = k + 1;
+            }
+            j = 0;
+            while j < expr.match_expr_arm_count {
+                const arm: ASTMatchArm = expr.match_expr_arms[j];
+                if arm.kind == MatchPatternKind.MATCH_PAT_UNION && arm.variant_name != null {
+                    var kk: i32 = 0;
+                    while kk < nv {
+                        const v: &ASTNode = union_decl.union_decl_variants[kk];
+                        if v != null && v.type == ASTNodeType.AST_VAR_DECL && v.var_decl_name != null &&
+                            str_equals(v.var_decl_name, arm.variant_name) != 0 {
+                            covered[kk] = 1;
+                            break;
+                        }
+                        kk = kk + 1;
+                    }
+                }
+                j = j + 1;
+            }
+            k = 0;
+            while k < nv {
+                if covered[k] == 0 {
+                    checker_report_error(checker, expr, "match 联合体必须处理所有变体" as *byte);
+                    break;
+                }
+                k = k + 1;
+            }
+        }
+    } else if has_catch_all == 0 && expr.match_expr_arm_count > 0 {
+        checker_report_error(checker, expr, "match 必须包含 else 分支或变量绑定/通配符" as *byte);
+    }
+    
+    return unified;
+}
+
+// 推断 @syscall 表达式类型
+fn infer_syscall(checker: &TypeChecker, expr: &ASTNode) Type {
+    // 1. 检查系统调用号
+    if expr.syscall_number == null {
+        checker_report_error(checker, expr, "@syscall 需要系统调用号作为第一个参数" as &byte);
+        return make_void_type();
+    }
+    
+    const syscall_nr_type: Type = checker_infer_type(checker, expr.syscall_number);
+    if is_void_type(syscall_nr_type) != 0 {
+        return make_void_type();
+    }
+    
+    if is_integer_type(syscall_nr_type.kind) == 0 {
+        checker_report_error(checker, expr.syscall_number, "@syscall 的系统调用号必须是整数类型" as &byte);
+        return make_void_type();
+    }
+    
+    // 2. 检查参数
+    if expr.syscall_arg_count > 6 {
+        checker_report_error(checker, expr, "@syscall 最多支持 6 个参数" as &byte);
+        return make_void_type();
+    }
+    
+    var sc_i: i32 = 0;
+    while sc_i < expr.syscall_arg_count {
+        if expr.syscall_args[sc_i] == null {
+            checker_report_error(checker, expr, "@syscall 参数不能为空" as &byte);
+            return make_void_type();
+        }
+        
+        const arg_type: Type = checker_infer_type(checker, expr.syscall_args[sc_i]);
+        if is_void_type(arg_type) != 0 {
+            return make_void_type();
+        }
+        
+        var is_valid_arg: i32 = 0;
+        if is_integer_type(arg_type.kind) != 0 || arg_type.kind == TypeKind.TYPE_POINTER {
+            is_valid_arg = 1;
+        }
+        
+        if is_valid_arg == 0 {
+            checker_report_error(checker, expr.syscall_args[sc_i], "@syscall 的参数必须是整数或指针类型" as &byte);
+            return make_void_type();
+        }
+        
+        sc_i = sc_i + 1;
+    }
+    
+    // 3. 返回类型：!i64（错误联合类型）
+    const payload_type: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+    if payload_type == null {
+        return make_void_type();
+    }
+    payload_type.kind = TypeKind.TYPE_I64;
+    
+    payload_type[0] = make_i64_type();
+    var result: Type = make_error_union_type(checker.arena, payload_type);
+    return result;
+}
+
+// 推断 @asm 块类型
+fn infer_asm_block(checker: &TypeChecker, expr: &ASTNode) Type {
+    // 1. 检查指令数量
+    if expr.asm_instruction_count <= 0 {
+        checker_report_error(checker, expr, "@asm 块不能为空" as &byte);
+        return make_void_type();
+    }
+
+    // 2. 检查所有指令
+    var instr_idx: i32 = 0;
+    var input_offset: i32 = 0;
+    var output_offset: i32 = 0;
+    var has_atomic_instruction: i32 = 0;  // 追踪是否有原子操作指令
+    var has_memory_barrier: i32 = 0;      // 追踪是否有内存屏障指令
+
+    while instr_idx < expr.asm_instruction_count {
+        // 检查指令字符串
+        if expr.asm_instructions[instr_idx] == null {
+            checker_report_error(checker, expr, "@asm 指令不能为空" as &byte);
+            return make_void_type();
+        }
+
+        const instr: &byte = expr.asm_instructions[instr_idx];
+
+        // 并发安全：检测原子操作指令
+        if is_atomic_instruction(instr) != 0 {
+            has_atomic_instruction = 1;
+        }
+
+        // 并发安全：检测内存屏障指令
+        if requires_memory_barrier(instr) != 0 {
+            has_memory_barrier = 1;
+        }
+
+        // 检查输入表达式
+        var in_idx: i32 = 0;
+        const input_count: i32 = expr.asm_input_counts[instr_idx];
+        while in_idx < input_count {
+            const input_expr: &ASTNode = expr.asm_inputs[input_offset + in_idx];
+            if input_expr == null {
+                checker_report_error(checker, expr, "@asm 输入表达式不能为空" as &byte);
+                return make_void_type();
+            }
+            const input_type: Type = checker_infer_type(checker, input_expr);
+            if is_void_type(input_type) != 0 {
+                checker_report_error(checker, input_expr, "@asm 输入表达式类型无效" as &byte);
+                return make_void_type();
+            }
+            // 验证输入类型（整数或指针）
+            if is_integer_type(input_type.kind) == 0 && is_pointer_type(input_type) == 0 {
+                checker_report_error(checker, input_expr, "@asm 输入必须是整数或指针类型" as &byte);
+                return make_void_type();
+            }
+            // 内存安全：检查 FFI 指针（*T）不能直接使用
+            if type_is_ffi_pointer(&input_type) != 0 {
+                checker_report_error(checker, input_expr, "FFI 指针 (*T) 不能直接用于 @asm，请转换为 &T 类型" as &byte);
+                return make_void_type();
+            }
+
+            // 并发安全：原子操作必须使用 atomic 类型
+            // 如果指令包含 "lock" 前缀，第一个指针输入必须是指向 atomic 类型的指针
+            if is_atomic_instruction(instr) != 0 && is_pointer_type(input_type) != 0 {
+                // 对于 lock 指令，检查第一个指针参数是否指向 atomic 类型
+                // 注意：我们允许第一个指针参数不是 atomic，但会发出警告
+                // 因为用户可能确实知道自己在做什么（例如手动实现原子操作）
+                // 但我们强烈建议使用 atomic 类型
+                if is_pointer_to_atomic(input_type) == 0 {
+                    // 发出警告而非错误，保持兼容性
+                    // 但对于严格的原子操作，建议使用 atomic 类型
+                    // checker_report_error(checker, input_expr, 
+                    //     "原子操作建议使用 atomic 类型指针 (&atomic T)" as &byte);
+                }
+            }
+
+            in_idx = in_idx + 1;
+        }
+        input_offset = input_offset + input_count;
+
+        // 检查输出表达式
+        var out_idx: i32 = 0;
+        const output_count: i32 = expr.asm_output_counts[instr_idx];
+        while out_idx < output_count {
+            const output_expr: &ASTNode = expr.asm_outputs[output_offset + out_idx];
+            if output_expr == null {
+                checker_report_error(checker, expr, "@asm 输出表达式不能为空" as &byte);
+                return make_void_type();
+            }
+            const output_type: Type = checker_infer_type(checker, output_expr);
+            if is_void_type(output_type) != 0 {
+                checker_report_error(checker, output_expr, "@asm 输出表达式类型无效" as &byte);
+                return make_void_type();
+            }
+            // 内存安全：检查 FFI 指针不能作为输出
+            if type_is_ffi_pointer(&output_type) != 0 {
+                checker_report_error(checker, output_expr, "FFI 指针 (*T) 不能作为 @asm 输出" as &byte);
+                return make_void_type();
+            }
+            // 验证输出类型（整数）
+            if is_integer_type(output_type.kind) == 0 {
+                checker_report_error(checker, output_expr, "@asm 输出必须是整数类型" as &byte);
+                return make_void_type();
+            }
+            out_idx = out_idx + 1;
+        }
+        output_offset = output_offset + output_count;
+
+        instr_idx = instr_idx + 1;
+    }
+
+    // 3. 检查 clobbers
+    var clobber_idx: i32 = 0;
+    var has_memory_clobber: i32 = 0;
+    while clobber_idx < expr.asm_clobber_count {
+        if expr.asm_clobbers[clobber_idx] == null {
+            checker_report_error(checker, expr, "@asm clobber 名称不能为空" as &byte);
+            return make_void_type();
+        }
+        // 并发安全：检测 "memory" clobber
+        if str_equals(expr.asm_clobbers[clobber_idx], "memory" as &byte) != 0 {
+            has_memory_clobber = 1;
+        }
+        clobber_idx = clobber_idx + 1;
+    }
+
+    // 并发安全：内存屏障指令需要 memory clobber
+    if has_memory_barrier != 0 && has_memory_clobber == 0 {
+        checker_report_error(checker, expr, 
+            "内存屏障指令需要声明 clobbers = [\"memory\"]" as &byte);
+        return make_void_type();
+    }
+
+    // 并发安全：原子操作建议声明 memory clobber（警告而非错误）
+    // 因为某些原子操作可能不需要完整的内存屏障
+
+    // 4. @asm 块返回 void 类型
+    return make_void_type();
+}
+
+// 推断一元表达式类型
+fn infer_unary_expr(checker: &TypeChecker, expr: &ASTNode) Type {
+    const op_tmp: !TokenType = expr.unary_expr_op as! TokenType;
+    const op: TokenType = op_tmp.value;
+    const operand_type: Type = checker_infer_type(checker, expr.unary_expr_operand);
+    
+    if op == TokenType.TOKEN_EXCLAMATION {
+        // 逻辑非（!）返回bool类型
+        return make_bool_type();
+    } else if op == TokenType.TOKEN_MINUS {
+        // 一元负号（-）返回操作数类型（应为i32）
+        return operand_type;
+    } else if op == TokenType.TOKEN_TILDE {
+        // 按位取反（~）：操作数必须是整数，返回操作数类型
+        return operand_type;
+    } else if op == TokenType.TOKEN_AMPERSAND {
+        // 取地址（&expr）：返回指向操作数类型的指针类型
+        if is_void_type(operand_type) != 0 {
+            // 操作数类型无效
+            return make_void_type();
+        }
+        
+        const pointed_type_ptr: &Type = compiler_arena_alloc(checker.arena, @size_of(Type)) as &Type;
+        if pointed_type_ptr == null {
+            return make_void_type();
+        }
+        pointed_type_ptr[0] = copy_type(&operand_type);
+        
+        var result: Type = make_pointer_type(checker.arena, pointed_type_ptr, 0);
+        return result;
+    } else if op == TokenType.TOKEN_ASTERISK {
+        // 解引用（*expr）：操作数必须是指针类型，返回指针指向的类型
+        if operand_type.kind != TypeKind.TYPE_POINTER {
+            return make_void_type();
+        }
+        
+        if operand_type.pointer_to == null {
+            return make_void_type();
+        }
+        
+        return operand_type.pointer_to[0];
+    }
+    
+    // 其他一元运算符，返回操作数类型
+    return operand_type;
+}
+
+// 推断数组访问表达式类型
+fn infer_array_access(checker: &TypeChecker, expr: &ASTNode) Type {
+    const array_type: Type = checker_infer_type(checker, expr.array_access_array);
+    
+    if array_type.kind == TypeKind.TYPE_ARRAY && array_type.element_type != null {
+        const index_expr: &ASTNode = expr.array_access_index;
+        const array_size: i32 = array_type.array_size;
+        
+        // 常量索引越界检查（始终执行，不依赖 enable_safety_proof）
+        const index_val: i32 = checker_eval_const_expr(checker, index_expr);
+        if index_val >= 0 {
+            if index_val >= array_size {
+                checker_report_error(checker, index_expr, "数组索引越界：常量索引超出数组边界" as *byte);
+            }
+        } else if checker.enable_safety_proof != 0 {
+            // 变量索引：使用约束系统验证边界（仅当开启安全证明时）
+            const linear_expr: LinearExpr = extract_linear_expr(checker, index_expr);
+            
+            if linear_expr.is_valid != 0 {
+                if verify_linear_expr_bounds(checker, &linear_expr, array_size, index_expr) == 0 {
+                    if linear_expr.var_name != null {
+                        checker_report_error_ex(checker, index_expr, 
+                            "数组索引安全证明失败" as *byte,
+                            linear_expr.var_name,
+                            array_size);
+                    }
+                }
+            }
+        }
+        
+        return array_type.element_type[0];
+    } else if array_type.kind == TypeKind.TYPE_SLICE && array_type.slice_element_type != null {
+        return array_type.slice_element_type[0];
+    } else if array_type.kind == TypeKind.TYPE_POINTER && array_type.pointer_to != null {
+        // 空指针检测（仅当开启安全证明时）
+        if checker.enable_safety_proof != 0 {
+            const array_expr: &ASTNode = expr.array_access_array;
+            if array_expr != null && array_expr.type == ASTNodeType.AST_IDENTIFIER {
+                const ptr_name: &byte = array_expr.identifier_name;
+                if pointer_is_nullable(checker, ptr_name) != 0 && pointer_is_known_nonnull(checker, ptr_name) == 0 {
+                    checker_report_error(checker, expr.array_access_array, 
+                        "指针可能为空：请添加空指针检查 (如 if ptr != null)" as &byte);
+                }
+            }
+        }
+        
+        const pointed_type: Type = array_type.pointer_to[0];
+        if pointed_type.kind == TypeKind.TYPE_ARRAY && pointed_type.element_type != null {
+            return pointed_type.element_type[0];
+        } else {
+            return pointed_type;
+        }
+    }
+    
+    return make_void_type();
+}
+
+// 推断 @print/@println 表达式类型
+fn infer_print_expr(checker: &TypeChecker, expr: &ASTNode) Type {
+    if expr.print_expr == null {
+        checker_report_error(checker, expr, "@print/@println 需要一个参数" as &byte);
+        return make_void_type();
+    }
+    
+    const arg_type: Type = checker_infer_type(checker, expr.print_expr);
+    var is_printable: i32 = 0;
+    
+    if arg_type.kind == TypeKind.TYPE_I8 || arg_type.kind == TypeKind.TYPE_I16 ||
+       arg_type.kind == TypeKind.TYPE_I32 || arg_type.kind == TypeKind.TYPE_I64 ||
+       arg_type.kind == TypeKind.TYPE_U8 || arg_type.kind == TypeKind.TYPE_U16 ||
+       arg_type.kind == TypeKind.TYPE_U32 || arg_type.kind == TypeKind.TYPE_U64 ||
+       arg_type.kind == TypeKind.TYPE_USIZE || arg_type.kind == TypeKind.TYPE_F32 ||
+       arg_type.kind == TypeKind.TYPE_F64 || arg_type.kind == TypeKind.TYPE_BOOL {
+        is_printable = 1;
+    }
+    if arg_type.kind == TypeKind.TYPE_SLICE {
+        if arg_type.slice_element_type != null {
+            const se: TypeKind = arg_type.slice_element_type.kind;
+            if se == TypeKind.TYPE_I8 || se == TypeKind.TYPE_U8 || se == TypeKind.TYPE_BYTE {
+                is_printable = 1;
+            }
+        }
+    }
+    if is_pointer_type(arg_type) != 0 {
+        if arg_type.pointer_to != null {
+            const pk: TypeKind = arg_type.pointer_to.kind;
+            if pk == TypeKind.TYPE_I8 || pk == TypeKind.TYPE_U8 || pk == TypeKind.TYPE_BYTE {
+                is_printable = 1;
+            }
+        }
+        if arg_type.pointer_to == null {
+            is_printable = 1;
+        }
+    }
+    if arg_type.kind == TypeKind.TYPE_ARRAY {
+        if arg_type.element_type != null {
+            const ek: TypeKind = arg_type.element_type.kind;
+            if ek == TypeKind.TYPE_I8 || ek == TypeKind.TYPE_U8 || ek == TypeKind.TYPE_BYTE {
+                is_printable = 1;
+            }
+        }
+    }
+    if expr.print_expr.type == ASTNodeType.AST_STRING_INTERP {
+        is_printable = 1;
+    }
+    if expr.print_expr.type == ASTNodeType.AST_STRING {
+        is_printable = 1;
+    }
+    
+    if is_printable == 0 {
+        checker_report_error(checker, expr.print_expr, "该类型不支持 @print/@println" as &byte);
+        return make_void_type();
+    }
+    
+    return make_i32_type();
+}
+
+// 推断 catch 表达式类型
+fn infer_catch_expr(checker: &TypeChecker, expr: &ASTNode) Type {
+    var operand_type: Type = checker_infer_type(checker, expr.catch_expr_operand);
+    
+    if operand_type.kind != TypeKind.TYPE_ERROR_UNION {
+        if expr.catch_expr_operand != null &&
+            expr.catch_expr_operand.type == ASTNodeType.AST_IDENTIFIER &&
+            expr.catch_expr_operand.identifier_name != null {
+            const operand_symbol: &Symbol = symbol_table_lookup(checker, expr.catch_expr_operand.identifier_name);
+            if operand_symbol != null {
+                operand_type = copy_type(&operand_symbol.type);
+            }
+        }
+        // 回退：若操作数是调用表达式且被推断为 VOID，从合并后的程序中查找被调函数返回类型
+        if expr.catch_expr_operand != null && expr.catch_expr_operand.type == ASTNodeType.AST_CALL_EXPR {
+            const callee: &ASTNode = expr.catch_expr_operand.call_expr_callee;
+            if callee != null && callee.type == ASTNodeType.AST_IDENTIFIER && callee.identifier_name != null
+                && checker.program_node != null {
+                const fn_decl: &ASTNode = find_fn_decl_from_program(checker.program_node, callee.identifier_name);
+                if fn_decl != null && fn_decl.fn_decl_return_type != null {
+                    operand_type = type_from_ast(checker, fn_decl.fn_decl_return_type);
+                }
+            }
+        }
+        if operand_type.kind != TypeKind.TYPE_ERROR_UNION {
+            checker_report_error(checker, expr.catch_expr_operand, "catch 的操作数必须是错误联合类型 !T" as *byte);
+            return make_void_type();
+        }
+    }
+    
+    if operand_type.error_union_payload_type == null {
+        return make_void_type();
+    }
+    
+    const payload: Type = operand_type.error_union_payload_type[0];
+    
+    if expr.catch_expr_err_name != null {
+        var err_type: Type = make_void_type();
+        err_type.kind = TypeKind.TYPE_ERROR;
+        checker_enter_scope(checker);
+        const sym: &Symbol = compiler_arena_alloc(checker.arena, @size_of(Symbol)) as &Symbol;
+        if sym != null {
+            sym.name = expr.catch_expr_err_name;
+            sym.type = err_type;
+            sym.is_const = 1;
+            sym.is_initialized = 1;
+            sym.scope_level = checker.scope_level;
+            sym.line = expr.line;
+            sym.column = expr.column;
+            sym.pointee_of = null;
+            sym.pointer_known_length = -1;
+            sym.pointer_length_param = null;
+            symbol_table_insert(checker, sym);
+        }
+        checker_check_node(checker, expr.catch_expr_catch_block);
+        checker_exit_scope(checker);
+    } else {
+        checker_check_node(checker, expr.catch_expr_catch_block);
+    }
+    
+    const block: &ASTNode = expr.catch_expr_catch_block;
+    if block != null && block.type == ASTNodeType.AST_BLOCK && block.block_stmt_count > 0 {
+        const last: &ASTNode = block.block_stmts[block.block_stmt_count - 1];
+        if last != null && last.type != ASTNodeType.AST_RETURN_STMT {
+            const last_type: Type = checker_infer_type(checker, last);
+            if type_equals(last_type, payload) == 0 {
+                checker_report_error(checker, last, "catch 块最后表达式类型必须与成功值类型一致" as *byte);
+            }
+        }
+    }
+    
+    return payload;
+}

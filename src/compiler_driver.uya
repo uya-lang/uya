@@ -1,0 +1,4116 @@
+// compiler_driver.uya - 编译器 CLI driver
+// Uya 自举编译器
+// 架构：export fn main 编译为 main_main，由 std.runtime.entry 的 C main 调用
+// 命令行参数通过 get_argc/get_argv 获取
+
+// ===== 模块导入（按依赖顺序）=====
+// compiler_driver 从原 src/main.uya 拆出；显式导入同目录基础模块，避免从 launcher 反向 use main。
+use arena;
+use ast;
+use lexer;
+use extern_decls;
+use str_utils;
+use std_cfg;
+use parser;
+use semantic;
+use typed;
+use checker;  // 包含 checker 目录下所有文件（包括 optimizer.uya）
+use driver;
+use microapp;
+use exec;
+// C99 代码生成（子目录，整体导入该目录模块）
+use codegen.c99;
+use kernel.image;
+use kernel.payload;
+use std;
+// C 程序入口由编译器自动注入 std.runtime.entry；此处仅导入堆栈上限设置（避免与局部名 entry 冲突）
+use std.runtime.entry.set_process_stack_limit_bytes;
+use std.runtime.saved_envp;
+use libc;
+use libc.stdlib;  // clock, CLOCKS_PER_SEC
+use libc.unistd;  // system
+use cmd.upm.upm_lib.UPMPackageBuildPlan;
+use cmd.upm.upm_lib.upm_build_plan_cleanup;
+use cmd.upm.upm_lib.upm_build_plan_init;
+use cmd.upm.upm_lib.upm_prepare_build_plan;
+use fmt;
+
+// ===== 计时函数 =====
+// 暂时禁用精确计时，使用简单计数器
+
+// 编译统计结构体
+struct CompileStats {
+    parse_time_ms: i64,      // 解析阶段耗时（毫秒）
+    merge_time_ms: i64,      // AST 合并耗时
+    check_time_ms: i64,      // 类型检查耗时
+    opt_time_ms: i64,        // 优化阶段耗时（v0.7.3 新增）
+    codegen_time_ms: i64,    // 代码生成耗时
+    total_time_ms: i64,      // 总耗时
+    file_count: i32,         // 编译文件数
+    ast_nodes: i32,          // AST 节点数（近似）
+    arena_peak_bytes: usize, // 所有编译器 arena 峰值合计（driver+ast+check+emit）
+    ast_arena_peak_bytes: usize,   // parser AST / lexer / merge 专用 arena 峰值
+    check_arena_peak_bytes: usize, // checker 工作内存专用 arena 峰值
+    emit_arena_peak_bytes: usize,  // C99 emitter 专用 arena 峰值
+    c99_output_buffer_peak_bytes: usize, // C99 输出 FILE 缓冲峰值
+    typed_program_bytes: usize,
+    typed_program_peak_bytes: usize,
+    typed_program_released_bytes: usize,
+    table_items: usize,          // 所有编译器动态表实际项数之和
+    table_capacity: usize,       // 所有编译器动态表容量项数之和
+    table_used_bytes: usize,     // 所有编译器动态表实际占用字节之和
+    table_capacity_bytes: usize, // 所有编译器动态表容量字节之和
+    table_realloc_count: i32,    // 所有编译器动态表重分配次数之和
+}
+
+struct CImportItem {
+    resolved_path: &byte,
+    relative_path: &byte,
+    cflags_tokens: & & byte,
+    cflags_token_count: i32,
+    filename: &byte,
+    line: i32,
+    column: i32,
+}
+
+struct CImportPlan {
+    items: &CImportItem,
+    item_count: i32,
+    aggregated_ldflags_tokens: & & byte,
+    aggregated_ldflags_token_count: i32,
+}
+
+struct CompileArtifacts {
+    generated_c_path: &byte,
+    c_import_plan: CImportPlan,
+    c_import_sidecar_path: &byte,
+}
+
+fn compile_stats_record_and_release_typed_program(stats: &CompileStats, checker: &TypeChecker) void {
+    if stats == null {
+        return;
+    }
+    stats.typed_program_bytes = 0usize;
+    stats.typed_program_peak_bytes = 0usize;
+    stats.typed_program_released_bytes = 0usize;
+    if checker == null {
+        return;
+    }
+    stats.typed_program_bytes = typed_program_current_bytes(&checker.typed_program);
+    stats.typed_program_peak_bytes = typed_program_peak_bytes(&checker.typed_program);
+    // 在释放 TypedProgram 之前，聚合所有编译器动态表（SemanticDb + TypedProgram）的
+    // 项数/容量/字节/重分配次数，供 benchmark 输出 table_* 字段（L391）。
+    // 注：C99/checker 固定表仍为 C99_MAX_*/*_SIZE 静态容量，尚未迁为动态表，不计入此聚合。
+    var table_agg: SemanticTableAgg = semantic_table_agg_init();
+    semantic_db_accumulate_table_stats(&checker.semantic_db, &table_agg);
+    typed_program_accumulate_table_stats(&checker.typed_program, &table_agg);
+    stats.table_items = table_agg.items;
+    stats.table_capacity = table_agg.capacity;
+    stats.table_used_bytes = table_agg.used_bytes;
+    stats.table_capacity_bytes = table_agg.capacity_bytes;
+    stats.table_realloc_count = table_agg.realloc_count;
+    typed_program_release(&checker.typed_program);
+    semantic_vector_release(&checker.typed_type_records);
+    stats.typed_program_released_bytes = typed_program_current_bytes(&checker.typed_program);
+}
+
+fn compiler_should_profile_diagnostics() i32 {
+    const value: *byte = getenv("UYA_PROFILE_DIAGNOSTICS" as *byte);
+    if value == null || value[0] == 0 as byte {
+        return 0;
+    }
+    if strcmp(value, "0" as *byte) == 0 ||
+       strcmp(value, "false" as *byte) == 0 ||
+       strcmp(value, "no" as *byte) == 0 ||
+       strcmp(value, "off" as *byte) == 0 {
+        return 0;
+    }
+    return 1;
+}
+
+fn compiler_print_diagnostic_profile(checker: &TypeChecker) void {
+    if compiler_should_profile_diagnostics() == 0 || libc.stderr == null {
+        return;
+    }
+    var count: i32 = 0;
+    if checker != null {
+        count = checker.diagnostic_format_count;
+    }
+    fprintf(libc.stderr, "diagnostic_format_count: %d\n" as *byte, count);
+}
+
+// 当前 exec vm 自举路径仍缺少部分大型命名类型的 @size_of 折叠，
+// 先用宿主 x86_64 布局常量打通编译器本体的 staged run --vm 路径。
+const HOST_SIZE_PTR_BYTES: usize = 8usize;
+const HOST_SIZE_LEXER_BYTES: usize = 1052744usize;
+// Host-side reserve for TypeChecker. The async metadata tables live near the
+// end of this structure in generated C, so keep slack for bootstrap layout
+// drift when rebuilding from an older compiler.
+const HOST_SIZE_TYPECHECKER_BYTES: usize = 8388608usize;
+// Host-side reserve for C99CodeGenerator. The generated C layout can change as
+// backend caches grow; keep this above the exact current sizeof to avoid arena
+// overlap when bootstrapping from an older compiler.
+const HOST_SIZE_C99_CODEGENERATOR_BYTES: usize = 2097152usize;
+const HOST_SIZE_CIMPORT_ITEM_BYTES: usize = 48usize;
+
+// 后端类型
+enum BackendType {
+    BACKEND_LLVM,
+    BACKEND_C99,
+    BACKEND_EXEC
+}
+
+// 命令类型
+enum CommandType {
+    COMMAND_BUILD,   // uya build - 编译为可执行文件
+    COMMAND_CHECK,   // uya check - 只执行到 checker
+    COMMAND_RUN,     // uya run - 编译并运行
+    COMMAND_TEST,    // uya test - 编译测试并运行
+    COMMAND_PACK_IMAGE, // uya pack-image - 将 .pobj 打包为 .uapp
+    COMMAND_INSPECT_IMAGE, // uya inspect-image - 打印 .pobj/.uapp 头信息
+    COMMAND_VERIFY_IMAGE, // uya verify-image - 校验 .pobj/.uapp
+    COMMAND_VERSION, // uya --version - 显示版本信息
+    COMMAND_OUTLIBC,  // uya --outlibc - 生成独立 libc
+    COMMAND_FMT       // uya fmt - 格式化代码
+}
+
+// 文件读取缓冲区大小（与 Lexer 一致）
+const FILE_BUFFER_SIZE: i32 = 1024 * 1024;
+
+// Arena 缓冲区大小（v2.0: 动态增长 Arena）
+// 初始缓冲区 64MB，不足时自动分配新 chunk
+const ARENA_BUFFER_SIZE: i32 = 64 * 1024 * 1024;  // 64MB 初始
+
+// 最大输入文件数
+const MAX_INPUT_FILES: i32 = 128;
+
+// --split-c-dir / UYA_SPLIT_C_DIR：多文件 C 输出目录；非空时链接阶段走 make -j
+// C99 且非「显式 -o xxx.c」时默认目录 .uyacache（与显式 --split-c-dir 省略路径一致）；UYA_SPLIT_C=0 或 --no-split-c 可关闭
+var g_split_c_dir: [byte: PATH_MAX] = [];
+var g_split_c_dir_active: i32 = 0;
+// 命令行 --no-split-c：强制单文件 C，忽略默认多文件、UYA_SPLIT_C_DIR 与 --split-c-dir
+var g_split_c_disabled_cli: i32 = 0;
+// split-C 共享输出目录锁：同一目录一次只允许一个编译进程写入，避免 .c/.h 生成物交错损坏
+var g_split_c_lock_dir: [byte: PATH_MAX] = [];
+var g_split_c_lock_active: i32 = 0;
+
+// --async-frame-heap=on：async frame pool 满时回退到调试 heap
+var g_async_frame_heap_fallback: i32 = 0;
+
+// 微应用模式：在 app 基础上额外收紧限制
+// 说明：当前默认行为就是 app；microapp 只是在此基础上启用更严格检查
+var g_container_mode: i32 = 0;
+// --app microapp: 微应用模式
+var g_app_mode_microapp: i32 = 0;
+var g_microapp_softvm_mode: i32 = 0;
+var g_microapp_target_profile_override: [byte: 128] = [];
+var g_microapp_target_profile_override_active: i32 = 0;
+
+// package mode / command split 预留：允许显式覆盖模块根与 manifest。
+var g_module_root_override: [byte: PATH_MAX] = [];
+var g_module_root_override_active: i32 = 0;
+var g_manifest_path_override: [byte: PATH_MAX] = [];
+var g_manifest_path_override_active: i32 = 0;
+
+const MICROAPP_REQUIRED_CAP_IO_UART: u32 = 1u32 << 0;
+const MICROAPP_REQUIRED_CAP_IO_GPIO: u32 = 1u32 << 1;
+const MICROAPP_REQUIRED_CAP_IO_TIMER: u32 = 1u32 << 2;
+
+fn set_microapp_target_profile_override(name: &byte) i32 {
+    if name == null || name[0] == 0 as byte {
+        g_microapp_target_profile_override_active = 0;
+        g_microapp_target_profile_override[0] = 0 as byte;
+        return 0;
+    }
+    const name_len: usize = strlen(name as *byte);
+    if name_len == 0 || name_len >= @len(g_microapp_target_profile_override) {
+        return -1;
+    }
+    strcpy(&g_microapp_target_profile_override[0] as *byte, name as *byte);
+    g_microapp_target_profile_override_active = 1;
+    return 0;
+}
+
+fn microapp_target_profile_name_is_supported(name: &byte) i32 {
+    if name == null || name[0] == 0 as byte {
+        return 0;
+    }
+    if strcmp(name, "linux_x86_64_hardvm" as *byte) == 0 {
+        return 1;
+    }
+    if strcmp(name, "linux_aarch64_hardvm" as *byte) == 0 {
+        return 1;
+    }
+    if strcmp(name, "macos_arm64_hardvm" as *byte) == 0 {
+        return 1;
+    }
+    if strcmp(name, "rv32_baremetal_softvm" as *byte) == 0 {
+        return 1;
+    }
+    if strcmp(name, "xtensa_baremetal_softvm" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn split_c_set_default_dir() void {
+    const def: &byte = ".uyacache" as &byte;
+    const sl: usize = strlen(def);
+    if sl > 0 && sl < PATH_MAX - 1 {
+        strcpy(&g_split_c_dir[0] as *byte, def);
+        g_split_c_dir_active = 1;
+    }
+}
+
+fn split_c_lock_reset() void {
+    g_split_c_lock_active = 0;
+    g_split_c_lock_dir[0] = 0 as byte;
+}
+
+fn split_c_copy_dir_without_trailing_sep(src: &byte, out: &byte, out_cap: usize) i32 {
+    if src == null || out == null || out_cap == 0usize {
+        return 1;
+    }
+    const copied: i32 = snprintf(out as *byte, out_cap, "%s" as *byte, src as *byte);
+    if copied <= 0 || copied >= out_cap as i32 {
+        return 1;
+    }
+    var len: usize = copied as usize;
+    while len > 1usize {
+        const tail: byte = out[len - 1usize];
+        if tail != 47 as byte && tail != 92 as byte {
+            break;
+        }
+        if len == 3usize {
+            const c0: i32 = out[0] as i32;
+            if ((c0 >= 65 && c0 <= 90) || (c0 >= 97 && c0 <= 122)) && out[1] == 58 as byte {
+                break;
+            }
+        }
+        out[len - 1usize] = 0 as byte;
+        len = len - 1usize;
+    }
+    return 0;
+}
+
+fn split_c_fill_lock_dir(split_dir: &byte, out: &byte, out_cap: usize) i32 {
+    if split_dir == null || out == null || out_cap == 0usize {
+        return 1;
+    }
+    var split_dir_norm: [byte: PATH_MAX] = [];
+    if split_c_copy_dir_without_trailing_sep(split_dir, &split_dir_norm[0] as &byte, PATH_MAX) != 0 {
+        return 1;
+    }
+    const wl: i32 = snprintf(out as *byte, out_cap, "%s/.uya-lock" as *byte, &split_dir_norm[0] as *byte);
+    if wl <= 0 || wl >= out_cap as i32 {
+        return 1;
+    }
+    return 0;
+}
+
+fn split_c_fill_lock_pid_path(lock_dir: &byte, out: &byte, out_cap: usize) i32 {
+    if lock_dir == null || out == null || out_cap == 0usize {
+        return 1;
+    }
+    const wl: i32 = snprintf(out as *byte, out_cap, "%s/owner.pid" as *byte, lock_dir as *byte);
+    if wl <= 0 || wl >= out_cap as i32 {
+        return 1;
+    }
+    return 0;
+}
+
+fn split_c_fill_lock_stage_dir(lock_dir: &byte, out: &byte, out_cap: usize) i32 {
+    if lock_dir == null || out == null || out_cap == 0usize {
+        return 1;
+    }
+    const wl: i32 = snprintf(out as *byte, out_cap, "%s.stage-%d" as *byte, lock_dir as *byte, getpid());
+    if wl <= 0 || wl >= out_cap as i32 {
+        return 1;
+    }
+    return 0;
+}
+
+fn split_c_parse_owner_pid(text: &byte) i32 {
+    if text == null {
+        return 0 - 1;
+    }
+    var i: usize = 0;
+    while text[i] == 32 as byte || text[i] == 9 as byte || text[i] == 10 as byte || text[i] == 13 as byte {
+        i = i + 1;
+    }
+    if text[i] == 0 as byte {
+        return 0 - 1;
+    }
+    var value: i32 = 0;
+    var digit_count: i32 = 0;
+    while text[i] >= '0' as byte && text[i] <= '9' as byte {
+        value = value * 10 + (text[i] as i32 - '0' as i32);
+        digit_count = digit_count + 1;
+        i = i + 1;
+    }
+    if digit_count == 0 {
+        return 0 - 1;
+    }
+    while text[i] == 32 as byte || text[i] == 9 as byte || text[i] == 10 as byte || text[i] == 13 as byte {
+        i = i + 1;
+    }
+    if text[i] != 0 as byte || value <= 0 {
+        return 0 - 1;
+    }
+    return value;
+}
+
+fn split_c_write_lock_owner_pid(lock_dir: &byte) i32 {
+    var pid_path: [byte: PATH_MAX] = [];
+    if split_c_fill_lock_pid_path(lock_dir, &pid_path[0] as &byte, PATH_MAX) != 0 {
+        return 1;
+    }
+    const file: &void = fopen(&pid_path[0] as *byte, "w" as *byte) as &void;
+    if file == null {
+        return 1;
+    }
+    fprintf(file as *void, "%d\n" as *byte, getpid());
+    fclose(file as *void);
+    return 0;
+}
+
+fn split_c_read_lock_owner_pid(lock_dir: &byte, pid_out: &i32) i32 {
+    if lock_dir == null || pid_out == null {
+        return 1;
+    }
+    var pid_path: [byte: PATH_MAX] = [];
+    if split_c_fill_lock_pid_path(lock_dir, &pid_path[0] as &byte, PATH_MAX) != 0 {
+        return 1;
+    }
+    const file: &FILE = fopen(&pid_path[0] as *byte, "r" as *byte);
+    if file == null {
+        return 1;
+    }
+    var buf: [byte: 64] = [];
+    const line: &byte = fgets(&buf[0] as &byte, 64, file);
+    fclose(file);
+    if line == null {
+        return 1;
+    }
+    const pid: i32 = split_c_parse_owner_pid(&buf[0] as &byte);
+    if pid <= 0 {
+        return 1;
+    }
+    pid_out[0] = pid;
+    return 0;
+}
+
+fn split_c_cleanup_lock_dir(lock_dir: &byte) void {
+    if lock_dir == null || lock_dir[0] == 0 as byte {
+        return;
+    }
+    var pid_path: [byte: PATH_MAX] = [];
+    if split_c_fill_lock_pid_path(lock_dir, &pid_path[0] as &byte, PATH_MAX) == 0 {
+        _ = unlink(&pid_path[0] as *byte);
+    }
+    _ = rmdir(lock_dir as *byte);
+}
+
+fn split_c_owner_pid_is_alive(pid: i32) i32 {
+    if pid <= 0 {
+        return 0;
+    }
+    const probe: !i32 = sys_kill(pid as i64, 0);
+    if probe.error_id == 0u32 {
+        return 1;
+    }
+    const eid: i32 = probe.error_id as i32;
+    if eid == EPERM {
+        return 1;
+    }
+    if eid == ESRCH {
+        return 0;
+    }
+    // 其它错误保守按「仍占锁」处理，避免误删活锁。
+    return 1;
+}
+
+fn split_c_try_reclaim_stale_lock(lock_dir: &byte) i32 {
+    if lock_dir == null || lock_dir[0] == 0 as byte {
+        return 0;
+    }
+    var owner_pid: i32 = 0;
+    if split_c_read_lock_owner_pid(lock_dir, &owner_pid) != 0 {
+        if rmdir(lock_dir as *byte) == 0 {
+            fprintf(libc.stderr, "信息：检测到 incomplete split-C 锁，已回收（锁目录：%s，缺少 owner.pid）\n" as *byte, lock_dir as *byte);
+            return 1;
+        }
+        return 0;
+    }
+    if split_c_owner_pid_is_alive(owner_pid) != 0 {
+        return 0;
+    }
+    split_c_cleanup_lock_dir(lock_dir);
+    if access(lock_dir as *byte, F_OK) != 0 {
+        fprintf(libc.stderr, "信息：检测到 stale split-C 锁，已回收（锁目录：%s，owner pid=%d）\n" as *byte, lock_dir as *byte, owner_pid);
+        return 1;
+    }
+    return 0;
+}
+
+fn split_c_lock_take_ownership(lock_dir: &byte) i32 {
+    if lock_dir == null || lock_dir[0] == 0 as byte {
+        return 1;
+    }
+    var stage_dir: [byte: PATH_MAX] = [];
+    if split_c_fill_lock_stage_dir(lock_dir, &stage_dir[0] as &byte, PATH_MAX) != 0 {
+        return 1;
+    }
+    split_c_cleanup_lock_dir(&stage_dir[0] as &byte);
+    if mkdir(&stage_dir[0] as *byte, 493) != 0 {
+        return 1;
+    }
+    if split_c_write_lock_owner_pid(&stage_dir[0] as &byte) != 0 {
+        split_c_cleanup_lock_dir(&stage_dir[0] as &byte);
+        return 1;
+    }
+    const rename_result: !i32 = sys_rename(&stage_dir[0] as &byte, lock_dir);
+    if rename_result.error_id != 0u32 {
+        split_c_cleanup_lock_dir(&stage_dir[0] as &byte);
+        return 1;
+    }
+    strcpy(&g_split_c_lock_dir[0] as *byte, lock_dir as *byte);
+    g_split_c_lock_active = 1;
+    return 0;
+}
+
+fn split_c_acquire_lock(split_dir: &byte) i32 {
+    if split_dir == null || split_dir[0] == 0 as byte {
+        return 0;
+    }
+    if g_split_c_lock_active != 0 {
+        return 0;
+    }
+    var split_dir_norm: [byte: PATH_MAX] = [];
+    if split_c_copy_dir_without_trailing_sep(split_dir, &split_dir_norm[0] as &byte, PATH_MAX) != 0 {
+        fprintf(libc.stderr, "错误：无法规范化 split-C 输出目录路径: %s\n" as *byte, split_dir as *byte);
+        return 1;
+    }
+    c99_mkdir_p_chain(&split_dir_norm[0] as &byte);
+    var lock_dir: [byte: PATH_MAX] = [];
+    if split_c_fill_lock_dir(&split_dir_norm[0] as &byte, &lock_dir[0] as &byte, PATH_MAX) != 0 {
+        fprintf(libc.stderr, "错误：无法构建 split-C 锁目录路径: %s\n" as *byte, &split_dir_norm[0] as *byte);
+        return 1;
+    }
+    if access(&lock_dir[0] as *byte, F_OK) != 0 {
+        if split_c_lock_take_ownership(&lock_dir[0] as &byte) != 0 {
+            if access(&lock_dir[0] as *byte, F_OK) == 0 {
+                if split_c_try_reclaim_stale_lock(&lock_dir[0] as &byte) != 0 {
+                    if split_c_lock_take_ownership(&lock_dir[0] as &byte) != 0 {
+                        fprintf(libc.stderr, "错误：无法写入 split-C 锁信息 '%s'\n" as *byte, &lock_dir[0] as *byte);
+                        return 1;
+                    }
+                    return 0;
+                }
+            }
+            if access(&lock_dir[0] as *byte, F_OK) == 0 {
+                var owner_pid: i32 = 0;
+                if split_c_read_lock_owner_pid(&lock_dir[0] as &byte, &owner_pid) == 0 {
+                    fprintf(libc.stderr, "错误：多文件 C 输出目录 '%s' 正在被另一编译进程使用（锁目录：%s，owner pid=%d）；请等待当前编译结束，或改用独立 --split-c-dir / worktree\n" as *byte, split_dir as *byte, &lock_dir[0] as *byte, owner_pid);
+                } else {
+                    fprintf(libc.stderr, "错误：多文件 C 输出目录 '%s' 正在被另一编译进程使用（锁目录：%s）；请等待当前编译结束，或改用独立 --split-c-dir / worktree\n" as *byte, split_dir as *byte, &lock_dir[0] as *byte);
+                }
+            } else {
+                fprintf(libc.stderr, "错误：无法写入 split-C 锁信息 '%s'\n" as *byte, &lock_dir[0] as *byte);
+            }
+            return 1;
+        }
+        return 0;
+    }
+    if split_c_try_reclaim_stale_lock(&lock_dir[0] as &byte) != 0 {
+        if split_c_lock_take_ownership(&lock_dir[0] as &byte) != 0 {
+            fprintf(libc.stderr, "错误：无法写入 split-C 锁信息 '%s'\n" as *byte, &lock_dir[0] as *byte);
+            return 1;
+        }
+        return 0;
+    }
+    if access(&lock_dir[0] as *byte, F_OK) == 0 {
+        var owner_pid: i32 = 0;
+        if split_c_read_lock_owner_pid(&lock_dir[0] as &byte, &owner_pid) == 0 {
+            fprintf(libc.stderr, "错误：多文件 C 输出目录 '%s' 正在被另一编译进程使用（锁目录：%s，owner pid=%d）；请等待当前编译结束，或改用独立 --split-c-dir / worktree\n" as *byte, split_dir as *byte, &lock_dir[0] as *byte, owner_pid);
+        } else {
+            fprintf(libc.stderr, "错误：多文件 C 输出目录 '%s' 正在被另一编译进程使用（锁目录：%s）；请等待当前编译结束，或改用独立 --split-c-dir / worktree\n" as *byte, split_dir as *byte, &lock_dir[0] as *byte);
+        }
+        return 1;
+    }
+    fprintf(libc.stderr, "错误：无法创建 split-C 锁目录 '%s'\n" as *byte, &lock_dir[0] as *byte);
+    return 1;
+}
+
+fn split_c_release_lock() void {
+    if g_split_c_lock_active == 0 {
+        return;
+    }
+    var pid_path: [byte: PATH_MAX] = [];
+    if split_c_fill_lock_pid_path(&g_split_c_lock_dir[0] as &byte, &pid_path[0] as &byte, PATH_MAX) == 0 {
+        _ = unlink(&pid_path[0] as *byte);
+    }
+    _ = rmdir(&g_split_c_lock_dir[0] as *byte);
+    split_c_lock_reset();
+}
+
+fn is_pobj_output(path: &byte) i32 {
+    if path == null {
+        return 0;
+    }
+    const len: usize = strlen(path);
+    if len < 5 {
+        return 0;
+    }
+    if strcmp(path + (len - 5), ".pobj" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn is_uapp_output(path: &byte) i32 {
+    if path == null {
+        return 0;
+    }
+    const len: usize = strlen(path);
+    if len < 5 {
+        return 0;
+    }
+    if strcmp(path + (len - 5), ".uapp" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+const POBJ_MAGIC: u32 = 0x4A424F50;  // "POBJ"
+const POBJ_HEADER_SIZE_V1: u32 = 40;
+const POBJ_HEADER_SIZE: u32 = 68;
+const POBJ_HEADER_SIZE_V2: u32 = 84;
+const POBJ_VERSION: u16 = 8;
+const POBJ_BUILD_MODE_MICROAPP: u32 = 1;
+const MICROAPP_TARGET_ARCH_RV32_RAW: u32 = 1u32;
+const MICROAPP_TARGET_ARCH_X86_64_RAW: u32 = 2u32;
+const MICROAPP_TARGET_ARCH_AARCH64_RAW: u32 = 3u32;
+const MICROAPP_TARGET_ARCH_XTENSA_RAW: u32 = 4u32;
+const MICROAPP_PROFILE_UNKNOWN_RAW: u32 = 0u32;
+const MICROAPP_PROFILE_LINUX_X86_64_HARDVM_RAW: u32 = 1u32;
+const MICROAPP_PROFILE_LINUX_AARCH64_HARDVM_RAW: u32 = 2u32;
+const MICROAPP_PROFILE_RV32_BAREMETAL_SOFTVM_RAW: u32 = 3u32;
+const MICROAPP_PROFILE_XTENSA_BAREMETAL_SOFTVM_RAW: u32 = 4u32;
+const MICROAPP_PROFILE_MACOS_ARM64_HARDVM_RAW: u32 = 5u32;
+const MICROAPP_BRIDGE_UNKNOWN_RAW: u32 = 0u32;
+const MICROAPP_BRIDGE_TRAP_RAW: u32 = 1u32;
+const MICROAPP_BRIDGE_CALL_GATE_RAW: u32 = 2u32;
+const MICROAPP_VADDR_BASE: u32 = 65536u32;
+const MICROAPP_DEFAULT_STACK_HINT_BYTES: u32 = 65536u32;
+const ELF64_HEADER_SIZE: usize = 64usize;
+const ELF64_SECTION_HEADER_SIZE: usize = 64usize;
+const ELF64_SYMBOL_SIZE: usize = 24usize;
+const ELF64_RELA_SIZE: usize = 24usize;
+const ELFCLASS64_RAW: byte = 2 as byte;
+const ELFDATA2LSB_RAW: byte = 1 as byte;
+const ELF64_SECTION_TYPE_SYMTAB_RAW: u32 = 2u32;
+const ELF64_SECTION_TYPE_RELA_RAW: u32 = 4u32;
+const ELF64_SECTION_TYPE_DYNSYM_RAW: u32 = 11u32;
+const ELF64_SECTION_TYPE_PROGBITS_RAW: u32 = 1u32;
+const ELF64_SECTION_TYPE_NOBITS_RAW: u32 = 8u32;
+const ELF64_SECTION_FLAG_WRITE_RAW: u64 = 1u64;
+const ELF64_SECTION_FLAG_ALLOC_RAW: u64 = 2u64;
+const ELF64_SECTION_FLAG_EXEC_RAW: u64 = 4u64;
+const ELF_MACHINE_X86_64_RAW: u16 = 62u16;
+const ELF_MACHINE_AARCH64_RAW: u16 = 183u16;
+const ELF_RELOC_X86_64_PC32_RAW: u32 = 2u32;
+const ELF_RELOC_X86_64_PLT32_RAW: u32 = 4u32;
+const ELF_RELOC_X86_64_64_RAW: u32 = 1u32;
+const ELF_RELOC_X86_64_GLOB_DAT_RAW: u32 = 6u32;
+const ELF_RELOC_X86_64_RELATIVE_RAW: u32 = 8u32;
+const ELF_RELOC_AARCH64_ABS64_RAW: u32 = 257u32;
+const ELF_RELOC_AARCH64_LD_PREL_LO19_RAW: u32 = 273u32;
+const ELF_RELOC_AARCH64_ADR_PREL_LO21_RAW: u32 = 274u32;
+const ELF_RELOC_AARCH64_ADR_PREL_PG_HI21_RAW: u32 = 275u32;
+const ELF_RELOC_AARCH64_ADR_PREL_PG_HI21_NC_RAW: u32 = 276u32;
+const ELF_RELOC_AARCH64_ADD_ABS_LO12_NC_RAW: u32 = 277u32;
+const ELF_RELOC_AARCH64_LDST8_ABS_LO12_NC_RAW: u32 = 278u32;
+const ELF_RELOC_AARCH64_JUMP26_RAW: u32 = 282u32;
+const ELF_RELOC_AARCH64_CALL26_RAW: u32 = 283u32;
+const ELF_RELOC_AARCH64_LDST16_ABS_LO12_NC_RAW: u32 = 284u32;
+const ELF_RELOC_AARCH64_LDST32_ABS_LO12_NC_RAW: u32 = 285u32;
+const ELF_RELOC_AARCH64_LDST64_ABS_LO12_NC_RAW: u32 = 286u32;
+const ELF_RELOC_AARCH64_GLOB_DAT_RAW: u32 = 1025u32;
+const ELF_RELOC_AARCH64_RELATIVE_RAW: u32 = 1027u32;
+const ELF_RELOC_AARCH64_LDST128_ABS_LO12_NC_RAW: u32 = 299u32;
+const MACHO_MAGIC_64_RAW: u32 = 4277009103u32;
+const MACHO_CPU_TYPE_ARM64_RAW: u32 = 16777228u32;
+const MACHO_FILETYPE_OBJECT_RAW: u32 = 1u32;
+const MACHO_LOAD_COMMAND_SYMTAB_RAW: u32 = 2u32;
+const MACHO_LOAD_COMMAND_SEGMENT_64_RAW: u32 = 25u32;
+const MACHO_SEGMENT_COMMAND_64_SIZE: usize = 72usize;
+const MACHO_SECTION_64_SIZE: usize = 80usize;
+const MACHO_NLIST_64_SIZE: usize = 16usize;
+const MACHO_ARM64_RELOC_UNSIGNED_RAW: u32 = 0u32;
+
+// 编译器全局缓冲区（替代 C 的 static 数组，零初始化）
+var arena_buffer: [byte: ARENA_BUFFER_SIZE] = [];
+var file_buffer: [byte: FILE_BUFFER_SIZE] = [];
+// 临时 Arena 缓冲区（用于依赖收集，全局变量避免栈溢出）
+// v2.0: 动态增长，初始 16MB
+var temp_arena_buffer: [byte: 16 * 1024 * 1024] = [];
+// 大数组移到全局变量避免栈溢出（main_file_paths 是 64 * 4096 = 262KB）
+var main_file_paths_global: [[byte: PATH_MAX]: MAX_INPUT_FILES] = [];
+// 将 resolved_files 也移到全局变量，避免栈溢出
+var resolved_files_global: [&byte: MAX_INPUT_FILES] = [];
+
+// 大数组移到全局变量避免 compile_files/main 主栈帧膨胀（macOS x86_64 hosted seed 会在 ___chkstk_darwin 崩）
+var all_files_global: [&byte: MAX_INPUT_FILES] = [];
+var processed_files_global: [&byte: MAX_INPUT_FILES] = [];
+var main_files_global: [&byte: MAX_INPUT_FILES] = [];
+
+fn main_file_buffer_ptr_at(idx: usize) &byte {
+    const slot: usize = idx;
+    if slot >= @len(file_buffer) {
+        return null;
+    }
+    return &file_buffer[slot] as &byte;
+}
+
+fn main_path_buf_char_at(buf: [byte: PATH_MAX], idx: i32) byte {
+    const slot: i32 = idx;
+    if slot < 0 {
+        return 0 as byte;
+    }
+    if slot >= PATH_MAX {
+        return 0 as byte;
+    }
+    return buf[slot];
+}
+
+fn main_path_buf_set(buf: [byte: PATH_MAX], idx: i32, value: byte) void {
+    const slot: i32 = idx;
+    if slot < 0 {
+        return;
+    }
+    if slot >= PATH_MAX {
+        return;
+    }
+    buf[slot] = value;
+}
+
+fn resolved_file_at(files: [&byte: MAX_INPUT_FILES], idx: i32) &byte {
+    const slot: i32 = idx;
+    if slot < 0 {
+        return null;
+    }
+    if slot >= MAX_INPUT_FILES {
+        return null;
+    }
+    return files[slot];
+}
+
+fn resolved_file_set(files: [&byte: MAX_INPUT_FILES], idx: i32, value: &byte) void {
+    const slot: i32 = idx;
+    if slot < 0 {
+        return;
+    }
+    if slot >= MAX_INPUT_FILES {
+        return;
+    }
+    files[slot] = value;
+}
+
+// 读取文件内容到缓冲区
+// 成功返回读取字节数，失败返回 -1
+// 注意：filename 用 &byte，调用 fopen 时转为 *byte
+fn read_file_content(filename: &byte, buffer: &byte, buffer_size: usize) i32 {
+    const file: &FILE = fopen(filename as *byte, "rb" as *byte);
+    if file == null {
+        return -1;
+    }
+    const bytes_read: usize = fread(buffer as *byte, 1, buffer_size - 1, file);
+    const c: i32 = fgetc(file);
+    if bytes_read >= buffer_size - 1 {
+        fclose(file);
+        if c != -1 {
+            return -1;
+        }
+    } else {
+        fclose(file);
+    }
+    buffer[bytes_read] = 0 as byte;
+    return bytes_read as i32;
+}
+
+// system(3) 返回值为 wait 状态字；转为与 shell 类似的退出码（段错误等为 128+信号，便于压测与 if 判断）
+fn exit_code_from_system_status(wstatus: i32) i32 {
+    if wstatus < 0 {
+        return 1;
+    }
+    const low: i32 = wstatus & 0x7f;
+    const code: i32 = (wstatus >> 8) & 0xff;
+    if low == 0 {
+        return code;
+    }
+    const sig: i32 = low & 0x7f;
+    if sig == 0 {
+        return 1;
+    }
+    return 128 + sig;
+}
+
+fn shell_quote_append(cmd: &byte, cap: i32, len: &i32, text: &byte) i32 {
+    if cmd == null || len == null || text == null {
+        return 1;
+    }
+    var i: usize = 0;
+    if len[0] > 0 {
+        if len[0] + 1 >= cap {
+            return 1;
+        }
+        cmd[len[0] as usize] = 32 as byte;
+        len[0] = len[0] + 1;
+    }
+    if len[0] + 2 >= cap {
+        return 1;
+    }
+    cmd[len[0] as usize] = 39 as byte;
+    len[0] = len[0] + 1;
+    while text[i] != 0 as byte {
+        if text[i] == 39 as byte {
+            if len[0] + 4 >= cap {
+                return 1;
+            }
+            cmd[len[0] as usize] = 39 as byte;
+            cmd[(len[0] + 1) as usize] = 92 as byte;
+            cmd[(len[0] + 2) as usize] = 39 as byte;
+            cmd[(len[0] + 3) as usize] = 39 as byte;
+            len[0] = len[0] + 4;
+        } else {
+            if len[0] + 1 >= cap {
+                return 1;
+            }
+            cmd[len[0] as usize] = text[i];
+            len[0] = len[0] + 1;
+        }
+        i = i + 1;
+    }
+    if len[0] + 2 >= cap {
+        return 1;
+    }
+    cmd[len[0] as usize] = 39 as byte;
+    len[0] = len[0] + 1;
+    cmd[len[0] as usize] = 0 as byte;
+    return 0;
+}
+
+fn build_external_upm_path(out: &byte, out_cap: usize) i32 {
+    return build_external_cmd_path("upm" as &byte, out, out_cap);
+}
+
+fn compiler_driver_is_external_cmd(name: &byte) i32 {
+    if name == null {
+        return 0;
+    }
+    if strcmp(name as *byte, "build" as *byte) == 0 {
+        return 1;
+    }
+    if strcmp(name as *byte, "check" as *byte) == 0 {
+        return 1;
+    }
+    if strcmp(name as *byte, "run" as *byte) == 0 {
+        return 1;
+    }
+    if strcmp(name as *byte, "test" as *byte) == 0 {
+        return 1;
+    }
+    if strcmp(name as *byte, "fmt" as *byte) == 0 {
+        return 1;
+    }
+    if strcmp(name as *byte, "upm" as *byte) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn build_external_cmd_path(command_name: &byte, out: &byte, out_cap: usize) i32 {
+    if out == null || out_cap == 0usize {
+        return 1;
+    }
+    if command_name == null || command_name[0] == 0 as byte {
+        return 1;
+    }
+    const argv0: *byte = get_argv(0);
+    if argv0 == null {
+        return 1;
+    }
+    var compiler_dir: [byte: PATH_MAX] = [];
+    if get_compiler_dir(argv0 as &byte, &compiler_dir[0] as &byte, PATH_MAX) != 0 {
+        return 1;
+    }
+    const written: i32 = snprintf(out as *byte, out_cap, "%scmd/%s" as *byte, &compiler_dir[0] as *byte, command_name as *byte);
+    if written <= 0 || written >= out_cap as i32 {
+        return 1;
+    }
+    return 0;
+}
+
+fn dispatch_external_upm(strip_subcommand: i32) i32 {
+    return dispatch_external_cmd("upm" as &byte, strip_subcommand);
+}
+
+fn dispatch_external_cmd(command_name: &byte, strip_subcommand: i32) i32 {
+    var cmd_path: [byte: PATH_MAX] = [];
+    if build_external_cmd_path(command_name, &cmd_path[0] as &byte, PATH_MAX) != 0 {
+        fprintf(libc.stderr, "错误: 无法构造 cmd/%s 路径\n" as *byte, command_name as *byte);
+        return 1;
+    }
+    if access(&cmd_path[0] as *byte, X_OK) != 0 {
+        fprintf(libc.stderr, "错误: 缺少可执行子命令 %s；请先运行 make cmds\n" as *byte, &cmd_path[0] as *byte);
+        return 1;
+    }
+    const argc: i32 = get_argc();
+    var arg_index: i32 = 1;
+    if strip_subcommand != 0 {
+        arg_index = 2;
+    }
+    var forwarded_argc: i32 = argc - arg_index;
+    if forwarded_argc < 0 {
+        forwarded_argc = 0;
+    }
+    const dispatch_argc: i32 = forwarded_argc + 1;
+    const argv_bytes: usize = @size_of(&byte) * ((dispatch_argc + 1) as usize);
+    const dispatch_argv: &(&byte) = malloc(argv_bytes) as &(&byte);
+    if dispatch_argv == null {
+        fprintf(libc.stderr, "错误: 无法为 cmd/%s 调度参数分配内存\n" as *byte, command_name as *byte);
+        return 1;
+    }
+    dispatch_argv[0] = &cmd_path[0] as &byte;
+    var dst_index: i32 = 1;
+    while arg_index < argc {
+        const arg: *byte = get_argv(arg_index);
+        if arg == null {
+            fprintf(libc.stderr, "错误: 无法获取 cmd/%s 调度参数（索引 %d）\n" as *byte, command_name as *byte, arg_index);
+            free(dispatch_argv as &void);
+            return 1;
+        }
+        dispatch_argv[dst_index] = arg as &byte;
+        dst_index = dst_index + 1;
+        arg_index = arg_index + 1;
+    }
+    dispatch_argv[dst_index] = null;
+
+    var empty_env: [&byte: 1] = [null];
+    var envp: &(&byte) = &empty_env[0] as &(&byte);
+    if saved_envp != null {
+        envp = saved_envp as &(&byte);
+    }
+    execve(&cmd_path[0] as &byte, dispatch_argv, envp as & &byte);
+    fprintf(libc.stderr, "错误: 无法执行子命令 %s\n" as *byte, &cmd_path[0] as *byte);
+    free(dispatch_argv as &void);
+    return 127;
+}
+
+// 常量定义
+const PATH_MAX: usize = 4096;
+
+// 比较两个路径是否指向同一个文件（考虑路径格式差异）
+// 参数：path1 - 第一个路径
+//       path2 - 第二个路径
+// 返回：相同返回1，不同返回0
+fn paths_equal(path1: &byte, path2: &byte) i32 {
+    if path1 == null || path2 == null {
+        return 0;
+    }
+
+    // 首先尝试直接比较（最常见的情况）
+    if strcmp(path1 as *byte, path2 as *byte) == 0 {
+        return 1;
+    }
+
+    // 直接比较失败后先用 stat 判定真实文件身份；macOS 常见大小写不敏感卷上，
+    // std.io.File 与 std.io.file 可能解析到同一 inode，但文件名字符串大小写不同。
+    var st1: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+    var st2: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+    if stat(path1 as *byte, &st1) == 0 && stat(path2 as *byte, &st2) == 0 {
+        if st1.st_dev == st2.st_dev && st1.st_ino == st2.st_ino {
+            return 1;
+        }
+    }
+
+    // stat 失败时再提取文件名快速排除，避免明显不同的路径继续做额外判断。
+    var name1: &byte = strrchr(path1 as *byte, 47);  // '/'
+    var name2: &byte = strrchr(path2 as *byte, 47);  // '/'
+    if name1 == null {
+        name1 = path1;
+    } else {
+        name1 = name1 + 1;
+    }
+    if name2 == null {
+        name2 = path2;
+    } else {
+        name2 = name2 + 1;
+    }
+
+    // 如果文件名不同，肯定不是同一个文件
+    if strcmp(name1 as *byte, name2 as *byte) != 0 {
+        return 0;
+    }
+
+    // stat 失败或不是同一个文件，返回0
+    return 0;
+}
+
+// 原地稳定去重路径数组，保留首次出现顺序。
+// 依赖收集阶段可能因为目录模块与单文件模块交叉命中，把同一文件放进 all_files 多次；
+// 若不在最终编译列表收口，会导致同一源文件被重复解析并在 split-C 下重复发射定义。
+fn dedupe_paths_in_place(paths: &(&byte), count: i32) i32 {
+    if paths == null || count <= 0 {
+        return 0;
+    }
+
+    var write_idx: i32 = 0;
+    var read_idx: i32 = 0;
+    while read_idx < count {
+        const candidate: &byte = paths[read_idx];
+        var duplicate: i32 = 0;
+        if candidate != null {
+            var seen_idx: i32 = 0;
+            while seen_idx < write_idx {
+                if paths[seen_idx] != null && paths_equal(paths[seen_idx], candidate) != 0 {
+                    duplicate = 1;
+                    break;
+                }
+                seen_idx = seen_idx + 1;
+            }
+        }
+        if duplicate == 0 {
+            paths[write_idx] = candidate;
+            write_idx = write_idx + 1;
+        }
+        read_idx = read_idx + 1;
+    }
+
+    const unique_count: i32 = write_idx;
+    while write_idx < count {
+        paths[write_idx] = null;
+        write_idx = write_idx + 1;
+    }
+    return unique_count;
+}
+
+// 注意：arena_strdup 函数在 parser.uya 中定义，这里不再重复定义
+
+// 检查路径是否为目录
+fn is_directory(path: &byte) i32 {
+    if path == null {
+        return 0;
+    }
+    var st: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+    if stat(path as *byte, &st) == 0 {
+        if ((st.st_mode as u32) & S_IFMT) == S_IFDIR {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// 检查路径是否为文件
+fn is_file(path: &byte) i32 {
+    if path == null {
+        return 0;
+    }
+    var st: Stat = Stat { st_dev: 0, st_ino: 0, st_nlink: 0, st_mode: 0, st_uid: 0, st_gid: 0, _pad0: 0, st_rdev: 0, st_size: 0, st_blksize: 0, st_blocks: 0, st_atime: 0, st_atime_nsec: 0, st_mtime: 0, st_mtime_nsec: 0, st_ctime: 0, st_ctime_nsec: 0, _unused0: 0, _unused1: 0, _unused2: 0 };
+    if stat(path as *byte, &st) == 0 {
+        if ((st.st_mode as u32) & S_IFMT) == S_IFREG {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// 仅 Darwin 宿主进 AST；Linux 自举时整段裁剪，不链接 _NSGetExecutablePath
+std.cfg(std.host_os == .hos_macos, {
+extern fn _NSGetExecutablePath(buf: *byte, bufsize: *u32) i32;
+extern fn realpath(path: *byte, resolved_path: *byte) *byte;
+fn main_darwin_get_compiler_dir(buffer: &byte, buffer_size: usize) i32 {
+    if buffer == null || buffer_size < 3 {
+        return -1;
+    }
+    var raw: [byte: PATH_MAX] = [];
+    var sz: u32 = (PATH_MAX - 1) as u32;
+    if _NSGetExecutablePath(&raw[0] as *byte, &sz) != 0 {
+        return -1;
+    }
+    raw[(PATH_MAX - 1) as usize] = 0 as byte;
+    var full: [byte: PATH_MAX] = [];
+    const rp: *byte = realpath(&raw[0] as *byte, &full[0] as *byte);
+    if rp == null {
+        return -1;
+    }
+    const last_slash: *byte = strrchr(&full[0] as *byte, 47);
+    if last_slash == null {
+        return -1;
+    }
+    const dir_len: usize = ptr_diff(last_slash, &full[0] as *byte);
+    if dir_len + 1 >= buffer_size {
+        return -1;
+    }
+    memcpy(buffer as *void, &full[0] as *void, dir_len);
+    buffer[dir_len] = 47 as byte;
+    buffer[dir_len + 1] = 0 as byte;
+    return 0;
+}
+}, {})
+
+// 获取编译器程序所在目录
+fn get_compiler_dir(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
+    if argv0 == null || buffer == null || buffer_size == 0 {
+        return -1;
+    }
+
+    // 如果 argv0 自带目录（绝对或相对路径），直接提取目录。
+    const argv_slash: *byte = strrchr(argv0 as *byte, 47);
+    if argv_slash != null {
+        const dir_len: usize = ptr_diff(argv_slash, argv0);
+        if dir_len + 1 < buffer_size {
+            memcpy(buffer as *void, argv0 as *void, dir_len);
+            buffer[dir_len] = 47 as byte;
+            buffer[dir_len + 1] = 0 as byte;
+            return 0;
+        }
+    }
+
+    std.cfg(std.host_os == .hos_linux, {
+        var resolved_path: [byte: PATH_MAX] = [];
+        const len: i32 = readlink("/proc/self/exe" as *byte, &resolved_path[0], PATH_MAX - 1);
+        if len != -1 {
+            resolved_path[len as usize] = 0 as byte;
+            const last_slash: *byte = strrchr(&resolved_path[0], 47);
+            if last_slash != null {
+                const dir_len: usize = ptr_diff(last_slash, &resolved_path[0] as *byte);
+                if dir_len + 1 < buffer_size {
+                    memcpy(buffer as *void, &resolved_path[0] as *void, dir_len);
+                    buffer[dir_len] = 47 as byte;
+                    buffer[dir_len + 1] = 0 as byte;
+                    return 0;
+                }
+            }
+        }
+    }, std.cfg(std.host_os == .hos_macos, {
+        if main_darwin_get_compiler_dir(buffer, buffer_size) == 0 {
+            return 0;
+        }
+    }, {}))
+
+    // 回退：使用当前目录
+    if buffer_size > 1 {
+        buffer[0] = 46 as byte;  // '.'
+        buffer[1] = 47 as byte;   // '/'
+        buffer[2] = 0 as byte;
+        return 0;
+    }
+
+    return -1;
+}
+
+// 从「含末尾 / 的绝对或相对目录路径」得到父目录，写入 dst（带尾 /）。用于 bin/ → 源码树根。
+fn path_get_parent_dir(src: &byte, dst: &byte, dst_cap: usize) i32 {
+    if src == null || dst == null || dst_cap < 4 {
+        return -1;
+    }
+    var work: [byte: PATH_MAX] = [];
+    const sl: usize = strlen(src as *byte);
+    if sl >= PATH_MAX {
+        return -1;
+    }
+    memcpy(&work[0] as *void, src as *void, sl + 1 as usize);
+    var len: usize = sl;
+    while len > 0 && work[len - 1] == 47 as byte {
+        len = len - 1;
+        work[len] = 0 as byte;
+    }
+    if len == 0 {
+        return -1;
+    }
+    var last: *byte = strrchr(&work[0] as *byte, 47);
+    if last == null {
+        if strcmp(&work[0] as *byte, "." as *byte) == 0 {
+            strcpy(dst as *byte, "../" as *byte);
+            return 0;
+        }
+        return -1;
+    }
+    if last == &work[0] as *byte {
+        dst[0] = 47 as byte;
+        dst[1] = 0 as byte;
+        return 0;
+    }
+    last[0] = 0 as byte;
+    const plen: usize = strlen(&work[0] as *byte);
+    if plen + 2 >= dst_cap {
+        return -1;
+    }
+    memcpy(dst as *void, &work[0] as *void, plen);
+    dst[plen] = 47 as byte;
+    dst[plen + 1] = 0 as byte;
+    return 0;
+}
+
+// 获取 UYA_ROOT 环境变量或默认目录
+fn get_uya_root(argv0: &byte, buffer: &byte, buffer_size: usize) i32 {
+    if buffer == null || buffer_size == 0 {
+        return -1;
+    }
+
+    // 首先尝试从环境变量获取
+    const env_root: *byte = getenv("UYA_ROOT" as *byte);
+    if env_root != null && env_root[0] != 0 {
+        const len: usize = strlen(env_root);
+        if len < buffer_size {
+            strcpy(buffer as *byte, env_root);
+            // 确保以 '/' 结尾
+            if len > 0 && buffer[len - 1] != 47 {
+                if len + 1 < buffer_size {
+                    buffer[len] = 47 as byte;
+                    buffer[len + 1] = 0 as byte;
+                }
+            }
+            return 0;
+        }
+    }
+
+    // 未设置 UYA_ROOT：默认可执行文件所在目录的上一级（如 …/bin/uya → …/…/lib/）
+    var comp_dir: [byte: PATH_MAX] = [];
+    if get_compiler_dir(argv0, &comp_dir[0] as &byte, PATH_MAX) != 0 {
+        return -1;
+    }
+    return path_get_parent_dir(&comp_dir[0] as &byte, buffer, buffer_size);
+}
+
+// 打印使用说明（program_name 用 &byte，传给 fprintf 时转为 *byte；若为 null 则用默认名避免 %s 段错误）
+fn print_usage(program_name: &byte) void {
+    var name: &byte = program_name;
+    if name == null { name = "uya" as *byte; }
+    fprintf(libc.stderr, "Uya 编译器 - 零GC系统编程语言\n" as *byte);
+    fprintf(libc.stderr, "版本：v0.9.9\n" as *byte);
+    fprintf(libc.stderr, "\n用法:\n" as *byte);
+    fprintf(libc.stderr, "  %s build <文件> [-o <输出>] [选项]  编译为可执行文件或中间产物\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s check <文件> [选项]              仅做词法/语法/类型检查，不执行代码生成\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s build --app microapp <文件> -o <xxx.pobj|xxx.uapp>  输出 microapp 载荷对象或镜像\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s pack-image <xxx.pobj> -o <xxx.uapp>  将 microapp 载荷对象打包为 .uapp\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s inspect-image <xxx.pobj|xxx.uapp>  打印 microapp 头信息\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s verify-image <xxx.pobj|xxx.uapp>   校验 microapp 镜像或载荷对象\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s run <文件> [选项] [-- <参数>...]  编译并运行\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s test <文件> [选项]               编译测试并运行（子进程栈：--stack-size 或默认 65536 KB）\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s fmt <文件> [选项]                格式化 Uya 源文件\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s upm <子命令> [参数]              Uya 包管理工作流\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s --outlibc <目录>                 生成独立 libc\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "\n示例:\n" as *byte);
+    fprintf(libc.stderr, "  %s build main.uya -o myapp\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s check lib/foo.uya\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s pack-image hello.pobj -o hello.uapp\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s inspect-image hello.uapp\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s verify-image hello.uapp\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s run main.uya\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s test tests.uya\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s fmt src/main.uya\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s upm init --src-layout demo_pkg\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s build main.uya -o main.c --c99   # 生成 C99 代码\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  %s build --app microapp main.uya -o microapp.uapp  # 微应用模式\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  MICROAPP_TARGET_PROFILE=linux_x86_64_hardvm %s build --app microapp main.uya -o microapp.uapp\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "  TARGET_OS=macos TARGET_ARCH=arm64 %s build --app microapp main.uya -o microapp.uapp  # 按目标平台自动推导 profile\n" as *byte, name as *byte);
+    fprintf(libc.stderr, "\n选项:\n" as *byte);
+    fprintf(libc.stderr, "  --c99                使用 C99 后端生成 C 代码\n" as *byte);
+    fprintf(libc.stderr, "  --app <app|microapp>  选择应用类型；app 为默认行为，microapp 会启用更严格检查\n" as *byte);
+    fprintf(libc.stderr, "  --microapp-profile <name>  覆盖 microapp target profile（推荐优先使用；优先于 MICROAPP_TARGET_PROFILE）\n" as *byte);
+    fprintf(libc.stderr, "  --line-directives    启用 #line 指令生成（C99 后端）\n" as *byte);
+    fprintf(libc.stderr, "  --no-line-directives 禁用 #line 指令生成\n" as *byte);
+    fprintf(libc.stderr, "  --opt=<0-3>          优化级别（0=禁用, 1=默认, 2=+证明优化, 3=+内联）\n" as *byte);
+    fprintf(libc.stderr, "  -O0, -O1, -O2, -O3   优化级别（简写形式）\n" as *byte);
+    fprintf(libc.stderr, "  --safety-proof       启用内存安全证明（默认已启用）\n" as *byte);
+    fprintf(libc.stderr, "  --no-safety-proof    禁用内存安全证明\n" as *byte);
+    fprintf(libc.stderr, "  --nostdlib           完全独立模式：无标准库依赖，使用 syscall\n" as *byte);
+    fprintf(libc.stderr, "  --async-frame-heap=on  async frame pool 满时回退到调试 heap（默认关闭）\n" as *byte);
+    fprintf(libc.stderr, "  MICROAPP_TARGET_CFLAGS  microapp 目标 gcc 编译旗标；call_gate profile 默认 -std=c99 -Os -fomit-frame-pointer -fno-builtin -fno-stack-protector -fpie -ffunction-sections -fdata-sections -flto=auto，trap profile 默认改为 -fno-pie（均不含 -g）\n" as *byte);
+    fprintf(libc.stderr, "  MICROAPP_TARGET_LDFLAGS microapp 目标 gcc 链接旗标；call_gate profile 默认 -pie -Wl,--gc-sections -flto=auto，trap profile 默认改为 -no-pie\n" as *byte);
+    fprintf(libc.stderr, "  -o <文件>            指定输出文件名\n" as *byte);
+    fprintf(libc.stderr, "  --stack-size <KB>    设置堆栈大小（KB），默认 65536 (64MB)\n" as *byte);
+    fprintf(libc.stderr, "  --split-c-dir [<dir>]  多文件 C 输出；省略或 --split-c-dir= 时目录默认为 .uyacache\n" as *byte);
+    fprintf(libc.stderr, "  --split-c-dir=<dir>  同上（合并写法；空路径等价于默认 .uyacache）\n" as *byte);
+    fprintf(libc.stderr, "  --no-split-c         关闭多文件 C（单文件/临时 .c；忽略 UYA_SPLIT_C_DIR 与 --split-c-dir）\n" as *byte);
+    fprintf(libc.stderr, "  C99 默认多文件输出到 .uyacache（显式 -o xxx.c 或 UYA_SPLIT_C=0|false|no|off 时为单文件）\n" as *byte);
+    fprintf(libc.stderr, "  多文件布局：默认镜像分 TU（一源一 .c，便于 make -j）；UYA_SPLIT_C_MIRROR=0|false|no|off 时用 uya_part1+part2\n" as *byte);
+    fprintf(libc.stderr, "  同一 split-C 输出目录不支持并发写入；并发时会直接报 busy，避免共享 cache 损坏\n" as *byte);
+    fprintf(libc.stderr, "  -h, --help           显示此帮助信息\n" as *byte);
+    fprintf(libc.stderr, "  -v, --version        显示版本信息\n" as *byte);
+    fprintf(libc.stderr, "\n微应用环境变量:\n" as *byte);
+    fprintf(libc.stderr, "  MICROAPP_TARGET_PROFILE microapp 目标 profile；推荐优先使用；可选 linux_x86_64_hardvm / linux_aarch64_hardvm / macos_arm64_hardvm / rv32_baremetal_softvm / xtensa_baremetal_softvm\n" as *byte);
+    fprintf(libc.stderr, "  MICROAPP_TARGET_ARCH    microapp 目标架构；仅在未显式指定 profile 时参与回退推导\n" as *byte);
+    fprintf(libc.stderr, "  TARGET_OS/TARGET_ARCH  未显式指定 profile 时，优先按目标平台组合推导默认 profile\n" as *byte);
+    fprintf(libc.stderr, "  HOST_OS/HOST_ARCH      若 TARGET_OS/TARGET_ARCH 缺省，则继续回退到宿主平台信息\n" as *byte);
+    fprintf(libc.stderr, "  MICROAPP_TARGET_GCC   microapp 专用 gcc；优先于 TARGET_GCC\n" as *byte);
+    fprintf(libc.stderr, "  TARGET_GCC            通用 gcc；仅在未设 MICROAPP_TARGET_GCC 时生效\n" as *byte);
+    fprintf(libc.stderr, "  默认 profile 推导优先级：--microapp-profile > MICROAPP_TARGET_PROFILE > MICROAPP_TARGET_ARCH(+TARGET_OS) > TARGET_OS/TARGET_ARCH > HOST_OS/HOST_ARCH > linux_x86_64_hardvm\n" as *byte);
+    fprintf(libc.stderr, "  默认 profile 三元组：linux_x86_64_hardvm=x86_64-linux-gnu, linux_aarch64_hardvm=aarch64-linux-gnu, macos_arm64_hardvm=arm64-apple-darwin, rv32_baremetal_softvm=riscv32-unknown-elf, xtensa_baremetal_softvm=xtensa-unknown-elf\n" as *byte);
+    fprintf(libc.stderr, "\n说明:\n" as *byte);
+    fprintf(libc.stderr, "  - 可以指定单个文件或目录，编译器会自动解析模块依赖\n" as *byte);
+    fprintf(libc.stderr, "  - 如果指定目录，目录中必须只有一个文件包含 main 函数\n" as *byte);
+    fprintf(libc.stderr, "  - 使用 UYA_ROOT 环境变量指定标准库位置（未设置时默认为编译器所在目录的上一级，即 …/bin → …/lib）\n" as *byte);
+    fprintf(libc.stderr, "\n语言特性:\n" as *byte);
+    fprintf(libc.stderr, "  - 零 GC，手动内存管理\n" as *byte);
+    fprintf(libc.stderr, "  - 编译期内存安全证明\n" as *byte);
+    fprintf(libc.stderr, "  - 泛型支持 <T: Constraint>\n" as *byte);
+    fprintf(libc.stderr, "  - 接口鸭子类型\n" as *byte);
+    fprintf(libc.stderr, "  - 错误处理 !T 联合类型\n" as *byte);
+    fprintf(libc.stderr, "  - defer/errdefer 资源清理\n" as *byte);
+    fprintf(libc.stderr, "  - 原子类型 atomic T\n" as *byte);
+    fprintf(libc.stderr, "  - 内联汇编 @asm { }\n" as *byte);
+}
+
+fn detect_main_is_space(ch: byte) i32 {
+    if ch == 32 || ch == 10 || ch == 9 || ch == 13 {
+        return 1;
+    }
+    return 0;
+}
+
+fn detect_main_is_ident_start(ch: byte) i32 {
+    if (ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122) || ch == 95 {
+        return 1;
+    }
+    return 0;
+}
+
+fn detect_main_is_ident_continue(ch: byte) i32 {
+    if detect_main_is_ident_start(ch) != 0 || (ch >= 48 && ch <= 57) {
+        return 1;
+    }
+    return 0;
+}
+
+fn detect_main_skip_string(buf: &byte, file_size: usize, pos: &usize, quote: byte) void {
+    if buf == null || pos == null || pos[0] >= file_size {
+        return;
+    }
+    pos[0] = pos[0] + 1;
+    while pos[0] < file_size {
+        const ch: byte = buf[pos[0]];
+        if ch == 92 && pos[0] + 1 < file_size {
+            pos[0] = pos[0] + 2;
+            continue;
+        }
+        pos[0] = pos[0] + 1;
+        if ch == quote {
+            return;
+        }
+    }
+}
+
+fn detect_main_skip_ws_and_comments(buf: &byte, file_size: usize, pos: &usize) void {
+    if buf == null || pos == null {
+        return;
+    }
+    while pos[0] < file_size {
+        const ch: byte = buf[pos[0]];
+        if detect_main_is_space(ch) != 0 {
+            pos[0] = pos[0] + 1;
+            continue;
+        }
+        if ch == 47 && pos[0] + 1 < file_size {
+            const next: byte = buf[pos[0] + 1];
+            if next == 47 {
+                pos[0] = pos[0] + 2;
+                while pos[0] < file_size && buf[pos[0]] != 10 {
+                    pos[0] = pos[0] + 1;
+                }
+                continue;
+            }
+            if next == 42 {
+                pos[0] = pos[0] + 2;
+                while pos[0] + 1 < file_size {
+                    if buf[pos[0]] == 42 && buf[pos[0] + 1] == 47 {
+                        pos[0] = pos[0] + 2;
+                        break;
+                    }
+                    pos[0] = pos[0] + 1;
+                }
+                continue;
+            }
+        }
+        return;
+    }
+}
+
+fn detect_main_token_eq(buf: &byte, start: usize, end: usize, text: &byte) i32 {
+    if buf == null || text == null || end < start {
+        return 0;
+    }
+    const len: usize = end - start;
+    if strlen(text as *byte) != len {
+        return 0;
+    }
+    if len == 0 {
+        return 0;
+    }
+    if strncmp(&buf[start], text as *byte, len) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn detect_main_match_ident_after(buf: &byte, file_size: usize, pos: usize, text: &byte, next_pos: &usize) i32 {
+    var cursor: usize = pos;
+    detect_main_skip_ws_and_comments(buf, file_size, &cursor);
+    if cursor >= file_size || detect_main_is_ident_start(buf[cursor]) == 0 {
+        return 0;
+    }
+    const start: usize = cursor;
+    cursor = cursor + 1;
+    while cursor < file_size && detect_main_is_ident_continue(buf[cursor]) != 0 {
+        cursor = cursor + 1;
+    }
+    if detect_main_token_eq(buf, start, cursor, text) == 0 {
+        return 0;
+    }
+    if next_pos != null {
+        next_pos[0] = cursor;
+    }
+    return 1;
+}
+
+// 检测文件是否包含 main 函数
+// 返回值：0=无main，1=fn main / test，2=export fn main，3=export extern fn main
+fn detect_main_function(filename: &byte) i32 {
+    if filename == null {
+        return 0;
+    }
+    const file_size: i32 = read_file_content(filename, &file_buffer[0], FILE_BUFFER_SIZE as usize);
+    if file_size < 0 {
+        return 0;
+    }
+    const buf: &byte = &file_buffer[0];
+    const size: usize = file_size as usize;
+    var i: usize = 0;
+    while i < size {
+        detect_main_skip_ws_and_comments(buf, size, &i);
+        if i >= size {
+            break;
+        }
+        const ch: byte = buf[i];
+        if ch == 34 || ch == 39 {
+            detect_main_skip_string(buf, size, &i, ch);
+            continue;
+        }
+        if detect_main_is_ident_start(ch) == 0 {
+            i = i + 1;
+            continue;
+        }
+        const token_start: usize = i;
+        i = i + 1;
+        while i < size && detect_main_is_ident_continue(buf[i]) != 0 {
+            i = i + 1;
+        }
+        if detect_main_token_eq(buf, token_start, i, "export" as &byte) != 0 {
+            var after_export: usize = i;
+            if detect_main_match_ident_after(buf, size, after_export, "extern" as &byte, &after_export) != 0 {
+                if detect_main_match_ident_after(buf, size, after_export, "fn" as &byte, &after_export) != 0 &&
+                    detect_main_match_ident_after(buf, size, after_export, "main" as &byte, null) != 0 {
+                    return 3;
+                }
+            }
+            after_export = i;
+            if detect_main_match_ident_after(buf, size, after_export, "fn" as &byte, &after_export) != 0 &&
+                detect_main_match_ident_after(buf, size, after_export, "main" as &byte, null) != 0 {
+                return 2;
+            }
+            continue;
+        }
+        if detect_main_token_eq(buf, token_start, i, "fn" as &byte) != 0 {
+            if detect_main_match_ident_after(buf, size, i, "main" as &byte, null) != 0 {
+                return 1;
+            }
+            continue;
+        }
+        if detect_main_token_eq(buf, token_start, i, "test" as &byte) != 0 {
+            var after_test: usize = i;
+            detect_main_skip_ws_and_comments(buf, size, &after_test);
+            if after_test < size && buf[after_test] == 34 {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+fn node_has_tests(node: &ASTNode) i32 {
+    if node == null {
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_TEST_STMT {
+        return 1;
+    }
+    if node.type == ASTNodeType.AST_BLOCK && node.block_stmts != null {
+        var i: i32 = 0;
+        while i < node.block_stmt_count {
+            if node_has_tests(node.block_stmts[i]) != 0 {
+                return 1;
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_IF_STMT {
+        if node_has_tests(node.if_stmt_then_branch) != 0 {
+            return 1;
+        }
+        if node.if_stmt_else_branch != null && node_has_tests(node.if_stmt_else_branch) != 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_WHILE_STMT {
+        return node_has_tests(node.while_stmt_body);
+    }
+    if node.type == ASTNodeType.AST_FOR_STMT {
+        return node_has_tests(node.for_stmt_body);
+    }
+    if node.type == ASTNodeType.AST_FN_DECL {
+        return node_has_tests(node.fn_decl_body);
+    }
+    if node.type == ASTNodeType.AST_VAR_DECL {
+        return node_has_tests(node.var_decl_init);
+    }
+    if node.type == ASTNodeType.AST_EXTERN_VAR_DECL {
+        return node_has_tests(node.extern_var_decl_init_expr);
+    }
+    if node.type == ASTNodeType.AST_RETURN_STMT {
+        return node_has_tests(node.return_stmt_expr);
+    }
+    if node.type == ASTNodeType.AST_ASSIGN {
+        if node_has_tests(node.assign_dest) != 0 {
+            return 1;
+        }
+        return node_has_tests(node.assign_src);
+    }
+    if node.type == ASTNodeType.AST_CALL_EXPR {
+        if node_has_tests(node.call_expr_callee) != 0 {
+            return 1;
+        }
+        if node.call_expr_args != null {
+            var j: i32 = 0;
+            while j < node.call_expr_arg_count {
+                if node_has_tests(node.call_expr_args[j]) != 0 {
+                    return 1;
+                }
+                j = j + 1;
+            }
+        }
+        return 0;
+    }
+    if node.type == ASTNodeType.AST_MEMBER_ACCESS {
+        return node_has_tests(node.member_access_object);
+    }
+    if node.type == ASTNodeType.AST_BINARY_EXPR {
+        if node_has_tests(node.binary_expr_left) != 0 {
+            return 1;
+        }
+        return node_has_tests(node.binary_expr_right);
+    }
+    if node.type == ASTNodeType.AST_UNARY_EXPR {
+        return node_has_tests(node.unary_expr_operand);
+    }
+    if node.type == ASTNodeType.AST_CAST_EXPR {
+        if node_has_tests(node.cast_expr_expr) != 0 {
+            return 1;
+        }
+        return node_has_tests(node.cast_expr_target_type);
+    }
+    if node.type == ASTNodeType.AST_TRY_EXPR {
+        return node_has_tests(node.try_expr_operand);
+    }
+    if node.type == ASTNodeType.AST_MATCH_EXPR && node.match_expr_arms != null {
+        if node_has_tests(node.match_expr_expr) != 0 {
+            return 1;
+        }
+        var k: i32 = 0;
+        while k < node.match_expr_arm_count {
+            if node_has_tests(node.match_expr_arms[k].result_expr) != 0 {
+                return 1;
+            }
+            k = k + 1;
+        }
+        return 0;
+    }
+    return 0;
+}
+
+fn program_has_tests(program: &ASTNode) i32 {
+    if program == null || program.type != ASTNodeType.AST_PROGRAM {
+        return 0;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        if node_has_tests(program.program_decls[i]) != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn seed_function_reachability_from_owned_method(checker: &TypeChecker, method: &ASTNode) void {
+    if checker == null || method == null || method.type != ASTNodeType.AST_FN_DECL || method.fn_decl_body == null {
+        return;
+    }
+    // Methods are emitted unconditionally by the C99 backend, so keep the method
+    // itself reachable. We still need the uncached walk because inline method
+    // bodies are not covered by the ordinary checker traversal today.
+    _ = checker_add_function_root_decl(checker, method);
+    const saved_owner: &ASTNode = checker.current_function_decl;
+    checker.current_function_decl = method;
+    checker_walk_reachability_node_uncached(checker, method.fn_decl_body);
+    checker.current_function_decl = saved_owner;
+}
+
+fn seed_function_reachability_roots(checker: &TypeChecker, program: &ASTNode) void {
+    if checker == null || program == null || program.type != ASTNodeType.AST_PROGRAM {
+        return;
+    }
+    var i: i32 = 0;
+    while i < program.program_decl_count {
+        const decl: &ASTNode = program.program_decls[i];
+        if decl != null {
+            if decl.type == ASTNodeType.AST_FN_DECL && decl.fn_decl_name != null {
+                if decl.fn_decl_is_export != 0 || str_equals(decl.fn_decl_name, "main" as *byte) != 0 {
+                    checker_add_function_root_decl(checker, decl);
+                }
+            } else if decl.type == ASTNodeType.AST_STRUCT_DECL && decl.struct_decl_methods != null {
+                var mj: i32 = 0;
+                while mj < decl.struct_decl_method_count {
+                    const method: &ASTNode = decl.struct_decl_methods[mj];
+                    seed_function_reachability_from_owned_method(checker, method);
+                    mj = mj + 1;
+                }
+            } else if decl.type == ASTNodeType.AST_UNION_DECL && decl.union_decl_methods != null {
+                var uj: i32 = 0;
+                while uj < decl.union_decl_method_count {
+                    const method: &ASTNode = decl.union_decl_methods[uj];
+                    seed_function_reachability_from_owned_method(checker, method);
+                    uj = uj + 1;
+                }
+            } else if decl.type == ASTNodeType.AST_METHOD_BLOCK && decl.method_block_methods != null {
+                var mj2: i32 = 0;
+                while mj2 < decl.method_block_method_count {
+                    const method2: &ASTNode = decl.method_block_methods[mj2];
+                    seed_function_reachability_from_owned_method(checker, method2);
+                    mj2 = mj2 + 1;
+                }
+            }
+        }
+        i = i + 1;
+    }
+}
+
+// 注意：这里访问的是 Uya `libc.Dirent` 抽象，不是宿主 libc 的原生 `struct dirent`。
+// `libc.stdlib.readdir` 已将平台原生目录项收敛到统一布局：
+// d_ino(8) d_off(8) d_reclen(2) d_type(1) d_name[]
+const DIRENT_OFF_D_TYPE: usize = 18;
+const DIRENT_OFF_D_NAME: usize = 19;
+
+fn dirent_get_type(entry_ptr: &byte) byte {
+    return entry_ptr[DIRENT_OFF_D_TYPE];
+}
+
+fn dirent_get_name(entry_ptr: &byte) &byte {
+    var p: &byte = entry_ptr;
+    p = p + DIRENT_OFF_D_NAME;
+    return p;
+}
+
+// 是否为「普通文件」语义（.uya 扫描等，仅 DT_REG）
+fn dirent_is_regular_file(entry_ptr: &byte) i32 {
+    if dirent_get_type(entry_ptr) == DT_REG as byte {
+        return 1;
+    }
+    return 0;
+}
+
+// DT_REG 或 DT_UNKNOWN（NFS 等可能未知类型，需后续 stat）
+fn dirent_may_be_regular_file(entry_ptr: &byte) i32 {
+    const t: byte = dirent_get_type(entry_ptr);
+    if t == DT_REG as byte || t == DT_UNKNOWN as byte {
+        return 1;
+    }
+    return 0;
+}
+
+fn host_append_temp_path_byte(buf: &byte, cap: usize, pos: &usize, value: byte) i32 {
+    if buf == null || pos == null || pos[0] + 1 >= cap {
+        return -1;
+    }
+    buf[pos[0]] = value;
+    pos[0] = pos[0] + 1;
+    return 0;
+}
+
+fn host_append_temp_path_bytes(buf: &byte, cap: usize, pos: &usize, text: &byte) i32 {
+    if text == null {
+        return 0;
+    }
+    var i: usize = 0;
+    while text[i] != 0 {
+        if host_append_temp_path_byte(buf, cap, pos, text[i]) != 0 {
+            return -1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn host_append_temp_path_i32(buf: &byte, cap: usize, pos: &usize, value: i32) i32 {
+    var digits: [byte: 16] = [];
+    var v: i32 = value;
+    if v < 0 {
+        if host_append_temp_path_byte(buf, cap, pos, 45 as byte) != 0 {
+            return -1;
+        }
+        v = 0 - v;
+    }
+    var n: usize = 0;
+    if v == 0 {
+        digits[0] = 48 as byte;
+        n = 1;
+    } else {
+        while v > 0 && n < 16 {
+            digits[n] = (48 + (v % 10)) as byte;
+            v = v / 10;
+            n = n + 1;
+        }
+    }
+    while n > 0 {
+        n = n - 1;
+        if host_append_temp_path_byte(buf, cap, pos, digits[n]) != 0 {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+// 默认临时路径：$TMPDIR/<prefix>_<pid>[_<extra_index>]<suffix>，否则 /tmp/...（Darwin/Linux 通用）
+fn host_fill_temp_path(buf: &byte, cap: usize, prefix: &byte, suffix: &byte, extra_index: i32) i32 {
+    if buf == null || cap < 32 || prefix == null {
+        return -1;
+    }
+    var suf: &byte = suffix;
+    if suf == null {
+        suf = "" as *byte;
+    }
+    var tmpdir: &byte = getenv("TMPDIR" as *byte);
+    if tmpdir == null || tmpdir[0] == 0 {
+        tmpdir = "/tmp" as *byte;
+    }
+    var pos: usize = 0;
+    if host_append_temp_path_bytes(buf, cap, &pos, tmpdir) != 0 {
+        return -1;
+    }
+    if pos == 0 { return -1; }
+    if buf[pos - 1] != 47 as byte {
+        if host_append_temp_path_byte(buf, cap, &pos, 47 as byte) != 0 {
+            return -1;
+        }
+    }
+    if host_append_temp_path_bytes(buf, cap, &pos, prefix) != 0 {
+        return -1;
+    }
+    if host_append_temp_path_byte(buf, cap, &pos, 95 as byte) != 0 {
+        return -1;
+    }
+    var pid: i32 = getpid();
+    if pid <= 0 {
+        pid = 1;
+    }
+    if host_append_temp_path_i32(buf, cap, &pos, pid) != 0 {
+        return -1;
+    }
+    if extra_index >= 0 {
+        if host_append_temp_path_byte(buf, cap, &pos, 95 as byte) != 0 ||
+            host_append_temp_path_i32(buf, cap, &pos, extra_index) != 0 {
+            return -1;
+        }
+    }
+    if host_append_temp_path_bytes(buf, cap, &pos, suf) != 0 {
+        return -1;
+    }
+    if pos >= cap { return -1; }
+    buf[pos] = 0 as byte;
+    return 0;
+}
+
+fn host_fill_temp_c_compile_path(buf: &byte, cap: usize) i32 {
+    return host_fill_temp_path(buf, cap, "uya_output" as *byte, ".c" as *byte, -1);
+}
+
+// run/test 临时可执行路径：$TMPDIR/uya_out_<pid><suffix> 或 /tmp/uya_out_<pid><suffix>
+fn host_fill_temp_run_exe_path(buf: &byte, cap: usize, exe_suffix: &byte) i32 {
+    return host_fill_temp_path(buf, cap, "uya_out" as *byte, exe_suffix, -1);
+}
+
+fn host_fill_temp_microapp_loader_path(buf: &byte, cap: usize, exe_suffix: &byte) i32 {
+    return host_fill_temp_path(buf, cap, "uya_microapp_loader" as *byte, exe_suffix, -1);
+}
+
+fn host_run_microapp_loader(loader_exe: &byte, uapp_path: &byte, payload_exe_path: &byte) i32 {
+    if loader_exe == null || uapp_path == null {
+        return 1;
+    }
+    var cmd: [byte: 4096] = [];
+    var cmd_len: i32 = 0;
+    if payload_exe_path != null && payload_exe_path[0] != 0 as byte {
+        cmd_len = snprintf(&cmd[0] as *byte, 4096,
+            "\"%s\" \"%s\" \"%s\"" as *byte,
+            loader_exe as *byte,
+            uapp_path as *byte,
+            payload_exe_path as *byte,
+            );
+    } else {
+        cmd_len = snprintf(&cmd[0] as *byte, 4096, "\"%s\" \"%s\"" as *byte, loader_exe as *byte, uapp_path as *byte);
+    }
+    if cmd_len <= 0 || cmd_len >= 4096 {
+        fprintf(libc.stderr, "错误：无法生成微容器运行命令\n" as *byte);
+        return 1;
+    }
+    return system(&cmd[0] as *byte);
+}
+
+fn compiler_driver_command_matches_arg(command: CommandType, arg: &byte) i32 {
+    if arg == null {
+        return 0;
+    }
+    if command == CommandType.COMMAND_BUILD {
+        if strcmp(arg as *byte, "build" as *byte) == 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if command == CommandType.COMMAND_CHECK {
+        if strcmp(arg as *byte, "check" as *byte) == 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if command == CommandType.COMMAND_RUN {
+        if strcmp(arg as *byte, "run" as *byte) == 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if command == CommandType.COMMAND_TEST {
+        if strcmp(arg as *byte, "test" as *byte) == 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if command == CommandType.COMMAND_FMT {
+        if strcmp(arg as *byte, "fmt" as *byte) == 0 {
+            return 1;
+        }
+        return 0;
+    }
+    return 0;
+}
+
+
+// 解析命令行参数
+// default_command: 未显式写子命令时采用的命令
+// allow_all_subcommands: 非 0 时按 bin/uya 兼容入口识别所有公开子命令
+// command: 输出命令类型
+// input_file_indices: 填充前 *input_file_count 个为输入文件在 argv 中的下标
+// input_file_capacity: input_file_indices 可写入的元素数
+// outlibc_index: --outlibc 选项的参数索引（-1 表示未指定）
+// run_arg_start: run 命令的运行时参数起始索引（-1 表示无运行时参数）
+// is_nostdlib: --nostdlib 选项（生成 _start 入口）
+// stack_size: 堆栈大小（KB），0 表示自动设置
+// 返回：0 成功，-1 失败
+fn parse_args(
+    default_command: CommandType,
+    allow_all_subcommands: i32,
+    command: &CommandType,
+    input_file_indices: &i32,
+    input_file_capacity: i32,
+    input_file_count: &i32,
+    output_file_index: &i32,
+    backend_type: &BackendType,
+    emit_line_directives: &i32,
+    enable_safety_proof: &i32,
+    opt_level: &i32,
+    outlibc_index: &i32,
+    run_arg_start: &i32,
+    is_nostdlib: &i32,
+    stack_size: &i32,
+    async_frame_heap_fallback: &i32,
+    exec_requested: &i32,
+    exec_only: &i32,
+    dump_exec_hir: &i32,
+    dump_bytecode: &i32,
+    trace_vm: &i32
+) i32 {
+    const argc: i32 = get_argc();
+    if argc < 2 {
+        const program_name: *byte = get_argv(0);
+        if program_name != null {
+            print_usage(program_name as &byte);
+        }
+        return -1;
+    }
+    if input_file_capacity <= 0 {
+        fprintf(libc.stderr, "错误: 输入文件索引容量无效\n" as *byte);
+        return -1;
+    }
+
+    // 初始化输出参数
+    command[0] = default_command;
+    input_file_count[0] = 0;
+    output_file_index[0] = -1;
+    backend_type[0] = BackendType.BACKEND_LLVM;
+    emit_line_directives[0] = 0;
+    enable_safety_proof[0] = 1;  // 默认启用
+    opt_level[0] = 1;  // 默认优化级别 1
+    outlibc_index[0] = -1;
+    run_arg_start[0] = -1;
+    is_nostdlib[0] = 0;  // 默认不启用 nostdlib
+    stack_size[0] = 0;  // 默认自动设置堆栈大小
+    g_split_c_dir_active = 0;
+    g_split_c_dir[0] = 0 as byte;
+    g_split_c_disabled_cli = 0;
+    g_app_mode_microapp = 0;
+    g_microapp_target_profile_override_active = 0;
+    g_microapp_target_profile_override[0] = 0 as byte;
+    g_module_root_override_active = 0;
+    g_module_root_override[0] = 0 as byte;
+    g_manifest_path_override_active = 0;
+    g_manifest_path_override[0] = 0 as byte;
+    async_frame_heap_fallback[0] = 0;
+    exec_requested[0] = 0;
+    exec_only[0] = 0;
+    dump_exec_hir[0] = 0;
+    dump_bytecode[0] = 0;
+    trace_vm[0] = 0;
+
+    // 检测子命令
+    const first_arg: *byte = get_argv(1);
+    var start_idx: i32 = 1;  // 参数解析起始位置
+
+    if first_arg != null && allow_all_subcommands != 0 {
+        if strcmp(first_arg, "build" as *byte) == 0 {
+            command[0] = CommandType.COMMAND_BUILD;
+            start_idx = 2;
+        } else if strcmp(first_arg, "check" as *byte) == 0 {
+            command[0] = CommandType.COMMAND_CHECK;
+            start_idx = 2;
+        } else if strcmp(first_arg, "run" as *byte) == 0 {
+            command[0] = CommandType.COMMAND_RUN;
+            start_idx = 2;
+        } else if strcmp(first_arg, "test" as *byte) == 0 {
+            command[0] = CommandType.COMMAND_TEST;
+            start_idx = 2;
+        } else if strcmp(first_arg, "pack-image" as *byte) == 0 {
+            command[0] = CommandType.COMMAND_PACK_IMAGE;
+            start_idx = 2;
+        } else if strcmp(first_arg, "inspect-image" as *byte) == 0 {
+            command[0] = CommandType.COMMAND_INSPECT_IMAGE;
+            start_idx = 2;
+        } else if strcmp(first_arg, "verify-image" as *byte) == 0 {
+            command[0] = CommandType.COMMAND_VERIFY_IMAGE;
+            start_idx = 2;
+        } else if strcmp(first_arg, "--version" as *byte) == 0 || strcmp(first_arg, "-v" as *byte) == 0 {
+            command[0] = CommandType.COMMAND_VERSION;
+            start_idx = 2;
+        } else if strcmp(first_arg, "fmt" as *byte) == 0 {
+            command[0] = CommandType.COMMAND_FMT;
+            start_idx = 2;
+        }
+        // 如果不是子命令，保持默认 COMMAND_BUILD，start_idx = 1
+    } else if first_arg != null && compiler_driver_command_matches_arg(default_command, first_arg as &byte) != 0 {
+        start_idx = 2;
+    }
+
+    var i: i32 = start_idx;
+    while i < argc {
+        const arg: *byte = get_argv(i);
+        if arg == null {
+            fprintf(libc.stderr, "错误: 无法获取命令行参数（索引 %d）\n" as *byte, i);
+            return -1;
+        }
+
+        // run 命令：检测 -- 之后的参数作为运行时参数
+        if command[0] == CommandType.COMMAND_RUN && strcmp(arg, "--" as *byte) == 0 {
+            run_arg_start[0] = i + 1;
+            break;  // -- 之后的参数不再解析
+        }
+
+        if strcmp(arg, "-o" as *byte) == 0 {
+            if i + 1 < argc {
+                output_file_index[0] = i + 1;
+                i = i + 1;
+            } else {
+                fprintf(libc.stderr, "错误: -o 选项需要指定输出文件名\n" as *byte);
+                return -1;
+            }
+        } else if strcmp(arg, "--c99" as *byte) == 0 {
+            backend_type[0] = BackendType.BACKEND_C99;
+        } else if strcmp(arg, "--native" as *byte) == 0 {
+            fprintf(libc.stderr, "错误: native backend 尚未接入 build/run/test 主路径\n" as *byte);
+            return -1;
+        } else if strcmp(arg, "--no-line-directives" as *byte) == 0 {
+            emit_line_directives[0] = 0;
+        } else if strcmp(arg, "--line-directives" as *byte) == 0 {
+            emit_line_directives[0] = 1;
+        } else if strcmp(arg, "--safety-proof" as *byte) == 0 {
+            enable_safety_proof[0] = 1;
+        } else if strcmp(arg, "--no-safety-proof" as *byte) == 0 {
+            enable_safety_proof[0] = 0;
+        } else if strcmp(arg, "--opt=0" as *byte) == 0 {
+            opt_level[0] = 0;
+        } else if strcmp(arg, "--opt=1" as *byte) == 0 {
+            opt_level[0] = 1;
+        } else if strcmp(arg, "--opt=2" as *byte) == 0 {
+            opt_level[0] = 2;
+        } else if strcmp(arg, "--opt=3" as *byte) == 0 {
+            opt_level[0] = 3;
+        } else if strcmp(arg, "-O0" as *byte) == 0 {
+            opt_level[0] = 0;
+        } else if strcmp(arg, "-O1" as *byte) == 0 {
+            opt_level[0] = 1;
+        } else if strcmp(arg, "-O2" as *byte) == 0 {
+            opt_level[0] = 2;
+        } else if strcmp(arg, "-O3" as *byte) == 0 {
+            opt_level[0] = 3;
+        } else if strcmp(arg, "--nostdlib" as *byte) == 0 {
+            is_nostdlib[0] = 1;
+        } else if strcmp(arg, "--project-root" as *byte) == 0 {
+            if i + 1 >= argc {
+                fprintf(libc.stderr, "错误: --project-root 需要指定目录\n" as *byte);
+                return -1;
+            }
+            i = i + 1;
+            const root_arg: *byte = get_argv(i);
+            if root_arg == null || root_arg[0] == 0 as byte {
+                fprintf(libc.stderr, "错误: --project-root 不能为空\n" as *byte);
+                return -1;
+            }
+            const root_len: usize = strlen(root_arg);
+            if root_len >= PATH_MAX {
+                fprintf(libc.stderr, "错误: --project-root 路径过长\n" as *byte);
+                return -1;
+            }
+            strcpy(&g_module_root_override[0] as *byte, root_arg);
+            g_module_root_override_active = 1;
+        } else if strcmp(arg, "--manifest-path" as *byte) == 0 {
+            if i + 1 >= argc {
+                fprintf(libc.stderr, "错误: --manifest-path 需要指定路径\n" as *byte);
+                return -1;
+            }
+            i = i + 1;
+            const manifest_arg: *byte = get_argv(i);
+            if manifest_arg == null || manifest_arg[0] == 0 as byte {
+                fprintf(libc.stderr, "错误: --manifest-path 不能为空\n" as *byte);
+                return -1;
+            }
+            const manifest_len: usize = strlen(manifest_arg);
+            if manifest_len >= PATH_MAX {
+                fprintf(libc.stderr, "错误: --manifest-path 路径过长\n" as *byte);
+                return -1;
+            }
+            strcpy(&g_manifest_path_override[0] as *byte, manifest_arg);
+            g_manifest_path_override_active = 1;
+        } else if strcmp(arg, "--exec" as *byte) == 0 {
+            exec_requested[0] = 1;
+        } else if strcmp(arg, "--vm" as *byte) == 0 {
+            exec_requested[0] = 1;
+            exec_only[0] = 1;
+        } else if strcmp(arg, "--dump-exec-hir" as *byte) == 0 {
+            exec_requested[0] = 1;
+            dump_exec_hir[0] = 1;
+        } else if strcmp(arg, "--dump-bytecode" as *byte) == 0 {
+            exec_requested[0] = 1;
+            dump_bytecode[0] = 1;
+        } else if strcmp(arg, "--trace-vm" as *byte) == 0 {
+            exec_requested[0] = 1;
+            trace_vm[0] = 1;
+        } else if strcmp(arg, "--app" as *byte) == 0 {
+            if i + 1 < argc {
+                i = i + 1;
+                const app_arg: *byte = get_argv(i);
+                if app_arg != null && strcmp(app_arg, "microapp" as *byte) == 0 {
+                    g_app_mode_microapp = 1;
+                    g_container_mode = 1;
+                } else if app_arg != null && strcmp(app_arg, "app" as *byte) == 0 {
+                    g_app_mode_microapp = 0;
+                    g_container_mode = 0;
+                } else {
+                    fprintf(libc.stderr, "错误: --app 仅支持 app 或 microapp\n" as *byte);
+                    return -1;
+                }
+            } else {
+                fprintf(libc.stderr, "错误: --app 选项需要指定 app 或 microapp\n" as *byte);
+                return -1;
+            }
+        } else if strcmp(arg, "--microapp-profile" as *byte) == 0 {
+            if i + 1 < argc {
+                i = i + 1;
+                const profile_arg: *byte = get_argv(i);
+                if microapp_target_profile_name_is_supported(profile_arg as &byte) == 0 {
+                    fprintf(libc.stderr, "错误: 不支持的 microapp profile: %s\n" as *byte, profile_arg);
+                    return -1;
+                }
+                if set_microapp_target_profile_override(profile_arg as &byte) != 0 {
+                    fprintf(libc.stderr, "错误: microapp profile 名称过长\n" as *byte);
+                    return -1;
+                }
+            } else {
+                fprintf(libc.stderr, "错误: --microapp-profile 需要指定 profile 名称\n" as *byte);
+                return -1;
+            }
+        } else if strncmp(arg as &const byte, "--microapp-profile=" as &const byte, 19) == 0 {
+            const profile_arg: &byte = (arg + 19) as &byte;
+            if microapp_target_profile_name_is_supported(profile_arg) == 0 {
+                fprintf(libc.stderr, "错误: 不支持的 microapp profile: %s\n" as *byte, profile_arg as *byte);
+                return -1;
+            }
+            if set_microapp_target_profile_override(profile_arg) != 0 {
+                fprintf(libc.stderr, "错误: microapp profile 名称过长\n" as *byte);
+                return -1;
+            }
+        } else if strcmp(arg, "--outlibc" as *byte) == 0 {
+            if i + 1 < argc {
+                outlibc_index[0] = i + 1;
+                command[0] = CommandType.COMMAND_OUTLIBC;
+                backend_type[0] = BackendType.BACKEND_C99;
+                i = i + 1;
+            } else {
+                fprintf(libc.stderr, "错误: --outlibc 选项需要指定输出目录\n" as *byte);
+                return -1;
+            }
+        } else if strcmp(arg, "--stack-size" as *byte) == 0 {
+            if i + 1 < argc {
+                const size_str: *byte = get_argv(i + 1);
+                if size_str != null {
+                    var j: i32 = 0;
+                    var size_val: i32 = 0;
+                    while size_str[j] >= 48 && size_str[j] <= 57 {
+                        size_val = size_val * 10 + (size_str[j] - 48);
+                        j = j + 1;
+                    }
+                    if size_val > 0 {
+                        stack_size[0] = size_val;
+                    } else {
+                        fprintf(libc.stderr, "警告：无效的堆栈大小值\n" as *byte);
+                    }
+                }
+                i = i + 1;
+            } else {
+                fprintf(libc.stderr, "错误：--stack-size 选项需要指定堆栈大小（KB）\n" as *byte);
+                return -1;
+            }
+        } else if strcmp(arg, "--async-frame-heap=on" as *byte) == 0 {
+            async_frame_heap_fallback[0] = 1;
+        } else if strcmp(arg, "--no-split-c" as *byte) == 0 {
+            g_split_c_disabled_cli = 1;
+            g_split_c_dir_active = 0;
+            g_split_c_dir[0] = 0 as byte;
+        } else if strncmp(arg as &const byte, "--split-c-dir=" as &const byte, 14) == 0 {
+            if g_split_c_disabled_cli != 0 {
+                fprintf(libc.stderr, "警告: 已指定 --no-split-c，忽略 --split-c-dir\n" as *byte);
+            } else {
+                // --split-c-dir=<path>：单 argv，避免被误判为未知选项后仅靠 UYA_SPLIT_C_DIR 生效
+                const split_dir_inline: *byte = arg + 14;
+                const sl: usize = strlen(split_dir_inline);
+                if sl > 0 {
+                    if sl < PATH_MAX - 1 {
+                        strcpy(&g_split_c_dir[0] as *byte, split_dir_inline);
+                        g_split_c_dir_active = 1;
+                    } else {
+                        split_c_set_default_dir();
+                    }
+                } else {
+                    split_c_set_default_dir();
+                }
+            }
+        } else if strcmp(arg, "--split-c-dir" as *byte) == 0 {
+            if g_split_c_disabled_cli != 0 {
+                fprintf(libc.stderr, "警告: 已指定 --no-split-c，忽略 --split-c-dir\n" as *byte);
+                if i + 1 < argc {
+                    const sd_skip: *byte = get_argv(i + 1);
+                    if sd_skip != null && sd_skip[0] != 45 as byte {
+                        i = i + 1;
+                    }
+                }
+            } else {
+                if i + 1 < argc {
+                    const sd: *byte = get_argv(i + 1);
+                    if sd != null {
+                        const sl: usize = strlen(sd);
+                        if sl > 0 && sl < PATH_MAX - 1 {
+                            strcpy(&g_split_c_dir[0] as *byte, sd);
+                            g_split_c_dir_active = 1;
+                        } else {
+                            split_c_set_default_dir();
+                        }
+                    } else {
+                        split_c_set_default_dir();
+                    }
+                    i = i + 1;
+                } else {
+                    split_c_set_default_dir();
+                }
+            }
+        } else {
+            const c: byte = arg[0];
+            if c != 45 {  // 不是 '-' 开头
+                if input_file_count[0] >= input_file_capacity {
+                    fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d)\n" as *byte, input_file_capacity);
+                    return -1;
+                }
+                const idx: i32 = input_file_count[0];
+                input_file_indices[idx] = i;
+                input_file_count[0] = idx + 1;
+            }
+        }
+        i = i + 1;
+    }
+
+    // --outlibc / --version 模式：不需要输入文件和 -o 参数
+    if command[0] == CommandType.COMMAND_OUTLIBC || command[0] == CommandType.COMMAND_VERSION {
+        return 0;
+    }
+
+    if input_file_count[0] == 0 {
+        fprintf(libc.stderr, "错误: 未指定输入文件\n" as *byte);
+        const program_name: *byte = get_argv(0);
+        if program_name != null {
+            print_usage(program_name as &byte);
+        }
+        return -1;
+    }
+
+    // run 和 test 命令：如果没有指定 -o，自动生成输出路径
+    // 输出路径将在主函数中根据输入文件名生成
+
+    const out_idx: i32 = output_file_index[0];
+    if out_idx >= 0 {
+        const out_path: *byte = get_argv(out_idx);
+        if out_path == null {
+            fprintf(libc.stderr, "错误: 无法获取输出文件路径（索引 %d）\n" as *byte, out_idx);
+            return -1;
+        }
+        if backend_type[0] == BackendType.BACKEND_LLVM {
+            const ext: *byte = strrchr(out_path, 46);
+            if ext != null && strcmp(ext, ".c" as *byte) == 0 {
+                backend_type[0] = BackendType.BACKEND_C99;
+            }
+        }
+    }
+    return 0;
+}
+
+// 检测输出路径是否为 C 文件（以 .c 结尾）
+// 返回：1 表示 C 文件，0 表示其他
+fn is_c_output(output_path: &byte) i32 {
+    if output_path == null { return 0; }
+    const len: usize = strlen(output_path as *byte);
+    if len < 2 { return 0; }
+    if output_path[len - 2] == 46 as byte && output_path[len - 1] == 99 as byte {
+        return 1;
+    }
+    return 0;
+}
+
+fn compile_files_artifacts_need_arena(out_artifacts: &CompileArtifacts) i32 {
+    if out_artifacts == null {
+        return 0;
+    }
+    if c_import_plan_has_items(&out_artifacts.c_import_plan) != 0 {
+        return 1;
+    }
+    if out_artifacts.c_import_sidecar_path != null {
+        return 1;
+    }
+    return 0;
+}
+
+fn compile_files_maybe_release_transient_arenas(arena: &CompilerArena, temp_arena: &CompilerArena, out_artifacts: &CompileArtifacts) void {
+    if compile_files_artifacts_need_arena(out_artifacts) != 0 {
+        return;
+    }
+    compiler_arena_free_all(arena);
+    compiler_arena_free_all(temp_arena);
+}
+
+// 主编译函数：词法 → 语法 → AST 合并 → 类型检查 → 代码生成
+// 支持目录输入和自动依赖收集
+// output_path_override: 如果非 null，使用此路径替代 get_argv(output_file_index)
+// is_nostdlib: 生成 _start 入口（无 C 标准库链接）
+// stack_size: 堆栈大小（KB），0 表示默认
+fn compile_files(
+    input_file_indices: &i32,
+    input_file_count: i32,
+    input_paths_override: &(&byte),
+    input_paths_override_count: i32,
+    output_file_index: i32,
+    backend: BackendType,
+    emit_line_directives: i32,
+    enable_safety_proof: i32,
+    opt_level: i32,
+    output_path_override: &byte,
+    is_nostdlib: i32,
+    stack_size: i32,
+    split_c_dir: &byte,
+    async_frame_heap_fallback: i32,
+    stop_after_checker: i32,
+    out_artifacts: &CompileArtifacts
+) i32 {
+    compile_artifacts_reset(out_artifacts);
+
+    // 初始化临时 Arena（用于依赖收集，使用全局缓冲区避免栈溢出）
+    var temp_arena: CompilerArena = CompilerArena {
+        buffer: null,
+        size: 0 as usize,
+        offset: 0 as usize,
+        first_chunk: null,
+        current_chunk: null,
+        total_allocated: 0 as usize,
+        peak_allocated: 0 as usize,
+    };
+    compiler_arena_init(&temp_arena, &temp_arena_buffer[0], 16 * 1024 * 1024);
+
+    // 获取 UYA_ROOT 和编译器目录
+    var uya_root_base: [byte: PATH_MAX] = [];
+    const argv0: *byte = get_argv(0);
+    if argv0 == null {
+        fprintf(libc.stderr, "错误: 无法获取程序路径\n" as *byte);
+        return 1;
+    }
+    if get_uya_root(argv0 as &byte, &uya_root_base[0] as &byte, PATH_MAX) != 0 {
+        fprintf(libc.stderr, "错误: 无法获取 UYA_ROOT 目录\n" as *byte);
+        return 1;
+    }
+
+    // 标准库在编译器所在目录的上一级目录的 lib/ 下
+    // 例如：编译器在 /path/bin/uya，标准库在 /path/lib/
+    // 与 C 编译器一致：若 UYA_ROOT 已指向 lib 目录则直接使用，否则追加 /lib/
+    var base_len: usize = strlen(&uya_root_base[0]);
+    if base_len > 1 && base_len < PATH_MAX && uya_root_base[base_len - 1] == 47 {  // '/'
+        uya_root_base[base_len - 1] = 0;
+        base_len = base_len - 1;
+    }
+    const last_slash: *byte = strrchr(&uya_root_base[0], 47);
+    var already_lib: i32 = 0;
+    if last_slash != null && strcmp(last_slash, "/lib" as *byte) == 0 {
+        already_lib = 1;
+    }
+    if already_lib == 0 && last_slash != null && strcmp(last_slash, "/bin" as *byte) == 0 {
+        const slash_idx: usize = ((last_slash as i64 - &uya_root_base[0] as i64) as! usize) catch { 0usize; };
+        uya_root_base[slash_idx] = 0;
+    }
+    var uya_root_buffer: [byte: PATH_MAX] = [];
+    var lib_len: i32 = 0;
+    if already_lib != 0 {
+        lib_len = snprintf(&uya_root_buffer[0] as &byte, PATH_MAX, "%s/" as *byte, &uya_root_base[0] as &byte);
+    } else {
+        lib_len = snprintf(&uya_root_buffer[0] as &byte, PATH_MAX, "%s/lib/" as *byte, &uya_root_base[0] as &byte);
+    }
+    if lib_len <= 0 || lib_len >= PATH_MAX {
+        fprintf(libc.stderr, "错误: UYA_ROOT 路径过长\n" as *byte);
+        return 1;
+    }
+
+    // 处理输入：如果是目录，查找包含 main 的文件；如果是文件，检查是否包含 main
+    // 使用全局变量避免栈溢出
+    var resolved_files: [&byte: MAX_INPUT_FILES] = resolved_files_global;
+    var resolved_count: i32 = 0;
+    const resolved_capacity: i32 = @len(resolved_files) as i32;
+    if input_file_count < 0 || input_file_count > resolved_capacity {
+        fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d)\n" as *byte, resolved_capacity);
+        return 1;
+    }
+    var module_root_buffer: [byte: PATH_MAX] = [];
+    var module_root: &byte = null;
+    if g_module_root_override_active != 0 {
+        if strlen(&g_module_root_override[0] as *byte) >= PATH_MAX - 2usize {
+            fprintf(libc.stderr, "错误: --project-root 路径过长\n" as *byte);
+            return 1;
+        }
+        strcpy(&module_root_buffer[0] as *byte, &g_module_root_override[0] as *byte);
+        if module_root_buffer[0] == 32 as byte || module_root_buffer[0] == 9 as byte ||
+            module_root_buffer[0] == 10 as byte || module_root_buffer[0] == 13 as byte {
+            fprintf(libc.stderr, "错误: --project-root 不能为空白\n" as *byte);
+            return 1;
+        }
+        if module_root_buffer[strlen(&module_root_buffer[0] as *byte) - 1usize] != 47 as byte {
+            strcat(&module_root_buffer[0] as *byte, "/" as *byte);
+        }
+        module_root = &module_root_buffer[0] as &byte;
+    }
+    // 使用全局变量避免栈溢出（262KB 太大），直接使用全局数组
+    // var main_file_paths: [[byte: PATH_MAX]: MAX_INPUT_FILES] = [];
+
+    var i: i32 = 0;
+    while i < input_file_count {
+        const idx_i: i32 = input_file_indices[i];
+        var input_path: *byte = null;
+        if input_paths_override != null && i < input_paths_override_count {
+            if input_paths_override[i] != null {
+                input_path = input_paths_override[i] as *byte;
+            }
+        } else {
+            input_path = get_argv(idx_i);
+        }
+        if input_path == null {
+            fprintf(libc.stderr, "错误: 无法获取输入文件路径（索引 %d）\n" as *byte, idx_i);
+            return 1;
+        }
+        const input: &byte = input_path as &byte;
+
+        const is_dir_result: i32 = is_directory(input);
+        if is_dir_result != 0 {
+            // 是目录，查找包含 main 的文件
+            var main_files: [&byte: MAX_INPUT_FILES] = main_files_global;
+            var main_count: i32 = 0;
+            if find_main_files_in_dir(input, &main_files[0], &main_file_paths_global[0], MAX_INPUT_FILES, &main_count) != 0 {
+                fprintf(libc.stderr, "错误: 无法读取目录 '%s'\n" as *byte, input_path);
+                return 1;
+            }
+            if main_count == 0 {
+                fprintf(libc.stderr, "错误: 目录 '%s' 中未找到包含 main 函数的文件\n" as *byte, input_path);
+                return 1;
+            }
+            if main_count > 1 {
+                fprintf(libc.stderr, "错误: 目录 '%s' 中有多个文件包含 main 函数:\n" as *byte, input_path);
+                var j: i32 = 0;
+                while j < main_count {
+                    fprintf(libc.stderr, "  %s\n" as *byte, main_files[j] as *byte);
+                    j = j + 1;
+                }
+                return 1;
+            }
+            if resolved_count < 0 || resolved_count >= resolved_capacity {
+                fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d): %s\n" as *byte, resolved_capacity, input_path);
+                return 1;
+            }
+            resolved_files[resolved_count] = main_files[0];
+            resolved_count = resolved_count + 1;
+            // 设置模块根目录
+            if module_root == null {
+                const input_len: usize = strlen(input_path);
+                if input_len > 0 && input_len < PATH_MAX - 1 {
+                    strcpy(&module_root_buffer[0], input_path);
+                    if module_root_buffer[input_len - 1] != 47 {
+                        module_root_buffer[input_len] = 47 as byte;
+                        module_root_buffer[input_len + 1] = 0 as byte;
+                    }
+                    module_root = &module_root_buffer[0] as &byte;
+                } else {
+                    module_root = input;
+                }
+            }
+        } else if is_file(input) != 0 {
+            // 检查是否已在 resolved_files 中（避免重复添加）
+            var already_resolved: i32 = 0;
+            var j: i32 = 0;
+            while j < resolved_count {
+                if resolved_files[j] != null && paths_equal(resolved_files[j], input) != 0 {
+                    already_resolved = 1;
+                    break;
+                }
+                j = j + 1;
+            }
+            if already_resolved != 0 {
+                i = i + 1;
+                continue;
+            }
+
+            // check 模式允许单文件无 main；其余命令保持现有 main 约束
+            if stop_after_checker != 0 || detect_main_function(input) != 0 {
+                if resolved_count < 0 || resolved_count >= resolved_capacity {
+                    fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d): %s\n" as *byte, resolved_capacity, input_path);
+                    return 1;
+                }
+                resolved_files[resolved_count] = input;
+                resolved_count = resolved_count + 1;
+                // 设置模块根目录（文件所在目录）
+                if module_root == null {
+                    const input_last_slash: *byte = strrchr(input_path, 47);
+                    if input_last_slash != null {
+                        const dir_len: usize = ptr_diff(input_last_slash, input) + 1;
+                        if dir_len < PATH_MAX {
+                            memcpy(&module_root_buffer[0], input_path, dir_len);
+                            module_root_buffer[dir_len] = 0 as byte;
+                            module_root = &module_root_buffer[0] as &byte;
+                        } else {
+                            strcpy(&module_root_buffer[0], "./" as *byte);
+                            module_root = &module_root_buffer[0] as &byte;
+                        }
+                    } else {
+                        strcpy(&module_root_buffer[0], "./" as *byte);
+                        module_root = &module_root_buffer[0] as &byte;
+                    }
+                }
+            } else {
+                // 多文件模式下，允许某些文件不包含 main（它们是库文件）
+                // 但如果这是唯一输入文件�����则必须包含 main
+                if stop_after_checker == 0 && input_file_count == 1 {
+                    fprintf(libc.stderr, "错误: 文件 '%s' 不包含 main 函数\n" as *byte, input_path);
+                    return 1;
+                }
+                // 多文件模式：将不包含 main 的文件也加入列表（作为���文件）
+                if resolved_count < 0 || resolved_count >= resolved_capacity {
+                    fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d): %s\n" as *byte, resolved_capacity, input_path);
+                    return 1;
+                }
+                resolved_files[resolved_count] = input;
+                resolved_count = resolved_count + 1;
+            }
+        } else {
+            fprintf(libc.stderr, "错误: '%s' 既不是文件也不是目录\n" as *byte, input_path);
+            return 1;
+        }
+        i = i + 1;
+    }
+
+    if resolved_count == 0 {
+        if stop_after_checker != 0 {
+            fprintf(libc.stderr, "错误: 未找到可检查的 .uya 文件\n" as *byte);
+        } else {
+            fprintf(libc.stderr, "错误: 未找到包含 main 函数的文件\n" as *byte);
+        }
+        return 1;
+    }
+
+    // 检测是否有 export fn main 或 test 语句，如果有则自动添加 entry.uya
+    // 返回值：0=无main/test，1=fn main 或 test，2=export fn main，3=export extern fn main
+    var has_export_main: i32 = 0;
+    var has_test_stmt: i32 = 0;
+    var has_export_extern_main: i32 = 0;
+    i = 0;
+    while i < resolved_count {
+        const main_type: i32 = detect_main_function(resolved_files[i]);
+        if main_type == 3 {
+            has_export_extern_main = 1;
+        } else if main_type == 2 {
+            has_export_main = 1;
+        } else if main_type == 1 {
+            has_test_stmt = 1;
+        }
+        i = i + 1;
+    }
+
+    // 如果有 export fn main 或 test 语句（但没有 export fn main），自动添加 std.runtime.entry
+    // test 模式下需要 entry.uya 来提供 C main 入口
+    if stop_after_checker == 0 && has_export_extern_main == 0 && (has_export_main != 0 || has_test_stmt != 0) {
+        var entry_path: [byte: PATH_MAX] = [];
+        const entry_len: i32 = snprintf(&entry_path[0], PATH_MAX, "%sstd/runtime/entry/entry.uya" as *byte, &uya_root_buffer[0] as *byte);
+        if entry_len > 0 && entry_len < PATH_MAX {
+            if is_file(&entry_path[0] as &byte) != 0 {
+                var already_in_list: i32 = 0;
+                var j: i32 = 0;
+                while j < resolved_count {
+                    if resolved_files[j] != null && paths_equal(resolved_files[j], &entry_path[0] as &byte) != 0 {
+                        already_in_list = 1;
+                        break;
+                    }
+                    j = j + 1;
+                }
+                if already_in_list == 0 {
+                    if resolved_count < 0 || resolved_count >= resolved_capacity {
+                        fprintf(libc.stderr, "错误: 输入文件数量超过最大限制 (%d)，无法自动加入 entry.uya\n" as *byte, resolved_capacity);
+                        return 1;
+                    }
+                    const entry_copy: &byte = compiler_arena_alloc(&temp_arena, entry_len + 1) as &byte;
+                    if entry_copy == null {
+                        fprintf(libc.stderr, "错误: 自动加入 entry.uya 时分配路径失败\n" as *byte);
+                        return 1;
+                    }
+                    strcpy(entry_copy as *byte, &entry_path[0]);
+                    resolved_files[resolved_count] = entry_copy;
+                    resolved_count = resolved_count + 1;
+                }
+            }
+        }
+    }
+
+    // 自动收集模块依赖
+    // 只对包含 main 的文件进行依赖收集，库文件已经在列表中，不需要进行依赖收集
+    var all_files: [&byte: MAX_INPUT_FILES] = all_files_global;
+    var all_file_count: i32 = resolved_count;
+    i = 0;
+    while i < resolved_count {
+        all_files[i] = resolved_files[i];
+        i = i + 1;
+    }
+
+    // 收集依赖（只对包含 main 的文件进行依赖收集）
+    var processed_files: [&byte: MAX_INPUT_FILES] = processed_files_global;
+    var processed_count: i32 = 0;
+
+    // 找出包含 main 的文件（入口文件）
+    var main_files: [&byte: MAX_INPUT_FILES] = [];
+    const main_file_capacity: i32 = @len(main_files) as i32;
+    var main_file_count: i32 = 0;
+    i = 0;
+    while i < resolved_count {
+        if detect_main_function(resolved_files[i]) != 0 {
+            if main_file_count < 0 || main_file_count >= main_file_capacity {
+                fprintf(libc.stderr, "错误: main 文件数量超过最大限制 (%d)\n" as *byte, main_file_capacity);
+                return 1;
+            }
+            main_files[main_file_count] = resolved_files[i];
+            main_file_count = main_file_count + 1;
+        }
+        i = i + 1;
+    }
+
+    // 依赖收集策略：对所有输入文件进行依赖收集（与 C 版一致）
+    i = 0;
+    while i < all_file_count {
+        const new_count: i32 = collect_module_dependencies(
+            all_files[i],
+            &all_files[0],
+            all_file_count,
+            MAX_INPUT_FILES,
+            &processed_files[0],
+            &processed_count,
+            MAX_INPUT_FILES,
+            module_root,
+            &uya_root_buffer[0] as &byte,
+            &temp_arena
+        );
+        if new_count < 0 {
+            fprintf(libc.stderr, "错误: 收集模块依赖失败: %s\n" as *byte, all_files[i] as *byte);
+            return 1;
+        }
+        all_file_count = new_count;
+        i = i + 1;
+    }
+
+    all_file_count = dedupe_paths_in_place(&all_files[0], all_file_count);
+
+    fprintf(libc.stderr, "=== 开始编译 ===\n" as *byte);
+    fprintf(libc.stderr, "输入文件数量: %d (包含依赖)\n" as *byte, all_file_count);
+    i = 0;
+    while i < all_file_count {
+        fprintf(libc.stderr, "  %d: %s\n" as *byte, i, all_files[i] as *byte);
+        i = i + 1;
+    }
+    const output_file: *byte = get_argv(output_file_index);
+    // 如果有覆盖路径，使用覆盖路径
+    var actual_output: *byte = output_file;
+    if output_path_override != null {
+        actual_output = output_path_override as *byte;
+    }
+    if out_artifacts != null {
+        out_artifacts.generated_c_path = actual_output as &byte;
+    }
+    if stop_after_checker != 0 {
+        fprintf(libc.stderr, "输出模式: checker-only\n" as *byte);
+    } else {
+        fprintf(libc.stderr, "输出文件: %s\n" as *byte, actual_output);
+    }
+    if module_root != null {
+        fprintf(libc.stderr, "模块根目录: %s\n" as *byte, module_root as *byte);
+    }
+    fprintf(libc.stderr, "UYA_ROOT: %s\n" as *byte, &uya_root_buffer[0]);
+    var module_name: *byte = "(unknown)" as *byte;
+    if all_file_count > 0 {
+        module_name = all_files[0] as *byte;
+    }
+    i = 0;
+    while i < all_file_count {
+        const entry_main_type: i32 = detect_main_function(all_files[i]);
+        if entry_main_type == 1 || entry_main_type == 2 {
+            module_name = all_files[i] as *byte;
+            break;
+        }
+        i = i + 1;
+    }
+    fprintf(libc.stderr, "=== 词法/语法分析 ===\n" as *byte);
+    var backend_str: *byte = "LLVM" as *byte;
+    if backend == BackendType.BACKEND_C99 {
+        backend_str = "C99" as *byte;
+    } else if backend == BackendType.BACKEND_EXEC {
+        backend_str = "EXEC" as *byte;
+    }
+    fprintf(libc.stderr, "后端类型: %s\n" as *byte, backend_str);
+
+    // 初始化编译统计
+    var stats: CompileStats = CompileStats {
+        parse_time_ms: 0,
+        merge_time_ms: 0,
+        check_time_ms: 0,
+        opt_time_ms: 0,
+        codegen_time_ms: 0,
+        total_time_ms: 0,
+        file_count: 0,
+        ast_nodes: 0,
+        arena_peak_bytes: 0 as usize,
+        ast_arena_peak_bytes: 0usize,
+        check_arena_peak_bytes: 0usize,
+        emit_arena_peak_bytes: 0usize,
+        c99_output_buffer_peak_bytes: 0usize,
+        typed_program_bytes: 0usize,
+        typed_program_peak_bytes: 0usize,
+        typed_program_released_bytes: 0usize,
+        table_items: 0usize,
+        table_capacity: 0usize,
+        table_used_bytes: 0usize,
+        table_capacity_bytes: 0usize,
+        table_realloc_count: 0,
+    };
+    stats.file_count = all_file_count;  // 记录文件数
+
+    // 计时变量
+    const start_time: i64 = clock();
+    var parse_end_time: i64 = 0;
+    var merge_end_time: i64 = 0;
+    var check_end_time: i64 = 0;
+    var codegen_end_time: i64 = 0;
+
+    // ===== 各编译子系统独立 arena（Phase 5A L388）=====
+    // 生命周期边界（create / last-use / free）：
+    // - arena       : driver/杂项（c_import plan、sidecar、module_root 拷贝）。create 此处；last-use=codegen 收尾；free=compile_files 末尾。
+    // - ast_arena   : lexer token 文本 + parser AST + merge/flatten。create 此处；last-use=codegen 读取 AST；free=compile_files 末尾。
+    // - check_arena : TypeChecker 结构与检查期工作内存。create 此处；last-use=codegen 读取 reachable/mono；free=compile_files 末尾。
+    // - emit_arena  : C99 emitter 结构与输出缓冲。create 此处；last-use=c99_codegen_generate；free=compile_files 末尾。
+    // 说明：SemanticDb / TypedProgram / LoweredProgram 不走编译器 arena，
+    //       它们使用各自 malloc/realloc 后端的动态表（SemanticVector/SemanticHash），
+    //       生命周期由 typed_program_release / semantic_*_free 独立管理。
+    // 这三个新增 arena 均为纯动态 arena（静态 buffer 为 null），按需 malloc 1MB chunk，
+    // 与既有 lex_arena 一致，从而把原先共用单一 64MB 静态 arena 的三个子系统隔离开。
+    var arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
+    compiler_arena_init(&arena, &arena_buffer[0], ARENA_BUFFER_SIZE as usize);
+    var lex_arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
+    var ast_arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
+    var check_arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
+    var emit_arena: CompilerArena = CompilerArena { buffer: null, size: 0 as usize, offset: 0 as usize, first_chunk: null, current_chunk: null, total_allocated: 0 as usize, peak_allocated: 0 as usize };
+
+    var programs: [&ASTNode: MAX_INPUT_FILES] = [];
+    const program_capacity: i32 = @len(programs) as i32;
+    if all_file_count < 0 || all_file_count > program_capacity {
+        fprintf(libc.stderr, "错误: 程序文件数量超过最大限制 (%d)\n" as *byte, program_capacity);
+        return 1;
+    }
+
+    i = 0;
+    while i < all_file_count {
+        const input_path: *byte = all_files[i] as *byte;
+        const file_size: i32 = read_file_content(input_path as &byte, &file_buffer[0], FILE_BUFFER_SIZE as usize);
+        if file_size < 0 {
+            fprintf(libc.stderr, "错误: 无法读取文件 '%s' (可能文件太大或不存在)\n" as *byte, input_path);
+            return 1;
+        }
+        const lexer: &Lexer = compiler_arena_alloc(&lex_arena, HOST_SIZE_LEXER_BYTES) as &Lexer;
+        if lexer == null {
+            fprintf(libc.stderr, "错误: Lexer 分配失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        const input_path_ref: &byte = input_path as &byte;
+        if lexer_init(lexer, &file_buffer[0], file_size as usize, input_path_ref, &ast_arena) != 0 {
+            fprintf(libc.stderr, "错误: Lexer 初始化失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        var parser: Parser = Parser {
+            lexer: null,
+            current_token: null,
+            arena: null,
+            context: ParserContext.PARSER_CONTEXT_NORMAL,
+            pending_greater_token: null,
+            saw_use_std: 0,
+            has_error: 0,
+        };
+        if parser_init(&parser, lexer, &ast_arena) != 0 {
+            fprintf(libc.stderr, "错误: Parser 初始化失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        const ast: &ASTNode = parser_parse(&parser);
+        if ast == null {
+            fprintf(libc.stderr, "错误: 语法分析失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        if ast.type != ASTNodeType.AST_PROGRAM {
+            fprintf(libc.stderr, "错误: 解析结果不是程序节点: %s\n" as *byte, input_path);
+            return 1;
+        }
+        // 检查词法分析错误（如未闭合块注释）
+        if lexer.has_error != 0 {
+            fprintf(libc.stderr, "错误: 语法分析失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        if parser.has_error != 0 {
+            fprintf(libc.stderr, "错误: 语法分析失败: %s\n" as *byte, input_path);
+            return 1;
+        }
+        programs[i] = ast;
+        fprintf(libc.stderr, "  解析完成: %s\n" as *byte, input_path);
+        i = i + 1;
+    }
+    parse_end_time = clock();
+    fprintf(libc.stderr, "=== 词法/语法分析完成，共 %d 个文件 ===\n" as *byte, all_file_count);
+
+    fprintf(libc.stderr, "=== AST 合并阶段 ===\n" as *byte);
+    var merged_ast: &ASTNode = ast_merge_programs(programs, all_file_count, &ast_arena);
+    if merged_ast == null {
+        fprintf(libc.stderr, "错误: AST 合并失败\n" as *byte);
+        return 1;
+    }
+    merged_ast = ast_flatten_nested_program_decls(merged_ast, &ast_arena);
+    if merged_ast == null {
+        fprintf(libc.stderr, "错误: AST 展平失败\n" as *byte);
+        return 1;
+    }
+    merge_end_time = clock();
+    fprintf(libc.stderr, "AST 合并完成，共 %d 个声明\n" as *byte, merged_ast.program_decl_count);
+
+    fprintf(libc.stderr, "=== 类型检查阶段 ===\n" as *byte);
+    const void_type: Type = Type {
+        kind: TypeKind.TYPE_VOID,
+        data: TypeData.named(null as &byte),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+    const checker: &TypeChecker = compiler_arena_alloc(&check_arena, HOST_SIZE_TYPECHECKER_BYTES) as &TypeChecker;
+    if checker == null {
+        fprintf(libc.stderr, "错误: TypeChecker 分配失败\n" as *byte);
+        return 1;
+    }
+    memset(checker as *byte, 0, HOST_SIZE_TYPECHECKER_BYTES);
+    var default_filename: *byte = "(unknown)" as *byte;
+    if all_file_count > 0 {
+        default_filename = all_files[0] as *byte;
+    }
+    if checker_init(checker, &check_arena, default_filename as &byte) != 0 {
+        fprintf(libc.stderr, "错误: TypeChecker 初始化失败\n" as *byte);
+        return 1;
+    }
+    // 设置 UYA_ROOT 目录，供 checker 识别标准库模块
+    checker.uya_root_dir = &uya_root_buffer[0] as &byte;
+    // 用 CLI 推导的项目根（与依赖收集一致）初始化 module 路径前缀，避免仅靠「首个 main 文件名」
+    // 得到空字符串或标准库 entry 目录，进而误判 extract_module_path / use 导出解析。
+    if module_root != null {
+        const pr_len: usize = strlen(module_root as *byte);
+        if pr_len > 0 {
+            var need_slash: i32 = 0;
+            if module_root[pr_len - 1] != 47 as byte && module_root[pr_len - 1] != 92 as byte {
+                need_slash = 1;
+            }
+            const alloc_len: usize = pr_len + (need_slash as usize) + 1 as usize;
+            const pr_copy: &u8 = compiler_arena_alloc(&check_arena, alloc_len) as &u8;
+            if pr_copy != null {
+                memcpy(pr_copy as *void, module_root as *void, pr_len);
+                if need_slash != 0 {
+                    pr_copy[pr_len] = 47 as u8;
+                    pr_copy[pr_len + 1] = 0 as u8;
+                } else {
+                    pr_copy[pr_len] = 0 as u8;
+                }
+                checker.module_root_dir = pr_copy as &byte;
+            }
+        }
+    }
+    // 设置内存安全证明开关
+    checker.enable_safety_proof = enable_safety_proof;
+    checker.container_mode = g_container_mode;
+
+    if checker_check(checker, merged_ast) != 0 {
+        fprintf(libc.stderr, "错误: 类型检查失败（错误数量: %d）\n" as *byte, checker_get_error_count(checker));
+        compiler_print_diagnostic_profile(checker);
+        const err_msg: &byte = get_last_checker_error();
+        if err_msg != null {
+            fprintf(libc.stderr, "最后错误: %s\n" as *byte, err_msg as *byte);
+        }
+        return 1;
+    }
+    if checker_get_error_count(checker) > 0 {
+        fprintf(libc.stderr, "错误: 类型检查失败（错误数量: %d）\n" as *byte, checker_get_error_count(checker));
+        compiler_print_diagnostic_profile(checker);
+        const err_msg: &byte = get_last_checker_error();
+        if err_msg != null {
+            fprintf(libc.stderr, "最后错误: %s\n" as *byte, err_msg as *byte);
+        }
+        return 1;
+    }
+    check_end_time = clock();
+    fprintf(libc.stderr, "类型检查通过\n" as *byte);
+    if checker.program_node != null && checker.program_node.type == ASTNodeType.AST_PROGRAM {
+        merged_ast = checker.program_node;
+    }
+    if backend == BackendType.BACKEND_EXEC {
+        compile_stats_record_and_release_typed_program(&stats, checker);
+    }
+    if stop_after_checker != 0 {
+        fprintf(libc.stderr, "\n检查完成：checker 通过（未执行代码生成）\n" as *byte);
+        compiler_print_diagnostic_profile(checker);
+        return 0;
+    }
+    if out_artifacts != null {
+        if collect_c_import_plan(&arena, merged_ast, &out_artifacts.c_import_plan) != 0 {
+            return 1;
+        }
+    }
+    checker_reset_reachability_visit_cache(checker);
+    seed_function_reachability_roots(checker, merged_ast);
+    checker_compute_function_reachability(checker);
+    const debug_reach_env: *byte = getenv("UYA_DEBUG_REACHABILITY" as *byte);
+    if debug_reach_env != null && debug_reach_env[0] != 0 as byte {
+        fprintf(libc.stderr, "可达性调试: roots=%d, reachable=%d, edges=%d\n" as *byte,
+            checker.fn_root_count, checker.reachable_fn_decl_count, checker.fn_call_edge_count);
+        var dbg_i: i32 = 0;
+        while dbg_i < checker.reachable_fn_decl_count && dbg_i < 20 {
+            const dbg_decl: &ASTNode = checker.reachable_fn_decls[dbg_i];
+            if dbg_decl != null && dbg_decl.fn_decl_name != null {
+                fprintf(libc.stderr, "  reachable[%d]=%s (body=%d export=%d extern=%d)\n" as *byte,
+                    dbg_i, dbg_decl.fn_decl_name as *byte, dbg_decl.fn_decl_body != null, dbg_decl.fn_decl_is_export, dbg_decl.fn_decl_is_extern);
+            }
+            dbg_i = dbg_i + 1;
+        }
+        const dbg_parse_args: &ASTNode = checker_find_reachable_fn_decl_by_name(checker, "parse_args" as *byte);
+        const dbg_generate_libc: &ASTNode = checker_find_reachable_fn_decl_by_name(checker, "generate_libc" as *byte);
+        const dbg_align_size: &ASTNode = checker_find_reachable_fn_decl_by_name(checker, "align_size" as *byte);
+        const dbg_next_macro_hygiene_expansion_id: &ASTNode = checker_find_reachable_fn_decl_by_name(checker, "next_macro_hygiene_expansion_id" as *byte);
+        const dbg_c99_utils_cache_ensure: &ASTNode = checker_find_reachable_fn_decl_by_name(checker, "c99_utils_cache_ensure" as *byte);
+        fprintf(libc.stderr, "  query parse_args reachable=%d\n" as *byte, checker_is_function_reachable(checker, dbg_parse_args));
+        fprintf(libc.stderr, "  query generate_libc reachable=%d\n" as *byte, checker_is_function_reachable(checker, dbg_generate_libc));
+        fprintf(libc.stderr, "  query align_size reachable=%d\n" as *byte, checker_is_function_reachable(checker, dbg_align_size));
+        fprintf(libc.stderr, "  query next_macro_hygiene_expansion_id reachable=%d\n" as *byte,
+            checker_is_function_reachable(checker, dbg_next_macro_hygiene_expansion_id));
+        fprintf(libc.stderr, "  query c99_utils_cache_ensure reachable=%d\n" as *byte,
+            checker_is_function_reachable(checker, dbg_c99_utils_cache_ensure));
+    }
+
+    // ===== 优化阶段（v0.7.3 新增）=====
+    var opt_end_time: i64 = 0;
+
+    // 创建优化配置
+    var opt_config: OptimizationConfig = create_optimization_config(opt_level);
+    opt_config.verbose = 1;  // 启用详细输出
+
+    if opt_level > 0 {
+        fprintf(libc.stderr, "\n=== 优化阶段 (级别: %d) ===\n" as *byte, opt_level);
+
+        // 执行优化
+        const optimized_ast: &ASTNode = optimize_program(checker, merged_ast, opt_config);
+        opt_end_time = clock();
+
+        // 打印优化统计
+        const opt_stats: OptimizationStats = get_optimization_stats();
+        fprintf(libc.stderr, "常量折叠: %d\n" as *byte, opt_stats.constant_folded);
+        fprintf(libc.stderr, "死代码消除: %d\n" as *byte, opt_stats.dead_code_eliminated);
+        fprintf(libc.stderr, "证明优化: %d\n" as *byte, opt_stats.proof_optimized);
+        fprintf(libc.stderr, "函数内联: %d\n" as *byte, opt_stats.inlined_functions);
+        fprintf(libc.stderr, "循环展开: %d\n" as *byte, opt_stats.loops_unrolled);
+    } else {
+        opt_end_time = clock();
+    }
+
+    fprintf(libc.stderr, "\n=== 代码生成阶段 ===\n" as *byte);
+    fprintf(libc.stderr, "模块名: %s\n" as *byte, module_name);
+
+    if backend == BackendType.BACKEND_EXEC {
+        exec_backend_set_options(g_exec_dump_hir_enabled, g_exec_dump_bytecode_enabled, g_exec_trace_vm_enabled);
+        const exec_result: i32 = exec_build_program(checker, merged_ast, module_name as &byte);
+        codegen_end_time = clock();
+
+        stats.parse_time_ms = (parse_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
+        stats.merge_time_ms = (merge_end_time - parse_end_time) * 1000 / CLOCKS_PER_SEC;
+        stats.check_time_ms = (check_end_time - merge_end_time) * 1000 / CLOCKS_PER_SEC;
+        stats.codegen_time_ms = (codegen_end_time - opt_end_time) * 1000 / CLOCKS_PER_SEC;
+        stats.total_time_ms = (codegen_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
+        stats.ast_arena_peak_bytes = compiler_arena_peak_allocated(&ast_arena);
+        stats.check_arena_peak_bytes = compiler_arena_peak_allocated(&check_arena);
+        stats.emit_arena_peak_bytes = compiler_arena_peak_allocated(&emit_arena);
+        stats.arena_peak_bytes = compiler_arena_peak_allocated(&arena)
+            + compiler_arena_peak_allocated(&lex_arena)
+            + stats.ast_arena_peak_bytes
+            + stats.check_arena_peak_bytes
+            + stats.emit_arena_peak_bytes;
+
+        fprintf(libc.stderr, "\n=== 编译统计 ===\n" as *byte);
+        fprintf(libc.stderr, "文件数: %d\n" as *byte, stats.file_count);
+        fprintf(libc.stderr, "解析耗时: %ld ms\n" as *byte, stats.parse_time_ms);
+        fprintf(libc.stderr, "合并耗时: %ld ms\n" as *byte, stats.merge_time_ms);
+        fprintf(libc.stderr, "检查耗时: %ld ms\n" as *byte, stats.check_time_ms);
+        if opt_level > 0 {
+            const opt_time_ms_exec: i64 = (opt_end_time - check_end_time) * 1000 / CLOCKS_PER_SEC;
+            fprintf(libc.stderr, "优化耗时: %ld ms\n" as *byte, opt_time_ms_exec);
+        }
+        fprintf(libc.stderr, "exec lowering 耗时: %ld ms\n" as *byte, exec_backend_get_last_lower_time_ms());
+        fprintf(libc.stderr, "exec bytecode 构建耗时: %ld ms\n" as *byte, exec_backend_get_last_bytecode_build_time_ms());
+        fprintf(libc.stderr, "exec build 耗时: %ld ms\n" as *byte, stats.codegen_time_ms);
+        fprintf(libc.stderr, "arena_peak_bytes: %zu\n" as *byte, stats.arena_peak_bytes);
+        fprintf(libc.stderr, "ast_arena_peak_bytes: %zu\n" as *byte, stats.ast_arena_peak_bytes);
+        fprintf(libc.stderr, "check_arena_peak_bytes: %zu\n" as *byte, stats.check_arena_peak_bytes);
+        fprintf(libc.stderr, "emit_arena_peak_bytes: %zu\n" as *byte, stats.emit_arena_peak_bytes);
+        fprintf(libc.stderr, "c99_output_buffer_peak_bytes: %zu\n" as *byte, stats.c99_output_buffer_peak_bytes);
+        fprintf(libc.stderr, "typed_program_bytes: %zu\n" as *byte, stats.typed_program_bytes);
+        fprintf(libc.stderr, "typed_program_peak_bytes: %zu\n" as *byte, stats.typed_program_peak_bytes);
+        fprintf(libc.stderr, "typed_program_released_bytes: %zu\n" as *byte, stats.typed_program_released_bytes);
+        fprintf(libc.stderr, "table_count: %zu\n" as *byte, stats.table_items);
+        fprintf(libc.stderr, "table_capacity: %zu\n" as *byte, stats.table_capacity);
+        fprintf(libc.stderr, "table_bytes: %zu\n" as *byte, stats.table_used_bytes);
+        fprintf(libc.stderr, "table_capacity_bytes: %zu\n" as *byte, stats.table_capacity_bytes);
+        fprintf(libc.stderr, "table_realloc_count: %d\n" as *byte, stats.table_realloc_count);
+        compiler_print_diagnostic_profile(checker);
+        fprintf(libc.stderr, "总耗时: %ld ms\n" as *byte, stats.total_time_ms);
+
+        if exec_result != 0 {
+            if exec_backend_error_is_unsupported() != 0 {
+                fprintf(libc.stderr, "exec unsupported 原因码: %s\n" as *byte, exec_backend_get_last_unsupported_reason_name() as *byte);
+            }
+            const exec_err: &byte = exec_backend_get_last_error();
+            if exec_err != null {
+                fprintf(libc.stderr, "exec backend 失败: %s\n" as *byte, exec_err as *byte);
+            }
+            return exec_result;
+        }
+
+        fprintf(libc.stderr, "\nexec backend 构建完成\n" as *byte);
+        return 0;
+    }
+
+    // C99 后端：生成 C 源代码（与 C 版本保持一致，直接使用 C99 后端）
+    var out_file: *void = null;
+    if split_c_dir == null || split_c_dir[0] == 0 as byte {
+        out_file = fopen(actual_output, "w" as *byte);
+        if out_file == null {
+            fprintf(libc.stderr, "错误: 无法打开输出文件 '%s'\n" as *byte, actual_output);
+            return 1;
+        }
+    }
+    const c99_codegen: &C99CodeGenerator = compiler_arena_alloc(&emit_arena, HOST_SIZE_C99_CODEGENERATOR_BYTES) as &C99CodeGenerator;
+    if c99_codegen == null {
+        fprintf(libc.stderr, "错误: C99CodeGenerator 分配失败\n" as *byte);
+        if out_file != null {
+            fclose(out_file);
+        }
+        return 1;
+    }
+    memset(c99_codegen as *byte, 0, HOST_SIZE_C99_CODEGENERATOR_BYTES);
+    var split_mirror_flag: i32 = 0;
+    if split_c_dir != null && split_c_dir[0] != 0 as byte {
+        split_mirror_flag = 1;
+        const smg: *byte = getenv("UYA_SPLIT_C_MIRROR" as *byte);
+        if smg != null && smg[0] != 0 as byte {
+            if strcmp(smg as *byte, "0" as *byte) == 0 ||
+               strcmp(smg as *byte, "false" as *byte) == 0 ||
+               strcmp(smg as *byte, "no" as *byte) == 0 ||
+               strcmp(smg as *byte, "off" as *byte) == 0 {
+                split_mirror_flag = 0;
+            }
+        }
+    }
+    if c99_codegen_new(c99_codegen, &emit_arena, out_file as &void, module_name as &byte, emit_line_directives, is_nostdlib, stack_size, split_c_dir, split_mirror_flag, async_frame_heap_fallback) != 0 {
+        fprintf(libc.stderr, "错误: C99CodeGenerator 初始化失败\n" as *byte);
+        if out_file != null {
+            fclose(out_file);
+        }
+        return 1;
+    }
+    // 设置单态化实例（从 TypeChecker 传入）
+    c99_codegen_set_mono_instances(c99_codegen, checker);
+    c99_codegen_set_reachable_functions(c99_codegen, checker);
+    if out_artifacts != null {
+        c99_codegen_set_c_import_plan(c99_codegen, &out_artifacts.c_import_plan);
+    } else {
+        c99_codegen_set_c_import_plan(c99_codegen, null);
+    }
+    c99_codegen.container_mode = g_container_mode;
+    c99_codegen.microapp_softvm_mode = g_microapp_softvm_mode;
+    var c99_output_buffer_peak_bytes: usize = 0usize;
+    if c99_codegen_generate(c99_codegen, merged_ast, actual_output as &byte) != 0 {
+        fprintf(libc.stderr, "错误: C99 代码生成失败\n" as *byte);
+        c99_codegen_free(c99_codegen);
+        if out_file != null {
+            fclose(out_file);
+        }
+        return 1;
+    }
+    c99_output_buffer_peak_bytes = c99_codegen_output_buffer_peak_bytes(c99_codegen);
+    c99_codegen_free(c99_codegen);
+    if out_file != null {
+        fclose(out_file);
+    }
+    if out_artifacts != null {
+        if out_file != null && output_file_index >= 0 && is_c_output(actual_output as &byte) != 0 {
+            if write_c_import_sidecar(&arena, actual_output as &byte, &out_artifacts.c_import_plan, &out_artifacts.c_import_sidecar_path) != 0 {
+                fprintf(libc.stderr, "错误: @c_import sidecar 生成失败\n" as *byte);
+                return 1;
+            }
+        } else if actual_output != null {
+            remove_c_import_sidecar_if_exists(&arena, actual_output as &byte);
+        }
+    }
+    codegen_end_time = clock();
+
+    // 计算各阶段耗时（毫秒）
+    stats.parse_time_ms = (parse_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
+    stats.merge_time_ms = (merge_end_time - parse_end_time) * 1000 / CLOCKS_PER_SEC;
+    stats.check_time_ms = (check_end_time - merge_end_time) * 1000 / CLOCKS_PER_SEC;
+    stats.codegen_time_ms = (codegen_end_time - opt_end_time) * 1000 / CLOCKS_PER_SEC;
+    stats.total_time_ms = (codegen_end_time - start_time) * 1000 / CLOCKS_PER_SEC;
+    stats.ast_arena_peak_bytes = compiler_arena_peak_allocated(&ast_arena);
+    stats.check_arena_peak_bytes = compiler_arena_peak_allocated(&check_arena);
+    stats.emit_arena_peak_bytes = compiler_arena_peak_allocated(&emit_arena);
+    stats.c99_output_buffer_peak_bytes = c99_output_buffer_peak_bytes;
+    stats.arena_peak_bytes = compiler_arena_peak_allocated(&arena)
+        + compiler_arena_peak_allocated(&lex_arena)
+        + stats.ast_arena_peak_bytes
+        + stats.check_arena_peak_bytes
+        + stats.emit_arena_peak_bytes;
+    compile_stats_record_and_release_typed_program(&stats, checker);
+
+    // 输出编译统计
+    fprintf(libc.stderr, "\n=== 编译统计 ===\n" as *byte);
+    fprintf(libc.stderr, "文件数: %d\n" as *byte, stats.file_count);
+    fprintf(libc.stderr, "解析耗时: %ld ms\n" as *byte, stats.parse_time_ms);
+    fprintf(libc.stderr, "合并耗时: %ld ms\n" as *byte, stats.merge_time_ms);
+    fprintf(libc.stderr, "检查耗时: %ld ms\n" as *byte, stats.check_time_ms);
+    if opt_level > 0 {
+        const opt_time_ms: i64 = (opt_end_time - check_end_time) * 1000 / CLOCKS_PER_SEC;
+        fprintf(libc.stderr, "优化耗时: %ld ms\n" as *byte, opt_time_ms);
+    }
+    fprintf(libc.stderr, "生成耗时: %ld ms\n" as *byte, stats.codegen_time_ms);
+    fprintf(libc.stderr, "arena_peak_bytes: %zu\n" as *byte, stats.arena_peak_bytes);
+    fprintf(libc.stderr, "ast_arena_peak_bytes: %zu\n" as *byte, stats.ast_arena_peak_bytes);
+    fprintf(libc.stderr, "check_arena_peak_bytes: %zu\n" as *byte, stats.check_arena_peak_bytes);
+    fprintf(libc.stderr, "emit_arena_peak_bytes: %zu\n" as *byte, stats.emit_arena_peak_bytes);
+    fprintf(libc.stderr, "c99_output_buffer_peak_bytes: %zu\n" as *byte, stats.c99_output_buffer_peak_bytes);
+    fprintf(libc.stderr, "typed_program_bytes: %zu\n" as *byte, stats.typed_program_bytes);
+    fprintf(libc.stderr, "typed_program_peak_bytes: %zu\n" as *byte, stats.typed_program_peak_bytes);
+    fprintf(libc.stderr, "typed_program_released_bytes: %zu\n" as *byte, stats.typed_program_released_bytes);
+    fprintf(libc.stderr, "table_count: %zu\n" as *byte, stats.table_items);
+    fprintf(libc.stderr, "table_capacity: %zu\n" as *byte, stats.table_capacity);
+    fprintf(libc.stderr, "table_bytes: %zu\n" as *byte, stats.table_used_bytes);
+    fprintf(libc.stderr, "table_capacity_bytes: %zu\n" as *byte, stats.table_capacity_bytes);
+    fprintf(libc.stderr, "table_realloc_count: %d\n" as *byte, stats.table_realloc_count);
+    compiler_print_diagnostic_profile(checker);
+    fprintf(libc.stderr, "总耗时: %ld ms\n" as *byte, stats.total_time_ms);
+
+    fprintf(libc.stderr, "\n代码生成完成: %s\n" as *byte, actual_output);
+
+    // 释放各子系统独立 arena 的动态 chunk（AST/emitter 已被 codegen 消费完毕，
+    // checker 工作内存已不再需要）。SemanticDb/TypedProgram 由其自身 release 管理。
+    compiler_arena_free_all(&emit_arena);
+    compiler_arena_free_all(&check_arena);
+    compiler_arena_free_all(&ast_arena);
+    compiler_arena_free_all(&lex_arena);
+    compile_files_maybe_release_transient_arenas(&arena, &temp_arena, out_artifacts);
+    return 0;
+}
+
+fn compiler_driver_run(default_command: CommandType, allow_all_subcommands: i32) i32 {
+    const first_arg_direct: *byte = get_argv(1);
+    if allow_all_subcommands != 0 && first_arg_direct != null &&
+        compiler_driver_is_external_cmd(first_arg_direct as &byte) != 0 {
+        if strcmp(first_arg_direct, "upm" as *byte) == 0 {
+            return dispatch_external_upm(1);
+        }
+        return dispatch_external_cmd(first_arg_direct as &byte, 1);
+    }
+
+    var input_file_indices: [i32: 64] = [];
+    var input_file_count: i32 = 0;
+    var output_file_index: i32 = -1;
+    var backend: BackendType = BackendType.BACKEND_LLVM;
+    var emit_line_directives: i32 = 0;
+    var enable_safety_proof: i32 = 1;
+    var opt_level: i32 = 1;
+    var outlibc_index: i32 = -1;
+    var command: CommandType = CommandType.COMMAND_BUILD;
+    var run_arg_start: i32 = -1;
+    var is_nostdlib: i32 = 0;
+    var stack_size: i32 = 65536;  // 默认 64MB 堆栈
+    var async_frame_heap_fallback: i32 = 0;
+    var exec_requested: i32 = 0;
+    var exec_only: i32 = 0;
+    var dump_exec_hir: i32 = 0;
+    var dump_bytecode: i32 = 0;
+    var trace_vm: i32 = 0;
+
+    // 临时缓冲区用于自动生成输出路径
+    var auto_output_path: [byte: PATH_MAX] = [];
+
+    const input_file_index_capacity: i32 = @len(input_file_indices) as i32;
+    if parse_args(default_command, allow_all_subcommands, &command, &input_file_indices[0], input_file_index_capacity, &input_file_count, &output_file_index, &backend, &emit_line_directives, &enable_safety_proof, &opt_level, &outlibc_index, &run_arg_start, &is_nostdlib, &stack_size, &async_frame_heap_fallback, &exec_requested, &exec_only, &dump_exec_hir, &dump_bytecode, &trace_vm) != 0 {
+        return 1;
+    }
+    g_exec_dump_hir_enabled = dump_exec_hir;
+    g_exec_dump_bytecode_enabled = dump_bytecode;
+    g_exec_trace_vm_enabled = trace_vm;
+    if command == CommandType.COMMAND_VERSION {
+        fprintf(libc.stdout, "v0.9.9\n" as *byte);
+        return 0;
+    }
+    // parse_args 中 stack_size=0 表示未传 --stack-size。编译器进程须尽快抬高主线程栈（与默认 65536 KB 一致），否则大依赖编译易栈溢出（段错误）。
+    // 传给 compile_files 的 stack_size 仍保留 0：不在生成 C 里注入 setrlimit/resource.h（曾与生成类型、系统头冲突）；run/test 子进程由 sh ulimit；显式 --stack-size 仅保留文件头提示注释。
+    var eff_compiler_stack_kb: i32 = stack_size;
+    if eff_compiler_stack_kb <= 0 {
+        eff_compiler_stack_kb = 65536;
+    }
+    set_process_stack_limit_bytes(eff_compiler_stack_kb as u64 * 1024);
+    if g_split_c_dir_active == 0 && g_split_c_disabled_cli == 0 {
+        const env_split: *byte = getenv("UYA_SPLIT_C_DIR" as *byte);
+        if env_split != null && env_split[0] != 0 {
+            const el: usize = strlen(env_split);
+            if el > 0 && el < PATH_MAX - 1 {
+                strcpy(&g_split_c_dir[0] as *byte, env_split);
+                g_split_c_dir_active = 1;
+            }
+        }
+    }
+
+    // --outlibc 模式
+    if command == CommandType.COMMAND_OUTLIBC {
+        const outlibc_path: *byte = get_argv(outlibc_index);
+        if outlibc_path == null {
+            fprintf(libc.stderr, "错误: 无法获取 --outlibc 参数\n" as *byte);
+            return 1;
+        }
+        const result: i32 = generate_libc(outlibc_path as &byte);
+        return result;
+    }
+
+    if command == CommandType.COMMAND_INSPECT_IMAGE {
+        if input_file_count != 1 {
+            fprintf(libc.stderr, "错误: inspect-image 只接受一个输入文件\n" as *byte);
+            return 1;
+        }
+        const input_path: *byte = get_argv(input_file_indices[0]);
+        if input_path == null {
+            fprintf(libc.stderr, "错误: 无法获取 inspect-image 输入路径\n" as *byte);
+            return 1;
+        }
+        return inspect_microapp_image(input_path as &byte);
+    }
+
+    if command == CommandType.COMMAND_VERIFY_IMAGE {
+        if input_file_count != 1 {
+            fprintf(libc.stderr, "错误: verify-image 只接受一个输入文件\n" as *byte);
+            return 1;
+        }
+        const input_path: *byte = get_argv(input_file_indices[0]);
+        if input_path == null {
+            fprintf(libc.stderr, "错误: 无法获取 verify-image 输入路径\n" as *byte);
+            return 1;
+        }
+        return verify_microapp_image(input_path as &byte);
+    }
+
+    if command == CommandType.COMMAND_PACK_IMAGE {
+        if input_file_count != 1 {
+            fprintf(libc.stderr, "错误: pack-image 只接受一个 .pobj 输入文件\n" as *byte);
+            return 1;
+        }
+        if output_file_index < 0 {
+            fprintf(libc.stderr, "错误: pack-image 需要 -o 指定输出 .uapp 路径\n" as *byte);
+            return 1;
+        }
+        const pobj_path: *byte = get_argv(input_file_indices[0]);
+        const uapp_path: *byte = get_argv(output_file_index);
+        if pobj_path == null || uapp_path == null {
+            fprintf(libc.stderr, "错误: 无法获取 pack-image 输入或输出路径\n" as *byte);
+            return 1;
+        }
+        const pack_result: i32 = pack_microapp_pobj_to_uapp(pobj_path as &byte, uapp_path as &byte);
+        if pack_result != 0 {
+            return pack_result;
+        }
+        fprintf(libc.stderr, "pack-image 完成: %s -> %s\n" as *byte, pobj_path, uapp_path);
+        return 0;
+    }
+
+    // fmt 命令：格式化代码文件
+    if command == CommandType.COMMAND_FMT {
+        const fmt_result: i32 = fmt_main();
+        return fmt_result;
+    }
+
+    // build 命令：如果没有指定 -o，使用默认输出 a.out
+    if command == CommandType.COMMAND_BUILD && output_file_index < 0 {
+        if host_fill_temp_c_compile_path(&auto_output_path[0], PATH_MAX) != 0 {
+            fprintf(libc.stderr, "错误：无法生成临时输出路径\n" as *byte);
+            return 1;
+        }
+        output_file_index = -2;  // 标记为自动生成的路径
+        backend = BackendType.BACKEND_C99;  // build 模式默认使用 C99 后端
+    }
+
+    // run 和 test 命令：自动生成输出路径
+    if (command == CommandType.COMMAND_RUN || command == CommandType.COMMAND_TEST) && output_file_index < 0 {
+        // 从输入文件名生成输出路径
+        const input_path: *byte = get_argv(input_file_indices[0]);
+        if input_path == null {
+            fprintf(libc.stderr, "错误: 无法获取输入文件路径\n" as *byte);
+            return 1;
+        }
+
+        if host_fill_temp_c_compile_path(&auto_output_path[0], PATH_MAX) != 0 {
+            fprintf(libc.stderr, "错误: 无法生成临时输出路径\n" as *byte);
+            return 1;
+        }
+        output_file_index = -2;  // 标记为自动生成的路径
+        backend = BackendType.BACKEND_C99;  // run/test 模式默认使用 C99 后端
+    }
+
+    // run/test 紧接着就要调用宿主工具链并执行产物，需要稳定的单文件 C 路径。
+    // 默认 split-C 会让 auto_output_path 只成为一个占位路径，并让后续 link/run 依赖额外的
+    // 子 make 环境；microapp loader 的递归 `run` 也会因此拿不到真正生成的可执行文件。
+    // split-C 仍可通过 build 路径使用，run/test 统一固定为单文件 C。
+    if command == CommandType.COMMAND_RUN || command == CommandType.COMMAND_TEST {
+        g_split_c_dir_active = 0;
+        g_split_c_disabled_cli = 1;
+        g_split_c_dir[0] = 0 as byte;
+        if exec_requested != 0 {
+            backend = BackendType.BACKEND_EXEC;
+        }
+    }
+
+    // build 命令：如果指定了非 .c 输出，需要生成临时 C 文件
+    var user_output_path: *byte = null;  // 用户指定的输出路径（用于宿主工具链链接）
+    if command == CommandType.COMMAND_BUILD && output_file_index >= 0 {
+        const out_path: *byte = get_argv(output_file_index);
+        if out_path != null {
+            // microapp 模式需要保留用户显式输出路径，哪怕是 .c
+            if g_app_mode_microapp != 0 {
+                user_output_path = out_path;
+            }
+            if is_c_output(out_path as &byte) == 0 {
+                // 输出不是 .c 文件，保存用户指定的路径，生成临时 C 文件路径
+                user_output_path = out_path;
+                if host_fill_temp_c_compile_path(&auto_output_path[0], PATH_MAX) != 0 {
+                    fprintf(libc.stderr, "错误: 无法生成临时输出路径\n" as *byte);
+                    return 1;
+                }
+                output_file_index = -2;  // 标记为自动生成的路径
+                backend = BackendType.BACKEND_C99;
+            }
+        }
+    }
+
+    if g_app_mode_microapp != 0 {
+        const active_profile: MicroAppTargetProfile = resolve_microapp_target_profile();
+        if active_profile.bridge_kind_raw == MICROAPP_BRIDGE_TRAP_RAW {
+            g_microapp_softvm_mode = 1;
+        } else {
+            g_microapp_softvm_mode = 0;
+        }
+        if command == CommandType.COMMAND_BUILD {
+            fprintf(libc.stderr, "信息：microapp active profile=%s, bridge=%s, target_os=%s, 目标架构=%s\n" as *byte,
+                active_profile.name as *byte,
+                microapp_bridge_kind_name(active_profile.bridge_kind_raw) as *byte,
+                resolve_microapp_target_platform_os_name() as *byte,
+                microapp_target_arch_name(active_profile.arch_raw) as *byte);
+        }
+    } else {
+        g_microapp_softvm_mode = 0;
+    }
+
+    // microapp 模式下，build 仍然先完成宿主编译检查，
+    // 但现在可以在后处理阶段直接产出 .pobj / .uapp。
+    if command == CommandType.COMMAND_BUILD && g_app_mode_microapp != 0 {
+        if user_output_path == null {
+            fprintf(libc.stderr, "错误: --app microapp 的 build 需要显式输出 .c / .pobj / .uapp\n" as *byte);
+            return 1;
+        }
+        if is_c_output(user_output_path as &byte) == 0 &&
+           is_pobj_output(user_output_path as &byte) == 0 &&
+           is_uapp_output(user_output_path as &byte) == 0 {
+            fprintf(libc.stderr, "错误: --app microapp 的 build 目前只支持输出 .c / .pobj / .uapp\n" as *byte);
+            return 1;
+        }
+        if is_pobj_output(user_output_path as &byte) != 0 || is_uapp_output(user_output_path as &byte) != 0 {
+            // 目标 gcc 需要单文件 C 输入；microapp 的后处理阶段不走 split-C。
+            g_split_c_disabled_cli = 1;
+        }
+    }
+
+    // C99 且非显式 -o xxx.c 时默认多文件输出到 .uyacache（与省略路径的 --split-c-dir 一致；UYA_SPLIT_C=0 / --no-split-c 等可关闭）
+    if g_split_c_dir_active == 0 && g_split_c_disabled_cli == 0 && backend == BackendType.BACKEND_C99 {
+        var explicit_single_c: i32 = 0;
+        if output_file_index >= 0 {
+            const outp: *byte = get_argv(output_file_index);
+            if outp != null && is_c_output(outp as &byte) != 0 {
+                explicit_single_c = 1;
+            }
+        }
+        if explicit_single_c == 0 && env_disables_auto_split_c() == 0 {
+            split_c_set_default_dir();
+        }
+    }
+
+    // 确定输出路径覆盖参数
+    var output_path_for_compile: &byte = null;
+    if output_file_index == -2 {
+        output_path_for_compile = &auto_output_path[0];
+    }
+
+    var split_c_arg: &byte = null;
+    if g_split_c_dir_active != 0 {
+        split_c_arg = &g_split_c_dir[0] as &byte;
+    }
+    var artifacts: CompileArtifacts = CompileArtifacts {
+        generated_c_path: null,
+        c_import_plan: CImportPlan {
+            items: null,
+            item_count: 0,
+            aggregated_ldflags_tokens: null,
+            aggregated_ldflags_token_count: 0,
+        },
+        c_import_sidecar_path: null,
+    };
+    var selected_backend: BackendType = backend;
+    var stop_after_checker: i32 = 0;
+    if command == CommandType.COMMAND_CHECK {
+        stop_after_checker = 1;
+    }
+    var split_c_lock_held: i32 = 0;
+    defer {
+        if split_c_lock_held != 0 {
+            split_c_release_lock();
+            split_c_lock_held = 0;
+        }
+    }
+    // split-C 锁在写任何生成物前获取，并一直持有到整个 uya 命令结束；
+    // 因此不仅覆盖 codegen，也覆盖后续的 make -C <split-dir> 链接阶段。
+    if split_c_arg != null && split_c_arg[0] != 0 as byte && stop_after_checker == 0 {
+        if split_c_acquire_lock(split_c_arg) != 0 {
+            return 1;
+        }
+        split_c_lock_held = 1;
+    }
+    var package_build_plan: UPMPackageBuildPlan = upm_build_plan_init();
+    var package_build_plan_needs_cleanup: i32 = 0;
+    defer {
+        if package_build_plan_needs_cleanup != 0 {
+            _ = upm_build_plan_cleanup(&package_build_plan);
+            package_build_plan_needs_cleanup = 0;
+        }
+    }
+    var input_paths_override: [&byte: MAX_INPUT_FILES] = [null: MAX_INPUT_FILES];
+    var input_paths_override_count: i32 = 0;
+    if (command == CommandType.COMMAND_BUILD || command == CommandType.COMMAND_CHECK ||
+        command == CommandType.COMMAND_RUN || command == CommandType.COMMAND_TEST) &&
+        input_file_count == 1 {
+        const input0: *byte = get_argv(input_file_indices[0]);
+        if input0 != null {
+            var manifest_override_ptr: &byte = null;
+            if g_manifest_path_override_active != 0 {
+                manifest_override_ptr = &g_manifest_path_override[0] as &byte;
+            }
+            const prepare_result: i32 = upm_prepare_build_plan(input0 as &byte, manifest_override_ptr, &package_build_plan);
+            if prepare_result != 0 {
+                return 1;
+            }
+            if package_build_plan.active != 0 {
+                input_paths_override[0] = &package_build_plan.compile_input[0] as &byte;
+                input_paths_override_count = 1;
+                strcpy(&g_module_root_override[0] as *byte, &package_build_plan.module_root[0] as *byte);
+                g_module_root_override_active = 1;
+                package_build_plan_needs_cleanup = 1;
+            }
+        }
+    }
+    var input_paths_override_ptr: &(&byte) = null;
+    if input_paths_override_count > 0 {
+        input_paths_override_ptr = &input_paths_override[0] as &(&byte);
+    }
+    var result: i32 = compile_files(&input_file_indices[0], input_file_count, input_paths_override_ptr, input_paths_override_count, output_file_index, selected_backend, emit_line_directives, enable_safety_proof, opt_level, output_path_for_compile, is_nostdlib, stack_size, split_c_arg, async_frame_heap_fallback, stop_after_checker, &artifacts);
+    if result == 2 && selected_backend == BackendType.BACKEND_EXEC && exec_only == 0 {
+        if exec_backend_should_fallback() == 0 {
+            fprintf(libc.stderr, "错误: exec backend 命中未登记的 fallback 原因码: %s\n" as *byte, exec_backend_get_last_unsupported_reason_name() as *byte);
+            return 1;
+        }
+        const exec_err: &byte = exec_backend_get_last_error();
+        if exec_err != null {
+            fprintf(libc.stderr, "信息: exec backend 不支持，回退 C99 (原因码: %s): %s\n" as *byte,
+                exec_backend_get_last_unsupported_reason_name() as *byte,
+                exec_err as *byte);
+        } else {
+            fprintf(libc.stderr, "信息: exec backend 不支持，回退 C99 (原因码: %s)\n" as *byte,
+                exec_backend_get_last_unsupported_reason_name() as *byte);
+        }
+        selected_backend = BackendType.BACKEND_C99;
+        result = compile_files(&input_file_indices[0], input_file_count, input_paths_override_ptr, input_paths_override_count, output_file_index, selected_backend, emit_line_directives, enable_safety_proof, opt_level, output_path_for_compile, is_nostdlib, stack_size, split_c_arg, async_frame_heap_fallback, stop_after_checker, &artifacts);
+    }
+    if result != 0 {
+        return 1;
+    }
+    backend = selected_backend;
+
+    if command == CommandType.COMMAND_RUN && g_app_mode_microapp != 0 {
+        const source_path: *byte = get_argv(input_file_indices[0]);
+        if source_path == null {
+            fprintf(libc.stderr, "错误：无法获取 microapp 源文件路径\n" as *byte);
+            return 1;
+        }
+        const run_profile: MicroAppTargetProfile = resolve_microapp_target_profile();
+        if microapp_profile_supports_runtime_execution(&run_profile) == 0 {
+            fprintf(libc.stderr, "错误: microapp profile '%s' 当前尚未接线 run --app microapp 运行时\n" as *byte, run_profile.name as *byte);
+            return 1;
+        }
+        fprintf(libc.stderr, "\n=== microapp run: 编译 payload ===\n" as *byte);
+        var microapp_uapp_path: [byte: PATH_MAX] = [];
+        if host_fill_temp_microapp_loader_path(&microapp_uapp_path[0], PATH_MAX, ".uapp" as *byte) != 0 {
+            fprintf(libc.stderr, "错误：无法生成 microapp 临时输出路径\n" as *byte);
+            return 1;
+        }
+        var microapp_pobj_path: [byte: PATH_MAX] = [];
+        if host_fill_temp_microapp_loader_path(&microapp_pobj_path[0], PATH_MAX, ".pobj" as *byte) != 0 {
+            fprintf(libc.stderr, "错误：无法生成 microapp 临时 payload_obj 路径\n" as *byte);
+            return 1;
+        }
+        const payload_c_path: &byte = artifacts.generated_c_path;
+        const manifest_result: i32 = write_microapp_payload_obj(&microapp_pobj_path[0] as &byte, source_path as &byte, payload_c_path);
+        if manifest_result != 0 {
+            return manifest_result;
+        }
+        const pack_result: i32 = pack_microapp_pobj_to_uapp(&microapp_pobj_path[0] as &byte, &microapp_uapp_path[0] as &byte);
+        if pack_result != 0 {
+            return pack_result;
+        }
+        const loader_source_path: &byte = "lib/std/runtime/microapp/loader_main.uya" as *byte;
+        var microapp_exe_path: [byte: PATH_MAX] = [];
+        const microapp_exe_len: i32 = snprintf(&microapp_exe_path[0] as *byte, PATH_MAX, "%s.text.bin.elf" as *byte, &microapp_pobj_path[0] as *byte);
+        if microapp_exe_len <= 0 || microapp_exe_len >= PATH_MAX {
+            fprintf(libc.stderr, "错误：无法生成 microapp payload 可执行文件路径\n" as *byte);
+            return 1;
+        }
+        fprintf(libc.stderr, "=== microapp run: 编译并运行 loader ===\n" as *byte);
+        var loader_cmd: [byte: 4096] = [];
+        const loader_cmd_len: i32 = snprintf(&loader_cmd[0] as *byte, 4096,
+            "\"%s\" run \"%s\" -- \"%s\" \"%s\"" as *byte,
+            get_argv(0),
+            loader_source_path as *byte,
+            &microapp_uapp_path[0] as *byte,
+            &microapp_exe_path[0] as *byte);
+        if loader_cmd_len <= 0 || loader_cmd_len >= 4096 {
+            fprintf(libc.stderr, "错误：无法生成 microapp loader 运行命令\n" as *byte);
+            return 1;
+        }
+        // 复用普通 `run` 路径，避免在 seed 编译器上走单独的 `build loader` 分支。
+        const run_result: i32 = system(&loader_cmd[0] as *byte);
+        const child_exit: i32 = exit_code_from_system_status(run_result);
+        if child_exit != 0 {
+            fprintf(libc.stderr, "程序运行返回码：%d\n" as *byte, child_exit);
+        }
+        return child_exit;
+    }
+
+    if command == CommandType.COMMAND_BUILD && g_app_mode_microapp != 0 && user_output_path != null && is_pobj_output(user_output_path as &byte) != 0 {
+        const source_path: *byte = get_argv(input_file_indices[0]);
+        if source_path == null {
+            fprintf(libc.stderr, "错误: 无法获取 microapp 源文件路径\n" as *byte);
+            return 1;
+        }
+        const manifest_result: i32 = write_microapp_payload_obj(user_output_path as &byte, source_path as &byte, artifacts.generated_c_path);
+        if manifest_result != 0 {
+            return manifest_result;
+        }
+        fprintf(libc.stderr, "\n=== microapp payload_obj 已输出 ===\n" as *byte);
+        fprintf(libc.stderr, "输出文件: %s\n" as *byte, user_output_path);
+        fprintf(libc.stderr, "注意: 代码段来自 target gcc 的 .text 输出\n" as *byte);
+        return 0;
+    }
+
+    if command == CommandType.COMMAND_BUILD && g_app_mode_microapp != 0 && user_output_path != null && is_uapp_output(user_output_path as &byte) != 0 {
+        const source_path: *byte = get_argv(input_file_indices[0]);
+        if source_path == null {
+            fprintf(libc.stderr, "错误: 无法获取 microapp 源文件路径\n" as *byte);
+            return 1;
+        }
+        var temp_pobj_path: [byte: PATH_MAX] = [];
+        const temp_pobj_len: i32 = snprintf(&temp_pobj_path[0] as *byte, PATH_MAX, "%s.pobj" as *byte, user_output_path as *byte);
+        if temp_pobj_len <= 0 || temp_pobj_len >= PATH_MAX {
+            fprintf(libc.stderr, "错误: 无法生成 microapp 临时 payload_obj 路径\n" as *byte);
+            return 1;
+        }
+        const manifest_result: i32 = write_microapp_payload_obj(&temp_pobj_path[0] as &byte, source_path as &byte, artifacts.generated_c_path);
+        if manifest_result != 0 {
+            return manifest_result;
+        }
+        const pack_result: i32 = pack_microapp_pobj_to_uapp(&temp_pobj_path[0] as &byte, user_output_path as &byte);
+        if pack_result != 0 {
+            return pack_result;
+        }
+        fprintf(libc.stderr, "\n=== microapp .uapp 已输出 ===\n" as *byte);
+        fprintf(libc.stderr, "输出文件: %s\n" as *byte, user_output_path);
+        return 0;
+    }
+
+    // build 命令：检测输出类型（C 文件或可执行文件）
+    // 注意：output_file_index 可能是 -2（自动生成路径），此时用户指定了非 .c 输出
+    var is_output_c_file: i32 = 0;
+    if command == CommandType.COMMAND_BUILD && output_file_index >= 0 {
+        const out_path: *byte = get_argv(output_file_index);
+        if out_path != null && is_c_output(out_path as &byte) != 0 {
+            is_output_c_file = 1;
+        }
+    }
+
+    // build 命令：如果输出不是 C 文件，调用宿主工具链链接
+    // 条件：output_file_index == -2（自动生成 C 文件）或用户指定了非 .c 输出
+    if command == CommandType.COMMAND_BUILD && is_output_c_file == 0 {
+        // C 文件路径（auto_output_path 已设置）
+        const c_file: &byte = artifacts.generated_c_path;
+
+        var output: &byte = "a.out" as *byte;
+
+        // 如果用户指定了输出路径，使用它
+        if user_output_path != null {
+            output = user_output_path as &byte;
+        } else if output_file_index >= 0 {
+            output = get_argv(output_file_index) as &byte;
+        }
+
+        // 调用宿主工具链链接
+        const link_result: i32 = link_with_toolchain(c_file, output, is_nostdlib, &artifacts.c_import_plan);
+        if link_result != 0 {
+            fprintf(libc.stderr, "错误：链接失败\n" as *byte);
+            return 1;
+        }
+
+        fprintf(libc.stderr, "\n编译完成：%s\n" as *byte, output as *byte);
+        return 0;
+    }
+
+    // run 和 test 命令：自动编译并运行
+    if command == CommandType.COMMAND_RUN || command == CommandType.COMMAND_TEST {
+        if backend == BackendType.BACKEND_EXEC {
+            const child_exit_exec: i32 = exec_run_program();
+            fprintf(libc.stderr, "exec vm 运行耗时: %ld ms\n" as *byte, exec_backend_get_last_vm_run_time_ms());
+            if command == CommandType.COMMAND_TEST {
+                var passed_exec: i32 = 0;
+                var failed_exec: i32 = 1;
+                if child_exit_exec == 0 {
+                    passed_exec = 1;
+                    failed_exec = 0;
+                }
+                fprintf(libc.stderr, "================================\n" as *byte);
+                fprintf(libc.stderr, "总计: 1 个测试\n" as *byte);
+                fprintf(libc.stderr, "通过: %d\n" as *byte, passed_exec);
+                fprintf(libc.stderr, "失败: %d\n" as *byte, failed_exec);
+                fprintf(libc.stderr, "================================\n" as *byte);
+            }
+            if child_exit_exec != 0 {
+                const exec_run_err: &byte = exec_backend_get_last_error();
+                if exec_run_err != null {
+                    fprintf(libc.stderr, "exec runtime: %s\n" as *byte, exec_run_err as *byte);
+                }
+                fprintf(libc.stderr, "程序运行返回码：%d\n" as *byte, child_exit_exec);
+            }
+            return child_exit_exec;
+        }
+        // 获取输出路径
+        var actual_output: &byte = artifacts.generated_c_path;
+        if output_file_index >= 0 {
+            actual_output = get_argv(output_file_index) as &byte;
+        }
+
+        if target_matches_host_platform() == 0 {
+            fprintf(libc.stderr, "错误：run/test 仅支持在宿主平台上运行当前目标；请改用 build 或调整 HOST_*/TARGET_*\n" as *byte);
+            return 1;
+        }
+
+        // 生成临时可执行文件路径
+        var run_output: [byte: PATH_MAX] = [];
+        const run_suffix: &byte = get_target_exe_suffix();
+        if host_fill_temp_run_exe_path(&run_output[0], PATH_MAX, run_suffix) != 0 {
+            fprintf(libc.stderr, "错误：无法生成运行时输出路径\n" as *byte);
+            return 1;
+        }
+
+        // 调用宿主工具链链接生成可执行文件
+        fprintf(libc.stderr, "\n编译完成：%s\n" as *byte, actual_output as *byte);
+
+        const link_result: i32 = link_with_toolchain(actual_output, &run_output[0] as &byte, is_nostdlib, &artifacts.c_import_plan);
+        if link_result != 0 {
+            fprintf(libc.stderr, "错误：宿主工具链链接失败\n" as *byte);
+            return 1;
+        }
+
+        // 运行程序（test：经 sh 设置 ulimit -s，避免大栈编译出的测试体在默认栈下段错误）
+        var eff_run_stack_kb: i32 = stack_size;
+        if eff_run_stack_kb <= 0 {
+            eff_run_stack_kb = 65536;
+        }
+        var run_cmd: [byte: 4096] = [];
+        var run_cmd_len: i32 = 0;
+        if command == CommandType.COMMAND_TEST {
+            sync_test_network_skip_marker();
+            run_cmd_len = snprintf(&run_cmd[0], 4096,
+                "/bin/sh -c 'ulimit -s %d 2>/dev/null || true; exec \"$1\"' sh \"%s\"" as *byte,
+                eff_run_stack_kb,
+                &run_output[0] as *byte);
+        } else {
+            run_cmd_len = snprintf(&run_cmd[0], 4096, "%s" as *byte, &run_output[0] as *byte);
+            if run_cmd_len > 0 && run_cmd_len < 4096 && command == CommandType.COMMAND_RUN && run_arg_start >= 0 {
+                var run_arg_i: i32 = run_arg_start;
+                while run_arg_i < get_argc() {
+                    const run_arg: *byte = get_argv(run_arg_i);
+                    if run_arg != null {
+                        const appended: i32 = snprintf((&run_cmd[0] as *byte) + run_cmd_len, 4096 - run_cmd_len, " \"%s\"" as *byte, run_arg);
+                        if appended <= 0 || run_cmd_len + appended >= 4096 {
+                            fprintf(libc.stderr, "错误：运行时参数过长\n" as *byte);
+                            return 1;
+                        }
+                        run_cmd_len = run_cmd_len + appended;
+                    }
+                    run_arg_i = run_arg_i + 1;
+                }
+            }
+        }
+        const run_result: i32 = system(&run_cmd[0] as *byte);
+        const child_exit: i32 = exit_code_from_system_status(run_result);
+        if command == CommandType.COMMAND_TEST {
+            system("/bin/sh -c 'rm -f /tmp/uya_allow_skip_network'" as *byte);
+        }
+        if command == CommandType.COMMAND_TEST {
+            var passed: i32 = 0;
+            var failed: i32 = 1;
+            if child_exit == 0 {
+                passed = 1;
+                failed = 0;
+            }
+            fprintf(libc.stderr, "================================\n" as *byte);
+            fprintf(libc.stderr, "总计: 1 个测试\n" as *byte);
+            fprintf(libc.stderr, "通过: %d\n" as *byte, passed);
+            fprintf(libc.stderr, "失败: %d\n" as *byte, failed);
+            fprintf(libc.stderr, "================================\n" as *byte);
+            if child_exit != 0 {
+                fprintf(libc.stderr, "程序运行返回码：%d\n" as *byte, child_exit);
+            }
+        } else {
+            if child_exit != 0 {
+                fprintf(libc.stderr, "程序运行返回码：%d\n" as *byte, child_exit);
+            }
+        }
+        return child_exit;
+    }
+
+    return 0;
+}
+
+/// 运行兼容 `bin/uya` 的编译器 CLI driver。
+/// 参数说明：无，直接读取进程 argv，并允许 argv[1] 指定公开子命令。
+/// 返回值说明：返回整个编译器命令的进程退出码。
+export fn compiler_driver_main() i32 {
+    return compiler_driver_run(CommandType.COMMAND_BUILD, 1);
+}
+
+/// 运行 `cmd/build` 的独立 build CLI。
+/// 参数说明：无，直接读取进程 argv；未写子命令时默认执行 build。
+/// 返回值说明：返回 build 命令的进程退出码。
+export fn compiler_driver_build_main() i32 {
+    return compiler_driver_run(CommandType.COMMAND_BUILD, 0);
+}
+
+/// 运行 `cmd/check` 的独立 checker-only CLI。
+/// 参数说明：无，直接读取进程 argv；未写子命令时默认执行 check。
+/// 返回值说明：返回 check 命令的进程退出码。
+export fn compiler_driver_check_main() i32 {
+    return compiler_driver_run(CommandType.COMMAND_CHECK, 0);
+}
+
+/// 运行 `cmd/run` 的独立 run CLI。
+/// 参数说明：无，直接读取进程 argv；未写子命令时默认执行 run。
+/// 返回值说明：返回 run 命令的进程退出码。
+export fn compiler_driver_run_main() i32 {
+    return compiler_driver_run(CommandType.COMMAND_RUN, 0);
+}
+
+/// 运行 `cmd/test` 的独立 test CLI。
+/// 参数说明：无，直接读取进程 argv；未写子命令时默认执行 test。
+/// 返回值说明：返回 test 命令的进程退出码。
+export fn compiler_driver_test_main() i32 {
+    return compiler_driver_run(CommandType.COMMAND_TEST, 0);
+}
+
+// ===== --outlibc 功能实现 =====
+
+// libc 源文件列表（相对于 lib/ 目录）
+const LIBC_SOURCES: i32 = 8;
+const LIBC_SOURCE_NAMES: [&byte: 8] = [
+    "libc/syscall.uya" as *byte,
+    "libc/errno.uya" as *byte,
+    "libc/ctype.uya" as *byte,
+    "libc/string.uya" as *byte,
+    "libc/mem.uya" as *byte,
+    "libc/stdio.uya" as *byte,
+    "libc/stdlib.uya" as *byte,
+    "libc/unistd.uya" as *byte
+];
+
+// 生成 libuya.c 和 libuya.h
+// output_dir: 输出目录
+// 返回：0 成功，非 0 失败
+fn generate_libc(output_dir: &byte) i32 {
+    fprintf(libc.stderr, "信息: 开始生成 libuya 库到 %s/\n" as *byte, output_dir as *byte);
+
+    // 获取 UYA_ROOT
+    var uya_root_buffer: [byte: PATH_MAX] = [];
+    const argv0: *byte = get_argv(0);
+    if argv0 == null {
+        fprintf(libc.stderr, "错误: 无法获取程序路径\n" as *byte);
+        return 1;
+    }
+    if get_uya_root(argv0 as &byte, &uya_root_buffer[0] as &byte, PATH_MAX) != 0 {
+        fprintf(libc.stderr, "错误: 无法获取 UYA_ROOT 目录\n" as *byte);
+        return 1;
+    }
+
+    // 标准库在编译器所在目录的上一级目录的 lib/ 下
+    var base_len: usize = strlen(&uya_root_buffer[0]);
+    if base_len > 1 {
+        const trailing_idx: i32 = (base_len - 1) as i32;
+        if trailing_idx >= 0 && trailing_idx < PATH_MAX {
+            if main_path_buf_char_at(uya_root_buffer, trailing_idx) == 47 {
+                main_path_buf_set(uya_root_buffer, trailing_idx, 0);
+                base_len = base_len - 1;
+            }
+        }
+    }
+    const last_slash: *byte = strrchr(&uya_root_buffer[0], 47);
+    if last_slash != null && strcmp(last_slash, "/bin" as *byte) == 0 {
+        const slash_idx: usize = ((last_slash as i64 - &uya_root_buffer[0] as i64) as! usize) catch { 0usize; };
+        uya_root_buffer[slash_idx] = 0;
+    }
+    var lib_dir: [byte: PATH_MAX] = [];
+    snprintf(&lib_dir[0], PATH_MAX, "%s/lib/" as *byte, &uya_root_buffer[0] as *byte);
+
+    // 创建输出目录（如果不存在）
+    mkdir(output_dir as *byte, 493);  // 0755 = 493
+
+    // 构建输出文件路径
+    var header_path: [byte: PATH_MAX] = [];
+    var source_path: [byte: PATH_MAX] = [];
+    snprintf(&header_path[0], PATH_MAX, "%s/libuya.h" as *byte, output_dir as *byte);
+    snprintf(&source_path[0], PATH_MAX, "%s/libuya.c" as *byte, output_dir as *byte);
+
+    // 打开输出文件
+    const header_file: *void = fopen(&header_path[0] as *byte, "w" as *byte);
+    const source_file: *void = fopen(&source_path[0] as *byte, "w" as *byte);
+    if header_file == null || source_file == null {
+        fprintf(libc.stderr, "错误: 无法创建输出文件\n" as *byte);
+        if header_file != null { fclose(header_file); }
+        if source_file != null { fclose(source_file); }
+        return 1;
+    }
+
+    // 写入头文件
+    fprintf(header_file, "/* libuya.h - Uya 标准库头文件 */\n" as *byte);
+    fprintf(header_file, "/* 自动生成，请勿手动修改 */\n" as *byte);
+    fprintf(header_file, "#ifndef LIBUYA_H\n" as *byte);
+    fprintf(header_file, "#define LIBUYA_H\n\n" as *byte);
+
+    // 类型定义（零依赖）
+    fprintf(header_file, "/* 类型定义 */\n" as *byte);
+    fprintf(header_file, "typedef signed char int8_t;\n" as *byte);
+    fprintf(header_file, "typedef unsigned char uint8_t;\n" as *byte);
+    fprintf(header_file, "typedef signed short int16_t;\n" as *byte);
+    fprintf(header_file, "typedef unsigned short uint16_t;\n" as *byte);
+    fprintf(header_file, "typedef signed int int32_t;\n" as *byte);
+    fprintf(header_file, "typedef unsigned int uint32_t;\n" as *byte);
+    fprintf(header_file, "typedef signed long long int64_t;\n" as *byte);
+    fprintf(header_file, "typedef unsigned long long uint64_t;\n" as *byte);
+    fprintf(header_file, "typedef unsigned long size_t;\n" as *byte);
+    fprintf(header_file, "typedef long ssize_t;\n" as *byte);
+    fprintf(header_file, "\n" as *byte);
+
+    // NULL 定义
+    fprintf(header_file, "#ifndef NULL\n" as *byte);
+    fprintf(header_file, "#define NULL ((void*)0)\n" as *byte);
+    fprintf(header_file, "#endif\n\n" as *byte);
+
+    // syscall 内联函数（放在头文件中因为是 static inline）
+    fprintf(header_file, "/* syscall 内联函数（x86-64） */\n" as *byte);
+    fprintf(header_file, "#ifdef __x86_64__\n" as *byte);
+    fprintf(header_file, "static inline int64_t uya_syscall0(int64_t n) {\n" as *byte);
+    fprintf(header_file, "    long ret;\n" as *byte);
+    fprintf(header_file, "    __asm__ volatile(\"syscall\" : \"=a\"(ret) : \"a\"(n) : \"rcx\", \"r11\", \"cc\", \"memory\");\n" as *byte);
+    fprintf(header_file, "    return ret;\n" as *byte);
+    fprintf(header_file, "}\n" as *byte);
+    fprintf(header_file, "static inline int64_t uya_syscall1(int64_t n, int64_t a1) {\n" as *byte);
+    fprintf(header_file, "    long ret;\n" as *byte);
+    fprintf(header_file, "    __asm__ volatile(\"syscall\" : \"=a\"(ret) : \"a\"(n), \"D\"(a1) : \"rcx\", \"r11\", \"cc\", \"memory\");\n" as *byte);
+    fprintf(header_file, "    return ret;\n" as *byte);
+    fprintf(header_file, "}\n" as *byte);
+    fprintf(header_file, "static inline int64_t uya_syscall2(int64_t n, int64_t a1, int64_t a2) {\n" as *byte);
+    fprintf(header_file, "    long ret;\n" as *byte);
+    fprintf(header_file, "    __asm__ volatile(\"syscall\" : \"=a\"(ret) : \"a\"(n), \"D\"(a1), \"S\"(a2) : \"rcx\", \"r11\", \"cc\", \"memory\");\n" as *byte);
+    fprintf(header_file, "    return ret;\n" as *byte);
+    fprintf(header_file, "}\n" as *byte);
+    fprintf(header_file, "static inline int64_t uya_syscall3(int64_t n, int64_t a1, int64_t a2, int64_t a3) {\n" as *byte);
+    fprintf(header_file, "    long ret;\n" as *byte);
+    fprintf(header_file, "    __asm__ volatile(\"syscall\" : \"=a\"(ret) : \"a\"(n), \"D\"(a1), \"S\"(a2), \"d\"(a3) : \"rcx\", \"r11\", \"cc\", \"memory\");\n" as *byte);
+    fprintf(header_file, "    return ret;\n" as *byte);
+    fprintf(header_file, "}\n" as *byte);
+    fprintf(header_file, "#endif\n\n" as *byte);
+
+    fprintf(header_file, "/* std.thread / microapp：函数指针间接调用（与 codegen 前导一致；勿用 inline 以免 -O2 内联退化） */\n" as *byte);
+    fprintf(header_file, "static int32_t uya_call0_i32(void *fn) {\n" as *byte);
+    fprintf(header_file, "    typedef int32_t (*uya_fn0_i32)(void);\n" as *byte);
+    fprintf(header_file, "    return ((uya_fn0_i32)fn)();\n" as *byte);
+    fprintf(header_file, "}\n" as *byte);
+    fprintf(header_file, "static int32_t uya_call0_i32_stack(void *fn, void *stack_top) {\n" as *byte);
+    fprintf(header_file, "    typedef int32_t (*uya_fn0_i32)(void);\n" as *byte);
+    fprintf(header_file, "#if defined(__x86_64__) || defined(_M_X64)\n" as *byte);
+    fprintf(header_file, "    uintptr_t top = ((uintptr_t)stack_top) & ~(uintptr_t)0xFUL;\n" as *byte);
+    fprintf(header_file, "    int32_t ret;\n" as *byte);
+    fprintf(header_file, "    __asm__ volatile(\n" as *byte);
+    fprintf(header_file, "        \"mov %%rsp, %%rbx\\n\\t\"\n" as *byte);
+    fprintf(header_file, "        \"mov %1, %%rsp\\n\\t\"\n" as *byte);
+    fprintf(header_file, "        \"call *%2\\n\\t\"\n" as *byte);
+    fprintf(header_file, "        \"mov %%rbx, %%rsp\\n\\t\"\n" as *byte);
+    fprintf(header_file, "        : \"=a\"(ret)\n" as *byte);
+    fprintf(header_file, "        : \"r\"((void *)top), \"r\"(fn)\n" as *byte);
+    fprintf(header_file, "        : \"rbx\", \"rcx\", \"rdx\", \"rsi\", \"rdi\", \"r8\", \"r9\", \"r10\", \"r11\", \"memory\", \"cc\");\n" as *byte);
+    fprintf(header_file, "    return ret;\n" as *byte);
+    fprintf(header_file, "#elif defined(__aarch64__) || defined(_M_ARM64)\n" as *byte);
+    fprintf(header_file, "    uintptr_t top = ((uintptr_t)stack_top) & ~(uintptr_t)0xFUL;\n" as *byte);
+    fprintf(header_file, "    int32_t ret;\n" as *byte);
+    fprintf(header_file, "    __asm__ volatile(\n" as *byte);
+    fprintf(header_file, "        \"mov x9, sp\\n\\t\"\n" as *byte);
+    fprintf(header_file, "        \"mov sp, %1\\n\\t\"\n" as *byte);
+    fprintf(header_file, "        \"blr %2\\n\\t\"\n" as *byte);
+    fprintf(header_file, "        \"mov %w0, w0\\n\\t\"\n" as *byte);
+    fprintf(header_file, "        \"mov sp, x9\\n\\t\"\n" as *byte);
+    fprintf(header_file, "        : \"=r\"(ret)\n" as *byte);
+    fprintf(header_file, "        : \"r\"((void *)top), \"r\"(fn)\n" as *byte);
+    fprintf(header_file, "        : \"x0\", \"x9\", \"x30\", \"memory\", \"cc\");\n" as *byte);
+    fprintf(header_file, "    return ret;\n" as *byte);
+    fprintf(header_file, "#else\n" as *byte);
+    fprintf(header_file, "    (void)stack_top;\n" as *byte);
+    fprintf(header_file, "    return ((uya_fn0_i32)fn)();\n" as *byte);
+    fprintf(header_file, "#endif\n" as *byte);
+    fprintf(header_file, "}\n" as *byte);
+    fprintf(header_file, "static int32_t uya_thread_call_i32(void *fn, int32_t arg) {\n" as *byte);
+    fprintf(header_file, "    typedef int32_t (*uya_thrd_fn_i32)(int32_t);\n" as *byte);
+    fprintf(header_file, "    return ((uya_thrd_fn_i32)fn)(arg);\n" as *byte);
+    fprintf(header_file, "}\n" as *byte);
+    fprintf(header_file, "static uint32_t uya_thread_call_u32(void *fn, uint32_t arg) {\n" as *byte);
+    fprintf(header_file, "    typedef uint32_t (*uya_thrd_fn_u32)(uint32_t);\n" as *byte);
+    fprintf(header_file, "    return ((uya_thrd_fn_u32)fn)(arg);\n" as *byte);
+    fprintf(header_file, "}\n" as *byte);
+    fprintf(header_file, "static size_t uya_thread_call_usize(void *fn, size_t arg) {\n" as *byte);
+    fprintf(header_file, "    typedef size_t (*uya_thrd_fn_usz)(size_t);\n" as *byte);
+    fprintf(header_file, "    return ((uya_thrd_fn_usz)fn)(arg);\n" as *byte);
+    fprintf(header_file, "}\n\n" as *byte);
+
+    // 函数声明（从各模块收集）
+    fprintf(header_file, "/* 函数声明 */\n" as *byte);
+    fprintf(header_file, "\n/* string 模块 */\n" as *byte);
+    fprintf(header_file, "size_t uya_strlen(const char *s);\n" as *byte);
+    fprintf(header_file, "int uya_strcmp(const char *s1, const char *s2);\n" as *byte);
+    fprintf(header_file, "int uya_strncmp(const char *s1, const char *s2, size_t n);\n" as *byte);
+    fprintf(header_file, "char *uya_strcpy(char *dest, const char *src);\n" as *byte);
+    fprintf(header_file, "char *uya_strncpy(char *dest, const char *src, size_t n);\n" as *byte);
+    fprintf(header_file, "char *uya_strcat(char *dest, const char *src);\n" as *byte);
+    fprintf(header_file, "char *uya_strchr(const char *s, int c);\n" as *byte);
+    fprintf(header_file, "char *uya_strrchr(const char *s, int c);\n" as *byte);
+
+    fprintf(header_file, "\n/* mem 模块 */\n" as *byte);
+    fprintf(header_file, "void *uya_memcpy(void *dest, const void *src, size_t n);\n" as *byte);
+    fprintf(header_file, "void *uya_memmove(void *dest, const void *src, size_t n);\n" as *byte);
+    fprintf(header_file, "void *uya_memset(void *s, int c, size_t n);\n" as *byte);
+    fprintf(header_file, "int uya_memcmp(const void *s1, const void *s2, size_t n);\n" as *byte);
+    fprintf(header_file, "void *uya_memchr(const void *s, int c, size_t n);\n" as *byte);
+
+    fprintf(header_file, "\n/* stdio 模块 */\n" as *byte);
+    fprintf(header_file, "int uya_putchar(int c);\n" as *byte);
+    fprintf(header_file, "int uya_puts(const char *s);\n" as *byte);
+    fprintf(header_file, "size_t uya_strlen(const char *s);\n" as *byte);
+    fprintf(header_file, "int uya_printf(const char *fmt, ...);\n" as *byte);
+
+    fprintf(header_file, "\n/* stdlib 模块 */\n" as *byte);
+    fprintf(header_file, "void uya_exit(int status);\n" as *byte);
+    fprintf(header_file, "void *uya_malloc(size_t size);\n" as *byte);
+    fprintf(header_file, "void uya_free(void *ptr);\n" as *byte);
+    fprintf(header_file, "void *uya_calloc(size_t nmemb, size_t size);\n" as *byte);
+    fprintf(header_file, "int uya_atoi(const char *s);\n" as *byte);
+    fprintf(header_file, "long uya_atol(const char *s);\n" as *byte);
+
+    fprintf(header_file, "\n/* unistd 模块 */\n" as *byte);
+    fprintf(header_file, "int uya_write(int fd, const void *buf, size_t count);\n" as *byte);
+    fprintf(header_file, "int uya_read(int fd, void *buf, size_t count);\n" as *byte);
+    fprintf(header_file, "int uya_close(int fd);\n" as *byte);
+
+    fprintf(header_file, "\n#endif /* LIBUYA_H */\n" as *byte);
+    fclose(header_file);
+
+    // 写入源文件
+    fprintf(source_file, "/* libuya.c - Uya 标准库实现 */\n" as *byte);
+    fprintf(source_file, "/* 自动生成，请勿手动修改 */\n" as *byte);
+    fprintf(source_file, "#include \"libuya.h\"\n\n" as *byte);
+
+    // 简化实现（使用 syscall）
+    fprintf(source_file, "/* ===== stdlib 模块 ===== */\n" as *byte);
+    fprintf(source_file, "void uya_exit(int status) {\n" as *byte);
+    fprintf(source_file, "    uya_syscall1(60, status);\n" as *byte);
+    fprintf(source_file, "    __builtin_unreachable();\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "/* ===== unistd 模块 ===== */\n" as *byte);
+    fprintf(source_file, "int uya_write(int fd, const void *buf, size_t count) {\n" as *byte);
+    fprintf(source_file, "    return (int)uya_syscall3(1, fd, (int64_t)buf, (int64_t)count);\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "int uya_read(int fd, void *buf, size_t count) {\n" as *byte);
+    fprintf(source_file, "    return (int)uya_syscall3(0, fd, (int64_t)buf, (int64_t)count);\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "int uya_close(int fd) {\n" as *byte);
+    fprintf(source_file, "    return (int)uya_syscall1(3, fd);\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "/* ===== stdio 模块 ===== */\n" as *byte);
+    fprintf(source_file, "int uya_putchar(int c) {\n" as *byte);
+    fprintf(source_file, "    char ch = (char)c;\n" as *byte);
+    fprintf(source_file, "    return uya_write(1, &ch, 1) == 1 ? c : -1;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "int uya_puts(const char *s) {\n" as *byte);
+    fprintf(source_file, "    size_t len = 0;\n" as *byte);
+    fprintf(source_file, "    while (s[len]) len++;\n" as *byte);
+    fprintf(source_file, "    uya_write(1, s, len);\n" as *byte);
+    fprintf(source_file, "    uya_write(1, \"\\n\", 1);\n" as *byte);
+    fprintf(source_file, "    return 0;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "/* ===== string 模块 ===== */\n" as *byte);
+    fprintf(source_file, "size_t uya_strlen(const char *s) {\n" as *byte);
+    fprintf(source_file, "    size_t len = 0;\n" as *byte);
+    fprintf(source_file, "    while (s[len]) len++;\n" as *byte);
+    fprintf(source_file, "    return len;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "int uya_strcmp(const char *s1, const char *s2) {\n" as *byte);
+    fprintf(source_file, "    while (*s1 && (*s1 == *s2)) { s1++; s2++; }\n" as *byte);
+    fprintf(source_file, "    return *(unsigned char*)s1 - *(unsigned char*)s2;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "int uya_strncmp(const char *s1, const char *s2, size_t n) {\n" as *byte);
+    fprintf(source_file, "    while (n && *s1 && (*s1 == *s2)) { s1++; s2++; n--; }\n" as *byte);
+    fprintf(source_file, "    return n ? *(unsigned char*)s1 - *(unsigned char*)s2 : 0;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "char *uya_strcpy(char *dest, const char *src) {\n" as *byte);
+    fprintf(source_file, "    char *d = dest;\n" as *byte);
+    fprintf(source_file, "    while ((*d++ = *src++));\n" as *byte);
+    fprintf(source_file, "    return dest;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "char *uya_strncpy(char *dest, const char *src, size_t n) {\n" as *byte);
+    fprintf(source_file, "    char *d = dest;\n" as *byte);
+    fprintf(source_file, "    while (n && (*d++ = *src++)) n--;\n" as *byte);
+    fprintf(source_file, "    while (n--) *d++ = 0;\n" as *byte);
+    fprintf(source_file, "    return dest;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "char *uya_strcat(char *dest, const char *src) {\n" as *byte);
+    fprintf(source_file, "    char *d = dest;\n" as *byte);
+    fprintf(source_file, "    while (*d) d++;\n" as *byte);
+    fprintf(source_file, "    while ((*d++ = *src++));\n" as *byte);
+    fprintf(source_file, "    return dest;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "char *uya_strchr(const char *s, int c) {\n" as *byte);
+    fprintf(source_file, "    while (*s && *s != (char)c) s++;\n" as *byte);
+    fprintf(source_file, "    return (*s == (char)c) ? (char*)s : NULL;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "char *uya_strrchr(const char *s, int c) {\n" as *byte);
+    fprintf(source_file, "    const char *last = NULL;\n" as *byte);
+    fprintf(source_file, "    while (*s) { if (*s == (char)c) last = s; s++; }\n" as *byte);
+    fprintf(source_file, "    return (char*)last;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "/* ===== mem 模块 ===== */\n" as *byte);
+    fprintf(source_file, "void *uya_memcpy(void *dest, const void *src, size_t n) {\n" as *byte);
+    fprintf(source_file, "    char *d = (char*)dest;\n" as *byte);
+    fprintf(source_file, "    const char *s = (const char*)src;\n" as *byte);
+    fprintf(source_file, "    while (n--) *d++ = *s++;\n" as *byte);
+    fprintf(source_file, "    return dest;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "void *uya_memmove(void *dest, const void *src, size_t n) {\n" as *byte);
+    fprintf(source_file, "    char *d = (char*)dest;\n" as *byte);
+    fprintf(source_file, "    const char *s = (const char*)src;\n" as *byte);
+    fprintf(source_file, "    if (d < s) while (n--) *d++ = *s++;\n" as *byte);
+    fprintf(source_file, "    else { d += n; s += n; while (n--) *--d = *--s; }\n" as *byte);
+    fprintf(source_file, "    return dest;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "void *uya_memset(void *s, int c, size_t n) {\n" as *byte);
+    fprintf(source_file, "    char *p = (char*)s;\n" as *byte);
+    fprintf(source_file, "    while (n--) *p++ = (char)c;\n" as *byte);
+    fprintf(source_file, "    return s;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "int uya_memcmp(const void *s1, const void *s2, size_t n) {\n" as *byte);
+    fprintf(source_file, "    const unsigned char *p1 = (const unsigned char*)s1;\n" as *byte);
+    fprintf(source_file, "    const unsigned char *p2 = (const unsigned char*)s2;\n" as *byte);
+    fprintf(source_file, "    while (n--) { if (*p1 != *p2) return *p1 - *p2; p1++; p2++; }\n" as *byte);
+    fprintf(source_file, "    return 0;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "void *uya_memchr(const void *s, int c, size_t n) {\n" as *byte);
+    fprintf(source_file, "    const unsigned char *p = (const unsigned char*)s;\n" as *byte);
+    fprintf(source_file, "    while (n--) { if (*p == (unsigned char)c) return (void*)p; p++; }\n" as *byte);
+    fprintf(source_file, "    return NULL;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "/* ===== stdlib 模块 ===== */\n" as *byte);
+    fprintf(source_file, "int uya_atoi(const char *s) {\n" as *byte);
+    fprintf(source_file, "    int n = 0, neg = 0;\n" as *byte);
+    fprintf(source_file, "    while (*s == ' ' || *s == '\\t') s++;\n" as *byte);
+    fprintf(source_file, "    if (*s == '-') { neg = 1; s++; }\n" as *byte);
+    fprintf(source_file, "    else if (*s == '+') s++;\n" as *byte);
+    fprintf(source_file, "    while (*s >= '0' && *s <= '9') n = n * 10 + (*s++ - '0');\n" as *byte);
+    fprintf(source_file, "    return neg ? -n : n;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fprintf(source_file, "long uya_atol(const char *s) {\n" as *byte);
+    fprintf(source_file, "    long n = 0;\n" as *byte);
+    fprintf(source_file, "    int neg = 0;\n" as *byte);
+    fprintf(source_file, "    while (*s == ' ' || *s == '\\t') s++;\n" as *byte);
+    fprintf(source_file, "    if (*s == '-') { neg = 1; s++; }\n" as *byte);
+    fprintf(source_file, "    else if (*s == '+') s++;\n" as *byte);
+    fprintf(source_file, "    while (*s >= '0' && *s <= '9') n = n * 10 + (*s++ - '0');\n" as *byte);
+    fprintf(source_file, "    return neg ? -n : n;\n" as *byte);
+    fprintf(source_file, "}\n\n" as *byte);
+
+    fclose(source_file);
+
+    fprintf(libc.stderr, "信息: 已生成 %s 和 %s\n" as *byte, &header_path[0] as *byte, &source_path[0] as *byte);
+    fprintf(libc.stderr, "信息: 使用方法:\n" as *byte);
+    fprintf(libc.stderr, "  $%s -c libuya.c -o libuya.o\n" as *byte, "{CC:-cc}" as *byte);
+    fprintf(libc.stderr, "  $%s -nostdlib your_program.c libuya.o -o your_program -lgcc\n" as *byte, "{CC:-cc}" as *byte);
+
+    return 0;
+}

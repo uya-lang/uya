@@ -1,0 +1,1732 @@
+// checker/type_utils.uya - 类型工具函数
+// 从 checker/main.uya 拆分
+
+// ===== TypeData 辅助函数（阶段四：Union 化重构）=====
+
+// 创建空的 TypeData（用于原始类型，不需要额外数据）
+fn make_empty_type_data() TypeData {
+    return TypeData.named(null as &byte);
+}
+
+// ===== 类型转换 =====
+
+// 将 Type 转换为字符串表示
+fn type_to_string(arena: &CompilerArena, type: Type) &byte {
+    if arena == null {
+        return "unknown" as &byte;
+    }
+    
+    if type.kind == TypeKind.TYPE_I8 { return "i8" as &byte; }
+    if type.kind == TypeKind.TYPE_I16 { return "i16" as &byte; }
+    if type.kind == TypeKind.TYPE_I32 { return "i32" as &byte; }
+    if type.kind == TypeKind.TYPE_I64 { return "i64" as &byte; }
+    if type.kind == TypeKind.TYPE_U8 { return "u8" as &byte; }
+    if type.kind == TypeKind.TYPE_U16 { return "u16" as &byte; }
+    if type.kind == TypeKind.TYPE_U32 { return "u32" as &byte; }
+    if type.kind == TypeKind.TYPE_U64 { return "u64" as &byte; }
+    if type.kind == TypeKind.TYPE_USIZE { return "usize" as &byte; }
+    if type.kind == TypeKind.TYPE_BYTE { return "byte" as &byte; }
+    if type.kind == TypeKind.TYPE_F32 { return "f32" as &byte; }
+    if type.kind == TypeKind.TYPE_F64 { return "f64" as &byte; }
+    if type.kind == TypeKind.TYPE_BOOL { return "bool" as &byte; }
+    if type.kind == TypeKind.TYPE_VOID { return "void" as &byte; }
+    // @asm 寄存器类型
+    if type.kind == TypeKind.TYPE_ASM_REG { return "@asm_reg" as &byte; }
+    if type.kind == TypeKind.TYPE_ASM_REG_X64 { return "@asm_reg_x64" as &byte; }
+    if type.kind == TypeKind.TYPE_ASM_REG_X86 { return "@asm_reg_x86" as &byte; }
+    if type.kind == TypeKind.TYPE_ASM_REG_ARM64 { return "@asm_reg_arm64" as &byte; }
+    if type.kind == TypeKind.TYPE_ASM_REG_RISCV { return "@asm_reg_riscv" as &byte; }
+    if type.kind == TypeKind.TYPE_ASM_REG_X64_XMM { return "@asm_reg_x64_xmm" as &byte; }
+    if type.kind == TypeKind.TYPE_ASM_REG_X64_YMM { return "@asm_reg_x64_ymm" as &byte; }
+    if type.kind == TypeKind.TYPE_ASM_REG_X64_ZMM { return "@asm_reg_x64_zmm" as &byte; }
+    if type.kind == TypeKind.TYPE_ASM_REG_ARM64_V { return "@asm_reg_arm64_v" as &byte; }
+    if type.kind == TypeKind.TYPE_ASM_REG_RISCV_V { return "@asm_reg_riscv_v" as &byte; }
+    if type.kind == TypeKind.TYPE_ASM_REG_RISCV_F { return "@asm_reg_riscv_f" as &byte; }
+    if type.kind == TypeKind.TYPE_ASM_REG_RISCV_D { return "@asm_reg_riscv_d" as &byte; }
+    if type.kind == TypeKind.TYPE_ASM_MEM { return "@asm_mem" as &byte; }
+    if type.kind == TypeKind.TYPE_VA_LIST { return "va_list" as &byte; }
+    if is_struct_type(type) != 0 {
+        if type.struct_name != null {
+            return type.struct_name;
+        }
+        return "struct" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_ENUM {
+        if type.enum_name != null {
+            return type.enum_name;
+        }
+        return "enum" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_UNION {
+        if type.union_name != null {
+            return type.union_name;
+        }
+        return "union" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_INTERFACE {
+        if type.interface_name != null {
+            return type.interface_name;
+        }
+        return "interface" as &byte;
+    }
+    if is_pointer_type(type) != 0 {
+        if type.pointer_to == null {
+            return "&?" as &byte;
+        }
+        const inner: &byte = type_to_string(arena, type.pointer_to[0]);
+        const buf: &byte = compiler_arena_alloc(arena, strlen(inner as *byte) + 3) as &byte;
+        if buf != null {
+            if type.is_ffi_pointer != 0 {
+                sprintf(buf as *byte, "*%s" as *byte, inner as *byte);
+            } else {
+                sprintf(buf as *byte, "&%s" as *byte, inner as *byte);
+            }
+            return buf;
+        }
+        return "&?" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_ARRAY {
+        if type.element_type == null {
+            return "[?]" as &byte;
+        }
+        const inner: &byte = type_to_string(arena, type.element_type[0]);
+        const buf: &byte = compiler_arena_alloc(arena, strlen(inner as *byte) + 24) as &byte;
+        if buf != null {
+            sprintf(buf as *byte, "[%s: %d]" as *byte, inner as *byte, type.array_size);
+            return buf;
+        }
+        return "[?]" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_SLICE {
+        if type.slice_element_type == null {
+            return "&[?]" as &byte;
+        }
+        const inner: &byte = type_to_string(arena, type.slice_element_type[0]);
+        const buf: &byte = compiler_arena_alloc(arena, strlen(inner as *byte) + 8) as &byte;
+        if buf != null {
+            sprintf(buf as *byte, "&[%s]" as *byte, inner as *byte);
+            return buf;
+        }
+        return "&[?]" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_ERROR_UNION {
+        if type.error_union_payload_type == null {
+            return "!?" as &byte;
+        }
+        const inner: &byte = type_to_string(arena, type.error_union_payload_type[0]);
+        const buf: &byte = compiler_arena_alloc(arena, strlen(inner as *byte) + 2) as &byte;
+        if buf != null {
+            sprintf(buf as *byte, "!%s" as *byte, inner as *byte);
+            return buf;
+        }
+        return "!?" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_TUPLE {
+        return "(...)" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_ERROR {
+        return "error" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_INT_LIMIT {
+        return "int_limit" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_ATOMIC {
+        if type.atomic_inner_type == null {
+            return "atomic ?" as &byte;
+        }
+        const inner: &byte = type_to_string(arena, type.atomic_inner_type[0]);
+        const buf: &byte = compiler_arena_alloc(arena, strlen(inner as *byte) + 8) as &byte;
+        if buf != null {
+            sprintf(buf as *byte, "atomic %s" as *byte, inner as *byte);
+            return buf;
+        }
+        return "atomic ?" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_VECTOR {
+        if type.element_type == null {
+            return "@vector(?, ?)" as &byte;
+        }
+        const inner: &byte = type_to_string(arena, type.element_type[0]);
+        const buf: &byte = compiler_arena_alloc(arena, strlen(inner as *byte) + 32) as &byte;
+        if buf != null {
+            sprintf(buf as *byte, "@vector(%s, %d)" as *byte, inner as *byte, type.array_size);
+            return buf;
+        }
+        return "@vector(?, ?)" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_MASK {
+        const buf: &byte = compiler_arena_alloc(arena, 24) as &byte;
+        if buf != null {
+            sprintf(buf as *byte, "@mask(%d)" as *byte, type.array_size);
+            return buf;
+        }
+        return "@mask(?)" as &byte;
+    }
+    if type.kind == TypeKind.TYPE_GENERIC_PARAM {
+        if type.generic_param_name != null {
+            return type.generic_param_name;
+        }
+        return "T" as &byte;
+    }
+    return "unknown" as &byte;
+}
+
+// ===== 类型判断 =====
+
+// 是否为整数类型
+fn is_integer_type(k: TypeKind) i32 {
+    if k == TypeKind.TYPE_I8 || k == TypeKind.TYPE_I16 || k == TypeKind.TYPE_I32 || k == TypeKind.TYPE_I64 {
+        return 1;
+    }
+    if k == TypeKind.TYPE_U8 || k == TypeKind.TYPE_U16 || k == TypeKind.TYPE_U32 || k == TypeKind.TYPE_USIZE || k == TypeKind.TYPE_U64 {
+        return 1;
+    }
+    if k == TypeKind.TYPE_BYTE {
+        return 1;
+    }
+    return 0;
+}
+
+// 是否为浮点类型
+fn is_float_type(k: TypeKind) i32 {
+    if k == TypeKind.TYPE_F32 || k == TypeKind.TYPE_F64 {
+        return 1;
+    }
+    return 0;
+}
+
+// 是否为无符号整数类型
+fn is_unsigned_type(k: TypeKind) i32 {
+    if k == TypeKind.TYPE_U8 || k == TypeKind.TYPE_U16 || 
+       k == TypeKind.TYPE_U32 || k == TypeKind.TYPE_USIZE || k == TypeKind.TYPE_U64 {
+        return 1;
+    }
+    if k == TypeKind.TYPE_BYTE {
+        return 1;
+    }
+    return 0;
+}
+
+// 是否为数值类型
+fn is_numeric_type(k: TypeKind) i32 {
+    if is_integer_type(k) != 0 || is_float_type(k) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+// @vector.reduce_add：允许的向量元素类型（与 SIMD 第一阶段元素集一致，不含 bool/byte/usize）
+fn simd_reduce_add_elem_ok(elem: Type) i32 {
+    if elem.kind == TypeKind.TYPE_I8 || elem.kind == TypeKind.TYPE_I16 || elem.kind == TypeKind.TYPE_I32 || elem.kind == TypeKind.TYPE_I64 {
+        return 1;
+    }
+    if elem.kind == TypeKind.TYPE_U8 || elem.kind == TypeKind.TYPE_U16 || elem.kind == TypeKind.TYPE_U32 || elem.kind == TypeKind.TYPE_U64 {
+        return 1;
+    }
+    if elem.kind == TypeKind.TYPE_F32 || elem.kind == TypeKind.TYPE_F64 {
+        return 1;
+    }
+    return 0;
+}
+
+// ===== 约束检查 =====
+
+// 检查类型是否满足内置约束
+fn type_satisfies_builtin_constraint(type: Type, constraint_name: &byte) i32 {
+    if constraint_name == null {
+        return 0;
+    }
+    
+    // Ord 约束：可比较的类型
+    if strcmp(constraint_name as *byte, "Ord" as *byte) == 0 {
+        if is_numeric_type(type.kind) != 0 || type.kind == TypeKind.TYPE_BOOL {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // Clone 约束：可复制的类型
+    if strcmp(constraint_name as *byte, "Clone" as *byte) == 0 {
+        if is_numeric_type(type.kind) != 0 || type.kind == TypeKind.TYPE_BOOL {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // Default 约束：有默认值的类型
+    if strcmp(constraint_name as *byte, "Default" as *byte) == 0 {
+        if is_numeric_type(type.kind) != 0 || type.kind == TypeKind.TYPE_BOOL {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // Copy 约束：可位复制的类型
+    if strcmp(constraint_name as *byte, "Copy" as *byte) == 0 {
+        if is_numeric_type(type.kind) != 0 || type.kind == TypeKind.TYPE_BOOL || type.kind == TypeKind.TYPE_POINTER {
+            return 1;
+        }
+        return 0;
+    }
+    
+    // Eq 约束：可判等的类型
+    if strcmp(constraint_name as *byte, "Eq" as *byte) == 0 {
+        if is_numeric_type(type.kind) != 0 || type.kind == TypeKind.TYPE_BOOL || type.kind == TypeKind.TYPE_POINTER {
+            return 1;
+        }
+        return 0;
+    }
+    
+    return 0;
+}
+
+// 检查类型是否满足约束
+fn type_satisfies_constraint(checker: &TypeChecker, type: Type, constraint_name: &byte) i32 {
+    if constraint_name == null {
+        return 0;
+    }
+    
+    if type_satisfies_builtin_constraint(type, constraint_name) != 0 {
+        return 1;
+    }
+
+    if type.kind == TypeKind.TYPE_GENERIC_PARAM && type.generic_param_name != null &&
+        checker != null && checker.current_type_params != null {
+        var gi: i32 = 0;
+        while gi < checker.current_type_param_count {
+            if checker.current_type_params[gi].name != null &&
+                str_equals(checker.current_type_params[gi].name, type.generic_param_name) != 0 {
+                var ci: i32 = 0;
+                while ci < checker.current_type_params[gi].constraint_count {
+                    const cur_constraint: &byte = checker.current_type_params[gi].constraints[ci];
+                    if cur_constraint != null && str_equals(cur_constraint, constraint_name) != 0 {
+                        return 1;
+                    }
+                    ci = ci + 1;
+                }
+                break;
+            }
+            gi = gi + 1;
+        }
+    }
+    
+    if type.kind == TypeKind.TYPE_STRUCT && type.struct_name != null && 
+        checker != null && checker.program_node != null {
+        const struct_decl: &ASTNode = find_struct_decl_from_program(checker.program_node, type.struct_name as *byte);
+        if struct_decl != null {
+            var i: i32 = 0;
+            while i < struct_decl.struct_decl_interface_count {
+                if struct_decl.struct_decl_interface_names[i] != null &&
+                    strcmp(struct_decl.struct_decl_interface_names[i] as *byte, constraint_name as *byte) == 0 {
+                    return 1;
+                }
+                i = i + 1;
+            }
+        }
+    }
+    
+    return 0;
+}
+
+// 检查类型参数的所有约束是否满足
+fn check_type_param_constraints(checker: &TypeChecker, type: Type, 
+                                 type_param: &TypeParam, node: &ASTNode,
+                                 param_name: &byte) i32 {
+    if type_param == null || type_param.constraint_count == 0 {
+        return 1;
+    }
+    
+    var i: i32 = 0;
+    while i < type_param.constraint_count {
+        const constraint: *byte = type_param.constraints[i];
+        if constraint != null && type_satisfies_constraint(checker, type, constraint) == 0 {
+            var buf: [byte: MAX_BASE_NAME_LEN * 2] = [];
+            const type_name: &byte = type_to_string(checker.arena, copy_type(&type));
+            snprintf(buf as *byte, MAX_BASE_NAME_LEN * 2, 
+                     "类型 '%s' 不满足泛型参数 '%s' 的约束 '%s'" as *byte,
+                     type_name as *byte,
+                     param_name,
+                     constraint);
+            checker_report_error(checker, node, buf as *byte);
+            return 0;
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// ===== 类型解析 =====
+
+// 将 max/min 节点解析为指定整数类型
+fn resolve_int_limit_node(node: &ASTNode, type: Type) void {
+    if node == null || node.type != ASTNodeType.AST_INT_LIMIT {
+        return;
+    }
+    if is_integer_type(type.kind) == 0 {
+        return;
+    }
+    node.int_limit_resolved_kind = type.kind;
+}
+
+// ===== 类型比较 =====
+
+// 类型比较函数
+fn type_equals(t1: Type, t2: Type) i32 {
+    // 兼容：泛型参数在某些上下文会被推断为同名结构体（如 T）
+    if t1.kind == TypeKind.TYPE_GENERIC_PARAM && t1.generic_param_name != null &&
+        t2.kind == TypeKind.TYPE_STRUCT && t2.struct_name != null &&
+        str_equals(t1.generic_param_name, t2.struct_name) != 0 {
+        return 1;
+    }
+    if t2.kind == TypeKind.TYPE_GENERIC_PARAM && t2.generic_param_name != null &&
+        t1.kind == TypeKind.TYPE_STRUCT && t1.struct_name != null &&
+        str_equals(t2.generic_param_name, t1.struct_name) != 0 {
+        return 1;
+    }
+    if t1.kind != t2.kind {
+        return 0;
+    }
+    
+    if t1.kind == TypeKind.TYPE_ENUM {
+        if t1.enum_name == null && t2.enum_name == null {
+            return 1;
+        }
+        if t1.enum_name == null || t2.enum_name == null {
+            return 0;
+        }
+        return str_equals(t1.enum_name, t2.enum_name);
+    }
+    
+    if t1.kind == TypeKind.TYPE_STRUCT {
+        if t1.struct_name == null && t2.struct_name == null {
+            return 1;
+        }
+        if t1.struct_name == null || t2.struct_name == null {
+            return 0;
+        }
+        if str_equals(t1.struct_name, t2.struct_name) == 0 {
+            return 0;
+        }
+        if t1.struct_type_arg_count != t2.struct_type_arg_count {
+            return 0;
+        }
+        if t1.struct_type_arg_count > 0 && (t1.struct_type_args == null || t2.struct_type_args == null) {
+            return 0;
+        }
+        var si: i32 = 0;
+        while si < t1.struct_type_arg_count {
+            if type_equals(t1.struct_type_args[si], t2.struct_type_args[si]) == 0 {
+                return 0;
+            }
+            si = si + 1;
+        }
+        return 1;
+    }
+    
+    if t1.kind == TypeKind.TYPE_UNION {
+        if t1.union_name == null && t2.union_name == null {
+            return 1;
+        }
+        if t1.union_name == null || t2.union_name == null {
+            return 0;
+        }
+        if str_equals(t1.union_name, t2.union_name) == 0 {
+            return 0;
+        }
+        if t1.union_type_arg_count != t2.union_type_arg_count {
+            return 0;
+        }
+        if t1.union_type_arg_count > 0 && (t1.union_type_args == null || t2.union_type_args == null) {
+            return 0;
+        }
+        var ui: i32 = 0;
+        while ui < t1.union_type_arg_count {
+            if type_equals(t1.union_type_args[ui], t2.union_type_args[ui]) == 0 {
+                return 0;
+            }
+            ui = ui + 1;
+        }
+        return 1;
+    }
+    
+    if t1.kind == TypeKind.TYPE_INTERFACE {
+        if t1.interface_name == null && t2.interface_name == null {
+            return 1;
+        }
+        if t1.interface_name == null || t2.interface_name == null {
+            return 0;
+        }
+        if str_equals(t1.interface_name, t2.interface_name) == 0 {
+            return 0;
+        }
+        if t1.interface_type_arg_count != t2.interface_type_arg_count {
+            return 0;
+        }
+        if t1.interface_type_arg_count > 0 && (t1.interface_type_args == null || t2.interface_type_args == null) {
+            return 0;
+        }
+        var ii: i32 = 0;
+        while ii < t1.interface_type_arg_count {
+            if type_equals(t1.interface_type_args[ii], t2.interface_type_args[ii]) == 0 {
+                return 0;
+            }
+            ii = ii + 1;
+        }
+        return 1;
+    }
+    
+    if t1.kind == TypeKind.TYPE_POINTER {
+        if t1.is_ffi_pointer != t2.is_ffi_pointer {
+            return 0;
+        }
+        if t1.pointer_to == null && t2.pointer_to == null {
+            return 1;
+        }
+        if t1.pointer_to == null || t2.pointer_to == null {
+            return 0;
+        }
+        return type_equals(t1.pointer_to[0], t2.pointer_to[0]);
+    }
+    
+    if t1.kind == TypeKind.TYPE_ARRAY {
+        if t1.array_size != t2.array_size {
+            return 0;
+        }
+        if t1.element_type == null && t2.element_type == null {
+            return 1;
+        }
+        if t1.element_type == null || t2.element_type == null {
+            return 0;
+        }
+        return type_equals(t1.element_type[0], t2.element_type[0]);
+    }
+    
+    if t1.kind == TypeKind.TYPE_SLICE {
+        if t2.kind != TypeKind.TYPE_SLICE {
+            return 0;
+        }
+        if t1.slice_element_is_const != t2.slice_element_is_const {
+            return 0;
+        }
+        if t1.slice_element_type == null && t2.slice_element_type == null {
+            return 1;
+        }
+        if t1.slice_element_type == null || t2.slice_element_type == null {
+            return 0;
+        }
+        return type_equals(t1.slice_element_type[0], t2.slice_element_type[0]);
+    }
+    
+    if t1.kind == TypeKind.TYPE_TUPLE {
+        if t1.tuple_count != t2.tuple_count {
+            return 0;
+        }
+        if t1.tuple_element_types == null && t2.tuple_element_types == null {
+            return 1;
+        }
+        if t1.tuple_element_types == null || t2.tuple_element_types == null {
+            return 0;
+        }
+        var i: i32 = 0;
+        while i < t1.tuple_count {
+            if type_equals(t1.tuple_element_types[i], t2.tuple_element_types[i]) == 0 {
+                return 0;
+            }
+            i = i + 1;
+        }
+        return 1;
+    }
+    
+    if t1.kind == TypeKind.TYPE_ERROR_UNION {
+        if t2.kind != TypeKind.TYPE_ERROR_UNION {
+            return 0;
+        }
+        if t1.error_union_payload_type == null && t2.error_union_payload_type == null {
+            return 1;
+        }
+        if t1.error_union_payload_type == null || t2.error_union_payload_type == null {
+            return 0;
+        }
+        return type_equals(t1.error_union_payload_type[0], t2.error_union_payload_type[0]);
+    }
+    
+    if t1.kind == TypeKind.TYPE_ERROR {
+        if t2.kind == TypeKind.TYPE_ERROR && t1.error_error_id == t2.error_error_id {
+            return 1;
+        }
+        return 0;
+    }
+    
+    if t1.kind == TypeKind.TYPE_ATOMIC {
+        if t2.kind != TypeKind.TYPE_ATOMIC {
+            return 0;
+        }
+        if t1.atomic_inner_type == null && t2.atomic_inner_type == null {
+            return 1;
+        }
+        if t1.atomic_inner_type == null || t2.atomic_inner_type == null {
+            return 0;
+        }
+        return type_equals(t1.atomic_inner_type[0], t2.atomic_inner_type[0]);
+    }
+
+    if t1.kind == TypeKind.TYPE_VECTOR {
+        if t2.kind != TypeKind.TYPE_VECTOR {
+            return 0;
+        }
+        if t1.array_size != t2.array_size {
+            return 0;
+        }
+        if t1.element_type == null && t2.element_type == null {
+            return 1;
+        }
+        if t1.element_type == null || t2.element_type == null {
+            return 0;
+        }
+        return type_equals(t1.element_type[0], t2.element_type[0]);
+    }
+
+    if t1.kind == TypeKind.TYPE_MASK {
+        if t2.kind != TypeKind.TYPE_MASK {
+            return 0;
+        }
+        if t1.array_size == t2.array_size {
+            return 1;
+        }
+        return 0;
+    }
+    
+    if t1.kind == TypeKind.TYPE_GENERIC_PARAM {
+        if t2.kind != TypeKind.TYPE_GENERIC_PARAM {
+            return 0;
+        }
+        if t1.generic_param_name == null && t2.generic_param_name == null {
+            return 1;
+        }
+        if t1.generic_param_name == null || t2.generic_param_name == null {
+            return 0;
+        }
+        return str_equals(t1.generic_param_name, t2.generic_param_name);
+    }
+    
+    return 1;
+}
+
+// 检查类型是否可以隐式转换
+fn type_can_implicitly_convert(from: Type, to: Type) i32 {
+    if type_equals(from, to) != 0 {
+        return 1;
+    }
+    
+    // byte → i32
+    if from.kind == TypeKind.TYPE_BYTE && to.kind == TypeKind.TYPE_I32 {
+        return 1;
+    }
+    
+    // i32 ↔ usize
+    if from.kind == TypeKind.TYPE_I32 && to.kind == TypeKind.TYPE_USIZE {
+        return 1;
+    }
+    if from.kind == TypeKind.TYPE_USIZE && to.kind == TypeKind.TYPE_I32 {
+        return 1;
+    }
+    
+    // i32 字面量 → 其他整数类型
+    if from.kind == TypeKind.TYPE_I32 && is_integer_type(to.kind) != 0 {
+        return 1;
+    }
+    
+    // null → 指针
+    if from.kind == TypeKind.TYPE_VOID && to.kind == TypeKind.TYPE_POINTER {
+        return 1;
+    }
+    
+    // 指针到切片 → 切片（return &base[start:len] 时表达式类型为 &(slice)，期望类型为 slice；语义为“解引用”得到切片值）
+    if from.kind == TypeKind.TYPE_POINTER && from.pointer_to != null &&
+        from.pointer_to[0].kind == TypeKind.TYPE_SLICE &&
+        to.kind == TypeKind.TYPE_SLICE {
+        return 1;
+    }
+    
+    return 0;
+}
+
+// ===== 类型构造函数 =====
+
+// 创建 void 类型（用于错误返回）
+fn make_void_type() Type {
+    return Type {
+        kind: TypeKind.TYPE_VOID,
+        data: make_empty_type_data(),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建 i8 类型
+fn make_i8_type() Type {
+    return Type {
+        kind: TypeKind.TYPE_I8,
+        data: make_empty_type_data(),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建 i16 类型
+fn make_i16_type() Type {
+    return Type {
+        kind: TypeKind.TYPE_I16,
+        data: make_empty_type_data(),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建 i32 类型
+fn make_i32_type() Type {
+    return Type {
+        kind: TypeKind.TYPE_I32,
+        data: make_empty_type_data(),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建 i64 类型
+fn make_i64_type() Type {
+    return Type {
+        kind: TypeKind.TYPE_I64,
+        data: make_empty_type_data(),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建 f32 类型
+fn make_f32_type() Type {
+    return Type {
+        kind: TypeKind.TYPE_F32,
+        data: make_empty_type_data(),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建 f64 类型
+fn make_f64_type() Type {
+    return Type {
+        kind: TypeKind.TYPE_F64,
+        data: make_empty_type_data(),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建 u8 类型
+fn make_u8_type() Type {
+    return Type {
+        kind: TypeKind.TYPE_U8,
+        data: make_empty_type_data(),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建 u16 类型
+fn make_u16_type() Type {
+    return Type {
+        kind: TypeKind.TYPE_U16,
+        data: make_empty_type_data(),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建 u32 类型
+fn make_u32_type() Type {
+    return Type {
+        kind: TypeKind.TYPE_U32,
+        data: make_empty_type_data(),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建 u64 类型
+fn make_u64_type() Type {
+    return Type {
+        kind: TypeKind.TYPE_U64,
+        data: make_empty_type_data(),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建 bool 类型
+fn make_bool_type() Type {
+    return Type {
+        kind: TypeKind.TYPE_BOOL,
+        data: make_empty_type_data(),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建 usize 类型
+fn make_usize_type() Type {
+    return Type {
+        kind: TypeKind.TYPE_USIZE,
+        data: make_empty_type_data(),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建指针类型
+// pointee: 指向的类型（需从 arena 分配）
+// is_ffi: 1 表示 FFI 指针 (*T)，0 表示引用 (&T)
+fn make_pointer_type(arena: &CompilerArena, pointee: &Type, is_ffi: i32) Type {
+    if arena == null || pointee == null {
+        return make_void_type();
+    }
+    var pd: PointerData = PointerData { pointee: pointee, is_ffi: is_ffi };
+    return Type {
+        kind: TypeKind.TYPE_POINTER,
+        data: TypeData.pointer(pd),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: pointee,
+        is_ffi_pointer: is_ffi,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建数组类型
+// element: 元素类型（需从 arena 分配）
+// size: 数组大小
+fn make_array_type(arena: &CompilerArena, element: &Type, size: i32) Type {
+    if arena == null || element == null {
+        return make_void_type();
+    }
+    var ad: ArrayData = ArrayData { element: element, size: size };
+    return Type {
+        kind: TypeKind.TYPE_ARRAY,
+        data: TypeData.array(ad),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: element,
+        array_size: size,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建切片类型
+// element: 元素类型（需从 arena 分配）
+fn make_slice_type(arena: &CompilerArena, element: &Type) Type {
+    if arena == null || element == null {
+        return make_void_type();
+    }
+    var sd: SliceData = SliceData { element: element, len: 0 };
+    return Type {
+        kind: TypeKind.TYPE_SLICE,
+        data: TypeData.slice(sd),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: element,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建命名类型（enum/struct/union/interface）
+// kind: TYPE_ENUM, TYPE_STRUCT, TYPE_UNION, TYPE_INTERFACE
+// name: 类型名称
+fn make_named_type(kind: TypeKind, name: &byte) Type {
+    var t: Type = Type {
+        kind: kind,
+        data: TypeData.named(name),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+    if kind == TypeKind.TYPE_ENUM {
+        t.enum_name = name;
+    } else if kind == TypeKind.TYPE_STRUCT {
+        t.struct_name = name;
+    } else if kind == TypeKind.TYPE_UNION {
+        t.union_name = name;
+    } else if kind == TypeKind.TYPE_INTERFACE {
+        t.interface_name = name;
+    }
+    return t;
+}
+
+// 创建错误联合类型
+// payload: 负载类型（需从 arena 分配）；codegen 用其从 match 成功臂推导 try 的 !T
+export fn make_error_union_type(arena: &CompilerArena, payload: &Type) Type {
+    if arena == null || payload == null {
+        return make_void_type();
+    }
+    var eud: ErrorUnionData = ErrorUnionData { payload: payload, error_id: 0 };
+    return Type {
+        kind: TypeKind.TYPE_ERROR_UNION,
+        data: TypeData.error_union(eud),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: payload,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 创建原子类型
+// inner: 内部类型（需从 arena 分配）
+fn make_atomic_type(arena: &CompilerArena, inner: &Type) Type {
+    if arena == null || inner == null {
+        return make_void_type();
+    }
+    var ad: AtomicData = AtomicData { inner: inner };
+    return Type {
+        kind: TypeKind.TYPE_ATOMIC,
+        data: TypeData.atomic_data(ad),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: 0,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: inner,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+fn make_vector_type(arena: &CompilerArena, element: &Type, lanes: i32) Type {
+    if arena == null || element == null || lanes <= 0 {
+        return make_void_type();
+    }
+    const elem_ptr: &Type = compiler_arena_alloc(arena, @size_of(Type)) as &Type;
+    if elem_ptr == null {
+        return make_void_type();
+    }
+    elem_ptr[0] = copy_type(element);
+    return Type {
+        kind: TypeKind.TYPE_VECTOR,
+        data: make_empty_type_data(),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: elem_ptr,
+        array_size: lanes,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+fn make_mask_type(lanes: i32) Type {
+    if lanes <= 0 {
+        return make_void_type();
+    }
+    return Type {
+        kind: TypeKind.TYPE_MASK,
+        data: make_empty_type_data(),
+        enum_name: null,
+        interface_name: null,
+        interface_type_args: null,
+        interface_type_arg_count: 0,
+        struct_name: null,
+        union_name: null,
+        pointer_to: null,
+        is_ffi_pointer: 0,
+        element_type: null,
+        array_size: lanes,
+        slice_element_type: null,
+        slice_len: 0,
+        slice_element_is_const: 0,
+        tuple_element_types: null,
+        tuple_count: 0,
+        error_union_payload_type: null,
+        error_error_id: 0,
+        atomic_inner_type: null,
+        generic_param_name: null,
+        struct_type_args: null,
+        struct_type_arg_count: 0,
+        union_type_args: null,
+        union_type_arg_count: 0,
+    };
+}
+
+// 检查是否为 void 类型（通常表示错误）
+fn is_void_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_VOID {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为指针类型
+fn is_pointer_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_POINTER {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为错误类型
+fn is_error_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_ERROR {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为错误联合类型
+fn is_error_union_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_ERROR_UNION {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为布尔类型
+fn is_bool_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_BOOL {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为结构体类型
+fn is_struct_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_STRUCT {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为联合体类型
+fn is_union_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_UNION {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为数组类型
+fn is_array_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_ARRAY {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为切片类型
+fn is_slice_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_SLICE {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为元组类型
+fn is_tuple_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_TUPLE {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为枚举类型
+fn is_enum_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_ENUM {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为接口类型
+fn is_interface_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_INTERFACE {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为 int_limit 类型
+fn is_int_limit_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_INT_LIMIT {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为原子类型
+fn is_atomic_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_ATOMIC {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为泛型参数类型
+fn is_generic_param_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_GENERIC_PARAM {
+        return 1;
+    }
+    return 0;
+}
+
+// ===== @asm 寄存器类型辅助函数 =====
+
+// 检查是否为 ASM 寄存器类型（通用）
+fn is_asm_reg_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_ASM_REG {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为 ASM 内存操作类型
+fn is_asm_mem_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_ASM_MEM {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为 va_list 类型
+fn is_va_list_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_VA_LIST {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为任意 ASM 寄存器类型（包括平台特定）
+fn is_any_asm_reg_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_ASM_REG ||
+       t.kind == TypeKind.TYPE_ASM_REG_X64 ||
+       t.kind == TypeKind.TYPE_ASM_REG_X86 ||
+       t.kind == TypeKind.TYPE_ASM_REG_ARM64 ||
+       t.kind == TypeKind.TYPE_ASM_REG_RISCV ||
+       t.kind == TypeKind.TYPE_ASM_REG_X64_XMM ||
+       t.kind == TypeKind.TYPE_ASM_REG_X64_YMM ||
+       t.kind == TypeKind.TYPE_ASM_REG_X64_ZMM ||
+       t.kind == TypeKind.TYPE_ASM_REG_ARM64_V ||
+       t.kind == TypeKind.TYPE_ASM_REG_RISCV_V ||
+       t.kind == TypeKind.TYPE_ASM_REG_RISCV_F ||
+       t.kind == TypeKind.TYPE_ASM_REG_RISCV_D {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为 x86-64 寄存器类型
+fn is_x64_reg_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_ASM_REG_X64 ||
+       t.kind == TypeKind.TYPE_ASM_REG_X64_XMM ||
+       t.kind == TypeKind.TYPE_ASM_REG_X64_YMM ||
+       t.kind == TypeKind.TYPE_ASM_REG_X64_ZMM {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为 x86 寄存器类型
+fn is_x86_reg_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_ASM_REG_X86 {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为 ARM64 寄存器类型
+fn is_arm64_reg_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_ASM_REG_ARM64 ||
+       t.kind == TypeKind.TYPE_ASM_REG_ARM64_V {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为 RISC-V 寄存器类型
+fn is_riscv_reg_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_ASM_REG_RISCV ||
+       t.kind == TypeKind.TYPE_ASM_REG_RISCV_V ||
+       t.kind == TypeKind.TYPE_ASM_REG_RISCV_F ||
+       t.kind == TypeKind.TYPE_ASM_REG_RISCV_D {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查是否为 SIMD 寄存器类型
+fn is_simd_reg_type(t: Type) i32 {
+    if t.kind == TypeKind.TYPE_ASM_REG_X64_XMM ||
+       t.kind == TypeKind.TYPE_ASM_REG_X64_YMM ||
+       t.kind == TypeKind.TYPE_ASM_REG_X64_ZMM ||
+       t.kind == TypeKind.TYPE_ASM_REG_ARM64_V ||
+       t.kind == TypeKind.TYPE_ASM_REG_RISCV_V {
+        return 1;
+    }
+    return 0;
+}
+
+// 获取寄存器类型名称（用于错误提示）
+fn asm_reg_type_name(t: Type) &byte {
+    if t.kind == TypeKind.TYPE_ASM_REG { return "@asm_reg" as &byte; }
+    if t.kind == TypeKind.TYPE_ASM_REG_X64 { return "@asm_reg_x64" as &byte; }
+    if t.kind == TypeKind.TYPE_ASM_REG_X86 { return "@asm_reg_x86" as &byte; }
+    if t.kind == TypeKind.TYPE_ASM_REG_ARM64 { return "@asm_reg_arm64" as &byte; }
+    if t.kind == TypeKind.TYPE_ASM_REG_RISCV { return "@asm_reg_riscv" as &byte; }
+    if t.kind == TypeKind.TYPE_ASM_REG_X64_XMM { return "@asm_reg_x64_xmm" as &byte; }
+    if t.kind == TypeKind.TYPE_ASM_REG_X64_YMM { return "@asm_reg_x64_ymm" as &byte; }
+    if t.kind == TypeKind.TYPE_ASM_REG_X64_ZMM { return "@asm_reg_x64_zmm" as &byte; }
+    if t.kind == TypeKind.TYPE_ASM_REG_ARM64_V { return "@asm_reg_arm64_v" as &byte; }
+    if t.kind == TypeKind.TYPE_ASM_REG_RISCV_V { return "@asm_reg_riscv_v" as &byte; }
+    if t.kind == TypeKind.TYPE_ASM_REG_RISCV_F { return "@asm_reg_riscv_f" as &byte; }
+    if t.kind == TypeKind.TYPE_ASM_REG_RISCV_D { return "@asm_reg_riscv_d" as &byte; }
+    if t.kind == TypeKind.TYPE_ASM_MEM { return "@asm_mem" as &byte; }
+    return "unknown" as &byte;
+}
+
+// ===== @asm 并发安全辅助函数 =====
+
+// 检查是否为指向原子类型的指针
+// 例如: &atomic i32 返回 1, &i32 返回 0
+fn is_pointer_to_atomic(t: Type) i32 {
+    // 必须是指针类型
+    if t.kind != TypeKind.TYPE_POINTER {
+        return 0;
+    }
+    // 检查指针指向的类型
+    if t.pointer_to == null {
+        return 0;
+    }
+    // 指向的类型必须是 atomic 类型
+    if t.pointer_to.kind == TypeKind.TYPE_ATOMIC {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查字符串是否以指定前缀开始
+fn str_starts_with(str: &byte, prefix: &byte) i32 {
+    if str == null || prefix == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while prefix[i] != 0 {
+        if str[i] != prefix[i] {
+            return 0;
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// 检查字符串是否包含指定子串
+fn str_contains(str: &byte, substr: &byte) i32 {
+    if str == null || substr == null {
+        return 0;
+    }
+    var i: i32 = 0;
+    while str[i] != 0 {
+        var j: i32 = 0;
+        var is_match: i32 = 1;
+        while substr[j] != 0 {
+            if str[i + j] == 0 || str[i + j] != substr[j] {
+                is_match = 0;
+                break;
+            }
+            j = j + 1;
+        }
+        if is_match != 0 {
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 检查是否为原子操作指令（包含 lock 前缀）
+fn is_atomic_instruction(instr: &byte) i32 {
+    if instr == null {
+        return 0;
+    }
+    // 检查 "lock " 前缀（注意有空格）
+    if str_starts_with(instr, "lock " as &byte) != 0 {
+        return 1;
+    }
+    // 检查其他原子操作指令
+    // x86-64 原子指令: xadd, xchg, cmpxchg
+    if str_contains(instr, "xadd" as &byte) != 0 {
+        return 1;
+    }
+    if str_contains(instr, "xchg" as &byte) != 0 {
+        return 1;
+    }
+    if str_contains(instr, "cmpxchg" as &byte) != 0 {
+        return 1;
+    }
+    // 内存屏障指令
+    if str_contains(instr, "mfence" as &byte) != 0 {
+        return 1;
+    }
+    if str_contains(instr, "sfence" as &byte) != 0 {
+        return 1;
+    }
+    if str_contains(instr, "lfence" as &byte) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+// 检查指令是否需要内存屏障语义
+fn requires_memory_barrier(instr: &byte) i32 {
+    if instr == null {
+        return 0;
+    }
+    // lock 前缀的指令需要内存屏障
+    if str_starts_with(instr, "lock " as &byte) != 0 {
+        return 1;
+    }
+    // 内存屏障指令
+    if str_contains(instr, "mfence" as &byte) != 0 {
+        return 1;
+    }
+    if str_contains(instr, "sfence" as &byte) != 0 {
+        return 1;
+    }
+    if str_contains(instr, "lfence" as &byte) != 0 {
+        return 1;
+    }
+    return 0;
+}
+
+// 报告「场景说明：期望某类型，推断为另一类型」（如 while 条件须为 bool、逻辑非操作数须为 bool）
+fn checker_report_error_type_kind_mismatch(checker: &TypeChecker, node: &ASTNode, scene: &byte, expected: Type, actual: Type) void {
+    if checker == null || checker.arena == null || scene == null {
+        return;
+    }
+    const exs: &byte = type_to_string(checker.arena, copy_type(&expected));
+    const acs: &byte = type_to_string(checker.arena, copy_type(&actual));
+    var buf: [byte: 384] = [];
+    snprintf(&buf[0] as *byte, 384 as usize, "%s：期望类型 %s，推断为 %s" as *byte, scene as *byte, exs as *byte, acs as *byte);
+    checker_report_error(checker, node, &buf[0] as &byte);
+}
+
+// 根据表达式推断实际类型，与 expected 对比报错（scene 为完整短句，如「联合体变体构造实参」）
+fn checker_report_expected_vs_inferred(checker: &TypeChecker, expr: &ASTNode, scene: &byte, expected: Type) void {
+    if checker == null || expr == null || scene == null || checker.arena == null {
+        return;
+    }
+    const actual: Type = checker_infer_type(checker, expr);
+    checker_report_error_type_kind_mismatch(checker, expr, scene, copy_type(&expected), copy_type(&actual));
+}
+
+// scene_prefix 如「函数调用」，param_index 从 1 起
+fn checker_report_param_mismatch_by_index(checker: &TypeChecker, arg: &ASTNode, scene_prefix: &byte, param_index: i32, expected: Type) void {
+    if arg == null || scene_prefix == null || checker == null {
+        return;
+    }
+    var sc: [byte: 128] = [];
+    snprintf(&sc[0] as *byte, 128 as usize, "%s第 %d 个参数" as *byte, scene_prefix as *byte, param_index);
+    checker_report_expected_vs_inferred(checker, arg, &sc[0] as &byte, expected);
+}

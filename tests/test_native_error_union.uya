@@ -1,0 +1,116 @@
+// test_native_error_union.uya - native backend error-union smoke.
+
+use codegen.native.x86_64;
+use std.testing.assert_eq_i32;
+use std.testing.expect;
+
+error NativeErrorFailure;
+
+struct NativeErrorUnionSlot {
+    error_id: i64,
+    payload: i64,
+}
+
+fn native_error_bval(buf: &byte, i: usize) i32 {
+    return buf[i] as i32;
+}
+
+fn native_error_tag_offset() i32 {
+    return 0;
+}
+
+fn native_error_payload_offset() i32 {
+    return @size_of(i64) as i32;
+}
+
+fn native_error_ok() !i32 {
+    return 41;
+}
+
+fn native_error_fail() !i32 {
+    return error.NativeErrorFailure;
+}
+
+fn native_error_add_one() !i32 {
+    const value: i32 = try native_error_ok();
+    return value + 1;
+}
+
+fn native_error_propagate() !i32 {
+    const value: i32 = try native_error_fail();
+    return value + 1;
+}
+
+test "native error union language path keeps ok error and try behavior" {
+    const ok_value: i32 = native_error_ok() catch { -1; };
+    const failed_value: i32 = native_error_fail() catch { 17; };
+    const added_value: i32 = native_error_add_one() catch { -1; };
+    const propagated_value: i32 = native_error_propagate() catch { 99; };
+
+    try assert_eq_i32(ok_value, 41);
+    try assert_eq_i32(failed_value, 17);
+    try assert_eq_i32(added_value, 42);
+    try assert_eq_i32(propagated_value, 99);
+}
+
+test "native x86_64 error union slot memory ops encode exact bytes" {
+    var slot: NativeErrorUnionSlot = NativeErrorUnionSlot{
+        error_id: 0i64,
+        payload: 42i64,
+    };
+    try expect(slot.error_id == 0i64);
+    try expect(slot.payload == 42i64);
+    try assert_eq_i32(native_error_tag_offset(), 0);
+    try assert_eq_i32(native_error_payload_offset(), 8);
+    try assert_eq_i32(@size_of(NativeErrorUnionSlot) as i32, 16);
+
+    var buf: [byte: 64] = [];
+    var pos: usize = 0usize;
+
+    try assert_eq_i32(x86_64_emit_store_r64_base_disp32(&buf[0], 64usize, &pos,
+        X86_64_REG_RBP, native_error_tag_offset(), X86_64_REG_RAX), 0);
+    try expect(pos == 7usize);
+    try assert_eq_i32(native_error_bval(&buf[0], 0usize), 72);
+    try assert_eq_i32(native_error_bval(&buf[0], 1usize), 137);
+    try assert_eq_i32(native_error_bval(&buf[0], 2usize), 133);
+    try assert_eq_i32(native_error_bval(&buf[0], 3usize), 0);
+    try assert_eq_i32(native_error_bval(&buf[0], 4usize), 0);
+    try assert_eq_i32(native_error_bval(&buf[0], 5usize), 0);
+    try assert_eq_i32(native_error_bval(&buf[0], 6usize), 0);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_store_r64_base_disp32(&buf[0], 64usize, &pos,
+        X86_64_REG_RBP, native_error_payload_offset(), X86_64_REG_R10), 0);
+    try expect(pos == 7usize);
+    try assert_eq_i32(native_error_bval(&buf[0], 0usize), 76);
+    try assert_eq_i32(native_error_bval(&buf[0], 1usize), 137);
+    try assert_eq_i32(native_error_bval(&buf[0], 2usize), 149);
+    try assert_eq_i32(native_error_bval(&buf[0], 3usize), 8);
+    try assert_eq_i32(native_error_bval(&buf[0], 4usize), 0);
+    try assert_eq_i32(native_error_bval(&buf[0], 5usize), 0);
+    try assert_eq_i32(native_error_bval(&buf[0], 6usize), 0);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_load_r64_base_disp32(&buf[0], 64usize, &pos,
+        X86_64_REG_R11, X86_64_REG_RBP, native_error_tag_offset()), 0);
+    try expect(pos == 7usize);
+    try assert_eq_i32(native_error_bval(&buf[0], 0usize), 76);
+    try assert_eq_i32(native_error_bval(&buf[0], 1usize), 139);
+    try assert_eq_i32(native_error_bval(&buf[0], 2usize), 157);
+    try assert_eq_i32(native_error_bval(&buf[0], 3usize), 0);
+    try assert_eq_i32(native_error_bval(&buf[0], 4usize), 0);
+    try assert_eq_i32(native_error_bval(&buf[0], 5usize), 0);
+    try assert_eq_i32(native_error_bval(&buf[0], 6usize), 0);
+
+    pos = 0usize;
+    try assert_eq_i32(x86_64_emit_load_r64_base_disp32(&buf[0], 64usize, &pos,
+        X86_64_REG_R10, X86_64_REG_RBP, native_error_payload_offset()), 0);
+    try expect(pos == 7usize);
+    try assert_eq_i32(native_error_bval(&buf[0], 0usize), 76);
+    try assert_eq_i32(native_error_bval(&buf[0], 1usize), 139);
+    try assert_eq_i32(native_error_bval(&buf[0], 2usize), 149);
+    try assert_eq_i32(native_error_bval(&buf[0], 3usize), 8);
+    try assert_eq_i32(native_error_bval(&buf[0], 4usize), 0);
+    try assert_eq_i32(native_error_bval(&buf[0], 5usize), 0);
+    try assert_eq_i32(native_error_bval(&buf[0], 6usize), 0);
+}
